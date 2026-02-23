@@ -13,6 +13,8 @@ import (
 	"google.golang.org/grpc"
 )
 
+const nameDriven = "driven"
+
 // ServerInterceptor provides server-side interception for both unary and streaming RPCs.
 // Implementations must also satisfy [Interceptor] (return a unique name for
 // dependency ordering). Register server interceptors with [Chain] or directly
@@ -47,7 +49,7 @@ func (i *DrivenServerInterceptor) Name() string {
 	if named, ok := i.i.(Interceptor); ok {
 		return named.Name()
 	}
-	return "driven"
+	return nameDriven
 }
 
 // ServerUnaryInterceptor returns a unary server interceptor.

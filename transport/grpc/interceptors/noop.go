@@ -12,6 +12,8 @@ import (
 	"google.golang.org/grpc"
 )
 
+const nameNoop = "noop"
+
 var _ ServerInterceptor = (*NoOpInterceptor)(nil)
 
 // NoOpInterceptor provides pass-through server interception.
@@ -34,7 +36,7 @@ func (i *NoOpInterceptor) ServerStreamInterceptor() grpc.StreamServerInterceptor
 // Name returns "noop". It satisfies [Interceptor] so a [NoOpInterceptor]
 // can participate in [Chain] dependency ordering without affecting requests.
 func (i *NoOpInterceptor) Name() string {
-	return "noop"
+	return nameNoop
 }
 
 var _ ClientInterceptor = (*NoOpClientInterceptor)(nil)
@@ -49,7 +51,7 @@ type NoOpClientInterceptor struct{}
 // [NoOpClientInterceptor] can participate in [Chain] dependency ordering
 // without affecting requests.
 func (i *NoOpClientInterceptor) Name() string {
-	return "noop"
+	return nameNoop
 }
 
 // ClientUnaryInterceptor returns pass-through unary interceptor.

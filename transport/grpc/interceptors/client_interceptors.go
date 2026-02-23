@@ -54,7 +54,7 @@ func (i *DrivenClientInterceptor) Name() string {
 	if named, ok := i.i.(Interceptor); ok {
 		return named.Name()
 	}
-	return "driven"
+	return nameDriven
 }
 
 // Interceptor returns the underlying DrivenInterceptor.
