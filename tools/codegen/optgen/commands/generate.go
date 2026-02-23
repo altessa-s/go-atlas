@@ -579,7 +579,7 @@ func (c *GenerateCommand) formatFile(cmd *cobra.Command, filePath string) error 
 	}
 
 	// Execute the formatter directly without shell
-	fmtCmd := exec.Command(executable, args...)
+	fmtCmd := exec.CommandContext(cmd.Context(), executable, args...)
 	fmtCmd.Stdout = cmd.OutOrStdout()
 	fmtCmd.Stderr = cmd.ErrOrStderr()
 
@@ -599,7 +599,7 @@ func (c *GenerateCommand) run(cmd *cobra.Command, _ []string) error {
 	}
 
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, c.directory, func(fi os.FileInfo) bool {
+	pkgs, err := parser.ParseDir(fset, c.directory, func(fi os.FileInfo) bool { //nolint:staticcheck // SA1019: parser.ParseDir migration tracked separately
 		return !strings.HasSuffix(fi.Name(), "_test.go") &&
 			!strings.HasSuffix(fi.Name(), "_gen.go")
 	}, parser.ParseComments)

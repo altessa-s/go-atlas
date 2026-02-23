@@ -10,6 +10,8 @@ import (
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/plugin"
 )
 
+const boolFlagPriority = 20
+
 // BoolFlagPlugin generates WithXxx() or WithoutXxx() for bool fields.
 //
 // Default behavior (no modifiers):
@@ -32,7 +34,7 @@ type BoolFlagPlugin struct{}
 func (p *BoolFlagPlugin) Meta() plugin.Meta {
 	return plugin.Meta{
 		Kind:     plugin.KindField,
-		Priority: 20,
+		Priority: boolFlagPriority,
 	}
 }
 

@@ -100,7 +100,7 @@ func (conv *ConfigToMarkdownConverter) ConvertData(configData map[string]any, to
 	builder.WriteString("## Table of Contents\n\n")
 	for _, sectionName := range getSortedSectionNames(sections) {
 		anchor := strings.ToLower(strings.ReplaceAll(sectionName, "_", "-"))
-		builder.WriteString(fmt.Sprintf("- [%s Configuration](#%s-configuration)\n", formatSectionName(sectionName), anchor))
+		fmt.Fprintf(&builder, "- [%s Configuration](#%s-configuration)\n", formatSectionName(sectionName), anchor)
 	}
 	builder.WriteString("\n")
 
@@ -131,7 +131,7 @@ func (conv *ConfigToMarkdownConverter) ConvertData(configData map[string]any, to
 		sectionKeys := sections[sectionName]
 
 		// Add section header
-		builder.WriteString(fmt.Sprintf("## %s Configuration\n\n", formatSectionName(sectionName)))
+		fmt.Fprintf(&builder, "## %s Configuration\n\n", formatSectionName(sectionName))
 
 		// Add table header
 		if conv.claudeAPIKey != "" {
@@ -158,9 +158,9 @@ func (conv *ConfigToMarkdownConverter) ConvertData(configData map[string]any, to
 				if description == "" {
 					description = " "
 				}
-				builder.WriteString(fmt.Sprintf("| `%s` | %s | %s | %s |\n", key, vi.Type, valueCell, description))
+				fmt.Fprintf(&builder, "| `%s` | %s | %s | %s |\n", key, vi.Type, valueCell, description)
 			} else {
-				builder.WriteString(fmt.Sprintf("| `%s` | %s | %s |\n", key, vi.Type, valueCell))
+				fmt.Fprintf(&builder, "| `%s` | %s | %s |\n", key, vi.Type, valueCell)
 			}
 		}
 
@@ -234,7 +234,7 @@ func (conv *ConfigToMarkdownConverter) processValueWithType(result map[string]va
 				if i > 0 {
 					builder.WriteByte(',')
 				}
-				builder.WriteString(fmt.Sprintf("%v", v.Index(i).Interface()))
+				fmt.Fprintf(&builder, "%v", v.Index(i).Interface())
 			}
 			builder.WriteByte(']')
 			arrayValue = builder.String()

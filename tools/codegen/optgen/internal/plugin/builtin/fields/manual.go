@@ -9,6 +9,8 @@ import (
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/plugin"
 )
 
+const manualPriority = 110
+
 // ManualPlugin skips generating a With* function for a field while still allowing
 // the field to participate in defaultOptions/newOptions generation.
 //
@@ -28,7 +30,7 @@ type ManualPlugin struct{}
 func (p *ManualPlugin) Meta() plugin.Meta {
 	return plugin.Meta{
 		Kind:     plugin.KindField,
-		Priority: 110, // explicit user request should override all other plugins
+		Priority: manualPriority, // explicit user request should override all other plugins
 	}
 }
 

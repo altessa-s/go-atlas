@@ -88,9 +88,9 @@ type claudeError struct {
 func (c *ClaudeClient) GenerateDescriptions(envVars map[string]varInfo, sectionName string) (map[string]string, error) {
 	// Build prompt with all variables in the section
 	var promptBuilder strings.Builder
-	promptBuilder.WriteString(fmt.Sprintf(
+	fmt.Fprintf(&promptBuilder,
 		"Generate concise descriptions (max 10 words) for the following %s configuration environment variables.\n\n",
-		formatSectionName(sectionName)))
+		formatSectionName(sectionName))
 	promptBuilder.WriteString("For each variable, provide a brief description that explains its purpose.\n")
 	promptBuilder.WriteString("Format your response as a JSON object with variable names as keys and descriptions as values.\n\n")
 	promptBuilder.WriteString("Environment variables:\n\n")
@@ -103,7 +103,7 @@ func (c *ClaudeClient) GenerateDescriptions(envVars map[string]varInfo, sectionN
 
 	for _, key := range keys {
 		info := envVars[key]
-		promptBuilder.WriteString(fmt.Sprintf("- %s (type: %s, default: %s)\n", key, info.Type, info.Value))
+		fmt.Fprintf(&promptBuilder, "- %s (type: %s, default: %s)\n", key, info.Type, info.Value)
 	}
 
 	promptBuilder.WriteString("\nProvide ONLY the JSON object, without any additional text or markdown formatting.")

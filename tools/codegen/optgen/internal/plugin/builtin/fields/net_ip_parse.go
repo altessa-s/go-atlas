@@ -12,6 +12,8 @@ import (
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/plugin"
 )
 
+const netIPParsePriority = 40
+
 // NetIPParsePlugin generates a With* function that accepts IPs as strings and parses them into []net.IP.
 //
 // Enable by setting metadata in the tag:
@@ -29,7 +31,7 @@ type NetIPParsePlugin struct{}
 func (p *NetIPParsePlugin) Meta() plugin.Meta {
 	return plugin.Meta{
 		Kind:     plugin.KindField,
-		Priority: 40, // higher than slice set/appender
+		Priority: netIPParsePriority, // higher than slice set/appender
 	}
 }
 
@@ -40,7 +42,8 @@ func (p *NetIPParsePlugin) CanHandle(field model.OptField) bool {
 	return plugin.IsTruthyMetadata(field.Metadata, "parseip")
 }
 
-var netIPParseTemplate = builtin.MustOptionTemplate("net-ip-parse", `// With{{.OptionName}} {{if .Append}}appends to{{else}}sets{{end}} the {{.FieldName}} option.
+var netIPParseTemplate = builtin.MustOptionTemplate("net-ip-parse",
+	`// With{{.OptionName}} {{if .Append}}appends to{{else}}sets{{end}} the {{.FieldName}} option.
 func With{{.OptionName}}{{.TypeParamsDecl}}(v ...string) {{.OptionType}}{{.TypeParamsNames}} {
 	return func(o *{{.TypeName}}{{.TypeParamsNames}}){{if .OptionReturnsError}} error{{end}} {
 {{.GuardsCode}}		netIPs := make([]net.IP, 0, len(v))

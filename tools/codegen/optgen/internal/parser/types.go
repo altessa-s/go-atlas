@@ -45,12 +45,14 @@ func TypeToString(expr ast.Expr) string {
 		return "func(...)" // simplified
 	case *ast.ChanType:
 		// Handle channel types: chan, chan<-, <-chan
-		if t.Dir == ast.SEND {
+		switch t.Dir {
+		case ast.SEND:
 			return "chan<- " + TypeToString(t.Value)
-		} else if t.Dir == ast.RECV {
+		case ast.RECV:
 			return "<-chan " + TypeToString(t.Value)
+		default:
+			return "chan " + TypeToString(t.Value)
 		}
-		return "chan " + TypeToString(t.Value)
 	case *ast.StructType:
 		// Handle anonymous struct types
 		return "struct{}"

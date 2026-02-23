@@ -9,6 +9,8 @@ import (
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/plugin"
 )
 
+const minlenPriority = 20
+
 // MinLenCheck generates validation code ensuring a string/slice/map has at least N elements.
 // Tag usage: optcheck:"minlen=N" where N is a positive integer.
 type MinLenCheck struct {
@@ -24,6 +26,6 @@ func (c *MinLenCheck) Generate(ctx plugin.GenerationContext, field model.OptFiel
 
 func init() {
 	plugin.Register(&MinLenCheck{
-		CheckBase: plugin.NewCheckBase("minlen", 20, plugin.RequiresValue()),
+		CheckBase: plugin.NewCheckBase("minlen", minlenPriority, plugin.RequiresValue()),
 	})
 }

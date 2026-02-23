@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/altessa-s/go-atlas/tools/codegen/optgen/internal/plugin/builtin/check"
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/model"
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/plugin"
 )
@@ -36,10 +37,11 @@ func (b *checkBuilder) add(lines ...string) {
 	b.lines = append(b.lines, lines...)
 }
 
-func indentLines(s, indent string) string {
+func indentLines(s string) string {
 	if s == "" {
 		return ""
 	}
+	const indent = "\t\t"
 	lines := strings.Split(s, "\n")
 	for i, line := range lines {
 		if line == "" {
@@ -98,30 +100,30 @@ func BuildChecks(ctx plugin.GenerationContext, field model.OptField, kind CheckK
 	switch kind {
 	case CheckKindPointer:
 		for _, x := range invs {
-			b.add(x.handler.Generate(ctx, field, "pointer", valueVar, x.rawValue)...)
+			b.add(x.handler.Generate(ctx, field, check.KindPointer, valueVar, x.rawValue)...)
 		}
 	case CheckKindString:
 		for _, x := range invs {
-			b.add(x.handler.Generate(ctx, field, "string", valueVar, x.rawValue)...)
+			b.add(x.handler.Generate(ctx, field, check.KindString, valueVar, x.rawValue)...)
 		}
 	case CheckKindSlice, CheckKindMap:
-		kindName := "slice"
+		kindName := check.KindSlice
 		if kind == CheckKindMap {
-			kindName = "map"
+			kindName = check.KindMap
 		}
 		for _, x := range invs {
 			b.add(x.handler.Generate(ctx, field, kindName, valueVar, x.rawValue)...)
 		}
 	default:
 		for _, x := range invs {
-			b.add(x.handler.Generate(ctx, field, "other", valueVar, x.rawValue)...)
+			b.add(x.handler.Generate(ctx, field, check.KindOther, valueVar, x.rawValue)...)
 		}
 	}
 
 	if len(b.lines) == 0 {
 		return ""
 	}
-	return indentLines(strings.Join(b.lines, "\n"), "\t\t") + "\n"
+	return indentLines(strings.Join(b.lines, "\n")) + "\n"
 }
 
 // KindForFieldType returns the CheckKind for a given field based on its type.
@@ -129,7 +131,7 @@ func KindForFieldType(field model.OptField) CheckKind {
 	switch {
 	case strings.HasPrefix(field.Type, "*"):
 		return CheckKindPointer
-	case field.Type == "string":
+	case field.Type == check.KindString:
 		return CheckKindString
 	case field.IsSlice:
 		return CheckKindSlice

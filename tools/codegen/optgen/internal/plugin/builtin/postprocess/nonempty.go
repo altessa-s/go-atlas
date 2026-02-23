@@ -7,6 +7,7 @@ package postprocess
 import (
 	"strings"
 
+	"github.com/altessa-s/go-atlas/tools/codegen/optgen/internal/plugin/builtin/check"
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/model"
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/plugin"
 )
@@ -30,7 +31,7 @@ func (m *NonEmptyModifier) Phase() plugin.Phase { return plugin.PhasePostProcess
 
 // CanHandle returns true for string and []string fields.
 func (m *NonEmptyModifier) CanHandle(field model.OptField) bool {
-	return field.Type == "string" || (field.IsSlice && field.ElemType == "string")
+	return field.Type == check.KindString || (field.IsSlice && field.ElemType == check.KindString)
 }
 
 // Generate produces non-empty validation/filtering code.
@@ -40,7 +41,7 @@ func (m *NonEmptyModifier) Generate(ctx plugin.GenerationContext, field model.Op
 	}
 
 	// Scalar string: skip assignment if empty (early return).
-	if field.Type == "string" {
+	if field.Type == check.KindString {
 		return plugin.ModifierResult{
 			Code:      plugin.BuildEarlyReturn(ctx, inputVar+` == ""`),
 			OutputVar: inputVar,
@@ -49,7 +50,7 @@ func (m *NonEmptyModifier) Generate(ctx plugin.GenerationContext, field model.Op
 	}
 
 	// []string: drop empty entries (in-place).
-	if field.IsSlice && field.ElemType == "string" {
+	if field.IsSlice && field.ElemType == check.KindString {
 		tmp := "nonEmpty"
 		if strings.EqualFold(inputVar, tmp) {
 			tmp = "nonEmpty2"

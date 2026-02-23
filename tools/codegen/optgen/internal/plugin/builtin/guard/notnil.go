@@ -11,6 +11,8 @@ import (
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/plugin"
 )
 
+const notNilGuardPriority = 100
+
 // NotNilModifier implements optgen:"notnil" semantics as a pipeline guard.
 //
 // If the option input is nil, the option becomes a no-op and keeps defaults.
@@ -26,7 +28,7 @@ type NotNilModifier struct{}
 func (m *NotNilModifier) Meta() plugin.Meta {
 	return plugin.Meta{
 		Kind:            plugin.KindTransform, // for DefaultForTypes support
-		Priority:        100,                  // run first in guards
+		Priority:        notNilGuardPriority,  // run first in guards
 		DefaultForTypes: []string{"*", "interface", "[]"},
 		DisabledBy:      "allownull",
 	}

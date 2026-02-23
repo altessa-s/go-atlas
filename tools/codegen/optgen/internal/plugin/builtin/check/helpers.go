@@ -12,7 +12,16 @@ import (
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/plugin"
 )
 
-func buildFail(ctx plugin.GenerationContext, field model.OptField, msg string) string {
+// Kind name constants used by check plugins to classify field types.
+const (
+	KindString  = "string"
+	KindSlice   = "slice"
+	KindMap     = "map"
+	KindPointer = "pointer"
+	KindOther   = "other"
+)
+
+func buildFail(ctx plugin.GenerationContext, msg string) string {
 	// Always use fmt.Errorf so we can include context; in non-error mode we panic.
 	ctx.AddImport("fmt")
 	errExpr := fmt.Sprintf(`fmt.Errorf(%q)`, msg)
@@ -34,7 +43,7 @@ func buildLenBoundCheck(
 	stringMsgFmt string,
 	collectionMsgFmt string,
 ) []string {
-	if kind != "string" && kind != "slice" && kind != "map" {
+	if kind != KindString && kind != KindSlice && kind != KindMap {
 		return nil
 	}
 	if !nonEmpty(rawValue) {
@@ -43,13 +52,13 @@ func buildLenBoundCheck(
 
 	limit := strings.TrimSpace(rawValue)
 	msg := fmt.Sprintf(stringMsgFmt, field.FieldName, limit)
-	if kind == "slice" || kind == "map" {
+	if kind == KindSlice || kind == KindMap {
 		msg = fmt.Sprintf(collectionMsgFmt, field.FieldName, limit)
 	}
 
 	return []string{
 		"if len(" + valueVar + ") " + op + " (" + rawValue + ") {",
-		"  " + buildFail(ctx, field, msg),
+		"  " + buildFail(ctx, msg),
 		"}",
 	}
 }

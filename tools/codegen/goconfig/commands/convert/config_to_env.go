@@ -128,7 +128,7 @@ func (conv *ConfigToEnvConverter) ConvertDataWithComments(configData map[string]
 
 		// Add section header
 		builder.WriteString(sectionSeparator)
-		builder.WriteString(fmt.Sprintf("# %s Configuration\n", formatSectionName(sectionName)))
+		fmt.Fprintf(&builder, "# %s Configuration\n", formatSectionName(sectionName))
 		builder.WriteString(sectionSeparator)
 
 		// Add variables in this section
@@ -136,9 +136,9 @@ func (conv *ConfigToEnvConverter) ConvertDataWithComments(configData map[string]
 			value := envVars[key]
 			// If parseComments is enabled and key is marked as commented, add # prefix
 			if conv.parseComments && commentedKeys != nil && commentedKeys[key] {
-				builder.WriteString(fmt.Sprintf("# %s=%s\n", key, value))
+				fmt.Fprintf(&builder, "# %s=%s\n", key, value)
 			} else {
-				builder.WriteString(fmt.Sprintf("%s=%s\n", key, value))
+				fmt.Fprintf(&builder, "%s=%s\n", key, value)
 			}
 		}
 	}
@@ -315,8 +315,8 @@ func (conv *ConfigToEnvConverter) isYAMLKeyValue(content string) bool {
 // isValidYAMLKey checks if a string is a valid YAML key (alphanumeric, _, -).
 func (conv *ConfigToEnvConverter) isValidYAMLKey(key string) bool {
 	for _, r := range key {
-		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
-			(r >= '0' && r <= '9') || r == '_' || r == '-') {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') &&
+			(r < '0' || r > '9') && r != '_' && r != '-' {
 			return false
 		}
 	}
@@ -530,7 +530,7 @@ func (conv *ConfigToEnvConverter) formatArrayValue(v reflect.Value) string {
 		if i > 0 {
 			builder.WriteByte(',')
 		}
-		builder.WriteString(fmt.Sprintf("%v", v.Index(i).Interface()))
+		fmt.Fprintf(&builder, "%v", v.Index(i).Interface())
 	}
 
 	builder.WriteByte(']')

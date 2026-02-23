@@ -9,6 +9,8 @@ import (
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/plugin"
 )
 
+const positivePriority = 5
+
 // PositiveModifier enforces positive value semantics.
 //
 // Tag usage: optval:"positive" or optval:"positive=allow_zero"
@@ -27,7 +29,7 @@ type PositiveModifier struct{}
 func (m *PositiveModifier) Meta() plugin.Meta {
 	return plugin.Meta{
 		Kind:            plugin.KindTransform, // for DefaultForTypes support
-		Priority:        5,
+		Priority:        positivePriority,
 		DefaultForTypes: []string{"time.Duration"},
 		DisabledBy:      "nonpositive",
 	}

@@ -11,6 +11,8 @@ import (
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/plugin"
 )
 
+const requiredPriority = 10
+
 // RequiredCheck generates validation code ensuring a field value is non-empty/non-nil.
 // Supports: pointers (nil check), strings (empty check), slices/maps (nil or empty check).
 // Tag usage: optcheck:"required" or optcheck:"nonempty" (alias)
@@ -19,24 +21,24 @@ type RequiredCheck struct {
 }
 
 func (c *RequiredCheck) Generate(ctx plugin.GenerationContext, field model.OptField, kind, valueVar, _ string) []string {
-	if kind == "pointer" {
+	if kind == KindPointer {
 		return []string{
 			"if " + valueVar + " == nil {",
-			"  " + buildFail(ctx, field, fmt.Sprintf("%s is required", field.FieldName)),
+			"  " + buildFail(ctx, fmt.Sprintf("%s is required", field.FieldName)),
 			"}",
 		}
 	}
-	if kind == "string" {
+	if kind == KindString {
 		return []string{
 			`if ` + valueVar + ` == "" {`,
-			"  " + buildFail(ctx, field, fmt.Sprintf("%s is required", field.FieldName)),
+			"  " + buildFail(ctx, fmt.Sprintf("%s is required", field.FieldName)),
 			"}",
 		}
 	}
-	if kind == "slice" || kind == "map" {
+	if kind == KindSlice || kind == KindMap {
 		return []string{
 			"if " + valueVar + " == nil || len(" + valueVar + ") == 0 {",
-			"  " + buildFail(ctx, field, fmt.Sprintf("%s is required", field.FieldName)),
+			"  " + buildFail(ctx, fmt.Sprintf("%s is required", field.FieldName)),
 			"}",
 		}
 	}
@@ -45,6 +47,6 @@ func (c *RequiredCheck) Generate(ctx plugin.GenerationContext, field model.OptFi
 
 func init() {
 	plugin.Register(&RequiredCheck{
-		CheckBase: plugin.NewCheckBase("required", 10, plugin.WithAliases("nonempty")),
+		CheckBase: plugin.NewCheckBase("required", requiredPriority, plugin.WithAliases("nonempty")),
 	})
 }

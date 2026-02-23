@@ -8,9 +8,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/altessa-s/go-atlas/tools/codegen/optgen/internal/plugin/builtin/check"
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/model"
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/plugin"
 )
+
+const dedupPriority = 5
 
 // DedupModifier applies deduplication to slice values.
 // It is applied by default to slices of comparable types (primitives, pointers).
@@ -27,7 +30,7 @@ type DedupModifier struct{}
 func (m *DedupModifier) Meta() plugin.Meta {
 	return plugin.Meta{
 		Kind:            plugin.KindTransform, // Used for DefaultForTypes lookup
-		Priority:        5,
+		Priority:        dedupPriority,
 		DefaultForTypes: []string{"[]"}, // Apply to all slice types (filtered by CanHandle)
 		DisabledBy:      "nodup",
 	}
@@ -60,7 +63,7 @@ func isComparableType(typeStr string) bool {
 
 	// Check for known comparable primitive types
 	switch typeStr {
-	case "string", "bool", "byte", "rune", "error",
+	case check.KindString, "bool", "byte", "rune", "error",
 		"int", "int8", "int16", "int32", "int64",
 		"uint", "uint8", "uint16", "uint32", "uint64", "uintptr",
 		"float32", "float64",

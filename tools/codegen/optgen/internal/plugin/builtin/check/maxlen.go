@@ -9,6 +9,8 @@ import (
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/plugin"
 )
 
+const maxlenPriority = 30
+
 // MaxLenCheck generates validation code ensuring a string/slice/map has at most N elements.
 // Tag usage: optcheck:"maxlen=N" where N is a positive integer.
 type MaxLenCheck struct {
@@ -24,6 +26,6 @@ func (c *MaxLenCheck) Generate(ctx plugin.GenerationContext, field model.OptFiel
 
 func init() {
 	plugin.Register(&MaxLenCheck{
-		CheckBase: plugin.NewCheckBase("maxlen", 30, plugin.RequiresValue()),
+		CheckBase: plugin.NewCheckBase("maxlen", maxlenPriority, plugin.RequiresValue()),
 	})
 }

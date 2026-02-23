@@ -11,6 +11,8 @@ import (
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/plugin"
 )
 
+const nonzeroPriority = 90
+
 // NonZeroCheck generates validation code ensuring a numeric value is non-zero.
 // Supports: int, int8-64, uint, uint8-64, uintptr, float32, float64, time.Duration.
 // Tag usage: optcheck:"nonzero"
@@ -19,7 +21,7 @@ type NonZeroCheck struct {
 }
 
 func (c *NonZeroCheck) Generate(ctx plugin.GenerationContext, field model.OptField, kind, valueVar, _ string) []string {
-	if kind != "other" {
+	if kind != KindOther {
 		return nil
 	}
 	switch field.Type {
@@ -29,7 +31,7 @@ func (c *NonZeroCheck) Generate(ctx plugin.GenerationContext, field model.OptFie
 		"time.Duration":
 		return []string{
 			"if " + valueVar + " == 0 {",
-			"  " + buildFail(ctx, field, fmt.Sprintf("%s must be non-zero", field.FieldName)),
+			"  " + buildFail(ctx, fmt.Sprintf("%s must be non-zero", field.FieldName)),
 			"}",
 		}
 	default:
@@ -39,6 +41,6 @@ func (c *NonZeroCheck) Generate(ctx plugin.GenerationContext, field model.OptFie
 
 func init() {
 	plugin.Register(&NonZeroCheck{
-		CheckBase: plugin.NewCheckBase("nonzero", 90),
+		CheckBase: plugin.NewCheckBase("nonzero", nonzeroPriority),
 	})
 }

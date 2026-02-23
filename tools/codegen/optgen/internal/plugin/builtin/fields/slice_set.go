@@ -10,6 +10,8 @@ import (
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/plugin"
 )
 
+const sliceSetPriority = 35
+
 // SliceSetPlugin generates "setter" semantics for slice fields (replace, not append).
 //
 // Default behavior for slices is "set" (no extra tag parameters required).
@@ -21,7 +23,7 @@ type SliceSetPlugin struct{}
 func (p *SliceSetPlugin) Meta() plugin.Meta {
 	return plugin.Meta{
 		Kind:     plugin.KindField,
-		Priority: 35, // higher than default appender
+		Priority: sliceSetPriority, // higher than default appender
 	}
 }
 

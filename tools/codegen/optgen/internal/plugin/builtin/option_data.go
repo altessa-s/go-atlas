@@ -11,6 +11,8 @@ import (
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/plugin"
 )
 
+const initialTransformBufSize = 100
+
 // OptionBaseData carries the minimal context needed by every option function
 // template: the field being generated, the target struct and option type names,
 // and generic type parameter declarations.
@@ -65,7 +67,7 @@ func buildPhaseCode(ctx plugin.GenerationContext, field model.OptField, modifier
 	if len(lines) == 0 {
 		return ""
 	}
-	return indentLines(strings.Join(lines, "\n"), "\t\t") + "\n"
+	return indentLines(strings.Join(lines, "\n")) + "\n"
 }
 
 // BuildGuards generates guard code using ModifierPlugins with PhaseGuard.
@@ -102,7 +104,7 @@ func BuildTransform(ctx plugin.GenerationContext, field model.OptField, inputVar
 		// Generate transform loop for []string
 		transform := BuildStringTransformChain(ctx, field, "val", field.Modifiers)
 		var b strings.Builder
-		b.Grow(100) // estimate
+		b.Grow(initialTransformBufSize)
 		b.WriteString("transformed := make([]string, len(")
 		b.WriteString(inputVar)
 		b.WriteString("))\nfor i, val := range ")
@@ -111,7 +113,7 @@ func BuildTransform(ctx plugin.GenerationContext, field model.OptField, inputVar
 		b.WriteString(transform)
 		b.WriteString("\n}")
 		return transformResult{
-			Code:     indentLines(b.String(), "\t\t") + "\n",
+			Code:     indentLines(b.String()) + "\n",
 			ValueVar: "transformed",
 		}
 	}
@@ -120,7 +122,7 @@ func BuildTransform(ctx plugin.GenerationContext, field model.OptField, inputVar
 		transform := BuildStringTransformChain(ctx, field, inputVar, field.Modifiers)
 		if needsTempVar {
 			return transformResult{
-				Code:     indentLines("vv := "+transform, "\t\t") + "\n",
+				Code:     indentLines("vv := "+transform) + "\n",
 				ValueVar: "vv",
 			}
 		}

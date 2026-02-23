@@ -13,6 +13,8 @@ import (
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/plugin"
 )
 
+const oneofPriority = 40
+
 // OneOfCheck generates validation code ensuring a string value is one of allowed values.
 // Tag usage: optcheck:"oneof=[val1,val2,val3]" where values are string literals.
 type OneOfCheck struct {
@@ -20,7 +22,7 @@ type OneOfCheck struct {
 }
 
 func (c *OneOfCheck) Generate(ctx plugin.GenerationContext, field model.OptField, kind, valueVar, rawValue string) []string {
-	if kind != "string" || !nonEmpty(rawValue) {
+	if kind != KindString || !nonEmpty(rawValue) {
 		return nil
 	}
 	vals := parser.ParseExprList(rawValue)
@@ -31,13 +33,13 @@ func (c *OneOfCheck) Generate(ctx plugin.GenerationContext, field model.OptField
 		"switch " + valueVar + " {",
 		"case " + strings.Join(vals, ", ") + ":",
 		"default:",
-		"  " + buildFail(ctx, field, fmt.Sprintf("%s has invalid value (allowed: %s)", field.FieldName, strings.Join(vals, ", "))),
+		"  " + buildFail(ctx, fmt.Sprintf("%s has invalid value (allowed: %s)", field.FieldName, strings.Join(vals, ", "))),
 		"}",
 	}
 }
 
 func init() {
 	plugin.Register(&OneOfCheck{
-		CheckBase: plugin.NewCheckBase("oneof", 40, plugin.RequiresValue()),
+		CheckBase: plugin.NewCheckBase("oneof", oneofPriority, plugin.RequiresValue()),
 	})
 }
