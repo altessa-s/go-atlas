@@ -174,8 +174,8 @@ func (conv *Converter[T, U]) Convert(src T, dst U) {
 	dstValue := reflect.ValueOf(dst)
 
 	// dst must be a pointer to a struct or slice of structs
-	if (srcKind == reflect.Struct && !(dstValue.Kind() == reflect.Pointer &&
-		reflect.Indirect(dstValue).Kind() == reflect.Struct)) ||
+	if (srcKind == reflect.Struct && (dstValue.Kind() != reflect.Pointer ||
+		reflect.Indirect(dstValue).Kind() != reflect.Struct)) ||
 		reflect.Indirect(dstValue).Kind() != srcKind {
 		panic("dst must be the same kind as src")
 	}
@@ -193,8 +193,8 @@ func (conv *Converter[T, U]) Convert(src T, dst U) {
 
 	dstType := IndirectType(dstValue.Type())
 
-	if !(dstValue.Kind() == reflect.Pointer && dstType.Kind() == reflect.Slice &&
-		IndirectType(dstType.Elem()).Kind() == reflect.Struct) {
+	if dstValue.Kind() != reflect.Pointer || dstType.Kind() != reflect.Slice ||
+		IndirectType(dstType.Elem()).Kind() != reflect.Struct {
 		panic("dst slice must be a pointer to slice of structs")
 	}
 
@@ -229,11 +229,11 @@ func (conv *Converter[T, U]) ConvertMapSeq(src any, dstKeyType reflect.Type, dst
 		for _, key := range srcValue.MapKeys() {
 			srcMapValue := srcValue.MapIndex(key)
 
-			var dk reflect.Type = dstKeyType
+			dk := dstKeyType
 			if dk == nil {
 				dk = key.Type()
 			}
-			var dv reflect.Type = dstValueType
+			dv := dstValueType
 			if dv == nil {
 				dv = srcMapValue.Type()
 			}
@@ -401,7 +401,7 @@ func (conv *Converter[T, U]) convertStruct(src reflect.Value, dst reflect.Value)
 			continue
 		}
 
-		if !(dstFieldExists && dstFieldValue.IsValid() && dstFieldValue.CanSet()) {
+		if !dstFieldExists || !dstFieldValue.IsValid() || !dstFieldValue.CanSet() {
 			continue
 		}
 

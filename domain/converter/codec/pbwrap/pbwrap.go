@@ -83,8 +83,8 @@ func (r *Registry) TryConvert(src, dst reflect.Value, opts *options) bool {
 	srcValue := reflect.Indirect(src)
 
 	// Check if this is a protobuf wrapper conversion scenario
-	if !((reflectutils.IsPrimitive(srcType.Kind()) && isWrapper(dstType)) ||
-		(reflectutils.IsPrimitive(dstType.Kind()) && isWrapper(srcType))) {
+	if (!reflectutils.IsPrimitive(srcType.Kind()) || !isWrapper(dstType)) &&
+		(!reflectutils.IsPrimitive(dstType.Kind()) || !isWrapper(srcType)) {
 		return false
 	}
 

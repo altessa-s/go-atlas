@@ -39,7 +39,7 @@ func New(opt ...Option) *Provider {
 
 // Save stores the value under key with the given TTL.
 func (p *Provider) Save(_ context.Context, key string, value []byte, ttl time.Duration) error {
-	return p.Cache.Set([]byte(key), value, int(ttl.Seconds()))
+	return p.Set([]byte(key), value, int(ttl.Seconds()))
 }
 
 // Exists reports whether key is present in the cache.
@@ -68,7 +68,7 @@ func (p *Provider) Get(_ context.Context, key string) ([]byte, error) {
 
 // Delete removes key from the cache.
 func (p *Provider) Delete(_ context.Context, key string) error {
-	p.Cache.Del([]byte(key))
+	p.Del([]byte(key))
 	return nil
 }
 
@@ -77,7 +77,7 @@ func (p *Provider) DeleteMany(ctx context.Context, key ...string) error {
 	// Use parallel processing for better performance with multiple keys.
 	// freecache is thread-safe and highly concurrent.
 	return concurrency.Process(ctx, key, func(_ context.Context, k string) error {
-		p.Cache.Del([]byte(k))
+		p.Del([]byte(k))
 		return nil
 	}, concurrency.BatchConfig[string]{})
 }

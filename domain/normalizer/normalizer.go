@@ -91,9 +91,10 @@ func normalizeArray(v reflect.Value, parentPath string) error {
 	// Determine if elements are structs that need processing
 	needsRecursion := false
 	isPtrToStruct := false
-	if elemKind == reflect.Struct {
+	switch elemKind { //nolint:exhaustive // only Struct and Pointer need recursion
+	case reflect.Struct:
 		needsRecursion = true
-	} else if elemKind == reflect.Pointer {
+	case reflect.Pointer:
 		ptrElemKind := elemType.Elem().Kind()
 		if ptrElemKind == reflect.Struct {
 			needsRecursion = true

@@ -104,7 +104,7 @@ func (s *Storage) Query(ctx context.Context, query *audit.Query) iter.Seq2[*audi
 			yield(nil, coreerrs.WrapOperation(err, "query audit events"))
 			return
 		}
-		defer cursor.Close(ctx)
+		defer func() { _ = cursor.Close(ctx) }()
 
 		for cursor.Next(ctx) {
 			var m eventModel

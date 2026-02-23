@@ -216,7 +216,7 @@ func (s *Store) FetchUnprocessedEvents(ctx context.Context, batchSize uint32, la
 		if txErr != nil {
 			return nil, fmt.Errorf("MongoDB Find failed in FetchUnprocessedEvents: %w", txErr)
 		}
-		defer cursor.Close(sessCtx)
+		defer func() { _ = cursor.Close(sessCtx) }()
 
 		if txErr = cursor.All(sessCtx, &mongoEvents); txErr != nil {
 			return nil, fmt.Errorf("MongoDB cursor.All failed in FetchUnprocessedEvents: %w", txErr)

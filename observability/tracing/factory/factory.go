@@ -49,13 +49,14 @@ func (f *Factory) CreateFromConfig(ctx context.Context, cfg *config.Tracing, opt
 		return nil, f.WrapError(err, "create sampler")
 	}
 
-	allOpts := []tracing.Option{
+	allOpts := make([]tracing.Option, 0, 5+len(opts))
+	allOpts = append(allOpts,
 		tracing.WithServiceName(cfg.ServiceName),
 		tracing.WithServiceVersion(cfg.ServiceVersion),
 		tracing.WithEnvironment(cfg.Environment),
 		tracing.WithAdapter(adapter),
 		tracing.WithSampler(s),
-	}
+	)
 	allOpts = append(allOpts, opts...)
 
 	return tracing.New(allOpts...), nil

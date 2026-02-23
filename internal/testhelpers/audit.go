@@ -20,11 +20,12 @@ import (
 func NewTestAuditor(tb testing.TB, opts ...audit.Option) (*audit.Auditor, *memory.Storage) {
 	tb.Helper()
 	store := memory.New()
-	defaults := []audit.Option{
-		audit.WithFlushInterval(50 * time.Millisecond), //nolint:mnd // test constant
+	defaults := make([]audit.Option, 0, 3+len(opts)) //nolint:mnd // test constant
+	defaults = append(defaults,
+		audit.WithFlushInterval(50*time.Millisecond), //nolint:mnd // test constant
 		audit.WithWorkers(1),
 		audit.WithBatchSize(1),
-	}
+	)
 	defaults = append(defaults, opts...)
 	a, err := audit.New(store, defaults...)
 	if err != nil {

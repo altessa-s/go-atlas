@@ -41,10 +41,11 @@ func (f *Factory) CreateFromConfig(cfg *config.Metrics, opts ...metrics.Option) 
 		return nil, f.WrapError(err, "create adapter")
 	}
 
-	allOpts := []metrics.Option{
+	allOpts := make([]metrics.Option, 0, 2+len(opts))
+	allOpts = append(allOpts,
 		metrics.WithServiceName(cfg.ServiceName),
 		metrics.WithAdapter(adapter),
-	}
+	)
 	allOpts = append(allOpts, opts...)
 
 	return metrics.New(allOpts...), nil

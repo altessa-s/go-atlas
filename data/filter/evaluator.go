@@ -380,7 +380,7 @@ func compareNil(op Operator, left, right any) (bool, error) {
 	case OpEqual:
 		return left == nil && right == nil, nil
 	case OpNotEqual:
-		return !(left == nil && right == nil), nil
+		return left != nil || right != nil, nil
 	default:
 		return false, fmt.Errorf("%w: cannot use %v with nil", ErrUnsupportedOperation, op)
 	}

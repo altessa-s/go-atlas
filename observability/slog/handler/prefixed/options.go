@@ -47,7 +47,7 @@ func formatPrefixes(prefixes []slog.Value, delimiter string) string {
 	}
 
 	p := stdSlices.Collect(slices.Map(stdSlices.Collect(slices.Filter(prefixes, func(v slog.Value) bool {
-		return !(v.Any() == nil || v.String() == "")
+		return v.Any() != nil && v.String() != ""
 	})), func(v slog.Value) string { return v.String() }))
 
 	if len(p) == 0 {

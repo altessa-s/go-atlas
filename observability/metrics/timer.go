@@ -29,7 +29,7 @@ func (t *timer) Start() func() {
 }
 
 func (t *timer) ObserveDuration(d time.Duration) {
-	t.histogram.Observe(d.Seconds())
+	t.Observe(d.Seconds())
 }
 
 func (t *timer) WithLabels(labels Labels) Timer {

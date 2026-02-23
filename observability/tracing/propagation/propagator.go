@@ -110,7 +110,7 @@ func (c *CompositePropagator) Extract(ctx context.Context, carrier TextMapCarrie
 
 // Fields implements TextMapPropagator.
 func (c *CompositePropagator) Fields() []string {
-	var fields []string
+	fields := make([]string, 0, len(c.propagators))
 	for _, p := range c.propagators {
 		fields = append(fields, p.Fields()...)
 	}

@@ -497,7 +497,7 @@ func (m *Mongo) isBytesSlice(fieldValue reflect.Value) bool {
 // isSliceField checks if a field is a non-empty slice that should be processed.
 func (m *Mongo) isSliceField(fieldValue reflect.Value, fieldType reflect.StructField, update bool) bool {
 	return fieldValue.Kind() == reflect.Slice && fieldValue.Len() > 0 &&
-		!(update && m.isOmitOnUpdate(fieldType))
+		(!update || !m.isOmitOnUpdate(fieldType))
 }
 
 // isStructPointerField checks if a field is a pointer to a struct.
@@ -509,7 +509,7 @@ func (m *Mongo) isStructPointerField(fieldValue reflect.Value, fieldType reflect
 // isMapField checks if a field is a non-empty map that should be processed.
 func (m *Mongo) isMapField(fieldValue reflect.Value, fieldType reflect.StructField, update bool) bool {
 	return fieldValue.Kind() == reflect.Map && fieldValue.Len() > 0 &&
-		!(update && m.isOmitOnUpdate(fieldType))
+		(!update || !m.isOmitOnUpdate(fieldType))
 }
 
 // processSliceField handles the conversion of slice fields.

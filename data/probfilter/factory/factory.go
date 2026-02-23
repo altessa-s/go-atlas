@@ -229,14 +229,14 @@ func (f *Factory) CreateManagerFromConfig(cfg *config.ProbabilisticFilter) (*pro
 		filter, err := f.CreateFilterFromConfig(name, filterCfg, cfg.Defaults)
 		if err != nil {
 			// Close any already created filters
-			mgr.Close()
+			_ = mgr.Close()
 			return nil, f.WrapError(err, "failed to create filter "+name)
 		}
 		if err := mgr.Register(name, filter); err != nil {
 			if closer, ok := filter.(io.Closer); ok {
-				closer.Close()
+				_ = closer.Close()
 			}
-			mgr.Close()
+			_ = mgr.Close()
 			return nil, f.WrapError(err, "failed to register filter "+name)
 		}
 	}
