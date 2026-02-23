@@ -37,7 +37,7 @@ const (
 // Use defaults package for optgen code generation
 var _ = defaults.IgnorePatterns
 
-// Exported types and constants from compression package for easier access.
+// CompressionPreset is an alias for [compression.Preset] for easier access.
 type CompressionPreset = compression.Preset
 
 const (

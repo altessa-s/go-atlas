@@ -340,7 +340,7 @@ func (c *GzipCompressor) doDecompressStreaming(data []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	// Pre-allocate result buffer to avoid growing slice
 	// Use a reasonable size based on typical compression ratios
@@ -500,7 +500,7 @@ func (c *GzipCompressor) streamDecompressFromData(ctx context.Context, data []by
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "create gzip reader")
 	}
-	defer reader.Close()
+	defer func() { _ = reader.Close() }()
 
 	return c.streamDecompress(ctx, reader, expectedSize)
 }

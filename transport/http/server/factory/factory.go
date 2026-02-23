@@ -70,12 +70,13 @@ func (f *Factory) CreateServerFromConfig(
 		return nil, fmt.Errorf("configuration is required")
 	}
 
-	opts := []server.Option{
+	opts := make([]server.Option, 0, 5)
+	opts = append(opts,
 		server.WithRouter(router),
 		server.WithReadTimeout(cfg.ReadTimeout),
 		server.WithWriteTimeout(cfg.WriteTimeout),
 		server.WithIdleTimeout(cfg.IdleTimeout),
-	}
+	)
 
 	baseOpts := []baseserver.Option{
 		baseserver.WithAddress(cfg.ListenAddress),

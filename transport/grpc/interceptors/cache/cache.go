@@ -175,7 +175,7 @@ func (i *interceptor) getCachedResponse(ctx context.Context, key string, config 
 			i.Logger().Error("failed to get cached entry",
 				slog.String("key", key), slogx.Error(err))
 		}
-		return nil, nil, false
+		return nil, nil, false //nolint:nilnil // third bool return discriminates cache miss
 	}
 
 	// Return cached error
@@ -190,7 +190,7 @@ func (i *interceptor) getCachedResponse(ctx context.Context, key string, config 
 		// version mismatches, or serialization issues
 		i.Logger().Error("failed to deserialize cached response",
 			slog.String("key", key), slogx.Error(err))
-		return nil, nil, false
+		return nil, nil, false //nolint:nilnil // third bool return discriminates cache miss
 	}
 
 	return resp, nil, true

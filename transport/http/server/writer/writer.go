@@ -144,7 +144,7 @@ func (wr *Writer) Read(r *http.Request, out any) error {
 func (wr *Writer) readBody(r *http.Request) ([]byte, error) {
 	if wr.options.maxBodySize > 0 {
 		limitedReader := coreio.NewLimitedReadCloser(r.Body, wr.options.maxBodySize)
-		defer limitedReader.Close()
+		defer func() { _ = limitedReader.Close() }()
 
 		body, err := io.ReadAll(limitedReader)
 		if err != nil {

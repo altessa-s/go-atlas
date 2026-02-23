@@ -170,4 +170,3 @@ type zeroStatusError struct{}
 
 func (e *zeroStatusError) Error() string   { return "error" }
 func (e *zeroStatusError) HTTPStatus() int { return 0 }
-

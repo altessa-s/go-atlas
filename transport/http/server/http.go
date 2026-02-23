@@ -157,7 +157,7 @@ func (s *Server) IsStarted() bool {
 
 // IsStopped returns true if the server is stopped.
 func (s *Server) IsStopped() bool {
-	return s.BaseServer.IsShutdown()
+	return s.IsShutdown()
 }
 
 // errorInterceptorMiddleware returns middleware that wraps ResponseWriter

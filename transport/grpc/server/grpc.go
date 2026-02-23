@@ -128,7 +128,7 @@ func (s *Server) IsStarted() bool {
 
 // IsStopped returns true if the server has been stopped.
 func (s *Server) IsStopped() bool {
-	return s.BaseServer.IsShutdown()
+	return s.IsShutdown()
 }
 
 // Start starts the gRPC server and begins accepting connections.

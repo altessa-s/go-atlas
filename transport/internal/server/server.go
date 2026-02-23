@@ -99,7 +99,7 @@ func (s *BaseServer) Listen() (net.Listener, error) {
 		return nil, errors.New("server address not configured")
 	}
 
-	ln, err := net.Listen("tcp", s.Address())
+	ln, err := net.Listen("tcp", s.Address()) //nolint:noctx
 	if err != nil {
 		return nil, coreerrs.WrapOperationWithContext(err, "listen", s.Address())
 	}

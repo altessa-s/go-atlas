@@ -19,6 +19,8 @@ import (
 	grpcmetadata "google.golang.org/grpc/metadata"
 )
 
+const interceptorName = "auth"
+
 var _ interceptors.ServerInterceptor = (*interceptor)(nil)
 
 type interceptor struct {
@@ -43,7 +45,7 @@ func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
 
 	return &interceptor{
 		BaseInterceptor: interceptors.NewBaseInterceptorWithFilter(
-			"auth",
+			interceptorName,
 			opts.ignoreMethods,
 			opts.ignorePatterns,
 			opts.logger,

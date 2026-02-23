@@ -108,7 +108,7 @@ func WithScheme(scheme string) ClientOption {
 
 // Name returns the interceptor name.
 func (c *clientInterceptor) Name() string {
-	return "auth"
+	return interceptorName
 }
 
 // ClientUnaryInterceptor returns a unary client interceptor.

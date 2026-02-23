@@ -77,7 +77,7 @@ func New(store Store, publisher Publisher, opts ...Option) *Outbox {
 // Publish saves a single message to the outbox store for later publishing.
 // Should be called within the same transaction as the business logic for atomicity.
 func (o *Outbox) Publish(ctx context.Context, m msg.Message) error {
-	return o.Outbox.Save(ctx, msgToEvent(m))
+	return o.Save(ctx, msgToEvent(m))
 }
 
 // PublishBatch saves multiple messages to the outbox store in a single operation.
@@ -87,7 +87,7 @@ func (o *Outbox) PublishBatch(ctx context.Context, msgs ...msg.Message) error {
 		return nil
 	}
 	events := slices.Collect(coreslices.Map(msgs, msgToEvent))
-	return o.Outbox.Save(ctx, events...)
+	return o.Save(ctx, events...)
 }
 
 // msgToEvent converts a msg.Message to an outbox.Event.

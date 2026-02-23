@@ -143,7 +143,7 @@ func (e *ErrorInterceptor) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return nil, nil, errors.New("underlying ResponseWriter does not support hijacking")
 }
 
-// Flusher support for streaming responses.
+// FlushHTTP provides flusher support for streaming responses.
 func (e *ErrorInterceptor) FlushHTTP() {
 	if flusher, ok := e.ResponseWriter.(http.Flusher); ok {
 		flusher.Flush()

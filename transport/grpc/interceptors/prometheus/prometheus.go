@@ -51,13 +51,13 @@ func (w *serverInterceptorWrapper) ServerUnaryInterceptor() stdGrpc.UnaryServerI
 			return handler(ctx, req)
 		}
 
-		w.interceptor.requestsInFlight.Inc()
-		w.interceptor.requestsInFlightByMethod.WithLabelValues(meta.FullyMethodName).Inc()
+		w.requestsInFlight.Inc()
+		w.requestsInFlightByMethod.WithLabelValues(meta.FullyMethodName).Inc()
 
 		defer func() {
-			w.interceptor.requestsInFlight.Dec()
-			w.interceptor.requestsInFlightByMethod.WithLabelValues(meta.FullyMethodName).Dec()
-			w.interceptor.recordMetrics(meta.FullyMethodName, meta.StartTime, req, resp, err)
+			w.requestsInFlight.Dec()
+			w.requestsInFlightByMethod.WithLabelValues(meta.FullyMethodName).Dec()
+			w.recordMetrics(meta.FullyMethodName, meta.StartTime, req, resp, err)
 		}()
 
 		return handler(ctx, req)
@@ -75,12 +75,12 @@ func (w *serverInterceptorWrapper) ServerStreamInterceptor() stdGrpc.StreamServe
 			return handler(srv, stream)
 		}
 
-		w.interceptor.requestsInFlight.Inc()
-		w.interceptor.requestsInFlightByMethod.WithLabelValues(meta.FullyMethodName).Inc()
+		w.requestsInFlight.Inc()
+		w.requestsInFlightByMethod.WithLabelValues(meta.FullyMethodName).Inc()
 
 		defer func() {
-			w.interceptor.requestsInFlight.Dec()
-			w.interceptor.requestsInFlightByMethod.WithLabelValues(meta.FullyMethodName).Dec()
+			w.requestsInFlight.Dec()
+			w.requestsInFlightByMethod.WithLabelValues(meta.FullyMethodName).Dec()
 		}()
 
 		// Wrap the stream to track per-message metrics if streaming metrics are enabled
@@ -100,7 +100,7 @@ func (w *serverInterceptorWrapper) ServerStreamInterceptor() stdGrpc.StreamServe
 		wrappedStream.statusCode = getStatusCode(err)
 		wrappedStream.finalizeStreamMetrics()
 
-		w.interceptor.recordMetrics(meta.FullyMethodName, meta.StartTime, nil, nil, err)
+		w.recordMetrics(meta.FullyMethodName, meta.StartTime, nil, nil, err)
 		return err
 	}
 }
