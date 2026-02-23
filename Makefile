@@ -29,7 +29,7 @@ fmt: tidy  ## Run go fmt on all go files
 
 .PHONY: lint
 lint: tidy fmt ## Run linter
-	@go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	@go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 	golangci-lint run ./...
 
 .PHONY: tidy
