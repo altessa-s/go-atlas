@@ -5,8 +5,12 @@ Production-ready Go building blocks for distributed systems — transport, cachi
 [![Go Reference](https://pkg.go.dev/badge/github.com/altessa-s/go-atlas.svg)](https://pkg.go.dev/github.com/altessa-s/go-atlas)
 [![CI](https://github.com/altessa-s/go-atlas/actions/workflows/ci.yml/badge.svg)](https://github.com/altessa-s/go-atlas/actions/workflows/ci.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/altessa-s/go-atlas)](https://goreportcard.com/report/github.com/altessa-s/go-atlas)
-[![Go Version](https://img.shields.io/github/go-mod-go-version/altessa-s/go-atlas)](https://go.dev/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Test](https://github.com/altessa-s/go-atlas/actions/workflows/test.yml/badge.svg)](https://github.com/altessa-s/go-atlas/actions/workflows/test.yml)
+[![Lint](https://github.com/altessa-s/go-atlas/actions/workflows/lint.yml/badge.svg)](https://github.com/altessa-s/go-atlas/actions/workflows/lint.yml)
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Release](https://img.shields.io/github/v/release/altessa-s/go-atlas)](https://github.com/altessa-s/go-atlas/releases)
+
 
 ## Overview
 
