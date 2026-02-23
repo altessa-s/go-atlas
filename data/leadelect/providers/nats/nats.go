@@ -331,7 +331,7 @@ func (p *Provider) camping(ctx context.Context) {
 				continue
 			}
 
-			if !(update.Operation() == jetstream.KeyValueDelete || update.Operation() == jetstream.KeyValuePurge) {
+			if update.Operation() != jetstream.KeyValueDelete && update.Operation() != jetstream.KeyValuePurge {
 				continue
 			}
 
