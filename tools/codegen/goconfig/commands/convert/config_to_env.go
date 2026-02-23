@@ -428,12 +428,8 @@ func (conv *ConfigToEnvConverter) flattenConfigInto(result map[string]string, da
 		var envKey string
 		if isMapOfStructs {
 			// For map keys (like "keycloak-sync"), preserve original format
-			// but replace hyphens with underscores for env var compatibility
-			if strings.Contains(key, "-") {
-				envKey = strings.ReplaceAll(key, "-", "_")
-			} else {
-				envKey = key
-			}
+			// but replace hyphens with underscores and uppercase for env var compatibility
+			envKey = strings.ToUpper(strings.ReplaceAll(key, "-", "_"))
 		} else {
 			// For struct fields, convert to SCREAMING_SNAKE_CASE
 			envKey = corestrings.ToScreamingSnakeCase(key)

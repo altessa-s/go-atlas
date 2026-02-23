@@ -260,10 +260,10 @@ func TestFullEndToEndDirectoryConversion(t *testing.T) {
 	output := string(content)
 	assert.True(t, len(output) > 0, "output should not be empty")
 
-	// Top-level keys are preserved as-is (isMapOfStructs detects multiple map entries)
-	assert.Contains(t, output, "database__HOST=localhost")
-	assert.Contains(t, output, "database__PORT=5432")
-	assert.Contains(t, output, "database__NAME=mydb")
-	assert.Contains(t, output, "server__HOST=0.0.0.0")
-	assert.Contains(t, output, "server__PORT=8080")
+	// Top-level keys are uppercased (isMapOfStructs detects multiple map entries)
+	assert.Contains(t, output, "DATABASE__HOST=localhost")
+	assert.Contains(t, output, "DATABASE__PORT=5432")
+	assert.Contains(t, output, "DATABASE__NAME=mydb")
+	assert.Contains(t, output, "SERVER__HOST=0.0.0.0")
+	assert.Contains(t, output, "SERVER__PORT=8080")
 }
