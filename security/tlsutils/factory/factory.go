@@ -148,13 +148,15 @@ func (f *Factory) CreateVaultProviderFromConfig(cfg *config.TlsProviderVault) (*
 // CreateLetsEncryptProviderFromConfig creates a Let's Encrypt TLS provider from configuration.
 // Panics if cfg is nil.
 func (f *Factory) CreateLetsEncryptProviderFromConfig(cfg *config.TlsProviderLetsEncrypt) (*tlsle.LetsEncrypt, error) {
-	opts := []tlsle.Option{
+	providerOpts := f.letsEncryptProviderOpts()
+	opts := make([]tlsle.Option, 0, 3+len(providerOpts))
+	opts = append(opts,
 		tlsle.WithDomains(cfg.Domain...),
 		tlsle.WithEmail(cfg.Email),
 		tlsle.WithRenewBefore(cfg.RenewBefore),
-	}
+	)
 
-	opts = append(opts, f.letsEncryptProviderOpts()...)
+	opts = append(opts, providerOpts...)
 
 	return tlsle.New(opts...)
 }

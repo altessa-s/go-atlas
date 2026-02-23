@@ -142,10 +142,10 @@ func (le *LetsEncrypt) StartHTTPServerWithContext(ctx context.Context, addr stri
 		return ErrHTTPServerStarted
 	}
 
-	listener, err := net.Listen("tcp", net.JoinHostPort(host, "http"))
+	listener, err := net.Listen("tcp", net.JoinHostPort(host, "http")) //nolint:noctx
 	if err != nil {
 		le.mu.Unlock()
-		return fmt.Errorf("acme http server: %w", err) //nolint:goerr113
+		return fmt.Errorf("acme http server: %w", err) //nolint:err113
 	}
 
 	srv := &http.Server{
