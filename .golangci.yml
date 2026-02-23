@@ -1,5 +1,10 @@
+version: "2"
+
+run:
+  timeout: 5m
+
 linters:
-  disable-all: true
+  default: none
   enable:
     - bidichk
     - bodyclose
@@ -17,7 +22,6 @@ linters:
     - gocritic
     - godox
     - goprintffuncname
-    - gosimple
     - govet
     - unused
     - lll
@@ -28,72 +32,65 @@ linters:
     - staticcheck
     - predeclared
     - unparam
-    - gci
     - ineffassign
-    - stylecheck
     - dupl
+  settings:
+    lll:
+      line-length: 156
+    dogsled:
+      max-blank-identifiers: 2
+    errcheck:
+      check-type-assertions: true
+      check-blank: false
+    exhaustive:
+      default-signifies-exhaustive: true
+      package-scope-only: false
+    goconst:
+      min-len: 3
+      match-constant: true
+      numbers: true
+    staticcheck:
+      checks: ["all", "-ST1003"]
+    mnd:
+      ignored-functions:
+        - strings.SplitN
+        - strconv.*
+        - make
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+    makezero:
+      always: false
+    misspell:
+      locale: US
+    varnamelen:
+      ignore-type-assert-ok: true
+      ignore-map-index-ok: true
+      ignore-chan-recv-ok: true
+      ignore-names:
+        - err
+        - ch
+        - ok
+      ignore-decls:
+        - i int
+        - ch chan
+  exclusions:
+    generated: lax
+    paths:
+      - ".*_test\\.go"
 
-# options for analysis running
-run:
-  go: '1.25'
-  concurrency: 4
-  timeout: 5m
-  tests: false
-  allow-parallel-runners: false
-
-# all available settings of specific linters
-linters-settings:
-  lll:
-    line-length: 156
-  dogsled:
-    max-blank-identifiers: 2
-  errcheck:
-    check-type-assertions: true
-    check-blank: true
-  exhaustive:
-    check-generated: false
-    default-signifies-exhaustive: true
-    package-scope-only: false
-  goconst:
-    min-len: 3
-    ignore-tests: true
-    match-constant: true
-    numbers: true
-  stylecheck:
-    checks: [ "all", "-ST1003" ]
-  mnd:
-    ignored-functions:
-      - strings.SplitN
-      - strconv.*
-      - make
-  govet:
-    enable-all: true
-    disable:
-      - fieldalignment
-  makezero:
-    always: false
-  misspell:
-    locale: US
-  varnamelen:
-    ignore-type-assert-ok: true
-    ignore-map-index-ok: true
-    ignore-chan-recv-ok: true
-    ignore-names:
-      - err
-      - ch
-      - ok
-    ignore-decls:
-      - i int
-      - ch chan
-  gci:
-    sections:
-      - standard
-      - default
-      - prefix(google.golang.org)
-      - prefix(golang.org)
-      - prefix(github.com/altessa-s/go-atlas)
-      - prefix(github.com/altessa-s)
-      - blank
-      - alias
-    skip-generated: false
-
+formatters:
+  enable:
+    - gci
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(google.golang.org)
+        - prefix(golang.org)
+        - prefix(github.com/altessa-s/go-atlas)
+        - prefix(github.com/altessa-s)
+        - blank
+        - alias
