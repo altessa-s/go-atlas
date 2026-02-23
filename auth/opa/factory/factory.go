@@ -2,6 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
+// Package factory provides configuration-based creation of OPA managers and evaluators.
 package factory
 
 import (
@@ -71,14 +72,14 @@ func (f *Factory) CreateManagerFromConfig(ctx context.Context, cfg *config.OPA) 
 	// Create manager
 	manager, err := opa.NewManager(ctx, source, cfg.Query, managerOpts...)
 	if err != nil {
-		source.Close()
+		_ = source.Close()
 		return nil, f.WrapError(err, "failed to create manager")
 	}
 
 	// Start watching if enabled
 	if cfg.WatchBundle {
 		if err = manager.StartWatching(ctx); err != nil {
-			manager.Close()
+			_ = manager.Close()
 			return nil, f.WrapError(err, "failed to start watching")
 		}
 	}

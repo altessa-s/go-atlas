@@ -89,7 +89,7 @@ func (l *FileRevocationLoader) StreamValues(ctx context.Context) iter.Seq2[strin
 			yield("", err)
 			return
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
@@ -117,7 +117,7 @@ func (l *FileRevocationLoader) Count(_ context.Context) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var count int64
 	scanner := bufio.NewScanner(file)

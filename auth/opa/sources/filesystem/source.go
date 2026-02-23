@@ -282,18 +282,18 @@ func (s *Source) Watch(ctx context.Context) (<-chan struct{}, error) {
 	// Add the path and all subdirectories
 	info, err := os.Stat(s.path)
 	if err != nil {
-		watcher.Close()
+		_ = watcher.Close()
 		return nil, coreerrs.WrapOperation(err, "stat path")
 	}
 
 	if info.IsDir() {
 		if err := s.addWatchRecursive(watcher, s.path); err != nil {
-			watcher.Close()
+			_ = watcher.Close()
 			return nil, err
 		}
 	} else {
 		if err := watcher.Add(filepath.Dir(s.path)); err != nil {
-			watcher.Close()
+			_ = watcher.Close()
 			return nil, coreerrs.WrapOperation(err, "watch directory")
 		}
 	}

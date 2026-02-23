@@ -81,7 +81,7 @@ func NewManager(ctx context.Context, source PolicySource, query string, opts ...
 
 	// Register background tasks with scheduler if provided
 	if err := m.registerSchedulerTasks(ctx, o); err != nil {
-		m.Close()
+		_ = m.Close()
 		return nil, coreerrs.WrapOperation(err, "register scheduler tasks")
 	}
 
