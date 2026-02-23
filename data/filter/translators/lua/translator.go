@@ -11,6 +11,11 @@ import (
 	"github.com/altessa-s/go-atlas/data/filter"
 )
 
+const (
+	luaTrue  = "true"
+	luaFalse = "false"
+)
+
 // luaStringEscaper replaces special characters in Lua string literals.
 var luaStringEscaper = strings.NewReplacer(
 	`\`, `\\`,
@@ -45,7 +50,7 @@ func NewTranslator(tableVar string, opts ...filter.TranslatorOption) *Translator
 // Returns "true" for a nil node (match all).
 func (t *Translator) Translate(node filter.Node) (string, error) {
 	if node == nil {
-		return "true", nil
+		return luaTrue, nil
 	}
 	t.depth = 0
 	result, err := node.Accept(t)
@@ -188,9 +193,9 @@ func (t *Translator) formatLiteral(v any) (string, error) {
 		return "nil", nil
 	case bool:
 		if val {
-			return "true", nil
+			return luaTrue, nil
 		}
-		return "false", nil
+		return luaFalse, nil
 	case int64:
 		return fmt.Sprintf("%d", val), nil
 	case uint64:
@@ -296,7 +301,7 @@ func (t *Translator) translateNot(operand filter.Node) (string, error) {
 			return "", fmt.Errorf("%w: %s", filter.ErrFieldNotAllowed, field)
 		}
 		mapped := t.config.ApplyFieldMapping(field)
-		return fmt.Sprintf("(%s ~= true)", t.fieldRef(mapped)), nil
+		return fmt.Sprintf("(%s ~= %s)", t.fieldRef(mapped), luaTrue), nil
 	}
 
 	inner, err := t.getExprString(operand)
