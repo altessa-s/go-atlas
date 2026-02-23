@@ -185,7 +185,7 @@ func IsPreRelease() bool {
 // IsRelease reports whether the current [Version] is a stable release,
 // meaning it is not an alpha, beta, or any other pre-release variant.
 func IsRelease() bool {
-	return !(IsPreRelease() || IsAlpha() || IsBeta())
+	return !IsPreRelease() && !IsAlpha() && !IsBeta()
 }
 
 // IsReleaseCandidate reports whether the current [Version] is a release
