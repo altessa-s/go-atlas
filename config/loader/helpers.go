@@ -188,7 +188,7 @@ func userHomeDir() string {
 // This is required for the configuration loading to work properly.
 func assertStructPointer(conf any) error {
 	t := reflect.TypeOf(conf)
-	if !(t.Kind() == reflect.Pointer && indirectType(t).Kind() == reflect.Struct) {
+	if t.Kind() != reflect.Pointer || indirectType(t).Kind() != reflect.Struct {
 		return ErrInvalidConfig
 	}
 	return nil

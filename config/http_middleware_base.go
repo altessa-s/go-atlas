@@ -84,12 +84,12 @@ func (c *BaseHttpMiddlewareConfig) ValidateBase(fn ...func() error) error {
 	}
 
 	// Validate the base configuration fields
-	baseRules := []*validation.FieldRules{
-		validation.Field(&c.Enable, validation.In(true)), // Just ensure it's enabled
-	}
+	filterRules := c.FilterValidationRules(&c.HttpMiddlewareFilterConfig)
+	baseRules := make([]*validation.FieldRules, 0, 1+len(filterRules))
+	baseRules = append(baseRules, validation.Field(&c.Enable, validation.In(true)))
 
 	// Add filter validation rules
-	baseRules = append(baseRules, c.FilterValidationRules(&c.HttpMiddlewareFilterConfig)...)
+	baseRules = append(baseRules, filterRules...)
 
 	if ret := ValidateStruct(c, baseRules...); ret != nil {
 		return ret
