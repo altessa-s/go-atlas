@@ -50,6 +50,7 @@ type Source struct {
 	watching bool
 	watchCh  chan struct{}
 	stopCh   chan struct{}
+	doneCh   chan struct{}
 	closed   bool
 }
 
@@ -301,6 +302,7 @@ func (s *Source) Watch(ctx context.Context) (<-chan struct{}, error) {
 	s.watcher = watcher
 	s.watchCh = make(chan struct{}, 1)
 	s.stopCh = make(chan struct{})
+	s.doneCh = make(chan struct{})
 	s.watching = true
 
 	go s.watchLoop(ctx)
@@ -327,6 +329,7 @@ func (s *Source) addWatchRecursive(watcher *fsnotify.Watcher, path string) error
 
 // watchLoop handles fsnotify events and signals changes.
 func (s *Source) watchLoop(ctx context.Context) {
+	defer close(s.doneCh)
 	for {
 		select {
 		case <-ctx.Done():
@@ -410,6 +413,9 @@ func (s *Source) Close() error {
 
 	if s.watching {
 		close(s.stopCh)
+		s.mu.Unlock()
+		<-s.doneCh
+		s.mu.Lock()
 		if err := s.watcher.Close(); err != nil {
 			return coreerrs.WrapOperation(err, "close watcher")
 		}
