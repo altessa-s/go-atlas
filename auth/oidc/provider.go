@@ -363,13 +363,14 @@ func (p *Provider) revocationItemFromToken(token string) string {
 	}
 
 	if t, _, err := new(jwt.Parser).ParseUnverified(token, jwt.MapClaims{}); err == nil {
-		if p.opts.revocationItemType == RevocationItemTypeJTI {
+		switch p.opts.revocationItemType {
+		case RevocationItemTypeJTI:
 			if claims, ok := t.Claims.(jwt.MapClaims); ok {
 				if jti, ok := claims[RevocationItemTypeJTI].(string); ok {
 					item = jti
 				}
 			}
-		} else if p.opts.revocationItemType == RevocationItemTypeKID {
+		case RevocationItemTypeKID:
 			if kid, ok := t.Header[RevocationItemTypeKID].(string); ok {
 				item = kid
 			}

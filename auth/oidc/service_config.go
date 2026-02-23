@@ -387,7 +387,7 @@ func (v *ValidationRulesConfig) ToValidationOptions() ([]ValidationOption, error
 	// Scopes
 	if v.Scopes != nil {
 		// Combine all scope requirements into Required
-		var allScopes []string
+		allScopes := make([]string, 0, len(v.Scopes.Required)+len(v.Scopes.AllOf))
 		allScopes = append(allScopes, v.Scopes.Required...)
 		allScopes = append(allScopes, v.Scopes.AllOf...)
 
