@@ -3,7 +3,14 @@
 // the LICENSE file.
 
 syntax = "proto3";
-package scheduler.v1;
+package io.altessa.grpc.scheduler.v1;
+
+import "google/protobuf/field_mask.proto";
+
+// Specifies the package name for generated Java code.
+option java_package = "io.altessa.grpc.scheduler.v1";
+option java_multiple_files = true;
+
 option go_package = "github.com/altessa-s/go-atlas/proto/gen/scheduler/v1;schedulerv1";
 
 // Defines the RPC methods for managing scheduler tasks.

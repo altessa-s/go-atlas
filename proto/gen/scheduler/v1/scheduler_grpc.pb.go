@@ -23,16 +23,16 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	SchedulerService_Get_FullMethodName         = "/scheduler.v1.SchedulerService/Get"
-	SchedulerService_List_FullMethodName        = "/scheduler.v1.SchedulerService/List"
-	SchedulerService_ListHistory_FullMethodName = "/scheduler.v1.SchedulerService/ListHistory"
-	SchedulerService_GetStatus_FullMethodName   = "/scheduler.v1.SchedulerService/GetStatus"
-	SchedulerService_Pause_FullMethodName       = "/scheduler.v1.SchedulerService/Pause"
-	SchedulerService_Resume_FullMethodName      = "/scheduler.v1.SchedulerService/Resume"
-	SchedulerService_Disable_FullMethodName     = "/scheduler.v1.SchedulerService/Disable"
-	SchedulerService_Enable_FullMethodName      = "/scheduler.v1.SchedulerService/Enable"
-	SchedulerService_SkipNextRun_FullMethodName = "/scheduler.v1.SchedulerService/SkipNextRun"
-	SchedulerService_Trigger_FullMethodName     = "/scheduler.v1.SchedulerService/Trigger"
+	SchedulerService_Get_FullMethodName         = "/io.altessa.grpc.scheduler.v1.SchedulerService/Get"
+	SchedulerService_List_FullMethodName        = "/io.altessa.grpc.scheduler.v1.SchedulerService/List"
+	SchedulerService_ListHistory_FullMethodName = "/io.altessa.grpc.scheduler.v1.SchedulerService/ListHistory"
+	SchedulerService_GetStatus_FullMethodName   = "/io.altessa.grpc.scheduler.v1.SchedulerService/GetStatus"
+	SchedulerService_Pause_FullMethodName       = "/io.altessa.grpc.scheduler.v1.SchedulerService/Pause"
+	SchedulerService_Resume_FullMethodName      = "/io.altessa.grpc.scheduler.v1.SchedulerService/Resume"
+	SchedulerService_Disable_FullMethodName     = "/io.altessa.grpc.scheduler.v1.SchedulerService/Disable"
+	SchedulerService_Enable_FullMethodName      = "/io.altessa.grpc.scheduler.v1.SchedulerService/Enable"
+	SchedulerService_SkipNextRun_FullMethodName = "/io.altessa.grpc.scheduler.v1.SchedulerService/SkipNextRun"
+	SchedulerService_Trigger_FullMethodName     = "/io.altessa.grpc.scheduler.v1.SchedulerService/Trigger"
 )
 
 // SchedulerServiceClient is the client API for SchedulerService service.
@@ -446,7 +446,7 @@ func _SchedulerService_Trigger_Handler(srv interface{}, ctx context.Context, dec
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var SchedulerService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "scheduler.v1.SchedulerService",
+	ServiceName: "io.altessa.grpc.scheduler.v1.SchedulerService",
 	HandlerType: (*SchedulerServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
