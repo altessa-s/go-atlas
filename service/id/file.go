@@ -164,7 +164,7 @@ func writeLine(filepath string, id string) error {
 	if err != nil {
 		return coreerrs.WrapOperation(err, "create file")
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	_, err = file.Write([]byte(id))
 	if err != nil {
@@ -181,7 +181,7 @@ func readLine(filepath string) (string, error) {
 	if err != nil {
 		return "", coreerrs.WrapOperation(err, "open file")
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	fileScanner := bufio.NewScanner(file)
 

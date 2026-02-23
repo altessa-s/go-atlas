@@ -178,7 +178,7 @@ func (f *Factory) CreateMongoStorageFromConfig(cfg *config.SchedulerStorageMongo
 		return nil, fmt.Errorf("configuration is required")
 	}
 
-	var opts []mongostorage.Option
+	opts := make([]mongostorage.Option, 0, 2)
 	opts = append(opts, mongostorage.WithTasksCollection(cfg.TasksCollection))
 	opts = append(opts, mongostorage.WithHistoryCollection(cfg.HistoryCollection))
 
@@ -196,7 +196,7 @@ func (f *Factory) CreateRedisStorageFromConfig(cfg *config.SchedulerStorageRedis
 		return nil, fmt.Errorf("configuration is required")
 	}
 
-	var opts []redisstorage.Option
+	opts := make([]redisstorage.Option, 0, 3)
 	opts = append(opts, redisstorage.WithKeyPrefix(cfg.KeyPrefix))
 	opts = append(opts, redisstorage.WithHistoryTTL(cfg.HistoryTTL))
 	opts = append(opts, redisstorage.WithMaxHistoryPerTask(cfg.MaxHistoryPerTask))

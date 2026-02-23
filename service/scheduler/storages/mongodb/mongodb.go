@@ -162,7 +162,7 @@ func (s *Storage) Tasks(ctx context.Context) iter.Seq2[*scheduler.TaskState, err
 			yield(nil, err)
 			return
 		}
-		defer cursor.Close(ctx)
+		defer func() { _ = cursor.Close(ctx) }()
 
 		for cursor.Next(ctx) {
 			var doc taskDocument
@@ -201,7 +201,7 @@ func (s *Storage) History(ctx context.Context, id string) iter.Seq2[*scheduler.T
 			yield(nil, err)
 			return
 		}
-		defer cursor.Close(ctx)
+		defer func() { _ = cursor.Close(ctx) }()
 
 		for cursor.Next(ctx) {
 			var doc historyDocument
