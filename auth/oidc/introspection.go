@@ -83,18 +83,19 @@ func (p *Provider) IntrospectToken(ctx context.Context, token string) (*Introspe
 	// Check revocation storage first (pre-introspect check)
 	if p.revocationStorage != nil {
 		item := token
-		if p.opts.revocationItemType == RevocationItemTypeJTI || p.opts.revocationItemType == RevocationItemTypeKID {
+		switch p.opts.revocationItemType {
+		case RevocationItemTypeJTI:
 			if t, _, err := new(jwt.Parser).ParseUnverified(token, jwt.MapClaims{}); err == nil {
-				if p.opts.revocationItemType == RevocationItemTypeJTI {
-					if claims, ok := t.Claims.(jwt.MapClaims); ok {
-						if jti, ok := claims[RevocationItemTypeJTI].(string); ok {
-							item = jti
-						}
+				if claims, ok := t.Claims.(jwt.MapClaims); ok {
+					if jti, ok := claims[RevocationItemTypeJTI].(string); ok {
+						item = jti
 					}
-				} else if p.opts.revocationItemType == RevocationItemTypeKID {
-					if kid, ok := t.Header[RevocationItemTypeKID].(string); ok {
-						item = kid
-					}
+				}
+			}
+		case RevocationItemTypeKID:
+			if t, _, err := new(jwt.Parser).ParseUnverified(token, jwt.MapClaims{}); err == nil {
+				if kid, ok := t.Header[RevocationItemTypeKID].(string); ok {
+					item = kid
 				}
 			}
 		}
