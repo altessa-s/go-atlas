@@ -55,7 +55,7 @@ func WithLogger(v *slog.Logger) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		checksums:  make(map[string]string),
+		checksums:  nil,
 		extensions: DefaultExtensions,
 		logger:     slog.New(slog.DiscardHandler),
 	}

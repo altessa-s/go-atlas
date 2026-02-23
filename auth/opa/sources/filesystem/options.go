@@ -25,5 +25,5 @@ type options struct {
 	logger *slog.Logger
 	// checksums maps relative policy file paths to their expected SHA-256 hex digests.
 	// When non-nil, every loaded file must match its expected hash and unknown files are rejected.
-	checksums map[string]string
+	checksums map[string]string `optgen:"default=nil"`
 }
