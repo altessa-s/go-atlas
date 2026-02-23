@@ -1,0 +1,266 @@
+# NATS messaging configuration for the <name> service.
+# Defines settings for connecting to and communicating with NATS messaging system.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#nats:
+#  # <list[string]> The addresses of NATS servers to connect to.
+#  # Can be IP addresses, DNS records, or URIs with nats:// protocol.
+#  # Multiple servers provide failover and load distribution.
+#  # Default value: ["nats://localhost:4222"]
+#  hosts:
+#    - nats://localhost:4222
+#
+#  # <string> Full NATS connection string (e.g. "nats://user:pass@host:4222").
+#  # When set, it replaces hosts and authentication fields.
+#  # Mutually exclusive with username, password, token, and nkeySeed.
+#  # Default value: not set
+#  connectionUri:
+#
+#  # <string> Client name identifier for this connection.
+#  # Helps identify this client in NATS server logs and monitoring.
+#  # Default value: not set
+#  clientName:
+#
+#  # <string> Username for NATS server authentication.
+#  # Used when NATS server requires user authentication.
+#  # Default value: not set
+#  username:
+#
+#  # <string> Password for NATS server authentication.
+#  # Used together with username for server authentication.
+#  # Default value: not set
+#  password:
+#
+#  # <string> Authentication token for NATS server.
+#  # Alternative to username/password authentication method.
+#  # Username/password has higher priority if both are provided.
+#  # Default value: not set
+#  token:
+#
+#  # <string> NKey seed (private key) for NKey-based authentication.
+#  # The seed is used to derive the public key and sign server challenges.
+#  # Mutually exclusive with token and username/password authentication.
+#  # Default value: not set
+#  nkeySeed:
+#
+#  # <duration> Connection timeout for initial NATS server connection.
+#  # Maximum time to wait when establishing connection to server.
+#  # Default value: 5s
+#  connectTimeout: 5s
+#
+#  # <int> Maximum number of reconnection attempts.
+#  # Set to 0 for unlimited reconnection attempts.
+#  # Set to -1 to disable reconnection.
+#  # Default value: 0 (unlimited)
+#  maxReconnect: 0
+#
+#  # <duration> Wait time between reconnection attempts.
+#  # Delay between consecutive reconnection attempts.
+#  # Default value: 10s
+#  reconnectWait: 10s
+#
+#  # <duration> Interval for sending ping commands to the server.
+#  # Keepalive mechanism to detect connection health.
+#  # Default value: 10s
+#  pingInterval: 10s
+#
+#  # <int> Maximum number of unanswered pings before connection is considered lost.
+#  # Connection is closed if this many pings go unanswered.
+#  # Default value: 3
+#  maxPingsOut: 3
+#
+#  # <object> TLS configuration options for NATS communication.
+#  # Enables encrypted communication with NATS server.
+#  !include tls-client.yaml
+#
+#  # <map[string,object]> JetStream consumer configurations.
+#  # Define multiple consumers with different settings for message consumption.
+#  # Each consumer is keyed by its durable name.
+#  consumers:
+#    # Example consumer for processing events with explicit acknowledgement
+#    event-processor:
+#      # <string> Optional description of what this consumer does.
+#      description: "Processes domain events with explicit acknowledgement"
+#
+#      # <string> Durable name for the consumer.
+#      # If not specified, the map key (e.g., "event-processor") is used as the durable name.
+#      # Durable consumers maintain their state across restarts and reconnections.
+#      # Default value: map key name
+#      durableName:
+#
+#      # <string> Delivery policy: all, last, new, by_start_sequence, by_start_time.
+#      # - all: Deliver all available messages from the stream
+#      # - last: Start with the last message in the stream
+#      # - new: Only deliver new messages arriving after consumer creation
+#      # - by_start_sequence: Start from a specific sequence number
+#      # - by_start_time: Start from a specific timestamp
+#      # Default value: all
+#      deliverPolicy: all
+#
+#      # <uint64> Starting sequence number (required when deliverPolicy is by_start_sequence).
+#      # Must be greater than 0.
+#      # Default value: 0 (not set)
+#      optStartSeq: 0
+#
+#      # <time> Starting timestamp (required when deliverPolicy is by_start_time).
+#      # Format: RFC3339 (e.g., "2023-01-01T00:00:00Z")
+#      # Default value: not set
+#      optStartTime:
+#
+#      # <string> Acknowledgement policy: none, all, explicit.
+#      # - none: No acknowledgement required, messages delivered once
+#      # - all: Acknowledging a message also acknowledges all previous messages
+#      # - explicit: Each message must be explicitly acknowledged
+#      # Default value: explicit
+#      ackPolicy: explicit
+#
+#      # <duration> Time to wait for acknowledgement before redelivering the message.
+#      # Only applies when ackPolicy is not "none".
+#      # Default value: 30s
+#      ackWait: 30s
+#
+#      # <int> Maximum delivery attempts for a message.
+#      # After this many attempts, the message is considered permanently failed.
+#      # Set to -1 for unlimited delivery attempts.
+#      # Default value: -1 (unlimited)
+#      maxDeliver: -1
+#
+#      # <list[duration]> Custom backoff schedule for message redelivery.
+#      # If not specified, NATS uses exponential backoff by default.
+#      # Each duration represents the delay before the next redelivery attempt.
+#      # After exhausting the schedule, the last duration is used for subsequent retries.
+#      # Example: [1s, 5s, 30s, 2m, 5m] means:
+#      #   - 1st retry after 1 second
+#      #   - 2nd retry after 5 seconds
+#      #   - 3rd retry after 30 seconds
+#      #   - 4th retry after 2 minutes
+#      #   - 5th and subsequent retries after 5 minutes
+#      # Default value: not set (exponential backoff)
+#      backOff:
+#        - 1s
+#        - 5s
+#        - 30s
+#        - 2m
+#        - 5m
+#
+#      # <list[string]> Subject filters for this consumer.
+#      # Only messages matching these subject patterns will be delivered.
+#      # Supports wildcards: * (single token), > (multiple tokens)
+#      # Default value: not set (all messages from stream)
+#      filterSubject:
+#        - "events.>"
+#
+#      # <string> Replay policy: instant, original.
+#      # - instant: Replay messages as fast as possible
+#      # - original: Replay messages at the rate they were originally received
+#      # Default value: instant
+#      replayPolicy: instant
+#
+#      # <int> Maximum number of unacknowledged messages allowed.
+#      # Limits the number of messages delivered but not yet acknowledged.
+#      # Provides backpressure when processing is slow.
+#      # Default value: 1000
+#      maxAckPending: 1000
+#
+#      # <int> Maximum number of waiting pull requests (for pull-based consumers).
+#      # Limits concurrent pull requests to prevent resource exhaustion.
+#      # Default value: 512
+#      maxWaiting: 512
+#
+#      # <duration> Duration of inactivity before consumer is automatically removed.
+#      # Set to 0 to disable automatic removal (consumer persists indefinitely).
+#      # Default value: 0s (disabled)
+#      inactiveThreshold: 0s
+#
+#    # Example consumer for real-time notifications (process new messages only)
+#    notification-handler:
+#      description: "Handles real-time notifications"
+#      deliverPolicy: new
+#      ackPolicy: explicit
+#      ackWait: 10s
+#      maxDeliver: 5
+#      # Aggressive backoff for critical notifications
+#      backOff:
+#        - 100ms  # 1st retry
+#        - 500ms  # 2nd retry
+#        - 1s     # 3rd retry
+#        - 5s     # 4th+ retries
+#      filterSubject:
+#        - "notifications.*"
+#      maxAckPending: 100
+#
+#    # Example consumer starting from a specific sequence
+#    replay-consumer:
+#      description: "Replays events from sequence 1000"
+#      deliverPolicy: by_start_sequence
+#      optStartSeq: 1000
+#      ackPolicy: explicit
+#      ackWait: 60s
+#      replayPolicy: original
+#
+#    # Example consumer with explicit durable name (different from map key)
+#    audit-logger:
+#      description: "Audit log consumer with custom durable name"
+#      durableName: "audit_v2_durable"
+#      deliverPolicy: all
+#      ackPolicy: explicit
+#      maxDeliver: 10
+#      # Conservative backoff for audit logs
+#      backOff:
+#        - 10s   # 1st retry
+#        - 1m    # 2nd retry
+#        - 5m    # 3rd retry
+#        - 30m   # 4th+ retries
+#      filterSubject:
+#        - "audit.>"
+#
+#    # Example fire-and-forget consumer (no acknowledgement)
+#    metrics-collector:
+#      description: "Collects metrics without acknowledgement"
+#      deliverPolicy: new
+#      ackPolicy: none
+#      filterSubject:
+#        - "metrics.>"
+#
+#  # <object> Automatic stream/consumer recovery configuration.
+#  # Enables automatic recovery of JetStream streams and consumers when they are
+#  # unexpectedly deleted. Uses JetStream Advisory Events for instant detection
+#  # and periodic health checks as a fallback mechanism.
+#  recovery:
+#    # <bool> Enables or disables automatic recovery.
+#    # When enabled, deleted streams and consumers are automatically recreated.
+#    # Default value: true
+#    enabled: true
+#
+#    # <string> Cron schedule for periodic health checks.
+#    # Acts as fallback detection when advisory events are missed (e.g., during reconnection).
+#    # Supports standard cron format with seconds: "sec min hour day month weekday"
+#    # (e.g., "0 */5 * * * *") or descriptor format (e.g., "@every 5m").
+#    # Default value: "@every 5m"
+#    healthCheckSchedule: "@every 5m"
+#
+#    # <int> Maximum number of recovery attempts before giving up.
+#    # After this many failed attempts, recovery is abandoned and failure callback is invoked.
+#    # Must be between 1 and 100.
+#    # Default value: 3
+#    maxRecoveryAttempts: 3
+#
+#    # <duration> Base backoff duration between recovery attempts.
+#    # Actual backoff is calculated as: backoff * attemptNumber (linear backoff).
+#    # Example: with 5s backoff, attempts occur at 5s, 10s, 15s intervals.
+#    # Default value: 5s
+#    recoveryBackoff: 5s
+#
+#    # <duration> Timeout for stale recovery marks.
+#    # Recovery marks older than this duration are cleared to prevent permanent blocking
+#    # due to crashes or bugs during recovery.
+#    # Default value: 20m
+#    staleRecoveryTimeout: 20m
+#
+#    # <string> Cron schedule for stale recovery cleanup.
+#    # How often the system checks for and clears stale recovery marks.
+#    # Supports standard cron format with seconds: "sec min hour day month weekday"
+#    # (e.g., "0 * * * * *") or descriptor format (e.g., "@every 1m").
+#    # Default value: "@every 1m"
+#    staleRecoveryCleanupSchedule: "@every 1m"

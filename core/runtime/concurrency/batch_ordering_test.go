@@ -1,0 +1,43 @@
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Use of this source code is governed by license that can be found in
+// the LICENSE file.
+
+package concurrency_test
+
+import (
+	"context"
+	"math/rand"
+	"slices"
+	"testing"
+	"time"
+
+	"github.com/altessa-s/go-atlas/core/runtime/concurrency"
+)
+
+func TestProcessCollect_Ordering(t *testing.T) {
+	// Create a list of integers
+	count := 100
+	input := make([]int, count)
+	for i := range count {
+		input[i] = i
+	}
+
+	// Process them with random delays to ensure out-of-order completion
+	ctx := t.Context()
+	results, err := concurrency.ProcessCollect(ctx, input, func(ctx context.Context, item int) (int, error) {
+		// Random delay between 0 and 10ms
+		time.Sleep(time.Duration(rand.Intn(10)) * time.Millisecond)
+		return item, nil
+	}, concurrency.BatchConfig[int]{
+		Concurrency: 10,
+	})
+
+	if err != nil {
+		t.Fatalf("ProcessCollect failed: %v", err)
+	}
+
+	// Verify that results are in the same order as input
+	if !slices.Equal(input, results) {
+		t.Errorf("ProcessCollect did not preserve order. \nExpected: %v\nGot:      %v", input, results)
+	}
+}

@@ -1,0 +1,56 @@
+# Health check coordination configuration for the <name> service.
+# Defines settings for polling health status, caching results, and notification delivery.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#health:
+#  # <duration> Specifies how often a watcher polls health status.
+#  # Determines the freshness of health updates for active subscriptions.
+#  # Default value: 5s
+#  healthCheckInterval: 5s
+#
+#  # <int> Specifies the base buffer size for status update channels.
+#  # Controls how many status changes can be queued before blocking.
+#  # Default value: 10
+#  watcherChannelBuffer: 10
+#
+#  # <int> Maximum concurrent subscriptions allowed per service.
+#  # Limits resource usage by preventing excessive number of watchers.
+#  # Value 0 means unlimited.
+#  # Default value: 1000
+#  maxWatchersPerService: 1000
+#
+#  # <int> Number of lock shards used to distribute lock contention.
+#  # Higher values reduce bottleneck under frequent status updates but use more memory.
+#  # Default value: 32
+#  numShards: 32
+#
+#  # <int> Maximum number of concurrent health checks in ListStatuses.
+#  # Limits the size of the internal worker pool for batch status checks.
+#  # Default value: 10
+#  maxConcurrentHealthChecks: 10
+#
+#  # <duration> Specifies how long to cache health check results.
+#  # Reduces frequency of actual check execution by reusing recent results.
+#  # Default value: 500ms
+#  statusCacheTTL: 500ms
+#
+#  # <duration> Specifies the maximum time to wait for a single health check.
+#  # Prevents hung check logic from blocking the coordinator indefinitely.
+#  # Default value: 2s
+#  checkTimeout: 2s
+#
+#  # <int> The threshold of active watchers to trigger adaptive buffering.
+#  # Increases buffer sizes automatically when system is under high subscription load.
+#  # Default value: 100
+#  adaptiveBufferThreshold: 100
+#
+#  # <int> Multiplier for channel buffer size when threshold is exceeded.
+#  # Scales capacity to handle status update bursts under load.
+#  # Default value: 2
+#  adaptiveBufferMultiplier: 2
+#
+#  # <int> Maximum channel buffer size when adaptive buffering is active.
+#  # Cap for adaptive buffer growth to prevent excessive memory consumption.
+#  # Default value: 100
+#  maxAdaptiveBuffer: 100

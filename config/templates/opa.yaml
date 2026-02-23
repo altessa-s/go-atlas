@@ -1,0 +1,105 @@
+# Open Policy Agent (OPA) configuration for the <name> service.
+# Defines settings for policy-based authorization, caching, and decision logging.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#opa:
+#  # <string> Filesystem path or URL to the OPA policy bundle.
+#  # Can be a local directory path (e.g., "./policies") or HTTP/HTTPS URL.
+#  # The bundle should contain Rego policy files for authorization.
+#  # This field is required for OPA to function.
+#  # Default value: not set (required)
+#  bundlePath: ./policies
+#
+#  # <string> Rego query to evaluate for authorization decisions.
+#  # The query determines what policy rule to evaluate.
+#  # Common patterns:
+#  #   - data.profiles.authz.allow - simple allow/deny
+#  #   - data.myapp.api.authz.allow - namespaced policies
+#  #   - data.rbac.allow - role-based access control
+#  # Default value: data.profiles.authz.allow
+#  query: data.profiles.authz.allow
+#
+#  # <bool> Enable logging of all authorization decisions.
+#  # When enabled, logs every authorization check with:
+#  #   - Input data provided to OPA
+#  #   - Policy evaluation result
+#  #   - Decision timestamp
+#  # Useful for:
+#  #   - Security auditing
+#  #   - Debugging policy rules
+#  #   - Compliance requirements
+#  # Default value: false
+#  decisionLogging: false
+#
+#  # <object> Caching configuration for authorization decisions.
+#  # When configured, caches policy evaluation results to improve performance.
+#  cache:
+#    # <bool> Enable caching of authorization decisions.
+#    # When enabled, caches policy evaluation results.
+#    # Cache key is computed from input data hash.
+#    # Benefits:
+#    #   - Reduced latency for repeated authorization checks
+#    #   - Lower CPU usage for complex policies
+#    # Considerations:
+#    #   - May cache stale decisions if policies change
+#    #   - Use watchBundle for automatic cache invalidation
+#    # Default value: false
+#    enabled: false
+#
+#    # <duration> Time-to-live for cached authorization decisions.
+#    # Determines how long a cached decision remains valid.
+#    # After TTL expires, the decision is re-evaluated.
+#    # Only applies when enabled is true.
+#    # Format: duration string (e.g., "5m", "1h", "30s")
+#    # Recommended values:
+#    #   - 1m-5m for frequently changing policies
+#    #   - 5m-15m for stable policies
+#    #   - 30m+ for rarely changing policies
+#    # Default value: 5m
+#    ttl: 5m
+#
+#  # <bool> Enable automatic policy bundle reloading.
+#  # When enabled, monitors the bundle path for changes and reloads policies.
+#  # Behavior:
+#  #   - Local bundles: watches filesystem for changes
+#  #   - Remote bundles: polls URL periodically
+#  # Benefits:
+#  #   - Policy updates without service restart
+#  #   - Useful in development environments
+#  # Considerations:
+#  #   - Adds file system/network overhead
+#  #   - May cause brief inconsistency during reload
+#  # Default value: false
+#  watchBundle: false
+#
+#  # <string> Optional cron schedule for periodic policy updates.
+#  # If set, policies are reloaded according to this schedule regardless of file changes.
+#  # This provides a fallback mechanism for remote bundles or ensures periodic refresh.
+#  # Format: cron expression with seconds (e.g., "*/5 * * * * *" for every 5 seconds)
+#  # or descriptor format (e.g., "@every 1m" for every minute).
+#  # When empty, only watchBundle (if enabled) triggers reloads.
+#  # Default value: "" (disabled)
+#  updateSchedule: ""
+#
+#  # <bool> Determines whether to run an update cycle when the manager starts.
+#  # When true, immediately loads policies on startup before processing requests.
+#  # When false, policies are loaded lazily on first use or according to schedule.
+#  # Default value: true
+#  runOnStart: true
+#
+#  # <list[string]> File extensions to include when loading policies.
+#  # Only files with these extensions will be loaded from the bundle path.
+#  # Useful for filtering policy files or including additional file types.
+#  # Default value: [".rego"]
+#  fileExtensions: [".rego"]
+#
+#  # <bool> Enable loading .json files as OPA data.
+#  # When enabled, JSON files in the policy directory are loaded into OPA's data store.
+#  # This allows separating policy logic (.rego files) from data (.json files).
+#  # Useful for:
+#  #   - Externalizing configuration data
+#  #   - Separating policy from data
+#  #   - Dynamic data updates without policy changes
+#  # Default value: false
+#  includeData: false

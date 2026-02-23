@@ -1,0 +1,593 @@
+# gRPC server configuration for the <name> service.
+# Defines settings for the gRPC server including interceptors and connection management.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#grpc:
+#  # <string> Specifies the address to bind to for listening.
+#  # Format: host:port or :port for all interfaces.
+#  # Default value: 0.0.0.0:7777
+#  listenAddress: 0.0.0.0:7777
+#
+#  # <bool> Enable gRPC reflection for debugging and development.
+#  # Allows tools like grpcurl to discover available services.
+#  # Default value: false
+#  reflection: false
+#
+#  # <duration> Timeout for establishing connections.
+#  # Maximum time to wait for connection establishment.
+#  # A zero or negative value will result in an immediate timeout.
+#  # Default value: not set
+#  connectionTimeout:
+#
+#  # <uint32> Maximum number of concurrent streams allowed.
+#  # If not set, gRPC uses math.MaxUint32 as the default limit.
+#  # Default value: not set
+#  maxConcurrentStreams:
+#
+#  # <int> Maximum message size in bytes that can be sent.
+#  # If not set, gRPC uses the default of 4MB (4194304 bytes).
+#  # Default value: not set
+#  maxSendMsgSize:
+#
+#  # <int> Maximum message size in bytes that can be received.
+#  # If not set, gRPC uses the default of 4MB (4194304 bytes).
+#  # Default value: not set
+#  maxRecvMsgSize:
+#
+#  # <int> Size of the write buffer in bytes.
+#  # If not set, gRPC uses the default of 32KB.
+#  # Zero or negative values will disable the write buffer.
+#  # Default value: not set
+#  writeBufferSize:
+#
+#  # <int> Size of the read buffer in bytes.
+#  # If not set, gRPC uses the default of 32KB.
+#  # Zero or negative values will disable the read buffer.
+#  # Default value: not set
+#  readBufferSize:
+#
+#  # <object> KeepAlive configuration for connection management.
+#  # Controls connection lifecycle and keep-alive behavior.
+#  keepAlive:
+#    # <duration> Duration after which idle connections are closed.
+#    # 0s means no idle timeout (connections never closed due to idleness).
+#    # Default value: 15m
+#    maxConnectionIdle: 15m
+#
+#    # <duration> Maximum duration a connection may exist before being closed.
+#    # A random jitter of +/-10% is added to spread connection storms.
+#    # Default value: 30m
+#    maxConnectionAge: 30m
+#
+#    # <duration> Grace period after maxConnectionAge before forceful closure.
+#    # Additional time allowed for graceful connection termination.
+#    # Default value: 5s
+#    maxConnectionAgeGrace: 5s
+#
+#    # <duration> Interval for keepalive pings when no activity is detected.
+#    # Minimum value enforced by gRPC is 1s.
+#    # Default value: 30s
+#    time: 30s
+#
+#    # <duration> Timeout waiting for keepalive ping response.
+#    # Time to wait for ping acknowledgment before closing connection.
+#    # Default value: 10s
+#    timeout: 10s
+#
+#    # <object> Enforcement policy for keep-alive pings.
+#    enforcementPolicy:
+#      # <duration> Minimum time between keep-alive pings from clients.
+#      # Default value: 5s
+#      minTime: 5s
+#
+#      # <bool> Permit keep-alive pings even when there are no active streams.
+#      # Default value: false
+#      permitWithoutStream: false
+#
+#  # <object> TLS/SSL configuration options.
+#  # Security settings for encrypted connections.
+#  tls:
+#    # <string> TLS provider type.
+#    # Determines how TLS certificates are obtained and managed.
+#    # Supported values: file, vault, letsencrypt
+#    # Default value: file
+#    providerType: file
+#
+#    # <string> Minimum TLS version to use.
+#    # Enforces minimum security standards for connections.
+#    # Supported values: 1.2, 1.3
+#    # Default value: 1.2
+#    minVersion: 1.2
+#
+#    # <object> Client certificate authentication configuration.
+#    # Settings for mutual TLS (mTLS) authentication.
+#    client:
+#      # <bool> Enable client certificate authentication.
+#      # When true, clients must present valid certificates signed by the configured CAs.
+#      # Default value: false
+#      allowCertAuth: false
+#
+#      # <list[string]> List of paths to Certificate Authority certificate files.
+#      # Used to verify client certificates during mutual TLS authentication.
+#      # Default value: not set
+#      caCerts:
+#        - /path/to/ca-cert.pem
+#
+#  # <object> Interceptors configuration for gRPC middleware pipeline.
+#  # Configures the complete interceptor chain: cache, realIp, requestId, recovery, logger,
+#  # idempotency, auth, health, limiter, prometheus, and tracing.
+#  # Each interceptor provides specific functionality and can be enabled/disabled independently.
+#  #
+#  # Interceptor execution order and purposes:
+#  # 1. cache: Response caching for performance optimization
+#  # 2. realIp: Client IP extraction from proxy headers
+#  # 3. requestId: Request correlation and distributed tracing
+#  # 4. recovery: Panic handling and service resilience
+#  # 5. logger: Request/response logging for observability
+#  # 6. idempotency: Duplicate request prevention
+#  # 7. auth: Authentication and authorization
+#  # 8. health: Health check gating
+#  # 9. limiter: Rate limiting and abuse prevention
+#  # 10. prometheus: Metrics collection
+#  # 11. tracing: Distributed tracing
+#  interceptors:
+#    # <object> Cache configuration for response caching interceptor.
+#    # Controls TTL, compression, and header behavior for cached responses.
+#    # Caches successful responses to improve performance and reduce backend load.
+#    cache:
+#      # <bool> Enable response caching.
+#      # When enabled, caches responses based on request content.
+#      # Default value: false
+#      enable: false
+#
+#      # <list[string]> List of gRPC methods to skip caching for.
+#      # Methods should be specified in the format "/service.Service/Method".
+#      # Default value: not set
+#      ignoreMethods:
+#        - "/grpc.health.v1.Health/Check"
+#
+#      # <list[string]> List of regex patterns for methods to skip caching.
+#      # Pattern-based rules for caching bypass.
+#      # Default value: not set
+#      ignorePatterns:
+#        - "^(?i)/grpc.health.*"
+#
+#      # <duration> Default TTL for successful responses.
+#      # How long successful responses are cached.
+#      # Default value: 24h
+#      successTTL: 24h
+#
+#      # <duration> Default TTL for error responses.
+#      # How long error responses are cached.
+#      # Default value: 1h
+#      errorTTL: 1h
+#
+#      # <bool> Controls whether cache hit/miss headers are added to responses.
+#      # Adds debugging headers to indicate cache status.
+#      # Default value: true
+#      enableCacheHeaders: true
+#
+#      # <string> Compression level for cached responses.
+#      # Balances storage efficiency vs CPU usage.
+#      # Supported values: none, fast, balanced, best
+#      # Default value: fast
+#      compressionPreset: fast
+#
+#      # <string> Prefix for all cache keys in storage.
+#      # Namespaces cache entries to prevent conflicts between services.
+#      # Default value: not set
+#      keysPrefix:
+#
+#      # <list[string]> gRPC metadata keys (headers) to include in the cache key hash.
+#      # If empty, a standard set of security and identity headers is used.
+#      # Default value: not set
+#      keyMetadata:
+#        - "x-user-id"
+#        - "x-tenant-id"
+#
+#    # <object> Real IP configuration for extracting client IP addresses from proxy headers.
+#    # Extracts real client IP addresses from proxy headers like X-Forwarded-For.
+#    # Essential for services behind load balancers or reverse proxies.
+#    realIp:
+#      # <bool> Enable real IP extraction.
+#      # When enabled, extracts real client IPs from proxy headers.
+#      # Default value: false
+#      enable: false
+#
+#      # <list[string]> List of gRPC methods to skip real IP extraction for.
+#      # Methods should be specified in the format "/service.Service/Method".
+#      # Default value: not set
+#      ignoreMethods:
+#        - "/grpc.health.v1.Health/Check"
+#
+#      # <list[string]> List of regex patterns for methods to skip real IP extraction.
+#      # Pattern-based rules for real IP bypass.
+#      # Default value: not set
+#      ignorePatterns:
+#        - "^(?i)/grpc.health.*"
+#
+#      # <list[string]> List of trusted proxy IP addresses or CIDR blocks.
+#      # Only these proxies are trusted to set forwarded headers.
+#      # Default value: not set
+#      trustedProxies:
+#        - "10.0.0.0/8"
+#        - "172.16.0.0/12"
+#
+#      # <uint> Number of trusted proxies that may append X-Forwarded-For.
+#      # Controls how many proxy hops are trusted.
+#      # Default value: 0
+#      trustedProxiesCount: 0
+#
+#      # <list[string]> List of trusted peer IP addresses or CIDR blocks.
+#      # Direct peers that are trusted for IP information.
+#      # Default value: not set
+#      trustedPeers:
+#        - "::1"
+#
+#      # <list[string]> List of headers to check for real IP (in order of preference).
+#      # If empty, uses default headers: X-Forwarded-For, X-Real-IP, X-Client-IP, CF-Connecting-IP, Fastly-Client-Ip, True-Client-Ip.
+#      # Custom header priority order for IP extraction.
+#      # Default value: not set (uses built-in defaults)
+#      headers:
+#        - X-Forwarded-For
+#        - X-Real-IP
+#
+#      # <int> Size of the IP validation cache (0 to disable).
+#      # Caches IP validation results to improve performance.
+#      # Default value: 1000
+#      cacheSize: 1000
+#
+#    # <object> Request ID configuration for request tracing and correlation.
+#    # Generates and propagates unique request identifiers for distributed tracing.
+#    # Essential for tracking requests across microservice boundaries.
+#    requestId:
+#      # <bool> Enable request ID generation.
+#      # When enabled, ensures all requests have unique identifiers.
+#      # Default value: false
+#      enable: false
+#
+#      # <list[string]> List of gRPC methods to skip request ID generation for.
+#      # Methods should be specified in the format "/service.Service/Method".
+#      # Default value: not set
+#      ignoreMethods:
+#        - "/grpc.health.v1.Health/Check"
+#
+#      # <list[string]> List of regex patterns for methods to skip request ID generation.
+#      # Pattern-based rules for request ID bypass.
+#      # Default value: not set
+#      ignorePatterns:
+#        - "^(?i)/grpc.health.*"
+#
+#      # <bool> Generate a request ID if none is provided.
+#      # Creates new ID when client doesn't provide one.
+#      # Default value: true
+#      generateIfMissing: true
+#
+#    # <object> Recovery configuration for panic handling and service resilience.
+#    # Catches panics in gRPC handlers and converts them to proper error responses.
+#    # Critical for preventing service crashes and maintaining system stability.
+#    recovery:
+#      # <bool> Enable panic recovery.
+#      # When enabled, catches panics and converts them to gRPC errors.
+#      # Default value: false
+#      enable: false
+#
+#      # <list[string]> List of gRPC methods to skip recovery for.
+#      # These methods will fail fast without recovery.
+#      # Methods that should crash on panic instead of recovering.
+#      # Default value: not set
+#      ignoreMethods:
+#        - "/api.UserService/GetSensitiveData"
+#
+#      # <list[string]> List of regex patterns for methods to skip recovery.
+#      # Pattern-based rules for recovery bypass.
+#      # Default value: not set
+#      ignorePatterns:
+#        - "^(?i)/api.sensitive.*"
+#
+#    # <object> Logger configuration for request/response logging interceptor.
+#    # Logs incoming requests and outgoing responses with configurable detail levels.
+#    # Essential for debugging, monitoring, and audit trails in production systems.
+#    logger:
+#      # <bool> Enable request/response logging.
+#      # When enabled, logs requests and responses according to configuration.
+#      # Default value: false
+#      enable: false
+#
+#      # <list[string]> List of gRPC methods to skip logging for.
+#      # Methods that should not appear in logs (e.g., health checks, noisy endpoints).
+#      # Default value: not set
+#      ignoreMethods:
+#        - "/grpc.health.v1.Health/Check"
+#        - "/api.MetricsService/GetMetrics"
+#
+#      # <list[string]> List of regex patterns for methods to skip logging.
+#      # Pattern-based rules for logging bypass.
+#      # Default value: not set
+#      ignorePatterns:
+#        - "^(?i)/grpc.health.*"
+#
+#      # <string> Timestamp format for log entries.
+#      # Controls how timestamps are formatted in log output.
+#      # Supported values: rfc3339, rfc3339nano, unix, unixnano, unixmilli
+#      # Default value: rfc3339
+#      timeFormat: rfc3339
+#
+#      # <bool> Log request payloads.
+#      # Set to true to include request content in logs for debugging purposes.
+#      # Default value: false
+#      logRequest: false
+#
+#      # <bool> Log response payloads.
+#      # Set to true to include response content in logs for debugging purposes.
+#      # Default value: true
+#      logResponse: true
+#
+#      # <bool> Enable context-aware logger injection.
+#      # When enabled, handlers can retrieve the logger from the request context.
+#      # Default value: false
+#      enableContextLogger: false
+#
+#      # <list[uint32]> List of gRPC response codes to never log.
+#      # Takes precedence over logGrpcResponseCodes.
+#      # Example: [0, 1] to ignore OK and CANCELLED codes.
+#      # Default value: not set
+#      ignoreGrpcResponseCodes:
+#        - 0  # OK
+#        - 1  # CANCELLED
+#
+#      # <list[uint32]> List of gRPC response codes to always log.
+#      # Example: [5, 13] to always log NOT_FOUND and INTERNAL codes.
+#      # Useful for ensuring important error responses are always captured.
+#      # Default value: not set
+#      logGrpcResponseCodes:
+#        - 5   # NOT_FOUND
+#        - 13  # INTERNAL
+#
+#    # <object> Prometheus configuration for gRPC metrics collection interceptor.
+#    # Collects various metrics about gRPC requests and responses including request counts,
+#    # durations, and optionally message sizes and streaming metrics for monitoring and observability.
+#    prometheus:
+#      # <bool> Enable Prometheus metrics collection.
+#      # When enabled, collects gRPC metrics according to configuration.
+#      # Default value: false
+#      enable: false
+#
+#      # <list[string]> List of gRPC methods to exclude from metrics collection.
+#      # Methods should be specified in the format "/service.Service/Method".
+#      # Useful for excluding health checks or other high-frequency endpoints.
+#      # Default value: not set
+#      ignoreMethods:
+#        - "/grpc.health.v1.Health/Check"
+#        - "/api.MetricsService/GetMetrics"
+#
+#      # <list[string]> List of regex patterns for methods to exclude from metrics.
+#      # Pattern-based rules for metrics bypass.
+#      # Default value: not set
+#      ignorePatterns:
+#        - "^(?i)/grpc.health.*"
+#
+#      # <string> Prometheus metric namespace.
+#      # Used as the first part of metric names (e.g., "myapp" -> "myapp_grpc_server_requests_total").
+#      # Empty namespace is allowed and results in metrics without namespace prefix.
+#      # Default value: not set
+#      namespace:
+#
+#      # <string> Prometheus metric subsystem.
+#      # Used as the second part of metric names after namespace.
+#      # Default value: grpc
+#      subsystem: grpc
+#
+#      # <list[float64]> Custom histogram buckets for request duration metrics in seconds.
+#      # Must be in increasing order. If not specified, reasonable defaults are used.
+#      # Covers microsecond to multi-second request times.
+#      # Default value: not set (uses built-in defaults)
+#      durationBuckets:
+#        - 0.001   # 1ms
+#        - 0.01    # 10ms
+#        - 0.1     # 100ms
+#        - 1.0     # 1s
+#        - 10.0    # 10s
+#
+#      # <list[float64]> Custom histogram buckets for message size metrics in bytes.
+#      # Only used when enableSizeMetrics is true. Must be in increasing order.
+#      # Covers very small messages (64 bytes) to large payloads (256MB).
+#      # Default value: not set (uses built-in defaults)
+#      sizeBuckets:
+#        - 64        # 64B
+#        - 1024      # 1KB
+#        - 4096      # 4KB
+#        - 16384     # 16KB
+#        - 65536     # 64KB
+#        - 262144    # 256KB
+#        - 1048576   # 1MB
+#        - 16777216  # 16MB
+#        - 268435456 # 256MB
+#
+#      # <bool> Enable request/response size metrics collection.
+#      # Size metrics add overhead as they require inspecting message payloads.
+#      # When enabled, collects grpc_server_request_size_bytes and grpc_server_response_size_bytes histograms.
+#      # Default value: false
+#      enableSizeMetrics: false
+#
+#      # <bool> Enable per-message streaming metrics collection.
+#      # Streaming metrics track individual message counts and sizes within gRPC streams but add overhead.
+#      # When enabled, collects grpc_server_stream_messages_sent_total and grpc_server_stream_messages_received_total counters.
+#      # When disabled, only basic per-stream metrics are collected (requests_total, request_duration).
+#      # Default value: false
+#      enableStreamMetrics: false
+#
+#      # <float64> Sampling rate for streaming message metrics (0.0 to 1.0).
+#      # Only effective when enableStreamMetrics is true. Used to reduce overhead in high-throughput scenarios.
+#      # 1.0 = no sampling (record all messages), 0.1 = record 10% of messages, 0.0 = disable streaming metrics.
+#      # When sampling is enabled, recorded metrics are scaled to maintain accurate totals.
+#      # Default value: 1.0
+#      streamSamplingRate: 1.0
+#
+#      # <string> Sampling strategy for streaming message metrics.
+#      # Only effective when enableStreamMetrics is true and streamSamplingRate < 1.0.
+#      # "per_message" = sample individual messages within a stream independently.
+#      # "per_stream" = sample entire streams as a unit - either all or none.
+#      # Supported values: per_message, per_stream
+#      # Default value: per_message
+#      streamSamplingStrategy: per_message
+#
+#    # <object> Idempotency configuration for duplicate request prevention.
+#    # Tracks idempotency keys to ensure duplicate requests return cached responses.
+#    # Essential for financial operations and critical business transactions.
+#    idempotency:
+#      # <bool> Enable idempotency checking.
+#      # When enabled, tracks and deduplicates requests by idempotency key.
+#      # Default value: false
+#      enable: false
+#
+#      # <list[string]> List of gRPC methods to skip idempotency checking for.
+#      # Methods that don't need idempotency protection.
+#      # Default value: not set
+#      ignoreMethods:
+#        - "/api.UserService/GetPublicData"
+#
+#      # <list[string]> List of regex patterns for methods to skip idempotency.
+#      # Pattern-based rules for idempotency bypass.
+#      # Default value: not set
+#      ignorePatterns:
+#        - "^(?i)/api.readonly.*"
+#
+#      # <string> Header name for idempotency key.
+#      # HTTP header name containing the idempotency key.
+#      # Default value: idempotency-key
+#      idempotencyKeyHeader: idempotency-key
+#
+#      # <string> Field name to extract idempotency key from request.
+#      # Field in the request message containing idempotency key.
+#      # Default value: idempotencyKey
+#      idempotencyKeyField: idempotencyKey
+#
+#      # <string> Fallback behavior when error occurs during idempotency processing.
+#      # Determines how to handle requests when storage backends are unavailable.
+#      # Supported values: allow, deny, error
+#      # Default value: deny
+#      fallbackBehavior: deny
+#
+#      # <string> Metadata key for idempotency status response.
+#      # Default value: Idempotency-Key-Status
+#      idempotencyKeyStatusMetadata: Idempotency-Key-Status
+#
+#      # <string> Metadata key for entity ID response.
+#      # Default value: Idempotency-Key-Entity-Id
+#      idempotencyKeyEntityIdMetadata: Idempotency-Key-Entity-Id
+#
+#      # <bool> Enforce mandatory idempotency key for all methods.
+#      # Default value: true
+#      enforceMandatory: true
+#
+#    # <object> Authentication configuration for access control and security.
+#    # Validates authentication tokens and enforces access policies.
+#    # Critical for protecting private APIs and sensitive operations.
+#    auth:
+#      # <bool> Enable authentication.
+#      # When enabled, validates authentication tokens for requests.
+#      # Default value: false
+#      enable: false
+#
+#      # <list[string]> List of gRPC methods to skip authentication for.
+#      # Public methods that don't require authentication.
+#      # Default value: not set
+#      ignoreMethods:
+#        - "/api.UserService/GetPublicInfo"
+#        - "/grpc.health.v1.Health/Check"
+#
+#      # <list[string]> List of regex patterns for methods to skip authentication.
+#      # Pattern-based rules for authentication bypass.
+#      # Default value: not set
+#      ignorePatterns:
+#        - "^(?i)/api.public.*"
+#        - "^(?i)/grpc.health.v1.health/*"
+#
+#    # <object> Health check interceptor configuration.
+#    # When enabled, every incoming RPC is preceded by a health check;
+#    # if the service is unhealthy the call is rejected with Unavailable status.
+#    health:
+#      # <bool> Enable health check interceptor.
+#      # When enabled, rejects RPCs if the service is unhealthy.
+#      # Default value: false
+#      enable: false
+#
+#      # <list[string]> List of gRPC methods to skip health checking for.
+#      # Methods that should bypass health check gating.
+#      # Default value: not set
+#      ignoreMethods:
+#        - "/grpc.health.v1.Health/Check"
+#
+#      # <list[string]> List of regex patterns for methods to skip health checking.
+#      # Pattern-based rules for health check bypass.
+#      # Default value: not set
+#      ignorePatterns:
+#        - "^(?i)/grpc.health.*"
+#
+#    # <object> Rate limiter configuration for traffic control and abuse prevention.
+#    # Implements per-client rate limiting to prevent service overload and abuse.
+#    # Essential for protecting APIs from DDoS attacks and ensuring fair usage.
+#    limiter:
+#      # <bool> Enable rate limiting.
+#      # When enabled, applies rate limits to client requests.
+#      # Default value: false
+#      enable: false
+#
+#      # <list[string]> List of gRPC methods to skip rate limiting for.
+#      # Methods that bypass rate limiting restrictions.
+#      # Default value: not set
+#      ignoreMethods:
+#        - "/grpc.health.v1.Health/Check"
+#        - "/api.InternalService/HealthCheck"
+#
+#      # <list[string]> List of regex patterns for methods to skip rate limiting.
+#      # Pattern-based rules for rate limiting bypass.
+#      # Default value: not set
+#      ignorePatterns:
+#        - "^(?i)/grpc.health.*"
+#
+#      # <string> Fallback behavior when rate limiting encounters errors.
+#      # Determines how to handle requests when storage backends are unavailable.
+#      # Supported values: allow, deny, error
+#      # Default value: deny
+#      fallbackBehavior: deny
+#
+#    # <object> Distributed tracing configuration for gRPC requests.
+#    # Controls OpenTelemetry-based distributed tracing for request flows.
+#    tracing:
+#      # <bool> Enable distributed tracing.
+#      # When enabled, creates spans for gRPC requests.
+#      # Default value: false
+#      enable: false
+#
+#      # <list[string]> List of gRPC methods to skip tracing for.
+#      # Methods that should not produce trace spans.
+#      # Default value: not set
+#      ignoreMethods:
+#        - "/grpc.health.v1.Health/Check"
+#
+#      # <list[string]> List of regex patterns for methods to skip tracing.
+#      # Pattern-based rules for tracing bypass.
+#      # Default value: not set
+#      ignorePatterns:
+#        - "^(?i)/grpc.health.*"
+#
+#      # <bool> Record request/response payloads in trace spans.
+#      # Warning: This can significantly increase trace size and may expose sensitive data.
+#      # Default value: false
+#      recordPayload: false
+#
+#      # <bool> Record gRPC metadata as span attributes.
+#      # Default value: true
+#      recordMetadata: true
+#
+#      # <bool> Record streaming message events in trace spans.
+#      # Default value: true
+#      recordEvents: true
+#
+#      # <bool> Propagate trace context from incoming requests.
+#      # When true, parent spans from incoming requests are linked to server spans.
+#      # Default value: true
+#      propagateContext: true

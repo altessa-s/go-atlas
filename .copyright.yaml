@@ -1,0 +1,7 @@
+variables:
+  start_year: '2021'
+  company: 'ALTESSA SOLUTIONS INC'
+template: |
+  Copyright {{.START_YEAR}}-{{.YEAR}} {{.COMPANY}}. All rights reserved.
+  Use of this source code is governed by license that can be found in 
+  the LICENSE file.

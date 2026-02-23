@@ -1,0 +1,511 @@
+# HTTP server configuration for the <name> service.
+# Defines settings for the HTTP server that exposes API endpoints and internal services.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#http:
+#  # <string> Optional prefix for all HTTP routes.
+#  # Allows mounting the service under a specific path prefix.
+#  # Default value: not set (no prefix)
+#  routerPrefix:
+#
+#  # <string> Specifies the address to bind to for listening.
+#  # Format: host:port or :port for all interfaces.
+#  # Default value: 0.0.0.0:9080
+#  listenAddress: 0.0.0.0:9080
+#
+#  # <int64> Maximum allowed size of request payload in bytes.
+#  # Requests exceeding this size will be rejected. Set to 0 for unlimited size.
+#  # Default value: 10485760 (10MB)
+#  maxRequestPayloadSize: 10485760
+#
+#  # <duration> Maximum time from connection establishment to full request body read.
+#  # Protects against slow client attacks.
+#  # Default value: 300s
+#  readTimeout: 300s
+#
+#  # <duration> Maximum time from end of request headers to response write completion.
+#  # For HTTPS, this is total time from connection establishment to response completion.
+#  # Default value: 300s
+#  writeTimeout: 300s
+#
+#  # <duration> Maximum idle time before disconnecting an inactive connection.
+#  # Helps manage server resources by closing idle connections.
+#  # Default value: 600s
+#  idleTimeout: 600s
+#
+#  # <bool> Enables logging of HTTP requests.
+#  # When enabled, logs all incoming HTTP requests for debugging and monitoring.
+#  # Default value: false
+#  logRequests: false
+#
+#  # <object> TLS/SSL configuration options.
+#  # If not set, the server will run in HTTP mode only.
+#  tls:
+#    # <string> TLS provider type.
+#    # Determines how TLS certificates are obtained and managed.
+#    # Supported values: file, letsencrypt, vault
+#    # Default value: file
+#    providerType: file
+#
+#    # <string> Minimum TLS version to use.
+#    # Enforces minimum security standards for connections.
+#    # Supported values: 1.2, 1.3
+#    # Default value: 1.2
+#    minVersion: 1.2
+#
+#    # <object> HTTP Strict Transport Security (HSTS) settings.
+#    # Instructs browsers to only access the site over HTTPS for a specified duration.
+#    sts:
+#      # <duration> Maximum age for HSTS header.
+#      # Controls how long browsers should remember to use HTTPS.
+#      # Minimum value: 1h.
+#      # Default value: 8760h (1 year)
+#      maxAge: 8760h
+#
+#  # <object> Middlewares configuration for HTTP server pipeline.
+#  # Configures the complete middleware chain: bodyLimit, cors, idempotency, limiter,
+#  # logger, prometheus, realIp, recovery, requestId, securityHeaders, and tracing.
+#  # Each middleware provides specific functionality and can be enabled/disabled independently.
+#  #
+#  # Middleware execution order and purposes:
+#  # 1. recovery: Panic handling and service resilience
+#  # 2. realIp: Client IP extraction from proxy headers
+#  # 3. requestId: Request correlation and distributed tracing
+#  # 4. tracing: Distributed tracing with OpenTelemetry
+#  # 5. logger: Request/response logging for observability
+#  # 6. prometheus: Metrics collection for monitoring
+#  # 7. cors: Cross-Origin Resource Sharing support
+#  # 8. securityHeaders: Security-related HTTP headers
+#  # 9. bodyLimit: Request payload size limiting
+#  # 10. limiter: Rate limiting and abuse prevention
+#  # 11. idempotency: Duplicate request prevention
+#  middlewares:
+#    # <object> Request body size limiting middleware.
+#    # Rejects requests with bodies exceeding the specified size.
+#    bodyLimit:
+#      # <bool> Enable body size limiting.
+#      # Default value: false
+#      enable: false
+#
+#      # <list[string]> List of exact URL paths to skip processing for.
+#      # Default value: not set
+#      ignorePaths:
+#        - "/health"
+#
+#      # <list[string]> List of regex patterns for URL paths to skip processing.
+#      # Default value: not set
+#      ignorePatterns:
+#        - "^/health\\..*"
+#
+#      # <int64> Maximum allowed size of the request body in bytes.
+#      # Default value: 10485760 (10MB)
+#      maxSize: 10485760
+#
+#    # <object> CORS middleware for handling cross-origin requests.
+#    # Configures which origins, methods, and headers are allowed.
+#    cors:
+#      # <bool> Enable CORS support.
+#      # Default value: false
+#      enable: false
+#
+#      # <list[string]> List of exact URL paths to skip processing for.
+#      # Default value: not set
+#      ignorePaths:
+#        - "/health"
+#
+#      # <list[string]> List of regex patterns for URL paths to skip processing.
+#      # Default value: not set
+#      ignorePatterns:
+#        - "^/health\\..*"
+#
+#      # <list[string]> List of origins allowed to make cross-origin requests.
+#      # Use ["*"] to allow all origins.
+#      # Default value: not set
+#      allowedOrigins:
+#        - "*"
+#
+#      # <list[string]> List of HTTP methods allowed for cross-origin requests.
+#      # Default value: not set
+#      allowedMethods:
+#        - "GET"
+#        - "POST"
+#        - "PUT"
+#        - "PATCH"
+#        - "DELETE"
+#        - "HEAD"
+#        - "OPTIONS"
+#
+#      # <list[string]> List of headers allowed in cross-origin requests.
+#      # Default value: not set
+#      allowedHeaders:
+#        - "Accept"
+#        - "Authorization"
+#        - "Content-Type"
+#        - "Origin"
+#        - "X-Requested-With"
+#
+#      # <list[string]> List of headers that browsers are allowed to access.
+#      # Default value: not set
+#      exposedHeaders: []
+#
+#      # <bool> Allow requests to include credentials like cookies or auth headers.
+#      # Default value: false
+#      allowCredentials: false
+#
+#      # <int> How long (in seconds) preflight results can be cached.
+#      # Default value: 86400 (24 hours)
+#      maxAge: 86400
+#
+#      # <bool> Enable support for Private Network Access preflights.
+#      # Default value: false
+#      allowPrivateNetwork: false
+#
+#      # <bool> Pass OPTIONS requests to the next handler instead of handling them internally.
+#      # Default value: false
+#      optionsPassthrough: false
+#
+#      # <int> HTTP status code to return for successful OPTIONS requests.
+#      # Default value: 204
+#      optionsSuccessStatus: 204
+#
+#    # <object> Idempotency middleware for duplicate request prevention.
+#    # Tracks keys to ensure duplicate requests return consistent results.
+#    idempotency:
+#      # <bool> Enable idempotency checking.
+#      # Default value: false
+#      enable: false
+#
+#      # <list[string]> List of exact URL paths to skip processing for.
+#      # Default value: not set
+#      ignorePaths:
+#        - "/health"
+#
+#      # <list[string]> List of regex patterns for URL paths to skip processing.
+#      # Default value: not set
+#      ignorePatterns:
+#        - "^/health\\..*"
+#
+#      # <string> Header name for the idempotency key.
+#      # Default value: Idempotency-Key
+#      idempotencyKeyHeader: Idempotency-Key
+#
+#      # <string> Header name for the idempotency key status response.
+#      # Default value: Idempotency-Key-Status
+#      idempotencyKeyStatusHeader: Idempotency-Key-Status
+#
+#      # <string> Header name for the idempotency key entity ID response.
+#      # Default value: Idempotency-Key-Entity-Id
+#      idempotencyKeyEntityIdHeader: Idempotency-Key-Entity-Id
+#
+#      # <string> Fallback behavior when the idempotency checker encounters errors.
+#      # Determines how to handle requests when storage backends are unavailable.
+#      # Supported values: allow, deny, error
+#      # Default value: deny
+#      fallbackBehavior: deny
+#
+#      # <bool> Require idempotency key for all non-ignored requests.
+#      # Default value: true
+#      enforceMandatory: true
+#
+#    # <object> Rate limiting middleware for traffic control.
+#    # Limits the number of requests a client can make in a given time.
+#    limiter:
+#      # <bool> Enable rate limiting.
+#      # Default value: false
+#      enable: false
+#
+#      # <list[string]> List of exact URL paths to skip processing for.
+#      # Default value: not set
+#      ignorePaths:
+#        - "/health"
+#
+#      # <list[string]> List of regex patterns for URL paths to skip processing.
+#      # Default value: not set
+#      ignorePatterns:
+#        - "^/health\\..*"
+#
+#      # <string> Behavior when the rate limiter backend fails.
+#      # Determines how to handle requests when storage backends are unavailable.
+#      # Supported values: allow, deny, error
+#      # Default value: error
+#      fallbackBehavior: error
+#
+#    # <object> Logger middleware for request/response logging.
+#    # Captures request details, status codes, and timing.
+#    logger:
+#      # <bool> Enable HTTP request logging.
+#      # Default value: false
+#      enable: false
+#
+#      # <list[string]> List of exact URL paths to skip processing for.
+#      # Default value: not set
+#      ignorePaths:
+#        - "/health"
+#
+#      # <list[string]> List of regex patterns for URL paths to skip processing.
+#      # Default value: not set
+#      ignorePatterns:
+#        - "^/health\\..*"
+#
+#      # <bool> Log request bodies (CAUTION: may include sensitive data).
+#      # Default value: false
+#      logRequest: false
+#
+#      # <bool> Log response bodies (CAUTION: may include sensitive data).
+#      # Default value: true
+#      logResponse: true
+#
+#      # <string> Format for timestamps in log entries.
+#      # Supported values: rfc3339, rfc3339nano, unix, unixnano, unixmilli
+#      # Default value: rfc3339
+#      timeFormat: rfc3339
+#
+#      # <list[int]> List of HTTP response status codes to never log.
+#      # Takes precedence over logResponseCodes.
+#      # Default value: not set
+#      ignoreResponseCodes:
+#        - 200
+#        - 204
+#
+#      # <list[int]> List of HTTP response status codes to always log.
+#      # If set, only these codes (minus those in ignoreResponseCodes) will be logged.
+#      # Default value: not set
+#      logResponseCodes:
+#        - 500
+#        - 502
+#
+#      # <list[string]> List of HTTP methods to skip logging for.
+#      # Default value: not set
+#      ignoreHttpMethods:
+#        - "OPTIONS"
+#        - "HEAD"
+#
+#    # <object> Prometheus metrics middleware for HTTP observability.
+#    # Collects request counts, durations, and sizes.
+#    prometheus:
+#      # <bool> Enable Prometheus metrics collection.
+#      # Default value: false
+#      enable: false
+#
+#      # <list[string]> List of exact URL paths to skip processing for.
+#      # Default value: not set
+#      ignorePaths:
+#        - "/health"
+#
+#      # <list[string]> List of regex patterns for URL paths to skip processing.
+#      # Default value: not set
+#      ignorePatterns:
+#        - "^/health\\..*"
+#
+#      # <string> Prometheus metric namespace prefix.
+#      # Used as the first part of metric names.
+#      # Default value: not set (empty string)
+#      namespace: ""
+#
+#      # <string> Prometheus metric subsystem name.
+#      # Used as the second part of metric names after namespace.
+#      # Default value: not set (empty string)
+#      subsystem: ""
+#
+#      # <bool> Collect request and response size metrics.
+#      # Default value: false
+#      enableSizeMetrics: false
+#
+#      # <list[float64]> Custom histogram buckets for request duration metrics in seconds.
+#      # Must be in increasing order. If not specified, reasonable defaults are used.
+#      # Default value: not set
+#      durationBuckets:
+#        - 0.001
+#        - 0.01
+#        - 0.1
+#        - 1.0
+#        - 10.0
+#
+#      # <list[float64]> Custom histogram buckets for request/response size metrics in bytes.
+#      # Only used when enableSizeMetrics is true. Must be in increasing order.
+#      # Default value: not set
+#      sizeBuckets:
+#        - 64
+#        - 1024
+#        - 16384
+#        - 262144
+#        - 1048576
+#
+#    # <object> Real IP middleware for client IP extraction.
+#    # Extracts real client IP from proxy headers (e.g., X-Forwarded-For).
+#    realIp:
+#      # <bool> Enable real IP extraction.
+#      # Default value: false
+#      enable: false
+#
+#      # <list[string]> List of exact URL paths to skip processing for.
+#      # Default value: not set
+#      ignorePaths:
+#        - "/health"
+#
+#      # <list[string]> List of regex patterns for URL paths to skip processing.
+#      # Default value: not set
+#      ignorePatterns:
+#        - "^/health\\..*"
+#
+#      # <list[string]> Headers to check for real IP (in order).
+#      # Default value: ["X-Forwarded-For", "X-Real-IP"]
+#      headers:
+#        - "X-Forwarded-For"
+#        - "X-Real-IP"
+#
+#      # <list[string]> Trusted proxy IP addresses or CIDR ranges.
+#      # Default value: not set
+#      trustedProxies:
+#        - "10.0.0.0/8"
+#        - "172.16.0.0/12"
+#
+#    # <object> Recovery middleware for panic handling.
+#    # Catches panics in handlers and returns 500 status code.
+#    recovery:
+#      # <bool> Enable panic recovery.
+#      # Default value: false
+#      enable: false
+#
+#      # <list[string]> List of exact URL paths to skip processing for.
+#      # Default value: not set
+#      ignorePaths:
+#        - "/health"
+#
+#      # <list[string]> List of regex patterns for URL paths to skip processing.
+#      # Default value: not set
+#      ignorePatterns:
+#        - "^/health\\..*"
+#
+#      # <bool> Log the stack trace when a panic occurs.
+#      # Default value: true
+#      logStack: true
+#
+#    # <object> Request ID middleware for correlation.
+#    # Ensures every request has a unique identifier for tracing.
+#    requestId:
+#      # <bool> Enable request ID generation and propagation.
+#      # Default value: false
+#      enable: false
+#
+#      # <list[string]> List of exact URL paths to skip processing for.
+#      # Default value: not set
+#      ignorePaths:
+#        - "/health"
+#
+#      # <list[string]> List of regex patterns for URL paths to skip processing.
+#      # Default value: not set
+#      ignorePatterns:
+#        - "^/health\\..*"
+#
+#      # <string> Header name for the request ID.
+#      # Default value: X-Request-ID
+#      headerName: X-Request-ID
+#
+#      # <bool> Generate a request ID if none is provided.
+#      # Default value: true
+#      generateIfMissing: true
+#
+#    # <object> Security headers middleware for browser protection.
+#    # Adds headers like X-Frame-Options, CSP, and HSTS.
+#    securityHeaders:
+#      # <bool> Enable security headers.
+#      # Default value: false
+#      enable: false
+#
+#      # <list[string]> List of exact URL paths to skip processing for.
+#      # Default value: not set
+#      ignorePaths:
+#        - "/health"
+#
+#      # <list[string]> List of regex patterns for URL paths to skip processing.
+#      # Default value: not set
+#      ignorePatterns:
+#        - "^/health\\..*"
+#
+#      # <string> X-Frame-Options header value.
+#      # Default value: DENY
+#      frameOptions: DENY
+#
+#      # <string> Referrer-Policy header value.
+#      # Default value: strict-origin-when-cross-origin
+#      referrerPolicy: strict-origin-when-cross-origin
+#
+#      # <string> Content-Security-Policy header.
+#      # Default value: not set (empty string)
+#      contentSecurityPolicy: ""
+#
+#      # <string> Permissions-Policy header.
+#      # Default value: not set (empty string)
+#      permissionsPolicy: ""
+#
+#      # <bool> Enable Strict-Transport-Security (HSTS).
+#      # Default value: false
+#      hstsEnabled: false
+#
+#      # <int> HSTS max-age in seconds.
+#      # Default value: 31536000 (1 year)
+#      hstsMaxAge: 31536000
+#
+#      # <bool> Include subdomains in HSTS policy.
+#      # Default value: true
+#      hstsIncludeSubDomains: true
+#
+#      # <bool> Enable HSTS preload directive.
+#      # Default value: false
+#      hstsPreload: false
+#
+#      # <bool> Set X-Content-Type-Options: nosniff.
+#      # Default value: true
+#      contentTypeNoSniff: true
+#
+#      # <bool> Set X-XSS-Protection: 0 to disable browser XSS filter.
+#      # Default value: true
+#      xssProtectionDisabled: true
+#
+#    # <object> Distributed tracing middleware for HTTP observability.
+#    # Controls distributed tracing for HTTP requests using OpenTelemetry.
+#    tracing:
+#      # <bool> Enable distributed tracing.
+#      # Default value: false
+#      enable: false
+#
+#      # <list[string]> List of exact URL paths to skip processing for.
+#      # Default value: not set
+#      ignorePaths:
+#        - "/health"
+#
+#      # <list[string]> List of regex patterns for URL paths to skip processing.
+#      # Default value: not set
+#      ignorePatterns:
+#        - "^/health\\..*"
+#
+#      # <bool> Record request/response bodies in traces.
+#      # Warning: This can significantly increase trace size and may expose sensitive data.
+#      # Default value: false
+#      recordBody: false
+#
+#      # <bool> Record HTTP headers as span attributes.
+#      # Sensitive headers are automatically redacted based on redactedHeaders list.
+#      # Default value: true
+#      recordHeaders: true
+#
+#      # <list[string]> List of header names to redact from traces.
+#      # Values are replaced with "[REDACTED]".
+#      # Default value: ["Authorization", "Cookie", "Set-Cookie", "X-API-Key", "X-Auth-Token"]
+#      redactedHeaders:
+#        - "Authorization"
+#        - "Cookie"
+#        - "Set-Cookie"
+#        - "X-API-Key"
+#        - "X-Auth-Token"
+#
+#      # <bool> Propagate trace context from incoming requests.
+#      # When true, parent spans from incoming requests are linked to server spans.
+#      # Default value: true
+#      propagateContext: true
+#
+#      # <bool> Record client IP as span attribute.
+#      # Default value: true
+#      recordClientIP: true

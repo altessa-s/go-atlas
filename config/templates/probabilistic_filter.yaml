@@ -1,0 +1,107 @@
+# Probabilistic filter configuration for the <name> service.
+# Defines settings for Bloom or Cuckoo filters used for existence checks optimization.
+# Multiple filters can be configured for different fields (email, phone, inn, etc.).
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#probabilisticFilter:
+#  # <object> Default settings for all filters.
+#  # These values are used when not overridden in specific filter configuration.
+#  # Filter-specific settings are merged with defaults (filter settings take precedence).
+#  defaults:
+#    # <object> Default Bloom filter settings.
+#    bloom:
+#      # <string> Storage backend for the filter.
+#      # Supported values: memory, redis
+#      # Default value: memory
+#      storage: memory
+#
+#      # <float64> Target false positive rate.
+#      # Probability of false positive results (0.01 = 1%).
+#      # Default value: 0.01
+#      falsePositiveRate: 0.01
+#
+#      # <string> Cron schedule for periodic filter rebuild.
+#      # Schedule for rebuilding filter from data source.
+#      # Supports standard cron format with seconds: "sec min hour day month weekday"
+#      # (e.g., "0 0 * * * *") or descriptor format (e.g., "@every 1h").
+#      # Default value: "0 0 * * * *" (every hour)
+#      rebuildCron: "0 0 * * * *"
+#
+#      # <bool> Rebuild filter on service startup.
+#      # When true, filter is populated from data source at start.
+#      # Default value: true
+#      rebuildOnStart: true
+#
+#    # <object> Default Cuckoo filter settings.
+#    cuckoo:
+#      # <string> Storage backend for the filter.
+#      # Supported values: memory, redis
+#      # Default value: memory
+#      storage: memory
+#
+#      # <int> Fingerprint size in bits.
+#      # Affects false positive rate: 8 bits ~ 3%, 12 bits ~ 0.2%, 16 bits ~ 0.01%.
+#      # Supported values: 8, 12, 16
+#      # Default value: 12
+#      fingerprintSize: 12
+#
+#      # <float64> Capacity multiplier for auto-rebuild on overflow.
+#      # New capacity = current capacity * multiplier.
+#      # Must be between 1.1 and 10.0.
+#      # Default value: 2.0
+#      capacityMultiplier: 2.0
+#
+#      # <int64> Maximum capacity limit.
+#      # Prevents unbounded growth on repeated overflows.
+#      # Default value: 100000000
+#      maxCapacity: 100000000
+#
+#  # <map[string,object]> Named filter configurations.
+#  # Each key is the filter name (e.g., email, phone, inn).
+#  # Used in code as: probabilisticFilter["email"].mightExist(value)
+#  # Settings are merged with defaults (specific settings override defaults).
+#  filters:
+#    # Example: Email filter using Bloom
+#    email:
+#      # <string> Type of probabilistic filter to use.
+#      # Supported values: bloom, cuckoo
+#      # Default value: bloom
+#      type: bloom
+#
+#      bloom:
+#        # <int64> Expected number of elements in the filter.
+#        # Used to calculate optimal filter size.
+#        # Required for Bloom filter.
+#        expectedItems: 1000000
+#
+#        # Override defaults if needed:
+#        # storage: redis
+#        # falsePositiveRate: 0.001
+#        # rebuildCron: "0 0 */2 * * *"
+#        # rebuildOnStart: false
+#
+#        # <object> Redis-specific configuration.
+#        # Required when storage is set to 'redis'.
+#        # redis:
+#        #   keysPrefix: "myservice:email"
+#
+#    # Example: Phone filter using Cuckoo
+#    # phone:
+#    #   type: cuckoo
+#    #
+#    #   cuckoo:
+#    #     # <int64> Initial capacity of the filter.
+#    #     # Required for Cuckoo filter.
+#    #     capacity: 500000
+#    #
+#    #     # Override defaults if needed:
+#    #     # storage: redis
+#    #     # fingerprintSize: 16
+#    #     # capacityMultiplier: 3.0
+#    #     # maxCapacity: 50000000
+#    #
+#    #     # <object> Redis-specific configuration.
+#    #     # Required when storage is set to 'redis'.
+#    #     # redis:
+#    #     #   keysPrefix: "myservice:phone"

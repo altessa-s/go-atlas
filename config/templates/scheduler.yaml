@@ -1,0 +1,83 @@
+# Scheduler configuration for the <name> service.
+# Defines settings for the task scheduler including tick interval, history retention, and concurrency.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#scheduler:
+#  # <duration> Interval for the scheduler loop to check for tasks.
+#  # How often the scheduler checks for pending tasks to execute.
+#  # Default value: 1s
+#  tickInterval: 1s
+#
+#  # <duration> Duration to keep task history before cleanup.
+#  # How long task execution history is retained.
+#  # Default value: 168h (7 days)
+#  historyRetention: 168h
+#
+#  # <int> Maximum number of tasks that can run concurrently.
+#  # Zero means unlimited concurrent tasks.
+#  # Default value: 0 (unlimited)
+#  maxConcurrentTasks: 0
+#
+#  # <int> Number of concurrency slots reserved for high priority tasks.
+#  # These slots cannot be used by normal/low priority tasks.
+#  # Default value: 2
+#  reservedHighPrioritySlots: 2
+#
+#  # <duration> Timeout after which a task stuck in Running status is considered stale.
+#  # Stale tasks are automatically reset to Active on startup and periodically.
+#  # Handles recovery from process crashes where tasks were left in Running state.
+#  # Default value: 30m
+#  staleTaskTimeout: 30m
+#
+#  # <object> Storage backend configuration for the scheduler.
+#  # Supports multiple storage backends with provider-specific settings.
+#  # If not set, defaults to in-memory storage.
+#  storage:
+#    # <string> Type of storage backend for scheduler data.
+#    # Determines which storage system to use for task persistence.
+#    # Supported values: mongodb, redis, memory
+#    # Default value: memory
+#    type: memory
+#
+#    # <object> MongoDB-specific configuration for scheduler storage.
+#    # Contains settings for MongoDB collections.
+#    # Required when type is set to 'mongodb'.
+#    mongodb:
+#      # <string> MongoDB collection name for task states.
+#      # Collection where scheduled tasks are stored.
+#      # Default value: scheduler_tasks
+#      tasksCollection: scheduler_tasks
+#
+#      # <string> MongoDB collection name for task history.
+#      # Collection where task execution history is stored.
+#      # Default value: scheduler_history
+#      historyCollection: scheduler_history
+#
+#    # <object> Redis-specific configuration for scheduler storage.
+#    # Contains settings for Redis keys and history management.
+#    # Required when type is set to 'redis'.
+#    redis:
+#      # <string> Redis key prefix for scheduler data.
+#      # Namespace prefix to avoid key conflicts.
+#      # Default value: scheduler
+#      keyPrefix: scheduler
+#
+#      # <duration> TTL for history entries in Redis.
+#      # Set to 0 to disable TTL (history cleaned by CleanupHistory only).
+#      # Default value: 0 (disabled)
+#      historyTtl: 0
+#
+#      # <int> Maximum number of history entries kept per task.
+#      # Limits history storage per individual task.
+#      # Default value: 1000
+#      maxHistoryPerTask: 1000
+#
+#    # <object> In-memory storage configuration for scheduler.
+#    # Contains settings for memory-based task storage.
+#    # Optional when type is set to 'memory'.
+#    memory:
+#      # <int> Maximum number of history entries kept per task.
+#      # Limits history storage per individual task.
+#      # Default value: 1000
+#      maxHistoryPerTask: 1000

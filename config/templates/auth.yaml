@@ -1,0 +1,13 @@
+# Authentication and Authorization configuration for the <name> service.
+# Combines OpenID Connect (OIDC) and Open Policy Agent (OPA) settings.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#auth:
+#  # OpenID Connect (OIDC) authentication settings.
+#  # Configures token validation, discovery, and provider integration.
+#  !include auth_oidc.yaml
+#
+#  # Open Policy Agent (OPA) authorization settings.
+#  # Defines settings for policy evaluation, caching, and decision logging.
+#  !include opa.yaml

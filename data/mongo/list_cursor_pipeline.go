@@ -1,0 +1,296 @@
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Use of this source code is governed by license that can be found in
+// the LICENSE file.
+
+package mongo
+
+import (
+	"maps"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
+
+	"github.com/altessa-s/go-atlas/core/collections/slices"
+)
+
+// buildCursorFilter constructs a MongoDB filter for cursor-based pagination using cursor_id.
+// Since cursor_id (ObjectID) is lexicographically sortable and contains timestamp, we only need
+// to compare cursor_id values without separate timestamp comparison.
+//
+// When SortValue is present in the cursor, uses compound filter for correct pagination.
+// This handles cases where sort field order differs from cursor_id order.
+//
+// Parameters:
+//   - cursor: The pagination cursor containing cursor_id from the last item
+//   - cursorIdField: The MongoDB field name containing the cursor ID (e.g., "cursor_id", "_id")
+//   - sort: MongoDB sort specification as bson.D
+//
+// Returns:
+//   - Empty bson.M if cursor is nil or zero
+//   - Filter using $lt/$gt on cursor_id field based on sort direction
+//   - Compound filter if SortValue is present
+//
+// Example output for descending sort:
+//
+//	{"cursor_id": {"$lt": "01HQVZX3M8..."}}
+//
+// Example output for ascending sort:
+//
+//	{"cursor_id": {"$gt": "01HQVZX3M8..."}}
+//
+// Example output with SortValue (compound filter):
+//
+//	{"$or": [
+//	    {"updated_at": {"$lt": 1234567890}},
+//	    {"$and": [
+//	        {"updated_at": 1234567890},
+//	        {"cursor_id": {"$lt": "01HQVZX3M8..."}}
+//	    ]}
+//	]}
+func buildCursorFilter(cursor *Cursor, cursorIdField string, sort bson.D) bson.M {
+	if cursor == nil || cursor.IsZero() {
+		return bson.M{}
+	}
+
+	sortDirection := getSortDirection(sort)
+
+	// Determine comparison operator based on sort direction
+	// For descending sort: we want items BEFORE the cursor (cursor_id < cursor)
+	// For ascending sort: we want items AFTER the cursor (cursor_id > cursor)
+	var op string
+	if sortDirection == sortDirectionDescending {
+		op = "$lt" // $lt for descending
+	} else {
+		op = "$gt" // $gt for ascending
+	}
+
+	// At this point, cursor.CursorId is already validated by ValidateChecksum,
+	// so ObjectIDFromHex should never fail. If it does, it indicates a serious bug.
+	oid, err := bson.ObjectIDFromHex(cursor.CursorId)
+	if err != nil {
+		// Defensive: return empty filter to fail gracefully instead of crashing.
+		// This should never happen since cursor was validated, but library code
+		// must not panic. Returning empty filter will cause pagination to restart.
+		return bson.M{}
+	}
+
+	// When SortValue is present, use compound filter for correct pagination.
+	// This handles cases where sort field order differs from cursor_id order.
+	// Filter: (sort_field < value) OR (sort_field == value AND cursor_id < id)
+	if cursor.SortValue != "" && len(sort) > 0 {
+		sortFieldName := sort[0].Key
+
+		// Decode sort value from base64 BSON to preserve type precision
+		sortValue, err := decodeSortValue(cursor.SortValue)
+		if err != nil {
+			// Defensive: return empty filter to fail gracefully
+			// This should never happen if cursor was properly created
+			return bson.M{}
+		}
+
+		return bson.M{
+			"$or": bson.A{
+				// Items with smaller/larger sort value (depending on direction)
+				bson.M{sortFieldName: bson.M{op: sortValue}},
+				// Items with same sort value but smaller/larger cursor_id (tie-breaker)
+				bson.M{
+					"$and": bson.A{
+						bson.M{sortFieldName: sortValue},
+						bson.M{cursorIdField: bson.M{op: oid}},
+					},
+				},
+			},
+		}
+	}
+
+	return bson.M{
+		cursorIdField: bson.M{op: oid},
+	}
+}
+
+// getSortDirection extracts the sort direction from the primary (first) sort field.
+// Cursor-based pagination only uses the primary sort field for cursor generation,
+// so this function examines only the first element of the sort specification.
+//
+// Parameters:
+//   - sort: MongoDB sort specification as bson.D
+//
+// Returns:
+//   - 1 if the first field is sorted ascending (value >= 0)
+//   - -1 if the first field is sorted descending (value < 0)
+//   - -1 as default if sort is empty or invalid
+//
+// Example:
+//   - bson.D{{"created_at", -1}, {"_id", -1}} → -1 (descending)
+//   - bson.D{{"name", 1}} → 1 (ascending)
+func getSortDirection(sort bson.D) int {
+	if len(sort) == 0 {
+		return sortDirectionDescending
+	}
+
+	// Get direction from the first sort field
+	if value, ok := sort[0].Value.(int); ok {
+		if value < 0 {
+			return sortDirectionDescending
+		}
+		return sortDirectionAscending
+	}
+
+	return sortDirectionDescending
+}
+
+// buildHintStage creates the $hint stage if a hint is specified.
+// The $hint stage forces MongoDB to use a specific index.
+//
+// Parameters:
+//   - hint: Index hint specification (nil if no hint)
+//
+// Returns:
+//   - bson.A: Pipeline stages (empty if no hint)
+func buildHintStage(hint any) bson.A {
+	if hint == nil {
+		return bson.A{}
+	}
+	return bson.A{bson.M{"$hint": hint}}
+}
+
+// buildMatchStage creates the $match stage combining user filter and cursor filter.
+// The match stage is critical for index usage and should come before $sort.
+//
+// Parameters:
+//   - filter: User-provided filter conditions
+//   - cursor: Current cursor for pagination (nil for first page)
+//   - cursorIdField: Field used for cursor ID (e.g., "cursor_id")
+//   - sort: Sort specification to determine direction
+//
+// Returns:
+//   - bson.A: Pipeline stages (empty if no filters)
+func buildMatchStage(filter bson.M, cursor *Cursor, cursorIdField string, sort bson.D) bson.A {
+	combinedFilter := bson.M{}
+
+	// Add user-provided filter
+	maps.Copy(combinedFilter, filter)
+
+	// Add cursor filter if cursor is provided
+	if cursor != nil && !cursor.IsZero() {
+		cursorFilter := buildCursorFilter(cursor, cursorIdField, sort)
+
+		// Merge cursor filter with existing filter using $and
+		if len(combinedFilter) > 0 {
+			// Wrap both filters in $and
+			return bson.A{
+				bson.M{
+					"$match": bson.M{
+						"$and": bson.A{combinedFilter, cursorFilter},
+					},
+				},
+			}
+		}
+		return bson.A{bson.M{"$match": cursorFilter}}
+	}
+
+	if len(combinedFilter) > 0 {
+		return bson.A{bson.M{"$match": combinedFilter}}
+	}
+
+	return bson.A{}
+}
+
+// buildSortStage creates the $sort stage.
+// Uses the provided sort specification or falls back to default sort.
+//
+// Parameters:
+//   - sort: Sort specification (bson.D)
+//
+// Returns:
+//   - bson.A: Pipeline stages with $sort
+func buildSortStage(sort bson.D) bson.A {
+	sortStage := sort
+	if len(sortStage) == 0 {
+		sortStage = DefaultListSort
+	}
+	return bson.A{bson.M{"$sort": sortStage}}
+}
+
+// buildFacetStage creates the $facet stage for parallel items and count queries.
+// Fetches limit+1 items to determine if there are more pages.
+//
+// Parameters:
+//   - limit: Maximum number of items to return
+//   - projection: Optional field projection
+//   - includeTotal: Whether to include total count
+//
+// Returns:
+//   - bson.A: Pipeline stages with $facet
+func buildFacetStage(limit int64, projection bson.M, includeTotal bool) bson.A {
+	// Build items pipeline: limit + lookahead + optional projection
+	itemsPipeline := bson.A{
+		bson.M{"$limit": limit + paginationLookaheadCount},
+	}
+
+	itemsPipeline = slices.AppendIf[any](itemsPipeline, projection != nil, bson.M{"$project": projection})
+
+	// Build facet stage
+	facetStage := bson.M{
+		"items": itemsPipeline,
+	}
+
+	if includeTotal {
+		facetStage["count"] = bson.A{bson.M{"$count": "total"}}
+	}
+
+	return bson.A{bson.M{"$facet": facetStage}}
+}
+
+// buildCursorPipeline constructs an optimized MongoDB aggregation pipeline for cursor-based pagination.
+// The pipeline is carefully ordered for optimal performance with proper index utilization.
+//
+// Pipeline stages (in order):
+//  1. $hint (optional): Forces MongoDB to use a specific index
+//  2. $match: Combines user filter with cursor filter (if cursor provided)
+//  3. $sort: Orders results by the specified sort fields
+//  4. $facet: Splits into parallel pipelines for items and count
+//     - items: $limit (fetch limit+1 to check for next page) + $project (optional)
+//     - count: $count (total documents matching filter)
+//  5. $unwind + $project: Transforms facet output into {items: [], total: N} structure
+//
+// The pipeline fetches limit+1 items to efficiently determine if there are more pages
+// without requiring a separate count query. If we get more than limit items, we know
+// there's a next page and can construct the cursor from the last visible item.
+//
+// Parameters:
+//   - opts: Configuration options including filter, sort, limit, cursor, projection, etc.
+//
+// Returns:
+//   - bson.A: Complete aggregation pipeline ready for execution
+//
+// Performance characteristics:
+//   - O(1) pagination depth (unlike offset-based which is O(n))
+//   - Single database round-trip for items + count
+//   - Efficient index usage with proper $match before $sort
+func buildCursorPipeline(opts *listCursorOptions) bson.A {
+	pipeline := bson.A{}
+
+	// 1. HINT (OPTIONAL) - Force specific index usage
+	pipeline = append(pipeline, buildHintStage(opts.hint)...)
+
+	// 2. MATCH - Combine user filter with cursor filter
+	pipeline = append(pipeline, buildMatchStage(
+		opts.filter,
+		opts.cursor,
+		opts.cursorIdField,
+		opts.sort,
+	)...)
+
+	// 3. SORT - Order results
+	pipeline = append(pipeline, buildSortStage(opts.sort)...)
+
+	// 4. FACET - Split into items and count branches
+	pipeline = append(pipeline, buildFacetStage(
+		opts.limit,
+		opts.projection,
+		opts.includeTotal,
+	)...)
+
+	// 5. UNWIND AND PROJECT - Transform facet results
+	return appendFacetResultTransform(pipeline, opts.includeTotal)
+}

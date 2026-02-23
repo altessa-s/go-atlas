@@ -1,0 +1,33 @@
+# TLS client configuration template.
+# Common TLS settings for client connections (NATS, Vault, MongoDB, etc.).
+# This file is included via !include directive in other configuration templates.
+# tls:
+#  # <string> Path to client TLS/SSL certificate file (.pem format).
+#  # Required for client certificate authentication.
+#  # Default value: not set
+#  certificate:
+#
+#  # <string> Path to client TLS/SSL private key file (.pem format).
+#  # Used with certificate for client authentication.
+#  # Default value: not set
+#  privateKey:
+#
+#  # <string> Password to decrypt the private key.
+#  # Required if the private key file is encrypted.
+#  # Default value: not set
+#  privateKeyPassword:
+#
+#  # <list[string]> Paths to CA certificate bundle files for server verification.
+#  # Defaults to system certificate bundle if not specified.
+#  # Default value: not set
+#  caCerts: []
+#
+#  # <string> Server name for TLS certificate validation.
+#  # Must match the server certificate's subject name.
+#  # Default value: not set
+#  serverName:
+#
+#  # <bool> Disables TLS certificate verification.
+#  # Using this option is highly discouraged for security reasons.
+#  # Default value: false
+#  skipVerifyServerName: false

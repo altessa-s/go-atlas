@@ -1,0 +1,112 @@
+# Message broker configuration for the <name> service.
+# Defines settings for message broker operations and provider selection.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#broker:
+#  # <string> Specifies the message broker provider to use.
+#  # Controls which message broker implementation is used for asynchronous communication.
+#  # Supported values: nats
+#  # Default value: nats
+#  provider: nats
+#
+#  # <object> NATS configuration.
+#  # Required when provider is "nats".
+#  # See nats.yaml template for full configuration options.
+#  !include nats.yaml
+#
+#  # <object> InProgress heartbeat manager configuration.
+#  # Manages periodic heartbeat sending for long-running message handlers.
+#  inProgress:
+#    # <bool> Enable InProgress manager.
+#    # When false, manager is not created and handlers work without heartbeats.
+#    # Default value: true
+#    enabled: true
+#
+#    # <string> Cron schedule for the heartbeat tick cycle.
+#    # Uses standard cron format with seconds: "second minute hour day month weekday"
+#    # Examples:
+#    #   - "*/1 * * * * *" - every second (default)
+#    #   - "*/5 * * * * *" - every 5 seconds
+#    #   - "0 * * * * *" - every minute
+#    # Default value: "*/1 * * * * *"
+#    tickSchedule: "*/1 * * * * *"
+#
+#    # <duration> Default interval for InProgress calls when not specified in Register().
+#    # Should be less than broker's AckWait to prevent redelivery.
+#    # Recommended: AckWait / 3 (e.g., 10s for AckWait=30s).
+#    # Default value: 10s
+#    defaultHeartbeatInterval: "10s"
+#
+#    # <int> Maximum number of registered heartbeaters.
+#    # Must be between 1 and 100000.
+#    # Default value: 10000
+#    maxEntries: 10000
+#
+#    # <object> Metrics configuration.
+#    metrics:
+#      # <bool> Enable metrics collection.
+#      # Default value: true
+#      enabled: true
+#
+#      # <string> Metric name prefix.
+#      # Default value: "inprogress"
+#      prefix: "inprogress"
+#
+#  # <object> Outbox configuration for reliable message delivery.
+#  # Manages persistent storage and background publishing of messages.
+#  outbox:
+#    # <bool> Enable Outbox.
+#    # When false, outbox is not created and messages are published directly.
+#    # Default value: true
+#    enabled: true
+#
+#    # <string> Cron schedule for the dispatcher.
+#    # Supports standard cron format with seconds: "sec min hour day month weekday"
+#    # Example: "*/2 * * * * *" (every 2 seconds)
+#    # Default value: not set
+#    dispatchSchedule:
+#
+#    # <duration> Timeout for fetching unprocessed events from storage.
+#    # Default value: 5s
+#    fetchTimeout: "5s"
+#
+#    # <duration> Timeout for processing a batch of events (publishing + updating status).
+#    # Default value: 20s
+#    handleTimeout: "20s"
+#
+#    # <duration> Timeout for updating event status in storage after publishing.
+#    # Default value: 5s
+#    updateTimeout: "5s"
+#
+#    # <string> Cron schedule for the cleanup task.
+#    # Supports standard cron format with seconds: "sec min hour day month weekday"
+#    # Example: "0 */10 * * * *" (every 10 minutes)
+#    # Default value: not set
+#    cleanupSchedule:
+#
+#    # <string> Cron schedule for the unlocker task.
+#    # Supports standard cron format with seconds: "sec min hour day month weekday"
+#    # Example: "*/11 * * * * *" (every 11 seconds)
+#    # Default value: not set
+#    unlockSchedule:
+#
+#    # <uint32> Number of events fetched per batch.
+#    # Must be between 1 and 10000.
+#    # Default value: 200
+#    messagesBatchSize: 200
+#
+#    # <uint32> Maximum number of retry attempts for failed publishes.
+#    # Must be between 1 and 100.
+#    # Default value: 10
+#    retryMaxAttempts: 10
+#
+#    # <duration> How long published events are retained before cleanup.
+#    # -1 means indefinite retention.
+#    # Default value: -1
+#    publishedEventsLifetime: "-1"
+#
+#    # <bool> Enable log compaction behavior for all topics.
+#    # If true, only the latest event for each topic in a batch will be published.
+#    # Default value: false
+#    topicCompaction: false
