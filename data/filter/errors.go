@@ -31,4 +31,11 @@ var (
 
 	// ErrInvalidRegex indicates a regex pattern that is invalid or too complex.
 	ErrInvalidRegex = errors.New("invalid or unsafe regex pattern")
+
+	// ErrMaxOperationsExceeded indicates the expression requires more operations
+	// than the configured limit allows.
+	ErrMaxOperationsExceeded = errors.New("operation count exceeds maximum allowed")
+
+	// ErrExpressionTooLong indicates the expression exceeds the configured maximum length.
+	ErrExpressionTooLong = errors.New("expression length exceeds maximum allowed")
 )

@@ -131,10 +131,6 @@ func (t *Translator) VisitList(n *filter.ListNode) (any, error) {
 	return result, nil
 }
 
-// maxRegexLength is the maximum allowed length for user-provided regex patterns
-// in matches(). Prevents excessive memory and CPU usage in MongoDB's PCRE engine.
-const maxRegexLength = 1024
-
 // regexTransform transforms a string argument into a regex pattern.
 // Returns the pattern and an error if validation fails.
 type regexTransform func(string) (string, error)
@@ -144,14 +140,10 @@ func regexStartsWith(s string) (string, error) { return "^" + regexp.QuoteMeta(s
 func regexEndsWith(s string) (string, error)   { return regexp.QuoteMeta(s) + "$", nil }
 
 // regexPassthrough validates a user-provided regex pattern before passing it to MongoDB.
-// It enforces a length limit and compiles the pattern with Go's RE2 engine to reject
-// patterns that could cause catastrophic backtracking in MongoDB's PCRE engine.
+// It delegates to filter.ValidateRegex for consistent validation across all translators.
 func regexPassthrough(s string) (string, error) {
-	if len(s) > maxRegexLength {
-		return "", fmt.Errorf("%w: pattern length %d exceeds maximum %d", filter.ErrInvalidRegex, len(s), maxRegexLength)
-	}
-	if _, err := regexp.Compile(s); err != nil {
-		return "", fmt.Errorf("%w: %v", filter.ErrInvalidRegex, err)
+	if err := filter.ValidateRegex(s, filter.DefaultMaxRegexLength); err != nil {
+		return "", err
 	}
 	return s, nil
 }

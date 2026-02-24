@@ -12,7 +12,7 @@
 // # Basic Usage
 //
 //	parser, _ := filter.NewParser()
-//	ast, _ := parser.Parse(`status == 1 && priority >= 3`)
+//	ast, _ := parser.Parse(ctx, `status == 1 && priority >= 3`)
 //
 //	schema := map[string]redisearch.FieldType{
 //	    "status":   redisearch.FieldTypeNumeric,

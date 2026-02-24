@@ -7,19 +7,35 @@ package filter
 // DefaultMaxDepth is the default maximum expression nesting depth.
 const DefaultMaxDepth = 20
 
+// DefaultMaxRegexLength is the maximum allowed length for user-provided regex patterns.
+// Prevents excessive CPU and memory usage from complex regex evaluation.
+const DefaultMaxRegexLength = 1024
+
+// DefaultMaxExpressionLength is the maximum allowed length (in bytes) for a CEL expression.
+// Prevents excessive memory usage during parsing and LRU cache pollution.
+const DefaultMaxExpressionLength = 4096
+
+// DefaultMaxOperations is the maximum number of AST node visits during evaluation.
+// Prevents DoS via wide expressions (e.g., 100 OR-ed conditions at depth 1).
+const DefaultMaxOperations = 1000
+
 // TranslatorConfig holds configuration for translators.
 type TranslatorConfig struct {
 	allowedFields map[string]struct{}
 	fieldMapping  map[string]string
 	maxDepth      int
+	maxRegexLen   int
+	maxOperations int
 	strictMode    bool
 }
 
 // NewTranslatorConfig creates a TranslatorConfig with default values.
 func NewTranslatorConfig() *TranslatorConfig {
 	return &TranslatorConfig{
-		maxDepth:   DefaultMaxDepth,
-		strictMode: false,
+		maxDepth:      DefaultMaxDepth,
+		maxRegexLen:   DefaultMaxRegexLength,
+		maxOperations: DefaultMaxOperations,
+		strictMode:    false,
 	}
 }
 
@@ -72,6 +88,35 @@ func WithMaxDepth(depth int) TranslatorOption {
 	}
 }
 
+// WithMaxRegexLength sets the maximum allowed length for regex patterns
+// in matches(). This prevents excessive CPU usage from complex regex evaluation.
+//
+// Example:
+//
+//	eval := filter.NewEvaluator(filter.WithMaxRegexLength(512))
+func WithMaxRegexLength(n int) TranslatorOption {
+	return func(c *TranslatorConfig) {
+		if n > 0 {
+			c.maxRegexLen = n
+		}
+	}
+}
+
+// WithMaxOperations sets the maximum number of AST node visits during
+// evaluation or translation. This prevents DoS via wide expressions
+// (e.g., hundreds of OR-ed conditions at depth 1).
+//
+// Example:
+//
+//	eval := filter.NewEvaluator(filter.WithMaxOperations(500))
+func WithMaxOperations(n int) TranslatorOption {
+	return func(c *TranslatorConfig) {
+		if n > 0 {
+			c.maxOperations = n
+		}
+	}
+}
+
 // WithStrictMode enables strict mode, which causes translation to fail
 // on any unsupported operation rather than ignoring it.
 //
@@ -109,6 +154,16 @@ func (c *TranslatorConfig) IsFieldAllowed(field string) bool {
 // MaxDepth returns the configured maximum depth.
 func (c *TranslatorConfig) MaxDepth() int {
 	return c.maxDepth
+}
+
+// MaxRegexLength returns the configured maximum regex pattern length.
+func (c *TranslatorConfig) MaxRegexLength() int {
+	return c.maxRegexLen
+}
+
+// MaxOperations returns the configured maximum number of AST node visits.
+func (c *TranslatorConfig) MaxOperations() int {
+	return c.maxOperations
 }
 
 // StrictMode returns whether strict mode is enabled.

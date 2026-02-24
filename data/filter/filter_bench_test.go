@@ -5,6 +5,7 @@
 package filter_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/altessa-s/go-atlas/data/filter"
@@ -18,7 +19,7 @@ func BenchmarkParse_Simple(b *testing.B) {
 
 	b.ResetTimer()
 	for b.Loop() {
-		_, _ = p.Parse(`name == "John"`)
+		_, _ = p.Parse(context.Background(), `name == "John"`)
 	}
 }
 
@@ -30,14 +31,14 @@ func BenchmarkParse_Complex(b *testing.B) {
 
 	b.ResetTimer()
 	for b.Loop() {
-		_, _ = p.Parse(`(name == "John" || name == "Jane") && age >= 18 && status in ["active", "pending"]`)
+		_, _ = p.Parse(context.Background(), `(name == "John" || name == "Jane") && age >= 18 && status in ["active", "pending"]`)
 	}
 }
 
 func BenchmarkEvaluate_Simple(b *testing.B) {
 	p, _ := filter.NewParser(filter.WithParserNoCache())
 	eval := filter.NewEvaluator()
-	node, _ := p.Parse(`name == "Alice"`)
+	node, _ := p.Parse(context.Background(), `name == "Alice"`)
 	data := map[string]any{"name": "Alice", "age": int64(30)}
 
 	b.ResetTimer()
@@ -49,7 +50,7 @@ func BenchmarkEvaluate_Simple(b *testing.B) {
 func BenchmarkEvaluate_Complex(b *testing.B) {
 	p, _ := filter.NewParser(filter.WithParserNoCache())
 	eval := filter.NewEvaluator()
-	node, _ := p.Parse(`name == "Alice" && age >= 18 && status in ["active", "pending"]`)
+	node, _ := p.Parse(context.Background(), `name == "Alice" && age >= 18 && status in ["active", "pending"]`)
 	data := map[string]any{"name": "Alice", "age": int64(30), "status": "active"}
 
 	b.ResetTimer()

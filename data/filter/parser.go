@@ -29,15 +29,17 @@ const DefaultParserCacheSize = 1000
 
 // parserConfig holds parser configuration.
 type parserConfig struct {
-	cacheSize int
-	noCache   bool
+	cacheSize           int
+	maxExpressionLength int
+	noCache             bool
 }
 
 // defaultParserConfig returns default parser configuration.
 func defaultParserConfig() *parserConfig {
 	return &parserConfig{
-		cacheSize: DefaultParserCacheSize,
-		noCache:   false,
+		cacheSize:           DefaultParserCacheSize,
+		maxExpressionLength: DefaultMaxExpressionLength,
+		noCache:             false,
 	}
 }
 
@@ -60,10 +62,22 @@ func WithParserNoCache() ParserOption {
 	}
 }
 
+// WithMaxExpressionLength sets the maximum allowed CEL expression length in bytes.
+// Expressions exceeding this length will be rejected before parsing.
+// This prevents excessive memory usage during parsing and LRU cache pollution.
+func WithMaxExpressionLength(n int) ParserOption {
+	return func(c *parserConfig) {
+		if n > 0 {
+			c.maxExpressionLength = n
+		}
+	}
+}
+
 // Parser parses CEL expressions into filter AST nodes.
 type Parser struct {
-	env   *cel.Env
-	cache lru.Cacher[string, Node]
+	env                 *cel.Env
+	cache               lru.Cacher[string, Node]
+	maxExpressionLength int
 }
 
 // getCELEnvironment returns the shared CEL environment, initialized on first call.
@@ -85,7 +99,7 @@ func NewParser(opts ...ParserOption) (*Parser, error) {
 		return nil, fmt.Errorf("%w: %v", ErrParseFailed, err)
 	}
 
-	p := &Parser{env: env}
+	p := &Parser{env: env, maxExpressionLength: cfg.maxExpressionLength}
 
 	if !cfg.noCache {
 		cache, err := lru.NewCache[string, Node](cfg.cacheSize)
@@ -99,13 +113,17 @@ func NewParser(opts ...ParserOption) (*Parser, error) {
 }
 
 // Parse parses a CEL expression and returns the corresponding AST node.
-func (p *Parser) Parse(expression string) (Node, error) {
+func (p *Parser) Parse(ctx context.Context, expression string) (Node, error) {
 	if corestrings.IsEmpty(expression) {
 		return nil, ErrEmptyExpression
 	}
 
+	if len(expression) > p.maxExpressionLength {
+		return nil, fmt.Errorf("%w: length %d exceeds maximum %d", ErrExpressionTooLong, len(expression), p.maxExpressionLength)
+	}
+
 	if p.cache != nil {
-		return p.cache.GetOrCompute(context.Background(), expression, func(ctx context.Context) (Node, error) {
+		return p.cache.GetOrCompute(ctx, expression, func(ctx context.Context) (Node, error) {
 			return p.parseInternal(expression)
 		})
 	}
@@ -116,7 +134,7 @@ func (p *Parser) Parse(expression string) (Node, error) {
 // MustParse parses a CEL expression and panics if parsing fails.
 // Use this for compile-time expressions to catch errors at startup.
 func (p *Parser) MustParse(expression string) Node {
-	return panics.MustResult(p.Parse(expression))
+	return panics.MustResult(p.Parse(context.Background(), expression))
 }
 
 // parseInternal performs the actual parsing without caching.

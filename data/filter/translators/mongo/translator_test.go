@@ -5,6 +5,7 @@
 package mongo
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -20,7 +21,7 @@ func mustParse(t *testing.T, expr string) filter.Node {
 	if err != nil {
 		t.Fatalf("NewParser() error = %v", err)
 	}
-	node, err := p.Parse(expr)
+	node, err := p.Parse(context.Background(), expr)
 	if err != nil {
 		t.Fatalf("Parse(%q) error = %v", expr, err)
 	}

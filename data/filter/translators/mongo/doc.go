@@ -10,7 +10,7 @@
 // # Basic Usage
 //
 //	parser, _ := filter.NewParser()
-//	ast, _ := parser.Parse(`name == "John" && age >= 18`)
+//	ast, _ := parser.Parse(ctx, `name == "John" && age >= 18`)
 //
 //	trans := mongo.NewTranslator()
 //	bsonFilter, _ := trans.Translate(ast)

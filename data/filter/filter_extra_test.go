@@ -5,6 +5,7 @@
 package filter_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/altessa-s/go-atlas/data/filter"
@@ -91,7 +92,7 @@ func TestTranslatorConfig_SetFieldMapping(t *testing.T) {
 
 func TestEvaluator_NilNotEqual(t *testing.T) {
 	parser, _ := filter.NewParser()
-	node, _ := parser.Parse("name != null")
+	node, _ := parser.Parse(context.Background(), "name != null")
 	ev := filter.NewEvaluator()
 
 	result, err := ev.Evaluate(node, map[string]any{"name": "hello"})

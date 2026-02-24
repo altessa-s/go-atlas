@@ -9,7 +9,7 @@
 // # Basic Usage
 //
 //	parser, _ := filter.NewParser()
-//	ast, _ := parser.Parse(`name == "John" && age >= 18`)
+//	ast, _ := parser.Parse(ctx, `name == "John" && age >= 18`)
 //
 //	trans := lua.NewTranslator("d")
 //	expr, _ := trans.Translate(ast)

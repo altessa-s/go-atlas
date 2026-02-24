@@ -15,6 +15,7 @@ type Evaluator struct {
 	config *TranslatorConfig
 	data   map[string]any
 	depth  int
+	ops    int
 }
 
 // NewEvaluator creates a new in-memory evaluator with the given options.
@@ -30,6 +31,7 @@ func NewEvaluator(opts ...TranslatorOption) *Evaluator {
 func (e *Evaluator) Evaluate(node Node, data map[string]any) (bool, error) {
 	e.data = data
 	e.depth = 0
+	e.ops = 0
 	result, err := node.Accept(e)
 	if err != nil {
 		return false, err
@@ -43,11 +45,17 @@ func (e *Evaluator) Evaluate(node Node, data map[string]any) (bool, error) {
 
 // VisitLiteral returns the literal value.
 func (e *Evaluator) VisitLiteral(n *LiteralNode) (any, error) {
+	if err := e.checkOps(); err != nil {
+		return nil, err
+	}
 	return n.Value, nil
 }
 
 // VisitIdent looks up the field in the data map, supporting dot notation.
 func (e *Evaluator) VisitIdent(n *IdentNode) (any, error) {
+	if err := e.checkOps(); err != nil {
+		return nil, err
+	}
 	field := n.Name
 	if !e.config.IsFieldAllowed(field) {
 		return nil, fmt.Errorf("%w: %s", ErrFieldNotAllowed, field)
@@ -58,6 +66,9 @@ func (e *Evaluator) VisitIdent(n *IdentNode) (any, error) {
 
 // VisitBinaryOp evaluates binary operations.
 func (e *Evaluator) VisitBinaryOp(n *BinaryOpNode) (any, error) {
+	if err := e.checkOps(); err != nil {
+		return nil, err
+	}
 	if err := e.checkDepth(); err != nil {
 		return nil, err
 	}
@@ -78,6 +89,9 @@ func (e *Evaluator) VisitBinaryOp(n *BinaryOpNode) (any, error) {
 
 // VisitUnaryOp evaluates unary operations.
 func (e *Evaluator) VisitUnaryOp(n *UnaryOpNode) (any, error) {
+	if err := e.checkOps(); err != nil {
+		return nil, err
+	}
 	if err := e.checkDepth(); err != nil {
 		return nil, err
 	}
@@ -101,6 +115,9 @@ func (e *Evaluator) VisitUnaryOp(n *UnaryOpNode) (any, error) {
 
 // VisitCall evaluates function calls.
 func (e *Evaluator) VisitCall(n *CallNode) (any, error) {
+	if err := e.checkOps(); err != nil {
+		return nil, err
+	}
 	if err := e.checkDepth(); err != nil {
 		return nil, err
 	}
@@ -127,6 +144,9 @@ func (e *Evaluator) VisitCall(n *CallNode) (any, error) {
 
 // VisitList evaluates a list literal.
 func (e *Evaluator) VisitList(n *ListNode) (any, error) {
+	if err := e.checkOps(); err != nil {
+		return nil, err
+	}
 	result := make([]any, 0, len(n.Elements))
 	for _, elem := range n.Elements {
 		val, err := elem.Accept(e)
@@ -266,9 +286,12 @@ func (e *Evaluator) evalMatches(n *CallNode) (any, error) {
 	if !ok {
 		return nil, fmt.Errorf("%w: matches() argument must be a string", ErrInvalidExpression)
 	}
-	matched, err := regexp.MatchString(pattern, s)
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid regex: %v", ErrInvalidExpression, err)
+	if vErr := ValidateRegex(pattern, e.config.MaxRegexLength()); vErr != nil {
+		return nil, vErr
+	}
+	matched, mErr := regexp.MatchString(pattern, s)
+	if mErr != nil {
+		return nil, fmt.Errorf("%w: invalid regex: %v", ErrInvalidExpression, mErr)
 	}
 	return matched, nil
 }
@@ -438,6 +461,28 @@ func valuesEqual(a, b any) bool {
 func (e *Evaluator) checkDepth() error {
 	if e.depth >= e.config.MaxDepth() {
 		return fmt.Errorf("%w: depth %d exceeds maximum %d", ErrMaxDepthExceeded, e.depth, e.config.MaxDepth())
+	}
+	return nil
+}
+
+func (e *Evaluator) checkOps() error {
+	e.ops++
+	if e.ops > e.config.MaxOperations() {
+		return fmt.Errorf("%w: operation count %d exceeds maximum %d", ErrMaxOperationsExceeded, e.ops, e.config.MaxOperations())
+	}
+	return nil
+}
+
+// ValidateRegex validates a regex pattern for length and correctness.
+// It enforces the given maxLength and compiles the pattern with Go's RE2 engine
+// to reject patterns that could be problematic. This function is intended to be
+// used by both the evaluator and translators for consistent regex validation.
+func ValidateRegex(pattern string, maxLength int) error {
+	if len(pattern) > maxLength {
+		return fmt.Errorf("%w: pattern length %d exceeds maximum %d", ErrInvalidRegex, len(pattern), maxLength)
+	}
+	if _, err := regexp.Compile(pattern); err != nil {
+		return fmt.Errorf("%w: %v", ErrInvalidRegex, err)
 	}
 	return nil
 }

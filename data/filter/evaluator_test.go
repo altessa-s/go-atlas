@@ -5,6 +5,8 @@
 package filter_test
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	"github.com/altessa-s/go-atlas/data/filter"
@@ -47,7 +49,7 @@ func TestEvaluator_Comparison(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expr, func(t *testing.T) {
-			node, err := p.Parse(tt.expr)
+			node, err := p.Parse(context.Background(), tt.expr)
 			if err != nil {
 				t.Fatalf("Parse(%q): %v", tt.expr, err)
 			}
@@ -84,7 +86,7 @@ func TestEvaluator_Logical(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expr, func(t *testing.T) {
-			node, err := p.Parse(tt.expr)
+			node, err := p.Parse(context.Background(), tt.expr)
 			if err != nil {
 				t.Fatalf("Parse: %v", err)
 			}
@@ -120,7 +122,7 @@ func TestEvaluator_StringFunctions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expr, func(t *testing.T) {
-			node, err := p.Parse(tt.expr)
+			node, err := p.Parse(context.Background(), tt.expr)
 			if err != nil {
 				t.Fatalf("Parse: %v", err)
 			}
@@ -151,7 +153,7 @@ func TestEvaluator_In(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expr, func(t *testing.T) {
-			node, err := p.Parse(tt.expr)
+			node, err := p.Parse(context.Background(), tt.expr)
 			if err != nil {
 				t.Fatalf("Parse: %v", err)
 			}
@@ -191,7 +193,7 @@ func TestEvaluator_Has(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expr, func(t *testing.T) {
-			node, err := p.Parse(tt.expr)
+			node, err := p.Parse(context.Background(), tt.expr)
 			if err != nil {
 				t.Fatalf("Parse: %v", err)
 			}
@@ -216,7 +218,7 @@ func TestEvaluator_NestedFields(t *testing.T) {
 		},
 	}
 
-	node, err := p.Parse(`address.city == "NYC"`)
+	node, err := p.Parse(context.Background(), `address.city == "NYC"`)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -235,7 +237,7 @@ func TestEvaluator_AllowedFields(t *testing.T) {
 
 	data := map[string]any{"name": "test", "secret": "hidden"}
 
-	node, err := p.Parse(`secret == "hidden"`)
+	node, err := p.Parse(context.Background(), `secret == "hidden"`)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -253,7 +255,7 @@ func TestEvaluator_FieldMapping(t *testing.T) {
 
 	data := map[string]any{"user_name": "alice"}
 
-	node, err := p.Parse(`userName == "alice"`)
+	node, err := p.Parse(context.Background(), `userName == "alice"`)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -272,7 +274,7 @@ func TestEvaluator_Size(t *testing.T) {
 
 	data := map[string]any{"name": "hello"}
 
-	node, err := p.Parse(`name.size() == 5`)
+	node, err := p.Parse(context.Background(), `name.size() == 5`)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -291,7 +293,7 @@ func TestEvaluator_NilComparison(t *testing.T) {
 
 	data := map[string]any{"name": "test"}
 
-	node, err := p.Parse(`missing == null`)
+	node, err := p.Parse(context.Background(), `missing == null`)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -302,4 +304,98 @@ func TestEvaluator_NilComparison(t *testing.T) {
 	if !got {
 		t.Error("expected true for missing field == null")
 	}
+}
+
+func TestEvaluator_RegexLengthLimit(t *testing.T) {
+	p := newTestParser(t)
+	data := map[string]any{"name": "hello"}
+
+	t.Run("short regex is accepted", func(t *testing.T) {
+		eval := filter.NewEvaluator()
+		node, err := p.Parse(context.Background(), `name.matches("^hello")`)
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		got, err := eval.Evaluate(node, data)
+		if err != nil {
+			t.Fatalf("Evaluate: %v", err)
+		}
+		if !got {
+			t.Error("expected true")
+		}
+	})
+
+	t.Run("regex exceeding default limit is rejected", func(t *testing.T) {
+		eval := filter.NewEvaluator()
+		// Build expression with a regex pattern exceeding 1024 bytes
+		longPattern := make([]byte, 1025)
+		for i := range longPattern {
+			longPattern[i] = 'a'
+		}
+		node := &filter.CallNode{
+			Op:     filter.OpMatches,
+			Target: &filter.IdentNode{Name: "name"},
+			Args:   []filter.Node{&filter.LiteralNode{Value: string(longPattern)}},
+		}
+		_, err := eval.Evaluate(node, data)
+		if err == nil {
+			t.Fatal("expected error for regex exceeding max length")
+		}
+		if !errors.Is(err, filter.ErrInvalidRegex) {
+			t.Errorf("expected ErrInvalidRegex, got: %v", err)
+		}
+	})
+
+	t.Run("custom regex length limit", func(t *testing.T) {
+		eval := filter.NewEvaluator(filter.WithMaxRegexLength(10))
+		node := &filter.CallNode{
+			Op:     filter.OpMatches,
+			Target: &filter.IdentNode{Name: "name"},
+			Args:   []filter.Node{&filter.LiteralNode{Value: "a]long-pattern"}},
+		}
+		_, err := eval.Evaluate(node, data)
+		if err == nil {
+			t.Fatal("expected error for regex exceeding custom max length")
+		}
+		if !errors.Is(err, filter.ErrInvalidRegex) {
+			t.Errorf("expected ErrInvalidRegex, got: %v", err)
+		}
+	})
+}
+
+func TestEvaluator_MaxOperations(t *testing.T) {
+	p := newTestParser(t)
+	data := map[string]any{"a": int64(1), "b": int64(2), "c": int64(3)}
+
+	t.Run("normal expression within limit", func(t *testing.T) {
+		eval := filter.NewEvaluator()
+		node, err := p.Parse(context.Background(), `a == 1 && b == 2`)
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		got, err := eval.Evaluate(node, data)
+		if err != nil {
+			t.Fatalf("Evaluate: %v", err)
+		}
+		if !got {
+			t.Error("expected true")
+		}
+	})
+
+	t.Run("expression exceeding low limit is rejected", func(t *testing.T) {
+		eval := filter.NewEvaluator(filter.WithMaxOperations(3))
+		// a == 1 && b == 2 visits: BinaryOp(&&), BinaryOp(==), Ident(a), Literal(1), BinaryOp(==), ...
+		// With limit=3, it should fail after 3 operations
+		node, err := p.Parse(context.Background(), `a == 1 && b == 2`)
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		_, err = eval.Evaluate(node, data)
+		if err == nil {
+			t.Fatal("expected error for exceeding max operations")
+		}
+		if !errors.Is(err, filter.ErrMaxOperationsExceeded) {
+			t.Errorf("expected ErrMaxOperationsExceeded, got: %v", err)
+		}
+	})
 }

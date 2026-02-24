@@ -46,7 +46,7 @@
 //	}
 //
 //	// Parse a CEL expression
-//	ast, err := parser.Parse(`name == "John" && age >= 18`)
+//	ast, err := parser.Parse(ctx, `name == "John" && age >= 18`)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
