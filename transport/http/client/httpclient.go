@@ -10,12 +10,12 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/hashicorp/go-retryablehttp"
 	"github.com/sony/gobreaker/v2"
 
 	"github.com/altessa-s/go-atlas/transport/http/client/limiters"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreretry "github.com/altessa-s/go-atlas/core/runtime/retry"
 )
 
 const (
@@ -25,6 +25,11 @@ const (
 	DefaultRetryWaitMax = 10 * time.Second
 	// DefaultRetryMax defines the default maximum number of retry attempts
 	DefaultRetryMax = 5
+
+	// defaultBackoffFactor is the exponential backoff multiplier for retry delays.
+	defaultBackoffFactor = 1.5
+	// defaultBackoffJitter is the fraction of jitter added to retry delays.
+	defaultBackoffJitter = 0.25
 )
 
 // ErrorHandler defines the callback for intercepting and handling errors during the retry process.
@@ -71,103 +76,38 @@ func New(opt ...Option) *http.Client {
 }
 
 func (c *Client) retractableClient() *http.Client {
-	circuitBreakerClient := newCircuitBreakerClient(c.options)
-	retryClient := &retryablehttp.Client{
-		HTTPClient:   circuitBreakerClient.standardClient(),
-		Logger:       NewLogger(c.options.logger),
-		RetryWaitMin: c.options.retryWaitMin,
-		RetryWaitMax: c.options.retryWaitMax,
-		RetryMax:     c.options.retryMax,
-		CheckRetry:   c.retryPolicy,
-		Backoff:      retryablehttp.LinearJitterBackoff,
-		ErrorHandler: func(resp *http.Response, err error, numTries int) (*http.Response, error) {
-			return resp, err
-		},
+	cbClient := newCircuitBreakerClient(c.options)
+	stdClient := cbClient.standardClient()
+
+	cfg := coreretry.Config{
+		MaxAttempts: c.options.retryMax,
+		NextDelay: coreretry.Exponential(coreretry.ExponentialConfig{
+			BaseDelay: c.options.retryWaitMin,
+			MaxDelay:  c.options.retryWaitMax,
+			Factor:    defaultBackoffFactor,
+			Jitter:    defaultBackoffJitter,
+		}),
 	}
 
-	if c.options.errorHandler != nil {
-		retryClient.ErrorHandler = retryablehttp.ErrorHandler(c.options.errorHandler)
+	rt := &retryRoundTripper{
+		next:               stdClient.Transport,
+		cfg:                cfg,
+		logger:             c.options.logger,
+		errorHandler:       c.options.errorHandler,
+		retryPolicyHandler: c.options.retryPolicyHandler,
 	}
 
-	if c.options.retryPolicyHandler != nil {
-		retryClient.CheckRetry = retryablehttp.CheckRetry(c.options.retryPolicyHandler)
-	}
+	stdClient.Transport = rt
 
-	client := retryClient.StandardClient()
 	if c.options.limiter != nil {
-		client.Transport = limiters.NewRoundTripper(client.Transport, c.options.limiter)
+		stdClient.Transport = limiters.NewRoundTripper(stdClient.Transport, c.options.limiter)
 	}
 
-	return client
-}
-
-// retryPolicy implements the retryablehttp.CheckRetry interface.
-// It determines whether a request should be retried based on the response status code
-// and any error that occurred.
-func (c *Client) retryPolicy(ctx context.Context, resp *http.Response, err error) (bool, error) {
-	// do not retry on context.Canceled or context.DeadlineExceeded
-	if coreerrs.IsContextCanceledOrDeadlineExceeded(ctx.Err()) {
-		return false, &NonRetryableError{Err: coreerrs.Wrapf(ctx.Err(), "request context error")}
-	}
-
-	if err != nil {
-		// Check for SSRF errors — never retry blocked private IPs
-		if IsSSRFError(err) != nil {
-			return false, &NonRetryableError{Err: err}
-		}
-
-		// Check for non-retryable errors using core helpers
-		if coreerrs.IsResourceRedirects(err) || coreerrs.IsUnsupportedProtocolScheme(err) ||
-			coreerrs.IsCertUnknownAuthority(err) || coreerrs.IsConnectionRefused(err) {
-			return false, &NonRetryableError{Err: err}
-		}
-
-		// Check for circuit breaker errors
-		if IsCircuitBreakerOpen(err) {
-			var state string
-			if errors.Is(err, gobreaker.ErrOpenState) {
-				state = "open"
-			} else {
-				state = "too_many_requests"
-			}
-			return false, &CircuitBreakerError{
-				Name:  "httpclient",
-				State: state,
-			}
-		}
-
-		// Check for response size errors
-		if IsResponseSizeError(err) != nil {
-			return false, err // Already typed, don't wrap
-		}
-
-		// The error is likely recoverable so retry.
-		return true, nil
-	}
-
-	if resp.StatusCode == http.StatusBadGateway ||
-		resp.StatusCode == http.StatusServiceUnavailable ||
-		resp.StatusCode == http.StatusGatewayTimeout ||
-		resp.StatusCode == http.StatusRequestTimeout ||
-		resp.StatusCode == http.StatusTooManyRequests {
-		return true, nil
-	}
-
-	if resp.StatusCode == 0 || (resp.StatusCode >= http.StatusBadRequest) {
-		return false, &UnexpectedStatusError{
-			Status: resp.StatusCode,
-			Method: resp.Request.Method,
-			Host:   resp.Request.Host,
-			URI:    resp.Request.URL.RequestURI(),
-		}
-	}
-
-	return false, nil
+	return stdClient
 }
 
 // IsUnexpectedStatusError checks if the given error is an UnexpectedStatusError and returns it if found.
-// This function unwraps nested errors to find UnexpectedStatusError in the error chain,
-// which is necessary because go-retryablehttp wraps errors.
+// This function unwraps nested errors to find UnexpectedStatusError in the error chain.
 // Returns nil if the error is not an UnexpectedStatusError.
 //
 // Example:
@@ -181,8 +121,6 @@ func (c *Client) retryPolicy(ctx context.Context, resp *http.Response, err error
 //	    // Handle other errors
 //	}
 func IsUnexpectedStatusError(err error) *UnexpectedStatusError {
-	// The go-httpclient package uses hashicorp go-retryablehttp which wraps errors
-	// in a chain: fmt.Errorf -> url.Error. We need to unwrap the error chain.
 	target, _ := coreerrs.AsType[*UnexpectedStatusError](err)
 	return target
 }

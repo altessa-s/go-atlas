@@ -13,7 +13,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/hashicorp/go-cleanhttp"
 	"github.com/sony/gobreaker/v2"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
@@ -29,8 +28,8 @@ const (
 	DefaultBreakerInterval = 30 * time.Second
 	// DefaultBreakerMaxRequests is the default number of requests allowed in half-open state
 	DefaultBreakerMaxRequests = 3
-	// HostnameInternerSize is the size of the string interner for hostnames
-	HostnameInternerSize = 1024
+	// hostnameInternerSize is the size of the string interner for hostnames.
+	hostnameInternerSize = 1024
 
 	// DefaultBreakerMinRequests is the minimum number of requests before evaluating failure ratio.
 	// The circuit breaker requires at least this many requests in the closed state
@@ -83,7 +82,7 @@ func defaultReadyToTrip(counts gobreaker.Counts) bool {
 func newCircuitBreakerClient(opts options) *circuitBreakerClient {
 	httpClient := opts.client
 	if httpClient == nil {
-		httpClient = cleanhttp.DefaultPooledClient()
+		httpClient = defaultPooledClient()
 	}
 
 	// Apply transport if provided
@@ -132,7 +131,7 @@ func newCircuitBreakerClient(opts options) *circuitBreakerClient {
 
 		// Create dedicated string interner for HTTP client with smaller size
 		// HTTP client typically has predictable string patterns (hostnames, common headers)
-		stringInterner: corestrings.NewInterner(HostnameInternerSize), // Smaller than global default (8192)
+		stringInterner: corestrings.NewInterner(hostnameInternerSize), // Smaller than global default (8192)
 	}
 
 	return client

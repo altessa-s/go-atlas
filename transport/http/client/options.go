@@ -10,18 +10,55 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/netip"
+	"runtime"
 	"time"
 
-	"github.com/hashicorp/go-cleanhttp"
 	"github.com/sony/gobreaker/v2"
 
 	"github.com/altessa-s/go-atlas/transport/http/client/limiters"
 )
 
 func defaultClient() *http.Client {
-	return cleanhttp.DefaultPooledClient()
+	return defaultPooledClient()
+}
+
+// defaultPooledClient returns a new [http.Client] with a pooled transport
+// configured identically to go-cleanhttp's DefaultPooledClient: connection
+// pooling, keep-alive, TLS handshake timeout, HTTP/2, and per-host idle
+// connections scaled to GOMAXPROCS.
+func defaultPooledClient() *http.Client {
+	return &http.Client{
+		Transport: defaultPooledTransport(),
+	}
+}
+
+// Transport pool defaults matching go-cleanhttp's DefaultPooledClient.
+const (
+	defaultDialTimeout           = 30 * time.Second
+	defaultDialKeepAlive         = 30 * time.Second
+	defaultMaxIdleConns          = 100
+	defaultIdleConnTimeout       = 90 * time.Second
+	defaultTLSHandshakeTimeout   = 10 * time.Second
+	defaultExpectContinueTimeout = 1 * time.Second
+)
+
+func defaultPooledTransport() *http.Transport {
+	return &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   defaultDialTimeout,
+			KeepAlive: defaultDialKeepAlive,
+		}).DialContext,
+		MaxIdleConns:          defaultMaxIdleConns,
+		IdleConnTimeout:       defaultIdleConnTimeout,
+		TLSHandshakeTimeout:   defaultTLSHandshakeTimeout,
+		ExpectContinueTimeout: defaultExpectContinueTimeout,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConnsPerHost:   runtime.GOMAXPROCS(0) + 1,
+	}
 }
 
 // CircuitBreakerSettings defines per-host circuit breaker configuration.
