@@ -170,7 +170,13 @@ func (msk FieldMask) setDefaultsForUnsetFields(msg proto.Message) {
 
 		switch {
 		case fd.IsList(), fd.IsMap():
-			// Empty list/map is already the default state.
+			// Force non-nil empty to distinguish clear from absent.
+			mv := prf.Mutable(fd)
+			if fd.IsList() {
+				list := mv.List()
+				list.Append(list.NewElement())
+				list.Truncate(0)
+			}
 		case fd.Kind() == protoreflect.MessageKind:
 			nestedMsg := prf.NewField(fd).Message()
 			if nested != nil && !isValueWellKnownType(fd) && !isStructWellKnownType(fd) &&
