@@ -8,6 +8,7 @@ import (
 	"cmp"
 	"context"
 	"math"
+	"math/rand/v2"
 	"sync"
 	"time"
 
@@ -177,16 +178,23 @@ type ExponentialConfig struct {
 	// Factor is the exponential multiplier applied per attempt
 	// (delay = BaseDelay * Factor^attempt). A zero value defaults to 1.5.
 	Factor float64
+
+	// Jitter is the maximum fraction of the computed delay to add as
+	// randomized jitter (0.0–1.0). Values above 1.0 are clamped to 1.0.
+	// A zero value (the default) produces deterministic delays with no jitter.
+	Jitter float64
 }
 
 // Exponential returns a NextDelay function suitable for [Config.NextDelay] that
-// implements deterministic exponential backoff:
+// implements exponential backoff with optional jitter:
 //
-//	delay(attempt) = min(MaxDelay, BaseDelay * Factor^attempt)
+//	delay(attempt) = min(MaxDelay, BaseDelay * Factor^attempt + jitter)
 //
-// The returned function is stateless and safe for concurrent use.
+// When [ExponentialConfig.Jitter] is zero the delays are deterministic.
+// The returned function is safe for concurrent use.
 func Exponential(cfg ExponentialConfig) func(attempt int, _ error) time.Duration {
 	factor := cmp.Or(cfg.Factor, defaultExponentialFactor)
+	jitter := min(cfg.Jitter, 1.0)
 
 	return func(attempt int, _ error) time.Duration {
 		if cfg.BaseDelay <= 0 {
@@ -201,8 +209,16 @@ func Exponential(cfg ExponentialConfig) func(attempt int, _ error) time.Duration
 			return 0
 		}
 		if cfg.MaxDelay > 0 && d > cfg.MaxDelay {
-			return cfg.MaxDelay
+			d = cfg.MaxDelay
 		}
+
+		if jitter > 0 {
+			d += time.Duration(float64(d) * jitter * rand.Float64())
+			if cfg.MaxDelay > 0 && d > cfg.MaxDelay {
+				d = cfg.MaxDelay
+			}
+		}
+
 		return d
 	}
 }

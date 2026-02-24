@@ -160,6 +160,74 @@ func TestExponential(t *testing.T) {
 	}
 }
 
+func TestExponential_Jitter(t *testing.T) {
+	t.Run("ZeroJitter_Deterministic", func(t *testing.T) {
+		fn := retry.Exponential(retry.ExponentialConfig{BaseDelay: time.Second, Factor: 2, Jitter: 0})
+		a := fn(1, nil)
+		b := fn(1, nil)
+		if a != b {
+			t.Errorf("zero jitter should be deterministic: %v != %v", a, b)
+		}
+		if a != 2*time.Second {
+			t.Errorf("got %v, want 2s", a)
+		}
+	})
+
+	t.Run("WithJitter_Bounds", func(t *testing.T) {
+		base := time.Second
+		fn := retry.Exponential(retry.ExponentialConfig{BaseDelay: base, Factor: 1, Jitter: 0.5})
+		for range 100 {
+			d := fn(0, nil)
+			if d < base {
+				t.Fatalf("delay %v < base %v", d, base)
+			}
+			// max = base + base*0.5 = 1.5s
+			if d > base+base/2 {
+				t.Fatalf("delay %v > max jitter bound 1.5s", d)
+			}
+		}
+	})
+
+	t.Run("WithJitter_NonDeterministic", func(t *testing.T) {
+		fn := retry.Exponential(retry.ExponentialConfig{BaseDelay: time.Second, Factor: 2, Jitter: 0.5})
+		seen := make(map[time.Duration]struct{})
+		for range 100 {
+			seen[fn(3, nil)] = struct{}{}
+		}
+		if len(seen) < 2 {
+			t.Errorf("jitter should produce varying delays, got %d distinct values", len(seen))
+		}
+	})
+
+	t.Run("JitterCappedAtMaxDelay", func(t *testing.T) {
+		maxDelay := 3 * time.Second
+		fn := retry.Exponential(retry.ExponentialConfig{
+			BaseDelay: time.Second,
+			Factor:    2,
+			MaxDelay:  maxDelay,
+			Jitter:    1.0,
+		})
+		for range 100 {
+			d := fn(10, nil) // base * 2^10 = 1024s, capped to 3s, then +jitter re-capped
+			if d > maxDelay {
+				t.Fatalf("delay %v > MaxDelay %v", d, maxDelay)
+			}
+		}
+	})
+
+	t.Run("JitterAboveOneClamped", func(t *testing.T) {
+		base := time.Second
+		fn := retry.Exponential(retry.ExponentialConfig{BaseDelay: base, Factor: 1, Jitter: 5.0})
+		for range 100 {
+			d := fn(0, nil)
+			// clamped to 1.0 → max = base + base*1.0 = 2s
+			if d > 2*base {
+				t.Fatalf("delay %v exceeds 2x base (jitter should clamp to 1.0)", d)
+			}
+		}
+	})
+}
+
 func TestExponentialConfigPool(t *testing.T) {
 	cfg := retry.GetExponentialConfig()
 	if cfg == nil {
