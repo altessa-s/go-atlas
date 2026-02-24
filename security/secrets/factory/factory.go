@@ -149,6 +149,7 @@ func (f *Factory) buildManagerOptions(cfg *config.Secrets) []secrets.Option {
 			BaseDelay: cfg.Retry.BaseDelay,
 			MaxDelay:  cfg.Retry.MaxDelay,
 			Factor:    cfg.Retry.Multiplier,
+			Jitter:    cfg.Retry.Jitter,
 		}),
 	}
 }
