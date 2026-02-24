@@ -8,15 +8,10 @@ import (
 	"time"
 )
 
-// Option is a functional option for configuring a [Storage] instance.
-// Pass one or more Option values to [New] to override default behavior.
+// Option is a functional option for configuring options.
 type Option func(o *options)
 
-// WithHistoryTTL sets the Redis key expiration for each history entry.
-// Values less than or equal to zero are ignored, keeping the default of
-// [DefaultHistoryTTL] (no expiration). When set, Redis will automatically
-// evict history keys after the specified duration, independent of
-// [Storage.CleanupHistory].
+// WithHistoryTTL sets the historyTTL option.
 func WithHistoryTTL(v time.Duration) Option {
 	return func(o *options) {
 		if v <= 0 {
@@ -26,10 +21,7 @@ func WithHistoryTTL(v time.Duration) Option {
 	}
 }
 
-// WithKeyPrefix sets the Redis key prefix prepended to every key managed by
-// [Storage]. Empty strings (after trimming whitespace) and nil pointers are
-// ignored, keeping the default of [DefaultKeyPrefix]. Trailing colons are
-// normalized by [New].
+// WithKeyPrefix sets the keyPrefix option.
 func WithKeyPrefix[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
 		switch t := any(v).(type) {
@@ -52,10 +44,7 @@ func WithKeyPrefix[T interface{ string | *string }](v T) Option {
 	}
 }
 
-// WithMaxHistoryPerTask sets the maximum number of history entries retained
-// per task. After each call to [Storage.AddHistory], entries exceeding this
-// limit are trimmed on a best-effort basis (oldest first). The default is
-// [DefaultMaxHistoryPerTask]. A value of zero or negative disables trimming.
+// WithMaxHistoryPerTask sets the maxHistoryPerTask option.
 func WithMaxHistoryPerTask(v int) Option {
 	return func(o *options) {
 		o.maxHistoryPerTask = v

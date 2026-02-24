@@ -397,7 +397,7 @@ func (s *Scheduler) TasksPaginated(ctx context.Context, page PageRequest, filter
 	var filterNode filter.Node
 	if filterExpr != "" {
 		var err error
-		filterNode, err = s.filterParser.Parse(filterExpr)
+		filterNode, err = s.filterParser.Parse(ctx, filterExpr)
 		if err != nil {
 			return nil, err
 		}
@@ -435,7 +435,7 @@ func (s *Scheduler) HistoryPaginated(ctx context.Context, taskID string, page Pa
 	var filterNode filter.Node
 	if filterExpr != "" {
 		var err error
-		filterNode, err = s.filterParser.Parse(filterExpr)
+		filterNode, err = s.filterParser.Parse(ctx, filterExpr)
 		if err != nil {
 			return nil, err
 		}

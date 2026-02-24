@@ -7,14 +7,10 @@ import (
 	"strings"
 )
 
-// Option is a functional option for configuring a [Storage] instance created
-// by [New]. Options are applied in order; later options override earlier ones.
+// Option is a functional option for configuring options.
 type Option func(o *options)
 
-// WithHistoryCollection overrides the MongoDB collection name used to store
-// [scheduler.TaskHistory] documents. The default is [DefaultHistoryCollection].
-// Empty strings and nil pointers are silently ignored, leaving the default
-// unchanged.
+// WithHistoryCollection sets the historyCollection option.
 func WithHistoryCollection[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
 		switch t := any(v).(type) {
@@ -37,10 +33,7 @@ func WithHistoryCollection[T interface{ string | *string }](v T) Option {
 	}
 }
 
-// WithTasksCollection overrides the MongoDB collection name used to store
-// [scheduler.TaskState] documents. The default is [DefaultTasksCollection].
-// Empty strings and nil pointers are silently ignored, leaving the default
-// unchanged.
+// WithTasksCollection sets the tasksCollection option.
 func WithTasksCollection[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
 		switch t := any(v).(type) {

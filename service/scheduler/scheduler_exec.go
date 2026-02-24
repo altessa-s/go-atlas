@@ -185,7 +185,8 @@ func (s *Scheduler) dispatchPending(pending []pendingTask) {
 // due simultaneously. Tasks that don't fit in this tick are deferred to the
 // next one. Critical-priority tasks always bypass this cap.
 func (s *Scheduler) dispatchUnlimited(pending []pendingTask) {
-	perTickCap := runtime.GOMAXPROCS(0) * 4
+	const perTickMultiplier = 4
+	perTickCap := runtime.GOMAXPROCS(0) * perTickMultiplier
 	dispatched := 0
 
 	for _, pt := range pending {

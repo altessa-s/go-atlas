@@ -14,9 +14,9 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/altessa-s/go-atlas/data/filter"
-	mongotranslator "github.com/altessa-s/go-atlas/data/filter/translators/mongo"
 	"github.com/altessa-s/go-atlas/service/scheduler"
 
+	mongotranslator "github.com/altessa-s/go-atlas/data/filter/translators/mongo"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 

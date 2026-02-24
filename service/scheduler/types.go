@@ -106,7 +106,7 @@ const (
 type TaskState struct {
 	TaskSummary
 	LastRunID    string            `json:"last_run_id,omitempty"`
-	RunStartedAt int64            `json:"run_started_at,omitempty"`
+	RunStartedAt int64             `json:"run_started_at,omitempty"`
 	Meta         map[string]string `json:"meta,omitempty"`
 	CreatedAt    int64             `json:"created_at"`
 	UpdatedAt    int64             `json:"updated_at"`
@@ -201,7 +201,7 @@ type Storage interface {
 
 // generateID generates a cryptographically secure random ID.
 // Returns a 32-character hex string (128 bits of entropy).
-// Panics if the system CSPRNG is unavailable — this mirrors the behaviour of
+// Panics if the system CSPRNG is unavailable — this mirrors the behavior of
 // crypto/rand in Go 1.24+ where Read never returns an error under normal
 // operating conditions.
 func generateID() string {

@@ -40,10 +40,10 @@ import (
 //
 // All exported methods are safe for concurrent use.
 type Scheduler struct {
-	storage         Storage
-	opts            *options
-	logger          *slog.Logger
-	parser          cron.Parser
+	storage      Storage
+	opts         *options
+	logger       *slog.Logger
+	parser       cron.Parser
 	filterParser *filter.Parser
 
 	mu    sync.RWMutex
@@ -109,12 +109,12 @@ func New(storage Storage, opts ...Option) *Scheduler {
 	fp, _ := filter.NewParser() //nolint:errcheck // parser init never fails with no options
 
 	s := &Scheduler{
-		storage:         storage,
-		opts:            o,
-		logger:          o.logger,
-		tasks:           make(map[string]*registeredTask),
-		leaderElector:   o.leaderElector,
-		filterParser: fp,
+		storage:       storage,
+		opts:          o,
+		logger:        o.logger,
+		tasks:         make(map[string]*registeredTask),
+		leaderElector: o.leaderElector,
+		filterParser:  fp,
 		parser: cron.NewParser(
 			cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
 		),

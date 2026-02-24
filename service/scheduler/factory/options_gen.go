@@ -13,16 +13,10 @@ import (
 	redis "github.com/redis/go-redis/v9"
 )
 
-// Option is a functional option for configuring a [Factory]. Pass Option values
-// to [New] to control which infrastructure clients and behavioral settings the
-// Factory carries.
+// Option is a functional option for configuring options.
 type Option func(o *options)
 
-// WithLeaderElector sets the [leadelect.LeaderElector] used by schedulers
-// created through this Factory. When set, the leader elector is automatically
-// passed to every [scheduler.Scheduler] so that only the elected leader
-// instance executes tasks. A nil value is silently ignored, leaving the
-// default (no leader election) in place.
+// WithLeaderElector sets the leaderElector option.
 func WithLeaderElector(v leadelect.LeaderElector) Option {
 	return func(o *options) {
 		if v == nil {
@@ -32,9 +26,7 @@ func WithLeaderElector(v leadelect.LeaderElector) Option {
 	}
 }
 
-// WithLogger sets the structured logger used by the [Factory] and forwarded
-// to every [scheduler.Scheduler] it creates. A nil value is silently ignored;
-// in that case a no-op discard logger is used by default.
+// WithLogger sets the logger option.
 func WithLogger(v *slog.Logger) Option {
 	return func(o *options) {
 		if v == nil {
@@ -44,11 +36,7 @@ func WithLogger(v *slog.Logger) Option {
 	}
 }
 
-// WithMongoDb sets the [mongo.Database] used when creating MongoDB-backed
-// storage via [Factory.CreateStorageFromConfig] or
-// [Factory.CreateMongoStorageFromConfig]. A nil value is silently ignored.
-// The database must be provided before requesting MongoDB storage; otherwise
-// the Factory returns an error at creation time.
+// WithMongoDb sets the mongoDb option.
 func WithMongoDb(v *mongo.Database) Option {
 	return func(o *options) {
 		if v == nil {
@@ -58,11 +46,7 @@ func WithMongoDb(v *mongo.Database) Option {
 	}
 }
 
-// WithRedisClient sets the [redis.UniversalClient] used when creating
-// Redis-backed storage via [Factory.CreateStorageFromConfig] or
-// [Factory.CreateRedisStorageFromConfig]. A nil value is silently ignored.
-// The client must be provided before requesting Redis storage; otherwise the
-// Factory returns an error at creation time.
+// WithRedisClient sets the redisClient option.
 func WithRedisClient(v redis.UniversalClient) Option {
 	return func(o *options) {
 		if v == nil {

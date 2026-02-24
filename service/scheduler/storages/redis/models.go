@@ -54,7 +54,7 @@ type taskData struct {
 	LastRunAt      int64             `json:"last_run_at,omitempty"`
 	NextRunAt      int64             `json:"next_run_at,omitempty"`
 	LastRunID      string            `json:"last_run_id,omitempty"`
-	RunStartedAt   int64            `json:"run_started_at,omitempty"`
+	RunStartedAt   int64             `json:"run_started_at,omitempty"`
 	Failures       int32             `json:"failures"`
 	SkipNextRun    bool              `json:"skip_next_run,omitempty"`
 	DisableHistory bool              `json:"disable_history,omitempty"`

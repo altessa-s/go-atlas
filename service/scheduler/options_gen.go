@@ -10,14 +10,10 @@ import (
 	"github.com/altessa-s/go-atlas/data/leadelect"
 )
 
-// Option is a functional option for configuring a [Scheduler] created by [New].
-// Options are applied in order; later options override earlier ones for the
-// same field.
+// Option is a functional option for configuring options.
 type Option func(o *options)
 
-// WithCleanupInterval sets how often the scheduler purges expired history
-// entries. Non-positive values are ignored.
-// Default: [DefaultCleanupInterval] (1 hour).
+// WithCleanupInterval sets the cleanupInterval option.
 func WithCleanupInterval(v time.Duration) Option {
 	return func(o *options) {
 		if v <= 0 {
@@ -27,9 +23,7 @@ func WithCleanupInterval(v time.Duration) Option {
 	}
 }
 
-// WithHistoryRetention sets the duration for which task execution history is kept
-// before being purged by the periodic cleanup routine. Non-positive values are
-// ignored. Default: [DefaultHistoryRetention] (7 days).
+// WithHistoryRetention sets the historyRetention option.
 func WithHistoryRetention(v time.Duration) Option {
 	return func(o *options) {
 		if v <= 0 {
@@ -39,10 +33,7 @@ func WithHistoryRetention(v time.Duration) Option {
 	}
 }
 
-// WithLeaderElector enables distributed leader election so that tasks only
-// execute on the current leader node. When set, the scheduler checks
-// [Scheduler.IsLeader] before each tick and skips execution on non-leader nodes.
-// A nil value is ignored.
+// WithLeaderElector sets the leaderElector option.
 func WithLeaderElector(v leadelect.LeaderElector) Option {
 	return func(o *options) {
 		if v == nil {
@@ -52,9 +43,7 @@ func WithLeaderElector(v leadelect.LeaderElector) Option {
 	}
 }
 
-// WithLogger sets the structured logger used for scheduler lifecycle, task
-// execution, and error messages. A nil value is ignored; by default the
-// scheduler uses a discard logger.
+// WithLogger sets the logger option.
 func WithLogger(v *slog.Logger) Option {
 	return func(o *options) {
 		if v == nil {
@@ -64,35 +53,21 @@ func WithLogger(v *slog.Logger) Option {
 	}
 }
 
-// WithMaxConcurrentTasks sets the static upper bound on concurrent task
-// executions in shared-pool mode. The value is split between a shared pool
-// (for Normal and Low priority) and reserved high-priority slots (see
-// [WithReservedHighPrioritySlots]). Zero means unlimited concurrency.
-// Default: [DefaultMaxConcurrentTasks].
-//
-// This option is ignored when [WithConcurrencyLimitFunc] is also set, because
-// the dynamic limit function takes precedence.
+// WithMaxConcurrentTasks sets the maxConcurrentTasks option.
 func WithMaxConcurrentTasks(v int) Option {
 	return func(o *options) {
 		o.maxConcurrentTasks = v
 	}
 }
 
-// WithReservedHighPrioritySlots sets the number of concurrency slots reserved
-// exclusively for [TaskPriorityHigh] tasks. These slots cannot be consumed by
-// Normal or Low priority tasks. In static mode the reserved slots are subtracted
-// from [WithMaxConcurrentTasks]; in dynamic mode they are enforced at dispatch
-// time. Default: [DefaultReservedHighPrioritySlots].
+// WithReservedHighPrioritySlots sets the reservedHighPrioritySlots option.
 func WithReservedHighPrioritySlots(v int) Option {
 	return func(o *options) {
 		o.reservedHighPrioritySlots = v
 	}
 }
 
-// WithStaleTaskTimeout sets the duration after which a task stuck in
-// [TaskStatusRunning] is considered stale and reset to [TaskStatusActive] by
-// the periodic recovery routine. Non-positive values are ignored.
-// Default: [DefaultStaleTaskTimeout] (30 minutes).
+// WithStaleTaskTimeout sets the staleTaskTimeout option.
 func WithStaleTaskTimeout(v time.Duration) Option {
 	return func(o *options) {
 		if v <= 0 {
@@ -102,10 +77,7 @@ func WithStaleTaskTimeout(v time.Duration) Option {
 	}
 }
 
-// WithTickInterval sets how often the scheduler's main loop evaluates pending
-// tasks and dispatches due ones. Shorter intervals provide lower latency at the
-// cost of higher CPU usage. Non-positive values are ignored.
-// Default: [DefaultTickInterval] (1 second).
+// WithTickInterval sets the tickInterval option.
 func WithTickInterval(v time.Duration) Option {
 	return func(o *options) {
 		if v <= 0 {
