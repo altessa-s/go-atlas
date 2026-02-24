@@ -172,12 +172,19 @@ func (s *Secrets) Validate() error {
 	)
 }
 
-
 // Validate performs validation of the SecretsCache configuration.
 func (c *SecretsCache) Validate() error {
 	return ValidateStruct(c,
 		validation.Field(&c.MaxSize, validation.Min(0)),
 		validation.Field(&c.ShardCount, validation.Min(0)),
+	)
+}
+
+// Validate performs validation of the SecretsVault configuration.
+func (v *SecretsVault) Validate() error {
+	return ValidateStruct(v,
+		validation.Field(&v.MountPath, validation.Required),
+		validation.Field(&v.SecretPath, validation.Required),
 	)
 }
 
