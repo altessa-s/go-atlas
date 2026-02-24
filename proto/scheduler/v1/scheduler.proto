@@ -5,8 +5,6 @@
 syntax = "proto3";
 package io.altessa.grpc.scheduler.v1;
 
-import "google/protobuf/field_mask.proto";
-
 // Specifies the package name for generated Java code.
 option java_package = "io.altessa.grpc.scheduler.v1";
 option java_multiple_files = true;
@@ -85,55 +83,25 @@ enum TaskPriority {
 }
 
 // Defines the full persistent state of a scheduler task.
+// It composes TaskSummary with additional detail fields that are
+// only relevant when inspecting a single task.
 message TaskState {
-  // Unique identifier for the task.
-  string id = 1;
-
-  // Human-readable description of the task.
-  string description = 2;
-
-  // Current status of the task.
-  TaskStatus status = 3;
-
-  // Execution priority of the task.
-  TaskPriority priority = 4;
-
-  // Cron-style schedule expression.
-  string schedule = 5;
-
-  // Last execution timestamp.
-  // Unix timestamp format (seconds since epoch).
-  int64 lastRunAt = 6;
-
-  // Next scheduled execution timestamp.
-  // Unix timestamp format (seconds since epoch).
-  int64 nextRunAt = 7;
+  // The summary view of the task (shared fields).
+  TaskSummary summary = 1;
 
   // Identifier of the last execution run.
-  string lastRunId = 8;
-
-  // Number of consecutive failures.
-  int32 failures = 9;
-
-  // Whether the next scheduled run should be skipped.
-  bool skipNextRun = 10;
-
-  // Whether execution history recording is disabled.
-  bool disableHistory = 11;
-
-  // Whether the task is unmanaged (externally controlled).
-  bool unmanaged = 12;
+  string lastRunId = 2;
 
   // Arbitrary key-value metadata associated with the task.
-  map<string, string> meta = 13;
+  map<string, string> meta = 3;
 
   // Creation timestamp.
   // Unix timestamp format (seconds since epoch).
-  int64 createdAt = 14;
+  int64 createdAt = 4;
 
   // Last update timestamp.
   // Unix timestamp format (seconds since epoch).
-  int64 updatedAt = 15;
+  int64 updatedAt = 5;
 }
 
 // Defines a summary view of a task for listing.

@@ -13,7 +13,6 @@ package schedulerv1
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	_ "google.golang.org/protobuf/types/known/fieldmaskpb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -149,42 +148,22 @@ func (TaskPriority) EnumDescriptor() ([]byte, []int) {
 }
 
 // Defines the full persistent state of a scheduler task.
+// It composes TaskSummary with additional detail fields that are
+// only relevant when inspecting a single task.
 type TaskState struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Unique identifier for the task.
-	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// Human-readable description of the task.
-	Description string `protobuf:"bytes,2,opt,name=description,proto3" json:"description,omitempty"`
-	// Current status of the task.
-	Status TaskStatus `protobuf:"varint,3,opt,name=status,proto3,enum=io.altessa.grpc.scheduler.v1.TaskStatus" json:"status,omitempty"`
-	// Execution priority of the task.
-	Priority TaskPriority `protobuf:"varint,4,opt,name=priority,proto3,enum=io.altessa.grpc.scheduler.v1.TaskPriority" json:"priority,omitempty"`
-	// Cron-style schedule expression.
-	Schedule string `protobuf:"bytes,5,opt,name=schedule,proto3" json:"schedule,omitempty"`
-	// Last execution timestamp.
-	// Unix timestamp format (seconds since epoch).
-	LastRunAt int64 `protobuf:"varint,6,opt,name=lastRunAt,proto3" json:"lastRunAt,omitempty"`
-	// Next scheduled execution timestamp.
-	// Unix timestamp format (seconds since epoch).
-	NextRunAt int64 `protobuf:"varint,7,opt,name=nextRunAt,proto3" json:"nextRunAt,omitempty"`
+	// The summary view of the task (shared fields).
+	Summary *TaskSummary `protobuf:"bytes,1,opt,name=summary,proto3" json:"summary,omitempty"`
 	// Identifier of the last execution run.
-	LastRunId string `protobuf:"bytes,8,opt,name=lastRunId,proto3" json:"lastRunId,omitempty"`
-	// Number of consecutive failures.
-	Failures int32 `protobuf:"varint,9,opt,name=failures,proto3" json:"failures,omitempty"`
-	// Whether the next scheduled run should be skipped.
-	SkipNextRun bool `protobuf:"varint,10,opt,name=skipNextRun,proto3" json:"skipNextRun,omitempty"`
-	// Whether execution history recording is disabled.
-	DisableHistory bool `protobuf:"varint,11,opt,name=disableHistory,proto3" json:"disableHistory,omitempty"`
-	// Whether the task is unmanaged (externally controlled).
-	Unmanaged bool `protobuf:"varint,12,opt,name=unmanaged,proto3" json:"unmanaged,omitempty"`
+	LastRunId string `protobuf:"bytes,2,opt,name=lastRunId,proto3" json:"lastRunId,omitempty"`
 	// Arbitrary key-value metadata associated with the task.
-	Meta map[string]string `protobuf:"bytes,13,rep,name=meta,proto3" json:"meta,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Meta map[string]string `protobuf:"bytes,3,rep,name=meta,proto3" json:"meta,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Creation timestamp.
 	// Unix timestamp format (seconds since epoch).
-	CreatedAt int64 `protobuf:"varint,14,opt,name=createdAt,proto3" json:"createdAt,omitempty"`
+	CreatedAt int64 `protobuf:"varint,4,opt,name=createdAt,proto3" json:"createdAt,omitempty"`
 	// Last update timestamp.
 	// Unix timestamp format (seconds since epoch).
-	UpdatedAt     int64 `protobuf:"varint,15,opt,name=updatedAt,proto3" json:"updatedAt,omitempty"`
+	UpdatedAt     int64 `protobuf:"varint,5,opt,name=updatedAt,proto3" json:"updatedAt,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -219,53 +198,11 @@ func (*TaskState) Descriptor() ([]byte, []int) {
 	return file_scheduler_v1_scheduler_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *TaskState) GetId() string {
+func (x *TaskState) GetSummary() *TaskSummary {
 	if x != nil {
-		return x.Id
+		return x.Summary
 	}
-	return ""
-}
-
-func (x *TaskState) GetDescription() string {
-	if x != nil {
-		return x.Description
-	}
-	return ""
-}
-
-func (x *TaskState) GetStatus() TaskStatus {
-	if x != nil {
-		return x.Status
-	}
-	return TaskStatus_TASK_STATUS_UNSPECIFIED
-}
-
-func (x *TaskState) GetPriority() TaskPriority {
-	if x != nil {
-		return x.Priority
-	}
-	return TaskPriority_TASK_PRIORITY_UNSPECIFIED
-}
-
-func (x *TaskState) GetSchedule() string {
-	if x != nil {
-		return x.Schedule
-	}
-	return ""
-}
-
-func (x *TaskState) GetLastRunAt() int64 {
-	if x != nil {
-		return x.LastRunAt
-	}
-	return 0
-}
-
-func (x *TaskState) GetNextRunAt() int64 {
-	if x != nil {
-		return x.NextRunAt
-	}
-	return 0
+	return nil
 }
 
 func (x *TaskState) GetLastRunId() string {
@@ -273,34 +210,6 @@ func (x *TaskState) GetLastRunId() string {
 		return x.LastRunId
 	}
 	return ""
-}
-
-func (x *TaskState) GetFailures() int32 {
-	if x != nil {
-		return x.Failures
-	}
-	return 0
-}
-
-func (x *TaskState) GetSkipNextRun() bool {
-	if x != nil {
-		return x.SkipNextRun
-	}
-	return false
-}
-
-func (x *TaskState) GetDisableHistory() bool {
-	if x != nil {
-		return x.DisableHistory
-	}
-	return false
-}
-
-func (x *TaskState) GetUnmanaged() bool {
-	if x != nil {
-		return x.Unmanaged
-	}
-	return false
 }
 
 func (x *TaskState) GetMeta() map[string]string {
@@ -1479,24 +1388,13 @@ var File_scheduler_v1_scheduler_proto protoreflect.FileDescriptor
 
 const file_scheduler_v1_scheduler_proto_rawDesc = "" +
 	"\n" +
-	"\x1cscheduler/v1/scheduler.proto\x12\x1cio.altessa.grpc.scheduler.v1\x1a google/protobuf/field_mask.proto\"\xfd\x04\n" +
-	"\tTaskState\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\x12 \n" +
-	"\vdescription\x18\x02 \x01(\tR\vdescription\x12@\n" +
-	"\x06status\x18\x03 \x01(\x0e2(.io.altessa.grpc.scheduler.v1.TaskStatusR\x06status\x12F\n" +
-	"\bpriority\x18\x04 \x01(\x0e2*.io.altessa.grpc.scheduler.v1.TaskPriorityR\bpriority\x12\x1a\n" +
-	"\bschedule\x18\x05 \x01(\tR\bschedule\x12\x1c\n" +
-	"\tlastRunAt\x18\x06 \x01(\x03R\tlastRunAt\x12\x1c\n" +
-	"\tnextRunAt\x18\a \x01(\x03R\tnextRunAt\x12\x1c\n" +
-	"\tlastRunId\x18\b \x01(\tR\tlastRunId\x12\x1a\n" +
-	"\bfailures\x18\t \x01(\x05R\bfailures\x12 \n" +
-	"\vskipNextRun\x18\n" +
-	" \x01(\bR\vskipNextRun\x12&\n" +
-	"\x0edisableHistory\x18\v \x01(\bR\x0edisableHistory\x12\x1c\n" +
-	"\tunmanaged\x18\f \x01(\bR\tunmanaged\x12E\n" +
-	"\x04meta\x18\r \x03(\v21.io.altessa.grpc.scheduler.v1.TaskState.MetaEntryR\x04meta\x12\x1c\n" +
-	"\tcreatedAt\x18\x0e \x01(\x03R\tcreatedAt\x12\x1c\n" +
-	"\tupdatedAt\x18\x0f \x01(\x03R\tupdatedAt\x1a7\n" +
+	"\x1cscheduler/v1/scheduler.proto\x12\x1cio.altessa.grpc.scheduler.v1\"\xaa\x02\n" +
+	"\tTaskState\x12C\n" +
+	"\asummary\x18\x01 \x01(\v2).io.altessa.grpc.scheduler.v1.TaskSummaryR\asummary\x12\x1c\n" +
+	"\tlastRunId\x18\x02 \x01(\tR\tlastRunId\x12E\n" +
+	"\x04meta\x18\x03 \x03(\v21.io.altessa.grpc.scheduler.v1.TaskState.MetaEntryR\x04meta\x12\x1c\n" +
+	"\tcreatedAt\x18\x04 \x01(\x03R\tcreatedAt\x12\x1c\n" +
+	"\tupdatedAt\x18\x05 \x01(\x03R\tupdatedAt\x1a7\n" +
 	"\tMetaEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa5\x03\n" +
@@ -1631,39 +1529,38 @@ var file_scheduler_v1_scheduler_proto_goTypes = []any{
 	nil,                                // 25: io.altessa.grpc.scheduler.v1.TaskState.MetaEntry
 }
 var file_scheduler_v1_scheduler_proto_depIdxs = []int32{
-	0,  // 0: io.altessa.grpc.scheduler.v1.TaskState.status:type_name -> io.altessa.grpc.scheduler.v1.TaskStatus
-	1,  // 1: io.altessa.grpc.scheduler.v1.TaskState.priority:type_name -> io.altessa.grpc.scheduler.v1.TaskPriority
-	25, // 2: io.altessa.grpc.scheduler.v1.TaskState.meta:type_name -> io.altessa.grpc.scheduler.v1.TaskState.MetaEntry
-	0,  // 3: io.altessa.grpc.scheduler.v1.TaskSummary.status:type_name -> io.altessa.grpc.scheduler.v1.TaskStatus
-	1,  // 4: io.altessa.grpc.scheduler.v1.TaskSummary.priority:type_name -> io.altessa.grpc.scheduler.v1.TaskPriority
-	2,  // 5: io.altessa.grpc.scheduler.v1.TaskGetResponse.taskState:type_name -> io.altessa.grpc.scheduler.v1.TaskState
-	3,  // 6: io.altessa.grpc.scheduler.v1.TasksListResponse.tasks:type_name -> io.altessa.grpc.scheduler.v1.TaskSummary
-	4,  // 7: io.altessa.grpc.scheduler.v1.TaskHistoryListResponse.entries:type_name -> io.altessa.grpc.scheduler.v1.TaskHistory
-	5,  // 8: io.altessa.grpc.scheduler.v1.SchedulerService.Get:input_type -> io.altessa.grpc.scheduler.v1.TaskGetRequest
-	7,  // 9: io.altessa.grpc.scheduler.v1.SchedulerService.List:input_type -> io.altessa.grpc.scheduler.v1.TasksListRequest
-	9,  // 10: io.altessa.grpc.scheduler.v1.SchedulerService.ListHistory:input_type -> io.altessa.grpc.scheduler.v1.TaskHistoryListRequest
-	11, // 11: io.altessa.grpc.scheduler.v1.SchedulerService.GetStatus:input_type -> io.altessa.grpc.scheduler.v1.SchedulerStatusGetRequest
-	13, // 12: io.altessa.grpc.scheduler.v1.SchedulerService.Pause:input_type -> io.altessa.grpc.scheduler.v1.TaskPauseRequest
-	15, // 13: io.altessa.grpc.scheduler.v1.SchedulerService.Resume:input_type -> io.altessa.grpc.scheduler.v1.TaskResumeRequest
-	17, // 14: io.altessa.grpc.scheduler.v1.SchedulerService.Disable:input_type -> io.altessa.grpc.scheduler.v1.TaskDisableRequest
-	19, // 15: io.altessa.grpc.scheduler.v1.SchedulerService.Enable:input_type -> io.altessa.grpc.scheduler.v1.TaskEnableRequest
-	21, // 16: io.altessa.grpc.scheduler.v1.SchedulerService.SkipNextRun:input_type -> io.altessa.grpc.scheduler.v1.TaskSkipNextRunRequest
-	23, // 17: io.altessa.grpc.scheduler.v1.SchedulerService.Trigger:input_type -> io.altessa.grpc.scheduler.v1.TaskTriggerRequest
-	6,  // 18: io.altessa.grpc.scheduler.v1.SchedulerService.Get:output_type -> io.altessa.grpc.scheduler.v1.TaskGetResponse
-	8,  // 19: io.altessa.grpc.scheduler.v1.SchedulerService.List:output_type -> io.altessa.grpc.scheduler.v1.TasksListResponse
-	10, // 20: io.altessa.grpc.scheduler.v1.SchedulerService.ListHistory:output_type -> io.altessa.grpc.scheduler.v1.TaskHistoryListResponse
-	12, // 21: io.altessa.grpc.scheduler.v1.SchedulerService.GetStatus:output_type -> io.altessa.grpc.scheduler.v1.SchedulerStatusGetResponse
-	14, // 22: io.altessa.grpc.scheduler.v1.SchedulerService.Pause:output_type -> io.altessa.grpc.scheduler.v1.TaskPauseResponse
-	16, // 23: io.altessa.grpc.scheduler.v1.SchedulerService.Resume:output_type -> io.altessa.grpc.scheduler.v1.TaskResumeResponse
-	18, // 24: io.altessa.grpc.scheduler.v1.SchedulerService.Disable:output_type -> io.altessa.grpc.scheduler.v1.TaskDisableResponse
-	20, // 25: io.altessa.grpc.scheduler.v1.SchedulerService.Enable:output_type -> io.altessa.grpc.scheduler.v1.TaskEnableResponse
-	22, // 26: io.altessa.grpc.scheduler.v1.SchedulerService.SkipNextRun:output_type -> io.altessa.grpc.scheduler.v1.TaskSkipNextRunResponse
-	24, // 27: io.altessa.grpc.scheduler.v1.SchedulerService.Trigger:output_type -> io.altessa.grpc.scheduler.v1.TaskTriggerResponse
-	18, // [18:28] is the sub-list for method output_type
-	8,  // [8:18] is the sub-list for method input_type
-	8,  // [8:8] is the sub-list for extension type_name
-	8,  // [8:8] is the sub-list for extension extendee
-	0,  // [0:8] is the sub-list for field type_name
+	3,  // 0: io.altessa.grpc.scheduler.v1.TaskState.summary:type_name -> io.altessa.grpc.scheduler.v1.TaskSummary
+	25, // 1: io.altessa.grpc.scheduler.v1.TaskState.meta:type_name -> io.altessa.grpc.scheduler.v1.TaskState.MetaEntry
+	0,  // 2: io.altessa.grpc.scheduler.v1.TaskSummary.status:type_name -> io.altessa.grpc.scheduler.v1.TaskStatus
+	1,  // 3: io.altessa.grpc.scheduler.v1.TaskSummary.priority:type_name -> io.altessa.grpc.scheduler.v1.TaskPriority
+	2,  // 4: io.altessa.grpc.scheduler.v1.TaskGetResponse.taskState:type_name -> io.altessa.grpc.scheduler.v1.TaskState
+	3,  // 5: io.altessa.grpc.scheduler.v1.TasksListResponse.tasks:type_name -> io.altessa.grpc.scheduler.v1.TaskSummary
+	4,  // 6: io.altessa.grpc.scheduler.v1.TaskHistoryListResponse.entries:type_name -> io.altessa.grpc.scheduler.v1.TaskHistory
+	5,  // 7: io.altessa.grpc.scheduler.v1.SchedulerService.Get:input_type -> io.altessa.grpc.scheduler.v1.TaskGetRequest
+	7,  // 8: io.altessa.grpc.scheduler.v1.SchedulerService.List:input_type -> io.altessa.grpc.scheduler.v1.TasksListRequest
+	9,  // 9: io.altessa.grpc.scheduler.v1.SchedulerService.ListHistory:input_type -> io.altessa.grpc.scheduler.v1.TaskHistoryListRequest
+	11, // 10: io.altessa.grpc.scheduler.v1.SchedulerService.GetStatus:input_type -> io.altessa.grpc.scheduler.v1.SchedulerStatusGetRequest
+	13, // 11: io.altessa.grpc.scheduler.v1.SchedulerService.Pause:input_type -> io.altessa.grpc.scheduler.v1.TaskPauseRequest
+	15, // 12: io.altessa.grpc.scheduler.v1.SchedulerService.Resume:input_type -> io.altessa.grpc.scheduler.v1.TaskResumeRequest
+	17, // 13: io.altessa.grpc.scheduler.v1.SchedulerService.Disable:input_type -> io.altessa.grpc.scheduler.v1.TaskDisableRequest
+	19, // 14: io.altessa.grpc.scheduler.v1.SchedulerService.Enable:input_type -> io.altessa.grpc.scheduler.v1.TaskEnableRequest
+	21, // 15: io.altessa.grpc.scheduler.v1.SchedulerService.SkipNextRun:input_type -> io.altessa.grpc.scheduler.v1.TaskSkipNextRunRequest
+	23, // 16: io.altessa.grpc.scheduler.v1.SchedulerService.Trigger:input_type -> io.altessa.grpc.scheduler.v1.TaskTriggerRequest
+	6,  // 17: io.altessa.grpc.scheduler.v1.SchedulerService.Get:output_type -> io.altessa.grpc.scheduler.v1.TaskGetResponse
+	8,  // 18: io.altessa.grpc.scheduler.v1.SchedulerService.List:output_type -> io.altessa.grpc.scheduler.v1.TasksListResponse
+	10, // 19: io.altessa.grpc.scheduler.v1.SchedulerService.ListHistory:output_type -> io.altessa.grpc.scheduler.v1.TaskHistoryListResponse
+	12, // 20: io.altessa.grpc.scheduler.v1.SchedulerService.GetStatus:output_type -> io.altessa.grpc.scheduler.v1.SchedulerStatusGetResponse
+	14, // 21: io.altessa.grpc.scheduler.v1.SchedulerService.Pause:output_type -> io.altessa.grpc.scheduler.v1.TaskPauseResponse
+	16, // 22: io.altessa.grpc.scheduler.v1.SchedulerService.Resume:output_type -> io.altessa.grpc.scheduler.v1.TaskResumeResponse
+	18, // 23: io.altessa.grpc.scheduler.v1.SchedulerService.Disable:output_type -> io.altessa.grpc.scheduler.v1.TaskDisableResponse
+	20, // 24: io.altessa.grpc.scheduler.v1.SchedulerService.Enable:output_type -> io.altessa.grpc.scheduler.v1.TaskEnableResponse
+	22, // 25: io.altessa.grpc.scheduler.v1.SchedulerService.SkipNextRun:output_type -> io.altessa.grpc.scheduler.v1.TaskSkipNextRunResponse
+	24, // 26: io.altessa.grpc.scheduler.v1.SchedulerService.Trigger:output_type -> io.altessa.grpc.scheduler.v1.TaskTriggerResponse
+	17, // [17:27] is the sub-list for method output_type
+	7,  // [7:17] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_scheduler_v1_scheduler_proto_init() }

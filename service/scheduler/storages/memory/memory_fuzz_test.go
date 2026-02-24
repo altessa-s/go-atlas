@@ -21,9 +21,11 @@ func FuzzStorage_UpsertAndGet(f *testing.F) {
 		ctx := t.Context()
 
 		state := &scheduler.TaskState{
-			ID:       id,
-			Status:   scheduler.TaskStatus(status),
-			Schedule: schedule,
+			TaskSummary: scheduler.TaskSummary{
+				ID:       id,
+				Status:   scheduler.TaskStatus(status),
+				Schedule: schedule,
+			},
 		}
 
 		// Should not panic

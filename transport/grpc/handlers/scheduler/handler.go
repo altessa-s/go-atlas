@@ -59,7 +59,13 @@ func (h *Handler) Get(ctx context.Context, req *schedulerv1.TaskGetRequest) (*sc
 		return nil, mapError(sched.ErrTaskNotFound)
 	}
 
-	return &schedulerv1.TaskGetResponse{TaskState: converter.Convert(state, &schedulerv1.TaskState{})}, nil
+	return &schedulerv1.TaskGetResponse{TaskState: &schedulerv1.TaskState{
+		Summary:   converter.Convert(&state.TaskSummary, &schedulerv1.TaskSummary{}),
+		LastRunId: state.LastRunID,
+		Meta:      state.Meta,
+		CreatedAt: state.CreatedAt,
+		UpdatedAt: state.UpdatedAt,
+	}}, nil
 }
 
 // List returns summaries of all tasks, optionally filtered by a CEL expression

@@ -267,11 +267,13 @@ func TestMemoryStorage_GetTask(t *testing.T) {
 
 	// Insert and retrieve
 	expected := &scheduler.TaskState{
-		ID:       "test",
-		Status:   scheduler.TaskStatusActive,
-		Schedule: "@every 1h",
-		Meta:     map[string]string{"key": "value"},
-		Priority: corescheduler.TaskPriorityNormal,
+		TaskSummary: scheduler.TaskSummary{
+			ID:       "test",
+			Status:   scheduler.TaskStatusActive,
+			Schedule: "@every 1h",
+			Priority: corescheduler.TaskPriorityNormal,
+		},
+		Meta: map[string]string{"key": "value"},
 	}
 	if err := storage.UpsertTask(ctx, expected); err != nil {
 		t.Fatalf("failed to upsert: %v", err)
@@ -652,9 +654,11 @@ func TestMemoryStorage_Tasks(t *testing.T) {
 	for i := range 3 {
 		id := string("task-" + string(rune('a'+i)))
 		err := storage.UpsertTask(ctx, &scheduler.TaskState{
-			ID:       id,
-			Status:   scheduler.TaskStatusActive,
-			Schedule: "@every 1h",
+			TaskSummary: scheduler.TaskSummary{
+				ID:       id,
+				Status:   scheduler.TaskStatusActive,
+				Schedule: "@every 1h",
+			},
 		})
 		if err != nil {
 			t.Fatalf("failed to upsert task: %v", err)
@@ -1341,9 +1345,11 @@ func TestTasksCollect(t *testing.T) {
 	for i := range 3 {
 		id := string("task-" + string(rune('a'+i)))
 		err := storage.UpsertTask(ctx, &scheduler.TaskState{
-			ID:       id,
-			Status:   scheduler.TaskStatusActive,
-			Schedule: "@every 1h",
+			TaskSummary: scheduler.TaskSummary{
+				ID:       id,
+				Status:   scheduler.TaskStatusActive,
+				Schedule: "@every 1h",
+			},
 		})
 		if err != nil {
 			t.Fatalf("failed to upsert task: %v", err)
@@ -1679,13 +1685,15 @@ func TestScheduler_RecoverStaleTasksOnStartup(t *testing.T) {
 
 	// Simulate a crashed scheduler: insert a task in Running status
 	staleState := &scheduler.TaskState{
-		ID:        "stale-startup",
-		Status:    scheduler.TaskStatusRunning,
-		Schedule:  "@every 1s",
-		Priority:  corescheduler.TaskPriorityNormal,
+		TaskSummary: scheduler.TaskSummary{
+			ID:        "stale-startup",
+			Status:    scheduler.TaskStatusRunning,
+			Schedule:  "@every 1s",
+			Priority:  corescheduler.TaskPriorityNormal,
+			NextRunAt: time.Now().Add(-time.Hour).Unix(),
+		},
 		UpdatedAt: time.Now().Add(-time.Hour).Unix(),
 		CreatedAt: time.Now().Add(-2 * time.Hour).Unix(),
-		NextRunAt: time.Now().Add(-time.Hour).Unix(),
 	}
 	if err := storage.UpsertTask(ctx, staleState); err != nil {
 		t.Fatalf("failed to upsert stale task: %v", err)

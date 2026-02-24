@@ -87,18 +87,21 @@ func (s *Scheduler) Register(ctx context.Context, cfg corescheduler.TaskConfig) 
 
 	// Create or update storage state
 	state := &TaskState{
-		ID:             cfg.ID,
-		Description:    cfg.Description,
-		Status:         TaskStatusActive,
-		Priority:       cfg.Priority,
-		Schedule:       cfg.Schedule,
-		NextRunAt:      nextRun.Unix(),
-		DisableHistory: cfg.DisableHistory,
-		Unmanaged:      cfg.Unmanaged,
-		OneShot:        isOneShot,
-		Meta:           cfg.Meta,
-		CreatedAt:      nowUnix,
-		UpdatedAt:      nowUnix,
+		TaskSummary: TaskSummary{
+			ID:             cfg.ID,
+			Description:    cfg.Description,
+			Status:         TaskStatusActive,
+			Priority:       cfg.Priority,
+			Schedule:       cfg.Schedule,
+			NextRunAt:      nextRun.Unix(),
+			DisableHistory: cfg.DisableHistory,
+			Unmanaged:      cfg.Unmanaged,
+			OneShot:        isOneShot,
+			Failures:       0,
+		},
+		Meta:      cfg.Meta,
+		CreatedAt: nowUnix,
+		UpdatedAt: nowUnix,
 	}
 
 	// Check if task already exists
@@ -359,21 +362,8 @@ func (s *Scheduler) Tasks(ctx context.Context) iter.Seq2[*TaskSummary, error] {
 				yield(nil, err)
 				return
 			}
-			summary := &TaskSummary{
-				ID:             state.ID,
-				Description:    state.Description,
-				Status:         state.Status,
-				Priority:       state.Priority,
-				Schedule:       state.Schedule,
-				LastRunAt:      state.LastRunAt,
-				NextRunAt:      state.NextRunAt,
-				SkipNextRun:    state.SkipNextRun,
-				DisableHistory: state.DisableHistory,
-				Unmanaged:      state.Unmanaged,
-				OneShot:        state.OneShot,
-				Failures:       state.Failures,
-			}
-			if !yield(summary, nil) {
+			summary := state.TaskSummary
+			if !yield(&summary, nil) {
 				return
 			}
 		}
@@ -407,21 +397,8 @@ func (s *Scheduler) TasksFiltered(ctx context.Context, node filter.Node) (iter.S
 				yield(nil, err)
 				return
 			}
-			summary := &TaskSummary{
-				ID:             state.ID,
-				Description:    state.Description,
-				Status:         state.Status,
-				Priority:       state.Priority,
-				Schedule:       state.Schedule,
-				LastRunAt:      state.LastRunAt,
-				NextRunAt:      state.NextRunAt,
-				SkipNextRun:    state.SkipNextRun,
-				DisableHistory: state.DisableHistory,
-				Unmanaged:      state.Unmanaged,
-				OneShot:        state.OneShot,
-				Failures:       state.Failures,
-			}
-			if !yield(summary, nil) {
+			summary := state.TaskSummary
+			if !yield(&summary, nil) {
 				return
 			}
 		}

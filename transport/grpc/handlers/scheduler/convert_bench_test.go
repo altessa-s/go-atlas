@@ -12,10 +12,12 @@ import (
 
 func BenchmarkTaskStateToMap(b *testing.B) {
 	s := &sched.TaskState{
-		ID:       "task1",
-		Status:   1,
-		Priority: 2,
-		Meta:     map[string]string{"k": "v"},
+		TaskSummary: sched.TaskSummary{
+			ID:       "task1",
+			Status:   1,
+			Priority: 2,
+		},
+		Meta: map[string]string{"k": "v"},
 	}
 	for b.Loop() {
 		taskStateToMap(s)

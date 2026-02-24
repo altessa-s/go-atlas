@@ -10,27 +10,17 @@ import (
 )
 
 // taskStateToMap converts a TaskState to a map for filter evaluation.
-// Field names use proto camelCase to match CEL expressions.
+// Field names use proto camelCase to match CEL expressions. Summary fields
+// are promoted via embedding and merged with detail-only fields.
 //
 //nolint:unused // used by tests; linter does not scan test files (tests: false).
 func taskStateToMap(s *sched.TaskState) map[string]any {
-	return map[string]any{
-		"id":             s.ID,
-		"description":    s.Description,
-		"status":         int64(s.Status),
-		"priority":       int64(s.Priority),
-		"schedule":       s.Schedule,
-		"lastRunAt":      s.LastRunAt,
-		"nextRunAt":      s.NextRunAt,
-		"lastRunId":      s.LastRunID,
-		"failures":       int64(s.Failures),
-		"skipNextRun":    s.SkipNextRun,
-		"disableHistory": s.DisableHistory,
-		"unmanaged":      s.Unmanaged,
-		"meta":           coremaps.ConvertMap(s.Meta, func(k, v string) (string, any) { return k, v }),
-		"createdAt":      s.CreatedAt,
-		"updatedAt":      s.UpdatedAt,
-	}
+	m := taskSummaryToMap(&s.TaskSummary)
+	m["lastRunId"] = s.LastRunID
+	m["meta"] = coremaps.ConvertMap(s.Meta, func(k, v string) (string, any) { return k, v })
+	m["createdAt"] = s.CreatedAt
+	m["updatedAt"] = s.UpdatedAt
+	return m
 }
 
 // taskSummaryToMap converts a TaskSummary to a map for filter evaluation.

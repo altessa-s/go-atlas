@@ -47,10 +47,12 @@ func TestStorage_UpsertAndGetTask(t *testing.T) {
 	ctx := t.Context()
 
 	state := &scheduler.TaskState{
-		ID:       "task-1",
-		Status:   scheduler.TaskStatusActive,
-		Schedule: "@every 1h",
-		Meta:     map[string]string{"env": "test"},
+		TaskSummary: scheduler.TaskSummary{
+			ID:       "task-1",
+			Status:   scheduler.TaskStatusActive,
+			Schedule: "@every 1h",
+		},
+		Meta: map[string]string{"env": "test"},
 	}
 
 	require.NoError(t, s.UpsertTask(ctx, state))
@@ -72,7 +74,7 @@ func TestStorage_UpsertTask_Update(t *testing.T) {
 	s := memory.New(100)
 	ctx := t.Context()
 
-	state := &scheduler.TaskState{ID: "task-1", Status: scheduler.TaskStatusActive}
+	state := &scheduler.TaskState{TaskSummary: scheduler.TaskSummary{ID: "task-1", Status: scheduler.TaskStatusActive}}
 	require.NoError(t, s.UpsertTask(ctx, state))
 
 	state.Status = scheduler.TaskStatusPaused
@@ -86,7 +88,7 @@ func TestStorage_DeleteTask(t *testing.T) {
 	s := memory.New(100)
 	ctx := t.Context()
 
-	_ = s.UpsertTask(ctx, &scheduler.TaskState{ID: "task-1", Status: scheduler.TaskStatusActive})
+	_ = s.UpsertTask(ctx, &scheduler.TaskState{TaskSummary: scheduler.TaskSummary{ID: "task-1", Status: scheduler.TaskStatusActive}})
 	_ = s.AddHistory(ctx, &scheduler.TaskHistory{ID: "h1", TaskID: "task-1"})
 
 	require.NoError(t, s.DeleteTask(ctx, "task-1"))
@@ -107,9 +109,9 @@ func TestStorage_Tasks_SortedByID(t *testing.T) {
 	s := memory.New(100)
 	ctx := t.Context()
 
-	_ = s.UpsertTask(ctx, &scheduler.TaskState{ID: "c-task"})
-	_ = s.UpsertTask(ctx, &scheduler.TaskState{ID: "a-task"})
-	_ = s.UpsertTask(ctx, &scheduler.TaskState{ID: "b-task"})
+	_ = s.UpsertTask(ctx, &scheduler.TaskState{TaskSummary: scheduler.TaskSummary{ID: "c-task"}})
+	_ = s.UpsertTask(ctx, &scheduler.TaskState{TaskSummary: scheduler.TaskSummary{ID: "a-task"}})
+	_ = s.UpsertTask(ctx, &scheduler.TaskState{TaskSummary: scheduler.TaskSummary{ID: "b-task"}})
 
 	var ids []string
 	for state, err := range s.Tasks(ctx) {

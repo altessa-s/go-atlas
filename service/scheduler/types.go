@@ -99,26 +99,16 @@ const (
 )
 
 // TaskState represents the persistent state of a scheduled task as stored by a
-// [Storage] backend. It includes scheduling metadata, execution bookkeeping,
-// and user-defined metadata. Fields with JSON tags are serialized by storage
+// [Storage] backend. It embeds [TaskSummary] for the shared summary fields and
+// adds detail fields (LastRunID, Meta, timestamps) that are only relevant when
+// inspecting a single task. Fields with JSON tags are serialized by storage
 // implementations that use JSON encoding.
 type TaskState struct {
-	ID             string            `json:"id"`
-	Description    string            `json:"description,omitempty"`
-	Status         TaskStatus        `json:"status"`
-	Priority       TaskPriority      `json:"priority"`
-	Schedule       string            `json:"schedule"`
-	LastRunAt      int64             `json:"last_run_at,omitempty"`
-	NextRunAt      int64             `json:"next_run_at,omitempty"`
-	LastRunID      string            `json:"last_run_id,omitempty"`
-	Failures       int32             `json:"failures"`
-	SkipNextRun    bool              `json:"skip_next_run,omitempty"`
-	DisableHistory bool              `json:"disable_history,omitempty"`
-	Unmanaged      bool              `json:"unmanaged,omitempty"`
-	OneShot        bool              `json:"one_shot,omitempty"`
-	Meta           map[string]string `json:"meta,omitempty"`
-	CreatedAt      int64             `json:"created_at"`
-	UpdatedAt      int64             `json:"updated_at"`
+	TaskSummary
+	LastRunID string            `json:"last_run_id,omitempty"`
+	Meta      map[string]string `json:"meta,omitempty"`
+	CreatedAt int64             `json:"created_at"`
+	UpdatedAt int64             `json:"updated_at"`
 }
 
 // TaskHistory represents a record of a single task execution, including timing

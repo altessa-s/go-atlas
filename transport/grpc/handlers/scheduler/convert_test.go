@@ -12,19 +12,21 @@ import (
 
 func TestTaskStateToMap(t *testing.T) {
 	s := &sched.TaskState{
-		ID:          "task1",
-		Description: "desc",
-		Status:      1,
-		Priority:    2,
-		Schedule:    "*/5 * * * *",
-		LastRunAt:   1000,
-		NextRunAt:   2000,
-		LastRunID:   "run1",
-		Failures:    3,
-		SkipNextRun: true,
-		Meta:        map[string]string{"key": "val"},
-		CreatedAt:   100,
-		UpdatedAt:   200,
+		TaskSummary: sched.TaskSummary{
+			ID:          "task1",
+			Description: "desc",
+			Status:      1,
+			Priority:    2,
+			Schedule:    "*/5 * * * *",
+			LastRunAt:   1000,
+			NextRunAt:   2000,
+			Failures:    3,
+			SkipNextRun: true,
+		},
+		LastRunID: "run1",
+		Meta:      map[string]string{"key": "val"},
+		CreatedAt: 100,
+		UpdatedAt: 200,
 	}
 
 	m := taskStateToMap(s)

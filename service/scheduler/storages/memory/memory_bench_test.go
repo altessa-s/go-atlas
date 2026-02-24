@@ -16,9 +16,11 @@ func BenchmarkStorage_UpsertTask(b *testing.B) {
 	s := memory.New(100)
 	ctx := b.Context()
 	state := &scheduler.TaskState{
-		ID:       "bench",
-		Status:   scheduler.TaskStatusActive,
-		Schedule: "@every 1h",
+		TaskSummary: scheduler.TaskSummary{
+			ID:       "bench",
+			Status:   scheduler.TaskStatusActive,
+			Schedule: "@every 1h",
+		},
 	}
 
 	b.ResetTimer()
@@ -31,9 +33,11 @@ func BenchmarkStorage_GetTask(b *testing.B) {
 	s := memory.New(100)
 	ctx := b.Context()
 	_ = s.UpsertTask(ctx, &scheduler.TaskState{
-		ID:       "bench",
-		Status:   scheduler.TaskStatusActive,
-		Schedule: "@every 1h",
+		TaskSummary: scheduler.TaskSummary{
+			ID:       "bench",
+			Status:   scheduler.TaskStatusActive,
+			Schedule: "@every 1h",
+		},
 	})
 
 	b.ResetTimer()
@@ -62,9 +66,11 @@ func BenchmarkStorage_Tasks(b *testing.B) {
 	ctx := b.Context()
 	for i := range 50 {
 		_ = s.UpsertTask(ctx, &scheduler.TaskState{
-			ID:       string(rune('a'+i%26)) + string(rune('0'+i/26)),
-			Status:   scheduler.TaskStatusActive,
-			Schedule: "@every 1h",
+			TaskSummary: scheduler.TaskSummary{
+				ID:       string(rune('a'+i%26)) + string(rune('0'+i/26)),
+				Status:   scheduler.TaskStatusActive,
+				Schedule: "@every 1h",
+			},
 		})
 	}
 
