@@ -8,29 +8,24 @@ import (
 	"time"
 )
 
-// Option is a functional option that configures a [Signal] instance
-// created by [New].
+// Option is a functional option for configuring options.
 type Option func(o *options)
 
-// WithErrorHandler sets the [ErrorHandler] invoked when a handler returns an
-// error, panics, or exceeds its timeout.
+// WithErrorHandler sets the errorHandler option.
 func WithErrorHandler(v ErrorHandler) Option {
 	return func(o *options) {
 		o.errorHandler = v
 	}
 }
 
-// WithExecutionMode sets the [ExecutionMode] that determines whether handlers
-// run sequentially ([SequentialMode], the default) or in parallel ([ParallelMode]).
+// WithExecutionMode sets the executionMode option.
 func WithExecutionMode(v ExecutionMode) Option {
 	return func(o *options) {
 		o.executionMode = v
 	}
 }
 
-// WithHandlerTimeout sets the maximum duration each [ContextHandler] is
-// allowed to run before a [*TimeoutError] is reported. Non-positive values
-// are ignored and the default ([DefaultHandlerTimeout]) applies.
+// WithHandlerTimeout sets the handlerTimeout option.
 func WithHandlerTimeout(v time.Duration) Option {
 	return func(o *options) {
 		if v <= 0 {
@@ -40,9 +35,7 @@ func WithHandlerTimeout(v time.Duration) Option {
 	}
 }
 
-// WithShutdownTimeout sets the maximum time [Signal.Shutdown] waits for
-// in-flight handlers to complete. Non-positive values are ignored and the
-// default ([DefaultShutdownTimeout]) applies.
+// WithShutdownTimeout sets the shutdownTimeout option.
 func WithShutdownTimeout(v time.Duration) Option {
 	return func(o *options) {
 		if v <= 0 {
@@ -52,17 +45,14 @@ func WithShutdownTimeout(v time.Duration) Option {
 	}
 }
 
-// WithSignalChannelBuffer sets the buffer size of the internal OS signal
-// channel. Increasing this value reduces the chance of dropped signals under
-// heavy load.
+// WithSignalChannelBuffer sets the signalChannelBuffer option.
 func WithSignalChannelBuffer(v int) Option {
 	return func(o *options) {
 		o.signalChannelBuffer = v
 	}
 }
 
-// WithSignals specifies the OS signals the [Signal] handler should listen for.
-// An empty list is a no-op.
+// WithSignals sets the signals option.
 func WithSignals(v ...os.Signal) Option {
 	return func(o *options) {
 		if len(v) == 0 {
@@ -72,9 +62,7 @@ func WithSignals(v ...os.Signal) Option {
 	}
 }
 
-// WithWorkerPoolSize sets the maximum number of goroutines that can execute
-// signal handlers concurrently. When the pool is exhausted, incoming signals
-// are reported to the [ErrorHandler] as dropped.
+// WithWorkerPoolSize sets the workerPoolSize option.
 func WithWorkerPoolSize(v int) Option {
 	return func(o *options) {
 		o.workerPoolSize = v

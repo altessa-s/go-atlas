@@ -12,10 +12,10 @@ import (
 )
 
 func FuzzExponential(f *testing.F) {
-	f.Add(int64(time.Second), int64(time.Minute), 2.0, 5, 0.0)   // deterministic
-	f.Add(int64(time.Second), int64(time.Minute), 2.0, 5, 0.25)  // with jitter
-	f.Add(int64(time.Second), int64(time.Minute), 1.5, 0, 1.0)   // max jitter
-	f.Add(int64(time.Second), int64(time.Minute), 2.0, 10, 5.0)  // jitter > 1 (clamped)
+	f.Add(int64(time.Second), int64(time.Minute), 2.0, 5, 0.0)  // deterministic
+	f.Add(int64(time.Second), int64(time.Minute), 2.0, 5, 0.25) // with jitter
+	f.Add(int64(time.Second), int64(time.Minute), 1.5, 0, 1.0)  // max jitter
+	f.Add(int64(time.Second), int64(time.Minute), 2.0, 10, 5.0) // jitter > 1 (clamped)
 
 	f.Fuzz(func(t *testing.T, base int64, maxDelay int64, factor float64, attempt int, jitter float64) {
 		cfg := retry.ExponentialConfig{
