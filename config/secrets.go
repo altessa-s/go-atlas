@@ -39,18 +39,6 @@ const (
 	SecretsProviderLockbox SecretsProvider = "lockbox"
 )
 
-// SecretsRetry configures retry behavior for failed storage operations.
-type SecretsRetry struct {
-	// MaxAttempts is the maximum number of retry attempts.
-	MaxAttempts int `yaml:"maxAttempts" default:"3"`
-	// BaseDelay is the initial delay between retries.
-	BaseDelay time.Duration `yaml:"baseDelay" default:"1s"`
-	// MaxDelay is the maximum delay between retries.
-	MaxDelay time.Duration `yaml:"maxDelay" default:"1m"`
-	// Multiplier is the exponential backoff factor.
-	Multiplier float64 `yaml:"multiplier" default:"2.0"`
-}
-
 // SecretsCache configures the secrets cache behavior.
 type SecretsCache struct {
 	// MaxSize is the maximum number of cached entries.
@@ -123,7 +111,7 @@ type Secrets struct {
 	Cache SecretsCache `yaml:"cache"`
 
 	// Retry contains retry configuration for storage operations.
-	Retry SecretsRetry `yaml:"retry"`
+	Retry Retry `yaml:"retry"`
 
 	// Vault contains Vault-specific configuration.
 	// Required when Provider is "vault".
@@ -147,7 +135,7 @@ func DefaultSecrets() Secrets {
 		Cache: SecretsCache{
 			MaxSize: defaultSecretsCacheMaxSize,
 		},
-		Retry: SecretsRetry{
+		Retry: Retry{
 			MaxAttempts: defaultSecretsRetryMaxAttempts,
 			BaseDelay:   defaultSecretsRetryBaseDelay,
 			MaxDelay:    defaultSecretsRetryMaxDelay,
@@ -184,15 +172,6 @@ func (s *Secrets) Validate() error {
 	)
 }
 
-// Validate performs validation of the SecretsRetry configuration.
-func (r *SecretsRetry) Validate() error {
-	return ValidateStruct(r,
-		validation.Field(&r.MaxAttempts, validation.Min(0)),
-		validation.Field(&r.BaseDelay, validation.Min(time.Millisecond)),
-		validation.Field(&r.MaxDelay, validation.Min(time.Millisecond)),
-		validation.Field(&r.Multiplier, validation.Min(1.0)),
-	)
-}
 
 // Validate performs validation of the SecretsCache configuration.
 func (c *SecretsCache) Validate() error {
