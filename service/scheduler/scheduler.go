@@ -13,6 +13,7 @@ import (
 
 	"github.com/robfig/cron/v3"
 
+	"github.com/altessa-s/go-atlas/data/filter"
 	"github.com/altessa-s/go-atlas/data/leadelect"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
@@ -39,10 +40,11 @@ import (
 //
 // All exported methods are safe for concurrent use.
 type Scheduler struct {
-	storage Storage
-	opts    *options
-	logger  *slog.Logger
-	parser  cron.Parser
+	storage         Storage
+	opts            *options
+	logger          *slog.Logger
+	parser          cron.Parser
+	filterParser *filter.Parser
 
 	mu    sync.RWMutex
 	tasks map[string]*registeredTask
@@ -65,7 +67,8 @@ type Scheduler struct {
 	highPrioritySemaphoreUsed atomic.Int32
 
 	// runningCount tracks the number of currently executing non-critical tasks
-	// in dynamic concurrency mode. Used for tick-gated dispatch.
+	// in dynamic concurrency mode and static unlimited mode. Used for
+	// tick-gated dispatch and RunningTasksCount observability.
 	runningCount atomic.Int32
 
 	// leaderElector provides distributed leader election support.
@@ -103,12 +106,15 @@ type pendingTask struct {
 func New(storage Storage, opts ...Option) *Scheduler {
 	o := newOptions(opts...)
 
+	fp, _ := filter.NewParser() //nolint:errcheck // parser init never fails with no options
+
 	s := &Scheduler{
-		storage:       storage,
-		opts:          o,
-		logger:        o.logger,
-		tasks:         make(map[string]*registeredTask),
-		leaderElector: o.leaderElector,
+		storage:         storage,
+		opts:            o,
+		logger:          o.logger,
+		tasks:           make(map[string]*registeredTask),
+		leaderElector:   o.leaderElector,
+		filterParser: fp,
 		parser: cron.NewParser(
 			cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
 		),
@@ -239,15 +245,14 @@ func (s *Scheduler) IsLeader() bool {
 
 // RunningTasksCount returns the number of currently executing non-critical tasks.
 //
-// In dynamic concurrency mode, it returns the atomic running count. In static
-// semaphore mode, it returns the sum of shared-pool and reserved high-priority
-// semaphore usage. Returns 0 when concurrency limiting is not enabled (unlimited
-// mode). [TaskPriorityCritical] tasks are never counted because they bypass
-// concurrency limits.
+// In dynamic concurrency mode and static unlimited mode, it returns the atomic
+// running count. In static semaphore mode, it returns the sum of shared-pool
+// and reserved high-priority semaphore usage. [TaskPriorityCritical] tasks are
+// never counted because they bypass concurrency limits.
 //
 // Safe for concurrent use.
 func (s *Scheduler) RunningTasksCount() int {
-	if s.opts.concurrencyLimitFunc != nil {
+	if s.opts.concurrencyLimitFunc != nil || s.semaphore == nil {
 		return int(s.runningCount.Load())
 	}
 	count := int(s.semaphoreUsed.Load())

@@ -15,6 +15,18 @@ import (
 // same field.
 type Option func(o *options)
 
+// WithCleanupInterval sets how often the scheduler purges expired history
+// entries. Non-positive values are ignored.
+// Default: [DefaultCleanupInterval] (1 hour).
+func WithCleanupInterval(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.cleanupInterval = v
+	}
+}
+
 // WithHistoryRetention sets the duration for which task execution history is kept
 // before being purged by the periodic cleanup routine. Non-positive values are
 // ignored. Default: [DefaultHistoryRetention] (7 days).
@@ -106,6 +118,7 @@ func WithTickInterval(v time.Duration) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
+		cleanupInterval:           DefaultCleanupInterval,
 		historyRetention:          DefaultHistoryRetention,
 		logger:                    slog.New(slog.DiscardHandler),
 		maxConcurrentTasks:        DefaultMaxConcurrentTasks,

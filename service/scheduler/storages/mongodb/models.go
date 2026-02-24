@@ -9,6 +9,20 @@ import (
 	"github.com/altessa-s/go-atlas/service/scheduler"
 )
 
+// taskFieldMapping maps CEL field names (camelCase) to MongoDB BSON field names.
+var taskFieldMapping = map[string]string{
+	"id": "_id", "lastRunAt": "last_run_at", "nextRunAt": "next_run_at",
+	"lastRunId": "last_run_id", "skipNextRun": "skip_next_run",
+	"disableHistory": "disable_history", "oneShot": "one_shot",
+	"createdAt": "created_at", "updatedAt": "updated_at",
+}
+
+// historyFieldMapping maps CEL field names (camelCase) to MongoDB BSON field names.
+var historyFieldMapping = map[string]string{
+	"id": "_id", "taskId": "task_id", "runId": "run_id",
+	"startedAt": "started_at", "endedAt": "ended_at", "durationMs": "duration_ms",
+}
+
 // taskDocument represents a task state stored in MongoDB.
 type taskDocument struct {
 	ID             string            `bson:"_id"`
@@ -19,6 +33,7 @@ type taskDocument struct {
 	LastRunAt      int64             `bson:"last_run_at,omitempty"`
 	NextRunAt      int64             `bson:"next_run_at,omitempty"`
 	LastRunID      string            `bson:"last_run_id,omitempty"`
+	RunStartedAt   int64            `bson:"run_started_at,omitempty"`
 	Failures       int32             `bson:"failures"`
 	SkipNextRun    bool              `bson:"skip_next_run,omitempty"`
 	DisableHistory bool              `bson:"disable_history,omitempty"`

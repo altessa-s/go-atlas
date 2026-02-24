@@ -105,10 +105,11 @@ const (
 // implementations that use JSON encoding.
 type TaskState struct {
 	TaskSummary
-	LastRunID string            `json:"last_run_id,omitempty"`
-	Meta      map[string]string `json:"meta,omitempty"`
-	CreatedAt int64             `json:"created_at"`
-	UpdatedAt int64             `json:"updated_at"`
+	LastRunID    string            `json:"last_run_id,omitempty"`
+	RunStartedAt int64            `json:"run_started_at,omitempty"`
+	Meta         map[string]string `json:"meta,omitempty"`
+	CreatedAt    int64             `json:"created_at"`
+	UpdatedAt    int64             `json:"updated_at"`
 }
 
 // TaskHistory represents a record of a single task execution, including timing
@@ -182,36 +183,29 @@ type Storage interface {
 	// CleanupHistory removes history entries whose EndedAt timestamp is older
 	// than the given retention duration relative to the current time.
 	CleanupHistory(ctx context.Context, retention time.Duration) error
-}
 
-// FilteredTaskLister is an optional extension of [Storage] that enables
-// server-side task filtering. Storage backends that implement this interface
-// (e.g., those backed by RediSearch or MongoDB) can push filter predicates
-// down to the data layer instead of filtering in Go. The scheduler probes for
-// this interface in [Scheduler.TasksFiltered].
-type FilteredTaskLister interface {
-	// TasksFiltered returns an iterator over task states matching the given
-	// filter tree. The filter node is produced by the data/filter package.
-	TasksFiltered(ctx context.Context, node filter.Node) iter.Seq2[*TaskState, error]
-}
+	// TasksPaginated returns up to (pg.Limit+1) task states whose ID is
+	// lexicographically greater than pg.AfterID, sorted by ID ascending.
+	// When f is non-nil the storage should apply the filter predicate at
+	// the query level (e.g. bson.M for MongoDB, RediSearch query for Redis,
+	// in-memory evaluator for the memory backend). Callers use the extra
+	// item to determine whether a next page exists.
+	TasksPaginated(ctx context.Context, pg Pagination, f filter.Node) ([]*TaskState, error)
 
-// FilteredHistoryLister is an optional extension of [Storage] that enables
-// server-side history filtering. Storage backends that implement this interface
-// can push filter predicates down to the data layer. The scheduler probes for
-// this interface in [Scheduler.HistoryFiltered].
-type FilteredHistoryLister interface {
-	// HistoryFiltered returns an iterator over history entries for the given
-	// task ID that match the provided filter tree.
-	HistoryFiltered(ctx context.Context, taskID string, node filter.Node) iter.Seq2[*TaskHistory, error]
+	// HistoryPaginated returns up to (pg.Limit+1) history entries for taskID,
+	// sorted by StartedAt descending with ID descending as a tie-breaker,
+	// starting after the cursor position in pg. When f is non-nil the storage
+	// should apply the filter predicate at the query level.
+	HistoryPaginated(ctx context.Context, taskID string, pg HistoryPagination, f filter.Node) ([]*TaskHistory, error)
 }
 
 // generateID generates a cryptographically secure random ID.
 // Returns a 32-character hex string (128 bits of entropy).
+// Panics if the system CSPRNG is unavailable — this mirrors the behaviour of
+// crypto/rand in Go 1.24+ where Read never returns an error under normal
+// operating conditions.
 func generateID() string {
 	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		// Fallback to timestamp-based ID if crypto/rand fails
-		return hex.EncodeToString([]byte(time.Now().Format(time.RFC3339Nano)))
-	}
+	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }

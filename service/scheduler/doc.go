@@ -21,7 +21,7 @@
 //
 //	err := s.Register(ctx, corescheduler.TaskConfig{
 //	    ID:         "my-task",
-//	    Interval:   5 * time.Minute,
+//	    Schedule:   "@every 5m",
 //	    Priority:   corescheduler.TaskPriorityHigh,
 //	    RunOnStart: true,
 //	    Func: func(ctx context.Context) error {

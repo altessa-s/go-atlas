@@ -187,12 +187,22 @@ message TaskGetResponse {
 message TasksListRequest {
   // Optional CEL filter expression applied to each task summary.
   string filter = 1;
+
+  // Optional. Maximum number of results per page. Default 100, max 1000.
+  int64 limit = 2;
+
+  // Optional. Opaque cursor from a previous response's nextCursor.
+  // Leave empty for the first page.
+  optional string cursor = 3;
 }
 
 // Defines the response message for the List method.
 message TasksListResponse {
   // The list of task summaries.
   repeated TaskSummary tasks = 1;
+
+  // Cursor for fetching the next page. Nil if no more results.
+  optional string nextCursor = 2;
 }
 
 // Defines the request message for the ListHistory method.
@@ -200,14 +210,23 @@ message TaskHistoryListRequest {
   // Required. Identifier of the task to retrieve history for.
   string taskId = 1;
 
-  // Optional CEL filter expression. If set, the task is returned only when it matches.
+  // Optional CEL filter expression.
   string filter = 2;
+
+  // Optional. Maximum number of results per page. Default 100, max 1000.
+  int64 limit = 3;
+
+  // Optional. Opaque cursor from a previous response's nextCursor.
+  optional string cursor = 4;
 }
 
 // Defines the response message for the ListHistory method.
 message TaskHistoryListResponse {
   // The list of task execution history entries.
   repeated TaskHistory entries = 1;
+
+  // Cursor for fetching the next page. Nil if no more results.
+  optional string nextCursor = 2;
 }
 
 // Defines the request message for the GetStatus method.

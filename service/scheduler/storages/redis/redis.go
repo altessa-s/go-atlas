@@ -36,7 +36,7 @@ const (
 )
 
 // Storage provides a Redis-backed implementation of the [scheduler.Storage],
-// [scheduler.FilteredTaskLister], and [scheduler.FilteredHistoryLister] interfaces
+// [scheduler.Storage] interface
 // using RedisJSON for document storage and RediSearch for indexed querying.
 //
 // All methods are safe for concurrent use by multiple goroutines.
@@ -89,8 +89,8 @@ func New(client redis.UniversalClient, opts ...Option) *Storage {
 // EnsureIndexes creates the RediSearch indexes required by [Storage] for
 // task and history queries. It is idempotent: if the indexes already exist,
 // no action is taken. Call this method once during application startup
-// before invoking any query methods ([Storage.Tasks], [Storage.TasksFiltered],
-// [Storage.History], [Storage.HistoryFiltered], or [Storage.CleanupHistory]).
+// before invoking any query methods ([Storage.Tasks], [Storage.TasksPaginated],
+// [Storage.History], [Storage.HistoryPaginated], or [Storage.CleanupHistory]).
 //
 // Returns an error if the index creation command fails for a reason other
 // than the index already existing.
@@ -412,97 +412,6 @@ func (s *Storage) CleanupHistory(ctx context.Context, retention time.Duration) e
 	return nil
 }
 
-// TasksFiltered returns an iterator over task states matching the given
-// [filter.Node], sorted by ID in ascending order. The filter is translated
-// to a RediSearch query using the redisearch translator, enabling server-side
-// filtering without loading all tasks into memory. This method implements
-// [scheduler.FilteredTaskLister].
-func (s *Storage) TasksFiltered(ctx context.Context, node filter.Node) iter.Seq2[*scheduler.TaskState, error] {
-	return func(yield func(*scheduler.TaskState, error) bool) {
-		trans := redisearch.NewTranslator(taskFieldSchema, filter.WithFieldMapping(taskFieldMapping))
-
-		query, err := trans.Translate(node)
-		if err != nil {
-			yield(nil, coreerrs.WrapOperation(err, "translate task filter"))
-			return
-		}
-
-		result, err := s.client.FTSearchWithArgs(ctx, s.taskIndexName(), query,
-			&redis.FTSearchOptions{
-				NoContent: false,
-				Limit:     ftSearchLimit,
-				SortBy: []redis.FTSearchSortBy{
-					{FieldName: "id", Asc: true},
-				},
-			},
-		).Result()
-		if err != nil {
-			yield(nil, coreerrs.WrapOperation(err, "search filtered tasks"))
-			return
-		}
-
-		for _, doc := range result.Docs {
-			td, err := parseDocJSON[taskData](doc)
-			if err != nil {
-				yield(nil, coreerrs.WrapOperation(err, "parse task document"))
-				return
-			}
-			if !yield(td.toTaskState(), nil) {
-				return
-			}
-		}
-	}
-}
-
-// HistoryFiltered returns an iterator over history entries for the specified
-// task that match the given [filter.Node], ordered by start time descending.
-// The filter is combined with a mandatory taskId constraint and translated to
-// a RediSearch query for server-side evaluation. This method implements
-// [scheduler.FilteredHistoryLister].
-func (s *Storage) HistoryFiltered(ctx context.Context, taskID string, node filter.Node) iter.Seq2[*scheduler.TaskHistory, error] {
-	return func(yield func(*scheduler.TaskHistory, error) bool) {
-		trans := redisearch.NewTranslator(historyFieldSchema)
-
-		filterQuery, err := trans.Translate(node)
-		if err != nil {
-			yield(nil, coreerrs.WrapOperation(err, "translate history filter"))
-			return
-		}
-
-		// Combine task ID filter with user filter
-		escapedID := redisearch.EscapeTag(taskID)
-		query := fmt.Sprintf("@taskId:{%s}", escapedID)
-		if filterQuery != "*" {
-			query = "(" + query + " " + filterQuery + ")"
-		}
-
-		result, err := s.client.FTSearchWithArgs(ctx, s.historyIndexName(), query,
-			&redis.FTSearchOptions{
-				NoContent: false,
-				Limit:     ftSearchLimit,
-				SortBy: []redis.FTSearchSortBy{
-					{FieldName: "startedAt", Asc: false},
-				},
-			},
-		).Result()
-		if err != nil {
-			yield(nil, coreerrs.WrapOperation(err, "search filtered history"))
-			return
-		}
-
-		for _, doc := range result.Docs {
-			hd, err := parseDocJSON[historyData](doc)
-			if err != nil {
-				yield(nil, coreerrs.WrapOperation(err, "parse history document"))
-				return
-			}
-			if !yield(hd.toTaskHistory(), nil) {
-				return
-			}
-		}
-	}
-}
-
 // findHistoryKeys returns all Redis keys for a task's history entries via RediSearch.
 func (s *Storage) findHistoryKeys(ctx context.Context, taskID string) ([]string, error) {
 	escapedID := redisearch.EscapeTag(taskID)
@@ -555,9 +464,117 @@ func parseDocJSON[T any](doc redis.Document) (*T, error) {
 	return &v, nil
 }
 
-// Compile-time interface checks
-var (
-	_ scheduler.Storage               = (*Storage)(nil)
-	_ scheduler.FilteredTaskLister    = (*Storage)(nil)
-	_ scheduler.FilteredHistoryLister = (*Storage)(nil)
-)
+// TasksPaginated returns up to (pg.Limit+1) task states whose ID is
+// lexicographically greater than pg.AfterID, sorted by ID ascending. When f
+// is non-nil the filter AST is translated to a RediSearch query for server-side
+// evaluation. RediSearch does not support cursor-seek on TAG fields, so
+// client-side skip past AfterID is still applied.
+func (s *Storage) TasksPaginated(ctx context.Context, pg scheduler.Pagination, f filter.Node) ([]*scheduler.TaskState, error) {
+	query := "*"
+	if f != nil {
+		trans := redisearch.NewTranslator(taskFieldSchema, filter.WithFieldMapping(taskFieldMapping))
+		translated, err := trans.Translate(f)
+		if err != nil {
+			return nil, coreerrs.WrapOperation(err, "translate task filter")
+		}
+		query = translated
+	}
+
+	result, err := s.client.FTSearchWithArgs(ctx, s.taskIndexName(), query,
+		&redis.FTSearchOptions{
+			NoContent: false,
+			Limit:     ftSearchLimit,
+			SortBy: []redis.FTSearchSortBy{
+				{FieldName: "id", Asc: true},
+			},
+		},
+	).Result()
+	if err != nil {
+		return nil, coreerrs.WrapOperation(err, "search tasks paginated")
+	}
+
+	var results []*scheduler.TaskState
+	pastCursor := pg.AfterID == ""
+
+	for _, doc := range result.Docs {
+		td, err := parseDocJSON[taskData](doc)
+		if err != nil {
+			return nil, coreerrs.WrapOperation(err, "parse task document")
+		}
+		state := td.toTaskState()
+		if !pastCursor {
+			if state.ID == pg.AfterID {
+				pastCursor = true
+			}
+			continue
+		}
+		results = append(results, state)
+		if int64(len(results)) > pg.Limit {
+			break
+		}
+	}
+
+	return results, nil
+}
+
+// HistoryPaginated returns up to (pg.Limit+1) history entries for taskID,
+// sorted by StartedAt descending with ID descending as tie-breaker, starting
+// after the cursor position in pg. When f is non-nil the filter AST is
+// translated to a RediSearch query and combined with the taskId constraint.
+// Uses RediSearch with client-side cursor skip.
+func (s *Storage) HistoryPaginated(ctx context.Context, taskID string, pg scheduler.HistoryPagination, f filter.Node) ([]*scheduler.TaskHistory, error) {
+	escapedID := redisearch.EscapeTag(taskID)
+	query := fmt.Sprintf("@taskId:{%s}", escapedID)
+
+	if f != nil {
+		trans := redisearch.NewTranslator(historyFieldSchema)
+		filterQuery, err := trans.Translate(f)
+		if err != nil {
+			return nil, coreerrs.WrapOperation(err, "translate history filter")
+		}
+		if filterQuery != "*" {
+			query = "(" + query + " " + filterQuery + ")"
+		}
+	}
+
+	result, err := s.client.FTSearchWithArgs(ctx, s.historyIndexName(), query,
+		&redis.FTSearchOptions{
+			NoContent: false,
+			Limit:     ftSearchLimit,
+			SortBy: []redis.FTSearchSortBy{
+				{FieldName: "startedAt", Asc: false},
+			},
+		},
+	).Result()
+	if err != nil {
+		return nil, coreerrs.WrapOperation(err, "search history paginated")
+	}
+
+	var results []*scheduler.TaskHistory
+	pastCursor := pg.AfterID == ""
+
+	for _, doc := range result.Docs {
+		hd, err := parseDocJSON[historyData](doc)
+		if err != nil {
+			return nil, coreerrs.WrapOperation(err, "parse history document")
+		}
+		entry := hd.toTaskHistory()
+		if !pastCursor {
+			if entry.StartedAt < pg.AfterStartedAt || (entry.StartedAt == pg.AfterStartedAt && entry.ID < pg.AfterID) {
+				pastCursor = true
+			}
+			if !pastCursor {
+				continue
+			}
+		}
+		results = append(results, entry)
+		if int64(len(results)) > pg.Limit {
+			break
+		}
+	}
+
+	return results, nil
+}
+
+// Compile-time interface check
+var _ scheduler.Storage = (*Storage)(nil)

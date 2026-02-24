@@ -8,25 +8,23 @@ import (
 	"cmp"
 	"context"
 	"log/slog"
+	"runtime"
 	"slices"
 	"time"
 )
 
-// loadTasks loads task states from storage into the in-memory map.
-// This is called during Start to restore scheduler state.
+// loadTasks verifies that the storage backend is reachable and logs every
+// persisted task state for diagnostics. It does not populate the in-memory
+// dispatch map — tasks must be re-registered with their functions via
+// [Scheduler.Register] after Start returns.
 func (s *Scheduler) loadTasks(ctx context.Context) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	for state, err := range s.storage.Tasks(ctx) {
 		if err != nil {
 			return err
 		}
-		// Tasks need to be re-registered with their functions
-		// We just preserve their state here
-		s.logger.DebugContext(ctx, "loaded task state from storage",
+		s.logger.DebugContext(ctx, "found persisted task state",
 			slog.String("task_id", state.ID),
-			slog.String("status", string(state.Status)),
+			slog.String("status", state.Status.String()),
 			slog.String("priority", state.Priority.String()))
 	}
 
@@ -38,7 +36,7 @@ func (s *Scheduler) run() {
 	ticker := time.NewTicker(s.opts.tickInterval)
 	defer ticker.Stop()
 
-	cleanupTicker := time.NewTicker(time.Hour)
+	cleanupTicker := time.NewTicker(s.opts.cleanupInterval)
 	defer cleanupTicker.Stop()
 
 	staleRecoveryInterval := min(s.opts.staleTaskTimeout, maxStaleRecoveryInterval)
@@ -64,6 +62,10 @@ func (s *Scheduler) run() {
 
 // tick processes all tasks and executes those that are due.
 // Tasks are processed in priority order: Critical > High > Normal > Low.
+//
+// A single Tasks() call fetches all persisted states, which are then
+// cross-referenced with the in-memory registration map. This avoids
+// N individual GetTask calls per tick for networked backends.
 func (s *Scheduler) tick() {
 	// Skip execution if not the leader
 	if !s.IsLeader() {
@@ -80,19 +82,26 @@ func (s *Scheduler) tick() {
 
 	now := time.Now()
 
-	// Collect pending tasks
+	// Fetch all persisted states in a single storage round-trip. The slice
+	// is materialized before processing to avoid holding the storage iterator
+	// open while performing writes (which would deadlock the memory backend).
+	var allStates []*TaskState
+	for state, err := range s.storage.Tasks(s.stopCtx) {
+		if err != nil {
+			s.logger.ErrorContext(s.stopCtx, "failed to iterate task states",
+				slog.Any("error", err))
+			return
+		}
+		allStates = append(allStates, state)
+	}
+
+	// Collect pending tasks from the fetched states.
 	pending := make([]pendingTask, 0, len(tasksCopy))
 
-	for id, task := range tasksCopy {
-		state, err := s.storage.GetTask(s.stopCtx, id)
-		if err != nil {
-			s.logger.ErrorContext(s.stopCtx, "failed to get task state",
-				slog.String("task_id", id),
-				slog.Any("error", err))
-			continue
-		}
-
-		if state == nil {
+	for _, state := range allStates {
+		// Only consider tasks that are registered in this process.
+		task, registered := tasksCopy[state.ID]
+		if !registered {
 			continue
 		}
 
@@ -113,7 +122,7 @@ func (s *Scheduler) tick() {
 		// Handle skip - re-read state to minimize race window with concurrent updates
 		if state.SkipNextRun {
 			// Re-read fresh state to avoid overwriting concurrent modifications
-			freshState, err := s.storage.GetTask(s.stopCtx, id)
+			freshState, err := s.storage.GetTask(s.stopCtx, state.ID)
 			if err != nil || freshState == nil || !freshState.SkipNextRun {
 				// State changed concurrently or error occurred, skip this update
 				continue
@@ -130,10 +139,10 @@ func (s *Scheduler) tick() {
 			freshState.UpdatedAt = now.Unix()
 			if err := s.storage.UpsertTask(s.stopCtx, freshState); err != nil {
 				s.logger.ErrorContext(s.stopCtx, "failed to update skipped task",
-					slog.String("task_id", id),
+					slog.String("task_id", state.ID),
 					slog.Any("error", err))
 			}
-			s.logger.InfoContext(s.stopCtx, "task run skipped", slog.String("task_id", id))
+			s.logger.InfoContext(s.stopCtx, "task run skipped", slog.String("task_id", state.ID))
 			continue
 		}
 
@@ -156,10 +165,50 @@ func (s *Scheduler) dispatchPending(pending []pendingTask) {
 		s.dispatchDynamic(pending)
 		return
 	}
-	// Static mode: dispatch all tasks, let semaphores handle concurrency.
+	if s.semaphore == nil {
+		// Static unlimited mode: no semaphore to gate goroutines, so use
+		// tick-gated dispatch via runningCount to prevent goroutine storms.
+		s.dispatchUnlimited(pending)
+		return
+	}
+	// Static limited mode: dispatch all tasks, let semaphores handle concurrency.
 	for _, pt := range pending {
 		s.wg.Go(func() {
 			s.runTaskWithSemaphore(pt.task, pt.state)
+		})
+	}
+}
+
+// dispatchUnlimited dispatches tasks in static unlimited mode (no semaphore,
+// no concurrencyLimitFunc). It caps the number of goroutines spawned per tick
+// to runtime.GOMAXPROCS * 4 to prevent goroutine storms when many tasks become
+// due simultaneously. Tasks that don't fit in this tick are deferred to the
+// next one. Critical-priority tasks always bypass this cap.
+func (s *Scheduler) dispatchUnlimited(pending []pendingTask) {
+	perTickCap := runtime.GOMAXPROCS(0) * 4
+	dispatched := 0
+
+	for _, pt := range pending {
+		// Critical bypasses all limits
+		if pt.task.config.Priority == TaskPriorityCritical {
+			s.wg.Go(func() {
+				s.executeTask(s.stopCtx, pt.task, pt.state)
+			})
+			continue
+		}
+
+		if dispatched >= perTickCap {
+			s.logger.DebugContext(s.stopCtx, "task deferred: per-tick dispatch cap reached",
+				slog.String("task_id", pt.state.ID),
+				slog.Int("cap", perTickCap))
+			break
+		}
+
+		dispatched++
+		s.runningCount.Add(1)
+		s.wg.Go(func() {
+			defer s.runningCount.Add(-1)
+			s.executeTask(s.stopCtx, pt.task, pt.state)
 		})
 	}
 }
@@ -247,8 +296,10 @@ func (s *Scheduler) runTaskWithSemaphore(task *registeredTask, state *TaskState)
 		return
 	}
 
-	// Static mode: no concurrency limits configured
+	// Static unlimited mode: track running count for observability.
 	if s.semaphore == nil {
+		s.runningCount.Add(1)
+		defer s.runningCount.Add(-1)
 		s.executeTask(s.stopCtx, task, state)
 		return
 	}
@@ -333,17 +384,25 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 	if currentState.Status != TaskStatusActive {
 		s.logger.DebugContext(ctx, "task status changed, skipping execution",
 			slog.String("task_id", state.ID),
-			slog.String("current_status", string(currentState.Status)))
+			slog.String("current_status", currentState.Status.String()))
 		return
 	}
 	currentState.Status = TaskStatusRunning
+	currentState.RunStartedAt = startTime.Unix()
 	currentState.UpdatedAt = startTime.Unix()
 	if upsertErr := s.storage.UpsertTask(ctx, currentState); upsertErr != nil {
-		s.logger.ErrorContext(ctx, "failed to update task status to running",
+		s.logger.ErrorContext(ctx, "failed to update task status to running, aborting execution",
 			slog.String("task_id", state.ID),
 			slog.Any("error", upsertErr))
+		return
 	}
-	// Use currentState for the rest of execution
+	// Use currentState for the rest of execution.
+	//
+	// NOTE: there is a narrow race window between GetTask and UpsertTask above
+	// where another process could modify the state. True compare-and-swap (CAS)
+	// semantics would require storage-level support (e.g. MongoDB findAndModify
+	// with a version field). The re-read pattern used here minimizes but does
+	// not eliminate this window.
 	state = currentState
 
 	// Create execution context with timeout if specified
@@ -409,6 +468,7 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 	}
 	freshState.LastRunAt = startTime.Unix()
 	freshState.LastRunID = runID
+	freshState.RunStartedAt = 0 // Clear: task is no longer running
 	freshState.UpdatedAt = endTime.Unix()
 
 	if success {
@@ -462,6 +522,12 @@ func (s *Scheduler) cleanup() {
 // no goroutines are executing yet. During periodic recovery (startup=false),
 // only tasks that are not currently executing in this process and have exceeded
 // the stale task timeout are reset.
+//
+// One-shot tasks are also recovered: their NextRunAt is set to now so they
+// re-execute on the next tick. This is intentional — a one-shot task found in
+// Running status after a crash never completed successfully, so it should be
+// retried. If this is undesirable for a particular task, callers should use
+// idempotency checks inside the task function.
 func (s *Scheduler) recoverStaleTasks(ctx context.Context, startup bool) {
 	now := time.Now()
 	timeoutSec := int64(s.opts.staleTaskTimeout.Seconds())
@@ -482,7 +548,14 @@ func (s *Scheduler) recoverStaleTasks(ctx context.Context, startup bool) {
 		}
 
 		if !startup {
-			elapsed := now.Unix() - state.UpdatedAt
+			// Use RunStartedAt for accurate elapsed time since the task entered
+			// Running status. Fall back to UpdatedAt for backward compatibility
+			// with states persisted before RunStartedAt was introduced.
+			since := state.RunStartedAt
+			if since == 0 {
+				since = state.UpdatedAt
+			}
+			elapsed := now.Unix() - since
 
 			// Check if the task is currently executing in this process
 			s.mu.RLock()
@@ -519,9 +592,14 @@ func (s *Scheduler) recoverStaleTasks(ctx context.Context, startup bool) {
 			continue
 		}
 
-		staleDuration := time.Duration(now.Unix()-state.UpdatedAt) * time.Second
+		since := state.RunStartedAt
+		if since == 0 {
+			since = state.UpdatedAt
+		}
+		staleDuration := time.Duration(now.Unix()-since) * time.Second
 
 		state.Status = TaskStatusActive
+		state.RunStartedAt = 0
 		state.Failures++
 		if !state.OneShot && state.Schedule != "" {
 			state.NextRunAt = s.calculateNextRun(ctx, now, state).Unix()

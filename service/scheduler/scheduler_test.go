@@ -1885,3 +1885,287 @@ func tasksSeqValues(seq iter.Seq2[*scheduler.TaskState, error]) iter.Seq[*schedu
 		}
 	}
 }
+
+// --- Pagination tests ---
+
+func registerDummyTasks(t *testing.T, s *scheduler.Scheduler, n int) {
+	t.Helper()
+	ctx := t.Context()
+	for i := range n {
+		id := generatePaddedID(i)
+		err := s.Register(ctx, corescheduler.TaskConfig{
+			ID:       id,
+			Schedule: "@every 1h",
+			Func:     func(_ context.Context) error { return nil },
+		})
+		if err != nil {
+			t.Fatalf("register task %q: %v", id, err)
+		}
+	}
+}
+
+func generatePaddedID(n int) string {
+	return "task-" + string(rune('a'+n/26)) + string(rune('a'+n%26))
+}
+
+func TestScheduler_TasksPaginated_NoFilter(t *testing.T) {
+	storage := memory.New(100)
+	s := scheduler.New(storage, scheduler.WithTickInterval(time.Hour))
+	ctx := t.Context()
+	_ = s.Start(ctx)
+	defer func() { _ = s.Stop(ctx) }()
+
+	registerDummyTasks(t, s, 5)
+
+	// First page: limit 2
+	result, err := s.TasksPaginated(ctx, scheduler.PageRequest{Limit: 2}, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(result.Items))
+	}
+	if result.NextCursor == nil {
+		t.Fatal("expected nextCursor for more pages")
+	}
+
+	// Second page
+	result2, err := s.TasksPaginated(ctx, scheduler.PageRequest{Limit: 2, Cursor: *result.NextCursor}, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result2.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(result2.Items))
+	}
+	// IDs should not overlap
+	if result.Items[0].ID == result2.Items[0].ID {
+		t.Fatal("page 2 IDs should not overlap with page 1")
+	}
+
+	// Third page
+	result3, err := s.TasksPaginated(ctx, scheduler.PageRequest{Limit: 2, Cursor: *result2.NextCursor}, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result3.Items) != 1 {
+		t.Fatalf("expected 1 item on last page, got %d", len(result3.Items))
+	}
+	if result3.NextCursor != nil {
+		t.Fatal("expected nil nextCursor on last page")
+	}
+}
+
+func TestScheduler_TasksPaginated_DefaultLimit(t *testing.T) {
+	storage := memory.New(100)
+	s := scheduler.New(storage, scheduler.WithTickInterval(time.Hour))
+	ctx := t.Context()
+	_ = s.Start(ctx)
+	defer func() { _ = s.Stop(ctx) }()
+
+	registerDummyTasks(t, s, 3)
+
+	// Limit 0 → default page size (100), which is > 3
+	result, err := s.TasksPaginated(ctx, scheduler.PageRequest{}, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Items) != 3 {
+		t.Fatalf("expected 3 items, got %d", len(result.Items))
+	}
+	if result.NextCursor != nil {
+		t.Fatal("expected nil nextCursor when all items fit in one page")
+	}
+}
+
+func TestScheduler_TasksPaginated_InvalidCursor(t *testing.T) {
+	storage := memory.New(100)
+	s := scheduler.New(storage, scheduler.WithTickInterval(time.Hour))
+	ctx := t.Context()
+	_ = s.Start(ctx)
+	defer func() { _ = s.Stop(ctx) }()
+
+	_, err := s.TasksPaginated(ctx, scheduler.PageRequest{Cursor: "garbage"}, "")
+	if err == nil {
+		t.Fatal("expected error for invalid cursor")
+	}
+}
+
+func TestScheduler_HistoryPaginated_NoFilter(t *testing.T) {
+	storage := memory.New(1000)
+	s := scheduler.New(storage, scheduler.WithTickInterval(time.Hour))
+	ctx := t.Context()
+	_ = s.Start(ctx)
+	defer func() { _ = s.Stop(ctx) }()
+
+	// Register task and add history entries
+	_ = s.Register(ctx, corescheduler.TaskConfig{
+		ID:       "hist-task",
+		Schedule: "@every 1h",
+		Func:     func(_ context.Context) error { return nil },
+	})
+
+	for i := range 5 {
+		_ = storage.AddHistory(ctx, &scheduler.TaskHistory{
+			ID:        generatePaddedID(i),
+			TaskID:    "hist-task",
+			RunID:     "run-" + generatePaddedID(i),
+			StartedAt: int64((i + 1) * 1000),
+			EndedAt:   int64((i+1)*1000 + 500),
+			Success:   true,
+		})
+	}
+
+	// Page 1: limit 2
+	result, err := s.HistoryPaginated(ctx, "hist-task", scheduler.PageRequest{Limit: 2}, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(result.Items))
+	}
+	if result.NextCursor == nil {
+		t.Fatal("expected nextCursor for more pages")
+	}
+	// Should be sorted desc by StartedAt
+	if result.Items[0].StartedAt < result.Items[1].StartedAt {
+		t.Fatal("expected descending order by StartedAt")
+	}
+
+	// Page 2
+	result2, err := s.HistoryPaginated(ctx, "hist-task", scheduler.PageRequest{Limit: 2, Cursor: *result.NextCursor}, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result2.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(result2.Items))
+	}
+
+	// Page 3
+	result3, err := s.HistoryPaginated(ctx, "hist-task", scheduler.PageRequest{Limit: 2, Cursor: *result2.NextCursor}, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result3.Items) != 1 {
+		t.Fatalf("expected 1 item on last page, got %d", len(result3.Items))
+	}
+	if result3.NextCursor != nil {
+		t.Fatal("expected nil nextCursor on last page")
+	}
+}
+
+func TestScheduler_HistoryPaginated_InvalidCursor(t *testing.T) {
+	storage := memory.New(100)
+	s := scheduler.New(storage, scheduler.WithTickInterval(time.Hour))
+	ctx := t.Context()
+	_ = s.Start(ctx)
+	defer func() { _ = s.Stop(ctx) }()
+
+	_, err := s.HistoryPaginated(ctx, "any-task", scheduler.PageRequest{Cursor: "bad"}, "")
+	if err == nil {
+		t.Fatal("expected error for invalid cursor")
+	}
+}
+
+func TestScheduler_TasksPaginated_WithFilter(t *testing.T) {
+	storage := memory.New(100)
+	s := scheduler.New(storage, scheduler.WithTickInterval(time.Hour))
+	ctx := t.Context()
+	_ = s.Start(ctx)
+	defer func() { _ = s.Stop(ctx) }()
+
+	// Register 5 tasks, then pause 2 of them.
+	registerDummyTasks(t, s, 5)
+
+	if err := s.PauseTask(ctx, generatePaddedID(1)); err != nil {
+		t.Fatalf("pause task: %v", err)
+	}
+	if err := s.PauseTask(ctx, generatePaddedID(3)); err != nil {
+		t.Fatalf("pause task: %v", err)
+	}
+
+	// Filter: status == 1 (Active) — should return 3 tasks.
+	result, err := s.TasksPaginated(ctx, scheduler.PageRequest{Limit: 10}, "status == 1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Items) != 3 {
+		t.Fatalf("expected 3 active tasks, got %d", len(result.Items))
+	}
+	for _, item := range result.Items {
+		if item.Status != scheduler.TaskStatusActive {
+			t.Errorf("expected active status, got %v for task %s", item.Status, item.ID)
+		}
+	}
+
+	// Filter: status == 2 (Paused) — should return 2 tasks.
+	result, err = s.TasksPaginated(ctx, scheduler.PageRequest{Limit: 10}, "status == 2")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Items) != 2 {
+		t.Fatalf("expected 2 paused tasks, got %d", len(result.Items))
+	}
+	for _, item := range result.Items {
+		if item.Status != scheduler.TaskStatusPaused {
+			t.Errorf("expected paused status, got %v for task %s", item.Status, item.ID)
+		}
+	}
+}
+
+func TestScheduler_HistoryPaginated_WithFilter(t *testing.T) {
+	storage := memory.New(1000)
+	s := scheduler.New(storage, scheduler.WithTickInterval(time.Hour))
+	ctx := t.Context()
+	_ = s.Start(ctx)
+	defer func() { _ = s.Stop(ctx) }()
+
+	_ = s.Register(ctx, corescheduler.TaskConfig{
+		ID:       "filter-hist-task",
+		Schedule: "@every 1h",
+		Func:     func(_ context.Context) error { return nil },
+	})
+
+	// Add 6 history entries: alternating success and failure.
+	for i := range 6 {
+		h := &scheduler.TaskHistory{
+			ID:        generatePaddedID(i),
+			TaskID:    "filter-hist-task",
+			RunID:     "run-" + generatePaddedID(i),
+			StartedAt: int64((i + 1) * 1000),
+			EndedAt:   int64((i+1)*1000 + 500),
+			Success:   i%2 == 0, // 0,2,4 succeed; 1,3,5 fail
+		}
+		if !h.Success {
+			h.Error = "simulated error"
+		}
+		_ = storage.AddHistory(ctx, h)
+	}
+
+	// Filter: success == true — should return 3 entries.
+	result, err := s.HistoryPaginated(ctx, "filter-hist-task", scheduler.PageRequest{Limit: 10}, "success == true")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Items) != 3 {
+		t.Fatalf("expected 3 successful entries, got %d", len(result.Items))
+	}
+	for _, item := range result.Items {
+		if !item.Success {
+			t.Errorf("expected success=true, got false for entry %s", item.ID)
+		}
+	}
+
+	// Filter: success == false — should return 3 entries.
+	result, err = s.HistoryPaginated(ctx, "filter-hist-task", scheduler.PageRequest{Limit: 10}, "success == false")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Items) != 3 {
+		t.Fatalf("expected 3 failed entries, got %d", len(result.Items))
+	}
+	for _, item := range result.Items {
+		if item.Success {
+			t.Errorf("expected success=false, got true for entry %s", item.ID)
+		}
+	}
+}

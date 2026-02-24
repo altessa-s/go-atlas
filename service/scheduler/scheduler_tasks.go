@@ -377,50 +377,118 @@ func (s *Scheduler) History(ctx context.Context, id string) iter.Seq2[*TaskHisto
 	return s.storage.History(ctx, id)
 }
 
-// TasksFiltered attempts server-side filtered task listing by probing the
-// [Storage] backend for the [FilteredTaskLister] interface. If the backend
-// supports it, the filter node is pushed down to the storage layer and the
-// method returns the resulting iterator along with true.
-//
-// If the backend does not implement [FilteredTaskLister], TasksFiltered returns
-// (nil, false) and the caller should fall back to client-side filtering over
-// [Scheduler.Tasks].
-func (s *Scheduler) TasksFiltered(ctx context.Context, node filter.Node) (iter.Seq2[*TaskSummary, error], bool) {
-	fl, ok := s.storage.(FilteredTaskLister)
-	if !ok {
-		return nil, false
+// TasksPaginated returns a paginated slice of [TaskSummary] values. Both
+// cursor-seek and filter are pushed to the [Storage] layer via
+// [Storage.TasksPaginated].
+func (s *Scheduler) TasksPaginated(ctx context.Context, page PageRequest, filterExpr string) (*PageResult[*TaskSummary], error) {
+	limit := page.ClampLimit()
+
+	// Decode cursor if provided
+	var afterID string
+	if page.Cursor != "" {
+		cur, err := decodeTaskCursor(page.Cursor, filterExpr)
+		if err != nil {
+			return nil, err
+		}
+		afterID = cur.LastID
 	}
 
-	seq := func(yield func(*TaskSummary, error) bool) {
-		for state, err := range fl.TasksFiltered(ctx, node) {
-			if err != nil {
-				yield(nil, err)
-				return
-			}
-			summary := state.TaskSummary
-			if !yield(&summary, nil) {
-				return
-			}
+	// Parse filter expression (nil when empty)
+	var filterNode filter.Node
+	if filterExpr != "" {
+		var err error
+		filterNode, err = s.filterParser.Parse(filterExpr)
+		if err != nil {
+			return nil, err
 		}
 	}
 
-	return seq, true
+	pg := Pagination{AfterID: afterID, Limit: limit}
+	states, err := s.storage.TasksPaginated(ctx, pg, filterNode)
+	if err != nil {
+		return nil, err
+	}
+	return buildTaskPageResult(states, limit, filterExpr), nil
 }
 
-// HistoryFiltered attempts server-side filtered history listing by probing the
-// [Storage] backend for the [FilteredHistoryLister] interface. If the backend
-// supports it, the filter node is pushed down to the storage layer and the
-// method returns the resulting iterator along with true.
-//
-// If the backend does not implement [FilteredHistoryLister], HistoryFiltered
-// returns (nil, false) and the caller should fall back to client-side filtering
-// over [Scheduler.History].
-func (s *Scheduler) HistoryFiltered(ctx context.Context, id string, node filter.Node) (iter.Seq2[*TaskHistory, error], bool) {
-	fl, ok := s.storage.(FilteredHistoryLister)
-	if !ok {
-		return nil, false
+// HistoryPaginated returns a paginated slice of [TaskHistory] values. Both
+// cursor-seek and filter are pushed to the [Storage] layer via
+// [Storage.HistoryPaginated].
+func (s *Scheduler) HistoryPaginated(ctx context.Context, taskID string, page PageRequest, filterExpr string) (*PageResult[*TaskHistory], error) {
+	limit := page.ClampLimit()
+
+	// Decode cursor if provided
+	var (
+		afterStartedAt int64
+		afterID        string
+	)
+	if page.Cursor != "" {
+		cur, err := decodeHistoryCursor(page.Cursor, filterExpr)
+		if err != nil {
+			return nil, err
+		}
+		afterStartedAt = cur.LastStartedAt
+		afterID = cur.LastID
 	}
-	return fl.HistoryFiltered(ctx, id, node), true
+
+	// Parse filter expression (nil when empty)
+	var filterNode filter.Node
+	if filterExpr != "" {
+		var err error
+		filterNode, err = s.filterParser.Parse(filterExpr)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	pg := HistoryPagination{
+		Pagination:     Pagination{AfterID: afterID, Limit: limit},
+		AfterStartedAt: afterStartedAt,
+	}
+	entries, err := s.storage.HistoryPaginated(ctx, taskID, pg, filterNode)
+	if err != nil {
+		return nil, err
+	}
+	return buildHistoryPageResult(entries, limit, filterExpr), nil
+}
+
+// buildTaskPageResult constructs a [PageResult] from a slice of [TaskState]
+// returned by [Storage.TasksPaginated]. The slice may contain up to limit+1 items;
+// if the extra item is present, it is trimmed and a NextCursor is emitted.
+func buildTaskPageResult(states []*TaskState, limit int64, filterExpr string) *PageResult[*TaskSummary] {
+	hasMore := int64(len(states)) > limit
+	if hasMore {
+		states = states[:limit]
+	}
+
+	summaries := make([]*TaskSummary, len(states))
+	for i, st := range states {
+		s := st.TaskSummary
+		summaries[i] = &s
+	}
+
+	result := &PageResult[*TaskSummary]{Items: summaries}
+	if hasMore && len(summaries) > 0 {
+		c := encodeTaskCursor(summaries[len(summaries)-1].ID, filterExpr)
+		result.NextCursor = &c
+	}
+	return result
+}
+
+// buildHistoryPageResult constructs a [PageResult] from a slice of [TaskHistory].
+func buildHistoryPageResult(entries []*TaskHistory, limit int64, filterExpr string) *PageResult[*TaskHistory] {
+	hasMore := int64(len(entries)) > limit
+	if hasMore {
+		entries = entries[:limit]
+	}
+
+	result := &PageResult[*TaskHistory]{Items: entries}
+	if hasMore && len(entries) > 0 {
+		last := entries[len(entries)-1]
+		c := encodeHistoryCursor(last.StartedAt, last.ID, filterExpr)
+		result.NextCursor = &c
+	}
+	return result
 }
 
 // TriggerTask manually triggers immediate execution of a task in a background

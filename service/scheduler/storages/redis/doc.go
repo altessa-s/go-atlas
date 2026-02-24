@@ -10,10 +10,6 @@
 // processes, making it suitable for distributed scheduling scenarios where multiple
 // scheduler instances share state.
 //
-// In addition to the core [scheduler.Storage] interface, [Storage] also implements
-// [scheduler.FilteredTaskLister] and [scheduler.FilteredHistoryLister] for
-// server-side filtering via RediSearch query translation.
-//
 // # Prerequisites
 //
 // The Redis server must have the RedisJSON and RediSearch modules loaded.

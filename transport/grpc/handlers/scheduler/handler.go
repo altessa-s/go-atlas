@@ -6,42 +6,30 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 
-	"github.com/altessa-s/go-atlas/data/filter"
 	"github.com/altessa-s/go-atlas/domain/converter"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	schedulerv1 "github.com/altessa-s/go-atlas/proto/gen/scheduler/v1"
 	sched "github.com/altessa-s/go-atlas/service/scheduler"
 	stdGrpc "google.golang.org/grpc"
 )
 
 // Handler implements schedulerv1.SchedulerServiceServer by delegating to
-// a [sched.Scheduler]. It owns a CEL filter [filter.Parser] and
-// [filter.Evaluator] for client-side list filtering.
+// a [sched.Scheduler]. Filter parsing and evaluation for list endpoints
+// is handled by the scheduler's paginated methods.
 type Handler struct {
 	schedulerv1.UnimplementedSchedulerServiceServer
 
 	scheduler *sched.Scheduler
-	parser    *filter.Parser
-	evaluator *filter.Evaluator
 }
 
-// New constructs a Handler backed by s. Returns an error if the internal
-// CEL filter parser cannot be initialized.
+// New constructs a Handler backed by s.
 func New(s *sched.Scheduler) (*Handler, error) {
-	p, err := filter.NewParser()
-	if err != nil {
-		return nil, coreerrs.Wrap(err, "creating filter parser")
-	}
-	return &Handler{
-		scheduler: s,
-		parser:    p,
-		evaluator: filter.NewEvaluator(),
-	}, nil
+	return &Handler{scheduler: s}, nil
 }
 
 // Register attaches the handler to the given gRPC server instance.
@@ -68,103 +56,59 @@ func (h *Handler) Get(ctx context.Context, req *schedulerv1.TaskGetRequest) (*sc
 	}}, nil
 }
 
-// List returns summaries of all tasks, optionally filtered by a CEL expression
-// in req.Filter. Server-side filtering is attempted first; if the storage
-// backend does not support it, filtering falls back to in-memory evaluation.
-// Returns codes.InvalidArgument for malformed filter expressions.
+// List returns paginated summaries of tasks, optionally filtered by a CEL
+// expression. Returns codes.InvalidArgument for malformed filter/cursor.
 func (h *Handler) List(ctx context.Context, req *schedulerv1.TasksListRequest) (*schedulerv1.TasksListResponse, error) {
-	var filterNode filter.Node
-	if f := req.GetFilter(); f != "" {
-		var err error
-		filterNode, err = h.parser.Parse(f) //nolint:contextcheck // parser is a pure function, no context needed
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "invalid filter: %v", err)
-		}
+	page := sched.PageRequest{
+		Limit:  req.GetLimit(),
+		Cursor: req.GetCursor(),
 	}
 
-	// Try server-side filtering if storage supports it
-	if filterNode != nil {
-		if seq, ok := h.scheduler.TasksFiltered(ctx, filterNode); ok {
-			tasks := make([]*schedulerv1.TaskSummary, 0)
-			for summary, err := range seq {
-				if err != nil {
-					return nil, mapError(err)
-				}
-				tasks = append(tasks, converter.Convert(summary, &schedulerv1.TaskSummary{}))
-			}
-			return &schedulerv1.TasksListResponse{Tasks: tasks}, nil
+	result, err := h.scheduler.TasksPaginated(ctx, page, req.GetFilter())
+	if err != nil {
+		if errors.Is(err, sched.ErrInvalidCursor) {
+			return nil, status.Errorf(codes.InvalidArgument, "%v", err)
 		}
+		return nil, mapError(err)
 	}
 
-	// Fallback: client-side filtering
-	tasks := make([]*schedulerv1.TaskSummary, 0)
-	for summary, err := range h.scheduler.Tasks(ctx) {
-		if err != nil {
-			return nil, mapError(err)
-		}
-
-		if filterNode != nil {
-			match, err := h.evaluator.Evaluate(filterNode, taskSummaryToMap(summary))
-			if err != nil {
-				return nil, status.Errorf(codes.InvalidArgument, "filter evaluation failed: %v", err)
-			}
-			if !match {
-				continue
-			}
-		}
-
-		tasks = append(tasks, converter.Convert(summary, &schedulerv1.TaskSummary{}))
+	tasks := make([]*schedulerv1.TaskSummary, len(result.Items))
+	for i, summary := range result.Items {
+		tasks[i] = converter.Convert(summary, &schedulerv1.TaskSummary{})
 	}
-	return &schedulerv1.TasksListResponse{Tasks: tasks}, nil
+
+	return &schedulerv1.TasksListResponse{
+		Tasks:      tasks,
+		NextCursor: result.NextCursor,
+	}, nil
 }
 
-// ListHistory returns the execution history for a task, optionally filtered
-// by a CEL expression. Uses the same server-side-then-client-side filtering
-// strategy as [Handler.List]. Returns codes.InvalidArgument for invalid filters.
+// ListHistory returns paginated execution history for a task, optionally
+// filtered by a CEL expression. Returns codes.InvalidArgument for
+// malformed filter/cursor.
 func (h *Handler) ListHistory(ctx context.Context, req *schedulerv1.TaskHistoryListRequest) (*schedulerv1.TaskHistoryListResponse, error) {
-	var filterNode filter.Node
-	if f := req.GetFilter(); f != "" {
-		var err error
-		filterNode, err = h.parser.Parse(f) //nolint:contextcheck // parser is a pure function, no context needed
-		if err != nil {
-			return nil, status.Errorf(codes.InvalidArgument, "invalid filter: %v", err)
-		}
+	page := sched.PageRequest{
+		Limit:  req.GetLimit(),
+		Cursor: req.GetCursor(),
 	}
 
-	// Try server-side filtering if storage supports it
-	if filterNode != nil {
-		if seq, ok := h.scheduler.HistoryFiltered(ctx, req.GetTaskId(), filterNode); ok {
-			entries := make([]*schedulerv1.TaskHistory, 0)
-			for history, err := range seq {
-				if err != nil {
-					return nil, mapError(err)
-				}
-				entries = append(entries, converter.Convert(history, &schedulerv1.TaskHistory{}))
-			}
-			return &schedulerv1.TaskHistoryListResponse{Entries: entries}, nil
+	result, err := h.scheduler.HistoryPaginated(ctx, req.GetTaskId(), page, req.GetFilter())
+	if err != nil {
+		if errors.Is(err, sched.ErrInvalidCursor) {
+			return nil, status.Errorf(codes.InvalidArgument, "%v", err)
 		}
+		return nil, mapError(err)
 	}
 
-	// Fallback: client-side filtering
-	entries := make([]*schedulerv1.TaskHistory, 0)
-	for history, err := range h.scheduler.History(ctx, req.GetTaskId()) {
-		if err != nil {
-			return nil, mapError(err)
-		}
-
-		if filterNode != nil {
-			match, err := h.evaluator.Evaluate(filterNode, taskHistoryToMap(history))
-			if err != nil {
-				return nil, status.Errorf(codes.InvalidArgument, "filter evaluation failed: %v", err)
-			}
-			if !match {
-				continue
-			}
-		}
-
-		entries = append(entries, converter.Convert(history, &schedulerv1.TaskHistory{}))
+	entries := make([]*schedulerv1.TaskHistory, len(result.Items))
+	for i, entry := range result.Items {
+		entries[i] = converter.Convert(entry, &schedulerv1.TaskHistory{})
 	}
-	return &schedulerv1.TaskHistoryListResponse{Entries: entries}, nil
+
+	return &schedulerv1.TaskHistoryListResponse{
+		Entries:    entries,
+		NextCursor: result.NextCursor,
+	}, nil
 }
 
 // GetStatus returns a snapshot of the scheduler's runtime state including

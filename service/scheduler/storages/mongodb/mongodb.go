@@ -13,6 +13,8 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
+	"github.com/altessa-s/go-atlas/data/filter"
+	mongotranslator "github.com/altessa-s/go-atlas/data/filter/translators/mongo"
 	"github.com/altessa-s/go-atlas/service/scheduler"
 
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -228,6 +230,93 @@ func (s *Storage) CleanupHistory(ctx context.Context, retention time.Duration) e
 	cutoff := time.Now().Add(-retention).Unix()
 	_, err := s.history.DeleteMany(ctx, bson.M{"ended_at": bson.M{"$lt": cutoff}})
 	return err
+}
+
+// TasksPaginated returns up to (pg.Limit+1) task states whose ID is
+// lexicographically greater than pg.AfterID, sorted by ID ascending. When f
+// is non-nil the filter AST is translated to a bson.M and merged into the
+// query so MongoDB evaluates it server-side.
+func (s *Storage) TasksPaginated(ctx context.Context, pg scheduler.Pagination, f filter.Node) ([]*scheduler.TaskState, error) {
+	query := bson.M{}
+	if pg.AfterID != "" {
+		query["_id"] = bson.M{"$gt": pg.AfterID}
+	}
+
+	if f != nil {
+		trans := mongotranslator.NewTranslator(filter.WithFieldMapping(taskFieldMapping))
+		filterBson, err := trans.Translate(f)
+		if err != nil {
+			return nil, err
+		}
+		// Wrap existing query + filter in $and to avoid key conflicts
+		query = bson.M{"$and": bson.A{query, filterBson}}
+	}
+
+	findOpts := mongoOptions.Find().
+		SetSort(bson.D{{Key: "_id", Value: 1}}).
+		SetLimit(pg.Limit + 1)
+
+	cursor, err := s.tasks.Find(ctx, query, findOpts)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = cursor.Close(ctx) }()
+
+	var results []*scheduler.TaskState
+	for cursor.Next(ctx) {
+		var doc taskDocument
+		if err := cursor.Decode(&doc); err != nil {
+			return nil, err
+		}
+		results = append(results, doc.toTaskState())
+	}
+	return results, cursor.Err()
+}
+
+// HistoryPaginated returns up to (pg.Limit+1) history entries for taskID,
+// sorted by StartedAt descending with ID descending as tie-breaker, starting
+// after the cursor position in pg. When f is non-nil the filter AST is
+// translated to a bson.M and merged into the query for server-side evaluation.
+func (s *Storage) HistoryPaginated(ctx context.Context, taskID string, pg scheduler.HistoryPagination, f filter.Node) ([]*scheduler.TaskHistory, error) {
+	query := bson.M{"task_id": taskID}
+	if pg.AfterID != "" {
+		// Compound cursor seek: entries with start_time < cursor, OR same
+		// start_time but _id < cursor (descending order).
+		query["$or"] = bson.A{
+			bson.M{"started_at": bson.M{"$lt": pg.AfterStartedAt}},
+			bson.M{"started_at": pg.AfterStartedAt, "_id": bson.M{"$lt": pg.AfterID}},
+		}
+	}
+
+	if f != nil {
+		trans := mongotranslator.NewTranslator(filter.WithFieldMapping(historyFieldMapping))
+		filterBson, err := trans.Translate(f)
+		if err != nil {
+			return nil, err
+		}
+		// Wrap existing query + filter in $and to avoid key conflicts
+		query = bson.M{"$and": bson.A{query, filterBson}}
+	}
+
+	findOpts := mongoOptions.Find().
+		SetSort(bson.D{{Key: "started_at", Value: -1}, {Key: "_id", Value: -1}}).
+		SetLimit(pg.Limit + 1)
+
+	cursor, err := s.history.Find(ctx, query, findOpts)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = cursor.Close(ctx) }()
+
+	var results []*scheduler.TaskHistory
+	for cursor.Next(ctx) {
+		var doc historyDocument
+		if err := cursor.Decode(&doc); err != nil {
+			return nil, err
+		}
+		results = append(results, doc.toTaskHistory())
+	}
+	return results, cursor.Err()
 }
 
 // Compile-time interface check

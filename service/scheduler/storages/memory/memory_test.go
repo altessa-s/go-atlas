@@ -203,3 +203,81 @@ func TestStorage_DeleteTask_Nonexistent(t *testing.T) {
 	err := s.DeleteTask(t.Context(), "nonexistent")
 	assert.NoError(t, err)
 }
+
+func TestStorage_TasksPaginated(t *testing.T) {
+	s := memory.New(100)
+	ctx := t.Context()
+
+	// Insert 5 tasks
+	for _, id := range []string{"e-task", "c-task", "a-task", "d-task", "b-task"} {
+		_ = s.UpsertTask(ctx, &scheduler.TaskState{TaskSummary: scheduler.TaskSummary{ID: id}})
+	}
+
+	// First page: AfterID="" means start from beginning
+	page1, err := s.TasksPaginated(ctx, scheduler.Pagination{Limit: 2}, nil)
+	require.NoError(t, err)
+	// Should return 3 items (limit+1 for lookahead)
+	assert.Len(t, page1, 3)
+	assert.Equal(t, "a-task", page1[0].ID)
+	assert.Equal(t, "b-task", page1[1].ID)
+	assert.Equal(t, "c-task", page1[2].ID)
+
+	// Second page: AfterID = "b-task" (last consumed from page 1)
+	page2, err := s.TasksPaginated(ctx, scheduler.Pagination{AfterID: "b-task", Limit: 2}, nil)
+	require.NoError(t, err)
+	assert.Len(t, page2, 3)
+	assert.Equal(t, "c-task", page2[0].ID)
+
+	// Last page: AfterID = "d-task"
+	page3, err := s.TasksPaginated(ctx, scheduler.Pagination{AfterID: "d-task", Limit: 2}, nil)
+	require.NoError(t, err)
+	assert.Len(t, page3, 1)
+	assert.Equal(t, "e-task", page3[0].ID)
+}
+
+func TestStorage_TasksPaginated_Empty(t *testing.T) {
+	s := memory.New(100)
+	result, err := s.TasksPaginated(t.Context(), scheduler.Pagination{Limit: 10}, nil)
+	require.NoError(t, err)
+	assert.Empty(t, result)
+}
+
+func TestStorage_HistoryPaginated(t *testing.T) {
+	s := memory.New(100)
+	ctx := t.Context()
+
+	// Add 5 history entries with distinct StartedAt values
+	for i := range 5 {
+		_ = s.AddHistory(ctx, &scheduler.TaskHistory{
+			ID:        "h-" + string(rune('a'+i)),
+			TaskID:    "task-1",
+			StartedAt: int64((i + 1) * 1000),
+		})
+	}
+
+	// First page: most recent first, AfterID="" means from beginning
+	page1, err := s.HistoryPaginated(ctx, "task-1", scheduler.HistoryPagination{Pagination: scheduler.Pagination{Limit: 2}}, nil)
+	require.NoError(t, err)
+	// Should return 3 items (limit+1 for lookahead)
+	assert.Len(t, page1, 3)
+	// Descending order
+	assert.Equal(t, int64(5000), page1[0].StartedAt)
+	assert.Equal(t, int64(4000), page1[1].StartedAt)
+	assert.Equal(t, int64(3000), page1[2].StartedAt)
+
+	// Second page: after startedAt=4000, ID="h-d"
+	page2, err := s.HistoryPaginated(ctx, "task-1", scheduler.HistoryPagination{
+		Pagination:     scheduler.Pagination{AfterID: "h-d", Limit: 2},
+		AfterStartedAt: 4000,
+	}, nil)
+	require.NoError(t, err)
+	assert.Len(t, page2, 3)
+	assert.Equal(t, int64(3000), page2[0].StartedAt)
+}
+
+func TestStorage_HistoryPaginated_Empty(t *testing.T) {
+	s := memory.New(100)
+	result, err := s.HistoryPaginated(t.Context(), "nonexistent", scheduler.HistoryPagination{Pagination: scheduler.Pagination{Limit: 10}}, nil)
+	require.NoError(t, err)
+	assert.Empty(t, result)
+}

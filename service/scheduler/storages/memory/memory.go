@@ -9,9 +9,11 @@ import (
 	"context"
 	"iter"
 	"slices"
+	"sort"
 	"sync"
 	"time"
 
+	"github.com/altessa-s/go-atlas/data/filter"
 	"github.com/altessa-s/go-atlas/service/scheduler"
 
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
@@ -24,10 +26,11 @@ import (
 // [scheduler.TaskHistory] values are deep copies, so callers may modify them
 // without affecting the data held by Storage.
 type Storage struct {
-	mu      sync.RWMutex
-	tasks   map[string]*scheduler.TaskState
-	history map[string][]*scheduler.TaskHistory
-	maxHist int // Maximum history entries per task
+	mu        sync.RWMutex
+	tasks     map[string]*scheduler.TaskState
+	history   map[string][]*scheduler.TaskHistory
+	maxHist   int // Maximum history entries per task
+	evaluator *filter.Evaluator
 }
 
 // New creates a new [Storage] with empty task and history maps.
@@ -47,9 +50,10 @@ func New(maxHistoryPerTask int) *Storage {
 	}
 
 	return &Storage{
-		tasks:   make(map[string]*scheduler.TaskState),
-		history: make(map[string][]*scheduler.TaskHistory),
-		maxHist: maxHistoryPerTask,
+		tasks:     make(map[string]*scheduler.TaskState),
+		history:   make(map[string][]*scheduler.TaskHistory),
+		maxHist:   maxHistoryPerTask,
+		evaluator: filter.NewEvaluator(),
 	}
 }
 
@@ -200,6 +204,162 @@ func cloneTaskState(state *scheduler.TaskState) *scheduler.TaskState {
 		clone.Meta = coremaps.Merge(state.Meta, nil)
 	}
 	return &clone
+}
+
+// TasksPaginated returns up to (pg.Limit+1) task states whose ID is
+// lexicographically greater than pg.AfterID, sorted by ID ascending.
+// When f is non-nil, only tasks matching the filter are included.
+func (m *Storage) TasksPaginated(_ context.Context, pg scheduler.Pagination, f filter.Node) ([]*scheduler.TaskState, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// Collect and sort by ID
+	states := make([]*scheduler.TaskState, 0, len(m.tasks))
+	for _, state := range m.tasks {
+		states = append(states, cloneTaskState(state))
+	}
+	slices.SortFunc(states, func(a, b *scheduler.TaskState) int {
+		return cmp.Compare(a.ID, b.ID)
+	})
+
+	// Binary search for the start position after afterID
+	startIdx := 0
+	if pg.AfterID != "" {
+		startIdx = sort.Search(len(states), func(i int) bool {
+			return states[i].ID > pg.AfterID
+		})
+	}
+
+	if f == nil {
+		// No filter: return up to limit+1 items directly
+		endIdx := startIdx + int(pg.Limit) + 1
+		if endIdx > len(states) {
+			endIdx = len(states)
+		}
+		return states[startIdx:endIdx], nil
+	}
+
+	// With filter: scan and collect matching items up to limit+1
+	var results []*scheduler.TaskState
+	for _, state := range states[startIdx:] {
+		match, err := m.evaluator.Evaluate(f, taskStateToFilterMap(state))
+		if err != nil {
+			return nil, err
+		}
+		if match {
+			results = append(results, state)
+			if int64(len(results)) > pg.Limit {
+				break
+			}
+		}
+	}
+	return results, nil
+}
+
+// HistoryPaginated returns up to (pg.Limit+1) history entries for taskID,
+// sorted by StartedAt descending with ID descending as a tie-breaker.
+// When f is non-nil, only entries matching the filter are included.
+func (m *Storage) HistoryPaginated(_ context.Context, taskID string, pg scheduler.HistoryPagination, f filter.Node) ([]*scheduler.TaskHistory, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	hist, ok := m.history[taskID]
+	if !ok || len(hist) == 0 {
+		return nil, nil
+	}
+
+	// Sort descending by StartedAt, then descending by ID (tie-breaker)
+	sorted := make([]*scheduler.TaskHistory, len(hist))
+	copy(sorted, hist)
+	slices.SortFunc(sorted, func(a, b *scheduler.TaskHistory) int {
+		if c := cmp.Compare(b.StartedAt, a.StartedAt); c != 0 {
+			return c
+		}
+		return cmp.Compare(b.ID, a.ID)
+	})
+
+	// Find cursor position: the first entry strictly past the cursor in
+	// descending order. An entry is past the cursor if its StartedAt is less
+	// than afterStartedAt, or if StartedAt is equal but ID is less.
+	startIdx := 0
+	if pg.AfterID != "" {
+		found := false
+		for i, h := range sorted {
+			if h.StartedAt < pg.AfterStartedAt || (h.StartedAt == pg.AfterStartedAt && h.ID < pg.AfterID) {
+				startIdx = i
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, nil
+		}
+	}
+
+	if f == nil {
+		// No filter: return up to limit+1 items directly
+		endIdx := startIdx + int(pg.Limit) + 1
+		if endIdx > len(sorted) {
+			endIdx = len(sorted)
+		}
+
+		result := make([]*scheduler.TaskHistory, 0, endIdx-startIdx)
+		for _, h := range sorted[startIdx:endIdx] {
+			clone := *h
+			result = append(result, &clone)
+		}
+		return result, nil
+	}
+
+	// With filter: scan and collect matching items up to limit+1
+	var results []*scheduler.TaskHistory
+	for _, h := range sorted[startIdx:] {
+		match, err := m.evaluator.Evaluate(f, taskHistoryToFilterMap(h))
+		if err != nil {
+			return nil, err
+		}
+		if match {
+			clone := *h
+			results = append(results, &clone)
+			if int64(len(results)) > pg.Limit {
+				break
+			}
+		}
+	}
+	return results, nil
+}
+
+// taskStateToFilterMap converts a TaskState to a map for filter evaluation.
+// Field names use proto camelCase to match CEL expressions.
+func taskStateToFilterMap(s *scheduler.TaskState) map[string]any {
+	return map[string]any{
+		"id":             s.ID,
+		"description":    s.Description,
+		"status":         int64(s.Status),
+		"priority":       int64(s.Priority),
+		"schedule":       s.Schedule,
+		"lastRunAt":      s.LastRunAt,
+		"nextRunAt":      s.NextRunAt,
+		"skipNextRun":    s.SkipNextRun,
+		"disableHistory": s.DisableHistory,
+		"unmanaged":      s.Unmanaged,
+		"oneShot":        s.OneShot,
+		"failures":       int64(s.Failures),
+	}
+}
+
+// taskHistoryToFilterMap converts a TaskHistory to a map for filter evaluation.
+func taskHistoryToFilterMap(h *scheduler.TaskHistory) map[string]any {
+	return map[string]any{
+		"id":         h.ID,
+		"taskId":     h.TaskID,
+		"runId":      h.RunID,
+		"startedAt":  h.StartedAt,
+		"endedAt":    h.EndedAt,
+		"durationMs": h.DurationMs,
+		"success":    h.Success,
+		"error":      h.Error,
+	}
 }
 
 // Compile-time interface check

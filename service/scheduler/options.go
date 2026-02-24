@@ -32,6 +32,9 @@ const (
 	// [TaskStatusRunning] is considered stale and reset to [TaskStatusActive]
 	// during periodic recovery. See [WithStaleTaskTimeout].
 	DefaultStaleTaskTimeout = 30 * time.Minute
+	// DefaultCleanupInterval is the default interval between periodic history
+	// cleanup runs. See [WithCleanupInterval].
+	DefaultCleanupInterval = 1 * time.Hour
 	// maxStaleRecoveryInterval caps the stale recovery ticker interval.
 	maxStaleRecoveryInterval = 5 * time.Minute
 )
@@ -40,6 +43,7 @@ type options struct {
 	tickInterval              time.Duration `optgen:"default=DefaultTickInterval"`
 	historyRetention          time.Duration `optgen:"default=DefaultHistoryRetention"`
 	staleTaskTimeout          time.Duration `optgen:"default=DefaultStaleTaskTimeout"`
+	cleanupInterval           time.Duration `optgen:"default=DefaultCleanupInterval"`
 	maxConcurrentTasks        int           `optgen:"default=DefaultMaxConcurrentTasks"`
 	reservedHighPrioritySlots int           `optgen:"default=DefaultReservedHighPrioritySlots"`
 	logger                    *slog.Logger

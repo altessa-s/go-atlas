@@ -578,7 +578,12 @@ func (x *TaskGetResponse) GetTaskState() *TaskState {
 type TasksListRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Optional CEL filter expression applied to each task summary.
-	Filter        string `protobuf:"bytes,1,opt,name=filter,proto3" json:"filter,omitempty"`
+	Filter string `protobuf:"bytes,1,opt,name=filter,proto3" json:"filter,omitempty"`
+	// Optional. Maximum number of results per page. Default 100, max 1000.
+	Limit int64 `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	// Optional. Opaque cursor from a previous response's nextCursor.
+	// Leave empty for the first page.
+	Cursor        *string `protobuf:"bytes,3,opt,name=cursor,proto3,oneof" json:"cursor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -620,11 +625,27 @@ func (x *TasksListRequest) GetFilter() string {
 	return ""
 }
 
+func (x *TasksListRequest) GetLimit() int64 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *TasksListRequest) GetCursor() string {
+	if x != nil && x.Cursor != nil {
+		return *x.Cursor
+	}
+	return ""
+}
+
 // Defines the response message for the List method.
 type TasksListResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The list of task summaries.
-	Tasks         []*TaskSummary `protobuf:"bytes,1,rep,name=tasks,proto3" json:"tasks,omitempty"`
+	Tasks []*TaskSummary `protobuf:"bytes,1,rep,name=tasks,proto3" json:"tasks,omitempty"`
+	// Cursor for fetching the next page. Nil if no more results.
+	NextCursor    *string `protobuf:"bytes,2,opt,name=nextCursor,proto3,oneof" json:"nextCursor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -666,13 +687,24 @@ func (x *TasksListResponse) GetTasks() []*TaskSummary {
 	return nil
 }
 
+func (x *TasksListResponse) GetNextCursor() string {
+	if x != nil && x.NextCursor != nil {
+		return *x.NextCursor
+	}
+	return ""
+}
+
 // Defines the request message for the ListHistory method.
 type TaskHistoryListRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Required. Identifier of the task to retrieve history for.
 	TaskId string `protobuf:"bytes,1,opt,name=taskId,proto3" json:"taskId,omitempty"`
-	// Optional CEL filter expression. If set, the task is returned only when it matches.
-	Filter        string `protobuf:"bytes,2,opt,name=filter,proto3" json:"filter,omitempty"`
+	// Optional CEL filter expression.
+	Filter string `protobuf:"bytes,2,opt,name=filter,proto3" json:"filter,omitempty"`
+	// Optional. Maximum number of results per page. Default 100, max 1000.
+	Limit int64 `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
+	// Optional. Opaque cursor from a previous response's nextCursor.
+	Cursor        *string `protobuf:"bytes,4,opt,name=cursor,proto3,oneof" json:"cursor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -721,11 +753,27 @@ func (x *TaskHistoryListRequest) GetFilter() string {
 	return ""
 }
 
+func (x *TaskHistoryListRequest) GetLimit() int64 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *TaskHistoryListRequest) GetCursor() string {
+	if x != nil && x.Cursor != nil {
+		return *x.Cursor
+	}
+	return ""
+}
+
 // Defines the response message for the ListHistory method.
 type TaskHistoryListResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// The list of task execution history entries.
-	Entries       []*TaskHistory `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
+	Entries []*TaskHistory `protobuf:"bytes,1,rep,name=entries,proto3" json:"entries,omitempty"`
+	// Cursor for fetching the next page. Nil if no more results.
+	NextCursor    *string `protobuf:"bytes,2,opt,name=nextCursor,proto3,oneof" json:"nextCursor,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -765,6 +813,13 @@ func (x *TaskHistoryListResponse) GetEntries() []*TaskHistory {
 		return x.Entries
 	}
 	return nil
+}
+
+func (x *TaskHistoryListResponse) GetNextCursor() string {
+	if x != nil && x.NextCursor != nil {
+		return *x.NextCursor
+	}
+	return ""
 }
 
 // Defines the request message for the GetStatus method.
@@ -1425,16 +1480,30 @@ const file_scheduler_v1_scheduler_proto_rawDesc = "" +
 	"\x0eTaskGetRequest\x12\x16\n" +
 	"\x06taskId\x18\x01 \x01(\tR\x06taskId\"X\n" +
 	"\x0fTaskGetResponse\x12E\n" +
-	"\ttaskState\x18\x01 \x01(\v2'.io.altessa.grpc.scheduler.v1.TaskStateR\ttaskState\"*\n" +
+	"\ttaskState\x18\x01 \x01(\v2'.io.altessa.grpc.scheduler.v1.TaskStateR\ttaskState\"h\n" +
 	"\x10TasksListRequest\x12\x16\n" +
-	"\x06filter\x18\x01 \x01(\tR\x06filter\"T\n" +
+	"\x06filter\x18\x01 \x01(\tR\x06filter\x12\x14\n" +
+	"\x05limit\x18\x02 \x01(\x03R\x05limit\x12\x1b\n" +
+	"\x06cursor\x18\x03 \x01(\tH\x00R\x06cursor\x88\x01\x01B\t\n" +
+	"\a_cursor\"\x88\x01\n" +
 	"\x11TasksListResponse\x12?\n" +
-	"\x05tasks\x18\x01 \x03(\v2).io.altessa.grpc.scheduler.v1.TaskSummaryR\x05tasks\"H\n" +
+	"\x05tasks\x18\x01 \x03(\v2).io.altessa.grpc.scheduler.v1.TaskSummaryR\x05tasks\x12#\n" +
+	"\n" +
+	"nextCursor\x18\x02 \x01(\tH\x00R\n" +
+	"nextCursor\x88\x01\x01B\r\n" +
+	"\v_nextCursor\"\x86\x01\n" +
 	"\x16TaskHistoryListRequest\x12\x16\n" +
 	"\x06taskId\x18\x01 \x01(\tR\x06taskId\x12\x16\n" +
-	"\x06filter\x18\x02 \x01(\tR\x06filter\"^\n" +
+	"\x06filter\x18\x02 \x01(\tR\x06filter\x12\x14\n" +
+	"\x05limit\x18\x03 \x01(\x03R\x05limit\x12\x1b\n" +
+	"\x06cursor\x18\x04 \x01(\tH\x00R\x06cursor\x88\x01\x01B\t\n" +
+	"\a_cursor\"\x92\x01\n" +
 	"\x17TaskHistoryListResponse\x12C\n" +
-	"\aentries\x18\x01 \x03(\v2).io.altessa.grpc.scheduler.v1.TaskHistoryR\aentries\"\x1b\n" +
+	"\aentries\x18\x01 \x03(\v2).io.altessa.grpc.scheduler.v1.TaskHistoryR\aentries\x12#\n" +
+	"\n" +
+	"nextCursor\x18\x02 \x01(\tH\x00R\n" +
+	"nextCursor\x88\x01\x01B\r\n" +
+	"\v_nextCursor\"\x1b\n" +
 	"\x19SchedulerStatusGetRequest\"\xec\x01\n" +
 	"\x1aSchedulerStatusGetResponse\x12\x1c\n" +
 	"\tisRunning\x18\x01 \x01(\bR\tisRunning\x12\x1a\n" +
@@ -1568,6 +1637,10 @@ func file_scheduler_v1_scheduler_proto_init() {
 	if File_scheduler_v1_scheduler_proto != nil {
 		return
 	}
+	file_scheduler_v1_scheduler_proto_msgTypes[5].OneofWrappers = []any{}
+	file_scheduler_v1_scheduler_proto_msgTypes[6].OneofWrappers = []any{}
+	file_scheduler_v1_scheduler_proto_msgTypes[7].OneofWrappers = []any{}
+	file_scheduler_v1_scheduler_proto_msgTypes[8].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
