@@ -26,7 +26,7 @@ func (s *Scheduler) loadTasks(ctx context.Context) error {
 		// We just preserve their state here
 		s.logger.DebugContext(ctx, "loaded task state from storage",
 			slog.String("task_id", state.ID),
-			slog.String("status", string(state.Status)),
+			slog.String("status", state.Status.String()),
 			slog.String("priority", state.Priority.String()))
 	}
 
@@ -333,7 +333,7 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 	if currentState.Status != TaskStatusActive {
 		s.logger.DebugContext(ctx, "task status changed, skipping execution",
 			slog.String("task_id", state.ID),
-			slog.String("current_status", string(currentState.Status)))
+			slog.String("current_status", currentState.Status.String()))
 		return
 	}
 	currentState.Status = TaskStatusRunning
