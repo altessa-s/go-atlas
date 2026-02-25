@@ -5,8 +5,20 @@
 package server
 
 import (
+	"context"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"sync"
 	"testing"
 	"time"
+
+	"github.com/altessa-s/go-atlas/transport/http/server/router/std"
+	"github.com/altessa-s/go-atlas/transport/http/server/writer"
+	"github.com/altessa-s/go-atlas/transport/internal/timeouts"
+
+	baseserver "github.com/altessa-s/go-atlas/transport/internal/server"
 )
 
 func TestDefaultOptions(t *testing.T) {
@@ -106,5 +118,155 @@ func TestDefaultConstants(t *testing.T) {
 	}
 	if DefaultMaxHeaderBytes <= 0 {
 		t.Fatalf("DefaultMaxHeaderBytes = %d", DefaultMaxHeaderBytes)
+	}
+}
+
+// newTestServer creates an HTTP server bound to a random port with the
+// given handler registered at the given pattern. It returns the server
+// and the listener address (host:port).
+func newTestServer(t *testing.T, pattern string, handler http.HandlerFunc) *Server {
+	t.Helper()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen: %v", err)
+	}
+
+	r := std.New()
+	srv, err := New(
+		WithRouter(r),
+		WithBaseOptions(
+			baseserver.WithAddress(ln.Addr().String()),
+			baseserver.WithListener(ln),
+			baseserver.WithTimeouts(timeouts.Config{
+				StartupVerification: 200 * time.Millisecond,
+				ShutdownGraceful:    5 * time.Second,
+				ShutdownWarning:     5 * time.Second,
+			}),
+		),
+	)
+	if err != nil {
+		ln.Close()
+		t.Fatalf("New: %v", err)
+	}
+
+	if handler != nil {
+		srv.Handle(pattern, func(rw writer.ReadWriter) {
+			handler(rw.ResponseWriter(), rw.Request())
+		})
+	}
+
+	return srv
+}
+
+func TestShutdown(t *testing.T) {
+	srv := newTestServer(t, "/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+	})
+
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Verify the server is accepting connections.
+	addr := srv.Address()
+	resp, err := http.Get("http://" + addr + "/health")
+	if err != nil {
+		t.Fatalf("GET /health: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /health status = %d, want 200", resp.StatusCode)
+	}
+
+	// Shutdown must complete without error (no double-close).
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	// After shutdown, new connections must be refused.
+	_, err = http.Get("http://" + addr + "/health")
+	if err == nil {
+		t.Fatal("expected connection refused after shutdown")
+	}
+}
+
+func TestShutdown_DrainsInFlightRequests(t *testing.T) {
+	inHandler := make(chan struct{})
+	releaseHandler := make(chan struct{})
+
+	srv := newTestServer(t, "/slow", func(w http.ResponseWriter, r *http.Request) {
+		close(inHandler)
+		<-releaseHandler
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "done")
+	})
+
+	if err := srv.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	addr := srv.Address()
+
+	// Start an in-flight request that blocks inside the handler.
+	var (
+		wg       sync.WaitGroup
+		respBody string
+		reqErr   error
+	)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		resp, err := http.Get("http://" + addr + "/slow")
+		if err != nil {
+			reqErr = err
+			return
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		respBody = string(b)
+	}()
+
+	// Wait until the handler is entered.
+	<-inHandler
+
+	// Initiate shutdown while the request is in flight.
+	shutdownDone := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+		defer cancel()
+		shutdownDone <- srv.Shutdown(ctx)
+	}()
+
+	// Release the handler so the request completes.
+	close(releaseHandler)
+	wg.Wait()
+
+	if reqErr != nil {
+		t.Fatalf("in-flight request error: %v", reqErr)
+	}
+	if respBody != "done" {
+		t.Fatalf("in-flight response body = %q, want %q", respBody, "done")
+	}
+
+	// Shutdown must return nil (no double-close error).
+	if err := <-shutdownDone; err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+}
+
+func TestShutdown_NotStarted(t *testing.T) {
+	srv := newTestServer(t, "", nil)
+
+	// Shutdown on a server that was never started should be a no-op.
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown on non-started server: %v", err)
 	}
 }
