@@ -361,7 +361,7 @@ func (m *Mongo) Close() {
 		}
 
 		if m.ownsClient {
-			if disconnectErr := m.client.Disconnect(ctx); disconnectErr != nil {
+			if disconnectErr := m.client.Disconnect(ctx); disconnectErr != nil && !errors.Is(disconnectErr, mongo.ErrClientDisconnected) {
 				if m.config.Logger != nil {
 					m.config.Logger.Warn("failed to disconnect mongo client", "error", disconnectErr)
 				}
