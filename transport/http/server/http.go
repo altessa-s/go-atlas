@@ -255,18 +255,21 @@ func (s *Server) Middleware() iter.Seq[Middleware] {
 }
 
 // Shutdown gracefully stops the HTTP server. It closes the stop channel
-// (signaling handlers), closes the listener to reject new connections, and
-// drains in-flight requests. The provided context controls the shutdown
-// deadline; if it expires, the server returns the context's error.
+// (signaling handlers), then delegates to [http.Server.Shutdown] which
+// closes the listener, rejects new connections, and drains in-flight
+// requests. The provided context controls the shutdown deadline; if it
+// expires, the server returns the context's error.
 func (s *Server) Shutdown(ctx context.Context) error {
 	return s.GracefulShutdown(ctx, func(ctx context.Context) error {
 		close(s.stopCh)
 
-		// Close listener first to prevent new connections
-		if s.Listener() != nil {
-			_ = s.Listener().Close()
-		}
-
+		// http.Server.Shutdown sets the shutdown flag, closes tracked
+		// listeners (preventing new connections), and waits for active
+		// requests to complete. No manual Listener().Close() is needed —
+		// doing so before Shutdown causes a double-close error because
+		// http.Serve wraps the listener in a onceCloseListener that
+		// records the "use of closed network connection" error and
+		// propagates it through Shutdown's return value.
 		return s.http.Shutdown(ctx)
 	})
 }
