@@ -6,6 +6,7 @@ package factory
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 
 	"github.com/altessa-s/go-atlas/config"
@@ -168,6 +169,8 @@ func (f *Factory) buildCredential(creds *config.MongodbCredentials) mongoOptions
 // CreateMongoOptionsFromConfig creates [mongo.Option] values for the [mongo.Mongo]
 // wrapper from configuration. The returned slice can be passed directly to [mongo.New].
 // If [config.Mongodb.Encryption] is configured, KMS and vault options are included.
+// For [config.MongoEncryptionTypeAuto], the driver client is configured to transparently
+// decrypt encrypted fields on reads while writes use the explicit encryption path.
 func (f *Factory) CreateMongoOptionsFromConfig(cfg *config.Mongodb) ([]mongo.Option, error) {
 	clientOpts, err := f.ClientOptionsFromConfig(cfg)
 	if err != nil {
@@ -179,42 +182,55 @@ func (f *Factory) CreateMongoOptionsFromConfig(cfg *config.Mongodb) ([]mongo.Opt
 		mongo.WithLogger(f.Logger()),
 	}
 
-	if cfg.Encryption != nil {
-		encOpts, err := f.encryptionOptionsFromConfig(cfg.Encryption)
-		if err != nil {
-			return nil, err
-		}
-		opts = append(opts, encOpts...)
-	}
-
-	return opts, nil
+	return f.applyEncryption(cfg, clientOpts, opts)
 }
 
-// encryptionOptionsFromConfig creates mongo options for client-side field level encryption.
-// If no KMS factory was provided via WithKmsFactory, a default one is created automatically.
-// To use TLS for KMS connections, provide a KMS factory configured with a TLS factory.
-func (f *Factory) encryptionOptionsFromConfig(cfg *config.MongoEncryption) ([]mongo.Option, error) {
+// applyEncryption configures KMS and CSFLE encryption options when
+// [config.MongodbEncryption] is present. For non-manual encryption types, it
+// builds [mongoOptions.AutoEncryptionOptions] with bypass mode so reads
+// transparently decrypt while writes use the explicit encryption path.
+func (f *Factory) applyEncryption(cfg *config.Mongodb, clientOpts *mongoOptions.ClientOptions, opts []mongo.Option) ([]mongo.Option, error) {
+	if cfg.Encryption == nil {
+		return opts, nil
+	}
+
 	kf := f.kmsFactory
 	if kf == nil {
 		kf = kmsfactory.New()
 	}
 
-	provider, err := kf.CreateProviderFromConfig(cfg.KMS)
+	provider, err := kf.CreateProviderFromConfig(cfg.Encryption.KMS)
 	if err != nil {
 		return nil, f.WrapError(err, "failed to create KMS provider")
 	}
 
-	opts := []mongo.Option{
-		mongo.WithEncryptionEnabled(),
-		mongo.WithKMS(provider),
-		mongo.WithVaultCollection(cfg.VaultCollection),
+	if cfg.Encryption.Type != config.MongoEncryptionTypeManual {
+		vaultDB := cfg.Database
+		if cfg.Encryption.VaultDatabase != nil {
+			vaultDB = *cfg.Encryption.VaultDatabase
+		}
+
+		autoEncOpts := mongoOptions.AutoEncryption().
+			SetBypassAutoEncryption(true).
+			SetKeyVaultNamespace(vaultDB + "." + cfg.Encryption.VaultCollection).
+			SetKmsProviders(provider.Credentials())
+
+		if tlsCfg := provider.TLSConfig(); tlsCfg != nil {
+			autoEncOpts.SetTLSConfig(map[string]*tls.Config{provider.Name(): tlsCfg})
+		}
+
+		clientOpts.SetAutoEncryptionOptions(autoEncOpts)
 	}
 
-	opts = slices.AppendIfFunc(opts, cfg.VaultDatabase != nil, func() []mongo.Option {
-		return []mongo.Option{mongo.WithVaultDatabase(*cfg.VaultDatabase)}
-	})
+	opts = append(opts,
+		mongo.WithEncryptionEnabled(),
+		mongo.WithKMS(provider),
+		mongo.WithVaultCollection(cfg.Encryption.VaultCollection),
+	)
 
-	return opts, nil
+	return slices.AppendIfFunc(opts, cfg.Encryption.VaultDatabase != nil, func() []mongo.Option {
+		return []mongo.Option{mongo.WithVaultDatabase(*cfg.Encryption.VaultDatabase)}
+	}), nil
 }
 
 // CreateMongoFromConfig creates a [mongo.Mongo] wrapper from configuration.
