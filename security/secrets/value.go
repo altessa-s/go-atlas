@@ -185,7 +185,7 @@ func NewValue[T any](key string, value T, encodedValue []byte, version string) *
 	}
 
 	// If T is a string, initialize SecureString for better memory management
-	if reflect.TypeOf(value).Kind() == reflect.String {
+	if reflect.TypeFor[T]().Kind() == reflect.String {
 		v.ss = corestrings.NewSecureString(any(value).(string)) //nolint:errcheck // type checked above
 	}
 

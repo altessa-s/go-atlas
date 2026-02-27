@@ -452,7 +452,7 @@ func GetEntity[T any, E any](ctx context.Context, col *mongo.Collection, filter 
 
 		var dst any
 
-		entityType := reflect.TypeOf(zero)
+		entityType := reflect.TypeFor[E]()
 		if entityType.Kind() == reflect.Pointer {
 			// E is a pointer, create a new instance
 			dst = reflect.New(entityType.Elem()).Interface()
@@ -541,8 +541,7 @@ func GetEntities[T any, E any](ctx context.Context, col *mongo.Collection, filte
 		}
 
 		// Convert MongoDB documents to domain entities with pre-allocated slice
-		var zeroE E
-		entityType := reflect.TypeOf(zeroE)
+		entityType := reflect.TypeFor[E]()
 		entities := make([]E, 0, len(models))
 
 		for _, model := range models {
