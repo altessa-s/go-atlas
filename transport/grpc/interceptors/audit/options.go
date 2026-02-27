@@ -2,10 +2,11 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package grpc
+package audit
 
 import (
 	"context"
+	"log/slog"
 	"regexp"
 
 	"github.com/altessa-s/go-atlas/data/audit"
@@ -16,12 +17,9 @@ import (
 // ActorExtractor extracts an Actor from a gRPC context.
 type ActorExtractor func(ctx context.Context) audit.Actor
 
-// RequestIDExtractor extracts the request ID from a context.
-type RequestIDExtractor func(ctx context.Context) string
-
 type options struct {
-	actorExtractor     ActorExtractor
-	requestIDExtractor RequestIDExtractor
-	ignoreMethods      []string
-	ignorePatterns     []*regexp.Regexp
+	actorExtractor ActorExtractor
+	ignoreMethods  []string
+	ignorePatterns []*regexp.Regexp
+	logger         *slog.Logger
 }

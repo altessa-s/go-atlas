@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package http_test
+package audit_test
 
 import (
 	"net/http"
@@ -13,7 +13,7 @@ import (
 	"github.com/altessa-s/go-atlas/data/audit"
 	"github.com/altessa-s/go-atlas/data/audit/storages/memory"
 
-	audithttp "github.com/altessa-s/go-atlas/data/audit/middleware/http"
+	audithttp "github.com/altessa-s/go-atlas/transport/http/server/middlewares/audit"
 )
 
 func FuzzMiddleware(f *testing.F) {

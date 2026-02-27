@@ -2,10 +2,10 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package http
+package audit
 
 import (
-	"context"
+	"log/slog"
 	"net/http"
 	"regexp"
 
@@ -17,13 +17,10 @@ import (
 // ActorExtractor extracts an Actor from an HTTP request.
 type ActorExtractor func(r *http.Request) audit.Actor
 
-// RequestIDExtractor extracts the request ID from a context.
-type RequestIDExtractor func(ctx context.Context) string
-
 type options struct {
-	actorExtractor     ActorExtractor
-	requestIDExtractor RequestIDExtractor
-	ignorePaths        []string
-	ignorePatterns     []*regexp.Regexp
-	ignoreMethods      []string
+	actorExtractor ActorExtractor
+	ignorePaths    []string
+	ignorePatterns []*regexp.Regexp
+	ignoreMethods  []string
+	logger         *slog.Logger
 }

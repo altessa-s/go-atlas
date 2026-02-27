@@ -2,12 +2,11 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package grpc provides gRPC interceptors for automatic request auditing.
-package grpc
+// Package audit provides a gRPC interceptor for automatic request auditing.
+package audit
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"github.com/altessa-s/go-atlas/data/audit"
@@ -15,6 +14,7 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/requestid"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -24,33 +24,25 @@ var _ driver.DrivenInterceptor = (*interceptor)(nil)
 var _ interceptors.Interceptor = (*interceptor)(nil)
 
 type interceptor struct {
+	interceptors.BaseInterceptor
 	auditor *audit.Auditor
 	opts    *options
-
-	ignoreMethodSet map[string]struct{}
 }
 
 // ServerInterceptor returns a gRPC server interceptor that audits calls.
 func ServerInterceptor(auditor *audit.Auditor, opts ...Option) interceptors.ServerInterceptor {
-	i := newInterceptor(auditor, opts...)
-	return interceptors.ServerDrivenInterceptor(i)
-}
-
-func newInterceptor(auditor *audit.Auditor, opts ...Option) *interceptor {
 	o := newOptions(opts...)
 	i := &interceptor{
-		auditor:         auditor,
-		opts:            o,
-		ignoreMethodSet: make(map[string]struct{}, len(o.ignoreMethods)),
+		BaseInterceptor: interceptors.NewBaseInterceptorWithFilter(
+			"audit",
+			o.ignoreMethods,
+			o.ignorePatterns,
+			o.logger,
+		),
+		auditor: auditor,
+		opts:    o,
 	}
-	for _, m := range o.ignoreMethods {
-		i.ignoreMethodSet[strings.ToLower(m)] = struct{}{}
-	}
-	return i
-}
-
-func (i *interceptor) Name() string {
-	return "audit"
+	return interceptors.ServerDrivenInterceptor(i)
 }
 
 // Dependencies returns interceptors that audit reads from context.
@@ -59,25 +51,14 @@ func (i *interceptor) Dependencies() []string {
 }
 
 func (i *interceptor) DrivenInterceptor(ctx context.Context) (driver.Driver, context.Context) {
-	meta, _ := metadata.FromContext(ctx)
-
-	// Check if method should be ignored.
-	if meta != nil {
-		method := strings.ToLower(meta.FullyMethodName)
-		if _, ignored := i.ignoreMethodSet[method]; ignored {
-			return driver.NoopDriver(), ctx
-		}
-		for _, p := range i.opts.ignorePatterns {
-			if p.MatchString(method) {
-				return driver.NoopDriver(), ctx
-			}
-		}
+	meta, ignored := i.ShouldIgnoreFromContext(ctx)
+	if ignored {
+		return driver.NoopDriver(), ctx
 	}
 
 	return &requestDriver{
 		interceptor: i,
 		meta:        meta,
-		ctx:         ctx,
 		startTime:   time.Now(),
 	}, ctx
 }
@@ -85,7 +66,6 @@ func (i *interceptor) DrivenInterceptor(ctx context.Context) (driver.Driver, con
 type requestDriver struct {
 	*interceptor
 	meta      *metadata.CallMetadata
-	ctx       context.Context
 	startTime time.Time
 }
 
@@ -98,8 +78,6 @@ func (d *requestDriver) PostCall(ctx context.Context, _ any, err error) error {
 		return err
 	}
 
-	duration := time.Since(d.startTime)
-
 	var actor audit.Actor
 	if d.opts.actorExtractor != nil {
 		actor = d.opts.actorExtractor(ctx)
@@ -111,41 +89,47 @@ func (d *requestDriver) PostCall(ctx context.Context, _ any, err error) error {
 		resourcePath = d.meta.FullyMethodName
 	}
 
-	result := audit.Result{Status: audit.ResultStatusSuccess}
-	if err != nil {
-		st := status.Convert(err)
-		result.Code = int(st.Code())
-		result.Message = st.Message()
-		if st.Code() == codes.PermissionDenied || st.Code() == codes.Unauthenticated {
-			result.Status = audit.ResultStatusDenied
-		} else {
-			result.Status = audit.ResultStatusError
-		}
+	info := audit.RequestInfo{
+		Action:       audit.ActionExecute,
+		ResourceType: resourceType,
+		ResourcePath: resourcePath,
+		Actor:        actor,
+		Context: audit.NewEventContext(
+			tracing.TraceIDFromContext(ctx),
+			tracing.SpanIDFromContext(ctx),
+			requestid.FromContext(ctx),
+		),
+		StartTime: d.startTime,
+		Duration:  time.Since(d.startTime),
 	}
 
-	eventCtx := audit.EventContext{
-		TraceID: tracing.TraceIDFromContext(ctx),
-		SpanID:  tracing.SpanIDFromContext(ctx),
-	}
-	if d.opts.requestIDExtractor != nil {
-		eventCtx.RequestID = d.opts.requestIDExtractor(ctx)
-	}
-
-	event := &audit.Event{
-		Type:   audit.EventTypeAPIRequest,
-		Action: audit.ActionExecute,
-		Actor:  actor,
-		Resource: audit.Resource{
-			Type: resourceType,
-			Path: resourcePath,
-		},
-		Result:    result,
-		Context:   eventCtx,
-		Duration:  duration,
-		Timestamp: d.startTime,
-	}
+	event := audit.BuildTransportEvent(info, func() audit.Result {
+		return classifyGRPCStatus(err)
+	})
 
 	d.auditor.Emit(event)
 
 	return err
+}
+
+// classifyGRPCStatus maps a gRPC error to an audit Result.
+func classifyGRPCStatus(err error) audit.Result {
+	if err == nil {
+		return audit.Result{Status: audit.ResultStatusSuccess}
+	}
+
+	st := status.Convert(err)
+	result := audit.Result{
+		Code:    int(st.Code()),
+		Message: st.Message(),
+	}
+
+	switch st.Code() {
+	case codes.PermissionDenied, codes.Unauthenticated:
+		result.Status = audit.ResultStatusDenied
+	default:
+		result.Status = audit.ResultStatusError
+	}
+
+	return result
 }

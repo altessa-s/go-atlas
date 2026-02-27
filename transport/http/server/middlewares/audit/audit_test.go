@@ -2,10 +2,9 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package http_test
+package audit_test
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,8 +14,9 @@ import (
 
 	"github.com/altessa-s/go-atlas/data/audit"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
+	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/requestid"
 
-	audithttp "github.com/altessa-s/go-atlas/data/audit/middleware/http"
+	audithttp "github.com/altessa-s/go-atlas/transport/http/server/middlewares/audit"
 )
 
 func TestMiddleware_AuditsRequest(t *testing.T) {
@@ -195,25 +195,44 @@ func TestMiddleware_ActorExtractor(t *testing.T) {
 	assert.Equal(t, "user-42", store.Events()[0].Actor.ID)
 }
 
-func TestMiddleware_RequestIDExtractor(t *testing.T) {
+func TestMiddleware_RequestIDFromContext(t *testing.T) {
 	a, store := testhelpers.NewTestAuditor(t)
 
-	type reqIDKey struct{}
-	handler := audithttp.Middleware(a,
-		audithttp.WithRequestIDExtractor(func(ctx context.Context) string {
-			v, _ := ctx.Value(reqIDKey{}).(string)
-			return v
-		}),
-	)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := audithttp.Middleware(a)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	req = req.WithContext(context.WithValue(req.Context(), reqIDKey{}, "req-123"))
+	req = req.WithContext(requestid.NewContext(req.Context(), "req-123"))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
 	require.NoError(t, a.Shutdown(t.Context()))
 	require.Equal(t, 1, store.Len())
 	assert.Equal(t, "req-123", store.Events()[0].Context.RequestID)
+}
+
+func TestNew_ReturnsMiddlewareInterface(t *testing.T) {
+	a, _ := testhelpers.NewTestAuditor(t)
+
+	m := audithttp.New(a)
+	assert.Equal(t, "audit", m.Name())
+	assert.NotNil(t, m.Handler)
+}
+
+func TestNew_NilAuditor_ReturnsNoop(t *testing.T) {
+	m := audithttp.New(nil)
+	assert.Equal(t, "audit", m.Name())
+
+	called := false
+	handler := m.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	assert.True(t, called)
 }
