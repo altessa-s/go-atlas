@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/observability/slog/handler/internal/base"
 )
 
@@ -147,6 +148,8 @@ func (h *Handler) Shutdown(ctx context.Context) error {
 }
 
 func (h *Handler) worker() {
+	defer panics.Handle(context.Background())
+
 	for {
 		select {
 		case r := <-h.records:

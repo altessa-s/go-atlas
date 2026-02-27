@@ -15,6 +15,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/altessa-s/go-atlas/core/runtime/panics"
+
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
@@ -135,6 +137,7 @@ func (wm *watchManager[T]) Watch(ctx context.Context, opts WatchOptions) (*Watch
 
 	// Start watching - simple goroutine that waits for context cancellation
 	go func() {
+		defer panics.Handle(watchCtx)
 		defer func() {
 			instance.closed.Store(true)
 			instance.closeOnce.Do(func() {
