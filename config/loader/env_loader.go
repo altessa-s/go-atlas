@@ -543,9 +543,11 @@ func (cf *Config) setNestedFieldFromEnv(envKey, envValue string) error {
 	}
 
 	// Remove prefix if present
-	if cf.options.envPrefix != "" && strings.HasPrefix(envKey, cf.options.envPrefix) {
-		envKey = strings.TrimPrefix(envKey, cf.options.envPrefix)
-		parts = strings.Split(envKey, delimiter)
+	if cf.options.envPrefix != "" {
+		if rest, ok := strings.CutPrefix(envKey, cf.options.envPrefix); ok {
+			envKey = rest
+			parts = strings.Split(envKey, delimiter)
+		}
 	}
 
 	// Find the root field

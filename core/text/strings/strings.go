@@ -140,7 +140,7 @@ func FromPtr(ptr *string) string {
 //	To[int]("invalid")  // 0
 func To[T constraints.Numbers](str string) T {
 	var t T
-	typ := reflect.TypeOf(t)
+	typ := reflect.TypeFor[T]()
 	kind := typ.Kind()
 	const bitsPerByte = 8
 	// Safe: Sizeof returns the size of type T, doesn't access memory
