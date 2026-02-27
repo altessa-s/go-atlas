@@ -52,7 +52,6 @@ func TestFactory_CreateClientConfigFromConfig_WithServerName(t *testing.T) {
 	f := New()
 	cfg := &config.TlsClient{
 		ServerName: "example.com",
-		SkipVerify: true,
 	}
 
 	tlsConfig, err := f.CreateClientConfigFromConfig(cfg)
@@ -60,7 +59,41 @@ func TestFactory_CreateClientConfigFromConfig_WithServerName(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, tlsConfig)
 	assert.Equal(t, "example.com", tlsConfig.ServerName)
-	assert.True(t, tlsConfig.InsecureSkipVerify)
+	assert.False(t, tlsConfig.InsecureSkipVerify)
+}
+
+func TestFactory_CreateClientConfigFromConfig_SkipVerify_without_env(t *testing.T) {
+	t.Setenv(config.EnvAllowInsecureTLS, "")
+
+	f := New()
+	cfg := &config.TlsClient{
+		ServerName: "example.com",
+		SkipVerify: true,
+	}
+	cfg.Normalize() // env-guard resets SkipVerify
+
+	tlsConfig, err := f.CreateClientConfigFromConfig(cfg)
+
+	require.NoError(t, err)
+	require.NotNil(t, tlsConfig)
+	assert.False(t, tlsConfig.InsecureSkipVerify, "InsecureSkipVerify must stay false without env guard")
+}
+
+func TestFactory_CreateClientConfigFromConfig_SkipVerify_with_env(t *testing.T) {
+	t.Setenv(config.EnvAllowInsecureTLS, "true")
+
+	f := New()
+	cfg := &config.TlsClient{
+		ServerName: "example.com",
+		SkipVerify: true,
+	}
+	cfg.Normalize() // env-guard permits SkipVerify
+
+	tlsConfig, err := f.CreateClientConfigFromConfig(cfg)
+
+	require.NoError(t, err)
+	require.NotNil(t, tlsConfig)
+	assert.True(t, tlsConfig.InsecureSkipVerify, "InsecureSkipVerify must be true when env guard is set")
 }
 
 func TestFactory_CreateProvidersFromConfig_Nil(t *testing.T) {

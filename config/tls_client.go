@@ -5,11 +5,20 @@
 package config
 
 import (
+	"os"
+	"strings"
+
 	"github.com/altessa-s/go-atlas/config/internal/utils"
 
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
+
+// EnvAllowInsecureTLS is the environment variable that must be set to "true"
+// to permit SkipVerify in TLS client configurations. When SkipVerify is true
+// in the config but this variable is absent or not "true", Normalize resets
+// SkipVerify to false.
+const EnvAllowInsecureTLS = "ATLAS_ALLOW_INSECURE_TLS"
 
 // TlsClient represents the configuration for Tls client connections.
 // It contains certificates, private keys, and CA certificates needed for
@@ -43,6 +52,8 @@ type TlsClient struct {
 
 // Normalize processes the Tls client configuration by resolving file paths.
 // It attempts to locate certificate and key files using the findFile helper.
+// If SkipVerify is true but the ATLAS_ALLOW_INSECURE_TLS environment variable
+// is not set to "true", SkipVerify is reset to false.
 // This method should be called after loading configuration.
 func (c *TlsClient) Normalize() {
 	c.Certificate = utils.FindFile(c.Certificate)
@@ -50,6 +61,10 @@ func (c *TlsClient) Normalize() {
 
 	for i, ca := range c.CACerts {
 		c.CACerts[i] = utils.FindFile(ca)
+	}
+
+	if c.SkipVerify && !strings.EqualFold(os.Getenv(EnvAllowInsecureTLS), "true") {
+		c.SkipVerify = false
 	}
 }
 
