@@ -63,8 +63,8 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	}
 
 	if rt.logger != nil {
-		cfg.OnRetry = func(attempt int, err error, delay time.Duration) { //nolint:contextcheck // retry callback has no request context
-			rt.logger.DebugContext(context.Background(),
+		cfg.OnRetry = func(attempt int, err error, delay time.Duration) {
+			rt.logger.DebugContext(req.Context(),
 				"http client retrying request",
 				slog.Int("attempt", attempt),
 				slog.String("method", req.Method),
