@@ -1,6 +1,6 @@
 # net
 
-Networking utilities. Each subpackage can be imported independently.
+Networking utilities for the Atlas framework. Each subpackage can be imported independently with zero external dependencies.
 
 ## Subpackages
 

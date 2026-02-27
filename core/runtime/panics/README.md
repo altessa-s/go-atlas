@@ -4,17 +4,10 @@
 import "github.com/altessa-s/go-atlas/core/runtime/panics"
 ```
 
-Package `panics` provides panic recovery with pluggable handlers and runtime assertion helpers. All configuration uses atomic operations and 
-is thread-safe.
+Package `panics` provides panic recovery with pluggable handlers and runtime assertion helpers. All configuration uses atomic operations
+and is thread-safe — handlers can be registered and modified concurrently without external locks.
 
 ## Recovery
-
-```go
-func worker(ctx context.Context) {
-    defer panics.Handle(ctx)
-    // ...
-}
-```
 
 | Function           | Description                                              |
 |--------------------|----------------------------------------------------------|

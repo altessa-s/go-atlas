@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/observability/tracing/adapters"
 ```
 
-Package `adapters` defines the `Adapter` interface for tracing backends. Implement this interface to translate `SpanData` into a 
-specific backend format.
+Package `adapters` defines the `Adapter` interface for tracing backends. Implement this interface to translate `SpanData` into a
+specific backend format. Use `MultiAdapter` to broadcast spans to multiple destinations simultaneously.
 
 ## Key types
 

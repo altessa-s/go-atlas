@@ -1,6 +1,6 @@
 # types
 
-Generic type utilities. Each subpackage can be imported independently.
+Generic type utilities for the Atlas framework. Each subpackage can be imported independently with zero external dependencies.
 
 ## Subpackages
 

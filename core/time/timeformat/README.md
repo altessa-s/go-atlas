@@ -17,13 +17,6 @@ Package `timeformat` provides time formatting and parsing with RFC 3339 and Unix
 | `UnixMicro`   | Microseconds since epoch                       |
 | `UnixNano`    | Nanoseconds since epoch                        |
 
-## Usage
-
-```go
-formatted := timeformat.RFC3339.Format(time.Now())
-parsed, err := timeformat.UnixMilli.Parse("1704110400123")
-```
-
 ## Functions
 
 | Function / Method | Description                                                            |

@@ -4,7 +4,7 @@
 import "github.com/altessa-s/go-atlas/core/types/constraints"
 ```
 
-Package `constraints` provides reusable generic type constraints for numbers, primitives, and strings.
+Package `constraints` provides reusable generic type constraints for numbers, primitives, and strings. Covers all Go built-in numeric types.
 
 ## Constraints
 
@@ -17,15 +17,3 @@ Package `constraints` provides reusable generic type constraints for numbers, pr
 | `Numbers`       | `Float` \| `Integer`                                           |
 | `NumbersString` | `Numbers` \| `~string`                                         |
 | `Primitive`     | `Numbers` \| `~string` \| `~bool`                              |
-
-## Usage
-
-```go
-func Sum[T constraints.Numbers](vals []T) T {
-    var total T
-    for _, v := range vals {
-        total += v
-    }
-    return total
-}
-```

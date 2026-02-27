@@ -6,13 +6,6 @@ import "github.com/altessa-s/go-atlas/core/types/nilcheck"
 
 Package `nilcheck` provides deep nil checking that handles the Go interface-nil pitfall, where a non-nil interface can wrap a nil concrete value.
 
-```go
-var p *MyStruct = nil
-var i any = p
-i != nil          // true  (interface is not nil)
-nilcheck.IsNil(i) // true  (underlying value is nil)
-```
-
 ## Nil checks
 
 | Function        | Description                                              |
@@ -31,14 +24,7 @@ nilcheck.IsNil(i) // true  (underlying value is nil)
 
 ## Checker
 
-Fluent nil validation with error accumulation for constructors and factories.
-
-```go
-checker := nilcheck.NewChecker("MyFactory")
-if err := checker.Check(db, "database").Check(cache, "cache").Error(); err != nil {
-    return nil, err
-}
-```
+Fluent nil validation with error accumulation for constructors and factories. Chain multiple `Check` calls and inspect the result at the end.
 
 | Method      | Description                    |
 |-------------|--------------------------------|

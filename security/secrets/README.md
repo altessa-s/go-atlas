@@ -4,25 +4,7 @@
 import "github.com/altessa-s/go-atlas/security/secrets"
 ```
 
-Package `secrets` provides centralized secret management with automatic caching, real-time watch
-capabilities, and multiple storage backends.
-
-## Usage
-
-```go
-provider := vault.New[MySecret](client,
-    vault.WithMountPath("secret"),
-    vault.WithBasePath("myapp"),
-)
-
-mgr := secrets.New(provider,
-    secrets.WithCacheTTL[MySecret](5*time.Minute),
-    secrets.WithLogger[MySecret](logger),
-)
-defer mgr.Shutdown()
-
-val, err := mgr.Value(ctx, "db-credentials", false)
-```
+Package `secrets` provides centralized secret management with automatic caching, real-time watch capabilities, and multiple storage backends.
 
 ## Key types
 

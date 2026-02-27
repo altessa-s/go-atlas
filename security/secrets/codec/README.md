@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/security/secrets/codec"
 ```
 
-Package `codec` defines interfaces for encoding and decoding secret keys and values.
-Implementations allow pluggable serialization formats for secret storage systems.
+Package `codec` defines interfaces for encoding and decoding secret keys and values. Implementations allow pluggable serialization formats for
+secret storage systems.
 
 ## Key types
 

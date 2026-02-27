@@ -4,18 +4,8 @@
 import "github.com/altessa-s/go-atlas/observability/slog/handler/prefixed"
 ```
 
-Package `prefixed` provides a `slog.Handler` middleware that adds configurable prefixes to log messages.
-Useful for categorizing logs by component or subsystem.
-
-## Usage
-
-```go
-h := prefixed.NewHandler(inner,
-    prefixed.WithPrefix("auth"),
-)
-logger := slog.New(h)
-logger.Info("login attempt") // output: "[auth] login attempt"
-```
+Package `prefixed` provides a `slog.Handler` middleware that adds configurable prefixes to log messages. Useful for categorizing logs
+by component or subsystem. Ships with bracket and JSON formatters; custom formatters are supported.
 
 ## Options
 

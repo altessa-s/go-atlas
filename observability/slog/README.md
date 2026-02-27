@@ -4,19 +4,8 @@
 import slogx "github.com/altessa-s/go-atlas/observability/slog"
 ```
 
-Package `slog` provides nil-safe attribute helpers, context integration, and composable handlers for Go's `log/slog`. Import with alias `slogx` 
-to avoid conflict with the standard library.
-
-## Usage
-
-```go
-var name *string = getName()
-logger.Info("event", slogx.String("name", name), slogx.Error(err))
-
-// Context integration
-ctx = slogx.ContextWithLogger(ctx, logger)
-logger = slogx.FromContext(ctx)
-```
+Package `slog` provides nil-safe attribute helpers, context integration, and composable handlers for Go's `log/slog`. Import with alias
+`slogx` to avoid conflict with the standard library. All helpers are safe for concurrent use.
 
 ## Functions
 

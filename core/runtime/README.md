@@ -15,23 +15,6 @@ Package `runtime` provides low-level runtime utilities: GC cleanup hooks, finali
 | `OnShutdown`       | Register a shutdown hook (LIFO order)                           |
 | `RunShutdownHooks` | Execute all registered hooks exactly once; errors are joined    |
 
-## Usage
-
-```go
-// GC-triggered cleanup
-cleanup := runtime.AddCleanup(conn, func(addr string) {
-    log.Println("releasing", addr)
-}, conn.RemoteAddr())
-defer cleanup.Stop()
-
-// Shutdown hooks
-runtime.OnShutdown(func(ctx context.Context) error {
-    return db.Close()
-})
-// later, during shutdown:
-err := runtime.RunShutdownHooks(ctx)
-```
-
 ## Subpackages
 
 | Package                      | Description                                                        |

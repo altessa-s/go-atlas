@@ -4,26 +4,8 @@
 import "github.com/altessa-s/go-atlas/observability/metrics"
 ```
 
-Package `metrics` provides an abstract metrics collection system. Components depend on abstract interfaces (`Counter`, `Gauge`, `Histogram`, `Timer`);
-export happens through pluggable adapters.
-
-## Usage
-
-```go
-collector := metrics.New(
-    metrics.WithNamespace("myapp"),
-    metrics.WithAdapter(prometheusAdapter),
-)
-defer collector.Shutdown(ctx)
-
-counter := collector.MustCounter(metrics.MetricOpts{
-    Name:       "requests_total",
-    Help:       "Total number of requests",
-    LabelNames: []string{"method", "status"},
-})
-
-counter.WithLabels(metrics.Labels{"method": "GET", "status": "200"}).Inc()
-```
+Package `metrics` provides an abstract metrics collection system. Components depend on abstract interfaces (`Counter`, `Gauge`,
+`Histogram`, `Timer`); export happens through pluggable adapters such as Prometheus, StatsD, or OpenTelemetry.
 
 ## Key types
 
@@ -40,11 +22,12 @@ counter.WithLabels(metrics.Labels{"method": "GET", "status": "200"}).Inc()
 ## Naming convention
 
 Full metric name: `{namespace}_{subsystem}_{name}` (e.g., `myapp_broker_requests_total`).
+Subsystem is optional and defaults to empty.
 
 ## Subpackages
 
-| Package                                   | Description                                          |
-|-------------------------------------------|------------------------------------------------------|
-| [adapters](./adapters)                    | Adapter interface and `MultiAdapter` broadcaster     |
-| [adapters/prometheus](./adapters/prometheus) | Prometheus backend with HTTP `/metrics` handler   |
-| [factory](./factory)                      | Configuration-based `Collector` creation             |
+| Package                                      | Description                                      |
+|----------------------------------------------|--------------------------------------------------|
+| [adapters](./adapters)                       | Adapter interface and `MultiAdapter` broadcaster |
+| [adapters/prometheus](./adapters/prometheus)  | Prometheus backend with HTTP `/metrics` handler  |
+| [factory](./factory)                         | Configuration-based `Collector` creation         |

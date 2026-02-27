@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/core/text/strings"
 ```
 
-Package `strings` provides string manipulation, conversion, case transformation, interning, secure storage, and pooling utilities. All utility 
-functions are pure and thread-safe.
+Package `strings` provides string manipulation, conversion, case transformation, interning, secure storage, and pooling utilities. All
+utility functions are pure, allocation-aware, and safe for concurrent use from multiple goroutines.
 
 ## Validation and conversion
 
@@ -31,7 +31,7 @@ functions are pure and thread-safe.
 
 ## Join and Split
 
-Configurable via `JoinOptions`, `SplitOptions`, and `ContainsOptions` structs.
+Configurable via `JoinOptions`, `SplitOptions`, and `ContainsOptions` structs. All operations support case sensitivity and empty-value skipping.
 
 | Function   | Description                                                  |
 |------------|--------------------------------------------------------------|
@@ -58,14 +58,8 @@ Configurable via `JoinOptions`, `SplitOptions`, and `ContainsOptions` structs.
 
 ## SecureString
 
-Tamper-resistant storage for sensitive data (passwords, tokens, keys). Zeroes memory on `Clear()`, inline storage for strings up to 64 
-bytes, pooled instances.
-
-```go
-ss := strings.NewSecureString("password")
-defer ss.Clear()
-value := ss.String()
-```
+Tamper-resistant storage for sensitive data (passwords, tokens, keys). Zeroes memory on `Clear()`, uses inline storage for strings up
+to 64 bytes, and returns instances to a pool to reduce allocations in high-throughput code paths.
 
 | Method                  | Description                       |
 |-------------------------|-----------------------------------|
@@ -77,11 +71,7 @@ value := ss.String()
 
 ## Interner
 
-Lock-free, LRU-evicting string deduplication. Two-tier cache: hot (atomic slots) + cold (`sync.Map`).
-
-```go
-s := strings.InternString("/api/users")
-```
+Lock-free, LRU-evicting string deduplication. Two-tier cache: hot (atomic slots) + cold (`sync.Map`). Reduces memory for repeated string values.
 
 | Function / Method             | Description                 |
 |-------------------------------|-----------------------------|

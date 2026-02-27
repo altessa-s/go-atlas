@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/core/errors"
 ```
 
-Package `errors` provides error classification, wrapping, and network error inspection utilities. All functions are nil-safe and preserve the 
-error chain for `errors.Is` / `errors.As`.
+Package `errors` provides error classification, wrapping, and network error inspection utilities. All functions are nil-safe and preserve
+the full error chain for `errors.Is` / `errors.As` unwrapping across any number of nested wrappers.
 
 ## Wrapping
 
@@ -46,10 +46,5 @@ error chain for `errors.Is` / `errors.As`.
 
 ## Generic type assertion
 
-```go
-if appErr, ok := errors.AsType[*AppError](err); ok {
-    // use appErr directly
-}
-```
-
-`AsType[E]` is a generic alternative to `errors.As` that returns the matched value directly. On Go 1.26+ it delegates to `errors.AsType` from the standard library.
+`AsType[E]` is a generic alternative to `errors.As` that returns the matched value directly — no manual target variable needed.
+On Go 1.26+ it delegates to `errors.AsType` from the standard library for zero overhead and full compatibility.

@@ -6,17 +6,6 @@ import "github.com/altessa-s/go-atlas/observability/slog/handler/colorized"
 
 Package `colorized` provides a color-coded terminal `slog.Handler` for human-readable log output. Designed for CLI and development use.
 
-## Usage
-
-```go
-h := colorized.NewHandler(os.Stderr,
-    colorized.WithLevel(slog.LevelDebug),
-    colorized.WithAddSource(),
-    colorized.WithTimeFormat(time.Kitchen),
-)
-logger := slog.New(h)
-```
-
 ## Options
 
 | Option                 | Description                                     |

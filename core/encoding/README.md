@@ -1,6 +1,6 @@
 # encoding
 
-Encoding, hashing, and serialization utilities. Each subpackage can be imported independently.
+Encoding, hashing, and serialization utilities for the Atlas framework. Each subpackage can be imported independently with zero external deps.
 
 ## Subpackages
 

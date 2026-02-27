@@ -4,25 +4,8 @@
 import "github.com/altessa-s/go-atlas/security/vault"
 ```
 
-Package `vault` provides a high-level HashiCorp Vault client with pluggable authentication and automatic
-token renewal. Wraps the official Vault API client with support for AppRole, Token, and UserPass auth.
-
-## Usage
-
-```go
-v, err := vault.New(ctx,
-    vault.WithAddress("https://vault.example.com:8200"),
-    vault.WithAuthMethod(approle.New(roleID, secretID)),
-)
-if err != nil {
-    return err
-}
-
-v.RunRenewal()
-defer v.StopRenewal()
-
-client := v.Client() // *api.Client
-```
+Package `vault` provides a high-level HashiCorp Vault client with pluggable authentication and automatic token renewal. Wraps the official
+Vault API client with support for AppRole, Token, and UserPass auth.
 
 ## Functions
 

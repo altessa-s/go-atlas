@@ -6,22 +6,6 @@ import "github.com/altessa-s/go-atlas/core/runtime/signals"
 
 Package `signals` provides OS signal handling with priority-based execution, rate limiting, and graceful shutdown. Fully thread-safe.
 
-## Usage
-
-```go
-handler := signals.New(
-    signals.WithSignals(syscall.SIGTERM, syscall.SIGINT),
-    signals.WithShutdownTimeout(10 * time.Second),
-)
-
-handler.AddHandler(func(ctx context.Context, sig os.Signal) error {
-    return cleanup()
-}, syscall.SIGTERM, syscall.SIGINT)
-
-handler.Start()
-handler.Wait()
-```
-
 ## Options
 
 | Option                | Default    | Description                          |

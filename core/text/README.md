@@ -1,6 +1,6 @@
 # text
 
-Text processing utilities. Each subpackage can be imported independently.
+Text processing utilities for the Atlas framework. Each subpackage can be imported independently with zero external dependencies.
 
 ## Subpackages
 

@@ -4,8 +4,7 @@
 import "github.com/altessa-s/go-atlas/security/tlsutils/providers"
 ```
 
-Package `providers` defines interfaces for TLS certificate providers and a registry for managing
-multiple providers.
+Package `providers` defines interfaces for TLS certificate providers and a registry for managing multiple providers.
 
 ## Key types
 

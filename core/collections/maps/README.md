@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/core/collections/maps"
 ```
 
-Package `maps` provides generic utilities for map transformation, filtering, conversion, pooling, and weak references. All pure functions return new 
-maps without modifying inputs.
+Package `maps` provides generic utilities for map transformation, filtering, conversion, pooling, and weak references. All pure functions
+return new maps without modifying inputs; nil maps are treated as empty and never cause panics.
 
 ## Functions
 
@@ -24,7 +24,7 @@ maps without modifying inputs.
 
 ## Iterators (Go 1.23+)
 
-Lazy `iter.Seq` / `iter.Seq2` iterators for zero-allocation pipelines. Use `slices.Collect()` to materialize.
+Lazy `iter.Seq` / `iter.Seq2` iterators for zero-allocation pipelines. Use `slices.Collect()` to materialize results into concrete map values.
 
 | Iterator | Description                        |
 |----------|------------------------------------|
@@ -37,33 +37,11 @@ Lazy `iter.Seq` / `iter.Seq2` iterators for zero-allocation pipelines. Use `slic
 
 `Pool[K, V]` is a generic, concurrency-safe `sync.Pool` wrapper for reusing map allocations. Maps exceeding 1024 entries are discarded on return.
 
-```go
-p := maps.NewPool[string, int](128)
-m := p.Get()
-// use *m ...
-p.Put(m)
-```
-
 ## WeakMap
 
-`WeakMap[K, V]` holds weak references to values. Entries are automatically removed when the GC reclaims the value via `runtime.AddCleanup` — no periodic sweeps needed.
-
-```go
-wm := maps.NewWeakMap[string, MyService]()
-wm.Set("svc", svc)
-
-if v, ok := wm.Get("svc"); ok {
-    // v is still alive
-}
-```
+`WeakMap[K, V]` holds weak references to values. Entries are automatically removed when the GC reclaims the value via `runtime.AddCleanup`
+— no periodic sweeps, manual eviction, or background goroutines needed. Safe for concurrent access.
 
 ## WeakRef
 
-`WeakRef[T]` is a thin wrapper around `weak.Pointer` for holding a single weak reference.
-
-```go
-ref := maps.MakeWeakRef(obj)
-if ref.IsAlive() {
-    val := ref.Value()
-}
-```
+`WeakRef[T]` is a thin wrapper around `weak.Pointer` for holding a single weak reference. Use `IsAlive` to check and `Value` to retrieve.

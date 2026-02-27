@@ -1,7 +1,7 @@
 # observability
 
-Observability subsystem for the Atlas framework. Provides metrics collection, distributed tracing, structured logging,
-health checks, and application statistics — all behind abstract interfaces with pluggable backends.
+Observability subsystem for the Atlas framework. Provides metrics collection, distributed tracing, structured logging, health checks,
+and application statistics — all behind abstract interfaces with pluggable backends and zero-cost no-op defaults.
 
 ## Packages
 

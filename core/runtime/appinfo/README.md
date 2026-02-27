@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/core/runtime/appinfo"
 ```
 
-Package `appinfo` provides standardized access to application metadata, build information, environment variables, and directory paths. Values are 
-set via `-ldflags` at build time.
+Package `appinfo` provides standardized access to application metadata, build information, environment variables, and directory paths.
+Values are set via `-ldflags` at build time and accessed through package-level variables and helper functions.
 
 ## Build configuration
 
@@ -78,4 +78,4 @@ go build -ldflags "
 | `CertsCacheDir` | `<LibDir>/certs`             |
 | `MakeAllDirs`   | Create `VarDir` and `LibDir` |
 
-All paths are overridable via `<EnvPrefix>_*_DIR` environment variables.
+All paths are overridable via `<EnvPrefix>_*_DIR` environment variables. Paths are resolved once at first access and cached for the process lifetime.

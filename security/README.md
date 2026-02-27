@@ -1,7 +1,7 @@
 # security
 
-Security subsystem for the Atlas framework. Provides secret management, TLS certificate handling,
-and HashiCorp Vault integration — all with pluggable backends and automatic lifecycle management.
+Security subsystem for the Atlas framework. Provides secret management, TLS certificate handling, and HashiCorp Vault integration — all with
+pluggable backends and automatic lifecycle management.
 
 ## Packages
 

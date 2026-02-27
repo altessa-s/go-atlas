@@ -1,7 +1,7 @@
 # core
 
-Foundation packages for the Atlas framework. Every package under `core/` uses only the Go standard library (no third-party dependencies) and can
-be imported independently.
+Foundation packages for the Atlas framework. Every package under `core/` uses only the Go standard library — no third-party dependencies
+— and each package can be imported independently without pulling in the rest of the module or any external code.
 
 ## Packages
 

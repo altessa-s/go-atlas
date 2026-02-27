@@ -4,23 +4,8 @@
 import "github.com/altessa-s/go-atlas/observability/health"
 ```
 
-Package `health` provides transport-agnostic health check coordination and monitoring. The central type is
-`Coordinator`, which manages a registry of named services, caches status results, and delivers changes to subscribers.
-
-## Usage
-
-```go
-coordinator := health.New()
-
-coordinator.RegisterService("database", health.Func(func(ctx context.Context) health.ServingStatus {
-    if err := db.PingContext(ctx); err != nil {
-        return health.StatusNotServing
-    }
-    return health.StatusServing
-}))
-
-status := coordinator.CheckStatus(ctx, "database")
-```
+Package `health` provides transport-agnostic health check coordination and monitoring. The central type is `Coordinator`, which manages
+a registry of named services, caches status results, and delivers changes to subscribers via sharded channels.
 
 ## Key types
 

@@ -4,27 +4,8 @@
 import "github.com/altessa-s/go-atlas/observability/tracing"
 ```
 
-Package `tracing` provides an abstract distributed tracing system. Components depend on abstract interfaces
-(`Tracer`, `Recorder`, `Span`); export happens through pluggable adapters (OTLP, console, etc.).
-
-## Usage
-
-```go
-provider := tracing.New(
-    tracing.WithServiceName("myapp"),
-    tracing.WithAdapter(otlpAdapter),
-    tracing.WithSampler(sampler.NewParentBased(sampler.NewTraceIDRatio(0.1))),
-)
-defer provider.Shutdown(ctx)
-
-recorder := provider.Recorder("myapp/orders")
-ctx, span := recorder.Start(ctx, "ProcessOrder",
-    tracing.WithSpanKind(tracing.SpanKindServer),
-)
-defer span.End()
-
-span.SetAttributes(tracing.String("order.id", orderID))
-```
+Package `tracing` provides an abstract distributed tracing system. Components depend on abstract interfaces (`Tracer`, `Recorder`,
+`Span`); export happens through pluggable adapters (OTLP, console, etc.) with configurable sampling strategies.
 
 ## Key types
 

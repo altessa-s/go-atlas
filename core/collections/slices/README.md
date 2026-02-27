@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/core/collections/slices"
 ```
 
-Package `slices` provides generic utilities for slice transformation, filtering, deduplication, grouping, and pooling. All functions return new 
-slices without modifying inputs.
+Package `slices` provides generic utilities for slice transformation, filtering, deduplication, grouping, and pooling. All functions return
+new slices without modifying inputs; nil slices are treated as empty and never cause panics.
 
 ## Functions
 
@@ -45,7 +45,7 @@ slices without modifying inputs.
 
 ## Iterators (Go 1.23+)
 
-Lazy `iter.Seq` iterators for zero-allocation pipelines. Use `slices.Collect()` to materialize.
+Lazy `iter.Seq` iterators for zero-allocation pipelines. Use `slices.Collect()` to materialize results into concrete slice values on demand.
 
 | Iterator    | Description                                         |
 |-------------|-----------------------------------------------------|
@@ -63,14 +63,7 @@ Lazy `iter.Seq` iterators for zero-allocation pipelines. Use `slices.Collect()` 
 
 `Pool[T]` is a generic, concurrency-safe `sync.Pool` wrapper for reusing slice allocations. Slices exceeding 1024 capacity are discarded on return.
 
-```go
-p := slices.NewPool[byte](256)
-buf := p.Get()
-// use *buf ...
-p.Put(buf)
-```
-
-`EnsureCapacity` grows a slice to a required capacity, rounding up to the next power of two.
+`EnsureCapacity` grows a slice to a required capacity, rounding up to the next power of two to reduce future reallocations in append loops.
 
 ## Performance
 

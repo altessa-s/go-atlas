@@ -4,8 +4,7 @@
 import "github.com/altessa-s/go-atlas/security/vault/auth"
 ```
 
-Package `auth` provides pluggable authentication methods for HashiCorp Vault with automatic token
-renewal and lifecycle management.
+Package `auth` provides pluggable authentication methods for HashiCorp Vault with automatic token renewal and lifecycle management.
 
 ## Key types
 
@@ -13,19 +12,6 @@ renewal and lifecycle management.
 |-------------------|---------------------------------------------------|
 | `Method`          | Interface: `Authenticate()`, `Shutdown()`, `Name()` |
 | `Authenticator`   | Manages auth lifecycle with background renewal    |
-
-## Usage
-
-```go
-method := approle.New(roleID, secretID)
-authenticator := auth.NewAuthenticator(client, method,
-    auth.WithLogger(logger),
-)
-
-go authenticator.Run(ctx)
-<-authenticator.FirstRenewCh() // wait for first token
-defer authenticator.Stop()
-```
 
 ## Subpackages
 

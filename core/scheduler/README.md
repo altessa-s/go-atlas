@@ -4,21 +4,8 @@
 import "github.com/altessa-s/go-atlas/core/scheduler"
 ```
 
-Package `scheduler` defines the core interface and value types for task scheduling. Acts as a dependency-inversion boundary: subsystems register periodic or one-shot tasks via `TaskRegistrar` without importing the concrete scheduler implementation.
-
-## Usage
-
-```go
-err := registrar.Register(ctx, scheduler.TaskConfig{
-    ID:       "refresh-cache",
-    Schedule: "@every 5m",
-    Func: func(ctx context.Context) error {
-        return refreshCache(ctx)
-    },
-    Priority: scheduler.TaskPriorityNormal,
-    Timeout:  30 * time.Second,
-})
-```
+Package `scheduler` defines the core interface and value types for task scheduling. Acts as a dependency-inversion boundary — subsystems
+register periodic or one-shot tasks via `TaskRegistrar` without importing the concrete scheduler implementation from `service/scheduler`.
 
 ## Interface
 
