@@ -128,14 +128,11 @@ func (c *ClaudeClient) GenerateDescriptions(envVars map[string]varInfo, sectionN
 
 	// Clean response text - remove markdown code blocks if present
 	cleanedText := strings.TrimSpace(responseText)
-	if strings.HasPrefix(cleanedText, "```json") {
-		cleanedText = strings.TrimPrefix(cleanedText, "```json")
-		cleanedText = strings.TrimPrefix(cleanedText, "```")
-		cleanedText = strings.TrimSuffix(cleanedText, "```")
+	if rest, ok := strings.CutPrefix(cleanedText, "```json"); ok {
+		cleanedText = strings.TrimSuffix(rest, "```")
 		cleanedText = strings.TrimSpace(cleanedText)
-	} else if strings.HasPrefix(cleanedText, "```") {
-		cleanedText = strings.TrimPrefix(cleanedText, "```")
-		cleanedText = strings.TrimSuffix(cleanedText, "```")
+	} else if rest, ok := strings.CutPrefix(cleanedText, "```"); ok {
+		cleanedText = strings.TrimSuffix(rest, "```")
 		cleanedText = strings.TrimSpace(cleanedText)
 	}
 

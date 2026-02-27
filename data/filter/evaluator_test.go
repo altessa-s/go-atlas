@@ -5,7 +5,6 @@
 package filter_test
 
 import (
-	"context"
 	"errors"
 	"testing"
 
@@ -49,7 +48,7 @@ func TestEvaluator_Comparison(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expr, func(t *testing.T) {
-			node, err := p.Parse(context.Background(), tt.expr)
+			node, err := p.Parse(t.Context(), tt.expr)
 			if err != nil {
 				t.Fatalf("Parse(%q): %v", tt.expr, err)
 			}
@@ -86,7 +85,7 @@ func TestEvaluator_Logical(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expr, func(t *testing.T) {
-			node, err := p.Parse(context.Background(), tt.expr)
+			node, err := p.Parse(t.Context(), tt.expr)
 			if err != nil {
 				t.Fatalf("Parse: %v", err)
 			}
@@ -122,7 +121,7 @@ func TestEvaluator_StringFunctions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expr, func(t *testing.T) {
-			node, err := p.Parse(context.Background(), tt.expr)
+			node, err := p.Parse(t.Context(), tt.expr)
 			if err != nil {
 				t.Fatalf("Parse: %v", err)
 			}
@@ -153,7 +152,7 @@ func TestEvaluator_In(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expr, func(t *testing.T) {
-			node, err := p.Parse(context.Background(), tt.expr)
+			node, err := p.Parse(t.Context(), tt.expr)
 			if err != nil {
 				t.Fatalf("Parse: %v", err)
 			}
@@ -193,7 +192,7 @@ func TestEvaluator_Has(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expr, func(t *testing.T) {
-			node, err := p.Parse(context.Background(), tt.expr)
+			node, err := p.Parse(t.Context(), tt.expr)
 			if err != nil {
 				t.Fatalf("Parse: %v", err)
 			}
@@ -218,7 +217,7 @@ func TestEvaluator_NestedFields(t *testing.T) {
 		},
 	}
 
-	node, err := p.Parse(context.Background(), `address.city == "NYC"`)
+	node, err := p.Parse(t.Context(), `address.city == "NYC"`)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -237,7 +236,7 @@ func TestEvaluator_AllowedFields(t *testing.T) {
 
 	data := map[string]any{"name": "test", "secret": "hidden"}
 
-	node, err := p.Parse(context.Background(), `secret == "hidden"`)
+	node, err := p.Parse(t.Context(), `secret == "hidden"`)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -255,7 +254,7 @@ func TestEvaluator_FieldMapping(t *testing.T) {
 
 	data := map[string]any{"user_name": "alice"}
 
-	node, err := p.Parse(context.Background(), `userName == "alice"`)
+	node, err := p.Parse(t.Context(), `userName == "alice"`)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -274,7 +273,7 @@ func TestEvaluator_Size(t *testing.T) {
 
 	data := map[string]any{"name": "hello"}
 
-	node, err := p.Parse(context.Background(), `name.size() == 5`)
+	node, err := p.Parse(t.Context(), `name.size() == 5`)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -293,7 +292,7 @@ func TestEvaluator_NilComparison(t *testing.T) {
 
 	data := map[string]any{"name": "test"}
 
-	node, err := p.Parse(context.Background(), `missing == null`)
+	node, err := p.Parse(t.Context(), `missing == null`)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -312,7 +311,7 @@ func TestEvaluator_RegexLengthLimit(t *testing.T) {
 
 	t.Run("short regex is accepted", func(t *testing.T) {
 		eval := filter.NewEvaluator()
-		node, err := p.Parse(context.Background(), `name.matches("^hello")`)
+		node, err := p.Parse(t.Context(), `name.matches("^hello")`)
 		if err != nil {
 			t.Fatalf("Parse: %v", err)
 		}
@@ -369,7 +368,7 @@ func TestEvaluator_MaxOperations(t *testing.T) {
 
 	t.Run("normal expression within limit", func(t *testing.T) {
 		eval := filter.NewEvaluator()
-		node, err := p.Parse(context.Background(), `a == 1 && b == 2`)
+		node, err := p.Parse(t.Context(), `a == 1 && b == 2`)
 		if err != nil {
 			t.Fatalf("Parse: %v", err)
 		}
@@ -386,7 +385,7 @@ func TestEvaluator_MaxOperations(t *testing.T) {
 		eval := filter.NewEvaluator(filter.WithMaxOperations(3))
 		// a == 1 && b == 2 visits: BinaryOp(&&), BinaryOp(==), Ident(a), Literal(1), BinaryOp(==), ...
 		// With limit=3, it should fail after 3 operations
-		node, err := p.Parse(context.Background(), `a == 1 && b == 2`)
+		node, err := p.Parse(t.Context(), `a == 1 && b == 2`)
 		if err != nil {
 			t.Fatalf("Parse: %v", err)
 		}

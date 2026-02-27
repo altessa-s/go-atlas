@@ -238,11 +238,10 @@ func (conv *ConfigToEnvConverter) processLine(line string) string {
 	trimmed := strings.TrimLeft(line, " \t")
 	leadingSpace := line[:len(line)-len(trimmed)]
 
-	if !strings.HasPrefix(trimmed, "#") {
+	afterHash, ok := strings.CutPrefix(trimmed, "#")
+	if !ok {
 		return line
 	}
-
-	afterHash := strings.TrimPrefix(trimmed, "#")
 	afterHashTrimmed := strings.TrimLeft(afterHash, " \t")
 
 	if conv.isYAMLSyntax(afterHashTrimmed) || afterHash == "" {

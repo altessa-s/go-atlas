@@ -5,7 +5,6 @@
 package filter_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/altessa-s/go-atlas/data/filter"
@@ -27,6 +26,6 @@ func FuzzParse(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, input string) {
 		// Should not panic regardless of input.
-		_, _ = p.Parse(context.Background(), input)
+		_, _ = p.Parse(t.Context(), input)
 	})
 }

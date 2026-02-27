@@ -218,9 +218,7 @@ func TestShutdown_DrainsInFlightRequests(t *testing.T) {
 		respBody string
 		reqErr   error
 	)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		resp, err := http.Get("http://" + addr + "/slow")
 		if err != nil {
 			reqErr = err
@@ -229,7 +227,7 @@ func TestShutdown_DrainsInFlightRequests(t *testing.T) {
 		defer resp.Body.Close()
 		b, _ := io.ReadAll(resp.Body)
 		respBody = string(b)
-	}()
+	})
 
 	// Wait until the handler is entered.
 	<-inHandler

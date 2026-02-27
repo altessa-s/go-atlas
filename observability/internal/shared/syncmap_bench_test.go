@@ -21,10 +21,12 @@ func BenchmarkGetOrCreate_Existing(b *testing.B) {
 
 func BenchmarkGetOrCreate_New(b *testing.B) {
 	var m sync.Map
+	var i int
 	b.ResetTimer()
-	for i := range b.N {
+	for b.Loop() {
 		key := fmt.Sprintf("key-%d", i)
 		GetOrCreate(&m, key, func() string { return "value" })
+		i++
 	}
 }
 

@@ -5,7 +5,6 @@
 package filter
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -62,7 +61,7 @@ func TestParser_Parse_EmptyExpression(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := p.Parse(context.Background(), tt.expr)
+			_, err := p.Parse(t.Context(), tt.expr)
 			if !errors.Is(err, ErrEmptyExpression) {
 				t.Errorf("Parse(%q) error = %v, want %v", tt.expr, err, ErrEmptyExpression)
 			}
@@ -89,7 +88,7 @@ func TestParser_Parse_Literals(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			node, err := p.Parse(context.Background(), tt.expr)
+			node, err := p.Parse(t.Context(), tt.expr)
 			if err != nil {
 				t.Fatalf("Parse(%q) error = %v", tt.expr, err)
 			}
@@ -122,7 +121,7 @@ func TestParser_Parse_Identifiers(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			node, err := p.Parse(context.Background(), tt.expr)
+			node, err := p.Parse(t.Context(), tt.expr)
 			if err != nil {
 				t.Fatalf("Parse(%q) error = %v", tt.expr, err)
 			}
@@ -155,7 +154,7 @@ func TestParser_Parse_ComparisonOperators(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			node, err := p.Parse(context.Background(), tt.expr)
+			node, err := p.Parse(t.Context(), tt.expr)
 			if err != nil {
 				t.Fatalf("Parse(%q) error = %v", tt.expr, err)
 			}
@@ -185,7 +184,7 @@ func TestParser_Parse_LogicalOperators(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			node, err := p.Parse(context.Background(), tt.expr)
+			node, err := p.Parse(t.Context(), tt.expr)
 			if err != nil {
 				t.Fatalf("Parse(%q) error = %v", tt.expr, err)
 			}
@@ -214,7 +213,7 @@ func TestParser_Parse_LogicalOperators(t *testing.T) {
 func TestParser_Parse_MembershipOperator(t *testing.T) {
 	p, _ := NewParser(WithParserNoCache())
 
-	node, err := p.Parse(context.Background(), `status in ["active", "pending"]`)
+	node, err := p.Parse(t.Context(), `status in ["active", "pending"]`)
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
 	}
@@ -259,7 +258,7 @@ func TestParser_Parse_StringFunctions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			node, err := p.Parse(context.Background(), tt.expr)
+			node, err := p.Parse(t.Context(), tt.expr)
 			if err != nil {
 				t.Fatalf("Parse(%q) error = %v", tt.expr, err)
 			}
@@ -283,7 +282,7 @@ func TestParser_Parse_StringFunctions(t *testing.T) {
 func TestParser_Parse_SizeFunction(t *testing.T) {
 	p, _ := NewParser(WithParserNoCache())
 
-	node, err := p.Parse(context.Background(), `tags.size()`)
+	node, err := p.Parse(t.Context(), `tags.size()`)
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
 	}
@@ -302,7 +301,7 @@ func TestParser_Parse_SizeFunction(t *testing.T) {
 func TestParser_Parse_HasMacro(t *testing.T) {
 	p, _ := NewParser(WithParserNoCache())
 
-	node, err := p.Parse(context.Background(), `has(user.email)`)
+	node, err := p.Parse(t.Context(), `has(user.email)`)
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
 	}
@@ -318,7 +317,7 @@ func TestParser_Parse_HasMacro(t *testing.T) {
 func TestParser_Parse_Timestamp(t *testing.T) {
 	p, _ := NewParser(WithParserNoCache())
 
-	node, err := p.Parse(context.Background(), `timestamp("2024-01-15T10:30:00Z")`)
+	node, err := p.Parse(t.Context(), `timestamp("2024-01-15T10:30:00Z")`)
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
 	}
@@ -353,7 +352,7 @@ func TestParser_Parse_ComplexExpressions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			node, err := p.Parse(context.Background(), tt.expr)
+			node, err := p.Parse(t.Context(), tt.expr)
 			if err != nil {
 				t.Fatalf("Parse(%q) error = %v", tt.expr, err)
 			}
@@ -379,7 +378,7 @@ func TestParser_Parse_InvalidExpressions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := p.Parse(context.Background(), tt.expr)
+			_, err := p.Parse(t.Context(), tt.expr)
 			if err == nil {
 				t.Errorf("Parse(%q) expected error, got nil", tt.expr)
 			}
@@ -413,12 +412,12 @@ func TestParser_Cache(t *testing.T) {
 
 	expr := `name == "John"`
 
-	node1, err := p.Parse(context.Background(), expr)
+	node1, err := p.Parse(t.Context(), expr)
 	if err != nil {
 		t.Fatalf("first Parse() error = %v", err)
 	}
 
-	node2, err := p.Parse(context.Background(), expr)
+	node2, err := p.Parse(t.Context(), expr)
 	if err != nil {
 		t.Fatalf("second Parse() error = %v", err)
 	}
@@ -545,7 +544,7 @@ func TestOperator_IsStringOp(t *testing.T) {
 
 func TestWalk(t *testing.T) {
 	p, _ := NewParser(WithParserNoCache())
-	node, _ := p.Parse(context.Background(), `name == "John" && age >= 18`)
+	node, _ := p.Parse(t.Context(), `name == "John" && age >= 18`)
 
 	count := 0
 	Walk(node, func(n Node) bool {
@@ -560,7 +559,7 @@ func TestWalk(t *testing.T) {
 
 func TestAllNodes(t *testing.T) {
 	p, _ := NewParser(WithParserNoCache())
-	node, _ := p.Parse(context.Background(), `name == "John"`)
+	node, _ := p.Parse(t.Context(), `name == "John"`)
 
 	count := 0
 	for range AllNodes(node) {
@@ -585,7 +584,7 @@ func TestDepth(t *testing.T) {
 	p, _ := NewParser(WithParserNoCache())
 	for _, tt := range tests {
 		t.Run(tt.expr, func(t *testing.T) {
-			node, _ := p.Parse(context.Background(), tt.expr)
+			node, _ := p.Parse(t.Context(), tt.expr)
 			d := Depth(node)
 			if d < tt.minDepth {
 				t.Errorf("Depth(%q) = %d, want >= %d", tt.expr, d, tt.minDepth)
@@ -603,7 +602,7 @@ func TestParser_Parse_ExpressionTooLong(t *testing.T) {
 	p, _ := NewParser(WithParserNoCache(), WithMaxExpressionLength(50))
 
 	t.Run("expression within limit", func(t *testing.T) {
-		_, err := p.Parse(context.Background(), `name == "John"`)
+		_, err := p.Parse(t.Context(), `name == "John"`)
 		if err != nil {
 			t.Fatalf("Parse() error = %v", err)
 		}
@@ -611,7 +610,7 @@ func TestParser_Parse_ExpressionTooLong(t *testing.T) {
 
 	t.Run("expression exceeding limit", func(t *testing.T) {
 		long := `name == "` + strings.Repeat("a", 50) + `"`
-		_, err := p.Parse(context.Background(), long)
+		_, err := p.Parse(t.Context(), long)
 		if !errors.Is(err, ErrExpressionTooLong) {
 			t.Errorf("Parse() error = %v, want %v", err, ErrExpressionTooLong)
 		}
@@ -619,7 +618,7 @@ func TestParser_Parse_ExpressionTooLong(t *testing.T) {
 
 	t.Run("default limit allows reasonable expressions", func(t *testing.T) {
 		pDefault, _ := NewParser(WithParserNoCache())
-		_, err := pDefault.Parse(context.Background(), `name == "John" && age >= 18`)
+		_, err := pDefault.Parse(t.Context(), `name == "John" && age >= 18`)
 		if err != nil {
 			t.Fatalf("Parse() error = %v", err)
 		}
@@ -654,7 +653,7 @@ func TestParser_Parse_DefaultExpressionLength(t *testing.T) {
 
 	// Build an expression that exceeds DefaultMaxExpressionLength (4096)
 	long := `name == "` + strings.Repeat("x", DefaultMaxExpressionLength) + `"`
-	_, err := p.Parse(context.Background(), long)
+	_, err := p.Parse(t.Context(), long)
 	if !errors.Is(err, ErrExpressionTooLong) {
 		t.Errorf("Parse() error = %v, want %v", err, ErrExpressionTooLong)
 	}
@@ -664,7 +663,7 @@ func TestNode_Children(t *testing.T) {
 	p, _ := NewParser(WithParserNoCache())
 
 	t.Run("LiteralNode has no children", func(t *testing.T) {
-		node, _ := p.Parse(context.Background(), `"hello"`)
+		node, _ := p.Parse(t.Context(), `"hello"`)
 		count := 0
 		for range node.Children() {
 			count++
@@ -675,7 +674,7 @@ func TestNode_Children(t *testing.T) {
 	})
 
 	t.Run("BinaryOpNode has 2 children", func(t *testing.T) {
-		node, _ := p.Parse(context.Background(), `name == "John"`)
+		node, _ := p.Parse(t.Context(), `name == "John"`)
 		count := 0
 		for range node.Children() {
 			count++
@@ -686,7 +685,7 @@ func TestNode_Children(t *testing.T) {
 	})
 
 	t.Run("ListNode has children for each element", func(t *testing.T) {
-		node, _ := p.Parse(context.Background(), `status in ["a", "b", "c"]`)
+		node, _ := p.Parse(t.Context(), `status in ["a", "b", "c"]`)
 		binOp := node.(*BinaryOpNode)
 		list := binOp.Right.(*ListNode)
 		count := 0

@@ -30,10 +30,12 @@ func BenchmarkAlwaysOff(b *testing.B) {
 func BenchmarkTraceIDRatio(b *testing.B) {
 	s := NewTraceIDRatio(0.5)
 	var traceID [16]byte
+	var i int
 	b.ResetTimer()
-	for i := range b.N {
+	for b.Loop() {
 		binary.BigEndian.PutUint64(traceID[:8], uint64(i))
 		s.ShouldSample(SamplingParameters{TraceID: traceID})
+		i++
 	}
 }
 
@@ -55,9 +57,11 @@ func BenchmarkParentBased_WithParent(b *testing.B) {
 func BenchmarkParentBased_NoParent(b *testing.B) {
 	s := NewParentBased(NewTraceIDRatio(0.5))
 	var traceID [16]byte
+	var i int
 	b.ResetTimer()
-	for i := range b.N {
+	for b.Loop() {
 		binary.BigEndian.PutUint64(traceID[:8], uint64(i))
 		s.ShouldSample(SamplingParameters{TraceID: traceID})
+		i++
 	}
 }

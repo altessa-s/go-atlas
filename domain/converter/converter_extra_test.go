@@ -235,7 +235,7 @@ func TestObjectPools_PutNil(t *testing.T) {
 
 func TestTypeCache_InvalidateAndClear(t *testing.T) {
 	tc := converter.NewTypeCache()
-	typ := reflect.TypeOf(struct{ Name string }{})
+	typ := reflect.TypeFor[struct{ Name string }]()
 	_ = tc.GetTypeInfo(typ)
 	tc.InvalidateType(typ)
 	info := tc.GetTypeInfo(typ)
