@@ -51,7 +51,7 @@ func newTaskDocument(state *scheduler.TaskState) *taskDocument {
 
 // toTaskState converts a taskDocument to a TaskState.
 func (d *taskDocument) toTaskState() *scheduler.TaskState {
-	return converter.Convert(d, &scheduler.TaskState{})
+	return converter.Convert(d, &scheduler.TaskState{}, converter.WithHandleEmbeddedStructs(false))
 }
 
 // historyDocument represents a task execution history entry stored in MongoDB.
