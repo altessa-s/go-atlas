@@ -33,6 +33,6 @@ func mapError(err error) error {
 	case errors.Is(err, sched.ErrScheduleConflict):
 		return status.Error(codes.InvalidArgument, err.Error())
 	default:
-		return status.Error(codes.Internal, err.Error())
+		return status.Error(codes.Internal, "internal error")
 	}
 }

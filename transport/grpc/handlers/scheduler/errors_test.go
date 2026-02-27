@@ -44,3 +44,19 @@ func TestMapError(t *testing.T) {
 		})
 	}
 }
+
+func TestMapError_internal_hides_details(t *testing.T) {
+	secret := "connection refused to db-prod.internal:5432"
+	result := mapError(errors.New(secret))
+
+	st, ok := status.FromError(result)
+	if !ok {
+		t.Fatal("expected gRPC status error")
+	}
+	if st.Code() != codes.Internal {
+		t.Fatalf("code = %v, want %v", st.Code(), codes.Internal)
+	}
+	if msg := st.Message(); msg != "internal error" {
+		t.Fatalf("message = %q, want %q — internal details must not leak to clients", msg, "internal error")
+	}
+}
