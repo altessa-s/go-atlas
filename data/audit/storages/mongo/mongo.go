@@ -2,7 +2,6 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package mongo provides a MongoDB-backed audit event storage implementation.
 package mongo
 
 import (

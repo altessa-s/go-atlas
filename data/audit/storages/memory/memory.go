@@ -2,7 +2,6 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package memory provides an in-memory audit storage implementation for testing.
 package memory
 
 import (

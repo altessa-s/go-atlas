@@ -2,7 +2,6 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package audit provides a gRPC interceptor for automatic request auditing.
 package audit
 
 import (
