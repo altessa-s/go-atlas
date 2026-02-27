@@ -130,7 +130,17 @@ func (d *dispatcher) storeBatch(events []*Event) {
 	batch := make([]*Event, len(events))
 	copy(batch, events)
 
-	ctx := context.Background()
+	// Create a context that is canceled when the dispatcher shuts down,
+	// so storage calls do not hang after the done signal.
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		select {
+		case <-d.done:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	defer cancel()
 
 	for attempt := range d.opts.retryAttempts + 1 {
 		var err error
