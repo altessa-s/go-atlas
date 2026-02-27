@@ -52,7 +52,7 @@ func (f *Factory) createLimiter(
 	cfg *tokenbucket.RateLimitConfig,
 	storage storages.Storage,
 	opts ...tokenbucket.Option,
-) *tokenbucket.RuleLimiter {
+) (*tokenbucket.RuleLimiter, error) {
 	return tokenbucket.New(cfg, storage, f.applyDefaults(opts)...)
 }
 
@@ -68,7 +68,7 @@ func (f *Factory) CreateLimiterFromConfig(
 	rateLimitConfig := convertConfig(cfg)
 	opts = append(opts, tokenbucket.WithIPCacheSize(cfg.IpCacheSize))
 
-	return f.createLimiter(rateLimitConfig, storage, opts...), nil
+	return f.createLimiter(rateLimitConfig, storage, opts...)
 }
 
 // CreateStorageFromConfig creates a storage backend based on configuration.

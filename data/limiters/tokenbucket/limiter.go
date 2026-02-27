@@ -13,7 +13,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/data/cache/lru"
 	"github.com/altessa-s/go-atlas/data/limiters"
 	"github.com/altessa-s/go-atlas/data/limiters/tokenbucket/storages"
@@ -61,23 +60,21 @@ type RuleLimiter struct {
 }
 
 // New creates a new RuleLimiter with the given config and storage.
-// Panics if config is nil or invalid.
+// Returns an error if config is invalid or the IP cache cannot be created.
 //
 // Example:
 //
-//	limiter := tokenbucket.New(config, storage)
-func New(config *RateLimitConfig, storage storages.Storage, opts ...Option) *RuleLimiter {
-	panics.MustNonNil(config, "config must not be nil")
-
+//	limiter, err := tokenbucket.New(config, storage)
+func New(config *RateLimitConfig, storage storages.Storage, opts ...Option) (*RuleLimiter, error) {
 	if err := config.Validate(); err != nil {
-		panic(fmt.Sprintf("invalid rate limit config: %v", err))
+		return nil, fmt.Errorf("invalid rate limit config: %w", err)
 	}
 
 	options := newOptions(opts...)
 
 	cache, err := lru.NewShardedCache[string, *RateLimitSettings](options.iPCacheSize)
 	if err != nil {
-		panic(fmt.Sprintf("failed to create LRU cache: %v", err))
+		return nil, fmt.Errorf("failed to create LRU cache: %w", err)
 	}
 
 	ll := &RuleLimiter{
@@ -90,7 +87,7 @@ func New(config *RateLimitConfig, storage storages.Storage, opts ...Option) *Rul
 
 	ll.parseAndSortRules()
 
-	return ll
+	return ll, nil
 }
 
 func (l *RuleLimiter) parseAndSortRules() {
