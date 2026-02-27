@@ -151,20 +151,17 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 
 // shouldRetry returns false for non-retryable error types.
 func (rt *retryRoundTripper) shouldRetry(err error) bool {
-	var nonRetryable *NonRetryableError
-	if errors.As(err, &nonRetryable) {
+	if _, ok := coreerrs.AsType[*NonRetryableError](err); ok {
 		return false
 	}
-	var cbErr *CircuitBreakerError
-	if errors.As(err, &cbErr) {
+	if _, ok := coreerrs.AsType[*CircuitBreakerError](err); ok {
 		return false
 	}
-	var statusErr *UnexpectedStatusError
-	if errors.As(err, &statusErr) {
+	if _, ok := coreerrs.AsType[*UnexpectedStatusError](err); ok {
 		return false
 	}
-	var sizeErr *ResponseSizeError
-	return !errors.As(err, &sizeErr)
+	_, ok := coreerrs.AsType[*ResponseSizeError](err)
+	return !ok
 }
 
 // classifyTransportError examines a transport-level error and wraps it as
