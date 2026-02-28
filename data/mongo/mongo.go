@@ -27,6 +27,7 @@ import (
 
 	corecontext "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	coreretry "github.com/altessa-s/go-atlas/core/runtime/retry"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
@@ -286,14 +287,12 @@ func (m *Mongo) WithTransaction(ctx context.Context, handler func(ctx context.Co
 	var panicErr error
 	_, err = sess.WithTransaction(ctxWithTimeout, func(sessCtx context.Context) (any, error) {
 		// Handle panics within the transaction
-		defer func() {
-			if r := recover(); r != nil {
-				if m.config.Logger != nil {
-					m.config.Logger.Error("transaction panicked", slog.Any("panic", r))
-				}
-				panicErr = fmt.Errorf("transaction panicked: %v", r)
+		defer panics.HandleWithOpts(sessCtx, panics.NewHandleOpts().SetReallyPanic(false), func(_ context.Context, r any) {
+			if m.config.Logger != nil {
+				m.config.Logger.Error("transaction panicked", slog.Any("panic", r))
 			}
-		}()
+			panicErr = fmt.Errorf("transaction panicked: %v", r)
+		})
 
 		if handlerErr := handler(sessCtx); handlerErr != nil {
 			return nil, handlerErr

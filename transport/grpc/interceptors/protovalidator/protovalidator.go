@@ -8,6 +8,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
 
@@ -148,15 +149,13 @@ func (ri *requestInterceptor) validate(ctx context.Context, req any) (err error)
 	}
 
 	// Perform validation with panic recovery
-	defer func() {
-		if r := recover(); r != nil {
-			ri.LogError(ctx, "validator panic recovered", method, nil, slog.Any("panic", r))
-			err = interceptors.NewError(
-				status.New(codes.Internal, "Internal Error"),
-				nil,
-			)
-		}
-	}()
+	defer panics.HandleWithOpts(ctx, panics.NewHandleOpts().SetReallyPanic(false), func(_ context.Context, r any) {
+		ri.LogError(ctx, "validator panic recovered", method, nil, slog.Any("panic", r))
+		err = interceptors.NewError(
+			status.New(codes.Internal, "Internal Error"),
+			nil,
+		)
+	})
 
 	msgType := string(msg.ProtoReflect().Descriptor().FullName())
 
