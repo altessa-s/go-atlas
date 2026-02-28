@@ -196,8 +196,8 @@ func (m *Mongo) Connect(ctx context.Context) (err error) {
 	}
 
 	if m.VersionMajor < MinRequiredMongoMajorVersion {
-		return fmt.Errorf("%w: the minimum required version is %d.0 but "+
-			"current version is %s", ErrUnsupportedVersion, MinRequiredMongoMajorVersion, m.VersionString)
+		return coreerrs.Wrapf(ErrUnsupportedVersion, "the minimum required version is %d.0 but "+
+			"current version is %s", MinRequiredMongoMajorVersion, m.VersionString)
 	}
 
 	// If encryption is enabled, we create encryption client.

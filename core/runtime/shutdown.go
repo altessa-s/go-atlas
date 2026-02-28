@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"os"
 	"sync"
+
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // ShutdownHook is a function executed during application shutdown via [RunShutdownHooks].
@@ -49,7 +51,7 @@ func RunShutdownHooks(ctx context.Context) error {
 		for i := len(hooks) - 1; i >= 0; i-- {
 			if err := hooks[i](ctx); err != nil {
 				// We collect errors but continue shutdown
-				errs = append(errs, fmt.Errorf("shutdown hook failed: %w", err))
+				errs = append(errs, coreerrs.Wrap(err, "shutdown hook failed"))
 				// If we have a logger in previous layers we might log here,
 				// but since this is low-level runtime, we might just print to stderr
 				// if it's critical, or rely on the returned error.

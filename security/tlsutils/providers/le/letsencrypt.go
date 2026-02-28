@@ -8,7 +8,6 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -20,6 +19,7 @@ import (
 
 	"golang.org/x/crypto/acme/autocert"
 
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	tlsproviders "github.com/altessa-s/go-atlas/security/tlsutils/providers"
 )
 
@@ -145,7 +145,7 @@ func (le *LetsEncrypt) StartHTTPServerWithContext(ctx context.Context, addr stri
 	listener, err := net.Listen("tcp", net.JoinHostPort(host, "http")) //nolint:noctx
 	if err != nil {
 		le.mu.Unlock()
-		return fmt.Errorf("acme http server: %w", err) //nolint:err113
+		return coreerrs.Wrap(err, "acme http server") //nolint:err113
 	}
 
 	srv := &http.Server{

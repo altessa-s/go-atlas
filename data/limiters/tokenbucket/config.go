@@ -10,6 +10,8 @@ import (
 	"math"
 	"net"
 	"time"
+
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // RateLimitSettings defines the basic parameters for a rate limit.
@@ -142,7 +144,7 @@ type RateLimitConfig struct {
 // Validate checks that the rate limit configuration is valid.
 func (c *RateLimitConfig) Validate() error {
 	if err := c.Default.Validate(); err != nil {
-		return fmt.Errorf("invalid default settings: %w", err)
+		return coreerrs.Wrap(err, "invalid default settings")
 	}
 
 	for i, rule := range c.Rules {
@@ -150,7 +152,7 @@ func (c *RateLimitConfig) Validate() error {
 			return fmt.Errorf("rule at index %d is nil", i)
 		}
 		if err := rule.Validate(); err != nil {
-			return fmt.Errorf("invalid rule at index %d: %w", i, err)
+			return coreerrs.Wrapf(err, "invalid rule at index %d", i)
 		}
 	}
 	return nil

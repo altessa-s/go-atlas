@@ -144,7 +144,7 @@ func (e *Expander) Expand(ctx context.Context, content string) (string, error) {
 		secretValue, err := e.getSecretValue(ctx, secretKey)
 		if err != nil {
 			if e.failOnError {
-				return "", fmt.Errorf("secret expansion failed for %s:%s: %w", namespace, key, err)
+				return "", coreerrs.Wrapf(err, "secret expansion failed for %s:%s", namespace, key)
 			}
 			e.logger.WarnContext(ctx, "failed to retrieve secret",
 				slog.String("namespace", namespace),

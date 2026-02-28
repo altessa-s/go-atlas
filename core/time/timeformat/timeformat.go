@@ -5,9 +5,10 @@
 package timeformat
 
 import (
-	"fmt"
 	"strconv"
 	"time"
+
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // Format defines a time formatting strategy for serializing and deserializing
@@ -89,25 +90,25 @@ func (f Format) Parse(s string) (time.Time, error) {
 	case Unix:
 		sec, err := strconv.ParseInt(s, 10, 64)
 		if err != nil {
-			return time.Time{}, fmt.Errorf("invalid Unix timestamp: %w", err)
+			return time.Time{}, coreerrs.Wrap(err, "invalid Unix timestamp")
 		}
 		return time.Unix(sec, 0), nil
 	case UnixMilli:
 		ms, err := strconv.ParseInt(s, 10, 64)
 		if err != nil {
-			return time.Time{}, fmt.Errorf("invalid UnixMilli timestamp: %w", err)
+			return time.Time{}, coreerrs.Wrap(err, "invalid UnixMilli timestamp")
 		}
 		return time.UnixMilli(ms), nil
 	case UnixMicro:
 		us, err := strconv.ParseInt(s, 10, 64)
 		if err != nil {
-			return time.Time{}, fmt.Errorf("invalid UnixMicro timestamp: %w", err)
+			return time.Time{}, coreerrs.Wrap(err, "invalid UnixMicro timestamp")
 		}
 		return time.UnixMicro(us), nil
 	case UnixNano:
 		ns, err := strconv.ParseInt(s, 10, 64)
 		if err != nil {
-			return time.Time{}, fmt.Errorf("invalid UnixNano timestamp: %w", err)
+			return time.Time{}, coreerrs.Wrap(err, "invalid UnixNano timestamp")
 		}
 		return time.Unix(0, ns), nil
 	default:

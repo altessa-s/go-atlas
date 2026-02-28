@@ -141,7 +141,7 @@ func parseCursorToken(ctx context.Context, token string, storage CursorStorage, 
 	if isULID(token) {
 		// Server-side cursor format
 		if storage == nil {
-			return nil, fmt.Errorf("%w: received ULID cursor but no storage configured", ErrStorageRequired)
+			return nil, coreerrs.Wrap(ErrStorageRequired, "received ULID cursor but no storage configured")
 		}
 
 		// Load metadata from storage

@@ -6,9 +6,10 @@ package concurrency
 
 import (
 	"context"
-	"fmt"
 	"slices"
 	"sync"
+
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // ProcessFunc is the callback signature for [Process]. It receives a context
@@ -216,7 +217,7 @@ func ProcessCollect[T, R any](
 	}
 
 	if err != nil && config.StopOnError {
-		return results, fmt.Errorf("batch processing failed: %w", err)
+		return results, coreerrs.Wrap(err, "batch processing failed")
 	}
 
 	return results, err

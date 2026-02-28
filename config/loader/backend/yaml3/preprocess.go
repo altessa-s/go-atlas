@@ -104,7 +104,7 @@ func processIncludes(content string, currentDir string, depth int, visited map[s
 	}
 
 	if err := scanner.Err(); err != nil {
-		return "", fmt.Errorf("error scanning content: %w", err)
+		return "", coreerrs.Wrap(err, "error scanning content")
 	}
 
 	return result.String(), nil

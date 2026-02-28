@@ -126,8 +126,8 @@ func (m *CursorMetadata) GetSort() (bson.D, error) {
 func (m *CursorMetadata) ValidateFilter(filter bson.M) error {
 	currentHash := computeFilterHash(filter)
 	if m.FilterHash != currentHash {
-		return fmt.Errorf("%w: expected hash %s, got %s",
-			ErrCursorFilterMismatch, m.FilterHash, currentHash)
+		return coreerrs.Wrapf(ErrCursorFilterMismatch, "expected hash %s, got %s",
+			m.FilterHash, currentHash)
 	}
 	return nil
 }

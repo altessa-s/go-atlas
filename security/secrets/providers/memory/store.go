@@ -6,7 +6,6 @@ package memory
 
 import (
 	"context"
-	"fmt"
 	"iter"
 	"maps"
 	"slices"
@@ -15,6 +14,7 @@ import (
 	"github.com/altessa-s/go-atlas/security/secrets"
 
 	corecontext "github.com/altessa-s/go-atlas/core/context"
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // validateMemoryValues validates the initial values map
@@ -26,7 +26,7 @@ func validateMemoryValues[T any](values map[string]T) error {
 	// Validate all keys in the map
 	for key := range values {
 		if err := secrets.ValidateSecretKey(key); err != nil {
-			return fmt.Errorf("key '%s' invalid: %w", key, err)
+			return coreerrs.Wrapf(err, "key '%s' invalid", key)
 		}
 	}
 
@@ -56,7 +56,7 @@ type Storage[T any] struct {
 func New[T any](values map[string]T) (*Storage[T], error) {
 	// Validate input parameters
 	if err := validateMemoryValues(values); err != nil {
-		return nil, fmt.Errorf("values invalid: %w", err)
+		return nil, coreerrs.Wrap(err, "values invalid")
 	}
 
 	s := &Storage[T]{
@@ -79,7 +79,7 @@ func (s *Storage[T]) Name() string { return "memory" }
 // Returns secrets.ErrNotFound if the key doesn't exist.
 func (s *Storage[T]) Delete(_ context.Context, key string) error {
 	if err := secrets.ValidateSecretKey(key); err != nil {
-		return fmt.Errorf("secret key invalid: %w", err)
+		return coreerrs.Wrap(err, "secret key invalid")
 	}
 
 	s.mx.Lock()
@@ -97,7 +97,7 @@ func (s *Storage[T]) Delete(_ context.Context, key string) error {
 // Returns nil if the save was successful, or an error.
 func (s *Storage[T]) Save(_ context.Context, key string, value T) error {
 	if err := secrets.ValidateSecretKey(key); err != nil {
-		return fmt.Errorf("secret key invalid: %w", err)
+		return coreerrs.Wrap(err, "secret key invalid")
 	}
 
 	s.mx.Lock()
@@ -145,7 +145,7 @@ func (s *Storage[T]) List(_ context.Context) ([]*secrets.Value[T], error) {
 // Returns the secret value if found, or secrets.ErrNotFound if the key doesn't exist.
 func (s *Storage[T]) Value(_ context.Context, key string) (*secrets.Value[T], error) {
 	if err := secrets.ValidateSecretKey(key); err != nil {
-		return nil, fmt.Errorf("secret key invalid: %w", err)
+		return nil, coreerrs.Wrap(err, "secret key invalid")
 	}
 
 	s.mx.RLock()

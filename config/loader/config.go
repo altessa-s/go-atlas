@@ -19,6 +19,7 @@ import (
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 
 	loadersecrets "github.com/altessa-s/go-atlas/config/loader/secrets"
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
 
@@ -195,8 +196,8 @@ func (cf *Config) load() error {
 
 	if cv, ok := cf.conf.(Validator); ok {
 		if err = cv.Validate(); err != nil {
-			return fmt.Errorf("config validation failed for %s: %w",
-				reflect.TypeOf(cf.conf).Elem().Name(), err)
+			return coreerrs.Wrapf(err, "config validation failed for %s",
+				reflect.TypeOf(cf.conf).Elem().Name())
 		}
 	}
 

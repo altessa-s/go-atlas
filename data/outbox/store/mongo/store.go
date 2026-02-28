@@ -6,7 +6,6 @@ package outboxstore
 
 import (
 	"context"
-	"fmt"
 	"slices"
 	"time"
 
@@ -145,7 +144,7 @@ func (s *Store) UpdateEvents(ctx context.Context, events ...outbox.Event) error 
 
 	_, err := s.collection.BulkWrite(ctx, writeModels)
 	if err != nil {
-		return fmt.Errorf("MongoDB BulkWrite failed for UpdateEvents: %w", err)
+		return coreerrs.Wrap(err, "MongoDB BulkWrite failed for UpdateEvents")
 	}
 	return nil
 }
@@ -177,7 +176,7 @@ func (s *Store) SaveEvents(ctx context.Context, events ...outbox.Event) error {
 
 	_, err := s.collection.BulkWrite(ctx, insertModels)
 	if err != nil {
-		return fmt.Errorf("MongoDB BulkWrite failed for SaveEvents: %w", err)
+		return coreerrs.Wrap(err, "MongoDB BulkWrite failed for SaveEvents")
 	}
 	return nil
 }
@@ -214,12 +213,12 @@ func (s *Store) FetchUnprocessedEvents(ctx context.Context, batchSize uint32, la
 		cursor, txErr := s.collection.Find(sessCtx, filter,
 			mongoOptions.Find().SetSort(bson.M{collectionFieldCreatedAt: 1}).SetLimit(int64(batchSize)))
 		if txErr != nil {
-			return nil, fmt.Errorf("MongoDB Find failed in FetchUnprocessedEvents: %w", txErr)
+			return nil, coreerrs.Wrap(txErr, "MongoDB Find failed in FetchUnprocessedEvents")
 		}
 		defer func() { _ = cursor.Close(sessCtx) }()
 
 		if txErr = cursor.All(sessCtx, &mongoEvents); txErr != nil {
-			return nil, fmt.Errorf("MongoDB cursor.All failed in FetchUnprocessedEvents: %w", txErr)
+			return nil, coreerrs.Wrap(txErr, "MongoDB cursor.All failed in FetchUnprocessedEvents")
 		}
 
 		if len(mongoEvents) == 0 {
@@ -236,7 +235,7 @@ func (s *Store) FetchUnprocessedEvents(ctx context.Context, batchSize uint32, la
 		}}
 		_, txErr = s.collection.UpdateMany(sessCtx, bson.M{collectionFieldId: bson.M{"$in": idsToLock}}, update)
 		if txErr != nil {
-			return nil, fmt.Errorf("MongoDB UpdateMany (to lock events) failed in FetchUnprocessedEvents: %w", txErr)
+			return nil, coreerrs.Wrap(txErr, "MongoDB UpdateMany (to lock events) failed in FetchUnprocessedEvents")
 		}
 		return 0, nil
 	})

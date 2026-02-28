@@ -15,6 +15,8 @@ import (
 	"github.com/altessa-s/go-atlas/core/text/strings"
 	"github.com/altessa-s/go-atlas/data/internal/redisbase"
 	"github.com/altessa-s/go-atlas/data/limiters/tokenbucket/storages"
+
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // Provider implements a Redis-based rate limiting provider using sliding window algorithm.
@@ -44,7 +46,7 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 
 	result, err := luaScript.Run(ctx, p.Client(), []string{redisKey}, windowSeconds, limit, now).Result()
 	if err != nil {
-		return nil, fmt.Errorf("redis rate limit script error: %w", err)
+		return nil, coreerrs.Wrap(err, "redis rate limit script error")
 	}
 
 	values, ok := result.([]any)

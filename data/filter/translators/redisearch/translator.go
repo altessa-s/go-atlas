@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/altessa-s/go-atlas/data/filter"
+
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // FieldType represents the RediSearch schema type for a field.
@@ -77,7 +79,7 @@ func (t *Translator) Translate(node filter.Node) (string, error) {
 
 	s, ok := result.(string)
 	if !ok {
-		return "", fmt.Errorf("%w: expected string, got %T", filter.ErrInvalidExpression, result)
+		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected string, got %T", result)
 	}
 	if s == "" {
 		return "*", nil
@@ -94,7 +96,7 @@ func (t *Translator) VisitLiteral(n *filter.LiteralNode) (any, error) {
 func (t *Translator) VisitIdent(n *filter.IdentNode) (any, error) {
 	field := n.Name
 	if !t.config.IsFieldAllowed(field) {
-		return nil, fmt.Errorf("%w: %s", filter.ErrFieldNotAllowed, field)
+		return nil, coreerrs.Wrapf(filter.ErrFieldNotAllowed, "%s", field)
 	}
 	return t.config.ApplyFieldMapping(field), nil
 }
@@ -130,7 +132,7 @@ func (t *Translator) VisitUnaryOp(n *filter.UnaryOpNode) (any, error) {
 	if n.Op == filter.OpNot {
 		return t.translateNot(n.Operand)
 	}
-	return nil, fmt.Errorf("%w: unary operator %v", filter.ErrUnsupportedOperation, n.Op)
+	return nil, coreerrs.Wrapf(filter.ErrUnsupportedOperation, "unary operator %v", n.Op)
 }
 
 // VisitCall converts a function call to a RediSearch query fragment.
@@ -147,15 +149,15 @@ func (t *Translator) VisitCall(n *filter.CallNode) (any, error) {
 	case filter.OpStartsWith:
 		return t.translateStartsWith(n.Target, n.Args)
 	case filter.OpEndsWith:
-		return nil, fmt.Errorf("%w: endsWith is not supported by RediSearch", filter.ErrUnsupportedOperation)
+		return nil, coreerrs.Wrap(filter.ErrUnsupportedOperation, "endsWith is not supported by RediSearch")
 	case filter.OpMatches:
-		return nil, fmt.Errorf("%w: matches is not supported by RediSearch", filter.ErrUnsupportedOperation)
+		return nil, coreerrs.Wrap(filter.ErrUnsupportedOperation, "matches is not supported by RediSearch")
 	case filter.OpSize:
-		return nil, fmt.Errorf("%w: size is not supported by RediSearch", filter.ErrUnsupportedOperation)
+		return nil, coreerrs.Wrap(filter.ErrUnsupportedOperation, "size is not supported by RediSearch")
 	case filter.OpHas, filter.OpExists:
-		return nil, fmt.Errorf("%w: has/exists is not supported by RediSearch", filter.ErrUnsupportedOperation)
+		return nil, coreerrs.Wrap(filter.ErrUnsupportedOperation, "has/exists is not supported by RediSearch")
 	default:
-		return nil, fmt.Errorf("%w: function %v", filter.ErrUnsupportedOperation, n.Op)
+		return nil, coreerrs.Wrapf(filter.ErrUnsupportedOperation, "function %v", n.Op)
 	}
 }
 
@@ -198,7 +200,7 @@ func (t *Translator) buildComparison(field string, op filter.Operator, value any
 	case FieldTypeText:
 		return t.buildTextComparison(field, op, value)
 	default:
-		return "", fmt.Errorf("%w: unknown field type for %q", filter.ErrInvalidExpression, field)
+		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "unknown field type for %q", field)
 	}
 }
 
@@ -220,7 +222,7 @@ func (t *Translator) buildNumericComparison(field string, op filter.Operator, va
 	case filter.OpGTE:
 		return fmt.Sprintf("@%s:[%s +inf]", field, v), nil
 	default:
-		return "", fmt.Errorf("%w: numeric comparison with operator %v", filter.ErrUnsupportedOperation, op)
+		return "", coreerrs.Wrapf(filter.ErrUnsupportedOperation, "numeric comparison with operator %v", op)
 	}
 }
 
@@ -234,7 +236,7 @@ func (t *Translator) buildTagComparison(field string, op filter.Operator, value 
 	case filter.OpNotEqual:
 		return fmt.Sprintf("-@%s:{%s}", field, v), nil
 	default:
-		return "", fmt.Errorf("%w: TAG field %q does not support operator %v", filter.ErrUnsupportedOperation, field, op)
+		return "", coreerrs.Wrapf(filter.ErrUnsupportedOperation, "TAG field %q does not support operator %v", field, op)
 	}
 }
 
@@ -248,7 +250,7 @@ func (t *Translator) buildTextComparison(field string, op filter.Operator, value
 	case filter.OpNotEqual:
 		return fmt.Sprintf("-@%s:(%s)", field, v), nil
 	default:
-		return "", fmt.Errorf("%w: TEXT field %q does not support operator %v", filter.ErrUnsupportedOperation, field, op)
+		return "", coreerrs.Wrapf(filter.ErrUnsupportedOperation, "TEXT field %q does not support operator %v", field, op)
 	}
 }
 
@@ -284,7 +286,7 @@ func (t *Translator) translateNot(operand filter.Node) (string, error) {
 	if ident, ok := operand.(*filter.IdentNode); ok {
 		field := ident.Name
 		if !t.config.IsFieldAllowed(field) {
-			return "", fmt.Errorf("%w: %s", filter.ErrFieldNotAllowed, field)
+			return "", coreerrs.Wrapf(filter.ErrFieldNotAllowed, "%s", field)
 		}
 		mapped := t.config.ApplyFieldMapping(field)
 		return fmt.Sprintf("-@%s:{true}", mapped), nil
@@ -311,7 +313,7 @@ func (t *Translator) translateIn(left, right filter.Node) (string, error) {
 
 	valuesSlice, ok := values.([]any)
 	if !ok {
-		return "", fmt.Errorf("%w: in operator requires a list, got %T", filter.ErrInvalidExpression, values)
+		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "in operator requires a list, got %T", values)
 	}
 
 	escaped := make([]string, 0, len(valuesSlice))
@@ -330,7 +332,7 @@ func (t *Translator) translateContains(target filter.Node, args []filter.Node) (
 	}
 
 	if len(args) != 1 {
-		return "", fmt.Errorf("%w: contains requires exactly 1 argument", filter.ErrInvalidExpression)
+		return "", coreerrs.Wrap(filter.ErrInvalidExpression, "contains requires exactly 1 argument")
 	}
 
 	arg, err := args[0].Accept(t)
@@ -340,7 +342,7 @@ func (t *Translator) translateContains(target filter.Node, args []filter.Node) (
 
 	s, ok := arg.(string)
 	if !ok {
-		return "", fmt.Errorf("%w: contains argument must be a string", filter.ErrInvalidExpression)
+		return "", coreerrs.Wrap(filter.ErrInvalidExpression, "contains argument must be a string")
 	}
 
 	return fmt.Sprintf("@%s:*%s*", field, s), nil
@@ -354,7 +356,7 @@ func (t *Translator) translateStartsWith(target filter.Node, args []filter.Node)
 	}
 
 	if len(args) != 1 {
-		return "", fmt.Errorf("%w: startsWith requires exactly 1 argument", filter.ErrInvalidExpression)
+		return "", coreerrs.Wrap(filter.ErrInvalidExpression, "startsWith requires exactly 1 argument")
 	}
 
 	arg, err := args[0].Accept(t)
@@ -364,7 +366,7 @@ func (t *Translator) translateStartsWith(target filter.Node, args []filter.Node)
 
 	s, ok := arg.(string)
 	if !ok {
-		return "", fmt.Errorf("%w: startsWith argument must be a string", filter.ErrInvalidExpression)
+		return "", coreerrs.Wrap(filter.ErrInvalidExpression, "startsWith argument must be a string")
 	}
 
 	return fmt.Sprintf("@%s:%s*", field, s), nil
@@ -378,7 +380,7 @@ func (t *Translator) getFieldName(node filter.Node) (string, error) {
 	}
 	field, ok := result.(string)
 	if !ok {
-		return "", fmt.Errorf("%w: expected field name, got %T", filter.ErrInvalidExpression, result)
+		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected field name, got %T", result)
 	}
 	return field, nil
 }
@@ -391,7 +393,7 @@ func (t *Translator) getQueryString(node filter.Node) (string, error) {
 	}
 	s, ok := result.(string)
 	if !ok {
-		return "", fmt.Errorf("%w: expected query string, got %T", filter.ErrInvalidExpression, result)
+		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected query string, got %T", result)
 	}
 	return s, nil
 }
@@ -424,7 +426,7 @@ func (t *Translator) formatLiteral(v any) (any, error) {
 	case string:
 		return val, nil
 	default:
-		return nil, fmt.Errorf("%w: %T", filter.ErrUnsupportedType, v)
+		return nil, coreerrs.Wrapf(filter.ErrUnsupportedType, "%T", v)
 	}
 }
 
@@ -447,7 +449,7 @@ func EscapeTag(s string) string {
 // checkDepth verifies we haven't exceeded maximum nesting depth.
 func (t *Translator) checkDepth() error {
 	if t.depth >= t.config.MaxDepth() {
-		return fmt.Errorf("%w: depth %d exceeds maximum %d", filter.ErrMaxDepthExceeded, t.depth, t.config.MaxDepth())
+		return coreerrs.Wrapf(filter.ErrMaxDepthExceeded, "depth %d exceeds maximum %d", t.depth, t.config.MaxDepth())
 	}
 	return nil
 }

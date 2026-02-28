@@ -6,12 +6,13 @@ package probfilter
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"iter"
 	"sync"
 
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
+
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // ErrFilterNotFound is returned when a filter is not registered.
@@ -120,7 +121,7 @@ func (m *Manager) Close() error {
 	for name, filter := range m.filters {
 		if closer, ok := filter.(io.Closer); ok {
 			if err := closer.Close(); err != nil {
-				errs = append(errs, fmt.Errorf("%s: %w", name, err))
+				errs = append(errs, coreerrs.Wrap(err, name))
 			}
 		}
 	}

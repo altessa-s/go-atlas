@@ -208,12 +208,12 @@ func (p *Provider) parseToken(token string, opts ...jwt.ParserOption) (map[strin
 	}
 
 	if !jwtToken.Valid {
-		return nil, fmt.Errorf("%w: token is invalid", ErrInvalidToken)
+		return nil, coreerrs.Wrap(ErrInvalidToken, "token is invalid")
 	}
 
 	claims, ok := jwtToken.Claims.(jwt.MapClaims)
 	if !ok {
-		return nil, fmt.Errorf("%w: invalid claims type", ErrInvalidToken)
+		return nil, coreerrs.Wrap(ErrInvalidToken, "invalid claims type")
 	}
 
 	return claims, nil
@@ -238,7 +238,7 @@ func (p *Provider) ValidateToken(ctx context.Context, token string) (map[string]
 func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, opt ...ValidationOption) (map[string]any, error) {
 	// Reject empty tokens immediately
 	if token == "" {
-		return nil, fmt.Errorf("%w: token is empty", ErrInvalidToken)
+		return nil, coreerrs.Wrap(ErrInvalidToken, "token is empty")
 	}
 
 	if err := p.checkTokenRevocation(ctx, token); err != nil {
@@ -277,7 +277,7 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 		claimsForPreset, err := p.parseTokenWithoutClaimsValidation(token)
 		if err != nil {
 			p.logger.ErrorContext(ctx, "signature verification failed", slog.Any("error", err))
-			return nil, fmt.Errorf("%w: signature verification failed: %v", ErrInvalidToken, err)
+			return nil, coreerrs.Wrapf(ErrInvalidToken, "signature verification failed: %v", err)
 		}
 
 		// Step 2: Select preset based on verified claims
@@ -388,30 +388,30 @@ func (p *Provider) getDiscoveryInfo(ctx context.Context) error {
 
 	resp, err := p.client.Do(req) //nolint:bodyclose
 	if err != nil {
-		return fmt.Errorf("%w: %s", ErrDiscovery, err)
+		return coreerrs.Wrapf(ErrDiscovery, "%s", err)
 	}
 	defer drainAndClose(resp)
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("%w: %s", ErrDiscovery, err)
+		return coreerrs.Wrapf(ErrDiscovery, "%s", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%w: unexpected response status: %s", ErrDiscovery, resp.Status)
+		return coreerrs.Wrapf(ErrDiscovery, "unexpected response status: %s", resp.Status)
 	}
 
 	if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.Contains(ct, "application/json") {
-		return fmt.Errorf("%w: unexpected content type: %s", ErrDiscovery, ct)
+		return coreerrs.Wrapf(ErrDiscovery, "unexpected content type: %s", ct)
 	}
 
 	var dInfo discoveryInfo
 	if err = json.Unmarshal(body, &dInfo); err != nil {
-		return fmt.Errorf("%w: failed to unmarshal response body: %v", ErrDiscovery, err)
+		return coreerrs.Wrapf(ErrDiscovery, "failed to unmarshal response body: %v", err)
 	}
 
 	if !dInfo.IsValid() {
-		return fmt.Errorf("%w: received uncompleted discovery info", ErrDiscovery)
+		return coreerrs.Wrap(ErrDiscovery, "received uncompleted discovery info")
 	}
 
 	p.discoveryInfo = &dInfo
@@ -527,13 +527,13 @@ func validateRequiredClaims(claims map[string]any, ops *verifierOptions, ignored
 
 		value, exists := claims[claim]
 		if !exists {
-			return fmt.Errorf("%w: missing required claim '%s'", ErrInvalidToken, claim)
+			return coreerrs.Wrapf(ErrInvalidToken, "missing required claim '%s'", claim)
 		}
 
 		if claim == "sub" {
 			subStr, ok := value.(string)
 			if !ok || subStr == "" {
-				return fmt.Errorf("%w: claim 'sub' cannot be empty", ErrInvalidToken)
+				return coreerrs.Wrap(ErrInvalidToken, "claim 'sub' cannot be empty")
 			}
 		}
 	}
@@ -549,12 +549,12 @@ func validateExpectedClaims(claims map[string]any, ops *verifierOptions, ignored
 
 		actualValue, exists := claims[claim]
 		if !exists {
-			return fmt.Errorf("%w: missing expected claim '%s'", ErrInvalidToken, claim)
+			return coreerrs.Wrapf(ErrInvalidToken, "missing expected claim '%s'", claim)
 		}
 
 		actualStr := fmt.Sprint(actualValue)
 		if actualStr != expectedValue {
-			return fmt.Errorf("%w: claim '%s' has unexpected value", ErrInvalidToken, claim)
+			return coreerrs.Wrapf(ErrInvalidToken, "claim '%s' has unexpected value", claim)
 		}
 	}
 
@@ -571,16 +571,16 @@ func validateAllowedClientIDs(claims map[string]any, allowed []string) error {
 		clientID, exists = claims["azp"]
 	}
 	if !exists {
-		return fmt.Errorf("%w: missing 'client_id' or 'azp' claim for client ID validation", ErrInvalidToken)
+		return coreerrs.Wrap(ErrInvalidToken, "missing 'client_id' or 'azp' claim for client ID validation")
 	}
 
 	clientIDStr, ok := clientID.(string)
 	if !ok {
-		return fmt.Errorf("%w: claim 'client_id' is not a string", ErrInvalidToken)
+		return coreerrs.Wrap(ErrInvalidToken, "claim 'client_id' is not a string")
 	}
 
 	if !slices.Contains(allowed, clientIDStr) {
-		return fmt.Errorf("%w: client_id is not in the allowed list", ErrInvalidToken)
+		return coreerrs.Wrap(ErrInvalidToken, "client_id is not in the allowed list")
 	}
 
 	return nil
@@ -602,18 +602,18 @@ func validateRequiredScopes(claims map[string]any, requiredScopes []string) erro
 		}
 	}
 
-	return fmt.Errorf("%w: token does not contain any of the required scopes", ErrInvalidToken)
+	return coreerrs.Wrap(ErrInvalidToken, "token does not contain any of the required scopes")
 }
 
 func strictScopeClaim(claims map[string]any) ([]string, error) {
 	scopeValue, exists := claims["scope"]
 	if !exists {
-		return nil, fmt.Errorf("%w: missing 'scope' claim for scope validation", ErrInvalidToken)
+		return nil, coreerrs.Wrap(ErrInvalidToken, "missing 'scope' claim for scope validation")
 	}
 
 	scopes, ok := normalizeScopeValue(scopeValue)
 	if !ok {
-		return nil, fmt.Errorf("%w: claim 'scope' has invalid type", ErrInvalidToken)
+		return nil, coreerrs.Wrap(ErrInvalidToken, "claim 'scope' has invalid type")
 	}
 
 	return scopes, nil
@@ -626,16 +626,16 @@ func validateAuthorizedParty(claims map[string]any, require bool, allowedParties
 
 	azp, exists := claims["azp"]
 	if !exists {
-		return fmt.Errorf("%w: missing required 'azp' (authorized party) claim", ErrInvalidToken)
+		return coreerrs.Wrap(ErrInvalidToken, "missing required 'azp' (authorized party) claim")
 	}
 
 	azpStr, ok := azp.(string)
 	if !ok {
-		return fmt.Errorf("%w: claim 'azp' is not a string", ErrInvalidToken)
+		return coreerrs.Wrap(ErrInvalidToken, "claim 'azp' is not a string")
 	}
 
 	if len(allowedParties) > 0 && !slices.Contains(allowedParties, azpStr) {
-		return fmt.Errorf("%w: authorized party is not in the allowed list", ErrInvalidToken)
+		return coreerrs.Wrap(ErrInvalidToken, "authorized party is not in the allowed list")
 	}
 
 	return nil
@@ -650,17 +650,16 @@ func validateTokenLifetime(claims map[string]any, maxLifetime time.Duration) err
 	iatTime, iatOk := parseClaimAsInt64(claims, "iat")
 
 	if !expOk || !iatOk {
-		return fmt.Errorf("%w: missing or invalid 'exp' or 'iat' claim for lifetime validation", ErrInvalidToken)
+		return coreerrs.Wrap(ErrInvalidToken, "missing or invalid 'exp' or 'iat' claim for lifetime validation")
 	}
 
 	lifetime := time.Duration(expTime-iatTime) * time.Second
 	if lifetime < 0 {
-		return fmt.Errorf("%w: invalid token lifetime (exp < iat)", ErrInvalidToken)
+		return coreerrs.Wrap(ErrInvalidToken, "invalid token lifetime (exp < iat)")
 	}
 
 	if lifetime > maxLifetime {
-		return fmt.Errorf("%w: token lifetime %v exceeds maximum allowed %v",
-			ErrInvalidToken, lifetime, maxLifetime)
+		return coreerrs.Wrapf(ErrInvalidToken, "token lifetime %v exceeds maximum allowed %v", lifetime, maxLifetime)
 	}
 
 	return nil
@@ -675,10 +674,10 @@ func validateCELRules(claims map[string]any, compiled []celPreCompiledValidation
 
 		// Use custom message if provided, otherwise use default format
 		if rule.message != "" {
-			return fmt.Errorf("%w: %s", ErrCELValidation, rule.message)
+			return coreerrs.Wrapf(ErrCELValidation, "%s", rule.message)
 		}
-		return fmt.Errorf("%w: rule '%s' failed (expression: %s)",
-			ErrCELValidation, rule.name, strings.ReplaceAll(rule.expression, "\n", " "))
+		return coreerrs.Wrapf(ErrCELValidation, "rule '%s' failed (expression: %s)",
+			rule.name, strings.ReplaceAll(rule.expression, "\n", " "))
 	}
 
 	return nil
@@ -777,16 +776,16 @@ func (p *Provider) parseAndValidateToken(token string, ops *verifierOptions, com
 
 	jwtToken, err := jwt.Parse(token, p.jwks.Keyfunc, parserOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrInvalidToken, err)
+		return nil, coreerrs.Wrapf(ErrInvalidToken, "%s", err)
 	}
 
 	if !jwtToken.Valid {
-		return nil, fmt.Errorf("%w: token is invalid", ErrInvalidToken)
+		return nil, coreerrs.Wrap(ErrInvalidToken, "token is invalid")
 	}
 
 	claims, ok := jwtToken.Claims.(jwt.MapClaims)
 	if !ok {
-		return nil, fmt.Errorf("%w: invalid claims type", ErrInvalidToken)
+		return nil, coreerrs.Wrap(ErrInvalidToken, "invalid claims type")
 	}
 
 	if err := p.validateClaims(claims, ops, compiledCELRules); err != nil {
@@ -805,7 +804,7 @@ func (p *Provider) validateWithPresetClaims(claims map[string]any, ops *verifier
 	validator := jwt.NewValidator(validatorOpts...)
 
 	if err := validator.Validate(jwt.MapClaims(claims)); err != nil {
-		return fmt.Errorf("%w: %s", ErrInvalidToken, err)
+		return coreerrs.Wrapf(ErrInvalidToken, "%s", err)
 	}
 
 	return p.validateClaims(claims, ops, compiledCELRules)

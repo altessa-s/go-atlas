@@ -5,11 +5,11 @@
 package outbox
 
 import (
-	"context"
-	"errors"
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/types/ptr"
+
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // Status represents the state of an event in the Outbox processing lifecycle.
@@ -57,7 +57,7 @@ func (e *Event) nextAttempt() {
 func (e *Event) setErrorStatus(err error) {
 	e.Status = StatusFailed
 	// Avoid overwriting a more specific previous error with a generic "context canceled".
-	if err != nil && !errors.Is(err, context.Canceled) {
+	if err != nil && !coreerrs.IsContextCanceled(err) {
 		e.LastError = ptr.Wrap(err.Error())
 	}
 }

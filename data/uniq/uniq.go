@@ -153,10 +153,10 @@ func (s *Uniq) Clear(ctx context.Context) error {
 func validateKey(key string) error {
 	// Fast inline validation - most efficient for simple cases
 	if len(key) == 0 {
-		return fmt.Errorf("%w: key cannot be empty", ErrInvalidKey)
+		return coreerrs.Wrap(ErrInvalidKey, "key cannot be empty")
 	}
 	if len(key) > maxKeyLength {
-		return fmt.Errorf("%w: key length %d exceeds maximum %d", ErrInvalidKey, len(key), maxKeyLength)
+		return coreerrs.Wrapf(ErrInvalidKey, "key length %d exceeds maximum %d", len(key), maxKeyLength)
 	}
 	return nil
 }

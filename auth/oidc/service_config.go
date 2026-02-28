@@ -175,7 +175,7 @@ func ParseServiceConfig(data []byte) (*ServiceConfig, error) {
 	var config ServiceConfig
 
 	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("%w: failed to parse JSON: %v", ErrInvalidConfig, err)
+		return nil, coreerrs.Wrapf(ErrInvalidConfig, "failed to parse JSON: %v", err)
 	}
 
 	if err := ValidateServiceConfig(&config); err != nil {
@@ -189,12 +189,12 @@ func ParseServiceConfig(data []byte) (*ServiceConfig, error) {
 func ValidateServiceConfig(config *ServiceConfig) error {
 	// Validate required fields
 	if config.Version == "" {
-		return fmt.Errorf("%w: version is required", ErrInvalidConfig)
+		return coreerrs.Wrap(ErrInvalidConfig, "version is required")
 	}
 
 	if config.Version != SupportedConfigVersion {
-		return fmt.Errorf("%w: version %q not supported (expected %q)",
-			ErrInvalidVersion, config.Version, SupportedConfigVersion)
+		return coreerrs.Wrapf(ErrInvalidVersion, "version %q not supported (expected %q)",
+			config.Version, SupportedConfigVersion)
 	}
 
 	// Validate default validation config
@@ -210,16 +210,16 @@ func ValidateServiceConfig(config *ServiceConfig) error {
 		preset := &config.Presets[i]
 
 		if preset.Name == "" {
-			return fmt.Errorf("%w: presets[%d].name is required", ErrInvalidConfig, i)
+			return coreerrs.Wrapf(ErrInvalidConfig, "presets[%d].name is required", i)
 		}
 
 		if presetNames[preset.Name] {
-			return fmt.Errorf("%w: duplicate preset name %q", ErrInvalidConfig, preset.Name)
+			return coreerrs.Wrapf(ErrInvalidConfig, "duplicate preset name %q", preset.Name)
 		}
 		presetNames[preset.Name] = true
 
 		if preset.Validation == nil {
-			return fmt.Errorf("%w: presets[%d].validation is required", ErrInvalidConfig, i)
+			return coreerrs.Wrapf(ErrInvalidConfig, "presets[%d].validation is required", i)
 		}
 
 		if err := validateValidationRulesConfig(preset.Validation, fmt.Sprintf("presets[%d].validation", i)); err != nil {
@@ -232,20 +232,20 @@ func ValidateServiceConfig(config *ServiceConfig) error {
 		rule := &config.PresetRules[i]
 
 		if rule.Preset == "" {
-			return fmt.Errorf("%w: preset_rules[%d].preset is required", ErrInvalidConfig, i)
+			return coreerrs.Wrapf(ErrInvalidConfig, "preset_rules[%d].preset is required", i)
 		}
 
 		if !presetNames[rule.Preset] {
-			return fmt.Errorf("%w: preset_rules[%d] references unknown preset %q",
-				ErrPresetNotFound, i, rule.Preset)
+			return coreerrs.Wrapf(ErrPresetNotFound, "preset_rules[%d] references unknown preset %q",
+				i, rule.Preset)
 		}
 
 		if len(rule.Conditions) == 0 {
-			return fmt.Errorf("%w: preset_rules[%d].conditions is required", ErrInvalidConfig, i)
+			return coreerrs.Wrapf(ErrInvalidConfig, "preset_rules[%d].conditions is required", i)
 		}
 
 		if _, err := conditionsToMatcher(rule.Conditions); err != nil {
-			return fmt.Errorf("preset_rules[%d].conditions: %w", i, err)
+			return coreerrs.Wrapf(err, "preset_rules[%d].conditions", i)
 		}
 	}
 
@@ -321,7 +321,7 @@ func (v *ValidationRulesConfig) ToValidationOptions() ([]ValidationOption, error
 	if v.Leeway != "" {
 		duration, err := time.ParseDuration(v.Leeway)
 		if err != nil {
-			return nil, fmt.Errorf("%w: invalid leeway: %v", ErrInvalidDuration, err)
+			return nil, coreerrs.Wrapf(ErrInvalidDuration, "invalid leeway: %v", err)
 		}
 		opts = append(opts, WithValidationLeeway(duration))
 	}
@@ -430,7 +430,7 @@ func (v *ValidationRulesConfig) ToValidationOptions() ([]ValidationOption, error
 		if v.TokenLifetime.Max != "" {
 			maxDuration, err := time.ParseDuration(v.TokenLifetime.Max)
 			if err != nil {
-				return nil, fmt.Errorf("%w: invalid token_lifetime.max: %v", ErrInvalidDuration, err)
+				return nil, coreerrs.Wrapf(ErrInvalidDuration, "invalid token_lifetime.max: %v", err)
 			}
 
 			if maxDuration > 0 {
@@ -466,7 +466,7 @@ func (v *ValidationRulesConfig) ToValidationOptions() ([]ValidationOption, error
 // conditionsToMatcher converts JSON condition map to a PresetMatcherFunc.
 func conditionsToMatcher(conditions map[string]any) (PresetMatcherFunc, error) {
 	if len(conditions) != 1 {
-		return nil, fmt.Errorf("%w: conditions must contain exactly one matcher", ErrInvalidConfig)
+		return nil, coreerrs.Wrap(ErrInvalidConfig, "conditions must contain exactly one matcher")
 	}
 
 	var key string
@@ -479,7 +479,7 @@ func conditionsToMatcher(conditions map[string]any) (PresetMatcherFunc, error) {
 	case "claim_equals":
 		typed, ok := value.(map[string]any)
 		if !ok || len(typed) == 0 {
-			return nil, fmt.Errorf("%w: claim_equals requires a non-empty object", ErrInvalidConfig)
+			return nil, coreerrs.Wrap(ErrInvalidConfig, "claim_equals requires a non-empty object")
 		}
 
 		matchers := make([]PresetMatcherFunc, 0, len(typed))
@@ -516,14 +516,14 @@ func conditionsToMatcher(conditions map[string]any) (PresetMatcherFunc, error) {
 	case "claim_exists":
 		rawList, ok := value.([]any)
 		if !ok || len(rawList) == 0 {
-			return nil, fmt.Errorf("%w: claim_exists requires a non-empty array", ErrInvalidConfig)
+			return nil, coreerrs.Wrap(ErrInvalidConfig, "claim_exists requires a non-empty array")
 		}
 
 		claimNames := make([]string, len(rawList))
 		for i, item := range rawList {
 			name, ok := item.(string)
 			if !ok || strings.TrimSpace(name) == "" {
-				return nil, fmt.Errorf("%w: claim_exists array elements must be non-empty strings", ErrInvalidConfig)
+				return nil, coreerrs.Wrap(ErrInvalidConfig, "claim_exists array elements must be non-empty strings")
 			}
 			claimNames[i] = name
 		}
@@ -540,14 +540,14 @@ func conditionsToMatcher(conditions map[string]any) (PresetMatcherFunc, error) {
 	case "claim_contains":
 		typed, ok := value.(map[string]any)
 		if !ok || len(typed) == 0 {
-			return nil, fmt.Errorf("%w: claim_contains requires a non-empty object", ErrInvalidConfig)
+			return nil, coreerrs.Wrap(ErrInvalidConfig, "claim_contains requires a non-empty object")
 		}
 
 		matchers := make([]PresetMatcherFunc, 0, len(typed))
 		for rawKey, rawVal := range typed {
 			valueStr, ok := rawVal.(string)
 			if !ok {
-				return nil, fmt.Errorf("%w: claim_contains values must be strings", ErrInvalidConfig)
+				return nil, coreerrs.Wrap(ErrInvalidConfig, "claim_contains values must be strings")
 			}
 			claimKey := rawKey
 			substring := valueStr
@@ -559,7 +559,7 @@ func conditionsToMatcher(conditions map[string]any) (PresetMatcherFunc, error) {
 	case "has_scope":
 		scope, ok := value.(string)
 		if !ok || strings.TrimSpace(scope) == "" {
-			return nil, fmt.Errorf("%w: has_scope requires a non-empty string", ErrInvalidConfig)
+			return nil, coreerrs.Wrap(ErrInvalidConfig, "has_scope requires a non-empty string")
 		}
 		return HasScope(scope), nil
 
@@ -580,12 +580,12 @@ func conditionsToMatcher(conditions map[string]any) (PresetMatcherFunc, error) {
 	case "cel_expression":
 		expression, ok := value.(string)
 		if !ok || strings.TrimSpace(expression) == "" {
-			return nil, fmt.Errorf("%w: cel_expression requires a non-empty string", ErrInvalidConfig)
+			return nil, coreerrs.Wrap(ErrInvalidConfig, "cel_expression requires a non-empty string")
 		}
 
 		program, err := compileCELExpression(expression)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrInvalidCEL, err)
+			return nil, coreerrs.Wrapf(ErrInvalidCEL, "%v", err)
 		}
 
 		if cache := getCELCache(); cache != nil {
@@ -599,19 +599,19 @@ func conditionsToMatcher(conditions map[string]any) (PresetMatcherFunc, error) {
 	case "matcher_and", "matcher_or":
 		rawList, ok := value.([]any)
 		if !ok || len(rawList) == 0 {
-			return nil, fmt.Errorf("%w: %s requires a non-empty array", ErrInvalidConfig, key)
+			return nil, coreerrs.Wrapf(ErrInvalidConfig, "%s requires a non-empty array", key)
 		}
 
 		matchers := make([]PresetMatcherFunc, 0, len(rawList))
 		for idx, item := range rawList {
 			condMap, ok := item.(map[string]any)
 			if !ok {
-				return nil, fmt.Errorf("%w: %s[%d] must be an object", ErrInvalidConfig, key, idx)
+				return nil, coreerrs.Wrapf(ErrInvalidConfig, "%s[%d] must be an object", key, idx)
 			}
 
 			matcher, err := conditionsToMatcher(condMap)
 			if err != nil {
-				return nil, fmt.Errorf("%s[%d]: %w", key, idx, err)
+				return nil, coreerrs.Wrapf(err, "%s[%d]", key, idx)
 			}
 			matchers = append(matchers, matcher)
 		}
@@ -622,20 +622,20 @@ func conditionsToMatcher(conditions map[string]any) (PresetMatcherFunc, error) {
 		return MatcherOr(matchers...), nil
 	}
 
-	return nil, fmt.Errorf("%w: unknown condition type %q", ErrInvalidConfig, key)
+	return nil, coreerrs.Wrapf(ErrInvalidConfig, "unknown condition type %q", key)
 }
 
 func parseNonEmptyStringArray(key string, value any) ([]string, error) {
 	rawList, ok := value.([]any)
 	if !ok || len(rawList) == 0 {
-		return nil, fmt.Errorf("%w: %s requires a non-empty array", ErrInvalidConfig, key)
+		return nil, coreerrs.Wrapf(ErrInvalidConfig, "%s requires a non-empty array", key)
 	}
 
 	out := make([]string, len(rawList))
 	for i, item := range rawList {
 		s, ok := item.(string)
 		if !ok || strings.TrimSpace(s) == "" {
-			return nil, fmt.Errorf("%w: %s array elements must be non-empty strings", ErrInvalidConfig, key)
+			return nil, coreerrs.Wrapf(ErrInvalidConfig, "%s array elements must be non-empty strings", key)
 		}
 		out[i] = s
 	}
@@ -647,7 +647,7 @@ func validateValidationRulesConfig(config *ValidationRulesConfig, path string) e
 	// Validate leeway
 	if config.Leeway != "" {
 		if _, err := time.ParseDuration(config.Leeway); err != nil {
-			return fmt.Errorf("%w: invalid %s.leeway: %v", ErrInvalidDuration, path, err)
+			return coreerrs.Wrapf(ErrInvalidDuration, "invalid %s.leeway: %v", path, err)
 		}
 	}
 
@@ -655,13 +655,13 @@ func validateValidationRulesConfig(config *ValidationRulesConfig, path string) e
 	if config.TokenLifetime != nil {
 		if config.TokenLifetime.Min != "" {
 			if _, err := time.ParseDuration(config.TokenLifetime.Min); err != nil {
-				return fmt.Errorf("%w: invalid %s.token_lifetime.min: %v", ErrInvalidDuration, path, err)
+				return coreerrs.Wrapf(ErrInvalidDuration, "invalid %s.token_lifetime.min: %v", path, err)
 			}
 		}
 
 		if config.TokenLifetime.Max != "" {
 			if _, err := time.ParseDuration(config.TokenLifetime.Max); err != nil {
-				return fmt.Errorf("%w: invalid %s.token_lifetime.max: %v", ErrInvalidDuration, path, err)
+				return coreerrs.Wrapf(ErrInvalidDuration, "invalid %s.token_lifetime.max: %v", path, err)
 			}
 		}
 	}
@@ -671,15 +671,15 @@ func validateValidationRulesConfig(config *ValidationRulesConfig, path string) e
 		rule := &config.CELRules[i]
 
 		if rule.Name == "" {
-			return fmt.Errorf("%w: %s.cel_rules[%d].name is required", ErrInvalidConfig, path, i)
+			return coreerrs.Wrapf(ErrInvalidConfig, "%s.cel_rules[%d].name is required", path, i)
 		}
 
 		if rule.Expression == "" {
-			return fmt.Errorf("%w: %s.cel_rules[%d].expression is required", ErrInvalidConfig, path, i)
+			return coreerrs.Wrapf(ErrInvalidConfig, "%s.cel_rules[%d].expression is required", path, i)
 		}
 
 		if _, err := compileCELExpression(rule.Expression); err != nil {
-			return fmt.Errorf("%w: invalid %s.cel_rules[%d].expression: %v", ErrInvalidCEL, path, i, err)
+			return coreerrs.Wrapf(ErrInvalidCEL, "invalid %s.cel_rules[%d].expression: %v", path, i, err)
 		}
 	}
 

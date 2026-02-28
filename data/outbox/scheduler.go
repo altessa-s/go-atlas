@@ -6,7 +6,6 @@ package outbox
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"time"
 
@@ -125,7 +124,7 @@ func (o *Outbox) runDispatchCycleInternal(ctx context.Context) error {
 	cancelFetch()
 
 	if err != nil {
-		if errors.Is(err, context.Canceled) {
+		if coreerrs.IsContextCanceled(err) {
 			return nil
 		}
 		return coreerrs.WrapOperation(err, "fetch unprocessed events")

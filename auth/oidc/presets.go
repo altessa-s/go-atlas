@@ -6,8 +6,9 @@ package oidc
 
 import (
 	"context"
-	"fmt"
 	"slices"
+
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // ValidationPreset represents a named, reusable set of validation options.
@@ -146,7 +147,7 @@ func (p *Provider) getPreset(name string) *ValidationPreset {
 func (p *Provider) ValidateTokenWithPreset(ctx context.Context, token string, presetName string, opt ...ValidationOption) (map[string]any, error) {
 	preset := p.getPreset(presetName)
 	if preset == nil {
-		return nil, fmt.Errorf("%w: validation preset '%s' not found", ErrInvalidToken, presetName)
+		return nil, coreerrs.Wrapf(ErrInvalidToken, "validation preset '%s' not found", presetName)
 	}
 
 	// Fast path: use pre-compiled verifier if no additional options
@@ -166,7 +167,7 @@ func (p *Provider) ValidateTokenWithPreset(ctx context.Context, token string, pr
 func (p *Provider) validateTokenWithPreset(ctx context.Context, token string, preset *ValidationPreset) (map[string]any, error) {
 	// Reject empty tokens immediately
 	if token == "" {
-		return nil, fmt.Errorf("%w: token is empty", ErrInvalidToken)
+		return nil, coreerrs.Wrap(ErrInvalidToken, "token is empty")
 	}
 
 	if err := p.checkTokenRevocation(ctx, token); err != nil {
@@ -185,7 +186,7 @@ func (p *Provider) validateTokenWithPreset(ctx context.Context, token string, pr
 	// Verify signature first (without claim validation)
 	claims, err := p.parseTokenWithoutClaimsValidation(token)
 	if err != nil {
-		return nil, fmt.Errorf("%w: signature verification failed: %v", ErrInvalidToken, err)
+		return nil, coreerrs.Wrapf(ErrInvalidToken, "signature verification failed: %v", err)
 	}
 
 	// Validate with pre-compiled verifier

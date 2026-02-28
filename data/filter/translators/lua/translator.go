@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/altessa-s/go-atlas/data/filter"
+
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 const (
@@ -60,7 +62,7 @@ func (t *Translator) Translate(node filter.Node) (string, error) {
 
 	s, ok := result.(string)
 	if !ok {
-		return "", fmt.Errorf("%w: expected string, got %T", filter.ErrInvalidExpression, result)
+		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected string, got %T", result)
 	}
 	return s, nil
 }
@@ -74,7 +76,7 @@ func (t *Translator) VisitLiteral(n *filter.LiteralNode) (any, error) {
 func (t *Translator) VisitIdent(n *filter.IdentNode) (any, error) {
 	field := n.Name
 	if !t.config.IsFieldAllowed(field) {
-		return nil, fmt.Errorf("%w: %s", filter.ErrFieldNotAllowed, field)
+		return nil, coreerrs.Wrapf(filter.ErrFieldNotAllowed, "%s", field)
 	}
 	return t.config.ApplyFieldMapping(field), nil
 }
@@ -110,7 +112,7 @@ func (t *Translator) VisitUnaryOp(n *filter.UnaryOpNode) (any, error) {
 	if n.Op == filter.OpNot {
 		return t.translateNot(n.Operand)
 	}
-	return nil, fmt.Errorf("%w: unary operator %v", filter.ErrUnsupportedOperation, n.Op)
+	return nil, coreerrs.Wrapf(filter.ErrUnsupportedOperation, "unary operator %v", n.Op)
 }
 
 // VisitCall converts a function call to a Lua expression.
@@ -129,13 +131,13 @@ func (t *Translator) VisitCall(n *filter.CallNode) (any, error) {
 	case filter.OpEndsWith:
 		return t.translateEndsWith(n.Target, n.Args)
 	case filter.OpMatches:
-		return nil, fmt.Errorf("%w: matches is not supported by Lua translator", filter.ErrUnsupportedOperation)
+		return nil, coreerrs.Wrap(filter.ErrUnsupportedOperation, "matches is not supported by Lua translator")
 	case filter.OpSize:
 		return t.translateSize(n.Target)
 	case filter.OpHas, filter.OpExists:
 		return t.translateHas(n.Target)
 	default:
-		return nil, fmt.Errorf("%w: function %v", filter.ErrUnsupportedOperation, n.Op)
+		return nil, coreerrs.Wrapf(filter.ErrUnsupportedOperation, "function %v", n.Op)
 	}
 }
 
@@ -182,7 +184,7 @@ func (t *Translator) luaOperator(op filter.Operator) (string, error) {
 	case filter.OpGTE:
 		return ">=", nil
 	default:
-		return "", fmt.Errorf("%w: comparison operator %v", filter.ErrUnsupportedOperation, op)
+		return "", coreerrs.Wrapf(filter.ErrUnsupportedOperation, "comparison operator %v", op)
 	}
 }
 
@@ -205,7 +207,7 @@ func (t *Translator) formatLiteral(v any) (string, error) {
 	case string:
 		return `"` + escapeLuaString(val) + `"`, nil
 	default:
-		return "", fmt.Errorf("%w: %T", filter.ErrUnsupportedType, v)
+		return "", coreerrs.Wrapf(filter.ErrUnsupportedType, "%T", v)
 	}
 }
 
@@ -228,7 +230,7 @@ func (t *Translator) getFieldName(node filter.Node) (string, error) {
 
 	field, ok := result.(string)
 	if !ok {
-		return "", fmt.Errorf("%w: expected field name, got %T", filter.ErrInvalidExpression, result)
+		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected field name, got %T", result)
 	}
 	return field, nil
 }
@@ -236,16 +238,16 @@ func (t *Translator) getFieldName(node filter.Node) (string, error) {
 // getStringArg extracts a raw string value from a LiteralNode argument.
 func (t *Translator) getStringArg(args []filter.Node) (string, error) {
 	if len(args) != 1 {
-		return "", fmt.Errorf("%w: string function requires exactly 1 argument", filter.ErrInvalidExpression)
+		return "", coreerrs.Wrap(filter.ErrInvalidExpression, "string function requires exactly 1 argument")
 	}
 
 	lit, ok := args[0].(*filter.LiteralNode)
 	if !ok {
-		return "", fmt.Errorf("%w: string function argument must be a literal", filter.ErrInvalidExpression)
+		return "", coreerrs.Wrap(filter.ErrInvalidExpression, "string function argument must be a literal")
 	}
 	s, ok := lit.Value.(string)
 	if !ok {
-		return "", fmt.Errorf("%w: string function argument must be a string", filter.ErrInvalidExpression)
+		return "", coreerrs.Wrap(filter.ErrInvalidExpression, "string function argument must be a string")
 	}
 	return s, nil
 }
@@ -268,7 +270,7 @@ func (t *Translator) translateComparison(op filter.Operator, left, right filter.
 	}
 	rightStr, ok := rightResult.(string)
 	if !ok {
-		return "", fmt.Errorf("%w: expected literal value, got %T", filter.ErrInvalidExpression, rightResult)
+		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected literal value, got %T", rightResult)
 	}
 
 	luaOp, err := t.luaOperator(op)
@@ -298,7 +300,7 @@ func (t *Translator) translateNot(operand filter.Node) (string, error) {
 	if ident, ok := operand.(*filter.IdentNode); ok {
 		field := ident.Name
 		if !t.config.IsFieldAllowed(field) {
-			return "", fmt.Errorf("%w: %s", filter.ErrFieldNotAllowed, field)
+			return "", coreerrs.Wrapf(filter.ErrFieldNotAllowed, "%s", field)
 		}
 		mapped := t.config.ApplyFieldMapping(field)
 		return fmt.Sprintf("(%s ~= %s)", t.fieldRef(mapped), luaTrue), nil
@@ -325,7 +327,7 @@ func (t *Translator) translateIn(left, right filter.Node) (string, error) {
 
 	valuesSlice, ok := values.([]any)
 	if !ok {
-		return "", fmt.Errorf("%w: in operator requires a list, got %T", filter.ErrInvalidExpression, values)
+		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "in operator requires a list, got %T", values)
 	}
 
 	ref := t.fieldRef(field)
@@ -333,7 +335,7 @@ func (t *Translator) translateIn(left, right filter.Node) (string, error) {
 	for _, v := range valuesSlice {
 		s, ok := v.(string)
 		if !ok {
-			return "", fmt.Errorf("%w: expected literal value in list, got %T", filter.ErrInvalidExpression, v)
+			return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected literal value in list, got %T", v)
 		}
 		parts = append(parts, fmt.Sprintf("%s == %s", ref, s))
 	}
@@ -406,7 +408,7 @@ func (t *Translator) translateSizeComparison(op filter.Operator, call *filter.Ca
 	}
 	rightStr, ok := rightResult.(string)
 	if !ok {
-		return "", fmt.Errorf("%w: expected literal value, got %T", filter.ErrInvalidExpression, rightResult)
+		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected literal value, got %T", rightResult)
 	}
 
 	luaOp, err := t.luaOperator(op)
@@ -434,7 +436,7 @@ func (t *Translator) getExprString(node filter.Node) (string, error) {
 	}
 	s, ok := result.(string)
 	if !ok {
-		return "", fmt.Errorf("%w: expected expression string, got %T", filter.ErrInvalidExpression, result)
+		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected expression string, got %T", result)
 	}
 	return s, nil
 }
@@ -442,7 +444,7 @@ func (t *Translator) getExprString(node filter.Node) (string, error) {
 // checkDepth verifies we haven't exceeded maximum nesting depth.
 func (t *Translator) checkDepth() error {
 	if t.depth >= t.config.MaxDepth() {
-		return fmt.Errorf("%w: depth %d exceeds maximum %d", filter.ErrMaxDepthExceeded, t.depth, t.config.MaxDepth())
+		return coreerrs.Wrapf(filter.ErrMaxDepthExceeded, "depth %d exceeds maximum %d", t.depth, t.config.MaxDepth())
 	}
 	return nil
 }

@@ -243,30 +243,30 @@ func (c *Cursor) UnmarshalJSON(data []byte) error {
 //	}
 func ParseCursor(encoded string) (*Cursor, error) {
 	if encoded == "" {
-		return nil, fmt.Errorf("%w: empty string", ErrInvalidCursor)
+		return nil, coreerrs.Wrap(ErrInvalidCursor, "empty string")
 	}
 
 	// Base64 decode
 	jsonBytes, err := base64.URLEncoding.DecodeString(encoded)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidCursor, err)
+		return nil, coreerrs.Wrapf(ErrInvalidCursor, "%v", err)
 	}
 
 	// JSON decode using alias to avoid calling UnmarshalJSON
 	type cursorAlias Cursor
 	var c cursorAlias
 	if err = json.Unmarshal(jsonBytes, &c); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidCursor, err)
+		return nil, coreerrs.Wrapf(ErrInvalidCursor, "%v", err)
 	}
 
 	// Validation
 	if c.CursorId == "" {
-		return nil, fmt.Errorf("%w: cursor_id is required", ErrInvalidCursor)
+		return nil, coreerrs.Wrap(ErrInvalidCursor, "cursor_id is required")
 	}
 
 	// Validate cursor ID format
 	if !isValidCursorId(c.CursorId) {
-		return nil, fmt.Errorf("%w: invalid cursor: cursor_id must be a MongoDB ObjectID (24 hex characters)", ErrInvalidCursor)
+		return nil, coreerrs.Wrap(ErrInvalidCursor, "invalid cursor: cursor_id must be a MongoDB ObjectID (24 hex characters)")
 	}
 
 	return (*Cursor)(&c), nil
@@ -683,8 +683,8 @@ func (c *Cursor) ValidateFilter(filter bson.M) error {
 
 	// Compare hashes
 	if c.FilterHash != currentHash {
-		return fmt.Errorf("%w: expected hash %s, got %s",
-			ErrCursorFilterMismatch, c.FilterHash, currentHash)
+		return coreerrs.Wrapf(ErrCursorFilterMismatch, "expected hash %s, got %s",
+			c.FilterHash, currentHash)
 	}
 
 	return nil

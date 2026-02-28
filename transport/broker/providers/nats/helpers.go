@@ -5,9 +5,10 @@
 package natsprovider
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
+
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 var subjectRx = regexp.MustCompile(`^[a-zA-Z0-9\-]+$`)
@@ -57,5 +58,5 @@ func (n *Nats) checkSubjectAllowed(subject string) error {
 			return nil
 		}
 	}
-	return fmt.Errorf("%w: %q", ErrSubjectNotAllowed, subject)
+	return coreerrs.Wrapf(ErrSubjectNotAllowed, "%q", subject)
 }

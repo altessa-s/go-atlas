@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 const (
@@ -43,9 +45,9 @@ var (
 // This generic function replaces multiple specialized error wrappers to reduce code duplication.
 func wrapError(baseErr error, msgTemplate string, value string, cause error) error {
 	if cause != nil {
-		return fmt.Errorf("%w: "+msgTemplate+": %v", baseErr, value, cause)
+		return coreerrs.Wrapf(baseErr, msgTemplate+": %v", value, cause)
 	}
-	return fmt.Errorf("%w: "+msgTemplate, baseErr, value)
+	return coreerrs.Wrapf(baseErr, msgTemplate, value)
 }
 
 // field represents a struct field with its metadata, tags, and reflection information.

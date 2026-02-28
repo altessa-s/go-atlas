@@ -6,7 +6,6 @@ package filter
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -96,7 +95,7 @@ func NewParser(opts ...ParserOption) (*Parser, error) {
 
 	env, err := getCELEnvironment()
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrParseFailed, err)
+		return nil, coreerrs.Wrapf(ErrParseFailed, "%v", err)
 	}
 
 	p := &Parser{env: env, maxExpressionLength: cfg.maxExpressionLength}
@@ -119,7 +118,7 @@ func (p *Parser) Parse(ctx context.Context, expression string) (Node, error) {
 	}
 
 	if len(expression) > p.maxExpressionLength {
-		return nil, fmt.Errorf("%w: length %d exceeds maximum %d", ErrExpressionTooLong, len(expression), p.maxExpressionLength)
+		return nil, coreerrs.Wrapf(ErrExpressionTooLong, "length %d exceeds maximum %d", len(expression), p.maxExpressionLength)
 	}
 
 	if p.cache != nil {
@@ -141,12 +140,12 @@ func (p *Parser) MustParse(expression string) Node {
 func (p *Parser) parseInternal(expression string) (Node, error) {
 	ast, issues := p.env.Parse(expression)
 	if issues != nil && issues.Err() != nil {
-		return nil, fmt.Errorf("%w: %v", ErrParseFailed, issues.Err())
+		return nil, coreerrs.Wrapf(ErrParseFailed, "%v", issues.Err())
 	}
 
 	parsedExpr, err := cel.AstToParsedExpr(ast)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrParseFailed, err)
+		return nil, coreerrs.Wrapf(ErrParseFailed, "%v", err)
 	}
 	return p.convertExpr(parsedExpr.GetExpr())
 }
@@ -154,7 +153,7 @@ func (p *Parser) parseInternal(expression string) (Node, error) {
 // convertExpr converts a CEL expression to our AST node.
 func (p *Parser) convertExpr(expr *exprpb.Expr) (Node, error) {
 	if expr == nil {
-		return nil, fmt.Errorf("%w: nil expression", ErrInvalidExpression)
+		return nil, coreerrs.Wrap(ErrInvalidExpression, "nil expression")
 	}
 
 	switch e := expr.ExprKind.(type) {
@@ -169,7 +168,7 @@ func (p *Parser) convertExpr(expr *exprpb.Expr) (Node, error) {
 	case *exprpb.Expr_ListExpr:
 		return p.convertList(e.ListExpr)
 	default:
-		return nil, fmt.Errorf("%w: unsupported expression type %T", ErrInvalidExpression, e)
+		return nil, coreerrs.Wrapf(ErrInvalidExpression, "unsupported expression type %T", e)
 	}
 }
 
@@ -191,7 +190,7 @@ func (p *Parser) convertConst(c *exprpb.Constant) (Node, error) {
 	case *exprpb.Constant_NullValue:
 		return &LiteralNode{Value: nil}, nil
 	default:
-		return nil, fmt.Errorf("%w: unsupported constant type %T", ErrUnsupportedType, k)
+		return nil, coreerrs.Wrapf(ErrUnsupportedType, "unsupported constant type %T", k)
 	}
 }
 
@@ -227,7 +226,7 @@ func (p *Parser) buildFieldPath(s *exprpb.Expr_Select) (string, error) {
 			parts = append([]string{e.SelectExpr.Field}, parts...)
 			operand = e.SelectExpr.Operand
 		default:
-			return "", fmt.Errorf("%w: cannot build field path from %T", ErrInvalidExpression, e)
+			return "", coreerrs.Wrapf(ErrInvalidExpression, "cannot build field path from %T", e)
 		}
 	}
 
@@ -281,7 +280,7 @@ func (p *Parser) convertCall(c *exprpb.Expr_Call) (Node, error) {
 	// Has macro
 	case operators.Has:
 		if len(c.Args) != 1 {
-			return nil, fmt.Errorf("%w: has() requires exactly one argument", ErrInvalidExpression)
+			return nil, coreerrs.Wrap(ErrInvalidExpression, "has() requires exactly one argument")
 		}
 		arg, err := p.convertExpr(c.Args[0])
 		if err != nil {
@@ -294,14 +293,14 @@ func (p *Parser) convertCall(c *exprpb.Expr_Call) (Node, error) {
 		return p.convertTimestamp(c.Args)
 
 	default:
-		return nil, fmt.Errorf("%w: %s", ErrUnsupportedOperation, c.Function)
+		return nil, coreerrs.Wrapf(ErrUnsupportedOperation, "%s", c.Function)
 	}
 }
 
 // convertTimestamp converts a timestamp() call to a LiteralNode with time.Time.
 func (p *Parser) convertTimestamp(args []*exprpb.Expr) (Node, error) {
 	if len(args) != 1 {
-		return nil, fmt.Errorf("%w: timestamp() requires exactly one argument", ErrInvalidExpression)
+		return nil, coreerrs.Wrap(ErrInvalidExpression, "timestamp() requires exactly one argument")
 	}
 
 	arg, err := p.convertExpr(args[0])
@@ -311,17 +310,17 @@ func (p *Parser) convertTimestamp(args []*exprpb.Expr) (Node, error) {
 
 	lit, ok := arg.(*LiteralNode)
 	if !ok {
-		return nil, fmt.Errorf("%w: timestamp() requires a string argument", ErrInvalidExpression)
+		return nil, coreerrs.Wrap(ErrInvalidExpression, "timestamp() requires a string argument")
 	}
 
 	s, ok := lit.Value.(string)
 	if !ok {
-		return nil, fmt.Errorf("%w: timestamp() requires a string argument", ErrInvalidExpression)
+		return nil, coreerrs.Wrap(ErrInvalidExpression, "timestamp() requires a string argument")
 	}
 
 	t, err := time.Parse(time.RFC3339, s)
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid timestamp format: %v", ErrInvalidExpression, err)
+		return nil, coreerrs.Wrapf(ErrInvalidExpression, "invalid timestamp format: %v", err)
 	}
 
 	return &LiteralNode{Value: t}, nil
@@ -331,7 +330,7 @@ func (p *Parser) convertTimestamp(args []*exprpb.Expr) (Node, error) {
 func (p *Parser) convertBinaryOp(op Operator, args []*exprpb.Expr) (Node, error) {
 	const binaryArgCount = 2
 	if len(args) != binaryArgCount {
-		return nil, fmt.Errorf("%w: binary operator requires 2 arguments, got %d", ErrInvalidExpression, len(args))
+		return nil, coreerrs.Wrapf(ErrInvalidExpression, "binary operator requires 2 arguments, got %d", len(args))
 	}
 
 	left, err := p.convertExpr(args[0])
@@ -350,7 +349,7 @@ func (p *Parser) convertBinaryOp(op Operator, args []*exprpb.Expr) (Node, error)
 // convertUnaryOp creates a UnaryOpNode from arguments.
 func (p *Parser) convertUnaryOp(op Operator, args []*exprpb.Expr) (Node, error) {
 	if len(args) != 1 {
-		return nil, fmt.Errorf("%w: unary operator requires 1 argument, got %d", ErrInvalidExpression, len(args))
+		return nil, coreerrs.Wrapf(ErrInvalidExpression, "unary operator requires 1 argument, got %d", len(args))
 	}
 
 	operand, err := p.convertExpr(args[0])

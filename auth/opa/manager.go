@@ -292,7 +292,7 @@ func loadBundleData(ctx context.Context, store storage.Store, data map[string]an
 			return fmt.Errorf("invalid data path %q", key)
 		}
 		if err := store.Write(ctx, txn, storage.AddOp, path, value); err != nil {
-			return fmt.Errorf("write data %q: %w", key, err)
+			return coreerrs.Wrapf(err, "write data %q", key)
 		}
 	}
 

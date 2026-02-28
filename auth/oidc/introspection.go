@@ -7,7 +7,6 @@ package oidc
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -19,6 +18,7 @@ import (
 	"github.com/altessa-s/go-atlas/data/probfilter"
 
 	corecontext "github.com/altessa-s/go-atlas/core/context"
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // Filter is an alias for probfilter.Filter
@@ -73,11 +73,11 @@ type IntrospectionResponse struct {
 //	if resp.Active { /* token is valid */ }
 func (p *Provider) IntrospectToken(ctx context.Context, token string) (*IntrospectionResponse, error) {
 	if p.discoveryInfo.IntrospectionURL == "" {
-		return nil, fmt.Errorf("%w: introspection endpoint not available in discovery document", ErrIntrospection)
+		return nil, coreerrs.Wrap(ErrIntrospection, "introspection endpoint not available in discovery document")
 	}
 
 	if p.opts.introspectionClientID == "" || p.opts.introspectionSecret == "" {
-		return nil, fmt.Errorf("%w: introspection client credentials not configured", ErrIntrospection)
+		return nil, coreerrs.Wrap(ErrIntrospection, "introspection client credentials not configured")
 	}
 
 	// Check revocation storage first (pre-introspect check)
@@ -147,7 +147,7 @@ func (p *Provider) IntrospectToken(ctx context.Context, token string) (*Introspe
 		strings.NewReader(formData.Encode()),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to create introspection request: %v", ErrIntrospection, err)
+		return nil, coreerrs.Wrapf(ErrIntrospection, "failed to create introspection request: %v", err)
 	}
 
 	// Set headers
@@ -158,24 +158,24 @@ func (p *Provider) IntrospectToken(ctx context.Context, token string) (*Introspe
 	// Execute request
 	resp, err := p.client.Do(req) //nolint:bodyclose
 	if err != nil {
-		return nil, fmt.Errorf("%w: introspection request failed: %v", ErrIntrospection, err)
+		return nil, coreerrs.Wrapf(ErrIntrospection, "introspection request failed: %v", err)
 	}
 	defer drainAndClose(resp)
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, MaxErrorResponseSize)) //nolint:errcheck
-		return nil, fmt.Errorf("%w: introspection endpoint returned status %d (%s)", ErrIntrospection, resp.StatusCode, strings.TrimSpace(string(body)))
+		return nil, coreerrs.Wrapf(ErrIntrospection, "introspection endpoint returned status %d (%s)", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	// Parse response
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("%w: failed to read introspection response: %v", ErrIntrospection, err)
+		return nil, coreerrs.Wrapf(ErrIntrospection, "failed to read introspection response: %v", err)
 	}
 
 	var introspectionResp IntrospectionResponse
 	if err := json.Unmarshal(body, &introspectionResp); err != nil {
-		return nil, fmt.Errorf("%w: failed to parse introspection response: %v", ErrIntrospection, err)
+		return nil, coreerrs.Wrapf(ErrIntrospection, "failed to parse introspection response: %v", err)
 	}
 
 	if p.tokenCache != nil {

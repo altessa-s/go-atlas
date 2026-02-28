@@ -97,7 +97,7 @@ func (f *Factory) createProviderFromConfig(ctx context.Context, cfg *config.Secr
 	case config.SecretsProviderMemory:
 		return memoryprovider.New[any](nil)
 	default:
-		return nil, fmt.Errorf("invalid configuration for %s: %w", "secrets provider", fmt.Errorf("unsupported provider: %s", cfg.Provider))
+		return nil, errors.Wrapf(fmt.Errorf("unsupported provider: %s", cfg.Provider), "invalid configuration for %s", "secrets provider")
 	}
 }
 

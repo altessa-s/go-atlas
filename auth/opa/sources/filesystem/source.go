@@ -138,7 +138,7 @@ func (s *Source) Fetch(ctx context.Context) (*opa.PolicyBundle, error) {
 	}
 
 	if len(modules) == 0 {
-		return nil, fmt.Errorf("%w: %s", opa.ErrNoPolicyFiles, s.path)
+		return nil, coreerrs.Wrapf(opa.ErrNoPolicyFiles, "%s", s.path)
 	}
 
 	var bundle *opa.PolicyBundle
@@ -234,13 +234,13 @@ func (s *Source) verifyChecksum(relPath string, content []byte) error {
 
 	expected, ok := s.opts.checksums[relPath]
 	if !ok {
-		return fmt.Errorf("%w: %s", ErrUnexpectedPolicyFile, relPath)
+		return coreerrs.Wrapf(ErrUnexpectedPolicyFile, "%s", relPath)
 	}
 
 	actual := corehash.SHA256HexBytes(content)
 
 	if actual != expected {
-		return fmt.Errorf("%w: %s (expected %s, got %s)", ErrChecksumMismatch, relPath, expected, actual)
+		return coreerrs.Wrapf(ErrChecksumMismatch, "%s (expected %s, got %s)", relPath, expected, actual)
 	}
 
 	return nil
@@ -255,7 +255,7 @@ func (s *Source) verifyAllChecksumsCovered(loaded map[string]string) error {
 
 	for path := range s.opts.checksums {
 		if _, ok := loaded[path]; !ok {
-			return fmt.Errorf("%w: %s", ErrMissingPolicyFile, path)
+			return coreerrs.Wrapf(ErrMissingPolicyFile, "%s", path)
 		}
 	}
 

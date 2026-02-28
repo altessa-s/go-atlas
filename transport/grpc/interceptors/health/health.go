@@ -7,13 +7,13 @@ package health
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	stdGrpc "google.golang.org/grpc"
 )
 
@@ -121,7 +121,7 @@ func (i *interceptor) unavailableError(err error) error {
 
 	wrappedErr := err
 	if !errors.Is(err, ErrServiceUnavailable) {
-		wrappedErr = fmt.Errorf("%w: %v", ErrServiceUnavailable, err)
+		wrappedErr = coreerrs.Wrapf(ErrServiceUnavailable, "%v", err)
 	}
 
 	return interceptors.NewError(status.New(codes.Unavailable, "Service Unavailable"), wrappedErr)

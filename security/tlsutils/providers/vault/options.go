@@ -8,7 +8,6 @@ package tlsvault
 
 import (
 	"errors"
-	"fmt"
 	"log/slog"
 	"net"
 	"net/url"
@@ -16,6 +15,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/security/tlsutils"
 
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	vaultApi "github.com/hashicorp/vault/api"
 )
 
@@ -82,7 +82,7 @@ func WithRenewableToken(t *Token) Option {
 func parseEndpoint(endpoint string) (*url.URL, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidEndpoint, err)
+		return nil, coreerrs.Wrapf(ErrInvalidEndpoint, "%v", err)
 	}
 
 	return &url.URL{

@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	coreruntime "github.com/altessa-s/go-atlas/core/runtime"
 )
 
@@ -101,7 +102,7 @@ func Must[M interface{ ~string | ~*string }](ok bool, msg M) {
 // errors.Is(err, ErrInvalidArgument).
 func InvalidArgument(ok bool, msg string) {
 	if ok {
-		panic(fmt.Errorf("%w: %s", ErrInvalidArgument, msg))
+		panic(coreerrs.Wrapf(ErrInvalidArgument, "%s", msg))
 	}
 }
 

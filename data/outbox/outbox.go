@@ -7,7 +7,6 @@ package outbox
 import (
 	"cmp"
 	"context"
-	"errors"
 	"log/slog"
 	"maps"
 	"slices"
@@ -147,7 +146,7 @@ func (o *Outbox) dispatchEvent(ctx context.Context, event Event) error {
 	err := coreretry.Do(ctx, coreretry.Config{
 		MaxAttempts: -1, // retry until success or ctx cancellation
 		ShouldRetry: func(err error) bool {
-			if errors.Is(err, context.Canceled) {
+			if coreerrs.IsContextCanceled(err) {
 				return false
 			}
 			if o.shouldRetry != nil {
@@ -173,7 +172,7 @@ func (o *Outbox) dispatchEvent(ctx context.Context, event Event) error {
 		return nil
 	}
 
-	if errors.Is(err, context.Canceled) {
+	if coreerrs.IsContextCanceled(err) {
 		return coreerrs.Wrap(err, "context canceled before next retry")
 	}
 	return err

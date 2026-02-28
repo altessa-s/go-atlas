@@ -5,13 +5,14 @@
 package mongo
 
 import (
-	"fmt"
 	"regexp"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/altessa-s/go-atlas/data/filter"
+
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // Translator converts filter AST nodes to MongoDB bson.M filters.
@@ -39,7 +40,7 @@ func (t *Translator) Translate(node filter.Node) (bson.M, error) {
 
 	m, ok := result.(bson.M)
 	if !ok {
-		return nil, fmt.Errorf("%w: expected bson.M, got %T", filter.ErrInvalidExpression, result)
+		return nil, coreerrs.Wrapf(filter.ErrInvalidExpression, "expected bson.M, got %T", result)
 	}
 	return m, nil
 }
@@ -53,7 +54,7 @@ func (t *Translator) VisitLiteral(n *filter.LiteralNode) (any, error) {
 func (t *Translator) VisitIdent(n *filter.IdentNode) (any, error) {
 	field := n.Name
 	if !t.config.IsFieldAllowed(field) {
-		return nil, fmt.Errorf("%w: %s", filter.ErrFieldNotAllowed, field)
+		return nil, coreerrs.Wrapf(filter.ErrFieldNotAllowed, "%s", field)
 	}
 	return t.config.ApplyFieldMapping(field), nil
 }
@@ -89,7 +90,7 @@ func (t *Translator) VisitUnaryOp(n *filter.UnaryOpNode) (any, error) {
 	if n.Op == filter.OpNot {
 		return t.translateNot(n.Operand)
 	}
-	return nil, fmt.Errorf("%w: unary operator %v", filter.ErrUnsupportedOperation, n.Op)
+	return nil, coreerrs.Wrapf(filter.ErrUnsupportedOperation, "unary operator %v", n.Op)
 }
 
 // VisitCall converts a function call to a MongoDB filter.
@@ -114,7 +115,7 @@ func (t *Translator) VisitCall(n *filter.CallNode) (any, error) {
 	case filter.OpHas, filter.OpExists:
 		return t.translateHas(n.Target)
 	default:
-		return nil, fmt.Errorf("%w: function %v", filter.ErrUnsupportedOperation, n.Op)
+		return nil, coreerrs.Wrapf(filter.ErrUnsupportedOperation, "function %v", n.Op)
 	}
 }
 
@@ -184,7 +185,7 @@ func (t *Translator) buildComparisonFilter(field string, op filter.Operator, val
 	case filter.OpGTE:
 		return bson.M{field: bson.M{"$gte": value}}, nil
 	default:
-		return nil, fmt.Errorf("%w: comparison operator %v", filter.ErrUnsupportedOperation, op)
+		return nil, coreerrs.Wrapf(filter.ErrUnsupportedOperation, "comparison operator %v", op)
 	}
 }
 
@@ -208,7 +209,7 @@ func (t *Translator) translateSizeComparison(op filter.Operator, call *filter.Ca
 	case filter.OpGT, filter.OpGTE, filter.OpLT, filter.OpLTE:
 		return t.buildSizeExprFilter(field, op, value)
 	default:
-		return nil, fmt.Errorf("%w: size comparison with operator %v", filter.ErrUnsupportedOperation, op)
+		return nil, coreerrs.Wrapf(filter.ErrUnsupportedOperation, "size comparison with operator %v", op)
 	}
 }
 
@@ -223,7 +224,7 @@ func (t *Translator) buildSizeExprFilter(field string, op filter.Operator, value
 
 	mongoOp, ok := opMap[op]
 	if !ok {
-		return nil, fmt.Errorf("%w: size comparison with operator %v", filter.ErrUnsupportedOperation, op)
+		return nil, coreerrs.Wrapf(filter.ErrUnsupportedOperation, "size comparison with operator %v", op)
 	}
 
 	return bson.M{
@@ -244,7 +245,7 @@ func (t *Translator) translateLogical(mongoOp string, left, right filter.Node) (
 	}
 	leftM, ok := leftFilter.(bson.M)
 	if !ok {
-		return nil, fmt.Errorf("%w: expected bson.M for logical operand, got %T", filter.ErrInvalidExpression, leftFilter)
+		return nil, coreerrs.Wrapf(filter.ErrInvalidExpression, "expected bson.M for logical operand, got %T", leftFilter)
 	}
 
 	rightFilter, err := right.Accept(t)
@@ -253,7 +254,7 @@ func (t *Translator) translateLogical(mongoOp string, left, right filter.Node) (
 	}
 	rightM, ok := rightFilter.(bson.M)
 	if !ok {
-		return nil, fmt.Errorf("%w: expected bson.M for logical operand, got %T", filter.ErrInvalidExpression, rightFilter)
+		return nil, coreerrs.Wrapf(filter.ErrInvalidExpression, "expected bson.M for logical operand, got %T", rightFilter)
 	}
 
 	return bson.M{mongoOp: bson.A{leftM, rightM}}, nil
@@ -277,7 +278,7 @@ func (t *Translator) translateNot(operand filter.Node) (bson.M, error) {
 	}
 	innerM, ok := inner.(bson.M)
 	if !ok {
-		return nil, fmt.Errorf("%w: expected bson.M for not operand, got %T", filter.ErrInvalidExpression, inner)
+		return nil, coreerrs.Wrapf(filter.ErrInvalidExpression, "expected bson.M for not operand, got %T", inner)
 	}
 
 	return bson.M{"$nor": bson.A{innerM}}, nil
@@ -297,7 +298,7 @@ func (t *Translator) translateIn(left, right filter.Node) (bson.M, error) {
 
 	valuesSlice, ok := values.([]any)
 	if !ok {
-		return nil, fmt.Errorf("%w: in operator requires a list, got %T", filter.ErrInvalidExpression, values)
+		return nil, coreerrs.Wrapf(filter.ErrInvalidExpression, "in operator requires a list, got %T", values)
 	}
 
 	return bson.M{field: bson.M{"$in": valuesSlice}}, nil
@@ -311,7 +312,7 @@ func (t *Translator) translateRegexOp(target filter.Node, args []filter.Node, tr
 	}
 
 	if len(args) != 1 {
-		return nil, fmt.Errorf("%w: string function requires exactly 1 argument", filter.ErrInvalidExpression)
+		return nil, coreerrs.Wrap(filter.ErrInvalidExpression, "string function requires exactly 1 argument")
 	}
 
 	arg, err := args[0].Accept(t)
@@ -321,7 +322,7 @@ func (t *Translator) translateRegexOp(target filter.Node, args []filter.Node, tr
 
 	pattern, ok := arg.(string)
 	if !ok {
-		return nil, fmt.Errorf("%w: string function argument must be a string", filter.ErrInvalidExpression)
+		return nil, coreerrs.Wrap(filter.ErrInvalidExpression, "string function argument must be a string")
 	}
 
 	regexPattern, err := transform(pattern)
@@ -371,7 +372,7 @@ func (t *Translator) getFieldName(node filter.Node) (string, error) {
 
 	field, ok := result.(string)
 	if !ok {
-		return "", fmt.Errorf("%w: expected field name, got %T", filter.ErrInvalidExpression, result)
+		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected field name, got %T", result)
 	}
 	return field, nil
 }
@@ -379,7 +380,7 @@ func (t *Translator) getFieldName(node filter.Node) (string, error) {
 // checkDepth verifies we haven't exceeded maximum nesting depth.
 func (t *Translator) checkDepth() error {
 	if t.depth >= t.config.MaxDepth() {
-		return fmt.Errorf("%w: depth %d exceeds maximum %d", filter.ErrMaxDepthExceeded, t.depth, t.config.MaxDepth())
+		return coreerrs.Wrapf(filter.ErrMaxDepthExceeded, "depth %d exceeds maximum %d", t.depth, t.config.MaxDepth())
 	}
 	return nil
 }
@@ -390,7 +391,7 @@ func (t *Translator) convertValue(v any) (any, error) {
 	case nil, bool, int64, uint64, float64, string, []byte, time.Time:
 		return val, nil
 	default:
-		return nil, fmt.Errorf("%w: %T", filter.ErrUnsupportedType, v)
+		return nil, coreerrs.Wrapf(filter.ErrUnsupportedType, "%T", v)
 	}
 }
 

@@ -5,9 +5,10 @@
 package filter
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
+
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // Evaluator evaluates a filter AST against an in-memory map.
@@ -38,7 +39,7 @@ func (e *Evaluator) Evaluate(node Node, data map[string]any) (bool, error) {
 	}
 	b, ok := result.(bool)
 	if !ok {
-		return false, fmt.Errorf("%w: expression must evaluate to bool, got %T", ErrInvalidExpression, result)
+		return false, coreerrs.Wrapf(ErrInvalidExpression, "expression must evaluate to bool, got %T", result)
 	}
 	return b, nil
 }
@@ -58,7 +59,7 @@ func (e *Evaluator) VisitIdent(n *IdentNode) (any, error) {
 	}
 	field := n.Name
 	if !e.config.IsFieldAllowed(field) {
-		return nil, fmt.Errorf("%w: %s", ErrFieldNotAllowed, field)
+		return nil, coreerrs.Wrapf(ErrFieldNotAllowed, "%s", field)
 	}
 	mapped := e.config.ApplyFieldMapping(field)
 	return lookupField(e.data, mapped), nil
@@ -99,7 +100,7 @@ func (e *Evaluator) VisitUnaryOp(n *UnaryOpNode) (any, error) {
 	defer func() { e.depth-- }()
 
 	if n.Op != OpNot {
-		return nil, fmt.Errorf("%w: unary operator %v", ErrUnsupportedOperation, n.Op)
+		return nil, coreerrs.Wrapf(ErrUnsupportedOperation, "unary operator %v", n.Op)
 	}
 
 	val, err := n.Operand.Accept(e)
@@ -108,7 +109,7 @@ func (e *Evaluator) VisitUnaryOp(n *UnaryOpNode) (any, error) {
 	}
 	b, ok := val.(bool)
 	if !ok {
-		return nil, fmt.Errorf("%w: ! requires bool operand, got %T", ErrInvalidExpression, val)
+		return nil, coreerrs.Wrapf(ErrInvalidExpression, "! requires bool operand, got %T", val)
 	}
 	return !b, nil
 }
@@ -138,7 +139,7 @@ func (e *Evaluator) VisitCall(n *CallNode) (any, error) {
 	case OpSize:
 		return e.evalSize(n)
 	default:
-		return nil, fmt.Errorf("%w: function %v", ErrUnsupportedOperation, n.Op)
+		return nil, coreerrs.Wrapf(ErrUnsupportedOperation, "function %v", n.Op)
 	}
 }
 
@@ -166,7 +167,7 @@ func (e *Evaluator) evalLogicalAnd(left, right Node) (any, error) {
 	}
 	lb, ok := lv.(bool)
 	if !ok {
-		return nil, fmt.Errorf("%w: && requires bool operands", ErrInvalidExpression)
+		return nil, coreerrs.Wrap(ErrInvalidExpression, "&& requires bool operands")
 	}
 	if !lb {
 		return false, nil
@@ -177,7 +178,7 @@ func (e *Evaluator) evalLogicalAnd(left, right Node) (any, error) {
 	}
 	rb, ok := rv.(bool)
 	if !ok {
-		return nil, fmt.Errorf("%w: && requires bool operands", ErrInvalidExpression)
+		return nil, coreerrs.Wrap(ErrInvalidExpression, "&& requires bool operands")
 	}
 	return rb, nil
 }
@@ -190,7 +191,7 @@ func (e *Evaluator) evalLogicalOr(left, right Node) (any, error) {
 	}
 	lb, ok := lv.(bool)
 	if !ok {
-		return nil, fmt.Errorf("%w: || requires bool operands", ErrInvalidExpression)
+		return nil, coreerrs.Wrap(ErrInvalidExpression, "|| requires bool operands")
 	}
 	if lb {
 		return true, nil
@@ -201,7 +202,7 @@ func (e *Evaluator) evalLogicalOr(left, right Node) (any, error) {
 	}
 	rb, ok := rv.(bool)
 	if !ok {
-		return nil, fmt.Errorf("%w: || requires bool operands", ErrInvalidExpression)
+		return nil, coreerrs.Wrap(ErrInvalidExpression, "|| requires bool operands")
 	}
 	return rb, nil
 }
@@ -231,7 +232,7 @@ func (e *Evaluator) evalIn(left, right Node) (any, error) {
 	}
 	list, ok := rv.([]any)
 	if !ok {
-		return nil, fmt.Errorf("%w: in requires a list on the right side", ErrInvalidExpression)
+		return nil, coreerrs.Wrap(ErrInvalidExpression, "in requires a list on the right side")
 	}
 	for _, item := range list {
 		if valuesEqual(lv, item) {
@@ -252,7 +253,7 @@ func (e *Evaluator) evalStringFunc(n *CallNode, fn func(string, string) bool) (a
 		return false, nil
 	}
 	if len(n.Args) != 1 {
-		return nil, fmt.Errorf("%w: string function requires exactly 1 argument", ErrInvalidExpression)
+		return nil, coreerrs.Wrap(ErrInvalidExpression, "string function requires exactly 1 argument")
 	}
 	arg, err := n.Args[0].Accept(e)
 	if err != nil {
@@ -260,7 +261,7 @@ func (e *Evaluator) evalStringFunc(n *CallNode, fn func(string, string) bool) (a
 	}
 	substr, ok := arg.(string)
 	if !ok {
-		return nil, fmt.Errorf("%w: string function argument must be a string", ErrInvalidExpression)
+		return nil, coreerrs.Wrap(ErrInvalidExpression, "string function argument must be a string")
 	}
 	return fn(s, substr), nil
 }
@@ -276,7 +277,7 @@ func (e *Evaluator) evalMatches(n *CallNode) (any, error) {
 		return false, nil
 	}
 	if len(n.Args) != 1 {
-		return nil, fmt.Errorf("%w: matches() requires exactly 1 argument", ErrInvalidExpression)
+		return nil, coreerrs.Wrap(ErrInvalidExpression, "matches() requires exactly 1 argument")
 	}
 	arg, err := n.Args[0].Accept(e)
 	if err != nil {
@@ -284,14 +285,14 @@ func (e *Evaluator) evalMatches(n *CallNode) (any, error) {
 	}
 	pattern, ok := arg.(string)
 	if !ok {
-		return nil, fmt.Errorf("%w: matches() argument must be a string", ErrInvalidExpression)
+		return nil, coreerrs.Wrap(ErrInvalidExpression, "matches() argument must be a string")
 	}
 	if vErr := ValidateRegex(pattern, e.config.MaxRegexLength()); vErr != nil {
 		return nil, vErr
 	}
 	matched, mErr := regexp.MatchString(pattern, s)
 	if mErr != nil {
-		return nil, fmt.Errorf("%w: invalid regex: %v", ErrInvalidExpression, mErr)
+		return nil, coreerrs.Wrapf(ErrInvalidExpression, "invalid regex: %v", mErr)
 	}
 	return matched, nil
 }
@@ -300,11 +301,11 @@ func (e *Evaluator) evalMatches(n *CallNode) (any, error) {
 func (e *Evaluator) evalHas(n *CallNode) (any, error) {
 	ident, ok := n.Target.(*IdentNode)
 	if !ok {
-		return nil, fmt.Errorf("%w: has() requires an identifier", ErrInvalidExpression)
+		return nil, coreerrs.Wrap(ErrInvalidExpression, "has() requires an identifier")
 	}
 	field := ident.Name
 	if !e.config.IsFieldAllowed(field) {
-		return nil, fmt.Errorf("%w: %s", ErrFieldNotAllowed, field)
+		return nil, coreerrs.Wrapf(ErrFieldNotAllowed, "%s", field)
 	}
 	mapped := e.config.ApplyFieldMapping(field)
 	return fieldExists(e.data, mapped), nil
@@ -322,7 +323,7 @@ func (e *Evaluator) evalSize(n *CallNode) (any, error) {
 	case []any:
 		return int64(len(v)), nil
 	default:
-		return nil, fmt.Errorf("%w: size() not supported for %T", ErrUnsupportedOperation, target)
+		return nil, coreerrs.Wrapf(ErrUnsupportedOperation, "size() not supported for %T", target)
 	}
 }
 
@@ -391,11 +392,11 @@ func compare(op Operator, left, right any) (bool, error) {
 		case OpNotEqual:
 			return lb != rb, nil
 		default:
-			return false, fmt.Errorf("%w: cannot use %v on booleans", ErrUnsupportedOperation, op)
+			return false, coreerrs.Wrapf(ErrUnsupportedOperation, "cannot use %v on booleans", op)
 		}
 	}
 
-	return false, fmt.Errorf("%w: cannot compare %T and %T", ErrUnsupportedType, left, right)
+	return false, coreerrs.Wrapf(ErrUnsupportedType, "cannot compare %T and %T", left, right)
 }
 
 func compareNil(op Operator, left, right any) (bool, error) {
@@ -405,7 +406,7 @@ func compareNil(op Operator, left, right any) (bool, error) {
 	case OpNotEqual:
 		return left != nil || right != nil, nil
 	default:
-		return false, fmt.Errorf("%w: cannot use %v with nil", ErrUnsupportedOperation, op)
+		return false, coreerrs.Wrapf(ErrUnsupportedOperation, "cannot use %v with nil", op)
 	}
 }
 
@@ -428,7 +429,7 @@ func compareOrdered[T ordered](op Operator, a, b T) (bool, error) {
 	case OpGTE:
 		return a >= b, nil
 	default:
-		return false, fmt.Errorf("%w: operator %v", ErrUnsupportedOperation, op)
+		return false, coreerrs.Wrapf(ErrUnsupportedOperation, "operator %v", op)
 	}
 }
 
@@ -460,7 +461,7 @@ func valuesEqual(a, b any) bool {
 
 func (e *Evaluator) checkDepth() error {
 	if e.depth >= e.config.MaxDepth() {
-		return fmt.Errorf("%w: depth %d exceeds maximum %d", ErrMaxDepthExceeded, e.depth, e.config.MaxDepth())
+		return coreerrs.Wrapf(ErrMaxDepthExceeded, "depth %d exceeds maximum %d", e.depth, e.config.MaxDepth())
 	}
 	return nil
 }
@@ -468,7 +469,7 @@ func (e *Evaluator) checkDepth() error {
 func (e *Evaluator) checkOps() error {
 	e.ops++
 	if e.ops > e.config.MaxOperations() {
-		return fmt.Errorf("%w: operation count %d exceeds maximum %d", ErrMaxOperationsExceeded, e.ops, e.config.MaxOperations())
+		return coreerrs.Wrapf(ErrMaxOperationsExceeded, "operation count %d exceeds maximum %d", e.ops, e.config.MaxOperations())
 	}
 	return nil
 }
@@ -479,10 +480,10 @@ func (e *Evaluator) checkOps() error {
 // used by both the evaluator and translators for consistent regex validation.
 func ValidateRegex(pattern string, maxLength int) error {
 	if len(pattern) > maxLength {
-		return fmt.Errorf("%w: pattern length %d exceeds maximum %d", ErrInvalidRegex, len(pattern), maxLength)
+		return coreerrs.Wrapf(ErrInvalidRegex, "pattern length %d exceeds maximum %d", len(pattern), maxLength)
 	}
 	if _, err := regexp.Compile(pattern); err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalidRegex, err)
+		return coreerrs.Wrapf(ErrInvalidRegex, "%v", err)
 	}
 	return nil
 }

@@ -7,7 +7,6 @@ package secrets
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"sync/atomic"
 	"time"
@@ -111,7 +110,7 @@ func getOrCreateCache[T any](opts *options) (Cache[string, *Value[T]], error) {
 	// Create default standard cache
 	cache, err := NewStandardCache[string, *Value[T]](DefaultMaxCacheSize)
 	if err != nil {
-		return nil, fmt.Errorf("create default cache: %w", err)
+		return nil, coreerrs.Wrap(err, "create default cache")
 	}
 	return cache, nil
 }
@@ -146,7 +145,7 @@ func New[T any](secretStorage Provider[T], opt ...Option) (*Manager[T], error) {
 	// Get provided cache or create default standard cache
 	cache, err := getOrCreateCache[T](opts)
 	if err != nil {
-		return nil, fmt.Errorf("initialize manager: %w", err)
+		return nil, coreerrs.Wrap(err, "initialize manager")
 	}
 
 	mgr := &Manager[T]{

@@ -7,7 +7,6 @@ package oidc
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -96,7 +95,7 @@ func (p *Provider) refreshJWKSInternal(ctx context.Context) error {
 	defer p.jwksRefreshRunning.Store(false)
 
 	if p.discoveryInfo == nil || p.discoveryInfo.JwksURL == "" {
-		return fmt.Errorf("%w: JWKS URL not available", ErrDiscovery)
+		return coreerrs.Wrap(ErrDiscovery, "JWKS URL not available")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.discoveryInfo.JwksURL, nil)
@@ -111,7 +110,7 @@ func (p *Provider) refreshJWKSInternal(ctx context.Context) error {
 	defer drainAndClose(resp)
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("%w: unexpected status %d", ErrDiscovery, resp.StatusCode)
+		return coreerrs.Wrapf(ErrDiscovery, "unexpected status %d", resp.StatusCode)
 	}
 
 	var jwks jwkset.JWKSMarshal

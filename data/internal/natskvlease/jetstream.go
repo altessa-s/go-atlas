@@ -52,8 +52,8 @@ func ValidateNatsVersion(nc *nats.Conn) error {
 		return nil
 	}
 
-	return fmt.Errorf("%w: server version %s is less than required %d.%d",
-		ErrNatsVersionNotSupported, ver, MinNatsMajorVersion, MinNatsMinorVersion)
+	return coreerrs.Wrapf(ErrNatsVersionNotSupported, "server version %s is less than required %d.%d",
+		ver, MinNatsMajorVersion, MinNatsMinorVersion)
 }
 
 // ValidateJetStreamEnabled verifies that JetStream is enabled for the given account.

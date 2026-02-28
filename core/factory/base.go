@@ -9,6 +9,8 @@ import (
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // Base provides common factory functionality including structured logging,
@@ -96,5 +98,5 @@ func (b *Base) WrapError(err error, msg string) error {
 	if err == nil {
 		return nil
 	}
-	return fmt.Errorf("%s: %w", msg, err)
+	return coreerrs.Wrap(err, msg)
 }

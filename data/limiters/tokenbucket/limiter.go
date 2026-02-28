@@ -16,6 +16,8 @@ import (
 	"github.com/altessa-s/go-atlas/data/cache/lru"
 	"github.com/altessa-s/go-atlas/data/limiters"
 	"github.com/altessa-s/go-atlas/data/limiters/tokenbucket/storages"
+
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // LimitInfo is an alias for the shared LimitInfo type.
@@ -67,14 +69,14 @@ type RuleLimiter struct {
 //	limiter, err := tokenbucket.New(config, storage)
 func New(config *RateLimitConfig, storage storages.Storage, opts ...Option) (*RuleLimiter, error) {
 	if err := config.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid rate limit config: %w", err)
+		return nil, coreerrs.Wrap(err, "invalid rate limit config")
 	}
 
 	options := newOptions(opts...)
 
 	cache, err := lru.NewShardedCache[string, *RateLimitSettings](options.iPCacheSize)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create LRU cache: %w", err)
+		return nil, coreerrs.Wrap(err, "failed to create LRU cache")
 	}
 
 	ll := &RuleLimiter{

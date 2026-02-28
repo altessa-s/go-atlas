@@ -6,9 +6,10 @@ package io
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"sync"
+
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // ErrReadLimitExceeded is a sentinel error returned by [LimitedReadCloser.Read] when the
@@ -79,7 +80,7 @@ func (l *LimitedReadCloser) Read(p []byte) (n int, err error) {
 
 	// Check if we've exceeded the limit
 	if totalRead > l.limit {
-		return n, fmt.Errorf("%w: %d bytes read, limit is %d", ErrReadLimitExceeded, totalRead, l.limit)
+		return n, coreerrs.Wrapf(ErrReadLimitExceeded, "%d bytes read, limit is %d", totalRead, l.limit)
 	}
 
 	return n, err
