@@ -21,6 +21,7 @@ import (
 	"github.com/altessa-s/go-atlas/data/locks/dlock/errs"
 	"github.com/altessa-s/go-atlas/data/locks/dlock/providers"
 
+	corectx "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
@@ -214,7 +215,7 @@ func (l *Locker) Close(ctx context.Context) error {
 	// Release all active locks
 	var releaseErrors []error
 	l.activeLocks.Range(func(key string, lock *lock) bool {
-		releaseCtx, cancel := context.WithTimeout(ctx, DefaultOperationsTimeout)
+		releaseCtx, cancel := corectx.ApplyTimeout(ctx, DefaultOperationsTimeout)
 		if err := lock.Release(releaseCtx); err != nil {
 			releaseErrors = append(releaseErrors, coreerrs.Wrapf(err, "failed to release lock %s", key))
 		}

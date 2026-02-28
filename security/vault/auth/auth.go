@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	corectx "github.com/altessa-s/go-atlas/core/context"
 	vaultApi "github.com/hashicorp/vault/api"
 )
 
@@ -178,7 +179,7 @@ func (a *Authenticator) Run(ctx context.Context) {
 		backoff := a.nextBackoffTime()
 
 		// try to authenticate with timeout
-		authCtx, cancel := context.WithTimeout(ctx, a.authTimeout)
+		authCtx, cancel := corectx.ApplyTimeout(ctx, a.authTimeout)
 		secret, err := a.method.Authenticate(authCtx, a.client)
 		cancel() // Always call cancel to release resources
 		if err != nil {

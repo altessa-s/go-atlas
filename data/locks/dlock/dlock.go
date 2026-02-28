@@ -16,6 +16,7 @@ import (
 	"github.com/altessa-s/go-atlas/data/locks/dlock/providers/nats"
 	"github.com/altessa-s/go-atlas/data/locks/dlock/providers/noop"
 
+	corectx "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	natsio "github.com/nats-io/nats.go"
 )
@@ -83,12 +84,8 @@ func (l *DLock) Synchronize(ctx context.Context, key string, fn func(ctx context
 	}
 
 	// Apply timeout protection if configured to prevent indefinite blocking
-	lockCtx := ctx
-	var lockCancel context.CancelFunc
-	if l.lockAcquireTimeout > 0 {
-		lockCtx, lockCancel = context.WithTimeout(ctx, l.lockAcquireTimeout)
-		defer lockCancel()
-	}
+	lockCtx, lockCancel := corectx.ApplyTimeout(ctx, l.lockAcquireTimeout)
+	defer lockCancel()
 
 	// Acquire lock with timeout protection to prevent deadlock scenarios
 	lk, err := l.provider.Lock(lockCtx, key)

@@ -8,6 +8,7 @@ import (
 	"context"
 	"log/slog"
 
+	corectx "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
@@ -94,7 +95,7 @@ func (c *Coordinator) runHealthCheckCycleInternal(ctx context.Context) error {
 		default:
 		}
 
-		checkCtx, cancel := context.WithTimeout(ctx, c.checkTimeout)
+		checkCtx, cancel := corectx.ApplyTimeout(ctx, c.checkTimeout)
 		currentStatus := c.getHealthStatus(checkCtx, service)
 		cancel()
 

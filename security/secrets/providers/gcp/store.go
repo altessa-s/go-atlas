@@ -603,7 +603,7 @@ func (s *Storage[T]) list(ctx context.Context) ([]string, error) {
 //
 // Returns the initialized client or an error if authentication or connection fails.
 func (s *Storage[T]) createClient(ctx context.Context) (cl *secretmanager.Client, err error) {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second) // nolint:mnd
+	ctx, cancel := corecontext.ApplyTimeout(ctx, 10*time.Second) // nolint:mnd
 	defer cancel()
 
 	cl, err = secretmanager.NewClient(ctx,

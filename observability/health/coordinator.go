@@ -17,6 +17,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/core/runtime/concurrency"
 
+	corectx "github.com/altessa-s/go-atlas/core/context"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
@@ -306,7 +307,7 @@ func (c *Coordinator) getHealthStatus(ctx context.Context, service string) Servi
 		return status
 	}
 
-	checkCtx, cancel := context.WithTimeout(ctx, c.checkTimeout)
+	checkCtx, cancel := corectx.ApplyTimeout(ctx, c.checkTimeout)
 	defer cancel()
 
 	var status ServingStatus
@@ -346,7 +347,7 @@ func (c *Coordinator) ListStatuses(ctx context.Context) (map[string]ServingStatu
 	}
 
 	resultsSlice, err := concurrency.ProcessCollect[string, result](ctx, services, func(ctx context.Context, svc string) (result, error) {
-		checkCtx, cancel := context.WithTimeout(ctx, c.checkTimeout)
+		checkCtx, cancel := corectx.ApplyTimeout(ctx, c.checkTimeout)
 		status := c.CheckServiceHealth(checkCtx, svc)
 		cancel()
 

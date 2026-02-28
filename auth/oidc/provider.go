@@ -22,6 +22,7 @@ import (
 	"github.com/MicahParks/keyfunc/v3"
 	"github.com/golang-jwt/jwt/v5"
 
+	corectx "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
@@ -155,7 +156,7 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 	p.backgroundCtx, p.cancelBackgroundCtx = context.WithCancel(ctx)
 
 	const discoveryTimeout = 5 * time.Second
-	discoveryCtx, cancelFunc := context.WithTimeout(p.backgroundCtx, discoveryTimeout)
+	discoveryCtx, cancelFunc := corectx.ApplyTimeout(p.backgroundCtx, discoveryTimeout)
 	defer cancelFunc()
 
 	var err error

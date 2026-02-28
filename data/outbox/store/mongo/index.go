@@ -5,11 +5,10 @@
 package outboxstore
 
 import (
-	"context"
-
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
+	corectx "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
@@ -46,7 +45,7 @@ var eventsIndexes = []mongo.IndexModel{ //nolint:gochecknoglobals
 
 // createIndexes creates required MongoDB indexes on the event collection.
 func (s *Store) createIndexes() error {
-	ctx, cancel := context.WithTimeout(s.ctx, s.indexTimeout)
+	ctx, cancel := corectx.ApplyTimeout(s.ctx, s.indexTimeout)
 	defer cancel()
 
 	// Index creation is generally idempotent in MongoDB.

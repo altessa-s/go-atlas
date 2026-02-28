@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"time"
 
+	corectx "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
@@ -119,7 +120,7 @@ func (o *Outbox) runDispatchCycleInternal(ctx context.Context) error {
 	// to let it attempt completion, bounded by specific timeouts.
 	cycleCtx := context.WithoutCancel(ctx)
 
-	fetchCtx, cancelFetch := context.WithTimeout(cycleCtx, o.fetchTimeout)
+	fetchCtx, cancelFetch := corectx.ApplyTimeout(cycleCtx, o.fetchTimeout)
 	events, err := o.store.FetchUnprocessedEvents(fetchCtx, o.eventsBatchSize, time.Now().UTC().Add(-o.retryInterval))
 	cancelFetch()
 
@@ -137,7 +138,7 @@ func (o *Outbox) runDispatchCycleInternal(ctx context.Context) error {
 	o.logger.DebugContext(ctx, "fetched unprocessed events", slog.Int("count", len(events)))
 
 	// Create context for handleEvents with its own timeout, derived from the *main* context.
-	handleCtx, handleCtxCancel := context.WithTimeout(ctx, o.handleTimeout)
+	handleCtx, handleCtxCancel := corectx.ApplyTimeout(ctx, o.handleTimeout)
 	defer handleCtxCancel()
 
 	o.handleEvents(handleCtx, events...)

@@ -19,6 +19,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
+	corectx "github.com/altessa-s/go-atlas/core/context"
 	coreretry "github.com/altessa-s/go-atlas/core/runtime/retry"
 )
 
@@ -134,7 +135,7 @@ func (lb *Token) GetRequestMetadata(ctx context.Context, _ ...string) (map[strin
 			defer lb.backgroundRefreshWg.Done()
 
 			// Create a context with timeout for the background refresh
-			refreshCtx, cancel := context.WithTimeout(ctx, refreshTimeoutSeconds*time.Second)
+			refreshCtx, cancel := corectx.ApplyTimeout(ctx, refreshTimeoutSeconds*time.Second)
 			defer cancel()
 
 			// Check shutdown status again to avoid unnecessary work

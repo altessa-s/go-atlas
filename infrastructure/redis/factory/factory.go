@@ -14,6 +14,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/config"
 
+	corectx "github.com/altessa-s/go-atlas/core/context"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 )
 
@@ -151,7 +152,7 @@ func (f *Factory) CreateClientFromConfig(ctx context.Context, cfg *config.Redis)
 	}
 	client := redis.NewUniversalClient(opts)
 
-	pingCtx, cancel := context.WithTimeout(ctx, DefaultPingTimeout)
+	pingCtx, cancel := corectx.ApplyTimeout(ctx, DefaultPingTimeout)
 	defer cancel()
 
 	if err := client.Ping(pingCtx).Err(); err != nil {

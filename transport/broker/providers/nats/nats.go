@@ -18,6 +18,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/transport/broker"
 
+	corectx "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
@@ -81,7 +82,7 @@ func NewWithContext(ctx context.Context, conn *nats.Conn, opts ...Option) (*Nats
 		return nil, coreerrs.WrapOperation(err, "create JetStream context")
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second) //nolint:mnd
+	ctx, cancel := corectx.ApplyTimeout(ctx, 5*time.Second) //nolint:mnd
 	defer cancel()
 
 	// Validate JetStream is enabled on the NATS server.

@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"slices"
 	"time"
+
+	corectx "github.com/altessa-s/go-atlas/core/context"
 )
 
 // loadTasks verifies that the storage backend is reachable and logs every
@@ -407,12 +409,8 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 	state = currentState
 
 	// Create execution context with timeout if specified
-	execCtx := ctx
-	var cancel context.CancelFunc
-	if task.config.Timeout > 0 {
-		execCtx, cancel = context.WithTimeout(ctx, task.config.Timeout)
-		defer cancel()
-	}
+	execCtx, cancel := corectx.ApplyTimeout(ctx, task.config.Timeout)
+	defer cancel()
 
 	// Execute the task
 	execErr := task.config.Func(execCtx)

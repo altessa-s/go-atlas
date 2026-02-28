@@ -16,6 +16,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/security/tlsutils"
 
+	corectx "github.com/altessa-s/go-atlas/core/context"
 	tlsproviders "github.com/altessa-s/go-atlas/security/tlsutils/providers"
 )
 
@@ -104,7 +105,7 @@ func (v *Vault) withOCSPStaple(ctx context.Context, cert *tls.Certificate) (*tls
 	// Add OCSP stapling if enabled
 	if v.ocspStapler != nil && cert != nil {
 		// Apply timeout to prevent slow OCSP responses from blocking TLS handshake
-		ocspCtx, cancel := context.WithTimeout(ctx, ocspTimeout)
+		ocspCtx, cancel := corectx.ApplyTimeout(ctx, ocspTimeout)
 		defer cancel()
 
 		// GetOCSPStaple caches the certificate for scheduler-based refresh

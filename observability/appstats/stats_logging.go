@@ -8,6 +8,8 @@ import (
 	"context"
 	"log/slog"
 	"time"
+
+	corectx "github.com/altessa-s/go-atlas/core/context"
 )
 
 const (
@@ -68,7 +70,7 @@ func NewStatsLogger(opts ...StatsLoggerOption) *StatsLogger {
 // Returns nil on success. Errors during metrics collection are logged but not returned,
 // as partial statistics are still valuable.
 func (s *StatsLogger) RunLogCycle(ctx context.Context) error {
-	ctx, cancel := context.WithTimeout(ctx, DefaultStatsCollectionTimeout)
+	ctx, cancel := corectx.ApplyTimeout(ctx, DefaultStatsCollectionTimeout)
 	defer cancel()
 
 	// Get comprehensive application statistics
