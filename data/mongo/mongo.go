@@ -27,6 +27,7 @@ import (
 
 	corecontext "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreretry "github.com/altessa-s/go-atlas/core/runtime/retry"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
@@ -609,73 +610,36 @@ func (m *Mongo) createKeyVaultCollection(ctx context.Context, database, collecti
 	return err
 }
 
-func (m *Mongo) ping(ctx context.Context, client *mongo.Client) (err error) {
-	var retryTimer *time.Timer
-	defer func() {
-		if retryTimer != nil {
-			retryTimer.Stop()
-		}
-	}()
-
-	for attempt := 1; attempt <= DefaultPingMaxRetries; attempt++ {
-		pingCtx, pingCtxCancel := corecontext.WithMaxTimeout(ctx, DefaultPingTimeout)
-
-		err = client.Ping(pingCtx, readpref.Primary())
-		pingCtxCancel()
-
-		if err == nil {
-			if attempt > 1 {
-				if m.config.Logger != nil {
-					m.config.Logger.Debug("ping succeeded after retries", "attempt", attempt)
-				}
-			}
-			return nil
-		}
-
-		if !IsTransientTransaction(err) {
-			return coreerrs.Wrap(err, "ping failed")
-		}
-
-		if attempt == DefaultPingMaxRetries {
+func (m *Mongo) ping(ctx context.Context, client *mongo.Client) error {
+	return coreretry.Do(ctx, coreretry.Config{
+		MaxAttempts: DefaultPingMaxRetries - 1, // 0-based: attempts 0..N-1 = N total calls
+		ShouldRetry: func(err error) bool {
+			return IsTransientTransaction(err)
+		},
+		NextDelay: func(attempt int, _ error) time.Duration {
+			// Linear backoff: (attempt+1) * base delay
+			return time.Duration(attempt+1) * DefaultPingBaseDelay
+		},
+		OnRetry: func(attempt int, err error, nextDelay time.Duration) {
 			if m.config.Logger != nil {
-				m.config.Logger.Warn("ping failed after all retries",
-					"attempts", DefaultPingMaxRetries, slog.Any("error", err))
+				m.config.Logger.Debug("ping failed, retrying",
+					slog.Int("attempt", attempt+1),
+					slog.Int64("delay_ms", nextDelay.Milliseconds()),
+					slog.Any("error", err))
+			}
+		},
+	}, func(ctx context.Context) error {
+		pingCtx, pingCtxCancel := corecontext.WithMaxTimeout(ctx, DefaultPingTimeout)
+		defer pingCtxCancel()
+
+		if err := client.Ping(pingCtx, readpref.Primary()); err != nil {
+			if !IsTransientTransaction(err) {
+				return coreerrs.Wrap(err, "ping failed")
 			}
 			return err
 		}
-
-		delay := time.Duration(attempt) * DefaultPingBaseDelay
-		if m.config.Logger != nil {
-			m.config.Logger.Debug("ping failed, retrying",
-				slog.Int("attempt", attempt),
-				slog.Int64("delay_ms", delay.Milliseconds()),
-				slog.Any("error", err))
-		}
-
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-retryTimerC(&retryTimer, delay):
-			// Continue to next attempt
-		}
-	}
-
-	return err
-}
-
-func retryTimerC(t **time.Timer, d time.Duration) <-chan time.Time {
-	if *t == nil {
-		*t = time.NewTimer(d)
-		return (*t).C
-	}
-	if !(*t).Stop() {
-		select {
-		case <-(*t).C:
-		default:
-		}
-	}
-	(*t).Reset(d)
-	return (*t).C
+		return nil
+	})
 }
 
 // getServerInfo retrieves MongoDB server version information using the buildInfo command.
