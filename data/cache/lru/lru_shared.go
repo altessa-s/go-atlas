@@ -12,6 +12,7 @@ import (
 	"iter"
 	"runtime"
 	"sync"
+	"unsafe"
 )
 
 // ShardedCache is a thread-safe, sharded LRU cache to reduce lock contention.
@@ -74,7 +75,7 @@ func (sc *ShardedCache[K, V]) getShard(key K) *Cache[K, V] {
 
 	switch k := any(key).(type) {
 	case string:
-		_, _ = hasher.Write([]byte(k))
+		_, _ = hasher.Write(unsafe.Slice(unsafe.StringData(k), len(k))) //nolint:gosec // G103: zero-copy read-only access for hashing
 	case []byte:
 		_, _ = hasher.Write(k)
 	case int:
