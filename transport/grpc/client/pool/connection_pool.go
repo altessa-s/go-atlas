@@ -30,14 +30,16 @@ import (
 //
 // All exported methods are safe for concurrent use.
 type ConnectionPool struct {
-	opts    *options
-	logger  *slog.Logger
-	pools   sync.Map // map[string]*targetPool
-	stopped atomic.Bool
+	opts      *options
+	logger    *slog.Logger
+	pools     sync.Map // map[string]*targetPool
+	connOwner sync.Map // map[*grpc.ClientConn]*targetPool — O(1) lookup for ReturnConnection
+	stopped   atomic.Bool
 }
 
 // targetPool manages connections for a specific target address.
 type targetPool struct {
+	pool        *ConnectionPool // back-reference for conn ownership tracking
 	target      string
 	opts        *options
 	logger      *slog.Logger
@@ -177,14 +179,13 @@ func (cp *ConnectionPool) ReturnConnection(conn *grpc.ClientConn) {
 		return
 	}
 
-	// Find the target pool that owns this connection
-	cp.pools.Range(func(key, value any) bool {
-		tPool, ok := value.(*targetPool)
-		if ok && tPool.returnConnection(conn) {
-			return false // Found and returned, stop iteration
-		}
-		return true // Continue searching
-	})
+	// O(1) lookup via connOwner map instead of iterating all target pools
+	val, ok := cp.connOwner.Load(conn)
+	if !ok {
+		return
+	}
+	tPool := val.(*targetPool) //nolint:errcheck // type is guaranteed by store
+	tPool.returnConnection(conn)
 }
 
 // getOrCreateTargetPool retrieves or creates a target pool for the specified address.
@@ -197,6 +198,7 @@ func (cp *ConnectionPool) getOrCreateTargetPool(target string) *targetPool {
 
 	// Create new target pool
 	tPool := &targetPool{
+		pool:        cp,
 		target:      target,
 		opts:        cp.opts,
 		logger:      cp.logger.With("target", target),
@@ -337,6 +339,11 @@ func (tp *targetPool) createConnection(ctx context.Context) (*grpc.ClientConn, e
 	// Register in active connections
 	tp.active.Store(conn, pc)
 
+	// Register conn→targetPool mapping for O(1) ReturnConnection
+	if tp.pool != nil {
+		tp.pool.connOwner.Store(conn, tp)
+	}
+
 	tp.logger.DebugContext(ctx, "established new connection")
 	return conn, nil
 }
@@ -358,6 +365,12 @@ func (tp *targetPool) closeConnection(pc *pooledConnection) {
 	}
 
 	tp.active.Delete(pc.conn)
+
+	// Remove conn→targetPool mapping
+	if tp.pool != nil {
+		tp.pool.connOwner.Delete(pc.conn)
+	}
+
 	_ = pc.conn.Close() // #nosec G104 -- error ignored in cleanup path
 }
 
