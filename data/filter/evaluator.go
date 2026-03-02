@@ -7,9 +7,27 @@ package filter
 import (
 	"regexp"
 	"strings"
+	"sync"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
+
+// regexCache caches compiled regular expressions to avoid recompilation
+// on every evalMatches call. The sync.Map is ideal here: patterns are
+// written once and read many times.
+var regexCache sync.Map // map[string]*regexp.Regexp
+
+func getCompiledRegex(pattern string) (*regexp.Regexp, error) {
+	if cached, ok := regexCache.Load(pattern); ok {
+		return cached.(*regexp.Regexp), nil //nolint:errcheck // type is guaranteed by store
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, err
+	}
+	regexCache.Store(pattern, re)
+	return re, nil
+}
 
 // Evaluator evaluates a filter AST against an in-memory map.
 type Evaluator struct {
@@ -290,11 +308,11 @@ func (e *Evaluator) evalMatches(n *CallNode) (any, error) {
 	if vErr := ValidateRegex(pattern, e.config.MaxRegexLength()); vErr != nil {
 		return nil, vErr
 	}
-	matched, mErr := regexp.MatchString(pattern, s)
+	re, mErr := getCompiledRegex(pattern)
 	if mErr != nil {
 		return nil, coreerrs.Wrapf(ErrInvalidExpression, "invalid regex: %v", mErr)
 	}
-	return matched, nil
+	return re.MatchString(s), nil
 }
 
 // evalHas checks if a field exists (non-nil) in the data.
