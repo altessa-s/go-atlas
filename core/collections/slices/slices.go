@@ -8,7 +8,7 @@ import (
 	"cmp"
 	"container/list"
 	"context"
-	"fmt"
+	"errors"
 	"runtime"
 	"slices"
 	"sync"
@@ -28,6 +28,11 @@ const (
 	// to avoid over-allocation when duplicates are expected to be common.
 	maxPreallocMap = 128
 )
+
+// errFiltered is a sentinel error used by [FilterParallel] to signal that an
+// element did not pass the predicate. Using a pre-allocated sentinel avoids a
+// heap allocation per rejected element.
+var errFiltered = errors.New("filtered")
 
 // Deduplicate returns a new slice containing only the unique elements of collection,
 // preserving the order of first occurrence. It is a convenience wrapper around
@@ -198,7 +203,7 @@ func FilterParallel[T any](collection []T, predicate func(T) bool) []T {
 			return item, nil
 		}
 		var zero T
-		return zero, fmt.Errorf("filtered") // Temporary error to skip
+		return zero, errFiltered
 	}, concurrency.BatchConfig[T]{
 		StopOnError: false,
 	})
