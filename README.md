@@ -45,6 +45,7 @@ import "github.com/altessa-s/go-atlas/data/cache"
 | [`core`](core/) | Collections, errors, context, encoding, retry, scheduling, types (zero external deps) |
 | [`data/audit`](data/audit/) | Async audit-event dispatcher with pluggable storage |
 | [`data/cache`](data/cache/) | Multi-backend caching with singleflight, fallback, and TTL management |
+| [`data/filter`](data/filter/) | CEL expression parser with translators for MongoDB, RediSearch, and Lua |
 | [`data/idempotency`](data/idempotency/) | Idempotency key management (Redis, NATS, memory) |
 | [`data/leadelect`](data/leadelect/) | Leader election (NATS KV-based) |
 | [`data/limiters`](data/limiters/) | Token-bucket rate limiting (Redis, NATS, memory) |
@@ -57,9 +58,11 @@ import "github.com/altessa-s/go-atlas/data/cache"
 | [`domain/fieldtracker`](domain/fieldtracker/) | Struct field change tracking |
 | [`domain/normalizer`](domain/normalizer/) | Tag-driven data normalization with pluggable modifiers |
 | [`domain/proto`](domain/proto/) | Protobuf field mask utilities |
+| [`domain/validation`](domain/validation/) | ISO 7064 MOD 11-10 check-digit computation and validation |
 | [`infrastructure/mongo`](infrastructure/mongo/) | MongoDB client setup and lifecycle |
 | [`infrastructure/nats`](infrastructure/nats/) | NATS connection management |
 | [`infrastructure/redis`](infrastructure/redis/) | Redis client setup |
+| [`observability/appstats`](observability/appstats/) | CPU, memory, network I/O, and goroutine metrics with periodic logging |
 | [`observability/health`](observability/health/) | Health check coordinator with subscriptions |
 | [`observability/metrics`](observability/metrics/) | Prometheus metrics via interface-driven adapters |
 | [`observability/slog`](observability/slog/) | slog extensions: nil-safe helpers, colorized and PII-masking handlers |
@@ -73,6 +76,7 @@ import "github.com/altessa-s/go-atlas/data/cache"
 | [`tools/codegen/goconfig`](tools/codegen/goconfig/) | Configuration struct code generator |
 | [`transport/broker`](transport/broker/) | Message broker abstraction (NATS JetStream, outbox) |
 | [`transport/grpc`](transport/grpc/) | gRPC server, interceptors, factory |
+| [`proto`](proto/) | Protobuf definitions and generated Go code for gRPC services |
 | [`transport/http`](transport/http/) | HTTP server, middlewares, codec registry, HTTP client |
 
 ## Documentation
