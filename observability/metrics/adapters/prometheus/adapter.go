@@ -17,14 +17,16 @@ import (
 
 // Adapter implements the adapters.Adapter interface for Prometheus.
 // It also implements adapters.HTTPHandler for exposing metrics via HTTP.
+//
+// Metrics are registered once and read on every observation, so sync.Map
+// (optimised for read-heavy workloads) replaces the former RWMutex+map.
 type Adapter struct {
 	registerer prometheus.Registerer
 	gatherer   prometheus.Gatherer
 
-	mu       sync.RWMutex
-	counters map[string]*prometheus.CounterVec
-	gauges   map[string]*prometheus.GaugeVec
-	histos   map[string]*prometheus.HistogramVec
+	counters sync.Map // string → *prometheus.CounterVec
+	gauges   sync.Map // string → *prometheus.GaugeVec
+	histos   sync.Map // string → *prometheus.HistogramVec
 }
 
 // New creates a new Prometheus adapter with the given options.
@@ -47,9 +49,6 @@ func New(opts ...Option) *Adapter {
 	return &Adapter{
 		registerer: registerer,
 		gatherer:   gatherer,
-		counters:   make(map[string]*prometheus.CounterVec),
-		gauges:     make(map[string]*prometheus.GaugeVec),
-		histos:     make(map[string]*prometheus.HistogramVec),
 	}
 }
 
@@ -60,93 +59,82 @@ func (a *Adapter) Name() string {
 
 // Register implements adapters.Adapter.
 func (a *Adapter) Register(desc *adapters.Desc) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-
 	switch desc.Type {
 	case adapters.TypeCounter:
-		return registerMetric(a.registerer, a.counters, desc.Name, func() *prometheus.CounterVec {
-			return prometheus.NewCounterVec(prometheus.CounterOpts{
-				Name: desc.Name,
-				Help: desc.Help,
-			}, desc.LabelNames)
-		})
+		if _, ok := a.counters.Load(desc.Name); ok {
+			return nil
+		}
+		vec := prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: desc.Name,
+			Help: desc.Help,
+		}, desc.LabelNames)
+		if err := a.registerer.Register(vec); err != nil {
+			if _, ok := err.(prometheus.AlreadyRegisteredError); ok {
+				return nil
+			}
+			return err
+		}
+		a.counters.Store(desc.Name, vec)
 
 	case adapters.TypeGauge:
-		return registerMetric(a.registerer, a.gauges, desc.Name, func() *prometheus.GaugeVec {
-			return prometheus.NewGaugeVec(prometheus.GaugeOpts{
-				Name: desc.Name,
-				Help: desc.Help,
-			}, desc.LabelNames)
-		})
+		if _, ok := a.gauges.Load(desc.Name); ok {
+			return nil
+		}
+		vec := prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: desc.Name,
+			Help: desc.Help,
+		}, desc.LabelNames)
+		if err := a.registerer.Register(vec); err != nil {
+			if _, ok := err.(prometheus.AlreadyRegisteredError); ok {
+				return nil
+			}
+			return err
+		}
+		a.gauges.Store(desc.Name, vec)
 
 	case adapters.TypeHistogram:
+		if _, ok := a.histos.Load(desc.Name); ok {
+			return nil
+		}
 		buckets := desc.Buckets
 		if len(buckets) == 0 {
 			buckets = metrics.DefaultDurationBuckets
 		}
-		return registerMetric(a.registerer, a.histos, desc.Name, func() *prometheus.HistogramVec {
-			return prometheus.NewHistogramVec(prometheus.HistogramOpts{
-				Name:    desc.Name,
-				Help:    desc.Help,
-				Buckets: buckets,
-			}, desc.LabelNames)
-		})
-	}
-
-	return nil
-}
-
-// registerMetric is a generic helper for registering a metric with Prometheus.
-func registerMetric[T prometheus.Collector](
-	registerer prometheus.Registerer,
-	m map[string]T,
-	name string,
-	create func() T,
-) error {
-	if _, exists := m[name]; exists {
-		return nil
-	}
-
-	vec := create()
-	if err := registerer.Register(vec); err != nil {
-		if _, ok := err.(prometheus.AlreadyRegisteredError); ok {
-			return nil
+		vec := prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    desc.Name,
+			Help:    desc.Help,
+			Buckets: buckets,
+		}, desc.LabelNames)
+		if err := a.registerer.Register(vec); err != nil {
+			if _, ok := err.(prometheus.AlreadyRegisteredError); ok {
+				return nil
+			}
+			return err
 		}
-		return err
+		a.histos.Store(desc.Name, vec)
 	}
-	m[name] = vec
+
 	return nil
 }
 
 // RecordCounter implements adapters.Adapter.
 func (a *Adapter) RecordCounter(name string, labels map[string]string, delta float64) {
-	withMetric(a, name, a.counters, func(vec *prometheus.CounterVec) {
-		vec.With(normalizeLabels(labels)).Add(delta)
-	})
+	if vec, ok := a.counters.Load(name); ok {
+		vec.(*prometheus.CounterVec).With(normalizeLabels(labels)).Add(delta) //nolint:errcheck // type guaranteed by Store
+	}
 }
 
 // RecordGauge implements adapters.Adapter.
 func (a *Adapter) RecordGauge(name string, labels map[string]string, value float64) {
-	withMetric(a, name, a.gauges, func(vec *prometheus.GaugeVec) {
-		vec.With(normalizeLabels(labels)).Set(value)
-	})
+	if vec, ok := a.gauges.Load(name); ok {
+		vec.(*prometheus.GaugeVec).With(normalizeLabels(labels)).Set(value) //nolint:errcheck // type guaranteed by Store
+	}
 }
 
 // RecordHistogram implements adapters.Adapter.
 func (a *Adapter) RecordHistogram(name string, labels map[string]string, value float64) {
-	withMetric(a, name, a.histos, func(vec *prometheus.HistogramVec) {
-		vec.With(normalizeLabels(labels)).Observe(value)
-	})
-}
-
-// withMetric is a generic helper that safely retrieves a metric vec and calls fn if found.
-func withMetric[T any](a *Adapter, name string, m map[string]T, fn func(T)) {
-	a.mu.RLock()
-	vec, ok := m[name]
-	a.mu.RUnlock()
-	if ok {
-		fn(vec)
+	if vec, ok := a.histos.Load(name); ok {
+		vec.(*prometheus.HistogramVec).With(normalizeLabels(labels)).Observe(value) //nolint:errcheck // type guaranteed by Store
 	}
 }
 
