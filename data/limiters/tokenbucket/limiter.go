@@ -8,7 +8,6 @@ import (
 	"cmp"
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"slices"
 	"strings"
@@ -163,7 +162,7 @@ func (l *RuleLimiter) handleRequest(ctx context.Context, token string) (*LimitIn
 			return clientSettings.LimitInfo(), nil // No rate limiting for this client
 		}
 
-		key := fmt.Sprintf("token-%s", token)
+		key := "token-" + token
 		return l.applyRateLimit(ctx, key, clientSettings)
 	}
 
@@ -191,7 +190,7 @@ func (l *RuleLimiter) handleIpBasedRequest(ctx context.Context) (*LimitInfo, err
 
 	// Find matching rule for this IP
 	settings := l.findRateLimitRuleByIp(ctx, parsedIP)
-	key := fmt.Sprintf("ip-%s", ip)
+	key := "ip-" + ip
 	return l.applyRateLimit(ctx, key, settings)
 }
 

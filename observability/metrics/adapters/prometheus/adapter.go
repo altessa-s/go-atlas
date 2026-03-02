@@ -150,10 +150,14 @@ func withMetric[T any](a *Adapter, name string, m map[string]T, fn func(T)) {
 	}
 }
 
+// emptyLabels is a pre-allocated empty label set, avoiding a heap allocation
+// on every unlabeled metric observation.
+var emptyLabels = prometheus.Labels{}
+
 // normalizeLabels returns labels or empty Labels if nil.
 func normalizeLabels(labels map[string]string) prometheus.Labels {
 	if labels == nil {
-		return prometheus.Labels{}
+		return emptyLabels
 	}
 	return labels
 }
