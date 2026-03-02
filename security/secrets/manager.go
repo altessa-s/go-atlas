@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	"github.com/altessa-s/go-atlas/core/collections/maps"
 	"github.com/altessa-s/go-atlas/core/runtime/concurrency"
 	"github.com/altessa-s/go-atlas/data/probfilter"
@@ -87,6 +89,10 @@ type Manager[T any] struct {
 
 	// scheduler is the scheduler for background task registration
 	scheduler corescheduler.TaskRegistrar
+
+	// fetchGroup deduplicates concurrent Value(ctx, key, true) calls for the same key,
+	// preventing cache stampede when multiple goroutines miss the cache simultaneously.
+	fetchGroup singleflight.Group
 
 	// updateCycleRunning guards against concurrent RunUpdateCycle calls
 	updateCycleRunning atomic.Bool
@@ -302,17 +308,19 @@ func (t *Manager[T]) Value(ctx context.Context, key string, force bool) (*Value[
 		}
 	}
 
-	// force=true: fetch from storage provider
+	// force=true: fetch from storage provider via singleflight to deduplicate
+	// concurrent cache misses for the same key (prevents cache stampede).
 	t.opts.logger.DebugContext(ctx, "cache miss, force=true, fetching from storage",
 		slog.String("key", key))
 
-	// Use the existing retry logic from updateValueWithRetry
-	value, err := t.updateValueWithRetry(ctx, key)
+	result, err, _ := t.fetchGroup.Do(key, func() (any, error) {
+		return t.updateValueWithRetry(ctx, key)
+	})
 	if err != nil {
 		return tmp, err
 	}
 
-	return value, nil
+	return result.(*Value[T]), nil //nolint:errcheck // type is guaranteed by updateValueWithRetry
 }
 
 // ClearCache securely clears all cached secret values.
