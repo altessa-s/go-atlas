@@ -57,6 +57,8 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 		lastErr  error
 	)
 
+	ctx := req.Context()
+
 	cfg := rt.cfg
 	cfg.ShouldRetry = func(err error) bool {
 		return rt.shouldRetry(err)
@@ -64,7 +66,7 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 
 	if rt.logger != nil {
 		cfg.OnRetry = func(attempt int, err error, delay time.Duration) {
-			rt.logger.DebugContext(req.Context(),
+			rt.logger.DebugContext(ctx,
 				"http client retrying request",
 				slog.Int("attempt", attempt),
 				slog.String("method", req.Method),
@@ -75,7 +77,7 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 		}
 	}
 
-	retryErr := coreretry.Do(req.Context(), cfg, func(ctx context.Context) error {
+	retryErr := coreretry.Do(ctx, cfg, func(ctx context.Context) error {
 		// Close previous response body if present from a prior attempt.
 		if lastResp != nil {
 			_ = lastResp.Body.Close()

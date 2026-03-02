@@ -612,9 +612,7 @@ func (m *Mongo) createKeyVaultCollection(ctx context.Context, database, collecti
 func (m *Mongo) ping(ctx context.Context, client *mongo.Client) error {
 	return coreretry.Do(ctx, coreretry.Config{
 		MaxAttempts: DefaultPingMaxRetries - 1, // 0-based: attempts 0..N-1 = N total calls
-		ShouldRetry: func(err error) bool {
-			return IsTransientTransaction(err)
-		},
+		ShouldRetry: IsTransientTransaction,
 		NextDelay: func(attempt int, _ error) time.Duration {
 			// Linear backoff: (attempt+1) * base delay
 			return time.Duration(attempt+1) * DefaultPingBaseDelay
