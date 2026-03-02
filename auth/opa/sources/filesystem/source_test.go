@@ -5,8 +5,6 @@
 package filesystem_test
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -15,6 +13,8 @@ import (
 
 	"github.com/altessa-s/go-atlas/auth/opa"
 	"github.com/altessa-s/go-atlas/auth/opa/sources/filesystem"
+
+	corehash "github.com/altessa-s/go-atlas/core/encoding/hash"
 )
 
 func TestNew_ValidDirectory(t *testing.T) {
@@ -403,11 +403,6 @@ func TestSource_Watch(t *testing.T) {
 	}
 }
 
-func sha256Hex(data []byte) string {
-	h := sha256.Sum256(data)
-	return hex.EncodeToString(h[:])
-}
-
 func TestSource_Fetch_ChecksumValid(t *testing.T) {
 	t.Parallel()
 
@@ -424,8 +419,8 @@ func TestSource_Fetch_ChecksumValid(t *testing.T) {
 	}
 
 	checksums := map[string]string{
-		"test.rego":  sha256Hex(policy1),
-		"utils.rego": sha256Hex(policy2),
+		"test.rego":  corehash.SHA256HexBytes(policy1),
+		"utils.rego": corehash.SHA256HexBytes(policy2),
 	}
 
 	source, err := filesystem.New(dir, filesystem.WithChecksums(checksums))
@@ -485,7 +480,7 @@ func TestSource_Fetch_ChecksumMissingFile(t *testing.T) {
 	}
 
 	checksums := map[string]string{
-		"test.rego":    sha256Hex(policy),
+		"test.rego":    corehash.SHA256HexBytes(policy),
 		"missing.rego": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 	}
 
@@ -522,7 +517,7 @@ func TestSource_Fetch_ChecksumUnexpectedFile(t *testing.T) {
 
 	// Only include test.rego in checksums — extra.rego is unexpected.
 	checksums := map[string]string{
-		"test.rego": sha256Hex(policy1),
+		"test.rego": corehash.SHA256HexBytes(policy1),
 	}
 
 	source, err := filesystem.New(dir, filesystem.WithChecksums(checksums))
