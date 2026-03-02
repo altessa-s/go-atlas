@@ -69,7 +69,7 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 
 	if !exists {
 		b = &bucket{
-			requests: make([]time.Time, 0),
+			requests: make([]time.Time, 0, 16), //nolint:mnd // reasonable initial capacity for sliding window
 			limit:    limit,
 			window:   period,
 			lastUsed: now,
@@ -81,16 +81,17 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 	b.window = period
 
 	cutoff := now.Add(-period)
-	validRequests := 0
-	newRequests := make([]time.Time, 0, len(b.requests))
 
+	// In-place compaction: two-pointer technique avoids allocating a new slice.
+	n := 0
 	for _, reqTime := range b.requests {
 		if reqTime.After(cutoff) {
-			newRequests = append(newRequests, reqTime)
-			validRequests++
+			b.requests[n] = reqTime
+			n++
 		}
 	}
-	b.requests = newRequests
+	b.requests = b.requests[:n]
+	validRequests := n
 
 	resetTime := uint64(0)
 	if len(b.requests) > 0 {
