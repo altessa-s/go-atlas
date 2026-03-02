@@ -125,8 +125,8 @@ func (f *Factory) NatsOptionsFromConfig(cfg *config.Nats) ([]nats.Option, error)
 	}
 
 	if cfg.TLS != nil {
-		if f.tlsFactory == nil {
-			return nil, f.Errorf("tls config provided but tls factory is not configured")
+		if err := f.RequireDependency(f.tlsFactory, "tls factory"); err != nil {
+			return nil, err
 		}
 		tlsConfig, err := f.tlsFactory.CreateClientConfigFromConfig(cfg.TLS)
 		if err != nil {

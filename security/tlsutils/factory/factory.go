@@ -126,8 +126,8 @@ func (f *Factory) CreateFileProviderFromConfig(cfg *config.TlsProviderFile) (*tl
 // CreateVaultProviderFromConfig creates a Vault-based TLS provider from configuration.
 // Panics if cfg is nil.
 func (f *Factory) CreateVaultProviderFromConfig(cfg *config.TlsProviderVault) (*tlsvault.Vault, error) {
-	if f.vaultClient == nil {
-		return nil, f.Errorf("vault client required for vault TLS provider")
+	if err := f.RequireDependency(f.vaultClient, "vault client"); err != nil {
+		return nil, err
 	}
 
 	opts := []tlsvault.Option{

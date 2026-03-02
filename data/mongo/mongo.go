@@ -20,6 +20,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 
+	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/data/mongo/kms"
 	"github.com/altessa-s/go-atlas/domain/converter"
 
@@ -27,7 +28,6 @@ import (
 
 	corecontext "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
-	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	coreretry "github.com/altessa-s/go-atlas/core/runtime/retry"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )

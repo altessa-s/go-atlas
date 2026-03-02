@@ -135,7 +135,7 @@ func TestFactory_CreateVaultProviderFromConfig_NoClient(t *testing.T) {
 
 	assert.Nil(t, provider)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "vault client required")
+	assert.Contains(t, err.Error(), "vault client is required")
 }
 
 func TestFactory_CreateLetsEncryptProviderFromConfig_InvalidConfig(t *testing.T) {

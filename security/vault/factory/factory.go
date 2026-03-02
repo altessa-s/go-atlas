@@ -66,18 +66,18 @@ func (f *Factory) CreateVaultFromConfig(ctx context.Context, cfg *config.Vault) 
 func (f *Factory) CreateAuthMethodFromConfig(cfg *config.VaultAuth) (auth.Method, error) {
 	switch cfg.Method {
 	case config.VaultAuthMethodToken:
-		if cfg.Token == nil {
-			return nil, f.Errorf("token required for token auth")
+		if err := f.RequireDependency(cfg.Token, "token config"); err != nil {
+			return nil, err
 		}
 		return token.New(cfg.Token.Expose()), nil
 	case config.VaultAuthMethodAppRole:
-		if cfg.Approle == nil {
-			return nil, f.Errorf("approle config required for approle auth")
+		if err := f.RequireDependency(cfg.Approle, "approle config"); err != nil {
+			return nil, err
 		}
 		return approle.New(cfg.Approle.RoleId, cfg.Approle.SecretId.Expose(), approle.WithMountPath(cfg.Approle.MountPath)), nil
 	case config.VaultAuthMethodUserPass:
-		if cfg.Userpass == nil {
-			return nil, f.Errorf("userpass config required for userpass auth")
+		if err := f.RequireDependency(cfg.Userpass, "userpass config"); err != nil {
+			return nil, err
 		}
 		return userpass.New(cfg.Userpass.Username, cfg.Userpass.Password.Expose(), userpass.WithMountPath(cfg.Userpass.MountPath)), nil
 	default:

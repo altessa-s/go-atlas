@@ -95,8 +95,8 @@ func (f *Factory) CreateServerFromConfig(cfg *config.Grpc) (*grpcserver.Server, 
 
 // buildServerTlsConfig builds a TLS config from gRPC TLS configuration.
 func (f *Factory) buildServerTlsConfig(cfg *config.GrpcTls) (*tls.Config, error) {
-	if f.tlsProviders == nil {
-		return nil, f.Errorf("tls config provided but tls providers are not configured")
+	if err := f.RequireDependency(f.tlsProviders, "tls providers"); err != nil {
+		return nil, err
 	}
 
 	providerType := tlsproviders.ProviderType(cfg.ProviderType)

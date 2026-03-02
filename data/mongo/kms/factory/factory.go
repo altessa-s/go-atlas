@@ -159,8 +159,8 @@ func (f *Factory) createGCPProvider(cfg *config.MongoKMSGoogle) (kms.Provider, e
 }
 
 func (f *Factory) createTLSConfig(cfg *config.TlsClient) (*tls.Config, error) {
-	if f.tlsFactory == nil {
-		return nil, f.Errorf("tls config provided but tls factory is not configured")
+	if err := f.RequireDependency(f.tlsFactory, "tls factory"); err != nil {
+		return nil, err
 	}
 	return f.tlsFactory.CreateClientConfigFromConfig(cfg)
 }
