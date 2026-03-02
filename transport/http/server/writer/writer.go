@@ -7,7 +7,6 @@ package writer
 import (
 	"context"
 	"errors"
-	"io"
 	"net/http"
 	"sync"
 
@@ -141,27 +140,28 @@ func (wr *Writer) Read(r *http.Request, out any) error {
 }
 
 // readBody reads the request body with optional size limiting.
+// Uses a pooled bytes.Buffer to avoid repeated growth allocations on every request.
 func (wr *Writer) readBody(r *http.Request) ([]byte, error) {
+	buf := coreio.GetBuffer()
+	defer coreio.PutBuffer(buf)
+
 	if wr.options.maxBodySize > 0 {
 		limitedReader := coreio.NewLimitedReadCloser(r.Body, wr.options.maxBodySize)
 		defer func() { _ = limitedReader.Close() }()
 
-		body, err := io.ReadAll(limitedReader)
-		if err != nil {
-			// Check if it's a size limit error
+		if _, err := buf.ReadFrom(limitedReader); err != nil {
 			if errors.Is(err, coreio.ErrReadLimitExceeded) {
 				return nil, ErrBodySizeLimitExceeded
 			}
 			return nil, errors.Join(ErrReadBody, err)
 		}
-		return body, nil
+		return append([]byte(nil), buf.Bytes()...), nil
 	}
 
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
+	if _, err := buf.ReadFrom(r.Body); err != nil {
 		return nil, errors.Join(ErrReadBody, err)
 	}
-	return body, nil
+	return append([]byte(nil), buf.Bytes()...), nil
 }
 
 // WriteError writes an error response with optional status code.
