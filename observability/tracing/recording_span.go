@@ -198,13 +198,7 @@ func (s *recordingSpan) export() {
 		Links:      adapterLinks,
 		Status:     adapters.StatusCode(s.status),
 		StatusDesc: s.statusDesc,
-		Resource: &adapters.Resource{
-			Attributes: []adapters.Attribute{
-				{Key: "service.name", Value: s.recorder.tracer.serviceName},
-				{Key: "service.version", Value: s.recorder.tracer.serviceVersion},
-				{Key: "deployment.environment", Value: s.recorder.tracer.environment},
-			},
-		},
+		Resource: s.recorder.tracer.resource,
 		InstrumentationScope: &adapters.InstrumentationScope{
 			Name:      s.recorder.name,
 			Version:   s.recorder.config.InstrumentationVersion(),

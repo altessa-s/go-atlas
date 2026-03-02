@@ -7,7 +7,36 @@ package tracing
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"sync"
 )
+
+// randBufSize is the size of the buffered CSPRNG pool. Each refill is a single
+// syscall to crypto/rand; between refills the bytes are served from memory.
+const randBufSize = 4096
+
+// randPool amortises crypto/rand syscall overhead by reading in bulk.
+type randPool struct {
+	mu  sync.Mutex
+	buf [randBufSize]byte
+	pos int
+}
+
+// rng is the package-level buffered random source.
+// pos starts at randBufSize to force an immediate fill on first use.
+var rng = &randPool{pos: randBufSize}
+
+// read copies len(dst) cryptographically-secure random bytes into dst.
+func (r *randPool) read(dst []byte) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.pos+len(dst) > randBufSize {
+		_, _ = rand.Read(r.buf[:]) //nolint:errcheck // only fails on reader exhaustion
+		r.pos = 0
+	}
+	copy(dst, r.buf[r.pos:r.pos+len(dst)])
+	r.pos += len(dst)
+}
 
 // spanContextImpl is the concrete implementation of SpanContext.
 type spanContextImpl struct {
@@ -24,9 +53,8 @@ func newSpanContextImpl(parent SpanContext) *spanContextImpl {
 		traceFlags: FlagsSampled,
 	}
 
-	// Generate new span ID (crypto/rand.Read error is ignored as it only fails on
-	// reader exhaustion which is extremely rare and would indicate system issues)
-	_, _ = rand.Read(sc.spanID[:]) //nolint:errcheck
+	// Generate new span ID from buffered CSPRNG (amortises syscall overhead)
+	rng.read(sc.spanID[:])
 
 	// Inherit or generate trace ID
 	if parent != nil && parent.IsValid() {
@@ -35,7 +63,7 @@ func newSpanContextImpl(parent SpanContext) *spanContextImpl {
 		sc.remote = false
 	} else {
 		// Generate new trace ID
-		_, _ = rand.Read(sc.traceID[:]) //nolint:errcheck
+		rng.read(sc.traceID[:])
 	}
 
 	return sc

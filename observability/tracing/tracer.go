@@ -23,7 +23,8 @@ type tracer struct {
 	environment    string
 	adapter        adapters.Adapter
 	sampler        sampler.Sampler
-	recorders      sync.Map // map[string]*recorder
+	resource       *adapters.Resource // pre-computed, shared across all spans
+	recorders      sync.Map           // map[string]*recorder
 	shutdown       atomic.Bool
 }
 
@@ -43,6 +44,13 @@ func New(opts ...Option) Tracer {
 		environment:    cfg.environment,
 		adapter:        cfg.adapter,
 		sampler:        cfg.sampler,
+		resource: &adapters.Resource{
+			Attributes: []adapters.Attribute{
+				{Key: "service.name", Value: cfg.serviceName},
+				{Key: "service.version", Value: cfg.serviceVersion},
+				{Key: "deployment.environment", Value: cfg.environment},
+			},
+		},
 	}
 }
 
