@@ -568,7 +568,7 @@ func isWholeWordMatch(s string, pos, length int) bool {
 //
 //	SecureCompare(userToken, expectedToken)  // true if equal
 func SecureCompare(provided, expected string) bool {
-	return subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1
+	return subtle.ConstantTimeCompare(ToBytesUnsafe(provided), ToBytesUnsafe(expected)) == 1
 }
 
 // TimingSafePrefixMatch reports whether s starts with prefix using a
@@ -594,7 +594,7 @@ func TimingSafePrefixMatch(s, prefix string) bool {
 	prefixLower := strings.ToLower(prefix)
 
 	// Use constant-time comparison
-	return subtle.ConstantTimeCompare([]byte(sLower), []byte(prefixLower)) == 1
+	return subtle.ConstantTimeCompare(ToBytesUnsafe(sLower), ToBytesUnsafe(prefixLower)) == 1
 }
 
 // SubstringMatch reports whether s contains substr using a case-insensitive
@@ -634,16 +634,17 @@ func TimingSafeSubstringMatch(s, substr string) bool {
 	}
 
 	sLower := strings.ToLower(s)
-	subLower := []byte(strings.ToLower(substr))
+	subLower := ToBytesUnsafe(strings.ToLower(substr))
 	n := len(subLower)
 
 	if len(sLower) < n {
 		return false
 	}
 
+	sLowerBytes := ToBytesUnsafe(sLower)
 	found := 0
-	for i := 0; i <= len(sLower)-n; i++ {
-		found |= subtle.ConstantTimeCompare([]byte(sLower[i:i+n]), subLower)
+	for i := 0; i <= len(sLowerBytes)-n; i++ {
+		found |= subtle.ConstantTimeCompare(sLowerBytes[i:i+n], subLower)
 	}
 	return found == 1
 }
