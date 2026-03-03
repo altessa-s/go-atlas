@@ -13,7 +13,6 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/altessa-s/go-atlas/core/runtime/concurrency"
 	"github.com/altessa-s/go-atlas/transport/broker"
 	"github.com/altessa-s/go-atlas/transport/broker/msg"
 
@@ -34,18 +33,75 @@ func (n *Nats) Publish(ctx context.Context, pmsg msg.Message) error {
 		return err
 	}
 
-	// Build nats.Msg directly to avoid the wasted make(Header) inside nats.NewMsg.
+	natsMsg, pubOpts := buildNatsMsg(pmsg)
+
+	_, err := n.jetStream.PublishMsg(ctx, natsMsg, pubOpts...)
+	if err != nil {
+		return coreerrs.WrapOperationWithContext(err, "publish message to JetStream", fmt.Sprintf("topic '%s'", pmsg.Topic))
+	}
+	return nil
+}
+
+// PublishBatch sends multiple messages using JetStream async pipelining.
+// All messages are dispatched without waiting for individual ACKs, then
+// all futures are collected. This eliminates per-message round-trip latency.
+// The operation is not atomic: some messages may be stored before an error is returned.
+func (n *Nats) PublishBatch(ctx context.Context, pmsgs ...msg.Message) error {
+	if len(pmsgs) == 0 {
+		return nil
+	}
+
+	// Single message: use synchronous path to avoid async overhead.
+	if len(pmsgs) == 1 {
+		return n.Publish(ctx, pmsgs[0])
+	}
+
+	// Validate all subjects upfront — fail fast before any async publish.
+	for i := range pmsgs {
+		if err := n.checkSubjectAllowed(pmsgs[i].Topic); err != nil {
+			return err
+		}
+	}
+
+	// Fire all messages asynchronously using JetStream pipelining.
+	futures := make([]jetstream.PubAckFuture, 0, len(pmsgs))
+	for i := range pmsgs {
+		natsMsg, pubOpts := buildNatsMsg(pmsgs[i])
+
+		paf, err := n.jetStream.PublishMsgAsync(natsMsg, pubOpts...)
+		if err != nil {
+			return coreerrs.WrapOperationWithContext(err, "async publish to JetStream", fmt.Sprintf("topic '%s'", pmsgs[i].Topic))
+		}
+		futures = append(futures, paf)
+	}
+
+	// Collect results — wait for each future individually.
+	var errs []error
+	for _, paf := range futures {
+		select {
+		case <-paf.Ok():
+			// ACK received.
+		case err := <-paf.Err():
+			errs = append(errs, err)
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+// buildNatsMsg converts a broker message into a NATS JetStream message and publish options.
+func buildNatsMsg(pmsg msg.Message) (*nats.Msg, []jetstream.PublishOpt) {
 	natsMsg := &nats.Msg{
 		Subject: pmsg.Topic,
 		Data:    pmsg.Data,
 		Header:  make(nats.Header, 1+len(pmsg.Metadata)),
 	}
 
-	// Set NATS TTL header if TTL is specified in the message.
 	if pmsg.TTL != 0 {
-		// Nats-TTL header is supported from Nats server v2.11 onwards.
 		if pmsg.TTL == ttlNever {
-			natsMsg.Header.Set("Nats-TTL", "never") // Special value for no expiry.
+			natsMsg.Header.Set("Nats-TTL", "never")
 		} else {
 			natsMsg.Header.Set("Nats-TTL", pmsg.TTL.String())
 		}
@@ -53,7 +109,6 @@ func (n *Nats) Publish(ctx context.Context, pmsg msg.Message) error {
 
 	if len(pmsg.Metadata) > 0 {
 		for _, m := range pmsg.Metadata {
-			// Skip NATS-specific headers and the deduplication ID (handled by jetstream.WithMsgID).
 			if strings.HasPrefix(m.Key, "Nats-") || m.Key == msg.MetaKeyDeduplicateId {
 				continue
 			}
@@ -61,25 +116,12 @@ func (n *Nats) Publish(ctx context.Context, pmsg msg.Message) error {
 		}
 	}
 
-	var pubOptions []jetstream.PublishOpt
+	var pubOpts []jetstream.PublishOpt
 	if did, found := pmsg.Metadata.Value(msg.MetaKeyDeduplicateId); found && did != "" {
-		pubOptions = append(pubOptions, jetstream.WithMsgID(did))
+		pubOpts = append(pubOpts, jetstream.WithMsgID(did))
 	}
 
-	// Publish the message to JetStream.
-	_, err := n.jetStream.PublishMsg(ctx, natsMsg, pubOptions...)
-	if err != nil {
-		return coreerrs.WrapOperationWithContext(err, "publish message to JetStream", fmt.Sprintf("topic '%s'", pmsg.Topic))
-	}
-	return nil
-}
-
-// PublishBatch sends multiple messages concurrently using the batch processor.
-// The operation is not atomic: some messages may be published before the first error is returned.
-func (n *Nats) PublishBatch(ctx context.Context, pmsgs ...msg.Message) error {
-	return concurrency.Process(ctx, pmsgs, func(ctx context.Context, message msg.Message) error {
-		return n.Publish(ctx, message)
-	}, concurrency.BatchConfig[msg.Message]{})
+	return natsMsg, pubOpts
 }
 
 // Subscriber creates a new JetStream subscriber using the provided factory.
