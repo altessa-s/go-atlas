@@ -6,7 +6,6 @@ package health
 
 import (
 	"context"
-	"hash/fnv"
 	"iter"
 	"log/slog"
 	"maps"
@@ -278,9 +277,17 @@ func (c *Coordinator) CheckHealth(ctx context.Context) ServingStatus {
 }
 
 func (c *Coordinator) getShardIndex(service string) int {
-	hasher := fnv.New32a()
-	_, _ = hasher.Write([]byte(service))
-	return int(hasher.Sum32() % uint32(c.numShards)) // #nosec G115 -- numShards is small positive int
+	// Inline FNV-1a 32-bit to avoid allocating a hash.Hash32 per call.
+	const (
+		offset32 uint32 = 2166136261
+		prime32  uint32 = 16777619
+	)
+	h := offset32
+	for i := range len(service) {
+		h ^= uint32(service[i])
+		h *= prime32
+	}
+	return int(h % uint32(c.numShards)) // #nosec G115 -- numShards is small positive int
 }
 
 func (c *Coordinator) getCachedStatus(service string) (ServingStatus, bool) {

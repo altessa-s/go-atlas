@@ -192,6 +192,14 @@ var (
 	metricsMu      sync.Mutex
 	stringBuffer   = sync.Pool{New: func() any { return make([]byte, 0, StringFormatBufferSize) }}
 	memStatsBuffer = sync.Pool{New: func() any { return &runtime.MemStats{} }}
+
+	// metricCollectionTasks is a static list of background metric collectors,
+	// declared at package level to avoid allocating the slice on every tick.
+	metricCollectionTasks = []func(context.Context, int64){
+		collectCPUMetrics,
+		collectMemoryMetrics,
+		collectNetworkMetrics,
+	}
 )
 
 // StartMetricsCollection initializes the background metrics collection system.
@@ -288,12 +296,7 @@ func backgroundMetricsCollection(baseCtx context.Context, stop <-chan struct{}) 
 func collectMetrics(ctx context.Context) {
 	now := time.Now().Unix()
 
-	// Define collection tasks
-	tasks := []func(context.Context, int64){
-		collectCPUMetrics,
-		collectMemoryMetrics,
-		collectNetworkMetrics,
-	}
+	tasks := metricCollectionTasks
 
 	// Run collection tasks concurrently.
 	// Since tasks themselves handle internal timeouts and don't return errors,
@@ -480,7 +483,9 @@ func IsCacheStale() bool {
 // Returns CPULoadData with Service and System CPU usage as formatted percentages,
 // or an error if metrics collection fails (though errors are rare with caching).
 func CPULoad(ctx context.Context) (*CPULoadData, error) {
-	StartMetricsCollectionWithContext(ctx)
+	if !cachedMetrics.running.Load() {
+		StartMetricsCollectionWithContext(ctx)
+	}
 
 	serviceCP := cachedMetrics.ServiceCPU.Load().(string) //nolint:errcheck
 	systemCPU := cachedMetrics.SystemCPU.Load().(string)  //nolint:errcheck
@@ -528,7 +533,9 @@ func ProcessId() int32 {
 // Returns MemoryLoadData with Service and System memory usage as formatted percentages
 // and Total memory in bytes, or an error if metrics collection fails.
 func MemoryLoad(ctx context.Context) (*MemoryLoadData, error) {
-	StartMetricsCollectionWithContext(ctx)
+	if !cachedMetrics.running.Load() {
+		StartMetricsCollectionWithContext(ctx)
+	}
 
 	memData := cachedMetrics.MemoryData.Load()
 	if memData == nil {
@@ -569,7 +576,9 @@ func VirtualMemory(ctx context.Context) (*mem.VirtualMemoryStat, error) {
 // Returns total bytes received and sent since process start as float64 values,
 // or an error if metrics collection fails (though errors are rare with caching).
 func NetworkIO(ctx context.Context) (float64, float64, error) {
-	StartMetricsCollectionWithContext(ctx)
+	if !cachedMetrics.running.Load() {
+		StartMetricsCollectionWithContext(ctx)
+	}
 
 	received := float64(cachedMetrics.NetworkReceived.Load())
 	sent := float64(cachedMetrics.NetworkSent.Load())
