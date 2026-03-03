@@ -6,20 +6,21 @@ package logger
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net"
 	"net/http"
 	"time"
 
+	coreio "github.com/altessa-s/go-atlas/core/io"
+	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 	"github.com/altessa-s/go-atlas/core/time/timeformat"
+	slogx "github.com/altessa-s/go-atlas/observability/slog"
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/requestid"
 	"github.com/altessa-s/go-atlas/transport/internal/clientip"
 	"github.com/altessa-s/go-atlas/transport/internal/observability"
-
-	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
-	slogx "github.com/altessa-s/go-atlas/observability/slog"
 )
 
 const (
@@ -71,15 +72,20 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 			}
 		}
 
-		// Capture request body if enabled
+		// Capture request body if enabled.
+		// Uses a pooled buffer to avoid per-request allocations from io.ReadAll.
 		var requestBody string
 		if m.opts.logRequest && request.Body != nil {
-			bodyBytes, readErr := io.ReadAll(io.LimitReader(request.Body, int64(middlewares.MaxCaptureBodySize)))
-			if readErr == nil {
-				requestBody = string(bodyBytes)
+			buf := coreio.GetBuffer()
+			_, readErr := io.CopyN(buf, request.Body, int64(middlewares.MaxCaptureBodySize))
+			if readErr == nil || errors.Is(readErr, io.EOF) {
+				// Clone buffer contents before returning buffer to pool.
+				captured := bytes.Clone(buf.Bytes())
+				requestBody = string(captured)
 				// Restore the request body so handlers can read it
-				request.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
+				request.Body = io.NopCloser(bytes.NewReader(captured))
 			}
+			coreio.PutBuffer(buf)
 		}
 
 		start := time.Now()
