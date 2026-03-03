@@ -442,18 +442,11 @@ type fieldMetadata struct {
 	hasNestedData  bool            // Indicates if nested parsing was performed
 }
 
-// collectFieldsMetadata extracts and parses metadata for all struct fields using the new Parser.
-// This function now delegates metadata collection to the dedicated Parser structure.
-func (m *Mongo) collectFieldsMetadata(entity any, update, shouldEncrypt bool) []fieldMetadata {
-	parser := NewParser(
-		WithParserUpdate(update),
-		WithParserEncryption(shouldEncrypt),
-		WithParserEncryptionModels(m.config.EncryptionModels),
-		WithParserBSONTagName(m.config.BSONTagName),             // Use configured BSON tag
-		WithParserEncryptionTagName(m.config.EncryptionTagName), // Use configured encryption tag
-	)
-
-	structMeta := parser.ParseStruct(entity)
+// collectFieldsMetadata extracts and parses metadata for all struct fields.
+// Uses the Mongo instance's shared parser whose sharded cache persists across calls,
+// avoiding per-call parser creation and making the cache effective.
+func (m *Mongo) collectFieldsMetadata(entity any, _, _ bool) []fieldMetadata {
+	structMeta := m.structParser.ParseStruct(entity)
 	return structMeta.Fields
 }
 
@@ -477,6 +470,28 @@ func (m *Mongo) processField(ctx context.Context, meta fieldMetadata, update boo
 
 	// Process field using direct method dispatch (simplified)
 	return processor.processFieldDirect()
+}
+
+// processFieldInto processes a single field, writing directly to shared set/unset maps.
+// This avoids per-field map allocation and subsequent merge overhead.
+func (m *Mongo) processFieldInto(ctx context.Context, meta fieldMetadata, update bool, setDoc, unsetDoc bson.M) error {
+	processor := &documentFieldProcessor{
+		mongo:  m,
+		ctx:    ctx,
+		meta:   meta,
+		update: update,
+		result: fieldProcessingResult{
+			setDoc:   setDoc,
+			unsetDoc: unsetDoc,
+		},
+	}
+
+	if result := processor.applyPreProcessingFilters(); result.skip {
+		return nil
+	}
+
+	_, _, err := processor.processFieldDirect()
+	return err
 }
 
 // isEmptyCollection checks if a field represents an empty collection (slice, map, or array).

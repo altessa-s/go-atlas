@@ -97,6 +97,11 @@ type Mongo struct {
 
 	// connected is an atomic boolean indicating the connection state
 	connected atomic.Bool
+
+	// structParser is a reusable Parser instance for document conversion.
+	// Created once per Mongo instance; its sharded cache is shared across
+	// all calls to collectFieldsMetadata, making the cache actually effective.
+	structParser *Parser
 }
 
 // New creates a new MongoDB client instance using option functions.
@@ -129,6 +134,13 @@ func New(database string, opts ...Option) (*Mongo, error) {
 	m := &Mongo{
 		config:   cfg,
 		database: database,
+		// Create a single reusable parser for document conversion.
+		// The parser's sharded cache persists across calls, making it effective.
+		structParser: NewParser(
+			WithParserEncryptionModels(cfg.EncryptionModels),
+			WithParserBSONTagName(cfg.BSONTagName),
+			WithParserEncryptionTagName(cfg.EncryptionTagName),
+		),
 	}
 
 	// Setup encryption if the KMS provider is configured and encryption is enabled

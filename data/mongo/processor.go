@@ -15,8 +15,6 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 
-	"github.com/altessa-s/go-atlas/core/collections/maps"
-
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
@@ -180,19 +178,17 @@ func (dp *documentProcessor) collectFieldsMetadataWithValidation(entity any, upd
 	return fieldsMetadata, nil
 }
 
-// processFieldsWithErrorHandling processes fields with consistent error handling
+// processFieldsWithErrorHandling processes fields with consistent error handling.
+// Shared set/unset maps are passed directly to each field processor,
+// eliminating per-field map allocation and merge overhead.
 func (dp *documentProcessor) processFieldsWithErrorHandling(ctx context.Context, fieldsMetadata []fieldMetadata, update bool) (bson.M, bson.M, error) {
-	set := make(bson.M)
+	set := make(bson.M, len(fieldsMetadata))
 	unset := make(bson.M)
 
 	for _, meta := range fieldsMetadata {
-		s, u, err := dp.mongo.processField(ctx, meta, update)
-		if err != nil {
+		if err := dp.mongo.processFieldInto(ctx, meta, update, set, unset); err != nil {
 			return nil, nil, coreerrs.WrapField(err, meta.fieldName)
 		}
-
-		set = maps.Merge(set, s)
-		unset = maps.Merge(unset, u)
 	}
 
 	return set, unset, nil
