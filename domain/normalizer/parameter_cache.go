@@ -34,7 +34,7 @@ var (
 func ClearParameterCache() {
 	paramCache.mu.Lock()
 	defer paramCache.mu.Unlock()
-	paramCache.cache = make(map[string]modifiers.ModifierParams, DefaultParameterCacheCapacity)
+	clear(paramCache.cache)
 }
 
 // parseModifierParams parses a modifier string that may contain parameters.

@@ -194,7 +194,7 @@ func (pc *ParserCache) Len() int {
 func (pc *ParserCache) Clear() {
 	for _, shard := range pc.shards {
 		shard.mu.Lock()
-		shard.entries = make(map[reflect.Type]*CachedStructMetadata)
+		clear(shard.entries)
 		shard.mu.Unlock()
 	}
 }

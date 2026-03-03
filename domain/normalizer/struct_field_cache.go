@@ -153,7 +153,7 @@ func BuildStructFieldCache(t reflect.Type) *StructFieldCache {
 func ClearStructFieldCache() {
 	structFieldCache.mu.Lock()
 	defer structFieldCache.mu.Unlock()
-	structFieldCache.cache = make(map[reflect.Type]*StructFieldCache)
+	clear(structFieldCache.cache)
 }
 
 // applyTagModifiers applies pre-parsed modifiers to a field value.

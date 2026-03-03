@@ -95,7 +95,7 @@ func EnvCached(key string) string {
 func ClearEnvCache() {
 	envCacheMu.Lock()
 	defer envCacheMu.Unlock()
-	envCache = make(map[string]string)
+	clear(envCache)
 }
 
 // HomeDir returns the current user's home directory by inspecting environment
