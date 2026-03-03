@@ -6,7 +6,6 @@ package concurrency
 
 import (
 	"context"
-	"slices"
 	"sync"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
@@ -141,86 +140,94 @@ loop:
 // [Process]) and collects the transformed results into a slice that preserves
 // the original input order. On error with [BatchConfig.StopOnError] set,
 // partial results collected so far are returned alongside the error.
+//
+// Internally, ProcessCollect processes item indices rather than wrapped
+// structs, writes results directly into a pre-allocated array by position
+// (no mutex needed since each goroutine writes to a unique index), and
+// skips the sort step entirely.
 func ProcessCollect[T, R any](
 	ctx context.Context,
 	items []T,
 	fn TransformFunc[T, R],
 	config BatchConfig[T],
 ) ([]R, error) {
-	if len(items) == 0 {
+	n := len(items)
+	if n == 0 {
 		return []R{}, nil
 	}
 
-	type indexedResult struct {
-		index int
-		val   R
+	// Pre-allocate result array indexed by position.
+	// Each goroutine writes to a unique index — no mutex needed.
+	results := make([]R, n)
+
+	// Track which indices completed successfully for partial-result support.
+	// Written by individual goroutines (one writer per index), read after
+	// Process returns (wg.Wait provides happens-before guarantee).
+	completed := make([]bool, n)
+
+	// Process indices instead of wrapped items.
+	// An int (8 bytes) is much cheaper than struct{int, T} for large T.
+	indices := make([]int, n)
+	for i := range n {
+		indices[i] = i
 	}
 
-	collected := make([]indexedResult, 0, len(items))
-	var mx sync.Mutex
-
-	// Wrap items with index to preserve order
-	type indexedItem struct {
-		index int
-		val   T
-	}
-
-	wrappedItems := make([]indexedItem, len(items))
-	for i, item := range items {
-		wrappedItems[i] = indexedItem{index: i, val: item}
-	}
-
-	// Adapt config for wrapped items
-	wrappedConfig := BatchConfig[indexedItem]{
+	// Adapt config callbacks to map indices back to original items.
+	idxConfig := BatchConfig[int]{
 		Concurrency: config.Concurrency,
 		LimitFunc:   config.LimitFunc,
 		StopOnError: config.StopOnError,
 	}
-
 	if config.OnSuccess != nil {
-		wrappedConfig.OnSuccess = func(item indexedItem) {
-			config.OnSuccess(item.val)
-		}
+		idxConfig.OnSuccess = func(idx int) { config.OnSuccess(items[idx]) }
 	}
 	if config.OnError != nil {
-		wrappedConfig.OnError = func(item indexedItem, err error) {
-			config.OnError(item.val, err)
-		}
+		idxConfig.OnError = func(idx int, err error) { config.OnError(items[idx], err) }
 	}
 
-	// Wrap fn to collect results with index
-	err := Process(ctx, wrappedItems, func(gCtx context.Context, item indexedItem) error {
-		res, err := fn(gCtx, item.val)
-		if err != nil {
-			return err
+	err := Process(ctx, indices, func(gCtx context.Context, idx int) error {
+		res, fnErr := fn(gCtx, items[idx])
+		if fnErr != nil {
+			return fnErr
 		}
-
-		mx.Lock()
-		collected = append(collected, indexedResult{index: item.index, val: res})
-		mx.Unlock()
+		results[idx] = res
+		completed[idx] = true
 		return nil
-	}, wrappedConfig)
+	}, idxConfig)
 
-	// Even on error with StopOnError, we return what we have collected.
-	// Existing implementation returned partial results, so we do the same but ordered.
-	_ = err // Error is handled by returning partial results below
-
-	// Sort by index to restore original order
-	slices.SortFunc(collected, func(a, b indexedResult) int {
-		return a.index - b.index
-	})
-
-	// Unwrap results
-	results := make([]R, len(collected))
-	for i, res := range collected {
-		results[i] = res.val
+	// Fast path: all items completed successfully (common case).
+	if err == nil {
+		return results, nil
 	}
 
-	if err != nil && config.StopOnError {
-		return results, coreerrs.Wrap(err, "batch processing failed")
+	// Error path: compact results to only include successfully completed items,
+	// preserving the original order.
+	count := 0
+	for i := range n {
+		if completed[i] {
+			count++
+		}
 	}
 
-	return results, err
+	if count == n {
+		// All completed despite error (StopOnError=false, error from a single item).
+		if config.StopOnError {
+			return results, coreerrs.Wrap(err, "batch processing failed")
+		}
+		return results, err
+	}
+
+	compacted := make([]R, 0, count)
+	for i := range n {
+		if completed[i] {
+			compacted = append(compacted, results[i])
+		}
+	}
+
+	if config.StopOnError {
+		return compacted, coreerrs.Wrap(err, "batch processing failed")
+	}
+	return compacted, err
 }
 
 // processSequential processes items one by one in the current goroutine.
