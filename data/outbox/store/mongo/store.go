@@ -128,13 +128,15 @@ func (s *Store) UpdateEvents(ctx context.Context, events ...outbox.Event) error 
 	for i := range len(events) {
 		ev := events[i]
 
-		updateDoc := bson.M{"$set": bson.M{
-			collectionFieldStatus:        string(ev.Status),
-			collectionFieldLastAttemptOn: ev.LastAttemptOn.Unix(),
-			collectionFieldLockedOn:      ev.LockedOn.Unix(),
-			collectionFieldLastAttempts:  ev.Attempts,
-			collectionFieldPublishedAt:   ev.PublishedAt.Unix(),
-		}}
+		// bson.D (ordered slice) is more cache-friendly than bson.M (map) for
+		// fixed-schema updates and avoids two map allocations per event.
+		updateDoc := bson.D{{Key: "$set", Value: bson.D{
+			{Key: collectionFieldStatus, Value: string(ev.Status)},
+			{Key: collectionFieldLastAttemptOn, Value: ev.LastAttemptOn.Unix()},
+			{Key: collectionFieldLockedOn, Value: ev.LockedOn.Unix()},
+			{Key: collectionFieldLastAttempts, Value: ev.Attempts},
+			{Key: collectionFieldPublishedAt, Value: ev.PublishedAt.Unix()},
+		}}}
 
 		model := mongo.NewUpdateOneModel().
 			SetFilter(bson.D{{Key: collectionFieldId, Value: ev.Id}}).
