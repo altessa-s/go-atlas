@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"strconv"
 
 	"golang.org/x/sync/singleflight"
 
@@ -108,7 +109,7 @@ func (sc *Cache[K, V]) GetOrCompute(ctx context.Context, key K, fn func(ctx cont
 		return v, nil
 	}
 
-	keyStr := fmt.Sprintf("%v", key)
+	keyStr := formatKey(key)
 	val, err, _ := sc.group.Do(keyStr, func() (any, error) {
 		// Re-check cache inside singleflight
 		if v, ok := sc.Get(key); ok {
@@ -136,6 +137,25 @@ func (sc *Cache[K, V]) GetOrCompute(ctx context.Context, key K, fn func(ctx cont
 	}
 
 	return result, nil
+}
+
+// formatKey converts a comparable key to a string for singleflight deduplication.
+// Uses type-switch fast paths for common key types to avoid fmt.Sprintf reflection overhead.
+func formatKey[K comparable](key K) string {
+	switch k := any(key).(type) {
+	case string:
+		return k
+	case int:
+		return strconv.Itoa(k)
+	case int64:
+		return strconv.FormatInt(k, 10)
+	case uint64:
+		return strconv.FormatUint(k, 10)
+	case int32:
+		return strconv.FormatInt(int64(k), 10)
+	default:
+		return fmt.Sprintf("%v", key)
+	}
 }
 
 var (
