@@ -258,11 +258,9 @@ func (a *Authenticator) runWatcher(ctx context.Context) {
 	}
 
 	// Start the watcher renewal process
-	a.renewWg.Add(1)
-	go func() {
-		defer a.renewWg.Done()
+	a.renewWg.Go(func() {
 		a.watcher.Renew()
-	}()
+	})
 
 	for {
 		select {

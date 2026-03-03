@@ -130,10 +130,7 @@ func (lb *Token) GetRequestMetadata(ctx context.Context, _ ...string) (map[strin
 	} else if lb.shouldRefreshEarly() && !lb.isShutdown.Load() {
 		// Try proactive refresh in background, but don't block if it fails
 		// Use WaitGroup to track background goroutines for proper cleanup
-		lb.backgroundRefreshWg.Add(1)
-		go func(ctx context.Context) {
-			defer lb.backgroundRefreshWg.Done()
-
+		lb.backgroundRefreshWg.Go(func() {
 			// Create a context with timeout for the background refresh
 			refreshCtx, cancel := corectx.ApplyTimeout(ctx, refreshTimeoutSeconds*time.Second)
 			defer cancel()
@@ -142,7 +139,7 @@ func (lb *Token) GetRequestMetadata(ctx context.Context, _ ...string) (map[strin
 			if !lb.isShutdown.Load() {
 				_ = lb.updateClientTokenWithLock(refreshCtx) //nolint:errcheck // Background refresh, errors are ignored
 			}
-		}(ctx)
+		})
 	}
 
 	m := map[string]string{
