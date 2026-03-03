@@ -71,6 +71,9 @@ func (p *Provider) compilePresets() {
 		// Compile CEL rules if any and store separately
 		preset.compiledCELRules = compileVerifierCELRules(ops, p.logger)
 
+		// Pre-build ignored claims set for the compiled verifier
+		ops.buildIgnoredSet()
+
 		// Store compiled verifier in preset
 		preset.compiledVerifier = ops
 	}

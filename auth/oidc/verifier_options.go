@@ -55,5 +55,18 @@ type verifierOptions struct {
 	allowMissingSubject      bool
 	maxTokenLifetime         time.Duration
 	celRules                 []CELValidationRule
-	validMethods             []string `opt:"-"` // Allowed JWT signing algorithms. Empty = DefaultValidMethods.
+	validMethods             []string            `opt:"-"` // Allowed JWT signing algorithms. Empty = DefaultValidMethods.
+	ignoredClaimsSet         map[string]struct{} `opt:"-"` // Pre-built from ignoredClaims. Call buildIgnoredSet() after finalization.
+}
+
+// buildIgnoredSet pre-computes ignoredClaimsSet from ignoredClaims.
+func (o *verifierOptions) buildIgnoredSet() {
+	if len(o.ignoredClaims) == 0 {
+		o.ignoredClaimsSet = nil
+		return
+	}
+	o.ignoredClaimsSet = make(map[string]struct{}, len(o.ignoredClaims))
+	for _, claim := range o.ignoredClaims {
+		o.ignoredClaimsSet[claim] = struct{}{}
+	}
 }

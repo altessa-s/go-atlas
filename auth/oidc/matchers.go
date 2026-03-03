@@ -127,25 +127,24 @@ func HasAnyScope(requiredScopes ...string) PresetMatcherFunc {
 //
 //	matcher := oidc.HasAllScopes("read:users", "write:users")
 func HasAllScopes(requiredScopes ...string) PresetMatcherFunc {
+	// Pre-build the required scope lookup set once (not per invocation).
+	requiredSet := make(map[string]struct{}, len(requiredScopes))
+	for _, s := range requiredScopes {
+		requiredSet[s] = struct{}{}
+	}
+
 	return func(claims map[string]any) bool {
-		// Keep track of matched scopes
-		matched := make(map[string]bool, len(requiredScopes))
-		for _, s := range requiredScopes {
-			matched[s] = false
-		}
-
+		// Track which required scopes have been found.
+		matched := make(map[string]struct{}, len(requiredSet))
 		for s := range parseScopeClaimSeq(claims) {
-			if _, ok := matched[s]; ok {
-				matched[s] = true
+			if _, required := requiredSet[s]; required {
+				matched[s] = struct{}{}
+				if len(matched) == len(requiredSet) {
+					return true // Early exit: all required scopes found.
+				}
 			}
 		}
-
-		for _, m := range matched {
-			if !m {
-				return false
-			}
-		}
-		return true
+		return len(matched) >= len(requiredSet)
 	}
 }
 

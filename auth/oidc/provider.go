@@ -153,6 +153,11 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 	// Validate and compile CEL rules in verifier options
 	p.validateCELRules()
 
+	// Pre-build the ignored claims lookup set for the default verifier options.
+	if p.verifierOptions != nil {
+		p.verifierOptions.buildIgnoredSet()
+	}
+
 	p.backgroundCtx, p.cancelBackgroundCtx = context.WithCancel(ctx)
 
 	const discoveryTimeout = 5 * time.Second
@@ -310,10 +315,20 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 		return presetClaims, nil
 	}
 
-	// Apply function options
-	ops := cloneVerifierOptions(p.verifierOptions)
-	applyValidationOptions(ops, opt...)
-	compiledCELRules := compileVerifierCELRules(ops, p.logger)
+	// Apply function options.
+	// Fast path: when no per-call overrides, reuse pre-built options and CEL rules
+	// to avoid cloneVerifierOptions + compileVerifierCELRules allocations.
+	var ops *verifierOptions
+	var compiledCELRules []celPreCompiledValidationRule
+	if len(opt) == 0 && p.verifierOptions != nil {
+		ops = p.verifierOptions
+		compiledCELRules = p.celCompiledRules
+	} else {
+		ops = cloneVerifierOptions(p.verifierOptions)
+		applyValidationOptions(ops, opt...)
+		ops.buildIgnoredSet()
+		compiledCELRules = compileVerifierCELRules(ops, p.logger)
+	}
 
 	claims, err := p.parseAndValidateToken(token, ops, compiledCELRules)
 	if err != nil {
@@ -461,7 +476,8 @@ func (p *Provider) validateClaims(claims map[string]any, ops *verifierOptions, c
 		return nil
 	}
 
-	ignored := buildIgnoredClaimsSet(ops.ignoredClaims)
+	// Use the pre-built ignored claims set (populated by buildIgnoredSet).
+	ignored := ops.ignoredClaimsSet
 
 	if err := validateRequiredClaims(claims, ops, ignored); err != nil {
 		return err
@@ -488,19 +504,6 @@ func (p *Provider) validateClaims(claims map[string]any, ops *verifierOptions, c
 	}
 
 	return validateCELRules(claims, compiledCELRules)
-}
-
-func buildIgnoredClaimsSet(ignoredClaims []string) map[string]struct{} {
-	if len(ignoredClaims) == 0 {
-		return nil
-	}
-
-	set := make(map[string]struct{}, len(ignoredClaims))
-	for _, claim := range ignoredClaims {
-		set[claim] = struct{}{}
-	}
-
-	return set
 }
 
 func isIgnoredClaim(ignored map[string]struct{}, claim string) bool {
@@ -842,6 +845,9 @@ func cloneVerifierOptions(base *verifierOptions) *verifierOptions {
 	if base.expectedClaims != nil {
 		cloned.expectedClaims = maps.Clone(base.expectedClaims)
 	}
+
+	// Re-build the cached set since ignoredClaims may have been modified.
+	cloned.buildIgnoredSet()
 
 	return &cloned
 }
