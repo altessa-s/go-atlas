@@ -2,28 +2,31 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package factory provides configuration-based creation of HTTP servers
-// and middleware.
+// Package factory provides a fluent builder for creating HTTP servers
+// and middleware from configuration.
 //
-// [Factory] reads structured config objects (from the config package) and
-// produces fully wired server and middleware instances. All created
-// components inherit the factory's logger, tracer, and TLS providers.
+// [ServerBuilder] uses a fluent API with deferred error accumulation:
+// errors from any step are collected and returned at [ServerBuilder.Build] time.
 //
-// Methods that need external dependencies (tracer, limiter, idempotency
-// storage) return an error when the dependency is nil.
+//	srv, err := factory.New(cfg.Http).
+//	    UseLogger(logger).
+//	    UseTracer(tracer).
+//	    WithMiddlewares().
+//	    Build()
 //
-// [Factory.CreateMiddlewaresFromConfig] creates all enabled middleware and
-// returns them in dependency-sorted order with duplicates removed.
+// # Middleware Control
 //
-// # Server Creation
+// Three levels of middleware control are available:
 //
-//   - [Factory.CreateServerFromConfig] - HTTP server with TLS support
+//   - [ServerBuilder.WithMiddlewares] — all config-based middleware at once
+//   - [ServerBuilder.WithBodyLimitMiddleware], [ServerBuilder.WithCorsMiddleware], etc. — individual config-based middleware
+//   - [ServerBuilder.WithMiddleware] — custom pre-built middleware instances
 //
-// # Middleware Creation
+// Use Without* methods to disable specific middleware after [ServerBuilder.WithMiddlewares]:
 //
-// Each Create*MiddlewareFromConfig method returns nil when the config is
-// nil or disabled, allowing callers to collect results without nil checks:
-//
-//   - Body limit, CORS, idempotency, rate limiter, logger, Prometheus,
-//     real IP, recovery, request ID, security headers, tracing
+//	srv, err := factory.New(cfg.Http).
+//	    UseLogger(logger).
+//	    WithMiddlewares().
+//	    WithoutCorsMiddleware().
+//	    Build()
 package factory
