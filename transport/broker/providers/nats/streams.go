@@ -34,11 +34,12 @@ func (n *Nats) Publish(ctx context.Context, pmsg msg.Message) error {
 		return err
 	}
 
-	natsMsg := nats.NewMsg(pmsg.Topic)
-	natsMsg.Data = pmsg.Data
-
-	// Initialize NATS headers. Approximate size based on TTL + metadata.
-	natsMsg.Header = make(nats.Header, 1+len(pmsg.Metadata))
+	// Build nats.Msg directly to avoid the wasted make(Header) inside nats.NewMsg.
+	natsMsg := &nats.Msg{
+		Subject: pmsg.Topic,
+		Data:    pmsg.Data,
+		Header:  make(nats.Header, 1+len(pmsg.Metadata)),
+	}
 
 	// Set NATS TTL header if TTL is specified in the message.
 	if pmsg.TTL != 0 {

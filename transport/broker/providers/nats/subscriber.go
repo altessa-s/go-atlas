@@ -13,7 +13,6 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
-	"github.com/altessa-s/go-atlas/core/collections/maps"
 	"github.com/altessa-s/go-atlas/core/runtime/appinfo"
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/transport/broker"
@@ -171,38 +170,36 @@ func (ss *streamSubscriber) Subscribe(ctx context.Context, handler broker.Subscr
 	}
 
 	// Start consuming messages. This is an asynchronous operation that invokes the callback for each message.
-	ss.consumeContext, err = consumer.Consume(func(jsMsg jetstream.Msg) {
-		// Filter NATS-specific headers and transform remaining headers to msg.Meta.
-		filteredHeaders := maps.FilterMap(jsMsg.Headers(), func(k string, val []string) bool {
-			return !strings.HasPrefix(k, "Nats-")
-		})
+	// Cache consumer config outside the hot loop — AckWait is static per consumer.
+	ackWait := consumer.CachedInfo().Config.AckWait
 
-		// Convert filtered headers to msg.MessageMeta slice.
-		metaData := make([]msg.MetaData, 0, len(filteredHeaders))
-		for _, v := range maps.Map(filteredHeaders, func(k string, v []string) (string, msg.MetaData) {
-			return k, msg.MetaData{
-				Key:   k,
-				Value: strings.Join(v, ";"),
+	ss.consumeContext, err = consumer.Consume(func(jsMsg jetstream.Msg) {
+		// Fused filter+transform: single pass over headers, no intermediate map.
+		headers := jsMsg.Headers()
+		metaData := make([]msg.MetaData, 0, len(headers))
+		for k, vals := range headers {
+			if strings.HasPrefix(k, "Nats-") {
+				continue
 			}
-		}) {
-			metaData = append(metaData, v)
+			value := vals[0]
+			if len(vals) > 1 {
+				value = strings.Join(vals, ";")
+			}
+			metaData = append(metaData, msg.MetaData{Key: k, Value: value})
 		}
 
 		// Prepare message options, including the Acker and AckTimeout.
 		msgOpts := make([]msg.Option, 0, 2)
 		msgOpts = append(msgOpts, msg.WithAcker(&ackAdapter{msg: jsMsg}))
-		if consumer.CachedInfo().Config.AckWait > 0 {
-			msgOpts = append(msgOpts, msg.WithAckTimeout(consumer.CachedInfo().Config.AckWait))
+		if ackWait > 0 {
+			msgOpts = append(msgOpts, msg.WithAckTimeout(ackWait))
 		}
 
-		// Increment the number of handlers waiting to process messages.
+		// Inline defers instead of IIFE to avoid closure allocation per message.
 		ss.handlersWg.Add(1)
-		func() { // Wrap to ensure wg.Done() and panic handling are always applied.
-			defer ss.handlersWg.Done()
-			defer panics.Handle(ss.handlerCtx)
-			// Create a new message and pass it to the handler.
-			handler.Handle(ss.handlerCtx, msg.NewMessageWithMeta(jsMsg.Subject(), jsMsg.Data(), metaData, msgOpts...))
-		}()
+		defer ss.handlersWg.Done()
+		defer panics.Handle(ss.handlerCtx)
+		handler.Handle(ss.handlerCtx, msg.NewMessageWithMeta(jsMsg.Subject(), jsMsg.Data(), metaData, msgOpts...))
 	}, ss.opts...)
 
 	if err != nil {

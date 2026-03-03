@@ -6,7 +6,6 @@ package natsprovider
 
 import (
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
@@ -21,7 +20,7 @@ type ackAdapter struct {
 
 func (aa *ackAdapter) wrapAckError(action string, err error) error {
 	if err != nil && !errors.Is(err, jetstream.ErrMsgAlreadyAckd) {
-		return coreerrs.WrapOperation(err, fmt.Sprintf("%s NATS message", action))
+		return coreerrs.WrapOperation(err, action+" NATS message")
 	}
 	return nil
 }
