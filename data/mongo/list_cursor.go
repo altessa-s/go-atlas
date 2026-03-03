@@ -9,7 +9,6 @@ import (
 	"context"
 	"iter"
 	"log/slog"
-	"slices"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -490,11 +489,13 @@ func ListCursor[T any](ctx context.Context, collection *mongo.Collection, o ...L
 //	}
 func ListCursorSeq[T any](ctx context.Context, collection *mongo.Collection, o ...ListCursorOption) iter.Seq2[T, error] {
 	return func(yield func(T, error) bool) {
-		// Start with initial options
-		currentOptions := o
+		// Pre-allocate options slice with room for the cursor option.
+		// On subsequent pages append reuses the backing array (cap = len+1).
+		pageOpts := make([]ListCursorOption, len(o), len(o)+1)
+		copy(pageOpts, o)
 
 		for {
-			result, err := ListCursor[T](ctx, collection, currentOptions...)
+			result, err := ListCursor[T](ctx, collection, pageOpts...)
 			if err != nil {
 				var zero T
 				yield(zero, err)
@@ -513,10 +514,8 @@ func ListCursorSeq[T any](ctx context.Context, collection *mongo.Collection, o .
 				return
 			}
 
-			// update options for the next page
-			// We append to the original options to ensure we don't lose any configuration,
-			// and WithListCursorCursor will override any previous cursor.
-			currentOptions = append(slices.Clone(o), WithListCursorCursor(*result.NextCursor))
+			// Set cursor for next page, reusing the pre-allocated slice.
+			pageOpts = append(pageOpts[:len(o)], WithListCursorCursor(*result.NextCursor))
 		}
 	}
 }
