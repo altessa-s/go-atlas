@@ -462,24 +462,18 @@ func GetEntity[T any, E any](ctx context.Context, col *mongo.Collection, filter 
 			return zero, coreerrs.WrapOperation(err, "decode document")
 		}
 
-		var dst any
-
 		entityType := reflect.TypeFor[E]()
+		conv := converter.New[T, any](converter.WithHandleEmbeddedStructs(true))
+
+		var dst any
 		if entityType.Kind() == reflect.Pointer {
-			// E is a pointer, create a new instance
 			dst = reflect.New(entityType.Elem()).Interface()
-		} else {
-			// E is a struct, create a pointer to zero value
-			dst = reflect.New(entityType).Interface()
-		}
-
-		converter.Convert(model, dst, converter.WithHandleEmbeddedStructs(true))
-
-		// Return the correct type
-		if entityType.Kind() == reflect.Pointer {
+			conv.Convert(model, dst)
 			return dst, nil
 		}
-		// If E is a struct, dereference the pointer
+
+		dst = reflect.New(entityType).Interface()
+		conv.Convert(model, dst)
 		return reflect.ValueOf(dst).Elem().Interface(), nil
 	})
 
@@ -554,26 +548,22 @@ func GetEntities[T any, E any](ctx context.Context, col *mongo.Collection, filte
 
 		// Convert MongoDB documents to domain entities with pre-allocated slice
 		entityType := reflect.TypeFor[E]()
+		isPtr := entityType.Kind() == reflect.Pointer
+		conv := converter.New[T, any](converter.WithHandleEmbeddedStructs(true))
 		entities := make([]E, 0, len(models))
 
-		for _, model := range models {
-			var dst any
-			if entityType.Kind() == reflect.Pointer {
-				// E is a pointer, create a new instance
-				dst = reflect.New(entityType.Elem()).Interface()
-			} else {
-				// E is a struct, create a pointer to zero value
-				dst = reflect.New(entityType).Interface()
-			}
-
-			converter.Convert(model, dst, converter.WithHandleEmbeddedStructs(true))
-
-			// Append the correct type to slice
-			if entityType.Kind() == reflect.Pointer {
+		if isPtr {
+			elemType := entityType.Elem()
+			for _, model := range models {
+				dst := reflect.New(elemType).Interface()
+				conv.Convert(model, dst)
 				entity, _ := dst.(E) //nolint:errcheck
 				entities = append(entities, entity)
-			} else {
-				// If E is a struct, dereference the pointer
+			}
+		} else {
+			for _, model := range models {
+				dst := reflect.New(entityType).Interface()
+				conv.Convert(model, dst)
 				entity, _ := reflect.ValueOf(dst).Elem().Interface().(E) //nolint:errcheck
 				entities = append(entities, entity)
 			}
