@@ -19,6 +19,7 @@ import (
 
 	corecontext "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreio "github.com/altessa-s/go-atlas/core/io"
 )
 
 // Filter is an alias for probfilter.Filter
@@ -167,15 +168,18 @@ func (p *Provider) IntrospectToken(ctx context.Context, token string) (*Introspe
 		return nil, coreerrs.Wrapf(ErrIntrospection, "introspection endpoint returned status %d (%s)", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
-	// Parse response
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
+	// Parse response using pooled buffer to avoid per-request allocation.
+	buf := coreio.GetBuffer()
+	if _, err := buf.ReadFrom(resp.Body); err != nil {
+		coreio.PutBuffer(buf)
 		return nil, coreerrs.Wrapf(ErrIntrospection, "failed to read introspection response: %v", err)
 	}
 
 	var introspectionResp IntrospectionResponse
-	if err := json.Unmarshal(body, &introspectionResp); err != nil {
-		return nil, coreerrs.Wrapf(ErrIntrospection, "failed to parse introspection response: %v", err)
+	unmarshalErr := json.Unmarshal(buf.Bytes(), &introspectionResp)
+	coreio.PutBuffer(buf)
+	if unmarshalErr != nil {
+		return nil, coreerrs.Wrapf(ErrIntrospection, "failed to parse introspection response: %v", unmarshalErr)
 	}
 
 	if p.tokenCache != nil {
