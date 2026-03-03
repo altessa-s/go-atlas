@@ -20,6 +20,11 @@ import (
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
 
+// discardLogger is a singleton logger that discards all output.
+// Reused across defaultListOptions/defaultListCursorOptions to avoid
+// allocating a new *slog.Logger per List/ListCursor call.
+var discardLogger = slog.New(slog.DiscardHandler)
+
 // Sort order constants for MongoDB sorting
 const (
 	// SortAscending represents ascending sort order (1)
@@ -194,29 +199,24 @@ func generateDeduplicationKey(prefix string, filter bson.M) string {
 		return prefix
 	}
 
-	// Pre-allocate slice with known capacity to reduce allocations
-	keyItems := make([]string, 0, len(filter))
-	for key, value := range filter {
-		keyItems = append(keyItems, fmt.Sprintf("%s=%v", key, value))
+	// Sort keys first, then write key=value pairs directly to a builder
+	// to avoid intermediate []string allocation and per-key fmt.Sprintf.
+	keys := make([]string, 0, len(filter))
+	for k := range filter {
+		keys = append(keys, k)
 	}
+	slices.Sort(keys)
 
-	// Sort for deterministic key generation regardless of map iteration order
-	slices.Sort(keyItems)
-
-	// Use strings.Builder for efficient string concatenation
-	// Estimate capacity: prefix + ":" + (avg item size * count) + semicolons
-	const averageItemSize = 20 // Average size of "key=value" pairs
-	estimatedSize := len(prefix) + 1 + (len(keyItems) * averageItemSize) + len(keyItems)
 	var sb strings.Builder
-	sb.Grow(estimatedSize)
-
 	sb.WriteString(prefix)
-	sb.WriteString(":")
-	for i, item := range keyItems {
+	sb.WriteByte(':')
+	for i, key := range keys {
 		if i > 0 {
-			sb.WriteString(";")
+			sb.WriteByte(';')
 		}
-		sb.WriteString(item)
+		sb.WriteString(key)
+		sb.WriteByte('=')
+		fmt.Fprint(&sb, filter[key])
 	}
 
 	// Use SHA-256 for collision-resistant hashing (essential for correct singleflight deduplication)

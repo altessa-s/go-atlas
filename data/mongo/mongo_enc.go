@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"slices"
 	"strings"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -622,7 +621,9 @@ func (m *Mongo) processDefaultField(ctx context.Context, meta fieldMetadata, set
 }
 
 // isOmitOnUpdate checks if a field should be omitted on update operations based on the configured BSON tag.
+// Note: On the hot path this is redundant (applyPreProcessingFilters already checks meta.isOmitOnUpdate),
+// but kept for safety in case isSliceField/isMapField are called from other contexts.
 func (m *Mongo) isOmitOnUpdate(field reflect.StructField) bool {
-	bsonTagValues := strings.Split(field.Tag.Get(m.config.BSONTagName), ",")
-	return slices.Index(bsonTagValues, "omitonupdate") > -1
+	tag := field.Tag.Get(m.config.BSONTagName)
+	return strings.Contains(tag, "omitonupdate")
 }

@@ -71,7 +71,7 @@ func defaultListOptions() *listOptions {
 		filter:       bson.M{},
 		limit:        DefaultListLimit,
 		offset:       DefaultListOffset,
-		logger:       slog.New(slog.DiscardHandler),
+		logger:       discardLogger,
 		includeTotal: true,
 	}
 }

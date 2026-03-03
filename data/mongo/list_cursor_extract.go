@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 
 	"github.com/oklog/ulid/v2"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -16,6 +17,10 @@ import (
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
+
+// tagFieldIndex caches tag-name-to-field-index mappings per reflect.Type,
+// converting the O(n) linear scan in findFieldValueByBSONTag to O(1) map lookup.
+var tagFieldIndex sync.Map // map[reflect.Type]map[string]int
 
 // extractCursorId converts various ID types to their string representation.
 // This function normalizes different ID formats into a consistent string format
@@ -287,39 +292,65 @@ func extractCursorDataFromItem[T any](item T, cursorIdField string, sort bson.D)
 
 // findFieldValueByBSONTag finds a struct field by its BSON tag name.
 // Searches in order: BSON tag, JSON tag (for compatibility), field name.
+// Uses a sync.Map cache keyed by reflect.Type for O(1) lookups after the first call.
 //
 // Returns the field value if found, or error if not found.
 func findFieldValueByBSONTag(v reflect.Value, tagName string) (reflect.Value, error) {
 	t := v.Type()
 
-	// Search through all fields
-	for i := range t.NumField() {
+	// Fast path: check cached tag-to-index map for this type.
+	if cached, ok := tagFieldIndex.Load(t); ok {
+		if idx, found := cached.(map[string]int)[tagName]; found {
+			return v.Field(idx), nil
+		}
+		return reflect.Value{}, fmt.Errorf("field not found")
+	}
+
+	// Slow path: build the index map for this type.
+	indexMap := buildTagFieldIndex(t)
+	tagFieldIndex.Store(t, indexMap)
+
+	if idx, found := indexMap[tagName]; found {
+		return v.Field(idx), nil
+	}
+	return reflect.Value{}, fmt.Errorf("field not found")
+}
+
+// buildTagFieldIndex builds a tag-name-to-field-index map for a struct type.
+// Maps BSON tag names, JSON tag names, and lowercased field names to their indices.
+func buildTagFieldIndex(t reflect.Type) map[string]int {
+	n := t.NumField()
+	m := make(map[string]int, n*2) //nolint:mnd // rough estimate: bson + json tags
+
+	for i := range n {
 		field := t.Field(i)
 
-		// Check BSON tag first
+		// Map BSON tag name
 		if bsonTag := field.Tag.Get("bson"); bsonTag != "" {
-			// Parse tag (format: "name,omitempty")
 			name, _, _ := strings.Cut(bsonTag, ",")
-			if name == tagName {
-				return v.Field(i), nil
+			if name != "" && name != "-" {
+				m[name] = i
 			}
 		}
 
-		// Check JSON tag for compatibility
+		// Map JSON tag name (for compatibility)
 		if jsonTag := field.Tag.Get("json"); jsonTag != "" {
 			name, _, _ := strings.Cut(jsonTag, ",")
-			if name == tagName {
-				return v.Field(i), nil
+			if name != "" && name != "-" {
+				if _, exists := m[name]; !exists {
+					m[name] = i
+				}
 			}
 		}
 
-		// Check field name (case-insensitive)
-		if corestrings.InternLowerString(field.Name) == corestrings.InternLowerString(tagName) {
-			return v.Field(i), nil
+		// Map lowercased field name
+		lowerName := corestrings.InternLowerString(field.Name)
+		if _, exists := m[lowerName]; !exists {
+			m[lowerName] = i
 		}
 	}
 
-	return reflect.Value{}, fmt.Errorf("field not found")
+	return m
 }
 
 // extractCursorDataViaBSON is the fallback implementation using BSON marshal/unmarshal.

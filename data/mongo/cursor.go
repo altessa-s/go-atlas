@@ -399,8 +399,8 @@ func encodeSortValue(value any) (string, error) {
 		return "", nil
 	}
 
-	// Wrap value in document to marshal it
-	bsonBytes, err := bson.Marshal(bson.M{"v": value})
+	// Wrap value in ordered document to marshal it (bson.D avoids map allocation).
+	bsonBytes, err := bson.Marshal(bson.D{{Key: "v", Value: value}})
 	if err != nil {
 		return "", coreerrs.WrapOperation(err, "marshal sort value")
 	}
@@ -487,10 +487,9 @@ func computeCursorChecksum(sort bson.D, cursorIdField string) (string, error) {
 		return "", coreerrs.WrapOperation(err, "encode sort for checksum")
 	}
 
-	// Create deterministic string from cursor parameters
-	data := fmt.Sprintf("%s|%s", encodedSort, cursorIdField)
-
-	return corehash.SHA256HexString(data), nil
+	// Create deterministic string from cursor parameters.
+	// String concat is faster than fmt.Sprintf for simple concatenation.
+	return corehash.SHA256HexString(encodedSort + "|" + cursorIdField), nil
 }
 
 // NewCursorWithMetadata creates a new Cursor instance with pagination metadata and validation.
@@ -708,7 +707,7 @@ func (c *Cursor) GetSort() (bson.D, error) {
 		return nil, fmt.Errorf("cannot get sort from nil cursor")
 	}
 
-	// Empty sort means default sort was used (optimization)
+	// Empty sort means the default sort was used (optimization)
 	if c.Sort == "" {
 		return DefaultListSort, nil
 	}

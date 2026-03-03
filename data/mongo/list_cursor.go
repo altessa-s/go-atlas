@@ -78,7 +78,7 @@ func defaultListCursorOptions() *listCursorOptions {
 		filter:        bson.M{},
 		limit:         DefaultListLimit,
 		cursor:        nil,
-		logger:        slog.New(slog.DiscardHandler),
+		logger:        discardLogger,
 		cursorIdField: DefaultCursorIdField,
 		includeTotal:  false,
 	}

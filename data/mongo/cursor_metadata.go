@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -194,14 +195,17 @@ func computeFilterHash(filter bson.M) string {
 	// Extract and sort keys for deterministic order
 	keys := slices.Sorted(maps.Keys(filter))
 
-	// Build deterministic string representation
-	var repr string
+	// Build deterministic string representation using strings.Builder
+	// to avoid O(n²) string concatenation and per-key fmt.Sprintf allocations.
+	var sb strings.Builder
 	for i, key := range keys {
 		if i > 0 {
-			repr += ";"
+			sb.WriteByte(';')
 		}
-		repr += fmt.Sprintf("%s=%v", key, filter[key])
+		sb.WriteString(key)
+		sb.WriteByte('=')
+		fmt.Fprint(&sb, filter[key])
 	}
 
-	return corehash.SHA256HexString(repr)
+	return corehash.SHA256HexString(sb.String())
 }
