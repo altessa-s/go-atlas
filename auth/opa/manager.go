@@ -369,15 +369,23 @@ func (e *regoEvaluator) Evaluate(ctx context.Context, input any) (*Result, error
 	return e.buildResult(false), nil
 }
 
+// Pre-allocated singleton results for the common non-logging path,
+// avoiding a heap allocation on every policy evaluation.
+var (
+	resultAllow = &Result{Allow: true}
+	resultDeny  = &Result{Allow: false}
+)
+
 // buildResult creates a Result with optional DecisionID based on logging settings.
 func (e *regoEvaluator) buildResult(allow bool) *Result {
-	result := &Result{Allow: allow}
-
-	if e.manager.opts.decisionLogging {
-		result.DecisionID = uuid.NewString()
+	if !e.manager.opts.decisionLogging {
+		if allow {
+			return resultAllow
+		}
+		return resultDeny
 	}
 
-	return result
+	return &Result{Allow: allow, DecisionID: uuid.NewString()}
 }
 
 // Query returns the Rego query used for evaluation.
