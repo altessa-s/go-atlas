@@ -6,7 +6,7 @@ package redis
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -51,15 +51,15 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 
 	values, ok := result.([]any)
 	if !ok || len(values) != 4 {
-		return nil, fmt.Errorf("unexpected redis script result format")
+		return nil, errors.New("unexpected redis script result format")
 	}
 
 	info := &storages.LimitInfo{
-		Remaining: strings.ToInt64(fmt.Sprintf("%v", values[1])),
-		Reset:     strings.ToInt64(fmt.Sprintf("%v", values[2])),
+		Remaining: toInt64(values[1]),
+		Reset:     toInt64(values[2]),
 	}
 
-	allowed := strings.ToInt64(fmt.Sprintf("%v", values[3]))
+	allowed := toInt64(values[3])
 	if allowed <= 0 {
 		return info, storages.ErrLimitExceeded
 	}
@@ -73,6 +73,19 @@ func (p *Provider) Reset(ctx context.Context, key string) error {
 	panics.Must(key != "", "key must not be empty")
 
 	return p.Client().Del(ctx, p.Key(key)).Err()
+}
+
+// toInt64 extracts an int64 from a Redis Lua script result value
+// without using fmt.Sprintf + parse round-trip.
+func toInt64(v any) int64 {
+	switch val := v.(type) {
+	case int64:
+		return val
+	case string:
+		return strings.ToInt64(val)
+	default:
+		return 0
+	}
 }
 
 var _ storages.Storage = (*Provider)(nil)
