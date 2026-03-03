@@ -5,6 +5,7 @@
 package writer
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -155,13 +156,13 @@ func (wr *Writer) readBody(r *http.Request) ([]byte, error) {
 			}
 			return nil, errors.Join(ErrReadBody, err)
 		}
-		return append([]byte(nil), buf.Bytes()...), nil
+		return bytes.Clone(buf.Bytes()), nil
 	}
 
 	if _, err := buf.ReadFrom(r.Body); err != nil {
 		return nil, errors.Join(ErrReadBody, err)
 	}
-	return append([]byte(nil), buf.Bytes()...), nil
+	return bytes.Clone(buf.Bytes()), nil
 }
 
 // WriteError writes an error response with optional status code.
