@@ -8,8 +8,6 @@ import (
 	"cmp"
 	"context"
 	"log/slog"
-	"maps"
-	"slices"
 	"sync/atomic"
 	"time"
 
@@ -201,16 +199,16 @@ func (o *Outbox) compactEventsByKey(events []Event) (toPublish, toSkip []Event) 
 	var nonCompactableEvents []Event
 
 	if o.compactionFilter != nil {
-		// Use iterator-based filtering for better performance and composability
-		compactableSeq := coreslices.Filter(events, func(e Event) bool {
-			return o.compactionFilter(e.Key)
-		})
-		compactableEvents = slices.Collect(compactableSeq)
-
-		nonCompactableSeq := coreslices.Filter(events, func(e Event) bool {
-			return !o.compactionFilter(e.Key)
-		})
-		nonCompactableEvents = slices.Collect(nonCompactableSeq)
+		// Single partition pass instead of two separate Filter+Collect calls.
+		compactableEvents = make([]Event, 0, len(events))
+		nonCompactableEvents = make([]Event, 0, len(events)/2) //nolint:mnd // rough estimate
+		for _, e := range events {
+			if o.compactionFilter(e.Key) {
+				compactableEvents = append(compactableEvents, e)
+			} else {
+				nonCompactableEvents = append(nonCompactableEvents, e)
+			}
+		}
 	} else {
 		// No filter = all events are compactable
 		compactableEvents = events
@@ -225,21 +223,13 @@ func (o *Outbox) compactEventsByKey(events []Event) (toPublish, toSkip []Event) 
 	// Add non-compactable events (they always get dispatched)
 	toPublish = append(toPublish, nonCompactableEvents...)
 
-	// Process compactable events (keep only latest per key)
-	// Use iterator-based processing for better composability
-	groupsSlice := slices.Collect(maps.Values(grouped))
-	publishSeq := coreslices.Map(groupsSlice, func(group []Event) Event {
-		// Last element in group is the latest (events are sorted by CreatedAt ascending)
-		return group[len(group)-1]
-	})
-	toPublish = append(toPublish, slices.Collect(publishSeq)...)
-
-	// Collect events to skip using iterator
-	skipSeq := coreslices.Filter(groupsSlice, func(group []Event) bool {
-		return len(group) > 1
-	})
-	for group := range skipSeq {
-		toSkip = append(toSkip, group[:len(group)-1]...)
+	// Process compactable events: keep only the latest per key, skip the rest.
+	// Direct range avoids intermediate slices from Collect/Map/Filter.
+	for _, group := range grouped {
+		toPublish = append(toPublish, group[len(group)-1])
+		if len(group) > 1 {
+			toSkip = append(toSkip, group[:len(group)-1]...)
+		}
 	}
 
 	return toPublish, toSkip
