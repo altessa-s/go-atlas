@@ -198,7 +198,7 @@ func (s *recordingSpan) export() {
 		Links:      adapterLinks,
 		Status:     adapters.StatusCode(s.status),
 		StatusDesc: s.statusDesc,
-		Resource: s.recorder.tracer.resource,
+		Resource:   s.recorder.tracer.resource,
 		InstrumentationScope: &adapters.InstrumentationScope{
 			Name:      s.recorder.name,
 			Version:   s.recorder.config.InstrumentationVersion(),

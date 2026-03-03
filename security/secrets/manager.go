@@ -11,11 +11,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"golang.org/x/sync/singleflight"
-
 	"github.com/altessa-s/go-atlas/core/collections/maps"
 	"github.com/altessa-s/go-atlas/core/runtime/concurrency"
 	"github.com/altessa-s/go-atlas/data/probfilter"
+
+	"golang.org/x/sync/singleflight"
 
 	corecontext "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
