@@ -7,8 +7,9 @@ package errstatus
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
+	"reflect"
+	"strconv"
 
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/data/cache/lru"
@@ -262,7 +263,7 @@ func (i *interceptor) makeKey(err error) string {
 		if sentinel := i.resolveSentinel(err); sentinel != nil {
 			return sentinelErrorKey(sentinel)
 		}
-		return fmt.Sprintf("%p", err)
+		return "0x" + strconv.FormatUint(uint64(reflect.ValueOf(err).Pointer()), 16)
 	}
 	// For non-sentinel mode, use type and error message.
 	return errorKey(err)

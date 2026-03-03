@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/altessa-s/go-atlas/observability/tracing"
+
+	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
 
 const (
@@ -100,7 +102,7 @@ type spanContextData struct {
 // parseTraceParent parses a traceparent header value.
 func parseTraceParent(header string) (spanContextData, bool) {
 	header = strings.TrimSpace(header)
-	header = strings.ToLower(header)
+	header = corestrings.InternLowerString(header)
 
 	matches := traceContextRegex.FindStringSubmatch(header)
 	if matches == nil {

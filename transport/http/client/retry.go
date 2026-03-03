@@ -17,6 +17,7 @@ import (
 	"github.com/sony/gobreaker/v2"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreio "github.com/altessa-s/go-atlas/core/io"
 	coreretry "github.com/altessa-s/go-atlas/core/runtime/retry"
 )
 
@@ -44,12 +45,15 @@ type retryRoundTripper struct {
 func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	var bodyBytes []byte
 	if req.Body != nil {
-		var err error
-		bodyBytes, err = io.ReadAll(req.Body)
+		buf := coreio.GetBuffer()
+		_, err := buf.ReadFrom(req.Body)
 		_ = req.Body.Close()
 		if err != nil {
+			coreio.PutBuffer(buf)
 			return nil, coreerrs.Wrapf(err, "failed to read request body for retry buffering")
 		}
+		bodyBytes = bytes.Clone(buf.Bytes())
+		coreio.PutBuffer(buf)
 	}
 
 	var (

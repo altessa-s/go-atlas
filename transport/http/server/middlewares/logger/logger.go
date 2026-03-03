@@ -5,22 +5,23 @@
 package logger
 
 import (
-	"bytes"
 	"errors"
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
-	coreio "github.com/altessa-s/go-atlas/core/io"
-	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 	"github.com/altessa-s/go-atlas/core/time/timeformat"
-	slogx "github.com/altessa-s/go-atlas/observability/slog"
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/requestid"
 	"github.com/altessa-s/go-atlas/transport/internal/clientip"
 	"github.com/altessa-s/go-atlas/transport/internal/observability"
+
+	coreio "github.com/altessa-s/go-atlas/core/io"
+	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
+	slogx "github.com/altessa-s/go-atlas/observability/slog"
 )
 
 const (
@@ -79,11 +80,10 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 			buf := coreio.GetBuffer()
 			_, readErr := io.CopyN(buf, request.Body, int64(middlewares.MaxCaptureBodySize))
 			if readErr == nil || errors.Is(readErr, io.EOF) {
-				// Clone buffer contents before returning buffer to pool.
-				captured := bytes.Clone(buf.Bytes())
-				requestBody = string(captured)
-				// Restore the request body so handlers can read it
-				request.Body = io.NopCloser(bytes.NewReader(captured))
+				// Convert to string once (single allocation), then use
+				// strings.NewReader for body restoration (no extra copy).
+				requestBody = string(buf.Bytes())
+				request.Body = io.NopCloser(strings.NewReader(requestBody))
 			}
 			coreio.PutBuffer(buf)
 		}

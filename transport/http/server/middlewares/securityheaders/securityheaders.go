@@ -5,8 +5,8 @@
 package securityheaders
 
 import (
-	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/altessa-s/go-atlas/core/collections/slices"
@@ -157,7 +157,7 @@ func (m *middleware) setHeaders(w http.ResponseWriter) {
 func (m *middleware) buildHSTSValue() string {
 	var parts []string
 
-	parts = append(parts, fmt.Sprintf("max-age=%d", m.opts.hstsMaxAge))
+	parts = append(parts, "max-age="+strconv.Itoa(m.opts.hstsMaxAge))
 
 	parts = slices.AppendIf(parts, m.opts.hstsIncludeSubDomains, "includeSubDomains")
 	parts = slices.AppendIf(parts, m.opts.hstsPreload, "preload")

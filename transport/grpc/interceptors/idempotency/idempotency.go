@@ -6,7 +6,6 @@ package idempotency
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 	"sync/atomic"
 
@@ -271,5 +270,5 @@ func (ri *requestInterceptor) buildKey(method, key string) string {
 	if idx := stdStrings.LastIndex(method, "/"); idx > 0 {
 		method = method[:idx]
 	}
-	return fmt.Sprintf("idk:%s:%s", method, key)
+	return "idk:" + method + ":" + key
 }

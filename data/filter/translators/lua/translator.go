@@ -6,6 +6,7 @@ package lua
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/altessa-s/go-atlas/data/filter"
@@ -199,11 +200,11 @@ func (t *Translator) formatLiteral(v any) (string, error) {
 		}
 		return luaFalse, nil
 	case int64:
-		return fmt.Sprintf("%d", val), nil
+		return strconv.FormatInt(val, 10), nil
 	case uint64:
-		return fmt.Sprintf("%d", val), nil
+		return strconv.FormatUint(val, 10), nil
 	case float64:
-		return fmt.Sprintf("%g", val), nil
+		return strconv.FormatFloat(val, 'g', -1, 64), nil
 	case string:
 		return `"` + escapeLuaString(val) + `"`, nil
 	default:

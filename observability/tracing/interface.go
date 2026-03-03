@@ -157,7 +157,10 @@ func (f TraceFlags) WithSampled(sampled bool) TraceFlags {
 
 // String returns the hex representation of the flags.
 func (f TraceFlags) String() string {
-	return string([]byte{hexChar(byte(f) >> 4), hexChar(byte(f) & 0x0f)}) //nolint:mnd // Hex conversion
+	var buf [2]byte
+	buf[0] = hexChar(byte(f) >> 4)  //nolint:mnd // Hex conversion
+	buf[1] = hexChar(byte(f) & 0x0f) //nolint:mnd // Hex conversion
+	return string(buf[:])
 }
 
 func hexChar(b byte) byte {

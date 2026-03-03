@@ -8,9 +8,9 @@ import (
 	"context"
 	"log/slog"
 	"slices"
-	"strings"
 
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
+	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
 
 // ErrorKey is the attribute key used for error values in log records.
@@ -159,11 +159,11 @@ func GetLevel() slog.Level {
 func MaskingReplaceAttr(sensitiveTags []string, maskString string) func([]string, slog.Attr) slog.Attr {
 	sensitiveSet := make(map[string]struct{}, len(sensitiveTags))
 	for _, tag := range sensitiveTags {
-		sensitiveSet[strings.ToLower(tag)] = struct{}{}
+		sensitiveSet[corestrings.InternLowerString(tag)] = struct{}{}
 	}
 
 	return func(_ []string, a slog.Attr) slog.Attr {
-		key := strings.ToLower(a.Key)
+		key := corestrings.InternLowerString(a.Key)
 		if _, ok := sensitiveSet[key]; ok {
 			a.Value = slog.StringValue(maskString)
 		}

@@ -7,7 +7,8 @@ package errstatus
 import (
 	"context"
 	"errors"
-	"fmt"
+	"reflect"
+	"strconv"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -19,7 +20,7 @@ func errorTypeString(err error) string {
 	if err == nil {
 		return "<nil>"
 	}
-	return fmt.Sprintf("%T", err)
+	return reflect.TypeOf(err).String()
 }
 
 // errorKey generates a cache key from error type and message.
@@ -28,7 +29,7 @@ func errorKey(err error) string {
 	if err == nil {
 		return ""
 	}
-	return fmt.Sprintf("%T:%s", err, err.Error())
+	return reflect.TypeOf(err).String() + ":" + err.Error()
 }
 
 // sentinelErrorKey generates a cache key for sentinel errors using their pointer address.
@@ -39,7 +40,7 @@ func sentinelErrorKey(err error) string {
 	}
 	// For sentinel errors, pointer address is the most reliable identifier.
 	// Sentinel errors are by definition package-level variables with stable addresses.
-	return fmt.Sprintf("%T:%p", err, err)
+	return reflect.TypeOf(err).String() + ":0x" + strconv.FormatUint(uint64(reflect.ValueOf(err).Pointer()), 16)
 }
 
 // findSentinelError searches through a list of sentinel errors to find which one

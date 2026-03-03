@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"iter"
 	"reflect"
+	"strconv"
 	"strings"
 
 	reflectutils "github.com/altessa-s/go-atlas/domain/converter/internal/reflect"
@@ -423,7 +424,7 @@ func (conv *Converter[T, U]) convertSlices(fieldName string, srcValue reflect.Va
 	for i := range srcValue.Len() {
 		dstVal := reflect.New(IndirectType(dstValue.Type().Elem()))
 
-		conv.convertValue(makeFieldName(fieldName, fmt.Sprintf("%d", i)), srcValue.Index(i), dstVal.Elem())
+		conv.convertValue(makeFieldName(fieldName, strconv.Itoa(i)), srcValue.Index(i), dstVal.Elem())
 
 		if dstValue.Type().Elem().Kind() != reflect.Pointer {
 			dstValue.Set(reflect.Append(dstValue, dstVal.Elem()))

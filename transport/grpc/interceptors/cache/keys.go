@@ -7,7 +7,6 @@ package cache
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"slices"
 
 	"github.com/cespare/xxhash/v2"
@@ -101,7 +100,7 @@ func NewKeyGenerator(metadataKeys []string, processor MetadataProcessor) KeyGene
 			}
 		}
 
-		return fmt.Sprintf("%016x", h.Sum64()), nil
+		return formatHex16(h.Sum64()), nil
 	}
 }
 
@@ -160,6 +159,19 @@ func writeMetadataToXXHasher(h *xxhash.Digest, md metadata.MD, relevantKeys []st
 			break
 		}
 	}
+}
+
+const hexDigits = "0123456789abcdef"
+
+// formatHex16 formats a uint64 as a zero-padded 16-character hex string
+// without using fmt.Sprintf, avoiding reflection and allocation overhead.
+func formatHex16(v uint64) string {
+	var buf [16]byte
+	for i := 15; i >= 0; i-- {
+		buf[i] = hexDigits[v&0x0f]
+		v >>= 4
+	}
+	return string(buf[:])
 }
 
 // writeProcessedMetadataToXXHasher writes extra metadata from processor to the hasher.

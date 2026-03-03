@@ -5,16 +5,17 @@
 package oidc
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"mime"
 	"net/http"
 
 	"golang.org/x/oauth2"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreio "github.com/altessa-s/go-atlas/core/io"
 )
 
 // UserInfo represents user claims from the OIDC userinfo endpoint.
@@ -60,10 +61,14 @@ func (p *Provider) UserInfo(ctx context.Context, tokenSource oauth2.TokenSource)
 	}
 	defer drainAndClose(resp)
 
-	body, err := io.ReadAll(resp.Body)
+	buf := coreio.GetBuffer()
+	_, err = buf.ReadFrom(resp.Body)
 	if err != nil {
+		coreio.PutBuffer(buf)
 		return nil, err
 	}
+	body := bytes.Clone(buf.Bytes())
+	coreio.PutBuffer(buf)
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unexpected status %s: %s", resp.Status, body)

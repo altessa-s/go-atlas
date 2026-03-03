@@ -6,6 +6,7 @@ package redisearch
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/altessa-s/go-atlas/data/filter"
@@ -418,11 +419,11 @@ func (t *Translator) formatLiteral(v any) (any, error) {
 		}
 		return "false", nil
 	case int64:
-		return fmt.Sprintf("%d", val), nil
+		return strconv.FormatInt(val, 10), nil
 	case uint64:
-		return fmt.Sprintf("%d", val), nil
+		return strconv.FormatUint(val, 10), nil
 	case float64:
-		return fmt.Sprintf("%g", val), nil
+		return strconv.FormatFloat(val, 'g', -1, 64), nil
 	case string:
 		return val, nil
 	default:
@@ -432,7 +433,16 @@ func (t *Translator) formatLiteral(v any) (any, error) {
 
 // formatNumericValue formats a value for RediSearch numeric range syntax.
 func (t *Translator) formatNumericValue(value any) string {
-	return fmt.Sprintf("%v", value)
+	switch v := value.(type) {
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case uint64:
+		return strconv.FormatUint(v, 10)
+	case float64:
+		return strconv.FormatFloat(v, 'g', -1, 64)
+	default:
+		return fmt.Sprintf("%v", value)
+	}
 }
 
 // escapeTagValue escapes RediSearch special characters in TAG values.
