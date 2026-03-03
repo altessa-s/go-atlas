@@ -74,6 +74,11 @@ type Scheduler struct {
 	// leaderElector provides distributed leader election support.
 	// If set, tasks only execute when this node is the leader.
 	leaderElector leadelect.LeaderElector
+
+	// scheduleCache caches parsed cron.Schedule by schedule string to avoid
+	// re-parsing on every calculateNextRun call. Populated during Register()
+	// and read lock-free in calculateNextRun().
+	scheduleCache sync.Map // map[string]cron.Schedule
 }
 
 // registeredTask holds the runtime state of a registered task.

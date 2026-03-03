@@ -12,6 +12,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/robfig/cron/v3"
+
 	corectx "github.com/altessa-s/go-atlas/core/context"
 )
 
@@ -496,6 +498,12 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 
 // calculateNextRun computes the next run time based on the cron schedule.
 func (s *Scheduler) calculateNextRun(ctx context.Context, from time.Time, state *TaskState) time.Time {
+	// Fast path: use cached schedule (populated during Register).
+	if cached, ok := s.scheduleCache.Load(state.Schedule); ok {
+		return cached.(cron.Schedule).Next(from)
+	}
+
+	// Slow path: parse and cache for recovered/unregistered tasks.
 	sched, err := s.parser.Parse(state.Schedule)
 	if err != nil {
 		// This shouldn't happen since we validate schedule at registration,
@@ -506,6 +514,7 @@ func (s *Scheduler) calculateNextRun(ctx context.Context, from time.Time, state 
 			slog.Any("error", err))
 		return from.Add(time.Hour)
 	}
+	s.scheduleCache.Store(state.Schedule, sched)
 	return sched.Next(from)
 }
 

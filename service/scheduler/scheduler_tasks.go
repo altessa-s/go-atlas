@@ -63,6 +63,8 @@ func (s *Scheduler) Register(ctx context.Context, cfg corescheduler.TaskConfig) 
 		if err != nil {
 			return coreerrs.Wrapf(err, "invalid cron schedule %q", cfg.Schedule)
 		}
+		// Cache the parsed schedule so calculateNextRun avoids re-parsing.
+		s.scheduleCache.Store(cfg.Schedule, sched)
 	}
 
 	s.mu.Lock()
