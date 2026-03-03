@@ -231,14 +231,15 @@ func (wm *watchManager[T]) notifyChanges(updateCtx context.Context, currentList 
 			continue // Skip inactive watchers
 		}
 
-		// Lock snapshot for read-modify-write operation
+		// Prepare new snapshot OUTSIDE the lock to minimize critical section.
+		newSnapshot := make(map[string]*Value[T], len(currentMap))
+		maps.Copy(newSnapshot, currentMap)
+
+		// Lock snapshot only for the pointer swap (O(1) operation).
 		instance.snapshotMu.Lock()
 		previous := instance.lastSnapshot
 		isFirstSnapshot := !instance.initialSnapshotDone.Load()
-
-		// Update instance snapshot
-		instance.lastSnapshot = make(map[string]*Value[T], len(currentMap))
-		maps.Copy(instance.lastSnapshot, currentMap)
+		instance.lastSnapshot = newSnapshot
 		instance.snapshotMu.Unlock()
 
 		// Mark initial snapshot as done
