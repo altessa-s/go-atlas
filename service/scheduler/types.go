@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"iter"
+	"sync"
 	"time"
 
 	"github.com/altessa-s/go-atlas/data/filter"
@@ -204,8 +205,14 @@ type Storage interface {
 // Panics if the system CSPRNG is unavailable — this mirrors the behavior of
 // crypto/rand in Go 1.24+ where Read never returns an error under normal
 // operating conditions.
+// idBufPool reuses 16-byte buffers for hex ID generation, avoiding a small
+// heap allocation on every task execution.
+var idBufPool = sync.Pool{New: func() any { return new([16]byte) }}
+
 func generateID() string {
-	b := make([]byte, 16)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
+	bp := idBufPool.Get().(*[16]byte) //nolint:errcheck // type guaranteed by pool
+	_, _ = rand.Read(bp[:])
+	s := hex.EncodeToString(bp[:])
+	idBufPool.Put(bp)
+	return s
 }

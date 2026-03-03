@@ -87,7 +87,7 @@ func (s *Scheduler) tick() {
 	// Fetch all persisted states in a single storage round-trip. The slice
 	// is materialized before processing to avoid holding the storage iterator
 	// open while performing writes (which would deadlock the memory backend).
-	var allStates []*TaskState
+	allStates := make([]*TaskState, 0, len(tasksCopy))
 	for state, err := range s.storage.Tasks(s.stopCtx) {
 		if err != nil {
 			s.logger.ErrorContext(s.stopCtx, "failed to iterate task states",
