@@ -90,12 +90,21 @@ func HasScope(requiredScope string) PresetMatcherFunc {
 // HasAnyScope creates a matcher checking if the token has at least one of the scopes.
 // Supports scope as space-separated string or array of strings.
 //
+// The required scope set is pre-built once at construction time, avoiding
+// per-call map allocations regardless of set size.
+//
 // Example:
 //
 //	matcher := oidc.HasAnyScope("read:users", "write:users", "admin")
 func HasAnyScope(requiredScopes ...string) PresetMatcherFunc {
+	// Pre-build required set once at construction time.
+	requiredSet := make(map[string]struct{}, len(requiredScopes))
+	for _, s := range requiredScopes {
+		requiredSet[s] = struct{}{}
+	}
+
 	return func(claims map[string]any) bool {
-		// Optimization: for small sets of required scopes, avoid map allocation
+		// Small sets: linear scan avoids map lookup overhead.
 		if len(requiredScopes) <= smallSetThreshold {
 			for s := range parseScopeClaimSeq(claims) {
 				if slices.Contains(requiredScopes, s) {
@@ -105,14 +114,9 @@ func HasAnyScope(requiredScopes ...string) PresetMatcherFunc {
 			return false
 		}
 
-		// For larger sets, create a temporary set for O(1) lookups
-		scopeSet := make(map[string]struct{})
+		// Larger sets: O(1) lookup from pre-built set (zero allocation).
 		for s := range parseScopeClaimSeq(claims) {
-			scopeSet[s] = struct{}{}
-		}
-
-		for _, requiredScope := range requiredScopes {
-			if _, ok := scopeSet[requiredScope]; ok {
+			if _, ok := requiredSet[s]; ok {
 				return true
 			}
 		}
@@ -123,24 +127,56 @@ func HasAnyScope(requiredScopes ...string) PresetMatcherFunc {
 // HasAllScopes creates a matcher checking if the token has all specified scopes.
 // Supports scope as space-separated string or array of strings.
 //
+// Uses a bitmask to track matched scopes, avoiding per-call map allocations.
+// Supports up to 64 unique required scopes (sufficient for all practical use cases).
+//
 // Example:
 //
 //	matcher := oidc.HasAllScopes("read:users", "write:users")
 func HasAllScopes(requiredScopes ...string) PresetMatcherFunc {
-	// Pre-build the required scope lookup set once (not per invocation).
+	// Pre-build a bit-indexed lookup: each unique required scope gets a bit position.
+	requiredIndex := make(map[string]uint64, len(requiredScopes))
+	var allBits uint64
+	for i, s := range requiredScopes {
+		if i >= 64 {
+			// Fallback for >64 required scopes (practically impossible).
+			return hasAllScopesFallback(requiredScopes)
+		}
+		bit := uint64(1) << i
+		if _, dup := requiredIndex[s]; !dup {
+			requiredIndex[s] = bit
+			allBits |= bit
+		}
+	}
+
+	return func(claims map[string]any) bool {
+		var seen uint64
+		for s := range parseScopeClaimSeq(claims) {
+			if bit, ok := requiredIndex[s]; ok {
+				seen |= bit
+				if seen == allBits {
+					return true
+				}
+			}
+		}
+		return false
+	}
+}
+
+// hasAllScopesFallback handles the edge case of >64 required scopes using map tracking.
+func hasAllScopesFallback(requiredScopes []string) PresetMatcherFunc {
 	requiredSet := make(map[string]struct{}, len(requiredScopes))
 	for _, s := range requiredScopes {
 		requiredSet[s] = struct{}{}
 	}
 
 	return func(claims map[string]any) bool {
-		// Track which required scopes have been found.
 		matched := make(map[string]struct{}, len(requiredSet))
 		for s := range parseScopeClaimSeq(claims) {
 			if _, required := requiredSet[s]; required {
 				matched[s] = struct{}{}
 				if len(matched) == len(requiredSet) {
-					return true // Early exit: all required scopes found.
+					return true
 				}
 			}
 		}

@@ -21,3 +21,19 @@ func BenchmarkHasAnyScope(b *testing.B) {
 		m(claims)
 	}
 }
+
+func BenchmarkHasAllScopes(b *testing.B) {
+	claims := map[string]any{"scope": "read write admin openid profile email"}
+	m := HasAllScopes("read", "admin")
+	for b.Loop() {
+		m(claims)
+	}
+}
+
+func BenchmarkHasAllScopesLargeSet(b *testing.B) {
+	claims := map[string]any{"scope": "read write admin openid profile email offline_access groups"}
+	m := HasAllScopes("read", "write", "admin", "openid", "profile", "email")
+	for b.Loop() {
+		m(claims)
+	}
+}
