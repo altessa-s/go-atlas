@@ -5,6 +5,7 @@ package opa
 
 import (
 	"log/slog"
+	"time"
 
 	"github.com/altessa-s/go-atlas/observability/health"
 
@@ -28,6 +29,16 @@ func WithHealthCoordinator(v *health.Coordinator) Option {
 			return
 		}
 		o.healthCoordinator = v
+	}
+}
+
+// WithPollInterval sets the pollInterval option.
+func WithPollInterval(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.pollInterval = v
 	}
 }
 
@@ -63,6 +74,7 @@ func defaultOptions() *options {
 	return &options{
 		logger:           slog.New(slog.DiscardHandler),
 		watchChannelSize: DefaultWatchBufferSize,
+		pollInterval:     DefaultPollInterval,
 	}
 }
 

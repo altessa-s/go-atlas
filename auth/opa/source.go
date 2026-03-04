@@ -9,7 +9,8 @@ import (
 )
 
 // PolicySource defines the interface for fetching OPA policies from various sources.
-// Implementations can provide policies from the filesystem, HTTP bundles, or other sources.
+// Implementations are passive data fetchers — the Manager handles all polling and
+// change-detection scheduling.
 type PolicySource interface {
 	// Name returns the name identifier for this source.
 	Name() string
@@ -18,11 +19,6 @@ type PolicySource interface {
 	// Returns the bundle with all policy modules and optional data.
 	Fetch(ctx context.Context) (*PolicyBundle, error)
 
-	// Watch starts watching for policy changes and returns a channel that signals updates.
-	// The channel receives a struct{} whenever policies may have changed.
-	// Close the returned channel by calling Close() on the source.
-	Watch(ctx context.Context) (<-chan struct{}, error)
-
-	// Close releases any resources held by the source and stops watching.
+	// Close releases any resources held by the source.
 	Close() error
 }

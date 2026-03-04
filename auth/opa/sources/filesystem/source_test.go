@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/altessa-s/go-atlas/auth/opa"
 	"github.com/altessa-s/go-atlas/auth/opa/sources/filesystem"
@@ -311,35 +310,6 @@ func TestSource_Fetch_WithData(t *testing.T) {
 	}
 }
 
-func TestSource_Watch_Closed(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	policyFile := filepath.Join(dir, "test.rego")
-	if err := os.WriteFile(policyFile, []byte("package test\n"), 0o600); err != nil {
-		t.Fatalf("failed to create test file: %v", err)
-	}
-
-	source, err := filesystem.New(dir)
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
-
-	if err := source.Close(); err != nil {
-		t.Fatalf("Close() failed: %v", err)
-	}
-
-	ctx := t.Context()
-	_, err = source.Watch(ctx)
-	if err == nil {
-		t.Fatal("Watch() after Close() should fail")
-	}
-
-	if !errors.Is(err, opa.ErrSourceClosed) {
-		t.Errorf("Watch() error = %v, want ErrSourceClosed", err)
-	}
-}
-
 func TestSource_Close_Idempotent(t *testing.T) {
 	t.Parallel()
 
@@ -360,46 +330,6 @@ func TestSource_Close_Idempotent(t *testing.T) {
 
 	if err := source.Close(); err != nil {
 		t.Fatalf("second Close() failed: %v", err)
-	}
-}
-
-func TestSource_Watch(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	policyFile := filepath.Join(dir, "test.rego")
-	if err := os.WriteFile(policyFile, []byte("package test\n"), 0o600); err != nil {
-		t.Fatalf("failed to create test file: %v", err)
-	}
-
-	source, err := filesystem.New(dir)
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
-	defer source.Close()
-
-	ctx := t.Context()
-	ch, err := source.Watch(ctx)
-	if err != nil {
-		t.Fatalf("Watch() failed: %v", err)
-	}
-
-	if ch == nil {
-		t.Fatal("Watch() returned nil channel")
-	}
-
-	// Write a new policy file to trigger a change
-	newPolicyFile := filepath.Join(dir, "new.rego")
-	if err := os.WriteFile(newPolicyFile, []byte("package new\n"), 0o600); err != nil {
-		t.Fatalf("failed to create new policy file: %v", err)
-	}
-
-	// Wait for signal with timeout
-	select {
-	case <-ch:
-		// Success - received signal
-	case <-time.After(2 * time.Second):
-		t.Fatal("timeout waiting for watch signal")
 	}
 }
 

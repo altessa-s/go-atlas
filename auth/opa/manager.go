@@ -131,7 +131,8 @@ func (m *Manager) IsWatching() bool {
 }
 
 // StartWatching starts watching the policy source for changes and automatically
-// reloads policies when updates are detected.
+// reloads policies when updates are detected. The Manager polls the source at
+// the configured pollInterval.
 func (m *Manager) StartWatching(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -144,17 +145,14 @@ func (m *Manager) StartWatching(ctx context.Context) error {
 		return nil
 	}
 
-	watchCh, err := m.source.Watch(ctx)
-	if err != nil {
-		return fmt.Errorf("%w: %w", ErrWatchStartFailed, err)
-	}
-
 	m.watchCtx, m.watchStop = context.WithCancel(ctx)
 	m.watching = true
 
-	go m.watchLoop(watchCh)
+	go m.pollLoop()
 
-	m.logger.Info("started policy watching", slog.String("source", m.source.Name()))
+	m.logger.Info("started policy watching",
+		slog.String("source", m.source.Name()),
+		slog.Duration("interval", m.opts.pollInterval))
 
 	return nil
 }
@@ -176,16 +174,16 @@ func (m *Manager) StopWatching() {
 	m.logger.Info("stopped policy watching")
 }
 
-// watchLoop handles signals from the policy source and triggers reloads.
-func (m *Manager) watchLoop(watchCh <-chan struct{}) {
+// pollLoop periodically fetches from the source and reloads if changed.
+func (m *Manager) pollLoop() {
+	ticker := time.NewTicker(m.opts.pollInterval)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-m.watchCtx.Done():
 			return
-		case _, ok := <-watchCh:
-			if !ok {
-				return
-			}
+		case <-ticker.C:
 			if err := m.runUpdateCycleInternal(m.watchCtx); err != nil {
 				m.logger.Error("policy reload failed", slog.Any("error", err))
 			}

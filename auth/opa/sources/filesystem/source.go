@@ -19,8 +19,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/fsnotify/fsnotify"
-
 	"github.com/altessa-s/go-atlas/auth/opa"
 	"github.com/altessa-s/go-atlas/core/io/files"
 
@@ -38,20 +36,15 @@ var (
 )
 
 // Source implements opa.PolicySource for filesystem-based policies.
-// It reads .rego files from a directory and optionally watches for changes.
+// It reads .rego files from a directory. Change detection is handled by the Manager.
 type Source struct {
 	path       string
 	opts       *options
 	logger     *slog.Logger
 	extensions map[string]struct{}
 
-	mu       sync.Mutex
-	watcher  *fsnotify.Watcher
-	watching bool
-	watchCh  chan struct{}
-	stopCh   chan struct{}
-	doneCh   chan struct{}
-	closed   bool
+	mu     sync.Mutex
+	closed bool
 }
 
 // New creates a new filesystem policy source.
@@ -262,145 +255,7 @@ func (s *Source) verifyAllChecksumsCovered(loaded map[string]string) error {
 	return nil
 }
 
-// Watch starts watching for file changes and returns a channel that signals updates.
-func (s *Source) Watch(ctx context.Context) (<-chan struct{}, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if s.closed {
-		return nil, opa.ErrSourceClosed
-	}
-
-	if s.watching {
-		return s.watchCh, nil
-	}
-
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		return nil, coreerrs.WrapOperation(err, "create watcher")
-	}
-
-	// Add the path and all subdirectories
-	info, err := os.Stat(s.path)
-	if err != nil {
-		_ = watcher.Close()
-		return nil, coreerrs.WrapOperation(err, "stat path")
-	}
-
-	if info.IsDir() {
-		if err := s.addWatchRecursive(watcher, s.path); err != nil {
-			_ = watcher.Close()
-			return nil, err
-		}
-	} else {
-		if err := watcher.Add(filepath.Dir(s.path)); err != nil {
-			_ = watcher.Close()
-			return nil, coreerrs.WrapOperation(err, "watch directory")
-		}
-	}
-
-	s.watcher = watcher
-	s.watchCh = make(chan struct{}, 1)
-	s.stopCh = make(chan struct{})
-	s.doneCh = make(chan struct{})
-	s.watching = true
-
-	go s.watchLoop(ctx)
-
-	s.logger.Info("started watching for policy changes", slog.String("path", s.path))
-
-	return s.watchCh, nil
-}
-
-// addWatchRecursive adds the directory and all subdirectories to the watcher.
-func (s *Source) addWatchRecursive(watcher *fsnotify.Watcher, path string) error {
-	return filepath.Walk(path, func(p string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			if err := watcher.Add(p); err != nil {
-				return coreerrs.Wrapf(err, "watch %s", p)
-			}
-		}
-		return nil
-	})
-}
-
-// watchLoop handles fsnotify events and signals changes.
-func (s *Source) watchLoop(ctx context.Context) {
-	defer close(s.doneCh)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-s.stopCh:
-			return
-		case event, ok := <-s.watcher.Events:
-			if !ok {
-				return
-			}
-			if s.isRelevantEvent(event) {
-				s.logger.Debug("detected file change",
-					slog.String("path", event.Name),
-					slog.String("op", event.Op.String()))
-				s.signal()
-
-				// Handle new directories
-				if event.Op&fsnotify.Create != 0 {
-					if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
-						if err := s.watcher.Add(event.Name); err != nil {
-							s.logger.Warn("failed to watch new directory",
-								slog.String("path", event.Name),
-								slog.Any("error", err))
-						}
-					}
-				}
-			}
-		case err, ok := <-s.watcher.Errors:
-			if !ok {
-				return
-			}
-			s.logger.Error("watcher error", slog.Any("error", err))
-		}
-	}
-}
-
-// isRelevantEvent checks if the event is for a file we care about.
-func (s *Source) isRelevantEvent(event fsnotify.Event) bool {
-	if event.Op&fsnotify.Chmod != 0 {
-		return false // Ignore permission changes
-	}
-
-	ext := filepath.Ext(event.Name)
-	if _, ok := s.extensions[ext]; ok {
-		return true
-	}
-
-	if s.opts.includeData && ext == ".json" {
-		return true
-	}
-
-	// Also trigger on directory changes (new directories may contain policies)
-	if event.Op&fsnotify.Create != 0 {
-		if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
-			return true
-		}
-	}
-
-	return false
-}
-
-// signal sends a notification that policies may have changed.
-func (s *Source) signal() {
-	select {
-	case s.watchCh <- struct{}{}:
-	default:
-		// Channel already has a pending signal
-	}
-}
-
-// Close releases resources and stops watching.
+// Close releases resources held by the source.
 func (s *Source) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -410,18 +265,6 @@ func (s *Source) Close() error {
 	}
 
 	s.closed = true
-
-	if s.watching {
-		close(s.stopCh)
-		s.mu.Unlock()
-		<-s.doneCh
-		s.mu.Lock()
-		if err := s.watcher.Close(); err != nil {
-			return coreerrs.WrapOperation(err, "close watcher")
-		}
-		close(s.watchCh)
-		s.watching = false
-	}
 
 	s.logger.Debug("filesystem source closed", slog.String("path", s.path))
 
