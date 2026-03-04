@@ -4,10 +4,9 @@
 
 package factory
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate
-
 import (
 	"log/slog"
+	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/redis/go-redis/v9"
@@ -15,14 +14,37 @@ import (
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
-// options contains Factory configuration.
-type options struct {
-	// logger is the logger for operational visibility.
-	logger *slog.Logger
-	// redisClient is the Redis client for Redis storage backends.
-	redisClient redis.UniversalClient
-	// jetstream is the NATS JetStream context for NATS storage backends.
-	jetstream jetstream.JetStream
-	// scheduler is the scheduler for background task registration.
-	scheduler corescheduler.TaskRegistrar `optgen:"notnil"`
+// UseLogger sets the logger for the builder and all created components.
+func (b *CursorStorageBuilder) UseLogger(v *slog.Logger) *CursorStorageBuilder {
+	b.SetLogger(v)
+	return b
+}
+
+// UseDefaultLogger sets the logger to [slog.Default].
+func (b *CursorStorageBuilder) UseDefaultLogger() *CursorStorageBuilder {
+	return b.UseLogger(slog.Default())
+}
+
+// UseRedisClient sets the Redis client for Redis storage backends.
+func (b *CursorStorageBuilder) UseRedisClient(v redis.UniversalClient) *CursorStorageBuilder {
+	b.redisClient = v
+	return b
+}
+
+// UseJetstream sets the NATS JetStream context for NATS storage backends.
+func (b *CursorStorageBuilder) UseJetstream(v jetstream.JetStream) *CursorStorageBuilder {
+	b.jetstream = v
+	return b
+}
+
+// UseScheduler sets the scheduler for background task registration.
+func (b *CursorStorageBuilder) UseScheduler(v corescheduler.TaskRegistrar) *CursorStorageBuilder {
+	b.scheduler = v
+	return b
+}
+
+// WithTTL sets the TTL for cursor storage entries.
+func (b *CursorStorageBuilder) WithTTL(ttl time.Duration) *CursorStorageBuilder {
+	b.ttl = ttl
+	return b
 }

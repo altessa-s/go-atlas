@@ -4,8 +4,6 @@
 
 package factory
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate
-
 import (
 	"log/slog"
 
@@ -13,12 +11,27 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// options contains Factory configuration.
-type options struct {
-	// logger is the logger for operational visibility.
-	logger *slog.Logger
-	// redisClient is the Redis client for Redis provider.
-	redisClient redis.UniversalClient
-	// natsConn is the NATS connection for NATS provider.
-	natsConn *nats.Conn
+// --- Dependency methods ---
+
+// UseLogger sets the logger for the builder and all created components.
+func (b *UniqBuilder) UseLogger(v *slog.Logger) *UniqBuilder {
+	b.SetLogger(v)
+	return b
+}
+
+// UseDefaultLogger sets the logger to [slog.Default].
+func (b *UniqBuilder) UseDefaultLogger() *UniqBuilder {
+	return b.UseLogger(slog.Default())
+}
+
+// UseRedisClient sets the Redis client used for Redis-backed providers.
+func (b *UniqBuilder) UseRedisClient(v redis.UniversalClient) *UniqBuilder {
+	b.redisClient = v
+	return b
+}
+
+// UseNatsConn sets the NATS connection used for NATS-backed providers.
+func (b *UniqBuilder) UseNatsConn(v *nats.Conn) *UniqBuilder {
+	b.natsConn = v
+	return b
 }

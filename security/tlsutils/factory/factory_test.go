@@ -19,42 +19,42 @@ func TestNew(t *testing.T) {
 
 	logger := slog.Default()
 
-	f := New(WithLogger(logger))
+	b := New(nil).UseLogger(logger)
 
-	assert.NotNil(t, f)
-	assert.Equal(t, logger, f.Logger())
+	assert.NotNil(t, b)
+	assert.Equal(t, logger, b.Logger())
 }
 
 func TestNew_NoOptions(t *testing.T) {
 	t.Parallel()
 
-	f := New()
+	b := New(nil)
 
-	assert.NotNil(t, f)
-	// defaultOptions sets logger to DiscardHandler
-	assert.NotNil(t, f.Logger())
+	assert.NotNil(t, b)
+	// New sets logger to DiscardHandler
+	assert.NotNil(t, b.Logger())
 }
 
-func TestFactory_CreateClientConfigFromConfig_Nil(t *testing.T) {
+func TestProvidersBuilder_CreateClientConfig_Nil(t *testing.T) {
 	t.Parallel()
 
-	f := New()
+	b := New(nil)
 
-	cfg, err := f.CreateClientConfigFromConfig(nil)
+	cfg, err := b.CreateClientConfig(nil)
 
 	assert.NoError(t, err)
 	assert.Nil(t, cfg)
 }
 
-func TestFactory_CreateClientConfigFromConfig_WithServerName(t *testing.T) {
+func TestProvidersBuilder_CreateClientConfig_WithServerName(t *testing.T) {
 	t.Parallel()
 
-	f := New()
+	b := New(nil)
 	cfg := &config.TlsClient{
 		ServerName: "example.com",
 	}
 
-	tlsConfig, err := f.CreateClientConfigFromConfig(cfg)
+	tlsConfig, err := b.CreateClientConfig(cfg)
 
 	require.NoError(t, err)
 	require.NotNil(t, tlsConfig)
@@ -62,170 +62,173 @@ func TestFactory_CreateClientConfigFromConfig_WithServerName(t *testing.T) {
 	assert.False(t, tlsConfig.InsecureSkipVerify)
 }
 
-func TestFactory_CreateClientConfigFromConfig_SkipVerify_without_env(t *testing.T) {
+func TestProvidersBuilder_CreateClientConfig_SkipVerify_without_env(t *testing.T) {
 	t.Setenv(config.EnvAllowInsecureTLS, "")
 
-	f := New()
+	b := New(nil)
 	cfg := &config.TlsClient{
 		ServerName: "example.com",
 		SkipVerify: true,
 	}
 	cfg.Normalize() // env-guard resets SkipVerify
 
-	tlsConfig, err := f.CreateClientConfigFromConfig(cfg)
+	tlsConfig, err := b.CreateClientConfig(cfg)
 
 	require.NoError(t, err)
 	require.NotNil(t, tlsConfig)
 	assert.False(t, tlsConfig.InsecureSkipVerify, "InsecureSkipVerify must stay false without env guard")
 }
 
-func TestFactory_CreateClientConfigFromConfig_SkipVerify_with_env(t *testing.T) {
+func TestProvidersBuilder_CreateClientConfig_SkipVerify_with_env(t *testing.T) {
 	t.Setenv(config.EnvAllowInsecureTLS, "true")
 
-	f := New()
+	b := New(nil)
 	cfg := &config.TlsClient{
 		ServerName: "example.com",
 		SkipVerify: true,
 	}
 	cfg.Normalize() // env-guard permits SkipVerify
 
-	tlsConfig, err := f.CreateClientConfigFromConfig(cfg)
+	tlsConfig, err := b.CreateClientConfig(cfg)
 
 	require.NoError(t, err)
 	require.NotNil(t, tlsConfig)
 	assert.True(t, tlsConfig.InsecureSkipVerify, "InsecureSkipVerify must be true when env guard is set")
 }
 
-func TestFactory_CreateProvidersFromConfig_Nil(t *testing.T) {
+func TestProvidersBuilder_Build_NilConfig(t *testing.T) {
 	t.Parallel()
 
-	f := New()
+	b := New(nil)
 
-	providers, err := f.CreateProvidersFromConfig(nil)
+	providers, err := b.Build()
 
 	require.NoError(t, err)
 	require.NotNil(t, providers)
 }
 
-func TestFactory_CreateFileProviderFromConfig_InvalidFiles(t *testing.T) {
+func TestProvidersBuilder_createFileProvider_InvalidFiles(t *testing.T) {
 	t.Parallel()
 
-	f := New()
-	cfg := &config.TlsProviderFile{
-		Certificate: "/nonexistent/cert.pem",
-		PrivateKey:  "/nonexistent/key.pem",
-	}
+	b := New(&config.TlsProvider{
+		File: &config.TlsProviderFile{
+			Certificate: "/nonexistent/cert.pem",
+			PrivateKey:  "/nonexistent/key.pem",
+		},
+	})
 
-	provider, err := f.CreateFileProviderFromConfig(cfg)
+	provider, err := b.createFileProvider()
 
 	assert.Nil(t, provider)
 	assert.Error(t, err)
 }
 
-func TestFactory_CreateVaultProviderFromConfig_NoClient(t *testing.T) {
+func TestProvidersBuilder_createVaultProvider_NoClient(t *testing.T) {
 	t.Parallel()
 
-	f := New()
-	cfg := &config.TlsProviderVault{
-		CommonName: "example.com",
-		Role:       "web",
-	}
+	b := New(&config.TlsProvider{
+		Vault: &config.TlsProviderVault{
+			CommonName: "example.com",
+			Role:       "web",
+		},
+	})
 
-	provider, err := f.CreateVaultProviderFromConfig(cfg)
+	provider, err := b.createVaultProvider()
 
 	assert.Nil(t, provider)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "vault client is required")
 }
 
-func TestFactory_CreateLetsEncryptProviderFromConfig_InvalidConfig(t *testing.T) {
+func TestProvidersBuilder_createLetsEncryptProvider_InvalidConfig(t *testing.T) {
 	t.Parallel()
 
-	f := New()
-	cfg := &config.TlsProviderLetsEncrypt{
-		// Missing required fields
-	}
+	b := New(&config.TlsProvider{
+		LetsEncrypt: &config.TlsProviderLetsEncrypt{
+			// Missing required fields
+		},
+	})
 
-	provider, err := f.CreateLetsEncryptProviderFromConfig(cfg)
+	provider, err := b.createLetsEncryptProvider()
 
 	assert.Nil(t, provider)
 	assert.Error(t, err)
 }
 
-func TestFactory_fileProviderOpts(t *testing.T) {
+func TestProvidersBuilder_fileProviderOpts(t *testing.T) {
 	t.Parallel()
 
 	t.Run("with logger", func(t *testing.T) {
 		t.Parallel()
 
 		logger := slog.Default()
-		f := New(WithLogger(logger))
+		b := New(nil).UseLogger(logger)
 
-		opts := f.fileProviderOpts()
+		opts := b.fileProviderOpts()
 
 		assert.Len(t, opts, 1)
 	})
 
-	t.Run("default factory", func(t *testing.T) {
+	t.Run("default builder", func(t *testing.T) {
 		t.Parallel()
 
-		f := New()
+		b := New(nil)
 
-		opts := f.fileProviderOpts()
+		opts := b.fileProviderOpts()
 
-		// Default factory has logger from defaultOptions
+		// Default builder has logger from New
 		assert.Len(t, opts, 1)
 	})
 }
 
-func TestFactory_vaultProviderOpts(t *testing.T) {
+func TestProvidersBuilder_vaultProviderOpts(t *testing.T) {
 	t.Parallel()
 
 	t.Run("with logger and cache dir", func(t *testing.T) {
 		t.Parallel()
 
 		logger := slog.Default()
-		f := New(WithLogger(logger), WithCacheDir("/tmp/certs"))
+		b := New(nil).UseLogger(logger).UseCacheDir("/tmp/certs")
 
-		opts := f.vaultProviderOpts()
+		opts := b.vaultProviderOpts()
 
 		assert.Len(t, opts, 2)
 	})
 
-	t.Run("default factory", func(t *testing.T) {
+	t.Run("default builder", func(t *testing.T) {
 		t.Parallel()
 
-		f := New()
+		b := New(nil)
 
-		opts := f.vaultProviderOpts()
+		opts := b.vaultProviderOpts()
 
-		// Default factory has logger from defaultOptions
+		// Default builder has logger from New
 		assert.Len(t, opts, 1)
 	})
 }
 
-func TestFactory_letsEncryptProviderOpts(t *testing.T) {
+func TestProvidersBuilder_letsEncryptProviderOpts(t *testing.T) {
 	t.Parallel()
 
 	t.Run("with logger and cache dir", func(t *testing.T) {
 		t.Parallel()
 
 		logger := slog.Default()
-		f := New(WithLogger(logger), WithCacheDir("/tmp/certs"))
+		b := New(nil).UseLogger(logger).UseCacheDir("/tmp/certs")
 
-		opts := f.letsEncryptProviderOpts()
+		opts := b.letsEncryptProviderOpts()
 
 		assert.Len(t, opts, 2)
 	})
 
-	t.Run("default factory", func(t *testing.T) {
+	t.Run("default builder", func(t *testing.T) {
 		t.Parallel()
 
-		f := New()
+		b := New(nil)
 
-		opts := f.letsEncryptProviderOpts()
+		opts := b.letsEncryptProviderOpts()
 
-		// Default factory has logger from defaultOptions
+		// Default builder has logger from New
 		assert.Len(t, opts, 1)
 	})
 }

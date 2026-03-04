@@ -2,19 +2,14 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package factory provides configuration-based creation of rate limiters.
-// It integrates token bucket limiter with memory, Redis, and NATS storage backends
-// to create rate limiters with consistent defaults.
+// Package factory provides a fluent builder for creating rate limiters
+// from configuration.
 //
-// Example:
+// [LimiterBuilder] uses a fluent API with deferred error accumulation:
+// errors from any step are collected and returned at [LimiterBuilder.Build] time.
 //
-//	f := factory.New(factory.WithLogger(logger))
-//	storage, err := f.CreateStorageFromConfig(cfg.Storage)
-//	if err != nil {
-//		log.Fatal(err)
-//	}
-//	limiter, err := f.CreateLimiterFromConfig(cfg.Limiter, storage)
-//	if err != nil {
-//		log.Fatal(err)
-//	}
+//	limiter, err := factory.New(cfg.Limiter).
+//	    UseLogger(logger).
+//	    UseRedisClient(redisClient).
+//	    Build()
 package factory

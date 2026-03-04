@@ -1,0 +1,228 @@
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Use of this source code is governed by license that can be found in
+// the LICENSE file.
+
+package factory
+
+import (
+	"cmp"
+	"context"
+	"fmt"
+	"log/slog"
+	"os"
+	"time"
+
+	"github.com/mattn/go-isatty"
+
+	"github.com/altessa-s/go-atlas/config"
+	"github.com/altessa-s/go-atlas/core/collections/maps"
+	"github.com/altessa-s/go-atlas/core/collections/slices"
+	corefactory "github.com/altessa-s/go-atlas/core/factory"
+	"github.com/altessa-s/go-atlas/core/runtime"
+	"github.com/altessa-s/go-atlas/core/runtime/appinfo"
+	"github.com/altessa-s/go-atlas/observability/slog/handler/buffered"
+	"github.com/altessa-s/go-atlas/observability/slog/handler/colorized"
+	"github.com/altessa-s/go-atlas/observability/slog/handler/masking"
+	"github.com/altessa-s/go-atlas/observability/slog/handler/prefixed"
+
+	slogx "github.com/altessa-s/go-atlas/observability/slog"
+)
+
+// LoggerBuilder assembles a [slog.Logger] from configuration using a fluent API
+// with deferred error accumulation.
+//
+// After [LoggerBuilder.Build], the builder retains a reference to the [slog.LevelVar]
+// and can be used for runtime level changes via [LoggerBuilder.SetLevel] and
+// [LoggerBuilder.GetLevel].
+type LoggerBuilder struct {
+	cfg  *config.Logger
+	errs []error
+
+	// Configuration (set via With*).
+	prefixKey     string
+	prefixColors  map[string][]int
+	enableMasking bool
+	appName       string
+	appVersion    string
+	serviceId     string
+	levelVar      *slog.LevelVar
+}
+
+// New creates a new [LoggerBuilder] for the given logger config.
+func New(cfg *config.Logger) *LoggerBuilder {
+	return &LoggerBuilder{
+		cfg:          cfg,
+		prefixKey:    ModuleKey,
+		prefixColors: map[string][]int{ModuleKey: {46}},
+		appName:      appinfo.Name,
+		appVersion:   appinfo.Version,
+	}
+}
+
+// Build assembles and returns the logger.
+func (b *LoggerBuilder) Build() (*slog.Logger, error) {
+	if err := corefactory.JoinErrors(b.errs); err != nil {
+		return nil, err
+	}
+
+	if b.cfg == nil {
+		return nil, fmt.Errorf("configuration is required")
+	}
+	if b.cfg.Level == config.LoggerLevelNone {
+		return slog.New(slog.DiscardHandler), nil
+	}
+
+	maskString := cmp.Or(b.cfg.MaskString, "****")
+	appGroupName := cmp.Or(b.cfg.AppGroupName, "app")
+
+	writer := b.getWriter()
+	handler := b.createHandler(writer, maskString)
+
+	handler = b.wrapWithPrefixedHandler(handler)
+
+	if b.enableMasking && len(b.cfg.SensitiveTags) > 0 {
+		handler = b.wrapWithMaskingHandler(handler, maskString)
+	}
+
+	if b.cfg.Buffered {
+		handler = buffered.NewHandler(handler,
+			buffered.WithBufferSize(b.cfg.BufferSize),
+			buffered.WithBypassLevel(b.parseLevel(b.cfg.BypassLevel)),
+		)
+	}
+
+	logger := slog.New(handler)
+
+	if b.cfg.Buffered {
+		runtime.OnShutdown(func(ctx context.Context) error {
+			return slogx.Shutdown(ctx, logger)
+		})
+	}
+
+	logger = logger.With(maps.ToKeyValueSlice(b.cfg.Tags)...)
+	logger = b.addAppMetadata(logger, appGroupName)
+
+	return logger, nil
+}
+
+// SetLevel changes the logging level at runtime.
+func (b *LoggerBuilder) SetLevel(level slog.Level) {
+	levelVar := cmp.Or(b.levelVar, slogx.GlobalLevel)
+	levelVar.Set(level)
+}
+
+// GetLevel returns the current logging level.
+func (b *LoggerBuilder) GetLevel() slog.Level {
+	levelVar := cmp.Or(b.levelVar, slogx.GlobalLevel)
+	return levelVar.Level()
+}
+
+// getWriter returns the appropriate writer based on output configuration.
+func (b *LoggerBuilder) getWriter() *os.File {
+	writers := map[config.LoggerConsoleOutput]*os.File{
+		config.LoggerConsoleOutputStderr: os.Stderr,
+	}
+	return cmp.Or(writers[b.cfg.Output], os.Stdout)
+}
+
+// createHandler creates the base handler based on the output format.
+func (b *LoggerBuilder) createHandler(writer *os.File, maskString string) slog.Handler {
+	var level slog.Leveler = b.parseLevel(b.cfg.Level)
+	levelVar := cmp.Or(b.levelVar, slogx.GlobalLevel)
+	levelVar.Set(level.Level())
+	level = levelVar
+
+	timeFormat := cmp.Or(b.cfg.TimeFormat, time.RFC3339Nano)
+	replaceAttr := slogx.MaskingReplaceAttr(b.cfg.SensitiveTags, maskString)
+
+	opts := &slog.HandlerOptions{
+		AddSource:   b.cfg.OutputSource,
+		Level:       level,
+		ReplaceAttr: replaceAttr,
+	}
+
+	customHandlersMu.RLock()
+	customFactory, ok := customHandlers[b.cfg.OutputFormat]
+	customHandlersMu.RUnlock()
+
+	if ok {
+		return customFactory(writer, b.cfg, opts)
+	}
+
+	switch b.cfg.OutputFormat {
+	case config.LogFormatJSON:
+		return slog.NewJSONHandler(writer, opts)
+	default:
+		noColor := !b.cfg.Colorized || !isatty.IsTerminal(writer.Fd())
+		colorOpts := []colorized.Option{
+			colorized.WithLevel(level),
+			colorized.WithReplaceAttr(replaceAttr),
+			colorized.WithTimeFormat(timeFormat),
+			colorized.WithPrefixAttributeKey(b.prefixKey),
+			colorized.WithAttributeColors(b.prefixColors),
+		}
+		colorOpts = slices.AppendIf(colorOpts, b.cfg.OutputSource, colorized.WithAddSource())
+		colorOpts = slices.AppendIf(colorOpts, noColor, colorized.WithNoColor())
+		return colorized.NewHandler(writer, colorOpts...)
+	}
+}
+
+// wrapWithPrefixedHandler adds prefix handling to the handler chain.
+func (b *LoggerBuilder) wrapWithPrefixedHandler(handler slog.Handler) slog.Handler {
+	formatter := prefixed.DefaultFormatter
+	if b.cfg.OutputFormat == config.LogFormatJSON {
+		formatter = prefixed.JsonFormatter
+	}
+
+	return prefixed.NewHandler(handler,
+		prefixed.WithPrefix(b.prefixKey),
+		prefixed.WithPrefixFormatter(formatter),
+	)
+}
+
+// wrapWithMaskingHandler adds masking to the handler chain.
+func (b *LoggerBuilder) wrapWithMaskingHandler(handler slog.Handler, maskString string) slog.Handler {
+	opts := []masking.Option{masking.WithDefaults()}
+	if maskString != "" {
+		opts = append(opts, masking.WithDefaultMask(masking.FixedMask(maskString)))
+	}
+
+	for _, tag := range b.cfg.SensitiveTags {
+		opts = append(opts, masking.WithField(tag, masking.FullMask()))
+	}
+
+	return masking.NewHandler(handler, opts...)
+}
+
+// addAppMetadata adds application metadata to the logger.
+func (b *LoggerBuilder) addAppMetadata(logger *slog.Logger, appGroupName string) *slog.Logger {
+	if b.appName == "" && b.appVersion == "" && b.serviceId == "" {
+		return logger
+	}
+
+	var attrs []any
+	attrs = slices.AppendNonEmpty(attrs, "name", b.appName)
+	attrs = slices.AppendNonEmpty(attrs, "version", b.appVersion)
+	attrs = slices.AppendNonEmpty(attrs, "sid", b.serviceId)
+
+	if len(attrs) > 0 {
+		return logger.With(slog.Group(appGroupName, attrs...))
+	}
+	return logger
+}
+
+// parseLevel converts config level to slog.Level.
+func (b *LoggerBuilder) parseLevel(level config.LoggerLevel) slog.Level {
+	switch level {
+	case config.LoggerLevelDebug:
+		return slog.LevelDebug
+	case config.LoggerLevelInfo:
+		return slog.LevelInfo
+	case config.LoggerLevelWarning:
+		return slog.LevelWarn
+	case config.LoggerLevelError:
+		return slog.LevelError
+	default:
+		return slog.LevelError
+	}
+}

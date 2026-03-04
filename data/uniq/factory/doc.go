@@ -2,12 +2,14 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package factory provides configuration-based creation of unique value managers.
-// It integrates uniq implementations with Redis and NATS backends
-// to create unique value managers with consistent defaults.
+// Package factory provides a fluent builder for creating unique value managers
+// from configuration.
 //
-// Example:
+// [UniqBuilder] uses a fluent API with deferred error accumulation:
+// errors from any step are collected and returned at [UniqBuilder.Build] time.
 //
-//	f := factory.New(factory.WithRedisClient(redisClient))
-//	u, err := f.CreateUniqFromConfig(cfg)
+//	u, err := factory.New(cfg.Cache).
+//	    UseLogger(logger).
+//	    UseRedisClient(redisClient).
+//	    Build()
 package factory

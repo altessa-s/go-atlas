@@ -5,7 +5,6 @@
 package factory
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
 
@@ -43,7 +42,7 @@ func New(cfg *config.CacheStorageConfig) *ProviderBuilder {
 // Build assembles the cache provider. Errors from fluent methods are accumulated
 // and reported here via [errors.Join].
 func (b *ProviderBuilder) Build() (providers.Provider, error) {
-	if err := errors.Join(b.errs...); err != nil {
+	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
 	}
 
@@ -58,7 +57,7 @@ func (b *ProviderBuilder) Build() (providers.Provider, error) {
 		if b.cfg.Redis == nil {
 			return nil, fmt.Errorf("configuration is required")
 		}
-		return b.createRedisProviderFromConfig(b.cfg.Redis)
+		return b.createRedisProviderFromConfig()
 	default:
 		return nil, b.Errorf("unsupported storage type: %s", b.cfg.Type)
 	}
@@ -70,9 +69,9 @@ func (b *ProviderBuilder) createFreeCacheProvider() *freecacheprovider.Provider 
 }
 
 // createRedisProviderFromConfig creates a Redis cache provider from configuration.
-func (b *ProviderBuilder) createRedisProviderFromConfig(cfg *config.StorageRedisConfig) (*redisprovider.Provider, error) {
+func (b *ProviderBuilder) createRedisProviderFromConfig() (*redisprovider.Provider, error) {
 	if err := b.RequireDependency(b.redisClient, "redis client"); err != nil {
 		return nil, err
 	}
-	return redisprovider.New(b.redisClient, redisprovider.WithPrefix(cfg.KeysPrefix)), nil
+	return redisprovider.New(b.redisClient, redisprovider.WithPrefix(b.cfg.Redis.KeysPrefix)), nil
 }

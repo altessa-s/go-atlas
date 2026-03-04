@@ -12,13 +12,11 @@ import (
 	"github.com/altessa-s/go-atlas/observability/metrics/factory"
 )
 
-func TestFactory_CreateFromConfig_Disabled(t *testing.T) {
-	f := factory.New()
-
+func TestCollectorBuilder_Build_Disabled(t *testing.T) {
 	// Nil config
-	collector, err := f.CreateFromConfig(nil)
+	collector, err := factory.New(nil).Build()
 	if err != nil {
-		t.Fatalf("CreateFromConfig(nil) error = %v", err)
+		t.Fatalf("Build() error = %v", err)
 	}
 	if !metrics.IsNoop(collector) {
 		t.Error("expected Noop collector for nil config")
@@ -26,27 +24,25 @@ func TestFactory_CreateFromConfig_Disabled(t *testing.T) {
 
 	// Disabled config
 	cfg := &config.Metrics{Enable: false}
-	collector, err = f.CreateFromConfig(cfg)
+	collector, err = factory.New(cfg).Build()
 	if err != nil {
-		t.Fatalf("CreateFromConfig(disabled) error = %v", err)
+		t.Fatalf("Build() error = %v", err)
 	}
 	if !metrics.IsNoop(collector) {
 		t.Error("expected Noop collector for disabled config")
 	}
 }
 
-func TestFactory_CreateFromConfig_Prometheus(t *testing.T) {
-	f := factory.New()
-
+func TestCollectorBuilder_Build_Prometheus(t *testing.T) {
 	cfg := &config.Metrics{
 		Enable:      true,
 		Type:        config.MetricsTypePrometheus,
 		ServiceName: "test",
 	}
 
-	collector, err := f.CreateFromConfig(cfg)
+	collector, err := factory.New(cfg).Build()
 	if err != nil {
-		t.Fatalf("CreateFromConfig error = %v", err)
+		t.Fatalf("Build() error = %v", err)
 	}
 	if collector == nil {
 		t.Fatal("expected non-nil collector")
@@ -56,29 +52,18 @@ func TestFactory_CreateFromConfig_Prometheus(t *testing.T) {
 	}
 }
 
-func TestFactory_CreateFromConfig_Noop(t *testing.T) {
-	f := factory.New()
-
+func TestCollectorBuilder_Build_Noop(t *testing.T) {
 	cfg := &config.Metrics{
 		Enable: true,
 		Type:   config.MetricsTypeNoop,
 	}
 
-	collector, err := f.CreateFromConfig(cfg)
+	collector, err := factory.New(cfg).Build()
 	if err != nil {
-		t.Fatalf("CreateFromConfig error = %v", err)
+		t.Fatalf("Build() error = %v", err)
 	}
 	// Note: MetricsTypeNoop creates a real collector without adapters, not Noop()
 	if collector == nil {
 		t.Fatal("expected non-nil collector")
-	}
-}
-
-func TestFactory_CreateNoop(t *testing.T) {
-	f := factory.New()
-
-	collector := f.CreateNoop()
-	if !metrics.IsNoop(collector) {
-		t.Error("expected Noop collector")
 	}
 }

@@ -2,16 +2,13 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package factory provides configuration-based creation of health [health.Coordinator] instances.
-// It maps [config.Health] settings to [health.Option] values, applying the factory's
-// logger as the default.
+// Package factory provides a fluent builder for creating health coordinators
+// from configuration.
 //
-// Example:
+// [CoordinatorBuilder] uses a fluent API with deferred error accumulation:
+// errors from any step are collected and returned at [CoordinatorBuilder.Build] time.
 //
-//	f := factory.New(factory.WithLogger(logger))
-//	coordinator, err := f.CreateCoordinatorFromConfig(cfg)
-//	if err != nil {
-//	    return err
-//	}
-//	coordinator.RegisterService("database", dbChecker)
+//	coordinator, err := factory.New(cfg.Health).
+//	    UseLogger(logger).
+//	    Build()
 package factory

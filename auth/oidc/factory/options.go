@@ -11,16 +11,18 @@ import (
 
 	"github.com/altessa-s/go-atlas/auth/oidc"
 
-	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
 // UseLogger sets the logger for the builder and all created components.
 func (b *ProviderBuilder) UseLogger(v *slog.Logger) *ProviderBuilder {
-	if v != nil {
-		b.Base = corefactory.NewBase(v)
-	}
+	b.SetLogger(v)
 	return b
+}
+
+// UseDefaultLogger sets the logger to [slog.Default].
+func (b *ProviderBuilder) UseDefaultLogger() *ProviderBuilder {
+	return b.UseLogger(slog.Default())
 }
 
 // UseScheduler sets the task registrar used for background JWKS refresh

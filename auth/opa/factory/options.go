@@ -9,16 +9,18 @@ import (
 
 	"github.com/altessa-s/go-atlas/observability/health"
 
-	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
 // UseLogger sets the logger for the builder and all created components.
 func (b *ManagerBuilder) UseLogger(v *slog.Logger) *ManagerBuilder {
-	if v != nil {
-		b.Base = corefactory.NewBase(v)
-	}
+	b.SetLogger(v)
 	return b
+}
+
+// UseDefaultLogger sets the logger to [slog.Default].
+func (b *ManagerBuilder) UseDefaultLogger() *ManagerBuilder {
+	return b.UseLogger(slog.Default())
 }
 
 // UseScheduler sets the task registrar used for periodic policy update cycles.

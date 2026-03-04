@@ -4,16 +4,27 @@
 
 package factory
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate
-
 import (
 	"log/slog"
 
 	"github.com/nats-io/nats.go"
 )
 
-// options contains Factory configuration.
-type options struct {
-	logger   *slog.Logger
-	natsConn *nats.Conn
+// --- Dependency methods ---
+
+// UseLogger sets the logger for the builder and all created components.
+func (b *DLockBuilder) UseLogger(v *slog.Logger) *DLockBuilder {
+	b.SetLogger(v)
+	return b
+}
+
+// UseDefaultLogger sets the logger to [slog.Default].
+func (b *DLockBuilder) UseDefaultLogger() *DLockBuilder {
+	return b.UseLogger(slog.Default())
+}
+
+// UseNatsConn sets the NATS connection used for distributed locking.
+func (b *DLockBuilder) UseNatsConn(v *nats.Conn) *DLockBuilder {
+	b.natsConn = v
+	return b
 }

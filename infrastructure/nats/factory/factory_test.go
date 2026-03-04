@@ -16,8 +16,8 @@ import (
 )
 
 func TestNew_Default(t *testing.T) {
-	f := New()
-	if f == nil {
+	b := New(nil)
+	if b == nil {
 		t.Fatal("New() returned nil")
 	}
 }
@@ -27,13 +27,15 @@ func TestNew_WithOptions(t *testing.T) {
 	coord := health.New()
 	defer coord.Close()
 
-	f := New(WithLogger(logger), WithHealthCoordinator(coord))
-	if f == nil {
+	b := New(&config.Nats{}).
+		UseLogger(logger).
+		UseHealthCoordinator(coord)
+	if b == nil {
 		t.Fatal("New() returned nil")
 	}
 }
 
-func TestNatsOptionsFromConfig(t *testing.T) {
+func TestNatsOptions(t *testing.T) {
 	tests := []struct {
 		name    string
 		cfg     *config.Nats
@@ -96,8 +98,8 @@ func TestNatsOptionsFromConfig(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := New()
-			opts, err := f.NatsOptionsFromConfig(tt.cfg)
+			b := New(tt.cfg)
+			opts, err := b.NatsOptions()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -108,16 +110,15 @@ func TestNatsOptionsFromConfig(t *testing.T) {
 	}
 }
 
-func TestNatsOptionsFromConfig_ConnectionURI(t *testing.T) {
-	f := New()
-	cfg := &config.Nats{
+func TestNatsOptions_ConnectionURI(t *testing.T) {
+	b := New(&config.Nats{
 		ConnectionURI:  "nats://user:pass@nats:4222",
 		ConnectTimeout: 5 * time.Second,
 		ReconnectWait:  2 * time.Second,
 		PingInterval:   time.Minute,
 		MaxPingsOut:    3,
-	}
-	opts, err := f.NatsOptionsFromConfig(cfg)
+	})
+	opts, err := b.NatsOptions()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -126,18 +127,17 @@ func TestNatsOptionsFromConfig_ConnectionURI(t *testing.T) {
 	}
 }
 
-func TestNatsOptionsFromConfig_ConnectionURI_SkipsAuth(t *testing.T) {
-	f := New()
+func TestNatsOptions_ConnectionURI_SkipsAuth(t *testing.T) {
 	// When URI is set, auth options should not be added even if
 	// cfg has zero-value auth fields (they should be empty).
-	cfg := &config.Nats{
+	b := New(&config.Nats{
 		ConnectionURI:  "nats://nats:4222",
 		ConnectTimeout: 5 * time.Second,
 		ReconnectWait:  2 * time.Second,
 		PingInterval:   time.Minute,
 		MaxPingsOut:    3,
-	}
-	opts, err := f.NatsOptionsFromConfig(cfg)
+	})
+	opts, err := b.NatsOptions()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -146,19 +146,18 @@ func TestNatsOptionsFromConfig_ConnectionURI_SkipsAuth(t *testing.T) {
 	}
 }
 
-func TestNatsOptionsFromConfig_MaxReconnect(t *testing.T) {
-	f := New()
-	cfg := &config.Nats{
+func TestNatsOptions_MaxReconnect(t *testing.T) {
+	b := New(&config.Nats{
 		Hosts:        []string{"nats://localhost:4222"},
 		MaxReconnect: 0, // should default to UnlimitedReconnects
-	}
-	_, err := f.NatsOptionsFromConfig(cfg)
+	})
+	_, err := b.NatsOptions()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
-func TestConsumerConfigFromConfig(t *testing.T) {
+func TestConsumerConfig(t *testing.T) {
 	tests := []struct {
 		name    string
 		cfg     *config.NatsConsumer
@@ -195,8 +194,7 @@ func TestConsumerConfigFromConfig(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := New()
-			consumerCfg, err := f.ConsumerConfigFromConfig(tt.cfg)
+			consumerCfg, err := ConsumerConfig(tt.cfg)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("error = %v, wantErr %v", err, tt.wantErr)
 			}

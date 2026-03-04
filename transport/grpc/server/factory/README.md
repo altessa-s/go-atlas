@@ -4,32 +4,62 @@
 import "github.com/altessa-s/go-atlas/transport/grpc/server/factory"
 ```
 
-Package `factory` provides configuration-based creation of gRPC servers and interceptors. Use `New` to create a `Factory`, then call the Create*
-methods to build server components from config structs. All created components inherit the factory's logger. When TLS is required the factory
-resolves certificates through configured `tlsproviders.Providers`. Each interceptor method returns `(nil, nil)` when the configuration is nil or
-disabled, allowing callers to pass the result directly to `interceptors.ServerConditionalInterceptor`.
+Package `factory` provides a fluent builder for creating a gRPC `Server` and its interceptors from configuration.
+`ServerBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
 
-## Factory options
+## Quick Start
 
-| Option                       | Default | Description                                                          |
-|------------------------------|---------|----------------------------------------------------------------------|
-| `WithLogger`                 | discard | Structured logger inherited by all created components                |
-| `WithTlsProviders`          | nil     | TLS certificate providers used when server TLS config is present     |
-| `WithCacheMetadataProcessor` | nil     | Custom metadata processor forwarded to the cache interceptor         |
+```go
+srv, err := factory.New(cfg.Grpc).
+    UseLogger(logger).
+    UseTracer(tracer).
+    UseLimiter(limiter).
+    UseAuth(authFn, nil).
+    WithInterceptors().
+    Build()
+```
 
 ## Methods
 
-| Method                                       | Description                                                        |
-|----------------------------------------------|--------------------------------------------------------------------|
-| `CreateServerFromConfig`                     | Builds a gRPC server with TLS, keepalive, and reflection settings  |
-| `CreateLoggerInterceptorFromConfig`          | Structured request/response logging interceptor                    |
-| `CreatePrometheusInterceptorFromConfig`      | Prometheus metrics collection interceptor                          |
-| `CreateTracingInterceptorFromConfig`         | Distributed tracing interceptor using a provided `Tracer`          |
-| `CreateRealIPInterceptorFromConfig`          | Extracts the real client IP from proxy headers                     |
-| `CreateRecoveryInterceptorFromConfig`        | Panic recovery interceptor that returns `codes.Internal`           |
-| `CreateRequestIDInterceptorFromConfig`       | Propagates or generates a request ID for every RPC                 |
-| `CreateLimiterInterceptorFromInterConfig`    | Rate limiting interceptor backed by a `Limiter` implementation     |
-| `CreateIdempotencyInterceptorFromInterConfig`| Idempotency enforcement interceptor backed by a `Keeper`           |
-| `CreateCacheInterceptorFromConfig`           | Response caching interceptor with compression and TTL              |
-| `CreateAuthInterceptorFromConfig`            | Authentication interceptor with token validation and client auth   |
-| `CreateHealthInterceptorFromConfig`          | Health gate interceptor that rejects traffic when unhealthy        |
+### Constructor
+
+| Method | Description |
+|--------|-------------|
+| `New(cfg)` | Creates a `ServerBuilder` for the given gRPC config |
+
+### Dependencies
+
+| Method | Description |
+|--------|-------------|
+| `UseLogger` | Sets the logger for the builder and all created components |
+| `UseTlsProviders` | Sets the TLS providers used for server TLS configuration |
+| `UseCacheMetadataProcessor` | Sets the metadata processor forwarded to the cache interceptor |
+| `UseTracer` | Sets the tracer used by the tracing interceptor |
+| `UseLimiter` | Sets the rate limiter used by the limiter interceptor |
+| `UseIdempotency` | Sets the idempotency keeper used by the idempotency interceptor |
+| `UseCacher` | Sets the cacher used by the cache interceptor |
+| `UseAuth(authFn, clientAuth)` | Sets the authentication function and optional client auth handler |
+| `UseHealthChecker` | Sets the health checker used by the health interceptor |
+
+### Configuration
+
+| Method | Description |
+|--------|-------------|
+| `WithInterceptors()` | Creates all enabled interceptors from `cfg.Interceptors` and registers them in order |
+| `WithLoggerInterceptor()` | Adds a structured request/response logging interceptor |
+| `WithPrometheusInterceptor()` | Adds a Prometheus metrics collection interceptor |
+| `WithTracingInterceptor()` | Adds a distributed tracing interceptor |
+| `WithRealIPInterceptor()` | Adds a real client IP extraction interceptor |
+| `WithRecoveryInterceptor()` | Adds a panic recovery interceptor |
+| `WithRequestIDInterceptor()` | Adds a request ID propagation/generation interceptor |
+| `WithLimiterInterceptor()` | Adds a rate limiting interceptor |
+| `WithIdempotencyInterceptor()` | Adds an idempotency enforcement interceptor |
+| `WithCacheInterceptor()` | Adds a response caching interceptor |
+| `WithAuthInterceptor()` | Adds an authentication interceptor |
+| `WithHealthInterceptor()` | Adds a health gate interceptor |
+
+### Terminal
+
+| Method | Description |
+|--------|-------------|
+| `Build` | Assembles and returns the gRPC server with all registered interceptors |

@@ -8,18 +8,19 @@ import (
 	"log/slog"
 
 	"github.com/redis/go-redis/v9"
-
-	corefactory "github.com/altessa-s/go-atlas/core/factory"
 )
 
 // --- Dependency methods ---
 
 // UseLogger sets the logger for the builder and all created components.
 func (b *ProviderBuilder) UseLogger(v *slog.Logger) *ProviderBuilder {
-	if v != nil {
-		b.Base = corefactory.NewBase(v)
-	}
+	b.SetLogger(v)
 	return b
+}
+
+// UseDefaultLogger sets the logger to [slog.Default].
+func (b *ProviderBuilder) UseDefaultLogger() *ProviderBuilder {
+	return b.UseLogger(slog.Default())
 }
 
 // UseRedisClient sets the Redis client used for Redis-backed cache providers.

@@ -4,8 +4,6 @@
 
 package factory
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate
-
 import (
 	"log/slog"
 
@@ -14,12 +12,25 @@ import (
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
-// options contains Factory configuration.
-type options struct {
-	// logger is the logger for operational visibility.
-	logger *slog.Logger
-	// scheduler is the task scheduler for background processes.
-	scheduler corescheduler.TaskRegistrar `optgen:"notnil"`
-	// publishConverter is the converter for publish operations.
-	publishConverter broker.PublishConverter `optgen:"notnil"`
+// UseLogger sets the logger for the builder and all created components.
+func (b *BrokerBuilder) UseLogger(v *slog.Logger) *BrokerBuilder {
+	b.SetLogger(v)
+	return b
+}
+
+// UseDefaultLogger sets the logger to [slog.Default].
+func (b *BrokerBuilder) UseDefaultLogger() *BrokerBuilder {
+	return b.UseLogger(slog.Default())
+}
+
+// UseScheduler sets the task scheduler for background processes.
+func (b *BrokerBuilder) UseScheduler(v corescheduler.TaskRegistrar) *BrokerBuilder {
+	b.scheduler = v
+	return b
+}
+
+// UsePublishConverter sets the converter for publish operations.
+func (b *BrokerBuilder) UsePublishConverter(v broker.PublishConverter) *BrokerBuilder {
+	b.publishConverter = v
+	return b
 }

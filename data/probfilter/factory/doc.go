@@ -2,14 +2,24 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package factory provides configuration-based creation of probabilistic filters.
-// It integrates with the config.ProbabilisticFilter configuration to create
-// Bloom and Cuckoo filters with their respective storage backends.
+// Package factory provides fluent builders for creating probabilistic filters
+// and filter managers from configuration.
 //
-// Example:
+// Two builder types are available:
 //
-//	f := factory.New(redisClient, cfg.Defaults)
-//	mgr, err := f.CreateManagerFromConfig(cfg)
+// [FilterBuilder] creates individual Bloom or Cuckoo filters:
+//
+//	filter, err := factory.NewFilter("my-filter", filterCfg, defaults).
+//	    UseLogger(logger).
+//	    UseRedisClient(redisClient).
+//	    Build()
+//
+// [ManagerBuilder] creates a [probfilter.Manager] with all configured filters:
+//
+//	mgr, err := factory.NewManager(cfg.ProbabilisticFilter).
+//	    UseLogger(logger).
+//	    UseRedisClient(redisClient).
+//	    Build()
 //	if err != nil {
 //	    log.Fatal(err)
 //	}

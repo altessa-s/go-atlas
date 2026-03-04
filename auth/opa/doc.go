@@ -65,12 +65,10 @@
 //
 // For configuration-driven setup, use the factory package:
 //
-//	f := factory.New(factory.WithLogger(logger))
-//	manager, err := f.CreateManagerFromConfig(ctx, &config.OPA{
-//	    BundlePath:  "./policies",
-//	    Query:       "data.authz.allow",
-//	    WatchBundle: true,
-//	})
+//	manager, err := factory.New(cfg.OPA).
+//	    UseLogger(logger).
+//	    UseScheduler(scheduler).
+//	    Build(ctx)
 //
 // # Thread Safety
 //

@@ -2,18 +2,18 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package factory provides configuration-based creation of leader electors.
-// It integrates with the config.LeaderElector configuration to create
-// Leader instances with their respective providers.
+// Package factory provides a fluent builder for creating leader electors
+// from configuration.
 //
-// Example:
+// [LeaderBuilder] uses a fluent API with deferred error accumulation:
+// errors from any step are collected and returned at [LeaderBuilder.Build] time.
 //
-//	f := factory.New(
-//	    factory.WithKey("my-app"),
-//	    factory.WithNodeId("node-1"),
-//	    factory.WithNatsConn(natsConn),
-//	)
-//	le, err := f.CreateLeaderFromConfig(ctx, cfg)
+//	le, err := factory.New(cfg.LeaderElector).
+//	    UseLogger(logger).
+//	    UseNatsConn(natsConn).
+//	    WithKey("my-app").
+//	    WithNodeId("node-1").
+//	    Build(ctx)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}

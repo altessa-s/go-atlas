@@ -23,81 +23,89 @@ import (
 	sharedreqid "github.com/altessa-s/go-atlas/transport/internal/requestid"
 )
 
+// middlewaresCfg returns the middlewares config or nil if not configured.
+func (b *ServerBuilder) middlewaresCfg() *config.MiddlewaresConfig {
+	if b.cfg == nil {
+		return nil
+	}
+	return b.cfg.Middlewares
+}
+
 // WithMiddlewares creates all enabled middlewares from the builder's config
 // (b.cfg.Middlewares) and adds them. If not called, no config-based middleware
-// will be applied. Can be combined with WithMiddleware() and WithoutMiddleware().
+// will be applied. Can be combined with WithMiddleware() and Without*Middleware().
 func (b *ServerBuilder) WithMiddlewares() *ServerBuilder {
-	if b.cfg == nil {
-		return b
-	}
-	cfg := b.cfg.Middlewares
-	if cfg == nil {
+	if b.middlewaresCfg() == nil {
 		return b
 	}
 	return b.
-		WithRealIPMiddleware(cfg.RealIp).
-		WithRequestIDMiddleware(cfg.RequestId).
-		WithRecoveryMiddleware(cfg.Recovery).
-		WithTracingMiddleware(cfg.Tracing).
-		WithLoggerMiddleware(cfg.Logger).
-		WithPrometheusMiddleware(cfg.Prometheus).
-		WithCorsMiddleware(cfg.Cors).
-		WithSecurityHeadersMiddleware(cfg.SecurityHeaders).
-		WithBodyLimitMiddleware(cfg.BodyLimit).
-		WithLimiterMiddleware(cfg.Limiter).
-		WithIdempotencyMiddleware(cfg.Idempotency)
+		WithRealIPMiddleware().
+		WithRequestIDMiddleware().
+		WithRecoveryMiddleware().
+		WithTracingMiddleware().
+		WithLoggerMiddleware().
+		WithPrometheusMiddleware().
+		WithCorsMiddleware().
+		WithSecurityHeadersMiddleware().
+		WithBodyLimitMiddleware().
+		WithLimiterMiddleware().
+		WithIdempotencyMiddleware()
 }
 
-// WithBodyLimitMiddleware creates a body limit middleware from configuration.
-func (b *ServerBuilder) WithBodyLimitMiddleware(cfg *config.HttpInterBodyLimitConfig) *ServerBuilder {
-	if cfg == nil || !cfg.IsEnabled() {
+// WithBodyLimitMiddleware creates a body limit middleware from the builder's configuration.
+func (b *ServerBuilder) WithBodyLimitMiddleware() *ServerBuilder {
+	cfg := b.middlewaresCfg()
+	if cfg == nil || cfg.BodyLimit == nil || !cfg.BodyLimit.IsEnabled() {
 		return b
 	}
-	b.configMW = append(b.configMW, bodylimitmw.New(cfg.MaxSize))
+	b.configMW = append(b.configMW, bodylimitmw.New(cfg.BodyLimit.MaxSize))
 	return b
 }
 
-// WithCorsMiddleware creates a CORS middleware from configuration.
-func (b *ServerBuilder) WithCorsMiddleware(cfg *config.HttpInterCorsConfig) *ServerBuilder {
-	if cfg == nil || !cfg.IsEnabled() {
+// WithCorsMiddleware creates a CORS middleware from the builder's configuration.
+func (b *ServerBuilder) WithCorsMiddleware() *ServerBuilder {
+	cfg := b.middlewaresCfg()
+	if cfg == nil || cfg.Cors == nil || !cfg.Cors.IsEnabled() {
 		return b
 	}
 
+	c := cfg.Cors
 	configOpts := []corsmw.Option{
 		corsmw.WithLogger(b.Logger()),
-		corsmw.WithAllowedOrigins(cfg.AllowedOrigins...),
-		corsmw.WithMaxAge(cfg.MaxAge),
-		corsmw.WithOptionsSuccessStatus(cfg.OptionsSuccessStatus),
+		corsmw.WithAllowedOrigins(c.AllowedOrigins...),
+		corsmw.WithMaxAge(c.MaxAge),
+		corsmw.WithOptionsSuccessStatus(c.OptionsSuccessStatus),
 	}
 
-	if len(cfg.AllowedMethods) > 0 {
-		configOpts = append(configOpts, corsmw.WithAllowedMethods(cfg.AllowedMethods...))
+	if len(c.AllowedMethods) > 0 {
+		configOpts = append(configOpts, corsmw.WithAllowedMethods(c.AllowedMethods...))
 	}
-	if len(cfg.AllowedHeaders) > 0 {
-		configOpts = append(configOpts, corsmw.WithAllowedHeaders(cfg.AllowedHeaders...))
+	if len(c.AllowedHeaders) > 0 {
+		configOpts = append(configOpts, corsmw.WithAllowedHeaders(c.AllowedHeaders...))
 	}
-	if len(cfg.ExposedHeaders) > 0 {
-		configOpts = append(configOpts, corsmw.WithExposedHeaders(cfg.ExposedHeaders...))
+	if len(c.ExposedHeaders) > 0 {
+		configOpts = append(configOpts, corsmw.WithExposedHeaders(c.ExposedHeaders...))
 	}
-	if len(cfg.IgnorePaths) > 0 {
-		configOpts = append(configOpts, corsmw.WithIgnorePaths(cfg.IgnorePaths...))
+	if len(c.IgnorePaths) > 0 {
+		configOpts = append(configOpts, corsmw.WithIgnorePaths(c.IgnorePaths...))
 	}
-	if len(cfg.IgnorePatterns) > 0 {
-		patterns := compilePatterns(cfg.IgnorePatterns)
+	if len(c.IgnorePatterns) > 0 {
+		patterns := compilePatterns(c.IgnorePatterns)
 		configOpts = append(configOpts, corsmw.WithIgnorePatterns(patterns...))
 	}
 
-	configOpts = slices.AppendIf(configOpts, cfg.AllowCredentials, corsmw.WithAllowCredentials())
-	configOpts = slices.AppendIf(configOpts, cfg.AllowPrivateNetwork, corsmw.WithAllowPrivateNetwork())
-	configOpts = slices.AppendIf(configOpts, cfg.OptionsPassthrough, corsmw.WithOptionsPassthrough())
+	configOpts = slices.AppendIf(configOpts, c.AllowCredentials, corsmw.WithAllowCredentials())
+	configOpts = slices.AppendIf(configOpts, c.AllowPrivateNetwork, corsmw.WithAllowPrivateNetwork())
+	configOpts = slices.AppendIf(configOpts, c.OptionsPassthrough, corsmw.WithOptionsPassthrough())
 
 	b.configMW = append(b.configMW, corsmw.New(configOpts...))
 	return b
 }
 
-// WithIdempotencyMiddleware creates an idempotency middleware from configuration.
-func (b *ServerBuilder) WithIdempotencyMiddleware(cfg *config.HttpInterIdempotencyConfig) *ServerBuilder {
-	if cfg == nil || !cfg.IsEnabled() {
+// WithIdempotencyMiddleware creates an idempotency middleware from the builder's configuration.
+func (b *ServerBuilder) WithIdempotencyMiddleware() *ServerBuilder {
+	cfg := b.middlewaresCfg()
+	if cfg == nil || cfg.Idempotency == nil || !cfg.Idempotency.IsEnabled() {
 		return b
 	}
 
@@ -106,28 +114,30 @@ func (b *ServerBuilder) WithIdempotencyMiddleware(cfg *config.HttpInterIdempoten
 		return b
 	}
 
+	c := cfg.Idempotency
 	configOpts := []idempotencymw.Option{
 		idempotencymw.WithLogger(b.Logger()),
-		idempotencymw.WithIdempotencyKeyHeader(cfg.IdempotencyKeyHeader),
-		idempotencymw.WithIdempotencyKeyStatusHeader(cfg.IdempotencyKeyStatusHeader),
-		idempotencymw.WithIdempotencyKeyEntityIdHeader(cfg.IdempotencyKeyEntityIdHeader),
-		idempotencymw.WithFallbackBehavior(convertFallbackBehavior(cfg.FallbackBehavior)),
-		idempotencymw.WithIgnorePaths(cfg.IgnorePaths...),
+		idempotencymw.WithIdempotencyKeyHeader(c.IdempotencyKeyHeader),
+		idempotencymw.WithIdempotencyKeyStatusHeader(c.IdempotencyKeyStatusHeader),
+		idempotencymw.WithIdempotencyKeyEntityIdHeader(c.IdempotencyKeyEntityIdHeader),
+		idempotencymw.WithFallbackBehavior(convertFallbackBehavior(c.FallbackBehavior)),
+		idempotencymw.WithIgnorePaths(c.IgnorePaths...),
 	}
 
-	if len(cfg.IgnorePatterns) > 0 {
-		configOpts = append(configOpts, idempotencymw.WithIgnorePatterns(compilePatterns(cfg.IgnorePatterns)...))
+	if len(c.IgnorePatterns) > 0 {
+		configOpts = append(configOpts, idempotencymw.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
 	}
 
-	configOpts = slices.AppendIf(configOpts, cfg.EnforceMandatory, idempotencymw.WithEnforceMandatory())
+	configOpts = slices.AppendIf(configOpts, c.EnforceMandatory, idempotencymw.WithEnforceMandatory())
 
 	b.configMW = append(b.configMW, idempotencymw.New(b.idempotency, configOpts...))
 	return b
 }
 
-// WithLimiterMiddleware creates a rate limiter middleware from configuration.
-func (b *ServerBuilder) WithLimiterMiddleware(cfg *config.HttpInterLimiterConfig) *ServerBuilder {
-	if cfg == nil || !cfg.IsEnabled() {
+// WithLimiterMiddleware creates a rate limiter middleware from the builder's configuration.
+func (b *ServerBuilder) WithLimiterMiddleware() *ServerBuilder {
+	cfg := b.middlewaresCfg()
+	if cfg == nil || cfg.Limiter == nil || !cfg.Limiter.IsEnabled() {
 		return b
 	}
 
@@ -136,78 +146,84 @@ func (b *ServerBuilder) WithLimiterMiddleware(cfg *config.HttpInterLimiterConfig
 		return b
 	}
 
+	c := cfg.Limiter
 	configOpts := []limitermw.Option{
 		limitermw.WithLogger(b.Logger()),
-		limitermw.WithFallbackBehavior(convertFallbackBehavior(cfg.FallbackBehavior)),
-		limitermw.WithIgnorePaths(cfg.IgnorePaths...),
+		limitermw.WithFallbackBehavior(convertFallbackBehavior(c.FallbackBehavior)),
+		limitermw.WithIgnorePaths(c.IgnorePaths...),
 	}
 
-	if len(cfg.IgnorePatterns) > 0 {
-		configOpts = append(configOpts, limitermw.WithIgnorePatterns(compilePatterns(cfg.IgnorePatterns)...))
+	if len(c.IgnorePatterns) > 0 {
+		configOpts = append(configOpts, limitermw.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
 	}
 
 	b.configMW = append(b.configMW, limitermw.New(b.limiter, configOpts...))
 	return b
 }
 
-// WithLoggerMiddleware creates a logging middleware from configuration.
-func (b *ServerBuilder) WithLoggerMiddleware(cfg *config.HttpInterLoggerConfig) *ServerBuilder {
-	if cfg == nil || !cfg.IsEnabled() {
+// WithLoggerMiddleware creates a logging middleware from the builder's configuration.
+func (b *ServerBuilder) WithLoggerMiddleware() *ServerBuilder {
+	cfg := b.middlewaresCfg()
+	if cfg == nil || cfg.Logger == nil || !cfg.Logger.IsEnabled() {
 		return b
 	}
 
+	c := cfg.Logger
 	configOpts := []loggermw.Option{
-		loggermw.WithTimeFormat(cfg.TimeFormat),
-		loggermw.WithIgnorePaths(cfg.IgnorePaths...),
-		loggermw.WithIgnoreResponseCodes(cfg.IgnoreResponseCodes...),
-		loggermw.WithLogResponseCodes(cfg.LogResponseCodes...),
-		loggermw.WithIgnoreMethods(cfg.IgnoreHttpMethods...),
+		loggermw.WithTimeFormat(c.TimeFormat),
+		loggermw.WithIgnorePaths(c.IgnorePaths...),
+		loggermw.WithIgnoreResponseCodes(c.IgnoreResponseCodes...),
+		loggermw.WithLogResponseCodes(c.LogResponseCodes...),
+		loggermw.WithIgnoreMethods(c.IgnoreHttpMethods...),
 	}
 
-	if len(cfg.IgnorePatterns) > 0 {
-		configOpts = append(configOpts, loggermw.WithIgnorePatterns(compilePatterns(cfg.IgnorePatterns)...))
+	if len(c.IgnorePatterns) > 0 {
+		configOpts = append(configOpts, loggermw.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
 	}
 
-	configOpts = slices.AppendIf(configOpts, cfg.LogRequest, loggermw.WithLogRequest())
-	configOpts = slices.AppendIf(configOpts, cfg.LogResponse, loggermw.WithLogResponse())
+	configOpts = slices.AppendIf(configOpts, c.LogRequest, loggermw.WithLogRequest())
+	configOpts = slices.AppendIf(configOpts, c.LogResponse, loggermw.WithLogResponse())
 
 	b.configMW = append(b.configMW, loggermw.New(loggermw.Slog(b.Logger()), configOpts...))
 	return b
 }
 
-// WithPrometheusMiddleware creates a Prometheus metrics middleware from configuration.
-func (b *ServerBuilder) WithPrometheusMiddleware(cfg *config.HttpInterPrometheusConfig) *ServerBuilder {
-	if cfg == nil || !cfg.IsEnabled() {
+// WithPrometheusMiddleware creates a Prometheus metrics middleware from the builder's configuration.
+func (b *ServerBuilder) WithPrometheusMiddleware() *ServerBuilder {
+	cfg := b.middlewaresCfg()
+	if cfg == nil || cfg.Prometheus == nil || !cfg.Prometheus.IsEnabled() {
 		return b
 	}
 
+	c := cfg.Prometheus
 	configOpts := []prometheusmw.Option{
 		prometheusmw.WithLogger(b.Logger()),
-		prometheusmw.WithNamespace(cfg.Namespace),
-		prometheusmw.WithSubsystem(cfg.Subsystem),
-		prometheusmw.WithIgnorePaths(cfg.IgnorePaths...),
+		prometheusmw.WithNamespace(c.Namespace),
+		prometheusmw.WithSubsystem(c.Subsystem),
+		prometheusmw.WithIgnorePaths(c.IgnorePaths...),
 	}
 
-	if len(cfg.IgnorePatterns) > 0 {
-		configOpts = append(configOpts, prometheusmw.WithIgnorePatterns(compilePatterns(cfg.IgnorePatterns)...))
+	if len(c.IgnorePatterns) > 0 {
+		configOpts = append(configOpts, prometheusmw.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
 	}
 
-	if len(cfg.DurationBuckets) > 0 {
-		configOpts = append(configOpts, prometheusmw.WithDurationBuckets(cfg.DurationBuckets))
+	if len(c.DurationBuckets) > 0 {
+		configOpts = append(configOpts, prometheusmw.WithDurationBuckets(c.DurationBuckets))
 	}
-	if len(cfg.SizeBuckets) > 0 {
-		configOpts = append(configOpts, prometheusmw.WithSizeBuckets(cfg.SizeBuckets))
+	if len(c.SizeBuckets) > 0 {
+		configOpts = append(configOpts, prometheusmw.WithSizeBuckets(c.SizeBuckets))
 	}
 
-	configOpts = slices.AppendIf(configOpts, cfg.EnableSizeMetrics, prometheusmw.WithEnableSizeMetrics())
+	configOpts = slices.AppendIf(configOpts, c.EnableSizeMetrics, prometheusmw.WithEnableSizeMetrics())
 
 	b.configMW = append(b.configMW, prometheusmw.New(configOpts...))
 	return b
 }
 
-// WithTracingMiddleware creates a tracing middleware from configuration.
-func (b *ServerBuilder) WithTracingMiddleware(cfg *config.HttpInterTracingConfig) *ServerBuilder {
-	if cfg == nil || !cfg.IsEnabled() {
+// WithTracingMiddleware creates a tracing middleware from the builder's configuration.
+func (b *ServerBuilder) WithTracingMiddleware() *ServerBuilder {
+	cfg := b.middlewaresCfg()
+	if cfg == nil || cfg.Tracing == nil || !cfg.Tracing.IsEnabled() {
 		return b
 	}
 
@@ -216,13 +232,14 @@ func (b *ServerBuilder) WithTracingMiddleware(cfg *config.HttpInterTracingConfig
 		return b
 	}
 
+	c := cfg.Tracing
 	configOpts := []tracingmw.Option{
 		tracingmw.WithLogger(b.Logger()),
-		tracingmw.WithIgnorePaths(cfg.IgnorePaths...),
+		tracingmw.WithIgnorePaths(c.IgnorePaths...),
 	}
 
-	if len(cfg.IgnorePatterns) > 0 {
-		patterns := compilePatterns(cfg.IgnorePatterns)
+	if len(c.IgnorePatterns) > 0 {
+		patterns := compilePatterns(c.IgnorePatterns)
 		if len(patterns) > 0 {
 			configOpts = append(configOpts, tracingmw.WithIgnorePatterns(patterns...))
 		}
@@ -232,19 +249,21 @@ func (b *ServerBuilder) WithTracingMiddleware(cfg *config.HttpInterTracingConfig
 	return b
 }
 
-// WithRealIPMiddleware creates a real IP extraction middleware from configuration.
-func (b *ServerBuilder) WithRealIPMiddleware(cfg *config.HttpInterRealIpConfig) *ServerBuilder {
-	if cfg == nil || !cfg.IsEnabled() {
+// WithRealIPMiddleware creates a real IP extraction middleware from the builder's configuration.
+func (b *ServerBuilder) WithRealIPMiddleware() *ServerBuilder {
+	cfg := b.middlewaresCfg()
+	if cfg == nil || cfg.RealIp == nil || !cfg.RealIp.IsEnabled() {
 		return b
 	}
 
+	c := cfg.RealIp
 	extractorOpts := []clientip.Option{
 		clientip.WithLogger(b.Logger()),
-		clientip.WithHeaders(cfg.Headers...),
+		clientip.WithHeaders(c.Headers...),
 	}
 
-	if len(cfg.TrustedProxies) > 0 {
-		proxies, err := parsePrefixes(cfg.TrustedProxies)
+	if len(c.TrustedProxies) > 0 {
+		proxies, err := parsePrefixes(c.TrustedProxies)
 		if err != nil {
 			b.errs = append(b.errs, b.WrapError(err, "failed to parse trusted proxies"))
 			return b
@@ -262,34 +281,37 @@ func (b *ServerBuilder) WithRealIPMiddleware(cfg *config.HttpInterRealIpConfig) 
 	return b
 }
 
-// WithRecoveryMiddleware creates a panic recovery middleware from configuration.
-func (b *ServerBuilder) WithRecoveryMiddleware(cfg *config.HttpInterRecoveryConfig) *ServerBuilder {
-	if cfg == nil || !cfg.IsEnabled() {
+// WithRecoveryMiddleware creates a panic recovery middleware from the builder's configuration.
+func (b *ServerBuilder) WithRecoveryMiddleware() *ServerBuilder {
+	cfg := b.middlewaresCfg()
+	if cfg == nil || cfg.Recovery == nil || !cfg.Recovery.IsEnabled() {
 		return b
 	}
 
+	c := cfg.Recovery
 	configOpts := []recoverymw.Option{
-		recoverymw.WithIgnorePaths(cfg.IgnorePaths...),
+		recoverymw.WithIgnorePaths(c.IgnorePaths...),
 	}
 
-	configOpts = slices.AppendIf(configOpts, cfg.LogStack, recoverymw.WithLogStack())
+	configOpts = slices.AppendIf(configOpts, c.LogStack, recoverymw.WithLogStack())
 
-	if len(cfg.IgnorePatterns) > 0 {
-		configOpts = append(configOpts, recoverymw.WithIgnorePatterns(compilePatterns(cfg.IgnorePatterns)...))
+	if len(c.IgnorePatterns) > 0 {
+		configOpts = append(configOpts, recoverymw.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
 	}
 
 	b.configMW = append(b.configMW, recoverymw.New(b.Logger(), configOpts...))
 	return b
 }
 
-// WithRequestIDMiddleware creates a request ID middleware from configuration.
-func (b *ServerBuilder) WithRequestIDMiddleware(cfg *config.HttpInterRequestIdConfig) *ServerBuilder {
-	if cfg == nil || !cfg.IsEnabled() {
+// WithRequestIDMiddleware creates a request ID middleware from the builder's configuration.
+func (b *ServerBuilder) WithRequestIDMiddleware() *ServerBuilder {
+	cfg := b.middlewaresCfg()
+	if cfg == nil || cfg.RequestId == nil || !cfg.RequestId.IsEnabled() {
 		return b
 	}
 
 	var genOpts []sharedreqid.Option
-	genOpts = slices.AppendIf(genOpts, cfg.GenerateIfMissing, sharedreqid.WithGenerateIfMissing())
+	genOpts = slices.AppendIf(genOpts, cfg.RequestId.GenerateIfMissing, sharedreqid.WithGenerateIfMissing())
 
 	gen := sharedreqid.NewGenerator(genOpts...)
 
@@ -297,30 +319,32 @@ func (b *ServerBuilder) WithRequestIDMiddleware(cfg *config.HttpInterRequestIdCo
 	return b
 }
 
-// WithSecurityHeadersMiddleware creates a security headers middleware from configuration.
-func (b *ServerBuilder) WithSecurityHeadersMiddleware(cfg *config.HttpInterSecurityHeadersConfig) *ServerBuilder {
-	if cfg == nil || !cfg.IsEnabled() {
+// WithSecurityHeadersMiddleware creates a security headers middleware from the builder's configuration.
+func (b *ServerBuilder) WithSecurityHeadersMiddleware() *ServerBuilder {
+	cfg := b.middlewaresCfg()
+	if cfg == nil || cfg.SecurityHeaders == nil || !cfg.SecurityHeaders.IsEnabled() {
 		return b
 	}
 
+	c := cfg.SecurityHeaders
 	configOpts := []securityheadersmw.Option{
-		securityheadersmw.WithFrameOptions(securityheadersmw.FrameOptions(cfg.FrameOptions)),
-		securityheadersmw.WithReferrerPolicy(securityheadersmw.ReferrerPolicy(cfg.ReferrerPolicy)),
-		securityheadersmw.WithContentSecurityPolicy(cfg.ContentSecurityPolicy),
-		securityheadersmw.WithPermissionsPolicy(cfg.PermissionsPolicy),
-		securityheadersmw.WithHstsMaxAge(cfg.HstsMaxAge),
-		securityheadersmw.WithIgnorePaths(cfg.IgnorePaths...),
+		securityheadersmw.WithFrameOptions(securityheadersmw.FrameOptions(c.FrameOptions)),
+		securityheadersmw.WithReferrerPolicy(securityheadersmw.ReferrerPolicy(c.ReferrerPolicy)),
+		securityheadersmw.WithContentSecurityPolicy(c.ContentSecurityPolicy),
+		securityheadersmw.WithPermissionsPolicy(c.PermissionsPolicy),
+		securityheadersmw.WithHstsMaxAge(c.HstsMaxAge),
+		securityheadersmw.WithIgnorePaths(c.IgnorePaths...),
 	}
 
-	if len(cfg.IgnorePatterns) > 0 {
-		configOpts = append(configOpts, securityheadersmw.WithIgnorePatterns(compilePatterns(cfg.IgnorePatterns)...))
+	if len(c.IgnorePatterns) > 0 {
+		configOpts = append(configOpts, securityheadersmw.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
 	}
 
-	configOpts = slices.AppendIf(configOpts, cfg.HstsEnabled, securityheadersmw.WithHstsEnabled())
-	configOpts = slices.AppendIf(configOpts, cfg.HstsIncludeSubDomains, securityheadersmw.WithHstsIncludeSubDomains())
-	configOpts = slices.AppendIf(configOpts, cfg.HstsPreload, securityheadersmw.WithHstsPreload())
-	configOpts = slices.AppendIf(configOpts, cfg.ContentTypeNoSniff, securityheadersmw.WithContentTypeNoSniff())
-	configOpts = slices.AppendIf(configOpts, cfg.XssProtectionDisabled, securityheadersmw.WithXssProtectionDisabled())
+	configOpts = slices.AppendIf(configOpts, c.HstsEnabled, securityheadersmw.WithHstsEnabled())
+	configOpts = slices.AppendIf(configOpts, c.HstsIncludeSubDomains, securityheadersmw.WithHstsIncludeSubDomains())
+	configOpts = slices.AppendIf(configOpts, c.HstsPreload, securityheadersmw.WithHstsPreload())
+	configOpts = slices.AppendIf(configOpts, c.ContentTypeNoSniff, securityheadersmw.WithContentTypeNoSniff())
+	configOpts = slices.AppendIf(configOpts, c.XssProtectionDisabled, securityheadersmw.WithXssProtectionDisabled())
 
 	b.configMW = append(b.configMW, securityheadersmw.New(configOpts...))
 	return b

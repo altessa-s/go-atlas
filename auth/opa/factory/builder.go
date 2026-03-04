@@ -6,7 +6,6 @@ package factory
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 
@@ -45,7 +44,7 @@ func New(cfg *config.OPA) *ManagerBuilder {
 // Build assembles and returns the OPA manager. All errors accumulated
 // during the fluent chain are returned here.
 func (b *ManagerBuilder) Build(ctx context.Context) (*opa.Manager, error) {
-	if err := errors.Join(b.errs...); err != nil {
+	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
 	}
 

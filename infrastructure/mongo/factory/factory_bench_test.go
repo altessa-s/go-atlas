@@ -5,39 +5,60 @@
 package factory
 
 import (
+	"context"
 	"testing"
 
 	"github.com/altessa-s/go-atlas/config"
 )
 
-func BenchmarkClientOptionsFromConfig(b *testing.B) {
-	f := New()
+func BenchmarkClientOptions(b *testing.B) {
+	builder := New(&config.Mongodb{
+		Hosts:       []string{"localhost:27017"},
+		Database:    "testdb",
+		MaxPoolSize: 100,
+		RetryReads:  true,
+	})
+	b.ResetTimer()
+	for b.Loop() {
+		builder.ClientOptions()
+	}
+}
+
+func BenchmarkBuildCredential_SCRAM(b *testing.B) {
+	builder := New(&config.Mongodb{
+		Credentials: &config.MongodbCredentials{
+			AuthMechanism: config.MongoAuthMechanismTypeSCRAMSHA256,
+			Scram:         &config.MongoSCRAMCredentials{Username: "u", Password: "p", AuthSource: "admin"},
+		},
+	})
+	b.ResetTimer()
+	for b.Loop() {
+		builder.buildCredential()
+	}
+}
+
+func BenchmarkNew(b *testing.B) {
+	cfg := &config.Mongodb{
+		Hosts:       []string{"localhost:27017"},
+		Database:    "testdb",
+		MaxPoolSize: 100,
+	}
+	for b.Loop() {
+		New(cfg)
+	}
+}
+
+func BenchmarkMongoBuilder_Build(b *testing.B) {
 	cfg := &config.Mongodb{
 		Hosts:       []string{"localhost:27017"},
 		Database:    "testdb",
 		MaxPoolSize: 100,
 		RetryReads:  true,
 	}
+	builder := New(cfg)
+	ctx := context.Background()
 	b.ResetTimer()
 	for b.Loop() {
-		f.ClientOptionsFromConfig(cfg)
-	}
-}
-
-func BenchmarkBuildCredential_SCRAM(b *testing.B) {
-	f := New()
-	creds := &config.MongodbCredentials{
-		AuthMechanism: config.MongoAuthMechanismTypeSCRAMSHA256,
-		Scram:         &config.MongoSCRAMCredentials{Username: "u", Password: "p", AuthSource: "admin"},
-	}
-	b.ResetTimer()
-	for b.Loop() {
-		f.buildCredential(creds)
-	}
-}
-
-func BenchmarkNew(b *testing.B) {
-	for b.Loop() {
-		New()
+		_, _ = builder.Build(ctx)
 	}
 }

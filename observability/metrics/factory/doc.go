@@ -2,17 +2,12 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package factory provides configuration-based creation of [metrics.Collector]
-// instances from [config.Metrics].
+// Package factory provides a fluent builder for creating metrics collectors
+// from configuration.
 //
 // Returns [metrics.Noop] when config is nil or metrics are disabled.
 //
-// # Example
-//
-//	f := factory.New(factory.WithLogger(logger))
-//	collector, err := f.CreateFromConfig(cfg.Metrics)
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//	defer collector.Shutdown(ctx)
+//	collector, err := factory.New(cfg.Metrics).
+//	    UseLogger(logger).
+//	    Build()
 package factory

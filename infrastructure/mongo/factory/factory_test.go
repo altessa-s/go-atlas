@@ -14,8 +14,8 @@ import (
 )
 
 func TestNew_Default(t *testing.T) {
-	f := New()
-	if f == nil {
+	b := New(nil)
+	if b == nil {
 		t.Fatal("New() returned nil")
 	}
 }
@@ -25,13 +25,15 @@ func TestNew_WithOptions(t *testing.T) {
 	coord := health.New()
 	defer coord.Close()
 
-	f := New(WithLogger(logger), WithHealthCoordinator(coord))
-	if f == nil {
+	b := New(&config.Mongodb{}).
+		UseLogger(logger).
+		UseHealthCoordinator(coord)
+	if b == nil {
 		t.Fatal("New() returned nil")
 	}
 }
 
-func TestClientOptionsFromConfig(t *testing.T) {
+func TestClientOptions(t *testing.T) {
 	tests := []struct {
 		name    string
 		cfg     *config.Mongodb
@@ -121,8 +123,15 @@ func TestClientOptionsFromConfig(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := New()
-			opts, err := f.ClientOptionsFromConfig(tt.cfg)
+			b := New(tt.cfg)
+			if tt.cfg == nil {
+				_, err := b.Build(t.Context())
+				if err == nil {
+					t.Error("expected error for nil config")
+				}
+				return
+			}
+			opts, err := b.ClientOptions()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -133,9 +142,8 @@ func TestClientOptionsFromConfig(t *testing.T) {
 	}
 }
 
-func TestClientOptionsFromConfig_ConnectionURI(t *testing.T) {
-	f := New()
-	cfg := &config.Mongodb{
+func TestClientOptions_ConnectionURI(t *testing.T) {
+	b := New(&config.Mongodb{
 		ConnectionURI:  "mongodb://user:pass@mongo1:27017,mongo2:27017/testdb?replicaSet=rs0",
 		Database:       "testdb",
 		MaxPoolSize:    200,
@@ -144,8 +152,8 @@ func TestClientOptionsFromConfig_ConnectionURI(t *testing.T) {
 		MaxIdleTimeout: 30 * time.Second,
 		RetryReads:     true,
 		RetryWrites:    true,
-	}
-	opts, err := f.ClientOptionsFromConfig(cfg)
+	})
+	opts, err := b.ClientOptions()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -154,9 +162,8 @@ func TestClientOptionsFromConfig_ConnectionURI(t *testing.T) {
 	}
 }
 
-func TestClientOptionsFromConfig_ConnectionURI_PoolOverlay(t *testing.T) {
-	f := New()
-	cfg := &config.Mongodb{
+func TestClientOptions_ConnectionURI_PoolOverlay(t *testing.T) {
+	b := New(&config.Mongodb{
 		ConnectionURI:  "mongodb://localhost:27017/testdb",
 		Database:       "testdb",
 		MaxPoolSize:    50,
@@ -164,8 +171,8 @@ func TestClientOptionsFromConfig_ConnectionURI_PoolOverlay(t *testing.T) {
 		ConnectTimeout: 10 * time.Second,
 		RetryReads:     false,
 		RetryWrites:    false,
-	}
-	opts, err := f.ClientOptionsFromConfig(cfg)
+	})
+	opts, err := b.ClientOptions()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -224,8 +231,8 @@ func TestBuildCredential(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := New()
-			cred := f.buildCredential(tt.creds)
+			b := New(&config.Mongodb{Credentials: tt.creds})
+			cred := b.buildCredential()
 			if cred.AuthMechanism != tt.wantMech {
 				t.Errorf("AuthMechanism = %q, want %q", cred.AuthMechanism, tt.wantMech)
 			}

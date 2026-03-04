@@ -2,23 +2,20 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package factory provides configuration-based creation of generic outbox instances.
+// Package factory provides a fluent builder for creating generic outbox instances
+// from configuration.
 //
-// The factory creates transport-agnostic outboxes backed by MongoDB. The caller provides
-// a Handler function that determines how events are dispatched.
-//
-// Example usage:
-//
-//	f := factory.New(
-//	    factory.WithLogger(logger),
-//	    factory.WithScheduler(scheduler),
-//	)
+// [OutboxBuilder] uses a fluent API with deferred error accumulation:
+// errors from any step are collected and returned at build time.
 //
 //	handler := func(ctx context.Context, event outbox.Event) error {
 //	    return sendWebhook(ctx, event.Topic, event.Payload)
 //	}
 //
-//	ob, err := f.CreateOutboxWithMongoFromConfig(cfg, db, handler)
+//	ob, err := factory.New(cfg).
+//	    UseLogger(logger).
+//	    UseScheduler(scheduler).
+//	    BuildWithMongoDB(db, handler)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}

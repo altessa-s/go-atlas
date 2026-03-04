@@ -2,28 +2,28 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package factory provides configuration-based creation of Redis clients.
+// Package factory provides a fluent builder for creating Redis clients
+// from configuration.
 //
-// It integrates with [config.Redis] to create [redis.UniversalClient]
+// [ClientBuilder] uses a fluent API with deferred error accumulation:
+// errors from any step are collected and returned at [ClientBuilder.Build] time.
+//
+//	client, err := factory.New(cfg.Redis).
+//	    UseLogger(logger).
+//	    UseHealthCoordinator(coordinator).
+//	    Build(ctx)
+//
+// The builder integrates with [config.Redis] to create [redis.UniversalClient]
 // instances with authentication, connection pooling, and support for
 // standalone, sentinel, and cluster modes. The mode is determined
 // automatically: sentinel when [config.Redis.MasterName] is set, cluster
 // when multiple hosts are provided, standalone otherwise.
 //
-// The factory supports two configuration paths: connection-URI based
+// The builder supports two configuration paths: connection-URI based
 // (when [config.Redis.ConnectionURI] is set) and field-based (individual
 // host, credential, and pool settings). Both paths converge in
-// [Factory.UniversalOptionsFromConfig].
+// [ClientBuilder.UniversalOptions].
 //
-// When a [health.Coordinator] is provided via [WithHealthCoordinator],
-// the factory registers a health checker that pings Redis on each check.
-//
-// Example:
-//
-//	f := factory.New(factory.WithLogger(logger))
-//	client, err := f.CreateClientFromConfig(ctx, cfg.Redis)
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//	defer client.Close()
+// When a [health.Coordinator] is provided via [ClientBuilder.UseHealthCoordinator],
+// the builder registers a health checker that pings Redis on each check.
 package factory

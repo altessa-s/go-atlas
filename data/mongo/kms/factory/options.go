@@ -4,17 +4,26 @@
 
 package factory
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate
-
 import (
+	"crypto/tls"
 	"log/slog"
-
-	tlsfactory "github.com/altessa-s/go-atlas/security/tlsutils/factory"
 )
 
-// options contains Factory configuration.
-type options struct {
-	// logger sets the logger for the factory.
-	logger     *slog.Logger
-	tlsFactory *tlsfactory.Factory
+// --- Dependency methods ---
+
+// UseLogger sets the logger for the builder and all created components.
+func (b *ProviderBuilder) UseLogger(v *slog.Logger) *ProviderBuilder {
+	b.SetLogger(v)
+	return b
+}
+
+// UseDefaultLogger sets the logger to [slog.Default].
+func (b *ProviderBuilder) UseDefaultLogger() *ProviderBuilder {
+	return b.UseLogger(slog.Default())
+}
+
+// UseTlsConfig sets the TLS configuration for the KMS provider connection.
+func (b *ProviderBuilder) UseTlsConfig(v *tls.Config) *ProviderBuilder {
+	b.tlsConfig = v
+	return b
 }

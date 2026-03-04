@@ -6,35 +6,64 @@ package factory
 
 import (
 	"log/slog"
+	"strings"
 
 	_ "github.com/altessa-s/go-atlas/core/runtime/appinfo"
 )
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate
-
 // ModuleKey is the default attribute key for module prefixes.
 const ModuleKey = "module"
 
-// options contains Factory configuration.
-type options struct {
-	// prefixKey is the attribute key for prefix values.
-	prefixKey string `optgen:"default=ModuleKey"`
+// --- Configuration methods ---
 
-	// prefixColors defines the colors for prefix attributes.
-	prefixColors map[string][]int `optgen:"default=map[string][]int{ModuleKey: {46}}"`
+// WithPrefixKey sets the attribute key for prefix values.
+func (b *LoggerBuilder) WithPrefixKey(v string) *LoggerBuilder {
+	if v = strings.TrimSpace(v); v != "" {
+		b.prefixKey = v
+	}
+	return b
+}
 
-	// enableMasking enables sensitive field masking.
-	enableMasking bool
+// WithPrefixColors defines the colors for prefix attributes.
+func (b *LoggerBuilder) WithPrefixColors(v map[string][]int) *LoggerBuilder {
+	b.prefixColors = v
+	return b
+}
 
-	// appName is the application name to include in logs.
-	appName string `optgen:"default=appinfo.Name"`
+// WithEnableMasking enables sensitive field masking.
+func (b *LoggerBuilder) WithEnableMasking() *LoggerBuilder {
+	b.enableMasking = true
+	return b
+}
 
-	// appVersion is the application version to include in logs.
-	appVersion string `optgen:"default=appinfo.Version"`
+// WithAppName sets the application name to include in logs.
+func (b *LoggerBuilder) WithAppName(v string) *LoggerBuilder {
+	if v = strings.TrimSpace(v); v != "" {
+		b.appName = v
+	}
+	return b
+}
 
-	// serviceId is the service ID to include in logs.
-	serviceId string
+// WithAppVersion sets the application version to include in logs.
+func (b *LoggerBuilder) WithAppVersion(v string) *LoggerBuilder {
+	if v = strings.TrimSpace(v); v != "" {
+		b.appVersion = v
+	}
+	return b
+}
 
-	// levelVar is the dynamic log level variable.
-	levelVar *slog.LevelVar
+// WithServiceId sets the service ID to include in logs.
+func (b *LoggerBuilder) WithServiceId(v string) *LoggerBuilder {
+	if v = strings.TrimSpace(v); v != "" {
+		b.serviceId = v
+	}
+	return b
+}
+
+// WithLevelVar sets the dynamic log level variable.
+func (b *LoggerBuilder) WithLevelVar(v *slog.LevelVar) *LoggerBuilder {
+	if v != nil {
+		b.levelVar = v
+	}
+	return b
 }

@@ -4,8 +4,6 @@
 
 package factory
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate
-
 import (
 	"log/slog"
 
@@ -15,14 +13,33 @@ import (
 	vaultApi "github.com/hashicorp/vault/api"
 )
 
-// options contains Factory configuration.
-type options struct {
-	// logger is the logger for operational visibility.
-	logger *slog.Logger
-	// scheduler is the task scheduler for background processes.
-	scheduler corescheduler.TaskRegistrar `optgen:"notnil"`
-	// healthCoordinator for auto-registration with health system.
-	healthCoordinator *health.Coordinator
-	// vaultClient is the Vault client for Vault provider.
-	vaultClient *vaultApi.Client
+// --- Dependency methods ---
+
+// UseLogger sets the logger for the builder and all created components.
+func (b *ManagerBuilder) UseLogger(v *slog.Logger) *ManagerBuilder {
+	b.SetLogger(v)
+	return b
+}
+
+// UseDefaultLogger sets the logger to [slog.Default].
+func (b *ManagerBuilder) UseDefaultLogger() *ManagerBuilder {
+	return b.UseLogger(slog.Default())
+}
+
+// UseScheduler sets the task scheduler for background processes.
+func (b *ManagerBuilder) UseScheduler(v corescheduler.TaskRegistrar) *ManagerBuilder {
+	b.scheduler = v
+	return b
+}
+
+// UseHealthCoordinator sets the health coordinator for auto-registration with the health system.
+func (b *ManagerBuilder) UseHealthCoordinator(v *health.Coordinator) *ManagerBuilder {
+	b.healthCoordinator = v
+	return b
+}
+
+// UseVaultClient sets the Vault client for the Vault secrets provider.
+func (b *ManagerBuilder) UseVaultClient(v *vaultApi.Client) *ManagerBuilder {
+	b.vaultClient = v
+	return b
 }

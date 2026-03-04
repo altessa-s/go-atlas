@@ -2,15 +2,15 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package factory provides configuration-based creation of cursor storages.
-// It integrates cursor storage implementations with memory, Redis, and NATS backends
-// to create cursor storages with consistent defaults.
+// Package factory provides a fluent builder for creating cursor storages
+// from configuration.
 //
-// Example:
+// [CursorStorageBuilder] uses a fluent API with deferred error accumulation:
+// errors from any step are collected and returned at [CursorStorageBuilder.Build] time.
 //
-//	f := factory.New(factory.WithLogger(logger))
-//	storage, err := f.CreateCursorStorageFromConfig(ctx, cfg.Storage, time.Hour)
-//	if err != nil {
-//		log.Fatal(err)
-//	}
+//	storage, err := factory.New(cfg.Storage).
+//	    UseLogger(logger).
+//	    UseRedisClient(redisClient).
+//	    WithTTL(time.Hour).
+//	    Build(ctx)
 package factory

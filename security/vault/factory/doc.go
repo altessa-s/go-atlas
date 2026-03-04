@@ -2,17 +2,16 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package factory provides configuration-based creation of Vault clients.
-// It integrates with the config.Vault configuration to create
-// Vault instances with their respective authentication methods.
+// Package factory provides a fluent builder for creating Vault clients
+// from configuration.
 //
-// Example:
+// [VaultBuilder] uses a fluent API with deferred error accumulation:
+// errors from any step are collected and returned at [VaultBuilder.Build] time.
 //
-//	f := factory.New(
-//	    factory.WithLogger(logger),
-//	    factory.WithTlsConfig(tlsConfig),
-//	)
-//	v, err := f.CreateVaultFromConfig(ctx, cfg)
+//	v, err := factory.New(cfg.Vault).
+//	    UseLogger(logger).
+//	    UseTlsConfig(tlsConfig).
+//	    Build(ctx)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}

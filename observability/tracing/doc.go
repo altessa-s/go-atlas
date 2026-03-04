@@ -44,12 +44,13 @@
 //
 // For configuration-driven setup, use the factory package:
 //
-//	f := factory.New(factory.WithLogger(logger))
-//	provider, err := f.CreateFromConfig(ctx, &cfg.Observability.Tracing)
+//	tracer, err := factory.New(cfg.Tracing).
+//	    UseLogger(logger).
+//	    Build(ctx)
 //	if err != nil {
 //	    return err
 //	}
-//	defer provider.Shutdown(ctx)
+//	defer tracer.Shutdown(ctx)
 //
 // # Scoped Providers
 //

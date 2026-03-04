@@ -2,13 +2,11 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package factory provides configuration-based creation of slog loggers.
-// It integrates colorized, prefixed, and masking handlers to create structured
-// loggers with consistent defaults.
+// Package factory provides a fluent builder for creating slog loggers
+// from configuration. It integrates colorized, prefixed, and masking
+// handlers to create structured loggers with consistent defaults.
 //
-// Example:
-//
-//	f := factory.New()
-//	logger := f.CreateLoggerFromConfig(cfg)
-//	logger.Info("Application started")
+//	logger, err := factory.New(cfg.Logger).
+//	    WithEnableMasking().
+//	    Build()
 package factory

@@ -6,7 +6,6 @@ package factory
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -48,7 +47,7 @@ func New(cfg *config.OIDC) *ProviderBuilder {
 // Build assembles and returns the OIDC provider. All errors accumulated
 // during the fluent chain are returned here.
 func (b *ProviderBuilder) Build(ctx context.Context) (*oidc.Provider, error) {
-	if err := errors.Join(b.errs...); err != nil {
+	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
 	}
 

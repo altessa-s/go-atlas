@@ -4,8 +4,6 @@
 
 package factory
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate
-
 import (
 	"crypto/tls"
 	"log/slog"
@@ -13,9 +11,27 @@ import (
 	"github.com/altessa-s/go-atlas/observability/health"
 )
 
-// options contains Factory configuration.
-type options struct {
-	logger            *slog.Logger
-	healthCoordinator *health.Coordinator
-	tlsConfig         *tls.Config
+// --- Dependency methods ---
+
+// UseLogger sets the logger for the builder and all created components.
+func (b *VaultBuilder) UseLogger(v *slog.Logger) *VaultBuilder {
+	b.SetLogger(v)
+	return b
+}
+
+// UseDefaultLogger sets the logger to [slog.Default].
+func (b *VaultBuilder) UseDefaultLogger() *VaultBuilder {
+	return b.UseLogger(slog.Default())
+}
+
+// UseTlsConfig sets the TLS configuration for the Vault client.
+func (b *VaultBuilder) UseTlsConfig(v *tls.Config) *VaultBuilder {
+	b.tlsConfig = v
+	return b
+}
+
+// UseHealthCoordinator sets the health coordinator for the Vault client.
+func (b *VaultBuilder) UseHealthCoordinator(v *health.Coordinator) *VaultBuilder {
+	b.healthCoordinator = v
+	return b
 }

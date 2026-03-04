@@ -2,33 +2,34 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package factory provides configuration-based creation of gRPC servers and interceptors.
+// Package factory provides a fluent builder for creating gRPC servers
+// and interceptors from configuration.
 //
-// Use [New] to create a [Factory], then call Create* methods to build
-// server components from [config] structs. All created components inherit
-// the factory's logger. When TLS is required, the factory resolves
-// certificates through configured [tlsproviders.Providers].
+// [ServerBuilder] uses a fluent API with deferred error accumulation:
+// errors from any step are collected and returned at [ServerBuilder.Build] time.
 //
-// # Server Creation
+//	srv, err := factory.New(cfg.Grpc).
+//	    UseLogger(logger).
+//	    UseTracer(tracer).
+//	    WithInterceptors().
+//	    Build()
 //
-//   - [Factory.CreateServerFromConfig] -- builds a [grpcserver.Server] from
-//     a [config.Grpc] struct
+// # Interceptor Control
 //
-// # Interceptor Creation (from configuration)
+// Two levels of interceptor control are available:
 //
-// Each method returns (nil, nil) when the configuration is nil or disabled,
-// allowing callers to pass the result directly to
-// [interceptors.ServerConditionalInterceptor].
+//   - [ServerBuilder.WithInterceptors] -- all config-based interceptors at once
+//   - [ServerBuilder.WithLoggerInterceptor], [ServerBuilder.WithTracingInterceptor], etc. -- individual config-based interceptors
 //
-//   - [Factory.CreateLoggerInterceptorFromConfig]
-//   - [Factory.CreatePrometheusInterceptorFromConfig]
-//   - [Factory.CreateTracingInterceptorFromConfig]
-//   - [Factory.CreateRealIPInterceptorFromConfig]
-//   - [Factory.CreateRecoveryInterceptorFromConfig]
-//   - [Factory.CreateRequestIDInterceptorFromConfig]
-//   - [Factory.CreateLimiterInterceptorFromInterConfig]
-//   - [Factory.CreateIdempotencyInterceptorFromInterConfig]
-//   - [Factory.CreateCacheInterceptorFromConfig]
-//   - [Factory.CreateAuthInterceptorFromConfig]
-//   - [Factory.CreateHealthInterceptorFromConfig]
+// Dependencies must be set via Use*() methods before calling With*Interceptor methods:
+//
+//	srv, err := factory.New(cfg.Grpc).
+//	    UseLogger(logger).
+//	    UseTlsProviders(providers).
+//	    UseTracer(tracer).
+//	    UseLimiter(limiter).
+//	    UseAuth(authFn, clientAuth).
+//	    UseHealthChecker(healthChecker).
+//	    WithInterceptors().
+//	    Build()
 package factory

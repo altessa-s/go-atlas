@@ -2,31 +2,25 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package factory builds [scheduler.Scheduler] instances and their
-// [scheduler.Storage] backends from [config.Scheduler] and
-// [config.SchedulerStorageConfig] configuration objects.
+// Package factory provides a fluent builder for creating [scheduler.Scheduler]
+// instances and their storage backends from configuration.
 //
-// [Factory] holds optional infrastructure references -- a MongoDB database, a
-// Redis client, and a leader elector -- that are injected once at construction
-// via functional [Option] values and reused across every scheduler or storage
-// backend the factory creates.
+// [SchedulerBuilder] uses a fluent API with deferred error accumulation:
+// errors from any step are collected and returned at [SchedulerBuilder.Build] time.
 //
 // Supported storage backends:
 //
 //   - In-memory (default) -- no external dependencies; suitable for development
 //     and testing.
-//   - MongoDB -- requires a [mongo.Database] supplied via [WithMongoDb].
-//   - Redis -- requires a [redis.UniversalClient] supplied via [WithRedisClient].
+//   - MongoDB -- requires a [mongo.Database] supplied via [SchedulerBuilder.UseMongoDb].
+//   - Redis -- requires a [redis.UniversalClient] supplied via [SchedulerBuilder.UseRedisClient].
 //
 // # Usage
 //
-//	f := factory.New(
-//		factory.WithLogger(logger),
-//		factory.WithLeaderElector(le),
-//		factory.WithMongoDb(db),
-//	)
-//	storage, err := f.CreateStorageFromConfig(cfg.Storage)
-//	if err != nil { ... }
-//	sched, err := f.CreateSchedulerFromConfig(cfg, storage)
+//	sched, err := factory.New(cfg).
+//	    UseLogger(logger).
+//	    UseLeaderElector(le).
+//	    UseMongoDb(db).
+//	    Build()
 //	if err != nil { ... }
 package factory
