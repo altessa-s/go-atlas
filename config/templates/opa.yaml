@@ -4,12 +4,57 @@
 # Uncomment and configure as needed for your environment.
 
 #opa:
-#  # <string> Filesystem path or URL to the OPA policy bundle.
-#  # Can be a local directory path (e.g., "./policies") or HTTP/HTTPS URL.
+#  # <string> Policy source provider type.
+#  # Determines where OPA policies are loaded from.
+#  # Supported values: "filesystem", "gitlab"
+#  # Default value: filesystem
+#  source: filesystem
+#
+#  # <string> Filesystem path to the OPA policy bundle.
+#  # Required when source is "filesystem".
+#  # Can be a local directory path (e.g., "./policies") or a single .rego file.
 #  # The bundle should contain Rego policy files for authorization.
-#  # This field is required for OPA to function.
-#  # Default value: not set (required)
+#  # Default value: not set (required for filesystem source)
 #  bundlePath: ./policies
+#
+#  # <object> GitLab-specific configuration for loading policies from a GitLab repository.
+#  # Required when source is "gitlab".
+#  # gitlab:
+#  #   # <string> GitLab instance URL.
+#  #   # Required when source is "gitlab".
+#  #   # Default value: not set (required)
+#  #   endpoint: https://gitlab.example.com
+#  #
+#  #   # <string> GitLab API access token.
+#  #   # Required when source is "gitlab".
+#  #   # Recommended: use a project access token with read_api scope.
+#  #   # Default value: not set (required)
+#  #   token: glpat-xxxxxxxxxxxxxxxxxxxx
+#  #
+#  #   # <int> GitLab project ID.
+#  #   # Required when source is "gitlab".
+#  #   # Default value: not set (required)
+#  #   projectID: 42
+#  #
+#  #   # <string> Git ref (branch, tag, or commit SHA) to read policies from.
+#  #   # Default value: main
+#  #   ref: main
+#  #
+#  #   # <string> Directory path within the repository containing policy files.
+#  #   # Default value: "" (repository root)
+#  #   dir: policies/opa
+#  #
+#  #   # <int> Maximum number of retry attempts for HTTP requests.
+#  #   # Default value: 0 (no retries)
+#  #   retryMax: 3
+#  #
+#  #   # <duration> Minimum wait time between retries.
+#  #   # Default value: 0 (use HTTP client defaults)
+#  #   retryWaitMin: 500ms
+#  #
+#  #   # <duration> Maximum wait time between retries.
+#  #   # Default value: 0 (use HTTP client defaults)
+#  #   retryWaitMax: 10s
 #
 #  # <string> Rego query to evaluate for authorization decisions.
 #  # The query determines what policy rule to evaluate.
@@ -60,18 +105,21 @@
 #    ttl: 5m
 #
 #  # <bool> Enable automatic policy bundle reloading.
-#  # When enabled, monitors the bundle path for changes and reloads policies.
-#  # Behavior:
-#  #   - Local bundles: watches filesystem for changes
-#  #   - Remote bundles: polls URL periodically
+#  # When enabled, the Manager polls the source at pollInterval for changes.
 #  # Benefits:
 #  #   - Policy updates without service restart
 #  #   - Useful in development environments
 #  # Considerations:
-#  #   - Adds file system/network overhead
+#  #   - Adds network/filesystem overhead per poll cycle
 #  #   - May cause brief inconsistency during reload
 #  # Default value: false
 #  watchBundle: false
+#
+#  # <duration> Interval between polling the source for policy changes.
+#  # Only applies when watchBundle is true.
+#  # Format: duration string (e.g., "30s", "1m", "5m")
+#  # Default value: 30s
+#  pollInterval: 30s
 #
 #  # <string> Optional cron schedule for periodic policy updates.
 #  # If set, policies are reloaded according to this schedule regardless of file changes.
