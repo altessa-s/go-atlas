@@ -4,8 +4,6 @@
 
 package factory
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate
-
 import (
 	"log/slog"
 
@@ -13,13 +11,43 @@ import (
 
 	"github.com/altessa-s/go-atlas/auth/oidc"
 
+	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
-// options contains Factory configuration.
-type options struct {
-	logger      *slog.Logger
-	scheduler   corescheduler.TaskRegistrar `optgen:"notnil"`
-	redisClient redis.UniversalClient       `optgen:"notnil"`
-	tokenCache  oidc.Cacher                 `optgen:"notnil"`
+// UseLogger sets the logger for the builder and all created components.
+func (b *ProviderBuilder) UseLogger(v *slog.Logger) *ProviderBuilder {
+	if v != nil {
+		b.Base = corefactory.NewBase(v)
+	}
+	return b
+}
+
+// UseScheduler sets the task registrar used for background JWKS refresh
+// and revocation sync tasks.
+func (b *ProviderBuilder) UseScheduler(v corescheduler.TaskRegistrar) *ProviderBuilder {
+	b.scheduler = v
+	return b
+}
+
+// UseTokenCache sets the cache used for validated token caching.
+func (b *ProviderBuilder) UseTokenCache(v oidc.Cacher) *ProviderBuilder {
+	b.tokenCache = v
+	return b
+}
+
+// UseRedisClient sets the Redis client used for revocation filter storage.
+// Required only when revocation is enabled and no custom [oidc.RevocationStorage]
+// is provided via [ProviderBuilder.UseRevocationStorage].
+func (b *ProviderBuilder) UseRedisClient(v redis.UniversalClient) *ProviderBuilder {
+	b.redisClient = v
+	return b
+}
+
+// UseRevocationStorage sets a custom revocation storage, bypassing automatic
+// creation from config. When set, [ProviderBuilder.UseRedisClient] is not required
+// for revocation.
+func (b *ProviderBuilder) UseRevocationStorage(v oidc.RevocationStorage) *ProviderBuilder {
+	b.revocationStorage = v
+	return b
 }

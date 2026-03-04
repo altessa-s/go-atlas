@@ -4,23 +4,49 @@
 import "github.com/altessa-s/go-atlas/auth/oidc/factory"
 ```
 
-Package `factory` provides configuration-based creation of OIDC providers. Integrates with `config.OIDC` to create `Provider` instances with
-validation options, presets, caching, introspection, and revocation support.
+Package `factory` provides a fluent builder for creating OIDC providers from configuration.
+`ProviderBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
+
+## Quick Start
+
+```go
+provider, err := factory.New(cfg.OIDC).
+    UseLogger(logger).
+    UseScheduler(scheduler).
+    UseTokenCache(tokenCache).
+    UseRedisClient(redisClient).
+    Build(ctx)
+```
+
+With custom revocation storage:
+
+```go
+provider, err := factory.New(cfg.OIDC).
+    UseLogger(logger).
+    UseRevocationStorage(customStorage).
+    Build(ctx)
+```
 
 ## Methods
 
-| Method                              | Description                                                       |
-|-------------------------------------|-------------------------------------------------------------------|
-| `CreateProviderFromConfig`          | Create an OIDC provider with all options derived from config      |
-| `CreateRevocationStorageFromConfig` | Create a revocation storage backed by probabilistic filters       |
-| `ValidationOptionsFromConfig`       | Build validation options from config (used internally)            |
-| `PresetFromConfig`                  | Build a validation preset from config (used internally)           |
+### Constructor
 
-## Options
+| Method | Description |
+|--------|-------------|
+| `New(cfg)` | Creates a `ProviderBuilder` for the given OIDC config |
 
-| Option             | Default   | Description                                           |
-|--------------------|-----------|-------------------------------------------------------|
-| `WithScheduler`    | nil       | Task registrar for background JWKS refresh            |
-| `WithLogger`       | discard   | Structured logger (`*slog.Logger`)                    |
-| `WithTokenCache`   | nil       | Cacher implementation for validated token caching     |
-| `WithRedisClient`  | nil       | Redis client for revocation filter storage            |
+### Dependencies
+
+| Method | Description |
+|--------|-------------|
+| `UseLogger` | Sets the logger for the builder and all created components |
+| `UseScheduler` | Sets the task registrar for background JWKS refresh and revocation sync |
+| `UseTokenCache` | Sets the cache for validated token caching |
+| `UseRedisClient` | Sets the Redis client for revocation filter storage |
+| `UseRevocationStorage` | Sets a custom revocation storage, bypassing auto-creation |
+
+### Terminal
+
+| Method | Description |
+|--------|-------------|
+| `Build` | Assembles and returns the OIDC provider |
