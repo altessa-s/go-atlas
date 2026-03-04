@@ -2,26 +2,14 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package factory provides configuration-based creation of cache instances and providers.
+// Package factory provides a fluent builder for creating cache providers
+// from configuration.
 //
-// The factory supports creating various cache providers from configuration:
-//   - Redis: distributed caching with Redis
-//   - FreeCache: high-performance in-memory caching (memory type)
-//   - Noop: no-op provider for testing
+// [ProviderBuilder] uses a fluent API with deferred error accumulation:
+// errors from any step are collected and returned at [ProviderBuilder.Build] time.
 //
-// Example usage:
-//
-//	f := factory.New(
-//		factory.WithLogger(logger),
-//		factory.WithRedisClient(redisClient),
-//	)
-//
-//	// Create provider from configuration
-//	provider, err := f.CreateProviderFromConfig(cfg.Cache)
-//	if err != nil {
-//		log.Fatal(err)
-//	}
-//
-//	// Or create no-op cache for testing
-//	noopCache := f.CreateNoopCache()
+//	provider, err := factory.New(cfg.Cache).
+//	    UseLogger(logger).
+//	    UseRedisClient(redisClient).
+//	    Build()
 package factory
