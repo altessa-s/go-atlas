@@ -66,6 +66,7 @@ type ServerBuilder struct {
 	builtinEnabled bool
 	pprofEnabled   bool
 	metricsEnabled bool
+	internalPrefix string
 
 	// Listen address override
 	listenAddress *string
@@ -80,6 +81,7 @@ func New(cfg *config.Http) *ServerBuilder {
 		builtinEnabled: true,
 		pprofEnabled:   true,
 		metricsEnabled: true,
+		internalPrefix: "/internal",
 	}
 }
 
@@ -265,17 +267,17 @@ func (b *ServerBuilder) registerMiddleware(srv *server.Server) error {
 // registerBuiltinHandlers registers built-in HTTP handlers (ping, healthz, readyz, pprof, metrics).
 func (b *ServerBuilder) registerBuiltinHandlers(srv *server.Server, rootRouter *gorilla.Router) {
 	if b.builtinEnabled {
-		srv.Handle("/internal/ping", handler.Ping).Methods(http.MethodGet)
-		srv.Handle("/internal/healthz", handler.K8sHealtz).Methods(http.MethodGet)
-		srv.Handle("/internal/readyz", handler.K8sReadyz).Methods(http.MethodGet)
+		srv.Handle(b.internalPrefix+"/ping", handler.Ping).Methods(http.MethodGet)
+		srv.Handle(b.internalPrefix+"/healthz", handler.K8sHealtz).Methods(http.MethodGet)
+		srv.Handle(b.internalPrefix+"/readyz", handler.K8sReadyz).Methods(http.MethodGet)
 	}
 
 	if rootRouter != nil {
 		if b.pprofEnabled {
-			handler.Pprof(rootRouter.PathPrefix("/internal").Subrouter())
+			handler.Pprof(rootRouter.PathPrefix(b.internalPrefix).Subrouter())
 		}
 		if b.metricsEnabled {
-			handler.PrometheusMetrics(rootRouter.PathPrefix("/internal").Subrouter())
+			handler.PrometheusMetrics(rootRouter.PathPrefix(b.internalPrefix).Subrouter())
 		}
 	}
 }

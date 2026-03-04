@@ -217,6 +217,13 @@ func (b *ServerBuilder) WithoutMetrics() *ServerBuilder {
 	return b
 }
 
+// WithInternalPrefix overrides the path prefix for built-in handlers
+// (ping, healthz, readyz, pprof, metrics). Default is "/internal".
+func (b *ServerBuilder) WithInternalPrefix(prefix string) *ServerBuilder {
+	b.internalPrefix = prefix
+	return b
+}
+
 // --- Address method ---
 
 // WithListenAddress overrides the listen address from config.
