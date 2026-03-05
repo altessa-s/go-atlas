@@ -42,6 +42,6 @@ type LockInfo struct {
 	AcquiredAt   time.Time     // The time the lock was acquired.
 	LastRenewed  time.Time     // The time the lock was last renewed.
 	TTL          time.Duration // The time-to-live duration of the lock.
-	IsStale      bool          // Whether the lock is stale.
 	FencingToken uint64        // Monotonically increasing token for fencing stale lock holders.
+	IsStale      bool          // Whether the lock is stale.
 }

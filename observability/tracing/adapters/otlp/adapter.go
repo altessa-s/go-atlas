@@ -25,8 +25,8 @@ import (
 type Adapter struct {
 	client   otlptrace.Client
 	mu       sync.RWMutex
-	stopped  bool
 	resource *resourcepb.Resource
+	stopped  bool
 }
 
 // New creates a new OTLP adapter with the given options.

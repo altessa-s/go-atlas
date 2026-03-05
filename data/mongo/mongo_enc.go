@@ -426,19 +426,19 @@ type fieldMetadata struct {
 	fieldName  string
 	fieldKind  reflect.Kind
 
-	// Processing flags
-	isOmitEmpty    bool
-	isOmitOnUpdate bool
-
 	// Encryption configuration
 	algorithmString string
 	keyAltName      string
-	shouldEncrypt   bool
 
 	// Nested structure information
 	nestedType     NestedStructType
 	nestedMetadata []fieldMetadata // Metadata for nested struct fields
-	hasNestedData  bool            // Indicates if nested parsing was performed
+
+	// Processing flags and state (grouped to minimize padding)
+	isOmitEmpty    bool
+	isOmitOnUpdate bool
+	shouldEncrypt  bool
+	hasNestedData  bool // Indicates if nested parsing was performed
 }
 
 // collectFieldsMetadata extracts and parses metadata for all struct fields.

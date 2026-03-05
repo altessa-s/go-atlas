@@ -106,14 +106,14 @@ type SamplingParameters struct {
 	// ParentCtx is the parent span context, if any.
 	ParentCtx *SpanContext
 
-	// HasRemote indicates if the parent context is remote.
-	HasRemote bool
-
 	// Attributes are the initial attributes for the span.
 	Attributes []Attribute
 
 	// Links are the links for the span.
 	Links []Link
+
+	// HasRemote indicates if the parent context is remote.
+	HasRemote bool
 }
 
 // SamplingResult contains the result of a sampling decision.

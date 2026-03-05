@@ -159,8 +159,8 @@ type route struct {
 	pattern   string
 	handler   http.Handler
 	methods   []string
-	isPrefix  bool
 	subRouter *Router
+	isPrefix  bool
 }
 
 // Ensure route implements router.Route interface.

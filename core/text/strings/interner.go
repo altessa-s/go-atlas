@@ -714,7 +714,7 @@ func (si *Interner) promoteToHotCache(s string, slot uint32, accessCount int64) 
 	}
 
 	if entry, ok := si.entries.Load(*current); ok {
-		existing := entry.(*internEntry) //nolint:errcheck // type is guaranteed by internal usage
+		existing := entry.(*internEntry)                             //nolint:errcheck // type is guaranteed by internal usage
 		if accessCount > atomic.LoadInt64(&existing.accessCount)*2 { //nolint:mnd // 2x threshold for replacement
 			si.hotCache[slot].Store(&s)
 		}

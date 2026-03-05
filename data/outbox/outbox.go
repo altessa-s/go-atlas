@@ -43,12 +43,9 @@ type Outbox struct {
 	publishedEventsLifetime time.Duration
 	maxLockTime             time.Duration
 	retryInterval           time.Duration
-	retryMaxAttempts        uint32
-	eventsBatchSize         uint32
 	fetchTimeout            time.Duration
 	handleTimeout           time.Duration
 	updateTimeout           time.Duration
-	compaction              bool              // When true, key compaction is enabled.
 	compactionFilter        func(string) bool // Optional filter for selective compaction (nil = all keys).
 	baseCtx                 context.Context
 	shouldRetry             func(error) bool // Optional caller-provided retry predicate.
@@ -64,6 +61,10 @@ type Outbox struct {
 	schedulerDispatchRegistered atomic.Bool // Marks if RunDispatchCycle is managed by scheduler.
 	schedulerUnlockRegistered   atomic.Bool // Marks if RunUnlockCycle is managed by scheduler.
 	schedulerCleanupRegistered  atomic.Bool // Marks if RunCleanupCycle is managed by scheduler.
+
+	retryMaxAttempts uint32
+	eventsBatchSize  uint32
+	compaction       bool // When true, key compaction is enabled.
 }
 
 // New creates a new Outbox with the given Store and Handler.

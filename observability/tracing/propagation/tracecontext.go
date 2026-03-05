@@ -94,8 +94,8 @@ func (tc *TraceContext) Fields() []string {
 type spanContextData struct {
 	traceID    string
 	spanID     string
-	traceFlags byte
 	traceState string
+	traceFlags byte
 	remote     bool
 }
 

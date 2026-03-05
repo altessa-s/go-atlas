@@ -74,9 +74,8 @@ type Client struct {
 	pool *pool.ConnectionPool // Used for connection pooling
 
 	// Configuration
-	insecure bool
-	appName  string
-	address  string
+	appName string
+	address string
 
 	// TLS and logging
 	tlsConfig *tls.Config
@@ -84,7 +83,6 @@ type Client struct {
 
 	// Retry configuration
 	retryConfig *RetryConfig
-	enableRetry bool
 
 	// Timeouts
 	mutationTimeout time.Duration // Timeout for Create/Update/Delete operations
@@ -95,6 +93,9 @@ type Client struct {
 
 	// Custom error converter
 	errorConverter ErrorConverter
+
+	insecure    bool
+	enableRetry bool
 }
 
 // New creates a new gRPC client connected to address.

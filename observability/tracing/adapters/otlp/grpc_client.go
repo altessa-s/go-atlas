@@ -24,17 +24,18 @@ import (
 // grpcClient implements otlptrace.Client interface using transport/grpc/client.Client.
 // It provides connection management, retry, and logging capabilities from the custom client.
 type grpcClient struct {
+	// State
+	mu sync.RWMutex
+
 	client *grpcclient.Client
 
 	// Configuration
-	endpoint    string
-	insecure    bool
-	headers     map[string]string
-	compression bool
+	endpoint string
+	headers  map[string]string
 
-	// State
-	mu      sync.RWMutex
-	started bool
+	insecure    bool
+	compression bool
+	started     bool
 }
 
 // grpcClientConfig holds configuration for creating a grpcClient.

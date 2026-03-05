@@ -240,8 +240,6 @@ type ListResult[T any] struct {
 
 // ExplainStats contains key performance metrics from MongoDB explain output.
 type ExplainStats struct {
-	// IndexUsed indicates whether an index was used (true) or collection scan was performed (false)
-	IndexUsed bool `json:"index_used"`
 	// IndexName is the name of the index used, empty if no index used
 	IndexName string `json:"index_name,omitempty"`
 	// Stage is the winning execution plan stage (e.g., "IXSCAN", "COLLSCAN")
@@ -252,10 +250,12 @@ type ExplainStats struct {
 	DocsReturned int64 `json:"docs_returned"`
 	// ExecutionTimeMillis is the total execution time in milliseconds
 	ExecutionTimeMillis int64 `json:"execution_time_millis"`
-	// IsMultiKey indicates if the index used is multikey (can impact performance)
-	IsMultiKey bool `json:"is_multi_key,omitempty"`
 	// KeysExamined is the number of index keys examined
 	KeysExamined int64 `json:"keys_examined,omitempty"`
+	// IndexUsed indicates whether an index was used (true) or collection scan was performed (false)
+	IndexUsed bool `json:"index_used"`
+	// IsMultiKey indicates if the index used is multikey (can impact performance)
+	IsMultiKey bool `json:"is_multi_key,omitempty"`
 }
 
 // buildPipeline constructs an optimized MongoDB aggregation pipeline for offset-based pagination.

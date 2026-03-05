@@ -12,10 +12,10 @@ import (
 
 // Result represents the result of a policy evaluation.
 type Result struct {
-	// Allow indicates whether the request is permitted.
-	Allow bool `json:"allow"`
 	// DecisionID is a unique identifier for the evaluation.
 	DecisionID string `json:"decision_id,omitempty"`
+	// Allow indicates whether the request is permitted.
+	Allow bool `json:"allow"`
 }
 
 // Evaluator defines the interface for checking permissions using OPA policies.

@@ -467,16 +467,16 @@ type Parser struct {
 	// Configuration
 	encryptionModels map[reflect.Type]*EncryptionModel
 
-	// Options
-	update        bool
-	shouldEncrypt bool
-
 	// Tag names
 	bsonTagName       string
 	encryptionTagName string
 
 	// Advanced caching system - thread-safe internally
 	cache *ParserCache
+
+	// Options
+	update        bool
+	shouldEncrypt bool
 }
 
 // ParserOption represents a functional option for configuring the Parser.

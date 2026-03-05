@@ -52,13 +52,14 @@ type Server struct {
 	stopCh      chan struct{}       // coordination channel for shutdown
 	grpc        *grpc.Server        // underlying gRPC server instance
 	grpcOptions []grpc.ServerOption // additional gRPC server options
-	reflection  bool                // enables gRPC reflection service
 
 	// interceptors contains registered server interceptors
 	interceptors []any
 
 	// handlers contain registered service handlers
 	handlers []Handler
+
+	reflection bool // enables gRPC reflection service
 }
 
 // New creates a new gRPC server with the provided options.

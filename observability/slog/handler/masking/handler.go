@@ -23,9 +23,9 @@ type Handler struct {
 	base.Base
 	opts            *options
 	lowercaseFields map[string]MaskFunc // for case-insensitive matching
-	hasPatterns     bool
 	patterns        []compiledPattern
 	pathCache       sync.Map // string -> MaskFunc
+	hasPatterns     bool
 }
 
 type compiledPattern struct {

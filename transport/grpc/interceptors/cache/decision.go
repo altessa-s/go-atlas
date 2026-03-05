@@ -16,10 +16,10 @@ import (
 // The decision is made after the gRPC handler completes and includes both the caching
 // determination and the time-to-live duration for cached entries.
 type Decision struct {
-	// ShouldCache indicates whether the response should be cached
-	ShouldCache bool
 	// TTL is the time-to-live for the cached response
 	TTL time.Duration
+	// ShouldCache indicates whether the response should be cached
+	ShouldCache bool
 }
 
 // DecisionFunc determines whether a gRPC response should be cached and for how long.

@@ -59,11 +59,11 @@ type historyDocument struct {
 	ID         string `bson:"_id"`
 	TaskID     string `bson:"task_id"`
 	RunID      string `bson:"run_id"`
+	Error      string `bson:"error,omitempty"`
 	StartedAt  int64  `bson:"started_at"`
 	EndedAt    int64  `bson:"ended_at"`
 	DurationMs int64  `bson:"duration_ms"`
 	Success    bool   `bson:"success"`
-	Error      string `bson:"error,omitempty"`
 }
 
 // newHistoryDocument creates a new historyDocument from a TaskHistory.

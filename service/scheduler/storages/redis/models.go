@@ -80,11 +80,11 @@ type historyData struct {
 	ID         string `json:"id"`
 	TaskID     string `json:"task_id"`
 	RunID      string `json:"run_id"`
+	Error      string `json:"error,omitempty"`
 	StartedAt  int64  `json:"started_at"`
 	EndedAt    int64  `json:"ended_at"`
 	DurationMs int64  `json:"duration_ms"`
 	Success    bool   `json:"success"`
-	Error      string `json:"error,omitempty"`
 }
 
 // newHistoryData creates a new historyData from a TaskHistory.

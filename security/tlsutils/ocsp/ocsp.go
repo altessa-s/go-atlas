@@ -115,22 +115,22 @@ type Stapler struct {
 	httpClient        *http.Client
 	retryPolicy       RetryPolicy
 	logger            *slog.Logger
-	enableCompression bool
 	cleanupCounter    uint64 // atomic counter for lazy cleanup
 	scheduler         corescheduler.TaskRegistrar
 	refreshAllRunning atomic.Bool // Guards against concurrent RunRefreshAll calls.
 
 	schedulerRefreshAllRegistered atomic.Bool // Marks if RunRefreshAll is managed by scheduler.
+	enableCompression             bool
 }
 
 type ocspCacheEntry struct {
 	response       []byte
 	nextUpdate     time.Time
-	isCompressed   bool
 	originalSize   int
 	compressedSize int
 	cert           *tls.Certificate
 	mu             sync.RWMutex
+	isCompressed   bool
 }
 
 // NewOCSPStapler creates a new OCSP stapler with the specified options.

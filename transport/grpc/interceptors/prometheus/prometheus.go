@@ -136,15 +136,15 @@ type streamWrapper struct {
 	stdGrpc.ServerStream
 	interceptor         *interceptor
 	fullMethod          string
-	statusCode          codes.Code
 	messagesSent        int64
 	messagesReceived    int64
 	sampledMessagesSent int64
 	sampledMessagesRecv int64
-	streamSampled       bool
 	streamSeed          uint64
 	methodHashSent      uint64 // Pre-computed hash seed for "sent" messages
 	methodHashRecv      uint64 // Pre-computed hash seed for "recv" messages
+	statusCode          codes.Code
+	streamSampled       bool
 }
 
 // ServerInterceptor returns a new interceptor that collects Prometheus metrics for gRPC requests.
