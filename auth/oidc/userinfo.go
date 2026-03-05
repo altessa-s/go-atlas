@@ -24,6 +24,20 @@ import (
 // indicates a misbehaving or malicious upstream.
 const maxUserInfoResponseSize = 1 << 16 // 64 KiB
 
+// maxErrorBodyLen is the maximum number of bytes from an upstream error
+// response body included in error messages, to avoid leaking PII or
+// oversized payloads into logs and error chains.
+const maxErrorBodyLen = 256
+
+// sanitizeErrorBody truncates a raw response body to a safe length for
+// inclusion in error messages.
+func sanitizeErrorBody(b []byte) string {
+	if len(b) <= maxErrorBodyLen {
+		return string(b)
+	}
+	return string(b[:maxErrorBodyLen]) + "...(truncated)"
+}
+
 // UserInfo represents user claims from the OIDC userinfo endpoint.
 type UserInfo struct {
 	Id            string   `json:"sub"`
@@ -77,7 +91,7 @@ func (p *Provider) UserInfo(ctx context.Context, tokenSource oauth2.TokenSource)
 	coreio.PutBuffer(buf)
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status %s: %s", resp.Status, body)
+		return nil, fmt.Errorf("unexpected status %s: %s", resp.Status, sanitizeErrorBody(body))
 	}
 
 	ct := resp.Header.Get("Content-Type")
