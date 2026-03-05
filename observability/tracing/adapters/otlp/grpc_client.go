@@ -7,6 +7,7 @@ package otlp
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -63,12 +64,25 @@ func newGRPCClient(cfg *grpcClientConfig) *grpcClient {
 	return &grpcClient{
 		endpoint:      cfg.endpoint,
 		insecure:      cfg.insecure,
-		headers:       cfg.headers,
+		headers:       copyAndNormalizeHeaders(cfg.headers),
 		compression:   cfg.compression,
 		exportTimeout: cfg.exportTimeout,
 		retry:         cfg.retry,
 		retryConfig:   cfg.retryConfig,
 	}
+}
+
+// copyAndNormalizeHeaders returns a defensive copy of the headers map with
+// keys lowercased, as required by gRPC metadata conventions.
+func copyAndNormalizeHeaders(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	for k, v := range src {
+		dst[strings.ToLower(k)] = v
+	}
+	return dst
 }
 
 // Start establishes the connection to the OTLP collector.
