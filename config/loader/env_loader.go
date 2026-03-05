@@ -27,7 +27,7 @@ func (cf *Config) loadEnvs() error {
 
 	// Use envsWithSecrets to support secret expansion in environment variables
 	ctx, cancel := cf.options.getSecretsContext()
-	envs, err := envsWithSecrets(ctx, cf.options.secretsManager)
+	envs, err := envsWithSecrets(ctx, cf.options.secretsManager, cf.options.strict)
 	cancel()
 	if err != nil {
 		return coreerrs.WrapOperation(err, "expand secrets in environment variables")
@@ -41,7 +41,7 @@ func (cf *Config) loadEnvs() error {
 		}
 
 		if val, ok := envs[envName]; ok {
-			if err = fld.setValue(val, envTagName); err != nil {
+			if err = fld.setValue(val, envTagName, cf.options.strict); err != nil {
 				return false
 			}
 		}
@@ -287,7 +287,9 @@ func (cf *Config) setArrayElements(fieldPath string, elements map[string]string)
 	}
 
 	if arrayField == nil {
-		// Field not found, skip silently
+		// Do not error here even in strict mode: parseArrayEnvs processes ALL env vars
+		// that match array patterns, including system env vars that are not targeting
+		// the config struct.
 		return nil
 	}
 
@@ -374,7 +376,7 @@ func (cf *Config) setPrimitiveSliceElements(arrayField *field, elements map[stri
 	// Set values for each element
 	for index, value := range indexedValues {
 		elementValue := arrayField.value.Index(index)
-		if err := set(elementValue, value, false, true); err != nil {
+		if err := set(elementValue, value, false, true, cf.options.strict); err != nil {
 			return err
 		}
 	}
@@ -515,7 +517,7 @@ func (cf *Config) ensureSliceSizeForValue(sliceValue reflect.Value, minSize int)
 
 // setFieldValue sets a reflect.Value from a string value.
 func (cf *Config) setFieldValue(fieldValue reflect.Value, value string) error {
-	return set(fieldValue, value, false, true)
+	return set(fieldValue, value, false, true, cf.options.strict)
 }
 
 // loadNestedEnvs handles nested structures using the section delimiter.
@@ -571,7 +573,10 @@ func (cf *Config) setNestedFieldFromEnv(envKey, envValue string) error {
 	}
 
 	if rootField == nil {
-		return nil // Field not found, skip silently
+		// Do not error here even in strict mode: loadNestedEnvs processes ALL env vars
+		// containing the section delimiter (e.g. "__"), including system env vars
+		// (like __CFBundleIdentifier on macOS) that are not targeting the config struct.
+		return nil
 	}
 
 	// Navigate to the nested field and set its value

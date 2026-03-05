@@ -241,7 +241,7 @@ func (cf *Config) loadFiles() (err error) {
 
 	if pathInfo, err = os.Stat(basePath); err != nil {
 		if os.IsNotExist(err) {
-			// ignore non-existent paths
+			// return error for non-existent paths
 			return
 		}
 

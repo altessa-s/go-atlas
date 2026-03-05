@@ -34,7 +34,20 @@ type options struct {
 	structTag           string `optgen:"default=DefaultStructTagName"`
 	skipEnv             bool
 	skipDefaults        bool
+	strict              bool `optgen:"manual"`
 	secretsManager      loadersecrets.Manager
+}
+
+// WithStrict enables strict mode for configuration loading.
+// In strict mode, the loader will return errors instead of silently ignoring:
+//   - Undefined environment variables referenced via $VAR or ${VAR}
+//   - Unsupported field types that cannot be set from string values
+//   - Field assignment failures due to type incompatibility
+//   - References to fields that do not exist in the configuration struct
+func WithStrict() Option {
+	return func(o *options) {
+		o.strict = true
+	}
 }
 
 // WithPathOnEnvKey sets the config path from an environment variable.

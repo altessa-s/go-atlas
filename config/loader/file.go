@@ -93,7 +93,16 @@ func (cf *Config) loadAndDecode(f *file, out any) (err error) {
 	}
 
 	// Perform environment variable substitution on raw text
-	substitutedContent := substituteEnvVariables(processedContent)
+	var substitutedContent string
+	if cf.options.strict {
+		substitutedContent, err = substituteEnvVariablesStrict(processedContent)
+		if err != nil {
+			err = fmt.Errorf("%w: %s: %w", ErrDecode, f.name, err)
+			return
+		}
+	} else {
+		substitutedContent = substituteEnvVariables(processedContent)
+	}
 
 	// Handle empty content or comments-only content - provide a minimal valid YAML document
 	if strings.TrimSpace(substitutedContent) == "" || isEmptyOrCommentsOnly(substitutedContent) {

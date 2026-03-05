@@ -6,6 +6,7 @@ package loader
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
@@ -237,6 +238,9 @@ func (fn *fieldNavigator) navigate() error {
 		baseName, indexOrKey, hasIndex := splitFieldNameAndIndex(part)
 		fieldValue, found := fn.findField(currentValue, part, hasIndex, baseName)
 		if !found || !fieldValue.CanSet() {
+			if fn.cf.options.strict {
+				return fmt.Errorf("%w: %s in path %s", ErrFieldNotFound, part, strings.Join(fn.pathParts, fn.cf.options.envSectionDelimiter))
+			}
 			return nil
 		}
 
@@ -308,7 +312,7 @@ func (fn *fieldNavigator) handleIndexedSlice(fieldValue reflect.Value, indexOrKe
 	}
 
 	if partIndex == len(fn.pathParts)-1 {
-		return set(fieldValue.Index(arrayIndex), fn.value, false, true)
+		return set(fieldValue.Index(arrayIndex), fn.value, false, true, fn.cf.options.strict)
 	}
 
 	*currentValue = fieldValue.Index(arrayIndex)
@@ -344,7 +348,7 @@ func (fn *fieldNavigator) handleMapWithPrimitiveValue(fieldValue reflect.Value, 
 
 	mapKeyValue := reflect.ValueOf(mapKey)
 	newValue := reflect.New(mapValueType).Elem()
-	if err := set(newValue, fn.value, false, true); err != nil {
+	if err := set(newValue, fn.value, false, true, fn.cf.options.strict); err != nil {
 		return err
 	}
 	fieldValue.SetMapIndex(mapKeyValue, newValue)
@@ -404,7 +408,7 @@ func (fn *fieldNavigator) handlePrimitiveSlice(fieldValue reflect.Value, index, 
 		return nil
 	}
 
-	return set(fieldValue.Index(index), fn.value, false, true)
+	return set(fieldValue.Index(index), fn.value, false, true, fn.cf.options.strict)
 }
 
 // handleStructSlice handles slices with struct elements.
@@ -446,7 +450,7 @@ func (cf *Config) setNestedFieldValue(fld *field, pathParts []string, value stri
 			if i == len(pathParts)-1 {
 				// This is the final key, set the map value
 				newValue := reflect.New(mapValueType).Elem()
-				if err := set(newValue, value, false, true); err != nil {
+				if err := set(newValue, value, false, true, cf.options.strict); err != nil {
 					return err
 				}
 				currentValue.SetMapIndex(mapKeyValue, newValue)
@@ -494,7 +498,10 @@ func (cf *Config) setNestedFieldValue(fld *field, pathParts []string, value stri
 		// Find the field in the current struct (including inline structs)
 		fieldValue, found := cf.findFieldInStruct(currentValue, part)
 		if !found {
-			return nil // Field not found
+			if cf.options.strict {
+				return fmt.Errorf("%w: %s", ErrFieldNotFound, part)
+			}
+			return nil
 		}
 
 		if i == len(pathParts)-1 {

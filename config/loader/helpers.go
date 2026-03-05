@@ -7,6 +7,7 @@ package loader
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"reflect"
 	"strings"
@@ -34,9 +35,10 @@ var ErrInvalidConfig = errors.New("config must be a struct pointer")
 // Parameters:
 //   - ctx: The context for secrets operations (can be nil, defaults to context.Background())
 //   - manager: The secrets manager for expanding secret placeholders (can be nil)
+//   - strict: When true, returns an error if any referenced environment variable is undefined
 //
 //nolint:contextcheck // context is properly handled within function
-func envsWithSecrets(ctx context.Context, manager loadersecrets.Manager) (map[string]string, error) {
+func envsWithSecrets(ctx context.Context, manager loadersecrets.Manager, strict bool) (map[string]string, error) {
 	ctx = corecontext.OrBackground(ctx)
 
 	envs := make(map[string]string)
@@ -47,8 +49,16 @@ func envsWithSecrets(ctx context.Context, manager loadersecrets.Manager) (map[st
 				key, value := s[:j], s[j+1:]
 				normalizedKey := normalizeEnvKey(key)
 
-				// First unwrap regular environment variables
-				unwrappedValue := unwrapEnvValue(value)
+				var unwrappedValue string
+				if strict {
+					var err error
+					unwrappedValue, err = unwrapEnvValueStrict(value)
+					if err != nil {
+						return nil, err
+					}
+				} else {
+					unwrappedValue = unwrapEnvValue(value)
+				}
 
 				// Then expand secrets if manager is provided
 				if manager != nil {
@@ -197,9 +207,108 @@ func assertStructPointer(conf any) error {
 // substituteEnvVariables performs environment variable substitution in a string.
 // It replaces all occurrences of ${VAR_NAME} with the corresponding environment variable values.
 // This function handles multiple variables within the same string and is used for text-level substitution.
-// substituteEnvVariables performs environment variable substitution in a string.
-// It replaces all occurrences of ${VAR_NAME} with the corresponding environment variable values.
-// This function handles multiple variables within the same string and is used for text-level substitution.
 func substituteEnvVariables(input string) string {
 	return os.Expand(input, os.Getenv)
+}
+
+// unwrapEnvValueStrict is the strict variant of unwrapEnvValue.
+// It returns an error if any referenced environment variable is not defined.
+// A variable that is defined but set to an empty string is not considered an error.
+func unwrapEnvValueStrict(value string) (string, error) {
+	return unwrapEnvValueStrictWithDepth(value, value, 0, make(map[string]bool))
+}
+
+func unwrapEnvValueStrictWithDepth(value, original string, depth int, visited map[string]bool) (string, error) {
+	if depth >= maxDepth {
+		return original, nil
+	}
+
+	// Handle simple case where entire value is a single environment variable
+	if strings.HasPrefix(value, envVarDollarPrefix) && !strings.ContainsAny(value[1:], "$/\\") {
+		key := value[1:]
+
+		if visited[key] {
+			envValue, ok := os.LookupEnv(key)
+			if !ok {
+				return "", fmt.Errorf("%w: $%s", ErrUndefinedEnvVar, key)
+			}
+			if envValue == "" {
+				return value, nil
+			}
+			if strings.HasPrefix(envValue, envVarDollarPrefix) && !strings.ContainsAny(envValue[1:], "$/\\") {
+				return envValue, nil
+			}
+			return value, nil
+		}
+
+		envValue, ok := os.LookupEnv(key)
+		if !ok {
+			return "", fmt.Errorf("%w: $%s", ErrUndefinedEnvVar, key)
+		}
+		if envValue == "" {
+			return "", nil
+		}
+
+		visited[key] = true
+		return unwrapEnvValueStrictWithDepth(envValue, original, depth+1, visited)
+	}
+
+	// Handle mixed strings with embedded environment variables
+	result := value
+	changed := false
+
+	for {
+		dollarIndex := strings.Index(result, envVarDollarPrefix)
+		if dollarIndex == -1 {
+			break
+		}
+
+		start := dollarIndex + 1
+		end := start
+		for end < len(result) && (result[end] == '_' ||
+			(result[end] >= 'A' && result[end] <= 'Z') ||
+			(result[end] >= 'a' && result[end] <= 'z') ||
+			(result[end] >= '0' && result[end] <= '9')) {
+			end++
+		}
+
+		if end > start {
+			key := result[start:end]
+			if !visited[key] {
+				envValue, ok := os.LookupEnv(key)
+				if !ok {
+					return "", fmt.Errorf("%w: $%s", ErrUndefinedEnvVar, key)
+				}
+				result = result[:dollarIndex] + envValue + result[end:]
+				changed = true
+				continue
+			}
+		}
+
+		result = result[:dollarIndex] + result[dollarIndex+1:]
+	}
+
+	if changed && depth < maxDepth-1 {
+		return unwrapEnvValueStrictWithDepth(result, original, depth+1, visited)
+	}
+
+	return result, nil
+}
+
+// substituteEnvVariablesStrict performs environment variable substitution in a string.
+// Unlike substituteEnvVariables, it returns an error if any referenced variable is undefined.
+// A variable that is defined but set to an empty string is not considered an error.
+func substituteEnvVariablesStrict(input string) (string, error) {
+	var firstErr error
+	result := os.Expand(input, func(key string) string {
+		val, ok := os.LookupEnv(key)
+		if !ok && firstErr == nil {
+			firstErr = fmt.Errorf("%w: ${%s}", ErrUndefinedEnvVar, key)
+		}
+		return val
+	})
+	if firstErr != nil {
+		return "", firstErr
+	}
+	return result, nil
 }

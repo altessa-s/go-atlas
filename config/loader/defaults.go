@@ -22,7 +22,7 @@ func (cf *Config) loadDefaultValues() (err error) {
 	cf.fields = structFields(cf.conf)
 	for f := range cf.fields.All() {
 		if !cf.options.skipDefaults && !f.isStructPtr() {
-			if err = f.setDefaultValue(defaultValueTagName); err != nil {
+			if err = f.setDefaultValue(defaultValueTagName, cf.options.strict); err != nil {
 				return err
 			}
 		}
@@ -220,11 +220,19 @@ func (cf *Config) applyDefaultsToStruct(structValue reflect.Value) error {
 		}
 
 		// Apply environment variable substitution
-		defaultTag = substituteEnvVariables(defaultTag)
+		if cf.options.strict {
+			var subErr error
+			defaultTag, subErr = substituteEnvVariablesStrict(defaultTag)
+			if subErr != nil {
+				return subErr
+			}
+		} else {
+			defaultTag = substituteEnvVariables(defaultTag)
+		}
 
 		// Set the default value
 		// Use isDefaultValue=false to bypass conditional logic since we already checked IsZero
-		if err := set(fieldValue, defaultTag, false, true); err != nil {
+		if err := set(fieldValue, defaultTag, false, true, cf.options.strict); err != nil {
 			return err
 		}
 
