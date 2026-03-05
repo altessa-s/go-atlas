@@ -198,6 +198,13 @@ func TestBaseServer_GracefulShutdown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GracefulShutdown() error = %v", err)
 	}
+
+	if !s.IsShutdown() {
+		t.Fatal("IsShutdown() should be true after GracefulShutdown")
+	}
+	if s.IsStarted() {
+		t.Fatal("IsStarted() should be false after GracefulShutdown")
+	}
 }
 
 func TestBaseServer_GracefulShutdown_NotStarted(t *testing.T) {

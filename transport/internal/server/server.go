@@ -205,6 +205,8 @@ func (s *BaseServer) GracefulShutdown(ctx context.Context, shutdownFunc Shutdown
 		return nil
 	}
 
+	s.shutdown.Store(true)
+
 	ch := make(chan error, 1)
 	// We don't close ch here because we can't guarantee the goroutine won't write to it
 	// after we return if context is canceled. Let GC handle it.
