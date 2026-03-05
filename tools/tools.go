@@ -2,14 +2,6 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-//go:build tools
-
+// Dev-tool dependencies have been moved to the devtools/ module.
+// See devtools/tools.go for blank imports that pin tool versions.
 package tools
-
-import (
-	_ "github.com/daixiang0/gci"
-	_ "github.com/golangci/golangci-lint/v2/cmd/golangci-lint"
-	_ "github.com/mibk/dupl"
-	_ "github.com/securego/gosec/v2/cmd/gosec"
-	_ "golang.org/x/vuln/cmd/govulncheck"
-)

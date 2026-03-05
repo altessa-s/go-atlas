@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package tools tracks build-time tool dependencies via blank imports.
-// It is guarded by a "tools" build tag so these dependencies are recorded
-// in go.mod but never compiled into production binaries.
+// Package tools contains code generation utilities and related tooling.
+// Dev-tool dependencies (linters, security scanners) have been moved to
+// the devtools/ module to keep the main module's dependency graph clean.
 package tools

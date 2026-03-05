@@ -27,7 +27,7 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
+          version: v2.10.1
 
   test:
     name: Test
@@ -75,10 +75,10 @@ jobs:
 
       - name: Run govulncheck
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          cd devtools && go install golang.org/x/vuln/cmd/govulncheck
           govulncheck ./...
 
       - name: Run gosec
         run: |
-          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          cd devtools && go install github.com/securego/gosec/v2/cmd/gosec
           gosec -quiet -exclude-generated ./...

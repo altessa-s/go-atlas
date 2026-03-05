@@ -16,7 +16,7 @@ all: help
 
 .PHONY: fmt
 fmt: tidy  ## Run go fmt on all go files
-	@go install github.com/daixiang0/gci@latest
+	@cd devtools && go install github.com/daixiang0/gci
 	@gci write \
 	    -s standard \
 	    -s default \
@@ -29,7 +29,7 @@ fmt: tidy  ## Run go fmt on all go files
 
 .PHONY: lint
 lint: tidy fmt ## Run linter
-	@go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+	@cd devtools && go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 	golangci-lint run ./...
 
 .PHONY: tidy
@@ -110,12 +110,12 @@ test-all: ## Run tests with race detector, shuffle, and coverage
 
 .PHONY: dupl
 dupl: ## Run dupl (ignoring generated files)
-	@go install github.com/mibk/dupl@latest
+	@cd devtools && go install github.com/mibk/dupl
 	@dupl -t $(DUPL_THRESHOLD) -plumbing $(DUPL_PATH) | grep -Ev "$(DUPL_IGNORE_REGEX)" || true
 
 .PHONY: dupl-check
 dupl-check: ## Fail if dupl finds duplicates (ignoring generated files)
-	@go install github.com/mibk/dupl@latest
+	@cd devtools && go install github.com/mibk/dupl
 	@out="$$(dupl -t $(DUPL_THRESHOLD) -plumbing $(DUPL_PATH) | grep -Ev "$(DUPL_IGNORE_REGEX)" || true)"; \
 	if [ -n "$$out" ]; then \
 		echo "$$out"; \
@@ -157,11 +157,11 @@ release: ## Semantic versioning - create and push a new release tag
 .PHONY: security-scan
 security-scan: ## Security checks - run vulnerability and security scanners
 	@echo "Running Go vulnerability check..."
-	@go install golang.org/x/vuln/cmd/govulncheck@latest
+	@cd devtools && go install golang.org/x/vuln/cmd/govulncheck
 	@govulncheck ./...
 	@echo ""
 	@echo "Running gosec security scanner..."
-	@go install github.com/securego/gosec/v2/cmd/gosec@latest
+	@cd devtools && go install github.com/securego/gosec/v2/cmd/gosec
 	@gosec -quiet -exclude-generated ./...
 	@echo ""
 	@echo "Security scan completed"
