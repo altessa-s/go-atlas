@@ -13,6 +13,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/altessa-s/go-atlas/core/types/ptr"
 
@@ -58,7 +59,8 @@ type listCursorOptions struct {
 	explain       bool   // Enable query execution plan analysis
 	cursorIdField string // MongoDB field name for cursor ID (default: "cursor_id")
 	includeTotal  bool
-	storage       CursorStorage // Server-side cursor storage (optional)
+	storage       CursorStorage      // Server-side cursor storage (optional)
+	collation     *options.Collation // Collation for string comparison rules
 }
 
 // defaultListCursorOptions returns default configuration for cursor-based pagination.
@@ -92,6 +94,19 @@ func WithListCursorLogger(logger *slog.Logger) ListCursorOption {
 		if logger != nil {
 			options.logger = logger
 		}
+	}
+}
+
+// WithListCursorCollation configures locale-aware collation for cursor-based list operations.
+// This is useful for sorting string fields according to language-specific rules
+// (e.g., Cyrillic alphabetical order with Russian locale).
+//
+// Example:
+//
+//	WithListCursorCollation(&options.Collation{Locale: "ru", Strength: 2})
+func WithListCursorCollation(collation *options.Collation) ListCursorOption {
+	return func(opts *listCursorOptions) {
+		opts.collation = collation
 	}
 }
 
@@ -395,7 +410,12 @@ func ListCursor[T any](ctx context.Context, collection *mongo.Collection, o ...L
 	// Execute explain analysis if requested
 	executeExplainIfRequested(ctx, collection, pipeline, opts.explain, opts.logger)
 
-	cursor, err := collection.Aggregate(ctx, pipeline, nil)
+	aggOpts := options.Aggregate()
+	if opts.collation != nil {
+		aggOpts.SetCollation(opts.collation)
+	}
+
+	cursor, err := collection.Aggregate(ctx, pipeline, aggOpts)
 	if err != nil {
 		return nil, err
 	}

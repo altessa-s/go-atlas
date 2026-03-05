@@ -127,15 +127,27 @@ func getSortDirection(sort bson.D) int {
 		return sortDirectionDescending
 	}
 
-	// Get direction from the first sort field
-	if value, ok := sort[0].Value.(int); ok {
-		if value < 0 {
-			return sortDirectionDescending
-		}
-		return sortDirectionAscending
+	// Get direction from the first sort field.
+	// Handle multiple integer types because BSON round-trip may change
+	// int to int32 (BSON default for small integers).
+	switch v := sort[0].Value.(type) {
+	case int:
+		return dirFromInt(int64(v))
+	case int32:
+		return dirFromInt(int64(v))
+	case int64:
+		return dirFromInt(v)
+	default:
+		return sortDirectionDescending
 	}
+}
 
-	return sortDirectionDescending
+// dirFromInt returns sort direction constant from an integer value.
+func dirFromInt(direction int64) int {
+	if direction < 0 {
+		return sortDirectionDescending
+	}
+	return sortDirectionAscending
 }
 
 // buildHintStage creates the $hint stage if a hint is specified.
