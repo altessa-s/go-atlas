@@ -84,62 +84,86 @@ func (w *watchManager) unsubscribe(sub *subscriber) {
 
 	if exists {
 		sub.closedOnce.Do(func() {
-			close(sub.ch)
 			close(sub.done)
+			close(sub.ch)
 		})
 	}
 }
 
-// broadcast sends an event to all subscribers.
+// broadcast sends an event to all matching subscribers. Subscribers are
+// snapshot under RLock and events are delivered after the lock is released,
+// so a slow consumer using OverflowPolicyBlock cannot stall the entire
+// broadcast path or prevent unsubscribe from acquiring the write lock.
 func (w *watchManager) broadcast(event PolicyEvent) {
 	w.mu.RLock()
-	defer w.mu.RUnlock()
-
+	subs := make([]*subscriber, 0, len(w.subscribers))
 	for sub := range w.subscribers {
 		if sub.eventTypes != nil {
 			if _, ok := sub.eventTypes[event.Type]; !ok {
 				continue
 			}
 		}
+		subs = append(subs, sub)
+	}
+	w.mu.RUnlock()
 
-		w.sendEvent(sub, event)
+	for _, sub := range subs {
+		w.trySendEvent(sub, event)
 	}
 }
 
+// trySendEvent delivers an event, recovering if the subscriber's channel
+// was closed concurrently (narrow race between done and ch close).
+func (w *watchManager) trySendEvent(sub *subscriber, event PolicyEvent) {
+	defer func() { recover() }() //nolint:errcheck
+	w.sendEvent(sub, event)
+}
+
 // sendEvent sends an event to a subscriber according to its overflow policy.
+// Every path includes <-sub.done so that in-flight sends bail out promptly
+// when the subscriber is being closed.
 func (w *watchManager) sendEvent(sub *subscriber, event PolicyEvent) {
+	select {
+	case <-sub.done:
+		return
+	default:
+	}
+
 	switch sub.overflowPolicy {
 	case OverflowPolicyBlock:
-		// Block until space is available
-		sub.ch <- event
+		select {
+		case sub.ch <- event:
+		case <-sub.done:
+		}
 
 	case OverflowPolicyDropOldest:
-		// Try non-blocking send first
 		select {
 		case sub.ch <- event:
 			return
+		case <-sub.done:
+			return
 		default:
-			// Channel full - drop oldest and retry
 		}
-		// Drop oldest event and send new one
 		for {
 			select {
 			case <-sub.ch:
-				// Dropped oldest, try to send again
 				select {
 				case sub.ch <- event:
 					return
+				case <-sub.done:
+					return
 				default:
-					// Still full, continue dropping
 					continue
 				}
+			case <-sub.done:
+				return
 			default:
-				// Channel became available
 				select {
 				case sub.ch <- event:
 					return
+				case <-sub.done:
+					return
 				default:
-					// Race condition, retry
 					continue
 				}
 			}
@@ -148,8 +172,8 @@ func (w *watchManager) sendEvent(sub *subscriber, event PolicyEvent) {
 	default: // OverflowPolicyDropNewest
 		select {
 		case sub.ch <- event:
+		case <-sub.done:
 		default:
-			// Drop event if channel is full
 		}
 	}
 }
@@ -167,8 +191,8 @@ func (w *watchManager) close() {
 
 	for _, sub := range subscribers {
 		sub.closedOnce.Do(func() {
-			close(sub.ch)
 			close(sub.done)
+			close(sub.ch)
 		})
 	}
 }
