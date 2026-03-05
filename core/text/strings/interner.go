@@ -145,6 +145,20 @@ func GlobalInterner() *Interner {
 	return newInterner
 }
 
+// ResetGlobalInterner clears all state from the global [Interner] singleton
+// (interned strings, hot cache, counters). This is primarily useful in tests
+// to prevent state leaking between test cases:
+//
+//	func TestFoo(t *testing.T) {
+//	    t.Cleanup(strings.ResetGlobalInterner)
+//	    // ...
+//	}
+func ResetGlobalInterner() {
+	if interner := globalInternerPtr.Load(); interner != nil {
+		interner.Reset()
+	}
+}
+
 // NewInterner creates a new [Interner] that holds up to maxSize interned
 // strings before triggering background LRU eviction. If maxSize is less than
 // or equal to zero, [DefaultMaxSize] is used instead.

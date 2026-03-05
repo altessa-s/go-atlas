@@ -171,13 +171,32 @@ func TestInterner_Reset(t *testing.T) {
 }
 
 func TestGlobalInterner(t *testing.T) {
+	t.Cleanup(corestrings.ResetGlobalInterner)
+
 	g := corestrings.GlobalInterner()
 	if g == nil {
 		t.Fatal("GlobalInterner() returned nil")
 	}
 }
 
+func TestResetGlobalInterner(t *testing.T) {
+	t.Cleanup(corestrings.ResetGlobalInterner)
+
+	corestrings.InternString("leak-check")
+	g := corestrings.GlobalInterner()
+	if g.IsEmpty() {
+		t.Fatal("global interner should not be empty after InternString")
+	}
+
+	corestrings.ResetGlobalInterner()
+	if !g.IsEmpty() {
+		t.Error("global interner should be empty after ResetGlobalInterner")
+	}
+}
+
 func TestInternGlobalFunctions(t *testing.T) {
+	t.Cleanup(corestrings.ResetGlobalInterner)
+
 	if got := corestrings.InternString("test"); got != "test" {
 		t.Errorf("InternString() = %q", got)
 	}
