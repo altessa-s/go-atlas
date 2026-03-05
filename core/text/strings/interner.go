@@ -36,6 +36,34 @@ const (
 	minEvictionCandidates = 16
 )
 
+// coarseTimestamp caches time.Now().Unix() to avoid a syscall on every intern hit.
+// It is refreshed every PromotionCheckInterval accesses (~50 operations).
+var coarseTimestamp atomic.Int64
+
+func init() {
+	coarseTimestamp.Store(time.Now().Unix())
+}
+
+// coarseNowUnix returns the cached Unix timestamp. Callers accept ~50-operation staleness.
+func coarseNowUnix() int64 {
+	return coarseTimestamp.Load()
+}
+
+// evictionCandidate holds data for a single eviction candidate during LRU sweep.
+type evictionCandidate struct {
+	key         string
+	accessCount int64
+	lastAccess  int64
+}
+
+// evictionCandidatesPool reuses candidate slices to avoid allocating ~256KB per eviction cycle.
+var evictionCandidatesPool = sync.Pool{
+	New: func() any {
+		s := make([]evictionCandidate, 0, 512) //nolint:mnd // EvictionBatchSize
+		return &s
+	},
+}
+
 // internEntry represents an interned string with access tracking for LRU eviction.
 // It uses unique.Handle for efficient underlying storage and comparison.
 type internEntry struct {
@@ -157,14 +185,15 @@ func (si *Interner) String(s string) string {
 	if value, ok := si.entries.Load(s); ok {
 		entry := value.(*internEntry) //nolint:errcheck // type is guaranteed by internal usage
 
-		// Update access information atomically
+		// Update access information atomically using coarse timestamp
 		newAccessCount := atomic.AddInt64(&entry.accessCount, 1)
-		atomic.StoreInt64(&entry.lastAccess, time.Now().Unix())
+		atomic.StoreInt64(&entry.lastAccess, coarseNowUnix())
 
-		// Periodically check for hot cache promotion
+		// Periodically check for hot cache promotion and refresh coarse timestamp
 		if atomic.AddInt64(&si.promotionCounter, 1)%PromotionCheckInterval == 0 {
+			coarseTimestamp.Store(time.Now().Unix())
 			if newAccessCount >= HotCacheThreshold {
-				si.promoteToHotCache(entry.value(), hotSlot)
+				si.promoteToHotCache(entry.value(), hotSlot, newAccessCount)
 			}
 		}
 
@@ -174,16 +203,17 @@ func (si *Interner) String(s string) string {
 	// Slow path: create new handle and entry
 	handle := unique.Make(s)
 	canonicalString := handle.Value()
+	now := coarseNowUnix()
 	newEntry := &internEntry{
 		handle:      handle,
 		accessCount: 1,
-		lastAccess:  time.Now().Unix(),
+		lastAccess:  now,
 	}
 
 	if actual, loaded := si.entries.LoadOrStore(canonicalString, newEntry); loaded {
 		entry := actual.(*internEntry) //nolint:errcheck // type is guaranteed by internal usage
 		atomic.AddInt64(&entry.accessCount, 1)
-		atomic.StoreInt64(&entry.lastAccess, time.Now().Unix())
+		atomic.StoreInt64(&entry.lastAccess, now)
 		return entry.value()
 	}
 
@@ -239,14 +269,10 @@ func (si *Interner) evictInBackground() {
 		evictCount = max(evictCount, currentSize-si.maxSize+1)
 	}
 
-	// Collect eviction candidates
-	type evictionCandidate struct {
-		key         string
-		accessCount int64
-		lastAccess  int64
-	}
+	// Get a pooled candidates slice to avoid allocating ~256KB per eviction cycle.
+	candidatesPtr := evictionCandidatesPool.Get().(*[]evictionCandidate) //nolint:errcheck // pool type is guaranteed
+	candidates := (*candidatesPtr)[:0]
 
-	candidates := make([]evictionCandidate, 0, max(int(atomic.LoadInt64(&si.currentSize)), minEvictionCandidates))
 	si.entries.Range(func(key, value any) bool {
 		entry := value.(*internEntry) //nolint:errcheck // Range guarantees correct type
 		candidates = append(candidates, evictionCandidate{
@@ -258,6 +284,8 @@ func (si *Interner) evictInBackground() {
 	})
 
 	if len(candidates) == 0 {
+		*candidatesPtr = candidates
+		evictionCandidatesPool.Put(candidatesPtr)
 		return
 	}
 
@@ -279,6 +307,10 @@ func (si *Interner) evictInBackground() {
 			evictedCount++
 		}
 	}
+
+	// Return pooled slice
+	*candidatesPtr = candidates
+	evictionCandidatesPool.Put(candidatesPtr)
 
 	// Update size counter
 	atomic.AddInt64(&si.currentSize, -evictedCount)
@@ -377,17 +409,34 @@ func (si *Interner) CleanPathString(path string) string {
 		return si.String("")
 	}
 
-	// Remove multiple consecutive slashes
-	for strings.Contains(path, "//") {
-		path = strings.ReplaceAll(path, "//", "/")
+	// Fast path: no consecutive slashes and no trailing slash — intern as-is.
+	if !strings.Contains(path, "//") && (len(path) <= 1 || path[len(path)-1] != '/') {
+		return si.String(path)
+	}
+
+	// Single-pass: collapse consecutive slashes and strip trailing slash.
+	b := GetStringBuilder()
+	defer PutStringBuilder(b)
+	b.Grow(len(path))
+
+	prev := byte(0)
+	for i := range len(path) {
+		ch := path[i]
+		if ch == '/' && prev == '/' {
+			prev = ch
+			continue
+		}
+		b.WriteByte(ch)
+		prev = ch
 	}
 
 	// Remove trailing slash unless it's root
-	if len(path) > 1 && strings.HasSuffix(path, "/") {
-		path = path[:len(path)-1]
+	result := b.String()
+	if len(result) > 1 && result[len(result)-1] == '/' {
+		result = result[:len(result)-1]
 	}
 
-	return si.String(path)
+	return si.String(result)
 }
 
 // PrefixString prepends prefix to s and returns the canonical interned
@@ -649,7 +698,28 @@ func (si *Interner) fastHash(s string) uint32 {
 }
 
 // promoteToHotCache attempts to promote frequently accessed string to hot cache.
-func (si *Interner) promoteToHotCache(s string, slot uint32) {
-	// Try to claim the hot cache slot (may fail, that's okay)
-	si.hotCache[slot].CompareAndSwap(nil, &s)
+// If the slot is empty, claims it. If occupied, replaces only when the new string
+// has significantly higher access count (2x threshold) to avoid thrashing.
+func (si *Interner) promoteToHotCache(s string, slot uint32, accessCount int64) {
+	// Try to claim an empty slot first (common case)
+	if si.hotCache[slot].CompareAndSwap(nil, &s) {
+		return
+	}
+
+	// Slot is occupied — check if the new entry is significantly hotter
+	current := si.hotCache[slot].Load()
+	if current == nil {
+		si.hotCache[slot].CompareAndSwap(nil, &s)
+		return
+	}
+
+	if entry, ok := si.entries.Load(*current); ok {
+		existing := entry.(*internEntry) //nolint:errcheck // type is guaranteed by internal usage
+		if accessCount > atomic.LoadInt64(&existing.accessCount)*2 { //nolint:mnd // 2x threshold for replacement
+			si.hotCache[slot].Store(&s)
+		}
+	} else {
+		// Previous occupant was evicted from cold cache; take the slot
+		si.hotCache[slot].Store(&s)
+	}
 }

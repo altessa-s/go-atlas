@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unicode"
 	"unicode/utf8"
 	"unsafe"
@@ -19,7 +20,15 @@ import (
 )
 
 // caseInsensitiveRegexCache caches compiled case-insensitive regexes keyed by separator.
+// Bounded to maxRegexCacheSize entries to prevent unbounded memory growth.
 var caseInsensitiveRegexCache sync.Map // map[string]*regexp.Regexp
+
+// regexCacheSize tracks the approximate number of entries in caseInsensitiveRegexCache.
+var regexCacheSize atomic.Int64
+
+// maxRegexCacheSize is the upper bound on cached regex entries. Once reached,
+// new separators are compiled but not cached.
+const maxRegexCacheSize = 256
 
 // IsEmpty reports whether str is empty or contains only whitespace characters.
 // The generic type parameter accepts both string and *string values. A nil
@@ -397,8 +406,10 @@ func Split(s string, opts SplitOptions) []string {
 			} else {
 				quote := regexp.QuoteMeta(separator)
 				re, err = regexp.Compile("(?i)" + quote)
-				if err == nil {
-					caseInsensitiveRegexCache.Store(separator, re)
+				if err == nil && regexCacheSize.Load() < maxRegexCacheSize {
+					if _, loaded := caseInsensitiveRegexCache.LoadOrStore(separator, re); !loaded {
+						regexCacheSize.Add(1)
+					}
 				}
 			}
 			if err != nil {

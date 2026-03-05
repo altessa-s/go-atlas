@@ -15,19 +15,24 @@ import (
 
 // dispatcher handles asynchronous event processing with batching and retry.
 type dispatcher struct {
-	opts    *options
-	storage Storage
-	events  chan *Event
-	done    chan struct{}
-	wg      sync.WaitGroup
+	opts        *options
+	storage     Storage
+	events      chan *Event
+	done        chan struct{}
+	shutdownCtx context.Context
+	shutdownFn  context.CancelFunc
+	wg          sync.WaitGroup
 }
 
 func newDispatcher(storage Storage, opts *options) *dispatcher {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &dispatcher{
-		opts:    opts,
-		storage: storage,
-		events:  make(chan *Event, opts.bufferSize),
-		done:    make(chan struct{}),
+		opts:        opts,
+		storage:     storage,
+		events:      make(chan *Event, opts.bufferSize),
+		done:        make(chan struct{}),
+		shutdownCtx: ctx,
+		shutdownFn:  cancel,
 	}
 }
 
@@ -60,6 +65,7 @@ func (d *dispatcher) start() {
 // shutdown drains the buffer and waits for workers to finish.
 func (d *dispatcher) shutdown(ctx context.Context) error {
 	close(d.done)
+	d.shutdownFn()
 
 	finished := make(chan struct{})
 	go func() {
@@ -132,14 +138,11 @@ func (d *dispatcher) storeBatch(events []*Event) {
 
 	// Create a context that is canceled when the dispatcher shuts down,
 	// so storage calls do not hang after the done signal.
+	// context.AfterFunc registers the callback without spawning a goroutine upfront;
+	// the runtime invokes cancel() only when done is signaled.
 	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		select {
-		case <-d.done:
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
+	stop := context.AfterFunc(d.shutdownCtx, cancel)
+	defer stop()
 	defer cancel()
 
 	for attempt := range d.opts.retryAttempts + 1 {

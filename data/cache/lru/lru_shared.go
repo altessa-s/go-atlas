@@ -6,6 +6,7 @@ package lru
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"hash"
 	"hash/fnv"
@@ -79,16 +80,17 @@ func (sc *ShardedCache[K, V]) getShard(key K) *Cache[K, V] {
 	case []byte:
 		_, _ = hasher.Write(k)
 	case int:
-		// Safe conversion for hashing
-		v := int64(k)
-		//nolint:mnd // Standard uint64 to bytes conversion
-		_, _ = hasher.Write([]byte{byte(v), byte(v >> 8), byte(v >> 16), byte(v >> 24), byte(v >> 32), byte(v >> 40), byte(v >> 48), byte(v >> 56)})
+		var buf [8]byte //nolint:mnd // Stack-allocated buffer for int-to-bytes hashing
+		binary.LittleEndian.PutUint64(buf[:], uint64(int64(k)))
+		_, _ = hasher.Write(buf[:])
 	case int64:
-		//nolint:mnd // Standard uint64 to bytes conversion
-		_, _ = hasher.Write([]byte{byte(k), byte(k >> 8), byte(k >> 16), byte(k >> 24), byte(k >> 32), byte(k >> 40), byte(k >> 48), byte(k >> 56)})
+		var buf [8]byte //nolint:mnd // Stack-allocated buffer for int64-to-bytes hashing
+		binary.LittleEndian.PutUint64(buf[:], uint64(k))
+		_, _ = hasher.Write(buf[:])
 	case uint64:
-		//nolint:mnd // Standard uint64 to bytes conversion
-		_, _ = hasher.Write([]byte{byte(k), byte(k >> 8), byte(k >> 16), byte(k >> 24), byte(k >> 32), byte(k >> 40), byte(k >> 48), byte(k >> 56)})
+		var buf [8]byte //nolint:mnd // Stack-allocated buffer for uint64-to-bytes hashing
+		binary.LittleEndian.PutUint64(buf[:], k)
+		_, _ = hasher.Write(buf[:])
 	default:
 		_, _ = hasher.Write(fmt.Appendf(nil, "%v", key))
 	}

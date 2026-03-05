@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"sync/atomic"
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/text/strings"
@@ -226,7 +225,9 @@ type cacheDriver struct {
 
 	logger *slog.Logger // Optional logger for debugging and monitoring
 
-	key atomic.Value
+	// key is set in PreCall and read in PostCall. Since cacheDriver is per-call
+	// and access is sequential (PreCall → handler → PostCall), no synchronization is needed.
+	key string
 }
 
 // Ensure cacheDriver implements Driver interface
@@ -253,7 +254,7 @@ func (d *cacheDriver) PreCall(ctx context.Context, req any) (any, error) {
 		return nil, nil //nolint:nilnil
 	}
 
-	d.key.Store(key)
+	d.key = key
 
 	// Skip caching for streaming calls
 	if d.meta.IsStream {
@@ -290,7 +291,7 @@ func (d *cacheDriver) PostCall(ctx context.Context, resp any, err error) error {
 	}
 
 	// Load the cache key generated in PreCall
-	cacheKey := d.key.Load().(string) //nolint:errcheck
+	cacheKey := d.key
 
 	// For cache misses, use decision function to determine if we should cache
 	decision := d.interceptor.opts.cacheDecision(ctx, strings.InternString(d.meta.FullyMethodName), nil, resp, err)

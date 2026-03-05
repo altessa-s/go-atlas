@@ -47,6 +47,8 @@ func getCachedMemStats() *runtime.MemStats {
 }
 
 // get returns the cached memory stats, refreshing if necessary.
+// The returned pointer MUST be treated as read-only; it points directly into the cache
+// to avoid copying the 4.8 KB runtime.MemStats struct on every call.
 func (c *cachedMemStats) get() *runtime.MemStats {
 	now := time.Now().UnixNano()
 	lastUpdated := c.lastUpdated.Load()
@@ -57,9 +59,7 @@ func (c *cachedMemStats) get() *runtime.MemStats {
 
 	// Check if cache is still fresh and we have data
 	if current != nil && lastUpdated > 0 && now-lastUpdated < ttl {
-		// Return a copy to ensure caller isolation
-		result := *current
-		return &result
+		return current
 	}
 
 	// Try to acquire the update lock
@@ -67,8 +67,7 @@ func (c *cachedMemStats) get() *runtime.MemStats {
 	if !c.mu.TryLock() {
 		// Another goroutine is refreshing, return current (possibly stale) data
 		if current != nil {
-			result := *current
-			return &result
+			return current
 		}
 		// If we have no data yet, we must wait for the lock
 		c.mu.Lock()
@@ -82,8 +81,7 @@ func (c *cachedMemStats) get() *runtime.MemStats {
 	current = c.stats.Load()
 	ttl = c.ttl.Load()
 	if current != nil && lastUpdated > 0 && nowAfterLock-lastUpdated < ttl {
-		result := *current
-		return &result
+		return current
 	}
 
 	// Refresh the cache
@@ -94,8 +92,7 @@ func (c *cachedMemStats) get() *runtime.MemStats {
 	c.stats.Store(newStats)
 	c.lastUpdated.Store(time.Now().UnixNano())
 
-	result := *newStats
-	return &result
+	return newStats
 }
 
 // SetMemStatsCacheTTL configures how long cached memory statistics remain valid

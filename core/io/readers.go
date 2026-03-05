@@ -7,7 +7,7 @@ package io
 import (
 	"errors"
 	"io"
-	"sync"
+	"sync/atomic"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
@@ -44,14 +44,13 @@ func NewErrorReader(err error) *ErrorReader {
 // underlying reader's Close method is preserved and delegated to by
 // [LimitedReadCloser.Close].
 //
-// LimitedReadCloser is safe for concurrent reads; an internal mutex protects the
-// running byte counter. Create instances with [NewLimitedReadCloser].
+// LimitedReadCloser is safe for concurrent reads; an atomic counter tracks the
+// running byte total without lock contention. Create instances with [NewLimitedReadCloser].
 type LimitedReadCloser struct {
 	reader io.Reader
 	closer io.Closer
 	limit  int64
-	read   int64
-	mu     sync.Mutex
+	read   atomic.Int64
 }
 
 // NewLimitedReadCloser creates a [LimitedReadCloser] that allows at most limit bytes
@@ -69,14 +68,11 @@ func NewLimitedReadCloser(rc io.ReadCloser, limit int64) *LimitedReadCloser {
 // Read reads up to len(p) bytes from the underlying reader into p. It returns the
 // number of bytes read and any error encountered. If the cumulative bytes read exceed
 // the configured limit, Read returns an error wrapping [ErrReadLimitExceeded]. The
-// byte counter is protected by a mutex, making concurrent Read calls safe.
+// byte counter uses atomic operations, making concurrent Read calls safe.
 func (l *LimitedReadCloser) Read(p []byte) (n int, err error) {
 	n, err = l.reader.Read(p)
 
-	l.mu.Lock()
-	l.read += int64(n)
-	totalRead := l.read
-	l.mu.Unlock()
+	totalRead := l.read.Add(int64(n))
 
 	// Check if we've exceeded the limit
 	if totalRead > l.limit {
