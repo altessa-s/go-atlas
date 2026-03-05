@@ -269,18 +269,9 @@ func IsSSRFError(err error) *SSRFError {
 }
 
 // IsTemporaryError reports whether err represents a transient condition that may
-// succeed on a subsequent attempt. It checks for the deprecated Temporary()
-// interface and for [UnexpectedStatusError] with status 408, 429, 503, or 504.
+// succeed on a subsequent attempt. It checks for [UnexpectedStatusError] with
+// status 408, 429, 503, or 504.
 func IsTemporaryError(err error) bool {
-	// Check for temporary network errors
-	type temporary interface {
-		Temporary() bool
-	}
-	if te, ok := err.(temporary); ok {
-		return te.Temporary()
-	}
-
-	// Check for specific HTTP status codes that indicate temporary issues
 	if statusErr, ok := coreerrs.AsType[*UnexpectedStatusError](err); ok {
 		switch statusErr.Status {
 		case http.StatusTooManyRequests,
