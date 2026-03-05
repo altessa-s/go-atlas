@@ -425,3 +425,40 @@ func nextPowerOfTwo(n int) int {
 	}
 	return 1 << bits.Len(uint(n-1)) // #nosec G115 -- n is validated > 1
 }
+
+// BsonLookup retrieves a value from a BSON document using dot notation for nested paths.
+// Supports both bson.M and bson.D document types at any nesting level.
+// Returns nil if the key is not found or any intermediate path segment is missing.
+//
+// Example:
+//
+//	doc := bson.M{"sort_fields": bson.D{{Key: "value", Value: "Агент"}}}
+//	BsonLookup(doc, "sort_fields.value") // returns "Агент"
+//	BsonLookup(doc, "sort_fields")       // returns bson.D{{Key: "value", Value: "Агент"}}
+//	BsonLookup(doc, "missing.key")       // returns nil
+func BsonLookup(doc any, key string) any {
+	current := doc
+	for _, part := range strings.Split(key, ".") {
+		current = bsonFieldValue(current, part)
+		if current == nil {
+			return nil
+		}
+	}
+	return current
+}
+
+// bsonFieldValue retrieves a single field value from a BSON document by field name.
+// Handles bson.M (map lookup) and bson.D (ordered element scan).
+func bsonFieldValue(doc any, field string) any {
+	switch d := doc.(type) {
+	case bson.M:
+		return d[field]
+	case bson.D:
+		for _, elem := range d {
+			if elem.Key == field {
+				return elem.Value
+			}
+		}
+	}
+	return nil
+}

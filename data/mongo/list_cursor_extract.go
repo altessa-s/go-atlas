@@ -279,8 +279,16 @@ func extractCursorDataFromItem[T any](item T, cursorIdField string, sort bson.D)
 			sortValue, err := findFieldValueByBSONTag(v, sort[0].Key)
 			if err == nil {
 				sortFieldValue = sortValue.Interface()
+			} else {
+				// Reflection failed (e.g., nested dot notation field like "sort_fields.value"):
+				// fall back to BSON marshal + BsonLookup for nested path resolution
+				if itemBytes, marshalErr := bson.Marshal(item); marshalErr == nil {
+					var itemMap bson.M
+					if unmarshalErr := bson.Unmarshal(itemBytes, &itemMap); unmarshalErr == nil {
+						sortFieldValue = BsonLookup(itemMap, sort[0].Key)
+					}
+				}
 			}
-			// Ignore error - sort field might not exist, which is fine
 		}
 
 		return cursorId, sortFieldValue, nil
@@ -377,7 +385,7 @@ func extractCursorDataViaBSON[T any](item T, cursorIdField string, sort bson.D) 
 	}
 
 	if len(sort) > 0 && sort[0].Key != cursorIdField {
-		sortFieldValue = itemMap[sort[0].Key]
+		sortFieldValue = BsonLookup(itemMap, sort[0].Key)
 	}
 
 	return cursorId, sortFieldValue, nil
