@@ -410,7 +410,34 @@ func (m *Mongo) Client() *mongo.Client {
 	return m.client
 }
 
-var _ kms.Provider
+// GetEntity retrieves a single entity from MongoDB by converting a document model to domain entity.
+// It uses generics to provide type-safe conversion from MongoDB document type T to domain entity type E.
+// The function includes request deduplication using singleflight to prevent duplicate concurrent queries.
+//
+// This function is designed to be used with a Mongo instance for proper singleflight deduplication.
+// The Mongo instance must be fully initialized with a connected singleFlight group.
+//
+// Type parameters:
+//   - T: MongoDB document model type
+//   - E: Domain entity type to convert to
+//
+// Parameters:
+//   - ctx: Context for controlling query timeout and cancellation
+//   - m: Mongo client instance containing singleflight for deduplication
+//   - col: MongoDB collection to query
+//   - filter: BSON filter criteria for finding the document
+//
+// Returns:
+//   - E: The converted domain entity
+//   - error: mongo.ErrNoDocuments if not found, or other errors for decode/conversion failures
+//
+// Example:
+//
+//	type UserModel struct { ID string `bson:"_id"` }
+//	type UserEntity struct { ID string }
+//
+//	user, err := mongotools.GetEntity[UserModel, UserEntity](ctx, mongo, collection, bson.M{"_id": "123"})
+func GetEntity[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collection, filter bson.M) (E, error) {
 	var zero E
 
 	// Generate a deduplication key from filter for singleflight request deduplication
@@ -418,7 +445,7 @@ var _ kms.Provider
 	deduplicationKey := generateDeduplicationKey(col.Database().Name()+":"+col.Name(), filter)
 
 	// Use singleflight to prevent duplicate concurrent requests
-	data, err, _ := singleFlight.Do(deduplicationKey, func() (any, error) {
+	data, err, _ := m.singleFlight.Do(deduplicationKey, func() (any, error) {
 		// Apply timeout for database operation
 		ctxWithTimeout, cancel := corecontext.WithMaxTimeout(ctx, DefaultQueryTimeout)
 		defer cancel()
@@ -493,7 +520,7 @@ func GetEntities[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collect
 	deduplicationKey := generateDeduplicationKey(col.Database().Name()+":"+col.Name()+deduplicationKeySuffixList, filter)
 
 	// Use singleflight to prevent duplicate concurrent requests
-	data, err, _ := singleFlight.Do(deduplicationKey, func() (any, error) {
+	data, err, _ := m.singleFlight.Do(deduplicationKey, func() (any, error) {
 		// Apply timeout for database operation
 		ctxWithTimeout, cancel := corecontext.WithMaxTimeout(ctx, DefaultQueryTimeout)
 		defer cancel()
