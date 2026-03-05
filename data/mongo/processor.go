@@ -34,21 +34,6 @@ type documentFieldProcessor struct {
 	result fieldProcessingResult
 }
 
-// newFieldProcessor creates a new field processor
-func (m *Mongo) newFieldProcessor(ctx context.Context, meta fieldMetadata, update bool) *documentFieldProcessor {
-	return &documentFieldProcessor{
-		mongo:  m,
-		ctx:    ctx,
-		meta:   meta,
-		update: update,
-		result: fieldProcessingResult{
-			setDoc:   make(bson.M),
-			unsetDoc: make(bson.M),
-			skip:     false,
-		},
-	}
-}
-
 // applyPreProcessingFilters applies filters that might skip field processing
 func (fp *documentFieldProcessor) applyPreProcessingFilters() fieldProcessingResult {
 	// Skip if field should be omitted on update

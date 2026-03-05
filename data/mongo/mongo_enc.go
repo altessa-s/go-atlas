@@ -457,20 +457,6 @@ func (m *Mongo) convertToDocument(ctx context.Context, entity any, update, encry
 	return processor.convertEntityToDocuments(ctx, entity, update, encrypt)
 }
 
-// processField handles the processing of a single struct field during document conversion.
-func (m *Mongo) processField(ctx context.Context, meta fieldMetadata, update bool) (bson.M, bson.M, error) {
-	// Create field processor with initial state
-	processor := m.newFieldProcessor(ctx, meta, update)
-
-	// Apply pre-processing filters
-	if result := processor.applyPreProcessingFilters(); result.skip {
-		return result.setDoc, result.unsetDoc, nil
-	}
-
-	// Process field using direct method dispatch (simplified)
-	return processor.processFieldDirect()
-}
-
 // processFieldInto processes a single field, writing directly to shared set/unset maps.
 // This avoids per-field map allocation and subsequent merge overhead.
 func (m *Mongo) processFieldInto(ctx context.Context, meta fieldMetadata, update bool, setDoc, unsetDoc bson.M) error {
