@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"mime"
 	"net/http"
 
@@ -18,18 +19,23 @@ import (
 	coreio "github.com/altessa-s/go-atlas/core/io"
 )
 
+// maxUserInfoResponseSize is the maximum bytes read from the userinfo endpoint.
+// A standard claims payload is well under 64 KiB; anything larger likely
+// indicates a misbehaving or malicious upstream.
+const maxUserInfoResponseSize = 1 << 16 // 64 KiB
+
 // UserInfo represents user claims from the OIDC userinfo endpoint.
 type UserInfo struct {
 	Id            string   `json:"sub"`
 	Email         string   `json:"email,omitempty"`
-	EmailVerified bool     `json:"email_verified,omitempty"`
 	Phone         string   `json:"phone_number,omitempty"`
-	PhoneVerified bool     `json:"phone_number_verified,omitempty"`
 	Name          string   `json:"given_name,omitempty"`
 	LastName      string   `json:"family_name,omitempty"`
 	CompanyId     string   `json:"company_id,omitempty"`
 	CompanyName   string   `json:"company_name,omitempty"`
 	Roles         []string `json:"roles,omitempty"`
+	EmailVerified bool     `json:"email_verified,omitempty"`
+	PhoneVerified bool     `json:"phone_number_verified,omitempty"`
 }
 
 // UserInfo retrieves user claims from the userinfo endpoint using the provided token.
@@ -62,7 +68,7 @@ func (p *Provider) UserInfo(ctx context.Context, tokenSource oauth2.TokenSource)
 	defer drainAndClose(resp)
 
 	buf := coreio.GetBuffer()
-	_, err = buf.ReadFrom(resp.Body)
+	_, err = buf.ReadFrom(io.LimitReader(resp.Body, maxUserInfoResponseSize))
 	if err != nil {
 		coreio.PutBuffer(buf)
 		return nil, err
