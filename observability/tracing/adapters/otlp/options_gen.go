@@ -5,6 +5,7 @@ package otlp
 
 import (
 	"strings"
+	"time"
 
 	"github.com/altessa-s/go-atlas/observability/tracing/adapters"
 )
@@ -62,6 +63,16 @@ func WithEnvironment[T interface{ string | *string }](v T) Option {
 			}
 			o.environment = vv
 		}
+	}
+}
+
+// WithExportTimeout sets the exportTimeout option.
+func WithExportTimeout(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.exportTimeout = v
 	}
 }
 
@@ -145,11 +156,12 @@ func WithServiceVersion[T interface{ string | *string }](v T) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		compression: DefaultCompression,
-		endpoint:    DefaultEndpoint,
-		headers:     make(map[string]string),
-		protocol:    DefaultProtocol,
-		serviceName: DefaultServiceName,
+		compression:   DefaultCompression,
+		endpoint:      DefaultEndpoint,
+		exportTimeout: DefaultExportTimeout,
+		headers:       make(map[string]string),
+		protocol:      DefaultProtocol,
+		serviceName:   DefaultServiceName,
 	}
 }
 

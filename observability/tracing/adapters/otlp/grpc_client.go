@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 
@@ -15,6 +16,7 @@ import (
 	"google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/metadata"
 
+	corecontext "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	grpcclient "github.com/altessa-s/go-atlas/transport/grpc/client"
 	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -30,30 +32,42 @@ type grpcClient struct {
 	client *grpcclient.Client
 
 	// Configuration
-	endpoint string
-	headers  map[string]string
+	endpoint      string
+	headers       map[string]string
+	exportTimeout time.Duration
 
 	insecure    bool
 	compression bool
+	retry       bool
 	started     bool
+
+	retryConfig *grpcclient.RetryConfig
 }
 
 // grpcClientConfig holds configuration for creating a grpcClient.
 type grpcClientConfig struct {
-	endpoint    string
+	endpoint      string
+	headers       map[string]string
+	exportTimeout time.Duration
+
 	insecure    bool
-	headers     map[string]string
 	compression bool
+	retry       bool
+
+	retryConfig *grpcclient.RetryConfig
 }
 
 // newGRPCClient creates a new grpcClient with the given configuration.
 // The client is not connected until Start() is called.
 func newGRPCClient(cfg *grpcClientConfig) *grpcClient {
 	return &grpcClient{
-		endpoint:    cfg.endpoint,
-		insecure:    cfg.insecure,
-		headers:     cfg.headers,
-		compression: cfg.compression,
+		endpoint:      cfg.endpoint,
+		insecure:      cfg.insecure,
+		headers:       cfg.headers,
+		compression:   cfg.compression,
+		exportTimeout: cfg.exportTimeout,
+		retry:         cfg.retry,
+		retryConfig:   cfg.retryConfig,
 	}
 }
 
@@ -71,6 +85,14 @@ func (c *grpcClient) Start(ctx context.Context) error {
 	opts := []grpcclient.Option{}
 
 	opts = slices.AppendIf(opts, c.insecure, grpcclient.WithInsecure())
+
+	if c.retry {
+		if c.retryConfig != nil {
+			opts = append(opts, grpcclient.WithRetryConfig(c.retryConfig))
+		} else {
+			opts = append(opts, grpcclient.WithRetry())
+		}
+	}
 
 	// Create the gRPC client
 	client, err := grpcclient.New(ctx, c.endpoint, opts...)
@@ -113,6 +135,13 @@ func (c *grpcClient) UploadTraces(ctx context.Context, protoSpans []*tracepb.Res
 	}
 	client := c.client
 	c.mu.RUnlock()
+
+	// Apply export timeout
+	if c.exportTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = corecontext.WithMaxTimeout(ctx, c.exportTimeout)
+		defer cancel()
+	}
 
 	// Get connection from the client
 	conn, err := client.GetConnection(ctx)

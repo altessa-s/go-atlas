@@ -6,7 +6,13 @@ package otlp
 
 //go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate --type=options
 
-import "github.com/altessa-s/go-atlas/observability/tracing/adapters"
+import (
+	"time"
+
+	"github.com/altessa-s/go-atlas/observability/tracing/adapters"
+
+	grpcclient "github.com/altessa-s/go-atlas/transport/grpc/client"
+)
 
 // Protocol specifies the OTLP transport protocol.
 type Protocol string
@@ -33,6 +39,9 @@ const (
 
 	// DefaultCompression indicates whether compression is enabled by default.
 	DefaultCompression = true
+
+	// DefaultExportTimeout is the default timeout for exporting traces.
+	DefaultExportTimeout = 30 * time.Second
 )
 
 // options holds configuration for the OTLP adapter.
@@ -59,4 +68,29 @@ type options struct {
 	environment string
 	// resourceAttrs adds custom resource attributes.
 	resourceAttrs []adapters.Attribute
+	// exportTimeout sets the maximum duration for an export RPC.
+	exportTimeout time.Duration `optval:"positive" optgen:"default=DefaultExportTimeout"`
+	// retry enables gRPC retry with default configuration.
+	retry bool `opt:"-"`
+	// retryConfig enables gRPC retry with custom configuration.
+	retryConfig *grpcclient.RetryConfig `opt:"-"`
+}
+
+// WithRetry enables gRPC retry with default configuration.
+func WithRetry() Option {
+	return func(o *options) {
+		o.retry = true
+		o.retryConfig = nil
+	}
+}
+
+// WithRetryConfig enables gRPC retry with custom configuration.
+func WithRetryConfig(cfg *grpcclient.RetryConfig) Option {
+	return func(o *options) {
+		if cfg == nil {
+			return
+		}
+		o.retry = true
+		o.retryConfig = cfg
+	}
 }

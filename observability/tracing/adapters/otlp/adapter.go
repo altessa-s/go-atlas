@@ -63,10 +63,13 @@ func New(ctx context.Context, opts ...Option) (*Adapter, error) {
 // createGRPCClient creates an OTLP gRPC client using the custom transport/grpc/client.
 func createGRPCClient(cfg *options) otlptrace.Client {
 	return newGRPCClient(&grpcClientConfig{
-		endpoint:    cfg.endpoint,
-		insecure:    cfg.insecure,
-		headers:     cfg.headers,
-		compression: cfg.compression,
+		endpoint:      cfg.endpoint,
+		insecure:      cfg.insecure,
+		headers:       cfg.headers,
+		compression:   cfg.compression,
+		exportTimeout: cfg.exportTimeout,
+		retry:         cfg.retry,
+		retryConfig:   cfg.retryConfig,
 	})
 }
 
