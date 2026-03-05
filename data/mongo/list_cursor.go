@@ -408,9 +408,12 @@ func ListCursor[T any](ctx context.Context, collection *mongo.Collection, o ...L
 	pipeline := buildCursorPipeline(opts)
 
 	// Execute explain analysis if requested
-	executeExplainIfRequested(ctx, collection, pipeline, opts.explain, opts.logger)
+	executeExplainIfRequested(ctx, collection, pipeline, opts.hint, opts.explain, opts.logger)
 
 	aggOpts := options.Aggregate()
+	if opts.hint != nil {
+		aggOpts.SetHint(opts.hint)
+	}
 	if opts.collation != nil {
 		aggOpts.SetCollation(opts.collation)
 	}

@@ -150,21 +150,6 @@ func dirFromInt(direction int64) int {
 	return sortDirectionAscending
 }
 
-// buildHintStage creates the $hint stage if a hint is specified.
-// The $hint stage forces MongoDB to use a specific index.
-//
-// Parameters:
-//   - hint: Index hint specification (nil if no hint)
-//
-// Returns:
-//   - bson.A: Pipeline stages (empty if no hint)
-func buildHintStage(hint any) bson.A {
-	if hint == nil {
-		return bson.A{}
-	}
-	return bson.A{bson.M{"$hint": hint}}
-}
-
 // buildMatchStage creates the $match stage combining user filter and cursor filter.
 // The match stage is critical for index usage and should come before $sort.
 //
@@ -257,13 +242,12 @@ func buildFacetStage(limit int64, projection bson.M, includeTotal bool) bson.A {
 // The pipeline is carefully ordered for optimal performance with proper index utilization.
 //
 // Pipeline stages (in order):
-//  1. $hint (optional): Forces MongoDB to use a specific index
-//  2. $match: Combines user filter with cursor filter (if cursor provided)
-//  3. $sort: Orders results by the specified sort fields
-//  4. $facet: Splits into parallel pipelines for items and count
+//  1. $match: Combines user filter with cursor filter (if cursor provided)
+//  2. $sort: Orders results by the specified sort fields
+//  3. $facet: Splits into parallel pipelines for items and count
 //     - items: $limit (fetch limit+1 to check for next page) + $project (optional)
 //     - count: $count (total documents matching filter)
-//  5. $unwind + $project: Transforms facet output into {items: [], total: N} structure
+//  4. $unwind + $project: Transforms facet output into {items: [], total: N} structure
 //
 // The pipeline fetches limit+1 items to efficiently determine if there are more pages
 // without requiring a separate count query. If we get more than limit items, we know
@@ -282,10 +266,7 @@ func buildFacetStage(limit int64, projection bson.M, includeTotal bool) bson.A {
 func buildCursorPipeline(opts *listCursorOptions) bson.A {
 	pipeline := bson.A{}
 
-	// 1. HINT (OPTIONAL) - Force specific index usage
-	pipeline = append(pipeline, buildHintStage(opts.hint)...)
-
-	// 2. MATCH - Combine user filter with cursor filter
+	// 1. MATCH - Combine user filter with cursor filter
 	pipeline = append(pipeline, buildMatchStage(
 		opts.filter,
 		opts.cursor,
@@ -293,16 +274,16 @@ func buildCursorPipeline(opts *listCursorOptions) bson.A {
 		opts.sort,
 	)...)
 
-	// 3. SORT - Order results
+	// 2. SORT - Order results
 	pipeline = append(pipeline, buildSortStage(opts.sort)...)
 
-	// 4. FACET - Split into items and count branches
+	// 3. FACET - Split into items and count branches
 	pipeline = append(pipeline, buildFacetStage(
 		opts.limit,
 		opts.projection,
 		opts.includeTotal,
 	)...)
 
-	// 5. UNWIND AND PROJECT - Transform facet results
+	// 4. UNWIND AND PROJECT - Transform facet results
 	return appendFacetResultTransform(pipeline, opts.includeTotal)
 }

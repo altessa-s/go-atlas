@@ -10,6 +10,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 )
@@ -263,13 +264,12 @@ type ExplainStats struct {
 // and early filtering to reduce the dataset size before expensive operations.
 //
 // Pipeline stages (in order):
-//  1. $hint (optional): Forces MongoDB to use a specific index for optimal query performance
-//  2. $match: Filters documents early to reduce dataset size (most selective operation first)
-//  3. $sort: Orders filtered results by specified fields (benefits from compound indexes)
-//  4. $facet: Splits into parallel pipelines for efficiency
+//  1. $match: Filters documents early to reduce dataset size (most selective operation first)
+//  2. $sort: Orders filtered results by specified fields (benefits from compound indexes)
+//  3. $facet: Splits into parallel pipelines for efficiency
 //     - items: $skip (offset) + $limit + $project (optional field projection)
 //     - count: $count (total documents matching filter, skipped if includeTotal is false)
-//  5. $unwind + $project: Transforms facet output into {items: [], total: N} structure
+//  4. $unwind + $project: Transforms facet output into {items: [], total: N} structure
 //
 // The facet stage enables fetching both paginated items and total count in a single database
 // round-trip, significantly improving performance compared to separate queries.
@@ -292,22 +292,17 @@ type ExplainStats struct {
 func buildPipeline(opts *listOptions) bson.A {
 	pipeline := bson.A{}
 
-	// 1. HINT (OPTIONAL) - Force specific index usage
-	// This should come before $match to ensure the hint is applied to filtering
-	pipeline = slices.AppendIf[any](pipeline, opts.hint != nil, bson.M{"$hint": opts.hint})
-
-	// 2. MATCH FIRST - Filter early to reduce the dataset size
-	// This is the most selective operation and should come after hint
+	// 1. MATCH FIRST - Filter early to reduce the dataset size
 	pipeline = slices.AppendIf[any](pipeline, len(opts.filter) > 0, bson.M{"$match": opts.filter})
 
-	// 3. SORT AFTER FILTERING - Better index utilization when combined with match
+	// 2. SORT AFTER FILTERING - Better index utilization when combined with match
 	sortStage := opts.sort
 	if len(sortStage) == 0 {
 		sortStage = DefaultListSort
 	}
 	pipeline = append(pipeline, bson.M{"$sort": sortStage})
 
-	// 4. FACET - Split into parallel pipelines for items and count
+	// 3. FACET - Split into parallel pipelines for items and count
 	// This allows us to get both paginated results and total count efficiently
 	itemsPipeline := bson.A{}
 
@@ -328,7 +323,7 @@ func buildPipeline(opts *listOptions) bson.A {
 
 	pipeline = append(pipeline, bson.M{"$facet": facetStage})
 
-	// 5. UNWIND AND PROJECT - Transform facet results into final structure
+	// 4. UNWIND AND PROJECT - Transform facet results into final structure
 	return appendFacetResultTransform(pipeline, opts.includeTotal)
 }
 
@@ -411,9 +406,13 @@ func List[T any](ctx context.Context, collection *mongo.Collection, o ...ListOpt
 	pipeline := buildPipeline(opts)
 
 	// Execute explain analysis if requested
-	executeExplainIfRequested(ctx, collection, pipeline, opts.explain, opts.logger)
+	executeExplainIfRequested(ctx, collection, pipeline, opts.hint, opts.explain, opts.logger)
 
-	cursor, err := collection.Aggregate(ctx, pipeline, nil)
+	aggOpts := options.Aggregate()
+	if opts.hint != nil {
+		aggOpts.SetHint(opts.hint)
+	}
+	cursor, err := collection.Aggregate(ctx, pipeline, aggOpts)
 	if err != nil {
 		return nil, err
 	}

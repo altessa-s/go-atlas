@@ -62,6 +62,7 @@ func getFilterFields(filter bson.M) []string {
 //   - ctx: Context for cancellation and timeout
 //   - collection: The MongoDB collection to analyze
 //   - pipeline: Aggregation pipeline to explain
+//   - hint: Index hint to include in the explain command (nil if none)
 //   - logger: Logger for debug output and errors
 //
 // Returns:
@@ -77,14 +78,18 @@ func getFilterFields(filter bson.M) []string {
 //
 // Use case: Performance troubleshooting, query optimization validation, regression testing.
 // Enable explain during development to catch performance issues before production.
-func executeExplain(ctx context.Context, collection *mongo.Collection, pipeline bson.A, logger *slog.Logger) (*ExplainStats, error) {
+func executeExplain(ctx context.Context, collection *mongo.Collection, pipeline bson.A, hint any, logger *slog.Logger) (*ExplainStats, error) {
 	// Use the database RunCommand with explain for aggregation
 	// This is the correct way to get explain output for aggregation pipelines in v2
+	innerCmd := bson.M{
+		"aggregate": collection.Name(),
+		"pipeline":  pipeline,
+	}
+	if hint != nil {
+		innerCmd["hint"] = hint
+	}
 	explainCmd := bson.M{
-		"explain": bson.M{
-			"aggregate": collection.Name(),
-			"pipeline":  pipeline,
-		},
+		"explain":   innerCmd,
 		"verbosity": "executionStats",
 	}
 
@@ -386,6 +391,7 @@ func logExplainStats(ctx context.Context, stats *ExplainStats, logger *slog.Logg
 //   - ctx: Context for the explain operation
 //   - collection: MongoDB collection to analyze
 //   - pipeline: Aggregation pipeline to explain
+//   - hint: Index hint to include in the explain command (nil if none)
 //   - explain: Whether to run explain (no-op if false)
 //   - logger: Logger for explain output and errors
 //
@@ -401,12 +407,12 @@ func logExplainStats(ctx context.Context, stats *ExplainStats, logger *slog.Logg
 //
 // Use case: Wrapper for optional explain execution that prevents explain errors from
 // affecting actual query execution. Safe for production use with explain enabled.
-func executeExplainIfRequested(ctx context.Context, collection *mongo.Collection, pipeline bson.A, explain bool, logger *slog.Logger) {
+func executeExplainIfRequested(ctx context.Context, collection *mongo.Collection, pipeline bson.A, hint any, explain bool, logger *slog.Logger) {
 	if !explain {
 		return
 	}
 
-	_, err := executeExplain(ctx, collection, pipeline, logger)
+	_, err := executeExplain(ctx, collection, pipeline, hint, logger)
 	if err != nil {
 		logger.Warn("failed to execute query explain analysis", "error", err)
 	}
