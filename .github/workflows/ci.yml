@@ -46,8 +46,11 @@ jobs:
       - name: Run tests
         run: go test -race -shuffle=on -coverprofile=coverage.out ./...
 
-      - name: Print coverage
-        run: go tool cover -func=coverage.out | tail -1
+      - name: Check coverage
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}' | tr -d '%')
+          echo "Total coverage: ${COVERAGE}%"
+          awk "BEGIN {exit ($COVERAGE < 70)}"
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
@@ -55,3 +58,27 @@ jobs:
           name: coverage
           path: coverage.out
           retention-days: 7
+
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Run govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+      - name: Run gosec
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@latest
+          gosec -quiet -exclude-generated ./...
