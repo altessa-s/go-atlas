@@ -6,7 +6,6 @@ package factory
 
 import (
 	"crypto/tls"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -90,7 +89,7 @@ func New(cfg *config.Http) *ServerBuilder {
 // Build assembles the server. Errors from fluent methods are accumulated
 // and reported here via [errors.Join].
 func (b *ServerBuilder) Build() (*server.Server, error) {
-	if err := errors.Join(b.errs...); err != nil {
+	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
 	}
 
@@ -189,7 +188,7 @@ func (b *ServerBuilder) buildBaseOptions() ([]baseserver.Option, error) {
 		}
 		// tlsSet && tlsConfig == nil → WithoutTLS(), no TLS config added
 	} else if b.cfg.TLS != nil {
-		tlsConfig, err := b.buildServerTlsConfig(b.cfg.TLS)
+		tlsConfig, err := b.buildServerTlsConfig()
 		if err != nil {
 			return nil, err
 		}
@@ -199,12 +198,13 @@ func (b *ServerBuilder) buildBaseOptions() ([]baseserver.Option, error) {
 	return opts, nil
 }
 
-// buildServerTlsConfig builds a TLS config from HTTP TLS configuration.
-func (b *ServerBuilder) buildServerTlsConfig(cfg *config.HttpTls) (*tls.Config, error) {
+// buildServerTlsConfig builds a TLS config from the builder's HTTP TLS configuration.
+func (b *ServerBuilder) buildServerTlsConfig() (*tls.Config, error) {
 	if err := b.RequireDependency(b.tlsProviders, "tls providers"); err != nil {
 		return nil, err
 	}
 
+	cfg := b.cfg.TLS
 	providerType := tlsproviders.ProviderType(cfg.ProviderType)
 	provider, ok := b.tlsProviders.Get(providerType)
 	if !ok {

@@ -8,11 +8,16 @@ package opa
 
 import (
 	"log/slog"
+	"time"
 
 	"github.com/altessa-s/go-atlas/observability/health"
 
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
+
+// DefaultPollInterval is the default interval between polling cycles
+// when the Manager is watching for policy changes.
+const DefaultPollInterval = 30 * time.Second
 
 // options holds the configuration options for the Manager.
 type options struct {
@@ -23,6 +28,9 @@ type options struct {
 	// watchChannelSize sets the buffer size for watch event channels.
 	// Defaults to 10.
 	watchChannelSize int `optgen:"default=DefaultWatchBufferSize"`
+	// pollInterval is the interval between polling the source for changes.
+	// Defaults to 30s.
+	pollInterval time.Duration `optgen:"default=DefaultPollInterval"`
 	// healthCoordinator registers the manager with a health coordinator.
 	healthCoordinator *health.Coordinator
 	// scheduler sets the scheduler for automatic policy updates.

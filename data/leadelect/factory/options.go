@@ -4,20 +4,46 @@
 
 package factory
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate
-
 import (
 	"log/slog"
+	"strings"
 
 	"github.com/nats-io/nats.go"
-
-	_ "github.com/altessa-s/go-atlas/core/runtime/appinfo"
 )
 
-// options contains Factory configuration.
-type options struct {
-	logger   *slog.Logger
-	natsConn *nats.Conn
-	key      string `optgen:"default=appinfo.Name"`
-	nodeId   string
+// --- Dependency methods ---
+
+// UseLogger sets the logger for the builder and all created components.
+func (b *LeaderBuilder) UseLogger(v *slog.Logger) *LeaderBuilder {
+	b.SetLogger(v)
+	return b
+}
+
+// UseDefaultLogger sets the logger to [slog.Default].
+func (b *LeaderBuilder) UseDefaultLogger() *LeaderBuilder {
+	return b.UseLogger(slog.Default())
+}
+
+// UseNatsConn sets the NATS connection used for leader election.
+func (b *LeaderBuilder) UseNatsConn(v *nats.Conn) *LeaderBuilder {
+	b.natsConn = v
+	return b
+}
+
+// --- Config methods ---
+
+// WithKey sets the leader election key. Default is [appinfo.Name].
+func (b *LeaderBuilder) WithKey(v string) *LeaderBuilder {
+	if s := strings.TrimSpace(v); s != "" {
+		b.key = s
+	}
+	return b
+}
+
+// WithNodeId sets the node identifier for leader election.
+func (b *LeaderBuilder) WithNodeId(v string) *LeaderBuilder {
+	if s := strings.TrimSpace(v); s != "" {
+		b.nodeId = s
+	}
+	return b
 }

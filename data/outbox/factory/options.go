@@ -4,18 +4,25 @@
 
 package factory
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate
-
 import (
 	"log/slog"
 
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
-// options contains Factory configuration.
-type options struct {
-	// logger is the logger for operational visibility.
-	logger *slog.Logger
-	// scheduler is the task scheduler for background processes.
-	scheduler corescheduler.TaskRegistrar `optgen:"notnil"`
+// UseLogger sets the logger for the builder and all created components.
+func (b *OutboxBuilder) UseLogger(v *slog.Logger) *OutboxBuilder {
+	b.SetLogger(v)
+	return b
+}
+
+// UseDefaultLogger sets the logger to [slog.Default].
+func (b *OutboxBuilder) UseDefaultLogger() *OutboxBuilder {
+	return b.UseLogger(slog.Default())
+}
+
+// UseScheduler sets the task scheduler for background processes.
+func (b *OutboxBuilder) UseScheduler(v corescheduler.TaskRegistrar) *OutboxBuilder {
+	b.scheduler = v
+	return b
 }

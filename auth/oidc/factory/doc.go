@@ -2,20 +2,16 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package factory provides configuration-based creation of OIDC providers.
-// It integrates with config.OIDC to create Provider instances with validation
-// options, presets, caching, and introspection support.
+// Package factory provides a fluent builder for creating OIDC providers
+// from configuration.
 //
-// Example:
+// [ProviderBuilder] uses a fluent API with deferred error accumulation:
+// errors from any step are collected and returned at [ProviderBuilder.Build] time.
 //
-//	f := factory.New(
-//		factory.WithScheduler(scheduler),
-//		factory.WithLogger(logger),
-//		factory.WithTokenCache(tokenCache),
-//	)
-//	provider, err := f.CreateProviderFromConfig(ctx, cfg, revocationStorage)
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//	defer provider.Close()
+//	provider, err := factory.New(cfg.OIDC).
+//	    UseLogger(logger).
+//	    UseScheduler(scheduler).
+//	    UseTokenCache(tokenCache).
+//	    UseRedisClient(redisClient).
+//	    Build(ctx)
 package factory

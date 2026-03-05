@@ -190,6 +190,7 @@ func (cp *ConnectionPool) ReturnConnection(conn *grpc.ClientConn) {
 
 // getOrCreateTargetPool retrieves or creates a target pool for the specified address.
 func (cp *ConnectionPool) getOrCreateTargetPool(target string) *targetPool {
+	// Try to get existing pool first
 	if existing, ok := cp.pools.Load(target); ok {
 		if existingPool, poolOK := existing.(*targetPool); poolOK {
 			return existingPool

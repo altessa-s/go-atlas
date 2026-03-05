@@ -2,16 +2,24 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package factory provides configuration-based creation of TLS configurations and providers.
-// It integrates with config.TlsClient and config.TlsProvider to create TLS configurations
-// and certificate providers with their respective backends (File, Vault, Let's Encrypt).
+// Package factory provides a fluent builder for creating TLS configurations and providers
+// from configuration.
 //
-// Example:
+// [ProvidersBuilder] uses a fluent API with deferred error accumulation:
+// errors from any step are collected and returned at [ProvidersBuilder.Build] time.
 //
-//	f := factory.New()
-//	providers, err := f.CreateProvidersFromConfig(cfg.TlsProvider, vaultClient, "./certs")
+//	providers, err := factory.New(cfg.TlsProvider).
+//	    UseLogger(logger).
+//	    UseVaultClient(vaultClient).
+//	    UseCacheDir("./certs").
+//	    Build()
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
 //	defer providers.Close(ctx, nil)
+//
+// For client TLS configurations, use [ProvidersBuilder.CreateClientConfig]:
+//
+//	b := factory.New(nil).UseLogger(logger)
+//	tlsConfig, err := b.CreateClientConfig(cfg.TlsClient)
 package factory

@@ -14,8 +14,8 @@ import (
 )
 
 func TestNew_Default(t *testing.T) {
-	f := New()
-	if f == nil {
+	b := New(nil)
+	if b == nil {
 		t.Fatal("New() returned nil")
 	}
 }
@@ -25,20 +25,24 @@ func TestNew_WithOptions(t *testing.T) {
 	coord := health.New()
 	defer coord.Close()
 
-	f := New(WithLogger(logger), WithHealthCoordinator(coord))
-	if f == nil {
+	b := New(&config.Redis{}).
+		UseLogger(logger).
+		UseHealthCoordinator(coord)
+	if b == nil {
 		t.Fatal("New() returned nil")
 	}
 }
 
 func TestNew_NilOptions(t *testing.T) {
-	f := New(WithLogger(nil), WithHealthCoordinator(nil))
-	if f == nil {
+	b := New(nil).
+		UseLogger(nil).
+		UseHealthCoordinator(nil)
+	if b == nil {
 		t.Fatal("New() returned nil")
 	}
 }
 
-func TestUniversalOptionsFromConfig(t *testing.T) {
+func TestUniversalOptions(t *testing.T) {
 	tests := []struct {
 		name    string
 		cfg     *config.Redis
@@ -71,8 +75,8 @@ func TestUniversalOptionsFromConfig(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := New()
-			opts, err := f.UniversalOptionsFromConfig(tt.cfg)
+			b := New(tt.cfg)
+			opts, err := b.UniversalOptions()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -88,18 +92,17 @@ func TestUniversalOptionsFromConfig(t *testing.T) {
 	}
 }
 
-func TestUniversalOptionsFromConfig_ConnectionURI(t *testing.T) {
-	f := New()
-	cfg := &config.Redis{
+func TestUniversalOptions_ConnectionURI(t *testing.T) {
+	b := New(&config.Redis{
 		ConnectionURI:      "redis://myuser:mypass@redis-host:6380/3",
 		PoolSize:           50,
 		MinIdleConnections: 10,
 		ConnectTimeout:     3 * time.Second,
 		SocketTimeout:      5 * time.Second,
 		IdleTimeout:        60 * time.Second,
-	}
+	})
 
-	opts, err := f.UniversalOptionsFromConfig(cfg)
+	opts, err := b.UniversalOptions()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -131,17 +134,16 @@ func TestUniversalOptionsFromConfig_ConnectionURI(t *testing.T) {
 	}
 }
 
-func TestUniversalOptionsFromConfig_ConnectionURI_TLS(t *testing.T) {
-	f := New()
-	cfg := &config.Redis{
+func TestUniversalOptions_ConnectionURI_TLS(t *testing.T) {
+	b := New(&config.Redis{
 		ConnectionURI:  "rediss://redis-host:6380/0",
 		PoolSize:       10,
 		ConnectTimeout: 3 * time.Second,
 		SocketTimeout:  5 * time.Second,
 		IdleTimeout:    60 * time.Second,
-	}
+	})
 
-	opts, err := f.UniversalOptionsFromConfig(cfg)
+	opts, err := b.UniversalOptions()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -151,18 +153,17 @@ func TestUniversalOptionsFromConfig_ConnectionURI_TLS(t *testing.T) {
 	}
 }
 
-func TestUniversalOptionsFromConfig_ConnectionURI_Sentinel(t *testing.T) {
-	f := New()
-	cfg := &config.Redis{
+func TestUniversalOptions_ConnectionURI_Sentinel(t *testing.T) {
+	b := New(&config.Redis{
 		ConnectionURI:    "redis://redis-host:6380/0",
 		MasterName:       "mymaster",
 		SentinelPassword: "sentpass",
 		ConnectTimeout:   3 * time.Second,
 		SocketTimeout:    5 * time.Second,
 		IdleTimeout:      60 * time.Second,
-	}
+	})
 
-	opts, err := f.UniversalOptionsFromConfig(cfg)
+	opts, err := b.UniversalOptions()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -175,21 +176,19 @@ func TestUniversalOptionsFromConfig_ConnectionURI_Sentinel(t *testing.T) {
 	}
 }
 
-func TestUniversalOptionsFromConfig_ConnectionURI_InvalidURI(t *testing.T) {
-	f := New()
-	cfg := &config.Redis{
+func TestUniversalOptions_ConnectionURI_InvalidURI(t *testing.T) {
+	b := New(&config.Redis{
 		ConnectionURI: "not-a-valid-uri",
-	}
+	})
 
-	_, err := f.UniversalOptionsFromConfig(cfg)
+	_, err := b.UniversalOptions()
 	if err == nil {
 		t.Fatal("expected error for invalid URI")
 	}
 }
 
-func TestUniversalOptionsFromConfig_Fields(t *testing.T) {
-	f := New()
-	cfg := &config.Redis{
+func TestUniversalOptions_Fields(t *testing.T) {
+	b := New(&config.Redis{
 		Hosts:              []string{"host1:6379", "host2:6379"},
 		Password:           "pass",
 		Username:           "user",
@@ -204,9 +203,9 @@ func TestUniversalOptionsFromConfig_Fields(t *testing.T) {
 		ReadOnly:           true,
 		RouteByLatency:     true,
 		RouteRandomly:      false,
-	}
+	})
 
-	opts, err := f.UniversalOptionsFromConfig(cfg)
+	opts, err := b.UniversalOptions()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -246,8 +245,8 @@ func TestDetectMode(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := New()
-			if got := f.detectMode(tt.cfg); got != tt.want {
+			b := New(tt.cfg)
+			if got := b.detectMode(); got != tt.want {
 				t.Errorf("detectMode() = %q, want %q", got, tt.want)
 			}
 		})

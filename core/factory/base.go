@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -58,6 +59,14 @@ func (b *Base) Logger() *slog.Logger {
 	return b.logger
 }
 
+// SetLogger replaces the logger stored in [Base]. If logger is nil, the call
+// is a no-op so that callers do not accidentally downgrade to a nil logger.
+func (b *Base) SetLogger(logger *slog.Logger) {
+	if logger != nil {
+		b.logger = logger
+	}
+}
+
 // RequireDependency validates that dep is not nil, returning an error of the
 // form "<depName> is required" when the check fails. The nil check uses
 // [nilcheck.IsNil], which correctly detects nil interface values that hold a
@@ -99,4 +108,18 @@ func (b *Base) WrapError(err error, msg string) error {
 		return nil
 	}
 	return coreerrs.Wrap(err, msg)
+}
+
+// JoinErrors returns nil if errs is empty, errs[0] if len(errs)==1, or
+// errors.Join(errs...) otherwise. Use in builder Build methods to avoid
+// variadic allocation when there are zero or one accumulated errors.
+func JoinErrors(errs []error) error {
+	switch len(errs) {
+	case 0:
+		return nil
+	case 1:
+		return errs[0]
+	default:
+		return errors.Join(errs...)
+	}
 }

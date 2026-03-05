@@ -4,22 +4,42 @@
 
 package factory
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate
-
 import (
+	"crypto/tls"
 	"log/slog"
 
+	"github.com/altessa-s/go-atlas/data/mongo/kms"
 	"github.com/altessa-s/go-atlas/observability/health"
-
-	kmsfactory "github.com/altessa-s/go-atlas/data/mongo/kms/factory"
-	tlsfactory "github.com/altessa-s/go-atlas/security/tlsutils/factory"
 )
 
-// options contains Factory configuration.
-type options struct {
-	// logger sets the logger for the factory.
-	logger            *slog.Logger
-	healthCoordinator *health.Coordinator
-	tlsFactory        *tlsfactory.Factory
-	kmsFactory        *kmsfactory.Factory
+// --- Dependency methods ---
+
+// UseLogger sets the logger for the builder and all created components.
+func (b *MongoBuilder) UseLogger(v *slog.Logger) *MongoBuilder {
+	b.SetLogger(v)
+	return b
+}
+
+// UseDefaultLogger sets the logger to [slog.Default].
+func (b *MongoBuilder) UseDefaultLogger() *MongoBuilder {
+	return b.UseLogger(slog.Default())
+}
+
+// UseTlsConfig sets the TLS configuration for the MongoDB connection.
+func (b *MongoBuilder) UseTlsConfig(v *tls.Config) *MongoBuilder {
+	b.tlsConfig = v
+	return b
+}
+
+// UseKmsProvider sets the KMS provider used for client-side field level encryption.
+func (b *MongoBuilder) UseKmsProvider(v kms.Provider) *MongoBuilder {
+	b.kmsProvider = v
+	return b
+}
+
+// UseHealthCoordinator sets the health coordinator used to register a
+// health checker for the created MongoDB client.
+func (b *MongoBuilder) UseHealthCoordinator(v *health.Coordinator) *MongoBuilder {
+	b.healthCoordinator = v
+	return b
 }

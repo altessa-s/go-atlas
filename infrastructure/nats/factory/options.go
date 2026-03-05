@@ -4,20 +4,35 @@
 
 package factory
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate
-
 import (
+	"crypto/tls"
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/observability/health"
-
-	tlsfactory "github.com/altessa-s/go-atlas/security/tlsutils/factory"
 )
 
-// options contains Factory configuration.
-type options struct {
-	// logger sets the logger for the factory.
-	logger            *slog.Logger
-	healthCoordinator *health.Coordinator
-	tlsFactory        *tlsfactory.Factory
+// --- Dependency methods ---
+
+// UseLogger sets the logger for the builder and all created components.
+func (b *ConnectionBuilder) UseLogger(v *slog.Logger) *ConnectionBuilder {
+	b.SetLogger(v)
+	return b
+}
+
+// UseDefaultLogger sets the logger to [slog.Default].
+func (b *ConnectionBuilder) UseDefaultLogger() *ConnectionBuilder {
+	return b.UseLogger(slog.Default())
+}
+
+// UseTlsConfig sets the TLS configuration for the NATS connection.
+func (b *ConnectionBuilder) UseTlsConfig(v *tls.Config) *ConnectionBuilder {
+	b.tlsConfig = v
+	return b
+}
+
+// UseHealthCoordinator sets the health coordinator used to register a
+// health checker for the created NATS connection.
+func (b *ConnectionBuilder) UseHealthCoordinator(v *health.Coordinator) *ConnectionBuilder {
+	b.healthCoordinator = v
+	return b
 }

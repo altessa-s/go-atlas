@@ -2,15 +2,14 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package factory provides configuration-based creation of idempotency storage.
-// It integrates idempotency Keeper with memory, Redis, and NATS storage backends
-// to create storage instances with consistent defaults.
+// Package factory provides a fluent builder for creating idempotency keepers
+// from configuration.
 //
-// Example:
+// [KeeperBuilder] uses a fluent API with deferred error accumulation:
+// errors from any step are collected and returned at [KeeperBuilder.Build] time.
 //
-//	f := factory.New(factory.WithLogger(logger))
-//	keeper, err := f.CreateKeeperFromConfig(cfg.Idempotency)
-//	if err != nil {
-//		log.Fatal(err)
-//	}
+//	keeper, err := factory.New(cfg.Idempotency).
+//	    UseLogger(logger).
+//	    UseRedisClient(redisClient).
+//	    Build()
 package factory

@@ -80,7 +80,9 @@ allow if {
 	source, err := filesystem.New(tmpDir)
 	require.NoError(t, err)
 
-	manager, err := opa.NewManager(ctx, source, "data.test.authz.allow")
+	manager, err := opa.NewManager(ctx, source, "data.test.authz.allow",
+		opa.WithPollInterval(100*time.Millisecond),
+	)
 	require.NoError(t, err)
 	defer manager.Close()
 
@@ -106,11 +108,11 @@ allow if {
 	err = os.WriteFile(policyPath, []byte(newPolicyContent), 0644)
 	require.NoError(t, err)
 
-	// Give fsnotify time to detect the change and reload
+	// Give the poll loop time to detect the change and reload
 	assert.Eventually(t, func() bool {
 		result, err := evaluator.Evaluate(ctx, map[string]any{"role": "user"})
 		return err == nil && result.Allow
-	}, 5*time.Second, 100*time.Millisecond, "Policy should reload and allow user role")
+	}, 5*time.Second, 50*time.Millisecond, "Policy should reload and allow user role")
 }
 
 func TestManager_Watch(t *testing.T) {
@@ -134,7 +136,9 @@ allow if {
 	source, err := filesystem.New(tmpDir)
 	require.NoError(t, err)
 
-	manager, err := opa.NewManager(ctx, source, "data.test.authz.allow")
+	manager, err := opa.NewManager(ctx, source, "data.test.authz.allow",
+		opa.WithPollInterval(100*time.Millisecond),
+	)
 	require.NoError(t, err)
 	defer manager.Close()
 
@@ -143,15 +147,7 @@ allow if {
 	require.NoError(t, err)
 	defer watchResult.Stop()
 
-	// Start watching
-	err = manager.StartWatching(ctx)
-	require.NoError(t, err)
-
-	// Give watcher time to initialize - filesystem watchers need sufficient time
-	// to register with the kernel, especially in CI environments
-	time.Sleep(200 * time.Millisecond)
-
-	// Update the policy
+	// Update the policy before starting to watch
 	newPolicyContent := `
 package test.authz
 import rego.v1
@@ -160,6 +156,10 @@ allow if {
 }
 `
 	err = os.WriteFile(policyPath, []byte(newPolicyContent), 0644)
+	require.NoError(t, err)
+
+	// Start watching — the poll loop will pick up the change
+	err = manager.StartWatching(ctx)
 	require.NoError(t, err)
 
 	// Wait for event

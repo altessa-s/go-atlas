@@ -2,14 +2,16 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package factory provides configuration-based creation of distributed locks.
-// It integrates with the config.DistributionLock configuration to create
-// DLock instances with their respective providers.
+// Package factory provides a fluent builder for creating distributed locks
+// from configuration.
 //
-// Example:
+// [DLockBuilder] uses a fluent API with deferred error accumulation:
+// errors from any step are collected and returned at [DLockBuilder.Build] time.
 //
-//	f := factory.New(factory.WithNatsConn(conn), factory.WithLogger(logger))
-//	dl, err := f.CreateDLockFromConfig(ctx, cfg)
+//	dl, err := factory.New(cfg.DistributionLock).
+//	    UseLogger(logger).
+//	    UseNatsConn(natsConn).
+//	    Build(ctx)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}

@@ -2,34 +2,36 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package factory provides configuration-based creation of message brokers
-// from [config] structures.
+// Package factory provides a fluent builder for creating message brokers
+// and related components from configuration.
+//
+// [BrokerBuilder] uses a fluent API with deferred error accumulation:
+// errors from any step are collected and returned at [BrokerBuilder.Build] time.
 //
 // # Components
 //
-// The [Factory] creates and configures the following components:
+// The builder creates and configures the following components:
 //
-//   - [broker.Broker] via [Factory.CreateBrokerFromConfig]
-//   - [natsprovider.Nats] via [Factory.CreateNatsProviderWithRecoveryFromConfig]
-//   - [inprogress.Manager] via [Factory.CreateInProgressManagerFromConfig]
-//   - [outbox.Outbox] via [Factory.CreateOutboxWithMongoFromConfig]
-//   - [recovery.Manager] via [Factory.CreateRecoveryManagerFromConfig]
+//   - [broker.Broker] via [BrokerBuilder.Build]
+//   - [natsprovider.Nats] via [BrokerBuilder.CreateNatsProviderWithRecovery]
+//   - [inprogress.Manager] via [BrokerBuilder.CreateInProgressManager]
+//   - [outbox.Outbox] via [BrokerBuilder.CreateOutboxWithMongoDB]
+//   - [recovery.Manager] via [BrokerBuilder.CreateRecoveryManager]
 //
 // # Scheduler Integration
 //
-// When configured with a scheduler (via [WithScheduler]), the factory
+// When configured with a scheduler (via [BrokerBuilder.UseScheduler]), the builder
 // automatically registers background tasks for outbox, recovery, and
 // inprogress operations.
 //
 // # Example
 //
-//	f := factory.New(
-//	    factory.WithLogger(logger),
-//	    factory.WithScheduler(scheduler),
-//	    factory.WithPublishConverter(publishConverter),
-//	)
+//	b := factory.New(&cfg.Broker).
+//	    UseLogger(logger).
+//	    UseScheduler(scheduler).
+//	    UsePublishConverter(publishConverter)
 //
-//	result, err := f.CreateNatsProviderWithRecoveryFromConfig(&cfg.Nats, natsConn)
+//	result, err := b.CreateNatsProviderWithRecovery(natsConn)
 //	if err != nil {
 //	    return err
 //	}
@@ -39,6 +41,6 @@
 //	    result.Recovery.Start()
 //	}
 //
-//	outbox, err := f.CreateOutboxWithMongoFromConfig(&cfg.Broker.Outbox, mongoDB, result.Provider)
-//	broker, err := f.CreateBrokerFromConfig(&cfg.Broker, result.Provider)
+//	outbox, err := b.CreateOutboxWithMongoDB(mongoDB, result.Provider)
+//	brk, err := b.Build(result.Provider)
 package factory

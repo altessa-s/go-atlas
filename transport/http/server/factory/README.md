@@ -34,12 +34,11 @@ factory.New(cfg.Http).
 ### Level 2: Individual config-based middleware
 
 ```go
-mwCfg := cfg.Http.Middlewares
 factory.New(cfg.Http).
     UseLogger(logger).
-    WithRecoveryMiddleware(mwCfg.Recovery).
-    WithLoggerMiddleware(mwCfg.Logger).
-    WithCorsMiddleware(mwCfg.Cors).
+    WithRecoveryMiddleware().
+    WithLoggerMiddleware().
+    WithCorsMiddleware().
     Build()
 ```
 

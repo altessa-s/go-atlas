@@ -4,32 +4,53 @@
 import "github.com/altessa-s/go-atlas/transport/broker/factory"
 ```
 
-Package `factory` provides configuration-based creation of message brokers, NATS providers, outbox, recovery, and in-progress managers
-from `config` structures. When a scheduler is provided, background tasks are registered automatically.
+Package `factory` provides a fluent builder for creating a `broker.Broker` and related components from configuration.
+`BrokerBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
 
-## Factory methods
+## Quick Start
 
-| Method                                       | Description                                                          |
-|----------------------------------------------|----------------------------------------------------------------------|
-| `New`                                        | Create a new `Factory` with the given options                        |
-| `CreateBrokerFromConfig`                     | Create a `Broker` from configuration and a `Provider`                |
-| `CreateNatsProviderWithRecoveryFromConfig`   | Create a NATS provider with optional recovery manager                |
-| `CreateOutboxWithMongoFromConfig`            | Create a MongoDB-backed outbox from a `*mongo.Database`              |
-| `CreateOutboxWithMongoCollectionFromConfig`  | Create a MongoDB-backed outbox from an existing `*mongo.Collection`  |
-| `CreateInProgressManagerFromConfig`          | Create an InProgress heartbeat manager from configuration            |
-| `CreateRecoveryManagerFromConfig`            | Create a NATS JetStream recovery manager from configuration          |
+```go
+b := factory.New(cfg.Broker).
+    UseLogger(logger).
+    UseScheduler(scheduler)
 
-## Options
+broker, err := b.Build(provider)
+```
 
-| Option                | Description                                                                   |
-|-----------------------|-------------------------------------------------------------------------------|
-| `WithLogger`          | Set the `*slog.Logger` for the factory (default: discard)                     |
-| `WithScheduler`       | Set the task scheduler for automatic background task registration             |
-| `WithPublishConverter`| Set the `PublishConverter` function applied to created brokers                 |
+## Methods
+
+### Constructor
+
+| Method | Description |
+|--------|-------------|
+| `New(cfg)` | Creates a `BrokerBuilder` for the given broker config |
+
+### Dependencies
+
+| Method | Description |
+|--------|-------------|
+| `UseLogger` | Sets the logger for the builder and all created components |
+| `UseScheduler` | Sets the task scheduler for background processes |
+| `UsePublishConverter` | Sets the converter applied to publish operations |
+
+### Terminal
+
+| Method | Description |
+|--------|-------------|
+| `Build(provider)` | Assembles and returns the broker using the given provider |
+
+### Helpers
+
+| Method | Description |
+|--------|-------------|
+| `CreateInProgressManager()` | Creates an in-progress heartbeat manager from the builder's broker config; registers background tick task when a scheduler is set |
+| `CreateOutboxWithMongoDB(db, publisher)` | Creates a MongoDB-backed broker outbox using a `*mongo.Database` |
+| `CreateOutboxWithMongoCollection(col, publisher)` | Creates a MongoDB-backed broker outbox using an existing `*mongo.Collection` |
+| `CreateNatsProviderWithRecovery(conn)` | Creates a NATS provider bundled with an optional recovery manager; returns `NatsProviderWithRecovery` |
+| `CreateRecoveryManager(provider)` | Creates a NATS JetStream recovery manager from the builder's broker config; returns `nil, nil` if recovery is disabled |
 
 ## Types
 
-| Type                         | Description                                                             |
-|------------------------------|-------------------------------------------------------------------------|
-| `Factory`                    | Creates and configures broker components from config structures         |
-| `NatsProviderWithRecovery`   | Bundles a NATS provider with its optional recovery manager              |
+| Type | Description |
+|------|-------------|
+| `NatsProviderWithRecovery` | Bundles a `*natsprovider.Nats` provider with its optional `*recovery.Manager`; call `Close()` to stop the recovery manager |

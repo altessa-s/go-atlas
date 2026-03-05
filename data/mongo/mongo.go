@@ -98,6 +98,9 @@ type Mongo struct {
 	// connected is an atomic boolean indicating the connection state
 	connected atomic.Bool
 
+	// singleFlight is the request deduplication group for this client
+	singleFlight *singleflight.Group
+
 	// structParser is a reusable Parser instance for document conversion.
 	// Created once per Mongo instance; its sharded cache is shared across
 	// all calls to collectFieldsMetadata, making the cache actually effective.
@@ -141,6 +144,7 @@ func New(database string, opts ...Option) (*Mongo, error) {
 			WithParserBSONTagName(cfg.BSONTagName),
 			WithParserEncryptionTagName(cfg.EncryptionTagName),
 		),
+		singleFlight: &singleflight.Group{},
 	}
 
 	// Setup encryption if the KMS provider is configured and encryption is enabled
@@ -406,40 +410,7 @@ func (m *Mongo) Client() *mongo.Client {
 	return m.client
 }
 
-var singleFlight *singleflight.Group
-
-func init() {
-	singleFlight = &singleflight.Group{}
-}
-
-// GetEntity retrieves a single entity from MongoDB by converting a document model to domain entity.
-// It uses generics to provide type-safe conversion from MongoDB document type T to domain entity type E.
-// The function includes request deduplication using singleflight to prevent duplicate concurrent queries.
-//
-// This function is designed to be used with a Mongo instance for proper singleflight deduplication.
-// The Mongo instance must be fully initialized with a connected singleFlight group.
-//
-// Type parameters:
-//   - T: MongoDB document model type
-//   - E: Domain entity type to convert to
-//
-// Parameters:
-//   - ctx: Context for controlling query timeout and cancellation
-//   - m: Mongo client instance containing singleflight for deduplication
-//   - col: MongoDB collection to query
-//   - filter: BSON filter criteria for finding the document
-//
-// Returns:
-//   - E: The converted domain entity
-//   - error: mongo.ErrNoDocuments if not found, or other errors for decode/conversion failures
-//
-// Example:
-//
-//	type UserModel struct { ID string `bson:"_id"` }
-//	type UserEntity struct { ID string }
-//
-//	user, err := mongotools.GetEntity[UserModel, UserEntity](ctx, mongo, collection, bson.M{"_id": "123"})
-func GetEntity[T any, E any](ctx context.Context, col *mongo.Collection, filter bson.M) (E, error) {
+var _ kms.Provider
 	var zero E
 
 	// Generate a deduplication key from filter for singleflight request deduplication
@@ -463,7 +434,7 @@ func GetEntity[T any, E any](ctx context.Context, col *mongo.Collection, filter 
 		}
 
 		entityType := reflect.TypeFor[E]()
-		conv := converter.New[T, any](converter.WithHandleEmbeddedStructs(true))
+		conv := converter.NewShared[T, any](converter.WithHandleEmbeddedStructs(true))
 
 		var dst any
 		if entityType.Kind() == reflect.Pointer {
@@ -516,7 +487,7 @@ func GetEntity[T any, E any](ctx context.Context, col *mongo.Collection, filter 
 //	type UserEntity struct { ID string }
 //
 //	users, err := mongotools.GetEntities[UserModel, UserEntity](ctx, mongo, collection, bson.M{"active": true})
-func GetEntities[T any, E any](ctx context.Context, col *mongo.Collection, filter bson.M) ([]E, error) {
+func GetEntities[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collection, filter bson.M) ([]E, error) {
 	// Generate a deduplication key from filter for singleflight request deduplication
 	// Include database name to prevent cross-database data leakage
 	deduplicationKey := generateDeduplicationKey(col.Database().Name()+":"+col.Name()+deduplicationKeySuffixList, filter)
@@ -549,7 +520,7 @@ func GetEntities[T any, E any](ctx context.Context, col *mongo.Collection, filte
 		// Convert MongoDB documents to domain entities with pre-allocated slice
 		entityType := reflect.TypeFor[E]()
 		isPtr := entityType.Kind() == reflect.Pointer
-		conv := converter.New[T, any](converter.WithHandleEmbeddedStructs(true))
+		conv := converter.NewShared[T, any](converter.WithHandleEmbeddedStructs(true))
 		entities := make([]E, 0, len(models))
 
 		if isPtr {

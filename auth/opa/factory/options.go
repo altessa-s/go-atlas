@@ -4,8 +4,6 @@
 
 package factory
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate --type=options
-
 import (
 	"log/slog"
 
@@ -14,14 +12,26 @@ import (
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
-// options holds the configuration for the OPA factory.
-type options struct {
-	// logger sets the logger for the factory.
-	logger *slog.Logger
-	// scheduler sets the scheduler for automatic policy updates.
-	// When a scheduler is provided and UpdateSchedule is configured,
-	// the manager will register a task for periodic policy updates.
-	scheduler corescheduler.TaskRegistrar `optgen:"notnil"`
-	// healthCoordinator registers OPA managers with the health coordinator.
-	healthCoordinator *health.Coordinator
+// UseLogger sets the logger for the builder and all created components.
+func (b *ManagerBuilder) UseLogger(v *slog.Logger) *ManagerBuilder {
+	b.SetLogger(v)
+	return b
+}
+
+// UseDefaultLogger sets the logger to [slog.Default].
+func (b *ManagerBuilder) UseDefaultLogger() *ManagerBuilder {
+	return b.UseLogger(slog.Default())
+}
+
+// UseScheduler sets the task registrar used for periodic policy update cycles.
+func (b *ManagerBuilder) UseScheduler(v corescheduler.TaskRegistrar) *ManagerBuilder {
+	b.scheduler = v
+	return b
+}
+
+// UseHealthCoordinator sets the health coordinator for registering the
+// created manager as a health checker.
+func (b *ManagerBuilder) UseHealthCoordinator(v *health.Coordinator) *ManagerBuilder {
+	b.healthCoordinator = v
+	return b
 }

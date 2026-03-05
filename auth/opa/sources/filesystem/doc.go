@@ -3,7 +3,7 @@
 // the LICENSE file.
 
 // Package filesystem provides a PolicySource implementation that reads OPA policies
-// from the local filesystem with optional hot-reload support via fsnotify.
+// from the local filesystem. Change detection is handled by the Manager.
 //
 // Example usage:
 //

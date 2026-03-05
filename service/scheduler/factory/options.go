@@ -4,8 +4,6 @@
 
 package factory
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate
-
 import (
 	"log/slog"
 
@@ -15,14 +13,31 @@ import (
 	"github.com/altessa-s/go-atlas/data/leadelect"
 )
 
-// options contains Factory configuration.
-type options struct {
-	// logger is the logger for operational visibility.
-	logger *slog.Logger
-	// leaderElector is the leader elector for distributed scheduling.
-	leaderElector leadelect.LeaderElector `optgen:"notnil" optval:"nil"`
-	// mongoDb is the MongoDB database for MongoDB storage backends.
-	mongoDb *mongo.Database
-	// redisClient is the Redis client for Redis storage backends.
-	redisClient redis.UniversalClient `optgen:"notnil" optval:"nil"`
+// UseLogger sets the logger for the builder and all created components.
+func (b *SchedulerBuilder) UseLogger(v *slog.Logger) *SchedulerBuilder {
+	b.SetLogger(v)
+	return b
+}
+
+// UseDefaultLogger sets the logger to [slog.Default].
+func (b *SchedulerBuilder) UseDefaultLogger() *SchedulerBuilder {
+	return b.UseLogger(slog.Default())
+}
+
+// UseLeaderElector sets the leader elector for distributed scheduling.
+func (b *SchedulerBuilder) UseLeaderElector(v leadelect.LeaderElector) *SchedulerBuilder {
+	b.leaderElector = v
+	return b
+}
+
+// UseMongoDb sets the MongoDB database for MongoDB storage backends.
+func (b *SchedulerBuilder) UseMongoDb(v *mongo.Database) *SchedulerBuilder {
+	b.mongoDb = v
+	return b
+}
+
+// UseRedisClient sets the Redis client for Redis storage backends.
+func (b *SchedulerBuilder) UseRedisClient(v redis.UniversalClient) *SchedulerBuilder {
+	b.redisClient = v
+	return b
 }

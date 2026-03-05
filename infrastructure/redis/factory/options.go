@@ -4,17 +4,28 @@
 
 package factory
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate
-
 import (
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/observability/health"
 )
 
-// options contains Factory configuration.
-type options struct {
-	// logger sets the logger for the factory.
-	logger            *slog.Logger
-	healthCoordinator *health.Coordinator
+// --- Dependency methods ---
+
+// UseLogger sets the logger for the builder and all created components.
+func (b *ClientBuilder) UseLogger(v *slog.Logger) *ClientBuilder {
+	b.SetLogger(v)
+	return b
+}
+
+// UseDefaultLogger sets the logger to [slog.Default].
+func (b *ClientBuilder) UseDefaultLogger() *ClientBuilder {
+	return b.UseLogger(slog.Default())
+}
+
+// UseHealthCoordinator sets the health coordinator used to register a
+// health checker for the created Redis client.
+func (b *ClientBuilder) UseHealthCoordinator(v *health.Coordinator) *ClientBuilder {
+	b.healthCoordinator = v
+	return b
 }

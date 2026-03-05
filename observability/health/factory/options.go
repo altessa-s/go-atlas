@@ -4,14 +4,17 @@
 
 package factory
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate
-
 import (
 	"log/slog"
 )
 
-// options contains Factory configuration.
-type options struct {
-	// logger is the logger to be used by the coordinator.
-	logger *slog.Logger `opt:"Logger"`
+// UseLogger sets the logger for the builder and all created components.
+func (b *CoordinatorBuilder) UseLogger(v *slog.Logger) *CoordinatorBuilder {
+	b.SetLogger(v)
+	return b
+}
+
+// UseDefaultLogger sets the logger to [slog.Default].
+func (b *CoordinatorBuilder) UseDefaultLogger() *CoordinatorBuilder {
+	return b.UseLogger(slog.Default())
 }

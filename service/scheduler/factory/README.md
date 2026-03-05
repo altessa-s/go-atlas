@@ -4,16 +4,46 @@
 import "github.com/altessa-s/go-atlas/service/scheduler/factory"
 ```
 
-Package `factory` builds `scheduler.Scheduler` instances and their `scheduler.Storage` backends from
-configuration objects. Infrastructure references (MongoDB database, Redis client, leader elector) are
-injected once at construction and reused across every scheduler the factory creates. Call
-`CreateStorageFromConfig` to obtain a storage backend, then `CreateSchedulerFromConfig` to wire up
-the scheduler with all options derived from configuration.
+Package `factory` provides a fluent builder for creating a `scheduler.Scheduler` from configuration.
+`SchedulerBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
 
-## Supported storage backends
+## Quick Start
 
-| Config value | Backend   | Requirement                                                          |
-|--------------|-----------|----------------------------------------------------------------------|
-| `memory`     | In-memory | None -- used by default, suitable for single-instance and testing    |
-| `mongodb`    | MongoDB   | `WithMongoDb(db)` must be called at factory construction time        |
-| `redis`      | Redis     | `WithRedisClient(client)` must be called at factory construction time|
+```go
+sched, err := factory.New(cfg.Scheduler).
+    UseLogger(logger).
+    UseMongoDb(db).
+    UseLeaderElector(elector).
+    Build()
+```
+
+## Supported Storage Backends
+
+| Type | Backend | Requires |
+|------|---------|----------|
+| `memory` | In-process (default) | — |
+| `mongodb` | MongoDB | `UseMongoDb` |
+| `redis` | Redis | `UseRedisClient` |
+
+## Methods
+
+### Constructor
+
+| Method | Description |
+|--------|-------------|
+| `New(cfg)` | Creates a `SchedulerBuilder` for the given scheduler config |
+
+### Dependencies
+
+| Method | Description |
+|--------|-------------|
+| `UseLogger` | Sets the logger for the builder and all created components |
+| `UseLeaderElector` | Sets the leader elector for distributed scheduling |
+| `UseMongoDb` | Sets the MongoDB database for MongoDB storage backends |
+| `UseRedisClient` | Sets the Redis client for Redis storage backends |
+
+### Terminal
+
+| Method | Description |
+|--------|-------------|
+| `Build` | Assembles and returns the scheduler with storage created from config |

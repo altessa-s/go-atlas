@@ -4,8 +4,6 @@
 
 package factory
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate
-
 import (
 	"log/slog"
 
@@ -14,10 +12,33 @@ import (
 	vaultApi "github.com/hashicorp/vault/api"
 )
 
-// options contains Factory configuration.
-type options struct {
-	logger      *slog.Logger
-	ocspStapler tlsutils.OCSPStapler `optgen:"notnil"`
-	vaultClient *vaultApi.Client
-	cacheDir    string
+// --- Dependency methods ---
+
+// UseLogger sets the logger for the builder and all created components.
+func (b *ProvidersBuilder) UseLogger(v *slog.Logger) *ProvidersBuilder {
+	b.SetLogger(v)
+	return b
+}
+
+// UseDefaultLogger sets the logger to [slog.Default].
+func (b *ProvidersBuilder) UseDefaultLogger() *ProvidersBuilder {
+	return b.UseLogger(slog.Default())
+}
+
+// UseOcspStapler sets the OCSP stapler for TLS providers.
+func (b *ProvidersBuilder) UseOcspStapler(v tlsutils.OCSPStapler) *ProvidersBuilder {
+	b.ocspStapler = v
+	return b
+}
+
+// UseVaultClient sets the Vault client for the Vault TLS provider.
+func (b *ProvidersBuilder) UseVaultClient(v *vaultApi.Client) *ProvidersBuilder {
+	b.vaultClient = v
+	return b
+}
+
+// UseCacheDir sets the cache directory for TLS certificate caching.
+func (b *ProvidersBuilder) UseCacheDir(v string) *ProvidersBuilder {
+	b.cacheDir = v
+	return b
 }

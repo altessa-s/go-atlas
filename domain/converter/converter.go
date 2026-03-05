@@ -96,6 +96,35 @@ func New[T ConversionSource, U ConversionDestination](opt ...Option) *Converter[
 	return conv
 }
 
+// NewShared creates a new Converter with the specified options using shared global caches.
+// This is significantly more efficient than New() for repeated use as it reuses
+// type information and primitive registries.
+//
+// Example:
+//
+//	conv := NewShared[User, UserDTO]()
+//	conv.Convert(user, &dto)
+func NewShared[T ConversionSource, U ConversionDestination](opt ...Option) *Converter[T, U] {
+	o := defaultOptions().apply(opt...)
+	conv := &Converter[T, U]{
+		opts:              o,
+		typeCache:         sharedTypeCache,
+		primitiveRegistry: sharedPrimitiveRegistry,
+	}
+
+	if o.overflowCheck {
+		// If overflow check is needed, we might need a specific registry or just use the shared one
+		// implementation detail: sharedPrimitiveRegistry might not have overflow check enabled by default
+		// but checking NewPrimitiveRegistry implementation would be good.
+		// For now, let's assume if overflow check is requested, we might need a new registry
+		// OR we can rely on the fact that sharedPrimitiveRegistry handles it?
+		// Line 70 in Convert creates a new one if overflowCheck is true.
+		conv.primitiveRegistry = NewPrimitiveRegistry(true)
+	}
+
+	return conv
+}
+
 // ConvertSeq returns a lazy iterator that converts each element of src to type U on demand.
 // Elements are converted one at a time as the iterator is consumed, avoiding a full
 // destination slice allocation up front.
