@@ -82,7 +82,7 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 			if readErr == nil || errors.Is(readErr, io.EOF) {
 				// Convert to string once (single allocation), then use
 				// strings.NewReader for body restoration (no extra copy).
-				requestBody = string(buf.Bytes())
+				requestBody = buf.String()
 				request.Body = io.NopCloser(strings.NewReader(requestBody))
 			}
 			coreio.PutBuffer(buf)

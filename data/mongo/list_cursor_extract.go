@@ -308,7 +308,8 @@ func findFieldValueByBSONTag(v reflect.Value, tagName string) (reflect.Value, er
 
 	// Fast path: check cached tag-to-index map for this type.
 	if cached, ok := tagFieldIndex.Load(t); ok {
-		if idx, found := cached.(map[string]int)[tagName]; found {
+		indexMap, _ := cached.(map[string]int) //nolint:errcheck // type is guaranteed by tagFieldIndex.Store
+		if idx, found := indexMap[tagName]; found {
 			return v.Field(idx), nil
 		}
 		return reflect.Value{}, fmt.Errorf("field not found")

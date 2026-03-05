@@ -55,7 +55,7 @@ func (b *ProviderBuilder) Build(ctx context.Context) (*oidc.Provider, error) {
 		return nil, fmt.Errorf("configuration is required")
 	}
 
-	opts, err := b.buildProviderOptions()
+	opts, err := b.buildProviderOptions(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +64,7 @@ func (b *ProviderBuilder) Build(ctx context.Context) (*oidc.Provider, error) {
 }
 
 // buildProviderOptions translates config + builder deps into oidc.Option slice.
-func (b *ProviderBuilder) buildProviderOptions() ([]oidc.Option, error) {
+func (b *ProviderBuilder) buildProviderOptions(ctx context.Context) ([]oidc.Option, error) {
 	cfg := b.cfg
 
 	opts := make([]oidc.Option, 0, estimatedOptionsCount)
@@ -82,7 +82,7 @@ func (b *ProviderBuilder) buildProviderOptions() ([]oidc.Option, error) {
 		opts = append(opts, oidc.WithDefaultValidationOptions(valOpts...))
 	}
 
-	presetOpts, err := b.buildPresetOptions()
+	presetOpts, err := b.buildPresetOptions(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +111,7 @@ func (b *ProviderBuilder) buildProviderOptions() ([]oidc.Option, error) {
 }
 
 // buildPresetOptions builds preset and preset-rule options from config.
-func (b *ProviderBuilder) buildPresetOptions() ([]oidc.Option, error) {
+func (b *ProviderBuilder) buildPresetOptions(ctx context.Context) ([]oidc.Option, error) {
 	cfg := b.cfg
 	if !cfg.IsPresetsConfigured() {
 		return []oidc.Option{
@@ -131,7 +131,7 @@ func (b *ProviderBuilder) buildPresetOptions() ([]oidc.Option, error) {
 
 	var presetRules []oidc.PresetRule
 	for i := range cfg.Presets.Selectors {
-		presetRules = append(presetRules, presetRuleFromConfig(&cfg.Presets.Selectors[i]))
+		presetRules = append(presetRules, presetRuleFromConfig(ctx, &cfg.Presets.Selectors[i]))
 	}
 
 	return []oidc.Option{

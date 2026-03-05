@@ -16,8 +16,8 @@ import (
 // benchProvider is a minimal broker.Provider for benchmarks. Build does not call its methods.
 type benchProvider struct{}
 
-func (benchProvider) Publish(context.Context, msg.Message) error              { return nil }
-func (benchProvider) PublishBatch(context.Context, ...msg.Message) error     { return nil }
+func (benchProvider) Publish(context.Context, msg.Message) error            { return nil }
+func (benchProvider) PublishBatch(context.Context, ...msg.Message) error    { return nil }
 func (benchProvider) Subscriber(broker.SubscriberFactory) broker.Subscriber { return nil }
 
 func BenchmarkBrokerBuilder_New(b *testing.B) {

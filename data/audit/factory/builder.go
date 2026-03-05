@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -17,6 +18,10 @@ import (
 	memorystorage "github.com/altessa-s/go-atlas/data/audit/storages/memory"
 	mongostorage "github.com/altessa-s/go-atlas/data/audit/storages/mongo"
 )
+
+// ErrDisabled is returned by [AuditorBuilder.Build] when auditing is disabled
+// in the configuration. Callers should use [errors.Is] to check for this sentinel.
+var ErrDisabled = errors.New("audit: disabled by configuration")
 
 // AuditorBuilder assembles an [audit.Auditor] step by step using a fluent API.
 // Create instances with [New]. Errors are accumulated and reported at [AuditorBuilder.Build] time.
@@ -53,7 +58,7 @@ func (b *AuditorBuilder) Build() (*audit.Auditor, error) {
 	}
 
 	if !b.cfg.Enabled {
-		return nil, nil
+		return nil, ErrDisabled
 	}
 
 	storage, err := b.createStorage()

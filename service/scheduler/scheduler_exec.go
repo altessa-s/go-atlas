@@ -500,7 +500,8 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 func (s *Scheduler) calculateNextRun(ctx context.Context, from time.Time, state *TaskState) time.Time {
 	// Fast path: use cached schedule (populated during Register).
 	if cached, ok := s.scheduleCache.Load(state.Schedule); ok {
-		return cached.(cron.Schedule).Next(from)
+		sched, _ := cached.(cron.Schedule) //nolint:errcheck // type is guaranteed by scheduleCache.Store
+		return sched.Next(from)
 	}
 
 	// Slow path: parse and cache for recovered/unregistered tasks.

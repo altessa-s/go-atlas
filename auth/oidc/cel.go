@@ -81,8 +81,8 @@ type celPreCompiledValidationRule struct {
 //
 // Example:
 //
-//	matcher := oidc.CELMatcher("claims.role == 'admin' && has(claims.email)")
-func CELMatcher(expression string) PresetMatcherFunc {
+//	matcher := oidc.CELMatcher(ctx, "claims.role == 'admin' && has(claims.email)")
+func CELMatcher(ctx context.Context, expression string) PresetMatcherFunc {
 	cache := getCELCache()
 	if cache == nil {
 		program, err := compileCELExpression(expression)
@@ -94,7 +94,7 @@ func CELMatcher(expression string) PresetMatcherFunc {
 		}
 	}
 
-	program, err := cache.GetOrCompute(context.Background(), expression, func(ctx context.Context) (cel.Program, error) {
+	program, err := cache.GetOrCompute(ctx, expression, func(ctx context.Context) (cel.Program, error) {
 		return compileCELExpression(expression)
 	})
 

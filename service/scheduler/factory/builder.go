@@ -109,7 +109,8 @@ func (b *SchedulerBuilder) createStorageFromConfig() (scheduler.Storage, error) 
 }
 
 // createMemoryStorage creates an in-memory storage backend.
-func (b *SchedulerBuilder) createMemoryStorage() (*memorystorage.Storage, error) {
+// Error return is kept for interface consistency with other create*Storage methods.
+func (b *SchedulerBuilder) createMemoryStorage() (*memorystorage.Storage, error) { //nolint:unparam
 	if b.cfg.Storage == nil || b.cfg.Storage.Memory == nil {
 		return memorystorage.New(config.DefaultSchedulerStorageMemoryConfig().MaxHistoryPerTask), nil
 	}

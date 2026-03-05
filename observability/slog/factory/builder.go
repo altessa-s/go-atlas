@@ -17,7 +17,6 @@ import (
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/maps"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
-	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	"github.com/altessa-s/go-atlas/core/runtime"
 	"github.com/altessa-s/go-atlas/core/runtime/appinfo"
 	"github.com/altessa-s/go-atlas/observability/slog/handler/buffered"
@@ -25,6 +24,7 @@ import (
 	"github.com/altessa-s/go-atlas/observability/slog/handler/masking"
 	"github.com/altessa-s/go-atlas/observability/slog/handler/prefixed"
 
+	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	slogx "github.com/altessa-s/go-atlas/observability/slog"
 )
 

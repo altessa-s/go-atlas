@@ -6,6 +6,7 @@ package factory
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"time"
 
@@ -65,10 +66,10 @@ func presetFromConfig(preset *config.OIDCPreset, clockSkew time.Duration) (*oidc
 }
 
 // presetRuleFromConfig creates a preset selection rule from configuration.
-func presetRuleFromConfig(selector *config.OIDCSelector) oidc.PresetRule {
+func presetRuleFromConfig(ctx context.Context, selector *config.OIDCSelector) oidc.PresetRule {
 	return oidc.PresetRule{
 		Priority:   selector.Priority,
-		Matcher:    oidc.CELMatcher(selector.Expression),
+		Matcher:    oidc.CELMatcher(ctx, selector.Expression),
 		PresetName: selector.PresetName,
 	}
 }

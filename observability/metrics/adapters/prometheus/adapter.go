@@ -19,7 +19,7 @@ import (
 // It also implements adapters.HTTPHandler for exposing metrics via HTTP.
 //
 // Metrics are registered once and read on every observation, so sync.Map
-// (optimised for read-heavy workloads) replaces the former RWMutex+map.
+// (optimized for read-heavy workloads) replaces the former RWMutex+map.
 type Adapter struct {
 	registerer prometheus.Registerer
 	gatherer   prometheus.Gatherer

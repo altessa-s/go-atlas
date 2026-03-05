@@ -14,7 +14,7 @@ import (
 // syscall to crypto/rand; between refills the bytes are served from memory.
 const randBufSize = 4096
 
-// randPool amortises crypto/rand syscall overhead by reading in bulk.
+// randPool amortizes crypto/rand syscall overhead by reading in bulk.
 type randPool struct {
 	mu  sync.Mutex
 	buf [randBufSize]byte
@@ -53,7 +53,7 @@ func newSpanContextImpl(parent SpanContext) *spanContextImpl {
 		traceFlags: FlagsSampled,
 	}
 
-	// Generate new span ID from buffered CSPRNG (amortises syscall overhead)
+	// Generate new span ID from buffered CSPRNG (amortizes syscall overhead)
 	rng.read(sc.spanID[:])
 
 	// Inherit or generate trace ID

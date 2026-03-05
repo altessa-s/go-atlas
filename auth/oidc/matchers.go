@@ -12,6 +12,9 @@ import (
 const (
 	// smallSetThreshold is the threshold for linear vs map-based lookup optimization.
 	smallSetThreshold = 3
+	// maxBitmaskScopes is the maximum number of required scopes that can be tracked
+	// using a uint64 bitmask. Beyond this limit, a map-based fallback is used.
+	maxBitmaskScopes = 64
 )
 
 // ClaimEquals creates a matcher checking if a string claim equals the expected value.
@@ -138,7 +141,7 @@ func HasAllScopes(requiredScopes ...string) PresetMatcherFunc {
 	requiredIndex := make(map[string]uint64, len(requiredScopes))
 	var allBits uint64
 	for i, s := range requiredScopes {
-		if i >= 64 {
+		if i >= maxBitmaskScopes {
 			// Fallback for >64 required scopes (practically impossible).
 			return hasAllScopesFallback(requiredScopes)
 		}
