@@ -11,6 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/altessa-s/go-atlas/data/leadelect"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // UseLogger sets the logger for the builder and all created components.
@@ -39,5 +40,11 @@ func (b *SchedulerBuilder) UseMongoDb(v *mongo.Database) *SchedulerBuilder {
 // UseRedisClient sets the Redis client for Redis storage backends.
 func (b *SchedulerBuilder) UseRedisClient(v redis.UniversalClient) *SchedulerBuilder {
 	b.redisClient = v
+	return b
+}
+
+// UseCollector sets the [metrics.Collector] for recording scheduler metrics.
+func (b *SchedulerBuilder) UseCollector(v metrics.Collector) *SchedulerBuilder {
+	b.collector = v
 	return b
 }

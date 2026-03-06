@@ -10,6 +10,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/core/runtime/concurrency"
 	"github.com/altessa-s/go-atlas/data/leadelect"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 //go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate --type=options
@@ -49,6 +50,7 @@ type options struct {
 	logger                    *slog.Logger
 	leaderElector             leadelect.LeaderElector          `optgen:"notnil" optval:"nil"`
 	concurrencyLimitFunc      concurrency.ConcurrencyLimitFunc `opt:"-"`
+	collector                 metrics.Collector                `opt:"-"`
 }
 
 // WithConcurrencyLimitFunc sets a dynamic concurrency limit function that is
@@ -87,5 +89,14 @@ func WithEnvironment(env concurrency.Environment) Option {
 	limit := concurrency.ConcurrencyForEnvironment(env)
 	return func(o *options) {
 		o.concurrencyLimitFunc = func() int { return limit }
+	}
+}
+
+// WithCollector sets the [metrics.Collector] used to record scheduler metrics.
+// When nil (the default), [metrics.Noop] is used and all metric operations
+// become zero-cost no-ops.
+func WithCollector(c metrics.Collector) Option {
+	return func(o *options) {
+		o.collector = c
 	}
 }

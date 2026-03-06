@@ -13,6 +13,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/leadelect"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/service/scheduler"
 
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
@@ -31,6 +32,7 @@ type SchedulerBuilder struct {
 
 	// Dependencies
 	leaderElector leadelect.LeaderElector
+	collector     metrics.Collector
 	mongoDb       *mongo.Database
 	redisClient   redis.UniversalClient
 }
@@ -66,6 +68,7 @@ func (b *SchedulerBuilder) Build() (*scheduler.Scheduler, error) {
 		scheduler.WithMaxConcurrentTasks(b.cfg.MaxConcurrentTasks),
 		scheduler.WithReservedHighPrioritySlots(b.cfg.ReservedHighPrioritySlots),
 		scheduler.WithStaleTaskTimeout(b.cfg.StaleTaskTimeout),
+		scheduler.WithCollector(b.collector),
 	}
 
 	opts := b.applyDefaults(configOpts)

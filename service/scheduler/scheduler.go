@@ -79,6 +79,9 @@ type Scheduler struct {
 	// re-parsing on every calculateNextRun call. Populated during Register()
 	// and read lock-free in calculateNextRun().
 	scheduleCache sync.Map // map[string]cron.Schedule
+
+	// metrics holds Prometheus metrics for the scheduler.
+	metrics *schedulerMetrics
 }
 
 // registeredTask holds the runtime state of a registered task.
@@ -124,6 +127,8 @@ func New(storage Storage, opts ...Option) *Scheduler {
 			cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
 		),
 	}
+
+	s.metrics = newSchedulerMetrics(o.collector)
 
 	// Dynamic concurrency mode: no semaphores needed, limits are evaluated per tick.
 	if o.concurrencyLimitFunc != nil {
