@@ -253,8 +253,7 @@ func (shard *parserCacheShard) evictLRUEntries() {
 }
 
 // tagParser handles BSON tag parsing logic
-type tagParser struct {
-}
+type tagParser struct{}
 
 // parseBSONTag extracts field information from BSON tags
 func (tp *tagParser) parseBSONTag(tag string) (fieldName string, omitEmpty, omitOnUpdate bool) {
@@ -571,9 +570,10 @@ func (p *Parser) ParseStruct(entity any) *StructMetadata {
 	entityType := indirectType(reflect.TypeOf(entity))
 	entityValue := reflect.Indirect(reflect.ValueOf(entity))
 
-	// Fast path: check advanced cache
+	// Fast path: structural metadata is cached per-type, but field values are
+	// instance-specific and must be refreshed from the current entity on every call
 	if cached, hit := p.cache.Get(entityType); hit {
-		return cached
+		return p.refreshFieldValues(cached, entityValue)
 	}
 
 	// Slow path: need to parse - no external locking needed (cache handles it)
@@ -611,6 +611,42 @@ func (p *Parser) ParseStruct(entity any) *StructMetadata {
 // ClearCache clears all cached metadata, useful for testing or memory cleanup
 func (p *Parser) ClearCache() {
 	p.cache.Clear()
+}
+
+// refreshFieldValues returns a new StructMetadata by copying cached structural metadata
+// and rebinding all instance-specific field values from entityValue.
+func (p *Parser) refreshFieldValues(cached *StructMetadata, entityValue reflect.Value) *StructMetadata {
+	result := &StructMetadata{
+		StructType:    cached.StructType,
+		Fields:        make([]fieldMetadata, len(cached.Fields)),
+		NestedStructs: make(map[reflect.Type]*StructMetadata),
+	}
+
+	detector := &nestedStructureDetector{}
+	for i, meta := range cached.Fields {
+		result.Fields[i] = meta
+
+		sf, ok := entityValue.Type().FieldByName(meta.fieldType.Name)
+		if !ok {
+			continue
+		}
+
+		fv := entityValue.FieldByIndex(sf.Index)
+		result.Fields[i].fieldValue = fv
+		result.Fields[i].fieldKind = fv.Kind()
+		result.Fields[i].nestedType = detector.detectNestedType(fv)
+		result.Fields[i].nestedMetadata = nil
+		result.Fields[i].hasNestedData = false
+
+		if result.Fields[i].nestedType == PointerStruct && !fv.IsNil() {
+			nestedMeta := p.ParseStruct(fv.Elem().Interface())
+			result.Fields[i].nestedMetadata = nestedMeta.Fields
+			result.Fields[i].hasNestedData = true
+			result.NestedStructs[nestedMeta.StructType] = nestedMeta
+		}
+	}
+
+	return result
 }
 
 // estimateFieldCapacity estimates the total number of fields including embedded structs
