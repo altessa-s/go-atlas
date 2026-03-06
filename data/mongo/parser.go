@@ -302,26 +302,25 @@ func (nsd *nestedStructureDetector) detectNestedType(fieldValue reflect.Value) N
 	}
 }
 
-// isPointerToStruct checks if the field is a pointer to a struct
+// isPointerToStruct checks if the field type is a pointer to a struct.
 func (nsd *nestedStructureDetector) isPointerToStruct(fieldValue reflect.Value) bool {
 	return fieldValue.Kind() == reflect.Pointer &&
-		fieldValue.Type().Elem().Kind() == reflect.Struct &&
-		!fieldValue.IsNil()
+		fieldValue.Type().Elem().Kind() == reflect.Struct
 }
 
-// isSliceOfStructs checks if the field is a slice/array of structs
+// isSliceOfStructs checks if the field type is a slice/array of structs.
 func (nsd *nestedStructureDetector) isSliceOfStructs(fieldValue reflect.Value) bool {
 	if fieldValue.Kind() != reflect.Slice && fieldValue.Kind() != reflect.Array {
 		return false
 	}
 
 	elemType := getElementType(fieldValue)
-	return elemType.Kind() == reflect.Struct && fieldValue.Len() > 0
+	return elemType.Kind() == reflect.Struct
 }
 
-// isMapWithStructValues checks if the field is a map with struct values
+// isMapWithStructValues checks if the field type is a map with struct values.
 func (nsd *nestedStructureDetector) isMapWithStructValues(fieldValue reflect.Value) bool {
-	if fieldValue.Kind() != reflect.Map || fieldValue.Len() == 0 {
+	if fieldValue.Kind() != reflect.Map {
 		return false
 	}
 
@@ -364,6 +363,7 @@ func (fp *fieldProcessor) processField(fieldType reflect.StructField, fieldValue
 	meta.fieldValue = fieldValue
 	meta.fieldKind = fieldValue.Kind()
 	meta.fieldType = fieldType
+	meta.fieldIndex = fieldType.Index
 	meta.isOmitEmpty = omitEmpty
 	meta.isOmitOnUpdate = omitOnUpdate
 
@@ -441,6 +441,11 @@ func (esp *embeddedStructProcessor) processEmbeddedStruct(
 			// For embedded fields, we don't process deep nesting to avoid complexity
 			meta.nestedType = esp.fieldProcessor.nestedDetector.detectNestedType(embeddedFieldValue)
 			meta.hasNestedData = false
+			// processField sets fieldIndex relative to the embedded struct; override with
+			// the full path from parentType so FieldByIndex works correctly on cache hits.
+			if sf, ok := parentType.FieldByName(embeddedFieldType.Name); ok {
+				meta.fieldIndex = sf.Index
+			}
 			embeddedFields = append(embeddedFields, *meta)
 		}
 	}
@@ -622,28 +627,9 @@ func (p *Parser) refreshFieldValues(cached *StructMetadata, entityValue reflect.
 		NestedStructs: make(map[reflect.Type]*StructMetadata),
 	}
 
-	detector := &nestedStructureDetector{}
 	for i, meta := range cached.Fields {
 		result.Fields[i] = meta
-
-		sf, ok := entityValue.Type().FieldByName(meta.fieldType.Name)
-		if !ok {
-			continue
-		}
-
-		fv := entityValue.FieldByIndex(sf.Index)
-		result.Fields[i].fieldValue = fv
-		result.Fields[i].fieldKind = fv.Kind()
-		result.Fields[i].nestedType = detector.detectNestedType(fv)
-		result.Fields[i].nestedMetadata = nil
-		result.Fields[i].hasNestedData = false
-
-		if result.Fields[i].nestedType == PointerStruct && !fv.IsNil() {
-			nestedMeta := p.ParseStruct(fv.Elem().Interface())
-			result.Fields[i].nestedMetadata = nestedMeta.Fields
-			result.Fields[i].hasNestedData = true
-			result.NestedStructs[nestedMeta.StructType] = nestedMeta
-		}
+		result.Fields[i].fieldValue = entityValue.FieldByIndex(meta.fieldIndex)
 	}
 
 	return result
