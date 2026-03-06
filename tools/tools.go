@@ -2,6 +2,6 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Dev-tool dependencies have been moved to the devtools/ module.
+// Package tools contains dev-tool dependencies that have been moved to the devtools/ module.
 // See devtools/tools.go for blank imports that pin tool versions.
 package tools

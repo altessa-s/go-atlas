@@ -107,11 +107,12 @@ func (f *field) initializeStruct(tag string, strict bool) error {
 				// Check type compatibility before setting
 				if safeSetValue(fieldVal, newVal) != nil {
 					// If direct assignment fails, try to handle common type mismatches
-					if fieldVal.Kind() == reflect.Interface && newVal.Type().Implements(fieldVal.Type()) {
+					switch {
+					case fieldVal.Kind() == reflect.Interface && newVal.Type().Implements(fieldVal.Type()):
 						fieldVal.Set(newVal.Elem())
-					} else if strict {
+					case strict:
 						return fmt.Errorf("%w: cannot assign %s to %s", ErrFieldAssignment, newVal.Type(), fieldVal.Type())
-					} else {
+					default:
 						continue
 					}
 				}

@@ -31,9 +31,6 @@ const (
 	// (1/EvictionRatio). A value of 4 means at least 25 % of entries are
 	// considered for removal, reducing the frequency of eviction runs.
 	EvictionRatio = 4
-
-	// minEvictionCandidates is the minimum pre-allocated capacity for the eviction candidates slice.
-	minEvictionCandidates = 16
 )
 
 // coarseTimestamp caches time.Now().Unix() to avoid a syscall on every intern hit.
