@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/observability/health"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/security/vault/auth"
 
 	vaultApi "github.com/hashicorp/vault/api"
@@ -31,6 +32,16 @@ func WithAuthTimeout(v time.Duration) Option {
 			return
 		}
 		o.authTimeout = v
+	}
+}
+
+// WithCollector sets the collector option.
+func WithCollector(v metrics.Collector) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.collector = v
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/observability/health"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/security/vault/auth"
 
 	vaultApi "github.com/hashicorp/vault/api"
@@ -27,4 +28,5 @@ type options struct {
 	logger            *slog.Logger
 	authTimeout       time.Duration `optgen:"default=DefaultInitialAuthTimeout"`
 	healthCoordinator *health.Coordinator
+	collector         metrics.Collector `optgen:"notnil"`
 }

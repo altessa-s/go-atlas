@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/altessa-s/go-atlas/observability/metrics"
+
 	corectx "github.com/altessa-s/go-atlas/core/context"
 	vaultApi "github.com/hashicorp/vault/api"
 )
@@ -51,6 +53,7 @@ type Authenticator struct {
 	firstTokenCh chan struct{}
 	errCh        chan error
 	method       Method
+	metrics      *vaultAuthMetrics
 	logger       *slog.Logger
 	backoffBase  time.Duration
 	backoffMax   time.Duration
@@ -79,6 +82,7 @@ func NewAuthenticator(cl *vaultApi.Client, method Method, opt ...Option) *Authen
 		errCh:        make(chan error, 1), // Buffered to prevent blocking
 		client:       cl,
 		method:       method,
+		metrics:      newVaultAuthMetrics(opts.collector),
 		logger:       opts.logger,
 		backoffBase:  opts.backoffBase,
 		backoffMax:   opts.backoffMax,
@@ -178,6 +182,8 @@ func (a *Authenticator) Run(ctx context.Context) {
 
 		backoff := a.nextBackoffTime()
 
+		a.metrics.authAttempts.Inc()
+
 		// try to authenticate with timeout
 		authCtx, cancel := corectx.ApplyTimeout(ctx, a.authTimeout)
 		secret, err := a.method.Authenticate(authCtx, a.client)
@@ -187,6 +193,7 @@ func (a *Authenticator) Run(ctx context.Context) {
 
 			// Check if it's an authentication error that shouldn't be retried
 			if IsAuthenticationError(err) {
+				a.metrics.authErrors.WithLabels(metrics.Labels{"type": "permanent"}).Inc()
 				// Non-blocking send to error channel
 				select {
 				case a.errCh <- err:
@@ -197,6 +204,7 @@ func (a *Authenticator) Run(ctx context.Context) {
 			}
 
 			// In other cases we need to wait some time before next loop iteration.
+			a.metrics.authErrors.WithLabels(metrics.Labels{"type": "transient"}).Inc()
 			backoffOrDone(ctx, backoff)
 			continue
 		}
@@ -270,6 +278,7 @@ func (a *Authenticator) runWatcher(ctx context.Context) {
 			return
 		case err := <-a.watcher.DoneCh():
 			if err != nil {
+				a.metrics.tokenRenewalErrors.Inc()
 				a.logger.WarnContext(ctx, "error renewing token, backing off and retrying", "error", err)
 				// Non-blocking send to error channel
 				select {
@@ -281,6 +290,7 @@ func (a *Authenticator) runWatcher(ctx context.Context) {
 			a.stopWatcher()
 			return
 		case <-a.watcher.RenewCh():
+			a.metrics.tokenRenewals.Inc()
 			a.logger.DebugContext(ctx, "auth token was successfully renewed")
 
 			// Signal first token received
