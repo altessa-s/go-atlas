@@ -8,12 +8,23 @@ import (
 
 	"github.com/altessa-s/go-atlas/core/runtime/retry"
 	"github.com/altessa-s/go-atlas/observability/health"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
 // Option is a functional option for configuring options.
 type Option func(o *options)
+
+// WithCollector sets the collector option.
+func WithCollector(v metrics.Collector) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.collector = v
+	}
+}
 
 // WithExponentialConfig sets the exponentialConfig option.
 func WithExponentialConfig(v retry.ExponentialConfig) Option {

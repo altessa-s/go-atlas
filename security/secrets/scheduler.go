@@ -84,6 +84,9 @@ func (t *Manager[T]) runUpdateCycleInternal(ctx context.Context) error {
 	}
 	defer t.updateCycleRunning.Store(false)
 
+	stop := t.metrics.updateCycleDuration.Start()
+	defer stop()
+
 	var list []*Value[T]
 
 	// Retry logic for List operation
@@ -104,6 +107,7 @@ func (t *Manager[T]) runUpdateCycleInternal(ctx context.Context) error {
 
 	if err != nil {
 		t.opts.logger.ErrorContext(ctx, "failed to list secrets from storage", slogx.Error(err))
+		t.metrics.updateCycleErrors.Inc()
 		return err
 	}
 
@@ -168,6 +172,7 @@ func (t *Manager[T]) runUpdateCycleInternal(ctx context.Context) error {
 	}
 
 	t.lastUpdateTime.Store(time.Now())
+	t.metrics.cacheSize.Set(float64(t.cache.Len()))
 
 	t.opts.logger.DebugContext(ctx, "values updated",
 		slog.Int("secrets_count", len(list)),

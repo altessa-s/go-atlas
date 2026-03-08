@@ -90,6 +90,9 @@ type Manager[T any] struct {
 	// scheduler is the scheduler for background task registration
 	scheduler corescheduler.TaskRegistrar
 
+	// metrics holds all Prometheus metrics for the Manager.
+	metrics *secretsMetrics
+
 	// fetchGroup deduplicates concurrent Value(ctx, key, true) calls for the same key,
 	// preventing cache stampede when multiple goroutines miss the cache simultaneously.
 	fetchGroup singleflight.Group
@@ -158,6 +161,7 @@ func New[T any](secretStorage Provider[T], opt ...Option) (*Manager[T], error) {
 		secretStorage:  secretStorage,
 		cache:          cache,
 		opts:           opts,
+		metrics:        newSecretsMetrics(opts.collector),
 		negativeFilter: opts.negativeFilter,
 		scheduler:      opts.scheduler,
 	}
@@ -223,6 +227,9 @@ func (t *Manager[T]) Delete(ctx context.Context, key string) error {
 //
 // Returns the secret value or an error if all retry attempts fail.
 func (t *Manager[T]) updateValueWithRetry(ctx context.Context, key string) (*Value[T], error) {
+	stop := t.metrics.fetchDuration.Start()
+	defer stop()
+
 	var val *Value[T]
 
 	retryCfg := coreretry.Config{
@@ -287,8 +294,12 @@ func (t *Manager[T]) Value(ctx context.Context, key string, force bool) (*Value[
 	value, ok := t.cache.Get(key)
 	if ok {
 		// Cache hit - return immediately
+		t.metrics.cacheHits.Inc()
 		return value, nil
 	}
+
+	// Cache miss
+	t.metrics.cacheMisses.Inc()
 
 	// Cache miss - check if we should fetch from storage
 	if !force {
