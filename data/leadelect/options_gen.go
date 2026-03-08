@@ -5,10 +5,22 @@ package leadelect
 
 import (
 	"time"
+
+	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // Option is a functional option for configuring options.
 type Option func(o *options)
+
+// WithCollector sets the collector option.
+func WithCollector(v metrics.Collector) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.collector = v
+	}
+}
 
 // WithHandlerTimeout sets the handlerTimeout option.
 func WithHandlerTimeout(v time.Duration) Option {

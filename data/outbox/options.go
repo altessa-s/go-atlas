@@ -60,7 +60,7 @@ type options struct {
 	logger *slog.Logger
 
 	// Context
-	baseCtx context.Context `opt:"Context" optval:"notnil"`
+	baseCtx context.Context `opt:"Context" optgen:"notnil"`
 
 	// Published events lifetime - handled manually due to custom validation
 	publishedEventsLifetime time.Duration `opt:"-" optgen:"default=DefaultPublishedEventsLifetime"`

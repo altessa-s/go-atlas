@@ -14,6 +14,8 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/altessa-s/go-atlas/observability/metrics"
+
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
@@ -65,12 +67,16 @@ type LeaseConfig struct {
 
 	// Logger for lease operations.
 	Logger *slog.Logger
+
+	// Collector for metrics collection.
+	Collector metrics.Collector
 }
 
 // Lease represents a distributed lease that can be acquired, renewed, and released.
 type Lease struct {
-	ops    *KVOps
-	config LeaseConfig
+	ops     *KVOps
+	config  LeaseConfig
+	metrics *leaseMetrics
 
 	isHeld atomic.Bool
 	cancel context.CancelFunc
@@ -88,9 +94,10 @@ func NewLease(kv jetstream.KeyValue, cfg LeaseConfig) *Lease {
 	logger, scoped := leaseLoggers(cfg)
 
 	return &Lease{
-		ops:    NewKVOps(kv, logger),
-		config: cfg,
-		logger: scoped,
+		ops:     NewKVOps(kv, logger),
+		config:  cfg,
+		metrics: newLeaseMetrics(cfg.Collector),
+		logger:  scoped,
 	}
 }
 
@@ -101,6 +108,8 @@ func (l *Lease) Acquire(ctx context.Context) (bool, error) {
 	_, err := l.ops.Create(ctx, l.config.Key, l.config.Value)
 	if err == nil {
 		l.isHeld.Store(true)
+		l.metrics.leaseHeld.Set(1)
+		l.metrics.operations.WithLabels(metrics.Labels{"op": "acquire", "result": "success"}).Inc()
 		if l.config.Callbacks.OnAcquired != nil {
 			l.config.Callbacks.OnAcquired()
 		}
@@ -112,6 +121,7 @@ func (l *Lease) Acquire(ctx context.Context) (bool, error) {
 		return l.tryTakeoverStale(ctx)
 	}
 
+	l.metrics.operations.WithLabels(metrics.Labels{"op": "acquire", "result": "failure"}).Inc()
 	return false, err
 }
 
@@ -154,20 +164,27 @@ func (l *Lease) Renew(ctx context.Context) (bool, error) {
 	if err != nil {
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
 			l.isHeld.Store(false)
+			l.metrics.leaseHeld.Set(0)
+			l.metrics.operations.WithLabels(metrics.Labels{"op": "renew", "result": "failure"}).Inc()
 			return false, ErrLeaseNotHeld
 		}
+		l.metrics.operations.WithLabels(metrics.Labels{"op": "renew", "result": "failure"}).Inc()
 		return false, err
 	}
 
 	// Check if entry is valid
 	if entry == nil || entry.Value() == nil {
 		l.isHeld.Store(false)
+		l.metrics.leaseHeld.Set(0)
+		l.metrics.operations.WithLabels(metrics.Labels{"op": "renew", "result": "failure"}).Inc()
 		return false, ErrLeaseNotHeld
 	}
 
 	// Check ownership
 	if l.config.IsOwner != nil && !l.config.IsOwner(entry.Value()) {
 		l.isHeld.Store(false)
+		l.metrics.leaseHeld.Set(0)
+		l.metrics.operations.WithLabels(metrics.Labels{"op": "renew", "result": "failure"}).Inc()
 		return false, ErrLeaseNotHeld
 	}
 
@@ -177,10 +194,15 @@ func (l *Lease) Renew(ctx context.Context) (bool, error) {
 		if errors.Is(err, jetstream.ErrKeyExists) {
 			// Revision mismatch - someone else modified
 			l.isHeld.Store(false)
+			l.metrics.leaseHeld.Set(0)
+			l.metrics.operations.WithLabels(metrics.Labels{"op": "renew", "result": "failure"}).Inc()
 			return false, ErrLeaseNotHeld
 		}
+		l.metrics.operations.WithLabels(metrics.Labels{"op": "renew", "result": "failure"}).Inc()
 		return false, err
 	}
+
+	l.metrics.operations.WithLabels(metrics.Labels{"op": "renew", "result": "success"}).Inc()
 
 	if l.config.Callbacks.OnRenewed != nil {
 		l.config.Callbacks.OnRenewed()
@@ -214,6 +236,7 @@ func (l *Lease) Release(ctx context.Context) error {
 	if l.config.IsOwner != nil && l.config.IsOwner(entry.Value()) {
 		if err := l.ops.Delete(ctx, l.config.Key); err != nil {
 			if !errors.Is(err, jetstream.ErrKeyNotFound) {
+				l.metrics.operations.WithLabels(metrics.Labels{"op": "release", "result": "failure"}).Inc()
 				return err
 			}
 		}
@@ -223,6 +246,8 @@ func (l *Lease) Release(ctx context.Context) error {
 	}
 
 	l.isHeld.Store(false)
+	l.metrics.leaseHeld.Set(0)
+	l.metrics.operations.WithLabels(metrics.Labels{"op": "release", "result": "success"}).Inc()
 	return nil
 }
 
@@ -317,8 +342,9 @@ func (l *Lease) campingLoop(ctx context.Context) {
 
 // LeaseManager manages a lease with optional key watching for faster acquisition.
 type LeaseManager struct {
-	ops    *KVOps
-	config LeaseConfig
+	ops     *KVOps
+	config  LeaseConfig
+	metrics *leaseMetrics
 
 	isHeld  atomic.Bool
 	cancel  context.CancelFunc
@@ -331,9 +357,10 @@ func NewLeaseManager(kv jetstream.KeyValue, cfg LeaseConfig) *LeaseManager {
 	logger, scoped := leaseLoggers(cfg)
 
 	return &LeaseManager{
-		ops:    NewKVOps(kv, logger),
-		config: cfg,
-		logger: scoped,
+		ops:     NewKVOps(kv, logger),
+		config:  cfg,
+		metrics: newLeaseMetrics(cfg.Collector),
+		logger:  scoped,
 	}
 }
 
@@ -440,6 +467,14 @@ func (m *LeaseManager) tryAcquire(ctx context.Context) {
 	wasHeld := m.isHeld.Load()
 	m.isHeld.Store(acquired)
 
+	if acquired {
+		m.metrics.leaseHeld.Set(1)
+		m.metrics.operations.WithLabels(metrics.Labels{"op": "acquire", "result": "success"}).Inc()
+	} else {
+		m.metrics.leaseHeld.Set(0)
+		m.metrics.operations.WithLabels(metrics.Labels{"op": "acquire", "result": "failure"}).Inc()
+	}
+
 	if acquired && !wasHeld {
 		m.logger.DebugContext(ctx, "lease acquired")
 		if m.config.Callbacks.OnAcquired != nil {
@@ -469,14 +504,19 @@ func (m *LeaseManager) tryRenew(ctx context.Context) {
 	m.isHeld.Store(renewed)
 
 	if renewed {
+		m.metrics.operations.WithLabels(metrics.Labels{"op": "renew", "result": "success"}).Inc()
 		m.logger.DebugContext(ctx, "lease renewed")
 		if m.config.Callbacks.OnRenewed != nil {
 			m.config.Callbacks.OnRenewed()
 		}
-	} else if wasHeld {
-		m.logger.DebugContext(ctx, "lease lost during renewal")
-		if m.config.Callbacks.OnLost != nil {
-			m.config.Callbacks.OnLost()
+	} else {
+		m.metrics.leaseHeld.Set(0)
+		m.metrics.operations.WithLabels(metrics.Labels{"op": "renew", "result": "failure"}).Inc()
+		if wasHeld {
+			m.logger.DebugContext(ctx, "lease lost during renewal")
+			if m.config.Callbacks.OnLost != nil {
+				m.config.Callbacks.OnLost()
+			}
 		}
 	}
 }
@@ -555,13 +595,16 @@ func (m *LeaseManager) release(ctx context.Context) {
 	if err != nil {
 		if !errors.Is(err, jetstream.ErrKeyNotFound) {
 			m.logger.ErrorContext(ctx, "failed to get entry for release", slog.Any("error", err))
+			m.metrics.operations.WithLabels(metrics.Labels{"op": "release", "result": "failure"}).Inc()
 		}
 		m.isHeld.Store(false)
+		m.metrics.leaseHeld.Set(0)
 		return
 	}
 
 	if entry == nil || entry.Value() == nil {
 		m.isHeld.Store(false)
+		m.metrics.leaseHeld.Set(0)
 		return
 	}
 
@@ -570,6 +613,7 @@ func (m *LeaseManager) release(ctx context.Context) {
 		if err := m.ops.DeleteWithRevision(ctx, m.config.Key, entry.Revision()); err != nil {
 			if !errors.Is(err, jetstream.ErrKeyNotFound) {
 				m.logger.ErrorContext(ctx, "failed to delete lease entry", slog.Any("error", err))
+				m.metrics.operations.WithLabels(metrics.Labels{"op": "release", "result": "failure"}).Inc()
 			}
 		}
 		if m.config.Callbacks.OnReleased != nil {
@@ -578,4 +622,6 @@ func (m *LeaseManager) release(ctx context.Context) {
 	}
 
 	m.isHeld.Store(false)
+	m.metrics.leaseHeld.Set(0)
+	m.metrics.operations.WithLabels(metrics.Labels{"op": "release", "result": "success"}).Inc()
 }
