@@ -17,6 +17,7 @@ import (
 type dispatcher struct {
 	opts        *options
 	storage     Storage
+	metrics     *auditMetrics
 	events      chan *Event
 	done        chan struct{}
 	shutdownCtx context.Context
@@ -24,11 +25,12 @@ type dispatcher struct {
 	wg          sync.WaitGroup
 }
 
-func newDispatcher(storage Storage, opts *options) *dispatcher {
+func newDispatcher(storage Storage, opts *options, metrics *auditMetrics) *dispatcher {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &dispatcher{
 		opts:        opts,
 		storage:     storage,
+		metrics:     metrics,
 		events:      make(chan *Event, opts.bufferSize),
 		done:        make(chan struct{}),
 		shutdownCtx: ctx,
@@ -82,6 +84,9 @@ func (d *dispatcher) shutdown(ctx context.Context) error {
 }
 
 func (d *dispatcher) worker() {
+	d.metrics.workersActive.Inc()
+	defer d.metrics.workersActive.Dec()
+
 	batch := make([]*Event, 0, d.opts.batchSize)
 	ticker := time.NewTicker(d.opts.flushInterval)
 	defer ticker.Stop()
@@ -132,6 +137,9 @@ func (d *dispatcher) worker() {
 }
 
 func (d *dispatcher) storeBatch(events []*Event) {
+	stop := d.metrics.flushDuration.Start()
+	defer stop()
+
 	// Copy the slice to avoid races during retry.
 	batch := make([]*Event, len(events))
 	copy(batch, events)
@@ -141,8 +149,8 @@ func (d *dispatcher) storeBatch(events []*Event) {
 	// context.AfterFunc registers the callback without spawning a goroutine upfront;
 	// the runtime invokes cancel() only when done is signaled.
 	ctx, cancel := context.WithCancel(context.Background())
-	stop := context.AfterFunc(d.shutdownCtx, cancel)
-	defer stop()
+	ctxStop := context.AfterFunc(d.shutdownCtx, cancel)
+	defer ctxStop()
 	defer cancel()
 
 	for attempt := range d.opts.retryAttempts + 1 {
@@ -179,6 +187,7 @@ func (d *dispatcher) storeBatch(events []*Event) {
 				return
 			}
 		} else {
+			d.metrics.storeErrors.Inc()
 			d.opts.logger.Error("audit batch store failed after all retries",
 				slog.Int("events", len(batch)),
 				slog.Any("error", err))

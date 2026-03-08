@@ -7,6 +7,8 @@ package audit
 import (
 	"log/slog"
 	"time"
+
+	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 //go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate --type=options
@@ -44,4 +46,5 @@ type options struct {
 	logger          *slog.Logger
 	onDrop          DropHandler
 	backPressure    bool
+	collector       metrics.Collector `optgen:"notnil"`
 }
