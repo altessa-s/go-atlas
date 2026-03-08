@@ -112,7 +112,7 @@ type options struct {
 	onStaleRecoveryCleared func(stream string) `optgen:"manual"`
 
 	// logger is the logger for recovery operations.
-	logger *slog.Logger `optval:"notnil"`
+	logger *slog.Logger
 
 	// Scheduler configuration
 	scheduler                    corescheduler.TaskRegistrar `optgen:"notnil"`
