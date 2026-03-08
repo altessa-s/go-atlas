@@ -6,6 +6,8 @@ package pool
 import (
 	"log/slog"
 	"time"
+
+	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // Option is a functional option for configuring options.
@@ -25,6 +27,16 @@ func WithCleanupInterval(v time.Duration) Option {
 func WithClientFactory(v ClientFactory) Option {
 	return func(o *options) {
 		o.clientFactory = v
+	}
+}
+
+// WithCollector sets the collector option.
+func WithCollector(v metrics.Collector) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.collector = v
 	}
 }
 

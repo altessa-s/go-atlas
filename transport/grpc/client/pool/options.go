@@ -11,6 +11,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/altessa-s/go-atlas/observability/metrics"
+
 	"google.golang.org/grpc"
 )
 
@@ -48,4 +50,6 @@ type options struct {
 	logger *slog.Logger
 	// clientFactory sets a custom client factory function for creating gRPC connections.
 	clientFactory ClientFactory
+	// collector sets the metrics collector for the pool.
+	collector metrics.Collector `optgen:"notnil"`
 }
