@@ -636,12 +636,12 @@ func (t *Manager[T]) WarmCache(ctx context.Context, keys []string) error {
 		return nil
 	}
 
-	failedCount := int64(0)
+	var failedCount atomic.Int64
 	err := concurrency.Process(ctx, keys, func(ctx context.Context, key string) error {
 		_, err := t.updateValueWithRetry(ctx, key)
 		if err != nil {
 			if !coreerrs.IsContextCanceled(err) {
-				atomic.AddInt64(&failedCount, 1)
+				failedCount.Add(1)
 				t.opts.logger.ErrorContext(ctx, "failed to warm cache for key",
 					slog.String("key", key),
 					slogx.Error(err))

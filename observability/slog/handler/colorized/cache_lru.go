@@ -38,7 +38,7 @@ type timeShard struct {
 // timeCacheValue holds the cached formatted time
 type timeCacheValue struct {
 	formatted string
-	lastUsed  int64
+	lastUsed  atomic.Int64
 }
 
 // simpleLRU is a simple LRU tracker
@@ -83,7 +83,7 @@ func (c *shardedTimeCache) get(key timeCacheKey) (string, bool) {
 		shard.mu.RUnlock()
 
 		// Update last used time (non-blocking)
-		atomic.StoreInt64(&value.lastUsed, time.Now().UnixNano())
+		value.lastUsed.Store(time.Now().UnixNano())
 		return formatted, true
 	}
 	shard.mu.RUnlock()
@@ -102,15 +102,14 @@ func (c *shardedTimeCache) put(key timeCacheKey, formatted string) {
 	// Check if already exists
 	if value, ok := shard.entries[key]; ok {
 		value.formatted = formatted
-		atomic.StoreInt64(&value.lastUsed, now)
+		value.lastUsed.Store(now)
 		return
 	}
 
 	// Add new entry
-	shard.entries[key] = &timeCacheValue{
-		formatted: formatted,
-		lastUsed:  now,
-	}
+	entry := &timeCacheValue{formatted: formatted}
+	entry.lastUsed.Store(now)
+	shard.entries[key] = entry
 
 	// Track in LRU
 	shard.lru.order = append(shard.lru.order, key)

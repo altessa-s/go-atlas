@@ -49,7 +49,7 @@ type watcherShard struct {
 
 type cachedStatus struct {
 	status    ServingStatus
-	timestamp int64
+	timestamp atomic.Int64
 }
 
 type watcher struct {

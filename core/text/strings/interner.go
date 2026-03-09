@@ -65,8 +65,8 @@ var evictionCandidatesPool = sync.Pool{
 // It uses unique.Handle for efficient underlying storage and comparison.
 type internEntry struct {
 	handle      unique.Handle[string]
-	accessCount int64
-	lastAccess  int64 // Unix timestamp for cleanup
+	accessCount atomic.Int64
+	lastAccess  atomic.Int64 // Unix timestamp for cleanup
 }
 
 // value returns the underlying string value from the handle.
@@ -115,13 +115,13 @@ type Interner struct {
 	hotCache [HotCacheSlots]atomic.Pointer[string]
 
 	// Cold cache: sync.Map for general string interning
-	entries     sync.Map // Map[string]*internEntry
-	currentSize int64    // Atomic counter
-	maxSize     int64    // Maximum number of entries
-	evicting    int32    // Atomic flag for eviction coordination
+	entries     sync.Map     // Map[string]*internEntry
+	currentSize atomic.Int64 // Atomic counter
+	maxSize     int64        // Maximum number of entries
+	evicting    atomic.Int32 // Atomic flag for eviction coordination
 
 	// Promotion tracking
-	promotionCounter int64
+	promotionCounter atomic.Int64
 }
 
 var globalInternerPtr atomic.Pointer[Interner]
@@ -197,11 +197,11 @@ func (si *Interner) String(s string) string {
 		entry := value.(*internEntry) //nolint:errcheck // type is guaranteed by internal usage
 
 		// Update access information atomically using coarse timestamp
-		newAccessCount := atomic.AddInt64(&entry.accessCount, 1)
-		atomic.StoreInt64(&entry.lastAccess, coarseNowUnix())
+		newAccessCount := entry.accessCount.Add(1)
+		entry.lastAccess.Store(coarseNowUnix())
 
 		// Periodically check for hot cache promotion and refresh coarse timestamp
-		if atomic.AddInt64(&si.promotionCounter, 1)%PromotionCheckInterval == 0 {
+		if si.promotionCounter.Add(1)%PromotionCheckInterval == 0 {
 			coarseTimestamp.Store(time.Now().Unix())
 			if newAccessCount >= HotCacheThreshold {
 				si.promoteToHotCache(entry.value(), hotSlot, newAccessCount)
@@ -215,20 +215,18 @@ func (si *Interner) String(s string) string {
 	handle := unique.Make(s)
 	canonicalString := handle.Value()
 	now := coarseNowUnix()
-	newEntry := &internEntry{
-		handle:      handle,
-		accessCount: 1,
-		lastAccess:  now,
-	}
+	newEntry := &internEntry{handle: handle}
+	newEntry.accessCount.Store(1)
+	newEntry.lastAccess.Store(now)
 
 	if actual, loaded := si.entries.LoadOrStore(canonicalString, newEntry); loaded {
 		entry := actual.(*internEntry) //nolint:errcheck // type is guaranteed by internal usage
-		atomic.AddInt64(&entry.accessCount, 1)
-		atomic.StoreInt64(&entry.lastAccess, now)
+		entry.accessCount.Add(1)
+		entry.lastAccess.Store(now)
 		return entry.value()
 	}
 
-	newSize := atomic.AddInt64(&si.currentSize, 1)
+	newSize := si.currentSize.Add(1)
 	if newSize > si.maxSize {
 		si.triggerBackgroundEviction()
 	}
@@ -259,16 +257,16 @@ func (si *Interner) LowerString(s string) string {
 // triggerBackgroundEviction triggers background eviction if not already running.
 func (si *Interner) triggerBackgroundEviction() {
 	// Only one eviction goroutine at a time using atomic compare-and-swap
-	if atomic.CompareAndSwapInt32(&si.evicting, 0, 1) {
+	if si.evicting.CompareAndSwap(0, 1) {
 		go si.evictInBackground()
 	}
 }
 
 // evictInBackground performs LRU eviction in a separate goroutine.
 func (si *Interner) evictInBackground() {
-	defer atomic.StoreInt32(&si.evicting, 0)
+	defer si.evicting.Store(0)
 
-	currentSize := atomic.LoadInt64(&si.currentSize)
+	currentSize := si.currentSize.Load()
 	if currentSize <= si.maxSize {
 		return // Size may have been reduced by another eviction
 	}
@@ -288,8 +286,8 @@ func (si *Interner) evictInBackground() {
 		entry := value.(*internEntry) //nolint:errcheck // Range guarantees correct type
 		candidates = append(candidates, evictionCandidate{
 			key:         key.(string), //nolint:errcheck // Range guarantees correct type
-			accessCount: atomic.LoadInt64(&entry.accessCount),
-			lastAccess:  atomic.LoadInt64(&entry.lastAccess),
+			accessCount: entry.accessCount.Load(),
+			lastAccess:  entry.lastAccess.Load(),
 		})
 		return true
 	})
@@ -324,7 +322,7 @@ func (si *Interner) evictInBackground() {
 	evictionCandidatesPool.Put(candidatesPtr)
 
 	// Update size counter
-	atomic.AddInt64(&si.currentSize, -evictedCount)
+	si.currentSize.Add(-evictedCount)
 }
 
 // Reset removes all interned strings from both the hot and cold caches and
@@ -345,10 +343,10 @@ func (si *Interner) Reset() {
 	})
 
 	// Reset size counter
-	atomic.StoreInt64(&si.currentSize, 0)
+	si.currentSize.Store(0)
 
 	// Reset eviction flag
-	atomic.StoreInt32(&si.evicting, 0)
+	si.evicting.Store(0)
 
 	// Reset hot cache
 	for i := range si.hotCache {
@@ -356,14 +354,14 @@ func (si *Interner) Reset() {
 	}
 
 	// Reset promotion counter
-	atomic.StoreInt64(&si.promotionCounter, 0)
+	si.promotionCounter.Store(0)
 }
 
 // Size returns the current number of strings held in the cold cache. The
 // count is maintained atomically and is safe to read concurrently. Hot cache
 // entries are a subset of cold cache entries, so they do not add to the total.
 func (si *Interner) Size() int64 {
-	return atomic.LoadInt64(&si.currentSize)
+	return si.currentSize.Load()
 }
 
 // MaxSize returns the maximum number of strings the [Interner] will hold
@@ -374,14 +372,14 @@ func (si *Interner) MaxSize() int64 {
 
 // IsEmpty reports whether the cold cache contains zero interned strings.
 func (si *Interner) IsEmpty() bool {
-	return atomic.LoadInt64(&si.currentSize) == 0
+	return si.currentSize.Load() == 0
 }
 
 // IsFull reports whether the number of interned strings has reached or
 // exceeded [Interner.MaxSize]. When full, the next call to [Interner.String]
 // that inserts a new entry will trigger background eviction.
 func (si *Interner) IsFull() bool {
-	return atomic.LoadInt64(&si.currentSize) >= si.maxSize
+	return si.currentSize.Load() >= si.maxSize
 }
 
 // LoadFactor returns the ratio of current interned strings to the maximum
@@ -389,7 +387,7 @@ func (si *Interner) IsFull() bool {
 // possible transiently while background eviction is in progress. Returns 0
 // if [Interner.MaxSize] is zero.
 func (si *Interner) LoadFactor() float64 {
-	current := float64(atomic.LoadInt64(&si.currentSize))
+	current := float64(si.currentSize.Load())
 	maximum := float64(si.maxSize)
 	if maximum == 0 {
 		return 0
@@ -725,8 +723,8 @@ func (si *Interner) promoteToHotCache(s string, slot uint32, accessCount int64) 
 	}
 
 	if entry, ok := si.entries.Load(*current); ok {
-		existing := entry.(*internEntry)                             //nolint:errcheck // type is guaranteed by internal usage
-		if accessCount > atomic.LoadInt64(&existing.accessCount)*2 { //nolint:mnd // 2x threshold for replacement
+		existing := entry.(*internEntry)                 //nolint:errcheck // type is guaranteed by internal usage
+		if accessCount > existing.accessCount.Load()*2 { //nolint:mnd // 2x threshold for replacement
 			si.hotCache[slot].Store(&s)
 		}
 	} else {

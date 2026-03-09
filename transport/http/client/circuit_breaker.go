@@ -49,7 +49,7 @@ const (
 
 var (
 	// circuitBreakerCounter is used to generate unique names for circuit breakers
-	circuitBreakerCounter uint64
+	circuitBreakerCounter atomic.Uint64
 )
 
 type circuitBreakerClient struct {
@@ -111,7 +111,7 @@ func newCircuitBreakerClient(opts options) *circuitBreakerClient {
 	if opts.breakerName != "" {
 		cbName = opts.breakerName
 	} else {
-		cbName = fmt.Sprintf("httpclient-cb-%d", atomic.AddUint64(&circuitBreakerCounter, 1))
+		cbName = fmt.Sprintf("httpclient-cb-%d", circuitBreakerCounter.Add(1))
 	}
 
 	client := &circuitBreakerClient{
@@ -200,7 +200,7 @@ func (c *circuitBreakerClient) getBreakerForHost(hostname string) *gobreaker.Cir
 
 	name := settings.Name
 	if name == "" {
-		name = fmt.Sprintf("httpclient-cb-%s-%d", hostname, atomic.AddUint64(&circuitBreakerCounter, 1))
+		name = fmt.Sprintf("httpclient-cb-%s-%d", hostname, circuitBreakerCounter.Add(1))
 	}
 
 	readyToTrip := settings.ReadyToTrip

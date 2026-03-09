@@ -5,7 +5,6 @@
 package factory
 
 import (
-	"context"
 	"testing"
 
 	"github.com/altessa-s/go-atlas/config"
@@ -56,7 +55,7 @@ func BenchmarkMongoBuilder_Build(b *testing.B) {
 		RetryReads:  true,
 	}
 	builder := New(cfg)
-	ctx := context.Background()
+	ctx := b.Context()
 	b.ResetTimer()
 	for b.Loop() {
 		_, _ = builder.Build(ctx)

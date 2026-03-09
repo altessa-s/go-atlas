@@ -47,8 +47,8 @@ const (
 // CachedStructMetadata contains metadata with minimal overhead
 type CachedStructMetadata struct {
 	metadata     *StructMetadata
-	lastAccessed int64     // Unix timestamp of last access (atomic)
-	creationTime time.Time // Time when this cache entry was created
+	lastAccessed atomic.Int64 // Unix timestamp of last access
+	creationTime time.Time    // Time when this cache entry was created
 }
 
 // parserCacheShard is a single shard of the parser cache.
@@ -130,7 +130,7 @@ func (pc *ParserCache) Get(t reflect.Type) (*StructMetadata, bool) {
 	}
 
 	// Update access time atomically
-	atomic.StoreInt64(&cached.lastAccessed, time.Now().Unix())
+	cached.lastAccessed.Store(time.Now().Unix())
 
 	metadata := cached.metadata
 	shard.mu.RUnlock()
@@ -151,7 +151,7 @@ func (pc *ParserCache) Put(t reflect.Type, metadata *StructMetadata) {
 
 	// Check if entry already exists - don't overwrite, just update access time
 	if existing, exists := shard.entries[t]; exists {
-		atomic.StoreInt64(&existing.lastAccessed, now.Unix())
+		existing.lastAccessed.Store(now.Unix())
 		return
 	}
 
@@ -162,9 +162,9 @@ func (pc *ParserCache) Put(t reflect.Type, metadata *StructMetadata) {
 
 	cached := &CachedStructMetadata{
 		metadata:     metadata,
-		lastAccessed: now.Unix(),
 		creationTime: now,
 	}
+	cached.lastAccessed.Store(now.Unix())
 
 	shard.entries[t] = cached
 }
@@ -220,7 +220,7 @@ func (shard *parserCacheShard) evictLRUEntries() {
 		candidates = append(candidates, evictionCandidate{
 			t:            t,
 			cached:       cached,
-			lastAccessed: atomic.LoadInt64(&cached.lastAccessed),
+			lastAccessed: cached.lastAccessed.Load(),
 			age:          now.Sub(cached.creationTime),
 		})
 	}

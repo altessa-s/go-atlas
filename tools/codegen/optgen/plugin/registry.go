@@ -678,11 +678,11 @@ func (r *Registry) GetDefaultModifiersForType(typeStr string, existingMods []str
 			continue
 		}
 		// Check if disabled by DisabledBy modifier
-		if meta.DisabledBy != "" && sliceContains(existingMods, meta.DisabledBy) {
+		if meta.DisabledBy != "" && slices.Contains(existingMods, meta.DisabledBy) {
 			continue
 		}
 		// Check if already explicitly specified
-		if sliceContains(existingMods, key) {
+		if slices.Contains(existingMods, key) {
 			continue
 		}
 		defaults = append(defaults, defaultMod{key: key, priority: meta.Priority})
@@ -703,11 +703,11 @@ func (r *Registry) GetDefaultModifiersForType(typeStr string, existingMods []str
 			continue
 		}
 		// Check if disabled by DisabledBy modifier
-		if meta.DisabledBy != "" && sliceContains(existingMods, meta.DisabledBy) {
+		if meta.DisabledBy != "" && slices.Contains(existingMods, meta.DisabledBy) {
 			continue
 		}
 		// Check if already explicitly specified
-		if sliceContains(existingMods, key) {
+		if slices.Contains(existingMods, key) {
 			continue
 		}
 		defaults = append(defaults, defaultMod{key: key, priority: meta.Priority})
@@ -768,14 +768,4 @@ func (r *Registry) GetAllDisablers() []string {
 // GetAllDisablers returns all DisabledBy keys from the global registry.
 func GetAllDisablers() []string {
 	return defaultRegistry.GetAllDisablers()
-}
-
-// sliceContains checks if a string slice contains a value.
-func sliceContains(slice []string, val string) bool {
-	for _, s := range slice {
-		if s == val {
-			return true
-		}
-	}
-	return false
 }

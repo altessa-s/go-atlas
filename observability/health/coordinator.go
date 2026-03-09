@@ -138,8 +138,8 @@ type Coordinator struct {
 	logger    *slog.Logger
 	scheduler corescheduler.TaskRegistrar
 
-	activeWatchers    int32
-	listCallsInFlight int32
+	activeWatchers    atomic.Int32
+	listCallsInFlight atomic.Int32
 
 	closed             atomic.Bool
 	healthCheckRunning atomic.Bool // Guards against concurrent RunHealthCheckCycle calls.
@@ -293,7 +293,7 @@ func (c *Coordinator) getShardIndex(service string) int {
 func (c *Coordinator) getCachedStatus(service string) (ServingStatus, bool) {
 	if cached, ok := c.statusCache.Load(service); ok {
 		if cs, ok := cached.(*cachedStatus); ok {
-			timestamp := atomic.LoadInt64(&cs.timestamp)
+			timestamp := cs.timestamp.Load()
 			if time.Since(time.Unix(0, timestamp)) < c.statusCacheTTL {
 				return cs.status, true
 			}
@@ -303,10 +303,9 @@ func (c *Coordinator) getCachedStatus(service string) (ServingStatus, bool) {
 }
 
 func (c *Coordinator) setCachedStatus(service string, status ServingStatus) {
-	c.statusCache.Store(service, &cachedStatus{
-		status:    status,
-		timestamp: time.Now().UnixNano(),
-	})
+	cs := &cachedStatus{status: status}
+	cs.timestamp.Store(time.Now().UnixNano())
+	c.statusCache.Store(service, cs)
 }
 
 func (c *Coordinator) getHealthStatus(ctx context.Context, service string) ServingStatus {
@@ -340,8 +339,8 @@ func (c *Coordinator) CheckStatus(ctx context.Context, service string) ServingSt
 // ListStatuses returns all services and their current statuses.
 // Concurrent checks are limited by MaxConcurrentHealthChecks.
 func (c *Coordinator) ListStatuses(ctx context.Context) (map[string]ServingStatus, error) {
-	atomic.AddInt32(&c.listCallsInFlight, 1)
-	defer atomic.AddInt32(&c.listCallsInFlight, -1)
+	c.listCallsInFlight.Add(1)
+	defer c.listCallsInFlight.Add(-1)
 
 	services := slices.Collect(c.ListServices())
 	if len(services) == 0 {
@@ -396,7 +395,7 @@ func (c *Coordinator) Subscribe(ctx context.Context, service string) (Subscriber
 	initialStatus := c.getHealthStatus(ctx, service)
 
 	bufferSize := c.watcherChannelBuffer
-	if active := atomic.LoadInt32(&c.activeWatchers); active > c.adaptiveBufferThreshold {
+	if active := c.activeWatchers.Load(); active > c.adaptiveBufferThreshold {
 		bufferSize = min(bufferSize*c.adaptiveBufferMultiplier, c.maxAdaptiveBuffer)
 	}
 
@@ -416,7 +415,7 @@ func (c *Coordinator) Subscribe(ctx context.Context, service string) (Subscriber
 	shard.watchers[service][w] = struct{}{}
 	shard.mu.Unlock()
 
-	atomic.AddInt32(&c.activeWatchers, 1)
+	c.activeWatchers.Add(1)
 
 	c.logger.Debug("new subscription created",
 		slog.String("service", service),
@@ -436,7 +435,7 @@ func (c *Coordinator) Subscribe(ctx context.Context, service string) (Subscriber
 			shard.mu.Unlock()
 
 			w.close()
-			atomic.AddInt32(&c.activeWatchers, -1)
+			c.activeWatchers.Add(-1)
 		},
 	}, nil
 }
@@ -511,8 +510,8 @@ func (c *Coordinator) BroadcastStatus(status ServingStatus) {
 func (c *Coordinator) GetMetrics() map[string]any {
 	metrics := make(map[string]any)
 
-	metrics["active_watchers"] = atomic.LoadInt32(&c.activeWatchers)
-	metrics["list_calls_in_flight"] = atomic.LoadInt32(&c.listCallsInFlight)
+	metrics["active_watchers"] = c.activeWatchers.Load()
+	metrics["list_calls_in_flight"] = c.listCallsInFlight.Load()
 
 	cached := 0
 	c.statusCache.Range(func(key, value any) bool {

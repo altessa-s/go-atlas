@@ -115,7 +115,7 @@ type Stapler struct {
 	httpClient        *http.Client
 	retryPolicy       RetryPolicy
 	logger            *slog.Logger
-	cleanupCounter    uint64 // atomic counter for lazy cleanup
+	cleanupCounter    atomic.Uint64 // atomic counter for lazy cleanup
 	scheduler         corescheduler.TaskRegistrar
 	refreshAllRunning atomic.Bool // Guards against concurrent RunRefreshAll calls.
 
@@ -240,7 +240,7 @@ func (s *Stapler) GetOCSPStaple(ctx context.Context, cert *tls.Certificate) ([]b
 	}
 
 	// Lazy cleanup of expired entries every N calls
-	if atomic.AddUint64(&s.cleanupCounter, 1)%defaultCleanupInterval == 0 {
+	if s.cleanupCounter.Add(1)%defaultCleanupInterval == 0 {
 		s.removeExpiredEntries()
 	}
 

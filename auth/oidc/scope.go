@@ -35,7 +35,7 @@ func normalizeScopeValueSeq(scopeValue any) iter.Seq[string] {
 	return func(yield func(string) bool) {
 		switch v := scopeValue.(type) {
 		case string:
-			for _, field := range strings.Fields(v) {
+			for field := range strings.FieldsSeq(v) {
 				if !yield(field) {
 					return
 				}

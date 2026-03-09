@@ -21,7 +21,7 @@ import (
 
 // --- helpers ---
 
-func newTestStruct(kvs map[string]interface{}) *structpb.Struct {
+func newTestStruct(kvs map[string]any) *structpb.Struct {
 	s, err := structpb.NewStruct(kvs)
 	if err != nil {
 		panic(err)
@@ -32,7 +32,7 @@ func newTestStruct(kvs map[string]interface{}) *structpb.Struct {
 func msgWithExtraData() *testpb.UpdateRequest {
 	return &testpb.UpdateRequest{
 		Id:        "1",
-		ExtraData: newTestStruct(map[string]interface{}{"key": "val", "num": 42.0}),
+		ExtraData: newTestStruct(map[string]any{"key": "val", "num": 42.0}),
 	}
 }
 
@@ -75,8 +75,8 @@ func TestFilter_StructNotInMask_Cleared(t *testing.T) {
 func TestFilter_StructDeepNested_FiltersRecursively(t *testing.T) {
 	msg := &testpb.UpdateRequest{
 		Id: "1",
-		ExtraData: newTestStruct(map[string]interface{}{
-			"workPeriod": map[string]interface{}{
+		ExtraData: newTestStruct(map[string]any{
+			"workPeriod": map[string]any{
 				"from": "2026-02-18",
 				"till": "2026-02-19",
 			},
@@ -189,7 +189,7 @@ func TestApplyUpdateMask_StructInMask_Kept(t *testing.T) {
 	msg := &testpb.UpdateRequest{
 		Id:        "1",
 		Name:      &name,
-		ExtraData: newTestStruct(map[string]interface{}{"a": "b"}),
+		ExtraData: newTestStruct(map[string]any{"a": "b"}),
 	}
 	original := proto.Clone(msg.GetExtraData()).(*structpb.Struct)
 
@@ -224,9 +224,9 @@ func TestFilter_StructReadMask_WorkPeriod(t *testing.T) {
 	// Simulates the user's exact use-case from the bug report.
 	msg := &testpb.UpdateRequest{
 		Id: "cf691bdd",
-		ExtraData: newTestStruct(map[string]interface{}{
+		ExtraData: newTestStruct(map[string]any{
 			"type": "PIECEWORK",
-			"workPeriod": map[string]interface{}{
+			"workPeriod": map[string]any{
 				"from": "2026-02-18",
 				"till": "2026-02-19",
 			},
@@ -256,8 +256,8 @@ func TestFilter_MapOfStruct_KeysFilterNormally(t *testing.T) {
 	msg := &testpb.UpdateRequest{
 		Id: "1",
 		StructMap: map[string]*structpb.Struct{
-			"keep": newTestStruct(map[string]interface{}{"x": 1.0}),
-			"drop": newTestStruct(map[string]interface{}{"y": 2.0}),
+			"keep": newTestStruct(map[string]any{"x": 1.0}),
+			"drop": newTestStruct(map[string]any{"y": 2.0}),
 		},
 	}
 
@@ -273,7 +273,7 @@ func TestFilter_MapOfStruct_ValueFiltered(t *testing.T) {
 	msg := &testpb.UpdateRequest{
 		Id: "1",
 		StructMap: map[string]*structpb.Struct{
-			"config": newTestStruct(map[string]interface{}{"a": 1.0, "b": 2.0}),
+			"config": newTestStruct(map[string]any{"a": 1.0, "b": 2.0}),
 		},
 	}
 
@@ -292,8 +292,8 @@ func TestPrune_MapOfStruct_KeysPruneNormally(t *testing.T) {
 	msg := &testpb.UpdateRequest{
 		Id: "1",
 		StructMap: map[string]*structpb.Struct{
-			"keep": newTestStruct(map[string]interface{}{"x": 1.0}),
-			"drop": newTestStruct(map[string]interface{}{"y": 2.0}),
+			"keep": newTestStruct(map[string]any{"x": 1.0}),
+			"drop": newTestStruct(map[string]any{"y": 2.0}),
 		},
 	}
 
@@ -307,7 +307,7 @@ func TestPrune_MapOfStruct_KeysPruneNormally(t *testing.T) {
 func TestFromSetFields_MapOfStruct_EnumeratesKeys(t *testing.T) {
 	msg := &testpb.UpdateRequest{
 		StructMap: map[string]*structpb.Struct{
-			"a": newTestStruct(map[string]interface{}{"k": "v"}),
+			"a": newTestStruct(map[string]any{"k": "v"}),
 		},
 	}
 
@@ -330,8 +330,8 @@ func TestFilter_RepeatedStruct_KeptAsIs(t *testing.T) {
 	msg := &testpb.UpdateRequest{
 		Id: "1",
 		StructList: []*structpb.Struct{
-			newTestStruct(map[string]interface{}{"a": 1.0}),
-			newTestStruct(map[string]interface{}{"b": 2.0}),
+			newTestStruct(map[string]any{"a": 1.0}),
+			newTestStruct(map[string]any{"b": 2.0}),
 		},
 	}
 
@@ -345,7 +345,7 @@ func TestPrune_RepeatedStruct_Cleared(t *testing.T) {
 	msg := &testpb.UpdateRequest{
 		Id: "1",
 		StructList: []*structpb.Struct{
-			newTestStruct(map[string]interface{}{"a": 1.0}),
+			newTestStruct(map[string]any{"a": 1.0}),
 		},
 	}
 
@@ -359,7 +359,7 @@ func TestPrune_RepeatedStruct_Cleared(t *testing.T) {
 func TestFromSetFields_RepeatedStruct_EnumeratesKeys(t *testing.T) {
 	msg := &testpb.UpdateRequest{
 		StructList: []*structpb.Struct{
-			newTestStruct(map[string]interface{}{"k": "v"}),
+			newTestStruct(map[string]any{"k": "v"}),
 		},
 	}
 
@@ -389,7 +389,7 @@ func TestValidate_RepeatedStruct_Valid(t *testing.T) {
 
 // --- ListValue helpers ---
 
-func newTestListValue(items ...interface{}) *structpb.ListValue {
+func newTestListValue(items ...any) *structpb.ListValue {
 	lv, err := structpb.NewList(items)
 	if err != nil {
 		panic(err)
@@ -401,8 +401,8 @@ func msgWithListData() *testpb.UpdateRequest {
 	return &testpb.UpdateRequest{
 		Id: "1",
 		ListData: newTestListValue(
-			map[string]interface{}{"name": "Alice", "age": 30.0},
-			map[string]interface{}{"name": "Bob", "age": 25.0},
+			map[string]any{"name": "Alice", "age": 30.0},
+			map[string]any{"name": "Bob", "age": 25.0},
 		),
 	}
 }
@@ -451,9 +451,9 @@ func TestFilter_ListValueDeeplyNested(t *testing.T) {
 	msg := &testpb.UpdateRequest{
 		Id: "1",
 		ListData: newTestListValue(
-			map[string]interface{}{
-				"items": []interface{}{
-					map[string]interface{}{"x": 1.0, "y": 2.0},
+			map[string]any{
+				"items": []any{
+					map[string]any{"x": 1.0, "y": 2.0},
 				},
 				"other": "val",
 			},
@@ -503,7 +503,7 @@ func TestPrune_ListValueNestedMask_PrunesKeyFromElements(t *testing.T) {
 func TestFromSetFields_ListValueEnumeratesElements(t *testing.T) {
 	msg := &testpb.UpdateRequest{
 		ListData: newTestListValue(
-			map[string]interface{}{"k": "v"},
+			map[string]any{"k": "v"},
 		),
 	}
 
@@ -540,10 +540,10 @@ func TestFilter_StructContainingListValue(t *testing.T) {
 	// extra_data is a Struct with a "items" key that holds a ListValue of Structs.
 	msg := &testpb.UpdateRequest{
 		Id: "1",
-		ExtraData: newTestStruct(map[string]interface{}{
-			"items": []interface{}{
-				map[string]interface{}{"name": "A", "score": 1.0},
-				map[string]interface{}{"name": "B", "score": 2.0},
+		ExtraData: newTestStruct(map[string]any{
+			"items": []any{
+				map[string]any{"name": "A", "score": 1.0},
+				map[string]any{"name": "B", "score": 2.0},
 			},
 			"title": "test",
 		}),
@@ -572,9 +572,9 @@ func TestFilter_StructContainingListValue(t *testing.T) {
 func TestPrune_StructContainingListValue(t *testing.T) {
 	msg := &testpb.UpdateRequest{
 		Id: "1",
-		ExtraData: newTestStruct(map[string]interface{}{
-			"items": []interface{}{
-				map[string]interface{}{"name": "A", "score": 1.0},
+		ExtraData: newTestStruct(map[string]any{
+			"items": []any{
+				map[string]any{"name": "A", "score": 1.0},
 			},
 			"title": "test",
 		}),
@@ -607,7 +607,7 @@ func TestApplyUpdateMask_ListValueInMask_Kept(t *testing.T) {
 	msg := &testpb.UpdateRequest{
 		Id:       "1",
 		Name:     &name,
-		ListData: newTestListValue(map[string]interface{}{"a": "b"}),
+		ListData: newTestListValue(map[string]any{"a": "b"}),
 	}
 	original := proto.Clone(msg.GetListData()).(*structpb.ListValue)
 
@@ -657,9 +657,9 @@ func TestFilter_ListValueScalarElements_Unaffected(t *testing.T) {
 
 func TestFromSetFields_StructWithListValue(t *testing.T) {
 	msg := &testpb.UpdateRequest{
-		ExtraData: newTestStruct(map[string]interface{}{
-			"items": []interface{}{
-				map[string]interface{}{"x": 1.0},
+		ExtraData: newTestStruct(map[string]any{
+			"items": []any{
+				map[string]any{"x": 1.0},
 			},
 		}),
 	}
@@ -674,7 +674,7 @@ func TestFromSetFields_StructWithListValue(t *testing.T) {
 
 // --- Value helpers ---
 
-func newTestValue(v interface{}) *structpb.Value {
+func newTestValue(v any) *structpb.Value {
 	val, err := structpb.NewValue(v)
 	if err != nil {
 		panic(err)
@@ -685,7 +685,7 @@ func newTestValue(v interface{}) *structpb.Value {
 func msgWithValueData() *testpb.UpdateRequest {
 	return &testpb.UpdateRequest{
 		Id:        "1",
-		ValueData: newTestValue(map[string]interface{}{"key": "val", "num": 42.0}),
+		ValueData: newTestValue(map[string]any{"key": "val", "num": 42.0}),
 	}
 }
 
@@ -730,9 +730,9 @@ func TestFilter_ValueNestedListValue_FiltersStructElements(t *testing.T) {
 	// Value wrapping a list of Structs.
 	msg := &testpb.UpdateRequest{
 		Id: "1",
-		ValueData: newTestValue([]interface{}{
-			map[string]interface{}{"name": "Alice", "age": 30.0},
-			map[string]interface{}{"name": "Bob", "age": 25.0},
+		ValueData: newTestValue([]any{
+			map[string]any{"name": "Alice", "age": 30.0},
+			map[string]any{"name": "Bob", "age": 25.0},
 		}),
 	}
 
@@ -836,7 +836,7 @@ func TestApplyUpdateMask_ValueInMask_Kept(t *testing.T) {
 	msg := &testpb.UpdateRequest{
 		Id:        "1",
 		Name:      &name,
-		ValueData: newTestValue(map[string]interface{}{"a": "b"}),
+		ValueData: newTestValue(map[string]any{"a": "b"}),
 	}
 	original := proto.Clone(msg.GetValueData()).(*structpb.Value)
 

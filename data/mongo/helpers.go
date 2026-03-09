@@ -438,7 +438,7 @@ func nextPowerOfTwo(n int) int {
 //	BsonLookup(doc, "missing.key")       // returns nil
 func BsonLookup(doc any, key string) any {
 	current := doc
-	for _, part := range strings.Split(key, ".") {
+	for part := range strings.SplitSeq(key, ".") {
 		current = bsonFieldValue(current, part)
 		if current == nil {
 			return nil

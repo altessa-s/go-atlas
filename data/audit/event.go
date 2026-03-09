@@ -108,7 +108,7 @@ type Event struct {
 	Context   EventContext   `json:"context" bson:"context"`
 	Service   ServiceInfo    `json:"service" bson:"service"`
 	Timestamp time.Time      `json:"timestamp" bson:"timestamp"`
-	Duration  time.Duration  `json:"duration,omitempty" bson:"duration,omitempty"`
+	Duration  time.Duration  `json:"duration,omitzero" bson:"duration,omitzero"`
 	Metadata  map[string]any `json:"metadata,omitempty" bson:"metadata,omitempty"`
 }
 

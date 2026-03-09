@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	coreerrors "github.com/altessa-s/go-atlas/core/errors"
 	coreretry "github.com/altessa-s/go-atlas/core/runtime/retry"
 )
 
@@ -209,8 +210,8 @@ func TestRetryRoundTripper_UnexpectedStatus(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for 403")
 	}
-	var statusErr *UnexpectedStatusError
-	if !errors.As(err, &statusErr) {
+	statusErr, ok := coreerrors.AsType[*UnexpectedStatusError](err)
+	if !ok {
 		t.Fatalf("expected UnexpectedStatusError, got %T: %v", err, err)
 	}
 	if statusErr.Status != http.StatusForbidden {

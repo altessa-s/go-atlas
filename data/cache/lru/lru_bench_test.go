@@ -52,7 +52,7 @@ func BenchmarkShardedCache_ConcurrentPut(b *testing.B) {
 
 func BenchmarkCache_GetOrCompute_StringKey(b *testing.B) {
 	c, _ := NewCache[string, int](1000)
-	ctx := context.Background()
+	ctx := b.Context()
 
 	for b.Loop() {
 		_, _ = c.GetOrCompute(ctx, "miss-key", func(ctx context.Context) (int, error) {
@@ -64,7 +64,7 @@ func BenchmarkCache_GetOrCompute_StringKey(b *testing.B) {
 
 func BenchmarkCache_GetOrCompute_IntKey(b *testing.B) {
 	c, _ := NewCache[int, string](1000)
-	ctx := context.Background()
+	ctx := b.Context()
 
 	for b.Loop() {
 		_, _ = c.GetOrCompute(ctx, 12345, func(ctx context.Context) (string, error) {
