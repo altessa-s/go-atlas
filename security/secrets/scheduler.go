@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/data/probfilter"
 
 	corecontext "github.com/altessa-s/go-atlas/core/context"
@@ -22,7 +23,7 @@ import (
 
 // registerUpdateTask registers the update cycle task with the scheduler if configured.
 func (t *Manager[T]) registerUpdateTask(opts *options) error {
-	if t.scheduler == nil || opts.updateSchedule == "" {
+	if nilcheck.IsNil(t.scheduler) || opts.updateSchedule == "" {
 		return nil
 	}
 

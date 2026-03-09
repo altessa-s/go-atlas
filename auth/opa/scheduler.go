@@ -8,6 +8,8 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
@@ -32,7 +34,7 @@ func (m *Manager) RunUpdateCycle(ctx context.Context) error {
 
 // registerSchedulerTasks registers background tasks with the scheduler if configured.
 func (m *Manager) registerSchedulerTasks(ctx context.Context, o *options) error {
-	if o.scheduler == nil {
+	if nilcheck.IsNil(o.scheduler) {
 		return nil
 	}
 

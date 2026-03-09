@@ -13,6 +13,7 @@ import (
 
 	"github.com/robfig/cron/v3"
 
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/data/filter"
 	"github.com/altessa-s/go-atlas/data/leadelect"
 
@@ -197,7 +198,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	default:
 		logAttrs = append(logAttrs, slog.String("max_concurrent_tasks", "unlimited"))
 	}
-	if s.leaderElector != nil {
+	if nilcheck.IsNotNil(s.leaderElector) {
 		logAttrs = append(logAttrs, slog.String("leader_election", "enabled"))
 	}
 	s.logger.InfoContext(ctx, "scheduler started", logAttrs...)
@@ -247,7 +248,7 @@ func (s *Scheduler) IsRunning() bool {
 // Always returns true when no [WithLeaderElector] option was provided.
 // Safe for concurrent use.
 func (s *Scheduler) IsLeader() bool {
-	if s.leaderElector == nil {
+	if nilcheck.IsNil(s.leaderElector) {
 		return true
 	}
 	return s.leaderElector.IsLeader()

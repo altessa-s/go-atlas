@@ -12,13 +12,15 @@ import (
 
 	"github.com/MicahParks/jwkset"
 
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
 // registerSchedulerTasks registers background tasks with the scheduler if configured.
 func (p *Provider) registerSchedulerTasks(o *options) error {
-	if p.scheduler == nil {
+	if nilcheck.IsNil(p.scheduler) {
 		return nil
 	}
 

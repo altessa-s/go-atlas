@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/transport/http/server/router"
 
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
@@ -221,7 +222,7 @@ func (r *Router) Subrouter() router.Router {
 }
 
 func (rt *route) register(mux *http.ServeMux) {
-	if rt.handler == nil {
+	if nilcheck.IsNil(rt.handler) {
 		panic("router/std: route missing handler; set Handler/HandlerFunc before ServeHTTP")
 	}
 

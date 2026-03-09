@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
@@ -176,7 +177,7 @@ func MustNewStaticProvider(idVal string) *Service {
 //
 //	fmt.Println("Service ID:", s.ID())
 func (s *Service) ID() string {
-	if s.provider == nil {
+	if nilcheck.IsNil(s.provider) {
 		// Return empty string instead of panicking
 		// This should not happen if constructors are used correctly
 		return ""

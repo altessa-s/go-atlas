@@ -7,13 +7,15 @@ package inprogress
 import (
 	"context"
 
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
 // registerTickTask registers the tick cycle task with the scheduler if configured.
 func (m *Manager) registerTickTask(opts *options) error {
-	if m.scheduler == nil || opts.tickSchedule == "" {
+	if nilcheck.IsNil(m.scheduler) || opts.tickSchedule == "" {
 		return nil
 	}
 

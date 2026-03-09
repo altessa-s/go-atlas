@@ -8,6 +8,8 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+
 	corectx "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
@@ -15,7 +17,7 @@ import (
 
 // registerSchedulerTask registers the health check task with the scheduler if configured.
 func (c *Coordinator) registerSchedulerTask(opts *options) error {
-	if c.scheduler == nil || opts.checkSchedule == "" {
+	if nilcheck.IsNil(c.scheduler) || opts.checkSchedule == "" {
 		return nil
 	}
 
