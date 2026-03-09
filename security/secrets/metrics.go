@@ -12,12 +12,12 @@ import (
 // When no [metrics.Collector] is provided, [metrics.Noop] is used and
 // all methods become zero-cost no-ops.
 type secretsMetrics struct {
-	cacheHits          metrics.Counter
-	cacheMisses        metrics.Counter
-	fetchDuration      metrics.Timer
+	cacheHits           metrics.Counter
+	cacheMisses         metrics.Counter
+	fetchDuration       metrics.Timer
 	updateCycleDuration metrics.Timer
-	updateCycleErrors  metrics.Counter
-	cacheSize          metrics.Gauge
+	updateCycleErrors   metrics.Counter
+	cacheSize           metrics.Gauge
 }
 
 func newSecretsMetrics(c metrics.Collector) *secretsMetrics {

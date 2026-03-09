@@ -12,11 +12,11 @@ import (
 // When no [metrics.Collector] is provided, [metrics.Noop] is used and
 // all methods become zero-cost no-ops.
 type auditMetrics struct {
-	eventsEmitted  metrics.Counter
-	eventsDropped  metrics.Counter
-	flushDuration  metrics.Timer
-	storeErrors    metrics.Counter
-	workersActive  metrics.Gauge
+	eventsEmitted metrics.Counter
+	eventsDropped metrics.Counter
+	flushDuration metrics.Timer
+	storeErrors   metrics.Counter
+	workersActive metrics.Gauge
 }
 
 func newAuditMetrics(c metrics.Collector) *auditMetrics {

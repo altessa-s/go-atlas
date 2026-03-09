@@ -12,9 +12,9 @@ import (
 // When no [metrics.Collector] is provided, [metrics.Noop] is used and
 // all methods become zero-cost no-ops.
 type vaultAuthMetrics struct {
-	authAttempts      metrics.Counter
-	authErrors        metrics.Counter
-	tokenRenewals     metrics.Counter
+	authAttempts       metrics.Counter
+	authErrors         metrics.Counter
+	tokenRenewals      metrics.Counter
 	tokenRenewalErrors metrics.Counter
 }
 
