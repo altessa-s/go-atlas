@@ -422,6 +422,7 @@ func (m *Mongo) encryptField(ctx context.Context, data any, alg EncryptionAlg, d
 type fieldMetadata struct {
 	// Field reflection information
 	fieldType  reflect.StructField
+	fieldIndex []int
 	fieldValue reflect.Value
 	fieldName  string
 	fieldKind  reflect.Kind
