@@ -6,8 +6,12 @@
 // shared across the go-atlas project.
 //
 // The package includes:
-//   - Mock providers for caching ([MockCacheProvider]), uniqueness ([MockUniqProvider]),
-//     idempotency ([MockIdempotencyStorage]), and health checking ([MockHealthChecker]).
+//   - Mock providers for uniqueness ([MockUniqProvider]),
+//     idempotency ([MockIdempotencyStorage]), and network errors ([MockNetError]).
+//   - Prometheus metrics test helpers ([NewTestCollector], [GetCounterValue],
+//     [GetGaugeValue], [GetHistogramCount], [GatherMetric]).
+//   - Filter expression parsing ([MustParseFilter]).
+//   - Pointer helpers ([StringPtr], [IntPtr], [TimePtr]).
 //   - HTTP and I/O test doubles ([RoundTripFunc], [MockReadCloser]).
 //   - NATS/JetStream helpers for spinning up embedded servers ([StartNATSServer],
 //     [ConnectNATS], [ConnectJetStream], [CreateNATSKV]).

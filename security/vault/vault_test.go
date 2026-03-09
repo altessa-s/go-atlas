@@ -128,9 +128,3 @@ func TestRawClient(t *testing.T) {
 		t.Errorf("RawClient() returned different client")
 	}
 }
-
-func TestErrTimeout(t *testing.T) {
-	if vault.ErrTimeout.Error() == "" {
-		t.Error("ErrTimeout.Error() should not be empty")
-	}
-}

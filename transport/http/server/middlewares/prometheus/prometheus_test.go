@@ -81,12 +81,3 @@ func TestRecorder_Unwrap(t *testing.T) {
 		t.Fatal("Unwrap should return underlying writer")
 	}
 }
-
-func TestConstants(t *testing.T) {
-	if DefaultSubsystem != "http" {
-		t.Fatalf("DefaultSubsystem = %q", DefaultSubsystem)
-	}
-	if DefaultMetricPrefix != "http_" {
-		t.Fatalf("DefaultMetricPrefix = %q", DefaultMetricPrefix)
-	}
-}

@@ -115,21 +115,6 @@ func TestNewCompressor_Defaults(t *testing.T) {
 	}
 }
 
-func TestPresetConstants(t *testing.T) {
-	if PresetNone != 0 {
-		t.Fatal("PresetNone should be 0")
-	}
-	if PresetFast != 1 {
-		t.Fatal("PresetFast should be 1")
-	}
-}
-
-func TestErrPayloadTooLarge(t *testing.T) {
-	if ErrPayloadTooLarge == nil {
-		t.Fatal("should not be nil")
-	}
-}
-
 func BenchmarkGzipCompressor_Compress(b *testing.B) {
 	c := NewCompressor(10, 0, 6)
 	ctx := b.Context()

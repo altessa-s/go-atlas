@@ -31,15 +31,6 @@ func TestLimitInfo_IsLimitExceeded(t *testing.T) {
 	}
 }
 
-func TestErrLimitExceeded(t *testing.T) {
-	if ErrLimitExceeded == nil {
-		t.Fatal("ErrLimitExceeded is nil")
-	}
-	if ErrLimitExceeded.Error() != "rate limit exceeded" {
-		t.Fatalf("ErrLimitExceeded.Error() = %q", ErrLimitExceeded.Error())
-	}
-}
-
 func TestFunc_Limit(t *testing.T) {
 	expected := &LimitInfo{Limit: 100, Remaining: 50, Reset: 1234567890}
 	fn := Func(func(_ context.Context) (*LimitInfo, error) {

@@ -23,6 +23,7 @@ type Auditor struct {
 	opts       *options
 	storage    Storage
 	dispatcher *dispatcher
+	metrics    *auditMetrics
 	started    atomic.Bool
 	dropped    atomic.Int64
 }
@@ -33,9 +34,12 @@ func New(storage Storage, opts ...Option) (*Auditor, error) {
 		return nil, ErrNilStorage
 	}
 
+	o := newOptions(opts...)
+
 	return &Auditor{
-		opts:    newOptions(opts...),
+		opts:    o,
 		storage: storage,
+		metrics: newAuditMetrics(o.collector),
 	}, nil
 }
 
@@ -45,7 +49,7 @@ func (a *Auditor) Start() error {
 		return ErrAuditorAlreadyStarted
 	}
 
-	a.dispatcher = newDispatcher(a.storage, a.opts)
+	a.dispatcher = newDispatcher(a.storage, a.opts, a.metrics)
 	a.dispatcher.start()
 
 	runtime.OnShutdown(a.Shutdown)
@@ -85,6 +89,7 @@ func (a *Auditor) Emit(event *Event) bool {
 
 	if !a.dispatcher.emit(event) {
 		a.dropped.Add(1)
+		a.metrics.eventsDropped.Inc()
 		if a.opts.onDrop != nil {
 			a.opts.onDrop(event)
 		}
@@ -94,6 +99,7 @@ func (a *Auditor) Emit(event *Event) bool {
 			"action", event.Action)
 		return false
 	}
+	a.metrics.eventsEmitted.Inc()
 	return true
 }
 

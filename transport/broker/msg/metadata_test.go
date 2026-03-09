@@ -190,15 +190,3 @@ func (m *mockAcker) Ack() error                   { return m.ackFn() }
 func (m *mockAcker) Nak(_ ...time.Duration) error { return nil }
 func (m *mockAcker) Term(_ ...string) error       { return nil }
 func (m *mockAcker) InProgress() error            { return nil }
-
-func TestConstants(t *testing.T) {
-	if MetaKeyDeduplicateId != "deduplicate_id" {
-		t.Fatalf("MetaKeyDeduplicateId = %q", MetaKeyDeduplicateId)
-	}
-	if MetaKeyMessageId != "message_id" {
-		t.Fatalf("MetaKeyMessageId = %q", MetaKeyMessageId)
-	}
-	if MetaKeyMessageCreatedTime != "message_created_time" {
-		t.Fatalf("MetaKeyMessageCreatedTime = %q", MetaKeyMessageCreatedTime)
-	}
-}

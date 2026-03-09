@@ -6,15 +6,8 @@ package testhelpers
 
 import (
 	"context"
-	"errors"
 	"sync"
-	"time"
 )
-
-// ErrMockMissing is a sentinel returned by [MockCacheProvider.Get] when a key
-// is not present in the in-memory store. Tests should match against this value
-// the same way they would match providers.ErrMissing in production code.
-var ErrMockMissing = errors.New("no cache found")
 
 // MockNetError implements the [net.Error] interface for testing.
 // The exported fields control the return values of the corresponding methods:
@@ -28,104 +21,6 @@ type MockNetError struct {
 func (e *MockNetError) Error() string   { return e.Msg }
 func (e *MockNetError) Timeout() bool   { return e.IsTimeout }
 func (e *MockNetError) Temporary() bool { return e.IsTemp }
-
-// --- MockCacheProvider ---
-
-// MockCacheProvider is a concurrency-safe, in-memory implementation of
-// data/cache/providers.Provider for testing.
-//
-// Error injection: set SaveErr, GetErr, DeleteErr, or ExistsErr to make the
-// corresponding method return that error instead of performing its normal operation.
-// DeleteMany reuses DeleteErr.
-//
-// Call counting: each method increments its respective *Calls counter on every
-// invocation, regardless of whether an error is injected.
-type MockCacheProvider struct {
-	mu        sync.Mutex
-	store     map[string][]byte
-	SaveErr   error
-	GetErr    error
-	DeleteErr error
-	ExistsErr error
-
-	SaveCalls       int
-	GetCalls        int
-	DeleteCalls     int
-	DeleteManyCalls int
-	ExistsCalls     int
-}
-
-// NewMockCacheProvider returns a ready-to-use [MockCacheProvider] with an
-// empty store and all error injection fields set to nil.
-func NewMockCacheProvider() *MockCacheProvider {
-	return &MockCacheProvider{store: make(map[string][]byte)}
-}
-
-// Save stores value under key. It returns SaveErr if set.
-func (m *MockCacheProvider) Save(_ context.Context, key string, value []byte, _ time.Duration) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.SaveCalls++
-	if m.SaveErr != nil {
-		return m.SaveErr
-	}
-	m.store[key] = value
-	return nil
-}
-
-// Get returns the value for key, or [ErrMockMissing] if the key does not exist.
-// It returns GetErr if set.
-func (m *MockCacheProvider) Get(_ context.Context, key string) ([]byte, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.GetCalls++
-	if m.GetErr != nil {
-		return nil, m.GetErr
-	}
-	v, ok := m.store[key]
-	if !ok {
-		return nil, ErrMockMissing
-	}
-	return v, nil
-}
-
-// Delete removes key from the store. It returns DeleteErr if set.
-func (m *MockCacheProvider) Delete(_ context.Context, key string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.DeleteCalls++
-	if m.DeleteErr != nil {
-		return m.DeleteErr
-	}
-	delete(m.store, key)
-	return nil
-}
-
-// DeleteMany removes all provided keys from the store. It returns DeleteErr if set.
-func (m *MockCacheProvider) DeleteMany(_ context.Context, keys ...string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.DeleteManyCalls++
-	if m.DeleteErr != nil {
-		return m.DeleteErr
-	}
-	for _, k := range keys {
-		delete(m.store, k)
-	}
-	return nil
-}
-
-// Exists reports whether key is present in the store. It returns ExistsErr if set.
-func (m *MockCacheProvider) Exists(_ context.Context, key string) (bool, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.ExistsCalls++
-	if m.ExistsErr != nil {
-		return false, m.ExistsErr
-	}
-	_, ok := m.store[key]
-	return ok, nil
-}
 
 // --- MockUniqProvider ---
 

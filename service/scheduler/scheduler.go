@@ -13,6 +13,7 @@ import (
 
 	"github.com/robfig/cron/v3"
 
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/data/filter"
 	"github.com/altessa-s/go-atlas/data/leadelect"
 
@@ -79,6 +80,9 @@ type Scheduler struct {
 	// re-parsing on every calculateNextRun call. Populated during Register()
 	// and read lock-free in calculateNextRun().
 	scheduleCache sync.Map // map[string]cron.Schedule
+
+	// metrics holds Prometheus metrics for the scheduler.
+	metrics *schedulerMetrics
 }
 
 // registeredTask holds the runtime state of a registered task.
@@ -124,6 +128,8 @@ func New(storage Storage, opts ...Option) *Scheduler {
 			cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
 		),
 	}
+
+	s.metrics = newSchedulerMetrics(o.collector)
 
 	// Dynamic concurrency mode: no semaphores needed, limits are evaluated per tick.
 	if o.concurrencyLimitFunc != nil {
@@ -192,7 +198,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	default:
 		logAttrs = append(logAttrs, slog.String("max_concurrent_tasks", "unlimited"))
 	}
-	if s.leaderElector != nil {
+	if nilcheck.IsNotNil(s.leaderElector) {
 		logAttrs = append(logAttrs, slog.String("leader_election", "enabled"))
 	}
 	s.logger.InfoContext(ctx, "scheduler started", logAttrs...)
@@ -242,7 +248,7 @@ func (s *Scheduler) IsRunning() bool {
 // Always returns true when no [WithLeaderElector] option was provided.
 // Safe for concurrent use.
 func (s *Scheduler) IsLeader() bool {
-	if s.leaderElector == nil {
+	if nilcheck.IsNil(s.leaderElector) {
 		return true
 	}
 	return s.leaderElector.IsLeader()

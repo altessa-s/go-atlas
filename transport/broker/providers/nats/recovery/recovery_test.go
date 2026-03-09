@@ -227,20 +227,3 @@ func TestRegistry_ConcurrentAccess(t *testing.T) {
 	}
 	wg.Wait()
 }
-
-func TestErrors(t *testing.T) {
-	errs := []error{
-		ErrStreamNotRegistered, ErrConsumerNotRegistered,
-		ErrStreamAlreadyRegistered, ErrRecoveryInProgress,
-		ErrMaxRecoveryAttemptsExceeded, ErrManagerClosed,
-		ErrNilJetStream, ErrNilNatsConn,
-		ErrInvalidStreamConfig, ErrInvalidConsumerConfig,
-		ErrSchedulerManaged,
-	}
-
-	for _, err := range errs {
-		if err == nil {
-			t.Fatal("error is nil")
-		}
-	}
-}

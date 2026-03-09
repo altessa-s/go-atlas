@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/data/locks/dlock/providers"
 	"github.com/altessa-s/go-atlas/data/locks/dlock/providers/nats"
 	"github.com/altessa-s/go-atlas/data/locks/dlock/providers/noop"
@@ -148,7 +149,7 @@ func (l *DLock) Lock(ctx context.Context, key string) (providers.Lock, error) {
 // Close releases all resources held by the DLock.
 func (l *DLock) Close(ctx context.Context) error {
 	l.logger.DebugContext(ctx, "closing DLock instance")
-	if l.provider != nil {
+	if nilcheck.IsNotNil(l.provider) {
 		return l.provider.Close(ctx)
 	}
 	return nil

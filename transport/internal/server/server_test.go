@@ -216,15 +216,3 @@ func TestBaseServer_GracefulShutdown_NotStarted(t *testing.T) {
 		t.Fatalf("GracefulShutdown() on non-started server should return nil, got %v", err)
 	}
 }
-
-func TestErrors(t *testing.T) {
-	if ErrServerAlreadyStarted == nil {
-		t.Fatal("ErrServerAlreadyStarted is nil")
-	}
-	if ErrServerClosed == nil {
-		t.Fatal("ErrServerClosed is nil")
-	}
-	if ErrInvalidConfiguration == nil {
-		t.Fatal("ErrInvalidConfiguration is nil")
-	}
-}

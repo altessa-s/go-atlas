@@ -12,6 +12,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/core/runtime/retry"
 	"github.com/altessa-s/go-atlas/observability/health"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
@@ -75,6 +76,8 @@ type options struct {
 	updateSchedule string `opt:"-"`
 	// runOnStart triggers an immediate update cycle when starting
 	runOnStart bool `opt:"-"`
+	// collector for metrics collection
+	collector metrics.Collector `optgen:"notnil"`
 }
 
 func defaultExponentialConfig() retry.ExponentialConfig {

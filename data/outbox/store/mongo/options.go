@@ -19,6 +19,6 @@ const DefaultIndexCreateTimeout = 10 * time.Second
 
 type options struct {
 	collectionName string          `optval:"nonempty" optgen:"default=DefaultCollectionName"`
-	ctx            context.Context `opt:"Context" optval:"notnil"`
+	ctx            context.Context `opt:"Context" optgen:"notnil"`
 	indexTimeout   time.Duration   `opt:"IndexCreateTimeout" optval:"positive" optgen:"default=DefaultIndexCreateTimeout"`
 }

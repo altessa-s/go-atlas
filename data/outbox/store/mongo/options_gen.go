@@ -38,6 +38,9 @@ func WithCollectionName[T interface{ string | *string }](v T) Option {
 // WithContext sets the ctx option.
 func WithContext(v context.Context) Option {
 	return func(o *options) {
+		if v == nil {
+			return
+		}
 		o.ctx = v
 	}
 }

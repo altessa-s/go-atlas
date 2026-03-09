@@ -13,6 +13,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/data/audit"
 	"github.com/altessa-s/go-atlas/data/audit/storages/memory"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 func TestStorage_Store(t *testing.T) {
@@ -123,8 +124,8 @@ func TestStorage_Query(t *testing.T) {
 				{Timestamp: time.Date(2025, 12, 1, 0, 0, 0, 0, time.UTC)},
 			},
 			query: &audit.Query{
-				StartTime: timePtr(time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)),
-				EndTime:   timePtr(time.Date(2025, 9, 1, 0, 0, 0, 0, time.UTC)),
+				StartTime: testhelpers.TimePtr(time.Date(2025, 3, 1, 0, 0, 0, 0, time.UTC)),
+				EndTime:   testhelpers.TimePtr(time.Date(2025, 9, 1, 0, 0, 0, 0, time.UTC)),
 			},
 			wantLen: 1,
 		},
@@ -213,8 +214,4 @@ func TestStorage_Close(t *testing.T) {
 	s := memory.New()
 	err := s.Close(t.Context())
 	assert.NoError(t, err)
-}
-
-func timePtr(t time.Time) *time.Time {
-	return &t
 }

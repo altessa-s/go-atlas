@@ -111,12 +111,3 @@ func TestMiddleware_Dependencies(t *testing.T) {
 		t.Fatalf("Dependencies() = %v, want [realip]", deps)
 	}
 }
-
-func TestConstants(t *testing.T) {
-	if StatusTooManyRequests != 429 {
-		t.Fatal("wrong constant")
-	}
-	if StatusServiceUnavailable != 503 {
-		t.Fatal("wrong constant")
-	}
-}

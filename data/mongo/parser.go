@@ -253,8 +253,7 @@ func (shard *parserCacheShard) evictLRUEntries() {
 }
 
 // tagParser handles BSON tag parsing logic
-type tagParser struct {
-}
+type tagParser struct{}
 
 // parseBSONTag extracts field information from BSON tags
 func (tp *tagParser) parseBSONTag(tag string) (fieldName string, omitEmpty, omitOnUpdate bool) {
@@ -303,26 +302,25 @@ func (nsd *nestedStructureDetector) detectNestedType(fieldValue reflect.Value) N
 	}
 }
 
-// isPointerToStruct checks if the field is a pointer to a struct
+// isPointerToStruct checks if the field type is a pointer to a struct.
 func (nsd *nestedStructureDetector) isPointerToStruct(fieldValue reflect.Value) bool {
 	return fieldValue.Kind() == reflect.Pointer &&
-		fieldValue.Type().Elem().Kind() == reflect.Struct &&
-		!fieldValue.IsNil()
+		fieldValue.Type().Elem().Kind() == reflect.Struct
 }
 
-// isSliceOfStructs checks if the field is a slice/array of structs
+// isSliceOfStructs checks if the field type is a slice/array of structs.
 func (nsd *nestedStructureDetector) isSliceOfStructs(fieldValue reflect.Value) bool {
 	if fieldValue.Kind() != reflect.Slice && fieldValue.Kind() != reflect.Array {
 		return false
 	}
 
 	elemType := getElementType(fieldValue)
-	return elemType.Kind() == reflect.Struct && fieldValue.Len() > 0
+	return elemType.Kind() == reflect.Struct
 }
 
-// isMapWithStructValues checks if the field is a map with struct values
+// isMapWithStructValues checks if the field type is a map with struct values.
 func (nsd *nestedStructureDetector) isMapWithStructValues(fieldValue reflect.Value) bool {
-	if fieldValue.Kind() != reflect.Map || fieldValue.Len() == 0 {
+	if fieldValue.Kind() != reflect.Map {
 		return false
 	}
 
@@ -365,6 +363,7 @@ func (fp *fieldProcessor) processField(fieldType reflect.StructField, fieldValue
 	meta.fieldValue = fieldValue
 	meta.fieldKind = fieldValue.Kind()
 	meta.fieldType = fieldType
+	meta.fieldIndex = fieldType.Index
 	meta.isOmitEmpty = omitEmpty
 	meta.isOmitOnUpdate = omitOnUpdate
 
@@ -442,6 +441,11 @@ func (esp *embeddedStructProcessor) processEmbeddedStruct(
 			// For embedded fields, we don't process deep nesting to avoid complexity
 			meta.nestedType = esp.fieldProcessor.nestedDetector.detectNestedType(embeddedFieldValue)
 			meta.hasNestedData = false
+			// processField sets fieldIndex relative to the embedded struct; override with
+			// the full path from parentType so FieldByIndex works correctly on cache hits.
+			if sf, ok := parentType.FieldByName(embeddedFieldType.Name); ok {
+				meta.fieldIndex = sf.Index
+			}
 			embeddedFields = append(embeddedFields, *meta)
 		}
 	}
@@ -571,9 +575,10 @@ func (p *Parser) ParseStruct(entity any) *StructMetadata {
 	entityType := indirectType(reflect.TypeOf(entity))
 	entityValue := reflect.Indirect(reflect.ValueOf(entity))
 
-	// Fast path: check advanced cache
+	// Fast path: structural metadata is cached per-type, but field values are
+	// instance-specific and must be refreshed from the current entity on every call
 	if cached, hit := p.cache.Get(entityType); hit {
-		return cached
+		return p.refreshFieldValues(cached, entityValue)
 	}
 
 	// Slow path: need to parse - no external locking needed (cache handles it)
@@ -611,6 +616,27 @@ func (p *Parser) ParseStruct(entity any) *StructMetadata {
 // ClearCache clears all cached metadata, useful for testing or memory cleanup
 func (p *Parser) ClearCache() {
 	p.cache.Clear()
+}
+
+// refreshFieldValues returns a new StructMetadata by copying cached structural metadata
+// and rebinding all instance-specific field values from entityValue.
+func (p *Parser) refreshFieldValues(cached *StructMetadata, entityValue reflect.Value) *StructMetadata {
+	result := &StructMetadata{
+		StructType:    cached.StructType,
+		Fields:        make([]fieldMetadata, len(cached.Fields)),
+		NestedStructs: cached.NestedStructs,
+	}
+
+	for i, meta := range cached.Fields {
+		result.Fields[i] = meta
+		result.Fields[i].fieldValue = entityValue.FieldByIndex(meta.fieldIndex)
+		if meta.hasNestedData {
+			result.Fields[i].nestedMetadata = nil
+			result.Fields[i].hasNestedData = false
+		}
+	}
+
+	return result
 }
 
 // estimateFieldCapacity estimates the total number of fields including embedded structs

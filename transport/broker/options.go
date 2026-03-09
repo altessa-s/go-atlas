@@ -12,7 +12,7 @@ import (
 
 // options contains configuration fields for Broker that can be set via Option functions.
 type options struct {
-	outbox           Outboxer     `optval:"notnil"`
-	logger           *slog.Logger `optval:"notnil"`
+	outbox           Outboxer `optgen:"notnil"`
+	logger           *slog.Logger
 	publishConverter PublishConverter
 }

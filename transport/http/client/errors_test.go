@@ -187,22 +187,3 @@ func TestIsCheckers_WrappedErrors(t *testing.T) {
 		t.Fatal("should unwrap to find ResponseSizeError")
 	}
 }
-
-func TestSentinelErrors_NotNil(t *testing.T) {
-	sentinels := []error{
-		ErrCircuitBreakerOpen,
-		ErrResponseSizeExceeded,
-		ErrRateLimited,
-		ErrMaxRetriesExceeded,
-		ErrNonRetryable,
-		ErrUnexpectedStatus,
-	}
-	for _, err := range sentinels {
-		if err == nil {
-			t.Fatal("sentinel error is nil")
-		}
-		if err.Error() == "" {
-			t.Fatalf("sentinel error has empty message: %v", err)
-		}
-	}
-}

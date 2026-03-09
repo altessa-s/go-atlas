@@ -9,12 +9,14 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
 // registerCleanupTask registers cleanup task with scheduler.
 func (p *Provider) registerCleanupTask(schedule string) error {
-	if p.scheduler == nil {
+	if nilcheck.IsNil(p.scheduler) {
 		return fmt.Errorf("scheduler not configured")
 	}
 

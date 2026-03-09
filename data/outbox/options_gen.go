@@ -41,6 +41,9 @@ func WithCleanupSchedule[T interface{ string | *string }](v T) Option {
 // WithContext sets the baseCtx option.
 func WithContext(v context.Context) Option {
 	return func(o *options) {
+		if v == nil {
+			return
+		}
 		o.baseCtx = v
 	}
 }

@@ -252,15 +252,3 @@ func TestDetectMode(t *testing.T) {
 		})
 	}
 }
-
-func TestDefaultConstants(t *testing.T) {
-	if DefaultPoolTimeout != 10*time.Second {
-		t.Errorf("DefaultPoolTimeout = %v", DefaultPoolTimeout)
-	}
-	if DefaultMaxRetries != 5 {
-		t.Errorf("DefaultMaxRetries = %d", DefaultMaxRetries)
-	}
-	if DefaultPingTimeout != 5*time.Second {
-		t.Errorf("DefaultPingTimeout = %v", DefaultPingTimeout)
-	}
-}

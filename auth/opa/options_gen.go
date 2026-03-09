@@ -8,12 +8,23 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/observability/health"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
 // Option is a functional option for configuring options.
 type Option func(o *options)
+
+// WithCollector sets the collector option.
+func WithCollector(v metrics.Collector) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.collector = v
+	}
+}
 
 // WithDecisionLogging enables the decisionLogging option.
 func WithDecisionLogging() Option {
@@ -32,16 +43,6 @@ func WithHealthCoordinator(v *health.Coordinator) Option {
 	}
 }
 
-// WithPollInterval sets the pollInterval option.
-func WithPollInterval(v time.Duration) Option {
-	return func(o *options) {
-		if v <= 0 {
-			return
-		}
-		o.pollInterval = v
-	}
-}
-
 // WithLogger sets the logger option.
 func WithLogger(v *slog.Logger) Option {
 	return func(o *options) {
@@ -49,6 +50,16 @@ func WithLogger(v *slog.Logger) Option {
 			return
 		}
 		o.logger = v
+	}
+}
+
+// WithPollInterval sets the pollInterval option.
+func WithPollInterval(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.pollInterval = v
 	}
 }
 
@@ -73,8 +84,8 @@ func WithWatchChannelSize(v int) Option {
 func defaultOptions() *options {
 	return &options{
 		logger:           slog.New(slog.DiscardHandler),
-		watchChannelSize: DefaultWatchBufferSize,
 		pollInterval:     DefaultPollInterval,
+		watchChannelSize: DefaultWatchBufferSize,
 	}
 }
 

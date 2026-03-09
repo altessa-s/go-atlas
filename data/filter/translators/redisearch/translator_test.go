@@ -9,20 +9,8 @@ import (
 	"testing"
 
 	"github.com/altessa-s/go-atlas/data/filter"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
-
-func mustParse(t *testing.T, expr string) filter.Node {
-	t.Helper()
-	p, err := filter.NewParser(filter.WithParserNoCache())
-	if err != nil {
-		t.Fatalf("NewParser() error = %v", err)
-	}
-	node, err := p.Parse(t.Context(), expr)
-	if err != nil {
-		t.Fatalf("Parse(%q) error = %v", expr, err)
-	}
-	return node
-}
 
 // testSchema provides a schema for testing with common field types.
 var testSchema = map[string]FieldType{
@@ -87,7 +75,7 @@ func TestTranslator_NumericComparisons(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			node := mustParse(t, tt.expr)
+			node := testhelpers.MustParseFilter(t, tt.expr)
 			got, err := trans.Translate(node)
 			if err != nil {
 				t.Fatalf("Translate() error = %v", err)
@@ -131,7 +119,7 @@ func TestTranslator_TagComparisons(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			node := mustParse(t, tt.expr)
+			node := testhelpers.MustParseFilter(t, tt.expr)
 			got, err := trans.Translate(node)
 			if err != nil {
 				t.Fatalf("Translate() error = %v", err)
@@ -175,7 +163,7 @@ func TestTranslator_LogicalOperators(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			node := mustParse(t, tt.expr)
+			node := testhelpers.MustParseFilter(t, tt.expr)
 			got, err := trans.Translate(node)
 			if err != nil {
 				t.Fatalf("Translate() error = %v", err)
@@ -209,7 +197,7 @@ func TestTranslator_InOperator(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			node := mustParse(t, tt.expr)
+			node := testhelpers.MustParseFilter(t, tt.expr)
 			got, err := trans.Translate(node)
 			if err != nil {
 				t.Fatalf("Translate() error = %v", err)
@@ -243,7 +231,7 @@ func TestTranslator_StringFunctions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			node := mustParse(t, tt.expr)
+			node := testhelpers.MustParseFilter(t, tt.expr)
 			got, err := trans.Translate(node)
 			if err != nil {
 				t.Fatalf("Translate() error = %v", err)
@@ -269,7 +257,7 @@ func TestTranslator_UnsupportedOperations(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			node := mustParse(t, tt.expr)
+			node := testhelpers.MustParseFilter(t, tt.expr)
 			_, err := trans.Translate(node)
 			if !errors.Is(err, filter.ErrUnsupportedOperation) {
 				t.Errorf("Translate(%q) error = %v, want %v", tt.expr, err, filter.ErrUnsupportedOperation)
@@ -312,7 +300,7 @@ func TestTranslator_ComplexExpressions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			node := mustParse(t, tt.expr)
+			node := testhelpers.MustParseFilter(t, tt.expr)
 			got, err := trans.Translate(node)
 			if err != nil {
 				t.Fatalf("Translate() error = %v", err)
@@ -328,7 +316,7 @@ func TestTranslator_WithAllowedFields(t *testing.T) {
 	trans := NewTranslator(testSchema, filter.WithAllowedFields("status", "priority"))
 
 	t.Run("allowed field", func(t *testing.T) {
-		node := mustParse(t, `status == 1`)
+		node := testhelpers.MustParseFilter(t, `status == 1`)
 		_, err := trans.Translate(node)
 		if err != nil {
 			t.Errorf("Translate() error = %v for allowed field", err)
@@ -336,7 +324,7 @@ func TestTranslator_WithAllowedFields(t *testing.T) {
 	})
 
 	t.Run("disallowed field", func(t *testing.T) {
-		node := mustParse(t, `name == "test"`)
+		node := testhelpers.MustParseFilter(t, `name == "test"`)
 		_, err := trans.Translate(node)
 		if !errors.Is(err, filter.ErrFieldNotAllowed) {
 			t.Errorf("Translate() error = %v, want %v", err, filter.ErrFieldNotAllowed)
@@ -354,7 +342,7 @@ func TestTranslator_WithFieldMapping(t *testing.T) {
 		}),
 	)
 
-	node := mustParse(t, `status == 1`)
+	node := testhelpers.MustParseFilter(t, `status == 1`)
 	got, err := trans.Translate(node)
 	if err != nil {
 		t.Fatalf("Translate() error = %v", err)
@@ -369,7 +357,7 @@ func TestTranslator_WithMaxDepth(t *testing.T) {
 	trans := NewTranslator(testSchema, filter.WithMaxDepth(2))
 
 	t.Run("within depth", func(t *testing.T) {
-		node := mustParse(t, `status == 1 && priority >= 3`)
+		node := testhelpers.MustParseFilter(t, `status == 1 && priority >= 3`)
 		_, err := trans.Translate(node)
 		if err != nil {
 			t.Errorf("Translate() error = %v for valid depth", err)
@@ -377,7 +365,7 @@ func TestTranslator_WithMaxDepth(t *testing.T) {
 	})
 
 	t.Run("exceeds depth", func(t *testing.T) {
-		node := mustParse(t, `(status == 1 && priority >= 3) && (failures == 0 && age > 10)`)
+		node := testhelpers.MustParseFilter(t, `(status == 1 && priority >= 3) && (failures == 0 && age > 10)`)
 		_, err := trans.Translate(node)
 		if !errors.Is(err, filter.ErrMaxDepthExceeded) {
 			t.Errorf("Translate() error = %v, want %v", err, filter.ErrMaxDepthExceeded)
@@ -414,7 +402,7 @@ func TestTranslator_TagEscaping(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			node := mustParse(t, tt.expr)
+			node := testhelpers.MustParseFilter(t, tt.expr)
 			got, err := trans.Translate(node)
 			if err != nil {
 				t.Fatalf("Translate() error = %v", err)

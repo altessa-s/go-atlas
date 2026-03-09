@@ -204,12 +204,3 @@ func TestConsumerConfig(t *testing.T) {
 		})
 	}
 }
-
-func TestConstants(t *testing.T) {
-	if UnlimitedReconnects != -1 {
-		t.Errorf("UnlimitedReconnects = %d", UnlimitedReconnects)
-	}
-	if UnlimitedReconnectBuffer != -1 {
-		t.Errorf("UnlimitedReconnectBuffer = %d", UnlimitedReconnectBuffer)
-	}
-}

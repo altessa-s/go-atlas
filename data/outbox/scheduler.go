@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+
 	corectx "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
@@ -16,7 +18,7 @@ import (
 
 // registerTasks registers outbox tasks with the scheduler if configured.
 func (o *Outbox) registerTasks(opts *options) error {
-	if o.scheduler == nil {
+	if nilcheck.IsNil(o.scheduler) {
 		return nil
 	}
 

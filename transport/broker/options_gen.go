@@ -23,6 +23,9 @@ func WithLogger(v *slog.Logger) Option {
 // WithOutbox sets the outbox option.
 func WithOutbox(v Outboxer) Option {
 	return func(o *options) {
+		if v == nil {
+			return
+		}
 		o.outbox = v
 	}
 }

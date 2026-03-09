@@ -9,6 +9,8 @@ package auth
 import (
 	"log/slog"
 	"time"
+
+	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // Default configuration for authentication retries.
@@ -23,7 +25,17 @@ const (
 
 type options struct {
 	logger      *slog.Logger
-	backoffBase time.Duration `optgen:"default=DefaultBackoffBase"`
-	backoffMax  time.Duration `optgen:"default=DefaultBackoffMax"`
-	authTimeout time.Duration `optgen:"default=DefaultAuthTimeout"`
+	backoffBase time.Duration     `optgen:"default=DefaultBackoffBase"`
+	backoffMax  time.Duration     `optgen:"default=DefaultBackoffMax"`
+	authTimeout time.Duration     `optgen:"default=DefaultAuthTimeout"`
+	collector   metrics.Collector `opt:"-"`
+}
+
+// WithCollector sets the [metrics.Collector] used to record Vault auth metrics.
+// When nil (the default), [metrics.Noop] is used and all metric operations
+// become zero-cost no-ops.
+func WithCollector(c metrics.Collector) Option {
+	return func(o *options) {
+		o.collector = c
+	}
 }

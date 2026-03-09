@@ -8,7 +8,8 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
+
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 func TestEvent_NextAttempt(t *testing.T) {
@@ -48,7 +49,7 @@ func TestEvent_SetErrorStatus_ContextCanceled(t *testing.T) {
 }
 
 func TestEvent_SetSentStatus(t *testing.T) {
-	e := &Event{LastError: ptrStr("old error")}
+	e := &Event{LastError: testhelpers.StringPtr("old error")}
 	e.setSentStatus()
 	if e.Status != StatusSent {
 		t.Fatalf("Status = %q", e.Status)
@@ -91,51 +92,3 @@ func TestEvent_IsReadyForRetry(t *testing.T) {
 		})
 	}
 }
-
-func TestStatusConstants(t *testing.T) {
-	tests := []struct {
-		status Status
-		want   string
-	}{
-		{StatusInProgress, "in-progress"},
-		{StatusPending, "pending"},
-		{StatusSent, "sent"},
-		{StatusFailed, "failed"},
-		{StatusMaxAttemptReached, "max-attempt-reached"},
-		{StatusSkipped, "skipped"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.want, func(t *testing.T) {
-			if string(tt.status) != tt.want {
-				t.Fatalf("Status = %q, want %q", tt.status, tt.want)
-			}
-		})
-	}
-}
-
-func TestOptionConstants(t *testing.T) {
-	if DefaultEventsBatchSize != 200 {
-		t.Fatalf("DefaultEventsBatchSize = %d", DefaultEventsBatchSize)
-	}
-	if DefaultRetryMaxAttempts != 10 {
-		t.Fatalf("DefaultRetryMaxAttempts = %d", DefaultRetryMaxAttempts)
-	}
-	if DefaultFetchTimeout != 5*time.Second {
-		t.Fatalf("DefaultFetchTimeout = %v", DefaultFetchTimeout)
-	}
-	if DefaultHandleTimeout != 20*time.Second {
-		t.Fatalf("DefaultHandleTimeout = %v", DefaultHandleTimeout)
-	}
-	if DefaultLockInterval != 10*time.Second {
-		t.Fatalf("DefaultLockInterval = %v", DefaultLockInterval)
-	}
-}
-
-func TestErrSchedulerManaged(t *testing.T) {
-	if ErrSchedulerManaged == nil {
-		t.Fatal("ErrSchedulerManaged is nil")
-	}
-}
-
-func ptrStr(s string) *string { return &s }

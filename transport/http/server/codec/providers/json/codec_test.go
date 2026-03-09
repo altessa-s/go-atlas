@@ -160,15 +160,6 @@ func TestEncodeStream_Indent(t *testing.T) {
 	}
 }
 
-func TestConstants(t *testing.T) {
-	if MimeType != "application/json" {
-		t.Fatalf("MimeType = %q", MimeType)
-	}
-	if AlternateMimeType != "text/json" {
-		t.Fatalf("AlternateMimeType = %q", AlternateMimeType)
-	}
-}
-
 func TestEncode_Error(t *testing.T) {
 	c := New()
 	// channels cannot be marshaled

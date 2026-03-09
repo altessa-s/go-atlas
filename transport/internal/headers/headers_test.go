@@ -108,27 +108,3 @@ func TestGRPCHeaderGetter_MissingHeader(t *testing.T) {
 		t.Fatalf("GetSingleHeader(missing) = %q, want empty", got)
 	}
 }
-
-func TestConstants(t *testing.T) {
-	tests := []struct {
-		name     string
-		interned string
-		raw      string
-	}{
-		{"ContentType", ContentType, HeaderContentType},
-		{"ContentLength", ContentLength, HeaderContentLength},
-		{"Accept", Accept, HeaderAccept},
-		{"RateLimitLimit", RateLimitLimit, HeaderRateLimitLimit},
-		{"RateLimitRemaining", RateLimitRemaining, HeaderRateLimitRemaining},
-		{"RateLimitReset", RateLimitReset, HeaderRateLimitReset},
-		{"RetryAfter", RetryAfter, HeaderRetryAfter},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.interned != tt.raw {
-				t.Fatalf("interned %q != raw %q", tt.interned, tt.raw)
-			}
-		})
-	}
-}

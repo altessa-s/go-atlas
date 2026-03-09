@@ -9,6 +9,8 @@ package nats
 import (
 	"log/slog"
 	"time"
+
+	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // DefaultBucket is the default KeyValue bucket name.
@@ -23,6 +25,7 @@ const DefaultRenewRatio = 0.75
 // options contains NATS provider configuration.
 type options struct {
 	logger     *slog.Logger
-	bucket     string  `optgen:"default=DefaultBucket"`
-	renewRatio float64 `optgen:"default=DefaultRenewRatio"`
+	bucket     string            `optgen:"default=DefaultBucket"`
+	renewRatio float64           `optgen:"default=DefaultRenewRatio"`
+	collector  metrics.Collector `optgen:"notnil"`
 }

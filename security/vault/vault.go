@@ -62,7 +62,7 @@ func New(ctx context.Context, opts ...Option) (*Vault, error) {
 	// If we have an auth method, create the authenticator for it.
 	// Authenticator checks auth method and periodically update auth token if needed.
 	if o.authMethod != nil {
-		v.auth = auth.NewAuthenticator(o.vaultClient, o.authMethod, auth.WithLogger(v.logger))
+		v.auth = auth.NewAuthenticator(o.vaultClient, o.authMethod, auth.WithLogger(v.logger), auth.WithCollector(o.collector))
 		v.logger.InfoContext(ctx, "vault client initialized", "auth_method", o.authMethod.Name())
 	} else {
 		v.logger.InfoContext(ctx, "vault client initialized", "auth_method", "none")

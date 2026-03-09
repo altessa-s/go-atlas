@@ -14,6 +14,7 @@ import (
 	"github.com/altessa-s/go-atlas/core/runtime/concurrency"
 	"github.com/altessa-s/go-atlas/data/leadelect/providers"
 	"github.com/altessa-s/go-atlas/data/leadelect/providers/nats"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	corecontext "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
@@ -25,6 +26,7 @@ import (
 type Leader struct {
 	provider providers.Provider
 	cfg      Config
+	metrics  *leaderMetrics
 
 	lostMu       sync.RWMutex
 	onLeaderLost []Callback
@@ -49,6 +51,7 @@ func New(provider providers.Provider, cfg Config, opts ...Option) *Leader {
 	le := &Leader{
 		provider:       provider,
 		cfg:            cfg,
+		metrics:        newLeaderMetrics(options.collector),
 		handlerTimeout: options.handlerTimeout,
 	}
 
@@ -155,11 +158,15 @@ func (le *Leader) Start(ctx context.Context) error {
 				if !ok {
 					return
 				}
+				le.metrics.transitions.WithLabels(metrics.Labels{"type": "became_leader"}).Inc()
+				le.metrics.isLeader.Set(1)
 				le.runCallback(ctx, le.onBecomesLeader...)
 			case _, ok := <-lostCh:
 				if !ok {
 					return
 				}
+				le.metrics.transitions.WithLabels(metrics.Labels{"type": "lost_leader"}).Inc()
+				le.metrics.isLeader.Set(0)
 				le.runCallback(ctx, le.onLeaderLost...)
 			}
 		}
@@ -172,6 +179,9 @@ func (le *Leader) runCallback(ctx context.Context, fn ...Callback) {
 	if fn == nil {
 		return
 	}
+
+	stop := le.metrics.callbackDuration.Start()
+	defer stop()
 
 	// Run all callbacks concurrently.
 	// Any context cancellation or internal errors are handled by checking the returned error.
@@ -189,7 +199,7 @@ func (le *Leader) runCallback(ctx context.Context, fn ...Callback) {
 	}, concurrency.BatchConfig[Callback]{
 		StopOnError: false, // Run all callbacks regardless of errors
 	}); err != nil {
-		// Logging is not appropriate here as it's a generic callback runner.
+		le.metrics.callbackErrors.Inc()
 		return
 	}
 }

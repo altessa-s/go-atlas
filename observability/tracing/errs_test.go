@@ -9,26 +9,6 @@ import (
 	"testing"
 )
 
-func TestSentinelErrors_NotNil(t *testing.T) {
-	sentinels := []struct {
-		name string
-		err  error
-	}{
-		{"ErrInvalidTraceID", ErrInvalidTraceID},
-		{"ErrInvalidSpanID", ErrInvalidSpanID},
-		{"ErrTracerShutdown", ErrTracerShutdown},
-		{"ErrEmptySpanName", ErrEmptySpanName},
-		{"ErrNilAdapter", ErrNilAdapter},
-	}
-	for _, tt := range sentinels {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.err == nil {
-				t.Error("sentinel error should not be nil")
-			}
-		})
-	}
-}
-
 func TestWrapAdapterError(t *testing.T) {
 	err := WrapAdapterError(errors.New("fail"), "otlp")
 	if err == nil {

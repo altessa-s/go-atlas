@@ -8,6 +8,8 @@ package leadelect
 
 import (
 	"time"
+
+	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // DefaultHandlerTimeout is the default timeout for callback execution (3 seconds).
@@ -15,5 +17,6 @@ const DefaultHandlerTimeout = 3 * time.Second
 
 // options contains Leader configuration.
 type options struct {
-	handlerTimeout time.Duration `optgen:"default=DefaultHandlerTimeout"`
+	handlerTimeout time.Duration     `optgen:"default=DefaultHandlerTimeout"`
+	collector      metrics.Collector `optgen:"notnil"`
 }

@@ -17,6 +17,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/data/internal/natskvlease"
 	"github.com/altessa-s/go-atlas/data/leadelect/providers"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	lerrs "github.com/altessa-s/go-atlas/data/leadelect/errs"
@@ -40,9 +41,10 @@ type notificationEvent struct {
 // Provider implements leader election using NATS JetStream KeyValue.
 // It is safe for concurrent use.
 type Provider struct {
-	client *nats.Conn
-	js     jetstream.JetStream
-	opts   *options
+	client  *nats.Conn
+	js      jetstream.JetStream
+	opts    *options
+	metrics *natsLeaderMetrics
 
 	isRunning atomic.Bool
 	isLeader  atomic.Bool
@@ -72,6 +74,7 @@ func New(ctx context.Context, client *nats.Conn, opts ...Option) (*Provider, err
 	p := &Provider{
 		client:         client,
 		opts:           cfg,
+		metrics:        newNatsLeaderMetrics(cfg.collector),
 		notificationCh: make(chan notificationEvent, 10), // Buffered to avoid blocking
 	}
 
@@ -318,6 +321,8 @@ func (p *Provider) camping(ctx context.Context) {
 	defer ticker.Stop()
 
 	for {
+		iterStop := p.metrics.campingIterations.Start()
+
 		select {
 		case <-ticker.C:
 			if !p.isLeader.Load() {
@@ -325,6 +330,7 @@ func (p *Provider) camping(ctx context.Context) {
 			} else {
 				renew()
 			}
+			iterStop()
 		case update := <-watcher.Updates():
 			if update == nil {
 				acquire()
@@ -342,8 +348,10 @@ func (p *Provider) camping(ctx context.Context) {
 			if isLeader && !p.isLeader.Load() {
 				logger.DebugContext(ctx, "camping: leadership lost")
 			}
+			iterStop()
 
 		case <-ctx.Done():
+			iterStop()
 			logger.DebugContext(ctx, "camping: context canceled, resigning from leadership")
 
 			_ = p.resign(context.Background()) //nolint:errcheck,contextcheck
@@ -361,6 +369,12 @@ func (p *Provider) camping(ctx context.Context) {
 func (p *Provider) setLeader(ctx context.Context, l bool, becameCh, lostCh chan<- struct{}) {
 	wasLeader := p.isLeader.Load()
 	p.isLeader.Store(l)
+
+	if l {
+		p.metrics.isLeader.Set(1)
+	} else {
+		p.metrics.isLeader.Set(0)
+	}
 
 	if l && !wasLeader { // Became leader
 		p.queueNotification(ctx, eventBecameLeader, becameCh, lostCh, nil)
@@ -397,6 +411,7 @@ func (p *Provider) acquire(ctx context.Context) (bool, error) {
 	// Attempt to create the key - this works only if the key doesn't exist.
 	_, err := p.kvOps.Create(ctx, config.Key, []byte(config.NodeId))
 	if err != nil && !errors.Is(err, jetstream.ErrKeyExists) {
+		p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "acquire", "result": "failure"}).Inc()
 		return false, err
 	}
 
@@ -404,12 +419,23 @@ func (p *Provider) acquire(ctx context.Context) (bool, error) {
 	if getErr == nil && string(entry.Value()) == config.NodeId {
 		// We are the current leader, so we can update the key to renew the lease.
 		_, updateErr := p.kvOps.Update(ctx, config.Key, []byte(config.NodeId), entry.Revision())
+		if updateErr == nil {
+			p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "acquire", "result": "success"}).Inc()
+		} else {
+			p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "acquire", "result": "failure"}).Inc()
+		}
 		return updateErr == nil, updateErr
 	} else if errors.Is(getErr, jetstream.ErrKeyNotFound) {
 		_, err = p.kvOps.Create(ctx, config.Key, []byte(config.NodeId))
+		if err == nil {
+			p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "acquire", "result": "success"}).Inc()
+		} else {
+			p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "acquire", "result": "failure"}).Inc()
+		}
 		return err == nil, err
 	}
 
+	p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "acquire", "result": "failure"}).Inc()
 	return false, getErr
 }
 
@@ -423,8 +449,10 @@ func (p *Provider) resign(ctx context.Context) error {
 	if err != nil {
 		if errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, nats.ErrBucketNotFound) ||
 			errors.Is(err, nats.ErrNoStreamResponse) {
+			p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "resign", "result": "success"}).Inc()
 			return nil
 		}
+		p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "resign", "result": "failure"}).Inc()
 		return err
 	}
 
@@ -432,12 +460,15 @@ func (p *Provider) resign(ctx context.Context) error {
 	if string(entry.Value()) == config.NodeId {
 		if err := p.kvOps.DeleteWithRevision(ctx, config.Key, entry.Revision()); err != nil {
 			if errors.Is(err, jetstream.ErrKeyNotFound) {
+				p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "resign", "result": "success"}).Inc()
 				return nil
 			}
+			p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "resign", "result": "failure"}).Inc()
 			return err
 		}
 	}
 
+	p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "resign", "result": "success"}).Inc()
 	return nil
 }
 
@@ -448,16 +479,23 @@ func (p *Provider) renew(ctx context.Context) (bool, error) {
 
 	entry, err := p.kvOps.Get(ctx, config.Key)
 	if err != nil {
+		p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "renew", "result": "failure"}).Inc()
 		return false, err
 	}
 
 	// Check if we are still the owner before renewing
 	if entry == nil || string(entry.Value()) != config.NodeId {
+		p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "renew", "result": "failure"}).Inc()
 		return false, nil
 	}
 
 	// Update the key with the same value, which resets the TTL.
 	_, err = p.kvOps.Update(ctx, config.Key, []byte(config.NodeId), entry.Revision())
+	if err == nil {
+		p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "renew", "result": "success"}).Inc()
+	} else {
+		p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "renew", "result": "failure"}).Inc()
+	}
 	return err == nil, err
 }
 

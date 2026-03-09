@@ -12,7 +12,9 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/altessa-s/go-atlas/config"
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/data/leadelect"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/service/scheduler"
 
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
@@ -31,6 +33,7 @@ type SchedulerBuilder struct {
 
 	// Dependencies
 	leaderElector leadelect.LeaderElector
+	collector     metrics.Collector
 	mongoDb       *mongo.Database
 	redisClient   redis.UniversalClient
 }
@@ -66,6 +69,7 @@ func (b *SchedulerBuilder) Build() (*scheduler.Scheduler, error) {
 		scheduler.WithMaxConcurrentTasks(b.cfg.MaxConcurrentTasks),
 		scheduler.WithReservedHighPrioritySlots(b.cfg.ReservedHighPrioritySlots),
 		scheduler.WithStaleTaskTimeout(b.cfg.StaleTaskTimeout),
+		scheduler.WithCollector(b.collector),
 	}
 
 	opts := b.applyDefaults(configOpts)
@@ -77,7 +81,7 @@ func (b *SchedulerBuilder) applyDefaults(opts []scheduler.Option) []scheduler.Op
 	var defaults []scheduler.Option
 	// Base.Logger() never returns nil
 	defaults = append(defaults, scheduler.WithLogger(b.Logger()))
-	if b.leaderElector != nil {
+	if nilcheck.IsNotNil(b.leaderElector) {
 		defaults = append(defaults, scheduler.WithLeaderElector(b.leaderElector))
 	}
 	return append(defaults, opts...)

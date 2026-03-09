@@ -146,6 +146,7 @@ func (s *Scheduler) Register(ctx context.Context, cfg corescheduler.TaskConfig) 
 	s.tasks[cfg.ID] = &registeredTask{
 		config: cfg,
 	}
+	s.metrics.tasksRegistered.Inc()
 
 	logAttrs := []any{
 		slog.String("task_id", cfg.ID),
@@ -176,6 +177,7 @@ func (s *Scheduler) Unregister(ctx context.Context, id string) error {
 	}
 
 	delete(s.tasks, id)
+	s.metrics.tasksRegistered.Dec()
 
 	if err := s.storage.DeleteTask(ctx, id); err != nil {
 		return coreerrs.WrapOperation(err, "delete task from storage")

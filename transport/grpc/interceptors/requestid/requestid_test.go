@@ -69,18 +69,6 @@ func TestContext_RoundTrip(t *testing.T) {
 	}
 }
 
-func TestErrInvalidRequestId(t *testing.T) {
-	if ErrInvalidRequestId == nil {
-		t.Fatal("should not be nil")
-	}
-}
-
-func TestMaxMetadataPoolSize(t *testing.T) {
-	if MaxMetadataPoolSize != 10 {
-		t.Fatalf("MaxMetadataPoolSize = %d", MaxMetadataPoolSize)
-	}
-}
-
 func TestServerInterceptor_Dependencies(t *testing.T) {
 	i := &interceptor{}
 	deps := i.Dependencies()

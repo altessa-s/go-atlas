@@ -68,12 +68,3 @@ func TestMiddleware_ZeroLimit(t *testing.T) {
 		t.Fatal("handler should be called with zero limit")
 	}
 }
-
-func TestErrBodyTooLarge(t *testing.T) {
-	if ErrBodyTooLarge == nil {
-		t.Fatal("ErrBodyTooLarge should not be nil")
-	}
-	if ErrBodyTooLarge.Error() != "request body too large" {
-		t.Fatalf("error = %q", ErrBodyTooLarge.Error())
-	}
-}

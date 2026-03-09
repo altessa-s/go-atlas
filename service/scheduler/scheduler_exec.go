@@ -14,6 +14,8 @@ import (
 
 	"github.com/robfig/cron/v3"
 
+	"github.com/altessa-s/go-atlas/observability/metrics"
+
 	corectx "github.com/altessa-s/go-atlas/core/context"
 )
 
@@ -71,6 +73,9 @@ func (s *Scheduler) run() {
 // cross-referenced with the in-memory registration map. This avoids
 // N individual GetTask calls per tick for networked backends.
 func (s *Scheduler) tick() {
+	stop := s.metrics.tickDuration.Start()
+	defer stop()
+
 	// Skip execution if not the leader
 	if !s.IsLeader() {
 		s.logger.DebugContext(s.stopCtx, "skipping tick: not leader")
@@ -146,6 +151,7 @@ func (s *Scheduler) tick() {
 					slog.String("task_id", state.ID),
 					slog.Any("error", err))
 			}
+			s.metrics.tasksSkipped.WithLabels(metrics.Labels{"task_id": state.ID}).Inc()
 			s.logger.InfoContext(s.stopCtx, "task run skipped", slog.String("task_id", state.ID))
 			continue
 		}
@@ -369,6 +375,14 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 	}
 	defer task.running.Store(false)
 
+	s.metrics.tasksRunning.Inc()
+	defer s.metrics.tasksRunning.Dec()
+
+	taskLabels := metrics.Labels{"task_id": state.ID, "priority": task.config.Priority.String()}
+	s.metrics.tasksDispatched.WithLabels(taskLabels).Inc()
+	stopTimer := s.metrics.taskDuration.WithLabels(taskLabels).Start()
+	defer stopTimer()
+
 	runID := generateID()
 	startTime := time.Now()
 
@@ -476,6 +490,7 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 		freshState.Failures = 0
 	} else {
 		freshState.Failures++
+		s.metrics.taskErrors.WithLabels(metrics.Labels{"task_id": state.ID}).Inc()
 		s.logger.ErrorContext(ctx, "task execution failed",
 			slog.String("task_id", state.ID),
 			slog.String("run_id", runID),
@@ -623,6 +638,8 @@ func (s *Scheduler) recoverStaleTasks(ctx context.Context, startup bool) {
 				slog.Any("error", err))
 			continue
 		}
+
+		s.metrics.staleTasksRecovered.Inc()
 
 		if startup {
 			s.logger.WarnContext(ctx, "recovered stale task on startup",

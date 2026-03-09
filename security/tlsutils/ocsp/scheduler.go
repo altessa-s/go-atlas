@@ -10,13 +10,15 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
 // registerSchedulerTask registers the OCSP refresh task with the scheduler if configured.
 func (s *Stapler) registerSchedulerTask(opts *options) error {
-	if s.scheduler == nil || opts.refreshSchedule == "" {
+	if nilcheck.IsNil(s.scheduler) || opts.refreshSchedule == "" {
 		return nil
 	}
 

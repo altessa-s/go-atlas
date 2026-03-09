@@ -4,8 +4,13 @@
 
 package testhelpers
 
+import "time"
+
 // StringPtr returns a pointer to the given string.
 func StringPtr(s string) *string { return &s }
 
 // IntPtr returns a pointer to the given int.
 func IntPtr(i int) *int { return &i }
+
+// TimePtr returns a pointer to the given [time.Time].
+func TimePtr(t time.Time) *time.Time { return &t }

@@ -11,12 +11,24 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/altessa-s/go-atlas/observability/metrics"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 
 	corecontext "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+)
+
+// closeReason identifies why a connection was closed.
+type closeReason string
+
+const (
+	closeReasonIdle      closeReason = "idle"
+	closeReasonUnhealthy closeReason = "unhealthy"
+	closeReasonPoolFull  closeReason = "pool_full"
+	closeReasonShutdown  closeReason = "shutdown"
 )
 
 // ConnectionPool manages a pool of gRPC client connections with automatic cleanup
@@ -32,6 +44,7 @@ import (
 type ConnectionPool struct {
 	opts      *options
 	logger    *slog.Logger
+	metrics   *poolMetrics
 	pools     sync.Map // map[string]*targetPool
 	connOwner sync.Map // map[*grpc.ClientConn]*targetPool — O(1) lookup for ReturnConnection
 	stopped   atomic.Bool
@@ -70,8 +83,9 @@ type pooledConnection struct {
 func New(opts ...Option) *ConnectionPool {
 	options := newOptions(opts...)
 	return &ConnectionPool{
-		opts:   options,
-		logger: options.logger,
+		opts:    options,
+		logger:  options.logger,
+		metrics: newPoolMetrics(options.collector),
 	}
 }
 
@@ -222,6 +236,7 @@ func (cp *ConnectionPool) getOrCreateTargetPool(target string) *targetPool {
 
 // cleanup performs cleanup of idle connections across all target pools.
 func (cp *ConnectionPool) cleanup() {
+	stop := cp.metrics.cleanupDuration.Start()
 	cleanedTotal := 0
 
 	cp.pools.Range(func(key, value any) bool {
@@ -233,7 +248,11 @@ func (cp *ConnectionPool) cleanup() {
 		return true
 	})
 
+	stop()
+
 	if cleanedTotal > 0 {
+		cp.metrics.cleanupRemoved.Add(float64(cleanedTotal))
+		cp.metrics.connectionsIdle.Sub(float64(cleanedTotal))
 		//nolint:contextcheck // background cleanup goroutine has no request context
 		cp.logger.DebugContext(context.Background(), "cleaned up idle connections", "count", cleanedTotal)
 	}
@@ -245,6 +264,8 @@ func (tp *targetPool) getConnection(ctx context.Context) (*grpc.ClientConn, erro
 		return nil, ErrConnectionPoolClosed
 	}
 
+	m := tp.pool.metrics
+
 	// Try to get an existing connection
 	select {
 	case pc := <-tp.connections:
@@ -252,10 +273,13 @@ func (tp *targetPool) getConnection(ctx context.Context) (*grpc.ClientConn, erro
 		if tp.isHealthy(pc) {
 			pc.inUse.Store(true)
 			pc.lastUsed.Store(time.Now().UnixNano())
+			m.connectionsReused.WithLabels(metrics.Labels{"target": tp.target}).Inc()
+			m.connectionsInUse.Inc()
+			m.connectionsIdle.Dec()
 			return pc.conn, nil
 		}
 		// Connection is unhealthy, close it and try to create a new one
-		tp.closeConnection(pc)
+		tp.closeConnection(pc, closeReasonUnhealthy)
 	default:
 		// No connections available, try to create a new one
 	}
@@ -270,6 +294,8 @@ func (tp *targetPool) returnConnection(conn *grpc.ClientConn) bool {
 		return false
 	}
 
+	m := tp.pool.metrics
+
 	// Find this connection in active connections
 	if value, ok := tp.active.Load(conn); ok {
 		pc, pcOK := value.(*pooledConnection)
@@ -277,25 +303,27 @@ func (tp *targetPool) returnConnection(conn *grpc.ClientConn) bool {
 			return false
 		}
 		if tp.closed.Load() {
-			tp.closeConnection(pc)
+			tp.closeConnection(pc, closeReasonShutdown)
 			return true
 		}
 		pc.inUse.Store(false)
 		pc.lastUsed.Store(time.Now().UnixNano())
+		m.connectionsInUse.Dec()
 
 		// Return to pool if there's space and connection is healthy
 		if tp.isHealthy(pc) {
 			select {
 			case tp.connections <- pc:
+				m.connectionsIdle.Inc()
 				return true
 			default:
 				// Pool is full, close the connection
-				tp.closeConnection(pc)
+				tp.closeConnection(pc, closeReasonPoolFull)
 				return true
 			}
 		} else {
 			// Connection is unhealthy, close it
-			tp.closeConnection(pc)
+			tp.closeConnection(pc, closeReasonUnhealthy)
 			return true
 		}
 	}
@@ -306,6 +334,9 @@ func (tp *targetPool) returnConnection(conn *grpc.ClientConn) bool {
 // createConnection establishes a new connection to the target.
 func (tp *targetPool) createConnection(ctx context.Context) (*grpc.ClientConn, error) {
 	tp.logger.DebugContext(ctx, "establishing new connection")
+
+	m := tp.pool.metrics
+	stop := m.connectDuration.WithLabels(metrics.Labels{"target": tp.target}).Start()
 
 	// Apply connect timeout if not already set in context
 	ctx, cancel := corecontext.ApplyTimeout(ctx, tp.opts.connectTimeout)
@@ -324,8 +355,11 @@ func (tp *targetPool) createConnection(ctx context.Context) (*grpc.ClientConn, e
 		)
 	}
 
+	stop()
+
 	if err != nil {
 		tp.logger.ErrorContext(ctx, "failed to create connection", "error", err)
+		m.connectionErrors.WithLabels(metrics.Labels{"target": tp.target}).Inc()
 		return nil, coreerrs.Wrapf(err, "failed to connect to %s", tp.target)
 	}
 
@@ -345,6 +379,10 @@ func (tp *targetPool) createConnection(ctx context.Context) (*grpc.ClientConn, e
 		tp.pool.connOwner.Store(conn, tp)
 	}
 
+	m.connectionsCreated.WithLabels(metrics.Labels{"target": tp.target}).Inc()
+	m.connectionsActive.Inc()
+	m.connectionsInUse.Inc()
+
 	tp.logger.DebugContext(ctx, "established new connection")
 	return conn, nil
 }
@@ -360,7 +398,7 @@ func (tp *targetPool) isHealthy(pc *pooledConnection) bool {
 }
 
 // closeConnection closes a pooled connection and removes it from tracking.
-func (tp *targetPool) closeConnection(pc *pooledConnection) {
+func (tp *targetPool) closeConnection(pc *pooledConnection, reason closeReason) {
 	if pc == nil || pc.conn == nil {
 		return
 	}
@@ -370,6 +408,10 @@ func (tp *targetPool) closeConnection(pc *pooledConnection) {
 	// Remove conn→targetPool mapping
 	if tp.pool != nil {
 		tp.pool.connOwner.Delete(pc.conn)
+
+		m := tp.pool.metrics
+		m.connectionsClosed.WithLabels(metrics.Labels{"target": tp.target, "reason": string(reason)}).Inc()
+		m.connectionsActive.Dec()
 	}
 
 	_ = pc.conn.Close() // #nosec G104 -- error ignored in cleanup path
@@ -392,7 +434,11 @@ func (tp *targetPool) cleanup() int {
 		case pc := <-tp.connections:
 			lastUsed := pc.lastUsed.Load()
 			if lastUsed < cutoff || !tp.isHealthy(pc) {
-				tp.closeConnection(pc)
+				reason := closeReasonIdle
+				if !tp.isHealthy(pc) {
+					reason = closeReasonUnhealthy
+				}
+				tp.closeConnection(pc, reason)
 				cleaned++
 			} else {
 				// Connection is still fresh, put it back
@@ -400,7 +446,7 @@ func (tp *targetPool) cleanup() int {
 				case tp.connections <- pc:
 				default:
 					// Pool is full, close this connection
-					tp.closeConnection(pc)
+					tp.closeConnection(pc, closeReasonPoolFull)
 					cleaned++
 				}
 			}
@@ -423,7 +469,7 @@ func (tp *targetPool) close(ctx context.Context) {
 	for {
 		select {
 		case pc := <-tp.connections:
-			tp.closeConnection(pc)
+			tp.closeConnection(pc, closeReasonShutdown)
 		default:
 			goto closeActive
 		}
@@ -434,7 +480,7 @@ closeActive:
 	tp.active.Range(func(key, value any) bool {
 		pc, ok := value.(*pooledConnection)
 		if ok {
-			tp.closeConnection(pc)
+			tp.closeConnection(pc, closeReasonShutdown)
 		}
 		return true
 	})

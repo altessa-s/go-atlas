@@ -18,6 +18,8 @@ import (
 	"github.com/open-policy-agent/opa/v1/storage"
 	"github.com/open-policy-agent/opa/v1/storage/inmem"
 
+	"github.com/altessa-s/go-atlas/observability/metrics"
+
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
@@ -37,6 +39,7 @@ type Manager struct {
 
 	watchManager *watchManager
 	opts         *options
+	metrics      *opaMetrics
 	logger       *slog.Logger
 
 	mu                  sync.Mutex
@@ -67,6 +70,7 @@ func NewManager(ctx context.Context, source PolicySource, query string, opts ...
 		store:        inmem.New(),
 		watchManager: newWatchManager(),
 		opts:         o,
+		metrics:      newOpaMetrics(o.collector),
 		logger:       cmp.Or(o.logger, slog.New(slog.DiscardHandler)),
 	}
 
@@ -209,16 +213,21 @@ func (m *Manager) runUpdateCycleInternal(ctx context.Context) error {
 
 // reload fetches and loads policies from the source.
 func (m *Manager) reload(ctx context.Context) error {
+	stop := m.metrics.reloadDuration.Start()
+	defer stop()
+
 	bundle, err := m.source.Fetch(ctx)
 	if err != nil {
 		m.lastError.Store(&err)
 		m.broadcastError(err)
+		m.metrics.policyReloads.WithLabels(metrics.Labels{"result": "fetch_error"}).Inc()
 		return fmt.Errorf("%w: %w", ErrBundleFetchFailed, err)
 	}
 
 	currentRevision := m.Revision()
 	if bundle.Revision == currentRevision {
 		m.logger.Debug("bundle unchanged, skipping reload", slog.String("revision", bundle.Revision))
+		m.metrics.policyReloads.WithLabels(metrics.Labels{"result": "unchanged"}).Inc()
 		return nil
 	}
 
@@ -228,6 +237,7 @@ func (m *Manager) reload(ctx context.Context) error {
 		if loadErr := loadBundleData(ctx, store, bundle.Data); loadErr != nil {
 			m.lastError.Store(&loadErr)
 			m.broadcastError(loadErr)
+			m.metrics.policyReloads.WithLabels(metrics.Labels{"result": "prepare_error"}).Inc()
 			return fmt.Errorf("%w: %w", ErrQueryPrepareFailed, loadErr)
 		}
 	}
@@ -247,6 +257,7 @@ func (m *Manager) reload(ctx context.Context) error {
 	if err != nil {
 		m.lastError.Store(&err)
 		m.broadcastError(err)
+		m.metrics.policyReloads.WithLabels(metrics.Labels{"result": "prepare_error"}).Inc()
 		return fmt.Errorf("%w: %w", ErrQueryPrepareFailed, err)
 	}
 
@@ -258,6 +269,8 @@ func (m *Manager) reload(ctx context.Context) error {
 	now := time.Now()
 	m.lastUpdate.Store(&now)
 	m.lastError.Store(nil)
+	m.metrics.policyReloads.WithLabels(metrics.Labels{"result": "success"}).Inc()
+	m.metrics.modulesLoaded.Set(float64(bundle.ModuleCount()))
 
 	m.logger.Info("policies reloaded",
 		slog.String("source", m.source.Name()),
@@ -342,28 +355,41 @@ type regoEvaluator struct {
 
 // Evaluate evaluates the policy with the given input.
 func (e *regoEvaluator) Evaluate(ctx context.Context, input any) (*Result, error) {
+	stop := e.manager.metrics.evaluationDuration.Start()
+	defer stop()
+
 	pq := e.manager.preparedEval.Load()
 	if pq == nil {
+		e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": "error"}).Inc()
 		return nil, ErrPoliciesNotLoaded
 	}
 
 	results, err := pq.Eval(ctx, rego.EvalInput(input))
 	if err != nil {
+		e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": "error"}).Inc()
 		return nil, coreerrs.WrapOperation(err, "evaluate policy")
 	}
 
 	if len(results) == 0 {
+		e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": "deny"}).Inc()
 		return &Result{Allow: false}, nil
 	}
 
 	if len(results[0].Expressions) == 0 {
+		e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": "deny"}).Inc()
 		return e.buildResult(false), nil
 	}
 
 	if allow, ok := results[0].Expressions[0].Value.(bool); ok {
+		if allow {
+			e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": "allow"}).Inc()
+		} else {
+			e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": "deny"}).Inc()
+		}
 		return e.buildResult(allow), nil
 	}
 
+	e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": "deny"}).Inc()
 	return e.buildResult(false), nil
 }
 

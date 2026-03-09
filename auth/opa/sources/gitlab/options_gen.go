@@ -5,6 +5,7 @@ package gitlab
 
 import (
 	"log/slog"
+	"strings"
 	"time"
 )
 
@@ -12,16 +13,48 @@ import (
 type Option func(o *options)
 
 // WithDir sets the dir option.
-func WithDir(v string) Option {
+func WithDir[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
-		o.dir = v
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.dir = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.dir = vv
+		}
 	}
 }
 
 // WithEndpoint sets the endpoint option.
-func WithEndpoint(v string) Option {
+func WithEndpoint[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
-		o.endpoint = v
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.endpoint = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.endpoint = vv
+		}
 	}
 }
 
@@ -50,9 +83,25 @@ func WithProjectID(v int) Option {
 }
 
 // WithRef sets the ref option.
-func WithRef(v string) Option {
+func WithRef[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
-		o.ref = v
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.ref = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.ref = vv
+		}
 	}
 }
 
@@ -84,9 +133,25 @@ func WithRetryWaitMin(v time.Duration) Option {
 }
 
 // WithToken sets the token option.
-func WithToken(v string) Option {
+func WithToken[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
-		o.token = v
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.token = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.token = vv
+		}
 	}
 }
 
