@@ -378,3 +378,61 @@ func TestParser_CacheHit_PointerFieldValue_Refreshed(t *testing.T) {
 		})
 	}
 }
+
+func TestParser_CacheHit_NestedStructsPopulated(t *testing.T) {
+	p := NewParser()
+	first := p.ParseStruct(parserPointerStruct{Name: "a", Nested: &parserNestedStruct{Value: "v"}})
+
+	second := p.ParseStruct(parserPointerStruct{Name: "b", Nested: &parserNestedStruct{Value: "w"}})
+
+	nestedType := reflect.TypeFor[parserNestedStruct]()
+
+	if _, ok := first.NestedStructs[nestedType]; !ok {
+		t.Fatal("first parse: NestedStructs missing entry for parserNestedStruct")
+	}
+	if _, ok := second.NestedStructs[nestedType]; !ok {
+		t.Fatal("cache hit: NestedStructs missing entry for parserNestedStruct")
+	}
+}
+
+func TestParser_CacheHit_NestedMetadataCleared(t *testing.T) {
+	p := NewParser()
+	p.ParseStruct(parserPointerStruct{Name: "a", Nested: &parserNestedStruct{Value: "v"}})
+
+	meta := p.ParseStruct(parserPointerStruct{Name: "b", Nested: &parserNestedStruct{Value: "w"}})
+
+	f, ok := findParserField(meta.Fields, "nested")
+	if !ok {
+		t.Fatal("field \"nested\" not found")
+	}
+	if f.nestedMetadata != nil {
+		t.Errorf("cache hit: nestedMetadata = %v, want nil", f.nestedMetadata)
+	}
+	if f.hasNestedData {
+		t.Error("cache hit: hasNestedData = true, want false")
+	}
+}
+
+func TestParser_CacheHit_ReturnedCopiesAreIndependent(t *testing.T) {
+	p := NewParser()
+	p.ParseStruct(parserSimpleStruct{ID: "1", Name: "alice", Age: 10})
+
+	meta1 := p.ParseStruct(parserSimpleStruct{ID: "2", Name: "bob", Age: 20})
+	meta2 := p.ParseStruct(parserSimpleStruct{ID: "3", Name: "carol", Age: 30})
+
+	// Verify each result reflects its own entity
+	f1, _ := findParserField(meta1.Fields, "name")
+	f2, _ := findParserField(meta2.Fields, "name")
+
+	if f1.fieldValue.String() != "bob" {
+		t.Errorf("meta1 name = %q, want \"bob\"", f1.fieldValue.String())
+	}
+	if f2.fieldValue.String() != "carol" {
+		t.Errorf("meta2 name = %q, want \"carol\"", f2.fieldValue.String())
+	}
+
+	// Verify they are separate slices (mutating one doesn't affect the other)
+	if &meta1.Fields[0] == &meta2.Fields[0] {
+		t.Error("meta1.Fields and meta2.Fields share underlying array")
+	}
+}

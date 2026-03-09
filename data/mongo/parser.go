@@ -624,12 +624,16 @@ func (p *Parser) refreshFieldValues(cached *StructMetadata, entityValue reflect.
 	result := &StructMetadata{
 		StructType:    cached.StructType,
 		Fields:        make([]fieldMetadata, len(cached.Fields)),
-		NestedStructs: make(map[reflect.Type]*StructMetadata),
+		NestedStructs: cached.NestedStructs,
 	}
 
 	for i, meta := range cached.Fields {
 		result.Fields[i] = meta
 		result.Fields[i].fieldValue = entityValue.FieldByIndex(meta.fieldIndex)
+		if meta.hasNestedData {
+			result.Fields[i].nestedMetadata = nil
+			result.Fields[i].hasNestedData = false
+		}
 	}
 
 	return result
