@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package maps
+package maps_test
 
 import (
 	"runtime"
@@ -10,10 +10,12 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
+
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 )
 
 func TestWeakMap_GC(t *testing.T) {
-	m := NewWeakMap[int, testhelpers.User]()
+	m := coremaps.NewWeakMap[int, testhelpers.User]()
 
 	// Create an object and store it in the map
 	val := &testhelpers.User{ID: 1, Name: "test"}
@@ -42,7 +44,7 @@ func TestWeakMap_GC(t *testing.T) {
 }
 
 func TestWeakMap_ThreadSafety(t *testing.T) {
-	m := NewWeakMap[int, testhelpers.User]()
+	m := coremaps.NewWeakMap[int, testhelpers.User]()
 	const count = 1000
 
 	// Concurrent writes
@@ -69,7 +71,7 @@ func TestWeakMap_ThreadSafety(t *testing.T) {
 }
 
 func TestWeakMap_AutoCleanup(t *testing.T) {
-	m := NewWeakMap[int, testhelpers.User]()
+	m := coremaps.NewWeakMap[int, testhelpers.User]()
 
 	// Populate the map; don't retain references to the values.
 	for i := range 50 {
