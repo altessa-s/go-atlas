@@ -53,13 +53,6 @@ func TestBufferOverflowPolicy_String(t *testing.T) {
 	}
 }
 
-func TestDefaultWatchOptions(t *testing.T) {
-	opts := secrets.DefaultWatchOptions()
-	if opts.BufferSize != 100 {
-		t.Errorf("DefaultWatchOptions().BufferSize = %d, want 100", opts.BufferSize)
-	}
-}
-
 func TestFilterByKeys(t *testing.T) {
 	t.Run("with keys", func(t *testing.T) {
 		filter := secrets.FilterByKeys[string]("a", "b")

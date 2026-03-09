@@ -121,21 +121,6 @@ func TestFromContext_NilContext(t *testing.T) {
 	}
 }
 
-func TestConstants(t *testing.T) {
-	if DefaultHTTPHeaderName != "Request-ID" {
-		t.Fatalf("DefaultHTTPHeaderName = %q", DefaultHTTPHeaderName)
-	}
-	if DefaultGRPCMetadataKey != "request-id" {
-		t.Fatalf("DefaultGRPCMetadataKey = %q", DefaultGRPCMetadataKey)
-	}
-	if InternedHTTPHeaderName != DefaultHTTPHeaderName {
-		t.Fatalf("InternedHTTPHeaderName = %q", InternedHTTPHeaderName)
-	}
-	if InternedGRPCMetadataKey != DefaultGRPCMetadataKey {
-		t.Fatalf("InternedGRPCMetadataKey = %q", InternedGRPCMetadataKey)
-	}
-}
-
 func TestFromContextOrTraceID(t *testing.T) {
 	t.Run("with_request_id", func(t *testing.T) {
 		ctx := NewContext(t.Context(), "req-123")

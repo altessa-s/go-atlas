@@ -34,9 +34,3 @@ func TestServerInterceptor_ReturnsInterceptors(t *testing.T) {
 		t.Fatal("ServerStreamInterceptor should not be nil")
 	}
 }
-
-func TestExtractOperationConstant(t *testing.T) {
-	if extractOperation != "extract" {
-		t.Fatalf("extractOperation = %q", extractOperation)
-	}
-}

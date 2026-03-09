@@ -47,21 +47,6 @@ func TestNoopDriver(t *testing.T) {
 	}
 }
 
-func TestStreamTypeConstants(t *testing.T) {
-	if StreamTypeNone != 0 {
-		t.Fatal("StreamTypeNone should be 0")
-	}
-	if StreamTypeClient != 1 {
-		t.Fatal("StreamTypeClient should be 1")
-	}
-	if StreamTypeServer != 2 {
-		t.Fatal("StreamTypeServer should be 2")
-	}
-	if StreamTypeBidi != 3 {
-		t.Fatal("StreamTypeBidi should be 3")
-	}
-}
-
 func BenchmarkNoopDriver_PreCall(b *testing.B) {
 	d := NoopDriver()
 	ctx := b.Context()

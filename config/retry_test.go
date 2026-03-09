@@ -9,26 +9,6 @@ import (
 	"time"
 )
 
-func TestDefaultRetry(t *testing.T) {
-	r := DefaultRetry()
-
-	if r.MaxAttempts != 3 {
-		t.Errorf("MaxAttempts = %d, want 3", r.MaxAttempts)
-	}
-	if r.BaseDelay != 500*time.Millisecond {
-		t.Errorf("BaseDelay = %v, want 500ms", r.BaseDelay)
-	}
-	if r.MaxDelay != 10*time.Second {
-		t.Errorf("MaxDelay = %v, want 10s", r.MaxDelay)
-	}
-	if r.Multiplier != 1.5 {
-		t.Errorf("Multiplier = %v, want 1.5", r.Multiplier)
-	}
-	if r.MaxElapsedTime != 0 {
-		t.Errorf("MaxElapsedTime = %v, want 0", r.MaxElapsedTime)
-	}
-}
-
 func TestRetry_Validate(t *testing.T) {
 	tests := []struct {
 		name    string

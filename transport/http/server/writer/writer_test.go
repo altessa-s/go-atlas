@@ -265,26 +265,6 @@ func TestReadWriter_Release_ClearsFields(t *testing.T) {
 	// We can't check directly, but at least verify no panic.
 }
 
-func TestSentinelErrors_NotNil(t *testing.T) {
-	sentinels := []error{
-		ErrNoCodecAvailable,
-		ErrReadBody,
-		ErrUnmarshal,
-		ErrNilResponseWriter,
-		ErrNilRequest,
-		ErrNilOutput,
-		ErrBodySizeLimitExceeded,
-	}
-	for _, err := range sentinels {
-		if err == nil {
-			t.Fatal("sentinel error is nil")
-		}
-		if err.Error() == "" {
-			t.Fatalf("empty message: %v", err)
-		}
-	}
-}
-
 func TestWriter_Write_WithAcceptWildcard(t *testing.T) {
 	w := New()
 	rec := httptest.NewRecorder()

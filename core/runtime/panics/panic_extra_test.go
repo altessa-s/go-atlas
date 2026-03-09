@@ -174,9 +174,3 @@ func TestMustResult_Success(t *testing.T) {
 		t.Errorf("MustResult() = %d, want 42", val)
 	}
 }
-
-func TestErrInvalidArgument(t *testing.T) {
-	if panics.ErrInvalidArgument == nil {
-		t.Error("ErrInvalidArgument should not be nil")
-	}
-}

@@ -7,6 +7,8 @@ package modifiers
 import (
 	"reflect"
 	"testing"
+
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 func TestNilOnEmpty(t *testing.T) {
@@ -18,8 +20,8 @@ func TestNilOnEmpty(t *testing.T) {
 		{"string non-empty", "hello", false},
 		{"string empty", "", false}, // string cannot become nil
 		{"*string nil", (*string)(nil), true},
-		{"*string empty", ptrStr(""), true},
-		{"*string non-empty", ptrStr("hello"), false},
+		{"*string empty", testhelpers.StringPtr(""), true},
+		{"*string non-empty", testhelpers.StringPtr("hello"), false},
 		{"int unchanged", 42, false},
 	}
 	for _, tt := range tests {
@@ -34,5 +36,3 @@ func TestNilOnEmpty(t *testing.T) {
 		})
 	}
 }
-
-func ptrStr(s string) *string { return &s }

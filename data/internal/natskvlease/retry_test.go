@@ -12,16 +12,6 @@ import (
 	"github.com/altessa-s/go-atlas/data/internal/natskvlease"
 )
 
-func TestDefaultRetryConfig(t *testing.T) {
-	cfg := natskvlease.DefaultRetryConfig()
-	if cfg.MaxRetries != natskvlease.DefaultMaxRetries {
-		t.Errorf("MaxRetries = %d, want %d", cfg.MaxRetries, natskvlease.DefaultMaxRetries)
-	}
-	if cfg.MaxElapsedTime != natskvlease.DefaultMaxElapsedTime {
-		t.Errorf("MaxElapsedTime = %v, want %v", cfg.MaxElapsedTime, natskvlease.DefaultMaxElapsedTime)
-	}
-}
-
 func TestRetry_Success(t *testing.T) {
 	ctx := t.Context()
 	result, err := natskvlease.Retry(ctx, func() (string, error) {

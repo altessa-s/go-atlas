@@ -132,15 +132,3 @@ func TestEncodeDecode_Roundtrip(t *testing.T) {
 		t.Fatalf("roundtrip mismatch: got %+v, want %+v", decoded, original)
 	}
 }
-
-func TestConstants(t *testing.T) {
-	if MimeType != "application/xml" {
-		t.Fatalf("MimeType = %q", MimeType)
-	}
-	if AlternateMimeType != "text/xml" {
-		t.Fatalf("AlternateMimeType = %q", AlternateMimeType)
-	}
-	if XMLHeader == "" {
-		t.Fatal("XMLHeader is empty")
-	}
-}

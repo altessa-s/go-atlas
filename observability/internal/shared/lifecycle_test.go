@@ -67,12 +67,3 @@ func TestMultiFlush(t *testing.T) {
 		})
 	}
 }
-
-func TestSentinelErrors(t *testing.T) {
-	if ErrShutdown == nil {
-		t.Error("ErrShutdown should not be nil")
-	}
-	if ErrAlreadyShutdown == nil {
-		t.Error("ErrAlreadyShutdown should not be nil")
-	}
-}

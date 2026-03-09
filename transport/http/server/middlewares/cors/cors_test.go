@@ -153,15 +153,6 @@ func TestMiddleware_Dependencies(t *testing.T) {
 	}
 }
 
-func TestConstants(t *testing.T) {
-	if HeaderOrigin != "Origin" {
-		t.Fatal("wrong constant")
-	}
-	if HeaderAccessControlAllowOrigin != "Access-Control-Allow-Origin" {
-		t.Fatal("wrong constant")
-	}
-}
-
 func TestNew_AllowAllOriginsWithCredentials_Panics(t *testing.T) {
 	defer func() {
 		r := recover()

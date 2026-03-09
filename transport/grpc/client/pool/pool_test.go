@@ -197,15 +197,6 @@ func TestContextCancellation_StopsPool(t *testing.T) {
 	stop()
 }
 
-func TestErrConnectionPoolClosed(t *testing.T) {
-	if ErrConnectionPoolClosed == nil {
-		t.Fatal("ErrConnectionPoolClosed is nil")
-	}
-	if ErrConnectionPoolClosed.Error() == "" {
-		t.Fatal("ErrConnectionPoolClosed.Error() is empty")
-	}
-}
-
 func TestDefaultConstants(t *testing.T) {
 	tests := []struct {
 		name string

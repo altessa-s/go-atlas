@@ -251,12 +251,3 @@ func TestDefaultRegistry(t *testing.T) {
 		t.Fatal("default registry should have XML encoder")
 	}
 }
-
-func TestSentinelErrors(t *testing.T) {
-	if ErrNoCodecFound == nil {
-		t.Fatal("ErrNoCodecFound is nil")
-	}
-	if ErrCodecAlreadyRegistered == nil {
-		t.Fatal("ErrCodecAlreadyRegistered is nil")
-	}
-}

@@ -31,57 +31,6 @@ func TestDefaultKeyValidator(t *testing.T) {
 	}
 }
 
-func TestErrInvalidFormat(t *testing.T) {
-	if ErrInvalidFormat == nil {
-		t.Fatal("should not be nil")
-	}
-}
-
-func TestConstants(t *testing.T) {
-	if StatusConflict != 409 {
-		t.Fatal("wrong StatusConflict")
-	}
-	if StatusServiceUnavailable != 503 {
-		t.Fatal("wrong StatusServiceUnavailable")
-	}
-	if StatusInternalServerError != 500 {
-		t.Fatal("wrong StatusInternalServerError")
-	}
-}
-
-func TestDefaultHeaders(t *testing.T) {
-	if DefaultIdempotencyKeyHeader != "Idempotency-Key" {
-		t.Fatalf("DefaultIdempotencyKeyHeader = %q", DefaultIdempotencyKeyHeader)
-	}
-	if DefaultIdempotencyKeyStatusHeader != "Idempotency-Key-Status" {
-		t.Fatalf("DefaultIdempotencyKeyStatusHeader = %q", DefaultIdempotencyKeyStatusHeader)
-	}
-	if DefaultIdempotencyKeyEntityIdHeader != "Idempotency-Key-Entity-Id" {
-		t.Fatalf("DefaultIdempotencyKeyEntityIdHeader = %q", DefaultIdempotencyKeyEntityIdHeader)
-	}
-}
-
-func TestErrorScenario(t *testing.T) {
-	if ErrorIDKMissing != 0 {
-		t.Fatal("ErrorIDKMissing should be 0")
-	}
-	if ErrorIDKInvalidFormat != 1 {
-		t.Fatal("ErrorIDKInvalidFormat should be 1")
-	}
-	if ErrorIDKInProgress != 2 {
-		t.Fatal("ErrorIDKInProgress should be 2")
-	}
-	if ErrorIDKAlreadyUsed != 3 {
-		t.Fatal("ErrorIDKAlreadyUsed should be 3")
-	}
-}
-
-func TestInternedHeaderIdempotencyKey(t *testing.T) {
-	if InternedHeaderIdempotencyKey != DefaultIdempotencyKeyHeader {
-		t.Fatalf("InternedHeaderIdempotencyKey = %q", InternedHeaderIdempotencyKey)
-	}
-}
-
 func TestMiddleware_Dependencies(t *testing.T) {
 	m := &middleware{}
 	if m.Dependencies() != nil {

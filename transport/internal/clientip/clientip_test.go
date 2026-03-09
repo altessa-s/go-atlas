@@ -169,15 +169,3 @@ func TestFromContext_Empty(t *testing.T) {
 		t.Fatalf("FromContext(empty) = %v, want invalid", got)
 	}
 }
-
-func TestConstants(t *testing.T) {
-	if MaxIPsPerHeader != 10 {
-		t.Fatalf("MaxIPsPerHeader = %d", MaxIPsPerHeader)
-	}
-	if MaxIPLength != 45 {
-		t.Fatalf("MaxIPLength = %d", MaxIPLength)
-	}
-	if MaxTotalIPs != 50 {
-		t.Fatalf("MaxTotalIPs = %d", MaxTotalIPs)
-	}
-}

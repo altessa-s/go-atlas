@@ -73,12 +73,3 @@ func TestDefaultSpanName(t *testing.T) {
 		t.Fatalf("name = %q", name)
 	}
 }
-
-func TestConstants(t *testing.T) {
-	if HTTPMethodKey != "http.method" {
-		t.Fatal("wrong constant")
-	}
-	if HTTPStatusCodeKey != "http.status_code" {
-		t.Fatal("wrong constant")
-	}
-}

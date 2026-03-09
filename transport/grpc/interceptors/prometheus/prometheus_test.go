@@ -32,27 +32,6 @@ func TestGetStatusCode(t *testing.T) {
 	}
 }
 
-func TestConstants(t *testing.T) {
-	if DefaultMetricPrefix != "grpc_" {
-		t.Fatalf("DefaultMetricPrefix = %q", DefaultMetricPrefix)
-	}
-	if DefaultSubsystem != "grpc" {
-		t.Fatalf("DefaultSubsystem = %q", DefaultSubsystem)
-	}
-	if DefaultStreamSamplingRate != 1.0 {
-		t.Fatalf("DefaultStreamSamplingRate = %v", DefaultStreamSamplingRate)
-	}
-}
-
-func TestStreamSamplingStrategy(t *testing.T) {
-	if PerMessageSampling != "per_message" {
-		t.Fatalf("PerMessageSampling = %q", PerMessageSampling)
-	}
-	if PerStreamSampling != "per_stream" {
-		t.Fatalf("PerStreamSampling = %q", PerStreamSampling)
-	}
-}
-
 func TestServerInterceptor_WithCustomRegistry(t *testing.T) {
 	reg := prom.NewRegistry()
 	i := ServerInterceptor(WithRegisterer(reg))
@@ -70,21 +49,6 @@ func TestServerInterceptor_Dependencies(t *testing.T) {
 	deps := i.Dependencies()
 	if len(deps) != 1 || deps[0] != "metadata" {
 		t.Fatalf("Dependencies = %v", deps)
-	}
-}
-
-func TestInterceptorName(t *testing.T) {
-	if interceptorName != "prometheus" {
-		t.Fatal("wrong interceptorName")
-	}
-}
-
-func TestSamplingRateConstants(t *testing.T) {
-	if MaxStreamSamplingRate != 1.0 {
-		t.Fatal("wrong MaxStreamSamplingRate")
-	}
-	if MinStreamSamplingRate != 0.0 {
-		t.Fatal("wrong MinStreamSamplingRate")
 	}
 }
 

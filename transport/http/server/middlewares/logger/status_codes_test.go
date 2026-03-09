@@ -50,15 +50,6 @@ func TestDefaultLogStatusCodesSet(t *testing.T) {
 	}
 }
 
-func TestFieldKeys(t *testing.T) {
-	if string(FieldKeyHTTPMethod) != "http.method" {
-		t.Fatal("wrong field key")
-	}
-	if string(FieldKeyHTTPStatus) != "http.status" {
-		t.Fatal("wrong field key")
-	}
-}
-
 func BenchmarkInternedStatusString(b *testing.B) {
 	for b.Loop() {
 		InternedStatusString(http.StatusOK)

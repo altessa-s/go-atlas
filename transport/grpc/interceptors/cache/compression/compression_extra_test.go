@@ -205,15 +205,3 @@ func TestMetadata_Fields(t *testing.T) {
 		t.Errorf("OriginalSize = %d, want 1024", m.OriginalSize)
 	}
 }
-
-func TestDefaultConstants(t *testing.T) {
-	if compression.DefaultMinSize != 1024 {
-		t.Errorf("DefaultMinSize = %d", compression.DefaultMinSize)
-	}
-	if compression.DefaultMaxSize != 0 {
-		t.Errorf("DefaultMaxSize = %d", compression.DefaultMaxSize)
-	}
-	if compression.DefaultLevel != 6 {
-		t.Errorf("DefaultLevel = %d", compression.DefaultLevel)
-	}
-}

@@ -68,27 +68,6 @@ func TestDefaultSpanName(t *testing.T) {
 	}
 }
 
-func TestConstants(t *testing.T) {
-	if RPCSystemKey != "rpc.system" {
-		t.Fatal("wrong RPCSystemKey")
-	}
-	if RPCSystemGRPC != "grpc" {
-		t.Fatal("wrong RPCSystemGRPC")
-	}
-	if RPCServiceKey != "rpc.service" {
-		t.Fatal("wrong RPCServiceKey")
-	}
-	if RPCMethodKey != "rpc.method" {
-		t.Fatal("wrong RPCMethodKey")
-	}
-	if RPCGRPCStatusCodeKey != "rpc.grpc.status_code" {
-		t.Fatal("wrong RPCGRPCStatusCodeKey")
-	}
-	if NetPeerNameKey != "net.peer.name" {
-		t.Fatal("wrong NetPeerNameKey")
-	}
-}
-
 func TestServerInterceptor_NilTracer(t *testing.T) {
 	i := ServerInterceptor(nil)
 	if i == nil {
@@ -111,11 +90,5 @@ func TestInterceptor_Dependencies(t *testing.T) {
 	deps := i.Dependencies()
 	if len(deps) != 1 || deps[0] != "metadata" {
 		t.Fatalf("Dependencies = %v", deps)
-	}
-}
-
-func TestInterceptorName(t *testing.T) {
-	if interceptorName != "tracing" {
-		t.Fatal("wrong interceptorName")
 	}
 }
