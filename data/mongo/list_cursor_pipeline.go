@@ -150,6 +150,27 @@ func dirFromInt(direction int64) int {
 	return sortDirectionAscending
 }
 
+// ensureCursorIdInSort returns a sort specification guaranteed to include cursorIdField
+// as the final tiebreaker. When multiple documents share the same primary sort value
+// (e.g. bulk-inserted records with identical created_at), MongoDB returns them in
+// undefined order — causing cursor-based pagination to skip or repeat documents.
+//
+// The tiebreaker direction matches the primary sort field.
+// If cursorIdField is already present, the original slice is returned unchanged.
+func ensureCursorIdInSort(sort bson.D, cursorIdField string) bson.D {
+	for _, field := range sort {
+		if field.Key == cursorIdField {
+			return sort // already present
+		}
+	}
+
+	// Append cursor_id with same direction as primary sort field
+	direction := getSortDirection(sort)
+	result := make(bson.D, len(sort), len(sort)+1)
+	copy(result, sort)
+	return append(result, bson.E{Key: cursorIdField, Value: int32(direction)})
+}
+
 // buildMatchStage creates the $match stage combining user filter and cursor filter.
 // The match stage is critical for index usage and should come before $sort.
 //
@@ -264,6 +285,11 @@ func buildFacetStage(limit int64, projection bson.M, includeTotal bool) bson.A {
 //   - Single database round-trip for items + count
 //   - Efficient index usage with proper $match before $sort
 func buildCursorPipeline(opts *listCursorOptions) bson.A {
+	// Extend sort with cursor_id tiebreaker for deterministic pagination.
+	// A local variable is used intentionally — opts.sort must stay unchanged
+	// because cursor generation and checksum validation depend on the original value.
+	sort := ensureCursorIdInSort(opts.sort, opts.cursorIdField)
+
 	pipeline := bson.A{}
 
 	// 1. MATCH - Combine user filter with cursor filter
@@ -271,11 +297,11 @@ func buildCursorPipeline(opts *listCursorOptions) bson.A {
 		opts.filter,
 		opts.cursor,
 		opts.cursorIdField,
-		opts.sort,
+		sort, // local sort with tiebreaker
 	)...)
 
 	// 2. SORT - Order results
-	pipeline = append(pipeline, buildSortStage(opts.sort)...)
+	pipeline = append(pipeline, buildSortStage(sort)...)
 
 	// 3. FACET - Split into items and count branches
 	pipeline = append(pipeline, buildFacetStage(
