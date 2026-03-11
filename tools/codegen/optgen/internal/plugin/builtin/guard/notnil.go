@@ -55,14 +55,23 @@ func (m *NotNilModifier) CanHandle(field model.OptField) bool {
 }
 
 // Generate produces early-return code if input is nil (or empty for slices).
+// For interface types, uses nilcheck.IsNil to correctly detect nil interface values
+// wrapping nil concrete pointers (a common Go pitfall where v == nil is false
+// but the underlying value is nil).
 func (m *NotNilModifier) Generate(ctx plugin.GenerationContext, field model.OptField, inputVar string) plugin.ModifierResult {
 	if inputVar == "" {
 		inputVar = "v"
 	}
 
-	condition := inputVar + " == nil"
-	if field.IsSlice {
+	var condition string
+	switch {
+	case field.IsSlice:
 		condition = "len(" + inputVar + ") == 0"
+	case isInterfaceField(field):
+		ctx.AddImport("github.com/altessa-s/go-atlas/core/types/nilcheck")
+		condition = "nilcheck.IsNil(" + inputVar + ")"
+	default:
+		condition = inputVar + " == nil"
 	}
 
 	return plugin.ModifierResult{
@@ -70,6 +79,23 @@ func (m *NotNilModifier) Generate(ctx plugin.GenerationContext, field model.OptF
 		OutputVar: inputVar,
 		Final:     true, // Stop pipeline if nil/empty
 	}
+}
+
+// isInterfaceField returns true if the field is an interface type.
+// Handles both AST-detected interfaces (field.IsInterface) and named interface types
+// that the AST parser cannot resolve without go/types (e.g. metrics.Collector).
+// Named types that are not pointers, slices, maps, channels, or functions are
+// assumed to be interfaces when the field has "notnil" metadata.
+func isInterfaceField(field model.OptField) bool {
+	if field.IsInterface {
+		return true
+	}
+	// If the field is explicitly tagged as notnil but is not a recognized concrete nilable
+	// type (pointer, slice, map, chan, func), it is most likely a named interface.
+	if _, explicit := field.Metadata["notnil"]; explicit {
+		return !field.IsSlice && !field.IsNilable && !strings.HasPrefix(field.Type, "*") && !strings.HasPrefix(field.Type, "map[")
+	}
+	return false
 }
 
 func init() {
