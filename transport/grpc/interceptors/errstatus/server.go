@@ -49,6 +49,12 @@ type interceptor struct {
 	allSentinels []error // Pre-built list of all sentinel errors
 }
 
+// Dependencies declares that errstatus must run after requestid so that
+// DefaultFinalizer can read the request ID from the context.
+func (i *interceptor) Dependencies() []string {
+	return []string{"requestid"}
+}
+
 const convertOperation = "convert"
 
 // ServerInterceptor returns a new interceptor that converts errors to gRPC status errors.

@@ -103,22 +103,18 @@ func (s *Server) RegisterHandlers(handlers ...Handler) {
 	}))
 }
 
-// RegisterInterceptors topologically sorts the given interceptors by their
-// declared ordering constraints and stores them for [Server.Start]. Nil
-// interceptors are silently filtered. Returns an error if the ordering
-// contains a circular dependency. Must be called before Start; not safe
-// for concurrent use during setup.
+// RegisterInterceptors merges the given interceptors with any previously
+// registered ones. Nil interceptors are silently filtered. Ordering,
+// deduplication, and cycle detection are deferred to [interceptors.Chain]
+// at [Server.Start] time. Must be called before Start; not safe for
+// concurrent use during setup.
 func (s *Server) RegisterInterceptors(lst ...interceptors.ServerInterceptor) error {
 	// Filter out nil interceptors
-	lst = slices.Collect(coreslices.Filter(lst, func(i interceptors.ServerInterceptor) bool {
+	filtered := slices.Collect(coreslices.Filter(lst, func(i interceptors.ServerInterceptor) bool {
 		return nilcheck.IsNotNil(i)
 	}))
 
-	ordered, err := interceptors.OrderServerInterceptors(lst...)
-	if err != nil {
-		return coreerrs.WrapOperation(err, "order interceptors")
-	}
-	s.interceptors = coreslices.ToAny(ordered)
+	s.interceptors = append(s.interceptors, coreslices.ToAny(filtered)...)
 	return nil
 }
 
