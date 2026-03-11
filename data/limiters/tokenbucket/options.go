@@ -9,6 +9,8 @@ package tokenbucket
 import (
 	"context"
 	"log/slog"
+
+	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 const (
@@ -37,6 +39,7 @@ type options struct {
 	extractClientIPAddress ExtractIPFunc    `optgen:"default=defaultExtractClientIp"`
 	clientService          ClientService
 	logger                 *slog.Logger
+	collector              metrics.Collector `optgen:"notnil"`
 }
 
 // ExtractClientIp extracts the client IP address from the context bridge.

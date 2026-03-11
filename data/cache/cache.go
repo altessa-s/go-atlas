@@ -42,6 +42,7 @@ type Cache struct {
 	ttl        time.Duration
 	group      *singleflight.Group
 	serializer serializer.Serializer
+	metrics    *cacheMetrics
 }
 
 // New creates a new Cache instance with the given provider and options.
@@ -60,6 +61,7 @@ func New(p providers.Provider, opts ...Option) *Cache {
 		ttl:        options.ttl,
 		group:      &singleflight.Group{},
 		serializer: options.serializer,
+		metrics:    newCacheMetrics(options.collector),
 	}
 }
 
@@ -93,13 +95,19 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 
 	val, err := c.provider.Get(ctx, key)
 	if err == nil {
+		c.metrics.hits.Inc()
 		return c.serializer.Deserialize(val, value)
 	} else if !errors.Is(err, ErrMissing) {
+		c.metrics.errors.Inc()
 		return err
 	}
 
+	c.metrics.misses.Inc()
+
 	fv, err, _ := c.group.Do(key, func() (any, error) {
+		stop := c.metrics.fallbackDuration.Start()
 		val, ttl, fErr := fallback()
+		stop()
 		if fErr != nil {
 			return nil, fErr
 		}
@@ -156,7 +164,10 @@ func (c *Cache) Save(ctx context.Context, key string, value any, ttl ...time.Dur
 		return err
 	}
 
-	return c.provider.Save(ctx, key, cacheData, cacheTtl)
+	stop := c.metrics.writeDuration.Start()
+	err = c.provider.Save(ctx, key, cacheData, cacheTtl)
+	stop()
+	return err
 }
 
 // Exists checks if a key exists in the cache.
@@ -199,9 +210,15 @@ func (c *Cache) Get(ctx context.Context, key string, value any) error {
 
 	data, err := c.provider.Get(ctx, key)
 	if err != nil {
+		if errors.Is(err, ErrMissing) {
+			c.metrics.misses.Inc()
+		} else {
+			c.metrics.errors.Inc()
+		}
 		return err
 	}
 
+	c.metrics.hits.Inc()
 	return c.serializer.Deserialize(data, value)
 }
 

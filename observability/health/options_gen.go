@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/altessa-s/go-atlas/observability/metrics"
+
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
@@ -64,6 +66,16 @@ func WithCheckTimeout(v time.Duration) Option {
 			return
 		}
 		o.checkTimeout = v
+	}
+}
+
+// WithCollector sets the collector option.
+func WithCollector(v metrics.Collector) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.collector = v
 	}
 }
 

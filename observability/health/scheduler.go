@@ -74,6 +74,9 @@ func (c *Coordinator) runHealthCheckCycleInternal(ctx context.Context) error {
 		return nil
 	}
 
+	stop := c.metrics.checkCycleDuration.Start()
+	defer stop()
+
 	// Collect all services with active watchers
 	watchedServices := make(map[string]struct{})
 	for i := range c.watcherShards {
@@ -100,6 +103,7 @@ func (c *Coordinator) runHealthCheckCycleInternal(ctx context.Context) error {
 		checkCtx, cancel := corectx.ApplyTimeout(ctx, c.checkTimeout)
 		currentStatus := c.getHealthStatus(checkCtx, service)
 		cancel()
+		c.metrics.checksPerformed.Inc()
 
 		// Find watchers for this service and notify if status changed
 		shardIdx := c.getShardIndex(service)
@@ -122,6 +126,7 @@ func (c *Coordinator) runHealthCheckCycleInternal(ctx context.Context) error {
 		shard.mu.RUnlock()
 
 		// Notify watchers outside the lock
+		c.metrics.statusChanges.Add(float64(len(toNotify)))
 		for _, w := range toNotify {
 			c.logger.Info("health status changed",
 				slog.String("service", service),

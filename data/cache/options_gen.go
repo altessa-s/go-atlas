@@ -7,10 +7,21 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/encoding/serializer"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // Option is a functional option for configuring options.
 type Option func(o *options)
+
+// WithCollector sets the collector option.
+func WithCollector(v metrics.Collector) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.collector = v
+	}
+}
 
 // WithSerializer sets the serializer option.
 func WithSerializer(v serializer.Serializer) Option {

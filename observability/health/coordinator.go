@@ -138,6 +138,8 @@ type Coordinator struct {
 	logger    *slog.Logger
 	scheduler corescheduler.TaskRegistrar
 
+	metrics *healthMetrics
+
 	activeWatchers    atomic.Int32
 	listCallsInFlight atomic.Int32
 
@@ -165,6 +167,7 @@ var (
 func New(opts ...Option) *Coordinator {
 	o := newOptions(opts...)
 	c := &Coordinator{
+		metrics:                   newHealthMetrics(o.collector),
 		services:                  make(map[string]Checker),
 		watcherChannelBuffer:      o.watcherChannelBuffer,
 		maxWatchersPerService:     o.maxWatchersPerService,

@@ -33,6 +33,7 @@ type Vault struct {
 	auth       *auth.Authenticator
 	authCancel context.CancelFunc
 	logger     *slog.Logger
+	metrics    *vaultMetrics
 	mu         sync.Mutex
 }
 
@@ -49,8 +50,9 @@ func New(ctx context.Context, opts ...Option) (*Vault, error) {
 	o := newOptions(opts...)
 
 	v := &Vault{
-		opts:   o,
-		logger: cmp.Or(o.logger, slog.New(slog.DiscardHandler)),
+		opts:    o,
+		logger:  cmp.Or(o.logger, slog.New(slog.DiscardHandler)),
+		metrics: newVaultMetrics(o.collector),
 	}
 
 	// Initialize Vault client
@@ -113,6 +115,9 @@ func (v *Vault) RunRenewalWithContext(ctx context.Context) (err error) {
 	v.authCancel = cancel
 	v.mu.Unlock()
 
+	v.metrics.renewalAttempts.Inc()
+	stop := v.metrics.renewalDuration.Start()
+
 	tmout := time.NewTimer(v.opts.authTimeout)
 	defer coretime.TimerStopAndDrain(tmout)
 
@@ -126,8 +131,11 @@ func (v *Vault) RunRenewalWithContext(ctx context.Context) (err error) {
 	v.logger.DebugContext(ctx, "waiting for Vault token")
 	select {
 	case <-v.auth.FirstRenewCh():
+		stop()
 		v.logger.DebugContext(ctx, "first auth token received and set")
 	case err = <-v.auth.ErrorsCh():
+		stop()
+		v.metrics.renewalErrors.Inc()
 		cancel()
 		return
 	case <-tmout.C:
@@ -135,10 +143,14 @@ func (v *Vault) RunRenewalWithContext(ctx context.Context) (err error) {
 		// stuck in a failure loop on the first token request if it is
 		// misconfigured. This ensures that we don't block forever on
 		// auth that is never going to succeed.
+		stop()
+		v.metrics.renewalErrors.Inc()
 		cancel()
 		err = ErrTimeout
 		return
 	case <-ctx.Done():
+		stop()
+		v.metrics.renewalErrors.Inc()
 		cancel()
 		err = ctx.Err()
 		return

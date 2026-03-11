@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/altessa-s/go-atlas/observability/metrics"
+
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
@@ -57,4 +59,6 @@ type options struct {
 	// Scheduler configuration
 	scheduler     corescheduler.TaskRegistrar `optgen:"notnil"`
 	checkSchedule string
+
+	collector metrics.Collector `optgen:"notnil"`
 }

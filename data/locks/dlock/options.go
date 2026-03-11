@@ -9,6 +9,8 @@ package dlock
 import (
 	"log/slog"
 	"time"
+
+	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // DefaultLockAcquireTimeout is the default timeout for lock acquisition operations.
@@ -19,4 +21,5 @@ const DefaultLockAcquireTimeout = 30 * time.Second
 type options struct {
 	logger             *slog.Logger
 	lockAcquireTimeout time.Duration `optgen:"default=DefaultLockAcquireTimeout"`
+	collector          metrics.Collector `optgen:"notnil"`
 }

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/altessa-s/go-atlas/observability/metrics"
+
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
@@ -35,6 +37,16 @@ func WithCleanupSchedule[T interface{ string | *string }](v T) Option {
 			}
 			o.cleanupSchedule = vv
 		}
+	}
+}
+
+// WithCollector sets the collector option.
+func WithCollector(v metrics.Collector) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.collector = v
 	}
 }
 

@@ -47,6 +47,7 @@ type Idempotency interface {
 type Keeper struct {
 	storage storages.Storage
 	opts    *options
+	metrics *keeperMetrics
 }
 
 var _ Idempotency = (*Keeper)(nil)
@@ -66,6 +67,7 @@ func New(storage storages.Storage, opt ...Option) *Keeper {
 	return &Keeper{
 		storage: storage,
 		opts:    options,
+		metrics: newKeeperMetrics(options.collector),
 	}
 }
 
@@ -88,12 +90,16 @@ func (i *Keeper) AttemptLock(ctx context.Context, key string) (bool, *storages.S
 
 	ok, existingVal, err := i.storage.AttemptLock(ctx, key, val)
 	if err != nil {
+		i.metrics.errors.Inc()
 		return false, nil, err
 	}
 
 	if ok {
+		i.metrics.locksAcquired.Inc()
 		return true, nil, nil
 	}
+
+	i.metrics.locksDenied.Inc()
 
 	// Lock failed, key exists. Deserialize existing state.
 	var existingState storages.State
@@ -120,7 +126,12 @@ func (i *Keeper) Complete(ctx context.Context, key string, data any) error {
 		return coreerrs.WrapOperation(err, "serialize state")
 	}
 
-	return i.storage.Complete(ctx, key, val)
+	if err := i.storage.Complete(ctx, key, val); err != nil {
+		i.metrics.errors.Inc()
+		return err
+	}
+	i.metrics.completions.Inc()
+	return nil
 }
 
 // Delete removes the key from storage (e.g. on failure).
@@ -128,5 +139,10 @@ func (i *Keeper) Delete(ctx context.Context, key string) error {
 	if key == "" {
 		return nil
 	}
-	return i.storage.Delete(ctx, key)
+	if err := i.storage.Delete(ctx, key); err != nil {
+		i.metrics.errors.Inc()
+		return err
+	}
+	i.metrics.deletions.Inc()
+	return nil
 }

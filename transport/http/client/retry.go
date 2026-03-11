@@ -37,12 +37,17 @@ type retryRoundTripper struct {
 	logger             *slog.Logger
 	errorHandler       ErrorHandler
 	retryPolicyHandler RetryPolicyHandler
+	metrics            *httpClientMetrics
 }
 
 // RoundTrip implements [http.RoundTripper]. On the first call it buffers the
 // request body (if any) so it can be replayed on retries, then delegates retry
 // orchestration to [coreretry.Do].
 func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	if rt.metrics == nil {
+		rt.metrics = newHTTPClientMetrics(nil)
+	}
+
 	var bodyBytes []byte
 	if req.Body != nil {
 		buf := coreio.GetBuffer()
@@ -62,14 +67,17 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	)
 
 	ctx := req.Context()
+	stop := rt.metrics.requestDuration.Start()
+	defer stop()
 
 	cfg := rt.cfg
 	cfg.ShouldRetry = func(err error) bool {
 		return rt.shouldRetry(err)
 	}
 
-	if rt.logger != nil {
-		cfg.OnRetry = func(attempt int, err error, delay time.Duration) {
+	cfg.OnRetry = func(attempt int, err error, delay time.Duration) {
+		rt.metrics.retries.Inc()
+		if rt.logger != nil {
 			rt.logger.DebugContext(ctx,
 				"http client retrying request",
 				slog.Int("attempt", attempt),
@@ -136,8 +144,11 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 		return classified
 	})
 
+	rt.metrics.requestsTotal.Inc()
+
 	// Handle retry exhaustion.
 	if retryErr != nil && lastResp == nil {
+		rt.metrics.requestErrors.Inc()
 		if rt.errorHandler != nil {
 			return rt.errorHandler(nil, retryErr, rt.cfg.MaxAttempts+1)
 		}
@@ -145,6 +156,7 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	}
 
 	if retryErr != nil {
+		rt.metrics.requestErrors.Inc()
 		// We have a response but also an error (e.g., retryable status exhausted).
 		if rt.errorHandler != nil {
 			return rt.errorHandler(lastResp, retryErr, rt.cfg.MaxAttempts+1)
@@ -161,6 +173,7 @@ func (rt *retryRoundTripper) shouldRetry(err error) bool {
 		return false
 	}
 	if _, ok := coreerrs.AsType[*CircuitBreakerError](err); ok {
+		rt.metrics.circuitBreakerTrips.Inc()
 		return false
 	}
 	if _, ok := coreerrs.AsType[*UnexpectedStatusError](err); ok {

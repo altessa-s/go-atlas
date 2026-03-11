@@ -58,6 +58,7 @@ type RuleLimiter struct {
 	parsedRules []ParsedRule
 	ipCache     lru.Cacher[string, *RateLimitSettings]
 	storage     storages.Storage
+	metrics     *limiterMetrics
 }
 
 // New creates a new RuleLimiter with the given config and storage.
@@ -84,6 +85,7 @@ func New(config *RateLimitConfig, storage storages.Storage, opts ...Option) (*Ru
 		options:     options,
 		ipCache:     cache,
 		storage:     storage,
+		metrics:     newLimiterMetrics(options.collector),
 	}
 
 	ll.parseAndSortRules()
@@ -247,12 +249,16 @@ func (l *RuleLimiter) applyRateLimit(ctx context.Context, key string, settings *
 
 	if err != nil {
 		if errors.Is(err, storages.ErrLimitExceeded) {
+			l.metrics.requestsRejected.Inc()
 			return tl, ErrLimitExceeded
 		}
+		l.metrics.limitCheckErrors.Inc()
 		if l.options.logger != nil {
 			l.options.logger.ErrorContext(ctx, "storage provider returned nil info", "error", err)
 		}
+		return tl, err
 	}
 
-	return tl, err
+	l.metrics.requestsAllowed.Inc()
+	return tl, nil
 }

@@ -18,6 +18,7 @@ import (
 
 	"github.com/sony/gobreaker/v2"
 
+	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/transport/http/client/limiters"
 )
 
@@ -105,6 +106,7 @@ type options struct {
 	ssrfProtection bool `optgen:"manual"`
 	// ssrfAllowedCIDRs contains CIDR prefixes exempted from SSRF blocking
 	ssrfAllowedCIDRs []netip.Prefix `optgen:"manual"`
+	collector        metrics.Collector `optgen:"notnil"`
 }
 
 // WithRetryWait configures the minimum and maximum wait times between retry attempts.

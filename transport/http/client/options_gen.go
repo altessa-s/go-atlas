@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/transport/http/client/limiters"
 )
 
@@ -72,6 +73,16 @@ func WithClient(v *http.Client) Option {
 			return
 		}
 		o.client = v
+	}
+}
+
+// WithCollector sets the collector option.
+func WithCollector(v metrics.Collector) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.collector = v
 	}
 }
 

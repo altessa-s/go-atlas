@@ -95,6 +95,7 @@ func (c *Client) retractableClient() *http.Client {
 		logger:             c.options.logger,
 		errorHandler:       c.options.errorHandler,
 		retryPolicyHandler: c.options.retryPolicyHandler,
+		metrics:            newHTTPClientMetrics(c.options.collector),
 	}
 
 	stdClient.Transport = rt

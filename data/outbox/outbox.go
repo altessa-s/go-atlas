@@ -50,6 +50,9 @@ type Outbox struct {
 	baseCtx                 context.Context
 	shouldRetry             func(error) bool // Optional caller-provided retry predicate.
 
+	// Metrics
+	metrics *outboxMetrics
+
 	// Internal state:
 	eventsInFlight  atomic.Int64 // Counts events currently being processed by handleEvents.
 	logger          *slog.Logger // Internal logger.
@@ -77,6 +80,7 @@ func New(store Store, handler Handler, opts ...Option) *Outbox {
 	cfg.logger = cmp.Or(cfg.logger, slog.New(slog.DiscardHandler))
 
 	o := &Outbox{
+		metrics:                 newOutboxMetrics(cfg.collector),
 		eventsBatchSize:         cfg.eventsBatchSize,
 		publishedEventsLifetime: cfg.publishedEventsLifetime,
 		retryInterval:           DefaultRetryInterval,
@@ -128,7 +132,11 @@ func (o *Outbox) Save(ctx context.Context, events ...Event) error {
 		}
 	}
 
-	return o.store.SaveEvents(ctx, events...)
+	if err := o.store.SaveEvents(ctx, events...); err != nil {
+		return err
+	}
+	o.metrics.eventsSaved.Add(float64(len(events)))
+	return nil
 }
 
 // StopInternalProcesses is a no-op as all background tasks are managed externally.
@@ -141,6 +149,9 @@ func (o *Outbox) StopInternalProcesses() {}
 func (o *Outbox) dispatchEvent(ctx context.Context, event Event) error {
 	// Decrement the in-flight counter when this function exits.
 	defer o.eventsInFlight.Add(-1)
+
+	o.metrics.eventsInFlight.Inc()
+	defer o.metrics.eventsInFlight.Dec()
 
 	err := coreretry.Do(ctx, coreretry.Config{
 		MaxAttempts: -1, // retry until success or ctx cancellation
@@ -168,9 +179,11 @@ func (o *Outbox) dispatchEvent(ctx context.Context, event Event) error {
 		return o.handler(ctx, event)
 	})
 	if err == nil {
+		o.metrics.eventsDispatched.Inc()
 		return nil
 	}
 
+	o.metrics.eventsDispatchFail.Inc()
 	if coreerrs.IsContextCanceled(err) {
 		return coreerrs.Wrap(err, "context canceled before next retry")
 	}
@@ -249,6 +262,8 @@ func (o *Outbox) handleEvents(ctx context.Context, events ...Event) {
 		for i := range skippedEvents {
 			skippedEvents[i].setSkippedStatus()
 		}
+
+		o.metrics.eventsSkipped.Add(float64(len(skippedEvents)))
 
 		o.logger.DebugContext(ctx, "key compaction applied",
 			slog.Int("total", len(events)),

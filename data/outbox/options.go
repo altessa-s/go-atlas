@@ -11,6 +11,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/altessa-s/go-atlas/observability/metrics"
+
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
@@ -79,6 +81,9 @@ type options struct {
 	// Return true to retry, false to stop retrying. If nil, all errors
 	// except context.Canceled are retried.
 	shouldRetry func(error) bool `opt:"-"`
+
+	// Metrics collector for outbox instrumentation.
+	collector metrics.Collector `optgen:"notnil"`
 }
 
 // WithPublishedEventsLifetime sets how long published events are retained before cleanup.

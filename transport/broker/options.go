@@ -8,6 +8,8 @@ package broker
 
 import (
 	"log/slog"
+
+	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // options contains configuration fields for Broker that can be set via Option functions.
@@ -15,4 +17,5 @@ type options struct {
 	outbox           Outboxer `optgen:"notnil"`
 	logger           *slog.Logger
 	publishConverter PublishConverter
+	collector        metrics.Collector `optgen:"notnil"`
 }

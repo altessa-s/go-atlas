@@ -28,6 +28,7 @@ type DLock struct {
 	provider           providers.Provider
 	logger             *slog.Logger
 	lockAcquireTimeout time.Duration
+	metrics            *dlockMetrics
 }
 
 // New creates a new DLock with the specified provider.
@@ -42,6 +43,7 @@ func New(provider providers.Provider, opts ...Option) *DLock {
 		provider:           provider,
 		logger:             cfg.logger,
 		lockAcquireTimeout: cfg.lockAcquireTimeout,
+		metrics:            newDlockMetrics(cfg.collector),
 	}
 }
 
@@ -89,13 +91,17 @@ func (l *DLock) Synchronize(ctx context.Context, key string, fn func(ctx context
 	defer lockCancel()
 
 	// Acquire lock with timeout protection to prevent deadlock scenarios
+	stop := l.metrics.acquireDuration.Start()
 	lk, err := l.provider.Lock(lockCtx, key)
+	stop()
 	if err != nil {
+		l.metrics.locksFailed.Inc()
 		if coreerrs.IsContextDeadlineExceeded(err) {
 			return coreerrs.Wrapf(err, "failed to acquire lock within timeout %v", l.lockAcquireTimeout)
 		}
 		return err
 	}
+	l.metrics.locksAcquired.Inc()
 
 	// Track if lock has been released to prevent double-release
 	var lockReleased bool
@@ -120,6 +126,7 @@ func (l *DLock) Synchronize(ctx context.Context, key string, fn func(ctx context
 	// Use the original context to maintain proper cancellation semantics
 	err = fn(ctx)
 	safeRelease() // Ensure the lock is released after execution
+	l.metrics.synchronizations.Inc()
 	return err
 }
 

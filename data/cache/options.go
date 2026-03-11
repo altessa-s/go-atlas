@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/encoding/serializer"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // DefaultTTL is the default time-to-live for cache items (1 hour).
@@ -19,4 +20,5 @@ const DefaultTTL = 1 * time.Hour
 type options struct {
 	ttl        time.Duration `optgen:"default=DefaultTTL"`
 	serializer serializer.Serializer
+	collector  metrics.Collector `optgen:"notnil"`
 }

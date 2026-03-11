@@ -122,6 +122,9 @@ func (o *Outbox) runDispatchCycleInternal(ctx context.Context) error {
 	// to let it attempt completion, bounded by specific timeouts.
 	cycleCtx := context.WithoutCancel(ctx)
 
+	stop := o.metrics.dispatchDuration.Start()
+	defer stop()
+
 	fetchCtx, cancelFetch := corectx.ApplyTimeout(cycleCtx, o.fetchTimeout)
 	events, err := o.store.FetchUnprocessedEvents(fetchCtx, o.eventsBatchSize, time.Now().UTC().Add(-o.retryInterval))
 	cancelFetch()
@@ -166,6 +169,9 @@ func (o *Outbox) runUnlockCycleInternal(ctx context.Context) error {
 	}
 	defer o.unlockRunning.Store(false)
 
+	stop := o.metrics.unlockDuration.Start()
+	defer stop()
+
 	thresholdTime := time.Now().UTC().Add(-o.maxLockTime)
 	return o.store.UnlockStuckEvents(ctx, thresholdTime)
 }
@@ -192,6 +198,10 @@ func (o *Outbox) runCleanupCycleInternal(ctx context.Context) error {
 	if o.publishedEventsLifetime <= 0 {
 		return nil
 	}
+
+	stop := o.metrics.cleanupDuration.Start()
+	defer stop()
+
 	cutOffTime := time.Now().UTC().Add(-o.publishedEventsLifetime)
 	return o.store.DeleteProcessedEvents(ctx, cutOffTime)
 }

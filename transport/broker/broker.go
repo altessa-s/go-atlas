@@ -27,6 +27,7 @@ type Broker struct {
 	logger           *slog.Logger // Logger instance for logging within the broker.
 	outbox           Outboxer     // Outbox instance for reliable message publishing.
 	publishConverter PublishConverter
+	metrics          *brokerMetrics
 }
 
 // New creates a new Broker instance with the given Provider and options.
@@ -50,6 +51,7 @@ func New(provider Provider, opt ...Option) *Broker {
 		logger:           cfg.logger,
 		outbox:           outbox,
 		publishConverter: cfg.publishConverter,
+		metrics:          newBrokerMetrics(cfg.collector),
 	}
 }
 
@@ -60,7 +62,15 @@ func New(provider Provider, opt ...Option) *Broker {
 //
 //	err := b.Publish(ctx, msg.Message{Topic: "events", Data: payload})
 func (b *Broker) Publish(ctx context.Context, msg msg.Message) error {
-	return b.outbox.Publish(ctx, msg)
+	stop := b.metrics.publishDuration.Start()
+	err := b.outbox.Publish(ctx, msg)
+	stop()
+	if err != nil {
+		b.metrics.publishErrors.Inc()
+		return err
+	}
+	b.metrics.messagesPublished.Inc()
+	return nil
 }
 
 // PublishBatch sends multiple messages using the configured Outboxer.
@@ -70,7 +80,15 @@ func (b *Broker) Publish(ctx context.Context, msg msg.Message) error {
 //
 //	err := b.PublishBatch(ctx, msg1, msg2, msg3)
 func (b *Broker) PublishBatch(ctx context.Context, msgs ...msg.Message) error {
-	return b.outbox.PublishBatch(ctx, msgs...)
+	stop := b.metrics.publishDuration.Start()
+	err := b.outbox.PublishBatch(ctx, msgs...)
+	stop()
+	if err != nil {
+		b.metrics.publishErrors.Inc()
+		return err
+	}
+	b.metrics.messagesPublished.Add(float64(len(msgs)))
+	return nil
 }
 
 // PublishAny converts arbitrary types to messages and publishes them via the Outboxer.
@@ -94,7 +112,15 @@ func (b *Broker) PublishAny(ctx context.Context, m ...any) error {
 		msgs = append(msgs, convertedMsg)
 	}
 
-	return b.outbox.PublishBatch(ctx, msgs...)
+	stop := b.metrics.publishDuration.Start()
+	err := b.outbox.PublishBatch(ctx, msgs...)
+	stop()
+	if err != nil {
+		b.metrics.publishErrors.Inc()
+		return err
+	}
+	b.metrics.messagesPublished.Add(float64(len(msgs)))
+	return nil
 }
 
 // Subscriber creates a new message Subscriber using the underlying Provider and factory.

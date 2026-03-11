@@ -10,10 +10,12 @@ import (
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/core/encoding/serializer"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // options contains Keeper configuration.
 type options struct {
 	logger     *slog.Logger
 	serializer serializer.Serializer `optgen:"notnil"`
+	collector  metrics.Collector `optgen:"notnil"`
 }
