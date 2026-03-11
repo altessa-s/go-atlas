@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
@@ -80,7 +82,7 @@ func WithRecoveryBackoff(v time.Duration) Option {
 // WithScheduler sets the scheduler option.
 func WithScheduler(v corescheduler.TaskRegistrar) Option {
 	return func(o *options) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.scheduler = v

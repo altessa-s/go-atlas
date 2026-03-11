@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
@@ -16,7 +17,7 @@ type Option func(o *options)
 // WithCollector sets the collector option.
 func WithCollector(v metrics.Collector) Option {
 	return func(o *options) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.collector = v

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/core/runtime/retry"
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
@@ -19,7 +20,7 @@ type Option func(o *options)
 // WithCollector sets the collector option.
 func WithCollector(v metrics.Collector) Option {
 	return func(o *options) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.collector = v
@@ -70,7 +71,7 @@ func WithNegativeFilter(v Filter) Option {
 // WithScheduler sets the scheduler option.
 func WithScheduler(v corescheduler.TaskRegistrar) Option {
 	return func(o *options) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.scheduler = v

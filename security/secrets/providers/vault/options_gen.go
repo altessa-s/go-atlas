@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/altessa-s/go-atlas/core/runtime/concurrency"
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/security/secrets"
 	"github.com/altessa-s/go-atlas/security/secrets/codec"
 	"github.com/altessa-s/go-atlas/security/secrets/codec/keys/base64"
@@ -26,7 +27,7 @@ func WithCas[T any]() Option[T] {
 // WithConcurrencyLimitFunc sets the concurrencyLimitFunc option.
 func WithConcurrencyLimitFunc[T any](v concurrency.ConcurrencyLimitFunc) Option[T] {
 	return func(o *options[T]) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.concurrencyLimitFunc = v
@@ -36,7 +37,7 @@ func WithConcurrencyLimitFunc[T any](v concurrency.ConcurrencyLimitFunc) Option[
 // WithKeyDecoder sets the keyDecoder option.
 func WithKeyDecoder[T any](v codec.KeyDecoder) Option[T] {
 	return func(o *options[T]) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.keyDecoder = v
@@ -46,7 +47,7 @@ func WithKeyDecoder[T any](v codec.KeyDecoder) Option[T] {
 // WithLocker sets the locker option.
 func WithLocker[T any](v secrets.Locker) Option[T] {
 	return func(o *options[T]) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.locker = v
@@ -70,7 +71,7 @@ func WithSecretPath[T any](v string) Option[T] {
 // WithValueDecoder sets the valueDecoder option.
 func WithValueDecoder[T any](v codec.ValueDecoder[T]) Option[T] {
 	return func(o *options[T]) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.valueDecoder = v

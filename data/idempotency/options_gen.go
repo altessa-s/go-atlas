@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/core/encoding/serializer"
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
@@ -16,7 +17,7 @@ type Option func(o *options)
 // WithCollector sets the collector option.
 func WithCollector(v metrics.Collector) Option {
 	return func(o *options) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.collector = v
@@ -36,7 +37,7 @@ func WithLogger(v *slog.Logger) Option {
 // WithSerializer sets the serializer option.
 func WithSerializer(v serializer.Serializer) Option {
 	return func(o *options) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.serializer = v

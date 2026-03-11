@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
@@ -72,7 +73,7 @@ func WithCheckTimeout(v time.Duration) Option {
 // WithCollector sets the collector option.
 func WithCollector(v metrics.Collector) Option {
 	return func(o *options) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.collector = v
@@ -132,7 +133,7 @@ func WithNumShards(v int) Option {
 // WithScheduler sets the scheduler option.
 func WithScheduler(v corescheduler.TaskRegistrar) Option {
 	return func(o *options) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.scheduler = v

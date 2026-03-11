@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/transport/http/client/limiters"
 )
@@ -79,7 +80,7 @@ func WithClient(v *http.Client) Option {
 // WithCollector sets the collector option.
 func WithCollector(v metrics.Collector) Option {
 	return func(o *options) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.collector = v
@@ -96,7 +97,7 @@ func WithErrorHandler(v ErrorHandler) Option {
 // WithLimiter sets the limiter option.
 func WithLimiter(v limiters.RequestsLimiter) Option {
 	return func(o *options) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.limiter = v

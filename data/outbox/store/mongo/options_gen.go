@@ -7,6 +7,8 @@ import (
 	"context"
 	"strings"
 	"time"
+
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 )
 
 // Option is a functional option for configuring options.
@@ -38,7 +40,7 @@ func WithCollectionName[T interface{ string | *string }](v T) Option {
 // WithContext sets the ctx option.
 func WithContext(v context.Context) Option {
 	return func(o *options) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.ctx = v
