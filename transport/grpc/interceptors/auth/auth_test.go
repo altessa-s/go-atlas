@@ -16,8 +16,14 @@ func TestServerInterceptor_Dependencies(t *testing.T) {
 	si := ServerInterceptor()
 	ic := si.(*interceptor)
 	deps := ic.Dependencies()
-	if len(deps) != 1 || deps[0] != "metadata" {
-		t.Fatalf("Dependencies() = %v", deps)
+	want := []string{"metadata", "errstatus"}
+	if len(deps) != len(want) {
+		t.Fatalf("Dependencies() = %v, want %v", deps, want)
+	}
+	for i, d := range deps {
+		if d != want[i] {
+			t.Fatalf("Dependencies()[%d] = %q, want %q", i, d, want[i])
+		}
 	}
 }
 

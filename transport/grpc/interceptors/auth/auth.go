@@ -29,9 +29,10 @@ type interceptor struct {
 }
 
 // Dependencies returns interceptors that auth requires to run before it.
-// Auth uses metadata for call information extraction.
+// Auth uses metadata for call information extraction and errstatus must
+// wrap auth so that authentication errors are enriched with RequestInfo.
 func (i *interceptor) Dependencies() []string {
-	return []string{"metadata"}
+	return []string{"metadata", "errstatus"}
 }
 
 // ServerInterceptor returns a new interceptor that authenticates the request.
