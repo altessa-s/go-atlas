@@ -17,5 +17,5 @@ import (
 type options struct {
 	logger     *slog.Logger
 	serializer serializer.Serializer `optgen:"notnil"`
-	collector  metrics.Collector `optgen:"notnil"`
+	collector  metrics.Collector     `optgen:"notnil"`
 }

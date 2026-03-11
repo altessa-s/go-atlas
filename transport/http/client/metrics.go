@@ -12,10 +12,10 @@ import (
 // When no [metrics.Collector] is provided, [metrics.Noop] is used and
 // all methods become zero-cost no-ops.
 type httpClientMetrics struct {
-	requestsTotal    metrics.Counter
-	requestErrors    metrics.Counter
-	retries          metrics.Counter
-	requestDuration  metrics.Timer
+	requestsTotal       metrics.Counter
+	requestErrors       metrics.Counter
+	retries             metrics.Counter
+	requestDuration     metrics.Timer
 	circuitBreakerTrips metrics.Counter
 }
 

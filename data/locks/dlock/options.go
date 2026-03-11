@@ -20,6 +20,6 @@ const DefaultLockAcquireTimeout = 30 * time.Second
 // options contains DLock configuration.
 type options struct {
 	logger             *slog.Logger
-	lockAcquireTimeout time.Duration `optgen:"default=DefaultLockAcquireTimeout"`
+	lockAcquireTimeout time.Duration     `optgen:"default=DefaultLockAcquireTimeout"`
 	collector          metrics.Collector `optgen:"notnil"`
 }

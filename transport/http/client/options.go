@@ -105,7 +105,7 @@ type options struct {
 	// ssrfProtection enables blocking connections to private/local IP addresses
 	ssrfProtection bool `optgen:"manual"`
 	// ssrfAllowedCIDRs contains CIDR prefixes exempted from SSRF blocking
-	ssrfAllowedCIDRs []netip.Prefix `optgen:"manual"`
+	ssrfAllowedCIDRs []netip.Prefix    `optgen:"manual"`
 	collector        metrics.Collector `optgen:"notnil"`
 }
 
