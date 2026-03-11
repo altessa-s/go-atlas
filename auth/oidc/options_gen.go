@@ -9,7 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/health"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
@@ -47,6 +49,16 @@ func WithClient(v *http.Client) Option {
 			return
 		}
 		o.client = v
+	}
+}
+
+// WithCollector sets the collector option.
+func WithCollector(v metrics.Collector) Option {
+	return func(o *options) {
+		if nilcheck.IsNil(v) {
+			return
+		}
+		o.collector = v
 	}
 }
 
@@ -93,7 +105,7 @@ func WithPresetRules(v ...PresetRule) Option {
 // WithRevocationFilter sets the revocationFilter option.
 func WithRevocationFilter(v Filter) Option {
 	return func(o *options) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.revocationFilter = v
@@ -126,7 +138,7 @@ func WithRevocationItemType[T interface{ string | *string }](v T) Option {
 // WithRevocationLoader sets the revocationLoader option.
 func WithRevocationLoader(v DataLoader) Option {
 	return func(o *options) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.revocationLoader = v
@@ -166,7 +178,7 @@ func WithRevokedTokensCacheKeyPrefix[T interface{ string | *string }](v T) Optio
 // WithScheduler sets the scheduler option.
 func WithScheduler(v corescheduler.TaskRegistrar) Option {
 	return func(o *options) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.scheduler = v

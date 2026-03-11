@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/observability/health"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
@@ -58,6 +59,9 @@ type options struct {
 	jwksRefreshSchedule    string                      `opt:"-"`
 	revocationSyncEnabled  bool                        `opt:"-"`
 	revocationSyncSchedule string                      `opt:"-"`
+
+	// Metrics collector for Prometheus-compatible instrumentation.
+	collector metrics.Collector `optgen:"notnil"`
 }
 
 // WithDefaultValidationOptions sets default validation options for ValidateToken.

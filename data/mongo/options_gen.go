@@ -9,7 +9,9 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/data/mongo/kms"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
@@ -57,6 +59,16 @@ func WithClientOptions(v *mongoOptions.ClientOptions) Option {
 			return
 		}
 		o.ClientOptions = v
+	}
+}
+
+// WithCollector sets the Collector option.
+func WithCollector(v metrics.Collector) Option {
+	return func(o *config) {
+		if nilcheck.IsNil(v) {
+			return
+		}
+		o.Collector = v
 	}
 }
 

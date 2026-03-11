@@ -17,6 +17,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
 
 	"github.com/altessa-s/go-atlas/data/mongo/kms"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
@@ -114,6 +115,9 @@ type config struct {
 
 	// Logger sets a custom structured logger for the MongoDB client.
 	Logger *slog.Logger
+
+	// Collector provides Prometheus-compatible metrics for MongoDB operations.
+	Collector metrics.Collector `optgen:"notnil"`
 }
 
 // WithTransactionOptions sets custom transaction options for MongoDB transactions.

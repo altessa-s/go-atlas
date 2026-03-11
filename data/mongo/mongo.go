@@ -105,6 +105,9 @@ type Mongo struct {
 	// Created once per Mongo instance; its sharded cache is shared across
 	// all calls to collectFieldsMetadata, making the cache actually effective.
 	structParser *Parser
+
+	// metrics provides Prometheus-compatible instrumentation for MongoDB operations.
+	metrics *mongoMetrics
 }
 
 // New creates a new MongoDB client instance using option functions.
@@ -145,6 +148,7 @@ func New(database string, opts ...Option) (*Mongo, error) {
 			WithParserEncryptionTagName(cfg.EncryptionTagName),
 		),
 		singleFlight: &singleflight.Group{},
+		metrics:      newMongoMetrics(cfg.Collector),
 	}
 
 	// Setup encryption if the KMS provider is configured and encryption is enabled
@@ -181,6 +185,9 @@ func (m *Mongo) Connect(ctx context.Context) (err error) {
 	if m.connected.Load() {
 		return nil
 	}
+
+	stop := m.metrics.connectDuration.Start()
+	defer stop()
 
 	defer func() { //nolint:contextcheck // Close() creates its own context internally
 		if err == nil {
@@ -275,6 +282,9 @@ func (m *Mongo) Connect(ctx context.Context) (err error) {
 //		return err
 //	})
 func (m *Mongo) WithTransaction(ctx context.Context, handler func(ctx context.Context) error) error {
+	stop := m.metrics.transactionDuration.Start()
+	defer stop()
+
 	// Apply transaction timeout (cap to DefaultTxTimeout)
 	ctxWithTimeout, cancel := corecontext.WithMaxTimeout(ctx, DefaultTxTimeout)
 	defer cancel()
@@ -328,6 +338,8 @@ func (m *Mongo) WithTransaction(ctx context.Context, handler func(ctx context.Co
 	}
 
 	if err != nil {
+		m.metrics.transactionErrors.Inc()
+
 		if m.config.Logger != nil {
 			m.config.Logger.Error("transaction failed", slog.Any("error", err),
 				"duration_ms", time.Since(startTime).Milliseconds())
@@ -618,6 +630,8 @@ func (m *Mongo) ping(ctx context.Context, client *mongo.Client) error {
 			return time.Duration(attempt+1) * DefaultPingBaseDelay
 		},
 		OnRetry: func(attempt int, err error, nextDelay time.Duration) {
+			m.metrics.pingRetries.Inc()
+
 			if m.config.Logger != nil {
 				m.config.Logger.Debug("ping failed, retrying",
 					slog.Int("attempt", attempt+1),

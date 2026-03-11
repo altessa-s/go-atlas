@@ -89,6 +89,9 @@ type Provider struct {
 	jwksRefreshRunning atomic.Bool // Guards against concurrent RefreshJWKS calls.
 
 	schedulerJWKSRefreshRegistered atomic.Bool // Marks if RefreshJWKS is managed by scheduler.
+
+	// metrics provides Prometheus-compatible instrumentation for OIDC operations.
+	metrics *oidcMetrics
 }
 
 // NewProvider creates an OIDC provider from a discovery URL.
@@ -134,6 +137,7 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 		revocationLoader:  o.revocationLoader,
 		verifierOptions:   o.verifierOptions,
 		scheduler:         o.scheduler,
+		metrics:           newOIDCMetrics(o.collector),
 	}
 
 	// Initialize revocation storage if not provided but filter/loader are available
@@ -242,12 +246,18 @@ func (p *Provider) ValidateToken(ctx context.Context, token string) (map[string]
 
 // ValidateTokenWithOptions validates a JWT with custom validation options.
 func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, opt ...ValidationOption) (map[string]any, error) {
+	p.metrics.tokenValidations.Inc()
+	stop := p.metrics.validationDuration.Start()
+	defer stop()
+
 	// Reject empty tokens immediately
 	if token == "" {
+		p.metrics.validationErrors.Inc()
 		return nil, coreerrs.Wrap(ErrInvalidToken, "token is empty")
 	}
 
 	if err := p.checkTokenRevocation(ctx, token); err != nil {
+		p.metrics.validationErrors.Inc()
 		return nil, err
 	}
 
@@ -256,9 +266,11 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 		cacheKey := tokenCacheKey(p.opts.tokensCacheKeyPrefix, token)
 		var claims map[string]any
 		if err := p.tokenCache.Get(ctx, cacheKey, &claims); err == nil {
+			p.metrics.cacheHits.Inc()
 			// Cache hit - return cached claims
 			return claims, nil
 		}
+		p.metrics.cacheMisses.Inc()
 		// Cache miss or error - fall through to validation
 	}
 
@@ -270,6 +282,7 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 	if len(opt) == 0 && p.verifierOptions == nil && len(p.opts.presetRules) == 0 {
 		claims, err := p.parseAndValidateToken(token, &verifierOptions{}, nil)
 		if err != nil {
+			p.metrics.validationErrors.Inc()
 			return nil, err
 		}
 		p.cacheValidatedClaims(ctx, token, claims)
@@ -282,6 +295,7 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 		// Step 1: Verify signature FIRST for security (without claim validation)
 		claimsForPreset, err := p.parseTokenWithoutClaimsValidation(token)
 		if err != nil {
+			p.metrics.validationErrors.Inc()
 			p.logger.ErrorContext(ctx, "signature verification failed", slog.Any("error", err))
 			return nil, coreerrs.Wrapf(ErrInvalidToken, "signature verification failed: %v", err)
 		}
@@ -307,6 +321,7 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 
 	if presetVerifier != nil {
 		if err := p.validateWithPresetClaims(presetClaims, presetVerifier, presetCELRules); err != nil {
+			p.metrics.validationErrors.Inc()
 			p.logger.ErrorContext(ctx, "failed to validate token", slog.Any("error", err))
 			return nil, err
 		}
@@ -332,6 +347,7 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 
 	claims, err := p.parseAndValidateToken(token, ops, compiledCELRules)
 	if err != nil {
+		p.metrics.validationErrors.Inc()
 		p.logger.ErrorContext(ctx, "failed to validate token", slog.Any("error", err))
 		return nil, err
 	}

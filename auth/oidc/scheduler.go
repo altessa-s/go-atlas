@@ -96,6 +96,18 @@ func (p *Provider) refreshJWKSInternal(ctx context.Context) error {
 	}
 	defer p.jwksRefreshRunning.Store(false)
 
+	p.metrics.jwksRefreshes.Inc()
+	stop := p.metrics.jwksRefreshDuration.Start()
+	defer stop()
+
+	refreshErr := p.doRefreshJWKS(ctx)
+	if refreshErr != nil {
+		p.metrics.jwksRefreshErrors.Inc()
+	}
+	return refreshErr
+}
+
+func (p *Provider) doRefreshJWKS(ctx context.Context) error {
 	if p.discoveryInfo == nil || p.discoveryInfo.JwksURL == "" {
 		return coreerrs.Wrap(ErrDiscovery, "JWKS URL not available")
 	}
