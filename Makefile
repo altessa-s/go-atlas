@@ -1,6 +1,9 @@
 GOPATH         			:= ${HOME}/go
 PATH           			:= ${GOPATH}/bin:$(PATH)
 SHELL          			:= /bin/bash
+.DELETE_ON_ERROR:
+MAKEFLAGS      			+= --warn-undefined-variables
+MAKEFLAGS      			+= --no-builtin-rules
 CHANGELOG_NEXT_VERSION 	?= v$(shell abt semver --next --skip-meta . 2>/dev/null || echo "")
 
 # dupl configuration
@@ -121,6 +124,13 @@ dupl-check: ## Fail if dupl finds duplicates (ignoring generated files)
 		echo "$$out"; \
 		exit 1; \
 	fi
+
+.PHONY: ci
+ci: lint test-all security-scan dupl-check ## Run full CI checks locally (lint, test, security, dupl)
+
+.PHONY: clean
+clean: ## Remove generated artifacts (coverage.out, bench.txt)
+	@rm -f coverage.out bench.txt
 
 .PHONY: copyright
 copyright: ## Add copyright header to all files
