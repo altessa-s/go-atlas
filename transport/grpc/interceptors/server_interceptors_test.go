@@ -88,13 +88,21 @@ func TestServerMatchInterceptorFunc(t *testing.T) {
 	})
 }
 
-func TestServerDrivenInterceptor_Name(t *testing.T) {
+func TestDrivenInterceptor_Name(t *testing.T) {
 	d := NoopDriver()
+	inner := &mockDrivenInterceptor{driver: d}
+
 	// NoopDriver doesn't implement Interceptor, so name should be "driven"
-	i := ServerDrivenInterceptor(&mockDrivenInterceptor{driver: d})
-	if i.Name() != "driven" {
-		t.Fatalf("Name() = %q", i.Name())
-	}
+	t.Run("server", func(t *testing.T) {
+		if name := ServerDrivenInterceptor(inner).Name(); name != "driven" {
+			t.Fatalf("Name() = %q, want %q", name, "driven")
+		}
+	})
+	t.Run("client", func(t *testing.T) {
+		if name := ClientDrivenInterceptor(inner).Name(); name != "driven" {
+			t.Fatalf("Name() = %q, want %q", name, "driven")
+		}
+	})
 }
 
 // mockNamedDrivenInterceptor implements DrivenInterceptor + Interceptor + Dependencies.
@@ -112,30 +120,58 @@ func (m *mockNamedDrivenInterceptor) Name() string { return m.name }
 
 func (m *mockNamedDrivenInterceptor) Dependencies() []string { return m.deps }
 
-func TestServerDrivenInterceptor_Dependencies(t *testing.T) {
-	t.Run("forwards dependencies from underlying interceptor", func(t *testing.T) {
-		inner := &mockNamedDrivenInterceptor{
-			driver: NoopDriver(),
-			name:   "test",
-			deps:   []string{"metadata", "auth"},
-		}
-		si := ServerDrivenInterceptor(inner)
+// dependencyDeclarer is the common assertion target for both
+// DrivenServerInterceptor and DrivenClientInterceptor.
+type dependencyDeclarer interface {
+	Dependencies() []string
+}
 
-		deps := si.(*DrivenServerInterceptor).Dependencies()
-		if len(deps) != 2 || deps[0] != "metadata" || deps[1] != "auth" {
-			t.Fatalf("Dependencies() = %v, want [metadata auth]", deps)
-		}
-	})
+func TestDrivenInterceptor_Dependencies(t *testing.T) {
+	tests := []struct {
+		name     string
+		inner    driver.DrivenInterceptor
+		wantDeps []string
+	}{
+		{
+			name: "forwards dependencies from underlying interceptor",
+			inner: &mockNamedDrivenInterceptor{
+				driver: NoopDriver(),
+				name:   "test",
+				deps:   []string{"metadata", "auth"},
+			},
+			wantDeps: []string{"metadata", "auth"},
+		},
+		{
+			name:     "returns nil when underlying has no Dependencies method",
+			inner:    &mockDrivenInterceptor{driver: NoopDriver()},
+			wantDeps: nil,
+		},
+	}
 
-	t.Run("returns nil when underlying has no Dependencies method", func(t *testing.T) {
-		inner := &mockDrivenInterceptor{driver: NoopDriver()}
-		si := ServerDrivenInterceptor(inner)
+	for _, tt := range tests {
+		t.Run("server/"+tt.name, func(t *testing.T) {
+			si := ServerDrivenInterceptor(tt.inner)
+			assertDependencies(t, si.(dependencyDeclarer), tt.wantDeps)
+		})
 
-		deps := si.(*DrivenServerInterceptor).Dependencies()
-		if deps != nil {
-			t.Fatalf("Dependencies() = %v, want nil", deps)
+		t.Run("client/"+tt.name, func(t *testing.T) {
+			ci := ClientDrivenInterceptor(tt.inner)
+			assertDependencies(t, ci.(dependencyDeclarer), tt.wantDeps)
+		})
+	}
+}
+
+func assertDependencies(t *testing.T, d dependencyDeclarer, want []string) {
+	t.Helper()
+	got := d.Dependencies()
+	if len(got) != len(want) {
+		t.Fatalf("Dependencies() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("Dependencies()[%d] = %q, want %q", i, got[i], want[i])
 		}
-	})
+	}
 }
 
 func TestOrderServerInterceptors(t *testing.T) {
@@ -153,43 +189,27 @@ func TestOrderServerInterceptors(t *testing.T) {
 func TestOrderServerInterceptors_DrivenDependencies(t *testing.T) {
 	// Simulate: auth depends on metadata, idempotency depends on metadata+auth.
 	// Expected order: metadata, auth, idempotency.
-	mdInner := &mockNamedDrivenInterceptor{
-		driver: NoopDriver(),
-		name:   "metadata",
-		deps:   nil,
-	}
-	authInner := &mockNamedDrivenInterceptor{
-		driver: NoopDriver(),
-		name:   "auth",
-		deps:   []string{"metadata"},
-	}
-	idkInner := &mockNamedDrivenInterceptor{
-		driver: NoopDriver(),
-		name:   "idempotency",
-		deps:   []string{"metadata", "auth"},
-	}
+	md := &mockNamedDrivenInterceptor{driver: NoopDriver(), name: "metadata"}
+	auth := &mockNamedDrivenInterceptor{driver: NoopDriver(), name: "auth", deps: []string{"metadata"}}
+	idk := &mockNamedDrivenInterceptor{driver: NoopDriver(), name: "idempotency", deps: []string{"metadata", "auth"}}
 
 	// Pass in reverse order to verify ordering works.
 	result, err := OrderServerInterceptors(
-		ServerDrivenInterceptor(idkInner),
-		ServerDrivenInterceptor(authInner),
-		ServerDrivenInterceptor(mdInner),
+		ServerDrivenInterceptor(idk),
+		ServerDrivenInterceptor(auth),
+		ServerDrivenInterceptor(md),
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(result) != 3 {
-		t.Fatalf("len = %d, want 3", len(result))
+	want := []string{"metadata", "auth", "idempotency"}
+	if len(result) != len(want) {
+		t.Fatalf("len = %d, want %d", len(result), len(want))
 	}
-
-	names := make([]string, len(result))
 	for i, ic := range result {
-		names[i] = ic.Name()
-	}
-
-	// metadata must come before auth, auth must come before idempotency
-	if names[0] != "metadata" || names[1] != "auth" || names[2] != "idempotency" {
-		t.Fatalf("order = %v, want [metadata auth idempotency]", names)
+		if ic.Name() != want[i] {
+			t.Fatalf("result[%d].Name() = %q, want %q", i, ic.Name(), want[i])
+		}
 	}
 }

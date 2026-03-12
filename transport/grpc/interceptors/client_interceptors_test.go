@@ -94,13 +94,8 @@ func TestClientMatchInterceptorFunc(t *testing.T) {
 	})
 }
 
-func TestClientDrivenInterceptor_Name(t *testing.T) {
-	d := NoopDriver()
-	i := ClientDrivenInterceptor(&mockDrivenInterceptor{driver: d})
-	if i.Name() != "driven" {
-		t.Fatalf("Name() = %q", i.Name())
-	}
-}
+// TestDrivenInterceptor_Name in server_interceptors_test.go covers
+// both DrivenServerInterceptor and DrivenClientInterceptor name forwarding.
 
 func TestOrderClientInterceptors(t *testing.T) {
 	a := &NoOpClientInterceptor{}
@@ -113,31 +108,8 @@ func TestOrderClientInterceptors(t *testing.T) {
 	}
 }
 
-func TestClientDrivenInterceptor_Dependencies(t *testing.T) {
-	t.Run("forwards dependencies from underlying interceptor", func(t *testing.T) {
-		inner := &mockNamedDrivenInterceptor{
-			driver: NoopDriver(),
-			name:   "logger",
-			deps:   []string{"metadata", "requestid", "realip", "tracing"},
-		}
-		ci := ClientDrivenInterceptor(inner)
-
-		deps := ci.(*DrivenClientInterceptor).Dependencies()
-		if len(deps) != 4 || deps[0] != "metadata" {
-			t.Fatalf("Dependencies() = %v, want [metadata requestid realip tracing]", deps)
-		}
-	})
-
-	t.Run("returns nil when underlying has no Dependencies method", func(t *testing.T) {
-		inner := &mockDrivenInterceptor{driver: NoopDriver()}
-		ci := ClientDrivenInterceptor(inner)
-
-		deps := ci.(*DrivenClientInterceptor).Dependencies()
-		if deps != nil {
-			t.Fatalf("Dependencies() = %v, want nil", deps)
-		}
-	})
-}
+// TestDrivenInterceptor_Dependencies in server_interceptors_test.go covers
+// both DrivenServerInterceptor and DrivenClientInterceptor dependency forwarding.
 
 func TestDrivenInterceptorFunc(t *testing.T) {
 	d := NoopDriver()
