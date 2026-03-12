@@ -112,65 +112,6 @@ func WithListCursorCollation(collation *options.Collation) ListCursorOption {
 	}
 }
 
-// WithListCursorStages injects additional aggregation pipeline stages after $sort and before $facet.
-// This is the natural extension point for operations that must happen on the full sorted result set
-// before pagination — such as $lookup when you need to sort or filter by the joined data.
-//
-// These stages run on ALL documents matching the filter, not just the current page.
-// For display-only joins (e.g., translations), prefer [WithListCursorDecorationStages] which
-// runs only on paginated items and is significantly more efficient.
-//
-// WARNING: Do not use stages that modify fields used for cursor-based pagination
-// (cursor_id, sort fields). Doing so will break pagination between pages.
-//
-// Pipeline order: $match → $sort → [stages] → $facet → $unwind/$project
-//
-// Example — $lookup when sorting by a joined field:
-//
-//	WithListCursorStages(bson.D{{"$lookup", bson.M{
-//	    "from":         "categories",
-//	    "localField":   "category_id",
-//	    "foreignField": "_id",
-//	    "as":           "_category",
-//	}}})
-func WithListCursorStages(stages ...bson.D) ListCursorOption {
-	return func(opts *listCursorOptions) {
-		for _, stage := range stages {
-			opts.stages = append(opts.stages, stage)
-		}
-	}
-}
-
-// WithListCursorDecorationStages injects pipeline stages inside the $facet items branch,
-// after $limit but before $project. These stages run only on the paginated items (e.g., 20 items),
-// not on the entire result set — making them significantly more efficient for display-only
-// operations like joining translations or enriching documents with data from other collections.
-//
-// Use this instead of [WithListCursorStages] when:
-//   - You do NOT need to sort or filter by the joined data
-//   - The joined data is only for display/enrichment purposes
-//
-// WARNING: Do not use stages that modify fields used for cursor-based pagination
-// (cursor_id, sort fields). Doing so will break pagination between pages.
-//
-// Pipeline order: $match → $sort → $facet { items: [$limit → [decoration stages] → $project] }
-//
-// Example with $lookup for translations (runs only on page-size items):
-//
-//	WithListCursorDecorationStages(bson.D{{"$lookup", bson.M{
-//	    "from":         "translations",
-//	    "localField":   "code",
-//	    "foreignField": "code",
-//	    "as":           "_translations",
-//	}}})
-func WithListCursorDecorationStages(stages ...bson.D) ListCursorOption {
-	return func(opts *listCursorOptions) {
-		for _, stage := range stages {
-			opts.decorationStages = append(opts.decorationStages, stage)
-		}
-	}
-}
-
 // WithListCursorSort configures the sort order for cursor-based list operations.
 // It accepts string, *string, or bson.D types for maximum flexibility.
 //
