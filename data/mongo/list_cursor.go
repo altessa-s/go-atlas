@@ -48,19 +48,21 @@ const (
 // The options control filtering, sorting, projection, pagination limits, and query
 // optimization features like index hints and explain analysis.
 type listCursorOptions struct {
-	sort          bson.D
-	filter        bson.M
-	projection    bson.M
-	limit         int64
-	cursor        *Cursor
-	cursorToken   string // Raw cursor token from client (for storage mode)
-	logger        *slog.Logger
-	hint          any    // Index hint for query optimization
-	explain       bool   // Enable query execution plan analysis
-	cursorIdField string // MongoDB field name for cursor ID (default: "cursor_id")
-	includeTotal  bool
-	storage       CursorStorage      // Server-side cursor storage (optional)
-	collation     *options.Collation // Collation for string comparison rules
+	sort             bson.D
+	filter           bson.M
+	projection       bson.M
+	limit            int64
+	cursor           *Cursor
+	cursorToken      string // Raw cursor token from client (for storage mode)
+	logger           *slog.Logger
+	hint             any    // Index hint for query optimization
+	explain          bool   // Enable query execution plan analysis
+	cursorIdField    string // MongoDB field name for cursor ID (default: "cursor_id")
+	includeTotal     bool
+	storage          CursorStorage      // Server-side cursor storage (optional)
+	collation        *options.Collation // Collation for string comparison rules
+	stages           bson.A             // Custom pipeline stages inserted after $sort, before $facet
+	decorationStages bson.A             // Custom pipeline stages inserted inside $facet → items, after $limit
 }
 
 // defaultListCursorOptions returns default configuration for cursor-based pagination.
@@ -289,6 +291,75 @@ func WithListCursorExplain() ListCursorOption {
 func WithListCursorStorage(storage CursorStorage) ListCursorOption {
 	return func(options *listCursorOptions) {
 		options.storage = storage
+	}
+}
+
+// WithListCursorStages adds custom aggregation pipeline stages that are inserted after $sort
+// and before $facet. These stages operate on the entire filtered and sorted result set.
+//
+// Typical use cases include $lookup for joining data needed for sorting or filtering,
+// $addFields for computed fields, or $unwind for denormalization.
+//
+// Multiple calls accumulate stages in order. Each bson.D represents one pipeline stage.
+//
+// WARNING: Do not modify the cursor ID field or sort fields in these stages, as this
+// will break cursor-based pagination.
+//
+// When WithListCursorTotal(true) is used together with custom stages, the total count is
+// pre-computed via $setWindowFields (requires MongoDB 5.0+) BEFORE stages are applied.
+// This ensures the count reflects the original document cardinality even when stages
+// contain $unwind or other cardinality-changing operations.
+//
+// Example:
+//
+//	WithListCursorStages(
+//	    bson.D{{"$lookup", bson.M{
+//	        "from":         "categories",
+//	        "localField":   "category_id",
+//	        "foreignField": "_id",
+//	        "as":           "category",
+//	    }}},
+//	    bson.D{{"$unwind", "$category"}},
+//	)
+func WithListCursorStages(stages ...bson.D) ListCursorOption {
+	return func(opts *listCursorOptions) {
+		for _, stage := range stages {
+			if stage != nil {
+				opts.stages = append(opts.stages, stage)
+			}
+		}
+	}
+}
+
+// WithListCursorDecorationStages adds custom aggregation pipeline stages that are inserted
+// inside the $facet → items branch, after $limit. These stages operate only on the current
+// page of results (limit+1 documents), making them efficient for expensive operations.
+//
+// Typical use cases include $lookup for data needed only for display (e.g., translations,
+// user profiles), $addFields for presentation-layer computed fields.
+//
+// Multiple calls accumulate stages in order. Each bson.D represents one pipeline stage.
+//
+// WARNING: Do not modify the cursor ID field or sort fields in these stages, as this
+// will break cursor-based pagination.
+//
+// Example:
+//
+//	WithListCursorDecorationStages(
+//	    bson.D{{"$lookup", bson.M{
+//	        "from":         "translations",
+//	        "localField":   "_id",
+//	        "foreignField": "entity_id",
+//	        "as":           "translations",
+//	    }}},
+//	)
+func WithListCursorDecorationStages(stages ...bson.D) ListCursorOption {
+	return func(opts *listCursorOptions) {
+		for _, stage := range stages {
+			if stage != nil {
+				opts.decorationStages = append(opts.decorationStages, stage)
+			}
+		}
 	}
 }
 

@@ -300,7 +300,7 @@ func TestBuildCursorFilter(t *testing.T) {
 
 func TestBuildFacetStage(t *testing.T) {
 	t.Run("without total and without projection", func(t *testing.T) {
-		got := buildFacetStage(10, nil, false)
+		got := buildFacetStage(10, nil, false, nil, false)
 		if len(got) != 1 {
 			t.Fatalf("expected 1 stage, got %d", len(got))
 		}
@@ -316,7 +316,7 @@ func TestBuildFacetStage(t *testing.T) {
 	})
 
 	t.Run("with total", func(t *testing.T) {
-		got := buildFacetStage(20, nil, true)
+		got := buildFacetStage(20, nil, true, nil, false)
 		facet := got[0].(bson.M)["$facet"].(bson.M)
 		if _, ok := facet["count"]; !ok {
 			t.Error("count should be present when includeTotal is true")
@@ -325,7 +325,7 @@ func TestBuildFacetStage(t *testing.T) {
 
 	t.Run("with projection", func(t *testing.T) {
 		proj := bson.M{"name": 1, "age": 1}
-		got := buildFacetStage(10, proj, false)
+		got := buildFacetStage(10, proj, false, nil, false)
 		facet := got[0].(bson.M)["$facet"].(bson.M)
 		items := facet["items"].(bson.A)
 		if len(items) != 2 { // $limit + $project
@@ -426,6 +426,377 @@ func TestBuildCursorPipeline(t *testing.T) {
 		}
 		t.Fatal("$facet stage not found")
 	})
+}
+
+func TestBuildFacetStage_WithDecorationStages(t *testing.T) {
+	decoration := bson.A{
+		bson.D{{"$lookup", bson.M{"from": "translations", "localField": "_id", "foreignField": "entity_id", "as": "translations"}}},
+	}
+
+	got := buildFacetStage(10, nil, false, decoration, false)
+	facet := got[0].(bson.M)["$facet"].(bson.M)
+	items := facet["items"].(bson.A)
+
+	// items pipeline: $limit, $lookup
+	if len(items) != 2 {
+		t.Fatalf("expected 2 stages in items pipeline, got %d", len(items))
+	}
+
+	assertBsonDStageKey(t, items[0], "$limit")
+	assertBsonDStageKey(t, items[1], "$lookup")
+}
+
+func TestBuildFacetStage_WithDecorationAndProjection(t *testing.T) {
+	decoration := bson.A{
+		bson.D{{"$lookup", bson.M{"from": "translations"}}},
+	}
+	proj := bson.M{"name": 1}
+
+	got := buildFacetStage(10, proj, false, decoration, false)
+	facet := got[0].(bson.M)["$facet"].(bson.M)
+	items := facet["items"].(bson.A)
+
+	// items pipeline: $limit, $lookup, $project
+	if len(items) != 3 {
+		t.Fatalf("expected 3 stages in items pipeline, got %d", len(items))
+	}
+
+	assertBsonDStageKey(t, items[0], "$limit")
+	assertBsonDStageKey(t, items[1], "$lookup")
+	assertBsonDStageKey(t, items[2], "$project")
+}
+
+func TestBuildCursorPipeline_WithStages(t *testing.T) {
+	lookupStage := bson.D{{"$lookup", bson.M{"from": "categories", "localField": "category_id", "foreignField": "_id", "as": "category"}}}
+	unwindStage := bson.D{{"$unwind", "$category"}}
+
+	opts := &listCursorOptions{
+		sort:          bson.D{{Key: "created_at", Value: int32(-1)}},
+		filter:        bson.M{"status": "active"},
+		limit:         10,
+		cursorIdField: "cursor_id",
+		stages:        bson.A{lookupStage, unwindStage},
+	}
+
+	pipeline := buildCursorPipeline(opts)
+
+	// Find positions of key stages
+	sortIdx := findStageIndex(pipeline, "$sort")
+	lookupIdx := findStageIndex(pipeline, "$lookup")
+	unwindIdx := findStageIndex(pipeline, "$unwind")
+	facetIdx := findStageIndex(pipeline, "$facet")
+
+	if sortIdx < 0 || lookupIdx < 0 || unwindIdx < 0 || facetIdx < 0 {
+		t.Fatalf("missing expected stages: sort=%d, lookup=%d, unwind=%d, facet=%d",
+			sortIdx, lookupIdx, unwindIdx, facetIdx)
+	}
+
+	// Custom stages must be after $sort and before $facet
+	if lookupIdx <= sortIdx {
+		t.Errorf("$lookup (idx %d) should be after $sort (idx %d)", lookupIdx, sortIdx)
+	}
+	if unwindIdx <= lookupIdx {
+		t.Errorf("$unwind (idx %d) should be after $lookup (idx %d)", unwindIdx, lookupIdx)
+	}
+	if facetIdx <= unwindIdx {
+		t.Errorf("$facet (idx %d) should be after $unwind (idx %d)", facetIdx, unwindIdx)
+	}
+}
+
+func TestBuildCursorPipeline_WithDecorationStages(t *testing.T) {
+	decoration := bson.D{{"$lookup", bson.M{"from": "translations"}}}
+
+	opts := &listCursorOptions{
+		sort:             bson.D{{Key: "created_at", Value: int32(-1)}},
+		filter:           bson.M{},
+		limit:            10,
+		cursorIdField:    "cursor_id",
+		decorationStages: bson.A{decoration},
+	}
+
+	pipeline := buildCursorPipeline(opts)
+
+	// Find facet stage and check items pipeline
+	facetIdx := findStageIndex(pipeline, "$facet")
+	if facetIdx < 0 {
+		t.Fatal("$facet stage not found")
+	}
+
+	facet := pipeline[facetIdx].(bson.M)["$facet"].(bson.M)
+	items := facet["items"].(bson.A)
+
+	// items: $limit, $lookup
+	if len(items) < 2 {
+		t.Fatalf("expected at least 2 stages in items pipeline, got %d", len(items))
+	}
+
+	assertBsonDStageKey(t, items[0], "$limit")
+	assertBsonDStageKey(t, items[1], "$lookup")
+
+	// Verify $limit has lookahead
+	limitVal := items[0].(bson.M)["$limit"].(int64)
+	if limitVal != 11 { // 10 + 1 lookahead
+		t.Errorf("$limit = %d, want 11", limitVal)
+	}
+}
+
+func TestBuildCursorPipeline_WithBothStageTypes(t *testing.T) {
+	stage := bson.D{{"$addFields", bson.M{"computed": true}}}
+	decoration := bson.D{{"$lookup", bson.M{"from": "translations"}}}
+
+	opts := &listCursorOptions{
+		sort:             bson.D{{Key: "created_at", Value: int32(-1)}},
+		filter:           bson.M{},
+		limit:            10,
+		cursorIdField:    "cursor_id",
+		stages:           bson.A{stage},
+		decorationStages: bson.A{decoration},
+	}
+
+	pipeline := buildCursorPipeline(opts)
+
+	// Custom stage should be in main pipeline after $sort
+	sortIdx := findStageIndex(pipeline, "$sort")
+	addFieldsIdx := findStageIndex(pipeline, "$addFields")
+	facetIdx := findStageIndex(pipeline, "$facet")
+
+	if addFieldsIdx <= sortIdx {
+		t.Errorf("$addFields (idx %d) should be after $sort (idx %d)", addFieldsIdx, sortIdx)
+	}
+	if facetIdx <= addFieldsIdx {
+		t.Errorf("$facet (idx %d) should be after $addFields (idx %d)", facetIdx, addFieldsIdx)
+	}
+
+	// Decoration stage should be in facet items pipeline
+	facet := pipeline[facetIdx].(bson.M)["$facet"].(bson.M)
+	items := facet["items"].(bson.A)
+
+	assertBsonDStageKey(t, items[0], "$limit")
+	assertBsonDStageKey(t, items[1], "$lookup")
+}
+
+func TestBuildCursorPipeline_EmptyStages(t *testing.T) {
+	// Verify backward compatibility: nil stages produce identical pipeline
+	optsWithout := &listCursorOptions{
+		sort:          bson.D{{Key: "created_at", Value: int32(-1)}},
+		filter:        bson.M{"status": "active"},
+		limit:         10,
+		cursorIdField: "cursor_id",
+		includeTotal:  true,
+	}
+
+	optsWith := &listCursorOptions{
+		sort:             bson.D{{Key: "created_at", Value: int32(-1)}},
+		filter:           bson.M{"status": "active"},
+		limit:            10,
+		cursorIdField:    "cursor_id",
+		includeTotal:     true,
+		stages:           nil,
+		decorationStages: nil,
+	}
+
+	pipelineWithout := buildCursorPipeline(optsWithout)
+	pipelineWith := buildCursorPipeline(optsWith)
+
+	if len(pipelineWithout) != len(pipelineWith) {
+		t.Fatalf("pipelines differ in length: %d vs %d", len(pipelineWithout), len(pipelineWith))
+	}
+}
+
+func TestWithListCursorStages_Accumulates(t *testing.T) {
+	opts := defaultListCursorOptions()
+
+	opt1 := WithListCursorStages(bson.D{{"$lookup", bson.M{"from": "a"}}})
+	opt2 := WithListCursorStages(bson.D{{"$unwind", "$a"}})
+
+	opt1(opts)
+	opt2(opts)
+
+	if len(opts.stages) != 2 {
+		t.Fatalf("expected 2 stages, got %d", len(opts.stages))
+	}
+}
+
+func TestWithListCursorStages_SkipsNil(t *testing.T) {
+	opts := defaultListCursorOptions()
+
+	opt := WithListCursorStages(nil, bson.D{{"$lookup", bson.M{"from": "a"}}}, nil)
+	opt(opts)
+
+	if len(opts.stages) != 1 {
+		t.Fatalf("expected 1 stage (nil filtered), got %d", len(opts.stages))
+	}
+}
+
+func TestWithListCursorDecorationStages_Accumulates(t *testing.T) {
+	opts := defaultListCursorOptions()
+
+	opt1 := WithListCursorDecorationStages(bson.D{{"$lookup", bson.M{"from": "a"}}})
+	opt2 := WithListCursorDecorationStages(bson.D{{"$lookup", bson.M{"from": "b"}}})
+
+	opt1(opts)
+	opt2(opts)
+
+	if len(opts.decorationStages) != 2 {
+		t.Fatalf("expected 2 decoration stages, got %d", len(opts.decorationStages))
+	}
+}
+
+func TestBuildFacetStage_PreCountedTotal(t *testing.T) {
+	t.Run("preCountedTotal adds $unset and reads from annotation field", func(t *testing.T) {
+		got := buildFacetStage(10, nil, true, nil, true)
+		facet := got[0].(bson.M)["$facet"].(bson.M)
+
+		// Items pipeline should have: $limit, $unset
+		items := facet["items"].(bson.A)
+		if len(items) != 2 {
+			t.Fatalf("expected 2 stages in items pipeline, got %d", len(items))
+		}
+		assertBsonDStageKey(t, items[0], "$limit")
+		assertBsonDStageKey(t, items[1], "$unset")
+
+		// Count branch should read from annotation field, not use $count
+		count := facet["count"].(bson.A)
+		if len(count) != 2 {
+			t.Fatalf("expected 2 stages in count pipeline, got %d", len(count))
+		}
+		assertBsonDStageKey(t, count[0], "$limit")
+		assertBsonDStageKey(t, count[1], "$project")
+	})
+
+	t.Run("preCountedTotal false uses standard $count", func(t *testing.T) {
+		got := buildFacetStage(10, nil, true, nil, false)
+		facet := got[0].(bson.M)["$facet"].(bson.M)
+
+		count := facet["count"].(bson.A)
+		if len(count) != 1 {
+			t.Fatalf("expected 1 stage in count pipeline, got %d", len(count))
+		}
+		assertBsonDStageKey(t, count[0], "$count")
+	})
+}
+
+func TestBuildCursorPipeline_PreCountedTotalWithStages(t *testing.T) {
+	t.Run("stages + includeTotal injects $setWindowFields", func(t *testing.T) {
+		opts := &listCursorOptions{
+			sort:          bson.D{{Key: "created_at", Value: int32(-1)}},
+			filter:        bson.M{},
+			limit:         10,
+			cursorIdField: "cursor_id",
+			includeTotal:  true,
+			stages:        bson.A{bson.D{{"$unwind", "$tags"}}},
+		}
+
+		pipeline := buildCursorPipeline(opts)
+
+		swfIdx := findStageIndex(pipeline, "$setWindowFields")
+		unwindIdx := findStageIndex(pipeline, "$unwind")
+		facetIdx := findStageIndex(pipeline, "$facet")
+
+		if swfIdx < 0 {
+			t.Fatal("$setWindowFields stage not found")
+		}
+		if swfIdx >= unwindIdx {
+			t.Errorf("$setWindowFields (idx %d) should be before $unwind (idx %d)", swfIdx, unwindIdx)
+		}
+		if unwindIdx >= facetIdx {
+			t.Errorf("$unwind (idx %d) should be before $facet (idx %d)", unwindIdx, facetIdx)
+		}
+
+		// Facet count branch should use pre-computed total
+		facet := pipeline[facetIdx].(bson.M)["$facet"].(bson.M)
+		count := facet["count"].(bson.A)
+		assertBsonDStageKey(t, count[0], "$limit")
+		assertBsonDStageKey(t, count[1], "$project")
+	})
+
+	t.Run("stages without includeTotal skips $setWindowFields", func(t *testing.T) {
+		opts := &listCursorOptions{
+			sort:          bson.D{{Key: "created_at", Value: int32(-1)}},
+			filter:        bson.M{},
+			limit:         10,
+			cursorIdField: "cursor_id",
+			includeTotal:  false,
+			stages:        bson.A{bson.D{{"$unwind", "$tags"}}},
+		}
+
+		pipeline := buildCursorPipeline(opts)
+
+		if findStageIndex(pipeline, "$setWindowFields") >= 0 {
+			t.Error("$setWindowFields should not be present when includeTotal is false")
+		}
+	})
+
+	t.Run("includeTotal without stages uses standard $count", func(t *testing.T) {
+		opts := &listCursorOptions{
+			sort:          bson.D{{Key: "created_at", Value: int32(-1)}},
+			filter:        bson.M{},
+			limit:         10,
+			cursorIdField: "cursor_id",
+			includeTotal:  true,
+		}
+
+		pipeline := buildCursorPipeline(opts)
+
+		if findStageIndex(pipeline, "$setWindowFields") >= 0 {
+			t.Error("$setWindowFields should not be present when no custom stages")
+		}
+
+		facetIdx := findStageIndex(pipeline, "$facet")
+		facet := pipeline[facetIdx].(bson.M)["$facet"].(bson.M)
+		count := facet["count"].(bson.A)
+		assertBsonDStageKey(t, count[0], "$count")
+	})
+}
+
+func TestWithListCursorDecorationStages_SkipsNil(t *testing.T) {
+	opts := defaultListCursorOptions()
+
+	opt := WithListCursorDecorationStages(nil, bson.D{{"$lookup", bson.M{"from": "a"}}}, nil)
+	opt(opts)
+
+	if len(opts.decorationStages) != 1 {
+		t.Fatalf("expected 1 decoration stage (nil filtered), got %d", len(opts.decorationStages))
+	}
+}
+
+// findStageIndex returns the index of the first pipeline stage with the given key, or -1.
+func findStageIndex(pipeline bson.A, key string) int {
+	for i, stage := range pipeline {
+		if stageMap, ok := stage.(bson.M); ok {
+			if _, ok := stageMap[key]; ok {
+				return i
+			}
+		}
+		if stageDoc, ok := stage.(bson.D); ok {
+			for _, e := range stageDoc {
+				if e.Key == key {
+					return i
+				}
+			}
+		}
+	}
+	return -1
+}
+
+// assertBsonDStageKey asserts that a pipeline stage (bson.M or bson.D) contains the given key.
+func assertBsonDStageKey(t *testing.T, stage any, key string) {
+	t.Helper()
+	switch s := stage.(type) {
+	case bson.M:
+		if _, ok := s[key]; !ok {
+			t.Errorf("expected stage key %q, got %v", key, s)
+		}
+	case bson.D:
+		for _, e := range s {
+			if e.Key == key {
+				return
+			}
+		}
+		t.Errorf("expected stage key %q, got %v", key, s)
+	default:
+		t.Errorf("unexpected stage type %T", stage)
+	}
 }
 
 // assertBsonDEqual compares two bson.D values element by element.

@@ -229,6 +229,11 @@ func buildSortStage(sort bson.D) bson.A {
 	return bson.A{bson.M{"$sort": sortStage}}
 }
 
+// totalAnnotationField is the temporary field name used by $setWindowFields to store
+// the pre-computed document count before custom pipeline stages are applied.
+// This ensures accurate totals even when custom stages change document cardinality (e.g., $unwind).
+const totalAnnotationField = "__atlas_total"
+
 // buildFacetStage creates the $facet stage for parallel items and count queries.
 // Fetches limit+1 items to determine if there are more pages.
 //
@@ -236,13 +241,23 @@ func buildSortStage(sort bson.D) bson.A {
 //   - limit: Maximum number of items to return
 //   - projection: Optional field projection
 //   - includeTotal: Whether to include total count
+//   - decorationStages: Optional pipeline stages inserted after $limit (e.g., $lookup for display data)
+//   - preCountedTotal: When true, total was pre-computed via $setWindowFields and stored in
+//     totalAnnotationField; the count branch reads it instead of running $count
 //
 // Returns:
 //   - bson.A: Pipeline stages with $facet
-func buildFacetStage(limit int64, projection bson.M, includeTotal bool) bson.A {
-	// Build items pipeline: limit + lookahead + optional projection
+func buildFacetStage(limit int64, projection bson.M, includeTotal bool, decorationStages bson.A, preCountedTotal bool) bson.A {
+	// Build items pipeline: limit + lookahead + decoration stages + optional projection
 	itemsPipeline := bson.A{
 		bson.M{"$limit": limit + paginationLookaheadCount},
+	}
+
+	itemsPipeline = append(itemsPipeline, decorationStages...)
+
+	// Remove the annotation field so it doesn't leak into results
+	if preCountedTotal {
+		itemsPipeline = append(itemsPipeline, bson.M{"$unset": totalAnnotationField})
 	}
 
 	itemsPipeline = slices.AppendIf[any](itemsPipeline, projection != nil, bson.M{"$project": projection})
@@ -253,7 +268,16 @@ func buildFacetStage(limit int64, projection bson.M, includeTotal bool) bson.A {
 	}
 
 	if includeTotal {
-		facetStage["count"] = bson.A{bson.M{"$count": "total"}}
+		if preCountedTotal {
+			// Read the pre-computed count from the annotation field.
+			// Any single document carries the correct value, so $limit: 1 is sufficient.
+			facetStage["count"] = bson.A{
+				bson.M{"$limit": int64(1)},
+				bson.M{"$project": bson.M{"total": "$" + totalAnnotationField}},
+			}
+		} else {
+			facetStage["count"] = bson.A{bson.M{"$count": "total"}}
+		}
 	}
 
 	return bson.A{bson.M{"$facet": facetStage}}
@@ -265,10 +289,12 @@ func buildFacetStage(limit int64, projection bson.M, includeTotal bool) bson.A {
 // Pipeline stages (in order):
 //  1. $match: Combines user filter with cursor filter (if cursor provided)
 //  2. $sort: Orders results by the specified sort fields
-//  3. $facet: Splits into parallel pipelines for items and count
-//     - items: $limit (fetch limit+1 to check for next page) + $project (optional)
-//     - count: $count (total documents matching filter)
-//  4. $unwind + $project: Transforms facet output into {items: [], total: N} structure
+//  3. $setWindowFields: Pre-computes total count (only when custom stages + includeTotal, requires MongoDB 5.0+)
+//  4. Custom stages (via WithListCursorStages): operate on entire result set
+//  5. $facet: Splits into parallel pipelines for items and count
+//     - items: $limit (fetch limit+1) + decoration stages (via WithListCursorDecorationStages) + $project (optional)
+//     - count: $count or pre-computed total (total documents matching filter)
+//  6. $unwind + $project: Transforms facet output into {items: [], total: N} structure
 //
 // The pipeline fetches limit+1 items to efficiently determine if there are more pages
 // without requiring a separate count query. If we get more than limit items, we know
@@ -303,13 +329,32 @@ func buildCursorPipeline(opts *listCursorOptions) bson.A {
 	// 2. SORT - Order results
 	pipeline = append(pipeline, buildSortStage(sort)...)
 
-	// 3. FACET - Split into items and count branches
+	// 3. PRE-COUNT TOTAL - When custom stages may change document cardinality (e.g., $unwind),
+	// annotate each document with the true count BEFORE stages are applied.
+	// Uses $setWindowFields (requires MongoDB 5.0+) to avoid materializing documents.
+	preCountedTotal := len(opts.stages) > 0 && opts.includeTotal
+	if preCountedTotal {
+		pipeline = append(pipeline, bson.M{
+			"$setWindowFields": bson.M{
+				"output": bson.M{
+					totalAnnotationField: bson.M{"$count": bson.M{}},
+				},
+			},
+		})
+	}
+
+	// 4. CUSTOM STAGES - User-provided stages after $sort, before $facet
+	pipeline = append(pipeline, opts.stages...)
+
+	// 5. FACET - Split into items and count branches
 	pipeline = append(pipeline, buildFacetStage(
 		opts.limit,
 		opts.projection,
 		opts.includeTotal,
+		opts.decorationStages,
+		preCountedTotal,
 	)...)
 
-	// 4. UNWIND AND PROJECT - Transform facet results
+	// 6. UNWIND AND PROJECT - Transform facet results
 	return appendFacetResultTransform(pipeline, opts.includeTotal)
 }
