@@ -1,3 +1,5 @@
+[← Architecture](architecture.md) · [Back to README](../README.md) · [Metrics Reference →](metrics.md)
+
 # Configuration
 
 go-atlas provides a flexible configuration system through the `config/loader` package.

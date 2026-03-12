@@ -1,3 +1,5 @@
+[← Configuration](configuration.md) · [Back to README](../README.md)
+
 # Metrics Reference
 
 All metrics are Prometheus-compatible and follow the naming convention

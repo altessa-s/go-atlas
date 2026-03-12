@@ -81,6 +81,12 @@ import "github.com/altessa-s/go-atlas/data/cache"
 
 ## Documentation
 
+| Guide | Description |
+|-------|-------------|
+| [Architecture](docs/architecture.md) | Package structure, layering, and design principles |
+| [Configuration](docs/configuration.md) | Multi-source config loading, env vars, secrets |
+| [Metrics Reference](docs/metrics.md) | All 129 Prometheus metrics across 24 subsystems |
+
 Full API documentation is available at [pkg.go.dev](https://pkg.go.dev/github.com/altessa-s/go-atlas).
 
 ## Development
@@ -99,6 +105,8 @@ cd go-atlas
 | `make bench` | Run all benchmarks |
 | `make security-scan` | Run `govulncheck` and `gosec` |
 | `make generate` | Run `go generate` across all packages |
+| `make ci` | Run full CI checks locally (lint, test, security, dupl) |
+| `make clean` | Remove generated artifacts |
 
 ## Contributing
 
