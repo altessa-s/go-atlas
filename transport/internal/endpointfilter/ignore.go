@@ -20,8 +20,8 @@ import (
 // These are safe to share across goroutines.
 var (
 	// ReflectionMethodPattern matches gRPC server reflection RPCs
-	// (grpc.reflection.v1alpha.ServerReflection/*).
-	ReflectionMethodPattern = regexp.MustCompile(`^(?i)/grpc\.reflection\.v1alpha\.serverReflection/*`)
+	// (grpc.reflection.v1.ServerReflection/* and grpc.reflection.v1alpha.ServerReflection/*).
+	ReflectionMethodPattern = regexp.MustCompile(`^(?i)/grpc\.reflection\.v1(alpha)?\.serverReflection/`)
 
 	// HealthMethodPattern matches gRPC health check RPCs
 	// (grpc.health.v1.Health/*).
