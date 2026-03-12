@@ -14,6 +14,7 @@ import (
 	"github.com/altessa-s/go-atlas/data/uniq/providers/nats"
 	"github.com/altessa-s/go-atlas/data/uniq/providers/noop"
 	"github.com/altessa-s/go-atlas/data/uniq/providers/redis"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	natsio "github.com/nats-io/nats.go"
@@ -39,6 +40,7 @@ const maxKeyLength = 1024
 type Uniq struct {
 	provider   providers.Provider
 	serializer serializer.Serializer
+	metrics    *uniqMetrics
 }
 
 var _ Uniquer = (*Uniq)(nil)
@@ -55,6 +57,7 @@ func New(p providers.Provider, opt ...Option) *Uniq {
 	return &Uniq{
 		provider:   p,
 		serializer: options.serializer,
+		metrics:    newUniqMetrics(options.collector),
 	}
 }
 
@@ -92,7 +95,15 @@ func (s *Uniq) Add(ctx context.Context, key string) error {
 	if err := validateKey(key); err != nil {
 		return err
 	}
-	return s.provider.Add(ctx, key)
+	labels := metrics.Labels{"op": "add"}
+	s.metrics.operationsTotal.WithLabels(labels).Inc()
+	stop := s.metrics.operationDuration.WithLabels(labels).Start()
+	err := s.provider.Add(ctx, key)
+	stop()
+	if err != nil {
+		s.metrics.operationErrors.WithLabels(labels).Inc()
+	}
+	return err
 }
 
 // AddWithValue adds a key with an associated value.
@@ -134,7 +145,15 @@ func (s *Uniq) Exist(ctx context.Context, key string) (bool, error) {
 	if err := validateKey(key); err != nil {
 		return false, err
 	}
-	return s.provider.Exist(ctx, key)
+	labels := metrics.Labels{"op": "exist"}
+	s.metrics.operationsTotal.WithLabels(labels).Inc()
+	stop := s.metrics.operationDuration.WithLabels(labels).Start()
+	exists, err := s.provider.Exist(ctx, key)
+	stop()
+	if err != nil {
+		s.metrics.operationErrors.WithLabels(labels).Inc()
+	}
+	return exists, err
 }
 
 // Remove removes a key from the set. No error if key does not exist.
@@ -142,7 +161,15 @@ func (s *Uniq) Remove(ctx context.Context, key string) error {
 	if err := validateKey(key); err != nil {
 		return err
 	}
-	return s.provider.Remove(ctx, key)
+	labels := metrics.Labels{"op": "remove"}
+	s.metrics.operationsTotal.WithLabels(labels).Inc()
+	stop := s.metrics.operationDuration.WithLabels(labels).Start()
+	err := s.provider.Remove(ctx, key)
+	stop()
+	if err != nil {
+		s.metrics.operationErrors.WithLabels(labels).Inc()
+	}
+	return err
 }
 
 // Clear removes all keys from the set.

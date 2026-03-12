@@ -23,6 +23,7 @@ import (
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/data/mongo/kms"
 	"github.com/altessa-s/go-atlas/domain/converter"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	"golang.org/x/sync/singleflight"
 
@@ -452,6 +453,11 @@ func (m *Mongo) Client() *mongo.Client {
 func GetEntity[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collection, filter bson.M) (E, error) {
 	var zero E
 
+	opLabels := metrics.Labels{"op": "find_one", "collection": col.Name()}
+	m.metrics.operationsTotal.WithLabels(opLabels).Inc()
+	stopOp := m.metrics.operationDuration.WithLabels(opLabels).Start()
+	defer stopOp()
+
 	// Generate a deduplication key from filter for singleflight request deduplication
 	// Include database name to prevent cross-database data leakage
 	deduplicationKey := generateDeduplicationKey(col.Database().Name()+":"+col.Name(), filter)
@@ -527,6 +533,11 @@ func GetEntity[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collectio
 //
 //	users, err := mongotools.GetEntities[UserModel, UserEntity](ctx, mongo, collection, bson.M{"active": true})
 func GetEntities[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collection, filter bson.M) ([]E, error) {
+	opLabels := metrics.Labels{"op": "find", "collection": col.Name()}
+	m.metrics.operationsTotal.WithLabels(opLabels).Inc()
+	stopOp := m.metrics.operationDuration.WithLabels(opLabels).Start()
+	defer stopOp()
+
 	// Generate a deduplication key from filter for singleflight request deduplication
 	// Include database name to prevent cross-database data leakage
 	deduplicationKey := generateDeduplicationKey(col.Database().Name()+":"+col.Name()+deduplicationKeySuffixList, filter)

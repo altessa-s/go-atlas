@@ -20,6 +20,8 @@ type schedulerMetrics struct {
 	tickDuration        metrics.Timer
 	tasksRunning        metrics.Gauge
 	tasksRegistered     metrics.Gauge
+	dispatchLag         metrics.Timer
+	storageErrors       metrics.Counter
 }
 
 func newSchedulerMetrics(c metrics.Collector) *schedulerMetrics {
@@ -69,6 +71,18 @@ func newSchedulerMetrics(c metrics.Collector) *schedulerMetrics {
 		tasksRegistered: scoped.MustGauge(metrics.MetricOpts{
 			Name: "tasks_registered",
 			Help: "Total number of registered tasks.",
+		}),
+		dispatchLag: scoped.MustTimer(metrics.HistogramOpts{
+			MetricOpts: metrics.MetricOpts{
+				Name:       "dispatch_lag_seconds",
+				Help:       "Delay between scheduled and actual task execution in seconds.",
+				LabelNames: []string{"task_id"},
+			},
+		}),
+		storageErrors: scoped.MustCounter(metrics.MetricOpts{
+			Name:       "storage_errors_total",
+			Help:       "Total number of scheduler storage operation failures.",
+			LabelNames: []string{"op"},
 		}),
 	}
 }

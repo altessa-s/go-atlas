@@ -16,6 +16,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/transport/broker"
 
 	corectx "github.com/altessa-s/go-atlas/core/context"
@@ -35,6 +36,13 @@ func WithAllowedSubjects(subjects ...string) Option {
 	}
 }
 
+// WithCollector sets the metrics collector for NATS subscriber instrumentation.
+func WithCollector(c metrics.Collector) Option {
+	return func(n *Nats) {
+		n.collector = c
+	}
+}
+
 // ErrSubjectNotAllowed is returned by [Nats.Publish], [Nats.PublishBatch],
 // and subscriber [Subscribe] when the subject does not match any pattern
 // in the allowlist configured via [WithAllowedSubjects].
@@ -50,6 +58,7 @@ type Nats struct {
 	subscribersMx   sync.RWMutex
 	subscribers     []broker.Subscriber
 	allowedSubjects []string
+	collector       metrics.Collector
 }
 
 // New creates a new NATS JetStream provider.

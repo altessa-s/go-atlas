@@ -15,6 +15,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/data/cache/lru"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -31,6 +32,7 @@ type parserConfig struct {
 	cacheSize           int
 	maxExpressionLength int
 	noCache             bool
+	collector           metrics.Collector
 }
 
 // defaultParserConfig returns default parser configuration.
@@ -72,11 +74,19 @@ func WithMaxExpressionLength(n int) ParserOption {
 	}
 }
 
+// WithParserCollector sets the metrics collector for parser instrumentation.
+func WithParserCollector(c metrics.Collector) ParserOption {
+	return func(cfg *parserConfig) {
+		cfg.collector = c
+	}
+}
+
 // Parser parses CEL expressions into filter AST nodes.
 type Parser struct {
 	env                 *cel.Env
 	cache               lru.Cacher[string, Node]
 	maxExpressionLength int
+	metrics             *filterMetrics
 }
 
 // getCELEnvironment returns the shared CEL environment, initialized on first call.
@@ -98,7 +108,7 @@ func NewParser(opts ...ParserOption) (*Parser, error) {
 		return nil, coreerrs.Wrapf(ErrParseFailed, "%v", err)
 	}
 
-	p := &Parser{env: env, maxExpressionLength: cfg.maxExpressionLength}
+	p := &Parser{env: env, maxExpressionLength: cfg.maxExpressionLength, metrics: newFilterMetrics(cfg.collector)}
 
 	if !cfg.noCache {
 		cache, err := lru.NewCache[string, Node](cfg.cacheSize)
@@ -118,16 +128,30 @@ func (p *Parser) Parse(ctx context.Context, expression string) (Node, error) {
 	}
 
 	if len(expression) > p.maxExpressionLength {
+		p.metrics.parseErrors.Inc()
 		return nil, coreerrs.Wrapf(ErrExpressionTooLong, "length %d exceeds maximum %d", len(expression), p.maxExpressionLength)
 	}
 
+	stop := p.metrics.parseDuration.Start()
+	defer stop()
+
+	var node Node
+	var err error
+
 	if p.cache != nil {
-		return p.cache.GetOrCompute(ctx, expression, func(ctx context.Context) (Node, error) {
+		node, err = p.cache.GetOrCompute(ctx, expression, func(ctx context.Context) (Node, error) {
 			return p.parseInternal(expression)
 		})
+	} else {
+		node, err = p.parseInternal(expression)
 	}
 
-	return p.parseInternal(expression)
+	if err != nil {
+		p.metrics.parseErrors.Inc()
+		return nil, err
+	}
+
+	return node, nil
 }
 
 // MustParse parses a CEL expression and panics if parsing fails.

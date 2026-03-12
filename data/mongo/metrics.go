@@ -16,6 +16,8 @@ type mongoMetrics struct {
 	pingRetries         metrics.Counter
 	transactionDuration metrics.Timer
 	transactionErrors   metrics.Counter
+	operationsTotal     metrics.Counter
+	operationDuration   metrics.Timer
 }
 
 func newMongoMetrics(c metrics.Collector) *mongoMetrics {
@@ -38,13 +40,26 @@ func newMongoMetrics(c metrics.Collector) *mongoMetrics {
 		}),
 		transactionDuration: scoped.MustTimer(metrics.HistogramOpts{
 			MetricOpts: metrics.MetricOpts{
-				Name: "transaction_duration_seconds",
-				Help: "Duration of MongoDB transactions in seconds.",
+				Name:       "transaction_duration_seconds",
+				Help:       "Duration of MongoDB transactions in seconds.",
+				LabelNames: []string{"collection"},
 			},
 		}),
 		transactionErrors: scoped.MustCounter(metrics.MetricOpts{
 			Name: "transaction_errors_total",
 			Help: "Total number of failed MongoDB transactions.",
+		}),
+		operationsTotal: scoped.MustCounter(metrics.MetricOpts{
+			Name:       "operations_total",
+			Help:       "Total number of MongoDB CRUD operations.",
+			LabelNames: []string{"op", "collection"},
+		}),
+		operationDuration: scoped.MustTimer(metrics.HistogramOpts{
+			MetricOpts: metrics.MetricOpts{
+				Name:       "operation_duration_seconds",
+				Help:       "Duration of MongoDB operations in seconds.",
+				LabelNames: []string{"op", "collection"},
+			},
 		}),
 	}
 }

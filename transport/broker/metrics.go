@@ -26,12 +26,14 @@ func newBrokerMetrics(c metrics.Collector) *brokerMetrics {
 
 	return &brokerMetrics{
 		messagesPublished: scoped.MustCounter(metrics.MetricOpts{
-			Name: "messages_published_total",
-			Help: "Total number of messages successfully published.",
+			Name:       "messages_published_total",
+			Help:       "Total number of messages successfully published.",
+			LabelNames: []string{"subject"},
 		}),
 		publishErrors: scoped.MustCounter(metrics.MetricOpts{
-			Name: "publish_errors_total",
-			Help: "Total number of message publish failures.",
+			Name:       "publish_errors_total",
+			Help:       "Total number of message publish failures.",
+			LabelNames: []string{"subject"},
 		}),
 		publishDuration: scoped.MustTimer(metrics.HistogramOpts{
 			MetricOpts: metrics.MetricOpts{

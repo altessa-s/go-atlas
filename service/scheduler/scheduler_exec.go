@@ -386,6 +386,14 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 	runID := generateID()
 	startTime := time.Now()
 
+	// Record dispatch lag: delay between scheduled time and actual execution
+	if state.NextRunAt > 0 {
+		lag := startTime.Sub(time.Unix(state.NextRunAt, 0))
+		if lag > 0 {
+			s.metrics.dispatchLag.WithLabels(metrics.Labels{"task_id": state.ID}).ObserveDuration(lag)
+		}
+	}
+
 	s.logger.DebugContext(ctx, "task execution started",
 		slog.String("task_id", state.ID),
 		slog.String("priority", task.config.Priority.String()),
@@ -394,6 +402,7 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 	// Re-read fresh state and update to running to avoid overwriting concurrent changes
 	currentState, err := s.storage.GetTask(ctx, state.ID)
 	if err != nil || currentState == nil {
+		s.metrics.storageErrors.WithLabels(metrics.Labels{"op": "get_task"}).Inc()
 		s.logger.ErrorContext(ctx, "failed to get current task state",
 			slog.String("task_id", state.ID),
 			slog.Any("error", err))
@@ -410,6 +419,7 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 	currentState.RunStartedAt = startTime.Unix()
 	currentState.UpdatedAt = startTime.Unix()
 	if upsertErr := s.storage.UpsertTask(ctx, currentState); upsertErr != nil {
+		s.metrics.storageErrors.WithLabels(metrics.Labels{"op": "upsert_task"}).Inc()
 		s.logger.ErrorContext(ctx, "failed to update task status to running, aborting execution",
 			slog.String("task_id", state.ID),
 			slog.Any("error", upsertErr))

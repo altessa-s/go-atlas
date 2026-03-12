@@ -22,6 +22,8 @@ import (
 	"github.com/MicahParks/keyfunc/v3"
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/altessa-s/go-atlas/observability/metrics"
+
 	corectx "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
@@ -246,18 +248,23 @@ func (p *Provider) ValidateToken(ctx context.Context, token string) (map[string]
 
 // ValidateTokenWithOptions validates a JWT with custom validation options.
 func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, opt ...ValidationOption) (map[string]any, error) {
-	p.metrics.tokenValidations.Inc()
+	issuer := ""
+	if p.discoveryInfo != nil {
+		issuer = p.discoveryInfo.Issuer
+	}
+	issuerLabels := metrics.Labels{"issuer": issuer}
+	p.metrics.tokenValidations.WithLabels(issuerLabels).Inc()
 	stop := p.metrics.validationDuration.Start()
 	defer stop()
 
 	// Reject empty tokens immediately
 	if token == "" {
-		p.metrics.validationErrors.Inc()
+		p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 		return nil, coreerrs.Wrap(ErrInvalidToken, "token is empty")
 	}
 
 	if err := p.checkTokenRevocation(ctx, token); err != nil {
-		p.metrics.validationErrors.Inc()
+		p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 		return nil, err
 	}
 
@@ -282,7 +289,7 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 	if len(opt) == 0 && p.verifierOptions == nil && len(p.opts.presetRules) == 0 {
 		claims, err := p.parseAndValidateToken(token, &verifierOptions{}, nil)
 		if err != nil {
-			p.metrics.validationErrors.Inc()
+			p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 			return nil, err
 		}
 		p.cacheValidatedClaims(ctx, token, claims)
@@ -295,7 +302,7 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 		// Step 1: Verify signature FIRST for security (without claim validation)
 		claimsForPreset, err := p.parseTokenWithoutClaimsValidation(token)
 		if err != nil {
-			p.metrics.validationErrors.Inc()
+			p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 			p.logger.ErrorContext(ctx, "signature verification failed", slog.Any("error", err))
 			return nil, coreerrs.Wrapf(ErrInvalidToken, "signature verification failed: %v", err)
 		}
@@ -321,7 +328,7 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 
 	if presetVerifier != nil {
 		if err := p.validateWithPresetClaims(presetClaims, presetVerifier, presetCELRules); err != nil {
-			p.metrics.validationErrors.Inc()
+			p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 			p.logger.ErrorContext(ctx, "failed to validate token", slog.Any("error", err))
 			return nil, err
 		}
@@ -347,7 +354,7 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 
 	claims, err := p.parseAndValidateToken(token, ops, compiledCELRules)
 	if err != nil {
-		p.metrics.validationErrors.Inc()
+		p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 		p.logger.ErrorContext(ctx, "failed to validate token", slog.Any("error", err))
 		return nil, err
 	}
@@ -363,6 +370,7 @@ func (p *Provider) checkTokenRevocation(ctx context.Context, token string) error
 	if p.opts.introspectionEnabled {
 		introspectionResp, err := p.IntrospectToken(ctx, token)
 		if err != nil {
+			p.metrics.revocationCheckErrors.Inc()
 			p.logger.WarnContext(ctx, "token introspection failed, continuing with signature validation", slog.Any("error", err))
 			return nil
 		}

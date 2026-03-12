@@ -15,6 +15,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/core/runtime/appinfo"
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/transport/broker"
 	"github.com/altessa-s/go-atlas/transport/broker/msg"
 
@@ -32,6 +33,7 @@ type streamSubscriber struct {
 	handlerCtxCancel context.CancelFunc
 	handlersWg       sync.WaitGroup
 	provider         *Nats
+	metrics          *subscriberMetrics
 }
 
 func newStreamSubscriber(natsProvider *Nats, opt []jetstream.PullConsumeOpt) *streamSubscriber {
@@ -39,6 +41,7 @@ func newStreamSubscriber(natsProvider *Nats, opt []jetstream.PullConsumeOpt) *st
 		js:       natsProvider.jetStream,
 		opts:     opt,
 		provider: natsProvider,
+		metrics:  newSubscriberMetrics(natsProvider.collector),
 	}
 }
 
@@ -199,7 +202,12 @@ func (ss *streamSubscriber) Subscribe(ctx context.Context, handler broker.Subscr
 		ss.handlersWg.Add(1)
 		defer ss.handlersWg.Done()
 		defer panics.Handle(ss.handlerCtx)
+
+		subjectLabels := metrics.Labels{"subject": jsMsg.Subject()}
+		ss.metrics.messagesReceived.WithLabels(subjectLabels).Inc()
+		stopTimer := ss.metrics.processingDuration.WithLabels(subjectLabels).Start()
 		handler.Handle(ss.handlerCtx, msg.NewMessageWithMeta(jsMsg.Subject(), jsMsg.Data(), metaData, msgOpts...))
+		stopTimer()
 	}, ss.opts...)
 
 	if err != nil {

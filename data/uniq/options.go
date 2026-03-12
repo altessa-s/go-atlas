@@ -8,9 +8,11 @@ package uniq
 
 import (
 	"github.com/altessa-s/go-atlas/core/encoding/serializer"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // options contains Uniq configuration.
 type options struct {
 	serializer serializer.Serializer
+	collector  metrics.Collector `optgen:"notnil"`
 }

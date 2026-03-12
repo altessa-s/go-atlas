@@ -8,9 +8,12 @@ package probfilter
 
 import (
 	"log/slog"
+
+	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // options contains Manager configuration.
 type options struct {
-	logger *slog.Logger
+	logger    *slog.Logger
+	collector metrics.Collector `optgen:"notnil"`
 }

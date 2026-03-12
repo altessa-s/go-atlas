@@ -27,6 +27,7 @@ type Manager struct {
 	filters map[string]Filter
 	mu      sync.RWMutex
 	opts    *options
+	metrics *probfilterMetrics
 }
 
 // NewManager creates a new Manager for managing multiple filters.
@@ -37,9 +38,11 @@ type Manager struct {
 //	mgr.Register("users", userFilter)
 //	mgr.Register("sessions", sessionFilter)
 func NewManager(opt ...Option) *Manager {
+	opts := newOptions(opt...)
 	return &Manager{
 		filters: make(map[string]Filter),
-		opts:    newOptions(opt...),
+		opts:    opts,
+		metrics: newProbfilterMetrics(opts.collector),
 	}
 }
 

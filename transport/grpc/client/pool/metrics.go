@@ -19,6 +19,7 @@ type poolMetrics struct {
 	connectionsActive  metrics.Gauge
 	connectionsInUse   metrics.Gauge
 	connectionsIdle    metrics.Gauge
+	waiters            metrics.Gauge
 	connectDuration    metrics.Timer
 	cleanupDuration    metrics.Timer
 	cleanupRemoved     metrics.Counter
@@ -63,6 +64,10 @@ func newPoolMetrics(c metrics.Collector) *poolMetrics {
 		connectionsIdle: scoped.MustGauge(metrics.MetricOpts{
 			Name: "connections_idle",
 			Help: "Number of idle connections available in the pool.",
+		}),
+		waiters: scoped.MustGauge(metrics.MetricOpts{
+			Name: "waiters",
+			Help: "Number of goroutines waiting for a connection.",
 		}),
 		connectDuration: scoped.MustTimer(metrics.HistogramOpts{
 			MetricOpts: metrics.MetricOpts{

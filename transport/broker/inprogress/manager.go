@@ -36,6 +36,7 @@ type Manager struct {
 	entries     map[uint64]*entry
 	nextID      uint64
 	logger      *slog.Logger
+	metrics     *inprogressMetrics
 	scheduler   corescheduler.TaskRegistrar
 	tickRunning atomic.Bool // Guards against concurrent RunTickCycle calls.
 
@@ -60,6 +61,7 @@ func New(opts ...Option) *Manager {
 	mgr := &Manager{
 		entries:   make(map[uint64]*entry),
 		logger:    cfg.logger,
+		metrics:   newInprogressMetrics(cfg.collector),
 		scheduler: cfg.scheduler,
 	}
 
@@ -129,7 +131,10 @@ func (m *Manager) tick() {
 		}
 		e.lastSent.Store(nowNano)
 		if err := e.h.InProgress(); err != nil {
+			m.metrics.heartbeatErrors.Inc()
 			m.logger.Warn("failed to send InProgress", slog.Any("error", err))
+		} else {
+			m.metrics.heartbeatsSent.Inc()
 		}
 	}
 }

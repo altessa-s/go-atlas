@@ -3,7 +3,7 @@
 All metrics are Prometheus-compatible and follow the naming convention
 `{serviceName}_{subsystem}_{name}`. The `serviceName` prefix is configured
 via `config.Metrics.ServiceName`. This document lists every metric registered
-across the 20 instrumented subsystems (98 metrics total).
+across the 24 instrumented subsystems (129 metrics total).
 
 ---
 
@@ -25,9 +25,28 @@ Package: `transport/broker`
 
 | Name | Type | Description |
 |------|------|-------------|
-| `broker_messages_published_total` | Counter | Total number of messages successfully published. |
-| `broker_publish_errors_total` | Counter | Total number of message publish failures. |
+| `broker_messages_published_total` | Counter | Total number of messages successfully published. Labels: `subject`. |
+| `broker_publish_errors_total` | Counter | Total number of message publish failures. Labels: `subject`. |
 | `broker_publish_duration_seconds` | Histogram | Duration of publish operations in seconds. |
+
+## broker_inprogress
+
+Package: `transport/broker/inprogress`
+
+| Name | Type | Description |
+|------|------|-------------|
+| `broker_inprogress_heartbeats_sent_total` | Counter | Total number of InProgress heartbeats sent. |
+| `broker_inprogress_heartbeat_errors_total` | Counter | Total number of failed InProgress heartbeat attempts. |
+
+## broker_subscriber
+
+Package: `transport/broker/providers/nats`
+
+| Name | Type | Description |
+|------|------|-------------|
+| `broker_subscriber_messages_received_total` | Counter | Total number of messages received by subscriber. Labels: `subject`. |
+| `broker_subscriber_processing_duration_seconds` | Histogram | Duration of subscriber message processing in seconds. Labels: `subject`. |
+| `broker_subscriber_processing_errors_total` | Counter | Total number of subscriber message processing failures. Labels: `subject`. |
 
 ## cache
 
@@ -35,11 +54,13 @@ Package: `data/cache`
 
 | Name | Type | Description |
 |------|------|-------------|
-| `cache_hits_total` | Counter | Total number of cache hits. |
-| `cache_misses_total` | Counter | Total number of cache misses. |
-| `cache_errors_total` | Counter | Total number of cache operation errors. |
+| `cache_hits_total` | Counter | Total number of cache hits. Labels: `cache_name`. |
+| `cache_misses_total` | Counter | Total number of cache misses. Labels: `cache_name`. |
+| `cache_errors_total` | Counter | Total number of cache operation errors. Labels: `cache_name`. |
 | `cache_write_duration_seconds` | Histogram | Duration of cache write operations in seconds. |
 | `cache_fallback_duration_seconds` | Histogram | Duration of fallback function execution in seconds. |
+| `cache_evictions_total` | Counter | Total number of cache evictions. Labels: `cache_name`. |
+| `cache_size` | Gauge | Current number of entries in the cache. Labels: `cache_name`. |
 
 ## dlock
 
@@ -65,6 +86,7 @@ Package: `transport/grpc/client/pool`
 | `grpc_connection_pool_connections_active` | Gauge | Number of currently active connections. |
 | `grpc_connection_pool_connections_in_use` | Gauge | Number of connections currently in use by callers. |
 | `grpc_connection_pool_connections_idle` | Gauge | Number of idle connections available in the pool. |
+| `grpc_connection_pool_waiters` | Gauge | Number of goroutines waiting for a connection. |
 | `grpc_connection_pool_connect_duration_seconds` | Histogram | Duration of connection establishment in seconds. |
 | `grpc_connection_pool_cleanup_duration_seconds` | Histogram | Duration of cleanup cycles in seconds. |
 | `grpc_connection_pool_cleanup_connections_removed` | Counter | Total number of connections removed during cleanup. |
@@ -85,11 +107,12 @@ Package: `transport/http/client`
 
 | Name | Type | Description |
 |------|------|-------------|
-| `http_client_requests_total` | Counter | Total number of HTTP requests completed. |
-| `http_client_request_errors_total` | Counter | Total number of HTTP request errors after all retries. |
+| `http_client_requests_total` | Counter | Total number of HTTP requests completed. Labels: `method`, `status_class`. |
+| `http_client_request_errors_total` | Counter | Total number of HTTP request errors after all retries. Labels: `method`. |
 | `http_client_retries_total` | Counter | Total number of HTTP request retry attempts. |
-| `http_client_request_duration_seconds` | Histogram | Duration of HTTP requests including retries in seconds. |
+| `http_client_request_duration_seconds` | Histogram | Duration of HTTP requests including retries in seconds. Labels: `method`. |
 | `http_client_circuit_breaker_trips_total` | Counter | Total number of circuit breaker trip events. |
+| `http_client_circuit_breaker_state` | Gauge | Current circuit breaker state per host (0=closed, 1=half-open, 2=open). Labels: `host`. |
 
 ## idempotency
 
@@ -122,8 +145,10 @@ Package: `data/mongo`
 |------|------|-------------|
 | `mongo_connect_duration_seconds` | Histogram | Duration of MongoDB connect operations in seconds. |
 | `mongo_ping_retries_total` | Counter | Total number of MongoDB ping retry attempts. |
-| `mongo_transaction_duration_seconds` | Histogram | Duration of MongoDB transactions in seconds. |
+| `mongo_transaction_duration_seconds` | Histogram | Duration of MongoDB transactions in seconds. Labels: `collection`. |
 | `mongo_transaction_errors_total` | Counter | Total number of failed MongoDB transactions. |
+| `mongo_operations_total` | Counter | Total number of MongoDB CRUD operations. Labels: `op`, `collection`. |
+| `mongo_operation_duration_seconds` | Histogram | Duration of MongoDB operations in seconds. Labels: `op`, `collection`. |
 
 ## nats_kv_lease
 
@@ -150,8 +175,9 @@ Package: `auth/oidc`
 
 | Name | Type | Description |
 |------|------|-------------|
-| `oidc_token_validations_total` | Counter | Total number of token validation attempts. |
-| `oidc_validation_errors_total` | Counter | Total number of token validation errors. |
+| `oidc_token_validations_total` | Counter | Total number of token validation attempts. Labels: `issuer`. |
+| `oidc_validation_errors_total` | Counter | Total number of token validation errors. Labels: `issuer`. |
+| `oidc_revocation_check_errors_total` | Counter | Total number of token revocation check failures. |
 | `oidc_validation_duration_seconds` | Histogram | Duration of token validation operations in seconds. |
 | `oidc_cache_hits_total` | Counter | Total number of token cache hits. |
 | `oidc_cache_misses_total` | Counter | Total number of token cache misses. |
@@ -182,6 +208,8 @@ Package: `data/outbox`
 | `outbox_events_saved_total` | Counter | Total number of events persisted to the outbox store. |
 | `outbox_events_skipped_total` | Counter | Total number of events skipped due to key compaction. |
 | `outbox_events_in_flight` | Gauge | Number of events currently being dispatched. |
+| `outbox_dispatch_retries_total` | Counter | Total number of event dispatch retry attempts. |
+| `outbox_max_retries_exhausted_total` | Counter | Total number of events hitting the retry limit. |
 | `outbox_dispatch_cycle_duration_seconds` | Histogram | Duration of a single dispatch cycle in seconds. |
 | `outbox_unlock_cycle_duration_seconds` | Histogram | Duration of a single unlock cycle in seconds. |
 | `outbox_cleanup_cycle_duration_seconds` | Histogram | Duration of a single cleanup cycle in seconds. |
@@ -210,6 +238,8 @@ Package: `service/scheduler`
 | `scheduler_tick_duration_seconds` | Histogram | Duration of each scheduler tick cycle in seconds. |
 | `scheduler_tasks_running` | Gauge | Number of currently executing tasks. |
 | `scheduler_tasks_registered` | Gauge | Total number of registered tasks. |
+| `scheduler_dispatch_lag_seconds` | Histogram | Delay between scheduled and actual task execution in seconds. Labels: `task_id`. |
+| `scheduler_storage_errors_total` | Counter | Total number of scheduler storage operation failures. Labels: `op`. |
 
 ## secrets
 
@@ -244,3 +274,35 @@ Package: `security/vault/auth`
 | `vault_auth_auth_errors_total` | Counter | Total number of authentication errors. |
 | `vault_auth_token_renewals_total` | Counter | Total number of successful token renewals. |
 | `vault_auth_token_renewal_errors_total` | Counter | Total number of token renewal errors. |
+
+## filter
+
+Package: `data/filter`
+
+| Name | Type | Description |
+|------|------|-------------|
+| `filter_parse_duration_seconds` | Histogram | Duration of CEL expression parse operations in seconds. |
+| `filter_parse_errors_total` | Counter | Total number of CEL expression parse failures. |
+| `filter_translations_total` | Counter | Total number of filter translations performed. Labels: `target_backend`. |
+
+## probfilter
+
+Package: `data/probfilter`
+
+| Name | Type | Description |
+|------|------|-------------|
+| `probfilter_lookups_total` | Counter | Total number of probabilistic filter lookups. Labels: `filter_name`, `result`. |
+| `probfilter_adds_total` | Counter | Total number of items added to probabilistic filters. Labels: `filter_name`. |
+| `probfilter_lookup_duration_seconds` | Histogram | Duration of probabilistic filter lookup operations in seconds. Labels: `filter_name`. |
+| `probfilter_rebuild_duration_seconds` | Histogram | Duration of probabilistic filter rebuild operations in seconds. |
+| `probfilter_rebuild_errors_total` | Counter | Total number of failed probabilistic filter rebuild operations. |
+
+## uniq
+
+Package: `data/uniq`
+
+| Name | Type | Description |
+|------|------|-------------|
+| `uniq_operations_total` | Counter | Total number of uniqueness check operations. Labels: `op`. |
+| `uniq_operation_duration_seconds` | Histogram | Duration of uniqueness check operations in seconds. Labels: `op`. |
+| `uniq_operation_errors_total` | Counter | Total number of uniqueness check operation failures. Labels: `op`. |

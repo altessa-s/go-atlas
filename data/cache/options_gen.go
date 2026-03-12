@@ -4,6 +4,7 @@
 package cache
 
 import (
+	"strings"
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/encoding/serializer"
@@ -21,6 +22,29 @@ func WithCollector(v metrics.Collector) Option {
 			return
 		}
 		o.collector = v
+	}
+}
+
+// WithName sets the name option.
+func WithName[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.name = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.name = vv
+		}
 	}
 }
 

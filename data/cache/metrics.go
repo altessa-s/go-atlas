@@ -15,6 +15,8 @@ type cacheMetrics struct {
 	hits             metrics.Counter
 	misses           metrics.Counter
 	errors           metrics.Counter
+	evictions        metrics.Counter
+	size             metrics.Gauge
 	writeDuration    metrics.Timer
 	fallbackDuration metrics.Timer
 }
@@ -28,16 +30,29 @@ func newCacheMetrics(c metrics.Collector) *cacheMetrics {
 
 	return &cacheMetrics{
 		hits: scoped.MustCounter(metrics.MetricOpts{
-			Name: "hits_total",
-			Help: "Total number of cache hits.",
+			Name:       "hits_total",
+			Help:       "Total number of cache hits.",
+			LabelNames: []string{"cache_name"},
 		}),
 		misses: scoped.MustCounter(metrics.MetricOpts{
-			Name: "misses_total",
-			Help: "Total number of cache misses.",
+			Name:       "misses_total",
+			Help:       "Total number of cache misses.",
+			LabelNames: []string{"cache_name"},
 		}),
 		errors: scoped.MustCounter(metrics.MetricOpts{
-			Name: "errors_total",
-			Help: "Total number of cache operation errors.",
+			Name:       "errors_total",
+			Help:       "Total number of cache operation errors.",
+			LabelNames: []string{"cache_name"},
+		}),
+		evictions: scoped.MustCounter(metrics.MetricOpts{
+			Name:       "evictions_total",
+			Help:       "Total number of cache evictions.",
+			LabelNames: []string{"cache_name"},
+		}),
+		size: scoped.MustGauge(metrics.MetricOpts{
+			Name:       "size",
+			Help:       "Current number of entries in the cache.",
+			LabelNames: []string{"cache_name"},
 		}),
 		writeDuration: scoped.MustTimer(metrics.HistogramOpts{
 			MetricOpts: metrics.MetricOpts{

@@ -9,6 +9,8 @@ package inprogress
 import (
 	"log/slog"
 
+	"github.com/altessa-s/go-atlas/observability/metrics"
+
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
@@ -20,4 +22,6 @@ type options struct {
 	scheduler corescheduler.TaskRegistrar `optgen:"notnil"`
 	// tickSchedule is the cron schedule for heartbeat tick cycle task
 	tickSchedule string
+	// collector is the metrics collector for instrumentation.
+	collector metrics.Collector `optgen:"notnil"`
 }

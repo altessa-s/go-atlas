@@ -12,14 +12,15 @@ import (
 // When no [metrics.Collector] is provided, [metrics.Noop] is used and
 // all methods become zero-cost no-ops.
 type oidcMetrics struct {
-	tokenValidations    metrics.Counter
-	validationErrors    metrics.Counter
-	validationDuration  metrics.Timer
-	cacheHits           metrics.Counter
-	cacheMisses         metrics.Counter
-	jwksRefreshes       metrics.Counter
-	jwksRefreshErrors   metrics.Counter
-	jwksRefreshDuration metrics.Timer
+	tokenValidations      metrics.Counter
+	validationErrors      metrics.Counter
+	validationDuration    metrics.Timer
+	cacheHits             metrics.Counter
+	cacheMisses           metrics.Counter
+	jwksRefreshes         metrics.Counter
+	jwksRefreshErrors     metrics.Counter
+	jwksRefreshDuration   metrics.Timer
+	revocationCheckErrors metrics.Counter
 }
 
 func newOIDCMetrics(c metrics.Collector) *oidcMetrics {
@@ -31,12 +32,14 @@ func newOIDCMetrics(c metrics.Collector) *oidcMetrics {
 
 	return &oidcMetrics{
 		tokenValidations: scoped.MustCounter(metrics.MetricOpts{
-			Name: "token_validations_total",
-			Help: "Total number of token validation attempts.",
+			Name:       "token_validations_total",
+			Help:       "Total number of token validation attempts.",
+			LabelNames: []string{"issuer"},
 		}),
 		validationErrors: scoped.MustCounter(metrics.MetricOpts{
-			Name: "validation_errors_total",
-			Help: "Total number of token validation errors.",
+			Name:       "validation_errors_total",
+			Help:       "Total number of token validation errors.",
+			LabelNames: []string{"issuer"},
 		}),
 		validationDuration: scoped.MustTimer(metrics.HistogramOpts{
 			MetricOpts: metrics.MetricOpts{
@@ -65,6 +68,10 @@ func newOIDCMetrics(c metrics.Collector) *oidcMetrics {
 				Name: "jwks_refresh_duration_seconds",
 				Help: "Duration of JWKS refresh operations in seconds.",
 			},
+		}),
+		revocationCheckErrors: scoped.MustCounter(metrics.MetricOpts{
+			Name: "revocation_check_errors_total",
+			Help: "Total number of token revocation check failures.",
 		}),
 	}
 }

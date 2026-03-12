@@ -16,10 +16,28 @@ import (
 
 	"github.com/sony/gobreaker/v2"
 
+	"github.com/altessa-s/go-atlas/observability/metrics"
+
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	coreio "github.com/altessa-s/go-atlas/core/io"
 	coreretry "github.com/altessa-s/go-atlas/core/runtime/retry"
 )
+
+// statusToClass converts an HTTP status code to a class string (2xx, 3xx, 4xx, 5xx).
+func statusToClass(code int) string {
+	switch {
+	case code >= http.StatusOK && code < http.StatusMultipleChoices:
+		return "2xx"
+	case code >= http.StatusMultipleChoices && code < http.StatusBadRequest:
+		return "3xx"
+	case code >= http.StatusBadRequest && code < http.StatusInternalServerError:
+		return "4xx"
+	case code >= http.StatusInternalServerError:
+		return "5xx"
+	default:
+		return "unknown"
+	}
+}
 
 // retryableStatusError is an internal sentinel indicating a retryable HTTP status.
 type retryableStatusError struct{ status int }
@@ -67,7 +85,8 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	)
 
 	ctx := req.Context()
-	stop := rt.metrics.requestDuration.Start()
+	method := req.Method
+	stop := rt.metrics.requestDuration.WithLabels(metrics.Labels{"method": method}).Start()
 	defer stop()
 
 	cfg := rt.cfg
@@ -144,11 +163,15 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 		return classified
 	})
 
-	rt.metrics.requestsTotal.Inc()
+	statusClass := "unknown"
+	if lastResp != nil {
+		statusClass = statusToClass(lastResp.StatusCode)
+	}
+	rt.metrics.requestsTotal.WithLabels(metrics.Labels{"method": method, "status_class": statusClass}).Inc()
 
 	// Handle retry exhaustion.
 	if retryErr != nil && lastResp == nil {
-		rt.metrics.requestErrors.Inc()
+		rt.metrics.requestErrors.WithLabels(metrics.Labels{"method": method}).Inc()
 		if rt.errorHandler != nil {
 			return rt.errorHandler(nil, retryErr, rt.cfg.MaxAttempts+1)
 		}
@@ -156,7 +179,7 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	}
 
 	if retryErr != nil {
-		rt.metrics.requestErrors.Inc()
+		rt.metrics.requestErrors.WithLabels(metrics.Labels{"method": method}).Inc()
 		// We have a response but also an error (e.g., retryable status exhausted).
 		if rt.errorHandler != nil {
 			return rt.errorHandler(lastResp, retryErr, rt.cfg.MaxAttempts+1)

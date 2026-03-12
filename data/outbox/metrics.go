@@ -12,14 +12,16 @@ import (
 // When no [metrics.Collector] is provided, [metrics.Noop] is used and
 // all methods become zero-cost no-ops.
 type outboxMetrics struct {
-	eventsDispatched   metrics.Counter
-	eventsDispatchFail metrics.Counter
-	eventsSaved        metrics.Counter
-	eventsSkipped      metrics.Counter
-	eventsInFlight     metrics.Gauge
-	dispatchDuration   metrics.Timer
-	unlockDuration     metrics.Timer
-	cleanupDuration    metrics.Timer
+	eventsDispatched    metrics.Counter
+	eventsDispatchFail  metrics.Counter
+	eventsSaved         metrics.Counter
+	eventsSkipped       metrics.Counter
+	eventsInFlight      metrics.Gauge
+	dispatchDuration    metrics.Timer
+	unlockDuration      metrics.Timer
+	cleanupDuration     metrics.Timer
+	dispatchRetries     metrics.Counter
+	maxRetriesExhausted metrics.Counter
 }
 
 func newOutboxMetrics(c metrics.Collector) *outboxMetrics {
@@ -67,6 +69,14 @@ func newOutboxMetrics(c metrics.Collector) *outboxMetrics {
 				Name: "cleanup_cycle_duration_seconds",
 				Help: "Duration of a single cleanup cycle in seconds.",
 			},
+		}),
+		dispatchRetries: scoped.MustCounter(metrics.MetricOpts{
+			Name: "dispatch_retries_total",
+			Help: "Total number of event dispatch retry attempts.",
+		}),
+		maxRetriesExhausted: scoped.MustCounter(metrics.MetricOpts{
+			Name: "max_retries_exhausted_total",
+			Help: "Total number of events that exhausted all retry attempts.",
 		}),
 	}
 }

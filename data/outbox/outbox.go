@@ -169,6 +169,7 @@ func (o *Outbox) dispatchEvent(ctx context.Context, event Event) error {
 			MaxDelay:  DefaultDispatchRetryMaxDelay,
 		}),
 		OnRetry: func(_ int, err error, nextDelay time.Duration) {
+			o.metrics.dispatchRetries.Inc()
 			o.logger.WarnContext(ctx, "failed to dispatch event, retrying...",
 				slog.Any("error", err),
 				slog.String("event_id", event.Id),
@@ -291,6 +292,7 @@ func (o *Outbox) handleEvents(ctx context.Context, events ...Event) {
 			logger.ErrorContext(ctx, "failed to dispatch event", slog.Any("error", err))
 			if !event.isReadyForRetry(o.retryMaxAttempts) {
 				event.setStatusMaxAttemptReached()
+				o.metrics.maxRetriesExhausted.Inc()
 			}
 			return event, err
 		}

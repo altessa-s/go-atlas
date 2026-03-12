@@ -15,6 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas/core/text/strings"
 	"github.com/altessa-s/go-atlas/data/cache/providers"
 	"github.com/altessa-s/go-atlas/data/cache/providers/noop"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	"golang.org/x/sync/singleflight"
 
@@ -38,11 +39,12 @@ type Fallback = func() (value any, ttl time.Duration, err error)
 // Cache provides caching functionality with configurable providers and serializers.
 // It uses singleflight to deduplicate concurrent requests for the same key.
 type Cache struct {
-	provider   providers.Provider
-	ttl        time.Duration
-	group      *singleflight.Group
-	serializer serializer.Serializer
-	metrics    *cacheMetrics
+	provider     providers.Provider
+	ttl          time.Duration
+	group        *singleflight.Group
+	serializer   serializer.Serializer
+	metrics      *cacheMetrics
+	metricLabels metrics.Labels
 }
 
 // New creates a new Cache instance with the given provider and options.
@@ -57,11 +59,12 @@ func New(p providers.Provider, opts ...Option) *Cache {
 	options := newOptions(opts...)
 
 	return &Cache{
-		provider:   p,
-		ttl:        options.ttl,
-		group:      &singleflight.Group{},
-		serializer: options.serializer,
-		metrics:    newCacheMetrics(options.collector),
+		provider:     p,
+		ttl:          options.ttl,
+		group:        &singleflight.Group{},
+		serializer:   options.serializer,
+		metrics:      newCacheMetrics(options.collector),
+		metricLabels: metrics.Labels{"cache_name": options.name},
 	}
 }
 
@@ -95,14 +98,14 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 
 	val, err := c.provider.Get(ctx, key)
 	if err == nil {
-		c.metrics.hits.Inc()
+		c.metrics.hits.WithLabels(c.metricLabels).Inc()
 		return c.serializer.Deserialize(val, value)
 	} else if !errors.Is(err, ErrMissing) {
-		c.metrics.errors.Inc()
+		c.metrics.errors.WithLabels(c.metricLabels).Inc()
 		return err
 	}
 
-	c.metrics.misses.Inc()
+	c.metrics.misses.WithLabels(c.metricLabels).Inc()
 
 	fv, err, _ := c.group.Do(key, func() (any, error) {
 		stop := c.metrics.fallbackDuration.Start()
@@ -211,14 +214,14 @@ func (c *Cache) Get(ctx context.Context, key string, value any) error {
 	data, err := c.provider.Get(ctx, key)
 	if err != nil {
 		if errors.Is(err, ErrMissing) {
-			c.metrics.misses.Inc()
+			c.metrics.misses.WithLabels(c.metricLabels).Inc()
 		} else {
-			c.metrics.errors.Inc()
+			c.metrics.errors.WithLabels(c.metricLabels).Inc()
 		}
 		return err
 	}
 
-	c.metrics.hits.Inc()
+	c.metrics.hits.WithLabels(c.metricLabels).Inc()
 	return c.serializer.Deserialize(data, value)
 }
 

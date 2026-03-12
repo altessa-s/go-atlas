@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/transport/broker/msg"
 )
 
@@ -65,11 +66,12 @@ func (b *Broker) Publish(ctx context.Context, msg msg.Message) error {
 	stop := b.metrics.publishDuration.Start()
 	err := b.outbox.Publish(ctx, msg)
 	stop()
+	labels := metrics.Labels{"subject": msg.Topic}
 	if err != nil {
-		b.metrics.publishErrors.Inc()
+		b.metrics.publishErrors.WithLabels(labels).Inc()
 		return err
 	}
-	b.metrics.messagesPublished.Inc()
+	b.metrics.messagesPublished.WithLabels(labels).Inc()
 	return nil
 }
 
@@ -87,7 +89,9 @@ func (b *Broker) PublishBatch(ctx context.Context, msgs ...msg.Message) error {
 		b.metrics.publishErrors.Inc()
 		return err
 	}
-	b.metrics.messagesPublished.Add(float64(len(msgs)))
+	for _, m := range msgs {
+		b.metrics.messagesPublished.WithLabels(metrics.Labels{"subject": m.Topic}).Inc()
+	}
 	return nil
 }
 
@@ -119,7 +123,9 @@ func (b *Broker) PublishAny(ctx context.Context, m ...any) error {
 		b.metrics.publishErrors.Inc()
 		return err
 	}
-	b.metrics.messagesPublished.Add(float64(len(msgs)))
+	for _, m := range msgs {
+		b.metrics.messagesPublished.WithLabels(metrics.Labels{"subject": m.Topic}).Inc()
+	}
 	return nil
 }
 

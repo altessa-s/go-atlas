@@ -17,6 +17,7 @@ type httpClientMetrics struct {
 	retries             metrics.Counter
 	requestDuration     metrics.Timer
 	circuitBreakerTrips metrics.Counter
+	circuitBreakerState metrics.Gauge
 }
 
 func newHTTPClientMetrics(c metrics.Collector) *httpClientMetrics {
@@ -28,12 +29,14 @@ func newHTTPClientMetrics(c metrics.Collector) *httpClientMetrics {
 
 	return &httpClientMetrics{
 		requestsTotal: scoped.MustCounter(metrics.MetricOpts{
-			Name: "requests_total",
-			Help: "Total number of HTTP requests completed.",
+			Name:       "requests_total",
+			Help:       "Total number of HTTP requests completed.",
+			LabelNames: []string{"method", "status_class"},
 		}),
 		requestErrors: scoped.MustCounter(metrics.MetricOpts{
-			Name: "request_errors_total",
-			Help: "Total number of HTTP request errors after all retries.",
+			Name:       "request_errors_total",
+			Help:       "Total number of HTTP request errors after all retries.",
+			LabelNames: []string{"method"},
 		}),
 		retries: scoped.MustCounter(metrics.MetricOpts{
 			Name: "retries_total",
@@ -41,13 +44,19 @@ func newHTTPClientMetrics(c metrics.Collector) *httpClientMetrics {
 		}),
 		requestDuration: scoped.MustTimer(metrics.HistogramOpts{
 			MetricOpts: metrics.MetricOpts{
-				Name: "request_duration_seconds",
-				Help: "Duration of HTTP requests including retries in seconds.",
+				Name:       "request_duration_seconds",
+				Help:       "Duration of HTTP requests including retries in seconds.",
+				LabelNames: []string{"method"},
 			},
 		}),
 		circuitBreakerTrips: scoped.MustCounter(metrics.MetricOpts{
 			Name: "circuit_breaker_trips_total",
 			Help: "Total number of circuit breaker trip events.",
+		}),
+		circuitBreakerState: scoped.MustGauge(metrics.MetricOpts{
+			Name:       "circuit_breaker_state",
+			Help:       "Current state of the circuit breaker per host (0=closed, 1=half-open, 2=open).",
+			LabelNames: []string{"host"},
 		}),
 	}
 }

@@ -76,7 +76,8 @@ func New(opt ...Option) *http.Client {
 }
 
 func (c *Client) retractableClient() *http.Client {
-	cbClient := newCircuitBreakerClient(c.options)
+	m := newHTTPClientMetrics(c.options.collector)
+	cbClient := newCircuitBreakerClient(c.options, m)
 	stdClient := cbClient.standardClient()
 
 	cfg := coreretry.Config{
@@ -95,7 +96,7 @@ func (c *Client) retractableClient() *http.Client {
 		logger:             c.options.logger,
 		errorHandler:       c.options.errorHandler,
 		retryPolicyHandler: c.options.retryPolicyHandler,
-		metrics:            newHTTPClientMetrics(c.options.collector),
+		metrics:            m,
 	}
 
 	stdClient.Transport = rt

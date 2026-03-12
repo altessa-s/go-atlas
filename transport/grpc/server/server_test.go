@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
+
 	"google.golang.org/grpc"
 )
 

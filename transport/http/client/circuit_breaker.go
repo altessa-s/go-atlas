@@ -15,11 +15,29 @@ import (
 
 	"github.com/sony/gobreaker/v2"
 
+	"github.com/altessa-s/go-atlas/observability/metrics"
+
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	coreio "github.com/altessa-s/go-atlas/core/io"
 	corehttp "github.com/altessa-s/go-atlas/core/net/http"
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
+
+// gobreakerStateToFloat converts a gobreaker state to a float64 for gauge metrics.
+// 0=closed, 1=half-open, 2=open.
+func gobreakerStateToFloat(s gobreaker.State) float64 {
+	//nolint:mnd
+	switch s {
+	case gobreaker.StateClosed:
+		return 0
+	case gobreaker.StateHalfOpen:
+		return 1
+	case gobreaker.StateOpen:
+		return 2
+	default:
+		return 0
+	}
+}
 
 const (
 	// DefaultBreakerTimeout is the default timeout for the circuit breaker to transition from open to half-open state
@@ -56,6 +74,7 @@ type circuitBreakerClient struct {
 	*gobreaker.CircuitBreaker[*http.Response]
 	client          *http.Client
 	logger          *slog.Logger
+	metrics         *httpClientMetrics
 	maxResponseSize int64
 	// hostBreakers maps hostnames to their circuit breakers
 	hostBreakers map[string]*gobreaker.CircuitBreaker[*http.Response]
@@ -79,7 +98,7 @@ func defaultReadyToTrip(counts gobreaker.Counts) bool {
 			counts.ConsecutiveFailures >= DefaultBreakerConsecutiveFailuresLimit)
 }
 
-func newCircuitBreakerClient(opts options) *circuitBreakerClient {
+func newCircuitBreakerClient(opts options, m *httpClientMetrics) *circuitBreakerClient {
 	httpClient := opts.client
 	if httpClient == nil {
 		httpClient = defaultPooledClient()
@@ -122,9 +141,13 @@ func newCircuitBreakerClient(opts options) *circuitBreakerClient {
 			Interval:    opts.breakerInterval,
 			Timeout:     opts.breakerTimeout,
 			ReadyToTrip: defaultReadyToTrip,
+			OnStateChange: func(name string, _ gobreaker.State, to gobreaker.State) {
+				m.circuitBreakerState.WithLabels(metrics.Labels{"host": name}).Set(gobreakerStateToFloat(to))
+			},
 		}),
 		client:              httpClient,
 		logger:              opts.logger,
+		metrics:             m,
 		maxResponseSize:     opts.maxResponseSize,
 		hostBreakers:        make(map[string]*gobreaker.CircuitBreaker[*http.Response]),
 		hostBreakerSettings: opts.hostBreakerSettings,
@@ -208,6 +231,17 @@ func (c *circuitBreakerClient) getBreakerForHost(hostname string) *gobreaker.Cir
 		readyToTrip = defaultReadyToTrip
 	}
 
+	onStateChange := settings.OnStateChange
+	if c.metrics != nil {
+		userCb := onStateChange
+		onStateChange = func(n string, from gobreaker.State, to gobreaker.State) {
+			c.metrics.circuitBreakerState.WithLabels(metrics.Labels{"host": hostname}).Set(gobreakerStateToFloat(to))
+			if userCb != nil {
+				userCb(n, from, to)
+			}
+		}
+	}
+
 	// nolint:bodyclose
 	breaker = gobreaker.NewCircuitBreaker[*http.Response](gobreaker.Settings{
 		Name:          name,
@@ -215,7 +249,7 @@ func (c *circuitBreakerClient) getBreakerForHost(hostname string) *gobreaker.Cir
 		Interval:      interval,
 		Timeout:       timeout,
 		ReadyToTrip:   readyToTrip,
-		OnStateChange: settings.OnStateChange,
+		OnStateChange: onStateChange,
 	})
 
 	c.hostBreakers[hostname] = breaker
