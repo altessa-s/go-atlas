@@ -52,6 +52,14 @@ func (i *DrivenServerInterceptor) Name() string {
 	return nameDriven
 }
 
+// Dependencies forwards dependency declarations from the underlying DrivenInterceptor.
+func (i *DrivenServerInterceptor) Dependencies() []string {
+	if declarer, ok := i.i.(interface{ Dependencies() []string }); ok {
+		return declarer.Dependencies()
+	}
+	return nil
+}
+
 // ServerUnaryInterceptor returns a unary server interceptor.
 func (i *DrivenServerInterceptor) ServerUnaryInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {

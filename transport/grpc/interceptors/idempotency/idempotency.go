@@ -36,9 +36,10 @@ type interceptor struct {
 }
 
 // Dependencies returns interceptors that idempotency requires to run before it.
-// Idempotency uses metadata for call information extraction.
+// Idempotency uses metadata for call information extraction and must run after auth
+// so that unauthenticated requests are rejected before idempotency key validation.
 func (i *interceptor) Dependencies() []string {
-	return []string{"metadata"}
+	return []string{"metadata", "auth"}
 }
 
 // requestInterceptor handles a single request with its own state
