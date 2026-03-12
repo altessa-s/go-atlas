@@ -403,28 +403,18 @@ func TestBuildCursorPipeline(t *testing.T) {
 	})
 
 	t.Run("without total omits count in facet", func(t *testing.T) {
-		opts := &listCursorOptions{
-			sort:          bson.D{{Key: "created_at", Value: int32(-1)}},
-			filter:        bson.M{},
-			limit:         10,
-			cursorIdField: "cursor_id",
-			includeTotal:  false,
-		}
+		opts := baseCursorOpts()
 
 		pipeline := buildCursorPipeline(opts)
 
-		// Find facet stage
-		for _, stage := range pipeline {
-			if stageMap, ok := stage.(bson.M); ok {
-				if facet, ok := stageMap["$facet"].(bson.M); ok {
-					if _, hasCount := facet["count"]; hasCount {
-						t.Error("facet should not include count when includeTotal is false")
-					}
-					return
-				}
-			}
+		facetIdx := findStageIndex(pipeline, "$facet")
+		if facetIdx < 0 {
+			t.Fatal("$facet stage not found")
 		}
-		t.Fatal("$facet stage not found")
+		facet := pipeline[facetIdx].(bson.M)["$facet"].(bson.M)
+		if _, hasCount := facet["count"]; hasCount {
+			t.Error("facet should not include count when includeTotal is false")
+		}
 	})
 }
 
@@ -470,53 +460,25 @@ func TestBuildCursorPipeline_WithStages(t *testing.T) {
 	lookupStage := bson.D{{"$lookup", bson.M{"from": "categories", "localField": "category_id", "foreignField": "_id", "as": "category"}}}
 	unwindStage := bson.D{{"$unwind", "$category"}}
 
-	opts := &listCursorOptions{
-		sort:          bson.D{{Key: "created_at", Value: int32(-1)}},
-		filter:        bson.M{"status": "active"},
-		limit:         10,
-		cursorIdField: "cursor_id",
-		stages:        bson.A{lookupStage, unwindStage},
-	}
+	opts := baseCursorOpts()
+	opts.filter = bson.M{"status": "active"}
+	opts.stages = bson.A{lookupStage, unwindStage}
 
 	pipeline := buildCursorPipeline(opts)
 
-	// Find positions of key stages
-	sortIdx := findStageIndex(pipeline, "$sort")
-	lookupIdx := findStageIndex(pipeline, "$lookup")
-	unwindIdx := findStageIndex(pipeline, "$unwind")
-	facetIdx := findStageIndex(pipeline, "$facet")
-
-	if sortIdx < 0 || lookupIdx < 0 || unwindIdx < 0 || facetIdx < 0 {
-		t.Fatalf("missing expected stages: sort=%d, lookup=%d, unwind=%d, facet=%d",
-			sortIdx, lookupIdx, unwindIdx, facetIdx)
-	}
-
-	// Custom stages must be after $sort and before $facet
-	if lookupIdx <= sortIdx {
-		t.Errorf("$lookup (idx %d) should be after $sort (idx %d)", lookupIdx, sortIdx)
-	}
-	if unwindIdx <= lookupIdx {
-		t.Errorf("$unwind (idx %d) should be after $lookup (idx %d)", unwindIdx, lookupIdx)
-	}
-	if facetIdx <= unwindIdx {
-		t.Errorf("$facet (idx %d) should be after $unwind (idx %d)", facetIdx, unwindIdx)
-	}
+	assertStageOrder(t, pipeline, "$sort", "$lookup")
+	assertStageOrder(t, pipeline, "$lookup", "$unwind")
+	assertStageOrder(t, pipeline, "$unwind", "$facet")
 }
 
 func TestBuildCursorPipeline_WithDecorationStages(t *testing.T) {
 	decoration := bson.D{{"$lookup", bson.M{"from": "translations"}}}
 
-	opts := &listCursorOptions{
-		sort:             bson.D{{Key: "created_at", Value: int32(-1)}},
-		filter:           bson.M{},
-		limit:            10,
-		cursorIdField:    "cursor_id",
-		decorationStages: bson.A{decoration},
-	}
+	opts := baseCursorOpts()
+	opts.decorationStages = bson.A{decoration}
 
 	pipeline := buildCursorPipeline(opts)
 
-	// Find facet stage and check items pipeline
 	facetIdx := findStageIndex(pipeline, "$facet")
 	if facetIdx < 0 {
 		t.Fatal("$facet stage not found")
@@ -525,7 +487,6 @@ func TestBuildCursorPipeline_WithDecorationStages(t *testing.T) {
 	facet := pipeline[facetIdx].(bson.M)["$facet"].(bson.M)
 	items := facet["items"].(bson.A)
 
-	// items: $limit, $lookup
 	if len(items) < 2 {
 		t.Fatalf("expected at least 2 stages in items pipeline, got %d", len(items))
 	}
@@ -544,30 +505,17 @@ func TestBuildCursorPipeline_WithBothStageTypes(t *testing.T) {
 	stage := bson.D{{"$addFields", bson.M{"computed": true}}}
 	decoration := bson.D{{"$lookup", bson.M{"from": "translations"}}}
 
-	opts := &listCursorOptions{
-		sort:             bson.D{{Key: "created_at", Value: int32(-1)}},
-		filter:           bson.M{},
-		limit:            10,
-		cursorIdField:    "cursor_id",
-		stages:           bson.A{stage},
-		decorationStages: bson.A{decoration},
-	}
+	opts := baseCursorOpts()
+	opts.stages = bson.A{stage}
+	opts.decorationStages = bson.A{decoration}
 
 	pipeline := buildCursorPipeline(opts)
 
-	// Custom stage should be in main pipeline after $sort
-	sortIdx := findStageIndex(pipeline, "$sort")
-	addFieldsIdx := findStageIndex(pipeline, "$addFields")
-	facetIdx := findStageIndex(pipeline, "$facet")
-
-	if addFieldsIdx <= sortIdx {
-		t.Errorf("$addFields (idx %d) should be after $sort (idx %d)", addFieldsIdx, sortIdx)
-	}
-	if facetIdx <= addFieldsIdx {
-		t.Errorf("$facet (idx %d) should be after $addFields (idx %d)", facetIdx, addFieldsIdx)
-	}
+	assertStageOrder(t, pipeline, "$sort", "$addFields")
+	assertStageOrder(t, pipeline, "$addFields", "$facet")
 
 	// Decoration stage should be in facet items pipeline
+	facetIdx := findStageIndex(pipeline, "$facet")
 	facet := pipeline[facetIdx].(bson.M)["$facet"].(bson.M)
 	items := facet["items"].(bson.A)
 
@@ -577,23 +525,15 @@ func TestBuildCursorPipeline_WithBothStageTypes(t *testing.T) {
 
 func TestBuildCursorPipeline_EmptyStages(t *testing.T) {
 	// Verify backward compatibility: nil stages produce identical pipeline
-	optsWithout := &listCursorOptions{
-		sort:          bson.D{{Key: "created_at", Value: int32(-1)}},
-		filter:        bson.M{"status": "active"},
-		limit:         10,
-		cursorIdField: "cursor_id",
-		includeTotal:  true,
-	}
+	optsWithout := baseCursorOpts()
+	optsWithout.filter = bson.M{"status": "active"}
+	optsWithout.includeTotal = true
 
-	optsWith := &listCursorOptions{
-		sort:             bson.D{{Key: "created_at", Value: int32(-1)}},
-		filter:           bson.M{"status": "active"},
-		limit:            10,
-		cursorIdField:    "cursor_id",
-		includeTotal:     true,
-		stages:           nil,
-		decorationStages: nil,
-	}
+	optsWith := baseCursorOpts()
+	optsWith.filter = bson.M{"status": "active"}
+	optsWith.includeTotal = true
+	optsWith.stages = nil
+	optsWith.decorationStages = nil
 
 	pipelineWithout := buildCursorPipeline(optsWithout)
 	pipelineWith := buildCursorPipeline(optsWith)
@@ -603,42 +543,70 @@ func TestBuildCursorPipeline_EmptyStages(t *testing.T) {
 	}
 }
 
-func TestWithListCursorStages_Accumulates(t *testing.T) {
-	opts := defaultListCursorOptions()
+func TestStageOptions_Accumulates(t *testing.T) {
+	tests := []struct {
+		name     string
+		apply    func(*listCursorOptions)
+		getLen   func(*listCursorOptions) int
+		wantLen  int
+	}{
+		{
+			name: "WithListCursorStages",
+			apply: func(opts *listCursorOptions) {
+				WithListCursorStages(bson.D{{"$lookup", bson.M{"from": "a"}}})(opts)
+				WithListCursorStages(bson.D{{"$unwind", "$a"}})(opts)
+			},
+			getLen:  func(opts *listCursorOptions) int { return len(opts.stages) },
+			wantLen: 2,
+		},
+		{
+			name: "WithListCursorDecorationStages",
+			apply: func(opts *listCursorOptions) {
+				WithListCursorDecorationStages(bson.D{{"$lookup", bson.M{"from": "a"}}})(opts)
+				WithListCursorDecorationStages(bson.D{{"$lookup", bson.M{"from": "b"}}})(opts)
+			},
+			getLen:  func(opts *listCursorOptions) int { return len(opts.decorationStages) },
+			wantLen: 2,
+		},
+	}
 
-	opt1 := WithListCursorStages(bson.D{{"$lookup", bson.M{"from": "a"}}})
-	opt2 := WithListCursorStages(bson.D{{"$unwind", "$a"}})
-
-	opt1(opts)
-	opt2(opts)
-
-	if len(opts.stages) != 2 {
-		t.Fatalf("expected 2 stages, got %d", len(opts.stages))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := defaultListCursorOptions()
+			tt.apply(opts)
+			if got := tt.getLen(opts); got != tt.wantLen {
+				t.Fatalf("got %d stages, want %d", got, tt.wantLen)
+			}
+		})
 	}
 }
 
-func TestWithListCursorStages_SkipsNil(t *testing.T) {
-	opts := defaultListCursorOptions()
-
-	opt := WithListCursorStages(nil, bson.D{{"$lookup", bson.M{"from": "a"}}}, nil)
-	opt(opts)
-
-	if len(opts.stages) != 1 {
-		t.Fatalf("expected 1 stage (nil filtered), got %d", len(opts.stages))
+func TestStageOptions_SkipsNil(t *testing.T) {
+	tests := []struct {
+		name   string
+		apply  func(*listCursorOptions)
+		getLen func(*listCursorOptions) int
+	}{
+		{
+			name:   "WithListCursorStages",
+			apply:  func(opts *listCursorOptions) { WithListCursorStages(nil, bson.D{{"$lookup", bson.M{"from": "a"}}}, nil)(opts) },
+			getLen: func(opts *listCursorOptions) int { return len(opts.stages) },
+		},
+		{
+			name:   "WithListCursorDecorationStages",
+			apply:  func(opts *listCursorOptions) { WithListCursorDecorationStages(nil, bson.D{{"$lookup", bson.M{"from": "a"}}}, nil)(opts) },
+			getLen: func(opts *listCursorOptions) int { return len(opts.decorationStages) },
+		},
 	}
-}
 
-func TestWithListCursorDecorationStages_Accumulates(t *testing.T) {
-	opts := defaultListCursorOptions()
-
-	opt1 := WithListCursorDecorationStages(bson.D{{"$lookup", bson.M{"from": "a"}}})
-	opt2 := WithListCursorDecorationStages(bson.D{{"$lookup", bson.M{"from": "b"}}})
-
-	opt1(opts)
-	opt2(opts)
-
-	if len(opts.decorationStages) != 2 {
-		t.Fatalf("expected 2 decoration stages, got %d", len(opts.decorationStages))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			opts := defaultListCursorOptions()
+			tt.apply(opts)
+			if got := tt.getLen(opts); got != 1 {
+				t.Fatalf("got %d stages (nil should be filtered), want 1", got)
+			}
+		})
 	}
 }
 
@@ -678,32 +646,17 @@ func TestBuildFacetStage_PreCountedTotal(t *testing.T) {
 
 func TestBuildCursorPipeline_PreCountedTotalWithStages(t *testing.T) {
 	t.Run("stages + includeTotal injects $setWindowFields", func(t *testing.T) {
-		opts := &listCursorOptions{
-			sort:          bson.D{{Key: "created_at", Value: int32(-1)}},
-			filter:        bson.M{},
-			limit:         10,
-			cursorIdField: "cursor_id",
-			includeTotal:  true,
-			stages:        bson.A{bson.D{{"$unwind", "$tags"}}},
-		}
+		opts := baseCursorOpts()
+		opts.includeTotal = true
+		opts.stages = bson.A{bson.D{{"$unwind", "$tags"}}}
 
 		pipeline := buildCursorPipeline(opts)
 
-		swfIdx := findStageIndex(pipeline, "$setWindowFields")
-		unwindIdx := findStageIndex(pipeline, "$unwind")
-		facetIdx := findStageIndex(pipeline, "$facet")
-
-		if swfIdx < 0 {
-			t.Fatal("$setWindowFields stage not found")
-		}
-		if swfIdx >= unwindIdx {
-			t.Errorf("$setWindowFields (idx %d) should be before $unwind (idx %d)", swfIdx, unwindIdx)
-		}
-		if unwindIdx >= facetIdx {
-			t.Errorf("$unwind (idx %d) should be before $facet (idx %d)", unwindIdx, facetIdx)
-		}
+		assertStageOrder(t, pipeline, "$setWindowFields", "$unwind")
+		assertStageOrder(t, pipeline, "$unwind", "$facet")
 
 		// Facet count branch should use pre-computed total
+		facetIdx := findStageIndex(pipeline, "$facet")
 		facet := pipeline[facetIdx].(bson.M)["$facet"].(bson.M)
 		count := facet["count"].(bson.A)
 		assertBsonDStageKey(t, count[0], "$limit")
@@ -711,14 +664,8 @@ func TestBuildCursorPipeline_PreCountedTotalWithStages(t *testing.T) {
 	})
 
 	t.Run("stages without includeTotal skips $setWindowFields", func(t *testing.T) {
-		opts := &listCursorOptions{
-			sort:          bson.D{{Key: "created_at", Value: int32(-1)}},
-			filter:        bson.M{},
-			limit:         10,
-			cursorIdField: "cursor_id",
-			includeTotal:  false,
-			stages:        bson.A{bson.D{{"$unwind", "$tags"}}},
-		}
+		opts := baseCursorOpts()
+		opts.stages = bson.A{bson.D{{"$unwind", "$tags"}}}
 
 		pipeline := buildCursorPipeline(opts)
 
@@ -728,13 +675,8 @@ func TestBuildCursorPipeline_PreCountedTotalWithStages(t *testing.T) {
 	})
 
 	t.Run("includeTotal without stages uses standard $count", func(t *testing.T) {
-		opts := &listCursorOptions{
-			sort:          bson.D{{Key: "created_at", Value: int32(-1)}},
-			filter:        bson.M{},
-			limit:         10,
-			cursorIdField: "cursor_id",
-			includeTotal:  true,
-		}
+		opts := baseCursorOpts()
+		opts.includeTotal = true
 
 		pipeline := buildCursorPipeline(opts)
 
@@ -749,14 +691,29 @@ func TestBuildCursorPipeline_PreCountedTotalWithStages(t *testing.T) {
 	})
 }
 
-func TestWithListCursorDecorationStages_SkipsNil(t *testing.T) {
-	opts := defaultListCursorOptions()
+// assertStageOrder verifies that stage at key a appears before stage at key b in the pipeline.
+func assertStageOrder(t *testing.T, pipeline bson.A, before, after string) {
+	t.Helper()
+	bi := findStageIndex(pipeline, before)
+	ai := findStageIndex(pipeline, after)
+	if bi < 0 {
+		t.Fatalf("stage %q not found in pipeline", before)
+	}
+	if ai < 0 {
+		t.Fatalf("stage %q not found in pipeline", after)
+	}
+	if bi >= ai {
+		t.Errorf("%s (idx %d) should be before %s (idx %d)", before, bi, after, ai)
+	}
+}
 
-	opt := WithListCursorDecorationStages(nil, bson.D{{"$lookup", bson.M{"from": "a"}}}, nil)
-	opt(opts)
-
-	if len(opts.decorationStages) != 1 {
-		t.Fatalf("expected 1 decoration stage (nil filtered), got %d", len(opts.decorationStages))
+// baseCursorOpts returns a minimal listCursorOptions for testing.
+func baseCursorOpts() *listCursorOptions {
+	return &listCursorOptions{
+		sort:          bson.D{{Key: "created_at", Value: int32(-1)}},
+		filter:        bson.M{},
+		limit:         10,
+		cursorIdField: "cursor_id",
 	}
 }
 
