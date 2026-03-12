@@ -240,6 +240,7 @@ const totalAnnotationField = "__atlas_total"
 // Parameters:
 //   - limit: Maximum number of items to return
 //   - projection: Optional field projection
+//   - decorationStages: Optional stages to run inside items branch after $limit (e.g., $lookup)
 //   - includeTotal: Whether to include total count
 //   - decorationStages: Optional pipeline stages inserted after $limit (e.g., $lookup for display data)
 //   - preCountedTotal: When true, total was pre-computed via $setWindowFields and stored in
@@ -350,6 +351,7 @@ func buildCursorPipeline(opts *listCursorOptions) bson.A {
 	pipeline = append(pipeline, buildFacetStage(
 		opts.limit,
 		opts.projection,
+		opts.decorationStages,
 		opts.includeTotal,
 		opts.decorationStages,
 		preCountedTotal,

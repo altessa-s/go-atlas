@@ -14,7 +14,8 @@ import (
 // By default, gRPC reflection and health check service methods are excluded.
 //
 // This includes:
-//   - /grpc.reflection.v1alpha.ServerReflection/* - gRPC reflection service
+//   - /grpc.reflection.v1.ServerReflection/* - gRPC reflection service (v1)
+//   - /grpc.reflection.v1alpha.ServerReflection/* - gRPC reflection service (v1alpha)
 //   - /grpc.health.v1.Health/* - gRPC health check service
 //
 // Interceptors can use this as a default and extend it with additional patterns
