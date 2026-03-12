@@ -300,7 +300,7 @@ func TestBuildCursorFilter(t *testing.T) {
 
 func TestBuildFacetStage(t *testing.T) {
 	t.Run("without total and without projection", func(t *testing.T) {
-		got := buildFacetStage(10, nil, false)
+		got := buildFacetStage(10, nil, nil, false)
 		if len(got) != 1 {
 			t.Fatalf("expected 1 stage, got %d", len(got))
 		}
@@ -316,7 +316,7 @@ func TestBuildFacetStage(t *testing.T) {
 	})
 
 	t.Run("with total", func(t *testing.T) {
-		got := buildFacetStage(20, nil, true)
+		got := buildFacetStage(20, nil, nil, true)
 		facet := got[0].(bson.M)["$facet"].(bson.M)
 		if _, ok := facet["count"]; !ok {
 			t.Error("count should be present when includeTotal is true")
@@ -325,7 +325,7 @@ func TestBuildFacetStage(t *testing.T) {
 
 	t.Run("with projection", func(t *testing.T) {
 		proj := bson.M{"name": 1, "age": 1}
-		got := buildFacetStage(10, proj, false)
+		got := buildFacetStage(10, proj, nil, false)
 		facet := got[0].(bson.M)["$facet"].(bson.M)
 		items := facet["items"].(bson.A)
 		if len(items) != 2 { // $limit + $project

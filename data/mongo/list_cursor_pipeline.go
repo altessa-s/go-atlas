@@ -235,15 +235,19 @@ func buildSortStage(sort bson.D) bson.A {
 // Parameters:
 //   - limit: Maximum number of items to return
 //   - projection: Optional field projection
+//   - decorationStages: Optional stages to run inside items branch after $limit (e.g., $lookup)
 //   - includeTotal: Whether to include total count
 //
 // Returns:
 //   - bson.A: Pipeline stages with $facet
-func buildFacetStage(limit int64, projection bson.M, includeTotal bool) bson.A {
-	// Build items pipeline: limit + lookahead + optional projection
+func buildFacetStage(limit int64, projection bson.M, decorationStages bson.A, includeTotal bool) bson.A {
+	// Build items pipeline: limit + lookahead + decoration stages + optional projection
 	itemsPipeline := bson.A{
 		bson.M{"$limit": limit + paginationLookaheadCount},
 	}
+
+	// Decoration stages run after $limit — only on paginated items (e.g., $lookup for translations)
+	itemsPipeline = append(itemsPipeline, decorationStages...)
 
 	itemsPipeline = slices.AppendIf[any](itemsPipeline, projection != nil, bson.M{"$project": projection})
 
@@ -265,10 +269,11 @@ func buildFacetStage(limit int64, projection bson.M, includeTotal bool) bson.A {
 // Pipeline stages (in order):
 //  1. $match: Combines user filter with cursor filter (if cursor provided)
 //  2. $sort: Orders results by the specified sort fields
-//  3. $facet: Splits into parallel pipelines for items and count
-//     - items: $limit (fetch limit+1 to check for next page) + $project (optional)
+//  3. Custom stages: Injected via WithListCursorStages (e.g., $lookup, $addFields)
+//  4. $facet: Splits into parallel pipelines for items and count
+//     - items: $limit → [decoration stages] → $project (optional)
 //     - count: $count (total documents matching filter)
-//  4. $unwind + $project: Transforms facet output into {items: [], total: N} structure
+//  5. $unwind + $project: Transforms facet output into {items: [], total: N} structure
 //
 // The pipeline fetches limit+1 items to efficiently determine if there are more pages
 // without requiring a separate count query. If we get more than limit items, we know
@@ -303,13 +308,17 @@ func buildCursorPipeline(opts *listCursorOptions) bson.A {
 	// 2. SORT - Order results
 	pipeline = append(pipeline, buildSortStage(sort)...)
 
-	// 3. FACET - Split into items and count branches
+	// 3. CUSTOM STAGES - Injected via WithListCursorStages (e.g., $lookup, $addFields)
+	pipeline = append(pipeline, opts.stages...)
+
+	// 4. FACET - Split into items and count branches
 	pipeline = append(pipeline, buildFacetStage(
 		opts.limit,
 		opts.projection,
+		opts.decorationStages,
 		opts.includeTotal,
 	)...)
 
-	// 4. UNWIND AND PROJECT - Transform facet results
+	// 5. UNWIND AND PROJECT - Transform facet results
 	return appendFacetResultTransform(pipeline, opts.includeTotal)
 }
