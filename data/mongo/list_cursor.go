@@ -48,19 +48,21 @@ const (
 // The options control filtering, sorting, projection, pagination limits, and query
 // optimization features like index hints and explain analysis.
 type listCursorOptions struct {
-	sort          bson.D
-	filter        bson.M
-	projection    bson.M
-	limit         int64
-	cursor        *Cursor
-	cursorToken   string // Raw cursor token from client (for storage mode)
-	logger        *slog.Logger
-	hint          any    // Index hint for query optimization
-	explain       bool   // Enable query execution plan analysis
-	cursorIdField string // MongoDB field name for cursor ID (default: "cursor_id")
-	includeTotal  bool
-	storage       CursorStorage      // Server-side cursor storage (optional)
-	collation     *options.Collation // Collation for string comparison rules
+	sort             bson.D
+	filter           bson.M
+	projection       bson.M
+	limit            int64
+	cursor           *Cursor
+	cursorToken      string // Raw cursor token from client (for storage mode)
+	logger           *slog.Logger
+	hint             any    // Index hint for query optimization
+	explain          bool   // Enable query execution plan analysis
+	cursorIdField    string // MongoDB field name for cursor ID (default: "cursor_id")
+	includeTotal     bool
+	storage          CursorStorage      // Server-side cursor storage (optional)
+	collation        *options.Collation // Collation for string comparison rules
+	stages           bson.A             // Extra stages applied to the full result set (e.g., $lookup for sort/filter)
+	decorationStages bson.A             // Extra stages applied only to paginated items (e.g., $lookup for display)
 }
 
 // defaultListCursorOptions returns default configuration for cursor-based pagination.
@@ -107,6 +109,65 @@ func WithListCursorLogger(logger *slog.Logger) ListCursorOption {
 func WithListCursorCollation(collation *options.Collation) ListCursorOption {
 	return func(opts *listCursorOptions) {
 		opts.collation = collation
+	}
+}
+
+// WithListCursorStages injects additional aggregation pipeline stages after $sort and before $facet.
+// This is the natural extension point for operations that must happen on the full sorted result set
+// before pagination — such as $lookup when you need to sort or filter by the joined data.
+//
+// These stages run on ALL documents matching the filter, not just the current page.
+// For display-only joins (e.g., translations), prefer [WithListCursorDecorationStages] which
+// runs only on paginated items and is significantly more efficient.
+//
+// WARNING: Do not use stages that modify fields used for cursor-based pagination
+// (cursor_id, sort fields). Doing so will break pagination between pages.
+//
+// Pipeline order: $match → $sort → [stages] → $facet → $unwind/$project
+//
+// Example — $lookup when sorting by a joined field:
+//
+//	WithListCursorStages(bson.D{{"$lookup", bson.M{
+//	    "from":         "categories",
+//	    "localField":   "category_id",
+//	    "foreignField": "_id",
+//	    "as":           "_category",
+//	}}})
+func WithListCursorStages(stages ...bson.D) ListCursorOption {
+	return func(opts *listCursorOptions) {
+		for _, stage := range stages {
+			opts.stages = append(opts.stages, stage)
+		}
+	}
+}
+
+// WithListCursorDecorationStages injects pipeline stages inside the $facet items branch,
+// after $limit but before $project. These stages run only on the paginated items (e.g., 20 items),
+// not on the entire result set — making them significantly more efficient for display-only
+// operations like joining translations or enriching documents with data from other collections.
+//
+// Use this instead of [WithListCursorStages] when:
+//   - You do NOT need to sort or filter by the joined data
+//   - The joined data is only for display/enrichment purposes
+//
+// WARNING: Do not use stages that modify fields used for cursor-based pagination
+// (cursor_id, sort fields). Doing so will break pagination between pages.
+//
+// Pipeline order: $match → $sort → $facet { items: [$limit → [decoration stages] → $project] }
+//
+// Example with $lookup for translations (runs only on page-size items):
+//
+//	WithListCursorDecorationStages(bson.D{{"$lookup", bson.M{
+//	    "from":         "translations",
+//	    "localField":   "code",
+//	    "foreignField": "code",
+//	    "as":           "_translations",
+//	}}})
+func WithListCursorDecorationStages(stages ...bson.D) ListCursorOption {
+	return func(opts *listCursorOptions) {
+		for _, stage := range stages {
+			opts.decorationStages = append(opts.decorationStages, stage)
+		}
 	}
 }
 
