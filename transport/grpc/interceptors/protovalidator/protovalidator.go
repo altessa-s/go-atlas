@@ -46,9 +46,10 @@ type interceptor struct {
 }
 
 // Dependencies returns interceptors that protovalidator requires to run before it.
-// Protovalidator uses metadata for call information extraction.
+// Protovalidator uses metadata for call information extraction and must run after auth
+// so that unauthenticated requests are rejected before validation.
 func (i *interceptor) Dependencies() []string {
-	return []string{"metadata"}
+	return []string{"metadata", "auth"}
 }
 
 // requestInterceptor handles a single request with its own state.

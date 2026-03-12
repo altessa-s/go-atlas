@@ -57,6 +57,14 @@ func (i *DrivenClientInterceptor) Name() string {
 	return nameDriven
 }
 
+// Dependencies forwards dependency declarations from the underlying DrivenInterceptor.
+func (i *DrivenClientInterceptor) Dependencies() []string {
+	if declarer, ok := i.i.(interface{ Dependencies() []string }); ok {
+		return declarer.Dependencies()
+	}
+	return nil
+}
+
 // Interceptor returns the underlying DrivenInterceptor.
 func (i *DrivenClientInterceptor) Interceptor() any {
 	return i.i
