@@ -154,7 +154,8 @@ func TestPrecompiledPatterns(t *testing.T) {
 		match   string
 		noMatch string
 	}{
-		{"ReflectionMethod", ReflectionMethodPattern, "/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo", "/api/v1/users"},
+		{"ReflectionMethodV1Alpha", ReflectionMethodPattern, "/grpc.reflection.v1alpha.ServerReflection/ServerReflectionInfo", "/api/v1/users"},
+		{"ReflectionMethodV1", ReflectionMethodPattern, "/grpc.reflection.v1.ServerReflection/ServerReflectionInfo", "/api/v1/users"},
 		{"HealthMethod", HealthMethodPattern, "/grpc.health.v1.Health/Check", "/api/v1/data"},
 		{"HealthPath", HealthPathPattern, "/health", "/api/data"},
 		{"HealthPathPrefixed", HealthPathPattern, "/internal/readyz", "/readyzoo"},
