@@ -60,11 +60,14 @@ func TestServerInterceptor_Dependencies(t *testing.T) {
 	}
 
 	deps := ic.Dependencies()
-	if len(deps) != 1 {
-		t.Fatalf("Dependencies len = %d, want 1", len(deps))
+	if len(deps) != 2 {
+		t.Fatalf("Dependencies len = %d, want 2", len(deps))
 	}
 	if deps[0] != "metadata" {
 		t.Fatalf("deps[0] = %q, want %q", deps[0], "metadata")
+	}
+	if deps[1] != "auth" {
+		t.Fatalf("deps[1] = %q, want %q", deps[1], "auth")
 	}
 }
 
