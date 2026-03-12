@@ -113,6 +113,32 @@ func TestOrderClientInterceptors(t *testing.T) {
 	}
 }
 
+func TestClientDrivenInterceptor_Dependencies(t *testing.T) {
+	t.Run("forwards dependencies from underlying interceptor", func(t *testing.T) {
+		inner := &mockNamedDrivenInterceptor{
+			driver: NoopDriver(),
+			name:   "logger",
+			deps:   []string{"metadata", "requestid", "realip", "tracing"},
+		}
+		ci := ClientDrivenInterceptor(inner)
+
+		deps := ci.(*DrivenClientInterceptor).Dependencies()
+		if len(deps) != 4 || deps[0] != "metadata" {
+			t.Fatalf("Dependencies() = %v, want [metadata requestid realip tracing]", deps)
+		}
+	})
+
+	t.Run("returns nil when underlying has no Dependencies method", func(t *testing.T) {
+		inner := &mockDrivenInterceptor{driver: NoopDriver()}
+		ci := ClientDrivenInterceptor(inner)
+
+		deps := ci.(*DrivenClientInterceptor).Dependencies()
+		if deps != nil {
+			t.Fatalf("Dependencies() = %v, want nil", deps)
+		}
+	})
+}
+
 func TestDrivenInterceptorFunc(t *testing.T) {
 	d := NoopDriver()
 	f := DrivenInterceptorFunc(func(ctx context.Context) (driver.Driver, context.Context) {
