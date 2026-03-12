@@ -10,6 +10,8 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/altessa-s/go-atlas/observability/metrics"
+
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
@@ -39,5 +41,11 @@ func (b *LimiterBuilder) UseJetstream(v jetstream.JetStream) *LimiterBuilder {
 // UseScheduler sets the scheduler for background task registration.
 func (b *LimiterBuilder) UseScheduler(v corescheduler.TaskRegistrar) *LimiterBuilder {
 	b.scheduler = v
+	return b
+}
+
+// UseCollector sets the [metrics.Collector] for recording rate limiter metrics.
+func (b *LimiterBuilder) UseCollector(v metrics.Collector) *LimiterBuilder {
+	b.collector = v
 	return b
 }

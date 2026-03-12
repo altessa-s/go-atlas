@@ -15,6 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas/data/mongo"
 	"github.com/altessa-s/go-atlas/data/mongo/kms"
 	"github.com/altessa-s/go-atlas/observability/health"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -32,6 +33,7 @@ type MongoBuilder struct {
 	tlsConfig         *tls.Config
 	kmsProvider       kms.Provider
 	healthCoordinator *health.Coordinator
+	collector         metrics.Collector
 }
 
 // New creates a [MongoBuilder] for the given MongoDB config.
@@ -98,6 +100,7 @@ func (b *MongoBuilder) createMongoOptionsFromConfig() ([]mongo.Option, error) {
 	opts := []mongo.Option{
 		mongo.WithClientOptions(clientOpts),
 		mongo.WithLogger(b.Logger()),
+		mongo.WithCollector(b.collector),
 	}
 
 	return b.applyEncryption(clientOpts, opts)

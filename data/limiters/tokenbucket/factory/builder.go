@@ -15,6 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/limiters/tokenbucket"
 	"github.com/altessa-s/go-atlas/data/limiters/tokenbucket/storages"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
@@ -42,6 +43,7 @@ type LimiterBuilder struct {
 	redisClient redis.UniversalClient
 	jetstream   jetstream.JetStream
 	scheduler   corescheduler.TaskRegistrar
+	collector   metrics.Collector
 }
 
 // New creates a [LimiterBuilder] for the given limiter config.
@@ -139,6 +141,7 @@ func (b *LimiterBuilder) createNatsStorage() (*natsstorage.Provider, error) {
 func (b *LimiterBuilder) applyDefaults(opts []tokenbucket.Option) []tokenbucket.Option {
 	defaults := []tokenbucket.Option{
 		tokenbucket.WithLogger(b.Logger()),
+		tokenbucket.WithCollector(b.collector),
 		tokenbucket.WithExtractClientIPAddress(tokenbucket.ExtractClientIp),
 		tokenbucket.WithExtractToken(tokenbucket.ExtractAuthToken),
 	}

@@ -10,6 +10,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/data/mongo/kms"
 	"github.com/altessa-s/go-atlas/observability/health"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // --- Dependency methods ---
@@ -41,5 +42,11 @@ func (b *MongoBuilder) UseKmsProvider(v kms.Provider) *MongoBuilder {
 // health checker for the created MongoDB client.
 func (b *MongoBuilder) UseHealthCoordinator(v *health.Coordinator) *MongoBuilder {
 	b.healthCoordinator = v
+	return b
+}
+
+// UseCollector sets the [metrics.Collector] for recording MongoDB metrics.
+func (b *MongoBuilder) UseCollector(v metrics.Collector) *MongoBuilder {
+	b.collector = v
 	return b
 }

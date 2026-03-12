@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/nats-io/nats.go"
+
+	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // --- Dependency methods ---
@@ -27,6 +29,12 @@ func (b *LeaderBuilder) UseDefaultLogger() *LeaderBuilder {
 // UseNatsConn sets the NATS connection used for leader election.
 func (b *LeaderBuilder) UseNatsConn(v *nats.Conn) *LeaderBuilder {
 	b.natsConn = v
+	return b
+}
+
+// UseCollector sets the [metrics.Collector] for recording leader election metrics.
+func (b *LeaderBuilder) UseCollector(v metrics.Collector) *LeaderBuilder {
+	b.collector = v
 	return b
 }
 

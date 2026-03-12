@@ -295,7 +295,7 @@ func (c *circuitBreakerClient) newCircuitBreakerRoundTripper(next http.RoundTrip
 			}
 		}
 
-		// If content length is unknown, wrap the body with a limiting reader
+		// If the content length is unknown, wrap the body with a limiting reader
 		if c.maxResponseSize > 0 && res.ContentLength < 0 {
 			res.Body = coreio.NewLimitedReadCloser(res.Body, c.maxResponseSize)
 		}

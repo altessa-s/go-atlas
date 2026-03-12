@@ -12,6 +12,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/observability/health"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/security/vault"
 	"github.com/altessa-s/go-atlas/security/vault/auth"
 	"github.com/altessa-s/go-atlas/security/vault/auth/approle"
@@ -33,6 +34,7 @@ type VaultBuilder struct {
 	// Dependencies
 	tlsConfig         *tls.Config
 	healthCoordinator *health.Coordinator
+	collector         metrics.Collector
 }
 
 // New creates a [VaultBuilder] for the given Vault config.
@@ -121,5 +123,6 @@ func (b *VaultBuilder) applyDefaults() []vault.Option {
 	return []vault.Option{
 		vault.WithLogger(b.Logger()),
 		vault.WithHealthCoordinator(b.healthCoordinator),
+		vault.WithCollector(b.collector),
 	}
 }

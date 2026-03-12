@@ -9,6 +9,7 @@ import (
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/observability/health"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // --- Dependency methods ---
@@ -33,5 +34,11 @@ func (b *VaultBuilder) UseTlsConfig(v *tls.Config) *VaultBuilder {
 // UseHealthCoordinator sets the health coordinator for the Vault client.
 func (b *VaultBuilder) UseHealthCoordinator(v *health.Coordinator) *VaultBuilder {
 	b.healthCoordinator = v
+	return b
+}
+
+// UseCollector sets the [metrics.Collector] for recording Vault metrics.
+func (b *VaultBuilder) UseCollector(v metrics.Collector) *VaultBuilder {
+	b.collector = v
 	return b
 }

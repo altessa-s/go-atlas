@@ -14,6 +14,7 @@ import (
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/idempotency"
 	"github.com/altessa-s/go-atlas/data/idempotency/storages"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
@@ -34,6 +35,7 @@ type KeeperBuilder struct {
 	redisClient redis.UniversalClient
 	jetstream   jetstream.JetStream
 	scheduler   corescheduler.TaskRegistrar
+	collector   metrics.Collector
 }
 
 // New creates a [KeeperBuilder] for the given idempotency config.
@@ -68,6 +70,7 @@ func (b *KeeperBuilder) Build() (*idempotency.Keeper, error) {
 func (b *KeeperBuilder) createKeeper(storage storages.Storage) *idempotency.Keeper {
 	opts := []idempotency.Option{
 		idempotency.WithLogger(b.Logger()),
+		idempotency.WithCollector(b.collector),
 	}
 	return idempotency.New(storage, opts...)
 }

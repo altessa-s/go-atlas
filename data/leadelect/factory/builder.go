@@ -14,6 +14,7 @@ import (
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/runtime/appinfo"
 	"github.com/altessa-s/go-atlas/data/leadelect"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	natsprovider "github.com/altessa-s/go-atlas/data/leadelect/providers/nats"
@@ -28,7 +29,8 @@ type LeaderBuilder struct {
 	errs []error
 
 	// Dependencies
-	natsConn *nats.Conn
+	natsConn  *nats.Conn
+	collector metrics.Collector
 
 	// Config
 	key    string
@@ -63,7 +65,7 @@ func (b *LeaderBuilder) Build(ctx context.Context) (*leadelect.Leader, error) {
 	}
 
 	leCfg := b.buildConfig()
-	return leadelect.New(provider, leCfg), nil
+	return leadelect.New(provider, leCfg, leadelect.WithCollector(b.collector)), nil
 }
 
 // createNatsProvider creates a NATS leader election provider.
@@ -74,6 +76,7 @@ func (b *LeaderBuilder) createNatsProvider(ctx context.Context) (*natsprovider.P
 
 	opts := []natsprovider.Option{
 		natsprovider.WithLogger(b.Logger()),
+		natsprovider.WithCollector(b.collector),
 	}
 
 	provider, err := natsprovider.New(ctx, b.natsConn, opts...)

@@ -10,6 +10,8 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/altessa-s/go-atlas/observability/metrics"
+
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
@@ -39,5 +41,11 @@ func (b *KeeperBuilder) UseJetstream(v jetstream.JetStream) *KeeperBuilder {
 // UseScheduler sets the scheduler for background task registration.
 func (b *KeeperBuilder) UseScheduler(v corescheduler.TaskRegistrar) *KeeperBuilder {
 	b.scheduler = v
+	return b
+}
+
+// UseCollector sets the [metrics.Collector] for recording idempotency metrics.
+func (b *KeeperBuilder) UseCollector(v metrics.Collector) *KeeperBuilder {
+	b.collector = v
 	return b
 }
