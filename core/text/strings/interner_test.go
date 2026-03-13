@@ -194,6 +194,104 @@ func TestResetGlobalInterner(t *testing.T) {
 	}
 }
 
+func TestInterner_Stats(t *testing.T) {
+	interner := corestrings.NewInterner(100)
+
+	// Initially all counters are zero.
+	stats := interner.Stats()
+	if stats.HotHits != 0 || stats.ColdHits != 0 || stats.Misses != 0 || stats.Evictions != 0 {
+		t.Fatalf("fresh interner stats not zero: %+v", stats)
+	}
+	if stats.TotalLookups() != 0 {
+		t.Errorf("TotalLookups() = %d, want 0", stats.TotalLookups())
+	}
+	if stats.HitRate() != 0 {
+		t.Errorf("HitRate() = %f, want 0", stats.HitRate())
+	}
+
+	// First lookup is a miss.
+	interner.String("hello")
+	stats = interner.Stats()
+	if stats.Misses != 1 {
+		t.Errorf("Misses = %d after first String(), want 1", stats.Misses)
+	}
+
+	// Second lookup for the same string is a cold hit.
+	interner.String("hello")
+	stats = interner.Stats()
+	if stats.ColdHits < 1 {
+		t.Errorf("ColdHits = %d after second String(), want >= 1", stats.ColdHits)
+	}
+
+	// Hit rate should be > 0.
+	if stats.HitRate() <= 0 {
+		t.Errorf("HitRate() = %f, want > 0", stats.HitRate())
+	}
+	if stats.TotalLookups() != stats.HotHits+stats.ColdHits+stats.Misses {
+		t.Errorf("TotalLookups() inconsistent: %d != %d+%d+%d",
+			stats.TotalLookups(), stats.HotHits, stats.ColdHits, stats.Misses)
+	}
+
+	// MaxSize and CurrentSize should be populated.
+	if stats.MaxSize != 100 {
+		t.Errorf("MaxSize = %d, want 100", stats.MaxSize)
+	}
+	if stats.CurrentSize < 1 {
+		t.Errorf("CurrentSize = %d, want >= 1", stats.CurrentSize)
+	}
+}
+
+func TestInterner_ResetStats(t *testing.T) {
+	interner := corestrings.NewInterner(100)
+	interner.String("foo")
+	interner.String("foo")
+
+	interner.ResetStats()
+	stats := interner.Stats()
+	if stats.HotHits != 0 || stats.ColdHits != 0 || stats.Misses != 0 || stats.Evictions != 0 {
+		t.Errorf("stats not zero after ResetStats: %+v", stats)
+	}
+
+	// Cache entries should still exist.
+	if interner.IsEmpty() {
+		t.Error("interner should not be empty after ResetStats")
+	}
+}
+
+func TestInterner_StatsAfterReset(t *testing.T) {
+	interner := corestrings.NewInterner(100)
+	interner.String("bar")
+	interner.Reset()
+
+	stats := interner.Stats()
+	if stats.HotHits != 0 || stats.ColdHits != 0 || stats.Misses != 0 {
+		t.Errorf("stats not zero after Reset: %+v", stats)
+	}
+}
+
+func TestInternerStats_HitRate(t *testing.T) {
+	s := corestrings.InternerStats{HotHits: 3, ColdHits: 5, Misses: 2}
+	if got := s.HitRate(); got != 0.8 {
+		t.Errorf("HitRate() = %f, want 0.8", got)
+	}
+	if got := s.HotHitRate(); got != 0.3 {
+		t.Errorf("HotHitRate() = %f, want 0.3", got)
+	}
+	if got := s.TotalLookups(); got != 10 {
+		t.Errorf("TotalLookups() = %d, want 10", got)
+	}
+}
+
+func TestInternerStats_HitRateZero(t *testing.T) {
+	s := corestrings.InternerStats{}
+	if got := s.HitRate(); got != 0 {
+		t.Errorf("HitRate() = %f, want 0", got)
+	}
+	if got := s.HotHitRate(); got != 0 {
+		t.Errorf("HotHitRate() = %f, want 0", got)
+	}
+}
+
 func TestInternGlobalFunctions(t *testing.T) {
 	t.Cleanup(corestrings.ResetGlobalInterner)
 

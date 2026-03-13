@@ -32,6 +32,10 @@
 //	// String interning (memory optimization)
 //	canonical := strings.InternString("/api/users")
 //
+//	// Interner performance monitoring
+//	stats := strings.GlobalInterner().Stats()
+//	fmt.Printf("hit rate: %.1f%%\n", stats.HitRate()*100)
+//
 // # Performance
 //
 //   - Small string optimization: SecureString stores ≤64 bytes inline (no heap allocation).

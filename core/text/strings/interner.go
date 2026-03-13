@@ -91,6 +91,54 @@ const (
 	PromotionCheckInterval = 50
 )
 
+// InternerStats holds a point-in-time snapshot of [Interner] performance
+// counters. All values are cumulative since the last [Interner.ResetStats] (or
+// since creation). Use [Interner.Stats] to obtain a snapshot.
+type InternerStats struct {
+	// HotHits is the number of lookups served from the hot cache (atomic slots).
+	HotHits uint64
+
+	// ColdHits is the number of lookups served from the cold cache (sync.Map).
+	ColdHits uint64
+
+	// Misses is the number of lookups that required creating a new entry.
+	Misses uint64
+
+	// Evictions is the total number of entries removed by background LRU eviction.
+	Evictions uint64
+
+	// CurrentSize is the number of entries currently in the cold cache.
+	CurrentSize int64
+
+	// MaxSize is the configured capacity limit.
+	MaxSize int64
+}
+
+// HitRate returns the overall cache hit rate as a float64 in [0.0, 1.0].
+// Returns 0 when there have been no lookups.
+func (s InternerStats) HitRate() float64 {
+	total := s.HotHits + s.ColdHits + s.Misses
+	if total == 0 {
+		return 0
+	}
+	return float64(s.HotHits+s.ColdHits) / float64(total)
+}
+
+// HotHitRate returns the hot cache hit rate as a float64 in [0.0, 1.0].
+// Returns 0 when there have been no lookups.
+func (s InternerStats) HotHitRate() float64 {
+	total := s.HotHits + s.ColdHits + s.Misses
+	if total == 0 {
+		return 0
+	}
+	return float64(s.HotHits) / float64(total)
+}
+
+// TotalLookups returns the total number of String() calls tracked.
+func (s InternerStats) TotalLookups() uint64 {
+	return s.HotHits + s.ColdHits + s.Misses
+}
+
 // Interner provides lock-free, concurrency-safe string interning with LRU
 // eviction. Identical string values are deduplicated so that only one copy is
 // retained in memory, significantly reducing heap usage for workloads with
@@ -107,6 +155,9 @@ const (
 // configured maximum, a background goroutine evicts the least-recently-used
 // entries (see [EvictionBatchSize] and [EvictionRatio]).
 //
+// Performance counters (hits, misses, evictions) are tracked atomically and
+// can be read via [Interner.Stats] without affecting throughput.
+//
 // All methods on Interner are safe for concurrent use by multiple goroutines.
 // Create instances with [NewInterner] or use the process-wide singleton
 // returned by [GlobalInterner].
@@ -122,6 +173,12 @@ type Interner struct {
 
 	// Promotion tracking
 	promotionCounter atomic.Int64
+
+	// Performance counters
+	hotHits   atomic.Uint64
+	coldHits  atomic.Uint64
+	misses    atomic.Uint64
+	evictions atomic.Uint64
 }
 
 var globalInternerPtr atomic.Pointer[Interner]
@@ -188,6 +245,7 @@ func (si *Interner) String(s string) string {
 	hotSlot := si.fastHash(s) % HotCacheSlots
 	if hotPtr := si.hotCache[hotSlot].Load(); hotPtr != nil {
 		if *hotPtr == s {
+			si.hotHits.Add(1)
 			return *hotPtr
 		}
 	}
@@ -195,6 +253,7 @@ func (si *Interner) String(s string) string {
 	// Fast path: lookup in cold cache
 	if value, ok := si.entries.Load(s); ok {
 		entry := value.(*internEntry) //nolint:errcheck // type is guaranteed by internal usage
+		si.coldHits.Add(1)
 
 		// Update access information atomically using coarse timestamp
 		newAccessCount := entry.accessCount.Add(1)
@@ -212,6 +271,7 @@ func (si *Interner) String(s string) string {
 	}
 
 	// Slow path: create new handle and entry
+	si.misses.Add(1)
 	handle := unique.Make(s)
 	canonicalString := handle.Value()
 	now := coarseNowUnix()
@@ -321,7 +381,8 @@ func (si *Interner) evictInBackground() {
 	*candidatesPtr = candidates
 	evictionCandidatesPool.Put(candidatesPtr)
 
-	// Update size counter
+	// Update counters
+	si.evictions.Add(uint64(evictedCount))
 	si.currentSize.Add(-evictedCount)
 }
 
@@ -355,6 +416,9 @@ func (si *Interner) Reset() {
 
 	// Reset promotion counter
 	si.promotionCounter.Store(0)
+
+	// Reset performance counters
+	si.ResetStats()
 }
 
 // Size returns the current number of strings held in the cold cache. The
@@ -393,6 +457,33 @@ func (si *Interner) LoadFactor() float64 {
 		return 0
 	}
 	return current / maximum
+}
+
+// Stats returns a point-in-time snapshot of the interner's performance
+// counters. The returned [InternerStats] includes hit/miss counts, eviction
+// totals, and current/max size. All counters are cumulative since the last
+// [Interner.ResetStats] call (or since creation).
+//
+// Stats is safe to call concurrently and does not block interning operations.
+func (si *Interner) Stats() InternerStats {
+	return InternerStats{
+		HotHits:     si.hotHits.Load(),
+		ColdHits:    si.coldHits.Load(),
+		Misses:      si.misses.Load(),
+		Evictions:   si.evictions.Load(),
+		CurrentSize: si.currentSize.Load(),
+		MaxSize:     si.maxSize,
+	}
+}
+
+// ResetStats zeroes all performance counters (hits, misses, evictions) without
+// affecting the cached strings or capacity. This is useful for periodic
+// reporting where you want to measure rates over a fixed window.
+func (si *Interner) ResetStats() {
+	si.hotHits.Store(0)
+	si.coldHits.Store(0)
+	si.misses.Store(0)
+	si.evictions.Store(0)
 }
 
 // TrimString strips leading and trailing whitespace from s and returns the

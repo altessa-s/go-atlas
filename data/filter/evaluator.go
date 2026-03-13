@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
@@ -17,15 +18,75 @@ import (
 // written once and read many times.
 var regexCache sync.Map // map[string]*regexp.Regexp
 
+// Performance counters for the regex pattern cache.
+var (
+	regexHits   atomic.Uint64
+	regexMisses atomic.Uint64
+	regexSize   atomic.Int64
+)
+
+// RegexCacheStats holds a point-in-time snapshot of regex pattern cache
+// performance counters. All values are cumulative since the last
+// [ResetRegexCacheStats] call (or since process start).
+type RegexCacheStats struct {
+	// Hits is the number of lookups served from the cache.
+	Hits uint64
+
+	// Misses is the number of lookups that required pattern compilation.
+	Misses uint64
+
+	// Size is the current number of cached compiled patterns.
+	Size int64
+}
+
+// HitRate returns the cache hit rate as a float64 in [0.0, 1.0].
+// Returns 0 when there have been no lookups.
+func (s RegexCacheStats) HitRate() float64 {
+	total := s.Hits + s.Misses
+	if total == 0 {
+		return 0
+	}
+	return float64(s.Hits) / float64(total)
+}
+
+// TotalLookups returns the total number of getCompiledRegex calls tracked.
+func (s RegexCacheStats) TotalLookups() uint64 {
+	return s.Hits + s.Misses
+}
+
+// RegexCacheStatsSnapshot returns a point-in-time snapshot of the regex
+// pattern cache performance counters.
+func RegexCacheStatsSnapshot() RegexCacheStats {
+	return RegexCacheStats{
+		Hits:   regexHits.Load(),
+		Misses: regexMisses.Load(),
+		Size:   regexSize.Load(),
+	}
+}
+
+// ResetRegexCacheStats zeroes all performance counters (hits, misses) without
+// affecting the cached patterns or their compiled state.
+func ResetRegexCacheStats() {
+	regexHits.Store(0)
+	regexMisses.Store(0)
+}
+
 func getCompiledRegex(pattern string) (*regexp.Regexp, error) {
 	if cached, ok := regexCache.Load(pattern); ok {
+		regexHits.Add(1)
 		return cached.(*regexp.Regexp), nil //nolint:errcheck // type is guaranteed by store
 	}
+
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		return nil, err
 	}
-	regexCache.Store(pattern, re)
+
+	if _, loaded := regexCache.LoadOrStore(pattern, re); !loaded {
+		regexSize.Add(1)
+	}
+
+	regexMisses.Add(1)
 	return re, nil
 }
 

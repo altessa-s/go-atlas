@@ -545,10 +545,10 @@ func TestBuildCursorPipeline_EmptyStages(t *testing.T) {
 
 func TestStageOptions_Accumulates(t *testing.T) {
 	tests := []struct {
-		name     string
-		apply    func(*listCursorOptions)
-		getLen   func(*listCursorOptions) int
-		wantLen  int
+		name    string
+		apply   func(*listCursorOptions)
+		getLen  func(*listCursorOptions) int
+		wantLen int
 	}{
 		{
 			name: "WithListCursorStages",
@@ -588,13 +588,17 @@ func TestStageOptions_SkipsNil(t *testing.T) {
 		getLen func(*listCursorOptions) int
 	}{
 		{
-			name:   "WithListCursorStages",
-			apply:  func(opts *listCursorOptions) { WithListCursorStages(nil, bson.D{{"$lookup", bson.M{"from": "a"}}}, nil)(opts) },
+			name: "WithListCursorStages",
+			apply: func(opts *listCursorOptions) {
+				WithListCursorStages(nil, bson.D{{"$lookup", bson.M{"from": "a"}}}, nil)(opts)
+			},
 			getLen: func(opts *listCursorOptions) int { return len(opts.stages) },
 		},
 		{
-			name:   "WithListCursorDecorationStages",
-			apply:  func(opts *listCursorOptions) { WithListCursorDecorationStages(nil, bson.D{{"$lookup", bson.M{"from": "a"}}}, nil)(opts) },
+			name: "WithListCursorDecorationStages",
+			apply: func(opts *listCursorOptions) {
+				WithListCursorDecorationStages(nil, bson.D{{"$lookup", bson.M{"from": "a"}}}, nil)(opts)
+			},
 			getLen: func(opts *listCursorOptions) int { return len(opts.decorationStages) },
 		},
 	}

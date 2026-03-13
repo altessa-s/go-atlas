@@ -81,6 +81,21 @@ Lock-free, LRU-evicting string deduplication. Two-tier cache: hot (atomic slots)
 | `LowerString` / `UpperString` | Case-convert and intern     |
 | `TrimString`                  | Trim whitespace and intern  |
 | `StringSlice` / `StringMap`   | Bulk intern                 |
+| `Stats`                       | Performance counters snapshot (hit/miss/eviction) |
+| `ResetStats`                  | Zero counters without clearing cache |
+
+### Performance monitoring
+
+`Stats()` returns an `InternerStats` snapshot with atomic counters for hot hits, cold hits, misses, and evictions. Convenience methods compute hit rates:
+
+```go
+stats := interner.Stats()
+fmt.Printf("hit rate: %.1f%%, hot: %.1f%%, size: %d/%d\n",
+    stats.HitRate()*100, stats.HotHitRate()*100,
+    stats.CurrentSize, stats.MaxSize)
+```
+
+For Prometheus integration, use `observability/metrics.NewInternerMetrics` — see the [metrics README](../../../observability/metrics/README.md).
 
 ## Pooling
 

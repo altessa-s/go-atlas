@@ -5,7 +5,7 @@
 All metrics are Prometheus-compatible and follow the naming convention
 `{serviceName}_{subsystem}_{name}`. The `serviceName` prefix is configured
 via `config.Metrics.ServiceName`. This document lists every metric registered
-across the 24 instrumented subsystems (129 metrics total).
+across the 26 instrumented subsystems (140 metrics total).
 
 ---
 
@@ -128,6 +128,20 @@ Package: `data/idempotency`
 | `idempotency_deletions_total` | Counter | Total number of idempotency keys deleted. |
 | `idempotency_errors_total` | Counter | Total number of idempotency operation errors. |
 
+## interner
+
+Package: `observability/metrics` (bridge for `core/text/strings`)
+
+| Name | Type | Description |
+|------|------|-------------|
+| `interner_hot_hits_total` | Counter | Total number of lookups served from the hot cache (atomic slots). |
+| `interner_cold_hits_total` | Counter | Total number of lookups served from the cold cache (sync.Map). |
+| `interner_misses_total` | Counter | Total number of lookups that required creating a new entry. |
+| `interner_evictions_total` | Counter | Total number of entries removed by background LRU eviction. |
+| `interner_current_size` | Gauge | Current number of interned strings in the cache. |
+| `interner_hit_rate` | Gauge | Overall cache hit rate (hot + cold hits / total lookups). |
+| `interner_hot_hit_rate` | Gauge | Hot cache hit rate (hot hits / total lookups). |
+
 ## leader_election
 
 Package: `data/leadelect`
@@ -225,6 +239,17 @@ Package: `data/limiters/tokenbucket`
 | `rate_limiter_requests_allowed_total` | Counter | Total number of requests allowed by the rate limiter. |
 | `rate_limiter_requests_rejected_total` | Counter | Total number of requests rejected due to rate limiting. |
 | `rate_limiter_limit_check_errors_total` | Counter | Total number of errors during rate limit checks. |
+
+## regex_cache
+
+Package: `observability/metrics` (bridge for `data/filter`)
+
+| Name | Type | Description |
+|------|------|-------------|
+| `regex_cache_hits_total` | Counter | Total number of regex pattern cache hits. |
+| `regex_cache_misses_total` | Counter | Total number of regex pattern cache misses requiring compilation. |
+| `regex_cache_current_size` | Gauge | Current number of compiled regex patterns in the cache. |
+| `regex_cache_hit_rate` | Gauge | Regex pattern cache hit rate (hits / total lookups). |
 
 ## scheduler
 
