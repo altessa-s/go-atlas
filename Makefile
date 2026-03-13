@@ -4,7 +4,7 @@ SHELL          			:= /bin/bash
 .DELETE_ON_ERROR:
 MAKEFLAGS      			+= --warn-undefined-variables
 MAKEFLAGS      			+= --no-builtin-rules
-CHANGELOG_NEXT_VERSION 	?= v$(shell abt semver --next --skip-meta . 2>/dev/null || echo "")
+CHANGELOG_NEXT_VERSION 	?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
 
 # dupl configuration
 # - DUPL_THRESHOLD: token threshold (higher -> fewer matches)
@@ -140,7 +140,8 @@ copyright: ## Add copyright header to all files
 .PHONY: changelog
 changelog: ## Update changelog
 	@echo "Updating CHANGELOG file"
-	abt chlog --next-ver=$(CHANGELOG_NEXT_VERSION) -o CHANGELOG.md .
+	@cd devtools && go install github.com/git-chglog/git-chglog/cmd/git-chglog
+	git-chglog --next-tag=$(CHANGELOG_NEXT_VERSION) -o CHANGELOG.md
 
 .PHONY: precommit-install
 precommit-install: ## Install pre-commit hooks
