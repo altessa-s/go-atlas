@@ -10,6 +10,7 @@ import (
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/cache"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/errstatus"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/health"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/idempotency"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/limiter"
@@ -40,6 +41,7 @@ func (b *ServerBuilder) WithInterceptors() *ServerBuilder {
 		return b
 	}
 	return b.
+		WithErrStatusInterceptor().
 		WithRealIPInterceptor().
 		WithRequestIDInterceptor().
 		WithRecoveryInterceptor().
@@ -378,5 +380,24 @@ func (b *ServerBuilder) WithHealthInterceptor() *ServerBuilder {
 	}
 
 	b.interceptors = append(b.interceptors, health.ServerInterceptor(b.healthChecker, configOpts...))
+	return b
+}
+
+// WithErrStatusInterceptor creates an error status interceptor from the builder's configuration.
+func (b *ServerBuilder) WithErrStatusInterceptor() *ServerBuilder {
+	cfg := b.interceptorsCfg()
+	if cfg == nil || cfg.ErrStatus == nil {
+		return b
+	}
+
+	opts := []errstatus.Option{
+		errstatus.WithFinalizer(errstatus.DefaultFinalizer),
+	}
+
+	if cfg.ErrStatus.Domain != nil {
+		opts = append(opts, errstatus.WithDomain(cfg.ErrStatus.Domain))
+	}
+
+	b.interceptors = append(b.interceptors, errstatus.ServerInterceptor(opts...))
 	return b
 }

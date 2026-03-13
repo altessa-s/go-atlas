@@ -31,6 +31,8 @@ type InterceptorsConfig struct {
 	Prometheus *GrpcInterPrometheusConfig `yaml:"prometheus" default:"-"`
 	// Tracing contains configuration for distributed tracing interceptor.
 	Tracing *GrpcInterTracingConfig `yaml:"tracing" default:"-"`
+	// ErrStatus contains configuration for error status interceptor.
+	ErrStatus *GrpcInterErrStatusConfig `yaml:"errStatus" default:"-"`
 }
 
 // Validate performs validation of the InterceptorsConfig.
@@ -48,6 +50,7 @@ func (c *InterceptorsConfig) Validate() error {
 		validation.Field(&c.Logger, validation.NilOrNotEmpty),
 		validation.Field(&c.Prometheus, validation.NilOrNotEmpty),
 		validation.Field(&c.Tracing, validation.NilOrNotEmpty),
+		validation.Field(&c.ErrStatus, validation.NilOrNotEmpty),
 	)
 }
 
@@ -65,6 +68,7 @@ func DefaultInterceptorsConfig() InterceptorsConfig {
 	logger := DefaultGrpcInterLoggerConfig()
 	prometheus := DefaultGrpcInterPrometheusConfig()
 	tracing := DefaultGrpcInterTracingConfig()
+	errStatus := DefaultGrpcInterErrStatusConfig()
 
 	return InterceptorsConfig{
 		Cache:       &cache,
@@ -78,5 +82,6 @@ func DefaultInterceptorsConfig() InterceptorsConfig {
 		Logger:      &logger,
 		Prometheus:  &prometheus,
 		Tracing:     &tracing,
+		ErrStatus:   &errStatus,
 	}
 }

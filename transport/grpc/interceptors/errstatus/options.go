@@ -65,7 +65,7 @@ type StatusConverter struct {
 //
 // The finalizer receives the request context and the final error (after conversion),
 // and returns a potentially modified error.
-type Finalizer func(ctx context.Context, err error) error
+type Finalizer func(ctx context.Context, err error, domain string) error
 
 // statusConverterIndex holds indexed status errorConverters for fast lookup.
 // Converters are split into two groups:
@@ -102,6 +102,8 @@ type options struct {
 	cacheDisabled bool
 	// cacheOnlySentinel restricts caching to sentinel errors only to prevent memory leaks
 	cacheOnlySentinel bool
+	// domain is the service domain name populated in errdetails.ErrorInfo.Domain by the Finalizer
+	domain string
 }
 
 // WithErrorConverters adds multiple custom error errorConverters in a single call.
@@ -209,7 +211,7 @@ func WithStatusConverterFunc(c func(context.Context, *status.Status) error) Opti
 //	    errstatus.WithFinalizer(errstatus.DefaultFinalizer),
 //	    errstatus.WithErrorMapping(ErrUserNotFound, codes.NotFound, "User not found"),
 //	)
-func DefaultFinalizer(ctx context.Context, err error) error {
+func DefaultFinalizer(ctx context.Context, err error, domain string) error {
 	st, ok := status.FromError(err)
 	if !ok {
 		return err
@@ -228,13 +230,26 @@ func DefaultFinalizer(ctx context.Context, err error) error {
 	}
 
 	if errorInfo == nil {
-		errorInfo = &errdetails.ErrorInfo{Reason: GrpcStatusToReasonCode(st)}
+		errorInfo = &errdetails.ErrorInfo{Reason: GrpcStatusToReasonCode(st), Domain: domain}
 		if st2, errDetails := st.WithDetails(errorInfo); errDetails == nil {
 			st = st2
 		}
 		// Note: If WithDetails fails, we continue with the original status.
 		// This is acceptable as the finalizer should not fail the entire operation
 		// due to metadata enrichment issues.
+	} else if domain != "" && errorInfo.Domain == "" {
+		sp := st.Proto()
+		for _, detail := range sp.Details {
+			if detail.MessageIs(&errdetails.ErrorInfo{}) {
+				var ei errdetails.ErrorInfo
+				if err2 := detail.UnmarshalTo(&ei); err2 == nil {
+					ei.Domain = domain
+					_ = detail.MarshalFrom(&ei)
+				}
+				break
+			}
+		}
+		st = status.FromProto(sp)
 	}
 
 	st = injectRequestInfo(ctx, st)

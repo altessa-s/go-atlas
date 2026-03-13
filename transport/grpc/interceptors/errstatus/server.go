@@ -103,7 +103,7 @@ func (i *interceptor) ServerUnaryInterceptor() stdGrpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *stdGrpc.UnaryServerInfo, handler stdGrpc.UnaryHandler) (resp any, err error) {
 		defer func() {
 			if err != nil && i.options.finalizer != nil {
-				err = i.options.finalizer(ctx, err)
+				err = i.options.finalizer(ctx, err, i.options.domain)
 			}
 		}()
 
@@ -119,7 +119,7 @@ func (i *interceptor) ServerStreamInterceptor() stdGrpc.StreamServerInterceptor 
 	return func(srv any, stream stdGrpc.ServerStream, info *stdGrpc.StreamServerInfo, handler stdGrpc.StreamHandler) (err error) {
 		defer func() {
 			if err != nil && i.options.finalizer != nil {
-				err = i.options.finalizer(stream.Context(), err)
+				err = i.options.finalizer(stream.Context(), err, i.options.domain)
 			}
 		}()
 		err = handler(srv, stream)
