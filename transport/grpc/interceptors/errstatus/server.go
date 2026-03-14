@@ -60,6 +60,12 @@ const convertOperation = "convert"
 // ServerInterceptor returns a new interceptor that converts errors to gRPC status errors.
 func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
 	opts := newOptions(opt...)
+
+	// Wrap the finalizer with domain so callers don't need to know about it.
+	if opts.finalizer != nil && opts.domain != "" {
+		opts.finalizer = withDomainFinalizer(opts.finalizer, opts.domain)
+	}
+
 	base := interceptors.NewBaseInterceptor(InterceptorName, opts.logger)
 
 	var cache lru.Cacher[string, *cacheEntry]
@@ -103,7 +109,7 @@ func (i *interceptor) ServerUnaryInterceptor() stdGrpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *stdGrpc.UnaryServerInfo, handler stdGrpc.UnaryHandler) (resp any, err error) {
 		defer func() {
 			if err != nil && i.options.finalizer != nil {
-				err = i.options.finalizer(ctx, err, i.options.domain)
+				err = i.options.finalizer(ctx, err)
 			}
 		}()
 
@@ -119,7 +125,7 @@ func (i *interceptor) ServerStreamInterceptor() stdGrpc.StreamServerInterceptor 
 	return func(srv any, stream stdGrpc.ServerStream, info *stdGrpc.StreamServerInfo, handler stdGrpc.StreamHandler) (err error) {
 		defer func() {
 			if err != nil && i.options.finalizer != nil {
-				err = i.options.finalizer(stream.Context(), err, i.options.domain)
+				err = i.options.finalizer(stream.Context(), err)
 			}
 		}()
 		err = handler(srv, stream)
