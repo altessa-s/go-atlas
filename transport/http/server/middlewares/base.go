@@ -5,16 +5,11 @@
 package middlewares
 
 import (
-	"cmp"
-	"context"
 	"log/slog"
 	"net/http"
 	"regexp"
 
-	"github.com/altessa-s/go-atlas/core/text/strings"
-	"github.com/altessa-s/go-atlas/transport/internal/endpointfilter"
-
-	slogx "github.com/altessa-s/go-atlas/observability/slog"
+	"github.com/altessa-s/go-atlas/transport/internal/base"
 )
 
 // BaseMiddleware provides common functionality for HTTP middlewares.
@@ -44,9 +39,7 @@ import (
 //	    }
 //	}
 type BaseMiddleware struct {
-	name          string
-	logger        *slog.Logger
-	ignoreChecker endpointfilter.Filter
+	base.Base
 }
 
 // NewBaseMiddleware creates a new BaseMiddleware with the given name and logger.
@@ -56,11 +49,7 @@ type BaseMiddleware struct {
 //   - name: The middleware name used for identification
 //   - logger: The slog.Logger for debug/info/error logging (can be nil for no logging)
 func NewBaseMiddleware(name string, logger *slog.Logger) BaseMiddleware {
-	return BaseMiddleware{
-		name:          name,
-		logger:        cmp.Or(logger, slog.New(slog.DiscardHandler)),
-		ignoreChecker: endpointfilter.NewNoop(),
-	}
+	return BaseMiddleware{Base: base.New(name, "middleware", "path", logger)}
 }
 
 // NewBaseMiddlewareWithFilter creates a new BaseMiddleware with path filtering support.
@@ -72,73 +61,12 @@ func NewBaseMiddleware(name string, logger *slog.Logger) BaseMiddleware {
 //   - ignorePatterns: Regex patterns for paths to skip
 //   - logger: The slog.Logger for debug/info/error logging (can be nil for no logging)
 func NewBaseMiddlewareWithFilter(name string, ignorePaths []string, ignorePatterns []*regexp.Regexp, logger *slog.Logger) BaseMiddleware {
-	return BaseMiddleware{
-		name:   name,
-		logger: cmp.Or(logger, slog.New(slog.DiscardHandler)),
-		ignoreChecker: endpointfilter.NewOrNoop(
-			ignorePaths,
-			endpointfilter.WithIgnorePatterns(ignorePatterns...),
-		),
-	}
-}
-
-// Name returns the middleware name.
-func (b *BaseMiddleware) Name() string {
-	return b.name
-}
-
-// Logger returns the configured slog logger.
-func (b *BaseMiddleware) Logger() *slog.Logger {
-	return b.logger
-}
-
-// ShouldIgnore checks if the given path should be ignored based on configured patterns.
-// The path is automatically lowercased and interned for efficient comparison.
-func (b *BaseMiddleware) ShouldIgnore(path string) bool {
-	return b.ignoreChecker.ShouldFilter(strings.InternLowerString(path))
-}
-
-// LogIgnored logs a debug message that the path was ignored.
-func (b *BaseMiddleware) LogIgnored(ctx context.Context, path string) {
-	slogx.BuildLogger(ctx, b.logger).LogAttrs(ctx, slog.LevelDebug, "ignored",
-		slog.String("middleware", b.name),
-		slog.String("path", path),
-	)
-}
-
-// LogDebug logs a debug message with middleware context.
-func (b *BaseMiddleware) LogDebug(ctx context.Context, msg string, path string, attrs ...slog.Attr) {
-	allAttrs := make([]slog.Attr, 0, len(attrs)+2)
-	allAttrs = append(allAttrs, slog.String("middleware", b.name), slog.String("path", path))
-	allAttrs = append(allAttrs, attrs...)
-	slogx.BuildLogger(ctx, b.logger).LogAttrs(ctx, slog.LevelDebug, msg, allAttrs...)
-}
-
-// LogWarn logs a warning message with middleware context.
-func (b *BaseMiddleware) LogWarn(ctx context.Context, msg string, path string, err error, attrs ...slog.Attr) {
-	allAttrs := make([]slog.Attr, 0, len(attrs)+3)
-	allAttrs = append(allAttrs, slog.String("middleware", b.name), slog.String("path", path))
-	if err != nil {
-		allAttrs = append(allAttrs, slog.Any("error", err))
-	}
-	allAttrs = append(allAttrs, attrs...)
-	slogx.BuildLogger(ctx, b.logger).LogAttrs(ctx, slog.LevelWarn, msg, allAttrs...)
-}
-
-// LogError logs an error message with middleware context.
-func (b *BaseMiddleware) LogError(ctx context.Context, msg string, path string, err error, attrs ...slog.Attr) {
-	allAttrs := make([]slog.Attr, 0, len(attrs)+3)
-	allAttrs = append(allAttrs, slog.String("middleware", b.name), slog.String("path", path))
-	if err != nil {
-		allAttrs = append(allAttrs, slog.Any("error", err))
-	}
-	allAttrs = append(allAttrs, attrs...)
-	slogx.BuildLogger(ctx, b.logger).LogAttrs(ctx, slog.LevelError, msg, allAttrs...)
+	return BaseMiddleware{Base: base.NewWithFilter(name, "middleware", "path", ignorePaths, ignorePatterns, logger)}
 }
 
 // InternPath returns an interned version of the path for memory efficiency.
 func (b *BaseMiddleware) InternPath(path string) string {
-	return strings.InternString(path)
+	return b.InternEndpoint(path)
 }
 
 // WrapResponseWriter wraps an [http.ResponseWriter] to capture status code and body.

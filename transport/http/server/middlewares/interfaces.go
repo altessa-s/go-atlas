@@ -4,7 +4,11 @@
 
 package middlewares
 
-import "net/http"
+import (
+	"net/http"
+
+	"github.com/altessa-s/go-atlas/transport/internal/base"
+)
 
 // Middleware is the interface that all chainable HTTP middlewares must implement.
 // It provides a name for identification and dependency-based ordering via
@@ -31,35 +35,11 @@ type Middleware interface {
 // time, Matcher is evaluated on every request by [ConditionalMiddleware],
 // allowing middlewares to be enabled/disabled based on runtime state
 // such as feature flags, health checks, or external configuration.
-//
-// Example:
-//
-//	type featureFlagMatcher struct {
-//	    flags *FeatureFlags
-//	    flag  string
-//	}
-//
-//	func (m *featureFlagMatcher) Match() bool {
-//	    return m.flags.IsEnabled(m.flag)
-//	}
-type Matcher interface {
-	// Match returns true if the middleware should be applied.
-	Match() bool
-}
+type Matcher = base.Matcher
 
 // MatchFunc adapts a function to the Matcher interface.
 // This provides a convenient way to create Matchers from simple functions.
-//
-// Example:
-//
-//	matcher := middlewares.MatchFunc(func() bool {
-//	    return featureFlags.IsEnabled("new-auth")
-//	})
-//	auth := middlewares.ConditionalMiddleware(matcher, authMiddleware)
-type MatchFunc func() bool
-
-// Match implements the Matcher interface by calling the underlying function.
-func (f MatchFunc) Match() bool { return f() }
+type MatchFunc = base.MatchFunc
 
 // middlewareFunc is an adapter that allows ordinary functions to be used as Middleware.
 type middlewareFunc struct {

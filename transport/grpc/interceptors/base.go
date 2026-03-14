@@ -5,16 +5,12 @@
 package interceptors
 
 import (
-	"cmp"
 	"context"
 	"log/slog"
 	"regexp"
 
-	"github.com/altessa-s/go-atlas/core/text/strings"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
-	"github.com/altessa-s/go-atlas/transport/internal/endpointfilter"
-
-	slogx "github.com/altessa-s/go-atlas/observability/slog"
+	"github.com/altessa-s/go-atlas/transport/internal/base"
 )
 
 // BaseInterceptor provides common functionality for gRPC interceptors.
@@ -43,9 +39,7 @@ import (
 //	    }
 //	}
 type BaseInterceptor struct {
-	name          string
-	logger        *slog.Logger
-	ignoreChecker endpointfilter.Filter
+	base.Base
 }
 
 // NewBaseInterceptor creates a new BaseInterceptor with the given name and logger.
@@ -55,11 +49,7 @@ type BaseInterceptor struct {
 //   - name: The interceptor name used for identification and ordering
 //   - logger: The slog.Logger for debug/info/error logging (can be nil for no logging)
 func NewBaseInterceptor(name string, logger *slog.Logger) BaseInterceptor {
-	return BaseInterceptor{
-		name:          name,
-		logger:        cmp.Or(logger, slog.New(slog.DiscardHandler)),
-		ignoreChecker: endpointfilter.NewNoop(),
-	}
+	return BaseInterceptor{Base: base.New(name, "interceptor", "method", logger)}
 }
 
 // NewBaseInterceptorWithFilter creates a new BaseInterceptor with method filtering support.
@@ -71,30 +61,12 @@ func NewBaseInterceptor(name string, logger *slog.Logger) BaseInterceptor {
 //   - ignorePatterns: Regex patterns for methods to skip
 //   - logger: The slog.Logger for debug/info/error logging (can be nil for no logging)
 func NewBaseInterceptorWithFilter(name string, ignoreMethods []string, ignorePatterns []*regexp.Regexp, logger *slog.Logger) BaseInterceptor {
-	return BaseInterceptor{
-		name:   name,
-		logger: cmp.Or(logger, slog.New(slog.DiscardHandler)),
-		ignoreChecker: endpointfilter.NewOrNoop(
-			ignoreMethods,
-			endpointfilter.WithIgnorePatterns(ignorePatterns...),
-		),
-	}
+	return BaseInterceptor{Base: base.NewWithFilter(name, "interceptor", "method", ignoreMethods, ignorePatterns, logger)}
 }
 
-// Name returns the interceptor name.
-func (b *BaseInterceptor) Name() string {
-	return b.name
-}
-
-// Logger returns the configured slog logger.
-func (b *BaseInterceptor) Logger() *slog.Logger {
-	return b.logger
-}
-
-// ShouldIgnore checks if the given method should be ignored based on configured patterns.
-// The method name is automatically lowercased and interned for efficient comparison.
-func (b *BaseInterceptor) ShouldIgnore(method string) bool {
-	return b.ignoreChecker.ShouldFilter(strings.InternLowerString(method))
+// InternMethod returns an interned version of the method name for memory efficiency.
+func (b *BaseInterceptor) InternMethod(method string) string {
+	return b.InternEndpoint(method)
 }
 
 // ShouldIgnoreFromContext checks if the current call should be ignored based on CallMetadata.
@@ -105,47 +77,4 @@ func (b *BaseInterceptor) ShouldIgnoreFromContext(ctx context.Context) (*metadat
 		return nil, false
 	}
 	return meta, b.ShouldIgnore(meta.FullyMethodName)
-}
-
-// LogIgnored logs a debug message that the method was ignored.
-func (b *BaseInterceptor) LogIgnored(ctx context.Context, method string) {
-	slogx.BuildLogger(ctx, b.logger).LogAttrs(ctx, slog.LevelDebug, "ignored",
-		slog.String("interceptor", b.name),
-		slog.String("method", method),
-	)
-}
-
-// LogDebug logs a debug message with interceptor context.
-func (b *BaseInterceptor) LogDebug(ctx context.Context, msg string, method string, attrs ...slog.Attr) {
-	allAttrs := make([]slog.Attr, 0, len(attrs)+2)
-	allAttrs = append(allAttrs, slog.String("interceptor", b.name), slog.String("method", method))
-	allAttrs = append(allAttrs, attrs...)
-	slogx.BuildLogger(ctx, b.logger).LogAttrs(ctx, slog.LevelDebug, msg, allAttrs...)
-}
-
-// LogWarn logs a warning message with interceptor context.
-func (b *BaseInterceptor) LogWarn(ctx context.Context, msg string, method string, err error, attrs ...slog.Attr) {
-	allAttrs := make([]slog.Attr, 0, len(attrs)+3)
-	allAttrs = append(allAttrs, slog.String("interceptor", b.name), slog.String("method", method))
-	if err != nil {
-		allAttrs = append(allAttrs, slog.Any("error", err))
-	}
-	allAttrs = append(allAttrs, attrs...)
-	slogx.BuildLogger(ctx, b.logger).LogAttrs(ctx, slog.LevelWarn, msg, allAttrs...)
-}
-
-// LogError logs an error message with interceptor context.
-func (b *BaseInterceptor) LogError(ctx context.Context, msg string, method string, err error, attrs ...slog.Attr) {
-	allAttrs := make([]slog.Attr, 0, len(attrs)+3)
-	allAttrs = append(allAttrs, slog.String("interceptor", b.name), slog.String("method", method))
-	if err != nil {
-		allAttrs = append(allAttrs, slog.Any("error", err))
-	}
-	allAttrs = append(allAttrs, attrs...)
-	slogx.BuildLogger(ctx, b.logger).LogAttrs(ctx, slog.LevelError, msg, allAttrs...)
-}
-
-// InternMethod returns an interned version of the method name for memory efficiency.
-func (b *BaseInterceptor) InternMethod(method string) string {
-	return strings.InternString(method)
 }
