@@ -5,6 +5,7 @@ package errstatus
 
 import (
 	"log/slog"
+	"strings"
 
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 )
@@ -30,6 +31,29 @@ func WithCacheOnlySentinel() Option {
 func WithCacheSize(v int) Option {
 	return func(o *options) {
 		o.cacheSize = v
+	}
+}
+
+// WithDomain sets the domain option.
+func WithDomain[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.domain = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.domain = vv
+		}
 	}
 }
 

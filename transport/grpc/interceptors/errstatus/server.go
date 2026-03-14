@@ -60,6 +60,12 @@ const convertOperation = "convert"
 // ServerInterceptor returns a new interceptor that converts errors to gRPC status errors.
 func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
 	opts := newOptions(opt...)
+
+	// Wrap the finalizer with domain so callers don't need to know about it.
+	if opts.finalizer != nil && opts.domain != "" {
+		opts.finalizer = withDomainFinalizer(opts.finalizer, opts.domain)
+	}
+
 	base := interceptors.NewBaseInterceptor(InterceptorName, opts.logger)
 
 	var cache lru.Cacher[string, *cacheEntry]

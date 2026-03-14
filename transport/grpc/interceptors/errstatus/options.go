@@ -17,10 +17,12 @@ import (
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	_ "github.com/altessa-s/go-atlas/transport/grpc/interceptors/defaults"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	spb "google.golang.org/genproto/googleapis/rpc/status"
 )
 
 // DefaultCacheSize is the default size for error conversion cache.
@@ -102,6 +104,8 @@ type options struct {
 	cacheDisabled bool
 	// cacheOnlySentinel restricts caching to sentinel errors only to prevent memory leaks
 	cacheOnlySentinel bool
+	// domain is the service domain name populated in errdetails.ErrorInfo.Domain by the Finalizer
+	domain string
 }
 
 // WithErrorConverters adds multiple custom error errorConverters in a single call.
@@ -189,27 +193,60 @@ func WithStatusConverterFunc(c func(context.Context, *status.Status) error) Opti
 	})
 }
 
-// DefaultFinalizer is the default finalizer function that enriches gRPC status errors
+// DefaultFinalizer returns a [Finalizer] that enriches gRPC status errors
 // with additional metadata before they are returned to the client.
 //
 // The finalizer performs the following operations:
-//  1. Adds ErrorInfo details with standardized reason codes (NOT_FOUND, FORBIDDEN, etc.)
-//     mapped from gRPC status codes via GrpcStatusToReasonCode function.
-//  2. Injects RequestInfo details with request ID from context when available
+//  1. Adds [errdetails.ErrorInfo] with standardized reason codes (NOT_FOUND, FORBIDDEN, etc.)
+//     mapped from gRPC status codes via [GrpcStatusToReasonCode], and sets the Domain field
+//     to the value captured from [WithDomain] at interceptor creation time.
+//  2. If an [errdetails.ErrorInfo] already exists but has an empty Domain, the configured
+//     domain is back-filled.
+//  3. Injects [errdetails.RequestInfo] with request ID from context when available
 //     (requires requestid interceptor to be configured in the chain).
-//  3. Preserves existing error details and interceptors.Error wrapping.
-//
-// This finalizer is useful for providing consistent error metadata across all services
-// and improving error observability in distributed systems. It can be configured using
-// WithFinalizer option, or replaced with a custom finalizer for application-specific needs.
+//  4. Preserves existing error details and [interceptors.Error] wrapping.
 //
 // Example usage:
 //
 //	interceptor := errstatus.ServerInterceptor(
 //	    errstatus.WithFinalizer(errstatus.DefaultFinalizer),
+//	    errstatus.WithDomain("myservice.example.com"),
 //	    errstatus.WithErrorMapping(ErrUserNotFound, codes.NotFound, "User not found"),
 //	)
-func DefaultFinalizer(ctx context.Context, err error) error {
+//
+// DefaultFinalizer is the default [Finalizer] that enriches gRPC status errors
+// with [errdetails.ErrorInfo] (reason code) and [errdetails.RequestInfo]
+// (request ID from context). Domain is left empty; use
+// [DefaultFinalizerWithDomain] to set it.
+//
+// Example:
+//
+//	errstatus.ServerInterceptor(
+//	    errstatus.WithFinalizer(errstatus.DefaultFinalizer),
+//	)
+var DefaultFinalizer Finalizer = func(ctx context.Context, err error) error {
+	return defaultFinalize(ctx, err, "")
+}
+
+// DefaultFinalizerWithDomain returns a [Finalizer] that behaves like
+// [DefaultFinalizer] but populates [errdetails.ErrorInfo.Domain] with the
+// given domain. If an ErrorInfo already exists with an empty Domain, the
+// value is back-filled.
+//
+// Example:
+//
+//	errstatus.ServerInterceptor(
+//	    errstatus.WithFinalizer(errstatus.DefaultFinalizerWithDomain("myservice.example.com")),
+//	)
+func DefaultFinalizerWithDomain(domain string) Finalizer {
+	return func(ctx context.Context, err error) error {
+		return defaultFinalize(ctx, err, domain)
+	}
+}
+
+// defaultFinalize is the shared implementation for [DefaultFinalizer] and
+// [DefaultFinalizerWithDomain].
+func defaultFinalize(ctx context.Context, err error, domain string) error {
 	st, ok := status.FromError(err)
 	if !ok {
 		return err
@@ -220,28 +257,76 @@ func DefaultFinalizer(ctx context.Context, err error) error {
 		err = intercepted.Unwrap()
 	}
 
+	st = ensureErrorInfo(st, domain)
+	st = injectRequestInfo(ctx, st)
+
+	if intercepted != nil {
+		return interceptors.NewError(st, err)
+	}
+	return st.Err()
+}
+
+// ensureErrorInfo guarantees the status has an [errdetails.ErrorInfo] detail
+// with a reason code and, if provided, a domain. When an ErrorInfo already
+// exists but has an empty Domain, the domain is back-filled by rebuilding
+// the status cleanly (no in-place proto mutation).
+func ensureErrorInfo(st *status.Status, domain string) *status.Status {
 	var errorInfo *errdetails.ErrorInfo
 	for _, d := range st.Details() {
-		if errorInfo, ok = d.(*errdetails.ErrorInfo); ok {
+		if ei, ok := d.(*errdetails.ErrorInfo); ok {
+			errorInfo = ei
 			break
 		}
 	}
 
 	if errorInfo == nil {
-		errorInfo = &errdetails.ErrorInfo{Reason: GrpcStatusToReasonCode(st)}
-		if st2, errDetails := st.WithDetails(errorInfo); errDetails == nil {
-			st = st2
+		ei := &errdetails.ErrorInfo{Reason: GrpcStatusToReasonCode(st), Domain: domain}
+		if st2, err := st.WithDetails(ei); err == nil {
+			return st2
 		}
-		// Note: If WithDetails fails, we continue with the original status.
-		// This is acceptable as the finalizer should not fail the entire operation
-		// due to metadata enrichment issues.
+		return st
 	}
 
-	st = injectRequestInfo(ctx, st)
-	if intercepted != nil {
-		return interceptors.NewError(st, err)
+	if domain != "" && errorInfo.Domain == "" {
+		return rebuildStatusWithDomain(st, domain)
 	}
-	return st.Err()
+
+	return st
+}
+
+// rebuildStatusWithDomain creates a new status with the domain set on the
+// existing [errdetails.ErrorInfo]. It deep-copies the status proto so the
+// original is not mutated.
+func rebuildStatusWithDomain(st *status.Status, domain string) *status.Status {
+	cp, ok := proto.Clone(st.Proto()).(*spb.Status)
+	if !ok {
+		return st
+	}
+
+	for _, detail := range cp.Details {
+		if detail.MessageIs(&errdetails.ErrorInfo{}) {
+			var ei errdetails.ErrorInfo
+			if err := detail.UnmarshalTo(&ei); err == nil {
+				ei.Domain = domain
+				_ = detail.MarshalFrom(&ei)
+			}
+			break
+		}
+	}
+
+	return status.FromProto(cp)
+}
+
+// withDomainFinalizer wraps a [Finalizer] so that the configured domain is
+// injected into the [defaultFinalize] call. Returns f unchanged if domain
+// is empty.
+func withDomainFinalizer(f Finalizer, domain string) Finalizer {
+	if domain == "" {
+		return f
+	}
+	return func(ctx context.Context, err error) error {
+		return defaultFinalize(ctx, err, domain)
+	}
 }
 
 // GrpcStatusToReasonCode maps gRPC status codes to error reason codes.
