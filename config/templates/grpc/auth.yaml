@@ -1,0 +1,23 @@
+# Authentication configuration for access control and security.
+# Validates authentication tokens and enforces access policies.
+# Critical for protecting private APIs and sensitive operations.
+
+#auth:
+#  # <bool> Enable authentication.
+#  # When enabled, validates authentication tokens for requests.
+#  # Default value: false
+#  enable: false
+#
+#  # <list[string]> List of gRPC methods to skip authentication for.
+#  # Public methods that don't require authentication.
+#  # Default value: not set
+#  ignoreMethods:
+#    - "/api.UserService/GetPublicInfo"
+#    - "/grpc.health.v1.Health/Check"
+#
+#  # <list[string]> List of regex patterns for methods to skip authentication.
+#  # Pattern-based rules for authentication bypass.
+#  # Default value: not set
+#  ignorePatterns:
+#    - "^(?i)/api.public.*"
+#    - "^(?i)/grpc.health.v1.health/*"

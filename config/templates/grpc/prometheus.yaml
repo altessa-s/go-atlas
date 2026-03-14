@@ -1,0 +1,88 @@
+# Prometheus configuration for gRPC metrics collection interceptor.
+# Collects various metrics about gRPC requests and responses including request counts,
+# durations, and optionally message sizes and streaming metrics for monitoring and observability.
+
+#prometheus:
+#  # <bool> Enable Prometheus metrics collection.
+#  # When enabled, collects gRPC metrics according to configuration.
+#  # Default value: false
+#  enable: false
+#
+#  # <list[string]> List of gRPC methods to exclude from metrics collection.
+#  # Methods should be specified in the format "/service.Service/Method".
+#  # Useful for excluding health checks or other high-frequency endpoints.
+#  # Default value: not set
+#  ignoreMethods:
+#    - "/grpc.health.v1.Health/Check"
+#    - "/api.MetricsService/GetMetrics"
+#
+#  # <list[string]> List of regex patterns for methods to exclude from metrics.
+#  # Pattern-based rules for metrics bypass.
+#  # Default value: not set
+#  ignorePatterns:
+#    - "^(?i)/grpc.health.*"
+#
+#  # <string> Prometheus metric namespace.
+#  # Used as the first part of metric names (e.g., "myapp" -> "myapp_grpc_server_requests_total").
+#  # Empty namespace is allowed and results in metrics without namespace prefix.
+#  # Default value: not set
+#  namespace:
+#
+#  # <string> Prometheus metric subsystem.
+#  # Used as the second part of metric names after namespace.
+#  # Default value: grpc
+#  subsystem: grpc
+#
+#  # <list[float64]> Custom histogram buckets for request duration metrics in seconds.
+#  # Must be in increasing order. If not specified, reasonable defaults are used.
+#  # Covers microsecond to multi-second request times.
+#  # Default value: not set (uses built-in defaults)
+#  durationBuckets:
+#    - 0.001   # 1ms
+#    - 0.01    # 10ms
+#    - 0.1     # 100ms
+#    - 1.0     # 1s
+#    - 10.0    # 10s
+#
+#  # <list[float64]> Custom histogram buckets for message size metrics in bytes.
+#  # Only used when enableSizeMetrics is true. Must be in increasing order.
+#  # Covers very small messages (64 bytes) to large payloads (256MB).
+#  # Default value: not set (uses built-in defaults)
+#  sizeBuckets:
+#    - 64        # 64B
+#    - 1024      # 1KB
+#    - 4096      # 4KB
+#    - 16384     # 16KB
+#    - 65536     # 64KB
+#    - 262144    # 256KB
+#    - 1048576   # 1MB
+#    - 16777216  # 16MB
+#    - 268435456 # 256MB
+#
+#  # <bool> Enable request/response size metrics collection.
+#  # Size metrics add overhead as they require inspecting message payloads.
+#  # When enabled, collects grpc_server_request_size_bytes and grpc_server_response_size_bytes histograms.
+#  # Default value: false
+#  enableSizeMetrics: false
+#
+#  # <bool> Enable per-message streaming metrics collection.
+#  # Streaming metrics track individual message counts and sizes within gRPC streams but add overhead.
+#  # When enabled, collects grpc_server_stream_messages_sent_total and grpc_server_stream_messages_received_total counters.
+#  # When disabled, only basic per-stream metrics are collected (requests_total, request_duration).
+#  # Default value: false
+#  enableStreamMetrics: false
+#
+#  # <float64> Sampling rate for streaming message metrics (0.0 to 1.0).
+#  # Only effective when enableStreamMetrics is true. Used to reduce overhead in high-throughput scenarios.
+#  # 1.0 = no sampling (record all messages), 0.1 = record 10% of messages, 0.0 = disable streaming metrics.
+#  # When sampling is enabled, recorded metrics are scaled to maintain accurate totals.
+#  # Default value: 1.0
+#  streamSamplingRate: 1.0
+#
+#  # <string> Sampling strategy for streaming message metrics.
+#  # Only effective when enableStreamMetrics is true and streamSamplingRate < 1.0.
+#  # "per_message" = sample individual messages within a stream independently.
+#  # "per_stream" = sample entire streams as a unit - either all or none.
+#  # Supported values: per_message, per_stream
+#  # Default value: per_message
+#  streamSamplingStrategy: per_message
