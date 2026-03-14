@@ -12,8 +12,26 @@ type GrpcInterErrStatusConfig struct {
 	BaseGrpcInterceptorConfig `yaml:",inline"`
 
 	// Domain is the logical namespace for error reason codes of this service.
+	// Used to populate errdetails.ErrorInfo.Domain in gRPC error responses.
+	// Example: "myservice.example.com"
 	Domain *string `yaml:"domain"`
+
+	// CacheSize is the maximum number of entries in the error conversion cache.
+	// Set to 0 to disable caching. Default: 1000
+	CacheSize *int `yaml:"cacheSize"`
+
+	// CacheDisabled completely disables error conversion caching.
+	// Default: false
+	CacheDisabled bool `yaml:"cacheDisabled"`
+
+	// CacheOnlySentinel restricts caching to sentinel errors only.
+	// Prevents unbounded memory growth from caching dynamic errors.
+	// Default: false
+	CacheOnlySentinel bool `yaml:"cacheOnlySentinel"`
 }
+
+// IsEnabled returns true if error status conversion is enabled.
+func (c *GrpcInterErrStatusConfig) IsEnabled() bool { return c != nil && c.Enable }
 
 // Validate performs validation of the error status interceptor configuration.
 func (c *GrpcInterErrStatusConfig) Validate() error {

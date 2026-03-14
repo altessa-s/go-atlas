@@ -386,19 +386,31 @@ func (b *ServerBuilder) WithHealthInterceptor() *ServerBuilder {
 // WithErrStatusInterceptor creates an error status interceptor from the builder's configuration.
 func (b *ServerBuilder) WithErrStatusInterceptor() *ServerBuilder {
 	cfg := b.interceptorsCfg()
-	if cfg == nil || cfg.ErrStatus == nil || !cfg.ErrStatus.Enable {
+	if cfg == nil || !cfg.ErrStatus.IsEnabled() {
 		return b
 	}
 
+	c := cfg.ErrStatus
+
 	var finalizer errstatus.Finalizer
-	if cfg.ErrStatus.Domain != nil && *cfg.ErrStatus.Domain != "" {
-		finalizer = errstatus.DefaultFinalizerWithDomain(*cfg.ErrStatus.Domain)
+	if c.Domain != nil && *c.Domain != "" {
+		finalizer = errstatus.DefaultFinalizerWithDomain(*c.Domain)
 	} else {
 		finalizer = errstatus.DefaultFinalizer
 	}
 
 	opts := []errstatus.Option{
 		errstatus.WithFinalizer(finalizer),
+	}
+
+	if c.CacheSize != nil {
+		opts = append(opts, errstatus.WithCacheSize(*c.CacheSize))
+	}
+	if c.CacheDisabled {
+		opts = append(opts, errstatus.WithCacheDisabled())
+	}
+	if c.CacheOnlySentinel {
+		opts = append(opts, errstatus.WithCacheOnlySentinel())
 	}
 
 	b.interceptors = append(b.interceptors, errstatus.ServerInterceptor(opts...))
