@@ -17,6 +17,27 @@ pluggable storage backends (memory, Redis). Includes a `Manager` for registering
 | `StatsProvider`     | Provides filter statistics                         |
 | `Manager`           | Registry for named filter instances                |
 
+## Manager options
+
+| Option           | Default   | Description                  |
+|------------------|-----------|------------------------------|
+| `WithLogger`     | discard   | Sets the structured logger   |
+| `WithCollector`  | nil       | Sets the metrics collector   |
+
+## Errors
+
+| Error                     | Description                                   |
+|---------------------------|-----------------------------------------------|
+| `ErrFilterNotFound`       | Returned when a filter name is not registered  |
+| `ErrFilterAlreadyExists`  | Returned when a filter name is already in use  |
+
+## Bloom vs Cuckoo
+
+- **Bloom** — lower memory per item, supports periodic rebuilds (`RebuildableFilter`), no deletion.
+- **Cuckoo** — supports individual deletion (`DeletableFilter`), slightly higher memory overhead, can become full.
+
+Choose Bloom when items are append-only or rebuilt in bulk. Choose Cuckoo when you need to remove individual items.
+
 ## Subpackages
 
 | Package                                          | Description                    |
