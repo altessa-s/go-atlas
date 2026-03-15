@@ -5,10 +5,10 @@
 // Package factory provides a fluent builder for creating rate limiters
 // from configuration.
 //
-// [LimiterBuilder] uses a fluent API with deferred error accumulation:
-// errors from any step are collected and returned at [LimiterBuilder.Build] time.
+// [TokenBucketLimiterBuilder] uses a fluent API with deferred error accumulation:
+// errors from any step are collected and returned at [TokenBucketLimiterBuilder.Build] time.
 //
-//	limiter, err := factory.New(cfg.Limiter).
+//	limiter, err := factory.New(cfg.TokenBucketLimiter).
 //	    UseLogger(logger).
 //	    UseRedisClient(redisClient).
 //	    Build()

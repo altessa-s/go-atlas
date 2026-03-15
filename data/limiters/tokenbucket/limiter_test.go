@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/altessa-s/go-atlas/data/limiters/storages/memory"
 	"github.com/altessa-s/go-atlas/data/limiters/tokenbucket"
-	"github.com/altessa-s/go-atlas/data/limiters/tokenbucket/storages/memory"
 )
 
 func validConfig() *tokenbucket.RateLimitConfig {

@@ -14,7 +14,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/data/cache/lru"
 	"github.com/altessa-s/go-atlas/data/limiters"
-	"github.com/altessa-s/go-atlas/data/limiters/tokenbucket/storages"
+	"github.com/altessa-s/go-atlas/data/limiters/storages"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )

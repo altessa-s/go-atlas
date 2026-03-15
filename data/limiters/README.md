@@ -26,3 +26,5 @@ contract without transport-specific implementation details.
 | Package                          | Description                              |
 |----------------------------------|------------------------------------------|
 | [tokenbucket](./tokenbucket)     | Token bucket rate limiting with rules    |
+| [budget](./budget)               | Distributed budget limiter for outbound requests |
+| [storages](./storages)           | Shared storage backends (memory, Redis, NATS) |

@@ -190,12 +190,3 @@ type IgnoreConfig struct {
 	// Pattern-based rules for bypass.
 	IgnorePatterns []string `yaml:"ignorePatterns"`
 }
-
-// ValidateIgnoreConfig returns validation field rules for IgnoreConfig embedded fields.
-// Use this helper to validate IgnoreMethods and IgnorePatterns fields in config structs.
-func ValidateIgnoreConfig(ignoreMethods, ignorePatterns *[]string) []*validation.FieldRules {
-	return []*validation.FieldRules{
-		validation.Field(ignoreMethods, validation.Each(validation.Required)),
-		validation.Field(ignorePatterns, validation.Each(validation.Required)),
-	}
-}

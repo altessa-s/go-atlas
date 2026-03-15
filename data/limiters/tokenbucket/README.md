@@ -22,6 +22,6 @@ and authentication token extraction with configurable storage backends and sophi
 | Package                                      | Description                     |
 |----------------------------------------------|---------------------------------|
 | [factory](./factory)                         | Configuration-based creation    |
-| [storages/memory](./storages/memory)         | In-memory storage backend       |
-| [storages/redis](./storages/redis)           | Distributed Redis storage       |
-| [storages/nats](./storages/nats)             | NATS KV storage backend         |
+| [storages/memory](../storages/memory)        | In-memory storage backend       |
+| [storages/redis](../storages/redis)          | Distributed Redis storage       |
+| [storages/nats](../storages/nats)            | NATS KV storage backend         |

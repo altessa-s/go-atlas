@@ -13,15 +13,15 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/altessa-s/go-atlas/config"
+	"github.com/altessa-s/go-atlas/data/limiters/storages"
 	"github.com/altessa-s/go-atlas/data/limiters/tokenbucket"
-	"github.com/altessa-s/go-atlas/data/limiters/tokenbucket/storages"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
-	memorystorage "github.com/altessa-s/go-atlas/data/limiters/tokenbucket/storages/memory"
-	natsstorage "github.com/altessa-s/go-atlas/data/limiters/tokenbucket/storages/nats"
-	redisstorage "github.com/altessa-s/go-atlas/data/limiters/tokenbucket/storages/redis"
+	memorystorage "github.com/altessa-s/go-atlas/data/limiters/storages/memory"
+	natsstorage "github.com/altessa-s/go-atlas/data/limiters/storages/nats"
+	redisstorage "github.com/altessa-s/go-atlas/data/limiters/storages/redis"
 )
 
 const (
@@ -31,12 +31,12 @@ const (
 	DefaultPeriod = time.Hour
 )
 
-// LimiterBuilder assembles a [tokenbucket.RuleLimiter] step by step using a fluent API.
-// Create instances with [New]. Errors are accumulated and reported at [LimiterBuilder.Build] time.
+// TokenBucketLimiterBuilder assembles a [tokenbucket.RuleLimiter] step by step using a fluent API.
+// Create instances with [New]. Errors are accumulated and reported at [TokenBucketLimiterBuilder.Build] time.
 // The builder is not safe for concurrent use.
-type LimiterBuilder struct {
+type TokenBucketLimiterBuilder struct {
 	corefactory.Base
-	cfg  *config.Limiter
+	cfg  *config.TokenBucketLimiter
 	errs []error
 
 	// Dependencies
@@ -46,10 +46,10 @@ type LimiterBuilder struct {
 	collector   metrics.Collector
 }
 
-// New creates a [LimiterBuilder] for the given limiter config.
-// Config can be nil — the error surfaces at [LimiterBuilder.Build] time.
-func New(cfg *config.Limiter) *LimiterBuilder {
-	return &LimiterBuilder{
+// New creates a [TokenBucketLimiterBuilder] for the given limiter config.
+// Config can be nil — the error surfaces at [TokenBucketLimiterBuilder.Build] time.
+func New(cfg *config.TokenBucketLimiter) *TokenBucketLimiterBuilder {
+	return &TokenBucketLimiterBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
 	}
@@ -58,7 +58,7 @@ func New(cfg *config.Limiter) *LimiterBuilder {
 // Build assembles the rate limiter. It creates the storage from config internally,
 // then creates the limiter. Errors from fluent methods are accumulated
 // and reported here via [errors.Join].
-func (b *LimiterBuilder) Build() (*tokenbucket.RuleLimiter, error) {
+func (b *TokenBucketLimiterBuilder) Build() (*tokenbucket.RuleLimiter, error) {
 	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
 	}
@@ -81,7 +81,7 @@ func (b *LimiterBuilder) Build() (*tokenbucket.RuleLimiter, error) {
 }
 
 // createStorage creates a storage backend based on configuration.
-func (b *LimiterBuilder) createStorage() (storages.Storage, error) {
+func (b *TokenBucketLimiterBuilder) createStorage() (storages.Storage, error) {
 	if b.cfg.Storage == nil {
 		return nil, fmt.Errorf("configuration is required")
 	}
@@ -105,7 +105,7 @@ func (b *LimiterBuilder) createStorage() (storages.Storage, error) {
 }
 
 // createMemoryStorage creates an in-memory storage from configuration.
-func (b *LimiterBuilder) createMemoryStorage() (*memorystorage.Provider, error) {
+func (b *TokenBucketLimiterBuilder) createMemoryStorage() (*memorystorage.Provider, error) {
 	if b.cfg.Storage.Memory == nil {
 		return nil, fmt.Errorf("configuration is required")
 	}
@@ -117,7 +117,7 @@ func (b *LimiterBuilder) createMemoryStorage() (*memorystorage.Provider, error) 
 }
 
 // createRedisStorage creates a Redis storage from configuration.
-func (b *LimiterBuilder) createRedisStorage() (*redisstorage.Provider, error) {
+func (b *TokenBucketLimiterBuilder) createRedisStorage() (*redisstorage.Provider, error) {
 	if b.cfg.Storage.Redis == nil {
 		return nil, fmt.Errorf("configuration is required")
 	}
@@ -126,7 +126,7 @@ func (b *LimiterBuilder) createRedisStorage() (*redisstorage.Provider, error) {
 }
 
 // createNatsStorage creates a NATS storage from configuration.
-func (b *LimiterBuilder) createNatsStorage() (*natsstorage.Provider, error) {
+func (b *TokenBucketLimiterBuilder) createNatsStorage() (*natsstorage.Provider, error) {
 	if b.cfg.Storage.Nats == nil {
 		return nil, fmt.Errorf("configuration is required")
 	}
@@ -138,7 +138,7 @@ func (b *LimiterBuilder) createNatsStorage() (*natsstorage.Provider, error) {
 }
 
 // applyDefaults prepends factory defaults to limiter options.
-func (b *LimiterBuilder) applyDefaults(opts []tokenbucket.Option) []tokenbucket.Option {
+func (b *TokenBucketLimiterBuilder) applyDefaults(opts []tokenbucket.Option) []tokenbucket.Option {
 	defaults := []tokenbucket.Option{
 		tokenbucket.WithLogger(b.Logger()),
 		tokenbucket.WithCollector(b.collector),
@@ -148,8 +148,8 @@ func (b *LimiterBuilder) applyDefaults(opts []tokenbucket.Option) []tokenbucket.
 	return append(defaults, opts...)
 }
 
-// convertConfig converts config.Limiter to tokenbucket.RateLimitConfig.
-func convertConfig(cfg *config.Limiter) *tokenbucket.RateLimitConfig {
+// convertConfig converts config.TokenBucketLimiter to tokenbucket.RateLimitConfig.
+func convertConfig(cfg *config.TokenBucketLimiter) *tokenbucket.RateLimitConfig {
 	if cfg == nil || cfg.Rules == nil {
 		return &tokenbucket.RateLimitConfig{
 			Default: tokenbucket.RateLimitSettings{

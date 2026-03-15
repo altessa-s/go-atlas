@@ -16,36 +16,36 @@ import (
 )
 
 // UseLogger sets the logger for the builder and all created components.
-func (b *TokenBucketLimiterBuilder) UseLogger(v *slog.Logger) *TokenBucketLimiterBuilder {
+func (b *BudgetLimiterBuilder) UseLogger(v *slog.Logger) *BudgetLimiterBuilder {
 	b.SetLogger(v)
 	return b
 }
 
 // UseDefaultLogger sets the logger to [slog.Default].
-func (b *TokenBucketLimiterBuilder) UseDefaultLogger() *TokenBucketLimiterBuilder {
+func (b *BudgetLimiterBuilder) UseDefaultLogger() *BudgetLimiterBuilder {
 	return b.UseLogger(slog.Default())
 }
 
 // UseRedisClient sets the Redis client for Redis storage backends.
-func (b *TokenBucketLimiterBuilder) UseRedisClient(v redis.UniversalClient) *TokenBucketLimiterBuilder {
+func (b *BudgetLimiterBuilder) UseRedisClient(v redis.UniversalClient) *BudgetLimiterBuilder {
 	b.redisClient = v
 	return b
 }
 
 // UseJetstream sets the NATS JetStream context for NATS storage backends.
-func (b *TokenBucketLimiterBuilder) UseJetstream(v jetstream.JetStream) *TokenBucketLimiterBuilder {
+func (b *BudgetLimiterBuilder) UseJetstream(v jetstream.JetStream) *BudgetLimiterBuilder {
 	b.jetstream = v
 	return b
 }
 
 // UseScheduler sets the scheduler for background task registration.
-func (b *TokenBucketLimiterBuilder) UseScheduler(v corescheduler.TaskRegistrar) *TokenBucketLimiterBuilder {
+func (b *BudgetLimiterBuilder) UseScheduler(v corescheduler.TaskRegistrar) *BudgetLimiterBuilder {
 	b.scheduler = v
 	return b
 }
 
-// UseCollector sets the [metrics.Collector] for recording rate limiter metrics.
-func (b *TokenBucketLimiterBuilder) UseCollector(v metrics.Collector) *TokenBucketLimiterBuilder {
+// UseCollector sets the [metrics.Collector] for recording budget limiter metrics.
+func (b *BudgetLimiterBuilder) UseCollector(v metrics.Collector) *BudgetLimiterBuilder {
 	b.collector = v
 	return b
 }
