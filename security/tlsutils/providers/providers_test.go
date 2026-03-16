@@ -33,6 +33,7 @@ func TestProviderType_IsValid(t *testing.T) {
 		{"vault", ProviderTypeVault, true},
 		{"file", ProviderTypeFile, true},
 		{"letsencrypt", ProviderTypeLetsEncrypt, true},
+		{"s3", ProviderTypeS3, true},
 		{"unknown", ProviderType("unknown"), false},
 	}
 	for _, tt := range tests {
@@ -45,7 +46,7 @@ func TestProviderType_IsValid(t *testing.T) {
 }
 
 func TestAvailableProviders(t *testing.T) {
-	if len(AvailableProviders) != 3 {
+	if len(AvailableProviders) != 4 {
 		t.Fatalf("len = %d", len(AvailableProviders))
 	}
 }

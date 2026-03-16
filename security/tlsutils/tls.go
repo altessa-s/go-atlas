@@ -141,6 +141,35 @@ func loadWithDecryption(certPem, keyPem []byte, keyPassword string) (*tls.Certif
 	return cert, nil
 }
 
+// LoadFromBytes loads a certificate and private key from raw PEM bytes.
+// Supports multiple private key formats including PKCS#8, PKCS#1 (RSA), SEC1 (EC),
+// and legacy-encrypted PEM formats. The keyPassword parameter is required for
+// encrypted private keys and ignored for unencrypted keys.
+//
+// Example:
+//
+//	cert, err := tlsutils.LoadFromBytes(certPem, keyPem, "password")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+func LoadFromBytes(certPem, keyPem []byte, keyPassword string) (*tls.Certificate, error) {
+	// Try a modern approach first for encrypted keys
+	if keyPassword != "" {
+		cert, err := loadWithDecryption(certPem, keyPem, keyPassword)
+		if err == nil {
+			return cert, nil
+		}
+		// Fall back to legacy method if a modern approach fails
+	}
+
+	combined := make([]byte, 0, len(keyPem)+1+len(certPem))
+	combined = append(combined, keyPem...)
+	combined = append(combined, '\n')
+	combined = append(combined, certPem...)
+
+	return certFromBytes(combined, keyPassword)
+}
+
 // LoadFromFile loads a certificate and private key from separate files.
 // Supports multiple private key formats including PKCS#8, PKCS#1 (RSA), SEC1 (EC),
 // and legacy-encrypted PEM formats. The keyPassword parameter is required for

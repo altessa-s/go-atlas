@@ -8,8 +8,38 @@ import (
 	"crypto/tls"
 	"testing"
 
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/security/tlsutils"
 )
+
+func TestLoadFromBytes_Valid(t *testing.T) {
+	certPEM, keyPEM, _ := testhelpers.SelfSignedCert(t)
+
+	cert, err := tlsutils.LoadFromBytes(certPEM, keyPEM, "")
+	if err != nil {
+		t.Fatalf("LoadFromBytes() error = %v", err)
+	}
+	if cert == nil {
+		t.Fatal("LoadFromBytes() returned nil")
+	}
+	if len(cert.Certificate) == 0 {
+		t.Error("LoadFromBytes() returned certificate with no cert chain")
+	}
+}
+
+func TestLoadFromBytes_InvalidCert(t *testing.T) {
+	_, err := tlsutils.LoadFromBytes([]byte("not-a-cert"), []byte("not-a-key"), "")
+	if err == nil {
+		t.Error("expected error for invalid PEM data")
+	}
+}
+
+func TestLoadFromBytes_NilInputs(t *testing.T) {
+	_, err := tlsutils.LoadFromBytes(nil, nil, "")
+	if err == nil {
+		t.Error("expected error for nil inputs")
+	}
+}
 
 func TestDefaultTLSConfig(t *testing.T) {
 	config := tlsutils.DefaultTLSConfig()

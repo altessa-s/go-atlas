@@ -19,6 +19,9 @@ const (
 
 	// TlsProviderTypeVault provisions certificates from a HashiCorp Vault PKI backend.
 	TlsProviderTypeVault TlsProviderType = "vault"
+
+	// TlsProviderTypeS3 downloads certificates from S3-compatible storage.
+	TlsProviderTypeS3 TlsProviderType = "s3"
 )
 
 // TlsProvider represents the configuration for Tls certificate providers.
@@ -36,6 +39,10 @@ type TlsProvider struct {
 	// Vault contains HashiCorp Vault provider settings.
 	// Used for certificate provisioning via Vault PKI backend.
 	Vault *TlsProviderVault `yaml:"vault" default:"-"`
+
+	// S3 contains S3-based certificate provider settings.
+	// Used when certificates are downloaded from S3-compatible storage.
+	S3 *TlsProviderS3 `yaml:"s3" default:"-"`
 }
 
 // Validate performs validation on the Tls provider configuration.
@@ -47,5 +54,6 @@ func (c *TlsProvider) Validate() error {
 		validation.Field(&c.File, validation.Required.When(c.File != nil)),
 		validation.Field(&c.LetsEncrypt, validation.Required.When(c.LetsEncrypt != nil)),
 		validation.Field(&c.Vault, validation.Required.When(c.Vault != nil)),
+		validation.Field(&c.S3, validation.Required.When(c.S3 != nil)),
 	)
 }
