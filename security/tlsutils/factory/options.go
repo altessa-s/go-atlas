@@ -9,6 +9,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/security/tlsutils"
 
+	tlss3 "github.com/altessa-s/go-atlas/security/tlsutils/providers/s3"
 	vaultApi "github.com/hashicorp/vault/api"
 )
 
@@ -40,5 +41,11 @@ func (b *ProvidersBuilder) UseVaultClient(v *vaultApi.Client) *ProvidersBuilder 
 // UseCacheDir sets the cache directory for TLS certificate caching.
 func (b *ProvidersBuilder) UseCacheDir(v string) *ProvidersBuilder {
 	b.cacheDir = v
+	return b
+}
+
+// UseS3Client sets the S3 client for the S3 TLS provider.
+func (b *ProvidersBuilder) UseS3Client(v tlss3.S3API) *ProvidersBuilder {
+	b.s3Client = v
 	return b
 }

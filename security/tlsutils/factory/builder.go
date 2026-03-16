@@ -5,9 +5,13 @@
 package factory
 
 import (
+	"context"
 	"crypto/tls"
 	"log/slog"
 	"path/filepath"
+
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
@@ -17,7 +21,9 @@ import (
 	tlsproviders "github.com/altessa-s/go-atlas/security/tlsutils/providers"
 	tlsfile "github.com/altessa-s/go-atlas/security/tlsutils/providers/file"
 	tlsle "github.com/altessa-s/go-atlas/security/tlsutils/providers/le"
+	tlss3 "github.com/altessa-s/go-atlas/security/tlsutils/providers/s3"
 	tlsvault "github.com/altessa-s/go-atlas/security/tlsutils/providers/vault"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	vaultApi "github.com/hashicorp/vault/api"
 )
 
@@ -32,6 +38,7 @@ type ProvidersBuilder struct {
 	// Dependencies
 	ocspStapler tlsutils.OCSPStapler
 	vaultClient *vaultApi.Client
+	s3Client    tlss3.S3API
 	cacheDir    string
 }
 
@@ -79,6 +86,14 @@ func (b *ProvidersBuilder) Build() (*tlsproviders.Providers, error) {
 		provider, err := b.createLetsEncryptProvider()
 		if err != nil {
 			return nil, b.WrapError(err, "failed to create letsencrypt provider")
+		}
+		providers.Register(provider)
+	}
+
+	if b.cfg.S3 != nil {
+		provider, err := b.createS3Provider()
+		if err != nil {
+			return nil, b.WrapError(err, "failed to create s3 provider")
 		}
 		providers.Register(provider)
 	}
@@ -207,6 +222,76 @@ func (b *ProvidersBuilder) letsEncryptProviderOpts() []tlsle.Option {
 	})
 	opts = slices.AppendIfFunc(opts, b.cacheDir != "", func() []tlsle.Option {
 		return []tlsle.Option{tlsle.WithCacheDir(filepath.Join(b.cacheDir, "letsencrypt"))}
+	})
+	return opts
+}
+
+// createS3Provider creates an S3-based TLS provider from configuration.
+func (b *ProvidersBuilder) createS3Provider() (*tlss3.S3, error) {
+	cfg := b.cfg.S3
+
+	client, err := b.getOrCreateS3Client(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	opts := []tlss3.Option{
+		tlss3.WithS3Client(client),
+		tlss3.WithPollInterval(cfg.PollInterval),
+	}
+
+	if cfg.SSE != nil {
+		opts = append(opts, tlss3.WithSseType(tlss3.SSEType(cfg.SSE.Type)))
+		switch cfg.SSE.Type {
+		case config.SSETypeConfigKMS:
+			opts = append(opts, tlss3.WithSseKMSKeyID(cfg.SSE.KMSKeyID))
+		case config.SSETypeConfigC:
+			opts = append(opts, tlss3.WithSseCustomerKey(cfg.SSE.CustomerKey.Expose()))
+			opts = append(opts, tlss3.WithSseCustomerKeyMD5(cfg.SSE.CustomerKeyMD5))
+		case config.SSETypeConfigS3:
+			// SSE-S3 is transparent on read — no additional options needed.
+		}
+	}
+
+	opts = append(opts, b.s3ProviderOpts()...)
+
+	return tlss3.New(cfg.Bucket, cfg.CertificateKey, cfg.PrivateKeyKey, cfg.PrivateKeyPassword.Expose(), opts...)
+}
+
+// getOrCreateS3Client returns the injected S3 client or creates a new one from config.
+func (b *ProvidersBuilder) getOrCreateS3Client(cfg *config.TlsProviderS3) (tlss3.S3API, error) {
+	if b.s3Client != nil {
+		return b.s3Client, nil
+	}
+
+	awsCfg, err := awsconfig.LoadDefaultConfig(context.Background(),
+		awsconfig.WithRegion(cfg.Region),
+		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
+			cfg.AccessKey.Expose(),
+			cfg.SecretKey.Expose(),
+			"",
+		)),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
+		o.BaseEndpoint = &cfg.Endpoint
+		o.UsePathStyle = cfg.PathStyle
+	})
+
+	return client, nil
+}
+
+// s3ProviderOpts returns common options for S3 provider.
+func (b *ProvidersBuilder) s3ProviderOpts() []tlss3.Option {
+	var opts []tlss3.Option
+	opts = slices.AppendIfFunc(opts, b.Logger() != nil, func() []tlss3.Option {
+		return []tlss3.Option{tlss3.WithLogger(b.Logger())}
+	})
+	opts = slices.AppendIfFunc(opts, b.ocspStapler != nil, func() []tlss3.Option {
+		return []tlss3.Option{tlss3.WithOcspStapler(b.ocspStapler)}
 	})
 	return opts
 }

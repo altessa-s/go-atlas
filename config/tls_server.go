@@ -62,7 +62,7 @@ type TlsServer struct {
 func (c *TlsServer) Validate() error {
 	return ValidateStruct(c,
 		validation.Field(&c.ProviderType,
-			ozzo_rules.OneOf(TlsProviderTypeFile, TlsProviderTypeLetsEncrypt, TlsProviderTypeVault)),
+			ozzo_rules.OneOf(TlsProviderTypeFile, TlsProviderTypeLetsEncrypt, TlsProviderTypeVault, TlsProviderTypeS3)),
 		validation.Field(&c.MinTLSVersion, validation.Required, ozzo_rules.OneOf("1.2", "1.3")),
 	)
 }

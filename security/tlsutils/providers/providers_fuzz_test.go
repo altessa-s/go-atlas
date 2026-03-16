@@ -10,6 +10,7 @@ func FuzzProviderType_IsValid(f *testing.F) {
 	f.Add("vault")
 	f.Add("file")
 	f.Add("letsencrypt")
+	f.Add("s3")
 	f.Add("unknown")
 	f.Add("")
 

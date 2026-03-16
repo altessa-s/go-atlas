@@ -21,6 +21,8 @@ const (
 	ProviderTypeFile ProviderType = "file"
 	// ProviderTypeLetsEncrypt is the Let's Encrypt certificate provider.
 	ProviderTypeLetsEncrypt ProviderType = "letsencrypt"
+	// ProviderTypeS3 is the S3-based certificate provider.
+	ProviderTypeS3 ProviderType = "s3"
 )
 
 // String returns the string representation of the provider type.
@@ -43,7 +45,7 @@ func (t ProviderType) String() string {
 //	}
 func (t ProviderType) IsValid() bool {
 	switch t {
-	case ProviderTypeVault, ProviderTypeFile, ProviderTypeLetsEncrypt:
+	case ProviderTypeVault, ProviderTypeFile, ProviderTypeLetsEncrypt, ProviderTypeS3:
 		return true
 	}
 	return false
@@ -55,6 +57,7 @@ var AvailableProviders = []ProviderType{
 	ProviderTypeVault,
 	ProviderTypeFile,
 	ProviderTypeLetsEncrypt,
+	ProviderTypeS3,
 }
 
 // Providers is a collection of TLS providers.
