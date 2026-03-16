@@ -21,6 +21,7 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/requestid"
 	"github.com/altessa-s/go-atlas/transport/internal/clientip"
 
+	ipaclinter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/ipacl"
 	tracinginter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/tracing"
 	sharedreqid "github.com/altessa-s/go-atlas/transport/internal/requestid"
 )
@@ -48,6 +49,7 @@ func (b *ServerBuilder) WithInterceptors() *ServerBuilder {
 		WithTracingInterceptor().
 		WithLoggerInterceptor().
 		WithPrometheusInterceptor().
+		WithIpAclInterceptor().
 		WithLimiterInterceptor().
 		WithIdempotencyInterceptor().
 		WithCacheInterceptor().
@@ -223,6 +225,34 @@ func (b *ServerBuilder) WithRequestIDInterceptor() *ServerBuilder {
 	gen := sharedreqid.NewGenerator(genOpts...)
 
 	b.interceptors = append(b.interceptors, requestid.ServerInterceptor(gen))
+	return b
+}
+
+// WithIpAclInterceptor creates an IP access control interceptor from the builder's configuration.
+func (b *ServerBuilder) WithIpAclInterceptor() *ServerBuilder {
+	cfg := b.interceptorsCfg()
+	if cfg == nil || cfg.IpAcl == nil || !cfg.IpAcl.IsEnabled() {
+		return b
+	}
+
+	c := cfg.IpAcl
+	registry, err := buildIpAclRegistry(c.DefaultPolicy, c.Rules, c.DefaultRule)
+	if err != nil {
+		b.errs = append(b.errs, b.WrapError(err, "failed to build IP ACL registry"))
+		return b
+	}
+
+	configOpts := []ipaclinter.Option{
+		ipaclinter.WithLogger(b.Logger()),
+		ipaclinter.WithFallbackBehavior(convertFallbackBehavior(c.FallbackBehavior)),
+	}
+
+	configOpts = append(configOpts, ipaclinter.WithIgnoreMethods(c.IgnoreMethods...))
+	if len(c.IgnorePatterns) > 0 {
+		configOpts = append(configOpts, ipaclinter.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
+	}
+
+	b.interceptors = append(b.interceptors, ipaclinter.ServerInterceptor(registry, configOpts...))
 	return b
 }
 

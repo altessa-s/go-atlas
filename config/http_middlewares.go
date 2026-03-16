@@ -15,6 +15,8 @@ type MiddlewaresConfig struct {
 	Cors *HttpInterCorsConfig `yaml:"cors" default:"-"`
 	// Idempotency contains configuration for idempotency middleware.
 	Idempotency *HttpInterIdempotencyConfig `yaml:"idempotency" default:"-"`
+	// IpAcl contains configuration for IP access control middleware.
+	IpAcl *HttpInterIpAclConfig `yaml:"ipAcl" default:"-"`
 	// Limiter contains configuration for rate limiting middleware.
 	Limiter *HttpInterLimiterConfig `yaml:"limiter" default:"-"`
 	// Logger contains configuration for logging middleware.
@@ -40,6 +42,7 @@ func (c *MiddlewaresConfig) Validate() error {
 		validation.Field(&c.BodyLimit, validation.NilOrNotEmpty),
 		validation.Field(&c.Cors, validation.NilOrNotEmpty),
 		validation.Field(&c.Idempotency, validation.NilOrNotEmpty),
+		validation.Field(&c.IpAcl, validation.NilOrNotEmpty),
 		validation.Field(&c.Limiter, validation.NilOrNotEmpty),
 		validation.Field(&c.Logger, validation.NilOrNotEmpty),
 		validation.Field(&c.Prometheus, validation.NilOrNotEmpty),
@@ -57,6 +60,7 @@ func DefaultMiddlewaresConfig() MiddlewaresConfig {
 	bodyLimit := DefaultHttpInterBodyLimitConfig()
 	cors := DefaultHttpInterCorsConfig()
 	idempotency := DefaultHttpInterIdempotencyConfig()
+	ipAcl := DefaultHttpInterIpAclConfig()
 	limiter := DefaultHttpInterLimiterConfig()
 	logger := DefaultHttpInterLoggerConfig()
 	prometheus := DefaultHttpInterPrometheusConfig()
@@ -70,6 +74,7 @@ func DefaultMiddlewaresConfig() MiddlewaresConfig {
 		BodyLimit:       &bodyLimit,
 		Cors:            &cors,
 		Idempotency:     &idempotency,
+		IpAcl:           &ipAcl,
 		Limiter:         &limiter,
 		Logger:          &logger,
 		Prometheus:      &prometheus,

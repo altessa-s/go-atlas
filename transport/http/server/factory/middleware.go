@@ -12,6 +12,7 @@ import (
 	bodylimitmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/bodylimit"
 	corsmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/cors"
 	idempotencymw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/idempotency"
+	ipaclmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/ipacl"
 	limitermw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/limiter"
 	loggermw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/logger"
 	prometheusmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/prometheus"
@@ -48,6 +49,7 @@ func (b *ServerBuilder) WithMiddlewares() *ServerBuilder {
 		WithCorsMiddleware().
 		WithSecurityHeadersMiddleware().
 		WithBodyLimitMiddleware().
+		WithIpAclMiddleware().
 		WithLimiterMiddleware().
 		WithIdempotencyMiddleware()
 }
@@ -131,6 +133,34 @@ func (b *ServerBuilder) WithIdempotencyMiddleware() *ServerBuilder {
 	configOpts = slices.AppendIf(configOpts, c.EnforceMandatory, idempotencymw.WithEnforceMandatory())
 
 	b.configMW = append(b.configMW, idempotencymw.New(b.idempotency, configOpts...))
+	return b
+}
+
+// WithIpAclMiddleware creates an IP access control middleware from the builder's configuration.
+func (b *ServerBuilder) WithIpAclMiddleware() *ServerBuilder {
+	cfg := b.middlewaresCfg()
+	if cfg == nil || cfg.IpAcl == nil || !cfg.IpAcl.IsEnabled() {
+		return b
+	}
+
+	c := cfg.IpAcl
+	registry, err := buildIpAclRegistry(c.DefaultPolicy, c.Rules, c.DefaultRule)
+	if err != nil {
+		b.errs = append(b.errs, b.WrapError(err, "failed to build IP ACL registry"))
+		return b
+	}
+
+	configOpts := []ipaclmw.Option{
+		ipaclmw.WithLogger(b.Logger()),
+		ipaclmw.WithFallbackBehavior(convertFallbackBehavior(c.FallbackBehavior)),
+		ipaclmw.WithIgnorePaths(c.IgnorePaths...),
+	}
+
+	if len(c.IgnorePatterns) > 0 {
+		configOpts = append(configOpts, ipaclmw.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
+	}
+
+	b.configMW = append(b.configMW, ipaclmw.New(registry, configOpts...))
 	return b
 }
 

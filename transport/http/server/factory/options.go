@@ -125,6 +125,11 @@ func (b *ServerBuilder) WithoutIdempotencyMiddleware() *ServerBuilder {
 	return b.disableMiddleware("idempotency")
 }
 
+// WithoutIpAclMiddleware disables IP access control middleware.
+func (b *ServerBuilder) WithoutIpAclMiddleware() *ServerBuilder {
+	return b.disableMiddleware("ipacl")
+}
+
 // WithoutLimiterMiddleware disables rate limiter middleware.
 func (b *ServerBuilder) WithoutLimiterMiddleware() *ServerBuilder {
 	return b.disableMiddleware("limiter")

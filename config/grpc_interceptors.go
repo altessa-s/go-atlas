@@ -23,6 +23,8 @@ type InterceptorsConfig struct {
 	Auth *GrpcInterAuthConfig `yaml:"auth" default:"-"`
 	// Health contains configuration for health check interceptor.
 	Health *GrpcInterHealthConfig `yaml:"health" default:"-"`
+	// IpAcl contains configuration for IP access control interceptor.
+	IpAcl *GrpcInterIpAclConfig `yaml:"ipAcl" default:"-"`
 	// Limiter contains configuration for rate limiting interceptor.
 	Limiter *GrpcInterLimiterConfig `yaml:"limiter" default:"-"`
 	// Logger contains configuration for logging interceptor.
@@ -46,6 +48,7 @@ func (c *InterceptorsConfig) Validate() error {
 		validation.Field(&c.Idempotency, validation.NilOrNotEmpty),
 		validation.Field(&c.Auth, validation.NilOrNotEmpty),
 		validation.Field(&c.Health, validation.NilOrNotEmpty),
+		validation.Field(&c.IpAcl, validation.NilOrNotEmpty),
 		validation.Field(&c.Limiter, validation.NilOrNotEmpty),
 		validation.Field(&c.Logger, validation.NilOrNotEmpty),
 		validation.Field(&c.Prometheus, validation.NilOrNotEmpty),
@@ -64,6 +67,7 @@ func DefaultInterceptorsConfig() InterceptorsConfig {
 	idempotency := DefaultGrpcInterIdempotencyConfig()
 	auth := DefaultGrpcInterAuthConfig()
 	hlth := DefaultGrpcInterHealthConfig()
+	ipAcl := DefaultGrpcInterIpAclConfig()
 	limiter := DefaultGrpcInterLimiterConfig()
 	logger := DefaultGrpcInterLoggerConfig()
 	prometheus := DefaultGrpcInterPrometheusConfig()
@@ -78,6 +82,7 @@ func DefaultInterceptorsConfig() InterceptorsConfig {
 		Idempotency: &idempotency,
 		Auth:        &auth,
 		Health:      &hlth,
+		IpAcl:       &ipAcl,
 		Limiter:     &limiter,
 		Logger:      &logger,
 		Prometheus:  &prometheus,
