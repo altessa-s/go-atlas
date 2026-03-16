@@ -1,5 +1,3 @@
-[Back to README](../README.md) · [Configuration →](configuration.md)
-
 # Architecture
 
 This document describes the package structure, layering, and design principles of go-atlas.
