@@ -86,41 +86,41 @@
 #    !include http/recovery.yaml
 #
 #    # Client IP extraction from proxy headers.
-#    # See http/real_ip.yaml template for full configuration options.
-#    !include http/real_ip.yaml
+#    # See http_middlewares/real_ip.yaml template for full configuration options.
+#    !include http_middlewares/real_ip.yaml
 #
 #    # Request correlation and distributed tracing.
-#    # See http/request_id.yaml template for full configuration options.
-#    !include http/request_id.yaml
+#    # See http_middlewares/request_id.yaml template for full configuration options.
+#    !include http_middlewares/request_id.yaml
 #
 #    # Distributed tracing with OpenTelemetry.
-#    # See http/tracing.yaml template for full configuration options.
-#    !include http/tracing.yaml
+#    # See http_middlewares/tracing.yaml template for full configuration options.
+#    !include http_middlewares/tracing.yaml
 #
 #    # Request/response logging for observability.
-#    # See http/logger.yaml template for full configuration options.
-#    !include http/logger.yaml
+#    # See http_middlewares/logger.yaml template for full configuration options.
+#    !include http_middlewares/logger.yaml
 #
 #    # Metrics collection for monitoring.
-#    # See http/prometheus.yaml template for full configuration options.
-#    !include http/prometheus.yaml
+#    # See http_middlewares/prometheus.yaml template for full configuration options.
+#    !include http_middlewares/prometheus.yaml
 #
 #    # Cross-Origin Resource Sharing support.
-#    # See http/cors.yaml template for full configuration options.
-#    !include http/cors.yaml
+#    # See http_middlewares/cors.yaml template for full configuration options.
+#    !include http_middlewares/cors.yaml
 #
 #    # Security-related HTTP headers.
-#    # See http/security_headers.yaml template for full configuration options.
-#    !include http/security_headers.yaml
+#    # See http_middlewares/security_headers.yaml template for full configuration options.
+#    !include http_middlewares/security_headers.yaml
 #
 #    # Request payload size limiting.
-#    # See http/body_limit.yaml template for full configuration options.
-#    !include http/body_limit.yaml
+#    # See http_middlewares/body_limit.yaml template for full configuration options.
+#    !include http_middlewares/body_limit.yaml
 #
 #    # Rate limiting and abuse prevention.
-#    # See http/limiter.yaml template for full configuration options.
-#    !include http/limiter.yaml
+#    # See http_middlewares/limiter.yaml template for full configuration options.
+#    !include http_middlewares/limiter.yaml
 #
 #    # Duplicate request prevention.
-#    # See http/idempotency.yaml template for full configuration options.
-#    !include http/idempotency.yaml
+#    # See http_middlewares/idempotency.yaml template for full configuration options.
+#    !include http_middlewares/idempotency.yaml

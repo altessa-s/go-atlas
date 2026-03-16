@@ -134,49 +134,49 @@
 #  # 12. health: Health check gating
 #  interceptors:
 #    # Error-to-gRPC-status conversion and enrichment.
-#    # See grpc/errstatus.yaml template for full configuration options.
-#    !include grpc/errstatus.yaml
+#    # See grpc_interceptors/errstatus.yaml template for full configuration options.
+#    !include grpc_interceptors/errstatus.yaml
 #
 #    # Response caching for performance optimization.
-#    # See grpc/cache.yaml template for full configuration options.
-#    !include grpc/cache.yaml
+#    # See grpc_interceptors/cache.yaml template for full configuration options.
+#    !include grpc_interceptors/cache.yaml
 #
 #    # Real IP extraction from proxy headers.
-#    # See grpc/real_ip.yaml template for full configuration options.
-#    !include grpc/real_ip.yaml
+#    # See grpc_interceptors/real_ip.yaml template for full configuration options.
+#    !include grpc_interceptors/real_ip.yaml
 #
 #    # Request correlation and distributed tracing.
-#    # See grpc/request_id.yaml template for full configuration options.
-#    !include grpc/request_id.yaml
+#    # See grpc_interceptors/request_id.yaml template for full configuration options.
+#    !include grpc_interceptors/request_id.yaml
 #
 #    # Panic handling and service resilience.
-#    # See grpc/recovery.yaml template for full configuration options.
-#    !include grpc/recovery.yaml
+#    # See grpc_interceptors/recovery.yaml template for full configuration options.
+#    !include grpc_interceptors/recovery.yaml
 #
 #    # Request/response logging for observability.
-#    # See grpc/logger.yaml template for full configuration options.
-#    !include grpc/logger.yaml
+#    # See grpc_interceptors/logger.yaml template for full configuration options.
+#    !include grpc_interceptors/logger.yaml
 #
 #    # Metrics collection for monitoring and observability.
-#    # See grpc/prometheus.yaml template for full configuration options.
-#    !include grpc/prometheus.yaml
+#    # See grpc_interceptors/prometheus.yaml template for full configuration options.
+#    !include grpc_interceptors/prometheus.yaml
 #
 #    # Duplicate request prevention.
-#    # See grpc/idempotency.yaml template for full configuration options.
-#    !include grpc/idempotency.yaml
+#    # See grpc_interceptors/idempotency.yaml template for full configuration options.
+#    !include grpc_interceptors/idempotency.yaml
 #
 #    # Authentication and authorization.
-#    # See grpc/auth.yaml template for full configuration options.
-#    !include grpc/auth.yaml
+#    # See grpc_interceptors/auth.yaml template for full configuration options.
+#    !include grpc_interceptors/auth.yaml
 #
 #    # Health check gating.
-#    # See grpc/health.yaml template for full configuration options.
-#    !include grpc/health.yaml
+#    # See grpc_interceptors/health.yaml template for full configuration options.
+#    !include grpc_interceptors/health.yaml
 #
 #    # Rate limiting and abuse prevention.
-#    # See grpc/limiter.yaml template for full configuration options.
-#    !include grpc/limiter.yaml
+#    # See grpc_interceptors/limiter.yaml template for full configuration options.
+#    !include grpc_interceptors/limiter.yaml
 #
 #    # Distributed tracing.
-#    # See grpc/tracing.yaml template for full configuration options.
-#    !include grpc/tracing.yaml
+#    # See grpc_interceptors/tracing.yaml template for full configuration options.
+#    !include grpc_interceptors/tracing.yaml
