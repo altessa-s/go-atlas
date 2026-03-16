@@ -193,7 +193,7 @@ func (ss *streamSubscriber) Subscribe(ctx context.Context, handler broker.Subscr
 
 		// Prepare message options, including the Acker and AckTimeout.
 		msgOpts := make([]msg.Option, 0, 2)
-		msgOpts = append(msgOpts, msg.WithAcker(&ackAdapter{msg: jsMsg}))
+		msgOpts = append(msgOpts, msg.WithAcker(&ackAdapter{msg: jsMsg, backOff: ss.consumerConfig.BackOff}))
 		if ackWait > 0 {
 			msgOpts = append(msgOpts, msg.WithAckTimeout(ackWait))
 		}
@@ -209,7 +209,6 @@ func (ss *streamSubscriber) Subscribe(ctx context.Context, handler broker.Subscr
 		handler.Handle(ss.handlerCtx, msg.NewMessageWithMeta(jsMsg.Subject(), jsMsg.Data(), metaData, msgOpts...))
 		stopTimer()
 	}, ss.opts...)
-
 	if err != nil {
 		return coreerrs.Wrapf(err, "failed to start consuming from consumer on stream '%s'", streamName)
 	}

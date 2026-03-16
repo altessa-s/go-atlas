@@ -114,6 +114,19 @@ func (m *Message) Nak(duration ...time.Duration) error {
 	return m.acker.Nak(duration...)
 }
 
+// NakWithBackOff sends a negative acknowledgment with a delay from the configured backOff
+// schedule, selected by the current delivery attempt count. Returns nil if no acker.
+//
+// Example:
+//
+//	err := m.NakWithBackOff()
+func (m *Message) NakWithBackOff() error {
+	if m.ackerIsNil() {
+		return nil
+	}
+	return m.acker.NakWithBackOff()
+}
+
 // Term sends a terminal acknowledgment indicating the message should not be redelivered.
 // Optional reason can be provided. Returns nil if no acker is configured.
 //
@@ -150,6 +163,10 @@ type Acker interface {
 
 	// Nak sends a negative acknowledgment with optional redelivery delay.
 	Nak(delay ...time.Duration) error
+
+	// NakWithBackOff sends a negative acknowledgment with a delay from the configured backOff
+	// schedule, selected by the current delivery attempt count.
+	NakWithBackOff() error
 
 	// Term sends a terminal acknowledgment indicating no redelivery.
 	Term(reason ...string) error

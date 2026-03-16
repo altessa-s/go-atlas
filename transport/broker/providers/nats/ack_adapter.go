@@ -15,7 +15,8 @@ import (
 
 // ackAdapter implements msg.Acker for NATS JetStream message acknowledgment.
 type ackAdapter struct {
-	msg jetstream.Msg
+	msg     jetstream.Msg
+	backOff []time.Duration
 }
 
 func (aa *ackAdapter) wrapAckError(action string, err error) error {
@@ -40,8 +41,25 @@ func (aa *ackAdapter) Nak(delay ...time.Duration) error {
 	} else {
 		err = aa.msg.Nak()
 	}
-
 	return aa.wrapAckError("nak", err)
+}
+
+// NakWithBackOff sends a negative acknowledgment with a delay from the configured backOff
+// schedule, selected by the current delivery attempt count.
+// Falls back to instant redelivery if no backOff is configured or message metadata is unavailable.
+// Treats ErrMsgAlreadyAckd as success.
+func (aa *ackAdapter) NakWithBackOff() error {
+	if len(aa.backOff) == 0 {
+		return aa.Nak()
+	}
+
+	meta, err := aa.msg.Metadata()
+	if err != nil {
+		return aa.Nak()
+	}
+
+	idx := min(int(meta.NumDelivered)-1, len(aa.backOff)-1)
+	return aa.Nak(aa.backOff[idx])
 }
 
 // Term sends a terminal acknowledgment to prevent redelivery.
