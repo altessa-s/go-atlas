@@ -86,11 +86,11 @@
 #    !include http/recovery.yaml
 #
 #    # Client IP extraction from proxy headers.
-#    # See http/realIp.yaml template for full configuration options.
+#    # See http/real_ip.yaml template for full configuration options.
 #    !include http/real_ip.yaml
 #
 #    # Request correlation and distributed tracing.
-#    # See http/requestId.yaml template for full configuration options.
+#    # See http/request_id.yaml template for full configuration options.
 #    !include http/request_id.yaml
 #
 #    # Distributed tracing with OpenTelemetry.
@@ -110,11 +110,11 @@
 #    !include http/cors.yaml
 #
 #    # Security-related HTTP headers.
-#    # See http/securityHeaders.yaml template for full configuration options.
+#    # See http/security_headers.yaml template for full configuration options.
 #    !include http/security_headers.yaml
 #
 #    # Request payload size limiting.
-#    # See http/bodyLimit.yaml template for full configuration options.
+#    # See http/body_limit.yaml template for full configuration options.
 #    !include http/body_limit.yaml
 #
 #    # Rate limiting and abuse prevention.

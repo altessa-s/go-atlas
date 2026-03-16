@@ -142,12 +142,12 @@
 #    !include grpc/cache.yaml
 #
 #    # Real IP extraction from proxy headers.
-#    # See grpc/realip.yaml template for full configuration options.
-#    !include grpc/realip.yaml
+#    # See grpc/real_ip.yaml template for full configuration options.
+#    !include grpc/real_ip.yaml
 #
 #    # Request correlation and distributed tracing.
-#    # See grpc/requestid.yaml template for full configuration options.
-#    !include grpc/requestid.yaml
+#    # See grpc/request_id.yaml template for full configuration options.
+#    !include grpc/request_id.yaml
 #
 #    # Panic handling and service resilience.
 #    # See grpc/recovery.yaml template for full configuration options.
