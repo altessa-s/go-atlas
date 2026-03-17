@@ -193,7 +193,7 @@ func (ss *streamSubscriber) Subscribe(ctx context.Context, handler broker.Subscr
 
 		// Prepare message options, including the Acker and AckTimeout.
 		msgOpts := make([]msg.Option, 0, 2)
-		msgOpts = append(msgOpts, msg.WithAcker(&ackAdapter{msg: jsMsg, backOff: ss.consumerConfig.BackOff}))
+		msgOpts = append(msgOpts, msg.WithAcker(&ackAdapter{msg: jsMsg}))
 		if ackWait > 0 {
 			msgOpts = append(msgOpts, msg.WithAckTimeout(ackWait))
 		}

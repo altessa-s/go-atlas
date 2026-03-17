@@ -114,17 +114,20 @@ func (m *Message) Nak(duration ...time.Duration) error {
 	return m.acker.Nak(duration...)
 }
 
-// NakWithBackOff sends a negative acknowledgment with a delay from the configured backOff
-// schedule, selected by the current delivery attempt count. Returns nil if no acker.
+// NakWithBackOff sends a negative acknowledgment with a delay computed by the provided
+// BackOffFunc based on the current delivery attempt count. Returns nil if no acker.
 //
 // Example:
 //
-//	err := m.NakWithBackOff()
-func (m *Message) NakWithBackOff() error {
+//	err := m.NakWithBackOff(func(attempt uint64) time.Duration {
+//		delays := []time.Duration{5 * time.Second, 30 * time.Second, 5 * time.Minute}
+//		return delays[min(int(attempt)-1, len(delays)-1)]
+//	})
+func (m *Message) NakWithBackOff(backOff BackOffFunc) error {
 	if m.ackerIsNil() {
 		return nil
 	}
-	return m.acker.NakWithBackOff()
+	return m.acker.NakWithBackOff(backOff)
 }
 
 // Term sends a terminal acknowledgment indicating the message should not be redelivered.
@@ -153,6 +156,18 @@ func (m *Message) InProgress() error {
 	return m.acker.InProgress()
 }
 
+// BackOffFunc computes the redelivery delay based on the current delivery attempt count.
+// The attempt value equals the number of times the message has already been delivered
+// (i.e. 1 on the first delivery, 2 on the second, etc.).
+//
+// Example — slice-based schedule:
+//
+//	func(attempt uint64) time.Duration {
+//		delays := []time.Duration{5 * time.Second, 30 * time.Second, 5 * time.Minute}
+//		return delays[min(int(attempt)-1, len(delays)-1)]
+//	}
+type BackOffFunc func(attempt uint64) time.Duration
+
 // Acker defines the interface for message acknowledgment mechanisms.
 // It provides methods for positive, negative, and terminal acknowledgments.
 // Implementations must be safe for concurrent use; [Message.Ack],
@@ -164,9 +179,9 @@ type Acker interface {
 	// Nak sends a negative acknowledgment with optional redelivery delay.
 	Nak(delay ...time.Duration) error
 
-	// NakWithBackOff sends a negative acknowledgment with a delay from the configured backOff
-	// schedule, selected by the current delivery attempt count.
-	NakWithBackOff() error
+	// NakWithBackOff sends a negative acknowledgment with a delay computed by backOff
+	// based on the current delivery attempt count.
+	NakWithBackOff(backOff BackOffFunc) error
 
 	// Term sends a terminal acknowledgment indicating no redelivery.
 	Term(reason ...string) error

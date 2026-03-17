@@ -11,12 +11,12 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	"github.com/altessa-s/go-atlas/transport/broker/msg"
 )
 
 // ackAdapter implements msg.Acker for NATS JetStream message acknowledgment.
 type ackAdapter struct {
-	msg     jetstream.Msg
-	backOff []time.Duration
+	msg jetstream.Msg
 }
 
 func (aa *ackAdapter) wrapAckError(action string, err error) error {
@@ -44,22 +44,16 @@ func (aa *ackAdapter) Nak(delay ...time.Duration) error {
 	return aa.wrapAckError("nak", err)
 }
 
-// NakWithBackOff sends a negative acknowledgment with a delay from the configured backOff
-// schedule, selected by the current delivery attempt count.
-// Falls back to instant redelivery if no backOff is configured or message metadata is unavailable.
+// NakWithBackOff sends a negative acknowledgment with a delay computed by backOff
+// based on the current delivery attempt count.
+// Falls back to instant redelivery if message metadata is unavailable.
 // Treats ErrMsgAlreadyAckd as success.
-func (aa *ackAdapter) NakWithBackOff() error {
-	if len(aa.backOff) == 0 {
-		return aa.Nak()
-	}
-
+func (aa *ackAdapter) NakWithBackOff(backOff msg.BackOffFunc) error {
 	meta, err := aa.msg.Metadata()
 	if err != nil {
 		return aa.Nak()
 	}
-
-	idx := min(int(meta.NumDelivered)-1, len(aa.backOff)-1)
-	return aa.Nak(aa.backOff[idx])
+	return aa.Nak(backOff(meta.NumDelivered))
 }
 
 // Term sends a terminal acknowledgment to prevent redelivery.
