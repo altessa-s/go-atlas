@@ -11,8 +11,8 @@ import (
 
 	bodylimitmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/bodylimit"
 	corsmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/cors"
-	idempotencymw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/idempotency"
 	geoaclmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/geoacl"
+	idempotencymw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/idempotency"
 	ipaclmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/ipacl"
 	limitermw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/limiter"
 	loggermw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/logger"

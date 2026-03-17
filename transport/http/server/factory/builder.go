@@ -18,7 +18,6 @@ import (
 	"github.com/altessa-s/go-atlas/transport/http/server/handler"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/http/server/router/gorilla"
-
 	"github.com/altessa-s/go-atlas/transport/internal/geoacl"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"

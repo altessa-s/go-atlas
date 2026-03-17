@@ -12,7 +12,6 @@ import (
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/transport/http/server"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
-
 	"github.com/altessa-s/go-atlas/transport/internal/geoacl"
 
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
