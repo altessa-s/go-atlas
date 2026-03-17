@@ -10,8 +10,9 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	"github.com/altessa-s/go-atlas/transport/broker/msg"
+
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // ackAdapter implements msg.Acker for NATS JetStream message acknowledgment.

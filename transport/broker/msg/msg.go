@@ -156,18 +156,6 @@ func (m *Message) InProgress() error {
 	return m.acker.InProgress()
 }
 
-// BackOffFunc computes the redelivery delay based on the current delivery attempt count.
-// The attempt value equals the number of times the message has already been delivered
-// (i.e. 1 on the first delivery, 2 on the second, etc.).
-//
-// Example — slice-based schedule:
-//
-//	func(attempt uint64) time.Duration {
-//		delays := []time.Duration{5 * time.Second, 30 * time.Second, 5 * time.Minute}
-//		return delays[min(int(attempt)-1, len(delays)-1)]
-//	}
-type BackOffFunc func(attempt uint64) time.Duration
-
 // Acker defines the interface for message acknowledgment mechanisms.
 // It provides methods for positive, negative, and terminal acknowledgments.
 // Implementations must be safe for concurrent use; [Message.Ack],

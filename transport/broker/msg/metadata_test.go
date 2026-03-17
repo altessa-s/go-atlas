@@ -186,8 +186,8 @@ type mockAcker struct {
 	ackFn func() error
 }
 
-func (m *mockAcker) Ack() error                   { return m.ackFn() }
-func (m *mockAcker) Nak(_ ...time.Duration) error { return nil }
+func (m *mockAcker) Ack() error                         { return m.ackFn() }
+func (m *mockAcker) Nak(_ ...time.Duration) error       { return nil }
 func (m *mockAcker) NakWithBackOff(_ BackOffFunc) error { return nil }
-func (m *mockAcker) Term(_ ...string) error       { return nil }
-func (m *mockAcker) InProgress() error            { return nil }
+func (m *mockAcker) Term(_ ...string) error             { return nil }
+func (m *mockAcker) InProgress() error                  { return nil }
