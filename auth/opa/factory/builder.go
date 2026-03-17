@@ -7,6 +7,7 @@ package factory
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/auth/opa"
@@ -16,6 +17,7 @@ import (
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/observability/health"
 
+	embedsrc "github.com/altessa-s/go-atlas/auth/opa/sources/embed"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
@@ -30,6 +32,8 @@ type ManagerBuilder struct {
 	// Dependencies (set via Use*).
 	scheduler         corescheduler.TaskRegistrar
 	healthCoordinator *health.Coordinator
+	embedFS           fs.FS
+	embedDir          string
 }
 
 // New creates a new [ManagerBuilder] for the given OPA config.
@@ -82,6 +86,8 @@ func (b *ManagerBuilder) buildSource() (opa.PolicySource, error) {
 	switch b.cfg.Source {
 	case config.OPASourceGitLab:
 		return b.buildGitLabSource()
+	case config.OPASourceEmbed:
+		return b.buildEmbedSource()
 	default:
 		return b.buildFilesystemSource()
 	}
@@ -140,6 +146,27 @@ func (b *ManagerBuilder) buildGitLabSource() (opa.PolicySource, error) {
 	source, err := gitlab.New(opts...)
 	if err != nil {
 		return nil, b.WrapError(err, "failed to create gitlab policy source")
+	}
+	return source, nil
+}
+
+// buildEmbedSource creates an embed PolicySource from config and injected fs.FS.
+func (b *ManagerBuilder) buildEmbedSource() (opa.PolicySource, error) {
+	if b.embedFS == nil {
+		return nil, b.WrapError(fmt.Errorf("embed fs.FS is required for embed source"), "configuration check failed")
+	}
+
+	cfg := b.cfg
+
+	embedOpts := []embedsrc.Option{
+		embedsrc.WithLogger(b.Logger()),
+		embedsrc.WithExtensions(cfg.FileExtensions...),
+	}
+	embedOpts = slices.AppendIf(embedOpts, cfg.IncludeData, embedsrc.WithIncludeData())
+
+	source, err := embedsrc.New(b.embedFS, b.embedDir, embedOpts...)
+	if err != nil {
+		return nil, b.WrapError(err, "failed to create embed policy source")
 	}
 	return source, nil
 }

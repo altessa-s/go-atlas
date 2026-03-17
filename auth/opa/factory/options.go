@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"io/fs"
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/observability/health"
@@ -33,5 +34,12 @@ func (b *ManagerBuilder) UseScheduler(v corescheduler.TaskRegistrar) *ManagerBui
 // created manager as a health checker.
 func (b *ManagerBuilder) UseHealthCoordinator(v *health.Coordinator) *ManagerBuilder {
 	b.healthCoordinator = v
+	return b
+}
+
+// UseEmbedFS sets the fs.FS and directory for the embed policy source.
+func (b *ManagerBuilder) UseEmbedFS(fsys fs.FS, dir string) *ManagerBuilder {
+	b.embedFS = fsys
+	b.embedDir = dir
 	return b
 }

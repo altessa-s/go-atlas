@@ -19,6 +19,8 @@ const (
 	OPASourceFilesystem OPASourceProvider = "filesystem"
 	// OPASourceGitLab reads policies from a GitLab repository.
 	OPASourceGitLab OPASourceProvider = "gitlab"
+	// OPASourceEmbed reads policies from an embedded fs.FS.
+	OPASourceEmbed OPASourceProvider = "embed"
 )
 
 const (
@@ -206,6 +208,7 @@ func (c *OPA) Validate() error {
 		validation.Field(&c.Source, validation.Required, ozzo_rules.OneOf(
 			OPASourceFilesystem,
 			OPASourceGitLab,
+			OPASourceEmbed,
 		)),
 		validation.Field(&c.BundlePath,
 			validation.When(c.Source == "" || c.Source == OPASourceFilesystem, validation.Required)),
@@ -242,6 +245,8 @@ func (c *OPA) IsEnabled() bool {
 	switch c.Source {
 	case OPASourceGitLab:
 		return c.GitLab != nil
+	case OPASourceEmbed:
+		return true
 	default:
 		return c.BundlePath != ""
 	}
