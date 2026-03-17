@@ -10,6 +10,8 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/altessa-s/go-atlas/transport/broker/msg"
+
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
@@ -40,8 +42,19 @@ func (aa *ackAdapter) Nak(delay ...time.Duration) error {
 	} else {
 		err = aa.msg.Nak()
 	}
-
 	return aa.wrapAckError("nak", err)
+}
+
+// NakWithBackOff sends a negative acknowledgment with a delay computed by backOff
+// based on the current delivery attempt count.
+// Falls back to instant redelivery if message metadata is unavailable.
+// Treats ErrMsgAlreadyAckd as success.
+func (aa *ackAdapter) NakWithBackOff(backOff msg.BackOffFunc) error {
+	meta, err := aa.msg.Metadata()
+	if err != nil {
+		return aa.Nak()
+	}
+	return aa.Nak(backOff(meta.NumDelivered))
 }
 
 // Term sends a terminal acknowledgment to prevent redelivery.

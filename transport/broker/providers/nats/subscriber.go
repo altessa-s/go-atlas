@@ -209,7 +209,6 @@ func (ss *streamSubscriber) Subscribe(ctx context.Context, handler broker.Subscr
 		handler.Handle(ss.handlerCtx, msg.NewMessageWithMeta(jsMsg.Subject(), jsMsg.Data(), metaData, msgOpts...))
 		stopTimer()
 	}, ss.opts...)
-
 	if err != nil {
 		return coreerrs.Wrapf(err, "failed to start consuming from consumer on stream '%s'", streamName)
 	}
