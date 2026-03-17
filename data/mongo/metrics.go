@@ -40,9 +40,8 @@ func newMongoMetrics(c metrics.Collector) *mongoMetrics {
 		}),
 		transactionDuration: scoped.MustTimer(metrics.HistogramOpts{
 			MetricOpts: metrics.MetricOpts{
-				Name:       "transaction_duration_seconds",
-				Help:       "Duration of MongoDB transactions in seconds.",
-				LabelNames: []string{"collection"},
+				Name: "transaction_duration_seconds",
+				Help: "Duration of MongoDB transactions in seconds.",
 			},
 		}),
 		transactionErrors: scoped.MustCounter(metrics.MetricOpts{
