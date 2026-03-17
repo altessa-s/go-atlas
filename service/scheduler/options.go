@@ -51,6 +51,7 @@ type options struct {
 	leaderElector             leadelect.LeaderElector          `optgen:"notnil" optval:"nil"`
 	concurrencyLimitFunc      concurrency.ConcurrencyLimitFunc `opt:"-"`
 	collector                 metrics.Collector                `opt:"-"`
+	readinessProbe            func() bool                      `opt:"-"`
 }
 
 // WithConcurrencyLimitFunc sets a dynamic concurrency limit function that is
@@ -89,6 +90,25 @@ func WithEnvironment(env concurrency.Environment) Option {
 	limit := concurrency.ConcurrencyForEnvironment(env)
 	return func(o *options) {
 		o.concurrencyLimitFunc = func() int { return limit }
+	}
+}
+
+// WithReadinessProbe sets a function that the scheduler evaluates at the start
+// of each tick. If it returns false, the tick is skipped entirely — the main
+// loop keeps running (so [Scheduler.Stop] works cleanly), but no tasks are
+// dispatched. Once the probe returns true, normal dispatch proceeds.
+//
+// When no probe is configured (the default), the scheduler is always ready.
+//
+// This is useful for deferring task execution until all subsystems (databases,
+// caches, message brokers, etc.) have finished initializing:
+//
+//	scheduler.WithReadinessProbe(func() bool {
+//	    return healthCoordinator.CheckHealth(ctx) == health.StatusServing
+//	})
+func WithReadinessProbe(fn func() bool) Option {
+	return func(o *options) {
+		o.readinessProbe = fn
 	}
 }
 

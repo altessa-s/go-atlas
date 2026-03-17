@@ -32,10 +32,11 @@ type SchedulerBuilder struct {
 	errs []error
 
 	// Dependencies
-	leaderElector leadelect.LeaderElector
-	collector     metrics.Collector
-	mongoDb       *mongo.Database
-	redisClient   redis.UniversalClient
+	leaderElector  leadelect.LeaderElector
+	collector      metrics.Collector
+	readinessProbe func() bool
+	mongoDb        *mongo.Database
+	redisClient    redis.UniversalClient
 }
 
 // New creates a new [SchedulerBuilder] for the given scheduler config.
@@ -83,6 +84,9 @@ func (b *SchedulerBuilder) applyDefaults(opts []scheduler.Option) []scheduler.Op
 	defaults = append(defaults, scheduler.WithLogger(b.Logger()))
 	if nilcheck.IsNotNil(b.leaderElector) {
 		defaults = append(defaults, scheduler.WithLeaderElector(b.leaderElector))
+	}
+	if b.readinessProbe != nil {
+		defaults = append(defaults, scheduler.WithReadinessProbe(b.readinessProbe))
 	}
 	return append(defaults, opts...)
 }

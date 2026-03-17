@@ -48,3 +48,10 @@ func (b *SchedulerBuilder) UseCollector(v metrics.Collector) *SchedulerBuilder {
 	b.collector = v
 	return b
 }
+
+// UseReadinessProbe sets a readiness probe that defers task dispatch until all
+// subsystems signal readiness. See [scheduler.WithReadinessProbe].
+func (b *SchedulerBuilder) UseReadinessProbe(fn func() bool) *SchedulerBuilder {
+	b.readinessProbe = fn
+	return b
+}

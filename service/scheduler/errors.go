@@ -38,6 +38,10 @@ var ErrTaskDisabled = errors.New("task is disabled")
 // [TaskStatusCompleted], which indicates a one-shot task that has already executed.
 var ErrTaskCompleted = errors.New("task is completed")
 
+// ErrNotReady is returned by [Scheduler.TriggerTask] when a [WithReadinessProbe]
+// is configured and it returns false, indicating that subsystems are not yet ready.
+var ErrNotReady = errors.New("subsystems not ready")
+
 // ErrScheduleConflict is returned by [Scheduler.Register] when the provided
 // [core/scheduler.TaskConfig] sets both RunAt and Schedule, which are mutually exclusive.
 var ErrScheduleConflict = errors.New("RunAt and Schedule are mutually exclusive")

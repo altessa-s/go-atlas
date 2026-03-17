@@ -82,6 +82,12 @@ func (s *Scheduler) tick() {
 		return
 	}
 
+	// Skip execution if subsystems are not ready
+	if !s.IsReady() {
+		s.logger.DebugContext(s.stopCtx, "skipping tick: subsystems not ready")
+		return
+	}
+
 	s.mu.RLock()
 	tasksCopy := make(map[string]*registeredTask, len(s.tasks))
 	for id, task := range s.tasks {

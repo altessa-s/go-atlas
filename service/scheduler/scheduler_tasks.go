@@ -505,6 +505,10 @@ func buildHistoryPageResult(entries []*TaskHistory, limit int64, filterExpr stri
 // [ErrTaskCompleted] if the task is a completed one-shot, or
 // [ErrTaskDisabled] if the task's status is [TaskStatusDisabled].
 func (s *Scheduler) TriggerTask(ctx context.Context, id string) error {
+	if !s.IsReady() {
+		return ErrNotReady
+	}
+
 	s.mu.RLock()
 	task, ok := s.tasks[id]
 	s.mu.RUnlock()

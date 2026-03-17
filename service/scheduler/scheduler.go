@@ -76,6 +76,11 @@ type Scheduler struct {
 	// If set, tasks only execute when this node is the leader.
 	leaderElector leadelect.LeaderElector
 
+	// readinessProbe is evaluated at the start of each tick. When non-nil and
+	// returning false, the tick is skipped — the loop keeps running but no
+	// tasks are dispatched. See [WithReadinessProbe].
+	readinessProbe func() bool
+
 	// scheduleCache caches parsed cron.Schedule by schedule string to avoid
 	// re-parsing on every calculateNextRun call. Populated during Register()
 	// and read lock-free in calculateNextRun().
@@ -118,12 +123,13 @@ func New(storage Storage, opts ...Option) *Scheduler {
 	fp, _ := filter.NewParser() //nolint:errcheck // parser init never fails with no options
 
 	s := &Scheduler{
-		storage:       storage,
-		opts:          o,
-		logger:        o.logger,
-		tasks:         make(map[string]*registeredTask),
-		leaderElector: o.leaderElector,
-		filterParser:  fp,
+		storage:        storage,
+		opts:           o,
+		logger:         o.logger,
+		tasks:          make(map[string]*registeredTask),
+		leaderElector:  o.leaderElector,
+		readinessProbe: o.readinessProbe,
+		filterParser:   fp,
 		parser: cron.NewParser(
 			cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor,
 		),
@@ -201,6 +207,9 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	if nilcheck.IsNotNil(s.leaderElector) {
 		logAttrs = append(logAttrs, slog.String("leader_election", "enabled"))
 	}
+	if s.readinessProbe != nil {
+		logAttrs = append(logAttrs, slog.String("readiness_probe", "enabled"))
+	}
 	s.logger.InfoContext(ctx, "scheduler started", logAttrs...)
 
 	return nil
@@ -252,6 +261,16 @@ func (s *Scheduler) IsLeader() bool {
 		return true
 	}
 	return s.leaderElector.IsLeader()
+}
+
+// IsReady reports whether the scheduler's readiness probe (if configured)
+// returns true. When no [WithReadinessProbe] was provided, IsReady always
+// returns true. Safe for concurrent use.
+func (s *Scheduler) IsReady() bool {
+	if s.readinessProbe == nil {
+		return true
+	}
+	return s.readinessProbe()
 }
 
 // RunningTasksCount returns the number of currently executing non-critical tasks.
