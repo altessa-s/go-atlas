@@ -17,6 +17,7 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/cache"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/health"
+	"github.com/altessa-s/go-atlas/transport/internal/geoacl"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
@@ -47,6 +48,7 @@ type ServerBuilder struct {
 	authFn                 auth.Auth
 	clientAuth             auth.ClientAuth
 	healthChecker          health.Health
+	geoResolver            geoacl.GeoResolver
 
 	// Interceptors
 	interceptors []interceptors.ServerInterceptor

@@ -25,6 +25,8 @@ type InterceptorsConfig struct {
 	Health *GrpcInterHealthConfig `yaml:"health" default:"-"`
 	// IpAcl contains configuration for IP access control interceptor.
 	IpAcl *GrpcInterIpAclConfig `yaml:"ipAcl" default:"-"`
+	// GeoAcl contains configuration for geographic access control interceptor.
+	GeoAcl *GrpcInterGeoAclConfig `yaml:"geoAcl" default:"-"`
 	// Limiter contains configuration for rate limiting interceptor.
 	Limiter *GrpcInterLimiterConfig `yaml:"limiter" default:"-"`
 	// Logger contains configuration for logging interceptor.
@@ -49,6 +51,7 @@ func (c *InterceptorsConfig) Validate() error {
 		validation.Field(&c.Auth, validation.NilOrNotEmpty),
 		validation.Field(&c.Health, validation.NilOrNotEmpty),
 		validation.Field(&c.IpAcl, validation.NilOrNotEmpty),
+		validation.Field(&c.GeoAcl, validation.NilOrNotEmpty),
 		validation.Field(&c.Limiter, validation.NilOrNotEmpty),
 		validation.Field(&c.Logger, validation.NilOrNotEmpty),
 		validation.Field(&c.Prometheus, validation.NilOrNotEmpty),
@@ -68,6 +71,7 @@ func DefaultInterceptorsConfig() InterceptorsConfig {
 	auth := DefaultGrpcInterAuthConfig()
 	hlth := DefaultGrpcInterHealthConfig()
 	ipAcl := DefaultGrpcInterIpAclConfig()
+	geoAcl := DefaultGrpcInterGeoAclConfig()
 	limiter := DefaultGrpcInterLimiterConfig()
 	logger := DefaultGrpcInterLoggerConfig()
 	prometheus := DefaultGrpcInterPrometheusConfig()
@@ -83,6 +87,7 @@ func DefaultInterceptorsConfig() InterceptorsConfig {
 		Auth:        &auth,
 		Health:      &hlth,
 		IpAcl:       &ipAcl,
+		GeoAcl:      &geoAcl,
 		Limiter:     &limiter,
 		Logger:      &logger,
 		Prometheus:  &prometheus,

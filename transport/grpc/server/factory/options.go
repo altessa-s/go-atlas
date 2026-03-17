@@ -12,6 +12,7 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/cache"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/health"
+	"github.com/altessa-s/go-atlas/transport/internal/geoacl"
 
 	idempotencydata "github.com/altessa-s/go-atlas/data/idempotency"
 	sharedlimiter "github.com/altessa-s/go-atlas/data/limiters"
@@ -78,6 +79,12 @@ func (b *ServerBuilder) UseAuth(authFn auth.Auth, clientAuth auth.ClientAuth) *S
 // UseHealthChecker sets the health checker used by the health interceptor.
 func (b *ServerBuilder) UseHealthChecker(v health.Health) *ServerBuilder {
 	b.healthChecker = v
+	return b
+}
+
+// UseGeoResolver sets the geo resolver used by the geoacl interceptor.
+func (b *ServerBuilder) UseGeoResolver(v geoacl.GeoResolver) *ServerBuilder {
+	b.geoResolver = v
 	return b
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/transport/internal/clientip"
 	"github.com/altessa-s/go-atlas/transport/internal/fallback"
+	"github.com/altessa-s/go-atlas/transport/internal/geoacl"
 	"github.com/altessa-s/go-atlas/transport/internal/ipacl"
 )
 
@@ -88,4 +89,44 @@ func convertIpAclRule(r config.IpAclRuleConfig) (*ipacl.AccessRule, error) {
 	}
 
 	return rule, nil
+}
+
+// buildGeoAclRegistry builds a geoacl.Registry from configuration.
+func buildGeoAclRegistry(defaultPolicy string, rules []config.GeoAclRuleConfig, defaultRule *config.GeoAclRuleConfig) (*geoacl.Registry, error) {
+	registry := geoacl.NewRegistry(geoacl.ParsePolicy(defaultPolicy))
+
+	for _, r := range rules {
+		rule := convertGeoAclRule(r)
+
+		for _, ep := range r.Endpoints {
+			registry.Register(ep, rule)
+		}
+
+		for _, p := range r.Patterns {
+			re, err := regexp.Compile(p)
+			if err != nil {
+				return nil, fmt.Errorf("invalid pattern %q: %w", p, err)
+			}
+			registry.RegisterPattern(re, rule)
+		}
+	}
+
+	if defaultRule != nil {
+		rule := convertGeoAclRule(*defaultRule)
+		registry.SetDefault(rule)
+	}
+
+	return registry, nil
+}
+
+// convertGeoAclRule converts a config rule to a geoacl.AccessRule.
+func convertGeoAclRule(r config.GeoAclRuleConfig) *geoacl.AccessRule {
+	return &geoacl.AccessRule{
+		AllowContinents: r.AllowContinents,
+		DenyContinents:  r.DenyContinents,
+		AllowCountries:  r.AllowCountries,
+		DenyCountries:   r.DenyCountries,
+		AllowRegions:    r.AllowRegions,
+		DenyRegions:     r.DenyRegions,
+	}
 }

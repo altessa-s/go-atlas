@@ -12,6 +12,7 @@ import (
 	bodylimitmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/bodylimit"
 	corsmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/cors"
 	idempotencymw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/idempotency"
+	geoaclmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/geoacl"
 	ipaclmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/ipacl"
 	limitermw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/limiter"
 	loggermw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/logger"
@@ -50,6 +51,7 @@ func (b *ServerBuilder) WithMiddlewares() *ServerBuilder {
 		WithSecurityHeadersMiddleware().
 		WithBodyLimitMiddleware().
 		WithIpAclMiddleware().
+		WithGeoAclMiddleware().
 		WithLimiterMiddleware().
 		WithIdempotencyMiddleware()
 }
@@ -161,6 +163,39 @@ func (b *ServerBuilder) WithIpAclMiddleware() *ServerBuilder {
 	}
 
 	b.configMW = append(b.configMW, ipaclmw.New(registry, configOpts...))
+	return b
+}
+
+// WithGeoAclMiddleware creates a geographic access control middleware from the builder's configuration.
+func (b *ServerBuilder) WithGeoAclMiddleware() *ServerBuilder {
+	cfg := b.middlewaresCfg()
+	if cfg == nil || cfg.GeoAcl == nil || !cfg.GeoAcl.IsEnabled() {
+		return b
+	}
+
+	if err := b.RequireDependency(b.geoResolver, "geo resolver"); err != nil {
+		b.errs = append(b.errs, err)
+		return b
+	}
+
+	c := cfg.GeoAcl
+	registry, err := buildGeoAclRegistry(c.DefaultPolicy, c.Rules, c.DefaultRule)
+	if err != nil {
+		b.errs = append(b.errs, b.WrapError(err, "failed to build GeoACL registry"))
+		return b
+	}
+
+	configOpts := []geoaclmw.Option{
+		geoaclmw.WithLogger(b.Logger()),
+		geoaclmw.WithFallbackBehavior(convertFallbackBehavior(c.FallbackBehavior)),
+		geoaclmw.WithIgnorePaths(c.IgnorePaths...),
+	}
+
+	if len(c.IgnorePatterns) > 0 {
+		configOpts = append(configOpts, geoaclmw.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
+	}
+
+	b.configMW = append(b.configMW, geoaclmw.New(b.geoResolver, registry, configOpts...))
 	return b
 }
 

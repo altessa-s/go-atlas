@@ -19,6 +19,8 @@ import (
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/http/server/router/gorilla"
 
+	"github.com/altessa-s/go-atlas/transport/internal/geoacl"
+
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	idempotencydata "github.com/altessa-s/go-atlas/data/idempotency"
@@ -40,6 +42,7 @@ type ServerBuilder struct {
 	tracer       tracing.Tracer
 	limiter      sharedlimiter.Limiter
 	idempotency  idempotencydata.Idempotency
+	geoResolver  geoacl.GeoResolver
 
 	// Router
 	router    server.Router

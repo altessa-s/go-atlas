@@ -13,6 +13,8 @@ import (
 	"github.com/altessa-s/go-atlas/transport/http/server"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 
+	"github.com/altessa-s/go-atlas/transport/internal/geoacl"
+
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	idempotencydata "github.com/altessa-s/go-atlas/data/idempotency"
 	sharedlimiter "github.com/altessa-s/go-atlas/data/limiters"
@@ -50,6 +52,12 @@ func (b *ServerBuilder) UseLimiter(v sharedlimiter.Limiter) *ServerBuilder {
 // UseIdempotency sets the idempotency keeper used by the idempotency middleware.
 func (b *ServerBuilder) UseIdempotency(v idempotencydata.Idempotency) *ServerBuilder {
 	b.idempotency = v
+	return b
+}
+
+// UseGeoResolver sets the geo resolver used by the geoacl middleware.
+func (b *ServerBuilder) UseGeoResolver(v geoacl.GeoResolver) *ServerBuilder {
+	b.geoResolver = v
 	return b
 }
 
@@ -128,6 +136,11 @@ func (b *ServerBuilder) WithoutIdempotencyMiddleware() *ServerBuilder {
 // WithoutIpAclMiddleware disables IP access control middleware.
 func (b *ServerBuilder) WithoutIpAclMiddleware() *ServerBuilder {
 	return b.disableMiddleware("ipacl")
+}
+
+// WithoutGeoAclMiddleware disables geographic access control middleware.
+func (b *ServerBuilder) WithoutGeoAclMiddleware() *ServerBuilder {
+	return b.disableMiddleware("geoacl")
 }
 
 // WithoutLimiterMiddleware disables rate limiter middleware.

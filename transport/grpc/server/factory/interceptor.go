@@ -21,6 +21,7 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/requestid"
 	"github.com/altessa-s/go-atlas/transport/internal/clientip"
 
+	geoaclinter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/geoacl"
 	ipaclinter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/ipacl"
 	tracinginter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/tracing"
 	sharedreqid "github.com/altessa-s/go-atlas/transport/internal/requestid"
@@ -50,6 +51,7 @@ func (b *ServerBuilder) WithInterceptors() *ServerBuilder {
 		WithLoggerInterceptor().
 		WithPrometheusInterceptor().
 		WithIpAclInterceptor().
+		WithGeoAclInterceptor().
 		WithLimiterInterceptor().
 		WithIdempotencyInterceptor().
 		WithCacheInterceptor().
@@ -253,6 +255,39 @@ func (b *ServerBuilder) WithIpAclInterceptor() *ServerBuilder {
 	}
 
 	b.interceptors = append(b.interceptors, ipaclinter.ServerInterceptor(registry, configOpts...))
+	return b
+}
+
+// WithGeoAclInterceptor creates a geographic access control interceptor from the builder's configuration.
+func (b *ServerBuilder) WithGeoAclInterceptor() *ServerBuilder {
+	cfg := b.interceptorsCfg()
+	if cfg == nil || cfg.GeoAcl == nil || !cfg.GeoAcl.IsEnabled() {
+		return b
+	}
+
+	if err := b.RequireDependency(b.geoResolver, "geo resolver"); err != nil {
+		b.errs = append(b.errs, err)
+		return b
+	}
+
+	c := cfg.GeoAcl
+	registry, err := buildGeoAclRegistry(c.DefaultPolicy, c.Rules, c.DefaultRule)
+	if err != nil {
+		b.errs = append(b.errs, b.WrapError(err, "failed to build GeoACL registry"))
+		return b
+	}
+
+	configOpts := []geoaclinter.Option{
+		geoaclinter.WithLogger(b.Logger()),
+		geoaclinter.WithFallbackBehavior(convertFallbackBehavior(c.FallbackBehavior)),
+	}
+
+	configOpts = append(configOpts, geoaclinter.WithIgnoreMethods(c.IgnoreMethods...))
+	if len(c.IgnorePatterns) > 0 {
+		configOpts = append(configOpts, geoaclinter.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
+	}
+
+	b.interceptors = append(b.interceptors, geoaclinter.ServerInterceptor(b.geoResolver, registry, configOpts...))
 	return b
 }
 
