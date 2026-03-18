@@ -21,6 +21,7 @@ import (
 	"github.com/altessa-s/go-atlas/core/runtime/appinfo"
 	"github.com/altessa-s/go-atlas/observability/slog/handler/buffered"
 	"github.com/altessa-s/go-atlas/observability/slog/handler/colorized"
+	"github.com/altessa-s/go-atlas/observability/slog/handler/leveled"
 	"github.com/altessa-s/go-atlas/observability/slog/handler/masking"
 	"github.com/altessa-s/go-atlas/observability/slog/handler/prefixed"
 
@@ -79,6 +80,7 @@ func (b *LoggerBuilder) Build() (*slog.Logger, error) {
 	handler := b.createHandler(writer, maskString)
 
 	handler = b.wrapWithPrefixedHandler(handler)
+	handler = b.wrapWithLeveledHandler(handler)
 
 	if b.enableMasking && len(b.cfg.SensitiveTags) > 0 {
 		handler = b.wrapWithMaskingHandler(handler, maskString)
@@ -165,6 +167,34 @@ func (b *LoggerBuilder) createHandler(writer *os.File, maskString string) slog.H
 		colorOpts = slices.AppendIf(colorOpts, noColor, colorized.WithNoColor())
 		return colorized.NewHandler(writer, colorOpts...)
 	}
+}
+
+// wrapWithLeveledHandler adds per-subsystem level filtering to the handler chain.
+// If no subsystem overrides are configured, the handler is not inserted.
+func (b *LoggerBuilder) wrapWithLeveledHandler(handler slog.Handler) slog.Handler {
+	if len(b.cfg.Subsystems) == 0 {
+		return handler
+	}
+
+	levelVar := cmp.Or(b.levelVar, slogx.GlobalLevel)
+	globalLevel := b.parseLevel(b.cfg.Level)
+	minLevel := globalLevel
+
+	subsystemLevels := make(map[string]slog.Level, len(b.cfg.Subsystems))
+	for name, lvl := range b.cfg.Subsystems {
+		parsed := b.parseLevel(lvl)
+		subsystemLevels[name] = parsed
+		if parsed < minLevel {
+			minLevel = parsed
+		}
+	}
+
+	levelVar.Set(minLevel)
+
+	return leveled.NewHandler(handler,
+		leveled.WithDefaultLevel(globalLevel),
+		leveled.WithSubsystemLevels(subsystemLevels),
+	)
 }
 
 // wrapWithPrefixedHandler adds prefix handling to the handler chain.

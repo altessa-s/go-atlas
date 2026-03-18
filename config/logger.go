@@ -92,6 +92,9 @@ type Logger struct {
 	BufferSize int `yaml:"bufferSize" default:"100"`
 	// BypassLevel specifies the minimum level to bypass the buffer (write synchronously, default: error)
 	BypassLevel LoggerLevel `yaml:"bypassLevel" default:"error"`
+	// Subsystems overrides per-subsystem log levels.
+	// Keys are subsystem names matching the "subsystem" attribute.
+	Subsystems map[string]LoggerLevel `yaml:"subsystems"`
 }
 
 // DefaultLogger returns a Logger configuration with default values.
@@ -116,5 +119,7 @@ func (l *Logger) Validate() error {
 		validation.Field(&l.Output, ozzo_rules.OneOf(LoggerConsoleOutputStdout, LoggerConsoleOutputStderr)),
 		validation.Field(&l.BypassLevel, ozzo_rules.OneOf(LoggerLevelError, LoggerLevelWarning, LoggerLevelInfo,
 			LoggerLevelDebug, LoggerLevelNone)),
+		validation.Field(&l.Subsystems, validation.Each(ozzo_rules.OneOf(LoggerLevelError, LoggerLevelWarning,
+			LoggerLevelInfo, LoggerLevelDebug, LoggerLevelNone))),
 	)
 }
