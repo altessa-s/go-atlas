@@ -10,4 +10,5 @@ stage — buffering, colorization, sensitive data masking, or key prefixing — 
 | [buffered](./buffered)     | Batches log records and flushes them periodically or on threshold                  |
 | [colorized](./colorized)   | Adds ANSI color output for development terminals                                   |
 | [masking](./masking)       | Masks sensitive data (credentials, PII) in log records before passing to inner     |
+| [multi](./multi)           | Fans out log records to multiple child handlers (delegates to stdlib on Go 1.26+)  |
 | [prefixed](./prefixed)     | Prepends a configurable key prefix to all log record attributes                    |

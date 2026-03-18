@@ -5,6 +5,7 @@
 package slog
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"testing"
@@ -139,6 +140,66 @@ func TestSetGetLevel(t *testing.T) {
 		t.Errorf("GetLevel() = %v", GetLevel())
 	}
 	SetLevel(slog.LevelInfo) // restore
+}
+
+// shutdownSpy records whether Shutdown was called.
+type shutdownSpy struct {
+	slog.Handler
+	shutdownCalled bool
+	shutdownErr    error
+}
+
+func (s *shutdownSpy) Shutdown(context.Context) error {
+	s.shutdownCalled = true
+	return s.shutdownErr
+}
+
+// multiSpy implements InnerHandlers for testing fan-out shutdown traversal.
+type multiSpy struct {
+	slog.Handler
+	children []slog.Handler
+}
+
+func (m *multiSpy) Handlers() []slog.Handler { return m.children }
+
+func TestShutdown_InnerHandlers(t *testing.T) {
+	child1 := &shutdownSpy{Handler: slog.DiscardHandler}
+	child2 := &shutdownSpy{Handler: slog.DiscardHandler}
+	multi := &multiSpy{
+		Handler:  slog.DiscardHandler,
+		children: []slog.Handler{child1, child2},
+	}
+	logger := slog.New(multi)
+
+	if err := Shutdown(context.Background(), logger); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !child1.shutdownCalled {
+		t.Error("child1 Shutdown not called")
+	}
+	if !child2.shutdownCalled {
+		t.Error("child2 Shutdown not called")
+	}
+}
+
+func TestShutdown_InnerHandlers_Error(t *testing.T) {
+	errShutdown := errors.New("shutdown failed")
+	child1 := &shutdownSpy{Handler: slog.DiscardHandler, shutdownErr: errShutdown}
+	child2 := &shutdownSpy{Handler: slog.DiscardHandler}
+	multi := &multiSpy{
+		Handler:  slog.DiscardHandler,
+		children: []slog.Handler{child1, child2},
+	}
+	logger := slog.New(multi)
+
+	err := Shutdown(context.Background(), logger)
+	if !errors.Is(err, errShutdown) {
+		t.Errorf("expected errShutdown, got %v", err)
+	}
+	// child2 should not be called since child1 returned an error.
+	if child2.shutdownCalled {
+		t.Error("child2 Shutdown should not be called after child1 error")
+	}
 }
 
 func TestMaskingReplaceAttr(t *testing.T) {

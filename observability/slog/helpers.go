@@ -184,6 +184,12 @@ type InnerHandler interface {
 	Inner() slog.Handler
 }
 
+// InnerHandlers is implemented by handlers wrapping multiple handlers
+// (e.g., the multi handler). [Shutdown] uses this to traverse all children.
+type InnerHandlers interface {
+	Handlers() []slog.Handler
+}
+
 // Shutdown attempts to gracefully shutdown a logger by traversing its handler chain.
 // It looks for handlers implementing a Shutdown(context.Context) error method.
 // The provided context controls the shutdown timeout; callers should set an
@@ -202,7 +208,17 @@ func shutdownHandler(ctx context.Context, h slog.Handler) error {
 		}
 	}
 
-	// 2. Check if it wraps another handler and traverse down
+	// 2. Fan-out: traverse all children (e.g., MultiHandler)
+	if m, ok := h.(InnerHandlers); ok {
+		for _, inner := range m.Handlers() {
+			if err := shutdownHandler(ctx, inner); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	// 3. Single chain: traverse inner handler
 	if i, ok := h.(InnerHandler); ok {
 		return shutdownHandler(ctx, i.Inner())
 	}

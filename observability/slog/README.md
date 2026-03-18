@@ -26,4 +26,5 @@ Package `slog` provides nil-safe attribute helpers, context integration, and com
 | [handler/buffered](./handler/buffered)          | Async buffered handler with bypass level           |
 | [handler/colorized](./handler/colorized)        | Color-coded terminal output for development        |
 | [handler/masking](./handler/masking)            | PII and credential masking in log records          |
+| [handler/multi](./handler/multi)                | Fan-out to multiple handlers (stdlib on Go 1.26+)  |
 | [handler/prefixed](./handler/prefixed)          | Middleware that adds component prefixes            |
