@@ -21,6 +21,8 @@ const (
 	OPASourceGitLab OPASourceProvider = "gitlab"
 	// OPASourceEmbed reads policies from an embedded fs.FS.
 	OPASourceEmbed OPASourceProvider = "embed"
+	// OPASourceS3 reads policies from an S3-compatible bucket.
+	OPASourceS3 OPASourceProvider = "s3"
 )
 
 const (
@@ -121,6 +123,41 @@ func DefaultOPAGitLab() OPAGitLab {
 	}
 }
 
+// OPAS3 represents S3-specific configuration for the OPA policy source.
+type OPAS3 struct {
+	// Bucket is the S3 bucket name containing policy files.
+	// Required when source is "s3".
+	Bucket string `yaml:"bucket"`
+
+	// Prefix is the object key prefix (directory-like path) within the bucket.
+	Prefix string `yaml:"prefix"`
+
+	// Region is the AWS region for the S3 bucket.
+	Region string `yaml:"region"`
+
+	// Endpoint is the S3-compatible endpoint URL (e.g., for MinIO).
+	// Optional; defaults to the standard AWS S3 endpoint.
+	Endpoint string `yaml:"endpoint"`
+
+	// AccessKey is the AWS access key ID.
+	// Optional; defaults to environment/instance credentials.
+	AccessKey Secret `yaml:"accessKey"`
+
+	// SecretKey is the AWS secret access key.
+	// Optional; defaults to environment/instance credentials.
+	SecretKey Secret `yaml:"secretKey"`
+
+	// PathStyle enables path-style addressing (required for MinIO and some S3-compatible stores).
+	PathStyle bool `yaml:"pathStyle"`
+}
+
+// Validate validates the OPAS3 configuration.
+func (c *OPAS3) Validate() error {
+	return ValidateStruct(c,
+		validation.Field(&c.Bucket, validation.Required),
+	)
+}
+
 // OPA represents Open Policy Agent configuration for authorization.
 // It defines settings for policy evaluation, caching, and decision logging.
 //
@@ -155,6 +192,10 @@ type OPA struct {
 	// GitLab contains GitLab-specific configuration.
 	// Required when source is "gitlab".
 	GitLab *OPAGitLab `yaml:"gitlab" default:"-"`
+
+	// S3 contains S3-specific configuration.
+	// Required when source is "s3".
+	S3 *OPAS3 `yaml:"s3" default:"-"`
 
 	// Query is the Rego query to evaluate for authorization decisions.
 	// Defaults to "data.profiles.authz.allow".
@@ -209,11 +250,14 @@ func (c *OPA) Validate() error {
 			OPASourceFilesystem,
 			OPASourceGitLab,
 			OPASourceEmbed,
+			OPASourceS3,
 		)),
 		validation.Field(&c.BundlePath,
 			validation.When(c.Source == "" || c.Source == OPASourceFilesystem, validation.Required)),
 		validation.Field(&c.GitLab,
 			validation.When(c.Source == OPASourceGitLab, validation.Required)),
+		validation.Field(&c.S3,
+			validation.When(c.Source == OPASourceS3, validation.Required)),
 		validation.Field(&c.Query, validation.Required),
 		validation.Field(&c.Cache, validation.When(c.Cache != nil, validation.Required)),
 		validation.Field(&c.PollInterval,
@@ -245,6 +289,8 @@ func (c *OPA) IsEnabled() bool {
 	switch c.Source {
 	case OPASourceGitLab:
 		return c.GitLab != nil
+	case OPASourceS3:
+		return c.S3 != nil
 	case OPASourceEmbed:
 		return true
 	default:

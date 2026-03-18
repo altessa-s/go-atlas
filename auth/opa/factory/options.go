@@ -10,6 +10,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/observability/health"
 
+	s3source "github.com/altessa-s/go-atlas/auth/opa/sources/s3"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
@@ -41,5 +42,12 @@ func (b *ManagerBuilder) UseHealthCoordinator(v *health.Coordinator) *ManagerBui
 func (b *ManagerBuilder) UseEmbedFS(fsys fs.FS, dir string) *ManagerBuilder {
 	b.embedFS = fsys
 	b.embedDir = dir
+	return b
+}
+
+// UseS3Client sets the S3 client for the S3 policy source.
+// When set, the builder uses this client instead of creating one from config.
+func (b *ManagerBuilder) UseS3Client(client s3source.S3API) *ManagerBuilder {
+	b.s3Client = client
 	return b
 }
