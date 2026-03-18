@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/altessa-s/go-atlas/core/collections/slices"
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/defaults"
 )
 
@@ -18,7 +19,7 @@ type Option func(o *options)
 // WithHandler sets the handler option.
 func WithHandler(v PanicHandler) Option {
 	return func(o *options) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.handler = v

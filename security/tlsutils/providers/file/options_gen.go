@@ -7,6 +7,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/security/tlsutils"
 )
 
@@ -40,7 +41,7 @@ func WithLogger(v *slog.Logger) Option {
 // WithOcspStapler sets the ocspStapler option.
 func WithOcspStapler(v tlsutils.OCSPStapler) Option {
 	return func(o *options) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.ocspStapler = v

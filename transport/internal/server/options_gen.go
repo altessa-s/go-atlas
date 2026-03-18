@@ -9,6 +9,7 @@ import (
 	"net"
 	"strings"
 
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/transport/internal/timeouts"
 )
 
@@ -41,7 +42,7 @@ func WithAddress[T interface{ string | *string }](v T) Option {
 // WithListener sets the listener option.
 func WithListener(v net.Listener) Option {
 	return func(o *options) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.listener = v

@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
@@ -67,7 +69,7 @@ func WithRefreshSchedule[T interface{ string | *string }](v T) Option {
 // WithRetryPolicy sets the retryPolicy option.
 func WithRetryPolicy(v RetryPolicy) Option {
 	return func(o *options) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.retryPolicy = v
@@ -77,7 +79,7 @@ func WithRetryPolicy(v RetryPolicy) Option {
 // WithScheduler sets the scheduler option.
 func WithScheduler(v corescheduler.TaskRegistrar) Option {
 	return func(o *options) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.scheduler = v

@@ -11,6 +11,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/altessa-s/go-atlas/core/collections/slices"
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/defaults"
 )
 
@@ -93,7 +94,7 @@ func WithNamespace[T interface{ string | *string }](v T) Option {
 // WithRegisterer sets the registerer option.
 func WithRegisterer(v prometheus.Registerer) Option {
 	return func(o *options) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.registerer = v

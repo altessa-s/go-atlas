@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/data/leadelect"
 )
 
@@ -36,7 +37,7 @@ func WithHistoryRetention(v time.Duration) Option {
 // WithLeaderElector sets the leaderElector option.
 func WithLeaderElector(v leadelect.LeaderElector) Option {
 	return func(o *options) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.leaderElector = v

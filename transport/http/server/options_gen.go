@@ -6,6 +6,8 @@ package server
 import (
 	"time"
 
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+
 	baseserver "github.com/altessa-s/go-atlas/transport/internal/server"
 )
 
@@ -52,7 +54,7 @@ func WithReadTimeout(v time.Duration) Option {
 // WithRouter sets the router option.
 func WithRouter(v Router) Option {
 	return func(o *options) {
-		if v == nil {
+		if nilcheck.IsNil(v) {
 			return
 		}
 		o.router = v
