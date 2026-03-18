@@ -203,6 +203,7 @@ func (p *S3) loadCertificate(ctx context.Context) error {
 
 	// If OCSP stapler exists, refresh OCSP for new certificate
 	if p.ocspStapler != nil {
+		//nolint:contextcheck // closures obtain context from TLS handshake info, not from caller
 		if err := ocsp.StapleOCSPToConfig(tlsConfig, p.ocspStapler); err != nil {
 			p.logger.WarnContext(ctx, "failed to apply OCSP stapling to reloaded certificate", slog.Any("error", err))
 		}

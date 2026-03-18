@@ -223,7 +223,7 @@ func (s *Source) getObject(ctx context.Context, key string) ([]byte, error) {
 	if err != nil {
 		return nil, coreerrs.Wrapf(err, "get object %s", key)
 	}
-	defer output.Body.Close()
+	defer func() { _ = output.Body.Close() }()
 
 	content, err := io.ReadAll(output.Body)
 	if err != nil {
