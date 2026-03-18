@@ -86,16 +86,16 @@ func (b *LoggerBuilder) Build() (*slog.Logger, error) {
 		handler = b.wrapWithMaskingHandler(handler, maskString)
 	}
 
-	if b.cfg.Buffered {
+	if b.cfg.Buffer.Enable {
 		handler = buffered.NewHandler(handler,
-			buffered.WithBufferSize(b.cfg.BufferSize),
-			buffered.WithBypassLevel(b.parseLevel(b.cfg.BypassLevel)),
+			buffered.WithBufferSize(b.cfg.Buffer.Size),
+			buffered.WithBypassLevel(b.parseLevel(b.cfg.Buffer.BypassLevel)),
 		)
 	}
 
 	logger := slog.New(handler)
 
-	if b.cfg.Buffered {
+	if b.cfg.Buffer.Enable {
 		runtime.OnShutdown(func(ctx context.Context) error {
 			return slogx.Shutdown(ctx, logger)
 		})

@@ -56,6 +56,34 @@ const (
 	LogFormatJSON LogFormat = "json"
 )
 
+// LoggerBuffer configures asynchronous buffered logging.
+// When enabled, log records are written in the background for better performance.
+// Records at or above BypassLevel are still written synchronously.
+type LoggerBuffer struct {
+	// Enable activates asynchronous buffered logging
+	Enable bool `yaml:"enable"`
+	// Size is the number of log records the buffer can hold (default: 100)
+	Size int `yaml:"size" default:"100"`
+	// BypassLevel is the minimum level that bypasses the buffer and writes synchronously (default: error)
+	BypassLevel LoggerLevel `yaml:"bypassLevel" default:"error"`
+}
+
+// DefaultLoggerBuffer returns a LoggerBuffer with default values.
+func DefaultLoggerBuffer() LoggerBuffer {
+	return LoggerBuffer{
+		Size:        defaultLoggerBufferSize,
+		BypassLevel: defaultLoggerBypassLevel,
+	}
+}
+
+// Validate checks that the LoggerBuffer configuration is valid.
+func (b *LoggerBuffer) Validate() error {
+	return ValidateStruct(b,
+		validation.Field(&b.BypassLevel, ozzo_rules.OneOf(LoggerLevelError, LoggerLevelWarning, LoggerLevelInfo,
+			LoggerLevelDebug, LoggerLevelNone)),
+	)
+}
+
 // Logger configures logging behavior for applications.
 // It controls log levels, output destinations, formatting, and metadata handling.
 //
@@ -86,12 +114,8 @@ type Logger struct {
 	AppGroupName string `yaml:"appGroupName" default:"app"`
 	// OutputSource includes source file and line information in log messages
 	OutputSource bool `yaml:"outputSource"`
-	// Buffered enables asynchronous log writing
-	Buffered bool `yaml:"buffered"`
-	// BufferSize specifies the size of the log buffer (default: 100)
-	BufferSize int `yaml:"bufferSize" default:"100"`
-	// BypassLevel specifies the minimum level to bypass the buffer (write synchronously, default: error)
-	BypassLevel LoggerLevel `yaml:"bypassLevel" default:"error"`
+	// Buffer contains asynchronous buffered logging configuration
+	Buffer LoggerBuffer `yaml:"buffer"`
 	// Subsystems overrides per-subsystem log levels.
 	// Keys are subsystem names matching the "subsystem" attribute.
 	Subsystems map[string]LoggerLevel `yaml:"subsystems"`
@@ -105,8 +129,7 @@ func DefaultLogger() Logger {
 		OutputFormat: defaultLoggerOutputFormat,
 		MaskString:   defaultLoggerMaskString,
 		AppGroupName: defaultLoggerAppGroupName,
-		BufferSize:   defaultLoggerBufferSize,
-		BypassLevel:  defaultLoggerBypassLevel,
+		Buffer:       DefaultLoggerBuffer(),
 	}
 }
 
@@ -117,8 +140,7 @@ func (l *Logger) Validate() error {
 		validation.Field(&l.Level, ozzo_rules.OneOf(LoggerLevelError, LoggerLevelWarning, LoggerLevelInfo,
 			LoggerLevelDebug, LoggerLevelNone)),
 		validation.Field(&l.Output, ozzo_rules.OneOf(LoggerConsoleOutputStdout, LoggerConsoleOutputStderr)),
-		validation.Field(&l.BypassLevel, ozzo_rules.OneOf(LoggerLevelError, LoggerLevelWarning, LoggerLevelInfo,
-			LoggerLevelDebug, LoggerLevelNone)),
+		validation.Field(&l.Buffer),
 		validation.Field(&l.Subsystems, validation.Each(ozzo_rules.OneOf(LoggerLevelError, LoggerLevelWarning,
 			LoggerLevelInfo, LoggerLevelDebug, LoggerLevelNone))),
 	)

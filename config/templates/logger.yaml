@@ -42,22 +42,24 @@
 #  # Default value: false
 #  outputSource: false
 #
-#  # <bool> Enables asynchronous buffered logging.
-#  # Improves performance by writing logs in the background.
+#  # <object> Asynchronous buffered logging configuration.
+#  # When enabled, improves performance by writing logs in the background.
 #  # Critical logs (see bypassLevel) are still written synchronously.
-#  # Default value: false
-#  buffered: false
+#  buffer:
+#    # <bool> Enables asynchronous buffered logging.
+#    # Default value: false
+#    enable: false
 #
-#  # <int> Size of the log buffer (number of records).
-#  # Only used if buffered is true.
-#  # Default value: 100
-#  bufferSize: 100
+#    # <int> Size of the log buffer (number of records).
+#    # Only used if enable is true.
+#    # Default value: 100
+#    size: 100
 #
-#  # <string> Minimum level to bypass the buffer and write synchronously.
-#  # Ensures critical logs are not lost in case of a crash.
-#  # Supported values: error, warning, info, debug, none
-#  # Default value: error
-#  bypassLevel: error
+#    # <string> Minimum level to bypass the buffer and write synchronously.
+#    # Ensures critical logs are not lost in case of a crash.
+#    # Supported values: error, warning, info, debug, none
+#    # Default value: error
+#    bypassLevel: error
 #
 #  # <list[string]> Tags containing sensitive data to be redacted.
 #  # Log entries with these tags will have values replaced with '***'.
