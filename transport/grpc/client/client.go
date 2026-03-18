@@ -13,14 +13,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/altessa-s/go-atlas/auth/oidc"
 	"github.com/altessa-s/go-atlas/core/time/timeformat"
 	"github.com/altessa-s/go-atlas/transport/grpc/client/pool"
+
+	"golang.org/x/oauth2/clientcredentials"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/credentials/oauth"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 
@@ -94,6 +98,14 @@ type Client struct {
 	// Custom error converter
 	errorConverter ErrorConverter
 
+	// Authentication
+	oidcConfig   *OIDCConfig
+	oidcProvider *oidc.Provider
+
+	// Lifecycle management
+	stopCtx     context.Context
+	stopCtxFunc context.CancelFunc
+
 	insecure    bool
 	enableRetry bool
 }
@@ -117,6 +129,17 @@ func New(ctx context.Context, address string, opts ...Option) (*Client, error) {
 
 	for _, opt := range opts {
 		opt(c)
+	}
+
+	c.stopCtx, c.stopCtxFunc = context.WithCancel(context.Background())
+
+	// Initialize OIDC provider if configured
+	if c.oidcConfig != nil {
+		provider, err := oidc.NewProvider(c.stopCtx, c.oidcConfig.DiscoveryURL) //nolint:contextcheck
+		if err != nil {
+			return nil, coreerrs.Wrapf(err, "failed to create OIDC provider for %s", c.oidcConfig.DiscoveryURL)
+		}
+		c.oidcProvider = provider
 	}
 
 	// Connect to the gRPC server
@@ -153,10 +176,12 @@ func (c *Client) connect(ctx context.Context) error {
 	return nil
 }
 
-// Close closes the underlying gRPC connection.
-// In pool mode this is a no-op because the pool owns the connections.
+// Close closes the underlying gRPC connection and releases all resources.
+// In pool mode the connection is not closed because the pool owns it.
 // Close is idempotent and safe to call on a nil connection.
 func (c *Client) Close(_ context.Context) error {
+	c.stopCtxFunc()
+
 	if c.conn != nil {
 		return c.conn.Close()
 	}
@@ -338,6 +363,15 @@ func (c *Client) dialOptions() ([]grpc.DialOption, error) {
 		grpcOptions = append(grpcOptions, grpc.WithTransportCredentials(credentials.NewTLS(c.tlsConfig)))
 	}
 
+	// Add per-RPC credentials
+	rpcCreds, err := c.perRPCCreds()
+	if err != nil {
+		return nil, coreerrs.WrapOperation(err, "build per-RPC credentials")
+	}
+	if rpcCreds != nil {
+		grpcOptions = append(grpcOptions, grpc.WithPerRPCCredentials(rpcCreds))
+	}
+
 	// Add user agent
 	if c.appName != "" {
 		grpcOptions = append(grpcOptions, grpc.WithUserAgent(c.appName))
@@ -347,6 +381,38 @@ func (c *Client) dialOptions() ([]grpc.DialOption, error) {
 	grpcOptions = append(grpcOptions, c.extraDialOptions...)
 
 	return grpcOptions, nil
+}
+
+// perRPCCreds returns the appropriate per-RPC credentials based on client configuration.
+func (c *Client) perRPCCreds() (credentials.PerRPCCredentials, error) {
+	if c.oidcConfig != nil {
+		if c.oidcProvider == nil {
+			return nil, fmt.Errorf("OIDC provider is not initialized")
+		}
+
+		scopes := []string{"offline_access"}
+		if len(c.oidcConfig.Scopes) > 0 {
+			scopes = c.oidcConfig.Scopes
+		}
+
+		config := clientcredentials.Config{
+			ClientID:     c.oidcConfig.ClientID,
+			ClientSecret: c.oidcConfig.ClientSecret,
+			TokenURL:     c.oidcProvider.TokenEndpoint(),
+			Scopes:       scopes,
+		}
+
+		tokenSource := config.TokenSource(c.stopCtx)
+		if c.insecure {
+			c.logger.Warn("per-RPC credentials with insecure transport")
+			return NewInsecureTokenCredentials(tokenSource), nil
+		}
+
+		return oauth.TokenSource{TokenSource: tokenSource}, nil
+	}
+
+	// No authentication configured
+	return nil, nil //nolint:nilnil // Intentional: nil credentials means no auth configured
 }
 
 // convertError converts a gRPC status to an error using the configured error converter.

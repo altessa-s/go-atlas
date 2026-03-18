@@ -75,6 +75,24 @@ type RetryConfig struct {
 	RetryableStatusCodes []string
 }
 
+// OIDCConfig defines configuration for OIDC authentication using client credentials flow.
+type OIDCConfig struct {
+	// DiscoveryURL is the OIDC provider's discovery endpoint URL.
+	// Example: "https://auth.example.com/.well-known/openid-configuration"
+	DiscoveryURL string
+
+	// ClientID is the OAuth2 client identifier.
+	ClientID string
+
+	// ClientSecret is the OAuth2 client secret.
+	ClientSecret string
+
+	// Scopes is the list of OAuth2 scopes to request.
+	// If empty, defaults to []string{"offline_access"}.
+	// Example: []string{"api:read", "api:write"}
+	Scopes []string
+}
+
 // Option is a functional option for configuring the Client.
 type Option func(*Client)
 
@@ -275,5 +293,29 @@ func WithDialOptions(opts ...grpc.DialOption) Option {
 func WithErrorConverter(converter ErrorConverter) Option {
 	return func(c *Client) {
 		c.errorConverter = converter
+	}
+}
+
+// WithOIDCAuthConfig configures OIDC authentication using client credentials flow.
+// The client will automatically fetch and refresh access tokens from the OIDC provider.
+// The provider's token endpoint is discovered from the [OIDCConfig.DiscoveryURL].
+//
+// When the client is configured with [WithInsecure], tokens are sent over plaintext
+// using [InsecureTokenCredentials]. Otherwise, tokens are sent over TLS using
+// [google.golang.org/grpc/credentials/oauth.TokenSource].
+//
+// Example:
+//
+//	client, err := client.New(ctx, "localhost:8080",
+//		client.WithOIDCAuthConfig(&client.OIDCConfig{
+//			DiscoveryURL: "https://auth.example.com/.well-known/openid-configuration",
+//			ClientID:     "my-client-id",
+//			ClientSecret: "my-client-secret",
+//			Scopes:       []string{"api:read", "api:write"},
+//		}),
+//	)
+func WithOIDCAuthConfig(oc *OIDCConfig) Option {
+	return func(c *Client) {
+		c.oidcConfig = oc
 	}
 }
