@@ -72,3 +72,13 @@
 #  # <string> The group name for application metadata.
 #  # Default value: app
 #  appGroupName: app
+#
+#  # <map[string,string]> Per-subsystem log level overrides.
+#  # Keys are subsystem names matching the "subsystem" attribute.
+#  # Values are log levels: error, warning, info, debug, none.
+#  # Subsystems not listed here use the top-level 'level' setting.
+#  # Default value: not set
+#  subsystems:
+#    # Example:
+#    # http: debug
+#    # grpc: warning

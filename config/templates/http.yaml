@@ -44,7 +44,7 @@
 #  tls:
 #    # <string> TLS provider type.
 #    # Determines how TLS certificates are obtained and managed.
-#    # Supported values: file, letsencrypt, vault
+#    # Supported values: file, letsencrypt, vault, s3
 #    # Default value: file
 #    providerType: file
 #

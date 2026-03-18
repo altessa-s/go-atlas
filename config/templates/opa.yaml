@@ -6,7 +6,7 @@
 #opa:
 #  # <string> Policy source provider type.
 #  # Determines where OPA policies are loaded from.
-#  # Supported values: "filesystem", "gitlab"
+#  # Supported values: "filesystem", "gitlab", "embed", "s3"
 #  # Default value: filesystem
 #  source: filesystem
 #
@@ -55,6 +55,41 @@
 #  #   # <duration> Maximum wait time between retries.
 #  #   # Default value: 0 (use HTTP client defaults)
 #  #   retryWaitMax: 10s
+#
+#  # <object> S3-specific configuration for loading policies from an S3-compatible bucket.
+#  # Required when source is "s3".
+#  # s3:
+#  #   # <string> S3 bucket name containing policy files.
+#  #   # Required when source is "s3".
+#  #   # Default value: not set (required)
+#  #   bucket: my-policies-bucket
+#  #
+#  #   # <string> Object key prefix (directory-like path) within the bucket.
+#  #   # Default value: "" (bucket root)
+#  #   prefix: policies/opa
+#  #
+#  #   # <string> AWS region for the S3 bucket.
+#  #   # Default value: not set
+#  #   region: us-east-1
+#  #
+#  #   # <string> S3-compatible endpoint URL (e.g., for MinIO).
+#  #   # Optional; defaults to the standard AWS S3 endpoint.
+#  #   # Default value: not set
+#  #   endpoint: https://s3.example.com
+#  #
+#  #   # <string> AWS access key ID.
+#  #   # Optional; defaults to environment/instance credentials.
+#  #   # Default value: not set
+#  #   accessKey:
+#  #
+#  #   # <string> AWS secret access key.
+#  #   # Optional; defaults to environment/instance credentials.
+#  #   # Default value: not set
+#  #   secretKey:
+#  #
+#  #   # <bool> Enable path-style addressing (required for MinIO and some S3-compatible stores).
+#  #   # Default value: false
+#  #   pathStyle: false
 #
 #  # <string> Rego query to evaluate for authorization decisions.
 #  # The query determines what policy rule to evaluate.
