@@ -7,5 +7,7 @@ backend. Sources are passive data fetchers — the Manager handles all polling a
 
 | Package                        | Description                                         |
 |--------------------------------|-----------------------------------------------------|
+| [embed](./embed)               | Embedded fs.FS policies (compiled into binary)       |
 | [filesystem](./filesystem)     | Local filesystem policies                            |
 | [gitlab](./gitlab)             | GitLab repository policies via API                   |
+| [s3](./s3)                     | S3-compatible object store policies                  |
