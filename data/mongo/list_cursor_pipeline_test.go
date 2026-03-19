@@ -420,7 +420,7 @@ func TestBuildCursorPipeline(t *testing.T) {
 
 func TestBuildFacetStage_WithDecorationStages(t *testing.T) {
 	decoration := bson.A{
-		bson.D{{"$lookup", bson.M{"from": "translations", "localField": "_id", "foreignField": "entity_id", "as": "translations"}}},
+		bson.D{{Key: "$lookup", Value: bson.M{"from": "translations", "localField": "_id", "foreignField": "entity_id", "as": "translations"}}},
 	}
 
 	got := buildFacetStage(10, nil, false, decoration, false)
@@ -438,7 +438,7 @@ func TestBuildFacetStage_WithDecorationStages(t *testing.T) {
 
 func TestBuildFacetStage_WithDecorationAndProjection(t *testing.T) {
 	decoration := bson.A{
-		bson.D{{"$lookup", bson.M{"from": "translations"}}},
+		bson.D{{Key: "$lookup", Value: bson.M{"from": "translations"}}},
 	}
 	proj := bson.M{"name": 1}
 
@@ -457,8 +457,8 @@ func TestBuildFacetStage_WithDecorationAndProjection(t *testing.T) {
 }
 
 func TestBuildCursorPipeline_WithStages(t *testing.T) {
-	lookupStage := bson.D{{"$lookup", bson.M{"from": "categories", "localField": "category_id", "foreignField": "_id", "as": "category"}}}
-	unwindStage := bson.D{{"$unwind", "$category"}}
+	lookupStage := bson.D{{Key: "$lookup", Value: bson.M{"from": "categories", "localField": "category_id", "foreignField": "_id", "as": "category"}}}
+	unwindStage := bson.D{{Key: "$unwind", Value: "$category"}}
 
 	opts := baseCursorOpts()
 	opts.filter = bson.M{"status": "active"}
@@ -472,7 +472,7 @@ func TestBuildCursorPipeline_WithStages(t *testing.T) {
 }
 
 func TestBuildCursorPipeline_WithDecorationStages(t *testing.T) {
-	decoration := bson.D{{"$lookup", bson.M{"from": "translations"}}}
+	decoration := bson.D{{Key: "$lookup", Value: bson.M{"from": "translations"}}}
 
 	opts := baseCursorOpts()
 	opts.decorationStages = bson.A{decoration}
@@ -502,8 +502,8 @@ func TestBuildCursorPipeline_WithDecorationStages(t *testing.T) {
 }
 
 func TestBuildCursorPipeline_WithBothStageTypes(t *testing.T) {
-	stage := bson.D{{"$addFields", bson.M{"computed": true}}}
-	decoration := bson.D{{"$lookup", bson.M{"from": "translations"}}}
+	stage := bson.D{{Key: "$addFields", Value: bson.M{"computed": true}}}
+	decoration := bson.D{{Key: "$lookup", Value: bson.M{"from": "translations"}}}
 
 	opts := baseCursorOpts()
 	opts.stages = bson.A{stage}
@@ -553,8 +553,8 @@ func TestStageOptions_Accumulates(t *testing.T) {
 		{
 			name: "WithListCursorStages",
 			apply: func(opts *listCursorOptions) {
-				WithListCursorStages(bson.D{{"$lookup", bson.M{"from": "a"}}})(opts)
-				WithListCursorStages(bson.D{{"$unwind", "$a"}})(opts)
+				WithListCursorStages(bson.D{{Key: "$lookup", Value: bson.M{"from": "a"}}})(opts)
+				WithListCursorStages(bson.D{{Key: "$unwind", Value: "$a"}})(opts)
 			},
 			getLen:  func(opts *listCursorOptions) int { return len(opts.stages) },
 			wantLen: 2,
@@ -562,8 +562,8 @@ func TestStageOptions_Accumulates(t *testing.T) {
 		{
 			name: "WithListCursorDecorationStages",
 			apply: func(opts *listCursorOptions) {
-				WithListCursorDecorationStages(bson.D{{"$lookup", bson.M{"from": "a"}}})(opts)
-				WithListCursorDecorationStages(bson.D{{"$lookup", bson.M{"from": "b"}}})(opts)
+				WithListCursorDecorationStages(bson.D{{Key: "$lookup", Value: bson.M{"from": "a"}}})(opts)
+				WithListCursorDecorationStages(bson.D{{Key: "$lookup", Value: bson.M{"from": "b"}}})(opts)
 			},
 			getLen:  func(opts *listCursorOptions) int { return len(opts.decorationStages) },
 			wantLen: 2,
@@ -590,14 +590,14 @@ func TestStageOptions_SkipsNil(t *testing.T) {
 		{
 			name: "WithListCursorStages",
 			apply: func(opts *listCursorOptions) {
-				WithListCursorStages(nil, bson.D{{"$lookup", bson.M{"from": "a"}}}, nil)(opts)
+				WithListCursorStages(nil, bson.D{{Key: "$lookup", Value: bson.M{"from": "a"}}}, nil)(opts)
 			},
 			getLen: func(opts *listCursorOptions) int { return len(opts.stages) },
 		},
 		{
 			name: "WithListCursorDecorationStages",
 			apply: func(opts *listCursorOptions) {
-				WithListCursorDecorationStages(nil, bson.D{{"$lookup", bson.M{"from": "a"}}}, nil)(opts)
+				WithListCursorDecorationStages(nil, bson.D{{Key: "$lookup", Value: bson.M{"from": "a"}}}, nil)(opts)
 			},
 			getLen: func(opts *listCursorOptions) int { return len(opts.decorationStages) },
 		},
@@ -652,7 +652,7 @@ func TestBuildCursorPipeline_PreCountedTotalWithStages(t *testing.T) {
 	t.Run("stages + includeTotal injects $setWindowFields", func(t *testing.T) {
 		opts := baseCursorOpts()
 		opts.includeTotal = true
-		opts.stages = bson.A{bson.D{{"$unwind", "$tags"}}}
+		opts.stages = bson.A{bson.D{{Key: "$unwind", Value: "$tags"}}}
 
 		pipeline := buildCursorPipeline(opts)
 
@@ -669,7 +669,7 @@ func TestBuildCursorPipeline_PreCountedTotalWithStages(t *testing.T) {
 
 	t.Run("stages without includeTotal skips $setWindowFields", func(t *testing.T) {
 		opts := baseCursorOpts()
-		opts.stages = bson.A{bson.D{{"$unwind", "$tags"}}}
+		opts.stages = bson.A{bson.D{{Key: "$unwind", Value: "$tags"}}}
 
 		pipeline := buildCursorPipeline(opts)
 
