@@ -118,6 +118,7 @@ func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 		Base:            h.WithAttrsBase(maskedAttrs),
 		opts:            h.opts,
 		lowercaseFields: h.lowercaseFields,
+		patterns:        h.patterns,
 		hasPatterns:     h.hasPatterns,
 	}
 }
@@ -132,6 +133,7 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 		Base:            h.WithGroupBase(name),
 		opts:            h.opts,
 		lowercaseFields: h.lowercaseFields,
+		patterns:        h.patterns,
 		hasPatterns:     h.hasPatterns,
 	}
 }
