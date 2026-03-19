@@ -7,7 +7,6 @@ package config
 import (
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/runtime/concurrency"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -16,10 +15,7 @@ import (
 const (
 	defaultSchedulerTickInterval              = time.Second
 	defaultSchedulerHistoryRetention          = 168 * time.Hour // 7 days
-	defaultSchedulerMaxConcurrentTasks        = 0
 	defaultSchedulerReservedHighPrioritySlots = 2
-	defaultSchedulerConcurrencyStrategy       = SchedulerConcurrencyStatic
-	defaultSchedulerConcurrencyEnvironment    = concurrency.EnvironmentIOBound
 	defaultSchedulerStaleTaskTimeout          = 30 * time.Minute
 	defaultSchedulerStorageType               = SchedulerStorageTypeMemory
 	defaultSchedulerMongoTasksCollection      = "scheduler_tasks"
@@ -29,138 +25,40 @@ const (
 	defaultSchedulerMemoryMaxHistoryPerTask   = 1000
 )
 
-// SchedulerConcurrencyStrategy defines the concurrency strategy for the scheduler.
-type SchedulerConcurrencyStrategy string
-
-const (
-	// SchedulerConcurrencyStatic uses a fixed concurrency limit from MaxTasks.
-	SchedulerConcurrencyStatic SchedulerConcurrencyStrategy = "static"
-	// SchedulerConcurrencyEnvironment selects a preset based on the environment type.
-	SchedulerConcurrencyEnvironment SchedulerConcurrencyStrategy = "environment"
-	// SchedulerConcurrencyMemoryAware adapts concurrency based on available memory.
-	SchedulerConcurrencyMemoryAware SchedulerConcurrencyStrategy = "memory-aware"
-	// SchedulerConcurrencyAdaptive combines memory and load factors for concurrency.
-	SchedulerConcurrencyAdaptive SchedulerConcurrencyStrategy = "adaptive"
-)
-
-var schedulerConcurrencyAllowedStrategies = []SchedulerConcurrencyStrategy{
-	SchedulerConcurrencyStatic,
-	SchedulerConcurrencyEnvironment,
-	SchedulerConcurrencyMemoryAware,
-	SchedulerConcurrencyAdaptive,
-}
-
-var schedulerConcurrencyAllowedEnvironments = []concurrency.Environment{
-	concurrency.EnvironmentMemoryConstrained,
-	concurrency.EnvironmentCPUBound,
-	concurrency.EnvironmentIOBound,
-	concurrency.EnvironmentHighThroughput,
-	concurrency.EnvironmentRateLimited,
-}
-
-// SchedulerMemoryAwareConcurrencyConfig configures the memory-aware concurrency strategy.
-type SchedulerMemoryAwareConcurrencyConfig struct {
-	// LowMemoryMB is the memory threshold (in MB) below which concurrency is set to 1.
-	LowMemoryMB uint64 `yaml:"lowMemoryMB"`
-	// MediumMemoryMB is the memory threshold (in MB) below which concurrency is conservative.
-	MediumMemoryMB uint64 `yaml:"mediumMemoryMB"`
-	// HighMemoryMB is the memory threshold (in MB) above which concurrency is aggressive.
-	HighMemoryMB uint64 `yaml:"highMemoryMB"`
-}
-
-// Validate checks that memory thresholds are positive and ordered low < medium < high.
-func (c *SchedulerMemoryAwareConcurrencyConfig) Validate() error {
-	return ValidateStruct(c,
-		validation.Field(&c.LowMemoryMB, validation.Required, validation.Min(uint64(1))),
-		validation.Field(&c.MediumMemoryMB, validation.Required, validation.Min(uint64(1))),
-		validation.Field(&c.HighMemoryMB, validation.Required, validation.Min(uint64(1))),
-	)
-}
-
-// SchedulerAdaptiveConcurrencyConfig configures the adaptive concurrency strategy.
-type SchedulerAdaptiveConcurrencyConfig struct {
-	// MemoryLowThresholdMB is the available-memory threshold (in MB) below which
-	// concurrency is reduced to 25% of the base value.
-	MemoryLowThresholdMB uint64 `yaml:"memoryLowThresholdMB"`
-	// MemoryMediumThresholdMB is the available-memory threshold (in MB) below which
-	// concurrency is reduced to 50% of the base value.
-	MemoryMediumThresholdMB uint64 `yaml:"memoryMediumThresholdMB"`
-	// HighLoadThreshold is the system load above which concurrency is scaled down.
-	HighLoadThreshold float64 `yaml:"highLoadThreshold"`
-}
-
-// Validate checks that the adaptive concurrency thresholds are valid.
-func (c *SchedulerAdaptiveConcurrencyConfig) Validate() error {
-	return ValidateStruct(c,
-		validation.Field(&c.MemoryLowThresholdMB, validation.Required, validation.Min(uint64(1))),
-		validation.Field(&c.MemoryMediumThresholdMB, validation.Required, validation.Min(uint64(1))),
-	)
-}
-
 // SchedulerConcurrencyConfig configures the concurrency behavior of the scheduler.
+// It embeds the base [ConcurrencyConfig] and adds scheduler-specific fields.
 //
 // Example:
 //
 //	concurrency := &config.SchedulerConcurrencyConfig{
-//		Strategy: config.SchedulerConcurrencyStatic,
-//		MaxTasks: 10,
+//		ConcurrencyConfig: config.ConcurrencyConfig{
+//			Strategy: config.ConcurrencyStatic,
+//			MaxTasks: 10,
+//		},
 //		ReservedHighPrioritySlots: 2,
 //	}
 type SchedulerConcurrencyConfig struct {
-	// Strategy selects the concurrency strategy.
-	// Must be one of: static, environment, memory-aware, adaptive.
-	// Defaults to "static".
-	Strategy SchedulerConcurrencyStrategy `yaml:"strategy" default:"static"`
-
-	// MaxTasks is the maximum number of tasks that can run concurrently.
-	// Zero means unlimited. Used with the "static" strategy.
-	// Defaults to 0 (unlimited).
-	MaxTasks int `yaml:"maxTasks" default:"0"`
+	ConcurrencyConfig `yaml:",inline"`
 
 	// ReservedHighPrioritySlots is the number of concurrency slots reserved for
 	// high priority tasks. These slots cannot be used by normal/low priority tasks.
 	// Applies to all strategies. Defaults to 2.
 	ReservedHighPrioritySlots int `yaml:"reservedHighPrioritySlots" default:"2"`
-
-	// Environment selects a preset concurrency profile.
-	// Used when Strategy is "environment".
-	// Must be one of: memory-constrained, cpu-bound, io-bound, high-throughput, rate-limited.
-	// Defaults to "io-bound".
-	Environment concurrency.Environment `yaml:"environment" default:"io-bound"`
-
-	// MemoryAware configures the memory-aware concurrency strategy.
-	// Required when Strategy is "memory-aware".
-	MemoryAware *SchedulerMemoryAwareConcurrencyConfig `yaml:"memoryAware" default:"-"`
-
-	// Adaptive configures the adaptive concurrency strategy.
-	// Required when Strategy is "adaptive".
-	Adaptive *SchedulerAdaptiveConcurrencyConfig `yaml:"adaptive" default:"-"`
 }
 
 // DefaultSchedulerConcurrencyConfig returns a SchedulerConcurrencyConfig with default values.
 func DefaultSchedulerConcurrencyConfig() SchedulerConcurrencyConfig {
 	return SchedulerConcurrencyConfig{
-		Strategy:                  defaultSchedulerConcurrencyStrategy,
-		MaxTasks:                  defaultSchedulerMaxConcurrentTasks,
+		ConcurrencyConfig:         DefaultConcurrencyConfig(),
 		ReservedHighPrioritySlots: defaultSchedulerReservedHighPrioritySlots,
-		Environment:               defaultSchedulerConcurrencyEnvironment,
 	}
 }
 
 // Validate checks that the concurrency configuration is valid.
 func (c *SchedulerConcurrencyConfig) Validate() error {
 	return ValidateStruct(c,
-		validation.Field(&c.Strategy, validation.Required,
-			ozzo_rules.OneOf(schedulerConcurrencyAllowedStrategies...)),
-		validation.Field(&c.MaxTasks, validation.Min(0)),
+		validation.Field(&c.ConcurrencyConfig),
 		validation.Field(&c.ReservedHighPrioritySlots, validation.Min(0)),
-		validation.Field(&c.Environment,
-			validation.When(c.Strategy == SchedulerConcurrencyEnvironment, validation.Required,
-				ozzo_rules.OneOf(schedulerConcurrencyAllowedEnvironments...))),
-		validation.Field(&c.MemoryAware,
-			validation.When(c.Strategy == SchedulerConcurrencyMemoryAware, validation.Required)),
-		validation.Field(&c.Adaptive,
-			validation.When(c.Strategy == SchedulerConcurrencyAdaptive, validation.Required)),
 	)
 }
 
@@ -300,8 +198,10 @@ func (c *SchedulerStorageConfig) Validate() error {
 //		TickInterval:     time.Second,
 //		HistoryRetention: 7 * 24 * time.Hour,
 //		Concurrency: config.SchedulerConcurrencyConfig{
-//			Strategy: config.SchedulerConcurrencyStatic,
-//			MaxTasks: 10,
+//			ConcurrencyConfig: config.ConcurrencyConfig{
+//				Strategy: config.ConcurrencyStatic,
+//				MaxTasks: 10,
+//			},
 //			ReservedHighPrioritySlots: 2,
 //		},
 //		Storage: &config.SchedulerStorageConfig{
