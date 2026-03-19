@@ -104,7 +104,7 @@ type ConcurrencyConfig struct {
 
 	// MaxTasks is the maximum number of tasks that can run concurrently.
 	// Zero means unlimited. Used with the "static" strategy.
-	// Defaults to 0 (unlimited).
+	// Defaults to 5.
 	MaxTasks int `yaml:"maxTasks" default:"5"`
 
 	// Environment selects a preset concurrency profile.

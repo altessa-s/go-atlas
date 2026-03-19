@@ -2,8 +2,6 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package opa provides Open Policy Agent (OPA) integration for authorization.
-// It supports policy evaluation from bundles (local or remote) with hot-reloading.
 package opa
 
 import (
