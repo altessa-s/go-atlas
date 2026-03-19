@@ -1,4 +1,4 @@
-# Redis configuration for the <name> service.
+# Redis configuration.
 # Defines settings for connecting to and using Redis in-memory data store.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.

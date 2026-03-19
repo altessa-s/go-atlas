@@ -1,4 +1,4 @@
-# Idempotency configuration for the <name> service.
+# Idempotency configuration.
 # Defines settings for idempotency key management and storage.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.

@@ -1,4 +1,4 @@
-# TLS provider configuration for the <name> service.
+# TLS provider configuration.
 # Defines settings for various TLS certificate providers for secure communication.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.

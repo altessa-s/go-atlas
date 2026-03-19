@@ -1,4 +1,4 @@
-# Authentication and Authorization configuration for the <name> service.
+# Authentication and Authorization configuration.
 # Combines OpenID Connect (OIDC) and Open Policy Agent (OPA) settings.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.

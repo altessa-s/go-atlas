@@ -1,4 +1,4 @@
-# Distributed lock configuration for the <name> service.
+# Distributed lock configuration.
 # Defines settings for the distributed lock mechanism.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.

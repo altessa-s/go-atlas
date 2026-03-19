@@ -1,4 +1,4 @@
-# Node configuration for the <name> service.
+# Node configuration.
 # Defines settings for node identification in distributed environments.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.

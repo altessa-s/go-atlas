@@ -1,4 +1,4 @@
-# Health check coordination configuration for the <name> service.
+# Health check coordination configuration.
 # Defines settings for polling health status, caching results, and notification delivery.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.

@@ -1,4 +1,4 @@
-# Profiling configuration for the <name> service.
+# Profiling configuration.
 # Defines settings for Go's pprof profiling endpoints.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.

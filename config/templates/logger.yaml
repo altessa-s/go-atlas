@@ -1,4 +1,4 @@
-# Logging configuration for the <name> service.
+# Logging configuration.
 # Defines settings for the application's logging behavior, output format, and level.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.

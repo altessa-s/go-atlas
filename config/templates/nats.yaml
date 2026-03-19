@@ -1,4 +1,4 @@
-# NATS messaging configuration for the <name> service.
+# NATS messaging configuration.
 # Defines settings for connecting to and communicating with NATS messaging system.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.

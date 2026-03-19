@@ -1,4 +1,4 @@
-# Leader election configuration for the <name> service.
+# Leader election configuration.
 # Defines settings for distributed leader election mechanism.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.

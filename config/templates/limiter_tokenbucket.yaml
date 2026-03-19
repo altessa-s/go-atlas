@@ -1,4 +1,4 @@
-# Token-bucket rate limiter configuration for the <name> service.
+# Token-bucket rate limiter configuration.
 # Defines settings for rate limiting, traffic control and abuse prevention.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.

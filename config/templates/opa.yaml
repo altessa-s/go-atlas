@@ -1,4 +1,4 @@
-# Open Policy Agent (OPA) configuration for the <name> service.
+# Open Policy Agent (OPA) configuration.
 # Defines settings for policy-based authorization, caching, and decision logging.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.

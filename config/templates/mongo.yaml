@@ -1,4 +1,4 @@
-# MongoDB configuration for the <name> service.
+# MongoDB configuration.
 # Defines settings for connecting to and authenticating with MongoDB database.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.

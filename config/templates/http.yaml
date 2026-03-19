@@ -1,4 +1,4 @@
-# HTTP server configuration for the <name> service.
+# HTTP server configuration.
 # Defines settings for the HTTP server that exposes API endpoints and internal services.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.

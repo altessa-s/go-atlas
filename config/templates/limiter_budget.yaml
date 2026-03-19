@@ -1,4 +1,4 @@
-# Budget limiter configuration for the <name> service.
+# Budget limiter configuration.
 # Enforces a fixed request budget within a configurable time period
 # using a shared storage backend for consistent enforcement across replicas.
 # All parameters are commented out by default (template mode).

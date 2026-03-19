@@ -1,4 +1,4 @@
-# Authentication configuration for the <name> service.
+# Authentication configuration.
 # Defines OpenID Connect authentication settings and token validation rules.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.

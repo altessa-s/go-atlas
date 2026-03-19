@@ -1,4 +1,4 @@
-# gRPC server configuration for the <name> service.
+# gRPC server configuration.
 # Defines settings for the gRPC server including interceptors and connection management.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.

@@ -1,4 +1,4 @@
-# Probabilistic filter configuration for the <name> service.
+# Probabilistic filter configuration.
 # Defines settings for Bloom or Cuckoo filters used for existence checks optimization.
 # Multiple filters can be configured for different fields (email, phone, inn, etc.).
 # All parameters are commented out by default (template mode).

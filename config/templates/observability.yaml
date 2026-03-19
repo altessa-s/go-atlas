@@ -1,4 +1,4 @@
-# Observability configuration for the <name> service.
+# Observability configuration.
 # Defines settings for metrics collection, tracing, and logging.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.

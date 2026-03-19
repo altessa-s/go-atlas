@@ -1,4 +1,4 @@
-# Message broker configuration for the <name> service.
+# Message broker configuration.
 # Defines settings for message broker operations and provider selection.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.

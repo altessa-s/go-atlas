@@ -1,4 +1,4 @@
-# Scheduler configuration for the <name> service.
+# Scheduler configuration.
 # Defines settings for the task scheduler including tick interval, history retention, and concurrency.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.
