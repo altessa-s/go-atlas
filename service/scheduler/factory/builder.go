@@ -64,14 +64,19 @@ func (b *SchedulerBuilder) Build() (*scheduler.Scheduler, error) {
 		return nil, err
 	}
 
+	concurrencyOpts, err := b.concurrencyOptions()
+	if err != nil {
+		return nil, err
+	}
+
 	configOpts := []scheduler.Option{
 		scheduler.WithTickInterval(b.cfg.TickInterval),
 		scheduler.WithHistoryRetention(b.cfg.HistoryRetention),
-		scheduler.WithMaxConcurrentTasks(b.cfg.MaxConcurrentTasks),
-		scheduler.WithReservedHighPrioritySlots(b.cfg.ReservedHighPrioritySlots),
+		scheduler.WithReservedHighPrioritySlots(b.cfg.Concurrency.ReservedHighPrioritySlots),
 		scheduler.WithStaleTaskTimeout(b.cfg.StaleTaskTimeout),
 		scheduler.WithCollector(b.collector),
 	}
+	configOpts = append(configOpts, concurrencyOpts...)
 
 	opts := b.applyDefaults(configOpts)
 	return scheduler.New(storage, opts...), nil
@@ -150,4 +155,23 @@ func (b *SchedulerBuilder) createRedisStorage() (*redisstorage.Storage, error) {
 	opts = append(opts, redisstorage.WithMaxHistoryPerTask(b.cfg.Storage.Redis.MaxHistoryPerTask))
 
 	return redisstorage.New(b.redisClient, opts...), nil
+}
+
+// concurrencyOptions maps the concurrency config strategy to scheduler options.
+func (b *SchedulerBuilder) concurrencyOptions() ([]scheduler.Option, error) {
+	limitFunc, err := b.cfg.Concurrency.BuildLimitFunc()
+	if err != nil {
+		return nil, err
+	}
+
+	if limitFunc != nil {
+		return []scheduler.Option{
+			scheduler.WithConcurrencyLimitFunc(limitFunc),
+		}, nil
+	}
+
+	// static with MaxTasks=0: use WithMaxConcurrentTasks (unlimited).
+	return []scheduler.Option{
+		scheduler.WithMaxConcurrentTasks(b.cfg.Concurrency.MaxTasks),
+	}, nil
 }

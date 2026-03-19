@@ -14,15 +14,51 @@
 #  # Default value: 168h (7 days)
 #  historyRetention: 168h
 #
-#  # <int> Maximum number of tasks that can run concurrently.
-#  # Zero means unlimited concurrent tasks.
-#  # Default value: 0 (unlimited)
-#  maxConcurrentTasks: 0
+#  # <object> Concurrency configuration for the scheduler.
+#  # Controls how the scheduler determines the number of concurrent tasks.
+#  concurrency:
+#    # <string> Concurrency strategy.
+#    # Determines how the concurrency limit is calculated.
+#    # Supported values: static, environment, memory-aware, adaptive
+#    # Default value: static
+#    strategy: static
 #
-#  # <int> Number of concurrency slots reserved for high priority tasks.
-#  # These slots cannot be used by normal/low priority tasks.
-#  # Default value: 2
-#  reservedHighPrioritySlots: 2
+#    # <int> Maximum number of tasks that can run concurrently.
+#    # Zero means unlimited. Used with the "static" strategy.
+#    # Default value: 0 (unlimited)
+#    maxTasks: 0
+#
+#    # <int> Number of concurrency slots reserved for high priority tasks.
+#    # These slots cannot be used by normal/low priority tasks.
+#    # Applies to all strategies.
+#    # Default value: 2
+#    reservedHighPrioritySlots: 2
+#
+#    # <string> Environment preset for concurrency.
+#    # Used when strategy is "environment".
+#    # Supported values: memory-constrained, cpu-bound, io-bound, high-throughput, rate-limited
+#    # Default value: io-bound
+#    environment: io-bound
+#
+#    # <object> Memory-aware concurrency configuration.
+#    # Required when strategy is "memory-aware".
+#    memoryAware:
+#      # <uint64> Memory threshold (MB) below which concurrency is set to 1.
+#      lowMemoryMB: 256
+#      # <uint64> Memory threshold (MB) below which concurrency is conservative.
+#      mediumMemoryMB: 512
+#      # <uint64> Memory threshold (MB) above which concurrency is aggressive.
+#      highMemoryMB: 1024
+#
+#    # <object> Adaptive concurrency configuration.
+#    # Required when strategy is "adaptive".
+#    adaptive:
+#      # <uint64> Available-memory threshold (MB) below which concurrency drops to 25%.
+#      memoryLowThresholdMB: 256
+#      # <uint64> Available-memory threshold (MB) below which concurrency drops to 50%.
+#      memoryMediumThresholdMB: 512
+#      # <float64> System load above which concurrency is scaled down.
+#      highLoadThreshold: 0.8
 #
 #  # <duration> Timeout after which a task stuck in Running status is considered stale.
 #  # Stale tasks are automatically reset to Active on startup and periodically.
