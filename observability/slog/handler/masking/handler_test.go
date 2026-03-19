@@ -11,34 +11,83 @@ import (
 	"time"
 )
 
-type captureHandler struct {
+// captureStore is a shared store that survives handler cloning via WithAttrs/WithGroup.
+type captureStore struct {
 	attrs map[string]slog.Value
+}
+
+type captureHandler struct {
+	store *captureStore
+}
+
+func newCaptureHandler() (*captureHandler, *captureStore) {
+	s := &captureStore{}
+	return &captureHandler{store: s}, s
 }
 
 func (h *captureHandler) Enabled(context.Context, slog.Level) bool { return true }
 
 func (h *captureHandler) Handle(_ context.Context, r slog.Record) error {
-	h.attrs = make(map[string]slog.Value)
+	h.store.attrs = make(map[string]slog.Value)
 	r.Attrs(func(a slog.Attr) bool {
-		h.attrs[a.Key] = a.Value
+		h.store.attrs[a.Key] = a.Value
 		return true
 	})
 	return nil
 }
 
-func (h *captureHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	// minimal: apply attrs at construction time by returning a handler that will emit them on Handle
-	ch := &captureHandler{attrs: make(map[string]slog.Value)}
-	for _, a := range attrs {
-		ch.attrs[a.Key] = a.Value
-	}
-	return ch
+func (h *captureHandler) WithAttrs([]slog.Attr) slog.Handler {
+	return &captureHandler{store: h.store}
 }
 
-func (h *captureHandler) WithGroup(string) slog.Handler { return h }
+func (h *captureHandler) WithGroup(string) slog.Handler {
+	return &captureHandler{store: h.store}
+}
+
+func TestHandler_WithAttrs_PreservesPatterns(t *testing.T) {
+	inner, store := newCaptureHandler()
+	h := NewHandler(inner,
+		WithPattern(`(?i).*secret.*`, FullMask()),
+	)
+
+	h2 := h.WithAttrs([]slog.Attr{slog.String("extra", "val")})
+
+	rec := slog.NewRecord(time.Now(), slog.LevelInfo, "msg", 0)
+	rec.AddAttrs(slog.String("my_secret_key", "sensitive"))
+
+	if err := h2.Handle(t.Context(), rec); err != nil {
+		t.Fatalf("Handle err=%v", err)
+	}
+
+	got := store.attrs["my_secret_key"].String()
+	if got != "********" {
+		t.Fatalf("WithAttrs lost patterns: got %q, want %q", got, "********")
+	}
+}
+
+func TestHandler_WithGroup_PreservesPatterns(t *testing.T) {
+	inner, store := newCaptureHandler()
+	h := NewHandler(inner,
+		WithPattern(`(?i).*secret.*`, FullMask()),
+	)
+
+	h2 := h.WithGroup("group1")
+
+	rec := slog.NewRecord(time.Now(), slog.LevelInfo, "msg", 0)
+	rec.AddAttrs(slog.String("my_secret_key", "sensitive"))
+
+	if err := h2.Handle(t.Context(), rec); err != nil {
+		t.Fatalf("Handle err=%v", err)
+	}
+
+	got := store.attrs["my_secret_key"].String()
+	if got != "********" {
+		t.Fatalf("WithGroup lost patterns: got %q, want %q", got, "********")
+	}
+}
 
 func TestHandler_MasksByFieldPattern(t *testing.T) {
-	inner := &captureHandler{}
+	inner, store := newCaptureHandler()
 	h := NewHandler(inner,
 		WithMaskNestedFields(),
 		WithCaseSensitive(),
@@ -52,7 +101,7 @@ func TestHandler_MasksByFieldPattern(t *testing.T) {
 		t.Fatalf("Handle err=%v", err)
 	}
 
-	got := inner.attrs["Password"].String()
+	got := store.attrs["Password"].String()
 	if got != "********" {
 		t.Fatalf("masked=%q, want %q", got, "********")
 	}
