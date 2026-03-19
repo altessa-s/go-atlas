@@ -121,11 +121,11 @@ func TestGroupBy(t *testing.T) {
 	}{
 		{
 			name:  "group by age",
-			input: []testhelpers.Person{{"Alice", 30}, {"Bob", 25}, {"Charlie", 30}},
+			input: []testhelpers.Person{{Name: "Alice", Age: 30}, {Name: "Bob", Age: 25}, {Name: "Charlie", Age: 30}},
 			keyFn: func(p testhelpers.Person) int { return p.Age },
 			expected: map[int][]testhelpers.Person{
-				25: {{"Bob", 25}},
-				30: {{"Alice", 30}, {"Charlie", 30}},
+				25: {{Name: "Bob", Age: 25}},
+				30: {{Name: "Alice", Age: 30}, {Name: "Charlie", Age: 30}},
 			},
 		},
 		{
