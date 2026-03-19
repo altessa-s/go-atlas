@@ -112,15 +112,15 @@ if err != nil {
 The builder selects the storage backend, maps the concurrency strategy to scheduler options,
 and returns a ready-to-start `*scheduler.Scheduler`.
 
-| Method              | Description                                                             |
-|---------------------|-------------------------------------------------------------------------|
-| `UseLogger`         | Structured logger for the scheduler and internal components             |
-| `UseDefaultLogger`  | Convenience — sets the logger to `slog.Default()`                       |
-| `UseLeaderElector`  | Leader elector for distributed scheduling                               |
-| `UseMongoDb`        | MongoDB database. Required when `storage.type` is `mongodb`             |
-| `UseRedisClient`    | Redis client. Required when `storage.type` is `redis`                   |
-| `UseCollector`      | Metrics collector for Prometheus instrumentation                        |
-| `UseReadinessProbe` | Defers task dispatch until all subsystems signal readiness               |
+| Method              | Description                                                 |
+|---------------------|-------------------------------------------------------------|
+| `UseLogger`         | Structured logger for the scheduler and internal components |
+| `UseDefaultLogger`  | Convenience — sets the logger to `slog.Default()`           |
+| `UseLeaderElector`  | Leader elector for distributed scheduling                   |
+| `UseMongoDb`        | MongoDB database. Required when `storage.type` is `mongodb` |
+| `UseRedisClient`    | Redis client. Required when `storage.type` is `redis`       |
+| `UseCollector`      | Metrics collector for Prometheus instrumentation            |
+| `UseReadinessProbe` | Defers task dispatch until all subsystems signal readiness  |
 
 ---
 
@@ -163,11 +163,11 @@ scheduler:
 
 ### Scheduler
 
-| Field              | Type       | Default  | Description                                                                 |
-|--------------------|------------|----------|-----------------------------------------------------------------------------|
-| `tickInterval`     | `duration` | `1s`     | Main loop evaluation interval. Lower = more precise, more CPU. Min: `1ms`   |
-| `historyRetention` | `duration` | `168h`   | How long execution history is retained before cleanup                       |
-| `staleTaskTimeout` | `duration` | `30m`    | Duration after which a `Running` task is considered stale and recovered      |
+| Field              | Type       | Default | Description                                                               |
+|--------------------|------------|---------|---------------------------------------------------------------------------|
+| `tickInterval`     | `duration` | `1s`    | Main loop evaluation interval. Lower = more precise, more CPU. Min: `1ms` |
+| `historyRetention` | `duration` | `168h`  | How long execution history is retained before cleanup                     |
+| `staleTaskTimeout` | `duration` | `30m`   | Duration after which a `Running` task is considered stale and recovered   |
 
 ### Concurrency
 
@@ -180,19 +180,19 @@ scheduler:
 
 **Memory-aware** (required when `strategy: memory-aware`):
 
-| Field          | Type     | Description                                                      |
-|----------------|----------|------------------------------------------------------------------|
-| `lowMemoryMB`  | `uint64` | Below this threshold (MB): concurrency = 1                       |
-| `mediumMemoryMB` | `uint64` | Below this threshold (MB): conservative concurrency            |
-| `highMemoryMB` | `uint64` | Above this threshold (MB): aggressive concurrency                |
+| Field            | Type     | Description                                         |
+|------------------|----------|-----------------------------------------------------|
+| `lowMemoryMB`    | `uint64` | Below this threshold (MB): concurrency = 1          |
+| `mediumMemoryMB` | `uint64` | Below this threshold (MB): conservative concurrency |
+| `highMemoryMB`   | `uint64` | Above this threshold (MB): aggressive concurrency   |
 
 **Adaptive** (required when `strategy: adaptive`):
 
-| Field                   | Type      | Description                                                     |
-|-------------------------|-----------|-----------------------------------------------------------------|
-| `memoryLowThresholdMB`  | `uint64`  | Below this (MB): concurrency reduced to 25% of base             |
-| `memoryMediumThresholdMB` | `uint64` | Below this (MB): concurrency reduced to 50% of base            |
-| `highLoadThreshold`     | `float64` | System load above which concurrency scales down. Optional       |
+| Field                     | Type      | Description                                               |
+|---------------------------|-----------|-----------------------------------------------------------|
+| `memoryLowThresholdMB`    | `uint64`  | Below this (MB): concurrency reduced to 25% of base       |
+| `memoryMediumThresholdMB` | `uint64`  | Below this (MB): concurrency reduced to 50% of base       |
+| `highLoadThreshold`       | `float64` | System load above which concurrency scales down. Optional |
 
 ### Storage
 
@@ -270,13 +270,13 @@ lets you update a task's schedule without losing state.
               Disabled <────────────────────────────────────┘
 ```
 
-| Status      | Value | Description                                                                                 |
-|-------------|-------|---------------------------------------------------------------------------------------------|
-| `Active`    | `1`   | Steady state. Dispatched when due                                                           |
-| `Paused`    | `2`   | Suspended via `PauseTask`. Resume with `ResumeTask`. In-flight execution completes normally |
+| Status      | Value | Description                                                                                   |
+|-------------|-------|-----------------------------------------------------------------------------------------------|
+| `Active`    | `1`   | Steady state. Dispatched when due                                                             |
+| `Paused`    | `2`   | Suspended via `PauseTask`. Resume with `ResumeTask`. In-flight execution completes normally   |
 | `Disabled`  | `3`   | Fully deactivated. Cannot be triggered manually or by schedule. Re-activate with `EnableTask` |
-| `Running`   | `4`   | Currently executing                                                                         |
-| `Completed` | `5`   | One-shot task finished. Re-register to reset                                                |
+| `Running`   | `4`   | Currently executing                                                                           |
+| `Completed` | `5`   | One-shot task finished. Re-register to reset                                                  |
 
 ### Management operations
 
@@ -299,12 +299,12 @@ All strategies support reserved high-priority slots and `Critical` priority bypa
 
 ### Strategy comparison
 
-| Strategy         | Mechanism             | Adapts at runtime | Best for                                      |
-|------------------|-----------------------|-------------------|-----------------------------------------------|
-| `static`         | Semaphore-based       | No                | Predictable workloads with known capacity      |
-| `environment`    | Preset profile        | No                | Quick setup matching deployment characteristics |
-| `memory-aware`   | Memory threshold-based | Yes              | Memory-sensitive workloads (ETL, batch)         |
-| `adaptive`       | Memory + load factor  | Yes               | Variable workloads in shared infrastructure     |
+| Strategy       | Mechanism              | Adapts at runtime | Best for                                        |
+|----------------|------------------------|-------------------|-------------------------------------------------|
+| `static`       | Semaphore-based        | No                | Predictable workloads with known capacity       |
+| `environment`  | Preset profile         | No                | Quick setup matching deployment characteristics |
+| `memory-aware` | Memory threshold-based | Yes               | Memory-sensitive workloads (ETL, batch)         |
+| `adaptive`     | Memory + load factor   | Yes               | Variable workloads in shared infrastructure     |
 
 ### Static
 
@@ -400,11 +400,11 @@ sched := scheduler.New(store,
 )
 ```
 
-| Condition                            | Effect                              |
-|--------------------------------------|-------------------------------------|
-| Available memory < `MemoryLowThresholdMB`   | Concurrency reduced to 25% of base |
+| Condition                                    | Effect                             |
+|----------------------------------------------|------------------------------------|
+| Available memory < `MemoryLowThresholdMB`    | Concurrency reduced to 25% of base |
 | Available memory < `MemoryMediumThresholdMB` | Concurrency reduced to 50% of base |
-| System load > `HighLoadThreshold`    | Further scaled down by load factor  |
+| System load > `HighLoadThreshold`            | Further scaled down by load factor |
 
 ```yaml
 concurrency:
@@ -731,17 +731,17 @@ result, err := sched.HistoryPaginated(ctx, "my-task",
 
 **Pagination constants:**
 
-| Constant          | Value  | Description                           |
-|-------------------|--------|---------------------------------------|
-| `DefaultPageSize` | `100`  | Applied when `Limit` is &le; 0       |
-| `MaxPageSize`     | `1000` | Upper clamp for `Limit`              |
+| Constant          | Value  | Description                    |
+|-------------------|--------|--------------------------------|
+| `DefaultPageSize` | `100`  | Applied when `Limit` is &le; 0 |
+| `MaxPageSize`     | `1000` | Upper clamp for `Limit`        |
 
 **Available filter fields:**
 
-| Scope   | Fields                                                                                                  |
-|---------|---------------------------------------------------------------------------------------------------------|
+| Scope   | Fields                                                                                                                                               |
+|---------|------------------------------------------------------------------------------------------------------------------------------------------------------|
 | Tasks   | `id`, `description`, `status`, `priority`, `schedule`, `lastRunAt`, `nextRunAt`, `skipNextRun`, `disableHistory`, `unmanaged`, `oneShot`, `failures` |
-| History | `id`, `taskId`, `runId`, `startedAt`, `endedAt`, `durationMs`, `success`, `error`                       |
+| History | `id`, `taskId`, `runId`, `startedAt`, `endedAt`, `durationMs`, `success`, `error`                                                                    |
 
 ---
 
@@ -849,9 +849,9 @@ All errors are exported as sentinel values. Use `errors.Is` to match.
 
 ## Packages
 
-| Package                                                   | Description                                           |
-|-----------------------------------------------------------|-------------------------------------------------------|
+| Package                                                   | Description                                             |
+|-----------------------------------------------------------|---------------------------------------------------------|
 | [factory](../service/scheduler/factory)                   | Configuration-driven `Scheduler` and `Storage` creation |
-| [storages/memory](../service/scheduler/storages/memory)   | In-memory backend with deep-copy semantics            |
-| [storages/mongodb](../service/scheduler/storages/mongodb) | MongoDB backend with indexed queries                  |
-| [storages/redis](../service/scheduler/storages/redis)     | Redis backend (RedisJSON + RediSearch)                |
+| [storages/memory](../service/scheduler/storages/memory)   | In-memory backend with deep-copy semantics              |
+| [storages/mongodb](../service/scheduler/storages/mongodb) | MongoDB backend with indexed queries                    |
+| [storages/redis](../service/scheduler/storages/redis)     | Redis backend (RedisJSON + RediSearch)                  |
