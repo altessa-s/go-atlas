@@ -15,8 +15,13 @@ import (
 
 // regexCache caches compiled regular expressions to avoid recompilation
 // on every evalMatches call. The sync.Map is ideal here: patterns are
-// written once and read many times.
+// written once and read many times. Bounded to maxRegexCacheSize entries
+// to prevent unbounded memory growth.
 var regexCache sync.Map // map[string]*regexp.Regexp
+
+// maxRegexCacheSize is the upper bound on cached regex entries. Once reached,
+// new patterns are compiled but not cached.
+const maxRegexCacheSize = 256
 
 // Performance counters for the regex pattern cache.
 var (
@@ -82,8 +87,10 @@ func getCompiledRegex(pattern string) (*regexp.Regexp, error) {
 		return nil, err
 	}
 
-	if _, loaded := regexCache.LoadOrStore(pattern, re); !loaded {
-		regexSize.Add(1)
+	if regexSize.Load() < maxRegexCacheSize {
+		if _, loaded := regexCache.LoadOrStore(pattern, re); !loaded {
+			regexSize.Add(1)
+		}
 	}
 
 	regexMisses.Add(1)
