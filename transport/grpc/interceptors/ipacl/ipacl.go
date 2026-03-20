@@ -27,8 +27,13 @@ type interceptor struct {
 	opts     *options
 }
 
-// Dependencies returns interceptors that ipacl requires to run before it.
+// Dependencies returns optional interceptors that should run before ipacl.
 func (i *interceptor) Dependencies() []string {
+	return nil
+}
+
+// RequiredDependencies returns interceptors that ipacl requires to function.
+func (i *interceptor) RequiredDependencies() []string {
 	return []string{"realip"}
 }
 

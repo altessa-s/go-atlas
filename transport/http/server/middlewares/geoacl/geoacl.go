@@ -24,8 +24,13 @@ type middleware struct {
 	fallbackBehavior fallback.Behavior
 }
 
-// Dependencies returns middlewares that geoacl requires to run before it.
+// Dependencies returns optional middlewares that should run before geoacl.
 func (m *middleware) Dependencies() []string {
+	return nil
+}
+
+// RequiredDependencies returns middlewares that geoacl requires to function.
+func (m *middleware) RequiredDependencies() []string {
 	return []string{"realip"}
 }
 

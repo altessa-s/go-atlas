@@ -44,9 +44,14 @@ func ServerInterceptor(auditor *audit.Auditor, opts ...Option) interceptors.Serv
 	return interceptors.ServerDrivenInterceptor(i)
 }
 
-// Dependencies returns interceptors that audit reads from context.
+// Dependencies returns optional interceptors that audit reads from context.
 func (i *interceptor) Dependencies() []string {
-	return []string{"metadata", "requestid", "realip", "tracing"}
+	return []string{"metadata", "requestid", "tracing"}
+}
+
+// RequiredDependencies returns interceptors that audit requires to function.
+func (i *interceptor) RequiredDependencies() []string {
+	return []string{"realip"}
 }
 
 func (i *interceptor) DrivenInterceptor(ctx context.Context) (driver.Driver, context.Context) {

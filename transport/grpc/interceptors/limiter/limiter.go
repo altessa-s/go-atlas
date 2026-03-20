@@ -46,8 +46,13 @@ type interceptor struct {
 	opts    *options
 }
 
-// Dependencies returns interceptors that limiter requires to run before it.
+// Dependencies returns optional interceptors that should run before limiter.
 func (i *interceptor) Dependencies() []string {
+	return nil
+}
+
+// RequiredDependencies returns interceptors that limiter requires to function.
+func (i *interceptor) RequiredDependencies() []string {
 	return []string{"realip"}
 }
 

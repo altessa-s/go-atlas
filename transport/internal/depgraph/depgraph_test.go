@@ -186,6 +186,101 @@ func TestBuild_MissingDependency(t *testing.T) {
 	}
 }
 
+type requiredTestItem struct {
+	name    string
+	deps    []string
+	reqDeps []string
+}
+
+func (t *requiredTestItem) Name() string                   { return t.name }
+func (t *requiredTestItem) Dependencies() []string         { return t.deps }
+func (t *requiredTestItem) RequiredDependencies() []string { return t.reqDeps }
+
+func TestBuild_RequiredDependencyPresent(t *testing.T) {
+	items := []*requiredTestItem{
+		{name: "realip"},
+		{name: "limiter", reqDeps: []string{"realip"}},
+	}
+
+	sorted, err := Build[*requiredTestItem](items, discardLogger)
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+
+	if len(sorted) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(sorted))
+	}
+	if sorted[0].Name() != "realip" || sorted[1].Name() != "limiter" {
+		t.Fatalf("wrong order: %v, %v", sorted[0].Name(), sorted[1].Name())
+	}
+}
+
+func TestBuild_RequiredDependencyMissing(t *testing.T) {
+	items := []*requiredTestItem{
+		{name: "limiter", reqDeps: []string{"realip"}},
+	}
+
+	_, err := Build[*requiredTestItem](items, discardLogger)
+	if err == nil {
+		t.Fatal("expected error for missing required dependency")
+	}
+	if !strings.Contains(err.Error(), "requires dependency") {
+		t.Fatalf("error = %q, want containing 'requires dependency'", err.Error())
+	}
+	if !strings.Contains(err.Error(), "realip") {
+		t.Fatalf("error = %q, want containing 'realip'", err.Error())
+	}
+}
+
+func TestBuild_MixedRequiredAndOptional(t *testing.T) {
+	items := []*requiredTestItem{
+		{name: "realip"},
+		{name: "metadata"},
+		{name: "audit", deps: []string{"metadata", "tracing"}, reqDeps: []string{"realip"}},
+	}
+
+	sorted, err := Build[*requiredTestItem](items, discardLogger)
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+
+	// realip and metadata must come before audit; tracing is optional and missing
+	names := make([]string, len(sorted))
+	for i, s := range sorted {
+		names[i] = s.Name()
+	}
+
+	auditIdx := -1
+	for i, n := range names {
+		if n == "audit" {
+			auditIdx = i
+		}
+	}
+	if auditIdx < 2 {
+		t.Fatalf("audit should be after realip and metadata, got order: %v", names)
+	}
+}
+
+func TestBuild_OverlappingRequiredAndOptional(t *testing.T) {
+	// Same dep declared as both required and optional should not create
+	// a duplicate edge (which would inflate inDegree and break topo sort).
+	items := []*requiredTestItem{
+		{name: "realip"},
+		{name: "limiter", deps: []string{"realip"}, reqDeps: []string{"realip"}},
+	}
+
+	sorted, err := Build[*requiredTestItem](items, discardLogger)
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if len(sorted) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(sorted))
+	}
+	if sorted[0].Name() != "realip" || sorted[1].Name() != "limiter" {
+		t.Fatalf("wrong order: %v, %v", sorted[0].Name(), sorted[1].Name())
+	}
+}
+
 func TestBuild_Cycle(t *testing.T) {
 	items := []*testItem{
 		{name: "a", deps: []string{"b"}},

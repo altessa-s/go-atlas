@@ -177,7 +177,11 @@ func TestStreamInterceptor_NotNil(t *testing.T) {
 func TestInterceptor_Dependencies(t *testing.T) {
 	i := &interceptor{}
 	deps := i.Dependencies()
-	if len(deps) != 1 || deps[0] != "realip" {
-		t.Fatalf("Dependencies() = %v, want [realip]", deps)
+	if len(deps) != 0 {
+		t.Fatalf("Dependencies() = %v, want []", deps)
+	}
+	reqDeps := i.RequiredDependencies()
+	if len(reqDeps) != 1 || reqDeps[0] != "realip" {
+		t.Fatalf("RequiredDependencies() = %v, want [realip]", reqDeps)
 	}
 }

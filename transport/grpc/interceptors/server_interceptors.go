@@ -60,6 +60,14 @@ func (i *DrivenServerInterceptor) Dependencies() []string {
 	return nil
 }
 
+// RequiredDependencies forwards required dependency declarations from the underlying DrivenInterceptor.
+func (i *DrivenServerInterceptor) RequiredDependencies() []string {
+	if declarer, ok := i.i.(interface{ RequiredDependencies() []string }); ok {
+		return declarer.RequiredDependencies()
+	}
+	return nil
+}
+
 // ServerUnaryInterceptor returns a unary server interceptor.
 func (i *DrivenServerInterceptor) ServerUnaryInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {

@@ -35,8 +35,13 @@ type middleware struct {
 	fallbackBehavior fallback.Behavior
 }
 
-// Dependencies returns middlewares that limiter requires to run before it.
+// Dependencies returns optional middlewares that should run before limiter.
 func (m *middleware) Dependencies() []string {
+	return nil
+}
+
+// RequiredDependencies returns middlewares that limiter requires to function.
+func (m *middleware) RequiredDependencies() []string {
 	return []string{"realip"}
 }
 

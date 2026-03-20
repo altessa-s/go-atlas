@@ -29,6 +29,14 @@ func (n namedItem) Dependencies() []string {
 	return nil
 }
 
+// RequiredDependencies implements depgraph.RequiredDependencyDeclarer by forwarding to the underlying item.
+func (n namedItem) RequiredDependencies() []string {
+	if declarer, ok := n.item.(depgraph.RequiredDependencyDeclarer); ok {
+		return declarer.RequiredDependencies()
+	}
+	return nil
+}
+
 // wrapItems converts a slice of any items to namedItem slice for depgraph.
 func wrapItems(items []any) []namedItem {
 	result := make([]namedItem, len(items))

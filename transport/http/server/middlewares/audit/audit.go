@@ -26,9 +26,14 @@ type middleware struct {
 	ignoreMethodsMap map[string]struct{}
 }
 
-// Dependencies returns middlewares that audit reads from context.
+// Dependencies returns optional middlewares that audit reads from context.
 func (m *middleware) Dependencies() []string {
-	return []string{"requestid", "realip", "tracing"}
+	return []string{"requestid", "tracing"}
+}
+
+// RequiredDependencies returns middlewares that audit requires to function.
+func (m *middleware) RequiredDependencies() []string {
+	return []string{"realip"}
 }
 
 // Handler wraps an http.Handler with request auditing functionality.

@@ -122,7 +122,11 @@ func TestMiddleware_IgnoredPath(t *testing.T) {
 func TestMiddleware_Dependencies(t *testing.T) {
 	m := &middleware{}
 	deps := m.Dependencies()
-	if len(deps) != 1 || deps[0] != "realip" {
-		t.Fatalf("Dependencies() = %v, want [realip]", deps)
+	if len(deps) != 0 {
+		t.Fatalf("Dependencies() = %v, want []", deps)
+	}
+	reqDeps := m.RequiredDependencies()
+	if len(reqDeps) != 1 || reqDeps[0] != "realip" {
+		t.Fatalf("RequiredDependencies() = %v, want [realip]", reqDeps)
 	}
 }

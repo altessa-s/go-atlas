@@ -35,6 +35,13 @@ type DependencyDeclarer interface {
 	Dependencies() []string
 }
 
+// RequiredDependencyDeclarer declares dependencies that MUST be present.
+// If any required dependency is missing from the graph, Build returns an error.
+// Required dependencies also impose ordering (like DependencyDeclarer).
+type RequiredDependencyDeclarer interface {
+	RequiredDependencies() []string
+}
+
 // Graph is a directed acyclic graph for dependency resolution.
 // It is not safe for concurrent use; callers must synchronize externally
 // or build the graph in a single goroutine before calling [Graph.TopologicalSort].
@@ -155,11 +162,14 @@ func (g *Graph[T]) TopologicalSort() ([]T, error) {
 }
 
 // Build is a convenience function that constructs a [Graph] from items,
-// wires edges for every item implementing [DependencyDeclarer], and returns
-// the topologically sorted result. Dependencies referencing names not
-// present in items are silently skipped (logged at Debug level).
+// wires edges for every item implementing [DependencyDeclarer] or
+// [RequiredDependencyDeclarer], and returns the topologically sorted result.
+// Optional dependencies referencing names not present in items are silently
+// skipped (logged at Debug level). Required dependencies that are missing
+// cause an immediate error.
 //
-// Returns an error only when a circular dependency is detected.
+// Returns an error when a required dependency is missing or a circular
+// dependency is detected.
 func Build[T Namer](items []T, logger *slog.Logger) ([]T, error) {
 	if len(items) == 0 {
 		return items, nil
@@ -173,12 +183,32 @@ func Build[T Namer](items []T, logger *slog.Logger) ([]T, error) {
 		graph.AddNode(name, item)
 	}
 
-	// Second pass: add edges based on dependencies
+	// Second pass: add edges for required and optional dependencies.
+	// Required deps are checked first (must exist); optional deps are
+	// skipped if missing. Edges already added by required deps are not
+	// duplicated when the same name appears in optional deps.
 	for _, item := range items {
 		name := item.Name()
+		var added map[string]struct{}
+
+		if reqDeclarer, ok := any(item).(RequiredDependencyDeclarer); ok {
+			for _, dep := range reqDeclarer.RequiredDependencies() {
+				if !graph.HasNode(dep) {
+					return nil, fmt.Errorf("item %q requires dependency %q which is not registered", name, dep)
+				}
+				graph.AddEdge(dep, name)
+				if added == nil {
+					added = make(map[string]struct{})
+				}
+				added[dep] = struct{}{}
+			}
+		}
 
 		if declarer, ok := any(item).(DependencyDeclarer); ok {
 			for _, dep := range declarer.Dependencies() {
+				if _, dup := added[dep]; dup {
+					continue
+				}
 				if graph.HasNode(dep) {
 					graph.AddEdge(dep, name)
 				} else if logger != nil {

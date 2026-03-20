@@ -29,6 +29,14 @@ func (w middlewareWrapper) Dependencies() []string {
 	return nil
 }
 
+// RequiredDependencies implements depgraph.RequiredDependencyDeclarer by forwarding to the underlying middleware.
+func (w middlewareWrapper) RequiredDependencies() []string {
+	if declarer, ok := w.middleware.(depgraph.RequiredDependencyDeclarer); ok {
+		return declarer.RequiredDependencies()
+	}
+	return nil
+}
+
 // orderByDependencies sorts middlewares using dependency-based topological sort.
 // Returns an error if a circular dependency is detected.
 func orderByDependencies(items []Middleware, logger *slog.Logger) ([]Middleware, error) {
