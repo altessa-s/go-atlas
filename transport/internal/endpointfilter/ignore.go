@@ -32,8 +32,10 @@ var (
 	// (e.g. /internal/readyz, /health).
 	HealthPathPattern = regexp.MustCompile(`(?i)/(health|healthz|ready|readyz|live|livez)$`)
 
-	// MetricsPathPattern matches the Prometheus-style /metrics endpoint.
-	MetricsPathPattern = regexp.MustCompile(`^(?i)/metrics$`)
+	// MetricsPathPattern matches the Prometheus-style /metrics endpoint,
+	// including when served under a prefix (e.g. /internal/metrics) or
+	// with a trailing slash (/metrics/).
+	MetricsPathPattern = regexp.MustCompile(`(?i)/metrics/?$`)
 
 	// PprofPathPattern matches Go pprof debug paths (/pprof, /pprof/heap, etc.).
 	PprofPathPattern = regexp.MustCompile(`(?i)/pprof(/.*)?$`)

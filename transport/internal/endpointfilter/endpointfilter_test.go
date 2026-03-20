@@ -159,7 +159,9 @@ func TestPrecompiledPatterns(t *testing.T) {
 		{"HealthMethod", HealthMethodPattern, "/grpc.health.v1.Health/Check", "/api/v1/data"},
 		{"HealthPath", HealthPathPattern, "/health", "/api/data"},
 		{"HealthPathPrefixed", HealthPathPattern, "/internal/readyz", "/readyzoo"},
-		{"MetricsPath", MetricsPathPattern, "/metrics", "/api/metrics"},
+		{"MetricsPath", MetricsPathPattern, "/metrics", "/metrics/extra"},
+		{"MetricsPathTrailingSlash", MetricsPathPattern, "/metrics/", "/metricsx"},
+		{"MetricsPathPrefixed", MetricsPathPattern, "/internal/metrics/", "/api/metricsx"},
 		{"PprofPath", PprofPathPattern, "/pprof", "/api/data"},
 		{"PprofSubpath", PprofPathPattern, "/pprof/heap", "/pprofx"},
 	}
