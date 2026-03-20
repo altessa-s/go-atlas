@@ -243,7 +243,7 @@ func (s *Storage) TasksPaginated(ctx context.Context, pg scheduler.Pagination, f
 	}
 
 	if f != nil {
-		trans := mongotranslator.NewTranslator(filter.WithFieldMapping(taskFieldMapping))
+		trans := mongotranslator.NewTranslator(filter.WithAllowedFields(scheduler.TaskFilterFields...), filter.WithFieldMapping(taskFieldMapping))
 		filterBson, err := trans.Translate(f)
 		if err != nil {
 			return nil, err
@@ -289,7 +289,7 @@ func (s *Storage) HistoryPaginated(ctx context.Context, taskID string, pg schedu
 	}
 
 	if f != nil {
-		trans := mongotranslator.NewTranslator(filter.WithFieldMapping(historyFieldMapping))
+		trans := mongotranslator.NewTranslator(filter.WithAllowedFields(scheduler.HistoryFilterFields...), filter.WithFieldMapping(historyFieldMapping))
 		filterBson, err := trans.Translate(f)
 		if err != nil {
 			return nil, err

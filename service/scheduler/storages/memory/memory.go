@@ -26,11 +26,12 @@ import (
 // [scheduler.TaskHistory] values are deep copies, so callers may modify them
 // without affecting the data held by Storage.
 type Storage struct {
-	mu        sync.RWMutex
-	tasks     map[string]*scheduler.TaskState
-	history   map[string][]*scheduler.TaskHistory
-	maxHist   int // Maximum history entries per task
-	evaluator *filter.Evaluator
+	mu               sync.RWMutex
+	tasks            map[string]*scheduler.TaskState
+	history          map[string][]*scheduler.TaskHistory
+	maxHist          int // Maximum history entries per task
+	taskEvaluator    *filter.Evaluator
+	historyEvaluator *filter.Evaluator
 }
 
 // New creates a new [Storage] with empty task and history maps.
@@ -50,10 +51,11 @@ func New(maxHistoryPerTask int) *Storage {
 	}
 
 	return &Storage{
-		tasks:     make(map[string]*scheduler.TaskState),
-		history:   make(map[string][]*scheduler.TaskHistory),
-		maxHist:   maxHistoryPerTask,
-		evaluator: filter.NewEvaluator(),
+		tasks:            make(map[string]*scheduler.TaskState),
+		history:          make(map[string][]*scheduler.TaskHistory),
+		maxHist:          maxHistoryPerTask,
+		taskEvaluator:    filter.NewEvaluator(filter.WithAllowedFields(scheduler.TaskFilterFields...)),
+		historyEvaluator: filter.NewEvaluator(filter.WithAllowedFields(scheduler.HistoryFilterFields...)),
 	}
 }
 
@@ -242,7 +244,7 @@ func (m *Storage) TasksPaginated(_ context.Context, pg scheduler.Pagination, f f
 	// With filter: scan and collect matching items up to limit+1
 	var results []*scheduler.TaskState
 	for _, state := range states[startIdx:] {
-		match, err := m.evaluator.Evaluate(f, taskStateToFilterMap(state))
+		match, err := m.taskEvaluator.Evaluate(f, taskStateToFilterMap(state))
 		if err != nil {
 			return nil, err
 		}
@@ -314,7 +316,7 @@ func (m *Storage) HistoryPaginated(_ context.Context, taskID string, pg schedule
 	// With filter: scan and collect matching items up to limit+1
 	var results []*scheduler.TaskHistory
 	for _, h := range sorted[startIdx:] {
-		match, err := m.evaluator.Evaluate(f, taskHistoryToFilterMap(h))
+		match, err := m.historyEvaluator.Evaluate(f, taskHistoryToFilterMap(h))
 		if err != nil {
 			return nil, err
 		}

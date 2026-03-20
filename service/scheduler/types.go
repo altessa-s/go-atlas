@@ -148,6 +148,23 @@ type TaskSummary struct {
 	Failures       int32        `json:"failures"`
 }
 
+// TaskFilterFields lists the CEL field names that storage backends must
+// accept in task list filter expressions. The names use proto-style
+// camelCase and correspond to the fields of [TaskSummary].
+var TaskFilterFields = []string{
+	"id", "description", "status", "priority", "schedule",
+	"lastRunAt", "nextRunAt", "skipNextRun",
+	"disableHistory", "unmanaged", "oneShot", "failures",
+}
+
+// HistoryFilterFields lists the CEL field names that storage backends
+// must accept in history list filter expressions. The names use
+// proto-style camelCase and correspond to the fields of [TaskHistory].
+var HistoryFilterFields = []string{
+	"id", "taskId", "runId", "startedAt", "endedAt",
+	"durationMs", "success", "error",
+}
+
 // Storage defines the persistence interface for task state and execution history.
 // Implementations must be safe for concurrent use by multiple goroutines, as the
 // scheduler reads and writes state from the main loop, task goroutines, and
