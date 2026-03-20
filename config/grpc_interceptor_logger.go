@@ -28,7 +28,7 @@ type GrpcInterLoggerConfig struct {
 
 	// LogResponse controls whether to log response payloads.
 	// Set to true to include response content in logs for debugging purposes.
-	LogResponse bool `yaml:"logResponse" default:"true"`
+	LogResponse bool `yaml:"logResponse" default:"false"`
 
 	// IgnoreGrpcResponseCodes is a list of gRPC response codes to never log.
 	// Takes precedence over LogGrpcResponseCodes.
