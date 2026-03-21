@@ -18,8 +18,9 @@ const DefaultTTL = 1 * time.Hour
 
 // options contains Cache configuration.
 type options struct {
-	ttl        time.Duration `optgen:"default=DefaultTTL"`
-	serializer serializer.Serializer
-	collector  metrics.Collector `optgen:"notnil"`
-	name       string
+	ttl         time.Duration `optgen:"default=DefaultTTL"`
+	negativeTtl time.Duration // zero = disabled
+	serializer  serializer.Serializer
+	collector   metrics.Collector `optgen:"notnil"`
+	name        string
 }

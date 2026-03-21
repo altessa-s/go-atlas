@@ -36,11 +36,20 @@ const defaultContextTimeout = 15 * time.Second
 // If it returns a nil value, ErrMissing is returned to the caller.
 type Fallback = func() (value any, ttl time.Duration, err error)
 
+// negativeSentinel is a single null byte stored as the value for negative cache entries.
+// It cannot collide with JSON/msgpack serializer output.
+var negativeSentinel = []byte{0x00}
+
+func isNegativeSentinel(data []byte) bool {
+	return len(data) == 1 && data[0] == 0x00
+}
+
 // Cache provides caching functionality with configurable providers and serializers.
 // It uses singleflight to deduplicate concurrent requests for the same key.
 type Cache struct {
 	provider     providers.Provider
 	ttl          time.Duration
+	negativeTtl  time.Duration
 	group        *singleflight.Group
 	serializer   serializer.Serializer
 	metrics      *cacheMetrics
@@ -61,6 +70,7 @@ func New(p providers.Provider, opts ...Option) *Cache {
 	return &Cache{
 		provider:     p,
 		ttl:          options.ttl,
+		negativeTtl:  options.negativeTtl,
 		group:        &singleflight.Group{},
 		serializer:   options.serializer,
 		metrics:      newCacheMetrics(options.collector),
@@ -98,6 +108,10 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 
 	val, err := c.provider.Get(ctx, key)
 	if err == nil {
+		if isNegativeSentinel(val) {
+			c.metrics.negativeHits.WithLabels(c.metricLabels).Inc()
+			return ErrMissing
+		}
 		c.metrics.hits.WithLabels(c.metricLabels).Inc()
 		return c.serializer.Deserialize(val, value)
 	} else if !errors.Is(err, ErrMissing) {
@@ -116,6 +130,11 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 		}
 
 		if vv := reflect.ValueOf(val); vv.Kind() == reflect.Pointer && vv.IsNil() {
+			if c.negativeTtl > 0 {
+				if sErr := c.provider.Save(ctx, key, negativeSentinel, c.negativeTtl); sErr != nil {
+					c.metrics.errors.WithLabels(c.metricLabels).Inc()
+				}
+			}
 			return nil, ErrMissing
 		}
 
@@ -185,12 +204,16 @@ func (c *Cache) Exists(ctx context.Context, key string) (bool, error) {
 	ctx, cancel := corecontext.WithDefault(ctx, defaultContextTimeout)
 	defer cancel()
 
-	_, err := c.provider.Get(ctx, key)
+	data, err := c.provider.Get(ctx, key)
 	if err != nil {
 		if errors.Is(err, ErrMissing) {
 			return false, nil
 		}
 		return false, err
+	}
+
+	if isNegativeSentinel(data) {
+		return false, nil
 	}
 
 	return true, nil
@@ -219,6 +242,11 @@ func (c *Cache) Get(ctx context.Context, key string, value any) error {
 			c.metrics.errors.WithLabels(c.metricLabels).Inc()
 		}
 		return err
+	}
+
+	if isNegativeSentinel(data) {
+		c.metrics.negativeHits.WithLabels(c.metricLabels).Inc()
+		return ErrMissing
 	}
 
 	c.metrics.hits.WithLabels(c.metricLabels).Inc()

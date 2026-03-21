@@ -15,6 +15,7 @@ type cacheMetrics struct {
 	hits             metrics.Counter
 	misses           metrics.Counter
 	errors           metrics.Counter
+	negativeHits     metrics.Counter
 	evictions        metrics.Counter
 	size             metrics.Gauge
 	writeDuration    metrics.Timer
@@ -42,6 +43,11 @@ func newCacheMetrics(c metrics.Collector) *cacheMetrics {
 		errors: scoped.MustCounter(metrics.MetricOpts{
 			Name:       "errors_total",
 			Help:       "Total number of cache operation errors.",
+			LabelNames: []string{"cache_name"},
+		}),
+		negativeHits: scoped.MustCounter(metrics.MetricOpts{
+			Name:       "negative_hits_total",
+			Help:       "Total number of negative cache hits.",
 			LabelNames: []string{"cache_name"},
 		}),
 		evictions: scoped.MustCounter(metrics.MetricOpts{

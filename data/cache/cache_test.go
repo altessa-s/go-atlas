@@ -17,6 +17,7 @@ import (
 // mockProvider is a test-local cache provider with in-memory store.
 type mockProvider struct {
 	store     map[string][]byte
+	lastTTL   time.Duration
 	saveErr   error
 	getErr    error
 	deleteErr error
@@ -26,10 +27,11 @@ func newMockProvider() *mockProvider {
 	return &mockProvider{store: make(map[string][]byte)}
 }
 
-func (m *mockProvider) Save(_ context.Context, key string, value []byte, _ time.Duration) error {
+func (m *mockProvider) Save(_ context.Context, key string, value []byte, ttl time.Duration) error {
 	if m.saveErr != nil {
 		return m.saveErr
 	}
+	m.lastTTL = ttl
 	m.store[key] = value
 	return nil
 }
@@ -312,4 +314,169 @@ func TestDeleteMany_NoKeysPanics(t *testing.T) {
 		}
 	}()
 	_ = c.DeleteMany(t.Context())
+}
+
+func TestGetWithFallback_NegativeCaching_Disabled(t *testing.T) {
+	p := newMockProvider()
+	c := New(p) // no WithNegativeTtl
+	ctx := t.Context()
+
+	calls := 0
+	fallback := func() (any, time.Duration, error) {
+		calls++
+		return (*string)(nil), TTLUseDefault, nil
+	}
+
+	var result string
+	err := c.GetWithFallback(ctx, "missing", &result, fallback)
+	if !errors.Is(err, ErrMissing) {
+		t.Fatalf("expected ErrMissing, got %v", err)
+	}
+
+	// No sentinel should be stored.
+	if _, ok := p.store["missing"]; ok {
+		t.Error("sentinel should not be stored when negative caching is disabled")
+	}
+
+	// Second call should re-invoke fallback.
+	err = c.GetWithFallback(ctx, "missing", &result, fallback)
+	if !errors.Is(err, ErrMissing) {
+		t.Fatalf("expected ErrMissing, got %v", err)
+	}
+	if calls != 2 {
+		t.Errorf("fallback called %d times, want 2", calls)
+	}
+}
+
+func TestGetWithFallback_NegativeCaching_StoresSentinel(t *testing.T) {
+	p := newMockProvider()
+	c := New(p, WithNegativeTtl(30*time.Second))
+	ctx := t.Context()
+
+	var result string
+	err := c.GetWithFallback(ctx, "missing", &result, func() (any, time.Duration, error) {
+		return (*string)(nil), TTLUseDefault, nil
+	})
+	if !errors.Is(err, ErrMissing) {
+		t.Fatalf("expected ErrMissing, got %v", err)
+	}
+
+	// Sentinel should be stored with the negative TTL.
+	stored, ok := p.store["missing"]
+	if !ok {
+		t.Fatal("sentinel not stored in provider")
+	}
+	if len(stored) != 1 || stored[0] != 0x00 {
+		t.Errorf("expected sentinel [0x00], got %v", stored)
+	}
+	if p.lastTTL != 30*time.Second {
+		t.Errorf("expected negative TTL 30s, got %v", p.lastTTL)
+	}
+}
+
+func TestGetWithFallback_NegativeCaching_ReturnsMissing(t *testing.T) {
+	p := newMockProvider()
+	c := New(p, WithNegativeTtl(30*time.Second))
+	ctx := t.Context()
+
+	calls := 0
+	fallback := func() (any, time.Duration, error) {
+		calls++
+		return (*string)(nil), TTLUseDefault, nil
+	}
+
+	var result string
+	// First call stores sentinel.
+	_ = c.GetWithFallback(ctx, "missing", &result, fallback)
+
+	// Second call should return ErrMissing without invoking fallback.
+	err := c.GetWithFallback(ctx, "missing", &result, fallback)
+	if !errors.Is(err, ErrMissing) {
+		t.Fatalf("expected ErrMissing, got %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("fallback called %d times, want 1", calls)
+	}
+}
+
+func TestGet_NegativeEntry_ReturnsMissing(t *testing.T) {
+	p := newMockProvider()
+	c := New(p, WithNegativeTtl(30*time.Second))
+	ctx := t.Context()
+
+	// Manually store a negative sentinel.
+	p.store["neg-key"] = []byte{0x00}
+
+	var result string
+	err := c.Get(ctx, "neg-key", &result)
+	if !errors.Is(err, ErrMissing) {
+		t.Errorf("expected ErrMissing, got %v", err)
+	}
+}
+
+func TestExists_NegativeEntry_ReturnsFalse(t *testing.T) {
+	p := newMockProvider()
+	c := New(p, WithNegativeTtl(30*time.Second))
+	ctx := t.Context()
+
+	// Manually store a negative sentinel.
+	p.store["neg-key"] = []byte{0x00}
+
+	exists, err := c.Exists(ctx, "neg-key")
+	if err != nil {
+		t.Fatalf("Exists: %v", err)
+	}
+	if exists {
+		t.Error("expected false for negative entry")
+	}
+}
+
+func TestDelete_ClearsNegativeEntry(t *testing.T) {
+	p := newMockProvider()
+	c := New(p, WithNegativeTtl(30*time.Second))
+	ctx := t.Context()
+
+	calls := 0
+	fallback := func() (any, time.Duration, error) {
+		calls++
+		return (*string)(nil), TTLUseDefault, nil
+	}
+
+	// Store a negative sentinel via fallback.
+	var result string
+	_ = c.GetWithFallback(ctx, "key1", &result, fallback)
+
+	// Delete the entry.
+	if err := c.Delete(ctx, "key1"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+
+	// Next call should re-invoke fallback.
+	_ = c.GetWithFallback(ctx, "key1", &result, fallback)
+	if calls != 2 {
+		t.Errorf("fallback called %d times, want 2", calls)
+	}
+}
+
+func TestSave_OverwritesNegativeEntry(t *testing.T) {
+	p := newMockProvider()
+	c := New(p, WithNegativeTtl(30*time.Second))
+	ctx := t.Context()
+
+	// Store a negative sentinel.
+	p.store["key1"] = []byte{0x00}
+
+	// Save a real value over it.
+	if err := c.Save(ctx, "key1", "real-value"); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	// Get should return the real value.
+	var result string
+	if err := c.Get(ctx, "key1", &result); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if result != "real-value" {
+		t.Errorf("got %q, want %q", result, "real-value")
+	}
 }
