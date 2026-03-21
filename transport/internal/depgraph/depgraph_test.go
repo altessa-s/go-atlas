@@ -281,6 +281,39 @@ func TestBuild_OverlappingRequiredAndOptional(t *testing.T) {
 	}
 }
 
+func TestGraph_PriorityOrder(t *testing.T) {
+	// Simulates the interceptor ordering bug: errstatus (order 1) depends on
+	// requestid (order 3) which depends on metadata (order 0). limiter
+	// (order 4) depends on realip (order 2). Without the priority-queue fix,
+	// limiter would be emitted before errstatus because it becomes zero-degree
+	// earlier. With the fix, errstatus (lower insertion order) comes first.
+	g := New[*simpleItem](discardLogger)
+	g.AddNode("metadata", &simpleItem{"metadata"})   // order 0
+	g.AddNode("errstatus", &simpleItem{"errstatus"}) // order 1
+	g.AddNode("realip", &simpleItem{"realip"})       // order 2
+	g.AddNode("requestid", &simpleItem{"requestid"}) // order 3
+	g.AddNode("limiter", &simpleItem{"limiter"})     // order 4
+
+	g.AddEdge("metadata", "requestid")  // requestid depends on metadata
+	g.AddEdge("requestid", "errstatus") // errstatus depends on requestid
+	g.AddEdge("realip", "limiter")      // limiter depends on realip
+
+	result, err := g.TopologicalSort()
+	if err != nil {
+		t.Fatalf("TopologicalSort() error = %v", err)
+	}
+
+	names := make([]string, len(result))
+	for i, r := range result {
+		names[i] = r.Name()
+	}
+
+	expected := "metadata,realip,requestid,errstatus,limiter"
+	if strings.Join(names, ",") != expected {
+		t.Fatalf("TopologicalSort() = %v, want %v", names, expected)
+	}
+}
+
 func TestBuild_Cycle(t *testing.T) {
 	items := []*testItem{
 		{name: "a", deps: []string{"b"}},

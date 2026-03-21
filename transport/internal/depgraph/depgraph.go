@@ -137,12 +137,14 @@ func (g *Graph[T]) TopologicalSort() ([]T, error) {
 			}
 		}
 
-		// Sort new zero-degree nodes by insertion order and append
+		// Merge new zero-degree nodes and re-sort entire queue by insertion
+		// order so that earlier-registered nodes are always dequeued first,
+		// regardless of when they became zero-degree ("priority queue" fix).
 		if len(newZero) > 0 {
-			slices.SortStableFunc(newZero, func(a, b string) int {
+			queue = append(queue, newZero...)
+			slices.SortStableFunc(queue, func(a, b string) int {
 				return g.order[a] - g.order[b]
 			})
-			queue = append(queue, newZero...)
 		}
 	}
 

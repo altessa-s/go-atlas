@@ -154,6 +154,10 @@ func (i *interceptor) DrivenInterceptor(ctx context.Context) (driver.Driver, con
 		fields = append(fields, slogx.Field{Key: observability.FieldKeyClientRealIP, Value: realIP})
 	}
 
+	if reqID := requestid.FromContext(ctx); reqID != "" {
+		fields = append(fields, slogx.Field{Key: observability.FieldKeyRequestID, Value: reqID})
+	}
+
 	ctx = slogx.InjectFields(ctx, fields)
 
 	// Inject enriched logger into context if configured
@@ -200,10 +204,6 @@ func (ri *requestInterceptor) PostCall(ctx context.Context, resp any, err error)
 		slogx.Field{Key: observability.FieldKeyRequestDuration, Value: timeformat.FormatDuration(now.Sub(ri.meta.StartTime), ri.opts.timeFormat)},
 		slogx.Field{Key: FieldKeyGrpcMessage, Value: st.Message()},
 	)
-
-	if requestId := requestid.FromContext(ctx); requestId != "" {
-		fields = append(fields, slogx.Field{Key: observability.FieldKeyRequestID, Value: requestId})
-	}
 
 	// Add trace correlation fields if available
 	if traceID := tracing.TraceIDFromContext(ctx); traceID != "" {
