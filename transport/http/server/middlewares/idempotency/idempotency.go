@@ -237,7 +237,7 @@ func isSafeMethod(method string) bool {
 }
 
 func (m *middleware) handleStorageError(w http.ResponseWriter, r *http.Request, err error) error {
-	m.LogError(r.Context(), "idempotency storage error", r.URL.Path, err,
+	m.LogWarn(r.Context(), "idempotency storage error", r.URL.Path, err,
 		slog.String("method", r.Method))
 
 	switch m.opts.fallbackBehavior {

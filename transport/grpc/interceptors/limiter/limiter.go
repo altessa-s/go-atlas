@@ -144,7 +144,7 @@ func (i *interceptor) rateLimit(ctx context.Context, method string) (metadata.MD
 			return md, status.New(codes.ResourceExhausted, "Rate Limit Exceeded").Err()
 		}
 
-		i.LogError(ctx, "rate limit check failed", method, err)
+		i.LogWarn(ctx, "rate limit check failed", method, err)
 
 		switch i.opts.fallbackBehavior {
 		case fallback.Allow:

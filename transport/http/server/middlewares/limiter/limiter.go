@@ -122,7 +122,7 @@ func (m *middleware) rateLimit(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 
-		m.LogError(ctx, "rate limit check failed", path, err,
+		m.LogWarn(ctx, "rate limit check failed", path, err,
 			slog.String("method", r.Method))
 
 		switch m.fallbackBehavior {
