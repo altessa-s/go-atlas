@@ -29,6 +29,9 @@ func (s *deadlineCapturingStore) DeleteProcessedEvents(context.Context, time.Tim
 func (s *deadlineCapturingStore) UnlockStuckEvents(context.Context, time.Time) error     { return nil }
 func (s *deadlineCapturingStore) SaveEvents(context.Context, ...Event) error             { return nil }
 func (s *deadlineCapturingStore) UpdateEvents(context.Context, ...Event) error           { return nil }
+func (s *deadlineCapturingStore) ExpireEvents(context.Context, time.Time) (int64, error) {
+	return 0, nil
+}
 
 func TestOutbox_WithFetchTimeout_AppliesDeadlineToFetch(t *testing.T) {
 	const (

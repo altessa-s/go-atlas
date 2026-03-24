@@ -109,6 +109,7 @@ func TestCollectionFieldConstants(t *testing.T) {
 		collectionFieldCreatedAt,
 		collectionFieldLastAttemptOn,
 		collectionFieldLastAttempts,
+		collectionFieldExpiresAt,
 	}
 	seen := make(map[string]bool)
 	for _, f := range fields {

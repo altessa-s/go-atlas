@@ -22,6 +22,8 @@ type outboxMetrics struct {
 	cleanupDuration     metrics.Timer
 	dispatchRetries     metrics.Counter
 	maxRetriesExhausted metrics.Counter
+	eventsExpired       metrics.Counter
+	expireDuration      metrics.Timer
 }
 
 func newOutboxMetrics(c metrics.Collector) *outboxMetrics {
@@ -77,6 +79,16 @@ func newOutboxMetrics(c metrics.Collector) *outboxMetrics {
 		maxRetriesExhausted: scoped.MustCounter(metrics.MetricOpts{
 			Name: "max_retries_exhausted_total",
 			Help: "Total number of events that exhausted all retry attempts.",
+		}),
+		eventsExpired: scoped.MustCounter(metrics.MetricOpts{
+			Name: "events_expired_total",
+			Help: "Total number of events that expired before successful dispatch.",
+		}),
+		expireDuration: scoped.MustTimer(metrics.HistogramOpts{
+			MetricOpts: metrics.MetricOpts{
+				Name: "expire_cycle_duration_seconds",
+				Help: "Duration of a single expire cycle in seconds.",
+			},
 		}),
 	}
 }

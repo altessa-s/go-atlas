@@ -64,10 +64,13 @@ type Outbox struct {
 	schedulerDispatchRegistered atomic.Bool // Marks if RunDispatchCycle is managed by scheduler.
 	schedulerUnlockRegistered   atomic.Bool // Marks if RunUnlockCycle is managed by scheduler.
 	schedulerCleanupRegistered  atomic.Bool // Marks if RunCleanupCycle is managed by scheduler.
+	schedulerExpireRegistered   atomic.Bool // Marks if RunExpireCycle is managed by scheduler.
+	expireRunning               atomic.Bool // Guards against concurrent RunExpireCycle calls.
 
 	retryMaxAttempts uint32
 	eventsBatchSize  uint32
-	compaction       bool // When true, key compaction is enabled.
+	compaction       bool          // When true, key compaction is enabled.
+	defaultEventTTL  time.Duration // Default TTL for events without explicit ExpiresAt.
 }
 
 // New creates a new Outbox with the given Store and Handler.
@@ -97,6 +100,7 @@ func New(store Store, handler Handler, opts ...Option) *Outbox {
 		compactionFilter:        cfg.compactionFilter,
 		scheduler:               cfg.scheduler,
 		shouldRetry:             cfg.shouldRetry,
+		defaultEventTTL:         cfg.defaultEventTTL,
 	}
 
 	// Register outbox tasks with scheduler if provided
@@ -120,6 +124,7 @@ func (o *Outbox) Save(ctx context.Context, events ...Event) error {
 		return nil
 	}
 
+	now := time.Now().UTC()
 	for i := range events {
 		if events[i].Id == "" {
 			events[i].Id = uuid.New().String()
@@ -128,7 +133,16 @@ func (o *Outbox) Save(ctx context.Context, events ...Event) error {
 			events[i].Status = StatusPending
 		}
 		if events[i].CreatedAt.IsZero() {
-			events[i].CreatedAt = time.Now().UTC()
+			events[i].CreatedAt = now
+		}
+		if events[i].ExpiresAt.IsZero() && o.defaultEventTTL > 0 {
+			events[i].ExpiresAt = events[i].CreatedAt.Add(o.defaultEventTTL)
+		}
+		if !events[i].ExpiresAt.IsZero() && events[i].ExpiresAt.Before(now) {
+			o.logger.WarnContext(ctx, "event saved with ExpiresAt in the past; it will never be dispatched",
+				slog.String("event_id", events[i].Id),
+				slog.Time("expires_at", events[i].ExpiresAt),
+			)
 		}
 	}
 

@@ -62,6 +62,34 @@ func TestEvent_SetSentStatus(t *testing.T) {
 	}
 }
 
+func TestEvent_SetSkippedStatus(t *testing.T) {
+	e := &Event{LastError: testhelpers.StringPtr("old error")}
+	e.setSkippedStatus()
+	if e.Status != StatusSkipped {
+		t.Fatalf("Status = %q", e.Status)
+	}
+	if e.LastError != nil {
+		t.Fatal("LastError should be nil")
+	}
+	if e.PublishedAt.IsZero() {
+		t.Fatal("PublishedAt is zero")
+	}
+}
+
+func TestEvent_SetExpiredStatus(t *testing.T) {
+	e := &Event{Status: StatusPending, LastError: testhelpers.StringPtr("previous error")}
+	e.setExpiredStatus()
+	if e.Status != StatusExpired {
+		t.Fatalf("Status = %q, want %q", e.Status, StatusExpired)
+	}
+	if e.LastError != nil {
+		t.Fatal("LastError should be nil")
+	}
+	if e.PublishedAt.IsZero() {
+		t.Fatal("PublishedAt should be set for cleanup eligibility")
+	}
+}
+
 func TestEvent_SetStatusMaxAttemptReached(t *testing.T) {
 	e := &Event{}
 	e.setStatusMaxAttemptReached()

@@ -30,6 +30,9 @@ const (
 	// StatusSkipped indicates that the event was intentionally not dispatched
 	// because it was superseded by a newer event or excluded by processing rules.
 	StatusSkipped Status = "skipped"
+	// StatusExpired indicates the event exceeded its ExpiresAt deadline
+	// before being successfully dispatched.
+	StatusExpired Status = "expired"
 )
 
 // Event represents an event stored in the outbox with its delivery tracking state.
@@ -40,6 +43,7 @@ type Event struct {
 	Status        Status    // Current processing status.
 	CreatedAt     time.Time // When the event was created.
 	PublishedAt   time.Time // When successfully dispatched; zero if not yet.
+	ExpiresAt     time.Time // Deadline after which the event should no longer be dispatched; zero means no expiration.
 	LastError     *string   // Last error message; nil if successful.
 	Attempts      uint32    // Number of dispatch attempts made.
 	LastAttemptOn time.Time // Timestamp of most recent attempt.
@@ -79,6 +83,14 @@ func (e *Event) setStatusMaxAttemptReached() {
 // to enable cleanup of processed events.
 func (e *Event) setSkippedStatus() {
 	e.Status = StatusSkipped
+	e.LastError = nil
+	e.PublishedAt = time.Now().UTC()
+}
+
+// setExpiredStatus marks the event as expired, clears LastError,
+// and records PublishedAt for cleanup eligibility.
+func (e *Event) setExpiredStatus() {
+	e.Status = StatusExpired
 	e.LastError = nil
 	e.PublishedAt = time.Now().UTC()
 }

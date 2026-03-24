@@ -16,7 +16,7 @@ type Store interface {
 	// Implementations should lock fetched events to prevent concurrent processing.
 	FetchUnprocessedEvents(ctx context.Context, batchSize uint32, lastAttemptBefore time.Time) ([]Event, error)
 
-	// DeleteProcessedEvents removes processed events (sent or skipped) older than since.
+	// DeleteProcessedEvents removes processed events (sent, skipped, or expired) older than since.
 	DeleteProcessedEvents(ctx context.Context, since time.Time) error
 
 	// UnlockStuckEvents unlocks events locked before the specified time.
@@ -27,4 +27,8 @@ type Store interface {
 
 	// UpdateEvents updates existing event state after processing attempts.
 	UpdateEvents(ctx context.Context, events ...Event) error
+
+	// ExpireEvents marks pending or failed events whose ExpiresAt has passed as expired.
+	// Returns the number of events expired.
+	ExpireEvents(ctx context.Context, now time.Time) (int64, error)
 }

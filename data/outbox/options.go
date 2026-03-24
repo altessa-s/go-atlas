@@ -9,6 +9,7 @@ package outbox
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
@@ -82,6 +83,13 @@ type options struct {
 	// except context.Canceled are retried.
 	shouldRetry func(error) bool `opt:"-"`
 
+	// Default TTL applied to events at save time when ExpiresAt is not set.
+	// 0 means disabled (no expiration). Minimum 1s.
+	defaultEventTTL time.Duration `opt:"-"`
+
+	// Scheduler schedule for the expire cycle - handled manually.
+	expireSchedule string `opt:"-"`
+
 	// Metrics collector for outbox instrumentation.
 	collector metrics.Collector `optgen:"notnil"`
 }
@@ -147,5 +155,41 @@ func WithCompactionFilter(fn func(string) bool) Option {
 func WithShouldRetry(fn func(error) bool) Option {
 	return func(o *options) {
 		o.shouldRetry = fn
+	}
+}
+
+// WithDefaultEventTTL sets the default time-to-live applied to events at save time
+// when their ExpiresAt is not explicitly set. Values below 1s are ignored (disabled).
+// A value of 0 (default) means events never expire based on time.
+func WithDefaultEventTTL(d time.Duration) Option {
+	return func(o *options) {
+		if d < time.Second {
+			return
+		}
+		o.defaultEventTTL = d
+	}
+}
+
+// WithExpireSchedule sets the cron schedule for the expire cycle that marks
+// pending/failed events past their ExpiresAt as expired.
+func WithExpireSchedule[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		switch t := any(v).(type) {
+		case string:
+			trimmed := strings.TrimSpace(t)
+			if trimmed == "" {
+				return
+			}
+			o.expireSchedule = trimmed
+		case *string:
+			if t == nil {
+				return
+			}
+			trimmed := strings.TrimSpace(*t)
+			if trimmed == "" {
+				return
+			}
+			o.expireSchedule = trimmed
+		}
 	}
 }

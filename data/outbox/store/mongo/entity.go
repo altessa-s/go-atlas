@@ -16,5 +16,6 @@ type event struct {
 	LastAttemptOn int64             `bson:"last_attempt_on"`     // Last attempt timestamp (Unix).
 	Topic         string            `bson:"topic"`               // Maps to Event.Key (BSON name unchanged for DB compat).
 	Metadata      map[string]string `bson:"metadata,omitempty"`  // Kept for DB compat; not mapped to outbox.Event.
-	LockedOn      int64             `bson:"locked_on,omitempty"` // Lock timestamp (Unix).
+	LockedOn      int64             `bson:"locked_on,omitempty"`  // Lock timestamp (Unix).
+	ExpiresAt     int64             `bson:"expires_at,omitempty"` // Expiration timestamp (Unix).
 }

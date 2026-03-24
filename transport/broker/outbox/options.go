@@ -139,3 +139,19 @@ func WithCleanupSchedule[T interface{ string | *string }](v T) Option {
 		o.genericOpts = append(o.genericOpts, outbox.WithCleanupSchedule(v))
 	}
 }
+
+// WithDefaultEventTTL sets the default time-to-live for messages without an explicit ExpiresAt.
+// A value of 0 (default) means messages never expire based on time.
+func WithDefaultEventTTL(d time.Duration) Option {
+	return func(o *adapterOptions) {
+		o.genericOpts = append(o.genericOpts, outbox.WithDefaultEventTTL(d))
+	}
+}
+
+// WithExpireSchedule sets the cron schedule for the expire cycle that marks
+// pending/failed messages past their ExpiresAt as expired.
+func WithExpireSchedule[T interface{ string | *string }](v T) Option {
+	return func(o *adapterOptions) {
+		o.genericOpts = append(o.genericOpts, outbox.WithExpireSchedule(v))
+	}
+}

@@ -27,6 +27,9 @@ func (s *cleanupCallStore) UnlockStuckEvents(ctx context.Context, lockedBefore t
 }
 func (s *cleanupCallStore) SaveEvents(ctx context.Context, events ...Event) error   { return nil }
 func (s *cleanupCallStore) UpdateEvents(ctx context.Context, events ...Event) error { return nil }
+func (s *cleanupCallStore) ExpireEvents(ctx context.Context, now time.Time) (int64, error) {
+	return 0, nil
+}
 
 func noopHandler(_ context.Context, _ Event) error { return nil }
 

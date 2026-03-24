@@ -101,6 +101,9 @@ func (b *OutboxBuilder) createOutboxWithStore(store outbox.Store, handler outbox
 		if b.cfg.CleanupSchedule != "" {
 			opts = append(opts, outbox.WithCleanupSchedule(b.cfg.CleanupSchedule))
 		}
+		if b.cfg.ExpireSchedule != "" {
+			opts = append(opts, outbox.WithExpireSchedule(b.cfg.ExpireSchedule))
+		}
 	}
 
 	return outbox.New(store, handler, opts...), nil
@@ -116,6 +119,7 @@ func (b *OutboxBuilder) buildOutboxOptions() []outbox.Option {
 		outbox.WithEventsBatchSize(b.cfg.MessagesBatchSize),
 		outbox.WithRetryMaxAttempts(b.cfg.RetryMaxAttempts),
 		outbox.WithPublishedEventsLifetime(b.cfg.PublishedEventsLifetime),
+		outbox.WithDefaultEventTTL(b.cfg.DefaultEventTTL),
 	}
 	opts = slices.AppendIf(opts, b.cfg.TopicCompaction, outbox.WithCompaction())
 

@@ -76,6 +76,14 @@ type Outbox struct {
 	// TopicCompaction enables log compaction behavior.
 	// Defaults to false.
 	TopicCompaction bool `yaml:"topicCompaction" default:"false"`
+
+	// DefaultEventTTL is the default time-to-live for events without an explicit ExpiresAt.
+	// 0 means disabled (events never expire). Minimum 1s.
+	DefaultEventTTL time.Duration `yaml:"defaultEventTTL" default:"0"`
+
+	// ExpireSchedule defines the cron schedule for the expire task that marks
+	// pending/failed events past their ExpiresAt as expired.
+	ExpireSchedule string `yaml:"expireSchedule" default:"@every 11s"`
 }
 
 // Validate performs validation of the Outbox configuration.

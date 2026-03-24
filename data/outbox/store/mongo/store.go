@@ -29,6 +29,7 @@ const (
 	collectionFieldCreatedAt     = "created_at"      // Creation timestamp field.
 	collectionFieldLastAttemptOn = "last_attempt_on" // Last attempt timestamp field.
 	collectionFieldLastAttempts  = "attempts"        // Attempt count field.
+	collectionFieldExpiresAt     = "expires_at"      // Expiration timestamp field.
 )
 
 // Store implements outbox.Store interface using MongoDB as the backend.
@@ -104,11 +105,11 @@ func (s *Store) UnlockStuckEvents(ctx context.Context, since time.Time) error {
 	return nil
 }
 
-// DeleteProcessedEvents removes processed events (sent or skipped) older than since.
+// DeleteProcessedEvents removes processed events (sent, skipped, or expired) older than since.
 func (s *Store) DeleteProcessedEvents(ctx context.Context, since time.Time) error {
 	filter := bson.M{
-		collectionFieldPublishedAt: bson.M{"$lt": since.Unix()},                                             // Published before the 'since' time
-		collectionFieldStatus:      bson.M{"$in": []outbox.Status{outbox.StatusSent, outbox.StatusSkipped}}, // Sent or skipped events
+		collectionFieldPublishedAt: bson.M{"$lt": since.Unix()},                                                                   // Published before the 'since' time
+		collectionFieldStatus:      bson.M{"$in": []outbox.Status{outbox.StatusSent, outbox.StatusSkipped, outbox.StatusExpired}}, // Sent, skipped, or expired events
 	}
 	_, err := s.collection.DeleteMany(ctx, filter)
 	if err != nil {
@@ -173,6 +174,9 @@ func (s *Store) SaveEvents(ctx context.Context, events ...outbox.Event) error {
 			LastError: ev.LastError,
 			// PublishedAt, LastAttemptOn, LockedOn are initially zero/default for new events
 		}
+		if !ev.ExpiresAt.IsZero() {
+			doc.ExpiresAt = ev.ExpiresAt.Unix()
+		}
 		insertModels = append(insertModels, mongo.NewInsertOneModel().SetDocument(doc))
 	}
 
@@ -186,13 +190,24 @@ func (s *Store) SaveEvents(ctx context.Context, events ...outbox.Event) error {
 // FetchUnprocessedEvents retrieves pending or failed events and locks them for processing.
 // Events are sorted by creation time; failed events must have last attempt before lastAttemptBefore.
 func (s *Store) FetchUnprocessedEvents(ctx context.Context, batchSize uint32, lastAttemptBefore time.Time) ([]outbox.Event, error) {
+	nowUnix := time.Now().UTC().Unix()
+	// Exclude events whose ExpiresAt has passed.
+	// The expires_at field uses omitempty, so documents without expiration have no field at all.
+	notExpiredFilter := bson.M{"$or": bson.A{
+		bson.M{collectionFieldExpiresAt: bson.M{"$exists": false}},
+		bson.M{collectionFieldExpiresAt: bson.M{"$gt": nowUnix}},
+	}}
+
 	filter := bson.M{
-		"$or": bson.A{
-			bson.M{collectionFieldStatus: outbox.StatusPending},
-			bson.M{
-				collectionFieldStatus:        outbox.StatusFailed,
-				collectionFieldLastAttemptOn: bson.M{"$lt": lastAttemptBefore.Unix()},
-			},
+		"$and": bson.A{
+			bson.M{"$or": bson.A{
+				bson.M{collectionFieldStatus: outbox.StatusPending},
+				bson.M{
+					collectionFieldStatus:        outbox.StatusFailed,
+					collectionFieldLastAttemptOn: bson.M{"$lt": lastAttemptBefore.Unix()},
+				},
+			}},
+			notExpiredFilter,
 		},
 	}
 
@@ -253,7 +268,7 @@ func (s *Store) FetchUnprocessedEvents(ctx context.Context, batchSize uint32, la
 	// The LockedOn time is set to the time when they were locked in this operation.
 	// Note: BSON field "event" maps to Event.Payload in the public API.
 	return slices.Collect(coreslices.Map(mongoEvents, func(ev event) outbox.Event {
-		return outbox.Event{
+		e := outbox.Event{
 			Id:            ev.Id,
 			Key:           ev.Topic,
 			Payload:       ev.Event,
@@ -265,5 +280,27 @@ func (s *Store) FetchUnprocessedEvents(ctx context.Context, batchSize uint32, la
 			LastAttemptOn: time.Unix(ev.LastAttemptOn, 0),
 			LockedOn:      currentTime, // Reflect the time they were locked in this fetch operation
 		}
+		if ev.ExpiresAt > 0 {
+			e.ExpiresAt = time.Unix(ev.ExpiresAt, 0)
+		}
+		return e
 	})), nil
+}
+
+// ExpireEvents marks pending or failed events whose ExpiresAt has passed as expired.
+func (s *Store) ExpireEvents(ctx context.Context, now time.Time) (int64, error) {
+	filter := bson.M{
+		collectionFieldStatus:    bson.M{"$in": []outbox.Status{outbox.StatusPending, outbox.StatusFailed}},
+		collectionFieldExpiresAt: bson.M{"$gt": int64(0), "$lte": now.Unix()},
+	}
+	update := bson.M{"$set": bson.M{
+		collectionFieldStatus:      outbox.StatusExpired,
+		collectionFieldPublishedAt: now.Unix(),
+		collectionFieldLockedOn:    0,
+	}}
+	result, err := s.collection.UpdateMany(ctx, filter, update)
+	if err != nil {
+		return 0, coreerrs.WrapOperation(err, "expire events in MongoDB")
+	}
+	return result.ModifiedCount, nil
 }
