@@ -5,6 +5,7 @@
 package handler
 
 import (
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/altessa-s/go-atlas/transport/http/server/router"
@@ -14,7 +15,10 @@ import (
 // Returns a subrouter mounted at /metrics.
 func PrometheusMetrics(r router.Router) router.Router {
 	metricsRouter := r.PathPrefix("/metrics").Subrouter()
-	metricsRouter.Handle("/", promhttp.Handler())
+	metricsRouter.Handle("/", promhttp.HandlerFor(
+		prometheus.DefaultGatherer,
+		promhttp.HandlerOpts{DisableCompression: true},
+	))
 
 	return metricsRouter
 }

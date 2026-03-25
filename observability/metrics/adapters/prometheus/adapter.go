@@ -164,7 +164,7 @@ func (a *Adapter) Close() error {
 // Handler implements adapters.HTTPHandler.
 // Returns an http.Handler that serves metrics in Prometheus format.
 func (a *Adapter) Handler() http.Handler {
-	return promhttp.HandlerFor(a.gatherer, promhttp.HandlerOpts{})
+	return promhttp.HandlerFor(a.gatherer, promhttp.HandlerOpts{DisableCompression: true})
 }
 
 // Registerer returns the underlying Prometheus registerer.
