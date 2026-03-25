@@ -108,8 +108,10 @@ func (s *Store) UnlockStuckEvents(ctx context.Context, since time.Time) error {
 // DeleteProcessedEvents removes processed events (sent, skipped, or expired) older than since.
 func (s *Store) DeleteProcessedEvents(ctx context.Context, since time.Time) error {
 	filter := bson.M{
-		collectionFieldPublishedAt: bson.M{"$lt": since.Unix()},                                                                   // Published before the 'since' time
-		collectionFieldStatus:      bson.M{"$in": []outbox.Status{outbox.StatusSent, outbox.StatusSkipped, outbox.StatusExpired}}, // Sent, skipped, or expired events
+		collectionFieldPublishedAt: bson.M{"$lt": since.Unix()},
+		collectionFieldStatus: bson.M{"$in": []outbox.Status{
+			outbox.StatusSent, outbox.StatusSkipped, outbox.StatusExpired,
+		}},
 	}
 	_, err := s.collection.DeleteMany(ctx, filter)
 	if err != nil {
