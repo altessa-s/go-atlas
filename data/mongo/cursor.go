@@ -44,6 +44,12 @@ func init() {
 // string is empty, malformed, or contains an invalid cursor ID.
 var ErrInvalidCursor = errors.New("invalid cursor")
 
+// ErrCursorChecksumMismatch is returned by [Cursor.ValidateChecksum] when the
+// cursor's checksum does not match the expected value, indicating that pagination
+// parameters (sort order or cursor ID field) have changed between requests.
+// Clients must restart pagination with the new parameters.
+var ErrCursorChecksumMismatch = errors.New("cursor checksum mismatch")
+
 // Cursor represents a position in a paginated dataset for cursor-based pagination.
 // Uses MongoDB ObjectID for efficient and stable pagination.
 // Automatically serializes to/from base64-encoded JSON for API transmission.
@@ -643,7 +649,7 @@ func (c *Cursor) ValidateChecksum(sort bson.D, cursorIdField string) error {
 		// Get actual cursor ID field (use default if empty)
 		actualCursorIdField := cmp.Or(c.CursorIdField, DefaultCursorIdField)
 
-		return fmt.Errorf("cursor checksum mismatch: pagination parameters have changed (sort: %v→%v, cursor field: %s→%s)",
+		return coreerrs.Wrapf(ErrCursorChecksumMismatch, "pagination parameters have changed (sort: %v→%v, cursor field: %s→%s)",
 			cursorSort, sort,
 			actualCursorIdField, cursorIdField)
 	}
