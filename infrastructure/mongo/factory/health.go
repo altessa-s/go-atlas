@@ -6,6 +6,7 @@ package factory
 
 import (
 	"context"
+	"log/slog"
 
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 
@@ -18,16 +19,19 @@ var _ health.Checker = (*mongoHealthChecker)(nil)
 
 // mongoHealthChecker implements health.Checker for a Mongo wrapper.
 type mongoHealthChecker struct {
-	m *datamongo.Mongo
+	m      *datamongo.Mongo
+	logger *slog.Logger
 }
 
 // CheckHealth implements health.Checker.
 func (c *mongoHealthChecker) CheckHealth(ctx context.Context) health.ServingStatus {
 	client := c.m.Client()
 	if client == nil {
+		c.logger.Warn("mongo health check failed: client is nil")
 		return health.StatusNotServing
 	}
 	if err := client.Ping(ctx, readpref.Primary()); err != nil {
+		c.logger.Warn("mongo health check failed", slog.Any("error", err))
 		return health.StatusNotServing
 	}
 	return health.StatusServing

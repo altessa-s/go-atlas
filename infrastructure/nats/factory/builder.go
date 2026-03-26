@@ -100,6 +100,7 @@ type ConnectionBuilder struct {
 	// Dependencies
 	tlsConfig         *tls.Config
 	healthCoordinator *health.Coordinator
+	healthServiceName string
 }
 
 // New creates a [ConnectionBuilder] for the given NATS config.
@@ -140,7 +141,10 @@ func (b *ConnectionBuilder) Build() (*nats.Conn, error) {
 	}
 
 	if b.healthCoordinator != nil {
-		b.healthCoordinator.RegisterService("nats", &natsHealthChecker{conn: conn})
+		b.healthCoordinator.RegisterService(cmp.Or(b.healthServiceName, "nats"), &natsHealthChecker{
+			conn:   conn,
+			logger: b.Logger(),
+		})
 	}
 
 	return conn, nil

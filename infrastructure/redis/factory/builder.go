@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -44,6 +45,7 @@ type ClientBuilder struct {
 
 	// Dependencies
 	healthCoordinator *health.Coordinator
+	healthServiceName string
 }
 
 // New creates a [ClientBuilder] for the given Redis config.
@@ -93,7 +95,10 @@ func (b *ClientBuilder) Build(ctx context.Context) (redis.UniversalClient, error
 		slog.Any("hosts", b.cfg.Hosts))
 
 	if b.healthCoordinator != nil {
-		b.healthCoordinator.RegisterService("redis", &redisHealthChecker{client: client})
+		b.healthCoordinator.RegisterService(cmp.Or(b.healthServiceName, "redis"), &redisHealthChecker{
+			client: client,
+			logger: b.Logger(),
+		})
 	}
 
 	return client, nil

@@ -6,6 +6,7 @@ package factory
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/redis/go-redis/v9"
 
@@ -17,11 +18,13 @@ var _ health.Checker = (*redisHealthChecker)(nil)
 // redisHealthChecker implements health.Checker for a Redis client.
 type redisHealthChecker struct {
 	client redis.UniversalClient
+	logger *slog.Logger
 }
 
 // CheckHealth implements health.Checker.
 func (c *redisHealthChecker) CheckHealth(ctx context.Context) health.ServingStatus {
 	if err := c.client.Ping(ctx).Err(); err != nil {
+		c.logger.Warn("redis health check failed", slog.Any("error", err))
 		return health.StatusNotServing
 	}
 	return health.StatusServing

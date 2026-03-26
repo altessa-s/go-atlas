@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"fmt"
@@ -33,6 +34,7 @@ type MongoBuilder struct {
 	tlsConfig         *tls.Config
 	kmsProvider       kms.Provider
 	healthCoordinator *health.Coordinator
+	healthServiceName string
 	collector         metrics.Collector
 }
 
@@ -70,7 +72,10 @@ func (b *MongoBuilder) Build(_ context.Context) (*mongo.Mongo, error) {
 	}
 
 	if b.healthCoordinator != nil {
-		b.healthCoordinator.RegisterService("mongo", &mongoHealthChecker{m: m})
+		b.healthCoordinator.RegisterService(cmp.Or(b.healthServiceName, "mongo"), &mongoHealthChecker{
+			m:      m,
+			logger: b.Logger(),
+		})
 	}
 
 	return m, nil

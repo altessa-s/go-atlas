@@ -45,6 +45,13 @@ func (b *MongoBuilder) UseHealthCoordinator(v *health.Coordinator) *MongoBuilder
 	return b
 }
 
+// UseHealthServiceName sets the service name used when registering the
+// health checker with the coordinator. Defaults to "mongo" if not set.
+func (b *MongoBuilder) UseHealthServiceName(v string) *MongoBuilder {
+	b.healthServiceName = v
+	return b
+}
+
 // UseCollector sets the [metrics.Collector] for recording MongoDB metrics.
 func (b *MongoBuilder) UseCollector(v metrics.Collector) *MongoBuilder {
 	b.collector = v

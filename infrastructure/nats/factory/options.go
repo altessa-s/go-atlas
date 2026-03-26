@@ -36,3 +36,10 @@ func (b *ConnectionBuilder) UseHealthCoordinator(v *health.Coordinator) *Connect
 	b.healthCoordinator = v
 	return b
 }
+
+// UseHealthServiceName sets the service name used when registering the
+// health checker with the coordinator. Defaults to "nats" if not set.
+func (b *ConnectionBuilder) UseHealthServiceName(v string) *ConnectionBuilder {
+	b.healthServiceName = v
+	return b
+}

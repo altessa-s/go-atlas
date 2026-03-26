@@ -29,3 +29,10 @@ func (b *ClientBuilder) UseHealthCoordinator(v *health.Coordinator) *ClientBuild
 	b.healthCoordinator = v
 	return b
 }
+
+// UseHealthServiceName sets the service name used when registering the
+// health checker with the coordinator. Defaults to "redis" if not set.
+func (b *ClientBuilder) UseHealthServiceName(v string) *ClientBuilder {
+	b.healthServiceName = v
+	return b
+}

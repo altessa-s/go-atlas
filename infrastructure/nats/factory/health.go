@@ -6,6 +6,7 @@ package factory
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/nats-io/nats.go"
 
@@ -16,13 +17,20 @@ var _ health.Checker = (*natsHealthChecker)(nil)
 
 // natsHealthChecker implements health.Checker for a NATS connection.
 type natsHealthChecker struct {
-	conn *nats.Conn
+	conn   *nats.Conn
+	logger *slog.Logger
 }
 
 // CheckHealth implements health.Checker.
+// Context is intentionally unused — IsConnected/IsReconnecting are non-blocking state reads.
 func (c *natsHealthChecker) CheckHealth(_ context.Context) health.ServingStatus {
 	if c.conn.IsConnected() {
 		return health.StatusServing
 	}
+	if c.conn.IsReconnecting() {
+		c.logger.Warn("nats health check: connection is reconnecting")
+		return health.StatusDegraded
+	}
+	c.logger.Warn("nats health check: connection is not active")
 	return health.StatusNotServing
 }
