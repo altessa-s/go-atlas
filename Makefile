@@ -39,6 +39,10 @@ lint: tidy fmt ## Run linter
 tidy: ## Run go mod tidy
 	@go mod tidy
 
+.PHONY: proto
+proto: ## Generate Go code from proto files using buf
+	@cd proto && buf generate
+
 .PHONY: generate
 generate: ## Run go generate on all packages
 	@go generate ./...
@@ -70,7 +74,6 @@ test-shuffle: ## Run all tests with randomized order (helps catch order-dependen
 .PHONY: test-coverage
 test-coverage: ## Run tests with coverage report
 	@go test -cover ./...
-
 
 .PHONY: bench
 bench: ## Run all benchmarks

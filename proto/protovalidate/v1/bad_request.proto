@@ -1,0 +1,83 @@
+// Copyright(c) 2026 DATOP (ALTESSA) LLC.
+// Copyright(c) 2021-2025 OneTwoWork LLC.
+// All rights reserved.
+
+
+syntax = "proto2";
+package io.altessa.grpc.protovalidate.v1;
+
+// Specifies the package name for generated Java code.
+option java_package = "io.altessa.grpc.protovalidate.v1";
+option java_multiple_files = true;
+
+option go_package = "github.com/altessa-s/go-atlas/proto/gen/protovalidate/v1;protovalidatev1";
+
+import "google/protobuf/descriptor.proto";
+
+// Defines a general error structure for requests that are malformed or contain invalid data.
+// It typically includes a list of specific field violations that caused the request to be rejected.
+// This message is often used as a detail payload for `google.rpc.Status` when the error code is `INVALID_ARGUMENT`.
+message BadRequest {
+  // A list of individual field violations that contributed to the bad request.
+  repeated FieldViolation fieldViolations = 1;
+}
+
+// Defines a specific issue with a single field in the request message.
+// It provides details about which field was problematic and why.
+message FieldViolation {
+  // The dot-separated path to the field that caused the violation.
+  // For example, "user.address.street" or "items[2].name".
+  optional string fieldPath = 1;
+
+  // Human-readable message describing the violation.
+  // This should be specific to the field and the error condition.
+  optional string message = 2;
+
+  // Application-specific error code or identifier for this type of violation.
+  // This can be used by clients for programmatic error handling.
+  optional string code = 3;
+
+  // Structured representation of the path to the field that caused the violation.
+  // This provides more detailed information than `fieldPath` and can be used for more precise error handling or display.
+  repeated FieldPathComponent fieldPathComponents = 4;
+}
+
+// Defines a single segment in the path to a violated field.
+// It provides details about the field name, number, type, and, if applicable, its index in a repeated field or its key in a map.
+message FieldPathComponent {
+  // Field number as defined in the .proto file.
+  optional int32 number = 1;
+
+  // Name of the field as defined in the .proto file.
+  optional string name = 2;
+
+  // Data type of the field.
+  optional google.protobuf.FieldDescriptorProto.Type type = 3;
+
+  // For map fields, specifies the data type of the map keys.
+  optional google.protobuf.FieldDescriptorProto.Type mapKeyType = 4;
+
+  // For map fields, specifies the data type of the map values.
+  optional google.protobuf.FieldDescriptorProto.Type mapValueType = 5;
+
+  // Indicates whether the field is a repeated field (i.e., an array or list).
+  optional bool isRepeated = 6;
+
+  // For repeated fields, the 0-based index of the element that caused the violation.
+  optional uint64 repeatedIndex = 7;
+
+  // If the field is a map, this `oneof` specifies the key of the map entry that caused the violation.
+  // Only one of the `key` fields will be set, corresponding to the actual type of the map key.
+  oneof mapKey {
+    // The index if the map key is treated as an array index (less common for proto maps).
+    uint64 index = 8;
+    // The map key, if its type is `bool`.
+    bool boolKey = 9;
+    // The map key, if its type is `int32`, `int64`, `sint32`, `sint64`, `sfixed32`, or `sfixed64`.
+    int64 intKey = 10;
+    // The map key, if its type is `uint32`, `uint64`, `fixed32`, or `fixed64`.
+    uint64 uintKey = 11;
+    // The map key, if its type is `string`.
+    string stringKey = 12;
+  }
+}
