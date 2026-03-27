@@ -9,7 +9,7 @@ import validation "github.com/go-ozzo/ozzo-validation/v4"
 // Default values for Metrics configuration.
 const (
 	defaultMetricsEnabled = false
-	defaultMetricsType   = MetricsTypePrometheus
+	defaultMetricsType    = MetricsTypePrometheus
 )
 
 // MetricsType represents the type of metrics backend.
@@ -65,7 +65,7 @@ type MetricsAdapters struct {
 func DefaultMetrics() Metrics {
 	return Metrics{
 		Enabled: defaultMetricsEnabled,
-		Type:   defaultMetricsType,
+		Type:    defaultMetricsType,
 	}
 }
 
