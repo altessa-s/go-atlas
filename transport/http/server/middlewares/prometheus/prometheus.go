@@ -35,6 +35,15 @@ const (
 	metricServerResponseSizeBytes      = "server_response_size_bytes"
 )
 
+const middlewareName = "prometheus"
+
+// Name returns the middleware name used for dependency resolution and chain ordering.
+func Name() string { return middlewareName }
+
+// ID is a lightweight [middlewares.Middleware] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = middlewares.Noop(middlewareName)
+
 // Compile-time interface assertion.
 var _ middlewares.Middleware = (*Middleware)(nil)
 
@@ -78,7 +87,7 @@ func New(opt ...Option) *Middleware {
 	// Return a wrapper that uses the shared metrics but has its own ignore checker
 	return &Middleware{
 		BaseMiddleware: middlewares.NewBaseMiddlewareWithFilter(
-			"prometheus",
+			middlewareName,
 			opts.ignorePaths,
 			opts.ignorePatterns,
 			opts.logger,

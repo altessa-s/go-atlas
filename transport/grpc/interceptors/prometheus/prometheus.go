@@ -26,6 +26,13 @@ import (
 // interceptorName is the name of the prometheus interceptor.
 const interceptorName = "prometheus"
 
+// Name returns the interceptor name used for dependency resolution and chain ordering.
+func Name() string { return interceptorName }
+
+// ID is a lightweight [interceptors.Interceptor] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = interceptors.Ref(interceptorName)
+
 // Ensure serverInterceptorWrapper implements the ServerInterceptor interface.
 var _ interceptors.ServerInterceptor = (*serverInterceptorWrapper)(nil)
 
@@ -113,7 +120,7 @@ func (w *serverInterceptorWrapper) Name() string {
 // Dependencies returns interceptors that prometheus requires to run before it.
 // Prometheus uses metadata for method name extraction.
 func (w *serverInterceptorWrapper) Dependencies() []string {
-	return []string{"metadata"}
+	return []string{sharedmetadata.Name()}
 }
 
 type interceptor struct {

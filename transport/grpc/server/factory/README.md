@@ -19,6 +19,16 @@ srv, err := factory.New(cfg.Grpc).
     Build()
 ```
 
+### Excluding specific interceptors
+
+```go
+srv, err := factory.New(cfg.Grpc).
+    UseLogger(logger).
+    UseTracer(tracer).
+    WithInterceptors(auth.ID, cache.ID).
+    Build()
+```
+
 ## Methods
 
 ### Constructor
@@ -45,7 +55,7 @@ srv, err := factory.New(cfg.Grpc).
 
 | Method | Description |
 |--------|-------------|
-| `WithInterceptors()` | Creates all enabled interceptors from `cfg.Interceptors` and registers them in order |
+| `WithInterceptors(exclude ...interceptors.Interceptor)` | Creates all enabled interceptors from `cfg.Interceptors`; pass typed IDs (e.g., `auth.ID`) to skip specific ones |
 | `WithLoggerInterceptor()` | Adds a structured request/response logging interceptor |
 | `WithPrometheusInterceptor()` | Adds a Prometheus metrics collection interceptor |
 | `WithTracingInterceptor()` | Adds a distributed tracing interceptor |

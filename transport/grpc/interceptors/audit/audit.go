@@ -13,11 +13,23 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/realip"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/requestid"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	tracinginter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/tracing"
 )
+
+const interceptorName = "audit"
+
+// Name returns the interceptor name used for dependency resolution and chain ordering.
+func Name() string { return interceptorName }
+
+// ID is a lightweight [interceptors.Interceptor] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = interceptors.Ref(interceptorName)
 
 var _ driver.DrivenInterceptor = (*interceptor)(nil)
 var _ interceptors.Interceptor = (*interceptor)(nil)
@@ -33,7 +45,7 @@ func ServerInterceptor(auditor *audit.Auditor, opts ...Option) interceptors.Serv
 	o := newOptions(opts...)
 	i := &interceptor{
 		BaseInterceptor: interceptors.NewBaseInterceptorWithFilter(
-			"audit",
+			interceptorName,
 			o.ignoreMethods,
 			o.ignorePatterns,
 			o.logger,
@@ -46,12 +58,12 @@ func ServerInterceptor(auditor *audit.Auditor, opts ...Option) interceptors.Serv
 
 // Dependencies returns optional interceptors that audit reads from context.
 func (i *interceptor) Dependencies() []string {
-	return []string{"metadata", "requestid", "tracing"}
+	return []string{metadata.Name(), requestid.Name(), tracinginter.Name()}
 }
 
 // RequiredDependencies returns interceptors that audit requires to function.
 func (i *interceptor) RequiredDependencies() []string {
-	return []string{"realip"}
+	return []string{realip.Name()}
 }
 
 func (i *interceptor) DrivenInterceptor(ctx context.Context) (driver.Driver, context.Context) {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
 
 	"google.golang.org/grpc/codes"
@@ -32,6 +33,15 @@ func (f ValidatorFunc) Validate(ctx context.Context, msg proto.Message) error {
 	return f(ctx, msg)
 }
 
+const interceptorName = "protovalidator"
+
+// Name returns the interceptor name used for dependency resolution and chain ordering.
+func Name() string { return interceptorName }
+
+// ID is a lightweight [interceptors.Interceptor] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = interceptors.Ref(interceptorName)
+
 var (
 	_ driver.DrivenInterceptor = (*interceptor)(nil)
 	_ driver.DriverStream      = (*requestInterceptor)(nil)
@@ -49,7 +59,7 @@ type interceptor struct {
 // Protovalidator uses metadata for call information extraction and must run after auth
 // so that unauthenticated requests are rejected before validation.
 func (i *interceptor) Dependencies() []string {
-	return []string{"metadata", "auth"}
+	return []string{sharedmetadata.Name(), auth.Name()}
 }
 
 // requestInterceptor handles a single request with its own state.
@@ -80,7 +90,7 @@ func ServerInterceptor(validator Validator, opt ...Option) interceptors.ServerIn
 
 	ic := &interceptor{
 		BaseInterceptor: interceptors.NewBaseInterceptorWithFilter(
-			"protovalidator",
+			interceptorName,
 			opts.ignoreMethods,
 			opts.ignorePatterns,
 			opts.logger,

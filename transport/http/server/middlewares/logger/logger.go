@@ -15,6 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas/core/time/timeformat"
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
+	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/realip"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/requestid"
 	"github.com/altessa-s/go-atlas/transport/internal/clientip"
 	"github.com/altessa-s/go-atlas/transport/internal/observability"
@@ -22,6 +23,7 @@ import (
 	coreio "github.com/altessa-s/go-atlas/core/io"
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 	slogx "github.com/altessa-s/go-atlas/observability/slog"
+	tracingmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/tracing"
 )
 
 const (
@@ -32,6 +34,15 @@ const (
 	// duration, request_id, and optional request/response content).
 	DefaultFieldsCapacity = 15
 )
+
+const middlewareName = "logger"
+
+// Name returns the middleware name used for dependency resolution and chain ordering.
+func Name() string { return middlewareName }
+
+// ID is a lightweight [middlewares.Middleware] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = middlewares.Noop(middlewareName)
 
 // Compile-time interface assertion.
 var _ middlewares.Middleware = (*middleware)(nil)
@@ -49,7 +60,7 @@ type middleware struct {
 // All dependencies are optional for ordering - logger gracefully degrades
 // if requestid, realip, or tracing are not available in context.
 func (m *middleware) Dependencies() []string {
-	return []string{"requestid", "realip", "tracing"}
+	return []string{requestid.Name(), realip.Name(), tracingmw.Name()}
 }
 
 // Handler wraps an http.Handler with request logging functionality.
@@ -201,7 +212,7 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 func New(logHandler LogHandler, opt ...Option) *middleware {
 	if logHandler == nil {
 		return &middleware{
-			BaseMiddleware: middlewares.NewBaseMiddleware("logger", nil),
+			BaseMiddleware: middlewares.NewBaseMiddleware(middlewareName, nil),
 		}
 	}
 
@@ -233,7 +244,7 @@ func New(logHandler LogHandler, opt ...Option) *middleware {
 
 	return &middleware{
 		BaseMiddleware: middlewares.NewBaseMiddlewareWithFilter(
-			"logger",
+			middlewareName,
 			opts.ignorePaths,
 			opts.ignorePatterns,
 			nil,

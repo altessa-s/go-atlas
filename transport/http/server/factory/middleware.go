@@ -7,6 +7,7 @@ package factory
 import (
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
+	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/internal/clientip"
 
 	bodylimitmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/bodylimit"
@@ -36,24 +37,52 @@ func (b *ServerBuilder) middlewaresCfg() *config.MiddlewaresConfig {
 // WithMiddlewares creates all enabled middlewares from the builder's config
 // (b.cfg.Middlewares) and adds them. If not called, no config-based middleware
 // will be applied. Can be combined with WithMiddleware() and Without*Middleware().
-func (b *ServerBuilder) WithMiddlewares() *ServerBuilder {
+//
+// The optional exclude parameter accepts middleware references to skip.
+// Each middleware package exports an ID variable that can be used here.
+//
+// Example:
+//
+//	// Register all middlewares except cors and limiter:
+//	builder.WithMiddlewares(corsmw.ID, limitermw.ID)
+func (b *ServerBuilder) WithMiddlewares(exclude ...middlewares.Middleware) *ServerBuilder {
 	if b.middlewaresCfg() == nil {
 		return b
 	}
-	return b.
-		WithRealIPMiddleware().
-		WithRequestIDMiddleware().
-		WithRecoveryMiddleware().
-		WithTracingMiddleware().
-		WithLoggerMiddleware().
-		WithPrometheusMiddleware().
-		WithCorsMiddleware().
-		WithSecurityHeadersMiddleware().
-		WithBodyLimitMiddleware().
-		WithIpAclMiddleware().
-		WithGeoAclMiddleware().
-		WithLimiterMiddleware().
-		WithIdempotencyMiddleware()
+
+	skip := make(map[string]struct{}, len(exclude))
+	for _, e := range exclude {
+		skip[e.Name()] = struct{}{}
+	}
+
+	type entry struct {
+		name string
+		fn   func() *ServerBuilder
+	}
+
+	middlewares := []entry{
+		{realipmw.Name(), b.WithRealIPMiddleware},
+		{requestidmw.Name(), b.WithRequestIDMiddleware},
+		{recoverymw.Name(), b.WithRecoveryMiddleware},
+		{tracingmw.Name(), b.WithTracingMiddleware},
+		{loggermw.Name(), b.WithLoggerMiddleware},
+		{prometheusmw.Name(), b.WithPrometheusMiddleware},
+		{corsmw.Name(), b.WithCorsMiddleware},
+		{securityheadersmw.Name(), b.WithSecurityHeadersMiddleware},
+		{bodylimitmw.Name(), b.WithBodyLimitMiddleware},
+		{ipaclmw.Name(), b.WithIpAclMiddleware},
+		{geoaclmw.Name(), b.WithGeoAclMiddleware},
+		{limitermw.Name(), b.WithLimiterMiddleware},
+		{idempotencymw.Name(), b.WithIdempotencyMiddleware},
+	}
+
+	for _, m := range middlewares {
+		if _, excluded := skip[m.name]; !excluded {
+			m.fn()
+		}
+	}
+
+	return b
 }
 
 // WithBodyLimitMiddleware creates a body limit middleware from the builder's configuration.

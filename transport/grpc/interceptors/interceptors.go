@@ -23,3 +23,13 @@ type MatchFunc = base.MatchFunc
 type Interceptor interface {
 	Name() string
 }
+
+// ref is a lightweight Interceptor backed by a name string.
+type ref string
+
+func (r ref) Name() string { return string(r) }
+
+// Ref creates a lightweight [Interceptor] that carries only a name.
+// Use this to build typed identifiers for exclusion lists such as
+// [factory.ServerBuilder.WithInterceptors].
+func Ref(name string) Interceptor { return ref(name) }

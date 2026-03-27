@@ -101,7 +101,7 @@ func ClientInterceptor(opt ...Option) interceptors.ClientInterceptor {
 	}
 
 	return &clientInterceptor{
-		BaseInterceptor: interceptors.NewBaseInterceptor(InterceptorName, opts.logger),
+		BaseInterceptor: interceptors.NewBaseInterceptor(interceptorName, opts.logger),
 		options:         opts,
 	}
 }

@@ -21,6 +21,16 @@
 // [MiddlewareError] carries an HTTP status code, user-facing message, and
 // machine-readable error code for structured error responses from middleware.
 //
+// # Middleware Identity
+//
+// Every middleware sub-package exports three identification helpers:
+//
+//   - Name() string -- returns the middleware name as a plain string.
+//   - ID -- a package-level [Middleware] variable (backed by [Noop]) for
+//     typed exclusion lists (e.g., [factory.ServerBuilder.WithMiddlewares]).
+//   - Dependencies / RequiredDependencies -- use sibling Name() functions
+//     instead of string literals for compile-time safety.
+//
 // # Usage
 //
 //	mw := middlewares.Func("logging", func(next http.Handler) http.Handler {

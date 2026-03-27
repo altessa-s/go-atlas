@@ -16,6 +16,7 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/realip"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/requestid"
 	"github.com/altessa-s/go-atlas/transport/internal/clientip"
 	"github.com/altessa-s/go-atlas/transport/internal/endpointfilter"
@@ -29,6 +30,7 @@ import (
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	slogx "github.com/altessa-s/go-atlas/observability/slog"
+	tracinginter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/tracing"
 	stdSlices "slices"
 )
 
@@ -168,15 +170,24 @@ func (i *interceptor) DrivenInterceptor(ctx context.Context) (driver.Driver, con
 	return ri, ctx
 }
 
+const interceptorName = "logger"
+
+// Name returns the interceptor name used for dependency resolution and chain ordering.
+func Name() string { return interceptorName }
+
+// ID is a lightweight [interceptors.Interceptor] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = interceptors.Ref(interceptorName)
+
 func (i *interceptor) Name() string {
-	return "logger"
+	return interceptorName
 }
 
 // Dependencies returns interceptors that logger reads from context.
 // All dependencies are optional for ordering - logger gracefully degrades
 // if requestid, realip, or tracing data is not available in context.
 func (i *interceptor) Dependencies() []string {
-	return []string{"metadata", "requestid", "realip", "tracing"}
+	return []string{metadata.Name(), requestid.Name(), realip.Name(), tracinginter.Name()}
 }
 
 func (ri *requestInterceptor) PostCall(ctx context.Context, resp any, err error) error {

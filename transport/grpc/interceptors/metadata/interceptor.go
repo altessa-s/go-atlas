@@ -10,10 +10,24 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
 )
 
+const interceptorName = "metadata"
+
+// Name returns the interceptor name used for dependency resolution and chain ordering.
+func Name() string { return interceptorName }
+
+// namer satisfies interceptors.Interceptor without importing the parent package.
+type namer string
+
+func (n namer) Name() string { return string(n) }
+
+// ID is a lightweight interceptor reference for this package,
+// suitable for passing to exclusion lists.
+var ID namer = interceptorName
+
 // metadataInterceptor handles initialization of CallMetadata in the context.
 type metadataInterceptor struct{}
 
-func (i metadataInterceptor) Name() string { return "metadata" }
+func (i metadataInterceptor) Name() string { return interceptorName }
 
 // Dependencies returns nil as metadata has no dependencies.
 // Metadata is the root interceptor that all others depend on.

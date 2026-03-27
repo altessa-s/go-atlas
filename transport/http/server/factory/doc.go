@@ -18,15 +18,15 @@
 //
 // Three levels of middleware control are available:
 //
-//   - [ServerBuilder.WithMiddlewares] — all config-based middleware at once
+//   - [ServerBuilder.WithMiddlewares] — all config-based middleware at once;
+//     accepts optional exclude arguments (e.g., corsmw.ID, limitermw.ID) to skip specific middleware.
 //   - [ServerBuilder.WithBodyLimitMiddleware], [ServerBuilder.WithCorsMiddleware], etc. — individual config-based middleware
 //   - [ServerBuilder.WithMiddleware] — custom pre-built middleware instances
 //
-// Use Without* methods to disable specific middleware after [ServerBuilder.WithMiddlewares]:
+// To skip specific middleware, pass their typed IDs:
 //
 //	srv, err := factory.New(cfg.Http).
 //	    UseLogger(logger).
-//	    WithMiddlewares().
-//	    WithoutCorsMiddleware().
+//	    WithMiddlewares(corsmw.ID, limitermw.ID).
 //	    Build()
 package factory

@@ -15,6 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas/data/cache/lru"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/health"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/requestid"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -52,7 +53,7 @@ type interceptor struct {
 // Dependencies declares that errstatus must run after requestid so that
 // DefaultFinalizer can read the request ID from the context.
 func (i *interceptor) Dependencies() []string {
-	return []string{"requestid"}
+	return []string{requestid.Name()}
 }
 
 const convertOperation = "convert"
@@ -66,7 +67,7 @@ func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
 		opts.finalizer = withDomainFinalizer(opts.finalizer, opts.domain)
 	}
 
-	base := interceptors.NewBaseInterceptor(InterceptorName, opts.logger)
+	base := interceptors.NewBaseInterceptor(interceptorName, opts.logger)
 
 	var cache lru.Cacher[string, *cacheEntry]
 

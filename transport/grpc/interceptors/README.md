@@ -15,7 +15,8 @@ include Chain, BaseInterceptor, ServerInterceptor/ClientInterceptor interfaces, 
 | `BaseInterceptor`         | Embeddable base with endpoint filtering, logging, and name identification                |
 | `ServerInterceptor`       | Interface for server-side interception of unary and streaming RPCs                       |
 | `ClientInterceptor`       | Interface for client-side interception of unary and streaming RPCs                       |
-| `Interceptor`             | Minimal contract (Name) required by every interceptor in a Chain                         |
+| `Interceptor`             | Minimal contract (`Name`) required by every interceptor in a Chain                       |
+| `Ref`                     | Creates a lightweight `Interceptor` from a name string, used for typed `ID` exports      |
 | `Error`                   | Combines `grpc/status.Status` with a standard Go error, implements both interfaces       |
 | `Matcher` / `MatchFunc`   | Dynamic runtime condition for conditional interceptor activation                         |
 | `DrivenInterceptorFunc`   | Function adapter for the driven interceptor pattern                                      |
@@ -30,6 +31,16 @@ include Chain, BaseInterceptor, ServerInterceptor/ClientInterceptor interfaces, 
 | `DependencyOrder`  | Returns computed interceptor ordering for debugging                           |
 | `DependencyGraph`  | Returns map of interceptor names to declared dependencies                     |
 | `WithLogger`       | Sets logger for dependency resolution debug output                            |
+
+## Interceptor Identity
+
+Every interceptor sub-package exports three identification helpers:
+
+| Export      | Type                | Purpose                                                              |
+|-------------|---------------------|----------------------------------------------------------------------|
+| `Name()`    | `func() string`     | Returns the interceptor name as a plain string                       |
+| `ID`        | `Interceptor`       | Lightweight typed reference for factory exclusion lists (`auth.ID`)  |
+| Dependencies | `[]string`         | Uses sibling `Name()` calls instead of string literals               |
 
 ## Subpackages
 

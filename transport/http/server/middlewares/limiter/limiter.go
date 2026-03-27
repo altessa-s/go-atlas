@@ -13,6 +13,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/data/limiters/tokenbucket"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
+	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/realip"
 	"github.com/altessa-s/go-atlas/transport/internal/clientip"
 	"github.com/altessa-s/go-atlas/transport/internal/fallback"
 	"github.com/altessa-s/go-atlas/transport/internal/headers"
@@ -25,6 +26,15 @@ const (
 	StatusTooManyRequests    = http.StatusTooManyRequests
 	StatusServiceUnavailable = http.StatusServiceUnavailable
 )
+
+const middlewareName = "limiter"
+
+// Name returns the middleware name used for dependency resolution and chain ordering.
+func Name() string { return middlewareName }
+
+// ID is a lightweight [middlewares.Middleware] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = middlewares.Noop(middlewareName)
 
 // Compile-time interface assertion.
 var _ middlewares.Middleware = (*middleware)(nil)
@@ -42,7 +52,7 @@ func (m *middleware) Dependencies() []string {
 
 // RequiredDependencies returns middlewares that limiter requires to function.
 func (m *middleware) RequiredDependencies() []string {
-	return []string{"realip"}
+	return []string{realip.Name()}
 }
 
 // New creates a new rate limiter middleware with the given [sharedlimiter.Limiter]
@@ -54,7 +64,7 @@ func New(limiter sharedlimiter.Limiter, opt ...Option) *middleware {
 
 	return &middleware{
 		BaseMiddleware: middlewares.NewBaseMiddlewareWithFilter(
-			"limiter",
+			middlewareName,
 			opts.ignorePaths,
 			opts.ignorePatterns,
 			opts.logger,

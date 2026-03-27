@@ -17,6 +17,15 @@ import (
 // The error is written as a structured 413 response via [responder.WriteError].
 var ErrBodyTooLarge = errors.New("request body too large")
 
+const middlewareName = "bodylimit"
+
+// Name returns the middleware name used for dependency resolution and chain ordering.
+func Name() string { return middlewareName }
+
+// ID is a lightweight [middlewares.Middleware] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = middlewares.Noop(middlewareName)
+
 // Compile-time interface assertion.
 var _ middlewares.Middleware = (*middleware)(nil)
 
@@ -51,7 +60,7 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 // New creates a new body limit middleware with the given maximum request body size.
 func New(maxSize int64) *middleware {
 	return &middleware{
-		BaseMiddleware: middlewares.NewBaseMiddleware("bodylimit", nil),
+		BaseMiddleware: middlewares.NewBaseMiddleware(middlewareName, nil),
 		maxSize:        maxSize,
 	}
 }

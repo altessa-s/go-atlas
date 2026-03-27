@@ -11,8 +11,18 @@ import (
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/observability/tracing/propagation"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
+	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/realip"
 	"github.com/altessa-s/go-atlas/transport/internal/clientip"
 )
+
+const middlewareName = "tracing"
+
+// Name returns the middleware name used for dependency resolution and chain ordering.
+func Name() string { return middlewareName }
+
+// ID is a lightweight [middlewares.Middleware] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = middlewares.Noop(middlewareName)
 
 // Compile-time interface assertion.
 var _ middlewares.Middleware = (*Middleware)(nil)
@@ -33,7 +43,7 @@ type Middleware struct {
 // Dependencies returns middlewares that tracing requires to run before it.
 // Tracing uses realip for client IP extraction if available.
 func (m *Middleware) Dependencies() []string {
-	return []string{"realip"}
+	return []string{realip.Name()}
 }
 
 // New creates a new tracing [Middleware] with the provided tracer and options.
@@ -47,7 +57,7 @@ func New(tracer tracing.Tracer, opts ...Option) *Middleware {
 
 	return &Middleware{
 		BaseMiddleware: middlewares.NewBaseMiddlewareWithFilter(
-			"tracing",
+			middlewareName,
 			cfg.ignorePaths,
 			cfg.ignorePatterns,
 			cfg.logger,

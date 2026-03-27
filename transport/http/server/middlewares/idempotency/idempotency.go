@@ -30,6 +30,15 @@ const (
 	messageInternalServerError         = "Internal Server Error"
 )
 
+const middlewareName = "idempotency"
+
+// Name returns the middleware name used for dependency resolution and chain ordering.
+func Name() string { return middlewareName }
+
+// ID is a lightweight [middlewares.Middleware] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = middlewares.Noop(middlewareName)
+
 // Compile-time interface assertion.
 var _ middlewares.Middleware = (*middleware)(nil)
 
@@ -58,7 +67,7 @@ func New(storage idempotency.Idempotency, opt ...Option) *middleware {
 
 	return &middleware{
 		BaseMiddleware: middlewares.NewBaseMiddlewareWithFilter(
-			"idempotency",
+			middlewareName,
 			opts.ignorePaths,
 			opts.ignorePatterns,
 			opts.logger,

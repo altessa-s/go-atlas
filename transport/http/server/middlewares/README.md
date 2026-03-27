@@ -19,6 +19,16 @@ them to a final handler with topological ordering and deduplication. `Conditiona
 | `ConditionalMiddleware` | Wraps a middleware with a runtime toggle for conditional activation             |
 | `MiddlewareError`       | Carries HTTP status code, user-facing message, and machine-readable error code |
 
+## Middleware Identity
+
+Every middleware sub-package exports three identification helpers:
+
+| Export      | Type                | Purpose                                                              |
+|-------------|---------------------|----------------------------------------------------------------------|
+| `Name()`    | `func() string`     | Returns the middleware name as a plain string                        |
+| `ID`        | `Middleware`         | Lightweight typed reference for factory exclusion lists (`cors.ID`)  |
+| Dependencies | `[]string`         | Uses sibling `Name()` calls instead of string literals               |
+
 ## Subpackages
 
 | Package                                    | Description                                                    |

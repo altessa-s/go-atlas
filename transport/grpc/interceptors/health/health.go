@@ -29,6 +29,15 @@ type Health interface {
 	Health(context.Context) error
 }
 
+const interceptorName = "health"
+
+// Name returns the interceptor name used for dependency resolution and chain ordering.
+func Name() string { return interceptorName }
+
+// ID is a lightweight [interceptors.Interceptor] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = interceptors.Ref(interceptorName)
+
 var _ interceptors.ServerInterceptor = (*interceptor)(nil)
 
 type interceptor struct {
@@ -49,7 +58,7 @@ func ServerInterceptor(health Health, opt ...Option) interceptors.ServerIntercep
 
 	return &interceptor{
 		BaseInterceptor: interceptors.NewBaseInterceptorWithFilter(
-			"health",
+			interceptorName,
 			opts.ignoreMethods,
 			opts.ignorePatterns,
 			opts.logger,

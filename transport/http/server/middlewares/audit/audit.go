@@ -13,8 +13,20 @@ import (
 	"github.com/altessa-s/go-atlas/data/audit"
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
+	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/realip"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/requestid"
+
+	tracingmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/tracing"
 )
+
+const middlewareName = "audit"
+
+// Name returns the middleware name used for dependency resolution and chain ordering.
+func Name() string { return middlewareName }
+
+// ID is a lightweight [middlewares.Middleware] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = middlewares.Noop(middlewareName)
 
 // Compile-time interface assertion.
 var _ middlewares.Middleware = (*middleware)(nil)
@@ -28,12 +40,12 @@ type middleware struct {
 
 // Dependencies returns optional middlewares that audit reads from context.
 func (m *middleware) Dependencies() []string {
-	return []string{"requestid", "tracing"}
+	return []string{requestid.Name(), tracingmw.Name()}
 }
 
 // RequiredDependencies returns middlewares that audit requires to function.
 func (m *middleware) RequiredDependencies() []string {
-	return []string{"realip"}
+	return []string{realip.Name()}
 }
 
 // Handler wraps an http.Handler with request auditing functionality.
@@ -106,7 +118,7 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 func New(auditor *audit.Auditor, opts ...Option) *middleware {
 	if auditor == nil {
 		return &middleware{
-			BaseMiddleware: middlewares.NewBaseMiddleware("audit", nil),
+			BaseMiddleware: middlewares.NewBaseMiddleware(middlewareName, nil),
 		}
 	}
 
@@ -119,7 +131,7 @@ func New(auditor *audit.Auditor, opts ...Option) *middleware {
 
 	return &middleware{
 		BaseMiddleware: middlewares.NewBaseMiddlewareWithFilter(
-			"audit",
+			middlewareName,
 			o.ignorePaths,
 			o.ignorePatterns,
 			o.logger,

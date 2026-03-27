@@ -16,6 +16,15 @@ import (
 	"github.com/altessa-s/go-atlas/transport/internal/headers"
 )
 
+const middlewareName = "realip"
+
+// Name returns the middleware name used for dependency resolution and chain ordering.
+func Name() string { return middlewareName }
+
+// ID is a lightweight [middlewares.Middleware] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = middlewares.Noop(middlewareName)
+
 // Compile-time interface assertion.
 var _ middlewares.Middleware = (*middleware)(nil)
 
@@ -31,7 +40,7 @@ func (m *middleware) Dependencies() []string { return nil }
 // New creates a new real IP extraction middleware.
 func New(extractor *clientip.Extractor, logger *slog.Logger) *middleware {
 	return &middleware{
-		BaseMiddleware: middlewares.NewBaseMiddleware("realip", logger),
+		BaseMiddleware: middlewares.NewBaseMiddleware(middlewareName, logger),
 		extractor:      extractor,
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/errstatus"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -20,6 +21,13 @@ import (
 )
 
 const interceptorName = "auth"
+
+// Name returns the interceptor name used for dependency resolution and chain ordering.
+func Name() string { return interceptorName }
+
+// ID is a lightweight [interceptors.Interceptor] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = interceptors.Ref(interceptorName)
 
 var _ interceptors.ServerInterceptor = (*interceptor)(nil)
 
@@ -32,7 +40,7 @@ type interceptor struct {
 // Auth uses metadata for call information extraction and errstatus must
 // wrap auth so that authentication errors are enriched with RequestInfo.
 func (i *interceptor) Dependencies() []string {
-	return []string{"metadata", "errstatus"}
+	return []string{sharedmetadata.Name(), errstatus.Name()}
 }
 
 // ServerInterceptor returns a new interceptor that authenticates the request.

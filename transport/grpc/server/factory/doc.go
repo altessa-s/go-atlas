@@ -18,7 +18,8 @@
 //
 // Two levels of interceptor control are available:
 //
-//   - [ServerBuilder.WithInterceptors] -- all config-based interceptors at once
+//   - [ServerBuilder.WithInterceptors] -- all config-based interceptors at once;
+//     accepts optional exclude arguments (e.g., auth.ID, cache.ID) to skip specific interceptors.
 //   - [ServerBuilder.WithLoggerInterceptor], [ServerBuilder.WithTracingInterceptor], etc. -- individual config-based interceptors
 //
 // Dependencies must be set via Use*() methods before calling With*Interceptor methods:
@@ -31,5 +32,12 @@
 //	    UseAuth(authFn, clientAuth).
 //	    UseHealthChecker(healthChecker).
 //	    WithInterceptors().
+//	    Build()
+//
+// To skip specific interceptors, pass their typed IDs:
+//
+//	srv, err := factory.New(cfg.Grpc).
+//	    UseLogger(logger).
+//	    WithInterceptors(auth.ID, cache.ID).
 //	    Build()
 package factory

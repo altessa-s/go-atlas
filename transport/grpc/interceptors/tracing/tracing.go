@@ -16,10 +16,19 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
+
+	sharedmetadata "github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
 )
 
 // interceptorName is the name of the tracing interceptor.
 const interceptorName = "tracing"
+
+// Name returns the interceptor name used for dependency resolution and chain ordering.
+func Name() string { return interceptorName }
+
+// ID is a lightweight [interceptors.Interceptor] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = interceptors.Ref(interceptorName)
 
 // Interceptor provides tracing for gRPC server and client calls.
 type Interceptor struct {
@@ -92,7 +101,7 @@ func ClientStreamInterceptor(tracer tracing.Tracer, opts ...Option) grpc.StreamC
 
 // Dependencies returns interceptors that tracing requires to run before it.
 func (i *Interceptor) Dependencies() []string {
-	return []string{"metadata"}
+	return []string{sharedmetadata.Name()}
 }
 
 // ServerUnaryInterceptor returns a gRPC unary server interceptor.

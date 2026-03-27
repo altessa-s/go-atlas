@@ -20,13 +20,22 @@ import (
 
 const extractOperation = "extract"
 
+const interceptorName = "realip"
+
+// Name returns the interceptor name used for dependency resolution and chain ordering.
+func Name() string { return interceptorName }
+
+// ID is a lightweight [interceptors.Interceptor] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = interceptors.Ref(interceptorName)
+
 // ServerInterceptor returns a new interceptor that sets the real IP address in the context.
 // The extractor parameter configures how IP addresses are extracted from headers
 // and which proxies are trusted.
 func ServerInterceptor(extractor *clientip.Extractor, opt ...Option) interceptors.ServerInterceptor {
 	opts := newOptions(opt...)
 	return &interceptor{
-		BaseInterceptor: interceptors.NewBaseInterceptor("realip", opts.logger),
+		BaseInterceptor: interceptors.NewBaseInterceptor(interceptorName, opts.logger),
 		extractor:       extractor,
 		opts:            opts,
 	}

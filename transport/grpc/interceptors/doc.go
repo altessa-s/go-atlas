@@ -15,6 +15,8 @@
 //     and client-side interception of both unary and streaming RPCs.
 //   - [Error] -- combines a gRPC status with a standard Go error, implementing
 //     both the error and status.GRPCStatus interfaces.
+//   - [Ref] -- creates a lightweight [Interceptor] from a name string, used
+//     by sub-packages for typed ID exports and factory exclusion lists.
 //
 // The Driven Interceptor pattern (via [ServerDrivenInterceptor] and
 // [ClientDrivenInterceptor]) decouples business logic from gRPC-specific
@@ -23,6 +25,16 @@
 //
 // [Chain] automatically prepends a metadata interceptor so that all subsequent
 // interceptors receive pre-parsed [metadata.CallMetadata] in the context.
+//
+// # Interceptor Identity
+//
+// Every interceptor sub-package exports three identification helpers:
+//
+//   - Name() string -- returns the interceptor name as a plain string.
+//   - ID -- a package-level [Interceptor] variable for typed exclusion lists
+//     (e.g., [factory.ServerBuilder.WithInterceptors]).
+//   - Dependencies / RequiredDependencies -- use sibling Name() functions
+//     instead of string literals for compile-time safety.
 //
 // Example:
 //

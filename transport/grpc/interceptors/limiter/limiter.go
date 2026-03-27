@@ -13,6 +13,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/data/limiters/tokenbucket"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/realip"
 	"github.com/altessa-s/go-atlas/transport/internal/clientip"
 	"github.com/altessa-s/go-atlas/transport/internal/fallback"
 
@@ -37,6 +38,15 @@ var (
 	RateLimitReset = internstrings.InternString("x-ratelimit-reset")
 )
 
+const interceptorName = "limiter"
+
+// Name returns the interceptor name used for dependency resolution and chain ordering.
+func Name() string { return interceptorName }
+
+// ID is a lightweight [interceptors.Interceptor] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = interceptors.Ref(interceptorName)
+
 // Ensure interceptor implements the ServerInterceptor interface.
 var _ interceptors.ServerInterceptor = (*interceptor)(nil)
 
@@ -53,7 +63,7 @@ func (i *interceptor) Dependencies() []string {
 
 // RequiredDependencies returns interceptors that limiter requires to function.
 func (i *interceptor) RequiredDependencies() []string {
-	return []string{"realip"}
+	return []string{realip.Name()}
 }
 
 // ServerInterceptor returns a new interceptor that limits the rate of incoming requests.
@@ -62,7 +72,7 @@ func ServerInterceptor(limiter sharedlimiter.Limiter, opt ...Option) interceptor
 
 	return &interceptor{
 		BaseInterceptor: interceptors.NewBaseInterceptorWithFilter(
-			"limiter",
+			interceptorName,
 			opts.ignoreMethods,
 			opts.ignorePatterns,
 			opts.logger,

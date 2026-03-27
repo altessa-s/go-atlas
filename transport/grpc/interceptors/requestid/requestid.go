@@ -21,6 +21,15 @@ import (
 	stdGrpc "google.golang.org/grpc"
 )
 
+const interceptorName = "requestid"
+
+// Name returns the interceptor name used for dependency resolution and chain ordering.
+func Name() string { return interceptorName }
+
+// ID is a lightweight [interceptors.Interceptor] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = interceptors.Ref(interceptorName)
+
 // ErrInvalidRequestId is returned by [ServerInterceptor] and [ServerUnaryInterceptor]
 // when the incoming request carries a request ID that is not a valid UUID v4 and
 // the generator is not configured to generate missing IDs. The error is surfaced
@@ -86,7 +95,7 @@ func (g *grpcHeaderGetter) GetHeader(name string) string {
 // If request ID is not a valid UUID v4, it will return an error ErrInvalidRequestId.
 func ServerInterceptor(gen *requestid.Generator) interceptors.ServerInterceptor {
 	return &interceptor{
-		BaseInterceptor: interceptors.NewBaseInterceptor("requestid", nil),
+		BaseInterceptor: interceptors.NewBaseInterceptor(interceptorName, nil),
 		gen:             gen,
 	}
 }
@@ -107,7 +116,7 @@ func ServerStreamInterceptor(gen *requestid.Generator) stdGrpc.StreamServerInter
 // If no request ID is found in context and WithGenerateIfMissing is true, a new UUID v4 will be generated.
 func ClientInterceptor(gen *requestid.Generator) interceptors.ClientInterceptor {
 	return &interceptor{
-		BaseInterceptor: interceptors.NewBaseInterceptor("requestid", nil),
+		BaseInterceptor: interceptors.NewBaseInterceptor(interceptorName, nil),
 		gen:             gen,
 	}
 }
@@ -133,7 +142,7 @@ type interceptor struct {
 // Dependencies returns interceptors that requestid requires to run before it.
 // Requestid uses metadata for call information extraction.
 func (i *interceptor) Dependencies() []string {
-	return []string{"metadata"}
+	return []string{sharedmetadata.Name()}
 }
 
 func (i *interceptor) ServerUnaryInterceptor() stdGrpc.UnaryServerInterceptor {

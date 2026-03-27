@@ -28,8 +28,14 @@ import (
 // DefaultCacheSize is the default size for error conversion cache.
 const DefaultCacheSize = 1000
 
-// InterceptorName is the name of this interceptor.
-const InterceptorName = "errstatus"
+const interceptorName = "errstatus"
+
+// Name returns the interceptor name used for dependency resolution and chain ordering.
+func Name() string { return interceptorName }
+
+// ID is a lightweight [interceptors.Interceptor] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = interceptors.Ref(interceptorName)
 
 // ErrorConverter defines a custom error conversion strategy for transforming
 // application errors into gRPC status errors. It consists of a matcher function

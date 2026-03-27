@@ -27,6 +27,15 @@ const (
 	HeaderCrossOriginEmbedderPol = "Cross-Origin-Embedder-Policy"
 )
 
+const middlewareName = "securityheaders"
+
+// Name returns the middleware name used for dependency resolution and chain ordering.
+func Name() string { return middlewareName }
+
+// ID is a lightweight [middlewares.Middleware] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = middlewares.Noop(middlewareName)
+
 // Compile-time interface assertion.
 var _ middlewares.Middleware = (*middleware)(nil)
 
@@ -62,7 +71,7 @@ func New(opt ...Option) *middleware {
 
 	m := &middleware{
 		BaseMiddleware: middlewares.NewBaseMiddlewareWithFilter(
-			"securityheaders",
+			middlewareName,
 			opts.ignorePaths,
 			opts.ignorePatterns,
 			opts.logger,

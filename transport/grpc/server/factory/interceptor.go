@@ -8,6 +8,7 @@ import (
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/observability/tracing"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/cache"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/errstatus"
@@ -16,6 +17,7 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/limiter"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/logger"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/prometheus"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/protovalidator"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/realip"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/recovery"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/requestid"
@@ -23,6 +25,7 @@ import (
 
 	geoaclinter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/geoacl"
 	ipaclinter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/ipacl"
+	bufhelpers "github.com/altessa-s/go-atlas/transport/grpc/interceptors/protovalidator/buf"
 	tracinginter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/tracing"
 	sharedreqid "github.com/altessa-s/go-atlas/transport/internal/requestid"
 )
@@ -38,25 +41,54 @@ func (b *ServerBuilder) interceptorsCfg() *config.InterceptorsConfig {
 // WithInterceptors creates all enabled interceptors from the builder's config
 // (b.cfg.Interceptors) and adds them. If not called, no config-based interceptors
 // will be applied. Dependencies must be set via Use*() methods before calling this.
-func (b *ServerBuilder) WithInterceptors() *ServerBuilder {
+//
+// The optional exclude parameter accepts interceptor references to skip.
+// Each interceptor package exports an ID variable that can be used here.
+//
+// Example:
+//
+//	// Register all interceptors except auth and cache:
+//	builder.WithInterceptors(auth.ID, cache.ID)
+func (b *ServerBuilder) WithInterceptors(exclude ...interceptors.Interceptor) *ServerBuilder {
 	if b.interceptorsCfg() == nil {
 		return b
 	}
-	return b.
-		WithErrStatusInterceptor().
-		WithRealIPInterceptor().
-		WithRequestIDInterceptor().
-		WithRecoveryInterceptor().
-		WithTracingInterceptor().
-		WithLoggerInterceptor().
-		WithPrometheusInterceptor().
-		WithIpAclInterceptor().
-		WithGeoAclInterceptor().
-		WithLimiterInterceptor().
-		WithIdempotencyInterceptor().
-		WithCacheInterceptor().
-		WithAuthInterceptor().
-		WithHealthInterceptor()
+
+	skip := make(map[string]struct{}, len(exclude))
+	for _, e := range exclude {
+		skip[e.Name()] = struct{}{}
+	}
+
+	type entry struct {
+		name string
+		fn   func() *ServerBuilder
+	}
+
+	interceptors := []entry{
+		{errstatus.Name(), b.WithErrStatusInterceptor},
+		{realip.Name(), b.WithRealIPInterceptor},
+		{requestid.Name(), b.WithRequestIDInterceptor},
+		{recovery.Name(), b.WithRecoveryInterceptor},
+		{tracinginter.Name(), b.WithTracingInterceptor},
+		{logger.Name(), b.WithLoggerInterceptor},
+		{prometheus.Name(), b.WithPrometheusInterceptor},
+		{ipaclinter.Name(), b.WithIpAclInterceptor},
+		{geoaclinter.Name(), b.WithGeoAclInterceptor},
+		{limiter.Name(), b.WithLimiterInterceptor},
+		{idempotency.Name(), b.WithIdempotencyInterceptor},
+		{cache.Name(), b.WithCacheInterceptor},
+		{auth.Name(), b.WithAuthInterceptor},
+		{protovalidator.Name(), b.WithBufValidatorInterceptor},
+		{health.Name(), b.WithHealthInterceptor},
+	}
+
+	for _, i := range interceptors {
+		if _, excluded := skip[i.name]; !excluded {
+			i.fn()
+		}
+	}
+
+	return b
 }
 
 // WithLoggerInterceptor creates a logging interceptor from the builder's configuration.
@@ -479,5 +511,15 @@ func (b *ServerBuilder) WithErrStatusInterceptor() *ServerBuilder {
 	}
 
 	b.interceptors = append(b.interceptors, errstatus.ServerInterceptor(opts...))
+	return b
+}
+
+// WithBufValidatorInterceptor creates a protovalidator interceptor using the buf protovalidate library.
+// This is a programmatic interceptor — it is not driven by config and must be called explicitly.
+func (b *ServerBuilder) WithBufValidatorInterceptor() *ServerBuilder {
+	b.interceptors = append(b.interceptors, protovalidator.ServerInterceptor(
+		protovalidator.ValidatorFunc(bufhelpers.BuildValidator(bufhelpers.BuildValidationFilter())),
+		protovalidator.WithLogger(b.Logger()),
+	))
 	return b
 }

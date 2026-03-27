@@ -8,6 +8,7 @@ import (
 	"context"
 
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/realip"
 	"github.com/altessa-s/go-atlas/transport/internal/clientip"
 	"github.com/altessa-s/go-atlas/transport/internal/fallback"
 	"github.com/altessa-s/go-atlas/transport/internal/ipacl"
@@ -17,6 +18,15 @@ import (
 
 	stdGrpc "google.golang.org/grpc"
 )
+
+const interceptorName = "ipacl"
+
+// Name returns the interceptor name used for dependency resolution and chain ordering.
+func Name() string { return interceptorName }
+
+// ID is a lightweight [interceptors.Interceptor] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = interceptors.Ref(interceptorName)
 
 // Ensure interceptor implements the ServerInterceptor interface.
 var _ interceptors.ServerInterceptor = (*interceptor)(nil)
@@ -34,7 +44,7 @@ func (i *interceptor) Dependencies() []string {
 
 // RequiredDependencies returns interceptors that ipacl requires to function.
 func (i *interceptor) RequiredDependencies() []string {
-	return []string{"realip"}
+	return []string{realip.Name()}
 }
 
 // ServerInterceptor returns a new interceptor that enforces IP-based access control.
@@ -43,7 +53,7 @@ func ServerInterceptor(registry *ipacl.Registry, opt ...Option) interceptors.Ser
 
 	return &interceptor{
 		BaseInterceptor: interceptors.NewBaseInterceptorWithFilter(
-			"ipacl",
+			interceptorName,
 			opts.ignoreMethods,
 			opts.ignorePatterns,
 			opts.logger,

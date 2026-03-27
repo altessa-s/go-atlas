@@ -24,6 +24,15 @@ func (s *singleHeaderAdapter) GetHeader(name string) string {
 	return s.GetSingleHeader(name)
 }
 
+const middlewareName = "requestid"
+
+// Name returns the middleware name used for dependency resolution and chain ordering.
+func Name() string { return middlewareName }
+
+// ID is a lightweight [middlewares.Middleware] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = middlewares.Noop(middlewareName)
+
 // Compile-time interface assertion.
 var _ middlewares.Middleware = (*middleware)(nil)
 
@@ -84,7 +93,7 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 // generated when the incoming header is missing or invalid.
 func New(gen *requestid.Generator) *middleware {
 	return &middleware{
-		BaseMiddleware: middlewares.NewBaseMiddleware("requestid", nil),
+		BaseMiddleware: middlewares.NewBaseMiddleware(middlewareName, nil),
 		gen:            gen,
 	}
 }

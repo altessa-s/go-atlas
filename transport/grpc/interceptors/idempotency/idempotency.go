@@ -12,6 +12,7 @@ import (
 	"github.com/altessa-s/go-atlas/core/text/strings"
 	"github.com/altessa-s/go-atlas/data/idempotency"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
 	"github.com/altessa-s/go-atlas/transport/internal/fallback"
 
@@ -24,6 +25,15 @@ import (
 	grpcmetadata "google.golang.org/grpc/metadata"
 	stdStrings "strings"
 )
+
+const interceptorName = "idempotency"
+
+// Name returns the interceptor name used for dependency resolution and chain ordering.
+func Name() string { return interceptorName }
+
+// ID is a lightweight [interceptors.Interceptor] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = interceptors.Ref(interceptorName)
 
 var _ driver.DrivenInterceptor = (*interceptor)(nil)
 var _ interceptors.Interceptor = (*interceptor)(nil)
@@ -39,7 +49,7 @@ type interceptor struct {
 // Idempotency uses metadata for call information extraction and must run after auth
 // so that unauthenticated requests are rejected before idempotency key validation.
 func (i *interceptor) Dependencies() []string {
-	return []string{"metadata", "auth"}
+	return []string{sharedmetadata.Name(), auth.Name()}
 }
 
 // requestInterceptor handles a single request with its own state
@@ -73,7 +83,7 @@ func ServerInterceptor(i idempotency.Idempotency, opt ...Option) interceptors.Se
 
 	ic := &interceptor{
 		BaseInterceptor: interceptors.NewBaseInterceptorWithFilter(
-			"idempotency",
+			interceptorName,
 			opts.ignoreMethods,
 			opts.ignorePatterns,
 			nil, // idempotency interceptor doesn't need logging

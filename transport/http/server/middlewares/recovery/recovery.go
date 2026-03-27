@@ -19,6 +19,15 @@ import (
 
 const logPanicStackSkip = 2
 
+const middlewareName = "recovery"
+
+// Name returns the middleware name used for dependency resolution and chain ordering.
+func Name() string { return middlewareName }
+
+// ID is a lightweight [middlewares.Middleware] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = middlewares.Noop(middlewareName)
+
 // Compile-time interface assertion.
 var _ middlewares.Middleware = (*middleware)(nil)
 
@@ -32,7 +41,7 @@ type middleware struct {
 // All dependencies are optional for ordering - recovery gracefully degrades
 // if requestid is not available in context.
 func (m *middleware) Dependencies() []string {
-	return []string{"requestid"}
+	return []string{requestid.Name()}
 }
 
 // New creates a new panic recovery middleware.
@@ -44,7 +53,7 @@ func New(logger *slog.Logger, opt ...Option) *middleware {
 
 	return &middleware{
 		BaseMiddleware: middlewares.NewBaseMiddlewareWithFilter(
-			"recovery",
+			middlewareName,
 			opts.ignorePaths,
 			opts.ignorePatterns,
 			opts.logger,

@@ -25,6 +25,15 @@ import (
 	grpcmetadata "google.golang.org/grpc/metadata"
 )
 
+const interceptorName = "cache"
+
+// Name returns the interceptor name used for dependency resolution and chain ordering.
+func Name() string { return interceptorName }
+
+// ID is a lightweight [interceptors.Interceptor] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = interceptors.Ref(interceptorName)
+
 // Cacher is an alias for cache.Cacher from the data/cache package.
 // It defines the interface for high-level cache operations.
 // Implementations must be thread-safe for concurrent access from multiple goroutines.
@@ -54,7 +63,7 @@ func ServerInterceptor(cacher Cacher, opt ...Option) interceptors.ServerIntercep
 	opts := newOptions(opt...)
 	i := &interceptor{
 		BaseInterceptor: interceptors.NewBaseInterceptorWithFilter(
-			"cache",
+			interceptorName,
 			opts.ignoreMethods,
 			opts.ignorePatterns,
 			opts.logger,
@@ -78,7 +87,7 @@ var _ interceptors.Interceptor = (*interceptor)(nil)
 // Dependencies returns interceptors that cache reads from context.
 // Cache depends on metadata for call information extraction.
 func (i *interceptor) Dependencies() []string {
-	return []string{"metadata"}
+	return []string{metadata.Name()}
 }
 
 // DrivenInterceptor implements the driver.DrivenInterceptor interface.

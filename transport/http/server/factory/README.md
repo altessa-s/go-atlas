@@ -31,6 +31,15 @@ factory.New(cfg.Http).
     Build()
 ```
 
+### Excluding specific middleware
+
+```go
+factory.New(cfg.Http).
+    UseLogger(logger).
+    WithMiddlewares(corsmw.ID, limitermw.ID).
+    Build()
+```
+
 ### Level 2: Individual config-based middleware
 
 ```go
@@ -106,7 +115,7 @@ factory.New(cfg.Http).
 
 | Method | Description |
 |--------|-------------|
-| `WithMiddlewares` | Creates all enabled middleware from config |
+| `WithMiddlewares(exclude ...middlewares.Middleware)` | Creates all enabled middleware from config; pass typed IDs (e.g., `corsmw.ID`) to skip specific ones |
 | `WithBodyLimitMiddleware` | Body size limit middleware |
 | `WithCorsMiddleware` | CORS middleware |
 | `WithIdempotencyMiddleware` | Idempotency middleware (requires keeper) |

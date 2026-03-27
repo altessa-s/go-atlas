@@ -9,6 +9,7 @@ import (
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/realip"
 	"github.com/altessa-s/go-atlas/transport/internal/clientip"
 	"github.com/altessa-s/go-atlas/transport/internal/fallback"
 	"github.com/altessa-s/go-atlas/transport/internal/geoacl"
@@ -18,6 +19,15 @@ import (
 
 	stdGrpc "google.golang.org/grpc"
 )
+
+const interceptorName = "geoacl"
+
+// Name returns the interceptor name used for dependency resolution and chain ordering.
+func Name() string { return interceptorName }
+
+// ID is a lightweight [interceptors.Interceptor] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = interceptors.Ref(interceptorName)
 
 // Ensure interceptor implements the ServerInterceptor interface.
 var _ interceptors.ServerInterceptor = (*interceptor)(nil)
@@ -36,7 +46,7 @@ func (i *interceptor) Dependencies() []string {
 
 // RequiredDependencies returns interceptors that geoacl requires to function.
 func (i *interceptor) RequiredDependencies() []string {
-	return []string{"realip"}
+	return []string{realip.Name()}
 }
 
 // ServerInterceptor returns a new interceptor that enforces geographic access control.
@@ -45,7 +55,7 @@ func ServerInterceptor(resolver geoacl.GeoResolver, registry *geoacl.Registry, o
 
 	return &interceptor{
 		BaseInterceptor: interceptors.NewBaseInterceptorWithFilter(
-			"geoacl",
+			interceptorName,
 			opts.ignoreMethods,
 			opts.ignorePatterns,
 			opts.logger,

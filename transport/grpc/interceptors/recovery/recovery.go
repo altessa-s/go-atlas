@@ -21,6 +21,15 @@ import (
 	stdGrpc "google.golang.org/grpc"
 )
 
+const interceptorName = "recovery"
+
+// Name returns the interceptor name used for dependency resolution and chain ordering.
+func Name() string { return interceptorName }
+
+// ID is a lightweight [interceptors.Interceptor] reference for this package,
+// suitable for passing to exclusion lists.
+var ID = interceptors.Ref(interceptorName)
+
 // ServerInterceptor returns a new interceptor that recovers from panics.
 // When panic occurs, it will call the provided panic panicHandler.
 // If the panic panicHandler is not provided, it will use the default panic panicHandler.
@@ -29,7 +38,7 @@ func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
 
 	return &interceptor{
 		BaseInterceptor: interceptors.NewBaseInterceptorWithFilter(
-			"recovery",
+			interceptorName,
 			opts.ignoreMethods,
 			opts.ignorePatterns,
 			opts.logger,
@@ -56,7 +65,7 @@ func ClientInterceptor(opt ...Option) interceptors.ClientInterceptor {
 
 	return &interceptor{
 		BaseInterceptor: interceptors.NewBaseInterceptorWithFilter(
-			"recovery",
+			interceptorName,
 			opts.ignoreMethods,
 			opts.ignorePatterns,
 			opts.logger,
@@ -87,7 +96,7 @@ type interceptor struct {
 // All dependencies are optional for ordering - recovery gracefully degrades
 // if requestid is not available in context.
 func (i *interceptor) Dependencies() []string {
-	return []string{"metadata", "requestid"}
+	return []string{metadata.Name(), requestid.Name()}
 }
 
 func (i *interceptor) ServerUnaryInterceptor() stdGrpc.UnaryServerInterceptor {
