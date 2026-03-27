@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package buf provides helpers for working with buf protovalidate validation
+// Package bufhelpers provides helpers for working with buf protovalidate validation
 // errors in gRPC interceptors.
 //
 // It offers:
@@ -20,4 +20,4 @@
 // The validator is lazily initialized as a singleton via [sync.Once]. Violation
 // details include field path components with map key and repeated index support,
 // mapped to [protovalidatev1.FieldPathComponent].
-package buf
+package bufhelpers
