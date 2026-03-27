@@ -25,7 +25,7 @@ type GrpcInterLimiterConfig struct {
 // IsEnabled returns true if rate limiting is enabled.
 // This is a convenience method to check if the interceptor should be active.
 func (c *GrpcInterLimiterConfig) IsEnabled() bool {
-	return c != nil && c.Enable
+	return c != nil && c.Enabled
 }
 
 // Validate performs validation of the rate limiter interceptor configuration.
@@ -52,7 +52,7 @@ func (c *GrpcInterLimiterConfig) Validate() error {
 func DefaultGrpcInterLimiterConfig() GrpcInterLimiterConfig {
 	return GrpcInterLimiterConfig{
 		BaseGrpcInterceptorConfig: BaseGrpcInterceptorConfig{
-			EnableMixin: EnableMixin{Enable: false},
+			EnableMixin: EnableMixin{Enabled: false},
 		},
 		FallbackBehavior: FallbackBehaviorDeny,
 	}

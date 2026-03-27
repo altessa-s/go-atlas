@@ -26,7 +26,7 @@ const (
 // Example usage:
 //
 //	type MyMiddlewareConfig struct {
-//	    Enable bool `yaml:"enable"`
+//	    Enabled bool `yaml:"enabled"`
 //	    HttpMiddlewareFilterConfig `yaml:",inline"`
 //	    // ... other fields
 //	}
@@ -72,21 +72,21 @@ type BaseHttpMiddlewareConfig struct {
 }
 
 // ValidateBase performs standard validation for HTTP middleware configurations.
-// It validates the Enable field and filter configuration, then applies additional rules.
+// It validates the Enabled field and filter configuration, then applies additional rules.
 //
 // Parameters:
 //   - additionalRules: extra validation rules specific to the middleware
 //
 // Returns an error if validation fails, nil otherwise.
 func (c *BaseHttpMiddlewareConfig) ValidateBase(fn ...func() error) error {
-	if !c.Enable {
+	if !c.Enabled {
 		return nil
 	}
 
 	// Validate the base configuration fields
 	filterRules := c.FilterValidationRules(&c.HttpMiddlewareFilterConfig)
 	baseRules := make([]*validation.FieldRules, 0, 1+len(filterRules))
-	baseRules = append(baseRules, validation.Field(&c.Enable, validation.In(true)))
+	baseRules = append(baseRules, validation.Field(&c.Enabled, validation.In(true)))
 
 	// Add filter validation rules
 	baseRules = append(baseRules, filterRules...)

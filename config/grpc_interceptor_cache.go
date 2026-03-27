@@ -76,7 +76,7 @@ type GrpcInterCacheConfig struct {
 // IsEnabled returns true if response caching is enabled.
 // This is a convenience method to check if the interceptor should be active.
 func (c *GrpcInterCacheConfig) IsEnabled() bool {
-	return c != nil && c.Enable
+	return c != nil && c.Enabled
 }
 
 // Validate performs validation of the cache interceptor configuration.
@@ -107,7 +107,7 @@ func (c *GrpcInterCacheConfig) Validate() error {
 func DefaultGrpcInterCacheConfig() GrpcInterCacheConfig {
 	return GrpcInterCacheConfig{
 		BaseGrpcInterceptorConfig: BaseGrpcInterceptorConfig{
-			EnableMixin: EnableMixin{Enable: false},
+			EnableMixin: EnableMixin{Enabled: false},
 		},
 		SuccessTTL:         defaultCacheSuccessTTL,
 		ErrorTTL:           defaultCacheErrorTTL,

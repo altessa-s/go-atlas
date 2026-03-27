@@ -15,7 +15,7 @@ type GrpcInterRecoveryConfig struct {
 // IsEnabled returns true if panic recovery is enabled.
 // This is a convenience method to check if the interceptor should be active.
 func (c *GrpcInterRecoveryConfig) IsEnabled() bool {
-	return c != nil && c.Enable
+	return c != nil && c.Enabled
 }
 
 // Validate performs validation of the recovery interceptor configuration.
@@ -35,7 +35,7 @@ func (c *GrpcInterRecoveryConfig) Validate() error {
 func DefaultGrpcInterRecoveryConfig() GrpcInterRecoveryConfig {
 	return GrpcInterRecoveryConfig{
 		BaseGrpcInterceptorConfig: BaseGrpcInterceptorConfig{
-			EnableMixin: EnableMixin{Enable: false},
+			EnableMixin: EnableMixin{Enabled: false},
 		},
 	}
 }

@@ -9,13 +9,13 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
-// EnableMixin provides a common Enable field for configurations that can be toggled.
-// Embed this struct with `yaml:",inline"` to add an Enable field to your config.
+// EnableMixin provides a common Enabled field for configurations that can be toggled.
+// Embed this struct with `yaml:",inline"` to add an Enabled field to your config.
 //
 // Note: Each config should still implement its own IsEnabled() method for nil-safety:
 //
 //	func (c *MyConfig) IsEnabled() bool {
-//	    return c != nil && c.Enable
+//	    return c != nil && c.Enabled
 //	}
 //
 // Example:
@@ -25,9 +25,9 @@ import (
 //	    // ... other fields
 //	}
 type EnableMixin struct {
-	// Enable controls whether this feature is active.
+	// Enabled controls whether this feature is active.
 	// When false, the feature is disabled and has no effect.
-	Enable bool `yaml:"enable" default:"false"`
+	Enabled bool `yaml:"enabled" default:"false"`
 }
 
 // InterceptorFilterConfig defines common method filtering settings used by interceptors.
@@ -41,7 +41,7 @@ type EnableMixin struct {
 // Example usage:
 //
 //	type MyInterceptorConfig struct {
-//	    Enable bool `yaml:"enable"`
+//	    Enabled bool `yaml:"enabled"`
 //	    InterceptorFilterConfig `yaml:",inline"`
 //	    // ... other fields
 //	}
@@ -67,7 +67,7 @@ type InterceptorFilterConfig struct {
 // Example usage:
 //
 //	func (c *MyInterceptorConfig) Validate() error {
-//	    return ValidateStructIfEnabled(c.Enable, c,
+//	    return ValidateStructIfEnabled(c.Enabled, c,
 //	        append(c.InterceptorFilterConfig.FilterValidationRules(&c.InterceptorFilterConfig),
 //	            validation.Field(&c.OtherField, validation.Required),
 //	        )...,
@@ -105,7 +105,7 @@ func (c *InterceptorFilterConfig) FilterValidationRulesBasic(ptr *InterceptorFil
 //	}
 //
 //	func (c *MyInterceptorConfig) Validate() error {
-//	    if !c.Enable {
+//	    if !c.Enabled {
 //	        return nil
 //	    }
 //	    rules := c.BaseValidationRules()
@@ -128,7 +128,7 @@ type BaseGrpcInterceptorConfig struct {
 func (c *BaseGrpcInterceptorConfig) BaseValidationRules() []*validation.FieldRules {
 	return append(
 		[]*validation.FieldRules{
-			validation.Field(&c.Enable, validation.In(true)),
+			validation.Field(&c.Enabled, validation.In(true)),
 		},
 		c.FilterValidationRulesBasic(&c.InterceptorFilterConfig)...,
 	)
@@ -139,7 +139,7 @@ func (c *BaseGrpcInterceptorConfig) BaseValidationRules() []*validation.FieldRul
 //
 // Returns an error if validation fails, nil otherwise.
 func (c *BaseGrpcInterceptorConfig) ValidateBase(fn ...func() error) error {
-	if !c.Enable {
+	if !c.Enabled {
 		return nil
 	}
 	if ret := ValidateStruct(c, c.BaseValidationRules()...); ret != nil {

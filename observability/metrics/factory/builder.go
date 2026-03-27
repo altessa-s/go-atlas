@@ -41,7 +41,7 @@ func (b *CollectorBuilder) Build() (metrics.Collector, error) {
 		return nil, err
 	}
 
-	if b.cfg == nil || !b.cfg.Enable {
+	if b.cfg == nil || !b.cfg.Enabled {
 		return metrics.Noop(), nil
 	}
 

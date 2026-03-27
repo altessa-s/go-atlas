@@ -307,8 +307,8 @@ func (cf *Config) loadFile(filePath string, fileInfo os.FileInfo) (err error) {
 // struct levels, and converts camelCase field names to SCREAMING_SNAKE_CASE.
 //
 // Examples:
-//   - GRPC.Interceptors.Cache.Enable -> GRPC__INTERCEPTORS__CACHE__ENABLE
-//   - GRPC.Interceptors.RealIp.Enable -> GRPC__INTERCEPTORS__REAL_IP__ENABLE
+//   - GRPC.Interceptors.Cache.Enabled -> GRPC__INTERCEPTORS__CACHE__ENABLED
+//   - GRPC.Interceptors.RealIp.Enabled -> GRPC__INTERCEPTORS__REAL_IP__ENABLED
 //   - GRPC.Interceptors.RequestId.GenerateIfMissing -> GRPC__INTERCEPTORS__REQUEST_ID__GENERATE_IF_MISSING
 func (cf *Config) envFieldName(fld *field) string {
 	if fld.isStructPtr() {

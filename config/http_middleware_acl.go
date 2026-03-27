@@ -32,7 +32,7 @@ type HttpInterAclConfig[R any] struct {
 
 // IsEnabled returns true if the ACL middleware is enabled.
 func (c *HttpInterAclConfig[R]) IsEnabled() bool {
-	return c != nil && c.Enable
+	return c != nil && c.Enabled
 }
 
 // ValidateWith validates common fields, delegating rule validation to ruleValidator.
@@ -53,7 +53,7 @@ func (c *HttpInterAclConfig[R]) ValidateWith(ruleValidator func(any) error) erro
 func DefaultHttpInterAclConfig[R any]() HttpInterAclConfig[R] {
 	return HttpInterAclConfig[R]{
 		BaseHttpMiddlewareConfig: BaseHttpMiddlewareConfig{
-			EnableMixin: EnableMixin{Enable: false},
+			EnableMixin: EnableMixin{Enabled: false},
 		},
 		DefaultPolicy:    "deny",
 		FallbackBehavior: FallbackBehaviorDeny,

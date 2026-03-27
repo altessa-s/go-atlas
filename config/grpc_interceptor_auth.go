@@ -12,7 +12,7 @@ type GrpcInterAuthConfig struct {
 }
 
 // IsEnabled returns true if authentication is enabled.
-func (c *GrpcInterAuthConfig) IsEnabled() bool { return c != nil && c.Enable }
+func (c *GrpcInterAuthConfig) IsEnabled() bool { return c != nil && c.Enabled }
 
 // Validate performs validation of the authentication interceptor configuration.
 // It ensures all patterns are valid regexes.
@@ -31,7 +31,7 @@ func (c *GrpcInterAuthConfig) Validate() error {
 func DefaultGrpcInterAuthConfig() GrpcInterAuthConfig {
 	return GrpcInterAuthConfig{
 		BaseGrpcInterceptorConfig: BaseGrpcInterceptorConfig{
-			EnableMixin: EnableMixin{Enable: false},
+			EnableMixin: EnableMixin{Enabled: false},
 		},
 	}
 }

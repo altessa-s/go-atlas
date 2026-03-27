@@ -39,7 +39,7 @@ type HttpInterTracingConfig struct {
 
 // IsEnabled returns true if the tracing middleware is enabled.
 func (c *HttpInterTracingConfig) IsEnabled() bool {
-	return c != nil && c.Enable
+	return c != nil && c.Enabled
 }
 
 // Validate performs validation of the tracing middleware configuration.
@@ -56,7 +56,7 @@ func (c *HttpInterTracingConfig) Validate() error {
 func DefaultHttpInterTracingConfig() HttpInterTracingConfig {
 	return HttpInterTracingConfig{
 		BaseHttpMiddlewareConfig: BaseHttpMiddlewareConfig{
-			EnableMixin: EnableMixin{Enable: false},
+			EnableMixin: EnableMixin{Enabled: false},
 		},
 		RecordBody:    false,
 		RecordHeaders: true,

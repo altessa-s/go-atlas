@@ -32,7 +32,7 @@ func (c *HttpInterBodyLimitConfig) Validate() error {
 func DefaultHttpInterBodyLimitConfig() HttpInterBodyLimitConfig {
 	return HttpInterBodyLimitConfig{
 		BaseHttpMiddlewareConfig: BaseHttpMiddlewareConfig{
-			EnableMixin: EnableMixin{Enable: false},
+			EnableMixin: EnableMixin{Enabled: false},
 		},
 		MaxSize: DefaultBodyLimitMaxSize,
 	}
@@ -40,5 +40,5 @@ func DefaultHttpInterBodyLimitConfig() HttpInterBodyLimitConfig {
 
 // IsEnabled returns true if the middleware is enabled.
 func (c *HttpInterBodyLimitConfig) IsEnabled() bool {
-	return c != nil && c.Enable
+	return c != nil && c.Enabled
 }

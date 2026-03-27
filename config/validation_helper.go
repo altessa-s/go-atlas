@@ -35,12 +35,12 @@ func ValidateStruct(structPtr any, fields ...*validation.FieldRules) error {
 }
 
 // ValidateStructIfEnabled validates a struct only if the enabled flag is true.
-// This helper reduces boilerplate in configuration structs that have an "Enable" field.
+// This helper reduces boilerplate in configuration structs that have an "Enabled" field.
 //
 // Example:
 //
 //	func (c *Config) Validate() error {
-//	    return ValidateStructIfEnabled(c.Enable, c,
+//	    return ValidateStructIfEnabled(c.Enabled, c,
 //	        validation.Field(&c.Field1, validation.Required),
 //	    )
 //	}

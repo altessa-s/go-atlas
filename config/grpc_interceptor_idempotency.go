@@ -59,7 +59,7 @@ type GrpcInterIdempotencyConfig struct {
 // IsEnabled returns true if idempotency checking is enabled.
 // This is a convenience method to check if the interceptor should be active.
 func (c *GrpcInterIdempotencyConfig) IsEnabled() bool {
-	return c != nil && c.Enable
+	return c != nil && c.Enabled
 }
 
 // Validate performs validation of the idempotency interceptor configuration.
@@ -93,7 +93,7 @@ func (c *GrpcInterIdempotencyConfig) Validate() error {
 func DefaultGrpcInterIdempotencyConfig() GrpcInterIdempotencyConfig {
 	return GrpcInterIdempotencyConfig{
 		BaseGrpcInterceptorConfig: BaseGrpcInterceptorConfig{
-			EnableMixin: EnableMixin{Enable: false},
+			EnableMixin: EnableMixin{Enabled: false},
 		},
 		IdempotencyKeyHeader:           defaultIdempotencyKeyHeader,
 		IdempotencyKeyField:            defaultIdempotencyKeyField,

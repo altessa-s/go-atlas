@@ -35,7 +35,7 @@ func (c *HttpInterRealIpConfig) Validate() error {
 func DefaultHttpInterRealIpConfig() HttpInterRealIpConfig {
 	return HttpInterRealIpConfig{
 		BaseHttpMiddlewareConfig: BaseHttpMiddlewareConfig{
-			EnableMixin: EnableMixin{Enable: false},
+			EnableMixin: EnableMixin{Enabled: false},
 		},
 		Headers: []string{"X-Forwarded-For", "X-Real-IP"},
 	}
@@ -43,5 +43,5 @@ func DefaultHttpInterRealIpConfig() HttpInterRealIpConfig {
 
 // IsEnabled returns true if the middleware is enabled.
 func (c *HttpInterRealIpConfig) IsEnabled() bool {
-	return c != nil && c.Enable
+	return c != nil && c.Enabled
 }

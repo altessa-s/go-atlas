@@ -51,7 +51,7 @@ func (c *HttpInterIdempotencyConfig) Validate() error {
 func DefaultHttpInterIdempotencyConfig() HttpInterIdempotencyConfig {
 	return HttpInterIdempotencyConfig{
 		BaseHttpMiddlewareConfig: BaseHttpMiddlewareConfig{
-			EnableMixin: EnableMixin{Enable: false},
+			EnableMixin: EnableMixin{Enabled: false},
 		},
 		IdempotencyKeyHeader:         "Idempotency-Key",
 		IdempotencyKeyStatusHeader:   "Idempotency-Key-Status",
@@ -63,5 +63,5 @@ func DefaultHttpInterIdempotencyConfig() HttpInterIdempotencyConfig {
 
 // IsEnabled returns true if the middleware is enabled.
 func (c *HttpInterIdempotencyConfig) IsEnabled() bool {
-	return c != nil && c.Enable
+	return c != nil && c.Enabled
 }

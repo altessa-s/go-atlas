@@ -43,7 +43,7 @@ func (b *TracerBuilder) Build(ctx context.Context) (tracing.Tracer, error) {
 		return nil, err
 	}
 
-	if b.cfg == nil || !b.cfg.Enable {
+	if b.cfg == nil || !b.cfg.Enabled {
 		return tracing.Noop(), nil
 	}
 

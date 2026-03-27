@@ -32,7 +32,7 @@ func (c *HttpInterLimiterConfig) Validate() error {
 func DefaultHttpInterLimiterConfig() HttpInterLimiterConfig {
 	return HttpInterLimiterConfig{
 		BaseHttpMiddlewareConfig: BaseHttpMiddlewareConfig{
-			EnableMixin: EnableMixin{Enable: false},
+			EnableMixin: EnableMixin{Enabled: false},
 		},
 		FallbackBehavior: FallbackBehaviorError,
 	}
@@ -40,5 +40,5 @@ func DefaultHttpInterLimiterConfig() HttpInterLimiterConfig {
 
 // IsEnabled returns true if the middleware is enabled.
 func (c *HttpInterLimiterConfig) IsEnabled() bool {
-	return c != nil && c.Enable
+	return c != nil && c.Enabled
 }

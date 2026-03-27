@@ -6,7 +6,7 @@
 #  # <bool> Enable rate limiting.
 #  # When enabled, applies rate limits to client requests.
 #  # Default value: false
-#  enable: false
+#  enabled: false
 #
 #  # <list[string]> List of gRPC methods to skip rate limiting for.
 #  # Methods that bypass rate limiting restrictions.

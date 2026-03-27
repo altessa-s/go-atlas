@@ -54,7 +54,7 @@ type GrpcInterRealIpConfig struct {
 // IsEnabled returns true if real IP extraction is enabled.
 // This is a convenience method to check if the interceptor should be active.
 func (c *GrpcInterRealIpConfig) IsEnabled() bool {
-	return c != nil && c.Enable
+	return c != nil && c.Enabled
 }
 
 // Validate performs validation of the real IP interceptor configuration.
@@ -85,7 +85,7 @@ func (c *GrpcInterRealIpConfig) Validate() error {
 func DefaultGrpcInterRealIpConfig() GrpcInterRealIpConfig {
 	return GrpcInterRealIpConfig{
 		BaseGrpcInterceptorConfig: BaseGrpcInterceptorConfig{
-			EnableMixin: EnableMixin{Enable: false},
+			EnableMixin: EnableMixin{Enabled: false},
 		},
 		TrustedProxiesCount: 0,
 		CacheSize:           defaultRealIPCacheSize,

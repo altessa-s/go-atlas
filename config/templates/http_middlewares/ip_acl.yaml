@@ -5,7 +5,7 @@
 #ipAcl:
 #  # <bool> Enable IP access control.
 #  # Default value: false
-#  enable: false
+#  enabled: false
 #
 #  # <list[string]> List of exact URL paths to skip IP access control for.
 #  # Default value: not set

@@ -6,7 +6,7 @@
 #  # <bool> Enable request/response logging.
 #  # When enabled, logs requests and responses according to configuration.
 #  # Default value: false
-#  enable: false
+#  enabled: false
 #
 #  # <list[string]> List of gRPC methods to skip logging for.
 #  # Methods that should not appear in logs (e.g., health checks, noisy endpoints).

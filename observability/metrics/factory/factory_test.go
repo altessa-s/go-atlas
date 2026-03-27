@@ -23,7 +23,7 @@ func TestCollectorBuilder_Build_Disabled(t *testing.T) {
 	}
 
 	// Disabled config
-	cfg := &config.Metrics{Enable: false}
+	cfg := &config.Metrics{Enabled: false}
 	collector, err = factory.New(cfg).Build()
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
@@ -35,7 +35,7 @@ func TestCollectorBuilder_Build_Disabled(t *testing.T) {
 
 func TestCollectorBuilder_Build_Prometheus(t *testing.T) {
 	cfg := &config.Metrics{
-		Enable:      true,
+		Enabled:      true,
 		Type:        config.MetricsTypePrometheus,
 		ServiceName: "test",
 	}
@@ -54,7 +54,7 @@ func TestCollectorBuilder_Build_Prometheus(t *testing.T) {
 
 func TestCollectorBuilder_Build_Noop(t *testing.T) {
 	cfg := &config.Metrics{
-		Enable: true,
+		Enabled: true,
 		Type:   config.MetricsTypeNoop,
 	}
 

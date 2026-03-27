@@ -7,7 +7,7 @@
 #geoAcl:
 #  # <bool> Enable geographic access control.
 #  # Default value: false
-#  enable: false
+#  enabled: false
 #
 #  # <list[string]> List of gRPC methods to skip geographic access control for.
 #  # Default value: not set

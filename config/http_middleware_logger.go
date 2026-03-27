@@ -58,7 +58,7 @@ func (c *HttpInterLoggerConfig) Validate() error {
 func DefaultHttpInterLoggerConfig() HttpInterLoggerConfig {
 	return HttpInterLoggerConfig{
 		BaseHttpMiddlewareConfig: BaseHttpMiddlewareConfig{
-			EnableMixin: EnableMixin{Enable: false},
+			EnableMixin: EnableMixin{Enabled: false},
 		},
 		TimeFormat:  timeformat.RFC3339,
 		LogResponse: true,
@@ -67,5 +67,5 @@ func DefaultHttpInterLoggerConfig() HttpInterLoggerConfig {
 
 // IsEnabled returns true if the middleware is enabled.
 func (c *HttpInterLoggerConfig) IsEnabled() bool {
-	return c != nil && c.Enable
+	return c != nil && c.Enabled
 }

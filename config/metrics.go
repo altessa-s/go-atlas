@@ -8,7 +8,7 @@ import validation "github.com/go-ozzo/ozzo-validation/v4"
 
 // Default values for Metrics configuration.
 const (
-	defaultMetricsEnable = false
+	defaultMetricsEnabled = false
 	defaultMetricsType   = MetricsTypePrometheus
 )
 
@@ -29,16 +29,16 @@ const (
 // Example:
 //
 //	metrics:
-//	  enable: true
+//	  enabled: true
 //	  type: prometheus
 //	  serviceName: myapp
 //	  adapters:
 //	    prometheus:
 //	      customRegistry: false
 type Metrics struct {
-	// Enable determines whether metrics collection is enabled.
+	// Enabled determines whether metrics collection is enabled.
 	// Defaults to false.
-	Enable bool `yaml:"enable" default:"false"`
+	Enabled bool `yaml:"enabled" default:"false"`
 
 	// Type specifies the metrics backend type.
 	// Valid values: "prometheus", "noop".
@@ -64,14 +64,14 @@ type MetricsAdapters struct {
 // DefaultMetrics returns a Metrics configuration with default values.
 func DefaultMetrics() Metrics {
 	return Metrics{
-		Enable: defaultMetricsEnable,
+		Enabled: defaultMetricsEnabled,
 		Type:   defaultMetricsType,
 	}
 }
 
 // Validate performs validation on the Metrics configuration.
 func (m Metrics) Validate() error {
-	if !m.Enable {
+	if !m.Enabled {
 		return nil
 	}
 

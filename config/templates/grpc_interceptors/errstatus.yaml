@@ -7,7 +7,7 @@
 #  # <bool> Enable error status conversion.
 #  # When enabled, converts Go errors to gRPC status errors with metadata.
 #  # Default value: false
-#  enable: false
+#  enabled: false
 #
 #  # <string> Logical domain namespace for error reason codes.
 #  # Populates errdetails.ErrorInfo.Domain in gRPC error responses.

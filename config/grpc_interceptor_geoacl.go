@@ -61,7 +61,7 @@ type GrpcInterGeoAclConfig struct {
 
 // IsEnabled returns true if geographic access control is enabled.
 func (c *GrpcInterGeoAclConfig) IsEnabled() bool {
-	return c != nil && c.Enable
+	return c != nil && c.Enabled
 }
 
 // Validate performs validation of the geographic access control interceptor configuration.
@@ -83,7 +83,7 @@ func (c *GrpcInterGeoAclConfig) Validate() error {
 func DefaultGrpcInterGeoAclConfig() GrpcInterGeoAclConfig {
 	return GrpcInterGeoAclConfig{
 		BaseGrpcInterceptorConfig: BaseGrpcInterceptorConfig{
-			EnableMixin: EnableMixin{Enable: false},
+			EnableMixin: EnableMixin{Enabled: false},
 		},
 		DefaultPolicy:    "deny",
 		FallbackBehavior: FallbackBehaviorDeny,

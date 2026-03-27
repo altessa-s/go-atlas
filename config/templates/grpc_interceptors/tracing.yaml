@@ -5,7 +5,7 @@
 #  # <bool> Enable distributed tracing.
 #  # When enabled, creates spans for gRPC requests.
 #  # Default value: false
-#  enable: false
+#  enabled: false
 #
 #  # <list[string]> List of gRPC methods to skip tracing for.
 #  # Methods that should not produce trace spans.

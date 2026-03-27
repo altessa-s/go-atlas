@@ -23,7 +23,7 @@ func (c *HttpInterRecoveryConfig) Validate() error {
 func DefaultHttpInterRecoveryConfig() HttpInterRecoveryConfig {
 	return HttpInterRecoveryConfig{
 		BaseHttpMiddlewareConfig: BaseHttpMiddlewareConfig{
-			EnableMixin: EnableMixin{Enable: false},
+			EnableMixin: EnableMixin{Enabled: false},
 		},
 		LogStack: true,
 	}
@@ -31,5 +31,5 @@ func DefaultHttpInterRecoveryConfig() HttpInterRecoveryConfig {
 
 // IsEnabled returns true if the middleware is enabled.
 func (c *HttpInterRecoveryConfig) IsEnabled() bool {
-	return c != nil && c.Enable
+	return c != nil && c.Enabled
 }

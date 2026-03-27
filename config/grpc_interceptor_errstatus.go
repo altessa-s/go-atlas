@@ -31,7 +31,7 @@ type GrpcInterErrStatusConfig struct {
 }
 
 // IsEnabled returns true if error status conversion is enabled.
-func (c *GrpcInterErrStatusConfig) IsEnabled() bool { return c != nil && c.Enable }
+func (c *GrpcInterErrStatusConfig) IsEnabled() bool { return c != nil && c.Enabled }
 
 // Validate performs validation of the error status interceptor configuration.
 func (c *GrpcInterErrStatusConfig) Validate() error {
@@ -42,7 +42,7 @@ func (c *GrpcInterErrStatusConfig) Validate() error {
 func DefaultGrpcInterErrStatusConfig() GrpcInterErrStatusConfig {
 	return GrpcInterErrStatusConfig{
 		BaseGrpcInterceptorConfig: BaseGrpcInterceptorConfig{
-			EnableMixin: EnableMixin{Enable: false},
+			EnableMixin: EnableMixin{Enabled: false},
 		},
 	}
 }

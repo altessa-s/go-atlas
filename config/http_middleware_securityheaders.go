@@ -57,7 +57,7 @@ func (c *HttpInterSecurityHeadersConfig) Validate() error {
 func DefaultHttpInterSecurityHeadersConfig() HttpInterSecurityHeadersConfig {
 	return HttpInterSecurityHeadersConfig{
 		BaseHttpMiddlewareConfig: BaseHttpMiddlewareConfig{
-			EnableMixin: EnableMixin{Enable: false},
+			EnableMixin: EnableMixin{Enabled: false},
 		},
 		FrameOptions:          "DENY",
 		ReferrerPolicy:        "strict-origin-when-cross-origin",
@@ -70,5 +70,5 @@ func DefaultHttpInterSecurityHeadersConfig() HttpInterSecurityHeadersConfig {
 
 // IsEnabled returns true if the middleware is enabled.
 func (c *HttpInterSecurityHeadersConfig) IsEnabled() bool {
-	return c != nil && c.Enable
+	return c != nil && c.Enabled
 }

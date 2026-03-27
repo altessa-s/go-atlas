@@ -45,7 +45,7 @@ type GrpcInterIpAclConfig struct {
 
 // IsEnabled returns true if IP access control is enabled.
 func (c *GrpcInterIpAclConfig) IsEnabled() bool {
-	return c != nil && c.Enable
+	return c != nil && c.Enabled
 }
 
 // Validate performs validation of the IP access control interceptor configuration.
@@ -67,7 +67,7 @@ func (c *GrpcInterIpAclConfig) Validate() error {
 func DefaultGrpcInterIpAclConfig() GrpcInterIpAclConfig {
 	return GrpcInterIpAclConfig{
 		BaseGrpcInterceptorConfig: BaseGrpcInterceptorConfig{
-			EnableMixin: EnableMixin{Enable: false},
+			EnableMixin: EnableMixin{Enabled: false},
 		},
 		DefaultPolicy:    "deny",
 		FallbackBehavior: FallbackBehaviorDeny,

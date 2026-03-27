@@ -5,7 +5,7 @@
 #recovery:
 #  # <bool> Enable panic recovery.
 #  # Default value: false
-#  enable: false
+#  enabled: false
 #
 #  # <list[string]> List of exact URL paths to skip processing for.
 #  # Default value: not set

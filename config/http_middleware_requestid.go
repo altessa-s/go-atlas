@@ -31,7 +31,7 @@ func (c *HttpInterRequestIdConfig) Validate() error {
 func DefaultHttpInterRequestIdConfig() HttpInterRequestIdConfig {
 	return HttpInterRequestIdConfig{
 		BaseHttpMiddlewareConfig: BaseHttpMiddlewareConfig{
-			EnableMixin: EnableMixin{Enable: false},
+			EnableMixin: EnableMixin{Enabled: false},
 		},
 		HeaderName:        "X-Request-ID",
 		GenerateIfMissing: true,
@@ -40,5 +40,5 @@ func DefaultHttpInterRequestIdConfig() HttpInterRequestIdConfig {
 
 // IsEnabled returns true if the middleware is enabled.
 func (c *HttpInterRequestIdConfig) IsEnabled() bool {
-	return c != nil && c.Enable
+	return c != nil && c.Enabled
 }

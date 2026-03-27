@@ -48,7 +48,7 @@
 #  buffer:
 #    # <bool> Enables asynchronous buffered logging.
 #    # Default value: false
-#    enable: false
+#    enabled: false
 #
 #    # <int> Size of the log buffer (number of records).
 #    # Only used if enable is true.

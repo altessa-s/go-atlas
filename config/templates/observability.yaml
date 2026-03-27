@@ -10,7 +10,7 @@
 #    # <bool> Enables or disables metrics collection.
 #    # When disabled, all metric operations become no-ops.
 #    # Default value: false
-#    enable: false
+#    enabled: false
 #
 #    # <string> Specifies the metrics backend type.
 #    # Supported values: prometheus, noop
@@ -39,7 +39,7 @@
 #    # <bool> Enables or disables distributed tracing.
 #    # When disabled, all tracing operations become no-ops.
 #    # Default value: false
-#    enable: false
+#    enabled: false
 #
 #    # <string> Specifies the tracing backend type.
 #    # Supported values: otlp, console, noop

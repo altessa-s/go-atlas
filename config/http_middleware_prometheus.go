@@ -34,12 +34,12 @@ func (c *HttpInterPrometheusConfig) Validate() error {
 func DefaultHttpInterPrometheusConfig() HttpInterPrometheusConfig {
 	return HttpInterPrometheusConfig{
 		BaseHttpMiddlewareConfig: BaseHttpMiddlewareConfig{
-			EnableMixin: EnableMixin{Enable: false},
+			EnableMixin: EnableMixin{Enabled: false},
 		},
 	}
 }
 
 // IsEnabled returns true if the middleware is enabled.
 func (c *HttpInterPrometheusConfig) IsEnabled() bool {
-	return c != nil && c.Enable
+	return c != nil && c.Enabled
 }

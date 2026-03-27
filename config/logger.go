@@ -60,8 +60,8 @@ const (
 // When enabled, log records are written in the background for better performance.
 // Records at or above BypassLevel are still written synchronously.
 type LoggerBuffer struct {
-	// Enable activates asynchronous buffered logging
-	Enable bool `yaml:"enable"`
+	// Enabled activates asynchronous buffered logging
+	Enabled bool `yaml:"enabled"`
 	// Size is the number of log records the buffer can hold (default: 100)
 	Size int `yaml:"size" default:"100"`
 	// BypassLevel is the minimum level that bypasses the buffer and writes synchronously (default: error)

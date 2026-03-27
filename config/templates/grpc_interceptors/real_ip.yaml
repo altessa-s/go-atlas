@@ -6,7 +6,7 @@
 #  # <bool> Enable real IP extraction.
 #  # When enabled, extracts real client IPs from proxy headers.
 #  # Default value: false
-#  enable: false
+#  enabled: false
 #
 #  # <list[string]> List of gRPC methods to skip real IP extraction for.
 #  # Methods should be specified in the format "/service.Service/Method".

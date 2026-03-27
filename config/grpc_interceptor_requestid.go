@@ -21,7 +21,7 @@ type GrpcInterRequestIdConfig struct {
 // IsEnabled returns true if request ID generation is enabled.
 // This is a convenience method to check if the interceptor should be active.
 func (c *GrpcInterRequestIdConfig) IsEnabled() bool {
-	return c != nil && c.Enable
+	return c != nil && c.Enabled
 }
 
 // Validate performs validation of the request ID interceptor configuration.
@@ -37,7 +37,7 @@ func (c *GrpcInterRequestIdConfig) Validate() error {
 func DefaultGrpcInterRequestIdConfig() GrpcInterRequestIdConfig {
 	return GrpcInterRequestIdConfig{
 		BaseGrpcInterceptorConfig: BaseGrpcInterceptorConfig{
-			EnableMixin: EnableMixin{Enable: false},
+			EnableMixin: EnableMixin{Enabled: false},
 		},
 		GenerateIfMissing: true,
 	}

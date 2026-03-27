@@ -31,7 +31,7 @@ type GrpcInterTracingConfig struct {
 
 // IsEnabled returns true if the tracing interceptor is enabled.
 func (c *GrpcInterTracingConfig) IsEnabled() bool {
-	return c != nil && c.Enable
+	return c != nil && c.Enabled
 }
 
 // Validate performs validation of the tracing interceptor configuration.
@@ -44,7 +44,7 @@ func (c *GrpcInterTracingConfig) Validate() error {
 func DefaultGrpcInterTracingConfig() GrpcInterTracingConfig {
 	return GrpcInterTracingConfig{
 		BaseGrpcInterceptorConfig: BaseGrpcInterceptorConfig{
-			EnableMixin: EnableMixin{Enable: false},
+			EnableMixin: EnableMixin{Enabled: false},
 		},
 		RecordPayload:    false,
 		RecordMetadata:   true,

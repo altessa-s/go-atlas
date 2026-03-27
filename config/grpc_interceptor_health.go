@@ -13,7 +13,7 @@ type GrpcInterHealthConfig struct {
 }
 
 // IsEnabled returns true if the health interceptor is enabled.
-func (c *GrpcInterHealthConfig) IsEnabled() bool { return c != nil && c.Enable }
+func (c *GrpcInterHealthConfig) IsEnabled() bool { return c != nil && c.Enabled }
 
 // Validate performs validation of the health interceptor configuration.
 //
@@ -31,7 +31,7 @@ func (c *GrpcInterHealthConfig) Validate() error {
 func DefaultGrpcInterHealthConfig() GrpcInterHealthConfig {
 	return GrpcInterHealthConfig{
 		BaseGrpcInterceptorConfig: BaseGrpcInterceptorConfig{
-			EnableMixin: EnableMixin{Enable: false},
+			EnableMixin: EnableMixin{Enabled: false},
 		},
 	}
 }

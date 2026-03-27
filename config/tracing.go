@@ -12,7 +12,7 @@ import (
 
 // Default values for Tracing configuration.
 const (
-	defaultTracingEnable       = false
+	defaultTracingEnabled      = false
 	defaultTracingType         = TracingTypeOTLP
 	defaultTracingSamplerType  = SamplerTypeParentBased
 	defaultTracingSamplerRatio = 1.0
@@ -68,7 +68,7 @@ const (
 // Example:
 //
 //	tracing:
-//	  enable: true
+//	  enabled: true
 //	  type: otlp
 //	  serviceName: myapp
 //	  serviceVersion: 1.0.0
@@ -80,9 +80,9 @@ const (
 //	      endpoint: localhost:4317
 //	      insecure: true
 type Tracing struct {
-	// Enable determines whether tracing is enabled.
+	// Enabled determines whether tracing is enabled.
 	// Defaults to false.
-	Enable bool `yaml:"enable" default:"false"`
+	Enabled bool `yaml:"enabled" default:"false"`
 
 	// Type specifies the tracing backend type.
 	// Valid values: "otlp", "console", "noop".
@@ -125,7 +125,7 @@ func DefaultTracing() Tracing {
 	sampler := DefaultTracingSampler()
 	adapters := DefaultTracingAdapters()
 	return Tracing{
-		Enable:         defaultTracingEnable,
+		Enabled:        defaultTracingEnabled,
 		Type:           defaultTracingType,
 		Sampler:        &sampler,
 		Adapters:       &adapters,
@@ -145,7 +145,7 @@ func DefaultTracingAdapters() TracingAdapters {
 
 // Validate performs validation on the Tracing configuration.
 func (t *Tracing) Validate() error {
-	if !t.Enable {
+	if !t.Enabled {
 		return nil
 	}
 

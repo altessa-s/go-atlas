@@ -49,7 +49,7 @@ type GrpcInterLoggerConfig struct {
 // IsEnabled returns true if request/response logging is enabled.
 // This is a convenience method to check if the interceptor should be active.
 func (c *GrpcInterLoggerConfig) IsEnabled() bool {
-	return c != nil && c.Enable
+	return c != nil && c.Enabled
 }
 
 // Validate performs validation of the logger interceptor configuration.
@@ -75,7 +75,7 @@ func (c *GrpcInterLoggerConfig) Validate() error {
 func DefaultGrpcInterLoggerConfig() GrpcInterLoggerConfig {
 	return GrpcInterLoggerConfig{
 		BaseGrpcInterceptorConfig: BaseGrpcInterceptorConfig{
-			EnableMixin: EnableMixin{Enable: false},
+			EnableMixin: EnableMixin{Enabled: false},
 		},
 		TimeFormat:          timeformat.RFC3339,
 		LogRequest:          false,
