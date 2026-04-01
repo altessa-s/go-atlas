@@ -53,7 +53,7 @@ type GrpcInterIdempotencyConfig struct {
 	IdempotencyKeyEntityIdMetadata string `yaml:"idempotencyKeyEntityIdMetadata" default:"Idempotency-Key-Entity-Id"`
 
 	// EnforceMandatory controls whether the idempotency key is mandatory for all methods.
-	EnforceMandatory bool `yaml:"enforceMandatory" default:"true"`
+	EnforceMandatory bool `yaml:"enforceMandatory" default:"false"`
 }
 
 // IsEnabled returns true if idempotency checking is enabled.
@@ -100,6 +100,6 @@ func DefaultGrpcInterIdempotencyConfig() GrpcInterIdempotencyConfig {
 		FallbackBehavior:               FallbackBehaviorDeny,
 		IdempotencyKeyStatusMetadata:   defaultIdempotencyKeyStatusMetadata,
 		IdempotencyKeyEntityIdMetadata: defaultIdempotencyKeyEntityIdMetadata,
-		EnforceMandatory:               true,
+		EnforceMandatory:               false,
 	}
 }

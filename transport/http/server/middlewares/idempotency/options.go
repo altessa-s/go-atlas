@@ -75,7 +75,7 @@ type options struct {
 	idempotencyKeyStatusHeader   string             `optgen:"default=DefaultIdempotencyKeyStatusHeader"`
 	idempotencyKeyEntityIdHeader string             `optgen:"default=DefaultIdempotencyKeyEntityIdHeader"`
 	fallbackBehavior             fallback.Behavior  `optgen:"default=fallback.Deny"`
-	enforceMandatory             bool               `optgen:"default=true"`
+	enforceMandatory             bool               `optgen:"default=false" optval:"param"`
 	keyFormatValidator           KeyFormatValidator `optgen:"default=DefaultKeyValidator"`
 	entityIdExtractor            EntityIdExtractor
 	errorHandler                 ErrorHandler

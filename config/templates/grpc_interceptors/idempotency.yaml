@@ -45,5 +45,5 @@
 #  idempotencyKeyEntityIdMetadata: Idempotency-Key-Entity-Id
 #
 #  # <bool> Enforce mandatory idempotency key for all methods.
-#  # Default value: true
-#  enforceMandatory: true
+#  # Default value: false
+#  enforceMandatory: false

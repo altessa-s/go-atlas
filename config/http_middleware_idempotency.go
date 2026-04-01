@@ -31,7 +31,7 @@ type HttpInterIdempotencyConfig struct {
 	FallbackBehavior FallbackBehavior `yaml:"fallbackBehavior" default:"deny"`
 
 	// EnforceMandatory, when true, requires all requests (not ignored) to have an idempotency key.
-	EnforceMandatory bool `yaml:"enforceMandatory" default:"true"`
+	EnforceMandatory bool `yaml:"enforceMandatory" default:"false"`
 }
 
 // Validate performs validation of the HttpInterIdempotencyConfig.
@@ -57,7 +57,7 @@ func DefaultHttpInterIdempotencyConfig() HttpInterIdempotencyConfig {
 		IdempotencyKeyStatusHeader:   "Idempotency-Key-Status",
 		IdempotencyKeyEntityIdHeader: "Idempotency-Key-Entity-Id",
 		FallbackBehavior:             FallbackBehaviorDeny,
-		EnforceMandatory:             true,
+		EnforceMandatory:             false,
 	}
 }
 
