@@ -19,7 +19,7 @@
 // # Example
 //
 //	mw := idempotency.New(storage,
-//	    idempotency.WithEnforceMandatory(),
+//	    idempotency.WithEnforceMandatory(true),
 //	)
 //	handler := mw.Handler(yourHandler)
 package idempotency

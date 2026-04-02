@@ -19,6 +19,7 @@ type options struct {
 	headers   map[string]string `opt:"Headers"`
 	maxItems  int               `opt:"MaxItems" optval:"positive"`
 	threshold int               `opt:"Threshold" optval:"positive=allow_zero"`
+	mandatory bool              `opt:"Mandatory" optval:"param" optgen:"default=true"`
 }
 
 var errInvalidIP = func() error { return nil }()

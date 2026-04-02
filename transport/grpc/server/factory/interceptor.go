@@ -371,7 +371,7 @@ func (b *ServerBuilder) WithIdempotencyInterceptor() *ServerBuilder {
 		idempotency.WithIgnoreMethods(c.IgnoreMethods...),
 	}
 
-	configOpts = slices.AppendIf(configOpts, c.EnforceMandatory, idempotency.WithEnforceMandatory())
+	configOpts = append(configOpts, idempotency.WithEnforceMandatory(c.EnforceMandatory))
 
 	if len(c.IgnorePatterns) > 0 {
 		configOpts = append(configOpts, idempotency.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))

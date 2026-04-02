@@ -161,7 +161,7 @@ func (b *ServerBuilder) WithIdempotencyMiddleware() *ServerBuilder {
 		configOpts = append(configOpts, idempotencymw.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
 	}
 
-	configOpts = slices.AppendIf(configOpts, c.EnforceMandatory, idempotencymw.WithEnforceMandatory())
+	configOpts = append(configOpts, idempotencymw.WithEnforceMandatory(c.EnforceMandatory))
 
 	b.configMW = append(b.configMW, idempotencymw.New(b.idempotency, configOpts...))
 	return b

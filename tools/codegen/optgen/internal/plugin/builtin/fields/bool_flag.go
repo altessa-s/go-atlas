@@ -29,6 +29,14 @@ const boolFlagPriority = 20
 //	        o.skipValidation = true
 //	    }
 //	}
+//
+// With optval:"param":
+//
+//	func WithEnforceMandatory(v bool) Option {
+//	    return func(o *options) {
+//	        o.enforceMandatory = v
+//	    }
+//	}
 type BoolFlagPlugin struct{}
 
 func (p *BoolFlagPlugin) Meta() plugin.Meta {
@@ -52,19 +60,26 @@ func {{.FuncPrefix}}{{.OptionName}}{{.TypeParamsDecl}}() {{.OptionType}}{{.TypeP
 	}
 }`)
 
+var boolSetterTemplate = builtin.MustOptionTemplate("bool_setter", `// With{{.OptionName}} sets the {{.FieldName}} option.
+func With{{.OptionName}}{{.TypeParamsDecl}}(v bool) {{.OptionType}}{{.TypeParamsNames}} {
+	return func(o *{{.TypeName}}{{.TypeParamsNames}}){{if .OptionReturnsError}} error{{end}} {
+		o.{{.FieldName}} = v
+{{- template "optionReturn" . }}
+	}
+}`)
+
 func (p *BoolFlagPlugin) CanHandle(field model.OptField) bool {
 	return field.Type == "bool" && !field.IsSlice
 }
 
 func (p *BoolFlagPlugin) Generate(ctx plugin.GenerationContext, field model.OptField) (plugin.GeneratedCode, error) {
-	// Check for invert modifier
-	invert := false
-	for _, mod := range field.Modifiers {
-		if mod == "invert" {
-			invert = true
-			break
-		}
+	if field.HasModifier("param") {
+		data := builtin.NewOptionBaseData(ctx, field)
+		return builtin.ExecuteOptionTemplate(boolSetterTemplate, data)
 	}
+
+	// Check for invert modifier
+	invert := field.HasModifier("invert")
 
 	data := boolFlagData{
 		OptionBaseData: builtin.NewOptionBaseData(ctx, field),
