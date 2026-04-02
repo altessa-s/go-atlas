@@ -36,5 +36,5 @@
 #  fallbackBehavior: deny
 #
 #  # <bool> Require idempotency key for all non-ignored requests.
-#  # Default value: true
-#  enforceMandatory: true
+#  # Default value: false
+#  enforceMandatory: false

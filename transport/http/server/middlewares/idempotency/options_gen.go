@@ -16,10 +16,10 @@ import (
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
-// WithEnforceMandatory enables the enforceMandatory option.
-func WithEnforceMandatory() Option {
+// WithEnforceMandatory sets the enforceMandatory option.
+func WithEnforceMandatory(v bool) Option {
 	return func(o *options) {
-		o.enforceMandatory = true
+		o.enforceMandatory = v
 	}
 }
 
@@ -159,7 +159,7 @@ func WithLogger(v *slog.Logger) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		enforceMandatory:             true,
+		enforceMandatory:             false,
 		fallbackBehavior:             fallback.Deny,
 		idempotencyKeyEntityIdHeader: DefaultIdempotencyKeyEntityIdHeader,
 		idempotencyKeyHeader:         DefaultIdempotencyKeyHeader,

@@ -92,6 +92,13 @@ func WithLogger(v *slog.Logger) Option {
 	}
 }
 
+// WithMandatory sets the mandatory option.
+func WithMandatory(v bool) Option {
+	return func(o *options) {
+		o.mandatory = v
+	}
+}
+
 // WithMaxItems sets the maxItems option.
 func WithMaxItems(v int) Option {
 	return func(o *options) {
@@ -125,9 +132,10 @@ func WithTimeout(v time.Duration) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		headers: make(map[string]string),
-		logger:  slog.New(slog.DiscardHandler),
-		timeout: 30 * time.Second,
+		headers:   make(map[string]string),
+		logger:    slog.New(slog.DiscardHandler),
+		mandatory: true,
+		timeout:   30 * time.Second,
 	}
 }
 

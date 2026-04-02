@@ -24,7 +24,7 @@ from gRPC metadata (default header: `Idempotency-Key`). Uses the driven intercep
 | `WithIdempotencyKeyStatusMetadata`| `Idempotency-Key-Status`   | Response metadata key for status            |
 | `WithIdempotencyKeyEntityIdMetadata`| `Idempotency-Key-Entity-Id`| Response metadata key for entity ID        |
 | `WithFallbackBehavior`            | Deny                       | Behavior on storage failure (Allow/Deny/Error) |
-| `WithEnforceMandatory`            | true                       | Require idempotency key on all requests     |
+| `WithEnforceMandatory`            | false                      | When true, require idempotency key on all requests |
 | `WithKeyFormatValidator`          | UUID v4                    | Custom key format validation function        |
 | `WithEntityIdExtractor`           | nil                        | Extract entity ID from response              |
 | `WithStatusCreator`               | default messages           | Custom error status creation function        |

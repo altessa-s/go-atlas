@@ -73,7 +73,7 @@ func TestIsSafeMethod(t *testing.T) {
 }
 
 func TestCheckIdempotency_SkipsSafeMethod(t *testing.T) {
-	m := New(nil, WithEnforceMandatory())
+	m := New(nil, WithEnforceMandatory(true))
 
 	for _, method := range []string{http.MethodGet, http.MethodHead, http.MethodOptions} {
 		t.Run(method, func(t *testing.T) {
