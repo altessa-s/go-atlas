@@ -5,7 +5,6 @@
 package config
 
 import (
-	"fmt"
 	"regexp"
 	"time"
 
@@ -89,9 +88,10 @@ func (a *OIDC) Validate() error {
 		validation.Field(&a.Introspection, validation.NilOrNotEmpty),
 		validation.Field(&a.Introspection, validation.When(
 			a.Introspection != nil && a.Introspection.Enabled,
-			validation.By(func(_ interface{}) error {
+			validation.By(func(_ any) error {
 				if a.ClientCredentials == nil {
-					return fmt.Errorf("clientCredentials must be configured when introspection is enabled")
+					return validation.NewError("validation_introspection_requires_credentials",
+						"clientCredentials must be configured when introspection is enabled")
 				}
 				return nil
 			}),
