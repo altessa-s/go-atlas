@@ -5,6 +5,7 @@
 package config
 
 import (
+	"fmt"
 	"regexp"
 	"time"
 
@@ -35,7 +36,7 @@ var (
 
 // OIDC represents the configuration for OpenID Connect authentication.
 // It contains all necessary parameters for OIDC provider integration including
-// token validation, service account credentials, and OIDCJwks management.
+// token validation, client credentials, and OIDCJwks management.
 type OIDC struct {
 	// DiscoveryUrl is the URL of the OpenID Connect discovery endpoint
 	DiscoveryUrl string `yaml:"discoveryUrl"`
@@ -49,13 +50,13 @@ type OIDC struct {
 	// Validation contains optional token validation settings
 	Validation *OIDCValidation `yaml:"validation" default:"-"`
 
-	// ServiceAccount contains optional service-to-service authentication credentials
-	ServiceAccount *OIDCServiceAccount `yaml:"serviceAccount" default:"-"`
+	// ClientCredentials holds shared OAuth2 client credentials for server-to-server operations
+	ClientCredentials *OIDCClientCredentials `yaml:"clientCredentials" default:"-"`
 
 	// JWKS contains optional JWKS-specific settings
 	JWKS *OIDCJwks `yaml:"jwks" default:"-"`
 
-	// Introspection contains optional RFC 7662 token introspection settings
+	// Introspection controls RFC 7662 token introspection (credentials come from ClientCredentials)
 	Introspection *OIDCIntrospection `yaml:"introspection" default:"-"`
 
 	// Presets contains optional validation presets configuration
@@ -83,9 +84,18 @@ func (a *OIDC) Validate() error {
 		validation.Field(&a.ClockSkew, validation.Min(time.Second), validation.Max(time.Minute)),
 		validation.Field(&a.Cache, validation.NilOrNotEmpty),
 		validation.Field(&a.Validation, validation.NilOrNotEmpty),
-		validation.Field(&a.ServiceAccount, validation.NilOrNotEmpty),
+		validation.Field(&a.ClientCredentials, validation.NilOrNotEmpty),
 		validation.Field(&a.JWKS, validation.NilOrNotEmpty),
 		validation.Field(&a.Introspection, validation.NilOrNotEmpty),
+		validation.Field(&a.Introspection, validation.When(
+			a.Introspection != nil && a.Introspection.Enabled,
+			validation.By(func(_ interface{}) error {
+				if a.ClientCredentials == nil {
+					return fmt.Errorf("clientCredentials must be configured when introspection is enabled")
+				}
+				return nil
+			}),
+		)),
 		validation.Field(&a.Presets, validation.NilOrNotEmpty),
 		validation.Field(&a.Revocation, validation.NilOrNotEmpty),
 	)
@@ -96,9 +106,14 @@ func (a *OIDC) IsCacheConfigured() bool {
 	return a.Cache != nil
 }
 
-// IsServiceAccountConfigured returns true if service account credentials are configured.
-func (a *OIDC) IsServiceAccountConfigured() bool {
-	return a.ServiceAccount != nil
+// IsClientCredentialsConfigured returns true if client credentials are configured.
+func (a *OIDC) IsClientCredentialsConfigured() bool {
+	return a.ClientCredentials != nil
+}
+
+// IsIntrospectionEnabled returns true if introspection is enabled and client credentials are set.
+func (a *OIDC) IsIntrospectionEnabled() bool {
+	return a.Introspection != nil && a.Introspection.Enabled && a.ClientCredentials != nil
 }
 
 // IsValidationConfigured returns true if validation settings are configured.
@@ -109,11 +124,6 @@ func (a *OIDC) IsValidationConfigured() bool {
 // IsJWKSConfigured returns true if OIDCJwks settings are configured.
 func (a *OIDC) IsJWKSConfigured() bool {
 	return a.JWKS != nil
-}
-
-// IsIntrospectionConfigured returns true if introspection settings are configured.
-func (a *OIDC) IsIntrospectionConfigured() bool {
-	return a.Introspection != nil
 }
 
 // IsPresetsConfigured returns true if presets settings are configured.
@@ -262,28 +272,24 @@ func (c *OIDCClaims) Validate() error {
 	)
 }
 
-// OIDCServiceAccount represents service account credentials for backend-to-backend authentication.
-// It contains OAuth2 client credentials and token validation rules specific to service accounts.
-type OIDCServiceAccount struct {
-	// ClientId is the OAuth2 client identifier for the service account
+// OIDCClientCredentials holds OAuth2 client credentials shared across
+// introspection and other server-to-server flows.
+type OIDCClientCredentials struct {
+	// ClientId is the OAuth2 client identifier
 	ClientId string `yaml:"clientId"`
 
-	// ClientSecret is the OAuth2 client secret for authentication
+	// ClientSecret is the OAuth2 client secret
 	ClientSecret Secret `yaml:"clientSecret"`
-
-	// Scopes defines the OAuth2 scopes to request
-	Scopes []string `yaml:"scopes"`
 }
 
-// Validate performs validation on the OIDCServiceAccount configuration.
-// It validates that required credentials are present and that scopes are not empty.
+// Validate performs validation on the OIDCClientCredentials configuration.
+// It validates that required credentials are present.
 //
 // Returns an error if any validation rules fail.
-func (sa *OIDCServiceAccount) Validate() error {
-	return ValidateStruct(sa,
-		validation.Field(&sa.ClientId, validation.Required),
-		validation.Field(&sa.ClientSecret, validation.Required),
-		validation.Field(&sa.Scopes, validation.Each(validation.Required)),
+func (cc *OIDCClientCredentials) Validate() error {
+	return ValidateStruct(cc,
+		validation.Field(&cc.ClientId, validation.Required),
+		validation.Field(&cc.ClientSecret, validation.Required),
 	)
 }
 
@@ -320,25 +326,11 @@ func (j *OIDCJwks) Validate() error {
 	)
 }
 
-// OIDCIntrospection represents RFC 7662 token introspection configuration.
-// It enables checking token revocation status with the authorization server.
+// OIDCIntrospection controls RFC 7662 token introspection.
+// Credentials come from the shared ClientCredentials section.
 type OIDCIntrospection struct {
-	// ClientId is the OAuth2 client identifier for introspection endpoint authentication
-	ClientId string `yaml:"clientId"`
-
-	// ClientSecret is the OAuth2 client secret for introspection endpoint authentication
-	ClientSecret Secret `yaml:"clientSecret"`
-}
-
-// Validate performs validation on the OIDCIntrospection configuration.
-// It validates that required client credentials are present.
-//
-// Returns an error if any validation rules fail.
-func (i *OIDCIntrospection) Validate() error {
-	return ValidateStruct(i,
-		validation.Field(&i.ClientId, validation.Required),
-		validation.Field(&i.ClientSecret, validation.Required),
-	)
+	// Enabled toggles introspection on or off
+	Enabled bool `yaml:"enabled" default:"false"`
 }
 
 // OIDCPresets represents validation presets configuration.

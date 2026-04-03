@@ -95,8 +95,8 @@ func (b *ProviderBuilder) buildProviderOptions(ctx context.Context) ([]oidc.Opti
 		)
 	}
 
-	opts = slices.AppendIfFunc(opts, cfg.IsIntrospectionConfigured(), func() []oidc.Option {
-		return []oidc.Option{oidc.WithIntrospection(cfg.Introspection.ClientId, cfg.Introspection.ClientSecret.Expose())}
+	opts = slices.AppendIfFunc(opts, cfg.IsIntrospectionEnabled(), func() []oidc.Option {
+		return []oidc.Option{oidc.WithIntrospection(cfg.ClientCredentials.ClientId, cfg.ClientCredentials.ClientSecret.Expose())}
 	})
 
 	revOpts, err := b.buildRevocationOptions()
