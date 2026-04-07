@@ -195,10 +195,10 @@ func TestLoadAndMergeParallelReturnsErrorOnEmpty(t *testing.T) {
 	}
 
 	cmd := &Command{fromPath: dir}
-	entries, err := os.ReadDir(dir)
+	names, err := cmd.collectConfigFileNames(formatYAML)
 	require.NoError(t, err)
 
-	_, err = cmd.loadAndMergeParallel(entries, formatYAML, false)
+	_, err = cmd.loadAndMergeParallel(names, formatYAML, false)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no valid config files found")
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	"github.com/altessa-s/go-atlas/core/io/files"
 	"github.com/altessa-s/go-atlas/core/runtime/appinfo"
 	"github.com/altessa-s/go-atlas/core/runtime/concurrency"
 
@@ -293,41 +294,17 @@ func (c *Command) detectFormat(path string) string {
 
 // detectDirectoryFormat detects the format from the first valid config file in directory.
 func (c *Command) detectDirectoryFormat() (string, error) {
-	entries, err := os.ReadDir(c.fromPath)
-	if err != nil {
-		return "", coreerrs.WrapOperation(err, "read directory")
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
+	for entry, err := range files.Walk(c.fromPath, files.WithFileTypes(files.FileTypeRegular)) {
+		if err != nil {
+			return "", coreerrs.WrapOperation(err, "read directory")
 		}
 
-		format := c.detectFormat(entry.Name())
-		if format != "" {
+		if format := c.detectFormat(entry.Name()); format != "" {
 			return format, nil
 		}
 	}
 
 	return "", fmt.Errorf("no valid config files found in directory: %s", c.fromPath)
-}
-
-// isValidConfigFile checks if a file has a valid config extension.
-func (c *Command) isValidConfigFile(filename, format string) bool {
-	ext := corestrings.InternLowerString(filepath.Ext(filename))
-
-	switch format {
-	case formatYAML:
-		return ext == extensionYAML || ext == extensionYML
-	case formatTOML:
-		return ext == extensionTOML
-	case formatEnv:
-		return ext == extensionEnv
-	case formatMD:
-		return ext == extensionMD
-	default:
-		return false
-	}
 }
 
 // validateFormat validates that the format is supported.
@@ -418,18 +395,47 @@ func (c *Command) performConversion(fromFormat, toFormat string, isDir bool) err
 // they are loaded concurrently via [concurrency.ProcessCollect].
 // If uncommentYAML is true, commented YAML blocks are uncommented before parsing.
 func (c *Command) loadAndMergeDirectory(format string, uncommentYAML bool) (map[string]any, error) {
-	entries, err := os.ReadDir(c.fromPath)
+	names, err := c.collectConfigFileNames(format)
 	if err != nil {
-		return nil, coreerrs.WrapOperation(err, "read directory")
+		return nil, err
 	}
 
-	// Count valid entries to decide on processing strategy
-	validEntries := c.countValidEntries(entries, format)
-	if validEntries < parallelProcessingThreshold {
-		return c.loadAndMergeSequential(entries, format, uncommentYAML)
+	if len(names) < parallelProcessingThreshold {
+		return c.loadAndMergeSequential(names, format, uncommentYAML)
 	}
 
-	return c.loadAndMergeParallel(entries, format, uncommentYAML)
+	return c.loadAndMergeParallel(names, format, uncommentYAML)
+}
+
+// collectConfigFileNames returns the base names of regular files in c.fromPath
+// whose extension matches the given format.
+func (c *Command) collectConfigFileNames(format string) ([]string, error) {
+	var names []string
+	for entry, err := range files.Walk(c.fromPath,
+		files.WithFileTypes(files.FileTypeRegular),
+		files.WithExtensions(extensionsForFormat(format)...),
+	) {
+		if err != nil {
+			return nil, coreerrs.WrapOperation(err, "read directory")
+		}
+		names = append(names, entry.Name())
+	}
+	return names, nil
+}
+
+// extensionsForFormat returns the file extensions associated with a config format.
+func extensionsForFormat(format string) []string {
+	switch format {
+	case formatYAML:
+		return []string{extensionYAML, extensionYML}
+	case formatTOML:
+		return []string{extensionTOML}
+	case formatEnv:
+		return []string{extensionEnv}
+	case formatMD:
+		return []string{extensionMD}
+	}
+	return nil
 }
 
 // isPathWithinDir reports whether path is inside dir after cleaning both.
@@ -449,36 +455,21 @@ func isPathWithinDir(dir, path string) bool {
 	return true
 }
 
-// countValidEntries counts the number of valid config files in the entries.
-func (c *Command) countValidEntries(entries []os.DirEntry, format string) int {
-	count := 0
-	for _, entry := range entries {
-		if !entry.IsDir() && c.isValidConfigFile(entry.Name(), format) {
-			count++
-		}
-	}
-	return count
-}
-
 // loadAndMergeSequential loads and merges config files sequentially.
-func (c *Command) loadAndMergeSequential(entries []os.DirEntry, format string, uncommentYAML bool) (map[string]any, error) {
+func (c *Command) loadAndMergeSequential(names []string, format string, uncommentYAML bool) (map[string]any, error) {
 	merged := make(map[string]any)
 
-	for _, entry := range entries {
-		if entry.IsDir() || !c.isValidConfigFile(entry.Name(), format) {
-			continue
-		}
-
-		filePath := filepath.Join(c.fromPath, entry.Name())
+	for _, name := range names {
+		filePath := filepath.Join(c.fromPath, name)
 
 		// Security: validate path
 		if !isPathWithinDir(c.fromPath, filePath) {
-			return nil, fmt.Errorf("invalid file path: %s", entry.Name())
+			return nil, fmt.Errorf("invalid file path: %s", name)
 		}
 
 		fileData, err := c.loadConfigFile(filePath, format, uncommentYAML)
 		if err != nil {
-			return nil, coreerrs.Wrapf(err, "failed to load %s", entry.Name())
+			return nil, coreerrs.Wrapf(err, "failed to load %s", name)
 		}
 
 		c.deepMerge(merged, fileData)
@@ -492,25 +483,17 @@ func (c *Command) loadAndMergeSequential(entries []os.DirEntry, format string, u
 }
 
 // loadAndMergeParallel loads and merges config files in parallel.
-func (c *Command) loadAndMergeParallel(entries []os.DirEntry, format string, uncommentYAML bool) (map[string]any, error) {
+func (c *Command) loadAndMergeParallel(names []string, format string, uncommentYAML bool) (map[string]any, error) {
 	type fileResult struct {
 		data map[string]any
 		name string
-	}
-
-	names := make([]string, 0, c.countValidEntries(entries, format))
-	for _, entry := range entries {
-		if entry.IsDir() || !c.isValidConfigFile(entry.Name(), format) {
-			continue
-		}
-		names = append(names, entry.Name())
 	}
 
 	if len(names) == 0 {
 		return nil, fmt.Errorf("no valid config files found in directory")
 	}
 
-	results, err := concurrency.ProcessCollect[string, fileResult](context.Background(), names, func(ctx context.Context, name string) (fileResult, error) {
+	results, err := concurrency.ProcessCollect(context.Background(), names, func(ctx context.Context, name string) (fileResult, error) {
 		filePath := filepath.Join(c.fromPath, name)
 
 		// Security: validate path

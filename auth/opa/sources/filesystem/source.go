@@ -151,22 +151,22 @@ func (s *Source) Fetch(ctx context.Context) (*opa.PolicyBundle, error) {
 
 // walkDirectory recursively walks the directory and collects policy files.
 func (s *Source) walkDirectory(root string, modules map[string][]byte, data *map[string]any) error {
-	return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	for entry, err := range files.Walk(root,
+		files.WithRecursive(),
+		files.WithFileTypes(files.FileTypeRegular),
+	) {
 		if err != nil {
 			return err
 		}
 
-		if info.IsDir() {
-			return nil
-		}
-
-		ext := filepath.Ext(info.Name())
+		path := entry.Path
+		ext := filepath.Ext(entry.Name())
 
 		// Check for policy files
 		if _, ok := s.extensions[ext]; ok {
-			content, err := os.ReadFile(path)
-			if err != nil {
-				return coreerrs.Wrapf(err, "read policy %s", path)
+			content, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return coreerrs.Wrapf(readErr, "read policy %s", path)
 			}
 
 			relPath := relativePolicyPath(root, path)
@@ -175,7 +175,7 @@ func (s *Source) walkDirectory(root string, modules map[string][]byte, data *map
 			}
 
 			modules[path] = content
-			return nil
+			continue
 		}
 
 		// Check for data files
@@ -204,9 +204,9 @@ func (s *Source) walkDirectory(root string, modules map[string][]byte, data *map
 			key = strings.ReplaceAll(key, string(filepath.Separator), "/")
 			(*data)[key] = jsonData
 		}
+	}
 
-		return nil
-	})
+	return nil
 }
 
 // relativePolicyPath computes the relative path key used in the checksums map.

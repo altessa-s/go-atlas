@@ -20,6 +20,7 @@ import (
 
 	loadersecrets "github.com/altessa-s/go-atlas/config/loader/secrets"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	corefiles "github.com/altessa-s/go-atlas/core/io/files"
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
 
@@ -260,18 +261,17 @@ func (cf *Config) loadFiles() (err error) {
 // loadFilesFromDir loads all valid configuration files from the specified directory.
 // It iterates through directory contents and loads each valid configuration file.
 func (cf *Config) loadFilesFromDir(basePath string) error {
-	items, err := os.ReadDir(basePath)
-	if err != nil {
-		return err
-	}
-
-	for _, item := range items {
-		var itemInfo os.FileInfo
-		if itemInfo, err = item.Info(); err == nil {
-			err = cf.loadFile(path.Join(basePath, item.Name()), itemInfo)
+	for entry, err := range corefiles.Walk(basePath) {
+		if err != nil {
+			return err
 		}
 
+		itemInfo, err := entry.Info()
 		if err != nil {
+			return err
+		}
+
+		if err := cf.loadFile(path.Join(basePath, entry.Name()), itemInfo); err != nil {
 			return err
 		}
 	}

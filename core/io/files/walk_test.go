@@ -387,4 +387,3 @@ func TestWalk_RecursiveErrorContinues(t *testing.T) {
 		t.Errorf("Walk(%q) recursive: expected at least 3 entries despite error, got %v", root, names)
 	}
 }
-
