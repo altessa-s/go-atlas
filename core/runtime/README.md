@@ -20,6 +20,7 @@ Package `runtime` provides low-level runtime utilities: GC cleanup hooks, finali
 | Package                      | Description                                                        |
 |------------------------------|--------------------------------------------------------------------|
 | [appinfo](./appinfo)         | Application metadata, build info, env vars, directory paths        |
+| [capabilities](./capabilities) | Linux capability dropping via capset(2) / prctl(2)               |
 | [concurrency](./concurrency) | Adaptive concurrency limits, batch processing                      |
 | [helpers](./helpers)         | Goroutine ID extraction (debug only)                               |
 | [landlock](./landlock)       | Linux Landlock LSM filesystem allowlist (kernel 5.13+)             |
@@ -27,4 +28,5 @@ Package `runtime` provides low-level runtime utilities: GC cleanup hooks, finali
 | [panics](./panics)           | Panic recovery, assertions (`Must`, `MustNonNil`, `MustError`)     |
 | [retry](./retry)             | Retry loop with exponential backoff and context support            |
 | [rlimits](./rlimits)         | Linux process resource caps via setrlimit(2)                       |
+| [seccomp](./seccomp)         | Linux seccomp-BPF denylist of ~22 dangerous syscalls               |
 | [signals](./signals)         | OS signal handling with priority, rate limiting, graceful shutdown |
