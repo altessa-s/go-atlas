@@ -6,6 +6,7 @@ package strings
 
 import (
 	"crypto/subtle"
+	"runtime/debug"
 	"sync"
 	"unsafe"
 
@@ -414,14 +415,17 @@ func ZeroString(s string) {
 	// Use unsafe operations to avoid the allocation that []byte(s) would cause.
 	// This directly accesses the string's underlying byte array.
 	//
-	// SAFETY: This may panic if the string points to read-only memory.
-	// We use a deferred recover to handle this gracefully.
+	// SAFETY: Writing to read-only memory (e.g. string literals in the rodata
+	// segment) causes a SIGSEGV. By default Go treats a SIGSEGV on a non-nil
+	// address as fatal (runtime.throw) which recover() cannot catch.
+	// debug.SetPanicOnFault converts such faults into recoverable panics.
+	prev := debug.SetPanicOnFault(true)
+	defer debug.SetPanicOnFault(prev)
+
 	defer func() {
-		// Recover from potential panic if memory is read-only
 		if r := recover(); r != nil {
-			// String was likely a literal or in read-only memory
-			// Nothing we can do in this case - silently ignore
-			_ = r // Explicitly ignore the recovered value to satisfy staticcheck
+			// String was likely a literal or in read-only memory — silently ignore.
+			_ = r
 		}
 	}()
 

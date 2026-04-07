@@ -54,19 +54,23 @@
 #    # Default value: 30s
 #    httpTimeout: 30s
 #
-#  # <object> RFC 7662 token introspection configuration.
-#  # Enables checking token revocation status with the authorization server.
-#  # Requires cache.enabled to be true for optimal performance.
-#  introspection:
-#    # <string> OAuth2 client identifier for introspection endpoint authentication.
-#    # Required for token introspection.
+#  # <object> Shared OAuth2 client credentials for server-to-server operations.
+#  # Used by introspection (RFC 7662) and other client credentials flows.
+#  clientCredentials:
+#    # <string> OAuth2 client identifier.
 #    # Default value: not set
 #    clientId:
 #
-#    # <string> OAuth2 client secret for introspection endpoint authentication.
-#    # Required for token introspection.
+#    # <string> OAuth2 client secret.
 #    # Default value: not set
 #    clientSecret:
+#
+#  # <object> RFC 7662 token introspection configuration.
+#  # Credentials come from the clientCredentials section above.
+#  introspection:
+#    # <bool> Enable token introspection.
+#    # Default value: false
+#    enabled: false
 #
 #  # <object> Token validation settings.
 #  # Configures default validation rules for OIDC tokens.
@@ -160,24 +164,6 @@
 #      # Some OIDC providers don't include 'sub' in service account tokens.
 #      # Default value: false
 #      allowMissingSubject: false
-#
-#  # <object> Service account credentials for backend-to-backend communication.
-#  # Used for client credentials flow authentication.
-#  serviceAccount:
-#    # <string> OAuth2 client identifier for the service account.
-#    # Required for client credentials flow.
-#    # Default value: not set
-#    clientId:
-#
-#    # <string> OAuth2 client secret for authentication.
-#    # Required for client credentials flow.
-#    # Default value: not set
-#    clientSecret:
-#
-#    # <list[string]> OAuth2 scopes to request.
-#    # If empty, defaults to provider's default scopes.
-#    # Default value: []
-#    scopes: []
 #
 #  # <object> Validation presets configuration.
 #  # Presets allow defining multiple validation rule sets that can be dynamically selected
