@@ -28,15 +28,15 @@ options.
 
 ### Options
 
-| Option               | Description                                                         |
-|----------------------|---------------------------------------------------------------------|
-| `WithExtensions`     | Filter by file extension (case-insensitive, leading dot optional)   |
-| `WithFileTypes`      | Filter by `FileType` (Regular, Dir, Symlink, Other)                 |
-| `WithRecursive`      | Recurse into subdirectories up to `DefaultMaxRecursionDepth` levels |
-| `WithMaxDepth`       | Recurse with an explicit bound (0 = top-level only)                 |
-| `WithUnboundedDepth` | Remove the recursion depth limit (use with care)                    |
-| `WithSkipHidden`     | Skip entries whose name begins with `.`                             |
-| `WithFollowSymlinks` | Follow symbolic links to directories during recursion               |
+| Option                | Description                                              |
+|-----------------------|----------------------------------------------------------|
+| `WithExtensions`      | Filter by file extension (case-insensitive, leading dot optional) |
+| `WithFileTypes`       | Filter by `FileType` (Regular, Dir, Symlink, Other)      |
+| `WithRecursive`       | Recurse into subdirectories up to `DefaultMaxRecursionDepth` levels |
+| `WithMaxDepth`        | Recurse with an explicit bound (0 = top-level only)      |
+| `WithUnboundedDepth`  | Remove the recursion depth limit (use with care)         |
+| `WithSkipHidden`      | Skip entries whose name begins with `.`                  |
+| `WithFollowSymlinks`  | Follow symbolic links to directories during recursion    |
 
 ### Recursion depth
 
