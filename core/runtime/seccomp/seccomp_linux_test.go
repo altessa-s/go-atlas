@@ -164,3 +164,72 @@ func TestDangerousSyscalls_ExpectedCount(t *testing.T) {
 		t.Errorf("dangerousSyscalls count: got %d, want %d — if the change is intentional, update this test and the package README", got, want)
 	}
 }
+
+// TestDangerousSyscalls_RequiredMembership asserts that every
+// security-critical entry that the package's threat model promises to
+// block is actually present in the denylist. The count test above
+// catches deletions but not substitutions: a refactor that swaps
+// SYS_BPF for SYS_OPEN would keep the count at 22 and silently let
+// eBPF programs reach the kernel from a "hardened" plugin host.
+//
+// This test is the canonical contract for what the denylist guarantees.
+// Adding an entry here without adding the corresponding entry in
+// dangerousSyscalls is a compile-time-detectable mistake (the test
+// fails); removing an entry from dangerousSyscalls without removing
+// it here is also caught.
+//
+// Source: dangerousSyscalls categories at seccomp_linux.go:33-72.
+func TestDangerousSyscalls_RequiredMembership(t *testing.T) {
+	// Every entry the README and threat model commit to blocking.
+	// Grouped by category for review diffs.
+	required := []struct {
+		name string
+		nr   uint32
+	}{
+		// Filesystem manipulation.
+		{"SYS_MOUNT", uint32(unix.SYS_MOUNT)},
+		{"SYS_UMOUNT2", uint32(unix.SYS_UMOUNT2)},
+		{"SYS_PIVOT_ROOT", uint32(unix.SYS_PIVOT_ROOT)},
+		{"SYS_CHROOT", uint32(unix.SYS_CHROOT)},
+		{"SYS_SWAPON", uint32(unix.SYS_SWAPON)},
+		{"SYS_SWAPOFF", uint32(unix.SYS_SWAPOFF)},
+		// Kernel module loading.
+		{"SYS_INIT_MODULE", uint32(unix.SYS_INIT_MODULE)},
+		{"SYS_FINIT_MODULE", uint32(unix.SYS_FINIT_MODULE)},
+		{"SYS_DELETE_MODULE", uint32(unix.SYS_DELETE_MODULE)},
+		// Kernel reload.
+		{"SYS_KEXEC_FILE_LOAD", uint32(unix.SYS_KEXEC_FILE_LOAD)},
+		// System control.
+		{"SYS_REBOOT", uint32(unix.SYS_REBOOT)},
+		// Debugging / memory inspection.
+		{"SYS_PTRACE", uint32(unix.SYS_PTRACE)},
+		{"SYS_PROCESS_VM_READV", uint32(unix.SYS_PROCESS_VM_READV)},
+		{"SYS_PROCESS_VM_WRITEV", uint32(unix.SYS_PROCESS_VM_WRITEV)},
+		// Namespace manipulation.
+		{"SYS_UNSHARE", uint32(unix.SYS_UNSHARE)},
+		{"SYS_SETNS", uint32(unix.SYS_SETNS)},
+		// Keyring.
+		{"SYS_KEYCTL", uint32(unix.SYS_KEYCTL)},
+		{"SYS_ADD_KEY", uint32(unix.SYS_ADD_KEY)},
+		{"SYS_REQUEST_KEY", uint32(unix.SYS_REQUEST_KEY)},
+		// Exotic escalation vectors.
+		{"SYS_USERFAULTFD", uint32(unix.SYS_USERFAULTFD)},
+		{"SYS_PERF_EVENT_OPEN", uint32(unix.SYS_PERF_EVENT_OPEN)},
+		{"SYS_BPF", uint32(unix.SYS_BPF)},
+	}
+
+	// Build a set view of the denylist for O(1) lookups.
+	have := make(map[uint32]struct{}, len(dangerousSyscalls))
+	for _, nr := range dangerousSyscalls {
+		have[nr] = struct{}{}
+	}
+
+	for _, req := range required {
+		if _, ok := have[req.nr]; !ok {
+			t.Errorf("dangerousSyscalls is missing %s (nr=%d) — "+
+				"the package's threat model commits to blocking it; "+
+				"if removal is intentional, update this test and the README",
+				req.name, req.nr)
+		}
+	}
+}
