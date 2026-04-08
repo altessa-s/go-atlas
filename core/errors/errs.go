@@ -166,6 +166,37 @@ func Wrap(err error, msg string) error {
 	return fmt.Errorf("%s: %w", msg, err)
 }
 
+// JoinWrap wraps cause under a sentinel so that [errors.Is] matches both sides
+// of the chain. The resulting error reports "<sentinel>: <cause>" and preserves
+// both error chains via Go's dual-%w support: a caller can match the high-level
+// domain sentinel and still inspect the underlying cause with [errors.Is] or
+// [errors.As].
+//
+// Returns nil when cause is nil (the sentinel alone is rarely useful — the
+// caller can return the sentinel directly for that case). Returns a wrapper
+// around cause with the zero sentinel when sentinel is nil, mirroring the
+// behavior of [fmt.Errorf] with a nil %w target.
+//
+// Use this for adapter layers that translate errors from a lower-level
+// package into a domain-specific sentinel without discarding the original
+// error chain — for example, the plugin sandbox wraps rlimits, capabilities,
+// and landlock failures under ErrSandboxFailed while still letting callers
+// match on the primitive-level sentinels.
+//
+// Example:
+//
+//	if err := landlock.Apply(...); err != nil {
+//	    return errors.JoinWrap(ErrSandboxFailed, err)
+//	}
+//	// Both errors.Is(err, ErrSandboxFailed) and
+//	// errors.Is(err, landlock.ErrUnsupported) return true.
+func JoinWrap(sentinel, cause error) error {
+	if cause == nil {
+		return nil
+	}
+	return fmt.Errorf("%w: %w", sentinel, cause)
+}
+
 // Required returns an error with the message "<dependency> is required for <context>".
 // Use this during initialization or construction to signal that a mandatory
 // dependency was not provided.

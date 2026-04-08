@@ -85,6 +85,23 @@ func TestWrappers(t *testing.T) {
 			t.Errorf("WrapOperationWithContext message = %q", err.Error())
 		}
 	})
+
+	t.Run("JoinWrap", func(t *testing.T) {
+		sentinel := std_errors.New("sentinel")
+		err := errors.JoinWrap(sentinel, base)
+		if err.Error() != "sentinel: base" {
+			t.Errorf("JoinWrap message = %q", err.Error())
+		}
+		if !std_errors.Is(err, sentinel) {
+			t.Error("JoinWrap should wrap sentinel")
+		}
+		if !std_errors.Is(err, base) {
+			t.Error("JoinWrap should wrap cause")
+		}
+		if errors.JoinWrap(sentinel, nil) != nil {
+			t.Error("JoinWrap with nil cause should be nil")
+		}
+	})
 }
 
 func TestStandardErrors(t *testing.T) {
