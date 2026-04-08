@@ -154,7 +154,26 @@ func walkDir(dir string, depth int, o *walkOptions, yield func(Entry, error) boo
 		isDir := de.IsDir()
 		if !isDir && o.followSymlinks && de.Type()&fs.ModeSymlink != 0 {
 			info, statErr := os.Stat(path)
-			if statErr == nil && info.IsDir() {
+			if statErr != nil {
+				// The consumer opted into WithFollowSymlinks, so they
+				// care about symlink targets. A failed stat means the
+				// target is unreachable (broken link, EACCES on the
+				// target, ELOOP for cyclic symlinks, etc.) and we
+				// cannot tell whether it was a directory worth
+				// descending into. Surface the failure as an error
+				// entry rather than silently treating the symlink as
+				// a non-directory — the symlink itself was already
+				// yielded above (when matched), so the consumer can
+				// correlate the error with the link they saw. After
+				// surfacing the error continue with the next sibling;
+				// a single broken link should not abort the walk.
+				if !yield(Entry{Path: path, DirEntry: de},
+					coreerrs.WrapOperationWithContext(statErr, "stat symlink target", path)) {
+					return false
+				}
+				continue
+			}
+			if info.IsDir() {
 				isDir = true
 			}
 		}

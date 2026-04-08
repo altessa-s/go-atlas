@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/altessa-s/go-atlas/core/io/files"
@@ -344,6 +345,33 @@ func TestWalk_SymlinkNotFollowedByDefault(t *testing.T) {
 	want = []string{"link", "link/deep.txt", "target", "target/deep.txt"}
 	if !slices.Equal(names, want) {
 		t.Errorf("follow: got %v, want %v", names, want)
+	}
+}
+
+func TestWalk_BrokenSymlinkSurfacesError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks unreliable on windows in CI")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "good.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Symlink pointing at a non-existent target. With WithFollowSymlinks
+	// the walker tries to stat the target and must surface the failure
+	// instead of silently treating the link as a non-directory entry.
+	if err := os.Symlink(filepath.Join(root, "does-not-exist"), filepath.Join(root, "broken")); err != nil {
+		t.Fatal(err)
+	}
+
+	_, errs := collect(t, root, files.WithRecursive(), files.WithFollowSymlinks())
+	if len(errs) != 1 {
+		t.Fatalf("expected exactly 1 error from broken symlink, got %d: %v", len(errs), errs)
+	}
+	if !strings.Contains(errs[0].Error(), "broken") {
+		t.Errorf("error should reference symlink path 'broken', got: %v", errs[0])
+	}
+	if !strings.Contains(errs[0].Error(), "stat symlink target") {
+		t.Errorf("error should reference 'stat symlink target' operation, got: %v", errs[0])
 	}
 }
 
