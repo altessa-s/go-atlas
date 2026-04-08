@@ -591,7 +591,8 @@ func (conv *Converter[T, U]) convertValue(fieldName string, srcValue reflect.Val
 	if srcKind == reflect.Struct {
 		if dstKind == reflect.Struct {
 			// Common case: both structs - optimize pointer handling
-			if dstValue.Kind() == reflect.Pointer && dstValue.IsNil() && !srcValue.IsNil() {
+			srcIsNil := srcValue.Kind() == reflect.Pointer && srcValue.IsNil()
+			if dstValue.Kind() == reflect.Pointer && dstValue.IsNil() && !srcIsNil {
 				dstValue.Set(reflect.New(dstValueType))
 			}
 			conv.convertStruct(reflect.Indirect(srcValue), dstValue)
