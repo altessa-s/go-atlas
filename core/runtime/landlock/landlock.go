@@ -34,27 +34,49 @@ var (
 )
 
 // Apply installs a Landlock ruleset built from the provided options on the
-// calling process. Apply is irreversible: once it returns nil, the process
-// can never grant itself access outside the ruleset for the rest of its
-// lifetime.
+// calling THREAD. Apply is irreversible per thread: once it returns nil,
+// that thread can never grant itself access outside the ruleset for the
+// rest of the process's lifetime.
 //
-// On Linux, Apply sets PR_SET_NO_NEW_PRIVS on the calling process as its
-// first step — this is a kernel prerequisite for landlock_restrict_self(2)
-// on any process without CAP_SYS_ADMIN, and is itself irreversible.
-// Invoking Apply therefore commits the process to NO_NEW_PRIVS as well as
-// the filesystem ruleset. If the kernel is missing Landlock support the
-// error is wrapped in [ErrUnsupported]; every other syscall-side failure
-// is wrapped in [ErrFailed] and also exposes the underlying
-// [syscall.Errno] via [errors.As]. A malformed option (empty or
-// non-absolute path) is returned wrapped in [ErrInvalidOption] so callers
-// can distinguish operator misconfiguration from kernel-side failures.
+// Per-task scope (read this before using):
+//
+// landlock_restrict_self(2) is per-task (per-thread) on Linux. The Go
+// runtime has already created several OS threads (sysmon, GC, netpoll,
+// GOMAXPROCS workers) by the time user code runs, and Go does not expose
+// a way to iterate or pin every existing thread. Apply only restricts
+// the goroutine's current OS thread; peer threads keep their original
+// (unrestricted) Landlock domain. New tasks created via clone(2) inherit
+// the parent task's domain — so a goroutine the scheduler later places
+// on a peer thread can still touch paths outside the allowlist.
+//
+// For a real process-wide Landlock domain, apply restrictions externally
+// before the Go binary starts (e.g. a small C launcher that calls
+// landlock_restrict_self before execve(2)) or use a Linux container
+// runtime that mounts the appropriate restricted filesystem view. The
+// in-process Apply call remains a useful defense-in-depth layer for the
+// threads that can be reached.
+//
+// On Linux, Apply first probes the kernel via [ABIVersion] (a pure read
+// with no side effects). If Landlock is unsupported, Apply returns
+// [ErrUnsupported] and the process is left in its prior state — in
+// particular, NO_NEW_PRIVS is NOT set. Once Landlock support is
+// confirmed, Apply sets PR_SET_NO_NEW_PRIVS on the calling thread (a
+// kernel prerequisite for landlock_restrict_self on processes without
+// CAP_SYS_ADMIN) and proceeds with ruleset construction. A failure
+// after this point returns [ErrFailed] but leaves the NNP bit on the
+// calling thread. A malformed option (empty or non-absolute path) is
+// returned wrapped in [ErrInvalidOption] before any syscall, so
+// operator misconfiguration is distinguishable from kernel-side
+// failures.
 //
 // Apply is intended to be called once per process lifetime, typically
-// during startup. Concurrent invocations are not an API error — the
-// kernel AND-composes overlapping rulesets — but the resulting composite
-// allowlist is the intersection of every concurrent call, which is
-// rarely what the caller wants. Serialize Apply via [sync.Once] or a
-// deterministic startup sequence if multiple code paths may reach it.
+// during startup. Successive invocations on the same thread compose by
+// intersection — Landlock layers each new ruleset on top of the
+// existing one — so the resulting allowlist monotonically shrinks. Two
+// truly concurrent goroutines calling Apply may interleave on
+// intermediate ruleset state in ways the kernel does not specify; if
+// multiple code paths may reach Apply, serialize via [sync.Once] or a
+// deterministic startup sequence.
 //
 // Example:
 //

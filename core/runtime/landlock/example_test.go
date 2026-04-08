@@ -16,9 +16,17 @@ import (
 // Apply is irreversible and would restrict every subsequent test in the
 // binary; instead, the example is compile-checked so that any future
 // change to the Apply signature breaks this file and forces a review.
+//
+// The allowlist used here is the same one shown in the package doc.go
+// and README — operators copying from any of those three sources get a
+// consistent baseline.
 func ExampleApply() {
 	err := landlock.Apply(
-		landlock.WithReadPaths("/etc", "/lib64", "/usr/lib64"),
+		landlock.WithReadPaths(
+			"/etc/myservice",
+			"/lib", "/lib64",
+			"/usr/lib", "/usr/lib64",
+		),
 		landlock.WithReadWritePaths("/var/log/myservice"),
 	)
 	switch {

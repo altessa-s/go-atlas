@@ -52,13 +52,16 @@ func main() {
     // NO_NEW_PRIVS bit, if successfully set, remains in effect); on success
     // every subsequent filesystem access outside the allowlist returns
     // EACCES.
+    // The canonical glibc-host allowlist used by both the package
+    // doc.go and ExampleApply. Adapt /etc/myservice and the
+    // /var/{lib,log}/myservice entries to your host's directory layout.
     err := landlock.Apply(
         landlock.WithReadPaths(
             "/etc/myservice",    // read-only config
-            "/usr/lib",          // shared libraries
-            "/usr/lib64",        // shared libraries (multilib)
             "/lib",              // dynamic loader + libc
             "/lib64",            // dynamic loader + libc (multilib)
+            "/usr/lib",          // shared libraries
+            "/usr/lib64",        // shared libraries (multilib)
         ),
         landlock.WithReadWritePaths(
             "/var/lib/myservice",
@@ -78,14 +81,19 @@ func main() {
 ### Prerequisites — handled for you
 
 `landlock_restrict_self(2)` requires either `CAP_SYS_ADMIN` or
-`PR_SET_NO_NEW_PRIVS` on the calling process. `Apply` sets `NO_NEW_PRIVS`
-unconditionally before touching the Landlock syscalls, so an unprivileged
-process can call `Apply` with no preamble. The `prctl` is idempotent when
-already set and, like Landlock itself, irreversible for the rest of the
-process lifetime — calling `Apply` commits the process to both
-restrictions. If you specifically need to preserve SUID-exec capability
-post-Landlock (a `CAP_SYS_ADMIN` scenario), drop down to the raw syscalls
-in `golang.org/x/sys/unix` rather than using this package.
+`PR_SET_NO_NEW_PRIVS` on the calling thread. `Apply` first probes
+kernel support via a side-effect-free `ABIVersion()` call; if Landlock
+is unsupported it returns `ErrUnsupported` and **`NO_NEW_PRIVS` is not
+set** — callers that fall back to "log and continue" are not silently
+committed to NNP. Only after Landlock support is confirmed does `Apply`
+set `NO_NEW_PRIVS` on the calling thread, then proceed with ruleset
+construction. The `prctl` is idempotent when already set and, like the
+Landlock domain itself, irreversible for the rest of the thread's
+lifetime — calling `Apply` on a Landlock-capable kernel commits the
+calling thread to both restrictions. If you specifically need to
+preserve SUID-exec capability post-Landlock (a `CAP_SYS_ADMIN`
+scenario), drop down to the raw syscalls in `golang.org/x/sys/unix`
+rather than using this package.
 
 ### Multiple calls accumulate
 
@@ -136,23 +144,46 @@ working on RHEL 9 and similarly-aged hosts.
 - **Linux 5.13+ only.** On non-Linux platforms every function returns
   `ErrUnsupported` so cross-platform code can import the package without
   build tags.
-- **Process-wide and irreversible.** No "unsandbox" syscall. Misconfigured
+- **Per-task (per-thread) scope, NOT process-wide in pure Go.**
+  `landlock_restrict_self(2)` is per-task on Linux. The Go runtime has
+  already created several OS threads (sysmon, GC, netpoll, GOMAXPROCS
+  workers) by the time user code runs, and Go does not expose any way
+  to iterate or pin every existing thread. `Apply` only restricts the
+  goroutine's current OS thread; peer threads keep their original
+  unrestricted Landlock domain. New tasks created via `clone(2)`
+  inherit the parent task's domain — so a goroutine the scheduler later
+  places on a peer thread can still touch paths outside the allowlist.
+  For real process-wide restriction, apply Landlock externally (e.g. a
+  C launcher that calls `landlock_restrict_self` before `execve(2)` of
+  the Go binary) or use a Linux container runtime with the appropriate
+  filesystem view. The in-process `Apply` call remains a useful
+  defense-in-depth layer for the threads it can reach.
+- **Irreversible per thread.** No "unsandbox" syscall. Misconfigured
   limits require a process restart to clear.
 - **Defense in depth, not isolation.** Landlock restricts filesystem
   access only. It does nothing about network, signals, process creation,
   or memory — a malicious binary already loaded in-process can still read
   and corrupt host memory.
-- **Symlinks are resolved before the check.** A symlink pointing outside
-  the allowlist is rejected.
+- **Symlinks: the kernel checks the resolved target, not the link
+  itself.** A symlink that lives inside the allowlist but points to a
+  target outside it returns `EACCES` on access of the target — there is
+  no Landlock concept of "rejecting the symlink". Conversely, a symlink
+  outside the allowlist that resolves to a path inside it grants access
+  to the target. Always reason about the access in terms of resolved
+  inodes, not link locations.
 - **Strict allowlist.** Nothing is auto-added. The caller lists every
   path the process needs, including the dynamic loader and libc.
-- **`NO_NEW_PRIVS` may be set even on error.** `Apply` sets
-  `PR_SET_NO_NEW_PRIVS` as its first step, *before* ABI detection and
-  ruleset construction. If a later step fails (e.g. a listed path does not
-  exist and `add_rule` returns ENOENT), `Apply` returns an `ErrFailed`
-  with the `NO_NEW_PRIVS` bit still in effect. Operators should treat any
-  invocation of `Apply` — successful or not — as a commitment to
-  `NO_NEW_PRIVS` for the lifetime of the process.
+- **`NO_NEW_PRIVS` is set on the calling thread when Landlock is
+  supported.** `Apply` first probes Landlock support via a
+  side-effect-free `ABIVersion()` call; if Landlock is unsupported it
+  returns `ErrUnsupported` and NNP is not set. On supported kernels,
+  `Apply` sets `PR_SET_NO_NEW_PRIVS` on the calling thread before
+  ruleset construction. If a later step fails (e.g. a listed path does
+  not exist and `add_rule` returns `ENOENT`), `Apply` returns an
+  `ErrFailed` with the `NO_NEW_PRIVS` bit still in effect on that
+  thread. Operators should treat a successful `Apply` (or any failure
+  on a Landlock-capable kernel) as a commitment to NNP for the calling
+  thread's lifetime.
 
 ## Testing
 
@@ -163,10 +194,29 @@ validation layer (`validateOptions`) and the option accumulation behavior.
 For real syscall coverage, run your integration tests in a dedicated
 subprocess or container.
 
+## Hardening sequence
+
+This package is the **final step** in the standard go-atlas hardening
+sequence:
+
+`nonewprivs` → `rlimits` → `capabilities` → `seccomp` → `landlock`
+
+Landlock runs last because it is the most irreversible step (the
+ruleset cannot be relaxed for the lifetime of the calling task) and
+because the other primitives need to be in place before the
+filesystem allowlist takes effect — `landlock_restrict_self(2)`
+requires `PR_SET_NO_NEW_PRIVS`, and a typical hardening pipeline drops
+capabilities (which removes `CAP_SYS_ADMIN`, the only alternative
+prerequisite) before reaching here.
+
 ## See also
 
 - [Kernel documentation](https://docs.kernel.org/userspace-api/landlock.html)
 - [LWN article](https://lwn.net/Articles/859908/) (announcement, Landlock v1)
+- `core/runtime/nonewprivs` — `PR_SET_NO_NEW_PRIVS` primitive (step 1)
+- `core/runtime/rlimits` — process resource limits (step 2)
+- `core/runtime/capabilities` — Linux capability dropping (step 3)
+- `core/runtime/seccomp` — syscall denylist via seccomp-BPF (step 4)
 - `core/plugins/sandbox.go` in this repository — a real-world consumer that
   adds plugin-specific conveniences (auto-include plugin dir, system libs)
   on top of the raw `landlock.Apply` call.

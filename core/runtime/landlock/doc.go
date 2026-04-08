@@ -13,16 +13,26 @@
 //
 // # Quick start
 //
-// Install a ruleset that allows read+execute under /etc and /usr/lib and
-// read+execute+write under /var/log:
+// Install a canonical glibc-host allowlist: read+execute under /etc and
+// the standard library directories, read+execute+write under
+// /var/log/myservice:
 //
 //	err := landlock.Apply(
-//	    landlock.WithReadPaths("/etc", "/usr/lib"),
-//	    landlock.WithReadWritePaths("/var/log"),
+//	    landlock.WithReadPaths(
+//	        "/etc/myservice",
+//	        "/lib", "/lib64",
+//	        "/usr/lib", "/usr/lib64",
+//	    ),
+//	    landlock.WithReadWritePaths("/var/log/myservice"),
 //	)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
+//
+// The same allowlist appears in [ExampleApply] and the package README so
+// operators have one canonical baseline to copy from. Adapt the
+// /etc/myservice and /var/log/myservice paths to the host's actual
+// directory layout.
 //
 // After [Apply] returns nil, any read, execute, or write outside the
 // configured allowlist returns EACCES — even for the current goroutine's

@@ -58,11 +58,16 @@ const writeAccessMask = unix.LANDLOCK_ACCESS_FS_WRITE_FILE |
 // apply is the Linux implementation of the [Apply] platform dispatch. It
 // performs the canonical Landlock ruleset dance:
 //
-//  1. Set PR_SET_NO_NEW_PRIVS on the calling process. This is a kernel
+//  1. Detect the highest Landlock ABI version supported by the kernel. If
+//     the kernel does not support Landlock, return [ErrUnsupported] with no
+//     side effects — in particular, NO_NEW_PRIVS is NOT set on
+//     unsupported kernels, so callers that fall back to "log and continue"
+//     are not silently committed to NO_NEW_PRIVS.
+//  2. Set PR_SET_NO_NEW_PRIVS on the calling thread. This is a kernel
 //     prerequisite for landlock_restrict_self(2) on any process without
-//     CAP_SYS_ADMIN, and is itself irreversible — consistent with the
-//     "applying Landlock is a point of no return" contract.
-//  2. Detect the highest Landlock ABI version supported by the kernel.
+//     CAP_SYS_ADMIN, and is itself irreversible. Once we know Landlock
+//     itself works, the prctl side effect is acceptable: the caller has
+//     opted into a hardening sequence that requires NNP anyway.
 //  3. Build a [unix.LandlockRulesetAttr] with the access mask composed
 //     from [readAccessMask] and [writeAccessMask], adding truncate when
 //     the kernel supports ABI 3+.
@@ -73,24 +78,17 @@ const writeAccessMask = unix.LANDLOCK_ACCESS_FS_WRITE_FILE |
 //  7. Call landlock_restrict_self(2) to commit the ruleset irreversibly.
 //  8. Close the ruleset fd.
 //
-// Step 7 is the point of no return for the filesystem ruleset, but step 1
-// already commits the process to NO_NEW_PRIVS. If any step fails, apply
-// returns the wrapped error; the NO_NEW_PRIVS bit, if successfully set,
-// remains in effect.
+// Step 7 is the point of no return for the filesystem ruleset. Step 2
+// commits the calling thread to NO_NEW_PRIVS; if a later step (4-7)
+// fails, apply returns the wrapped error and the NNP bit remains in
+// effect on the thread that ran apply. Steps 1 (probe) and 2 (NNP) are
+// ordered this way deliberately so that "Landlock is unsupported" is a
+// pure read, never leaving the process partially committed.
 func apply(readPaths, readWritePaths []string) error {
-	// NO_NEW_PRIVS is a prerequisite for landlock_restrict_self on any
-	// process without CAP_SYS_ADMIN. Delegated to the standalone
-	// [nonewprivs] package so both primitives share one canonical
-	// implementation. The prctl is idempotent when already set and, like
-	// Landlock itself, irreversible for the rest of the process lifetime.
-	// Failure here is vanishingly rare (only kernels older than 3.5,
-	// which also do not support Landlock) but is re-wrapped as ErrFailed
-	// so callers matching on this package's sentinels see a consistent
-	// error surface.
-	if err := nonewprivs.Set(); err != nil {
-		return fmt.Errorf("%w: %w", ErrFailed, err)
-	}
-
+	// Step 1: probe ABI support before any irreversible side effect.
+	// ABIVersion is a pure read (landlock_create_ruleset with the
+	// VERSION flag), so on kernels without Landlock we return cleanly
+	// and the caller can decide whether to fall back or fail.
 	abi, err := ABIVersion()
 	if err != nil {
 		// ABIVersion already wraps its own errno in ErrUnsupported; preserve
@@ -100,6 +98,19 @@ func apply(readPaths, readWritePaths []string) error {
 	}
 	if abi < abiV1 {
 		return fmt.Errorf("%w: kernel reports ABI version %d", ErrUnsupported, abi)
+	}
+
+	// Step 2: NO_NEW_PRIVS is a prerequisite for landlock_restrict_self
+	// on any process without CAP_SYS_ADMIN. Delegated to the standalone
+	// [nonewprivs] package so both primitives share one canonical
+	// implementation. The prctl is idempotent when already set and, like
+	// Landlock itself, irreversible for the rest of the calling thread's
+	// lifetime. Failure here is vanishingly rare (only kernels older
+	// than 3.5, which also do not support Landlock and would have failed
+	// step 1) but is re-wrapped as ErrFailed so callers matching on this
+	// package's sentinels see a consistent error surface.
+	if err := nonewprivs.Set(); err != nil {
+		return fmt.Errorf("%w: %w", ErrFailed, err)
 	}
 
 	read, write := accessMasks(abi)
