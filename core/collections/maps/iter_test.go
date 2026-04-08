@@ -75,6 +75,40 @@ func TestPool(t *testing.T) {
 	pool.Put(m2)
 }
 
+// TestPool_GetWithCapacity_ReusesWithinDefault is a regression test for a
+// bug where GetWithCapacity always reallocated: it compared expectedCapacity
+// against len(*m), which is zero after Get's clear(), so every call threw
+// away the pooled map and returned a fresh allocation. The fix fast-paths
+// requests within defaultCap by returning the pooled pointer untouched.
+func TestPool_GetWithCapacity_ReusesWithinDefault(t *testing.T) {
+	pool := coremaps.NewPool[string, int](64)
+
+	// Seed the pool with a known map pointer.
+	seeded := pool.Get()
+	(*seeded)["seed"] = 1
+	pool.Put(seeded)
+
+	// A request within defaultCap must reuse the pooled allocation.
+	reused := pool.GetWithCapacity(32)
+	if reused != seeded {
+		t.Errorf("GetWithCapacity(<=defaultCap) allocated a new map; "+
+			"want reuse of pooled pointer %p, got %p", seeded, reused)
+	}
+	if len(*reused) != 0 {
+		t.Errorf("reused map not cleared: len=%d", len(*reused))
+	}
+	pool.Put(reused)
+
+	// A request exceeding defaultCap legitimately discards the pooled
+	// map and allocates a new one — Go cannot expose allocated capacity
+	// at runtime, so the pooled map might not satisfy the request.
+	oversize := pool.GetWithCapacity(256)
+	if oversize == nil {
+		t.Fatal("GetWithCapacity(oversize) returned nil")
+	}
+	pool.Put(oversize)
+}
+
 func TestWeakRef(t *testing.T) {
 	val := 42
 	ref := coremaps.MakeWeakRef(&val)

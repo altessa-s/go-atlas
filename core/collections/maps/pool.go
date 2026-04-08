@@ -60,17 +60,23 @@ func (p *Pool[K, V]) Get() *map[K]V {
 	return m
 }
 
-// GetWithCapacity retrieves a map from the pool, replacing it with a freshly allocated
-// map if the pooled map's current size is smaller than expectedCapacity. This avoids
-// early rehashing when the caller knows approximately how many entries will be inserted.
+// GetWithCapacity retrieves a map from the pool and ensures the returned map
+// has at least expectedCapacity buckets allocated. Pooled maps are created
+// with at least [Pool]'s defaultCap, so requests within that bound reuse the
+// pooled allocation directly. Requests larger than defaultCap discard the
+// pooled map and allocate a freshly sized one — Go does not expose a map's
+// underlying capacity at runtime, so a pooled map that previously grew
+// beyond defaultCap cannot be distinguished from a baseline-sized one.
 // The caller must call [Pool.Put] when the map is no longer needed.
 func (p *Pool[K, V]) GetWithCapacity(expectedCapacity int) *map[K]V {
 	m := p.Get()
-
-	if expectedCapacity > len(*m) {
-		*m = make(map[K]V, expectedCapacity)
+	if expectedCapacity <= p.defaultCap {
+		return m
 	}
-
+	// Over-sized request: replace the pooled map with one allocated at
+	// the requested size. The new, larger map will be retained by the
+	// pool on Put as long as its length stays under maxMapPoolCapacity.
+	*m = make(map[K]V, expectedCapacity)
 	return m
 }
 
