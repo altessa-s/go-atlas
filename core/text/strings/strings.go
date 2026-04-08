@@ -546,10 +546,15 @@ func Contains(s, substr string, opts ContainsOptions) ContainsResult {
 }
 
 // isWholeWordMatch checks if a match at given position is a complete word.
+// pos and length are byte offsets, so the adjacent character is decoded
+// with utf8 rather than indexed directly — a plain rune(s[pos-1]) cast
+// would treat UTF-8 continuation bytes as their Latin-1 codepoint values
+// (U+0080..U+00BF), which are never letters or digits, and would wrongly
+// report the inside of a multi-byte rune as a word boundary.
 func isWholeWordMatch(s string, pos, length int) bool {
 	// Check character before the match
 	if pos > 0 {
-		prevChar := rune(s[pos-1])
+		prevChar, _ := utf8.DecodeLastRuneInString(s[:pos])
 		if unicode.IsLetter(prevChar) || unicode.IsDigit(prevChar) {
 			return false
 		}
@@ -558,7 +563,7 @@ func isWholeWordMatch(s string, pos, length int) bool {
 	// Check character after the match
 	endPos := pos + length
 	if endPos < len(s) {
-		nextChar := rune(s[endPos])
+		nextChar, _ := utf8.DecodeRuneInString(s[endPos:])
 		if unicode.IsLetter(nextChar) || unicode.IsDigit(nextChar) {
 			return false
 		}

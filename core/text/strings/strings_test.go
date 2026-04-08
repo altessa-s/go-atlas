@@ -204,6 +204,31 @@ func TestContains(t *testing.T) {
 		}
 	})
 
+	// Regression: isWholeWordMatch used to index s[pos-1] / s[endPos]
+	// directly, converting UTF-8 continuation bytes (0x80-0xBF) to their
+	// Latin-1 codepoint values, none of which are IsLetter/IsDigit. The
+	// boundary check then wrongly reported matches inside a multi-byte
+	// rune as whole-word hits.
+	t.Run("Whole Words NonASCII", func(t *testing.T) {
+		// "héllo": h, é (0xC3 0xA9), l, l, o — searching for "llo" lands
+		// at byte offset 3, preceded by the continuation byte 0xA9.
+		// Before the fix this returned Found=true.
+		if corestrings.Contains("héllo", "llo", corestrings.ContainsOptions{MatchWholeWords: true}).Found {
+			t.Error("Should NOT find 'llo' in 'héllo' as whole word (suffix inside a word)")
+		}
+		// Symmetric case: "holé" — searching for "hol" at offset 0 is
+		// followed by the leading byte of é. The decoded next rune is
+		// a letter, so the match must be rejected.
+		if corestrings.Contains("holé", "hol", corestrings.ContainsOptions{MatchWholeWords: true}).Found {
+			t.Error("Should NOT find 'hol' in 'holé' as whole word (prefix inside a word)")
+		}
+		// Positive case: a full non-ASCII word surrounded by spaces must
+		// still be detected.
+		if !corestrings.Contains(" café ", "café", corestrings.ContainsOptions{MatchWholeWords: true}).Found {
+			t.Error("Should find 'café' in ' café ' as whole word")
+		}
+	})
+
 	t.Run("Count", func(t *testing.T) {
 		res := corestrings.Contains("test test", "test", corestrings.ContainsOptions{Count: true})
 		if res.Count != 2 {
