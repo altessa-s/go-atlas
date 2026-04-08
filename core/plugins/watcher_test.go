@@ -106,10 +106,12 @@ func TestManager_Close_StopsWatcher(t *testing.T) {
 
 // TestManager_Watcher_ReactsToNewFile exercises the fsnotify pipeline end
 // to end: dropping a file with a .so extension into the watched directory
-// must trigger a debounced Reload attempt. The file is intentionally empty
-// so the load ultimately fails (not a valid .so), but that is sufficient
-// to verify that the event was processed — a failing reload produces a
-// distinct error log vs. the watcher sitting idle.
+// must trigger a debounced Reload attempt. The file is intentionally
+// invalid so the load ultimately fails, but the test does not depend on
+// that — it installs a per-Manager watcherReloadHook that signals via a
+// channel as soon as the watch goroutine has called Reload, regardless
+// of outcome. This replaces the previous time.Sleep(200ms)-based
+// assertion which was racy under CI load.
 func TestManager_Watcher_ReactsToNewFile(t *testing.T) {
 	dir := t.TempDir()
 
@@ -119,19 +121,40 @@ func TestManager_Watcher_ReactsToNewFile(t *testing.T) {
 	)
 	t.Cleanup(func() { _ = mgr.Close() })
 
+	// Install the test hook BEFORE starting the watcher so we cannot
+	// miss an early reload.
+	reloaded := make(chan error, 8)
+	hook := func(err error) {
+		// Non-blocking send so the watcher goroutine never blocks
+		// even if the test exits early or the buffer fills.
+		select {
+		case reloaded <- err:
+		default:
+		}
+	}
+	mgr.watcherReloadHook.Store(&hook)
+
 	require.NoError(t, mgr.StartWatching(t.Context()))
 
 	// Drop a bogus .so file into the watched directory.
 	path := filepath.Join(dir, "bogus.so")
 	require.NoError(t, os.WriteFile(path, []byte("not a plugin"), 0o644))
 
-	// The watcher should attempt a reload; since the file is invalid the
-	// manager's state never gains a new plugin. The best-effort assertion
-	// is that after enough time the manager remains consistent (no panic,
-	// no state corruption) and the watcher still reports as active.
-	time.Sleep(200 * time.Millisecond)
+	// Wait for the watcher to complete at least one Reload. The hook
+	// signals after Reload returns, regardless of error.
+	select {
+	case <-reloaded:
+		// Good — the watcher saw the file and ran Reload.
+	case <-time.After(2 * time.Second):
+		t.Fatal("watcher did not invoke Reload within 2s after .so drop")
+	}
+
 	assert.Equal(t, 0, mgr.Len(), "bogus .so must not load successfully")
 	assert.True(t, mgr.IsWatching(), "watcher must stay active after a failed reload")
+	// LastWatcherReloadErr exposes the failure for operators wiring
+	// metrics or alerts; it should be non-nil after a bogus .so.
+	assert.Error(t, mgr.LastWatcherReloadErr(),
+		"failed reload must be observable via LastWatcherReloadErr")
 }
 
 // TestManager_Watcher_CleansUpOnCtxCancel verifies that the deferred state

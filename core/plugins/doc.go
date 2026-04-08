@@ -53,6 +53,13 @@
 // through the joined error returned by [Manager.Load]. Plugins without an
 // Init symbol transition directly to [StateReady] after registration.
 //
+// A present-but-mis-typed Init symbol (wrong arity, wrong context type,
+// returns no error) is treated as a load failure and wrapped in
+// [ErrInvalidInit]. This is almost always a host/plugin version skew —
+// the plugin must be rebuilt against the current host. The plugin is
+// left in [StateFailed] so it is excluded from [Manager.Ready] /
+// [Manager.LookupAll] iteration.
+//
 // Any additional symbols can be exported for service-specific discovery via
 // [Plugin.Lookup] or [Manager.LookupAll].
 //
@@ -103,13 +110,17 @@
 //
 //   - PR_SET_NO_NEW_PRIVS
 //   - RLIMIT_AS, RLIMIT_NOFILE, RLIMIT_NPROC, RLIMIT_FSIZE, RLIMIT_CORE
+//   - Linux capability dropping (capset(2) / PR_CAPBSET_DROP /
+//     PR_CAP_AMBIENT_*)
 //   - Landlock filesystem allowlisting (Linux 5.13+)
 //
 // All primitives are configured via [config.PluginsSandbox] and applied
-// lazily on the first [Manager.Load]. The Landlock pass runs after the
-// rlimits because landlock_restrict_self requires PR_SET_NO_NEW_PRIVS to
-// have been set first (or CAP_SYS_ADMIN, which production hosts should
-// not have).
+// lazily on the first [Manager.Load]. The order is fixed:
+// noNewPrivs → rlimits → capabilities → landlock. Landlock runs last
+// because landlock_restrict_self requires PR_SET_NO_NEW_PRIVS (or
+// CAP_SYS_ADMIN, which production hosts should not have); the manager's
+// own ordering also ensures that whatever the operator configured runs
+// before any plugin code is loaded into the process address space.
 //
 // Honest limitations:
 //
@@ -118,10 +129,24 @@
 //     kernel 5.13 or newer.
 //   - Applied lazily and irreversible. Host code that runs before the first
 //     Load is unrestricted.
-//   - Process-wide. Every limit applies to the entire host, not just plugin
-//     code. Setting MaxOpenFiles too low will starve a database connection
-//     pool the host owns; forgetting to allowlist /lib64 in the Landlock
-//     ReadPaths will break dlopen for every plugin.
+//   - rlimits are real process-wide. setrlimit(2) applies to the entire
+//     host process, so MaxOpenFiles too low will starve the host's
+//     database/HTTP/Redis pools — these are not plugin-scoped limits.
+//   - NoNewPrivs, capabilities, and Landlock are per-thread in pure Go.
+//     PR_SET_NO_NEW_PRIVS, capset(2), and landlock_restrict_self(2) are
+//     all per-thread/per-task on Linux, and Go does not expose any way to
+//     iterate or pin every existing OS thread. The Go runtime has multiple
+//     threads by the time the manager runs ensureSandbox (sysmon, GC,
+//     netpoll, GOMAXPROCS workers), so the sandbox only restricts the
+//     goroutine's current thread; peer threads keep their original
+//     capability set, NNP state, and Landlock domain. The manager logs a
+//     WARN when any of these primitives is enabled to remind operators
+//     that real process-wide isolation requires dropping privileges
+//     externally — via systemd (CapabilityBoundingSet=, NoNewPrivileges=
+//     yes), a Linux container runtime (--cap-drop,
+//     --security-opt=no-new-privileges), or a small C launcher that drops
+//     privileges before execve(2) of the Go binary. See docs/plugins.md
+//     "Recommended deployment" for the runbook.
 //   - Landlock is a strict allowlist by default. Operators must list the
 //     plugin directory, the dynamic loader, libc, every shared library the
 //     plugin imports, and every host-side path the application needs. Two
@@ -134,8 +159,14 @@
 //     address space — see the Security section above. The sandbox reduces
 //     blast radius for buggy plugins; it is not a security boundary.
 //
-// seccomp-BPF is not part of this version. It is tracked as a future
-// extension.
+// seccomp-BPF is available as a peer primitive in
+// [github.com/altessa-s/go-atlas/core/runtime/seccomp] but is not wired
+// into the plugin sandbox: the package installs a fixed denylist of
+// dangerous syscalls process-wide via TSYNC, and consumers can call
+// [seccomp.BlockDangerousSyscalls] directly during host startup before
+// constructing the plugin manager. It is intentionally NOT operator-
+// configurable from PluginsSandbox to keep the audited denylist
+// stable.
 //
 // # Configuration
 //

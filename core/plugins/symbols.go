@@ -63,8 +63,8 @@ func resolveDescriptor(lookup symbolLookup) (*Descriptor, error) {
 		return nil, coreerrs.Wrapf(ErrInvalidDescriptor, "got %T, want *Descriptor or **Descriptor", sym)
 	}
 
-	if desc.Name == "" {
-		return nil, coreerrs.Wrap(ErrInvalidDescriptor, "Descriptor.Name is empty")
+	if err := desc.Validate(); err != nil {
+		return nil, err
 	}
 	return desc, nil
 }

@@ -4,6 +4,10 @@
 
 package plugins
 
+import (
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+)
+
 // Descriptor carries metadata that every plugin must export. The .so file
 // must have a package-level variable named Descriptor; either the value or
 // pointer declaration form is accepted:
@@ -29,6 +33,24 @@ type Descriptor struct {
 
 	// Description is optional human-readable text.
 	Description string
+}
+
+// Validate reports whether the descriptor is well-formed enough for the
+// manager to register it. Currently this only enforces that Name is
+// non-empty — Version and Description are operator metadata and the
+// manager does not depend on them for routing or invariants.
+//
+// Errors are wrapped in [ErrInvalidDescriptor] so callers can match
+// programmatically via [errors.Is] regardless of the underlying
+// validation rule that failed. The plugin loader runs Validate as part
+// of [resolveDescriptor] before any plugin is registered; operators
+// who construct a Descriptor programmatically (e.g. for tests) can
+// also call it directly to fail fast.
+func (d Descriptor) Validate() error {
+	if d.Name == "" {
+		return coreerrs.Wrap(ErrInvalidDescriptor, "Descriptor.Name is empty")
+	}
+	return nil
 }
 
 // State represents the lifecycle state of a loaded plugin.

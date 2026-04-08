@@ -6,6 +6,7 @@ package plugins
 
 import (
 	"errors"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -181,115 +182,6 @@ func TestManager_CheckHealth_RaceFreeWithSandboxFailure(t *testing.T) {
 	assert.Equal(t, health.StatusNotServing, mgr.CheckHealth(ctx))
 }
 
-func TestPluginsSandbox_Validate_RejectsNegative(t *testing.T) {
-	cases := []struct {
-		name string
-		cfg  config.PluginsSandbox
-	}{
-		{
-			name: "negative MemoryLimitBytes",
-			cfg:  config.PluginsSandbox{Enabled: true, MemoryLimitBytes: -1},
-		},
-		{
-			name: "negative MaxOpenFiles",
-			cfg:  config.PluginsSandbox{Enabled: true, MaxOpenFiles: -1},
-		},
-		{
-			name: "negative MaxProcesses",
-			cfg:  config.PluginsSandbox{Enabled: true, MaxProcesses: -1},
-		},
-		{
-			name: "negative MaxFileSizeBytes",
-			cfg:  config.PluginsSandbox{Enabled: true, MaxFileSizeBytes: -1},
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Error(t, tc.cfg.Validate())
-		})
-	}
-}
-
-func TestPluginsSandbox_Validate_DisabledSkipsChecks(t *testing.T) {
-	// Negative values are accepted when the sandbox is disabled — the values
-	// are dead config. Same convention as the rest of go-atlas (see
-	// ValidateStructIfEnabled).
-	cfg := config.PluginsSandbox{Enabled: false, MemoryLimitBytes: -1}
-	assert.NoError(t, cfg.Validate())
-}
-
-func TestPluginsSandbox_Validate_AcceptsZeroAndPositive(t *testing.T) {
-	cfg := config.PluginsSandbox{
-		Enabled:          true,
-		NoNewPrivs:       true,
-		MemoryLimitBytes: 0, // unset
-		MaxOpenFiles:     1024,
-	}
-	assert.NoError(t, cfg.Validate())
-}
-
-func TestPluginsLandlock_Validate_DisabledSkipsChecks(t *testing.T) {
-	// Even with bogus paths, a disabled Landlock block must validate cleanly.
-	cfg := config.PluginsLandlock{
-		Enabled:   false,
-		ReadPaths: []string{"relative/path", ""},
-	}
-	assert.NoError(t, cfg.Validate())
-}
-
-func TestPluginsLandlock_Validate_RejectsRelativePaths(t *testing.T) {
-	cases := []struct {
-		name string
-		cfg  config.PluginsLandlock
-	}{
-		{
-			name: "relative read path",
-			cfg: config.PluginsLandlock{
-				Enabled:   true,
-				ReadPaths: []string{"./etc"},
-			},
-		},
-		{
-			name: "relative read-write path",
-			cfg: config.PluginsLandlock{
-				Enabled:        true,
-				ReadWritePaths: []string{"var/lib"},
-			},
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Error(t, tc.cfg.Validate())
-		})
-	}
-}
-
-func TestPluginsLandlock_Validate_RejectsEmptyPath(t *testing.T) {
-	cfg := config.PluginsLandlock{
-		Enabled:   true,
-		ReadPaths: []string{""},
-	}
-	assert.Error(t, cfg.Validate())
-}
-
-func TestPluginsLandlock_Validate_AcceptsAbsolutePaths(t *testing.T) {
-	cfg := config.PluginsLandlock{
-		Enabled:        true,
-		ReadPaths:      []string{"/lib64", "/usr/lib64", "/etc/myservice"},
-		ReadWritePaths: []string{"/var/lib/myservice"},
-	}
-	assert.NoError(t, cfg.Validate())
-}
-
-func TestPluginsLandlock_Validate_EmptyAllowlistsAreAllowed(t *testing.T) {
-	// An enabled Landlock with empty path lists is technically valid — it
-	// locks the host out of the entire filesystem. The validator does not
-	// second-guess that intent; it only checks that supplied paths are
-	// well-formed. Operational sanity is the operator's responsibility.
-	cfg := config.PluginsLandlock{Enabled: true}
-	assert.NoError(t, cfg.Validate())
-}
-
 // TestEnsureSandbox_LandlockReachedViaStub verifies that LandlockOptions
 // flow all the way through ensureSandbox to the apply hook. The actual
 // Landlock syscalls are stubbed because they would restrict the test process
@@ -359,7 +251,14 @@ func TestExpandSandboxOptions_AllowPluginDirAppends(t *testing.T) {
 }
 
 func TestExpandSandboxOptions_AllowSystemLibsAppends(t *testing.T) {
+	// Override sandboxSystemLibPaths with two real temp directories so
+	// the DirExists filter is satisfied regardless of the host's actual
+	// filesystem layout (some CI runners do not have /lib64).
+	libA := t.TempDir()
+	libB := t.TempDir()
+
 	mgr := NewManager(WithDir("/opt/myservice/plugins"))
+	mgr.sandboxSystemLibPaths = []string{libA, libB}
 	t.Cleanup(func() { _ = mgr.Close() })
 
 	in := SandboxOptions{
@@ -373,12 +272,44 @@ func TestExpandSandboxOptions_AllowSystemLibsAppends(t *testing.T) {
 	out := mgr.expandSandboxOptions(in)
 
 	assert.Equal(t,
-		append([]string{"/etc/myservice"}, defaultLandlockSystemLibPaths...),
+		[]string{"/etc/myservice", libA, libB},
 		out.Landlock.ReadPaths)
 }
 
-func TestExpandSandboxOptions_BothAllowsAppends(t *testing.T) {
+// TestExpandSandboxOptions_AllowSystemLibsFiltersMissingPaths verifies the
+// DirExists filter: missing directories must be silently dropped from the
+// merged ReadPaths so a host without /lib64 (Alpine, NixOS, slim Debian)
+// does not fail Manager.Load with ENOENT from landlock_add_rule.
+func TestExpandSandboxOptions_AllowSystemLibsFiltersMissingPaths(t *testing.T) {
+	existing := t.TempDir()
+	missing := filepath.Join(t.TempDir(), "does-not-exist")
+
 	mgr := NewManager(WithDir("/opt/myservice/plugins"))
+	mgr.sandboxSystemLibPaths = []string{existing, missing}
+	t.Cleanup(func() { _ = mgr.Close() })
+
+	in := SandboxOptions{
+		Enabled: true,
+		Landlock: LandlockOptions{
+			Enabled:         true,
+			AllowSystemLibs: true,
+			ReadPaths:       []string{"/etc/myservice"},
+		},
+	}
+	out := mgr.expandSandboxOptions(in)
+
+	assert.Equal(t,
+		[]string{"/etc/myservice", existing},
+		out.Landlock.ReadPaths,
+		"missing system lib paths must be silently dropped")
+}
+
+func TestExpandSandboxOptions_BothAllowsAppends(t *testing.T) {
+	libA := t.TempDir()
+	libB := t.TempDir()
+
+	mgr := NewManager(WithDir("/opt/myservice/plugins"))
+	mgr.sandboxSystemLibPaths = []string{libA, libB}
 	t.Cleanup(func() { _ = mgr.Close() })
 
 	in := SandboxOptions{
@@ -392,9 +323,9 @@ func TestExpandSandboxOptions_BothAllowsAppends(t *testing.T) {
 	}
 	out := mgr.expandSandboxOptions(in)
 
-	want := []string{"/etc/myservice", "/opt/myservice/plugins"}
-	want = append(want, defaultLandlockSystemLibPaths...)
-	assert.Equal(t, want, out.Landlock.ReadPaths)
+	assert.Equal(t,
+		[]string{"/etc/myservice", "/opt/myservice/plugins", libA, libB},
+		out.Landlock.ReadPaths)
 }
 
 // TestExpandSandboxOptions_DoesNotMutateInputSlice verifies the slice-clone

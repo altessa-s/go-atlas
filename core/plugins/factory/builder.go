@@ -15,13 +15,12 @@ import (
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 )
 
-// ManagerBuilder assembles a [plugins.Manager] step by step using a fluent API.
-// Create instances with [NewManager]. Errors are accumulated and reported at
-// [ManagerBuilder.Build] time. The builder is not safe for concurrent use.
+// ManagerBuilder assembles a [plugins.Manager] step by step using a fluent
+// API. Create instances with [NewManager]. The builder is not safe for
+// concurrent use.
 type ManagerBuilder struct {
 	corefactory.Base
-	cfg  *config.Plugins
-	errs []error
+	cfg *config.Plugins
 
 	healthCoordinator *health.Coordinator
 	healthServiceName string
@@ -43,11 +42,20 @@ func (b *ManagerBuilder) UseLogger(v *slog.Logger) *ManagerBuilder {
 	return b
 }
 
-// UseHealthCoordinator registers the manager with a health coordinator.
-func (b *ManagerBuilder) UseHealthCoordinator(hc *health.Coordinator, serviceName ...string) *ManagerBuilder {
+// UseHealthCoordinator registers the manager with a health coordinator
+// under the default service name "plugins". Use
+// [ManagerBuilder.UseHealthServiceName] to override the name.
+func (b *ManagerBuilder) UseHealthCoordinator(hc *health.Coordinator) *ManagerBuilder {
 	b.healthCoordinator = hc
-	if len(serviceName) > 0 && serviceName[0] != "" {
-		b.healthServiceName = serviceName[0]
+	return b
+}
+
+// UseHealthServiceName overrides the service name under which the manager
+// is registered with the health coordinator. The default is "plugins".
+// An empty value is ignored.
+func (b *ManagerBuilder) UseHealthServiceName(name string) *ManagerBuilder {
+	if name != "" {
+		b.healthServiceName = name
 	}
 	return b
 }
@@ -59,11 +67,11 @@ func (b *ManagerBuilder) UseHealthCoordinator(hc *health.Coordinator, serviceNam
 // reports false. Callers that tolerate a disabled plugin manager should
 // check [config.Plugins.IsEnabled] before invoking Build, matching the
 // pattern used by other optional subsystem factories (auth/opa, secrets).
+//
+// On any post-construction failure (Load failure, watcher start failure)
+// the partially-built manager is closed before the error is returned, so
+// the caller does not leak the manager's goroutines or watcher state.
 func (b *ManagerBuilder) Build(ctx context.Context) (*plugins.Manager, error) {
-	if err := corefactory.JoinErrors(b.errs); err != nil {
-		return nil, err
-	}
-
 	if err := b.RequireDependency(b.cfg, "plugins configuration"); err != nil {
 		return nil, err
 	}
@@ -90,6 +98,11 @@ func (b *ManagerBuilder) Build(ctx context.Context) (*plugins.Manager, error) {
 	mgr := plugins.NewManager(opts...)
 
 	if err := mgr.Load(ctx); err != nil {
+		// A partially-loaded manager may already hold sandbox state
+		// and ready plugins. Close it to release goroutines and to
+		// ensure the registry is reset before the caller drops the
+		// reference.
+		_ = mgr.Close()
 		return nil, b.WrapError(err, "failed to load plugins")
 	}
 

@@ -71,9 +71,22 @@ type Plugins struct {
 //     fail with [plugins.ErrSandboxUnsupported].
 //   - Applied lazily on the first Manager.Load and irreversible. Host code
 //     that runs before Load is not restricted.
-//   - The primitives are process-wide. Every limit applies to the entire host
-//     process, not just plugin code. Setting MaxOpenFiles too low will starve
-//     a database connection pool the host owns.
+//   - rlimits and seccomp are real process-wide primitives. setrlimit(2)
+//     applies to the entire process, and seccomp(SET_MODE_FILTER, TSYNC)
+//     propagates the installed filter to every existing OS thread.
+//     Setting MaxOpenFiles too low will starve a database connection pool
+//     the host owns — these limits are NOT plugin-scoped.
+//   - NoNewPrivs, Capabilities, and Landlock are per-thread in pure Go.
+//     PR_SET_NO_NEW_PRIVS, capset(2), and landlock_restrict_self(2) are
+//     per-thread/per-task on Linux. The Go runtime has multiple OS threads
+//     by the time the manager runs (sysmon, GC, netpoll, GOMAXPROCS
+//     workers), and Go does not expose a way to pin every existing thread.
+//     The plugin sandbox calls these from one goroutine on one thread, so
+//     peer threads keep their original capabilities / NNP / Landlock
+//     domain. A malicious goroutine scheduled onto a peer thread can
+//     still call dropped-cap syscalls or read paths outside the
+//     allowlist. For real process-wide isolation, drop these privileges
+//     externally — see docs/plugins.md "Recommended deployment".
 //   - This is defense-in-depth, not a security boundary. A malicious plugin
 //     still has full access to host memory and can corrupt or exfiltrate
 //     anything in the address space.
@@ -101,7 +114,16 @@ type PluginsSandbox struct {
 	MaxOpenFiles int64 `yaml:"maxOpenFiles"`
 
 	// MaxProcesses caps the number of processes the user owning this process
-	// can create (RLIMIT_NPROC). 0 = unset.
+	// can create (RLIMIT_NPROC). 0 = unset. NOTE: RLIMIT_NPROC is per real
+	// UID on Linux, not per process — the kernel counts every process owned
+	// by this UID, including unrelated processes started by other binaries
+	// running under the same user account. On a host running multiple
+	// service instances under one UID, or under a shared system user
+	// (`nobody`, `daemon`), a low value can starve unrelated processes and
+	// the symptom (`fork: Resource temporarily unavailable` from a sibling
+	// process) is hard to trace back to this rlimit. Run the service under
+	// a dedicated UID, or leave this unset and bound process count via
+	// systemd TasksMax= / cgroup pids.max instead.
 	MaxProcesses int64 `yaml:"maxProcesses"`
 
 	// MaxFileSizeBytes caps the maximum size of any file the process can write
@@ -140,15 +162,30 @@ type PluginsSandbox struct {
 //     glibc x86_64), libc, every shared library the plugin imports, the
 //     host's working directory, log files, config files, and any data
 //     directories.
-//   - Process-wide and irreversible. Restricts the host as much as plugin
-//     code; there is no in-process undo.
+//   - Per-task (per-thread) in pure Go, NOT process-wide.
+//     landlock_restrict_self(2) restricts only the calling task. The Go
+//     runtime has multiple OS threads by the time the plugin manager runs,
+//     so the Landlock domain only covers the thread that ran apply; peer
+//     threads keep their original (unrestricted) view, and goroutines the
+//     scheduler later places on them can still touch paths outside the
+//     allowlist. For real process-wide restriction, apply Landlock
+//     externally before the Go binary starts — see docs/plugins.md
+//     "Recommended deployment".
+//   - Irreversible per thread. The Landlock domain installed on the
+//     calling thread cannot be relaxed for the process's lifetime.
+//   - Symlinks: the kernel checks the resolved target, not the link
+//     itself. A symlink inside the allowlist that points outside it
+//     returns EACCES on the target; a symlink outside the allowlist
+//     that resolves to a path inside it grants access. Reason about
+//     paths in terms of resolved inodes, not link locations.
 //   - Misconfiguration usually surfaces as plugin.Open failing with
 //     "permission denied" on the loader or libc, NOT as a clear "you forgot
 //     /lib64". Test on a canary replica before fleet rollout.
 //   - Requires Sandbox.Enabled = true; Landlock is a sub-feature.
-//   - Implicitly forces PR_SET_NO_NEW_PRIVS on the host process. The
-//     underlying landlock.Apply call sets it as a kernel prerequisite for
-//     landlock_restrict_self, regardless of [PluginsSandbox.NoNewPrivs].
+//   - Implicitly forces PR_SET_NO_NEW_PRIVS on the calling thread when the
+//     kernel supports Landlock. landlock.Apply sets NNP as a kernel
+//     prerequisite for landlock_restrict_self after probing ABI support,
+//     so on a Landlock-incapable kernel NNP is left untouched.
 type PluginsLandlock struct {
 	// Enabled turns Landlock on. When false, every other field is ignored.
 	// Defaults to false.
@@ -192,18 +229,26 @@ type PluginsLandlock struct {
 // launched with effective capabilities (file capabilities, systemd
 // AmbientCapabilities=, docker --cap-add, or plain root), a plugin
 // loaded via dlopen would otherwise inherit them. Dropping caps closes
-// that vector before any untrusted code runs.
+// that vector for the threads it can reach.
 //
 // IMPORTANT — read every line before enabling:
 //
 //   - Linux only. On non-Linux platforms the sandbox fails Manager.Load
 //     with [plugins.ErrSandboxUnsupported] when capabilities are enabled.
-//   - Process-wide in practice. [capabilities.DropAll] targets a single
-//     thread, but the plugin sandbox applies it before any plugin
-//     goroutine is spawned, so every thread the plugin later creates
-//     inherits the reduced set.
-//   - Irreversible. Once applied, capability ceilings cannot be raised
-//     for the lifetime of the process.
+//   - Per-thread in pure Go, NOT process-wide. capset(2) is per-thread on
+//     Linux, and Linux does not expose any way to apply a new capability
+//     set to every thread of a process from userspace. The Go runtime has
+//     multiple OS threads by the time the plugin manager runs (sysmon, GC,
+//     netpoll, GOMAXPROCS workers), so capability dropping only restricts
+//     the goroutine's current thread; peer threads keep their original
+//     capability set. A goroutine the scheduler later places on a peer
+//     thread can still call privileged syscalls. For real process-wide
+//     dropping, drop capabilities externally before the Go binary starts —
+//     see docs/plugins.md "Recommended deployment".
+//   - Irreversible per thread. Once dropped from the calling thread,
+//     capability ceilings cannot be raised on that thread for the rest
+//     of the process's lifetime; bits dropped from the bounding set
+//     cannot be re-acquired by descendants.
 //   - Requires Sandbox.Enabled = true; capability dropping is a
 //     sub-feature of the umbrella sandbox like Landlock.
 type PluginsCapabilities struct {

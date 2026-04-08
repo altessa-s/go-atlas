@@ -5,6 +5,7 @@
 package plugins
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -371,6 +372,47 @@ func TestManager_Reload_AfterClose(t *testing.T) {
 	require.NoError(t, mgr.Close())
 	err := mgr.Reload(t.Context())
 	assert.ErrorIs(t, err, ErrManagerClosed)
+}
+
+// TestManager_Reload_PartialFailureJoinsErrors verifies that when
+// multiple bogus .so files fail to load in a single Reload pass, the
+// returned error is a joined error containing every individual
+// failure (not just the first). Operators rely on this to surface a
+// fleet-wide bad rollout in one alert instead of N alerts spread out
+// over successive Reload runs.
+func TestManager_Reload_PartialFailureJoinsErrors(t *testing.T) {
+	dir := t.TempDir()
+	const bogusCount = 3
+	for i := range bogusCount {
+		path := filepath.Join(dir, fmt.Sprintf("bogus%d.so", i))
+		require.NoError(t, os.WriteFile(path, []byte("not a plugin"), 0o644))
+	}
+
+	mgr := NewManager(WithDir(dir))
+	t.Cleanup(func() { _ = mgr.Close() })
+
+	err := mgr.Reload(t.Context())
+	require.Error(t, err, "Reload of all-bogus directory must error")
+
+	// errors.Join wraps the slice into an error that exposes Unwrap()
+	// returning []error. Count the leaf errors to confirm every bogus
+	// file produced its own entry rather than the first one swallowing
+	// the rest.
+	type unwrapper interface{ Unwrap() []error }
+	u, ok := err.(unwrapper)
+	require.True(t, ok, "Reload error must be the result of errors.Join (have Unwrap() []error)")
+	leaves := u.Unwrap()
+	assert.Len(t, leaves, bogusCount,
+		"Reload must report every bogus .so as its own error, not just the first")
+	// Every leaf must reference its filename so operators can pinpoint
+	// the bad files from the joined error message.
+	msg := err.Error()
+	for i := range bogusCount {
+		want := fmt.Sprintf("bogus%d.so", i)
+		assert.Contains(t, msg, want,
+			"Reload error message must reference %s to help operators identify the bad file",
+			want)
+	}
 }
 
 // TestManager_ConcurrentStateAccess exercises concurrent reads and writes of

@@ -5,6 +5,8 @@
 package plugins
 
 import (
+	"fmt"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -46,6 +48,34 @@ type errBox struct {
 	err error
 }
 
+// newPlugin builds a [*Plugin] in the canonical [StateLoaded] entry state
+// from a resolved descriptor and the underlying *plugin.Plugin handle.
+//
+// Centralizing construction here keeps two invariants enforceable:
+//
+//   - Every required identity field (descriptor, path, raw) is set in one
+//     place, so a future caller cannot accidentally build a Plugin with a
+//     zero-value Descriptor and a stale path.
+//   - The initial State is set explicitly via [Plugin.setState] rather
+//     than relying on the coincidence that StateLoaded happens to equal
+//     the zero value of int32. A change to the State iota order would
+//     otherwise silently break every newly-constructed plugin's reported
+//     state until the first transition.
+//
+// raw may be nil for tests that exercise the manager registry without a
+// real .so file; production callers always pass a non-nil handle from
+// [openPlugin].
+func newPlugin(desc Descriptor, path string, raw *goplugin.Plugin) *Plugin {
+	p := &Plugin{
+		descriptor: desc,
+		path:       path,
+		raw:        raw,
+		loadedAt:   time.Now(),
+	}
+	p.setState(StateLoaded)
+	return p
+}
+
 // Name returns the plugin's unique identifier from its descriptor.
 func (p *Plugin) Name() string { return p.descriptor.Name }
 
@@ -74,7 +104,70 @@ func (p *Plugin) Err() error {
 }
 
 // setState atomically updates the plugin lifecycle state.
-func (p *Plugin) setState(s State) { p.state.Store(int32(s)) }
+//
+// The valid transitions are:
+//
+//	StateLoaded   → StateReady | StateFailed | StateUnloaded
+//	StateReady    → StateFailed | StateUnloaded
+//	StateFailed   → StateUnloaded
+//	StateUnloaded → (terminal)
+//
+// Invalid transitions are logged at WARN with a stack-frame hint and
+// then applied unconditionally — the package is internally consistent
+// today, and a refusal-to-set could leave a plugin observably stuck in
+// the wrong state, which is worse than a noisy log line. The log
+// pattern surfaces refactor regressions in tests and CI without
+// breaking production.
+//
+// In tests this can be made stricter via TestingT.Helper-style hooks;
+// today the WARN message includes the package + function name so a
+// regression is easy to grep for.
+func (p *Plugin) setState(s State) {
+	old := State(p.state.Load())
+	if old != s && !validStateTransition(old, s) {
+		// Use the package logger if available; otherwise fall back to
+		// the default. We deliberately don't take a *Manager reference
+		// here because Plugin.setState is also called outside the
+		// Manager's lifecycle hooks (e.g. by safeInit's panic recovery).
+		slog.Default().Warn(
+			"plugins: invalid state transition (applied anyway)",
+			slog.String("plugin", p.descriptor.Name),
+			slog.String("from", old.String()),
+			slog.String("to", s.String()),
+			slog.String("hint", fmt.Sprintf(
+				"valid transitions from %s do not include %s — see Plugin.setState doc",
+				old, s,
+			)),
+		)
+	}
+	p.state.Store(int32(s))
+}
+
+// validStateTransition reports whether transitioning from `from` to
+// `to` is consistent with the lifecycle described in [Plugin.setState].
+// Self-transitions (from == to) are handled by the caller — they are
+// considered no-ops, not valid transitions, so the caller should
+// short-circuit them before consulting this function.
+func validStateTransition(from, to State) bool {
+	switch from {
+	case StateLoaded:
+		// Initial state — anything except going back to Loaded is OK.
+		return to == StateReady || to == StateFailed || to == StateUnloaded
+	case StateReady:
+		// Operational — can fail or be unloaded.
+		return to == StateFailed || to == StateUnloaded
+	case StateFailed:
+		// Terminal-ish — only Unload is allowed (preserves Err).
+		return to == StateUnloaded
+	case StateUnloaded:
+		// Final — nothing else is allowed.
+		return false
+	default:
+		// Unknown source state: be permissive so a future iota
+		// addition does not lock the manager.
+		return true
+	}
+}
 
 // setErr atomically records an error for the plugin.
 func (p *Plugin) setErr(err error) { p.err.Store(&errBox{err: err}) }

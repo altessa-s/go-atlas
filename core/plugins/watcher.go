@@ -172,8 +172,12 @@ func (m *Manager) watchLoop(ctx context.Context, watcher *fsnotify.Watcher, done
 		case <-debounceC:
 			debounceTimer = nil
 			debounceC = nil
-			if err := m.Reload(ctx); err != nil {
-				m.logger.Error("plugin reload from watcher failed",
+			err := m.Reload(ctx)
+			m.recordWatcherReloadResult(err)
+			if err != nil {
+				m.logger.Error("plugin reload from watcher failed; "+
+					"observable via Manager.LastWatcherReloadErr() and "+
+					"reflected in CheckHealth as StatusDegraded",
 					slog.Any("error", err),
 				)
 			}

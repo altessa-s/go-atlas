@@ -13,7 +13,6 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/altessa-s/go-atlas/core/io/files"
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
@@ -48,6 +47,34 @@ type Manager struct {
 	sandboxErr   atomic.Pointer[errBox]
 	sandboxApply func(SandboxOptions) error
 
+	// sandboxSystemLibPaths is the list of system library directories
+	// merged into the Landlock allowlist when [LandlockOptions.AllowSystemLibs]
+	// is true. Defaults to [defaultLandlockSystemLibPaths]; tests in this
+	// package override it to point at temp directories so the
+	// expandSandboxOptions test suite is independent of the host's actual
+	// filesystem layout (per-Manager rather than package-global so parallel
+	// tests cannot race on a shared override).
+	sandboxSystemLibPaths []string
+
+	// reloadErr stores the most recent error returned by [Manager.Reload]
+	// when invoked from the filesystem watcher goroutine. The watcher is
+	// best-effort and does not propagate Reload errors through the call
+	// chain (its only caller is itself), so without this field a stuck
+	// watcher would be invisible to operators relying on health checks.
+	// CheckHealth downgrades to StatusDegraded when this is non-nil and
+	// the rest of the manager is otherwise healthy. Stored as
+	// atomic.Pointer so [Manager.CheckHealth] can read without holding
+	// any lock.
+	reloadErr atomic.Pointer[errBox]
+
+	// watcherReloadHook is a test-only hook fired after every
+	// watcher-driven Reload attempt. The argument is the (possibly nil)
+	// error returned by Reload. Production code leaves it nil; tests in
+	// this package set it to drive deterministic synchronization
+	// instead of polling Manager.Len() or sleeping for an arbitrary
+	// duration. Per-Manager so parallel tests cannot race on a global.
+	watcherReloadHook atomic.Pointer[func(error)]
+
 	// Watcher state. Protected by watchMu so that iterator reads on mu
 	// (taken by [Manager.Reload] from inside the watch goroutine) do not
 	// contend with lifecycle transitions.
@@ -69,10 +96,11 @@ type Manager struct {
 func NewManager(opt ...Option) *Manager {
 	opts := newOptions(opt...)
 	return &Manager{
-		plugins:      make(map[string]*Plugin),
-		opts:         opts,
-		logger:       opts.logger,
-		sandboxApply: applySandbox,
+		plugins:               make(map[string]*Plugin),
+		opts:                  opts,
+		logger:                opts.logger,
+		sandboxApply:          applySandbox,
+		sandboxSystemLibPaths: defaultLandlockSystemLibPaths,
 	}
 }
 
@@ -186,24 +214,54 @@ func (m *Manager) MustGet(name string) *Plugin {
 	return panics.MustResult(m.Get(name))
 }
 
+// pluginEntry is a (name, plugin) pair used by snapshot helpers below.
+// Defined as a struct rather than a 2-tuple so the snapshot allocators
+// can return a single slice without losing the name <-> *Plugin pairing.
+type pluginEntry struct {
+	name string
+	p    *Plugin
+}
+
+// snapshotPlugins returns a stable snapshot of the plugin registry.
+// The slice is owned by the caller and never aliases the manager's
+// internal map. Order is unspecified (map iteration is randomized).
+//
+// Snapshotting under the read lock and then iterating outside it is
+// the safe pattern: it lets the caller's loop body call back into any
+// Manager method (including write-lock methods like [Manager.Unload]
+// or [Manager.Close]) without risk of deadlock. The trade-off is that
+// the snapshot may be stale by the time the caller observes it — a
+// plugin that was unloaded mid-iteration may still be yielded. For the
+// SPI discovery use case (look up symbols and dispatch) this is the
+// right trade: stale data is fine; deadlocks are not.
+func (m *Manager) snapshotPlugins() []pluginEntry {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]pluginEntry, 0, len(m.plugins))
+	for name, p := range m.plugins {
+		out = append(out, pluginEntry{name: name, p: p})
+	}
+	return out
+}
+
 // Plugins returns an iterator over all loaded plugins (name, plugin).
 //
 // The iteration order is unspecified — Go map iteration is randomized and
 // the manager does not impose a stable ordering. Sort externally if a stable
 // order is required.
 //
-// The iterator holds the manager's read lock for the duration of the range
-// loop. The loop body must not call back into [Manager] methods that take
-// the write lock (such as [Manager.Unload] or [Manager.Close]) — doing so
-// would deadlock. To collect a snapshot for later mutation, copy the
-// pointers into a local slice and break out of the loop first.
+// The iterator captures a snapshot of the registry under the manager's
+// read lock and then yields from that snapshot WITHOUT holding any lock,
+// so the loop body is free to call any [Manager] method — including
+// write-lock methods like [Manager.Unload] and [Manager.Close] — without
+// deadlock risk. The snapshot may be slightly stale by the time the
+// caller observes it (a plugin unloaded mid-iteration is still yielded);
+// callers that need strict consistency should re-check [Plugin.State]
+// inside the loop body.
 func (m *Manager) Plugins() iter.Seq2[string, *Plugin] {
 	return func(yield func(string, *Plugin) bool) {
-		m.mu.RLock()
-		defer m.mu.RUnlock()
-
-		for name, p := range m.plugins {
-			if !yield(name, p) {
+		for _, e := range m.snapshotPlugins() {
+			if !yield(e.name, e.p) {
 				return
 			}
 		}
@@ -212,15 +270,12 @@ func (m *Manager) Plugins() iter.Seq2[string, *Plugin] {
 
 // Names returns an iterator over the names of all loaded plugins.
 //
-// The iterator holds the manager's read lock for the duration of the range
-// loop; see [Manager.Plugins] for the deadlock caveat.
+// Like [Manager.Plugins], the iterator yields from a snapshot taken under
+// the read lock; the loop body may safely call any Manager method.
 func (m *Manager) Names() iter.Seq[string] {
 	return func(yield func(string) bool) {
-		m.mu.RLock()
-		defer m.mu.RUnlock()
-
-		for name := range m.plugins {
-			if !yield(name) {
+		for _, e := range m.snapshotPlugins() {
+			if !yield(e.name) {
 				return
 			}
 		}
@@ -229,18 +284,18 @@ func (m *Manager) Names() iter.Seq[string] {
 
 // Ready returns an iterator over plugins that are in [StateReady].
 //
-// The iterator holds the manager's read lock for the duration of the range
-// loop; see [Manager.Plugins] for the deadlock caveat.
+// Like [Manager.Plugins], the iterator yields from a snapshot taken under
+// the read lock; the loop body may safely call any Manager method. The
+// state check is performed against [Plugin.State] at yield time, so a
+// plugin that transitioned out of [StateReady] between the snapshot and
+// the yield is correctly excluded.
 func (m *Manager) Ready() iter.Seq2[string, *Plugin] {
 	return func(yield func(string, *Plugin) bool) {
-		m.mu.RLock()
-		defer m.mu.RUnlock()
-
-		for name, p := range m.plugins {
-			if p.State() != StateReady {
+		for _, e := range m.snapshotPlugins() {
+			if e.p.State() != StateReady {
 				continue
 			}
-			if !yield(name, p) {
+			if !yield(e.name, e.p) {
 				return
 			}
 		}
@@ -256,19 +311,16 @@ func (m *Manager) Ready() iter.Seq2[string, *Plugin] {
 //	    // use provider
 //	}
 //
-// The iterator holds the manager's read lock for the duration of the range
-// loop; see [Manager.Plugins] for the deadlock caveat.
+// Like [Manager.Plugins], the iterator yields from a snapshot taken under
+// the read lock; the loop body may safely call any Manager method.
 func (m *Manager) LookupAll(symbol string) iter.Seq2[*Plugin, any] {
 	return func(yield func(*Plugin, any) bool) {
-		m.mu.RLock()
-		defer m.mu.RUnlock()
-
-		for _, p := range m.plugins {
-			if p.State() != StateReady {
+		for _, e := range m.snapshotPlugins() {
+			if e.p.State() != StateReady {
 				continue
 			}
-			if sym, ok := p.Lookup(symbol); ok {
-				if !yield(p, sym) {
+			if sym, ok := e.p.Lookup(symbol); ok {
+				if !yield(e.p, sym) {
 					return
 				}
 			}
@@ -394,12 +446,30 @@ func setOf(items []string) map[string]struct{} {
 	})
 }
 
-// loadPlugin opens a single .so file, resolves its descriptor, and runs Init
-// if present. Returned errors carry the failing plugin filename and wrap the
-// relevant sentinel ([ErrNoDescriptor], [ErrInvalidDescriptor], etc.) for
-// programmatic inspection via [errors.Is]. Errors are not logged here — the
-// caller (typically [Manager.Load]) joins them so the application can decide
-// how to surface failures.
+// loadPlugin opens a single .so file, resolves its descriptor, runs Init
+// if present, and only then registers the plugin in the manager's
+// registry. Returned errors carry the failing plugin filename and wrap
+// the relevant sentinel ([ErrNoDescriptor], [ErrInvalidDescriptor], etc.)
+// for programmatic inspection via [errors.Is]. Errors are not logged here
+// — the caller (typically [Manager.Load]) joins them so the application
+// can decide how to surface failures.
+//
+// Registration sequencing: the plugin enters the registry only AFTER
+// safeInit returns and the plugin has been transitioned to either
+// StateReady or StateFailed. Other goroutines calling
+// [Manager.Get] / [Manager.Plugins] / [Manager.LookupAll] therefore
+// never observe a half-initialized plugin in StateLoaded with Init still
+// running. The trade-off is that name collisions are detected slightly
+// later — after the new plugin's Init has executed — but plugin Init
+// is supposed to be idempotent and side-effect-free for the host
+// process address space, so a redundant Init on a name collision is
+// harmless. The collision check is still atomic with respect to
+// concurrent loaders thanks to the write lock around the registry
+// transaction.
+//
+// A present-but-mis-typed Init symbol is treated as a load failure
+// (see [ErrInvalidInit] in [resolveInit]) and the plugin is NOT
+// registered.
 func (m *Manager) loadPlugin(ctx context.Context, filename string) error {
 	path := filepath.Join(m.opts.dir, filename)
 
@@ -414,44 +484,69 @@ func (m *Manager) loadPlugin(ctx context.Context, filename string) error {
 		return coreerrs.Wrapf(err, "plugin %q", filename)
 	}
 
-	p := &Plugin{
-		descriptor: *desc,
-		path:       path,
-		raw:        raw,
-		loadedAt:   time.Now(),
-	}
-	p.setState(StateLoaded)
-
-	// Check for name collision and register.
-	m.mu.Lock()
-	if _, exists := m.plugins[desc.Name]; exists {
-		m.mu.Unlock()
+	// Pre-flight name collision check. This is a hint, not a contract:
+	// a concurrent loader could register the same name between this
+	// read and the final commit below. The post-Init registration
+	// transaction below repeats the check under the write lock and is
+	// the authoritative one. We do this hint here so that an obviously
+	// duplicate plugin (e.g. operator dropped a renamed copy of an
+	// already-loaded .so) does not waste an Init call before failing.
+	m.mu.RLock()
+	_, exists := m.plugins[desc.Name]
+	m.mu.RUnlock()
+	if exists {
 		return coreerrs.Wrapf(ErrPluginAlreadyLoaded, "plugin %q (file %q)", desc.Name, filename)
 	}
-	m.plugins[desc.Name] = p
-	m.mu.Unlock()
 
-	// Resolve and run Init if present. Both variable and function declaration
-	// forms are accepted; a mis-typed Init symbol is logged but does not fail
-	// the load — the plugin is still registered and enters StateReady.
+	p := newPlugin(*desc, path, raw)
+
+	// Resolve Init outside the lock — both forms are accepted; see
+	// [resolveInit] for the supported shapes. A present-but-mis-typed
+	// Init is a load failure: it almost always indicates a host/plugin
+	// version skew (signature changed without rebuilding the plugin)
+	// and the plugin should be quarantined rather than promoted to
+	// StateReady with its initialization silently skipped.
 	initFn, err := resolveInit(lookup)
 	if err != nil {
-		m.logger.Warn("plugin Init symbol has unsupported type; skipping",
+		failErr := coreerrs.Wrapf(err, "plugin %q", desc.Name)
+		p.setErr(failErr)
+		p.setState(StateFailed)
+		m.logger.Error("plugin Init symbol has unsupported type",
 			slog.String("plugin", desc.Name),
 			slog.Any("error", err),
 		)
+		return failErr
 	}
 	if initFn != nil {
-		// safeInit reports panics via the panic recovery handler (which logs
-		// the stack); we propagate the error so the caller can decide.
+		// safeInit reports panics via the panic recovery handler
+		// (which logs the stack); we propagate the error so the
+		// caller can decide. The plugin is in StateFailed by the
+		// time safeInit returns an error, so the caller sees a
+		// fully-classified failure.
 		if initErr := m.safeInit(ctx, p, initFn); initErr != nil {
 			return initErr
 		}
 	}
-
 	if p.State() == StateLoaded {
 		p.setState(StateReady)
 	}
+
+	// Register only after Init has run to completion. This is the
+	// authoritative collision check: it runs under the write lock so
+	// two concurrent loaders racing on the same plugin name are
+	// guaranteed to see exactly one winner.
+	m.mu.Lock()
+	if _, exists := m.plugins[desc.Name]; exists {
+		m.mu.Unlock()
+		// The plugin we just initialized lost the race. Mark it
+		// as unloaded so [Plugin.State] reflects reality if some
+		// other code path holds a reference to it. The other
+		// loader's plugin remains the canonical one.
+		p.setState(StateUnloaded)
+		return coreerrs.Wrapf(ErrPluginAlreadyLoaded, "plugin %q (file %q)", desc.Name, filename)
+	}
+	m.plugins[desc.Name] = p
+	m.mu.Unlock()
 
 	m.logger.Info("plugin loaded",
 		slog.String("plugin", desc.Name),
@@ -481,7 +576,19 @@ func (m *Manager) ensureSandbox() error {
 		if !m.opts.sandbox.Enabled {
 			return
 		}
+		// Fail-fast on operator misconfiguration so a malformed
+		// sandbox surfaces as ErrSandboxFailed wrapping the
+		// validation errors instead of leaking the underlying
+		// kernel errno.
+		if err := m.opts.sandbox.Validate(); err != nil {
+			wrapped := coreerrs.JoinWrap(ErrSandboxFailed, err)
+			m.sandboxErr.Store(&errBox{err: wrapped})
+			m.logger.Error("plugin sandbox configuration is invalid",
+				slog.Any("error", err))
+			return
+		}
 		effective := m.expandSandboxOptions(m.opts.sandbox)
+		m.warnPerThreadPrimitives(effective)
 		if err := m.sandboxApply(effective); err != nil {
 			m.sandboxErr.Store(&errBox{err: err})
 			m.logger.Error("plugin sandbox setup failed", slog.Any("error", err))
@@ -502,15 +609,70 @@ func (m *Manager) ensureSandbox() error {
 	return m.sandboxFailure()
 }
 
+// warnPerThreadPrimitives logs a one-shot WARN when the operator enabled
+// sandbox primitives that the kernel applies per-thread (capabilities,
+// Landlock, NO_NEW_PRIVS) rather than per-process. The Go runtime has
+// already created multiple OS threads (sysmon, GC, netpoll, GOMAXPROCS
+// workers) by the time the manager runs ensureSandbox, and Go does not
+// expose any way to iterate or pin every existing thread. The kernel
+// syscalls land on the goroutine's current OS thread; peer threads keep
+// their original capability set / Landlock domain / NNP bit.
+//
+// In practice this means: a malicious goroutine that gets scheduled onto
+// a peer thread can still call dropped-cap syscalls or read paths
+// outside the Landlock allowlist. Real process-wide isolation requires
+// dropping these privileges externally — a systemd unit with
+// CapabilityBoundingSet=, NoNewPrivileges=yes, and a Linux container
+// runtime with --cap-drop, or a small C launcher that drops privileges
+// before execve(2) of the Go binary.
+//
+// rlimits and seccomp+TSYNC are NOT in this warning because the kernel
+// gives them real process-wide semantics: setrlimit(2) is per-process,
+// and seccomp(SET_MODE_FILTER, TSYNC) propagates the installed filter
+// to every peer thread atomically.
+//
+// See docs/plugins.md "Recommended deployment" for the full sysadmin
+// runbook.
+func (m *Manager) warnPerThreadPrimitives(o SandboxOptions) {
+	var perThread []string
+	if o.NoNewPrivs {
+		perThread = append(perThread, "noNewPrivs")
+	}
+	if o.Capabilities.Enabled {
+		perThread = append(perThread, "capabilities")
+	}
+	if o.Landlock.Enabled {
+		perThread = append(perThread, "landlock")
+	}
+	if len(perThread) == 0 {
+		return
+	}
+	m.logger.Warn(
+		"plugin sandbox uses per-thread Linux primitives that are best-effort in Go; "+
+			"the Go runtime has multiple OS threads by the time the sandbox runs and "+
+			"these primitives only restrict the calling thread. For real process-wide "+
+			"isolation, drop privileges externally via systemd "+
+			"(CapabilityBoundingSet=, NoNewPrivileges=yes), a container runtime "+
+			"(--cap-drop, --security-opt=no-new-privileges), or a C launcher before "+
+			"execve. See docs/plugins.md#recommended-deployment.",
+		slog.Any("primitives", perThread),
+	)
+}
+
 // defaultLandlockSystemLibPaths lists the filesystem paths that glibc and
 // musl dynamic loaders typically require. When [LandlockOptions.AllowSystemLibs]
-// is true, these are merged into the ReadPaths allowlist.
+// is true, these are filtered through [files.DirExists] and the survivors
+// are merged into the ReadPaths allowlist.
 //
 // The list intentionally stays minimal — covering RHEL, Debian, Ubuntu,
 // Fedora, Alpine, and most other mainstream distros. It is NOT suitable for
 // NixOS (libs live under /nix/store), chroot jails, or deployments with
 // custom library prefixes — those should use explicit ReadPaths and leave
-// AllowSystemLibs off.
+// AllowSystemLibs off. The DirExists filter exists because Landlock's
+// add_rule fails the entire ruleset setup with ENOENT if any listed path
+// is missing — without filtering, a host that lacks /lib64 (Alpine on
+// some configs, Debian without multilib, NixOS) would fail Manager.Load
+// even when the operator just wanted "best-effort common system libs".
 var defaultLandlockSystemLibPaths = []string{
 	"/lib",
 	"/lib64",
@@ -521,11 +683,22 @@ var defaultLandlockSystemLibPaths = []string{
 // expandSandboxOptions returns a copy of o with any auto-added Landlock
 // paths (plugin directory, system library directories) merged into
 // ReadPaths. The ReadPaths slice is cloned before the merge so the caller's
-// original slice is never mutated.
+// original slice is never mutated. Duplicate entries (after the merge)
+// are removed via [slices.Compact] on a sorted-equality basis: an
+// operator who lists `/lib64` explicitly and also enables
+// `AllowSystemLibs` should not see `/lib64` registered twice in the
+// Landlock allowlist (the kernel tolerates the duplicate but it
+// pollutes operator-facing logs).
 //
 // When Landlock is disabled or no auto-add flag is set, the returned value
 // is the input unchanged (safe because Go passes the struct by value and
 // we only mutate the cloned slice, not the caller's).
+//
+// AllowSystemLibs paths are filtered through [files.DirExists] before
+// being added: missing directories are silently dropped rather than
+// surfaced as a Landlock setup failure. The plugin manager logs the
+// effective list at Info level so operators can audit what actually
+// got allowlisted on this host.
 func (m *Manager) expandSandboxOptions(o SandboxOptions) SandboxOptions {
 	if !o.Landlock.Enabled {
 		return o
@@ -536,7 +709,21 @@ func (m *Manager) expandSandboxOptions(o SandboxOptions) SandboxOptions {
 		extra = append(extra, m.opts.dir)
 	}
 	if o.Landlock.AllowSystemLibs {
-		extra = append(extra, defaultLandlockSystemLibPaths...)
+		var skipped []string
+		for _, p := range m.sandboxSystemLibPaths {
+			if files.DirExists(p) {
+				extra = append(extra, p)
+				continue
+			}
+			skipped = append(skipped, p)
+		}
+		if len(skipped) > 0 {
+			m.logger.Info(
+				"plugin sandbox: skipping missing system library paths "+
+					"(AllowSystemLibs is best-effort; explicit ReadPaths are not filtered)",
+				slog.Any("skipped", skipped),
+			)
+		}
 	}
 	if len(extra) == 0 {
 		return o
@@ -544,8 +731,32 @@ func (m *Manager) expandSandboxOptions(o SandboxOptions) SandboxOptions {
 
 	// slices.Concat allocates a fresh backing array so the caller's
 	// ReadPaths slice is never mutated, regardless of its capacity.
-	o.Landlock.ReadPaths = slices.Concat(o.Landlock.ReadPaths, extra)
+	merged := slices.Concat(o.Landlock.ReadPaths, extra)
+	o.Landlock.ReadPaths = dedupePreserveOrder(merged)
 	return o
+}
+
+// dedupePreserveOrder removes duplicate strings from s while keeping
+// the first occurrence's position. Used by expandSandboxOptions to
+// suppress redundant entries when an operator lists a system lib path
+// explicitly AND enables AllowSystemLibs.
+//
+// O(n) using a small set; not worth the cognitive overhead of an
+// in-place algorithm because the slices are <20 entries in practice.
+func dedupePreserveOrder(s []string) []string {
+	if len(s) < 2 {
+		return s
+	}
+	seen := make(map[string]struct{}, len(s))
+	out := make([]string, 0, len(s))
+	for _, v := range s {
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	return out
 }
 
 // sandboxFailure returns the cached sandbox setup error, or nil if the
@@ -558,13 +769,52 @@ func (m *Manager) sandboxFailure() error {
 	return nil
 }
 
+// LastWatcherReloadErr returns the most recent error from a
+// watcher-driven [Manager.Reload], or nil when the last reload
+// succeeded (or the watcher has not run). The watcher is a
+// best-effort background task: a failed reload is logged but does not
+// stop the watcher or fail other plugins, and without this accessor a
+// stuck watcher would be invisible to operators.
+//
+// [Manager.CheckHealth] reads this value and downgrades to
+// [health.StatusDegraded] when it is non-nil and the rest of the
+// manager is otherwise healthy. Hosts that wire reload failures into
+// metrics or alerts can poll this method directly.
+//
+// The error is cleared back to nil after the next successful reload.
+func (m *Manager) LastWatcherReloadErr() error {
+	if box := m.reloadErr.Load(); box != nil {
+		return box.err
+	}
+	return nil
+}
+
+// recordWatcherReloadResult stores or clears the cached watcher reload
+// error after each debounce-driven [Manager.Reload] and fires the
+// test-only [watcherReloadHook] if one is installed. Called from the
+// watch goroutine only.
+func (m *Manager) recordWatcherReloadResult(err error) {
+	if err == nil {
+		m.reloadErr.Store(nil)
+	} else {
+		m.reloadErr.Store(&errBox{err: err})
+	}
+	if hookPtr := m.watcherReloadHook.Load(); hookPtr != nil && *hookPtr != nil {
+		(*hookPtr)(err)
+	}
+}
+
 // safeInit calls the plugin's Init function with panic recovery and a timeout
 // derived from the manager options. Panics are recorded on the plugin and
 // returned as wrapped [ErrPluginPanicked]; init errors are wrapped with
 // [ErrPluginFailed]. The plugin's state is updated atomically.
 //
 // The named return value retErr exists so the deferred panic handler can
-// communicate the recovered error back to the caller.
+// communicate the recovered error back to the caller. If retErr is already
+// non-nil when the panic handler runs (Init returned an error and then a
+// deferred plugin-side cleanup panicked), both errors are joined via
+// [errors.Join] so neither signal is lost — losing the original init error
+// would mask the root cause.
 func (m *Manager) safeInit(ctx context.Context, p *Plugin, initFn func(context.Context) error) (retErr error) {
 	defer panics.HandleWithOpts(ctx,
 		panics.NewHandleOpts().SetReallyPanic(false),
@@ -572,7 +822,16 @@ func (m *Manager) safeInit(ctx context.Context, p *Plugin, initFn func(context.C
 			panicErr := coreerrs.Wrapf(ErrPluginPanicked, "plugin %q panicked during init: %v", p.Name(), r)
 			p.setErr(panicErr)
 			p.setState(StateFailed)
-			retErr = panicErr
+			// Preserve any pre-existing retErr (e.g. an init
+			// error that ran to completion before a deferred
+			// cleanup inside the plugin panicked). Joining
+			// keeps the original cause discoverable via
+			// errors.Is alongside ErrPluginPanicked.
+			if retErr != nil {
+				retErr = errors.Join(retErr, panicErr)
+			} else {
+				retErr = panicErr
+			}
 		},
 	)
 

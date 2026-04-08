@@ -5,7 +5,13 @@
 package plugins
 
 import (
+	"errors"
+	"fmt"
+	"path/filepath"
+	"slices"
+
 	"github.com/altessa-s/go-atlas/config"
+	"github.com/altessa-s/go-atlas/core/runtime/capabilities"
 )
 
 // SandboxOptions configures Linux process-hardening primitives applied lazily
@@ -43,7 +49,15 @@ type SandboxOptions struct {
 	// MaxOpenFiles caps RLIMIT_NOFILE. 0 = unset.
 	MaxOpenFiles int64
 
-	// MaxProcesses caps RLIMIT_NPROC. 0 = unset.
+	// MaxProcesses caps RLIMIT_NPROC. 0 = unset. NOTE: RLIMIT_NPROC is
+	// per real UID on Linux, not per process — the kernel counts every
+	// process owned by the same UID, including unrelated processes
+	// running under that UID. On a host running multiple service
+	// instances under one UID, or under a shared system user
+	// (`nobody`, `daemon`), a low value can starve unrelated processes
+	// and the symptom (`fork: Resource temporarily unavailable` from a
+	// sibling process) is hard to trace back. Prefer systemd
+	// TasksMax= or cgroup pids.max for per-instance bounds.
 	MaxProcesses int64
 
 	// MaxFileSizeBytes caps RLIMIT_FSIZE. 0 = unset.
@@ -145,7 +159,11 @@ type CapabilitiesOptions struct {
 }
 
 // SandboxOptionsFromConfig converts a [config.PluginsSandbox] block into the
-// runtime [SandboxOptions] consumed by the manager.
+// runtime [SandboxOptions] consumed by the manager. The returned struct
+// owns its own copies of the slice fields ([LandlockOptions.ReadPaths],
+// [LandlockOptions.ReadWritePaths], [CapabilitiesOptions.Keep]) — mutating
+// the input config after conversion is safe and does not affect the
+// already-converted runtime options.
 func SandboxOptionsFromConfig(c config.PluginsSandbox) SandboxOptions {
 	return SandboxOptions{
 		Enabled:          c.Enabled,
@@ -157,14 +175,122 @@ func SandboxOptionsFromConfig(c config.PluginsSandbox) SandboxOptions {
 		DisableCoreDumps: c.DisableCoreDumps,
 		Capabilities: CapabilitiesOptions{
 			Enabled: c.Capabilities.Enabled,
-			Keep:    c.Capabilities.Keep,
+			Keep:    slices.Clone(c.Capabilities.Keep),
 		},
 		Landlock: LandlockOptions{
 			Enabled:         c.Landlock.Enabled,
 			AllowPluginDir:  c.Landlock.AllowPluginDir,
 			AllowSystemLibs: c.Landlock.AllowSystemLibs,
-			ReadPaths:       c.Landlock.ReadPaths,
-			ReadWritePaths:  c.Landlock.ReadWritePaths,
+			ReadPaths:       slices.Clone(c.Landlock.ReadPaths),
+			ReadWritePaths:  slices.Clone(c.Landlock.ReadWritePaths),
 		},
 	}
+}
+
+// Validate reports whether the runtime sandbox options are well-formed
+// enough for [Manager.Load] to apply them. Returns nil when the sandbox
+// is disabled.
+//
+// Validate covers the operator-config invariants that ozzo-validation
+// enforces in [config.PluginsSandbox.Validate], so callers that build
+// SandboxOptions programmatically (rather than via
+// [SandboxOptionsFromConfig]) get the same fail-fast behavior:
+//
+//   - rlimit values must be non-negative (zero is the documented
+//     "unset" sentinel)
+//   - Landlock paths must be non-empty absolute paths
+//   - Capability names must parse via [capabilities.ParseName]
+//
+// Multiple violations are joined via [errors.Join] so the operator
+// sees every problem at once instead of fixing them one by one.
+func (o SandboxOptions) Validate() error {
+	if !o.Enabled {
+		return nil
+	}
+	var errs []error
+	if o.MemoryLimitBytes < 0 {
+		errs = append(errs, fmt.Errorf("MemoryLimitBytes=%d is negative", o.MemoryLimitBytes))
+	}
+	if o.MaxOpenFiles < 0 {
+		errs = append(errs, fmt.Errorf("MaxOpenFiles=%d is negative", o.MaxOpenFiles))
+	}
+	if o.MaxProcesses < 0 {
+		errs = append(errs, fmt.Errorf("MaxProcesses=%d is negative", o.MaxProcesses))
+	}
+	if o.MaxFileSizeBytes < 0 {
+		errs = append(errs, fmt.Errorf("MaxFileSizeBytes=%d is negative", o.MaxFileSizeBytes))
+	}
+	if err := o.Capabilities.Validate(); err != nil {
+		errs = append(errs, err)
+	}
+	if err := o.Landlock.Validate(); err != nil {
+		errs = append(errs, err)
+	}
+	if len(errs) == 0 {
+		return nil
+	}
+	return errors.Join(errs...)
+}
+
+// Validate checks the Landlock options for the same invariants enforced
+// by [config.PluginsLandlock.Validate]: every path entry must be a
+// non-empty absolute filesystem path. Validate is a no-op when Landlock
+// is disabled.
+func (o LandlockOptions) Validate() error {
+	if !o.Enabled {
+		return nil
+	}
+	var errs []error
+	for i, p := range o.ReadPaths {
+		if err := validateLandlockPath("Landlock.ReadPaths", i, p); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	for i, p := range o.ReadWritePaths {
+		if err := validateLandlockPath("Landlock.ReadWritePaths", i, p); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) == 0 {
+		return nil
+	}
+	return errors.Join(errs...)
+}
+
+// Validate checks the capability options for the same invariants
+// enforced by [config.PluginsCapabilities.Validate]: every entry in
+// Keep must be a parseable canonical CAP_* name. Validate is a no-op
+// when capability dropping is disabled.
+func (o CapabilitiesOptions) Validate() error {
+	if !o.Enabled {
+		return nil
+	}
+	var errs []error
+	for i, name := range o.Keep {
+		if name == "" {
+			errs = append(errs, fmt.Errorf("Capabilities.Keep[%d] is empty", i))
+			continue
+		}
+		if _, err := capabilities.ParseName(name); err != nil {
+			errs = append(errs, fmt.Errorf("Capabilities.Keep[%d]: %w", i, err))
+		}
+	}
+	if len(errs) == 0 {
+		return nil
+	}
+	return errors.Join(errs...)
+}
+
+// validateLandlockPath enforces the "non-empty absolute path" rule on
+// a single Landlock allowlist entry. The error message includes the
+// field name and slice index so the operator can pinpoint the bad
+// entry without re-reading the config.
+func validateLandlockPath(field string, idx int, p string) error {
+	if p == "" {
+		return fmt.Errorf("%s[%d] is empty", field, idx)
+	}
+	if !filepath.IsAbs(p) {
+		return fmt.Errorf("%s[%d] %q is not an absolute path", field, idx, p)
+	}
+	return nil
 }
