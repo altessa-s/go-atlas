@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"regexp"
+	"strings"
 
 	"github.com/altessa-s/go-atlas/data/idempotency"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/defaults"
@@ -53,9 +54,9 @@ type KeyFormatValidator func(key string) error
 // ErrInvalidFormat is returned when the idempotency key format is invalid.
 var ErrInvalidFormat = errors.New("invalid idempotency key format")
 
-// DefaultKeyValidator validates that the key is a valid UUID v4.
+// DefaultKeyValidator validates that the key is a valid lowercase UUID v4.
 func DefaultKeyValidator(key string) error {
-	if !validation.IsValidUUIDv4(key) {
+	if strings.ToLower(key) != key || !validation.IsValidUUIDv4(key) {
 		return ErrInvalidFormat
 	}
 	return nil
