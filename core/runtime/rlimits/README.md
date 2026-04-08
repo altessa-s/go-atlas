@@ -16,7 +16,7 @@ never be raised back above it for the lifetime of the process.
 | `Apply(opts ...Option)` | Installs every configured rlimit; **irreversible** for the hard-limit direction |
 | `WithMemoryBytes(n int64)` | Caps `RLIMIT_AS` (virtual address space); 0 = unset |
 | `WithMaxOpenFiles(n int64)` | Caps `RLIMIT_NOFILE`; 0 = unset |
-| `WithMaxProcesses(n int64)` | Caps `RLIMIT_NPROC`; 0 = unset |
+| `WithMaxProcesses(n int64)` | Caps `RLIMIT_NPROC` (per real UID, **not** per process — see Caveats); 0 = unset |
 | `WithMaxFileSizeBytes(n int64)` | Caps `RLIMIT_FSIZE`; 0 = unset |
 | `WithDisableCoreDumps()` | Pins `RLIMIT_CORE` to 0 (prevents post-crash memory leaks) |
 | `ErrUnsupported` | Platform doesn't support setrlimit (non-Linux) |
@@ -77,6 +77,18 @@ func main() {
   in-process database driver or connection pool shares the same
   resource pool. Tune `WithMaxOpenFiles` with care — it counts
   sockets, files, pipes, epoll, timerfd, signalfd, etc.
+- **`RLIMIT_NPROC` is per real UID, not per process.** The kernel counts
+  every process owned by the same real UID as the calling process,
+  including unrelated processes started by other binaries running under
+  the same user account. On a host running multiple instances of the
+  service under the same UID, or running as a shared system user
+  (`nobody`, `daemon`), setting `WithMaxProcesses` low enough to bound
+  this service can starve unrelated processes — and the symptom
+  (`fork: Resource temporarily unavailable` from a sibling process) is
+  hard to trace back to this rlimit. Run the service under a dedicated
+  UID, or leave `MaxProcesses` unset and bound process count via
+  systemd `TasksMax=` / cgroup `pids.max`, which are per-cgroup rather
+  than per-UID.
 - **Irreversible for hard-limit reductions.** Once a hard limit is
   lowered, an unprivileged process cannot raise it.
 - **Partial application on error.** If `Apply` fails midway through the
@@ -99,11 +111,23 @@ validation layer (`validateOptions`) and the option accumulation
 behavior. For real syscall coverage, run your integration tests in a
 dedicated subprocess or container.
 
+## Hardening sequence
+
+This package is **step 2** in the standard go-atlas hardening
+sequence:
+
+`nonewprivs` → `rlimits` → `capabilities` → `seccomp` → `landlock`
+
+`rlimits` runs after `nonewprivs` (the cheapest no-prerequisite step)
+and before `capabilities` because `setrlimit` is process-wide and
+side-effect-light, so a misconfigured rlimit (rejected by validation)
+does not leave behind a half-applied capability state.
+
 ## See also
 
 - [`setrlimit(2)` man page](https://man7.org/linux/man-pages/man2/setrlimit.2.html)
-- `core/runtime/nonewprivs` — `PR_SET_NO_NEW_PRIVS` primitive, natural
-  sibling for startup-time hardening
-- `core/runtime/landlock` — filesystem allowlist, the third primitive in
-  the hardening trio
-- `core/plugins/sandbox.go` — real-world consumer composing all three
+- `core/runtime/nonewprivs` — `PR_SET_NO_NEW_PRIVS` primitive (step 1)
+- `core/runtime/capabilities` — Linux capability dropping (step 3)
+- `core/runtime/seccomp` — syscall denylist via seccomp-BPF (step 4)
+- `core/runtime/landlock` — filesystem allowlist (step 5)
+- `core/plugins/sandbox.go` — real-world consumer composing the sequence
