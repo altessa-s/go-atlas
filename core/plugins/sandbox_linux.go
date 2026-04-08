@@ -7,11 +7,11 @@
 package plugins
 
 import (
-	"fmt"
-
 	"github.com/altessa-s/go-atlas/core/runtime/capabilities"
 	"github.com/altessa-s/go-atlas/core/runtime/nonewprivs"
 	"github.com/altessa-s/go-atlas/core/runtime/rlimits"
+
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // applySandbox installs Linux process-hardening primitives configured by o.
@@ -52,7 +52,7 @@ func applySandbox(o SandboxOptions) error {
 
 	if o.NoNewPrivs {
 		if err := nonewprivs.Set(); err != nil {
-			return fmt.Errorf("%w: %w", ErrSandboxFailed, err)
+			return coreerrs.JoinWrap(ErrSandboxFailed, err)
 		}
 	}
 
@@ -66,7 +66,7 @@ func applySandbox(o SandboxOptions) error {
 		rlimitOpts = append(rlimitOpts, rlimits.WithDisableCoreDumps())
 	}
 	if err := rlimits.Apply(rlimitOpts...); err != nil {
-		return fmt.Errorf("%w: %w", ErrSandboxFailed, err)
+		return coreerrs.JoinWrap(ErrSandboxFailed, err)
 	}
 
 	if err := applyCapabilities(o.Capabilities); err != nil {
@@ -97,7 +97,7 @@ func applyCapabilities(o CapabilitiesOptions) error {
 	}
 	if len(o.Keep) == 0 {
 		if err := capabilities.DropAll(); err != nil {
-			return fmt.Errorf("%w: %w", ErrSandboxFailed, err)
+			return coreerrs.JoinWrap(ErrSandboxFailed, err)
 		}
 		return nil
 	}
@@ -105,12 +105,12 @@ func applyCapabilities(o CapabilitiesOptions) error {
 	for _, name := range o.Keep {
 		c, err := capabilities.ParseName(name)
 		if err != nil {
-			return fmt.Errorf("%w: %w", ErrSandboxFailed, err)
+			return coreerrs.JoinWrap(ErrSandboxFailed, err)
 		}
 		keep = append(keep, c)
 	}
 	if err := capabilities.DropAllExcept(keep...); err != nil {
-		return fmt.Errorf("%w: %w", ErrSandboxFailed, err)
+		return coreerrs.JoinWrap(ErrSandboxFailed, err)
 	}
 	return nil
 }

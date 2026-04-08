@@ -13,6 +13,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/observability/health"
 )
 
 // newTestPlugin builds a *Plugin for tests with the given name and state.
@@ -160,6 +162,45 @@ func TestManager_Unload_NotFound(t *testing.T) {
 	mgr := NewManager()
 	err := mgr.Unload("nonexistent")
 	assert.ErrorIs(t, err, ErrPluginNotFound)
+}
+
+func TestManager_CheckHealth_PluginStates(t *testing.T) {
+	cases := []struct {
+		name    string
+		plugins map[string]State
+		want    health.ServingStatus
+	}{
+		{
+			name:    "empty registry is serving",
+			plugins: map[string]State{},
+			want:    health.StatusServing,
+		},
+		{
+			name:    "all ready is serving",
+			plugins: map[string]State{"a": StateReady, "b": StateReady},
+			want:    health.StatusServing,
+		},
+		{
+			name:    "one failed among healthy is degraded",
+			plugins: map[string]State{"a": StateReady, "b": StateFailed},
+			want:    health.StatusDegraded,
+		},
+		{
+			name:    "every plugin failed is not serving",
+			plugins: map[string]State{"a": StateFailed, "b": StateFailed},
+			want:    health.StatusNotServing,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mgr := NewManager()
+			t.Cleanup(func() { _ = mgr.Close() })
+			for name, state := range tc.plugins {
+				mgr.plugins[name] = newTestPlugin(name, state)
+			}
+			assert.Equal(t, tc.want, mgr.CheckHealth(t.Context()))
+		})
+	}
 }
 
 func TestManager_Iterators(t *testing.T) {

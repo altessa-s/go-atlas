@@ -32,7 +32,9 @@ func applyLandlock(o LandlockOptions) error {
 		landlock.WithReadWritePaths(o.ReadWritePaths...),
 	)
 	if err != nil {
-		return coreerrs.Wrapf(ErrSandboxFailed, "landlock: %v", err)
+		// JoinWrap preserves both chains so callers can match either
+		// ErrSandboxFailed or any sentinel from the landlock package.
+		return coreerrs.JoinWrap(ErrSandboxFailed, err)
 	}
 	return nil
 }

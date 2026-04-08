@@ -33,6 +33,11 @@ var (
 	// is not of type *Descriptor.
 	ErrInvalidDescriptor = errors.New("plugin Descriptor has invalid type")
 
+	// ErrInvalidInit is returned when the optional Init symbol is present
+	// but has an unsupported type. The expected signature is
+	// func(context.Context) error (or a variable bound to that type).
+	ErrInvalidInit = errors.New("plugin Init has invalid type")
+
 	// ErrManagerClosed is returned when operations are attempted on a closed manager.
 	ErrManagerClosed = errors.New("plugin manager is closed")
 

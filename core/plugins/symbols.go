@@ -6,7 +6,6 @@ package plugins
 
 import (
 	"context"
-	"fmt"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	goplugin "plugin"
@@ -99,6 +98,6 @@ func resolveInit(lookup symbolLookup) (func(context.Context) error, error) {
 		}
 		return *fn, nil
 	default:
-		return nil, fmt.Errorf("plugin Init has unsupported type %T, want func(context.Context) error", sym)
+		return nil, coreerrs.Wrapf(ErrInvalidInit, "got %T, want func(context.Context) error", sym)
 	}
 }

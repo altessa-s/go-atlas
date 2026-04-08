@@ -14,10 +14,17 @@ var _ health.Checker = (*Manager)(nil)
 
 // CheckHealth implements health.Checker.
 //
-// The manager is considered unhealthy when it has been closed, when any
-// loaded plugin is in [StateFailed], or when the sandbox setup failed —
-// in the last case the manager refuses every Load so the registry stays
-// empty and the per-plugin loop alone would falsely report "serving".
+// The status mapping is:
+//
+//   - [health.StatusNotServing] when the manager has been closed, when the
+//     sandbox setup failed (in which case the manager refuses every Load so
+//     the registry stays empty), or when every loaded plugin is in
+//     [StateFailed].
+//   - [health.StatusDegraded] when at least one plugin is in [StateFailed]
+//     but at least one other plugin is still operational. Plugin failures
+//     are isolated — the host and its working plugins continue to serve
+//     traffic, so "degraded" is a more honest signal than "not serving".
+//   - [health.StatusServing] when no plugin is in [StateFailed].
 func (m *Manager) CheckHealth(_ context.Context) health.ServingStatus {
 	if m.closed.Load() {
 		return health.StatusNotServing
@@ -29,11 +36,21 @@ func (m *Manager) CheckHealth(_ context.Context) health.ServingStatus {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	var failed, healthy int
 	for _, p := range m.plugins {
 		if p.State() == StateFailed {
-			return health.StatusNotServing
+			failed++
+			continue
 		}
+		healthy++
 	}
 
-	return health.StatusServing
+	switch {
+	case failed == 0:
+		return health.StatusServing
+	case healthy == 0:
+		return health.StatusNotServing
+	default:
+		return health.StatusDegraded
+	}
 }

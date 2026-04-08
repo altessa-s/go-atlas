@@ -10,6 +10,7 @@ import (
 	"iter"
 	"log/slog"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -541,13 +542,9 @@ func (m *Manager) expandSandboxOptions(o SandboxOptions) SandboxOptions {
 		return o
 	}
 
-	// Clone ReadPaths before appending so the caller's slice is not
-	// mutated when the append happens to fit within the existing backing
-	// array's capacity.
-	merged := make([]string, 0, len(o.Landlock.ReadPaths)+len(extra))
-	merged = append(merged, o.Landlock.ReadPaths...)
-	merged = append(merged, extra...)
-	o.Landlock.ReadPaths = merged
+	// slices.Concat allocates a fresh backing array so the caller's
+	// ReadPaths slice is never mutated, regardless of its capacity.
+	o.Landlock.ReadPaths = slices.Concat(o.Landlock.ReadPaths, extra)
 	return o
 }
 
