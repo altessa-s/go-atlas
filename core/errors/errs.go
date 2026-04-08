@@ -173,9 +173,10 @@ func Wrap(err error, msg string) error {
 // [errors.As].
 //
 // Returns nil when cause is nil (the sentinel alone is rarely useful — the
-// caller can return the sentinel directly for that case). Returns a wrapper
-// around cause with the zero sentinel when sentinel is nil, mirroring the
-// behavior of [fmt.Errorf] with a nil %w target.
+// caller can return the sentinel directly for that case). Returns cause
+// unchanged when sentinel is nil — wrapping with a nil sentinel via
+// fmt.Errorf("%w: %w", nil, cause) would otherwise produce a malformed
+// "%!w(<nil>): cause" message and an error chain with a stray nil entry.
 //
 // Use this for adapter layers that translate errors from a lower-level
 // package into a domain-specific sentinel without discarding the original
@@ -193,6 +194,9 @@ func Wrap(err error, msg string) error {
 func JoinWrap(sentinel, cause error) error {
 	if cause == nil {
 		return nil
+	}
+	if sentinel == nil {
+		return cause
 	}
 	return fmt.Errorf("%w: %w", sentinel, cause)
 }

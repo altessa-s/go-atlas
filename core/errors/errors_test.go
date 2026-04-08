@@ -101,6 +101,15 @@ func TestWrappers(t *testing.T) {
 		if errors.JoinWrap(sentinel, nil) != nil {
 			t.Error("JoinWrap with nil cause should be nil")
 		}
+		// Nil sentinel must return cause unchanged — without the
+		// guard fmt.Errorf("%w: %w", nil, cause) produces a
+		// malformed "%!w(<nil>): cause" message.
+		if got := errors.JoinWrap(nil, base); got != base {
+			t.Errorf("JoinWrap(nil, base) = %v, want base unchanged", got)
+		}
+		if errors.JoinWrap(nil, nil) != nil {
+			t.Error("JoinWrap(nil, nil) should be nil")
+		}
 	})
 }
 
