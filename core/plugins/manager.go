@@ -744,7 +744,7 @@ func (m *Manager) expandSandboxOptions(o SandboxOptions) SandboxOptions {
 // O(n) using a small set; not worth the cognitive overhead of an
 // in-place algorithm because the slices are <20 entries in practice.
 func dedupePreserveOrder(s []string) []string {
-	if len(s) < 2 {
+	if len(s) <= 1 {
 		return s
 	}
 	seen := make(map[string]struct{}, len(s))
@@ -839,7 +839,12 @@ func (m *Manager) safeInit(ctx context.Context, p *Plugin, initFn func(context.C
 	defer cancel()
 
 	if err := initFn(initCtx); err != nil {
-		failErr := coreerrs.Wrapf(ErrPluginFailed, "plugin %q: %v", p.Name(), err)
+		// JoinWrap keeps both the ErrPluginFailed sentinel AND the
+		// inner cause reachable via errors.Is / errors.As. A plain
+		// Wrapf(ErrPluginFailed, "...: %v", ..., err) would discard
+		// the cause chain and hide context.DeadlineExceeded,
+		// context.Canceled, and any typed error the plugin returns.
+		failErr := coreerrs.JoinWrap(ErrPluginFailed, coreerrs.Wrapf(err, "plugin %q", p.Name()))
 		p.setErr(failErr)
 		p.setState(StateFailed)
 		return failErr
