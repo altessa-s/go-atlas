@@ -8,6 +8,7 @@ package seccomp
 
 import (
 	"fmt"
+	"runtime"
 	"unsafe"
 
 	"github.com/altessa-s/go-atlas/core/runtime/nonewprivs"
@@ -182,7 +183,32 @@ func buildFilter() []unix.SockFilter {
 // synced, the seccomp syscall returns the failing TID as a positive
 // integer (not an errno), and install reports that as ErrFailed with
 // a clear message.
-func install() error {
+//
+// install pins the goroutine to its OS thread via [runtime.LockOSThread]
+// for the full sequence. Both PR_SET_NO_NEW_PRIVS and seccomp(2) are
+// per-thread operations, and without pinning the Go scheduler may
+// migrate the goroutine between the prctl and the seccomp call — the
+// seccomp syscall would then land on a thread that does not have
+// NO_NEW_PRIVS set and fail with EACCES (since the process lacks
+// CAP_SYS_ADMIN). TSYNC propagates the installed filter to every peer
+// thread, so releasing the pin after install is safe.
+func install() (retErr error) {
+	// Pin to the current OS thread for the duration of the install
+	// sequence. nonewprivs.Set and seccomp(SET_MODE_FILTER) must execute
+	// on the same thread or the kernel rejects the filter.
+	runtime.LockOSThread()
+	defer func() {
+		// On success the filter is TSYNC'd to every thread, so the
+		// pin is no longer needed and we release it. On failure we
+		// intentionally leave the thread locked and let the goroutine
+		// exit carry the lock away — we cannot safely reuse a thread
+		// that may have been left with NO_NEW_PRIVS set while the
+		// seccomp filter install failed.
+		if retErr == nil {
+			runtime.UnlockOSThread()
+		}
+	}()
+
 	if err := nonewprivs.Set(); err != nil {
 		return fmt.Errorf("%w: %w", ErrFailed, err)
 	}
