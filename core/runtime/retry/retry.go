@@ -204,7 +204,23 @@ func Exponential(cfg ExponentialConfig) func(attempt int, _ error) time.Duration
 			attempt = 0
 		}
 
-		d := time.Duration(float64(cfg.BaseDelay) * math.Pow(factor, float64(attempt)))
+		// math.Pow returns +Inf for large attempt counts (e.g. factor=2,
+		// attempt=64). The resulting product overflows the float64→int64
+		// conversion and yields math.MinInt64 on current Go runtimes —
+		// which the "d <= 0" guard below would silently turn into a
+		// zero-delay hot loop, defeating MaxDelay entirely. Detect the
+		// overflow up front and clamp to MaxDelay (or the maximum
+		// representable duration when MaxDelay is uncapped).
+		multiplier := math.Pow(factor, float64(attempt))
+		product := float64(cfg.BaseDelay) * multiplier
+		if math.IsInf(multiplier, 1) || product >= float64(math.MaxInt64) {
+			if cfg.MaxDelay > 0 {
+				return cfg.MaxDelay
+			}
+			return time.Duration(math.MaxInt64)
+		}
+
+		d := time.Duration(product)
 		if d <= 0 {
 			return 0
 		}

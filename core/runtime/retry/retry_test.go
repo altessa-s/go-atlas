@@ -147,6 +147,26 @@ func TestExponential(t *testing.T) {
 			minDur:  time.Second * 3,
 			maxDur:  time.Second * 3,
 		},
+		{
+			// Regression: for large attempts, math.Pow overflows to +Inf
+			// and the float64->int64 cast yields MinInt64, which the
+			// internal "d <= 0" guard used to collapse to a zero delay
+			// (defeating MaxDelay and causing callers to hot-loop).
+			name:    "OverflowCapsToMaxDelay",
+			config:  retry.ExponentialConfig{BaseDelay: time.Millisecond, Factor: 2, MaxDelay: 30 * time.Second},
+			attempt: 128,
+			minDur:  30 * time.Second,
+			maxDur:  30 * time.Second,
+		},
+		{
+			// Same overflow path but with MaxDelay unset: the function
+			// should return a finite, large duration rather than zero.
+			name:    "OverflowUncappedReturnsMaxInt64",
+			config:  retry.ExponentialConfig{BaseDelay: time.Millisecond, Factor: 2},
+			attempt: 128,
+			minDur:  time.Hour,
+			maxDur:  time.Duration(1<<63 - 1),
+		},
 	}
 
 	for _, tt := range tests {
