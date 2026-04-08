@@ -59,22 +59,45 @@ Enable it in:
 
 - **Linux 3.5+ only.** On non-Linux platforms `Set` returns `ErrUnsupported`
   so cross-platform code can import the package without build tags.
-- **Process-wide and irreversible.** No "unset" syscall. Every goroutine,
-  every child process, every binary reached via exec inherits the bit.
-- **Breaks legitimate SUID tools.** After `Set` returns, `sudo`, `su`,
-  `mount`, and any other setuid helper will silently fail to gain the
-  expected privileges. Only enable in processes that have no legitimate
-  need to invoke setuid binaries.
+- **Per-thread, irreversible per thread — NOT process-wide in pure Go.**
+  `PR_SET_NO_NEW_PRIVS` is a per-thread bit on Linux. The Go runtime has
+  already created several OS threads (sysmon, GC, netpoll, GOMAXPROCS
+  workers) by the time user code runs, and Go does not expose any way to
+  iterate or pin every existing thread. `Set()` only sets the bit on the
+  goroutine's current OS thread; peer threads keep their original NNP
+  state. New threads created via `clone(2)` inherit NNP from the cloning
+  thread, not from whichever thread called `Set` most recently. The bit
+  **is** inherited across `execve(2)`, which is its fundamental purpose.
+- **For a real process-wide NNP, set it externally** before the Go
+  binary starts: a systemd unit with `NoNewPrivileges=yes`, a container
+  runtime with `--security-opt=no-new-privileges`, or a small C launcher
+  that calls `prctl` before `execve(2)` of the Go binary. `Set()` then
+  becomes a defense-in-depth helper for the threads that can be reached.
+- **Breaks legitimate SUID tools.** Once set on a thread, `sudo`, `su`,
+  `mount`, and any other setuid helper invoked from that thread will
+  silently fail to gain the expected privileges. Only enable in processes
+  that have no legitimate need to invoke setuid binaries.
 - **Not a sandbox on its own.** This primitive only blocks privilege
   escalation on exec. It does nothing about filesystem access (use
   [`core/runtime/landlock`](../landlock/README.md)) or resource limits
   (use [`core/runtime/rlimits`](../rlimits/README.md)).
 
+## Hardening sequence
+
+This package is the **first step** in the standard go-atlas hardening
+sequence:
+
+`nonewprivs` → `rlimits` → `capabilities` → `seccomp` → `landlock`
+
+`PR_SET_NO_NEW_PRIVS` runs first because both `seccomp(2)` and
+`landlock_restrict_self(2)` require it as a kernel prerequisite for
+unprivileged callers.
+
 ## See also
 
 - [Kernel documentation](https://www.kernel.org/doc/html/latest/userspace-api/no_new_privs.html)
-- `core/runtime/landlock` — filesystem allowlist that requires
-  `NO_NEW_PRIVS` as a prerequisite
-- `core/runtime/rlimits` — process resource limits, natural sibling
-  primitive for startup-time hardening
-- `core/plugins/sandbox.go` — real-world consumer composing all three
+- `core/runtime/rlimits` — process resource limits (step 2)
+- `core/runtime/capabilities` — Linux capability dropping (step 3)
+- `core/runtime/seccomp` — syscall denylist via seccomp-BPF (step 4)
+- `core/runtime/landlock` — filesystem allowlist (step 5)
+- `core/plugins/sandbox.go` — real-world consumer composing the sequence

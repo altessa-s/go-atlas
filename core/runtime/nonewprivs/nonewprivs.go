@@ -22,24 +22,42 @@ var (
 	ErrFailed = errors.New("nonewprivs: prctl failed")
 )
 
-// Set installs PR_SET_NO_NEW_PRIVS on the calling process. Once set, the
-// process and every binary it execs cannot gain privileges via SUID/SGID
-// for the rest of the process's lifetime. The operation is irreversible
-// and idempotent — calling Set twice is harmless.
+// Set installs PR_SET_NO_NEW_PRIVS on the calling THREAD. Once set,
+// any binary the thread later execs cannot gain privileges via
+// SUID/SGID — the kernel silently drops the ambient escalation. The
+// bit is irreversible for the lifetime of the thread and idempotent —
+// calling Set twice is harmless.
 //
 // On Linux, Set wraps prctl(2) with PR_SET_NO_NEW_PRIVS. On every other
 // platform Set returns [ErrUnsupported].
 //
-// Set is safe to call from any goroutine and at any point in the
-// process's lifetime, but is typically invoked once during startup.
+// Per-thread scope (read this before using):
+//
+// PR_SET_NO_NEW_PRIVS is per-thread on Linux. The Go runtime has
+// already created several OS threads (sysmon, GC, netpoll, GOMAXPROCS
+// workers) by the time user code runs, so calling Set from a
+// goroutine after startup only sets the bit on the goroutine's
+// current thread. Peer threads keep their original NNP state. New
+// threads created via clone(2) inherit NNP from the cloning thread,
+// not from whichever thread called Set most recently — so Set is
+// also not retroactive. The kernel does inherit NNP across execve(2)
+// for binaries spawned from a NNP-set thread, which is the
+// fundamental property the bit is named for.
+//
+// For a real process-wide NNP, set the bit externally before the Go
+// binary starts: a systemd unit with NoNewPrivileges=yes, a container
+// runtime with --security-opt=no-new-privileges, or a C launcher that
+// calls prctl before execve(2) of the Go binary. Set then becomes a
+// defense-in-depth helper for the threads that can be reached.
 func Set() error {
 	return set()
 }
 
 // Enabled reports whether PR_SET_NO_NEW_PRIVS is currently set on the
-// calling process. It is a thin wrapper around prctl(2) with
+// calling THREAD. It is a thin wrapper around prctl(2) with
 // PR_GET_NO_NEW_PRIVS. Returns (false, [ErrUnsupported]) on non-Linux
-// platforms.
+// platforms. Like [Set], the result reflects the calling thread only,
+// not the whole process.
 func Enabled() (bool, error) {
 	return enabled()
 }
