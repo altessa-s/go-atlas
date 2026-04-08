@@ -54,8 +54,8 @@
 //   - Protect against a malicious binary already loaded in-process —
 //     such a binary still has full access to host memory.
 //
-// Combine this package with the other three for a layered startup
-// hardening sequence: nonewprivs → rlimits → capabilities → landlock.
+// Combine this package with the others for a layered startup hardening
+// sequence: nonewprivs → rlimits → capabilities → seccomp → landlock.
 //
 // # Caveats
 //

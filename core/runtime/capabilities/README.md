@@ -115,7 +115,7 @@ ambient are cleared (safe default for a long-running service).
 - **CLI tools** running with file capabilities that want to drop
   them before invoking untrusted subcommands.
 - **As one layer in the standard go-atlas hardening sequence:**
-  `nonewprivs` → `rlimits` → `capabilities` → `landlock`.
+  `nonewprivs` → `rlimits` → `capabilities` → `seccomp` → `landlock`.
 
 ## Caveats
 

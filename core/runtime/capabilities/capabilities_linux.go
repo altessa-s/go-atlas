@@ -164,13 +164,22 @@ func getSnapshot() (Sets, error) {
 //
 // Steps are ordered so that an abort after any one leaves the thread
 // in a state that is "at most as privileged" as before — never more.
+//
+// On a step-3-through-6 failure the returned error is annotated with
+// which step failed and how far the partial application got. This
+// matters because the calling thread is left in an intermediate
+// state: e.g. capset has installed the new effective/permitted but
+// some bounding-drop syscalls have not yet run, so the caller's
+// "actual" capabilities diverge from the requested snapshot. Without
+// the step annotation an operator sees only the underlying errno
+// and has no way to reconstruct what state the thread is in.
 func applySnapshot(s Sets) error {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
 
 	cur, err := getSnapshot()
 	if err != nil {
-		return err
+		return fmt.Errorf("applySnapshot: read current state: %w", err)
 	}
 
 	// Validate against the current bounding ceiling. The kernel will
@@ -198,43 +207,76 @@ func applySnapshot(s Sets) error {
 
 	// Lower ambient bits first. This is safe regardless of whether
 	// the upcoming capset succeeds, because lowering can only reduce
-	// privilege.
+	// privilege. A failure here means no other syscall has run yet,
+	// so the thread state matches the pre-call snapshot minus any
+	// successfully-lowered ambient bits.
 	toLower := cur.Ambient &^ s.Ambient
 	for c := Cap(0); c <= capLastCap; c++ {
-		if has(toLower, c) {
-			if err := ambientLower(c); err != nil {
-				return err
-			}
+		if !has(toLower, c) {
+			continue
+		}
+		if err := ambientLower(c); err != nil {
+			return fmt.Errorf(
+				"applySnapshot: step 3 (ambient lower of %s) failed; "+
+					"thread state: ambient bits up to but not including %s have been lowered, "+
+					"capset/bounding/ambient-raise have NOT run: %w",
+				c, c, err,
+			)
 		}
 	}
 
-	// Install the new effective/permitted/inheritable.
+	// Install the new effective/permitted/inheritable. If this fails
+	// the capset itself was rejected, so the thread keeps its
+	// pre-call effective/permitted/inheritable but with the lowered
+	// ambient state from step 3.
 	if err := capset(s.Effective, s.Permitted, s.Inheritable); err != nil {
-		return err
+		return fmt.Errorf(
+			"applySnapshot: step 4 (capset eff=%#x perm=%#x inh=%#x) failed; "+
+				"thread state: ambient lowered, capset rejected, "+
+				"effective/permitted/inheritable still match the pre-call snapshot: %w",
+			s.Effective, s.Permitted, s.Inheritable, err,
+		)
 	}
 
 	// Drop bounding bits that should no longer be present. This is
 	// irreversible — once dropped from bounding, the bit cannot be
-	// re-acquired by this thread or any descendant.
+	// re-acquired by this thread or any descendant. A failure here
+	// is the most dangerous case because capset has already
+	// committed: the requested effective/permitted/inheritable are
+	// installed, but the bounding ceiling is partially old.
 	toDrop := cur.Bounding &^ s.Bounding
 	for c := Cap(0); c <= capLastCap; c++ {
-		if has(toDrop, c) {
-			if err := boundingDrop(c); err != nil {
-				return err
-			}
+		if !has(toDrop, c) {
+			continue
+		}
+		if err := boundingDrop(c); err != nil {
+			return fmt.Errorf(
+				"applySnapshot: step 5 (bounding drop of %s) failed; "+
+					"thread state: capset committed but bounding ceiling is "+
+					"partially the old set — bits up to but not including %s have been dropped, "+
+					"every bit at %s and above is still in the bounding set: %w",
+				c, c, c, err,
+			)
 		}
 	}
 
 	// Raise ambient bits that should be present but are not. The
 	// kernel enforces that cap is in permitted ∩ inheritable, which
 	// is now true because capset has already succeeded with the new
-	// masks.
+	// masks. A failure here means capset and bounding-drops are
+	// fully committed but ambient is partial.
 	toRaise := s.Ambient &^ cur.Ambient
 	for c := Cap(0); c <= capLastCap; c++ {
-		if has(toRaise, c) {
-			if err := ambientRaise(c); err != nil {
-				return err
-			}
+		if !has(toRaise, c) {
+			continue
+		}
+		if err := ambientRaise(c); err != nil {
+			return fmt.Errorf(
+				"applySnapshot: step 6 (ambient raise of %s) failed; "+
+					"thread state: capset and bounding fully committed, "+
+					"ambient bits up to but not including %s have been raised: %w",
+				c, c, err,
+			)
 		}
 	}
 	return nil
