@@ -79,8 +79,8 @@ func (intCodec) Decode(b []byte) (int, error) {
 // drop path in Submit.
 type errCodec struct{}
 
-func (errCodec) Encode(int) ([]byte, error)  { return nil, errors.New("encode boom") }
-func (errCodec) Decode([]byte) (int, error)  { return 0, errors.New("decode boom") }
+func (errCodec) Encode(int) ([]byte, error) { return nil, errors.New("encode boom") }
+func (errCodec) Decode([]byte) (int, error) { return 0, errors.New("decode boom") }
 
 // newRunningEngine constructs and starts an engine with the given
 // options, wiring graceful shutdown into t.Cleanup so tests never leak
@@ -334,7 +334,7 @@ func TestEngine_Submit_BufferFull_Drops(t *testing.T) {
 	sink := &slowSink{release: make(chan struct{})}
 
 	var (
-		dropped atomic.Int64
+		dropped  atomic.Int64
 		dropped1 atomic.Bool
 	)
 	eng := newRunningEngine(t, sink,

@@ -5,10 +5,11 @@
 package errors_test
 
 import (
-	std_errors "errors"
 	"testing"
 
 	"github.com/altessa-s/go-atlas/core/errors"
+
+	std_errors "errors"
 )
 
 // TestProvider_NilReturnsNil asserts that Provider, like every sibling Wrap*

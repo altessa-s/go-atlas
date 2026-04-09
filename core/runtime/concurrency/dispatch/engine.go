@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/io/wal"
+
 	coretime "github.com/altessa-s/go-atlas/core/time"
 )
 
