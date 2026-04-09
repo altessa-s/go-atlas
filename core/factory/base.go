@@ -79,17 +79,18 @@ func (b *Base) RequireDependency(dep any, depName string) error {
 }
 
 // RequireAllDependencies validates every entry in deps by delegating to
-// [Base.RequireDependency]. It returns the first error encountered, or nil if
-// all dependencies are present. Because deps is a map, iteration order is
-// nondeterministic, so the specific dependency reported in the error may vary
-// across calls when multiple dependencies are nil.
+// [Base.RequireDependency]. It aggregates all missing dependencies into a
+// single error using [errors.Join], so operators see every missing
+// dependency at once rather than having to fix them one at a time. Returns
+// nil if all dependencies are present.
 func (b *Base) RequireAllDependencies(deps map[string]any) error {
+	var errs []error
 	for name, dep := range deps {
 		if err := b.RequireDependency(dep, name); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // Errorf returns a new error formatted with [fmt.Errorf] semantics. Unlike
