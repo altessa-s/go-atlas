@@ -5,7 +5,6 @@
 package appinfo
 
 import (
-	"os"
 	"testing"
 )
 
@@ -38,15 +37,12 @@ func TestEnvCached(t *testing.T) {
 		t.Fatalf("got %q, want %q", v1, "cached_val")
 	}
 
-	// Change env but cache should still return old value
-	os.Setenv("TEST_APPINFO_CACHED", "new_val")
+	// Change env but cache should still return old value.
+	t.Setenv("TEST_APPINFO_CACHED", "new_val")
 	v2 := EnvCached("TEST_APPINFO_CACHED")
 	if v2 != "cached_val" {
 		t.Fatalf("got %q, want cached %q", v2, "cached_val")
 	}
-
-	// Restore
-	os.Setenv("TEST_APPINFO_CACHED", "cached_val")
 }
 
 func TestClearEnvCache(t *testing.T) {
@@ -55,13 +51,10 @@ func TestClearEnvCache(t *testing.T) {
 	_ = EnvCached("TEST_APPINFO_CLEAR")
 
 	ClearEnvCache()
-	os.Setenv("TEST_APPINFO_CLEAR", "updated")
+	t.Setenv("TEST_APPINFO_CLEAR", "updated")
 	if got := EnvCached("TEST_APPINFO_CLEAR"); got != "updated" {
 		t.Fatalf("after clear, got %q, want %q", got, "updated")
 	}
-
-	// Restore
-	os.Setenv("TEST_APPINFO_CLEAR", "original")
 }
 
 func TestExpandPath(t *testing.T) {
