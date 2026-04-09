@@ -220,7 +220,8 @@ func Required(dependency, context string) error {
 // Provider returns an error indicating that a provider of the given type could not
 // be created. The returned message has the form "failed to create <providerType>
 // provider: <err>". It wraps err with the %w verb, preserving the error chain for
-// [errors.Is] and [errors.As].
+// [errors.Is] and [errors.As]. Returns nil when err is nil, making it safe to call
+// unconditionally.
 //
 // Example:
 //
@@ -229,5 +230,8 @@ func Required(dependency, context string) error {
 //	}
 //	// Error message: "failed to create Redis provider: <original error>"
 func Provider(providerType string, err error) error {
+	if err == nil {
+		return nil
+	}
 	return fmt.Errorf("failed to create %s provider: %w", providerType, err)
 }
