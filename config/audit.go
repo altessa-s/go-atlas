@@ -65,6 +65,32 @@ type Audit struct {
 	// BackPressure enables back-pressure mode where Emit blocks when the buffer is full
 	// instead of dropping events.
 	BackPressure bool `yaml:"backPressure"`
+
+	// WAL configures the optional crash-safe write-ahead log. By default
+	// the auditor runs purely in-memory; enable WAL when audit events must
+	// survive process crashes (SIGKILL/panic/OOM).
+	WAL AuditWAL `yaml:"wal"`
+}
+
+// AuditWAL configures the optional WAL backing the auditor.
+type AuditWAL struct {
+	// Enabled turns on local WAL durability. When false (default) the
+	// auditor behaves identically to the previous in-RAM-only dispatcher.
+	Enabled bool `yaml:"enabled"`
+
+	// Dir is the directory storing WAL segment files. It is created if missing.
+	Dir string `yaml:"dir" default:"./var/audit/wal"`
+
+	// MaxSegmentBytes is the maximum size of a single segment file.
+	MaxSegmentBytes int64 `yaml:"maxSegmentBytes" default:"67108864"` // 64 MiB
+
+	// MaxBytes is the soft cap on total bytes across all segments.
+	MaxBytes int64 `yaml:"maxBytes" default:"1073741824"` // 1 GiB
+
+	// FsyncInterval is the period between background fsync calls. A
+	// shorter interval reduces the loss window after a crash, at the
+	// cost of throughput.
+	FsyncInterval time.Duration `yaml:"fsyncInterval" default:"5ms"`
 }
 
 // AuditStorage defines the storage backend configuration for audit events.
