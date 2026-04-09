@@ -167,9 +167,11 @@ func (o *Outbox) dispatchEvent(ctx context.Context, event Event) error {
 	o.metrics.eventsInFlight.Inc()
 	defer o.metrics.eventsInFlight.Dec()
 
-	err := coreretry.Do(ctx, coreretry.Config{
-		MaxAttempts: -1, // retry until success or ctx cancellation
-		ShouldRetry: func(err error) bool {
+	err := coreretry.Do(ctx, func(ctx context.Context) error {
+		return o.handler(ctx, event)
+	},
+		coreretry.WithMaxAttempts(-1), // retry until success or ctx cancellation
+		coreretry.WithShouldRetry(func(err error) bool {
 			if coreerrs.IsContextCanceled(err) {
 				return false
 			}
@@ -177,22 +179,20 @@ func (o *Outbox) dispatchEvent(ctx context.Context, event Event) error {
 				return o.shouldRetry(err)
 			}
 			return true
-		},
-		NextDelay: coreretry.Exponential(coreretry.ExponentialConfig{
+		}),
+		coreretry.WithNextDelay(coreretry.Exponential(coreretry.ExponentialConfig{
 			BaseDelay: DefaultDispatchRetryBaseDelay,
 			MaxDelay:  DefaultDispatchRetryMaxDelay,
-		}),
-		OnRetry: func(_ int, err error, nextDelay time.Duration) {
+		})),
+		coreretry.WithOnRetry(func(_ int, err error, nextDelay time.Duration) {
 			o.metrics.dispatchRetries.Inc()
 			o.logger.WarnContext(ctx, "failed to dispatch event, retrying...",
 				slog.Any("error", err),
 				slog.String("event_id", event.Id),
 				slog.Duration("next_try_in", nextDelay),
 			)
-		},
-	}, func(ctx context.Context) error {
-		return o.handler(ctx, event)
-	})
+		}),
+	)
 	if err == nil {
 		o.metrics.eventsDispatched.Inc()
 		return nil
@@ -315,7 +315,7 @@ func (o *Outbox) handleEvents(ctx context.Context, events ...Event) {
 		event.setSentStatus()
 		logger.DebugContext(ctx, "event has been dispatched")
 		return event, nil
-	}, concurrency.BatchConfig[Event]{})
+	})
 
 	if err != nil {
 		// Log the overall batch error if needed, although individual errors are logged above.

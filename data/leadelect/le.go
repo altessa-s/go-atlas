@@ -196,9 +196,7 @@ func (le *Leader) runCallback(ctx context.Context, fn ...Callback) {
 		f(cbCtx, le)
 
 		return nil
-	}, concurrency.BatchConfig[Callback]{
-		StopOnError: false, // Run all callbacks regardless of errors
-	}); err != nil {
+	}); err != nil { // No StopOnError: run all callbacks regardless of errors.
 		le.metrics.callbackErrors.Inc()
 		return
 	}

@@ -361,10 +361,10 @@ func (c *Coordinator) ListStatuses(ctx context.Context) (map[string]ServingStatu
 		cancel()
 
 		return result{service: svc, status: status}, nil
-	}, concurrency.BatchConfig[string]{
-		Concurrency: c.maxConcurrentHealthChecks,
-		StopOnError: false, // Continue checking other services if one fails
-	})
+	},
+		// No StopOnError: continue checking other services if one fails.
+		concurrency.WithConcurrency[string](c.maxConcurrentHealthChecks),
+	)
 
 	if err != nil {
 		return nil, err

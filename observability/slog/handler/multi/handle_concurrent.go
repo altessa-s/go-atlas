@@ -28,11 +28,11 @@ func handleConcurrent(ctx context.Context, r slog.Record, handlers []slog.Handle
 	var errs []error
 	_ = concurrency.Process(ctx, enabled, func(ctx context.Context, child slog.Handler) error {
 		return child.Handle(ctx, r)
-	}, concurrency.BatchConfig[slog.Handler]{
-		Concurrency: len(enabled),
-		OnError: func(_ slog.Handler, err error) {
+	},
+		concurrency.WithConcurrency[slog.Handler](len(enabled)),
+		concurrency.WithOnError[slog.Handler](func(_ slog.Handler, err error) {
 			errs = append(errs, err) // safe: OnError called under mutex in Process
-		},
-	})
+		}),
+	)
 	return errors.Join(errs...)
 }

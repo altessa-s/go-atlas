@@ -141,9 +141,9 @@ func (s *Storage[T]) doList(ctx context.Context) ([]*secrets.Value[T], error) {
 		return nil, err
 	}
 
-	return concurrency.ProcessCollect[string, *secrets.Value[T]](ctx, keys, s.value, concurrency.BatchConfig[string]{
-		LimitFunc: s.opts.concurrencyLimitFunc,
-	})
+	return concurrency.ProcessCollect[string, *secrets.Value[T]](ctx, keys, s.value,
+		concurrency.WithLimitFunc[string](s.opts.concurrencyLimitFunc),
+	)
 }
 
 // Values returns an iterator over all secrets stored in Vault.

@@ -90,21 +90,19 @@ func (t *Manager[T]) runUpdateCycleInternal(ctx context.Context) error {
 
 	var list []*Value[T]
 
-	// Retry logic for List operation
-	retryCfg := coreretry.Config{
-		MaxAttempts: t.opts.maxRetries,
-		NextDelay:   coreretry.Exponential(t.opts.exponentialConfig),
-	}
-
 	// Apply timeout to the context if not already set
 	ctx, cancel := corecontext.ApplyTimeout(ctx, DefaultOperationsTimeout)
 	defer cancel()
 
-	err := coreretry.Do(ctx, retryCfg, func(ctx context.Context) error {
+	// Retry logic for List operation.
+	err := coreretry.Do(ctx, func(ctx context.Context) error {
 		var err error
 		list, err = t.secretStorage.List(ctx)
 		return err
-	})
+	},
+		coreretry.WithMaxAttempts(t.opts.maxRetries),
+		coreretry.WithNextDelay(coreretry.Exponential(t.opts.exponentialConfig)),
+	)
 
 	if err != nil {
 		t.opts.logger.ErrorContext(ctx, "failed to list secrets from storage", slogx.Error(err))

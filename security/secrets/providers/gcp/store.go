@@ -522,10 +522,11 @@ func (s *Storage[T]) doSecrets(ctx context.Context, fn func(d *pb.AccessSecretVe
 		}
 
 		return value, nil
-	}, concurrency.BatchConfig[string]{
-		LimitFunc:   s.opts.concurrencyLimitFunc,
-		StopOnError: false, // In GCP provider we always ignore nil results from not found or invalid keys
-	})
+	},
+		// In GCP provider we always ignore nil results from not found or
+		// invalid keys — never stop on error.
+		concurrency.WithLimitFunc[string](s.opts.concurrencyLimitFunc),
+	)
 }
 
 func (s *Storage[T]) getLatestVersion(ctx context.Context, secretName string) (*pb.SecretVersion, *pb.AccessSecretVersionResponse, error) {

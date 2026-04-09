@@ -11,48 +11,20 @@ import (
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
-// ProcessFunc is the callback signature for [Process]. It receives a context
-// (which may be canceled on error when [BatchConfig.StopOnError] is set) and
-// a single item to process. Returning a non-nil error signals a failure for that item.
+// ProcessFunc is the callback signature for [Process]. It receives a
+// context (which may be canceled on error when [WithStopOnError] is
+// set) and a single item to process. Returning a non-nil error signals
+// a failure for that item.
 type ProcessFunc[T any] func(ctx context.Context, item T) error
 
-// TransformFunc is the callback signature for [ProcessCollect]. It receives a
-// context and a single item, returning a transformed result or an error.
+// TransformFunc is the callback signature for [ProcessCollect]. It
+// receives a context and a single item, returning a transformed result
+// or an error.
 type TransformFunc[T, R any] func(ctx context.Context, item T) (R, error)
 
-// BatchConfig configures the concurrency and error-handling behavior of
-// [Process] and [ProcessCollect].
-type BatchConfig[T any] struct {
-	// Concurrency sets a fixed upper bound on the number of goroutines
-	// that process items simultaneously. It is ignored when LimitFunc is
-	// provided. Zero or negative values fall through to [DefaultLimitFunc].
-	Concurrency int
-
-	// LimitFunc, when non-nil, is called to determine the concurrency limit
-	// dynamically and takes precedence over the Concurrency field. Use one of
-	// the built-in factories such as [MemoryAwareConcurrency] or
-	// [AdaptiveConcurrency] to create a suitable function.
-	LimitFunc ConcurrencyLimitFunc
-
-	// StopOnError, when true, cancels the internal context after the first
-	// error, preventing new items from starting. Items already in flight may
-	// still complete. Only the first error is returned by [Process].
-	StopOnError bool
-
-	// OnSuccess is an optional callback invoked after each item completes
-	// without error. It is called while holding an internal mutex, so it is
-	// safe to mutate shared state from within it.
-	OnSuccess func(item T)
-
-	// OnError is an optional callback invoked after each item that fails.
-	// It is called while holding an internal mutex, so it is safe to mutate
-	// shared state from within it.
-	OnError func(item T, err error)
-}
-
 // Process applies fn to every element of items using bounded concurrency
-// controlled by config. When [BatchConfig.StopOnError] is true, the first
-// error cancels remaining work and is returned; otherwise only the first
+// controlled by opts. When [WithStopOnError] is set, the first error
+// cancels remaining work and is returned; otherwise only the first
 // error encountered is returned while all items are still processed.
 // If items is empty, nil is returned immediately. When the effective
 // concurrency is 1 (or there is only one item), processing is sequential
@@ -62,26 +34,38 @@ type BatchConfig[T any] struct {
 //
 //	err := Process(ctx, items, func(ctx context.Context, item string) error {
 //	    return processItem(item)
-//	}, BatchConfig[string]{Concurrency: 4, StopOnError: true})
+//	}, WithConcurrency[string](4), WithStopOnError[string]())
 func Process[T any](
 	ctx context.Context,
 	items []T,
 	fn ProcessFunc[T],
-	config BatchConfig[T],
+	opts ...Option[T],
 ) error {
 	if len(items) == 0 {
 		return nil
 	}
+	cfg := newOptions(opts...)
+	return processWithOptions(ctx, items, fn, cfg)
+}
 
-	concurrency := getConcurrency(config)
+// processWithOptions is the shared implementation of [Process] that
+// accepts an already-materialized options value. It is used by
+// [ProcessCollect] to avoid re-applying option functions.
+func processWithOptions[T any](
+	ctx context.Context,
+	items []T,
+	fn ProcessFunc[T],
+	cfg *options[T],
+) error {
+	concurrency := getConcurrency(cfg)
 	if concurrency == 1 || len(items) == 1 {
-		return processSequential(ctx, items, fn, config.OnSuccess, config.OnError)
+		return processSequential(ctx, items, fn, cfg.onSuccess, cfg.onError)
 	}
 
-	// Internal context to cancel all workers if StopOnError is true
+	// Internal context to cancel all workers if stopOnError is true
 	gCtx := ctx
 	var cancel context.CancelFunc
-	if config.StopOnError {
+	if cfg.stopOnError {
 		gCtx, cancel = context.WithCancel(ctx)
 		defer cancel()
 	}
@@ -111,19 +95,19 @@ loop:
 				if err := fn(gCtx, item); err != nil {
 					once.Do(func() {
 						firstErr = err
-						if config.StopOnError && cancel != nil {
+						if cfg.stopOnError && cancel != nil {
 							cancel() // Stop other workers
 						}
 					})
 
-					if config.OnError != nil {
+					if cfg.onError != nil {
 						cbMx.Lock()
-						config.OnError(item, err)
+						cfg.onError(item, err)
 						cbMx.Unlock()
 					}
-				} else if config.OnSuccess != nil {
+				} else if cfg.onSuccess != nil {
 					cbMx.Lock()
-					config.OnSuccess(item)
+					cfg.onSuccess(item)
 					cbMx.Unlock()
 				}
 			})
@@ -136,25 +120,28 @@ loop:
 	return firstErr
 }
 
-// ProcessCollect applies fn to every element of items concurrently (like
-// [Process]) and collects the transformed results into a slice that preserves
-// the original input order. On error with [BatchConfig.StopOnError] set,
-// partial results collected so far are returned alongside the error.
+// ProcessCollect applies fn to every element of items concurrently
+// (like [Process]) and collects the transformed results into a slice
+// that preserves the original input order. On error with
+// [WithStopOnError] set, partial results collected so far are returned
+// alongside the error.
 //
 // Internally, ProcessCollect processes item indices rather than wrapped
-// structs, writes results directly into a pre-allocated array by position
-// (no mutex needed since each goroutine writes to a unique index), and
-// skips the sort step entirely.
+// structs, writes results directly into a pre-allocated array by
+// position (no mutex needed since each goroutine writes to a unique
+// index), and skips the sort step entirely.
 func ProcessCollect[T, R any](
 	ctx context.Context,
 	items []T,
 	fn TransformFunc[T, R],
-	config BatchConfig[T],
+	opts ...Option[T],
 ) ([]R, error) {
 	n := len(items)
 	if n == 0 {
 		return []R{}, nil
 	}
+
+	cfg := newOptions(opts...)
 
 	// Pre-allocate result array indexed by position.
 	// Each goroutine writes to a unique index — no mutex needed.
@@ -172,20 +159,20 @@ func ProcessCollect[T, R any](
 		indices[i] = i
 	}
 
-	// Adapt config callbacks to map indices back to original items.
-	idxConfig := BatchConfig[int]{
-		Concurrency: config.Concurrency,
-		LimitFunc:   config.LimitFunc,
-		StopOnError: config.StopOnError,
+	// Translate options[T] → options[int] so we can reuse processWithOptions.
+	idxCfg := &options[int]{
+		concurrency: cfg.concurrency,
+		limitFunc:   cfg.limitFunc,
+		stopOnError: cfg.stopOnError,
 	}
-	if config.OnSuccess != nil {
-		idxConfig.OnSuccess = func(idx int) { config.OnSuccess(items[idx]) }
+	if cfg.onSuccess != nil {
+		idxCfg.onSuccess = func(idx int) { cfg.onSuccess(items[idx]) }
 	}
-	if config.OnError != nil {
-		idxConfig.OnError = func(idx int, err error) { config.OnError(items[idx], err) }
+	if cfg.onError != nil {
+		idxCfg.onError = func(idx int, err error) { cfg.onError(items[idx], err) }
 	}
 
-	err := Process(ctx, indices, func(gCtx context.Context, idx int) error {
+	err := processWithOptions(ctx, indices, func(gCtx context.Context, idx int) error {
 		res, fnErr := fn(gCtx, items[idx])
 		if fnErr != nil {
 			return fnErr
@@ -193,7 +180,7 @@ func ProcessCollect[T, R any](
 		results[idx] = res
 		completed[idx] = true
 		return nil
-	}, idxConfig)
+	}, idxCfg)
 
 	// Fast path: all items completed successfully (common case).
 	if err == nil {
@@ -210,8 +197,8 @@ func ProcessCollect[T, R any](
 	}
 
 	if count == n {
-		// All completed despite error (StopOnError=false, error from a single item).
-		if config.StopOnError {
+		// All completed despite error (stopOnError=false, error from a single item).
+		if cfg.stopOnError {
 			return results, coreerrs.Wrap(err, "batch processing failed")
 		}
 		return results, err
@@ -224,7 +211,7 @@ func ProcessCollect[T, R any](
 		}
 	}
 
-	if config.StopOnError {
+	if cfg.stopOnError {
 		return compacted, coreerrs.Wrap(err, "batch processing failed")
 	}
 	return compacted, err
@@ -255,17 +242,17 @@ func processSequential[T any](
 	return nil
 }
 
-func getConcurrency[T any](config BatchConfig[T]) int {
+func getConcurrency[T any](cfg *options[T]) int {
 	// 1. If explicit function is provided, use it.
-	if config.LimitFunc != nil {
-		if limit := config.LimitFunc(); limit > 0 {
+	if cfg.limitFunc != nil {
+		if limit := cfg.limitFunc(); limit > 0 {
 			return limit
 		}
 	}
 
 	// 2. If explicit fixed number is provided, use it.
-	if config.Concurrency > 0 {
-		return config.Concurrency
+	if cfg.concurrency > 0 {
+		return cfg.concurrency
 	}
 
 	// 3. Fallback to default adaptive function (IO-bound).

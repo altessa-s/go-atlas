@@ -304,7 +304,7 @@ func collectMetrics(ctx context.Context) {
 	if err := concurrency.Process(ctx, tasks, func(ctx context.Context, task func(context.Context, int64)) error {
 		task(ctx, now)
 		return nil
-	}, concurrency.BatchConfig[func(context.Context, int64)]{}); err != nil {
+	}); err != nil {
 		// Context cancellation is expected during shutdown.
 		if !coreerrs.IsContextCanceled(err) {
 			// In case of other errors (though unlikely here), we don't want to panic.

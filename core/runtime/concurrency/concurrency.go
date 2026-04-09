@@ -106,8 +106,8 @@ func ConcurrencyForEnvironment(env Environment) int {
 
 // DefaultLimitFunc returns the default concurrency limit, which is the
 // recommendation for [EnvironmentIOBound] (runtime.NumCPU() * 2). It is used
-// as the fallback when neither [BatchConfig.LimitFunc] nor a positive
-// [BatchConfig.Concurrency] value is provided.
+// as the fallback when neither [WithLimitFunc] nor a positive
+// [WithConcurrency] value is provided.
 func DefaultLimitFunc() int {
 	return ConcurrencyForEnvironment(EnvironmentIOBound)
 }

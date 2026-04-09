@@ -633,24 +633,7 @@ func (m *Mongo) createKeyVaultCollection(ctx context.Context, database, collecti
 }
 
 func (m *Mongo) ping(ctx context.Context, client *mongo.Client) error {
-	return coreretry.Do(ctx, coreretry.Config{
-		MaxAttempts: DefaultPingMaxRetries - 1, // 0-based: attempts 0..N-1 = N total calls
-		ShouldRetry: IsTransientTransaction,
-		NextDelay: func(attempt int, _ error) time.Duration {
-			// Linear backoff: (attempt+1) * base delay
-			return time.Duration(attempt+1) * DefaultPingBaseDelay
-		},
-		OnRetry: func(attempt int, err error, nextDelay time.Duration) {
-			m.metrics.pingRetries.Inc()
-
-			if m.config.Logger != nil {
-				m.config.Logger.Debug("ping failed, retrying",
-					slog.Int("attempt", attempt+1),
-					slog.Int64("delay_ms", nextDelay.Milliseconds()),
-					slog.Any("error", err))
-			}
-		},
-	}, func(ctx context.Context) error {
+	return coreretry.Do(ctx, func(ctx context.Context) error {
 		pingCtx, pingCtxCancel := corecontext.WithMaxTimeout(ctx, DefaultPingTimeout)
 		defer pingCtxCancel()
 
@@ -661,7 +644,24 @@ func (m *Mongo) ping(ctx context.Context, client *mongo.Client) error {
 			return err
 		}
 		return nil
-	})
+	},
+		coreretry.WithMaxAttempts(DefaultPingMaxRetries-1), // 0-based: attempts 0..N-1 = N total calls
+		coreretry.WithShouldRetry(IsTransientTransaction),
+		coreretry.WithNextDelay(func(attempt int, _ error) time.Duration {
+			// Linear backoff: (attempt+1) * base delay
+			return time.Duration(attempt+1) * DefaultPingBaseDelay
+		}),
+		coreretry.WithOnRetry(func(attempt int, err error, nextDelay time.Duration) {
+			m.metrics.pingRetries.Inc()
+
+			if m.config.Logger != nil {
+				m.config.Logger.Debug("ping failed, retrying",
+					slog.Int("attempt", attempt+1),
+					slog.Int64("delay_ms", nextDelay.Milliseconds()),
+					slog.Any("error", err))
+			}
+		}),
+	)
 }
 
 // getServerInfo retrieves MongoDB server version information using the buildInfo command.

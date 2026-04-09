@@ -79,7 +79,7 @@ func (p *Provider) DeleteMany(ctx context.Context, key ...string) error {
 	return concurrency.Process(ctx, key, func(_ context.Context, k string) error {
 		p.Del([]byte(k))
 		return nil
-	}, concurrency.BatchConfig[string]{})
+	})
 }
 
 var _ providers.Provider = (*Provider)(nil)

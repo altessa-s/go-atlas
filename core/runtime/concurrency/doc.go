@@ -25,25 +25,24 @@
 //
 //	items := []string{"a", "b", "c"}
 //
-//	// Example with adaptive concurrency based on memory
-//	config := concurrency.BatchConfig[string]{
-//	    LimitFunc:   concurrency.MemoryAwareConcurrency(100, 500, 1000),
-//	    StopOnError: true,
-//	    OnSuccess: func(item string) {
+//	opts := []concurrency.Option[string]{
+//	    concurrency.WithLimitFunc[string](concurrency.MemoryAwareConcurrency(100, 500, 1000)),
+//	    concurrency.WithStopOnError[string](),
+//	    concurrency.WithOnSuccess[string](func(item string) {
 //	        fmt.Printf("Processed: %s\n", item)
-//	    },
-//	    OnError: func(item string, err error) {
+//	    }),
+//	    concurrency.WithOnError[string](func(item string, err error) {
 //	        fmt.Printf("Failed: %s, error: %v\n", item, err)
-//	    },
+//	    }),
 //	}
 //
 //	// Simple parallel processing
 //	err := concurrency.Process(ctx, items, func(ctx context.Context, item string) error {
 //	    return processItem(ctx, item)
-//	}, config)
+//	}, opts...)
 //
 //	// Parallel transformation and collection
 //	results, err := concurrency.ProcessCollect(ctx, items, func(ctx context.Context, item string) (int, error) {
 //	    return len(item), nil
-//	}, config)
+//	}, opts...)
 package concurrency

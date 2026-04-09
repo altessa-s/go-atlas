@@ -61,14 +61,14 @@ func ExecuteWithRetry(fn func() error, config *RetryConfig) error {
 	ctx := config.Context
 	ctx = corecontext.OrBackground(ctx)
 
-	return coreretry.Do(ctx, coreretry.Config{
-		MaxAttempts: config.Policy.MaxAttempts(),
-		ShouldRetry: config.Policy.ShouldRetry,
-		NextDelay: func(attempt int, err error) time.Duration {
-			return config.Policy.NextRetry(attempt)
-		},
-		OnRetry: config.OnRetry,
-	}, func(context.Context) error {
+	return coreretry.Do(ctx, func(context.Context) error {
 		return fn()
-	})
+	},
+		coreretry.WithMaxAttempts(config.Policy.MaxAttempts()),
+		coreretry.WithShouldRetry(config.Policy.ShouldRetry),
+		coreretry.WithNextDelay(func(attempt int, err error) time.Duration {
+			return config.Policy.NextRetry(attempt)
+		}),
+		coreretry.WithOnRetry(config.OnRetry),
+	)
 }

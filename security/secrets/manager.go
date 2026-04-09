@@ -232,16 +232,14 @@ func (t *Manager[T]) updateValueWithRetry(ctx context.Context, key string) (*Val
 
 	var val *Value[T]
 
-	retryCfg := coreretry.Config{
-		MaxAttempts: t.opts.maxRetries,
-		NextDelay:   coreretry.Exponential(t.opts.exponentialConfig),
-	}
-
-	err := coreretry.Do(ctx, retryCfg, func(ctx context.Context) error {
+	err := coreretry.Do(ctx, func(ctx context.Context) error {
 		var err error
 		val, err = t.secretStorage.Value(ctx, key)
 		return err
-	})
+	},
+		coreretry.WithMaxAttempts(t.opts.maxRetries),
+		coreretry.WithNextDelay(coreretry.Exponential(t.opts.exponentialConfig)),
+	)
 
 	if err != nil {
 		return nil, err
@@ -583,14 +581,12 @@ func (t *Manager[T]) Save(ctx context.Context, key string, value T) error {
 //
 // Returns an error if the save operation fails after all retry attempts.
 func (t *Manager[T]) saveWithRetry(ctx context.Context, key string, value T) error {
-	retryCfg := coreretry.Config{
-		MaxAttempts: t.opts.maxRetries,
-		NextDelay:   coreretry.Exponential(t.opts.exponentialConfig),
-	}
-
-	err := coreretry.Do(ctx, retryCfg, func(ctx context.Context) error {
+	err := coreretry.Do(ctx, func(ctx context.Context) error {
 		return t.secretStorage.Save(ctx, key, value)
-	})
+	},
+		coreretry.WithMaxAttempts(t.opts.maxRetries),
+		coreretry.WithNextDelay(coreretry.Exponential(t.opts.exponentialConfig)),
+	)
 
 	if err != nil {
 		return err
@@ -650,9 +646,7 @@ func (t *Manager[T]) WarmCache(ctx context.Context, keys []string) error {
 			return err
 		}
 		return nil
-	}, concurrency.BatchConfig[string]{
-		StopOnError: false, // Continue on error to warm as many keys as possible
-	})
+	}) // No StopOnError: continue to warm as many keys as possible.
 
 	// Wait for all goroutines to complete
 	if err != nil {

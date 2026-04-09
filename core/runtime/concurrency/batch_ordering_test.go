@@ -28,9 +28,7 @@ func TestProcessCollect_Ordering(t *testing.T) {
 		// Random delay between 0 and 10ms
 		time.Sleep(time.Duration(rand.Intn(10)) * time.Millisecond)
 		return item, nil
-	}, concurrency.BatchConfig[int]{
-		Concurrency: 10,
-	})
+	}, concurrency.WithConcurrency[int](10))
 
 	if err != nil {
 		t.Fatalf("ProcessCollect failed: %v", err)

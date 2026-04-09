@@ -204,8 +204,6 @@ func FilterParallel[T any](collection []T, predicate func(T) bool) []T {
 		}
 		var zero T
 		return zero, errFiltered
-	}, concurrency.BatchConfig[T]{
-		StopOnError: false,
 	})
 	if err != nil {
 		// Error is expected during filtering, we continue with whatever was collected.

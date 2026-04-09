@@ -341,18 +341,16 @@ func (lb *Token) updateClientTokenWithLock(ctx context.Context) error {
 // updateClientTokenWithRetry refreshes the IAM token with exponential backoff retry logic.
 // This helps handle transient network issues and temporary service unavailability.
 func (lb *Token) updateClientTokenWithRetry(ctx context.Context) error {
-	retryCfg := coreretry.Config{
-		MaxAttempts: tokenRefreshMaxAttempts,
-		NextDelay: coreretry.Exponential(coreretry.ExponentialConfig{
+	return coreretry.Do(ctx, func(ctx context.Context) error {
+		return lb.updateClientToken(ctx)
+	},
+		coreretry.WithMaxAttempts(tokenRefreshMaxAttempts),
+		coreretry.WithNextDelay(coreretry.Exponential(coreretry.ExponentialConfig{
 			BaseDelay: 1 * time.Second,
 			MaxDelay:  tokenRefreshMaxDelay,
 			Factor:    float64(exponentialBackoffMultiplier),
-		}),
-	}
-
-	return coreretry.Do(ctx, retryCfg, func(ctx context.Context) error {
-		return lb.updateClientToken(ctx)
-	})
+		})),
+	)
 }
 
 // calculateJitteredTokenLifetime calculates token lifetime with random jitter.

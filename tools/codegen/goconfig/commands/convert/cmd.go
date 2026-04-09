@@ -507,9 +507,9 @@ func (c *Command) loadAndMergeParallel(names []string, format string, uncommentY
 		}
 
 		return fileResult{name: name, data: fileData}, nil
-	}, concurrency.BatchConfig[string]{
-		StopOnError: true, // Stop on first error
-	})
+	},
+		concurrency.WithStopOnError[string](), // Stop on first error
+	)
 
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "load config files")

@@ -20,7 +20,7 @@ func TestProcess_Success(t *testing.T) {
 	err := concurrency.Process(t.Context(), items, func(ctx context.Context, item int) error {
 		count.Add(1)
 		return nil
-	}, concurrency.BatchConfig[int]{Concurrency: 2})
+	}, concurrency.WithConcurrency[int](2))
 
 	if err != nil {
 		t.Fatalf("Process() error = %v", err)
@@ -38,7 +38,7 @@ func TestProcess_StopOnError(t *testing.T) {
 			return wantErr
 		}
 		return nil
-	}, concurrency.BatchConfig[int]{Concurrency: 1, StopOnError: true})
+	}, concurrency.WithConcurrency[int](1), concurrency.WithStopOnError[int]())
 
 	if err == nil {
 		t.Fatal("Process() expected error")
@@ -53,11 +53,11 @@ func TestProcess_OnSuccessOnError(t *testing.T) {
 			return errors.New("fail")
 		}
 		return nil
-	}, concurrency.BatchConfig[int]{
-		Concurrency: 1,
-		OnSuccess:   func(item int) { successCount.Add(1) },
-		OnError:     func(item int, err error) { errorCount.Add(1) },
-	})
+	},
+		concurrency.WithConcurrency[int](1),
+		concurrency.WithOnSuccess[int](func(item int) { successCount.Add(1) }),
+		concurrency.WithOnError[int](func(item int, err error) { errorCount.Add(1) }),
+	)
 
 	if errorCount.Load() != 1 {
 		t.Errorf("error count = %d, want 1", errorCount.Load())
@@ -72,7 +72,7 @@ func TestProcess_EmptyItems(t *testing.T) {
 	err := concurrency.Process(t.Context(), []int{}, func(ctx context.Context, item int) error {
 		t.Error("should not be called")
 		return nil
-	}, concurrency.BatchConfig[int]{Concurrency: 2})
+	}, concurrency.WithConcurrency[int](2))
 
 	if err != nil {
 		t.Fatalf("Process() error = %v", err)
@@ -87,7 +87,7 @@ func TestProcess_ContextCanceled(t *testing.T) {
 	// depending on timing. Just ensure it doesn't panic.
 	_ = concurrency.Process(ctx, []int{1, 2, 3}, func(ctx context.Context, item int) error {
 		return ctx.Err()
-	}, concurrency.BatchConfig[int]{Concurrency: 2, StopOnError: true})
+	}, concurrency.WithConcurrency[int](2), concurrency.WithStopOnError[int]())
 }
 
 func TestProcessCollect_Error(t *testing.T) {
@@ -98,7 +98,7 @@ func TestProcessCollect_Error(t *testing.T) {
 			return "", wantErr
 		}
 		return "ok", nil
-	}, concurrency.BatchConfig[int]{Concurrency: 1, StopOnError: true})
+	}, concurrency.WithConcurrency[int](1), concurrency.WithStopOnError[int]())
 
 	if err == nil {
 		t.Fatal("ProcessCollect() expected error")
@@ -118,9 +118,7 @@ func TestProcess_WithLimitFunc(t *testing.T) {
 	err := concurrency.Process(t.Context(), []int{1, 2, 3}, func(ctx context.Context, item int) error {
 		count.Add(1)
 		return nil
-	}, concurrency.BatchConfig[int]{
-		LimitFunc: func() int { return 2 },
-	})
+	}, concurrency.WithLimitFunc[int](func() int { return 2 }))
 
 	if err != nil {
 		t.Fatalf("Process() error = %v", err)

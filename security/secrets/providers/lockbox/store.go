@@ -433,14 +433,17 @@ func (s *Storage[T]) doSecrets(ctx context.Context, fn decoder[T]) ([]*secrets.V
 		return []*secrets.Value[T]{}, nil
 	}
 
+	opts := []concurrency.Option[*pb.Secret]{
+		concurrency.WithLimitFunc[*pb.Secret](s.opts.concurrencyLimitFunc),
+	}
+	if !s.opts.ignoreInvalidKeys {
+		opts = append(opts, concurrency.WithStopOnError[*pb.Secret]())
+	}
 	return concurrency.ProcessCollect[*pb.Secret, *secrets.Value[T]](ctx, list,
 		func(ctx context.Context, secret *pb.Secret) (*secrets.Value[T], error) {
 			return s.version(ctx, secret, secret.CurrentVersion.Id, fn)
 		},
-		concurrency.BatchConfig[*pb.Secret]{
-			LimitFunc:   s.opts.concurrencyLimitFunc,
-			StopOnError: !s.opts.ignoreInvalidKeys,
-		},
+		opts...,
 	)
 }
 
