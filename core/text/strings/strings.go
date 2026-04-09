@@ -406,9 +406,15 @@ func Split(s string, opts SplitOptions) []string {
 			} else {
 				quote := regexp.QuoteMeta(separator)
 				re, err = regexp.Compile("(?i)" + quote)
-				if err == nil && regexCacheSize.Load() < maxRegexCacheSize {
+				if err == nil {
+					// Optimistic insert, then enforce bound. Load-then-store would
+					// race: multiple goroutines could all observe size < max and
+					// each add 1, overshooting the bound by up to GOMAXPROCS.
 					if _, loaded := caseInsensitiveRegexCache.LoadOrStore(separator, re); !loaded {
-						regexCacheSize.Add(1)
+						if regexCacheSize.Add(1) > maxRegexCacheSize {
+							caseInsensitiveRegexCache.Delete(separator)
+							regexCacheSize.Add(-1)
+						}
 					}
 				}
 			}
@@ -614,21 +620,16 @@ func TimingSafePrefixMatch(s, prefix string) bool {
 }
 
 // SubstringMatch reports whether s contains substr using a case-insensitive
-// comparison. If s is shorter than substr, s is padded with null bytes to
-// avoid an early false return based on length alone.
+// comparison.
 //
-// WARNING: This function is NOT constant-time. The standard
-// [strings.Contains] call may reveal match position through timing. For
-// security-sensitive searches, use [TimingSafeSubstringMatch] instead.
+// WARNING: This function is NOT constant-time. The underlying [strings.Contains]
+// call reveals match presence and position through timing. For security-sensitive
+// searches, use [TimingSafeSubstringMatch] instead.
 //
 // Example:
 //
 //	SubstringMatch("Hello World", "world")  // true
 func SubstringMatch(s, substr string) bool {
-	if len(s) < len(substr) {
-		// Extend s to substr length to avoid timing leaks
-		s += strings.Repeat("\x00", len(substr)-len(s))
-	}
 	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }
 
