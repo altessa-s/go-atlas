@@ -16,7 +16,7 @@ import (
 func TestDo(t *testing.T) {
 	t.Run("SuccessFirstTry", func(t *testing.T) {
 		calls := 0
-		err := retry.Do(t.Context(), retry.Config{}, func(ctx context.Context) error {
+		err := retry.Do(t.Context(), func(ctx context.Context) error {
 			calls++
 			return nil
 		})
@@ -30,16 +30,16 @@ func TestDo(t *testing.T) {
 
 	t.Run("RetryThenSuccess", func(t *testing.T) {
 		calls := 0
-		err := retry.Do(t.Context(), retry.Config{
-			MaxAttempts: 3,
-			NextDelay:   func(int, error) time.Duration { return time.Nanosecond },
-		}, func(ctx context.Context) error {
+		err := retry.Do(t.Context(), func(ctx context.Context) error {
 			calls++
 			if calls < 3 {
 				return errors.New("fail")
 			}
 			return nil
-		})
+		},
+			retry.WithMaxAttempts(3),
+			retry.WithNextDelay(func(int, error) time.Duration { return time.Nanosecond }),
+		)
 		if err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
@@ -51,13 +51,13 @@ func TestDo(t *testing.T) {
 	t.Run("MaxAttemptsExceeded", func(t *testing.T) {
 		calls := 0
 		failErr := errors.New("fail")
-		err := retry.Do(t.Context(), retry.Config{
-			MaxAttempts: 2, // 3 attempts total (0, 1, 2)
-			NextDelay:   func(int, error) time.Duration { return time.Nanosecond },
-		}, func(ctx context.Context) error {
+		err := retry.Do(t.Context(), func(ctx context.Context) error {
 			calls++
 			return failErr
-		})
+		},
+			retry.WithMaxAttempts(2), // 3 attempts total (0, 1, 2)
+			retry.WithNextDelay(func(int, error) time.Duration { return time.Nanosecond }),
+		)
 		if err != failErr {
 			t.Errorf("error = %v, want %v", err, failErr)
 		}
@@ -69,14 +69,14 @@ func TestDo(t *testing.T) {
 	t.Run("ShouldRetryStops", func(t *testing.T) {
 		calls := 0
 		stopErr := errors.New("stop")
-		err := retry.Do(t.Context(), retry.Config{
-			MaxAttempts: 5,
-			ShouldRetry: func(err error) bool { return err != stopErr },
-			NextDelay:   func(int, error) time.Duration { return time.Nanosecond },
-		}, func(ctx context.Context) error {
+		err := retry.Do(t.Context(), func(ctx context.Context) error {
 			calls++
 			return stopErr
-		})
+		},
+			retry.WithMaxAttempts(5),
+			retry.WithShouldRetry(func(err error) bool { return err != stopErr }),
+			retry.WithNextDelay(func(int, error) time.Duration { return time.Nanosecond }),
+		)
 		if err != stopErr {
 			t.Errorf("error = %v, want %v", err, stopErr)
 		}
@@ -86,13 +86,13 @@ func TestDo(t *testing.T) {
 	})
 
 	t.Run("MaxElapsedTime", func(t *testing.T) {
-		err := retry.Do(t.Context(), retry.Config{
-			MaxAttempts:    100,
-			MaxElapsedTime: time.Millisecond * 10,
-			NextDelay:      func(int, error) time.Duration { return time.Millisecond * 5 },
-		}, func(ctx context.Context) error {
+		err := retry.Do(t.Context(), func(ctx context.Context) error {
 			return errors.New("fail")
-		})
+		},
+			retry.WithMaxAttempts(100),
+			retry.WithMaxElapsedTime(time.Millisecond*10),
+			retry.WithNextDelay(func(int, error) time.Duration { return time.Millisecond * 5 }),
+		)
 		if err == nil {
 			t.Error("should have failed due to timeout")
 		}
@@ -101,16 +101,16 @@ func TestDo(t *testing.T) {
 	t.Run("ContextCancel", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		calls := 0
-		err := retry.Do(ctx, retry.Config{
-			MaxAttempts: 5,
-			NextDelay: func(int, error) time.Duration {
-				cancel() // Cancel on first retry attempt check
-				return time.Millisecond
-			},
-		}, func(ctx context.Context) error {
+		err := retry.Do(ctx, func(ctx context.Context) error {
 			calls++
 			return errors.New("fail")
-		})
+		},
+			retry.WithMaxAttempts(5),
+			retry.WithNextDelay(func(int, error) time.Duration {
+				cancel() // Cancel on first retry attempt check
+				return time.Millisecond
+			}),
+		)
 
 		if !errors.Is(err, context.Canceled) {
 			t.Errorf("error = %v, want context.Canceled", err)

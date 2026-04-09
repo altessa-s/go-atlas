@@ -17,26 +17,25 @@ func BenchmarkDo(b *testing.B) {
 	ctx := b.Context()
 	failErr := errors.New("fail")
 
-	// Benchmark overhead with immediate success
+	// Benchmark overhead with immediate success (default: single attempt, no retries).
 	b.Run("Success", func(b *testing.B) {
-		cfg := retry.Config{} // Default 0 attempts (just one try)
 		for b.Loop() {
-			_ = retry.Do(ctx, cfg, func(ctx context.Context) error {
+			_ = retry.Do(ctx, func(ctx context.Context) error {
 				return nil
 			})
 		}
 	})
 
-	// Benchmark overhead with immediate retries
+	// Benchmark overhead with immediate retries.
 	b.Run("Retries", func(b *testing.B) {
-		cfg := retry.Config{
-			MaxAttempts: 10,
-			NextDelay:   func(int, error) time.Duration { return 0 }, // No delay
+		opts := []retry.Option{
+			retry.WithMaxAttempts(10),
+			retry.WithNextDelay(func(int, error) time.Duration { return 0 }), // No delay
 		}
 		for b.Loop() {
-			_ = retry.Do(ctx, cfg, func(ctx context.Context) error {
+			_ = retry.Do(ctx, func(ctx context.Context) error {
 				return failErr
-			})
+			}, opts...)
 		}
 	})
 

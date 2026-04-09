@@ -9,19 +9,19 @@
 //   - deterministic delay policies
 //   - no `time.After` allocations in loops (timer reuse)
 //
-// All exported functions are safe for concurrent use. A single Config
-// value should be treated as immutable once used.
+// All exported functions are safe for concurrent use.
 //
 // # Usage
 //
-//	cfg := retry.Config{
-//	    MaxAttempts: 3, // attempts 0..3 (4 total)
-//	    ShouldRetry: func(err error) bool { return true },
-//	    NextDelay:   retry.Exponential(retry.ExponentialConfig{BaseDelay: 500 * time.Millisecond}),
-//	}
-//	err := retry.Do(ctx, cfg, func(ctx context.Context) error {
+//	err := retry.Do(ctx, func(ctx context.Context) error {
 //	    return doThing(ctx)
-//	})
+//	},
+//	    retry.WithMaxAttempts(3), // attempts 0..3 (4 total)
+//	    retry.WithShouldRetry(func(err error) bool { return true }),
+//	    retry.WithNextDelay(retry.Exponential(retry.ExponentialConfig{
+//	        BaseDelay: 500 * time.Millisecond,
+//	    })),
+//	)
 //
 // # Performance
 //

@@ -80,19 +80,20 @@ func (c *Client) retractableClient() *http.Client {
 	cbClient := newCircuitBreakerClient(c.options, m)
 	stdClient := cbClient.standardClient()
 
-	cfg := coreretry.Config{
-		MaxAttempts: c.options.retryMax,
-		NextDelay: coreretry.Exponential(coreretry.ExponentialConfig{
+	retryOpts := []coreretry.Option{
+		coreretry.WithMaxAttempts(c.options.retryMax),
+		coreretry.WithNextDelay(coreretry.Exponential(coreretry.ExponentialConfig{
 			BaseDelay: c.options.retryWaitMin,
 			MaxDelay:  c.options.retryWaitMax,
 			Factor:    defaultBackoffFactor,
 			Jitter:    defaultBackoffJitter,
-		}),
+		})),
 	}
 
 	rt := &retryRoundTripper{
 		next:               stdClient.Transport,
-		cfg:                cfg,
+		retryOpts:          retryOpts,
+		maxAttempts:        c.options.retryMax,
 		logger:             c.options.logger,
 		errorHandler:       c.options.errorHandler,
 		retryPolicyHandler: c.options.retryPolicyHandler,

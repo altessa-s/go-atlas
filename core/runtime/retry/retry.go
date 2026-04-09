@@ -47,51 +47,23 @@ func PutExponentialConfig(config *ExponentialConfig) {
 	exponentialConfigPool.Put(config)
 }
 
-// Config defines the retry policy used by [Do].
+// Do calls fn repeatedly according to the policy supplied via opts until
+// one of the following occurs:
+//   - fn returns nil (success) — Do returns nil.
+//   - ctx is canceled — Do returns ctx.Err().
+//   - maxAttempts is exhausted — Do returns the last error from fn.
+//   - maxElapsedTime is exceeded — Do returns the last error from fn.
+//   - The shouldRetry filter returns false — Do returns the error immediately.
+//   - The nextDelay callback is nil or returns ≤ 0 — Do returns the error
+//     immediately.
 //
-// Attempt numbering starts at 0. MaxAttempts follows the same convention:
-// 0 means "try once" (no retries), 3 means attempts 0..3 (4 total calls to fn).
-// Use -1 for unlimited attempts.
-type Config struct {
-	// MaxAttempts is the maximum attempt index (inclusive). Set to -1 for
-	// unlimited retries. A value of 0 means the function is called exactly once.
-	MaxAttempts int
-
-	// MaxElapsedTime caps the total wall-clock time spent across all attempts
-	// and delays. A zero value disables the time limit. When the limit is
-	// reached, [Do] returns the last error without retrying further.
-	MaxElapsedTime time.Duration
-
-	// ShouldRetry, when non-nil, is called with each error to determine
-	// whether the operation should be retried. Returning false causes [Do]
-	// to return the error immediately. When nil, all errors are retryable.
-	ShouldRetry func(error) bool
-
-	// NextDelay returns the delay before the next attempt. It receives the
-	// zero-based attempt number and the error from the most recent call.
-	// If NextDelay is nil or returns a non-positive duration, [Do] stops
-	// retrying and returns the last error. Use [Exponential] to create a
-	// standard exponential-backoff implementation.
-	NextDelay func(attempt int, err error) time.Duration
-
-	// OnRetry is an optional callback invoked after each failed attempt,
-	// before the delay sleep. It receives the attempt number, the error,
-	// and the computed delay that will be applied.
-	OnRetry func(attempt int, err error, nextDelay time.Duration)
-}
-
-// Do calls fn repeatedly according to cfg until one of the following occurs:
-//   - fn returns nil (success) -- Do returns nil.
-//   - ctx is canceled -- Do returns ctx.Err().
-//   - MaxAttempts is exhausted -- Do returns the last error from fn.
-//   - MaxElapsedTime is exceeded -- Do returns the last error from fn.
-//   - ShouldRetry returns false -- Do returns the error immediately.
-//   - NextDelay is nil or returns <=0 -- Do returns the error immediately.
-//
-// A nil ctx is silently replaced with [context.Background].
+// A nil ctx is silently replaced with [context.Background]. Without any
+// options the call behaves as a single attempt (no retries): pass
+// [WithMaxAttempts] and [WithNextDelay] to enable retrying.
 //
 //nolint:contextcheck // Do treats nil ctx as Background for convenience (callers should pass an inherited context).
-func Do(ctx context.Context, cfg Config, fn func(context.Context) error) error {
+func Do(ctx context.Context, fn func(context.Context) error, opts ...Option) error {
+	cfg := newOptions(opts...)
 	ctx = corecontext.OrBackground(ctx)
 
 	start := time.Now()
@@ -106,7 +78,7 @@ func Do(ctx context.Context, cfg Config, fn func(context.Context) error) error {
 		}
 	}()
 
-	for attempt := 0; cfg.MaxAttempts < 0 || attempt <= cfg.MaxAttempts; attempt++ {
+	for attempt := 0; cfg.maxAttempts < 0 || attempt <= cfg.maxAttempts; attempt++ {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -119,31 +91,31 @@ func Do(ctx context.Context, cfg Config, fn func(context.Context) error) error {
 		}
 		lastErr = err
 
-		if cfg.ShouldRetry != nil && !cfg.ShouldRetry(err) {
+		if cfg.shouldRetry != nil && !cfg.shouldRetry(err) {
 			return err
 		}
 
-		if cfg.NextDelay == nil {
+		if cfg.nextDelay == nil {
 			return err
 		}
 
-		delay := cfg.NextDelay(attempt, err)
+		delay := cfg.nextDelay(attempt, err)
 		if delay <= 0 {
 			return err
 		}
 
-		if cfg.MaxElapsedTime > 0 {
+		if cfg.maxElapsedTime > 0 {
 			elapsed := time.Since(start)
-			if elapsed >= cfg.MaxElapsedTime {
+			if elapsed >= cfg.maxElapsedTime {
 				return err
 			}
-			if elapsed+delay > cfg.MaxElapsedTime {
+			if elapsed+delay > cfg.maxElapsedTime {
 				return err
 			}
 		}
 
-		if cfg.OnRetry != nil {
-			cfg.OnRetry(attempt, err, delay)
+		if cfg.onRetry != nil {
+			cfg.onRetry(attempt, err, delay)
 		}
 
 		// Sleep with a reusable timer to avoid time.After allocations in a loop.
@@ -164,9 +136,10 @@ func Do(ctx context.Context, cfg Config, fn func(context.Context) error) error {
 	return lastErr
 }
 
-// ExponentialConfig holds the parameters for [Exponential].
-// Use [GetExponentialConfig] and [PutExponentialConfig] to pool instances
-// in performance-sensitive code.
+// ExponentialConfig holds the parameters for [Exponential]. It is a
+// plain value type rather than a functional-options struct because it
+// is used both as an argument to [Exponential] and as a pooled value via
+// [GetExponentialConfig] / [PutExponentialConfig] in hot loops.
 type ExponentialConfig struct {
 	// BaseDelay is the delay applied on the first retry (attempt 0).
 	// A zero or negative value causes [Exponential] to return 0 for every attempt.
@@ -185,14 +158,14 @@ type ExponentialConfig struct {
 	Jitter float64
 }
 
-// Exponential returns a NextDelay function suitable for [Config.NextDelay] that
-// implements exponential backoff with optional jitter:
+// Exponential returns a [NextDelayFunc] that implements exponential
+// backoff with optional jitter, suitable for [WithNextDelay]:
 //
 //	delay(attempt) = min(MaxDelay, BaseDelay * Factor^attempt + jitter)
 //
 // When [ExponentialConfig.Jitter] is zero the delays are deterministic.
 // The returned function is safe for concurrent use.
-func Exponential(cfg ExponentialConfig) func(attempt int, _ error) time.Duration {
+func Exponential(cfg ExponentialConfig) NextDelayFunc {
 	factor := cmp.Or(cfg.Factor, defaultExponentialFactor)
 	jitter := min(cfg.Jitter, 1.0)
 

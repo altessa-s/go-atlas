@@ -23,13 +23,13 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
-func newTestRetryCfg(maxAttempts int) coreretry.Config {
-	return coreretry.Config{
-		MaxAttempts: maxAttempts,
-		NextDelay: coreretry.Exponential(coreretry.ExponentialConfig{
+func newTestRetryOpts(maxAttempts int) []coreretry.Option {
+	return []coreretry.Option{
+		coreretry.WithMaxAttempts(maxAttempts),
+		coreretry.WithNextDelay(coreretry.Exponential(coreretry.ExponentialConfig{
 			BaseDelay: time.Nanosecond,
 			Factor:    1,
-		}),
+		})),
 	}
 }
 
@@ -38,7 +38,8 @@ func TestRetryRoundTripper_Success(t *testing.T) {
 		next: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
 			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
 		}),
-		cfg: newTestRetryCfg(3),
+		retryOpts:   newTestRetryOpts(3),
+		maxAttempts: 3,
 	}
 
 	req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://example.com", nil)
@@ -61,7 +62,8 @@ func TestRetryRoundTripper_RetryThenSuccess(t *testing.T) {
 			}
 			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
 		}),
-		cfg: newTestRetryCfg(5),
+		retryOpts:   newTestRetryOpts(5),
+		maxAttempts: 5,
 	}
 
 	req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://example.com", nil)
@@ -84,7 +86,8 @@ func TestRetryRoundTripper_Exhaustion(t *testing.T) {
 			calls.Add(1)
 			return nil, errors.New("always fail")
 		}),
-		cfg: newTestRetryCfg(2), // 3 total attempts (0, 1, 2)
+		retryOpts:   newTestRetryOpts(2), // 3 total attempts (0, 1, 2)
+		maxAttempts: 2,
 	}
 
 	req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://example.com", nil)
@@ -104,7 +107,8 @@ func TestRetryRoundTripper_NonRetryableStops(t *testing.T) {
 			calls.Add(1)
 			return nil, &NonRetryableError{Err: errors.New("cert error")}
 		}),
-		cfg: newTestRetryCfg(5),
+		retryOpts:   newTestRetryOpts(5),
+		maxAttempts: 5,
 	}
 
 	req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://example.com", nil)
@@ -128,7 +132,8 @@ func TestRetryRoundTripper_BodyReplay(t *testing.T) {
 			}
 			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
 		}),
-		cfg: newTestRetryCfg(5),
+		retryOpts:   newTestRetryOpts(5),
+		maxAttempts: 5,
 	}
 
 	req, _ := http.NewRequestWithContext(t.Context(), "POST", "http://example.com", strings.NewReader("payload"))
@@ -156,7 +161,8 @@ func TestRetryRoundTripper_ContextCancel(t *testing.T) {
 			}
 			return nil, errors.New("transient")
 		}),
-		cfg: newTestRetryCfg(10),
+		retryOpts:   newTestRetryOpts(10),
+		maxAttempts: 10,
 	}
 
 	req, _ := http.NewRequestWithContext(ctx, "GET", "http://example.com", nil)
@@ -180,7 +186,8 @@ func TestRetryRoundTripper_RetryableStatus(t *testing.T) {
 			}
 			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Request: req}, nil
 		}),
-		cfg: newTestRetryCfg(5),
+		retryOpts:   newTestRetryOpts(5),
+		maxAttempts: 5,
 	}
 
 	req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://example.com/path", nil)
@@ -202,7 +209,8 @@ func TestRetryRoundTripper_UnexpectedStatus(t *testing.T) {
 				Request:    req,
 			}, nil
 		}),
-		cfg: newTestRetryCfg(3),
+		retryOpts:   newTestRetryOpts(3),
+		maxAttempts: 3,
 	}
 
 	req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://example.com/path", nil)
@@ -225,7 +233,8 @@ func TestRetryRoundTripper_ErrorHandler(t *testing.T) {
 		next: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
 			return nil, errors.New("always fail")
 		}),
-		cfg: newTestRetryCfg(1),
+		retryOpts:   newTestRetryOpts(1),
+		maxAttempts: 1,
 		errorHandler: func(resp *http.Response, err error, numTries int) (*http.Response, error) {
 			handlerCalled = true
 			return resp, err
@@ -246,7 +255,8 @@ func TestRetryRoundTripper_RetryPolicyHandler(t *testing.T) {
 			calls.Add(1)
 			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Request: req}, nil
 		}),
-		cfg: newTestRetryCfg(5),
+		retryOpts:   newTestRetryOpts(5),
+		maxAttempts: 5,
 		retryPolicyHandler: func(_ context.Context, resp *http.Response, err error) (bool, error) {
 			// Force retry on first call
 			if calls.Load() < 3 {
@@ -276,7 +286,8 @@ func TestRetryRoundTripper_ZeroRetries(t *testing.T) {
 			calls.Add(1)
 			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Request: req}, nil
 		}),
-		cfg: coreretry.Config{MaxAttempts: 0}, // single attempt, no retries
+		retryOpts:   nil, // single attempt, no retries
+		maxAttempts: 0,
 	}
 
 	req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://example.com", nil)

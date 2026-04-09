@@ -57,18 +57,18 @@ func RetryWithConfig[T any](ctx context.Context, fn func() (T, error), cfg Retry
 	}
 
 	const baseDelay = 500 * time.Millisecond
-	err := coreretry.Do(ctx, coreretry.Config{
-		MaxAttempts:    maxAttempts,
-		MaxElapsedTime: cfg.MaxElapsedTime,
-		ShouldRetry:    isTransientError,
-		NextDelay: coreretry.Exponential(coreretry.ExponentialConfig{
-			BaseDelay: baseDelay, // matches cenkalti/backoff default
-		}),
-	}, func(context.Context) error {
+	err := coreretry.Do(ctx, func(context.Context) error {
 		res, err := fn()
 		last = res
 		return err
-	})
+	},
+		coreretry.WithMaxAttempts(maxAttempts),
+		coreretry.WithMaxElapsedTime(cfg.MaxElapsedTime),
+		coreretry.WithShouldRetry(isTransientError),
+		coreretry.WithNextDelay(coreretry.Exponential(coreretry.ExponentialConfig{
+			BaseDelay: baseDelay, // matches cenkalti/backoff default
+		})),
+	)
 
 	return last, err
 }

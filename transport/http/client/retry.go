@@ -51,7 +51,8 @@ func (e *retryableStatusError) Error() string {
 // composable RoundTripper that sits in the standard transport chain.
 type retryRoundTripper struct {
 	next               http.RoundTripper
-	cfg                coreretry.Config
+	retryOpts          []coreretry.Option // base retry options (cap, delay policy)
+	maxAttempts        int                // mirrors WithMaxAttempts for metrics/error reporting
 	logger             *slog.Logger
 	errorHandler       ErrorHandler
 	retryPolicyHandler RetryPolicyHandler
@@ -89,26 +90,27 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	stop := rt.metrics.requestDuration.WithLabels(metrics.Labels{"method": method}).Start()
 	defer stop()
 
-	cfg := rt.cfg
-	cfg.ShouldRetry = func(err error) bool {
-		return rt.shouldRetry(err)
-	}
+	perRequestOpts := append(make([]coreretry.Option, 0, len(rt.retryOpts)+2), rt.retryOpts...)
+	perRequestOpts = append(perRequestOpts,
+		coreretry.WithShouldRetry(func(err error) bool {
+			return rt.shouldRetry(err)
+		}),
+		coreretry.WithOnRetry(func(attempt int, err error, delay time.Duration) {
+			rt.metrics.retries.Inc()
+			if rt.logger != nil {
+				rt.logger.DebugContext(ctx,
+					"http client retrying request",
+					slog.Int("attempt", attempt),
+					slog.String("method", req.Method),
+					slog.String("url", req.URL.String()),
+					slog.String("error", err.Error()),
+					slog.Duration("delay", delay),
+				)
+			}
+		}),
+	)
 
-	cfg.OnRetry = func(attempt int, err error, delay time.Duration) {
-		rt.metrics.retries.Inc()
-		if rt.logger != nil {
-			rt.logger.DebugContext(ctx,
-				"http client retrying request",
-				slog.Int("attempt", attempt),
-				slog.String("method", req.Method),
-				slog.String("url", req.URL.String()),
-				slog.String("error", err.Error()),
-				slog.Duration("delay", delay),
-			)
-		}
-	}
-
-	retryErr := coreretry.Do(ctx, cfg, func(ctx context.Context) error {
+	retryErr := coreretry.Do(ctx, func(ctx context.Context) error {
 		// Close previous response body if present from a prior attempt.
 		if lastResp != nil {
 			_ = lastResp.Body.Close()
@@ -161,7 +163,7 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 		classified := classifyResponse(resp)
 		lastErr = classified
 		return classified
-	})
+	}, perRequestOpts...)
 
 	statusClass := "unknown"
 	if lastResp != nil {
@@ -173,7 +175,7 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	if retryErr != nil && lastResp == nil {
 		rt.metrics.requestErrors.WithLabels(metrics.Labels{"method": method}).Inc()
 		if rt.errorHandler != nil {
-			return rt.errorHandler(nil, retryErr, rt.cfg.MaxAttempts+1)
+			return rt.errorHandler(nil, retryErr, rt.maxAttempts+1)
 		}
 		return nil, retryErr
 	}
@@ -182,7 +184,7 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 		rt.metrics.requestErrors.WithLabels(metrics.Labels{"method": method}).Inc()
 		// We have a response but also an error (e.g., retryable status exhausted).
 		if rt.errorHandler != nil {
-			return rt.errorHandler(lastResp, retryErr, rt.cfg.MaxAttempts+1)
+			return rt.errorHandler(lastResp, retryErr, rt.maxAttempts+1)
 		}
 		return lastResp, retryErr
 	}
