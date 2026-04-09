@@ -5,6 +5,7 @@
 package maps_test
 
 import (
+	"maps"
 	"testing"
 
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
@@ -34,10 +35,7 @@ func TestValues(t *testing.T) {
 
 func TestFilter(t *testing.T) {
 	m := map[string]int{"a": 1, "b": 2, "c": 3}
-	got := make(map[string]int)
-	for k, v := range coremaps.Filter(m, func(k string, v int) bool { return v > 1 }) {
-		got[k] = v
-	}
+	got := maps.Collect(coremaps.Filter(m, func(_ string, v int) bool { return v > 1 }))
 	if len(got) != 2 {
 		t.Errorf("Filter() len = %d, want 2", len(got))
 	}
@@ -48,12 +46,9 @@ func TestFilter(t *testing.T) {
 
 func TestMapIter(t *testing.T) {
 	m := map[string]int{"a": 1}
-	got := make(map[string]string)
-	for k, v := range coremaps.Map(m, func(k string, v int) (string, string) {
+	got := maps.Collect(coremaps.Map(m, func(k string, _ int) (string, string) {
 		return k + "!", "val"
-	}) {
-		got[k] = v
-	}
+	}))
 	if got["a!"] != "val" {
 		t.Errorf("Map() = %v", got)
 	}

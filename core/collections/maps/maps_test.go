@@ -111,7 +111,7 @@ func TestFilterMap(t *testing.T) {
 		t.Errorf("FilterMap() = %v, want %v", got, expected)
 	}
 
-	if coremaps.FilterMap[string, int](nil, func(string, int) bool { return true }) != nil {
+	if coremaps.FilterMap(map[string]int(nil), func(string, int) bool { return true }) != nil {
 		t.Error("FilterMap(nil) should return nil")
 	}
 }
