@@ -11,6 +11,7 @@ import (
 )
 
 func TestTaskPriority_String(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		priority scheduler.TaskPriority
@@ -27,6 +28,7 @@ func TestTaskPriority_String(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			if got := tt.priority.String(); got != tt.expected {
 				t.Errorf("TaskPriority(%d).String() = %q, want %q", tt.priority, got, tt.expected)
 			}
@@ -35,6 +37,7 @@ func TestTaskPriority_String(t *testing.T) {
 }
 
 func TestTaskPriority_Values(t *testing.T) {
+	t.Parallel()
 	if scheduler.TaskPriorityUnspecified != 0 {
 		t.Errorf("TaskPriorityUnspecified = %d, want 0", scheduler.TaskPriorityUnspecified)
 	}
@@ -53,6 +56,7 @@ func TestTaskPriority_Values(t *testing.T) {
 }
 
 func TestTaskConfig_ZeroValue(t *testing.T) {
+	t.Parallel()
 	var cfg scheduler.TaskConfig
 
 	if cfg.ID != "" {

@@ -12,7 +12,9 @@ import (
 )
 
 func TestTimerStopAndDrain(t *testing.T) {
+	t.Parallel()
 	t.Run("Stop active timer", func(t *testing.T) {
+		t.Parallel()
 		timer := time.NewTimer(time.Hour)
 		if !coretime.TimerStopAndDrain(timer) {
 			t.Error("TimerStopAndDrain should return true for active timer")
@@ -20,6 +22,7 @@ func TestTimerStopAndDrain(t *testing.T) {
 	})
 
 	t.Run("Stop expired timer", func(t *testing.T) {
+		t.Parallel()
 		timer := time.NewTimer(time.Nanosecond)
 		time.Sleep(10 * time.Millisecond) // Let it expire
 
@@ -39,6 +42,7 @@ func TestTimerStopAndDrain(t *testing.T) {
 	})
 
 	t.Run("Nil timer", func(t *testing.T) {
+		t.Parallel()
 		if coretime.TimerStopAndDrain(nil) {
 			t.Error("TimerStopAndDrain(nil) should return false")
 		}

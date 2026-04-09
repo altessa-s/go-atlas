@@ -17,8 +17,8 @@ func TestFormatParse_RoundTripInstant(t *testing.T) {
 
 	formats := []Format{RFC3339, RFC3339Nano, Unix, UnixMilli, UnixMicro, UnixNano}
 	for _, f := range formats {
-		f := f
 		t.Run(f.String(), func(t *testing.T) {
+			t.Parallel()
 			out := f.Format(in)
 			parsed, err := f.Parse(out)
 			if err != nil {

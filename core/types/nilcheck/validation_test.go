@@ -5,6 +5,7 @@
 package nilcheck
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,19 +13,18 @@ import (
 )
 
 func TestRequireNotNil(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
-		name        string
-		value       any
-		fieldName   string
-		wantErr     bool
-		errContains string
+		name      string
+		value     any
+		fieldName string
+		wantErr   bool
 	}{
 		{
-			name:        "nil value returns error",
-			value:       nil,
-			fieldName:   "connection",
-			wantErr:     true,
-			errContains: "connection is required",
+			name:      "nil value returns error",
+			value:     nil,
+			fieldName: "connection",
+			wantErr:   true,
 		},
 		{
 			name:      "non-nil value returns nil",
@@ -33,25 +33,22 @@ func TestRequireNotNil(t *testing.T) {
 			wantErr:   false,
 		},
 		{
-			name:        "nil pointer returns error",
-			value:       (*string)(nil),
-			fieldName:   "config",
-			wantErr:     true,
-			errContains: "config is required",
+			name:      "nil pointer returns error",
+			value:     (*string)(nil),
+			fieldName: "config",
+			wantErr:   true,
 		},
 		{
-			name:        "nil slice returns error",
-			value:       ([]string)(nil),
-			fieldName:   "items",
-			wantErr:     true,
-			errContains: "items is required",
+			name:      "nil slice returns error",
+			value:     ([]string)(nil),
+			fieldName: "items",
+			wantErr:   true,
 		},
 		{
-			name:        "nil map returns error",
-			value:       (map[string]string)(nil),
-			fieldName:   "mapping",
-			wantErr:     true,
-			errContains: "mapping is required",
+			name:      "nil map returns error",
+			value:     (map[string]string)(nil),
+			fieldName: "mapping",
+			wantErr:   true,
 		},
 		{
 			name:      "empty slice is not nil",
@@ -69,11 +66,14 @@ func TestRequireNotNil(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			err := RequireNotNil(tt.value, tt.fieldName)
 
 			if tt.wantErr {
 				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errContains)
+				var re *RequiredError
+				require.True(t, errors.As(err, &re), "error should be *RequiredError")
+				assert.Equal(t, tt.fieldName, re.FieldName)
 			} else {
 				require.NoError(t, err)
 			}
