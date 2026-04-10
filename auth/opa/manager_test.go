@@ -59,6 +59,78 @@ allow if {
 	})
 }
 
+func TestManager_EvaluateStructuredResult(t *testing.T) {
+	ctx := t.Context()
+
+	tmpDir, err := os.MkdirTemp("", "opa-test-structured")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	policyContent := `
+package test.authz
+import rego.v1
+
+default _authorized := false
+default allow := false
+default deny_reason := ""
+
+_authorized if { input.role == "admin" }
+
+deny_reason := "account_suspended" if { input.suspended }
+
+allow if {
+    _authorized
+    deny_reason == ""
+}
+
+result := {
+    "allow": allow,
+    "deny_reason": deny_reason,
+}
+`
+	err = os.WriteFile(filepath.Join(tmpDir, "policy.rego"), []byte(policyContent), 0644)
+	require.NoError(t, err)
+
+	source, err := filesystem.New(tmpDir)
+	require.NoError(t, err)
+
+	manager, err := opa.NewManager(ctx, source, "data.test.authz.result")
+	require.NoError(t, err)
+	defer manager.Close()
+
+	evaluator := manager.Evaluator()
+
+	t.Run("Allowed", func(t *testing.T) {
+		result, err := evaluator.Evaluate(ctx, map[string]any{"role": "admin"})
+		require.NoError(t, err)
+		assert.True(t, result.Allow)
+		assert.Empty(t, result.DenyReason)
+	})
+
+	t.Run("DeniedNoReason", func(t *testing.T) {
+		result, err := evaluator.Evaluate(ctx, map[string]any{"role": "user"})
+		require.NoError(t, err)
+		assert.False(t, result.Allow)
+		assert.Empty(t, result.DenyReason)
+	})
+
+	t.Run("AuthorizedButDenied", func(t *testing.T) {
+		// User has the role (authorized), but a deny reason overrides the decision.
+		result, err := evaluator.Evaluate(ctx, map[string]any{"role": "admin", "suspended": true})
+		require.NoError(t, err)
+		assert.False(t, result.Allow)
+		assert.Equal(t, "account_suspended", result.DenyReason)
+	})
+
+	t.Run("UnauthorizedAndDenied", func(t *testing.T) {
+		// No permission AND deny reason — allow is false, deny reason is set.
+		result, err := evaluator.Evaluate(ctx, map[string]any{"role": "user", "suspended": true})
+		require.NoError(t, err)
+		assert.False(t, result.Allow)
+		assert.Equal(t, "account_suspended", result.DenyReason)
+	})
+}
+
 func TestManager_HotReload(t *testing.T) {
 	ctx := t.Context()
 

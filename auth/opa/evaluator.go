@@ -12,6 +12,10 @@ import (
 type Result struct {
 	// DecisionID is a unique identifier for the evaluation.
 	DecisionID string `json:"decision_id,omitempty"`
+	// DenyReason is the reason for denying the request, set by the policy.
+	// Populated only when the policy query returns a structured decision object
+	// with a "deny_reason" field; empty otherwise.
+	DenyReason string `json:"deny_reason,omitempty"`
 	// Allow indicates whether the request is permitted.
 	Allow bool `json:"allow"`
 }

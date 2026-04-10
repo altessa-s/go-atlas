@@ -372,25 +372,37 @@ func (e *regoEvaluator) Evaluate(ctx context.Context, input any) (*Result, error
 
 	if len(results) == 0 {
 		e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": "deny"}).Inc()
-		return &Result{Allow: false}, nil
+		return e.buildResult(false, ""), nil
 	}
 
 	if len(results[0].Expressions) == 0 {
 		e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": "deny"}).Inc()
-		return e.buildResult(false), nil
+		return e.buildResult(false, ""), nil
 	}
 
-	if allow, ok := results[0].Expressions[0].Value.(bool); ok {
-		if allow {
-			e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": "allow"}).Inc()
-		} else {
-			e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": "deny"}).Inc()
-		}
-		return e.buildResult(allow), nil
+	var allow bool
+	var denyReason string
+
+	switch v := results[0].Expressions[0].Value.(type) {
+	case bool:
+		// Simple query (e.g. data.authz.allow) — returns bool directly.
+		allow = v
+	case map[string]any:
+		// Structured query (e.g. data.authz.result) — returns decision object.
+		allow, _ = v["allow"].(bool)
+		denyReason, _ = v["deny_reason"].(string)
+	default:
+		e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": "deny"}).Inc()
+		return e.buildResult(false, ""), nil
 	}
 
-	e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": "deny"}).Inc()
-	return e.buildResult(false), nil
+	if allow {
+		e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": "allow"}).Inc()
+	} else {
+		e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": "deny"}).Inc()
+	}
+
+	return e.buildResult(allow, denyReason), nil
 }
 
 // Pre-allocated singleton results for the common non-logging path,
@@ -400,16 +412,20 @@ var (
 	resultDeny  = &Result{Allow: false}
 )
 
-// buildResult creates a Result with optional DecisionID based on logging settings.
-func (e *regoEvaluator) buildResult(allow bool) *Result {
-	if !e.manager.opts.decisionLogging {
+// buildResult creates a Result with optional DecisionID and DenyReason.
+func (e *regoEvaluator) buildResult(allow bool, denyReason string) *Result {
+	if !e.manager.opts.decisionLogging && denyReason == "" {
 		if allow {
 			return resultAllow
 		}
 		return resultDeny
 	}
 
-	return &Result{Allow: allow, DecisionID: uuid.NewString()}
+	r := &Result{Allow: allow, DenyReason: denyReason}
+	if e.manager.opts.decisionLogging {
+		r.DecisionID = uuid.NewString()
+	}
+	return r
 }
 
 // Query returns the Rego query used for evaluation.
