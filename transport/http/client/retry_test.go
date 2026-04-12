@@ -15,7 +15,7 @@ import (
 	"time"
 
 	coreerrors "github.com/altessa-s/go-atlas/core/errors"
-	coreretry "github.com/altessa-s/go-atlas/core/runtime/retry"
+	coreretry "github.com/altessa-s/go-atlas/core/retry"
 )
 
 // roundTripFunc is a test helper that implements http.RoundTripper.

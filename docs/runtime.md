@@ -16,8 +16,8 @@ import "github.com/altessa-s/go-atlas/core/runtime/appinfo"
 | `core/runtime` | Shutdown hooks, GC resource cleanup | this file |
 | `core/runtime/appinfo` | Application metadata, version queries, env vars, directory paths | [appinfo.md](appinfo.md) |
 | `core/runtime/concurrency` | Adaptive concurrency limits, batch processing | [concurrency.md](concurrency.md) |
-| `core/runtime/retry` | Retry loops with backoff and context cancellation | [concurrency.md](concurrency.md) |
 | `core/runtime/panics` | Panic recovery and runtime assertions | [concurrency.md](concurrency.md) |
+| `core/retry` | Retry loops with backoff and context cancellation (moved out of `core/runtime/retry`) | [concurrency.md](concurrency.md) |
 | `core/runtime/signals` | OS signal handling with priority and worker pools | [signals.md](signals.md) |
 
 All packages live in the `core/` layer: stdlib only, zero external dependencies.

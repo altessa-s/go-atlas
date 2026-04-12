@@ -10,7 +10,7 @@ Key concepts for working with concurrency using `core/runtime` and its subpackag
 |---------|---------|
 | `core/runtime` | Shutdown hooks, resource cleanup (GC finalizers) |
 | `core/runtime/concurrency` | Adaptive concurrency limits, batch processing |
-| `core/runtime/retry` | Retry loops with backoff and context cancellation |
+| `core/retry` | Retry loops with backoff and context cancellation |
 | `core/runtime/panics` | Panic recovery and runtime assertions |
 | `core/runtime/signals` | OS signal handling with priority and worker pools |
 

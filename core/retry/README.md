@@ -1,7 +1,7 @@
 # retry
 
 ```go
-import "github.com/altessa-s/go-atlas/core/runtime/retry"
+import "github.com/altessa-s/go-atlas/core/retry"
 ```
 
 Package `retry` provides a small, stdlib-only retry loop with context cancellation, configurable delay policies, and timer reuse —

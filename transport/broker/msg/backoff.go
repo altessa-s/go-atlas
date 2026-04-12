@@ -7,7 +7,7 @@ package msg
 import (
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/runtime/retry"
+	"github.com/altessa-s/go-atlas/core/retry"
 )
 
 // BackOffFunc computes the redelivery delay based on the current delivery attempt count.

@@ -19,7 +19,7 @@ import (
 
 	corecontext "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
-	coreretry "github.com/altessa-s/go-atlas/core/runtime/retry"
+	coreretry "github.com/altessa-s/go-atlas/core/retry"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	slogx "github.com/altessa-s/go-atlas/observability/slog"
 )

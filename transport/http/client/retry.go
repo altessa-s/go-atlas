@@ -20,7 +20,7 @@ import (
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	coreio "github.com/altessa-s/go-atlas/core/io"
-	coreretry "github.com/altessa-s/go-atlas/core/runtime/retry"
+	coreretry "github.com/altessa-s/go-atlas/core/retry"
 )
 
 // statusToClass converts an HTTP status code to a class string (2xx, 3xx, 4xx, 5xx).

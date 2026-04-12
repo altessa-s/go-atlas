@@ -15,7 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas/transport/http/client/limiters"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
-	coreretry "github.com/altessa-s/go-atlas/core/runtime/retry"
+	coreretry "github.com/altessa-s/go-atlas/core/retry"
 )
 
 const (

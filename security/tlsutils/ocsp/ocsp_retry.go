@@ -9,7 +9,7 @@ import (
 	"time"
 
 	corecontext "github.com/altessa-s/go-atlas/core/context"
-	coreretry "github.com/altessa-s/go-atlas/core/runtime/retry"
+	coreretry "github.com/altessa-s/go-atlas/core/retry"
 )
 
 // RetryPolicy defines the interface for OCSP retry policies.

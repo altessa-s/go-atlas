@@ -6,7 +6,7 @@ package secrets
 import (
 	"log/slog"
 
-	"github.com/altessa-s/go-atlas/core/runtime/retry"
+	"github.com/altessa-s/go-atlas/core/retry"
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"

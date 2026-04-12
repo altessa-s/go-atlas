@@ -20,7 +20,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	corectx "github.com/altessa-s/go-atlas/core/context"
-	coreretry "github.com/altessa-s/go-atlas/core/runtime/retry"
+	coreretry "github.com/altessa-s/go-atlas/core/retry"
 )
 
 // Yandex Cloud IAM token caching configuration

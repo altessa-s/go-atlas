@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/runtime/retry"
+	"github.com/altessa-s/go-atlas/core/retry"
 )
 
 func FuzzExponential(f *testing.F) {
