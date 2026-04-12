@@ -60,7 +60,7 @@ func New(fsys fs.FS, dir string, opts ...Option) (*Source, error) {
 
 	info, err := fs.Stat(fsys, dir)
 	if err != nil {
-		return nil, fmt.Errorf("invalid dir %q: %w", dir, err)
+		return nil, coreerrs.Wrapf(err, "invalid dir %q", dir)
 	}
 
 	if !info.IsDir() {

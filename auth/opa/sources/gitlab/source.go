@@ -222,7 +222,7 @@ func (s *Source) listTree(ctx context.Context) ([]*gitlabapi.TreeNode, error) {
 	for {
 		nodes, resp, err := s.client.Repositories.ListTree(s.opts.projectID, opts, gitlabapi.WithContext(ctx))
 		if err != nil {
-			return nil, fmt.Errorf("list tree: %w", err)
+			return nil, coreerrs.Wrap(err, "list tree")
 		}
 
 		all = append(all, nodes...)
@@ -248,7 +248,7 @@ func (s *Source) downloadRawFile(ctx context.Context, filename string) ([]byte, 
 		gitlabapi.WithContext(ctx),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("download %s: %w", filename, err)
+		return nil, coreerrs.Wrapf(err, "download %s", filename)
 	}
 
 	return data, nil
