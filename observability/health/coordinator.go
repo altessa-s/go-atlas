@@ -131,8 +131,6 @@ type Coordinator struct {
 	adaptiveBufferMultiplier  int
 	maxAdaptiveBuffer         int
 
-	healthCheckSem chan struct{}
-
 	statusCache sync.Map // map[string]*cachedStatus
 
 	logger    *slog.Logger
@@ -186,8 +184,6 @@ func New(opts ...Option) *Coordinator {
 	for i := range c.watcherShards {
 		c.watcherShards[i].watchers = make(map[string]map[*watcher]struct{})
 	}
-
-	c.healthCheckSem = make(chan struct{}, c.maxConcurrentHealthChecks)
 
 	// Register health check task with scheduler if configured
 	if err := c.registerSchedulerTask(o); err != nil {
