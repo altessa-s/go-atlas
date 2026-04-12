@@ -23,7 +23,7 @@ func extractClaims(raw map[string]any) *oidc.Claims {
 		Email:             stringClaim(raw, "email"),
 		Issuer:            stringClaim(raw, "iss"),
 		Audience:          audienceClaim(raw, "aud"),
-		Scopes:            scopesClaim(raw, "scopes"),
+		Scopes:            scopesClaim(raw),
 		ExpiresAt:         unixTimeClaim(raw, "exp"),
 		IssuedAt:          unixTimeClaim(raw, "iat"),
 		NotBefore:         unixTimeClaim(raw, "nbf"),
@@ -93,12 +93,12 @@ func audienceClaim(claims map[string]any, key string) []string {
 	return nil
 }
 
-// scopesClaim extracts OAuth 2.0 scopes from the claims map.
+// scopesClaim extracts OAuth 2.0 scopes from the "scopes" claim.
 // Supports three formats: space-separated string, string array, or mixed array.
 // Empty scopes are filtered out and the result is sorted alphabetically.
 // Returns nil if the key is not found or all scopes are empty.
-func scopesClaim(claims map[string]any, key string) []string {
-	value, ok := claims[key]
+func scopesClaim(claims map[string]any) []string {
+	value, ok := claims["scopes"]
 	if !ok {
 		return nil
 	}

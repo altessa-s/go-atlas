@@ -69,14 +69,14 @@ func TestScopesClaim(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := scopesClaim(tt.claims, "scopes")
+			got := scopesClaim(tt.claims)
 			require.Equal(t, tt.want, len(got))
 		})
 	}
 }
 
 func TestScopesClaim_Sorted(t *testing.T) {
-	got := scopesClaim(map[string]any{"scopes": "z a m"}, "scopes")
+	got := scopesClaim(map[string]any{"scopes": "z a m"})
 	require.Len(t, got, 3)
 	require.Equal(t, "a", got[0])
 	require.Equal(t, "m", got[1])
