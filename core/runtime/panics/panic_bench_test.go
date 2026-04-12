@@ -5,14 +5,13 @@
 package panics_test
 
 import (
-	"context"
 	"testing"
 
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
 )
 
 func BenchmarkHandleNoPanic(b *testing.B) {
-	ctx := context.Background()
+	ctx := b.Context()
 	for b.Loop() {
 		func() {
 			defer panics.Handle(ctx)
@@ -22,7 +21,7 @@ func BenchmarkHandleNoPanic(b *testing.B) {
 }
 
 func BenchmarkHandleWithPanic(b *testing.B) {
-	ctx := context.Background()
+	ctx := b.Context()
 	for b.Loop() {
 		func() {
 			defer panics.Handle(ctx)

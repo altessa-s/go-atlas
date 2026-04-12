@@ -35,7 +35,7 @@ func noopHandler(_ context.Context, _ any) (any, error) {
 
 func TestUnaryInterceptor_Allowed(t *testing.T) {
 	inter := ServerInterceptor(newTestRegistry())
-	ctx := clientip.NewContext(context.Background(), netip.MustParseAddr("10.1.1.1"))
+	ctx := clientip.NewContext(t.Context(), netip.MustParseAddr("10.1.1.1"))
 	info := &grpc.UnaryServerInfo{FullMethod: "/test.Service/Allowed"}
 
 	resp, err := inter.ServerUnaryInterceptor()(ctx, nil, info, noopHandler)
@@ -49,7 +49,7 @@ func TestUnaryInterceptor_Allowed(t *testing.T) {
 
 func TestUnaryInterceptor_Denied(t *testing.T) {
 	inter := ServerInterceptor(newTestRegistry())
-	ctx := clientip.NewContext(context.Background(), netip.MustParseAddr("192.168.1.1"))
+	ctx := clientip.NewContext(t.Context(), netip.MustParseAddr("192.168.1.1"))
 	info := &grpc.UnaryServerInfo{FullMethod: "/test.Service/Allowed"}
 
 	_, err := inter.ServerUnaryInterceptor()(ctx, nil, info, noopHandler)
@@ -63,7 +63,7 @@ func TestUnaryInterceptor_Denied(t *testing.T) {
 
 func TestUnaryInterceptor_NoIP_FallbackDeny(t *testing.T) {
 	inter := ServerInterceptor(newTestRegistry(), WithFallbackBehavior(fallback.Deny))
-	ctx := context.Background() // no IP in context
+	ctx := t.Context() // no IP in context
 	info := &grpc.UnaryServerInfo{FullMethod: "/test.Service/Allowed"}
 
 	_, err := inter.ServerUnaryInterceptor()(ctx, nil, info, noopHandler)
@@ -77,7 +77,7 @@ func TestUnaryInterceptor_NoIP_FallbackDeny(t *testing.T) {
 
 func TestUnaryInterceptor_NoIP_FallbackAllow(t *testing.T) {
 	inter := ServerInterceptor(newTestRegistry(), WithFallbackBehavior(fallback.Allow))
-	ctx := context.Background() // no IP in context
+	ctx := t.Context() // no IP in context
 	info := &grpc.UnaryServerInfo{FullMethod: "/test.Service/Allowed"}
 
 	resp, err := inter.ServerUnaryInterceptor()(ctx, nil, info, noopHandler)
@@ -91,7 +91,7 @@ func TestUnaryInterceptor_NoIP_FallbackAllow(t *testing.T) {
 
 func TestUnaryInterceptor_IgnoredMethod(t *testing.T) {
 	inter := ServerInterceptor(newTestRegistry(), WithIgnoreMethods("/test.Service/Denied"))
-	ctx := clientip.NewContext(context.Background(), netip.MustParseAddr("1.2.3.4"))
+	ctx := clientip.NewContext(t.Context(), netip.MustParseAddr("1.2.3.4"))
 	info := &grpc.UnaryServerInfo{FullMethod: "/test.Service/Denied"}
 
 	resp, err := inter.ServerUnaryInterceptor()(ctx, nil, info, noopHandler)

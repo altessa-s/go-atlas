@@ -24,14 +24,14 @@ func makeItems(n int) []int {
 }
 
 func BenchmarkProcessEmpty(b *testing.B) {
-	ctx := context.Background()
+	ctx := b.Context()
 	for b.Loop() {
 		_ = concurrency.Process(ctx, nil, noopProcess, concurrency.WithConcurrency[int](4))
 	}
 }
 
 func BenchmarkProcessSmallSequential(b *testing.B) {
-	ctx := context.Background()
+	ctx := b.Context()
 	items := makeItems(8)
 	for b.Loop() {
 		_ = concurrency.Process(ctx, items, noopProcess, concurrency.WithConcurrency[int](1))
@@ -39,7 +39,7 @@ func BenchmarkProcessSmallSequential(b *testing.B) {
 }
 
 func BenchmarkProcessSmallParallel(b *testing.B) {
-	ctx := context.Background()
+	ctx := b.Context()
 	items := makeItems(64)
 	for b.Loop() {
 		_ = concurrency.Process(ctx, items, noopProcess, concurrency.WithConcurrency[int](4))
@@ -47,7 +47,7 @@ func BenchmarkProcessSmallParallel(b *testing.B) {
 }
 
 func BenchmarkProcessCollectSequential(b *testing.B) {
-	ctx := context.Background()
+	ctx := b.Context()
 	items := makeItems(8)
 	for b.Loop() {
 		_, _ = concurrency.ProcessCollect(ctx, items, transformDouble, concurrency.WithConcurrency[int](1))
@@ -55,7 +55,7 @@ func BenchmarkProcessCollectSequential(b *testing.B) {
 }
 
 func BenchmarkProcessCollectParallel(b *testing.B) {
-	ctx := context.Background()
+	ctx := b.Context()
 	items := makeItems(64)
 	for b.Loop() {
 		_, _ = concurrency.ProcessCollect(ctx, items, transformDouble, concurrency.WithConcurrency[int](4))

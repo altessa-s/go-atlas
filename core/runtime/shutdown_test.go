@@ -35,7 +35,7 @@ func TestOnShutdownRegistersHook(t *testing.T) {
 		return nil
 	})
 
-	if err := RunShutdownHooks(context.Background()); err != nil {
+	if err := RunShutdownHooks(t.Context()); err != nil {
 		t.Fatalf("RunShutdownHooks: %v", err)
 	}
 
@@ -65,7 +65,7 @@ func TestRunShutdownHooksJoinsErrors(t *testing.T) {
 		return nil
 	})
 
-	err := RunShutdownHooks(context.Background())
+	err := RunShutdownHooks(t.Context())
 	if err == nil {
 		t.Fatal("expected joined error, got nil")
 	}
@@ -99,11 +99,10 @@ func TestRunShutdownHooksRunsAtMostOnce(t *testing.T) {
 		return nil
 	})
 
-	ctx := context.Background()
-	if err := RunShutdownHooks(ctx); err != nil {
+	if err := RunShutdownHooks(t.Context()); err != nil {
 		t.Fatalf("first call: %v", err)
 	}
-	if err := RunShutdownHooks(ctx); err != nil {
+	if err := RunShutdownHooks(t.Context()); err != nil {
 		t.Fatalf("second call: %v", err)
 	}
 	if count != 1 {
@@ -114,7 +113,7 @@ func TestRunShutdownHooksRunsAtMostOnce(t *testing.T) {
 func TestRunShutdownHooksNoRegistrations(t *testing.T) {
 	resetShutdownStateForTest(t)
 
-	if err := RunShutdownHooks(context.Background()); err != nil {
+	if err := RunShutdownHooks(t.Context()); err != nil {
 		t.Fatalf("RunShutdownHooks with no hooks: %v", err)
 	}
 }
