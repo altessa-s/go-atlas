@@ -473,7 +473,11 @@ func parseDocJSON[T any](doc redis.Document) (*T, error) {
 func (s *Storage) TasksPaginated(ctx context.Context, pg scheduler.Pagination, f filter.Node) ([]*scheduler.TaskState, error) {
 	query := "*"
 	if f != nil {
-		trans := redisearch.NewTranslator(maps.Collect(taskFieldSchema.All()), filter.WithAllowedFields(scheduler.TaskFilterFields...), filter.WithFieldMapping(maps.Collect(taskFieldMapping.All())))
+		trans := redisearch.NewTranslator(
+			maps.Collect(taskFieldSchema.All()),
+			filter.WithAllowedFields(scheduler.TaskFilterFields...),
+			filter.WithFieldMapping(maps.Collect(taskFieldMapping.All())),
+		)
 		translated, err := trans.Translate(f)
 		if err != nil {
 			return nil, coreerrs.WrapOperation(err, "translate task filter")

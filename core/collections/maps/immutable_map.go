@@ -11,12 +11,17 @@ import (
 )
 
 const (
-	groupSize = 8
-
-	// allEmpty is a group word where every byte lane is 0x80 (empty sentinel).
-	// 0x80 is chosen so that bit 7 distinguishes empty (1) from occupied (0),
-	// and matchEmpty can isolate it with (word & ~(word<<1) & 0x80…).
-	allEmpty = uint64(0x80808080_80808080)
+	groupSize  = 8
+	groupShift = 3                           // log2(groupSize); used for << and >> instead of * and /
+	h2Bits     = 7                           // number of low hash bits used as the H2 fingerprint
+	h2Mask     = uint64(1<<h2Bits - 1)       // 0x7F — masks the H2 fingerprint from the hash
+	byteMask   = uint64(0xFF)                // masks a single byte lane in a group word
+	loBits     = uint64(0x01010101_01010101) // low bit of every byte lane
+	hiBits     = uint64(0x80808080_80808080) // high bit of every byte lane
+	// allEmpty is a group word where every byte lane is the empty sentinel (0x80).
+	// Bit 7 distinguishes empty (1) from occupied (0); matchEmpty isolates it
+	// via (word & ~(word<<1) & hiBits).
+	allEmpty = hiBits
 
 	// loadNum/loadDen encode the target load factor 7/8 = 87.5%, matching the
 	// Swiss-table convention. The table is sized to n*8/7 slots at construction.
@@ -98,16 +103,16 @@ func (m *ImmutableMap[K, V]) Get(key K) (V, bool) {
 	}
 
 	h := maphash.Comparable(m.seed, key)
-	h2 := byte(h & 0x7F)
-	group := (h >> 7) % m.groups
+	h2 := byte(h & h2Mask)
+	group := (h >> h2Bits) % m.groups
 
 	for range m.groups {
 		word := m.ctrl[group]
-		base := int(group) << 3
+		base := int(group) << groupShift
 
 		mask := matchByte(word, h2)
 		for mask != 0 {
-			slot := base + (bits.TrailingZeros64(mask) >> 3)
+			slot := base + (bits.TrailingZeros64(mask) >> groupShift)
 			if m.keys[slot] == key {
 				return m.vals[slot], true
 			}
@@ -148,10 +153,10 @@ func (m *ImmutableMap[K, V]) All() iter.Seq2[K, V] {
 			if word == allEmpty {
 				continue
 			}
-			base := g << 3
-			filled := ^word & 0x80808080_80808080
+			base := g << groupShift
+			filled := ^word & hiBits
 			for filled != 0 {
-				slot := base + (bits.TrailingZeros64(filled) >> 3)
+				slot := base + (bits.TrailingZeros64(filled) >> groupShift)
 				if !yield(m.keys[slot], m.vals[slot]) {
 					return
 				}
@@ -168,10 +173,10 @@ func (m *ImmutableMap[K, V]) Keys() iter.Seq[K] {
 			if word == allEmpty {
 				continue
 			}
-			base := g << 3
-			filled := ^word & 0x80808080_80808080
+			base := g << groupShift
+			filled := ^word & hiBits
 			for filled != 0 {
-				slot := base + (bits.TrailingZeros64(filled) >> 3)
+				slot := base + (bits.TrailingZeros64(filled) >> groupShift)
 				if !yield(m.keys[slot]) {
 					return
 				}
@@ -188,10 +193,10 @@ func (m *ImmutableMap[K, V]) Values() iter.Seq[V] {
 			if word == allEmpty {
 				continue
 			}
-			base := g << 3
-			filled := ^word & 0x80808080_80808080
+			base := g << groupShift
+			filled := ^word & hiBits
 			for filled != 0 {
-				slot := base + (bits.TrailingZeros64(filled) >> 3)
+				slot := base + (bits.TrailingZeros64(filled) >> groupShift)
 				if !yield(m.vals[slot]) {
 					return
 				}
@@ -225,16 +230,16 @@ func allocImmutable[K comparable, V any](n int) *ImmutableMap[K, V] {
 // a sizing bug in allocImmutable).
 func (m *ImmutableMap[K, V]) insert(key K, value V) {
 	h := maphash.Comparable(m.seed, key)
-	h2 := byte(h & 0x7F)
-	group := (h >> 7) % m.groups
+	h2 := byte(h & h2Mask)
+	group := (h >> h2Bits) % m.groups
 
 	for range m.groups {
 		word := m.ctrl[group]
-		base := int(group) << 3
+		base := int(group) << groupShift
 
 		mask := matchByte(word, h2)
 		for mask != 0 {
-			slot := base + (bits.TrailingZeros64(mask) >> 3)
+			slot := base + (bits.TrailingZeros64(mask) >> groupShift)
 			if m.keys[slot] == key {
 				m.vals[slot] = value
 				return
@@ -248,7 +253,7 @@ func (m *ImmutableMap[K, V]) insert(key K, value V) {
 			pos := bit >> 3
 			slot := base + int(pos)
 			shift := pos << 3
-			m.ctrl[group] = (m.ctrl[group] &^ (0xFF << shift)) | (uint64(h2) << shift)
+			m.ctrl[group] = (m.ctrl[group] &^ (byteMask << shift)) | (uint64(h2) << shift)
 			m.keys[slot] = key
 			m.vals[slot] = value
 			m.len++
@@ -271,16 +276,16 @@ func (m *ImmutableMap[K, V]) insert(key K, value V) {
 // always satisfied because h2 = hash & 0x7F. Violating this precondition may
 // produce false positives due to borrow propagation across byte lanes.
 func matchByte(word uint64, needle byte) uint64 {
-	broadcast := uint64(needle) * 0x01010101_01010101
+	broadcast := uint64(needle) * loBits
 	diff := word ^ broadcast
-	return (diff - 0x01010101_01010101) & ^diff & 0x80808080_80808080
+	return (diff - loBits) & ^diff & hiBits
 }
 
 // matchEmpty returns a bitmask where bit 7 of each byte lane is set if that
 // byte is the empty sentinel (0x80). A byte of 0x80 has bit 7 set and bit 6
 // clear, so (word & ~(word<<1)) isolates exactly those lanes.
 func matchEmpty(word uint64) uint64 {
-	return word & ^(word << 1) & 0x80808080_80808080
+	return word & ^(word << 1) & hiBits
 }
 
 // nextGroupMultiple returns the smallest multiple of groupSize >= n.
