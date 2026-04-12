@@ -49,6 +49,12 @@ var (
 	// incompatibility as a structured error rather than silently skipping.
 	ErrSPIVersionMismatch = errors.New("SPI version mismatch")
 
+	// ErrPluginQuarantined is returned when a plugin file is blacklisted
+	// because a previous load attempt with the same file hash failed.
+	// The quarantine is cleared automatically when the file changes
+	// (different SHA256). See [Manager.Quarantine] and [Manager.Quarantined].
+	ErrPluginQuarantined = errors.New("plugin quarantined")
+
 	// ErrManagerClosed is returned when operations are attempted on a closed manager.
 	ErrManagerClosed = errors.New("plugin manager is closed")
 

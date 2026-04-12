@@ -59,6 +59,11 @@ for p, sym := range plugins.NegotiateAll(mgr, "AuthProvider", constraint, logger
     if !ok { continue }
     // provider is version-compatible
 }
+
+// Quarantine a misbehaving plugin at runtime.
+if err := mgr.Quarantine("broken-plugin"); err != nil {
+    slog.Error("quarantine", slog.Any("error", err))
+}
 ```
 
 ## Options

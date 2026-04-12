@@ -81,6 +81,19 @@ type Manager struct {
 	// duration. Per-Manager so parallel tests cannot race on a global.
 	watcherReloadHook atomic.Pointer[func(error)]
 
+	// Quarantine state. Tracks .so files whose previous load attempt
+	// failed, keyed by base filename → SHA256 hex hash of the file at
+	// failure time. A quarantined file is skipped on subsequent Load /
+	// Reload calls until its hash changes (operator deployed a fix).
+	// Protected by its own RWMutex to avoid contention with the main
+	// plugin registry lock.
+	quarantineMu sync.RWMutex
+	quarantine   map[string]string
+
+	// hashFileFn abstracts file hashing so tests can inject a stub
+	// without needing real .so files. Defaults to [hashFile].
+	hashFileFn func(string) (string, error)
+
 	// Watcher state. Protected by watchMu so that iterator reads on mu
 	// (taken by [Manager.Reload] from inside the watch goroutine) do not
 	// contend with lifecycle transitions.
@@ -108,6 +121,8 @@ func NewManager(opt ...Option) *Manager {
 		hostBI:                readHostBuildInfo,
 		sandboxApply:          applySandbox,
 		sandboxSystemLibPaths: defaultLandlockSystemLibPaths,
+		quarantine:            make(map[string]string),
+		hashFileFn:            hashFile,
 	}
 }
 
@@ -391,6 +406,11 @@ func (m *Manager) Close() error {
 	}
 
 	clear(m.plugins)
+
+	m.quarantineMu.Lock()
+	clear(m.quarantine)
+	m.quarantineMu.Unlock()
+
 	return nil
 }
 
@@ -480,14 +500,35 @@ func setOf(items []string) map[string]struct{} {
 func (m *Manager) loadPlugin(ctx context.Context, filename string) error {
 	path := filepath.Join(m.opts.dir, filename)
 
+	// Compute file hash for quarantine check. The hash is reused later
+	// to record the file in quarantine if the load fails.
+	fileHash, hashErr := m.hashFileFn(path)
+	if hashErr != nil {
+		// Can't read the file — quarantine with empty hash so it's
+		// retried on next Reload regardless of content (the file may
+		// have been temporarily unreadable). Matches the pattern in
+		// Manager.Quarantine for hash failures.
+		m.addQuarantine(filename, "")
+		return coreerrs.Wrapf(hashErr, "plugin %q: hash", filename)
+	}
+
+	// Skip quarantined files whose hash has not changed since the last
+	// failure. If the hash differs (operator deployed a fix), the
+	// quarantine entry is cleared and the plugin is retried.
+	if m.isQuarantined(filename, fileHash) {
+		return coreerrs.Wrapf(ErrPluginQuarantined, "plugin %q (hash %s)", filename, fileHash[:min(hashPrefixLen, len(fileHash))])
+	}
+
 	raw, err := openPlugin(path)
 	if err != nil {
+		m.addQuarantine(filename, fileHash)
 		return coreerrs.Wrapf(err, "plugin %q", filename)
 	}
 
 	lookup := symbolLookupFromPlugin(raw)
 	desc, err := resolveDescriptor(lookup)
 	if err != nil {
+		m.addQuarantine(filename, fileHash)
 		return coreerrs.Wrapf(err, "plugin %q", filename)
 	}
 
@@ -538,6 +579,7 @@ func (m *Manager) loadPlugin(ctx context.Context, filename string) error {
 		failErr := coreerrs.Wrapf(err, "plugin %q", desc.Name)
 		p.setErr(failErr)
 		p.setState(StateFailed)
+		m.addQuarantine(filename, fileHash)
 		m.logger.Error("plugin Init symbol has unsupported type",
 			slog.String("plugin", desc.Name),
 			slog.Any("error", err),
@@ -545,12 +587,8 @@ func (m *Manager) loadPlugin(ctx context.Context, filename string) error {
 		return failErr
 	}
 	if initFn != nil {
-		// safeInit reports panics via the panic recovery handler
-		// (which logs the stack); we propagate the error so the
-		// caller can decide. The plugin is in StateFailed by the
-		// time safeInit returns an error, so the caller sees a
-		// fully-classified failure.
 		if initErr := m.safeInit(ctx, p, initFn); initErr != nil {
+			m.addQuarantine(filename, fileHash)
 			return initErr
 		}
 	}

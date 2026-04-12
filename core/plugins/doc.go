@@ -78,6 +78,21 @@
 // Both checks are advisory — they do not prevent loading because
 // [plugin.Open] enforces the real ABI check.
 //
+// # Quarantine
+//
+// When a plugin fails to load (broken .so, missing descriptor, Init error
+// or panic), the manager records the file's SHA256 hash in an in-memory
+// quarantine store. Subsequent [Manager.Load] and [Manager.Reload] calls
+// skip quarantined files until the hash changes (operator deployed a fix).
+// The [filesystem watcher] clears quarantine automatically when a WRITE
+// event changes the file content.
+//
+// Services can also quarantine a running plugin explicitly via
+// [Manager.Quarantine] when they observe runtime failures. The plugin
+// is removed from the registry, marked [StateFailed], and its file hash
+// is recorded. Use [Manager.Quarantined] to inspect the current
+// quarantine store.
+//
 // # SPI version negotiation
 //
 // For versioned provider contracts, plugins export a companion
