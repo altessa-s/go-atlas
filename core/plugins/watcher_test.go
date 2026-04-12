@@ -14,6 +14,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 func TestManager_StartWatching_MissingDir(t *testing.T) {
@@ -85,9 +87,9 @@ func TestManager_StartWatching_StopsOnCtxCancel(t *testing.T) {
 	// the deferred cleanup must flip IsWatching back to false without an
 	// explicit StopWatching call.
 	cancel()
-	waitFor(t, time.Second, func() bool {
+	testhelpers.WaitFor(t, time.Second, func() bool {
 		return !mgr.IsWatching()
-	})
+	}, "watcher did not stop after context cancel")
 }
 
 func TestManager_Close_StopsWatcher(t *testing.T) {
@@ -176,9 +178,9 @@ func TestManager_Watcher_CleansUpOnCtxCancel(t *testing.T) {
 
 	// The goroutine's deferred resetWatchStateIfCurrent must flip the flag
 	// without any explicit StopWatching call.
-	waitFor(t, time.Second, func() bool {
+	testhelpers.WaitFor(t, time.Second, func() bool {
 		return !mgr.IsWatching()
-	})
+	}, "watcher did not stop after context cancel")
 
 	// Because the state was cleaned up, StartWatching on a fresh context
 	// succeeds and installs a new watcher.
@@ -221,14 +223,3 @@ func TestManager_Close_DuringWatcherReload(t *testing.T) {
 // waitFor polls cond until it returns true or timeout elapses, failing the
 // test if it never becomes true. Used for lifecycle assertions that depend
 // on a background goroutine observing cancellation.
-func waitFor(t *testing.T, timeout time.Duration, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if cond() {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("condition not met within %s", timeout)
-}
