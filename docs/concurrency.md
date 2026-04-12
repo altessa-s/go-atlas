@@ -27,10 +27,10 @@ context cancellation.
 ```go
 err := concurrency.Process(ctx, userIDs, func(ctx context.Context, id string) error {
     return syncUser(ctx, id)
-}, concurrency.BatchConfig[string]{
-    Concurrency: 8,
-    StopOnError: true,
-})
+},
+    concurrency.WithConcurrency[string](8),
+    concurrency.WithStopOnError[string](),
+)
 ```
 
 `ProcessCollect` preserves input order in the result slice by writing directly into a
@@ -39,9 +39,9 @@ pre-allocated array indexed by position (no mutex, no sort):
 ```go
 results, err := concurrency.ProcessCollect(ctx, urls, func(ctx context.Context, url string) (Response, error) {
     return httpGet(ctx, url)
-}, concurrency.BatchConfig[string]{
-    Concurrency: 4,
-})
+},
+    concurrency.WithConcurrency[string](4),
+)
 // results[i] corresponds to urls[i]
 ```
 
@@ -50,11 +50,11 @@ fall back to sequential execution in the caller's goroutine — no goroutine ove
 
 ### Error handling
 
-- `StopOnError: true` — cancels internal context on first error; in-flight items may
+- `WithStopOnError()` — cancels internal context on first error; in-flight items may
   still finish, but no new items start. Only the first error is returned.
-- `StopOnError: false` — all items are processed; the first error is still returned.
-- `OnSuccess` / `OnError` callbacks are invoked under a mutex, so shared state mutation
-  is safe without external synchronization.
+- Without `WithStopOnError` — all items are processed; the first error is still returned.
+- `WithOnSuccess` / `WithOnError` callbacks are invoked under a mutex, so shared state
+  mutation is safe without external synchronization.
 
 ---
 
@@ -122,13 +122,13 @@ limitFn := concurrency.ConnectionPoolAwareConcurrency(pool.Available, 2)
 
 ### Using limit functions with batch processing
 
-Pass via `BatchConfig.LimitFunc` (takes precedence over `Concurrency`):
+Pass via `WithLimitFunc` (takes precedence over `WithConcurrency`):
 
 ```go
-concurrency.Process(ctx, items, fn, concurrency.BatchConfig[Item]{
-    LimitFunc:   concurrency.MemoryAwareConcurrency(100, 500, 1000),
-    StopOnError: true,
-})
+concurrency.Process(ctx, items, fn,
+    concurrency.WithLimitFunc[Item](concurrency.MemoryAwareConcurrency(100, 500, 1000)),
+    concurrency.WithStopOnError[Item](),
+)
 ```
 
 ---
@@ -481,10 +481,10 @@ callbacks, secret warmup), set `StopOnError: false` so all items are processed
 even when some fail:
 
 ```go
-err := concurrency.Process(ctx, checks, runCheck, concurrency.BatchConfig[Check]{
-    Concurrency: 4,
-    StopOnError: false, // check all services even if one is unhealthy
-})
+err := concurrency.Process(ctx, checks, runCheck,
+    concurrency.WithConcurrency[Check](4),
+    // No WithStopOnError — check all services even if one is unhealthy.
+)
 ```
 
 The first error is still returned, but every item gets its chance to execute.

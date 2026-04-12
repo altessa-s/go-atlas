@@ -13,7 +13,7 @@ Package `concurrency` provides adaptive concurrency limit calculation and a conc
 | `Process`        | Apply a function to every item with bounded concurrency |
 | `ProcessCollect` | Same as `Process` but collect transformed results       |
 
-`BatchConfig` supports fixed concurrency, dynamic limits via `LimitFunc`, stop-on-error, and `OnSuccess`/`OnError` callbacks.
+Configure via functional options: `WithConcurrency`, `WithLimitFunc`, `WithStopOnError`, `WithOnSuccess`, `WithOnError`.
 
 ## Concurrency strategies
 
