@@ -67,6 +67,10 @@ type Http struct {
 
 	// Middlewares contains configuration for HTTP server middleware components.
 	Middlewares *MiddlewaresConfig `yaml:"middlewares" default:"-"`
+
+	// Pprof contains optional configuration for pprof profiling endpoints.
+	// If nil, pprof behavior is determined by the server builder defaults.
+	Pprof *HttpPprof `yaml:"pprof" default:"-"`
 }
 
 // DefaultHttp returns an Http configuration with default values.
@@ -95,5 +99,6 @@ func (h *Http) Validate() error {
 		validation.Field(&h.MaxRequestPayloadSize, validation.Min(0).Error("must be a positive integer or 0")),
 		validation.Field(&h.TLS, validation.NilOrNotEmpty),
 		validation.Field(&h.Middlewares, validation.NilOrNotEmpty),
+		validation.Field(&h.Pprof, validation.NilOrNotEmpty),
 	)
 }

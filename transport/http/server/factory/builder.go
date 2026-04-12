@@ -65,7 +65,7 @@ type ServerBuilder struct {
 	// Handlers
 	handlers       []server.Handler
 	builtinEnabled bool
-	pprofEnabled   bool
+	pprofEnabled   *bool // nil = use config or default (true)
 	metricsEnabled bool
 	internalPrefix string
 
@@ -80,7 +80,6 @@ func New(cfg *config.Http) *ServerBuilder {
 		Base:           corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:            cfg,
 		builtinEnabled: true,
-		pprofEnabled:   true,
 		metricsEnabled: true,
 		internalPrefix: "/internal",
 	}
@@ -275,11 +274,23 @@ func (b *ServerBuilder) registerBuiltinHandlers(srv *server.Server, rootRouter *
 	}
 
 	if rootRouter != nil {
-		if b.pprofEnabled {
+		if b.resolvePprofEnabled() {
 			handler.Pprof(rootRouter.PathPrefix(b.internalPrefix).Subrouter())
 		}
 		if b.metricsEnabled {
 			handler.PrometheusMetrics(rootRouter.PathPrefix(b.internalPrefix).Subrouter())
 		}
 	}
+}
+
+// resolvePprofEnabled returns the effective pprof state:
+// programmatic override > config > default (true).
+func (b *ServerBuilder) resolvePprofEnabled() bool {
+	if b.pprofEnabled != nil {
+		return *b.pprofEnabled
+	}
+	if b.cfg != nil && b.cfg.Pprof != nil {
+		return b.cfg.Pprof.Enabled
+	}
+	return true
 }

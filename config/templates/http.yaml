@@ -124,3 +124,13 @@
 #    # Duplicate request prevention.
 #    # See http_middlewares/idempotency.yaml template for full configuration options.
 #    !include http_middlewares/idempotency.yaml
+#
+#  # <object> Pprof profiling endpoint configuration.
+#  # Controls whether Go pprof handlers are exposed on this HTTP server.
+#  # When enabled, exposes profiling endpoints at /internal/pprof/* for
+#  # performance analysis. Should only be enabled in non-production environments
+#  # or behind restricted access.
+#  pprof:
+#    # <bool> Controls whether pprof endpoints are exposed.
+#    # Default value: false
+#    enabled: false
