@@ -5,6 +5,7 @@
 package auth
 
 import (
+	"maps"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -60,10 +61,7 @@ func TestScopeRegistry_AllScopes(t *testing.T) {
 
 	require.Equal(t, 2, r.Len())
 
-	got := make(map[string]Scope)
-	for k, v := range r.AllScopes() {
-		got[k] = v
-	}
+	got := maps.Collect(r.AllScopes())
 	require.Len(t, got, 2)
 	require.Equal(t, "x", got["/svc/A"])
 	require.Equal(t, "y", got["/svc/B"])

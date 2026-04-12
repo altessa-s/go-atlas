@@ -23,9 +23,16 @@ func capHeader() *unix.CapUserHeader {
 	}
 }
 
-// capDataLen is the length of the [unix.CapUserData] array required
-// by capability version 3: two 32-bit words per set (low + high).
-const capDataLen = 2
+const (
+	// capDataLen is the length of the [unix.CapUserData] array required
+	// by capability version 3: two 32-bit words per set (low + high).
+	capDataLen = 2
+
+	// halfWord is the bit width of one capability data word. The kernel
+	// stores each mask as two uint32 halves; shifting by halfWord moves
+	// between the low and high words.
+	halfWord = 32
+)
 
 // has reports whether c is set in mask.
 func has(mask uint64, c Cap) bool {
@@ -42,20 +49,20 @@ func setBit(mask uint64, c Cap) uint64 {
 func toData(eff, perm, inh uint64) [capDataLen]unix.CapUserData {
 	var d [capDataLen]unix.CapUserData
 	d[0].Effective = uint32(eff)
-	d[1].Effective = uint32(eff >> 32)
+	d[1].Effective = uint32(eff >> halfWord)
 	d[0].Permitted = uint32(perm)
-	d[1].Permitted = uint32(perm >> 32)
+	d[1].Permitted = uint32(perm >> halfWord)
 	d[0].Inheritable = uint32(inh)
-	d[1].Inheritable = uint32(inh >> 32)
+	d[1].Inheritable = uint32(inh >> halfWord)
 	return d
 }
 
 // fromData unpacks the kernel's two-word representation into uint64
 // masks.
 func fromData(d [capDataLen]unix.CapUserData) (eff, perm, inh uint64) {
-	eff = uint64(d[0].Effective) | uint64(d[1].Effective)<<32
-	perm = uint64(d[0].Permitted) | uint64(d[1].Permitted)<<32
-	inh = uint64(d[0].Inheritable) | uint64(d[1].Inheritable)<<32
+	eff = uint64(d[0].Effective) | uint64(d[1].Effective)<<halfWord
+	perm = uint64(d[0].Permitted) | uint64(d[1].Permitted)<<halfWord
+	inh = uint64(d[0].Inheritable) | uint64(d[1].Inheritable)<<halfWord
 	return eff, perm, inh
 }
 

@@ -94,6 +94,10 @@ const (
 const (
 	seccompDataNrOffset   = 0
 	seccompDataArchOffset = 4
+
+	// bpfArchToKillOffset is the BPF jump distance from the arch-check
+	// instruction (pos 1) to the KILL action (pos N+5): (N+5) − 2 = N+3.
+	bpfArchToKillOffset = 3
 )
 
 // buildFilter constructs the classic BPF program that implements the
@@ -125,7 +129,7 @@ func buildFilter() []unix.SockFilter {
 	prog = append(prog, unix.SockFilter{
 		Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K,
 		Jt:   0,
-		Jf:   n + 3,
+		Jf:   n + bpfArchToKillOffset,
 		K:    expectedArch,
 	})
 

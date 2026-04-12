@@ -6,6 +6,7 @@ package maps_test
 
 import (
 	"fmt"
+	"maps"
 	"sync"
 	"testing"
 
@@ -188,10 +189,7 @@ func TestImmutableMap_All(t *testing.T) {
 	src := map[string]int{"a": 1, "b": 2, "c": 3}
 	m := coremaps.NewImmutableMap(src)
 
-	got := make(map[string]int)
-	for k, v := range m.All() {
-		got[k] = v
-	}
+	got := maps.Collect(m.All())
 	require.Equal(t, src, got)
 }
 

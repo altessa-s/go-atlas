@@ -26,27 +26,6 @@ func buildStringMap(n int) (map[string]int, []string) {
 	return src, keys
 }
 
-// --- Memory measurement ---
-
-func measureHeap(setup func()) uint64 {
-	runtime.GC()
-	runtime.GC()
-	var before runtime.MemStats
-	runtime.ReadMemStats(&before)
-
-	setup()
-
-	runtime.GC()
-	runtime.GC()
-	var after runtime.MemStats
-	runtime.ReadMemStats(&after)
-
-	if after.HeapAlloc > before.HeapAlloc {
-		return after.HeapAlloc - before.HeapAlloc
-	}
-	return 0
-}
-
 func TestImmutableMap_MemoryPerKey(t *testing.T) {
 	// Serial — heap measurement is incompatible with t.Parallel.
 	sizes := []int{10_000, 100_000, 1_000_000}

@@ -109,8 +109,8 @@ func apply(readPaths, readWritePaths []string) error {
 	// than 3.5, which also do not support Landlock and would have failed
 	// step 1) but is re-wrapped as ErrFailed so callers matching on this
 	// package's sentinels see a consistent error surface.
-	if err := nonewprivs.Set(); err != nil {
-		return fmt.Errorf("%w: %w", ErrFailed, err)
+	if setErr := nonewprivs.Set(); setErr != nil {
+		return fmt.Errorf("%w: %w", ErrFailed, setErr)
 	}
 
 	read, write := accessMasks(abi)
@@ -119,7 +119,7 @@ func apply(readPaths, readWritePaths []string) error {
 	if err != nil {
 		return fmt.Errorf("%w: create_ruleset: %w", ErrFailed, err)
 	}
-	defer unix.Close(rulesetFd)
+	defer func() { _ = unix.Close(rulesetFd) }()
 
 	for _, path := range readPaths {
 		if err := addPathRule(rulesetFd, path, read); err != nil {
@@ -208,7 +208,7 @@ func addPathRule(rulesetFd int, path string, accessMask uint64) error {
 	if err != nil {
 		return err
 	}
-	defer unix.Close(pathFd)
+	defer func() { _ = unix.Close(pathFd) }()
 
 	attr := unix.LandlockPathBeneathAttr{
 		Allowed_access: accessMask,
