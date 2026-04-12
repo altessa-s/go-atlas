@@ -250,9 +250,9 @@ func (m *ImmutableMap[K, V]) insert(key K, value V) {
 		emptyMask := matchEmpty(word)
 		if emptyMask != 0 {
 			bit := uint(bits.TrailingZeros64(emptyMask))
-			pos := bit >> 3
+			pos := bit >> groupShift
 			slot := base + int(pos)
-			shift := pos << 3
+			shift := pos << groupShift
 			m.ctrl[group] = (m.ctrl[group] &^ (byteMask << shift)) | (uint64(h2) << shift)
 			m.keys[slot] = key
 			m.vals[slot] = value
