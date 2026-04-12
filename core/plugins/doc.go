@@ -60,6 +60,33 @@
 // left in [StateFailed] so it is excluded from [Manager.Ready] /
 // [Manager.LookupAll] iteration.
 //
+// # ABI and version-skew detection
+//
+// Go's [plugin.Open] requires the host and the plugin to be compiled with
+// the same Go toolchain version and identical shared-dependency versions.
+// Violations produce cryptic runtime errors. The package provides two
+// optional, advisory mechanisms for early detection:
+//
+//   - [Descriptor.GoVersion]: set it to [runtime.Version] in the plugin.
+//     The manager compares it against the host's own version at load time
+//     and logs a warning on mismatch.
+//   - DepInfo symbol: export a package-level variable named DepInfo of type
+//     [*DepInfo] (use [NewDepInfoFromBuild] for convenience). The manager
+//     compares the plugin's module dependency graph against the host's
+//     [debug.ReadBuildInfo] and logs mismatched shared modules.
+//
+// Both checks are advisory — they do not prevent loading because
+// [plugin.Open] enforces the real ABI check.
+//
+// # SPI version negotiation
+//
+// For versioned provider contracts, plugins export a companion
+// version symbol alongside each provider symbol using the naming
+// convention "<Symbol>SPIVersion" (e.g. AuthProviderSPIVersion of type
+// [SPIVersion]). Hosts use [NegotiateAll] instead of [Manager.LookupAll]
+// to filter providers by an [SPIConstraint]. Unversioned plugins are
+// included unchanged for backwards compatibility.
+//
 // Any additional symbols can be exported for service-specific discovery via
 // [Plugin.Lookup] or [Manager.LookupAll].
 //

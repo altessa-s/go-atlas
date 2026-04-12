@@ -33,6 +33,14 @@ type Descriptor struct {
 
 	// Description is optional human-readable text.
 	Description string
+
+	// GoVersion is the Go toolchain version the plugin was built with
+	// (e.g. "go1.25.0"). When non-empty the manager compares it against
+	// [runtime.Version] at load time and logs a warning on mismatch.
+	// The field is advisory — a mismatch does not prevent loading because
+	// [plugin.Open] itself enforces the real ABI check. The warning gives
+	// operators a clear diagnostic before the cryptic runtime error.
+	GoVersion string
 }
 
 // Validate reports whether the descriptor is well-formed enough for the

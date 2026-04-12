@@ -10,6 +10,7 @@ import (
 	"iter"
 	"log/slog"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -46,6 +47,11 @@ type Manager struct {
 	sandboxOnce  sync.Once
 	sandboxErr   atomic.Pointer[errBox]
 	sandboxApply func(SandboxOptions) error
+
+	// hostBI abstracts debug.ReadBuildInfo so tests can inject a canned
+	// build-info snapshot. Defaults to readHostBuildInfo; tests override
+	// with a stub. Per-Manager so parallel tests cannot race on a global.
+	hostBI hostBuildInfo
 
 	// sandboxSystemLibPaths is the list of system library directories
 	// merged into the Landlock allowlist when [LandlockOptions.AllowSystemLibs]
@@ -99,6 +105,7 @@ func NewManager(opt ...Option) *Manager {
 		plugins:               make(map[string]*Plugin),
 		opts:                  opts,
 		logger:                opts.logger,
+		hostBI:                readHostBuildInfo,
 		sandboxApply:          applySandbox,
 		sandboxSystemLibPaths: defaultLandlockSystemLibPaths,
 	}
@@ -483,6 +490,26 @@ func (m *Manager) loadPlugin(ctx context.Context, filename string) error {
 	if err != nil {
 		return coreerrs.Wrapf(err, "plugin %q", filename)
 	}
+
+	// Advisory Go-version skew check. A mismatch does not prevent loading
+	// because plugin.Open enforces the real ABI check; the warning gives
+	// operators a clear breadcrumb before the cryptic runtime error.
+	if desc.GoVersion != "" && desc.GoVersion != runtime.Version() {
+		m.logger.Warn("plugin built with different Go version; plugin.Open may fail",
+			slog.String("plugin", desc.Name),
+			slog.String("plugin_go", desc.GoVersion),
+			slog.String("host_go", runtime.Version()),
+		)
+	}
+
+	// Advisory dependency-skew check. Compares the plugin's module graph
+	// against the host's to surface version mismatches before they
+	// manifest as cryptic type-assertion failures at runtime.
+	depInfo, err := resolveDepInfo(lookup)
+	if err != nil {
+		return coreerrs.Wrapf(err, "plugin %q", filename)
+	}
+	checkDepInfo(m.logger, desc.Name, depInfo, m.hostBI)
 
 	// Pre-flight name collision check. This is a hint, not a contract:
 	// a concurrent loader could register the same name between this

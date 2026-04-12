@@ -69,6 +69,40 @@ func resolveDescriptor(lookup symbolLookup) (*Descriptor, error) {
 	return desc, nil
 }
 
+// resolveDepInfo reads the optional "DepInfo" symbol from a plugin and
+// unwraps it to a concrete [*DepInfo]. It accepts both supported declaration
+// forms:
+//
+//	var DepInfo = plugins.NewDepInfoFromBuild()          // Lookup returns *DepInfo
+//	var DepInfo = &plugins.DepInfo{GoVersion: "…", …}   // Lookup returns **DepInfo
+//
+// Returns (nil, nil) when the symbol is absent — DepInfo is optional. Returns
+// a non-nil error when the symbol exists but has an unsupported type.
+func resolveDepInfo(lookup symbolLookup) (*DepInfo, error) {
+	sym, err := lookup("DepInfo")
+	if err != nil {
+		//nolint:nilnil // (nil, nil) is the "absent DepInfo" sentinel; see doc.
+		return nil, nil
+	}
+
+	switch v := sym.(type) {
+	case *DepInfo:
+		if v == nil {
+			//nolint:nilnil // nil-valued variable is equivalent to absent.
+			return nil, nil
+		}
+		return v, nil
+	case **DepInfo:
+		if v == nil || *v == nil {
+			//nolint:nilnil // nil-valued variable is equivalent to absent.
+			return nil, nil
+		}
+		return *v, nil
+	default:
+		return nil, coreerrs.Wrapf(ErrInvalidDepInfo, "got %T, want *DepInfo or **DepInfo", sym)
+	}
+}
+
 // resolveInit reads the optional "Init" symbol from a plugin and unwraps it
 // to a callable function. It accepts both supported declaration forms:
 //

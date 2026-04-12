@@ -38,6 +38,17 @@ var (
 	// func(context.Context) error (or a variable bound to that type).
 	ErrInvalidInit = errors.New("plugin Init has invalid type")
 
+	// ErrInvalidDepInfo is returned when the optional DepInfo symbol is
+	// present but has an unsupported type. The expected type is
+	// *DepInfo (or a variable bound to that type).
+	ErrInvalidDepInfo = errors.New("plugin DepInfo has invalid type")
+
+	// ErrSPIVersionMismatch indicates that a plugin's SPI contract version
+	// does not satisfy the host's [SPIConstraint]. Consumers of
+	// [NegotiateAll] can wrap this sentinel when they want to surface
+	// incompatibility as a structured error rather than silently skipping.
+	ErrSPIVersionMismatch = errors.New("SPI version mismatch")
+
 	// ErrManagerClosed is returned when operations are attempted on a closed manager.
 	ErrManagerClosed = errors.New("plugin manager is closed")
 
