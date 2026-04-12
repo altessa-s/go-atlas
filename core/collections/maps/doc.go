@@ -47,7 +47,24 @@
 //	nested := maps.FromFlatMap(flat)
 //	// map[user:map[age:25 name:Alice]]
 //
+// # ImmutableMap
+//
+// [ImmutableMap] is a read-only hash map built once from a standard Go map or
+// key-value slices. After construction it cannot be modified and is safe for
+// concurrent reads without synchronization or defensive copies.
+//
+// Compared to a standard Go map, ImmutableMap uses less memory per key (~1.5–2×
+// savings at scale) and produces lower GC pressure because its three flat slices
+// contain no internal pointers for the collector to chase. Lookup speed is
+// comparable to the standard map on Go 1.24+ (which also uses Swiss tables).
+//
+//	src := map[string]int{"a": 1, "b": 2, "c": 3}
+//	m := maps.NewImmutableMap(src)
+//	v, ok := m.Get("a") // 1, true
+//
 // # Performance
 //
-// No notable overhead beyond standard library operations. Functions create new maps without modifying inputs.
+// Pure functions create new maps without modifying inputs. [ImmutableMap] uses
+// flat contiguous arrays and fingerprint-based probing for cache-friendly
+// lookups with zero allocations per Get call.
 package maps

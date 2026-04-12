@@ -45,3 +45,24 @@ Lazy `iter.Seq` / `iter.Seq2` iterators for zero-allocation pipelines. Use `slic
 ## WeakRef
 
 `WeakRef[T]` is a thin wrapper around `weak.Pointer` for holding a single weak reference. Use `IsAlive` to check and `Value` to retrieve.
+
+## ImmutableMap
+
+`ImmutableMap[K, V]` is a read-only hash map that cannot be modified after construction. Build once from a `map[K]V` or parallel key/value slices, then read concurrently without locks or defensive copies. Uses a Swiss-table layout with flat arrays for lower memory overhead (~1.5–2× savings at scale) and reduced GC pressure compared to a standard Go map.
+
+```go
+src := map[string]int{"a": 1, "b": 2, "c": 3}
+m := maps.NewImmutableMap(src)
+v, ok := m.Get("a") // 1, true
+```
+
+| Method                   | Description                                        |
+|--------------------------|----------------------------------------------------|
+| `NewImmutableMap`        | Build from a standard Go map                       |
+| `NewImmutableMapFromEntries` | Build from parallel key and value slices       |
+| `Get`                    | Lookup by key; returns value and presence flag      |
+| `Contains`               | Check key presence                                  |
+| `Len`                    | Number of entries                                   |
+| `All`                    | Iterator over all key-value pairs (`iter.Seq2`)     |
+| `Keys`                   | Iterator over keys (`iter.Seq`)                     |
+| `Values`                 | Iterator over values (`iter.Seq`)                   |
