@@ -14,6 +14,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreretry "github.com/altessa-s/go-atlas/core/retry"
 )
 
 // recoveryState tracks the state of an ongoing recovery operation.
@@ -200,64 +201,33 @@ func (s *Supervisor) runStreamRecovery(streamName string) {
 		return
 	}
 
-	var lastErr error
-
-	for attempt := 1; attempt <= s.maxAttempts; attempt++ {
-		select {
-		case <-s.ctx.Done():
-			s.logger.Debug("recovery canceled",
-				slog.String("stream", streamName))
-			return
-		default:
-		}
-
-		s.logger.Info("attempting stream recovery",
-			slog.String("stream", streamName),
-			slog.Int("attempt", attempt),
-			slog.Int("maxAttempts", s.maxAttempts))
-
+	err := coreretry.Do(s.ctx, func(ctx context.Context) error {
 		// Recreate stream.
-		_, err := s.js.CreateOrUpdateStream(s.ctx, cfg)
-		if err != nil && !isAlreadyExistsError(err) {
-			lastErr = coreerrs.WrapOperation(err, "recreate stream")
-			s.logger.Warn("stream recreation failed",
-				slog.String("stream", streamName),
-				slog.Int("attempt", attempt),
-				slog.Any("error", err))
-			s.sleepWithBackoff(attempt)
-			continue
+		if _, err := s.js.CreateOrUpdateStream(ctx, cfg); err != nil && !isAlreadyExistsError(err) {
+			return coreerrs.WrapOperation(err, "recreate stream")
 		}
-
 		// Restore subscriptions.
 		if err := s.restoreSubscriptions(streamName); err != nil {
-			lastErr = coreerrs.WrapOperation(err, "restore subscriptions")
-			s.logger.Warn("subscription restoration failed",
-				slog.String("stream", streamName),
-				slog.Int("attempt", attempt),
-				slog.Any("error", err))
-			s.sleepWithBackoff(attempt)
-			continue
+			return coreerrs.WrapOperation(err, "restore subscriptions")
 		}
+		return nil
+	}, s.retryOpts(streamName, "")...)
 
-		// Success.
-		s.logger.Info("stream recovery successful",
+	if err != nil {
+		s.logger.Error("stream recovery failed after max attempts",
 			slog.String("stream", streamName),
-			slog.Int("attempts", attempt))
-
-		if s.onRecoverySuccess != nil {
-			s.onRecoverySuccess(streamName, "")
+			slog.Int("maxAttempts", s.maxAttempts),
+			slog.Any("lastError", err))
+		if s.onRecoveryFailure != nil {
+			s.onRecoveryFailure(streamName, "", err)
 		}
 		return
 	}
 
-	// Failed after all attempts.
-	s.logger.Error("stream recovery failed after max attempts",
-		slog.String("stream", streamName),
-		slog.Int("maxAttempts", s.maxAttempts),
-		slog.Any("lastError", lastErr))
-
-	if s.onRecoveryFailure != nil {
-		s.onRecoveryFailure(streamName, "", lastErr)
+	s.logger.Info("stream recovery successful",
+		slog.String("stream", streamName))
+	if s.onRecoverySuccess != nil {
+		s.onRecoverySuccess(streamName, "")
 	}
 }
 
@@ -305,56 +275,30 @@ func (s *Supervisor) runConsumerRecovery(stream, consumer string) {
 		return
 	}
 
-	var lastErr error
-
-	for attempt := 1; attempt <= s.maxAttempts; attempt++ {
-		select {
-		case <-s.ctx.Done():
-			s.logger.Debug("consumer recovery canceled",
-				slog.String("stream", stream),
-				slog.String("consumer", consumer))
-			return
-		default:
-		}
-
-		s.logger.Info("attempting consumer recovery",
-			slog.String("stream", stream),
-			slog.String("consumer", consumer),
-			slog.Int("attempt", attempt))
-
-		// Re-establish subscription (handler will recreate consumer via factory).
+	err := coreretry.Do(s.ctx, func(_ context.Context) error {
 		if err := handler(); err != nil {
-			lastErr = coreerrs.WrapOperation(err, "resubscribe")
-			s.logger.Warn("resubscription failed",
-				slog.String("stream", stream),
-				slog.String("consumer", consumer),
-				slog.Int("attempt", attempt),
-				slog.Any("error", err))
-			s.sleepWithBackoff(attempt)
-			continue
+			return coreerrs.WrapOperation(err, "resubscribe")
 		}
+		return nil
+	}, s.retryOpts(stream, consumer)...)
 
-		// Success.
-		s.logger.Info("consumer recovery successful",
+	if err != nil {
+		s.logger.Error("consumer recovery failed after max attempts",
 			slog.String("stream", stream),
 			slog.String("consumer", consumer),
-			slog.Int("attempts", attempt))
-
-		if s.onRecoverySuccess != nil {
-			s.onRecoverySuccess(stream, consumer)
+			slog.Int("maxAttempts", s.maxAttempts),
+			slog.Any("lastError", err))
+		if s.onRecoveryFailure != nil {
+			s.onRecoveryFailure(stream, consumer, err)
 		}
 		return
 	}
 
-	// Failed after all attempts.
-	s.logger.Error("consumer recovery failed after max attempts",
+	s.logger.Info("consumer recovery successful",
 		slog.String("stream", stream),
-		slog.String("consumer", consumer),
-		slog.Int("maxAttempts", s.maxAttempts),
-		slog.Any("lastError", lastErr))
-
-	if s.onRecoveryFailure != nil {
-		s.onRecoveryFailure(stream, consumer, lastErr)
+		slog.String("consumer", consumer))
+	if s.onRecoverySuccess != nil {
+		s.onRecoverySuccess(stream, consumer)
 	}
 }
 
@@ -388,13 +332,23 @@ func (s *Supervisor) restoreSubscriptions(stream string) error {
 	return nil
 }
 
-// sleepWithBackoff sleeps for an exponentially increasing duration based on attempt number.
-func (s *Supervisor) sleepWithBackoff(attempt int) {
-	duration := s.backoff * time.Duration(attempt)
-
-	select {
-	case <-s.ctx.Done():
-	case <-time.After(duration):
+// retryOpts returns the shared retry options for stream and consumer
+// recovery loops: linear backoff (backoff * (attempt+1)), capped at
+// maxAttempts, with per-attempt warning logs.
+func (s *Supervisor) retryOpts(stream, consumer string) []coreretry.Option {
+	return []coreretry.Option{
+		coreretry.WithMaxAttempts(s.maxAttempts - 1), // retry.Do counts from 0; attempt 0 is the first try
+		coreretry.WithNextDelay(func(attempt int, _ error) time.Duration {
+			return s.backoff * time.Duration(attempt+1)
+		}),
+		coreretry.WithOnRetry(func(attempt int, err error, _ time.Duration) {
+			s.logger.Warn("recovery attempt failed, retrying",
+				slog.String("stream", stream),
+				slog.String("consumer", consumer),
+				slog.Int("attempt", attempt+1),
+				slog.Int("maxAttempts", s.maxAttempts),
+				slog.Any("error", err))
+		}),
 	}
 }
 
