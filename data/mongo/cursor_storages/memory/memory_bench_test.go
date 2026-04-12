@@ -10,13 +10,14 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/data/mongo/cursor_storages/memory"
+	"github.com/altessa-s/go-atlas/data/mongo/internal/testhelpers"
 )
 
 func BenchmarkStorage_Store(b *testing.B) {
 	s := memory.New(time.Hour)
 	defer s.Close()
 	ctx := b.Context()
-	meta := sampleMetadata()
+	meta := testhelpers.SampleCursorMetadata()
 
 	for b.Loop() {
 		_ = s.Store(ctx, "bench-key", meta)
@@ -27,7 +28,7 @@ func BenchmarkStorage_Load(b *testing.B) {
 	s := memory.New(time.Hour)
 	defer s.Close()
 	ctx := b.Context()
-	_ = s.Store(ctx, "bench-key", sampleMetadata())
+	_ = s.Store(ctx, "bench-key", testhelpers.SampleCursorMetadata())
 
 	for b.Loop() {
 		_, _ = s.Load(ctx, "bench-key")
@@ -40,7 +41,7 @@ func BenchmarkStorage_RunCleanup(b *testing.B) {
 	ctx := b.Context()
 
 	for i := range 1000 {
-		_ = s.Store(ctx, fmt.Sprintf("key-%d", i), sampleMetadata())
+		_ = s.Store(ctx, fmt.Sprintf("key-%d", i), testhelpers.SampleCursorMetadata())
 	}
 	time.Sleep(5 * time.Millisecond)
 

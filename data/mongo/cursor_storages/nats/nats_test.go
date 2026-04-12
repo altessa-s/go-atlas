@@ -14,17 +14,8 @@ import (
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	cursnats "github.com/altessa-s/go-atlas/data/mongo/cursor_storages/nats"
+	mongohelpers "github.com/altessa-s/go-atlas/data/mongo/internal/testhelpers"
 )
-
-func sampleMetadata() *mongo.CursorMetadata {
-	return &mongo.CursorMetadata{
-		CursorId:      "507f1f77bcf86cd799439011",
-		Sort:          "dGVzdA==",
-		CursorIdField: "_id",
-		FilterHash:    "abc123",
-		CreatedAt:     time.Now(),
-	}
-}
 
 func setupStorage(tb testing.TB) *cursnats.Storage {
 	tb.Helper()
@@ -46,7 +37,7 @@ func TestNew(t *testing.T) {
 func TestStorage_StoreLoad(t *testing.T) {
 	s := setupStorage(t)
 	ctx := t.Context()
-	meta := sampleMetadata()
+	meta := mongohelpers.SampleCursorMetadata()
 
 	if err := s.Store(ctx, "key1", meta); err != nil {
 		t.Fatalf("Store() error: %v", err)
@@ -77,7 +68,7 @@ func TestStorage_Delete(t *testing.T) {
 	s := setupStorage(t)
 	ctx := t.Context()
 
-	_ = s.Store(ctx, "key1", sampleMetadata())
+	_ = s.Store(ctx, "key1", mongohelpers.SampleCursorMetadata())
 	if err := s.Delete(ctx, "key1"); err != nil {
 		t.Fatalf("Delete() error: %v", err)
 	}
@@ -99,11 +90,11 @@ func TestStorage_Overwrite(t *testing.T) {
 	s := setupStorage(t)
 	ctx := t.Context()
 
-	meta1 := sampleMetadata()
+	meta1 := mongohelpers.SampleCursorMetadata()
 	meta1.CursorId = "aaa"
 	_ = s.Store(ctx, "key", meta1)
 
-	meta2 := sampleMetadata()
+	meta2 := mongohelpers.SampleCursorMetadata()
 	meta2.CursorId = "bbb"
 	_ = s.Store(ctx, "key", meta2)
 

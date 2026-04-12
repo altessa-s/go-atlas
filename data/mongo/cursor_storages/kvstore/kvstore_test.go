@@ -8,10 +8,10 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/altessa-s/go-atlas/data/mongo"
 	"github.com/altessa-s/go-atlas/data/mongo/cursor_storages/kvstore"
+	"github.com/altessa-s/go-atlas/data/mongo/internal/testhelpers"
 )
 
 // mockBackend implements kvstore.Backend for testing.
@@ -51,16 +51,6 @@ func (m *mockBackend) Delete(_ context.Context, key string) error {
 	return nil
 }
 
-func sampleMetadata() *mongo.CursorMetadata {
-	return &mongo.CursorMetadata{
-		CursorId:      "507f1f77bcf86cd799439011",
-		Sort:          "dGVzdA==",
-		CursorIdField: "_id",
-		FilterHash:    "abc123",
-		CreatedAt:     time.Now(),
-	}
-}
-
 func TestNewJSONStorage(t *testing.T) {
 	s := kvstore.NewJSONStorage(newMockBackend(), "test")
 	if s == nil {
@@ -72,7 +62,7 @@ func TestJSONStorage_StoreLoad(t *testing.T) {
 	b := newMockBackend()
 	s := kvstore.NewJSONStorage(b, "test")
 	ctx := t.Context()
-	meta := sampleMetadata()
+	meta := testhelpers.SampleCursorMetadata()
 
 	if err := s.Store(ctx, "key1", meta); err != nil {
 		t.Fatalf("Store() error: %v", err)
@@ -116,7 +106,7 @@ func TestJSONStorage_Store_BackendError(t *testing.T) {
 	b.err = errors.New("backend failure")
 	s := kvstore.NewJSONStorage(b, "test")
 
-	err := s.Store(t.Context(), "key", sampleMetadata())
+	err := s.Store(t.Context(), "key", testhelpers.SampleCursorMetadata())
 	if err == nil {
 		t.Error("Store() should return error on backend failure")
 	}
@@ -127,7 +117,7 @@ func TestJSONStorage_Delete(t *testing.T) {
 	s := kvstore.NewJSONStorage(b, "test")
 	ctx := t.Context()
 
-	_ = s.Store(ctx, "key1", sampleMetadata())
+	_ = s.Store(ctx, "key1", testhelpers.SampleCursorMetadata())
 	if err := s.Delete(ctx, "key1"); err != nil {
 		t.Fatalf("Delete() error: %v", err)
 	}

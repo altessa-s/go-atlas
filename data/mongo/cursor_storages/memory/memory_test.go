@@ -11,17 +11,8 @@ import (
 
 	"github.com/altessa-s/go-atlas/data/mongo"
 	"github.com/altessa-s/go-atlas/data/mongo/cursor_storages/memory"
+	"github.com/altessa-s/go-atlas/data/mongo/internal/testhelpers"
 )
-
-func sampleMetadata() *mongo.CursorMetadata {
-	return &mongo.CursorMetadata{
-		CursorId:      "507f1f77bcf86cd799439011",
-		Sort:          "dGVzdA==",
-		CursorIdField: "_id",
-		FilterHash:    "abc123",
-		CreatedAt:     time.Now(),
-	}
-}
 
 func TestNew(t *testing.T) {
 	s := memory.New(time.Hour)
@@ -43,7 +34,7 @@ func TestStorage_StoreLoad(t *testing.T) {
 	s := memory.New(time.Hour)
 	defer s.Close()
 	ctx := t.Context()
-	meta := sampleMetadata()
+	meta := testhelpers.SampleCursorMetadata()
 
 	if err := s.Store(ctx, "key1", meta); err != nil {
 		t.Fatalf("Store() error: %v", err)
@@ -73,7 +64,7 @@ func TestStorage_Load_Expired(t *testing.T) {
 	defer s.Close()
 	ctx := t.Context()
 
-	_ = s.Store(ctx, "key1", sampleMetadata())
+	_ = s.Store(ctx, "key1", testhelpers.SampleCursorMetadata())
 	time.Sleep(5 * time.Millisecond)
 
 	_, err := s.Load(ctx, "key1")
@@ -87,7 +78,7 @@ func TestStorage_Delete(t *testing.T) {
 	defer s.Close()
 	ctx := t.Context()
 
-	_ = s.Store(ctx, "key1", sampleMetadata())
+	_ = s.Store(ctx, "key1", testhelpers.SampleCursorMetadata())
 	if err := s.Delete(ctx, "key1"); err != nil {
 		t.Fatalf("Delete() error: %v", err)
 	}
@@ -116,8 +107,8 @@ func TestStorage_Len(t *testing.T) {
 		t.Errorf("Len() = %d, want 0", s.Len())
 	}
 
-	_ = s.Store(ctx, "k1", sampleMetadata())
-	_ = s.Store(ctx, "k2", sampleMetadata())
+	_ = s.Store(ctx, "k1", testhelpers.SampleCursorMetadata())
+	_ = s.Store(ctx, "k2", testhelpers.SampleCursorMetadata())
 
 	if s.Len() != 2 {
 		t.Errorf("Len() = %d, want 2", s.Len())
@@ -129,8 +120,8 @@ func TestStorage_RunCleanup(t *testing.T) {
 	defer s.Close()
 	ctx := t.Context()
 
-	_ = s.Store(ctx, "k1", sampleMetadata())
-	_ = s.Store(ctx, "k2", sampleMetadata())
+	_ = s.Store(ctx, "k1", testhelpers.SampleCursorMetadata())
+	_ = s.Store(ctx, "k2", testhelpers.SampleCursorMetadata())
 	time.Sleep(5 * time.Millisecond)
 
 	s.RunCleanup()
@@ -145,12 +136,12 @@ func TestStorage_RunCleanup_PartialExpiry(t *testing.T) {
 	defer s.Close()
 	ctx := t.Context()
 
-	_ = s.Store(ctx, "keep", sampleMetadata())
+	_ = s.Store(ctx, "keep", testhelpers.SampleCursorMetadata())
 
 	// Create a short-TTL storage to add expired entry
 	sShort := memory.New(1 * time.Millisecond)
 	defer sShort.Close()
-	_ = sShort.Store(ctx, "expire", sampleMetadata())
+	_ = sShort.Store(ctx, "expire", testhelpers.SampleCursorMetadata())
 	time.Sleep(5 * time.Millisecond)
 	sShort.RunCleanup()
 
@@ -165,11 +156,11 @@ func TestStorage_Overwrite(t *testing.T) {
 	defer s.Close()
 	ctx := t.Context()
 
-	meta1 := sampleMetadata()
+	meta1 := testhelpers.SampleCursorMetadata()
 	meta1.CursorId = "aaa"
 	_ = s.Store(ctx, "key", meta1)
 
-	meta2 := sampleMetadata()
+	meta2 := testhelpers.SampleCursorMetadata()
 	meta2.CursorId = "bbb"
 	_ = s.Store(ctx, "key", meta2)
 

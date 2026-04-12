@@ -12,20 +12,11 @@ import (
 	"github.com/alicebob/miniredis/v2"
 
 	"github.com/altessa-s/go-atlas/data/mongo"
+	"github.com/altessa-s/go-atlas/data/mongo/internal/testhelpers"
 
 	cursredis "github.com/altessa-s/go-atlas/data/mongo/cursor_storages/redis"
 	goredis "github.com/redis/go-redis/v9"
 )
-
-func sampleMetadata() *mongo.CursorMetadata {
-	return &mongo.CursorMetadata{
-		CursorId:      "507f1f77bcf86cd799439011",
-		Sort:          "dGVzdA==",
-		CursorIdField: "_id",
-		FilterHash:    "abc123",
-		CreatedAt:     time.Now(),
-	}
-}
 
 func setupStorage(tb testing.TB) *cursredis.Storage {
 	tb.Helper()
@@ -45,7 +36,7 @@ func TestNew(t *testing.T) {
 func TestStorage_StoreLoad(t *testing.T) {
 	s := setupStorage(t)
 	ctx := t.Context()
-	meta := sampleMetadata()
+	meta := testhelpers.SampleCursorMetadata()
 
 	if err := s.Store(ctx, "key1", meta); err != nil {
 		t.Fatalf("Store() error: %v", err)
@@ -73,7 +64,7 @@ func TestStorage_Delete(t *testing.T) {
 	s := setupStorage(t)
 	ctx := t.Context()
 
-	_ = s.Store(ctx, "key1", sampleMetadata())
+	_ = s.Store(ctx, "key1", testhelpers.SampleCursorMetadata())
 	if err := s.Delete(ctx, "key1"); err != nil {
 		t.Fatalf("Delete() error: %v", err)
 	}
@@ -95,11 +86,11 @@ func TestStorage_Overwrite(t *testing.T) {
 	s := setupStorage(t)
 	ctx := t.Context()
 
-	meta1 := sampleMetadata()
+	meta1 := testhelpers.SampleCursorMetadata()
 	meta1.CursorId = "aaa"
 	_ = s.Store(ctx, "key", meta1)
 
-	meta2 := sampleMetadata()
+	meta2 := testhelpers.SampleCursorMetadata()
 	meta2.CursorId = "bbb"
 	_ = s.Store(ctx, "key", meta2)
 
@@ -120,13 +111,13 @@ func TestStorage_WithCustomOptions(t *testing.T) {
 	)
 
 	ctx := t.Context()
-	_ = s.Store(ctx, "key1", sampleMetadata())
+	_ = s.Store(ctx, "key1", testhelpers.SampleCursorMetadata())
 
 	loaded, err := s.Load(ctx, "key1")
 	if err != nil {
 		t.Fatalf("Load() error: %v", err)
 	}
-	if loaded.CursorId != sampleMetadata().CursorId {
+	if loaded.CursorId != testhelpers.SampleCursorMetadata().CursorId {
 		t.Errorf("CursorId mismatch")
 	}
 }

@@ -8,13 +8,14 @@ import (
 	"testing"
 
 	"github.com/altessa-s/go-atlas/data/mongo/cursor_storages/kvstore"
+	"github.com/altessa-s/go-atlas/data/mongo/internal/testhelpers"
 )
 
 func BenchmarkJSONStorage_Store(b *testing.B) {
 	backend := newMockBackend()
 	s := kvstore.NewJSONStorage(backend, "bench")
 	ctx := b.Context()
-	meta := sampleMetadata()
+	meta := testhelpers.SampleCursorMetadata()
 
 	for b.Loop() {
 		_ = s.Store(ctx, "bench-key", meta)
@@ -25,7 +26,7 @@ func BenchmarkJSONStorage_Load(b *testing.B) {
 	backend := newMockBackend()
 	s := kvstore.NewJSONStorage(backend, "bench")
 	ctx := b.Context()
-	_ = s.Store(ctx, "bench-key", sampleMetadata())
+	_ = s.Store(ctx, "bench-key", testhelpers.SampleCursorMetadata())
 
 	for b.Loop() {
 		_, _ = s.Load(ctx, "bench-key")

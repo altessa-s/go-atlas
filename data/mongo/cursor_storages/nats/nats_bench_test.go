@@ -11,6 +11,7 @@ import (
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	cursnats "github.com/altessa-s/go-atlas/data/mongo/cursor_storages/nats"
+	mongohelpers "github.com/altessa-s/go-atlas/data/mongo/internal/testhelpers"
 )
 
 func BenchmarkStorage_Store(b *testing.B) {
@@ -19,7 +20,7 @@ func BenchmarkStorage_Store(b *testing.B) {
 	kv := testhelpers.CreateNATSKV(b, js, "bench-cursor", time.Hour)
 	s := cursnats.New(kv)
 	ctx := b.Context()
-	meta := sampleMetadata()
+	meta := mongohelpers.SampleCursorMetadata()
 
 	for b.Loop() {
 		_ = s.Store(ctx, "bench-key", meta)
@@ -32,7 +33,7 @@ func BenchmarkStorage_Load(b *testing.B) {
 	kv := testhelpers.CreateNATSKV(b, js, "bench-cursor-load", time.Hour)
 	s := cursnats.New(kv)
 	ctx := b.Context()
-	_ = s.Store(ctx, "bench-key", sampleMetadata())
+	_ = s.Store(ctx, "bench-key", mongohelpers.SampleCursorMetadata())
 
 	for b.Loop() {
 		_, _ = s.Load(ctx, "bench-key")

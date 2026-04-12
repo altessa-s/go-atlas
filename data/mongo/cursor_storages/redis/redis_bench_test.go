@@ -9,6 +9,8 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 
+	"github.com/altessa-s/go-atlas/data/mongo/internal/testhelpers"
+
 	cursredis "github.com/altessa-s/go-atlas/data/mongo/cursor_storages/redis"
 	goredis "github.com/redis/go-redis/v9"
 )
@@ -24,7 +26,7 @@ func benchStorage(b *testing.B) *cursredis.Storage {
 func BenchmarkStorage_Store(b *testing.B) {
 	s := benchStorage(b)
 	ctx := b.Context()
-	meta := sampleMetadata()
+	meta := testhelpers.SampleCursorMetadata()
 	for b.Loop() {
 		_ = s.Store(ctx, "bench-key", meta)
 	}
@@ -33,7 +35,7 @@ func BenchmarkStorage_Store(b *testing.B) {
 func BenchmarkStorage_Load(b *testing.B) {
 	s := benchStorage(b)
 	ctx := b.Context()
-	_ = s.Store(ctx, "bench-key", sampleMetadata())
+	_ = s.Store(ctx, "bench-key", testhelpers.SampleCursorMetadata())
 	for b.Loop() {
 		_, _ = s.Load(ctx, "bench-key")
 	}
