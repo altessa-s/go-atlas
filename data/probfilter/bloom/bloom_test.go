@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/probfilter"
 	"github.com/altessa-s/go-atlas/data/probfilter/bloom"
 	"github.com/altessa-s/go-atlas/data/probfilter/bloom/storages/memory"
@@ -25,17 +27,11 @@ func TestFilter_AddAndMightExist(t *testing.T) {
 	f := newTestFilter()
 	ctx := t.Context()
 
-	if err := f.Add(ctx, "hello"); err != nil {
-		t.Fatalf("Add() error = %v", err)
-	}
+	require.NoError(t, f.Add(ctx, "hello"))
 
 	exists, err := f.MightExist(ctx, "hello")
-	if err != nil {
-		t.Fatalf("MightExist() error = %v", err)
-	}
-	if !exists {
-		t.Error("MightExist(hello) = false after Add")
-	}
+	require.NoError(t, err)
+	require.True(t, exists, "MightExist(hello) = false after Add")
 }
 
 func TestFilter_MightExist_NotAdded(t *testing.T) {
@@ -43,12 +39,8 @@ func TestFilter_MightExist_NotAdded(t *testing.T) {
 	ctx := t.Context()
 
 	exists, err := f.MightExist(ctx, "not-added")
-	if err != nil {
-		t.Fatalf("MightExist() error = %v", err)
-	}
-	if exists {
-		t.Error("MightExist(not-added) = true on empty filter")
-	}
+	require.NoError(t, err)
+	require.False(t, exists, "MightExist(not-added) = true on empty filter")
 }
 
 func TestFilter_AddBatch(t *testing.T) {
@@ -56,18 +48,12 @@ func TestFilter_AddBatch(t *testing.T) {
 	ctx := t.Context()
 
 	values := []string{"a", "b", "c"}
-	if err := f.AddBatch(ctx, slices.Values(values)); err != nil {
-		t.Fatalf("AddBatch() error = %v", err)
-	}
+	require.NoError(t, f.AddBatch(ctx, slices.Values(values)))
 
 	for _, v := range values {
 		exists, err := f.MightExist(ctx, v)
-		if err != nil {
-			t.Fatalf("MightExist(%q) error = %v", v, err)
-		}
-		if !exists {
-			t.Errorf("MightExist(%q) = false after AddBatch", v)
-		}
+		require.NoError(t, err)
+		require.True(t, exists, "MightExist(%q) = false after AddBatch", v)
 	}
 }
 
@@ -76,12 +62,8 @@ func TestFilter_Stats(t *testing.T) {
 	ctx := t.Context()
 
 	stats, err := f.Stats(ctx)
-	if err != nil {
-		t.Fatalf("Stats() error = %v", err)
-	}
-	if stats == nil {
-		t.Fatal("Stats() returned nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, stats, "Stats() returned nil")
 }
 
 func TestFilter_Stats_NoProvider(t *testing.T) {
@@ -90,17 +72,11 @@ func TestFilter_Stats_NoProvider(t *testing.T) {
 	f := newTestFilter()
 	ctx := t.Context()
 
-	if err := f.Add(ctx, "x"); err != nil {
-		t.Fatalf("Add() error = %v", err)
-	}
+	require.NoError(t, f.Add(ctx, "x"))
 
 	stats, err := f.Stats(ctx)
-	if err != nil {
-		t.Fatalf("Stats() error = %v", err)
-	}
-	if stats.ItemCount <= 0 {
-		t.Errorf("ItemCount = %d, want > 0 after Add", stats.ItemCount)
-	}
+	require.NoError(t, err)
+	require.True(t, stats.ItemCount > 0, "ItemCount = %d, want > 0 after Add", stats.ItemCount)
 }
 
 type mockDataLoader struct {
@@ -129,18 +105,12 @@ func TestFilter_Rebuild_WithCount(t *testing.T) {
 	ctx := t.Context()
 
 	loader := &mockDataLoader{values: []string{"x", "y", "z"}, count: 3}
-	if err := f.Rebuild(ctx, loader); err != nil {
-		t.Fatalf("Rebuild() error = %v", err)
-	}
+	require.NoError(t, f.Rebuild(ctx, loader))
 
 	for _, v := range loader.values {
 		exists, err := f.MightExist(ctx, v)
-		if err != nil {
-			t.Fatalf("MightExist(%q) error = %v", v, err)
-		}
-		if !exists {
-			t.Errorf("MightExist(%q) = false after Rebuild", v)
-		}
+		require.NoError(t, err)
+		require.True(t, exists, "MightExist(%q) = false after Rebuild", v)
 	}
 }
 
@@ -149,18 +119,12 @@ func TestFilter_Rebuild_WithoutCount(t *testing.T) {
 	ctx := t.Context()
 
 	loader := &mockDataLoader{values: []string{"a", "b"}, count: -1}
-	if err := f.Rebuild(ctx, loader); err != nil {
-		t.Fatalf("Rebuild() error = %v", err)
-	}
+	require.NoError(t, f.Rebuild(ctx, loader))
 
 	for _, v := range loader.values {
 		exists, err := f.MightExist(ctx, v)
-		if err != nil {
-			t.Fatalf("MightExist(%q) error = %v", v, err)
-		}
-		if !exists {
-			t.Errorf("MightExist(%q) = false after Rebuild", v)
-		}
+		require.NoError(t, err)
+		require.True(t, exists, "MightExist(%q) = false after Rebuild", v)
 	}
 }
 
@@ -169,27 +133,19 @@ func TestFilter_LastRebuild(t *testing.T) {
 	ctx := t.Context()
 
 	before := f.LastRebuild()
-	if !before.IsZero() {
-		t.Errorf("LastRebuild() = %v before rebuild, want zero", before)
-	}
+	require.True(t, before.IsZero(), "LastRebuild() = %v before rebuild, want zero", before)
 
 	loader := &mockDataLoader{values: []string{"x"}, count: 1}
 	now := time.Now()
-	if err := f.Rebuild(ctx, loader); err != nil {
-		t.Fatalf("Rebuild() error = %v", err)
-	}
+	require.NoError(t, f.Rebuild(ctx, loader))
 
 	after := f.LastRebuild()
-	if after.Before(now) {
-		t.Errorf("LastRebuild() = %v, want >= %v", after, now)
-	}
+	require.False(t, after.Before(now), "LastRebuild() = %v, want >= %v", after, now)
 }
 
 func TestFilter_Close(t *testing.T) {
 	f := newTestFilter()
-	if err := f.Close(t.Context()); err != nil {
-		t.Errorf("Close() error = %v", err)
-	}
+	require.NoError(t, f.Close(t.Context()))
 }
 
 // minimalStorage implements storages.Storage but NOT storages.StatsProvider.
@@ -223,16 +179,10 @@ func TestFilter_Stats_NoStatsProvider(t *testing.T) {
 	ctx := t.Context()
 
 	stats, err := f.Stats(ctx)
-	if err != nil {
-		t.Fatalf("Stats() error = %v", err)
-	}
-	if stats == nil {
-		t.Fatal("Stats() returned nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, stats, "Stats() returned nil")
 	// Should return empty FilterStats when storage doesn't implement StatsProvider
-	if stats.Capacity != 0 {
-		t.Errorf("Capacity = %d, want 0", stats.Capacity)
-	}
+	require.Equal(t, int64(0), stats.Capacity)
 }
 
 // errorDataLoader returns errors from StreamValues.
@@ -257,9 +207,7 @@ func TestFilter_Rebuild_StreamError_WithCount(t *testing.T) {
 
 	loader := &errorDataLoader{streamErr: errors.New("stream failed"), count: 5}
 	err := f.Rebuild(ctx, loader)
-	if err == nil {
-		t.Fatal("Rebuild() should return error when StreamValues fails")
-	}
+	require.Error(t, err, "Rebuild() should return error when StreamValues fails")
 }
 
 func TestFilter_Rebuild_StreamError_WithoutCount(t *testing.T) {
@@ -268,7 +216,5 @@ func TestFilter_Rebuild_StreamError_WithoutCount(t *testing.T) {
 
 	loader := &errorDataLoader{streamErr: errors.New("stream failed"), count: -1}
 	err := f.Rebuild(ctx, loader)
-	if err == nil {
-		t.Fatal("Rebuild() should return error when StreamValues fails (no count)")
-	}
+	require.Error(t, err, "Rebuild() should return error when StreamValues fails (no count)")
 }

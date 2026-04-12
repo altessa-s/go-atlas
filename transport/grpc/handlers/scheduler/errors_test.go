@@ -8,6 +8,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -35,12 +37,8 @@ func TestMapError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := mapError(tt.err)
 			st, ok := status.FromError(result)
-			if !ok {
-				t.Fatal("expected gRPC status error")
-			}
-			if st.Code() != tt.code {
-				t.Fatalf("code = %v, want %v", st.Code(), tt.code)
-			}
+			require.True(t, ok, "expected gRPC status error")
+			require.Equal(t, tt.code, st.Code())
 		})
 	}
 }
@@ -50,13 +48,8 @@ func TestMapError_internal_hides_details(t *testing.T) {
 	result := mapError(errors.New(secret))
 
 	st, ok := status.FromError(result)
-	if !ok {
-		t.Fatal("expected gRPC status error")
-	}
-	if st.Code() != codes.Internal {
-		t.Fatalf("code = %v, want %v", st.Code(), codes.Internal)
-	}
-	if msg := st.Message(); msg != "internal error" {
-		t.Fatalf("message = %q, want %q — internal details must not leak to clients", msg, "internal error")
-	}
+	require.True(t, ok, "expected gRPC status error")
+	require.Equal(t, codes.Internal, st.Code())
+	msg := st.Message()
+	require.Equal(t, "internal error", msg)
 }

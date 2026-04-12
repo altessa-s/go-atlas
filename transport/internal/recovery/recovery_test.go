@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestPanicError_Error(t *testing.T) {
@@ -24,44 +26,27 @@ func TestPanicError_Error(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			pe := &PanicError{Panic: tt.panic}
-			if got := pe.Error(); got != tt.want {
-				t.Fatalf("Error() = %q, want %q", got, tt.want)
-			}
+			got := pe.Error()
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
 
 func TestNewPanicError(t *testing.T) {
 	pe := NewPanicError("test panic", 0)
-	if pe == nil {
-		t.Fatal("NewPanicError returned nil")
-	}
-	if pe.Panic != "test panic" {
-		t.Fatalf("Panic = %v, want %q", pe.Panic, "test panic")
-	}
-	if len(pe.Frames) == 0 {
-		t.Fatal("Frames is empty")
-	}
+	require.NotNil(t, pe)
+	require.Equal(t, "test panic", pe.Panic)
+	require.NotEmpty(t, pe.Frames)
 	// First frame should be this test function
-	if !strings.Contains(pe.Frames[0].Function, "TestNewPanicError") {
-		t.Fatalf("first frame function = %q, want containing TestNewPanicError", pe.Frames[0].Function)
-	}
+	require.True(t, strings.Contains(pe.Frames[0].Function, "TestNewPanicError"))
 }
 
 func TestStackTrace(t *testing.T) {
 	frames := StackTrace(0)
-	if len(frames) == 0 {
-		t.Fatal("StackTrace returned empty frames")
-	}
-	if !strings.Contains(frames[0].Function, "TestStackTrace") {
-		t.Fatalf("first frame function = %q, want containing TestStackTrace", frames[0].Function)
-	}
-	if frames[0].Line <= 0 {
-		t.Fatalf("first frame line = %d, want > 0", frames[0].Line)
-	}
-	if frames[0].File == "" {
-		t.Fatal("first frame file is empty")
-	}
+	require.NotEmpty(t, frames)
+	require.True(t, strings.Contains(frames[0].Function, "TestStackTrace"))
+	require.Greater(t, frames[0].Line, 0, "first frame line should be > 0")
+	require.NotEqual(t, "", frames[0].File)
 }
 
 func TestFrames_String(t *testing.T) {
@@ -80,9 +65,8 @@ func TestFrames_String(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.frames.String(); got != tt.want {
-				t.Fatalf("String() = %q, want %q", got, tt.want)
-			}
+			got := tt.frames.String()
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -90,27 +74,18 @@ func TestFrames_String(t *testing.T) {
 func TestFrames_MarshalJSON(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
 		data, err := json.Marshal(Frames{})
-		if err != nil {
-			t.Fatalf("MarshalJSON error: %v", err)
-		}
-		if string(data) != "[]" {
-			t.Fatalf("MarshalJSON = %s, want []", data)
-		}
+		require.NoError(t, err)
+		require.Equal(t, "[]", string(data))
 	})
 
 	t.Run("with_frames", func(t *testing.T) {
 		frames := Frames{{File: "a.go", Line: 10, Function: "Foo"}}
 		data, err := json.Marshal(frames)
-		if err != nil {
-			t.Fatalf("MarshalJSON error: %v", err)
-		}
+		require.NoError(t, err)
 		var result []Frame
-		if err := json.Unmarshal(data, &result); err != nil {
-			t.Fatalf("Unmarshal error: %v", err)
-		}
-		if len(result) != 1 || result[0].File != "a.go" {
-			t.Fatalf("round-trip failed: %v", result)
-		}
+		require.NoError(t, json.Unmarshal(data, &result))
+		require.Len(t, result, 1)
+		require.Equal(t, "a.go", result[0].File)
 	})
 }
 
@@ -126,9 +101,8 @@ func TestShortname(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			if got := shortname(tt.input); got != tt.want {
-				t.Fatalf("shortname(%q) = %q, want %q", tt.input, got, tt.want)
-			}
+			got := shortname(tt.input)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }

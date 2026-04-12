@@ -4,7 +4,11 @@
 
 package outbox
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func FuzzEvent_IsReadyForRetry(f *testing.F) {
 	f.Add(uint32(0), uint32(10))
@@ -15,8 +19,6 @@ func FuzzEvent_IsReadyForRetry(f *testing.F) {
 		e := &Event{Attempts: attempts}
 		got := e.isReadyForRetry(maxAttempts)
 		want := attempts < maxAttempts
-		if got != want {
-			t.Fatalf("isReadyForRetry(%d, %d) = %v, want %v", attempts, maxAttempts, got, want)
-		}
+		assert.Equal(t, want, got)
 	})
 }

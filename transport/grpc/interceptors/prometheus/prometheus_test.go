@@ -7,6 +7,8 @@ package prometheus
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -25,9 +27,8 @@ func TestGetStatusCode(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := getStatusCode(tt.err); got != tt.want {
-				t.Fatalf("getStatusCode() = %v, want %v", got, tt.want)
-			}
+			got := getStatusCode(tt.err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -35,21 +36,16 @@ func TestGetStatusCode(t *testing.T) {
 func TestServerInterceptor_WithCustomRegistry(t *testing.T) {
 	reg := prom.NewRegistry()
 	i := ServerInterceptor(WithRegisterer(reg))
-	if i == nil {
-		t.Fatal("should not be nil")
-	}
-	if i.Name() != "prometheus" {
-		t.Fatalf("Name = %q", i.Name())
-	}
+	require.NotNil(t, i, "should not be nil")
+	require.Equal(t, "prometheus", i.Name())
 }
 
 func TestServerInterceptor_Dependencies(t *testing.T) {
 	reg := prom.NewRegistry()
 	i, _ := ServerInterceptor(WithRegisterer(reg)).(*serverInterceptorWrapper) //nolint:errcheck
 	deps := i.Dependencies()
-	if len(deps) != 1 || deps[0] != "metadata" {
-		t.Fatalf("Dependencies = %v", deps)
-	}
+	require.Len(t, deps, 1)
+	require.Equal(t, "metadata", deps[0])
 }
 
 func BenchmarkGetStatusCode(b *testing.B) {

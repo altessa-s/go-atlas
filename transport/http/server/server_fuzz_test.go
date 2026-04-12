@@ -7,6 +7,8 @@ package server
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func FuzzWithReadTimeout(f *testing.F) {
@@ -16,8 +18,6 @@ func FuzzWithReadTimeout(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, ns int64) {
 		opts := newOptions(WithReadTimeout(time.Duration(ns)))
-		if opts == nil {
-			t.Fatal("newOptions returned nil")
-		}
+		assert.NotNil(t, opts)
 	})
 }

@@ -5,9 +5,10 @@
 package nats_test
 
 import (
-	"errors"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/limiters/storages"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
@@ -21,24 +22,18 @@ func setupProvider(tb testing.TB) *limitnats.Provider {
 	_, js := testhelpers.ConnectJetStream(tb, ns)
 
 	provider, err := limitnats.New(js, limitnats.WithBucket(tb.Name()))
-	if err != nil {
-		tb.Fatalf("failed to create NATS limiter provider: %v", err)
-	}
+	require.NoError(tb, err)
 	return provider
 }
 
 func TestNew(t *testing.T) {
 	provider := setupProvider(t)
-	if provider == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, provider, "New() returned nil")
 }
 
 func TestNew_NilJetStream(t *testing.T) {
 	_, err := limitnats.New(nil)
-	if err == nil {
-		t.Error("New(nil) should return error")
-	}
+	require.Error(t, err, "New(nil) should return error")
 }
 
 func TestProvider_Allow_UnderLimit(t *testing.T) {
@@ -46,12 +41,8 @@ func TestProvider_Allow_UnderLimit(t *testing.T) {
 	ctx := t.Context()
 
 	info, err := provider.Allow(ctx, "key1", 5, time.Minute)
-	if err != nil {
-		t.Fatalf("Allow() error: %v", err)
-	}
-	if info.Remaining != 4 {
-		t.Errorf("Remaining = %d, want 4", info.Remaining)
-	}
+	require.NoError(t, err)
+	require.Equal(t, int64(4), info.Remaining)
 }
 
 func TestProvider_Allow_ExceedsLimit(t *testing.T) {
@@ -60,18 +51,12 @@ func TestProvider_Allow_ExceedsLimit(t *testing.T) {
 
 	for range 3 {
 		_, err := provider.Allow(ctx, "key1", 3, time.Minute)
-		if err != nil {
-			t.Fatalf("Allow() error: %v", err)
-		}
+		require.NoError(t, err)
 	}
 
 	info, err := provider.Allow(ctx, "key1", 3, time.Minute)
-	if !errors.Is(err, storages.ErrLimitExceeded) {
-		t.Errorf("Allow() error = %v, want ErrLimitExceeded", err)
-	}
-	if info.Remaining != 0 {
-		t.Errorf("Remaining = %d, want 0", info.Remaining)
-	}
+	require.ErrorIs(t, err, storages.ErrLimitExceeded)
+	require.Equal(t, int64(0), info.Remaining)
 }
 
 func TestProvider_Allow_DifferentKeys(t *testing.T) {
@@ -79,14 +64,10 @@ func TestProvider_Allow_DifferentKeys(t *testing.T) {
 	ctx := t.Context()
 
 	_, err := provider.Allow(ctx, "key1", 1, time.Minute)
-	if err != nil {
-		t.Fatalf("Allow(key1) error: %v", err)
-	}
+	require.NoError(t, err)
 
 	_, err = provider.Allow(ctx, "key2", 1, time.Minute)
-	if err != nil {
-		t.Fatalf("Allow(key2) should succeed independently: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestProvider_Reset(t *testing.T) {
@@ -98,14 +79,10 @@ func TestProvider_Reset(t *testing.T) {
 	}
 
 	err := provider.Reset(ctx, "key1")
-	if err != nil {
-		t.Fatalf("Reset() error: %v", err)
-	}
+	require.NoError(t, err)
 
 	_, err = provider.Allow(ctx, "key1", 3, time.Minute)
-	if err != nil {
-		t.Errorf("Allow() after Reset() should succeed: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestProvider_Reset_NonExistent(t *testing.T) {
@@ -113,9 +90,7 @@ func TestProvider_Reset_NonExistent(t *testing.T) {
 	ctx := t.Context()
 
 	err := provider.Reset(ctx, "nonexistent")
-	if err != nil {
-		t.Errorf("Reset() on nonexistent key should not error: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestProvider_Allow_Panics(t *testing.T) {

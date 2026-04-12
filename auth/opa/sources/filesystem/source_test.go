@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/auth/opa"
 	"github.com/altessa-s/go-atlas/auth/opa/sources/filesystem"
 
@@ -21,17 +23,11 @@ func TestNew_ValidDirectory(t *testing.T) {
 
 	dir := t.TempDir()
 	policyFile := filepath.Join(dir, "test.rego")
-	if err := os.WriteFile(policyFile, []byte("package test\n"), 0o600); err != nil {
-		t.Fatalf("failed to create test file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(policyFile, []byte("package test\n"), 0o600))
 
 	source, err := filesystem.New(dir)
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
-	if source == nil {
-		t.Fatal("New() returned nil source")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, source)
 	defer source.Close()
 }
 
@@ -40,17 +36,11 @@ func TestNew_ValidFile(t *testing.T) {
 
 	dir := t.TempDir()
 	policyFile := filepath.Join(dir, "test.rego")
-	if err := os.WriteFile(policyFile, []byte("package test\n"), 0o600); err != nil {
-		t.Fatalf("failed to create test file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(policyFile, []byte("package test\n"), 0o600))
 
 	source, err := filesystem.New(policyFile)
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
-	if source == nil {
-		t.Fatal("New() returned nil source")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, source)
 	defer source.Close()
 }
 
@@ -58,9 +48,7 @@ func TestNew_InvalidPath(t *testing.T) {
 	t.Parallel()
 
 	_, err := filesystem.New("/nonexistent/path/to/nowhere")
-	if err == nil {
-		t.Fatal("New() with nonexistent path should fail")
-	}
+	require.Error(t, err, "New() with nonexistent path should fail")
 }
 
 func TestNew_InvalidFileExtension(t *testing.T) {
@@ -68,14 +56,10 @@ func TestNew_InvalidFileExtension(t *testing.T) {
 
 	dir := t.TempDir()
 	txtFile := filepath.Join(dir, "test.txt")
-	if err := os.WriteFile(txtFile, []byte("test"), 0o600); err != nil {
-		t.Fatalf("failed to create test file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(txtFile, []byte("test"), 0o600))
 
 	_, err := filesystem.New(txtFile)
-	if err == nil {
-		t.Fatal("New() with .txt file should fail")
-	}
+	require.Error(t, err, "New() with .txt file should fail")
 }
 
 func TestSource_Name(t *testing.T) {
@@ -83,21 +67,13 @@ func TestSource_Name(t *testing.T) {
 
 	dir := t.TempDir()
 	policyFile := filepath.Join(dir, "test.rego")
-	if err := os.WriteFile(policyFile, []byte("package test\n"), 0o600); err != nil {
-		t.Fatalf("failed to create test file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(policyFile, []byte("package test\n"), 0o600))
 
 	source, err := filesystem.New(dir)
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
-	name := source.Name()
-	expected := "filesystem:" + dir
-	if name != expected {
-		t.Errorf("Name() = %q, want %q", name, expected)
-	}
+	require.Equal(t, "filesystem:"+dir, source.Name())
 }
 
 func TestSource_Path(t *testing.T) {
@@ -105,20 +81,13 @@ func TestSource_Path(t *testing.T) {
 
 	dir := t.TempDir()
 	policyFile := filepath.Join(dir, "test.rego")
-	if err := os.WriteFile(policyFile, []byte("package test\n"), 0o600); err != nil {
-		t.Fatalf("failed to create test file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(policyFile, []byte("package test\n"), 0o600))
 
 	source, err := filesystem.New(dir)
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
-	path := source.Path()
-	if path != dir {
-		t.Errorf("Path() = %q, want %q", path, dir)
-	}
+	require.Equal(t, dir, source.Path())
 }
 
 func TestSource_Extensions(t *testing.T) {
@@ -126,23 +95,15 @@ func TestSource_Extensions(t *testing.T) {
 
 	dir := t.TempDir()
 	policyFile := filepath.Join(dir, "test.rego")
-	if err := os.WriteFile(policyFile, []byte("package test\n"), 0o600); err != nil {
-		t.Fatalf("failed to create test file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(policyFile, []byte("package test\n"), 0o600))
 
 	source, err := filesystem.New(dir)
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	exts := source.Extensions()
-	if len(exts) != 1 {
-		t.Fatalf("Extensions() returned %d extensions, want 1", len(exts))
-	}
-	if exts[0] != ".rego" {
-		t.Errorf("Extensions()[0] = %q, want %q", exts[0], ".rego")
-	}
+	require.Len(t, exts, 1)
+	require.Equal(t, ".rego", exts[0])
 }
 
 func TestSource_Extensions_Custom(t *testing.T) {
@@ -150,32 +111,22 @@ func TestSource_Extensions_Custom(t *testing.T) {
 
 	dir := t.TempDir()
 	policyFile := filepath.Join(dir, "test.rego")
-	if err := os.WriteFile(policyFile, []byte("package test\n"), 0o600); err != nil {
-		t.Fatalf("failed to create test file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(policyFile, []byte("package test\n"), 0o600))
 
 	source, err := filesystem.New(dir, filesystem.WithExtensions(".rego", ".json"))
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	exts := source.Extensions()
-	if len(exts) != 2 {
-		t.Fatalf("Extensions() returned %d extensions, want 2", len(exts))
-	}
+	require.Len(t, exts, 2)
 
 	// Extensions order may vary, check both are present
 	extMap := make(map[string]bool)
 	for _, ext := range exts {
 		extMap[ext] = true
 	}
-	if !extMap[".rego"] {
-		t.Error("Extensions() missing .rego")
-	}
-	if !extMap[".json"] {
-		t.Error("Extensions() missing .json")
-	}
+	require.True(t, extMap[".rego"], "Extensions() missing .rego")
+	require.True(t, extMap[".json"], "Extensions() missing .json")
 }
 
 func TestSource_Fetch(t *testing.T) {
@@ -184,33 +135,18 @@ func TestSource_Fetch(t *testing.T) {
 	dir := t.TempDir()
 	policyContent := []byte("package test\ndefault allow = false")
 	policyFile := filepath.Join(dir, "test.rego")
-	if err := os.WriteFile(policyFile, policyContent, 0o600); err != nil {
-		t.Fatalf("failed to create test file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(policyFile, policyContent, 0o600))
 
 	source, err := filesystem.New(dir)
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	ctx := t.Context()
 	bundle, err := source.Fetch(ctx)
-	if err != nil {
-		t.Fatalf("Fetch() failed: %v", err)
-	}
-
-	if bundle == nil {
-		t.Fatal("Fetch() returned nil bundle")
-	}
-
-	if len(bundle.Modules) != 1 {
-		t.Errorf("bundle has %d modules, want 1", len(bundle.Modules))
-	}
-
-	if bundle.Revision == "" {
-		t.Error("bundle.Revision is empty")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, bundle)
+	require.Len(t, bundle.Modules, 1)
+	require.NotEmpty(t, bundle.Revision)
 }
 
 func TestSource_Fetch_Empty(t *testing.T) {
@@ -220,20 +156,13 @@ func TestSource_Fetch_Empty(t *testing.T) {
 	// Create directory but no .rego files
 
 	source, err := filesystem.New(dir)
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	ctx := t.Context()
 	_, err = source.Fetch(ctx)
-	if err == nil {
-		t.Fatal("Fetch() with no policy files should fail")
-	}
-
-	if !errors.Is(err, opa.ErrNoPolicyFiles) {
-		t.Errorf("Fetch() error = %v, want ErrNoPolicyFiles", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, opa.ErrNoPolicyFiles), "Fetch() error = %v, want ErrNoPolicyFiles", err)
 }
 
 func TestSource_Fetch_Closed(t *testing.T) {
@@ -241,28 +170,17 @@ func TestSource_Fetch_Closed(t *testing.T) {
 
 	dir := t.TempDir()
 	policyFile := filepath.Join(dir, "test.rego")
-	if err := os.WriteFile(policyFile, []byte("package test\n"), 0o600); err != nil {
-		t.Fatalf("failed to create test file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(policyFile, []byte("package test\n"), 0o600))
 
 	source, err := filesystem.New(dir)
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if err := source.Close(); err != nil {
-		t.Fatalf("Close() failed: %v", err)
-	}
+	require.NoError(t, source.Close())
 
 	ctx := t.Context()
 	_, err = source.Fetch(ctx)
-	if err == nil {
-		t.Fatal("Fetch() after Close() should fail")
-	}
-
-	if !errors.Is(err, opa.ErrSourceClosed) {
-		t.Errorf("Fetch() error = %v, want ErrSourceClosed", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, opa.ErrSourceClosed), "Fetch() error = %v, want ErrSourceClosed", err)
 }
 
 func TestSource_Fetch_WithData(t *testing.T) {
@@ -271,43 +189,23 @@ func TestSource_Fetch_WithData(t *testing.T) {
 	dir := t.TempDir()
 	policyContent := []byte("package test\ndefault allow = false")
 	policyFile := filepath.Join(dir, "test.rego")
-	if err := os.WriteFile(policyFile, policyContent, 0o600); err != nil {
-		t.Fatalf("failed to create policy file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(policyFile, policyContent, 0o600))
 
 	jsonContent := []byte(`{"users": ["alice", "bob"]}`)
 	jsonFile := filepath.Join(dir, "data.json")
-	if err := os.WriteFile(jsonFile, jsonContent, 0o600); err != nil {
-		t.Fatalf("failed to create json file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(jsonFile, jsonContent, 0o600))
 
 	source, err := filesystem.New(dir, filesystem.WithIncludeData())
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	ctx := t.Context()
 	bundle, err := source.Fetch(ctx)
-	if err != nil {
-		t.Fatalf("Fetch() failed: %v", err)
-	}
-
-	if bundle == nil {
-		t.Fatal("Fetch() returned nil bundle")
-	}
-
-	if len(bundle.Modules) != 1 {
-		t.Errorf("bundle has %d modules, want 1", len(bundle.Modules))
-	}
-
-	if bundle.Data == nil {
-		t.Fatal("bundle.Data is nil, expected data to be loaded")
-	}
-
-	if len(bundle.Data) == 0 {
-		t.Error("bundle.Data is empty, expected at least one entry")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, bundle)
+	require.Len(t, bundle.Modules, 1)
+	require.NotNil(t, bundle.Data, "bundle.Data is nil, expected data to be loaded")
+	require.NotEmpty(t, bundle.Data, "bundle.Data is empty, expected at least one entry")
 }
 
 func TestSource_Close_Idempotent(t *testing.T) {
@@ -315,22 +213,13 @@ func TestSource_Close_Idempotent(t *testing.T) {
 
 	dir := t.TempDir()
 	policyFile := filepath.Join(dir, "test.rego")
-	if err := os.WriteFile(policyFile, []byte("package test\n"), 0o600); err != nil {
-		t.Fatalf("failed to create test file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(policyFile, []byte("package test\n"), 0o600))
 
 	source, err := filesystem.New(dir)
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if err := source.Close(); err != nil {
-		t.Fatalf("first Close() failed: %v", err)
-	}
-
-	if err := source.Close(); err != nil {
-		t.Fatalf("second Close() failed: %v", err)
-	}
+	require.NoError(t, source.Close(), "first Close() failed")
+	require.NoError(t, source.Close(), "second Close() failed")
 }
 
 func TestSource_Fetch_ChecksumValid(t *testing.T) {
@@ -341,12 +230,8 @@ func TestSource_Fetch_ChecksumValid(t *testing.T) {
 	policy1 := []byte("package test\ndefault allow = false\n")
 	policy2 := []byte("package utils\nhelper = true\n")
 
-	if err := os.WriteFile(filepath.Join(dir, "test.rego"), policy1, 0o600); err != nil {
-		t.Fatalf("write policy1: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "utils.rego"), policy2, 0o600); err != nil {
-		t.Fatalf("write policy2: %v", err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "test.rego"), policy1, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "utils.rego"), policy2, 0o600))
 
 	checksums := map[string]string{
 		"test.rego":  corehash.SHA256HexBytes(policy1),
@@ -354,19 +239,12 @@ func TestSource_Fetch_ChecksumValid(t *testing.T) {
 	}
 
 	source, err := filesystem.New(dir, filesystem.WithChecksums(checksums))
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	bundle, err := source.Fetch(t.Context())
-	if err != nil {
-		t.Fatalf("Fetch() failed: %v", err)
-	}
-
-	if len(bundle.Modules) != 2 {
-		t.Errorf("bundle has %d modules, want 2", len(bundle.Modules))
-	}
+	require.NoError(t, err)
+	require.Len(t, bundle.Modules, 2)
 }
 
 func TestSource_Fetch_ChecksumMismatch(t *testing.T) {
@@ -375,28 +253,19 @@ func TestSource_Fetch_ChecksumMismatch(t *testing.T) {
 	dir := t.TempDir()
 
 	policy := []byte("package test\ndefault allow = false\n")
-	if err := os.WriteFile(filepath.Join(dir, "test.rego"), policy, 0o600); err != nil {
-		t.Fatalf("write policy: %v", err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "test.rego"), policy, 0o600))
 
 	checksums := map[string]string{
 		"test.rego": "0000000000000000000000000000000000000000000000000000000000000000",
 	}
 
 	source, err := filesystem.New(dir, filesystem.WithChecksums(checksums))
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	_, err = source.Fetch(t.Context())
-	if err == nil {
-		t.Fatal("Fetch() should fail with checksum mismatch")
-	}
-
-	if !errors.Is(err, filesystem.ErrChecksumMismatch) {
-		t.Errorf("Fetch() error = %v, want ErrChecksumMismatch", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, filesystem.ErrChecksumMismatch), "Fetch() error = %v, want ErrChecksumMismatch", err)
 }
 
 func TestSource_Fetch_ChecksumMissingFile(t *testing.T) {
@@ -405,9 +274,7 @@ func TestSource_Fetch_ChecksumMissingFile(t *testing.T) {
 	dir := t.TempDir()
 
 	policy := []byte("package test\n")
-	if err := os.WriteFile(filepath.Join(dir, "test.rego"), policy, 0o600); err != nil {
-		t.Fatalf("write policy: %v", err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "test.rego"), policy, 0o600))
 
 	checksums := map[string]string{
 		"test.rego":    corehash.SHA256HexBytes(policy),
@@ -415,19 +282,12 @@ func TestSource_Fetch_ChecksumMissingFile(t *testing.T) {
 	}
 
 	source, err := filesystem.New(dir, filesystem.WithChecksums(checksums))
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	_, err = source.Fetch(t.Context())
-	if err == nil {
-		t.Fatal("Fetch() should fail with missing file")
-	}
-
-	if !errors.Is(err, filesystem.ErrMissingPolicyFile) {
-		t.Errorf("Fetch() error = %v, want ErrMissingPolicyFile", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, filesystem.ErrMissingPolicyFile), "Fetch() error = %v, want ErrMissingPolicyFile", err)
 }
 
 func TestSource_Fetch_ChecksumUnexpectedFile(t *testing.T) {
@@ -438,12 +298,8 @@ func TestSource_Fetch_ChecksumUnexpectedFile(t *testing.T) {
 	policy1 := []byte("package test\n")
 	policy2 := []byte("package extra\n")
 
-	if err := os.WriteFile(filepath.Join(dir, "test.rego"), policy1, 0o600); err != nil {
-		t.Fatalf("write policy1: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "extra.rego"), policy2, 0o600); err != nil {
-		t.Fatalf("write policy2: %v", err)
-	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "test.rego"), policy1, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "extra.rego"), policy2, 0o600))
 
 	// Only include test.rego in checksums — extra.rego is unexpected.
 	checksums := map[string]string{
@@ -451,17 +307,10 @@ func TestSource_Fetch_ChecksumUnexpectedFile(t *testing.T) {
 	}
 
 	source, err := filesystem.New(dir, filesystem.WithChecksums(checksums))
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	_, err = source.Fetch(t.Context())
-	if err == nil {
-		t.Fatal("Fetch() should fail with unexpected file")
-	}
-
-	if !errors.Is(err, filesystem.ErrUnexpectedPolicyFile) {
-		t.Errorf("Fetch() error = %v, want ErrUnexpectedPolicyFile", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, filesystem.ErrUnexpectedPolicyFile), "Fetch() error = %v, want ErrUnexpectedPolicyFile", err)
 }

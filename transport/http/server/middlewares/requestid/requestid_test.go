@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/transport/internal/requestid"
 )
 
@@ -17,9 +19,7 @@ func TestRequestId_GeneratesIfMissing(t *testing.T) {
 	mw := RequestId(gen)
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := FromContext(r.Context())
-		if id == "" {
-			t.Fatal("expected request ID in context")
-		}
+		require.NotEqual(t, "", id)
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -27,12 +27,8 @@ func TestRequestId_GeneratesIfMissing(t *testing.T) {
 	req := httptest.NewRequest("GET", "/test", nil)
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("code = %d", rec.Code)
-	}
-	if rec.Header().Get(gen.HeaderName()) == "" {
-		t.Fatal("expected request ID in response header")
-	}
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotEqual(t, "", rec.Header().Get(gen.HeaderName()))
 }
 
 func TestRequestId_UsesExisting(t *testing.T) {
@@ -42,9 +38,7 @@ func TestRequestId_UsesExisting(t *testing.T) {
 
 	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := FromContext(r.Context())
-		if id != existingID {
-			t.Fatalf("id = %q, want %q", id, existingID)
-		}
+		require.Equal(t, existingID, id)
 	}))
 
 	rec := httptest.NewRecorder()
@@ -65,21 +59,15 @@ func TestRequestId_SkipsOptions(t *testing.T) {
 	req := httptest.NewRequest("OPTIONS", "/test", nil)
 	handler.ServeHTTP(rec, req)
 
-	if !called {
-		t.Fatal("handler should be called for OPTIONS")
-	}
+	require.True(t, called, "handler should be called for OPTIONS")
 }
 
 func TestFromContext_Empty(t *testing.T) {
 	id := FromContext(t.Context())
-	if id != "" {
-		t.Fatalf("expected empty, got %q", id)
-	}
+	require.Equal(t, "", id)
 }
 
 func TestNewContext(t *testing.T) {
 	ctx := NewContext(t.Context(), "test-id")
-	if FromContext(ctx) != "test-id" {
-		t.Fatal("expected test-id")
-	}
+	require.Equal(t, "test-id", FromContext(ctx))
 }

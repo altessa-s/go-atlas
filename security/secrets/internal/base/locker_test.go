@@ -9,6 +9,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/security/secrets/internal/base"
 )
 
@@ -32,12 +34,8 @@ func TestWithLock_NilLocker(t *testing.T) {
 		executed = true
 		return expectedErr
 	})
-	if !executed {
-		t.Error("expected function to be executed")
-	}
-	if !errors.Is(err, expectedErr) {
-		t.Errorf("expected error %v, got %v", expectedErr, err)
-	}
+	require.True(t, executed, "expected function to be executed")
+	require.ErrorIs(t, err, expectedErr)
 }
 
 func TestWithLock_WithLocker(t *testing.T) {
@@ -45,24 +43,16 @@ func TestWithLock_WithLocker(t *testing.T) {
 	err := base.WithLock(t.Context(), mock, "provider", "encodedKey", func(ctx context.Context) error {
 		return nil
 	})
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if mock.recordedKey != "provider:encodedKey" {
-		t.Errorf("lock key = %q, want %q", mock.recordedKey, "provider:encodedKey")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "provider:encodedKey", mock.recordedKey)
 }
 
 func TestWithLockResult_NilLocker(t *testing.T) {
 	result, err := base.WithLockResult(t.Context(), nil, "provider", "key", func(ctx context.Context) (string, error) {
 		return "test result", nil
 	})
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if result != "test result" {
-		t.Errorf("result = %q, want %q", result, "test result")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "test result", result)
 }
 
 func TestWithLockResult_WithLocker(t *testing.T) {
@@ -70,12 +60,8 @@ func TestWithLockResult_WithLocker(t *testing.T) {
 	result, err := base.WithLockResult(t.Context(), mock, "provider", "key", func(ctx context.Context) (int, error) {
 		return 42, nil
 	})
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if result != 42 {
-		t.Errorf("result = %d, want 42", result)
-	}
+	require.NoError(t, err)
+	require.Equal(t, 42, result)
 }
 
 func TestWithLockResult_Error(t *testing.T) {
@@ -83,10 +69,6 @@ func TestWithLockResult_Error(t *testing.T) {
 	result, err := base.WithLockResult(t.Context(), &mockLocker{}, "p", "k", func(ctx context.Context) (string, error) {
 		return "", expectedErr
 	})
-	if !errors.Is(err, expectedErr) {
-		t.Errorf("expected error %v, got %v", expectedErr, err)
-	}
-	if result != "" {
-		t.Errorf("expected zero value, got %q", result)
-	}
+	require.ErrorIs(t, err, expectedErr)
+	require.Empty(t, result)
 }

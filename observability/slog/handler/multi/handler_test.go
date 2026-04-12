@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // spy is a test handler that records calls.
@@ -45,16 +47,12 @@ func (s *spy) WithGroup(name string) slog.Handler {
 func TestEnabled(t *testing.T) {
 	t.Run("true if any child enabled", func(t *testing.T) {
 		h := NewHandler(newSpy(false), newSpy(true), newSpy(false))
-		if !h.Enabled(context.Background(), slog.LevelInfo) {
-			t.Error("expected Enabled=true when one child is enabled")
-		}
+		require.True(t, h.Enabled(context.Background(), slog.LevelInfo))
 	})
 
 	t.Run("false if none enabled", func(t *testing.T) {
 		h := NewHandler(newSpy(false), newSpy(false))
-		if h.Enabled(context.Background(), slog.LevelInfo) {
-			t.Error("expected Enabled=false when no child is enabled")
-		}
+		require.False(t, h.Enabled(context.Background(), slog.LevelInfo))
 	})
 }
 
@@ -65,19 +63,11 @@ func TestHandle(t *testing.T) {
 	h := NewHandler(s1, s2, s3)
 
 	r := slog.NewRecord(time.Now(), slog.LevelInfo, "hello", 0)
-	if err := h.Handle(context.Background(), r); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, h.Handle(context.Background(), r))
 
-	if len(s1.records) != 1 {
-		t.Errorf("s1 got %d records, want 1", len(s1.records))
-	}
-	if len(s2.records) != 1 {
-		t.Errorf("s2 got %d records, want 1", len(s2.records))
-	}
-	if len(s3.records) != 0 {
-		t.Errorf("s3 (disabled) got %d records, want 0", len(s3.records))
-	}
+	require.Len(t, s1.records, 1)
+	require.Len(t, s2.records, 1)
+	require.Empty(t, s3.records)
 }
 
 func TestHandle_ErrorCollection(t *testing.T) {
@@ -92,15 +82,9 @@ func TestHandle_ErrorCollection(t *testing.T) {
 
 	r := slog.NewRecord(time.Now(), slog.LevelInfo, "msg", 0)
 	err := h.Handle(context.Background(), r)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !errors.Is(err, errA) {
-		t.Errorf("error should wrap errA")
-	}
-	if !errors.Is(err, errB) {
-		t.Errorf("error should wrap errB")
-	}
+	require.Error(t, err)
+	require.ErrorIs(t, err, errA)
+	require.ErrorIs(t, err, errB)
 }
 
 func TestWithAttrs(t *testing.T) {
@@ -113,8 +97,8 @@ func TestWithAttrs(t *testing.T) {
 
 	// Original should be unchanged.
 	for _, child := range original.Handlers() {
-		if sp, ok := child.(*spy); ok && len(sp.attrs) > 0 {
-			t.Error("original handler children should not have attrs")
+		if sp, ok := child.(*spy); ok {
+			require.Empty(t, sp.attrs, "original handler children should not have attrs")
 		}
 	}
 
@@ -122,9 +106,8 @@ func TestWithAttrs(t *testing.T) {
 	dh := derived.(*Handler)
 	for _, child := range dh.Handlers() {
 		sp := child.(*spy)
-		if len(sp.attrs) != 1 || sp.attrs[0].Key != "key" {
-			t.Errorf("derived child attrs = %v, want [{key val}]", sp.attrs)
-		}
+		require.Len(t, sp.attrs, 1)
+		require.Equal(t, "key", sp.attrs[0].Key)
 	}
 }
 
@@ -137,8 +120,8 @@ func TestWithGroup(t *testing.T) {
 
 	// Original should be unchanged.
 	for _, child := range original.Handlers() {
-		if sp, ok := child.(*spy); ok && len(sp.groups) > 0 {
-			t.Error("original handler children should not have groups")
+		if sp, ok := child.(*spy); ok {
+			require.Empty(t, sp.groups, "original handler children should not have groups")
 		}
 	}
 
@@ -146,17 +129,14 @@ func TestWithGroup(t *testing.T) {
 	dh := derived.(*Handler)
 	for _, child := range dh.Handlers() {
 		sp := child.(*spy)
-		if len(sp.groups) != 1 || sp.groups[0] != "grp" {
-			t.Errorf("derived child groups = %v, want [grp]", sp.groups)
-		}
+		require.Len(t, sp.groups, 1)
+		require.Equal(t, "grp", sp.groups[0])
 	}
 }
 
 func TestWithGroup_Empty(t *testing.T) {
 	h := NewHandler(newSpy(true))
-	if h.WithGroup("") != h {
-		t.Error("WithGroup(\"\") should return same handler")
-	}
+	require.Equal(t, h, h.WithGroup(""))
 }
 
 func TestHandlers(t *testing.T) {
@@ -165,23 +145,15 @@ func TestHandlers(t *testing.T) {
 	h := NewHandler(s1, s2)
 
 	children := h.Handlers()
-	if len(children) != 2 {
-		t.Fatalf("len(Handlers()) = %d, want 2", len(children))
-	}
+	require.Len(t, children, 2)
 }
 
 func TestNewHandler_Empty(t *testing.T) {
 	h := NewHandler()
-	if h.Enabled(context.Background(), slog.LevelInfo) {
-		t.Error("empty handler should not be enabled")
-	}
+	require.False(t, h.Enabled(context.Background(), slog.LevelInfo))
 	r := slog.NewRecord(time.Now(), slog.LevelInfo, "msg", 0)
-	if err := h.Handle(context.Background(), r); err != nil {
-		t.Errorf("empty handler Handle should return nil, got %v", err)
-	}
-	if len(h.Handlers()) != 0 {
-		t.Errorf("empty handler should have 0 children")
-	}
+	require.NoError(t, h.Handle(context.Background(), r))
+	require.Empty(t, h.Handlers())
 }
 
 func TestNewHandler_DefensiveCopy(t *testing.T) {
@@ -192,9 +164,7 @@ func TestNewHandler_DefensiveCopy(t *testing.T) {
 	spies[0] = newSpy(false)
 
 	// Handler should still have the original spy.
-	if !h.Handlers()[0].Enabled(context.Background(), slog.LevelInfo) {
-		t.Error("handler should retain original child after external slice mutation")
-	}
+	require.True(t, h.Handlers()[0].Enabled(context.Background(), slog.LevelInfo), "handler should retain original child after external slice mutation")
 }
 
 // --- Concurrent handler tests ---
@@ -206,9 +176,7 @@ func TestHandle_Concurrent(t *testing.T) {
 	h := NewConcurrentHandler(s1, s2, s3)
 
 	r := slog.NewRecord(time.Now(), slog.LevelInfo, "hello", 0)
-	if err := h.Handle(context.Background(), r); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, h.Handle(context.Background(), r))
 
 	s1.mu.Lock()
 	defer s1.mu.Unlock()
@@ -217,15 +185,9 @@ func TestHandle_Concurrent(t *testing.T) {
 	s3.mu.Lock()
 	defer s3.mu.Unlock()
 
-	if len(s1.records) != 1 {
-		t.Errorf("s1 got %d records, want 1", len(s1.records))
-	}
-	if len(s2.records) != 1 {
-		t.Errorf("s2 got %d records, want 1", len(s2.records))
-	}
-	if len(s3.records) != 0 {
-		t.Errorf("s3 (disabled) got %d records, want 0", len(s3.records))
-	}
+	require.Len(t, s1.records, 1)
+	require.Len(t, s2.records, 1)
+	require.Empty(t, s3.records)
 }
 
 func TestHandle_Concurrent_ErrorCollection(t *testing.T) {
@@ -240,15 +202,9 @@ func TestHandle_Concurrent_ErrorCollection(t *testing.T) {
 
 	r := slog.NewRecord(time.Now(), slog.LevelInfo, "msg", 0)
 	err := h.Handle(context.Background(), r)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !errors.Is(err, errA) {
-		t.Errorf("error should wrap errA")
-	}
-	if !errors.Is(err, errB) {
-		t.Errorf("error should wrap errB")
-	}
+	require.Error(t, err)
+	require.ErrorIs(t, err, errA)
+	require.ErrorIs(t, err, errB)
 }
 
 // slowSpy is a handler that sleeps before recording.
@@ -277,22 +233,16 @@ func TestHandle_Concurrent_SlowHandler(t *testing.T) {
 	r := slog.NewRecord(time.Now(), slog.LevelInfo, "msg", 0)
 
 	start := time.Now()
-	if err := h.Handle(context.Background(), r); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, h.Handle(context.Background(), r))
 	elapsed := time.Since(start)
 
 	// With concurrent dispatch, the total time should be ~1s (the slow
 	// handler's delay), not 2s. We allow some margin.
-	if elapsed > 2*time.Second {
-		t.Errorf("concurrent dispatch took %v, expected ~1s", elapsed)
-	}
+	require.Less(t, elapsed, 2*time.Second, "concurrent dispatch took %v, expected ~1s", elapsed)
 
 	fast.mu.Lock()
 	defer fast.mu.Unlock()
-	if len(fast.records) != 1 {
-		t.Errorf("fast handler got %d records, want 1", len(fast.records))
-	}
+	require.Len(t, fast.records, 1)
 }
 
 func TestWithAttrs_Concurrent(t *testing.T) {
@@ -304,14 +254,11 @@ func TestWithAttrs_Concurrent(t *testing.T) {
 	derived := original.WithAttrs(attrs)
 
 	dh := derived.(*Handler)
-	if !dh.concurrent {
-		t.Error("WithAttrs should propagate concurrent flag")
-	}
+	require.True(t, dh.concurrent, "WithAttrs should propagate concurrent flag")
 	for _, child := range dh.Handlers() {
 		sp := child.(*spy)
-		if len(sp.attrs) != 1 || sp.attrs[0].Key != "key" {
-			t.Errorf("derived child attrs = %v, want [{key val}]", sp.attrs)
-		}
+		require.Len(t, sp.attrs, 1)
+		require.Equal(t, "key", sp.attrs[0].Key)
 	}
 }
 
@@ -323,13 +270,10 @@ func TestWithGroup_Concurrent(t *testing.T) {
 	derived := original.WithGroup("grp")
 
 	dh := derived.(*Handler)
-	if !dh.concurrent {
-		t.Error("WithGroup should propagate concurrent flag")
-	}
+	require.True(t, dh.concurrent, "WithGroup should propagate concurrent flag")
 	for _, child := range dh.Handlers() {
 		sp := child.(*spy)
-		if len(sp.groups) != 1 || sp.groups[0] != "grp" {
-			t.Errorf("derived child groups = %v, want [grp]", sp.groups)
-		}
+		require.Len(t, sp.groups, 1)
+		require.Equal(t, "grp", sp.groups[0])
 	}
 }

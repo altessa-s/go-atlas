@@ -7,6 +7,8 @@ package vault_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/security/vault"
 
@@ -15,17 +17,11 @@ import (
 
 func TestCheckHealth_NotRunning(t *testing.T) {
 	client, err := vaultApi.NewClient(vaultApi.DefaultConfig())
-	if err != nil {
-		t.Fatalf("failed to create vault client: %v", err)
-	}
+	require.NoError(t, err)
 
 	v, err := vault.New(t.Context(), vault.WithVaultClient(client))
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	status := v.CheckHealth(t.Context())
-	if status != health.StatusNotServing {
-		t.Errorf("CheckHealth() = %v, want StatusNotServing", status)
-	}
+	require.Equal(t, health.StatusNotServing, status)
 }

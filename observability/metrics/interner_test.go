@@ -7,6 +7,8 @@ package metrics_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
@@ -15,9 +17,7 @@ import (
 func TestNewInternerMetrics_NilCollector(t *testing.T) {
 	interner := corestrings.NewInterner(100)
 	im := metrics.NewInternerMetrics(nil, interner)
-	if im == nil {
-		t.Fatal("NewInternerMetrics(nil, ...) returned nil")
-	}
+	require.NotNil(t, im)
 
 	// Should not panic with noop collector.
 	im.Report()
@@ -36,7 +36,7 @@ func TestInternerMetrics_Report(t *testing.T) {
 
 	// After Report, stats should be reset.
 	stats := interner.Stats()
-	if stats.HotHits != 0 || stats.ColdHits != 0 || stats.Misses != 0 {
-		t.Errorf("stats not reset after Report: %+v", stats)
-	}
+	require.Zero(t, stats.HotHits, "stats not reset after Report")
+	require.Zero(t, stats.ColdHits, "stats not reset after Report")
+	require.Zero(t, stats.Misses, "stats not reset after Report")
 }

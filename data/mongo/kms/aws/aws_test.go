@@ -8,6 +8,8 @@ import (
 	"crypto/tls"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/mongo/kms"
 
 	kmsaws "github.com/altessa-s/go-atlas/data/mongo/kms/aws"
@@ -15,16 +17,12 @@ import (
 
 func TestNew(t *testing.T) {
 	p := kmsaws.New("AKIAIOSFODNN7EXAMPLE", "secret", "arn:aws:kms:us-east-1:123:key/abc")
-	if p == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, p)
 }
 
 func TestAmazon_Name(t *testing.T) {
 	p := kmsaws.New("key", "secret", "arn")
-	if p.Name() != "aws" {
-		t.Errorf("Name() = %q, want %q", p.Name(), "aws")
-	}
+	require.Equal(t, "aws", p.Name())
 }
 
 func TestAmazon_Credentials(t *testing.T) {
@@ -32,46 +30,30 @@ func TestAmazon_Credentials(t *testing.T) {
 	creds := p.Credentials()
 
 	awsCreds, ok := creds["aws"]
-	if !ok {
-		t.Fatal("Credentials() missing 'aws' key")
-	}
-	if awsCreds[kmsaws.AccessKeyID] != "AKID" {
-		t.Errorf("AccessKeyID = %v, want %q", awsCreds[kmsaws.AccessKeyID], "AKID")
-	}
-	if awsCreds[kmsaws.SecretAccessKey] != "SECRET" {
-		t.Errorf("SecretAccessKey = %v, want %q", awsCreds[kmsaws.SecretAccessKey], "SECRET")
-	}
+	require.True(t, ok, "Credentials() missing 'aws' key")
+	require.Equal(t, "AKID", awsCreds[kmsaws.AccessKeyID])
+	require.Equal(t, "SECRET", awsCreds[kmsaws.SecretAccessKey])
 }
 
 func TestAWSCredentials_WithSessionToken(t *testing.T) {
 	token := "session-token"
 	creds := kmsaws.NewAWSCredentials("AKID", "SECRET", &token)
-	if creds.SessionToken == nil {
-		t.Fatal("SessionToken should not be nil")
-	}
-	if creds.SessionToken.StringUnsafe() != "session-token" {
-		t.Errorf("SessionToken = %q, want %q", creds.SessionToken.StringUnsafe(), "session-token")
-	}
+	require.NotNil(t, creds.SessionToken)
+	require.Equal(t, "session-token", creds.SessionToken.StringUnsafe())
 }
 
 func TestAWSCredentials_Clear(t *testing.T) {
 	creds := kmsaws.NewAWSCredentials("AKID", "SECRET", nil)
 	creds.Clear()
-	if creds.AccessKeyID != nil {
-		t.Error("AccessKeyID should be nil after Clear()")
-	}
-	if creds.SecretAccessKey != nil {
-		t.Error("SecretAccessKey should be nil after Clear()")
-	}
+	require.Nil(t, creds.AccessKeyID)
+	require.Nil(t, creds.SecretAccessKey)
 }
 
 func TestAmazon_Credentials_Cached(t *testing.T) {
 	p := kmsaws.New("AKID", "SECRET", "arn")
 	c1 := p.Credentials()
 	c2 := p.Credentials()
-	if c1["aws"][kmsaws.AccessKeyID] != c2["aws"][kmsaws.AccessKeyID] {
-		t.Error("Credentials() should return consistent values")
-	}
+	require.Equal(t, c1["aws"][kmsaws.AccessKeyID], c2["aws"][kmsaws.AccessKeyID])
 }
 
 func TestAmazon_MasterKey(t *testing.T) {
@@ -83,51 +65,36 @@ func TestAmazon_MasterKey(t *testing.T) {
 	)
 
 	key := p.MasterKey()
-	if key[kmsaws.KeyARN] != "arn:aws:kms:us-east-1:123:key/abc" {
-		t.Errorf("KeyARN = %v", key[kmsaws.KeyARN])
-	}
-	if key[kmsaws.Region] != "us-east-1" {
-		t.Errorf("Region = %v", key[kmsaws.Region])
-	}
-	if key[kmsaws.Endpoint] != "https://kms.custom.com" {
-		t.Errorf("Endpoint = %v", key[kmsaws.Endpoint])
-	}
+	require.Equal(t, "arn:aws:kms:us-east-1:123:key/abc", key[kmsaws.KeyARN])
+	require.Equal(t, "us-east-1", key[kmsaws.Region])
+	require.Equal(t, "https://kms.custom.com", key[kmsaws.Endpoint])
 }
 
 func TestAmazon_MasterKey_NoOptionals(t *testing.T) {
 	p := kmsaws.New("AKID", "SECRET", "arn")
 	key := p.MasterKey()
-	if _, ok := key[kmsaws.Region]; ok {
-		t.Error("Region should not be set")
-	}
-	if _, ok := key[kmsaws.Endpoint]; ok {
-		t.Error("Endpoint should not be set")
-	}
+	_, hasRegion := key[kmsaws.Region]
+	require.False(t, hasRegion)
+	_, hasEndpoint := key[kmsaws.Endpoint]
+	require.False(t, hasEndpoint)
 }
 
 func TestAmazon_TLSConfig_Nil(t *testing.T) {
 	p := kmsaws.New("AKID", "SECRET", "arn")
-	if p.TLSConfig() != nil {
-		t.Error("TLSConfig() should be nil by default")
-	}
+	require.Nil(t, p.TLSConfig())
 }
 
 func TestAmazon_TLSConfig_Custom(t *testing.T) {
 	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS13} //nolint:gosec
 	p := kmsaws.New("AKID", "SECRET", "arn", kmsaws.WithTLS(tlsCfg))
-	if p.TLSConfig() != tlsCfg {
-		t.Error("TLSConfig() should return custom config")
-	}
+	require.Equal(t, tlsCfg, p.TLSConfig())
 }
 
 func TestAmazon_Clear(t *testing.T) {
 	p := kmsaws.New("AKID", "SECRET", "arn")
 	p.Clear()
-	// After clear, credentials should be empty
 	creds := p.Credentials()
-	if len(creds["aws"]) != 0 {
-		t.Errorf("Credentials() after Clear() should be empty, got %v", creds["aws"])
-	}
+	require.Len(t, creds["aws"], 0)
 }
 
 func TestAmazon_ImplementsProvider(t *testing.T) {
@@ -136,14 +103,10 @@ func TestAmazon_ImplementsProvider(t *testing.T) {
 
 func TestAmazon_HasMasterKey(t *testing.T) {
 	p := kmsaws.New("k", "s", "a")
-	if !kms.HasMasterKey(p) {
-		t.Error("AWS provider should have master key")
-	}
+	require.True(t, kms.HasMasterKey(p))
 }
 
 func TestAmazon_HasCustomTLS(t *testing.T) {
 	p := kmsaws.New("k", "s", "a")
-	if kms.HasCustomTLS(p) {
-		t.Error("AWS provider should not have custom TLS by default")
-	}
+	require.False(t, kms.HasCustomTLS(p))
 }

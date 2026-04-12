@@ -11,20 +11,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/transport/internal/timeouts"
 )
 
 func TestNewBaseServer(t *testing.T) {
 	s := NewBaseServer(WithAddress(":0"))
-	if s == nil {
-		t.Fatal("NewBaseServer returned nil")
-	}
-	if s.IsStarted() {
-		t.Fatal("new server should not be started")
-	}
-	if s.IsShutdown() {
-		t.Fatal("new server should not be shutdown")
-	}
+	require.NotNil(t, s)
+	require.False(t, s.IsStarted(), "new server should not be started")
+	require.False(t, s.IsShutdown(), "new server should not be shutdown")
 }
 
 func TestBaseServer_Protocol(t *testing.T) {
@@ -44,9 +40,8 @@ func TestBaseServer_Protocol(t *testing.T) {
 			opts = append(opts, WithAddress(":0"))
 			s := NewBaseServer(opts...)
 			if !tt.tls {
-				if got := s.Protocol(tt.protocol); got != tt.want {
-					t.Fatalf("Protocol() = %q, want %q", got, tt.want)
-				}
+				got := s.Protocol(tt.protocol)
+				require.Equal(t, tt.want, got)
 			}
 		})
 	}
@@ -54,59 +49,40 @@ func TestBaseServer_Protocol(t *testing.T) {
 
 func TestBaseServer_Name(t *testing.T) {
 	s := NewBaseServer(WithAddress(":0"), WithName("test-server"))
-	if got := s.Name(); got != "test-server" {
-		t.Fatalf("Name() = %q, want %q", got, "test-server")
-	}
+	got := s.Name()
+	require.Equal(t, "test-server", got)
 }
 
 func TestBaseServer_Timeouts(t *testing.T) {
 	s := NewBaseServer(WithAddress(":0"))
 	cfg := s.Timeouts()
-	if cfg.StartupVerification != timeouts.DefaultStartupVerification {
-		t.Fatalf("StartupVerification = %v", cfg.StartupVerification)
-	}
+	require.Equal(t, timeouts.DefaultStartupVerification, cfg.StartupVerification)
 }
 
 func TestBaseServer_Listen(t *testing.T) {
 	s := NewBaseServer(WithAddress("127.0.0.1:0"))
 	ln, err := s.Listen()
-	if err != nil {
-		t.Fatalf("Listen() error = %v", err)
-	}
+	require.NoError(t, err)
 	defer ln.Close()
 
-	if !s.HasListener() {
-		t.Fatal("HasListener() = false after Listen()")
-	}
-	if s.Address() == "" {
-		t.Fatal("Address() empty after Listen()")
-	}
+	require.True(t, s.HasListener(), "HasListener() = false after Listen()")
+	require.NotEqual(t, "", s.Address())
 
 	// Second call should return same listener
 	ln2, err := s.Listen()
-	if err != nil {
-		t.Fatalf("second Listen() error = %v", err)
-	}
-	if ln2 != ln {
-		t.Fatal("second Listen() returned different listener")
-	}
+	require.NoError(t, err)
+	require.Equal(t, ln, ln2)
 }
 
 func TestBaseServer_WithListener(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("net.Listen error = %v", err)
-	}
+	require.NoError(t, err)
 	defer ln.Close()
 
 	s := NewBaseServer(WithAddress(":0"), WithListener(ln))
 	got, err := s.Listen()
-	if err != nil {
-		t.Fatalf("Listen() error = %v", err)
-	}
-	if got != ln {
-		t.Fatal("Listen() should return provided listener")
-	}
+	require.NoError(t, err)
+	require.Equal(t, ln, got)
 }
 
 func TestBaseServer_Start(t *testing.T) {
@@ -122,12 +98,8 @@ func TestBaseServer_Start(t *testing.T) {
 	err := s.Start("test", func(ln net.Listener, errCh chan<- error) {
 		// Don't send error - simulates successful start
 	})
-	if err != nil {
-		t.Fatalf("Start() error = %v", err)
-	}
-	if !s.IsStarted() {
-		t.Fatal("IsStarted() = false after Start()")
-	}
+	require.NoError(t, err)
+	require.True(t, s.IsStarted(), "IsStarted() = false after Start()")
 }
 
 func TestBaseServer_Start_AlreadyStarted(t *testing.T) {
@@ -142,9 +114,7 @@ func TestBaseServer_Start_AlreadyStarted(t *testing.T) {
 
 	_ = s.Start("test", func(ln net.Listener, errCh chan<- error) {})
 	err := s.Start("test", func(ln net.Listener, errCh chan<- error) {})
-	if !errors.Is(err, ErrServerAlreadyStarted) {
-		t.Fatalf("Start() error = %v, want ErrServerAlreadyStarted", err)
-	}
+	require.True(t, errors.Is(err, ErrServerAlreadyStarted))
 }
 
 func TestBaseServer_Start_EarlyError(t *testing.T) {
@@ -161,12 +131,8 @@ func TestBaseServer_Start_EarlyError(t *testing.T) {
 	err := s.Start("test", func(ln net.Listener, errCh chan<- error) {
 		errCh <- wantErr
 	})
-	if err != wantErr {
-		t.Fatalf("Start() error = %v, want %v", err, wantErr)
-	}
-	if s.IsStarted() {
-		t.Fatal("IsStarted() should be false after startup error")
-	}
+	require.Equal(t, wantErr, err)
+	require.False(t, s.IsStarted(), "IsStarted() should be false after startup error")
 }
 
 func TestBaseServer_WaitForShutdown(t *testing.T) {
@@ -175,9 +141,7 @@ func TestBaseServer_WaitForShutdown(t *testing.T) {
 	cancel()
 
 	err := s.WaitForShutdown(ctx)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("WaitForShutdown() error = %v, want context.Canceled", err)
-	}
+	require.True(t, errors.Is(err, context.Canceled))
 }
 
 func TestBaseServer_GracefulShutdown(t *testing.T) {
@@ -195,16 +159,10 @@ func TestBaseServer_GracefulShutdown(t *testing.T) {
 	err := s.GracefulShutdown(t.Context(), func(ctx context.Context) error {
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("GracefulShutdown() error = %v", err)
-	}
+	require.NoError(t, err)
 
-	if !s.IsShutdown() {
-		t.Fatal("IsShutdown() should be true after GracefulShutdown")
-	}
-	if s.IsStarted() {
-		t.Fatal("IsStarted() should be false after GracefulShutdown")
-	}
+	require.True(t, s.IsShutdown(), "IsShutdown() should be true after GracefulShutdown")
+	require.False(t, s.IsStarted(), "IsStarted() should be false after GracefulShutdown")
 }
 
 func TestBaseServer_GracefulShutdown_NotStarted(t *testing.T) {
@@ -212,7 +170,5 @@ func TestBaseServer_GracefulShutdown_NotStarted(t *testing.T) {
 	err := s.GracefulShutdown(t.Context(), func(ctx context.Context) error {
 		return errors.New("should not be called")
 	})
-	if err != nil {
-		t.Fatalf("GracefulShutdown() on non-started server should return nil, got %v", err)
-	}
+	require.NoError(t, err)
 }

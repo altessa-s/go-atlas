@@ -4,7 +4,11 @@
 
 package tracing
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func FuzzStringAttribute(f *testing.F) {
 	f.Add("key", "value")
@@ -14,17 +18,12 @@ func FuzzStringAttribute(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, key, value string) {
 		attr := String(key, value)
-		if attr.Key != key {
-			t.Errorf("Key = %q, want %q", attr.Key, key)
-		}
-		if attr.Value != value {
-			t.Errorf("Value = %q, want %q", attr.Value, value)
-		}
-		if key == "" && attr.Valid() {
-			t.Error("empty key should be invalid")
-		}
-		if key != "" && !attr.Valid() {
-			t.Error("non-empty key should be valid")
+		assert.Equal(t, key, attr.Key)
+		assert.Equal(t, value, attr.Value)
+		if key == "" {
+			assert.False(t, attr.Valid(), "empty key should be invalid")
+		} else {
+			assert.True(t, attr.Valid(), "non-empty key should be valid")
 		}
 	})
 }
@@ -44,8 +43,6 @@ func FuzzFilterAttributesByKey(f *testing.F) {
 		for range FilterAttributesByKey(attrs, prefix) {
 			count++
 		}
-		if count > len(attrs) {
-			t.Error("filtered more than total")
-		}
+		assert.LessOrEqual(t, count, len(attrs), "filtered more than total")
 	})
 }

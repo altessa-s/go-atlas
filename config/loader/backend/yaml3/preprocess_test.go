@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/config/loader/backend/yaml3"
 )
 
@@ -18,27 +20,17 @@ func TestBackend_Preprocess_SimpleInclude(t *testing.T) {
 
 	subYaml := filepath.Join(tmpDir, "sub.yaml")
 	subContent := "included: value\ndata: 123"
-	if err := os.WriteFile(subYaml, []byte(subContent), 0644); err != nil {
-		t.Fatalf("failed to create sub.yaml: %v", err)
-	}
+	require.NoError(t, os.WriteFile(subYaml, []byte(subContent), 0644))
 
 	mainContent := "main: config\n!include sub.yaml\nafter: include"
 
 	backend := &yaml3.Backend{}
 	result, err := backend.Preprocess(mainContent, tmpDir, tmpDir)
-	if err != nil {
-		t.Fatalf("Preprocess() error = %v", err)
-	}
+	require.NoError(t, err)
 
-	if !strings.Contains(result, "included: value") {
-		t.Errorf("result does not contain included content")
-	}
-	if !strings.Contains(result, "data: 123") {
-		t.Errorf("result does not contain all included content")
-	}
-	if !strings.Contains(result, "main: config") {
-		t.Errorf("result does not contain original content")
-	}
+	require.Contains(t, result, "included: value")
+	require.Contains(t, result, "data: 123")
+	require.Contains(t, result, "main: config")
 }
 
 func TestBackend_Preprocess_NestedInclude(t *testing.T) {
@@ -46,30 +38,20 @@ func TestBackend_Preprocess_NestedInclude(t *testing.T) {
 
 	deepYaml := filepath.Join(tmpDir, "deep.yaml")
 	deepContent := "deepest: value"
-	if err := os.WriteFile(deepYaml, []byte(deepContent), 0644); err != nil {
-		t.Fatalf("failed to create deep.yaml: %v", err)
-	}
+	require.NoError(t, os.WriteFile(deepYaml, []byte(deepContent), 0644))
 
 	subYaml := filepath.Join(tmpDir, "sub.yaml")
 	subContent := "sub: value\n!include deep.yaml"
-	if err := os.WriteFile(subYaml, []byte(subContent), 0644); err != nil {
-		t.Fatalf("failed to create sub.yaml: %v", err)
-	}
+	require.NoError(t, os.WriteFile(subYaml, []byte(subContent), 0644))
 
 	mainContent := "main: config\n!include sub.yaml"
 
 	backend := &yaml3.Backend{}
 	result, err := backend.Preprocess(mainContent, tmpDir, tmpDir)
-	if err != nil {
-		t.Fatalf("Preprocess() error = %v", err)
-	}
+	require.NoError(t, err)
 
-	if !strings.Contains(result, "deepest: value") {
-		t.Errorf("result does not contain nested included content")
-	}
-	if !strings.Contains(result, "sub: value") {
-		t.Errorf("result does not contain sub content")
-	}
+	require.Contains(t, result, "deepest: value")
+	require.Contains(t, result, "sub: value")
 }
 
 func TestBackend_Preprocess_IndentedInclude(t *testing.T) {
@@ -77,24 +59,16 @@ func TestBackend_Preprocess_IndentedInclude(t *testing.T) {
 
 	subYaml := filepath.Join(tmpDir, "sub.yaml")
 	subContent := "key1: value1\nkey2: value2"
-	if err := os.WriteFile(subYaml, []byte(subContent), 0644); err != nil {
-		t.Fatalf("failed to create sub.yaml: %v", err)
-	}
+	require.NoError(t, os.WriteFile(subYaml, []byte(subContent), 0644))
 
 	mainContent := "root:\n  !include sub.yaml"
 
 	backend := &yaml3.Backend{}
 	result, err := backend.Preprocess(mainContent, tmpDir, tmpDir)
-	if err != nil {
-		t.Fatalf("Preprocess() error = %v", err)
-	}
+	require.NoError(t, err)
 
-	if !strings.Contains(result, "  key1: value1") {
-		t.Errorf("result does not contain properly indented content: %s", result)
-	}
-	if !strings.Contains(result, "  key2: value2") {
-		t.Errorf("result does not contain all indented content: %s", result)
-	}
+	require.Contains(t, result, "  key1: value1")
+	require.Contains(t, result, "  key2: value2")
 }
 
 func TestBackend_Preprocess_NoIncludes(t *testing.T) {
@@ -103,38 +77,25 @@ func TestBackend_Preprocess_NoIncludes(t *testing.T) {
 
 	backend := &yaml3.Backend{}
 	result, err := backend.Preprocess(content, tmpDir, tmpDir)
-	if err != nil {
-		t.Fatalf("Preprocess() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	// Result should have content plus trailing newlines from scanner
-	if !strings.Contains(result, "key: value") {
-		t.Errorf("result missing original content")
-	}
-	if !strings.Contains(result, "nested: data") {
-		t.Errorf("result missing original nested content")
-	}
+	require.Contains(t, result, "key: value")
+	require.Contains(t, result, "nested: data")
 }
 
 func TestBackend_Preprocess_InvalidExtension(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	txtFile := filepath.Join(tmpDir, "file.txt")
-	if err := os.WriteFile(txtFile, []byte("text content"), 0644); err != nil {
-		t.Fatalf("failed to create file.txt: %v", err)
-	}
+	require.NoError(t, os.WriteFile(txtFile, []byte("text content"), 0644))
 
 	mainContent := "!include file.txt"
 
 	backend := &yaml3.Backend{}
 	_, err := backend.Preprocess(mainContent, tmpDir, tmpDir)
-	if err == nil {
-		t.Fatal("expected error for invalid extension, got nil")
-	}
-
-	if !strings.Contains(err.Error(), "invalid extension") {
-		t.Errorf("error message = %v, want 'invalid extension'", err)
-	}
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "invalid extension")
 }
 
 func TestBackend_Preprocess_PathTraversal(t *testing.T) {
@@ -144,13 +105,8 @@ func TestBackend_Preprocess_PathTraversal(t *testing.T) {
 
 	backend := &yaml3.Backend{}
 	_, err := backend.Preprocess(mainContent, tmpDir, tmpDir)
-	if err == nil {
-		t.Fatal("expected error for path traversal, got nil")
-	}
-
-	if !strings.Contains(err.Error(), "security error") {
-		t.Errorf("error message = %v, want 'security error'", err)
-	}
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "security error")
 }
 
 func TestBackend_Preprocess_CircularInclude(t *testing.T) {
@@ -162,24 +118,15 @@ func TestBackend_Preprocess_CircularInclude(t *testing.T) {
 	aContent := "a: value\n!include b.yaml"
 	bContent := "b: value\n!include a.yaml"
 
-	if err := os.WriteFile(aYaml, []byte(aContent), 0644); err != nil {
-		t.Fatalf("failed to create a.yaml: %v", err)
-	}
-	if err := os.WriteFile(bYaml, []byte(bContent), 0644); err != nil {
-		t.Fatalf("failed to create b.yaml: %v", err)
-	}
+	require.NoError(t, os.WriteFile(aYaml, []byte(aContent), 0644))
+	require.NoError(t, os.WriteFile(bYaml, []byte(bContent), 0644))
 
 	mainContent := "!include a.yaml"
 
 	backend := &yaml3.Backend{}
 	_, err := backend.Preprocess(mainContent, tmpDir, tmpDir)
-	if err == nil {
-		t.Fatal("expected error for circular include, got nil")
-	}
-
-	if !strings.Contains(err.Error(), "circular include") {
-		t.Errorf("error message = %v, want 'circular include'", err)
-	}
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "circular include")
 }
 
 func TestBackend_Preprocess_FileNotFound(t *testing.T) {
@@ -189,13 +136,8 @@ func TestBackend_Preprocess_FileNotFound(t *testing.T) {
 
 	backend := &yaml3.Backend{}
 	_, err := backend.Preprocess(mainContent, tmpDir, tmpDir)
-	if err == nil {
-		t.Fatal("expected error for file not found, got nil")
-	}
-
-	if !strings.Contains(err.Error(), "failed to read included file") {
-		t.Errorf("error message = %v, want 'failed to read included file'", err)
-	}
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to read included file")
 }
 
 func TestBackend_Preprocess_MaxDepth(t *testing.T) {
@@ -210,22 +152,15 @@ func TestBackend_Preprocess_MaxDepth(t *testing.T) {
 		} else {
 			content = "!include " + yamlName(i+1)
 		}
-		if err := os.WriteFile(filename, []byte(content), 0644); err != nil {
-			t.Fatalf("failed to create %s: %v", filename, err)
-		}
+		require.NoError(t, os.WriteFile(filename, []byte(content), 0644))
 	}
 
 	mainContent := "!include " + yamlName(0)
 
 	backend := &yaml3.Backend{}
 	_, err := backend.Preprocess(mainContent, tmpDir, tmpDir)
-	if err == nil {
-		t.Fatal("expected error for max depth exceeded, got nil")
-	}
-
-	if !strings.Contains(err.Error(), "max include depth") {
-		t.Errorf("error message = %v, want 'max include depth'", err)
-	}
+	require.Error(t, err)
+	require.True(t, strings.Contains(err.Error(), "max include depth"))
 }
 
 func yamlName(i int) string {

@@ -8,6 +8,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/observability/health"
 )
 
@@ -17,9 +19,7 @@ func TestFunc_CheckHealth(t *testing.T) {
 	})
 
 	got := fn.CheckHealth(t.Context())
-	if got != health.StatusDegraded {
-		t.Errorf("Func.CheckHealth() = %v, want StatusDegraded", got)
-	}
+	require.Equal(t, health.StatusDegraded, got)
 }
 
 func TestCoordinator_CheckServiceHealth_Unknown(t *testing.T) {
@@ -27,9 +27,7 @@ func TestCoordinator_CheckServiceHealth_Unknown(t *testing.T) {
 	defer c.Close()
 
 	status := c.CheckServiceHealth(t.Context(), "nonexistent")
-	if status != health.StatusServiceUnknown {
-		t.Errorf("CheckServiceHealth(nonexistent) = %v, want StatusServiceUnknown", status)
-	}
+	require.Equal(t, health.StatusServiceUnknown, status)
 }
 
 func TestCoordinator_CheckHealth_NoServices(t *testing.T) {
@@ -37,9 +35,7 @@ func TestCoordinator_CheckHealth_NoServices(t *testing.T) {
 	defer c.Close()
 
 	status := c.CheckHealth(t.Context())
-	if status != health.StatusServing {
-		t.Errorf("CheckHealth() with no services = %v, want StatusServing", status)
-	}
+	require.Equal(t, health.StatusServing, status)
 }
 
 func TestCoordinator_CheckHealth_AllHealthy(t *testing.T) {
@@ -54,9 +50,7 @@ func TestCoordinator_CheckHealth_AllHealthy(t *testing.T) {
 	}))
 
 	status := c.CheckHealth(t.Context())
-	if status != health.StatusServing {
-		t.Errorf("CheckHealth() = %v, want StatusServing", status)
-	}
+	require.Equal(t, health.StatusServing, status)
 }
 
 func TestCoordinator_Subscribe_AndClose(t *testing.T) {
@@ -68,18 +62,9 @@ func TestCoordinator_Subscribe_AndClose(t *testing.T) {
 	}))
 
 	sub, err := c.Subscribe(t.Context(), "svc")
-	if err != nil {
-		t.Fatalf("Subscribe() error = %v", err)
-	}
-
-	if sub.InitialStatus() != health.StatusServing {
-		t.Errorf("InitialStatus() = %v, want StatusServing", sub.InitialStatus())
-	}
-
-	ch := sub.Updates()
-	if ch == nil {
-		t.Error("Updates() returned nil channel")
-	}
+	require.NoError(t, err)
+	require.Equal(t, health.StatusServing, sub.InitialStatus())
+	require.NotNil(t, sub.Updates())
 
 	sub.Close()
 }
@@ -89,9 +74,7 @@ func TestCoordinator_Subscribe_AfterClose(t *testing.T) {
 	c.Close()
 
 	_, err := c.Subscribe(t.Context(), "svc")
-	if err == nil {
-		t.Error("Subscribe() after Close should return error")
-	}
+	require.Error(t, err, "Subscribe() after Close should return error")
 }
 
 func TestCoordinator_NotifyStatusChange_WithSubscriber(t *testing.T) {
@@ -103,18 +86,14 @@ func TestCoordinator_NotifyStatusChange_WithSubscriber(t *testing.T) {
 	}))
 
 	sub, err := c.Subscribe(t.Context(), "svc")
-	if err != nil {
-		t.Fatalf("Subscribe() error = %v", err)
-	}
+	require.NoError(t, err)
 	defer sub.Close()
 
 	c.NotifyStatusChange("svc", health.StatusNotServing)
 
 	select {
 	case status := <-sub.Updates():
-		if status != health.StatusNotServing {
-			t.Errorf("got status %v, want StatusNotServing", status)
-		}
+		require.Equal(t, health.StatusNotServing, status)
 	default:
 		// May not receive immediately depending on buffering
 	}
@@ -126,9 +105,7 @@ func TestCoordinator_CheckStatus_EmptyString(t *testing.T) {
 
 	// Empty string checks overall health
 	status := c.CheckStatus(t.Context(), "")
-	if status != health.StatusServing {
-		t.Errorf("CheckStatus('') = %v, want StatusServing", status)
-	}
+	require.Equal(t, health.StatusServing, status)
 }
 
 func TestCoordinator_BroadcastStatus(t *testing.T) {
@@ -157,15 +134,9 @@ func TestCoordinator_GetMetrics_Values(t *testing.T) {
 	defer c.Close()
 
 	metrics := c.GetMetrics()
-	if _, ok := metrics["active_watchers"]; !ok {
-		t.Error("GetMetrics() missing active_watchers")
-	}
-	if _, ok := metrics["cached_statuses"]; !ok {
-		t.Error("GetMetrics() missing cached_statuses")
-	}
-	if _, ok := metrics["total_watchers"]; !ok {
-		t.Error("GetMetrics() missing total_watchers")
-	}
+	require.Contains(t, metrics, "active_watchers")
+	require.Contains(t, metrics, "cached_statuses")
+	require.Contains(t, metrics, "total_watchers")
 }
 
 func TestCoordinator_ListStatuses_Empty(t *testing.T) {
@@ -173,10 +144,6 @@ func TestCoordinator_ListStatuses_Empty(t *testing.T) {
 	defer c.Close()
 
 	statuses, err := c.ListStatuses(t.Context())
-	if err != nil {
-		t.Fatalf("ListStatuses() error = %v", err)
-	}
-	if len(statuses) != 0 {
-		t.Errorf("ListStatuses() = %v, want empty", statuses)
-	}
+	require.NoError(t, err)
+	require.Empty(t, statuses)
 }

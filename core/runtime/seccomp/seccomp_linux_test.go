@@ -9,6 +9,8 @@ package seccomp
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"golang.org/x/sys/unix"
 )
 
@@ -17,10 +19,7 @@ import (
 // LD, arch JEQ, syscall LD, N JEQs, RET ALLOW, RET DENY, RET KILL).
 func TestBuildFilter_Length(t *testing.T) {
 	prog := buildFilter()
-	want := len(dangerousSyscalls) + 6
-	if len(prog) != want {
-		t.Errorf("buildFilter length: got %d, want %d", len(prog), want)
-	}
+	require.Len(t, prog, len(dangerousSyscalls)+6)
 }
 
 // TestBuildFilter_ArchPrologue verifies the first two instructions
@@ -32,26 +31,14 @@ func TestBuildFilter_ArchPrologue(t *testing.T) {
 	prog := buildFilter()
 
 	// pos 0: LD [arch offset]
-	if got, want := prog[0].Code, uint16(unix.BPF_LD|unix.BPF_W|unix.BPF_ABS); got != want {
-		t.Errorf("prog[0].Code: got %#x, want %#x", got, want)
-	}
-	if got, want := prog[0].K, uint32(seccompDataArchOffset); got != want {
-		t.Errorf("prog[0].K: got %d, want %d", got, want)
-	}
+	require.Equal(t, uint16(unix.BPF_LD|unix.BPF_W|unix.BPF_ABS), prog[0].Code, "prog[0].Code")
+	require.Equal(t, uint32(seccompDataArchOffset), prog[0].K, "prog[0].K")
 
 	// pos 1: JEQ expectedArch, jt=0, jf=N+3
-	if got, want := prog[1].Code, uint16(unix.BPF_JMP|unix.BPF_JEQ|unix.BPF_K); got != want {
-		t.Errorf("prog[1].Code: got %#x, want %#x", got, want)
-	}
-	if prog[1].K != expectedArch {
-		t.Errorf("prog[1].K: got %#x, want %#x (expectedArch)", prog[1].K, expectedArch)
-	}
-	if prog[1].Jt != 0 {
-		t.Errorf("prog[1].Jt: got %d, want 0", prog[1].Jt)
-	}
-	if want := uint8(len(dangerousSyscalls) + 3); prog[1].Jf != want {
-		t.Errorf("prog[1].Jf: got %d, want %d (N+3)", prog[1].Jf, want)
-	}
+	require.Equal(t, uint16(unix.BPF_JMP|unix.BPF_JEQ|unix.BPF_K), prog[1].Code, "prog[1].Code")
+	require.Equal(t, expectedArch, prog[1].K, "prog[1].K")
+	require.Equal(t, uint8(0), prog[1].Jt, "prog[1].Jt")
+	require.Equal(t, uint8(len(dangerousSyscalls)+3), prog[1].Jf, "prog[1].Jf (N+3)")
 }
 
 // TestBuildFilter_SyscallNrLoad verifies the instruction that loads
@@ -59,12 +46,8 @@ func TestBuildFilter_ArchPrologue(t *testing.T) {
 // prologue, and before the JEQ chain.
 func TestBuildFilter_SyscallNrLoad(t *testing.T) {
 	prog := buildFilter()
-	if got, want := prog[2].Code, uint16(unix.BPF_LD|unix.BPF_W|unix.BPF_ABS); got != want {
-		t.Errorf("prog[2].Code: got %#x, want %#x", got, want)
-	}
-	if got, want := prog[2].K, uint32(seccompDataNrOffset); got != want {
-		t.Errorf("prog[2].K: got %d, want %d", got, want)
-	}
+	require.Equal(t, uint16(unix.BPF_LD|unix.BPF_W|unix.BPF_ABS), prog[2].Code, "prog[2].Code")
+	require.Equal(t, uint32(seccompDataNrOffset), prog[2].K, "prog[2].K")
 }
 
 // TestBuildFilter_JEQChain verifies each JEQ instruction in the
@@ -78,26 +61,15 @@ func TestBuildFilter_JEQChain(t *testing.T) {
 	for i, nr := range dangerousSyscalls {
 		pos := 3 + i
 		inst := prog[pos]
-		if got, want := inst.Code, uint16(unix.BPF_JMP|unix.BPF_JEQ|unix.BPF_K); got != want {
-			t.Errorf("prog[%d].Code: got %#x, want %#x", pos, got, want)
-		}
-		if inst.K != nr {
-			t.Errorf("prog[%d].K: got %#x, want %#x (SYS_i)", pos, inst.K, nr)
-		}
+		require.Equal(t, uint16(unix.BPF_JMP|unix.BPF_JEQ|unix.BPF_K), inst.Code, "prog[%d].Code", pos)
+		require.Equal(t, nr, inst.K, "prog[%d].K", pos)
 		wantJt := uint8(n - i)
-		if inst.Jt != wantJt {
-			t.Errorf("prog[%d].Jt: got %d, want %d", pos, inst.Jt, wantJt)
-		}
-		if inst.Jf != 0 {
-			t.Errorf("prog[%d].Jf: got %d, want 0", pos, inst.Jf)
-		}
+		require.Equal(t, wantJt, inst.Jt, "prog[%d].Jt", pos)
+		require.Equal(t, uint8(0), inst.Jf, "prog[%d].Jf", pos)
 
 		// Sanity check that the computed jt actually lands on DENY.
 		target := pos + 1 + int(inst.Jt)
-		wantTarget := n + 4
-		if target != wantTarget {
-			t.Errorf("prog[%d] jt target: got %d, want %d (DENY)", pos, target, wantTarget)
-		}
+		require.Equal(t, n+4, target, "prog[%d] jt target (DENY)", pos)
 	}
 }
 
@@ -122,12 +94,8 @@ func TestBuildFilter_ReturnInstructions(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			inst := prog[c.pos]
-			if got, want := inst.Code, uint16(unix.BPF_RET|unix.BPF_K); got != want {
-				t.Errorf("prog[%d].Code: got %#x, want %#x", c.pos, got, want)
-			}
-			if inst.K != c.want {
-				t.Errorf("prog[%d].K: got %#x, want %#x", c.pos, inst.K, c.want)
-			}
+			require.Equal(t, uint16(unix.BPF_RET|unix.BPF_K), inst.Code, "prog[%d].Code", c.pos)
+			require.Equal(t, c.want, inst.K, "prog[%d].K", c.pos)
 		})
 	}
 }
@@ -144,14 +112,10 @@ func TestBuildFilter_ArchMismatchLandsOnKill(t *testing.T) {
 	// next executed instruction is at 1 + 1 + (N+3) = N+5 = KILL.
 	target := 1 + 1 + int(prog[1].Jf)
 	wantTarget := n + 5
-	if target != wantTarget {
-		t.Errorf("arch mismatch target: got %d, want %d (KILL)", target, wantTarget)
-	}
+	require.Equal(t, wantTarget, target, "arch mismatch target (KILL)")
 
 	// And KILL at position N+5 must actually be RET KILL_PROCESS.
-	if prog[wantTarget].K != retKill {
-		t.Errorf("KILL position K: got %#x, want %#x", prog[wantTarget].K, retKill)
-	}
+	require.Equal(t, retKill, prog[wantTarget].K, "KILL position K")
 }
 
 // TestDangerousSyscalls_ExpectedCount is a cheap sanity check that
@@ -159,10 +123,7 @@ func TestBuildFilter_ArchMismatchLandsOnKill(t *testing.T) {
 // deletes an entry (merge conflict resolution, rebase, typo) would
 // silently weaken the filter; this test makes that loud.
 func TestDangerousSyscalls_ExpectedCount(t *testing.T) {
-	const want = 22
-	if got := len(dangerousSyscalls); got != want {
-		t.Errorf("dangerousSyscalls count: got %d, want %d — if the change is intentional, update this test and the package README", got, want)
-	}
+	require.Len(t, dangerousSyscalls, 22, "if the change is intentional, update this test and the package README")
 }
 
 // TestDangerousSyscalls_RequiredMembership asserts that every
@@ -225,11 +186,10 @@ func TestDangerousSyscalls_RequiredMembership(t *testing.T) {
 	}
 
 	for _, req := range required {
-		if _, ok := have[req.nr]; !ok {
-			t.Errorf("dangerousSyscalls is missing %s (nr=%d) — "+
-				"the package's threat model commits to blocking it; "+
-				"if removal is intentional, update this test and the README",
-				req.name, req.nr)
-		}
+		_, ok := have[req.nr]
+		require.True(t, ok, "dangerousSyscalls is missing %s (nr=%d) — "+
+			"the package's threat model commits to blocking it; "+
+			"if removal is intentional, update this test and the README",
+			req.name, req.nr)
 	}
 }

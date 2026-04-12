@@ -9,79 +9,52 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/core/io/files"
 )
 
 func TestFileExists(t *testing.T) {
 	tmpFile, err := os.CreateTemp("", "testfile")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer os.Remove(tmpFile.Name())
 	tmpFile.Close()
 
-	if !files.FileExists(tmpFile.Name()) {
-		t.Errorf("FileExists(%q) = false, want true", tmpFile.Name())
-	}
-
-	if files.FileExists(tmpFile.Name() + "_nonexistent") {
-		t.Errorf("FileExists(nonexistent) = true, want false")
-	}
+	require.True(t, files.FileExists(tmpFile.Name()), "FileExists(%q) = false, want true", tmpFile.Name())
+	require.False(t, files.FileExists(tmpFile.Name()+"_nonexistent"), "FileExists(nonexistent) = true, want false")
 
 	tmpDir := t.TempDir()
-
-	if files.FileExists(tmpDir) {
-		t.Errorf("FileExists(%q) (dir) = true, want false", tmpDir)
-	}
+	require.False(t, files.FileExists(tmpDir), "FileExists(%q) (dir) = true, want false", tmpDir)
 }
 
 func TestDirExists(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	if !files.DirExists(tmpDir) {
-		t.Errorf("DirExists(%q) = false, want true", tmpDir)
-	}
-
-	if files.DirExists(tmpDir + "_nonexistent") {
-		t.Errorf("DirExists(nonexistent) = true, want false")
-	}
+	require.True(t, files.DirExists(tmpDir), "DirExists(%q) = false, want true", tmpDir)
+	require.False(t, files.DirExists(tmpDir+"_nonexistent"), "DirExists(nonexistent) = true, want false")
 
 	tmpFile, err := os.CreateTemp("", "testfile")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	defer os.Remove(tmpFile.Name())
 	tmpFile.Close()
 
-	if files.DirExists(tmpFile.Name()) {
-		t.Errorf("DirExists(%q) (file) = true, want false", tmpFile.Name())
-	}
+	require.False(t, files.DirExists(tmpFile.Name()), "DirExists(%q) (file) = true, want false", tmpFile.Name())
 }
 
 func TestDirIsEmpty(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	empty, err := files.DirIsEmpty(tmpDir)
-	if err != nil {
-		t.Errorf("DirIsEmpty error = %v", err)
-	}
-	if !empty {
-		t.Errorf("DirIsEmpty(%q) = false, want true", tmpDir)
-	}
+	require.NoError(t, err)
+	require.True(t, empty, "DirIsEmpty(%q) = false, want true", tmpDir)
 
 	f, err := os.CreateTemp(tmpDir, "file")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	f.Close()
 
 	empty, err = files.DirIsEmpty(tmpDir)
-	if err != nil {
-		t.Errorf("DirIsEmpty error = %v", err)
-	}
-	if empty {
-		t.Errorf("DirIsEmpty(%q) = true, want false", tmpDir)
-	}
+	require.NoError(t, err)
+	require.False(t, empty, "DirIsEmpty(%q) = true, want false", tmpDir)
 }
 
 func TestFindFile(t *testing.T) {
@@ -91,23 +64,14 @@ func TestFindFile(t *testing.T) {
 	tmpRoot := t.TempDir()
 
 	configDir := filepath.Join(tmpRoot, "config")
-	if err := os.Mkdir(configDir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.Mkdir(configDir, 0755))
 
 	targetFile := filepath.Join(configDir, "app.yaml")
-	if err := os.WriteFile(targetFile, []byte("content"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(targetFile, []byte("content"), 0644))
 
 	// Test finding absolute path
-	if found := files.FindFile(targetFile, nil); found != targetFile {
-		t.Errorf("FindFile matches absolute path: got %q, want %q", found, targetFile)
-	}
-
-	if found := files.FindFile(filepath.Join(tmpRoot, "missing.yaml"), nil); found != "" {
-		t.Errorf("FindFile matches missing absolute file: %q", found)
-	}
+	require.Equal(t, targetFile, files.FindFile(targetFile, nil), "FindFile matches absolute path")
+	require.Equal(t, "", files.FindFile(filepath.Join(tmpRoot, "missing.yaml"), nil), "FindFile matches missing absolute file")
 
 	// Note: FindFile relative logic depends on CurrentExecutableDir, which is tricky to test
 	// reliably in "go test" as it might return the temp build directory.

@@ -4,7 +4,11 @@
 
 package prometheus
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func FuzzBuildMetricName(f *testing.F) {
 	f.Add("myapp", "http", "requests_total")
@@ -13,8 +17,8 @@ func FuzzBuildMetricName(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, namespace, subsystem, suffix string) {
 		result := BuildMetricName(namespace, subsystem, suffix)
-		if namespace == "" && subsystem == "" && suffix == "" && result != "" {
-			t.Fatal("expected empty result for all empty inputs")
+		if namespace == "" && subsystem == "" && suffix == "" {
+			assert.Equal(t, "", result)
 		}
 	})
 }

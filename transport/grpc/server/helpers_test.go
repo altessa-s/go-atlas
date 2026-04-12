@@ -7,6 +7,8 @@ package grpc
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"google.golang.org/grpc/codes"
 )
 
@@ -36,31 +38,22 @@ func TestCodeToString(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
-			if got := CodeToString(tt.code); got != tt.want {
-				t.Fatalf("CodeToString(%d) = %q, want %q", tt.code, got, tt.want)
-			}
+			got := CodeToString(tt.code)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
 
 func TestAllCodes(t *testing.T) {
-	if len(AllCodes) != 17 {
-		t.Fatalf("len(AllCodes) = %d, want 17", len(AllCodes))
-	}
-	if AllCodes[0] != codes.OK {
-		t.Fatal("first code should be OK")
-	}
-	if AllCodes[len(AllCodes)-1] != codes.Unauthenticated {
-		t.Fatal("last code should be Unauthenticated")
-	}
+	require.Len(t, AllCodes, 17)
+	require.Equal(t, codes.OK, AllCodes[0])
+	require.Equal(t, codes.Unauthenticated, AllCodes[len(AllCodes)-1])
 }
 
 func TestAllCodes_AllHaveStrings(t *testing.T) {
 	for _, c := range AllCodes {
 		s := CodeToString(c)
-		if s == "" {
-			t.Fatalf("CodeToString(%d) returned empty", c)
-		}
+		require.NotEqual(t, "", s)
 	}
 }
 

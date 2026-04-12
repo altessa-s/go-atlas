@@ -7,6 +7,8 @@ package strings_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
 
@@ -24,9 +26,7 @@ func TestToScreamingSnakeCase(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			if got := corestrings.ToScreamingSnakeCase(tt.input); got != tt.want {
-				t.Errorf("ToScreamingSnakeCase(%q) = %q, want %q", tt.input, got, tt.want)
-			}
+			require.Equal(t, tt.want, corestrings.ToScreamingSnakeCase(tt.input))
 		})
 	}
 }
@@ -44,9 +44,7 @@ func TestToSnakeCase(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			if got := corestrings.ToSnakeCase(tt.input); got != tt.want {
-				t.Errorf("ToSnakeCase(%q) = %q, want %q", tt.input, got, tt.want)
-			}
+			require.Equal(t, tt.want, corestrings.ToSnakeCase(tt.input))
 		})
 	}
 }
@@ -63,16 +61,11 @@ func TestToCamelCase(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			if got := corestrings.ToCamelCase(tt.input); got != tt.want {
-				t.Errorf("ToCamelCase(%q) = %q, want %q", tt.input, got, tt.want)
-			}
+			require.Equal(t, tt.want, corestrings.ToCamelCase(tt.input))
 		})
 	}
 }
 
 func TestScreamingSnakeToCamelCase(t *testing.T) {
-	got := corestrings.ScreamingSnakeToCamelCase("hello_world")
-	if got != "helloWorld" {
-		t.Errorf("ScreamingSnakeToCamelCase(hello_world) = %q, want helloWorld", got)
-	}
+	require.Equal(t, "helloWorld", corestrings.ScreamingSnakeToCamelCase("hello_world"))
 }

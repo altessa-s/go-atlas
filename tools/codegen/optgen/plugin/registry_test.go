@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/model"
 )
 
@@ -166,9 +168,7 @@ func TestGetDefaultModifiersForType(t *testing.T) {
 			if len(got) == 0 && len(tt.expected) == 0 {
 				return
 			}
-			if !reflect.DeepEqual(got, tt.expected) {
-				t.Errorf("GetDefaultModifiersForType() = %v, want %v", got, tt.expected)
-			}
+			require.True(t, reflect.DeepEqual(got, tt.expected), "GetDefaultModifiersForType() = %v, want %v", got, tt.expected)
 		})
 	}
 }
@@ -251,9 +251,7 @@ func TestGetAllDisablers(t *testing.T) {
 			if len(got) == 0 && len(tt.expected) == 0 {
 				return
 			}
-			if !reflect.DeepEqual(got, tt.expected) {
-				t.Errorf("GetAllDisablers() = %v, want %v", got, tt.expected)
-			}
+			require.True(t, reflect.DeepEqual(got, tt.expected), "GetAllDisablers() = %v, want %v", got, tt.expected)
 		})
 	}
 }

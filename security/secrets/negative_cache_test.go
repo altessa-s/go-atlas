@@ -5,8 +5,9 @@
 package secrets_test
 
 import (
-	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/probfilter/bloom"
 	"github.com/altessa-s/go-atlas/security/secrets"
@@ -34,43 +35,29 @@ func TestManager_NegativeCache(t *testing.T) {
 	mgr, err := secrets.New[string](provider,
 		secrets.WithNegativeFilter(filter),
 	)
-	if err != nil {
-		t.Fatalf("failed to create manager: %v", err)
-	}
+	require.NoError(t, err)
 
 	t.Run("ExistingKey", func(t *testing.T) {
 		val, err := mgr.Value(ctx, "existing-key", true)
-		if err != nil {
-			t.Fatalf("expected no error for existing key, got %v", err)
-		}
-		if val.Value != "secret-value" {
-			t.Errorf("expected secret-value, got %s", val.Value)
-		}
+		require.NoError(t, err)
+		require.Equal(t, "secret-value", val.Value)
 	})
 
 	t.Run("NonExistentKey_NegativeFilterHit", func(t *testing.T) {
 		// This key is NOT in the filter, so it should return ErrNotFound immediately
 		_, err := mgr.Value(ctx, "non-existent-key", true)
-		if !errors.Is(err, secrets.ErrNotFound) {
-			t.Fatalf("expected ErrNotFound from negative filter, got %v", err)
-		}
+		require.ErrorIs(t, err, secrets.ErrNotFound)
 	})
 
 	t.Run("SaveUpdatesNegativeFilter", func(t *testing.T) {
 		// Save a new secret
 		err := mgr.Save(ctx, "new-key", "new-value")
-		if err != nil {
-			t.Fatalf("failed to save secret: %v", err)
-		}
+		require.NoError(t, err)
 
 		// Verify it's now in the negative filter and retrievable
 		val, err := mgr.Value(ctx, "new-key", true)
-		if err != nil {
-			t.Fatalf("expected no error for new key after save, got %v", err)
-		}
-		if val.Value != "new-value" {
-			t.Errorf("expected new-value, got %s", val.Value)
-		}
+		require.NoError(t, err)
+		require.Equal(t, "new-value", val.Value)
 	})
 
 	t.Run("RunUpdateCycleRebuildsFilter", func(t *testing.T) {
@@ -79,22 +66,14 @@ func TestManager_NegativeCache(t *testing.T) {
 
 		// Confirm it's NOT in the filter yet (should hit negative filter)
 		_, err := mgr.Value(ctx, "manual-key", true)
-		if !errors.Is(err, secrets.ErrNotFound) {
-			t.Fatalf("expected ErrNotFound from negative filter BEFORE update, got %v", err)
-		}
+		require.ErrorIs(t, err, secrets.ErrNotFound)
 
 		// Run update cycle to rebuild filter
-		if err := mgr.RunUpdateCycle(ctx); err != nil {
-			t.Fatalf("RunUpdateCycle failed: %v", err)
-		}
+		require.NoError(t, mgr.RunUpdateCycle(ctx))
 
 		// Now it should be found
 		val, err := mgr.Value(ctx, "manual-key", true)
-		if err != nil {
-			t.Fatalf("expected no error for manual key AFTER update, got %v", err)
-		}
-		if val.Value != "manual-value" {
-			t.Errorf("expected manual-value, got %s", val.Value)
-		}
+		require.NoError(t, err)
+		require.Equal(t, "manual-value", val.Value)
 	})
 }

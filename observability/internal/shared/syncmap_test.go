@@ -7,6 +7,8 @@ package shared
 import (
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetOrCreate(t *testing.T) {
@@ -20,12 +22,9 @@ func TestGetOrCreate(t *testing.T) {
 	v1 := GetOrCreate(&m, "key", create)
 	v2 := GetOrCreate(&m, "key", create)
 
-	if v1 != "value" || v2 != "value" {
-		t.Errorf("v1=%q, v2=%q", v1, v2)
-	}
-	if calls != 1 {
-		t.Errorf("create called %d times, want 1", calls)
-	}
+	require.Equal(t, "value", v1)
+	require.Equal(t, "value", v2)
+	require.Equal(t, 1, calls, "create should be called once")
 }
 
 func TestGetOrCreateWithCallback(t *testing.T) {
@@ -36,24 +35,16 @@ func TestGetOrCreateWithCallback(t *testing.T) {
 		func() int { return 42 },
 		func() { callbacks++ },
 	)
-	if v != 42 {
-		t.Errorf("v = %d", v)
-	}
-	if callbacks != 1 {
-		t.Errorf("callbacks = %d", callbacks)
-	}
+	require.Equal(t, 42, v)
+	require.Equal(t, 1, callbacks)
 
 	// Second call should not trigger callback
 	v2 := GetOrCreateWithCallback(&m, "key",
 		func() int { return 99 },
 		func() { callbacks++ },
 	)
-	if v2 != 42 {
-		t.Errorf("v2 = %d, want 42 (original)", v2)
-	}
-	if callbacks != 1 {
-		t.Errorf("callbacks = %d, want 1", callbacks)
-	}
+	require.Equal(t, 42, v2, "should return original value")
+	require.Equal(t, 1, callbacks, "callback should not be called again")
 }
 
 func TestGetOrCreateWithCallback_NilCallback(t *testing.T) {
@@ -62,9 +53,7 @@ func TestGetOrCreateWithCallback_NilCallback(t *testing.T) {
 		func() string { return "val" },
 		nil,
 	)
-	if v != "val" {
-		t.Errorf("v = %q", v)
-	}
+	require.Equal(t, "val", v)
 }
 
 func TestRange(t *testing.T) {
@@ -79,12 +68,9 @@ func TestRange(t *testing.T) {
 		return true
 	})
 
-	if len(collected) != 2 {
-		t.Errorf("collected %d items, want 2", len(collected))
-	}
-	if collected["a"] != "1" || collected["b"] != "2" {
-		t.Errorf("collected = %v", collected)
-	}
+	require.Len(t, collected, 2)
+	require.Equal(t, "1", collected["a"])
+	require.Equal(t, "2", collected["b"])
 }
 
 func TestRange_EarlyExit(t *testing.T) {
@@ -98,9 +84,7 @@ func TestRange_EarlyExit(t *testing.T) {
 		count++
 		return false // stop after first
 	})
-	if count != 1 {
-		t.Errorf("count = %d, want 1", count)
-	}
+	require.Equal(t, 1, count)
 }
 
 func TestGetOrCreate_Concurrent(t *testing.T) {
@@ -120,7 +104,6 @@ func TestGetOrCreate_Concurrent(t *testing.T) {
 	wg.Wait()
 
 	v, ok := m.Load("key")
-	if !ok || v.(string) != "value" {
-		t.Errorf("unexpected value: %v", v)
-	}
+	require.True(t, ok)
+	require.Equal(t, "value", v.(string))
 }

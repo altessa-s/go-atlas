@@ -8,6 +8,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -28,12 +30,8 @@ func TestNewError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			st := status.New(tt.code, tt.msg)
 			e := NewError(st, tt.err)
-			if e.Error() != tt.wantMsg {
-				t.Fatalf("Error() = %q, want %q", e.Error(), tt.wantMsg)
-			}
-			if e.GRPCStatus().Code() != tt.code {
-				t.Fatalf("code = %v, want %v", e.GRPCStatus().Code(), tt.code)
-			}
+			require.Equal(t, tt.wantMsg, e.Error())
+			require.Equal(t, tt.code, e.GRPCStatus().Code())
 		})
 	}
 }
@@ -41,26 +39,18 @@ func TestNewError(t *testing.T) {
 func TestError_Unwrap(t *testing.T) {
 	inner := errors.New("inner")
 	e := NewError(status.New(codes.Internal, "fail"), inner)
-	if !errors.Is(e, inner) {
-		t.Fatal("Unwrap should return inner error")
-	}
+	require.True(t, errors.Is(e, inner), "Unwrap should return inner error")
 }
 
 func TestError_Is(t *testing.T) {
 	sentinel := errors.New("sentinel")
 	e := NewError(status.New(codes.Internal, "fail"), sentinel)
-	if !e.Is(sentinel) {
-		t.Fatal("Is should match sentinel")
-	}
-	if e.Is(errors.New("other")) {
-		t.Fatal("Is should not match different error")
-	}
+	require.True(t, e.Is(sentinel), "Is should match sentinel")
+	require.False(t, e.Is(errors.New("other")), "Is should not match different error")
 }
 
 func TestError_GRPCStatus(t *testing.T) {
 	st := status.New(codes.PermissionDenied, "denied")
 	e := NewError(st, nil)
-	if e.GRPCStatus() != st {
-		t.Fatal("GRPCStatus should return original status")
-	}
+	require.Equal(t, st, e.GRPCStatus())
 }

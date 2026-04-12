@@ -9,93 +9,62 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 func TestEvent_NextAttempt(t *testing.T) {
 	e := &Event{Attempts: 0}
 	e.nextAttempt()
-	if e.Attempts != 1 {
-		t.Fatalf("Attempts = %d, want 1", e.Attempts)
-	}
-	if e.LastAttemptOn.IsZero() {
-		t.Fatal("LastAttemptOn is zero")
-	}
-	if !e.LockedOn.IsZero() {
-		t.Fatal("LockedOn should be cleared")
-	}
+	require.Equal(t, uint32(1), e.Attempts)
+	require.False(t, e.LastAttemptOn.IsZero(), "LastAttemptOn is zero")
+	require.True(t, e.LockedOn.IsZero(), "LockedOn should be cleared")
 }
 
 func TestEvent_SetErrorStatus(t *testing.T) {
 	e := &Event{}
 	e.setErrorStatus(errors.New("some error"))
-	if e.Status != StatusFailed {
-		t.Fatalf("Status = %q, want %q", e.Status, StatusFailed)
-	}
-	if e.LastError == nil || *e.LastError != "some error" {
-		t.Fatalf("LastError = %v", e.LastError)
-	}
+	require.Equal(t, StatusFailed, e.Status)
+	require.NotNil(t, e.LastError)
+	require.Equal(t, "some error", *e.LastError)
 }
 
 func TestEvent_SetErrorStatus_ContextCanceled(t *testing.T) {
 	e := &Event{}
 	e.setErrorStatus(context.Canceled)
-	if e.Status != StatusFailed {
-		t.Fatalf("Status = %q", e.Status)
-	}
-	if e.LastError != nil {
-		t.Fatalf("LastError should be nil for context.Canceled, got %v", *e.LastError)
-	}
+	require.Equal(t, StatusFailed, e.Status)
+	require.Nil(t, e.LastError)
 }
 
 func TestEvent_SetSentStatus(t *testing.T) {
 	e := &Event{LastError: testhelpers.StringPtr("old error")}
 	e.setSentStatus()
-	if e.Status != StatusSent {
-		t.Fatalf("Status = %q", e.Status)
-	}
-	if e.LastError != nil {
-		t.Fatal("LastError should be nil")
-	}
-	if e.PublishedAt.IsZero() {
-		t.Fatal("PublishedAt is zero")
-	}
+	require.Equal(t, StatusSent, e.Status)
+	require.Nil(t, e.LastError)
+	require.False(t, e.PublishedAt.IsZero(), "PublishedAt is zero")
 }
 
 func TestEvent_SetSkippedStatus(t *testing.T) {
 	e := &Event{LastError: testhelpers.StringPtr("old error")}
 	e.setSkippedStatus()
-	if e.Status != StatusSkipped {
-		t.Fatalf("Status = %q", e.Status)
-	}
-	if e.LastError != nil {
-		t.Fatal("LastError should be nil")
-	}
-	if e.PublishedAt.IsZero() {
-		t.Fatal("PublishedAt is zero")
-	}
+	require.Equal(t, StatusSkipped, e.Status)
+	require.Nil(t, e.LastError)
+	require.False(t, e.PublishedAt.IsZero(), "PublishedAt is zero")
 }
 
 func TestEvent_SetExpiredStatus(t *testing.T) {
 	e := &Event{Status: StatusPending, LastError: testhelpers.StringPtr("previous error")}
 	e.setExpiredStatus()
-	if e.Status != StatusExpired {
-		t.Fatalf("Status = %q, want %q", e.Status, StatusExpired)
-	}
-	if e.LastError != nil {
-		t.Fatal("LastError should be nil")
-	}
-	if e.PublishedAt.IsZero() {
-		t.Fatal("PublishedAt should be set for cleanup eligibility")
-	}
+	require.Equal(t, StatusExpired, e.Status)
+	require.Nil(t, e.LastError)
+	require.False(t, e.PublishedAt.IsZero(), "PublishedAt should be set for cleanup eligibility")
 }
 
 func TestEvent_SetStatusMaxAttemptReached(t *testing.T) {
 	e := &Event{}
 	e.setStatusMaxAttemptReached()
-	if e.Status != StatusMaxAttemptReached {
-		t.Fatalf("Status = %q", e.Status)
-	}
+	require.Equal(t, StatusMaxAttemptReached, e.Status)
 }
 
 func TestEvent_IsReadyForRetry(t *testing.T) {
@@ -114,9 +83,8 @@ func TestEvent_IsReadyForRetry(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := &Event{Attempts: tt.attempts}
-			if got := e.isReadyForRetry(tt.maxAttempts); got != tt.want {
-				t.Fatalf("isReadyForRetry() = %v, want %v", got, tt.want)
-			}
+			got := e.isReadyForRetry(tt.maxAttempts)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }

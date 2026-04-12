@@ -9,6 +9,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 )
 
@@ -23,9 +25,7 @@ func TestList(t *testing.T) {
 		got = append(got, v)
 	}
 	want := []int{1, 2, 3}
-	if !slices.Equal(got, want) {
-		t.Errorf("List() = %v, want %v", got, want)
-	}
+	require.True(t, slices.Equal(got, want), "List() = %v, want %v", got, want)
 }
 
 func TestList_Empty(t *testing.T) {
@@ -34,9 +34,7 @@ func TestList_Empty(t *testing.T) {
 	for range coreslices.List[int](l) {
 		count++
 	}
-	if count != 0 {
-		t.Errorf("List(empty) yielded %d items", count)
-	}
+	require.Equal(t, 0, count, "List(empty) yielded %d items", count)
 }
 
 func TestMap(t *testing.T) {
@@ -48,9 +46,7 @@ func TestMap(t *testing.T) {
 		got = append(got, v)
 	}
 	want := []string{"a", "b", "c"}
-	if !slices.Equal(got, want) {
-		t.Errorf("Map() = %v, want %v", got, want)
-	}
+	require.True(t, slices.Equal(got, want), "Map() = %v, want %v", got, want)
 }
 
 func TestChunk(t *testing.T) {
@@ -59,15 +55,9 @@ func TestChunk(t *testing.T) {
 	for chunk := range coreslices.Chunk(input, 2) {
 		got = append(got, chunk)
 	}
-	if len(got) != 3 {
-		t.Fatalf("Chunk() yielded %d chunks, want 3", len(got))
-	}
-	if !slices.Equal(got[0], []int{1, 2}) {
-		t.Errorf("chunk[0] = %v", got[0])
-	}
-	if !slices.Equal(got[2], []int{5}) {
-		t.Errorf("chunk[2] = %v", got[2])
-	}
+	require.Len(t, got, 3, "Chunk() yielded %d chunks, want 3", len(got))
+	require.True(t, slices.Equal(got[0], []int{1, 2}), "chunk[0] = %v", got[0])
+	require.True(t, slices.Equal(got[2], []int{5}), "chunk[2] = %v", got[2])
 }
 
 func TestValues(t *testing.T) {
@@ -76,9 +66,7 @@ func TestValues(t *testing.T) {
 	for v := range coreslices.Values(input) {
 		got = append(got, v)
 	}
-	if !slices.Equal(got, input) {
-		t.Errorf("Values() = %v, want %v", got, input)
-	}
+	require.True(t, slices.Equal(got, input), "Values() = %v, want %v", got, input)
 }
 
 func TestBackward(t *testing.T) {
@@ -88,9 +76,7 @@ func TestBackward(t *testing.T) {
 		got = append(got, v)
 	}
 	want := []string{"c", "b", "a"}
-	if !slices.Equal(got, want) {
-		t.Errorf("Backward() = %v, want %v", got, want)
-	}
+	require.True(t, slices.Equal(got, want), "Backward() = %v, want %v", got, want)
 }
 
 func TestFilterSeq(t *testing.T) {
@@ -101,9 +87,7 @@ func TestFilterSeq(t *testing.T) {
 		got = append(got, v)
 	}
 	want := []int{2, 4}
-	if !slices.Equal(got, want) {
-		t.Errorf("FilterSeq() = %v, want %v", got, want)
-	}
+	require.True(t, slices.Equal(got, want), "FilterSeq() = %v, want %v", got, want)
 }
 
 func TestMapSeq(t *testing.T) {
@@ -114,9 +98,7 @@ func TestMapSeq(t *testing.T) {
 		got = append(got, v)
 	}
 	want := []int{10, 20, 30}
-	if !slices.Equal(got, want) {
-		t.Errorf("MapSeq() = %v, want %v", got, want)
-	}
+	require.True(t, slices.Equal(got, want), "MapSeq() = %v, want %v", got, want)
 }
 
 func TestTake(t *testing.T) {
@@ -127,47 +109,33 @@ func TestTake(t *testing.T) {
 		got = append(got, v)
 	}
 	want := []int{1, 2, 3}
-	if !slices.Equal(got, want) {
-		t.Errorf("Take() = %v, want %v", got, want)
-	}
+	require.True(t, slices.Equal(got, want), "Take() = %v, want %v", got, want)
 }
 
 func TestPool(t *testing.T) {
 	pool := coreslices.NewPool[int](10)
 	s := pool.Get()
-	if s == nil {
-		t.Fatal("Get() returned nil")
-	}
+	require.NotNil(t, s)
 	*s = append(*s, 1, 2, 3)
 	pool.Put(s)
 
 	s2 := pool.GetWithCapacity(50)
-	if cap(*s2) < 50 {
-		t.Errorf("GetWithCapacity(50) cap = %d", cap(*s2))
-	}
+	require.GreaterOrEqual(t, cap(*s2), 50, "GetWithCapacity(50) cap = %d", cap(*s2))
 	pool.Put(s2)
 }
 
 func TestEnsureCapacity(t *testing.T) {
 	s := make([]int, 0, 5)
 	grew := coreslices.EnsureCapacity(&s, 100)
-	if !grew {
-		t.Error("EnsureCapacity should return true when growing")
-	}
-	if cap(s) < 100 {
-		t.Errorf("cap = %d after EnsureCapacity(100)", cap(s))
-	}
+	require.True(t, grew, "EnsureCapacity should return true when growing")
+	require.GreaterOrEqual(t, cap(s), 100, "cap = %d after EnsureCapacity(100)", cap(s))
 
 	grew = coreslices.EnsureCapacity(&s, 10)
-	if grew {
-		t.Error("EnsureCapacity should return false when no growth needed")
-	}
+	require.False(t, grew, "EnsureCapacity should return false when no growth needed")
 }
 
 func TestFilterLast_NotFound(t *testing.T) {
 	input := []int{1, 2, 3}
 	_, found := coreslices.FilterLast(input, func(i int) bool { return i > 10 })
-	if found {
-		t.Error("FilterLast should return false when no match")
-	}
+	require.False(t, found, "FilterLast should return false when no match")
 }

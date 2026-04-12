@@ -7,6 +7,8 @@ package filter_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/filter"
 )
 
@@ -23,9 +25,7 @@ func TestNodeKinds(t *testing.T) {
 		{&filter.ListNode{}, filter.NodeKindList},
 	}
 	for _, tt := range tests {
-		if got := tt.node.Kind(); got != tt.want {
-			t.Errorf("Kind() = %v, want %v", got, tt.want)
-		}
+		require.Equal(t, tt.want, tt.node.Kind())
 	}
 }
 
@@ -36,9 +36,7 @@ func TestUnaryOpNode_Children(t *testing.T) {
 	for range node.Children() {
 		count++
 	}
-	if count != 1 {
-		t.Errorf("UnaryOpNode children count = %d, want 1", count)
-	}
+	require.Equal(t, 1, count, "UnaryOpNode children count")
 }
 
 func TestCallNode_Children(t *testing.T) {
@@ -49,44 +47,32 @@ func TestCallNode_Children(t *testing.T) {
 	for range node.Children() {
 		count++
 	}
-	if count != 2 {
-		t.Errorf("CallNode children count = %d, want 2", count)
-	}
+	require.Equal(t, 2, count, "CallNode children count")
 }
 
 func TestTranslatorConfig_MaxDepth(t *testing.T) {
 	cfg := filter.NewTranslatorConfig()
 	filter.WithMaxDepth(5)(cfg)
-	if cfg.MaxDepth() != 5 {
-		t.Errorf("MaxDepth() = %d, want 5", cfg.MaxDepth())
-	}
+	require.Equal(t, 5, cfg.MaxDepth())
 }
 
 func TestTranslatorConfig_StrictMode(t *testing.T) {
 	cfg := filter.NewTranslatorConfig()
 	filter.WithStrictMode(true)(cfg)
-	if !cfg.StrictMode() {
-		t.Error("StrictMode() should be true")
-	}
+	require.True(t, cfg.StrictMode(), "StrictMode() should be true")
 }
 
 func TestTranslatorConfig_SetAllowedFields(t *testing.T) {
 	cfg := filter.NewTranslatorConfig()
 	cfg.SetAllowedFields(map[string]struct{}{"name": {}, "age": {}})
-	if !cfg.IsFieldAllowed("name") {
-		t.Error("name should be allowed")
-	}
-	if cfg.IsFieldAllowed("other") {
-		t.Error("other should not be allowed")
-	}
+	require.True(t, cfg.IsFieldAllowed("name"), "name should be allowed")
+	require.False(t, cfg.IsFieldAllowed("other"), "other should not be allowed")
 }
 
 func TestTranslatorConfig_SetFieldMapping(t *testing.T) {
 	cfg := filter.NewTranslatorConfig()
 	cfg.SetFieldMapping(map[string]string{"name": "full_name"})
-	if got := cfg.ApplyFieldMapping("name"); got != "full_name" {
-		t.Errorf("ApplyFieldMapping(name) = %q, want full_name", got)
-	}
+	require.Equal(t, "full_name", cfg.ApplyFieldMapping("name"))
 }
 
 func TestEvaluator_NilNotEqual(t *testing.T) {
@@ -95,10 +81,6 @@ func TestEvaluator_NilNotEqual(t *testing.T) {
 	ev := filter.NewEvaluator()
 
 	result, err := ev.Evaluate(node, map[string]any{"name": "hello"})
-	if err != nil {
-		t.Fatalf("Evaluate() error = %v", err)
-	}
-	if !result {
-		t.Error("'hello' != null should be true")
-	}
+	require.NoError(t, err)
+	require.True(t, result, "'hello' != null should be true")
 }

@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"regexp"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestMiddleware_OriginPatterns(t *testing.T) {
@@ -22,9 +24,7 @@ func TestMiddleware_OriginPatterns(t *testing.T) {
 		req.Header.Set("Origin", "https://app.example.com")
 		handler.ServeHTTP(rec, req)
 
-		if rec.Header().Get(HeaderAccessControlAllowOrigin) != "https://app.example.com" {
-			t.Fatalf("Allow-Origin = %q", rec.Header().Get(HeaderAccessControlAllowOrigin))
-		}
+		require.Equal(t, "https://app.example.com", rec.Header().Get(HeaderAccessControlAllowOrigin))
 	})
 
 	t.Run("non_matching_pattern", func(t *testing.T) {
@@ -33,9 +33,7 @@ func TestMiddleware_OriginPatterns(t *testing.T) {
 		req.Header.Set("Origin", "https://evil.com")
 		handler.ServeHTTP(rec, req)
 
-		if rec.Header().Get(HeaderAccessControlAllowOrigin) != "" {
-			t.Fatal("should not allow non-matching origin")
-		}
+		require.Equal(t, "", rec.Header().Get(HeaderAccessControlAllowOrigin))
 	})
 }
 
@@ -53,9 +51,7 @@ func TestMiddleware_AllowedHeaders(t *testing.T) {
 	req.Header.Set("Access-Control-Request-Headers", "X-Custom-Header")
 	handler.ServeHTTP(rec, req)
 
-	if rec.Header().Get(HeaderAccessControlAllowHeaders) == "" {
-		t.Fatal("should set Allow-Headers")
-	}
+	require.NotEqual(t, "", rec.Header().Get(HeaderAccessControlAllowHeaders))
 }
 
 func TestMiddleware_PrivateNetwork(t *testing.T) {
@@ -90,9 +86,7 @@ func TestMiddleware_OptionsPassthrough(t *testing.T) {
 	req.Header.Set("Access-Control-Request-Method", "GET")
 	handler.ServeHTTP(rec, req)
 
-	if !nextCalled {
-		t.Error("with OptionsPassthrough, next handler should be called")
-	}
+	require.True(t, nextCalled, "with OptionsPassthrough, next handler should be called")
 }
 
 func TestMiddleware_OptionsSuccessStatus(t *testing.T) {
@@ -107,9 +101,7 @@ func TestMiddleware_OptionsSuccessStatus(t *testing.T) {
 	req.Header.Set("Access-Control-Request-Method", "GET")
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != 200 {
-		t.Fatalf("code = %d, want 200", rec.Code)
-	}
+	require.Equal(t, 200, rec.Code)
 }
 
 func TestMiddleware_IgnorePaths(t *testing.T) {
@@ -136,7 +128,5 @@ func TestMiddleware_VaryHeader(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	vary := rec.Header().Get(HeaderVary)
-	if vary == "" {
-		t.Fatal("Vary header should be set for specific origins")
-	}
+	require.NotEqual(t, "", vary)
 }

@@ -8,6 +8,8 @@ import (
 	"net/netip"
 	"regexp"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func prefix(s string) netip.Prefix { return netip.MustParsePrefix(s) }
@@ -31,9 +33,8 @@ func TestEvaluate_AllowlistMode(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := reg.Evaluate(addr(tt.ip), tt.endpoint); got != tt.want {
-				t.Errorf("Evaluate(%s, %s) = %v, want %v", tt.ip, tt.endpoint, got, tt.want)
-			}
+			got := reg.Evaluate(addr(tt.ip), tt.endpoint)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -56,9 +57,8 @@ func TestEvaluate_DenylistMode(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := reg.Evaluate(addr(tt.ip), tt.endpoint); got != tt.want {
-				t.Errorf("Evaluate(%s, %s) = %v, want %v", tt.ip, tt.endpoint, got, tt.want)
-			}
+			got := reg.Evaluate(addr(tt.ip), tt.endpoint)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -81,9 +81,8 @@ func TestEvaluate_DenyWinsOnOverlap(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := reg.Evaluate(addr(tt.ip), "/api.Service/Action"); got != tt.want {
-				t.Errorf("Evaluate(%s) = %v, want %v", tt.ip, got, tt.want)
-			}
+			got := reg.Evaluate(addr(tt.ip), "/api.Service/Action")
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -106,9 +105,8 @@ func TestEvaluate_PatternMatch(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := reg.Evaluate(addr(tt.ip), tt.endpoint); got != tt.want {
-				t.Errorf("Evaluate(%s, %s) = %v, want %v", tt.ip, tt.endpoint, got, tt.want)
-			}
+			got := reg.Evaluate(addr(tt.ip), tt.endpoint)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -130,9 +128,8 @@ func TestEvaluate_DefaultRule(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := reg.Evaluate(addr(tt.ip), "/any.Endpoint"); got != tt.want {
-				t.Errorf("Evaluate(%s) = %v, want %v", tt.ip, got, tt.want)
-			}
+			got := reg.Evaluate(addr(tt.ip), "/any.Endpoint")
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -155,9 +152,8 @@ func TestEvaluate_IPv6(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := reg.Evaluate(addr(tt.ip), "/api.Service/Action"); got != tt.want {
-				t.Errorf("Evaluate(%s) = %v, want %v", tt.ip, got, tt.want)
-			}
+			got := reg.Evaluate(addr(tt.ip), "/api.Service/Action")
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -180,9 +176,8 @@ func TestEvaluate_IPv4MappedIPv6(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := reg.Evaluate(addr(tt.ip), "/api.Service/Action"); got != tt.want {
-				t.Errorf("Evaluate(%s) = %v, want %v", tt.ip, got, tt.want)
-			}
+			got := reg.Evaluate(addr(tt.ip), "/api.Service/Action")
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -190,16 +185,12 @@ func TestEvaluate_IPv4MappedIPv6(t *testing.T) {
 func TestEvaluate_NoRule_PolicyApplies(t *testing.T) {
 	t.Run("PolicyDeny", func(t *testing.T) {
 		reg := NewRegistry(PolicyDeny)
-		if reg.Evaluate(addr("1.2.3.4"), "/some.Endpoint") {
-			t.Error("expected deny when no rule and PolicyDeny")
-		}
+		require.False(t, reg.Evaluate(addr("1.2.3.4"), "/some.Endpoint"), "expected deny when no rule and PolicyDeny")
 	})
 
 	t.Run("PolicyAllow", func(t *testing.T) {
 		reg := NewRegistry(PolicyAllow)
-		if !reg.Evaluate(addr("1.2.3.4"), "/some.Endpoint") {
-			t.Error("expected allow when no rule and PolicyAllow")
-		}
+		require.True(t, reg.Evaluate(addr("1.2.3.4"), "/some.Endpoint"), "expected allow when no rule and PolicyAllow")
 	})
 }
 
@@ -207,17 +198,13 @@ func TestEvaluate_EmptyLists_FallsBackToPolicy(t *testing.T) {
 	t.Run("PolicyDeny", func(t *testing.T) {
 		reg := NewRegistry(PolicyDeny)
 		reg.Register("/api.Service/Action", &AccessRule{})
-		if reg.Evaluate(addr("10.1.1.1"), "/api.Service/Action") {
-			t.Error("expected deny when rule has empty lists and PolicyDeny")
-		}
+		require.False(t, reg.Evaluate(addr("10.1.1.1"), "/api.Service/Action"), "expected deny when rule has empty lists and PolicyDeny")
 	})
 
 	t.Run("PolicyAllow", func(t *testing.T) {
 		reg := NewRegistry(PolicyAllow)
 		reg.Register("/api.Service/Action", &AccessRule{})
-		if !reg.Evaluate(addr("10.1.1.1"), "/api.Service/Action") {
-			t.Error("expected allow when rule has empty lists and PolicyAllow")
-		}
+		require.True(t, reg.Evaluate(addr("10.1.1.1"), "/api.Service/Action"), "expected allow when rule has empty lists and PolicyAllow")
 	})
 }
 
@@ -231,12 +218,8 @@ func TestLookup_ExactBeforePattern(t *testing.T) {
 	reg.RegisterPattern(regexp.MustCompile(`^/svc\..*`), patternRule)
 
 	got, ok := reg.Lookup("/svc.Service/Method")
-	if !ok {
-		t.Fatal("expected to find a rule")
-	}
-	if got != exactRule {
-		t.Error("exact match should take priority over pattern match")
-	}
+	require.True(t, ok, "expected to find a rule")
+	require.False(t, got != exactRule, "exact match should take priority over pattern match")
 }
 
 func TestRegisterEndpoints(t *testing.T) {
@@ -246,8 +229,7 @@ func TestRegisterEndpoints(t *testing.T) {
 
 	for _, ep := range []string{"/a.Svc/A", "/b.Svc/B"} {
 		got, ok := reg.Lookup(ep)
-		if !ok || got != rule {
-			t.Errorf("expected rule for endpoint %s", ep)
-		}
+		require.True(t, ok, "expected rule for endpoint %s", ep)
+		require.Equal(t, rule, got)
 	}
 }

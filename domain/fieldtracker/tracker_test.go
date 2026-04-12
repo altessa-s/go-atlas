@@ -7,6 +7,8 @@ package fieldtracker_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/domain/fieldtracker"
 )
 
@@ -21,14 +23,10 @@ func TestTracker_FieldNameCache_DifferentTagsAcrossTypes(t *testing.T) {
 	tr := fieldtracker.NewTracker()
 
 	changedA := tr.GetChangedFields(&A{ID: "1"}, &A{ID: "2"})
-	if len(changedA) != 1 || changedA[0] != "id" {
-		t.Fatalf("changedA = %v, want [id]", changedA)
-	}
+	require.Equal(t, []string{"id"}, changedA)
 
 	changedB := tr.GetChangedFields(&B{ID: "1"}, &B{ID: "2"})
-	if len(changedB) != 1 || changedB[0] != "identifier" {
-		t.Fatalf("changedB = %v, want [identifier]", changedB)
-	}
+	require.Equal(t, []string{"identifier"}, changedB)
 }
 
 func TestTracker_EmbeddedPointerStruct_IsFlattened(t *testing.T) {
@@ -46,9 +44,7 @@ func TestTracker_EmbeddedPointerStruct_IsFlattened(t *testing.T) {
 	after := &Person{Base: &Base{UpdatedAt: 2}, Name: "a"}
 	changed := tr.GetChangedFields(before, after)
 
-	if len(changed) != 1 || changed[0] != "updated_at" {
-		t.Fatalf("changed = %v, want [updated_at]", changed)
-	}
+	require.Equal(t, []string{"updated_at"}, changed)
 }
 
 func TestTracker_SliceAndMap_PrimitiveDiffs_ReturnIndexedPaths(t *testing.T) {
@@ -80,14 +76,11 @@ func TestTracker_SliceAndMap_PrimitiveDiffs_ReturnIndexedPaths(t *testing.T) {
 		"ids[1]":  {},
 	}
 
-	if len(changed) != len(want) {
-		t.Fatalf("changed = %v, want %d items", changed, len(want))
-	}
+	require.Len(t, changed, len(want))
 
 	for _, p := range changed {
-		if _, ok := want[p]; !ok {
-			t.Fatalf("changed contains unexpected path %q; full=%v", p, changed)
-		}
+		_, ok := want[p]
+		require.True(t, ok, "changed contains unexpected path %q; full=%v", p, changed)
 	}
 }
 
@@ -110,9 +103,7 @@ func TestTracker_Options(t *testing.T) {
 		}{Val: 1}}
 
 		changed := tr.GetChangedFields(before, after)
-		if len(changed) != 1 || changed[0] != "name" {
-			t.Errorf("Expected [name], got %v", changed)
-		}
+		require.Equal(t, []string{"name"}, changed)
 	})
 
 	t.Run("MaxDepth", func(t *testing.T) {
@@ -188,15 +179,11 @@ func TestTracker_Options(t *testing.T) {
 		// So no changes detected at that level.
 
 		changed := tr.GetChangedFields(before, after)
-		if len(changed) != 0 {
-			t.Errorf("Expected no changes at depth > 1, got %v", changed)
-		}
+		require.Empty(t, changed, "Expected no changes at depth > 1")
 
 		// Now test with MaxDepth = 2
 		tr2 := fieldtracker.NewTracker(fieldtracker.WithMaxDepth(2))
 		changed2 := tr2.GetChangedFields(before, after)
-		if len(changed2) != 1 || changed2[0] != "l1.l2.val" {
-			t.Errorf("Expected [l1.l2.val], got %v", changed2)
-		}
+		require.Equal(t, []string{"l1.l2.val"}, changed2)
 	})
 }

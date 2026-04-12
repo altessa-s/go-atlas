@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/health"
 
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
@@ -26,43 +28,30 @@ func callUnary(t *testing.T, si *interceptor, handlerErr error) (codes.Code, err
 	_, err := unary(t.Context(), nil, &grpc.UnaryServerInfo{}, func(ctx context.Context, req any) (any, error) {
 		return nil, handlerErr
 	})
-	if err == nil {
-		t.Fatal("expected error from handler")
-	}
+	require.NotNil(t, err, "expected error from handler")
 	st, ok := status.FromError(err)
-	if !ok {
-		t.Fatal("error should be a gRPC status")
-	}
+	require.True(t, ok, "error should be a gRPC status")
 	return st.Code(), err
 }
 
 func TestServerInterceptor_Name(t *testing.T) {
 	i := ServerInterceptor()
-	if i.Name() != "errstatus" {
-		t.Fatalf("Name() = %q, want %q", i.Name(), "errstatus")
-	}
+	require.Equal(t, "errstatus", i.Name())
 }
 
 func TestServerInterceptor_Dependencies(t *testing.T) {
 	si := ServerInterceptor()
 	i, ok := si.(*interceptor)
-	if !ok {
-		t.Fatal("unexpected type")
-	}
+	require.True(t, ok, "unexpected type")
 	deps := i.Dependencies()
-	if len(deps) != 1 || deps[0] != "requestid" {
-		t.Fatalf("Dependencies() = %v, want [requestid]", deps)
-	}
+	require.Len(t, deps, 1)
+	require.Equal(t, "requestid", deps[0])
 }
 
 func TestServerInterceptor_ReturnsInterceptors(t *testing.T) {
 	i := ServerInterceptor()
-	if i.ServerUnaryInterceptor() == nil {
-		t.Fatal("ServerUnaryInterceptor should not be nil")
-	}
-	if i.ServerStreamInterceptor() == nil {
-		t.Fatal("ServerStreamInterceptor should not be nil")
-	}
+	require.NotNil(t, i.ServerUnaryInterceptor(), "ServerUnaryInterceptor should not be nil")
+	require.NotNil(t, i.ServerStreamInterceptor(), "ServerStreamInterceptor should not be nil")
 }
 
 func TestServerInterceptor_NoError_PassThrough(t *testing.T) {
@@ -71,12 +60,8 @@ func TestServerInterceptor_NoError_PassThrough(t *testing.T) {
 	resp, err := unary(t.Context(), "req", &grpc.UnaryServerInfo{}, func(ctx context.Context, req any) (any, error) {
 		return "ok", nil
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp != "ok" {
-		t.Fatalf("resp = %v, want ok", resp)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "ok", resp)
 }
 
 func TestServerInterceptor_ErrorConversion(t *testing.T) {
@@ -102,9 +87,7 @@ func TestServerInterceptor_ErrorConversion(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, _ := callUnary(t, si, tt.err)
-			if got != tt.wantCode {
-				t.Fatalf("code = %v, want %v", got, tt.wantCode)
-			}
+			require.Equal(t, tt.wantCode, got)
 		})
 	}
 }
@@ -112,9 +95,7 @@ func TestServerInterceptor_ErrorConversion(t *testing.T) {
 func TestServerInterceptor_GRPCStatusError_PreservesCode(t *testing.T) {
 	si := ServerInterceptor().(*interceptor)
 	got, _ := callUnary(t, si, status.Error(codes.PermissionDenied, "denied"))
-	if got != codes.PermissionDenied {
-		t.Fatalf("code = %v, want %v", got, codes.PermissionDenied)
-	}
+	require.Equal(t, codes.PermissionDenied, got)
 }
 
 func TestServerInterceptor_Finalizer(t *testing.T) {
@@ -128,9 +109,7 @@ func TestServerInterceptor_Finalizer(t *testing.T) {
 		_, _ = unary(t.Context(), nil, &grpc.UnaryServerInfo{}, func(ctx context.Context, req any) (any, error) {
 			return nil, errors.New("trigger")
 		})
-		if !called {
-			t.Fatal("finalizer should have been called")
-		}
+		require.True(t, called, "finalizer should have been called")
 	})
 
 	t.Run("not_called_on_success", func(t *testing.T) {
@@ -143,12 +122,8 @@ func TestServerInterceptor_Finalizer(t *testing.T) {
 		_, err := unary(t.Context(), nil, &grpc.UnaryServerInfo{}, func(ctx context.Context, req any) (any, error) {
 			return "ok", nil
 		})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if called {
-			t.Fatal("finalizer should not be called on success")
-		}
+		require.NoError(t, err)
+		require.False(t, called, "finalizer should not be called on success")
 	})
 }
 
@@ -163,19 +138,15 @@ func TestServerInterceptor_WithDomain_AutoWraps(t *testing.T) {
 	})
 
 	st, ok := status.FromError(err)
-	if !ok {
-		t.Fatal("error should be a gRPC status")
-	}
+	require.True(t, ok, "error should be a gRPC status")
 
 	for _, d := range st.Details() {
 		if ei, ok := d.(*errdetails.ErrorInfo); ok {
-			if ei.Domain != "auto.example.com" {
-				t.Fatalf("ErrorInfo.Domain = %q, want %q", ei.Domain, "auto.example.com")
-			}
+			require.Equal(t, "auto.example.com", ei.Domain)
 			return
 		}
 	}
-	t.Fatal("ErrorInfo detail not found")
+	require.Fail(t, "ErrorInfo detail not found")
 }
 
 func TestServerInterceptor_StatusError_Interface(t *testing.T) {
@@ -192,12 +163,8 @@ func TestServerInterceptor_StatusError_Interface(t *testing.T) {
 	})
 
 	st, ok := status.FromError(err)
-	if !ok {
-		t.Fatal("error should be a gRPC status")
-	}
-	if st.Code() != codes.AlreadyExists {
-		t.Fatalf("code = %v, want %v", st.Code(), codes.AlreadyExists)
-	}
+	require.True(t, ok, "error should be a gRPC status")
+	require.Equal(t, codes.AlreadyExists, st.Code())
 }
 
 func TestServerInterceptor_Cache(t *testing.T) {
@@ -212,16 +179,12 @@ func TestServerInterceptor_Cache(t *testing.T) {
 		code1, _ := callUnary(t, si, sentinel)
 		code2, _ := callUnary(t, si, sentinel)
 
-		if code1 != code2 {
-			t.Fatalf("cached code %v != first code %v", code2, code1)
-		}
+		require.Equal(t, code2, code1)
 	})
 
 	t.Run("disabled", func(t *testing.T) {
 		si := ServerInterceptor(WithCacheDisabled()).(*interceptor)
-		if si.cache != nil {
-			t.Fatal("cache should be nil when disabled")
-		}
+		require.Equal(t, nil, si.cache)
 	})
 }
 

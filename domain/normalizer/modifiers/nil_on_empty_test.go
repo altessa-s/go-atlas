@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
@@ -27,11 +29,9 @@ func TestNilOnEmpty(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := NilOnEmpty(reflect.ValueOf(tt.in), nil)
-			if result.Error != nil {
-				t.Fatalf("unexpected error: %v", result.Error)
-			}
-			if tt.wantNil && result.Value.Kind() == reflect.Pointer && !result.Value.IsNil() {
-				t.Error("expected nil pointer")
+			require.Nil(t, result.Error)
+			if tt.wantNil && result.Value.Kind() == reflect.Pointer {
+				require.True(t, result.Value.IsNil(), "expected nil pointer")
 			}
 		})
 	}

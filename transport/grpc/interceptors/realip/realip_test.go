@@ -7,30 +7,22 @@ package realip
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/transport/internal/clientip"
 )
 
 func TestServerInterceptor_Name(t *testing.T) {
 	extractor, err := clientip.NewExtractor()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	i := ServerInterceptor(extractor)
-	if i.Name() != "realip" {
-		t.Fatalf("Name = %q", i.Name())
-	}
+	require.Equal(t, "realip", i.Name())
 }
 
 func TestServerInterceptor_ReturnsInterceptors(t *testing.T) {
 	extractor, err := clientip.NewExtractor()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	i := ServerInterceptor(extractor)
-	if i.ServerUnaryInterceptor() == nil {
-		t.Fatal("ServerUnaryInterceptor should not be nil")
-	}
-	if i.ServerStreamInterceptor() == nil {
-		t.Fatal("ServerStreamInterceptor should not be nil")
-	}
+	require.NotNil(t, i.ServerUnaryInterceptor(), "ServerUnaryInterceptor should not be nil")
+	require.NotNil(t, i.ServerStreamInterceptor(), "ServerStreamInterceptor should not be nil")
 }

@@ -7,27 +7,23 @@ package auth_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/security/vault/auth"
 )
 
 func TestBaseMethod_Name(t *testing.T) {
 	base := auth.NewBaseMethod("approle")
-	if got := base.Name(); got != "approle" {
-		t.Errorf("Name() = %q, want %q", got, "approle")
-	}
+	require.Equal(t, "approle", base.Name())
 }
 
 func TestBaseMethod_MountPath(t *testing.T) {
 	base := auth.NewBaseMethod("approle")
 	base.SetMountPath("  /auth/approle  ")
-	if got := base.MountPath(); got != "/auth/approle" {
-		t.Errorf("MountPath() = %q, want %q", got, "/auth/approle")
-	}
+	require.Equal(t, "/auth/approle", base.MountPath())
 }
 
 func TestBaseMethod_Shutdown(t *testing.T) {
 	base := auth.NewBaseMethod("approle")
-	if err := base.Shutdown(); err != nil {
-		t.Errorf("Shutdown() = %v, want nil", err)
-	}
+	require.NoError(t, base.Shutdown())
 }

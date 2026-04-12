@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/config/internal/utils"
 )
 
@@ -16,9 +18,7 @@ func TestFindFile(t *testing.T) {
 	// Create a temporary file for testing.
 	tmpDir := t.TempDir()
 	tmpFile := filepath.Join(tmpDir, "testfile.txt")
-	if err := os.WriteFile(tmpFile, []byte("test"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(tmpFile, []byte("test"), 0o644))
 
 	tests := []struct {
 		name     string
@@ -37,9 +37,7 @@ func TestFindFile(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := utils.FindFile(tt.path)
-			if got != tt.expected {
-				t.Errorf("FindFile(%q) = %q, want %q", tt.path, got, tt.expected)
-			}
+			require.Equal(t, tt.expected, got)
 		})
 	}
 }

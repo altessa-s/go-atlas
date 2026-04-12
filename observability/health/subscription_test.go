@@ -4,13 +4,15 @@
 
 package health
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestSubscription_InitialStatus(t *testing.T) {
 	sub := &Subscription{initialStatus: StatusServing}
-	if sub.InitialStatus() != StatusServing {
-		t.Errorf("InitialStatus() = %v", sub.InitialStatus())
-	}
+	require.Equal(t, StatusServing, sub.InitialStatus())
 }
 
 func TestSubscription_Close_Idempotent(t *testing.T) {
@@ -21,9 +23,7 @@ func TestSubscription_Close_Idempotent(t *testing.T) {
 	sub.Close()
 	sub.Close()
 	sub.Close()
-	if called != 1 {
-		t.Errorf("cancel called %d times, want 1", called)
-	}
+	require.Equal(t, 1, called, "cancel should be called exactly once")
 }
 
 func TestSubscription_Close_NilCancel(t *testing.T) {
@@ -37,11 +37,9 @@ func TestWatcher_Notify(t *testing.T) {
 
 	select {
 	case s := <-w.ch:
-		if s != StatusServing {
-			t.Errorf("expected StatusServing, got %v", s)
-		}
+		require.Equal(t, StatusServing, s)
 	default:
-		t.Error("expected notification")
+		require.Fail(t, "expected notification")
 	}
 }
 

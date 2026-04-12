@@ -4,33 +4,29 @@
 
 package base
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestMatchFunc_True(t *testing.T) {
 	var m Matcher = MatchFunc(func() bool { return true })
-	if !m.Match() {
-		t.Fatal("MatchFunc(true) should return true")
-	}
+	require.True(t, m.Match(), "MatchFunc(true) should return true")
 }
 
 func TestMatchFunc_False(t *testing.T) {
 	var m Matcher = MatchFunc(func() bool { return false })
-	if m.Match() {
-		t.Fatal("MatchFunc(false) should return false")
-	}
+	require.False(t, m.Match(), "MatchFunc(false) should return false")
 }
 
 func TestMatchFunc_Dynamic(t *testing.T) {
 	enabled := false
 	m := MatchFunc(func() bool { return enabled })
 
-	if m.Match() {
-		t.Fatal("expected false before enabling")
-	}
+	require.False(t, m.Match(), "expected false before enabling")
 	enabled = true
-	if !m.Match() {
-		t.Fatal("expected true after enabling")
-	}
+	require.True(t, m.Match(), "expected true after enabling")
 }
 
 func TestMatchFunc_SatisfiesMatcher(t *testing.T) {

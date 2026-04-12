@@ -4,7 +4,11 @@
 
 package observability
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestFieldKeys_NonEmpty(t *testing.T) {
 	keys := []struct {
@@ -30,9 +34,7 @@ func TestFieldKeys_NonEmpty(t *testing.T) {
 
 	for _, tt := range keys {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.key == "" {
-				t.Fatalf("FieldKey %s is empty", tt.name)
-			}
+			require.NotEqual(t, "", tt.key)
 		})
 	}
 }
@@ -48,9 +50,7 @@ func TestFieldKeys_Unique(t *testing.T) {
 
 	seen := make(map[FieldKey]bool, len(keys))
 	for _, k := range keys {
-		if seen[k] {
-			t.Fatalf("duplicate field key: %s", k)
-		}
+		require.False(t, seen[k], "duplicate field key: %s", k)
 		seen[k] = true
 	}
 }

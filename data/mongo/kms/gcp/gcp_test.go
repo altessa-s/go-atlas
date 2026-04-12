@@ -8,6 +8,8 @@ import (
 	"crypto/tls"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/mongo/kms"
 
 	kmsgcp "github.com/altessa-s/go-atlas/data/mongo/kms/gcp"
@@ -15,16 +17,12 @@ import (
 
 func TestNew(t *testing.T) {
 	p := kmsgcp.New("project", "email@sa.com", "privkey", "global", "ring", "key")
-	if p == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, p)
 }
 
 func TestGoogle_Name(t *testing.T) {
 	p := kmsgcp.New("p", "e", "k", "l", "r", "n")
-	if p.Name() != "gcp" {
-		t.Errorf("Name() = %q, want %q", p.Name(), "gcp")
-	}
+	require.Equal(t, "gcp", p.Name())
 }
 
 func TestGoogle_Credentials(t *testing.T) {
@@ -32,15 +30,9 @@ func TestGoogle_Credentials(t *testing.T) {
 	creds := p.Credentials()
 
 	gcpCreds, ok := creds["gcp"]
-	if !ok {
-		t.Fatal("Credentials() missing 'gcp' key")
-	}
-	if gcpCreds[kmsgcp.Email] != "email@test.com" {
-		t.Errorf("Email = %v", gcpCreds[kmsgcp.Email])
-	}
-	if gcpCreds[kmsgcp.GCPPrivateKey] != "private-key" {
-		t.Errorf("PrivateKey = %v", gcpCreds[kmsgcp.GCPPrivateKey])
-	}
+	require.True(t, ok, "Credentials() missing 'gcp' key")
+	require.Equal(t, "email@test.com", gcpCreds[kmsgcp.Email])
+	require.Equal(t, "private-key", gcpCreds[kmsgcp.GCPPrivateKey])
 }
 
 func TestGoogle_Credentials_WithAuthEndpoint(t *testing.T) {
@@ -49,9 +41,7 @@ func TestGoogle_Credentials_WithAuthEndpoint(t *testing.T) {
 		kmsgcp.WithAuthenticationEndpoint(&authEp),
 	)
 	creds := p.Credentials()
-	if creds["gcp"][kmsgcp.Endpoint] != "https://custom-auth.com" {
-		t.Errorf("Endpoint = %v", creds["gcp"][kmsgcp.Endpoint])
-	}
+	require.Equal(t, "https://custom-auth.com", creds["gcp"][kmsgcp.Endpoint])
 }
 
 func TestGoogle_MasterKey(t *testing.T) {
@@ -63,59 +53,39 @@ func TestGoogle_MasterKey(t *testing.T) {
 	)
 
 	key := p.MasterKey()
-	if key[kmsgcp.ProjectID] != "project" {
-		t.Errorf("ProjectID = %v", key[kmsgcp.ProjectID])
-	}
-	if key[kmsgcp.GCPLocation] != "global" {
-		t.Errorf("Location = %v", key[kmsgcp.GCPLocation])
-	}
-	if key[kmsgcp.KeyRing] != "ring" {
-		t.Errorf("KeyRing = %v", key[kmsgcp.KeyRing])
-	}
-	if key[kmsgcp.GCPKeyName] != "key" {
-		t.Errorf("KeyName = %v", key[kmsgcp.GCPKeyName])
-	}
-	if key[kmsgcp.KeyVersion] != "1" {
-		t.Errorf("KeyVersion = %v", key[kmsgcp.KeyVersion])
-	}
-	if key[kmsgcp.Endpoint] != "https://custom.kms.com" {
-		t.Errorf("Endpoint = %v", key[kmsgcp.Endpoint])
-	}
+	require.Equal(t, "project", key[kmsgcp.ProjectID])
+	require.Equal(t, "global", key[kmsgcp.GCPLocation])
+	require.Equal(t, "ring", key[kmsgcp.KeyRing])
+	require.Equal(t, "key", key[kmsgcp.GCPKeyName])
+	require.Equal(t, "1", key[kmsgcp.KeyVersion])
+	require.Equal(t, "https://custom.kms.com", key[kmsgcp.Endpoint])
 }
 
 func TestGoogle_MasterKey_NoOptionals(t *testing.T) {
 	p := kmsgcp.New("p", "e", "k", "l", "r", "n")
 	key := p.MasterKey()
-	if _, ok := key[kmsgcp.KeyVersion]; ok {
-		t.Error("KeyVersion should not be set")
-	}
-	if _, ok := key[kmsgcp.Endpoint]; ok {
-		t.Error("Endpoint should not be set")
-	}
+	_, hasVersion := key[kmsgcp.KeyVersion]
+	require.False(t, hasVersion)
+	_, hasEndpoint := key[kmsgcp.Endpoint]
+	require.False(t, hasEndpoint)
 }
 
 func TestGoogle_TLSConfig_Nil(t *testing.T) {
 	p := kmsgcp.New("p", "e", "k", "l", "r", "n")
-	if p.TLSConfig() != nil {
-		t.Error("TLSConfig() should be nil by default")
-	}
+	require.Nil(t, p.TLSConfig())
 }
 
 func TestGoogle_TLSConfig_Custom(t *testing.T) {
 	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS13} //nolint:gosec
 	p := kmsgcp.New("p", "e", "k", "l", "r", "n", kmsgcp.WithTLS(tlsCfg))
-	if p.TLSConfig() != tlsCfg {
-		t.Error("TLSConfig() should return custom config")
-	}
+	require.Equal(t, tlsCfg, p.TLSConfig())
 }
 
 func TestGoogle_Clear(t *testing.T) {
 	p := kmsgcp.New("p", "e", "k", "l", "r", "n")
 	p.Clear()
 	creds := p.Credentials()
-	if len(creds["gcp"]) != 0 {
-		t.Errorf("Credentials() after Clear() should be empty, got %v", creds["gcp"])
-	}
+	require.Len(t, creds["gcp"], 0)
 }
 
 func TestGoogle_ImplementsProvider(t *testing.T) {

@@ -4,7 +4,11 @@
 
 package oidc
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestClaims_Fields(t *testing.T) {
 	c := Claims{
@@ -15,13 +19,7 @@ func TestClaims_Fields(t *testing.T) {
 		Audience:          []string{"aud1"},
 		Scopes:            []string{"openid", "profile"},
 	}
-	if c.Subject != "sub1" {
-		t.Fatalf("Subject = %q", c.Subject)
-	}
-	if c.Email != "a@b.com" {
-		t.Fatalf("Email = %q", c.Email)
-	}
-	if len(c.Scopes) != 2 {
-		t.Fatalf("Scopes len = %d", len(c.Scopes))
-	}
+	require.Equal(t, "sub1", c.Subject)
+	require.Equal(t, "a@b.com", c.Email)
+	require.Len(t, c.Scopes, 2)
 }

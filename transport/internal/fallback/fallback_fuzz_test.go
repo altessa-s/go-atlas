@@ -4,7 +4,11 @@
 
 package fallback
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func FuzzBehavior_IsValid(f *testing.F) {
 	f.Add("allow")
@@ -16,8 +20,8 @@ func FuzzBehavior_IsValid(f *testing.F) {
 	f.Fuzz(func(t *testing.T, s string) {
 		b := Behavior(s)
 		valid := b.IsValid()
-		if valid && !(b == Allow || b == Deny || b == Error) {
-			t.Fatalf("IsValid() returned true for %q", s)
+		if valid {
+			assert.True(t, b == Allow || b == Deny || b == Error, "IsValid() returned true for %q", s)
 		}
 	})
 }

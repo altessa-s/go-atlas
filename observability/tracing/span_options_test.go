@@ -7,6 +7,8 @@ package tracing
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestApplyRecorderOptions(t *testing.T) {
@@ -14,12 +16,8 @@ func TestApplyRecorderOptions(t *testing.T) {
 		WithInstrumentationVersion("1.0.0"),
 		WithSchemaURL("https://schema.example.com"),
 	)
-	if cfg.InstrumentationVersion() != "1.0.0" {
-		t.Errorf("InstrumentationVersion = %q", cfg.InstrumentationVersion())
-	}
-	if cfg.SchemaURL() != "https://schema.example.com" {
-		t.Errorf("SchemaURL = %q", cfg.SchemaURL())
-	}
+	require.Equal(t, "1.0.0", cfg.InstrumentationVersion())
+	require.Equal(t, "https://schema.example.com", cfg.SchemaURL())
 }
 
 func TestApplySpanStartOptions(t *testing.T) {
@@ -29,23 +27,15 @@ func TestApplySpanStartOptions(t *testing.T) {
 		WithAttributes(String("key", "val")),
 		WithStartTimestamp(now),
 	)
-	if cfg.Kind() != SpanKindServer {
-		t.Errorf("Kind = %v", cfg.Kind())
-	}
-	if len(cfg.Attributes()) != 1 {
-		t.Errorf("Attributes len = %d", len(cfg.Attributes()))
-	}
-	if !cfg.Timestamp().Equal(now) {
-		t.Errorf("Timestamp = %v", cfg.Timestamp())
-	}
+	require.Equal(t, SpanKindServer, cfg.Kind())
+	require.Len(t, cfg.Attributes(), 1)
+	require.True(t, cfg.Timestamp().Equal(now))
 }
 
 func TestApplySpanEndOptions(t *testing.T) {
 	now := time.Now()
 	cfg := ApplySpanEndOptions(WithEndTimestamp(now))
-	if !cfg.Timestamp().Equal(now) {
-		t.Errorf("Timestamp = %v", cfg.Timestamp())
-	}
+	require.True(t, cfg.Timestamp().Equal(now))
 }
 
 func TestApplyEventOptions(t *testing.T) {
@@ -55,36 +45,24 @@ func TestApplyEventOptions(t *testing.T) {
 		WithEventAttributes(String("k", "v")),
 		WithStackTrace(true),
 	)
-	if !cfg.Timestamp().Equal(now) {
-		t.Errorf("Timestamp = %v", cfg.Timestamp())
-	}
-	if len(cfg.Attributes()) != 1 {
-		t.Errorf("Attributes len = %d", len(cfg.Attributes()))
-	}
-	if !cfg.StackTrace() {
-		t.Error("StackTrace should be true")
-	}
+	require.True(t, cfg.Timestamp().Equal(now))
+	require.Len(t, cfg.Attributes(), 1)
+	require.True(t, cfg.StackTrace(), "StackTrace should be true")
 }
 
 func TestApplySpanStartOptions_Links(t *testing.T) {
 	sc := newSpanContextImpl(nil)
 	link := Link{SpanContext: sc}
 	cfg := ApplySpanStartOptions(WithLinks(link))
-	if len(cfg.Links()) != 1 {
-		t.Errorf("Links len = %d", len(cfg.Links()))
-	}
+	require.Len(t, cfg.Links(), 1)
 }
 
 func TestLinksPool(t *testing.T) {
 	links := GetLinks()
-	if links == nil {
-		t.Fatal("GetLinks returned nil")
-	}
+	require.NotNil(t, links, "GetLinks returned nil")
 	PutLinks(links)
 
 	links2 := GetLinksWithCapacity(8)
-	if links2 == nil {
-		t.Fatal("GetLinksWithCapacity returned nil")
-	}
+	require.NotNil(t, links2, "GetLinksWithCapacity returned nil")
 	PutLinks(links2)
 }

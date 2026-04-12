@@ -4,18 +4,21 @@
 
 package auth
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestScopeRegistry(t *testing.T) {
 	r := NewScopeRegistry()
 
 	r.Register("/svc/Get", "read")
-	if got, ok := r.Scope("/svc/Get"); !ok || got != "read" {
-		t.Fatalf("Scope = %q, ok = %v", got, ok)
-	}
-	if _, ok := r.Scope("/svc/Unknown"); ok {
-		t.Fatal("Scope should return false for unregistered method")
-	}
+	got, ok := r.Scope("/svc/Get")
+	require.True(t, ok, "Scope = %q, ok = %v", got, ok)
+	require.Equal(t, "read", got)
+	_, ok = r.Scope("/svc/Unknown")
+	require.False(t, ok, "Scope should return false for unregistered method")
 }
 
 func TestScopeRegistry_DenyByDefault(t *testing.T) {
@@ -24,9 +27,7 @@ func TestScopeRegistry_DenyByDefault(t *testing.T) {
 
 	// Unregistered method must return ok=false (deny by default)
 	_, ok := r.Scope("/svc/Unregistered")
-	if ok {
-		t.Fatal("unregistered method must return ok=false")
-	}
+	require.False(t, ok, "unregistered method must return ok=false")
 }
 
 func TestScopeRegistry_ScopeNone(t *testing.T) {
@@ -36,24 +37,20 @@ func TestScopeRegistry_ScopeNone(t *testing.T) {
 	r.Register("/health.HealthService/Check", ScopeNone)
 
 	scope, ok := r.Scope("/health.HealthService/Check")
-	if !ok {
-		t.Fatal("explicitly registered ScopeNone method must return ok=true")
-	}
-	if scope != ScopeNone {
-		t.Fatalf("Scope = %q, want ScopeNone", scope)
-	}
+	require.True(t, ok, "explicitly registered ScopeNone method must return ok=true")
+	require.Equal(t, ScopeNone, scope)
 }
 
 func TestScopeRegistry_RegisterMethods(t *testing.T) {
 	r := NewScopeRegistry()
 	r.RegisterMethods("write", "/svc/Create", "/svc/Update")
 
-	if got, ok := r.Scope("/svc/Create"); !ok || got != "write" {
-		t.Fatalf("Scope = %q, ok = %v", got, ok)
-	}
-	if got, ok := r.Scope("/svc/Update"); !ok || got != "write" {
-		t.Fatalf("Scope = %q, ok = %v", got, ok)
-	}
+	got, ok := r.Scope("/svc/Create")
+	require.True(t, ok, "Scope = %q, ok = %v", got, ok)
+	require.Equal(t, "write", got)
+	got, ok = r.Scope("/svc/Update")
+	require.True(t, ok, "Scope = %q, ok = %v", got, ok)
+	require.Equal(t, "write", got)
 }
 
 func TestScopeRegistry_AllScopes(t *testing.T) {
@@ -62,24 +59,21 @@ func TestScopeRegistry_AllScopes(t *testing.T) {
 	r.Register("/svc/B", "y")
 
 	all := r.AllScopes()
-	if len(all) != 2 {
-		t.Fatalf("len = %d", len(all))
-	}
+	require.Len(t, all, 2)
 
 	// Verify it's a copy
 	all["/svc/C"] = "z"
-	if _, ok := r.Scope("/svc/C"); ok {
-		t.Fatal("AllScopes should return a copy")
-	}
+	_, ok := r.Scope("/svc/C")
+	require.False(t, ok, "AllScopes should return a copy")
 }
 
 func TestScopeRegistry_Overwrite(t *testing.T) {
 	r := NewScopeRegistry()
 	r.Register("/svc/Get", "read")
 	r.Register("/svc/Get", "admin")
-	if got, ok := r.Scope("/svc/Get"); !ok || got != "admin" {
-		t.Fatalf("Scope = %q, ok = %v", got, ok)
-	}
+	got, ok := r.Scope("/svc/Get")
+	require.True(t, ok, "Scope = %q, ok = %v", got, ok)
+	require.Equal(t, "admin", got)
 }
 
 func BenchmarkScopeRegistry_Scope(b *testing.B) {

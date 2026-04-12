@@ -4,7 +4,11 @@
 
 package limiters
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func FuzzLimitInfo_IsLimitExceeded(f *testing.F) {
 	f.Add(int64(0))
@@ -16,8 +20,6 @@ func FuzzLimitInfo_IsLimitExceeded(f *testing.F) {
 		li := &LimitInfo{Remaining: remaining}
 		got := li.IsLimitExceeded()
 		want := remaining <= 0
-		if got != want {
-			t.Fatalf("IsLimitExceeded() with remaining=%d: got %v, want %v", remaining, got, want)
-		}
+		assert.Equal(t, want, got)
 	})
 }

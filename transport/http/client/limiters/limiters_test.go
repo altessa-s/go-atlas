@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
@@ -23,20 +25,14 @@ func (m *mockLimiter) Allow(_ context.Context, _ string) error {
 
 func TestNewRoundTripper(t *testing.T) {
 	rt := NewRoundTripper(http.DefaultTransport, &mockLimiter{})
-	if rt == nil {
-		t.Fatal("NewRoundTripper returned nil")
-	}
+	require.NotNil(t, rt)
 }
 
 func TestNewRoundTripper_NilNext(t *testing.T) {
 	rt := NewRoundTripper(nil, &mockLimiter{})
-	if rt == nil {
-		t.Fatal("NewRoundTripper(nil, ...) returned nil")
-	}
+	require.NotNil(t, rt)
 	// next should default to http.DefaultTransport
-	if rt.next == nil {
-		t.Fatal("next should not be nil")
-	}
+	require.NotNil(t, rt.next)
 }
 
 func TestRoundTripper_RoundTrip_Allowed(t *testing.T) {
@@ -47,12 +43,8 @@ func TestRoundTripper_RoundTrip_Allowed(t *testing.T) {
 
 	req, _ := http.NewRequest("GET", "http://example.com/test", nil)
 	resp, err := rt.RoundTrip(req)
-	if err != nil {
-		t.Fatalf("RoundTrip() error = %v", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d", resp.StatusCode)
-	}
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
 func TestRoundTripper_RoundTrip_Denied(t *testing.T) {
@@ -60,9 +52,7 @@ func TestRoundTripper_RoundTrip_Denied(t *testing.T) {
 
 	req, _ := http.NewRequest("GET", "http://example.com/test", nil)
 	_, err := rt.RoundTrip(req)
-	if err == nil {
-		t.Fatal("expected error")
-	}
+	require.Error(t, err)
 }
 
 func TestRoundTripper_RoundTrip_HostnameExtracted(t *testing.T) {
@@ -75,12 +65,8 @@ func TestRoundTripper_RoundTrip_HostnameExtracted(t *testing.T) {
 
 	req, _ := http.NewRequest("GET", "http://api.example.com:8080/test", nil)
 	_, err := rt.RoundTrip(req)
-	if err != nil {
-		t.Fatalf("RoundTrip() error = %v", err)
-	}
-	if capturedKey != "api.example.com" {
-		t.Fatalf("hostname = %q, want %q", capturedKey, "api.example.com")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "api.example.com", capturedKey)
 }
 
 type capturingLimiter struct {

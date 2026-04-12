@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -29,12 +31,8 @@ func TestDefaultSuccessOnlyDecision(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			d := fn(ctx, "/svc/Method", nil, tt.resp, tt.err)
-			if d.ShouldCache != tt.shouldCache {
-				t.Fatalf("ShouldCache = %v, want %v", d.ShouldCache, tt.shouldCache)
-			}
-			if tt.shouldCache && d.TTL != 5*time.Minute {
-				t.Fatalf("TTL = %v", d.TTL)
-			}
+			require.Equal(t, d.ShouldCache, tt.shouldCache)
+			require.False(t, tt.shouldCache && d.TTL != 5*time.Minute)
 		})
 	}
 }
@@ -59,12 +57,8 @@ func TestDefaultSuccessAndErrorDecision(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			d := fn(ctx, "/svc/Method", nil, tt.resp, tt.err)
-			if d.ShouldCache != tt.shouldCache {
-				t.Fatalf("ShouldCache = %v, want %v", d.ShouldCache, tt.shouldCache)
-			}
-			if tt.shouldCache && d.TTL != tt.ttl {
-				t.Fatalf("TTL = %v, want %v", d.TTL, tt.ttl)
-			}
+			require.Equal(t, d.ShouldCache, tt.shouldCache)
+			require.False(t, tt.shouldCache && d.TTL != tt.ttl)
 		})
 	}
 }

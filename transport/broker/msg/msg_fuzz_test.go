@@ -4,7 +4,11 @@
 
 package msg
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func FuzzNewMessage(f *testing.F) {
 	f.Add("events", []byte("hello"))
@@ -13,15 +17,9 @@ func FuzzNewMessage(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, topic string, data []byte) {
 		m := NewMessage(topic, data)
-		if m == nil {
-			t.Fatal("NewMessage returned nil")
-		}
-		if m.Topic != topic {
-			t.Fatalf("Topic = %q, want %q", m.Topic, topic)
-		}
-		if len(data) != len(m.Data) {
-			t.Fatalf("Data length = %d, want %d", len(m.Data), len(data))
-		}
+		assert.NotNil(t, m, "NewMessage returned nil")
+		assert.Equal(t, m.Topic, topic)
+		assert.Equal(t, len(m.Data), len(data))
 	})
 }
 

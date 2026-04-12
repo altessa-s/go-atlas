@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestDefaultKeyValidator(t *testing.T) {
@@ -25,51 +27,39 @@ func TestDefaultKeyValidator(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := DefaultKeyValidator(tt.key)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("DefaultKeyValidator(%q) err = %v, wantErr = %v", tt.key, err, tt.wantErr)
-			}
+			require.Equal(t, tt.wantErr, (err != nil))
 		})
 	}
 }
 
 func TestMiddleware_Dependencies(t *testing.T) {
 	m := &middleware{}
-	if m.Dependencies() != nil {
-		t.Fatal("Dependencies should be nil")
-	}
+	require.Nil(t, m.Dependencies())
 }
 
 func TestBuildKey(t *testing.T) {
 	m := &middleware{}
 	key := m.buildKey("POST", "/api/v1/users", "550e8400-e29b-41d4-a716-446655440000")
 	want := "idk:POST:/api/v1/users:550e8400-e29b-41d4-a716-446655440000"
-	if key != want {
-		t.Fatalf("buildKey = %q, want %q", key, want)
-	}
+	require.Equal(t, want, key)
 }
 
 func TestBuildKey_LeadingSlash(t *testing.T) {
 	m := &middleware{}
 	key := m.buildKey("GET", "/test", "abc")
 	want := "idk:GET:/test:abc"
-	if key != want {
-		t.Fatalf("buildKey = %q, want %q", key, want)
-	}
+	require.Equal(t, want, key)
 }
 
 func TestIsSafeMethod(t *testing.T) {
 	safe := []string{http.MethodGet, http.MethodHead, http.MethodOptions}
 	for _, method := range safe {
-		if !isSafeMethod(method) {
-			t.Fatalf("isSafeMethod(%q) = false, want true", method)
-		}
+		require.True(t, isSafeMethod(method))
 	}
 
 	unsafe := []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete}
 	for _, method := range unsafe {
-		if isSafeMethod(method) {
-			t.Fatalf("isSafeMethod(%q) = true, want false", method)
-		}
+		require.False(t, isSafeMethod(method), "isSafeMethod(%q) = true, want false", method)
 	}
 }
 
@@ -82,15 +72,9 @@ func TestCheckIdempotency_SkipsSafeMethod(t *testing.T) {
 			w := httptest.NewRecorder()
 
 			key, err := m.checkIdempotency(w, r)
-			if err != nil {
-				t.Fatalf("checkIdempotency returned error for %s: %v", method, err)
-			}
-			if key != "" {
-				t.Fatalf("checkIdempotency returned key %q for %s, want empty", key, method)
-			}
-			if w.Code != http.StatusOK {
-				t.Fatalf("response status = %d, want %d", w.Code, http.StatusOK)
-			}
+			require.NoError(t, err)
+			require.Equal(t, "", key)
+			require.Equal(t, http.StatusOK, w.Code)
 		})
 	}
 }

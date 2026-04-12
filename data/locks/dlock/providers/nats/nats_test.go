@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/locks/dlock/errs"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
@@ -24,18 +26,14 @@ func setupLocker(tb testing.TB) *locknats.Locker {
 
 	bucket := strings.ReplaceAll(tb.Name(), "/", "-")
 	locker, err := locknats.New(ctx, nc, locknats.WithBucket(bucket))
-	if err != nil {
-		tb.Fatalf("failed to create NATS locker: %v", err)
-	}
+	require.NoError(tb, err)
 	tb.Cleanup(func() { _ = locker.Close(context.Background()) })
 	return locker
 }
 
 func TestNew(t *testing.T) {
 	locker := setupLocker(t)
-	if locker == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, locker, "New() returned nil")
 }
 
 func TestLocker_Lock_Release(t *testing.T) {
@@ -43,24 +41,14 @@ func TestLocker_Lock_Release(t *testing.T) {
 	ctx := t.Context()
 
 	lk, err := locker.Lock(ctx, "test-key")
-	if err != nil {
-		t.Fatalf("Lock() error: %v", err)
-	}
-	if lk == nil {
-		t.Fatal("Lock() returned nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, lk, "Lock() returned nil")
 
 	info, err := lk.GetLockInfo(ctx)
-	if err != nil {
-		t.Fatalf("GetLockInfo() error: %v", err)
-	}
-	if info.Key != "test-key" {
-		t.Errorf("Key = %q, want %q", info.Key, "test-key")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "test-key", info.Key)
 
-	if err := lk.Release(ctx); err != nil {
-		t.Errorf("Release() error: %v", err)
-	}
+	require.NoError(t, lk.Release(ctx))
 }
 
 func TestLocker_GetLockInfo_NotHeld(t *testing.T) {
@@ -68,12 +56,8 @@ func TestLocker_GetLockInfo_NotHeld(t *testing.T) {
 	ctx := t.Context()
 
 	_, err := locker.GetLockInfo(ctx, "nonexistent")
-	if err == nil {
-		t.Error("GetLockInfo() on nonexistent key should return error")
-	}
-	if !isErrLockNotHeld(err) {
-		t.Errorf("GetLockInfo() error = %v, want ErrLockNotHeld", err)
-	}
+	require.Error(t, err, "GetLockInfo() on nonexistent key should return error")
+	require.True(t, isErrLockNotHeld(err), "GetLockInfo() error = %v, want ErrLockNotHeld", err)
 }
 
 func TestLocker_GetLockInfo_Held(t *testing.T) {
@@ -81,41 +65,25 @@ func TestLocker_GetLockInfo_Held(t *testing.T) {
 	ctx := t.Context()
 
 	lk, err := locker.Lock(ctx, "info-key")
-	if err != nil {
-		t.Fatalf("Lock() error: %v", err)
-	}
+	require.NoError(t, err)
 	defer lk.Release(ctx) //nolint:errcheck
 
 	info, err := locker.GetLockInfo(ctx, "info-key")
-	if err != nil {
-		t.Fatalf("GetLockInfo() error: %v", err)
-	}
-	if info.Key != "info-key" {
-		t.Errorf("Key = %q, want %q", info.Key, "info-key")
-	}
-	if info.Owner == "" {
-		t.Error("Owner should not be empty")
-	}
-	if info.AcquiredAt.IsZero() {
-		t.Error("AcquiredAt should not be zero")
-	}
-	if info.FencingToken == 0 {
-		t.Error("FencingToken should be > 0 for a held lock")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "info-key", info.Key)
+	require.NotEmpty(t, info.Owner, "Owner should not be empty")
+	require.False(t, info.AcquiredAt.IsZero(), "AcquiredAt should not be zero")
+	require.NotEqual(t, uint64(0), info.FencingToken, "FencingToken should be > 0 for a held lock")
 }
 
 func TestLocker_Close_PreventsNewLocks(t *testing.T) {
 	locker := setupLocker(t)
 	ctx := t.Context()
 
-	if err := locker.Close(ctx); err != nil {
-		t.Fatalf("Close() error: %v", err)
-	}
+	require.NoError(t, locker.Close(ctx))
 
 	_, err := locker.Lock(ctx, "key")
-	if err == nil {
-		t.Error("Lock() after Close() should return error")
-	}
+	require.Error(t, err, "Lock() after Close() should return error")
 }
 
 func TestLocker_Close_Double(t *testing.T) {
@@ -124,9 +92,7 @@ func TestLocker_Close_Double(t *testing.T) {
 
 	_ = locker.Close(ctx)
 	err := locker.Close(ctx)
-	if err == nil {
-		t.Error("second Close() should return error")
-	}
+	require.Error(t, err, "second Close() should return error")
 }
 
 func TestLocker_Lock_CanceledContext(t *testing.T) {
@@ -136,9 +102,7 @@ func TestLocker_Lock_CanceledContext(t *testing.T) {
 	cancel()
 
 	_, err := locker.Lock(ctx, "key")
-	if err == nil {
-		t.Error("Lock() with canceled context should return error")
-	}
+	require.Error(t, err, "Lock() with canceled context should return error")
 }
 
 func TestLocker_Lock_DifferentKeys(t *testing.T) {
@@ -146,15 +110,11 @@ func TestLocker_Lock_DifferentKeys(t *testing.T) {
 	ctx := t.Context()
 
 	lk1, err := locker.Lock(ctx, "key-1")
-	if err != nil {
-		t.Fatalf("Lock(key-1) error: %v", err)
-	}
+	require.NoError(t, err)
 	defer lk1.Release(ctx) //nolint:errcheck
 
 	lk2, err := locker.Lock(ctx, "key-2")
-	if err != nil {
-		t.Fatalf("Lock(key-2) error: %v", err)
-	}
+	require.NoError(t, err)
 	defer lk2.Release(ctx) //nolint:errcheck
 }
 
@@ -163,14 +123,10 @@ func TestLocker_Close_ReleasesActiveLocks(t *testing.T) {
 	ctx := t.Context()
 
 	_, err := locker.Lock(ctx, "active-key")
-	if err != nil {
-		t.Fatalf("Lock() error: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Close should release active locks without error
-	if err := locker.Close(ctx); err != nil {
-		t.Errorf("Close() error: %v", err)
-	}
+	require.NoError(t, locker.Close(ctx))
 }
 
 func TestLocker_Lock_WithTimeout(t *testing.T) {
@@ -180,9 +136,7 @@ func TestLocker_Lock_WithTimeout(t *testing.T) {
 	defer cancel()
 
 	lk, err := locker.Lock(ctx, "timeout-key")
-	if err != nil {
-		t.Fatalf("Lock() error: %v", err)
-	}
+	require.NoError(t, err)
 	_ = lk.Release(ctx)
 }
 

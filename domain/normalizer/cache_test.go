@@ -7,6 +7,8 @@ package normalizer
 import (
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 type cacheTestStruct struct {
@@ -17,37 +19,25 @@ type cacheTestStruct struct {
 
 func TestBuildStructFieldCache(t *testing.T) {
 	cache := BuildStructFieldCache(reflect.TypeFor[cacheTestStruct]())
-	if cache == nil {
-		t.Fatal("expected non-nil cache")
-	}
-	if len(cache.Fields) == 0 {
-		t.Fatal("expected fields")
-	}
+	require.NotNil(t, cache)
+	require.NotEmpty(t, cache.Fields)
 
 	// Check that non-struct returns nil
-	if c := BuildStructFieldCache(reflect.TypeFor[string]()); c != nil {
-		t.Fatal("expected nil for non-struct type")
-	}
+	require.Nil(t, BuildStructFieldCache(reflect.TypeFor[string]()))
 }
 
 func TestGetSetStructFieldCache(t *testing.T) {
 	ClearStructFieldCache()
 
 	typ := reflect.TypeFor[cacheTestStruct]()
-	if got := GetStructFieldCache(typ); got != nil {
-		t.Fatal("expected nil before set")
-	}
+	require.Nil(t, GetStructFieldCache(typ))
 
 	cache := BuildStructFieldCache(typ)
 	SetStructFieldCache(typ, cache)
 
 	got := GetStructFieldCache(typ)
-	if got == nil {
-		t.Fatal("expected non-nil after set")
-	}
-	if len(got.Fields) != len(cache.Fields) {
-		t.Fatalf("field count mismatch: %d vs %d", len(got.Fields), len(cache.Fields))
-	}
+	require.NotNil(t, got)
+	require.Len(t, got.Fields, len(cache.Fields))
 }
 
 func TestClearStructFieldCache(t *testing.T) {
@@ -56,9 +46,7 @@ func TestClearStructFieldCache(t *testing.T) {
 
 	ClearStructFieldCache()
 
-	if got := GetStructFieldCache(typ); got != nil {
-		t.Fatal("expected nil after clear")
-	}
+	require.Nil(t, GetStructFieldCache(typ))
 }
 
 func TestBuildStructFieldCache_ParsedModifiers(t *testing.T) {
@@ -71,10 +59,6 @@ func TestBuildStructFieldCache_ParsedModifiers(t *testing.T) {
 			break
 		}
 	}
-	if nameField == nil {
-		t.Fatal("Name field not found")
-	}
-	if len(nameField.ParsedModifiers) != 2 {
-		t.Fatalf("expected 2 parsed modifiers, got %d", len(nameField.ParsedModifiers))
-	}
+	require.NotNil(t, nameField, "Name field not found")
+	require.Len(t, nameField.ParsedModifiers, 2)
 }

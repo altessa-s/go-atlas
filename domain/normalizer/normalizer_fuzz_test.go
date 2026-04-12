@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/altessa-s/go-atlas/domain/normalizer"
 )
 
@@ -28,16 +30,8 @@ func FuzzNormalize(f *testing.F) {
 		}
 
 		err := normalizer.Normalize(d)
-		if err != nil {
-			t.Errorf("Normalize failed: %v", err)
-		}
-
-		// Property checks
-		if d.TrimLower != strings.ToLower(strings.TrimSpace(s1)) {
-			t.Errorf("TrimLower mismatch for input %q: got %q", s1, d.TrimLower)
-		}
-		if d.Upper != strings.ToUpper(s2) {
-			t.Errorf("Upper mismatch for input %q: got %q", s2, d.Upper)
-		}
+		assert.NoError(t, err)
+		assert.Equal(t, strings.ToLower(strings.TrimSpace(s1)), d.TrimLower)
+		assert.Equal(t, strings.ToUpper(s2), d.Upper)
 	})
 }

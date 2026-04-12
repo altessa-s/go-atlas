@@ -7,6 +7,8 @@ package converter_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/altessa-s/go-atlas/domain/converter"
 )
 
@@ -28,9 +30,9 @@ func FuzzConvert(f *testing.F) {
 		// Should never panic
 		converter.Convert(src, &dst)
 
-		if dst.S != s || dst.I != i || dst.B != b {
-			t.Errorf("Conversion failed for %v", src)
-		}
+		assert.Equal(t, s, dst.S)
+		assert.Equal(t, i, dst.I)
+		assert.Equal(t, b, dst.B)
 
 	})
 }

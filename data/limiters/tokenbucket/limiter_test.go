@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/limiters/storages/memory"
 	"github.com/altessa-s/go-atlas/data/limiters/tokenbucket"
 )
@@ -24,9 +26,7 @@ func validConfig() *tokenbucket.RateLimitConfig {
 func mustNew(t *testing.T, config *tokenbucket.RateLimitConfig, storage *memory.Provider, opts ...tokenbucket.Option) *tokenbucket.RuleLimiter {
 	t.Helper()
 	l, err := tokenbucket.New(config, storage, opts...)
-	if err != nil {
-		t.Fatalf("tokenbucket.New() unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 	return l
 }
 
@@ -41,19 +41,13 @@ func TestNew_PanicsOnNilConfig(t *testing.T) {
 
 func TestNew_ErrorOnInvalidConfig(t *testing.T) {
 	_, err := tokenbucket.New(&tokenbucket.RateLimitConfig{}, memory.New())
-	if err == nil {
-		t.Error("New(invalid, ...) should return error")
-	}
+	require.Error(t, err, "New(invalid, ...) should return error")
 }
 
 func TestNew_ValidConfig(t *testing.T) {
 	l, err := tokenbucket.New(validConfig(), memory.New())
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	if l == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, l, "New() returned nil")
 }
 
 func TestLimit_IPBased_DefaultRule(t *testing.T) {
@@ -65,15 +59,9 @@ func TestLimit_IPBased_DefaultRule(t *testing.T) {
 	)
 
 	info, err := l.Limit(t.Context())
-	if err != nil {
-		t.Fatalf("Limit() error = %v", err)
-	}
-	if info == nil {
-		t.Fatal("Limit() returned nil info")
-	}
-	if info.Limit != 10 {
-		t.Errorf("Limit = %d, want 10", info.Limit)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, info, "Limit() returned nil info")
+	require.Equal(t, int64(10), info.Limit)
 }
 
 func TestLimit_IPBased_ExactIPRule(t *testing.T) {
@@ -90,12 +78,8 @@ func TestLimit_IPBased_ExactIPRule(t *testing.T) {
 	)
 
 	info, err := l.Limit(t.Context())
-	if err != nil {
-		t.Fatalf("Limit() error = %v", err)
-	}
-	if info.Limit != 50 {
-		t.Errorf("Limit = %d, want 50", info.Limit)
-	}
+	require.NoError(t, err)
+	require.Equal(t, int64(50), info.Limit)
 }
 
 func TestLimit_IPBased_CIDRRule(t *testing.T) {
@@ -112,21 +96,15 @@ func TestLimit_IPBased_CIDRRule(t *testing.T) {
 	)
 
 	info, err := l.Limit(t.Context())
-	if err != nil {
-		t.Fatalf("Limit() error = %v", err)
-	}
-	if info.Limit != 100 {
-		t.Errorf("Limit = %d, want 100", info.Limit)
-	}
+	require.NoError(t, err)
+	require.Equal(t, int64(100), info.Limit)
 }
 
 func TestLimit_IPBased_NoIP(t *testing.T) {
 	l := mustNew(t, validConfig(), memory.New())
 
 	_, err := l.Limit(t.Context())
-	if !errors.Is(err, tokenbucket.ErrNoIPFoundOrInvalid) {
-		t.Errorf("Limit() error = %v, want ErrNoIPFoundOrInvalid", err)
-	}
+	require.ErrorIs(t, err, tokenbucket.ErrNoIPFoundOrInvalid)
 }
 
 func TestLimit_TokenBased(t *testing.T) {
@@ -146,12 +124,8 @@ func TestLimit_TokenBased(t *testing.T) {
 	)
 
 	info, err := l.Limit(t.Context())
-	if err != nil {
-		t.Fatalf("Limit() error = %v", err)
-	}
-	if info.Limit != 200 {
-		t.Errorf("Limit = %d, want 200", info.Limit)
-	}
+	require.NoError(t, err)
+	require.Equal(t, int64(200), info.Limit)
 }
 
 func TestLimit_TokenBased_FallbackToIP(t *testing.T) {
@@ -171,12 +145,8 @@ func TestLimit_TokenBased_FallbackToIP(t *testing.T) {
 	)
 
 	info, err := l.Limit(t.Context())
-	if err != nil {
-		t.Fatalf("Limit() error = %v", err)
-	}
-	if info.Limit != 10 {
-		t.Errorf("Limit = %d, want 10 (default/IP fallback)", info.Limit)
-	}
+	require.NoError(t, err)
+	require.Equal(t, int64(10), info.Limit)
 }
 
 func TestLimit_Exceeded(t *testing.T) {
@@ -190,15 +160,12 @@ func TestLimit_Exceeded(t *testing.T) {
 	)
 
 	// First request should succeed
-	if _, err := l.Limit(t.Context()); err != nil {
-		t.Fatalf("first Limit() error = %v", err)
-	}
+	_, err := l.Limit(t.Context())
+	require.NoError(t, err)
 
 	// Second request should exceed
-	_, err := l.Limit(t.Context())
-	if !errors.Is(err, tokenbucket.ErrLimitExceeded) {
-		t.Errorf("second Limit() error = %v, want ErrLimitExceeded", err)
-	}
+	_, err = l.Limit(t.Context())
+	require.ErrorIs(t, err, tokenbucket.ErrLimitExceeded)
 }
 
 func TestLimit_TokenBased_Unlimited(t *testing.T) {
@@ -218,15 +185,9 @@ func TestLimit_TokenBased_Unlimited(t *testing.T) {
 	)
 
 	info, err := l.Limit(t.Context())
-	if err != nil {
-		t.Fatalf("Limit() error = %v", err)
-	}
-	if !tokenbucket.RateLimitUnlimited.IsUnlimited() {
-		t.Fatal("sanity check: RateLimitUnlimited should be unlimited")
-	}
-	if info.Remaining != info.Limit {
-		t.Errorf("unlimited: Remaining = %d, want = %d", info.Remaining, info.Limit)
-	}
+	require.NoError(t, err)
+	require.True(t, tokenbucket.RateLimitUnlimited.IsUnlimited(), "sanity check: RateLimitUnlimited should be unlimited")
+	require.Equal(t, info.Limit, info.Remaining)
 }
 
 func TestLimit_TokenBased_ClientServiceError_FallbackToIP(t *testing.T) {
@@ -246,13 +207,9 @@ func TestLimit_TokenBased_ClientServiceError_FallbackToIP(t *testing.T) {
 	)
 
 	info, err := l.Limit(t.Context())
-	if err != nil {
-		t.Fatalf("Limit() error = %v", err)
-	}
+	require.NoError(t, err)
 	// Should fall back to default IP-based limit
-	if info.Limit != 10 {
-		t.Errorf("Limit = %d, want 10 (IP fallback after client service error)", info.Limit)
-	}
+	require.Equal(t, int64(10), info.Limit)
 }
 
 func TestLimit_TokenBased_NoClientService(t *testing.T) {
@@ -268,12 +225,8 @@ func TestLimit_TokenBased_NoClientService(t *testing.T) {
 	)
 
 	info, err := l.Limit(t.Context())
-	if err != nil {
-		t.Fatalf("Limit() error = %v", err)
-	}
-	if info.Limit != 10 {
-		t.Errorf("Limit = %d, want 10 (IP fallback, no client service)", info.Limit)
-	}
+	require.NoError(t, err)
+	require.Equal(t, int64(10), info.Limit)
 }
 
 func TestLimit_IPBased_InvalidIP(t *testing.T) {
@@ -284,9 +237,7 @@ func TestLimit_IPBased_InvalidIP(t *testing.T) {
 	)
 
 	_, err := l.Limit(t.Context())
-	if !errors.Is(err, tokenbucket.ErrNoIPFoundOrInvalid) {
-		t.Errorf("Limit() error = %v, want ErrNoIPFoundOrInvalid", err)
-	}
+	require.ErrorIs(t, err, tokenbucket.ErrNoIPFoundOrInvalid)
 }
 
 func TestRuleSorting(t *testing.T) {
@@ -307,10 +258,6 @@ func TestRuleSorting(t *testing.T) {
 
 	// Exact IP (300) should take precedence over CIDR matches
 	info, err := l.Limit(t.Context())
-	if err != nil {
-		t.Fatalf("Limit() error = %v", err)
-	}
-	if info.Limit != 300 {
-		t.Errorf("Limit = %d, want 300 (exact IP match)", info.Limit)
-	}
+	require.NoError(t, err)
+	require.Equal(t, int64(300), info.Limit)
 }

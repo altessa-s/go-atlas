@@ -7,6 +7,8 @@ package filter_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/filter"
 )
 
@@ -20,9 +22,7 @@ func FuzzParse(f *testing.F) {
 	f.Add(`== ==`)
 
 	p, err := filter.NewParser(filter.WithParserNoCache())
-	if err != nil {
-		f.Fatal(err)
-	}
+	require.NoError(f, err)
 
 	f.Fuzz(func(t *testing.T, input string) {
 		// Should not panic regardless of input.

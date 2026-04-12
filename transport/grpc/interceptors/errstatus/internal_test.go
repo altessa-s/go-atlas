@@ -9,6 +9,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -24,29 +26,24 @@ func TestErrorTypeString(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := errorTypeString(tt.err); got != tt.want {
-				t.Fatalf("errorTypeString() = %q, want %q", got, tt.want)
-			}
+			got := errorTypeString(tt.err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
 
 func TestErrorKey(t *testing.T) {
-	if got := errorKey(nil); got != "" {
-		t.Fatalf("errorKey(nil) = %q, want empty", got)
-	}
-	if got := errorKey(errors.New("test")); got == "" {
-		t.Fatal("errorKey should not be empty for non-nil error")
-	}
+	got := errorKey(nil)
+	require.Equal(t, "", got)
+	got = errorKey(errors.New("test"))
+	require.NotEqual(t, "", got)
 }
 
 func TestSentinelErrorKey(t *testing.T) {
-	if got := sentinelErrorKey(nil); got != "" {
-		t.Fatalf("sentinelErrorKey(nil) = %q, want empty", got)
-	}
-	if got := sentinelErrorKey(errors.New("sentinel")); got == "" {
-		t.Fatal("sentinelErrorKey should not be empty for non-nil error")
-	}
+	got := sentinelErrorKey(nil)
+	require.Equal(t, "", got)
+	got = sentinelErrorKey(errors.New("sentinel"))
+	require.NotEqual(t, "", got)
 }
 
 func TestFindSentinelError(t *testing.T) {
@@ -68,18 +65,16 @@ func TestFindSentinelError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := findSentinelError(tt.err, tt.sentinels); got != tt.want {
-				t.Fatalf("got %v, want %v", got, tt.want)
-			}
+			got := findSentinelError(tt.err, tt.sentinels)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
 
 func TestBuildStatusConverterIndex(t *testing.T) {
 	t.Run("nil_input", func(t *testing.T) {
-		if idx := buildStatusConverterIndex(nil); idx != nil {
-			t.Fatal("nil input should return nil index")
-		}
+		idx := buildStatusConverterIndex(nil)
+		require.Nil(t, idx)
 	})
 
 	t.Run("simple_code_matcher_goes_to_fast_path", func(t *testing.T) {
@@ -87,15 +82,9 @@ func TestBuildStatusConverterIndex(t *testing.T) {
 			Matcher: func(ctx context.Context, st *status.Status) bool { return st.Code() == codes.NotFound },
 			Convert: func(ctx context.Context, st *status.Status) error { return errors.New("not found") },
 		}})
-		if idx == nil {
-			t.Fatal("index should not be nil")
-		}
-		if len(idx.fastPath[codes.NotFound]) != 1 {
-			t.Fatalf("fastPath[NotFound] len = %d, want 1", len(idx.fastPath[codes.NotFound]))
-		}
-		if len(idx.slowPath) != 0 {
-			t.Fatalf("slowPath len = %d, want 0", len(idx.slowPath))
-		}
+		require.NotNil(t, idx, "index should not be nil")
+		require.Len(t, idx.fastPath[codes.NotFound], 1)
+		require.Len(t, idx.slowPath, 0)
 	})
 
 	t.Run("complex_matcher_goes_to_slow_path", func(t *testing.T) {
@@ -103,12 +92,8 @@ func TestBuildStatusConverterIndex(t *testing.T) {
 			Matcher: func(ctx context.Context, st *status.Status) bool { return true },
 			Convert: func(ctx context.Context, st *status.Status) error { return errors.New("always") },
 		}})
-		if idx == nil {
-			t.Fatal("index should not be nil")
-		}
-		if len(idx.slowPath) != 1 {
-			t.Fatalf("slowPath len = %d, want 1", len(idx.slowPath))
-		}
+		require.NotNil(t, idx, "index should not be nil")
+		require.Len(t, idx.slowPath, 1)
 	})
 }
 
@@ -139,9 +124,8 @@ func TestTryExtractCodeFromMatcher(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tryExtractCodeFromMatcher(tt.matcher); got != tt.want {
-				t.Fatalf("got %v, want %v", got, tt.want)
-			}
+			got := tryExtractCodeFromMatcher(tt.matcher)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }

@@ -7,6 +7,9 @@ package memory_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/service/scheduler"
 	"github.com/altessa-s/go-atlas/service/scheduler/storages/memory"
 )
@@ -32,15 +35,9 @@ func FuzzStorage_UpsertAndGet(f *testing.F) {
 		_ = s.UpsertTask(ctx, state)
 
 		got, err := s.GetTask(ctx, id)
-		if err != nil {
-			t.Fatalf("GetTask error: %v", err)
-		}
-		if got == nil {
-			t.Fatal("expected non-nil state")
-		}
-		if got.ID != id {
-			t.Errorf("ID=%q, want %q", got.ID, id)
-		}
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.Equal(t, id, got.ID)
 	})
 }
 

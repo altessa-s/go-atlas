@@ -8,6 +8,8 @@ import (
 	"crypto/tls"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/security/tlsutils"
 )
@@ -16,49 +18,31 @@ func TestLoadFromBytes_Valid(t *testing.T) {
 	certPEM, keyPEM, _ := testhelpers.SelfSignedCert(t)
 
 	cert, err := tlsutils.LoadFromBytes(certPEM, keyPEM, "")
-	if err != nil {
-		t.Fatalf("LoadFromBytes() error = %v", err)
-	}
-	if cert == nil {
-		t.Fatal("LoadFromBytes() returned nil")
-	}
-	if len(cert.Certificate) == 0 {
-		t.Error("LoadFromBytes() returned certificate with no cert chain")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, cert)
+	require.NotEmpty(t, cert.Certificate)
 }
 
 func TestLoadFromBytes_InvalidCert(t *testing.T) {
 	_, err := tlsutils.LoadFromBytes([]byte("not-a-cert"), []byte("not-a-key"), "")
-	if err == nil {
-		t.Error("expected error for invalid PEM data")
-	}
+	require.Error(t, err)
 }
 
 func TestLoadFromBytes_NilInputs(t *testing.T) {
 	_, err := tlsutils.LoadFromBytes(nil, nil, "")
-	if err == nil {
-		t.Error("expected error for nil inputs")
-	}
+	require.Error(t, err)
 }
 
 func TestDefaultTLSConfig(t *testing.T) {
 	config := tlsutils.DefaultTLSConfig()
-	if config.MinVersion != tls.VersionTLS12 {
-		t.Errorf("MinVersion = %v, want tls.VersionTLS12", config.MinVersion)
-	}
-	if len(config.CipherSuites) == 0 {
-		t.Error("CipherSuites should not be empty")
-	}
+	require.Equal(t, uint16(tls.VersionTLS12), config.MinVersion)
+	require.NotEmpty(t, config.CipherSuites)
 }
 
 func TestDefaultClientTLSConfig(t *testing.T) {
 	config := tlsutils.DefaultClientTLSConfig("example.com")
-	if config.MinVersion != tls.VersionTLS12 {
-		t.Errorf("MinVersion = %v, want tls.VersionTLS12", config.MinVersion)
-	}
-	if config.ServerName != "example.com" {
-		t.Errorf("ServerName = %q, want %q", config.ServerName, "example.com")
-	}
+	require.Equal(t, uint16(tls.VersionTLS12), config.MinVersion)
+	require.Equal(t, "example.com", config.ServerName)
 }
 
 func TestCloneCertificateWithOCSPStaple(t *testing.T) {
@@ -71,15 +55,9 @@ func TestCloneCertificateWithOCSPStaple(t *testing.T) {
 
 	cloned := tlsutils.CloneCertificateWithOCSPStaple(original, staple)
 
-	if len(cloned.OCSPStaple) != len(staple) {
-		t.Errorf("OCSPStaple length = %d, want %d", len(cloned.OCSPStaple), len(staple))
-	}
-	if len(cloned.Certificate) != len(original.Certificate) {
-		t.Error("Certificate not preserved")
-	}
-	if cloned.PrivateKey != original.PrivateKey {
-		t.Error("PrivateKey not preserved")
-	}
+	require.Len(t, cloned.OCSPStaple, len(staple))
+	require.Len(t, cloned.Certificate, len(original.Certificate))
+	require.Equal(t, original.PrivateKey, cloned.PrivateKey)
 }
 
 func TestBuildCAPool_SystemOnly(t *testing.T) {
@@ -87,28 +65,20 @@ func TestBuildCAPool_SystemOnly(t *testing.T) {
 	if err != nil {
 		t.Skipf("system cert pool not available: %v", err)
 	}
-	if pool == nil {
-		t.Error("expected non-nil pool")
-	}
+	require.NotNil(t, pool)
 }
 
 func TestBuildCAPool_InvalidFile(t *testing.T) {
 	_, err := tlsutils.BuildCAPool(false, "/nonexistent")
-	if err == nil {
-		t.Error("expected error for nonexistent file")
-	}
+	require.Error(t, err)
 }
 
 func TestLoadFromFile_InvalidPaths(t *testing.T) {
 	_, err := tlsutils.LoadFromFile("/nonexistent/key", "/nonexistent/cert", "")
-	if err == nil {
-		t.Error("expected error for nonexistent paths")
-	}
+	require.Error(t, err)
 }
 
 func TestLoadFromConcatenatedFile_InvalidPath(t *testing.T) {
 	_, err := tlsutils.LoadFromConcatenatedFile("/nonexistent/file", "")
-	if err == nil {
-		t.Error("expected error for nonexistent path")
-	}
+	require.Error(t, err)
 }

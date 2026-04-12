@@ -10,41 +10,27 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestTimeoutError(t *testing.T) {
 	err := &TimeoutError{Signal: syscall.SIGTERM, Timeout: 5 * time.Second}
-	msg := err.Error()
-	if msg == "" {
-		t.Fatal("expected non-empty error message")
-	}
-	if !IsTimeout(err) {
-		t.Fatal("expected IsTimeout to return true")
-	}
+	require.NotEmpty(t, err.Error())
+	require.True(t, IsTimeout(err))
 }
 
 func TestPanicError(t *testing.T) {
 	err := &PanicError{Signal: syscall.SIGINT, Panic: "something broke"}
-	msg := err.Error()
-	if msg == "" {
-		t.Fatal("expected non-empty error message")
-	}
+	require.NotEmpty(t, err.Error())
 }
 
 func TestIsTimeout(t *testing.T) {
-	if IsTimeout(fmt.Errorf("regular error")) {
-		t.Fatal("expected false for non-timeout error")
-	}
-	if IsTimeout(nil) {
-		t.Fatal("expected false for nil")
-	}
+	require.False(t, IsTimeout(fmt.Errorf("regular error")))
+	require.False(t, IsTimeout(nil))
 
 	wrapped := fmt.Errorf("wrapped: %w", &TimeoutError{Signal: syscall.SIGTERM, Timeout: time.Second})
-	if !IsTimeout(wrapped) {
-		t.Fatal("expected true for wrapped timeout error")
-	}
+	require.True(t, IsTimeout(wrapped))
 
-	if IsTimeout(errors.New("plain")) {
-		t.Fatal("expected false for plain error")
-	}
+	require.False(t, IsTimeout(errors.New("plain")))
 }

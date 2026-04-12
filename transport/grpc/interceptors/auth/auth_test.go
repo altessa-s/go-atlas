@@ -8,6 +8,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	stdGrpc "google.golang.org/grpc"
 	grpcmetadata "google.golang.org/grpc/metadata"
 )
@@ -17,21 +19,15 @@ func TestServerInterceptor_Dependencies(t *testing.T) {
 	ic := si.(*interceptor)
 	deps := ic.Dependencies()
 	want := []string{"metadata", "errstatus"}
-	if len(deps) != len(want) {
-		t.Fatalf("Dependencies() = %v, want %v", deps, want)
-	}
+	require.Equal(t, len(want), len(deps))
 	for i, d := range deps {
-		if d != want[i] {
-			t.Fatalf("Dependencies()[%d] = %q, want %q", i, d, want[i])
-		}
+		require.Equal(t, want[i], d)
 	}
 }
 
 func TestServerInterceptor_Name(t *testing.T) {
 	si := ServerInterceptor()
-	if si.Name() != "auth" {
-		t.Fatalf("Name() = %q", si.Name())
-	}
+	require.Equal(t, "auth", si.Name())
 }
 
 func TestAuthFunc_Interface(t *testing.T) {
@@ -73,13 +69,10 @@ func TestSensitiveHeadersExcluded(t *testing.T) {
 	info := &stdGrpc.UnaryServerInfo{FullMethod: "/test.Service/Method"}
 
 	_, err := unary(ctx, nil, info, handler)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
-	if _, ok := captured.Headers["authorization"]; ok {
-		t.Fatal("authorization header must not be present in Credentials.Headers")
-	}
+	_, ok := captured.Headers["authorization"]
+	require.False(t, ok, "authorization header must not be present in Credentials.Headers")
 }
 
 func TestNonSensitiveHeadersPreserved(t *testing.T) {
@@ -110,22 +103,17 @@ func TestNonSensitiveHeadersPreserved(t *testing.T) {
 	info := &stdGrpc.UnaryServerInfo{FullMethod: "/test.Service/Method"}
 
 	_, err := unary(ctx, nil, info, handler)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
 	for _, key := range []string{"x-request-id", "x-tenant-id"} {
-		if _, ok := captured.Headers[key]; !ok {
-			t.Errorf("expected header %q to be present in Credentials.Headers", key)
-		}
+		_, ok := captured.Headers[key]
+		require.True(t, ok, "expected header %q to be present in Credentials.Headers", key)
 	}
 
-	if v := captured.Headers["x-request-id"]; v != "abc-123" {
-		t.Errorf("x-request-id = %q, want %q", v, "abc-123")
-	}
-	if v := captured.Headers["x-tenant-id"]; v != "tenant-42" {
-		t.Errorf("x-tenant-id = %q, want %q", v, "tenant-42")
-	}
+	v := captured.Headers["x-request-id"]
+	require.Equal(t, "abc-123", v)
+	v = captured.Headers["x-tenant-id"]
+	require.Equal(t, "tenant-42", v)
 }
 
 func TestIsSensitiveHeader(t *testing.T) {
@@ -142,8 +130,7 @@ func TestIsSensitiveHeader(t *testing.T) {
 		{"", false},
 	}
 	for _, tt := range tests {
-		if got := isSensitiveHeader(tt.key); got != tt.want {
-			t.Errorf("isSensitiveHeader(%q) = %v, want %v", tt.key, got, tt.want)
-		}
+		got := isSensitiveHeader(tt.key)
+		require.Equal(t, tt.want, got)
 	}
 }

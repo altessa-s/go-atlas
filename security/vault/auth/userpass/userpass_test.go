@@ -7,6 +7,8 @@ package userpass_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/security/vault/auth/userpass"
 )
 
@@ -24,12 +26,8 @@ func TestNew(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := userpass.New(tt.username, tt.password)
-			if m == nil {
-				t.Fatal("New() returned nil")
-			}
-			if got := m.Name(); got != "userpass" {
-				t.Errorf("Name() = %q, want %q", got, "userpass")
-			}
+			require.NotNil(t, m)
+			require.Equal(t, "userpass", m.Name())
 		})
 	}
 }
@@ -46,12 +44,8 @@ func TestNew_WithMountPath(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := userpass.New("admin", "pass", userpass.WithMountPath(tt.mountPath))
-			if m == nil {
-				t.Fatal("New() returned nil")
-			}
-			if got := m.MountPath(); got != tt.mountPath {
-				t.Errorf("MountPath() = %q, want %q", got, tt.mountPath)
-			}
+			require.NotNil(t, m)
+			require.Equal(t, tt.mountPath, m.MountPath())
 		})
 	}
 }
@@ -59,17 +53,11 @@ func TestNew_WithMountPath(t *testing.T) {
 func TestNew_WithMountPathPointer(t *testing.T) {
 	path := "/auth/custom-userpass"
 	m := userpass.New("admin", "pass", userpass.WithMountPath(&path))
-	if m == nil {
-		t.Fatal("New() returned nil")
-	}
-	if got := m.MountPath(); got != path {
-		t.Errorf("MountPath() = %q, want %q", got, path)
-	}
+	require.NotNil(t, m)
+	require.Equal(t, path, m.MountPath())
 }
 
 func TestAuthMethod_Shutdown(t *testing.T) {
 	m := userpass.New("admin", "pass")
-	if err := m.Shutdown(); err != nil {
-		t.Errorf("Shutdown() = %v, want nil", err)
-	}
+	require.NoError(t, m.Shutdown())
 }

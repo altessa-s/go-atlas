@@ -8,6 +8,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
 )
 
@@ -25,16 +27,12 @@ func TestClientConditionalInterceptor(t *testing.T) {
 
 	t.Run("true_returns_real", func(t *testing.T) {
 		i := ClientConditionalInterceptor(true, real)
-		if i != real {
-			t.Fatal("expected real interceptor")
-		}
+		require.Equal(t, real, i)
 	})
 
 	t.Run("false_returns_noop", func(t *testing.T) {
 		i := ClientConditionalInterceptor(false, real)
-		if i.Name() != "noop" {
-			t.Fatalf("expected noop, got %q", i.Name())
-		}
+		require.Equal(t, "noop", i.Name())
 	})
 }
 
@@ -45,19 +43,15 @@ func TestClientConditionalInterceptorFunc(t *testing.T) {
 			called = true
 			return &NoOpClientInterceptor{}
 		})
-		if !called {
-			t.Fatal("fn should be called")
-		}
+		require.True(t, called, "fn should be called")
 	})
 
 	t.Run("false_skips_fn", func(t *testing.T) {
 		i := ClientConditionalInterceptorFunc(false, func() ClientInterceptor {
-			t.Fatal("fn should not be called")
+			require.Fail(t, "fn should not be called")
 			return nil
 		})
-		if i.Name() != "noop" {
-			t.Fatal("expected noop")
-		}
+		require.Equal(t, "noop", i.Name())
 	})
 }
 
@@ -66,16 +60,13 @@ func TestClientMatchInterceptor(t *testing.T) {
 
 	t.Run("match", func(t *testing.T) {
 		i := ClientMatchInterceptor(MatchFunc(func() bool { return true }), real)
-		if i != real {
-			t.Fatal("expected real")
-		}
+		require.Equal(t, real, i)
 	})
 
 	t.Run("no_match", func(t *testing.T) {
 		i := ClientMatchInterceptor(MatchFunc(func() bool { return false }), real)
-		if _, ok := i.(*NoOpClientInterceptor); !ok {
-			t.Fatal("expected noop")
-		}
+		_, ok := i.(*NoOpClientInterceptor)
+		require.True(t, ok, "expected noop")
 	})
 }
 
@@ -88,7 +79,7 @@ func TestClientMatchInterceptorFunc(t *testing.T) {
 
 	t.Run("no_match", func(t *testing.T) {
 		ClientMatchInterceptorFunc(func() bool { return false }, func() ClientInterceptor {
-			t.Fatal("should not be called")
+			require.Fail(t, "should not be called")
 			return nil
 		})
 	})
@@ -100,12 +91,8 @@ func TestClientMatchInterceptorFunc(t *testing.T) {
 func TestOrderClientInterceptors(t *testing.T) {
 	a := &NoOpClientInterceptor{}
 	result, err := OrderClientInterceptors(a, a)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(result) != 1 {
-		t.Fatalf("len = %d, want 1", len(result))
-	}
+	require.NoError(t, err)
+	require.Len(t, result, 1)
 }
 
 // TestDrivenInterceptor_Dependencies in server_interceptors_test.go covers
@@ -117,7 +104,5 @@ func TestDrivenInterceptorFunc(t *testing.T) {
 		return d, ctx
 	})
 	got, _ := f.DrivenInterceptor(t.Context())
-	if got != d {
-		t.Fatal("expected same driver")
-	}
+	require.Equal(t, d, got)
 }

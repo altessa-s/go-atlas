@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 type expirationStore struct {
@@ -40,23 +42,15 @@ func TestOutbox_Save_AppliesDefaultTTL(t *testing.T) {
 
 	ob := New(store, noopHandler, WithDefaultEventTTL(ttl))
 
-	if err := ob.Save(t.Context(), Event{Key: "test", Payload: []byte("data")}); err != nil {
-		t.Fatalf("Save failed: %v", err)
-	}
+	require.NoError(t, ob.Save(t.Context(), Event{Key: "test", Payload: []byte("data")}))
 
-	if len(store.savedEvents) != 1 {
-		t.Fatalf("saved %d events, want 1", len(store.savedEvents))
-	}
+	require.Equal(t, 1, len(store.savedEvents))
 
 	ev := store.savedEvents[0]
-	if ev.ExpiresAt.IsZero() {
-		t.Fatal("ExpiresAt should be set by default TTL")
-	}
+	require.False(t, ev.ExpiresAt.IsZero(), "ExpiresAt should be set by default TTL")
 
 	expectedExpiry := ev.CreatedAt.Add(ttl)
-	if !ev.ExpiresAt.Equal(expectedExpiry) {
-		t.Fatalf("ExpiresAt = %v, want %v", ev.ExpiresAt, expectedExpiry)
-	}
+	require.True(t, ev.ExpiresAt.Equal(expectedExpiry), "ExpiresAt = %v, want %v", ev.ExpiresAt, expectedExpiry)
 }
 
 func TestOutbox_Save_DoesNotOverrideExplicitExpiresAt(t *testing.T) {
@@ -66,18 +60,14 @@ func TestOutbox_Save_DoesNotOverrideExplicitExpiresAt(t *testing.T) {
 
 	ob := New(store, noopHandler, WithDefaultEventTTL(ttl))
 
-	if err := ob.Save(t.Context(), Event{
+	require.NoError(t, ob.Save(t.Context(), Event{
 		Key:       "test",
 		Payload:   []byte("data"),
 		ExpiresAt: customExpiry,
-	}); err != nil {
-		t.Fatalf("Save failed: %v", err)
-	}
+	}))
 
 	ev := store.savedEvents[0]
-	if !ev.ExpiresAt.Equal(customExpiry) {
-		t.Fatalf("ExpiresAt = %v, want custom %v", ev.ExpiresAt, customExpiry)
-	}
+	require.True(t, ev.ExpiresAt.Equal(customExpiry), "ExpiresAt = %v, want custom %v", ev.ExpiresAt, customExpiry)
 }
 
 func TestOutbox_Save_NoTTLWhenDisabled(t *testing.T) {
@@ -85,41 +75,28 @@ func TestOutbox_Save_NoTTLWhenDisabled(t *testing.T) {
 
 	ob := New(store, noopHandler) // No TTL option
 
-	if err := ob.Save(t.Context(), Event{Key: "test", Payload: []byte("data")}); err != nil {
-		t.Fatalf("Save failed: %v", err)
-	}
+	require.NoError(t, ob.Save(t.Context(), Event{Key: "test", Payload: []byte("data")}))
 
 	ev := store.savedEvents[0]
-	if !ev.ExpiresAt.IsZero() {
-		t.Fatalf("ExpiresAt should be zero when TTL is disabled, got %v", ev.ExpiresAt)
-	}
+	require.True(t, ev.ExpiresAt.IsZero(), "ExpiresAt should be zero when TTL is disabled, got %v", ev.ExpiresAt)
 }
 
 func TestWithDefaultEventTTL_IgnoresSubSecond(t *testing.T) {
 	store := &expirationStore{}
 	ob := New(store, noopHandler, WithDefaultEventTTL(500*time.Millisecond))
 
-	if err := ob.Save(t.Context(), Event{Key: "test", Payload: []byte("data")}); err != nil {
-		t.Fatalf("Save failed: %v", err)
-	}
+	require.NoError(t, ob.Save(t.Context(), Event{Key: "test", Payload: []byte("data")}))
 
 	ev := store.savedEvents[0]
-	if !ev.ExpiresAt.IsZero() {
-		t.Fatal("ExpiresAt should be zero when TTL < 1s")
-	}
+	require.True(t, ev.ExpiresAt.IsZero(), "ExpiresAt should be zero when TTL < 1s")
 }
 
 func TestOutbox_RunExpireCycle(t *testing.T) {
 	store := &expirationStore{expireResult: 3}
 	ob := New(store, noopHandler)
 
-	if err := ob.RunExpireCycle(t.Context()); err != nil {
-		t.Fatalf("RunExpireCycle failed: %v", err)
-	}
-
-	if got := store.expireCalls.Load(); got != 1 {
-		t.Fatalf("ExpireEvents calls = %d, want 1", got)
-	}
+	require.NoError(t, ob.RunExpireCycle(t.Context()))
+	require.Equal(t, int64(1), store.expireCalls.Load())
 }
 
 func TestOutbox_RunExpireCycle_SchedulerManaged(t *testing.T) {
@@ -130,9 +107,7 @@ func TestOutbox_RunExpireCycle_SchedulerManaged(t *testing.T) {
 	_ = ob.RegisterExpireSchedulerFunc()
 
 	err := ob.RunExpireCycle(t.Context())
-	if err != ErrSchedulerManaged {
-		t.Fatalf("RunExpireCycle should return ErrSchedulerManaged, got %v", err)
-	}
+	require.ErrorIs(t, err, ErrSchedulerManaged)
 }
 
 func TestOutbox_RunExpireCycle_PropagatesStoreError(t *testing.T) {
@@ -141,38 +116,26 @@ func TestOutbox_RunExpireCycle_PropagatesStoreError(t *testing.T) {
 	ob := New(store, noopHandler)
 
 	err := ob.RunExpireCycle(t.Context())
-	if err == nil {
-		t.Fatal("RunExpireCycle should return error")
-	}
-	if !errors.Is(err, storeErr) {
-		t.Fatalf("error should wrap store error, got %v", err)
-	}
+	require.Error(t, err, "RunExpireCycle should return error")
+	require.ErrorIs(t, err, storeErr)
 }
 
 func TestWithDefaultEventTTL_AcceptsExactOneSecond(t *testing.T) {
 	store := &expirationStore{}
 	ob := New(store, noopHandler, WithDefaultEventTTL(time.Second))
 
-	if err := ob.Save(t.Context(), Event{Key: "test", Payload: []byte("data")}); err != nil {
-		t.Fatalf("Save failed: %v", err)
-	}
+	require.NoError(t, ob.Save(t.Context(), Event{Key: "test", Payload: []byte("data")}))
 
 	ev := store.savedEvents[0]
-	if ev.ExpiresAt.IsZero() {
-		t.Fatal("ExpiresAt should be set when TTL = 1s")
-	}
+	require.False(t, ev.ExpiresAt.IsZero(), "ExpiresAt should be set when TTL = 1s")
 }
 
 func TestWithDefaultEventTTL_IgnoresZero(t *testing.T) {
 	store := &expirationStore{}
 	ob := New(store, noopHandler, WithDefaultEventTTL(0))
 
-	if err := ob.Save(t.Context(), Event{Key: "test", Payload: []byte("data")}); err != nil {
-		t.Fatalf("Save failed: %v", err)
-	}
+	require.NoError(t, ob.Save(t.Context(), Event{Key: "test", Payload: []byte("data")}))
 
 	ev := store.savedEvents[0]
-	if !ev.ExpiresAt.IsZero() {
-		t.Fatalf("ExpiresAt should be zero when TTL = 0, got %v", ev.ExpiresAt)
-	}
+	require.True(t, ev.ExpiresAt.IsZero(), "ExpiresAt should be zero when TTL = 0, got %v", ev.ExpiresAt)
 }

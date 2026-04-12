@@ -8,6 +8,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/auth/opa"
 )
 
@@ -20,12 +22,8 @@ func TestNew_Valid(t *testing.T) {
 		WithToken("test-token"),
 		WithProjectID(42),
 	)
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
-	if source == nil {
-		t.Fatal("New() returned nil source")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, source)
 	defer source.Close()
 }
 
@@ -36,13 +34,8 @@ func TestNew_MissingEndpoint(t *testing.T) {
 		WithToken("test-token"),
 		WithProjectID(42),
 	)
-	if err == nil {
-		t.Fatal("New() without endpoint should fail")
-	}
-
-	if !errors.Is(err, ErrEndpointRequired) {
-		t.Errorf("New() error = %v, want ErrEndpointRequired", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrEndpointRequired), "New() error = %v, want ErrEndpointRequired", err)
 }
 
 func TestNew_MissingToken(t *testing.T) {
@@ -52,13 +45,8 @@ func TestNew_MissingToken(t *testing.T) {
 		WithEndpoint("https://gitlab.example.com"),
 		WithProjectID(42),
 	)
-	if err == nil {
-		t.Fatal("New() without token should fail")
-	}
-
-	if !errors.Is(err, ErrTokenRequired) {
-		t.Errorf("New() error = %v, want ErrTokenRequired", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrTokenRequired), "New() error = %v, want ErrTokenRequired", err)
 }
 
 func TestNew_MissingProjectID(t *testing.T) {
@@ -68,13 +56,8 @@ func TestNew_MissingProjectID(t *testing.T) {
 		WithEndpoint("https://gitlab.example.com"),
 		WithToken("test-token"),
 	)
-	if err == nil {
-		t.Fatal("New() without project ID should fail")
-	}
-
-	if !errors.Is(err, ErrProjectIDRequired) {
-		t.Errorf("New() error = %v, want ErrProjectIDRequired", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrProjectIDRequired), "New() error = %v, want ErrProjectIDRequired", err)
 }
 
 func TestSource_Name(t *testing.T) {
@@ -87,15 +70,10 @@ func TestSource_Name(t *testing.T) {
 		WithRef("develop"),
 		WithDir("policies"),
 	)
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
-	expected := "gitlab:42/policies@develop"
-	if name := source.Name(); name != expected {
-		t.Errorf("Name() = %q, want %q", name, expected)
-	}
+	require.Equal(t, "gitlab:42/policies@develop", source.Name())
 }
 
 func TestSource_Fetch_Closed(t *testing.T) {
@@ -106,22 +84,13 @@ func TestSource_Fetch_Closed(t *testing.T) {
 		WithToken("test-token"),
 		WithProjectID(42),
 	)
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if err := source.Close(); err != nil {
-		t.Fatalf("Close() failed: %v", err)
-	}
+	require.NoError(t, source.Close())
 
 	_, err = source.Fetch(t.Context())
-	if err == nil {
-		t.Fatal("Fetch() after Close() should fail")
-	}
-
-	if !errors.Is(err, opa.ErrSourceClosed) {
-		t.Errorf("Fetch() error = %v, want ErrSourceClosed", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, opa.ErrSourceClosed), "Fetch() error = %v, want ErrSourceClosed", err)
 }
 
 func TestSource_Close_Idempotent(t *testing.T) {
@@ -132,17 +101,10 @@ func TestSource_Close_Idempotent(t *testing.T) {
 		WithToken("test-token"),
 		WithProjectID(42),
 	)
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if err := source.Close(); err != nil {
-		t.Fatalf("first Close() failed: %v", err)
-	}
-
-	if err := source.Close(); err != nil {
-		t.Fatalf("second Close() failed: %v", err)
-	}
+	require.NoError(t, source.Close(), "first Close() failed")
+	require.NoError(t, source.Close(), "second Close() failed")
 }
 
 func TestSource_DefaultRef(t *testing.T) {
@@ -153,13 +115,8 @@ func TestSource_DefaultRef(t *testing.T) {
 		WithToken("test-token"),
 		WithProjectID(42),
 	)
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
-	expected := "gitlab:42/@main"
-	if name := source.Name(); name != expected {
-		t.Errorf("Name() = %q, want %q (default ref should be main)", name, expected)
-	}
+	require.Equal(t, "gitlab:42/@main", source.Name(), "default ref should be main")
 }

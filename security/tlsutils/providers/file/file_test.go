@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	tlsproviders "github.com/altessa-s/go-atlas/security/tlsutils/providers"
@@ -17,23 +19,17 @@ import (
 
 func TestNewWithCertAndKey_EmptyCertFile(t *testing.T) {
 	_, err := tlsfile.NewWithCertAndKey("", "key.pem", "")
-	if err == nil {
-		t.Error("NewWithCertAndKey with empty cert file should return error")
-	}
+	require.Error(t, err)
 }
 
 func TestNewWithCertAndKey_EmptyKeyFile(t *testing.T) {
 	_, err := tlsfile.NewWithCertAndKey("cert.pem", "", "")
-	if err == nil {
-		t.Error("NewWithCertAndKey with empty key file should return error")
-	}
+	require.Error(t, err)
 }
 
 func TestNewWithCertAndKey_NonexistentFiles(t *testing.T) {
 	_, err := tlsfile.NewWithCertAndKey("/nonexistent/cert.pem", "/nonexistent/key.pem", "")
-	if err == nil {
-		t.Error("NewWithCertAndKey with nonexistent files should return error")
-	}
+	require.Error(t, err)
 }
 
 func TestNewWithCertAndKey_ValidCert(t *testing.T) {
@@ -41,14 +37,10 @@ func TestNewWithCertAndKey_ValidCert(t *testing.T) {
 	certPath, keyPath := testhelpers.WriteTempCertFiles(t, certPEM, keyPEM)
 
 	f, err := tlsfile.NewWithCertAndKey(certPath, keyPath, "")
-	if err != nil {
-		t.Fatalf("NewWithCertAndKey() error = %v", err)
-	}
+	require.NoError(t, err)
 	defer f.Close(t.Context())
 
-	if f.Type() != tlsproviders.ProviderTypeFile {
-		t.Errorf("Type() = %v, want %v", f.Type(), tlsproviders.ProviderTypeFile)
-	}
+	require.Equal(t, tlsproviders.ProviderTypeFile, f.Type())
 }
 
 func TestFile_TLSConfig(t *testing.T) {
@@ -56,21 +48,13 @@ func TestFile_TLSConfig(t *testing.T) {
 	certPath, keyPath := testhelpers.WriteTempCertFiles(t, certPEM, keyPEM)
 
 	f, err := tlsfile.NewWithCertAndKey(certPath, keyPath, "")
-	if err != nil {
-		t.Fatalf("NewWithCertAndKey() error = %v", err)
-	}
+	require.NoError(t, err)
 	defer f.Close(t.Context())
 
 	config, err := f.TLSConfig()
-	if err != nil {
-		t.Fatalf("TLSConfig() error = %v", err)
-	}
-	if config == nil {
-		t.Fatal("TLSConfig() returned nil")
-	}
-	if len(config.Certificates) == 0 {
-		t.Error("TLSConfig() has no certificates")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, config)
+	require.NotEmpty(t, config.Certificates)
 }
 
 func TestFile_TLSConfig_ReturnsCopy(t *testing.T) {
@@ -78,9 +62,7 @@ func TestFile_TLSConfig_ReturnsCopy(t *testing.T) {
 	certPath, keyPath := testhelpers.WriteTempCertFiles(t, certPEM, keyPEM)
 
 	f, err := tlsfile.NewWithCertAndKey(certPath, keyPath, "")
-	if err != nil {
-		t.Fatalf("NewWithCertAndKey() error = %v", err)
-	}
+	require.NoError(t, err)
 	defer f.Close(t.Context())
 
 	cfg1, _ := f.TLSConfig()
@@ -88,9 +70,7 @@ func TestFile_TLSConfig_ReturnsCopy(t *testing.T) {
 
 	// Modifying one should not affect the other
 	cfg1.ServerName = "modified"
-	if cfg2.ServerName == "modified" {
-		t.Error("TLSConfig() should return independent copies")
-	}
+	require.NotEqual(t, "modified", cfg2.ServerName)
 }
 
 func TestFile_Close(t *testing.T) {
@@ -98,16 +78,12 @@ func TestFile_Close(t *testing.T) {
 	certPath, keyPath := testhelpers.WriteTempCertFiles(t, certPEM, keyPEM)
 
 	f, err := tlsfile.NewWithCertAndKey(certPath, keyPath, "")
-	if err != nil {
-		t.Fatalf("NewWithCertAndKey() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
-	if err := f.Close(ctx); err != nil {
-		t.Errorf("Close() error = %v", err)
-	}
+	require.NoError(t, f.Close(ctx))
 }
 
 func TestFile_Type(t *testing.T) {
@@ -115,14 +91,10 @@ func TestFile_Type(t *testing.T) {
 	certPath, keyPath := testhelpers.WriteTempCertFiles(t, certPEM, keyPEM)
 
 	f, err := tlsfile.NewWithCertAndKey(certPath, keyPath, "")
-	if err != nil {
-		t.Fatalf("NewWithCertAndKey() error = %v", err)
-	}
+	require.NoError(t, err)
 	defer f.Close(t.Context())
 
-	if got := f.Type(); got != tlsproviders.ProviderTypeFile {
-		t.Errorf("Type() = %v, want %v", got, tlsproviders.ProviderTypeFile)
-	}
+	require.Equal(t, tlsproviders.ProviderTypeFile, f.Type())
 }
 
 func TestNewWithCertAndKey_InvalidParams(t *testing.T) {
@@ -141,8 +113,10 @@ func TestNewWithCertAndKey_InvalidParams(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := tlsfile.NewWithCertAndKey(tt.certFile, tt.keyFile, "")
-			if (err != nil) != tt.wantErr {
-				t.Errorf("NewWithCertAndKey() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}

@@ -7,6 +7,8 @@ package modifiers
 import (
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestRegisterAndGetModifier(t *testing.T) {
@@ -14,25 +16,20 @@ func TestRegisterAndGetModifier(t *testing.T) {
 		return ModifierResult{}
 	})
 	mod, ok := GetModifier("test_mod")
-	if !ok || mod == nil {
-		t.Fatal("expected modifier to be registered")
-	}
+	require.True(t, ok)
+	require.NotNil(t, mod)
 }
 
 func TestGetModifier_NotFound(t *testing.T) {
 	_, ok := GetModifier("nonexistent_modifier_xyz")
-	if ok {
-		t.Fatal("expected not found")
-	}
+	require.False(t, ok)
 }
 
 func TestBuiltinModifiersRegistered(t *testing.T) {
 	for _, name := range []string{"lowercase", "uppercase", "trim", "nil_on_empty", "phone"} {
 		t.Run(name, func(t *testing.T) {
 			_, ok := GetModifier(name)
-			if !ok {
-				t.Fatalf("builtin modifier %q not registered", name)
-			}
+			require.True(t, ok, "builtin modifier %q not registered", name)
 		})
 	}
 }

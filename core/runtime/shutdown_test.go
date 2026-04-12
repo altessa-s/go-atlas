@@ -9,6 +9,8 @@ import (
 	"errors"
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // resetShutdownStateForTest clears the package-level registry so
@@ -35,14 +37,10 @@ func TestOnShutdownRegistersHook(t *testing.T) {
 		return nil
 	})
 
-	if err := RunShutdownHooks(t.Context()); err != nil {
-		t.Fatalf("RunShutdownHooks: %v", err)
-	}
+	require.NoError(t, RunShutdownHooks(t.Context()))
 
 	// LIFO: last registered runs first.
-	if len(calls) != 2 || calls[0] != 2 || calls[1] != 1 {
-		t.Fatalf("expected LIFO order [2,1], got %v", calls)
-	}
+	require.Equal(t, []int{2, 1}, calls, "expected LIFO order")
 }
 
 func TestRunShutdownHooksJoinsErrors(t *testing.T) {
@@ -66,28 +64,14 @@ func TestRunShutdownHooksJoinsErrors(t *testing.T) {
 	})
 
 	err := RunShutdownHooks(t.Context())
-	if err == nil {
-		t.Fatal("expected joined error, got nil")
-	}
+	require.Error(t, err)
 	// Both error values should be reachable via errors.Is since
 	// RunShutdownHooks uses errors.Join on wrapped errors.
-	if !errors.Is(err, errA) {
-		t.Errorf("errors.Is(err, errA) = false, want true")
-	}
-	if !errors.Is(err, errB) {
-		t.Errorf("errors.Is(err, errB) = false, want true")
-	}
+	require.ErrorIs(t, err, errA)
+	require.ErrorIs(t, err, errB)
 
 	// LIFO execution continues despite errors.
-	wantOrder := []string{"c", "b", "a"}
-	if len(order) != len(wantOrder) {
-		t.Fatalf("order=%v, want %v", order, wantOrder)
-	}
-	for i, v := range wantOrder {
-		if order[i] != v {
-			t.Fatalf("order=%v, want %v", order, wantOrder)
-		}
-	}
+	require.Equal(t, []string{"c", "b", "a"}, order)
 }
 
 func TestRunShutdownHooksRunsAtMostOnce(t *testing.T) {
@@ -99,21 +83,13 @@ func TestRunShutdownHooksRunsAtMostOnce(t *testing.T) {
 		return nil
 	})
 
-	if err := RunShutdownHooks(t.Context()); err != nil {
-		t.Fatalf("first call: %v", err)
-	}
-	if err := RunShutdownHooks(t.Context()); err != nil {
-		t.Fatalf("second call: %v", err)
-	}
-	if count != 1 {
-		t.Fatalf("hook ran %d times, want 1", count)
-	}
+	require.NoError(t, RunShutdownHooks(t.Context()), "first call")
+	require.NoError(t, RunShutdownHooks(t.Context()), "second call")
+	require.Equal(t, 1, count, "hook should run exactly once")
 }
 
 func TestRunShutdownHooksNoRegistrations(t *testing.T) {
 	resetShutdownStateForTest(t)
 
-	if err := RunShutdownHooks(t.Context()); err != nil {
-		t.Fatalf("RunShutdownHooks with no hooks: %v", err)
-	}
+	require.NoError(t, RunShutdownHooks(t.Context()))
 }

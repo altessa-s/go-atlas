@@ -4,7 +4,11 @@
 
 package slog
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func FuzzFieldsToAttrs(f *testing.F) {
 	f.Add("key", "value")
@@ -16,8 +20,8 @@ func FuzzFieldsToAttrs(f *testing.F) {
 		fields := Fields{{Key: key, Value: value}}
 		// Should not panic
 		result := FieldsToAttrs(fields)
-		if key != "" && len(result) == 0 {
-			t.Error("expected at least one attr for non-empty key")
+		if key != "" {
+			assert.NotEmpty(t, result, "expected at least one attr for non-empty key")
 		}
 	})
 }
@@ -33,8 +37,8 @@ func FuzzFields_Delete(f *testing.F) {
 			{Key: "b", Value: 2},
 		}
 		result := fields.Delete(key)
-		if key == "a" && len(result) != 1 {
-			t.Errorf("expected 1 field after delete, got %d", len(result))
+		if key == "a" {
+			assert.Len(t, result, 1)
 		}
 	})
 }

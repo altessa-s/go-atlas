@@ -7,6 +7,8 @@ package redisutils_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/internal/redisutils"
 )
 
@@ -24,18 +26,14 @@ func TestNewKeyBuilder(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			kb := redisutils.NewKeyBuilder(tt.prefix)
-			if got := kb.Prefix(); got != tt.want {
-				t.Errorf("Prefix() = %q, want %q", got, tt.want)
-			}
+			require.Equal(t, tt.want, kb.Prefix())
 		})
 	}
 }
 
 func TestNewKeyBuilderWithSeparator(t *testing.T) {
 	kb := redisutils.NewKeyBuilderWithSeparator("app|ns|", "|")
-	if got := kb.Prefix(); got != "app|ns" {
-		t.Errorf("Prefix() = %q, want %q", got, "app|ns")
-	}
+	require.Equal(t, "app|ns", kb.Prefix())
 }
 
 func TestKeyBuilder_Build(t *testing.T) {
@@ -55,9 +53,7 @@ func TestKeyBuilder_Build(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			kb := redisutils.NewKeyBuilder(tt.prefix)
-			if got := kb.Build(tt.key); got != tt.want {
-				t.Errorf("Build(%q) = %q, want %q", tt.key, got, tt.want)
-			}
+			require.Equal(t, tt.want, kb.Build(tt.key))
 		})
 	}
 }
@@ -78,14 +74,7 @@ func TestKeyBuilder_BuildMany(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			kb := redisutils.NewKeyBuilder(tt.prefix)
 			got := kb.BuildMany(tt.keys)
-			if len(got) != len(tt.want) {
-				t.Fatalf("BuildMany() returned %d items, want %d", len(got), len(tt.want))
-			}
-			for i := range got {
-				if got[i] != tt.want[i] {
-					t.Errorf("BuildMany()[%d] = %q, want %q", i, got[i], tt.want[i])
-				}
-			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -95,9 +84,7 @@ func TestKeyBuilder_BuildMany_DoesNotModifyOriginal(t *testing.T) {
 	original := []string{"a", "b"}
 	result := kb.BuildMany(original)
 	result[0] = "modified"
-	if original[0] != "a" {
-		t.Error("BuildMany modified original slice")
-	}
+	require.Equal(t, "a", original[0], "BuildMany modified original slice")
 }
 
 func TestKeyBuilder_Pattern(t *testing.T) {
@@ -113,9 +100,7 @@ func TestKeyBuilder_Pattern(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			kb := redisutils.NewKeyBuilder(tt.prefix)
-			if got := kb.Pattern(); got != tt.want {
-				t.Errorf("Pattern() = %q, want %q", got, tt.want)
-			}
+			require.Equal(t, tt.want, kb.Pattern())
 		})
 	}
 }
@@ -133,9 +118,7 @@ func TestKeyBuilder_HasPrefix(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			kb := redisutils.NewKeyBuilder(tt.prefix)
-			if got := kb.HasPrefix(); got != tt.want {
-				t.Errorf("HasPrefix() = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, kb.HasPrefix())
 		})
 	}
 }

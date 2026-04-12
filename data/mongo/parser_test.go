@@ -7,6 +7,8 @@ package mongo
 import (
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 type parserSimpleStruct struct {
@@ -69,9 +71,7 @@ func TestParser_ParseStruct_Fields(t *testing.T) {
 	p := NewParser()
 	meta := p.ParseStruct(parserSimpleStruct{ID: "42", Name: "alice", Age: 30})
 
-	if meta.StructType != reflect.TypeFor[parserSimpleStruct]() {
-		t.Errorf("StructType = %v, want %v", meta.StructType, reflect.TypeFor[parserSimpleStruct]())
-	}
+	require.Equal(t, reflect.TypeFor[parserSimpleStruct](), meta.StructType)
 
 	tests := []struct {
 		field string
@@ -84,12 +84,8 @@ func TestParser_ParseStruct_Fields(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.field, func(t *testing.T) {
 			f, ok := findParserField(meta.Fields, tt.field)
-			if !ok {
-				t.Fatalf("field %q not found", tt.field)
-			}
-			if got := f.fieldValue.Interface(); got != tt.want {
-				t.Errorf("value = %v, want %v", got, tt.want)
-			}
+			require.True(t, ok, "field %q not found", tt.field)
+			require.Equal(t, tt.want, f.fieldValue.Interface())
 		})
 	}
 }
@@ -111,12 +107,8 @@ func TestParser_CacheHit_FieldValuesRefreshed(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.field, func(t *testing.T) {
 			f, ok := findParserField(meta.Fields, tt.field)
-			if !ok {
-				t.Fatalf("field %q not found", tt.field)
-			}
-			if got := f.fieldValue.Interface(); got != tt.want {
-				t.Errorf("value = %v, want %v", got, tt.want)
-			}
+			require.True(t, ok, "field %q not found", tt.field)
+			require.Equal(t, tt.want, f.fieldValue.Interface())
 		})
 	}
 }
@@ -128,15 +120,9 @@ func TestParser_CacheHit_StructuralMetadataPreserved(t *testing.T) {
 	// fieldName and fieldKind come from cache, not recomputed on every call
 	meta := p.ParseStruct(parserSimpleStruct{ID: "x"})
 	f, ok := findParserField(meta.Fields, "id")
-	if !ok {
-		t.Fatal("field \"id\" not found")
-	}
-	if f.fieldKind != reflect.String {
-		t.Errorf("fieldKind = %v, want String", f.fieldKind)
-	}
-	if f.fieldName != "id" {
-		t.Errorf("fieldName = %q, want \"id\"", f.fieldName)
-	}
+	require.True(t, ok, "field \"id\" not found")
+	require.Equal(t, reflect.String, f.fieldKind)
+	require.Equal(t, "id", f.fieldName)
 }
 
 func TestParser_FieldIndex_DirectFields(t *testing.T) {
@@ -147,13 +133,8 @@ func TestParser_FieldIndex_DirectFields(t *testing.T) {
 	rootType := reflect.TypeFor[parserSimpleStruct]()
 	for _, f := range meta.Fields {
 		sf, ok := rootType.FieldByName(f.fieldType.Name)
-		if !ok {
-			t.Errorf("field %q not found in type via FieldByName", f.fieldType.Name)
-			continue
-		}
-		if !reflect.DeepEqual(f.fieldIndex, sf.Index) {
-			t.Errorf("field %q: fieldIndex = %v, want %v", f.fieldName, f.fieldIndex, sf.Index)
-		}
+		require.True(t, ok, "field %q not found in type via FieldByName", f.fieldType.Name)
+		require.Equal(t, sf.Index, f.fieldIndex, "field %q: fieldIndex mismatch", f.fieldName)
 	}
 }
 
@@ -167,19 +148,12 @@ func TestParser_FieldIndex_EmbeddedFields_FullPathFromRoot(t *testing.T) {
 
 	// Embedded fields must carry the full index path from the root type,
 	// not the relative index within the embedded struct
-	if len(meta.Fields) < 3 {
-		t.Fatalf("expected at least 3 fields (created_at, updated_at, title), got %d", len(meta.Fields))
-	}
+	require.GreaterOrEqual(t, len(meta.Fields), 3, "expected at least 3 fields (created_at, updated_at, title)")
 	rootType := reflect.TypeFor[parserEmbeddedStruct]()
 	for _, f := range meta.Fields {
 		sf, ok := rootType.FieldByName(f.fieldType.Name)
-		if !ok {
-			t.Errorf("field %q not found via FieldByName on root type", f.fieldType.Name)
-			continue
-		}
-		if !reflect.DeepEqual(f.fieldIndex, sf.Index) {
-			t.Errorf("embedded field %q: fieldIndex = %v, want %v", f.fieldName, f.fieldIndex, sf.Index)
-		}
+		require.True(t, ok, "field %q not found via FieldByName on root type", f.fieldType.Name)
+		require.Equal(t, sf.Index, f.fieldIndex, "embedded field %q: fieldIndex mismatch", f.fieldName)
 	}
 }
 
@@ -206,12 +180,8 @@ func TestParser_EmbeddedFields_CacheHit_ValuesRefreshed(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.field, func(t *testing.T) {
 			f, ok := findParserField(meta.Fields, tt.field)
-			if !ok {
-				t.Fatalf("field %q not found", tt.field)
-			}
-			if got := f.fieldValue.Interface(); got != tt.want {
-				t.Errorf("value = %v, want %v", got, tt.want)
-			}
+			require.True(t, ok, "field %q not found", tt.field)
+			require.Equal(t, tt.want, f.fieldValue.Interface())
 		})
 	}
 }
@@ -235,12 +205,8 @@ func TestParser_NestedType_DeterminedByType_NotValue(t *testing.T) {
 			p := NewParser()
 			meta := p.ParseStruct(tt.entity)
 			f, ok := findParserField(meta.Fields, tt.field)
-			if !ok {
-				t.Fatalf("field %q not found", tt.field)
-			}
-			if f.nestedType != tt.want {
-				t.Errorf("nestedType = %v, want %v", f.nestedType, tt.want)
-			}
+			require.True(t, ok, "field %q not found", tt.field)
+			require.Equal(t, tt.want, f.nestedType)
 		})
 	}
 }
@@ -263,12 +229,8 @@ func TestParser_NestedType_ConsistentAcrossCacheHits(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			meta := p.ParseStruct(tt.entity)
 			f, ok := findParserField(meta.Fields, "nested")
-			if !ok {
-				t.Fatal("field \"nested\" not found")
-			}
-			if f.nestedType != PointerStruct {
-				t.Errorf("nestedType = %v, want PointerStruct", f.nestedType)
-			}
+			require.True(t, ok, "field \"nested\" not found")
+			require.Equal(t, PointerStruct, f.nestedType)
 		})
 	}
 }
@@ -283,9 +245,7 @@ func TestParser_NestedType_NoNesting_NonStructTypes(t *testing.T) {
 	})
 
 	for _, f := range meta.Fields {
-		if f.nestedType != NoNesting {
-			t.Errorf("field %q: nestedType = %v, want NoNesting", f.fieldName, f.nestedType)
-		}
+		require.Equal(t, NoNesting, f.nestedType, "field %q", f.fieldName)
 	}
 }
 
@@ -297,19 +257,12 @@ func TestParser_FieldIndex_PointerEmbeddedFields_FullPathFromRoot(t *testing.T) 
 	}
 	meta := p.ParseStruct(entity)
 
-	if len(meta.Fields) < 3 {
-		t.Fatalf("expected at least 3 fields (created_at, updated_at, name), got %d", len(meta.Fields))
-	}
+	require.GreaterOrEqual(t, len(meta.Fields), 3, "expected at least 3 fields (created_at, updated_at, name)")
 	rootType := reflect.TypeFor[parserPtrEmbeddedStruct]()
 	for _, f := range meta.Fields {
 		sf, ok := rootType.FieldByName(f.fieldType.Name)
-		if !ok {
-			t.Errorf("field %q not found via FieldByName on root type", f.fieldType.Name)
-			continue
-		}
-		if !reflect.DeepEqual(f.fieldIndex, sf.Index) {
-			t.Errorf("ptr-embedded field %q: fieldIndex = %v, want %v", f.fieldName, f.fieldIndex, sf.Index)
-		}
+		require.True(t, ok, "field %q not found via FieldByName on root type", f.fieldType.Name)
+		require.Equal(t, sf.Index, f.fieldIndex, "ptr-embedded field %q: fieldIndex mismatch", f.fieldName)
 	}
 }
 
@@ -336,12 +289,8 @@ func TestParser_PtrEmbeddedFields_CacheHit_ValuesRefreshed(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.field, func(t *testing.T) {
 			f, ok := findParserField(meta.Fields, tt.field)
-			if !ok {
-				t.Fatalf("field %q not found", tt.field)
-			}
-			if got := f.fieldValue.Interface(); got != tt.want {
-				t.Errorf("value = %v, want %v", got, tt.want)
-			}
+			require.True(t, ok, "field %q not found", tt.field)
+			require.Equal(t, tt.want, f.fieldValue.Interface())
 		})
 	}
 }
@@ -363,17 +312,11 @@ func TestParser_CacheHit_PointerFieldValue_Refreshed(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			meta := p.ParseStruct(tt.entity)
 			f, ok := findParserField(meta.Fields, "nested")
-			if !ok {
-				t.Fatal("field \"nested\" not found")
-			}
-			if f.fieldValue.IsNil() != tt.wantNil {
-				t.Errorf("IsNil() = %v, want %v", f.fieldValue.IsNil(), tt.wantNil)
-			}
+			require.True(t, ok, "field \"nested\" not found")
+			require.Equal(t, tt.wantNil, f.fieldValue.IsNil())
 			if !tt.wantNil {
 				got := f.fieldValue.Elem().FieldByName("Value").String()
-				if got != tt.wantValue {
-					t.Errorf("nested.Value = %q, want %q", got, tt.wantValue)
-				}
+				require.Equal(t, tt.wantValue, got)
 			}
 		})
 	}
@@ -387,12 +330,8 @@ func TestParser_CacheHit_NestedStructsPopulated(t *testing.T) {
 
 	nestedType := reflect.TypeFor[parserNestedStruct]()
 
-	if _, ok := first.NestedStructs[nestedType]; !ok {
-		t.Fatal("first parse: NestedStructs missing entry for parserNestedStruct")
-	}
-	if _, ok := second.NestedStructs[nestedType]; !ok {
-		t.Fatal("cache hit: NestedStructs missing entry for parserNestedStruct")
-	}
+	require.Contains(t, first.NestedStructs, nestedType, "first parse: NestedStructs missing entry for parserNestedStruct")
+	require.Contains(t, second.NestedStructs, nestedType, "cache hit: NestedStructs missing entry for parserNestedStruct")
 }
 
 func TestParser_CacheHit_NestedMetadataCleared(t *testing.T) {
@@ -402,15 +341,9 @@ func TestParser_CacheHit_NestedMetadataCleared(t *testing.T) {
 	meta := p.ParseStruct(parserPointerStruct{Name: "b", Nested: &parserNestedStruct{Value: "w"}})
 
 	f, ok := findParserField(meta.Fields, "nested")
-	if !ok {
-		t.Fatal("field \"nested\" not found")
-	}
-	if f.nestedMetadata != nil {
-		t.Errorf("cache hit: nestedMetadata = %v, want nil", f.nestedMetadata)
-	}
-	if f.hasNestedData {
-		t.Error("cache hit: hasNestedData = true, want false")
-	}
+	require.True(t, ok, "field \"nested\" not found")
+	require.Nil(t, f.nestedMetadata, "cache hit: nestedMetadata should be nil")
+	require.False(t, f.hasNestedData, "cache hit: hasNestedData should be false")
 }
 
 func TestParser_CacheHit_ReturnedCopiesAreIndependent(t *testing.T) {
@@ -424,15 +357,9 @@ func TestParser_CacheHit_ReturnedCopiesAreIndependent(t *testing.T) {
 	f1, _ := findParserField(meta1.Fields, "name")
 	f2, _ := findParserField(meta2.Fields, "name")
 
-	if f1.fieldValue.String() != "bob" {
-		t.Errorf("meta1 name = %q, want \"bob\"", f1.fieldValue.String())
-	}
-	if f2.fieldValue.String() != "carol" {
-		t.Errorf("meta2 name = %q, want \"carol\"", f2.fieldValue.String())
-	}
+	require.Equal(t, "bob", f1.fieldValue.String(), "meta1 name")
+	require.Equal(t, "carol", f2.fieldValue.String(), "meta2 name")
 
 	// Verify they are separate slices (mutating one doesn't affect the other)
-	if &meta1.Fields[0] == &meta2.Fields[0] {
-		t.Error("meta1.Fields and meta2.Fields share underlying array")
-	}
+	require.False(t, &meta1.Fields[0] == &meta2.Fields[0], "meta1.Fields and meta2.Fields share underlying array")
 }

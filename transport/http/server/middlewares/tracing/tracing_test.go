@@ -9,25 +9,22 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/observability/tracing"
 )
 
 func TestNew_NilTracer(t *testing.T) {
 	m := New(nil)
-	if m == nil {
-		t.Fatal("New returned nil")
-	}
-	if m.Name() != "tracing" {
-		t.Fatalf("Name() = %q", m.Name())
-	}
+	require.NotNil(t, m)
+	require.Equal(t, "tracing", m.Name())
 }
 
 func TestMiddleware_Dependencies(t *testing.T) {
 	m := New(nil)
 	deps := m.Dependencies()
-	if len(deps) != 1 || deps[0] != "realip" {
-		t.Fatalf("Dependencies() = %v", deps)
-	}
+	require.Len(t, deps, 1)
+	require.Equal(t, "realip", deps[0])
 }
 
 func TestTracingHandler(t *testing.T) {
@@ -39,9 +36,7 @@ func TestTracingHandler(t *testing.T) {
 	req := httptest.NewRequest("GET", "/test", nil)
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("code = %d", rec.Code)
-	}
+	require.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestWrapHandler(t *testing.T) {
@@ -52,24 +47,18 @@ func TestWrapHandler(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("code = %d", rec.Code)
-	}
+	require.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestExtractClientIP_FromRemoteAddr(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 	req.RemoteAddr = "192.168.1.1:1234"
 	ip := extractClientIP(req)
-	if ip != "192.168.1.1" {
-		t.Fatalf("ip = %q", ip)
-	}
+	require.Equal(t, "192.168.1.1", ip)
 }
 
 func TestDefaultSpanName(t *testing.T) {
 	req := httptest.NewRequest("POST", "/api/users", nil)
 	name := defaultSpanName(req)
-	if name != "POST /api/users" {
-		t.Fatalf("name = %q", name)
-	}
+	require.Equal(t, "POST /api/users", name)
 }

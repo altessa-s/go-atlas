@@ -8,6 +8,8 @@ import (
 	"testing"
 	"unsafe"
 
+	"github.com/stretchr/testify/require"
+
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
 
@@ -35,9 +37,7 @@ func TestIsEmpty(t *testing.T) {
 			case *string:
 				got = corestrings.IsEmpty(v)
 			}
-			if got != tt.want {
-				t.Errorf("IsEmpty() = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -45,48 +45,30 @@ func TestIsEmpty(t *testing.T) {
 func TestPtrConversions(t *testing.T) {
 	t.Run("ToPtr", func(t *testing.T) {
 		s := "test"
-		if p := corestrings.ToPtr(s); p == nil || *p != "test" {
-			t.Error("ToPtr(test) failed")
-		}
-		if corestrings.ToPtr("") != nil {
-			t.Error("ToPtr(\"\") should return nil")
-		}
-		if corestrings.ToPtr("  ") != nil {
-			t.Error("ToPtr(\"  \") should return nil")
-		}
+		p := corestrings.ToPtr(s)
+		require.NotNil(t, p)
+		require.Equal(t, "test", *p)
+		require.Nil(t, corestrings.ToPtr(""))
+		require.Nil(t, corestrings.ToPtr("  "))
 	})
 
 	t.Run("FromPtr", func(t *testing.T) {
 		s := "test"
-		if corestrings.FromPtr(&s) != "test" {
-			t.Error("FromPtr(&test) failed")
-		}
-		if corestrings.FromPtr(nil) != "" {
-			t.Error("FromPtr(nil) should return empty string")
-		}
+		require.Equal(t, "test", corestrings.FromPtr(&s))
+		require.Equal(t, "", corestrings.FromPtr(nil))
 	})
 }
 
 func TestTo(t *testing.T) {
 	t.Run("Integers", func(t *testing.T) {
-		if corestrings.ToInt("42") != 42 {
-			t.Error("ToInt failed")
-		}
-		if corestrings.To[int8]("127") != 127 {
-			t.Error("To[int8] failed")
-		}
-		if corestrings.To[int]("invalid") != 0 {
-			t.Error("To[int](invalid) should be 0")
-		}
+		require.Equal(t, 42, corestrings.ToInt("42"))
+		require.Equal(t, int8(127), corestrings.To[int8]("127"))
+		require.Equal(t, 0, corestrings.To[int]("invalid"))
 	})
 
 	t.Run("Floats", func(t *testing.T) {
-		if corestrings.ToFloat64("3.14") != 3.14 {
-			t.Error("ToFloat64 failed")
-		}
-		if corestrings.To[float32]("invalid") != 0 {
-			t.Error("To[float32](invalid) should be 0")
-		}
+		require.Equal(t, 3.14, corestrings.ToFloat64("3.14"))
+		require.Equal(t, float32(0), corestrings.To[float32]("invalid"))
 	})
 }
 
@@ -125,9 +107,7 @@ func TestJoin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := corestrings.Join(tt.elements, tt.opts); got != tt.want {
-				t.Errorf("Join() = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, corestrings.Join(tt.elements, tt.opts))
 		})
 	}
 }
@@ -174,15 +154,7 @@ func TestSplit(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := corestrings.Split(tt.s, tt.opts)
-			if len(got) != len(tt.want) {
-				t.Errorf("Split() len = %d, want %d (%v)", len(got), len(tt.want), got)
-				return
-			}
-			for i := range got {
-				if got[i] != tt.want[i] {
-					t.Errorf("Split()[%d] = %v, want %v", i, got[i], tt.want[i])
-				}
-			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -190,18 +162,12 @@ func TestSplit(t *testing.T) {
 func TestContains(t *testing.T) {
 	t.Run("Case Insensitive", func(t *testing.T) {
 		res := corestrings.Contains("Hello World", "hello", corestrings.ContainsOptions{CaseSensitive: false})
-		if !res.Found {
-			t.Error("Should find 'hello' in 'Hello World' (case-insensitive)")
-		}
+		require.True(t, res.Found, "Should find 'hello' in 'Hello World' (case-insensitive)")
 	})
 
 	t.Run("Whole Words", func(t *testing.T) {
-		if corestrings.Contains("hello world", "hell", corestrings.ContainsOptions{MatchWholeWords: true}).Found {
-			t.Error("Should NOT find 'hell' in 'hello world' as whole word")
-		}
-		if !corestrings.Contains("hello world", "hello", corestrings.ContainsOptions{MatchWholeWords: true}).Found {
-			t.Error("Should find 'hello' in 'hello world' as whole word")
-		}
+		require.False(t, corestrings.Contains("hello world", "hell", corestrings.ContainsOptions{MatchWholeWords: true}).Found, "Should NOT find 'hell' in 'hello world' as whole word")
+		require.True(t, corestrings.Contains("hello world", "hello", corestrings.ContainsOptions{MatchWholeWords: true}).Found, "Should find 'hello' in 'hello world' as whole word")
 	})
 
 	// Regression: isWholeWordMatch used to index s[pos-1] / s[endPos]
@@ -213,137 +179,85 @@ func TestContains(t *testing.T) {
 		// "héllo": h, é (0xC3 0xA9), l, l, o — searching for "llo" lands
 		// at byte offset 3, preceded by the continuation byte 0xA9.
 		// Before the fix this returned Found=true.
-		if corestrings.Contains("héllo", "llo", corestrings.ContainsOptions{MatchWholeWords: true}).Found {
-			t.Error("Should NOT find 'llo' in 'héllo' as whole word (suffix inside a word)")
-		}
+		require.False(t, corestrings.Contains("héllo", "llo", corestrings.ContainsOptions{MatchWholeWords: true}).Found, "Should NOT find 'llo' in 'héllo' as whole word (suffix inside a word)")
 		// Symmetric case: "holé" — searching for "hol" at offset 0 is
 		// followed by the leading byte of é. The decoded next rune is
 		// a letter, so the match must be rejected.
-		if corestrings.Contains("holé", "hol", corestrings.ContainsOptions{MatchWholeWords: true}).Found {
-			t.Error("Should NOT find 'hol' in 'holé' as whole word (prefix inside a word)")
-		}
+		require.False(t, corestrings.Contains("holé", "hol", corestrings.ContainsOptions{MatchWholeWords: true}).Found, "Should NOT find 'hol' in 'holé' as whole word (prefix inside a word)")
 		// Positive case: a full non-ASCII word surrounded by spaces must
 		// still be detected.
-		if !corestrings.Contains(" café ", "café", corestrings.ContainsOptions{MatchWholeWords: true}).Found {
-			t.Error("Should find 'café' in ' café ' as whole word")
-		}
+		require.True(t, corestrings.Contains(" café ", "café", corestrings.ContainsOptions{MatchWholeWords: true}).Found, "Should find 'café' in ' café ' as whole word")
 	})
 
 	t.Run("Count", func(t *testing.T) {
 		res := corestrings.Contains("test test", "test", corestrings.ContainsOptions{Count: true})
-		if res.Count != 2 {
-			t.Errorf("Count = %d, want 2", res.Count)
-		}
-		if len(res.Positions) != 2 || res.Positions[0] != 0 || res.Positions[1] != 5 {
-			t.Errorf("Positions = %v, want [0 5]", res.Positions)
-		}
+		require.Equal(t, 2, res.Count)
+		require.Equal(t, []int{0, 5}, res.Positions)
 	})
 }
 
 func TestSafeComparisons(t *testing.T) {
-	if !corestrings.SecureCompare("secret", "secret") {
-		t.Error("SecureCompare failed for equal strings")
-	}
-	if corestrings.SecureCompare("secret", "wrong") {
-		t.Error("SecureCompare passed for different strings")
-	}
-
-	if !corestrings.TimingSafePrefixMatch("Bearer token", "bearer") {
-		t.Error("TimingSafePrefixMatch failed")
-	}
-
-	if !corestrings.SubstringMatch("Hello World", "world") {
-		t.Error("SubstringMatch failed")
-	}
+	require.True(t, corestrings.SecureCompare("secret", "secret"), "SecureCompare failed for equal strings")
+	require.False(t, corestrings.SecureCompare("secret", "wrong"), "SecureCompare passed for different strings")
+	require.True(t, corestrings.TimingSafePrefixMatch("Bearer token", "bearer"), "TimingSafePrefixMatch failed")
+	require.True(t, corestrings.SubstringMatch("Hello World", "world"), "SubstringMatch failed")
 }
 
 func TestUnsafe(t *testing.T) {
 	t.Run("ToBytesUnsafe", func(t *testing.T) {
 		s := "hello"
 		b := corestrings.ToBytesUnsafe(s)
-		if string(b) != s {
-			t.Error("ToBytesUnsafe content mismatch")
-		}
+		require.Equal(t, s, string(b))
 		// Verify zero-copy by checking address (careful with GC moving things, but basic check)
 		// We expect b to point to s data.
 		sData := unsafe.StringData(s)
 		bData := unsafe.SliceData(b)
-		if sData != bData {
-			t.Error("ToBytesUnsafe did not return zero-copy slice")
-		}
+		require.Equal(t, sData, bData, "ToBytesUnsafe did not return zero-copy slice")
 	})
 
 	t.Run("FromBytesUnsafe", func(t *testing.T) {
 		b := []byte("hello")
 		s := corestrings.FromBytesUnsafe(b)
-		if s != "hello" {
-			t.Error("FromBytesUnsafe content mismatch")
-		}
+		require.Equal(t, "hello", s)
 	})
 
 	t.Run("StringEqualsUnsafe", func(t *testing.T) {
-		if !corestrings.StringEqualsUnsafe("a", "a") {
-			t.Error("StringEqualsUnsafe failed for equal")
-		}
-		if corestrings.StringEqualsUnsafe("a", "b") {
-			t.Error("StringEqualsUnsafe passed for different")
-		}
+		require.True(t, corestrings.StringEqualsUnsafe("a", "a"), "StringEqualsUnsafe failed for equal")
+		require.False(t, corestrings.StringEqualsUnsafe("a", "b"), "StringEqualsUnsafe passed for different")
 	})
 }
 
 func TestConcat(t *testing.T) {
-	if got := corestrings.Concat("a", "b", "c"); got != "abc" {
-		t.Errorf("Concat() = %v, want abc", got)
-	}
-	if got := corestrings.ConcatUnsafe("a", "b"); got != "ab" {
-		t.Errorf("ConcatUnsafe() = %v, want ab", got)
-	}
+	require.Equal(t, "abc", corestrings.Concat("a", "b", "c"))
+	require.Equal(t, "ab", corestrings.ConcatUnsafe("a", "b"))
 }
 
 func TestCase(t *testing.T) {
-	if !corestrings.IsLowercase("abc") || corestrings.IsLowercase("Abc") {
-		t.Error("IsLowercase failed")
-	}
-	if !corestrings.IsUppercase("ABC") || corestrings.IsUppercase("Abc") {
-		t.Error("IsUppercase failed")
-	}
+	require.True(t, corestrings.IsLowercase("abc"))
+	require.False(t, corestrings.IsLowercase("Abc"))
+	require.True(t, corestrings.IsUppercase("ABC"))
+	require.False(t, corestrings.IsUppercase("Abc"))
 
-	if !corestrings.IsLowercaseUnsafe("abc") || corestrings.IsLowercaseUnsafe("Abc") {
-		t.Error("IsLowercaseUnsafe failed")
-	}
-	if !corestrings.IsUppercaseUnsafe("ABC") || corestrings.IsUppercaseUnsafe("Abc") {
-		t.Error("IsUppercaseUnsafe failed")
-	}
+	require.True(t, corestrings.IsLowercaseUnsafe("abc"))
+	require.False(t, corestrings.IsLowercaseUnsafe("Abc"))
+	require.True(t, corestrings.IsUppercaseUnsafe("ABC"))
+	require.False(t, corestrings.IsUppercaseUnsafe("Abc"))
 }
 
 func TestTrim(t *testing.T) {
 	t.Run("IsTrimmed", func(t *testing.T) {
-		if !corestrings.IsTrimmed("abc") {
-			t.Error("abc should be trimmed")
-		}
-		if corestrings.IsTrimmed(" abc") {
-			t.Error("' abc' should not be trimmed")
-		}
-		if !corestrings.IsTrimmed("") {
-			t.Error("empty string should be trimmed")
-		}
+		require.True(t, corestrings.IsTrimmed("abc"), "abc should be trimmed")
+		require.False(t, corestrings.IsTrimmed(" abc"), "' abc' should not be trimmed")
+		require.True(t, corestrings.IsTrimmed(""), "empty string should be trimmed")
 	})
 
 	t.Run("IsTrimmedUnsafe", func(t *testing.T) {
-		if !corestrings.IsTrimmedUnsafe("abc") {
-			t.Error("IsTrimmedUnsafe(abc) failed")
-		}
-		if corestrings.IsTrimmedUnsafe(" abc") {
-			t.Error("IsTrimmedUnsafe(' abc') failed")
-		}
+		require.True(t, corestrings.IsTrimmedUnsafe("abc"))
+		require.False(t, corestrings.IsTrimmedUnsafe(" abc"))
 	})
 
 	t.Run("TrimSuffixFast", func(t *testing.T) {
-		if corestrings.TrimSuffixFast("file.go", ".go") != "file" {
-			t.Error("TrimSuffixFast failed to trim")
-		}
-		if corestrings.TrimSuffixFast("file.go", ".txt") != "file.go" {
-			t.Error("TrimSuffixFast should not trim mismatch")
-		}
+		require.Equal(t, "file", corestrings.TrimSuffixFast("file.go", ".go"))
+		require.Equal(t, "file.go", corestrings.TrimSuffixFast("file.go", ".txt"))
 	})
 }

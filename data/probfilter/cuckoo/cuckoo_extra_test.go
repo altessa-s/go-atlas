@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/probfilter/cuckoo"
 	"github.com/altessa-s/go-atlas/data/probfilter/cuckoo/storages/memory"
 )
@@ -15,9 +17,7 @@ import (
 func TestNew_WithLogger(t *testing.T) {
 	storage := memory.New(memory.WithCapacity(100))
 	f := cuckoo.New(storage, cuckoo.WithLogger(slog.Default()))
-	if f == nil {
-		t.Fatal("New(WithLogger) returned nil")
-	}
+	require.NotNil(t, f, "New(WithLogger) returned nil")
 }
 
 func TestFilter_Stats_Complete(t *testing.T) {
@@ -30,12 +30,8 @@ func TestFilter_Stats_Complete(t *testing.T) {
 	_ = f.Add(ctx, "b")
 
 	stats, err := f.Stats(ctx)
-	if err != nil {
-		t.Fatalf("Stats() error = %v", err)
-	}
-	if stats == nil {
-		t.Fatal("Stats() returned nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, stats, "Stats() returned nil")
 }
 
 func TestFilter_DeleteAndRecheck(t *testing.T) {
@@ -46,21 +42,13 @@ func TestFilter_DeleteAndRecheck(t *testing.T) {
 	_ = f.Add(ctx, "item1")
 
 	ok, err := f.Delete(ctx, "item1")
-	if err != nil {
-		t.Fatalf("Delete() error = %v", err)
-	}
-	if !ok {
-		t.Error("Delete() should return true for existing item")
-	}
+	require.NoError(t, err)
+	require.True(t, ok, "Delete() should return true for existing item")
 
 	// After delete, MightExist should return false
 	exists, err := f.MightExist(ctx, "item1")
-	if err != nil {
-		t.Fatalf("MightExist() error = %v", err)
-	}
-	if exists {
-		t.Error("MightExist() should return false after Delete")
-	}
+	require.NoError(t, err)
+	require.False(t, exists, "MightExist() should return false after Delete")
 }
 
 func TestFilter_AddBatch_Multiple(t *testing.T) {
@@ -76,7 +64,5 @@ func TestFilter_AddBatch_Multiple(t *testing.T) {
 		}
 	}
 
-	if err := f.AddBatch(ctx, items); err != nil {
-		t.Fatalf("AddBatch() error = %v", err)
-	}
+	require.NoError(t, f.AddBatch(ctx, items))
 }

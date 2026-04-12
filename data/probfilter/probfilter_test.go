@@ -10,6 +10,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/probfilter"
 	"github.com/altessa-s/go-atlas/data/probfilter/bloom"
 	"github.com/altessa-s/go-atlas/data/probfilter/cuckoo"
@@ -27,13 +29,8 @@ func TestManager(t *testing.T) {
 	cStorage := cuckoomemory.New(cuckoomemory.WithCapacity(100))
 	cFilter := cuckoo.New(cStorage)
 
-	if err := mgr.Register("bloom", bFilter); err != nil {
-		t.Fatalf("failed to register bloom: %v", err)
-	}
-
-	if err := mgr.Register("cuckoo", cFilter); err != nil {
-		t.Fatalf("failed to register cuckoo: %v", err)
-	}
+	require.NoError(t, mgr.Register("bloom", bFilter))
+	require.NoError(t, mgr.Register("cuckoo", cFilter))
 
 	// Test Names iterator
 	var names []string
@@ -42,25 +39,18 @@ func TestManager(t *testing.T) {
 	}
 	slices.Sort(names)
 	expectedNames := []string{"bloom", "cuckoo"}
-	if !slices.Equal(names, expectedNames) {
-		t.Errorf("expected names %v, got %v", expectedNames, names)
-	}
+	require.True(t, slices.Equal(names, expectedNames), "expected names %v, got %v", expectedNames, names)
 
 	// Test Filters iterator
 	count := 0
 	for name, f := range mgr.Filters() {
-		if name == "" || f == nil {
-			t.Error("empty name or nil filter in iterator")
-		}
+		require.NotEmpty(t, name, "empty name in iterator")
+		require.NotNil(t, f, "nil filter in iterator")
 		count++
 	}
-	if count != 2 {
-		t.Errorf("expected 2 filters, got %d", count)
-	}
+	require.Equal(t, 2, count)
 
-	if err := mgr.Close(); err != nil {
-		t.Errorf("failed to close manager: %v", err)
-	}
+	require.NoError(t, mgr.Close())
 }
 
 func TestBloomFilter_AddBatch(t *testing.T) {
@@ -77,18 +67,12 @@ func TestBloomFilter_AddBatch(t *testing.T) {
 		}
 	}
 
-	if err := filter.AddBatch(ctx, iter); err != nil {
-		t.Fatalf("failed to add batch: %v", err)
-	}
+	require.NoError(t, filter.AddBatch(ctx, iter))
 
 	for _, v := range values {
 		exists, err := filter.MightExist(ctx, v)
-		if err != nil {
-			t.Errorf("failed to check existence for %s: %v", v, err)
-		}
-		if !exists {
-			t.Errorf("expected value %s to exist", v)
-		}
+		require.NoError(t, err)
+		require.True(t, exists, "expected value %s to exist", v)
 	}
 }
 
@@ -106,33 +90,21 @@ func TestCuckooFilter_AddBatch(t *testing.T) {
 		}
 	}
 
-	if err := filter.AddBatch(ctx, iter); err != nil {
-		t.Fatalf("failed to add batch: %v", err)
-	}
+	require.NoError(t, filter.AddBatch(ctx, iter))
 
 	for _, v := range values {
 		exists, err := filter.MightExist(ctx, v)
-		if err != nil {
-			t.Errorf("failed to check existence for %s: %v", v, err)
-		}
-		if !exists {
-			t.Errorf("expected value %s to exist", v)
-		}
+		require.NoError(t, err)
+		require.True(t, exists, "expected value %s to exist", v)
 	}
 
 	// Test Delete
 	ok, err := filter.Delete(ctx, "x")
-	if err != nil {
-		t.Errorf("failed to delete: %v", err)
-	}
-	if !ok {
-		t.Error("expected delete to return true")
-	}
+	require.NoError(t, err)
+	require.True(t, ok, "expected delete to return true")
 
 	exists, _ := filter.MightExist(ctx, "x")
-	if exists {
-		t.Error("expected value x to not exist after delete")
-	}
+	require.False(t, exists, "expected value x to not exist after delete")
 }
 
 type mockLoader struct {
@@ -166,24 +138,16 @@ func TestBloomFilter_Rebuild_Optimization(t *testing.T) {
 		items: []string{"a", "b", "c"},
 	}
 
-	if err := filter.Rebuild(ctx, loader); err != nil {
-		t.Fatalf("failed to rebuild: %v", err)
-	}
+	require.NoError(t, filter.Rebuild(ctx, loader))
 
 	// Verify optimization: Count should be called once, StreamValues once (for loading)
 	// If optimization wasn't working, StreamValues might be called twice (once for count, once for load)
-	if loader.countCalled != 1 {
-		t.Errorf("expected Count to be called 1 time, got %d", loader.countCalled)
-	}
-	if loader.streamCalled != 1 {
-		t.Errorf("expected StreamValues to be called 1 time, got %d", loader.streamCalled)
-	}
+	require.Equal(t, 1, loader.countCalled)
+	require.Equal(t, 1, loader.streamCalled)
 
 	// Verify items were loaded
 	for _, v := range loader.items {
 		exists, _ := filter.MightExist(ctx, v)
-		if !exists {
-			t.Errorf("expected value %s to exist after rebuild", v)
-		}
+		require.True(t, exists, "expected value %s to exist after rebuild", v)
 	}
 }

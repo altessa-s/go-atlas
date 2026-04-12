@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/internal/natsbase"
 )
@@ -21,16 +22,12 @@ func TestNewBase(t *testing.T) {
 	kv := &mockKV{}
 	base := natsbase.NewBase(kv)
 
-	if got := base.KV(); got != kv {
-		t.Error("KV() should return the provided KeyValue")
-	}
+	require.Equal(t, kv, base.KV(), "KV() should return the provided KeyValue")
 }
 
 func TestBase_KV_ReturnsProvided(t *testing.T) {
 	kv := &mockKV{}
 	base := natsbase.NewBase(kv)
 
-	if base.KV() == nil {
-		t.Error("KV() should not return nil")
-	}
+	require.NotNil(t, base.KV())
 }

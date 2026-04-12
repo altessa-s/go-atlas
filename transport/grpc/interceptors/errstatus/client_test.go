@@ -9,6 +9,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -16,27 +18,19 @@ import (
 func newClientInterceptor(t *testing.T, opts ...Option) *clientInterceptor {
 	t.Helper()
 	ci, ok := ClientInterceptor(opts...).(*clientInterceptor)
-	if !ok {
-		t.Fatal("unexpected type")
-	}
+	require.True(t, ok, "unexpected type")
 	return ci
 }
 
 func TestClientInterceptor_Name(t *testing.T) {
 	i := ClientInterceptor()
-	if i.Name() != "errstatus" {
-		t.Fatalf("Name() = %q, want %q", i.Name(), "errstatus")
-	}
+	require.Equal(t, "errstatus", i.Name())
 }
 
 func TestClientInterceptor_ReturnsInterceptors(t *testing.T) {
 	i := ClientInterceptor()
-	if i.ClientUnaryInterceptor() == nil {
-		t.Fatal("ClientUnaryInterceptor should not be nil")
-	}
-	if i.ClientStreamInterceptor() == nil {
-		t.Fatal("ClientStreamInterceptor should not be nil")
-	}
+	require.NotNil(t, i.ClientUnaryInterceptor(), "ClientUnaryInterceptor should not be nil")
+	require.NotNil(t, i.ClientStreamInterceptor(), "ClientStreamInterceptor should not be nil")
 }
 
 func TestClientInterceptor_BuiltInConversions(t *testing.T) {
@@ -54,26 +48,22 @@ func TestClientInterceptor_BuiltInConversions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := ci.convertError(t.Context(), tt.err)
-			if !errors.Is(result, tt.wantErr) {
-				t.Fatalf("got %v, want %v", result, tt.wantErr)
-			}
+			require.True(t, errors.Is(result, tt.wantErr), "got %v, want %v", result, tt.wantErr)
 		})
 	}
 }
 
 func TestClientInterceptor_NilError_ReturnsNil(t *testing.T) {
 	ci := newClientInterceptor(t)
-	if result := ci.convertError(t.Context(), nil); result != nil {
-		t.Fatalf("got %v, want nil", result)
-	}
+	result := ci.convertError(t.Context(), nil)
+	require.NoError(t, result)
 }
 
 func TestClientInterceptor_NonGRPCError_PassThrough(t *testing.T) {
 	ci := newClientInterceptor(t)
 	plain := errors.New("plain error")
-	if result := ci.convertError(t.Context(), plain); result != plain {
-		t.Fatal("non-gRPC error should be returned as-is")
-	}
+	result := ci.convertError(t.Context(), plain)
+	require.Equal(t, plain, result)
 }
 
 func TestClientInterceptor_CustomStatusConverter(t *testing.T) {
@@ -81,9 +71,7 @@ func TestClientInterceptor_CustomStatusConverter(t *testing.T) {
 	ci := newClientInterceptor(t, WithStatusMapping(codes.NotFound, customErr))
 
 	result := ci.convertError(t.Context(), status.Error(codes.NotFound, "not found"))
-	if !errors.Is(result, customErr) {
-		t.Fatalf("got %v, want %v", result, customErr)
-	}
+	require.True(t, errors.Is(result, customErr), "got %v, want %v", result, customErr)
 }
 
 func TestClientInterceptor_CustomStatusConverterFunc(t *testing.T) {
@@ -96,9 +84,7 @@ func TestClientInterceptor_CustomStatusConverterFunc(t *testing.T) {
 	}))
 
 	result := ci.convertError(t.Context(), status.Error(codes.Aborted, "aborted"))
-	if !errors.Is(result, customErr) {
-		t.Fatalf("got %v, want %v", result, customErr)
-	}
+	require.True(t, errors.Is(result, customErr), "got %v, want %v", result, customErr)
 }
 
 func TestClientInterceptor_UnmatchedCode_ReturnsOriginal(t *testing.T) {
@@ -106,10 +92,6 @@ func TestClientInterceptor_UnmatchedCode_ReturnsOriginal(t *testing.T) {
 	result := ci.convertError(t.Context(), status.Error(codes.Internal, "internal"))
 
 	st, ok := status.FromError(result)
-	if !ok {
-		t.Fatal("result should be a gRPC status")
-	}
-	if st.Code() != codes.Internal {
-		t.Fatalf("code = %v, want %v", st.Code(), codes.Internal)
-	}
+	require.True(t, ok, "result should be a gRPC status")
+	require.Equal(t, codes.Internal, st.Code())
 }

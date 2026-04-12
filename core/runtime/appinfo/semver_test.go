@@ -4,7 +4,11 @@
 
 package appinfo
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestParseSemVer(t *testing.T) {
 	t.Parallel()
@@ -49,24 +53,16 @@ func TestParseSemVer(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := parseSemVer(tt.in)
 			if tt.shouldFail {
-				if err == nil {
-					t.Fatalf("expected error, got nil")
-				}
+				require.Error(t, err, "expected error for input %q", tt.in)
 				return
 			}
-			if err != nil {
-				t.Fatalf("parseSemVer err=%v", err)
-			}
-			if got.Major != tt.wantMajor || got.Minor != tt.wantMinor || got.Patch != tt.wantPatch {
-				t.Fatalf("got=%s.%s.%s, want=%s.%s.%s", got.Major, got.Minor, got.Patch, tt.wantMajor, tt.wantMinor, tt.wantPatch)
-			}
-			if len(got.Prerelease) != len(tt.wantPre) {
-				t.Fatalf("prerelease len=%d, want=%d (%v)", len(got.Prerelease), len(tt.wantPre), got.Prerelease)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantMajor, got.Major)
+			require.Equal(t, tt.wantMinor, got.Minor)
+			require.Equal(t, tt.wantPatch, got.Patch)
+			require.Len(t, got.Prerelease, len(tt.wantPre))
 			for i := range tt.wantPre {
-				if got.Prerelease[i] != tt.wantPre[i] {
-					t.Fatalf("prerelease[%d]=%q, want %q", i, got.Prerelease[i], tt.wantPre[i])
-				}
+				require.Equal(t, tt.wantPre[i], got.Prerelease[i], "prerelease[%d]", i)
 			}
 		})
 	}

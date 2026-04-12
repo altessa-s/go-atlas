@@ -8,32 +8,20 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/config/loader/backend/toml"
 )
 
 func TestBackend_StructTagName(t *testing.T) {
 	b := &toml.Backend{}
-	got := b.StructTagName()
-	want := "toml"
-	if got != want {
-		t.Errorf("StructTagName() = %q, want %q", got, want)
-	}
+	require.Equal(t, "toml", b.StructTagName())
 }
 
 func TestBackend_FileExtensions(t *testing.T) {
 	b := &toml.Backend{}
 	got := b.FileExtensions()
-	want := []string{"toml", "tml"}
-
-	if len(got) != len(want) {
-		t.Fatalf("FileExtensions() returned %d extensions, want %d", len(got), len(want))
-	}
-
-	for i := range want {
-		if got[i] != want[i] {
-			t.Errorf("FileExtensions()[%d] = %q, want %q", i, got[i], want[i])
-		}
-	}
+	require.Equal(t, []string{"toml", "tml"}, got)
 }
 
 func TestBackend_Decode(t *testing.T) {
@@ -61,12 +49,8 @@ func TestBackend_Decode(t *testing.T) {
 						Num int `toml:"num"`
 					} `toml:"section"`
 				})
-				if v.Key != "value" {
-					t.Errorf("Key = %q, want %q", v.Key, "value")
-				}
-				if v.Section.Num != 42 {
-					t.Errorf("Section.Num = %d, want %d", v.Section.Num, 42)
-				}
+				require.Equal(t, "value", v.Key)
+				require.Equal(t, 42, v.Section.Num)
 			},
 		},
 		{
@@ -80,9 +64,7 @@ func TestBackend_Decode(t *testing.T) {
 				v := target.(*struct {
 					Key string `toml:"key"`
 				})
-				if v.Key != "" {
-					t.Errorf("Key = %q, want empty string", v.Key)
-				}
+				require.Empty(t, v.Key)
 			},
 		},
 		{
@@ -102,12 +84,13 @@ func TestBackend_Decode(t *testing.T) {
 			reader := strings.NewReader(tt.input)
 			err := b.Decode(reader, tt.target)
 
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Decode() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				require.Error(t, err)
 				return
 			}
+			require.NoError(t, err)
 
-			if !tt.wantErr && tt.check != nil {
+			if tt.check != nil {
 				tt.check(t, tt.target)
 			}
 		})

@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/altessa-s/go-atlas/data/cache/providers/freecache"
 )
 
@@ -32,8 +34,6 @@ func FuzzProvider_SaveGet(f *testing.F) {
 			return
 		}
 
-		if string(got) != string(value) {
-			t.Errorf("value mismatch: expected %q, got %q", value, got)
-		}
+		assert.Equal(t, string(value), string(got))
 	})
 }

@@ -10,6 +10,8 @@ import (
 	"net/netip"
 	"regexp"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 var testIP = netip.MustParseAddr("1.2.3.4")
@@ -44,12 +46,8 @@ func TestEvaluate_AllowCountriesMode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			resolver := &mockResolver{geo: tt.geo}
 			got, err := reg.Evaluate(t.Context(), resolver, testIP, tt.endpoint)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Evaluate() = %v, want %v", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -75,12 +73,8 @@ func TestEvaluate_DenyCountriesMode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			resolver := &mockResolver{geo: tt.geo}
 			got, err := reg.Evaluate(t.Context(), resolver, testIP, tt.endpoint)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Evaluate() = %v, want %v", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -104,12 +98,8 @@ func TestEvaluate_AllowContinentsMode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			resolver := &mockResolver{geo: tt.geo}
 			got, err := reg.Evaluate(t.Context(), resolver, testIP, "/api.Service/Action")
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Evaluate() = %v, want %v", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -132,12 +122,8 @@ func TestEvaluate_DenyContinentsMode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			resolver := &mockResolver{geo: tt.geo}
 			got, err := reg.Evaluate(t.Context(), resolver, testIP, "/api.Service/Action")
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Evaluate() = %v, want %v", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -162,12 +148,8 @@ func TestEvaluate_DenyWinsOnOverlap(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			resolver := &mockResolver{geo: tt.geo}
 			got, err := reg.Evaluate(t.Context(), resolver, testIP, "/api.Service/Action")
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Evaluate() = %v, want %v", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -191,12 +173,8 @@ func TestEvaluate_RegionPrecedence(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			resolver := &mockResolver{geo: tt.geo}
 			got, err := reg.Evaluate(t.Context(), resolver, testIP, "/api.Service/Action")
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Evaluate() = %v, want %v", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -210,12 +188,8 @@ func TestEvaluate_ContinentDenyOverridesCountryAllow(t *testing.T) {
 
 	resolver := &mockResolver{geo: GeoInfo{ContinentCode: "AS", CountryCode: "CN"}}
 	got, err := reg.Evaluate(t.Context(), resolver, testIP, "/api.Service/Action")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got {
-		t.Error("expected deny: continent deny should override country allow")
-	}
+	require.NoError(t, err)
+	require.False(t, got, "expected deny: continent deny should override country allow")
 }
 
 func TestEvaluate_AllowRegionsMode(t *testing.T) {
@@ -238,12 +212,8 @@ func TestEvaluate_AllowRegionsMode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			resolver := &mockResolver{geo: tt.geo}
 			got, err := reg.Evaluate(t.Context(), resolver, testIP, "/api.Service/Action")
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Evaluate() = %v, want %v", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -267,12 +237,8 @@ func TestEvaluate_DenyRegionsMode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			resolver := &mockResolver{geo: tt.geo}
 			got, err := reg.Evaluate(t.Context(), resolver, testIP, "/api.Service/Action")
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Evaluate() = %v, want %v", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -285,12 +251,8 @@ func TestEvaluate_EmptyGeoInfo_FallsBackToPolicy(t *testing.T) {
 		})
 		resolver := &mockResolver{geo: GeoInfo{}}
 		got, err := reg.Evaluate(t.Context(), resolver, testIP, "/api.Service/Action")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if got {
-			t.Error("expected deny when GeoInfo is empty and PolicyDeny")
-		}
+		require.NoError(t, err)
+		require.False(t, got, "expected deny when GeoInfo is empty and PolicyDeny")
 	})
 
 	t.Run("PolicyAllow", func(t *testing.T) {
@@ -300,12 +262,8 @@ func TestEvaluate_EmptyGeoInfo_FallsBackToPolicy(t *testing.T) {
 		})
 		resolver := &mockResolver{geo: GeoInfo{}}
 		got, err := reg.Evaluate(t.Context(), resolver, testIP, "/api.Service/Action")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !got {
-			t.Error("expected allow when GeoInfo is empty and PolicyAllow")
-		}
+		require.NoError(t, err)
+		require.True(t, got, "expected allow when GeoInfo is empty and PolicyAllow")
 	})
 }
 
@@ -329,12 +287,8 @@ func TestEvaluate_PatternMatch(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			resolver := &mockResolver{geo: tt.geo}
 			got, err := reg.Evaluate(t.Context(), resolver, testIP, tt.endpoint)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Evaluate() = %v, want %v", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -358,12 +312,8 @@ func TestEvaluate_DefaultRule(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			resolver := &mockResolver{geo: tt.geo}
 			got, err := reg.Evaluate(t.Context(), resolver, testIP, "/any.Endpoint")
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Evaluate() = %v, want %v", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -378,9 +328,7 @@ func TestEvaluate_ResolverError(t *testing.T) {
 	resolver := &mockResolver{err: resolverErr}
 
 	_, err := reg.Evaluate(t.Context(), resolver, testIP, "/api.Service/Action")
-	if !errors.Is(err, resolverErr) {
-		t.Fatalf("expected resolver error, got: %v", err)
-	}
+	require.True(t, errors.Is(err, resolverErr))
 }
 
 func TestEvaluate_NoRule_PolicyApplies(t *testing.T) {
@@ -388,24 +336,16 @@ func TestEvaluate_NoRule_PolicyApplies(t *testing.T) {
 		reg := NewRegistry(PolicyDeny)
 		resolver := &mockResolver{geo: GeoInfo{CountryCode: "US"}}
 		got, err := reg.Evaluate(t.Context(), resolver, testIP, "/some.Endpoint")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if got {
-			t.Error("expected deny when no rule and PolicyDeny")
-		}
+		require.NoError(t, err)
+		require.False(t, got, "expected deny when no rule and PolicyDeny")
 	})
 
 	t.Run("PolicyAllow", func(t *testing.T) {
 		reg := NewRegistry(PolicyAllow)
 		resolver := &mockResolver{geo: GeoInfo{CountryCode: "US"}}
 		got, err := reg.Evaluate(t.Context(), resolver, testIP, "/some.Endpoint")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !got {
-			t.Error("expected allow when no rule and PolicyAllow")
-		}
+		require.NoError(t, err)
+		require.True(t, got, "expected allow when no rule and PolicyAllow")
 	})
 }
 
@@ -415,12 +355,8 @@ func TestEvaluate_EmptyLists_FallsBackToPolicy(t *testing.T) {
 		reg.Register("/api.Service/Action", &AccessRule{})
 		resolver := &mockResolver{geo: GeoInfo{CountryCode: "US"}}
 		got, err := reg.Evaluate(t.Context(), resolver, testIP, "/api.Service/Action")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if got {
-			t.Error("expected deny when rule has empty lists and PolicyDeny")
-		}
+		require.NoError(t, err)
+		require.False(t, got, "expected deny when rule has empty lists and PolicyDeny")
 	})
 
 	t.Run("PolicyAllow", func(t *testing.T) {
@@ -428,12 +364,8 @@ func TestEvaluate_EmptyLists_FallsBackToPolicy(t *testing.T) {
 		reg.Register("/api.Service/Action", &AccessRule{})
 		resolver := &mockResolver{geo: GeoInfo{CountryCode: "US"}}
 		got, err := reg.Evaluate(t.Context(), resolver, testIP, "/api.Service/Action")
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !got {
-			t.Error("expected allow when rule has empty lists and PolicyAllow")
-		}
+		require.NoError(t, err)
+		require.True(t, got, "expected allow when rule has empty lists and PolicyAllow")
 	})
 }
 
@@ -447,12 +379,8 @@ func TestLookup_ExactBeforePattern(t *testing.T) {
 	reg.RegisterPattern(regexp.MustCompile(`^/svc\..*`), patRule)
 
 	got, ok := reg.Lookup("/svc.Service/Method")
-	if !ok {
-		t.Fatal("expected to find a rule")
-	}
-	if got != exactRule {
-		t.Error("exact match should take priority over pattern match")
-	}
+	require.True(t, ok, "expected to find a rule")
+	require.False(t, got != exactRule, "exact match should take priority over pattern match")
 }
 
 func TestRegisterEndpoints(t *testing.T) {
@@ -462,9 +390,8 @@ func TestRegisterEndpoints(t *testing.T) {
 
 	for _, ep := range []string{"/a.Svc/A", "/b.Svc/B"} {
 		got, ok := reg.Lookup(ep)
-		if !ok || got != rule {
-			t.Errorf("expected rule for endpoint %s", ep)
-		}
+		require.True(t, ok, "expected rule for endpoint %s", ep)
+		require.Equal(t, rule, got)
 	}
 }
 
@@ -481,9 +408,8 @@ func TestGeoInfo_FullRegion(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.geo.FullRegion(); got != tt.want {
-				t.Errorf("FullRegion() = %q, want %q", got, tt.want)
-			}
+			got := tt.geo.FullRegion()
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -500,9 +426,8 @@ func TestParsePolicy(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			if got := ParsePolicy(tt.input); got != tt.want {
-				t.Errorf("ParsePolicy(%q) = %v, want %v", tt.input, got, tt.want)
-			}
+			got := ParsePolicy(tt.input)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }

@@ -4,7 +4,11 @@
 
 package interceptors
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestMatchFunc(t *testing.T) {
 	tests := []struct {
@@ -17,9 +21,8 @@ func TestMatchFunc(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.fn.Match(); got != tt.want {
-				t.Fatalf("Match() = %v, want %v", got, tt.want)
-			}
+			got := tt.fn.Match()
+			require.Equal(t, tt.want, got)
 		})
 	}
 }

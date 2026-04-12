@@ -7,6 +7,8 @@ package normalizer_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/domain/normalizer"
 )
 
@@ -17,12 +19,8 @@ func TestNormalize_StringPointer(t *testing.T) {
 
 	val := "  HELLO  "
 	s := &S{Name: &val}
-	if err := normalizer.Normalize(s); err != nil {
-		t.Fatalf("Normalize() error = %v", err)
-	}
-	if *s.Name != "hello" {
-		t.Errorf("Name = %q, want 'hello'", *s.Name)
-	}
+	require.NoError(t, normalizer.Normalize(s))
+	require.Equal(t, "hello", *s.Name)
 }
 
 func TestNormalize_NilPointerField(t *testing.T) {
@@ -31,12 +29,8 @@ func TestNormalize_NilPointerField(t *testing.T) {
 	}
 
 	s := &S{Name: nil}
-	if err := normalizer.Normalize(s); err != nil {
-		t.Fatalf("Normalize() error = %v", err)
-	}
-	if s.Name != nil {
-		t.Error("nil pointer should remain nil")
-	}
+	require.NoError(t, normalizer.Normalize(s))
+	require.Nil(t, s.Name)
 }
 
 func TestNormalize_SliceOfStrings(t *testing.T) {
@@ -58,26 +52,18 @@ func TestNormalize_NestedStruct(t *testing.T) {
 	}
 
 	s := &Outer{Inner: Inner{Val: "hello"}}
-	if err := normalizer.Normalize(s); err != nil {
-		t.Fatalf("Normalize() error = %v", err)
-	}
-	if s.Inner.Val != "HELLO" {
-		t.Errorf("Inner.Val = %q, want 'HELLO'", s.Inner.Val)
-	}
+	require.NoError(t, normalizer.Normalize(s))
+	require.Equal(t, "HELLO", s.Inner.Val)
 }
 
 func TestNormalize_InvalidInput(t *testing.T) {
 	err := normalizer.Normalize("not a struct")
-	if err == nil {
-		t.Error("Normalize(string) should return error")
-	}
+	require.Error(t, err)
 }
 
 func TestNormalize_NilInput(t *testing.T) {
 	err := normalizer.Normalize(nil)
-	if err == nil {
-		t.Error("Normalize(nil) should return error")
-	}
+	require.Error(t, err)
 }
 
 func TestClearParameterCache(t *testing.T) {
@@ -97,18 +83,10 @@ func TestNormalize_MultipleFields(t *testing.T) {
 	}
 
 	s := &S{First: "  John  ", Last: "  doe  ", Email: "  USER@EXAMPLE.COM  "}
-	if err := normalizer.Normalize(s); err != nil {
-		t.Fatal(err)
-	}
-	if s.First != "John" {
-		t.Errorf("First = %q", s.First)
-	}
-	if s.Last != "DOE" {
-		t.Errorf("Last = %q", s.Last)
-	}
-	if s.Email != "user@example.com" {
-		t.Errorf("Email = %q", s.Email)
-	}
+	require.NoError(t, normalizer.Normalize(s))
+	require.Equal(t, "John", s.First)
+	require.Equal(t, "DOE", s.Last)
+	require.Equal(t, "user@example.com", s.Email)
 }
 
 func TestNormalize_EmptySlice(t *testing.T) {
@@ -117,9 +95,7 @@ func TestNormalize_EmptySlice(t *testing.T) {
 	}
 
 	s := &S{Tags: []string{}}
-	if err := normalizer.Normalize(s); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, normalizer.Normalize(s))
 }
 
 func TestNormalize_SliceOfStructs(t *testing.T) {
@@ -131,10 +107,6 @@ func TestNormalize_SliceOfStructs(t *testing.T) {
 	}
 
 	s := &S{Items: []Item{{Name: "  FOO "}, {Name: " BAR "}}}
-	if err := normalizer.Normalize(s); err != nil {
-		t.Fatal(err)
-	}
-	if s.Items[0].Name != "foo" {
-		t.Errorf("Items[0].Name = %q", s.Items[0].Name)
-	}
+	require.NoError(t, normalizer.Normalize(s))
+	require.Equal(t, "foo", s.Items[0].Name)
 }

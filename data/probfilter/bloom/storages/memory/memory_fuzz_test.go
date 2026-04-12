@@ -7,6 +7,8 @@ package memory_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	memory "github.com/altessa-s/go-atlas/data/probfilter/bloom/storages/memory"
 )
 
@@ -20,13 +22,9 @@ func FuzzStorage_AddMightExist(f *testing.F) {
 		ctx := t.Context()
 
 		err := storage.Add(ctx, value)
-		if err != nil {
-			t.Fatalf("Add failed: %v", err)
-		}
+		assert.NoError(t, err)
 
 		_, err = storage.MightExist(ctx, value)
-		if err != nil {
-			t.Fatalf("MightExist failed: %v", err)
-		}
+		assert.NoError(t, err)
 	})
 }

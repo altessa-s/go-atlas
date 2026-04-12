@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/observability/slog/handler/masking"
 )
 
@@ -24,95 +26,71 @@ func TestPartialMask(t *testing.T) {
 	}
 	for _, tt := range tests {
 		got := mask(tt.input)
-		if got != tt.want {
-			t.Errorf("PartialMask(%q) = %q, want %q", tt.input, got, tt.want)
-		}
+		require.Equal(t, tt.want, got, "PartialMask(%q)", tt.input)
 	}
 }
 
 func TestSmartMask(t *testing.T) {
 	mask := masking.SmartMask()
 	got := mask("secret123")
-	if !strings.Contains(got, "se") || !strings.Contains(got, "23") {
-		t.Errorf("SmartMask(secret123) = %q, expected first 2 and last 2 visible", got)
-	}
+	require.Contains(t, got, "se")
+	require.Contains(t, got, "23")
 }
 
 func TestFullMask(t *testing.T) {
 	mask := masking.FullMask()
 	got := mask("anything")
-	if got != "********" {
-		t.Errorf("FullMask() = %q, want ********", got)
-	}
+	require.Equal(t, "********", got)
 }
 
 func TestFixedMask(t *testing.T) {
 	mask := masking.FixedMask("[REDACTED]")
 	got := mask("secret")
-	if got != "[REDACTED]" {
-		t.Errorf("FixedMask() = %q, want [REDACTED]", got)
-	}
+	require.Equal(t, "[REDACTED]", got)
 }
 
 func TestEmailMask(t *testing.T) {
 	mask := masking.EmailMask()
 	got := mask("user@example.com")
-	if !strings.Contains(got, "@example.com") {
-		t.Errorf("EmailMask(user@example.com) = %q, expected domain preserved", got)
-	}
-	if strings.HasPrefix(got, "user@") {
-		t.Errorf("EmailMask should mask local part, got %q", got)
-	}
+	require.Contains(t, got, "@example.com")
+	require.False(t, strings.HasPrefix(got, "user@"), "EmailMask should mask local part, got %q", got)
 }
 
 func TestPhoneMask(t *testing.T) {
 	mask := masking.PhoneMask()
 	got := mask("+1234567890")
-	if got == "+1234567890" {
-		t.Errorf("PhoneMask should mask the number, got %q", got)
-	}
+	require.NotEqual(t, "+1234567890", got, "PhoneMask should mask the number")
 }
 
 func TestCreditCardMask(t *testing.T) {
 	mask := masking.CreditCardMask()
 	got := mask("4111111111111111")
-	if got == "4111111111111111" {
-		t.Errorf("CreditCardMask should mask the number, got %q", got)
-	}
+	require.NotEqual(t, "4111111111111111", got, "CreditCardMask should mask the number")
 }
 
 func TestHashMask(t *testing.T) {
 	mask := masking.HashMask("hash:")
 	got := mask("secret")
-	if !strings.HasPrefix(got, "hash:") {
-		t.Errorf("HashMask() = %q, want prefix hash:", got)
-	}
+	require.True(t, strings.HasPrefix(got, "hash:"), "HashMask() = %q, want prefix hash:", got)
 }
 
 func TestPatternMask(t *testing.T) {
 	mask := masking.PatternMask(`\d+`, masking.FixedMask("***"))
 	got := mask("order-12345-abc")
-	if strings.Contains(got, "12345") {
-		t.Errorf("PatternMask should mask digits, got %q", got)
-	}
+	require.NotContains(t, got, "12345", "PatternMask should mask digits")
 }
 
 func TestCachedPartialMask(t *testing.T) {
 	mask := masking.CachedPartialMask(2, 2, "*")
 	got := mask("abcdefgh")
-	if !strings.HasPrefix(got, "ab") || !strings.HasSuffix(got, "gh") {
-		t.Errorf("CachedPartialMask(abcdefgh) = %q", got)
-	}
+	require.True(t, strings.HasPrefix(got, "ab"), "CachedPartialMask(abcdefgh) = %q", got)
+	require.True(t, strings.HasSuffix(got, "gh"), "CachedPartialMask(abcdefgh) = %q", got)
 }
 
 func TestPrecomputedMasks(t *testing.T) {
 	pm := masking.NewPrecomputedMasks("*")
 	got := pm.GetMask(3)
-	if got != "***" {
-		t.Errorf("GetMask(3) = %q, want ***", got)
-	}
+	require.Equal(t, "***", got)
 	got = pm.GetMask(10)
-	if len(got) != 10 {
-		t.Errorf("GetMask(10) len = %d, want 10", len(got))
-	}
+	require.Len(t, got, 10)
 }

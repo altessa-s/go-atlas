@@ -7,6 +7,8 @@ package errors_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/core/errors"
 
 	std_errors "errors"
@@ -19,9 +21,7 @@ import (
 //
 // Regression for the missing nil guard previously present in Provider.
 func TestProvider_NilReturnsNil(t *testing.T) {
-	if err := errors.Provider("Redis", nil); err != nil {
-		t.Fatalf("Provider(_, nil) = %v, want nil", err)
-	}
+	require.Nil(t, errors.Provider("Redis", nil), "Provider(_, nil) should be nil")
 }
 
 // TestProvider_WrapsCauseAndPreservesChain asserts that a non-nil cause is
@@ -30,18 +30,11 @@ func TestProvider_WrapsCauseAndPreservesChain(t *testing.T) {
 	cause := std_errors.New("connection refused")
 
 	err := errors.Provider("Redis", cause)
-	if err == nil {
-		t.Fatal("Provider(_, cause) = nil, want wrapped error")
-	}
-
-	if !std_errors.Is(err, cause) {
-		t.Errorf("errors.Is(err, cause) = false, want true (chain broken)")
-	}
+	require.NotNil(t, err, "Provider(_, cause) should not be nil")
+	require.True(t, std_errors.Is(err, cause), "errors.Is(err, cause) = false, want true (chain broken)")
 
 	const want = "failed to create Redis provider: connection refused"
-	if got := err.Error(); got != want {
-		t.Errorf("err.Error() = %q, want %q", got, want)
-	}
+	require.Equal(t, want, err.Error())
 }
 
 // BenchmarkProvider measures the happy path — a non-nil cause being wrapped.

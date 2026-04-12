@@ -7,6 +7,8 @@ package approle_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/security/vault/auth/approle"
 )
 
@@ -24,12 +26,8 @@ func TestNew(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := approle.New(tt.roleID, tt.secretID)
-			if m == nil {
-				t.Fatal("New() returned nil")
-			}
-			if got := m.Name(); got != "approle" {
-				t.Errorf("Name() = %q, want %q", got, "approle")
-			}
+			require.NotNil(t, m)
+			require.Equal(t, "approle", m.Name())
 		})
 	}
 }
@@ -46,12 +44,8 @@ func TestNew_WithMountPath(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := approle.New("role-123", "secret-456", approle.WithMountPath(tt.mountPath))
-			if m == nil {
-				t.Fatal("New() returned nil")
-			}
-			if got := m.MountPath(); got != tt.mountPath {
-				t.Errorf("MountPath() = %q, want %q", got, tt.mountPath)
-			}
+			require.NotNil(t, m)
+			require.Equal(t, tt.mountPath, m.MountPath())
 		})
 	}
 }
@@ -59,17 +53,11 @@ func TestNew_WithMountPath(t *testing.T) {
 func TestNew_WithMountPathPointer(t *testing.T) {
 	path := "/auth/custom-approle"
 	m := approle.New("role-123", "secret-456", approle.WithMountPath(&path))
-	if m == nil {
-		t.Fatal("New() returned nil")
-	}
-	if got := m.MountPath(); got != path {
-		t.Errorf("MountPath() = %q, want %q", got, path)
-	}
+	require.NotNil(t, m)
+	require.Equal(t, path, m.MountPath())
 }
 
 func TestAuthMethod_Shutdown(t *testing.T) {
 	m := approle.New("role", "secret")
-	if err := m.Shutdown(); err != nil {
-		t.Errorf("Shutdown() = %v, want nil", err)
-	}
+	require.NoError(t, m.Shutdown())
 }

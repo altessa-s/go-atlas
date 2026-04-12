@@ -5,9 +5,10 @@
 package budget_test
 
 import (
-	"errors"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/limiters/budget"
 	"github.com/altessa-s/go-atlas/data/limiters/storages/memory"
@@ -19,80 +20,54 @@ func validSettings() *budget.Settings {
 
 func TestNew_NilSettings(t *testing.T) {
 	_, err := budget.New(nil, memory.New())
-	if err == nil {
-		t.Error("New(nil, ...) should return error")
-	}
+	require.Error(t, err, "New(nil, ...) should return error")
 }
 
 func TestNew_InvalidSettings(t *testing.T) {
 	_, err := budget.New(&budget.Settings{}, memory.New())
-	if err == nil {
-		t.Error("New(invalid, ...) should return error")
-	}
+	require.Error(t, err, "New(invalid, ...) should return error")
 }
 
 func TestNew_NilStorage(t *testing.T) {
 	_, err := budget.New(validSettings(), nil)
-	if err == nil {
-		t.Error("New(..., nil) should return error")
-	}
+	require.Error(t, err, "New(..., nil) should return error")
 }
 
 func TestNew_Valid(t *testing.T) {
 	l, err := budget.New(validSettings(), memory.New())
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	if l == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, l, "New() returned nil")
 }
 
 func TestAllow_WithinBudget(t *testing.T) {
 	l, err := budget.New(validSettings(), memory.New())
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	require.NoError(t, err)
 
-	if err := l.Allow(t.Context(), "key-1"); err != nil {
-		t.Fatalf("Allow() error = %v", err)
-	}
+	require.NoError(t, l.Allow(t.Context(), "key-1"))
 }
 
 func TestAllow_BudgetExhausted(t *testing.T) {
 	cfg := &budget.Settings{Limit: 1, Period: time.Minute}
 	l, err := budget.New(cfg, memory.New())
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	// First request should succeed.
-	if err := l.Allow(t.Context(), "key-1"); err != nil {
-		t.Fatalf("first Allow() error = %v", err)
-	}
+	require.NoError(t, l.Allow(t.Context(), "key-1"))
 
 	// Second request should exhaust the budget.
 	err = l.Allow(t.Context(), "key-1")
-	if !errors.Is(err, budget.ErrBudgetExhausted) {
-		t.Errorf("second Allow() error = %v, want ErrBudgetExhausted", err)
-	}
+	require.ErrorIs(t, err, budget.ErrBudgetExhausted)
 }
 
 func TestAllow_SeparateKeys(t *testing.T) {
 	cfg := &budget.Settings{Limit: 1, Period: time.Minute}
 	l, err := budget.New(cfg, memory.New())
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	require.NoError(t, err)
 
-	if err := l.Allow(t.Context(), "key-a"); err != nil {
-		t.Fatalf("Allow(key-a) error = %v", err)
-	}
+	require.NoError(t, l.Allow(t.Context(), "key-a"))
 
 	// Different key has its own budget.
-	if err := l.Allow(t.Context(), "key-b"); err != nil {
-		t.Fatalf("Allow(key-b) error = %v", err)
-	}
+	require.NoError(t, l.Allow(t.Context(), "key-b"))
 }
 
 func TestSettings_Validate(t *testing.T) {
@@ -112,8 +87,10 @@ func TestSettings_Validate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.cfg.Validate()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}

@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestMiddleware_AllowsUnderLimit(t *testing.T) {
@@ -24,12 +26,8 @@ func TestMiddleware_AllowsUnderLimit(t *testing.T) {
 	req.ContentLength = 10
 	handler.ServeHTTP(rec, req)
 
-	if !called {
-		t.Fatal("handler should be called")
-	}
-	if rec.Code != http.StatusOK {
-		t.Fatalf("code = %d", rec.Code)
-	}
+	require.True(t, called, "handler should be called")
+	require.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestMiddleware_RejectsOverLimit(t *testing.T) {
@@ -44,12 +42,8 @@ func TestMiddleware_RejectsOverLimit(t *testing.T) {
 	req.ContentLength = 100
 	handler.ServeHTTP(rec, req)
 
-	if called {
-		t.Fatal("handler should not be called")
-	}
-	if rec.Code != http.StatusRequestEntityTooLarge {
-		t.Fatalf("code = %d, want 413", rec.Code)
-	}
+	require.False(t, called, "handler should not be called")
+	require.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
 }
 
 func TestMiddleware_ZeroLimit(t *testing.T) {
@@ -64,7 +58,5 @@ func TestMiddleware_ZeroLimit(t *testing.T) {
 	req.ContentLength = 4
 	handler.ServeHTTP(rec, req)
 
-	if !called {
-		t.Fatal("handler should be called with zero limit")
-	}
+	require.True(t, called, "handler should be called with zero limit")
 }

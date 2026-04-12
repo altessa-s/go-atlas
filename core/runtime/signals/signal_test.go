@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestSignal_ZeroTimeoutHandler_UsesGlobalCtx(t *testing.T) {
@@ -32,7 +34,7 @@ func TestSignal_ZeroTimeoutHandler_UsesGlobalCtx(t *testing.T) {
 	select {
 	case <-started:
 	case <-time.After(250 * time.Millisecond):
-		t.Fatalf("handler did not start")
+		require.Fail(t, "handler did not start")
 	}
 
 	s.globalCancel()
@@ -40,6 +42,6 @@ func TestSignal_ZeroTimeoutHandler_UsesGlobalCtx(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(250 * time.Millisecond):
-		t.Fatalf("handler did not stop after global cancel")
+		require.Fail(t, "handler did not stop after global cancel")
 	}
 }

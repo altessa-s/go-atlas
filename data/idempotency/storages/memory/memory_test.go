@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestMemory_AttemptLock_New(t *testing.T) {
@@ -15,15 +17,9 @@ func TestMemory_AttemptLock_New(t *testing.T) {
 	ctx := t.Context()
 
 	ok, existing, err := s.AttemptLock(ctx, "key1", []byte("val"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok {
-		t.Error("expected lock acquired")
-	}
-	if existing != nil {
-		t.Error("expected nil existing value")
-	}
+	require.NoError(t, err)
+	require.True(t, ok, "expected lock acquired")
+	require.Nil(t, existing)
 }
 
 func TestMemory_AttemptLock_Existing(t *testing.T) {
@@ -33,15 +29,9 @@ func TestMemory_AttemptLock_Existing(t *testing.T) {
 	_, _, _ = s.AttemptLock(ctx, "key1", []byte("first"))
 
 	ok, existing, err := s.AttemptLock(ctx, "key1", []byte("second"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ok {
-		t.Error("expected lock NOT acquired")
-	}
-	if string(existing) != "first" {
-		t.Errorf("existing = %q, want %q", existing, "first")
-	}
+	require.NoError(t, err)
+	require.False(t, ok, "expected lock NOT acquired")
+	require.Equal(t, "first", string(existing))
 }
 
 func TestMemory_Complete(t *testing.T) {
@@ -50,18 +40,12 @@ func TestMemory_Complete(t *testing.T) {
 
 	_, _, _ = s.AttemptLock(ctx, "key1", []byte("in-progress"))
 	err := s.Complete(ctx, "key1", []byte("done"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	// Attempting lock should now return the completed value.
 	ok, existing, _ := s.AttemptLock(ctx, "key1", []byte("new"))
-	if ok {
-		t.Error("expected lock NOT acquired after complete")
-	}
-	if string(existing) != "done" {
-		t.Errorf("existing = %q, want %q", existing, "done")
-	}
+	require.False(t, ok, "expected lock NOT acquired after complete")
+	require.Equal(t, "done", string(existing))
 }
 
 func TestMemory_Delete(t *testing.T) {
@@ -70,15 +54,11 @@ func TestMemory_Delete(t *testing.T) {
 
 	_, _, _ = s.AttemptLock(ctx, "key1", []byte("val"))
 	err := s.Delete(ctx, "key1")
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	// After delete, lock should succeed.
 	ok, _, _ := s.AttemptLock(ctx, "key1", []byte("val2"))
-	if !ok {
-		t.Error("expected lock acquired after delete")
-	}
+	require.True(t, ok, "expected lock acquired after delete")
 }
 
 func TestMemory_TTLExpiry(t *testing.T) {
@@ -90,12 +70,8 @@ func TestMemory_TTLExpiry(t *testing.T) {
 
 	// Expired entry should be treated as non-existent.
 	ok, _, err := s.AttemptLock(ctx, "key1", []byte("val2"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok {
-		t.Error("expected lock acquired after TTL expiry")
-	}
+	require.NoError(t, err)
+	require.True(t, ok, "expected lock acquired after TTL expiry")
 }
 
 func TestMemory_Concurrent(t *testing.T) {
@@ -120,7 +96,5 @@ func TestMemory_Concurrent(t *testing.T) {
 			count++
 		}
 	}
-	if count != 1 {
-		t.Errorf("expected exactly 1 lock acquired, got %d", count)
-	}
+	require.Equal(t, 1, count, "expected exactly 1 lock acquired")
 }

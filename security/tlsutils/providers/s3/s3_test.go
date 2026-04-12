@@ -15,6 +15,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
@@ -119,23 +120,17 @@ func newMockClient(tb testing.TB) (*mockS3Client, []byte, []byte) {
 
 func TestNew_EmptyBucket(t *testing.T) {
 	_, err := tlss3.New("", "cert.crt", "key.key", "")
-	if err == nil {
-		t.Error("expected error for empty bucket")
-	}
+	require.Error(t, err)
 }
 
 func TestNew_EmptyCertKey(t *testing.T) {
 	_, err := tlss3.New("bucket", "", "key.key", "")
-	if err == nil {
-		t.Error("expected error for empty cert key")
-	}
+	require.Error(t, err)
 }
 
 func TestNew_EmptyPrivKeyKey(t *testing.T) {
 	_, err := tlss3.New("bucket", "cert.crt", "", "")
-	if err == nil {
-		t.Error("expected error for empty private key key")
-	}
+	require.Error(t, err)
 }
 
 func TestNew_ValidCert(t *testing.T) {
@@ -145,14 +140,10 @@ func TestNew_ValidCert(t *testing.T) {
 		tlss3.WithS3Client(client),
 		tlss3.WithPollInterval(time.Hour),
 	)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	require.NoError(t, err)
 	defer p.Close(t.Context())
 
-	if p.Type() != tlsproviders.ProviderTypeS3 {
-		t.Errorf("Type() = %v, want %v", p.Type(), tlsproviders.ProviderTypeS3)
-	}
+	require.Equal(t, tlsproviders.ProviderTypeS3, p.Type())
 }
 
 func TestS3_TLSConfig(t *testing.T) {
@@ -162,21 +153,13 @@ func TestS3_TLSConfig(t *testing.T) {
 		tlss3.WithS3Client(client),
 		tlss3.WithPollInterval(time.Hour),
 	)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	require.NoError(t, err)
 	defer p.Close(t.Context())
 
 	config, err := p.TLSConfig()
-	if err != nil {
-		t.Fatalf("TLSConfig() error = %v", err)
-	}
-	if config == nil {
-		t.Fatal("TLSConfig() returned nil")
-	}
-	if len(config.Certificates) == 0 {
-		t.Error("TLSConfig() has no certificates")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, config)
+	require.NotEmpty(t, config.Certificates)
 }
 
 func TestS3_TLSConfig_ReturnsCopy(t *testing.T) {
@@ -186,18 +169,14 @@ func TestS3_TLSConfig_ReturnsCopy(t *testing.T) {
 		tlss3.WithS3Client(client),
 		tlss3.WithPollInterval(time.Hour),
 	)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	require.NoError(t, err)
 	defer p.Close(t.Context())
 
 	cfg1, _ := p.TLSConfig()
 	cfg2, _ := p.TLSConfig()
 
 	cfg1.ServerName = "modified"
-	if cfg2.ServerName == "modified" {
-		t.Error("TLSConfig() should return independent copies")
-	}
+	require.NotEqual(t, "modified", cfg2.ServerName)
 }
 
 func TestS3_PollDetectsETagChange(t *testing.T) {
@@ -209,16 +188,14 @@ func TestS3_PollDetectsETagChange(t *testing.T) {
 		tlss3.WithPollInterval(50*time.Millisecond),
 		tlss3.WithReloadNotifyChan(notifyCh),
 	)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	require.NoError(t, err)
 	defer p.Close(t.Context())
 
 	// Drain initial load notification
 	select {
 	case <-notifyCh:
 	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for initial notification")
+		require.Fail(t, "timeout waiting for initial notification")
 	}
 
 	// Update cert PEM data with new cert and change ETags
@@ -231,7 +208,7 @@ func TestS3_PollDetectsETagChange(t *testing.T) {
 	case <-notifyCh:
 		// success - poll detected change
 	case <-time.After(5 * time.Second):
-		t.Fatal("timeout waiting for reload notification")
+		require.Fail(t, "timeout waiting for reload notification")
 	}
 }
 
@@ -244,16 +221,14 @@ func TestS3_PollSameETag_NoReload(t *testing.T) {
 		tlss3.WithPollInterval(50*time.Millisecond),
 		tlss3.WithReloadNotifyChan(notifyCh),
 	)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	require.NoError(t, err)
 	defer p.Close(t.Context())
 
 	// Drain initial notification
 	select {
 	case <-notifyCh:
 	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for initial notification")
+		require.Fail(t, "timeout waiting for initial notification")
 	}
 
 	// Wait a few poll intervals without any ETag changes
@@ -262,7 +237,7 @@ func TestS3_PollSameETag_NoReload(t *testing.T) {
 	// No additional notifications should have been sent
 	select {
 	case <-notifyCh:
-		t.Error("unexpected reload notification when ETags haven't changed")
+		require.Fail(t, "unexpected reload notification when ETags haven't changed")
 	default:
 		// expected
 	}
@@ -286,18 +261,16 @@ func TestS3_SSEC_ParamsPassedToGetObject(t *testing.T) {
 		tlss3.WithSseCustomerKey("my-secret-key"),
 		tlss3.WithSseCustomerKeyMD5("my-key-md5"),
 	)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	require.NoError(t, err)
 	defer p.Close(t.Context())
 
-	if algo := client.getSSEAlgorithm.Load(); algo == nil || *algo != "AES256" {
-		t.Errorf("expected SSE algorithm AES256, got %v", algo)
-	}
+	algo := client.getSSEAlgorithm.Load()
+	require.NotNil(t, algo)
+	require.Equal(t, "AES256", *algo)
 
-	if key := client.getSSEKey.Load(); key == nil || *key != "my-secret-key" {
-		t.Errorf("expected SSE customer key %q, got %v", "my-secret-key", key)
-	}
+	key := client.getSSEKey.Load()
+	require.NotNil(t, key)
+	require.Equal(t, "my-secret-key", *key)
 }
 
 func TestS3_DownloadError(t *testing.T) {
@@ -308,9 +281,7 @@ func TestS3_DownloadError(t *testing.T) {
 	_, err := tlss3.New("my-bucket", "certs/server.crt", "certs/server.key", "",
 		tlss3.WithS3Client(client),
 	)
-	if err == nil {
-		t.Error("expected error when objects don't exist")
-	}
+	require.Error(t, err)
 }
 
 func TestS3_Close(t *testing.T) {
@@ -320,16 +291,12 @@ func TestS3_Close(t *testing.T) {
 		tlss3.WithS3Client(client),
 		tlss3.WithPollInterval(time.Hour),
 	)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
-	if err := p.Close(ctx); err != nil {
-		t.Errorf("Close() error = %v", err)
-	}
+	require.NoError(t, p.Close(ctx))
 }
 
 func TestS3_Type(t *testing.T) {
@@ -339,14 +306,10 @@ func TestS3_Type(t *testing.T) {
 		tlss3.WithS3Client(client),
 		tlss3.WithPollInterval(time.Hour),
 	)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	require.NoError(t, err)
 	defer p.Close(t.Context())
 
-	if got := p.Type(); got != tlsproviders.ProviderTypeS3 {
-		t.Errorf("Type() = %v, want %v", got, tlsproviders.ProviderTypeS3)
-	}
+	require.Equal(t, tlsproviders.ProviderTypeS3, p.Type())
 }
 
 func TestNew_InvalidParams(t *testing.T) {
@@ -369,8 +332,10 @@ func TestNew_InvalidParams(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := tlss3.New(tt.bucket, tt.certKey, tt.privKeyKey, "", tt.opts...)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("New() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}

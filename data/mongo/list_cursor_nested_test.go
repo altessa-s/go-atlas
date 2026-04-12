@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
@@ -18,15 +19,11 @@ func TestSortDirectionAfterBsonRoundtrip(t *testing.T) {
 
 	// Encode to base64 BSON (same as cursor creation)
 	encoded, err := encodeSortToString(original)
-	if err != nil {
-		t.Fatalf("encodeSortToString: %v", err)
-	}
+	require.NoError(t, err, "encodeSortToString")
 
 	// Decode back (same as cursor parsing)
 	decoded, err := decodeSortFromString(encoded)
-	if err != nil {
-		t.Fatalf("decodeSortFromString: %v", err)
-	}
+	require.NoError(t, err, "decodeSortFromString")
 	t.Logf("Decoded sort[0].Value type: %T, value: %v", decoded[0].Value, decoded[0].Value)
 
 	// Check getSortDirection
@@ -34,9 +31,7 @@ func TestSortDirectionAfterBsonRoundtrip(t *testing.T) {
 	dirDecoded := getSortDirection(decoded)
 	t.Logf("Direction original: %d, decoded: %d", dirOriginal, dirDecoded)
 
-	if dirOriginal != dirDecoded {
-		t.Errorf("Sort direction changed after BSON round-trip! original=%d, decoded=%d", dirOriginal, dirDecoded)
-	}
+	require.Equal(t, dirOriginal, dirDecoded, "Sort direction changed after BSON round-trip")
 }
 
 func TestGetSortDirection_Int32(t *testing.T) {
@@ -57,9 +52,7 @@ func TestGetSortDirection_Int32(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := getSortDirection(tt.sort)
-			if got != tt.expected {
-				t.Errorf("getSortDirection() = %v, want %v", got, tt.expected)
-			}
+			require.Equal(t, tt.expected, got)
 		})
 	}
 }
@@ -83,45 +76,29 @@ func TestBsonLookup(t *testing.T) {
 
 	// Marshal to BSON then unmarshal to bson.M (same as extractCursorDataFromItem)
 	itemBytes, err := bson.Marshal(item)
-	if err != nil {
-		t.Fatalf("Marshal failed: %v", err)
-	}
+	require.NoError(t, err, "Marshal failed")
 
 	var itemMap bson.M
-	if err = bson.Unmarshal(itemBytes, &itemMap); err != nil {
-		t.Fatalf("Unmarshal failed: %v", err)
-	}
+	err = bson.Unmarshal(itemBytes, &itemMap)
+	require.NoError(t, err, "Unmarshal failed")
 
 	t.Logf("itemMap[sort_fields] type: %T", itemMap["sort_fields"])
 
 	// Test dot notation lookup (bson.D nested doc)
 	val := BsonLookup(itemMap, "sort_fields.value")
-	if fmt.Sprint(val) != "Агент" {
-		t.Fatalf("BsonLookup(sort_fields.value): expected 'Агент', got %v", val)
-	}
+	require.Equal(t, "Агент", fmt.Sprint(val), "BsonLookup(sort_fields.value)")
 
 	// Test simple key (no dot)
 	val2 := BsonLookup(itemMap, "_id")
-	if fmt.Sprint(val2) != "test-id" {
-		t.Fatalf("BsonLookup(_id): expected 'test-id', got %v", val2)
-	}
+	require.Equal(t, "test-id", fmt.Sprint(val2), "BsonLookup(_id)")
 
 	// Test missing key
-	if BsonLookup(itemMap, "missing.key") != nil {
-		t.Fatal("BsonLookup(missing.key): expected nil")
-	}
+	require.Nil(t, BsonLookup(itemMap, "missing.key"), "BsonLookup(missing.key): expected nil")
 
 	// Test extractCursorDataFromItem uses BsonLookup internally
 	sort := bson.D{{Key: "sort_fields.value", Value: 1}, {Key: "cursor_id", Value: 1}}
 	cursorId, sortValue, err := extractCursorDataFromItem(item, "cursor_id", sort)
-	if err != nil {
-		t.Fatalf("extractCursorDataFromItem failed: %v", err)
-	}
-
-	if cursorId == "" {
-		t.Fatal("cursorId is empty")
-	}
-	if sortValue == nil {
-		t.Fatal("sortValue is nil, expected 'Агент'")
-	}
+	require.NoError(t, err, "extractCursorDataFromItem failed")
+	require.NotEmpty(t, cursorId, "cursorId is empty")
+	require.NotNil(t, sortValue, "sortValue is nil, expected 'Агент'")
 }

@@ -7,6 +7,8 @@ package logger
 import (
 	"net/http"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestInternedStatusString(t *testing.T) {
@@ -20,9 +22,8 @@ func TestInternedStatusString(t *testing.T) {
 		{999, "999"},
 	}
 	for _, tt := range tests {
-		if got := InternedStatusString(tt.code); got != tt.want {
-			t.Fatalf("InternedStatusString(%d) = %q, want %q", tt.code, got, tt.want)
-		}
+		got := InternedStatusString(tt.code)
+		require.Equal(t, tt.want, got)
 	}
 }
 
@@ -30,24 +31,18 @@ func TestInternedStatusString_SamePointer(t *testing.T) {
 	// Interned strings should return the same string instance
 	a := InternedStatusString(200)
 	b := InternedStatusString(200)
-	if a != b {
-		t.Fatal("interned strings should be identical")
-	}
+	require.Equal(t, b, a)
 }
 
 func TestDefaultLogStatusCodes(t *testing.T) {
-	if len(DefaultLogStatusCodes) == 0 {
-		t.Fatal("DefaultLogStatusCodes should not be empty")
-	}
+	require.NotEmpty(t, DefaultLogStatusCodes)
 }
 
 func TestDefaultLogStatusCodesSet(t *testing.T) {
-	if _, ok := DefaultLogStatusCodesSet[http.StatusOK]; !ok {
-		t.Fatal("should contain 200")
-	}
-	if _, ok := DefaultLogStatusCodesSet[999]; ok {
-		t.Fatal("should not contain 999")
-	}
+	_, ok := DefaultLogStatusCodesSet[http.StatusOK]
+	require.True(t, ok, "should contain 200")
+	_, ok = DefaultLogStatusCodesSet[999]
+	require.False(t, ok, "should not contain 999")
 }
 
 func BenchmarkInternedStatusString(b *testing.B) {

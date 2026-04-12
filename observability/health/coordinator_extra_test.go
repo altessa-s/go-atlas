@@ -8,6 +8,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/observability/health"
 )
 
@@ -22,9 +24,7 @@ func TestCoordinator_UnregisterService(t *testing.T) {
 	c.UnregisterService("svc")
 
 	status := c.CheckServiceHealth(t.Context(), "svc")
-	if status == health.StatusServing {
-		t.Error("CheckServiceHealth should not return StatusServing after unregister")
-	}
+	require.NotEqual(t, health.StatusServing, status, "CheckServiceHealth should not return StatusServing after unregister")
 }
 
 func TestCoordinator_ListServices(t *testing.T) {
@@ -42,9 +42,8 @@ func TestCoordinator_ListServices(t *testing.T) {
 	for name := range c.ListServices() {
 		services[name] = true
 	}
-	if !services["svc1"] || !services["svc2"] {
-		t.Errorf("ListServices() = %v, want svc1 and svc2", services)
-	}
+	require.True(t, services["svc1"], "ListServices() missing svc1")
+	require.True(t, services["svc2"], "ListServices() missing svc2")
 }
 
 func TestCoordinator_ListStatuses(t *testing.T) {
@@ -56,12 +55,8 @@ func TestCoordinator_ListStatuses(t *testing.T) {
 	}))
 
 	statuses, err := c.ListStatuses(t.Context())
-	if err != nil {
-		t.Fatalf("ListStatuses() error = %v", err)
-	}
-	if statuses["svc"] != health.StatusServing {
-		t.Errorf("statuses[svc] = %v, want StatusServing", statuses["svc"])
-	}
+	require.NoError(t, err)
+	require.Equal(t, health.StatusServing, statuses["svc"])
 }
 
 func TestCoordinator_NotifyStatusChange(t *testing.T) {
@@ -97,9 +92,7 @@ func TestCoordinator_GetMetrics(t *testing.T) {
 	}))
 
 	metrics := c.GetMetrics()
-	if metrics == nil {
-		t.Error("GetMetrics() returned nil")
-	}
+	require.NotNil(t, metrics)
 }
 
 func TestCoordinator_CheckHealth_Aggregated(t *testing.T) {
@@ -115,7 +108,5 @@ func TestCoordinator_CheckHealth_Aggregated(t *testing.T) {
 
 	status := c.CheckHealth(t.Context())
 	// With one unhealthy service, aggregate should not be StatusServing
-	if status == health.StatusServing {
-		t.Error("CheckHealth() should not be StatusServing when a service is unhealthy")
-	}
+	require.NotEqual(t, health.StatusServing, status, "CheckHealth() should not be StatusServing when a service is unhealthy")
 }

@@ -7,6 +7,8 @@ package auth
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -48,21 +50,14 @@ func TestExtractBearerToken(t *testing.T) {
 			ctx := grpcmetadata.NewIncomingContext(t.Context(), tt.md)
 			tok, err := extractor.ExtractToken(ctx)
 			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected error")
-				}
+				require.NotNil(t, err, "expected error")
 				st, ok := status.FromError(err)
-				if !ok || st.Code() != codes.Unauthenticated {
-					t.Fatalf("expected Unauthenticated, got %v", err)
-				}
+				require.True(t, ok, "expected Unauthenticated, got %v", err)
+				require.Equal(t, codes.Unauthenticated, st.Code())
 				return
 			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-			if tok != tt.wantTok {
-				t.Fatalf("token = %q, want %q", tok, tt.wantTok)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantTok, tok)
 		})
 	}
 }
@@ -74,12 +69,8 @@ func TestExtractTokenFromHeader_Custom(t *testing.T) {
 
 	ctx := grpcmetadata.NewIncomingContext(t.Context(), grpcmetadata.Pairs("x-api-key", "my-key"))
 	tok, err := extractor.ExtractToken(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if tok != "my-key" {
-		t.Fatalf("token = %q", tok)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "my-key", tok)
 }
 
 func BenchmarkExtractBearerToken(b *testing.B) {

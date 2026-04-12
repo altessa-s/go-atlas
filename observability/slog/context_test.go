@@ -8,6 +8,8 @@ import (
 	"context"
 	"log/slog"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestContextWithLogger_NilContext_OK(t *testing.T) {
@@ -17,14 +19,10 @@ func TestContextWithLogger_NilContext_OK(t *testing.T) {
 	ctx = ContextWithLogger(ctx, l)
 
 	got := FromContext(ctx)
-	if got != l {
-		t.Fatalf("got logger %v, want %v", got, l)
-	}
+	require.Same(t, l, got)
 }
 
 func TestFromContext_NilContext_ReturnsNil(t *testing.T) {
 	var ctx context.Context
-	if got := FromContext(ctx); got != nil {
-		t.Fatalf("got %v, want nil", got)
-	}
+	require.Nil(t, FromContext(ctx))
 }

@@ -6,9 +6,10 @@ package panics
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestSetGlobalPanicHandlers_StoresCopy(t *testing.T) {
@@ -17,12 +18,8 @@ func TestSetGlobalPanicHandlers_StoresCopy(t *testing.T) {
 	SetGlobalPanicHandlers(h)
 	gotAny := globalPanicHandlers.Load()
 	got, ok := gotAny.(PanicHandlers)
-	if !ok {
-		t.Fatalf("unexpected type in globalPanicHandlers: %T", gotAny)
-	}
-	if len(got) != 1 {
-		t.Fatalf("len=%d, want 1", len(got))
-	}
+	require.True(t, ok, "unexpected type in globalPanicHandlers: %T", gotAny)
+	require.Len(t, got, 1)
 
 	// Mutate the original slice passed to SetGlobalPanicHandlers (best-effort).
 	handlers := []PanicHandler{h}
@@ -31,9 +28,7 @@ func TestSetGlobalPanicHandlers_StoresCopy(t *testing.T) {
 
 	gotAny2 := globalPanicHandlers.Load()
 	got2 := gotAny2.(PanicHandlers)
-	if got2[0] == nil {
-		t.Fatalf("stored handlers were mutated via external slice; expected copy")
-	}
+	require.NotNil(t, got2[0], "stored handlers were mutated via external slice; expected copy")
 }
 
 func TestAddGlobalPanicHandler_NilIsIgnored(t *testing.T) {
@@ -41,9 +36,7 @@ func TestAddGlobalPanicHandler_NilIsIgnored(t *testing.T) {
 	before := globalPanicHandlers.Load().(PanicHandlers)
 	AddGlobalPanicHandler(nil)
 	after := globalPanicHandlers.Load().(PanicHandlers)
-	if len(after) != len(before) {
-		t.Fatalf("len(after)=%d, want %d", len(after), len(before))
-	}
+	require.Len(t, after, len(before))
 }
 
 func TestMustNonNil(t *testing.T) {
@@ -84,9 +77,7 @@ func TestMustError(t *testing.T) {
 
 func TestMustResult(t *testing.T) {
 	got := MustResult(42, nil)
-	if got != 42 {
-		t.Fatalf("got %d, want 42", got)
-	}
+	require.Equal(t, 42, got)
 
 	defer func() {
 		if r := recover(); r == nil {
@@ -113,16 +104,10 @@ func TestInvalidArgument(t *testing.T) {
 
 	defer func() {
 		r := recover()
-		if r == nil {
-			t.Fatal("expected panic")
-		}
+		require.NotNil(t, r, "expected panic")
 		err, ok := r.(error)
-		if !ok {
-			t.Fatalf("expected error, got %T", r)
-		}
-		if !errors.Is(err, ErrInvalidArgument) {
-			t.Fatalf("expected ErrInvalidArgument, got %v", err)
-		}
+		require.True(t, ok, "expected error, got %T", r)
+		require.ErrorIs(t, err, ErrInvalidArgument)
 	}()
 	InvalidArgument(true, "bad arg")
 }
@@ -135,9 +120,7 @@ func TestHandle(t *testing.T) {
 		})
 		panic("test panic")
 	}()
-	if captured != "test panic" {
-		t.Fatalf("expected 'test panic', got %v", captured)
-	}
+	require.Equal(t, "test panic", captured)
 }
 
 func TestHandleWithOpts(t *testing.T) {
@@ -149,7 +132,5 @@ func TestHandleWithOpts(t *testing.T) {
 		})
 		panic("opts panic")
 	}()
-	if captured != "opts panic" {
-		t.Fatalf("expected 'opts panic', got %v", captured)
-	}
+	require.Equal(t, "opts panic", captured)
 }

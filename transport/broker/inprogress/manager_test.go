@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
@@ -85,9 +87,7 @@ func TestManager_RunTickCycle_RespectsInterval_Repeated(t *testing.T) {
 		return fast.calls.Load() >= 3
 	}, "timed out waiting for fast heartbeater calls")
 
-	if slow.calls.Load() > 0 {
-		t.Fatalf("expected slow heartbeater not to be called, got %d", slow.calls.Load())
-	}
+	require.False(t, slow.calls.Load() > 0, "expected slow heartbeater not to be called, got %d", slow.calls.Load())
 }
 
 func TestManager_StopFunc(t *testing.T) {
@@ -125,9 +125,7 @@ func TestManager_StopFunc(t *testing.T) {
 	// Give enough time for several would-be ticks.
 	time.Sleep(100 * time.Millisecond)
 
-	if h.calls.Load() > callsAfterStop {
-		t.Fatalf("expected no calls after stop, got %d additional", h.calls.Load()-callsAfterStop)
-	}
+	require.False(t, h.calls.Load() > callsAfterStop, "expected no calls after stop, got %d additional", h.calls.Load()-callsAfterStop)
 }
 
 func TestManager_StopIsIdempotent(t *testing.T) {
@@ -173,9 +171,7 @@ func TestManager_ErrorRespectsInterval(t *testing.T) {
 	// With 100ms interval over 350ms, expect ~3 calls max.
 	// Without the fix, tickInterval=10ms would cause ~35 calls.
 	calls := h.calls.Load()
-	if calls > 5 {
-		t.Fatalf("expected calls to respect interval even on error, got %d (retry storm)", calls)
-	}
+	require.False(t, calls > 5, "expected calls to respect interval even on error, got %d (retry storm)", calls)
 }
 
 func TestManager_ConcurrentRegisterStop(t *testing.T) {
@@ -226,16 +222,12 @@ func TestManager_RunTickCycle_SendsInProgress(t *testing.T) {
 
 	// Run a single tick cycle
 	err := mgr.RunTickCycle(t.Context())
-	if err != nil {
-		t.Fatalf("RunTickCycle returned error: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Wait a bit for the heartbeat to be sent
 	time.Sleep(5 * time.Millisecond)
 
-	if h.calls.Load() == 0 {
-		t.Fatal("expected InProgress to be called, but it wasn't")
-	}
+	require.NotEqual(t, 0, h.calls.Load())
 }
 
 func TestManager_RunTickCycle_RespectsContextCancel(t *testing.T) {
@@ -245,12 +237,8 @@ func TestManager_RunTickCycle_RespectsContextCancel(t *testing.T) {
 	cancel() // Cancel immediately
 
 	err := mgr.RunTickCycle(ctx)
-	if err == nil {
-		t.Fatal("expected RunTickCycle to return error when context is canceled")
-	}
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("expected context.Canceled error, got: %v", err)
-	}
+	require.NotNil(t, err, "expected RunTickCycle to return error when context is canceled")
+	require.True(t, errors.Is(err, context.Canceled), "expected context.Canceled error, got: %v", err)
 }
 
 func TestManager_RunTickCycle_RespectsInterval(t *testing.T) {
@@ -267,17 +255,11 @@ func TestManager_RunTickCycle_RespectsInterval(t *testing.T) {
 	// Run multiple tick cycles
 	for range 3 {
 		err := mgr.RunTickCycle(t.Context())
-		if err != nil {
-			t.Fatalf("RunTickCycle returned error: %v", err)
-		}
+		require.NoError(t, err)
 		time.Sleep(15 * time.Millisecond)
 	}
 
-	if fast.calls.Load() == 0 {
-		t.Fatal("expected fast heartbeater to be called")
-	}
+	require.NotEqual(t, 0, fast.calls.Load())
 
-	if slow.calls.Load() > 0 {
-		t.Fatalf("expected slow heartbeater not to be called, got %d calls", slow.calls.Load())
-	}
+	require.False(t, slow.calls.Load() > 0, "expected slow heartbeater not to be called, got %d calls", slow.calls.Load())
 }

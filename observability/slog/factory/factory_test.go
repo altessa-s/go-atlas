@@ -11,6 +11,8 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/observability/slog/handler/masking"
 
@@ -22,9 +24,7 @@ func TestLoggerBuilder_ConfigurableOptions(t *testing.T) {
 		replaceAttr := slogx.MaskingReplaceAttr([]string{"password"}, "****")
 		attr := replaceAttr(nil, slog.String("password", "secret123"))
 
-		if attr.Value.String() != "****" {
-			t.Errorf("expected default mask \"****\", got %q", attr.Value.String())
-		}
+		require.Equal(t, "****", attr.Value.String())
 	})
 
 	t.Run("Config Overrides Masking and Groups", func(t *testing.T) {
@@ -43,9 +43,7 @@ func TestLoggerBuilder_ConfigurableOptions(t *testing.T) {
 
 		replaceAttr := slogx.MaskingReplaceAttr(cfg.SensitiveTags, maskString)
 		attr := replaceAttr(nil, slog.String("password", "secret123"))
-		if attr.Value.String() != "[REDACTED]" {
-			t.Errorf("expected config mask \"[REDACTED]\", got %q", attr.Value.String())
-		}
+		require.Equal(t, "[REDACTED]", attr.Value.String())
 
 		var buf bytes.Buffer
 		handler := slog.NewJSONHandler(&buf, nil)
@@ -54,21 +52,16 @@ func TestLoggerBuilder_ConfigurableOptions(t *testing.T) {
 		logger.Info("test")
 
 		var result map[string]any
-		if err := json.Unmarshal(buf.Bytes(), &result); err != nil {
-			t.Fatalf("failed to unmarshal log: %v", err)
-		}
-		if _, ok := result["metadata"]; !ok {
-			t.Errorf("expected group \"metadata\" to exist in log, but it didn't")
-		}
+		require.NoError(t, json.Unmarshal(buf.Bytes(), &result))
+		require.Contains(t, result, "metadata", "expected group \"metadata\" to exist in log")
 	})
 
 	t.Run("Custom Prefix Colors", func(t *testing.T) {
 		colors := map[string][]int{"custom": {1, 2, 3}}
 		b := New(nil).WithPrefixColors(colors)
 
-		if len(b.prefixColors) != 1 || b.prefixColors["custom"][0] != 1 {
-			t.Errorf("expected custom prefix colors to be stored")
-		}
+		require.Len(t, b.prefixColors, 1)
+		require.Equal(t, 1, b.prefixColors["custom"][0])
 	})
 
 	t.Run("Dynamic Log Levels", func(t *testing.T) {
@@ -76,13 +69,8 @@ func TestLoggerBuilder_ConfigurableOptions(t *testing.T) {
 		b := New(nil).WithLevelVar(levelVar)
 
 		b.SetLevel(slog.LevelWarn)
-		if levelVar.Level() != slog.LevelWarn {
-			t.Errorf("expected levelVar to be WARN, got %v", levelVar.Level())
-		}
-
-		if b.GetLevel() != slog.LevelWarn {
-			t.Errorf("expected builder level to be WARN, got %v", b.GetLevel())
-		}
+		require.Equal(t, slog.LevelWarn, levelVar.Level())
+		require.Equal(t, slog.LevelWarn, b.GetLevel())
 	})
 
 	t.Run("Custom Handler Registration", func(t *testing.T) {
@@ -101,9 +89,7 @@ func TestLoggerBuilder_ConfigurableOptions(t *testing.T) {
 
 		_, _ = New(cfg).Build()
 
-		if !formatCalled {
-			t.Errorf("expected custom handler factory to be called")
-		}
+		require.True(t, formatCalled, "expected custom handler factory to be called")
 	})
 }
 
@@ -112,7 +98,5 @@ func TestMaskingHandler(t *testing.T) {
 	inner := slog.NewJSONHandler(&buf, nil)
 
 	handler := masking.NewHandler(inner, masking.WithField("ssn", masking.FullMask()))
-	if handler == nil {
-		t.Fatal("expected handler to be created")
-	}
+	require.NotNil(t, handler)
 }

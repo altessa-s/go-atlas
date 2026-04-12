@@ -7,6 +7,8 @@ package iso7064_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/altessa-s/go-atlas/domain/validation/iso7064"
 )
 
@@ -22,26 +24,15 @@ func FuzzMod11_10_String(f *testing.F) {
 		// 1. If err is nil, valid should be consistent (either valid or not, but no panic)
 		// 2. If valid is true, err MUST be nil.
 
-		if valid && err != nil {
-			t.Errorf("Mod11_10(%q) returned valid=true but err=%v", in, err)
+		if valid {
+			assert.NoError(t, err, "Mod11_10(%q) returned valid=true but err=%v", in, err)
 		}
 
 		isValidFunc := iso7064.IsValidMod11_10(in)
-		if isValidFunc != valid {
-			// IsValidMod11_10 returns false if err != nil OR !ok
-			// So if err != nil, isValidFunc=false. valid=false. Match.
-			// If err == nil:
-			//   isValidFunc should equal valid.
-
-			if err != nil {
-				if isValidFunc {
-					t.Errorf("IsValid returned true for errored input: %s", in)
-				}
-			} else {
-				if isValidFunc != valid {
-					t.Errorf("Consistency mismatch: Mod11_10 said %v, IsValid said %v", valid, isValidFunc)
-				}
-			}
+		if err != nil {
+			assert.False(t, isValidFunc, "IsValid returned true for errored input: %s", in)
+		} else {
+			assert.Equal(t, valid, isValidFunc, "Consistency mismatch: Mod11_10 said %v, IsValid said %v", valid, isValidFunc)
 		}
 	})
 }

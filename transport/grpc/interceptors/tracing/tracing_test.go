@@ -7,6 +7,8 @@ package tracing
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"google.golang.org/grpc/metadata"
 )
 
@@ -26,21 +28,15 @@ func TestParseMethod(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			svc, method := parseMethod(tt.fullMethod)
-			if svc != tt.wantService {
-				t.Fatalf("service = %q, want %q", svc, tt.wantService)
-			}
-			if method != tt.wantMethod {
-				t.Fatalf("method = %q, want %q", method, tt.wantMethod)
-			}
+			require.Equal(t, tt.wantService, svc)
+			require.Equal(t, tt.wantMethod, method)
 		})
 	}
 }
 
 func TestSpanAttributes(t *testing.T) {
 	attrs := spanAttributes("/pkg.Svc/Method")
-	if len(attrs) != 3 {
-		t.Fatalf("len = %d, want 3", len(attrs))
-	}
+	require.Len(t, attrs, 3)
 }
 
 func TestMetadataCarrier(t *testing.T) {
@@ -48,47 +44,35 @@ func TestMetadataCarrier(t *testing.T) {
 	carrier := metadataCarrier(md)
 
 	carrier.Set("traceparent", "00-abc-def-01")
-	if got := carrier.Get("traceparent"); got != "00-abc-def-01" {
-		t.Fatalf("Get = %q", got)
-	}
+	got := carrier.Get("traceparent")
+	require.Equal(t, "00-abc-def-01", got)
 
-	if got := carrier.Get("nonexistent"); got != "" {
-		t.Fatalf("Get nonexistent = %q", got)
-	}
+	got = carrier.Get("nonexistent")
+	require.Equal(t, "", got)
 
 	keys := carrier.Keys()
-	if len(keys) != 1 {
-		t.Fatalf("Keys len = %d, want 1", len(keys))
-	}
+	require.Len(t, keys, 1)
 }
 
 func TestDefaultSpanName(t *testing.T) {
-	if got := defaultSpanName("/pkg.Svc/Method"); got != "/pkg.Svc/Method" {
-		t.Fatalf("defaultSpanName = %q", got)
-	}
+	got := defaultSpanName("/pkg.Svc/Method")
+	require.Equal(t, "/pkg.Svc/Method", got)
 }
 
 func TestServerInterceptor_NilTracer(t *testing.T) {
 	i := ServerInterceptor(nil)
-	if i == nil {
-		t.Fatal("should not be nil")
-	}
-	if i.Name() != "tracing" {
-		t.Fatalf("Name = %q", i.Name())
-	}
+	require.NotNil(t, i, "should not be nil")
+	require.Equal(t, "tracing", i.Name())
 }
 
 func TestClientInterceptor_NilTracer(t *testing.T) {
 	i := ClientInterceptor(nil)
-	if i == nil {
-		t.Fatal("should not be nil")
-	}
+	require.NotNil(t, i, "should not be nil")
 }
 
 func TestInterceptor_Dependencies(t *testing.T) {
 	i := ServerInterceptor(nil)
 	deps := i.Dependencies()
-	if len(deps) != 1 || deps[0] != "metadata" {
-		t.Fatalf("Dependencies = %v", deps)
-	}
+	require.Len(t, deps, 1)
+	require.Equal(t, "metadata", deps[0])
 }

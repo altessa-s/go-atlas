@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 )
 
@@ -24,16 +26,11 @@ func TestCompactEventsByKey_SingleKeyMultipleEvents(t *testing.T) {
 
 	toPublish, toSkip := o.compactEventsByKey(events)
 
-	if len(toPublish) != 1 {
-		t.Errorf("expected 1 event to publish, got %d", len(toPublish))
-	}
-	if len(toPublish) > 0 && toPublish[0].Id != "3" {
-		t.Errorf("expected event 3 to be published, got %s", toPublish[0].Id)
-	}
+	require.Equal(t, 1, len(toPublish))
+	require.True(t, len(toPublish) > 0)
+	require.Equal(t, "3", toPublish[0].Id)
 
-	if len(toSkip) != 2 {
-		t.Errorf("expected 2 events to skip, got %d", len(toSkip))
-	}
+	require.Equal(t, 2, len(toSkip))
 }
 
 func TestCompactEventsByKey_MultipleKeysMultipleEvents(t *testing.T) {
@@ -51,13 +48,9 @@ func TestCompactEventsByKey_MultipleKeysMultipleEvents(t *testing.T) {
 
 	toPublish, toSkip := o.compactEventsByKey(events)
 
-	if len(toPublish) != 3 {
-		t.Errorf("expected 3 events to publish, got %d", len(toPublish))
-	}
+	require.Equal(t, 3, len(toPublish))
 
-	if len(toSkip) != 3 {
-		t.Errorf("expected 3 events to skip, got %d", len(toSkip))
-	}
+	require.Equal(t, 3, len(toSkip))
 
 	// Verify that the latest event for each key is published
 	publishedIds := make(map[string]bool)
@@ -65,9 +58,9 @@ func TestCompactEventsByKey_MultipleKeysMultipleEvents(t *testing.T) {
 		publishedIds[e.Id] = true
 	}
 
-	if !publishedIds["3"] || !publishedIds["5"] || !publishedIds["6"] {
-		t.Errorf("expected events 3, 5, 6 to be published, got: %v", toPublish)
-	}
+	require.True(t, publishedIds["3"], "expected event 3 to be published")
+	require.True(t, publishedIds["5"], "expected event 5 to be published")
+	require.True(t, publishedIds["6"], "expected event 6 to be published")
 }
 
 func TestCompactEventsByKey_EmptySlice(t *testing.T) {
@@ -75,12 +68,8 @@ func TestCompactEventsByKey_EmptySlice(t *testing.T) {
 
 	toPublish, toSkip := o.compactEventsByKey([]Event{})
 
-	if toPublish != nil {
-		t.Errorf("expected nil toPublish, got %v", toPublish)
-	}
-	if toSkip != nil {
-		t.Errorf("expected nil toSkip, got %v", toSkip)
-	}
+	require.Nil(t, toPublish)
+	require.Nil(t, toSkip)
 }
 
 func TestCompactEventsByKey_WithFilter_MatchingSome(t *testing.T) {
@@ -103,14 +92,10 @@ func TestCompactEventsByKey_WithFilter_MatchingSome(t *testing.T) {
 	toPublish, toSkip := o.compactEventsByKey(events)
 
 	// Should publish: 1 orders event (latest) + 2 users events (not compacted) = 3
-	if len(toPublish) != 3 {
-		t.Errorf("expected 3 events to publish, got %d", len(toPublish))
-	}
+	require.Equal(t, 3, len(toPublish))
 
 	// Should skip: 2 older orders events
-	if len(toSkip) != 2 {
-		t.Errorf("expected 2 events to skip, got %d", len(toSkip))
-	}
+	require.Equal(t, 2, len(toSkip))
 
 	// Verify that event 3 (latest orders) is published
 	publishedIds := make(map[string]bool)
@@ -118,14 +103,11 @@ func TestCompactEventsByKey_WithFilter_MatchingSome(t *testing.T) {
 		publishedIds[e.Id] = true
 	}
 
-	if !publishedIds["3"] {
-		t.Errorf("expected event 3 (latest orders) to be published")
-	}
+	require.True(t, publishedIds["3"], "expected event 3 (latest orders) to be published")
 
 	// Verify that both users events are published (not compacted)
-	if !publishedIds["4"] || !publishedIds["5"] {
-		t.Errorf("expected both users events (4, 5) to be published")
-	}
+	require.True(t, publishedIds["4"], "expected users event 4 to be published")
+	require.True(t, publishedIds["5"], "expected users event 5 to be published")
 }
 
 func TestCompactEventsByKey_WithFilter_NoMatches(t *testing.T) {
@@ -147,14 +129,10 @@ func TestCompactEventsByKey_WithFilter_NoMatches(t *testing.T) {
 	toPublish, toSkip := o.compactEventsByKey(events)
 
 	// All events should be published (no key matches filter)
-	if len(toPublish) != 4 {
-		t.Errorf("expected 4 events to publish, got %d", len(toPublish))
-	}
+	require.Equal(t, 4, len(toPublish))
 
 	// Nothing should be skipped
-	if len(toSkip) != 0 {
-		t.Errorf("expected 0 events to skip, got %d", len(toSkip))
-	}
+	require.Equal(t, 0, len(toSkip))
 }
 
 func TestCompactEventsByKey_WithFilter_Whitelist(t *testing.T) {
@@ -180,14 +158,10 @@ func TestCompactEventsByKey_WithFilter_Whitelist(t *testing.T) {
 	toPublish, toSkip := o.compactEventsByKey(events)
 
 	// Should publish: 1 orders (latest) + 2 users (not compacted) + 1 inventory (latest) = 4
-	if len(toPublish) != 4 {
-		t.Errorf("expected 4 events to publish, got %d", len(toPublish))
-	}
+	require.Equal(t, 4, len(toPublish))
 
 	// Should skip: 1 older orders + 1 older inventory = 2
-	if len(toSkip) != 2 {
-		t.Errorf("expected 2 events to skip, got %d", len(toSkip))
-	}
+	require.Equal(t, 2, len(toSkip))
 
 	// Verify published events
 	publishedIds := make(map[string]bool)
@@ -197,15 +171,10 @@ func TestCompactEventsByKey_WithFilter_Whitelist(t *testing.T) {
 
 	// Latest for compacted topics: 2 (orders.123), 5 (inventory.xyz)
 	// All for non-compacted topics: 3, 6 (users.abc)
-	if !publishedIds["2"] {
-		t.Errorf("expected event 2 (latest orders.123) to be published")
-	}
-	if !publishedIds["5"] {
-		t.Errorf("expected event 5 (latest inventory.xyz) to be published")
-	}
-	if !publishedIds["3"] || !publishedIds["6"] {
-		t.Errorf("expected both users.abc events (3, 6) to be published")
-	}
+	require.True(t, publishedIds["2"], "expected event 2 (latest orders.123) to be published")
+	require.True(t, publishedIds["5"], "expected event 5 (latest inventory.xyz) to be published")
+	require.True(t, publishedIds["3"], "expected users.abc event 3 to be published")
+	require.True(t, publishedIds["6"], "expected users.abc event 6 to be published")
 }
 
 func TestCompactEventsByKey_AllKeysCompacted(t *testing.T) {
@@ -226,14 +195,10 @@ func TestCompactEventsByKey_AllKeysCompacted(t *testing.T) {
 	toPublish, toSkip := o.compactEventsByKey(events)
 
 	// Should publish latest for each key: 2 events
-	if len(toPublish) != 2 {
-		t.Errorf("expected 2 events to publish, got %d", len(toPublish))
-	}
+	require.Equal(t, 2, len(toPublish))
 
 	// Should skip older events: 2 events
-	if len(toSkip) != 2 {
-		t.Errorf("expected 2 events to skip, got %d", len(toSkip))
-	}
+	require.Equal(t, 2, len(toSkip))
 
 	// Verify latest events are published
 	publishedIds := make(map[string]bool)
@@ -241,12 +206,8 @@ func TestCompactEventsByKey_AllKeysCompacted(t *testing.T) {
 		publishedIds[e.Id] = true
 	}
 
-	if !publishedIds["2"] {
-		t.Errorf("expected event 2 (latest orders.123) to be published")
-	}
-	if !publishedIds["4"] {
-		t.Errorf("expected event 4 (latest users.abc) to be published")
-	}
+	require.True(t, publishedIds["2"], "expected event 2 (latest orders.123) to be published")
+	require.True(t, publishedIds["4"], "expected event 4 (latest users.abc) to be published")
 }
 
 func TestSetSkippedStatus_SetsPublishedAt(t *testing.T) {
@@ -259,21 +220,13 @@ func TestSetSkippedStatus_SetsPublishedAt(t *testing.T) {
 	e.setSkippedStatus()
 	afterSet := time.Now().UTC()
 
-	if e.Status != StatusSkipped {
-		t.Errorf("expected status to be StatusSkipped, got %s", e.Status)
-	}
+	require.Equal(t, StatusSkipped, e.Status)
 
-	if e.LastError != nil {
-		t.Errorf("expected LastError to be nil, got %v", e.LastError)
-	}
+	require.Nil(t, e.LastError)
 
 	// Verify PublishedAt is set and within reasonable time range
-	if e.PublishedAt.IsZero() {
-		t.Errorf("expected PublishedAt to be set, but it's zero")
-	}
+	require.False(t, e.PublishedAt.IsZero(), "expected PublishedAt to be set, but it's zero")
 
-	if e.PublishedAt.Before(beforeSet) || e.PublishedAt.After(afterSet) {
-		t.Errorf("expected PublishedAt to be between %v and %v, got %v",
-			beforeSet, afterSet, e.PublishedAt)
-	}
+	require.False(t, e.PublishedAt.Before(beforeSet), "expected PublishedAt >= %v, got %v", beforeSet, e.PublishedAt)
+	require.False(t, e.PublishedAt.After(afterSet), "expected PublishedAt <= %v, got %v", afterSet, e.PublishedAt)
 }

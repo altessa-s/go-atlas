@@ -7,6 +7,8 @@ package builtin
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/model"
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/plugin"
 )
@@ -75,9 +77,7 @@ func TestBuildStringTransformChain(t *testing.T) {
 			ctx := plugin.NewGenerationContext("p", "T", "Option", false, nil, nil, model.GenericInfo{})
 			field := model.OptField{FieldName: "x", Type: "string"}
 			transform := BuildStringTransformChain(ctx, field, tt.varName, tt.modifiers)
-			if transform != tt.expectedTransform {
-				t.Errorf("BuildStringTransformChain() transform = %q, want %q", transform, tt.expectedTransform)
-			}
+			require.Equal(t, tt.expectedTransform, transform)
 
 			hasStrings := false
 			for _, imp := range ctx.GetAdditionalImports() {
@@ -86,9 +86,7 @@ func TestBuildStringTransformChain(t *testing.T) {
 					break
 				}
 			}
-			if hasStrings != tt.expectedHasImport {
-				t.Errorf("BuildStringTransformChain() strings import = %v, want %v", hasStrings, tt.expectedHasImport)
-			}
+			require.Equal(t, tt.expectedHasImport, hasStrings, "strings import")
 		})
 	}
 }
@@ -139,9 +137,7 @@ func TestHasStringModifier(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := HasStringModifier(tt.modifiers)
-			if result != tt.expected {
-				t.Errorf("HasStringModifier() = %v, want %v", result, tt.expected)
-			}
+			require.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -182,9 +178,7 @@ func TestHasModifier(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := plugin.HasModifier(tt.modifiers, tt.modifier)
-			if result != tt.expected {
-				t.Errorf("HasModifier() = %v, want %v", result, tt.expected)
-			}
+			require.Equal(t, tt.expected, result)
 		})
 	}
 }

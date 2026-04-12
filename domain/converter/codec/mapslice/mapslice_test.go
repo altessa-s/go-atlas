@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/domain/converter/codec/mapslice"
 )
 
@@ -17,9 +19,7 @@ func TestValues(t *testing.T) {
 
 	mapslice.Values("test", src, dst, func(_ string, _, _ reflect.Value) {})
 
-	if dst.Len() != 2 {
-		t.Fatalf("expected slice len 2, got %d", dst.Len())
-	}
+	require.Equal(t, 2, dst.Len())
 }
 
 func TestValues_PassThrough(t *testing.T) {
@@ -32,15 +32,11 @@ func TestValues_PassThrough(t *testing.T) {
 		nextCalled = true
 	})
 
-	if !nextCalled {
-		t.Fatal("next should be called for non-map types")
-	}
+	require.True(t, nextCalled, "next should be called for non-map types")
 }
 
 func TestValues_NotNil(t *testing.T) {
-	if mapslice.Values == nil {
-		t.Fatal("Values is nil")
-	}
+	require.NotNil(t, mapslice.Values)
 }
 
 func TestKeys(t *testing.T) {
@@ -49,9 +45,7 @@ func TestKeys(t *testing.T) {
 
 	mapslice.Keys("test", src, dst, func(_ string, _, _ reflect.Value) {})
 
-	if dst.Len() != 2 {
-		t.Fatalf("expected slice len 2, got %d", dst.Len())
-	}
+	require.Equal(t, 2, dst.Len())
 }
 
 func TestKeys_PassThrough(t *testing.T) {
@@ -64,13 +58,9 @@ func TestKeys_PassThrough(t *testing.T) {
 		nextCalled = true
 	})
 
-	if !nextCalled {
-		t.Fatal("next should be called for non-map types")
-	}
+	require.True(t, nextCalled, "next should be called for non-map types")
 }
 
 func TestKeys_NotNil(t *testing.T) {
-	if mapslice.Keys == nil {
-		t.Fatal("Keys is nil")
-	}
+	require.NotNil(t, mapslice.Keys)
 }

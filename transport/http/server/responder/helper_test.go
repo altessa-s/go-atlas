@@ -9,18 +9,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestWriteError_NoWriter(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/test", nil)
 	err := WriteError(rec, req, errors.New("fail"), http.StatusBadRequest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("code = %d", rec.Code)
-	}
+	require.NoError(t, err)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestWriteError_WithWriter(t *testing.T) {
@@ -30,10 +28,6 @@ func TestWriteError_WithWriter(t *testing.T) {
 	req = req.WithContext(NewContext(req.Context(), w))
 
 	err := WriteError(rec, req, errors.New("fail"), http.StatusBadRequest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !w.called {
-		t.Fatal("writer should be called")
-	}
+	require.NoError(t, err)
+	require.True(t, w.called, "writer should be called")
 }

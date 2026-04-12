@@ -8,6 +8,8 @@ import (
 	"encoding/binary"
 	"math"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewTraceIDRatio(t *testing.T) {
@@ -26,9 +28,7 @@ func TestNewTraceIDRatio(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := NewTraceIDRatio(tt.ratio)
-			if s.Description() != tt.desc {
-				t.Errorf("Description = %q, want %q", s.Description(), tt.desc)
-			}
+			require.Equal(t, tt.desc, s.Description())
 		})
 	}
 }
@@ -41,9 +41,7 @@ func TestTraceIDRatio_Deterministic(t *testing.T) {
 	first := s.ShouldSample(params)
 	second := s.ShouldSample(params)
 
-	if first.Decision != second.Decision {
-		t.Error("same trace ID should produce same decision")
-	}
+	require.Equal(t, first.Decision, second.Decision, "same trace ID should produce same decision")
 }
 
 func TestTraceIDRatio_Distribution(t *testing.T) {
@@ -63,7 +61,5 @@ func TestTraceIDRatio_Distribution(t *testing.T) {
 	}
 
 	ratio := float64(sampled) / float64(total)
-	if ratio < 0.4 || ratio > 0.6 {
-		t.Errorf("expected ~50%% sampled, got %.2f%%", ratio*100)
-	}
+	require.True(t, ratio >= 0.4 && ratio <= 0.6, "expected ~50%% sampled, got %.2f%%", ratio*100)
 }

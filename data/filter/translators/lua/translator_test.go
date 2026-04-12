@@ -5,8 +5,9 @@
 package lua
 
 import (
-	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/filter"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
@@ -76,12 +77,8 @@ func TestTranslator_BasicComparisons(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			node := testhelpers.MustParseFilter(t, tt.expr)
 			got, err := trans.Translate(node)
-			if err != nil {
-				t.Fatalf("Translate() error = %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Translate() = %q, want %q", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -120,12 +117,8 @@ func TestTranslator_LogicalOperators(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			node := testhelpers.MustParseFilter(t, tt.expr)
 			got, err := trans.Translate(node)
-			if err != nil {
-				t.Fatalf("Translate() error = %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Translate() = %q, want %q", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -154,12 +147,8 @@ func TestTranslator_NestedFields(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			node := testhelpers.MustParseFilter(t, tt.expr)
 			got, err := trans.Translate(node)
-			if err != nil {
-				t.Fatalf("Translate() error = %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Translate() = %q, want %q", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -188,12 +177,8 @@ func TestTranslator_InOperator(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			node := testhelpers.MustParseFilter(t, tt.expr)
 			got, err := trans.Translate(node)
-			if err != nil {
-				t.Fatalf("Translate() error = %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Translate() = %q, want %q", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -227,12 +212,8 @@ func TestTranslator_StringFunctions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			node := testhelpers.MustParseFilter(t, tt.expr)
 			got, err := trans.Translate(node)
-			if err != nil {
-				t.Fatalf("Translate() error = %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Translate() = %q, want %q", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -242,9 +223,7 @@ func TestTranslator_UnsupportedOperations(t *testing.T) {
 
 	node := testhelpers.MustParseFilter(t, `name.matches("^A.*")`)
 	_, err := trans.Translate(node)
-	if !errors.Is(err, filter.ErrUnsupportedOperation) {
-		t.Errorf("Translate(matches) error = %v, want %v", err, filter.ErrUnsupportedOperation)
-	}
+	require.ErrorIs(t, err, filter.ErrUnsupportedOperation)
 }
 
 func TestTranslator_HasFunction(t *testing.T) {
@@ -252,13 +231,8 @@ func TestTranslator_HasFunction(t *testing.T) {
 
 	node := testhelpers.MustParseFilter(t, `has(user.email)`)
 	got, err := trans.Translate(node)
-	if err != nil {
-		t.Fatalf("Translate() error = %v", err)
-	}
-	want := `(d["user"]["email"] ~= nil)`
-	if got != want {
-		t.Errorf("Translate() = %q, want %q", got, want)
-	}
+	require.NoError(t, err)
+	require.Equal(t, `(d["user"]["email"] ~= nil)`, got)
 }
 
 func TestTranslator_SizeFunction(t *testing.T) {
@@ -285,12 +259,8 @@ func TestTranslator_SizeFunction(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			node := testhelpers.MustParseFilter(t, tt.expr)
 			got, err := trans.Translate(node)
-			if err != nil {
-				t.Fatalf("Translate() error = %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Translate() = %q, want %q", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -299,12 +269,8 @@ func TestTranslator_NilNode(t *testing.T) {
 	trans := NewTranslator("")
 
 	got, err := trans.Translate(nil)
-	if err != nil {
-		t.Fatalf("Translate(nil) error = %v", err)
-	}
-	if got != "true" {
-		t.Errorf("Translate(nil) = %q, want %q", got, "true")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "true", got)
 }
 
 func TestTranslator_WithAllowedFields(t *testing.T) {
@@ -313,17 +279,13 @@ func TestTranslator_WithAllowedFields(t *testing.T) {
 	t.Run("allowed field", func(t *testing.T) {
 		node := testhelpers.MustParseFilter(t, `name == "John"`)
 		_, err := trans.Translate(node)
-		if err != nil {
-			t.Errorf("Translate() error = %v for allowed field", err)
-		}
+		require.NoError(t, err)
 	})
 
 	t.Run("disallowed field", func(t *testing.T) {
 		node := testhelpers.MustParseFilter(t, `email == "test@example.com"`)
 		_, err := trans.Translate(node)
-		if !errors.Is(err, filter.ErrFieldNotAllowed) {
-			t.Errorf("Translate() error = %v, want %v", err, filter.ErrFieldNotAllowed)
-		}
+		require.ErrorIs(t, err, filter.ErrFieldNotAllowed)
 	})
 }
 
@@ -336,13 +298,8 @@ func TestTranslator_WithFieldMapping(t *testing.T) {
 
 	node := testhelpers.MustParseFilter(t, `userName == "John"`)
 	got, err := trans.Translate(node)
-	if err != nil {
-		t.Fatalf("Translate() error = %v", err)
-	}
-	want := `(d["user_name"] == "John")`
-	if got != want {
-		t.Errorf("Translate() = %q, want %q", got, want)
-	}
+	require.NoError(t, err)
+	require.Equal(t, `(d["user_name"] == "John")`, got)
 }
 
 func TestTranslator_WithMaxDepth(t *testing.T) {
@@ -351,17 +308,13 @@ func TestTranslator_WithMaxDepth(t *testing.T) {
 	t.Run("within depth", func(t *testing.T) {
 		node := testhelpers.MustParseFilter(t, `a == 1 && b == 2`)
 		_, err := trans.Translate(node)
-		if err != nil {
-			t.Errorf("Translate() error = %v for valid depth", err)
-		}
+		require.NoError(t, err)
 	})
 
 	t.Run("exceeds depth", func(t *testing.T) {
 		node := testhelpers.MustParseFilter(t, `(a == 1 && b == 2) && (c == 3 && d == 4)`)
 		_, err := trans.Translate(node)
-		if !errors.Is(err, filter.ErrMaxDepthExceeded) {
-			t.Errorf("Translate() error = %v, want %v", err, filter.ErrMaxDepthExceeded)
-		}
+		require.ErrorIs(t, err, filter.ErrMaxDepthExceeded)
 	})
 }
 
@@ -370,13 +323,8 @@ func TestTranslator_CustomTableVar(t *testing.T) {
 
 	node := testhelpers.MustParseFilter(t, `name == "test"`)
 	got, err := trans.Translate(node)
-	if err != nil {
-		t.Fatalf("Translate() error = %v", err)
-	}
-	want := `(item["name"] == "test")`
-	if got != want {
-		t.Errorf("Translate() = %q, want %q", got, want)
-	}
+	require.NoError(t, err)
+	require.Equal(t, `(item["name"] == "test")`, got)
 }
 
 func TestTranslator_StringEscaping(t *testing.T) {
@@ -403,12 +351,8 @@ func TestTranslator_StringEscaping(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			node := testhelpers.MustParseFilter(t, tt.expr)
 			got, err := trans.Translate(node)
-			if err != nil {
-				t.Fatalf("Translate() error = %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Translate() = %q, want %q", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -437,12 +381,8 @@ func TestTranslator_ComplexExpressions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			node := testhelpers.MustParseFilter(t, tt.expr)
 			got, err := trans.Translate(node)
-			if err != nil {
-				t.Fatalf("Translate() error = %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Translate() = %q, want %q", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -454,16 +394,8 @@ func TestTranslator_VisitorInterface(t *testing.T) {
 
 func TestNewTranslator_DefaultConfig(t *testing.T) {
 	trans := NewTranslator("")
-	if trans == nil {
-		t.Fatal("NewTranslator() returned nil")
-	}
-	if trans.config == nil {
-		t.Fatal("NewTranslator() returned translator with nil config")
-	}
-	if trans.config.MaxDepth() != filter.DefaultMaxDepth {
-		t.Errorf("MaxDepth = %d, want %d", trans.config.MaxDepth(), filter.DefaultMaxDepth)
-	}
-	if trans.tableVar != "d" {
-		t.Errorf("tableVar = %q, want %q", trans.tableVar, "d")
-	}
+	require.NotNil(t, trans)
+	require.NotNil(t, trans.config)
+	require.Equal(t, filter.DefaultMaxDepth, trans.config.MaxDepth())
+	require.Equal(t, "d", trans.tableVar)
 }

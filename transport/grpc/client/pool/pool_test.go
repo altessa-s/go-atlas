@@ -9,27 +9,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 func TestNew_Defaults(t *testing.T) {
 	p := New()
-	if p == nil {
-		t.Fatal("New() returned nil")
-	}
-	if p.opts.size != DefaultPoolSize {
-		t.Fatalf("size = %d, want %d", p.opts.size, DefaultPoolSize)
-	}
-	if p.opts.maxIdleTime != DefaultMaxIdleTime {
-		t.Fatalf("maxIdleTime = %v, want %v", p.opts.maxIdleTime, DefaultMaxIdleTime)
-	}
-	if p.opts.cleanupInterval != DefaultCleanupInterval {
-		t.Fatalf("cleanupInterval = %v, want %v", p.opts.cleanupInterval, DefaultCleanupInterval)
-	}
-	if p.opts.connectTimeout != DefaultConnectTimeout {
-		t.Fatalf("connectTimeout = %v, want %v", p.opts.connectTimeout, DefaultConnectTimeout)
-	}
+	require.NotNil(t, p, "New() returned nil")
+	require.Equal(t, DefaultPoolSize, p.opts.size)
+	require.Equal(t, DefaultMaxIdleTime, p.opts.maxIdleTime)
+	require.Equal(t, DefaultCleanupInterval, p.opts.cleanupInterval)
+	require.Equal(t, DefaultConnectTimeout, p.opts.connectTimeout)
 }
 
 func TestNew_WithOptions(t *testing.T) {
@@ -39,40 +31,28 @@ func TestNew_WithOptions(t *testing.T) {
 		WithCleanupInterval(2*time.Minute),
 		WithConnectTimeout(5*time.Second),
 	)
-	if p.opts.size != 5 {
-		t.Fatalf("size = %d", p.opts.size)
-	}
-	if p.opts.maxIdleTime != 10*time.Minute {
-		t.Fatalf("maxIdleTime = %v", p.opts.maxIdleTime)
-	}
+	require.Equal(t, 5, p.opts.size)
+	require.Equal(t, 10*time.Minute, p.opts.maxIdleTime)
 }
 
 func TestWithSize_Zero(t *testing.T) {
 	p := New(WithSize(0))
-	if p.opts.size != 0 {
-		t.Fatalf("size = %d", p.opts.size)
-	}
+	require.Equal(t, 0, p.opts.size)
 }
 
 func TestWithMaxIdleTime_Negative(t *testing.T) {
 	p := New(WithMaxIdleTime(-1))
-	if p.opts.maxIdleTime != DefaultMaxIdleTime {
-		t.Fatalf("negative maxIdleTime should keep default, got %v", p.opts.maxIdleTime)
-	}
+	require.Equal(t, DefaultMaxIdleTime, p.opts.maxIdleTime)
 }
 
 func TestWithCleanupInterval_Negative(t *testing.T) {
 	p := New(WithCleanupInterval(-1))
-	if p.opts.cleanupInterval != DefaultCleanupInterval {
-		t.Fatalf("negative cleanupInterval should keep default, got %v", p.opts.cleanupInterval)
-	}
+	require.Equal(t, DefaultCleanupInterval, p.opts.cleanupInterval)
 }
 
 func TestWithConnectTimeout_Negative(t *testing.T) {
 	p := New(WithConnectTimeout(-1))
-	if p.opts.connectTimeout != DefaultConnectTimeout {
-		t.Fatalf("negative connectTimeout should keep default, got %v", p.opts.connectTimeout)
-	}
+	require.Equal(t, DefaultConnectTimeout, p.opts.connectTimeout)
 }
 
 func TestStartAndStop(t *testing.T) {
@@ -80,9 +60,7 @@ func TestStartAndStop(t *testing.T) {
 	ctx := t.Context()
 
 	stop, err := p.Start(ctx)
-	if err != nil {
-		t.Fatalf("Start() error = %v", err)
-	}
+	require.NoError(t, err)
 	stop()
 }
 
@@ -91,15 +69,11 @@ func TestStart_AfterStopped(t *testing.T) {
 	ctx := t.Context()
 
 	stop, err := p.Start(ctx)
-	if err != nil {
-		t.Fatalf("Start() error = %v", err)
-	}
+	require.NoError(t, err)
 	stop()
 
 	_, err = p.Start(ctx)
-	if err != ErrConnectionPoolClosed {
-		t.Fatalf("Start() after stop should return ErrConnectionPoolClosed, got %v", err)
-	}
+	require.Equal(t, ErrConnectionPoolClosed, err)
 }
 
 func TestGetConnection_AfterStopped(t *testing.T) {
@@ -109,9 +83,7 @@ func TestGetConnection_AfterStopped(t *testing.T) {
 	stop()
 
 	_, err := p.GetConnection(ctx, "localhost:9999")
-	if err != ErrConnectionPoolClosed {
-		t.Fatalf("GetConnection after stop should return ErrConnectionPoolClosed, got %v", err)
-	}
+	require.Equal(t, ErrConnectionPoolClosed, err)
 }
 
 func TestReturnConnection_Nil(t *testing.T) {
@@ -131,18 +103,12 @@ func TestGetConnection_WithClientFactory(t *testing.T) {
 	ctx := t.Context()
 
 	stop, err := p.Start(ctx)
-	if err != nil {
-		t.Fatalf("Start() error = %v", err)
-	}
+	require.NoError(t, err)
 	defer stop()
 
 	conn, err := p.GetConnection(ctx, "localhost:0")
-	if err != nil {
-		t.Fatalf("GetConnection() error = %v", err)
-	}
-	if !factoryCalled {
-		t.Fatal("client factory was not called")
-	}
+	require.NoError(t, err)
+	require.True(t, factoryCalled, "client factory was not called")
 	p.ReturnConnection(conn)
 }
 
@@ -151,15 +117,11 @@ func TestGetConnection_DefaultFactory(t *testing.T) {
 	ctx := t.Context()
 
 	stop, err := p.Start(ctx)
-	if err != nil {
-		t.Fatalf("Start() error = %v", err)
-	}
+	require.NoError(t, err)
 	defer stop()
 
 	conn, err := p.GetConnection(ctx, "localhost:0")
-	if err != nil {
-		t.Fatalf("GetConnection() error = %v", err)
-	}
+	require.NoError(t, err)
 	p.ReturnConnection(conn)
 }
 
@@ -188,9 +150,7 @@ func TestContextCancellation_StopsPool(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 
 	stop, err := p.Start(ctx)
-	if err != nil {
-		t.Fatalf("Start() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	cancel()
 	// stop should not hang after context cancellation
@@ -208,12 +168,8 @@ func TestDefaultConstants(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.got <= 0 {
-				t.Fatalf("%s = %v", tt.name, tt.got)
-			}
+			require.False(t, tt.got <= 0, "%s = %v", tt.name, tt.got)
 		})
 	}
-	if DefaultPoolSize <= 0 {
-		t.Fatalf("DefaultPoolSize = %d", DefaultPoolSize)
-	}
+	require.False(t, DefaultPoolSize <= 0, "DefaultPoolSize = %d", DefaultPoolSize)
 }

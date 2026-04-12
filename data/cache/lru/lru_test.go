@@ -8,49 +8,39 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCache_PutGet(t *testing.T) {
 	c, err := NewCache[string, int](10)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	c.Put("a", 1)
 	v, ok := c.Get("a")
-	if !ok || v != 1 {
-		t.Errorf("got (%d, %v), want (1, true)", v, ok)
-	}
+	require.True(t, ok)
+	require.Equal(t, 1, v)
 }
 
 func TestCache_Remove(t *testing.T) {
 	c, _ := NewCache[string, int](10)
 	c.Put("a", 1)
-	if !c.Remove("a") {
-		t.Error("Remove returned false for existing key")
-	}
-	if _, ok := c.Get("a"); ok {
-		t.Error("key still present after remove")
-	}
+	require.True(t, c.Remove("a"), "Remove returned false for existing key")
+	_, ok := c.Get("a")
+	require.False(t, ok, "key still present after remove")
 }
 
 func TestCache_Has(t *testing.T) {
 	c, _ := NewCache[string, int](10)
 	c.Put("a", 1)
-	if !c.Has("a") {
-		t.Error("Has returned false for existing key")
-	}
-	if c.Has("b") {
-		t.Error("Has returned true for missing key")
-	}
+	require.True(t, c.Has("a"), "Has returned false for existing key")
+	require.False(t, c.Has("b"), "Has returned true for missing key")
 }
 
 func TestCache_Len(t *testing.T) {
 	c, _ := NewCache[string, int](10)
 	c.Put("a", 1)
 	c.Put("b", 2)
-	if c.Len() != 2 {
-		t.Errorf("Len = %d, want 2", c.Len())
-	}
+	require.Equal(t, 2, c.Len())
 }
 
 func TestCache_Purge(t *testing.T) {
@@ -58,9 +48,7 @@ func TestCache_Purge(t *testing.T) {
 	c.Put("a", 1)
 	c.Put("b", 2)
 	c.Purge()
-	if c.Len() != 0 {
-		t.Errorf("Len after Purge = %d, want 0", c.Len())
-	}
+	require.Equal(t, 0, c.Len())
 }
 
 func TestCache_Keys(t *testing.T) {
@@ -72,9 +60,8 @@ func TestCache_Keys(t *testing.T) {
 	for k := range c.Keys() {
 		keys[k] = true
 	}
-	if !keys["a"] || !keys["b"] {
-		t.Errorf("Keys missing expected entries: %v", keys)
-	}
+	require.True(t, keys["a"], "missing key a")
+	require.True(t, keys["b"], "missing key b")
 }
 
 func TestCache_All(t *testing.T) {
@@ -86,9 +73,8 @@ func TestCache_All(t *testing.T) {
 	for k, v := range c.All() {
 		pairs[k] = v
 	}
-	if pairs["a"] != 1 || pairs["b"] != 2 {
-		t.Errorf("All: %v", pairs)
-	}
+	require.Equal(t, 1, pairs["a"])
+	require.Equal(t, 2, pairs["b"])
 }
 
 func TestCache_GetOrCompute_Miss(t *testing.T) {
@@ -98,15 +84,13 @@ func TestCache_GetOrCompute_Miss(t *testing.T) {
 	v, err := c.GetOrCompute(ctx, "key", func(ctx context.Context) (string, error) {
 		return "computed", nil
 	})
-	if err != nil || v != "computed" {
-		t.Errorf("got (%q, %v), want (computed, nil)", v, err)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "computed", v)
 
 	// Should now be cached.
 	v2, ok := c.Get("key")
-	if !ok || v2 != "computed" {
-		t.Error("value not cached after GetOrCompute")
-	}
+	require.True(t, ok, "value not cached after GetOrCompute")
+	require.Equal(t, "computed", v2)
 }
 
 func TestCache_GetOrCompute_Hit(t *testing.T) {
@@ -118,9 +102,8 @@ func TestCache_GetOrCompute_Hit(t *testing.T) {
 		t.Error("compute should not be called on hit")
 		return "", nil
 	})
-	if err != nil || v != "existing" {
-		t.Errorf("got (%q, %v)", v, err)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "existing", v)
 }
 
 func TestCache_Eviction(t *testing.T) {
@@ -129,12 +112,9 @@ func TestCache_Eviction(t *testing.T) {
 	c.Put("b", 2)
 	c.Put("c", 3) // should evict "a"
 
-	if c.Has("a") {
-		t.Error("expected 'a' to be evicted")
-	}
-	if !c.Has("b") || !c.Has("c") {
-		t.Error("expected 'b' and 'c' to still exist")
-	}
+	require.False(t, c.Has("a"), "expected 'a' to be evicted")
+	require.True(t, c.Has("b"), "expected 'b' to still exist")
+	require.True(t, c.Has("c"), "expected 'c' to still exist")
 }
 
 func TestCache_GetOrCompute_Error(t *testing.T) {
@@ -145,7 +125,5 @@ func TestCache_GetOrCompute_Error(t *testing.T) {
 	_, err := c.GetOrCompute(ctx, "key", func(ctx context.Context) (string, error) {
 		return "", wantErr
 	})
-	if !errors.Is(err, wantErr) {
-		t.Errorf("got %v, want %v", err, wantErr)
-	}
+	require.ErrorIs(t, err, wantErr)
 }

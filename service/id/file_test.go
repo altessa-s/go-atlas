@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestFile_GeneratesAndPersistsID(t *testing.T) {
@@ -17,32 +19,20 @@ func TestFile_GeneratesAndPersistsID(t *testing.T) {
 	path := filepath.Join(dir, "service.id")
 
 	p, err := NewFile(path)
-	if err != nil {
-		t.Fatalf("NewFile err=%v", err)
-	}
+	require.NoError(t, err)
 
 	id1 := p.ID()
-	if id1 == "" {
-		t.Fatalf("ID empty; err=%v", p.Error())
-	}
+	require.NotEmpty(t, id1, "ID empty; err=%v", p.Error())
 
 	// New provider instance should read the same value.
 	p2, err := NewFile(path)
-	if err != nil {
-		t.Fatalf("NewFile #2 err=%v", err)
-	}
+	require.NoError(t, err)
 	id2 := p2.ID()
-	if id2 != id1 {
-		t.Fatalf("id2=%q, want %q", id2, id1)
-	}
+	require.Equal(t, id1, id2)
 
 	// Basic format sanity: 16 bytes -> 32 hex chars, uppercased.
-	if len(id1) != 32 {
-		t.Fatalf("len(id)=%d, want 32", len(id1))
-	}
-	if id1 != strings.ToUpper(id1) {
-		t.Fatalf("id not uppercased: %q", id1)
-	}
+	require.Len(t, id1, 32)
+	require.Equal(t, strings.ToUpper(id1), id1, "id not uppercased: %q", id1)
 }
 
 func TestFile_FileExistsButUnreadable_FailsFast(t *testing.T) {
@@ -53,23 +43,15 @@ func TestFile_FileExistsButUnreadable_FailsFast(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "service.id")
 
-	if err := os.WriteFile(path, []byte("ABC"), 0o000); err != nil {
-		t.Fatalf("WriteFile err=%v", err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte("ABC"), 0o000))
 	// Best-effort: restore perms for cleanup on some platforms.
 	defer func() { _ = os.Chmod(path, 0o600) }()
 
 	p, err := NewFile(path)
-	if err != nil {
-		t.Fatalf("NewFile err=%v", err)
-	}
+	require.NoError(t, err)
 
-	if got := p.ID(); got != "" {
-		t.Fatalf("ID=%q, want empty due to unreadable file", got)
-	}
-	if p.Error() == nil {
-		t.Fatalf("Error=nil, want non-nil due to unreadable file")
-	}
+	require.Empty(t, p.ID(), "ID should be empty due to unreadable file")
+	require.NotNil(t, p.Error(), "Error should be non-nil due to unreadable file")
 }
 
 func TestFile_PersistenceError_ReturnsIDButTracksError(t *testing.T) {
@@ -80,42 +62,28 @@ func TestFile_PersistenceError_ReturnsIDButTracksError(t *testing.T) {
 	// Create a read-only directory where we cannot create files
 	dir := t.TempDir()
 	readOnlyDir := filepath.Join(dir, "readonly")
-	if err := os.Mkdir(readOnlyDir, 0o500); err != nil {
-		t.Fatalf("Mkdir err=%v", err)
-	}
+	require.NoError(t, os.Mkdir(readOnlyDir, 0o500))
 	// Restore permissions for cleanup
 	defer func() { _ = os.Chmod(readOnlyDir, 0o700) }()
 
 	path := filepath.Join(readOnlyDir, "service.id")
 
 	p, err := NewFile(path)
-	if err != nil {
-		t.Fatalf("NewFile err=%v", err)
-	}
+	require.NoError(t, err)
 
 	// ID should still be generated and returned
 	id := p.ID()
-	if id == "" {
-		t.Fatalf("ID empty, want non-empty even with persistence failure")
-	}
+	require.NotEmpty(t, id, "ID should be non-empty even with persistence failure")
 
 	// No fatal initialization error
-	if p.Error() != nil {
-		t.Fatalf("Error=%v, want nil (persistence failure is not fatal)", p.Error())
-	}
+	require.Nil(t, p.Error(), "persistence failure is not fatal")
 
 	// But persistence error should be tracked
-	if p.PersistenceError() == nil {
-		t.Fatalf("PersistenceError=nil, want non-nil due to read-only directory")
-	}
+	require.NotNil(t, p.PersistenceError(), "PersistenceError should be non-nil due to read-only directory")
 
 	// Verify ID format is still valid
-	if len(id) != 32 {
-		t.Fatalf("len(id)=%d, want 32", len(id))
-	}
-	if id != strings.ToUpper(id) {
-		t.Fatalf("id not uppercased: %q", id)
-	}
+	require.Len(t, id, 32)
+	require.Equal(t, strings.ToUpper(id), id, "id not uppercased: %q", id)
 }
 
 func TestFile_NoPersistenceError_WhenFileWritten(t *testing.T) {
@@ -123,25 +91,16 @@ func TestFile_NoPersistenceError_WhenFileWritten(t *testing.T) {
 	path := filepath.Join(dir, "service.id")
 
 	p, err := NewFile(path)
-	if err != nil {
-		t.Fatalf("NewFile err=%v", err)
-	}
+	require.NoError(t, err)
 
 	id := p.ID()
-	if id == "" {
-		t.Fatalf("ID empty; err=%v", p.Error())
-	}
+	require.NotEmpty(t, id, "ID empty; err=%v", p.Error())
 
 	// No errors should be present
-	if p.Error() != nil {
-		t.Fatalf("Error=%v, want nil", p.Error())
-	}
-	if p.PersistenceError() != nil {
-		t.Fatalf("PersistenceError=%v, want nil", p.PersistenceError())
-	}
+	require.Nil(t, p.Error())
+	require.Nil(t, p.PersistenceError())
 
 	// Verify file was created
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		t.Fatalf("ID file was not created")
-	}
+	_, err = os.Stat(path)
+	require.False(t, os.IsNotExist(err), "ID file was not created")
 }

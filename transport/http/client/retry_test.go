@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	coreerrors "github.com/altessa-s/go-atlas/core/errors"
 	coreretry "github.com/altessa-s/go-atlas/core/retry"
 )
@@ -44,12 +46,8 @@ func TestRetryRoundTripper_Success(t *testing.T) {
 
 	req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://example.com", nil)
 	resp, err := rt.RoundTrip(req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want 200", resp.StatusCode)
-	}
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
 func TestRetryRoundTripper_RetryThenSuccess(t *testing.T) {
@@ -68,15 +66,9 @@ func TestRetryRoundTripper_RetryThenSuccess(t *testing.T) {
 
 	req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://example.com", nil)
 	resp, err := rt.RoundTrip(req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d", resp.StatusCode)
-	}
-	if got := calls.Load(); got != 3 {
-		t.Fatalf("calls = %d, want 3", got)
-	}
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, int32(3), calls.Load())
 }
 
 func TestRetryRoundTripper_Exhaustion(t *testing.T) {
@@ -92,12 +84,8 @@ func TestRetryRoundTripper_Exhaustion(t *testing.T) {
 
 	req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://example.com", nil)
 	_, err := rt.RoundTrip(req)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if got := calls.Load(); got != 3 {
-		t.Fatalf("calls = %d, want 3", got)
-	}
+	require.Error(t, err)
+	require.Equal(t, int32(3), calls.Load())
 }
 
 func TestRetryRoundTripper_NonRetryableStops(t *testing.T) {
@@ -113,12 +101,9 @@ func TestRetryRoundTripper_NonRetryableStops(t *testing.T) {
 
 	req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://example.com", nil)
 	_, err := rt.RoundTrip(req)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if got := calls.Load(); got != 1 {
-		t.Fatalf("calls = %d, want 1 (should not retry)", got)
-	}
+	require.Error(t, err)
+	got := calls.Load()
+	require.Equal(t, int32(1), got)
 }
 
 func TestRetryRoundTripper_BodyReplay(t *testing.T) {
@@ -138,16 +123,10 @@ func TestRetryRoundTripper_BodyReplay(t *testing.T) {
 
 	req, _ := http.NewRequestWithContext(t.Context(), "POST", "http://example.com", strings.NewReader("payload"))
 	resp, err := rt.RoundTrip(req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d", resp.StatusCode)
-	}
-	for i, b := range bodies {
-		if b != "payload" {
-			t.Errorf("attempt %d body = %q, want %q", i, b, "payload")
-		}
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	for _, b := range bodies {
+		require.Equal(t, "payload", b)
 	}
 }
 
@@ -167,9 +146,7 @@ func TestRetryRoundTripper_ContextCancel(t *testing.T) {
 
 	req, _ := http.NewRequestWithContext(ctx, "GET", "http://example.com", nil)
 	_, err := rt.RoundTrip(req)
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("error = %v, want context.Canceled", err)
-	}
+	require.True(t, errors.Is(err, context.Canceled))
 }
 
 func TestRetryRoundTripper_RetryableStatus(t *testing.T) {
@@ -192,12 +169,8 @@ func TestRetryRoundTripper_RetryableStatus(t *testing.T) {
 
 	req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://example.com/path", nil)
 	resp, err := rt.RoundTrip(req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d", resp.StatusCode)
-	}
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
 func TestRetryRoundTripper_UnexpectedStatus(t *testing.T) {
@@ -215,16 +188,10 @@ func TestRetryRoundTripper_UnexpectedStatus(t *testing.T) {
 
 	req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://example.com/path", nil)
 	_, err := rt.RoundTrip(req)
-	if err == nil {
-		t.Fatal("expected error for 403")
-	}
+	require.Error(t, err)
 	statusErr, ok := coreerrors.AsType[*UnexpectedStatusError](err)
-	if !ok {
-		t.Fatalf("expected UnexpectedStatusError, got %T: %v", err, err)
-	}
-	if statusErr.Status != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403", statusErr.Status)
-	}
+	require.True(t, ok)
+	require.Equal(t, http.StatusForbidden, statusErr.Status)
 }
 
 func TestRetryRoundTripper_ErrorHandler(t *testing.T) {
@@ -243,9 +210,7 @@ func TestRetryRoundTripper_ErrorHandler(t *testing.T) {
 
 	req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://example.com", nil)
 	_, _ = rt.RoundTrip(req)
-	if !handlerCalled {
-		t.Fatal("ErrorHandler was not called")
-	}
+	require.True(t, handlerCalled, "ErrorHandler was not called")
 }
 
 func TestRetryRoundTripper_RetryPolicyHandler(t *testing.T) {
@@ -268,15 +233,9 @@ func TestRetryRoundTripper_RetryPolicyHandler(t *testing.T) {
 
 	req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://example.com", nil)
 	resp, err := rt.RoundTrip(req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d", resp.StatusCode)
-	}
-	if got := calls.Load(); got != 3 {
-		t.Fatalf("calls = %d, want 3", got)
-	}
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, int32(3), calls.Load())
 }
 
 func TestRetryRoundTripper_ZeroRetries(t *testing.T) {
@@ -292,13 +251,7 @@ func TestRetryRoundTripper_ZeroRetries(t *testing.T) {
 
 	req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://example.com", nil)
 	resp, err := rt.RoundTrip(req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d", resp.StatusCode)
-	}
-	if got := calls.Load(); got != 1 {
-		t.Fatalf("calls = %d, want 1", got)
-	}
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.Equal(t, int32(1), calls.Load())
 }

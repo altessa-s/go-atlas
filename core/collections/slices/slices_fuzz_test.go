@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 )
 
@@ -23,23 +25,17 @@ func FuzzDeduplicate(f *testing.F) {
 		// Property 1: No duplicates in output
 		seen := make(map[string]bool)
 		for _, v := range output {
-			if seen[v] {
-				t.Errorf("Duplicate found in output: %v", v)
-			}
+			assert.False(t, seen[v], "Duplicate found in output: %v", v)
 			seen[v] = true
 		}
 
 		// Property 2: All elements in output must be in input
 		for _, v := range output {
-			if !slices.Contains(input, v) {
-				t.Errorf("Element %v in output not found in input", v)
-			}
+			assert.True(t, slices.Contains(input, v), "Element %v in output not found in input", v)
 		}
 
 		// Property 3: Length should be <= input length
-		if len(output) > len(input) {
-			t.Errorf("Output length %d > input length %d", len(output), len(input))
-		}
+		assert.LessOrEqual(t, len(output), len(input), "Output length %d > input length %d", len(output), len(input))
 	})
 }
 
@@ -58,19 +54,9 @@ func FuzzDelete(f *testing.F) {
 
 		// Check that if we deleted something, length is less
 		if slices.Contains(origInput, target) {
-			if len(output) >= len(origInput) {
-				// Only if duplicates exist, length might reduce by 1 only.
-				// If target was unique, len(output) should be len(input) - 1
-				// But Delete removes FIRST occurrence.
-				// So len(output) should ALWAYS be len(input) - 1 IF found.
-				if len(output) != len(origInput)-1 {
-					t.Errorf("Delete failed to reduce length. Input: %v, Target: %v, Output: %v", origInput, target, output)
-				}
-			}
+			assert.Equal(t, len(origInput)-1, len(output), "Delete failed to reduce length. Input: %v, Target: %v, Output: %v", origInput, target, output)
 		} else {
-			if len(output) != len(origInput) {
-				t.Errorf("Delete changed length when target not found. Input: %v, Target: %v", origInput, target)
-			}
+			assert.Equal(t, len(origInput), len(output), "Delete changed length when target not found. Input: %v, Target: %v", origInput, target)
 		}
 	})
 }

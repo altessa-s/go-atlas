@@ -4,7 +4,11 @@
 
 package server
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func FuzzBaseServer_Protocol(f *testing.F) {
 	f.Add("http")
@@ -16,8 +20,8 @@ func FuzzBaseServer_Protocol(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, protocol string) {
 		result := s.Protocol(protocol)
-		if result == "" && protocol != "" {
-			t.Fatalf("Protocol(%q) returned empty", protocol)
+		if result == "" {
+			assert.Equal(t, "", protocol)
 		}
 	})
 }

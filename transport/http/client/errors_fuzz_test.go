@@ -4,7 +4,11 @@
 
 package client
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func FuzzUnexpectedStatusError_Error(f *testing.F) {
 	f.Add(404, "GET", "example.com", "/users")
@@ -13,9 +17,7 @@ func FuzzUnexpectedStatusError_Error(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, status int, method, host, uri string) {
 		err := UnexpectedStatusError{Status: status, Method: method, Host: host, URI: uri}
-		if err.Error() == "" {
-			t.Fatal("Error() returned empty")
-		}
+		assert.NotEqual(t, "", err.Error())
 	})
 }
 
@@ -25,8 +27,6 @@ func FuzzResponseSizeError_Error(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, limit, size int64) {
 		err := &ResponseSizeError{Limit: limit, Size: size}
-		if err.Error() == "" {
-			t.Fatal("Error() returned empty")
-		}
+		assert.NotEqual(t, "", err.Error())
 	})
 }

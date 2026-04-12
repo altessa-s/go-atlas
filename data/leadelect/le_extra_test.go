@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/leadelect"
 	"github.com/altessa-s/go-atlas/data/leadelect/providers"
 )
@@ -86,9 +88,7 @@ func TestLeader_RegisterOnBecomesLeader_Called(t *testing.T) {
 
 	// Start triggers provider.Start which may invoke callbacks
 	err := le.Start(t.Context())
-	if err != nil {
-		t.Fatalf("Start: %v", err)
-	}
+	require.NoError(t, err)
 	defer le.Stop(t.Context()) //nolint:errcheck
 
 	// Give time for async callback
@@ -109,16 +109,12 @@ func TestLeader_RegisterOnLeaderLost_NilSafe(t *testing.T) {
 func TestNew_WithDefaultHandlerTimeout(t *testing.T) {
 	prov := &mockProvider{nodeID: "n1"}
 	le := leadelect.New(prov, leadelect.Config{})
-	if le == nil {
-		t.Fatal("New returned nil")
-	}
+	require.NotNil(t, le)
 }
 
 func TestWithHandlerTimeout_Zero(t *testing.T) {
 	prov := &mockProvider{nodeID: "n1"}
 	// Zero timeout should be ignored, keeping default
 	le := leadelect.New(prov, leadelect.Config{}, leadelect.WithHandlerTimeout(0))
-	if le == nil {
-		t.Fatal("New with zero timeout returned nil")
-	}
+	require.NotNil(t, le)
 }

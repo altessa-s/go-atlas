@@ -8,15 +8,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestMatchFunc(t *testing.T) {
-	if !(MatchFunc(func() bool { return true })).Match() {
-		t.Fatal("expected true")
-	}
-	if (MatchFunc(func() bool { return false })).Match() {
-		t.Fatal("expected false")
-	}
+	require.True(t, (MatchFunc(func() bool { return true })).Match(), "expected true")
+	require.False(t, (MatchFunc(func() bool { return false })).Match(), "expected false")
 }
 
 func TestFunc(t *testing.T) {
@@ -27,15 +25,11 @@ func TestFunc(t *testing.T) {
 			next.ServeHTTP(w, r)
 		})
 	})
-	if m.Name() != "test" {
-		t.Fatalf("Name() = %q", m.Name())
-	}
+	require.Equal(t, "test", m.Name())
 
 	handler := m.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
-	if !called {
-		t.Fatal("middleware not called")
-	}
+	require.True(t, called, "middleware not called")
 }
 
 func TestConditionalMiddleware(t *testing.T) {
@@ -49,9 +43,7 @@ func TestConditionalMiddleware(t *testing.T) {
 		m := ConditionalMiddleware(MatchFunc(func() bool { return true }), inner)
 		rec := httptest.NewRecorder()
 		m.Handler(http.NotFoundHandler()).ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
-		if rec.Code != http.StatusTeapot {
-			t.Fatalf("code = %d", rec.Code)
-		}
+		require.Equal(t, http.StatusTeapot, rec.Code)
 	})
 
 	t.Run("no_match", func(t *testing.T) {
@@ -60,9 +52,7 @@ func TestConditionalMiddleware(t *testing.T) {
 		m.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})).ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
-		if rec.Code != http.StatusOK {
-			t.Fatalf("code = %d", rec.Code)
-		}
+		require.Equal(t, http.StatusOK, rec.Code)
 	})
 }
 
@@ -75,37 +65,27 @@ func TestStaticConditionMiddleware(t *testing.T) {
 
 	t.Run("true", func(t *testing.T) {
 		m := StaticConditionMiddleware(true, inner)
-		if m != inner {
-			t.Fatal("expected same middleware")
-		}
+		require.Equal(t, inner, m)
 	})
 
 	t.Run("false", func(t *testing.T) {
 		m := StaticConditionMiddleware(false, inner)
-		if m.Name() != "inner" {
-			t.Fatalf("Name() = %q", m.Name())
-		}
+		require.Equal(t, "inner", m.Name())
 		rec := httptest.NewRecorder()
 		m.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})).ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
-		if rec.Code != http.StatusOK {
-			t.Fatalf("code = %d, noop should pass through", rec.Code)
-		}
+		require.Equal(t, http.StatusOK, rec.Code)
 	})
 }
 
 func TestNoop(t *testing.T) {
 	m := Noop("test")
-	if m.Name() != "test" {
-		t.Fatalf("Name() = %q", m.Name())
-	}
+	require.Equal(t, "test", m.Name())
 	called := false
 	handler := m.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		called = true
 	}))
 	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
-	if !called {
-		t.Fatal("next not called")
-	}
+	require.True(t, called, "next not called")
 }

@@ -7,6 +7,8 @@ package grpc
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"google.golang.org/grpc/codes"
 )
 
@@ -16,8 +18,6 @@ func FuzzCodeToString(f *testing.F) {
 	f.Add(uint32(999))
 	f.Fuzz(func(t *testing.T, code uint32) {
 		result := CodeToString(codes.Code(code))
-		if result == "" {
-			t.Fatal("should never return empty string")
-		}
+		assert.NotEqual(t, "", result)
 	})
 }

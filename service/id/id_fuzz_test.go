@@ -4,7 +4,11 @@
 
 package id
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func FuzzStatic_ID(f *testing.F) {
 	f.Add("test-id")
@@ -14,9 +18,7 @@ func FuzzStatic_ID(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, idVal string) {
 		p := NewStatic(idVal)
-		if got := p.ID(); got != idVal {
-			t.Errorf("ID()=%q, want %q", got, idVal)
-		}
+		assert.Equal(t, idVal, p.ID())
 	})
 }
 

@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/transport/broker/inprogress"
 )
 
@@ -23,16 +25,12 @@ func (m *mockHeartbeater) InProgress() error {
 
 func TestNew_Default(t *testing.T) {
 	mgr := inprogress.New()
-	if mgr == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, mgr, "New() returned nil")
 }
 
 func TestNew_WithLogger(t *testing.T) {
 	mgr := inprogress.New(inprogress.WithLogger(nil))
-	if mgr == nil {
-		t.Fatal("New(WithLogger) returned nil")
-	}
+	require.NotNil(t, mgr, "New(WithLogger) returned nil")
 }
 
 func TestManager_RegisterAndStop(t *testing.T) {
@@ -40,9 +38,7 @@ func TestManager_RegisterAndStop(t *testing.T) {
 	h := &mockHeartbeater{}
 
 	stop := mgr.Register(h, 50*time.Millisecond)
-	if stop == nil {
-		t.Fatal("Register() returned nil stop func")
-	}
+	require.NotNil(t, stop, "Register() returned nil stop func")
 
 	// Run a tick to trigger heartbeat
 	_ = mgr.RunTickCycle(t.Context())
@@ -54,24 +50,18 @@ func TestManager_RegisterAndStop(t *testing.T) {
 	_ = mgr.RunTickCycle(t.Context())
 	countAfter := h.count.Load()
 
-	if countAfter != countBefore {
-		t.Error("heartbeater called after stop")
-	}
+	require.Equal(t, countBefore, countAfter)
 }
 
 func TestManager_RegisterTickSchedulerFunc(t *testing.T) {
 	mgr := inprogress.New()
 
 	fn := mgr.RegisterTickSchedulerFunc()
-	if fn == nil {
-		t.Fatal("RegisterTickSchedulerFunc() returned nil")
-	}
+	require.NotNil(t, fn, "RegisterTickSchedulerFunc() returned nil")
 
 	// After registering scheduler func, direct RunTickCycle should return error
 	err := mgr.RunTickCycle(t.Context())
-	if err == nil {
-		t.Error("RunTickCycle() should return error when scheduler-managed")
-	}
+	require.NotNil(t, err, "RunTickCycle() should return error when scheduler-managed")
 }
 
 func TestManager_MultipleHeartbeaters(t *testing.T) {
@@ -85,12 +75,8 @@ func TestManager_MultipleHeartbeaters(t *testing.T) {
 	time.Sleep(15 * time.Millisecond)
 	_ = mgr.RunTickCycle(t.Context())
 
-	if h1.count.Load() == 0 {
-		t.Error("h1 not called")
-	}
-	if h2.count.Load() == 0 {
-		t.Error("h2 not called")
-	}
+	require.NotEqual(t, 0, h1.count.Load())
+	require.NotEqual(t, 0, h2.count.Load())
 
 	stop1()
 	stop2()

@@ -24,7 +24,7 @@ func TestNew_StringToWrapper(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("Name", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	require.NotNil(t, dst)
@@ -39,7 +39,7 @@ func TestNew_WrapperToString(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("Name", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	assert.Equal(t, "hello", dst)
@@ -68,7 +68,7 @@ func TestNew_IgnoreZeroValues(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("Name", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	assert.Nil(t, dst, "dst should remain nil when zero value is ignored")
@@ -82,7 +82,7 @@ func TestNew_IgnoreZeroWrappers(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("Name", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	assert.Equal(t, "", dst, "dst should remain zero when zero wrapper is ignored")

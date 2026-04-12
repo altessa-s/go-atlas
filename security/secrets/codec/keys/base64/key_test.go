@@ -7,6 +7,8 @@ package base64_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/security/secrets/codec/keys/base64"
 )
 
@@ -26,16 +28,10 @@ func TestKeyDecoder_EncodeDecode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			encoded, err := decoder.Encode(tt.original)
-			if err != nil {
-				t.Fatalf("Encode() error = %v", err)
-			}
+			require.NoError(t, err)
 			decoded, err := decoder.Decode(encoded)
-			if err != nil {
-				t.Fatalf("Decode() error = %v", err)
-			}
-			if decoded != tt.original {
-				t.Errorf("Roundtrip failed: got %q, want %q", decoded, tt.original)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.original, decoded)
 		})
 	}
 }
@@ -43,17 +39,14 @@ func TestKeyDecoder_EncodeDecode(t *testing.T) {
 func TestKeyDecoder_Decode_Invalid(t *testing.T) {
 	decoder := base64.NewKeyDecoder()
 	_, err := decoder.Decode("!!!invalid@base64#string$$$")
-	if err == nil {
-		t.Error("Decode() expected error for invalid base64, got nil")
-	}
+	require.Error(t, err)
 }
 
 func TestKeyDecoder_Encode_NeverErrors(t *testing.T) {
 	decoder := base64.NewKeyDecoder()
 	inputs := []string{"", "simple", "with spaces", "unicode: 日本語", "special!@#$%^&*()"}
 	for _, input := range inputs {
-		if _, err := decoder.Encode(input); err != nil {
-			t.Errorf("Encode(%q) returned error %v, expected nil", input, err)
-		}
+		_, err := decoder.Encode(input)
+		require.NoError(t, err)
 	}
 }

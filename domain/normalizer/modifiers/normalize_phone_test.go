@@ -8,6 +8,8 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNormalizePhone(t *testing.T) {
@@ -31,21 +33,13 @@ func TestNormalizePhone(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := NormalizePhone(reflect.ValueOf(tt.in), tt.params)
 			if tt.wantErr != nil {
-				if result.Error == nil {
-					t.Fatalf("expected error %v, got nil", tt.wantErr)
-				}
-				if !errors.Is(result.Error, tt.wantErr) {
-					t.Fatalf("expected error %v, got %v", tt.wantErr, result.Error.Cause)
-				}
+				require.NotNil(t, result.Error)
+				require.True(t, errors.Is(result.Error, tt.wantErr))
 				return
 			}
-			if result.Error != nil {
-				t.Fatalf("unexpected error: %v", result.Error)
-			}
+			require.Nil(t, result.Error)
 			if tt.wantValue != "" {
-				if got := result.Value.String(); got != tt.wantValue {
-					t.Errorf("got %q, want %q", got, tt.wantValue)
-				}
+				require.Equal(t, tt.wantValue, result.Value.String())
 			}
 		})
 	}
@@ -56,7 +50,5 @@ func TestNormalizePhone_Pointer(t *testing.T) {
 
 	phone := "+79161234567"
 	result := NormalizePhone(reflect.ValueOf(&phone), nil)
-	if result.Error != nil {
-		t.Fatalf("unexpected error: %v", result.Error)
-	}
+	require.Nil(t, result.Error)
 }

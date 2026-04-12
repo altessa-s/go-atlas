@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // noopHandler is a trivial ContextHandler used purely to give handlerEntry a
@@ -38,10 +40,8 @@ func makeHandlersWithPriorities(priorities []Priority) []handlerEntry {
 func assertSortedDescending(t *testing.T, handlers []handlerEntry) {
 	t.Helper()
 	for i := 1; i < len(handlers); i++ {
-		if handlers[i-1].priority < handlers[i].priority {
-			t.Fatalf("not descending at i=%d: %d < %d",
-				i, handlers[i-1].priority, handlers[i].priority)
-		}
+		require.GreaterOrEqual(t, handlers[i-1].priority, handlers[i].priority,
+			"not descending at i=%d", i)
 	}
 }
 
@@ -51,10 +51,9 @@ func assertSortedDescending(t *testing.T, handlers []handlerEntry) {
 func assertStable(t *testing.T, handlers []handlerEntry) {
 	t.Helper()
 	for i := 1; i < len(handlers); i++ {
-		if handlers[i-1].priority == handlers[i].priority &&
-			handlers[i-1].timeout > handlers[i].timeout {
-			t.Fatalf("stability broken at i=%d: priority=%d, timeouts %v > %v",
-				i, handlers[i].priority, handlers[i-1].timeout, handlers[i].timeout)
+		if handlers[i-1].priority == handlers[i].priority {
+			require.LessOrEqual(t, handlers[i-1].timeout, handlers[i].timeout,
+				"stability broken at i=%d: priority=%d", i, handlers[i].priority)
 		}
 	}
 }
@@ -128,16 +127,12 @@ func TestSortHandlersByPriorityCounting_HandlesAllSamePriority(t *testing.T) {
 	handlers := makeHandlersWithPriorities(priorities)
 
 	ok := s.sortHandlersByPriorityCounting(handlers)
-	if !ok {
-		t.Fatal("counting sort unexpectedly refused all-same-priority input")
-	}
+	require.True(t, ok, "counting sort unexpectedly refused all-same-priority input")
 
 	// Original registration order must be preserved.
 	for i, h := range handlers {
 		want := time.Duration(i+1) * time.Microsecond
-		if h.timeout != want {
-			t.Errorf("entry %d: timeout=%v, want %v (registration order broken)", i, h.timeout, want)
-		}
+		require.Equal(t, want, h.timeout, "entry %d: registration order broken", i)
 	}
 }
 
@@ -152,9 +147,7 @@ func TestSortHandlersByPriorityCounting_HandlesNegativePriorities(t *testing.T) 
 	})
 
 	ok := s.sortHandlersByPriorityCounting(handlers)
-	if !ok {
-		t.Fatal("counting sort refused valid negative-priority input")
-	}
+	require.True(t, ok, "counting sort refused valid negative-priority input")
 
 	assertSortedDescending(t, handlers)
 	assertStable(t, handlers)
@@ -170,15 +163,11 @@ func TestSortHandlersByPriorityCounting_RejectsSparseRange(t *testing.T) {
 	handlers := makeHandlersWithPriorities([]Priority{0, 2000})
 	original := slices.Clone(handlers)
 
-	if ok := s.sortHandlersByPriorityCounting(handlers); ok {
-		t.Fatal("counting sort accepted pathologically sparse range; guardrail missing")
-	}
+	require.False(t, s.sortHandlersByPriorityCounting(handlers), "counting sort accepted pathologically sparse range; guardrail missing")
 	// The function must not mutate the slice when it refuses.
-	if !slices.EqualFunc(handlers, original, func(a, b handlerEntry) bool {
+	require.True(t, slices.EqualFunc(handlers, original, func(a, b handlerEntry) bool {
 		return a.priority == b.priority && a.timeout == b.timeout
-	}) {
-		t.Error("counting sort mutated handlers before rejecting")
-	}
+	}), "counting sort mutated handlers before rejecting")
 
 	// The dispatcher must fall back and still produce sorted output.
 	s.sortHandlers(handlers)
@@ -194,9 +183,7 @@ func TestSortHandlersByPriorityCounting_RejectsSparseRelativeToN(t *testing.T) {
 	// 3 handlers with range 100 → 100 > 8*3, so counting sort should
 	// refuse and return false.
 	handlers := makeHandlersWithPriorities([]Priority{0, 50, 100})
-	if ok := s.sortHandlersByPriorityCounting(handlers); ok {
-		t.Fatal("counting sort accepted sparse-relative-to-n input; density guard missing")
-	}
+	require.False(t, s.sortHandlersByPriorityCounting(handlers), "counting sort accepted sparse-relative-to-n input; density guard missing")
 }
 
 // BenchmarkSortHandlers_Dispatch benchmarks the real user-facing entry

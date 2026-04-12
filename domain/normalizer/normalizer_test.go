@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/domain/normalizer"
 	"github.com/altessa-s/go-atlas/domain/normalizer/modifiers"
 )
@@ -38,25 +40,14 @@ func TestNormalize(t *testing.T) {
 			NoTag:    "  Keep  ",
 		}
 
-		if err := normalizer.Normalize(user); err != nil {
-			t.Fatalf("Normalize failed: %v", err)
-		}
+		require.NoError(t, normalizer.Normalize(user))
 
-		if user.Name != "antonio" {
-			t.Errorf("Name not normalized: got %q", user.Name)
-		}
-		if user.Email != "test@example.com" {
-			t.Errorf("Email not normalized: got %q", user.Email)
-		}
-		if user.Nickname == nil || *user.Nickname != "NICK" {
-			t.Errorf("Nickname not normalized: got %q", *user.Nickname)
-		}
-		if user.Ignored != "  Keep  " {
-			t.Errorf("Ignored field modified: %q", user.Ignored)
-		}
-		if user.NoTag != "  Keep  " {
-			t.Errorf("NoTag field modified: %q", user.NoTag)
-		}
+		require.Equal(t, "antonio", user.Name)
+		require.Equal(t, "test@example.com", user.Email)
+		require.NotNil(t, user.Nickname)
+		require.Equal(t, "NICK", *user.Nickname)
+		require.Equal(t, "  Keep  ", user.Ignored)
+		require.Equal(t, "  Keep  ", user.NoTag)
 	})
 
 	t.Run("Nested Structs and Slices", func(t *testing.T) {
@@ -71,45 +62,27 @@ func TestNormalize(t *testing.T) {
 			},
 		}
 
-		if err := normalizer.Normalize(g); err != nil {
-			t.Fatalf("Normalize failed: %v", err)
-		}
+		require.NoError(t, normalizer.Normalize(g))
 
-		if g.Label != "Team" {
-			t.Errorf("Label not normalized: %q", g.Label)
-		}
-		if g.Leader.Name != "leader" {
-			t.Errorf("Leader name not normalized: %q", g.Leader.Name)
-		}
-		if len(g.Members) != 2 {
-			t.Fatalf("Members count changed: %d", len(g.Members))
-		}
-		if g.Members[0].Name != "member1" {
-			t.Errorf("Member1 not normalized: %q", g.Members[0].Name)
-		}
+		require.Equal(t, "Team", g.Label)
+		require.Equal(t, "leader", g.Leader.Name)
+		require.Len(t, g.Members, 2)
+		require.Equal(t, "member1", g.Members[0].Name)
 	})
 
 	t.Run("Nil Pointers", func(t *testing.T) {
 		var u *User
-		if err := normalizer.Normalize(u); err == nil {
-			t.Error("Expected error for nil pointer")
-		}
+		require.Error(t, normalizer.Normalize(u))
 
 		validU := &User{Name: "valid"}
 		// Member with nil pointer field (Nickname) should be fine
 		validU.Nickname = nil
-		if err := normalizer.Normalize(validU); err != nil {
-			t.Errorf("Normalize failed for struct with nil field: %v", err)
-		}
+		require.NoError(t, normalizer.Normalize(validU))
 	})
 
 	t.Run("Invalid Input", func(t *testing.T) {
-		if err := normalizer.Normalize(User{}); err == nil {
-			t.Error("Expected error for non-pointer struct")
-		}
-		if err := normalizer.Normalize("string"); err == nil {
-			t.Error("Expected error for non-struct")
-		}
+		require.Error(t, normalizer.Normalize(User{}))
+		require.Error(t, normalizer.Normalize("string"))
 	})
 }
 
@@ -125,12 +98,8 @@ func (c *CustomUser) Normalize() error {
 
 func TestCustomNormalizer(t *testing.T) {
 	c := &CustomUser{Name: "  test  "}
-	if err := normalizer.Normalize(c); err != nil {
-		t.Fatalf("Normalize failed: %v", err)
-	}
-	if c.Name != "CUSTOM: test" {
-		t.Errorf("Custom normalizer not called, got: %q", c.Name)
-	}
+	require.NoError(t, normalizer.Normalize(c))
+	require.Equal(t, "CUSTOM: test", c.Name)
 }
 
 // Global Modifier Registration Test
@@ -146,11 +115,6 @@ func TestCustomModifierRegistration(t *testing.T) {
 	}
 
 	ts := &TestStruct{Val: "val"}
-	if err := normalizer.Normalize(ts); err != nil {
-		t.Fatalf("Normalize failed: %v", err)
-	}
-
-	if ts.Val != "A_val" {
-		t.Errorf("Custom modifier failed: got %q", ts.Val)
-	}
+	require.NoError(t, normalizer.Normalize(ts))
+	require.Equal(t, "A_val", ts.Val)
 }

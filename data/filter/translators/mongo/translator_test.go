@@ -6,9 +6,9 @@ package mongo
 
 import (
 	"encoding/json"
-	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/altessa-s/go-atlas/data/filter"
@@ -74,13 +74,9 @@ func TestTranslator_BasicComparisons(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			node := testhelpers.MustParseFilter(t, tt.expr)
 			result, err := trans.Translate(node)
-			if err != nil {
-				t.Fatalf("Translate() error = %v", err)
-			}
+			require.NoError(t, err)
 			got := bsonToJSON(result)
-			if got != tt.wantJSON {
-				t.Errorf("Translate() = %s, want %s", got, tt.wantJSON)
-			}
+			require.Equal(t, tt.wantJSON, got)
 		})
 	}
 }
@@ -114,13 +110,9 @@ func TestTranslator_LogicalOperators(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			node := testhelpers.MustParseFilter(t, tt.expr)
 			result, err := trans.Translate(node)
-			if err != nil {
-				t.Fatalf("Translate() error = %v", err)
-			}
+			require.NoError(t, err)
 			got := bsonToJSON(result)
-			if got != tt.wantJSON {
-				t.Errorf("Translate() = %s, want %s", got, tt.wantJSON)
-			}
+			require.Equal(t, tt.wantJSON, got)
 		})
 	}
 }
@@ -149,13 +141,9 @@ func TestTranslator_NestedFields(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			node := testhelpers.MustParseFilter(t, tt.expr)
 			result, err := trans.Translate(node)
-			if err != nil {
-				t.Fatalf("Translate() error = %v", err)
-			}
+			require.NoError(t, err)
 			got := bsonToJSON(result)
-			if got != tt.wantJSON {
-				t.Errorf("Translate() = %s, want %s", got, tt.wantJSON)
-			}
+			require.Equal(t, tt.wantJSON, got)
 		})
 	}
 }
@@ -184,13 +172,9 @@ func TestTranslator_InOperator(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			node := testhelpers.MustParseFilter(t, tt.expr)
 			result, err := trans.Translate(node)
-			if err != nil {
-				t.Fatalf("Translate() error = %v", err)
-			}
+			require.NoError(t, err)
 			got := bsonToJSON(result)
-			if got != tt.wantJSON {
-				t.Errorf("Translate() = %s, want %s", got, tt.wantJSON)
-			}
+			require.Equal(t, tt.wantJSON, got)
 		})
 	}
 }
@@ -234,13 +218,9 @@ func TestTranslator_StringFunctions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			node := testhelpers.MustParseFilter(t, tt.expr)
 			result, err := trans.Translate(node)
-			if err != nil {
-				t.Fatalf("Translate() error = %v", err)
-			}
+			require.NoError(t, err)
 			got := bsonToJSON(result)
-			if got != tt.wantJSON {
-				t.Errorf("Translate() = %s, want %s", got, tt.wantJSON)
-			}
+			require.Equal(t, tt.wantJSON, got)
 		})
 	}
 }
@@ -251,17 +231,13 @@ func TestTranslator_MatchesRegexValidation(t *testing.T) {
 	t.Run("valid regex", func(t *testing.T) {
 		node := testhelpers.MustParseFilter(t, `name.matches("^[A-Z][a-z]+$")`)
 		_, err := trans.Translate(node)
-		if err != nil {
-			t.Fatalf("Translate() error = %v for valid regex", err)
-		}
+		require.NoError(t, err)
 	})
 
 	t.Run("invalid regex", func(t *testing.T) {
 		node := testhelpers.MustParseFilter(t, `name.matches("[invalid")`)
 		_, err := trans.Translate(node)
-		if !errors.Is(err, filter.ErrInvalidRegex) {
-			t.Errorf("Translate() error = %v, want %v", err, filter.ErrInvalidRegex)
-		}
+		require.ErrorIs(t, err, filter.ErrInvalidRegex)
 	})
 
 	t.Run("too long regex", func(t *testing.T) {
@@ -270,9 +246,7 @@ func TestTranslator_MatchesRegexValidation(t *testing.T) {
 		// We can't use mustParse for this since CEL parser may reject it.
 		// Instead test the regexPassthrough function directly.
 		_, err := regexPassthrough(string(make([]byte, 1025)))
-		if !errors.Is(err, filter.ErrInvalidRegex) {
-			t.Errorf("regexPassthrough() error = %v, want %v", err, filter.ErrInvalidRegex)
-		}
+		require.ErrorIs(t, err, filter.ErrInvalidRegex)
 		_ = longPattern // avoid unused
 	})
 }
@@ -282,14 +256,9 @@ func TestTranslator_HasFunction(t *testing.T) {
 
 	node := testhelpers.MustParseFilter(t, `has(user.email)`)
 	result, err := trans.Translate(node)
-	if err != nil {
-		t.Fatalf("Translate() error = %v", err)
-	}
+	require.NoError(t, err)
 	got := bsonToJSON(result)
-	want := `{"user.email":{"$exists":true}}`
-	if got != want {
-		t.Errorf("Translate() = %s, want %s", got, want)
-	}
+	require.Equal(t, `{"user.email":{"$exists":true}}`, got)
 }
 
 func TestTranslator_SizeFunction(t *testing.T) {
@@ -316,13 +285,9 @@ func TestTranslator_SizeFunction(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			node := testhelpers.MustParseFilter(t, tt.expr)
 			result, err := trans.Translate(node)
-			if err != nil {
-				t.Fatalf("Translate() error = %v", err)
-			}
+			require.NoError(t, err)
 			got := bsonToJSON(result)
-			if got != tt.want {
-				t.Errorf("Translate() = %s, want %s", got, tt.want)
-			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -356,12 +321,8 @@ func TestTranslator_ComplexExpressions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			node := testhelpers.MustParseFilter(t, tt.expr)
 			result, err := trans.Translate(node)
-			if err != nil {
-				t.Fatalf("Translate() error = %v", err)
-			}
-			if result == nil {
-				t.Error("Translate() returned nil")
-			}
+			require.NoError(t, err)
+			require.NotNil(t, result)
 		})
 	}
 }
@@ -372,17 +333,13 @@ func TestTranslator_WithAllowedFields(t *testing.T) {
 	t.Run("allowed field", func(t *testing.T) {
 		node := testhelpers.MustParseFilter(t, `name == "John"`)
 		_, err := trans.Translate(node)
-		if err != nil {
-			t.Errorf("Translate() error = %v for allowed field", err)
-		}
+		require.NoError(t, err)
 	})
 
 	t.Run("disallowed field", func(t *testing.T) {
 		node := testhelpers.MustParseFilter(t, `email == "test@example.com"`)
 		_, err := trans.Translate(node)
-		if !errors.Is(err, filter.ErrFieldNotAllowed) {
-			t.Errorf("Translate() error = %v, want %v", err, filter.ErrFieldNotAllowed)
-		}
+		require.ErrorIs(t, err, filter.ErrFieldNotAllowed)
 	})
 }
 
@@ -413,13 +370,9 @@ func TestTranslator_WithFieldMapping(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			node := testhelpers.MustParseFilter(t, tt.expr)
 			result, err := trans.Translate(node)
-			if err != nil {
-				t.Fatalf("Translate() error = %v", err)
-			}
+			require.NoError(t, err)
 			got := bsonToJSON(result)
-			if got != tt.wantJSON {
-				t.Errorf("Translate() = %s, want %s", got, tt.wantJSON)
-			}
+			require.Equal(t, tt.wantJSON, got)
 		})
 	}
 }
@@ -430,17 +383,13 @@ func TestTranslator_WithMaxDepth(t *testing.T) {
 	t.Run("within depth", func(t *testing.T) {
 		node := testhelpers.MustParseFilter(t, `name == "John" && age >= 18`)
 		_, err := trans.Translate(node)
-		if err != nil {
-			t.Errorf("Translate() error = %v for valid depth", err)
-		}
+		require.NoError(t, err)
 	})
 
 	t.Run("exceeds depth", func(t *testing.T) {
 		node := testhelpers.MustParseFilter(t, `(name == "John" && age >= 18) && (status == "active" && type == "user")`)
 		_, err := trans.Translate(node)
-		if !errors.Is(err, filter.ErrMaxDepthExceeded) {
-			t.Errorf("Translate() error = %v, want %v", err, filter.ErrMaxDepthExceeded)
-		}
+		require.ErrorIs(t, err, filter.ErrMaxDepthExceeded)
 	})
 }
 
@@ -449,21 +398,13 @@ func TestTranslator_TimestampComparison(t *testing.T) {
 
 	node := testhelpers.MustParseFilter(t, `created_at >= timestamp("2024-01-01T00:00:00Z")`)
 	result, err := trans.Translate(node)
-	if err != nil {
-		t.Fatalf("Translate() error = %v", err)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, result)
 
-	if result == nil {
-		t.Fatal("Translate() returned nil")
-	}
-
-	if createdAt, ok := result["created_at"].(bson.M); ok {
-		if _, hasGte := createdAt["$gte"]; !hasGte {
-			t.Error("expected $gte operator for timestamp comparison")
-		}
-	} else {
-		t.Errorf("unexpected result structure: %+v", result)
-	}
+	createdAt, ok := result["created_at"].(bson.M)
+	require.True(t, ok, "unexpected result structure: %+v", result)
+	_, hasGte := createdAt["$gte"]
+	require.True(t, hasGte, "expected $gte operator for timestamp comparison")
 }
 
 func TestTranslator_NullValue(t *testing.T) {
@@ -471,28 +412,15 @@ func TestTranslator_NullValue(t *testing.T) {
 
 	node := testhelpers.MustParseFilter(t, `deleted_at == null`)
 	result, err := trans.Translate(node)
-	if err != nil {
-		t.Fatalf("Translate() error = %v", err)
-	}
-
-	got := bsonToJSON(result)
-	want := `{"deleted_at":null}`
-	if got != want {
-		t.Errorf("Translate() = %s, want %s", got, want)
-	}
+	require.NoError(t, err)
+	require.Equal(t, `{"deleted_at":null}`, bsonToJSON(result))
 }
 
 func TestNewTranslator_DefaultConfig(t *testing.T) {
 	trans := NewTranslator()
-	if trans == nil {
-		t.Fatal("NewTranslator() returned nil")
-	}
-	if trans.config == nil {
-		t.Fatal("NewTranslator() returned translator with nil config")
-	}
-	if trans.config.MaxDepth() != filter.DefaultMaxDepth {
-		t.Errorf("MaxDepth = %d, want %d", trans.config.MaxDepth(), filter.DefaultMaxDepth)
-	}
+	require.NotNil(t, trans)
+	require.NotNil(t, trans.config)
+	require.Equal(t, filter.DefaultMaxDepth, trans.config.MaxDepth())
 }
 
 func TestTranslatorConfig_ApplyFieldMapping(t *testing.T) {
@@ -503,33 +431,25 @@ func TestTranslatorConfig_ApplyFieldMapping(t *testing.T) {
 
 	t.Run("mapped field", func(t *testing.T) {
 		got := cfg.ApplyFieldMapping("userName")
-		if got != "user_name" {
-			t.Errorf("ApplyFieldMapping(userName) = %q, want %q", got, "user_name")
-		}
+		require.Equal(t, "user_name", got)
 	})
 
 	t.Run("unmapped field", func(t *testing.T) {
 		got := cfg.ApplyFieldMapping("email")
-		if got != "email" {
-			t.Errorf("ApplyFieldMapping(email) = %q, want %q", got, "email")
-		}
+		require.Equal(t, "email", got)
 	})
 
 	t.Run("nil mapping", func(t *testing.T) {
 		cfg2 := filter.NewTranslatorConfig()
 		got := cfg2.ApplyFieldMapping("any")
-		if got != "any" {
-			t.Errorf("ApplyFieldMapping(any) = %q, want %q", got, "any")
-		}
+		require.Equal(t, "any", got)
 	})
 }
 
 func TestTranslatorConfig_IsFieldAllowed(t *testing.T) {
 	t.Run("no allowlist", func(t *testing.T) {
 		cfg := filter.NewTranslatorConfig()
-		if !cfg.IsFieldAllowed("any_field") {
-			t.Error("IsFieldAllowed should return true when no allowlist is set")
-		}
+		require.True(t, cfg.IsFieldAllowed("any_field"), "IsFieldAllowed should return true when no allowlist is set")
 	})
 
 	t.Run("with allowlist", func(t *testing.T) {
@@ -539,12 +459,8 @@ func TestTranslatorConfig_IsFieldAllowed(t *testing.T) {
 			"age":  {},
 		})
 
-		if !cfg.IsFieldAllowed("name") {
-			t.Error("IsFieldAllowed(name) should return true")
-		}
-		if cfg.IsFieldAllowed("email") {
-			t.Error("IsFieldAllowed(email) should return false")
-		}
+		require.True(t, cfg.IsFieldAllowed("name"))
+		require.False(t, cfg.IsFieldAllowed("email"))
 	})
 }
 

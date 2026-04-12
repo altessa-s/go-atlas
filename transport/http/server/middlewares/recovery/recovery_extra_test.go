@@ -10,6 +10,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/recovery"
 )
 
@@ -26,12 +28,8 @@ func TestPanicRecover_NoPanic_StatusOK(t *testing.T) {
 
 	handler(inner).ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusOK {
-		t.Errorf("status = %d, want 200", rr.Code)
-	}
-	if rr.Body.String() != "ok" {
-		t.Errorf("body = %q, want 'ok'", rr.Body.String())
-	}
+	require.Equal(t, http.StatusOK, rr.Code)
+	require.Equal(t, "ok", rr.Body.String())
 }
 
 func TestPanicRecover_WithAllOptions(t *testing.T) {
@@ -40,9 +38,7 @@ func TestPanicRecover_WithAllOptions(t *testing.T) {
 		recovery.WithLogStack(),
 		recovery.WithIgnorePaths("/health", "/ready"),
 	)
-	if handler == nil {
-		t.Fatal("PanicRecover returned nil")
-	}
+	require.NotNil(t, handler)
 }
 
 func TestPanicRecover_IgnorePaths_NoPanic(t *testing.T) {
@@ -56,23 +52,17 @@ func TestPanicRecover_IgnorePaths_NoPanic(t *testing.T) {
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api", nil)
 	handler(inner).ServeHTTP(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Errorf("non-ignored path: status = %d, want 200", rr.Code)
-	}
+	require.Equal(t, http.StatusOK, rr.Code)
 
 	// Ignored path
 	rr2 := httptest.NewRecorder()
 	req2 := httptest.NewRequest(http.MethodGet, "/health", nil)
 	handler(inner).ServeHTTP(rr2, req2)
-	if rr2.Code != http.StatusOK {
-		t.Errorf("ignored path: status = %d, want 200", rr2.Code)
-	}
+	require.Equal(t, http.StatusOK, rr2.Code)
 }
 
 func TestPanicRecover_NilLogger(t *testing.T) {
 	// Should not panic with nil logger
 	handler := recovery.PanicRecover(nil)
-	if handler == nil {
-		t.Fatal("PanicRecover(nil) returned nil")
-	}
+	require.NotNil(t, handler)
 }

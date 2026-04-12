@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
 
@@ -56,7 +58,7 @@ func TestValidate_WithLogger(t *testing.T) {
 		{
 			name: "ignored method logs debug",
 			validator: ValidatorFunc(func(_ context.Context, _ proto.Message) error {
-				t.Fatal("should not be called for ignored method")
+				require.Fail(t, "should not be called for ignored method")
 				return nil
 			}),
 			req:            &emptypb.Empty{},
@@ -106,37 +108,26 @@ func TestValidate_WithLogger(t *testing.T) {
 
 			err := ri.validate(ctx, tt.req)
 
-			if tt.wantError && err == nil {
-				t.Error("expected error but got nil")
-			}
-			if !tt.wantError && err != nil {
-				t.Errorf("unexpected error: %v", err)
-			}
+			require.False(t, tt.wantError && err == nil)
+			require.False(t, !tt.wantError && err != nil)
 
 			// Check log output
 			logOutput := buf.String()
-			if logOutput == "" {
-				t.Fatal("expected log output but got none")
-			}
+			require.NotEqual(t, "", logOutput)
 
 			var logEntry map[string]any
-			if err := json.Unmarshal([]byte(logOutput), &logEntry); err != nil {
-				t.Fatalf("failed to parse log output: %v", err)
-			}
+			err = json.Unmarshal([]byte(logOutput), &logEntry)
+			require.NoError(t, err)
 
 			// Check log level
 			if level, ok := logEntry["level"].(string); ok {
 				expectedLevel := strings.ToUpper(tt.wantLogLevel.String())
-				if level != expectedLevel {
-					t.Errorf("expected log level %s, got %s", expectedLevel, level)
-				}
+				require.Equal(t, expectedLevel, level)
 			}
 
 			// Check log message
 			if msg, ok := logEntry["msg"].(string); ok {
-				if msg != tt.wantLogMessage {
-					t.Errorf("expected log message %q, got %q", tt.wantLogMessage, msg)
-				}
+				require.Equal(t, tt.wantLogMessage, msg)
 			}
 
 			// Check message type is logged for validation success/failure
@@ -144,9 +135,7 @@ func TestValidate_WithLogger(t *testing.T) {
 				if msgType, ok := logEntry["message_type"].(string); ok {
 					if msg, ok := tt.req.(proto.Message); ok {
 						expectedType := string(msg.ProtoReflect().Descriptor().FullName())
-						if msgType != expectedType {
-							t.Errorf("expected message_type %q, got %q", expectedType, msgType)
-						}
+						require.Equal(t, expectedType, msgType)
 					}
 				}
 			}
@@ -172,9 +161,7 @@ func TestValidate_WithoutLogger(t *testing.T) {
 
 	err := ri.validate(ctx, &emptypb.Empty{})
 
-	if err == nil {
-		t.Fatal("expected validation error")
-	}
+	require.NotNil(t, err, "expected validation error")
 
 	// Should not panic even without explicit logger
 }
@@ -210,36 +197,24 @@ func TestValidate_LoggerWithMultipleMessages(t *testing.T) {
 
 	// First call - success
 	err := ri.validate(ctx, &emptypb.Empty{})
-	if err != nil {
-		t.Errorf("first validation should succeed: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Second call - failure
 	err = ri.validate(ctx, &wrapperspb.StringValue{Value: "test"})
-	if err == nil {
-		t.Error("second validation should fail")
-	}
+	require.NotNil(t, err, "second validation should fail")
 
 	// Check we have two log entries
 	logs := strings.Split(strings.TrimSpace(buf.String()), "\n")
-	if len(logs) != 2 {
-		t.Errorf("expected 2 log entries, got %d", len(logs))
-	}
+	require.Len(t, logs, 2)
 
 	// Verify first is success, second is failure
 	var firstLog, secondLog map[string]any
-	if err := json.Unmarshal([]byte(logs[0]), &firstLog); err != nil {
-		t.Fatalf("failed to parse first log: %v", err)
-	}
-	if err := json.Unmarshal([]byte(logs[1]), &secondLog); err != nil {
-		t.Fatalf("failed to parse second log: %v", err)
-	}
+	err = json.Unmarshal([]byte(logs[0]), &firstLog)
+	require.NoError(t, err)
+	err = json.Unmarshal([]byte(logs[1]), &secondLog)
+	require.NoError(t, err)
 
-	if firstLog["msg"] != "validation successful" {
-		t.Errorf("first log should be success, got %v", firstLog["msg"])
-	}
+	require.Equal(t, "validation successful", firstLog["msg"])
 
-	if secondLog["msg"] != "validation failed" {
-		t.Errorf("second log should be failure, got %v", secondLog["msg"])
-	}
+	require.Equal(t, "validation failed", secondLog["msg"])
 }

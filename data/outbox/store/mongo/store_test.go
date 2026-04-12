@@ -7,96 +7,68 @@ package outboxstore
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestDefaultOptions(t *testing.T) {
 	opts := defaultOptions()
-	if opts.collectionName != DefaultCollectionName {
-		t.Fatalf("collectionName = %q, want %q", opts.collectionName, DefaultCollectionName)
-	}
-	if opts.indexTimeout != DefaultIndexCreateTimeout {
-		t.Fatalf("indexTimeout = %v, want %v", opts.indexTimeout, DefaultIndexCreateTimeout)
-	}
-	if opts.ctx != nil {
-		t.Fatal("ctx should be nil by default")
-	}
+	require.Equal(t, DefaultCollectionName, opts.collectionName)
+	require.Equal(t, DefaultIndexCreateTimeout, opts.indexTimeout)
+	require.Equal(t, nil, opts.ctx)
 }
 
 func TestWithCollectionName_String(t *testing.T) {
 	opts := newOptions(WithCollectionName("my_events"))
-	if opts.collectionName != "my_events" {
-		t.Fatalf("collectionName = %q", opts.collectionName)
-	}
+	require.Equal(t, "my_events", opts.collectionName)
 }
 
 func TestWithCollectionName_StringPtr(t *testing.T) {
 	name := "ptr_events"
 	opts := newOptions(WithCollectionName(&name))
-	if opts.collectionName != "ptr_events" {
-		t.Fatalf("collectionName = %q", opts.collectionName)
-	}
+	require.Equal(t, "ptr_events", opts.collectionName)
 }
 
 func TestWithCollectionName_NilPtr(t *testing.T) {
 	opts := newOptions(WithCollectionName[*string](nil))
-	if opts.collectionName != DefaultCollectionName {
-		t.Fatalf("nil ptr should keep default, got %q", opts.collectionName)
-	}
+	require.Equal(t, DefaultCollectionName, opts.collectionName)
 }
 
 func TestWithCollectionName_Trimmed(t *testing.T) {
 	opts := newOptions(WithCollectionName("  spaced  "))
-	if opts.collectionName != "spaced" {
-		t.Fatalf("collectionName = %q", opts.collectionName)
-	}
+	require.Equal(t, "spaced", opts.collectionName)
 }
 
 func TestWithContext(t *testing.T) {
 	ctx := t.Context()
 	opts := newOptions(WithContext(ctx))
-	if opts.ctx != ctx {
-		t.Fatal("ctx not set")
-	}
+	require.Equal(t, ctx, opts.ctx)
 }
 
 func TestWithIndexCreateTimeout(t *testing.T) {
 	opts := newOptions(WithIndexCreateTimeout(30 * time.Second))
-	if opts.indexTimeout != 30*time.Second {
-		t.Fatalf("indexTimeout = %v", opts.indexTimeout)
-	}
+	require.Equal(t, 30*time.Second, opts.indexTimeout)
 }
 
 func TestWithIndexCreateTimeout_Negative(t *testing.T) {
 	opts := newOptions(WithIndexCreateTimeout(-1))
-	if opts.indexTimeout != DefaultIndexCreateTimeout {
-		t.Fatalf("negative should keep default, got %v", opts.indexTimeout)
-	}
+	require.Equal(t, DefaultIndexCreateTimeout, opts.indexTimeout)
 }
 
 func TestWithIndexCreateTimeout_Zero(t *testing.T) {
 	opts := newOptions(WithIndexCreateTimeout(0))
-	if opts.indexTimeout != DefaultIndexCreateTimeout {
-		t.Fatalf("zero should keep default, got %v", opts.indexTimeout)
-	}
+	require.Equal(t, DefaultIndexCreateTimeout, opts.indexTimeout)
 }
 
 func TestConstants(t *testing.T) {
-	if DefaultCollectionName == "" {
-		t.Fatal("DefaultCollectionName is empty")
-	}
-	if DefaultIndexCreateTimeout <= 0 {
-		t.Fatalf("DefaultIndexCreateTimeout = %v", DefaultIndexCreateTimeout)
-	}
+	require.NotEmpty(t, DefaultCollectionName, "DefaultCollectionName is empty")
+	require.True(t, DefaultIndexCreateTimeout > 0, "DefaultIndexCreateTimeout = %v", DefaultIndexCreateTimeout)
 }
 
 func TestEventsIndexes(t *testing.T) {
-	if len(eventsIndexes) == 0 {
-		t.Fatal("eventsIndexes is empty")
-	}
+	require.NotEmpty(t, eventsIndexes, "eventsIndexes is empty")
 	for i, idx := range eventsIndexes {
-		if idx.Keys == nil {
-			t.Fatalf("index %d has nil Keys", i)
-		}
+		require.NotNil(t, idx.Keys, "index %d has nil Keys", i)
 	}
 }
 
@@ -113,12 +85,8 @@ func TestCollectionFieldConstants(t *testing.T) {
 	}
 	seen := make(map[string]bool)
 	for _, f := range fields {
-		if f == "" {
-			t.Fatal("empty field constant")
-		}
-		if seen[f] {
-			t.Fatalf("duplicate field constant: %q", f)
-		}
+		require.NotEmpty(t, f, "empty field constant")
+		require.False(t, seen[f], "duplicate field constant: %q", f)
 		seen[f] = true
 	}
 }

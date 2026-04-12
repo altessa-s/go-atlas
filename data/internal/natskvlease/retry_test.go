@@ -9,6 +9,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/internal/natskvlease"
 )
 
@@ -17,12 +19,8 @@ func TestRetry_Success(t *testing.T) {
 	result, err := natskvlease.Retry(ctx, func() (string, error) {
 		return "ok", nil
 	})
-	if err != nil {
-		t.Fatalf("Retry() error: %v", err)
-	}
-	if result != "ok" {
-		t.Errorf("Retry() = %q, want %q", result, "ok")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "ok", result)
 }
 
 func TestRetry_PermanentError(t *testing.T) {
@@ -32,9 +30,7 @@ func TestRetry_PermanentError(t *testing.T) {
 	_, err := natskvlease.Retry(ctx, func() (string, error) {
 		return "", permErr
 	})
-	if err == nil {
-		t.Fatal("Retry() should return error for permanent errors")
-	}
+	require.Error(t, err)
 }
 
 func TestRetryWithConfig_Success(t *testing.T) {
@@ -44,12 +40,8 @@ func TestRetryWithConfig_Success(t *testing.T) {
 	result, err := natskvlease.RetryWithConfig(ctx, func() (int, error) {
 		return 42, nil
 	}, cfg)
-	if err != nil {
-		t.Fatalf("RetryWithConfig() error: %v", err)
-	}
-	if result != 42 {
-		t.Errorf("RetryWithConfig() = %d, want 42", result)
-	}
+	require.NoError(t, err)
+	require.Equal(t, 42, result)
 }
 
 func TestRetryWithConfig_ZeroRetries(t *testing.T) {
@@ -59,9 +51,7 @@ func TestRetryWithConfig_ZeroRetries(t *testing.T) {
 	_, err := natskvlease.RetryWithConfig(ctx, func() (string, error) {
 		return "", errors.New("fail")
 	}, cfg)
-	if err == nil {
-		t.Fatal("RetryWithConfig() with MaxRetries=0 should return error")
-	}
+	require.Error(t, err)
 }
 
 func TestRetry_ContextCanceled(t *testing.T) {
@@ -71,7 +61,5 @@ func TestRetry_ContextCanceled(t *testing.T) {
 	_, err := natskvlease.Retry(ctx, func() (string, error) {
 		return "", errors.New("should not retry")
 	})
-	if err == nil {
-		t.Fatal("Retry() should return error when context is canceled")
-	}
+	require.Error(t, err)
 }

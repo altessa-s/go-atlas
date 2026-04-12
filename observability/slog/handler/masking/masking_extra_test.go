@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/observability/slog/handler/masking"
 )
 
@@ -25,9 +27,7 @@ func TestNewHandler_WithDefaultMask(t *testing.T) {
 	logger := slog.New(h)
 	logger.Info("test", "password", "secret123")
 
-	if !bytes.Contains(buf.Bytes(), []byte("REDACTED")) {
-		t.Errorf("output = %q, expected REDACTED", buf.String())
-	}
+	require.Contains(t, buf.String(), "REDACTED")
 }
 
 func TestNewHandler_WithMaskNestedFields(t *testing.T) {
@@ -44,10 +44,7 @@ func TestNewHandler_WithMaskNestedFields(t *testing.T) {
 		slog.Group("nested", slog.String("secret", "value")),
 	)
 
-	output := buf.String()
-	if output == "" {
-		t.Error("expected output")
-	}
+	require.NotEmpty(t, buf.String())
 }
 
 func TestNewHandler_WithCaseSensitive(t *testing.T) {
@@ -62,10 +59,7 @@ func TestNewHandler_WithCaseSensitive(t *testing.T) {
 	logger := slog.New(h)
 	logger.Info("test", "Password", "secret")
 
-	output := buf.String()
-	if output == "" {
-		t.Error("expected output")
-	}
+	require.NotEmpty(t, buf.String())
 }
 
 func TestHandler_WithAttrs_Masking(t *testing.T) {
@@ -78,10 +72,7 @@ func TestHandler_WithAttrs_Masking(t *testing.T) {
 	logger := slog.New(h2)
 	logger.Info("test")
 
-	output := buf.String()
-	if output == "" {
-		t.Error("expected output")
-	}
+	require.NotEmpty(t, buf.String())
 }
 
 func TestNewHandler_WithDefaults_Patterns(t *testing.T) {
@@ -92,7 +83,5 @@ func TestNewHandler_WithDefaults_Patterns(t *testing.T) {
 	logger := slog.New(h)
 	logger.Info("test", "password", "mysecret", "email", "user@example.com")
 
-	if bytes.Contains(buf.Bytes(), []byte("mysecret")) {
-		t.Error("password value should be masked")
-	}
+	require.NotContains(t, buf.String(), "mysecret", "password value should be masked")
 }

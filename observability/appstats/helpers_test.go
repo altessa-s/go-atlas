@@ -4,7 +4,11 @@
 
 package appstats
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestMetricsCollection_StartStopRestart(t *testing.T) {
 	StopMetricsCollection() // idempotent
@@ -15,12 +19,8 @@ func TestMetricsCollection_StartStopRestart(t *testing.T) {
 	firstRunning := cachedMetrics.running.Load()
 	metricsMu.Unlock()
 
-	if !firstRunning {
-		t.Fatalf("running=false, want true after StartMetricsCollection")
-	}
-	if firstStop == nil {
-		t.Fatalf("stopChan=nil, want non-nil after StartMetricsCollection")
-	}
+	require.True(t, firstRunning, "running=false, want true after StartMetricsCollection")
+	require.NotNil(t, firstStop, "stopChan=nil, want non-nil after StartMetricsCollection")
 
 	StopMetricsCollection()
 	metricsMu.Lock()
@@ -28,12 +28,8 @@ func TestMetricsCollection_StartStopRestart(t *testing.T) {
 	afterStopRunning := cachedMetrics.running.Load()
 	metricsMu.Unlock()
 
-	if afterStopRunning {
-		t.Fatalf("running=true, want false after StopMetricsCollection")
-	}
-	if afterStopChan != nil {
-		t.Fatalf("stopChan=%v, want nil after StopMetricsCollection", afterStopChan)
-	}
+	require.False(t, afterStopRunning, "running=true, want false after StopMetricsCollection")
+	require.Nil(t, afterStopChan, "stopChan should be nil after StopMetricsCollection")
 
 	StartMetricsCollection()
 	metricsMu.Lock()
@@ -41,15 +37,9 @@ func TestMetricsCollection_StartStopRestart(t *testing.T) {
 	secondRunning := cachedMetrics.running.Load()
 	metricsMu.Unlock()
 
-	if !secondRunning {
-		t.Fatalf("running=false, want true after restart StartMetricsCollection")
-	}
-	if secondStop == nil {
-		t.Fatalf("stopChan=nil, want non-nil after restart StartMetricsCollection")
-	}
-	if secondStop == firstStop {
-		t.Fatalf("stopChan reused across restart, want a fresh channel")
-	}
+	require.True(t, secondRunning, "running=false, want true after restart StartMetricsCollection")
+	require.NotNil(t, secondStop, "stopChan=nil, want non-nil after restart StartMetricsCollection")
+	require.False(t, firstStop == secondStop, "stopChan reused across restart, want a fresh channel")
 
 	StopMetricsCollection()
 }

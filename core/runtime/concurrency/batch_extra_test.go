@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/core/runtime/concurrency"
 )
 
@@ -22,12 +24,8 @@ func TestProcess_Success(t *testing.T) {
 		return nil
 	}, concurrency.WithConcurrency[int](2))
 
-	if err != nil {
-		t.Fatalf("Process() error = %v", err)
-	}
-	if count.Load() != 5 {
-		t.Errorf("processed %d items, want 5", count.Load())
-	}
+	require.NoError(t, err)
+	require.Equal(t, int32(5), count.Load())
 }
 
 func TestProcess_StopOnError(t *testing.T) {
@@ -40,9 +38,7 @@ func TestProcess_StopOnError(t *testing.T) {
 		return nil
 	}, concurrency.WithConcurrency[int](1), concurrency.WithStopOnError[int]())
 
-	if err == nil {
-		t.Fatal("Process() expected error")
-	}
+	require.Error(t, err, "Process() expected error")
 }
 
 func TestProcess_OnSuccessOnError(t *testing.T) {
@@ -59,13 +55,8 @@ func TestProcess_OnSuccessOnError(t *testing.T) {
 		concurrency.WithOnError[int](func(item int, err error) { errorCount.Add(1) }),
 	)
 
-	if errorCount.Load() != 1 {
-		t.Errorf("error count = %d, want 1", errorCount.Load())
-	}
-	// At least 1 success (order may vary with concurrency)
-	if successCount.Load() < 1 {
-		t.Errorf("success count = %d, want >= 1", successCount.Load())
-	}
+	require.Equal(t, int32(1), errorCount.Load())
+	require.GreaterOrEqual(t, successCount.Load(), int32(1))
 }
 
 func TestProcess_EmptyItems(t *testing.T) {
@@ -74,9 +65,7 @@ func TestProcess_EmptyItems(t *testing.T) {
 		return nil
 	}, concurrency.WithConcurrency[int](2))
 
-	if err != nil {
-		t.Fatalf("Process() error = %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestProcess_ContextCanceled(t *testing.T) {
@@ -100,16 +89,12 @@ func TestProcessCollect_Error(t *testing.T) {
 		return "ok", nil
 	}, concurrency.WithConcurrency[int](1), concurrency.WithStopOnError[int]())
 
-	if err == nil {
-		t.Fatal("ProcessCollect() expected error")
-	}
+	require.Error(t, err, "ProcessCollect() expected error")
 }
 
 func TestDefaultLimitFunc(t *testing.T) {
 	limit := concurrency.DefaultLimitFunc()
-	if limit < 1 {
-		t.Errorf("DefaultLimitFunc() = %d, want >= 1", limit)
-	}
+	require.GreaterOrEqual(t, limit, 1)
 }
 
 func TestProcess_WithLimitFunc(t *testing.T) {
@@ -120,10 +105,6 @@ func TestProcess_WithLimitFunc(t *testing.T) {
 		return nil
 	}, concurrency.WithLimitFunc[int](func() int { return 2 }))
 
-	if err != nil {
-		t.Fatalf("Process() error = %v", err)
-	}
-	if count.Load() != 3 {
-		t.Errorf("processed %d items, want 3", count.Load())
-	}
+	require.NoError(t, err)
+	require.Equal(t, int32(3), count.Load())
 }

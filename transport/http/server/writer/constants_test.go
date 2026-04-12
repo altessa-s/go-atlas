@@ -4,16 +4,14 @@
 
 package writer
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestConstants(t *testing.T) {
-	if DefaultFallbackMessage == "" {
-		t.Fatal("DefaultFallbackMessage is empty")
-	}
-	if ContentTypePlainText == "" {
-		t.Fatal("ContentTypePlainText is empty")
-	}
-	if DefaultCodecJSON == "" {
-		t.Fatal("DefaultCodecJSON is empty")
-	}
+	require.NotEqual(t, "", DefaultFallbackMessage)
+	require.NotEqual(t, "", ContentTypePlainText)
+	require.NotEqual(t, "", DefaultCodecJSON)
 }

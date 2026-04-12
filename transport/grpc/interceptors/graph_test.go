@@ -4,7 +4,11 @@
 
 package interceptors
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestGetInterceptorName(t *testing.T) {
 	tests := []struct {
@@ -17,34 +21,23 @@ func TestGetInterceptorName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := getInterceptorName(tt.item); got != tt.want {
-				t.Fatalf("getInterceptorName() = %q, want %q", got, tt.want)
-			}
+			got := getInterceptorName(tt.item)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
 
 func TestOrderByDependencies_Empty(t *testing.T) {
 	result, err := orderByDependencies(nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result != nil {
-		t.Fatalf("expected nil, got %v", result)
-	}
+	require.NoError(t, err)
+	require.Nil(t, result)
 }
 
 func TestWrapUnwrapItems(t *testing.T) {
 	items := []any{&NoOpInterceptor{}, &NoOpClientInterceptor{}}
 	wrapped := wrapItems(items)
-	if len(wrapped) != 2 {
-		t.Fatalf("len = %d", len(wrapped))
-	}
-	if wrapped[0].Name() != "noop" {
-		t.Fatalf("name = %q", wrapped[0].Name())
-	}
+	require.Len(t, wrapped, 2)
+	require.Equal(t, "noop", wrapped[0].Name())
 	unwrapped := unwrapItems(wrapped)
-	if len(unwrapped) != 2 {
-		t.Fatalf("unwrapped len = %d", len(unwrapped))
-	}
+	require.Len(t, unwrapped, 2)
 }

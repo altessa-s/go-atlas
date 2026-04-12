@@ -12,6 +12,8 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	optparser "github.com/altessa-s/go-atlas/tools/codegen/optgen/internal/parser"
 )
 
@@ -29,25 +31,17 @@ func runGeneratorGolden(t *testing.T, optionReturnsError bool, relDir, goldenNam
 	t.Helper()
 
 	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
+	require.True(t, ok, "runtime.Caller failed")
 	dir := filepath.Join(filepath.Dir(thisFile), relDir)
 
 	fset := token.NewFileSet()
 	pkgs, err := parser.ParseDir(fset, dir, nil, parser.ParseComments)
-	if err != nil {
-		t.Fatalf("ParseDir: %v", err)
-	}
+	require.NoError(t, err, "ParseDir")
 	pkg, ok := pkgs["basic"]
-	if !ok {
-		t.Fatalf("expected package %q in %s", "basic", dir)
-	}
+	require.True(t, ok, "expected package %q in %s", "basic", dir)
 
 	result, err := optparser.FindOptFields(pkg, "options", false)
-	if err != nil {
-		t.Fatalf("FindOptFields: %v", err)
-	}
+	require.NoError(t, err, "FindOptFields")
 
 	normalizationMethod := optparser.FindNormalizationMethod(pkg, "options")
 
@@ -67,23 +61,15 @@ func runGeneratorGolden(t *testing.T, optionReturnsError bool, relDir, goldenNam
 		NormalizationMethod: normalizationMethod,
 		GenericInfo:         result.GenericInfo,
 	})
-	if err != nil {
-		t.Fatalf("Generate: %v", err)
-	}
+	require.NoError(t, err, "Generate")
 
 	goldenPath := filepath.Join(dir, goldenName)
 	if os.Getenv("UPDATE_GOLDEN") == "1" {
-		if err := os.WriteFile(goldenPath, got, 0o644); err != nil {
-			t.Fatalf("write golden: %v", err)
-		}
+		require.NoError(t, os.WriteFile(goldenPath, got, 0o644), "write golden")
 	}
 
 	want, err := os.ReadFile(goldenPath)
-	if err != nil {
-		t.Fatalf("read golden %s: %v (set UPDATE_GOLDEN=1 to create)", goldenPath, err)
-	}
+	require.NoError(t, err, "read golden %s (set UPDATE_GOLDEN=1 to create)", goldenPath)
 
-	if string(got) != string(want) {
-		t.Fatalf("golden mismatch: %s (set UPDATE_GOLDEN=1 to update)", goldenPath)
-	}
+	require.Equal(t, string(want), string(got), "golden mismatch: %s (set UPDATE_GOLDEN=1 to update)", goldenPath)
 }

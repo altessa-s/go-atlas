@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/core/runtime/concurrency"
 )
 
@@ -28,9 +30,7 @@ func TestConcurrencyForEnvironment(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(string(tt.env), func(t *testing.T) {
-			if got := concurrency.ConcurrencyForEnvironment(tt.env); got != tt.want {
-				t.Errorf("ConcurrencyForEnvironment(%q) = %d, want %d", tt.env, got, tt.want)
-			}
+			require.Equal(t, tt.want, concurrency.ConcurrencyForEnvironment(tt.env))
 		})
 	}
 }
@@ -40,9 +40,7 @@ func TestMemoryAwareConcurrency(t *testing.T) {
 	// For now, we verify that the returned function returns a sensible value (>= 1).
 	fn := concurrency.MemoryAwareConcurrency(100, 500, 1000)
 	limit := fn()
-	if limit < 1 {
-		t.Errorf("MemoryAwareConcurrency returned < 1: %d", limit)
-	}
+	require.GreaterOrEqual(t, limit, 1)
 }
 
 func TestLoadAwareConcurrency(t *testing.T) {
@@ -60,9 +58,7 @@ func TestLoadAwareConcurrency(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fn := concurrency.LoadAwareConcurrency(func() float64 { return tt.load }, 5.0, 1.0)
-			if got := fn(); got != tt.want {
-				t.Errorf("LoadAwareConcurrency(load=%v) = %d, want %d", tt.load, got, tt.want)
-			}
+			require.Equal(t, tt.want, fn())
 		})
 	}
 }
@@ -81,9 +77,7 @@ func TestAdaptiveConcurrency(t *testing.T) {
 	}
 
 	fn := concurrency.AdaptiveConcurrency(config)
-	if got := fn(); got != base {
-		t.Errorf("AdaptiveConcurrency(baseline) = %d, want %d", got, base)
-	}
+	require.Equal(t, base, fn())
 
 	// Test with high load
 	config.GetSystemLoad = func() float64 { return 20.0 }
@@ -91,9 +85,7 @@ func TestAdaptiveConcurrency(t *testing.T) {
 	// High load -> severe pressure -> * 0.25
 	want := max(1, int(float64(base)*0.25))
 
-	if got := fn(); got != want {
-		t.Errorf("AdaptiveConcurrency(high load) = %d, want %d", got, want)
-	}
+	require.Equal(t, want, fn())
 }
 
 func TestConnectionPoolAwareConcurrency(t *testing.T) {
@@ -102,25 +94,19 @@ func TestConnectionPoolAwareConcurrency(t *testing.T) {
 
 	t.Run("PlentyConnections", func(t *testing.T) {
 		fn := concurrency.ConnectionPoolAwareConcurrency(func() int { return defaultMax + 100 }, 0)
-		if got := fn(); got != defaultMax {
-			t.Errorf("ConnectionPoolAwareConcurrency should appear capped by CPU: got %d, want %d", got, defaultMax)
-		}
+		require.Equal(t, defaultMax, fn())
 	})
 
 	t.Run("LimitedConnections", func(t *testing.T) {
 		limit := 5
 		fn := concurrency.ConnectionPoolAwareConcurrency(func() int { return limit }, 0)
-		if got := fn(); got != limit {
-			t.Errorf("ConnectionPoolAwareConcurrency should be limited by pool: got %d, want %d", got, limit)
-		}
+		require.Equal(t, limit, fn())
 	})
 
 	t.Run("ReservedConnections", func(t *testing.T) {
 		avail := 10
 		reserved := 4
 		fn := concurrency.ConnectionPoolAwareConcurrency(func() int { return avail }, reserved)
-		if got := fn(); got != (avail - reserved) {
-			t.Errorf("ConnectionPoolAwareConcurrency reserved logic failed: got %d, want %d", got, avail-reserved)
-		}
+		require.Equal(t, avail-reserved, fn())
 	})
 }

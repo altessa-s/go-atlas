@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/security/secrets"
 )
 
@@ -33,9 +35,7 @@ func TestValidateKeyLength(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := secrets.ValidateKeyLength(tt.key)
-			if result != tt.expected {
-				t.Errorf("ValidateKeyLength(%q) = %v, expected %v", tt.key, result, tt.expected)
-			}
+			require.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -57,9 +57,7 @@ func TestCreateLockKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := secrets.CreateLockKey(tt.provider, tt.key)
-			if result != tt.expected {
-				t.Errorf("CreateLockKey(%q, %q) = %q, expected %q", tt.provider, tt.key, result, tt.expected)
-			}
+			require.Equal(t, tt.expected, result)
 		})
 	}
 }
@@ -98,11 +96,9 @@ func TestValidateSecretKey(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := secrets.ValidateSecretKey(tt.key)
 			if tt.wantErr {
-				if err != secrets.ErrInvalidKey {
-					t.Errorf("ValidateSecretKey(%q) error = %v, expected %v", tt.key, err, secrets.ErrInvalidKey)
-				}
-			} else if err != nil {
-				t.Errorf("ValidateSecretKey(%q) unexpected error: %v", tt.key, err)
+				require.ErrorIs(t, err, secrets.ErrInvalidKey)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}

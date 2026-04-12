@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	tlsproviders "github.com/altessa-s/go-atlas/security/tlsutils/providers"
 	tlsvault "github.com/altessa-s/go-atlas/security/tlsutils/providers/vault"
 )
@@ -16,12 +18,8 @@ import (
 func TestNew_NoOptions(t *testing.T) {
 	// New with no options creates a provider with zero-value defaults
 	v, err := tlsvault.New()
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	if v == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, v)
 	defer v.Close(t.Context())
 }
 
@@ -44,8 +42,10 @@ func TestNew_WithEndpoint(t *testing.T) {
 				tlsvault.WithRole("test-role"),
 				tlsvault.WithCommonName("test.example.com"),
 			)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("New() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -58,14 +58,10 @@ func TestVault_Type(t *testing.T) {
 		tlsvault.WithRole("test-role"),
 		tlsvault.WithCommonName("test.example.com"),
 	)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	require.NoError(t, err)
 	defer v.Close(t.Context())
 
-	if got := v.Type(); got != tlsproviders.ProviderTypeVault {
-		t.Errorf("Type() = %v, want %v", got, tlsproviders.ProviderTypeVault)
-	}
+	require.Equal(t, tlsproviders.ProviderTypeVault, v.Type())
 }
 
 func TestVault_TLSConfig(t *testing.T) {
@@ -75,24 +71,14 @@ func TestVault_TLSConfig(t *testing.T) {
 		tlsvault.WithRole("test-role"),
 		tlsvault.WithCommonName("test.example.com"),
 	)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	require.NoError(t, err)
 	defer v.Close(t.Context())
 
 	cfg, err := v.TLSConfig()
-	if err != nil {
-		t.Fatalf("TLSConfig() error = %v", err)
-	}
-	if cfg == nil {
-		t.Fatal("TLSConfig() returned nil")
-	}
-	if cfg.GetCertificate == nil {
-		t.Error("TLSConfig() should set GetCertificate")
-	}
-	if cfg.GetClientCertificate == nil {
-		t.Error("TLSConfig() should set GetClientCertificate")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+	require.NotNil(t, cfg.GetCertificate)
+	require.NotNil(t, cfg.GetClientCertificate)
 }
 
 func TestVault_Close(t *testing.T) {
@@ -102,34 +88,22 @@ func TestVault_Close(t *testing.T) {
 		tlsvault.WithRole("test-role"),
 		tlsvault.WithCommonName("test.example.com"),
 	)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
-	if err := v.Close(ctx); err != nil {
-		t.Errorf("Close() error = %v", err)
-	}
+	require.NoError(t, v.Close(ctx))
 }
 
 func TestRSAGenerator_Generate(t *testing.T) {
 	gen := tlsvault.NewRSAGenerator()
 	key, err := gen.Generate()
-	if err != nil {
-		t.Fatalf("Generate() error = %v", err)
-	}
-	if key == nil {
-		t.Fatal("Generate() returned nil key")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, key)
 
 	// Second call should return same key
 	key2, err := gen.Generate()
-	if err != nil {
-		t.Fatalf("Generate() second call error = %v", err)
-	}
-	if key != key2 {
-		t.Error("Generate() should return cached key on subsequent calls")
-	}
+	require.NoError(t, err)
+	require.Equal(t, key, key2)
 }

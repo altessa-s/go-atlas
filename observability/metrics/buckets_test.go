@@ -5,9 +5,10 @@
 package metrics
 
 import (
-	"math"
 	"slices"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateBuckets(t *testing.T) {
@@ -25,20 +26,19 @@ func TestValidateBuckets(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateBuckets(tt.buckets, "test")
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ValidateBuckets() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
 }
 
 func TestMustValidateBuckets_Panics(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("MustValidateBuckets should panic on invalid buckets")
-		}
-	}()
-	MustValidateBuckets([]float64{2.0, 1.0}, "test")
+	require.Panics(t, func() {
+		MustValidateBuckets([]float64{2.0, 1.0}, "test")
+	})
 }
 
 func TestLinearBuckets(t *testing.T) {
@@ -57,18 +57,12 @@ func TestLinearBuckets(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := LinearBuckets(tt.start, tt.width, tt.count)
 			if tt.want == nil {
-				if got != nil {
-					t.Errorf("expected nil, got %v", got)
-				}
+				require.Nil(t, got)
 				return
 			}
-			if len(got) != len(tt.want) {
-				t.Fatalf("len = %d, want %d", len(got), len(tt.want))
-			}
+			require.Len(t, got, len(tt.want))
 			for i := range got {
-				if math.Abs(got[i]-tt.want[i]) > 1e-10 {
-					t.Errorf("bucket[%d] = %f, want %f", i, got[i], tt.want[i])
-				}
+				require.InDelta(t, tt.want[i], got[i], 1e-10, "bucket[%d]", i)
 			}
 		})
 	}
@@ -90,14 +84,10 @@ func TestExponentialBuckets(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := ExponentialBuckets(tt.start, tt.factor, tt.count)
 			if tt.want == nil {
-				if got != nil {
-					t.Errorf("expected nil, got %v", got)
-				}
+				require.Nil(t, got)
 				return
 			}
-			if !slices.Equal(got, tt.want) {
-				t.Errorf("ExponentialBuckets() = %v, want %v", got, tt.want)
-			}
+			require.True(t, slices.Equal(got, tt.want), "ExponentialBuckets() = %v, want %v", got, tt.want)
 		})
 	}
 }
@@ -116,9 +106,7 @@ func TestMergeBuckets(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := MergeBuckets(tt.sets...)
-			if !slices.Equal(got, tt.want) {
-				t.Errorf("MergeBuckets() = %v, want %v", got, tt.want)
-			}
+			require.True(t, slices.Equal(got, tt.want), "MergeBuckets() = %v, want %v", got, tt.want)
 		})
 	}
 }
@@ -127,15 +115,11 @@ func TestCopyBuckets(t *testing.T) {
 	orig := []float64{1, 2, 3}
 	cp := CopyBuckets(orig)
 	cp[0] = 99
-	if orig[0] == 99 {
-		t.Error("CopyBuckets should create independent copy")
-	}
+	require.NotEqual(t, float64(99), orig[0], "CopyBuckets should create independent copy")
 }
 
 func TestDefaultBuckets_StrictlyIncreasing(t *testing.T) {
 	for _, buckets := range [][]float64{DefaultDurationBuckets, DefaultSizeBuckets, DefaultQuantileBuckets} {
-		if err := ValidateBuckets(buckets, "default"); err != nil {
-			t.Errorf("default buckets invalid: %v", err)
-		}
+		require.NoError(t, ValidateBuckets(buckets, "default"))
 	}
 }

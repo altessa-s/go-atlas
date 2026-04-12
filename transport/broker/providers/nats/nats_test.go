@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/nats-io/nats.go"
+	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/transport/broker"
 )
@@ -37,15 +38,13 @@ func TestNats_UnsubscribeAll_ClearsListAndCallsUnsubscribe(t *testing.T) {
 
 	n.UnsubscribeAll()
 
-	if s1.unsubscribed != 1 || s2.unsubscribed != 1 {
-		t.Fatalf("unsubscribed counts: s1=%d s2=%d", s1.unsubscribed, s2.unsubscribed)
-	}
+	require.Equal(t, 1, s1.unsubscribed)
+	require.Equal(t, 1, s2.unsubscribed)
 
 	// Second call should not re-unsubscribe.
 	n.UnsubscribeAll()
-	if s1.unsubscribed != 1 || s2.unsubscribed != 1 {
-		t.Fatalf("unexpected second unsubscribe: s1=%d s2=%d", s1.unsubscribed, s2.unsubscribed)
-	}
+	require.Equal(t, 1, s1.unsubscribed)
+	require.Equal(t, 1, s2.unsubscribed)
 }
 
 func TestWarnIfNoAuth_LogsWarning(t *testing.T) {
@@ -57,9 +56,7 @@ func TestWarnIfNoAuth_LogsWarning(t *testing.T) {
 	conn := &nats.Conn{} // no auth configured
 	warnIfNoAuth(conn)
 
-	if !strings.Contains(buf.String(), "connecting without authentication") {
-		t.Errorf("expected warning log, got: %s", buf.String())
-	}
+	require.True(t, strings.Contains(buf.String(), "connecting without authentication"), "expected warning log, got: %s", buf.String())
 }
 
 func TestWarnIfNoAuth_SilentWithToken(t *testing.T) {
@@ -72,7 +69,5 @@ func TestWarnIfNoAuth_SilentWithToken(t *testing.T) {
 	conn.Opts.Token = "secret"
 	warnIfNoAuth(conn)
 
-	if buf.Len() != 0 {
-		t.Errorf("expected no warning when token is set, got: %s", buf.String())
-	}
+	require.Equal(t, 0, buf.Len())
 }

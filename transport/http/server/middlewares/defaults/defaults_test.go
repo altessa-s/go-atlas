@@ -4,16 +4,16 @@
 
 package defaults
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestIgnorePatterns(t *testing.T) {
-	if len(IgnorePatterns) == 0 {
-		t.Fatal("IgnorePatterns should not be empty")
-	}
-	for i, p := range IgnorePatterns {
-		if p == nil {
-			t.Fatalf("IgnorePatterns[%d] is nil", i)
-		}
+	require.NotEmpty(t, IgnorePatterns)
+	for _, p := range IgnorePatterns {
+		require.NotNil(t, p)
 	}
 }
 
@@ -36,9 +36,7 @@ func TestIgnorePatterns_MatchHealthAndMetrics(t *testing.T) {
 					break
 				}
 			}
-			if matched != tt.want {
-				t.Fatalf("path %q: matched=%v, want=%v", tt.path, matched, tt.want)
-			}
+			require.Equal(t, tt.want, matched)
 		})
 	}
 }

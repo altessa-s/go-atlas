@@ -8,6 +8,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
 )
 
@@ -16,16 +18,12 @@ func TestServerConditionalInterceptor(t *testing.T) {
 
 	t.Run("true_returns_real", func(t *testing.T) {
 		i := ServerConditionalInterceptor(true, real)
-		if i != real {
-			t.Fatal("expected real interceptor")
-		}
+		require.Equal(t, real, i)
 	})
 
 	t.Run("false_returns_noop", func(t *testing.T) {
 		i := ServerConditionalInterceptor(false, real)
-		if i.Name() != "noop" {
-			t.Fatalf("expected noop, got %q", i.Name())
-		}
+		require.Equal(t, "noop", i.Name())
 	})
 }
 
@@ -36,20 +34,16 @@ func TestServerConditionalInterceptorFunc(t *testing.T) {
 			called = true
 			return &NoOpInterceptor{}
 		})
-		if !called {
-			t.Fatal("fn should be called")
-		}
+		require.True(t, called, "fn should be called")
 		_ = i
 	})
 
 	t.Run("false_skips_fn", func(t *testing.T) {
 		i := ServerConditionalInterceptorFunc(false, func() ServerInterceptor {
-			t.Fatal("fn should not be called")
+			require.Fail(t, "fn should not be called")
 			return nil
 		})
-		if i.Name() != "noop" {
-			t.Fatal("expected noop")
-		}
+		require.Equal(t, "noop", i.Name())
 	})
 }
 
@@ -58,16 +52,13 @@ func TestServerMatchInterceptor(t *testing.T) {
 
 	t.Run("match_returns_real", func(t *testing.T) {
 		i := ServerMatchInterceptor(MatchFunc(func() bool { return true }), real)
-		if i != real {
-			t.Fatal("expected real interceptor")
-		}
+		require.Equal(t, real, i)
 	})
 
 	t.Run("no_match_returns_noop", func(t *testing.T) {
 		i := ServerMatchInterceptor(MatchFunc(func() bool { return false }), real)
-		if _, ok := i.(*NoOpInterceptor); !ok {
-			t.Fatal("expected noop")
-		}
+		_, ok := i.(*NoOpInterceptor)
+		require.True(t, ok, "expected noop")
 	})
 }
 
@@ -81,7 +72,7 @@ func TestServerMatchInterceptorFunc(t *testing.T) {
 
 	t.Run("no_match_skips_fn", func(t *testing.T) {
 		i := ServerMatchInterceptorFunc(func() bool { return false }, func() ServerInterceptor {
-			t.Fatal("should not be called")
+			require.Fail(t, "should not be called")
 			return nil
 		})
 		_ = i
@@ -94,14 +85,12 @@ func TestDrivenInterceptor_Name(t *testing.T) {
 
 	// NoopDriver doesn't implement Interceptor, so name should be "driven"
 	t.Run("server", func(t *testing.T) {
-		if name := ServerDrivenInterceptor(inner).Name(); name != "driven" {
-			t.Fatalf("Name() = %q, want %q", name, "driven")
-		}
+		name := ServerDrivenInterceptor(inner).Name()
+		require.Equal(t, "driven", name)
 	})
 	t.Run("client", func(t *testing.T) {
-		if name := ClientDrivenInterceptor(inner).Name(); name != "driven" {
-			t.Fatalf("Name() = %q, want %q", name, "driven")
-		}
+		name := ClientDrivenInterceptor(inner).Name()
+		require.Equal(t, "driven", name)
 	})
 }
 
@@ -164,26 +153,18 @@ func TestDrivenInterceptor_Dependencies(t *testing.T) {
 func assertDependencies(t *testing.T, d dependencyDeclarer, want []string) {
 	t.Helper()
 	got := d.Dependencies()
-	if len(got) != len(want) {
-		t.Fatalf("Dependencies() = %v, want %v", got, want)
-	}
+	require.Equal(t, len(want), len(got))
 	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("Dependencies()[%d] = %q, want %q", i, got[i], want[i])
-		}
+		require.Equal(t, want[i], got[i])
 	}
 }
 
 func TestOrderServerInterceptors(t *testing.T) {
 	a := &NoOpInterceptor{}
 	result, err := OrderServerInterceptors(a, a)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	// Duplicates should be removed
-	if len(result) != 1 {
-		t.Fatalf("len = %d, want 1", len(result))
-	}
+	require.Len(t, result, 1)
 }
 
 func TestOrderServerInterceptors_DrivenDependencies(t *testing.T) {
@@ -199,17 +180,11 @@ func TestOrderServerInterceptors_DrivenDependencies(t *testing.T) {
 		ServerDrivenInterceptor(auth),
 		ServerDrivenInterceptor(md),
 	)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	want := []string{"metadata", "auth", "idempotency"}
-	if len(result) != len(want) {
-		t.Fatalf("len = %d, want %d", len(result), len(want))
-	}
+	require.Equal(t, len(want), len(result))
 	for i, ic := range result {
-		if ic.Name() != want[i] {
-			t.Fatalf("result[%d].Name() = %q, want %q", i, ic.Name(), want[i])
-		}
+		require.Equal(t, want[i], ic.Name())
 	}
 }

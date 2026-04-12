@@ -7,6 +7,8 @@ package slog
 import (
 	"log/slog"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func FuzzMaskingReplaceAttr(f *testing.F) {
@@ -18,8 +20,8 @@ func FuzzMaskingReplaceAttr(f *testing.F) {
 		fn := MaskingReplaceAttr([]string{key}, mask)
 		attr := slog.String(key, value)
 		result := fn(nil, attr)
-		if key != "" && result.Value.String() != mask {
-			t.Errorf("expected masked value %q, got %q", mask, result.Value.String())
+		if key != "" {
+			assert.Equal(t, mask, result.Value.String())
 		}
 	})
 }
@@ -31,8 +33,8 @@ func FuzzString(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, key, value string) {
 		attr := String(key, value)
-		if value == "" && attr.Key != "" {
-			t.Error("empty value should produce empty attr")
+		if value == "" {
+			assert.Empty(t, attr.Key, "empty value should produce empty attr")
 		}
 	})
 }

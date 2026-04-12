@@ -7,6 +7,8 @@ package maps_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 )
 
@@ -19,13 +21,11 @@ func FuzzMerge(f *testing.F) {
 
 		merged := coremaps.Merge(src, dst)
 
-		if len(merged) < 1 {
-			t.Errorf("Merge result too small")
-		}
+		assert.GreaterOrEqual(t, len(merged), 1, "Merge result too small")
 
-		if val, ok := merged[k1]; !ok || val != v1 {
-			t.Errorf("Merge src value missing/wrong")
-		}
+		val, ok := merged[k1]
+		assert.True(t, ok, "Merge src key missing")
+		assert.Equal(t, v1, val, "Merge src value wrong")
 	})
 }
 

@@ -8,6 +8,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"golang.org/x/oauth2"
 
 	"google.golang.org/grpc/codes"
@@ -17,19 +19,14 @@ import (
 func TestStaticToken_GetRequestMetadata(t *testing.T) {
 	st := NewStaticToken("my-token")
 	md, err := st.GetRequestMetadata(t.Context())
-	if err != nil {
-		t.Fatalf("error = %v", err)
-	}
-	if got := md["authorization"]; got != "Bearer my-token" {
-		t.Fatalf("authorization = %q", got)
-	}
+	require.NoError(t, err)
+	got := md["authorization"]
+	require.Equal(t, "Bearer my-token", got)
 }
 
 func TestStaticToken_RequireTransportSecurity(t *testing.T) {
 	st := NewStaticToken("tok")
-	if !st.RequireTransportSecurity() {
-		t.Fatal("RequireTransportSecurity() = false")
-	}
+	require.True(t, st.RequireTransportSecurity(), "RequireTransportSecurity() = false")
 }
 
 func TestInsecureTokenCredentials_GetRequestMetadata(t *testing.T) {
@@ -37,37 +34,27 @@ func TestInsecureTokenCredentials_GetRequestMetadata(t *testing.T) {
 	creds := NewInsecureTokenCredentials(ts)
 
 	md, err := creds.GetRequestMetadata(t.Context())
-	if err != nil {
-		t.Fatalf("error = %v", err)
-	}
-	if got := md["authorization"]; got != "Bearer oauth-token" {
-		t.Fatalf("authorization = %q", got)
-	}
+	require.NoError(t, err)
+	got := md["authorization"]
+	require.Equal(t, "Bearer oauth-token", got)
 }
 
 func TestInsecureTokenCredentials_RequireTransportSecurity(t *testing.T) {
 	ts := oauth2.StaticTokenSource(&oauth2.Token{})
 	creds := NewInsecureTokenCredentials(ts)
-	if creds.RequireTransportSecurity() {
-		t.Fatal("RequireTransportSecurity() = true")
-	}
+	require.False(t, creds.RequireTransportSecurity(), "RequireTransportSecurity() = true")
 }
 
 func TestFieldError_Error(t *testing.T) {
 	fe := &FieldError{Field: "email", Message: "invalid format"}
-	if got := fe.Error(); got != "[email]: invalid format" {
-		t.Fatalf("Error() = %q", got)
-	}
+	got := fe.Error()
+	require.Equal(t, "[email]: invalid format", got)
 }
 
 func TestNewFieldError(t *testing.T) {
 	fe := &FieldError{Field: "name", Message: "required"}
-	if fe.Field != "name" {
-		t.Fatalf("Field = %q", fe.Field)
-	}
-	if fe.Message != "required" {
-		t.Fatalf("Message = %q", fe.Message)
-	}
+	require.Equal(t, "name", fe.Field)
+	require.Equal(t, "required", fe.Message)
 }
 
 func TestError_CodeChecks(t *testing.T) {
@@ -96,65 +83,43 @@ func TestError_CodeChecks(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.method, func(t *testing.T) {
 			e := &Error{grpcCode: tt.code}
-			if e.Code() != tt.code {
-				t.Fatalf("Code() = %v", e.Code())
-			}
+			require.Equal(t, tt.code, e.Code())
 		})
 	}
 }
 
 func TestError_IsNotFound(t *testing.T) {
 	e := &Error{grpcCode: codes.NotFound}
-	if !e.IsNotFound() {
-		t.Fatal("IsNotFound() = false")
-	}
+	require.True(t, e.IsNotFound(), "IsNotFound() = false")
 	e2 := &Error{grpcCode: codes.Internal}
-	if e2.IsNotFound() {
-		t.Fatal("Internal.IsNotFound() = true")
-	}
+	require.False(t, e2.IsNotFound(), "Internal.IsNotFound() = true")
 }
 
 func TestError_IsValidationError(t *testing.T) {
 	e := &Error{grpcCode: codes.InvalidArgument, Fields: []FieldError{{Field: "f", Message: "m"}}}
-	if !e.IsValidationError() {
-		t.Fatal("IsValidationError() = false")
-	}
+	require.True(t, e.IsValidationError(), "IsValidationError() = false")
 
 	e2 := &Error{grpcCode: codes.InvalidArgument}
-	if e2.IsValidationError() {
-		t.Fatal("no fields should not be validation error")
-	}
+	require.False(t, e2.IsValidationError(), "no fields should not be validation error")
 }
 
 func TestError_ReasonIs(t *testing.T) {
 	e := &Error{Reason: "USER_NOT_FOUND"}
-	if !e.ReasonIs("USER_NOT_FOUND") {
-		t.Fatal("ReasonIs() = false")
-	}
-	if e.ReasonIs("OTHER") {
-		t.Fatal("ReasonIs(OTHER) = true")
-	}
+	require.True(t, e.ReasonIs("USER_NOT_FOUND"), "ReasonIs() = false")
+	require.False(t, e.ReasonIs("OTHER"), "ReasonIs(OTHER) = true")
 }
 
 func TestError_ReasonIsOneof(t *testing.T) {
 	e := &Error{Reason: "B"}
-	if !e.ReasonIsOneof("A", "B", "C") {
-		t.Fatal("ReasonIsOneof() = false")
-	}
-	if e.ReasonIsOneof("X", "Y") {
-		t.Fatal("ReasonIsOneof(X,Y) = true")
-	}
+	require.True(t, e.ReasonIsOneof("A", "B", "C"), "ReasonIsOneof() = false")
+	require.False(t, e.ReasonIsOneof("X", "Y"), "ReasonIsOneof(X,Y) = true")
 }
 
 func TestError_HasFields(t *testing.T) {
 	e := &Error{Fields: []FieldError{{Field: "f"}}}
-	if !e.HasFields() {
-		t.Fatal("HasFields() = false")
-	}
+	require.True(t, e.HasFields(), "HasFields() = false")
 	e2 := &Error{}
-	if e2.HasFields() {
-		t.Fatal("empty.HasFields() = true")
-	}
+	require.False(t, e2.HasFields(), "empty.HasFields() = true")
 }
 
 func TestError_GetField(t *testing.T) {
@@ -164,22 +129,17 @@ func TestError_GetField(t *testing.T) {
 	}}
 
 	f := e.GetField("email")
-	if f == nil || f.Message != "invalid" {
-		t.Fatalf("GetField(email) = %v", f)
-	}
+	require.NotNil(t, f, "GetField(email) = %v", f)
+	require.Equal(t, "invalid", f.Message)
 
-	if e.GetField("missing") != nil {
-		t.Fatal("GetField(missing) should return nil")
-	}
+	require.Nil(t, e.GetField("missing"))
 }
 
 func TestError_Error_String(t *testing.T) {
 	t.Run("with_message", func(t *testing.T) {
 		e := &Error{grpcCode: codes.NotFound, Message: "item not found"}
 		got := e.Error()
-		if got != "NotFound: item not found" {
-			t.Fatalf("Error() = %q", got)
-		}
+		require.Equal(t, "NotFound: item not found", got)
 	})
 
 	t.Run("validation", func(t *testing.T) {
@@ -187,60 +147,40 @@ func TestError_Error_String(t *testing.T) {
 			{Field: "email", Message: "invalid"},
 		}}
 		got := e.Error()
-		if got != "validation error: [email]: invalid" {
-			t.Fatalf("Error() = %q", got)
-		}
+		require.Equal(t, "validation error: [email]: invalid", got)
 	})
 }
 
 func TestError_GRPCStatus(t *testing.T) {
 	e := &Error{grpcCode: codes.NotFound, Message: "not found"}
 	st := e.GRPCStatus()
-	if st.Code() != codes.NotFound {
-		t.Fatalf("Code() = %v", st.Code())
-	}
+	require.Equal(t, codes.NotFound, st.Code())
 }
 
 func TestParseError_Nil(t *testing.T) {
-	if ParseError(nil) != nil {
-		t.Fatal("ParseError(nil) should return nil")
-	}
+	require.Nil(t, ParseError(nil))
 }
 
 func TestParseError_NonGRPC(t *testing.T) {
-	if ParseError(errors.New("plain error")) != nil {
-		t.Fatal("ParseError(plain) should return nil")
-	}
+	require.Nil(t, ParseError(errors.New("plain error")))
 }
 
 func TestParseError_GRPC(t *testing.T) {
 	st := status.New(codes.NotFound, "not found")
 	e := ParseError(st.Err())
-	if e == nil {
-		t.Fatal("ParseError returned nil")
-	}
-	if !e.IsNotFound() {
-		t.Fatal("IsNotFound() = false")
-	}
+	require.NotNil(t, e, "ParseError returned nil")
+	require.True(t, e.IsNotFound(), "IsNotFound() = false")
 }
 
 func TestIsClientError(t *testing.T) {
 	e := &Error{grpcCode: codes.NotFound}
-	if !IsClientError(e) {
-		t.Fatal("IsClientError() = false")
-	}
-	if IsClientError(errors.New("plain")) {
-		t.Fatal("IsClientError(plain) = true")
-	}
+	require.True(t, IsClientError(e), "IsClientError() = false")
+	require.False(t, IsClientError(errors.New("plain")), "IsClientError(plain) = true")
 }
 
 func TestAsClientError(t *testing.T) {
 	e := &Error{grpcCode: codes.NotFound}
 	got := AsClientError(e)
-	if got == nil {
-		t.Fatal("AsClientError() = nil")
-	}
-	if AsClientError(errors.New("plain")) != nil {
-		t.Fatal("AsClientError(plain) should return nil")
-	}
+	require.NotNil(t, got, "AsClientError() = nil")
+	require.Nil(t, AsClientError(errors.New("plain")))
 }

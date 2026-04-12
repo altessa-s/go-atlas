@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	corehttp "github.com/altessa-s/go-atlas/core/net/http"
 )
 
@@ -21,13 +23,7 @@ func TestRoundTripperFunc(t *testing.T) {
 	req, _ := http.NewRequest("GET", "http://example.com", nil)
 	resp, err := fn.RoundTrip(req)
 
-	if err != nil {
-		t.Fatalf("RoundTrip failed: %v", err)
-	}
-	if !called {
-		t.Error("RoundTripperFunc not called")
-	}
-	if resp.StatusCode != 200 {
-		t.Errorf("Status = %d, want 200", resp.StatusCode)
-	}
+	require.NoError(t, err, "RoundTrip failed")
+	require.True(t, called, "RoundTripperFunc not called")
+	require.Equal(t, 200, resp.StatusCode)
 }

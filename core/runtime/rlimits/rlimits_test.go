@@ -12,12 +12,12 @@ package rlimits
 import (
 	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateOptions_AcceptsEmpty(t *testing.T) {
-	if err := validateOptions(newOptions()); err != nil {
-		t.Errorf("empty options: got %v, want nil", err)
-	}
+	require.NoError(t, validateOptions(newOptions()))
 }
 
 func TestValidateOptions_AcceptsPositiveValues(t *testing.T) {
@@ -28,9 +28,7 @@ func TestValidateOptions_AcceptsPositiveValues(t *testing.T) {
 		WithMaxFileSizeBytes(1<<30),
 		WithDisableCoreDumps(),
 	)
-	if err := validateOptions(o); err != nil {
-		t.Errorf("positive values: got %v, want nil", err)
-	}
+	require.NoError(t, validateOptions(o))
 }
 
 func TestValidateOptions_AcceptsZero(t *testing.T) {
@@ -39,9 +37,7 @@ func TestValidateOptions_AcceptsZero(t *testing.T) {
 		WithMemoryBytes(0),
 		WithMaxOpenFiles(0),
 	)
-	if err := validateOptions(o); err != nil {
-		t.Errorf("zero values: got %v, want nil", err)
-	}
+	require.NoError(t, validateOptions(o))
 }
 
 func TestValidateOptions_RejectsNegative(t *testing.T) {
@@ -57,12 +53,8 @@ func TestValidateOptions_RejectsNegative(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := validateOptions(newOptions(tc.opts...))
-			if err == nil {
-				t.Fatalf("validateOptions: got nil, want error")
-			}
-			if !errors.Is(err, ErrInvalidOption) {
-				t.Errorf("validateOptions: got %v, want wrap of ErrInvalidOption", err)
-			}
+			require.Error(t, err)
+			require.ErrorIs(t, err, ErrInvalidOption)
 		})
 	}
 }
@@ -73,18 +65,10 @@ func TestValidateOptions_RejectsNegative(t *testing.T) {
 // contract that validation happens before [apply] is called.
 func TestApply_ValidatesBeforePlatformDispatch(t *testing.T) {
 	err := Apply(WithMemoryBytes(-1))
-	if err == nil {
-		t.Fatalf("Apply: got nil, want validation error")
-	}
-	if !errors.Is(err, ErrInvalidOption) {
-		t.Errorf("Apply: got %v, want wrap of ErrInvalidOption", err)
-	}
-	if errors.Is(err, ErrUnsupported) {
-		t.Errorf("Apply: got ErrUnsupported, want ErrInvalidOption")
-	}
-	if errors.Is(err, ErrFailed) {
-		t.Errorf("Apply: got ErrFailed, want ErrInvalidOption")
-	}
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrInvalidOption)
+	require.NotErrorIs(t, err, ErrUnsupported)
+	require.NotErrorIs(t, err, ErrFailed)
 }
 
 // TestSentinels_AreDistinct guards against a future refactor that
@@ -96,8 +80,6 @@ func TestSentinels_AreDistinct(t *testing.T) {
 		{ErrUnsupported, ErrInvalidOption},
 	}
 	for _, p := range pairs {
-		if errors.Is(p[0], p[1]) {
-			t.Errorf("%v should not match %v", p[0], p[1])
-		}
+		require.False(t, errors.Is(p[0], p[1]), "%v should not match %v", p[0], p[1])
 	}
 }

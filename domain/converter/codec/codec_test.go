@@ -7,22 +7,20 @@ package convcodec
 import (
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewCodecsSet_Empty(t *testing.T) {
 	s := NewCodecsSet()
-	if s.HasCodecs() {
-		t.Fatal("expected no codecs")
-	}
+	require.False(t, s.HasCodecs(), "expected no codecs")
 }
 
 func TestSet_Add(t *testing.T) {
 	s := NewCodecsSet()
 	c := Codec(func(string, reflect.Value, reflect.Value, CodecHandler) {})
 	s.Add(c)
-	if !s.HasCodecs() {
-		t.Fatal("expected codecs after Add")
-	}
+	require.True(t, s.HasCodecs(), "expected codecs after Add")
 }
 
 func TestSet_Run_NoCodecs(t *testing.T) {
@@ -31,9 +29,7 @@ func TestSet_Run_NoCodecs(t *testing.T) {
 	s.Run("f", reflect.ValueOf(1), reflect.ValueOf(2), func(_ string, _, _ reflect.Value) {
 		called = true
 	})
-	if !called {
-		t.Fatal("expected finishHandler to be called when no codecs")
-	}
+	require.True(t, called, "expected finishHandler to be called when no codecs")
 }
 
 func TestSet_Run_SingleCodec(t *testing.T) {
@@ -48,12 +44,8 @@ func TestSet_Run_SingleCodec(t *testing.T) {
 	s.Run("f", reflect.ValueOf(1), reflect.ValueOf(2), func(_ string, _, _ reflect.Value) {
 		finishCalled = true
 	})
-	if !codecCalled {
-		t.Fatal("expected codec to be called")
-	}
-	if !finishCalled {
-		t.Fatal("expected finishHandler to be called")
-	}
+	require.True(t, codecCalled, "expected codec to be called")
+	require.True(t, finishCalled, "expected finishHandler to be called")
 }
 
 func TestSet_Run_ChainOrder(t *testing.T) {
@@ -72,9 +64,7 @@ func TestSet_Run_ChainOrder(t *testing.T) {
 		order = append(order, 3)
 	})
 
-	if len(order) != 3 || order[0] != 1 || order[1] != 2 || order[2] != 3 {
-		t.Fatalf("expected order [1,2,3], got %v", order)
-	}
+	require.Equal(t, []int{1, 2, 3}, order)
 }
 
 func TestSet_Run_CodecStopsChain(t *testing.T) {
@@ -82,11 +72,11 @@ func TestSet_Run_CodecStopsChain(t *testing.T) {
 		// does NOT call next
 	})
 	c2 := Codec(func(_ string, _, _ reflect.Value, _ CodecHandler) {
-		t.Fatal("c2 should not be called")
+		require.Fail(t, "c2 should not be called")
 	})
 	s := NewCodecsSet(c1, c2)
 
 	s.Run("f", reflect.ValueOf(1), reflect.ValueOf(2), func(_ string, _, _ reflect.Value) {
-		t.Fatal("finishHandler should not be called")
+		require.Fail(t, "finishHandler should not be called")
 	})
 }

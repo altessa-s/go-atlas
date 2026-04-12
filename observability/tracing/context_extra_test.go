@@ -7,24 +7,20 @@ package tracing_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/observability/tracing"
 )
 
 func TestSpanFromContext_Empty(t *testing.T) {
 	span := tracing.SpanFromContext(t.Context())
-	if span == nil {
-		t.Fatal("SpanFromContext should return noop span, not nil")
-	}
-	if span.IsRecording() {
-		t.Error("noop span should not be recording")
-	}
+	require.NotNil(t, span, "SpanFromContext should return noop span, not nil")
+	require.False(t, span.IsRecording(), "noop span should not be recording")
 }
 
 func TestSpanFromContext_NilContext(t *testing.T) {
 	span := tracing.SpanFromContext(nil)
-	if span == nil {
-		t.Fatal("SpanFromContext(nil) should return noop span")
-	}
+	require.NotNil(t, span, "SpanFromContext(nil) should return noop span")
 }
 
 func TestContextWithSpan_RoundTrip(t *testing.T) {
@@ -34,10 +30,7 @@ func TestContextWithSpan_RoundTrip(t *testing.T) {
 
 	ctx = tracing.ContextWithSpan(ctx, span)
 	got := tracing.SpanFromContext(ctx)
-
-	if got == nil {
-		t.Fatal("SpanFromContext should return stored span")
-	}
+	require.NotNil(t, got, "SpanFromContext should return stored span")
 }
 
 func TestContextWithSpan_NilContext(t *testing.T) {
@@ -47,33 +40,23 @@ func TestContextWithSpan_NilContext(t *testing.T) {
 
 	ctx := tracing.ContextWithSpan(nil, span)
 	got := tracing.SpanFromContext(ctx)
-	if got == nil {
-		t.Fatal("SpanFromContext should return stored span")
-	}
+	require.NotNil(t, got, "SpanFromContext should return stored span")
 }
 
 func TestSpanContextFromContext_Empty(t *testing.T) {
 	sc := tracing.SpanContextFromContext(t.Context())
-	if sc == nil {
-		t.Fatal("SpanContextFromContext should not return nil")
-	}
-	if sc.IsValid() {
-		t.Error("empty context should return invalid SpanContext")
-	}
+	require.NotNil(t, sc, "SpanContextFromContext should not return nil")
+	require.False(t, sc.IsValid(), "empty context should return invalid SpanContext")
 }
 
 func TestTraceIDFromContext_Empty(t *testing.T) {
 	id := tracing.TraceIDFromContext(t.Context())
-	if id != "" {
-		t.Errorf("TraceIDFromContext(empty) = %q, want empty", id)
-	}
+	require.Empty(t, id, "TraceIDFromContext(empty) should be empty")
 }
 
 func TestSpanIDFromContext_Empty(t *testing.T) {
 	id := tracing.SpanIDFromContext(t.Context())
-	if id != "" {
-		t.Errorf("SpanIDFromContext(empty) = %q, want empty", id)
-	}
+	require.Empty(t, id, "SpanIDFromContext(empty) should be empty")
 }
 
 func TestNoopSpan_AllMethods(t *testing.T) {
@@ -102,19 +85,13 @@ func TestNoopSpan_AllMethods(t *testing.T) {
 func TestNoopTracer_WithScope(t *testing.T) {
 	tracer := tracing.Noop()
 	scoped := tracer.WithScope("sub")
-	if !tracing.IsNoop(scoped) {
-		t.Error("WithScope on noop should return noop")
-	}
+	require.True(t, tracing.IsNoop(scoped), "WithScope on noop should return noop")
 }
 
 func TestNoopTracer_Shutdown(t *testing.T) {
-	if err := tracing.Noop().Shutdown(t.Context()); err != nil {
-		t.Errorf("Shutdown() error = %v", err)
-	}
+	require.NoError(t, tracing.Noop().Shutdown(t.Context()))
 }
 
 func TestNoopTracer_ForceFlush(t *testing.T) {
-	if err := tracing.Noop().ForceFlush(t.Context()); err != nil {
-		t.Errorf("ForceFlush() error = %v", err)
-	}
+	require.NoError(t, tracing.Noop().ForceFlush(t.Context()))
 }

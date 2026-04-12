@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/transport/http/server/router/std"
 	"github.com/altessa-s/go-atlas/transport/http/server/writer"
 	"github.com/altessa-s/go-atlas/transport/internal/timeouts"
@@ -23,81 +25,55 @@ import (
 
 func TestDefaultOptions(t *testing.T) {
 	opts := defaultOptions()
-	if opts.readTimeout != DefaultReadTimeout {
-		t.Fatalf("readTimeout = %v, want %v", opts.readTimeout, DefaultReadTimeout)
-	}
-	if opts.writeTimeout != DefaultWriteTimeout {
-		t.Fatalf("writeTimeout = %v, want %v", opts.writeTimeout, DefaultWriteTimeout)
-	}
-	if opts.idleTimeout != DefaultIdleTimeout {
-		t.Fatalf("idleTimeout = %v, want %v", opts.idleTimeout, DefaultIdleTimeout)
-	}
-	if opts.maxHeaderBytes != DefaultMaxHeaderBytes {
-		t.Fatalf("maxHeaderBytes = %d, want %d", opts.maxHeaderBytes, DefaultMaxHeaderBytes)
-	}
+	require.Equal(t, DefaultReadTimeout, opts.readTimeout)
+	require.Equal(t, DefaultWriteTimeout, opts.writeTimeout)
+	require.Equal(t, DefaultIdleTimeout, opts.idleTimeout)
+	require.Equal(t, DefaultMaxHeaderBytes, opts.maxHeaderBytes)
 }
 
 func TestWithReadTimeout(t *testing.T) {
 	opts := newOptions(WithReadTimeout(30 * time.Second))
-	if opts.readTimeout != 30*time.Second {
-		t.Fatalf("readTimeout = %v", opts.readTimeout)
-	}
+	require.Equal(t, 30*time.Second, opts.readTimeout)
 }
 
 func TestWithReadTimeout_Negative(t *testing.T) {
 	opts := newOptions(WithReadTimeout(-1))
-	if opts.readTimeout != DefaultReadTimeout {
-		t.Fatalf("negative should keep default, got %v", opts.readTimeout)
-	}
+	require.Equal(t, DefaultReadTimeout, opts.readTimeout)
 }
 
 func TestWithWriteTimeout(t *testing.T) {
 	opts := newOptions(WithWriteTimeout(30 * time.Second))
-	if opts.writeTimeout != 30*time.Second {
-		t.Fatalf("writeTimeout = %v", opts.writeTimeout)
-	}
+	require.Equal(t, 30*time.Second, opts.writeTimeout)
 }
 
 func TestWithWriteTimeout_Negative(t *testing.T) {
 	opts := newOptions(WithWriteTimeout(-1))
-	if opts.writeTimeout != DefaultWriteTimeout {
-		t.Fatalf("negative should keep default, got %v", opts.writeTimeout)
-	}
+	require.Equal(t, DefaultWriteTimeout, opts.writeTimeout)
 }
 
 func TestWithIdleTimeout(t *testing.T) {
 	opts := newOptions(WithIdleTimeout(120 * time.Second))
-	if opts.idleTimeout != 120*time.Second {
-		t.Fatalf("idleTimeout = %v", opts.idleTimeout)
-	}
+	require.Equal(t, 120*time.Second, opts.idleTimeout)
 }
 
 func TestWithIdleTimeout_Negative(t *testing.T) {
 	opts := newOptions(WithIdleTimeout(-1))
-	if opts.idleTimeout != DefaultIdleTimeout {
-		t.Fatalf("negative should keep default, got %v", opts.idleTimeout)
-	}
+	require.Equal(t, DefaultIdleTimeout, opts.idleTimeout)
 }
 
 func TestWithMaxHeaderBytes(t *testing.T) {
 	opts := newOptions(WithMaxHeaderBytes(2 << 20))
-	if opts.maxHeaderBytes != 2<<20 {
-		t.Fatalf("maxHeaderBytes = %d", opts.maxHeaderBytes)
-	}
+	require.Equal(t, 2<<20, opts.maxHeaderBytes)
 }
 
 func TestWithRouter_Nil(t *testing.T) {
 	opts := newOptions(WithRouter(nil))
-	if opts.router != nil {
-		t.Fatal("nil router should not be set")
-	}
+	require.Nil(t, opts.router)
 }
 
 func TestNew_NoRouter(t *testing.T) {
 	_, err := New()
-	if err == nil {
-		t.Fatal("New() without router should error")
-	}
+	require.Error(t, err)
 }
 
 func TestDefaultConstants(t *testing.T) {
@@ -111,14 +87,10 @@ func TestDefaultConstants(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.got <= 0 {
-				t.Fatalf("%s = %v", tt.name, tt.got)
-			}
+			require.Greater(t, tt.got, time.Duration(0))
 		})
 	}
-	if DefaultMaxHeaderBytes <= 0 {
-		t.Fatalf("DefaultMaxHeaderBytes = %d", DefaultMaxHeaderBytes)
-	}
+	require.Greater(t, DefaultMaxHeaderBytes, 0)
 }
 
 // newTestServer creates an HTTP server bound to a random port with the
@@ -128,9 +100,7 @@ func newTestServer(t *testing.T, pattern string, handler http.HandlerFunc) *Serv
 	t.Helper()
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("net.Listen: %v", err)
-	}
+	require.NoError(t, err)
 
 	r := std.New()
 	srv, err := New(
@@ -147,7 +117,7 @@ func newTestServer(t *testing.T, pattern string, handler http.HandlerFunc) *Serv
 	)
 	if err != nil {
 		ln.Close()
-		t.Fatalf("New: %v", err)
+		require.NoError(t, err)
 	}
 
 	if handler != nil {
@@ -165,34 +135,24 @@ func TestShutdown(t *testing.T) {
 		fmt.Fprint(w, "ok")
 	})
 
-	if err := srv.Start(); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
+	require.NoError(t, srv.Start())
 
 	// Verify the server is accepting connections.
 	addr := srv.Address()
 	resp, err := http.Get("http://" + addr + "/health")
-	if err != nil {
-		t.Fatalf("GET /health: %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET /health status = %d, want 200", resp.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// Shutdown must complete without error (no double-close).
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
-		t.Fatalf("Shutdown: %v", err)
-	}
+	require.NoError(t, srv.Shutdown(ctx))
 
 	// After shutdown, new connections must be refused.
 	_, err = http.Get("http://" + addr + "/health")
-	if err == nil {
-		t.Fatal("expected connection refused after shutdown")
-	}
+	require.Error(t, err)
 }
 
 func TestShutdown_DrainsInFlightRequests(t *testing.T) {
@@ -206,9 +166,7 @@ func TestShutdown_DrainsInFlightRequests(t *testing.T) {
 		fmt.Fprint(w, "done")
 	})
 
-	if err := srv.Start(); err != nil {
-		t.Fatalf("Start: %v", err)
-	}
+	require.NoError(t, srv.Start())
 
 	addr := srv.Address()
 
@@ -244,17 +202,11 @@ func TestShutdown_DrainsInFlightRequests(t *testing.T) {
 	close(releaseHandler)
 	wg.Wait()
 
-	if reqErr != nil {
-		t.Fatalf("in-flight request error: %v", reqErr)
-	}
-	if respBody != "done" {
-		t.Fatalf("in-flight response body = %q, want %q", respBody, "done")
-	}
+	require.Nil(t, reqErr)
+	require.Equal(t, "done", respBody)
 
 	// Shutdown must return nil (no double-close error).
-	if err := <-shutdownDone; err != nil {
-		t.Fatalf("Shutdown: %v", err)
-	}
+	require.NoError(t, <-shutdownDone)
 }
 
 func TestShutdown_NotStarted(t *testing.T) {
@@ -264,7 +216,5 @@ func TestShutdown_NotStarted(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
 
-	if err := srv.Shutdown(ctx); err != nil {
-		t.Fatalf("Shutdown on non-started server: %v", err)
-	}
+	require.NoError(t, srv.Shutdown(ctx))
 }

@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // safeBuffer is a thread-safe buffer for testing concurrent writes.
@@ -49,14 +51,11 @@ func TestHandler_AsyncBuffer(t *testing.T) {
 	// But in a "perfect" async world, we can't guarantee it's written immediately.
 	// We rely on Shutdown to flush.
 
-	if err := h.Shutdown(t.Context()); err != nil {
-		t.Fatalf("shutdown failed: %v", err)
-	}
+	require.NoError(t, h.Shutdown(t.Context()))
 
 	output := buf.String()
-	if !strings.Contains(output, "message 1") || !strings.Contains(output, "message 2") {
-		t.Errorf("expected messages to given written, got:\n%s", output)
-	}
+	require.Contains(t, output, "message 1")
+	require.Contains(t, output, "message 2")
 }
 
 func TestHandler_BypassLevel(t *testing.T) {
@@ -80,13 +79,9 @@ func TestHandler_BypassLevel(t *testing.T) {
 	idx1 := strings.Index(output, "buffered msg")
 	idx2 := strings.Index(output, "critical error")
 
-	if idx1 == -1 || idx2 == -1 {
-		t.Fatalf("missing logs in output:\n%s", output)
-	}
-
-	if idx1 > idx2 {
-		t.Errorf("expected buffered msg to appear before critical error (flush failed?)")
-	}
+	require.NotEqual(t, -1, idx1, "missing buffered msg in output")
+	require.NotEqual(t, -1, idx2, "missing critical error in output")
+	require.Less(t, idx1, idx2, "expected buffered msg to appear before critical error")
 
 	_ = h.Shutdown(t.Context())
 }
@@ -116,9 +111,7 @@ func TestHandler_DropOrBlock(t *testing.T) {
 	}
 	// Count occurrences
 	count := strings.Count(output, "msg=")
-	if count != 5 {
-		t.Errorf("expected 5 messages, got %d", count)
-	}
+	require.Equal(t, 5, count)
 }
 
 func TestHandler_ShutdownTimeout(t *testing.T) {
@@ -146,15 +139,9 @@ func TestHandler_WorkerSurvivesFlush(t *testing.T) {
 	logger.Info("should be processed")
 
 	// 3. Shutdown
-	if err := h.Shutdown(t.Context()); err != nil {
-		t.Fatalf("shutdown failed: %v", err)
-	}
+	require.NoError(t, h.Shutdown(t.Context()))
 
 	output := buf.String()
-	if !strings.Contains(output, "bypass error") {
-		t.Error("missing bypass error")
-	}
-	if !strings.Contains(output, "should be processed") {
-		t.Error("worker probably died after flush, missing 'should be processed'")
-	}
+	require.Contains(t, output, "bypass error")
+	require.Contains(t, output, "should be processed")
 }

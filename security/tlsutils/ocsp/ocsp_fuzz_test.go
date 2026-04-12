@@ -6,6 +6,8 @@ package ocsp
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func FuzzCompressDecompressRoundtrip(f *testing.F) {
@@ -20,17 +22,15 @@ func FuzzCompressDecompressRoundtrip(f *testing.F) {
 		}
 
 		compressed, err := compressData(data)
-		if err != nil {
-			t.Fatalf("compressData() error = %v", err)
+		if !assert.NoError(t, err) {
+			return
 		}
 
 		decompressed, err := decompressData(compressed)
-		if err != nil {
-			t.Fatalf("decompressData() error = %v", err)
+		if !assert.NoError(t, err) {
+			return
 		}
 
-		if len(decompressed) != len(data) {
-			t.Errorf("roundtrip length mismatch: got %d, want %d", len(decompressed), len(data))
-		}
+		assert.Len(t, decompressed, len(data))
 	})
 }

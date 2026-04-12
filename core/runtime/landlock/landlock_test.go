@@ -10,17 +10,15 @@
 package landlock
 
 import (
-	"errors"
-	"slices"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateOptions_AcceptsEmpty(t *testing.T) {
 	// An empty options set is valid — the caller may want a total
 	// filesystem lockout.
-	if err := validateOptions(newOptions()); err != nil {
-		t.Errorf("empty options: got %v, want nil", err)
-	}
+	require.NoError(t, validateOptions(newOptions()))
 }
 
 func TestValidateOptions_AcceptsAbsolutePaths(t *testing.T) {
@@ -28,9 +26,7 @@ func TestValidateOptions_AcceptsAbsolutePaths(t *testing.T) {
 		WithReadPaths("/etc", "/usr/lib", "/lib64"),
 		WithReadWritePaths("/var/lib/myservice", "/var/log/myservice"),
 	)
-	if err := validateOptions(o); err != nil {
-		t.Errorf("absolute paths: got %v, want nil", err)
-	}
+	require.NoError(t, validateOptions(o))
 }
 
 func TestValidateOptions_RejectsRelativePath(t *testing.T) {
@@ -58,12 +54,8 @@ func TestValidateOptions_RejectsRelativePath(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := validateOptions(newOptions(tc.opts...))
-			if err == nil {
-				t.Fatalf("validateOptions: got nil, want error")
-			}
-			if !errors.Is(err, ErrInvalidOption) {
-				t.Errorf("validateOptions: got %v, want wrap of ErrInvalidOption", err)
-			}
+			require.Error(t, err)
+			require.ErrorIs(t, err, ErrInvalidOption)
 		})
 	}
 }
@@ -74,21 +66,13 @@ func TestValidateOptions_RejectsRelativePath(t *testing.T) {
 // validation happens before [apply] is called.
 func TestApply_ValidatesBeforePlatformDispatch(t *testing.T) {
 	err := Apply(WithReadPaths("./relative"))
-	if err == nil {
-		t.Fatalf("Apply: got nil, want validation error")
-	}
+	require.Error(t, err)
 	// Validation errors wrap ErrInvalidOption exclusively; they must not
 	// look like ErrUnsupported or ErrFailed, so callers can fan out on
 	// "bad config" vs "kernel rejected a well-formed ruleset".
-	if !errors.Is(err, ErrInvalidOption) {
-		t.Errorf("Apply: got %v, want wrap of ErrInvalidOption", err)
-	}
-	if errors.Is(err, ErrUnsupported) {
-		t.Errorf("Apply: got ErrUnsupported, want ErrInvalidOption")
-	}
-	if errors.Is(err, ErrFailed) {
-		t.Errorf("Apply: got ErrFailed, want ErrInvalidOption")
-	}
+	require.ErrorIs(t, err, ErrInvalidOption)
+	require.NotErrorIs(t, err, ErrUnsupported)
+	require.NotErrorIs(t, err, ErrFailed)
 }
 
 // TestWithReadPaths_NilAndEmptyAreNoop verifies the optgen-generated
@@ -104,9 +88,7 @@ func TestWithReadPaths_NilAndEmptyAreNoop(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			o := newOptions(tc.opt)
-			if len(o.readPaths) != 0 {
-				t.Errorf("readPaths: got %v, want empty", o.readPaths)
-			}
+			require.Empty(t, o.readPaths)
 		})
 	}
 }
@@ -118,8 +100,5 @@ func TestWithReadPaths_Accumulates(t *testing.T) {
 		WithReadPaths("/etc"),
 		WithReadPaths("/usr/lib"),
 	)
-	want := []string{"/etc", "/usr/lib"}
-	if !slices.Equal(o.readPaths, want) {
-		t.Errorf("readPaths: got %v, want %v", o.readPaths, want)
-	}
+	require.Equal(t, []string{"/etc", "/usr/lib"}, o.readPaths)
 }

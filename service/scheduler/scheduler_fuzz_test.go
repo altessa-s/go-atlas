@@ -9,6 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/service/scheduler"
 	"github.com/altessa-s/go-atlas/service/scheduler/storages/memory"
 
@@ -25,9 +28,7 @@ func FuzzScheduler_Register(f *testing.F) {
 		storage := memory.New(10)
 		s := scheduler.New(storage, scheduler.WithTickInterval(time.Hour))
 		ctx := t.Context()
-		if err := s.Start(ctx); err != nil {
-			t.Fatal(err)
-		}
+		require.NoError(t, s.Start(ctx))
 		defer func() {
 			stopCtx, cancel := context.WithTimeout(ctx, time.Second)
 			defer cancel()
@@ -65,15 +66,9 @@ func FuzzMemoryStorage_UpsertAndGet(f *testing.F) {
 		_ = storage.UpsertTask(ctx, state)
 
 		got, err := storage.GetTask(ctx, id)
-		if err != nil {
-			t.Fatalf("GetTask error: %v", err)
-		}
-		if got == nil {
-			t.Fatal("expected non-nil state")
-		}
-		if got.ID != id {
-			t.Errorf("ID=%q, want %q", got.ID, id)
-		}
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.Equal(t, id, got.ID)
 	})
 }
 
@@ -89,8 +84,6 @@ func FuzzTaskStatus_String(f *testing.F) {
 		status := scheduler.TaskStatus(s)
 		// Should not panic
 		result := status.String()
-		if result == "" {
-			t.Error("String() returned empty")
-		}
+		assert.NotEmpty(t, result, "String() returned empty")
 	})
 }

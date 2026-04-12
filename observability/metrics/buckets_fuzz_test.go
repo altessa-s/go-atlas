@@ -7,6 +7,8 @@ package metrics
 import (
 	"math"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func FuzzLinearBuckets(f *testing.F) {
@@ -22,11 +24,11 @@ func FuzzLinearBuckets(f *testing.F) {
 			count = 1000
 		}
 		result := LinearBuckets(start, width, count)
-		if count <= 0 && result != nil {
-			t.Error("expected nil for non-positive count")
+		if count <= 0 {
+			assert.Nil(t, result, "expected nil for non-positive count")
 		}
-		if count > 0 && len(result) != count {
-			t.Errorf("expected %d buckets, got %d", count, len(result))
+		if count > 0 {
+			assert.Len(t, result, count)
 		}
 	})
 }
@@ -43,8 +45,8 @@ func FuzzExponentialBuckets(f *testing.F) {
 			count = 1000
 		}
 		result := ExponentialBuckets(start, factor, count)
-		if (count <= 0 || start <= 0 || factor <= 1) && result != nil {
-			t.Error("expected nil for invalid params")
+		if count <= 0 || start <= 0 || factor <= 1 {
+			assert.Nil(t, result, "expected nil for invalid params")
 		}
 	})
 }

@@ -8,6 +8,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/security/vault/auth"
 
 	vaultApi "github.com/hashicorp/vault/api"
@@ -29,38 +31,24 @@ var _ auth.Method = (*mockMethod)(nil)
 
 func TestNewAuthenticator(t *testing.T) {
 	client, err := vaultApi.NewClient(vaultApi.DefaultConfig())
-	if err != nil {
-		t.Fatalf("failed to create vault client: %v", err)
-	}
+	require.NoError(t, err)
 
 	a := auth.NewAuthenticator(client, &mockMethod{name: "mock"})
-	if a == nil {
-		t.Fatal("NewAuthenticator() returned nil")
-	}
+	require.NotNil(t, a)
 }
 
 func TestAuthenticator_ErrorsCh(t *testing.T) {
 	client, err := vaultApi.NewClient(vaultApi.DefaultConfig())
-	if err != nil {
-		t.Fatalf("failed to create vault client: %v", err)
-	}
+	require.NoError(t, err)
 
 	a := auth.NewAuthenticator(client, &mockMethod{name: "mock"})
-	ch := a.ErrorsCh()
-	if ch == nil {
-		t.Fatal("ErrorsCh() returned nil")
-	}
+	require.NotNil(t, a.ErrorsCh())
 }
 
 func TestAuthenticator_FirstRenewCh(t *testing.T) {
 	client, err := vaultApi.NewClient(vaultApi.DefaultConfig())
-	if err != nil {
-		t.Fatalf("failed to create vault client: %v", err)
-	}
+	require.NoError(t, err)
 
 	a := auth.NewAuthenticator(client, &mockMethod{name: "mock"})
-	ch := a.FirstRenewCh()
-	if ch == nil {
-		t.Fatal("FirstRenewCh() returned nil")
-	}
+	require.NotNil(t, a.FirstRenewCh())
 }

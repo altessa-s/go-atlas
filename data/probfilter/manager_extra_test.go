@@ -11,6 +11,8 @@ import (
 	"iter"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/probfilter"
 )
 
@@ -29,23 +31,17 @@ func TestManager_Register_Duplicate(t *testing.T) {
 	mgr := probfilter.NewManager()
 	f := &mockFilter{}
 
-	if err := mgr.Register("test", f); err != nil {
-		t.Fatalf("first Register() error = %v", err)
-	}
+	require.NoError(t, mgr.Register("test", f))
 
 	err := mgr.Register("test", f)
-	if !errors.Is(err, probfilter.ErrFilterAlreadyExists) {
-		t.Errorf("duplicate Register() error = %v, want ErrFilterAlreadyExists", err)
-	}
+	require.ErrorIs(t, err, probfilter.ErrFilterAlreadyExists)
 }
 
 func TestManager_Get_NotFound(t *testing.T) {
 	mgr := probfilter.NewManager()
 
 	_, err := mgr.Get("nonexistent")
-	if !errors.Is(err, probfilter.ErrFilterNotFound) {
-		t.Errorf("Get(nonexistent) error = %v, want ErrFilterNotFound", err)
-	}
+	require.ErrorIs(t, err, probfilter.ErrFilterNotFound)
 }
 
 func TestManager_MustGet_Panics(t *testing.T) {
@@ -66,9 +62,7 @@ func TestManager_MustGet_Success(t *testing.T) {
 	_ = mgr.Register("test", f)
 
 	got := mgr.MustGet("test")
-	if got != f {
-		t.Error("MustGet returned wrong filter")
-	}
+	require.Equal(t, f, got)
 }
 
 func TestManager_Unregister(t *testing.T) {
@@ -79,9 +73,7 @@ func TestManager_Unregister(t *testing.T) {
 	mgr.Unregister("test")
 
 	_, err := mgr.Get("test")
-	if !errors.Is(err, probfilter.ErrFilterNotFound) {
-		t.Error("Get after Unregister should return ErrFilterNotFound")
-	}
+	require.ErrorIs(t, err, probfilter.ErrFilterNotFound)
 }
 
 func TestManager_Unregister_Nonexistent(t *testing.T) {
@@ -100,9 +92,8 @@ func TestManager_Names(t *testing.T) {
 		names[name] = true
 	}
 
-	if !names["a"] || !names["b"] {
-		t.Errorf("Names() = %v, want a and b", names)
-	}
+	require.True(t, names["a"], "Names() missing 'a'")
+	require.True(t, names["b"], "Names() missing 'b'")
 }
 
 func TestManager_Names_Empty(t *testing.T) {
@@ -111,9 +102,7 @@ func TestManager_Names_Empty(t *testing.T) {
 	for range mgr.Names() {
 		count++
 	}
-	if count != 0 {
-		t.Errorf("Names() count = %d, want 0", count)
-	}
+	require.Equal(t, 0, count)
 }
 
 func TestManager_Filters(t *testing.T) {
@@ -128,9 +117,8 @@ func TestManager_Filters(t *testing.T) {
 		filters[name] = filter
 	}
 
-	if filters["a"] != f1 || filters["b"] != f2 {
-		t.Error("Filters() returned wrong filters")
-	}
+	require.Equal(t, f1, filters["a"])
+	require.Equal(t, f2, filters["b"])
 }
 
 func TestManager_Close(t *testing.T) {
@@ -138,18 +126,14 @@ func TestManager_Close(t *testing.T) {
 	_ = mgr.Register("ok", &mockFilter{})
 
 	err := mgr.Close()
-	if err != nil {
-		t.Errorf("Close() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	// After close, filters should be cleared
 	count := 0
 	for range mgr.Names() {
 		count++
 	}
-	if count != 0 {
-		t.Error("Close should clear all filters")
-	}
+	require.Equal(t, 0, count)
 }
 
 func TestManager_Close_WithErrors(t *testing.T) {
@@ -158,14 +142,10 @@ func TestManager_Close_WithErrors(t *testing.T) {
 	_ = mgr.Register("fail2", &mockFilter{closeErr: errors.New("err2")})
 
 	err := mgr.Close()
-	if err == nil {
-		t.Error("Close() should return error when filters fail to close")
-	}
+	require.Error(t, err, "Close() should return error when filters fail to close")
 }
 
 func TestManager_Close_Empty(t *testing.T) {
 	mgr := probfilter.NewManager()
-	if err := mgr.Close(); err != nil {
-		t.Errorf("Close() on empty manager error = %v", err)
-	}
+	require.NoError(t, mgr.Close())
 }

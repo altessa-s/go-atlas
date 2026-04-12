@@ -8,6 +8,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/security/secrets"
 	"github.com/altessa-s/go-atlas/security/secrets/internal/base"
 )
@@ -29,12 +31,8 @@ func TestErrorWrapping(t *testing.T) {
 			original := errors.New("original error")
 			wrapped := tt.errorFunc(original)
 
-			if !errors.Is(wrapped, tt.sentinelErr) {
-				t.Errorf("expected error to wrap %v", tt.sentinelErr)
-			}
-			if !errors.Is(wrapped, original) {
-				t.Errorf("expected error to wrap original error")
-			}
+			require.ErrorIs(t, wrapped, tt.sentinelErr)
+			require.ErrorIs(t, wrapped, original)
 		})
 	}
 }

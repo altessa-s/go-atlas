@@ -9,6 +9,8 @@ import (
 	"net/http/httptest"
 	"regexp"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestMiddleware_HSTSFull(t *testing.T) {
@@ -23,9 +25,7 @@ func TestMiddleware_HSTSFull(t *testing.T) {
 	handler.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
 
 	hsts := rec.Header().Get(HeaderStrictTransportSec)
-	if hsts == "" {
-		t.Fatal("HSTS header should be set")
-	}
+	require.NotEqual(t, "", hsts)
 }
 
 func TestMiddleware_FrameOptions(t *testing.T) {
@@ -36,9 +36,7 @@ func TestMiddleware_FrameOptions(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
 
-	if rec.Header().Get(HeaderXFrameOptions) != "SAMEORIGIN" {
-		t.Fatalf("X-Frame-Options = %q, want SAMEORIGIN", rec.Header().Get(HeaderXFrameOptions))
-	}
+	require.Equal(t, "SAMEORIGIN", rec.Header().Get(HeaderXFrameOptions))
 }
 
 func TestMiddleware_ReferrerPolicy(t *testing.T) {
@@ -49,9 +47,7 @@ func TestMiddleware_ReferrerPolicy(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
 
-	if rec.Header().Get(HeaderReferrerPolicy) != "no-referrer" {
-		t.Fatalf("Referrer-Policy = %q", rec.Header().Get(HeaderReferrerPolicy))
-	}
+	require.Equal(t, "no-referrer", rec.Header().Get(HeaderReferrerPolicy))
 }
 
 func TestMiddleware_PermissionsPolicy(t *testing.T) {
@@ -62,9 +58,7 @@ func TestMiddleware_PermissionsPolicy(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
 
-	if rec.Header().Get(HeaderPermissionsPolicy) != "camera=(), microphone=()" {
-		t.Fatalf("Permissions-Policy = %q", rec.Header().Get(HeaderPermissionsPolicy))
-	}
+	require.Equal(t, "camera=(), microphone=()", rec.Header().Get(HeaderPermissionsPolicy))
 }
 
 func TestMiddleware_XssProtectionDisabled(t *testing.T) {
@@ -111,7 +105,5 @@ func TestMiddleware_ContentTypeNoSniff(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
 
-	if rec.Header().Get(HeaderXContentTypeOptions) != "nosniff" {
-		t.Fatalf("X-Content-Type-Options = %q", rec.Header().Get(HeaderXContentTypeOptions))
-	}
+	require.Equal(t, "nosniff", rec.Header().Get(HeaderXContentTypeOptions))
 }

@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/limiters/budget/factory"
 )
@@ -25,9 +27,7 @@ func validConfig() *config.BudgetLimiter {
 
 func TestBuild_NilConfig(t *testing.T) {
 	_, err := factory.New(nil).Build()
-	if err == nil {
-		t.Error("Build() with nil config should return error")
-	}
+	require.Error(t, err, "Build() with nil config should return error")
 }
 
 func TestBuild_NilStorage(t *testing.T) {
@@ -35,19 +35,13 @@ func TestBuild_NilStorage(t *testing.T) {
 	cfg.Storage = nil
 
 	_, err := factory.New(cfg).Build()
-	if err == nil {
-		t.Error("Build() with nil storage should return error")
-	}
+	require.Error(t, err, "Build() with nil storage should return error")
 }
 
 func TestBuild_MemoryStorage(t *testing.T) {
 	l, err := factory.New(validConfig()).Build()
-	if err != nil {
-		t.Fatalf("Build() error = %v", err)
-	}
-	if l == nil {
-		t.Fatal("Build() returned nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, l, "Build() returned nil")
 }
 
 func TestBuild_RedisStorage_NoDependency(t *testing.T) {
@@ -58,9 +52,7 @@ func TestBuild_RedisStorage_NoDependency(t *testing.T) {
 	}
 
 	_, err := factory.New(cfg).Build()
-	if err == nil {
-		t.Error("Build() without redis client should return error")
-	}
+	require.Error(t, err, "Build() without redis client should return error")
 }
 
 func TestBuild_NatsStorage_NoDependency(t *testing.T) {
@@ -71,9 +63,7 @@ func TestBuild_NatsStorage_NoDependency(t *testing.T) {
 	}
 
 	_, err := factory.New(cfg).Build()
-	if err == nil {
-		t.Error("Build() without jetstream should return error")
-	}
+	require.Error(t, err, "Build() without jetstream should return error")
 }
 
 func TestBuild_UnsupportedStorageType(t *testing.T) {
@@ -81,19 +71,13 @@ func TestBuild_UnsupportedStorageType(t *testing.T) {
 	cfg.Storage = &config.CacheStorageConfig{Type: "unknown"}
 
 	_, err := factory.New(cfg).Build()
-	if err == nil {
-		t.Error("Build() with unsupported storage type should return error")
-	}
+	require.Error(t, err, "Build() with unsupported storage type should return error")
 }
 
 func TestBuild_WithLogger(t *testing.T) {
 	l, err := factory.New(validConfig()).
 		UseDefaultLogger().
 		Build()
-	if err != nil {
-		t.Fatalf("Build() error = %v", err)
-	}
-	if l == nil {
-		t.Fatal("Build() returned nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, l, "Build() returned nil")
 }

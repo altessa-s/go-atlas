@@ -6,6 +6,8 @@ package propagation
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func FuzzParseTraceParent(f *testing.F) {
@@ -19,12 +21,8 @@ func FuzzParseTraceParent(f *testing.F) {
 	f.Fuzz(func(t *testing.T, header string) {
 		sc, ok := parseTraceParent(header)
 		if ok {
-			if sc.traceID == "" {
-				t.Error("valid parse should have non-empty traceID")
-			}
-			if sc.spanID == "" {
-				t.Error("valid parse should have non-empty spanID")
-			}
+			assert.NotEmpty(t, sc.traceID, "valid parse should have non-empty traceID")
+			assert.NotEmpty(t, sc.spanID, "valid parse should have non-empty spanID")
 		}
 	})
 }

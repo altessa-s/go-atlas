@@ -10,6 +10,8 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/transport/internal/clientip"
 	"github.com/altessa-s/go-atlas/transport/internal/fallback"
 	"github.com/altessa-s/go-atlas/transport/internal/ipacl"
@@ -43,12 +45,8 @@ func TestMiddleware_Allowed(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, requestWithIP("GET", "/allowed", netip.MustParseAddr("10.1.1.1")))
 
-	if !called {
-		t.Fatal("handler should be called")
-	}
-	if rec.Code != http.StatusOK {
-		t.Fatalf("code = %d, want 200", rec.Code)
-	}
+	require.True(t, called, "handler should be called")
+	require.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestMiddleware_Denied(t *testing.T) {
@@ -61,12 +59,8 @@ func TestMiddleware_Denied(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, requestWithIP("GET", "/allowed", netip.MustParseAddr("192.168.1.1")))
 
-	if called {
-		t.Fatal("handler should not be called")
-	}
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("code = %d, want 403", rec.Code)
-	}
+	require.False(t, called, "handler should not be called")
+	require.Equal(t, http.StatusForbidden, rec.Code)
 }
 
 func TestMiddleware_NoIP_FallbackDeny(t *testing.T) {
@@ -79,12 +73,8 @@ func TestMiddleware_NoIP_FallbackDeny(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest("GET", "/allowed", nil))
 
-	if called {
-		t.Fatal("handler should not be called when no IP and fallback deny")
-	}
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("code = %d, want 403", rec.Code)
-	}
+	require.False(t, called, "handler should not be called when no IP and fallback deny")
+	require.Equal(t, http.StatusForbidden, rec.Code)
 }
 
 func TestMiddleware_NoIP_FallbackAllow(t *testing.T) {
@@ -98,9 +88,7 @@ func TestMiddleware_NoIP_FallbackAllow(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest("GET", "/allowed", nil))
 
-	if !called {
-		t.Fatal("handler should be called on fallback allow")
-	}
+	require.True(t, called, "handler should be called on fallback allow")
 }
 
 func TestMiddleware_IgnoredPath(t *testing.T) {
@@ -114,19 +102,14 @@ func TestMiddleware_IgnoredPath(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, requestWithIP("GET", "/denied", netip.MustParseAddr("1.2.3.4")))
 
-	if !called {
-		t.Fatal("handler should be called for ignored path")
-	}
+	require.True(t, called, "handler should be called for ignored path")
 }
 
 func TestMiddleware_Dependencies(t *testing.T) {
 	m := &middleware{}
 	deps := m.Dependencies()
-	if len(deps) != 0 {
-		t.Fatalf("Dependencies() = %v, want []", deps)
-	}
+	require.Len(t, deps, 0)
 	reqDeps := m.RequiredDependencies()
-	if len(reqDeps) != 1 || reqDeps[0] != "realip" {
-		t.Fatalf("RequiredDependencies() = %v, want [realip]", reqDeps)
-	}
+	require.Len(t, reqDeps, 1)
+	require.Equal(t, "realip", reqDeps[0])
 }

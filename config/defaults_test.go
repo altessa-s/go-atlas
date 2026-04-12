@@ -4,54 +4,38 @@
 
 package config
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestDefaultAuth(t *testing.T) {
 	cfg := DefaultAuth()
-	if cfg.OIDC == nil {
-		t.Fatal("expected non-nil OIDC")
-	}
-	if cfg.OPA == nil {
-		t.Fatal("expected non-nil OPA")
-	}
+	require.NotNil(t, cfg.OIDC)
+	require.NotNil(t, cfg.OPA)
 }
 
 func TestDefaultGrpc(t *testing.T) {
 	cfg := DefaultGrpc()
-	if cfg.ListenAddress == "" {
-		t.Fatal("expected non-empty ListenAddress")
-	}
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate() failed: %v", err)
-	}
+	require.NotEmpty(t, cfg.ListenAddress)
+	require.NoError(t, cfg.Validate())
 }
 
 func TestDefaultHttp(t *testing.T) {
 	cfg := DefaultHttp()
-	if cfg.ListenAddress == "" {
-		t.Fatal("expected non-empty ListenAddress")
-	}
-	if cfg.MaxRequestPayloadSize == 0 {
-		t.Fatal("expected non-zero MaxRequestPayloadSize")
-	}
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate() failed: %v", err)
-	}
+	require.NotEmpty(t, cfg.ListenAddress)
+	require.NotZero(t, cfg.MaxRequestPayloadSize)
+	require.NoError(t, cfg.Validate())
 }
 
 func TestDefaultOIDC(t *testing.T) {
 	cfg := DefaultOIDC()
-	if cfg.ClockSkew == 0 {
-		t.Fatal("expected non-zero ClockSkew")
-	}
+	require.NotZero(t, cfg.ClockSkew)
 }
 
 func TestDefaultRedis(t *testing.T) {
 	cfg := DefaultRedis()
-	if len(cfg.Hosts) == 0 {
-		t.Fatal("expected non-empty Hosts")
-	}
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate() failed: %v", err)
-	}
+	require.NotEmpty(t, cfg.Hosts)
+	require.NoError(t, cfg.Validate())
 }

@@ -8,6 +8,8 @@ import (
 	"context"
 	"crypto/tls"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 type mockProvider struct {
@@ -19,9 +21,7 @@ func (m *mockProvider) TLSConfig() (*tls.Config, error) { return &tls.Config{}, 
 func (m *mockProvider) Close(_ context.Context) error   { return nil }
 
 func TestProviderType_String(t *testing.T) {
-	if ProviderTypeVault.String() != "vault" {
-		t.Fatalf("String() = %q", ProviderTypeVault.String())
-	}
+	require.Equal(t, "vault", ProviderTypeVault.String())
 }
 
 func TestProviderType_IsValid(t *testing.T) {
@@ -38,17 +38,13 @@ func TestProviderType_IsValid(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.pt.IsValid(); got != tt.want {
-				t.Fatalf("IsValid() = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, tt.pt.IsValid())
 		})
 	}
 }
 
 func TestAvailableProviders(t *testing.T) {
-	if len(AvailableProviders) != 4 {
-		t.Fatalf("len = %d", len(AvailableProviders))
-	}
+	require.Len(t, AvailableProviders, 4)
 }
 
 func TestProviders_RegisterAndGet(t *testing.T) {
@@ -57,20 +53,14 @@ func TestProviders_RegisterAndGet(t *testing.T) {
 	p.Register(mp)
 
 	got, ok := p.Get(ProviderTypeFile)
-	if !ok {
-		t.Fatal("expected to find provider")
-	}
-	if got.Type() != ProviderTypeFile {
-		t.Fatalf("Type() = %q", got.Type())
-	}
+	require.True(t, ok)
+	require.Equal(t, ProviderTypeFile, got.Type())
 }
 
 func TestProviders_Get_NotFound(t *testing.T) {
 	p := &Providers{}
 	_, ok := p.Get(ProviderTypeVault)
-	if ok {
-		t.Fatal("should not find unregistered provider")
-	}
+	require.False(t, ok)
 }
 
 func TestProviders_Close(t *testing.T) {
@@ -82,9 +72,7 @@ func TestProviders_Close(t *testing.T) {
 	p.Close(t.Context(), func(_ Provider, _ error) {
 		errCount++
 	})
-	if errCount != 0 {
-		t.Fatalf("unexpected errors: %d", errCount)
-	}
+	require.Equal(t, 0, errCount)
 }
 
 func TestProviders_List(t *testing.T) {
@@ -96,9 +84,7 @@ func TestProviders_List(t *testing.T) {
 	for range p.List() {
 		count++
 	}
-	if count != 2 {
-		t.Fatalf("count = %d, want 2", count)
-	}
+	require.Equal(t, 2, count)
 }
 
 func BenchmarkProviders_Get(b *testing.B) {

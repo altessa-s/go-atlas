@@ -9,6 +9,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/mongo"
 	"github.com/altessa-s/go-atlas/data/mongo/cursor_storages/kvstore"
 	"github.com/altessa-s/go-atlas/data/mongo/internal/testhelpers"
@@ -53,9 +55,7 @@ func (m *mockBackend) Delete(_ context.Context, key string) error {
 
 func TestNewJSONStorage(t *testing.T) {
 	s := kvstore.NewJSONStorage(newMockBackend(), "test")
-	if s == nil {
-		t.Fatal("NewJSONStorage() returned nil")
-	}
+	require.NotNil(t, s)
 }
 
 func TestJSONStorage_StoreLoad(t *testing.T) {
@@ -64,20 +64,12 @@ func TestJSONStorage_StoreLoad(t *testing.T) {
 	ctx := t.Context()
 	meta := testhelpers.SampleCursorMetadata()
 
-	if err := s.Store(ctx, "key1", meta); err != nil {
-		t.Fatalf("Store() error: %v", err)
-	}
+	require.NoError(t, s.Store(ctx, "key1", meta))
 
 	loaded, err := s.Load(ctx, "key1")
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-	if loaded.CursorId != meta.CursorId {
-		t.Errorf("CursorId = %q, want %q", loaded.CursorId, meta.CursorId)
-	}
-	if loaded.CursorIdField != meta.CursorIdField {
-		t.Errorf("CursorIdField = %q, want %q", loaded.CursorIdField, meta.CursorIdField)
-	}
+	require.NoError(t, err)
+	require.Equal(t, meta.CursorId, loaded.CursorId)
+	require.Equal(t, meta.CursorIdField, loaded.CursorIdField)
 }
 
 func TestJSONStorage_Load_NotFound(t *testing.T) {
@@ -85,9 +77,7 @@ func TestJSONStorage_Load_NotFound(t *testing.T) {
 	s := kvstore.NewJSONStorage(b, "test")
 
 	_, err := s.Load(t.Context(), "missing")
-	if !errors.Is(err, mongo.ErrCursorNotFound) {
-		t.Errorf("Load() error = %v, want ErrCursorNotFound", err)
-	}
+	require.ErrorIs(t, err, mongo.ErrCursorNotFound)
 }
 
 func TestJSONStorage_Load_BackendError(t *testing.T) {
@@ -96,9 +86,7 @@ func TestJSONStorage_Load_BackendError(t *testing.T) {
 	s := kvstore.NewJSONStorage(b, "test")
 
 	_, err := s.Load(t.Context(), "key")
-	if err == nil {
-		t.Error("Load() should return error on backend failure")
-	}
+	require.Error(t, err)
 }
 
 func TestJSONStorage_Store_BackendError(t *testing.T) {
@@ -107,9 +95,7 @@ func TestJSONStorage_Store_BackendError(t *testing.T) {
 	s := kvstore.NewJSONStorage(b, "test")
 
 	err := s.Store(t.Context(), "key", testhelpers.SampleCursorMetadata())
-	if err == nil {
-		t.Error("Store() should return error on backend failure")
-	}
+	require.Error(t, err)
 }
 
 func TestJSONStorage_Delete(t *testing.T) {
@@ -118,14 +104,10 @@ func TestJSONStorage_Delete(t *testing.T) {
 	ctx := t.Context()
 
 	_ = s.Store(ctx, "key1", testhelpers.SampleCursorMetadata())
-	if err := s.Delete(ctx, "key1"); err != nil {
-		t.Fatalf("Delete() error: %v", err)
-	}
+	require.NoError(t, s.Delete(ctx, "key1"))
 
 	_, err := s.Load(ctx, "key1")
-	if !errors.Is(err, mongo.ErrCursorNotFound) {
-		t.Errorf("Load() after Delete() error = %v, want ErrCursorNotFound", err)
-	}
+	require.ErrorIs(t, err, mongo.ErrCursorNotFound)
 }
 
 func TestJSONStorage_Delete_BackendError(t *testing.T) {
@@ -134,9 +116,7 @@ func TestJSONStorage_Delete_BackendError(t *testing.T) {
 	s := kvstore.NewJSONStorage(b, "test")
 
 	err := s.Delete(t.Context(), "key")
-	if err == nil {
-		t.Error("Delete() should return error on backend failure")
-	}
+	require.Error(t, err)
 }
 
 func TestJSONStorage_Load_InvalidJSON(t *testing.T) {
@@ -145,7 +125,5 @@ func TestJSONStorage_Load_InvalidJSON(t *testing.T) {
 	s := kvstore.NewJSONStorage(b, "test")
 
 	_, err := s.Load(t.Context(), "bad")
-	if err == nil {
-		t.Error("Load() should return error for invalid JSON")
-	}
+	require.Error(t, err)
 }

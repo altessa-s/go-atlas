@@ -11,28 +11,24 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 func TestNew_ReturnsClient(t *testing.T) {
 	c := New()
-	if c == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, c)
 }
 
 func TestNew_WithOptions(t *testing.T) {
 	c := New(WithRetryMax(1), WithRetryWait(100*time.Millisecond, 500*time.Millisecond))
-	if c == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, c)
 }
 
 func TestNewHTTPClient(t *testing.T) {
 	c := NewHTTPClient()
-	if c == nil {
-		t.Fatal("NewHTTPClient() returned nil")
-	}
+	require.NotNil(t, c)
 }
 
 func TestHTTPClient_Get(t *testing.T) {
@@ -43,115 +39,89 @@ func TestHTTPClient_Get(t *testing.T) {
 
 	c := NewHTTPClient(WithRetryMax(0))
 	resp, err := c.Get(t.Context(), srv.URL)
-	if err != nil {
-		t.Fatalf("Get() error = %v", err)
-	}
+	require.NoError(t, err)
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d", resp.StatusCode)
-	}
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 }
 
 func TestHTTPClient_PostJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Content-Type") != "application/json" {
-			t.Fatalf("Content-Type = %q", r.Header.Get("Content-Type"))
-		}
+		require.Equal(t, "application/json", r.Header.Get("Content-Type"))
 		w.WriteHeader(http.StatusCreated)
 	}))
 	defer srv.Close()
 
 	c := NewHTTPClient(WithRetryMax(0))
 	resp, err := c.PostJSON(t.Context(), srv.URL, map[string]string{"key": "value"})
-	if err != nil {
-		t.Fatalf("PostJSON() error = %v", err)
-	}
+	require.NoError(t, err)
 	defer resp.Body.Close()
 }
 
 func TestHTTPClient_Delete(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodDelete {
-			t.Fatalf("method = %q", r.Method)
-		}
+		require.Equal(t, http.MethodDelete, r.Method)
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer srv.Close()
 
 	c := NewHTTPClient(WithRetryMax(0))
 	resp, err := c.Delete(t.Context(), srv.URL)
-	if err != nil {
-		t.Fatalf("Delete() error = %v", err)
-	}
+	require.NoError(t, err)
 	defer resp.Body.Close()
 }
 
 func TestHTTPClient_Head(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodHead {
-			t.Fatalf("method = %q", r.Method)
-		}
+		require.Equal(t, http.MethodHead, r.Method)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
 	c := NewHTTPClient(WithRetryMax(0))
 	resp, err := c.Head(t.Context(), srv.URL)
-	if err != nil {
-		t.Fatalf("Head() error = %v", err)
-	}
+	require.NoError(t, err)
 	defer resp.Body.Close()
 }
 
 func TestHTTPClient_GetWithOptions(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Custom") != "test" {
-			t.Fatalf("X-Custom = %q", r.Header.Get("X-Custom"))
-		}
+		require.Equal(t, "test", r.Header.Get("X-Custom"))
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
 	c := NewHTTPClient(WithRetryMax(0))
 	resp, err := c.GetWithOptions(t.Context(), srv.URL, WithHeader("X-Custom", "test"))
-	if err != nil {
-		t.Fatalf("GetWithOptions() error = %v", err)
-	}
+	require.NoError(t, err)
 	defer resp.Body.Close()
 }
 
 func TestWithBearerToken(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer my-token" {
-			t.Fatalf("Authorization = %q", r.Header.Get("Authorization"))
-		}
+		require.Equal(t, "Bearer my-token", r.Header.Get("Authorization"))
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
 	c := NewHTTPClient(WithRetryMax(0))
 	resp, err := c.GetWithOptions(t.Context(), srv.URL, WithBearerToken("my-token"))
-	if err != nil {
-		t.Fatalf("error = %v", err)
-	}
+	require.NoError(t, err)
 	defer resp.Body.Close()
 }
 
 func TestWithBasicAuth(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, p, ok := r.BasicAuth()
-		if !ok || u != "user" || p != "pass" {
-			t.Fatalf("BasicAuth = %q %q %v", u, p, ok)
-		}
+		require.True(t, ok, "BasicAuth should be present")
+		require.Equal(t, "user", u)
+		require.Equal(t, "pass", p)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
 	c := NewHTTPClient(WithRetryMax(0))
 	resp, err := c.GetWithOptions(t.Context(), srv.URL, WithBasicAuth("user", "pass"))
-	if err != nil {
-		t.Fatalf("error = %v", err)
-	}
+	require.NoError(t, err)
 	defer resp.Body.Close()
 }
 
@@ -160,12 +130,8 @@ func TestWithRequestTimeout(t *testing.T) {
 	req, _ := http.NewRequest("GET", "http://example.com", nil)
 	WithRequestTimeout(5 * time.Second)(req)
 	deadline, ok := req.Context().Deadline()
-	if !ok {
-		t.Fatal("no deadline set on request context")
-	}
-	if time.Until(deadline) > 6*time.Second {
-		t.Fatal("deadline too far in the future")
-	}
+	require.True(t, ok, "no deadline set on request context")
+	require.True(t, time.Until(deadline) <= 6*time.Second, "deadline too far in the future")
 }
 
 func TestWithRequestDeadline(t *testing.T) {
@@ -173,28 +139,18 @@ func TestWithRequestDeadline(t *testing.T) {
 	dl := time.Now().Add(10 * time.Second)
 	WithRequestDeadline(dl)(req)
 	gotDeadline, ok := req.Context().Deadline()
-	if !ok {
-		t.Fatal("no deadline set")
-	}
-	if gotDeadline.Sub(dl) > time.Second {
-		t.Fatal("deadline mismatch")
-	}
+	require.True(t, ok, "no deadline set")
+	require.True(t, gotDeadline.Sub(dl) <= time.Second, "deadline mismatch")
 }
 
 func TestIsUnexpectedStatusError(t *testing.T) {
 	statusErr := &UnexpectedStatusError{Status: 404}
-	if IsUnexpectedStatusError(statusErr) == nil {
-		t.Fatal("should find UnexpectedStatusError")
-	}
-	if IsUnexpectedStatusError(context.Canceled) != nil {
-		t.Fatal("should return nil for non-status error")
-	}
+	require.NotNil(t, IsUnexpectedStatusError(statusErr))
+	require.Nil(t, IsUnexpectedStatusError(context.Canceled))
 }
 
 func TestIsCircuitBreakerOpen(t *testing.T) {
-	if IsCircuitBreakerOpen(context.Canceled) {
-		t.Fatal("should be false for non-CB error")
-	}
+	require.False(t, IsCircuitBreakerOpen(context.Canceled), "should be false for non-CB error")
 }
 
 func TestRoundTripFunc(t *testing.T) {
@@ -203,10 +159,6 @@ func TestRoundTripFunc(t *testing.T) {
 	})
 	req, _ := http.NewRequest("GET", "http://test", nil)
 	resp, err := fn.RoundTrip(req)
-	if err != nil {
-		t.Fatalf("RoundTrip() error = %v", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d", resp.StatusCode)
-	}
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
 }

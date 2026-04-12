@@ -8,6 +8,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 type deadlineCapturingStore struct {
@@ -48,19 +50,13 @@ func TestOutbox_WithFetchTimeout_AppliesDeadlineToFetch(t *testing.T) {
 		WithFetchTimeout(fetchTimeout),
 	)
 
-	if err := ob.RunDispatchCycle(t.Context()); err != nil {
-		t.Fatalf("RunDispatchCycle failed: %v", err)
-	}
+	require.NoError(t, ob.RunDispatchCycle(t.Context()))
 
 	select {
 	case remaining := <-s.deadlineCh:
-		if remaining <= 0 {
-			t.Fatalf("expected fetch ctx to have a future deadline; got remaining=%s", remaining)
-		}
-		if remaining > fetchTimeout+margin {
-			t.Fatalf("expected fetch ctx deadline to be within %s (+%s); got remaining=%s", fetchTimeout, margin, remaining)
-		}
+		require.True(t, remaining > 0, "expected fetch ctx to have a future deadline; got remaining=%s", remaining)
+		require.True(t, remaining <= fetchTimeout+margin, "expected fetch ctx deadline to be within %s (+%s); got remaining=%s", fetchTimeout, margin, remaining)
 	default:
-		t.Fatalf("expected FetchUnprocessedEvents to be called")
+		require.Fail(t, "expected FetchUnprocessedEvents to be called")
 	}
 }

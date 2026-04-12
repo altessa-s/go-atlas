@@ -8,13 +8,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNew(t *testing.T) {
 	m := New()
-	if m.Name() != "securityheaders" {
-		t.Fatalf("Name() = %q", m.Name())
-	}
+	require.Equal(t, "securityheaders", m.Name())
 }
 
 func TestMiddleware_DefaultHeaders(t *testing.T) {
@@ -39,9 +39,7 @@ func TestMiddleware_DefaultHeaders(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.header, func(t *testing.T) {
 			got := rec.Header().Get(tt.header)
-			if got != tt.want {
-				t.Fatalf("%s = %q, want %q", tt.header, got, tt.want)
-			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -56,9 +54,7 @@ func TestMiddleware_HSTS(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	hsts := rec.Header().Get(HeaderStrictTransportSec)
-	if hsts == "" {
-		t.Fatal("HSTS header should be set")
-	}
+	require.NotEqual(t, "", hsts)
 }
 
 func TestMiddleware_NoHSTSByDefault(t *testing.T) {
@@ -69,9 +65,7 @@ func TestMiddleware_NoHSTSByDefault(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
 
-	if rec.Header().Get(HeaderStrictTransportSec) != "" {
-		t.Fatal("HSTS should not be set by default")
-	}
+	require.Equal(t, "", rec.Header().Get(HeaderStrictTransportSec))
 }
 
 func TestMiddleware_CSP(t *testing.T) {
@@ -81,15 +75,11 @@ func TestMiddleware_CSP(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
 
-	if rec.Header().Get(HeaderContentSecurityPolicy) != policy {
-		t.Fatalf("CSP = %q", rec.Header().Get(HeaderContentSecurityPolicy))
-	}
+	require.Equal(t, policy, rec.Header().Get(HeaderContentSecurityPolicy))
 }
 
 func TestMiddleware_Dependencies(t *testing.T) {
 	m := New()
 	deps := m.Dependencies()
-	if deps != nil {
-		t.Fatalf("Dependencies() = %v, want nil", deps)
-	}
+	require.Nil(t, deps)
 }

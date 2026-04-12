@@ -7,6 +7,8 @@ package token_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/altessa-s/go-atlas/security/vault/auth/token"
 )
 
@@ -19,12 +21,10 @@ func FuzzNew(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, tok string) {
 		m := token.New(tok)
-		if m == nil {
-			t.Fatal("New() returned nil for input")
+		if !assert.NotNil(t, m) {
+			return
 		}
-		if m.Name() != "token" {
-			t.Errorf("Name() = %q, want %q", m.Name(), "token")
-		}
+		assert.Equal(t, "token", m.Name())
 		_ = m.Shutdown()
 	})
 }

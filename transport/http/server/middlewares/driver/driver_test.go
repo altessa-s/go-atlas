@@ -9,17 +9,15 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNoopDriver_PreRequest(t *testing.T) {
 	d := NoopDriver()
 	ctx, err := d.PreRequest(t.Context(), httptest.NewRequest("GET", "/", nil))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ctx == nil {
-		t.Fatal("context should not be nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, ctx)
 }
 
 func TestNoopDriver_PostRequest(t *testing.T) {
@@ -30,15 +28,9 @@ func TestNoopDriver_PostRequest(t *testing.T) {
 
 func TestResponseInfo(t *testing.T) {
 	ri := ResponseInfo{StatusCode: 200, BytesWritten: 42, HeadersSent: true}
-	if ri.StatusCode != 200 {
-		t.Fatalf("StatusCode = %d", ri.StatusCode)
-	}
-	if ri.BytesWritten != 42 {
-		t.Fatalf("BytesWritten = %d", ri.BytesWritten)
-	}
-	if !ri.HeadersSent {
-		t.Fatal("HeadersSent should be true")
-	}
+	require.Equal(t, 200, ri.StatusCode)
+	require.Equal(t, int64(42), ri.BytesWritten)
+	require.True(t, ri.HeadersSent, "HeadersSent should be true")
 }
 
 type mockDriver struct {
@@ -72,9 +64,7 @@ func TestHTTPDrivenMiddleware(t *testing.T) {
 	dm := &mockDrivenMiddleware{driver: md}
 	mw := HTTPDrivenMiddleware(dm)
 
-	if mw.Name() != "mock" {
-		t.Fatalf("Name() = %q", mw.Name())
-	}
+	require.Equal(t, "mock", mw.Name())
 
 	handler := mw.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusCreated)
@@ -84,21 +74,11 @@ func TestHTTPDrivenMiddleware(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest("GET", "/test", nil))
 
-	if !md.preRequestCalled {
-		t.Fatal("PreRequest should be called")
-	}
-	if !md.postRequestCalled {
-		t.Fatal("PostRequest should be called")
-	}
-	if md.postResponseInfo.StatusCode != http.StatusCreated {
-		t.Fatalf("StatusCode = %d, want %d", md.postResponseInfo.StatusCode, http.StatusCreated)
-	}
-	if md.postResponseInfo.BytesWritten != 5 {
-		t.Fatalf("BytesWritten = %d, want 5", md.postResponseInfo.BytesWritten)
-	}
-	if !md.postResponseInfo.HeadersSent {
-		t.Fatal("HeadersSent should be true")
-	}
+	require.True(t, md.preRequestCalled, "PreRequest should be called")
+	require.True(t, md.postRequestCalled, "PostRequest should be called")
+	require.Equal(t, http.StatusCreated, md.postResponseInfo.StatusCode)
+	require.Equal(t, int64(5), md.postResponseInfo.BytesWritten)
+	require.True(t, md.postResponseInfo.HeadersSent, "HeadersSent should be true")
 }
 
 func TestHTTPDrivenMiddleware_NilDriver(t *testing.T) {
@@ -114,9 +94,7 @@ func TestHTTPDrivenMiddleware_NilDriver(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest("GET", "/test", nil))
 
-	if !called {
-		t.Fatal("handler should be called with nil driver (NoopDriver fallback)")
-	}
+	require.True(t, called, "handler should be called with nil driver (NoopDriver fallback)")
 }
 
 func TestHTTPDrivenMiddleware_PreRequestError(t *testing.T) {
@@ -132,12 +110,8 @@ func TestHTTPDrivenMiddleware_PreRequestError(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest("GET", "/test", nil))
 
-	if called {
-		t.Fatal("handler should not be called when PreRequest fails")
-	}
-	if !errDriver.postCalled {
-		t.Fatal("PostRequest should still be called after PreRequest error")
-	}
+	require.False(t, called, "handler should not be called when PreRequest fails")
+	require.True(t, errDriver.postCalled, "PostRequest should still be called after PreRequest error")
 }
 
 type errorDriver struct {
@@ -159,9 +133,7 @@ func TestResponseRecorder_WriteHeader_OnlyOnce(t *testing.T) {
 	rr.WriteHeader(http.StatusCreated)
 	rr.WriteHeader(http.StatusNotFound) // should be ignored
 
-	if rr.statusCode != http.StatusCreated {
-		t.Fatalf("statusCode = %d, want %d", rr.statusCode, http.StatusCreated)
-	}
+	require.Equal(t, http.StatusCreated, rr.statusCode)
 }
 
 func TestResponseRecorder_Write(t *testing.T) {
@@ -169,24 +141,14 @@ func TestResponseRecorder_Write(t *testing.T) {
 	rr := &responseRecorder{ResponseWriter: rec, statusCode: http.StatusOK}
 
 	n, err := rr.Write([]byte("hello"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != 5 {
-		t.Fatalf("n = %d, want 5", n)
-	}
-	if rr.bytesWritten != 5 {
-		t.Fatalf("bytesWritten = %d, want 5", rr.bytesWritten)
-	}
-	if !rr.headersSent {
-		t.Fatal("headersSent should be true after Write")
-	}
+	require.NoError(t, err)
+	require.Equal(t, 5, n)
+	require.Equal(t, int64(5), rr.bytesWritten)
+	require.True(t, rr.headersSent, "headersSent should be true after Write")
 }
 
 func TestResponseRecorder_Unwrap(t *testing.T) {
 	rec := httptest.NewRecorder()
 	rr := &responseRecorder{ResponseWriter: rec}
-	if rr.Unwrap() != rec {
-		t.Fatal("Unwrap should return underlying ResponseWriter")
-	}
+	require.Equal(t, rec, rr.Unwrap())
 }

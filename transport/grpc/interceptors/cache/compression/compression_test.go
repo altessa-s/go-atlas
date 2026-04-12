@@ -6,6 +6,8 @@ package compression
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNoOpCompressor(t *testing.T) {
@@ -13,24 +15,14 @@ func TestNoOpCompressor(t *testing.T) {
 
 	data := []byte("hello world")
 	compressed, err := c.Compress(t.Context(), data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(compressed) != string(data) {
-		t.Fatal("NoOp should return data unchanged")
-	}
+	require.NoError(t, err)
+	require.Equal(t, string(data), string(compressed))
 
 	decompressed, err := c.Decompress(t.Context(), data)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(decompressed) != string(data) {
-		t.Fatal("NoOp should return data unchanged")
-	}
+	require.NoError(t, err)
+	require.Equal(t, string(data), string(decompressed))
 
-	if c.ShouldCompress(data) {
-		t.Fatal("NoOp should never compress")
-	}
+	require.False(t, c.ShouldCompress(data), "NoOp should never compress")
 }
 
 func TestGzipCompressor_ShouldCompress(t *testing.T) {
@@ -48,18 +40,15 @@ func TestGzipCompressor_ShouldCompress(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			data := make([]byte, tt.size)
-			if got := c.ShouldCompress(data); got != tt.want {
-				t.Fatalf("ShouldCompress(%d) = %v, want %v", tt.size, got, tt.want)
-			}
+			got := c.ShouldCompress(data)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
 
 func TestGzipCompressor_ShouldCompress_MaxSize(t *testing.T) {
 	c := NewCompressor(100, 500, 6)
-	if c.ShouldCompress(make([]byte, 600)) {
-		t.Fatal("should not compress above maxSize")
-	}
+	require.False(t, c.ShouldCompress(make([]byte, 600)), "should not compress above maxSize")
 }
 
 func TestGzipCompressor_CompressDecompress(t *testing.T) {
@@ -73,17 +62,11 @@ func TestGzipCompressor_CompressDecompress(t *testing.T) {
 	}
 
 	compressed, err := c.Compress(ctx, data)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	decompressed, err := c.Decompress(ctx, compressed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(decompressed) != string(data) {
-		t.Fatal("roundtrip failed")
-	}
+	require.NoError(t, err)
+	require.Equal(t, string(data), string(decompressed))
 }
 
 func TestGzipCompressor_SmallData(t *testing.T) {
@@ -92,27 +75,17 @@ func TestGzipCompressor_SmallData(t *testing.T) {
 
 	data := []byte("small")
 	compressed, err := c.Compress(ctx, data)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	// Small data should be stored uncompressed
 	decompressed, err := c.Decompress(ctx, compressed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(decompressed) != string(data) {
-		t.Fatal("roundtrip failed for small data")
-	}
+	require.NoError(t, err)
+	require.Equal(t, string(data), string(decompressed))
 }
 
 func TestNewCompressor_Defaults(t *testing.T) {
 	c := NewCompressor(0, 0, 0)
-	if c.minSize != DefaultMinSize {
-		t.Fatalf("minSize = %d, want %d", c.minSize, DefaultMinSize)
-	}
-	if c.compressionLevel != DefaultLevel {
-		t.Fatalf("level = %d, want %d", c.compressionLevel, DefaultLevel)
-	}
+	require.Equal(t, DefaultMinSize, c.minSize)
+	require.Equal(t, DefaultLevel, c.compressionLevel)
 }
 
 func BenchmarkGzipCompressor_Compress(b *testing.B) {

@@ -8,14 +8,14 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/locks/dlock/providers/noop"
 )
 
 func TestNew(t *testing.T) {
 	p := noop.New()
-	if p == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, p, "New() returned nil")
 }
 
 func TestProvider_Lock(t *testing.T) {
@@ -23,23 +23,13 @@ func TestProvider_Lock(t *testing.T) {
 	ctx := t.Context()
 
 	lk, err := p.Lock(ctx, "test-key")
-	if err != nil {
-		t.Fatalf("Lock() error: %v", err)
-	}
-	if lk == nil {
-		t.Fatal("Lock() returned nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, lk, "Lock() returned nil")
 
 	info, err := lk.GetLockInfo(ctx)
-	if err != nil {
-		t.Fatalf("GetLockInfo() error: %v", err)
-	}
-	if info.Key != "test-key" {
-		t.Errorf("Key = %q, want %q", info.Key, "test-key")
-	}
-	if info.Owner != "nop" {
-		t.Errorf("Owner = %q, want %q", info.Owner, "nop")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "test-key", info.Key)
+	require.Equal(t, "nop", info.Owner)
 }
 
 func TestProvider_Lock_AfterClose(t *testing.T) {
@@ -49,9 +39,7 @@ func TestProvider_Lock_AfterClose(t *testing.T) {
 	_ = p.Close(ctx)
 
 	_, err := p.Lock(ctx, "test-key")
-	if err == nil {
-		t.Error("Lock() after Close() should return error")
-	}
+	require.Error(t, err, "Lock() after Close() should return error")
 }
 
 func TestProvider_GetLockInfo(t *testing.T) {
@@ -59,21 +47,11 @@ func TestProvider_GetLockInfo(t *testing.T) {
 	ctx := t.Context()
 
 	info, err := p.GetLockInfo(ctx, "any-key")
-	if err != nil {
-		t.Fatalf("GetLockInfo() error: %v", err)
-	}
-	if info.Key != "any-key" {
-		t.Errorf("Key = %q, want %q", info.Key, "any-key")
-	}
-	if info.Owner != "nop" {
-		t.Errorf("Owner = %q, want %q", info.Owner, "nop")
-	}
-	if info.IsStale {
-		t.Error("IsStale should be false")
-	}
-	if info.FencingToken != 0 {
-		t.Errorf("FencingToken = %d, want 0 for noop provider", info.FencingToken)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "any-key", info.Key)
+	require.Equal(t, "nop", info.Owner)
+	require.False(t, info.IsStale, "IsStale should be false")
+	require.Equal(t, uint64(0), info.FencingToken)
 }
 
 func TestLock_Release(t *testing.T) {
@@ -81,9 +59,7 @@ func TestLock_Release(t *testing.T) {
 	ctx := t.Context()
 
 	lk, _ := p.Lock(ctx, "key")
-	if err := lk.Release(ctx); err != nil {
-		t.Errorf("Release() error: %v", err)
-	}
+	require.NoError(t, lk.Release(ctx))
 }
 
 func TestLock_Release_CanceledContext(t *testing.T) {
@@ -94,16 +70,12 @@ func TestLock_Release_CanceledContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	if err := lk.Release(ctx); err == nil {
-		t.Error("Release() with canceled context should return error")
-	}
+	require.Error(t, lk.Release(ctx), "Release() with canceled context should return error")
 }
 
 func TestProvider_Close(t *testing.T) {
 	p := noop.New()
-	if err := p.Close(t.Context()); err != nil {
-		t.Errorf("Close() error: %v", err)
-	}
+	require.NoError(t, p.Close(t.Context()))
 }
 
 func TestProvider_Lock_DifferentKeys(t *testing.T) {
@@ -113,13 +85,9 @@ func TestProvider_Lock_DifferentKeys(t *testing.T) {
 	keys := []string{"key-a", "key-b", "key-c"}
 	for _, key := range keys {
 		lk, err := p.Lock(ctx, key)
-		if err != nil {
-			t.Fatalf("Lock(%q) error: %v", key, err)
-		}
+		require.NoError(t, err)
 		info, _ := lk.GetLockInfo(ctx)
-		if info.Key != key {
-			t.Errorf("Lock(%q): info.Key = %q", key, info.Key)
-		}
+		require.Equal(t, key, info.Key)
 		_ = lk.Release(ctx)
 	}
 }

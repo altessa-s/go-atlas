@@ -4,7 +4,11 @@
 
 package shared
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func FuzzBuildMetricName(f *testing.F) {
 	f.Add("app", "http", "requests")
@@ -26,11 +30,11 @@ func FuzzJoinScope(f *testing.F) {
 	f.Fuzz(func(t *testing.T, parent, child string) {
 		// Should not panic
 		result := JoinScope(parent, child, '_')
-		if parent == "" && child != "" && result != child {
-			t.Errorf("expected %q, got %q", child, result)
+		if parent == "" && child != "" {
+			assert.Equal(t, child, result)
 		}
-		if child == "" && parent != "" && result != parent {
-			t.Errorf("expected %q, got %q", parent, result)
+		if child == "" && parent != "" {
+			assert.Equal(t, parent, result)
 		}
 	})
 }

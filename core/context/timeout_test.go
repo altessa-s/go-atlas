@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	corecontext "github.com/altessa-s/go-atlas/core/context"
 )
 
@@ -17,9 +19,7 @@ func TestApplyTimeout(t *testing.T) {
 		ctx := t.Context()
 		gotCtx, cancel := corecontext.ApplyTimeout(ctx, 0)
 		defer cancel()
-		if gotCtx != ctx {
-			t.Error("expected original context")
-		}
+		require.Equal(t, ctx, gotCtx, "expected original context")
 	})
 
 	t.Run("context with deadline returns original", func(t *testing.T) {
@@ -29,9 +29,7 @@ func TestApplyTimeout(t *testing.T) {
 		gotCtx, cancel := corecontext.ApplyTimeout(ctx, time.Minute)
 		defer cancel()
 
-		if gotCtx != ctx {
-			t.Error("expected original context")
-		}
+		require.Equal(t, ctx, gotCtx, "expected original context")
 	})
 
 	t.Run("applies timeout", func(t *testing.T) {
@@ -55,20 +53,15 @@ func TestWithDefault(t *testing.T) {
 		ctx, cancel := corecontext.WithDefault(origCtx, time.Second)
 		defer cancel()
 		deadline, ok := ctx.Deadline()
-		if !ok {
-			t.Fatal("expected deadline to be set")
-		}
-		if !deadline.Equal(origDeadline) {
-			t.Errorf("expected deadline %v, got %v", origDeadline, deadline)
-		}
+		require.True(t, ok, "expected deadline to be set")
+		require.True(t, deadline.Equal(origDeadline), "expected deadline %v, got %v", origDeadline, deadline)
 	})
 
 	t.Run("context without deadline gets default", func(t *testing.T) {
 		ctx, cancel := corecontext.WithDefault(t.Context(), time.Second)
 		defer cancel()
-		if _, ok := ctx.Deadline(); !ok {
-			t.Error("expected deadline to be set")
-		}
+		_, ok := ctx.Deadline()
+		require.True(t, ok, "expected deadline to be set")
 	})
 
 	t.Run("nil context defaults to background", func(t *testing.T) {
@@ -77,9 +70,7 @@ func TestWithDefault(t *testing.T) {
 		if ctx.Err() == nil {
 			<-ctx.Done()
 		}
-		if ctx.Err() != context.DeadlineExceeded {
-			t.Errorf("expected DeadlineExceeded, got %v", ctx.Err())
-		}
+		require.Equal(t, context.DeadlineExceeded, ctx.Err())
 	})
 }
 
@@ -92,12 +83,8 @@ func TestWithMaxTimeout(t *testing.T) {
 		ctx, cancel := corecontext.WithMaxTimeout(origCtx, time.Second)
 		defer cancel()
 		deadline, ok := ctx.Deadline()
-		if !ok {
-			t.Fatal("expected deadline to be set")
-		}
-		if !deadline.Equal(origDeadline) {
-			t.Errorf("expected deadline %v, got %v", origDeadline, deadline)
-		}
+		require.True(t, ok, "expected deadline to be set")
+		require.True(t, deadline.Equal(origDeadline), "expected deadline %v, got %v", origDeadline, deadline)
 	})
 
 	t.Run("context with longer deadline gets capped", func(t *testing.T) {
@@ -108,37 +95,26 @@ func TestWithMaxTimeout(t *testing.T) {
 		ctx, cancel := corecontext.WithMaxTimeout(origCtx, time.Second)
 		defer cancel()
 		deadline, ok := ctx.Deadline()
-		if !ok {
-			t.Fatal("expected deadline to be set")
-		}
-		if !deadline.Before(origDeadline) {
-			t.Errorf("expected capped deadline before %v, got %v", origDeadline, deadline)
-		}
+		require.True(t, ok, "expected deadline to be set")
+		require.True(t, deadline.Before(origDeadline), "expected capped deadline before %v, got %v", origDeadline, deadline)
 	})
 
 	t.Run("zero max timeout returns original context", func(t *testing.T) {
 		ctx, cancel := corecontext.WithMaxTimeout(t.Context(), 0)
 		defer cancel()
-		if _, ok := ctx.Deadline(); ok {
-			t.Error("expected no deadline to be set")
-		}
+		_, ok := ctx.Deadline()
+		require.False(t, ok, "expected no deadline to be set")
 	})
 
 	t.Run("nil context defaults to background", func(t *testing.T) {
 		ctx, cancel := corecontext.WithMaxTimeout(nil, time.Minute) //nolint:staticcheck // intentionally passing nil
 		defer cancel()
-		if ctx == nil {
-			t.Error("expected non-nil context")
-		}
+		require.NotNil(t, ctx, "expected non-nil context")
 	})
 }
 
 func TestOrBackground(t *testing.T) {
-	if corecontext.OrBackground(nil) == nil {
-		t.Error("OrBackground(nil) returned nil")
-	}
+	require.NotNil(t, corecontext.OrBackground(nil), "OrBackground(nil) returned nil")
 	ctx := t.Context()
-	if corecontext.OrBackground(ctx) != ctx {
-		t.Error("OrBackground(ctx) did not return ctx")
-	}
+	require.Equal(t, ctx, corecontext.OrBackground(ctx), "OrBackground(ctx) did not return ctx")
 }

@@ -7,6 +7,8 @@ package msg
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestMeta_Map(t *testing.T) {
@@ -15,9 +17,8 @@ func TestMeta_Map(t *testing.T) {
 		{Key: "k2", Value: "v2"},
 	}
 	m := meta.Map()
-	if m["k1"] != "v1" || m["k2"] != "v2" {
-		t.Fatalf("Map() = %v", m)
-	}
+	require.Equal(t, "v1", m["k1"])
+	require.Equal(t, "v2", m["k2"])
 }
 
 func TestMeta_All(t *testing.T) {
@@ -27,14 +28,11 @@ func TestMeta_All(t *testing.T) {
 	}
 	count := 0
 	for k, v := range meta.All() {
-		if k == "" || v == "" {
-			t.Fatal("empty key or value")
-		}
+		require.NotEqual(t, "", k)
+		require.NotEqual(t, "", v)
 		count++
 	}
-	if count != 2 {
-		t.Fatalf("All() yielded %d items, want 2", count)
-	}
+	require.Equal(t, 2, count)
 }
 
 func TestMeta_Value(t *testing.T) {
@@ -54,9 +52,8 @@ func TestMeta_Value(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, ok := tt.meta.Value(tt.key)
-			if ok != tt.wantOk || got != tt.want {
-				t.Fatalf("Value(%q) = (%q, %v), want (%q, %v)", tt.key, got, ok, tt.want, tt.wantOk)
-			}
+			require.Equal(t, tt.wantOk, ok)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -64,69 +61,49 @@ func TestMeta_Value(t *testing.T) {
 func TestMetaFromMap(t *testing.T) {
 	m := map[string]string{"k1": "v1", "k2": "v2"}
 	meta := MetaFromMap(m)
-	if len(meta) != 2 {
-		t.Fatalf("MetaFromMap() len = %d, want 2", len(meta))
-	}
+	require.Len(t, meta, 2)
 }
 
 func TestMetaFromMap_Nil(t *testing.T) {
 	meta := MetaFromMap(nil)
-	if len(meta) != 0 {
-		t.Fatalf("MetaFromMap(nil) len = %d, want 0", len(meta))
-	}
+	require.Len(t, meta, 0)
 }
 
 func TestMessageCreatedTimeFromMeta(t *testing.T) {
 	now := time.Now().UTC()
 	meta := Meta{{Key: MetaKeyMessageCreatedTime, Value: now.Format(MessageCreatedTimeFormat)}}
 	got, err := MessageCreatedTimeFromMeta(meta)
-	if err != nil {
-		t.Fatalf("error = %v", err)
-	}
-	if got.Format(MessageCreatedTimeFormat) != now.Format(MessageCreatedTimeFormat) {
-		t.Fatalf("got %v, want %v", got, now)
-	}
+	require.NoError(t, err)
+	require.Equal(t, now.Format(MessageCreatedTimeFormat), got.Format(MessageCreatedTimeFormat))
 }
 
 func TestMessageCreatedTimeFromMeta_Nil(t *testing.T) {
 	got, err := MessageCreatedTimeFromMeta(nil)
-	if err != nil {
-		t.Fatalf("error = %v", err)
-	}
-	if !got.IsZero() {
-		t.Fatalf("expected zero time, got %v", got)
-	}
+	require.NoError(t, err)
+	require.True(t, got.IsZero(), "expected zero time, got %v", got)
 }
 
 func TestMessageCreatedTimeFromMeta_Missing(t *testing.T) {
 	meta := Meta{{Key: "other", Value: "v"}}
 	got, err := MessageCreatedTimeFromMeta(meta)
-	if err != nil {
-		t.Fatalf("error = %v", err)
-	}
-	if !got.IsZero() {
-		t.Fatalf("expected zero time, got %v", got)
-	}
+	require.NoError(t, err)
+	require.True(t, got.IsZero(), "expected zero time, got %v", got)
 }
 
 func TestMessageIdFromMeta(t *testing.T) {
 	meta := Meta{{Key: MetaKeyMessageId, Value: "msg-123"}}
-	if got := MessageIdFromMeta(meta); got != "msg-123" {
-		t.Fatalf("MessageIdFromMeta() = %q", got)
-	}
+	got := MessageIdFromMeta(meta)
+	require.Equal(t, "msg-123", got)
 }
 
 func TestMessageIdFromMeta_Nil(t *testing.T) {
-	if got := MessageIdFromMeta(nil); got != "" {
-		t.Fatalf("MessageIdFromMeta(nil) = %q", got)
-	}
+	got := MessageIdFromMeta(nil)
+	require.Equal(t, "", got)
 }
 
 func TestNewMessage_DefaultAckTimeout(t *testing.T) {
 	m := NewMessage("t", []byte("x"))
-	if m.AckTimeout != NoAckTimeout {
-		t.Fatalf("AckTimeout = %v, want NoAckTimeout", m.AckTimeout)
-	}
+	require.Equal(t, NoAckTimeout, m.AckTimeout)
 }
 
 func TestNewMessage_WithOptions(t *testing.T) {
@@ -134,52 +111,41 @@ func TestNewMessage_WithOptions(t *testing.T) {
 		WithAckTimeout(5*time.Second),
 		WithTTL(10*time.Second),
 	)
-	if m.AckTimeout != 5*time.Second {
-		t.Fatalf("AckTimeout = %v", m.AckTimeout)
-	}
-	if m.TTL != 10*time.Second {
-		t.Fatalf("TTL = %v", m.TTL)
-	}
+	require.Equal(t, m.AckTimeout, 5*time.Second)
+	require.Equal(t, m.TTL, 10*time.Second)
 }
 
 func TestMessage_Ack_NilAcker(t *testing.T) {
 	m := NewMessage("t", []byte("x"))
-	if err := m.Ack(); err != nil {
-		t.Fatalf("Ack() error = %v", err)
-	}
+	err := m.Ack()
+	require.NoError(t, err)
 }
 
 func TestMessage_Nak_NilAcker(t *testing.T) {
 	m := NewMessage("t", []byte("x"))
-	if err := m.Nak(); err != nil {
-		t.Fatalf("Nak() error = %v", err)
-	}
+	err := m.Nak()
+	require.NoError(t, err)
 }
 
 func TestMessage_Term_NilAcker(t *testing.T) {
 	m := NewMessage("t", []byte("x"))
-	if err := m.Term(); err != nil {
-		t.Fatalf("Term() error = %v", err)
-	}
+	err := m.Term()
+	require.NoError(t, err)
 }
 
 func TestMessage_InProgress_NilAcker(t *testing.T) {
 	m := NewMessage("t", []byte("x"))
-	if err := m.InProgress(); err != nil {
-		t.Fatalf("InProgress() error = %v", err)
-	}
+	err := m.InProgress()
+	require.NoError(t, err)
 }
 
 func TestMessage_WithAcker(t *testing.T) {
 	acked := false
 	mock := &mockAcker{ackFn: func() error { acked = true; return nil }}
 	m := NewMessage("t", []byte("x"), WithAcker(mock))
-	if err := m.Ack(); err != nil {
-		t.Fatalf("Ack() error = %v", err)
-	}
-	if !acked {
-		t.Fatal("Ack() not called on acker")
-	}
+	err := m.Ack()
+	require.NoError(t, err)
+	require.True(t, acked, "Ack() not called on acker")
 }
 
 type mockAcker struct {

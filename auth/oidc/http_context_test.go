@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	"golang.org/x/oauth2"
@@ -24,9 +26,7 @@ func TestProvider_getDiscoveryInfo_UsesProvidedContext(t *testing.T) {
 	ctx := context.WithValue(t.Context(), testContextKey("test"), "v")
 
 	rt := testhelpers.RoundTripFunc(func(r *http.Request) (*http.Response, error) {
-		if r.Context() != ctx {
-			t.Fatalf("request context mismatch: got=%v want=%v", r.Context(), ctx)
-		}
+		require.Equal(t, ctx, r.Context(), "request context mismatch")
 
 		body := `{
   "issuer":"https://issuer",
@@ -53,12 +53,9 @@ func TestProvider_getDiscoveryInfo_UsesProvidedContext(t *testing.T) {
 		logger:       slog.New(slog.DiscardHandler),
 	}
 
-	if err := p.getDiscoveryInfo(ctx); err != nil {
-		t.Fatalf("getDiscoveryInfo err=%v", err)
-	}
-	if p.discoveryInfo == nil || !p.discoveryInfo.IsValid() {
-		t.Fatalf("discoveryInfo invalid: %#v", p.discoveryInfo)
-	}
+	require.NoError(t, p.getDiscoveryInfo(ctx))
+	require.NotNil(t, p.discoveryInfo)
+	require.True(t, p.discoveryInfo.IsValid(), "discoveryInfo invalid: %#v", p.discoveryInfo)
 }
 
 type staticTokenSource struct{ tok *oauth2.Token }
@@ -69,12 +66,8 @@ func TestProvider_UserInfo_UsesProvidedContext(t *testing.T) {
 	ctx := context.WithValue(t.Context(), testContextKey("test"), "v")
 
 	rt := testhelpers.RoundTripFunc(func(r *http.Request) (*http.Response, error) {
-		if r.Context() != ctx {
-			t.Fatalf("request context mismatch: got=%v want=%v", r.Context(), ctx)
-		}
-		if got := r.Header.Get("Authorization"); got != "Bearer test" {
-			t.Fatalf("Authorization=%q, want %q", got, "Bearer test")
-		}
+		require.Equal(t, ctx, r.Context(), "request context mismatch")
+		require.Equal(t, "Bearer test", r.Header.Get("Authorization"))
 
 		resp := &http.Response{
 			StatusCode: http.StatusOK,
@@ -96,10 +89,7 @@ func TestProvider_UserInfo_UsesProvidedContext(t *testing.T) {
 	}
 
 	ui, err := p.UserInfo(ctx, staticTokenSource{tok: &oauth2.Token{AccessToken: "test", TokenType: "Bearer"}})
-	if err != nil {
-		t.Fatalf("UserInfo err=%v", err)
-	}
-	if ui == nil || ui.Id != "u1" {
-		t.Fatalf("UserInfo=%#v, want sub=u1", ui)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, ui)
+	require.Equal(t, "u1", ui.Id)
 }

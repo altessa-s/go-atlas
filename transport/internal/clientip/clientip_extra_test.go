@@ -7,6 +7,8 @@ package clientip
 import (
 	"net/netip"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestExtractor_Extract_CacheHit(t *testing.T) {
@@ -21,9 +23,7 @@ func TestExtractor_Extract_CacheHit(t *testing.T) {
 	// Second call should hit cache
 	result2 := ext.Extract(t.Context(), peerIP, headers)
 
-	if result1 != result2 {
-		t.Errorf("cache miss: %v != %v", result1, result2)
-	}
+	require.Equal(t, result2, result1)
 }
 
 func TestExtractor_Extract_TrustedProxies(t *testing.T) {
@@ -35,9 +35,7 @@ func TestExtractor_Extract_TrustedProxies(t *testing.T) {
 	}}
 
 	result := ext.Extract(t.Context(), peerIP, headers)
-	if result.String() != "203.0.114.1" {
-		t.Errorf("Extract() = %v, want 203.0.114.1", result)
-	}
+	require.Equal(t, "203.0.114.1", result.String())
 }
 
 func TestExtractor_Extract_TrustedPeers(t *testing.T) {
@@ -49,9 +47,7 @@ func TestExtractor_Extract_TrustedPeers(t *testing.T) {
 	}}
 
 	result := ext.Extract(t.Context(), peerIP, headers)
-	if result.String() != "1.2.3.4" {
-		t.Errorf("Extract() = %v, want 1.2.3.4", result)
-	}
+	require.Equal(t, "1.2.3.4", result.String())
 }
 
 func TestExtractor_Extract_InvalidHeader(t *testing.T) {
@@ -74,9 +70,7 @@ func TestExtractor_Extract_WithCustomHeaders(t *testing.T) {
 	}}
 
 	result := ext.Extract(t.Context(), peerIP, headers)
-	if result.String() != "5.6.7.8" {
-		t.Errorf("Extract() = %v, want 5.6.7.8", result)
-	}
+	require.Equal(t, "5.6.7.8", result.String())
 }
 
 func TestExtractor_Extract_TrustedProxiesCount(t *testing.T) {
@@ -98,17 +92,11 @@ func TestExtractor_Extract_MultipleXFF(t *testing.T) {
 	}}
 
 	result := ext.Extract(t.Context(), peerIP, headers)
-	if !result.IsValid() {
-		t.Fatal("Extract() returned invalid addr")
-	}
+	require.True(t, result.IsValid(), "Extract() returned invalid addr")
 }
 
 func TestExtractor_WithLogger(t *testing.T) {
 	ext, err := NewExtractor(WithLogger(nil))
-	if err != nil {
-		t.Fatalf("NewExtractor() error = %v", err)
-	}
-	if ext == nil {
-		t.Fatal("NewExtractor() returned nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, ext)
 }

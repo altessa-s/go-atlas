@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/nats-io/nkeys"
+	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/observability/health"
@@ -17,9 +18,7 @@ import (
 
 func TestNew_Default(t *testing.T) {
 	b := New(nil)
-	if b == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, b)
 }
 
 func TestNew_WithOptions(t *testing.T) {
@@ -30,9 +29,7 @@ func TestNew_WithOptions(t *testing.T) {
 	b := New(&config.Nats{}).
 		UseLogger(logger).
 		UseHealthCoordinator(coord)
-	if b == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, b)
 }
 
 func TestNatsOptions(t *testing.T) {
@@ -100,11 +97,11 @@ func TestNatsOptions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			b := New(tt.cfg)
 			opts, err := b.NatsOptions()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if err == nil && len(opts) == 0 {
-				t.Error("expected non-empty options")
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.NotEmpty(t, opts)
 			}
 		})
 	}
@@ -119,12 +116,8 @@ func TestNatsOptions_ConnectionURI(t *testing.T) {
 		MaxPingsOut:    3,
 	})
 	opts, err := b.NatsOptions()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(opts) == 0 {
-		t.Error("expected non-empty options")
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, opts)
 }
 
 func TestNatsOptions_ConnectionURI_SkipsAuth(t *testing.T) {
@@ -138,12 +131,8 @@ func TestNatsOptions_ConnectionURI_SkipsAuth(t *testing.T) {
 		MaxPingsOut:    3,
 	})
 	opts, err := b.NatsOptions()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(opts) == 0 {
-		t.Error("expected non-empty options")
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, opts)
 }
 
 func TestNatsOptions_MaxReconnect(t *testing.T) {
@@ -152,9 +141,7 @@ func TestNatsOptions_MaxReconnect(t *testing.T) {
 		MaxReconnect: 0, // should default to UnlimitedReconnects
 	})
 	_, err := b.NatsOptions()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestConsumerConfig(t *testing.T) {
@@ -195,11 +182,11 @@ func TestConsumerConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			consumerCfg, err := ConsumerConfig(tt.cfg)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if err == nil && consumerCfg == nil {
-				t.Error("expected non-nil consumer config")
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, consumerCfg)
 			}
 		})
 	}

@@ -9,158 +9,102 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestDefaultOptions(t *testing.T) {
 	opts := defaultOptions()
-	if opts.retryMax != DefaultRetryMax {
-		t.Fatalf("retryMax = %d, want %d", opts.retryMax, DefaultRetryMax)
-	}
-	if opts.retryWaitMin != DefaultRetryWaitMin {
-		t.Fatalf("retryWaitMin = %v, want %v", opts.retryWaitMin, DefaultRetryWaitMin)
-	}
-	if opts.retryWaitMax != DefaultRetryWaitMax {
-		t.Fatalf("retryWaitMax = %v, want %v", opts.retryWaitMax, DefaultRetryWaitMax)
-	}
-	if opts.breakerMaxRequests != DefaultBreakerMaxRequests {
-		t.Fatalf("breakerMaxRequests = %d, want %d", opts.breakerMaxRequests, DefaultBreakerMaxRequests)
-	}
-	if opts.breakerInterval != DefaultBreakerInterval {
-		t.Fatalf("breakerInterval = %v", opts.breakerInterval)
-	}
-	if opts.breakerTimeout != DefaultBreakerTimeout {
-		t.Fatalf("breakerTimeout = %v", opts.breakerTimeout)
-	}
-	if opts.client == nil {
-		t.Fatal("client is nil")
-	}
+	require.Equal(t, DefaultRetryMax, opts.retryMax)
+	require.Equal(t, DefaultRetryWaitMin, opts.retryWaitMin)
+	require.Equal(t, DefaultRetryWaitMax, opts.retryWaitMax)
+	require.Equal(t, uint32(DefaultBreakerMaxRequests), opts.breakerMaxRequests)
+	require.Equal(t, DefaultBreakerInterval, opts.breakerInterval)
+	require.Equal(t, DefaultBreakerTimeout, opts.breakerTimeout)
+	require.NotNil(t, opts.client)
 }
 
 func TestWithRetryMax(t *testing.T) {
 	opts := newOptions(WithRetryMax(10))
-	if opts.retryMax != 10 {
-		t.Fatalf("retryMax = %d", opts.retryMax)
-	}
+	require.Equal(t, 10, opts.retryMax)
 }
 
 func TestWithRetryWait(t *testing.T) {
 	opts := newOptions(WithRetryWait(1*time.Second, 30*time.Second))
-	if opts.retryWaitMin != 1*time.Second {
-		t.Fatalf("retryWaitMin = %v", opts.retryWaitMin)
-	}
-	if opts.retryWaitMax != 30*time.Second {
-		t.Fatalf("retryWaitMax = %v", opts.retryWaitMax)
-	}
+	require.Equal(t, 1*time.Second, opts.retryWaitMin)
+	require.Equal(t, 30*time.Second, opts.retryWaitMax)
 }
 
 func TestWithBreakerName(t *testing.T) {
 	opts := newOptions(WithBreakerName("my-breaker"))
-	if opts.breakerName != "my-breaker" {
-		t.Fatalf("breakerName = %q", opts.breakerName)
-	}
+	require.Equal(t, "my-breaker", opts.breakerName)
 }
 
 func TestWithBreakerName_StringPtr(t *testing.T) {
 	name := "ptr-breaker"
 	opts := newOptions(WithBreakerName(&name))
-	if opts.breakerName != "ptr-breaker" {
-		t.Fatalf("breakerName = %q", opts.breakerName)
-	}
+	require.Equal(t, "ptr-breaker", opts.breakerName)
 }
 
 func TestWithBreakerName_NilPtr(t *testing.T) {
 	opts := newOptions(WithBreakerName[*string](nil))
-	if opts.breakerName != "" {
-		t.Fatalf("breakerName = %q", opts.breakerName)
-	}
+	require.Equal(t, "", opts.breakerName)
 }
 
 func TestWithClient(t *testing.T) {
 	c := &http.Client{}
 	opts := newOptions(WithClient(c))
-	if opts.client != c {
-		t.Fatal("client not set")
-	}
+	require.Equal(t, c, opts.client)
 }
 
 func TestWithClient_Nil(t *testing.T) {
 	opts := newOptions(WithClient(nil))
-	if opts.client == nil {
-		t.Fatal("nil client should keep default")
-	}
+	require.NotNil(t, opts.client)
 }
 
 func TestWithLogger(t *testing.T) {
 	l := slog.New(slog.DiscardHandler)
 	opts := newOptions(WithLogger(l))
-	if opts.logger != l {
-		t.Fatal("logger not set")
-	}
+	require.Equal(t, l, opts.logger)
 }
 
 func TestWithLogger_Nil(t *testing.T) {
 	opts := newOptions(WithLogger(nil))
-	if opts.logger == nil {
-		t.Fatal("nil logger should keep default")
-	}
+	require.NotNil(t, opts.logger)
 }
 
 func TestWithMaxResponseSize(t *testing.T) {
 	opts := newOptions(WithMaxResponseSize(1024))
-	if opts.maxResponseSize != 1024 {
-		t.Fatalf("maxResponseSize = %d", opts.maxResponseSize)
-	}
+	require.Equal(t, int64(1024), opts.maxResponseSize)
 }
 
 func TestWithBreakerInterval_Negative(t *testing.T) {
 	opts := newOptions(WithBreakerInterval(-1))
-	if opts.breakerInterval != DefaultBreakerInterval {
-		t.Fatalf("negative should keep default, got %v", opts.breakerInterval)
-	}
+	require.Equal(t, DefaultBreakerInterval, opts.breakerInterval)
 }
 
 func TestWithBreakerTimeout_Negative(t *testing.T) {
 	opts := newOptions(WithBreakerTimeout(-1))
-	if opts.breakerTimeout != DefaultBreakerTimeout {
-		t.Fatalf("negative should keep default, got %v", opts.breakerTimeout)
-	}
+	require.Equal(t, DefaultBreakerTimeout, opts.breakerTimeout)
 }
 
 func TestWithCircuitBreakerSettings(t *testing.T) {
 	settings := &CircuitBreakerSettings{MaxRequests: 5, Timeout: 10 * time.Second}
 	opts := newOptions(WithCircuitBreakerSettings("api.test", settings))
-	if opts.hostBreakerSettings == nil {
-		t.Fatal("hostBreakerSettings is nil")
-	}
-	if opts.hostBreakerSettings["api.test"] != settings {
-		t.Fatal("settings not stored")
-	}
+	require.NotNil(t, opts.hostBreakerSettings)
+	require.Equal(t, settings, opts.hostBreakerSettings["api.test"])
 }
 
 func TestWithTransport_Nil(t *testing.T) {
 	opts := newOptions(WithTransport(nil))
-	if opts.transport != nil {
-		t.Fatal("nil transport should not be set")
-	}
+	require.Nil(t, opts.transport)
 }
 
 func TestDefaultConstants(t *testing.T) {
-	if DefaultRetryWaitMin <= 0 {
-		t.Fatalf("DefaultRetryWaitMin = %v", DefaultRetryWaitMin)
-	}
-	if DefaultRetryWaitMax <= 0 {
-		t.Fatalf("DefaultRetryWaitMax = %v", DefaultRetryWaitMax)
-	}
-	if DefaultRetryMax <= 0 {
-		t.Fatalf("DefaultRetryMax = %d", DefaultRetryMax)
-	}
-	if DefaultBreakerTimeout <= 0 {
-		t.Fatalf("DefaultBreakerTimeout = %v", DefaultBreakerTimeout)
-	}
-	if DefaultBreakerInterval <= 0 {
-		t.Fatalf("DefaultBreakerInterval = %v", DefaultBreakerInterval)
-	}
-	if DefaultBreakerMaxRequests == 0 {
-		t.Fatal("DefaultBreakerMaxRequests = 0")
-	}
+	require.Greater(t, DefaultRetryWaitMin, time.Duration(0))
+	require.Greater(t, DefaultRetryWaitMax, time.Duration(0))
+	require.Greater(t, DefaultRetryMax, 0)
+	require.Greater(t, DefaultBreakerTimeout, time.Duration(0))
+	require.Greater(t, DefaultBreakerInterval, time.Duration(0))
+	require.NotEqual(t, 0, DefaultBreakerMaxRequests)
 }

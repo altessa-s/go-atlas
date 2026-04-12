@@ -8,6 +8,8 @@ import (
 	"crypto/tls"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/mongo/kms"
 
 	kmsazure "github.com/altessa-s/go-atlas/data/mongo/kms/azure"
@@ -15,16 +17,12 @@ import (
 
 func TestNew(t *testing.T) {
 	p := kmsazure.New("client-id", "client-secret", "tenant-id", "my-key")
-	if p == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, p)
 }
 
 func TestAzure_Name(t *testing.T) {
 	p := kmsazure.New("c", "s", "t", "k")
-	if p.Name() != "azure" {
-		t.Errorf("Name() = %q, want %q", p.Name(), "azure")
-	}
+	require.Equal(t, "azure", p.Name())
 }
 
 func TestAzure_Credentials(t *testing.T) {
@@ -32,18 +30,10 @@ func TestAzure_Credentials(t *testing.T) {
 	creds := p.Credentials()
 
 	azCreds, ok := creds["azure"]
-	if !ok {
-		t.Fatal("Credentials() missing 'azure' key")
-	}
-	if azCreds[kmsazure.ClientID] != "client-id" {
-		t.Errorf("ClientID = %v", azCreds[kmsazure.ClientID])
-	}
-	if azCreds[kmsazure.ClientSecret] != "client-secret" {
-		t.Errorf("ClientSecret = %v", azCreds[kmsazure.ClientSecret])
-	}
-	if azCreds[kmsazure.TenantID] != "tenant-id" {
-		t.Errorf("TenantID = %v", azCreds[kmsazure.TenantID])
-	}
+	require.True(t, ok, "Credentials() missing 'azure' key")
+	require.Equal(t, "client-id", azCreds[kmsazure.ClientID])
+	require.Equal(t, "client-secret", azCreds[kmsazure.ClientSecret])
+	require.Equal(t, "tenant-id", azCreds[kmsazure.TenantID])
 }
 
 func TestAzure_MasterKey(t *testing.T) {
@@ -55,44 +45,33 @@ func TestAzure_MasterKey(t *testing.T) {
 	)
 
 	key := p.MasterKey()
-	if key[kmsazure.AzureKeyName] != "my-key" {
-		t.Errorf("KeyName = %v", key[kmsazure.AzureKeyName])
-	}
-	if key[kmsazure.AzureKeyVersion] != "1" {
-		t.Errorf("KeyVersion = %v", key[kmsazure.AzureKeyVersion])
-	}
+	require.Equal(t, "my-key", key[kmsazure.AzureKeyName])
+	require.Equal(t, "1", key[kmsazure.AzureKeyVersion])
 }
 
 func TestAzure_MasterKey_NoOptionals(t *testing.T) {
 	p := kmsazure.New("c", "s", "t", "key")
 	key := p.MasterKey()
-	if _, ok := key[kmsazure.AzureKeyVersion]; ok {
-		t.Error("KeyVersion should not be set")
-	}
+	_, hasVersion := key[kmsazure.AzureKeyVersion]
+	require.False(t, hasVersion)
 }
 
 func TestAzure_TLSConfig_Nil(t *testing.T) {
 	p := kmsazure.New("c", "s", "t", "k")
-	if p.TLSConfig() != nil {
-		t.Error("TLSConfig() should be nil by default")
-	}
+	require.Nil(t, p.TLSConfig())
 }
 
 func TestAzure_TLSConfig_Custom(t *testing.T) {
 	tlsCfg := &tls.Config{MinVersion: tls.VersionTLS13} //nolint:gosec
 	p := kmsazure.New("c", "s", "t", "k", kmsazure.WithTLS(tlsCfg))
-	if p.TLSConfig() != tlsCfg {
-		t.Error("TLSConfig() should return custom config")
-	}
+	require.Equal(t, tlsCfg, p.TLSConfig())
 }
 
 func TestAzure_Clear(t *testing.T) {
 	p := kmsazure.New("c", "s", "t", "k")
 	p.Clear()
 	creds := p.Credentials()
-	if len(creds["azure"]) != 0 {
-		t.Errorf("Credentials() after Clear() should be empty, got %v", creds["azure"])
-	}
+	require.Len(t, creds["azure"], 0)
 }
 
 func TestAzure_ImplementsProvider(t *testing.T) {

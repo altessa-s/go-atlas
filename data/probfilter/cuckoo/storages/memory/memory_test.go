@@ -7,6 +7,8 @@ package memory_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	memory "github.com/altessa-s/go-atlas/data/probfilter/cuckoo/storages/memory"
 )
 
@@ -15,17 +17,11 @@ func TestStorage_AddAndMightExist(t *testing.T) {
 	ctx := t.Context()
 
 	err := storage.Add(ctx, "hello")
-	if err != nil {
-		t.Fatalf("Add failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	exists, err := storage.MightExist(ctx, "hello")
-	if err != nil {
-		t.Fatalf("MightExist failed: %v", err)
-	}
-	if !exists {
-		t.Error("Expected 'hello' to exist in filter")
-	}
+	require.NoError(t, err)
+	require.True(t, exists, "Expected 'hello' to exist in filter")
 }
 
 func TestStorage_MightExist_NotAdded(t *testing.T) {
@@ -33,12 +29,8 @@ func TestStorage_MightExist_NotAdded(t *testing.T) {
 	ctx := t.Context()
 
 	exists, err := storage.MightExist(ctx, "notadded")
-	if err != nil {
-		t.Fatalf("MightExist failed: %v", err)
-	}
-	if exists {
-		t.Error("Expected 'notadded' to not exist in filter")
-	}
+	require.NoError(t, err)
+	require.False(t, exists, "Expected 'notadded' to not exist in filter")
 }
 
 func TestStorage_AddBatch(t *testing.T) {
@@ -55,18 +47,12 @@ func TestStorage_AddBatch(t *testing.T) {
 	}
 
 	err := storage.AddBatch(ctx, values)
-	if err != nil {
-		t.Fatalf("AddBatch failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	for _, item := range []string{"item1", "item2", "item3"} {
 		exists, err := storage.MightExist(ctx, item)
-		if err != nil {
-			t.Fatalf("MightExist failed for %s: %v", item, err)
-		}
-		if !exists {
-			t.Errorf("Expected '%s' to exist in filter", item)
-		}
+		require.NoError(t, err)
+		require.True(t, exists, "Expected '%s' to exist in filter", item)
 	}
 }
 
@@ -75,25 +61,15 @@ func TestStorage_Delete(t *testing.T) {
 	ctx := t.Context()
 
 	err := storage.Add(ctx, "item")
-	if err != nil {
-		t.Fatalf("Add failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	deleted, err := storage.Delete(ctx, "item")
-	if err != nil {
-		t.Fatalf("Delete failed: %v", err)
-	}
-	if !deleted {
-		t.Error("Expected Delete to return true for existing item")
-	}
+	require.NoError(t, err)
+	require.True(t, deleted, "Expected Delete to return true for existing item")
 
 	exists, err := storage.MightExist(ctx, "item")
-	if err != nil {
-		t.Fatalf("MightExist failed: %v", err)
-	}
-	if exists {
-		t.Error("Expected 'item' to not exist after deletion")
-	}
+	require.NoError(t, err)
+	require.False(t, exists, "Expected 'item' to not exist after deletion")
 }
 
 func TestStorage_Delete_NotExist(t *testing.T) {
@@ -101,12 +77,8 @@ func TestStorage_Delete_NotExist(t *testing.T) {
 	ctx := t.Context()
 
 	deleted, err := storage.Delete(ctx, "nonexistent")
-	if err != nil {
-		t.Fatalf("Delete failed: %v", err)
-	}
-	if deleted {
-		t.Error("Expected Delete to return false for non-existent item")
-	}
+	require.NoError(t, err)
+	require.False(t, deleted, "Expected Delete to return false for non-existent item")
 }
 
 func TestStorage_Stats(t *testing.T) {
@@ -115,23 +87,15 @@ func TestStorage_Stats(t *testing.T) {
 
 	for i := range 10 {
 		err := storage.Add(ctx, string(rune('a'+i)))
-		if err != nil {
-			t.Fatalf("Add failed: %v", err)
-		}
+		require.NoError(t, err)
 	}
 
 	stats, err := storage.Stats(ctx)
-	if err != nil {
-		t.Fatalf("Stats failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if stats.Capacity <= 0 {
-		t.Errorf("Expected capacity > 0, got %d", stats.Capacity)
-	}
+	require.True(t, stats.Capacity > 0, "Expected capacity > 0, got %d", stats.Capacity)
 
-	if stats.StorageType != "memory" {
-		t.Errorf("Expected storageType 'memory', got '%s'", stats.StorageType)
-	}
+	require.Equal(t, "memory", stats.StorageType)
 }
 
 func TestStorage_Close(t *testing.T) {
@@ -139,7 +103,5 @@ func TestStorage_Close(t *testing.T) {
 	ctx := t.Context()
 
 	err := storage.Close(ctx)
-	if err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
+	require.NoError(t, err)
 }

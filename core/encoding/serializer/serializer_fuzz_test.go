@@ -6,6 +6,8 @@ package serializer
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func FuzzJSONRoundTrip(f *testing.F) {
@@ -23,14 +25,10 @@ func FuzzJSONRoundTrip(f *testing.F) {
 
 		// Re-serialize
 		out, err := s.Serialize(data)
-		if err != nil {
-			t.Fatalf("Serialize failed after successful Deserialize: %v", err)
-		}
+		require.NoError(t, err, "Serialize failed after successful Deserialize")
 
 		// Deserialize again and compare
 		var data2 any
-		if err := s.Deserialize(out, &data2); err != nil {
-			t.Fatalf("second Deserialize failed: %v", err)
-		}
+		require.NoError(t, s.Deserialize(out, &data2), "second Deserialize failed")
 	})
 }

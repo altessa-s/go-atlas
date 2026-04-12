@@ -7,23 +7,21 @@ package uniq_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/uniq"
 )
 
 func TestNewWithNoop(t *testing.T) {
 	u := uniq.NewWithNoop()
-	if u == nil {
-		t.Fatal("NewWithNoop() returned nil")
-	}
+	require.NotNil(t, u, "NewWithNoop() returned nil")
 }
 
 func TestNop_Add(t *testing.T) {
 	u := uniq.NewWithNoop()
 	ctx := t.Context()
 
-	if err := u.Add(ctx, "key1"); err != nil {
-		t.Fatalf("Add() error = %v", err)
-	}
+	require.NoError(t, u.Add(ctx, "key1"))
 }
 
 func TestNop_Exist(t *testing.T) {
@@ -32,9 +30,7 @@ func TestNop_Exist(t *testing.T) {
 
 	_ = u.Add(ctx, "key1")
 	exists, err := u.Exist(ctx, "key1")
-	if err != nil {
-		t.Fatalf("Exist() error = %v", err)
-	}
+	require.NoError(t, err)
 	_ = exists // nop provider may or may not track
 }
 
@@ -42,27 +38,21 @@ func TestNop_Remove(t *testing.T) {
 	u := uniq.NewWithNoop()
 	ctx := t.Context()
 
-	if err := u.Remove(ctx, "key1"); err != nil {
-		t.Fatalf("Remove() error = %v", err)
-	}
+	require.NoError(t, u.Remove(ctx, "key1"))
 }
 
 func TestNop_Clear(t *testing.T) {
 	u := uniq.NewWithNoop()
 	ctx := t.Context()
 
-	if err := u.Clear(ctx); err != nil {
-		t.Fatalf("Clear() error = %v", err)
-	}
+	require.NoError(t, u.Clear(ctx))
 }
 
 func TestNop_AddWithValue(t *testing.T) {
 	u := uniq.NewWithNoop()
 	ctx := t.Context()
 
-	if err := u.AddWithValue(ctx, "key1", "val1"); err != nil {
-		t.Fatalf("AddWithValue() error = %v", err)
-	}
+	require.NoError(t, u.AddWithValue(ctx, "key1", "val1"))
 }
 
 func TestNop_GetValue(t *testing.T) {
@@ -81,7 +71,5 @@ func TestAdd_EmptyKey_Nop(t *testing.T) {
 	ctx := t.Context()
 
 	err := u.Add(ctx, "")
-	if err == nil {
-		t.Error("Add('') should return error")
-	}
+	require.Error(t, err, "Add('') should return error")
 }

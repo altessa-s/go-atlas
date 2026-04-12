@@ -6,6 +6,8 @@ package driver
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestStreamType_String(t *testing.T) {
@@ -22,9 +24,8 @@ func TestStreamType_String(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.st.String(); got != tt.want {
-				t.Fatalf("String() = %q, want %q", got, tt.want)
-			}
+			got := tt.st.String()
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -34,17 +35,11 @@ func TestNoopDriver(t *testing.T) {
 	ctx := t.Context()
 
 	resp, err := d.PreCall(ctx, "req")
-	if resp != nil {
-		t.Fatal("PreCall resp should be nil")
-	}
-	if err != nil {
-		t.Fatal("PreCall err should be nil")
-	}
+	require.Nil(t, resp)
+	require.NoError(t, err)
 
 	err = d.PostCall(ctx, "resp", nil)
-	if err != nil {
-		t.Fatal("PostCall err should be nil")
-	}
+	require.NoError(t, err)
 }
 
 func BenchmarkNoopDriver_PreCall(b *testing.B) {

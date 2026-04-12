@@ -8,6 +8,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"google.golang.org/grpc"
 
 	grpcmetadata "google.golang.org/grpc/metadata"
@@ -47,33 +49,28 @@ func TestClientStreamWrapper_Context(t *testing.T) {
 	ctx := context.WithValue(t.Context(), struct{}{}, "val")
 	cs := &mockClientStream{ctx: t.Context()}
 	w := NewClientStreamWrapper(ctx, cs, NoopDriver())
-	if w.Context() != ctx {
-		t.Fatal("wrong context")
-	}
+	require.Equal(t, ctx, w.Context())
 }
 
 func TestClientStreamWrapper_SendMsg(t *testing.T) {
 	cs := &mockClientStream{ctx: t.Context()}
 	w := NewClientStreamWrapper(t.Context(), cs, NoopDriver())
-	if err := w.SendMsg("msg"); err != nil {
-		t.Fatal(err)
-	}
+	err := w.SendMsg("msg")
+	require.NoError(t, err)
 }
 
 func TestClientStreamWrapper_RecvMsg(t *testing.T) {
 	cs := &mockClientStream{ctx: t.Context()}
 	w := NewClientStreamWrapper(t.Context(), cs, NoopDriver())
-	if err := w.RecvMsg(nil); err != nil {
-		t.Fatal(err)
-	}
+	err := w.RecvMsg(nil)
+	require.NoError(t, err)
 }
 
 func TestClientStreamWrapper_CloseSend(t *testing.T) {
 	cs := &mockClientStream{ctx: t.Context()}
 	w := NewClientStreamWrapper(t.Context(), cs, NoopDriver())
-	if err := w.CloseSend(); err != nil {
-		t.Fatal(err)
-	}
+	err := w.CloseSend()
+	require.NoError(t, err)
 }
 
 func TestClientStreamWrapper_Reuse(t *testing.T) {
@@ -81,37 +78,29 @@ func TestClientStreamWrapper_Reuse(t *testing.T) {
 	w1 := NewClientStreamWrapper(t.Context(), cs, NoopDriver())
 	ctx2 := context.WithValue(t.Context(), struct{}{}, "v2")
 	w2 := NewClientStreamWrapper(ctx2, w1, NoopDriver())
-	if w2 != w1 {
-		t.Fatal("should reuse existing wrapper")
-	}
-	if w2.Context() != ctx2 {
-		t.Fatal("context not updated")
-	}
+	require.Equal(t, w1, w2)
+	require.Equal(t, ctx2, w2.Context())
 }
 
 func TestServerStreamWrapper_Context(t *testing.T) {
 	ctx := context.WithValue(t.Context(), struct{}{}, "val")
 	ss := &mockServerStream{ctx: t.Context()}
 	w := NewServerWrappedStream(ctx, ss, NoopDriver())
-	if w.Context() != ctx {
-		t.Fatal("wrong context")
-	}
+	require.Equal(t, ctx, w.Context())
 }
 
 func TestServerStreamWrapper_SendMsg(t *testing.T) {
 	ss := &mockServerStream{ctx: t.Context()}
 	w := NewServerWrappedStream(t.Context(), ss, NoopDriver())
-	if err := w.SendMsg("msg"); err != nil {
-		t.Fatal(err)
-	}
+	err := w.SendMsg("msg")
+	require.NoError(t, err)
 }
 
 func TestServerStreamWrapper_RecvMsg(t *testing.T) {
 	ss := &mockServerStream{ctx: t.Context()}
 	w := NewServerWrappedStream(t.Context(), ss, NoopDriver())
-	if err := w.RecvMsg(nil); err != nil {
-		t.Fatal(err)
-	}
+	err := w.RecvMsg(nil)
+	require.NoError(t, err)
 }
 
 func TestServerStreamWrapper_Reuse(t *testing.T) {
@@ -119,7 +108,5 @@ func TestServerStreamWrapper_Reuse(t *testing.T) {
 	w1 := NewServerWrappedStream(t.Context(), ss, NoopDriver())
 	ctx2 := context.WithValue(t.Context(), struct{}{}, "v2")
 	w2 := NewServerWrappedStream(ctx2, w1, NoopDriver())
-	if w2 != w1 {
-		t.Fatal("should reuse existing wrapper")
-	}
+	require.Equal(t, w1, w2)
 }

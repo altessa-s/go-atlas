@@ -7,6 +7,8 @@ package natsprovider
 import (
 	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestIsValidSubject(t *testing.T) {
@@ -28,9 +30,8 @@ func TestIsValidSubject(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.subject, func(t *testing.T) {
-			if got := IsValidSubject(tt.subject); got != tt.want {
-				t.Fatalf("IsValidSubject(%q) = %v, want %v", tt.subject, got, tt.want)
-			}
+			got := IsValidSubject(tt.subject)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -62,9 +63,8 @@ func TestSubjectMatchesPattern(t *testing.T) {
 	for _, tt := range tests {
 		name := tt.subject + " ~ " + tt.pattern
 		t.Run(name, func(t *testing.T) {
-			if got := subjectMatchesPattern(tt.subject, tt.pattern); got != tt.want {
-				t.Fatalf("subjectMatchesPattern(%q, %q) = %v, want %v", tt.subject, tt.pattern, got, tt.want)
-			}
+			got := subjectMatchesPattern(tt.subject, tt.pattern)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -72,29 +72,22 @@ func TestSubjectMatchesPattern(t *testing.T) {
 func TestCheckSubjectAllowed(t *testing.T) {
 	t.Run("no allowlist permits all", func(t *testing.T) {
 		n := &Nats{}
-		if err := n.checkSubjectAllowed("anything"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		err := n.checkSubjectAllowed("anything")
+		require.NoError(t, err)
 	})
 
 	t.Run("allowed subject passes", func(t *testing.T) {
 		n := &Nats{allowedSubjects: []string{"events.*", "orders.>"}}
-		if err := n.checkSubjectAllowed("events.created"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if err := n.checkSubjectAllowed("orders.us.pending"); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		err := n.checkSubjectAllowed("events.created")
+		require.NoError(t, err)
+		err = n.checkSubjectAllowed("orders.us.pending")
+		require.NoError(t, err)
 	})
 
 	t.Run("disallowed subject rejected", func(t *testing.T) {
 		n := &Nats{allowedSubjects: []string{"events.*"}}
 		err := n.checkSubjectAllowed("secrets.leak")
-		if err == nil {
-			t.Fatal("expected error for disallowed subject")
-		}
-		if !errors.Is(err, ErrSubjectNotAllowed) {
-			t.Fatalf("expected ErrSubjectNotAllowed, got: %v", err)
-		}
+		require.NotNil(t, err, "expected error for disallowed subject")
+		require.True(t, errors.Is(err, ErrSubjectNotAllowed), "expected ErrSubjectNotAllowed, got: %v", err)
 	})
 }

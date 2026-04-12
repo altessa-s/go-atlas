@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/transport/http/server/handler"
 	"github.com/altessa-s/go-atlas/transport/http/server/router"
 )
@@ -36,15 +38,11 @@ func (m *mockRouter) Subrouter() router.Router                     { return m }
 func TestPrometheusMetrics(t *testing.T) {
 	r := &mockRouter{}
 	result := handler.PrometheusMetrics(r)
-	if result == nil {
-		t.Fatal("PrometheusMetrics returned nil")
-	}
+	require.NotNil(t, result)
 }
 
 func TestPprof(t *testing.T) {
 	r := &mockRouter{}
 	result := handler.Pprof(r)
-	if result == nil {
-		t.Fatal("Pprof returned nil")
-	}
+	require.NotNil(t, result)
 }

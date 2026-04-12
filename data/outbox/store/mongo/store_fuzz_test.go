@@ -4,7 +4,11 @@
 
 package outboxstore
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func FuzzWithCollectionName(f *testing.F) {
 	f.Add("events")
@@ -14,8 +18,6 @@ func FuzzWithCollectionName(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, name string) {
 		opts := newOptions(WithCollectionName(name))
-		if opts == nil {
-			t.Fatal("newOptions returned nil")
-		}
+		assert.NotNil(t, opts, "newOptions returned nil")
 	})
 }

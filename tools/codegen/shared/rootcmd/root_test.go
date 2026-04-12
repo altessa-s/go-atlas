@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRun_PanicInSubcommand_ReturnsErrorAndWritesToErr(t *testing.T) {
@@ -32,15 +33,9 @@ func TestRun_PanicInSubcommand_ReturnsErrorAndWritesToErr(t *testing.T) {
 	}
 
 	err := Run(cfg, []string{"boom"})
-	if err == nil {
-		t.Fatalf("expected error, got nil")
-	}
-	if got := err.Error(); got == "" {
-		t.Fatalf("expected non-empty error")
-	}
-	if !bytes.Contains(errOut.Bytes(), []byte("Panic recovered")) {
-		t.Fatalf("expected panic output on stderr; got: %s", errOut.String())
-	}
+	require.Error(t, err)
+	require.NotEmpty(t, err.Error())
+	require.True(t, bytes.Contains(errOut.Bytes(), []byte("Panic recovered")), "expected panic output on stderr; got: %s", errOut.String())
 }
 
 func TestNew_UsesProvidedWriters(t *testing.T) {
@@ -65,13 +60,7 @@ func TestNew_UsesProvidedWriters(t *testing.T) {
 
 	cmd := New(cfg)
 	cmd.SetArgs([]string{"hello"})
-	if err := cmd.Execute(); err != nil {
-		t.Fatalf("Execute err=%v", err)
-	}
-	if out.String() == "" {
-		t.Fatalf("expected stdout to be written")
-	}
-	if errOut.String() != "" {
-		t.Fatalf("expected stderr empty, got: %s", errOut.String())
-	}
+	require.NoError(t, cmd.Execute())
+	require.NotEmpty(t, out.String(), "expected stdout to be written")
+	require.Empty(t, errOut.String(), "expected stderr empty")
 }

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
 
@@ -39,8 +41,6 @@ func FuzzUnsafe(f *testing.F) {
 		b := corestrings.ToBytesUnsafe(s)
 		s2 := corestrings.FromBytesUnsafe(b)
 
-		if s != s2 {
-			t.Errorf("Unsafe conversion roundtrip failed: %q != %q", s, s2)
-		}
+		require.Equal(t, s, s2, "Unsafe conversion roundtrip failed")
 	})
 }

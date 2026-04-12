@@ -5,44 +5,31 @@
 package filter
 
 import (
-	"errors"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewParser(t *testing.T) {
 	t.Run("default options", func(t *testing.T) {
 		p, err := NewParser()
-		if err != nil {
-			t.Fatalf("NewParser() error = %v", err)
-		}
-		if p == nil {
-			t.Fatal("NewParser() returned nil")
-		}
-		if p.cache == nil {
-			t.Error("expected cache to be enabled by default")
-		}
+		require.NoError(t, err)
+		require.NotNil(t, p)
+		require.NotNil(t, p.cache, "expected cache to be enabled by default")
 	})
 
 	t.Run("with custom cache size", func(t *testing.T) {
 		p, err := NewParser(WithParserCacheSize(500))
-		if err != nil {
-			t.Fatalf("NewParser() error = %v", err)
-		}
-		if p.cache == nil {
-			t.Error("expected cache to be enabled")
-		}
+		require.NoError(t, err)
+		require.NotNil(t, p.cache, "expected cache to be enabled")
 	})
 
 	t.Run("with no cache", func(t *testing.T) {
 		p, err := NewParser(WithParserNoCache())
-		if err != nil {
-			t.Fatalf("NewParser() error = %v", err)
-		}
-		if p.cache != nil {
-			t.Error("expected cache to be nil")
-		}
+		require.NoError(t, err)
+		require.Nil(t, p.cache, "expected cache to be nil")
 	})
 }
 
@@ -62,9 +49,7 @@ func TestParser_Parse_EmptyExpression(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := p.Parse(t.Context(), tt.expr)
-			if !errors.Is(err, ErrEmptyExpression) {
-				t.Errorf("Parse(%q) error = %v, want %v", tt.expr, err, ErrEmptyExpression)
-			}
+			require.ErrorIs(t, err, ErrEmptyExpression, "Parse(%q)", tt.expr)
 		})
 	}
 }
@@ -89,19 +74,11 @@ func TestParser_Parse_Literals(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			node, err := p.Parse(t.Context(), tt.expr)
-			if err != nil {
-				t.Fatalf("Parse(%q) error = %v", tt.expr, err)
-			}
-			if node.Kind() != tt.wantKind {
-				t.Errorf("Parse(%q).Kind() = %v, want %v", tt.expr, node.Kind(), tt.wantKind)
-			}
+			require.NoError(t, err, "Parse(%q)", tt.expr)
+			require.Equal(t, tt.wantKind, node.Kind(), "Parse(%q).Kind()", tt.expr)
 			lit, ok := node.(*LiteralNode)
-			if !ok {
-				t.Fatalf("Parse(%q) did not return LiteralNode", tt.expr)
-			}
-			if lit.Value != tt.wantVal {
-				t.Errorf("Parse(%q).Value = %v, want %v", tt.expr, lit.Value, tt.wantVal)
-			}
+			require.True(t, ok, "Parse(%q) did not return LiteralNode", tt.expr)
+			require.Equal(t, tt.wantVal, lit.Value, "Parse(%q).Value", tt.expr)
 		})
 	}
 }
@@ -122,16 +99,10 @@ func TestParser_Parse_Identifiers(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			node, err := p.Parse(t.Context(), tt.expr)
-			if err != nil {
-				t.Fatalf("Parse(%q) error = %v", tt.expr, err)
-			}
+			require.NoError(t, err, "Parse(%q)", tt.expr)
 			ident, ok := node.(*IdentNode)
-			if !ok {
-				t.Fatalf("Parse(%q) did not return IdentNode, got %T", tt.expr, node)
-			}
-			if ident.Name != tt.wantName {
-				t.Errorf("Parse(%q).Name = %q, want %q", tt.expr, ident.Name, tt.wantName)
-			}
+			require.True(t, ok, "Parse(%q) did not return IdentNode, got %T", tt.expr, node)
+			require.Equal(t, tt.wantName, ident.Name, "Parse(%q).Name", tt.expr)
 		})
 	}
 }
@@ -155,16 +126,10 @@ func TestParser_Parse_ComparisonOperators(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			node, err := p.Parse(t.Context(), tt.expr)
-			if err != nil {
-				t.Fatalf("Parse(%q) error = %v", tt.expr, err)
-			}
+			require.NoError(t, err, "Parse(%q)", tt.expr)
 			binOp, ok := node.(*BinaryOpNode)
-			if !ok {
-				t.Fatalf("Parse(%q) did not return BinaryOpNode, got %T", tt.expr, node)
-			}
-			if binOp.Op != tt.wantOp {
-				t.Errorf("Parse(%q).Op = %v, want %v", tt.expr, binOp.Op, tt.wantOp)
-			}
+			require.True(t, ok, "Parse(%q) did not return BinaryOpNode, got %T", tt.expr, node)
+			require.Equal(t, tt.wantOp, binOp.Op, "Parse(%q).Op", tt.expr)
 		})
 	}
 }
@@ -185,26 +150,16 @@ func TestParser_Parse_LogicalOperators(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			node, err := p.Parse(t.Context(), tt.expr)
-			if err != nil {
-				t.Fatalf("Parse(%q) error = %v", tt.expr, err)
-			}
+			require.NoError(t, err, "Parse(%q)", tt.expr)
 			switch tt.wantOp {
 			case OpAnd, OpOr:
 				binOp, ok := node.(*BinaryOpNode)
-				if !ok {
-					t.Fatalf("Parse(%q) did not return BinaryOpNode, got %T", tt.expr, node)
-				}
-				if binOp.Op != tt.wantOp {
-					t.Errorf("Parse(%q).Op = %v, want %v", tt.expr, binOp.Op, tt.wantOp)
-				}
+				require.True(t, ok, "Parse(%q) did not return BinaryOpNode, got %T", tt.expr, node)
+				require.Equal(t, tt.wantOp, binOp.Op, "Parse(%q).Op", tt.expr)
 			case OpNot:
 				unaryOp, ok := node.(*UnaryOpNode)
-				if !ok {
-					t.Fatalf("Parse(%q) did not return UnaryOpNode, got %T", tt.expr, node)
-				}
-				if unaryOp.Op != tt.wantOp {
-					t.Errorf("Parse(%q).Op = %v, want %v", tt.expr, unaryOp.Op, tt.wantOp)
-				}
+				require.True(t, ok, "Parse(%q) did not return UnaryOpNode, got %T", tt.expr, node)
+				require.Equal(t, tt.wantOp, unaryOp.Op, "Parse(%q).Op", tt.expr)
 			}
 		})
 	}
@@ -214,32 +169,18 @@ func TestParser_Parse_MembershipOperator(t *testing.T) {
 	p, _ := NewParser(WithParserNoCache())
 
 	node, err := p.Parse(t.Context(), `status in ["active", "pending"]`)
-	if err != nil {
-		t.Fatalf("Parse() error = %v", err)
-	}
+	require.NoError(t, err)
 	binOp, ok := node.(*BinaryOpNode)
-	if !ok {
-		t.Fatalf("Parse() did not return BinaryOpNode, got %T", node)
-	}
-	if binOp.Op != OpIn {
-		t.Errorf("Parse().Op = %v, want %v", binOp.Op, OpIn)
-	}
+	require.True(t, ok, "Parse() did not return BinaryOpNode, got %T", node)
+	require.Equal(t, OpIn, binOp.Op)
 
 	ident, ok := binOp.Left.(*IdentNode)
-	if !ok {
-		t.Fatalf("Left is not IdentNode, got %T", binOp.Left)
-	}
-	if ident.Name != "status" {
-		t.Errorf("Left.Name = %q, want %q", ident.Name, "status")
-	}
+	require.True(t, ok, "Left is not IdentNode, got %T", binOp.Left)
+	require.Equal(t, "status", ident.Name)
 
 	list, ok := binOp.Right.(*ListNode)
-	if !ok {
-		t.Fatalf("Right is not ListNode, got %T", binOp.Right)
-	}
-	if len(list.Elements) != 2 {
-		t.Errorf("len(Right.Elements) = %d, want 2", len(list.Elements))
-	}
+	require.True(t, ok, "Right is not ListNode, got %T", binOp.Right)
+	require.Len(t, list.Elements, 2)
 }
 
 func TestParser_Parse_StringFunctions(t *testing.T) {
@@ -259,22 +200,12 @@ func TestParser_Parse_StringFunctions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			node, err := p.Parse(t.Context(), tt.expr)
-			if err != nil {
-				t.Fatalf("Parse(%q) error = %v", tt.expr, err)
-			}
+			require.NoError(t, err, "Parse(%q)", tt.expr)
 			call, ok := node.(*CallNode)
-			if !ok {
-				t.Fatalf("Parse(%q) did not return CallNode, got %T", tt.expr, node)
-			}
-			if call.Op != tt.wantOp {
-				t.Errorf("Parse(%q).Op = %v, want %v", tt.expr, call.Op, tt.wantOp)
-			}
-			if call.Target == nil {
-				t.Error("call.Target is nil")
-			}
-			if len(call.Args) != 1 {
-				t.Errorf("len(call.Args) = %d, want 1", len(call.Args))
-			}
+			require.True(t, ok, "Parse(%q) did not return CallNode, got %T", tt.expr, node)
+			require.Equal(t, tt.wantOp, call.Op, "Parse(%q).Op", tt.expr)
+			require.NotNil(t, call.Target, "call.Target is nil")
+			require.Len(t, call.Args, 1)
 		})
 	}
 }
@@ -283,56 +214,34 @@ func TestParser_Parse_SizeFunction(t *testing.T) {
 	p, _ := NewParser(WithParserNoCache())
 
 	node, err := p.Parse(t.Context(), `tags.size()`)
-	if err != nil {
-		t.Fatalf("Parse() error = %v", err)
-	}
+	require.NoError(t, err)
 	call, ok := node.(*CallNode)
-	if !ok {
-		t.Fatalf("Parse() did not return CallNode, got %T", node)
-	}
-	if call.Op != OpSize {
-		t.Errorf("Parse().Op = %v, want %v", call.Op, OpSize)
-	}
-	if call.Target == nil {
-		t.Error("call.Target is nil")
-	}
+	require.True(t, ok, "Parse() did not return CallNode, got %T", node)
+	require.Equal(t, OpSize, call.Op)
+	require.NotNil(t, call.Target, "call.Target is nil")
 }
 
 func TestParser_Parse_HasMacro(t *testing.T) {
 	p, _ := NewParser(WithParserNoCache())
 
 	node, err := p.Parse(t.Context(), `has(user.email)`)
-	if err != nil {
-		t.Fatalf("Parse() error = %v", err)
-	}
+	require.NoError(t, err)
 	call, ok := node.(*CallNode)
-	if !ok {
-		t.Fatalf("Parse() did not return CallNode, got %T", node)
-	}
-	if call.Op != OpHas {
-		t.Errorf("Parse().Op = %v, want %v", call.Op, OpHas)
-	}
+	require.True(t, ok, "Parse() did not return CallNode, got %T", node)
+	require.Equal(t, OpHas, call.Op)
 }
 
 func TestParser_Parse_Timestamp(t *testing.T) {
 	p, _ := NewParser(WithParserNoCache())
 
 	node, err := p.Parse(t.Context(), `timestamp("2024-01-15T10:30:00Z")`)
-	if err != nil {
-		t.Fatalf("Parse() error = %v", err)
-	}
+	require.NoError(t, err)
 	lit, ok := node.(*LiteralNode)
-	if !ok {
-		t.Fatalf("Parse() did not return LiteralNode, got %T", node)
-	}
+	require.True(t, ok, "Parse() did not return LiteralNode, got %T", node)
 	ts, ok := lit.Value.(time.Time)
-	if !ok {
-		t.Fatalf("Value is not time.Time, got %T", lit.Value)
-	}
+	require.True(t, ok, "Value is not time.Time, got %T", lit.Value)
 	expected := time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC)
-	if !ts.Equal(expected) {
-		t.Errorf("timestamp = %v, want %v", ts, expected)
-	}
+	require.True(t, ts.Equal(expected), "timestamp = %v, want %v", ts, expected)
 }
 
 func TestParser_Parse_ComplexExpressions(t *testing.T) {
@@ -353,12 +262,8 @@ func TestParser_Parse_ComplexExpressions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			node, err := p.Parse(t.Context(), tt.expr)
-			if err != nil {
-				t.Fatalf("Parse(%q) error = %v", tt.expr, err)
-			}
-			if node == nil {
-				t.Fatal("Parse() returned nil node")
-			}
+			require.NoError(t, err, "Parse(%q)", tt.expr)
+			require.NotNil(t, node, "Parse() returned nil node")
 		})
 	}
 }
@@ -379,9 +284,7 @@ func TestParser_Parse_InvalidExpressions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := p.Parse(t.Context(), tt.expr)
-			if err == nil {
-				t.Errorf("Parse(%q) expected error, got nil", tt.expr)
-			}
+			require.Error(t, err, "Parse(%q) expected error", tt.expr)
 		})
 	}
 }
@@ -389,22 +292,16 @@ func TestParser_Parse_InvalidExpressions(t *testing.T) {
 func TestParser_MustParse_Panic(t *testing.T) {
 	p, _ := NewParser(WithParserNoCache())
 
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("MustParse() did not panic on invalid expression")
-		}
-	}()
-
-	p.MustParse(`invalid ===`)
+	require.Panics(t, func() {
+		p.MustParse(`invalid ===`)
+	}, "MustParse() did not panic on invalid expression")
 }
 
 func TestParser_MustParse_Success(t *testing.T) {
 	p, _ := NewParser(WithParserNoCache())
 
 	node := p.MustParse(`name == "John"`)
-	if node == nil {
-		t.Fatal("MustParse() returned nil")
-	}
+	require.NotNil(t, node, "MustParse() returned nil")
 }
 
 func TestParser_Cache(t *testing.T) {
@@ -413,18 +310,12 @@ func TestParser_Cache(t *testing.T) {
 	expr := `name == "John"`
 
 	node1, err := p.Parse(t.Context(), expr)
-	if err != nil {
-		t.Fatalf("first Parse() error = %v", err)
-	}
+	require.NoError(t, err, "first Parse()")
 
 	node2, err := p.Parse(t.Context(), expr)
-	if err != nil {
-		t.Fatalf("second Parse() error = %v", err)
-	}
+	require.NoError(t, err, "second Parse()")
 
-	if node1 != node2 {
-		t.Error("cache did not return same node instance")
-	}
+	require.Same(t, node1, node2, "cache did not return same node instance")
 }
 
 func TestNodeKind_String(t *testing.T) {
@@ -442,17 +333,13 @@ func TestNodeKind_String(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
-			if got := tt.kind.String(); got != tt.want {
-				t.Errorf("NodeKind.String() = %q, want %q", got, tt.want)
-			}
+			require.Equal(t, tt.want, tt.kind.String())
 		})
 	}
 
 	// Test unknown kind returns formatted string
 	unknown := NodeKind(99)
-	if !strings.HasPrefix(unknown.String(), "NodeKind(") {
-		t.Errorf("Unknown NodeKind.String() = %q, want prefix 'NodeKind('", unknown.String())
-	}
+	require.True(t, strings.HasPrefix(unknown.String(), "NodeKind("), "Unknown NodeKind.String() = %q", unknown.String())
 }
 
 func TestOperator_String(t *testing.T) {
@@ -481,64 +368,48 @@ func TestOperator_String(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
-			if got := tt.op.String(); got != tt.want {
-				t.Errorf("Operator.String() = %q, want %q", got, tt.want)
-			}
+			require.Equal(t, tt.want, tt.op.String())
 		})
 	}
 
 	// Test unknown operator returns formatted string
 	unknown := Operator(99)
-	if !strings.HasPrefix(unknown.String(), "Operator(") {
-		t.Errorf("Unknown Operator.String() = %q, want prefix 'Operator('", unknown.String())
-	}
+	require.True(t, strings.HasPrefix(unknown.String(), "Operator("), "Unknown Operator.String() = %q", unknown.String())
 }
 
 func TestOperator_IsComparison(t *testing.T) {
 	comparisons := []Operator{OpEqual, OpNotEqual, OpLT, OpLTE, OpGT, OpGTE}
 	for _, op := range comparisons {
-		if !op.IsComparison() {
-			t.Errorf("%v.IsComparison() = false, want true", op)
-		}
+		require.True(t, op.IsComparison(), "%v.IsComparison()", op)
 	}
 
 	nonComparisons := []Operator{OpAnd, OpOr, OpNot, OpIn, OpContains}
 	for _, op := range nonComparisons {
-		if op.IsComparison() {
-			t.Errorf("%v.IsComparison() = true, want false", op)
-		}
+		require.False(t, op.IsComparison(), "%v.IsComparison()", op)
 	}
 }
 
 func TestOperator_IsLogical(t *testing.T) {
 	logical := []Operator{OpAnd, OpOr, OpNot}
 	for _, op := range logical {
-		if !op.IsLogical() {
-			t.Errorf("%v.IsLogical() = false, want true", op)
-		}
+		require.True(t, op.IsLogical(), "%v.IsLogical()", op)
 	}
 
 	nonLogical := []Operator{OpEqual, OpIn, OpContains}
 	for _, op := range nonLogical {
-		if op.IsLogical() {
-			t.Errorf("%v.IsLogical() = true, want false", op)
-		}
+		require.False(t, op.IsLogical(), "%v.IsLogical()", op)
 	}
 }
 
 func TestOperator_IsStringOp(t *testing.T) {
 	stringOps := []Operator{OpContains, OpStartsWith, OpEndsWith, OpMatches}
 	for _, op := range stringOps {
-		if !op.IsStringOp() {
-			t.Errorf("%v.IsStringOp() = false, want true", op)
-		}
+		require.True(t, op.IsStringOp(), "%v.IsStringOp()", op)
 	}
 
 	nonStringOps := []Operator{OpEqual, OpAnd, OpIn, OpSize}
 	for _, op := range nonStringOps {
-		if op.IsStringOp() {
-			t.Errorf("%v.IsStringOp() = true, want false", op)
-		}
+		require.False(t, op.IsStringOp(), "%v.IsStringOp()", op)
 	}
 }
 
@@ -552,9 +423,7 @@ func TestWalk(t *testing.T) {
 		return true
 	})
 
-	if count == 0 {
-		t.Error("Walk did not visit any nodes")
-	}
+	require.NotZero(t, count, "Walk did not visit any nodes")
 }
 
 func TestAllNodes(t *testing.T) {
@@ -566,9 +435,7 @@ func TestAllNodes(t *testing.T) {
 		count++
 	}
 
-	if count != CountNodes(node) {
-		t.Errorf("AllNodes count = %d, CountNodes = %d", count, CountNodes(node))
-	}
+	require.Equal(t, CountNodes(node), count)
 }
 
 func TestDepth(t *testing.T) {
@@ -586,16 +453,12 @@ func TestDepth(t *testing.T) {
 		t.Run(tt.expr, func(t *testing.T) {
 			node, _ := p.Parse(t.Context(), tt.expr)
 			d := Depth(node)
-			if d < tt.minDepth {
-				t.Errorf("Depth(%q) = %d, want >= %d", tt.expr, d, tt.minDepth)
-			}
+			require.GreaterOrEqual(t, d, tt.minDepth, "Depth(%q)", tt.expr)
 		})
 	}
 
 	// Test nil
-	if Depth(nil) != 0 {
-		t.Error("Depth(nil) should be 0")
-	}
+	require.Equal(t, 0, Depth(nil), "Depth(nil) should be 0")
 }
 
 func TestParser_Parse_ExpressionTooLong(t *testing.T) {
@@ -603,48 +466,34 @@ func TestParser_Parse_ExpressionTooLong(t *testing.T) {
 
 	t.Run("expression within limit", func(t *testing.T) {
 		_, err := p.Parse(t.Context(), `name == "John"`)
-		if err != nil {
-			t.Fatalf("Parse() error = %v", err)
-		}
+		require.NoError(t, err)
 	})
 
 	t.Run("expression exceeding limit", func(t *testing.T) {
 		long := `name == "` + strings.Repeat("a", 50) + `"`
 		_, err := p.Parse(t.Context(), long)
-		if !errors.Is(err, ErrExpressionTooLong) {
-			t.Errorf("Parse() error = %v, want %v", err, ErrExpressionTooLong)
-		}
+		require.ErrorIs(t, err, ErrExpressionTooLong)
 	})
 
 	t.Run("default limit allows reasonable expressions", func(t *testing.T) {
 		pDefault, _ := NewParser(WithParserNoCache())
 		_, err := pDefault.Parse(t.Context(), `name == "John" && age >= 18`)
-		if err != nil {
-			t.Fatalf("Parse() error = %v", err)
-		}
+		require.NoError(t, err)
 	})
 }
 
 func TestValidateRegex(t *testing.T) {
 	t.Run("valid short regex", func(t *testing.T) {
-		if err := ValidateRegex("^hello.*", 1024); err != nil {
-			t.Errorf("ValidateRegex() error = %v", err)
-		}
+		require.NoError(t, ValidateRegex("^hello.*", 1024))
 	})
 
 	t.Run("regex exceeding length", func(t *testing.T) {
 		long := strings.Repeat("a", 1025)
-		err := ValidateRegex(long, 1024)
-		if !errors.Is(err, ErrInvalidRegex) {
-			t.Errorf("ValidateRegex() error = %v, want %v", err, ErrInvalidRegex)
-		}
+		require.ErrorIs(t, ValidateRegex(long, 1024), ErrInvalidRegex)
 	})
 
 	t.Run("invalid regex pattern", func(t *testing.T) {
-		err := ValidateRegex("[invalid", 1024)
-		if !errors.Is(err, ErrInvalidRegex) {
-			t.Errorf("ValidateRegex() error = %v, want %v", err, ErrInvalidRegex)
-		}
+		require.ErrorIs(t, ValidateRegex("[invalid", 1024), ErrInvalidRegex)
 	})
 }
 
@@ -654,9 +503,7 @@ func TestParser_Parse_DefaultExpressionLength(t *testing.T) {
 	// Build an expression that exceeds DefaultMaxExpressionLength (4096)
 	long := `name == "` + strings.Repeat("x", DefaultMaxExpressionLength) + `"`
 	_, err := p.Parse(t.Context(), long)
-	if !errors.Is(err, ErrExpressionTooLong) {
-		t.Errorf("Parse() error = %v, want %v", err, ErrExpressionTooLong)
-	}
+	require.ErrorIs(t, err, ErrExpressionTooLong)
 }
 
 func TestNode_Children(t *testing.T) {
@@ -668,9 +515,7 @@ func TestNode_Children(t *testing.T) {
 		for range node.Children() {
 			count++
 		}
-		if count != 0 {
-			t.Errorf("LiteralNode has %d children, want 0", count)
-		}
+		require.Equal(t, 0, count, "LiteralNode children")
 	})
 
 	t.Run("BinaryOpNode has 2 children", func(t *testing.T) {
@@ -679,9 +524,7 @@ func TestNode_Children(t *testing.T) {
 		for range node.Children() {
 			count++
 		}
-		if count != 2 {
-			t.Errorf("BinaryOpNode has %d children, want 2", count)
-		}
+		require.Equal(t, 2, count, "BinaryOpNode children")
 	})
 
 	t.Run("ListNode has children for each element", func(t *testing.T) {
@@ -692,8 +535,6 @@ func TestNode_Children(t *testing.T) {
 		for range list.Children() {
 			count++
 		}
-		if count != 3 {
-			t.Errorf("ListNode has %d children, want 3", count)
-		}
+		require.Equal(t, 3, count, "ListNode children")
 	})
 }

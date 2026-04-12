@@ -5,9 +5,10 @@
 package memory_test
 
 import (
-	"errors"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/limiters/storages"
 	"github.com/altessa-s/go-atlas/data/limiters/storages/memory"
@@ -18,12 +19,8 @@ func TestProvider_Allow_UnderLimit(t *testing.T) {
 	ctx := t.Context()
 
 	info, err := p.Allow(ctx, "key1", 5, time.Minute)
-	if err != nil {
-		t.Fatalf("Allow() error: %v", err)
-	}
-	if info.Remaining != 4 {
-		t.Errorf("Remaining = %d, want 4", info.Remaining)
-	}
+	require.NoError(t, err)
+	require.Equal(t, int64(4), info.Remaining)
 }
 
 func TestProvider_Allow_ExceedsLimit(t *testing.T) {
@@ -32,18 +29,12 @@ func TestProvider_Allow_ExceedsLimit(t *testing.T) {
 
 	for range 3 {
 		_, err := p.Allow(ctx, "key1", 3, time.Minute)
-		if err != nil {
-			t.Fatalf("Allow() error: %v", err)
-		}
+		require.NoError(t, err)
 	}
 
 	info, err := p.Allow(ctx, "key1", 3, time.Minute)
-	if !errors.Is(err, storages.ErrLimitExceeded) {
-		t.Errorf("Allow() error = %v, want ErrLimitExceeded", err)
-	}
-	if info.Remaining != 0 {
-		t.Errorf("Remaining = %d, want 0", info.Remaining)
-	}
+	require.ErrorIs(t, err, storages.ErrLimitExceeded)
+	require.Equal(t, int64(0), info.Remaining)
 }
 
 func TestProvider_Allow_DifferentKeys(t *testing.T) {
@@ -51,14 +42,10 @@ func TestProvider_Allow_DifferentKeys(t *testing.T) {
 	ctx := t.Context()
 
 	_, err := p.Allow(ctx, "key1", 1, time.Minute)
-	if err != nil {
-		t.Fatalf("Allow(key1) error: %v", err)
-	}
+	require.NoError(t, err)
 
 	_, err = p.Allow(ctx, "key2", 1, time.Minute)
-	if err != nil {
-		t.Fatalf("Allow(key2) should succeed independently: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestProvider_Reset(t *testing.T) {
@@ -71,15 +58,11 @@ func TestProvider_Reset(t *testing.T) {
 	}
 
 	err := p.Reset(ctx, "key1")
-	if err != nil {
-		t.Fatalf("Reset() error: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Should be allowed again
 	_, err = p.Allow(ctx, "key1", 3, time.Minute)
-	if err != nil {
-		t.Errorf("Allow() after Reset() should succeed: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestProvider_Reset_NonExistent(t *testing.T) {
@@ -87,16 +70,12 @@ func TestProvider_Reset_NonExistent(t *testing.T) {
 	ctx := t.Context()
 
 	err := p.Reset(ctx, "nonexistent")
-	if err != nil {
-		t.Errorf("Reset() on nonexistent key should not error: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestProvider_Close(t *testing.T) {
 	p := memory.New()
-	if err := p.Close(); err != nil {
-		t.Errorf("Close() error: %v", err)
-	}
+	require.NoError(t, p.Close())
 }
 
 func TestProvider_RunCleanup(t *testing.T) {
@@ -110,12 +89,8 @@ func TestProvider_RunCleanup(t *testing.T) {
 
 	// After cleanup, key should be gone; new request should succeed
 	info, err := p.Allow(ctx, "key1", 10, time.Minute)
-	if err != nil {
-		t.Fatalf("Allow() after cleanup should succeed: %v", err)
-	}
-	if info.Remaining != 9 {
-		t.Errorf("Remaining = %d, want 9 (fresh bucket)", info.Remaining)
-	}
+	require.NoError(t, err)
+	require.Equal(t, int64(9), info.Remaining)
 }
 
 func TestProvider_Allow_Panics(t *testing.T) {

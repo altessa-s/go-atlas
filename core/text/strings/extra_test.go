@@ -5,9 +5,10 @@
 package strings_test
 
 import (
-	"slices"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
@@ -25,9 +26,7 @@ func TestIsEmptyOrWhitespace(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			if got := corestrings.IsEmptyOrWhitespace(tt.input); got != tt.want {
-				t.Errorf("IsEmptyOrWhitespace(%q) = %v, want %v", tt.input, got, tt.want)
-			}
+			require.Equal(t, tt.want, corestrings.IsEmptyOrWhitespace(tt.input))
 		})
 	}
 }
@@ -41,9 +40,7 @@ func TestTrimPrefixFast(t *testing.T) {
 		{"", "x", ""},
 	}
 	for _, tt := range tests {
-		if got := corestrings.TrimPrefixFast(tt.s, tt.prefix); got != tt.want {
-			t.Errorf("TrimPrefixFast(%q, %q) = %q, want %q", tt.s, tt.prefix, got, tt.want)
-		}
+		require.Equal(t, tt.want, corestrings.TrimPrefixFast(tt.s, tt.prefix))
 	}
 }
 
@@ -54,28 +51,20 @@ func TestSplitSeq(t *testing.T) {
 		result = append(result, v)
 	}
 	want := []string{"a", "b", "c"}
-	if !slices.Equal(result, want) {
-		t.Errorf("SplitSeq() = %v, want %v", result, want)
-	}
+	require.Equal(t, want, result)
 }
 
 func TestGetStringSlice(t *testing.T) {
 	s := corestrings.GetStringSlice()
-	if s == nil {
-		t.Fatal("GetStringSlice() returned nil")
-	}
+	require.NotNil(t, s)
 	*s = append(*s, "a", "b")
 	corestrings.PutStringSlice(s)
 }
 
 func TestGetStringSliceWithCapacity(t *testing.T) {
 	s := corestrings.GetStringSliceWithCapacity(50)
-	if s == nil {
-		t.Fatal("GetStringSliceWithCapacity() returned nil")
-	}
-	if cap(*s) < 50 {
-		t.Errorf("capacity = %d, want >= 50", cap(*s))
-	}
+	require.NotNil(t, s)
+	require.GreaterOrEqual(t, cap(*s), 50)
 	corestrings.PutStringSlice(s)
 }
 
@@ -84,7 +73,5 @@ func TestBuildString(t *testing.T) {
 		b.WriteString("hello")
 		b.WriteString(" world")
 	})
-	if got != "hello world" {
-		t.Errorf("BuildString() = %q, want 'hello world'", got)
-	}
+	require.Equal(t, "hello world", got)
 }

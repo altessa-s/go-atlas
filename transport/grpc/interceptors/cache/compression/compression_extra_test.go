@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/cache/compression"
 )
 
@@ -31,18 +33,12 @@ func TestGzipCompressor_CompressDecompress_Levels(t *testing.T) {
 			ctx := t.Context()
 
 			compressed, err := c.Compress(ctx, data)
-			if err != nil {
-				t.Fatalf("Compress() error = %v", err)
-			}
+			require.NoError(t, err)
 
 			decompressed, err := c.Decompress(ctx, compressed)
-			if err != nil {
-				t.Fatalf("Decompress() error = %v", err)
-			}
+			require.NoError(t, err)
 
-			if !bytes.Equal(decompressed, data) {
-				t.Error("roundtrip data mismatch")
-			}
+			require.True(t, bytes.Equal(decompressed, data), "roundtrip data mismatch")
 		})
 	}
 }
@@ -53,27 +49,19 @@ func TestGzipCompressor_BelowMinSize(t *testing.T) {
 
 	small := []byte("tiny")
 	compressed, err := c.Compress(ctx, small)
-	if err != nil {
-		t.Fatalf("Compress() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	// Should store uncompressed
 	decompressed, err := c.Decompress(ctx, compressed)
-	if err != nil {
-		t.Fatalf("Decompress() error = %v", err)
-	}
-	if !bytes.Equal(decompressed, small) {
-		t.Error("small data roundtrip failed")
-	}
+	require.NoError(t, err)
+	require.True(t, bytes.Equal(decompressed, small), "small data roundtrip failed")
 }
 
 func TestGzipCompressor_AboveMaxSize(t *testing.T) {
 	c := compression.NewCompressor(64, 500, 6)
 
 	large := []byte(strings.Repeat("x", 1000))
-	if c.ShouldCompress(large) {
-		t.Error("ShouldCompress should return false for data above maxSize")
-	}
+	require.False(t, c.ShouldCompress(large), "ShouldCompress should return false for data above maxSize")
 }
 
 func TestGzipCompressor_EmptyData(t *testing.T) {
@@ -81,50 +69,34 @@ func TestGzipCompressor_EmptyData(t *testing.T) {
 	ctx := t.Context()
 
 	compressed, err := c.Compress(ctx, []byte{})
-	if err != nil {
-		t.Fatalf("Compress(empty) error = %v", err)
-	}
+	require.NoError(t, err)
 
 	decompressed, err := c.Decompress(ctx, compressed)
-	if err != nil {
-		t.Fatalf("Decompress(empty) error = %v", err)
-	}
-	if len(decompressed) != 0 {
-		t.Errorf("expected empty, got %d bytes", len(decompressed))
-	}
+	require.NoError(t, err)
+	require.Len(t, decompressed, 0)
 }
 
 func TestGzipCompressor_ExactlyAtMinSize(t *testing.T) {
 	c := compression.NewCompressor(100, 0, 6)
 
 	exactly := make([]byte, 100)
-	if !c.ShouldCompress(exactly) {
-		t.Error("ShouldCompress should return true at exactly minSize")
-	}
+	require.True(t, c.ShouldCompress(exactly), "ShouldCompress should return true at exactly minSize")
 
 	belowMin := make([]byte, 99)
-	if c.ShouldCompress(belowMin) {
-		t.Error("ShouldCompress should return false below minSize")
-	}
+	require.False(t, c.ShouldCompress(belowMin), "ShouldCompress should return false below minSize")
 }
 
 func TestNewCompressor_InvalidParams(t *testing.T) {
 	// Invalid minSize defaults
 	c := compression.NewCompressor(-1, 0, 6)
-	if c == nil {
-		t.Fatal("NewCompressor returned nil with invalid minSize")
-	}
+	require.NotNil(t, c, "NewCompressor returned nil with invalid minSize")
 
 	// Invalid level defaults
 	c2 := compression.NewCompressor(100, 0, 0)
-	if c2 == nil {
-		t.Fatal("NewCompressor returned nil with invalid level")
-	}
+	require.NotNil(t, c2, "NewCompressor returned nil with invalid level")
 
 	c3 := compression.NewCompressor(100, 0, 10)
-	if c3 == nil {
-		t.Fatal("NewCompressor returned nil with level > 9")
-	}
+	require.NotNil(t, c3, "NewCompressor returned nil with level > 9")
 }
 
 func TestGzipCompressor_ContextCanceled(t *testing.T) {
@@ -136,9 +108,7 @@ func TestGzipCompressor_ContextCanceled(t *testing.T) {
 	// Large data triggers context check
 	data := []byte(strings.Repeat("x", 2*1024*1024))
 	_, err := c.Compress(ctx, data)
-	if err == nil {
-		t.Error("Compress with canceled context should return error")
-	}
+	require.NotNil(t, err, "Compress with canceled context should return error")
 }
 
 func TestGzipCompressor_DecompressInvalidData(t *testing.T) {
@@ -148,12 +118,8 @@ func TestGzipCompressor_DecompressInvalidData(t *testing.T) {
 	// Random data — should fall back to returning raw data
 	raw := []byte("not compressed data")
 	result, err := c.Decompress(ctx, raw)
-	if err != nil {
-		t.Fatalf("Decompress(invalid) error = %v", err)
-	}
-	if !bytes.Equal(result, raw) {
-		t.Error("invalid data should be returned as-is")
-	}
+	require.NoError(t, err)
+	require.True(t, bytes.Equal(result, raw), "invalid data should be returned as-is")
 }
 
 func TestGzipCompressor_LargePayload_Roundtrip(t *testing.T) {
@@ -164,33 +130,19 @@ func TestGzipCompressor_LargePayload_Roundtrip(t *testing.T) {
 	data := []byte(strings.Repeat("ABCDEFGH", 200*1024))
 
 	compressed, err := c.Compress(ctx, data)
-	if err != nil {
-		t.Fatalf("Compress(large) error = %v", err)
-	}
+	require.NoError(t, err)
 
 	decompressed, err := c.Decompress(ctx, compressed)
-	if err != nil {
-		t.Fatalf("Decompress(large) error = %v", err)
-	}
+	require.NoError(t, err)
 
-	if !bytes.Equal(decompressed, data) {
-		t.Errorf("large payload roundtrip failed: got %d bytes, want %d", len(decompressed), len(data))
-	}
+	require.True(t, bytes.Equal(decompressed, data), "large payload roundtrip failed: got %d bytes, want %d", len(decompressed), len(data))
 }
 
 func TestPresetValues(t *testing.T) {
-	if compression.PresetNone != 0 {
-		t.Errorf("PresetNone = %d", compression.PresetNone)
-	}
-	if compression.PresetFast != 1 {
-		t.Errorf("PresetFast = %d", compression.PresetFast)
-	}
-	if compression.PresetBalanced != 2 {
-		t.Errorf("PresetBalanced = %d", compression.PresetBalanced)
-	}
-	if compression.PresetBest != 3 {
-		t.Errorf("PresetBest = %d", compression.PresetBest)
-	}
+	require.EqualValues(t, 0, compression.PresetNone)
+	require.EqualValues(t, 1, compression.PresetFast)
+	require.EqualValues(t, 2, compression.PresetBalanced)
+	require.EqualValues(t, 3, compression.PresetBest)
 }
 
 func TestMetadata_Fields(t *testing.T) {
@@ -198,10 +150,6 @@ func TestMetadata_Fields(t *testing.T) {
 		IsCompressed: true,
 		OriginalSize: 1024,
 	}
-	if !m.IsCompressed {
-		t.Error("IsCompressed should be true")
-	}
-	if m.OriginalSize != 1024 {
-		t.Errorf("OriginalSize = %d, want 1024", m.OriginalSize)
-	}
+	require.True(t, m.IsCompressed, "IsCompressed should be true")
+	require.Equal(t, 1024, m.OriginalSize)
 }

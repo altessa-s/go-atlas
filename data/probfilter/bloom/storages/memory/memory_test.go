@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	memory "github.com/altessa-s/go-atlas/data/probfilter/bloom/storages/memory"
 )
 
@@ -16,17 +18,11 @@ func TestStorage_AddAndMightExist(t *testing.T) {
 	ctx := t.Context()
 
 	err := storage.Add(ctx, "hello")
-	if err != nil {
-		t.Fatalf("Add failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	exists, err := storage.MightExist(ctx, "hello")
-	if err != nil {
-		t.Fatalf("MightExist failed: %v", err)
-	}
-	if !exists {
-		t.Error("Expected 'hello' to exist in filter")
-	}
+	require.NoError(t, err)
+	require.True(t, exists, "Expected 'hello' to exist in filter")
 }
 
 func TestStorage_MightExist_NotAdded(t *testing.T) {
@@ -34,12 +30,8 @@ func TestStorage_MightExist_NotAdded(t *testing.T) {
 	ctx := t.Context()
 
 	exists, err := storage.MightExist(ctx, "notadded")
-	if err != nil {
-		t.Fatalf("MightExist failed: %v", err)
-	}
-	if exists {
-		t.Error("Expected 'notadded' to not exist in filter")
-	}
+	require.NoError(t, err)
+	require.False(t, exists, "Expected 'notadded' to not exist in filter")
 }
 
 func TestStorage_AddBatch(t *testing.T) {
@@ -56,18 +48,12 @@ func TestStorage_AddBatch(t *testing.T) {
 	}
 
 	err := storage.AddBatch(ctx, values)
-	if err != nil {
-		t.Fatalf("AddBatch failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	for _, item := range []string{"item1", "item2", "item3"} {
 		exists, err := storage.MightExist(ctx, item)
-		if err != nil {
-			t.Fatalf("MightExist failed for %s: %v", item, err)
-		}
-		if !exists {
-			t.Errorf("Expected '%s' to exist in filter", item)
-		}
+		require.NoError(t, err)
+		require.True(t, exists, "Expected '%s' to exist in filter", item)
 	}
 }
 
@@ -76,35 +62,21 @@ func TestStorage_Reset(t *testing.T) {
 	ctx := t.Context()
 
 	err := storage.Add(ctx, "item1")
-	if err != nil {
-		t.Fatalf("Add failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	err = storage.Add(ctx, "item2")
-	if err != nil {
-		t.Fatalf("Add failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	err = storage.Reset(ctx, 1000)
-	if err != nil {
-		t.Fatalf("Reset failed: %v", err)
-	}
+	require.NoError(t, err)
 
 	exists, err := storage.MightExist(ctx, "item1")
-	if err != nil {
-		t.Fatalf("MightExist failed: %v", err)
-	}
-	if exists {
-		t.Error("Expected 'item1' to not exist after reset")
-	}
+	require.NoError(t, err)
+	require.False(t, exists, "Expected 'item1' to not exist after reset")
 
 	exists, err = storage.MightExist(ctx, "item2")
-	if err != nil {
-		t.Fatalf("MightExist failed: %v", err)
-	}
-	if exists {
-		t.Error("Expected 'item2' to not exist after reset")
-	}
+	require.NoError(t, err)
+	require.False(t, exists, "Expected 'item2' to not exist after reset")
 }
 
 func TestStorage_Stats(t *testing.T) {
@@ -113,44 +85,29 @@ func TestStorage_Stats(t *testing.T) {
 
 	for i := range 10 {
 		err := storage.Add(ctx, string(rune('a'+i)))
-		if err != nil {
-			t.Fatalf("Add failed: %v", err)
-		}
+		require.NoError(t, err)
 	}
 
 	stats, err := storage.Stats(ctx)
-	if err != nil {
-		t.Fatalf("Stats failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if stats.Capacity <= 0 {
-		t.Errorf("Expected capacity > 0, got %d", stats.Capacity)
-	}
+	require.True(t, stats.Capacity > 0, "Expected capacity > 0, got %d", stats.Capacity)
+	require.True(t, stats.ItemCount > 0, "Expected itemCount > 0, got %d", stats.ItemCount)
 
-	if stats.ItemCount <= 0 {
-		t.Errorf("Expected itemCount > 0, got %d", stats.ItemCount)
-	}
-
-	if stats.StorageType != "memory" {
-		t.Errorf("Expected storageType 'memory', got '%s'", stats.StorageType)
-	}
+	require.Equal(t, "memory", stats.StorageType)
 }
 
 func TestStorage_LastRebuild(t *testing.T) {
 	storage := memory.New(memory.WithExpectedItems(1000))
 
 	initialTime := storage.LastRebuild()
-	if !initialTime.IsZero() {
-		t.Errorf("Expected initial LastRebuild to be zero, got %v", initialTime)
-	}
+	require.True(t, initialTime.IsZero(), "Expected initial LastRebuild to be zero, got %v", initialTime)
 
 	now := time.Now()
 	storage.SetLastRebuild(now)
 
 	lastRebuild := storage.LastRebuild()
-	if !lastRebuild.Equal(now) {
-		t.Errorf("Expected LastRebuild to be %v, got %v", now, lastRebuild)
-	}
+	require.True(t, lastRebuild.Equal(now), "Expected LastRebuild to be %v, got %v", now, lastRebuild)
 }
 
 func TestStorage_Close(t *testing.T) {
@@ -158,7 +115,5 @@ func TestStorage_Close(t *testing.T) {
 	ctx := t.Context()
 
 	err := storage.Close(ctx)
-	if err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
+	require.NoError(t, err)
 }

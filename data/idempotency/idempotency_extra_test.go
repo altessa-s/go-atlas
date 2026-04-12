@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/idempotency"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
@@ -16,17 +18,13 @@ import (
 func TestNew_WithOptions(t *testing.T) {
 	storage := testhelpers.NewMockIdempotencyStorage()
 	keeper := idempotency.New(storage, idempotency.WithLogger(slog.Default()))
-	if keeper == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, keeper)
 }
 
 func TestNew_WithSerializer(t *testing.T) {
 	storage := testhelpers.NewMockIdempotencyStorage()
 	keeper := idempotency.New(storage, idempotency.WithSerializer(nil))
-	if keeper == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, keeper)
 }
 
 func TestComplete_EmptyKey(t *testing.T) {
@@ -34,9 +32,7 @@ func TestComplete_EmptyKey(t *testing.T) {
 	keeper := idempotency.New(storage)
 
 	err := keeper.Complete(t.Context(), "", "data")
-	if err != nil {
-		t.Errorf("Complete('') error = %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestDelete_EmptyKey(t *testing.T) {
@@ -44,9 +40,7 @@ func TestDelete_EmptyKey(t *testing.T) {
 	keeper := idempotency.New(storage)
 
 	err := keeper.Delete(t.Context(), "")
-	if err != nil {
-		t.Errorf("Delete('') error = %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestStorageFunc_AllMethods(t *testing.T) {
@@ -72,13 +66,7 @@ func TestStorageFunc_AllMethods(t *testing.T) {
 	_ = sf.Complete(ctx, "k", nil)
 	_ = sf.Delete(ctx, "k")
 
-	if !lockCalled {
-		t.Error("AttemptLockFunc not called")
-	}
-	if !completeCalled {
-		t.Error("CompleteFunc not called")
-	}
-	if !deleteCalled {
-		t.Error("DeleteFunc not called")
-	}
+	require.True(t, lockCalled, "AttemptLockFunc not called")
+	require.True(t, completeCalled, "CompleteFunc not called")
+	require.True(t, deleteCalled, "DeleteFunc not called")
 }

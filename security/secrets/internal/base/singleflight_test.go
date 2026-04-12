@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/security/secrets/internal/base"
 )
 
@@ -38,9 +40,7 @@ func TestSingleflightGroup_Do(t *testing.T) {
 
 	wg.Wait()
 
-	if callCount.Load() != 1 {
-		t.Errorf("expected 1 execution, got %d", callCount.Load())
-	}
+	require.Equal(t, int32(1), callCount.Load())
 }
 
 func TestSingleflightGroup_CreateKey(t *testing.T) {
@@ -59,9 +59,7 @@ func TestSingleflightGroup_CreateKey(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := sf.CreateKey(tt.components...); got != tt.expected {
-				t.Errorf("CreateKey() = %q, want %q", got, tt.expected)
-			}
+			require.Equal(t, tt.expected, sf.CreateKey(tt.components...))
 		})
 	}
 }
@@ -79,9 +77,7 @@ func TestSingleflightGroup_Forget(t *testing.T) {
 	sf.Forget("key")
 	sf.Do("key", fn)
 
-	if callCount.Load() != 2 {
-		t.Errorf("expected 2 executions after forget, got %d", callCount.Load())
-	}
+	require.Equal(t, int32(2), callCount.Load())
 }
 
 func TestDoTyped(t *testing.T) {
@@ -91,12 +87,8 @@ func TestDoTyped(t *testing.T) {
 		result, err := base.DoTyped(&sf, "k1", func() (string, error) {
 			return "typed result", nil
 		})
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-		if result != "typed result" {
-			t.Errorf("result = %q, want %q", result, "typed result")
-		}
+		require.NoError(t, err)
+		require.Equal(t, "typed result", result)
 	})
 
 	t.Run("with error", func(t *testing.T) {
@@ -104,11 +96,7 @@ func TestDoTyped(t *testing.T) {
 		result, err := base.DoTyped(&sf, "k2", func() (int, error) {
 			return 0, expectedErr
 		})
-		if !errors.Is(err, expectedErr) {
-			t.Errorf("expected error %v, got %v", expectedErr, err)
-		}
-		if result != 0 {
-			t.Errorf("expected zero value, got %d", result)
-		}
+		require.ErrorIs(t, err, expectedErr)
+		require.Equal(t, 0, result)
 	})
 }

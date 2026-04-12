@@ -7,6 +7,8 @@ package cuckoo_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/probfilter/cuckoo"
 	"github.com/altessa-s/go-atlas/data/probfilter/cuckoo/storages/memory"
 )
@@ -14,9 +16,7 @@ import (
 func TestNew(t *testing.T) {
 	s := memory.New(memory.WithCapacity(1000))
 	f := cuckoo.New(s)
-	if f == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, f, "New() returned nil")
 }
 
 func TestFilter_AddAndMightExist(t *testing.T) {
@@ -24,17 +24,11 @@ func TestFilter_AddAndMightExist(t *testing.T) {
 	f := cuckoo.New(s)
 	ctx := t.Context()
 
-	if err := f.Add(ctx, "hello"); err != nil {
-		t.Fatalf("Add() error: %v", err)
-	}
+	require.NoError(t, f.Add(ctx, "hello"))
 
 	exists, err := f.MightExist(ctx, "hello")
-	if err != nil {
-		t.Fatalf("MightExist() error: %v", err)
-	}
-	if !exists {
-		t.Error("MightExist() should return true for added item")
-	}
+	require.NoError(t, err)
+	require.True(t, exists, "MightExist() should return true for added item")
 }
 
 func TestFilter_MightExist_NotAdded(t *testing.T) {
@@ -43,12 +37,8 @@ func TestFilter_MightExist_NotAdded(t *testing.T) {
 	ctx := t.Context()
 
 	exists, err := f.MightExist(ctx, "notadded")
-	if err != nil {
-		t.Fatalf("MightExist() error: %v", err)
-	}
-	if exists {
-		t.Error("MightExist() should return false for non-existent item")
-	}
+	require.NoError(t, err)
+	require.False(t, exists, "MightExist() should return false for non-existent item")
 }
 
 func TestFilter_AddBatch(t *testing.T) {
@@ -64,15 +54,11 @@ func TestFilter_AddBatch(t *testing.T) {
 		}
 	}
 
-	if err := f.AddBatch(ctx, values); err != nil {
-		t.Fatalf("AddBatch() error: %v", err)
-	}
+	require.NoError(t, f.AddBatch(ctx, values))
 
 	for _, v := range []string{"a", "b", "c"} {
 		exists, _ := f.MightExist(ctx, v)
-		if !exists {
-			t.Errorf("MightExist(%q) = false, want true", v)
-		}
+		require.True(t, exists, "MightExist(%q) = false, want true", v)
 	}
 }
 
@@ -83,17 +69,11 @@ func TestFilter_Delete(t *testing.T) {
 
 	_ = f.Add(ctx, "item")
 	deleted, err := f.Delete(ctx, "item")
-	if err != nil {
-		t.Fatalf("Delete() error: %v", err)
-	}
-	if !deleted {
-		t.Error("Delete() should return true for existing item")
-	}
+	require.NoError(t, err)
+	require.True(t, deleted, "Delete() should return true for existing item")
 
 	exists, _ := f.MightExist(ctx, "item")
-	if exists {
-		t.Error("MightExist() should return false after Delete()")
-	}
+	require.False(t, exists, "MightExist() should return false after Delete()")
 }
 
 func TestFilter_Delete_NotExist(t *testing.T) {
@@ -102,12 +82,8 @@ func TestFilter_Delete_NotExist(t *testing.T) {
 	ctx := t.Context()
 
 	deleted, err := f.Delete(ctx, "nope")
-	if err != nil {
-		t.Fatalf("Delete() error: %v", err)
-	}
-	if deleted {
-		t.Error("Delete() should return false for non-existent item")
-	}
+	require.NoError(t, err)
+	require.False(t, deleted, "Delete() should return false for non-existent item")
 }
 
 func TestFilter_Stats(t *testing.T) {
@@ -117,18 +93,12 @@ func TestFilter_Stats(t *testing.T) {
 
 	_ = f.Add(ctx, "x")
 	stats, err := f.Stats(ctx)
-	if err != nil {
-		t.Fatalf("Stats() error: %v", err)
-	}
-	if stats.StorageType != "memory" {
-		t.Errorf("StorageType = %q, want %q", stats.StorageType, "memory")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "memory", stats.StorageType)
 }
 
 func TestFilter_Close(t *testing.T) {
 	s := memory.New(memory.WithCapacity(1000))
 	f := cuckoo.New(s)
-	if err := f.Close(t.Context()); err != nil {
-		t.Fatalf("Close() error: %v", err)
-	}
+	require.NoError(t, f.Close(t.Context()))
 }

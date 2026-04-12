@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 type cleanupCallStore struct {
@@ -42,11 +44,6 @@ func TestOutbox_CleanupDisabledWhenLifetimeIsNonPositive(t *testing.T) {
 		// publishedEventsLifetime remains default (-1) => cleanup disabled
 	)
 
-	if err := o.RunCleanupCycle(t.Context()); err != nil {
-		t.Fatalf("RunCleanupCycle failed: %v", err)
-	}
-
-	if got := store.deleteCalls.Load(); got != 0 {
-		t.Fatalf("DeleteProcessedEvents calls=%d, want 0 when lifetime<=0", got)
-	}
+	require.NoError(t, o.RunCleanupCycle(t.Context()))
+	require.Equal(t, int64(0), store.deleteCalls.Load())
 }

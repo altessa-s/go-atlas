@@ -8,6 +8,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/core/errors"
 
 	std_errors "errors"
@@ -15,30 +17,18 @@ import (
 
 func TestContextChecks(t *testing.T) {
 	t.Run("IsContextDeadlineExceeded", func(t *testing.T) {
-		if !errors.IsContextDeadlineExceeded(context.DeadlineExceeded) {
-			t.Error("Should detect DeadlineExceeded")
-		}
-		if errors.IsContextDeadlineExceeded(std_errors.New("other")) {
-			t.Error("Should not detect other")
-		}
-		if errors.IsContextDeadlineExceeded(nil) {
-			t.Error("Should not detect nil")
-		}
+		require.True(t, errors.IsContextDeadlineExceeded(context.DeadlineExceeded), "Should detect DeadlineExceeded")
+		require.False(t, errors.IsContextDeadlineExceeded(std_errors.New("other")), "Should not detect other")
+		require.False(t, errors.IsContextDeadlineExceeded(nil), "Should not detect nil")
 	})
 
 	t.Run("IsContextCanceled", func(t *testing.T) {
-		if !errors.IsContextCanceled(context.Canceled) {
-			t.Error("Should detect Canceled")
-		}
+		require.True(t, errors.IsContextCanceled(context.Canceled), "Should detect Canceled")
 	})
 
 	t.Run("IsContextCanceledOrDeadlineExceeded", func(t *testing.T) {
-		if !errors.IsContextCanceledOrDeadlineExceeded(context.Canceled) {
-			t.Error("Should detect Canceled")
-		}
-		if !errors.IsContextCanceledOrDeadlineExceeded(context.DeadlineExceeded) {
-			t.Error("Should detect DeadlineExceeded")
-		}
+		require.True(t, errors.IsContextCanceledOrDeadlineExceeded(context.Canceled), "Should detect Canceled")
+		require.True(t, errors.IsContextCanceledOrDeadlineExceeded(context.DeadlineExceeded), "Should detect DeadlineExceeded")
 	})
 }
 
@@ -47,78 +37,48 @@ func TestWrappers(t *testing.T) {
 
 	t.Run("Wrapf", func(t *testing.T) {
 		err := errors.Wrapf(base, "context %s", "foo")
-		if err.Error() != "context foo: base" {
-			t.Errorf("Wrapf message = %q", err.Error())
-		}
-		if !std_errors.Is(err, base) {
-			t.Error("Wrapf should wrap base")
-		}
-		if errors.Wrapf(nil, "foo") != nil {
-			t.Error("Wrapf(nil) should be nil")
-		}
+		require.Equal(t, "context foo: base", err.Error())
+		require.True(t, std_errors.Is(err, base), "Wrapf should wrap base")
+		require.Nil(t, errors.Wrapf(nil, "foo"), "Wrapf(nil) should be nil")
 	})
 
 	t.Run("Wrap", func(t *testing.T) {
 		err := errors.Wrap(base, "context")
-		if err.Error() != "context: base" {
-			t.Errorf("Wrap message = %q", err.Error())
-		}
+		require.Equal(t, "context: base", err.Error())
 	})
 
 	t.Run("WrapOperation", func(t *testing.T) {
 		err := errors.WrapOperation(base, "read")
-		if err.Error() != "failed to read: base" {
-			t.Errorf("WrapOperation message = %q", err.Error())
-		}
+		require.Equal(t, "failed to read: base", err.Error())
 	})
 
 	t.Run("WrapField", func(t *testing.T) {
 		err := errors.WrapField(base, "name")
-		if err.Error() != "field 'name': base" {
-			t.Errorf("WrapField message = %q", err.Error())
-		}
+		require.Equal(t, "field 'name': base", err.Error())
 	})
 
 	t.Run("WrapOperationWithContext", func(t *testing.T) {
 		err := errors.WrapOperationWithContext(base, "read", "file")
-		if err.Error() != "failed to read on file: base" {
-			t.Errorf("WrapOperationWithContext message = %q", err.Error())
-		}
+		require.Equal(t, "failed to read on file: base", err.Error())
 	})
 
 	t.Run("JoinWrap", func(t *testing.T) {
 		sentinel := std_errors.New("sentinel")
 		err := errors.JoinWrap(sentinel, base)
-		if err.Error() != "sentinel: base" {
-			t.Errorf("JoinWrap message = %q", err.Error())
-		}
-		if !std_errors.Is(err, sentinel) {
-			t.Error("JoinWrap should wrap sentinel")
-		}
-		if !std_errors.Is(err, base) {
-			t.Error("JoinWrap should wrap cause")
-		}
-		if errors.JoinWrap(sentinel, nil) != nil {
-			t.Error("JoinWrap with nil cause should be nil")
-		}
+		require.Equal(t, "sentinel: base", err.Error())
+		require.True(t, std_errors.Is(err, sentinel), "JoinWrap should wrap sentinel")
+		require.True(t, std_errors.Is(err, base), "JoinWrap should wrap cause")
+		require.Nil(t, errors.JoinWrap(sentinel, nil), "JoinWrap with nil cause should be nil")
 		// Nil sentinel must return cause unchanged — without the
 		// guard fmt.Errorf("%w: %w", nil, cause) produces a
 		// malformed "%!w(<nil>): cause" message.
-		if got := errors.JoinWrap(nil, base); got != base {
-			t.Errorf("JoinWrap(nil, base) = %v, want base unchanged", got)
-		}
-		if errors.JoinWrap(nil, nil) != nil {
-			t.Error("JoinWrap(nil, nil) should be nil")
-		}
+		require.Equal(t, base, errors.JoinWrap(nil, base), "JoinWrap(nil, base) should return base unchanged")
+		require.Nil(t, errors.JoinWrap(nil, nil), "JoinWrap(nil, nil) should be nil")
 	})
 }
 
 func TestStandardErrors(t *testing.T) {
-	if errors.Required("db", "app").Error() != "db is required for app" {
-		t.Error("Required message mismatch")
-	}
+	require.Equal(t, "db is required for app", errors.Required("db", "app").Error())
 	base := std_errors.New("oops")
-	if errors.Provider("Redis", base).Error() != "failed to create Redis provider: oops" {
-		t.Error("Provider message mismatch")
-	}
+	require.Equal(t, "failed to create Redis provider: oops", errors.Provider("Redis", base).Error())
 }

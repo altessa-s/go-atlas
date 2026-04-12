@@ -4,7 +4,11 @@
 
 package tracing
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestSpanKind_String(t *testing.T) {
 	tests := []struct {
@@ -21,9 +25,7 @@ func TestSpanKind_String(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
-			if got := tt.kind.String(); got != tt.want {
-				t.Errorf("SpanKind(%d).String() = %q, want %q", tt.kind, got, tt.want)
-			}
+			require.Equal(t, tt.want, tt.kind.String())
 		})
 	}
 }

@@ -4,7 +4,11 @@
 
 package bits
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func FuzzRotateLeftRight(f *testing.F) {
 	f.Add(uint8(0b10110011), uint64(3))
@@ -14,9 +18,7 @@ func FuzzRotateLeftRight(f *testing.F) {
 	f.Fuzz(func(t *testing.T, val uint8, n uint64) {
 		n = n % 8
 		got := RotateRight(RotateLeft(val, n), n)
-		if got != val {
-			t.Errorf("RotateRight(RotateLeft(%08b, %d), %d) = %08b, want %08b", val, n, n, got, val)
-		}
+		require.Equal(t, val, got)
 	})
 }
 
@@ -27,8 +29,6 @@ func FuzzReverseBits(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, val uint8) {
 		got := ReverseBits(ReverseBits(val))
-		if got != val {
-			t.Errorf("ReverseBits(ReverseBits(%08b)) = %08b, want %08b", val, got, val)
-		}
+		require.Equal(t, val, got)
 	})
 }

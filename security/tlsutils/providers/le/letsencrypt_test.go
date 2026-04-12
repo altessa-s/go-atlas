@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"net/http"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestHostFromAddr(t *testing.T) {
@@ -25,17 +27,13 @@ func TestHostFromAddr(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		if got := hostFromAddr(tt.in); got != tt.want {
-			t.Fatalf("hostFromAddr(%q)=%q, want %q", tt.in, got, tt.want)
-		}
+		require.Equal(t, tt.want, hostFromAddr(tt.in))
 	}
 }
 
 func TestStartHTTPServerWithContext_NilContext(t *testing.T) {
 	le := &LetsEncrypt{opts: &options{logger: slog.New(slog.DiscardHandler)}}
-	if err := le.StartHTTPServerWithContext(nil, ":80", nil); err == nil {
-		t.Fatalf("expected error for nil ctx")
-	}
+	require.Error(t, le.StartHTTPServerWithContext(nil, ":80", nil))
 }
 
 func TestStartHTTPServerWithContext_AlreadyStarted(t *testing.T) {
@@ -44,7 +42,5 @@ func TestStartHTTPServerWithContext_AlreadyStarted(t *testing.T) {
 	le.httpSrv = &http.Server{}
 	le.mu.Unlock()
 
-	if err := le.StartHTTPServerWithContext(t.Context(), ":80", nil); err == nil {
-		t.Fatalf("expected already-started error")
-	}
+	require.Error(t, le.StartHTTPServerWithContext(t.Context(), ":80", nil))
 }

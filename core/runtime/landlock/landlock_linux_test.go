@@ -9,6 +9,8 @@ package landlock
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"golang.org/x/sys/unix"
 )
 
@@ -54,12 +56,8 @@ func TestAccessMasks(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			gotRead, gotWrite := accessMasks(tc.abi)
-			if gotRead != tc.wantRead {
-				t.Errorf("read mask: got %#x, want %#x", gotRead, tc.wantRead)
-			}
-			if gotWrite != tc.wantWrite {
-				t.Errorf("write mask: got %#x, want %#x", gotWrite, tc.wantWrite)
-			}
+			require.Equal(t, tc.wantRead, gotRead, "read mask")
+			require.Equal(t, tc.wantWrite, gotWrite, "write mask")
 		})
 	}
 }

@@ -7,13 +7,13 @@ package memory
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestMemory_Close(t *testing.T) {
 	s := New()
-	if err := s.Close(); err != nil {
-		t.Errorf("Close() error = %v", err)
-	}
+	require.NoError(t, s.Close())
 }
 
 func TestMemory_Complete_NonExistent(t *testing.T) {
@@ -22,25 +22,17 @@ func TestMemory_Complete_NonExistent(t *testing.T) {
 
 	// Complete upserts on nonexistent key
 	err := s.Complete(ctx, "nonexistent", []byte("val"))
-	if err != nil {
-		t.Errorf("Complete() error = %v", err)
-	}
+	require.NoError(t, err)
 	// Key should now exist
 	ok, existing, _ := s.AttemptLock(ctx, "nonexistent", []byte("new"))
-	if ok {
-		t.Error("expected lock NOT acquired after Complete upsert")
-	}
-	if string(existing) != "val" {
-		t.Errorf("existing = %q, want %q", existing, "val")
-	}
+	require.False(t, ok, "expected lock NOT acquired after Complete upsert")
+	require.Equal(t, "val", string(existing))
 }
 
 func TestMemory_Complete_EmptyKey(t *testing.T) {
 	s := New()
 	err := s.Complete(t.Context(), "", []byte("val"))
-	if err != nil {
-		t.Errorf("Complete('') error = %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestMemory_RunCleanup(t *testing.T) {
@@ -57,9 +49,8 @@ func TestMemory_RunCleanup(t *testing.T) {
 	// Both keys should be cleaned up, so new locks should succeed
 	ok1, _, _ := s.AttemptLock(ctx, "k1", []byte("new"))
 	ok2, _, _ := s.AttemptLock(ctx, "k2", []byte("new"))
-	if !ok1 || !ok2 {
-		t.Error("expected locks to succeed after cleanup of expired entries")
-	}
+	require.True(t, ok1, "expected lock k1 to succeed after cleanup")
+	require.True(t, ok2, "expected lock k2 to succeed after cleanup")
 }
 
 func TestMemory_RunCleanup_NoTTL(t *testing.T) {
@@ -86,7 +77,5 @@ func TestMemory_Complete_Expired(t *testing.T) {
 	// After expiry, the entry is still in map but AttemptLock treats it as new.
 	// Complete on expired key should still work (upsert behavior).
 	err := s.Complete(ctx, "k1", []byte("done"))
-	if err != nil {
-		t.Errorf("Complete() on expired key error = %v", err)
-	}
+	require.NoError(t, err)
 }

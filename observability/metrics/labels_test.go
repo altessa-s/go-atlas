@@ -7,6 +7,8 @@ package metrics
 import (
 	"slices"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateLabelNames(t *testing.T) {
@@ -24,8 +26,10 @@ func TestValidateLabelNames(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateLabelNames(tt.labels)
-			if err != tt.wantErr {
-				t.Errorf("ValidateLabelNames() = %v, want %v", err, tt.wantErr)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -45,8 +49,10 @@ func TestValidateLabels(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateLabels(tt.labels, tt.expected)
-			if err != tt.wantErr {
-				t.Errorf("ValidateLabels() = %v, want %v", err, tt.wantErr)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -65,9 +71,7 @@ func TestSortedKeys(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := SortedKeys(tt.l)
-			if !slices.Equal(got, tt.want) {
-				t.Errorf("SortedKeys() = %v, want %v", got, tt.want)
-			}
+			require.True(t, slices.Equal(got, tt.want), "SortedKeys() = %v, want %v", got, tt.want)
 		})
 	}
 }
@@ -75,30 +79,22 @@ func TestSortedKeys(t *testing.T) {
 func TestSortedValues(t *testing.T) {
 	got := SortedValues(Labels{"b": "2", "a": "1"})
 	want := []string{"1", "2"}
-	if !slices.Equal(got, want) {
-		t.Errorf("SortedValues() = %v, want %v", got, want)
-	}
-	if SortedValues(nil) != nil {
-		t.Error("SortedValues(nil) should return nil")
-	}
+	require.True(t, slices.Equal(got, want), "SortedValues() = %v, want %v", got, want)
+	require.Nil(t, SortedValues(nil))
 }
 
 func TestSortedLabelValues(t *testing.T) {
 	labels := Labels{"method": "GET", "status": "200"}
 	got := SortedLabelValues(labels, []string{"status", "method"})
 	want := []string{"200", "GET"}
-	if !slices.Equal(got, want) {
-		t.Errorf("SortedLabelValues() = %v, want %v", got, want)
-	}
+	require.True(t, slices.Equal(got, want), "SortedLabelValues() = %v, want %v", got, want)
 }
 
 func TestSortedLabelValues_MissingKey(t *testing.T) {
 	labels := Labels{"method": "GET"}
 	got := SortedLabelValues(labels, []string{"method", "missing"})
 	want := []string{"GET", ""}
-	if !slices.Equal(got, want) {
-		t.Errorf("SortedLabelValues() = %v, want %v", got, want)
-	}
+	require.True(t, slices.Equal(got, want), "SortedLabelValues() = %v, want %v", got, want)
 }
 
 func TestLabelsEqual(t *testing.T) {
@@ -114,9 +110,7 @@ func TestLabelsEqual(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := LabelsEqual(tt.a, tt.b); got != tt.want {
-				t.Errorf("LabelsEqual() = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, LabelsEqual(tt.a, tt.b))
 		})
 	}
 }
@@ -125,21 +119,15 @@ func TestCloneLabels(t *testing.T) {
 	orig := Labels{"a": "1", "b": "2"}
 	clone := CloneLabels(orig)
 	clone["c"] = "3"
-	if _, ok := orig["c"]; ok {
-		t.Error("CloneLabels should create independent copy")
-	}
+	require.NotContains(t, orig, "c", "CloneLabels should create independent copy")
 }
 
 func TestMergeLabels(t *testing.T) {
 	base := Labels{"a": "1", "b": "2"}
 	other := Labels{"b": "override", "c": "3"}
 	result := MergeLabels(base, other)
-	if result["b"] != "override" {
-		t.Errorf("expected override, got %s", result["b"])
-	}
-	if result["a"] != "1" {
-		t.Errorf("expected 1, got %s", result["a"])
-	}
+	require.Equal(t, "override", result["b"])
+	require.Equal(t, "1", result["a"])
 }
 
 func TestNormalizeLabelNames(t *testing.T) {
@@ -155,9 +143,7 @@ func TestNormalizeLabelNames(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := NormalizeLabelNames(tt.names)
-			if !slices.Equal(got, tt.want) {
-				t.Errorf("NormalizeLabelNames() = %v, want %v", got, tt.want)
-			}
+			require.True(t, slices.Equal(got, tt.want), "NormalizeLabelNames() = %v, want %v", got, tt.want)
 		})
 	}
 }
@@ -172,18 +158,10 @@ func TestLabelBuilder(t *testing.T) {
 		AddNonEmpty("empty", "").
 		Build()
 
-	if labels["method"] != "GET" {
-		t.Errorf("expected GET, got %s", labels["method"])
-	}
-	if _, ok := labels["skip"]; ok {
-		t.Error("AddIf(false) should not add")
-	}
-	if _, ok := labels["empty"]; ok {
-		t.Error("AddNonEmpty with empty value should not add")
-	}
-	if labels["host"] != "localhost" {
-		t.Errorf("expected localhost, got %s", labels["host"])
-	}
+	require.Equal(t, "GET", labels["method"])
+	require.NotContains(t, labels, "skip", "AddIf(false) should not add")
+	require.NotContains(t, labels, "empty", "AddNonEmpty with empty value should not add")
+	require.Equal(t, "localhost", labels["host"])
 }
 
 func TestLabelBuilder_Merge(t *testing.T) {
@@ -192,21 +170,15 @@ func TestLabelBuilder_Merge(t *testing.T) {
 		Merge(Labels{"b": "2", "a": "override"}).
 		Build()
 
-	if labels["a"] != "override" {
-		t.Errorf("Merge should override: got %s", labels["a"])
-	}
-	if labels["b"] != "2" {
-		t.Errorf("Merge should add new: got %s", labels["b"])
-	}
+	require.Equal(t, "override", labels["a"], "Merge should override")
+	require.Equal(t, "2", labels["b"], "Merge should add new")
 }
 
 func TestLabelBuilder_Reset(t *testing.T) {
 	b := NewLabelBuilder().Add("a", "1")
 	b.Reset()
 	labels := b.Build()
-	if len(labels) != 0 {
-		t.Errorf("Reset should clear: len=%d", len(labels))
-	}
+	require.Empty(t, labels, "Reset should clear")
 }
 
 func TestLabelBuilder_BuildClone(t *testing.T) {
@@ -214,23 +186,17 @@ func TestLabelBuilder_BuildClone(t *testing.T) {
 	clone := b.BuildClone()
 	clone["b"] = "2"
 	original := b.Build()
-	if _, ok := original["b"]; ok {
-		t.Error("BuildClone should return independent copy")
-	}
+	require.NotContains(t, original, "b", "BuildClone should return independent copy")
 }
 
 func TestLabelsPool(t *testing.T) {
 	l := GetLabels()
-	if l == nil {
-		t.Fatal("GetLabels() returned nil")
-	}
+	require.NotNil(t, l)
 	(*l)["key"] = "val"
 	PutLabels(l)
 
 	l2 := GetLabelsWithCapacity(16)
-	if l2 == nil {
-		t.Fatal("GetLabelsWithCapacity() returned nil")
-	}
+	require.NotNil(t, l2)
 	PutLabels(l2)
 }
 
@@ -240,7 +206,5 @@ func TestSortedLabelsIter(t *testing.T) {
 	for k := range SortedLabelsIter(labels) {
 		keys = append(keys, k)
 	}
-	if !slices.Equal(keys, []string{"a", "b"}) {
-		t.Errorf("SortedLabelsIter keys = %v", keys)
-	}
+	require.True(t, slices.Equal(keys, []string{"a", "b"}), "SortedLabelsIter keys = %v", keys)
 }

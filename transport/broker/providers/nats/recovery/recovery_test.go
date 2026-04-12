@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRecoveryStrategy_String(t *testing.T) {
@@ -25,26 +26,17 @@ func TestRecoveryStrategy_String(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
-			if got := tt.s.String(); got != tt.want {
-				t.Fatalf("String() = %q, want %q", got, tt.want)
-			}
+			got := tt.s.String()
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
 
 func TestRecoveryStrategy_Methods(t *testing.T) {
-	if !RecoveryStrategyAuto.IsAuto() {
-		t.Fatal("Auto.IsAuto() = false")
-	}
-	if !RecoveryStrategyManual.IsManual() {
-		t.Fatal("Manual.IsManual() = false")
-	}
-	if !RecoveryStrategySkip.IsSkip() {
-		t.Fatal("Skip.IsSkip() = false")
-	}
-	if RecoveryStrategyAuto.IsManual() {
-		t.Fatal("Auto.IsManual() = true")
-	}
+	require.True(t, RecoveryStrategyAuto.IsAuto(), "Auto.IsAuto() = false")
+	require.True(t, RecoveryStrategyManual.IsManual(), "Manual.IsManual() = false")
+	require.True(t, RecoveryStrategySkip.IsSkip(), "Skip.IsSkip() = false")
+	require.False(t, RecoveryStrategyAuto.IsManual(), "Auto.IsManual() = true")
 }
 
 func TestRegistry_StreamOperations(t *testing.T) {
@@ -53,30 +45,18 @@ func TestRegistry_StreamOperations(t *testing.T) {
 	cfg := jetstream.StreamConfig{Name: "test-stream"}
 	r.RegisterStream("test-stream", cfg, RecoveryStrategyAuto)
 
-	if !r.HasStream("test-stream") {
-		t.Fatal("HasStream() = false")
-	}
-	if r.HasStream("missing") {
-		t.Fatal("HasStream(missing) = true")
-	}
-	if r.StreamCount() != 1 {
-		t.Fatalf("StreamCount() = %d", r.StreamCount())
-	}
+	require.True(t, r.HasStream("test-stream"), "HasStream() = false")
+	require.False(t, r.HasStream("missing"), "HasStream(missing) = true")
+	require.Equal(t, 1, r.StreamCount())
 
 	got, ok := r.GetStreamConfig("test-stream")
-	if !ok {
-		t.Fatal("GetStreamConfig() ok = false")
-	}
-	if got.Name != "test-stream" {
-		t.Fatalf("config.Name = %q", got.Name)
-	}
+	require.True(t, ok, "GetStreamConfig() ok = false")
+	require.Equal(t, "test-stream", got.Name)
 
-	if s := r.GetRecoveryStrategy("test-stream"); !s.IsAuto() {
-		t.Fatalf("strategy = %v", s)
-	}
-	if s := r.GetRecoveryStrategy("missing"); !s.IsAuto() {
-		t.Fatal("missing stream should return Auto")
-	}
+	s := r.GetRecoveryStrategy("test-stream")
+	require.True(t, s.IsAuto(), "strategy = %v", s)
+	s = r.GetRecoveryStrategy("missing")
+	require.True(t, s.IsAuto(), "missing stream should return Auto")
 }
 
 func TestRegistry_StreamNames(t *testing.T) {
@@ -88,18 +68,14 @@ func TestRegistry_StreamNames(t *testing.T) {
 	for range r.StreamNames() {
 		count++
 	}
-	if count != 2 {
-		t.Fatalf("StreamNames() yielded %d", count)
-	}
+	require.Equal(t, 2, count)
 }
 
 func TestRegistry_UnregisterStream(t *testing.T) {
 	r := NewRegistry()
 	r.RegisterStream("s1", jetstream.StreamConfig{Name: "s1"}, RecoveryStrategyAuto)
 	r.UnregisterStream("s1")
-	if r.HasStream("s1") {
-		t.Fatal("stream should be unregistered")
-	}
+	require.False(t, r.HasStream("s1"), "stream should be unregistered")
 }
 
 func TestRegistry_SubscriptionOperations(t *testing.T) {
@@ -107,44 +83,30 @@ func TestRegistry_SubscriptionOperations(t *testing.T) {
 	r.RegisterStream("stream1", jetstream.StreamConfig{Name: "stream1"}, RecoveryStrategyAuto)
 
 	err := r.RegisterSubscription("stream1", "consumer1", nil, nil)
-	if err != nil {
-		t.Fatalf("RegisterSubscription error = %v", err)
-	}
+	require.NoError(t, err)
 
-	if !r.HasConsumer("stream1", "consumer1") {
-		t.Fatal("HasConsumer() = false")
-	}
-	if r.HasConsumer("stream1", "missing") {
-		t.Fatal("HasConsumer(missing) = true")
-	}
-	if r.ConsumerCount("stream1") != 1 {
-		t.Fatalf("ConsumerCount() = %d", r.ConsumerCount("stream1"))
-	}
+	require.True(t, r.HasConsumer("stream1", "consumer1"), "HasConsumer() = false")
+	require.False(t, r.HasConsumer("stream1", "missing"), "HasConsumer(missing) = true")
+	require.Equal(t, 1, r.ConsumerCount("stream1"))
 
 	count := 0
 	for range r.ConsumerNames("stream1") {
 		count++
 	}
-	if count != 1 {
-		t.Fatalf("ConsumerNames() yielded %d", count)
-	}
+	require.Equal(t, 1, count)
 }
 
 func TestRegistry_RegisterSubscription_StreamNotRegistered(t *testing.T) {
 	r := NewRegistry()
 	err := r.RegisterSubscription("missing", "consumer1", nil, nil)
-	if !errors.Is(err, ErrStreamNotRegistered) {
-		t.Fatalf("error = %v, want ErrStreamNotRegistered", err)
-	}
+	require.True(t, errors.Is(err, ErrStreamNotRegistered), "error = %v, want ErrStreamNotRegistered", err)
 }
 
 func TestRegistry_RegisterSubscription_EmptyConsumer(t *testing.T) {
 	r := NewRegistry()
 	r.RegisterStream("s1", jetstream.StreamConfig{Name: "s1"}, RecoveryStrategyAuto)
 	err := r.RegisterSubscription("s1", "", nil, nil)
-	if !errors.Is(err, ErrInvalidConsumerConfig) {
-		t.Fatalf("error = %v, want ErrInvalidConsumerConfig", err)
-	}
+	require.True(t, errors.Is(err, ErrInvalidConsumerConfig), "error = %v, want ErrInvalidConsumerConfig", err)
 }
 
 func TestRegistry_UnregisterSubscription(t *testing.T) {
@@ -152,9 +114,7 @@ func TestRegistry_UnregisterSubscription(t *testing.T) {
 	r.RegisterStream("s1", jetstream.StreamConfig{Name: "s1"}, RecoveryStrategyAuto)
 	r.RegisterSubscription("s1", "c1", nil, nil)
 	r.UnregisterSubscription("s1", "c1")
-	if r.HasConsumer("s1", "c1") {
-		t.Fatal("consumer should be unregistered")
-	}
+	require.False(t, r.HasConsumer("s1", "c1"), "consumer should be unregistered")
 }
 
 func TestRegistry_ResubscribeHandler(t *testing.T) {
@@ -166,23 +126,15 @@ func TestRegistry_ResubscribeHandler(t *testing.T) {
 	})
 
 	fn, ok := r.GetResubscribeHandler("s1", "c1")
-	if !ok {
-		t.Fatal("GetResubscribeHandler() ok = false")
-	}
+	require.True(t, ok, "GetResubscribeHandler() ok = false")
 	fn()
-	if !called {
-		t.Fatal("handler not called")
-	}
+	require.True(t, called, "handler not called")
 
 	_, ok = r.GetResubscribeHandler("s1", "missing")
-	if ok {
-		t.Fatal("should not find missing handler")
-	}
+	require.False(t, ok, "should not find missing handler")
 
 	_, ok = r.GetResubscribeHandler("missing", "c1")
-	if ok {
-		t.Fatal("should not find handler for missing stream")
-	}
+	require.False(t, ok, "should not find handler for missing stream")
 }
 
 func TestRegistry_GetStreamSubscriptions(t *testing.T) {
@@ -192,14 +144,10 @@ func TestRegistry_GetStreamSubscriptions(t *testing.T) {
 	r.RegisterSubscription("s1", "c2", nil, nil)
 
 	subs := r.GetStreamSubscriptions("s1")
-	if len(subs) != 2 {
-		t.Fatalf("GetStreamSubscriptions() len = %d, want 2", len(subs))
-	}
+	require.Len(t, subs, 2)
 
 	subs = r.GetStreamSubscriptions("missing")
-	if subs != nil {
-		t.Fatal("missing stream should return nil")
-	}
+	require.Nil(t, subs)
 }
 
 func TestRegistry_Clear(t *testing.T) {
@@ -208,9 +156,7 @@ func TestRegistry_Clear(t *testing.T) {
 	r.RegisterSubscription("s1", "c1", nil, nil)
 	r.Clear()
 
-	if r.StreamCount() != 0 {
-		t.Fatalf("StreamCount() = %d after Clear()", r.StreamCount())
-	}
+	require.Equal(t, 0, r.StreamCount())
 }
 
 func TestRegistry_ConcurrentAccess(t *testing.T) {

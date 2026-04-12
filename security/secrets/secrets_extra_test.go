@@ -9,6 +9,8 @@ import (
 	"iter"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/security/secrets"
 )
 
@@ -56,68 +58,44 @@ func newMockProvider() *mockProvider {
 
 func TestManager_New(t *testing.T) {
 	mgr, err := secrets.New[string](newMockProvider())
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	if mgr == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, mgr)
 }
 
 func TestManager_Value_NotFound(t *testing.T) {
 	mgr, err := secrets.New[string](newMockProvider())
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	_, err = mgr.Value(t.Context(), "nonexistent", true)
-	if err == nil {
-		t.Error("Value(nonexistent) should return error")
-	}
+	require.Error(t, err)
 }
 
 func TestManager_Save(t *testing.T) {
 	mgr, err := secrets.New[string](newMockProvider())
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	require.NoError(t, err)
 
-	if err := mgr.Save(t.Context(), "newkey", "newval"); err != nil {
-		t.Errorf("Save() error = %v", err)
-	}
+	require.NoError(t, mgr.Save(t.Context(), "newkey", "newval"))
 }
 
 func TestManager_Delete_NonExistent(t *testing.T) {
 	mgr, err := secrets.New[string](newMockProvider())
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	// Delete on empty provider - should not error (idempotent via our mock)
-	if err := mgr.Delete(t.Context(), "nope"); err != nil {
-		t.Errorf("Delete() error = %v", err)
-	}
+	require.NoError(t, mgr.Delete(t.Context(), "nope"))
 }
 
 func TestManager_CacheSize_Empty(t *testing.T) {
 	mgr, err := secrets.New[string](newMockProvider())
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	require.NoError(t, err)
 
-	if mgr.CacheSize() != 0 {
-		t.Errorf("CacheSize = %d, want 0", mgr.CacheSize())
-	}
+	require.Equal(t, 0, mgr.CacheSize())
 }
 
 func TestManager_LastUpdateTime(t *testing.T) {
 	mgr, err := secrets.New[string](newMockProvider())
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	ut := mgr.LastUpdateTime()
-	if !ut.IsZero() {
-		t.Error("LastUpdateTime should be zero initially")
-	}
+	require.True(t, ut.IsZero(), "LastUpdateTime should be zero initially")
 }

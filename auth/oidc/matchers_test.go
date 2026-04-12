@@ -4,7 +4,11 @@
 
 package oidc
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestClaimEquals(t *testing.T) {
 	tests := []struct {
@@ -21,9 +25,7 @@ func TestClaimEquals(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ClaimEquals(tt.claim, tt.value)(tt.claims); got != tt.want {
-				t.Errorf("got %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, ClaimEquals(tt.claim, tt.value)(tt.claims))
 		})
 	}
 }
@@ -40,20 +42,14 @@ func TestClaimContains(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ClaimContains("realm", "one2work")(tt.claims); got != tt.want {
-				t.Errorf("got %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, ClaimContains("realm", "one2work")(tt.claims))
 		})
 	}
 }
 
 func TestClaimExists(t *testing.T) {
-	if !ClaimExists("email")(map[string]any{"email": "a@b.com"}) {
-		t.Error("expected true")
-	}
-	if ClaimExists("email")(map[string]any{}) {
-		t.Error("expected false")
-	}
+	require.True(t, ClaimExists("email")(map[string]any{"email": "a@b.com"}))
+	require.False(t, ClaimExists("email")(map[string]any{}))
 }
 
 func TestHasScope(t *testing.T) {
@@ -70,69 +66,45 @@ func TestHasScope(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := HasScope(tt.scope)(tt.claims); got != tt.want {
-				t.Errorf("got %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, HasScope(tt.scope)(tt.claims))
 		})
 	}
 }
 
 func TestHasAnyScope(t *testing.T) {
 	claims := map[string]any{"scope": "read write"}
-	if !HasAnyScope("admin", "read")(claims) {
-		t.Error("expected true")
-	}
-	if HasAnyScope("admin", "delete")(claims) {
-		t.Error("expected false")
-	}
+	require.True(t, HasAnyScope("admin", "read")(claims))
+	require.False(t, HasAnyScope("admin", "delete")(claims))
 	// Test with >3 scopes to hit map path
-	if !HasAnyScope("a", "b", "c", "read")(claims) {
-		t.Error("expected true for large set")
-	}
+	require.True(t, HasAnyScope("a", "b", "c", "read")(claims))
 }
 
 func TestHasAllScopes(t *testing.T) {
 	claims := map[string]any{"scope": "read write admin"}
-	if !HasAllScopes("read", "write")(claims) {
-		t.Error("expected true")
-	}
-	if HasAllScopes("read", "delete")(claims) {
-		t.Error("expected false")
-	}
+	require.True(t, HasAllScopes("read", "write")(claims))
+	require.False(t, HasAllScopes("read", "delete")(claims))
 }
 
 func TestMatcherAnd(t *testing.T) {
 	claims := map[string]any{"role": "admin", "scope": "read"}
 	m := MatcherAnd(ClaimEquals("role", "admin"), HasScope("read"))
-	if !m(claims) {
-		t.Error("expected true")
-	}
+	require.True(t, m(claims))
 	m2 := MatcherAnd(ClaimEquals("role", "admin"), HasScope("write"))
-	if m2(claims) {
-		t.Error("expected false")
-	}
+	require.False(t, m2(claims))
 }
 
 func TestMatcherOr(t *testing.T) {
 	claims := map[string]any{"role": "user"}
 	m := MatcherOr(ClaimEquals("role", "admin"), ClaimEquals("role", "user"))
-	if !m(claims) {
-		t.Error("expected true")
-	}
+	require.True(t, m(claims))
 	m2 := MatcherOr(ClaimEquals("role", "admin"), ClaimEquals("role", "mod"))
-	if m2(claims) {
-		t.Error("expected false")
-	}
+	require.False(t, m2(claims))
 }
 
 func TestMatcherNot(t *testing.T) {
 	claims := map[string]any{"role": "user"}
-	if !MatcherNot(ClaimEquals("role", "admin"))(claims) {
-		t.Error("expected true")
-	}
-	if MatcherNot(ClaimEquals("role", "user"))(claims) {
-		t.Error("expected false")
-	}
+	require.True(t, MatcherNot(ClaimEquals("role", "admin"))(claims))
+	require.False(t, MatcherNot(ClaimEquals("role", "user"))(claims))
 }
 
 func TestClientIDEquals(t *testing.T) {
@@ -149,21 +121,15 @@ func TestClientIDEquals(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ClientIDEquals("svc")(tt.claims); got != tt.want {
-				t.Errorf("got %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, ClientIDEquals("svc")(tt.claims))
 		})
 	}
 }
 
 func TestIssuerEquals(t *testing.T) {
 	claims := map[string]any{"iss": "https://auth.example.com"}
-	if !IssuerEquals("https://auth.example.com")(claims) {
-		t.Error("expected true")
-	}
-	if IssuerEquals("other")(claims) {
-		t.Error("expected false")
-	}
+	require.True(t, IssuerEquals("https://auth.example.com")(claims))
+	require.False(t, IssuerEquals("other")(claims))
 }
 
 func TestAudienceContains(t *testing.T) {
@@ -180,9 +146,7 @@ func TestAudienceContains(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := AudienceContains("api.example.com")(tt.claims); got != tt.want {
-				t.Errorf("got %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, AudienceContains("api.example.com")(tt.claims))
 		})
 	}
 }

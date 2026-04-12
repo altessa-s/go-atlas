@@ -8,6 +8,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 type mockRetryPolicy struct {
@@ -26,12 +28,8 @@ func TestExecuteWithRetry_NilConfig(t *testing.T) {
 		called = true
 		return nil
 	}, nil)
-	if err != nil {
-		t.Errorf("ExecuteWithRetry(nil config) = %v, want nil", err)
-	}
-	if !called {
-		t.Error("function was not called")
-	}
+	require.NoError(t, err)
+	require.True(t, called)
 }
 
 func TestExecuteWithRetry_NilPolicy(t *testing.T) {
@@ -40,12 +38,8 @@ func TestExecuteWithRetry_NilPolicy(t *testing.T) {
 		called = true
 		return nil
 	}, &RetryConfig{Policy: nil})
-	if err != nil {
-		t.Errorf("ExecuteWithRetry(nil policy) = %v, want nil", err)
-	}
-	if !called {
-		t.Error("function was not called")
-	}
+	require.NoError(t, err)
+	require.True(t, called)
 }
 
 func TestExecuteWithRetry_Success(t *testing.T) {
@@ -53,9 +47,7 @@ func TestExecuteWithRetry_Success(t *testing.T) {
 	err := ExecuteWithRetry(func() error {
 		return nil
 	}, &RetryConfig{Policy: policy, Context: t.Context()})
-	if err != nil {
-		t.Errorf("ExecuteWithRetry(success) = %v, want nil", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestExecuteWithRetry_PermanentError(t *testing.T) {
@@ -64,9 +56,7 @@ func TestExecuteWithRetry_PermanentError(t *testing.T) {
 	err := ExecuteWithRetry(func() error {
 		return testErr
 	}, &RetryConfig{Policy: policy, Context: t.Context()})
-	if err == nil {
-		t.Error("ExecuteWithRetry(permanent error) should return error")
-	}
+	require.Error(t, err)
 }
 
 func TestExecuteWithRetry_WithOnRetry(t *testing.T) {
@@ -85,9 +75,7 @@ func TestExecuteWithRetry_WithOnRetry(t *testing.T) {
 		},
 	})
 
-	if attempts == 0 {
-		t.Error("function was never called")
-	}
+	require.NotEqual(t, 0, attempts)
 }
 
 func TestRetryConfig_NilContext(t *testing.T) {
@@ -95,7 +83,5 @@ func TestRetryConfig_NilContext(t *testing.T) {
 	err := ExecuteWithRetry(func() error {
 		return nil
 	}, &RetryConfig{Policy: policy, Context: nil})
-	if err != nil {
-		t.Errorf("ExecuteWithRetry(nil ctx) = %v, want nil", err)
-	}
+	require.NoError(t, err)
 }

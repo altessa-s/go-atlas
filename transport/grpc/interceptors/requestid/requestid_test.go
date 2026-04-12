@@ -7,26 +7,22 @@ package requestid
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"google.golang.org/grpc/metadata"
 )
 
 func TestMetadataPool(t *testing.T) {
 	md := GetMetadata()
-	if md == nil {
-		t.Fatal("should not be nil")
-	}
-	if len(md) != 0 {
-		t.Fatalf("should be empty, got %d", len(md))
-	}
+	require.NotNil(t, md, "should not be nil")
+	require.Len(t, md, 0)
 
 	md.Set("key", "value")
 	PutMetadata(md)
 
 	// Get again - should be cleared
 	md2 := GetMetadata()
-	if len(md2) != 0 {
-		t.Fatalf("should be empty after pool return, got %d", len(md2))
-	}
+	require.Len(t, md2, 0)
 }
 
 func TestMetadataPool_OversizedNotReturned(t *testing.T) {
@@ -42,39 +38,33 @@ func TestGrpcHeaderGetter(t *testing.T) {
 	md := metadata.Pairs("x-request-id", "abc-123")
 	g := &grpcHeaderGetter{md: md}
 
-	if got := g.GetHeader("x-request-id"); got != "abc-123" {
-		t.Fatalf("GetHeader = %q", got)
-	}
-	if got := g.GetHeader("nonexistent"); got != "" {
-		t.Fatalf("GetHeader nonexistent = %q", got)
-	}
+	got := g.GetHeader("x-request-id")
+	require.Equal(t, "abc-123", got)
+	got = g.GetHeader("nonexistent")
+	require.Equal(t, "", got)
 }
 
 func TestGrpcHeaderGetter_NilMD(t *testing.T) {
 	g := &grpcHeaderGetter{md: nil}
-	if got := g.GetHeader("any"); got != "" {
-		t.Fatalf("GetHeader nil md = %q", got)
-	}
+	got := g.GetHeader("any")
+	require.Equal(t, "", got)
 }
 
 func TestContext_RoundTrip(t *testing.T) {
 	ctx := t.Context()
-	if got := FromContext(ctx); got != "" {
-		t.Fatalf("FromContext empty = %q", got)
-	}
+	got := FromContext(ctx)
+	require.Equal(t, "", got)
 
 	ctx = NewContext(ctx, "test-id")
-	if got := FromContext(ctx); got != "test-id" {
-		t.Fatalf("FromContext = %q", got)
-	}
+	got = FromContext(ctx)
+	require.Equal(t, "test-id", got)
 }
 
 func TestServerInterceptor_Dependencies(t *testing.T) {
 	i := &interceptor{}
 	deps := i.Dependencies()
-	if len(deps) != 1 || deps[0] != "metadata" {
-		t.Fatalf("Dependencies = %v", deps)
-	}
+	require.Len(t, deps, 1)
+	require.Equal(t, "metadata", deps[0])
 }
 
 func BenchmarkGetPutMetadata(b *testing.B) {

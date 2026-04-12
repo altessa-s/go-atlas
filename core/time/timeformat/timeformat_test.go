@@ -7,6 +7,8 @@ package timeformat
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestFormatParse_RoundTripInstant(t *testing.T) {
@@ -21,30 +23,20 @@ func TestFormatParse_RoundTripInstant(t *testing.T) {
 			t.Parallel()
 			out := f.Format(in)
 			parsed, err := f.Parse(out)
-			if err != nil {
-				t.Fatalf("Parse err=%v (out=%q)", err, out)
-			}
+			require.NoError(t, err, "Parse (out=%q)", out)
 
 			// Round-trip preserves only the precision of the chosen format.
 			switch f {
 			case RFC3339, Unix:
-				if parsed.Unix() != in.Unix() {
-					t.Fatalf("parsed unix=%d, want %d", parsed.Unix(), in.Unix())
-				}
+				require.Equal(t, in.Unix(), parsed.Unix())
 			case RFC3339Nano, UnixNano:
-				if parsed.UnixNano() != in.UnixNano() {
-					t.Fatalf("parsed ns=%d, want %d", parsed.UnixNano(), in.UnixNano())
-				}
+				require.Equal(t, in.UnixNano(), parsed.UnixNano())
 			case UnixMilli:
-				if parsed.UnixMilli() != in.UnixMilli() {
-					t.Fatalf("parsed ms=%d, want %d", parsed.UnixMilli(), in.UnixMilli())
-				}
+				require.Equal(t, in.UnixMilli(), parsed.UnixMilli())
 			case UnixMicro:
-				if parsed.UnixMicro() != in.UnixMicro() {
-					t.Fatalf("parsed us=%d, want %d", parsed.UnixMicro(), in.UnixMicro())
-				}
+				require.Equal(t, in.UnixMicro(), parsed.UnixMicro())
 			default:
-				t.Fatalf("unhandled format %q", f)
+				require.Failf(t, "unhandled format", "%q", f)
 			}
 		})
 	}
@@ -55,21 +47,16 @@ func TestFormatTime_Types(t *testing.T) {
 
 	now := time.Unix(1700000000, 0)
 
-	if _, ok := FormatTime(now, RFC3339).(string); !ok {
-		t.Fatalf("RFC3339 should format to string")
-	}
-	if _, ok := FormatTime(now, Unix).(int64); !ok {
-		t.Fatalf("Unix should format to int64")
-	}
-	if _, ok := FormatTime(now, UnixMilli).(int64); !ok {
-		t.Fatalf("UnixMilli should format to int64")
-	}
-	if _, ok := FormatTime(now, UnixMicro).(int64); !ok {
-		t.Fatalf("UnixMicro should format to int64")
-	}
-	if _, ok := FormatTime(now, UnixNano).(int64); !ok {
-		t.Fatalf("UnixNano should format to int64")
-	}
+	_, ok := FormatTime(now, RFC3339).(string)
+	require.True(t, ok, "RFC3339 should format to string")
+	_, ok = FormatTime(now, Unix).(int64)
+	require.True(t, ok, "Unix should format to int64")
+	_, ok = FormatTime(now, UnixMilli).(int64)
+	require.True(t, ok, "UnixMilli should format to int64")
+	_, ok = FormatTime(now, UnixMicro).(int64)
+	require.True(t, ok, "UnixMicro should format to int64")
+	_, ok = FormatTime(now, UnixNano).(int64)
+	require.True(t, ok, "UnixNano should format to int64")
 }
 
 func TestFormatDuration_UnixMicroIsNanoseconds(t *testing.T) {
@@ -78,10 +65,6 @@ func TestFormatDuration_UnixMicroIsNanoseconds(t *testing.T) {
 	d := 1500 * time.Microsecond // 1_500_000 ns
 	got := FormatDuration(d, UnixMicro)
 	ns, ok := got.(int64)
-	if !ok {
-		t.Fatalf("expected int64 for UnixMicro duration, got %T", got)
-	}
-	if ns != d.Nanoseconds() {
-		t.Fatalf("ns=%d, want %d", ns, d.Nanoseconds())
-	}
+	require.True(t, ok, "expected int64 for UnixMicro duration, got %T", got)
+	require.Equal(t, d.Nanoseconds(), ns)
 }

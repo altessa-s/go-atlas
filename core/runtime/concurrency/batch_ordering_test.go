@@ -7,9 +7,10 @@ package concurrency_test
 import (
 	"context"
 	"math/rand"
-	"slices"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/core/runtime/concurrency"
 )
@@ -30,12 +31,6 @@ func TestProcessCollect_Ordering(t *testing.T) {
 		return item, nil
 	}, concurrency.WithConcurrency[int](10))
 
-	if err != nil {
-		t.Fatalf("ProcessCollect failed: %v", err)
-	}
-
-	// Verify that results are in the same order as input
-	if !slices.Equal(input, results) {
-		t.Errorf("ProcessCollect did not preserve order. \nExpected: %v\nGot:      %v", input, results)
-	}
+	require.NoError(t, err)
+	require.Equal(t, input, results, "ProcessCollect did not preserve order")
 }

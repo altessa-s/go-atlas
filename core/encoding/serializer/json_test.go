@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/core/encoding/serializer"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
@@ -18,16 +20,10 @@ func TestJSON(t *testing.T) {
 	val := testhelpers.Person{Name: "Antonio", Age: 30}
 
 	bytes, err := s.Serialize(val)
-	if err != nil {
-		t.Fatalf("Serialize failed: %v", err)
-	}
+	require.NoError(t, err, "Serialize failed")
 
 	var loaded testhelpers.Person
-	if err := s.Deserialize(bytes, &loaded); err != nil {
-		t.Fatalf("Deserialize failed: %v", err)
-	}
+	require.NoError(t, s.Deserialize(bytes, &loaded), "Deserialize failed")
 
-	if !reflect.DeepEqual(val, loaded) {
-		t.Errorf("Roundtrip failed: got %v, want %v", loaded, val)
-	}
+	require.True(t, reflect.DeepEqual(val, loaded), "Roundtrip failed: got %v, want %v", loaded, val)
 }

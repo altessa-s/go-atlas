@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/internal/redisutils"
 
@@ -31,12 +32,8 @@ func TestGetBytes_Hit(t *testing.T) {
 	mr.Set("key1", "value1")
 
 	got, err := redisutils.GetBytes(ctx, client, "key1", errors.New("not found"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if string(got) != "value1" {
-		t.Errorf("GetBytes() = %q, want %q", got, "value1")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "value1", string(got))
 }
 
 func TestGetBytes_Miss(t *testing.T) {
@@ -46,9 +43,7 @@ func TestGetBytes_Miss(t *testing.T) {
 
 	notFoundErr := errors.New("not found")
 	_, err := redisutils.GetBytes(ctx, client, "missing", notFoundErr)
-	if !errors.Is(err, notFoundErr) {
-		t.Errorf("GetBytes() error = %v, want %v", err, notFoundErr)
-	}
+	require.ErrorIs(t, err, notFoundErr)
 }
 
 func TestSetBytes(t *testing.T) {
@@ -57,17 +52,11 @@ func TestSetBytes(t *testing.T) {
 	ctx := t.Context()
 
 	err := redisutils.SetBytes(ctx, client, "key1", []byte("val"), 0)
-	if err != nil {
-		t.Fatalf("SetBytes() error: %v", err)
-	}
+	require.NoError(t, err)
 
 	got, err := mr.Get("key1")
-	if err != nil {
-		t.Fatalf("miniredis Get error: %v", err)
-	}
-	if got != "val" {
-		t.Errorf("stored value = %q, want %q", got, "val")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "val", got)
 }
 
 func TestSetBytes_WithTTL(t *testing.T) {
@@ -76,15 +65,11 @@ func TestSetBytes_WithTTL(t *testing.T) {
 	ctx := t.Context()
 
 	err := redisutils.SetBytes(ctx, client, "key1", []byte("val"), 10*time.Second)
-	if err != nil {
-		t.Fatalf("SetBytes() error: %v", err)
-	}
+	require.NoError(t, err)
 
 	mr.FastForward(15 * time.Second)
 
-	if mr.Exists("key1") {
-		t.Error("key should have expired")
-	}
+	require.False(t, mr.Exists("key1"), "key should have expired")
 }
 
 func TestDel(t *testing.T) {
@@ -95,13 +80,8 @@ func TestDel(t *testing.T) {
 	mr.Set("key1", "value1")
 
 	err := redisutils.Del(ctx, client, "key1")
-	if err != nil {
-		t.Fatalf("Del() error: %v", err)
-	}
-
-	if mr.Exists("key1") {
-		t.Error("key should have been deleted")
-	}
+	require.NoError(t, err)
+	require.False(t, mr.Exists("key1"), "key should have been deleted")
 }
 
 func TestDel_NonExistent(t *testing.T) {
@@ -110,7 +90,5 @@ func TestDel_NonExistent(t *testing.T) {
 	ctx := t.Context()
 
 	err := redisutils.Del(ctx, client, "missing")
-	if err != nil {
-		t.Fatalf("Del() on non-existent key should not error: %v", err)
-	}
+	require.NoError(t, err)
 }

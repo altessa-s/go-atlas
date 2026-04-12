@@ -7,13 +7,13 @@ package health
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/observability/health"
 )
 
 func TestNew(t *testing.T) {
 	coord := health.New()
 	h := New(coord)
-	if h == nil {
-		t.Fatal("New returned nil")
-	}
+	require.NotNil(t, h, "New returned nil")
 }

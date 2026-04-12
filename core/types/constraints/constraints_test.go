@@ -7,6 +7,8 @@ package constraints_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/core/types/constraints"
 )
 
@@ -63,102 +65,54 @@ func firstNumbersString[T constraints.NumbersString](vs ...T) T {
 
 func TestSigned(t *testing.T) {
 	t.Parallel()
-	if got := firstSigned[int](1, 2); got != 1 {
-		t.Fatalf("int: got %d, want 1", got)
-	}
-	if got := firstSigned[int8](1); got != 1 {
-		t.Fatalf("int8: got %d, want 1", got)
-	}
-	if got := firstSigned[int16](1); got != 1 {
-		t.Fatalf("int16: got %d, want 1", got)
-	}
-	if got := firstSigned[int32](1); got != 1 {
-		t.Fatalf("int32: got %d, want 1", got)
-	}
-	if got := firstSigned[int64](1); got != 1 {
-		t.Fatalf("int64: got %d, want 1", got)
-	}
+	require.Equal(t, 1, firstSigned[int](1, 2))
+	require.Equal(t, int8(1), firstSigned[int8](1))
+	require.Equal(t, int16(1), firstSigned[int16](1))
+	require.Equal(t, int32(1), firstSigned[int32](1))
+	require.Equal(t, int64(1), firstSigned[int64](1))
 }
 
 func TestUnsigned(t *testing.T) {
 	t.Parallel()
-	if got := firstUnsigned[uint](1); got != 1 {
-		t.Fatalf("uint: got %d, want 1", got)
-	}
-	if got := firstUnsigned[uint8](1); got != 1 {
-		t.Fatalf("uint8: got %d, want 1", got)
-	}
-	if got := firstUnsigned[uint16](1); got != 1 {
-		t.Fatalf("uint16: got %d, want 1", got)
-	}
-	if got := firstUnsigned[uint32](1); got != 1 {
-		t.Fatalf("uint32: got %d, want 1", got)
-	}
-	if got := firstUnsigned[uint64](1); got != 1 {
-		t.Fatalf("uint64: got %d, want 1", got)
-	}
-	if got := firstUnsigned[uintptr](1); got != 1 {
-		t.Fatalf("uintptr: got %d, want 1", got)
-	}
+	require.Equal(t, uint(1), firstUnsigned[uint](1))
+	require.Equal(t, uint8(1), firstUnsigned[uint8](1))
+	require.Equal(t, uint16(1), firstUnsigned[uint16](1))
+	require.Equal(t, uint32(1), firstUnsigned[uint32](1))
+	require.Equal(t, uint64(1), firstUnsigned[uint64](1))
+	require.Equal(t, uintptr(1), firstUnsigned[uintptr](1))
 }
 
 func TestInteger(t *testing.T) {
 	t.Parallel()
-	if got := firstInteger[int](3); got != 3 {
-		t.Fatalf("int: got %d, want 3", got)
-	}
-	if got := firstInteger[uint64](3); got != 3 {
-		t.Fatalf("uint64: got %d, want 3", got)
-	}
+	require.Equal(t, 3, firstInteger[int](3))
+	require.Equal(t, uint64(3), firstInteger[uint64](3))
 }
 
 func TestFloat(t *testing.T) {
 	t.Parallel()
-	if got := firstFloat[float32](1.5); got != 1.5 {
-		t.Fatalf("float32: got %f, want 1.5", got)
-	}
-	if got := firstFloat[float64](1.5); got != 1.5 {
-		t.Fatalf("float64: got %f, want 1.5", got)
-	}
+	require.Equal(t, float32(1.5), firstFloat[float32](1.5))
+	require.Equal(t, 1.5, firstFloat[float64](1.5))
 }
 
 func TestNumbers(t *testing.T) {
 	t.Parallel()
-	if got := sum[int](2, 3); got != 5 {
-		t.Fatalf("int sum: got %d, want 5", got)
-	}
-	if got := sum[float64](2.5, 3.25); got != 5.75 {
-		t.Fatalf("float64 sum: got %f, want 5.75", got)
-	}
+	require.Equal(t, 5, sum[int](2, 3))
+	require.Equal(t, 5.75, sum[float64](2.5, 3.25))
 }
 
 func TestNumbersString(t *testing.T) {
 	t.Parallel()
-	if got := firstNumbersString[string]("a", "b"); got != "a" {
-		t.Fatalf("string: got %q, want a", got)
-	}
-	if got := firstNumbersString[int](1); got != 1 {
-		t.Fatalf("int: got %d, want 1", got)
-	}
-	if got := firstNumbersString[float32](1.5); got != 1.5 {
-		t.Fatalf("float32: got %f, want 1.5", got)
-	}
+	require.Equal(t, "a", firstNumbersString[string]("a", "b"))
+	require.Equal(t, 1, firstNumbersString[int](1))
+	require.Equal(t, float32(1.5), firstNumbersString[float32](1.5))
 }
 
 func TestPrimitive(t *testing.T) {
 	t.Parallel()
-	if got := identity[int](7); got != 7 {
-		t.Fatalf("int: got %d, want 7", got)
-	}
-	if got := identity[string]("hello"); got != "hello" {
-		t.Fatalf("string: got %q, want hello", got)
-	}
-	if got := identity[bool](true); !got {
-		t.Fatalf("bool: got false, want true")
-	}
-	if got := identity[float64](1.5); got != 1.5 {
-		t.Fatalf("float64: got %f, want 1.5", got)
-	}
+	require.Equal(t, 7, identity[int](7))
+	require.Equal(t, "hello", identity[string]("hello"))
+	require.True(t, identity[bool](true))
+	require.Equal(t, 1.5, identity[float64](1.5))
 }
 
 // Named underlying types must also satisfy the constraints via the
@@ -170,16 +124,8 @@ type namedString string
 
 func TestNamedUnderlyingTypes(t *testing.T) {
 	t.Parallel()
-	if got := firstSigned[namedInt](1); got != 1 {
-		t.Fatalf("namedInt: got %d, want 1", got)
-	}
-	if got := firstUnsigned[namedUint](1); got != 1 {
-		t.Fatalf("namedUint: got %d, want 1", got)
-	}
-	if got := firstFloat[namedFloat](1.5); got != 1.5 {
-		t.Fatalf("namedFloat: got %f, want 1.5", got)
-	}
-	if got := identity[namedString]("x"); got != "x" {
-		t.Fatalf("namedString: got %q, want x", got)
-	}
+	require.Equal(t, namedInt(1), firstSigned[namedInt](1))
+	require.Equal(t, namedUint(1), firstUnsigned[namedUint](1))
+	require.Equal(t, namedFloat(1.5), firstFloat[namedFloat](1.5))
+	require.Equal(t, namedString("x"), identity[namedString]("x"))
 }

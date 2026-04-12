@@ -7,6 +7,8 @@ package slog
 import (
 	"log/slog"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestFieldsToAttrs_GroupsAndOrder(t *testing.T) {
@@ -18,29 +20,23 @@ func TestFieldsToAttrs_GroupsAndOrder(t *testing.T) {
 	}
 
 	attrs := FieldsToAttrs(fields)
-	if got, want := len(attrs), 3; got != want {
-		t.Fatalf("attrs length = %d, want %d", got, want)
-	}
+	require.Len(t, attrs, 3)
 
 	assertAttr(t, attrs[0], "plain", true)
 
 	req := attrs[1]
-	if req.Key != "request" || req.Value.Kind() != slog.KindGroup {
-		t.Fatalf("request attr = %#v, want group with key request", req)
-	}
+	require.Equal(t, "request", req.Key)
+	require.Equal(t, slog.KindGroup, req.Value.Kind())
 	reqGroup := req.Value.Group()
-	if len(reqGroup) != 1 || reqGroup[0].Key != "id" || reqGroup[0].Value.String() != "req-1" {
-		t.Fatalf("request group = %#v, want single id=req-1", reqGroup)
-	}
+	require.Len(t, reqGroup, 1)
+	require.Equal(t, "id", reqGroup[0].Key)
+	require.Equal(t, "req-1", reqGroup[0].Value.String())
 
 	user := attrs[2]
-	if user.Key != "user" || user.Value.Kind() != slog.KindGroup {
-		t.Fatalf("user attr = %#v, want group with key user", user)
-	}
+	require.Equal(t, "user", user.Key)
+	require.Equal(t, slog.KindGroup, user.Value.Kind())
 	userGroup := user.Value.Group()
-	if len(userGroup) != 2 {
-		t.Fatalf("user group len = %d, want 2", len(userGroup))
-	}
+	require.Len(t, userGroup, 2)
 	assertAttr(t, userGroup[0], "id", 42)
 	assertAttr(t, userGroup[1], "name", "alice")
 }
@@ -52,34 +48,22 @@ func TestFieldsToAttrs_DuplicateKeepsFirst(t *testing.T) {
 	}
 
 	attrs := FieldsToAttrs(fields)
-	if len(attrs) != 1 {
-		t.Fatalf("attrs length = %d, want 1", len(attrs))
-	}
+	require.Len(t, attrs, 1)
 	assertAttr(t, attrs[0], "plain", "first")
 }
 
 func assertAttr(t *testing.T, attr slog.Attr, wantKey string, wantVal any) {
 	t.Helper()
-	if attr.Key != wantKey {
-		t.Fatalf("attr key = %s, want %s", attr.Key, wantKey)
-	}
+	require.Equal(t, wantKey, attr.Key)
 
 	switch v := wantVal.(type) {
 	case bool:
-		if attr.Value.Bool() != v {
-			t.Fatalf("attr bool value = %v, want %v", attr.Value.Bool(), v)
-		}
+		require.Equal(t, v, attr.Value.Bool())
 	case string:
-		if attr.Value.String() != v {
-			t.Fatalf("attr string value = %q, want %q", attr.Value.String(), v)
-		}
+		require.Equal(t, v, attr.Value.String())
 	case int:
-		if attr.Value.Int64() != int64(v) {
-			t.Fatalf("attr int value = %d, want %d", attr.Value.Int64(), v)
-		}
+		require.Equal(t, int64(v), attr.Value.Int64())
 	default:
-		if got := attr.Value.Any(); got != v {
-			t.Fatalf("attr any value = %#v, want %#v", got, v)
-		}
+		require.Equal(t, v, attr.Value.Any())
 	}
 }

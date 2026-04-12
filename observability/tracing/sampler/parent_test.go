@@ -4,14 +4,16 @@
 
 package sampler
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestParentBased_NoParent_UsesRoot(t *testing.T) {
 	s := NewParentBased(AlwaysOn())
 	result := s.ShouldSample(SamplingParameters{})
-	if result.Decision != RecordAndSample {
-		t.Errorf("expected RecordAndSample, got %v", result.Decision)
-	}
+	require.Equal(t, RecordAndSample, result.Decision)
 }
 
 func TestParentBased_RemoteSampledParent(t *testing.T) {
@@ -24,9 +26,7 @@ func TestParentBased_RemoteSampledParent(t *testing.T) {
 			IsRemote:  true,
 		},
 	})
-	if result.Decision != RecordAndSample {
-		t.Errorf("expected RecordAndSample for remote sampled parent, got %v", result.Decision)
-	}
+	require.Equal(t, RecordAndSample, result.Decision, "expected RecordAndSample for remote sampled parent")
 }
 
 func TestParentBased_RemoteNotSampledParent(t *testing.T) {
@@ -39,9 +39,7 @@ func TestParentBased_RemoteNotSampledParent(t *testing.T) {
 			IsRemote:  true,
 		},
 	})
-	if result.Decision != Drop {
-		t.Errorf("expected Drop for remote not-sampled parent, got %v", result.Decision)
-	}
+	require.Equal(t, Drop, result.Decision, "expected Drop for remote not-sampled parent")
 }
 
 func TestParentBased_LocalSampledParent(t *testing.T) {
@@ -54,9 +52,7 @@ func TestParentBased_LocalSampledParent(t *testing.T) {
 			IsRemote:  false,
 		},
 	})
-	if result.Decision != RecordAndSample {
-		t.Errorf("expected RecordAndSample for local sampled parent, got %v", result.Decision)
-	}
+	require.Equal(t, RecordAndSample, result.Decision, "expected RecordAndSample for local sampled parent")
 }
 
 func TestParentBased_LocalNotSampledParent(t *testing.T) {
@@ -69,9 +65,7 @@ func TestParentBased_LocalNotSampledParent(t *testing.T) {
 			IsRemote:  false,
 		},
 	})
-	if result.Decision != Drop {
-		t.Errorf("expected Drop for local not-sampled parent, got %v", result.Decision)
-	}
+	require.Equal(t, Drop, result.Decision, "expected Drop for local not-sampled parent")
 }
 
 func TestParentBased_CustomOptions(t *testing.T) {
@@ -92,9 +86,7 @@ func TestParentBased_CustomOptions(t *testing.T) {
 			IsRemote:  true,
 		},
 	})
-	if result.Decision != Drop {
-		t.Errorf("expected Drop with custom remote sampled, got %v", result.Decision)
-	}
+	require.Equal(t, Drop, result.Decision, "expected Drop with custom remote sampled")
 }
 
 func TestParentBased_InvalidParent_UsesRoot(t *testing.T) {
@@ -102,15 +94,10 @@ func TestParentBased_InvalidParent_UsesRoot(t *testing.T) {
 	result := s.ShouldSample(SamplingParameters{
 		ParentCtx: &SpanContext{}, // zero = invalid
 	})
-	if result.Decision != RecordAndSample {
-		t.Errorf("invalid parent should fall through to root, got %v", result.Decision)
-	}
+	require.Equal(t, RecordAndSample, result.Decision, "invalid parent should fall through to root")
 }
 
 func TestParentBased_Description(t *testing.T) {
 	s := NewParentBased(AlwaysOn())
-	want := "ParentBased{root:AlwaysOnSampler}"
-	if s.Description() != want {
-		t.Errorf("Description = %q, want %q", s.Description(), want)
-	}
+	require.Equal(t, "ParentBased{root:AlwaysOnSampler}", s.Description())
 }

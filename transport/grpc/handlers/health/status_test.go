@@ -7,6 +7,8 @@ package health
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/observability/health"
 
 	"google.golang.org/grpc/health/grpc_health_v1"
@@ -28,9 +30,7 @@ func TestToProto(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := ToProto(tt.status)
-			if got != tt.want {
-				t.Fatalf("ToProto(%v) = %v, want %v", tt.status, got, tt.want)
-			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }

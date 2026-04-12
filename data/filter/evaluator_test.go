@@ -5,8 +5,9 @@
 package filter_test
 
 import (
-	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/filter"
 )
@@ -14,9 +15,7 @@ import (
 func newTestParser(t *testing.T) *filter.Parser {
 	t.Helper()
 	p, err := filter.NewParser(filter.WithParserNoCache())
-	if err != nil {
-		t.Fatalf("NewParser: %v", err)
-	}
+	require.NoError(t, err, "NewParser")
 	return p
 }
 
@@ -49,16 +48,10 @@ func TestEvaluator_Comparison(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.expr, func(t *testing.T) {
 			node, err := p.Parse(t.Context(), tt.expr)
-			if err != nil {
-				t.Fatalf("Parse(%q): %v", tt.expr, err)
-			}
+			require.NoError(t, err, "Parse(%q)", tt.expr)
 			got, err := eval.Evaluate(node, data)
-			if err != nil {
-				t.Fatalf("Evaluate(%q): %v", tt.expr, err)
-			}
-			if got != tt.want {
-				t.Errorf("Evaluate(%q) = %v, want %v", tt.expr, got, tt.want)
-			}
+			require.NoError(t, err, "Evaluate(%q)", tt.expr)
+			require.Equal(t, tt.want, got, "Evaluate(%q)", tt.expr)
 		})
 	}
 }
@@ -86,16 +79,10 @@ func TestEvaluator_Logical(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.expr, func(t *testing.T) {
 			node, err := p.Parse(t.Context(), tt.expr)
-			if err != nil {
-				t.Fatalf("Parse: %v", err)
-			}
+			require.NoError(t, err, "Parse")
 			got, err := eval.Evaluate(node, data)
-			if err != nil {
-				t.Fatalf("Evaluate: %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("got %v, want %v", got, tt.want)
-			}
+			require.NoError(t, err, "Evaluate")
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -122,16 +109,10 @@ func TestEvaluator_StringFunctions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.expr, func(t *testing.T) {
 			node, err := p.Parse(t.Context(), tt.expr)
-			if err != nil {
-				t.Fatalf("Parse: %v", err)
-			}
+			require.NoError(t, err, "Parse")
 			got, err := eval.Evaluate(node, data)
-			if err != nil {
-				t.Fatalf("Evaluate: %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("got %v, want %v", got, tt.want)
-			}
+			require.NoError(t, err, "Evaluate")
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -153,16 +134,10 @@ func TestEvaluator_In(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.expr, func(t *testing.T) {
 			node, err := p.Parse(t.Context(), tt.expr)
-			if err != nil {
-				t.Fatalf("Parse: %v", err)
-			}
+			require.NoError(t, err, "Parse")
 			got, err := eval.Evaluate(node, data)
-			if err != nil {
-				t.Fatalf("Evaluate: %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("got %v, want %v", got, tt.want)
-			}
+			require.NoError(t, err, "Evaluate")
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -193,16 +168,10 @@ func TestEvaluator_Has(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.expr, func(t *testing.T) {
 			node, err := p.Parse(t.Context(), tt.expr)
-			if err != nil {
-				t.Fatalf("Parse: %v", err)
-			}
+			require.NoError(t, err, "Parse")
 			got, err := eval.Evaluate(node, data)
-			if err != nil {
-				t.Fatalf("Evaluate: %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("got %v, want %v", got, tt.want)
-			}
+			require.NoError(t, err, "Evaluate")
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -218,16 +187,10 @@ func TestEvaluator_NestedFields(t *testing.T) {
 	}
 
 	node, err := p.Parse(t.Context(), `address.city == "NYC"`)
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	require.NoError(t, err, "Parse")
 	got, err := eval.Evaluate(node, data)
-	if err != nil {
-		t.Fatalf("Evaluate: %v", err)
-	}
-	if !got {
-		t.Error("expected true")
-	}
+	require.NoError(t, err, "Evaluate")
+	require.True(t, got, "expected true")
 }
 
 func TestEvaluator_AllowedFields(t *testing.T) {
@@ -237,13 +200,9 @@ func TestEvaluator_AllowedFields(t *testing.T) {
 	data := map[string]any{"name": "test", "secret": "hidden"}
 
 	node, err := p.Parse(t.Context(), `secret == "hidden"`)
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	require.NoError(t, err, "Parse")
 	_, err = eval.Evaluate(node, data)
-	if err == nil {
-		t.Fatal("expected error for disallowed field")
-	}
+	require.Error(t, err, "expected error for disallowed field")
 }
 
 func TestEvaluator_FieldMapping(t *testing.T) {
@@ -255,16 +214,10 @@ func TestEvaluator_FieldMapping(t *testing.T) {
 	data := map[string]any{"user_name": "alice"}
 
 	node, err := p.Parse(t.Context(), `userName == "alice"`)
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	require.NoError(t, err, "Parse")
 	got, err := eval.Evaluate(node, data)
-	if err != nil {
-		t.Fatalf("Evaluate: %v", err)
-	}
-	if !got {
-		t.Error("expected true")
-	}
+	require.NoError(t, err, "Evaluate")
+	require.True(t, got, "expected true")
 }
 
 func TestEvaluator_Size(t *testing.T) {
@@ -274,16 +227,10 @@ func TestEvaluator_Size(t *testing.T) {
 	data := map[string]any{"name": "hello"}
 
 	node, err := p.Parse(t.Context(), `name.size() == 5`)
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	require.NoError(t, err, "Parse")
 	got, err := eval.Evaluate(node, data)
-	if err != nil {
-		t.Fatalf("Evaluate: %v", err)
-	}
-	if !got {
-		t.Error("expected true")
-	}
+	require.NoError(t, err, "Evaluate")
+	require.True(t, got, "expected true")
 }
 
 func TestEvaluator_NilComparison(t *testing.T) {
@@ -293,16 +240,10 @@ func TestEvaluator_NilComparison(t *testing.T) {
 	data := map[string]any{"name": "test"}
 
 	node, err := p.Parse(t.Context(), `missing == null`)
-	if err != nil {
-		t.Fatalf("Parse: %v", err)
-	}
+	require.NoError(t, err, "Parse")
 	got, err := eval.Evaluate(node, data)
-	if err != nil {
-		t.Fatalf("Evaluate: %v", err)
-	}
-	if !got {
-		t.Error("expected true for missing field == null")
-	}
+	require.NoError(t, err, "Evaluate")
+	require.True(t, got, "expected true for missing field == null")
 }
 
 func TestEvaluator_RegexLengthLimit(t *testing.T) {
@@ -312,16 +253,10 @@ func TestEvaluator_RegexLengthLimit(t *testing.T) {
 	t.Run("short regex is accepted", func(t *testing.T) {
 		eval := filter.NewEvaluator()
 		node, err := p.Parse(t.Context(), `name.matches("^hello")`)
-		if err != nil {
-			t.Fatalf("Parse: %v", err)
-		}
+		require.NoError(t, err, "Parse")
 		got, err := eval.Evaluate(node, data)
-		if err != nil {
-			t.Fatalf("Evaluate: %v", err)
-		}
-		if !got {
-			t.Error("expected true")
-		}
+		require.NoError(t, err, "Evaluate")
+		require.True(t, got, "expected true")
 	})
 
 	t.Run("regex exceeding default limit is rejected", func(t *testing.T) {
@@ -337,12 +272,8 @@ func TestEvaluator_RegexLengthLimit(t *testing.T) {
 			Args:   []filter.Node{&filter.LiteralNode{Value: string(longPattern)}},
 		}
 		_, err := eval.Evaluate(node, data)
-		if err == nil {
-			t.Fatal("expected error for regex exceeding max length")
-		}
-		if !errors.Is(err, filter.ErrInvalidRegex) {
-			t.Errorf("expected ErrInvalidRegex, got: %v", err)
-		}
+		require.Error(t, err, "expected error for regex exceeding max length")
+		require.ErrorIs(t, err, filter.ErrInvalidRegex)
 	})
 
 	t.Run("custom regex length limit", func(t *testing.T) {
@@ -353,12 +284,8 @@ func TestEvaluator_RegexLengthLimit(t *testing.T) {
 			Args:   []filter.Node{&filter.LiteralNode{Value: "a]long-pattern"}},
 		}
 		_, err := eval.Evaluate(node, data)
-		if err == nil {
-			t.Fatal("expected error for regex exceeding custom max length")
-		}
-		if !errors.Is(err, filter.ErrInvalidRegex) {
-			t.Errorf("expected ErrInvalidRegex, got: %v", err)
-		}
+		require.Error(t, err, "expected error for regex exceeding custom max length")
+		require.ErrorIs(t, err, filter.ErrInvalidRegex)
 	})
 }
 
@@ -369,16 +296,10 @@ func TestEvaluator_MaxOperations(t *testing.T) {
 	t.Run("normal expression within limit", func(t *testing.T) {
 		eval := filter.NewEvaluator()
 		node, err := p.Parse(t.Context(), `a == 1 && b == 2`)
-		if err != nil {
-			t.Fatalf("Parse: %v", err)
-		}
+		require.NoError(t, err, "Parse")
 		got, err := eval.Evaluate(node, data)
-		if err != nil {
-			t.Fatalf("Evaluate: %v", err)
-		}
-		if !got {
-			t.Error("expected true")
-		}
+		require.NoError(t, err, "Evaluate")
+		require.True(t, got, "expected true")
 	})
 
 	t.Run("expression exceeding low limit is rejected", func(t *testing.T) {
@@ -386,15 +307,9 @@ func TestEvaluator_MaxOperations(t *testing.T) {
 		// a == 1 && b == 2 visits: BinaryOp(&&), BinaryOp(==), Ident(a), Literal(1), BinaryOp(==), ...
 		// With limit=3, it should fail after 3 operations
 		node, err := p.Parse(t.Context(), `a == 1 && b == 2`)
-		if err != nil {
-			t.Fatalf("Parse: %v", err)
-		}
+		require.NoError(t, err, "Parse")
 		_, err = eval.Evaluate(node, data)
-		if err == nil {
-			t.Fatal("expected error for exceeding max operations")
-		}
-		if !errors.Is(err, filter.ErrMaxOperationsExceeded) {
-			t.Errorf("expected ErrMaxOperationsExceeded, got: %v", err)
-		}
+		require.Error(t, err, "expected error for exceeding max operations")
+		require.ErrorIs(t, err, filter.ErrMaxOperationsExceeded)
 	})
 }

@@ -7,6 +7,8 @@ package pool
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func FuzzWithSize(f *testing.F) {
@@ -17,9 +19,7 @@ func FuzzWithSize(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, size int) {
 		p := New(WithSize(size))
-		if p == nil {
-			t.Fatal("New() returned nil")
-		}
+		assert.NotNil(t, p, "New() returned nil")
 	})
 }
 
@@ -30,8 +30,6 @@ func FuzzWithMaxIdleTime(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, ns int64) {
 		p := New(WithMaxIdleTime(time.Duration(ns)))
-		if p == nil {
-			t.Fatal("New() returned nil")
-		}
+		assert.NotNil(t, p, "New() returned nil")
 	})
 }

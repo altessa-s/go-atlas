@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/core/retry"
 )
 
@@ -28,14 +30,10 @@ func FuzzExponential(f *testing.F) {
 		fn := retry.Exponential(cfg)
 		got := fn(attempt, nil)
 
-		if got < 0 {
-			t.Errorf("Exponential returned negative duration: %v", got)
-		}
+		require.GreaterOrEqual(t, got, time.Duration(0), "Exponential returned negative duration")
 
 		if maxDelay > 0 && time.Duration(maxDelay) > 0 {
-			if got > time.Duration(maxDelay) {
-				t.Errorf("Exponential returned duration > MaxDelay: %v > %v", got, maxDelay)
-			}
+			require.LessOrEqual(t, got, time.Duration(maxDelay), "Exponential returned duration > MaxDelay")
 		}
 	})
 }

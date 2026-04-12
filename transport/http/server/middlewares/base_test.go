@@ -7,16 +7,14 @@ package middlewares
 import (
 	"regexp"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewBaseMiddleware(t *testing.T) {
 	b := NewBaseMiddleware("test", nil)
-	if b.Name() != "test" {
-		t.Fatalf("Name() = %q", b.Name())
-	}
-	if b.Logger() == nil {
-		t.Fatal("Logger() should not be nil")
-	}
+	require.Equal(t, "test", b.Name())
+	require.NotNil(t, b.Logger())
 }
 
 func TestBaseMiddleware_ShouldIgnore(t *testing.T) {
@@ -34,18 +32,15 @@ func TestBaseMiddleware_ShouldIgnore(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			b := NewBaseMiddlewareWithFilter("test", tt.paths, tt.pats, nil)
-			if got := b.ShouldIgnore(tt.check); got != tt.want {
-				t.Fatalf("ShouldIgnore(%q) = %v, want %v", tt.check, got, tt.want)
-			}
+			got := b.ShouldIgnore(tt.check)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
 
 func TestBaseMiddleware_InternPath(t *testing.T) {
 	b := NewBaseMiddleware("test", nil)
-	if b.InternPath("/test") != "/test" {
-		t.Fatal("InternPath failed")
-	}
+	require.Equal(t, "/test", b.InternPath("/test"))
 }
 
 func TestBaseMiddleware_LogMethods(t *testing.T) {

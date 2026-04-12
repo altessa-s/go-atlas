@@ -4,7 +4,11 @@
 
 package validation
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestIsValidUUIDv4(t *testing.T) {
 	tests := []struct {
@@ -35,15 +39,12 @@ func TestIsValidUUIDv4(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := IsValidUUIDv4(tt.input); got != tt.want {
-				t.Fatalf("IsValidUUIDv4(%q) = %v, want %v", tt.input, got, tt.want)
-			}
+			got := IsValidUUIDv4(tt.input)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
 
 func TestUUIDLength(t *testing.T) {
-	if UUIDLength != 36 {
-		t.Fatalf("UUIDLength = %d, want 36", UUIDLength)
-	}
+	require.Equal(t, 36, UUIDLength)
 }

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/config/loader"
 )
 
@@ -48,13 +50,8 @@ func TestStrict_UndefinedEnvVar_SimpleValue(t *testing.T) {
 	l := loader.New(nil, loader.WithStrict())
 
 	_, err := l.Load(cfg)
-	if err == nil {
-		t.Fatal("expected error for undefined env var in strict mode, got nil")
-	}
-
-	if !errors.Is(err, loader.ErrUndefinedEnvVar) {
-		t.Errorf("expected ErrUndefinedEnvVar, got: %v", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, loader.ErrUndefinedEnvVar))
 }
 
 func TestStrict_UndefinedEnvVar_MixedString(t *testing.T) {
@@ -64,13 +61,8 @@ func TestStrict_UndefinedEnvVar_MixedString(t *testing.T) {
 	l := loader.New(nil, loader.WithStrict())
 
 	_, err := l.Load(cfg)
-	if err == nil {
-		t.Fatal("expected error for undefined env var in mixed string, got nil")
-	}
-
-	if !errors.Is(err, loader.ErrUndefinedEnvVar) {
-		t.Errorf("expected ErrUndefinedEnvVar, got: %v", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, loader.ErrUndefinedEnvVar))
 }
 
 func TestStrict_UndefinedEnvVar_InDefaultTag(t *testing.T) {
@@ -79,13 +71,8 @@ func TestStrict_UndefinedEnvVar_InDefaultTag(t *testing.T) {
 	l := loader.New(nil, loader.WithStrict())
 
 	_, err := l.Load(cfg)
-	if err == nil {
-		t.Fatal("expected error for undefined env var in default tag, got nil")
-	}
-
-	if !errors.Is(err, loader.ErrUndefinedEnvVar) {
-		t.Errorf("expected ErrUndefinedEnvVar, got: %v", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, loader.ErrUndefinedEnvVar))
 }
 
 func TestStrict_UndefinedEnvVar_InDefaultTagBracketSyntax(t *testing.T) {
@@ -94,13 +81,8 @@ func TestStrict_UndefinedEnvVar_InDefaultTagBracketSyntax(t *testing.T) {
 	l := loader.New(nil, loader.WithStrict())
 
 	_, err := l.Load(cfg)
-	if err == nil {
-		t.Fatal("expected error for undefined env var in default tag (bracket syntax), got nil")
-	}
-
-	if !errors.Is(err, loader.ErrUndefinedEnvVar) {
-		t.Errorf("expected ErrUndefinedEnvVar, got: %v", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, loader.ErrUndefinedEnvVar))
 }
 
 func TestStrict_UndefinedEnvVar_InConfigFile(t *testing.T) {
@@ -108,21 +90,14 @@ func TestStrict_UndefinedEnvVar_InConfigFile(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.yaml")
-	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
-		t.Fatalf("Failed to write config file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(configPath, []byte(content), 0644))
 
 	cfg := &strictEnvConfig{}
 	l := loader.New(nil, loader.WithPath(configPath), loader.WithStrict())
 
 	_, err := l.Load(cfg)
-	if err == nil {
-		t.Fatal("expected error for undefined env var in config file, got nil")
-	}
-
-	if !errors.Is(err, loader.ErrUndefinedEnvVar) {
-		t.Errorf("expected ErrUndefinedEnvVar, got: %v", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, loader.ErrUndefinedEnvVar))
 }
 
 // --- Unsupported field type test ---
@@ -178,9 +153,7 @@ func TestStrict_FieldAssignmentFailure(t *testing.T) {
 	// For compatible types this should succeed
 	if err != nil {
 		// If there is an assignment error, it should be ErrFieldAssignment
-		if !errors.Is(err, loader.ErrFieldAssignment) {
-			t.Errorf("unexpected error: %v", err)
-		}
+		require.True(t, errors.Is(err, loader.ErrFieldAssignment))
 	}
 }
 
@@ -194,13 +167,8 @@ func TestStrict_MissingNestedField(t *testing.T) {
 	l := loader.New(nil, loader.WithStrict())
 
 	_, err := l.Load(cfg)
-	if err == nil {
-		t.Fatal("expected error for missing nested field in strict mode, got nil")
-	}
-
-	if !errors.Is(err, loader.ErrFieldNotFound) {
-		t.Errorf("expected ErrFieldNotFound, got: %v", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, loader.ErrFieldNotFound))
 }
 
 // --- Defined empty env var (not an error) ---
@@ -213,9 +181,7 @@ func TestStrict_DefinedEmptyEnvVar(t *testing.T) {
 	l := loader.New(nil, loader.WithStrict())
 
 	_, err := l.Load(cfg)
-	if err != nil {
-		t.Fatalf("expected no error for defined empty env var, got: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 // --- Backward compatibility (lenient mode) ---
@@ -227,9 +193,7 @@ func TestLenient_BackwardCompat_UndefinedEnvVar(t *testing.T) {
 	l := loader.New(nil) // No WithStrict()
 
 	_, err := l.Load(cfg)
-	if err != nil {
-		t.Fatalf("lenient mode should not error on undefined env var, got: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestLenient_BackwardCompat_UndefinedDefaultTag(t *testing.T) {
@@ -237,14 +201,10 @@ func TestLenient_BackwardCompat_UndefinedDefaultTag(t *testing.T) {
 	l := loader.New(nil) // No WithStrict()
 
 	_, err := l.Load(cfg)
-	if err != nil {
-		t.Fatalf("lenient mode should not error on undefined env var in default tag, got: %v", err)
-	}
+	require.NoError(t, err)
 
 	// In lenient mode, undefined vars are replaced with empty string
-	if cfg.URL != "https:///api" {
-		t.Errorf("expected URL to be 'https:///api' (with empty var), got %q", cfg.URL)
-	}
+	require.Equal(t, "https:///api", cfg.URL)
 }
 
 func TestLenient_BackwardCompat_MissingNestedField(t *testing.T) {
@@ -254,9 +214,7 @@ func TestLenient_BackwardCompat_MissingNestedField(t *testing.T) {
 	l := loader.New(nil) // No WithStrict()
 
 	_, err := l.Load(cfg)
-	if err != nil {
-		t.Fatalf("lenient mode should not error on missing nested field, got: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestLenient_BackwardCompat_ConfigFile(t *testing.T) {
@@ -264,17 +222,13 @@ func TestLenient_BackwardCompat_ConfigFile(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.yaml")
-	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
-		t.Fatalf("Failed to write config file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(configPath, []byte(content), 0644))
 
 	cfg := &strictEnvConfig{}
 	l := loader.New(nil, loader.WithPath(configPath)) // No WithStrict()
 
 	_, err := l.Load(cfg)
-	if err != nil {
-		t.Fatalf("lenient mode should not error on undefined env var in config file, got: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 // --- Strict mode with valid config (no errors) ---
@@ -286,13 +240,8 @@ func TestStrict_ValidConfig(t *testing.T) {
 	l := loader.New(nil, loader.WithStrict())
 
 	_, err := l.Load(cfg)
-	if err != nil {
-		t.Fatalf("expected no error for valid config in strict mode, got: %v", err)
-	}
-
-	if cfg.Host != "valid-host" {
-		t.Errorf("expected Host to be 'valid-host', got %q", cfg.Host)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "valid-host", cfg.Host)
 }
 
 func TestStrict_ValidConfig_WithDefinedDefaultVars(t *testing.T) {
@@ -302,13 +251,8 @@ func TestStrict_ValidConfig_WithDefinedDefaultVars(t *testing.T) {
 	l := loader.New(nil, loader.WithStrict())
 
 	_, err := l.Load(cfg)
-	if err != nil {
-		t.Fatalf("expected no error when all vars are defined, got: %v", err)
-	}
-
-	if cfg.URL != "https://example.com/api" {
-		t.Errorf("expected URL to be 'https://example.com/api', got %q", cfg.URL)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "https://example.com/api", cfg.URL)
 }
 
 func TestStrict_ValidConfigFile(t *testing.T) {
@@ -318,19 +262,12 @@ func TestStrict_ValidConfigFile(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.yaml")
-	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
-		t.Fatalf("Failed to write config file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(configPath, []byte(content), 0644))
 
 	cfg := &strictEnvConfig{}
 	l := loader.New(nil, loader.WithPath(configPath), loader.WithStrict())
 
 	_, err := l.Load(cfg)
-	if err != nil {
-		t.Fatalf("expected no error for valid config file in strict mode, got: %v", err)
-	}
-
-	if cfg.Host != "file-host-value" {
-		t.Errorf("expected Host to be 'file-host-value', got %q", cfg.Host)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "file-host-value", cfg.Host)
 }

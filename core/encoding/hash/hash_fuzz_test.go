@@ -4,7 +4,11 @@
 
 package hash
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func FuzzSHA256Determinism(f *testing.F) {
 	f.Add("hello")
@@ -14,8 +18,6 @@ func FuzzSHA256Determinism(f *testing.F) {
 	f.Fuzz(func(t *testing.T, input string) {
 		h1 := SHA256HexString(input)
 		h2 := SHA256HexString(input)
-		if h1 != h2 {
-			t.Errorf("non-deterministic: SHA256HexString(%q) returned %q then %q", input, h1, h2)
-		}
+		require.Equal(t, h1, h2, "non-deterministic: SHA256HexString(%q)", input)
 	})
 }

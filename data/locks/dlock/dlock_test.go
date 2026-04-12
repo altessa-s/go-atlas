@@ -10,22 +10,20 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/locks/dlock"
 )
 
 func TestNewWithNoop(t *testing.T) {
 	dl := dlock.NewWithNoop()
-	if dl == nil {
-		t.Fatal("NewWithNoop() returned nil")
-	}
+	require.NotNil(t, dl, "NewWithNoop() returned nil")
 }
 
 func TestDLock_Lock_EmptyKey(t *testing.T) {
 	dl := dlock.NewWithNoop()
 	_, err := dl.Lock(t.Context(), "")
-	if err == nil {
-		t.Error("Lock(\"\") should return error")
-	}
+	require.Error(t, err, "Lock(\"\") should return error")
 }
 
 func TestDLock_Lock_Success(t *testing.T) {
@@ -33,15 +31,9 @@ func TestDLock_Lock_Success(t *testing.T) {
 	ctx := t.Context()
 
 	lk, err := dl.Lock(ctx, "test-key")
-	if err != nil {
-		t.Fatalf("Lock() error: %v", err)
-	}
-	if lk == nil {
-		t.Fatal("Lock() returned nil")
-	}
-	if err := lk.Release(ctx); err != nil {
-		t.Errorf("Release() error: %v", err)
-	}
+	require.NoError(t, err)
+	require.NotNil(t, lk, "Lock() returned nil")
+	require.NoError(t, lk.Release(ctx))
 }
 
 func TestDLock_Synchronize_Success(t *testing.T) {
@@ -53,12 +45,8 @@ func TestDLock_Synchronize_Success(t *testing.T) {
 		called = true
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("Synchronize() error: %v", err)
-	}
-	if !called {
-		t.Error("fn was not called")
-	}
+	require.NoError(t, err)
+	require.True(t, called, "fn was not called")
 }
 
 func TestDLock_Synchronize_EmptyKey(t *testing.T) {
@@ -66,9 +54,7 @@ func TestDLock_Synchronize_EmptyKey(t *testing.T) {
 	err := dl.Synchronize(t.Context(), "", func(ctx context.Context) error {
 		return nil
 	})
-	if err == nil {
-		t.Error("Synchronize(\"\") should return error")
-	}
+	require.Error(t, err, "Synchronize(\"\") should return error")
 }
 
 func TestDLock_Synchronize_FnError(t *testing.T) {
@@ -79,17 +65,13 @@ func TestDLock_Synchronize_FnError(t *testing.T) {
 	err := dl.Synchronize(ctx, "key", func(ctx context.Context) error {
 		return wantErr
 	})
-	if !errors.Is(err, wantErr) {
-		t.Errorf("Synchronize() error = %v, want %v", err, wantErr)
-	}
+	require.ErrorIs(t, err, wantErr)
 }
 
 func TestDLock_GetLockInfo_EmptyKey(t *testing.T) {
 	dl := dlock.NewWithNoop()
 	_, err := dl.GetLockInfo(t.Context(), "")
-	if err == nil {
-		t.Error("GetLockInfo(\"\") should return error")
-	}
+	require.Error(t, err, "GetLockInfo(\"\") should return error")
 }
 
 func TestDLock_GetLockInfo_Success(t *testing.T) {
@@ -97,22 +79,14 @@ func TestDLock_GetLockInfo_Success(t *testing.T) {
 	ctx := t.Context()
 
 	info, err := dl.GetLockInfo(ctx, "test-key")
-	if err != nil {
-		t.Fatalf("GetLockInfo() error: %v", err)
-	}
-	if info.Key != "test-key" {
-		t.Errorf("Key = %q, want %q", info.Key, "test-key")
-	}
-	if info.FencingToken != 0 {
-		t.Errorf("FencingToken = %d, want 0 for noop-backed dlock", info.FencingToken)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "test-key", info.Key)
+	require.Equal(t, uint64(0), info.FencingToken)
 }
 
 func TestDLock_Close(t *testing.T) {
 	dl := dlock.NewWithNoop()
-	if err := dl.Close(t.Context()); err != nil {
-		t.Errorf("Close() error: %v", err)
-	}
+	require.NoError(t, dl.Close(t.Context()))
 }
 
 func TestDLock_WithLockAcquireTimeout(t *testing.T) {
@@ -122,7 +96,5 @@ func TestDLock_WithLockAcquireTimeout(t *testing.T) {
 	err := dl.Synchronize(ctx, "key", func(ctx context.Context) error {
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("Synchronize() error: %v", err)
-	}
+	require.NoError(t, err)
 }

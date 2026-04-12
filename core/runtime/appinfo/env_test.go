@@ -6,26 +6,20 @@ package appinfo
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestEnv(t *testing.T) {
 	t.Setenv("TEST_APPINFO_KEY", "value123")
-	if got := Env("TEST_APPINFO_KEY"); got != "value123" {
-		t.Fatalf("got %q, want %q", got, "value123")
-	}
-	if got := Env("TEST_APPINFO_MISSING"); got != "" {
-		t.Fatalf("got %q, want empty", got)
-	}
+	require.Equal(t, "value123", Env("TEST_APPINFO_KEY"))
+	require.Equal(t, "", Env("TEST_APPINFO_MISSING"))
 }
 
 func TestEnvOr(t *testing.T) {
 	t.Setenv("TEST_APPINFO_ENVOR", "set")
-	if got := EnvOr("TEST_APPINFO_ENVOR", "default"); got != "set" {
-		t.Fatalf("got %q, want %q", got, "set")
-	}
-	if got := EnvOr("TEST_APPINFO_MISSING_ENVOR", "fallback"); got != "fallback" {
-		t.Fatalf("got %q, want %q", got, "fallback")
-	}
+	require.Equal(t, "set", EnvOr("TEST_APPINFO_ENVOR", "default"))
+	require.Equal(t, "fallback", EnvOr("TEST_APPINFO_MISSING_ENVOR", "fallback"))
 }
 
 func TestEnvCached(t *testing.T) {
@@ -33,16 +27,12 @@ func TestEnvCached(t *testing.T) {
 	t.Setenv("TEST_APPINFO_CACHED", "cached_val")
 
 	v1 := EnvCached("TEST_APPINFO_CACHED")
-	if v1 != "cached_val" {
-		t.Fatalf("got %q, want %q", v1, "cached_val")
-	}
+	require.Equal(t, "cached_val", v1)
 
 	// Change env but cache should still return old value.
 	t.Setenv("TEST_APPINFO_CACHED", "new_val")
 	v2 := EnvCached("TEST_APPINFO_CACHED")
-	if v2 != "cached_val" {
-		t.Fatalf("got %q, want cached %q", v2, "cached_val")
-	}
+	require.Equal(t, "cached_val", v2)
 }
 
 func TestClearEnvCache(t *testing.T) {
@@ -52,9 +42,7 @@ func TestClearEnvCache(t *testing.T) {
 
 	ClearEnvCache()
 	t.Setenv("TEST_APPINFO_CLEAR", "updated")
-	if got := EnvCached("TEST_APPINFO_CLEAR"); got != "updated" {
-		t.Fatalf("after clear, got %q, want %q", got, "updated")
-	}
+	require.Equal(t, "updated", EnvCached("TEST_APPINFO_CLEAR"))
 }
 
 func TestExpandPath(t *testing.T) {
@@ -72,11 +60,11 @@ func TestExpandPath(t *testing.T) {
 			got := ExpandPath(tt.path)
 			if tt.home {
 				home := HomeDir()
-				if home != "" && got[:len(home)] != home {
-					t.Errorf("got %q, expected to start with %q", got, home)
+				if home != "" {
+					require.Equal(t, home, got[:len(home)], "expected to start with home dir")
 				}
-			} else if got != tt.path {
-				t.Errorf("got %q, want %q", got, tt.path)
+			} else {
+				require.Equal(t, tt.path, got)
 			}
 		})
 	}
@@ -87,7 +75,5 @@ func TestHomeDir(t *testing.T) {
 	if home == "" {
 		t.Skip("HOME not set")
 	}
-	if home[0] != '/' {
-		t.Errorf("expected absolute path, got %q", home)
-	}
+	require.Equal(t, byte('/'), home[0], "expected absolute path, got %q", home)
 }

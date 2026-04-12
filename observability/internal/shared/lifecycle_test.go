@@ -8,6 +8,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 type mockShutdownable struct {
@@ -40,8 +42,10 @@ func TestMultiShutdown(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := MultiShutdown(t.Context(), tt.components...)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("MultiShutdown() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -61,8 +65,10 @@ func TestMultiFlush(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := MultiFlush(t.Context(), tt.components...)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("MultiFlush() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}

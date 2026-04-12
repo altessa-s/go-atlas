@@ -6,6 +6,8 @@ package prometheus
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateBuckets(t *testing.T) {
@@ -24,9 +26,7 @@ func TestValidateBuckets(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateBuckets(tt.buckets, "test")
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("ValidateBuckets() error = %v, wantErr %v", err, tt.wantErr)
-			}
+			require.Equal(t, tt.wantErr, (err != nil))
 		})
 	}
 }
@@ -37,37 +37,29 @@ func TestMustValidateBuckets_Valid(t *testing.T) {
 
 func TestMustValidateBuckets_Panics(t *testing.T) {
 	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic")
-		}
+		r := recover()
+		require.NotNil(t, r)
 	}()
 	MustValidateBuckets([]float64{}, "test")
 }
 
 func TestCopyBuckets(t *testing.T) {
 	t.Run("nil", func(t *testing.T) {
-		if got := CopyBuckets(nil); got != nil {
-			t.Fatalf("CopyBuckets(nil) = %v, want nil", got)
-		}
+		got := CopyBuckets(nil)
+		require.Nil(t, got)
 	})
 
 	t.Run("copy_is_independent", func(t *testing.T) {
 		orig := []float64{1.0, 2.0, 3.0}
 		cp := CopyBuckets(orig)
 		cp[0] = 999
-		if orig[0] == 999 {
-			t.Fatal("CopyBuckets did not create independent copy")
-		}
+		require.NotEqual(t, 999, orig[0])
 	})
 }
 
 func TestDefaultBuckets(t *testing.T) {
-	if err := ValidateBuckets(DefaultDurationBuckets, "duration"); err != nil {
-		t.Fatalf("DefaultDurationBuckets invalid: %v", err)
-	}
-	if err := ValidateBuckets(DefaultSizeBuckets, "size"); err != nil {
-		t.Fatalf("DefaultSizeBuckets invalid: %v", err)
-	}
+	require.NoError(t, ValidateBuckets(DefaultDurationBuckets, "duration"))
+	require.NoError(t, ValidateBuckets(DefaultSizeBuckets, "size"))
 }
 
 func TestBuildMetricName(t *testing.T) {
@@ -87,9 +79,8 @@ func TestBuildMetricName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := BuildMetricName(tt.namespace, tt.subsystem, tt.suffix); got != tt.want {
-				t.Fatalf("BuildMetricName() = %q, want %q", got, tt.want)
-			}
+			got := BuildMetricName(tt.namespace, tt.subsystem, tt.suffix)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -111,9 +102,7 @@ func TestBuildMetricNameWithDefault(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := BuildMetricNameWithDefault(tt.namespace, tt.subsystem, tt.suffix, tt.defaultPrefix)
-			if got != tt.want {
-				t.Fatalf("BuildMetricNameWithDefault() = %q, want %q", got, tt.want)
-			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -121,40 +110,35 @@ func TestBuildMetricNameWithDefault(t *testing.T) {
 func TestGetMessageSize(t *testing.T) {
 	t.Run("nil", func(t *testing.T) {
 		size, ok := GetMessageSize(nil)
-		if ok || size != 0 {
-			t.Fatalf("GetMessageSize(nil) = (%d, %v), want (0, false)", size, ok)
-		}
+		require.False(t, ok)
+		require.Equal(t, 0, size)
 	})
 
 	t.Run("ProtoSize", func(t *testing.T) {
 		msg := &mockProtoSizer{size: 42}
 		size, ok := GetMessageSize(msg)
-		if !ok || size != 42 {
-			t.Fatalf("GetMessageSize(ProtoSize) = (%d, %v), want (42, true)", size, ok)
-		}
+		require.True(t, ok)
+		require.Equal(t, 42, size)
 	})
 
 	t.Run("Size", func(t *testing.T) {
 		msg := &mockSizer{size: 99}
 		size, ok := GetMessageSize(msg)
-		if !ok || size != 99 {
-			t.Fatalf("GetMessageSize(Size) = (%d, %v), want (99, true)", size, ok)
-		}
+		require.True(t, ok)
+		require.Equal(t, 99, size)
 	})
 
 	t.Run("XXX_Size", func(t *testing.T) {
 		msg := &mockLegacySizer{size: 55}
 		size, ok := GetMessageSize(msg)
-		if !ok || size != 55 {
-			t.Fatalf("GetMessageSize(XXX_Size) = (%d, %v), want (55, true)", size, ok)
-		}
+		require.True(t, ok)
+		require.Equal(t, 55, size)
 	})
 
 	t.Run("unknown_type", func(t *testing.T) {
 		size, ok := GetMessageSize("just a string")
-		if ok || size != 0 {
-			t.Fatalf("GetMessageSize(string) = (%d, %v), want (0, false)", size, ok)
-		}
+		require.False(t, ok)
+		require.Equal(t, 0, size)
 	})
 }
 
@@ -173,9 +157,7 @@ func TestLabels_NonEmpty(t *testing.T) {
 
 	for _, tt := range labels {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.value == "" {
-				t.Fatalf("%s is empty", tt.name)
-			}
+			require.NotEqual(t, "", tt.value)
 		})
 	}
 }

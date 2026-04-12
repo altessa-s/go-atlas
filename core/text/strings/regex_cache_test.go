@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // resetRegexCache clears the package-level case-insensitive regex cache and
@@ -45,10 +47,8 @@ func TestSplit_RegexCache_BoundHoldsUnderContention(t *testing.T) {
 		separatorsPerG   = 40
 		totalDistinctSep = goroutines * separatorsPerG
 	)
-	if totalDistinctSep <= maxRegexCacheSize {
-		t.Fatalf("test precondition: totalDistinctSep (%d) must exceed maxRegexCacheSize (%d)",
-			totalDistinctSep, maxRegexCacheSize)
-	}
+	require.Greater(t, int64(totalDistinctSep), int64(maxRegexCacheSize),
+		"test precondition: totalDistinctSep must exceed maxRegexCacheSize")
 
 	var wg sync.WaitGroup
 	start := make(chan struct{})
@@ -71,9 +71,8 @@ func TestSplit_RegexCache_BoundHoldsUnderContention(t *testing.T) {
 	wg.Wait()
 
 	// Invariant 1: the counter never overshoots the bound.
-	if got := regexCacheSize.Load(); got > maxRegexCacheSize {
-		t.Errorf("regexCacheSize = %d, must not exceed maxRegexCacheSize = %d", got, maxRegexCacheSize)
-	}
+	require.LessOrEqual(t, regexCacheSize.Load(), int64(maxRegexCacheSize),
+		"regexCacheSize must not exceed maxRegexCacheSize")
 
 	// Invariant 2: the counter matches the actual number of map entries.
 	var actual int64
@@ -81,13 +80,10 @@ func TestSplit_RegexCache_BoundHoldsUnderContention(t *testing.T) {
 		actual++
 		return true
 	})
-	if actual > maxRegexCacheSize {
-		t.Errorf("caseInsensitiveRegexCache holds %d entries, exceeds bound %d", actual, maxRegexCacheSize)
-	}
-	if actual != regexCacheSize.Load() {
-		t.Errorf("counter drift: map has %d entries but counter reports %d",
-			actual, regexCacheSize.Load())
-	}
+	require.LessOrEqual(t, actual, int64(maxRegexCacheSize),
+		"caseInsensitiveRegexCache entry count exceeds bound")
+	require.Equal(t, actual, regexCacheSize.Load(),
+		"counter drift: map entries vs counter mismatch")
 }
 
 // BenchmarkSplit_CaseInsensitive_CacheHit exercises the hot path — the

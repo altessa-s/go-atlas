@@ -8,18 +8,16 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	grpcmetadata "google.golang.org/grpc/metadata"
 )
 
 func TestStaticTokenProvider(t *testing.T) {
 	p := StaticTokenProvider("my-token")
 	tok, err := p.Token(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if tok != "my-token" {
-		t.Fatalf("token = %q", tok)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "my-token", tok)
 }
 
 func TestTokenProviderFunc(t *testing.T) {
@@ -27,19 +25,13 @@ func TestTokenProviderFunc(t *testing.T) {
 		return "dynamic", nil
 	})
 	tok, err := f.Token(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if tok != "dynamic" {
-		t.Fatalf("token = %q", tok)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "dynamic", tok)
 }
 
 func TestClientInterceptor_Name(t *testing.T) {
 	ic := ClientInterceptor(StaticTokenProvider("t"))
-	if ic.Name() != "auth" {
-		t.Fatalf("Name() = %q", ic.Name())
-	}
+	require.Equal(t, "auth", ic.Name())
 }
 
 func TestClientInterceptor_AttachToken(t *testing.T) {
@@ -47,18 +39,13 @@ func TestClientInterceptor_AttachToken(t *testing.T) {
 	inner := ci.(*clientInterceptor)
 
 	ctx, err := inner.attachToken(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	md, ok := grpcmetadata.FromOutgoingContext(ctx)
-	if !ok {
-		t.Fatal("no outgoing metadata")
-	}
+	require.True(t, ok, "no outgoing metadata")
 	auth := md.Get("authorization")
-	if len(auth) == 0 || auth[0] != "Bearer tok123" {
-		t.Fatalf("authorization = %v", auth)
-	}
+	require.NotEqual(t, 0, len(auth))
+	require.Equal(t, "Bearer tok123", auth[0])
 }
 
 func TestClientInterceptor_EmptyToken(t *testing.T) {
@@ -66,15 +53,11 @@ func TestClientInterceptor_EmptyToken(t *testing.T) {
 	inner := ci.(*clientInterceptor)
 
 	ctx, err := inner.attachToken(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	// No metadata should be attached for empty token
 	_, ok := grpcmetadata.FromOutgoingContext(ctx)
-	if ok {
-		t.Fatal("should not have outgoing metadata for empty token")
-	}
+	require.False(t, ok, "should not have outgoing metadata for empty token")
 }
 
 func TestClientInterceptor_CustomHeader(t *testing.T) {
@@ -82,18 +65,13 @@ func TestClientInterceptor_CustomHeader(t *testing.T) {
 	inner := ci.(*clientInterceptor)
 
 	ctx, err := inner.attachToken(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	md, ok := grpcmetadata.FromOutgoingContext(ctx)
-	if !ok {
-		t.Fatal("no outgoing metadata")
-	}
+	require.True(t, ok, "no outgoing metadata")
 	val := md.Get("x-api-key")
-	if len(val) == 0 || val[0] != "key" {
-		t.Fatalf("x-api-key = %v", val)
-	}
+	require.NotEqual(t, 0, len(val))
+	require.Equal(t, "key", val[0])
 }
 
 func TestClientInterceptor_ExistingMetadata(t *testing.T) {
@@ -102,17 +80,15 @@ func TestClientInterceptor_ExistingMetadata(t *testing.T) {
 
 	ctx := grpcmetadata.NewOutgoingContext(t.Context(), grpcmetadata.Pairs("x-custom", "val"))
 	ctx, err := inner.attachToken(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	md, _ := grpcmetadata.FromOutgoingContext(ctx)
-	if v := md.Get("x-custom"); len(v) == 0 || v[0] != "val" {
-		t.Fatal("existing metadata should be preserved")
-	}
-	if v := md.Get("authorization"); len(v) == 0 || v[0] != "Bearer tok" {
-		t.Fatal("token should be added")
-	}
+	v := md.Get("x-custom")
+	require.NotEqual(t, 0, len(v))
+	require.Equal(t, "val", v[0])
+	v = md.Get("authorization")
+	require.NotEqual(t, 0, len(v))
+	require.Equal(t, "Bearer tok", v[0])
 }
 
 func BenchmarkClientInterceptor_AttachToken(b *testing.B) {

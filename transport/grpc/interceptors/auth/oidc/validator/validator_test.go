@@ -8,6 +8,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -26,15 +28,9 @@ func TestDefaultValidator_ValidateToken_Success(t *testing.T) {
 	v := NewDefaultValidator(p)
 
 	claims, err := v.ValidateToken(t.Context(), "valid-token")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if claims.Subject != "user1" {
-		t.Fatalf("Subject = %q", claims.Subject)
-	}
-	if claims.Issuer != "https://issuer" {
-		t.Fatalf("Issuer = %q", claims.Issuer)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "user1", claims.Subject)
+	require.Equal(t, "https://issuer", claims.Issuer)
 }
 
 func TestDefaultValidator_ValidateToken_Error(t *testing.T) {
@@ -42,13 +38,10 @@ func TestDefaultValidator_ValidateToken_Error(t *testing.T) {
 	v := NewDefaultValidator(p)
 
 	_, err := v.ValidateToken(t.Context(), "bad-token")
-	if err == nil {
-		t.Fatal("expected error")
-	}
+	require.NotNil(t, err, "expected error")
 	st, ok := status.FromError(err)
-	if !ok || st.Code() != codes.Unauthenticated {
-		t.Fatalf("expected Unauthenticated, got %v", err)
-	}
+	require.True(t, ok, "expected Unauthenticated, got %v", err)
+	require.Equal(t, codes.Unauthenticated, st.Code())
 }
 
 func BenchmarkDefaultValidator_ValidateToken(b *testing.B) {

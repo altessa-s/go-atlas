@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/stretchr/testify/require"
 
 	idempredis "github.com/altessa-s/go-atlas/data/idempotency/storages/redis"
 	goredis "github.com/redis/go-redis/v9"
@@ -31,9 +32,7 @@ func setupStorage(tb testing.TB) (*idempredis.Storage, *miniredis.Miniredis) {
 
 func TestNew(t *testing.T) {
 	storage, _ := setupStorage(t)
-	if storage == nil {
-		t.Fatal("expected non-nil storage")
-	}
+	require.NotNil(t, storage)
 }
 
 func TestStorage_AttemptLock_New(t *testing.T) {
@@ -44,15 +43,9 @@ func TestStorage_AttemptLock_New(t *testing.T) {
 	val := []byte("test-value")
 
 	locked, existingVal, err := storage.AttemptLock(ctx, key, val)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !locked {
-		t.Error("expected lock to succeed on new key")
-	}
-	if existingVal != nil {
-		t.Errorf("expected nil existing value, got: %v", existingVal)
-	}
+	require.NoError(t, err)
+	require.True(t, locked, "expected lock to succeed on new key")
+	require.Nil(t, existingVal)
 }
 
 func TestStorage_AttemptLock_Existing(t *testing.T) {
@@ -65,24 +58,14 @@ func TestStorage_AttemptLock_Existing(t *testing.T) {
 
 	// First lock should succeed
 	locked, _, err := storage.AttemptLock(ctx, key, val1)
-	if err != nil {
-		t.Fatalf("unexpected error on first lock: %v", err)
-	}
-	if !locked {
-		t.Error("expected first lock to succeed")
-	}
+	require.NoError(t, err)
+	require.True(t, locked, "expected first lock to succeed")
 
 	// Second lock should fail and return first value
 	locked, existingVal, err := storage.AttemptLock(ctx, key, val2)
-	if err != nil {
-		t.Fatalf("unexpected error on second lock: %v", err)
-	}
-	if locked {
-		t.Error("expected second lock to fail")
-	}
-	if string(existingVal) != string(val1) {
-		t.Errorf("expected existing value %q, got %q", val1, existingVal)
-	}
+	require.NoError(t, err)
+	require.False(t, locked, "expected second lock to fail")
+	require.Equal(t, string(val1), string(existingVal))
 }
 
 func TestStorage_Complete(t *testing.T) {
@@ -95,29 +78,17 @@ func TestStorage_Complete(t *testing.T) {
 
 	// Lock the key
 	locked, _, err := storage.AttemptLock(ctx, key, lockVal)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !locked {
-		t.Fatal("expected lock to succeed")
-	}
+	require.NoError(t, err)
+	require.True(t, locked, "expected lock to succeed")
 
 	// Complete the key with new value
-	if err := storage.Complete(ctx, key, completeVal); err != nil {
-		t.Fatalf("unexpected error completing: %v", err)
-	}
+	require.NoError(t, storage.Complete(ctx, key, completeVal))
 
 	// Attempt lock again should fail and return completed value
 	locked, existingVal, err := storage.AttemptLock(ctx, key, []byte("new-value"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if locked {
-		t.Error("expected lock to fail after completion")
-	}
-	if string(existingVal) != string(completeVal) {
-		t.Errorf("expected completed value %q, got %q", completeVal, existingVal)
-	}
+	require.NoError(t, err)
+	require.False(t, locked, "expected lock to fail after completion")
+	require.Equal(t, string(completeVal), string(existingVal))
 }
 
 func TestStorage_Delete(t *testing.T) {
@@ -129,29 +100,17 @@ func TestStorage_Delete(t *testing.T) {
 
 	// Lock the key
 	locked, _, err := storage.AttemptLock(ctx, key, val)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !locked {
-		t.Fatal("expected lock to succeed")
-	}
+	require.NoError(t, err)
+	require.True(t, locked, "expected lock to succeed")
 
 	// Delete the key
-	if err := storage.Delete(ctx, key); err != nil {
-		t.Fatalf("unexpected error deleting: %v", err)
-	}
+	require.NoError(t, storage.Delete(ctx, key))
 
 	// Lock should succeed again after deletion
 	locked, existingVal, err := storage.AttemptLock(ctx, key, val)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !locked {
-		t.Error("expected lock to succeed after deletion")
-	}
-	if existingVal != nil {
-		t.Errorf("expected nil existing value after deletion, got: %v", existingVal)
-	}
+	require.NoError(t, err)
+	require.True(t, locked, "expected lock to succeed after deletion")
+	require.Nil(t, existingVal)
 }
 
 func TestStorage_EmptyKey(t *testing.T) {
@@ -160,25 +119,15 @@ func TestStorage_EmptyKey(t *testing.T) {
 
 	// AttemptLock with empty key should return (true, nil, nil)
 	locked, existingVal, err := storage.AttemptLock(ctx, "", []byte("value"))
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if !locked {
-		t.Error("expected empty key to return locked=true")
-	}
-	if existingVal != nil {
-		t.Errorf("expected nil existing value, got: %v", existingVal)
-	}
+	require.NoError(t, err)
+	require.True(t, locked, "expected empty key to return locked=true")
+	require.Nil(t, existingVal)
 
 	// Complete with empty key should return nil
-	if err := storage.Complete(ctx, "", []byte("value")); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	require.NoError(t, storage.Complete(ctx, "", []byte("value")))
 
 	// Delete with empty key should return nil
-	if err := storage.Delete(ctx, ""); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	require.NoError(t, storage.Delete(ctx, ""))
 }
 
 func TestStorage_TTLExpiry(t *testing.T) {
@@ -196,27 +145,17 @@ func TestStorage_TTLExpiry(t *testing.T) {
 
 	// Lock the key
 	locked, _, err := storage.AttemptLock(ctx, key, val)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !locked {
-		t.Fatal("expected lock to succeed")
-	}
+	require.NoError(t, err)
+	require.True(t, locked, "expected lock to succeed")
 
 	// Fast forward past TTL
 	mr.FastForward(2 * time.Second)
 
 	// Lock should succeed again after expiry
 	locked, existingVal, err := storage.AttemptLock(ctx, key, []byte("new-value"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !locked {
-		t.Error("expected lock to succeed after TTL expiry")
-	}
-	if existingVal != nil {
-		t.Errorf("expected nil existing value after expiry, got: %v", existingVal)
-	}
+	require.NoError(t, err)
+	require.True(t, locked, "expected lock to succeed after TTL expiry")
+	require.Nil(t, existingVal)
 }
 
 func TestStorage_WithKeyPrefix(t *testing.T) {
@@ -235,36 +174,20 @@ func TestStorage_WithKeyPrefix(t *testing.T) {
 
 	// Lock with first prefix
 	locked, _, err := storage1.AttemptLock(ctx, key, val1)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !locked {
-		t.Fatal("expected lock to succeed with prefix1")
-	}
+	require.NoError(t, err)
+	require.True(t, locked, "expected lock to succeed with prefix1")
 
 	// Lock with second prefix should also succeed (different namespace)
 	locked, existingVal, err := storage2.AttemptLock(ctx, key, val2)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !locked {
-		t.Error("expected lock to succeed with prefix2 (isolated namespace)")
-	}
-	if existingVal != nil {
-		t.Errorf("expected nil existing value, got: %v", existingVal)
-	}
+	require.NoError(t, err)
+	require.True(t, locked, "expected lock to succeed with prefix2 (isolated namespace)")
+	require.Nil(t, existingVal)
 
 	// Verify both values are stored independently
 	locked, existingVal, err = storage1.AttemptLock(ctx, key, []byte("new"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if locked {
-		t.Error("expected lock to fail on prefix1")
-	}
-	if string(existingVal) != string(val1) {
-		t.Errorf("expected value %q on prefix1, got %q", val1, existingVal)
-	}
+	require.NoError(t, err)
+	require.False(t, locked, "expected lock to fail on prefix1")
+	require.Equal(t, string(val1), string(existingVal))
 }
 
 func TestStorage_Concurrent(t *testing.T) {
@@ -295,7 +218,5 @@ func TestStorage_Concurrent(t *testing.T) {
 	wg.Wait()
 
 	// Exactly one goroutine should have succeeded
-	if count := successCount.Load(); count != 1 {
-		t.Errorf("expected exactly 1 successful lock, got %d", count)
-	}
+	require.Equal(t, int32(1), successCount.Load(), "expected exactly 1 successful lock")
 }

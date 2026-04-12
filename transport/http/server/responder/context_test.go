@@ -7,6 +7,8 @@ package responder
 import (
 	"net/http"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 type mockErrorWriter struct {
@@ -22,14 +24,10 @@ func TestNewContext_FromContext(t *testing.T) {
 	w := &mockErrorWriter{}
 	ctx := NewContext(t.Context(), w)
 	got := FromContext(ctx)
-	if got != w {
-		t.Fatal("expected same writer")
-	}
+	require.Equal(t, w, got)
 }
 
 func TestFromContext_Nil(t *testing.T) {
 	got := FromContext(t.Context())
-	if got != nil {
-		t.Fatal("expected nil")
-	}
+	require.Nil(t, got)
 }

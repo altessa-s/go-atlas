@@ -319,15 +319,11 @@ func TestPlugin_Lookup_NilRaw(t *testing.T) {
 
 func TestPlugin_Err_RoundTrip(t *testing.T) {
 	p := newTestPlugin("test", StateLoaded)
-	if got := p.Err(); got != nil {
-		t.Errorf("Err on fresh plugin: got %v, want nil", got)
-	}
+	require.NoError(t, p.Err(), "Err on fresh plugin")
 
 	want := ErrPluginFailed
 	p.setErr(want)
-	if got := p.Err(); got != want {
-		t.Errorf("Err after setErr: got %v, want %v", got, want)
-	}
+	require.Equal(t, want, p.Err(), "Err after setErr")
 }
 
 func TestPlugin_Lookup_Cached(t *testing.T) {

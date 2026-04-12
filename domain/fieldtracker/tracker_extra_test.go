@@ -7,6 +7,8 @@ package fieldtracker_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/domain/fieldtracker"
 )
 
@@ -20,9 +22,7 @@ func TestGetChangedFields_PackageLevel(t *testing.T) {
 	after := &User{Name: "Bob", Email: "a@b.com"}
 
 	changed := fieldtracker.GetChangedFields(before, after)
-	if len(changed) != 1 || changed[0] != "name" {
-		t.Errorf("GetChangedFields() = %v, want [name]", changed)
-	}
+	require.Equal(t, []string{"name"}, changed)
 }
 
 func TestGetChangedFields_Equal(t *testing.T) {
@@ -31,9 +31,7 @@ func TestGetChangedFields_Equal(t *testing.T) {
 	}
 	s := &S{V: 1}
 	changed := fieldtracker.GetChangedFields(s, s)
-	if len(changed) != 0 {
-		t.Errorf("equal structs should return no changes, got %v", changed)
-	}
+	require.Empty(t, changed, "equal structs should return no changes")
 }
 
 func TestGetChangedFields_Nil(t *testing.T) {
@@ -41,9 +39,7 @@ func TestGetChangedFields_Nil(t *testing.T) {
 		V int `json:"v"`
 	}
 	changed := fieldtracker.GetChangedFields((*S)(nil), (*S)(nil))
-	if len(changed) != 0 {
-		t.Errorf("nil structs should return no changes, got %v", changed)
-	}
+	require.Empty(t, changed, "nil structs should return no changes")
 }
 
 func TestGetChangedFields_WithTagName(t *testing.T) {
@@ -53,9 +49,7 @@ func TestGetChangedFields_WithTagName(t *testing.T) {
 
 	tr := fieldtracker.NewTracker(fieldtracker.WithTagName("db"))
 	changed := tr.GetChangedFields(&S{Name: "a"}, &S{Name: "b"})
-	if len(changed) != 1 || changed[0] != "user_name" {
-		t.Errorf("WithTagName(db) changed = %v, want [user_name]", changed)
-	}
+	require.Equal(t, []string{"user_name"}, changed)
 }
 
 func TestGetChangedFields_NestedStruct(t *testing.T) {
@@ -72,9 +66,7 @@ func TestGetChangedFields_NestedStruct(t *testing.T) {
 
 	tr := fieldtracker.NewTracker()
 	changed := tr.GetChangedFields(before, after)
-	if len(changed) != 1 || changed[0] != "address.city" {
-		t.Errorf("changed = %v, want [address.city]", changed)
-	}
+	require.Equal(t, []string{"address.city"}, changed)
 }
 
 func TestGetChangedFields_SliceLengthDiff(t *testing.T) {
@@ -87,9 +79,7 @@ func TestGetChangedFields_SliceLengthDiff(t *testing.T) {
 
 	tr := fieldtracker.NewTracker()
 	changed := tr.GetChangedFields(before, after)
-	if len(changed) == 0 {
-		t.Error("expected changes for different slice lengths")
-	}
+	require.NotEmpty(t, changed, "expected changes for different slice lengths")
 }
 
 func TestGetChangedFields_MapNewKey(t *testing.T) {
@@ -102,9 +92,7 @@ func TestGetChangedFields_MapNewKey(t *testing.T) {
 
 	tr := fieldtracker.NewTracker()
 	changed := tr.GetChangedFields(before, after)
-	if len(changed) == 0 {
-		t.Error("expected changes for new map key")
-	}
+	require.NotEmpty(t, changed, "expected changes for new map key")
 }
 
 func TestGetChangedFields_PointerFields(t *testing.T) {
@@ -118,9 +106,7 @@ func TestGetChangedFields_PointerFields(t *testing.T) {
 
 	tr := fieldtracker.NewTracker()
 	changed := tr.GetChangedFields(before, after)
-	if len(changed) != 1 || changed[0] != "val" {
-		t.Errorf("changed = %v, want [val]", changed)
-	}
+	require.Equal(t, []string{"val"}, changed)
 }
 
 func TestGetChangedFields_NilToValue(t *testing.T) {
@@ -134,9 +120,7 @@ func TestGetChangedFields_NilToValue(t *testing.T) {
 
 	tr := fieldtracker.NewTracker()
 	changed := tr.GetChangedFields(before, after)
-	if len(changed) != 1 || changed[0] != "val" {
-		t.Errorf("changed = %v, want [val]", changed)
-	}
+	require.Equal(t, []string{"val"}, changed)
 }
 
 func TestGetChangedFields_BoolField(t *testing.T) {
@@ -148,7 +132,5 @@ func TestGetChangedFields_BoolField(t *testing.T) {
 	after := &S{Active: true}
 
 	changed := fieldtracker.GetChangedFields(before, after)
-	if len(changed) != 1 || changed[0] != "active" {
-		t.Errorf("changed = %v, want [active]", changed)
-	}
+	require.Equal(t, []string{"active"}, changed)
 }

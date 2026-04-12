@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/auth/opa"
 
@@ -103,18 +104,14 @@ func TestNew_MissingClient(t *testing.T) {
 	t.Parallel()
 
 	_, err := s3source.New(s3source.WithBucket("bucket"))
-	if err == nil {
-		t.Fatal("New() without s3 client should fail")
-	}
+	require.Error(t, err, "New() without s3 client should fail")
 }
 
 func TestNew_MissingBucket(t *testing.T) {
 	t.Parallel()
 
 	_, err := s3source.New(s3source.WithS3Client(&mockS3Client{}))
-	if err == nil {
-		t.Fatal("New() without bucket should fail")
-	}
+	require.Error(t, err, "New() without bucket should fail")
 }
 
 func TestSource_Name(t *testing.T) {
@@ -142,14 +139,10 @@ func TestSource_Name(t *testing.T) {
 			}
 
 			source, err := s3source.New(opts...)
-			if err != nil {
-				t.Fatalf("New() failed: %v", err)
-			}
+			require.NoError(t, err)
 			defer source.Close()
 
-			if got := source.Name(); got != tt.expected {
-				t.Errorf("Name() = %q, want %q", got, tt.expected)
-			}
+			require.Equal(t, tt.expected, source.Name())
 		})
 	}
 }
@@ -168,27 +161,16 @@ func TestSource_Fetch_SingleFile(t *testing.T) {
 		s3source.WithBucket("test-bucket"),
 		s3source.WithPrefix("policies/"),
 	)
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	bundle, err := source.Fetch(t.Context())
-	if err != nil {
-		t.Fatalf("Fetch() failed: %v", err)
-	}
+	require.NoError(t, err)
+	require.Len(t, bundle.Modules, 1)
 
-	if got, want := len(bundle.Modules), 1; got != want {
-		t.Errorf("len(bundle.Modules) = %d, want %d", got, want)
-	}
-
-	if _, ok := bundle.Modules["main.rego"]; !ok {
-		t.Errorf("bundle.Modules keys = %v, missing %q", moduleKeys(bundle), "main.rego")
-	}
-
-	if bundle.Revision == "" {
-		t.Error("bundle.Revision is empty")
-	}
+	_, ok := bundle.Modules["main.rego"]
+	require.True(t, ok, "bundle.Modules keys = %v, missing %q", moduleKeys(bundle), "main.rego")
+	require.NotEmpty(t, bundle.Revision)
 }
 
 func TestSource_Fetch_MultipleFiles(t *testing.T) {
@@ -207,24 +189,16 @@ func TestSource_Fetch_MultipleFiles(t *testing.T) {
 		s3source.WithBucket("test-bucket"),
 		s3source.WithPrefix("policies/"),
 	)
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	bundle, err := source.Fetch(t.Context())
-	if err != nil {
-		t.Fatalf("Fetch() failed: %v", err)
-	}
-
-	if got, want := len(bundle.Modules), 3; got != want {
-		t.Errorf("len(bundle.Modules) = %d, want %d", got, want)
-	}
+	require.NoError(t, err)
+	require.Len(t, bundle.Modules, 3)
 
 	for _, key := range []string{"auth/main.rego", "auth/helpers.rego", "rbac/roles.rego"} {
-		if _, ok := bundle.Modules[key]; !ok {
-			t.Errorf("bundle.Modules keys = %v, missing %q", moduleKeys(bundle), key)
-		}
+		_, ok := bundle.Modules[key]
+		require.True(t, ok, "bundle.Modules keys = %v, missing %q", moduleKeys(bundle), key)
 	}
 }
 
@@ -242,19 +216,12 @@ func TestSource_Fetch_Empty(t *testing.T) {
 		s3source.WithBucket("test-bucket"),
 		s3source.WithPrefix("policies/"),
 	)
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	_, err = source.Fetch(t.Context())
-	if err == nil {
-		t.Fatal("Fetch() with no policy files should fail")
-	}
-
-	if !errors.Is(err, opa.ErrNoPolicyFiles) {
-		t.Errorf("Fetch() error = %v, want ErrNoPolicyFiles", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, opa.ErrNoPolicyFiles), "Fetch() error = %v, want ErrNoPolicyFiles", err)
 }
 
 func TestSource_Fetch_Closed(t *testing.T) {
@@ -271,22 +238,13 @@ func TestSource_Fetch_Closed(t *testing.T) {
 		s3source.WithBucket("test-bucket"),
 		s3source.WithPrefix("policies/"),
 	)
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if err := source.Close(); err != nil {
-		t.Fatalf("Close() failed: %v", err)
-	}
+	require.NoError(t, source.Close())
 
 	_, err = source.Fetch(t.Context())
-	if err == nil {
-		t.Fatal("Fetch() after Close() should fail")
-	}
-
-	if !errors.Is(err, opa.ErrSourceClosed) {
-		t.Errorf("Fetch() error = %v, want ErrSourceClosed", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, opa.ErrSourceClosed), "Fetch() error = %v, want ErrSourceClosed", err)
 }
 
 func TestSource_Fetch_WithData(t *testing.T) {
@@ -305,27 +263,16 @@ func TestSource_Fetch_WithData(t *testing.T) {
 		s3source.WithPrefix("policies/"),
 		s3source.WithIncludeData(),
 	)
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	bundle, err := source.Fetch(t.Context())
-	if err != nil {
-		t.Fatalf("Fetch() failed: %v", err)
-	}
+	require.NoError(t, err)
+	require.Len(t, bundle.Modules, 1)
+	require.NotNil(t, bundle.Data)
 
-	if got, want := len(bundle.Modules), 1; got != want {
-		t.Errorf("len(bundle.Modules) = %d, want %d", got, want)
-	}
-
-	if bundle.Data == nil {
-		t.Fatal("bundle.Data = nil, want non-nil")
-	}
-
-	if _, ok := bundle.Data["data"]; !ok {
-		t.Errorf("bundle.Data keys = %v, missing %q", dataKeys(bundle), "data")
-	}
+	_, ok := bundle.Data["data"]
+	require.True(t, ok, "bundle.Data keys = %v, missing %q", dataKeys(bundle), "data")
 }
 
 func TestSource_Fetch_WithDataDisabled(t *testing.T) {
@@ -344,19 +291,12 @@ func TestSource_Fetch_WithDataDisabled(t *testing.T) {
 		s3source.WithPrefix("policies/"),
 		// includeData not set — .json files should be ignored
 	)
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	bundle, err := source.Fetch(t.Context())
-	if err != nil {
-		t.Fatalf("Fetch() failed: %v", err)
-	}
-
-	if bundle.Data != nil {
-		t.Errorf("bundle.Data should be nil when includeData is false, got %v", bundle.Data)
-	}
+	require.NoError(t, err)
+	require.Nil(t, bundle.Data, "bundle.Data should be nil when includeData is false")
 }
 
 func TestSource_Fetch_Pagination(t *testing.T) {
@@ -378,19 +318,12 @@ func TestSource_Fetch_Pagination(t *testing.T) {
 		s3source.WithBucket("test-bucket"),
 		s3source.WithPrefix("p/"),
 	)
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	bundle, err := source.Fetch(t.Context())
-	if err != nil {
-		t.Fatalf("Fetch() failed: %v", err)
-	}
-
-	if got, want := len(bundle.Modules), 5; got != want {
-		t.Errorf("len(bundle.Modules) = %d, want %d", got, want)
-	}
+	require.NoError(t, err)
+	require.Len(t, bundle.Modules, 5)
 }
 
 func TestSource_Fetch_NoPrefix(t *testing.T) {
@@ -406,23 +339,15 @@ func TestSource_Fetch_NoPrefix(t *testing.T) {
 		s3source.WithS3Client(client),
 		s3source.WithBucket("test-bucket"),
 	)
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	bundle, err := source.Fetch(t.Context())
-	if err != nil {
-		t.Fatalf("Fetch() failed: %v", err)
-	}
+	require.NoError(t, err)
+	require.Len(t, bundle.Modules, 1)
 
-	if got, want := len(bundle.Modules), 1; got != want {
-		t.Errorf("len(bundle.Modules) = %d, want %d", got, want)
-	}
-
-	if _, ok := bundle.Modules["main.rego"]; !ok {
-		t.Errorf("bundle.Modules keys = %v, missing %q", moduleKeys(bundle), "main.rego")
-	}
+	_, ok := bundle.Modules["main.rego"]
+	require.True(t, ok, "bundle.Modules keys = %v, missing %q", moduleKeys(bundle), "main.rego")
 }
 
 func TestSource_Close_Idempotent(t *testing.T) {
@@ -432,17 +357,10 @@ func TestSource_Close_Idempotent(t *testing.T) {
 		s3source.WithS3Client(&mockS3Client{objects: map[string][]byte{}}),
 		s3source.WithBucket("test-bucket"),
 	)
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if err := source.Close(); err != nil {
-		t.Fatalf("first Close() failed: %v", err)
-	}
-
-	if err := source.Close(); err != nil {
-		t.Fatalf("second Close() failed: %v", err)
-	}
+	require.NoError(t, source.Close(), "first Close() failed")
+	require.NoError(t, source.Close(), "second Close() failed")
 }
 
 // moduleKeys returns the sorted module key names from a bundle for diagnostic output.

@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/core/runtime/signals"
 )
 
@@ -38,13 +40,8 @@ func TestSignal_AddHandler_Start_Stop(t *testing.T) {
 	// Give handler time to run
 	time.Sleep(200 * time.Millisecond)
 
-	if err := s.Stop(); err != nil {
-		t.Errorf("Stop() error = %v", err)
-	}
-
-	if !called.Load() {
-		t.Error("handler was not called")
-	}
+	require.NoError(t, s.Stop())
+	require.True(t, called.Load(), "handler was not called")
 }
 
 func TestSignal_AddHandlerWithPriority(t *testing.T) {
@@ -73,13 +70,9 @@ func TestSignal_AddHandlerWithPriority(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	_ = s.Stop()
 
-	if len(order) != 2 {
-		t.Fatalf("expected 2 handlers called, got %d", len(order))
-	}
+	require.Len(t, order, 2)
 	// Higher priority should run first
-	if order[0] != 1 {
-		t.Errorf("expected high priority first, got order %v", order)
-	}
+	require.Equal(t, 1, order[0], "expected high priority first, got order %v", order)
 }
 
 func TestSignal_BroadcastHandler(t *testing.T) {
@@ -102,9 +95,7 @@ func TestSignal_BroadcastHandler(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	_ = s.Stop()
 
-	if !called.Load() {
-		t.Error("broadcast handler was not called")
-	}
+	require.True(t, called.Load(), "broadcast handler was not called")
 }
 
 func TestSignal_Shutdown(t *testing.T) {
@@ -117,9 +108,7 @@ func TestSignal_Shutdown(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
 	defer cancel()
 
-	if err := s.Shutdown(ctx); err != nil {
-		t.Errorf("Shutdown() error = %v", err)
-	}
+	require.NoError(t, s.Shutdown(ctx))
 }
 
 func TestSignal_ParallelMode(t *testing.T) {
@@ -146,9 +135,7 @@ func TestSignal_ParallelMode(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	_ = s.Stop()
 
-	if count.Load() != 3 {
-		t.Errorf("expected 3 handlers called in parallel, got %d", count.Load())
-	}
+	require.Equal(t, int32(3), count.Load(), "expected 3 handlers called in parallel")
 }
 
 func TestSignal_ErrorHandler(t *testing.T) {

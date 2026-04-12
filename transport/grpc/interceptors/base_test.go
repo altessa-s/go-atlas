@@ -8,23 +8,19 @@ import (
 	"log/slog"
 	"regexp"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewBaseInterceptor(t *testing.T) {
 	b := NewBaseInterceptor("test", nil)
-	if b.Name() != "test" {
-		t.Fatalf("Name() = %q", b.Name())
-	}
-	if b.Logger() == nil {
-		t.Fatal("Logger() should not be nil even with nil input")
-	}
+	require.Equal(t, "test", b.Name())
+	require.NotNil(t, b.Logger(), "Logger() should not be nil even with nil input")
 }
 
 func TestNewBaseInterceptorWithFilter(t *testing.T) {
 	b := NewBaseInterceptorWithFilter("filtered", []string{"/grpc.health.v1.Health/Check"}, nil, nil)
-	if b.Name() != "filtered" {
-		t.Fatalf("Name() = %q", b.Name())
-	}
+	require.Equal(t, "filtered", b.Name())
 }
 
 func TestBaseInterceptor_ShouldIgnore(t *testing.T) {
@@ -44,9 +40,8 @@ func TestBaseInterceptor_ShouldIgnore(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			b := NewBaseInterceptorWithFilter("test", tt.methods, tt.patterns, nil)
-			if got := b.ShouldIgnore(tt.check); got != tt.want {
-				t.Fatalf("ShouldIgnore(%q) = %v, want %v", tt.check, got, tt.want)
-			}
+			got := b.ShouldIgnore(tt.check)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -55,17 +50,14 @@ func TestBaseInterceptor_ShouldIgnoreFromContext(t *testing.T) {
 	b := NewBaseInterceptor("test", nil)
 	// Without metadata in context, should return nil, false
 	meta, ignore := b.ShouldIgnoreFromContext(t.Context())
-	if meta != nil || ignore {
-		t.Fatalf("expected nil, false; got %v, %v", meta, ignore)
-	}
+	require.Nil(t, meta)
+	require.False(t, ignore, "expected nil, false; got %v, %v", meta, ignore)
 }
 
 func TestBaseInterceptor_InternMethod(t *testing.T) {
 	b := NewBaseInterceptor("test", nil)
 	m := b.InternMethod("/test/Method")
-	if m != "/test/Method" {
-		t.Fatalf("InternMethod = %q", m)
-	}
+	require.Equal(t, "/test/Method", m)
 }
 
 func TestBaseInterceptor_LogMethods(t *testing.T) {

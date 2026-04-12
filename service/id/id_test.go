@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestStatic_ID(t *testing.T) {
@@ -23,56 +25,38 @@ func TestStatic_ID(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p := NewStatic(tt.id)
-			if got := p.ID(); got != tt.id {
-				t.Errorf("ID()=%q, want %q", got, tt.id)
-			}
+			require.Equal(t, tt.id, p.ID())
 			// Idempotent
-			if got := p.ID(); got != tt.id {
-				t.Errorf("second ID()=%q, want %q", got, tt.id)
-			}
+			require.Equal(t, tt.id, p.ID())
 		})
 	}
 }
 
 func TestNewWithProvider_NilProvider(t *testing.T) {
 	_, err := NewWithProvider(nil)
-	if err == nil {
-		t.Fatal("expected error for nil provider")
-	}
+	require.Error(t, err)
 }
 
 func TestNewWithProvider_StaticProvider(t *testing.T) {
 	s, err := NewWithProvider(NewStatic("test-id"))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got := s.ID(); got != "test-id" {
-		t.Errorf("ID()=%q, want %q", got, "test-id")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "test-id", s.ID())
 }
 
 func TestNewStaticProvider(t *testing.T) {
 	s, err := NewStaticProvider("abc")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got := s.ID(); got != "abc" {
-		t.Errorf("ID()=%q, want %q", got, "abc")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "abc", s.ID())
 }
 
 func TestService_ID_NilProvider(t *testing.T) {
 	s := &Service{}
-	if got := s.ID(); got != "" {
-		t.Errorf("ID()=%q, want empty for nil provider", got)
-	}
+	require.Empty(t, s.ID(), "ID should be empty for nil provider")
 }
 
 func TestNewEnv_InvalidEnv(t *testing.T) {
 	_, err := NewEnv("NONEXISTENT_ENV_VAR_FOR_TEST_12345")
-	if err == nil {
-		t.Fatal("expected error for nonexistent env var")
-	}
+	require.Error(t, err)
 }
 
 func TestNewEnv_ValidEnv(t *testing.T) {
@@ -80,36 +64,24 @@ func TestNewEnv_ValidEnv(t *testing.T) {
 	t.Setenv(key, "env-service-id")
 
 	p, err := NewEnv(key)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got := p.ID(); got != "env-service-id" {
-		t.Errorf("ID()=%q, want %q", got, "env-service-id")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "env-service-id", p.ID())
 }
 
 func TestNewFile_EmptyPath(t *testing.T) {
 	_, err := NewFile("")
-	if err == nil {
-		t.Fatal("expected error for empty path")
-	}
+	require.Error(t, err)
 }
 
 func TestNewFile_ExistingFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "service.id")
 
-	if err := os.WriteFile(path, []byte("EXISTING_ID_VALUE"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte("EXISTING_ID_VALUE"), 0o600))
 
 	p, err := NewFile(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got := p.ID(); got != "EXISTING_ID_VALUE" {
-		t.Errorf("ID()=%q, want %q", got, "EXISTING_ID_VALUE")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "EXISTING_ID_VALUE", p.ID())
 }
 
 func TestNew_EnvFallbackToFile(t *testing.T) {
@@ -118,16 +90,10 @@ func TestNew_EnvFallbackToFile(t *testing.T) {
 
 	// No env set, should fall back to file
 	s, err := New(path, "NONEXISTENT_ENV_FOR_TEST_12345")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 	id := s.ID()
-	if id == "" {
-		t.Fatal("expected non-empty ID from file provider")
-	}
-	if len(id) != 32 {
-		t.Errorf("len(id)=%d, want 32", len(id))
-	}
+	require.NotEmpty(t, id, "expected non-empty ID from file provider")
+	require.Len(t, id, 32)
 }
 
 func TestNew_EnvTakesPriority(t *testing.T) {
@@ -138,12 +104,8 @@ func TestNew_EnvTakesPriority(t *testing.T) {
 	path := filepath.Join(dir, "service.id")
 
 	s, err := New(path, key)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got := s.ID(); got != "from-env" {
-		t.Errorf("ID()=%q, want %q", got, "from-env")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "from-env", s.ID())
 }
 
 func TestNewWithEnvProvider(t *testing.T) {
@@ -151,12 +113,8 @@ func TestNewWithEnvProvider(t *testing.T) {
 	t.Setenv(key, "env-val")
 
 	s, err := NewWithEnvProvider(key)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if got := s.ID(); got != "env-val" {
-		t.Errorf("ID()=%q, want %q", got, "env-val")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "env-val", s.ID())
 }
 
 func TestNewWithFileProvider(t *testing.T) {
@@ -164,29 +122,20 @@ func TestNewWithFileProvider(t *testing.T) {
 	path := filepath.Join(dir, "service.id")
 
 	s, err := NewWithFileProvider(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	id := s.ID()
-	if id == "" {
-		t.Fatal("expected non-empty ID")
-	}
+	require.NoError(t, err)
+	require.NotEmpty(t, s.ID())
 }
 
 func TestMustNew_Panics(t *testing.T) {
 	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic for invalid inputs")
-		}
+		require.NotNil(t, recover(), "expected panic for invalid inputs")
 	}()
 	MustNew("") // empty file path with no env should fail
 }
 
 func TestMustNewWithProvider_Panics(t *testing.T) {
 	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic for nil provider")
-		}
+		require.NotNil(t, recover(), "expected panic for nil provider")
 	}()
 	MustNewWithProvider(nil)
 }

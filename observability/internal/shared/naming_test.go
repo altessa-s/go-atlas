@@ -4,7 +4,11 @@
 
 package shared
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestBuildName(t *testing.T) {
 	tests := []struct {
@@ -22,9 +26,7 @@ func TestBuildName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := BuildName(tt.parts, tt.separator); got != tt.want {
-				t.Errorf("BuildName() = %q, want %q", got, tt.want)
-			}
+			require.Equal(t, tt.want, BuildName(tt.parts, tt.separator))
 		})
 	}
 }
@@ -42,9 +44,7 @@ func TestBuildMetricName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := BuildMetricName(tt.service, tt.sub, tt.metName); got != tt.want {
-				t.Errorf("BuildMetricName() = %q, want %q", got, tt.want)
-			}
+			require.Equal(t, tt.want, BuildMetricName(tt.service, tt.sub, tt.metName))
 		})
 	}
 }
@@ -61,9 +61,7 @@ func TestBuildTracerName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := BuildTracerName(tt.scope, tt.tName); got != tt.want {
-				t.Errorf("BuildTracerName() = %q, want %q", got, tt.want)
-			}
+			require.Equal(t, tt.want, BuildTracerName(tt.scope, tt.tName))
 		})
 	}
 }
@@ -82,21 +80,15 @@ func TestJoinScope(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := JoinScope(tt.parent, tt.child, tt.sep); got != tt.want {
-				t.Errorf("JoinScope() = %q, want %q", got, tt.want)
-			}
+			require.Equal(t, tt.want, JoinScope(tt.parent, tt.child, tt.sep))
 		})
 	}
 }
 
 func TestJoinMetricScope(t *testing.T) {
-	if got := JoinMetricScope("parent", "child"); got != "parent_child" {
-		t.Errorf("JoinMetricScope() = %q", got)
-	}
+	require.Equal(t, "parent_child", JoinMetricScope("parent", "child"))
 }
 
 func TestJoinTracerScope(t *testing.T) {
-	if got := JoinTracerScope("parent", "child"); got != "parent/child" {
-		t.Errorf("JoinTracerScope() = %q", got)
-	}
+	require.Equal(t, "parent/child", JoinTracerScope("parent", "child"))
 }

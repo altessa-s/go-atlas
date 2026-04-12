@@ -9,15 +9,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/observability/health"
 )
 
 func TestNew_Default(t *testing.T) {
 	b := New(nil)
-	if b == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, b)
 }
 
 func TestNew_WithOptions(t *testing.T) {
@@ -28,9 +28,7 @@ func TestNew_WithOptions(t *testing.T) {
 	b := New(&config.Mongodb{}).
 		UseLogger(logger).
 		UseHealthCoordinator(coord)
-	if b == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, b)
 }
 
 func TestClientOptions(t *testing.T) {
@@ -126,17 +124,15 @@ func TestClientOptions(t *testing.T) {
 			b := New(tt.cfg)
 			if tt.cfg == nil {
 				_, err := b.Build(t.Context())
-				if err == nil {
-					t.Error("expected error for nil config")
-				}
+				require.Error(t, err)
 				return
 			}
 			opts, err := b.ClientOptions()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if err == nil && opts == nil {
-				t.Error("expected non-nil options")
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.NotNil(t, opts)
 			}
 		})
 	}
@@ -154,12 +150,8 @@ func TestClientOptions_ConnectionURI(t *testing.T) {
 		RetryWrites:    true,
 	})
 	opts, err := b.ClientOptions()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if opts == nil {
-		t.Fatal("expected non-nil options")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, opts)
 }
 
 func TestClientOptions_ConnectionURI_PoolOverlay(t *testing.T) {
@@ -173,12 +165,8 @@ func TestClientOptions_ConnectionURI_PoolOverlay(t *testing.T) {
 		RetryWrites:    false,
 	})
 	opts, err := b.ClientOptions()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if opts == nil {
-		t.Fatal("expected non-nil options")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, opts)
 }
 
 func TestBuildCredential(t *testing.T) {
@@ -233,9 +221,7 @@ func TestBuildCredential(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			b := New(&config.Mongodb{Credentials: tt.creds})
 			cred := b.buildCredential()
-			if cred.AuthMechanism != tt.wantMech {
-				t.Errorf("AuthMechanism = %q, want %q", cred.AuthMechanism, tt.wantMech)
-			}
+			require.Equal(t, tt.wantMech, cred.AuthMechanism)
 		})
 	}
 }

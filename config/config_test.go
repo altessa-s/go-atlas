@@ -7,6 +7,8 @@ package config_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/config"
 )
 
@@ -36,11 +38,10 @@ func TestStorageNATSConfig_Validate(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.cfg.Validate()
-			if tc.wantValid && err != nil {
-				t.Errorf("Validate() error = %v, want nil", err)
-			}
-			if !tc.wantValid && err == nil {
-				t.Error("Validate() error = nil, want error")
+			if tc.wantValid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
 			}
 		})
 	}
@@ -78,11 +79,10 @@ func TestStorageRedisConfig_Validate(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.cfg.Validate()
-			if tc.wantValid && err != nil {
-				t.Errorf("Validate() error = %v, want nil", err)
-			}
-			if !tc.wantValid && err == nil {
-				t.Error("Validate() error = nil, want error")
+			if tc.wantValid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
 			}
 		})
 	}
@@ -129,11 +129,10 @@ func TestCacheStorageConfig_Validate(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.cfg.Validate()
-			if tc.wantValid && err != nil {
-				t.Errorf("Validate() error = %v, want nil", err)
-			}
-			if !tc.wantValid && err == nil {
-				t.Error("Validate() error = nil, want error")
+			if tc.wantValid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
 			}
 		})
 	}

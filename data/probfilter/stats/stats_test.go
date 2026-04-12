@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/probfilter/stats"
 )
 
@@ -24,33 +26,17 @@ func TestFilterStats_JSONRoundTrip(t *testing.T) {
 	}
 
 	data, err := json.Marshal(original)
-	if err != nil {
-		t.Fatalf("Marshal() error: %v", err)
-	}
+	require.NoError(t, err)
 
 	var decoded stats.FilterStats
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		t.Fatalf("Unmarshal() error: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(data, &decoded))
 
-	if decoded.Capacity != original.Capacity {
-		t.Errorf("Capacity = %d, want %d", decoded.Capacity, original.Capacity)
-	}
-	if decoded.ItemCount != original.ItemCount {
-		t.Errorf("ItemCount = %d, want %d", decoded.ItemCount, original.ItemCount)
-	}
-	if decoded.FillRatio != original.FillRatio {
-		t.Errorf("FillRatio = %f, want %f", decoded.FillRatio, original.FillRatio)
-	}
-	if decoded.FalsePositiveRate != original.FalsePositiveRate {
-		t.Errorf("FalsePositiveRate = %f, want %f", decoded.FalsePositiveRate, original.FalsePositiveRate)
-	}
-	if decoded.MemoryUsageBytes != original.MemoryUsageBytes {
-		t.Errorf("MemoryUsageBytes = %d, want %d", decoded.MemoryUsageBytes, original.MemoryUsageBytes)
-	}
-	if decoded.StorageType != original.StorageType {
-		t.Errorf("StorageType = %q, want %q", decoded.StorageType, original.StorageType)
-	}
+	require.Equal(t, original.Capacity, decoded.Capacity)
+	require.Equal(t, original.ItemCount, decoded.ItemCount)
+	require.Equal(t, original.FillRatio, decoded.FillRatio)
+	require.Equal(t, original.FalsePositiveRate, decoded.FalsePositiveRate)
+	require.Equal(t, original.MemoryUsageBytes, decoded.MemoryUsageBytes)
+	require.Equal(t, original.StorageType, decoded.StorageType)
 }
 
 func TestFilterStats_JSONOmitEmpty(t *testing.T) {
@@ -60,28 +46,21 @@ func TestFilterStats_JSONOmitEmpty(t *testing.T) {
 	}
 
 	data, err := json.Marshal(fs)
-	if err != nil {
-		t.Fatalf("Marshal() error: %v", err)
-	}
+	require.NoError(t, err)
 
 	var m map[string]any
 	_ = json.Unmarshal(data, &m)
 
-	if _, ok := m["memoryUsageBytes"]; ok {
-		t.Error("memoryUsageBytes should be omitted when zero")
-	}
+	_, hasMemUsage := m["memoryUsageBytes"]
+	require.False(t, hasMemUsage, "memoryUsageBytes should be omitted when zero")
 	// Note: time.Time zero value marshals as "0001-01-01T00:00:00Z", not omitted
 	// because Go's omitempty considers non-nil structs as non-empty
 }
 
 func TestFilterStats_ZeroValues(t *testing.T) {
 	fs := &stats.FilterStats{}
-	if fs.Capacity != 0 {
-		t.Errorf("Capacity = %d, want 0", fs.Capacity)
-	}
-	if fs.StorageType != "" {
-		t.Errorf("StorageType = %q, want empty", fs.StorageType)
-	}
+	require.Equal(t, int64(0), fs.Capacity)
+	require.Equal(t, "", fs.StorageType)
 }
 
 func TestFilterStats_Fields(t *testing.T) {
@@ -94,27 +73,21 @@ func TestFilterStats_Fields(t *testing.T) {
 			name:  "full capacity",
 			stats: stats.FilterStats{Capacity: 100, ItemCount: 100, FillRatio: 1.0},
 			check: func(t *testing.T, s stats.FilterStats) {
-				if s.FillRatio != 1.0 {
-					t.Errorf("FillRatio = %f, want 1.0", s.FillRatio)
-				}
+				require.Equal(t, 1.0, s.FillRatio)
 			},
 		},
 		{
 			name:  "empty filter",
 			stats: stats.FilterStats{Capacity: 100, ItemCount: 0, FillRatio: 0.0},
 			check: func(t *testing.T, s stats.FilterStats) {
-				if s.ItemCount != 0 {
-					t.Errorf("ItemCount = %d, want 0", s.ItemCount)
-				}
+				require.Equal(t, int64(0), s.ItemCount)
 			},
 		},
 		{
 			name:  "with memory usage",
 			stats: stats.FilterStats{MemoryUsageBytes: 4096},
 			check: func(t *testing.T, s stats.FilterStats) {
-				if s.MemoryUsageBytes != 4096 {
-					t.Errorf("MemoryUsageBytes = %d, want 4096", s.MemoryUsageBytes)
-				}
+				require.Equal(t, int64(4096), s.MemoryUsageBytes)
 			},
 		},
 	}

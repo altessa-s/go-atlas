@@ -7,6 +7,8 @@ package gcp
 import (
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestValidateProjectId(t *testing.T) {
@@ -33,11 +35,9 @@ func TestValidateProjectId(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validateProjectId(tt.projectId)
 			if tt.wantErr != nil {
-				if err != tt.wantErr {
-					t.Errorf("validateProjectId(%q) = %v, want %v", tt.projectId, err, tt.wantErr)
-				}
-			} else if err != nil {
-				t.Errorf("validateProjectId(%q) unexpected error: %v", tt.projectId, err)
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -59,11 +59,9 @@ func TestValidateServiceAccountPath(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validateServiceAccountPath(tt.path)
 			if tt.wantErr != nil {
-				if err != tt.wantErr {
-					t.Errorf("validateServiceAccountPath(%q) = %v, want %v", tt.path, err, tt.wantErr)
-				}
-			} else if err != nil {
-				t.Errorf("validateServiceAccountPath(%q) unexpected error: %v", tt.path, err)
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -89,8 +87,10 @@ func TestValidateSecretKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validateSecretKey(tt.key)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("validateSecretKey(%q) error = %v, wantErr %v", tt.key, err, tt.wantErr)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -108,9 +108,7 @@ func TestFormatProjectPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := formatProjectPath(tt.projectID); got != tt.want {
-				t.Errorf("formatProjectPath(%q) = %q, want %q", tt.projectID, got, tt.want)
-			}
+			require.Equal(t, tt.want, formatProjectPath(tt.projectID))
 		})
 	}
 }
@@ -127,19 +125,14 @@ func TestFormatSecretPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := formatSecretPath(tt.projectID, tt.secretName); got != tt.want {
-				t.Errorf("formatSecretPath() = %q, want %q", got, tt.want)
-			}
+			require.Equal(t, tt.want, formatSecretPath(tt.projectID, tt.secretName))
 		})
 	}
 }
 
 func TestFormatSecretVersionPath(t *testing.T) {
 	got := formatSecretVersionPath("proj", "sec")
-	want := "projects/proj/secrets/sec/versions/latest"
-	if got != want {
-		t.Errorf("formatSecretVersionPath() = %q, want %q", got, want)
-	}
+	require.Equal(t, "projects/proj/secrets/sec/versions/latest", got)
 }
 
 func TestBuildGCPFilter(t *testing.T) {
@@ -157,14 +150,12 @@ func TestBuildGCPFilter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := buildGCPFilter(tt.labels)
 			if tt.want == "" {
-				if got != "" {
-					t.Errorf("buildGCPFilter() = %q, want empty", got)
-				}
+				require.Empty(t, got)
 				return
 			}
 			// For single label, exact match
-			if len(tt.labels) == 1 && got != tt.want {
-				t.Errorf("buildGCPFilter() = %q, want %q", got, tt.want)
+			if len(tt.labels) == 1 {
+				require.Equal(t, tt.want, got)
 			}
 		})
 	}
@@ -173,7 +164,5 @@ func TestBuildGCPFilter(t *testing.T) {
 func TestStorageName(t *testing.T) {
 	// Can't construct Storage without a client, but Name() doesn't use client
 	s := &Storage[string]{}
-	if got := s.Name(); got != "gcp" {
-		t.Errorf("Name() = %q, want %q", got, "gcp")
-	}
+	require.Equal(t, "gcp", s.Name())
 }

@@ -6,6 +6,8 @@ package requestid
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 type mockHeaderGetter struct {
@@ -64,69 +66,55 @@ func TestGenerator_Extract(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			gen := NewGenerator(tt.opts...)
 			got := gen.Extract(tt.headers)
-			if got != tt.want {
-				t.Fatalf("Extract() = %q, want %q", got, tt.want)
-			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
 
 func TestGenerator_HeaderName(t *testing.T) {
 	gen := NewGenerator()
-	if got := gen.HeaderName(); got != DefaultHTTPHeaderName {
-		t.Fatalf("HeaderName() = %q, want %q", got, DefaultHTTPHeaderName)
-	}
+	got := gen.HeaderName()
+	require.Equal(t, DefaultHTTPHeaderName, got)
 
 	gen = NewGenerator(WithHeaderName("X-Custom"))
-	if got := gen.HeaderName(); got != "X-Custom" {
-		t.Fatalf("HeaderName() = %q, want %q", got, "X-Custom")
-	}
+	got = gen.HeaderName()
+	require.Equal(t, "X-Custom", got)
 }
 
 func TestGenerator_GenerateIfMissing(t *testing.T) {
 	gen := NewGenerator()
-	if !gen.GenerateIfMissing() {
-		t.Fatal("GenerateIfMissing() = false, want true (default)")
-	}
+	require.True(t, gen.GenerateIfMissing(), "GenerateIfMissing() = false, want true (default)")
 }
 
 func TestGenerator_DefaultGenerator(t *testing.T) {
 	gen := NewGenerator()
 	id := gen.Extract(nil)
-	if id == "" {
-		t.Fatal("default generator should produce non-empty ID")
-	}
-	if len(id) != 36 {
-		t.Fatalf("default generator ID length = %d, want 36", len(id))
-	}
+	require.NotEqual(t, "", id)
+	require.Len(t, id, 36)
 }
 
 func TestNewContext_FromContext(t *testing.T) {
 	ctx := NewContext(t.Context(), "test-id")
-	if got := FromContext(ctx); got != "test-id" {
-		t.Fatalf("FromContext() = %q, want %q", got, "test-id")
-	}
+	got := FromContext(ctx)
+	require.Equal(t, "test-id", got)
 }
 
 func TestFromContext_Empty(t *testing.T) {
-	if got := FromContext(t.Context()); got != "" {
-		t.Fatalf("FromContext(empty) = %q, want empty", got)
-	}
+	got := FromContext(t.Context())
+	require.Equal(t, "", got)
 }
 
 func TestFromContext_NilContext(t *testing.T) {
 	//nolint:staticcheck // SA1012: testing nil context behavior
-	if got := FromContext(nil); got != "" {
-		t.Fatalf("FromContext(nil) = %q, want empty", got)
-	}
+	got := FromContext(nil)
+	require.Equal(t, "", got)
 }
 
 func TestFromContextOrTraceID(t *testing.T) {
 	t.Run("with_request_id", func(t *testing.T) {
 		ctx := NewContext(t.Context(), "req-123")
-		if got := FromContextOrTraceID(ctx); got != "req-123" {
-			t.Fatalf("FromContextOrTraceID() = %q, want %q", got, "req-123")
-		}
+		got := FromContextOrTraceID(ctx)
+		require.Equal(t, "req-123", got)
 	})
 
 	t.Run("no_request_id_no_trace", func(t *testing.T) {

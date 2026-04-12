@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/leadelect/providers"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
@@ -23,31 +25,23 @@ func setupProvider(tb testing.TB) *lenats.Provider {
 
 	bucket := strings.ReplaceAll(tb.Name(), "/", "-")
 	provider, err := lenats.New(ctx, nc, lenats.WithBucket(bucket))
-	if err != nil {
-		tb.Fatalf("failed to create NATS provider: %v", err)
-	}
+	require.NoError(tb, err)
 	return provider
 }
 
 func TestNew(t *testing.T) {
 	provider := setupProvider(t)
-	if provider == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, provider)
 }
 
 func TestProvider_IsLeader_BeforeStart(t *testing.T) {
 	provider := setupProvider(t)
-	if provider.IsLeader() {
-		t.Error("IsLeader() should be false before Start()")
-	}
+	require.False(t, provider.IsLeader())
 }
 
 func TestProvider_IsRunning_BeforeStart(t *testing.T) {
 	provider := setupProvider(t)
-	if provider.IsRunning() {
-		t.Error("IsRunning() should be false before Start()")
-	}
+	require.False(t, provider.IsRunning())
 }
 
 func TestProvider_Start_Stop(t *testing.T) {
@@ -64,41 +58,22 @@ func TestProvider_Start_Stop(t *testing.T) {
 	}
 
 	err := provider.Start(ctx, cfg)
-	if err != nil {
-		t.Fatalf("Start() error: %v", err)
-	}
-
-	if !provider.IsRunning() {
-		t.Error("IsRunning() should be true after Start()")
-	}
+	require.NoError(t, err)
+	require.True(t, provider.IsRunning())
 
 	// Wait a bit for the camping loop to acquire leadership
 	time.Sleep(500 * time.Millisecond)
 
-	if !provider.IsLeader() {
-		t.Error("expected to become leader (single node)")
-	}
-
-	if got := provider.NodeId(); got != "node-1" {
-		t.Errorf("NodeId() = %q, want %q", got, "node-1")
-	}
+	require.True(t, provider.IsLeader(), "expected to become leader (single node)")
+	require.Equal(t, "node-1", provider.NodeId())
 
 	leaderID, err := provider.LeaderId(ctx)
-	if err != nil {
-		t.Fatalf("LeaderId() error: %v", err)
-	}
-	if leaderID != "node-1" {
-		t.Errorf("LeaderId() = %q, want %q", leaderID, "node-1")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "node-1", leaderID)
 
 	err = provider.Stop(ctx)
-	if err != nil {
-		t.Fatalf("Stop() error: %v", err)
-	}
-
-	if provider.IsRunning() {
-		t.Error("IsRunning() should be false after Stop()")
-	}
+	require.NoError(t, err)
+	require.False(t, provider.IsRunning())
 }
 
 func TestProvider_Start_Validations(t *testing.T) {
@@ -140,8 +115,8 @@ func TestProvider_Start_Validations(t *testing.T) {
 			err := provider.Start(ctx, tt.cfg)
 			if err == nil {
 				provider.Stop(ctx) //nolint:errcheck
-				t.Error("Start() should return error for invalid config")
 			}
+			require.Error(t, err, "Start() should return error for invalid config")
 		})
 	}
 }
@@ -160,15 +135,11 @@ func TestProvider_Start_DoubleStart(t *testing.T) {
 	}
 
 	err := provider.Start(ctx, cfg)
-	if err != nil {
-		t.Fatalf("first Start() error: %v", err)
-	}
+	require.NoError(t, err)
 	defer provider.Stop(ctx) //nolint:errcheck
 
 	err = provider.Start(ctx, cfg)
-	if err == nil {
-		t.Error("second Start() should return error")
-	}
+	require.Error(t, err, "second Start() should return error")
 }
 
 func TestProvider_Stop_DoubleStop(t *testing.T) {
@@ -188,9 +159,7 @@ func TestProvider_Stop_DoubleStop(t *testing.T) {
 	_ = provider.Stop(ctx)
 
 	err := provider.Stop(ctx)
-	if err == nil {
-		t.Error("second Stop() should return error")
-	}
+	require.Error(t, err, "second Stop() should return error")
 }
 
 func TestProvider_BecameCh_Notification(t *testing.T) {
@@ -208,9 +177,7 @@ func TestProvider_BecameCh_Notification(t *testing.T) {
 	}
 
 	err := provider.Start(ctx, cfg)
-	if err != nil {
-		t.Fatalf("Start() error: %v", err)
-	}
+	require.NoError(t, err)
 	defer provider.Stop(ctx) //nolint:errcheck
 
 	select {

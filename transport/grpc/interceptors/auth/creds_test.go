@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
 )
 
@@ -24,9 +26,8 @@ func TestBase_IsAuthenticated(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.base.IsAuthenticated(); got != tt.want {
-				t.Fatalf("IsAuthenticated() = %v, want %v", got, tt.want)
-			}
+			got := tt.base.IsAuthenticated()
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -43,9 +44,8 @@ func TestBase_IsToken(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.base.IsToken(); got != tt.want {
-				t.Fatalf("IsToken() = %v, want %v", got, tt.want)
-			}
+			got := tt.base.IsToken()
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -82,12 +82,8 @@ func TestRequest_TokenCredentials(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tc, ok := tt.req.TokenCredentials()
-			if ok != tt.wantOK {
-				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
-			}
-			if ok && tc.Token != tt.wantTok {
-				t.Fatalf("Token = %q, want %q", tc.Token, tt.wantTok)
-			}
+			require.Equal(t, tt.wantOK, ok)
+			require.False(t, ok && tc.Token != tt.wantTok)
 		})
 	}
 }
@@ -98,18 +94,12 @@ func TestUserAgentFromCallMeta(t *testing.T) {
 		ClientUserAgent: "test-agent",
 	}
 	ua := UserAgentFromCallMeta(meta)
-	if ua.RemoteAddr != meta.ClientPerIP {
-		t.Fatalf("RemoteAddr = %v", ua.RemoteAddr)
-	}
-	if ua.UserAgent != "test-agent" {
-		t.Fatalf("UserAgent = %q", ua.UserAgent)
-	}
+	require.Equal(t, meta.ClientPerIP, ua.RemoteAddr)
+	require.Equal(t, "test-agent", ua.UserAgent)
 }
 
 func TestMethodToken(t *testing.T) {
-	if MethodToken != "token" {
-		t.Fatalf("MethodToken = %q", MethodToken)
-	}
+	require.EqualValues(t, "token", MethodToken)
 }
 
 func TestCredentials(t *testing.T) {
@@ -121,10 +111,6 @@ func TestCredentials(t *testing.T) {
 		Data:    "user-123",
 		Headers: map[string]string{"authorization": "Bearer tok"},
 	}
-	if !c.IsAuthenticated() {
-		t.Fatal("should be authenticated")
-	}
-	if !c.IsToken() {
-		t.Fatal("should be token")
-	}
+	require.True(t, c.IsAuthenticated(), "should be authenticated")
+	require.True(t, c.IsToken(), "should be token")
 }

@@ -7,6 +7,8 @@ package nats_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	idempnats "github.com/altessa-s/go-atlas/data/idempotency/storages/nats"
@@ -18,24 +20,18 @@ func setupStorage(tb testing.TB) *idempnats.Storage {
 	_, js := testhelpers.ConnectJetStream(tb, ns)
 
 	storage, err := idempnats.New(js, idempnats.WithBucket(tb.Name()))
-	if err != nil {
-		tb.Fatalf("failed to create NATS storage: %v", err)
-	}
+	require.NoError(tb, err)
 	return storage
 }
 
 func TestNew(t *testing.T) {
 	storage := setupStorage(t)
-	if storage == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, storage)
 }
 
 func TestNew_NilJetStream(t *testing.T) {
 	_, err := idempnats.New(nil)
-	if err == nil {
-		t.Error("New(nil) should return error")
-	}
+	require.Error(t, err)
 }
 
 func TestStorage_AttemptLock_New(t *testing.T) {
@@ -43,15 +39,9 @@ func TestStorage_AttemptLock_New(t *testing.T) {
 	ctx := t.Context()
 
 	locked, existingVal, err := storage.AttemptLock(ctx, "key1", []byte("val1"))
-	if err != nil {
-		t.Fatalf("AttemptLock() error: %v", err)
-	}
-	if !locked {
-		t.Error("expected lock to succeed on new key")
-	}
-	if existingVal != nil {
-		t.Errorf("expected nil existing value, got: %v", existingVal)
-	}
+	require.NoError(t, err)
+	require.True(t, locked, "expected lock to succeed on new key")
+	require.Nil(t, existingVal)
 }
 
 func TestStorage_AttemptLock_Existing(t *testing.T) {
@@ -59,23 +49,13 @@ func TestStorage_AttemptLock_Existing(t *testing.T) {
 	ctx := t.Context()
 
 	locked, _, err := storage.AttemptLock(ctx, "key1", []byte("val1"))
-	if err != nil {
-		t.Fatalf("first AttemptLock() error: %v", err)
-	}
-	if !locked {
-		t.Fatal("expected first lock to succeed")
-	}
+	require.NoError(t, err)
+	require.True(t, locked, "expected first lock to succeed")
 
 	locked, existingVal, err := storage.AttemptLock(ctx, "key1", []byte("val2"))
-	if err != nil {
-		t.Fatalf("second AttemptLock() error: %v", err)
-	}
-	if locked {
-		t.Error("expected second lock to fail")
-	}
-	if string(existingVal) != "val1" {
-		t.Errorf("expected existing value %q, got %q", "val1", existingVal)
-	}
+	require.NoError(t, err)
+	require.False(t, locked, "expected second lock to fail")
+	require.Equal(t, "val1", string(existingVal))
 }
 
 func TestStorage_AttemptLock_EmptyKey(t *testing.T) {
@@ -83,15 +63,9 @@ func TestStorage_AttemptLock_EmptyKey(t *testing.T) {
 	ctx := t.Context()
 
 	locked, existingVal, err := storage.AttemptLock(ctx, "", []byte("val"))
-	if err != nil {
-		t.Fatalf("AttemptLock(\"\") error: %v", err)
-	}
-	if !locked {
-		t.Error("expected empty key to return locked=true")
-	}
-	if existingVal != nil {
-		t.Errorf("expected nil existing value, got: %v", existingVal)
-	}
+	require.NoError(t, err)
+	require.True(t, locked, "expected empty key to return locked=true")
+	require.Nil(t, existingVal)
 }
 
 func TestStorage_Complete(t *testing.T) {
@@ -99,36 +73,22 @@ func TestStorage_Complete(t *testing.T) {
 	ctx := t.Context()
 
 	locked, _, err := storage.AttemptLock(ctx, "key1", []byte("lock-val"))
-	if err != nil {
-		t.Fatalf("AttemptLock() error: %v", err)
-	}
-	if !locked {
-		t.Fatal("expected lock to succeed")
-	}
+	require.NoError(t, err)
+	require.True(t, locked, "expected lock to succeed")
 
-	if err := storage.Complete(ctx, "key1", []byte("complete-val")); err != nil {
-		t.Fatalf("Complete() error: %v", err)
-	}
+	require.NoError(t, storage.Complete(ctx, "key1", []byte("complete-val")))
 
 	locked, existingVal, err := storage.AttemptLock(ctx, "key1", []byte("new-val"))
-	if err != nil {
-		t.Fatalf("AttemptLock() after Complete() error: %v", err)
-	}
-	if locked {
-		t.Error("expected lock to fail after completion")
-	}
-	if string(existingVal) != "complete-val" {
-		t.Errorf("expected completed value %q, got %q", "complete-val", existingVal)
-	}
+	require.NoError(t, err)
+	require.False(t, locked, "expected lock to fail after completion")
+	require.Equal(t, "complete-val", string(existingVal))
 }
 
 func TestStorage_Complete_EmptyKey(t *testing.T) {
 	storage := setupStorage(t)
 	ctx := t.Context()
 
-	if err := storage.Complete(ctx, "", []byte("val")); err != nil {
-		t.Errorf("Complete(\"\") should not error: %v", err)
-	}
+	require.NoError(t, storage.Complete(ctx, "", []byte("val")))
 }
 
 func TestStorage_Delete(t *testing.T) {
@@ -136,36 +96,22 @@ func TestStorage_Delete(t *testing.T) {
 	ctx := t.Context()
 
 	locked, _, err := storage.AttemptLock(ctx, "key1", []byte("val"))
-	if err != nil {
-		t.Fatalf("AttemptLock() error: %v", err)
-	}
-	if !locked {
-		t.Fatal("expected lock to succeed")
-	}
+	require.NoError(t, err)
+	require.True(t, locked, "expected lock to succeed")
 
-	if err := storage.Delete(ctx, "key1"); err != nil {
-		t.Fatalf("Delete() error: %v", err)
-	}
+	require.NoError(t, storage.Delete(ctx, "key1"))
 
 	locked, existingVal, err := storage.AttemptLock(ctx, "key1", []byte("val2"))
-	if err != nil {
-		t.Fatalf("AttemptLock() after Delete() error: %v", err)
-	}
-	if !locked {
-		t.Error("expected lock to succeed after deletion")
-	}
-	if existingVal != nil {
-		t.Errorf("expected nil existing value after deletion, got: %v", existingVal)
-	}
+	require.NoError(t, err)
+	require.True(t, locked, "expected lock to succeed after deletion")
+	require.Nil(t, existingVal)
 }
 
 func TestStorage_Delete_EmptyKey(t *testing.T) {
 	storage := setupStorage(t)
 	ctx := t.Context()
 
-	if err := storage.Delete(ctx, ""); err != nil {
-		t.Errorf("Delete(\"\") should not error: %v", err)
-	}
+	require.NoError(t, storage.Delete(ctx, ""))
 }
 
 func TestStorage_FullLifecycle(t *testing.T) {
@@ -174,41 +120,23 @@ func TestStorage_FullLifecycle(t *testing.T) {
 
 	// Lock
 	locked, _, err := storage.AttemptLock(ctx, "lifecycle", []byte("in-progress"))
-	if err != nil {
-		t.Fatalf("AttemptLock() error: %v", err)
-	}
-	if !locked {
-		t.Fatal("expected lock to succeed")
-	}
+	require.NoError(t, err)
+	require.True(t, locked, "expected lock to succeed")
 
 	// Complete
-	if err := storage.Complete(ctx, "lifecycle", []byte("done")); err != nil {
-		t.Fatalf("Complete() error: %v", err)
-	}
+	require.NoError(t, storage.Complete(ctx, "lifecycle", []byte("done")))
 
 	// Verify completed value
 	locked, val, err := storage.AttemptLock(ctx, "lifecycle", []byte("retry"))
-	if err != nil {
-		t.Fatalf("AttemptLock() error: %v", err)
-	}
-	if locked {
-		t.Error("expected lock to fail")
-	}
-	if string(val) != "done" {
-		t.Errorf("expected %q, got %q", "done", val)
-	}
+	require.NoError(t, err)
+	require.False(t, locked, "expected lock to fail")
+	require.Equal(t, "done", string(val))
 
 	// Delete
-	if err := storage.Delete(ctx, "lifecycle"); err != nil {
-		t.Fatalf("Delete() error: %v", err)
-	}
+	require.NoError(t, storage.Delete(ctx, "lifecycle"))
 
 	// Should be able to lock again
 	locked, _, err = storage.AttemptLock(ctx, "lifecycle", []byte("new"))
-	if err != nil {
-		t.Fatalf("AttemptLock() after delete error: %v", err)
-	}
-	if !locked {
-		t.Error("expected lock to succeed after deletion")
-	}
+	require.NoError(t, err)
+	require.True(t, locked, "expected lock to succeed after deletion")
 }

@@ -4,7 +4,11 @@
 
 package bits
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestIsBitSet(t *testing.T) {
 	tests := []struct {
@@ -21,9 +25,7 @@ func TestIsBitSet(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := IsBitSet(tt.val, tt.pos); got != tt.want {
-				t.Errorf("IsBitSet(%08b, %d) = %v, want %v", tt.val, tt.pos, got, tt.want)
-			}
+			require.Equal(t, tt.want, IsBitSet(tt.val, tt.pos))
 		})
 	}
 }
@@ -41,9 +43,7 @@ func TestSetBit(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := SetBit(tt.val, tt.pos); got != tt.want {
-				t.Errorf("SetBit(%08b, %d) = %08b, want %08b", tt.val, tt.pos, got, tt.want)
-			}
+			require.Equal(t, tt.want, SetBit(tt.val, tt.pos))
 		})
 	}
 }
@@ -61,9 +61,7 @@ func TestClearBit(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ClearBit(tt.val, tt.pos); got != tt.want {
-				t.Errorf("ClearBit(%08b, %d) = %08b, want %08b", tt.val, tt.pos, got, tt.want)
-			}
+			require.Equal(t, tt.want, ClearBit(tt.val, tt.pos))
 		})
 	}
 }
@@ -81,9 +79,7 @@ func TestToggleBit(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ToggleBit(tt.val, tt.pos); got != tt.want {
-				t.Errorf("ToggleBit(%08b, %d) = %08b, want %08b", tt.val, tt.pos, got, tt.want)
-			}
+			require.Equal(t, tt.want, ToggleBit(tt.val, tt.pos))
 		})
 	}
 }
@@ -102,9 +98,7 @@ func TestGetBits(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := GetBits(tt.val, tt.start, tt.length); got != tt.want {
-				t.Errorf("GetBits(%08b, %d, %d) = %08b, want %08b", tt.val, tt.start, tt.length, got, tt.want)
-			}
+			require.Equal(t, tt.want, GetBits(tt.val, tt.start, tt.length))
 		})
 	}
 }
@@ -122,9 +116,7 @@ func TestCountSetBits(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := CountSetBits(tt.val); got != tt.want {
-				t.Errorf("CountSetBits(%08b) = %d, want %d", tt.val, got, tt.want)
-			}
+			require.Equal(t, tt.want, CountSetBits(tt.val))
 		})
 	}
 }
@@ -142,9 +134,7 @@ func TestCountTrailingZeros(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := CountTrailingZeros(tt.val); got != tt.want {
-				t.Errorf("CountTrailingZeros(%08b) = %d, want %d", tt.val, got, tt.want)
-			}
+			require.Equal(t, tt.want, CountTrailingZeros(tt.val))
 		})
 	}
 }
@@ -162,9 +152,7 @@ func TestCountLeadingZeros(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := CountLeadingZeros(tt.val); got != tt.want {
-				t.Errorf("CountLeadingZeros(%08b) = %d, want %d", tt.val, got, tt.want)
-			}
+			require.Equal(t, tt.want, CountLeadingZeros(tt.val))
 		})
 	}
 }
@@ -181,9 +169,7 @@ func TestFindFirstSet(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := FindFirstSet(tt.val); got != tt.want {
-				t.Errorf("FindFirstSet(%08b) = %d, want %d", tt.val, got, tt.want)
-			}
+			require.Equal(t, tt.want, FindFirstSet(tt.val))
 		})
 	}
 }
@@ -201,9 +187,7 @@ func TestFindLastSet(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := FindLastSet(tt.val); got != tt.want {
-				t.Errorf("FindLastSet(%08b) = %d, want %d", tt.val, got, tt.want)
-			}
+			require.Equal(t, tt.want, FindLastSet(tt.val))
 		})
 	}
 }
@@ -222,9 +206,7 @@ func TestFindNextSet(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := FindNextSet(tt.val, tt.after); got != tt.want {
-				t.Errorf("FindNextSet(%08b, %d) = %d, want %d", tt.val, tt.after, got, tt.want)
-			}
+			require.Equal(t, tt.want, FindNextSet(tt.val, tt.after))
 		})
 	}
 }
@@ -242,9 +224,7 @@ func TestRotateLeft(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := RotateLeft(tt.val, tt.n); got != tt.want {
-				t.Errorf("RotateLeft(%08b, %d) = %08b, want %08b", tt.val, tt.n, got, tt.want)
-			}
+			require.Equal(t, tt.want, RotateLeft(tt.val, tt.n))
 		})
 	}
 }
@@ -262,9 +242,7 @@ func TestRotateRight(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := RotateRight(tt.val, tt.n); got != tt.want {
-				t.Errorf("RotateRight(%08b, %d) = %08b, want %08b", tt.val, tt.n, got, tt.want)
-			}
+			require.Equal(t, tt.want, RotateRight(tt.val, tt.n))
 		})
 	}
 }
@@ -282,9 +260,7 @@ func TestReverseBits(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ReverseBits(tt.val); got != tt.want {
-				t.Errorf("ReverseBits(%08b) = %08b, want %08b", tt.val, got, tt.want)
-			}
+			require.Equal(t, tt.want, ReverseBits(tt.val))
 		})
 	}
 }
@@ -302,9 +278,7 @@ func TestSetBits(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := SetBits(tt.val, tt.start, tt.length); got != tt.want {
-				t.Errorf("SetBits(%08b, %d, %d) = %08b, want %08b", tt.val, tt.start, tt.length, got, tt.want)
-			}
+			require.Equal(t, tt.want, SetBits(tt.val, tt.start, tt.length))
 		})
 	}
 }
@@ -322,9 +296,7 @@ func TestClearBits(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ClearBits(tt.val, tt.start, tt.length); got != tt.want {
-				t.Errorf("ClearBits(%08b, %d, %d) = %08b, want %08b", tt.val, tt.start, tt.length, got, tt.want)
-			}
+			require.Equal(t, tt.want, ClearBits(tt.val, tt.start, tt.length))
 		})
 	}
 }
@@ -341,9 +313,7 @@ func TestToggleBits(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ToggleBits(tt.val, tt.start, tt.length); got != tt.want {
-				t.Errorf("ToggleBits(%08b, %d, %d) = %08b, want %08b", tt.val, tt.start, tt.length, got, tt.want)
-			}
+			require.Equal(t, tt.want, ToggleBits(tt.val, tt.start, tt.length))
 		})
 	}
 }
@@ -362,9 +332,7 @@ func TestTestBits(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := TestBits(tt.val, tt.start, tt.length); got != tt.want {
-				t.Errorf("TestBits(%08b, %d, %d) = %v, want %v", tt.val, tt.start, tt.length, got, tt.want)
-			}
+			require.Equal(t, tt.want, TestBits(tt.val, tt.start, tt.length))
 		})
 	}
 }
@@ -382,17 +350,13 @@ func TestCreateMask(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := CreateMask[uint8](tt.length); got != tt.want {
-				t.Errorf("CreateMask[uint8](%d) = %08b, want %08b", tt.length, got, tt.want)
-			}
+			require.Equal(t, tt.want, CreateMask[uint8](tt.length))
 		})
 	}
 }
 
 func TestApplyMask(t *testing.T) {
-	if got := ApplyMask(uint8(0b11110000), uint8(0b00111100)); got != 0b00110000 {
-		t.Errorf("ApplyMask = %08b, want 00110000", got)
-	}
+	require.Equal(t, uint8(0b00110000), ApplyMask(uint8(0b11110000), uint8(0b00111100)))
 }
 
 func TestIsPowerOfTwo(t *testing.T) {
@@ -410,9 +374,7 @@ func TestIsPowerOfTwo(t *testing.T) {
 		{128, true},
 	}
 	for _, tt := range tests {
-		if got := IsPowerOfTwo(tt.val); got != tt.want {
-			t.Errorf("IsPowerOfTwo(%d) = %v, want %v", tt.val, got, tt.want)
-		}
+		require.Equal(t, tt.want, IsPowerOfTwo(tt.val))
 	}
 }
 
@@ -427,9 +389,7 @@ func TestParity(t *testing.T) {
 		{15, 0}, // 4 bits set
 	}
 	for _, tt := range tests {
-		if got := Parity(tt.val); got != tt.want {
-			t.Errorf("Parity(%d) = %d, want %d", tt.val, got, tt.want)
-		}
+		require.Equal(t, tt.want, Parity(tt.val))
 	}
 }
 
@@ -447,9 +407,7 @@ func TestSwapBits(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := SwapBits(tt.val, tt.pos1, tt.pos2); got != tt.want {
-				t.Errorf("SwapBits(%08b, %d, %d) = %08b, want %08b", tt.val, tt.pos1, tt.pos2, got, tt.want)
-			}
+			require.Equal(t, tt.want, SwapBits(tt.val, tt.pos1, tt.pos2))
 		})
 	}
 }
@@ -468,9 +426,7 @@ func TestSignExtend(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := SignExtend(tt.val, tt.fromBits); got != tt.want {
-				t.Errorf("SignExtend(%d, %d) = %d, want %d", tt.val, tt.fromBits, got, tt.want)
-			}
+			require.Equal(t, tt.want, SignExtend(tt.val, tt.fromBits))
 		})
 	}
 }

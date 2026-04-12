@@ -7,18 +7,17 @@ package iso7064_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/domain/validation/iso7064"
 )
 
 func TestMod11_10_Examples(t *testing.T) {
 	ok, err := iso7064.Mod11_10("123456788")
-	if err != nil || !ok {
-		t.Fatalf("Mod11_10(example) = (%v, %v), want (true, nil)", ok, err)
-	}
+	require.NoError(t, err)
+	require.True(t, ok)
 
-	if !iso7064.IsValidMod11_10("123456788") {
-		t.Fatalf("IsValidMod11_10(example) = false, want true")
-	}
+	require.True(t, iso7064.IsValidMod11_10("123456788"))
 }
 
 func TestMod11_10_InvalidInput(t *testing.T) {
@@ -37,30 +36,23 @@ func TestMod11_10_InvalidInput(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			ok, err := iso7064.Mod11_10(tc.in)
-			if err == nil {
-				t.Fatalf("Mod11_10(%q) err=nil, want non-nil", tc.in)
-			}
-			if ok {
-				t.Fatalf("Mod11_10(%q) ok=true, want false", tc.in)
-			}
+			require.Error(t, err)
+			require.False(t, ok)
 		})
 	}
 }
 
 func TestMod11_10_Int64_NegativeIsInvalid(t *testing.T) {
 	ok, err := iso7064.Mod11_10(int64(-1))
-	if err == nil || ok {
-		t.Fatalf("Mod11_10(-1) = (%v, %v), want (false, err)", ok, err)
-	}
+	require.Error(t, err)
+	require.False(t, ok)
 }
 
 func TestMod11_10_StringLeadingZeros_Accepted(t *testing.T) {
 	// This test asserts the input format is accepted and evaluated.
 	// (Leading zeros cannot be represented via int64.)
 	ok, err := iso7064.Mod11_10("012345678")
-	if err != nil {
-		t.Fatalf("Mod11_10(\"012345678\") err=%v, want nil", err)
-	}
+	require.NoError(t, err)
 	_ = ok // may be true or false depending on check digit; format must be accepted.
 }
 
@@ -102,8 +94,7 @@ func TestMod11_10_GeneratedCheckDigits_AreValid(t *testing.T) {
 		full := data8 + string(byte('0'+checkDigit))
 
 		ok, err := iso7064.Mod11_10(full)
-		if err != nil || !ok {
-			t.Fatalf("Mod11_10(%q) = (%v, %v), want (true, nil)", full, ok, err)
-		}
+		require.NoError(t, err)
+		require.True(t, ok, "Mod11_10(%q)", full)
 	}
 }

@@ -7,6 +7,8 @@ package validators_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/config/internal/validators"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -106,13 +108,11 @@ func TestMongoDirectionConnectRule_Validate(t *testing.T) {
 				rule = rule.When(false)
 			}
 			err := rule.Validate(tt.value)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("MongoDirectionConnectRule.Validate() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if tt.wantErr && err != nil {
-				if err.Error() != validators.ErrDirectionConnectInvalid.Error() {
-					t.Errorf("MongoDirectionConnectRule.Validate() error message = %v, want %v", err.Error(), validators.ErrDirectionConnectInvalid.Error())
-				}
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Equal(t, validators.ErrDirectionConnectInvalid.Error(), err.Error())
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -123,17 +123,11 @@ func TestMongoDirectionConnectRule_When(t *testing.T) {
 	rule := validators.MongoDirectionConnect(hosts).When(false)
 
 	// Should not return error even with invalid configuration because condition is false
-	err := rule.Validate(true)
-	if err != nil {
-		t.Errorf("MongoDirectionConnectRule.When(false) should skip validation, got error: %v", err)
-	}
+	require.NoError(t, rule.Validate(true))
 
 	// With condition true, should return error
 	rule = validators.MongoDirectionConnect(hosts).When(true)
-	err = rule.Validate(true)
-	if err == nil {
-		t.Error("MongoDirectionConnectRule.When(true) should validate and return error for multiple hosts")
-	}
+	require.Error(t, rule.Validate(true))
 }
 
 func TestMongoDirectionConnectRule_Error(t *testing.T) {
@@ -143,13 +137,8 @@ func TestMongoDirectionConnectRule_Error(t *testing.T) {
 	rule := validators.MongoDirectionConnect(hosts).Error(customMessage)
 	err := rule.Validate(true)
 
-	if err == nil {
-		t.Fatal("Expected error, got nil")
-	}
-
-	if err.Error() != customMessage {
-		t.Errorf("Error message = %v, want %v", err.Error(), customMessage)
-	}
+	require.Error(t, err)
+	require.Equal(t, customMessage, err.Error())
 }
 
 func TestMongoDirectionConnectRule_ErrorObject(t *testing.T) {
@@ -159,20 +148,11 @@ func TestMongoDirectionConnectRule_ErrorObject(t *testing.T) {
 	rule := validators.MongoDirectionConnect(hosts).ErrorObject(customErr)
 	err := rule.Validate(true)
 
-	if err == nil {
-		t.Fatal("Expected error, got nil")
-	}
-
-	if err.Error() != customErr.Error() {
-		t.Errorf("Error message = %v, want %v", err.Error(), customErr.Error())
-	}
+	require.Error(t, err)
+	require.Equal(t, customErr.Error(), err.Error())
 
 	// Verify it's the custom error code
-	if valErr, ok := err.(validation.Error); ok {
-		if valErr.Code() != "custom_code" {
-			t.Errorf("Error code = %v, want %v", valErr.Code(), "custom_code")
-		}
-	} else {
-		t.Error("Error should be of type validation.Error")
-	}
+	valErr, ok := err.(validation.Error)
+	require.True(t, ok, "Error should be of type validation.Error")
+	require.Equal(t, "custom_code", valErr.Code())
 }

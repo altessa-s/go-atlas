@@ -8,6 +8,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCoordinator_Subscribe_CheckTimeoutBoundsInitialStatus(t *testing.T) {
@@ -39,7 +41,7 @@ func TestCoordinator_Subscribe_CheckTimeoutBoundsInitialStatus(t *testing.T) {
 	select {
 	case <-done:
 	case <-timer.C:
-		t.Fatal("Subscribe did not return in time; expected check timeout to bound initial status")
+		require.Fail(t, "Subscribe did not return in time; expected check timeout to bound initial status")
 	}
 }
 
@@ -52,9 +54,7 @@ func TestCoordinator_Subscribe_WithDefaultOptions_DoesNotPanic(t *testing.T) {
 	c.RegisterService("svc", Func(func(context.Context) ServingStatus { return StatusServing }))
 
 	sub, err := c.Subscribe(t.Context(), "svc")
-	if err != nil {
-		t.Fatalf("Subscribe err=%v", err)
-	}
+	require.NoError(t, err)
 	sub.Close()
 }
 
@@ -63,12 +63,8 @@ func TestCoordinator_StatusDegraded(t *testing.T) {
 	c.RegisterService("svc", Func(func(context.Context) ServingStatus { return StatusDegraded }))
 
 	status := c.CheckStatus(t.Context(), "svc")
-	if status != StatusDegraded {
-		t.Errorf("expected StatusDegraded, got %v", status)
-	}
-	if status.String() != "DEGRADED" {
-		t.Errorf("expected DEGRADED string, got %s", status.String())
-	}
+	require.Equal(t, StatusDegraded, status)
+	require.Equal(t, "DEGRADED", status.String())
 }
 
 func TestCoordinator_Close(t *testing.T) {
@@ -76,9 +72,7 @@ func TestCoordinator_Close(t *testing.T) {
 	c.RegisterService("svc", Func(func(context.Context) ServingStatus { return StatusServing }))
 
 	sub, err := c.Subscribe(t.Context(), "svc")
-	if err != nil {
-		t.Fatalf("Subscribe err=%v", err)
-	}
+	require.NoError(t, err)
 
 	c.Close()
 
@@ -89,10 +83,8 @@ func TestCoordinator_Close(t *testing.T) {
 	// In our implementation, Close() calls BroadcastStatus(StatusNotServing).
 	select {
 	case s := <-sub.Updates():
-		if s != StatusNotServing {
-			t.Errorf("expected StatusNotServing after Close, got %v", s)
-		}
+		require.Equal(t, StatusNotServing, s, "expected StatusNotServing after Close")
 	case <-time.After(100 * time.Millisecond):
-		t.Error("timeout waiting for status update after Close")
+		require.Fail(t, "timeout waiting for status update after Close")
 	}
 }

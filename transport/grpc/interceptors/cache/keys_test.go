@@ -8,48 +8,38 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	grpcmetadata "google.golang.org/grpc/metadata"
 )
 
 func TestDefaultKeyGenerator(t *testing.T) {
 	ctx := t.Context()
 	key, err := DefaultKeyGenerator(ctx, "/svc/Get", "req")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if key == "" {
-		t.Fatal("expected non-empty key")
-	}
-	if len(key) != 16 {
-		t.Fatalf("key length = %d, expected 16 hex chars", len(key))
-	}
+	require.NoError(t, err)
+	require.NotEqual(t, "", key)
+	require.Len(t, key, 16)
 }
 
 func TestDefaultKeyGenerator_Deterministic(t *testing.T) {
 	ctx := t.Context()
 	k1, _ := DefaultKeyGenerator(ctx, "/svc/Get", "req")
 	k2, _ := DefaultKeyGenerator(ctx, "/svc/Get", "req")
-	if k1 != k2 {
-		t.Fatal("same input should produce same key")
-	}
+	require.Equal(t, k2, k1)
 }
 
 func TestDefaultKeyGenerator_DifferentRequests(t *testing.T) {
 	ctx := t.Context()
 	k1, _ := DefaultKeyGenerator(ctx, "/svc/Get", "req1")
 	k2, _ := DefaultKeyGenerator(ctx, "/svc/Get", "req2")
-	if k1 == k2 {
-		t.Fatal("different requests should produce different keys")
-	}
+	require.NotEqual(t, k2, k1)
 }
 
 func TestDefaultKeyGenerator_DifferentMethods(t *testing.T) {
 	ctx := t.Context()
 	k1, _ := DefaultKeyGenerator(ctx, "/svc/Get", "req")
 	k2, _ := DefaultKeyGenerator(ctx, "/svc/List", "req")
-	if k1 == k2 {
-		t.Fatal("different methods should produce different keys")
-	}
+	require.NotEqual(t, k2, k1)
 }
 
 func TestNewKeyGenerator_WithMetadata(t *testing.T) {
@@ -60,9 +50,7 @@ func TestNewKeyGenerator_WithMetadata(t *testing.T) {
 
 	k1, _ := gen(ctx1, "/svc/Get", "req")
 	k2, _ := gen(ctx2, "/svc/Get", "req")
-	if k1 == k2 {
-		t.Fatal("different metadata should produce different keys")
-	}
+	require.NotEqual(t, k2, k1)
 }
 
 func TestNewKeyGenerator_WithProcessor(t *testing.T) {
@@ -72,18 +60,12 @@ func TestNewKeyGenerator_WithProcessor(t *testing.T) {
 	gen := NewKeyGenerator(nil, processor)
 	ctx := grpcmetadata.NewIncomingContext(t.Context(), grpcmetadata.MD{})
 	key, err := gen(ctx, "/svc/Get", "req")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if key == "" {
-		t.Fatal("expected non-empty key")
-	}
+	require.NoError(t, err)
+	require.NotEqual(t, "", key)
 }
 
 func TestDefaultMetadataKeys(t *testing.T) {
-	if len(DefaultMetadataKeys) == 0 {
-		t.Fatal("DefaultMetadataKeys should not be empty")
-	}
+	require.NotEqual(t, 0, len(DefaultMetadataKeys))
 }
 
 func BenchmarkDefaultKeyGenerator(b *testing.B) {

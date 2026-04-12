@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCurrentExecutableDir(t *testing.T) {
@@ -17,42 +19,30 @@ func TestCurrentExecutableDir(t *testing.T) {
 	if dir == "" {
 		t.Skip("CurrentExecutableDir() returned empty (may happen in some test environments)")
 	}
-	if !filepath.IsAbs(dir) {
-		t.Errorf("CurrentExecutableDir() = %q, want absolute path", dir)
-	}
+	require.True(t, filepath.IsAbs(dir), "CurrentExecutableDir() = %q, want absolute path", dir)
 }
 
 func TestFindFile_RelativePath(t *testing.T) {
 	// Create a temp dir with a file
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "testfile.txt")
-	if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(testFile, []byte("test"), 0644))
 
 	// FindFile with absolute path should find it
 	found := FindFile(testFile, nil)
-	if found != testFile {
-		t.Errorf("FindFile(absolute) = %q, want %q", found, testFile)
-	}
+	require.Equal(t, testFile, found, "FindFile(absolute)")
 
 	// FindFile with non-existent file
 	found = FindFile("/nonexistent/path/file.txt", nil)
-	if found != "" {
-		t.Errorf("FindFile(missing) = %q, want empty", found)
-	}
+	require.Equal(t, "", found, "FindFile(missing)")
 }
 
 func TestFindFile_WithBaseSearchPaths(t *testing.T) {
 	tmpDir := t.TempDir()
 	subDir := filepath.Join(tmpDir, "configs")
-	if err := os.MkdirAll(subDir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.MkdirAll(subDir, 0755))
 	testFile := filepath.Join(subDir, "app.toml")
-	if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(testFile, []byte("test"), 0644))
 
 	// Search with base paths including the parent dir
 	found := FindFile(testFile, []string{tmpDir})
@@ -64,7 +54,5 @@ func TestFindFile_WithBaseSearchPaths(t *testing.T) {
 
 func TestDirIsEmpty_NonExistent(t *testing.T) {
 	_, err := DirIsEmpty("/nonexistent/dir/path")
-	if err == nil {
-		t.Error("DirIsEmpty on non-existent dir should error")
-	}
+	require.Error(t, err, "DirIsEmpty on non-existent dir should error")
 }

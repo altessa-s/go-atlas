@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 var discardLogger = slog.New(slog.DiscardHandler)
@@ -27,12 +29,8 @@ func (s *simpleItem) Name() string { return s.name }
 func TestGraph_EmptySort(t *testing.T) {
 	g := New[*simpleItem](discardLogger)
 	result, err := g.TopologicalSort()
-	if err != nil {
-		t.Fatalf("TopologicalSort() error = %v", err)
-	}
-	if result != nil {
-		t.Fatalf("TopologicalSort() = %v, want nil", result)
-	}
+	require.NoError(t, err)
+	require.Nil(t, result)
 }
 
 func TestGraph_SingleNode(t *testing.T) {
@@ -40,12 +38,9 @@ func TestGraph_SingleNode(t *testing.T) {
 	g.AddNode("a", &simpleItem{"a"})
 
 	result, err := g.TopologicalSort()
-	if err != nil {
-		t.Fatalf("TopologicalSort() error = %v", err)
-	}
-	if len(result) != 1 || result[0].Name() != "a" {
-		t.Fatalf("TopologicalSort() = %v, want [a]", result)
-	}
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	require.Equal(t, "a", result[0].Name())
 }
 
 func TestGraph_LinearDependency(t *testing.T) {
@@ -57,16 +52,12 @@ func TestGraph_LinearDependency(t *testing.T) {
 	g.AddEdge("b", "c") // b before c
 
 	result, err := g.TopologicalSort()
-	if err != nil {
-		t.Fatalf("TopologicalSort() error = %v", err)
-	}
+	require.NoError(t, err)
 	names := make([]string, len(result))
 	for i, r := range result {
 		names[i] = r.Name()
 	}
-	if strings.Join(names, ",") != "a,b,c" {
-		t.Fatalf("TopologicalSort() = %v, want [a,b,c]", names)
-	}
+	require.Equal(t, "a,b,c", strings.Join(names, ","))
 }
 
 func TestGraph_CycleDetection(t *testing.T) {
@@ -77,24 +68,16 @@ func TestGraph_CycleDetection(t *testing.T) {
 	g.AddEdge("b", "a")
 
 	_, err := g.TopologicalSort()
-	if err == nil {
-		t.Fatal("expected cycle error")
-	}
-	if !strings.Contains(err.Error(), "circular dependency") {
-		t.Fatalf("error = %q, want containing 'circular dependency'", err.Error())
-	}
+	require.Error(t, err)
+	require.True(t, strings.Contains(err.Error(), "circular dependency"))
 }
 
 func TestGraph_HasNode(t *testing.T) {
 	g := New[*simpleItem](discardLogger)
 	g.AddNode("a", &simpleItem{"a"})
 
-	if !g.HasNode("a") {
-		t.Fatal("HasNode(a) = false")
-	}
-	if g.HasNode("b") {
-		t.Fatal("HasNode(b) = true")
-	}
+	require.True(t, g.HasNode("a"), "HasNode(a) = false")
+	require.False(t, g.HasNode("b"), "HasNode(b) = true")
 }
 
 func TestGraph_DuplicateAddNode(t *testing.T) {
@@ -103,9 +86,7 @@ func TestGraph_DuplicateAddNode(t *testing.T) {
 	g.AddNode("a", &simpleItem{"a2"}) // should be ignored
 
 	result, _ := g.TopologicalSort()
-	if len(result) != 1 {
-		t.Fatalf("expected 1 node, got %d", len(result))
-	}
+	require.Len(t, result, 1)
 }
 
 func TestGraph_InsertionOrderStable(t *testing.T) {
@@ -115,17 +96,13 @@ func TestGraph_InsertionOrderStable(t *testing.T) {
 	g.AddNode("a", &simpleItem{"a"})
 
 	result, err := g.TopologicalSort()
-	if err != nil {
-		t.Fatalf("error = %v", err)
-	}
+	require.NoError(t, err)
 	// Should maintain insertion order: c, b, a (no dependencies)
 	names := make([]string, len(result))
 	for i, r := range result {
 		names[i] = r.Name()
 	}
-	if strings.Join(names, ",") != "c,b,a" {
-		t.Fatalf("got %v, want [c,b,a]", names)
-	}
+	require.Equal(t, "c,b,a", strings.Join(names, ","))
 }
 
 func TestBuild(t *testing.T) {
@@ -136,9 +113,7 @@ func TestBuild(t *testing.T) {
 	}
 
 	sorted, err := Build[*testItem](items, discardLogger)
-	if err != nil {
-		t.Fatalf("Build() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	names := make([]string, len(sorted))
 	for i, s := range sorted {
@@ -157,19 +132,13 @@ func TestBuild(t *testing.T) {
 			cIdx = i
 		}
 	}
-	if aIdx > bIdx || aIdx > cIdx || bIdx > cIdx {
-		t.Fatalf("wrong order: %v", names)
-	}
+	require.True(t, aIdx <= bIdx && aIdx <= cIdx && bIdx <= cIdx, "wrong order: %v", names)
 }
 
 func TestBuild_Empty(t *testing.T) {
 	result, err := Build[*testItem](nil, discardLogger)
-	if err != nil {
-		t.Fatalf("Build(nil) error = %v", err)
-	}
-	if result != nil {
-		t.Fatalf("Build(nil) = %v, want nil", result)
-	}
+	require.NoError(t, err)
+	require.Nil(t, result)
 }
 
 func TestBuild_MissingDependency(t *testing.T) {
@@ -178,12 +147,8 @@ func TestBuild_MissingDependency(t *testing.T) {
 	}
 
 	sorted, err := Build[*testItem](items, discardLogger)
-	if err != nil {
-		t.Fatalf("Build() error = %v", err)
-	}
-	if len(sorted) != 1 {
-		t.Fatalf("expected 1 item, got %d", len(sorted))
-	}
+	require.NoError(t, err)
+	require.Len(t, sorted, 1)
 }
 
 type requiredTestItem struct {
@@ -203,16 +168,11 @@ func TestBuild_RequiredDependencyPresent(t *testing.T) {
 	}
 
 	sorted, err := Build[*requiredTestItem](items, discardLogger)
-	if err != nil {
-		t.Fatalf("Build() error = %v", err)
-	}
+	require.NoError(t, err)
 
-	if len(sorted) != 2 {
-		t.Fatalf("expected 2 items, got %d", len(sorted))
-	}
-	if sorted[0].Name() != "realip" || sorted[1].Name() != "limiter" {
-		t.Fatalf("wrong order: %v, %v", sorted[0].Name(), sorted[1].Name())
-	}
+	require.Len(t, sorted, 2)
+	require.Equal(t, "realip", sorted[0].Name())
+	require.Equal(t, "limiter", sorted[1].Name())
 }
 
 func TestBuild_RequiredDependencyMissing(t *testing.T) {
@@ -221,15 +181,9 @@ func TestBuild_RequiredDependencyMissing(t *testing.T) {
 	}
 
 	_, err := Build[*requiredTestItem](items, discardLogger)
-	if err == nil {
-		t.Fatal("expected error for missing required dependency")
-	}
-	if !strings.Contains(err.Error(), "requires dependency") {
-		t.Fatalf("error = %q, want containing 'requires dependency'", err.Error())
-	}
-	if !strings.Contains(err.Error(), "realip") {
-		t.Fatalf("error = %q, want containing 'realip'", err.Error())
-	}
+	require.Error(t, err)
+	require.True(t, strings.Contains(err.Error(), "requires dependency"))
+	require.True(t, strings.Contains(err.Error(), "realip"))
 }
 
 func TestBuild_MixedRequiredAndOptional(t *testing.T) {
@@ -240,9 +194,7 @@ func TestBuild_MixedRequiredAndOptional(t *testing.T) {
 	}
 
 	sorted, err := Build[*requiredTestItem](items, discardLogger)
-	if err != nil {
-		t.Fatalf("Build() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	// realip and metadata must come before audit; tracing is optional and missing
 	names := make([]string, len(sorted))
@@ -256,9 +208,7 @@ func TestBuild_MixedRequiredAndOptional(t *testing.T) {
 			auditIdx = i
 		}
 	}
-	if auditIdx < 2 {
-		t.Fatalf("audit should be after realip and metadata, got order: %v", names)
-	}
+	require.GreaterOrEqual(t, auditIdx, 2, "audit should be after realip and metadata, got order: %v", names)
 }
 
 func TestBuild_OverlappingRequiredAndOptional(t *testing.T) {
@@ -270,15 +220,10 @@ func TestBuild_OverlappingRequiredAndOptional(t *testing.T) {
 	}
 
 	sorted, err := Build[*requiredTestItem](items, discardLogger)
-	if err != nil {
-		t.Fatalf("Build() error = %v", err)
-	}
-	if len(sorted) != 2 {
-		t.Fatalf("expected 2 items, got %d", len(sorted))
-	}
-	if sorted[0].Name() != "realip" || sorted[1].Name() != "limiter" {
-		t.Fatalf("wrong order: %v, %v", sorted[0].Name(), sorted[1].Name())
-	}
+	require.NoError(t, err)
+	require.Len(t, sorted, 2)
+	require.Equal(t, "realip", sorted[0].Name())
+	require.Equal(t, "limiter", sorted[1].Name())
 }
 
 func TestGraph_PriorityOrder(t *testing.T) {
@@ -299,9 +244,7 @@ func TestGraph_PriorityOrder(t *testing.T) {
 	g.AddEdge("realip", "limiter")      // limiter depends on realip
 
 	result, err := g.TopologicalSort()
-	if err != nil {
-		t.Fatalf("TopologicalSort() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	names := make([]string, len(result))
 	for i, r := range result {
@@ -309,9 +252,7 @@ func TestGraph_PriorityOrder(t *testing.T) {
 	}
 
 	expected := "metadata,realip,requestid,errstatus,limiter"
-	if strings.Join(names, ",") != expected {
-		t.Fatalf("TopologicalSort() = %v, want %v", names, expected)
-	}
+	require.Equal(t, expected, strings.Join(names, ","))
 }
 
 func TestBuild_Cycle(t *testing.T) {
@@ -321,7 +262,5 @@ func TestBuild_Cycle(t *testing.T) {
 	}
 
 	_, err := Build[*testItem](items, discardLogger)
-	if err == nil {
-		t.Fatal("expected cycle error")
-	}
+	require.Error(t, err)
 }

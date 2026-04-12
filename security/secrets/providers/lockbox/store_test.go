@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
@@ -35,11 +37,9 @@ func TestValidateLockboxFolderId(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validateLockboxFolderId(tt.folderId)
 			if tt.wantErr != nil {
-				if err != tt.wantErr {
-					t.Errorf("validateLockboxFolderId(%q) = %v, want %v", tt.folderId, err, tt.wantErr)
-				}
-			} else if err != nil {
-				t.Errorf("validateLockboxFolderId(%q) unexpected error: %v", tt.folderId, err)
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -65,11 +65,9 @@ func TestValidateLockboxKeyId(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validateLockboxKeyId(tt.keyId)
 			if tt.wantErr != nil {
-				if err != tt.wantErr {
-					t.Errorf("validateLockboxKeyId(%q) = %v, want %v", tt.keyId, err, tt.wantErr)
-				}
-			} else if err != nil {
-				t.Errorf("validateLockboxKeyId(%q) unexpected error: %v", tt.keyId, err)
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -93,11 +91,9 @@ func TestValidateLockboxServiceAccountId(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validateLockboxServiceAccountId(tt.serviceAccountId)
 			if tt.wantErr != nil {
-				if err != tt.wantErr {
-					t.Errorf("validateLockboxServiceAccountId(%q) = %v, want %v", tt.serviceAccountId, err, tt.wantErr)
-				}
-			} else if err != nil {
-				t.Errorf("validateLockboxServiceAccountId(%q) unexpected error: %v", tt.serviceAccountId, err)
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -125,11 +121,9 @@ func TestValidateLockboxPrivateKey(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validateLockboxPrivateKey(tt.privKey)
 			if tt.wantErr != nil {
-				if err != tt.wantErr {
-					t.Errorf("validateLockboxPrivateKey() = %v, want %v", err, tt.wantErr)
-				}
-			} else if err != nil {
-				t.Errorf("validateLockboxPrivateKey() unexpected error: %v", err)
+				require.ErrorIs(t, err, tt.wantErr)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -138,14 +132,10 @@ func TestValidateLockboxPrivateKey(t *testing.T) {
 func TestValidateLockboxPrivateKey_ValidPKCS8(t *testing.T) {
 	key := testhelpers.GenerateRSAKey(t, 2048)
 	der, err := x509.MarshalPKCS8PrivateKey(key)
-	if err != nil {
-		t.Fatalf("failed to marshal key: %v", err)
-	}
+	require.NoError(t, err)
 	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
 
-	if err := validateLockboxPrivateKey(pemBytes); err != nil {
-		t.Errorf("validateLockboxPrivateKey() with valid PKCS8 key = %v, want nil", err)
-	}
+	require.NoError(t, validateLockboxPrivateKey(pemBytes))
 }
 
 func TestValidateLockboxSecretKey(t *testing.T) {
@@ -166,8 +156,10 @@ func TestValidateLockboxSecretKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validateLockboxSecretKey(tt.key)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("validateLockboxSecretKey(%q) error = %v, wantErr %v", tt.key, err, tt.wantErr)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -175,9 +167,7 @@ func TestValidateLockboxSecretKey(t *testing.T) {
 
 func TestStorageName(t *testing.T) {
 	s := &Storage[string]{}
-	if got := s.Name(); got != "lockbox" {
-		t.Errorf("Name() = %q, want %q", got, "lockbox")
-	}
+	require.Equal(t, "lockbox", s.Name())
 }
 
 func TestReadPrivateKey(t *testing.T) {
@@ -218,11 +208,13 @@ func TestReadPrivateKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := ReadPrivateKey(tt.keyData, tt.keyPath)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("ReadPrivateKey() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
-			if tt.wantNonNil && got == nil {
-				t.Error("ReadPrivateKey() returned nil, want non-nil")
+			if tt.wantNonNil {
+				require.NotNil(t, got)
 			}
 		})
 	}
@@ -232,31 +224,21 @@ func TestReadPrivateKey_FromFile(t *testing.T) {
 	dir := t.TempDir()
 	keyContent := "test-key-content"
 	keyPath := filepath.Join(dir, "key.pem")
-	if err := os.WriteFile(keyPath, []byte(keyContent), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(keyPath, []byte(keyContent), 0o600))
 
 	got, err := ReadPrivateKey(nil, &keyPath)
-	if err != nil {
-		t.Fatalf("ReadPrivateKey() error = %v", err)
-	}
-	if string(got) != keyContent {
-		t.Errorf("ReadPrivateKey() = %q, want %q", string(got), keyContent)
-	}
+	require.NoError(t, err)
+	require.Equal(t, keyContent, string(got))
 }
 
 func TestNewLockBoxToken(t *testing.T) {
 	token := NewLockBoxToken("key-id", "sa-id", []byte("privkey"))
-	if token == nil {
-		t.Fatal("NewLockBoxToken() returned nil")
-	}
+	require.NotNil(t, token)
 }
 
 func TestToken_RequireTransportSecurity(t *testing.T) {
 	token := NewLockBoxToken("key-id", "sa-id", []byte("privkey"))
-	if !token.RequireTransportSecurity() {
-		t.Error("RequireTransportSecurity() = false, want true")
-	}
+	require.True(t, token.RequireTransportSecurity())
 }
 
 func TestToken_Shutdown(t *testing.T) {
@@ -272,9 +254,7 @@ func TestToken_GetRequestMetadata_AfterShutdown(t *testing.T) {
 	token.Shutdown()
 
 	_, err := token.GetRequestMetadata(nil)
-	if err == nil {
-		t.Error("GetRequestMetadata() after Shutdown() should return error")
-	}
+	require.Error(t, err)
 }
 
 func TestAddJitter(t *testing.T) {
@@ -292,9 +272,7 @@ func TestAddJitter(t *testing.T) {
 			base := clientTokenLifetime
 			result := addJitter(base, tt.percent)
 			if tt.percent == 0 {
-				if result != base {
-					t.Errorf("addJitter() with 0%% = %v, want %v", result, base)
-				}
+				require.Equal(t, base, result)
 				return
 			}
 			// Result should be within ±percent range

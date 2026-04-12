@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/security/vault/auth"
 
 	vaultApi "github.com/hashicorp/vault/api"
@@ -17,28 +19,20 @@ import (
 func TestAuthError_Error(t *testing.T) {
 	t.Run("without wrapped", func(t *testing.T) {
 		err := auth.NewAuthError("approle", "invalid role ID", 401, nil)
-		expected := "auth method approle failed: invalid role ID (code: 401)"
-		if err.Error() != expected {
-			t.Errorf("Error() = %q, want %q", err.Error(), expected)
-		}
+		require.Equal(t, "auth method approle failed: invalid role ID (code: 401)", err.Error())
 	})
 
 	t.Run("with wrapped", func(t *testing.T) {
 		wrapped := errors.New("connection refused")
 		err := auth.NewAuthError("approle", "network error", 500, wrapped)
-		expected := "auth method approle failed: network error (code: 500): connection refused"
-		if err.Error() != expected {
-			t.Errorf("Error() = %q, want %q", err.Error(), expected)
-		}
+		require.Equal(t, "auth method approle failed: network error (code: 500): connection refused", err.Error())
 	})
 }
 
 func TestAuthError_Unwrap(t *testing.T) {
 	wrapped := errors.New("underlying error")
 	err := auth.NewAuthError("approle", "test", 401, wrapped)
-	if err.Unwrap() != wrapped {
-		t.Errorf("Unwrap() = %v, want %v", err.Unwrap(), wrapped)
-	}
+	require.Equal(t, wrapped, err.Unwrap())
 }
 
 func TestAuthError_Is(t *testing.T) {
@@ -59,9 +53,7 @@ func TestAuthError_Is(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := auth.NewAuthError("test", "test error", tt.code, nil)
-			if got := errors.Is(err, tt.target); got != tt.want {
-				t.Errorf("Is(%v) = %v, want %v", tt.target, got, tt.want)
-			}
+			require.Equal(t, tt.want, errors.Is(err, tt.target))
 		})
 	}
 }
@@ -70,32 +62,20 @@ func TestNewAuthError(t *testing.T) {
 	wrapped := errors.New("wrapped error")
 	err := auth.NewAuthError("approle", "invalid credentials", 401, wrapped)
 
-	if err.Method != "approle" {
-		t.Errorf("Method = %q, want %q", err.Method, "approle")
-	}
-	if err.Reason != "invalid credentials" {
-		t.Errorf("Reason = %q, want %q", err.Reason, "invalid credentials")
-	}
-	if err.Code != 401 {
-		t.Errorf("Code = %d, want 401", err.Code)
-	}
-	if err.Wrapped != wrapped {
-		t.Errorf("Wrapped = %v, want %v", err.Wrapped, wrapped)
-	}
+	require.Equal(t, "approle", err.Method)
+	require.Equal(t, "invalid credentials", err.Reason)
+	require.Equal(t, 401, err.Code)
+	require.Equal(t, wrapped, err.Wrapped)
 }
 
 func TestWrapAuthError_Nil(t *testing.T) {
-	if auth.WrapAuthError("approle", nil) != nil {
-		t.Error("WrapAuthError(nil) should return nil")
-	}
+	require.Nil(t, auth.WrapAuthError("approle", nil))
 }
 
 func TestWrapAuthError_AlreadyAuthError(t *testing.T) {
 	original := auth.NewAuthError("approle", "test", 401, nil)
 	wrapped := auth.WrapAuthError("userpass", original)
-	if wrapped != original {
-		t.Error("WrapAuthError should not double-wrap AuthError")
-	}
+	require.Equal(t, original, wrapped)
 }
 
 func TestWrapAuthError_GenericError(t *testing.T) {
@@ -103,18 +83,10 @@ func TestWrapAuthError_GenericError(t *testing.T) {
 	wrapped := auth.WrapAuthError("approle", original)
 
 	authErr, ok := wrapped.(*auth.AuthError)
-	if !ok {
-		t.Fatalf("expected *AuthError, got %T", wrapped)
-	}
-	if authErr.Method != "approle" {
-		t.Errorf("Method = %q, want %q", authErr.Method, "approle")
-	}
-	if authErr.Code != 0 {
-		t.Errorf("Code = %d, want 0", authErr.Code)
-	}
-	if !errors.Is(wrapped, original) {
-		t.Error("should unwrap to original")
-	}
+	require.True(t, ok)
+	require.Equal(t, "approle", authErr.Method)
+	require.Equal(t, 0, authErr.Code)
+	require.ErrorIs(t, wrapped, original)
 }
 
 func TestIsAuthenticationError(t *testing.T) {
@@ -134,9 +106,7 @@ func TestIsAuthenticationError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := auth.IsAuthenticationError(tt.err); got != tt.want {
-				t.Errorf("IsAuthenticationError() = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, auth.IsAuthenticationError(tt.err))
 		})
 	}
 }
@@ -159,9 +129,7 @@ func TestIsRetryableError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := auth.IsRetryableError(tt.err); got != tt.want {
-				t.Errorf("IsRetryableError() = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, auth.IsRetryableError(tt.err))
 		})
 	}
 }
@@ -174,15 +142,9 @@ func TestWrapAuthError_VaultResponseError(t *testing.T) {
 	wrapped := auth.WrapAuthError("approle", vaultErr)
 
 	authErr, ok := wrapped.(*auth.AuthError)
-	if !ok {
-		t.Fatalf("expected *AuthError, got %T", wrapped)
-	}
-	if authErr.Code != 401 {
-		t.Errorf("Code = %d, want 401", authErr.Code)
-	}
-	if authErr.Reason != "invalid secret id" {
-		t.Errorf("Reason = %q, want %q", authErr.Reason, "invalid secret id")
-	}
+	require.True(t, ok)
+	require.Equal(t, 401, authErr.Code)
+	require.Equal(t, "invalid secret id", authErr.Reason)
 }
 
 func TestWrapAuthError_VaultResponseError_NoErrors(t *testing.T) {
@@ -193,12 +155,8 @@ func TestWrapAuthError_VaultResponseError_NoErrors(t *testing.T) {
 	wrapped := auth.WrapAuthError("approle", vaultErr)
 
 	authErr, ok := wrapped.(*auth.AuthError)
-	if !ok {
-		t.Fatalf("expected *AuthError, got %T", wrapped)
-	}
-	if authErr.Reason != "authentication failed" {
-		t.Errorf("Reason = %q, want %q", authErr.Reason, "authentication failed")
-	}
+	require.True(t, ok)
+	require.Equal(t, "authentication failed", authErr.Reason)
 }
 
 func TestWrapAuthError_VaultResponseError_UnknownMessage(t *testing.T) {
@@ -209,13 +167,9 @@ func TestWrapAuthError_VaultResponseError_UnknownMessage(t *testing.T) {
 	wrapped := auth.WrapAuthError("approle", vaultErr)
 
 	authErr, ok := wrapped.(*auth.AuthError)
-	if !ok {
-		t.Fatalf("expected *AuthError, got %T", wrapped)
-	}
+	require.True(t, ok)
 	// Unknown messages should be sanitized to generic
-	if authErr.Reason != "authentication failed" {
-		t.Errorf("Reason = %q, want %q", authErr.Reason, "authentication failed")
-	}
+	require.Equal(t, "authentication failed", authErr.Reason)
 }
 
 func TestWrapAuthError_VaultResponseError_KnownMessages(t *testing.T) {
@@ -240,9 +194,7 @@ func TestWrapAuthError_VaultResponseError_KnownMessages(t *testing.T) {
 			}
 			wrapped := auth.WrapAuthError("test", vaultErr)
 			authErr := wrapped.(*auth.AuthError)
-			if authErr.Reason != tt.want {
-				t.Errorf("Reason = %q, want %q", authErr.Reason, tt.want)
-			}
+			require.Equal(t, tt.want, authErr.Reason)
 		})
 	}
 }
@@ -264,9 +216,7 @@ func TestIsAuthenticationError_VaultResponseErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := auth.IsAuthenticationError(tt.err); got != tt.want {
-				t.Errorf("IsAuthenticationError() = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, auth.IsAuthenticationError(tt.err))
 		})
 	}
 }

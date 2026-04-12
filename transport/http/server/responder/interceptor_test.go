@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestErrorInterceptor_PassThrough(t *testing.T) {
@@ -19,9 +21,7 @@ func TestErrorInterceptor_PassThrough(t *testing.T) {
 
 	ei.WriteHeader(http.StatusOK)
 	ei.Write([]byte("ok")) //nolint:errcheck
-	if rec.Code != http.StatusOK {
-		t.Fatalf("code = %d", rec.Code)
-	}
+	require.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestErrorInterceptor_InterceptsError(t *testing.T) {
@@ -34,9 +34,7 @@ func TestErrorInterceptor_InterceptsError(t *testing.T) {
 	ei.Write([]byte("bad input")) //nolint:errcheck
 	ei.Flush()
 
-	if !w.called {
-		t.Fatal("error writer should be called for 4xx")
-	}
+	require.True(t, w.called, "error writer should be called for 4xx")
 }
 
 func TestErrorInterceptor_DoubleWriteHeader(t *testing.T) {
@@ -48,9 +46,7 @@ func TestErrorInterceptor_DoubleWriteHeader(t *testing.T) {
 
 	ei.WriteHeader(http.StatusOK)
 	ei.WriteHeader(http.StatusNotFound) // should be ignored
-	if rec.Code != http.StatusOK {
-		t.Fatalf("code = %d", rec.Code)
-	}
+	require.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestErrorInterceptor_Unwrap(t *testing.T) {
@@ -59,9 +55,7 @@ func TestErrorInterceptor_Unwrap(t *testing.T) {
 	ei := NewErrorInterceptor(rec, req, &mockErrorWriter{})
 	defer ei.Flush()
 
-	if ei.Unwrap() != rec {
-		t.Fatal("Unwrap should return underlying writer")
-	}
+	require.Equal(t, rec, ei.Unwrap())
 }
 
 func TestErrorInterceptor_Hijack_NotSupported(t *testing.T) {
@@ -71,7 +65,5 @@ func TestErrorInterceptor_Hijack_NotSupported(t *testing.T) {
 	defer ei.Flush()
 
 	_, _, err := ei.Hijack()
-	if err == nil {
-		t.Fatal("expected error for non-hijackable writer")
-	}
+	require.Error(t, err)
 }

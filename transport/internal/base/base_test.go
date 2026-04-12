@@ -10,34 +10,26 @@ import (
 	"log/slog"
 	"regexp"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNew(t *testing.T) {
 	b := New("mycomp", "middleware", "path", nil)
-	if b.Name() != "mycomp" {
-		t.Fatalf("Name() = %q, want %q", b.Name(), "mycomp")
-	}
-	if b.Logger() == nil {
-		t.Fatal("Logger() should not be nil when constructed with nil")
-	}
+	require.Equal(t, "mycomp", b.Name())
+	require.NotNil(t, b.Logger())
 }
 
 func TestNew_WithLogger(t *testing.T) {
 	logger := slog.New(slog.DiscardHandler)
 	b := New("test", "interceptor", "method", logger)
-	if b.Logger() != logger {
-		t.Fatal("Logger() should return the provided logger")
-	}
+	require.Equal(t, logger, b.Logger())
 }
 
 func TestNewWithFilter(t *testing.T) {
 	b := NewWithFilter("filtered", "middleware", "path", []string{"/health"}, nil, nil)
-	if b.Name() != "filtered" {
-		t.Fatalf("Name() = %q, want %q", b.Name(), "filtered")
-	}
-	if b.Logger() == nil {
-		t.Fatal("Logger() should not be nil")
-	}
+	require.Equal(t, "filtered", b.Name())
+	require.NotNil(t, b.Logger())
 }
 
 func TestShouldIgnore(t *testing.T) {
@@ -59,31 +51,24 @@ func TestShouldIgnore(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			b := NewWithFilter("test", "middleware", "path", tt.endpoints, tt.patterns, nil)
-			if got := b.ShouldIgnore(tt.check); got != tt.want {
-				t.Fatalf("ShouldIgnore(%q) = %v, want %v", tt.check, got, tt.want)
-			}
+			got := b.ShouldIgnore(tt.check)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
 
 func TestShouldIgnore_NoFilter(t *testing.T) {
 	b := New("test", "interceptor", "method", nil)
-	if b.ShouldIgnore("/any/method") {
-		t.Fatal("ShouldIgnore should return false without filter")
-	}
+	require.False(t, b.ShouldIgnore("/any/method"), "ShouldIgnore should return false without filter")
 }
 
 func TestInternEndpoint(t *testing.T) {
 	b := New("test", "middleware", "path", nil)
 	got := b.InternEndpoint("/test/path")
-	if got != "/test/path" {
-		t.Fatalf("InternEndpoint() = %q, want %q", got, "/test/path")
-	}
+	require.Equal(t, "/test/path", got)
 	// Interning should return the same pointer for the same string.
 	got2 := b.InternEndpoint("/test/path")
-	if got != got2 {
-		t.Fatal("InternEndpoint should return the same interned string")
-	}
+	require.Equal(t, got2, got)
 }
 
 func TestLogMethods_NoPanic(t *testing.T) {
@@ -147,16 +132,10 @@ func TestLogIgnored_Attributes_Middleware(t *testing.T) {
 
 	b.LogIgnored(t.Context(), "/health")
 
-	if len(h.records) != 1 {
-		t.Fatalf("expected 1 record, got %d", len(h.records))
-	}
+	require.Len(t, h.records, 1)
 	rec := h.records[0]
-	if rec.Level != slog.LevelDebug {
-		t.Fatalf("level = %v, want Debug", rec.Level)
-	}
-	if rec.Message != "ignored" {
-		t.Fatalf("message = %q, want %q", rec.Message, "ignored")
-	}
+	require.Equal(t, slog.LevelDebug, rec.Level)
+	require.Equal(t, "ignored", rec.Message)
 	assertAttr(t, rec, "middleware", "cors")
 	assertAttr(t, rec, "path", "/health")
 }
@@ -168,9 +147,7 @@ func TestLogIgnored_Attributes_Interceptor(t *testing.T) {
 
 	b.LogIgnored(t.Context(), "/grpc.health.v1.Health/Check")
 
-	if len(h.records) != 1 {
-		t.Fatalf("expected 1 record, got %d", len(h.records))
-	}
+	require.Len(t, h.records, 1)
 	rec := h.records[0]
 	assertAttr(t, rec, "interceptor", "auth")
 	assertAttr(t, rec, "method", "/grpc.health.v1.Health/Check")
@@ -183,16 +160,10 @@ func TestLogDebug_Attributes(t *testing.T) {
 
 	b.LogDebug(t.Context(), "request started", "/api/v1", slog.String("trace_id", "abc123"))
 
-	if len(h.records) != 1 {
-		t.Fatalf("expected 1 record, got %d", len(h.records))
-	}
+	require.Len(t, h.records, 1)
 	rec := h.records[0]
-	if rec.Level != slog.LevelDebug {
-		t.Fatalf("level = %v, want Debug", rec.Level)
-	}
-	if rec.Message != "request started" {
-		t.Fatalf("message = %q, want %q", rec.Message, "request started")
-	}
+	require.Equal(t, slog.LevelDebug, rec.Level)
+	require.Equal(t, "request started", rec.Message)
 	assertAttr(t, rec, "middleware", "tracing")
 	assertAttr(t, rec, "path", "/api/v1")
 	assertAttr(t, rec, "trace_id", "abc123")
@@ -206,18 +177,13 @@ func TestLogWarn_WithError(t *testing.T) {
 	testErr := errors.New("rate exceeded")
 	b.LogWarn(t.Context(), "rate limited", "/api.Service/Do", testErr)
 
-	if len(h.records) != 1 {
-		t.Fatalf("expected 1 record, got %d", len(h.records))
-	}
+	require.Len(t, h.records, 1)
 	rec := h.records[0]
-	if rec.Level != slog.LevelWarn {
-		t.Fatalf("level = %v, want Warn", rec.Level)
-	}
+	require.Equal(t, slog.LevelWarn, rec.Level)
 	assertAttr(t, rec, "interceptor", "limiter")
 	assertAttr(t, rec, "method", "/api.Service/Do")
-	if _, ok := rec.Attrs["error"]; !ok {
-		t.Fatal("expected error attribute to be present")
-	}
+	_, ok := rec.Attrs["error"]
+	require.True(t, ok, "expected error attribute to be present")
 }
 
 func TestLogWarn_NilError(t *testing.T) {
@@ -228,9 +194,8 @@ func TestLogWarn_NilError(t *testing.T) {
 	b.LogWarn(t.Context(), "warning", "/test", nil)
 
 	rec := h.records[0]
-	if _, ok := rec.Attrs["error"]; ok {
-		t.Fatal("error attribute should not be present when err is nil")
-	}
+	_, ok := rec.Attrs["error"]
+	require.False(t, ok, "error attribute should not be present when err is nil")
 }
 
 func TestLogError_WithError(t *testing.T) {
@@ -241,22 +206,15 @@ func TestLogError_WithError(t *testing.T) {
 	testErr := errors.New("panic recovered")
 	b.LogError(t.Context(), "recovered", "/api/crash", testErr, slog.String("stack", "..."))
 
-	if len(h.records) != 1 {
-		t.Fatalf("expected 1 record, got %d", len(h.records))
-	}
+	require.Len(t, h.records, 1)
 	rec := h.records[0]
-	if rec.Level != slog.LevelError {
-		t.Fatalf("level = %v, want Error", rec.Level)
-	}
-	if rec.Message != "recovered" {
-		t.Fatalf("message = %q, want %q", rec.Message, "recovered")
-	}
+	require.Equal(t, slog.LevelError, rec.Level)
+	require.Equal(t, "recovered", rec.Message)
 	assertAttr(t, rec, "middleware", "recovery")
 	assertAttr(t, rec, "path", "/api/crash")
 	assertAttr(t, rec, "stack", "...")
-	if _, ok := rec.Attrs["error"]; !ok {
-		t.Fatal("expected error attribute")
-	}
+	_, ok := rec.Attrs["error"]
+	require.True(t, ok, "expected error attribute")
 }
 
 func TestLogError_NilError(t *testing.T) {
@@ -267,18 +225,13 @@ func TestLogError_NilError(t *testing.T) {
 	b.LogError(t.Context(), "error", "/test", nil)
 
 	rec := h.records[0]
-	if _, ok := rec.Attrs["error"]; ok {
-		t.Fatal("error attribute should not be present when err is nil")
-	}
+	_, ok := rec.Attrs["error"]
+	require.False(t, ok, "error attribute should not be present when err is nil")
 }
 
 func assertAttr(t *testing.T, rec logRecord, key, want string) {
 	t.Helper()
 	got, ok := rec.Attrs[key]
-	if !ok {
-		t.Fatalf("attribute %q not found in log record (attrs: %v)", key, rec.Attrs)
-	}
-	if got != want {
-		t.Fatalf("attribute %q = %q, want %q", key, got, want)
-	}
+	require.True(t, ok)
+	require.Equal(t, want, got)
 }

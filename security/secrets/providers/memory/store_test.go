@@ -5,9 +5,10 @@
 package memory_test
 
 import (
-	"errors"
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/security/secrets"
 	"github.com/altessa-s/go-atlas/security/secrets/providers/memory"
@@ -43,12 +44,8 @@ func TestNew_Valid(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store, err := memory.New(tt.values)
-			if err != nil {
-				t.Fatalf("expected no error, got %v", err)
-			}
-			if store == nil {
-				t.Fatal("expected non-nil storage")
-			}
+			require.NoError(t, err)
+			require.NotNil(t, store)
 		})
 	}
 }
@@ -93,47 +90,28 @@ func TestNew_InvalidKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			store, err := memory.New(tt.values)
-			if err == nil {
-				t.Fatal("expected error for invalid key, got nil")
-			}
-			if store != nil {
-				t.Fatal("expected nil storage on error")
-			}
+			require.Error(t, err)
+			require.Nil(t, store)
 		})
 	}
 }
 
 func TestNew_Empty(t *testing.T) {
 	store, err := memory.New(map[string]string{})
-	if err != nil {
-		t.Fatalf("expected no error for empty map, got %v", err)
-	}
-	if store == nil {
-		t.Fatal("expected non-nil storage")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, store)
 }
 
 func TestStorage_Name(t *testing.T) {
 	store, err := memory.New(map[string]string{})
-	if err != nil {
-		t.Fatalf("failed to create storage: %v", err)
-	}
-
-	name := store.Name()
-	if name != "memory" {
-		t.Errorf("expected name 'memory', got '%s'", name)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "memory", store.Name())
 }
 
 func TestStorage_IsStatic(t *testing.T) {
 	store, err := memory.New(map[string]string{})
-	if err != nil {
-		t.Fatalf("failed to create storage: %v", err)
-	}
-
-	if !store.IsStatic() {
-		t.Error("expected IsStatic to return true")
-	}
+	require.NoError(t, err)
+	require.True(t, store.IsStatic())
 }
 
 func TestStorage_Value(t *testing.T) {
@@ -143,34 +121,20 @@ func TestStorage_Value(t *testing.T) {
 		"existing-key": "secret-value",
 		"another-key":  "another-value",
 	})
-	if err != nil {
-		t.Fatalf("failed to create storage: %v", err)
-	}
+	require.NoError(t, err)
 
 	t.Run("ExistingKey", func(t *testing.T) {
 		val, err := store.Value(ctx, "existing-key")
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-		if val == nil {
-			t.Fatal("expected non-nil value")
-		}
-		if val.Key != "existing-key" {
-			t.Errorf("expected key 'existing-key', got '%s'", val.Key)
-		}
-		if val.Value != "secret-value" {
-			t.Errorf("expected value 'secret-value', got '%s'", val.Value)
-		}
+		require.NoError(t, err)
+		require.NotNil(t, val)
+		require.Equal(t, "existing-key", val.Key)
+		require.Equal(t, "secret-value", val.Value)
 	})
 
 	t.Run("MissingKey", func(t *testing.T) {
 		val, err := store.Value(ctx, "missing-key")
-		if !errors.Is(err, secrets.ErrNotFound) {
-			t.Fatalf("expected ErrNotFound, got %v", err)
-		}
-		if val != nil {
-			t.Error("expected nil value for missing key")
-		}
+		require.ErrorIs(t, err, secrets.ErrNotFound)
+		require.Nil(t, val)
 	})
 }
 
@@ -178,9 +142,7 @@ func TestStorage_Value_InvalidKey(t *testing.T) {
 	ctx := t.Context()
 
 	store, err := memory.New(map[string]string{})
-	if err != nil {
-		t.Fatalf("failed to create storage: %v", err)
-	}
+	require.NoError(t, err)
 
 	tests := []struct {
 		name string
@@ -203,12 +165,8 @@ func TestStorage_Value_InvalidKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			val, err := store.Value(ctx, tt.key)
-			if !errors.Is(err, secrets.ErrInvalidKey) {
-				t.Fatalf("expected ErrInvalidKey, got %v", err)
-			}
-			if val != nil {
-				t.Error("expected nil value for invalid key")
-			}
+			require.ErrorIs(t, err, secrets.ErrInvalidKey)
+			require.Nil(t, val)
 		})
 	}
 }
@@ -217,71 +175,48 @@ func TestStorage_Value_NilContext(t *testing.T) {
 	store, err := memory.New(map[string]string{
 		"key1": "value1",
 	})
-	if err != nil {
-		t.Fatalf("failed to create storage: %v", err)
-	}
+	require.NoError(t, err)
 
 	val, err := store.Value(nil, "key1")
-	if err != nil {
-		t.Fatalf("expected no error for nil context, got %v", err)
-	}
-	if val == nil || val.Value != "value1" {
-		t.Error("expected valid value for nil context")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, val)
+	require.Equal(t, "value1", val.Value)
 }
 
 func TestStorage_Save(t *testing.T) {
 	ctx := t.Context()
 
 	store, err := memory.New(map[string]string{})
-	if err != nil {
-		t.Fatalf("failed to create storage: %v", err)
-	}
+	require.NoError(t, err)
 
 	t.Run("SaveNewKey", func(t *testing.T) {
 		err := store.Save(ctx, "new-key", "new-value")
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		require.NoError(t, err)
 
 		// Verify with Value
 		val, err := store.Value(ctx, "new-key")
-		if err != nil {
-			t.Fatalf("failed to retrieve saved value: %v", err)
-		}
-		if val.Value != "new-value" {
-			t.Errorf("expected value 'new-value', got '%s'", val.Value)
-		}
+		require.NoError(t, err)
+		require.Equal(t, "new-value", val.Value)
 	})
 
 	t.Run("UpdateExistingKey", func(t *testing.T) {
 		err := store.Save(ctx, "new-key", "updated-value")
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		require.NoError(t, err)
 
 		// Verify with Value
 		val, err := store.Value(ctx, "new-key")
-		if err != nil {
-			t.Fatalf("failed to retrieve updated value: %v", err)
-		}
-		if val.Value != "updated-value" {
-			t.Errorf("expected value 'updated-value', got '%s'", val.Value)
-		}
+		require.NoError(t, err)
+		require.Equal(t, "updated-value", val.Value)
 	})
 
 	t.Run("InvalidKey", func(t *testing.T) {
 		err := store.Save(ctx, "!invalid", "value")
-		if !errors.Is(err, secrets.ErrInvalidKey) {
-			t.Fatalf("expected ErrInvalidKey, got %v", err)
-		}
+		require.ErrorIs(t, err, secrets.ErrInvalidKey)
 	})
 
 	t.Run("NilContext", func(t *testing.T) {
 		err := store.Save(nil, "key", "value")
-		if err != nil {
-			t.Fatalf("expected no error for nil context, got %v", err)
-		}
+		require.NoError(t, err)
 	})
 }
 
@@ -291,45 +226,31 @@ func TestStorage_Delete(t *testing.T) {
 	store, err := memory.New(map[string]string{
 		"existing-key": "value",
 	})
-	if err != nil {
-		t.Fatalf("failed to create storage: %v", err)
-	}
+	require.NoError(t, err)
 
 	t.Run("DeleteExistingKey", func(t *testing.T) {
 		err := store.Delete(ctx, "existing-key")
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
+		require.NoError(t, err)
 
 		// Verify key is deleted
 		val, err := store.Value(ctx, "existing-key")
-		if !errors.Is(err, secrets.ErrNotFound) {
-			t.Fatalf("expected ErrNotFound after delete, got %v", err)
-		}
-		if val != nil {
-			t.Error("expected nil value after delete")
-		}
+		require.ErrorIs(t, err, secrets.ErrNotFound)
+		require.Nil(t, val)
 	})
 
 	t.Run("DeleteMissingKey", func(t *testing.T) {
 		err := store.Delete(ctx, "missing-key")
-		if !errors.Is(err, secrets.ErrNotFound) {
-			t.Fatalf("expected ErrNotFound for missing key, got %v", err)
-		}
+		require.ErrorIs(t, err, secrets.ErrNotFound)
 	})
 
 	t.Run("InvalidKey", func(t *testing.T) {
 		err := store.Delete(ctx, "!invalid")
-		if !errors.Is(err, secrets.ErrInvalidKey) {
-			t.Fatalf("expected ErrInvalidKey, got %v", err)
-		}
+		require.ErrorIs(t, err, secrets.ErrInvalidKey)
 	})
 
 	t.Run("NilContext", func(t *testing.T) {
 		err := store.Delete(nil, "missing-key")
-		if !errors.Is(err, secrets.ErrNotFound) {
-			t.Fatalf("expected ErrNotFound for nil context, got %v", err)
-		}
+		require.ErrorIs(t, err, secrets.ErrNotFound)
 	})
 }
 
@@ -341,19 +262,12 @@ func TestStorage_List(t *testing.T) {
 		"key2": "value2",
 		"key3": "value3",
 	})
-	if err != nil {
-		t.Fatalf("failed to create storage: %v", err)
-	}
+	require.NoError(t, err)
 
 	t.Run("ListAll", func(t *testing.T) {
 		values, err := store.List(ctx)
-		if err != nil {
-			t.Fatalf("expected no error, got %v", err)
-		}
-
-		if len(values) != 3 {
-			t.Fatalf("expected 3 values, got %d", len(values))
-		}
+		require.NoError(t, err)
+		require.Len(t, values, 3)
 
 		// Verify all keys are present
 		keys := make(map[string]bool)
@@ -363,20 +277,14 @@ func TestStorage_List(t *testing.T) {
 
 		expectedKeys := []string{"key1", "key2", "key3"}
 		for _, key := range expectedKeys {
-			if !keys[key] {
-				t.Errorf("expected key '%s' in list", key)
-			}
+			require.True(t, keys[key], "expected key '%s' in list", key)
 		}
 	})
 
 	t.Run("NilContext", func(t *testing.T) {
 		values, err := store.List(nil)
-		if err != nil {
-			t.Fatalf("expected no error for nil context, got %v", err)
-		}
-		if len(values) != 3 {
-			t.Errorf("expected 3 values for nil context, got %v", len(values))
-		}
+		require.NoError(t, err)
+		require.Len(t, values, 3)
 	})
 }
 
@@ -384,22 +292,12 @@ func TestStorage_List_Empty(t *testing.T) {
 	ctx := t.Context()
 
 	store, err := memory.New(map[string]string{})
-	if err != nil {
-		t.Fatalf("failed to create storage: %v", err)
-	}
+	require.NoError(t, err)
 
 	values, err := store.List(ctx)
-	if err != nil {
-		t.Fatalf("expected no error, got %v", err)
-	}
-
-	if values == nil {
-		t.Fatal("expected non-nil slice for empty storage")
-	}
-
-	if len(values) != 0 {
-		t.Fatalf("expected empty slice, got %d values", len(values))
-	}
+	require.NoError(t, err)
+	require.NotNil(t, values)
+	require.Len(t, values, 0)
 }
 
 func TestStorage_Values(t *testing.T) {
@@ -410,25 +308,17 @@ func TestStorage_Values(t *testing.T) {
 		"key2": "value2",
 		"key3": "value3",
 	})
-	if err != nil {
-		t.Fatalf("failed to create storage: %v", err)
-	}
+	require.NoError(t, err)
 
 	t.Run("IterateAll", func(t *testing.T) {
 		collected := make(map[string]string)
 		for val, err := range store.Values(ctx) {
-			if err != nil {
-				t.Fatalf("unexpected error during iteration: %v", err)
-			}
-			if val == nil {
-				t.Fatal("unexpected nil value during iteration")
-			}
+			require.NoError(t, err)
+			require.NotNil(t, val)
 			collected[val.Key] = val.Value
 		}
 
-		if len(collected) != 3 {
-			t.Fatalf("expected 3 values, got %d", len(collected))
-		}
+		require.Len(t, collected, 3)
 
 		expected := map[string]string{
 			"key1": "value1",
@@ -437,64 +327,46 @@ func TestStorage_Values(t *testing.T) {
 		}
 
 		for key, expectedValue := range expected {
-			if actualValue, ok := collected[key]; !ok {
-				t.Errorf("expected key '%s' in results", key)
-			} else if actualValue != expectedValue {
-				t.Errorf("key '%s': expected value '%s', got '%s'", key, expectedValue, actualValue)
-			}
+			actualValue, ok := collected[key]
+			require.True(t, ok, "expected key '%s' in results", key)
+			require.Equal(t, expectedValue, actualValue)
 		}
 	})
 
 	t.Run("EarlyTermination", func(t *testing.T) {
 		count := 0
 		for _, err := range store.Values(ctx) {
-			if err != nil {
-				t.Fatalf("unexpected error during iteration: %v", err)
-			}
+			require.NoError(t, err)
 			count++
 			if count >= 2 {
 				break
 			}
 		}
 
-		if count != 2 {
-			t.Errorf("expected to iterate 2 times, got %d", count)
-		}
+		require.Equal(t, 2, count)
 	})
 
 	t.Run("NilContext", func(t *testing.T) {
 		count := 0
 		for val, err := range store.Values(nil) {
-			if err != nil {
-				t.Fatalf("expected no error for nil context, got %v", err)
-			}
-			if val == nil {
-				t.Error("expected valid value for nil context")
-			}
+			require.NoError(t, err)
+			require.NotNil(t, val)
 			count++
 		}
-		if count != 3 {
-			t.Errorf("expected 3 items for nil context, got %d", count)
-		}
+		require.Equal(t, 3, count)
 	})
 
 	t.Run("EmptyStorage", func(t *testing.T) {
 		emptyStore, err := memory.New(map[string]string{})
-		if err != nil {
-			t.Fatalf("failed to create storage: %v", err)
-		}
+		require.NoError(t, err)
 
 		count := 0
 		for _, err := range emptyStore.Values(ctx) {
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
+			require.NoError(t, err)
 			count++
 		}
 
-		if count != 0 {
-			t.Errorf("expected 0 iterations for empty storage, got %d", count)
-		}
+		require.Equal(t, 0, count)
 	})
 }
 
@@ -502,23 +374,16 @@ func TestStorage_CheckConnection(t *testing.T) {
 	ctx := t.Context()
 
 	store, err := memory.New(map[string]string{})
-	if err != nil {
-		t.Fatalf("failed to create storage: %v", err)
-	}
+	require.NoError(t, err)
 
-	err = store.CheckConnection(ctx)
-	if err != nil {
-		t.Errorf("expected nil error from CheckConnection, got %v", err)
-	}
+	require.NoError(t, store.CheckConnection(ctx))
 }
 
 func TestStorage_Concurrent(t *testing.T) {
 	ctx := t.Context()
 
 	store, err := memory.New(map[string]string{})
-	if err != nil {
-		t.Fatalf("failed to create storage: %v", err)
-	}
+	require.NoError(t, err)
 
 	const numGoroutines = 100
 	const numOperations = 10

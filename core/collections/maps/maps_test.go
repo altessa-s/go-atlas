@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
@@ -56,17 +58,14 @@ func TestMerge(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := coremaps.Merge(tt.src, tt.dst)
-			if !maps.Equal(got, tt.expected) {
-				t.Errorf("Merge() = %v, want %v", got, tt.expected)
-			}
+			require.True(t, maps.Equal(got, tt.expected), "Merge() = %v, want %v", got, tt.expected)
 			// Verify immutability
 			if len(tt.dst) > 0 {
 				if &got == &tt.dst { // Address check logic is flawed here for maps, check modification
 					// Instead check if modifying result affects inputs
 					got["new"] = 999
-					if _, ok := tt.dst["new"]; ok {
-						t.Error("Merge result shares memory with input dst")
-					}
+					_, ok := tt.dst["new"]
+					require.False(t, ok, "Merge result shares memory with input dst")
 				}
 			}
 		})
@@ -94,9 +93,7 @@ func TestSwap(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := coremaps.Swap(tt.input)
-			if !maps.Equal(got, tt.expected) {
-				t.Errorf("Swap() = %v, want %v", got, tt.expected)
-			}
+			require.True(t, maps.Equal(got, tt.expected), "Swap() = %v, want %v", got, tt.expected)
 		})
 	}
 }
@@ -107,13 +104,9 @@ func TestFilterMap(t *testing.T) {
 		return v%2 != 0
 	})
 	expected := map[string]int{"a": 1, "c": 3}
-	if !maps.Equal(got, expected) {
-		t.Errorf("FilterMap() = %v, want %v", got, expected)
-	}
+	require.True(t, maps.Equal(got, expected), "FilterMap() = %v, want %v", got, expected)
 
-	if coremaps.FilterMap(map[string]int(nil), func(string, int) bool { return true }) != nil {
-		t.Error("FilterMap(nil) should return nil")
-	}
+	require.Nil(t, coremaps.FilterMap(map[string]int(nil), func(string, int) bool { return true }), "FilterMap(nil) should return nil")
 }
 
 func TestConvertMap(t *testing.T) {
@@ -122,9 +115,7 @@ func TestConvertMap(t *testing.T) {
 		return v, k
 	})
 	expected := map[int]string{1: "a", 2: "b"}
-	if !maps.Equal(got, expected) {
-		t.Errorf("ConvertMap() = %v, want %v", got, expected)
-	}
+	require.True(t, maps.Equal(got, expected), "ConvertMap() = %v, want %v", got, expected)
 }
 
 func TestFromSlice(t *testing.T) {
@@ -136,9 +127,7 @@ func TestFromSlice(t *testing.T) {
 		1: {ID: 1, Name: "A2"},
 		2: {ID: 2, Name: "B"},
 	}
-	if !maps.Equal(got, expected) {
-		t.Errorf("FromSlice() = %v, want %v", got, expected)
-	}
+	require.True(t, maps.Equal(got, expected), "FromSlice() = %v, want %v", got, expected)
 }
 
 func TestFromSliceWith(t *testing.T) {
@@ -147,27 +136,21 @@ func TestFromSliceWith(t *testing.T) {
 		return u.ID, u.Name
 	})
 	expected := map[int]string{1: "A", 2: "B"}
-	if !maps.Equal(got, expected) {
-		t.Errorf("FromSliceWith() = %v, want %v", got, expected)
-	}
+	require.True(t, maps.Equal(got, expected), "FromSliceWith() = %v, want %v", got, expected)
 }
 
 func TestToKeyValueSlice(t *testing.T) {
 	input := map[string]string{"k1": "v1"}
 	got := coremaps.ToKeyValueSlice(input)
-	if len(got) != 2 {
-		t.Fatalf("ToKeyValueSlice length = %d", len(got))
-	}
+	require.Len(t, got, 2)
 	// Order check is tricky, but with one element strict match
 	if got[0] == "k1" && got[1] == "v1" {
 		// ok
 	} else {
-		t.Errorf("ToKeyValueSlice() = %v, want [k1 v1]", got)
+		require.Fail(t, "ToKeyValueSlice() unexpected result", "got %v, want [k1 v1]", got)
 	}
 
-	if coremaps.ToKeyValueSlice[string, int](nil) != nil {
-		t.Error("ToKeyValueSlice(nil) should return nil")
-	}
+	require.Nil(t, coremaps.ToKeyValueSlice[string, int](nil), "ToKeyValueSlice(nil) should return nil")
 }
 
 func TestFlatMap(t *testing.T) {
@@ -187,9 +170,7 @@ func TestFlatMap(t *testing.T) {
 			"a.c.d": 2,
 			"e":     3,
 		}
-		if !reflect.DeepEqual(got, expected) {
-			t.Errorf("ToFlatMap() = %v, want %v", got, expected)
-		}
+		require.True(t, reflect.DeepEqual(got, expected), "ToFlatMap() = %v, want %v", got, expected)
 	})
 
 	t.Run("FromFlatMap", func(t *testing.T) {
@@ -217,15 +198,9 @@ func TestFlatMap(t *testing.T) {
 			return curr
 		}
 
-		if getNested(got, "a", "b") != 1 {
-			t.Error("FromFlatMap failed to reconstruct a.b")
-		}
-		if getNested(got, "a", "c", "d") != 2 {
-			t.Error("FromFlatMap failed to reconstruct a.c.d")
-		}
-		if getNested(got, "e") != 3 {
-			t.Error("FromFlatMap failed to reconstruct e")
-		}
+		require.Equal(t, 1, getNested(got, "a", "b"), "FromFlatMap failed to reconstruct a.b")
+		require.Equal(t, 2, getNested(got, "a", "c", "d"), "FromFlatMap failed to reconstruct a.c.d")
+		require.Equal(t, 3, getNested(got, "e"), "FromFlatMap failed to reconstruct e")
 	})
 
 	t.Run("ConflictHandler", func(t *testing.T) {

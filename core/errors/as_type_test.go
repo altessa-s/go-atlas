@@ -10,6 +10,8 @@ import (
 	"os"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/core/errors"
 
 	std_errors "errors"
@@ -45,49 +47,31 @@ func TestAsType(t *testing.T) {
 		err := fmt.Errorf("wrapped: %w", original)
 
 		target, ok := errors.AsType[*testAppError](err)
-		if !ok {
-			t.Fatal("expected match")
-		}
-		if target.Code != 404 {
-			t.Errorf("Code = %d, want 404", target.Code)
-		}
-		if target.Message != "not found" {
-			t.Errorf("Message = %q, want %q", target.Message, "not found")
-		}
+		require.True(t, ok, "expected match")
+		require.Equal(t, 404, target.Code)
+		require.Equal(t, "not found", target.Message)
 	})
 
 	t.Run("matches interface type", func(t *testing.T) {
 		err := fmt.Errorf("wrapped: %w", &fs.PathError{Op: "open", Path: "/tmp/x", Err: os.ErrNotExist})
 
 		target, ok := errors.AsType[*fs.PathError](err)
-		if !ok {
-			t.Fatal("expected match")
-		}
-		if target.Op != "open" {
-			t.Errorf("Op = %q, want %q", target.Op, "open")
-		}
+		require.True(t, ok, "expected match")
+		require.Equal(t, "open", target.Op)
 	})
 
 	t.Run("no match returns zero value and false", func(t *testing.T) {
 		err := std_errors.New("plain error")
 
 		target, ok := errors.AsType[*testAppError](err)
-		if ok {
-			t.Fatal("expected no match")
-		}
-		if target != nil {
-			t.Errorf("target = %v, want nil", target)
-		}
+		require.False(t, ok, "expected no match")
+		require.Nil(t, target)
 	})
 
 	t.Run("nil error returns zero value and false", func(t *testing.T) {
 		target, ok := errors.AsType[*testAppError](nil)
-		if ok {
-			t.Fatal("expected no match for nil")
-		}
-		if target != nil {
-			t.Errorf("target = %v, want nil", target)
-		}
+		require.False(t, ok, "expected no match for nil")
+		require.Nil(t, target)
 	})
 
 	t.Run("deeply wrapped error", func(t *testing.T) {
@@ -95,39 +79,25 @@ func TestAsType(t *testing.T) {
 		err := fmt.Errorf("level3: %w", fmt.Errorf("level2: %w", fmt.Errorf("level1: %w", original)))
 
 		target, ok := errors.AsType[*testAppError](err)
-		if !ok {
-			t.Fatal("expected match through wrapping chain")
-		}
-		if target.Code != 500 {
-			t.Errorf("Code = %d, want 500", target.Code)
-		}
+		require.True(t, ok, "expected match through wrapping chain")
+		require.Equal(t, 500, target.Code)
 	})
 
 	t.Run("custom As method", func(t *testing.T) {
 		err := &customAsError{code: 42}
 
 		target, ok := errors.AsType[*testAppError](err)
-		if !ok {
-			t.Fatal("expected match via As method")
-		}
-		if target.Code != 42 {
-			t.Errorf("Code = %d, want 42", target.Code)
-		}
-		if target.Message != "from As" {
-			t.Errorf("Message = %q, want %q", target.Message, "from As")
-		}
+		require.True(t, ok, "expected match via As method")
+		require.Equal(t, 42, target.Code)
+		require.Equal(t, "from As", target.Message)
 	})
 
 	t.Run("custom As method wrapped", func(t *testing.T) {
 		err := fmt.Errorf("outer: %w", &customAsError{code: 99})
 
 		target, ok := errors.AsType[*testAppError](err)
-		if !ok {
-			t.Fatal("expected match via As method in chain")
-		}
-		if target.Code != 99 {
-			t.Errorf("Code = %d, want 99", target.Code)
-		}
+		require.True(t, ok, "expected match via As method in chain")
+		require.Equal(t, 99, target.Code)
 	})
 
 	t.Run("errors.Join multi-error", func(t *testing.T) {
@@ -138,12 +108,8 @@ func TestAsType(t *testing.T) {
 		)
 
 		target, ok := errors.AsType[*testAppError](err)
-		if !ok {
-			t.Fatal("expected match in joined errors")
-		}
-		if target.Code != 503 {
-			t.Errorf("Code = %d, want 503", target.Code)
-		}
+		require.True(t, ok, "expected match in joined errors")
+		require.Equal(t, 503, target.Code)
 	})
 
 	t.Run("errors.Join no match", func(t *testing.T) {
@@ -153,9 +119,7 @@ func TestAsType(t *testing.T) {
 		)
 
 		_, ok := errors.AsType[*testAppError](err)
-		if ok {
-			t.Fatal("expected no match in joined errors")
-		}
+		require.False(t, ok, "expected no match in joined errors")
 	})
 
 	t.Run("errors.Join with nil children", func(t *testing.T) {
@@ -166,23 +130,15 @@ func TestAsType(t *testing.T) {
 		)
 
 		target, ok := errors.AsType[*testAppError](err)
-		if !ok {
-			t.Fatal("expected match despite nil children")
-		}
-		if target.Code != 200 {
-			t.Errorf("Code = %d, want 200", target.Code)
-		}
+		require.True(t, ok, "expected match despite nil children")
+		require.Equal(t, 200, target.Code)
 	})
 
 	t.Run("direct match without wrapping", func(t *testing.T) {
 		err := &testAppError{Code: 418, Message: "teapot"}
 
 		target, ok := errors.AsType[*testAppError](err)
-		if !ok {
-			t.Fatal("expected direct match")
-		}
-		if target.Code != 418 {
-			t.Errorf("Code = %d, want 418", target.Code)
-		}
+		require.True(t, ok, "expected direct match")
+		require.Equal(t, 418, target.Code)
 	})
 }

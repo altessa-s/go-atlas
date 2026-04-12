@@ -9,6 +9,8 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/transport/internal/clientip"
 	"github.com/altessa-s/go-atlas/transport/internal/fallback"
 	"github.com/altessa-s/go-atlas/transport/internal/ipacl"
@@ -39,12 +41,8 @@ func TestUnaryInterceptor_Allowed(t *testing.T) {
 	info := &grpc.UnaryServerInfo{FullMethod: "/test.Service/Allowed"}
 
 	resp, err := inter.ServerUnaryInterceptor()(ctx, nil, info, noopHandler)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp != "ok" {
-		t.Fatalf("resp = %v, want ok", resp)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "ok", resp)
 }
 
 func TestUnaryInterceptor_Denied(t *testing.T) {
@@ -53,12 +51,10 @@ func TestUnaryInterceptor_Denied(t *testing.T) {
 	info := &grpc.UnaryServerInfo{FullMethod: "/test.Service/Allowed"}
 
 	_, err := inter.ServerUnaryInterceptor()(ctx, nil, info, noopHandler)
-	if err == nil {
-		t.Fatal("expected error")
-	}
-	if s, ok := status.FromError(err); !ok || s.Code() != codes.PermissionDenied {
-		t.Fatalf("code = %v, want PermissionDenied", s.Code())
-	}
+	require.NotNil(t, err, "expected error")
+	s, ok := status.FromError(err)
+	require.True(t, ok, "code = %v, want PermissionDenied", s.Code())
+	require.Equal(t, codes.PermissionDenied, s.Code())
 }
 
 func TestUnaryInterceptor_NoIP_FallbackDeny(t *testing.T) {
@@ -67,12 +63,10 @@ func TestUnaryInterceptor_NoIP_FallbackDeny(t *testing.T) {
 	info := &grpc.UnaryServerInfo{FullMethod: "/test.Service/Allowed"}
 
 	_, err := inter.ServerUnaryInterceptor()(ctx, nil, info, noopHandler)
-	if err == nil {
-		t.Fatal("expected error when no IP and fallback deny")
-	}
-	if s, ok := status.FromError(err); !ok || s.Code() != codes.PermissionDenied {
-		t.Fatalf("code = %v, want PermissionDenied", s.Code())
-	}
+	require.NotNil(t, err, "expected error when no IP and fallback deny")
+	s, ok := status.FromError(err)
+	require.True(t, ok, "code = %v, want PermissionDenied", s.Code())
+	require.Equal(t, codes.PermissionDenied, s.Code())
 }
 
 func TestUnaryInterceptor_NoIP_FallbackAllow(t *testing.T) {
@@ -81,12 +75,8 @@ func TestUnaryInterceptor_NoIP_FallbackAllow(t *testing.T) {
 	info := &grpc.UnaryServerInfo{FullMethod: "/test.Service/Allowed"}
 
 	resp, err := inter.ServerUnaryInterceptor()(ctx, nil, info, noopHandler)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp != "ok" {
-		t.Fatalf("resp = %v, want ok", resp)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "ok", resp)
 }
 
 func TestUnaryInterceptor_IgnoredMethod(t *testing.T) {
@@ -95,29 +85,20 @@ func TestUnaryInterceptor_IgnoredMethod(t *testing.T) {
 	info := &grpc.UnaryServerInfo{FullMethod: "/test.Service/Denied"}
 
 	resp, err := inter.ServerUnaryInterceptor()(ctx, nil, info, noopHandler)
-	if err != nil {
-		t.Fatalf("unexpected error for ignored method: %v", err)
-	}
-	if resp != "ok" {
-		t.Fatalf("resp = %v, want ok", resp)
-	}
+	require.NoError(t, err)
+	require.Equal(t, "ok", resp)
 }
 
 func TestStreamInterceptor_NotNil(t *testing.T) {
 	inter := ServerInterceptor(newTestRegistry())
-	if inter.ServerStreamInterceptor() == nil {
-		t.Fatal("ServerStreamInterceptor should not be nil")
-	}
+	require.NotNil(t, inter.ServerStreamInterceptor(), "ServerStreamInterceptor should not be nil")
 }
 
 func TestInterceptor_Dependencies(t *testing.T) {
 	i := &interceptor{}
 	deps := i.Dependencies()
-	if len(deps) != 0 {
-		t.Fatalf("Dependencies() = %v, want []", deps)
-	}
+	require.Len(t, deps, 0)
 	reqDeps := i.RequiredDependencies()
-	if len(reqDeps) != 1 || reqDeps[0] != "realip" {
-		t.Fatalf("RequiredDependencies() = %v, want [realip]", reqDeps)
-	}
+	require.Len(t, reqDeps, 1)
+	require.Equal(t, "realip", reqDeps[0])
 }

@@ -7,6 +7,8 @@ package metadata
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
 
 	"google.golang.org/grpc"
@@ -17,24 +19,12 @@ func TestNewCallMetadata_UnaryServer(t *testing.T) {
 	info := &grpc.UnaryServerInfo{FullMethod: "/mypackage.MyService/MyMethod"}
 	meta := NewCallMetadata(ctx, info.FullMethod, info)
 
-	if meta.ServiceName != "mypackage.MyService" {
-		t.Fatalf("ServiceName = %q", meta.ServiceName)
-	}
-	if meta.MethodName != "MyMethod" {
-		t.Fatalf("MethodName = %q", meta.MethodName)
-	}
-	if meta.FullyMethodName != "/mypackage.MyService/MyMethod" {
-		t.Fatalf("FullyMethodName = %q", meta.FullyMethodName)
-	}
-	if meta.IsClient {
-		t.Fatal("should not be client")
-	}
-	if meta.IsStream {
-		t.Fatal("should not be stream")
-	}
-	if meta.StartTime.IsZero() {
-		t.Fatal("StartTime should be set")
-	}
+	require.Equal(t, "mypackage.MyService", meta.ServiceName)
+	require.Equal(t, "MyMethod", meta.MethodName)
+	require.Equal(t, "/mypackage.MyService/MyMethod", meta.FullyMethodName)
+	require.False(t, meta.IsClient, "should not be client")
+	require.False(t, meta.IsStream, "should not be stream")
+	require.False(t, meta.StartTime.IsZero(), "StartTime should be set")
 }
 
 func TestNewCallMetadata_StreamServer(t *testing.T) {
@@ -46,12 +36,8 @@ func TestNewCallMetadata_StreamServer(t *testing.T) {
 	}
 	meta := NewCallMetadata(ctx, info.FullMethod, info)
 
-	if !meta.IsStream {
-		t.Fatal("should be stream")
-	}
-	if meta.StreamType != driver.StreamTypeClient {
-		t.Fatalf("StreamType = %v, want client", meta.StreamType)
-	}
+	require.True(t, meta.IsStream, "should be stream")
+	require.Equal(t, driver.StreamTypeClient, meta.StreamType)
 }
 
 func TestNewCallMetadata_StreamDesc(t *testing.T) {
@@ -67,49 +53,33 @@ func TestNewCallMetadata_StreamDesc(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			meta := NewCallMetadata(t.Context(), "/pkg.Svc/Method", tt.desc)
-			if meta.StreamType != tt.want {
-				t.Fatalf("StreamType = %v, want %v", meta.StreamType, tt.want)
-			}
+			require.Equal(t, tt.want, meta.StreamType)
 		})
 	}
 }
 
 func TestNewCallMetadataFromMethod(t *testing.T) {
 	meta := NewCallMetadataFromMethod(t.Context(), "/pkg.Svc/GetUser")
-	if meta.ServiceName != "pkg.Svc" {
-		t.Fatalf("ServiceName = %q", meta.ServiceName)
-	}
-	if meta.MethodName != "GetUser" {
-		t.Fatalf("MethodName = %q", meta.MethodName)
-	}
-	if !meta.IsClient {
-		t.Fatal("should be client")
-	}
+	require.Equal(t, "pkg.Svc", meta.ServiceName)
+	require.Equal(t, "GetUser", meta.MethodName)
+	require.True(t, meta.IsClient, "should be client")
 }
 
 func TestCallMetadata_Duration(t *testing.T) {
 	meta := &CallMetadata{}
-	if meta.Duration() != 0 {
-		t.Fatal("zero start time should return 0 duration")
-	}
+	require.EqualValues(t, 0, meta.Duration())
 }
 
 func TestContext_RoundTrip(t *testing.T) {
 	ctx := t.Context()
 	_, ok := FromContext(ctx)
-	if ok {
-		t.Fatal("should not find metadata in empty context")
-	}
+	require.False(t, ok, "should not find metadata in empty context")
 
 	meta := &CallMetadata{ServiceName: "test"}
 	ctx = NewContext(ctx, meta)
 	got, ok := FromContext(ctx)
-	if !ok {
-		t.Fatal("should find metadata")
-	}
-	if got.ServiceName != "test" {
-		t.Fatalf("ServiceName = %q", got.ServiceName)
-	}
+	require.True(t, ok, "should find metadata")
+	require.Equal(t, "test", got.ServiceName)
 }
 
 func TestEnsureInContext_New(t *testing.T) {
@@ -117,40 +87,28 @@ func TestEnsureInContext_New(t *testing.T) {
 	info := &grpc.UnaryServerInfo{FullMethod: "/pkg.Svc/Method"}
 	ctx, meta := EnsureInContext(ctx, info.FullMethod, info)
 
-	if meta.ServiceName != "pkg.Svc" {
-		t.Fatalf("ServiceName = %q", meta.ServiceName)
-	}
+	require.Equal(t, "pkg.Svc", meta.ServiceName)
 
 	// Second call should return same metadata
 	_, meta2 := EnsureInContext(ctx, info.FullMethod, info)
-	if meta2 != meta {
-		t.Fatal("should return same metadata on second call")
-	}
+	require.Equal(t, meta, meta2)
 }
 
 func TestEnsureInContextFromMethod(t *testing.T) {
 	ctx := t.Context()
 	ctx, meta := EnsureInContextFromMethod(ctx, "/pkg.Svc/Method")
 
-	if meta.ServiceName != "pkg.Svc" {
-		t.Fatalf("ServiceName = %q", meta.ServiceName)
-	}
+	require.Equal(t, "pkg.Svc", meta.ServiceName)
 
 	// Second call should return same
 	_, meta2 := EnsureInContextFromMethod(ctx, "/pkg.Svc/Method")
-	if meta2 != meta {
-		t.Fatal("should return same metadata")
-	}
+	require.Equal(t, meta, meta2)
 }
 
 func TestNewCallMetadata_NoSlash(t *testing.T) {
 	meta := NewCallMetadataFromMethod(t.Context(), "NoSlashMethod")
-	if meta.ServiceName != "NoSlashMethod" {
-		t.Fatalf("ServiceName = %q", meta.ServiceName)
-	}
-	if meta.MethodName != "" {
-		t.Fatalf("MethodName = %q, want empty", meta.MethodName)
-	}
+	require.Equal(t, "NoSlashMethod", meta.ServiceName)
+	require.Equal(t, "", meta.MethodName)
 }
 
 func TestNewCallMetadata_MethodCache(t *testing.T) {
@@ -161,7 +119,5 @@ func TestNewCallMetadata_MethodCache(t *testing.T) {
 	meta1 := NewCallMetadata(ctx, method, info)
 	meta2 := NewCallMetadata(ctx, method, info)
 
-	if meta1.ServiceName != meta2.ServiceName {
-		t.Fatal("cached results should match")
-	}
+	require.Equal(t, meta2.ServiceName, meta1.ServiceName)
 }

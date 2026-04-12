@@ -7,20 +7,18 @@ package tracing
 import (
 	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNoop_ReturnsSingleton(t *testing.T) {
 	a := Noop()
 	b := Noop()
-	if a != b {
-		t.Fatal("Noop() should return the same instance")
-	}
+	require.Same(t, a, b, "Noop() should return the same instance")
 }
 
 func TestIsNoop(t *testing.T) {
-	if !IsNoop(Noop()) {
-		t.Error("IsNoop(Noop()) should be true")
-	}
+	require.True(t, IsNoop(Noop()), "IsNoop(Noop()) should be true")
 }
 
 func TestNoopTracer_MethodsDoNotPanic(t *testing.T) {
@@ -28,9 +26,7 @@ func TestNoopTracer_MethodsDoNotPanic(t *testing.T) {
 
 	rec := tr.Recorder("test")
 	ctx, span := rec.Start(t.Context(), "op")
-	if ctx == nil {
-		t.Error("Start should return non-nil context")
-	}
+	require.NotNil(t, ctx, "Start should return non-nil context")
 
 	span.SetName("newname")
 	span.SetStatus(StatusOK, "ok")
@@ -39,37 +35,19 @@ func TestNoopTracer_MethodsDoNotPanic(t *testing.T) {
 	span.AddEvent("event")
 	span.End()
 
-	if span.IsRecording() {
-		t.Error("noop span should not be recording")
-	}
+	require.False(t, span.IsRecording(), "noop span should not be recording")
 
 	sc := span.SpanContext()
-	if sc.IsValid() {
-		t.Error("noop span context should not be valid")
-	}
-	if sc.TraceID() != "" {
-		t.Error("noop TraceID should be empty")
-	}
-	if sc.SpanID() != "" {
-		t.Error("noop SpanID should be empty")
-	}
-	if sc.IsSampled() {
-		t.Error("noop should not be sampled")
-	}
-	if sc.IsRemote() {
-		t.Error("noop should not be remote")
-	}
+	require.False(t, sc.IsValid(), "noop span context should not be valid")
+	require.Empty(t, sc.TraceID(), "noop TraceID should be empty")
+	require.Empty(t, sc.SpanID(), "noop SpanID should be empty")
+	require.False(t, sc.IsSampled(), "noop should not be sampled")
+	require.False(t, sc.IsRemote(), "noop should not be remote")
 
 	// WithScope returns noop
 	scoped := tr.WithScope("scope")
-	if !IsNoop(scoped) {
-		t.Error("WithScope on noop should return noop")
-	}
+	require.True(t, IsNoop(scoped), "WithScope on noop should return noop")
 
-	if err := tr.Shutdown(t.Context()); err != nil {
-		t.Errorf("Shutdown() = %v", err)
-	}
-	if err := tr.ForceFlush(t.Context()); err != nil {
-		t.Errorf("ForceFlush() = %v", err)
-	}
+	require.NoError(t, tr.Shutdown(t.Context()))
+	require.NoError(t, tr.ForceFlush(t.Context()))
 }

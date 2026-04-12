@@ -5,11 +5,11 @@
 package redis_test
 
 import (
-	"errors"
 	"testing"
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/mongo"
 	"github.com/altessa-s/go-atlas/data/mongo/internal/testhelpers"
@@ -28,9 +28,7 @@ func setupStorage(tb testing.TB) *cursredis.Storage {
 
 func TestNew(t *testing.T) {
 	s := setupStorage(t)
-	if s == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, s)
 }
 
 func TestStorage_StoreLoad(t *testing.T) {
@@ -38,26 +36,18 @@ func TestStorage_StoreLoad(t *testing.T) {
 	ctx := t.Context()
 	meta := testhelpers.SampleCursorMetadata()
 
-	if err := s.Store(ctx, "key1", meta); err != nil {
-		t.Fatalf("Store() error: %v", err)
-	}
+	require.NoError(t, s.Store(ctx, "key1", meta))
 
 	loaded, err := s.Load(ctx, "key1")
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-	if loaded.CursorId != meta.CursorId {
-		t.Errorf("CursorId = %q, want %q", loaded.CursorId, meta.CursorId)
-	}
+	require.NoError(t, err)
+	require.Equal(t, meta.CursorId, loaded.CursorId)
 }
 
 func TestStorage_Load_NotFound(t *testing.T) {
 	s := setupStorage(t)
 
 	_, err := s.Load(t.Context(), "missing")
-	if !errors.Is(err, mongo.ErrCursorNotFound) {
-		t.Errorf("Load() error = %v, want ErrCursorNotFound", err)
-	}
+	require.ErrorIs(t, err, mongo.ErrCursorNotFound)
 }
 
 func TestStorage_Delete(t *testing.T) {
@@ -65,21 +55,15 @@ func TestStorage_Delete(t *testing.T) {
 	ctx := t.Context()
 
 	_ = s.Store(ctx, "key1", testhelpers.SampleCursorMetadata())
-	if err := s.Delete(ctx, "key1"); err != nil {
-		t.Fatalf("Delete() error: %v", err)
-	}
+	require.NoError(t, s.Delete(ctx, "key1"))
 
 	_, err := s.Load(ctx, "key1")
-	if !errors.Is(err, mongo.ErrCursorNotFound) {
-		t.Errorf("Load() after Delete() error = %v, want ErrCursorNotFound", err)
-	}
+	require.ErrorIs(t, err, mongo.ErrCursorNotFound)
 }
 
 func TestStorage_Delete_NonExistent(t *testing.T) {
 	s := setupStorage(t)
-	if err := s.Delete(t.Context(), "nope"); err != nil {
-		t.Errorf("Delete() nonexistent should not error: %v", err)
-	}
+	require.NoError(t, s.Delete(t.Context(), "nope"))
 }
 
 func TestStorage_Overwrite(t *testing.T) {
@@ -95,9 +79,7 @@ func TestStorage_Overwrite(t *testing.T) {
 	_ = s.Store(ctx, "key", meta2)
 
 	loaded, _ := s.Load(ctx, "key")
-	if loaded.CursorId != "bbb" {
-		t.Errorf("CursorId = %q, want %q", loaded.CursorId, "bbb")
-	}
+	require.Equal(t, "bbb", loaded.CursorId)
 }
 
 func TestStorage_WithCustomOptions(t *testing.T) {
@@ -114,10 +96,6 @@ func TestStorage_WithCustomOptions(t *testing.T) {
 	_ = s.Store(ctx, "key1", testhelpers.SampleCursorMetadata())
 
 	loaded, err := s.Load(ctx, "key1")
-	if err != nil {
-		t.Fatalf("Load() error: %v", err)
-	}
-	if loaded.CursorId != testhelpers.SampleCursorMetadata().CursorId {
-		t.Errorf("CursorId mismatch")
-	}
+	require.NoError(t, err)
+	require.Equal(t, testhelpers.SampleCursorMetadata().CursorId, loaded.CursorId)
 }

@@ -9,6 +9,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/domain/converter"
 )
 
@@ -30,15 +32,9 @@ func TestConvert_Basic(t *testing.T) {
 
 	converter.Convert(src, dst)
 
-	if dst.Name != "Alice" {
-		t.Errorf("Name = %q, want Alice", dst.Name)
-	}
-	if dst.Email != "a@b.com" {
-		t.Errorf("Email = %q", dst.Email)
-	}
-	if dst.Age != 30 {
-		t.Errorf("Age = %d, want 30", dst.Age)
-	}
+	require.Equal(t, "Alice", dst.Name)
+	require.Equal(t, "a@b.com", dst.Email)
+	require.Equal(t, 30, dst.Age)
 }
 
 func TestConvert_IgnoreZeroValues(t *testing.T) {
@@ -47,12 +43,8 @@ func TestConvert_IgnoreZeroValues(t *testing.T) {
 
 	converter.Convert(src, dst, converter.WithIgnoreZeroValues())
 
-	if dst.Name != "Bob" {
-		t.Errorf("Name = %q, want Bob", dst.Name)
-	}
-	if dst.Age != 25 {
-		t.Errorf("Age = %d, want 25 (zero should be ignored)", dst.Age)
-	}
+	require.Equal(t, "Bob", dst.Name)
+	require.Equal(t, 25, dst.Age, "zero should be ignored")
 }
 
 func TestConvert_IgnoreFields(t *testing.T) {
@@ -61,12 +53,8 @@ func TestConvert_IgnoreFields(t *testing.T) {
 
 	converter.Convert(src, dst, converter.WithIgnoreFields("Email"))
 
-	if dst.Name != "Carol" {
-		t.Errorf("Name = %q", dst.Name)
-	}
-	if dst.Email != "" {
-		t.Errorf("Email = %q, should be ignored", dst.Email)
-	}
+	require.Equal(t, "Carol", dst.Name)
+	require.Equal(t, "", dst.Email, "should be ignored")
 }
 
 func TestConvert_FieldMappings(t *testing.T) {
@@ -82,24 +70,18 @@ func TestConvert_FieldMappings(t *testing.T) {
 
 	converter.Convert(src, dst, converter.WithFieldMappings(map[string]string{"FullName": "Name"}))
 
-	if dst.Name != "Dave" {
-		t.Errorf("Name = %q, want Dave", dst.Name)
-	}
+	require.Equal(t, "Dave", dst.Name)
 }
 
 func TestNew_Converter(t *testing.T) {
 	conv := converter.New[*SrcUser, *DstUser]()
-	if conv == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, conv)
 
 	src := &SrcUser{Name: "Eve", Age: 20}
 	dst := &DstUser{}
 	conv.Convert(src, dst)
 
-	if dst.Name != "Eve" {
-		t.Errorf("Name = %q", dst.Name)
-	}
+	require.Equal(t, "Eve", dst.Name)
 }
 
 func TestConvert_Slices(t *testing.T) {
@@ -123,12 +105,8 @@ func TestConvert_Slices(t *testing.T) {
 
 	converter.Convert(src, dst)
 
-	if len(dst.Items) != 2 {
-		t.Fatalf("Items len = %d, want 2", len(dst.Items))
-	}
-	if dst.Items[0].Name != "a" {
-		t.Errorf("Items[0].Name = %q", dst.Items[0].Name)
-	}
+	require.Len(t, dst.Items, 2)
+	require.Equal(t, "a", dst.Items[0].Name)
 }
 
 func TestConvertSeq_Basic(t *testing.T) {
@@ -140,34 +118,24 @@ func TestConvertSeq_Basic(t *testing.T) {
 	count := 0
 	for dst := range converter.ConvertSeq[SrcUser, DstUser](src) {
 		count++
-		if dst.Name == "" {
-			t.Error("empty name in converted item")
-		}
+		require.NotEmpty(t, dst.Name)
 	}
-	if count != 2 {
-		t.Errorf("ConvertSeq yielded %d items, want 2", count)
-	}
+	require.Equal(t, 2, count)
 }
 
 func TestNewObjectPools(t *testing.T) {
 	pools := converter.NewObjectPools()
-	if pools == nil {
-		t.Fatal("NewObjectPools() returned nil")
-	}
+	require.NotNil(t, pools)
 }
 
 func TestNewPrimitiveRegistry(t *testing.T) {
 	reg := converter.NewPrimitiveRegistry()
-	if reg == nil {
-		t.Fatal("NewPrimitiveRegistry() returned nil")
-	}
+	require.NotNil(t, reg)
 }
 
 func TestNewTypeCache(t *testing.T) {
 	tc := converter.NewTypeCache()
-	if tc == nil {
-		t.Fatal("NewTypeCache() returned nil")
-	}
+	require.NotNil(t, tc)
 }
 
 func TestCompileTimeTypeError_Error(t *testing.T) {
@@ -178,32 +146,24 @@ func TestCompileTimeTypeError_Error(t *testing.T) {
 		Original:    errors.New("orig"),
 	}
 	msg := err.Error()
-	if msg == "" {
-		t.Error("Error() should not be empty")
-	}
+	require.NotEmpty(t, msg)
 }
 
 func TestCompileTimeTypeError_Unwrap(t *testing.T) {
 	orig := errors.New("original")
 	err := converter.CompileTimeTypeError{Original: orig}
-	if !errors.Is(err, orig) {
-		t.Error("Unwrap should return original error")
-	}
+	require.ErrorIs(t, err, orig)
 }
 
 func TestCompileTimeTypeError_Unwrap_NonError(t *testing.T) {
 	err := converter.CompileTimeTypeError{Original: "not an error"}
-	if err.Unwrap() != nil {
-		t.Error("Unwrap should return nil for non-error original")
-	}
+	require.Nil(t, err.Unwrap())
 }
 
 func TestObjectPools_StringSlice(t *testing.T) {
 	p := converter.NewObjectPools()
 	s := p.GetStringSlice(5)
-	if cap(s) < 5 {
-		t.Errorf("GetStringSlice cap = %d, want >= 5", cap(s))
-	}
+	require.GreaterOrEqual(t, cap(s), 5)
 	s = append(s, "a", "b")
 	p.PutStringSlice(s)
 }
@@ -211,18 +171,14 @@ func TestObjectPools_StringSlice(t *testing.T) {
 func TestObjectPools_BoolSlice_PutGet(t *testing.T) {
 	p := converter.NewObjectPools()
 	s := p.GetBoolSlice(3)
-	if len(s) != 3 {
-		t.Errorf("GetBoolSlice length = %d, want 3", len(s))
-	}
+	require.Len(t, s, 3)
 	p.PutBoolSlice(s)
 }
 
 func TestObjectPools_ValueSlice_PutGet(t *testing.T) {
 	p := converter.NewObjectPools()
 	s := p.GetValueSlice(4)
-	if len(s) != 4 {
-		t.Errorf("GetValueSlice length = %d, want 4", len(s))
-	}
+	require.Len(t, s, 4)
 	p.PutValueSlice(s)
 }
 
@@ -239,21 +195,15 @@ func TestTypeCache_InvalidateAndClear(t *testing.T) {
 	_ = tc.GetTypeInfo(typ)
 	tc.InvalidateType(typ)
 	info := tc.GetTypeInfo(typ)
-	if info == nil {
-		t.Fatal("GetTypeInfo after InvalidateType should not return nil")
-	}
+	require.NotNil(t, info, "GetTypeInfo after InvalidateType should not return nil")
 	tc.Clear()
 	info = tc.GetTypeInfo(typ)
-	if info == nil {
-		t.Fatal("GetTypeInfo after Clear should not return nil")
-	}
+	require.NotNil(t, info, "GetTypeInfo after Clear should not return nil")
 }
 
 func TestWithCodecs_Empty(t *testing.T) {
 	conv := converter.New[*SrcUser, *DstUser](converter.WithCodecs())
-	if conv == nil {
-		t.Fatal("New with WithCodecs returned nil")
-	}
+	require.NotNil(t, conv)
 }
 
 func TestConvert_EmbeddedStructs(t *testing.T) {
@@ -274,9 +224,7 @@ func TestConvert_EmbeddedStructs(t *testing.T) {
 
 	converter.Convert(src, dst, converter.WithHandleEmbeddedStructs(true))
 
-	if dst.Val != "test" {
-		t.Errorf("Val = %q", dst.Val)
-	}
+	require.Equal(t, "test", dst.Val)
 }
 
 func TestConvert_OverflowCheck_Int64ToInt8(t *testing.T) {
@@ -288,19 +236,12 @@ func TestConvert_OverflowCheck_Int64ToInt8(t *testing.T) {
 
 	defer func() {
 		r := recover()
-		if r == nil {
-			t.Fatal("expected panic for int64(1000) → int8 with overflow check")
-		}
+		require.NotNil(t, r, "expected panic for int64(1000) → int8 with overflow check")
 		oe, ok := r.(converter.OverflowError)
-		if !ok {
-			t.Fatalf("expected OverflowError, got %T: %v", r, r)
-		}
-		if oe.From != reflect.Int64 || oe.To != reflect.Int8 {
-			t.Errorf("OverflowError From=%v To=%v, want Int64→Int8", oe.From, oe.To)
-		}
-		if oe.Error() == "" {
-			t.Error("OverflowError.Error() should not be empty")
-		}
+		require.True(t, ok, "expected OverflowError, got %T: %v", r, r)
+		require.Equal(t, reflect.Int64, oe.From)
+		require.Equal(t, reflect.Int8, oe.To)
+		require.NotEmpty(t, oe.Error())
 	}()
 
 	converter.Convert(src, dst, converter.WithOverflowCheck())
@@ -315,16 +256,11 @@ func TestConvert_OverflowCheck_Uint64ToUint8(t *testing.T) {
 
 	defer func() {
 		r := recover()
-		if r == nil {
-			t.Fatal("expected panic for uint64(300) → uint8 with overflow check")
-		}
+		require.NotNil(t, r, "expected panic for uint64(300) → uint8 with overflow check")
 		oe, ok := r.(converter.OverflowError)
-		if !ok {
-			t.Fatalf("expected OverflowError, got %T: %v", r, r)
-		}
-		if oe.From != reflect.Uint64 || oe.To != reflect.Uint8 {
-			t.Errorf("OverflowError From=%v To=%v, want Uint64→Uint8", oe.From, oe.To)
-		}
+		require.True(t, ok, "expected OverflowError, got %T: %v", r, r)
+		require.Equal(t, reflect.Uint64, oe.From)
+		require.Equal(t, reflect.Uint8, oe.To)
 	}()
 
 	converter.Convert(src, dst, converter.WithOverflowCheck())
@@ -339,9 +275,7 @@ func TestConvert_OverflowCheck_FitsInRange(t *testing.T) {
 
 	converter.Convert(src, dst, converter.WithOverflowCheck())
 
-	if dst.Age != 42 {
-		t.Errorf("Age = %d, want 42", dst.Age)
-	}
+	require.Equal(t, int8(42), dst.Age)
 }
 
 func TestConvert_OverflowCheck_Disabled(t *testing.T) {
@@ -355,7 +289,5 @@ func TestConvert_OverflowCheck_Disabled(t *testing.T) {
 	converter.Convert(src, dst)
 
 	// Value is truncated, not 1000
-	if dst.Age == 0 && src.Age != 0 {
-		t.Error("conversion should have happened even with truncation")
-	}
+	require.True(t, dst.Age != 0 || src.Age == 0, "conversion should have happened even with truncation")
 }

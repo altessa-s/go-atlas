@@ -8,28 +8,26 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	convcodec "github.com/altessa-s/go-atlas/domain/converter/codec"
 )
 
 func TestNewCodecsSet_NilCodecs(t *testing.T) {
 	s := convcodec.NewCodecsSet()
 	if s.HasCodecs() {
-		t.Error("empty set should not have codecs")
+		require.Fail(t, "empty set should not have codecs")
 	}
 }
 
 func TestSet_HasCodecs(t *testing.T) {
 	s := convcodec.NewCodecsSet()
-	if s.HasCodecs() {
-		t.Error("empty set HasCodecs() = true")
-	}
+	require.False(t, s.HasCodecs(), "empty set HasCodecs() = true")
 
 	s.Add(func(fieldName string, src, dst reflect.Value, next convcodec.CodecHandler) {
 		next(fieldName, src, dst)
 	})
-	if !s.HasCodecs() {
-		t.Error("set with codec HasCodecs() = false")
-	}
+	require.True(t, s.HasCodecs(), "set with codec HasCodecs() = false")
 }
 
 func TestSet_Run_FinishHandlerCalled(t *testing.T) {
@@ -39,9 +37,7 @@ func TestSet_Run_FinishHandlerCalled(t *testing.T) {
 	s.Run("field", reflect.ValueOf(0), reflect.ValueOf(0), func(fieldName string, src, dst reflect.Value) {
 		called = true
 	})
-	if !called {
-		t.Error("finishHandler not called when no codecs")
-	}
+	require.True(t, called, "finishHandler not called when no codecs")
 }
 
 func TestSet_Run_CodecHandlesConversion(t *testing.T) {
@@ -58,12 +54,8 @@ func TestSet_Run_CodecHandlesConversion(t *testing.T) {
 		finishCalled = true
 	})
 
-	if codecFieldName != "myField" {
-		t.Errorf("codec got fieldName %q, want 'myField'", codecFieldName)
-	}
-	if finishCalled {
-		t.Error("finishHandler should not be called when codec handles conversion")
-	}
+	require.Equal(t, "myField", codecFieldName)
+	require.False(t, finishCalled, "finishHandler should not be called when codec handles conversion")
 }
 
 func TestSet_Run_CodecPassesToNext(t *testing.T) {
@@ -77,9 +69,7 @@ func TestSet_Run_CodecPassesToNext(t *testing.T) {
 	s.Run("f", reflect.ValueOf(0), reflect.ValueOf(0), func(fieldName string, src, dst reflect.Value) {
 		finishCalled = true
 	})
-	if !finishCalled {
-		t.Error("finishHandler should be called when codec passes through")
-	}
+	require.True(t, finishCalled, "finishHandler should be called when codec passes through")
 }
 
 func TestSet_Run_MultipleCodecsChain(t *testing.T) {
@@ -104,9 +94,7 @@ func TestSet_Run_MultipleCodecsChain(t *testing.T) {
 		order = append(order, 99)
 	})
 
-	if len(order) != 4 || order[0] != 1 || order[1] != 2 || order[2] != 3 || order[3] != 99 {
-		t.Errorf("chain order = %v, want [1 2 3 99]", order)
-	}
+	require.Equal(t, []int{1, 2, 3, 99}, order)
 }
 
 func TestSet_Run_CodecStopsChainMidway(t *testing.T) {
@@ -131,9 +119,7 @@ func TestSet_Run_CodecStopsChainMidway(t *testing.T) {
 		order = append(order, 99)
 	})
 
-	if len(order) != 2 || order[0] != 1 || order[1] != 2 {
-		t.Errorf("chain order = %v, want [1 2]", order)
-	}
+	require.Equal(t, []int{1, 2}, order)
 }
 
 func TestSet_Add_Chaining(t *testing.T) {
@@ -142,7 +128,5 @@ func TestSet_Add_Chaining(t *testing.T) {
 	}
 
 	s := convcodec.NewCodecsSet().Add(noop).Add(noop, noop)
-	if !s.HasCodecs() {
-		t.Error("set should have codecs after chained Add")
-	}
+	require.True(t, s.HasCodecs(), "set should have codecs after chained Add")
 }

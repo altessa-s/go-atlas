@@ -9,6 +9,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
 
@@ -23,9 +25,9 @@ import (
 func TestServerInterceptor_NilValidator(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {
-			t.Errorf("ServerInterceptor did not panic with nil validator")
+			require.Failf(t, "assertion failed", "ServerInterceptor did not panic with nil validator")
 		} else if r != "protovalidator: validator cannot be nil" {
-			t.Errorf("unexpected panic message: %v", r)
+			require.Failf(t, "assertion failed", "unexpected panic message: %v", r)
 		}
 	}()
 
@@ -38,9 +40,7 @@ func TestServerInterceptor_Name(t *testing.T) {
 	})
 
 	i := ServerInterceptor(validator)
-	if i.Name() != "protovalidator" {
-		t.Fatalf("Name() = %q, want %q", i.Name(), "protovalidator")
-	}
+	require.Equal(t, "protovalidator", i.Name())
 }
 
 func TestServerInterceptor_Dependencies(t *testing.T) {
@@ -50,25 +50,15 @@ func TestServerInterceptor_Dependencies(t *testing.T) {
 
 	si := ServerInterceptor(validator)
 	dsi, ok := si.(*interceptors.DrivenServerInterceptor)
-	if !ok {
-		t.Fatal("expected DrivenServerInterceptor")
-	}
+	require.True(t, ok, "expected DrivenServerInterceptor")
 
 	ic, ok := dsi.Interceptor().(*interceptor)
-	if !ok {
-		t.Fatal("expected *interceptor")
-	}
+	require.True(t, ok, "expected *interceptor")
 
 	deps := ic.Dependencies()
-	if len(deps) != 2 {
-		t.Fatalf("Dependencies len = %d, want 2", len(deps))
-	}
-	if deps[0] != "metadata" {
-		t.Fatalf("deps[0] = %q, want %q", deps[0], "metadata")
-	}
-	if deps[1] != "auth" {
-		t.Fatalf("deps[1] = %q, want %q", deps[1], "auth")
-	}
+	require.Len(t, deps, 2)
+	require.Equal(t, "metadata", deps[0])
+	require.Equal(t, "auth", deps[1])
 }
 
 func TestServerInterceptor_ReturnsInterceptors(t *testing.T) {
@@ -77,12 +67,8 @@ func TestServerInterceptor_ReturnsInterceptors(t *testing.T) {
 	})
 
 	i := ServerInterceptor(validator)
-	if i.ServerUnaryInterceptor() == nil {
-		t.Fatal("ServerUnaryInterceptor should not be nil")
-	}
-	if i.ServerStreamInterceptor() == nil {
-		t.Fatal("ServerStreamInterceptor should not be nil")
-	}
+	require.NotNil(t, i.ServerUnaryInterceptor(), "ServerUnaryInterceptor should not be nil")
+	require.NotNil(t, i.ServerStreamInterceptor(), "ServerStreamInterceptor should not be nil")
 }
 
 func TestValidate_PanicRecovery(t *testing.T) {
@@ -103,27 +89,19 @@ func TestValidate_PanicRecovery(t *testing.T) {
 
 	ctx := t.Context()
 	_, err := unaryInt(ctx, &emptypb.Empty{}, info, handler)
-	if err == nil {
-		t.Fatal("expected error from panic recovery")
-	}
+	require.NotNil(t, err, "expected error from panic recovery")
 
 	st, ok := status.FromError(err)
-	if !ok {
-		t.Fatal("expected gRPC status error")
-	}
+	require.True(t, ok, "expected gRPC status error")
 
-	if st.Code() != codes.Internal {
-		t.Errorf("expected Internal code, got %v", st.Code())
-	}
+	require.Equal(t, codes.Internal, st.Code())
 
-	if st.Message() != "Internal Error" {
-		t.Errorf("unexpected error message: %v", st.Message())
-	}
+	require.Equal(t, "Internal Error", st.Message())
 }
 
 func TestValidate_NonProtoMessage(t *testing.T) {
 	validator := ValidatorFunc(func(ctx context.Context, msg proto.Message) error {
-		t.Fatal("validator should not be called for non-proto message")
+		require.Fail(t, "validator should not be called for non-proto message")
 		return nil
 	})
 
@@ -139,9 +117,7 @@ func TestValidate_NonProtoMessage(t *testing.T) {
 
 	req := "not a proto message"
 	err := ri.validate(ctx, req)
-	if err != nil {
-		t.Errorf("expected nil error for non-proto message, got %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestValidate_ErrorWrapping(t *testing.T) {
@@ -183,22 +159,14 @@ func TestValidate_ErrorWrapping(t *testing.T) {
 
 			req := &emptypb.Empty{}
 			err := ri.validate(ctx, req)
-			if err == nil {
-				t.Fatal("expected error")
-			}
+			require.NotNil(t, err, "expected error")
 
 			st, ok := status.FromError(err)
-			if !ok {
-				t.Fatal("expected gRPC status error")
-			}
+			require.True(t, ok, "expected gRPC status error")
 
-			if st.Code() != tt.wantCode {
-				t.Errorf("expected code %v, got %v", tt.wantCode, st.Code())
-			}
+			require.Equal(t, tt.wantCode, st.Code())
 
-			if !contains(st.Message(), tt.wantContains) {
-				t.Errorf("expected message to contain %q, got %q", tt.wantContains, st.Message())
-			}
+			require.True(t, contains(st.Message(), tt.wantContains), "expected message to contain %q, got %q", tt.wantContains, st.Message())
 		})
 	}
 }
@@ -232,12 +200,8 @@ func TestValidate_IgnoreMethods(t *testing.T) {
 	ri := d.(*requestInterceptor)
 
 	err := ri.validate(ctx, &emptypb.Empty{})
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if callCount != 0 {
-		t.Errorf("expected validator not to be called, got %d calls", callCount)
-	}
+	require.NoError(t, err)
+	require.Equal(t, 0, callCount)
 
 	// Test with method NOT in ignore list
 	callCount = 0
@@ -250,12 +214,8 @@ func TestValidate_IgnoreMethods(t *testing.T) {
 	ri2 := d2.(*requestInterceptor)
 
 	err = ri2.validate(ctx2, &emptypb.Empty{})
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if callCount != 1 {
-		t.Errorf("expected validator to be called once, got %d", callCount)
-	}
+	require.NoError(t, err)
+	require.Equal(t, 1, callCount)
 }
 
 func TestServerUnaryInterceptor(t *testing.T) {
@@ -281,15 +241,11 @@ func TestServerUnaryInterceptor(t *testing.T) {
 	// Test validation failure
 	ctx := t.Context()
 	_, err := unaryInt(ctx, &emptypb.Empty{}, info, handler)
-	if err == nil {
-		t.Fatal("expected validation error")
-	}
+	require.NotNil(t, err, "expected validation error")
 
 	// Test validation success
 	_, err = unaryInt(ctx, &wrapperspb.StringValue{Value: "test"}, info, handler)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestPreCall_ClientSide(t *testing.T) {
@@ -315,15 +271,9 @@ func TestPreCall_ClientSide(t *testing.T) {
 	ri := d.(*requestInterceptor)
 
 	resp, err := ri.PreCall(ctx, &emptypb.Empty{})
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if resp != nil {
-		t.Error("expected nil response")
-	}
-	if callCount != 0 {
-		t.Error("validator should not be called on client side")
-	}
+	require.NoError(t, err)
+	require.Nil(t, resp)
+	require.Equal(t, 0, callCount)
 }
 
 func TestPostMsgReceive_ValidatesStreamingMessages(t *testing.T) {
@@ -350,20 +300,16 @@ func TestPostMsgReceive_ValidatesStreamingMessages(t *testing.T) {
 
 	// Test with valid message
 	err := ri.PostMsgReceive(ctx, &wrapperspb.StringValue{Value: "test"}, nil)
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Test with invalid message
 	err = ri.PostMsgReceive(ctx, &emptypb.Empty{}, nil)
-	if err == nil {
-		t.Fatal("expected validation error")
-	}
+	require.NotNil(t, err, "expected validation error")
 }
 
 func TestPostMsgReceive_PassesThroughExistingError(t *testing.T) {
 	validator := ValidatorFunc(func(ctx context.Context, msg proto.Message) error {
-		t.Fatal("validator should not be called when there's an existing error")
+		require.Fail(t, "validator should not be called when there's an existing error")
 		return nil
 	})
 
@@ -379,9 +325,7 @@ func TestPostMsgReceive_PassesThroughExistingError(t *testing.T) {
 
 	existingErr := errors.New("existing error")
 	err := ri.PostMsgReceive(ctx, &emptypb.Empty{}, existingErr)
-	if err != existingErr {
-		t.Errorf("expected existing error to be passed through, got %v", err)
-	}
+	require.Equal(t, existingErr, err)
 }
 
 func TestPostCall_PassesThroughError(t *testing.T) {
@@ -401,15 +345,11 @@ func TestPostCall_PassesThroughError(t *testing.T) {
 
 	existingErr := errors.New("handler error")
 	err := ri.PostCall(ctx, &emptypb.Empty{}, existingErr)
-	if err != existingErr {
-		t.Errorf("expected error to be passed through, got %v", err)
-	}
+	require.Equal(t, existingErr, err)
 
 	// Test nil error
 	err = ri.PostCall(ctx, &emptypb.Empty{}, nil)
-	if err != nil {
-		t.Errorf("expected nil error, got %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestPostMsgSent_PassesThroughError(t *testing.T) {
@@ -429,9 +369,7 @@ func TestPostMsgSent_PassesThroughError(t *testing.T) {
 
 	existingErr := errors.New("send error")
 	err := ri.PostMsgSent(ctx, &emptypb.Empty{}, existingErr)
-	if err != existingErr {
-		t.Errorf("expected error to be passed through, got %v", err)
-	}
+	require.Equal(t, existingErr, err)
 }
 
 func TestValidatorFunc(t *testing.T) {
@@ -442,12 +380,8 @@ func TestValidatorFunc(t *testing.T) {
 	})
 
 	err := vf.Validate(t.Context(), &emptypb.Empty{})
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if !called {
-		t.Error("ValidatorFunc was not called")
-	}
+	require.NoError(t, err)
+	require.True(t, called, "ValidatorFunc was not called")
 }
 
 func contains(s, substr string) bool {

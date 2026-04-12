@@ -5,9 +5,10 @@
 package lru
 
 import (
-	"errors"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/cache/providers"
 )
@@ -15,9 +16,7 @@ import (
 func newTestProvider(t *testing.T) *Provider {
 	t.Helper()
 	p, err := New(100)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	return p
 }
 
@@ -26,17 +25,11 @@ func TestProvider_SaveGet(t *testing.T) {
 	ctx := t.Context()
 
 	err := p.Save(ctx, "key", []byte("value"), time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	v, err := p.Get(ctx, "key")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(v) != "value" {
-		t.Errorf("got %q, want %q", v, "value")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "value", string(v))
 }
 
 func TestProvider_TTLExpiry(t *testing.T) {
@@ -44,17 +37,13 @@ func TestProvider_TTLExpiry(t *testing.T) {
 	ctx := t.Context()
 
 	err := p.Save(ctx, "key", []byte("value"), time.Nanosecond)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	// Wait for expiry
 	time.Sleep(time.Millisecond)
 
 	_, err = p.Get(ctx, "key")
-	if !errors.Is(err, providers.ErrMissing) {
-		t.Errorf("expected ErrMissing after TTL, got %v", err)
-	}
+	require.ErrorIs(t, err, providers.ErrMissing)
 }
 
 func TestProvider_Exists(t *testing.T) {
@@ -64,17 +53,11 @@ func TestProvider_Exists(t *testing.T) {
 	_ = p.Save(ctx, "key", []byte("val"), time.Hour)
 
 	exists, err := p.Exists(ctx, "key")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !exists {
-		t.Error("expected true")
-	}
+	require.NoError(t, err)
+	require.True(t, exists)
 
 	exists, _ = p.Exists(ctx, "missing")
-	if exists {
-		t.Error("expected false for missing key")
-	}
+	require.False(t, exists, "expected false for missing key")
 }
 
 func TestProvider_Delete(t *testing.T) {
@@ -85,9 +68,7 @@ func TestProvider_Delete(t *testing.T) {
 	_ = p.Delete(ctx, "key")
 
 	_, err := p.Get(ctx, "key")
-	if !errors.Is(err, providers.ErrMissing) {
-		t.Errorf("expected ErrMissing after delete, got %v", err)
-	}
+	require.ErrorIs(t, err, providers.ErrMissing)
 }
 
 func TestProvider_DeleteMany(t *testing.T) {
@@ -100,21 +81,15 @@ func TestProvider_DeleteMany(t *testing.T) {
 	_ = p.DeleteMany(ctx, "k1", "k2")
 
 	_, err := p.Get(ctx, "k1")
-	if !errors.Is(err, providers.ErrMissing) {
-		t.Errorf("k1: expected ErrMissing, got %v", err)
-	}
+	require.ErrorIs(t, err, providers.ErrMissing)
 	_, err = p.Get(ctx, "k2")
-	if !errors.Is(err, providers.ErrMissing) {
-		t.Errorf("k2: expected ErrMissing, got %v", err)
-	}
+	require.ErrorIs(t, err, providers.ErrMissing)
 }
 
 func TestProvider_Get_Missing(t *testing.T) {
 	p := newTestProvider(t)
 	_, err := p.Get(t.Context(), "missing")
-	if !errors.Is(err, providers.ErrMissing) {
-		t.Errorf("expected ErrMissing, got %v", err)
-	}
+	require.ErrorIs(t, err, providers.ErrMissing)
 }
 
 // TestProvider_ConcurrentSaveGetExpiry verifies that a concurrent Save does not
@@ -134,10 +109,6 @@ func TestProvider_ConcurrentSaveGetExpiry(t *testing.T) {
 
 	// A Get that observes the expired item must NOT remove the fresh value.
 	v, err := p.Get(ctx, "k")
-	if err != nil {
-		t.Fatalf("expected fresh value, got error: %v", err)
-	}
-	if string(v) != "fresh" {
-		t.Errorf("got %q, want %q", v, "fresh")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "fresh", string(v))
 }

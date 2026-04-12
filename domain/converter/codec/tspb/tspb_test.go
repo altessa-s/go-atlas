@@ -25,7 +25,7 @@ func TestNew_TimestampToTime(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("CreatedAt", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	assert.True(t, now.Equal(dst))
@@ -40,7 +40,7 @@ func TestNew_TimeToTimestamp(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("CreatedAt", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	assert.True(t, now.Equal(dst.AsTime()))
@@ -56,7 +56,7 @@ func TestNew_TimestampToInt64(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("CreatedAt", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	assert.Equal(t, now.Unix(), dst)
@@ -71,7 +71,7 @@ func TestNew_Int64ToTimestamp(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("CreatedAt", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	assert.Equal(t, unix, dst.AsTime().Unix())
@@ -87,7 +87,7 @@ func TestNew_Pointer_TimestampToTime(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("CreatedAt", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	require.NotNil(t, dst)
@@ -103,7 +103,7 @@ func TestNew_Pointer_TimeToTimestamp(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("CreatedAt", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	require.NotNil(t, dst)
@@ -120,7 +120,7 @@ func TestNew_Pointer_TimestampToInt64(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("CreatedAt", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	require.NotNil(t, dst)
@@ -136,7 +136,7 @@ func TestNew_Pointer_Int64ToTimestamp(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("CreatedAt", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	require.NotNil(t, dst)
@@ -154,7 +154,7 @@ func TestNew_IgnoreZero_Timestamp(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("CreatedAt", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	assert.Equal(t, original, dst, "dst should remain unchanged when zero timestamp is ignored")
@@ -168,7 +168,7 @@ func TestNew_IgnoreZero_Time(t *testing.T) {
 	dstVal := reflect.ValueOf(orig).Elem()
 
 	codec("CreatedAt", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	assert.Equal(t, int64(1735689600), orig.GetSeconds(), "dst should remain unchanged when zero time is ignored")
@@ -182,7 +182,7 @@ func TestNew_IgnoreZero_Int64(t *testing.T) {
 	dstVal := reflect.ValueOf(orig).Elem()
 
 	codec("CreatedAt", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	assert.Equal(t, int64(1735689600), orig.GetSeconds(), "dst should remain unchanged when zero int64 is ignored")
@@ -199,7 +199,7 @@ func TestNew_Milliseconds(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("CreatedAt", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	assert.Equal(t, now.UnixMilli(), dst)
@@ -210,7 +210,7 @@ func TestNew_Milliseconds(t *testing.T) {
 	dstVal2 := reflect.ValueOf(&dst2).Elem()
 
 	codec("CreatedAt", src2, dstVal2, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	assert.True(t, now.Equal(dst2.AsTime()), "round-trip should preserve the time instant")
@@ -240,7 +240,7 @@ func TestNew_NilPointer_Timestamp(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("CreatedAt", srcVal, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	assert.Nil(t, dst, "dst should remain nil when src is nil pointer")
@@ -255,7 +255,7 @@ func TestNew_NilPointer_Time(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("CreatedAt", srcVal, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	assert.Nil(t, dst, "dst should remain nil when src is nil pointer")
@@ -270,7 +270,7 @@ func TestNew_NilPointer_Int64(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("CreatedAt", srcVal, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	assert.Nil(t, dst, "dst should remain nil when src is nil pointer")

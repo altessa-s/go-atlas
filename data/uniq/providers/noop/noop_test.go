@@ -7,64 +7,48 @@ package noop_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/uniq/providers/noop"
 )
 
 func TestNew(t *testing.T) {
 	p := noop.New()
-	if p == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, p, "New() returned nil")
 }
 
 func TestProvider_Add(t *testing.T) {
 	p := noop.New()
-	if err := p.Add(t.Context(), "key"); err != nil {
-		t.Errorf("Add() error: %v", err)
-	}
+	require.NoError(t, p.Add(t.Context(), "key"))
 }
 
 func TestProvider_AddWithValue(t *testing.T) {
 	p := noop.New()
-	if err := p.AddWithValue(t.Context(), "key", []byte("val")); err != nil {
-		t.Errorf("AddWithValue() error: %v", err)
-	}
+	require.NoError(t, p.AddWithValue(t.Context(), "key", []byte("val")))
 }
 
 func TestProvider_Exist(t *testing.T) {
 	p := noop.New()
 	exists, err := p.Exist(t.Context(), "key")
-	if err != nil {
-		t.Errorf("Exist() error: %v", err)
-	}
-	if exists {
-		t.Error("Exist() should return false for noop")
-	}
+	require.NoError(t, err)
+	require.False(t, exists, "Exist() should return false for noop")
 }
 
 func TestProvider_GetValue(t *testing.T) {
 	p := noop.New()
 	val, err := p.GetValue(t.Context(), "key")
-	if err != nil {
-		t.Errorf("GetValue() error: %v", err)
-	}
-	if val != nil {
-		t.Errorf("GetValue() = %v, want nil", val)
-	}
+	require.NoError(t, err)
+	require.Nil(t, val)
 }
 
 func TestProvider_Remove(t *testing.T) {
 	p := noop.New()
-	if err := p.Remove(t.Context(), "key"); err != nil {
-		t.Errorf("Remove() error: %v", err)
-	}
+	require.NoError(t, p.Remove(t.Context(), "key"))
 }
 
 func TestProvider_Clear(t *testing.T) {
 	p := noop.New()
-	if err := p.Clear(t.Context()); err != nil {
-		t.Errorf("Clear() error: %v", err)
-	}
+	require.NoError(t, p.Clear(t.Context()))
 }
 
 func TestProvider_FullLifecycle(t *testing.T) {
@@ -75,14 +59,10 @@ func TestProvider_FullLifecycle(t *testing.T) {
 	_ = p.AddWithValue(ctx, "key2", []byte("data"))
 
 	exists, _ := p.Exist(ctx, "key1")
-	if exists {
-		t.Error("noop Exist() should always be false")
-	}
+	require.False(t, exists, "noop Exist() should always be false")
 
 	val, _ := p.GetValue(ctx, "key2")
-	if val != nil {
-		t.Error("noop GetValue() should always be nil")
-	}
+	require.Nil(t, val)
 
 	_ = p.Remove(ctx, "key1")
 	_ = p.Clear(ctx)

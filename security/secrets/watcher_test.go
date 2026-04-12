@@ -7,6 +7,8 @@ package secrets_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/security/secrets"
 )
 
@@ -25,9 +27,7 @@ func TestEventType_String(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.et.String(); got != tt.expected {
-				t.Errorf("EventType.String() = %q, want %q", got, tt.expected)
-			}
+			require.Equal(t, tt.expected, tt.et.String())
 		})
 	}
 }
@@ -46,9 +46,7 @@ func TestBufferOverflowPolicy_String(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.policy.String(); got != tt.expected {
-				t.Errorf("BufferOverflowPolicy.String() = %q, want %q", got, tt.expected)
-			}
+			require.Equal(t, tt.expected, tt.policy.String())
 		})
 	}
 }
@@ -56,62 +54,38 @@ func TestBufferOverflowPolicy_String(t *testing.T) {
 func TestFilterByKeys(t *testing.T) {
 	t.Run("with keys", func(t *testing.T) {
 		filter := secrets.FilterByKeys[string]("a", "b")
-		if filter == nil {
-			t.Fatal("FilterByKeys() returned nil")
-		}
-		if !filter(secrets.WatchEvent[string]{Key: "a"}) {
-			t.Error("expected Key=a to pass filter")
-		}
-		if filter(secrets.WatchEvent[string]{Key: "c"}) {
-			t.Error("expected Key=c to be rejected")
-		}
+		require.NotNil(t, filter)
+		require.True(t, filter(secrets.WatchEvent[string]{Key: "a"}))
+		require.False(t, filter(secrets.WatchEvent[string]{Key: "c"}))
 	})
 
 	t.Run("empty returns nil", func(t *testing.T) {
-		if secrets.FilterByKeys[string]() != nil {
-			t.Error("expected nil filter for empty keys")
-		}
+		require.Nil(t, secrets.FilterByKeys[string]())
 	})
 }
 
 func TestFilterByEventTypes(t *testing.T) {
 	t.Run("with types", func(t *testing.T) {
 		filter := secrets.FilterByEventTypes[string](secrets.EventTypeCreated)
-		if filter == nil {
-			t.Fatal("FilterByEventTypes() returned nil")
-		}
-		if !filter(secrets.WatchEvent[string]{Type: secrets.EventTypeCreated}) {
-			t.Error("expected Created to pass filter")
-		}
-		if filter(secrets.WatchEvent[string]{Type: secrets.EventTypeDeleted}) {
-			t.Error("expected Deleted to be rejected")
-		}
+		require.NotNil(t, filter)
+		require.True(t, filter(secrets.WatchEvent[string]{Type: secrets.EventTypeCreated}))
+		require.False(t, filter(secrets.WatchEvent[string]{Type: secrets.EventTypeDeleted}))
 	})
 
 	t.Run("empty returns nil", func(t *testing.T) {
-		if secrets.FilterByEventTypes[string]() != nil {
-			t.Error("expected nil filter for empty types")
-		}
+		require.Nil(t, secrets.FilterByEventTypes[string]())
 	})
 }
 
 func TestFilterBySource(t *testing.T) {
 	t.Run("with sources", func(t *testing.T) {
 		filter := secrets.FilterBySource[string]("src1")
-		if filter == nil {
-			t.Fatal("FilterBySource() returned nil")
-		}
-		if !filter(secrets.WatchEvent[string]{Source: "src1"}) {
-			t.Error("expected Source=src1 to pass filter")
-		}
-		if filter(secrets.WatchEvent[string]{Source: "other"}) {
-			t.Error("expected Source=other to be rejected")
-		}
+		require.NotNil(t, filter)
+		require.True(t, filter(secrets.WatchEvent[string]{Source: "src1"}))
+		require.False(t, filter(secrets.WatchEvent[string]{Source: "other"}))
 	})
 
 	t.Run("empty returns nil", func(t *testing.T) {
-		if secrets.FilterBySource[string]() != nil {
-			t.Error("expected nil filter for empty sources")
-		}
+		require.Nil(t, secrets.FilterBySource[string]())
 	})
 }

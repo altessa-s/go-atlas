@@ -7,6 +7,8 @@ package errstatus
 import (
 	"log/slog"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestWithDomain(t *testing.T) {
@@ -26,79 +28,55 @@ func TestWithDomain(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			opts := newOptions(tt.opt)
-			if opts.domain != tt.want {
-				t.Fatalf("domain = %q, want %q", opts.domain, tt.want)
-			}
+			require.Equal(t, tt.want, opts.domain)
 		})
 	}
 }
 
 func TestDefaultOptions(t *testing.T) {
 	opts := defaultOptions()
-	if opts.cacheSize != DefaultCacheSize {
-		t.Fatalf("cacheSize = %d, want %d", opts.cacheSize, DefaultCacheSize)
-	}
-	if opts.logger == nil {
-		t.Fatal("logger should not be nil")
-	}
-	if opts.cacheDisabled {
-		t.Fatal("cacheDisabled should be false by default")
-	}
-	if opts.cacheOnlySentinel {
-		t.Fatal("cacheOnlySentinel should be false by default")
-	}
+	require.Equal(t, DefaultCacheSize, opts.cacheSize)
+	require.NotNil(t, opts.logger, "logger should not be nil")
+	require.False(t, opts.cacheDisabled, "cacheDisabled should be false by default")
+	require.False(t, opts.cacheOnlySentinel, "cacheOnlySentinel should be false by default")
 }
 
 func TestWithCacheDisabled(t *testing.T) {
 	opts := newOptions(WithCacheDisabled())
-	if !opts.cacheDisabled {
-		t.Fatal("cacheDisabled should be true")
-	}
+	require.True(t, opts.cacheDisabled, "cacheDisabled should be true")
 }
 
 func TestWithCacheOnlySentinel(t *testing.T) {
 	opts := newOptions(WithCacheOnlySentinel())
-	if !opts.cacheOnlySentinel {
-		t.Fatal("cacheOnlySentinel should be true")
-	}
+	require.True(t, opts.cacheOnlySentinel, "cacheOnlySentinel should be true")
 }
 
 func TestWithCacheSize(t *testing.T) {
 	opts := newOptions(WithCacheSize(500))
-	if opts.cacheSize != 500 {
-		t.Fatalf("cacheSize = %d, want 500", opts.cacheSize)
-	}
+	require.Equal(t, 500, opts.cacheSize)
 }
 
 func TestWithLogger(t *testing.T) {
 	t.Run("nil_ignored", func(t *testing.T) {
 		opts := newOptions(WithLogger(nil))
-		if opts.logger == nil {
-			t.Fatal("nil logger should fallback to default (non-nil)")
-		}
+		require.NotNil(t, opts.logger, "nil logger should fallback to default (non-nil)")
 	})
 
 	t.Run("set", func(t *testing.T) {
 		l := slog.Default()
 		opts := newOptions(WithLogger(l))
-		if opts.logger != l {
-			t.Fatal("logger should be set")
-		}
+		require.Equal(t, l, opts.logger)
 	})
 }
 
 func TestWithSentinelErrors_Empty_Ignored(t *testing.T) {
 	opts := newOptions(WithSentinelErrors())
-	if len(opts.sentinelErrors) != 0 {
-		t.Fatalf("sentinelErrors len = %d, want 0", len(opts.sentinelErrors))
-	}
+	require.Len(t, opts.sentinelErrors, 0)
 }
 
 func TestWithFinalizer(t *testing.T) {
 	opts := newOptions(WithFinalizer(DefaultFinalizer))
-	if opts.finalizer == nil {
-		t.Fatal("finalizer should be set")
-	}
+	require.NotNil(t, opts.finalizer, "finalizer should be set")
 }
 
 func strPtr(s string) *string { return &s }

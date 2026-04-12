@@ -6,66 +6,44 @@ package recovery
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestServerInterceptor_Dependencies(t *testing.T) {
 	i, ok := ServerInterceptor().(*interceptor) //nolint:errcheck
-	if !ok {
-		t.Fatal("unexpected type")
-	}
+	require.True(t, ok, "unexpected type")
 	deps := i.Dependencies()
-	if len(deps) != 2 {
-		t.Fatalf("Dependencies len = %d, want 2", len(deps))
-	}
-	if deps[0] != "metadata" {
-		t.Fatalf("deps[0] = %q", deps[0])
-	}
-	if deps[1] != "requestid" {
-		t.Fatalf("deps[1] = %q", deps[1])
-	}
+	require.Len(t, deps, 2)
+	require.Equal(t, "metadata", deps[0])
+	require.Equal(t, "requestid", deps[1])
 }
 
 func TestServerInterceptor_Name(t *testing.T) {
 	i := ServerInterceptor()
-	if i.Name() != "recovery" {
-		t.Fatalf("Name = %q", i.Name())
-	}
+	require.Equal(t, "recovery", i.Name())
 }
 
 func TestClientInterceptor_Name(t *testing.T) {
 	i := ClientInterceptor()
-	if i.Name() != "recovery" {
-		t.Fatalf("Name = %q", i.Name())
-	}
+	require.Equal(t, "recovery", i.Name())
 }
 
 func TestClientInterceptor_Dependencies(t *testing.T) {
 	i, ok := ClientInterceptor().(*interceptor) //nolint:errcheck
-	if !ok {
-		t.Fatal("unexpected type")
-	}
+	require.True(t, ok, "unexpected type")
 	deps := i.Dependencies()
-	if len(deps) != 2 {
-		t.Fatalf("Dependencies len = %d, want 2", len(deps))
-	}
+	require.Len(t, deps, 2)
 }
 
 func TestServerInterceptor_ReturnsInterceptors(t *testing.T) {
 	i := ServerInterceptor()
-	if i.ServerUnaryInterceptor() == nil {
-		t.Fatal("ServerUnaryInterceptor should not be nil")
-	}
-	if i.ServerStreamInterceptor() == nil {
-		t.Fatal("ServerStreamInterceptor should not be nil")
-	}
+	require.NotNil(t, i.ServerUnaryInterceptor(), "ServerUnaryInterceptor should not be nil")
+	require.NotNil(t, i.ServerStreamInterceptor(), "ServerStreamInterceptor should not be nil")
 }
 
 func TestClientInterceptor_ReturnsInterceptors(t *testing.T) {
 	i := ClientInterceptor()
-	if i.ClientUnaryInterceptor() == nil {
-		t.Fatal("ClientUnaryInterceptor should not be nil")
-	}
-	if i.ClientStreamInterceptor() == nil {
-		t.Fatal("ClientStreamInterceptor should not be nil")
-	}
+	require.NotNil(t, i.ClientUnaryInterceptor(), "ClientUnaryInterceptor should not be nil")
+	require.NotNil(t, i.ClientStreamInterceptor(), "ClientStreamInterceptor should not be nil")
 }

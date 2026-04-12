@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/stretchr/testify/assert"
 
 	"github.com/altessa-s/go-atlas/data/cache/providers/redis"
 
@@ -50,8 +51,6 @@ func FuzzProvider_SaveGet(f *testing.F) {
 		}
 
 		// If both Save and Get succeeded, values should match
-		if string(got) != string(value) {
-			t.Errorf("Get() = %q, want %q", got, value)
-		}
+		assert.Equal(t, string(value), string(got))
 	})
 }

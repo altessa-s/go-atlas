@@ -7,6 +7,8 @@ package factory
 import (
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestRequireAllDependencies_AggregatesAllMissing asserts that every missing
@@ -22,19 +24,13 @@ func TestRequireAllDependencies_AggregatesAllMissing(t *testing.T) {
 		"logger":   "present",
 		"metrics":  nil,
 	})
-	if err == nil {
-		t.Fatal("expected aggregated error, got nil")
-	}
+	require.Error(t, err, "expected aggregated error")
 
 	msg := err.Error()
 	for _, name := range []string{"database", "cache", "metrics"} {
-		if !strings.Contains(msg, name+" is required") {
-			t.Errorf("aggregated error missing %q: %s", name, msg)
-		}
+		require.True(t, strings.Contains(msg, name+" is required"), "aggregated error missing %q: %s", name, msg)
 	}
-	if strings.Contains(msg, "logger is required") {
-		t.Errorf("aggregated error unexpectedly reports present dep: %s", msg)
-	}
+	require.False(t, strings.Contains(msg, "logger is required"), "aggregated error unexpectedly reports present dep: %s", msg)
 }
 
 // TestRequireAllDependencies_AllPresentReturnsNil is a sanity check that the
@@ -47,9 +43,7 @@ func TestRequireAllDependencies_AllPresentStillNil(t *testing.T) {
 		"b": 42,
 		"c": struct{}{},
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 // BenchmarkRequireAllDependencies_AllPresent is the hot path: construction

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
@@ -89,24 +90,16 @@ func TestEnsureCursorIdInSort(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := ensureCursorIdInSort(tt.sort, tt.cursorIdField)
 
-			if len(got) != tt.wantLen {
-				t.Fatalf("len = %d, want %d; got %v", len(got), tt.wantLen, got)
-			}
+			require.Len(t, got, tt.wantLen, "got %v", got)
 
 			if tt.wantSameSlice {
-				if &got[0] != &tt.sort[0] {
-					t.Error("expected same underlying slice, got a copy")
-				}
+				require.True(t, &got[0] == &tt.sort[0], "expected same underlying slice, got a copy")
 				return
 			}
 
 			last := got[len(got)-1]
-			if last.Key != tt.wantLastKey {
-				t.Errorf("last key = %q, want %q", last.Key, tt.wantLastKey)
-			}
-			if last.Value != tt.wantLastVal {
-				t.Errorf("last value = %v (%T), want %v (%T)", last.Value, last.Value, tt.wantLastVal, tt.wantLastVal)
-			}
+			require.Equal(t, tt.wantLastKey, last.Key, "last key")
+			require.Equal(t, tt.wantLastVal, last.Value, "last value")
 		})
 	}
 }
@@ -119,20 +112,14 @@ func TestEnsureCursorIdInSort_DoesNotMutateOriginal(t *testing.T) {
 	result := ensureCursorIdInSort(original, "cursor_id")
 
 	// Original must be unchanged
-	if len(original) != len(originalCopy) {
-		t.Fatalf("original length changed: %d → %d", len(originalCopy), len(original))
-	}
+	require.Len(t, original, len(originalCopy), "original length changed")
 	for i := range original {
-		if original[i].Key != originalCopy[i].Key || original[i].Value != originalCopy[i].Value {
-			t.Errorf("original[%d] mutated: got {%s, %v}, want {%s, %v}",
-				i, original[i].Key, original[i].Value, originalCopy[i].Key, originalCopy[i].Value)
-		}
+		require.Equal(t, originalCopy[i].Key, original[i].Key, "original[%d] key mutated", i)
+		require.Equal(t, originalCopy[i].Value, original[i].Value, "original[%d] value mutated", i)
 	}
 
 	// Result must be a different slice
-	if len(result) != 2 {
-		t.Fatalf("result len = %d, want 2", len(result))
-	}
+	require.Len(t, result, 2)
 }
 
 func TestBuildSortStage(t *testing.T) {
@@ -161,17 +148,11 @@ func TestBuildSortStage(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := buildSortStage(tt.sort)
-			if len(got) != 1 {
-				t.Fatalf("expected 1 stage, got %d", len(got))
-			}
+			require.Len(t, got, 1)
 			stage, ok := got[0].(bson.M)
-			if !ok {
-				t.Fatal("stage is not bson.M")
-			}
+			require.True(t, ok, "stage is not bson.M")
 			sortSpec, ok := stage["$sort"].(bson.D)
-			if !ok {
-				t.Fatal("$sort value is not bson.D")
-			}
+			require.True(t, ok, "$sort value is not bson.D")
 			assertBsonDEqual(t, tt.wantSort, sortSpec)
 		})
 	}
@@ -180,36 +161,26 @@ func TestBuildSortStage(t *testing.T) {
 func TestBuildMatchStage(t *testing.T) {
 	t.Run("no filter no cursor", func(t *testing.T) {
 		got := buildMatchStage(bson.M{}, nil, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
-		if len(got) != 0 {
-			t.Fatalf("expected empty pipeline, got %d stages", len(got))
-		}
+		require.Empty(t, got)
 	})
 
 	t.Run("filter only", func(t *testing.T) {
 		filter := bson.M{"status": "active"}
 		got := buildMatchStage(filter, nil, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
-		if len(got) != 1 {
-			t.Fatalf("expected 1 stage, got %d", len(got))
-		}
+		require.Len(t, got, 1)
 		stage := got[0].(bson.M)
 		match := stage["$match"].(bson.M)
-		if match["status"] != "active" {
-			t.Errorf("filter not applied: %v", match)
-		}
+		require.Equal(t, "active", match["status"], "filter not applied")
 	})
 
 	t.Run("cursor only", func(t *testing.T) {
 		oid := bson.NewObjectID()
 		cursor := &Cursor{CursorId: oid.Hex()}
 		got := buildMatchStage(bson.M{}, cursor, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
-		if len(got) != 1 {
-			t.Fatalf("expected 1 stage, got %d", len(got))
-		}
+		require.Len(t, got, 1)
 		stage := got[0].(bson.M)
 		match := stage["$match"].(bson.M)
-		if _, ok := match["cursor_id"]; !ok {
-			t.Error("cursor filter not applied")
-		}
+		require.Contains(t, match, "cursor_id", "cursor filter not applied")
 	})
 
 	t.Run("filter and cursor combined with $and", func(t *testing.T) {
@@ -217,22 +188,16 @@ func TestBuildMatchStage(t *testing.T) {
 		cursor := &Cursor{CursorId: oid.Hex()}
 		filter := bson.M{"status": "active"}
 		got := buildMatchStage(filter, cursor, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
-		if len(got) != 1 {
-			t.Fatalf("expected 1 stage, got %d", len(got))
-		}
+		require.Len(t, got, 1)
 		stage := got[0].(bson.M)
 		match := stage["$match"].(bson.M)
-		if _, ok := match["$and"]; !ok {
-			t.Error("expected $and operator for combined filter")
-		}
+		require.Contains(t, match, "$and", "expected $and operator for combined filter")
 	})
 
 	t.Run("zero cursor treated as no cursor", func(t *testing.T) {
 		cursor := &Cursor{} // zero cursor
 		got := buildMatchStage(bson.M{}, cursor, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
-		if len(got) != 0 {
-			t.Fatalf("expected empty pipeline for zero cursor, got %d stages", len(got))
-		}
+		require.Empty(t, got, "expected empty pipeline for zero cursor")
 	})
 }
 
@@ -241,86 +206,60 @@ func TestBuildCursorFilter(t *testing.T) {
 
 	t.Run("nil cursor returns empty", func(t *testing.T) {
 		got := buildCursorFilter(nil, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
-		if len(got) != 0 {
-			t.Fatalf("expected empty filter, got %v", got)
-		}
+		require.Empty(t, got)
 	})
 
 	t.Run("zero cursor returns empty", func(t *testing.T) {
 		got := buildCursorFilter(&Cursor{}, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
-		if len(got) != 0 {
-			t.Fatalf("expected empty filter, got %v", got)
-		}
+		require.Empty(t, got)
 	})
 
 	t.Run("descending sort uses $lt", func(t *testing.T) {
 		cursor := &Cursor{CursorId: oid.Hex()}
 		got := buildCursorFilter(cursor, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
 		cursorFilter, ok := got["cursor_id"].(bson.M)
-		if !ok {
-			t.Fatalf("expected cursor_id filter, got %v", got)
-		}
-		if _, ok := cursorFilter["$lt"]; !ok {
-			t.Errorf("expected $lt for descending sort, got %v", cursorFilter)
-		}
+		require.True(t, ok, "expected cursor_id filter, got %v", got)
+		require.Contains(t, cursorFilter, "$lt", "expected $lt for descending sort")
 	})
 
 	t.Run("ascending sort uses $gt", func(t *testing.T) {
 		cursor := &Cursor{CursorId: oid.Hex()}
 		got := buildCursorFilter(cursor, "cursor_id", bson.D{{Key: "created_at", Value: 1}})
 		cursorFilter, ok := got["cursor_id"].(bson.M)
-		if !ok {
-			t.Fatalf("expected cursor_id filter, got %v", got)
-		}
-		if _, ok := cursorFilter["$gt"]; !ok {
-			t.Errorf("expected $gt for ascending sort, got %v", cursorFilter)
-		}
+		require.True(t, ok, "expected cursor_id filter, got %v", got)
+		require.Contains(t, cursorFilter, "$gt", "expected $gt for ascending sort")
 	})
 
 	t.Run("with sort value uses compound $or filter", func(t *testing.T) {
 		sortVal, err := encodeSortValue(int64(1234567890))
-		if err != nil {
-			t.Fatalf("encodeSortValue: %v", err)
-		}
+		require.NoError(t, err, "encodeSortValue")
 		cursor := &Cursor{CursorId: oid.Hex(), SortValue: sortVal}
 		got := buildCursorFilter(cursor, "cursor_id", bson.D{{Key: "updated_at", Value: -1}})
-		if _, ok := got["$or"]; !ok {
-			t.Errorf("expected $or filter for compound sort, got %v", got)
-		}
+		require.Contains(t, got, "$or", "expected $or filter for compound sort")
 	})
 
 	t.Run("invalid cursor id returns empty", func(t *testing.T) {
 		cursor := &Cursor{CursorId: "invalid-hex"}
 		got := buildCursorFilter(cursor, "cursor_id", bson.D{{Key: "created_at", Value: -1}})
-		if len(got) != 0 {
-			t.Fatalf("expected empty filter for invalid cursor id, got %v", got)
-		}
+		require.Empty(t, got, "expected empty filter for invalid cursor id")
 	})
 }
 
 func TestBuildFacetStage(t *testing.T) {
 	t.Run("without total and without projection", func(t *testing.T) {
 		got := buildFacetStage(10, nil, false, nil, false)
-		if len(got) != 1 {
-			t.Fatalf("expected 1 stage, got %d", len(got))
-		}
+		require.Len(t, got, 1)
 		facet := got[0].(bson.M)["$facet"].(bson.M)
-		if _, ok := facet["count"]; ok {
-			t.Error("count should not be present when includeTotal is false")
-		}
+		require.NotContains(t, facet, "count", "count should not be present when includeTotal is false")
 		items := facet["items"].(bson.A)
 		limitStage := items[0].(bson.M)
-		if limitStage["$limit"] != int64(11) { // 10 + lookahead
-			t.Errorf("limit = %v, want 11", limitStage["$limit"])
-		}
+		require.Equal(t, int64(11), limitStage["$limit"], "limit should be 10 + lookahead")
 	})
 
 	t.Run("with total", func(t *testing.T) {
 		got := buildFacetStage(20, nil, true, nil, false)
 		facet := got[0].(bson.M)["$facet"].(bson.M)
-		if _, ok := facet["count"]; !ok {
-			t.Error("count should be present when includeTotal is true")
-		}
+		require.Contains(t, facet, "count", "count should be present when includeTotal is true")
 	})
 
 	t.Run("with projection", func(t *testing.T) {
@@ -328,9 +267,7 @@ func TestBuildFacetStage(t *testing.T) {
 		got := buildFacetStage(10, proj, false, nil, false)
 		facet := got[0].(bson.M)["$facet"].(bson.M)
 		items := facet["items"].(bson.A)
-		if len(items) != 2 { // $limit + $project
-			t.Fatalf("expected 2 stages in items pipeline, got %d", len(items))
-		}
+		require.Len(t, items, 2, "expected $limit + $project")
 	})
 }
 
@@ -347,27 +284,19 @@ func TestBuildCursorPipeline(t *testing.T) {
 		pipeline := buildCursorPipeline(opts)
 
 		// Pipeline should have: $match, $sort, $facet, $unwind, $project (at minimum)
-		if len(pipeline) < 3 {
-			t.Fatalf("expected at least 3 stages, got %d", len(pipeline))
-		}
+		require.GreaterOrEqual(t, len(pipeline), 3)
 
 		// First stage must be $match
-		if _, ok := pipeline[0].(bson.M)["$match"]; !ok {
-			t.Error("first stage should be $match")
-		}
+		require.Contains(t, pipeline[0].(bson.M), "$match", "first stage should be $match")
 
 		// Second stage must be $sort
 		sortStage, ok := pipeline[1].(bson.M)["$sort"]
-		if !ok {
-			t.Fatal("second stage should be $sort")
-		}
+		require.True(t, ok, "second stage should be $sort")
 
 		// Sort must include cursor_id tiebreaker
 		sortDoc := sortStage.(bson.D)
 		lastField := sortDoc[len(sortDoc)-1]
-		if lastField.Key != "cursor_id" {
-			t.Errorf("last sort field = %q, want cursor_id", lastField.Key)
-		}
+		require.Equal(t, "cursor_id", lastField.Key, "last sort field")
 	})
 
 	t.Run("opts.sort is not mutated by tiebreaker addition", func(t *testing.T) {
@@ -381,9 +310,7 @@ func TestBuildCursorPipeline(t *testing.T) {
 
 		buildCursorPipeline(opts)
 
-		if len(opts.sort) != originalSortLen {
-			t.Errorf("opts.sort was mutated: len changed from %d to %d", originalSortLen, len(opts.sort))
-		}
+		require.Len(t, opts.sort, originalSortLen, "opts.sort was mutated")
 	})
 
 	t.Run("sort already containing cursor_id is not modified", func(t *testing.T) {
@@ -397,9 +324,7 @@ func TestBuildCursorPipeline(t *testing.T) {
 		pipeline := buildCursorPipeline(opts)
 
 		sortStage := pipeline[0].(bson.M)["$sort"].(bson.D) // $sort is first when no filter/cursor
-		if len(sortStage) != 2 {
-			t.Errorf("sort should still have 2 fields, got %d", len(sortStage))
-		}
+		require.Len(t, sortStage, 2, "sort should still have 2 fields")
 	})
 
 	t.Run("without total omits count in facet", func(t *testing.T) {
@@ -408,13 +333,9 @@ func TestBuildCursorPipeline(t *testing.T) {
 		pipeline := buildCursorPipeline(opts)
 
 		facetIdx := findStageIndex(pipeline, "$facet")
-		if facetIdx < 0 {
-			t.Fatal("$facet stage not found")
-		}
+		require.GreaterOrEqual(t, facetIdx, 0, "$facet stage not found")
 		facet := pipeline[facetIdx].(bson.M)["$facet"].(bson.M)
-		if _, hasCount := facet["count"]; hasCount {
-			t.Error("facet should not include count when includeTotal is false")
-		}
+		require.NotContains(t, facet, "count", "facet should not include count when includeTotal is false")
 	})
 }
 
@@ -428,9 +349,7 @@ func TestBuildFacetStage_WithDecorationStages(t *testing.T) {
 	items := facet["items"].(bson.A)
 
 	// items pipeline: $limit, $lookup
-	if len(items) != 2 {
-		t.Fatalf("expected 2 stages in items pipeline, got %d", len(items))
-	}
+	require.Len(t, items, 2)
 
 	assertBsonDStageKey(t, items[0], "$limit")
 	assertBsonDStageKey(t, items[1], "$lookup")
@@ -447,9 +366,7 @@ func TestBuildFacetStage_WithDecorationAndProjection(t *testing.T) {
 	items := facet["items"].(bson.A)
 
 	// items pipeline: $limit, $lookup, $project
-	if len(items) != 3 {
-		t.Fatalf("expected 3 stages in items pipeline, got %d", len(items))
-	}
+	require.Len(t, items, 3)
 
 	assertBsonDStageKey(t, items[0], "$limit")
 	assertBsonDStageKey(t, items[1], "$lookup")
@@ -480,25 +397,19 @@ func TestBuildCursorPipeline_WithDecorationStages(t *testing.T) {
 	pipeline := buildCursorPipeline(opts)
 
 	facetIdx := findStageIndex(pipeline, "$facet")
-	if facetIdx < 0 {
-		t.Fatal("$facet stage not found")
-	}
+	require.GreaterOrEqual(t, facetIdx, 0, "$facet stage not found")
 
 	facet := pipeline[facetIdx].(bson.M)["$facet"].(bson.M)
 	items := facet["items"].(bson.A)
 
-	if len(items) < 2 {
-		t.Fatalf("expected at least 2 stages in items pipeline, got %d", len(items))
-	}
+	require.GreaterOrEqual(t, len(items), 2)
 
 	assertBsonDStageKey(t, items[0], "$limit")
 	assertBsonDStageKey(t, items[1], "$lookup")
 
 	// Verify $limit has lookahead
 	limitVal := items[0].(bson.M)["$limit"].(int64)
-	if limitVal != 11 { // 10 + 1 lookahead
-		t.Errorf("$limit = %d, want 11", limitVal)
-	}
+	require.Equal(t, int64(11), limitVal, "$limit should be 10 + 1 lookahead")
 }
 
 func TestBuildCursorPipeline_WithBothStageTypes(t *testing.T) {
@@ -538,9 +449,7 @@ func TestBuildCursorPipeline_EmptyStages(t *testing.T) {
 	pipelineWithout := buildCursorPipeline(optsWithout)
 	pipelineWith := buildCursorPipeline(optsWith)
 
-	if len(pipelineWithout) != len(pipelineWith) {
-		t.Fatalf("pipelines differ in length: %d vs %d", len(pipelineWithout), len(pipelineWith))
-	}
+	require.Len(t, pipelineWith, len(pipelineWithout), "pipelines differ in length")
 }
 
 func TestStageOptions_Accumulates(t *testing.T) {
@@ -574,9 +483,7 @@ func TestStageOptions_Accumulates(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			opts := defaultListCursorOptions()
 			tt.apply(opts)
-			if got := tt.getLen(opts); got != tt.wantLen {
-				t.Fatalf("got %d stages, want %d", got, tt.wantLen)
-			}
+			require.Equal(t, tt.wantLen, tt.getLen(opts))
 		})
 	}
 }
@@ -607,9 +514,7 @@ func TestStageOptions_SkipsNil(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			opts := defaultListCursorOptions()
 			tt.apply(opts)
-			if got := tt.getLen(opts); got != 1 {
-				t.Fatalf("got %d stages (nil should be filtered), want 1", got)
-			}
+			require.Equal(t, 1, tt.getLen(opts), "nil should be filtered")
 		})
 	}
 }
@@ -621,17 +526,13 @@ func TestBuildFacetStage_PreCountedTotal(t *testing.T) {
 
 		// Items pipeline should have: $limit, $unset
 		items := facet["items"].(bson.A)
-		if len(items) != 2 {
-			t.Fatalf("expected 2 stages in items pipeline, got %d", len(items))
-		}
+		require.Len(t, items, 2)
 		assertBsonDStageKey(t, items[0], "$limit")
 		assertBsonDStageKey(t, items[1], "$unset")
 
 		// Count branch should read from annotation field, not use $count
 		count := facet["count"].(bson.A)
-		if len(count) != 2 {
-			t.Fatalf("expected 2 stages in count pipeline, got %d", len(count))
-		}
+		require.Len(t, count, 2)
 		assertBsonDStageKey(t, count[0], "$limit")
 		assertBsonDStageKey(t, count[1], "$project")
 	})
@@ -641,9 +542,7 @@ func TestBuildFacetStage_PreCountedTotal(t *testing.T) {
 		facet := got[0].(bson.M)["$facet"].(bson.M)
 
 		count := facet["count"].(bson.A)
-		if len(count) != 1 {
-			t.Fatalf("expected 1 stage in count pipeline, got %d", len(count))
-		}
+		require.Len(t, count, 1)
 		assertBsonDStageKey(t, count[0], "$count")
 	})
 }
@@ -673,9 +572,7 @@ func TestBuildCursorPipeline_PreCountedTotalWithStages(t *testing.T) {
 
 		pipeline := buildCursorPipeline(opts)
 
-		if findStageIndex(pipeline, "$setWindowFields") >= 0 {
-			t.Error("$setWindowFields should not be present when includeTotal is false")
-		}
+		require.Less(t, findStageIndex(pipeline, "$setWindowFields"), 0, "$setWindowFields should not be present when includeTotal is false")
 	})
 
 	t.Run("includeTotal without stages uses standard $count", func(t *testing.T) {
@@ -684,9 +581,7 @@ func TestBuildCursorPipeline_PreCountedTotalWithStages(t *testing.T) {
 
 		pipeline := buildCursorPipeline(opts)
 
-		if findStageIndex(pipeline, "$setWindowFields") >= 0 {
-			t.Error("$setWindowFields should not be present when no custom stages")
-		}
+		require.Less(t, findStageIndex(pipeline, "$setWindowFields"), 0, "$setWindowFields should not be present when no custom stages")
 
 		facetIdx := findStageIndex(pipeline, "$facet")
 		facet := pipeline[facetIdx].(bson.M)["$facet"].(bson.M)
@@ -700,15 +595,9 @@ func assertStageOrder(t *testing.T, pipeline bson.A, before, after string) {
 	t.Helper()
 	bi := findStageIndex(pipeline, before)
 	ai := findStageIndex(pipeline, after)
-	if bi < 0 {
-		t.Fatalf("stage %q not found in pipeline", before)
-	}
-	if ai < 0 {
-		t.Fatalf("stage %q not found in pipeline", after)
-	}
-	if bi >= ai {
-		t.Errorf("%s (idx %d) should be before %s (idx %d)", before, bi, after, ai)
-	}
+	require.GreaterOrEqual(t, bi, 0, "stage %q not found in pipeline", before)
+	require.GreaterOrEqual(t, ai, 0, "stage %q not found in pipeline", after)
+	require.Less(t, bi, ai, "%s (idx %d) should be before %s (idx %d)", before, bi, after, ai)
 }
 
 // baseCursorOpts returns a minimal listCursorOptions for testing.
@@ -745,33 +634,25 @@ func assertBsonDStageKey(t *testing.T, stage any, key string) {
 	t.Helper()
 	switch s := stage.(type) {
 	case bson.M:
-		if _, ok := s[key]; !ok {
-			t.Errorf("expected stage key %q, got %v", key, s)
-		}
+		require.Contains(t, s, key, "expected stage key %q", key)
 	case bson.D:
 		for _, e := range s {
 			if e.Key == key {
 				return
 			}
 		}
-		t.Errorf("expected stage key %q, got %v", key, s)
+		require.Fail(t, "expected stage key %q, got %v", key, s)
 	default:
-		t.Errorf("unexpected stage type %T", stage)
+		require.Fail(t, fmt.Sprintf("unexpected stage type %T", stage))
 	}
 }
 
 // assertBsonDEqual compares two bson.D values element by element.
 func assertBsonDEqual(t *testing.T, want, got bson.D) {
 	t.Helper()
-	if len(want) != len(got) {
-		t.Fatalf("bson.D len: got %d, want %d\n  got:  %v\n  want: %v", len(got), len(want), got, want)
-	}
+	require.Len(t, got, len(want), "bson.D len mismatch\n  got:  %v\n  want: %v", got, want)
 	for i := range want {
-		if want[i].Key != got[i].Key {
-			t.Errorf("[%d] key: got %q, want %q", i, got[i].Key, want[i].Key)
-		}
-		if fmt.Sprint(want[i].Value) != fmt.Sprint(got[i].Value) {
-			t.Errorf("[%d] value: got %v, want %v", i, got[i].Value, want[i].Value)
-		}
+		require.Equal(t, want[i].Key, got[i].Key, "[%d] key mismatch", i)
+		require.Equal(t, fmt.Sprint(want[i].Value), fmt.Sprint(got[i].Value), "[%d] value mismatch", i)
 	}
 }

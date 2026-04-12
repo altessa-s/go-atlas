@@ -7,6 +7,8 @@ package factory_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/observability/metrics/factory"
@@ -15,22 +17,14 @@ import (
 func TestCollectorBuilder_Build_Disabled(t *testing.T) {
 	// Nil config
 	collector, err := factory.New(nil).Build()
-	if err != nil {
-		t.Fatalf("Build() error = %v", err)
-	}
-	if !metrics.IsNoop(collector) {
-		t.Error("expected Noop collector for nil config")
-	}
+	require.NoError(t, err)
+	require.True(t, metrics.IsNoop(collector), "expected Noop collector for nil config")
 
 	// Disabled config
 	cfg := &config.Metrics{Enabled: false}
 	collector, err = factory.New(cfg).Build()
-	if err != nil {
-		t.Fatalf("Build() error = %v", err)
-	}
-	if !metrics.IsNoop(collector) {
-		t.Error("expected Noop collector for disabled config")
-	}
+	require.NoError(t, err)
+	require.True(t, metrics.IsNoop(collector), "expected Noop collector for disabled config")
 }
 
 func TestCollectorBuilder_Build_Prometheus(t *testing.T) {
@@ -41,15 +35,9 @@ func TestCollectorBuilder_Build_Prometheus(t *testing.T) {
 	}
 
 	collector, err := factory.New(cfg).Build()
-	if err != nil {
-		t.Fatalf("Build() error = %v", err)
-	}
-	if collector == nil {
-		t.Fatal("expected non-nil collector")
-	}
-	if metrics.IsNoop(collector) {
-		t.Error("expected real collector, not Noop")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, collector)
+	require.False(t, metrics.IsNoop(collector), "expected real collector, not Noop")
 }
 
 func TestCollectorBuilder_Build_Noop(t *testing.T) {
@@ -59,11 +47,7 @@ func TestCollectorBuilder_Build_Noop(t *testing.T) {
 	}
 
 	collector, err := factory.New(cfg).Build()
-	if err != nil {
-		t.Fatalf("Build() error = %v", err)
-	}
+	require.NoError(t, err)
 	// Note: MetricsTypeNoop creates a real collector without adapters, not Noop()
-	if collector == nil {
-		t.Fatal("expected non-nil collector")
-	}
+	require.NotNil(t, collector)
 }

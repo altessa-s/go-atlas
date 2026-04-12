@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/mongo/kms"
 
 	kmslocal "github.com/altessa-s/go-atlas/data/mongo/kms/local"
@@ -20,19 +22,13 @@ func validKey96() string {
 
 func TestNew_WithMasterKey(t *testing.T) {
 	p, err := kmslocal.New(kmslocal.WithMasterKey(validKey96()))
-	if err != nil {
-		t.Fatalf("New() error: %v", err)
-	}
-	if p == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, p)
 }
 
 func TestNew_NoKey(t *testing.T) {
 	_, err := kmslocal.New()
-	if err == nil {
-		t.Error("New() without key should return error")
-	}
+	require.Error(t, err)
 }
 
 func TestNew_InvalidKeyLength(t *testing.T) {
@@ -48,9 +44,7 @@ func TestNew_InvalidKeyLength(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := kmslocal.New(kmslocal.WithMasterKey(tt.key))
-			if err == nil {
-				t.Error("New() with invalid key length should return error")
-			}
+			require.Error(t, err)
 		})
 	}
 }
@@ -58,31 +52,21 @@ func TestNew_InvalidKeyLength(t *testing.T) {
 func TestNew_WithMasterKeyFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "masterkey.bin")
-	if err := os.WriteFile(path, make([]byte, 96), 0600); err != nil {
-		t.Fatalf("failed to write key file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(path, make([]byte, 96), 0600))
 
 	p, err := kmslocal.New(kmslocal.WithMasterKeyFile(path))
-	if err != nil {
-		t.Fatalf("New() error: %v", err)
-	}
-	if p == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, p)
 }
 
 func TestNew_WithMasterKeyFile_NotFound(t *testing.T) {
 	_, err := kmslocal.New(kmslocal.WithMasterKeyFile("/nonexistent/path"))
-	if err == nil {
-		t.Error("New() with nonexistent file should return error")
-	}
+	require.Error(t, err)
 }
 
 func TestLocal_Name(t *testing.T) {
 	p, _ := kmslocal.New(kmslocal.WithMasterKey(validKey96()))
-	if p.Name() != "local" {
-		t.Errorf("Name() = %q, want %q", p.Name(), "local")
-	}
+	require.Equal(t, "local", p.Name())
 }
 
 func TestLocal_Credentials(t *testing.T) {
@@ -90,44 +74,33 @@ func TestLocal_Credentials(t *testing.T) {
 	creds := p.Credentials()
 
 	localCreds, ok := creds["local"]
-	if !ok {
-		t.Fatal("Credentials() missing 'local' key")
-	}
-	if localCreds[kmslocal.MasterKey] == nil {
-		t.Error("MasterKey should not be nil")
-	}
+	require.True(t, ok, "Credentials() missing 'local' key")
+	require.NotNil(t, localCreds[kmslocal.MasterKey])
 }
 
 func TestLocal_Credentials_Cached(t *testing.T) {
 	p, _ := kmslocal.New(kmslocal.WithMasterKey(validKey96()))
 	c1 := p.Credentials()
 	c2 := p.Credentials()
-	if c1["local"][kmslocal.MasterKey] == nil || c2["local"][kmslocal.MasterKey] == nil {
-		t.Error("Cached credentials should be consistent")
-	}
+	require.NotNil(t, c1["local"][kmslocal.MasterKey])
+	require.NotNil(t, c2["local"][kmslocal.MasterKey])
 }
 
 func TestLocal_MasterKey_Nil(t *testing.T) {
 	p, _ := kmslocal.New(kmslocal.WithMasterKey(validKey96()))
-	if p.MasterKey() != nil {
-		t.Error("MasterKey() should return nil for local provider")
-	}
+	require.Nil(t, p.MasterKey())
 }
 
 func TestLocal_TLSConfig_Nil(t *testing.T) {
 	p, _ := kmslocal.New(kmslocal.WithMasterKey(validKey96()))
-	if p.TLSConfig() != nil {
-		t.Error("TLSConfig() should return nil for local provider")
-	}
+	require.Nil(t, p.TLSConfig())
 }
 
 func TestLocal_Clear(t *testing.T) {
 	p, _ := kmslocal.New(kmslocal.WithMasterKey(validKey96()))
 	p.Clear()
 	creds := p.Credentials()
-	if len(creds["local"]) != 0 {
-		t.Errorf("Credentials() after Clear() should be empty, got %v", creds["local"])
-	}
+	require.Len(t, creds["local"], 0)
 }
 
 func TestLocal_ImplementsProvider(t *testing.T) {
@@ -137,21 +110,15 @@ func TestLocal_ImplementsProvider(t *testing.T) {
 
 func TestLocal_HasMasterKey_False(t *testing.T) {
 	p, _ := kmslocal.New(kmslocal.WithMasterKey(validKey96()))
-	if kms.HasMasterKey(p) {
-		t.Error("Local provider should not have master key")
-	}
+	require.False(t, kms.HasMasterKey(p))
 }
 
 func TestLocal_HasCustomTLS_False(t *testing.T) {
 	p, _ := kmslocal.New(kmslocal.WithMasterKey(validKey96()))
-	if kms.HasCustomTLS(p) {
-		t.Error("Local provider should not have custom TLS")
-	}
+	require.False(t, kms.HasCustomTLS(p))
 }
 
 func TestLocal_IsFullyFeatured_False(t *testing.T) {
 	p, _ := kmslocal.New(kmslocal.WithMasterKey(validKey96()))
-	if kms.IsFullyFeatured(p) {
-		t.Error("Local provider should not be fully featured")
-	}
+	require.False(t, kms.IsFullyFeatured(p))
 }

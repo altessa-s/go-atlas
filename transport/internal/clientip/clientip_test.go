@@ -7,6 +7,8 @@ package clientip
 import (
 	"net/netip"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 type mockHeaders struct {
@@ -36,9 +38,8 @@ func TestIsPrivate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.ip, func(t *testing.T) {
 			addr := netip.MustParseAddr(tt.ip)
-			if got := IsPrivate(addr); got != tt.want {
-				t.Fatalf("IsPrivate(%s) = %v, want %v", tt.ip, got, tt.want)
-			}
+			got := IsPrivate(addr)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -58,37 +59,26 @@ func TestIsTrusted(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.ip, func(t *testing.T) {
 			addr := netip.MustParseAddr(tt.ip)
-			if got := IsTrusted(addr, trusted); got != tt.want {
-				t.Fatalf("IsTrusted(%s) = %v, want %v", tt.ip, got, tt.want)
-			}
+			got := IsTrusted(addr, trusted)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
 
 func TestInList(t *testing.T) {
-	if InList(netip.MustParseAddr("1.2.3.4"), nil) {
-		t.Fatal("InList with nil prefixes should return false")
-	}
+	require.False(t, InList(netip.MustParseAddr("1.2.3.4"), nil), "InList with nil prefixes should return false")
 }
 
 func TestNewExtractor_Default(t *testing.T) {
 	ext, err := NewExtractor()
-	if err != nil {
-		t.Fatalf("NewExtractor() error = %v", err)
-	}
-	if ext == nil {
-		t.Fatal("NewExtractor() returned nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, ext)
 }
 
 func TestNewExtractor_CacheDisabled(t *testing.T) {
 	ext, err := NewExtractor(WithCacheDisabled())
-	if err != nil {
-		t.Fatalf("NewExtractor() error = %v", err)
-	}
-	if ext.cache != nil {
-		t.Fatal("expected cache to be nil when disabled")
-	}
+	require.NoError(t, err)
+	require.Nil(t, ext.cache)
 }
 
 func TestExtractor_Extract_UntrustedPeer(t *testing.T) {
@@ -97,9 +87,7 @@ func TestExtractor_Extract_UntrustedPeer(t *testing.T) {
 	headers := &mockHeaders{}
 
 	result := ext.Extract(t.Context(), peerIP, headers)
-	if result != peerIP {
-		t.Fatalf("Extract() = %v, want %v (untrusted peer)", result, peerIP)
-	}
+	require.Equal(t, peerIP, result)
 }
 
 func TestExtractor_Extract_FromXForwardedFor(t *testing.T) {
@@ -111,12 +99,8 @@ func TestExtractor_Extract_FromXForwardedFor(t *testing.T) {
 	}}
 
 	result := ext.Extract(t.Context(), peerIP, headers)
-	if !result.IsValid() {
-		t.Fatal("Extract() returned invalid addr")
-	}
-	if result.String() != "203.0.114.1" {
-		t.Fatalf("Extract() = %v, want 203.0.114.1", result)
-	}
+	require.True(t, result.IsValid(), "Extract() returned invalid addr")
+	require.Equal(t, "203.0.114.1", result.String())
 }
 
 func TestExtractor_Extract_FromXRealIP(t *testing.T) {
@@ -128,9 +112,7 @@ func TestExtractor_Extract_FromXRealIP(t *testing.T) {
 	}}
 
 	result := ext.Extract(t.Context(), peerIP, headers)
-	if result.String() != "203.0.114.5" {
-		t.Fatalf("Extract() = %v, want 203.0.114.5", result)
-	}
+	require.Equal(t, "203.0.114.5", result.String())
 }
 
 func TestExtractor_Headers(t *testing.T) {
@@ -139,33 +121,23 @@ func TestExtractor_Headers(t *testing.T) {
 	for range ext.Headers() {
 		count++
 	}
-	if count != len(DefaultHeaders()) {
-		t.Fatalf("Headers() yielded %d, want %d", count, len(DefaultHeaders()))
-	}
+	require.Equal(t, len(DefaultHeaders()), count)
 }
 
 func TestDefaultHeaders(t *testing.T) {
 	headers := DefaultHeaders()
-	if len(headers) == 0 {
-		t.Fatal("DefaultHeaders() returned empty")
-	}
-	if headers[0] != InternedHeaderXForwardedFor {
-		t.Fatalf("first header = %q, want X-Forwarded-For", headers[0])
-	}
+	require.NotEmpty(t, headers)
+	require.Equal(t, InternedHeaderXForwardedFor, headers[0])
 }
 
 func TestNewContext_FromContext(t *testing.T) {
 	ip := netip.MustParseAddr("1.2.3.4")
 	ctx := NewContext(t.Context(), ip)
 	got := FromContext(ctx)
-	if got != ip {
-		t.Fatalf("FromContext() = %v, want %v", got, ip)
-	}
+	require.Equal(t, ip, got)
 }
 
 func TestFromContext_Empty(t *testing.T) {
 	got := FromContext(t.Context())
-	if got.IsValid() {
-		t.Fatalf("FromContext(empty) = %v, want invalid", got)
-	}
+	require.False(t, got.IsValid(), "FromContext(empty) = %v, want invalid", got)
 }

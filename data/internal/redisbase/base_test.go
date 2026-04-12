@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/internal/redisbase"
 
@@ -23,12 +24,8 @@ func setupBase(tb testing.TB, prefix string) (redisbase.Base, *miniredis.Minired
 
 func TestNewBase(t *testing.T) {
 	base, _ := setupBase(t, "test")
-	if base.Client() == nil {
-		t.Fatal("Client() should not be nil")
-	}
-	if base.Keys() == nil {
-		t.Fatal("Keys() should not be nil")
-	}
+	require.NotNil(t, base.Client())
+	require.NotNil(t, base.Keys())
 }
 
 func TestNewBase_NilClient_Panics(t *testing.T) {
@@ -55,9 +52,7 @@ func TestBase_Key(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			base, _ := setupBase(t, tt.prefix)
-			if got := base.Key(tt.key); got != tt.want {
-				t.Errorf("Key(%q) = %q, want %q", tt.key, got, tt.want)
-			}
+			require.Equal(t, tt.want, base.Key(tt.key))
 		})
 	}
 }
@@ -66,14 +61,7 @@ func TestBase_BuildKeys(t *testing.T) {
 	base, _ := setupBase(t, "app")
 	got := base.BuildKeys("k1", "k2", "k3")
 	want := []string{"app:k1", "app:k2", "app:k3"}
-	if len(got) != len(want) {
-		t.Fatalf("BuildKeys() returned %d items, want %d", len(got), len(want))
-	}
-	for i := range got {
-		if got[i] != want[i] {
-			t.Errorf("BuildKeys()[%d] = %q, want %q", i, got[i], want[i])
-		}
-	}
+	require.Equal(t, want, got)
 }
 
 func TestBase_Exists_True(t *testing.T) {
@@ -83,12 +71,8 @@ func TestBase_Exists_True(t *testing.T) {
 	mr.Set("mykey", "val")
 
 	exists, err := base.Exists(ctx, "mykey")
-	if err != nil {
-		t.Fatalf("Exists() error: %v", err)
-	}
-	if !exists {
-		t.Error("Exists() = false, want true")
-	}
+	require.NoError(t, err)
+	require.True(t, exists)
 }
 
 func TestBase_Exists_False(t *testing.T) {
@@ -96,12 +80,8 @@ func TestBase_Exists_False(t *testing.T) {
 	ctx := t.Context()
 
 	exists, err := base.Exists(ctx, "missing")
-	if err != nil {
-		t.Fatalf("Exists() error: %v", err)
-	}
-	if exists {
-		t.Error("Exists() = true, want false")
-	}
+	require.NoError(t, err)
+	require.False(t, exists)
 }
 
 func TestBase_Exists_WithPrefix(t *testing.T) {
@@ -111,12 +91,8 @@ func TestBase_Exists_WithPrefix(t *testing.T) {
 	mr.Set("pfx:mykey", "val")
 
 	exists, err := base.Exists(ctx, "mykey")
-	if err != nil {
-		t.Fatalf("Exists() error: %v", err)
-	}
-	if !exists {
-		t.Error("Exists() with prefix = false, want true")
-	}
+	require.NoError(t, err)
+	require.True(t, exists)
 }
 
 func TestBase_Delete(t *testing.T) {
@@ -126,13 +102,8 @@ func TestBase_Delete(t *testing.T) {
 	mr.Set("mykey", "val")
 
 	err := base.Delete(ctx, "mykey")
-	if err != nil {
-		t.Fatalf("Delete() error: %v", err)
-	}
-
-	if mr.Exists("mykey") {
-		t.Error("key should have been deleted")
-	}
+	require.NoError(t, err)
+	require.False(t, mr.Exists("mykey"), "key should have been deleted")
 }
 
 func TestBase_Delete_NonExistent(t *testing.T) {
@@ -140,9 +111,7 @@ func TestBase_Delete_NonExistent(t *testing.T) {
 	ctx := t.Context()
 
 	err := base.Delete(ctx, "missing")
-	if err != nil {
-		t.Errorf("Delete() on non-existent key should not error: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestBase_DeleteMany(t *testing.T) {
@@ -154,14 +123,10 @@ func TestBase_DeleteMany(t *testing.T) {
 	mr.Set("k3", "v3")
 
 	err := base.DeleteMany(ctx, "k1", "k2", "k3")
-	if err != nil {
-		t.Fatalf("DeleteMany() error: %v", err)
-	}
+	require.NoError(t, err)
 
 	for _, k := range []string{"k1", "k2", "k3"} {
-		if mr.Exists(k) {
-			t.Errorf("key %q should have been deleted", k)
-		}
+		require.False(t, mr.Exists(k), "key %q should have been deleted", k)
 	}
 }
 
@@ -173,31 +138,21 @@ func TestBase_DeleteMany_WithPrefix(t *testing.T) {
 	mr.Set("pfx:k2", "v2")
 
 	err := base.DeleteMany(ctx, "k1", "k2")
-	if err != nil {
-		t.Fatalf("DeleteMany() error: %v", err)
-	}
+	require.NoError(t, err)
 
 	for _, k := range []string{"pfx:k1", "pfx:k2"} {
-		if mr.Exists(k) {
-			t.Errorf("key %q should have been deleted", k)
-		}
+		require.False(t, mr.Exists(k), "key %q should have been deleted", k)
 	}
 }
 
 func TestBase_Client(t *testing.T) {
 	base, _ := setupBase(t, "")
-	if base.Client() == nil {
-		t.Error("Client() should not be nil")
-	}
+	require.NotNil(t, base.Client())
 }
 
 func TestBase_Keys_Accessor(t *testing.T) {
 	base, _ := setupBase(t, "myprefix")
 	kb := base.Keys()
-	if kb == nil {
-		t.Fatal("Keys() should not be nil")
-	}
-	if got := kb.Prefix(); got != "myprefix" {
-		t.Errorf("Keys().Prefix() = %q, want %q", got, "myprefix")
-	}
+	require.NotNil(t, kb)
+	require.Equal(t, "myprefix", kb.Prefix())
 }

@@ -15,6 +15,8 @@ import (
 	"errors"
 	"runtime"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestParseName_Known(t *testing.T) {
@@ -34,12 +36,8 @@ func TestParseName_Known(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.in, func(t *testing.T) {
 			got, err := ParseName(tc.in)
-			if err != nil {
-				t.Fatalf("ParseName(%q): got err %v, want nil", tc.in, err)
-			}
-			if got != tc.want {
-				t.Errorf("ParseName(%q): got %d, want %d", tc.in, got, tc.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
 		})
 	}
 }
@@ -54,12 +52,8 @@ func TestParseName_Unknown(t *testing.T) {
 	for _, name := range cases {
 		t.Run(name, func(t *testing.T) {
 			_, err := ParseName(name)
-			if err == nil {
-				t.Fatalf("ParseName(%q): got nil, want error", name)
-			}
-			if !errors.Is(err, ErrInvalidOption) {
-				t.Errorf("ParseName(%q): got %v, want wrap of ErrInvalidOption", name, err)
-			}
+			require.Error(t, err)
+			require.ErrorIs(t, err, ErrInvalidOption)
 		})
 	}
 }
@@ -68,13 +62,8 @@ func TestCap_String_RoundTrip(t *testing.T) {
 	for c := Cap(0); c <= capLastCap; c++ {
 		name := c.String()
 		got, err := ParseName(name)
-		if err != nil {
-			t.Errorf("ParseName(%q): got %v, want nil", name, err)
-			continue
-		}
-		if got != c {
-			t.Errorf("round trip for %d: got %d (%q), want %d", c, got, name, c)
-		}
+		require.NoError(t, err, "ParseName(%q)", name)
+		require.Equal(t, c, got, "round trip for %d", c)
 	}
 }
 
@@ -82,11 +71,7 @@ func TestCap_String_Unknown(t *testing.T) {
 	// A Cap value beyond capLastCap should produce a synthetic
 	// "CAP_UNKNOWN(N)" form rather than an empty string, so callers
 	// logging an unrecognized cap still see something useful.
-	got := Cap(999).String()
-	want := "CAP_UNKNOWN(999)"
-	if got != want {
-		t.Errorf("Cap(999).String(): got %q, want %q", got, want)
-	}
+	require.Equal(t, "CAP_UNKNOWN(999)", Cap(999).String())
 }
 
 // TestSentinels_AreDistinct guards against a future refactor that
@@ -99,9 +84,7 @@ func TestSentinels_AreDistinct(t *testing.T) {
 		{ErrUnsupported, ErrInvalidOption},
 	}
 	for _, p := range pairs {
-		if errors.Is(p[0], p[1]) {
-			t.Errorf("%v should not match %v", p[0], p[1])
-		}
+		require.False(t, errors.Is(p[0], p[1]), "%v should not match %v", p[0], p[1])
 	}
 }
 
@@ -113,22 +96,12 @@ func TestSentinels_AreDistinct(t *testing.T) {
 func TestGet_PlatformDispatch(t *testing.T) {
 	s, err := Get()
 	if runtime.GOOS == "linux" {
-		if err != nil {
-			t.Errorf("Get on linux: got %v, want nil", err)
-		}
-		// Smoke check: something should be populated unless the
-		// test binary was already stripped of caps, which is
-		// unusual. Accept an all-zero snapshot without failing —
-		// the important invariant is that err == nil.
+		require.NoError(t, err, "Get on linux")
 		_ = s
 		return
 	}
-	if !errors.Is(err, ErrUnsupported) {
-		t.Errorf("Get on %s: got %v, want wrap of ErrUnsupported", runtime.GOOS, err)
-	}
-	if s != (Sets{}) {
-		t.Errorf("Get on %s: got %+v, want zero-value Sets", runtime.GOOS, s)
-	}
+	require.ErrorIs(t, err, ErrUnsupported)
+	require.Equal(t, Sets{}, s)
 }
 
 // TestCapConstants_ContiguousRange is a cheap sanity check that the
@@ -137,13 +110,10 @@ func TestGet_PlatformDispatch(t *testing.T) {
 // number (e.g. defining CAP_X = 40 but forgetting 39) would silently
 // break ParseName and (Cap).String for the missing bit.
 func TestCapConstants_ContiguousRange(t *testing.T) {
-	if got := len(capToName); got != int(capLastCap)+1 {
-		t.Fatalf("capToName size: got %d, want %d", got, int(capLastCap)+1)
-	}
+	require.Len(t, capToName, int(capLastCap)+1)
 	for c := Cap(0); c <= capLastCap; c++ {
-		if _, ok := capToName[c]; !ok {
-			t.Errorf("capToName missing entry for Cap(%d)", c)
-		}
+		_, ok := capToName[c]
+		require.True(t, ok, "capToName missing entry for Cap(%d)", c)
 	}
 }
 
@@ -151,7 +121,5 @@ func TestCapConstants_ContiguousRange(t *testing.T) {
 // of entries as capToName — i.e. no two Cap values accidentally map
 // to the same string.
 func TestCapConstants_UniqueNames(t *testing.T) {
-	if len(nameToCap) != len(capToName) {
-		t.Errorf("registry size mismatch: capToName=%d nameToCap=%d", len(capToName), len(nameToCap))
-	}
+	require.Equal(t, len(capToName), len(nameToCap), "registry size mismatch")
 }

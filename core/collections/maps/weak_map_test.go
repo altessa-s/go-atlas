@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
@@ -23,9 +25,9 @@ func TestWeakMap_GC(t *testing.T) {
 
 	// Verify we can get it
 	v, ok := m.Get(1)
-	if !ok || v == nil || v.ID != 1 {
-		t.Fatalf("Failed to get value from map: ok=%v, v=%v", ok, v)
-	}
+	require.True(t, ok, "expected key 1 to be present")
+	require.NotNil(t, v)
+	require.Equal(t, 1, v.ID)
 
 	// Remove our reference to the object
 	val = nil
@@ -38,9 +40,8 @@ func TestWeakMap_GC(t *testing.T) {
 
 	// Verify it's gone from the map
 	v, ok = m.Get(1)
-	if ok || v != nil {
-		t.Errorf("Value should have been collected: ok=%v, v=%v", ok, v)
-	}
+	require.False(t, ok, "Value should have been collected: ok=%v, v=%v", ok, v)
+	require.Nil(t, v, "Value should have been collected: ok=%v, v=%v", ok, v)
 }
 
 func TestWeakMap_ThreadSafety(t *testing.T) {
@@ -91,15 +92,12 @@ func TestWeakMap_AutoCleanup(t *testing.T) {
 
 	// The kept value must still be present.
 	v, ok := m.Get(999)
-	if !ok || v != kept {
-		t.Fatalf("kept value missing after GC: ok=%v, v=%v", ok, v)
-	}
+	require.True(t, ok, "kept value missing after GC")
+	require.Equal(t, kept, v, "kept value missing after GC: got %v", v)
 
 	// Stale entries should have been cleaned up automatically.
 	// Allow some slack — cleanup callbacks are asynchronous.
-	if m.Len() > 10 {
-		t.Errorf("expected most stale entries to be cleaned up, but Len()=%d", m.Len())
-	}
+	require.LessOrEqual(t, m.Len(), 10, "expected most stale entries to be cleaned up, but Len()=%d", m.Len())
 
 	runtime.KeepAlive(kept)
 }

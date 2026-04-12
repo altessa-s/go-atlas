@@ -9,6 +9,8 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/auth/opa"
 
 	embedsrc "github.com/altessa-s/go-atlas/auth/opa/sources/embed"
@@ -23,12 +25,8 @@ func TestNew_ValidDirectory(t *testing.T) {
 	}
 
 	source, err := embedsrc.New(fsys, "policies")
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
-	if source == nil {
-		t.Fatal("New() returned nil source")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, source)
 	defer source.Close()
 }
 
@@ -40,12 +38,8 @@ func TestNew_RootDirectory(t *testing.T) {
 	}
 
 	source, err := embedsrc.New(fsys, ".")
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
-	if source == nil {
-		t.Fatal("New() returned nil source")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, source)
 	defer source.Close()
 }
 
@@ -57,12 +51,8 @@ func TestNew_EmptyDir(t *testing.T) {
 	}
 
 	source, err := embedsrc.New(fsys, "")
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
-	if source == nil {
-		t.Fatal("New() returned nil source")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, source)
 	defer source.Close()
 }
 
@@ -70,9 +60,7 @@ func TestNew_NilFS(t *testing.T) {
 	t.Parallel()
 
 	_, err := embedsrc.New(nil, ".")
-	if err == nil {
-		t.Fatal("New() with nil fs.FS should fail")
-	}
+	require.Error(t, err, "New() with nil fs.FS should fail")
 }
 
 func TestNew_NonexistentDir(t *testing.T) {
@@ -83,9 +71,7 @@ func TestNew_NonexistentDir(t *testing.T) {
 	}
 
 	_, err := embedsrc.New(fsys, "nonexistent")
-	if err == nil {
-		t.Fatal("New() with nonexistent dir should fail")
-	}
+	require.Error(t, err, "New() with nonexistent dir should fail")
 }
 
 func TestSource_Name(t *testing.T) {
@@ -96,16 +82,10 @@ func TestSource_Name(t *testing.T) {
 	}
 
 	source, err := embedsrc.New(fsys, "policies")
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
-	name := source.Name()
-	expected := "embed:policies"
-	if name != expected {
-		t.Errorf("Name() = %q, want %q", name, expected)
-	}
+	require.Equal(t, "embed:policies", source.Name())
 }
 
 func TestSource_Dir(t *testing.T) {
@@ -116,15 +96,10 @@ func TestSource_Dir(t *testing.T) {
 	}
 
 	source, err := embedsrc.New(fsys, "policies")
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
-	dir := source.Dir()
-	if dir != "policies" {
-		t.Errorf("Dir() = %q, want %q", dir, "policies")
-	}
+	require.Equal(t, "policies", source.Dir())
 }
 
 func TestSource_Extensions(t *testing.T) {
@@ -135,18 +110,12 @@ func TestSource_Extensions(t *testing.T) {
 	}
 
 	source, err := embedsrc.New(fsys, "policies")
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	exts := source.Extensions()
-	if len(exts) != 1 {
-		t.Fatalf("Extensions() returned %d extensions, want 1", len(exts))
-	}
-	if exts[0] != ".rego" {
-		t.Errorf("Extensions()[0] = %q, want %q", exts[0], ".rego")
-	}
+	require.Len(t, exts, 1)
+	require.Equal(t, ".rego", exts[0])
 }
 
 func TestSource_Extensions_Custom(t *testing.T) {
@@ -157,26 +126,18 @@ func TestSource_Extensions_Custom(t *testing.T) {
 	}
 
 	source, err := embedsrc.New(fsys, "policies", embedsrc.WithExtensions(".rego", ".json"))
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	exts := source.Extensions()
-	if len(exts) != 2 {
-		t.Fatalf("Extensions() returned %d extensions, want 2", len(exts))
-	}
+	require.Len(t, exts, 2)
 
 	extMap := make(map[string]bool)
 	for _, ext := range exts {
 		extMap[ext] = true
 	}
-	if !extMap[".rego"] {
-		t.Error("Extensions() missing .rego")
-	}
-	if !extMap[".json"] {
-		t.Error("Extensions() missing .json")
-	}
+	require.True(t, extMap[".rego"], "Extensions() missing .rego")
+	require.True(t, extMap[".json"], "Extensions() missing .json")
 }
 
 func TestSource_Fetch(t *testing.T) {
@@ -188,27 +149,14 @@ func TestSource_Fetch(t *testing.T) {
 	}
 
 	source, err := embedsrc.New(fsys, "policies")
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	bundle, err := source.Fetch(t.Context())
-	if err != nil {
-		t.Fatalf("Fetch() failed: %v", err)
-	}
-
-	if bundle == nil {
-		t.Fatal("Fetch() returned nil bundle")
-	}
-
-	if len(bundle.Modules) != 1 {
-		t.Errorf("bundle has %d modules, want 1", len(bundle.Modules))
-	}
-
-	if bundle.Revision == "" {
-		t.Error("bundle.Revision is empty")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, bundle)
+	require.Len(t, bundle.Modules, 1)
+	require.NotEmpty(t, bundle.Revision)
 }
 
 func TestSource_Fetch_MultipleFiles(t *testing.T) {
@@ -220,19 +168,12 @@ func TestSource_Fetch_MultipleFiles(t *testing.T) {
 	}
 
 	source, err := embedsrc.New(fsys, "policies")
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	bundle, err := source.Fetch(t.Context())
-	if err != nil {
-		t.Fatalf("Fetch() failed: %v", err)
-	}
-
-	if len(bundle.Modules) != 2 {
-		t.Errorf("bundle has %d modules, want 2", len(bundle.Modules))
-	}
+	require.NoError(t, err)
+	require.Len(t, bundle.Modules, 2)
 }
 
 func TestSource_Fetch_NestedDirectories(t *testing.T) {
@@ -245,19 +186,12 @@ func TestSource_Fetch_NestedDirectories(t *testing.T) {
 	}
 
 	source, err := embedsrc.New(fsys, "policies")
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	bundle, err := source.Fetch(t.Context())
-	if err != nil {
-		t.Fatalf("Fetch() failed: %v", err)
-	}
-
-	if len(bundle.Modules) != 3 {
-		t.Errorf("bundle has %d modules, want 3", len(bundle.Modules))
-	}
+	require.NoError(t, err)
+	require.Len(t, bundle.Modules, 3)
 }
 
 func TestSource_Fetch_Empty(t *testing.T) {
@@ -268,19 +202,12 @@ func TestSource_Fetch_Empty(t *testing.T) {
 	}
 
 	source, err := embedsrc.New(fsys, "policies")
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	_, err = source.Fetch(t.Context())
-	if err == nil {
-		t.Fatal("Fetch() with no policy files should fail")
-	}
-
-	if !errors.Is(err, opa.ErrNoPolicyFiles) {
-		t.Errorf("Fetch() error = %v, want ErrNoPolicyFiles", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, opa.ErrNoPolicyFiles), "Fetch() error = %v, want ErrNoPolicyFiles", err)
 }
 
 func TestSource_Fetch_Closed(t *testing.T) {
@@ -291,22 +218,13 @@ func TestSource_Fetch_Closed(t *testing.T) {
 	}
 
 	source, err := embedsrc.New(fsys, "policies")
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if err := source.Close(); err != nil {
-		t.Fatalf("Close() failed: %v", err)
-	}
+	require.NoError(t, source.Close())
 
 	_, err = source.Fetch(t.Context())
-	if err == nil {
-		t.Fatal("Fetch() after Close() should fail")
-	}
-
-	if !errors.Is(err, opa.ErrSourceClosed) {
-		t.Errorf("Fetch() error = %v, want ErrSourceClosed", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, opa.ErrSourceClosed), "Fetch() error = %v, want ErrSourceClosed", err)
 }
 
 func TestSource_Fetch_WithData(t *testing.T) {
@@ -318,31 +236,15 @@ func TestSource_Fetch_WithData(t *testing.T) {
 	}
 
 	source, err := embedsrc.New(fsys, "policies", embedsrc.WithIncludeData())
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	bundle, err := source.Fetch(t.Context())
-	if err != nil {
-		t.Fatalf("Fetch() failed: %v", err)
-	}
-
-	if bundle == nil {
-		t.Fatal("Fetch() returned nil bundle")
-	}
-
-	if len(bundle.Modules) != 1 {
-		t.Errorf("bundle has %d modules, want 1", len(bundle.Modules))
-	}
-
-	if bundle.Data == nil {
-		t.Fatal("bundle.Data is nil, expected data to be loaded")
-	}
-
-	if len(bundle.Data) == 0 {
-		t.Error("bundle.Data is empty, expected at least one entry")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, bundle)
+	require.Len(t, bundle.Modules, 1)
+	require.NotNil(t, bundle.Data, "bundle.Data is nil, expected data to be loaded")
+	require.NotEmpty(t, bundle.Data, "bundle.Data is empty, expected at least one entry")
 }
 
 func TestSource_Close_Idempotent(t *testing.T) {
@@ -353,17 +255,10 @@ func TestSource_Close_Idempotent(t *testing.T) {
 	}
 
 	source, err := embedsrc.New(fsys, "policies")
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 
-	if err := source.Close(); err != nil {
-		t.Fatalf("first Close() failed: %v", err)
-	}
-
-	if err := source.Close(); err != nil {
-		t.Fatalf("second Close() failed: %v", err)
-	}
+	require.NoError(t, source.Close(), "first Close() failed")
+	require.NoError(t, source.Close(), "second Close() failed")
 }
 
 func TestSource_Fetch_ChecksumValid(t *testing.T) {
@@ -383,19 +278,12 @@ func TestSource_Fetch_ChecksumValid(t *testing.T) {
 	}
 
 	source, err := embedsrc.New(fsys, "policies", embedsrc.WithChecksums(checksums))
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	bundle, err := source.Fetch(t.Context())
-	if err != nil {
-		t.Fatalf("Fetch() failed: %v", err)
-	}
-
-	if len(bundle.Modules) != 2 {
-		t.Errorf("bundle has %d modules, want 2", len(bundle.Modules))
-	}
+	require.NoError(t, err)
+	require.Len(t, bundle.Modules, 2)
 }
 
 func TestSource_Fetch_ChecksumMismatch(t *testing.T) {
@@ -412,19 +300,12 @@ func TestSource_Fetch_ChecksumMismatch(t *testing.T) {
 	}
 
 	source, err := embedsrc.New(fsys, "policies", embedsrc.WithChecksums(checksums))
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	_, err = source.Fetch(t.Context())
-	if err == nil {
-		t.Fatal("Fetch() should fail with checksum mismatch")
-	}
-
-	if !errors.Is(err, embedsrc.ErrChecksumMismatch) {
-		t.Errorf("Fetch() error = %v, want ErrChecksumMismatch", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, embedsrc.ErrChecksumMismatch), "Fetch() error = %v, want ErrChecksumMismatch", err)
 }
 
 func TestSource_Fetch_ChecksumMissingFile(t *testing.T) {
@@ -442,19 +323,12 @@ func TestSource_Fetch_ChecksumMissingFile(t *testing.T) {
 	}
 
 	source, err := embedsrc.New(fsys, "policies", embedsrc.WithChecksums(checksums))
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	_, err = source.Fetch(t.Context())
-	if err == nil {
-		t.Fatal("Fetch() should fail with missing file")
-	}
-
-	if !errors.Is(err, embedsrc.ErrMissingPolicyFile) {
-		t.Errorf("Fetch() error = %v, want ErrMissingPolicyFile", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, embedsrc.ErrMissingPolicyFile), "Fetch() error = %v, want ErrMissingPolicyFile", err)
 }
 
 func TestSource_Fetch_ChecksumUnexpectedFile(t *testing.T) {
@@ -474,17 +348,10 @@ func TestSource_Fetch_ChecksumUnexpectedFile(t *testing.T) {
 	}
 
 	source, err := embedsrc.New(fsys, "policies", embedsrc.WithChecksums(checksums))
-	if err != nil {
-		t.Fatalf("New() failed: %v", err)
-	}
+	require.NoError(t, err)
 	defer source.Close()
 
 	_, err = source.Fetch(t.Context())
-	if err == nil {
-		t.Fatal("Fetch() should fail with unexpected file")
-	}
-
-	if !errors.Is(err, embedsrc.ErrUnexpectedPolicyFile) {
-		t.Errorf("Fetch() error = %v, want ErrUnexpectedPolicyFile", err)
-	}
+	require.Error(t, err)
+	require.True(t, errors.Is(err, embedsrc.ErrUnexpectedPolicyFile), "Fetch() error = %v, want ErrUnexpectedPolicyFile", err)
 }

@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/limiters/tokenbucket"
 )
 
@@ -28,63 +30,45 @@ func TestRateLimitSettings_Validate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.s.Validate()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
 }
 
 func TestRateLimitSettings_IsUnlimited(t *testing.T) {
-	if !tokenbucket.RateLimitUnlimited.IsUnlimited() {
-		t.Error("RateLimitUnlimited.IsUnlimited() = false, want true")
-	}
+	require.True(t, tokenbucket.RateLimitUnlimited.IsUnlimited(), "RateLimitUnlimited.IsUnlimited() = false, want true")
 
 	normal := &tokenbucket.RateLimitSettings{Limit: 100, Period: time.Minute}
-	if normal.IsUnlimited() {
-		t.Error("normal settings should not be unlimited")
-	}
+	require.False(t, normal.IsUnlimited(), "normal settings should not be unlimited")
 }
 
 func TestRateLimitSettings_IsSkip(t *testing.T) {
-	if !tokenbucket.RateLimitSkip.IsSkip() {
-		t.Error("RateLimitSkip.IsSkip() = false, want true")
-	}
+	require.True(t, tokenbucket.RateLimitSkip.IsSkip(), "RateLimitSkip.IsSkip() = false, want true")
 
 	var nilSettings *tokenbucket.RateLimitSettings
-	if !nilSettings.IsSkip() {
-		t.Error("nil settings should be skip")
-	}
+	require.True(t, nilSettings.IsSkip(), "nil settings should be skip")
 
 	normal := &tokenbucket.RateLimitSettings{Limit: 100, Period: time.Minute}
-	if normal.IsSkip() {
-		t.Error("normal settings should not be skip")
-	}
+	require.False(t, normal.IsSkip(), "normal settings should not be skip")
 }
 
 func TestRateLimitSettings_LimitInfo(t *testing.T) {
 	t.Run("normal", func(t *testing.T) {
 		s := &tokenbucket.RateLimitSettings{Limit: 100, Period: time.Minute}
 		info := s.LimitInfo()
-		if info.Limit != 100 {
-			t.Errorf("Limit = %d, want 100", info.Limit)
-		}
-		if info.Remaining != 100 {
-			t.Errorf("Remaining = %d, want 100", info.Remaining)
-		}
-		if info.Reset != 60 {
-			t.Errorf("Reset = %d, want 60", info.Reset)
-		}
+		require.Equal(t, int64(100), info.Limit)
+		require.Equal(t, int64(100), info.Remaining)
+		require.Equal(t, int64(60), info.Reset)
 	})
 
 	t.Run("unlimited", func(t *testing.T) {
 		info := tokenbucket.RateLimitUnlimited.LimitInfo()
-		if info.Limit != math.MaxInt64 {
-			t.Errorf("Limit = %d, want MaxInt64", info.Limit)
-		}
-		if info.Remaining != math.MaxInt64 {
-			t.Errorf("Remaining = %d, want MaxInt64", info.Remaining)
-		}
+		require.Equal(t, int64(math.MaxInt64), info.Limit)
+		require.Equal(t, int64(math.MaxInt64), info.Remaining)
 	})
 }
 
@@ -139,8 +123,10 @@ func TestRateLimitRule_Validate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.rule.Validate()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
@@ -192,8 +178,10 @@ func TestRateLimitConfig_Validate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.config.Validate()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}

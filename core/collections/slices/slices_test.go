@@ -10,6 +10,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
@@ -56,9 +58,7 @@ func TestDeduplicate(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := coreslices.Deduplicate(tt.input)
-			if !slices.Equal(got, tt.expected) {
-				t.Errorf("Deduplicate() = %v, want %v", got, tt.expected)
-			}
+			require.True(t, slices.Equal(got, tt.expected), "Deduplicate() = %v, want %v", got, tt.expected)
 		})
 	}
 }
@@ -105,9 +105,7 @@ func TestDelete(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := coreslices.Delete(tt.input, tt.target)
-			if !slices.Equal(got, tt.expected) {
-				t.Errorf("Delete() = %v, want %v", got, tt.expected)
-			}
+			require.True(t, slices.Equal(got, tt.expected), "Delete() = %v, want %v", got, tt.expected)
 		})
 	}
 }
@@ -139,9 +137,7 @@ func TestGroupBy(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := coreslices.GroupBy(tt.input, tt.keyFn)
-			if !reflect.DeepEqual(got, tt.expected) {
-				t.Errorf("GroupBy() = %v, want %v", got, tt.expected)
-			}
+			require.True(t, reflect.DeepEqual(got, tt.expected), "GroupBy() = %v, want %v", got, tt.expected)
 		})
 	}
 }
@@ -153,28 +149,22 @@ func TestFilter(t *testing.T) {
 	t.Run("FilterParallel", func(t *testing.T) {
 		got := coreslices.FilterParallel(input, even)
 		expected := []int{2, 4, 6}
-		if !slices.Equal(got, expected) {
-			t.Errorf("FilterParallel() = %v, want %v", got, expected)
-		}
+		require.True(t, slices.Equal(got, expected), "FilterParallel() = %v, want %v", got, expected)
 	})
 
 	t.Run("FilterFirst", func(t *testing.T) {
 		val, found := coreslices.FilterFirst(input, even)
-		if !found || val != 2 {
-			t.Errorf("FilterFirst() = (%v, %v), want (2, true)", val, found)
-		}
+		require.True(t, found, "FilterFirst() should find an element")
+		require.Equal(t, 2, val)
 
 		_, found = coreslices.FilterFirst(input, func(n int) bool { return n > 10 })
-		if found {
-			t.Errorf("FilterFirst() found element when none expected")
-		}
+		require.False(t, found, "FilterFirst() found element when none expected")
 	})
 
 	t.Run("FilterLast", func(t *testing.T) {
 		val, found := coreslices.FilterLast(input, even)
-		if !found || val != 6 {
-			t.Errorf("FilterLast() = (%v, %v), want (6, true)", val, found)
-		}
+		require.True(t, found, "FilterLast() should find an element")
+		require.Equal(t, 6, val)
 	})
 }
 
@@ -182,21 +172,13 @@ func TestAnyAll(t *testing.T) {
 	input := []int{1, 2, 3, 4}
 
 	t.Run("Any", func(t *testing.T) {
-		if !coreslices.Any(input, func(n int) bool { return n == 3 }) {
-			t.Error("Any() should return true for existing element")
-		}
-		if coreslices.Any(input, func(n int) bool { return n == 5 }) {
-			t.Error("Any() should return false for non-existing element")
-		}
+		require.True(t, coreslices.Any(input, func(n int) bool { return n == 3 }), "Any() should return true for existing element")
+		require.False(t, coreslices.Any(input, func(n int) bool { return n == 5 }), "Any() should return false for non-existing element")
 	})
 
 	t.Run("All", func(t *testing.T) {
-		if !coreslices.All(input, func(n int) bool { return n > 0 }) {
-			t.Error("All() should return true when all satisfy")
-		}
-		if coreslices.All(input, func(n int) bool { return n%2 == 0 }) {
-			t.Error("All() should return false when some don't satisfy")
-		}
+		require.True(t, coreslices.All(input, func(n int) bool { return n > 0 }), "All() should return true when all satisfy")
+		require.False(t, coreslices.All(input, func(n int) bool { return n%2 == 0 }), "All() should return false when some don't satisfy")
 	})
 }
 
@@ -206,9 +188,7 @@ func TestAppendHelpers(t *testing.T) {
 		s = coreslices.AppendIf(s, true, "b")
 		s = coreslices.AppendIf(s, false, "c")
 		expected := []string{"a", "b"}
-		if !slices.Equal(s, expected) {
-			t.Errorf("AppendIf() = %v, want %v", s, expected)
-		}
+		require.True(t, slices.Equal(s, expected), "AppendIf() = %v, want %v", s, expected)
 	})
 
 	t.Run("AppendIfFunc", func(t *testing.T) {
@@ -221,18 +201,16 @@ func TestAppendHelpers(t *testing.T) {
 			return []string{"c"}
 		})
 		expected := []string{"a", "b"}
-		if !slices.Equal(s, expected) {
-			t.Errorf("AppendIfFunc() = %v, want %v", s, expected)
-		}
+		require.True(t, slices.Equal(s, expected), "AppendIfFunc() = %v, want %v", s, expected)
 	})
 
 	t.Run("AppendNonEmpty", func(t *testing.T) {
 		var s []any
 		s = coreslices.AppendNonEmpty(s, "k1", "v1")
 		s = coreslices.AppendNonEmpty(s, "k2", "")
-		if len(s) != 2 || s[0] != "k1" || s[1] != "v1" {
-			t.Errorf("AppendNonEmpty() = %v, want [k1 v1]", s)
-		}
+		require.Len(t, s, 2)
+		require.Equal(t, "k1", s[0])
+		require.Equal(t, "v1", s[1])
 	})
 }
 
@@ -240,34 +218,25 @@ func TestListConversions(t *testing.T) {
 	t.Run("ToList", func(t *testing.T) {
 		input := []int{1, 2, 3}
 		l := coreslices.ToList(input)
-		if l == nil || l.Len() != 3 {
-			t.Fatalf("ToList failed: expected length 3, got %d", l.Len())
-		}
+		require.NotNil(t, l)
+		require.Equal(t, 3, l.Len())
 
 		i := 0
 		for e := l.Front(); e != nil; e = e.Next() {
-			if e.Value != input[i] {
-				t.Errorf("ToList mismatch at %d: got %v, want %v", i, e.Value, input[i])
-			}
+			require.Equal(t, input[i], e.Value, "ToList mismatch at %d", i)
 			i++
 		}
 
-		if coreslices.ToList[int](nil) != nil {
-			t.Error("ToList(nil) should return nil")
-		}
+		require.Nil(t, coreslices.ToList[int](nil), "ToList(nil) should return nil")
 	})
 
 	t.Run("FromList", func(t *testing.T) {
 		input := []int{1, 2, 3}
 		l := coreslices.ToList(input)
 		got := coreslices.FromList[int](l)
-		if !slices.Equal(got, input) {
-			t.Errorf("FromList() = %v, want %v", got, input)
-		}
+		require.True(t, slices.Equal(got, input), "FromList() = %v, want %v", got, input)
 
-		if coreslices.FromList[int](nil) != nil {
-			t.Error("FromList(nil) should return nil")
-		}
+		require.Nil(t, coreslices.FromList[int](nil), "FromList(nil) should return nil")
 	})
 }
 
@@ -275,18 +244,16 @@ func TestAnyConversions(t *testing.T) {
 	t.Run("ToAny", func(t *testing.T) {
 		input := []int{1, 2}
 		got := coreslices.ToAny(input)
-		if len(got) != 2 || got[0] != 1 || got[1] != 2 {
-			t.Errorf("ToAny() = %v, want [1 2]", got)
-		}
+		require.Len(t, got, 2)
+		require.Equal(t, 1, got[0])
+		require.Equal(t, 2, got[1])
 	})
 
 	t.Run("ToStrings", func(t *testing.T) {
 		input := []any{"a", 1, "b", true}
 		got := coreslices.ToStrings(input)
 		expected := []string{"a", "b"}
-		if !slices.Equal(got, expected) {
-			t.Errorf("ToStrings() = %v, want %v", got, expected)
-		}
+		require.True(t, slices.Equal(got, expected), "ToStrings() = %v, want %v", got, expected)
 	})
 }
 
@@ -295,9 +262,7 @@ func TestReduce(t *testing.T) {
 	sum := coreslices.Reduce(input, 0, func(acc, idx, val int) int {
 		return acc + val
 	})
-	if sum != 10 {
-		t.Errorf("Reduce() sum = %d, want 10", sum)
-	}
+	require.Equal(t, 10, sum)
 }
 
 func TestMapParallel(t *testing.T) {
@@ -306,9 +271,7 @@ func TestMapParallel(t *testing.T) {
 		return n * 2
 	})
 	expected := []int{2, 4, 6}
-	if !slices.Equal(got, expected) {
-		t.Errorf("MapParallel() = %v, want %v", got, expected)
-	}
+	require.True(t, slices.Equal(got, expected), "MapParallel() = %v, want %v", got, expected)
 }
 
 func TestToWithFilter(t *testing.T) {
@@ -318,55 +281,35 @@ func TestToWithFilter(t *testing.T) {
 		func(n int) string { return fmt.Sprintf("%d", n) },
 	)
 	expected := []string{"2", "4"}
-	if !slices.Equal(got, expected) {
-		t.Errorf("ToWithFilter() = %v, want %v", got, expected)
-	}
+	require.True(t, slices.Equal(got, expected), "ToWithFilter() = %v, want %v", got, expected)
 }
 
 func TestDeduplicateBy(t *testing.T) {
 	input := []testhelpers.User{{ID: 1, Name: "A"}, {ID: 2, Name: "B"}, {ID: 1, Name: "A2"}}
 	got := coreslices.DeduplicateBy(input, func(p testhelpers.User) int { return p.ID })
 	expected := []testhelpers.User{{ID: 1, Name: "A"}, {ID: 2, Name: "B"}}
-	if !reflect.DeepEqual(got, expected) {
-		t.Errorf("DeduplicateBy() = %v, want %v", got, expected)
-	}
+	require.True(t, reflect.DeepEqual(got, expected), "DeduplicateBy() = %v, want %v", got, expected)
 }
 
 func TestOrdering(t *testing.T) {
 	t.Run("StrictlyIncreasing", func(t *testing.T) {
-		if !coreslices.IsStrictlyIncreasing([]int{1, 2, 3}) {
-			t.Error("1,2,3 should be strictly increasing")
-		}
-		if coreslices.IsStrictlyIncreasing([]int{1, 1, 2}) {
-			t.Error("1,1,2 should NOT be strictly increasing")
-		}
+		require.True(t, coreslices.IsStrictlyIncreasing([]int{1, 2, 3}), "1,2,3 should be strictly increasing")
+		require.False(t, coreslices.IsStrictlyIncreasing([]int{1, 1, 2}), "1,1,2 should NOT be strictly increasing")
 	})
 
 	t.Run("StrictlyDecreasing", func(t *testing.T) {
-		if !coreslices.IsStrictlyDecreasing([]int{3, 2, 1}) {
-			t.Error("3,2,1 should be strictly decreasing")
-		}
-		if coreslices.IsStrictlyDecreasing([]int{3, 3, 2}) {
-			t.Error("3,3,2 should NOT be strictly decreasing")
-		}
+		require.True(t, coreslices.IsStrictlyDecreasing([]int{3, 2, 1}), "3,2,1 should be strictly decreasing")
+		require.False(t, coreslices.IsStrictlyDecreasing([]int{3, 3, 2}), "3,3,2 should NOT be strictly decreasing")
 	})
 
 	t.Run("NonDecreasing", func(t *testing.T) {
-		if !coreslices.IsNonDecreasing([]int{1, 2, 2, 3}) {
-			t.Error("1,2,2,3 should be non-decreasing")
-		}
-		if coreslices.IsNonDecreasing([]int{1, 3, 2}) {
-			t.Error("1,3,2 should NOT be non-decreasing")
-		}
+		require.True(t, coreslices.IsNonDecreasing([]int{1, 2, 2, 3}), "1,2,2,3 should be non-decreasing")
+		require.False(t, coreslices.IsNonDecreasing([]int{1, 3, 2}), "1,3,2 should NOT be non-decreasing")
 	})
 
 	t.Run("NonIncreasing", func(t *testing.T) {
-		if !coreslices.IsNonIncreasing([]int{3, 2, 2, 1}) {
-			t.Error("3,2,2,1 should be non-increasing")
-		}
-		if coreslices.IsNonIncreasing([]int{3, 1, 2}) {
-			t.Error("3,1,2 should NOT be non-increasing")
-		}
+		require.True(t, coreslices.IsNonIncreasing([]int{3, 2, 2, 1}), "3,2,2,1 should be non-increasing")
+		require.False(t, coreslices.IsNonIncreasing([]int{3, 1, 2}), "3,1,2 should NOT be non-increasing")
 	})
 }
 
@@ -375,7 +318,5 @@ func TestAppendNonNil(t *testing.T) {
 	i := 1
 	s = coreslices.AppendNonNil(s, &i)
 	s = coreslices.AppendNonNil(s, nil)
-	if len(s) != 1 {
-		t.Errorf("AppendNonNil failed len=%d", len(s))
-	}
+	require.Len(t, s, 1)
 }

@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/leadelect"
 	"github.com/altessa-s/go-atlas/data/leadelect/providers"
 )
@@ -48,27 +50,21 @@ func TestNew(t *testing.T) {
 	cfg := leadelect.Config{Key: "election", TTL: 10 * time.Second, NodeId: "node1"}
 
 	le := leadelect.New(prov, cfg)
-	if le == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, le)
 }
 
 func TestLeader_NodeId(t *testing.T) {
 	prov := &mockProvider{nodeID: "node-42"}
 	le := leadelect.New(prov, leadelect.Config{})
 
-	if got := le.NodeId(); got != "node-42" {
-		t.Errorf("NodeId() = %q, want %q", got, "node-42")
-	}
+	require.Equal(t, "node-42", le.NodeId())
 }
 
 func TestLeader_IsLeader(t *testing.T) {
 	prov := &mockProvider{isLeader: true}
 	le := leadelect.New(prov, leadelect.Config{})
 
-	if !le.IsLeader() {
-		t.Error("IsLeader() = false, want true")
-	}
+	require.True(t, le.IsLeader())
 }
 
 func TestLeader_LeaderId(t *testing.T) {
@@ -77,21 +73,15 @@ func TestLeader_LeaderId(t *testing.T) {
 	ctx := t.Context()
 
 	id, err := le.LeaderId(ctx)
-	if err != nil {
-		t.Fatalf("LeaderId() error: %v", err)
-	}
-	if id != "leader-1" {
-		t.Errorf("LeaderId() = %q, want %q", id, "leader-1")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "leader-1", id)
 }
 
 func TestLeader_IsRunning_BeforeStart(t *testing.T) {
 	prov := &mockProvider{}
 	le := leadelect.New(prov, leadelect.Config{})
 
-	if le.IsRunning() {
-		t.Error("IsRunning() should be false before Start()")
-	}
+	require.False(t, le.IsRunning(), "IsRunning() should be false before Start()")
 }
 
 func TestLeader_Start_SetsRunning(t *testing.T) {
@@ -100,14 +90,10 @@ func TestLeader_Start_SetsRunning(t *testing.T) {
 	ctx := t.Context()
 
 	err := le.Start(ctx)
-	if err != nil {
-		t.Fatalf("Start() error: %v", err)
-	}
+	require.NoError(t, err)
 	defer le.Stop(ctx) //nolint:errcheck
 
-	if !le.IsRunning() {
-		t.Error("IsRunning() should be true after Start()")
-	}
+	require.True(t, le.IsRunning(), "IsRunning() should be true after Start()")
 }
 
 func TestLeader_Stop_ClearsRunning(t *testing.T) {
@@ -118,9 +104,7 @@ func TestLeader_Stop_ClearsRunning(t *testing.T) {
 	_ = le.Start(ctx)
 	_ = le.Stop(ctx)
 
-	if le.IsRunning() {
-		t.Error("IsRunning() should be false after Stop()")
-	}
+	require.False(t, le.IsRunning(), "IsRunning() should be false after Stop()")
 }
 
 func TestLeader_Stop_Idempotent(t *testing.T) {
@@ -131,9 +115,7 @@ func TestLeader_Stop_Idempotent(t *testing.T) {
 	_ = le.Start(ctx)
 	_ = le.Stop(ctx)
 	err := le.Stop(ctx)
-	if err != nil {
-		t.Errorf("second Stop() should return nil: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestLeader_Start_Idempotent(t *testing.T) {
@@ -151,9 +133,7 @@ func TestLeader_Start_Idempotent(t *testing.T) {
 	defer le.Stop(ctx) //nolint:errcheck
 	_ = le.Start(ctx)  // second call should be no-op
 
-	if got := startCount.Load(); got != 1 {
-		t.Errorf("Start() called provider %d times, want 1", got)
-	}
+	require.Equal(t, int32(1), startCount.Load())
 }
 
 func TestLeader_RegisterCallbacks(t *testing.T) {
@@ -168,9 +148,7 @@ func TestLeader_RegisterCallbacks(t *testing.T) {
 func TestLeader_WithHandlerTimeout(t *testing.T) {
 	prov := &mockProvider{}
 	le := leadelect.New(prov, leadelect.Config{}, leadelect.WithHandlerTimeout(5*time.Second))
-	if le == nil {
-		t.Fatal("New() with WithHandlerTimeout returned nil")
-	}
+	require.NotNil(t, le)
 }
 
 func TestConfig_Fields(t *testing.T) {
@@ -180,13 +158,7 @@ func TestConfig_Fields(t *testing.T) {
 		NodeId: "node-1",
 	}
 
-	if cfg.Key != "election-key" {
-		t.Errorf("Key = %q, want %q", cfg.Key, "election-key")
-	}
-	if cfg.TTL != 30*time.Second {
-		t.Errorf("TTL = %v, want %v", cfg.TTL, 30*time.Second)
-	}
-	if cfg.NodeId != "node-1" {
-		t.Errorf("NodeId = %q, want %q", cfg.NodeId, "node-1")
-	}
+	require.Equal(t, "election-key", cfg.Key)
+	require.Equal(t, 30*time.Second, cfg.TTL)
+	require.Equal(t, "node-1", cfg.NodeId)
 }

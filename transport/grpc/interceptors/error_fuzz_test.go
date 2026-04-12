@@ -7,6 +7,8 @@ package interceptors
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -22,11 +24,7 @@ func FuzzNewError(f *testing.F) {
 		}
 		st := status.New(codes.Code(code), msg)
 		e := NewError(st, nil)
-		if e.Error() == "" && msg != "" {
-			t.Fatal("expected non-empty error")
-		}
-		if e.GRPCStatus() == nil {
-			t.Fatal("GRPCStatus should not be nil")
-		}
+		assert.False(t, e.Error() == "" && msg != "")
+		assert.NotNil(t, e.GRPCStatus(), "GRPCStatus should not be nil")
 	})
 }

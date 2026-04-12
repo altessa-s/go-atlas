@@ -4,7 +4,11 @@
 
 package json
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func FuzzDecode(f *testing.F) {
 	f.Add([]byte(`{"key":"value"}`))
@@ -35,11 +39,7 @@ func FuzzEncodeDecode(f *testing.F) {
 			return
 		}
 		var decoded map[string]string
-		if err := c.Decode(encoded, &decoded); err != nil {
-			t.Fatalf("roundtrip failed: encode ok but decode error = %v", err)
-		}
-		if decoded[key] != value {
-			t.Fatalf("roundtrip mismatch: got %q, want %q", decoded[key], value)
-		}
+		assert.Equal(t, nil, c.Decode(encoded, &decoded))
+		assert.Equal(t, value, decoded[key])
 	})
 }

@@ -7,6 +7,8 @@ package fieldtracker_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/domain/fieldtracker"
 )
 
@@ -20,9 +22,7 @@ func TestGetChangedFields_WithTagNamePtr(t *testing.T) {
 	after := S{Name: "Bob", Age: 30}
 
 	fields := fieldtracker.GetChangedFields(before, after, fieldtracker.WithTagName(&tag))
-	if len(fields) != 1 {
-		t.Errorf("changed fields = %v, want 1 field", fields)
-	}
+	require.Len(t, fields, 1)
 }
 
 func TestGetChangedFields_WithIgnoreFields(t *testing.T) {
@@ -34,11 +34,7 @@ func TestGetChangedFields_WithIgnoreFields(t *testing.T) {
 	after := S{Name: "Bob", Age: 40}
 
 	fields := fieldtracker.GetChangedFields(before, after, fieldtracker.WithIgnoreFields("name"))
-	for _, f := range fields {
-		if f == "name" {
-			t.Error("ignored field 'name' should not appear in changed fields")
-		}
-	}
+	require.NotContains(t, fields, "name")
 }
 
 func TestTracker_Reuse(t *testing.T) {
@@ -50,9 +46,8 @@ func TestTracker_Reuse(t *testing.T) {
 	fields1 := tracker.GetChangedFields(S{X: 1, Y: 2}, S{X: 1, Y: 3})
 	fields2 := tracker.GetChangedFields(S{X: 1, Y: 2}, S{X: 2, Y: 2})
 
-	if len(fields1) != 1 || len(fields2) != 1 {
-		t.Errorf("fields1=%v, fields2=%v, want 1 each", fields1, fields2)
-	}
+	require.Len(t, fields1, 1)
+	require.Len(t, fields2, 1)
 }
 
 func TestGetChangedFields_Nested(t *testing.T) {
@@ -66,7 +61,5 @@ func TestGetChangedFields_Nested(t *testing.T) {
 	after := Outer{Inner: Inner{Val: "b"}}
 
 	fields := fieldtracker.GetChangedFields(before, after)
-	if len(fields) == 0 {
-		t.Error("should detect nested field change")
-	}
+	require.NotEmpty(t, fields, "should detect nested field change")
 }

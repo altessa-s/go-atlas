@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/core/runtime/signals"
 )
 
@@ -37,7 +39,7 @@ func TestSignal_AddBroadcastHandlerWithPriority(t *testing.T) {
 	select {
 	case <-called:
 	case <-time.After(3 * time.Second):
-		t.Error("handler not called within timeout")
+		require.Fail(t, "handler not called within timeout")
 	}
 }
 

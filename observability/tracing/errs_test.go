@@ -7,32 +7,26 @@ package tracing
 import (
 	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestWrapAdapterError(t *testing.T) {
 	err := WrapAdapterError(errors.New("fail"), "otlp")
-	if err == nil {
-		t.Fatal("expected non-nil error")
-	}
+	require.Error(t, err)
 }
 
 func TestWrapSpanError(t *testing.T) {
 	err := WrapSpanError(errors.New("fail"), "start span")
-	if err == nil {
-		t.Fatal("expected non-nil error")
-	}
+	require.Error(t, err)
 }
 
 func TestWrapFlushError(t *testing.T) {
 	err := WrapFlushError(errors.New("fail"), "otlp")
-	if err == nil {
-		t.Fatal("expected non-nil error")
-	}
+	require.Error(t, err)
 }
 
 func TestWrapShutdownError(t *testing.T) {
 	err := WrapShutdownError(errors.New("fail"), "otlp")
-	if err == nil {
-		t.Fatal("expected non-nil error")
-	}
+	require.Error(t, err)
 }

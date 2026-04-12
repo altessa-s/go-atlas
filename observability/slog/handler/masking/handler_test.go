@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // captureStore is a shared store that survives handler cloning via WithAttrs/WithGroup.
@@ -55,14 +57,10 @@ func TestHandler_WithAttrs_PreservesPatterns(t *testing.T) {
 	rec := slog.NewRecord(time.Now(), slog.LevelInfo, "msg", 0)
 	rec.AddAttrs(slog.String("my_secret_key", "sensitive"))
 
-	if err := h2.Handle(t.Context(), rec); err != nil {
-		t.Fatalf("Handle err=%v", err)
-	}
+	require.NoError(t, h2.Handle(t.Context(), rec))
 
 	got := store.attrs["my_secret_key"].String()
-	if got != "********" {
-		t.Fatalf("WithAttrs lost patterns: got %q, want %q", got, "********")
-	}
+	require.Equal(t, "********", got)
 }
 
 func TestHandler_WithGroup_PreservesPatterns(t *testing.T) {
@@ -76,14 +74,10 @@ func TestHandler_WithGroup_PreservesPatterns(t *testing.T) {
 	rec := slog.NewRecord(time.Now(), slog.LevelInfo, "msg", 0)
 	rec.AddAttrs(slog.String("my_secret_key", "sensitive"))
 
-	if err := h2.Handle(t.Context(), rec); err != nil {
-		t.Fatalf("Handle err=%v", err)
-	}
+	require.NoError(t, h2.Handle(t.Context(), rec))
 
 	got := store.attrs["my_secret_key"].String()
-	if got != "********" {
-		t.Fatalf("WithGroup lost patterns: got %q, want %q", got, "********")
-	}
+	require.Equal(t, "********", got)
 }
 
 func TestHandler_MasksByFieldPattern(t *testing.T) {
@@ -97,12 +91,8 @@ func TestHandler_MasksByFieldPattern(t *testing.T) {
 	rec := slog.NewRecord(time.Now(), slog.LevelInfo, "msg", 0)
 	rec.AddAttrs(slog.String("Password", "secret123"))
 
-	if err := h.Handle(t.Context(), rec); err != nil {
-		t.Fatalf("Handle err=%v", err)
-	}
+	require.NoError(t, h.Handle(t.Context(), rec))
 
 	got := store.attrs["Password"].String()
-	if got != "********" {
-		t.Fatalf("masked=%q, want %q", got, "********")
-	}
+	require.Equal(t, "********", got)
 }

@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	reflectutils "github.com/altessa-s/go-atlas/domain/converter/internal/reflect"
 )
 
@@ -31,9 +33,7 @@ func TestIndirectType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := reflectutils.IndirectType(tt.typ)
-			if got != tt.want {
-				t.Errorf("IndirectType(%v) = %v, want %v", tt.typ, got, tt.want)
-			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -45,9 +45,7 @@ func TestMakeDst_Pointer(t *testing.T) {
 
 	reflectutils.MakeDst(&v, typ)
 
-	if v.Kind() != reflect.Struct {
-		t.Fatalf("expected struct kind after MakeDst, got %v", v.Kind())
-	}
+	require.Equal(t, reflect.Struct, v.Kind())
 }
 
 func TestMakeDst_NonPointer(t *testing.T) {
@@ -57,9 +55,7 @@ func TestMakeDst_NonPointer(t *testing.T) {
 
 	reflectutils.MakeDst(&v, typ)
 
-	if v.Kind() != reflect.Struct {
-		t.Fatalf("expected struct kind unchanged after MakeDst, got %v", v.Kind())
-	}
+	require.Equal(t, reflect.Struct, v.Kind())
 }
 
 func TestIsPrimitive(t *testing.T) {
@@ -95,9 +91,7 @@ func TestIsPrimitive(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := reflectutils.IsPrimitive(tt.kind)
-			if got != tt.want {
-				t.Errorf("IsPrimitive(%v) = %v, want %v", tt.kind, got, tt.want)
-			}
+			require.Equal(t, tt.want, got)
 		})
 	}
 }

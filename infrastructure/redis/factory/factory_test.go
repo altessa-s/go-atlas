@@ -9,15 +9,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/observability/health"
 )
 
 func TestNew_Default(t *testing.T) {
 	b := New(nil)
-	if b == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, b)
 }
 
 func TestNew_WithOptions(t *testing.T) {
@@ -28,18 +28,14 @@ func TestNew_WithOptions(t *testing.T) {
 	b := New(&config.Redis{}).
 		UseLogger(logger).
 		UseHealthCoordinator(coord)
-	if b == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, b)
 }
 
 func TestNew_NilOptions(t *testing.T) {
 	b := New(nil).
 		UseLogger(nil).
 		UseHealthCoordinator(nil)
-	if b == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, b)
 }
 
 func TestUniversalOptions(t *testing.T) {
@@ -77,16 +73,12 @@ func TestUniversalOptions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			b := New(tt.cfg)
 			opts, err := b.UniversalOptions()
-			if (err != nil) != tt.wantErr {
-				t.Errorf("error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if err == nil {
-				if opts.PoolTimeout != DefaultPoolTimeout {
-					t.Errorf("PoolTimeout = %v, want %v", opts.PoolTimeout, DefaultPoolTimeout)
-				}
-				if opts.MaxRetries != DefaultMaxRetries {
-					t.Errorf("MaxRetries = %d, want %d", opts.MaxRetries, DefaultMaxRetries)
-				}
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, DefaultPoolTimeout, opts.PoolTimeout)
+				require.Equal(t, DefaultMaxRetries, opts.MaxRetries)
 			}
 		})
 	}
@@ -103,35 +95,17 @@ func TestUniversalOptions_ConnectionURI(t *testing.T) {
 	})
 
 	opts, err := b.UniversalOptions()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
-	if len(opts.Addrs) != 1 || opts.Addrs[0] != "redis-host:6380" {
-		t.Errorf("Addrs = %v, want [redis-host:6380]", opts.Addrs)
-	}
-	if opts.Username != "myuser" {
-		t.Errorf("Username = %q, want %q", opts.Username, "myuser")
-	}
-	if opts.Password != "mypass" {
-		t.Errorf("Password = %q, want %q", opts.Password, "mypass")
-	}
-	if opts.DB != 3 {
-		t.Errorf("DB = %d, want 3", opts.DB)
-	}
+	require.Equal(t, []string{"redis-host:6380"}, opts.Addrs)
+	require.Equal(t, "myuser", opts.Username)
+	require.Equal(t, "mypass", opts.Password)
+	require.Equal(t, 3, opts.DB)
 	// Pool fields should be overlaid from config
-	if opts.PoolSize != 50 {
-		t.Errorf("PoolSize = %d, want 50", opts.PoolSize)
-	}
-	if opts.MinIdleConns != 10 {
-		t.Errorf("MinIdleConns = %d, want 10", opts.MinIdleConns)
-	}
-	if opts.PoolTimeout != DefaultPoolTimeout {
-		t.Errorf("PoolTimeout = %v, want %v", opts.PoolTimeout, DefaultPoolTimeout)
-	}
-	if opts.MaxRetries != DefaultMaxRetries {
-		t.Errorf("MaxRetries = %d, want %d", opts.MaxRetries, DefaultMaxRetries)
-	}
+	require.Equal(t, 50, opts.PoolSize)
+	require.Equal(t, 10, opts.MinIdleConns)
+	require.Equal(t, DefaultPoolTimeout, opts.PoolTimeout)
+	require.Equal(t, DefaultMaxRetries, opts.MaxRetries)
 }
 
 func TestUniversalOptions_ConnectionURI_TLS(t *testing.T) {
@@ -144,13 +118,8 @@ func TestUniversalOptions_ConnectionURI_TLS(t *testing.T) {
 	})
 
 	opts, err := b.UniversalOptions()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if opts.TLSConfig == nil {
-		t.Error("expected TLSConfig to be set for rediss:// URI")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, opts.TLSConfig, "expected TLSConfig to be set for rediss:// URI")
 }
 
 func TestUniversalOptions_ConnectionURI_Sentinel(t *testing.T) {
@@ -164,16 +133,9 @@ func TestUniversalOptions_ConnectionURI_Sentinel(t *testing.T) {
 	})
 
 	opts, err := b.UniversalOptions()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if opts.MasterName != "mymaster" {
-		t.Errorf("MasterName = %q, want %q", opts.MasterName, "mymaster")
-	}
-	if opts.SentinelPassword != "sentpass" {
-		t.Errorf("SentinelPassword = %q, want %q", opts.SentinelPassword, "sentpass")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "mymaster", opts.MasterName)
+	require.Equal(t, "sentpass", opts.SentinelPassword)
 }
 
 func TestUniversalOptions_ConnectionURI_InvalidURI(t *testing.T) {
@@ -182,9 +144,7 @@ func TestUniversalOptions_ConnectionURI_InvalidURI(t *testing.T) {
 	})
 
 	_, err := b.UniversalOptions()
-	if err == nil {
-		t.Fatal("expected error for invalid URI")
-	}
+	require.Error(t, err)
 }
 
 func TestUniversalOptions_Fields(t *testing.T) {
@@ -206,31 +166,15 @@ func TestUniversalOptions_Fields(t *testing.T) {
 	})
 
 	opts, err := b.UniversalOptions()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 
-	if len(opts.Addrs) != 2 {
-		t.Errorf("Addrs len = %d", len(opts.Addrs))
-	}
-	if opts.Password != "pass" {
-		t.Errorf("Password = %q", opts.Password)
-	}
-	if opts.Username != "user" {
-		t.Errorf("Username = %q", opts.Username)
-	}
-	if opts.DB != 2 {
-		t.Errorf("DB = %d", opts.DB)
-	}
-	if opts.PoolSize != 20 {
-		t.Errorf("PoolSize = %d", opts.PoolSize)
-	}
-	if !opts.ReadOnly {
-		t.Error("ReadOnly should be true")
-	}
-	if !opts.RouteByLatency {
-		t.Error("RouteByLatency should be true")
-	}
+	require.Len(t, opts.Addrs, 2)
+	require.Equal(t, "pass", opts.Password)
+	require.Equal(t, "user", opts.Username)
+	require.Equal(t, 2, opts.DB)
+	require.Equal(t, 20, opts.PoolSize)
+	require.True(t, opts.ReadOnly, "ReadOnly should be true")
+	require.True(t, opts.RouteByLatency, "RouteByLatency should be true")
 }
 
 func TestDetectMode(t *testing.T) {
@@ -246,9 +190,7 @@ func TestDetectMode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			b := New(tt.cfg)
-			if got := b.detectMode(); got != tt.want {
-				t.Errorf("detectMode() = %q, want %q", got, tt.want)
-			}
+			require.Equal(t, tt.want, b.detectMode())
 		})
 	}
 }

@@ -7,6 +7,8 @@ package approle_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/altessa-s/go-atlas/security/vault/auth/approle"
 )
 
@@ -18,12 +20,10 @@ func FuzzNew(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, roleID, secretID string) {
 		m := approle.New(roleID, secretID)
-		if m == nil {
-			t.Fatal("New() returned nil")
+		if !assert.NotNil(t, m) {
+			return
 		}
-		if m.Name() != "approle" {
-			t.Errorf("Name() = %q, want %q", m.Name(), "approle")
-		}
+		assert.Equal(t, "approle", m.Name())
 		_ = m.Shutdown()
 	})
 }

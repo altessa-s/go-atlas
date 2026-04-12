@@ -6,6 +6,8 @@ package compression
 
 import (
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func FuzzGzipCompressor_CompressDecompress(f *testing.F) {
@@ -22,11 +24,7 @@ func FuzzGzipCompressor_CompressDecompress(f *testing.F) {
 			return
 		}
 		decompressed, err := c.Decompress(ctx, compressed)
-		if err != nil {
-			t.Fatalf("decompress failed: %v", err)
-		}
-		if string(decompressed) != string(data) {
-			t.Fatal("roundtrip mismatch")
-		}
+		assert.NoError(t, err)
+		assert.Equal(t, string(data), string(decompressed))
 	})
 }

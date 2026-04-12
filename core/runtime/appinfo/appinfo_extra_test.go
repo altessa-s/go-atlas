@@ -7,6 +7,8 @@ package appinfo_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/core/runtime/appinfo"
 )
 
@@ -17,16 +19,12 @@ func TestDependencies_Contains_Found(t *testing.T) {
 		t.Skip("no dependencies found")
 	}
 	first := deps[0]
-	if !deps.Contains(first.Path) {
-		t.Errorf("Contains(%q) = false, want true", first.Path)
-	}
+	require.True(t, deps.Contains(first.Path), "Contains(%q) = false, want true", first.Path)
 }
 
 func TestDependencies_Contains_NotFound(t *testing.T) {
 	deps := appinfo.Deps()
-	if deps.Contains("nonexistent/module/path") {
-		t.Error("Contains(nonexistent) = true, want false")
-	}
+	require.False(t, deps.Contains("nonexistent/module/path"), "Contains(nonexistent) = true, want false")
 }
 
 func TestDependencies_Get_Found(t *testing.T) {
@@ -36,21 +34,15 @@ func TestDependencies_Get_Found(t *testing.T) {
 	}
 	first := deps[0]
 	got := deps.Get(first.Path)
-	if got == nil {
-		t.Errorf("Get(%q) = nil, want non-nil", first.Path)
-	}
+	require.NotNil(t, got, "Get(%q) = nil, want non-nil", first.Path)
 }
 
 func TestDependencies_Get_NotFound(t *testing.T) {
 	deps := appinfo.Deps()
-	if deps.Get("nonexistent/module/path") != nil {
-		t.Error("Get(nonexistent) should return nil")
-	}
+	require.Nil(t, deps.Get("nonexistent/module/path"), "Get(nonexistent) should return nil")
 }
 
 func TestHomeDir(t *testing.T) {
 	home := appinfo.HomeDir()
-	if home == "" {
-		t.Error("HomeDir() should not be empty")
-	}
+	require.NotEmpty(t, home, "HomeDir() should not be empty")
 }

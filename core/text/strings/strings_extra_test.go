@@ -7,25 +7,21 @@ package strings_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
 
 func TestSubstringMatch_NotFound(t *testing.T) {
-	if corestrings.SubstringMatch("Hello", "xyz") {
-		t.Error("should not match")
-	}
+	require.False(t, corestrings.SubstringMatch("Hello", "xyz"), "should not match")
 }
 
 func TestSubstringMatch_ShorterString(t *testing.T) {
-	if corestrings.SubstringMatch("Hi", "Hello") {
-		t.Error("shorter string should not match longer substr")
-	}
+	require.False(t, corestrings.SubstringMatch("Hi", "Hello"), "shorter string should not match longer substr")
 }
 
 func TestSubstringMatch_Empty(t *testing.T) {
-	if !corestrings.SubstringMatch("anything", "") {
-		t.Error("empty substr should always match")
-	}
+	require.True(t, corestrings.SubstringMatch("anything", ""), "empty substr should always match")
 }
 
 func TestTimingSafeSubstringMatch(t *testing.T) {
@@ -46,37 +42,27 @@ func TestTimingSafeSubstringMatch(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := corestrings.TimingSafeSubstringMatch(tt.s, tt.substr); got != tt.want {
-				t.Errorf("TimingSafeSubstringMatch(%q, %q) = %v, want %v", tt.s, tt.substr, got, tt.want)
-			}
+			require.Equal(t, tt.want, corestrings.TimingSafeSubstringMatch(tt.s, tt.substr))
 		})
 	}
 }
 
 func TestTimingSafePrefixMatch_ShorterString(t *testing.T) {
-	if corestrings.TimingSafePrefixMatch("Hi", "Hello") {
-		t.Error("shorter string should not match longer prefix")
-	}
+	require.False(t, corestrings.TimingSafePrefixMatch("Hi", "Hello"), "shorter string should not match longer prefix")
 }
 
 func TestTimingSafePrefixMatch_ExactMatch(t *testing.T) {
-	if !corestrings.TimingSafePrefixMatch("bearer", "bearer") {
-		t.Error("exact match should succeed")
-	}
+	require.True(t, corestrings.TimingSafePrefixMatch("bearer", "bearer"), "exact match should succeed")
 }
 
 func TestToPtr_EmptyString(t *testing.T) {
-	p := corestrings.ToPtr("")
-	if p != nil {
-		t.Error("ToPtr('') should return nil")
-	}
+	require.Nil(t, corestrings.ToPtr(""))
 }
 
 func TestToPtr_NonEmpty(t *testing.T) {
 	p := corestrings.ToPtr("hello")
-	if p == nil || *p != "hello" {
-		t.Error("ToPtr('hello') should return pointer to 'hello'")
-	}
+	require.NotNil(t, p)
+	require.Equal(t, "hello", *p)
 }
 
 func TestIsTrimmed(t *testing.T) {
@@ -92,10 +78,7 @@ func TestIsTrimmed(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := corestrings.IsTrimmed(tt.input)
-		if got != tt.want {
-			t.Errorf("IsTrimmed(%q) = %v, want %v", tt.input, got, tt.want)
-		}
+		require.Equal(t, tt.want, corestrings.IsTrimmed(tt.input))
 	}
 }
 
@@ -111,10 +94,7 @@ func TestIsTrimmedUnsafe(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := corestrings.IsTrimmedUnsafe(tt.input)
-		if got != tt.want {
-			t.Errorf("IsTrimmedUnsafe(%q) = %v, want %v", tt.input, got, tt.want)
-		}
+		require.Equal(t, tt.want, corestrings.IsTrimmedUnsafe(tt.input))
 	}
 }
 
@@ -129,23 +109,14 @@ func TestTrimSuffixFast(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := corestrings.TrimSuffixFast(tt.s, tt.suffix)
-		if got != tt.want {
-			t.Errorf("TrimSuffixFast(%q, %q) = %q, want %q", tt.s, tt.suffix, got, tt.want)
-		}
+		require.Equal(t, tt.want, corestrings.TrimSuffixFast(tt.s, tt.suffix))
 	}
 }
 
 func TestStringEqualsUnsafe(t *testing.T) {
-	if !corestrings.StringEqualsUnsafe("hello", "hello") {
-		t.Error("same string should be equal")
-	}
-	if corestrings.StringEqualsUnsafe("hi", "hello") {
-		t.Error("different length should not be equal")
-	}
-	if corestrings.StringEqualsUnsafe("abc", "xyz") {
-		t.Error("different strings should not be equal")
-	}
+	require.True(t, corestrings.StringEqualsUnsafe("hello", "hello"), "same string should be equal")
+	require.False(t, corestrings.StringEqualsUnsafe("hi", "hello"), "different length should not be equal")
+	require.False(t, corestrings.StringEqualsUnsafe("abc", "xyz"), "different strings should not be equal")
 }
 
 func TestSplitSeq_CaseInsensitive(t *testing.T) {
@@ -154,25 +125,19 @@ func TestSplitSeq_CaseInsensitive(t *testing.T) {
 	for range corestrings.SplitSeq("asepbSEPc", opts) {
 		count++
 	}
-	if count != 3 {
-		t.Errorf("SplitSeq case-insensitive count = %d, want 3", count)
-	}
+	require.Equal(t, 3, count)
 }
 
 func TestGetStringBuilder(t *testing.T) {
 	sb := corestrings.GetStringBuilder()
-	if sb == nil {
-		t.Fatal("GetStringBuilder returned nil")
-	}
+	require.NotNil(t, sb)
 	sb.WriteString("test")
 	corestrings.PutStringBuilder(sb)
 }
 
 func TestSecureString_Len(t *testing.T) {
 	ss := corestrings.NewSecureString("hello")
-	if ss.Len() != 5 {
-		t.Errorf("Len() = %d, want 5", ss.Len())
-	}
+	require.Equal(t, 5, ss.Len())
 }
 
 func TestToScreamingSnakeCase_Complex(t *testing.T) {
@@ -186,9 +151,6 @@ func TestToScreamingSnakeCase_Complex(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := corestrings.ToScreamingSnakeCase(tt.input)
-		if got != tt.want {
-			t.Errorf("ToScreamingSnakeCase(%q) = %q, want %q", tt.input, got, tt.want)
-		}
+		require.Equal(t, tt.want, corestrings.ToScreamingSnakeCase(tt.input))
 	}
 }

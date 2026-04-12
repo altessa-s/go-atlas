@@ -12,6 +12,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/transport/broker/msg"
 )
@@ -61,18 +62,11 @@ func TestAckAdapter_NakWithBackOff_UsesDeliveryCount(t *testing.T) {
 		return 42 * time.Second
 	})
 
-	if err := aa.NakWithBackOff(backoff); err != nil {
-		t.Fatalf("NakWithBackOff() error = %v", err)
-	}
-	if !called {
-		t.Fatal("backoff function was not called")
-	}
-	if gotAttempt != 3 {
-		t.Errorf("backoff called with attempt=%d, want 3", gotAttempt)
-	}
-	if stub.nakDelayCalled != 42*time.Second {
-		t.Errorf("NakWithDelay called with %v, want 42s", stub.nakDelayCalled)
-	}
+	err := aa.NakWithBackOff(backoff)
+	require.NoError(t, err)
+	require.True(t, called, "backoff function was not called")
+	require.EqualValues(t, 3, gotAttempt)
+	require.Equal(t, 42*time.Second, stub.nakDelayCalled)
 }
 
 func TestAckAdapter_NakWithBackOff_FallsBackOnMetadataError(t *testing.T) {
@@ -82,16 +76,13 @@ func TestAckAdapter_NakWithBackOff_FallsBackOnMetadataError(t *testing.T) {
 	aa := &ackAdapter{msg: stub}
 
 	backoff := msg.BackOffFunc(func(_ uint64) time.Duration {
-		t.Fatal("backoff should not be called when metadata fails")
+		require.Fail(t, "backoff should not be called when metadata fails")
 		return 0
 	})
 
-	if err := aa.NakWithBackOff(backoff); err != nil {
-		t.Fatalf("NakWithBackOff() error = %v", err)
-	}
-	if !stub.nakCalled {
-		t.Fatal("expected plain Nak() to be called on metadata error")
-	}
+	err := aa.NakWithBackOff(backoff)
+	require.NoError(t, err)
+	require.True(t, stub.nakCalled, "expected plain Nak() to be called on metadata error")
 }
 
 func TestAckAdapter_NakWithBackOff_AlreadyAcked(t *testing.T) {
@@ -102,7 +93,5 @@ func TestAckAdapter_NakWithBackOff_AlreadyAcked(t *testing.T) {
 	aa := &ackAdapter{msg: stub}
 
 	err := aa.NakWithBackOff(func(_ uint64) time.Duration { return time.Second })
-	if err != nil {
-		t.Fatalf("expected nil for already-acked, got %v", err)
-	}
+	require.NoError(t, err)
 }

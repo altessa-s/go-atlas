@@ -9,9 +9,10 @@
 package seccomp
 
 import (
-	"errors"
 	"runtime"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestSentinels_AreDistinct guards against a future refactor that
@@ -19,12 +20,8 @@ import (
 // [errors.Is] distinguishing them so they can tell "platform can't
 // do seccomp" from "kernel rejected the filter".
 func TestSentinels_AreDistinct(t *testing.T) {
-	if errors.Is(ErrFailed, ErrUnsupported) {
-		t.Errorf("ErrFailed should not match ErrUnsupported")
-	}
-	if errors.Is(ErrUnsupported, ErrFailed) {
-		t.Errorf("ErrUnsupported should not match ErrFailed")
-	}
+	require.NotErrorIs(t, ErrFailed, ErrUnsupported)
+	require.NotErrorIs(t, ErrUnsupported, ErrFailed)
 }
 
 // TestBlockDangerousSyscalls_NonLinuxReturnsUnsupported verifies the
@@ -37,7 +34,5 @@ func TestBlockDangerousSyscalls_NonLinuxReturnsUnsupported(t *testing.T) {
 		t.Skip("BlockDangerousSyscalls is irreversible on supported platforms; skipping to avoid poisoning the test binary")
 	}
 	err := BlockDangerousSyscalls()
-	if !errors.Is(err, ErrUnsupported) {
-		t.Errorf("BlockDangerousSyscalls: got %v, want wrap of ErrUnsupported", err)
-	}
+	require.ErrorIs(t, err, ErrUnsupported)
 }

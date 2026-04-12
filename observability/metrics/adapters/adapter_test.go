@@ -8,6 +8,8 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestMetricType_String(t *testing.T) {
@@ -22,9 +24,7 @@ func TestMetricType_String(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
-			if got := tt.typ.String(); got != tt.want {
-				t.Errorf("String() = %q, want %q", got, tt.want)
-			}
+			require.Equal(t, tt.want, tt.typ.String())
 		})
 	}
 }
@@ -49,9 +49,7 @@ func (a *testAdapter) Close() error                                             
 
 func TestMultiAdapter_Name(t *testing.T) {
 	m := NewMultiAdapter()
-	if m.Name() != "multi" {
-		t.Errorf("Name() = %q", m.Name())
-	}
+	require.Equal(t, "multi", m.Name())
 }
 
 func TestMultiAdapter_Register(t *testing.T) {
@@ -59,18 +57,14 @@ func TestMultiAdapter_Register(t *testing.T) {
 	a2 := &testAdapter{name: "a2"}
 	m := NewMultiAdapter(a1, a2)
 
-	if err := m.Register(&Desc{Name: "test"}); err != nil {
-		t.Errorf("Register() = %v", err)
-	}
+	require.NoError(t, m.Register(&Desc{Name: "test"}))
 }
 
 func TestMultiAdapter_Register_Error(t *testing.T) {
 	a1 := &testAdapter{name: "a1", registerErr: errors.New("fail")}
 	m := NewMultiAdapter(a1)
 
-	if err := m.Register(&Desc{Name: "test"}); err == nil {
-		t.Error("expected error")
-	}
+	require.Error(t, m.Register(&Desc{Name: "test"}))
 }
 
 func TestMultiAdapter_Records(t *testing.T) {
@@ -82,45 +76,34 @@ func TestMultiAdapter_Records(t *testing.T) {
 	m.RecordGauge("g", nil, 2)
 	m.RecordHistogram("h", nil, 3)
 
-	if a1.counterCalls.Load() != 1 || a2.counterCalls.Load() != 1 {
-		t.Error("counter not broadcast to all adapters")
-	}
-	if a1.gaugeCalls.Load() != 1 || a2.gaugeCalls.Load() != 1 {
-		t.Error("gauge not broadcast to all adapters")
-	}
-	if a1.histCalls.Load() != 1 || a2.histCalls.Load() != 1 {
-		t.Error("histogram not broadcast to all adapters")
-	}
+	require.Equal(t, int64(1), a1.counterCalls.Load(), "counter not broadcast to a1")
+	require.Equal(t, int64(1), a2.counterCalls.Load(), "counter not broadcast to a2")
+	require.Equal(t, int64(1), a1.gaugeCalls.Load(), "gauge not broadcast to a1")
+	require.Equal(t, int64(1), a2.gaugeCalls.Load(), "gauge not broadcast to a2")
+	require.Equal(t, int64(1), a1.histCalls.Load(), "histogram not broadcast to a1")
+	require.Equal(t, int64(1), a2.histCalls.Load(), "histogram not broadcast to a2")
 }
 
 func TestMultiAdapter_Flush(t *testing.T) {
 	a1 := &testAdapter{name: "a1"}
 	m := NewMultiAdapter(a1)
-	if err := m.Flush(); err != nil {
-		t.Errorf("Flush() = %v", err)
-	}
+	require.NoError(t, m.Flush())
 }
 
 func TestMultiAdapter_Flush_Error(t *testing.T) {
 	a1 := &testAdapter{name: "a1", flushErr: errors.New("fail")}
 	m := NewMultiAdapter(a1)
-	if err := m.Flush(); err == nil {
-		t.Error("expected error")
-	}
+	require.Error(t, m.Flush())
 }
 
 func TestMultiAdapter_Close(t *testing.T) {
 	a1 := &testAdapter{name: "a1"}
 	m := NewMultiAdapter(a1)
-	if err := m.Close(); err != nil {
-		t.Errorf("Close() = %v", err)
-	}
+	require.NoError(t, m.Close())
 }
 
 func TestMultiAdapter_Close_Error(t *testing.T) {
 	a1 := &testAdapter{name: "a1", closeErr: errors.New("fail")}
 	m := NewMultiAdapter(a1)
-	if err := m.Close(); err == nil {
-		t.Error("expected error")
-	}
+	require.Error(t, m.Close())
 }

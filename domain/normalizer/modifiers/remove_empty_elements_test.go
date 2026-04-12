@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/domain/normalizer/modifiers"
 )
 
@@ -15,13 +17,9 @@ func TestRemoveEmptyElements_StringSlice(t *testing.T) {
 	input := []string{"a", "", "b", "  ", "c"}
 	v := reflect.ValueOf(&input).Elem()
 	result := modifiers.RemoveEmptyElements(v, nil)
-	if result.Error != nil {
-		t.Fatalf("RemoveEmptyElements() error = %v", result.Error)
-	}
+	require.Nil(t, result.Error)
 	got := result.Value.Interface().([]string)
-	if len(got) != 3 {
-		t.Errorf("RemoveEmptyElements() len = %d, want 3, got %v", len(got), got)
-	}
+	require.Len(t, got, 3)
 }
 
 func TestRemoveEmptyElements_PtrStringSlice(t *testing.T) {
@@ -31,31 +29,23 @@ func TestRemoveEmptyElements_PtrStringSlice(t *testing.T) {
 	input := []*string{&a, &b, &c, nil}
 	v := reflect.ValueOf(&input).Elem()
 	result := modifiers.RemoveEmptyElements(v, nil)
-	if result.Error != nil {
-		t.Fatalf("RemoveEmptyElements() error = %v", result.Error)
-	}
+	require.Nil(t, result.Error)
 }
 
 func TestRemoveEmptyElementsFromSlice_StringSlice(t *testing.T) {
 	input := []string{"a", "", "b"}
 	v := reflect.ValueOf(&input).Elem()
 	changed := modifiers.RemoveEmptyElementsFromSlice(v)
-	if !changed {
-		t.Error("RemoveEmptyElementsFromSlice should return true when elements removed")
-	}
+	require.True(t, changed, "RemoveEmptyElementsFromSlice should return true when elements removed")
 	got := v.Interface().([]string)
-	if len(got) != 2 {
-		t.Errorf("len = %d, want 2", len(got))
-	}
+	require.Len(t, got, 2)
 }
 
 func TestRemoveEmptyElementsFromSlice_NoChange(t *testing.T) {
 	input := []string{"a", "b"}
 	v := reflect.ValueOf(&input).Elem()
 	changed := modifiers.RemoveEmptyElementsFromSlice(v)
-	if changed {
-		t.Error("RemoveEmptyElementsFromSlice should return false when no change")
-	}
+	require.False(t, changed, "RemoveEmptyElementsFromSlice should return false when no change")
 }
 
 func TestModifierError_Error(t *testing.T) {
@@ -65,9 +55,7 @@ func TestModifierError_Error(t *testing.T) {
 		Cause:        nil,
 	}
 	got := err.Error()
-	if got == "" {
-		t.Error("Error() should not be empty")
-	}
+	require.NotEmpty(t, got)
 }
 
 func TestModifierError_Unwrap(t *testing.T) {
@@ -76,7 +64,5 @@ func TestModifierError_Unwrap(t *testing.T) {
 		FieldName: "outer",
 		Cause:     inner,
 	}
-	if err.Unwrap() != inner {
-		t.Error("Unwrap() should return Cause")
-	}
+	require.Equal(t, inner, err.Unwrap())
 }

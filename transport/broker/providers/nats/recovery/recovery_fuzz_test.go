@@ -4,7 +4,11 @@
 
 package recovery
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func FuzzRecoveryStrategy_String(f *testing.F) {
 	f.Add(0)
@@ -15,8 +19,6 @@ func FuzzRecoveryStrategy_String(f *testing.F) {
 	f.Fuzz(func(t *testing.T, val int) {
 		s := RecoveryStrategy(val)
 		result := s.String()
-		if result == "" {
-			t.Fatal("String() returned empty")
-		}
+		assert.NotEqual(t, "", result)
 	})
 }

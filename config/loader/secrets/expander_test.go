@@ -9,6 +9,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/config/loader/secrets"
 
 	secsecrets "github.com/altessa-s/go-atlas/security/secrets"
@@ -53,9 +55,7 @@ func TestHasSecrets(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := secrets.HasSecrets(tt.content); got != tt.want {
-				t.Errorf("HasSecrets(%q) = %v, want %v", tt.content, got, tt.want)
-			}
+			require.Equal(t, tt.want, secrets.HasSecrets(tt.content))
 		})
 	}
 }
@@ -84,32 +84,22 @@ func TestExpander_Expand(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := expander.Expand(ctx, tt.content)
-			if err != nil {
-				t.Fatalf("Expand() error = %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Expand(%q) = %q, want %q", tt.content, got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 
 	t.Run("missing secret returns error (fail-closed)", func(t *testing.T) {
 		_, err := expander.Expand(ctx, "$__secret{app:missing}")
-		if err == nil {
-			t.Fatal("Expand() expected error for missing secret, got nil")
-		}
+		require.Error(t, err)
 	})
 }
 
 func TestExpander_Expand_NilManager(t *testing.T) {
 	expander := secrets.New(nil)
 	got, err := expander.Expand(t.Context(), "prefix $__secret{ns:key} suffix")
-	if err != nil {
-		t.Fatalf("Expand() error = %v", err)
-	}
-	if got != "prefix  suffix" {
-		t.Errorf("Expand() = %q, want %q", got, "prefix  suffix")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "prefix  suffix", got)
 }
 
 func TestExpandString(t *testing.T) {
@@ -118,32 +108,20 @@ func TestExpandString(t *testing.T) {
 
 	t.Run("with secrets", func(t *testing.T) {
 		got, err := secrets.ExpandString(ctx, "$__secret{app:key}", mgr)
-		if err != nil {
-			t.Fatalf("error = %v", err)
-		}
-		if got != "value" {
-			t.Errorf("got %q, want %q", got, "value")
-		}
+		require.NoError(t, err)
+		require.Equal(t, "value", got)
 	})
 
 	t.Run("nil manager", func(t *testing.T) {
 		got, err := secrets.ExpandString(ctx, "$__secret{app:key}", nil)
-		if err != nil {
-			t.Fatalf("error = %v", err)
-		}
-		if got != "$__secret{app:key}" {
-			t.Errorf("got %q, want original", got)
-		}
+		require.NoError(t, err)
+		require.Equal(t, "$__secret{app:key}", got)
 	})
 
 	t.Run("no secrets", func(t *testing.T) {
 		got, err := secrets.ExpandString(ctx, "plain", mgr)
-		if err != nil {
-			t.Fatalf("error = %v", err)
-		}
-		if got != "plain" {
-			t.Errorf("got %q, want %q", got, "plain")
-		}
+		require.NoError(t, err)
+		require.Equal(t, "plain", got)
 	})
 }
 
@@ -153,39 +131,25 @@ func TestExpandEnvValue(t *testing.T) {
 
 	t.Run("with secrets", func(t *testing.T) {
 		got, err := secrets.ExpandEnvValue(ctx, "$__secret{app:key}", mgr)
-		if err != nil {
-			t.Fatalf("error = %v", err)
-		}
-		if got != "value" {
-			t.Errorf("got %q, want %q", got, "value")
-		}
+		require.NoError(t, err)
+		require.Equal(t, "value", got)
 	})
 
 	t.Run("nil manager", func(t *testing.T) {
 		got, err := secrets.ExpandEnvValue(ctx, "$__secret{app:key}", nil)
-		if err != nil {
-			t.Fatalf("error = %v", err)
-		}
-		if got != "$__secret{app:key}" {
-			t.Errorf("got %q, want original", got)
-		}
+		require.NoError(t, err)
+		require.Equal(t, "$__secret{app:key}", got)
 	})
 
 	t.Run("no secrets", func(t *testing.T) {
 		got, err := secrets.ExpandEnvValue(ctx, "plain", mgr)
-		if err != nil {
-			t.Fatalf("error = %v", err)
-		}
-		if got != "plain" {
-			t.Errorf("got %q, want %q", got, "plain")
-		}
+		require.NoError(t, err)
+		require.Equal(t, "plain", got)
 	})
 
 	t.Run("missing secret returns error", func(t *testing.T) {
 		_, err := secrets.ExpandEnvValue(ctx, "$__secret{app:missing}", mgr)
-		if err == nil {
-			t.Fatal("expected error for missing secret, got nil")
-		}
+		require.Error(t, err)
 	})
 }
 
@@ -207,18 +171,10 @@ func TestExpandStruct(t *testing.T) {
 			Host:     "$__secret{app:host}",
 			Plain:    "no-secret",
 		}
-		if err := secrets.ExpandStruct(ctx, cfg, mgr); err != nil {
-			t.Fatal(err)
-		}
-		if cfg.Password != "s3cret" {
-			t.Errorf("Password = %q, want %q", cfg.Password, "s3cret")
-		}
-		if cfg.Host != "localhost" {
-			t.Errorf("Host = %q, want %q", cfg.Host, "localhost")
-		}
-		if cfg.Plain != "no-secret" {
-			t.Errorf("Plain = %q, want %q", cfg.Plain, "no-secret")
-		}
+		require.NoError(t, secrets.ExpandStruct(ctx, cfg, mgr))
+		require.Equal(t, "s3cret", cfg.Password)
+		require.Equal(t, "localhost", cfg.Host)
+		require.Equal(t, "no-secret", cfg.Plain)
 	})
 
 	t.Run("pointer string field", func(t *testing.T) {
@@ -227,12 +183,8 @@ func TestExpandStruct(t *testing.T) {
 		}
 		pw := "$__secret{app:password}"
 		cfg := &Config{Password: &pw}
-		if err := secrets.ExpandStruct(ctx, cfg, mgr); err != nil {
-			t.Fatal(err)
-		}
-		if *cfg.Password != "s3cret" {
-			t.Errorf("Password = %q, want %q", *cfg.Password, "s3cret")
-		}
+		require.NoError(t, secrets.ExpandStruct(ctx, cfg, mgr))
+		require.Equal(t, "s3cret", *cfg.Password)
 	})
 
 	t.Run("nested struct", func(t *testing.T) {
@@ -243,12 +195,8 @@ func TestExpandStruct(t *testing.T) {
 			Database DB
 		}
 		cfg := &Config{Database: DB{Password: "$__secret{app:password}"}}
-		if err := secrets.ExpandStruct(ctx, cfg, mgr); err != nil {
-			t.Fatal(err)
-		}
-		if cfg.Database.Password != "s3cret" {
-			t.Errorf("Database.Password = %q, want %q", cfg.Database.Password, "s3cret")
-		}
+		require.NoError(t, secrets.ExpandStruct(ctx, cfg, mgr))
+		require.Equal(t, "s3cret", cfg.Database.Password)
 	})
 
 	t.Run("string slice", func(t *testing.T) {
@@ -256,15 +204,9 @@ func TestExpandStruct(t *testing.T) {
 			Items []string
 		}
 		cfg := &Config{Items: []string{"$__secret{app:password}", "plain"}}
-		if err := secrets.ExpandStruct(ctx, cfg, mgr); err != nil {
-			t.Fatal(err)
-		}
-		if cfg.Items[0] != "s3cret" {
-			t.Errorf("Items[0] = %q, want %q", cfg.Items[0], "s3cret")
-		}
-		if cfg.Items[1] != "plain" {
-			t.Errorf("Items[1] = %q, want %q", cfg.Items[1], "plain")
-		}
+		require.NoError(t, secrets.ExpandStruct(ctx, cfg, mgr))
+		require.Equal(t, "s3cret", cfg.Items[0])
+		require.Equal(t, "plain", cfg.Items[1])
 	})
 
 	t.Run("map string values", func(t *testing.T) {
@@ -275,41 +217,26 @@ func TestExpandStruct(t *testing.T) {
 			"PASS": "$__secret{app:password}",
 			"HOST": "plain",
 		}}
-		if err := secrets.ExpandStruct(ctx, cfg, mgr); err != nil {
-			t.Fatal(err)
-		}
-		if cfg.Env["PASS"] != "s3cret" {
-			t.Errorf("Env[PASS] = %q, want %q", cfg.Env["PASS"], "s3cret")
-		}
-		if cfg.Env["HOST"] != "plain" {
-			t.Errorf("Env[HOST] = %q, want %q", cfg.Env["HOST"], "plain")
-		}
+		require.NoError(t, secrets.ExpandStruct(ctx, cfg, mgr))
+		require.Equal(t, "s3cret", cfg.Env["PASS"])
+		require.Equal(t, "plain", cfg.Env["HOST"])
 	})
 
 	t.Run("nil manager", func(t *testing.T) {
 		type Config struct{ V string }
 		cfg := &Config{V: "$__secret{app:password}"}
-		if err := secrets.ExpandStruct(ctx, cfg, nil); err != nil {
-			t.Fatal(err)
-		}
-		if cfg.V != "$__secret{app:password}" {
-			t.Error("nil manager should not modify struct")
-		}
+		require.NoError(t, secrets.ExpandStruct(ctx, cfg, nil))
+		require.Equal(t, "$__secret{app:password}", cfg.V)
 	})
 
 	t.Run("not a pointer", func(t *testing.T) {
 		type Config struct{ V string }
 		cfg := Config{}
-		err := secrets.ExpandStruct(ctx, cfg, mgr)
-		if err == nil {
-			t.Error("expected error for non-pointer")
-		}
+		require.Error(t, secrets.ExpandStruct(ctx, cfg, mgr))
 	})
 
 	t.Run("nil input", func(t *testing.T) {
-		if err := secrets.ExpandStruct(ctx, nil, mgr); err != nil {
-			t.Errorf("nil input should not error, got %v", err)
-		}
+		require.NoError(t, secrets.ExpandStruct(ctx, nil, mgr))
 	})
 }
 
@@ -318,9 +245,7 @@ func TestExpander_Expand_ManagerError(t *testing.T) {
 	expander := secrets.New(mgr)
 
 	_, err := expander.Expand(t.Context(), "val=$__secret{app:key}")
-	if err == nil {
-		t.Fatal("Expand() expected error for manager failure, got nil")
-	}
+	require.Error(t, err)
 }
 
 func TestExpander_Expand_FailOnErrorDisabled(t *testing.T) {
@@ -332,34 +257,22 @@ func TestExpander_Expand_FailOnErrorDisabled(t *testing.T) {
 
 	t.Run("missing secret returns empty string", func(t *testing.T) {
 		got, err := expander.Expand(ctx, "$__secret{app:missing}")
-		if err != nil {
-			t.Fatalf("Expand() error = %v", err)
-		}
-		if got != "" {
-			t.Errorf("Expand() = %q, want empty string", got)
-		}
+		require.NoError(t, err)
+		require.Equal(t, "", got)
 	})
 
 	t.Run("manager error returns empty string", func(t *testing.T) {
 		errMgr := &mockManager{err: errors.New("connection failed")}
 		failOpenExpander := secrets.New(errMgr, secrets.WithFailOnError(false))
 		got, err := failOpenExpander.Expand(ctx, "val=$__secret{app:key}")
-		if err != nil {
-			t.Fatalf("Expand() error = %v", err)
-		}
-		if got != "val=" {
-			t.Errorf("got %q, want %q", got, "val=")
-		}
+		require.NoError(t, err)
+		require.Equal(t, "val=", got)
 	})
 
 	t.Run("existing secret still resolves", func(t *testing.T) {
 		got, err := expander.Expand(ctx, "$__secret{app:password}")
-		if err != nil {
-			t.Fatalf("Expand() error = %v", err)
-		}
-		if got != "s3cret" {
-			t.Errorf("Expand() = %q, want %q", got, "s3cret")
-		}
+		require.NoError(t, err)
+		require.Equal(t, "s3cret", got)
 	})
 }
 
@@ -371,7 +284,5 @@ func TestExpander_Expand_FailClosed_MultipleSecrets(t *testing.T) {
 
 	// First secret resolves but second one doesn't — should fail on the first failure
 	_, err := expander.Expand(t.Context(), "$__secret{app:password} $__secret{app:missing}")
-	if err == nil {
-		t.Fatal("Expand() expected error when any secret fails, got nil")
-	}
+	require.Error(t, err)
 }

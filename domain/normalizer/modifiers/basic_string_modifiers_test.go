@@ -7,6 +7,8 @@ package modifiers
 import (
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestLowercaseModifier(t *testing.T) {
@@ -23,15 +25,9 @@ func TestLowercaseModifier(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := mod(reflect.ValueOf(tt.in), nil)
-			if result.Error != nil {
-				t.Fatalf("unexpected error: %v", result.Error)
-			}
-			got := result.Value.String()
-			if tt.in == "" {
-				got = result.Value.String()
-			}
-			if got != tt.want && tt.in != "" {
-				t.Errorf("got %q, want %q", got, tt.want)
+			require.Nil(t, result.Error)
+			if tt.in != "" {
+				require.Equal(t, tt.want, result.Value.String())
 			}
 		})
 	}
@@ -40,12 +36,8 @@ func TestLowercaseModifier(t *testing.T) {
 func TestUppercaseModifier(t *testing.T) {
 	mod, _ := GetModifier("uppercase")
 	result := mod(reflect.ValueOf("hello"), nil)
-	if result.Error != nil {
-		t.Fatalf("unexpected error: %v", result.Error)
-	}
-	if got := result.Value.String(); got != "HELLO" {
-		t.Errorf("got %q, want %q", got, "HELLO")
-	}
+	require.Nil(t, result.Error)
+	require.Equal(t, "HELLO", result.Value.String())
 }
 
 func TestTrimModifier(t *testing.T) {
@@ -62,9 +54,7 @@ func TestTrimModifier(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := mod(reflect.ValueOf(tt.in), nil)
-			if result.Error != nil {
-				t.Fatalf("unexpected error: %v", result.Error)
-			}
+			require.Nil(t, result.Error)
 		})
 	}
 }
@@ -73,10 +63,6 @@ func TestTrimModifier_Pointer(t *testing.T) {
 	mod, _ := GetModifier("trim")
 	s := "  hello  "
 	result := mod(reflect.ValueOf(&s), nil)
-	if result.Error != nil {
-		t.Fatalf("unexpected error: %v", result.Error)
-	}
-	if s != "hello" {
-		t.Errorf("got %q, want %q", s, "hello")
-	}
+	require.Nil(t, result.Error)
+	require.Equal(t, "hello", s)
 }

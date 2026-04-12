@@ -8,9 +8,10 @@
 package nonewprivs
 
 import (
-	"errors"
 	"runtime"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestSet_NonLinuxReturnsUnsupported verifies that the non-Linux stub
@@ -22,9 +23,7 @@ func TestSet_NonLinuxReturnsUnsupported(t *testing.T) {
 		t.Skip("Set is irreversible on Linux; skipping to avoid poisoning the test binary")
 	}
 	err := Set()
-	if !errors.Is(err, ErrUnsupported) {
-		t.Errorf("Set: got %v, want wrap of ErrUnsupported", err)
-	}
+	require.ErrorIs(t, err, ErrUnsupported)
 }
 
 // TestEnabled_NonLinuxReturnsUnsupported verifies the non-Linux stub for
@@ -35,28 +34,18 @@ func TestSet_NonLinuxReturnsUnsupported(t *testing.T) {
 func TestEnabled_NonLinuxReturnsUnsupported(t *testing.T) {
 	v, err := Enabled()
 	if runtime.GOOS == "linux" {
-		if err != nil {
-			t.Errorf("Enabled: got %v, want nil on Linux", err)
-		}
+		require.NoError(t, err, "Enabled on Linux")
 		_ = v // value depends on ambient process state
 		return
 	}
-	if !errors.Is(err, ErrUnsupported) {
-		t.Errorf("Enabled: got %v, want wrap of ErrUnsupported", err)
-	}
-	if v {
-		t.Errorf("Enabled: got true, want false on non-Linux")
-	}
+	require.ErrorIs(t, err, ErrUnsupported)
+	require.False(t, v, "Enabled: got true, want false on non-Linux")
 }
 
 // TestErrFailed_IsDistinctFromErrUnsupported is a trivial guard against
 // a future refactor that accidentally collapses the two sentinels into
 // one. Callers rely on [errors.Is] distinguishing them.
 func TestErrFailed_IsDistinctFromErrUnsupported(t *testing.T) {
-	if errors.Is(ErrFailed, ErrUnsupported) {
-		t.Errorf("ErrFailed should not match ErrUnsupported")
-	}
-	if errors.Is(ErrUnsupported, ErrFailed) {
-		t.Errorf("ErrUnsupported should not match ErrFailed")
-	}
+	require.NotErrorIs(t, ErrFailed, ErrUnsupported)
+	require.NotErrorIs(t, ErrUnsupported, ErrFailed)
 }

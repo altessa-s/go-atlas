@@ -8,21 +8,19 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	tlsvault "github.com/altessa-s/go-atlas/security/tlsutils/providers/vault"
 )
 
 func TestNewLogger(t *testing.T) {
 	l := tlsvault.NewLogger(nil)
-	if l == nil {
-		t.Fatal("NewLogger(nil) returned nil")
-	}
+	require.NotNil(t, l)
 }
 
 func TestNewLogger_WithSlog(t *testing.T) {
 	l := tlsvault.NewLogger(slog.Default())
-	if l == nil {
-		t.Fatal("NewLogger(slog.Default()) returned nil")
-	}
+	require.NotNil(t, l)
 }
 
 func TestLogger_Methods(t *testing.T) {
@@ -51,14 +49,10 @@ func TestLogger_MethodsWithFields(t *testing.T) {
 
 func TestNewLoggerWithContext(t *testing.T) {
 	l := tlsvault.NewLoggerWithContext(t.Context(), nil)
-	if l == nil {
-		t.Fatal("NewLoggerWithContext() returned nil")
-	}
+	require.NotNil(t, l)
 }
 
 func TestNewLoggerWithContext_NilLogger(t *testing.T) {
 	l := tlsvault.NewLoggerWithContext(t.Context(), slog.Default())
-	if l == nil {
-		t.Fatal("NewLoggerWithContext() returned nil")
-	}
+	require.NotNil(t, l)
 }

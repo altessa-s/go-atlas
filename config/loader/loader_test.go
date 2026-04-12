@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/config/loader"
 )
 
@@ -47,22 +49,13 @@ func TestLoad_Defaults(t *testing.T) {
 	cfg := &TestConfig{}
 	l := loader.New(nil) // Default backend (YAML)
 
-	if _, err := l.Load(cfg); err != nil {
-		t.Fatalf("Load failed: %v", err)
-	}
+	_, err := l.Load(cfg)
+	require.NoError(t, err)
 
-	if cfg.AppName != "my-app" {
-		t.Errorf("AppName default mismatch: got %q, want %q", cfg.AppName, "my-app")
-	}
-	if cfg.Port != 8080 {
-		t.Errorf("Port default mismatch: got %d, want %d", cfg.Port, 8080)
-	}
-	if cfg.Timeout != 5*time.Second {
-		t.Errorf("Timeout default mismatch: got %v, want %v", cfg.Timeout, 5*time.Second)
-	}
-	if cfg.Database.Host != "localhost" {
-		t.Errorf("Database.Host default mismatch: got %q, want %q", cfg.Database.Host, "localhost")
-	}
+	require.Equal(t, "my-app", cfg.AppName)
+	require.Equal(t, 8080, cfg.Port)
+	require.Equal(t, 5*time.Second, cfg.Timeout)
+	require.Equal(t, "localhost", cfg.Database.Host)
 }
 
 func TestLoad_Env(t *testing.T) {
@@ -84,25 +77,14 @@ func TestLoad_Env(t *testing.T) {
 	cfg := &TestConfig{}
 	l := loader.New(nil)
 
-	if _, err := l.Load(cfg); err != nil {
-		t.Fatalf("Load failed: %v", err)
-	}
+	_, err := l.Load(cfg)
+	require.NoError(t, err)
 
-	if cfg.AppName != "env-app" {
-		t.Errorf("AppName env mismatch: got %q, want %q", cfg.AppName, "env-app")
-	}
-	if cfg.Port != 9090 {
-		t.Errorf("Port env mismatch: got %d, want %d", cfg.Port, 9090)
-	}
-	if !cfg.Debug {
-		t.Errorf("Debug env mismatch: got %v, want true", cfg.Debug)
-	}
-	if cfg.Timeout != 10*time.Second {
-		t.Errorf("Timeout env mismatch: got %v, want %v", cfg.Timeout, 10*time.Second)
-	}
-	if cfg.Database.Host != "db-prod" {
-		t.Errorf("Database.Host env mismatch: got %q, want %q", cfg.Database.Host, "db-prod")
-	}
+	require.Equal(t, "env-app", cfg.AppName)
+	require.Equal(t, 9090, cfg.Port)
+	require.True(t, cfg.Debug)
+	require.Equal(t, 10*time.Second, cfg.Timeout)
+	require.Equal(t, "db-prod", cfg.Database.Host)
 }
 
 func TestLoad_File(t *testing.T) {
@@ -117,75 +99,53 @@ tags:
 `
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.yaml")
-	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
-		t.Fatalf("Failed to write config file: %v", err)
-	}
+	require.NoError(t, os.WriteFile(configPath, []byte(content), 0644))
 
 	cfg := &TestConfig{}
 	l := loader.New(nil, loader.WithPath(configPath))
 
-	if _, err := l.Load(cfg); err != nil {
-		t.Fatalf("Load failed: %v", err)
-	}
+	_, err := l.Load(cfg)
+	require.NoError(t, err)
 
-	if cfg.AppName != "file-app" {
-		t.Errorf("AppName file mismatch: got %q, want %q", cfg.AppName, "file-app")
-	}
-	if cfg.Port != 7070 {
-		t.Errorf("Port file mismatch: got %d, want %d", cfg.Port, 7070)
-	}
-	if cfg.Database.Host != "db-file" {
-		t.Errorf("Database.Host file mismatch: got %q, want %q", cfg.Database.Host, "db-file")
-	}
-	if len(cfg.Tags) != 2 || cfg.Tags[0] != "tag1" || cfg.Tags[1] != "tag2" {
-		t.Errorf("Tags file mismatch: got %v", cfg.Tags)
-	}
+	require.Equal(t, "file-app", cfg.AppName)
+	require.Equal(t, 7070, cfg.Port)
+	require.Equal(t, "db-file", cfg.Database.Host)
+	require.Len(t, cfg.Tags, 2)
+	require.Equal(t, "tag1", cfg.Tags[0])
+	require.Equal(t, "tag2", cfg.Tags[1])
 }
 
 func TestLoad_DurationIntegerDefault(t *testing.T) {
 	cfg := &durationIntConfig{}
 	l := loader.New(nil)
 
-	if _, err := l.Load(cfg); err != nil {
-		t.Fatalf("Load failed: %v", err)
-	}
-
-	if cfg.Lifetime != time.Duration(-1) {
-		t.Errorf("Lifetime default mismatch: got %v, want %v", cfg.Lifetime, time.Duration(-1))
-	}
+	_, err := l.Load(cfg)
+	require.NoError(t, err)
+	require.Equal(t, time.Duration(-1), cfg.Lifetime)
 }
 
 func TestLoad_DurationZeroDefault(t *testing.T) {
 	cfg := &durationZeroConfig{}
 	l := loader.New(nil)
 
-	if _, err := l.Load(cfg); err != nil {
-		t.Fatalf("Load failed: %v", err)
-	}
-
-	if cfg.Lifetime != 0 {
-		t.Errorf("Lifetime default mismatch: got %v, want %v", cfg.Lifetime, time.Duration(0))
-	}
+	_, err := l.Load(cfg)
+	require.NoError(t, err)
+	require.Equal(t, time.Duration(0), cfg.Lifetime)
 }
 
 func TestLoad_DurationStringDefault(t *testing.T) {
 	cfg := &durationStringConfig{}
 	l := loader.New(nil)
 
-	if _, err := l.Load(cfg); err != nil {
-		t.Fatalf("Load failed: %v", err)
-	}
-
-	if cfg.Lifetime != 5*time.Second {
-		t.Errorf("Lifetime default mismatch: got %v, want %v", cfg.Lifetime, 5*time.Second)
-	}
+	_, err := l.Load(cfg)
+	require.NoError(t, err)
+	require.Equal(t, 5*time.Second, cfg.Lifetime)
 }
 
 func TestLoad_DurationInvalidDefault(t *testing.T) {
 	cfg := &durationInvalidConfig{}
 	l := loader.New(nil)
 
-	if _, err := l.Load(cfg); err == nil {
-		t.Fatal("expected error for invalid duration default, got nil")
-	}
+	_, err := l.Load(cfg)
+	require.Error(t, err)
 }

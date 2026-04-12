@@ -4,7 +4,11 @@
 
 package validation
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func FuzzIsValidUUIDv4(f *testing.F) {
 	f.Add("550e8400-e29b-41d4-a716-446655440000")
@@ -15,12 +19,8 @@ func FuzzIsValidUUIDv4(f *testing.F) {
 	f.Fuzz(func(t *testing.T, s string) {
 		result := IsValidUUIDv4(s)
 		if result {
-			if len(s) != UUIDLength {
-				t.Fatalf("accepted string of length %d", len(s))
-			}
-			if s[14] != '4' {
-				t.Fatal("accepted non-v4 UUID")
-			}
+			assert.Len(t, s, UUIDLength)
+			assert.Equal(t, byte('4'), s[14])
 		}
 	})
 }

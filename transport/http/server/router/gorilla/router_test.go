@@ -9,14 +9,14 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/transport/http/server/router"
 )
 
 func TestNew(t *testing.T) {
 	r := New()
-	if r == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, r)
 }
 
 func TestRouter_ImplementsInterface(t *testing.T) {
@@ -35,12 +35,8 @@ func TestRouter_Handle(t *testing.T) {
 	req := httptest.NewRequest("GET", "/test", nil)
 	r.ServeHTTP(rec, req)
 
-	if !called {
-		t.Fatal("handler was not called")
-	}
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
-	}
+	require.True(t, called, "handler was not called")
+	require.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestRouter_HandleFunc(t *testing.T) {
@@ -55,9 +51,7 @@ func TestRouter_HandleFunc(t *testing.T) {
 	req := httptest.NewRequest("GET", "/test", nil)
 	r.ServeHTTP(rec, req)
 
-	if !called {
-		t.Fatal("handler was not called")
-	}
+	require.True(t, called, "handler was not called")
 }
 
 func TestRouter_Methods(t *testing.T) {
@@ -70,18 +64,14 @@ func TestRouter_Methods(t *testing.T) {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("POST", "/method", nil)
 		r.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("status = %d", rec.Code)
-		}
+		require.Equal(t, http.StatusOK, rec.Code)
 	})
 
 	t.Run("not_allowed", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("GET", "/method", nil)
 		r.ServeHTTP(rec, req)
-		if rec.Code == http.StatusOK {
-			t.Fatal("GET should not match POST-only route")
-		}
+		require.NotEqual(t, http.StatusOK, rec.Code)
 	})
 }
 
@@ -96,9 +86,7 @@ func TestRouter_PathPrefix(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/users", nil)
 	r.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
-	}
+	require.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestRouter_Use_Middleware(t *testing.T) {
@@ -118,24 +106,18 @@ func TestRouter_Use_Middleware(t *testing.T) {
 	req := httptest.NewRequest("GET", "/test", nil)
 	r.ServeHTTP(rec, req)
 
-	if !middlewareCalled {
-		t.Fatal("middleware was not called")
-	}
+	require.True(t, middlewareCalled, "middleware was not called")
 }
 
 func TestRouter_Subrouter(t *testing.T) {
 	r := New()
 	sub := r.Subrouter()
-	if sub == nil {
-		t.Fatal("Subrouter() returned nil")
-	}
+	require.NotNil(t, sub)
 }
 
 func TestRouter_Underlying(t *testing.T) {
 	r := New()
-	if r.Underlying() == nil {
-		t.Fatal("Underlying() returned nil")
-	}
+	require.NotNil(t, r.Underlying())
 }
 
 func TestRoute_Handler(t *testing.T) {
@@ -150,9 +132,7 @@ func TestRoute_Handler(t *testing.T) {
 	req := httptest.NewRequest("GET", "/path", nil)
 	r.ServeHTTP(rec, req)
 
-	if !called {
-		t.Fatal("handler was not called")
-	}
+	require.True(t, called, "handler was not called")
 }
 
 func TestRoute_Path(t *testing.T) {
@@ -164,16 +144,12 @@ func TestRoute_Path(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/specific", nil)
 	r.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
-	}
+	require.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestRoute_Subrouter(t *testing.T) {
 	r := New()
 	route := r.PathPrefix("/api")
 	sub := route.Subrouter()
-	if sub == nil {
-		t.Fatal("route.Subrouter() returned nil")
-	}
+	require.NotNil(t, sub)
 }

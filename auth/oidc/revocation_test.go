@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // mockFilter implements probfilter.Filter for testing.
@@ -48,15 +50,13 @@ func TestFilterRevocationStorage_IsRevoked(t *testing.T) {
 	ctx := t.Context()
 
 	revoked, err := storage.IsRevoked(ctx, "token1")
-	if err != nil || revoked {
-		t.Fatalf("expected not revoked, got revoked=%v err=%v", revoked, err)
-	}
+	require.NoError(t, err)
+	require.False(t, revoked)
 
 	filter.data["token1"] = true
 	revoked, err = storage.IsRevoked(ctx, "token1")
-	if err != nil || !revoked {
-		t.Fatalf("expected revoked, got revoked=%v err=%v", revoked, err)
-	}
+	require.NoError(t, err)
+	require.True(t, revoked)
 }
 
 func TestFilterRevocationStorage_MarkRevoked(t *testing.T) {
@@ -64,14 +64,10 @@ func TestFilterRevocationStorage_MarkRevoked(t *testing.T) {
 	storage := NewFilterRevocationStorage(filter, nil)
 	ctx := t.Context()
 
-	if err := storage.MarkRevoked(ctx, "token2", time.Hour); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, storage.MarkRevoked(ctx, "token2", time.Hour))
 
 	revoked, _ := storage.IsRevoked(ctx, "token2")
-	if !revoked {
-		t.Fatal("expected revoked after MarkRevoked")
-	}
+	require.True(t, revoked, "expected revoked after MarkRevoked")
 }
 
 func TestFilterRevocationStorage_NilFilter(t *testing.T) {
@@ -79,17 +75,11 @@ func TestFilterRevocationStorage_NilFilter(t *testing.T) {
 	ctx := t.Context()
 
 	revoked, err := storage.IsRevoked(ctx, "token")
-	if err != nil || revoked {
-		t.Fatal("expected false, nil for nil filter")
-	}
+	require.NoError(t, err)
+	require.False(t, revoked)
 
-	if err := storage.MarkRevoked(ctx, "token", 0); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if err := storage.Sync(ctx); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, storage.MarkRevoked(ctx, "token", 0))
+	require.NoError(t, storage.Sync(ctx))
 }
 
 func TestFilterRevocationStorage_Sync_NotRebuildable(t *testing.T) {
@@ -98,57 +88,41 @@ func TestFilterRevocationStorage_Sync_NotRebuildable(t *testing.T) {
 	ctx := t.Context()
 
 	err := storage.Sync(ctx)
-	if err == nil {
-		t.Fatal("expected error for non-rebuildable filter")
-	}
+	require.Error(t, err, "expected error for non-rebuildable filter")
 }
 
 func TestFileRevocationLoader_StreamValues(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "revoked.txt")
-	if err := os.WriteFile(path, []byte("token1\ntoken2\ntoken3\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte("token1\ntoken2\ntoken3\n"), 0o644))
 
 	loader := &FileRevocationLoader{Path: path}
 	ctx := t.Context()
 
 	var values []string
 	for v, err := range loader.StreamValues(ctx) {
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		require.NoError(t, err)
 		values = append(values, v)
 	}
-	if len(values) != 3 {
-		t.Fatalf("expected 3 values, got %d", len(values))
-	}
+	require.Len(t, values, 3)
 }
 
 func TestFileRevocationLoader_Count(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "revoked.txt")
-	if err := os.WriteFile(path, []byte("a\nb\nc\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, os.WriteFile(path, []byte("a\nb\nc\n"), 0o644))
 
 	loader := &FileRevocationLoader{Path: path}
 	count, err := loader.Count(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if count != 3 {
-		t.Fatalf("expected 3, got %d", count)
-	}
+	require.NoError(t, err)
+	require.Equal(t, int64(3), count)
 }
 
 func TestFileRevocationLoader_MissingFile(t *testing.T) {
 	loader := &FileRevocationLoader{Path: "/nonexistent/path"}
 
 	for _, err := range loader.StreamValues(t.Context()) {
-		if err == nil {
-			t.Fatal("expected error for missing file")
-		}
+		require.Error(t, err, "expected error for missing file")
 		break
 	}
 }
@@ -164,25 +138,17 @@ func TestURLRevocationLoader_StreamValues(t *testing.T) {
 
 	var values []string
 	for v, err := range loader.StreamValues(t.Context()) {
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
+		require.NoError(t, err)
 		values = append(values, v)
 	}
-	if len(values) != 2 {
-		t.Fatalf("expected 2 values, got %d", len(values))
-	}
+	require.Len(t, values, 2)
 }
 
 func TestURLRevocationLoader_Count(t *testing.T) {
 	loader := &URLRevocationLoader{URL: "http://example.com"}
 	count, err := loader.Count(t.Context())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if count != -1 {
-		t.Fatalf("expected -1, got %d", count)
-	}
+	require.NoError(t, err)
+	require.Equal(t, int64(-1), count)
 }
 
 func TestURLRevocationLoader_BadStatus(t *testing.T) {
@@ -193,9 +159,7 @@ func TestURLRevocationLoader_BadStatus(t *testing.T) {
 
 	loader := &URLRevocationLoader{URL: srv.URL, Client: srv.Client()}
 	for _, err := range loader.StreamValues(t.Context()) {
-		if err == nil {
-			t.Fatal("expected error for bad status")
-		}
+		require.Error(t, err, "expected error for bad status")
 		break
 	}
 }

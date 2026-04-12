@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/altessa-s/go-atlas/data/audit"
 	"github.com/altessa-s/go-atlas/data/audit/storages/memory"
 
@@ -32,12 +34,9 @@ func FuzzMiddleware(f *testing.F) {
 
 		store := memory.New()
 		a, err := audit.New(store, audit.WithFlushInterval(50*time.Millisecond), audit.WithWorkers(1))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := a.Start(); err != nil {
-			t.Fatal(err)
-		}
+		assert.NoError(t, err)
+		err = a.Start()
+		assert.NoError(t, err)
 
 		handler := audithttp.Middleware(a)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(statusCode)

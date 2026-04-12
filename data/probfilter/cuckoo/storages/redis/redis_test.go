@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
+	"github.com/stretchr/testify/require"
 
 	cfredis "github.com/altessa-s/go-atlas/data/probfilter/cuckoo/storages/redis"
 	goredis "github.com/redis/go-redis/v9"
@@ -22,9 +23,7 @@ func TestNew(t *testing.T) {
 	t.Cleanup(func() { client.Close() })
 
 	s := cfredis.New(client, "test-filter")
-	if s == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, s, "New() returned nil")
 }
 
 func TestNew_WithOptions(t *testing.T) {
@@ -36,9 +35,7 @@ func TestNew_WithOptions(t *testing.T) {
 		cfredis.WithKeyPrefix("custom:"),
 		cfredis.WithCapacity(50000),
 	)
-	if s == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, s, "New() returned nil")
 }
 
 func TestStorage_Close(t *testing.T) {
@@ -47,7 +44,5 @@ func TestStorage_Close(t *testing.T) {
 	t.Cleanup(func() { client.Close() })
 
 	s := cfredis.New(client, "test-filter")
-	if err := s.Close(t.Context()); err != nil {
-		t.Errorf("Close() error: %v", err)
-	}
+	require.NoError(t, s.Close(t.Context()))
 }

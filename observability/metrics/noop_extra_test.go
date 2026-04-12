@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
@@ -57,37 +59,27 @@ func TestNoopCollector_MustVariants(t *testing.T) {
 func TestNoopCollector_WithSubsystem(t *testing.T) {
 	n := metrics.Noop()
 	sub := n.WithSubsystem("test")
-	if !metrics.IsNoop(sub) {
-		t.Error("WithSubsystem should return noop")
-	}
+	require.True(t, metrics.IsNoop(sub), "WithSubsystem should return noop")
 }
 
 func TestNoopCollector_Shutdown(t *testing.T) {
-	if err := metrics.Noop().Shutdown(t.Context()); err != nil {
-		t.Errorf("Shutdown() error = %v", err)
-	}
+	require.NoError(t, metrics.Noop().Shutdown(t.Context()))
 }
 
 func TestNoopCollector_ForceFlush(t *testing.T) {
-	if err := metrics.Noop().ForceFlush(t.Context()); err != nil {
-		t.Errorf("ForceFlush() error = %v", err)
-	}
+	require.NoError(t, metrics.Noop().ForceFlush(t.Context()))
 }
 
 func TestGetLabels_Pool(t *testing.T) {
 	l := metrics.GetLabels()
-	if l == nil {
-		t.Fatal("GetLabels() returned nil")
-	}
+	require.NotNil(t, l)
 	(*l)["key"] = "val"
 	metrics.PutLabels(l)
 }
 
 func TestGetLabelsWithCapacity(t *testing.T) {
 	l := metrics.GetLabelsWithCapacity(16)
-	if l == nil {
-		t.Fatal("GetLabelsWithCapacity() returned nil")
-	}
+	require.NotNil(t, l)
 	metrics.PutLabels(l)
 }
 
@@ -97,9 +89,7 @@ func TestLabelsKeys(t *testing.T) {
 	for range metrics.LabelsKeys(l) {
 		count++
 	}
-	if count != 2 {
-		t.Errorf("LabelsKeys count = %d, want 2", count)
-	}
+	require.Equal(t, 2, count)
 }
 
 func TestLabelsValues(t *testing.T) {
@@ -108,7 +98,5 @@ func TestLabelsValues(t *testing.T) {
 	for range metrics.LabelsValues(l) {
 		count++
 	}
-	if count != 2 {
-		t.Errorf("LabelsValues count = %d, want 2", count)
-	}
+	require.Equal(t, 2, count)
 }

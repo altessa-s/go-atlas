@@ -8,39 +8,31 @@ import (
 	"errors"
 	"log/slog"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewBase(t *testing.T) {
 	b := NewBase(nil)
-	if b.Logger() == nil {
-		t.Fatal("expected non-nil logger when nil passed")
-	}
+	require.NotNil(t, b.Logger(), "expected non-nil logger when nil passed")
 }
 
 func TestNewBase_WithLogger(t *testing.T) {
 	l := slog.Default()
 	b := NewBase(l)
-	if b.Logger() != l {
-		t.Fatal("expected provided logger to be used")
-	}
+	require.Equal(t, l, b.Logger(), "expected provided logger to be used")
 }
 
 func TestRequireDependency_NonNil(t *testing.T) {
 	b := NewBase(nil)
-	if err := b.RequireDependency("value", "dep"); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, b.RequireDependency("value", "dep"))
 }
 
 func TestRequireDependency_Nil(t *testing.T) {
 	b := NewBase(nil)
 	err := b.RequireDependency(nil, "dep")
-	if err == nil {
-		t.Fatal("expected error for nil dependency")
-	}
-	if got := err.Error(); got != "dep is required" {
-		t.Fatalf("got %q", got)
-	}
+	require.Error(t, err, "expected error for nil dependency")
+	require.Equal(t, "dep is required", err.Error())
 }
 
 func TestRequireAllDependencies(t *testing.T) {
@@ -49,9 +41,7 @@ func TestRequireAllDependencies(t *testing.T) {
 		"a": "val",
 		"b": nil,
 	})
-	if err == nil {
-		t.Fatal("expected error for nil dependency")
-	}
+	require.Error(t, err, "expected error for nil dependency")
 }
 
 func TestRequireAllDependencies_AllPresent(t *testing.T) {
@@ -60,34 +50,24 @@ func TestRequireAllDependencies_AllPresent(t *testing.T) {
 		"a": "val",
 		"b": 42,
 	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestErrorf(t *testing.T) {
 	b := NewBase(nil)
 	err := b.Errorf("something %s", "failed")
-	if got := err.Error(); got != "something failed" {
-		t.Fatalf("got %q", got)
-	}
+	require.Equal(t, "something failed", err.Error())
 }
 
 func TestWrapError(t *testing.T) {
 	b := NewBase(nil)
 	cause := errors.New("root cause")
 	err := b.WrapError(cause, "wrapping")
-	if !errors.Is(err, cause) {
-		t.Fatal("expected wrapped error to match cause")
-	}
-	if got := err.Error(); got != "wrapping: root cause" {
-		t.Fatalf("got %q", got)
-	}
+	require.ErrorIs(t, err, cause, "expected wrapped error to match cause")
+	require.Equal(t, "wrapping: root cause", err.Error())
 }
 
 func TestWrapError_Nil(t *testing.T) {
 	b := NewBase(nil)
-	if err := b.WrapError(nil, "msg"); err != nil {
-		t.Fatalf("expected nil, got %v", err)
-	}
+	require.Nil(t, b.WrapError(nil, "msg"))
 }

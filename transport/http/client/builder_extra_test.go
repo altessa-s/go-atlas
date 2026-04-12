@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	client "github.com/altessa-s/go-atlas/transport/http/client"
 )
 
@@ -28,9 +30,7 @@ func TestRequestBuilder_GET(t *testing.T) {
 
 	rb := client.NewRequestBuilder(newTestClient(srv))
 	resp, err := rb.GET(srv.URL + "/test").Send(t.Context())
-	if err != nil {
-		t.Fatalf("Send() error = %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
 }
 
@@ -45,9 +45,7 @@ func TestRequestBuilder_POST_JSONBody(t *testing.T) {
 
 	rb := client.NewRequestBuilder(newTestClient(srv))
 	resp, err := rb.POST(srv.URL + "/test").JSONBody(map[string]string{"key": "val"}).Send(t.Context())
-	if err != nil {
-		t.Fatalf("Send() error = %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
 }
 
@@ -61,9 +59,7 @@ func TestRequestBuilder_PUT(t *testing.T) {
 
 	rb := client.NewRequestBuilder(newTestClient(srv))
 	resp, err := rb.PUT(srv.URL + "/test").StringBody("data").Send(t.Context())
-	if err != nil {
-		t.Fatalf("Send() error = %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
 }
 
@@ -77,9 +73,7 @@ func TestRequestBuilder_PATCH(t *testing.T) {
 
 	rb := client.NewRequestBuilder(newTestClient(srv))
 	resp, err := rb.PATCH(srv.URL + "/test").BytesBody([]byte("patch")).Send(t.Context())
-	if err != nil {
-		t.Fatalf("Send() error = %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
 }
 
@@ -93,9 +87,7 @@ func TestRequestBuilder_DELETE(t *testing.T) {
 
 	rb := client.NewRequestBuilder(newTestClient(srv))
 	resp, err := rb.DELETE(srv.URL + "/test").Send(t.Context())
-	if err != nil {
-		t.Fatalf("Send() error = %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
 }
 
@@ -109,9 +101,7 @@ func TestRequestBuilder_HEAD(t *testing.T) {
 
 	rb := client.NewRequestBuilder(newTestClient(srv))
 	resp, err := rb.HEAD(srv.URL + "/test").Send(t.Context())
-	if err != nil {
-		t.Fatalf("Send() error = %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
 }
 
@@ -125,9 +115,7 @@ func TestRequestBuilder_OPTIONS(t *testing.T) {
 
 	rb := client.NewRequestBuilder(newTestClient(srv))
 	resp, err := rb.OPTIONS(srv.URL + "/test").Send(t.Context())
-	if err != nil {
-		t.Fatalf("Send() error = %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
 }
 
@@ -141,9 +129,7 @@ func TestRequestBuilder_CustomMethod(t *testing.T) {
 
 	rb := client.NewRequestBuilder(newTestClient(srv))
 	resp, err := rb.Method("CUSTOM", srv.URL+"/test").Send(t.Context())
-	if err != nil {
-		t.Fatalf("Send() error = %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
 }
 
@@ -162,9 +148,7 @@ func TestRequestBuilder_Headers(t *testing.T) {
 		ContentType("application/json").
 		UserAgent("test-agent").
 		Send(t.Context())
-	if err != nil {
-		t.Fatalf("Send() error = %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
 }
 
@@ -178,9 +162,7 @@ func TestRequestBuilder_QueryParams(t *testing.T) {
 
 	rb := client.NewRequestBuilder(newTestClient(srv))
 	resp, err := rb.GET(srv.URL+"/test").QueryParam("key", "val").Send(t.Context())
-	if err != nil {
-		t.Fatalf("Send() error = %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
 }
 
@@ -194,9 +176,7 @@ func TestRequestBuilder_BearerToken(t *testing.T) {
 
 	rb := client.NewRequestBuilder(newTestClient(srv))
 	resp, err := rb.GET(srv.URL + "/test").BearerToken("tok123").Send(t.Context())
-	if err != nil {
-		t.Fatalf("Send() error = %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
 }
 
@@ -211,9 +191,7 @@ func TestRequestBuilder_BasicAuth(t *testing.T) {
 
 	rb := client.NewRequestBuilder(newTestClient(srv))
 	resp, err := rb.GET(srv.URL+"/test").BasicAuth("user", "pass").Send(t.Context())
-	if err != nil {
-		t.Fatalf("Send() error = %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
 }
 
@@ -227,9 +205,7 @@ func TestRequestBuilder_APIKey(t *testing.T) {
 
 	rb := client.NewRequestBuilder(newTestClient(srv))
 	resp, err := rb.GET(srv.URL+"/test").APIKey("X-API-Key", "secret").Send(t.Context())
-	if err != nil {
-		t.Fatalf("Send() error = %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
 }
 
@@ -239,9 +215,7 @@ func TestRequestBuilder_Timeout(t *testing.T) {
 
 	rb := client.NewRequestBuilder(newTestClient(srv))
 	resp, err := rb.GET(srv.URL + "/test").Timeout(5 * time.Second).Send(t.Context())
-	if err != nil {
-		t.Fatalf("Send() error = %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
 }
 
@@ -251,9 +225,7 @@ func TestRequestBuilder_Body(t *testing.T) {
 
 	rb := client.NewRequestBuilder(newTestClient(srv))
 	resp, err := rb.POST(srv.URL + "/test").Body(strings.NewReader("raw")).Send(t.Context())
-	if err != nil {
-		t.Fatalf("Send() error = %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
 }
 
@@ -261,9 +233,7 @@ func TestRequestBuilder_Build_NoURL(t *testing.T) {
 	c := client.NewHTTPClient(client.WithRetryMax(0))
 	rb := client.NewRequestBuilder(c)
 	_, err := rb.GET("").Build()
-	if err == nil {
-		t.Error("Build with empty URL should fail")
-	}
+	require.Error(t, err, "Build with empty URL should fail")
 }
 
 func TestRequestBuilder_SendWithoutContext(t *testing.T) {
@@ -272,9 +242,7 @@ func TestRequestBuilder_SendWithoutContext(t *testing.T) {
 
 	rb := client.NewRequestBuilder(newTestClient(srv))
 	resp, err := rb.GET(srv.URL + "/test").SendWithoutContext()
-	if err != nil {
-		t.Fatalf("SendWithoutContext() error = %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
 }
 
@@ -284,8 +252,6 @@ func TestRequestBuilder_Context(t *testing.T) {
 
 	rb := client.NewRequestBuilder(newTestClient(srv))
 	resp, err := rb.GET(srv.URL + "/test").Context(t.Context()).Send(t.Context())
-	if err != nil {
-		t.Fatalf("Send() error = %v", err)
-	}
+	require.NoError(t, err)
 	resp.Body.Close()
 }

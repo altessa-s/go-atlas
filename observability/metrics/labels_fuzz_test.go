@@ -4,7 +4,11 @@
 
 package metrics
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func FuzzValidateLabelNames(f *testing.F) {
 	f.Add("method")
@@ -14,11 +18,10 @@ func FuzzValidateLabelNames(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, name string) {
 		err := ValidateLabelNames([]string{name})
-		if name == "" && err == nil {
-			t.Error("expected error for empty label name")
-		}
-		if name != "" && err != nil {
-			t.Errorf("unexpected error for %q: %v", name, err)
+		if name == "" {
+			assert.Error(t, err, "expected error for empty label name")
+		} else {
+			assert.NoError(t, err, "unexpected error for %q", name)
 		}
 	})
 }
@@ -29,8 +32,6 @@ func FuzzNormalizeLabelNames(f *testing.F) {
 	f.Fuzz(func(t *testing.T, input string) {
 		names := []string{input}
 		result := NormalizeLabelNames(names)
-		if len(result) != 1 {
-			t.Errorf("expected 1 element, got %d", len(result))
-		}
+		assert.Len(t, result, 1)
 	})
 }

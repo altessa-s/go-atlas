@@ -4,40 +4,30 @@
 
 package sampler
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestAlwaysOn(t *testing.T) {
 	s := AlwaysOn()
 	result := s.ShouldSample(SamplingParameters{})
-
-	if result.Decision != RecordAndSample {
-		t.Errorf("expected RecordAndSample, got %v", result.Decision)
-	}
-	if s.Description() != "AlwaysOnSampler" {
-		t.Errorf("Description = %q", s.Description())
-	}
+	require.Equal(t, RecordAndSample, result.Decision)
+	require.Equal(t, "AlwaysOnSampler", s.Description())
 }
 
 func TestAlwaysOn_Singleton(t *testing.T) {
-	if AlwaysOn() != AlwaysOn() {
-		t.Error("AlwaysOn should return singleton")
-	}
+	require.Same(t, AlwaysOn(), AlwaysOn(), "AlwaysOn should return singleton")
 }
 
 func TestAlwaysOff(t *testing.T) {
 	s := AlwaysOff()
 	result := s.ShouldSample(SamplingParameters{})
-
-	if result.Decision != Drop {
-		t.Errorf("expected Drop, got %v", result.Decision)
-	}
-	if s.Description() != "AlwaysOffSampler" {
-		t.Errorf("Description = %q", s.Description())
-	}
+	require.Equal(t, Drop, result.Decision)
+	require.Equal(t, "AlwaysOffSampler", s.Description())
 }
 
 func TestAlwaysOff_Singleton(t *testing.T) {
-	if AlwaysOff() != AlwaysOff() {
-		t.Error("AlwaysOff should return singleton")
-	}
+	require.Same(t, AlwaysOff(), AlwaysOff(), "AlwaysOff should return singleton")
 }

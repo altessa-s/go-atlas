@@ -4,7 +4,11 @@
 
 package client
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func FuzzFieldError_Error(f *testing.F) {
 	f.Add("email", "invalid")
@@ -14,9 +18,7 @@ func FuzzFieldError_Error(f *testing.F) {
 	f.Fuzz(func(t *testing.T, field, message string) {
 		fe := &FieldError{Field: field, Message: message}
 		result := fe.Error()
-		if result == "" {
-			t.Fatal("Error() returned empty")
-		}
+		assert.NotEqual(t, "", result)
 	})
 }
 

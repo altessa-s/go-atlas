@@ -7,6 +7,8 @@ package scheduler
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	sched "github.com/altessa-s/go-atlas/service/scheduler"
 )
 
@@ -30,22 +32,13 @@ func TestTaskStateToMap(t *testing.T) {
 	}
 
 	m := taskStateToMap(s)
-	if m["id"] != "task1" {
-		t.Fatalf("id = %v", m["id"])
-	}
-	if m["status"] != int64(1) {
-		t.Fatalf("status = %v", m["status"])
-	}
-	if m["failures"] != int64(3) {
-		t.Fatalf("failures = %v", m["failures"])
-	}
-	if m["skipNextRun"] != true {
-		t.Fatalf("skipNextRun = %v", m["skipNextRun"])
-	}
+	require.Equal(t, "task1", m["id"])
+	require.Equal(t, int64(1), m["status"])
+	require.Equal(t, int64(3), m["failures"])
+	require.Equal(t, true, m["skipNextRun"])
 	meta, ok := m["meta"].(map[string]any)
-	if !ok || meta["key"] != "val" {
-		t.Fatalf("meta = %v", m["meta"])
-	}
+	require.True(t, ok, "meta = %v", m["meta"])
+	require.Equal(t, "val", meta["key"])
 }
 
 func TestTaskSummaryToMap(t *testing.T) {
@@ -57,12 +50,8 @@ func TestTaskSummaryToMap(t *testing.T) {
 	}
 
 	m := taskSummaryToMap(s)
-	if m["id"] != "task2" {
-		t.Fatalf("id = %v", m["id"])
-	}
-	if m["failures"] != int64(5) {
-		t.Fatalf("failures = %v", m["failures"])
-	}
+	require.Equal(t, "task2", m["id"])
+	require.Equal(t, int64(5), m["failures"])
 }
 
 func TestTaskHistoryToMap(t *testing.T) {
@@ -78,16 +67,8 @@ func TestTaskHistoryToMap(t *testing.T) {
 	}
 
 	m := taskHistoryToMap(h)
-	if m["id"] != "hist1" {
-		t.Fatalf("id = %v", m["id"])
-	}
-	if m["taskId"] != "task1" {
-		t.Fatalf("taskId = %v", m["taskId"])
-	}
-	if m["success"] != true {
-		t.Fatalf("success = %v", m["success"])
-	}
-	if m["durationMs"] != int64(1000) {
-		t.Fatalf("durationMs = %v", m["durationMs"])
-	}
+	require.Equal(t, "hist1", m["id"])
+	require.Equal(t, "task1", m["taskId"])
+	require.Equal(t, true, m["success"])
+	require.Equal(t, int64(1000), m["durationMs"])
 }

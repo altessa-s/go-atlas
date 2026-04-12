@@ -9,14 +9,14 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/transport/http/server/router"
 )
 
 func TestNew(t *testing.T) {
 	r := New()
-	if r == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, r)
 }
 
 func TestRouter_ImplementsInterface(t *testing.T) {
@@ -35,12 +35,8 @@ func TestRouter_Handle(t *testing.T) {
 	req := httptest.NewRequest("GET", "/test", nil)
 	r.ServeHTTP(rec, req)
 
-	if !called {
-		t.Fatal("handler was not called")
-	}
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
-	}
+	require.True(t, called, "handler was not called")
+	require.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestRouter_HandleFunc(t *testing.T) {
@@ -55,9 +51,7 @@ func TestRouter_HandleFunc(t *testing.T) {
 	req := httptest.NewRequest("GET", "/func", nil)
 	r.ServeHTTP(rec, req)
 
-	if !called {
-		t.Fatal("handler was not called")
-	}
+	require.True(t, called, "handler was not called")
 }
 
 func TestRouter_Methods(t *testing.T) {
@@ -70,9 +64,7 @@ func TestRouter_Methods(t *testing.T) {
 		rec := httptest.NewRecorder()
 		req := httptest.NewRequest("POST", "/method", nil)
 		r.ServeHTTP(rec, req)
-		if rec.Code != http.StatusOK {
-			t.Fatalf("status = %d", rec.Code)
-		}
+		require.Equal(t, http.StatusOK, rec.Code)
 	})
 
 	t.Run("not_allowed", func(t *testing.T) {
@@ -80,9 +72,7 @@ func TestRouter_Methods(t *testing.T) {
 		req := httptest.NewRequest("GET", "/method", nil)
 		r.ServeHTTP(rec, req)
 		// std mux won't match "POST /method" for GET request
-		if rec.Code == http.StatusOK {
-			t.Fatal("GET should not match POST-only route")
-		}
+		require.NotEqual(t, http.StatusOK, rec.Code)
 	})
 }
 
@@ -103,9 +93,7 @@ func TestRouter_Use_Middleware(t *testing.T) {
 	req := httptest.NewRequest("GET", "/mw", nil)
 	r.ServeHTTP(rec, req)
 
-	if !middlewareCalled {
-		t.Fatal("middleware was not called")
-	}
+	require.True(t, middlewareCalled, "middleware was not called")
 }
 
 func TestRouter_PathPrefix(t *testing.T) {
@@ -118,17 +106,13 @@ func TestRouter_PathPrefix(t *testing.T) {
 	req := httptest.NewRequest("GET", "/api/anything", nil)
 	r.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
-	}
+	require.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestRouter_Subrouter(t *testing.T) {
 	r := New()
 	sub := r.Subrouter()
-	if sub == nil {
-		t.Fatal("Subrouter() returned nil")
-	}
+	require.NotNil(t, sub)
 }
 
 func TestRouter_Initialize(t *testing.T) {
@@ -140,9 +124,8 @@ func TestRouter_Initialize(t *testing.T) {
 
 	// After initialize, adding routes should panic
 	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic after Initialize")
-		}
+		r := recover()
+		require.NotNil(t, r)
 	}()
 	r.HandleFunc("/after-init", func(w http.ResponseWriter, req *http.Request) {})
 }
@@ -158,9 +141,7 @@ func TestRouter_Initialize_ThenServe(t *testing.T) {
 	req := httptest.NewRequest("GET", "/serve", nil)
 	r.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
-	}
+	require.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestRoute_Methods_Chain(t *testing.T) {
@@ -174,9 +155,7 @@ func TestRoute_Methods_Chain(t *testing.T) {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(method, "/chain", nil)
 			r.ServeHTTP(rec, req)
-			if rec.Code != http.StatusOK {
-				t.Fatalf("status = %d for %s", rec.Code, method)
-			}
+			require.Equal(t, http.StatusOK, rec.Code)
 		})
 	}
 }
@@ -190,9 +169,7 @@ func TestRoute_Path(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/specific", nil)
 	r.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
-	}
+	require.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestRoute_MissingHandler_Panics(t *testing.T) {
@@ -206,9 +183,8 @@ func TestRoute_MissingHandler_Panics(t *testing.T) {
 	r.routes = append(r.routes, rt)
 
 	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic for missing handler")
-		}
+		r := recover()
+		require.NotNil(t, r)
 	}()
 	r.Initialize()
 }
@@ -219,9 +195,8 @@ func TestRoute_MissingPath_Panics(t *testing.T) {
 	r.routes = append(r.routes, rt)
 
 	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic for missing path")
-		}
+		r := recover()
+		require.NotNil(t, r)
 	}()
 	r.Initialize()
 }
@@ -250,7 +225,5 @@ func TestRouter_MultipleMiddleware(t *testing.T) {
 	req := httptest.NewRequest("GET", "/order", nil)
 	r.ServeHTTP(rec, req)
 
-	if order != "ABH" {
-		t.Fatalf("middleware order = %q, want ABH", order)
-	}
+	require.Equal(t, "ABH", order)
 }

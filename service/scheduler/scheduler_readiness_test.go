@@ -6,10 +6,11 @@ package scheduler_test
 
 import (
 	"context"
-	"errors"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/service/scheduler"
 	"github.com/altessa-s/go-atlas/service/scheduler/storages/memory"
@@ -22,9 +23,7 @@ func TestScheduler_NoReadinessProbe_DispatchesImmediately(t *testing.T) {
 	s := scheduler.New(storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 	ctx := t.Context()
-	if err := s.Start(ctx); err != nil {
-		t.Fatalf("failed to start scheduler: %v", err)
-	}
+	require.NoError(t, s.Start(ctx))
 	defer func() {
 		stopCtx, cancel := context.WithTimeout(ctx, time.Second)
 		defer cancel()
@@ -42,16 +41,12 @@ func TestScheduler_NoReadinessProbe_DispatchesImmediately(t *testing.T) {
 			return nil
 		},
 	})
-	if err != nil {
-		t.Fatalf("failed to register task: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Wait for at least one execution
 	time.Sleep(300 * time.Millisecond)
 
-	if count := execCount.Load(); count < 1 {
-		t.Errorf("expected at least 1 execution without probe, got %d", count)
-	}
+	require.GreaterOrEqual(t, execCount.Load(), int32(1), "expected at least 1 execution without probe")
 }
 
 func TestScheduler_ReadinessProbe_False_SkipsTick(t *testing.T) {
@@ -62,9 +57,7 @@ func TestScheduler_ReadinessProbe_False_SkipsTick(t *testing.T) {
 	)
 
 	ctx := t.Context()
-	if err := s.Start(ctx); err != nil {
-		t.Fatalf("failed to start scheduler: %v", err)
-	}
+	require.NoError(t, s.Start(ctx))
 	defer func() {
 		stopCtx, cancel := context.WithTimeout(ctx, time.Second)
 		defer cancel()
@@ -82,15 +75,11 @@ func TestScheduler_ReadinessProbe_False_SkipsTick(t *testing.T) {
 			return nil
 		},
 	})
-	if err != nil {
-		t.Fatalf("failed to register task: %v", err)
-	}
+	require.NoError(t, err)
 
 	time.Sleep(300 * time.Millisecond)
 
-	if count := execCount.Load(); count != 0 {
-		t.Errorf("expected 0 executions with probe=false, got %d", count)
-	}
+	require.Equal(t, int32(0), execCount.Load(), "expected 0 executions with probe=false")
 }
 
 func TestScheduler_ReadinessProbe_FalseToTrue_Transition(t *testing.T) {
@@ -104,9 +93,7 @@ func TestScheduler_ReadinessProbe_FalseToTrue_Transition(t *testing.T) {
 	)
 
 	ctx := t.Context()
-	if err := s.Start(ctx); err != nil {
-		t.Fatalf("failed to start scheduler: %v", err)
-	}
+	require.NoError(t, s.Start(ctx))
 	defer func() {
 		stopCtx, cancel := context.WithTimeout(ctx, time.Second)
 		defer cancel()
@@ -124,24 +111,18 @@ func TestScheduler_ReadinessProbe_FalseToTrue_Transition(t *testing.T) {
 			return nil
 		},
 	})
-	if err != nil {
-		t.Fatalf("failed to register task: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Probe returns false — no executions
 	time.Sleep(300 * time.Millisecond)
-	if count := execCount.Load(); count != 0 {
-		t.Fatalf("expected 0 executions before ready, got %d", count)
-	}
+	require.Equal(t, int32(0), execCount.Load(), "expected 0 executions before ready")
 
 	// Flip to ready
 	ready.Store(true)
 
 	// Wait for at least one execution
 	time.Sleep(300 * time.Millisecond)
-	if count := execCount.Load(); count < 1 {
-		t.Errorf("expected at least 1 execution after ready, got %d", count)
-	}
+	require.GreaterOrEqual(t, execCount.Load(), int32(1), "expected at least 1 execution after ready")
 }
 
 func TestScheduler_TriggerTask_NotReady_ReturnsErrNotReady(t *testing.T) {
@@ -152,9 +133,7 @@ func TestScheduler_TriggerTask_NotReady_ReturnsErrNotReady(t *testing.T) {
 	)
 
 	ctx := t.Context()
-	if err := s.Start(ctx); err != nil {
-		t.Fatalf("failed to start scheduler: %v", err)
-	}
+	require.NoError(t, s.Start(ctx))
 	defer func() {
 		stopCtx, cancel := context.WithTimeout(ctx, time.Second)
 		defer cancel()
@@ -166,14 +145,10 @@ func TestScheduler_TriggerTask_NotReady_ReturnsErrNotReady(t *testing.T) {
 		Schedule: "@every 1h",
 		Func:     func(_ context.Context) error { return nil },
 	})
-	if err != nil {
-		t.Fatalf("failed to register task: %v", err)
-	}
+	require.NoError(t, err)
 
 	err = s.TriggerTask(ctx, "trigger-test")
-	if !errors.Is(err, scheduler.ErrNotReady) {
-		t.Errorf("expected ErrNotReady, got %v", err)
-	}
+	require.ErrorIs(t, err, scheduler.ErrNotReady)
 }
 
 func TestScheduler_ReadinessProbe_RunOnStart_FiresAfterReady(t *testing.T) {
@@ -187,9 +162,7 @@ func TestScheduler_ReadinessProbe_RunOnStart_FiresAfterReady(t *testing.T) {
 	)
 
 	ctx := t.Context()
-	if err := s.Start(ctx); err != nil {
-		t.Fatalf("failed to start scheduler: %v", err)
-	}
+	require.NoError(t, s.Start(ctx))
 	defer func() {
 		stopCtx, cancel := context.WithTimeout(ctx, time.Second)
 		defer cancel()
@@ -207,32 +180,24 @@ func TestScheduler_ReadinessProbe_RunOnStart_FiresAfterReady(t *testing.T) {
 			return nil
 		},
 	})
-	if err != nil {
-		t.Fatalf("failed to register task: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Not ready — should not fire RunOnStart
 	time.Sleep(300 * time.Millisecond)
-	if count := execCount.Load(); count != 0 {
-		t.Fatalf("expected 0 executions before ready, got %d", count)
-	}
+	require.Equal(t, int32(0), execCount.Load(), "expected 0 executions before ready")
 
 	// Signal ready — RunOnStart task should fire on first tick
 	ready.Store(true)
 
 	time.Sleep(300 * time.Millisecond)
-	if count := execCount.Load(); count < 1 {
-		t.Errorf("expected RunOnStart task to fire after ready, got %d executions", count)
-	}
+	require.GreaterOrEqual(t, execCount.Load(), int32(1), "expected RunOnStart task to fire after ready")
 }
 
 func TestScheduler_IsReady_NoProbe(t *testing.T) {
 	storage := memory.New(100)
 	s := scheduler.New(storage)
 
-	if !s.IsReady() {
-		t.Error("expected IsReady()=true when no probe is configured")
-	}
+	require.True(t, s.IsReady(), "expected IsReady()=true when no probe is configured")
 }
 
 func TestScheduler_IsReady_WithProbe(t *testing.T) {
@@ -243,13 +208,9 @@ func TestScheduler_IsReady_WithProbe(t *testing.T) {
 		scheduler.WithReadinessProbe(func() bool { return ready.Load() }),
 	)
 
-	if s.IsReady() {
-		t.Error("expected IsReady()=false when probe returns false")
-	}
+	require.False(t, s.IsReady(), "expected IsReady()=false when probe returns false")
 
 	ready.Store(true)
 
-	if !s.IsReady() {
-		t.Error("expected IsReady()=true when probe returns true")
-	}
+	require.True(t, s.IsReady(), "expected IsReady()=true when probe returns true")
 }

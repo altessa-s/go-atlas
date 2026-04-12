@@ -10,6 +10,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/transport/internal/fallback"
 
 	sharedlimiter "github.com/altessa-s/go-atlas/data/limiters"
@@ -36,15 +38,9 @@ func TestMiddleware_Allowed(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest("GET", "/test", nil))
 
-	if !called {
-		t.Fatal("handler should be called")
-	}
-	if rec.Code != http.StatusOK {
-		t.Fatalf("code = %d", rec.Code)
-	}
-	if rec.Header().Get("X-RateLimit-Limit") != "100" {
-		t.Fatalf("X-RateLimit-Limit = %q", rec.Header().Get("X-RateLimit-Limit"))
-	}
+	require.True(t, called, "handler should be called")
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "100", rec.Header().Get("X-RateLimit-Limit"))
 }
 
 func TestMiddleware_RateLimited(t *testing.T) {
@@ -61,12 +57,8 @@ func TestMiddleware_RateLimited(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest("GET", "/test", nil))
 
-	if called {
-		t.Fatal("handler should not be called")
-	}
-	if rec.Code != http.StatusTooManyRequests {
-		t.Fatalf("code = %d, want 429", rec.Code)
-	}
+	require.False(t, called, "handler should not be called")
+	require.Equal(t, http.StatusTooManyRequests, rec.Code)
 }
 
 func TestMiddleware_FallbackAllow(t *testing.T) {
@@ -80,9 +72,7 @@ func TestMiddleware_FallbackAllow(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest("GET", "/test", nil))
 
-	if !called {
-		t.Fatal("handler should be called on fallback allow")
-	}
+	require.True(t, called, "handler should be called on fallback allow")
 }
 
 func TestMiddleware_FallbackDeny(t *testing.T) {
@@ -96,22 +86,15 @@ func TestMiddleware_FallbackDeny(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest("GET", "/test", nil))
 
-	if called {
-		t.Fatal("handler should not be called on fallback deny")
-	}
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("code = %d, want 503", rec.Code)
-	}
+	require.False(t, called, "handler should not be called on fallback deny")
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 }
 
 func TestMiddleware_Dependencies(t *testing.T) {
 	m := &middleware{}
 	deps := m.Dependencies()
-	if len(deps) != 0 {
-		t.Fatalf("Dependencies() = %v, want []", deps)
-	}
+	require.Len(t, deps, 0)
 	reqDeps := m.RequiredDependencies()
-	if len(reqDeps) != 1 || reqDeps[0] != "realip" {
-		t.Fatalf("RequiredDependencies() = %v, want [realip]", reqDeps)
-	}
+	require.Len(t, reqDeps, 1)
+	require.Equal(t, "realip", reqDeps[0])
 }

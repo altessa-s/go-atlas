@@ -4,12 +4,14 @@
 
 package defaults
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestIgnorePatterns(t *testing.T) {
-	if len(IgnorePatterns) != 2 {
-		t.Fatalf("len = %d, want 2", len(IgnorePatterns))
-	}
+	require.Len(t, IgnorePatterns, 2)
 }
 
 func TestIgnorePatterns_MatchesReflection(t *testing.T) {
@@ -31,9 +33,7 @@ func TestIgnorePatterns_MatchesReflection(t *testing.T) {
 					break
 				}
 			}
-			if matched != tt.want {
-				t.Fatalf("matched = %v, want %v", matched, tt.want)
-			}
+			require.Equal(t, tt.want, matched)
 		})
 	}
 }

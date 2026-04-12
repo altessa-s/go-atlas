@@ -9,15 +9,15 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	prom "github.com/prometheus/client_golang/prometheus"
 )
 
 func TestNew(t *testing.T) {
 	reg := prom.NewRegistry()
 	m := New(WithRegisterer(reg))
-	if m.Name() != "prometheus" {
-		t.Fatalf("Name() = %q", m.Name())
-	}
+	require.Equal(t, "prometheus", m.Name())
 }
 
 func TestMiddleware_Handler(t *testing.T) {
@@ -31,16 +31,12 @@ func TestMiddleware_Handler(t *testing.T) {
 	req := httptest.NewRequest("GET", "/test", nil)
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("code = %d", rec.Code)
-	}
+	require.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestMiddleware_Dependencies(t *testing.T) {
 	m := &Middleware{}
-	if m.Dependencies() != nil {
-		t.Fatalf("Dependencies() = %v", m.Dependencies())
-	}
+	require.Nil(t, m.Dependencies())
 }
 
 func TestRecorder(t *testing.T) {
@@ -48,20 +44,12 @@ func TestRecorder(t *testing.T) {
 	r := newRecorder(rec)
 
 	r.WriteHeader(http.StatusNotFound)
-	if r.StatusCode() != http.StatusNotFound {
-		t.Fatalf("StatusCode() = %d", r.StatusCode())
-	}
+	require.Equal(t, http.StatusNotFound, r.StatusCode())
 
 	n, err := r.Write([]byte("hello"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n != 5 {
-		t.Fatalf("n = %d", n)
-	}
-	if r.Size() != 5 {
-		t.Fatalf("Size() = %d", r.Size())
-	}
+	require.NoError(t, err)
+	require.Equal(t, 5, n)
+	require.Equal(t, 5, r.Size())
 }
 
 func TestRecorder_DoubleWriteHeader(t *testing.T) {
@@ -69,15 +57,11 @@ func TestRecorder_DoubleWriteHeader(t *testing.T) {
 	r := newRecorder(rec)
 	r.WriteHeader(http.StatusOK)
 	r.WriteHeader(http.StatusNotFound) // should be ignored
-	if r.StatusCode() != http.StatusOK {
-		t.Fatalf("StatusCode() = %d", r.StatusCode())
-	}
+	require.Equal(t, http.StatusOK, r.StatusCode())
 }
 
 func TestRecorder_Unwrap(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r := newRecorder(rec)
-	if r.Unwrap() != rec {
-		t.Fatal("Unwrap should return underlying writer")
-	}
+	require.Equal(t, rec, r.Unwrap())
 }

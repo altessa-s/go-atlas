@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestStringClaim(t *testing.T) {
@@ -24,9 +26,8 @@ func TestStringClaim(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := stringClaim(tt.claims, tt.key); got != tt.want {
-				t.Fatalf("stringClaim() = %q, want %q", got, tt.want)
-			}
+			got := stringClaim(tt.claims, tt.key)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -48,9 +49,7 @@ func TestAudienceClaim(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := audienceClaim(tt.claims, "aud")
-			if len(got) != tt.want {
-				t.Fatalf("audienceClaim() len = %d, want %d", len(got), tt.want)
-			}
+			require.Equal(t, tt.want, len(got))
 		})
 	}
 }
@@ -71,18 +70,17 @@ func TestScopesClaim(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := scopesClaim(tt.claims, "scopes")
-			if len(got) != tt.want {
-				t.Fatalf("scopesClaim() len = %d, want %d", len(got), tt.want)
-			}
+			require.Equal(t, tt.want, len(got))
 		})
 	}
 }
 
 func TestScopesClaim_Sorted(t *testing.T) {
 	got := scopesClaim(map[string]any{"scopes": "z a m"}, "scopes")
-	if len(got) != 3 || got[0] != "a" || got[1] != "m" || got[2] != "z" {
-		t.Fatalf("scopes not sorted: %v", got)
-	}
+	require.Len(t, got, 3)
+	require.Equal(t, "a", got[0])
+	require.Equal(t, "m", got[1])
+	require.Equal(t, "z", got[2])
 }
 
 func TestUnixTimeClaim(t *testing.T) {
@@ -105,13 +103,9 @@ func TestUnixTimeClaim(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := unixTimeClaim(tt.claims, "exp")
 			if tt.isZero {
-				if !got.IsZero() {
-					t.Fatalf("expected zero time, got %v", got)
-				}
+				require.True(t, got.IsZero(), "expected zero time, got %v", got)
 			} else {
-				if got != expected {
-					t.Fatalf("got %v, want %v", got, expected)
-				}
+				require.Equal(t, expected, got)
 			}
 		})
 	}
@@ -133,18 +127,10 @@ func TestExtractClaims(t *testing.T) {
 	}
 	claims := extractClaims(raw)
 
-	if claims.Subject != "user1" {
-		t.Fatalf("Subject = %q", claims.Subject)
-	}
-	if claims.Email != "j@d.com" {
-		t.Fatalf("Email = %q", claims.Email)
-	}
-	if len(claims.Scopes) != 2 {
-		t.Fatalf("Scopes len = %d", len(claims.Scopes))
-	}
-	if claims.RawClaims == nil {
-		t.Fatal("RawClaims should not be nil")
-	}
+	require.Equal(t, "user1", claims.Subject)
+	require.Equal(t, "j@d.com", claims.Email)
+	require.Len(t, claims.Scopes, 2)
+	require.NotNil(t, claims.RawClaims, "RawClaims should not be nil")
 }
 
 func BenchmarkExtractClaims(b *testing.B) {

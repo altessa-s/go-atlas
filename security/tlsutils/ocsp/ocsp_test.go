@@ -7,100 +7,73 @@ package ocsp
 import (
 	"bytes"
 	"crypto/tls"
-	"errors"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewOCSPStapler(t *testing.T) {
 	s := NewOCSPStapler()
-	if s == nil {
-		t.Fatal("NewOCSPStapler() returned nil")
-	}
-	if s.cache == nil {
-		t.Error("cache is nil")
-	}
-	if s.httpClient == nil {
-		t.Error("httpClient is nil")
-	}
-	if s.logger == nil {
-		t.Error("logger is nil")
-	}
+	require.NotNil(t, s)
+	require.NotNil(t, s.cache)
+	require.NotNil(t, s.httpClient)
+	require.NotNil(t, s.logger)
 }
 
 func TestNewOCSPStapler_WithCompression(t *testing.T) {
 	s := NewOCSPStapler(WithCompression())
-	if !s.enableCompression {
-		t.Error("compression should be enabled")
-	}
+	require.True(t, s.enableCompression)
 
 	s2 := NewOCSPStapler()
-	if s2.enableCompression {
-		t.Error("compression should be disabled by default")
-	}
+	require.False(t, s2.enableCompression)
 }
 
 func TestGetOCSPStaple_NilCert(t *testing.T) {
 	s := NewOCSPStapler()
 	_, err := s.GetOCSPStaple(t.Context(), nil)
-	if err == nil {
-		t.Error("GetOCSPStaple(nil) should return error")
-	}
+	require.Error(t, err)
 }
 
 func TestGetOCSPStaple_EmptyCert(t *testing.T) {
 	s := NewOCSPStapler()
 	cert := &tls.Certificate{}
 	_, err := s.GetOCSPStaple(t.Context(), cert)
-	if err == nil {
-		t.Error("GetOCSPStaple(empty cert) should return error")
-	}
+	require.Error(t, err)
 }
 
 func TestNeedsRefresh_NilCert(t *testing.T) {
 	s := NewOCSPStapler()
-	if s.NeedsRefresh(nil) {
-		t.Error("NeedsRefresh(nil) should return false")
-	}
+	require.False(t, s.NeedsRefresh(nil))
 }
 
 func TestNeedsRefresh_EmptyCert(t *testing.T) {
 	s := NewOCSPStapler()
-	if s.NeedsRefresh(&tls.Certificate{}) {
-		t.Error("NeedsRefresh(empty) should return false")
-	}
+	require.False(t, s.NeedsRefresh(&tls.Certificate{}))
 }
 
 func TestRunRefreshCycle_NilCert(t *testing.T) {
 	s := NewOCSPStapler()
 	err := s.RunRefreshCycle(t.Context(), nil)
-	if err == nil {
-		t.Error("RunRefreshCycle(nil) should return error")
-	}
+	require.Error(t, err)
 }
 
 func TestRunRefreshCycle_EmptyCert(t *testing.T) {
 	s := NewOCSPStapler()
 	err := s.RunRefreshCycle(t.Context(), &tls.Certificate{})
-	if err == nil {
-		t.Error("RunRefreshCycle(empty) should return error")
-	}
+	require.Error(t, err)
 }
 
 func TestStapleOCSPToConfig_NilConfig(t *testing.T) {
 	s := NewOCSPStapler()
 	err := StapleOCSPToConfig(nil, s)
-	if err == nil {
-		t.Error("StapleOCSPToConfig(nil, s) should return error")
-	}
+	require.Error(t, err)
 }
 
 func TestStapleOCSPToConfig_NilStapler(t *testing.T) {
 	config := &tls.Config{}
 	err := StapleOCSPToConfig(config, nil)
-	if err == nil {
-		t.Error("StapleOCSPToConfig(config, nil) should return error")
-	}
+	require.Error(t, err)
 }
 
 func TestCompressDecompressData(t *testing.T) {
@@ -117,25 +90,16 @@ func TestCompressDecompressData(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			compressed, err := compressData(tt.data)
-			if err != nil {
-				t.Fatalf("compressData() error = %v", err)
-			}
+			require.NoError(t, err)
 
 			if len(tt.data) == 0 {
-				if len(compressed) != len(tt.data) {
-					t.Errorf("compressData(empty) returned non-empty")
-				}
+				require.Len(t, compressed, len(tt.data))
 				return
 			}
 
 			decompressed, err := decompressData(compressed)
-			if err != nil {
-				t.Fatalf("decompressData() error = %v", err)
-			}
-
-			if !bytes.Equal(decompressed, tt.data) {
-				t.Errorf("roundtrip failed: got %d bytes, want %d bytes", len(decompressed), len(tt.data))
-			}
+			require.NoError(t, err)
+			require.True(t, bytes.Equal(decompressed, tt.data))
 		})
 	}
 }
@@ -146,15 +110,9 @@ func TestPrepareCacheEntry_NoCompression(t *testing.T) {
 	nextUpdate := time.Now().Add(24 * time.Hour)
 
 	entry := s.prepareCacheEntry(t.Context(), data, nextUpdate)
-	if entry == nil {
-		t.Fatal("prepareCacheEntry() returned nil")
-	}
-	if entry.isCompressed {
-		t.Error("entry should not be compressed")
-	}
-	if !bytes.Equal(entry.response, data) {
-		t.Error("response data mismatch")
-	}
+	require.NotNil(t, entry)
+	require.False(t, entry.isCompressed)
+	require.True(t, bytes.Equal(entry.response, data))
 }
 
 func TestPrepareCacheEntry_WithCompression(t *testing.T) {
@@ -163,15 +121,9 @@ func TestPrepareCacheEntry_WithCompression(t *testing.T) {
 	nextUpdate := time.Now().Add(24 * time.Hour)
 
 	entry := s.prepareCacheEntry(t.Context(), data, nextUpdate)
-	if entry == nil {
-		t.Fatal("prepareCacheEntry() returned nil")
-	}
-	if !entry.isCompressed {
-		t.Error("entry should be compressed")
-	}
-	if entry.originalSize != len(data) {
-		t.Errorf("originalSize = %d, want %d", entry.originalSize, len(data))
-	}
+	require.NotNil(t, entry)
+	require.True(t, entry.isCompressed)
+	require.Equal(t, len(data), entry.originalSize)
 }
 
 func TestRemoveExpiredEntries(t *testing.T) {
@@ -191,21 +143,16 @@ func TestRemoveExpiredEntries(t *testing.T) {
 
 	s.removeExpiredEntries()
 
-	if _, ok := s.cache["expired"]; ok {
-		t.Error("expired entry should have been removed")
-	}
-	if _, ok := s.cache["valid"]; !ok {
-		t.Error("valid entry should still exist")
-	}
+	_, hasExpired := s.cache["expired"]
+	require.False(t, hasExpired, "expired entry should have been removed")
+	_, hasValid := s.cache["valid"]
+	require.True(t, hasValid, "valid entry should still exist")
 }
 
 func TestRunRefreshAll_NotSchedulerManaged(t *testing.T) {
 	s := NewOCSPStapler()
 	// No items in cache, should succeed
-	err := s.RunRefreshAll(t.Context())
-	if err != nil {
-		t.Errorf("RunRefreshAll() = %v, want nil", err)
-	}
+	require.NoError(t, s.RunRefreshAll(t.Context()))
 }
 
 func TestRunRefreshAll_SchedulerManaged(t *testing.T) {
@@ -213,19 +160,12 @@ func TestRunRefreshAll_SchedulerManaged(t *testing.T) {
 	_ = s.RegisterRefreshAllSchedulerFunc()
 
 	err := s.RunRefreshAll(t.Context())
-	if !errors.Is(err, ErrSchedulerManaged) {
-		t.Errorf("RunRefreshAll() = %v, want %v", err, ErrSchedulerManaged)
-	}
+	require.ErrorIs(t, err, ErrSchedulerManaged)
 }
 
 func TestRegisterRefreshAllSchedulerFunc(t *testing.T) {
 	s := NewOCSPStapler()
 	fn := s.RegisterRefreshAllSchedulerFunc()
-	if fn == nil {
-		t.Fatal("RegisterRefreshAllSchedulerFunc() returned nil")
-	}
-
-	if !s.schedulerRefreshAllRegistered.Load() {
-		t.Error("schedulerRefreshAllRegistered should be true")
-	}
+	require.NotNil(t, fn)
+	require.True(t, s.schedulerRefreshAllRegistered.Load())
 }

@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"google.golang.org/grpc/metadata"
 )
 
@@ -18,9 +20,7 @@ func TestHTTPHeaderGetter_GetHeader(t *testing.T) {
 
 	g := NewHTTPHeaderGetter(req)
 	vals := g.GetHeader("X-Forwarded-For")
-	if len(vals) != 2 {
-		t.Fatalf("GetHeader() returned %d values, want 2", len(vals))
-	}
+	require.Len(t, vals, 2)
 }
 
 func TestHTTPHeaderGetter_GetSingleHeader(t *testing.T) {
@@ -28,38 +28,31 @@ func TestHTTPHeaderGetter_GetSingleHeader(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 
 	g := NewHTTPHeaderGetter(req)
-	if got := g.GetSingleHeader("Content-Type"); got != "application/json" {
-		t.Fatalf("GetSingleHeader() = %q, want %q", got, "application/json")
-	}
+	got := g.GetSingleHeader("Content-Type")
+	require.Equal(t, "application/json", got)
 }
 
 func TestHTTPHeaderGetter_NilRequest(t *testing.T) {
 	g := NewHTTPHeaderGetter(nil)
-	if g != nil {
-		t.Fatal("NewHTTPHeaderGetter(nil) should return nil")
-	}
+	require.Nil(t, g)
 }
 
 func TestHTTPHeaderGetter_NilReceiver(t *testing.T) {
 	var g *HTTPHeaderGetter
-	if vals := g.GetHeader("X-Test"); vals != nil {
-		t.Fatalf("nil receiver GetHeader() = %v, want nil", vals)
-	}
-	if got := g.GetSingleHeader("X-Test"); got != "" {
-		t.Fatalf("nil receiver GetSingleHeader() = %q, want empty", got)
-	}
+	vals := g.GetHeader("X-Test")
+	require.Nil(t, vals)
+	got := g.GetSingleHeader("X-Test")
+	require.Equal(t, "", got)
 }
 
 func TestHTTPHeaderGetter_MissingHeader(t *testing.T) {
 	req, _ := http.NewRequest(http.MethodGet, "/", nil)
 	g := NewHTTPHeaderGetter(req)
 
-	if vals := g.GetHeader("X-Missing"); len(vals) != 0 {
-		t.Fatalf("GetHeader(missing) = %v, want empty", vals)
-	}
-	if got := g.GetSingleHeader("X-Missing"); got != "" {
-		t.Fatalf("GetSingleHeader(missing) = %q, want empty", got)
-	}
+	vals := g.GetHeader("X-Missing")
+	require.Equal(t, 0, len(vals))
+	got := g.GetSingleHeader("X-Missing")
+	require.Equal(t, "", got)
 }
 
 func TestGRPCHeaderGetter_GetHeader(t *testing.T) {
@@ -68,9 +61,7 @@ func TestGRPCHeaderGetter_GetHeader(t *testing.T) {
 
 	g := NewGRPCHeaderGetter(ctx)
 	vals := g.GetHeader("x-forwarded-for")
-	if len(vals) != 2 {
-		t.Fatalf("GetHeader() returned %d values, want 2", len(vals))
-	}
+	require.Len(t, vals, 2)
 }
 
 func TestGRPCHeaderGetter_GetSingleHeader(t *testing.T) {
@@ -78,33 +69,28 @@ func TestGRPCHeaderGetter_GetSingleHeader(t *testing.T) {
 	ctx := metadata.NewIncomingContext(t.Context(), md)
 
 	g := NewGRPCHeaderGetter(ctx)
-	if got := g.GetSingleHeader("request-id"); got != "abc123" {
-		t.Fatalf("GetSingleHeader() = %q, want %q", got, "abc123")
-	}
+	got := g.GetSingleHeader("request-id")
+	require.Equal(t, "abc123", got)
 }
 
 func TestGRPCHeaderGetter_NilReceiver(t *testing.T) {
 	var g *GRPCHeaderGetter
-	if vals := g.GetHeader("x-test"); vals != nil {
-		t.Fatalf("nil receiver GetHeader() = %v, want nil", vals)
-	}
-	if got := g.GetSingleHeader("x-test"); got != "" {
-		t.Fatalf("nil receiver GetSingleHeader() = %q, want empty", got)
-	}
+	vals := g.GetHeader("x-test")
+	require.Nil(t, vals)
+	got := g.GetSingleHeader("x-test")
+	require.Equal(t, "", got)
 }
 
 func TestGRPCHeaderGetter_NilContext(t *testing.T) {
 	g := &GRPCHeaderGetter{ctx: nil}
-	if vals := g.GetHeader("x-test"); vals != nil {
-		t.Fatalf("nil ctx GetHeader() = %v, want nil", vals)
-	}
+	vals := g.GetHeader("x-test")
+	require.Nil(t, vals)
 }
 
 func TestGRPCHeaderGetter_MissingHeader(t *testing.T) {
 	ctx := metadata.NewIncomingContext(t.Context(), metadata.New(nil))
 	g := NewGRPCHeaderGetter(ctx)
 
-	if got := g.GetSingleHeader("x-missing"); got != "" {
-		t.Fatalf("GetSingleHeader(missing) = %q, want empty", got)
-	}
+	got := g.GetSingleHeader("x-missing")
+	require.Equal(t, "", got)
 }

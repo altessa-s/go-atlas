@@ -9,13 +9,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewDefault(t *testing.T) {
 	d := NewDefault()
-	if d == nil {
-		t.Fatal("NewDefault() returned nil")
-	}
+	require.NotNil(t, d)
 }
 
 func TestDefault_Build_Data(t *testing.T) {
@@ -23,19 +23,11 @@ func TestDefault_Build_Data(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 
 	resp, status := d.Build(req, map[string]string{"key": "value"})
-	if status != http.StatusOK {
-		t.Fatalf("status = %d, want 200", status)
-	}
+	require.Equal(t, http.StatusOK, status)
 	r, ok := resp.(*Response)
-	if !ok {
-		t.Fatalf("response type = %T", resp)
-	}
-	if r.Data == nil {
-		t.Fatal("Data is nil")
-	}
-	if r.Error != nil {
-		t.Fatal("Error should be nil for data response")
-	}
+	require.True(t, ok)
+	require.NotNil(t, r.Data)
+	require.Nil(t, r.Error)
 }
 
 func TestDefault_Build_Error(t *testing.T) {
@@ -43,22 +35,12 @@ func TestDefault_Build_Error(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 
 	resp, status := d.Build(req, errors.New("something failed"))
-	if status != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500", status)
-	}
+	require.Equal(t, http.StatusInternalServerError, status)
 	r, ok := resp.(*Response)
-	if !ok {
-		t.Fatalf("response type = %T", resp)
-	}
-	if r.Error == nil {
-		t.Fatal("Error is nil")
-	}
-	if r.Error.Code != "" {
-		t.Fatalf("Code = %q, want empty", r.Error.Code)
-	}
-	if r.Error.Message != "something failed" {
-		t.Fatalf("Message = %q", r.Error.Message)
-	}
+	require.True(t, ok)
+	require.NotNil(t, r.Error)
+	require.Equal(t, "", r.Error.Code)
+	require.Equal(t, "something failed", r.Error.Message)
 }
 
 type customError struct {
@@ -78,16 +60,10 @@ func TestDefault_Build_ErrorWithInterfaces(t *testing.T) {
 
 	err := &customError{code: "VALIDATION", message: "invalid input", status: http.StatusBadRequest}
 	resp, status := d.Build(req, err)
-	if status != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", status)
-	}
+	require.Equal(t, http.StatusBadRequest, status)
 	r := resp.(*Response)
-	if r.Error.Code != "VALIDATION" {
-		t.Fatalf("Code = %q", r.Error.Code)
-	}
-	if r.Error.Message != "invalid input" {
-		t.Fatalf("Message = %q", r.Error.Message)
-	}
+	require.Equal(t, "VALIDATION", r.Error.Code)
+	require.Equal(t, "invalid input", r.Error.Message)
 }
 
 func TestDefault_Build_ErrorWithConverter(t *testing.T) {
@@ -98,13 +74,9 @@ func TestDefault_Build_ErrorWithConverter(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 
 	resp, status := d.Build(req, errors.New("converted"))
-	if status != http.StatusUnprocessableEntity {
-		t.Fatalf("status = %d", status)
-	}
+	require.Equal(t, http.StatusUnprocessableEntity, status)
 	r := resp.(*Response)
-	if r.Error.Code != "CUSTOM" {
-		t.Fatalf("Code = %q", r.Error.Code)
-	}
+	require.Equal(t, "CUSTOM", r.Error.Code)
 }
 
 func TestDefault_Build_ErrorConverterZeroStatus(t *testing.T) {
@@ -115,9 +87,7 @@ func TestDefault_Build_ErrorConverterZeroStatus(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 
 	_, status := d.Build(req, errors.New("test"))
-	if status != http.StatusInternalServerError {
-		t.Fatalf("zero status should default to 500, got %d", status)
-	}
+	require.Equal(t, http.StatusInternalServerError, status)
 }
 
 func TestDefault_Build_ErrorWithEmptyCode(t *testing.T) {
@@ -127,9 +97,7 @@ func TestDefault_Build_ErrorWithEmptyCode(t *testing.T) {
 	err := &emptyCodeError{}
 	resp, _ := d.Build(req, err)
 	r := resp.(*Response)
-	if r.Error.Code != "" {
-		t.Fatalf("empty Code() should fallback to empty, got %q", r.Error.Code)
-	}
+	require.Equal(t, "", r.Error.Code)
 }
 
 type emptyCodeError struct{}
@@ -145,9 +113,7 @@ func TestDefault_Build_ErrorWithEmptyMessage(t *testing.T) {
 	resp, _ := d.Build(req, err)
 	r := resp.(*Response)
 	// Should fallback to err.Error()
-	if r.Error.Message != "fallback error" {
-		t.Fatalf("Message = %q", r.Error.Message)
-	}
+	require.Equal(t, "fallback error", r.Error.Message)
 }
 
 type emptyMessageError struct{}
@@ -161,9 +127,7 @@ func TestDefault_Build_ErrorWithZeroStatus(t *testing.T) {
 
 	err := &zeroStatusError{}
 	_, status := d.Build(req, err)
-	if status != http.StatusInternalServerError {
-		t.Fatalf("zero HTTPStatus should default to 500, got %d", status)
-	}
+	require.Equal(t, http.StatusInternalServerError, status)
 }
 
 type zeroStatusError struct{}

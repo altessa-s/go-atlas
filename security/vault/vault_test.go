@@ -8,6 +8,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/security/vault"
 	"github.com/altessa-s/go-atlas/security/vault/auth"
 
@@ -30,101 +32,65 @@ var _ auth.Method = (*mockMethod)(nil)
 
 func TestNew(t *testing.T) {
 	client, err := vaultApi.NewClient(vaultApi.DefaultConfig())
-	if err != nil {
-		t.Fatalf("failed to create vault client: %v", err)
-	}
+	require.NoError(t, err)
 
 	v, err := vault.New(t.Context(), vault.WithVaultClient(client))
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	if v == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, v)
 }
 
 func TestNew_WithAuthMethod(t *testing.T) {
 	client, err := vaultApi.NewClient(vaultApi.DefaultConfig())
-	if err != nil {
-		t.Fatalf("failed to create vault client: %v", err)
-	}
+	require.NoError(t, err)
 
 	v, err := vault.New(t.Context(),
 		vault.WithVaultClient(client),
 		vault.WithAuthMethod(&mockMethod{name: "mock"}),
 	)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	if v == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, v)
 }
 
 func TestRunRenewalWithContext_NilContext(t *testing.T) {
 	client, err := vaultApi.NewClient(vaultApi.DefaultConfig())
-	if err != nil {
-		t.Fatalf("failed to create vault client: %v", err)
-	}
+	require.NoError(t, err)
 
 	v, err := vault.New(t.Context(),
 		vault.WithVaultClient(client),
 		vault.WithAuthMethod(&mockMethod{name: "mock"}),
 	)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	require.NoError(t, err)
 
 	//nolint:staticcheck // intentionally passing nil context for test
-	if err := v.RunRenewalWithContext(nil); err == nil {
-		t.Error("RunRenewalWithContext(nil) should return error")
-	}
+	require.Error(t, v.RunRenewalWithContext(nil))
 }
 
 func TestRunRenewalWithContext_NoAuthMethod(t *testing.T) {
 	client, err := vaultApi.NewClient(vaultApi.DefaultConfig())
-	if err != nil {
-		t.Fatalf("failed to create vault client: %v", err)
-	}
+	require.NoError(t, err)
 
 	v, err := vault.New(t.Context(), vault.WithVaultClient(client))
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	require.NoError(t, err)
 
-	if err := v.RunRenewalWithContext(t.Context()); err == nil {
-		t.Error("RunRenewalWithContext without auth method should return error")
-	}
+	require.Error(t, v.RunRenewalWithContext(t.Context()))
 }
 
 func TestStopRenewal_NoActiveRenewal(t *testing.T) {
 	client, err := vaultApi.NewClient(vaultApi.DefaultConfig())
-	if err != nil {
-		t.Fatalf("failed to create vault client: %v", err)
-	}
+	require.NoError(t, err)
 
 	v, err := vault.New(t.Context(), vault.WithVaultClient(client))
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	require.NoError(t, err)
 
-	if err := v.StopRenewal(); err != nil {
-		t.Errorf("StopRenewal() error = %v, want nil", err)
-	}
+	require.NoError(t, v.StopRenewal())
 }
 
 func TestRawClient(t *testing.T) {
 	client, err := vaultApi.NewClient(vaultApi.DefaultConfig())
-	if err != nil {
-		t.Fatalf("failed to create vault client: %v", err)
-	}
+	require.NoError(t, err)
 
 	v, err := vault.New(t.Context(), vault.WithVaultClient(client))
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+	require.NoError(t, err)
 
-	if got := v.RawClient(); got != client {
-		t.Errorf("RawClient() returned different client")
-	}
+	require.Equal(t, client, v.RawClient())
 }

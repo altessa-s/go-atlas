@@ -4,7 +4,11 @@
 
 package requestid
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func FuzzGenerator_Extract(f *testing.F) {
 	f.Add("550e8400-e29b-41d4-a716-446655440000")
@@ -16,9 +20,7 @@ func FuzzGenerator_Extract(f *testing.F) {
 		gen := NewGenerator(WithUuidGenerator(func() string { return "fallback" }))
 		headers := &fuzzHeaderGetter{value: headerValue}
 		result := gen.Extract(headers)
-		if result == "" {
-			t.Fatal("Extract() returned empty with generateIfMissing=true")
-		}
+		assert.NotEqual(t, "", result)
 	})
 }
 

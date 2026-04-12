@@ -7,14 +7,14 @@ package metrics
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNoop_ReturnsSingleton(t *testing.T) {
 	a := Noop()
 	b := Noop()
-	if a != b {
-		t.Fatal("Noop() should return the same instance")
-	}
+	require.Same(t, a, b, "Noop() should return the same instance")
 }
 
 func TestIsNoop(t *testing.T) {
@@ -28,9 +28,7 @@ func TestIsNoop(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := IsNoop(tt.c); got != tt.want {
-				t.Errorf("IsNoop() = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, IsNoop(tt.c))
 		})
 	}
 }
@@ -69,15 +67,9 @@ func TestNoopCollector_MethodsDoNotPanic(t *testing.T) {
 
 	// WithSubsystem returns same noop
 	sub := c.WithSubsystem("sub")
-	if !IsNoop(sub) {
-		t.Error("WithSubsystem on noop should return noop")
-	}
+	require.True(t, IsNoop(sub), "WithSubsystem on noop should return noop")
 
 	// Shutdown and ForceFlush
-	if err := c.Shutdown(t.Context()); err != nil {
-		t.Errorf("Shutdown() = %v", err)
-	}
-	if err := c.ForceFlush(t.Context()); err != nil {
-		t.Errorf("ForceFlush() = %v", err)
-	}
+	require.NoError(t, c.Shutdown(t.Context()))
+	require.NoError(t, c.ForceFlush(t.Context()))
 }

@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestResponseWriter_StatusCode(t *testing.T) {
@@ -16,9 +18,7 @@ func TestResponseWriter_StatusCode(t *testing.T) {
 	defer rw.Release()
 
 	rw.WriteHeader(http.StatusNotFound)
-	if rw.StatusCode() != http.StatusNotFound {
-		t.Fatalf("StatusCode() = %d", rw.StatusCode())
-	}
+	require.Equal(t, http.StatusNotFound, rw.StatusCode())
 }
 
 func TestResponseWriter_DefaultStatus(t *testing.T) {
@@ -27,9 +27,7 @@ func TestResponseWriter_DefaultStatus(t *testing.T) {
 	defer rw.Release()
 
 	rw.Write([]byte("hello")) //nolint:errcheck
-	if rw.StatusCode() != http.StatusOK {
-		t.Fatalf("StatusCode() = %d", rw.StatusCode())
-	}
+	require.Equal(t, http.StatusOK, rw.StatusCode())
 }
 
 func TestResponseWriter_CaptureBody(t *testing.T) {
@@ -38,9 +36,7 @@ func TestResponseWriter_CaptureBody(t *testing.T) {
 	defer rw.Release()
 
 	rw.Write([]byte("hello")) //nolint:errcheck
-	if rw.BodyString() != "hello" {
-		t.Fatalf("Body() = %q", rw.BodyString())
-	}
+	require.Equal(t, "hello", rw.BodyString())
 }
 
 func TestResponseWriter_NoCaptureBody(t *testing.T) {
@@ -49,9 +45,7 @@ func TestResponseWriter_NoCaptureBody(t *testing.T) {
 	defer rw.Release()
 
 	rw.Write([]byte("hello")) //nolint:errcheck
-	if len(rw.Body()) != 0 {
-		t.Fatal("should not capture body")
-	}
+	require.Equal(t, 0, len(rw.Body()))
 }
 
 func TestResponseWriter_DoubleWriteHeader(t *testing.T) {
@@ -61,9 +55,7 @@ func TestResponseWriter_DoubleWriteHeader(t *testing.T) {
 
 	rw.WriteHeader(http.StatusOK)
 	rw.WriteHeader(http.StatusNotFound)
-	if rw.StatusCode() != http.StatusOK {
-		t.Fatalf("second WriteHeader should be ignored, got %d", rw.StatusCode())
-	}
+	require.Equal(t, http.StatusOK, rw.StatusCode())
 }
 
 func TestResponseWriter_Unwrap(t *testing.T) {
@@ -71,7 +63,5 @@ func TestResponseWriter_Unwrap(t *testing.T) {
 	rw := NewResponseWriter(rec, false)
 	defer rw.Release()
 
-	if rw.Unwrap() != rec {
-		t.Fatal("Unwrap should return underlying writer")
-	}
+	require.Equal(t, rec, rw.Unwrap())
 }

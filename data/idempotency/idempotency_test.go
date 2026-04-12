@@ -8,6 +8,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/idempotency/storages"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
@@ -18,15 +20,9 @@ func TestAttemptLock_New(t *testing.T) {
 	ctx := t.Context()
 
 	ok, state, err := k.AttemptLock(ctx, "key1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok {
-		t.Error("expected lock acquired")
-	}
-	if state != nil {
-		t.Error("expected nil state for new lock")
-	}
+	require.NoError(t, err)
+	require.True(t, ok, "expected lock acquired")
+	require.Nil(t, state, "expected nil state for new lock")
 }
 
 func TestAttemptLock_InProgress(t *testing.T) {
@@ -37,18 +33,10 @@ func TestAttemptLock_InProgress(t *testing.T) {
 	_, _, _ = k.AttemptLock(ctx, "key1")
 
 	ok, state, err := k.AttemptLock(ctx, "key1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ok {
-		t.Error("expected lock NOT acquired (already in progress)")
-	}
-	if state == nil {
-		t.Fatal("expected non-nil state")
-	}
-	if state.Status != storages.StatusInProgress {
-		t.Errorf("status = %s, want %s", state.Status, storages.StatusInProgress)
-	}
+	require.NoError(t, err)
+	require.False(t, ok, "expected lock NOT acquired (already in progress)")
+	require.NotNil(t, state)
+	require.Equal(t, storages.StatusInProgress, state.Status)
 }
 
 func TestAttemptLock_Completed(t *testing.T) {
@@ -60,18 +48,10 @@ func TestAttemptLock_Completed(t *testing.T) {
 	_ = k.Complete(ctx, "key1", map[string]string{"result": "ok"})
 
 	ok, state, err := k.AttemptLock(ctx, "key1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ok {
-		t.Error("expected lock NOT acquired (completed)")
-	}
-	if state == nil {
-		t.Fatal("expected non-nil state")
-	}
-	if state.Status != storages.StatusSuccess {
-		t.Errorf("status = %s, want %s", state.Status, storages.StatusSuccess)
-	}
+	require.NoError(t, err)
+	require.False(t, ok, "expected lock NOT acquired (completed)")
+	require.NotNil(t, state)
+	require.Equal(t, storages.StatusSuccess, state.Status)
 }
 
 func TestComplete(t *testing.T) {
@@ -81,9 +61,7 @@ func TestComplete(t *testing.T) {
 
 	_, _, _ = k.AttemptLock(ctx, "key1")
 	err := k.Complete(ctx, "key1", "result-data")
-	if err != nil {
-		t.Fatalf("Complete: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestDelete(t *testing.T) {
@@ -93,18 +71,12 @@ func TestDelete(t *testing.T) {
 
 	_, _, _ = k.AttemptLock(ctx, "key1")
 	err := k.Delete(ctx, "key1")
-	if err != nil {
-		t.Fatalf("Delete: %v", err)
-	}
+	require.NoError(t, err)
 
 	// After delete, lock should succeed again.
 	ok, _, err := k.AttemptLock(ctx, "key1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok {
-		t.Error("expected lock after delete")
-	}
+	require.NoError(t, err)
+	require.True(t, ok, "expected lock after delete")
 }
 
 func TestAttemptLock_EmptyKey(t *testing.T) {
@@ -112,15 +84,9 @@ func TestAttemptLock_EmptyKey(t *testing.T) {
 	k := New(s)
 
 	ok, state, err := k.AttemptLock(t.Context(), "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok {
-		t.Error("expected true for empty key")
-	}
-	if state != nil {
-		t.Error("expected nil state")
-	}
+	require.NoError(t, err)
+	require.True(t, ok, "expected true for empty key")
+	require.Nil(t, state)
 }
 
 func TestStorageFunc(t *testing.T) {
@@ -135,9 +101,7 @@ func TestStorageFunc(t *testing.T) {
 	}
 
 	_, _, _ = sf.AttemptLock(t.Context(), "key", nil)
-	if !called {
-		t.Error("AttemptLockFunc not called")
-	}
+	require.True(t, called, "AttemptLockFunc not called")
 	_ = sf.Complete(t.Context(), "key", nil)
 	_ = sf.Delete(t.Context(), "key")
 }

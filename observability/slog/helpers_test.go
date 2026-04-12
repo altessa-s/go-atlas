@@ -9,136 +9,96 @@ import (
 	"errors"
 	"log/slog"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestError_NilReturnsEmpty(t *testing.T) {
 	attr := Error(nil)
-	if attr.Key != "" {
-		t.Errorf("expected empty attr, got key=%q", attr.Key)
-	}
+	require.Empty(t, attr.Key)
 }
 
 func TestError_NonNil(t *testing.T) {
 	attr := Error(errors.New("fail"))
-	if attr.Key != ErrorKey {
-		t.Errorf("Key = %q, want %q", attr.Key, ErrorKey)
-	}
+	require.Equal(t, ErrorKey, attr.Key)
 }
 
 func TestString_Value(t *testing.T) {
 	attr := String("name", "val")
-	if attr.Key != "name" {
-		t.Errorf("Key = %q", attr.Key)
-	}
-	if attr.Value.String() != "val" {
-		t.Errorf("Value = %q", attr.Value.String())
-	}
+	require.Equal(t, "name", attr.Key)
+	require.Equal(t, "val", attr.Value.String())
 }
 
 func TestString_EmptyReturnsEmpty(t *testing.T) {
 	attr := String("name", "")
-	if attr.Key != "" {
-		t.Errorf("expected empty attr for empty string, got key=%q", attr.Key)
-	}
+	require.Empty(t, attr.Key)
 }
 
 func TestString_Pointer(t *testing.T) {
 	v := "hello"
 	attr := String("name", &v)
-	if attr.Value.String() != "hello" {
-		t.Errorf("Value = %q", attr.Value.String())
-	}
+	require.Equal(t, "hello", attr.Value.String())
 }
 
 func TestString_NilPointer(t *testing.T) {
 	attr := String[*string]("name", nil)
-	if attr.Key != "" {
-		t.Errorf("expected empty attr for nil pointer, got key=%q", attr.Key)
-	}
+	require.Empty(t, attr.Key)
 }
 
 func TestInt_Value(t *testing.T) {
 	attr := Int("count", 42)
-	if attr.Key != "count" {
-		t.Errorf("Key = %q", attr.Key)
-	}
-	if attr.Value.Int64() != 42 {
-		t.Errorf("Value = %d", attr.Value.Int64())
-	}
+	require.Equal(t, "count", attr.Key)
+	require.Equal(t, int64(42), attr.Value.Int64())
 }
 
 func TestInt_Pointer(t *testing.T) {
 	v := 42
 	attr := Int("count", &v)
-	if attr.Value.Int64() != 42 {
-		t.Errorf("Value = %d", attr.Value.Int64())
-	}
+	require.Equal(t, int64(42), attr.Value.Int64())
 }
 
 func TestInt_NilPointer(t *testing.T) {
 	attr := Int[*int]("count", nil)
-	if attr.Key != "" {
-		t.Errorf("expected empty attr for nil, got key=%q", attr.Key)
-	}
+	require.Empty(t, attr.Key)
 }
 
 func TestInt64_Value(t *testing.T) {
 	attr := Int64("id", int64(100))
-	if attr.Value.Int64() != 100 {
-		t.Errorf("Value = %d", attr.Value.Int64())
-	}
+	require.Equal(t, int64(100), attr.Value.Int64())
 }
 
 func TestInt64_Int32(t *testing.T) {
 	attr := Int64("id", int32(50))
-	if attr.Value.Int64() != 50 {
-		t.Errorf("Value = %d", attr.Value.Int64())
-	}
+	require.Equal(t, int64(50), attr.Value.Int64())
 }
 
 func TestInt64_NilPointers(t *testing.T) {
 	attr64 := Int64[*int64]("id", nil)
-	if attr64.Key != "" {
-		t.Error("expected empty for nil *int64")
-	}
+	require.Empty(t, attr64.Key)
 
 	attr32 := Int64[*int32]("id", nil)
-	if attr32.Key != "" {
-		t.Error("expected empty for nil *int32")
-	}
+	require.Empty(t, attr32.Key)
 }
 
 func TestModule(t *testing.T) {
 	attr := Module("http-server")
-	if attr.Key != ModuleKey {
-		t.Errorf("Key = %q, want %q", attr.Key, ModuleKey)
-	}
-	if attr.Value.String() != "http-server" {
-		t.Errorf("Value = %q", attr.Value.String())
-	}
+	require.Equal(t, ModuleKey, attr.Key)
+	require.Equal(t, "http-server", attr.Value.String())
 }
 
 func TestModuleM(t *testing.T) {
 	args := ModuleM("auth", "cache")
-	if len(args) != 2 {
-		t.Fatalf("len = %d", len(args))
-	}
+	require.Len(t, args, 2)
 	for _, arg := range args {
 		a, ok := arg.(slog.Attr)
-		if !ok {
-			t.Errorf("expected slog.Attr, got %T", arg)
-		}
-		if a.Key != ModuleKey {
-			t.Errorf("Key = %q", a.Key)
-		}
+		require.True(t, ok, "expected slog.Attr, got %T", arg)
+		require.Equal(t, ModuleKey, a.Key)
 	}
 }
 
 func TestSetGetLevel(t *testing.T) {
 	SetLevel(slog.LevelWarn)
-	if GetLevel() != slog.LevelWarn {
-		t.Errorf("GetLevel() = %v", GetLevel())
-	}
+	require.Equal(t, slog.LevelWarn, GetLevel())
 	SetLevel(slog.LevelInfo) // restore
 }
 
@@ -171,15 +131,9 @@ func TestShutdown_InnerHandlers(t *testing.T) {
 	}
 	logger := slog.New(multi)
 
-	if err := Shutdown(context.Background(), logger); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !child1.shutdownCalled {
-		t.Error("child1 Shutdown not called")
-	}
-	if !child2.shutdownCalled {
-		t.Error("child2 Shutdown not called")
-	}
+	require.NoError(t, Shutdown(context.Background(), logger))
+	require.True(t, child1.shutdownCalled, "child1 Shutdown not called")
+	require.True(t, child2.shutdownCalled, "child2 Shutdown not called")
 }
 
 func TestShutdown_InnerHandlers_Error(t *testing.T) {
@@ -193,13 +147,9 @@ func TestShutdown_InnerHandlers_Error(t *testing.T) {
 	logger := slog.New(multi)
 
 	err := Shutdown(context.Background(), logger)
-	if !errors.Is(err, errShutdown) {
-		t.Errorf("expected errShutdown, got %v", err)
-	}
+	require.ErrorIs(t, err, errShutdown)
 	// child2 should not be called since child1 returned an error.
-	if child2.shutdownCalled {
-		t.Error("child2 Shutdown should not be called after child1 error")
-	}
+	require.False(t, child2.shutdownCalled, "child2 Shutdown should not be called after child1 error")
 }
 
 func TestMaskingReplaceAttr(t *testing.T) {
@@ -219,11 +169,10 @@ func TestMaskingReplaceAttr(t *testing.T) {
 			fn := MaskingReplaceAttr(tt.sensitive, "***")
 			attr := slog.String(tt.key, "secret")
 			result := fn(nil, attr)
-			if tt.wantMask && result.Value.String() != "***" {
-				t.Errorf("expected masked, got %q", result.Value.String())
-			}
-			if !tt.wantMask && result.Value.String() == "***" {
-				t.Error("should not be masked")
+			if tt.wantMask {
+				require.Equal(t, "***", result.Value.String())
+			} else {
+				require.NotEqual(t, "***", result.Value.String(), "should not be masked")
 			}
 		})
 	}

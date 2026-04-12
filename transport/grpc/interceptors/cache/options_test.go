@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/cache/compression"
 )
 
@@ -16,67 +18,50 @@ import (
 func TestMethodConfig_Compressor(t *testing.T) {
 	mc := &MethodConfig{}
 	c := mc.Compressor()
-	if c == nil {
-		t.Fatal("should return noop compressor")
-	}
+	require.NotNil(t, c, "should return noop compressor")
 }
 
 func TestMethodConfig_HasCompressor(t *testing.T) {
 	mc := &MethodConfig{}
-	if mc.HasCompressor() {
-		t.Fatal("should not have compressor")
-	}
+	require.False(t, mc.HasCompressor(), "should not have compressor")
 
 	mc.compressor = compression.NewCompressor(1024, 0, 6)
-	if !mc.HasCompressor() {
-		t.Fatal("should have compressor")
-	}
+	require.True(t, mc.HasCompressor(), "should have compressor")
 }
 
 func TestWithMethod(t *testing.T) {
 	opts := newOptions(WithMethod("/svc/Get", "proto"))
-	if _, ok := opts.methods["/svc/get"]; !ok {
-		t.Fatal("method should be registered (lowercased)")
-	}
+	_, ok := opts.methods["/svc/get"]
+	require.True(t, ok, "method should be registered (lowercased)")
 }
 
 func TestWithMethod_Empty(t *testing.T) {
 	opts := newOptions(WithMethod("", "proto"))
-	if len(opts.methods) != 0 {
-		t.Fatal("empty method should be skipped")
-	}
+	require.Len(t, opts.methods, 0)
 }
 
 func TestWithDefaultTTL(t *testing.T) {
 	opts := newOptions(WithDefaultTTL(10 * time.Minute))
-	if opts.cacheTTL != 10*time.Minute {
-		t.Fatalf("cacheTTL = %v", opts.cacheTTL)
-	}
+	require.Equal(t, 10*time.Minute, opts.cacheTTL)
 }
 
 func TestWithDefaultTTL_Invalid(t *testing.T) {
 	opts := newOptions(WithDefaultTTL(0))
-	if opts.cacheTTL != DefaultTTL {
-		t.Fatalf("cacheTTL = %v, want DefaultTTL", opts.cacheTTL)
-	}
+	require.Equal(t, DefaultTTL, opts.cacheTTL)
 }
 
 func TestWithCacheHeaders(t *testing.T) {
 	opts := newOptions(WithCacheHeaders(false))
-	if opts.cacheHeadersEnabled {
-		t.Fatal("should be disabled")
-	}
+	require.False(t, opts.cacheHeadersEnabled, "should be disabled")
 }
 
 func TestWithCompressionPreset(t *testing.T) {
 	opts := newOptions(WithCompressionPreset(compression.PresetFast))
-	if opts.serializer == nil {
-		t.Fatal("serializer should be set")
-	}
+	require.NotNil(t, opts.serializer, "serializer should be set")
 }
 
 func TestHeaderConstants(t *testing.T) {
-	if HeaderKey == "" || HeaderHit == "" || HeaderMiss == "" {
-		t.Fatal("header constants should not be empty")
-	}
+	require.NotEqual(t, "", HeaderKey)
+	require.NotEqual(t, "", HeaderHit)
+	require.NotEqual(t, "", HeaderMiss)
 }

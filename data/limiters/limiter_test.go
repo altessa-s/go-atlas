@@ -6,8 +6,9 @@ package limiters
 
 import (
 	"context"
-	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestLimitInfo_IsLimitExceeded(t *testing.T) {
@@ -24,9 +25,8 @@ func TestLimitInfo_IsLimitExceeded(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			li := &LimitInfo{Remaining: tt.remaining}
-			if got := li.IsLimitExceeded(); got != tt.want {
-				t.Fatalf("IsLimitExceeded() = %v, want %v", got, tt.want)
-			}
+			got := li.IsLimitExceeded()
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -38,12 +38,8 @@ func TestFunc_Limit(t *testing.T) {
 	})
 
 	info, err := fn.Limit(t.Context())
-	if err != nil {
-		t.Fatalf("Limit() error = %v", err)
-	}
-	if info != expected {
-		t.Fatalf("Limit() = %v, want %v", info, expected)
-	}
+	require.NoError(t, err)
+	require.Equal(t, expected, info)
 }
 
 func TestFunc_Limit_Error(t *testing.T) {
@@ -52,7 +48,5 @@ func TestFunc_Limit_Error(t *testing.T) {
 	})
 
 	_, err := fn.Limit(t.Context())
-	if !errors.Is(err, ErrLimitExceeded) {
-		t.Fatalf("Limit() error = %v, want ErrLimitExceeded", err)
-	}
+	require.ErrorIs(t, err, ErrLimitExceeded)
 }

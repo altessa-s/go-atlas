@@ -8,6 +8,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 
 	"google.golang.org/grpc/codes"
@@ -33,16 +35,10 @@ func TestAuthFunc_Success(t *testing.T) {
 	}
 
 	result, err := fn(t.Context(), req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	claims, ok := result.(map[string]any)
-	if !ok {
-		t.Fatal("expected map[string]any")
-	}
-	if claims["sub"] != "user1" {
-		t.Fatalf("sub = %v", claims["sub"])
-	}
+	require.True(t, ok, "expected map[string]any")
+	require.Equal(t, "user1", claims["sub"])
 }
 
 func TestAuthFunc_MissingToken(t *testing.T) {
@@ -52,13 +48,10 @@ func TestAuthFunc_MissingToken(t *testing.T) {
 	req := auth.Request{Base: auth.Base{AuthMethod: "other"}}
 
 	_, err := fn(t.Context(), req)
-	if err == nil {
-		t.Fatal("expected error")
-	}
+	require.NotNil(t, err, "expected error")
 	st, ok := status.FromError(err)
-	if !ok || st.Code() != codes.Unauthenticated {
-		t.Fatalf("expected Unauthenticated, got %v", err)
-	}
+	require.True(t, ok, "expected Unauthenticated, got %v", err)
+	require.Equal(t, codes.Unauthenticated, st.Code())
 }
 
 func TestAuthFunc_ValidationError(t *testing.T) {
@@ -71,7 +64,5 @@ func TestAuthFunc_ValidationError(t *testing.T) {
 	}
 
 	_, err := fn(t.Context(), req)
-	if err == nil {
-		t.Fatal("expected error")
-	}
+	require.NotNil(t, err, "expected error")
 }

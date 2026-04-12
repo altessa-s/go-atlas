@@ -8,71 +8,55 @@ import (
 	"crypto/tls"
 	"log/slog"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestWithLogger(t *testing.T) {
 	logger := slog.Default()
 	s := NewBaseServer(WithAddress(":0"), WithLogger(logger))
-	if s.Logger() != logger {
-		t.Error("Logger() does not match provided logger")
-	}
+	require.False(t, s.Logger() != logger, "Logger() does not match provided logger")
 }
 
 func TestWithTlsConfig(t *testing.T) {
 	cfg := &tls.Config{MinVersion: tls.VersionTLS13}
 	s := NewBaseServer(WithAddress(":0"), WithTlsConfig(cfg))
-	if s.TLSConfig() != cfg {
-		t.Error("TLSConfig() does not match provided config")
-	}
-	if !s.HasTLS() {
-		t.Error("HasTLS() should be true")
-	}
+	require.False(t, s.TLSConfig() != cfg, "TLSConfig() does not match provided config")
+	require.True(t, s.HasTLS(), "HasTLS() should be true")
 }
 
 func TestGetBase(t *testing.T) {
 	s := NewBaseServer(WithAddress(":0"))
-	if s.GetBase() != s {
-		t.Error("GetBase() should return itself")
-	}
+	require.False(t, s.GetBase() != s, "GetBase() should return itself")
 }
 
 func TestTLSConfig_Nil(t *testing.T) {
 	s := NewBaseServer(WithAddress(":0"))
-	if s.TLSConfig() != nil {
-		t.Error("TLSConfig() should be nil when not set")
-	}
-	if s.HasTLS() {
-		t.Error("HasTLS() should be false")
-	}
+	require.False(t, s.TLSConfig() != nil, "TLSConfig() should be nil when not set")
+	require.False(t, s.HasTLS(), "HasTLS() should be false")
 }
 
 func TestProtocol_WithTLS(t *testing.T) {
 	cfg := &tls.Config{MinVersion: tls.VersionTLS13}
 	s := NewBaseServer(WithAddress(":0"), WithTlsConfig(cfg))
-	if got := s.Protocol("http"); got != "http+tls" {
-		t.Errorf("Protocol() = %q, want %q", got, "http+tls")
-	}
+	got := s.Protocol("http")
+	require.Equal(t, "http+tls", got)
 }
 
 func TestLogger_Default(t *testing.T) {
 	s := NewBaseServer(WithAddress(":0"))
-	if s.Logger() == nil {
-		t.Error("Logger() should not be nil by default")
-	}
+	require.False(t, s.Logger() == nil, "Logger() should not be nil by default")
 }
 
 func TestWithName_Pointer(t *testing.T) {
 	name := "my-server"
 	s := NewBaseServer(WithAddress(":0"), WithName(&name))
-	if got := s.Name(); got != "my-server" {
-		t.Errorf("Name() = %q, want %q", got, "my-server")
-	}
+	got := s.Name()
+	require.Equal(t, "my-server", got)
 }
 
 func TestWithAddress_Pointer(t *testing.T) {
 	addr := ":8080"
 	s := NewBaseServer(WithAddress(&addr))
-	if s == nil {
-		t.Fatal("NewBaseServer with *string address returned nil")
-	}
+	require.NotNil(t, s)
 }

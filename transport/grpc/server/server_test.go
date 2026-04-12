@@ -8,6 +8,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
 	"google.golang.org/grpc"
@@ -15,70 +17,45 @@ import (
 
 func TestNew(t *testing.T) {
 	srv, err := New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if srv == nil {
-		t.Fatal("server should not be nil")
-	}
+	require.NoError(t, err)
+	require.NotNil(t, srv, "server should not be nil")
 }
 
 func TestNew_WithReflection(t *testing.T) {
 	srv, err := New(WithReflection())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !srv.reflection {
-		t.Fatal("reflection should be enabled")
-	}
+	require.NoError(t, err)
+	require.True(t, srv.reflection, "reflection should be enabled")
 }
 
 func TestServer_RegisterHandlers_Nil(t *testing.T) {
 	srv, err := New()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	srv.RegisterHandlers(nil, nil)
-	if len(srv.handlers) != 0 {
-		t.Fatalf("handlers = %d, want 0 (nil filtered)", len(srv.handlers))
-	}
+	require.Len(t, srv.handlers, 0)
 }
 
 func TestServer_RegisterInterceptors_Empty(t *testing.T) {
 	srv, err := New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := srv.RegisterInterceptors(); err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+	err = srv.RegisterInterceptors()
+	require.NoError(t, err)
 }
 
 func TestServer_IsStarted_Default(t *testing.T) {
 	srv, err := New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if srv.IsStarted() {
-		t.Fatal("should not be started")
-	}
+	require.NoError(t, err)
+	require.False(t, srv.IsStarted(), "should not be started")
 }
 
 func TestServer_IsStopped_Default(t *testing.T) {
 	srv, err := New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if srv.IsStopped() {
-		t.Fatal("should not be stopped initially")
-	}
+	require.NoError(t, err)
+	require.False(t, srv.IsStopped(), "should not be stopped initially")
 }
 
 func TestDefaultTimeoutConfig(t *testing.T) {
 	cfg := DefaultTimeoutConfig()
-	if cfg.StartupVerification <= 0 {
-		t.Fatal("StartupVerification should be > 0")
-	}
+	require.False(t, cfg.StartupVerification <= 0, "StartupVerification should be > 0")
 }
 
 // stubInterceptor is a minimal ServerInterceptor with a configurable name.
@@ -102,29 +79,23 @@ var _ interceptors.ServerInterceptor = (*stubInterceptor)(nil)
 
 func TestServer_RegisterInterceptors_MergesOnRepeatedCalls(t *testing.T) {
 	srv, err := New()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	a := &stubInterceptor{name: "alpha"}
 	b := &stubInterceptor{name: "bravo"}
 	c := &stubInterceptor{name: "charlie"}
 
 	// First call registers alpha.
-	if err := srv.RegisterInterceptors(a); err != nil {
-		t.Fatal(err)
-	}
-	if got := len(srv.interceptors); got != 1 {
-		t.Fatalf("after first call: interceptors = %d, want 1", got)
-	}
+	err = srv.RegisterInterceptors(a)
+	require.NoError(t, err)
+	got := len(srv.interceptors)
+	require.Equal(t, 1, got)
 
 	// Second call registers bravo and charlie — alpha must be preserved.
-	if err := srv.RegisterInterceptors(b, c); err != nil {
-		t.Fatal(err)
-	}
-	if got := len(srv.interceptors); got != 3 {
-		t.Fatalf("after second call: interceptors = %d, want 3", got)
-	}
+	err = srv.RegisterInterceptors(b, c)
+	require.NoError(t, err)
+	got = len(srv.interceptors)
+	require.Equal(t, 3, got)
 
 	// Verify all three are present by name.
 	names := make(map[string]bool)
@@ -133,30 +104,23 @@ func TestServer_RegisterInterceptors_MergesOnRepeatedCalls(t *testing.T) {
 		names[si.(interceptors.Interceptor).Name()] = true
 	}
 	for _, want := range []string{"alpha", "bravo", "charlie"} {
-		if !names[want] {
-			t.Errorf("interceptor %q not found after merge", want)
-		}
+		require.True(t, names[want], "interceptor %q not found after merge", want)
 	}
 }
 
 func TestServer_RegisterInterceptors_AccumulatesAcrossCalls(t *testing.T) {
 	srv, err := New()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 
 	a := &stubInterceptor{name: "alpha"}
 	a2 := &stubInterceptor{name: "alpha"} // duplicate name
 
-	if err := srv.RegisterInterceptors(a); err != nil {
-		t.Fatal(err)
-	}
-	if err := srv.RegisterInterceptors(a2); err != nil {
-		t.Fatal(err)
-	}
+	err = srv.RegisterInterceptors(a)
+	require.NoError(t, err)
+	err = srv.RegisterInterceptors(a2)
+	require.NoError(t, err)
 
 	// Both are stored; deduplication happens later in ServerOptions().
-	if got := len(srv.interceptors); got != 2 {
-		t.Fatalf("interceptors = %d, want 2 (dedup deferred to Start)", got)
-	}
+	got := len(srv.interceptors)
+	require.Equal(t, 2, got)
 }

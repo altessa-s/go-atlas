@@ -4,7 +4,11 @@
 
 package tracing
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestStatusCode_String(t *testing.T) {
 	tests := []struct {
@@ -18,9 +22,7 @@ func TestStatusCode_String(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
-			if got := tt.code.String(); got != tt.want {
-				t.Errorf("StatusCode(%d).String() = %q, want %q", tt.code, got, tt.want)
-			}
+			require.Equal(t, tt.want, tt.code.String())
 		})
 	}
 }
@@ -37,9 +39,7 @@ func TestTraceFlags_IsSampled(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.flags.IsSampled(); got != tt.want {
-				t.Errorf("IsSampled() = %v, want %v", got, tt.want)
-			}
+			require.Equal(t, tt.want, tt.flags.IsSampled())
 		})
 	}
 }
@@ -58,9 +58,7 @@ func TestTraceFlags_WithSampled(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.flags.WithSampled(tt.sampled); got != tt.want {
-				t.Errorf("WithSampled(%v) = %v, want %v", tt.sampled, got, tt.want)
-			}
+			require.Equal(t, tt.want, tt.flags.WithSampled(tt.sampled))
 		})
 	}
 }
@@ -77,9 +75,7 @@ func TestTraceFlags_String(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
-			if got := tt.flags.String(); got != tt.want {
-				t.Errorf("String() = %q, want %q", got, tt.want)
-			}
+			require.Equal(t, tt.want, tt.flags.String())
 		})
 	}
 }

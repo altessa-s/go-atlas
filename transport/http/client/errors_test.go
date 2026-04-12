@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestUnexpectedStatusError_Error(t *testing.T) {
@@ -23,139 +25,90 @@ func TestUnexpectedStatusError_Error(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.err.Error(); got != tt.expect {
-				t.Fatalf("Error() = %q, want %q", got, tt.expect)
-			}
+			got := tt.err.Error()
+			require.Equal(t, tt.expect, got)
 		})
 	}
 }
 
 func TestUnexpectedStatusError_Is(t *testing.T) {
 	err := UnexpectedStatusError{Status: 404}
-	if !errors.Is(err, ErrUnexpectedStatus) {
-		t.Fatal("should match ErrUnexpectedStatus")
-	}
-	if errors.Is(err, ErrCircuitBreakerOpen) {
-		t.Fatal("should not match ErrCircuitBreakerOpen")
-	}
+	require.True(t, errors.Is(err, ErrUnexpectedStatus), "should match ErrUnexpectedStatus")
+	require.False(t, errors.Is(err, ErrCircuitBreakerOpen), "should not match ErrCircuitBreakerOpen")
 }
 
 func TestRequestBuilderError_Error(t *testing.T) {
 	err := &RequestBuilderError{Message: "bad request"}
-	if err.Error() != "bad request" {
-		t.Fatalf("Error() = %q", err.Error())
-	}
+	require.Equal(t, "bad request", err.Error())
 }
 
 func TestResponseSizeError(t *testing.T) {
 	err := &ResponseSizeError{Limit: 1000, Size: 2000}
-	if err.Error() != "response size 2000 exceeds limit 1000" {
-		t.Fatalf("Error() = %q", err.Error())
-	}
-	if !errors.Is(err, ErrResponseSizeExceeded) {
-		t.Fatal("should match ErrResponseSizeExceeded")
-	}
+	require.Equal(t, "response size 2000 exceeds limit 1000", err.Error())
+	require.True(t, errors.Is(err, ErrResponseSizeExceeded), "should match ErrResponseSizeExceeded")
 }
 
 func TestCircuitBreakerError(t *testing.T) {
 	err := &CircuitBreakerError{Name: "test-cb", State: "open"}
-	if err.Error() != `circuit breaker "test-cb" is open` {
-		t.Fatalf("Error() = %q", err.Error())
-	}
-	if !errors.Is(err, ErrCircuitBreakerOpen) {
-		t.Fatal("should match ErrCircuitBreakerOpen")
-	}
+	require.Equal(t, `circuit breaker "test-cb" is open`, err.Error())
+	require.True(t, errors.Is(err, ErrCircuitBreakerOpen), "should match ErrCircuitBreakerOpen")
 }
 
 func TestRateLimitError(t *testing.T) {
 	t.Run("with_retry_after", func(t *testing.T) {
 		err := &RateLimitError{Host: "api.test", RetryAfter: 5 * time.Second}
 		got := err.Error()
-		if got != `rate limit exceeded for host "api.test", retry after 5s` {
-			t.Fatalf("Error() = %q", got)
-		}
+		require.Equal(t, `rate limit exceeded for host "api.test", retry after 5s`, got)
 	})
 	t.Run("without_retry_after", func(t *testing.T) {
 		err := &RateLimitError{Host: "api.test"}
 		got := err.Error()
-		if got != `rate limit exceeded for host "api.test"` {
-			t.Fatalf("Error() = %q", got)
-		}
+		require.Equal(t, `rate limit exceeded for host "api.test"`, got)
 	})
 	t.Run("is", func(t *testing.T) {
 		err := &RateLimitError{Host: "test"}
-		if !errors.Is(err, ErrRateLimited) {
-			t.Fatal("should match ErrRateLimited")
-		}
+		require.True(t, errors.Is(err, ErrRateLimited), "should match ErrRateLimited")
 	})
 }
 
 func TestRetryExhaustedError(t *testing.T) {
 	inner := errors.New("connection refused")
 	err := &RetryExhaustedError{LastError: inner, Attempts: 3, Method: "GET", URL: "http://test"}
-	if err.Error() != "failed after 3 attempts for GET http://test: connection refused" {
-		t.Fatalf("Error() = %q", err.Error())
-	}
-	if !errors.Is(err, ErrMaxRetriesExceeded) {
-		t.Fatal("should match ErrMaxRetriesExceeded")
-	}
-	if err.Unwrap() != inner {
-		t.Fatal("Unwrap() should return inner error")
-	}
+	require.Equal(t, "failed after 3 attempts for GET http://test: connection refused", err.Error())
+	require.True(t, errors.Is(err, ErrMaxRetriesExceeded), "should match ErrMaxRetriesExceeded")
+	require.Equal(t, inner, err.Unwrap())
 }
 
 func TestNonRetryableError(t *testing.T) {
 	inner := errors.New("bad cert")
 	err := &NonRetryableError{Err: inner}
-	if err.Error() != "non-retryable error: bad cert" {
-		t.Fatalf("Error() = %q", err.Error())
-	}
-	if !errors.Is(err, ErrNonRetryable) {
-		t.Fatal("should match ErrNonRetryable")
-	}
-	if err.Unwrap() != inner {
-		t.Fatal("Unwrap() should return inner error")
-	}
+	require.Equal(t, "non-retryable error: bad cert", err.Error())
+	require.True(t, errors.Is(err, ErrNonRetryable), "should match ErrNonRetryable")
+	require.Equal(t, inner, err.Unwrap())
 }
 
 func TestIsResponseSizeError(t *testing.T) {
 	sizeErr := &ResponseSizeError{Limit: 100, Size: 200}
-	if IsResponseSizeError(sizeErr) == nil {
-		t.Fatal("should return error")
-	}
-	if IsResponseSizeError(errors.New("other")) != nil {
-		t.Fatal("should return nil")
-	}
+	require.NotNil(t, IsResponseSizeError(sizeErr))
+	require.Nil(t, IsResponseSizeError(errors.New("other")))
 }
 
 func TestIsCircuitBreakerError(t *testing.T) {
 	cbErr := &CircuitBreakerError{Name: "test"}
-	if IsCircuitBreakerError(cbErr) == nil {
-		t.Fatal("should return error")
-	}
-	if IsCircuitBreakerError(errors.New("other")) != nil {
-		t.Fatal("should return nil")
-	}
+	require.NotNil(t, IsCircuitBreakerError(cbErr))
+	require.Nil(t, IsCircuitBreakerError(errors.New("other")))
 }
 
 func TestIsRateLimitError(t *testing.T) {
 	rlErr := &RateLimitError{Host: "test"}
-	if IsRateLimitError(rlErr) == nil {
-		t.Fatal("should return error")
-	}
-	if IsRateLimitError(errors.New("other")) != nil {
-		t.Fatal("should return nil")
-	}
+	require.NotNil(t, IsRateLimitError(rlErr))
+	require.Nil(t, IsRateLimitError(errors.New("other")))
 }
 
 func TestIsRetryExhaustedError(t *testing.T) {
 	reErr := &RetryExhaustedError{Attempts: 3}
-	if IsRetryExhaustedError(reErr) == nil {
-		t.Fatal("should return error")
-	}
-	if IsRetryExhaustedError(errors.New("other")) != nil {
-		t.Fatal("should return nil")
-	}
+	require.NotNil(t, IsRetryExhaustedError(reErr))
+	require.Nil(t, IsRetryExhaustedError(errors.New("other")))
 }
 
 func TestIsTemporaryError(t *testing.T) {
@@ -173,9 +126,8 @@ func TestIsTemporaryError(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := IsTemporaryError(tt.err); got != tt.want {
-				t.Fatalf("IsTemporaryError() = %v, want %v", got, tt.want)
-			}
+			got := IsTemporaryError(tt.err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -183,7 +135,5 @@ func TestIsTemporaryError(t *testing.T) {
 func TestIsCheckers_WrappedErrors(t *testing.T) {
 	sizeErr := &ResponseSizeError{Limit: 100, Size: 200}
 	wrapped := fmt.Errorf("wrapped: %w", sizeErr)
-	if IsResponseSizeError(wrapped) == nil {
-		t.Fatal("should unwrap to find ResponseSizeError")
-	}
+	require.NotNil(t, IsResponseSizeError(wrapped))
 }

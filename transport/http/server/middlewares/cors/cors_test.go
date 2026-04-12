@@ -9,13 +9,13 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNew(t *testing.T) {
 	m := New()
-	if m.Name() != "cors" {
-		t.Fatalf("Name() = %q", m.Name())
-	}
+	require.Equal(t, "cors", m.Name())
 }
 
 func TestMiddleware_NoCORSRequest(t *testing.T) {
@@ -26,9 +26,7 @@ func TestMiddleware_NoCORSRequest(t *testing.T) {
 	req := httptest.NewRequest("GET", "/test", nil)
 	handler.ServeHTTP(rec, req)
 
-	if rec.Header().Get(HeaderAccessControlAllowOrigin) != "" {
-		t.Fatal("should not set CORS headers without Origin")
-	}
+	require.Equal(t, "", rec.Header().Get(HeaderAccessControlAllowOrigin))
 }
 
 func TestMiddleware_AllowAllOrigins(t *testing.T) {
@@ -40,9 +38,7 @@ func TestMiddleware_AllowAllOrigins(t *testing.T) {
 	req.Header.Set("Origin", "https://example.com")
 	handler.ServeHTTP(rec, req)
 
-	if rec.Header().Get(HeaderAccessControlAllowOrigin) != "*" {
-		t.Fatalf("Allow-Origin = %q, want *", rec.Header().Get(HeaderAccessControlAllowOrigin))
-	}
+	require.Equal(t, "*", rec.Header().Get(HeaderAccessControlAllowOrigin))
 }
 
 func TestMiddleware_SpecificOrigin(t *testing.T) {
@@ -55,9 +51,7 @@ func TestMiddleware_SpecificOrigin(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		req.Header.Set("Origin", "https://example.com")
 		handler.ServeHTTP(rec, req)
-		if rec.Header().Get(HeaderAccessControlAllowOrigin) != "https://example.com" {
-			t.Fatalf("Allow-Origin = %q", rec.Header().Get(HeaderAccessControlAllowOrigin))
-		}
+		require.Equal(t, "https://example.com", rec.Header().Get(HeaderAccessControlAllowOrigin))
 	})
 
 	t.Run("not_allowed", func(t *testing.T) {
@@ -65,9 +59,7 @@ func TestMiddleware_SpecificOrigin(t *testing.T) {
 		req := httptest.NewRequest("GET", "/test", nil)
 		req.Header.Set("Origin", "https://evil.com")
 		handler.ServeHTTP(rec, req)
-		if rec.Header().Get(HeaderAccessControlAllowOrigin) != "" {
-			t.Fatal("should not set Allow-Origin for disallowed origin")
-		}
+		require.Equal(t, "", rec.Header().Get(HeaderAccessControlAllowOrigin))
 	})
 }
 
@@ -76,7 +68,7 @@ func TestMiddleware_Preflight(t *testing.T) {
 		WithAllowAllOrigins(),
 		WithAllowedMethods("GET", "POST"),
 	)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatal("next handler should not be called for preflight")
+		require.Fail(t, "next handler should not be called for preflight")
 	}))
 
 	rec := httptest.NewRecorder()
@@ -85,12 +77,8 @@ func TestMiddleware_Preflight(t *testing.T) {
 	req.Header.Set("Access-Control-Request-Method", "POST")
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("code = %d, want 204", rec.Code)
-	}
-	if rec.Header().Get(HeaderAccessControlAllowMethods) == "" {
-		t.Fatal("should set Allow-Methods")
-	}
+	require.Equal(t, http.StatusNoContent, rec.Code)
+	require.NotEqual(t, "", rec.Header().Get(HeaderAccessControlAllowMethods))
 }
 
 func TestMiddleware_Credentials(t *testing.T) {
@@ -104,13 +92,9 @@ func TestMiddleware_Credentials(t *testing.T) {
 	req.Header.Set("Origin", "https://example.com")
 	handler.ServeHTTP(rec, req)
 
-	if rec.Header().Get(HeaderAccessControlAllowCredentials) != "true" {
-		t.Fatal("should set Allow-Credentials")
-	}
+	require.Equal(t, "true", rec.Header().Get(HeaderAccessControlAllowCredentials))
 	// With credentials, origin should be echoed, not *
-	if rec.Header().Get(HeaderAccessControlAllowOrigin) != "https://example.com" {
-		t.Fatalf("Allow-Origin = %q", rec.Header().Get(HeaderAccessControlAllowOrigin))
-	}
+	require.Equal(t, "https://example.com", rec.Header().Get(HeaderAccessControlAllowOrigin))
 }
 
 func TestMiddleware_MaxAge(t *testing.T) {
@@ -125,9 +109,7 @@ func TestMiddleware_MaxAge(t *testing.T) {
 	req.Header.Set("Access-Control-Request-Method", "GET")
 	handler.ServeHTTP(rec, req)
 
-	if rec.Header().Get(HeaderAccessControlMaxAge) != "3600" {
-		t.Fatalf("Max-Age = %q", rec.Header().Get(HeaderAccessControlMaxAge))
-	}
+	require.Equal(t, "3600", rec.Header().Get(HeaderAccessControlMaxAge))
 }
 
 func TestMiddleware_ExposedHeaders(t *testing.T) {
@@ -141,28 +123,20 @@ func TestMiddleware_ExposedHeaders(t *testing.T) {
 	req.Header.Set("Origin", "https://example.com")
 	handler.ServeHTTP(rec, req)
 
-	if rec.Header().Get(HeaderAccessControlExposeHeaders) != "X-Custom" {
-		t.Fatalf("Expose-Headers = %q", rec.Header().Get(HeaderAccessControlExposeHeaders))
-	}
+	require.Equal(t, "X-Custom", rec.Header().Get(HeaderAccessControlExposeHeaders))
 }
 
 func TestMiddleware_Dependencies(t *testing.T) {
 	m := New()
-	if m.Dependencies() != nil {
-		t.Fatalf("Dependencies() = %v", m.Dependencies())
-	}
+	require.Nil(t, m.Dependencies())
 }
 
 func TestNew_AllowAllOriginsWithCredentials_Panics(t *testing.T) {
 	defer func() {
 		r := recover()
-		if r == nil {
-			t.Fatal("expected panic for AllowAllOrigins + AllowCredentials")
-		}
+		require.NotNil(t, r)
 		msg, ok := r.(string)
-		if !ok || !strings.Contains(msg, "insecure configuration") {
-			t.Fatalf("unexpected panic: %v", r)
-		}
+		require.True(t, ok && strings.Contains(msg, "insecure configuration"), "unexpected panic: %v", r)
 	}()
 
 	New(WithAllowAllOrigins(), WithAllowCredentials())
@@ -170,14 +144,10 @@ func TestNew_AllowAllOriginsWithCredentials_Panics(t *testing.T) {
 
 func TestNew_AllowAllOrigins_NoPanic(t *testing.T) {
 	m := New(WithAllowAllOrigins())
-	if m == nil {
-		t.Fatal("should create middleware")
-	}
+	require.NotNil(t, m)
 }
 
 func TestNew_AllowCredentials_NoPanic(t *testing.T) {
 	m := New(WithAllowedOrigins("https://example.com"), WithAllowCredentials())
-	if m == nil {
-		t.Fatal("should create middleware")
-	}
+	require.NotNil(t, m)
 }

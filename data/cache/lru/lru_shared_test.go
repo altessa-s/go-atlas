@@ -7,29 +7,25 @@ package lru
 import (
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestShardedCache_PutGet(t *testing.T) {
 	c, err := NewShardedCache[string, int](100)
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
 	c.Put("a", 1)
 	v, ok := c.Get("a")
-	if !ok || v != 1 {
-		t.Errorf("got (%d, %v), want (1, true)", v, ok)
-	}
+	require.True(t, ok)
+	require.Equal(t, 1, v)
 }
 
 func TestShardedCache_Remove(t *testing.T) {
 	c, _ := NewShardedCache[string, int](100)
 	c.Put("a", 1)
-	if !c.Remove("a") {
-		t.Error("Remove returned false")
-	}
-	if _, ok := c.Get("a"); ok {
-		t.Error("key still present after remove")
-	}
+	require.True(t, c.Remove("a"), "Remove returned false")
+	_, ok := c.Get("a")
+	require.False(t, ok, "key still present after remove")
 }
 
 func TestShardedCache_Len(t *testing.T) {
@@ -37,9 +33,7 @@ func TestShardedCache_Len(t *testing.T) {
 	c.Put("a", 1)
 	c.Put("b", 2)
 	c.Put("c", 3)
-	if c.Len() != 3 {
-		t.Errorf("Len = %d, want 3", c.Len())
-	}
+	require.Equal(t, 3, c.Len())
 }
 
 func TestShardedCache_Purge(t *testing.T) {
@@ -47,9 +41,7 @@ func TestShardedCache_Purge(t *testing.T) {
 	c.Put("a", 1)
 	c.Put("b", 2)
 	c.Purge()
-	if c.Len() != 0 {
-		t.Errorf("Len after Purge = %d, want 0", c.Len())
-	}
+	require.Equal(t, 0, c.Len())
 }
 
 func TestShardedCache_Concurrent(t *testing.T) {
@@ -66,7 +58,5 @@ func TestShardedCache_Concurrent(t *testing.T) {
 	}
 	wg.Wait()
 
-	if c.Len() == 0 {
-		t.Error("expected items in cache after concurrent puts")
-	}
+	require.NotEqual(t, 0, c.Len(), "expected items in cache after concurrent puts")
 }

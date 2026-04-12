@@ -7,6 +7,8 @@ package msg
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNewMessageWithMeta_CreatedTimeCanBeOverridden(t *testing.T) {
@@ -17,12 +19,8 @@ func TestNewMessageWithMeta_CreatedTimeCanBeOverridden(t *testing.T) {
 	})
 
 	got, ok := m.Metadata.Value(MetaKeyMessageCreatedTime)
-	if !ok {
-		t.Fatalf("missing %s", MetaKeyMessageCreatedTime)
-	}
-	if got != override {
-		t.Fatalf("created_time=%q, want %q", got, override)
-	}
+	require.True(t, ok, "missing %s", MetaKeyMessageCreatedTime)
+	require.Equal(t, override, got)
 }
 
 func TestNewMessageWithMeta_DeduplicatesByKeyPreservingFirst(t *testing.T) {
@@ -32,19 +30,13 @@ func TestNewMessageWithMeta_DeduplicatesByKeyPreservingFirst(t *testing.T) {
 	})
 
 	got, ok := m.Metadata.Value("k")
-	if !ok {
-		t.Fatalf("missing key k")
-	}
-	if got != "1" {
-		t.Fatalf("k=%q, want %q", got, "1")
-	}
+	require.True(t, ok, "missing key k")
+	require.Equal(t, "1", got)
 }
 
 func TestNewMessageWithMeta_DataIsCopied(t *testing.T) {
 	in := []byte("hello")
 	m := NewMessageWithMeta("t", in, nil)
 	in[0] = 'H'
-	if string(m.Data) != "hello" {
-		t.Fatalf("data=%q, want %q", string(m.Data), "hello")
-	}
+	require.Equal(t, "hello", string(m.Data))
 }

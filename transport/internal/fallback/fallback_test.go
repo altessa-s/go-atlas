@@ -4,7 +4,11 @@
 
 package fallback
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 func TestBehavior_String(t *testing.T) {
 	tests := []struct {
@@ -19,9 +23,8 @@ func TestBehavior_String(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
-			if got := tt.b.String(); got != tt.want {
-				t.Fatalf("String() = %q, want %q", got, tt.want)
-			}
+			got := tt.b.String()
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -37,9 +40,8 @@ func TestBehavior_ShouldAllow(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.b), func(t *testing.T) {
-			if got := tt.b.ShouldAllow(); got != tt.want {
-				t.Fatalf("ShouldAllow() = %v, want %v", got, tt.want)
-			}
+			got := tt.b.ShouldAllow()
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -55,9 +57,8 @@ func TestBehavior_ShouldDeny(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.b), func(t *testing.T) {
-			if got := tt.b.ShouldDeny(); got != tt.want {
-				t.Fatalf("ShouldDeny() = %v, want %v", got, tt.want)
-			}
+			got := tt.b.ShouldDeny()
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -73,9 +74,8 @@ func TestBehavior_ShouldReturnError(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.b), func(t *testing.T) {
-			if got := tt.b.ShouldReturnError(); got != tt.want {
-				t.Fatalf("ShouldReturnError() = %v, want %v", got, tt.want)
-			}
+			got := tt.b.ShouldReturnError()
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -93,9 +93,8 @@ func TestBehavior_IsValid(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(string(tt.b), func(t *testing.T) {
-			if got := tt.b.IsValid(); got != tt.want {
-				t.Fatalf("IsValid() = %v, want %v", got, tt.want)
-			}
+			got := tt.b.IsValid()
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -111,9 +110,8 @@ func TestBehavior_MustValidate_Valid(t *testing.T) {
 
 func TestBehavior_MustValidate_Invalid(t *testing.T) {
 	defer func() {
-		if r := recover(); r == nil {
-			t.Fatal("expected panic for invalid behavior")
-		}
+		r := recover()
+		require.NotNil(t, r)
 	}()
 	Behavior("bad").MustValidate()
 }

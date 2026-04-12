@@ -7,6 +7,8 @@ package userpass_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/altessa-s/go-atlas/security/vault/auth/userpass"
 )
 
@@ -18,12 +20,10 @@ func FuzzNew(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, username, password string) {
 		m := userpass.New(username, password)
-		if m == nil {
-			t.Fatal("New() returned nil")
+		if !assert.NotNil(t, m) {
+			return
 		}
-		if m.Name() != "userpass" {
-			t.Errorf("Name() = %q, want %q", m.Name(), "userpass")
-		}
+		assert.Equal(t, "userpass", m.Name())
 		_ = m.Shutdown()
 	})
 }

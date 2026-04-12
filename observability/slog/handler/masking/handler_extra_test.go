@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/observability/slog/handler/masking"
 )
 
@@ -23,9 +25,7 @@ func TestNewHandler_WithField(t *testing.T) {
 	logger.Info("test", "password", "secret123", "name", "alice")
 
 	output := buf.String()
-	if output == "" {
-		t.Fatal("handler produced no output")
-	}
+	require.NotEmpty(t, output)
 }
 
 func TestNewHandler_WithDefaults(t *testing.T) {
@@ -37,9 +37,7 @@ func TestNewHandler_WithDefaults(t *testing.T) {
 	logger.Info("test", "password", "secret", "api_key", "key123")
 
 	output := buf.String()
-	if output == "" {
-		t.Fatal("handler produced no output")
-	}
+	require.NotEmpty(t, output)
 }
 
 func TestHandler_Enabled(t *testing.T) {
@@ -47,12 +45,8 @@ func TestHandler_Enabled(t *testing.T) {
 	inner := slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn})
 	h := masking.NewHandler(inner)
 
-	if h.Enabled(t.Context(), slog.LevelInfo) {
-		t.Error("Enabled(Info) should be false when inner handler is Warn level")
-	}
-	if !h.Enabled(t.Context(), slog.LevelWarn) {
-		t.Error("Enabled(Warn) should be true")
-	}
+	require.False(t, h.Enabled(t.Context(), slog.LevelInfo), "Enabled(Info) should be false when inner handler is Warn level")
+	require.True(t, h.Enabled(t.Context(), slog.LevelWarn), "Enabled(Warn) should be true")
 }
 
 func TestHandler_WithAttrs(t *testing.T) {
@@ -61,9 +55,7 @@ func TestHandler_WithAttrs(t *testing.T) {
 	h := masking.NewHandler(inner, masking.WithField("secret", masking.FullMask()))
 
 	h2 := h.WithAttrs([]slog.Attr{slog.String("extra", "val")})
-	if h2 == nil {
-		t.Fatal("WithAttrs() returned nil")
-	}
+	require.NotNil(t, h2)
 }
 
 func TestHandler_WithGroup(t *testing.T) {
@@ -72,7 +64,5 @@ func TestHandler_WithGroup(t *testing.T) {
 	h := masking.NewHandler(inner)
 
 	h2 := h.WithGroup("mygroup")
-	if h2 == nil {
-		t.Fatal("WithGroup() returned nil")
-	}
+	require.NotNil(t, h2)
 }

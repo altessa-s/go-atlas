@@ -4,7 +4,11 @@
 
 package recovery
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func FuzzPanicError_Error(f *testing.F) {
 	f.Add("panic message")
@@ -14,9 +18,7 @@ func FuzzPanicError_Error(f *testing.F) {
 	f.Fuzz(func(t *testing.T, msg string) {
 		pe := &PanicError{Panic: msg}
 		got := pe.Error()
-		if got == "" {
-			t.Fatal("Error() returned empty string")
-		}
+		assert.NotEqual(t, "", got)
 	})
 }
 
@@ -28,8 +30,6 @@ func FuzzShortname(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, name string) {
 		result := shortname(name)
-		if len(result) > len(name) {
-			t.Fatalf("shortname result longer than input")
-		}
+		assert.LessOrEqual(t, len(result), len(name), "shortname result longer than input")
 	})
 }

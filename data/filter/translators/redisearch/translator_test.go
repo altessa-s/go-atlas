@@ -5,8 +5,9 @@
 package redisearch
 
 import (
-	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/filter"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
@@ -77,12 +78,8 @@ func TestTranslator_NumericComparisons(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			node := testhelpers.MustParseFilter(t, tt.expr)
 			got, err := trans.Translate(node)
-			if err != nil {
-				t.Fatalf("Translate() error = %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Translate() = %q, want %q", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -121,12 +118,8 @@ func TestTranslator_TagComparisons(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			node := testhelpers.MustParseFilter(t, tt.expr)
 			got, err := trans.Translate(node)
-			if err != nil {
-				t.Fatalf("Translate() error = %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Translate() = %q, want %q", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -165,12 +158,8 @@ func TestTranslator_LogicalOperators(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			node := testhelpers.MustParseFilter(t, tt.expr)
 			got, err := trans.Translate(node)
-			if err != nil {
-				t.Fatalf("Translate() error = %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Translate() = %q, want %q", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -199,12 +188,8 @@ func TestTranslator_InOperator(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			node := testhelpers.MustParseFilter(t, tt.expr)
 			got, err := trans.Translate(node)
-			if err != nil {
-				t.Fatalf("Translate() error = %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Translate() = %q, want %q", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -233,12 +218,8 @@ func TestTranslator_StringFunctions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			node := testhelpers.MustParseFilter(t, tt.expr)
 			got, err := trans.Translate(node)
-			if err != nil {
-				t.Fatalf("Translate() error = %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Translate() = %q, want %q", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -259,9 +240,7 @@ func TestTranslator_UnsupportedOperations(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			node := testhelpers.MustParseFilter(t, tt.expr)
 			_, err := trans.Translate(node)
-			if !errors.Is(err, filter.ErrUnsupportedOperation) {
-				t.Errorf("Translate(%q) error = %v, want %v", tt.expr, err, filter.ErrUnsupportedOperation)
-			}
+			require.ErrorIs(t, err, filter.ErrUnsupportedOperation)
 		})
 	}
 }
@@ -270,12 +249,8 @@ func TestTranslator_NilNode(t *testing.T) {
 	trans := NewTranslator(testSchema)
 
 	got, err := trans.Translate(nil)
-	if err != nil {
-		t.Fatalf("Translate(nil) error = %v", err)
-	}
-	if got != "*" {
-		t.Errorf("Translate(nil) = %q, want %q", got, "*")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "*", got)
 }
 
 func TestTranslator_ComplexExpressions(t *testing.T) {
@@ -302,12 +277,8 @@ func TestTranslator_ComplexExpressions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			node := testhelpers.MustParseFilter(t, tt.expr)
 			got, err := trans.Translate(node)
-			if err != nil {
-				t.Fatalf("Translate() error = %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Translate() = %q, want %q", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -318,17 +289,13 @@ func TestTranslator_WithAllowedFields(t *testing.T) {
 	t.Run("allowed field", func(t *testing.T) {
 		node := testhelpers.MustParseFilter(t, `status == 1`)
 		_, err := trans.Translate(node)
-		if err != nil {
-			t.Errorf("Translate() error = %v for allowed field", err)
-		}
+		require.NoError(t, err)
 	})
 
 	t.Run("disallowed field", func(t *testing.T) {
 		node := testhelpers.MustParseFilter(t, `name == "test"`)
 		_, err := trans.Translate(node)
-		if !errors.Is(err, filter.ErrFieldNotAllowed) {
-			t.Errorf("Translate() error = %v, want %v", err, filter.ErrFieldNotAllowed)
-		}
+		require.ErrorIs(t, err, filter.ErrFieldNotAllowed)
 	})
 }
 
@@ -344,13 +311,8 @@ func TestTranslator_WithFieldMapping(t *testing.T) {
 
 	node := testhelpers.MustParseFilter(t, `status == 1`)
 	got, err := trans.Translate(node)
-	if err != nil {
-		t.Fatalf("Translate() error = %v", err)
-	}
-	want := `@mapped_status:[1 1]`
-	if got != want {
-		t.Errorf("Translate() = %q, want %q", got, want)
-	}
+	require.NoError(t, err)
+	require.Equal(t, `@mapped_status:[1 1]`, got)
 }
 
 func TestTranslator_WithMaxDepth(t *testing.T) {
@@ -359,17 +321,13 @@ func TestTranslator_WithMaxDepth(t *testing.T) {
 	t.Run("within depth", func(t *testing.T) {
 		node := testhelpers.MustParseFilter(t, `status == 1 && priority >= 3`)
 		_, err := trans.Translate(node)
-		if err != nil {
-			t.Errorf("Translate() error = %v for valid depth", err)
-		}
+		require.NoError(t, err)
 	})
 
 	t.Run("exceeds depth", func(t *testing.T) {
 		node := testhelpers.MustParseFilter(t, `(status == 1 && priority >= 3) && (failures == 0 && age > 10)`)
 		_, err := trans.Translate(node)
-		if !errors.Is(err, filter.ErrMaxDepthExceeded) {
-			t.Errorf("Translate() error = %v, want %v", err, filter.ErrMaxDepthExceeded)
-		}
+		require.ErrorIs(t, err, filter.ErrMaxDepthExceeded)
 	})
 }
 
@@ -404,12 +362,8 @@ func TestTranslator_TagEscaping(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			node := testhelpers.MustParseFilter(t, tt.expr)
 			got, err := trans.Translate(node)
-			if err != nil {
-				t.Fatalf("Translate() error = %v", err)
-			}
-			if got != tt.want {
-				t.Errorf("Translate() = %q, want %q", got, tt.want)
-			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -421,13 +375,7 @@ func TestTranslator_VisitorInterface(t *testing.T) {
 
 func TestNewTranslator_DefaultConfig(t *testing.T) {
 	trans := NewTranslator(testSchema)
-	if trans == nil {
-		t.Fatal("NewTranslator() returned nil")
-	}
-	if trans.config == nil {
-		t.Fatal("NewTranslator() returned translator with nil config")
-	}
-	if trans.config.MaxDepth() != filter.DefaultMaxDepth {
-		t.Errorf("MaxDepth = %d, want %d", trans.config.MaxDepth(), filter.DefaultMaxDepth)
-	}
+	require.NotNil(t, trans)
+	require.NotNil(t, trans.config)
+	require.Equal(t, filter.DefaultMaxDepth, trans.config.MaxDepth())
 }

@@ -12,31 +12,27 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestNew(t *testing.T) {
 	w := New()
-	if w == nil {
-		t.Fatal("New() returned nil")
-	}
+	require.NotNil(t, w)
 }
 
 func TestWriter_Write_NilResponseWriter(t *testing.T) {
 	w := New()
 	req := httptest.NewRequest("GET", "/", nil)
 	err := w.Write(nil, req, "data")
-	if !errors.Is(err, ErrNilResponseWriter) {
-		t.Fatalf("expected ErrNilResponseWriter, got %v", err)
-	}
+	require.True(t, errors.Is(err, ErrNilResponseWriter))
 }
 
 func TestWriter_Write_NilRequest(t *testing.T) {
 	w := New()
 	rec := httptest.NewRecorder()
 	err := w.Write(rec, nil, "data")
-	if !errors.Is(err, ErrNilRequest) {
-		t.Fatalf("expected ErrNilRequest, got %v", err)
-	}
+	require.True(t, errors.Is(err, ErrNilRequest))
 }
 
 func TestWriter_Write_JSON(t *testing.T) {
@@ -46,23 +42,15 @@ func TestWriter_Write_JSON(t *testing.T) {
 	req.Header.Set("Accept", "application/json")
 
 	err := w.Write(rec, req, map[string]string{"key": "value"})
-	if err != nil {
-		t.Fatalf("Write() error = %v", err)
-	}
+	require.NoError(t, err)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
-	}
+	require.Equal(t, http.StatusOK, rec.Code)
 
 	ct := rec.Header().Get("Content-Type")
-	if !strings.Contains(ct, "application/json") {
-		t.Fatalf("Content-Type = %q", ct)
-	}
+	require.True(t, strings.Contains(ct, "application/json"))
 
 	var resp Response
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal error = %v", err)
-	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 }
 
 func TestWriter_Write_DefaultCodec(t *testing.T) {
@@ -72,30 +60,22 @@ func TestWriter_Write_DefaultCodec(t *testing.T) {
 	// No Accept header - should use default codec
 
 	err := w.Write(rec, req, "hello")
-	if err != nil {
-		t.Fatalf("Write() error = %v", err)
-	}
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
-	}
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestWriter_Read_NilRequest(t *testing.T) {
 	w := New()
 	var out struct{}
 	err := w.Read(nil, &out)
-	if !errors.Is(err, ErrNilRequest) {
-		t.Fatalf("expected ErrNilRequest, got %v", err)
-	}
+	require.True(t, errors.Is(err, ErrNilRequest))
 }
 
 func TestWriter_Read_NilOutput(t *testing.T) {
 	w := New()
 	req := httptest.NewRequest("POST", "/", strings.NewReader("{}"))
 	err := w.Read(req, nil)
-	if !errors.Is(err, ErrNilOutput) {
-		t.Fatalf("expected ErrNilOutput, got %v", err)
-	}
+	require.True(t, errors.Is(err, ErrNilOutput))
 }
 
 func TestWriter_Read_JSON(t *testing.T) {
@@ -106,12 +86,8 @@ func TestWriter_Read_JSON(t *testing.T) {
 
 	var out map[string]string
 	err := w.Read(req, &out)
-	if err != nil {
-		t.Fatalf("Read() error = %v", err)
-	}
-	if out["name"] != "test" {
-		t.Fatalf("name = %q", out["name"])
-	}
+	require.NoError(t, err)
+	require.Equal(t, "test", out["name"])
 }
 
 func TestWriter_Read_DefaultContentType(t *testing.T) {
@@ -122,9 +98,7 @@ func TestWriter_Read_DefaultContentType(t *testing.T) {
 
 	var out map[string]string
 	err := w.Read(req, &out)
-	if err != nil {
-		t.Fatalf("Read() error = %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestWriter_Read_UnsupportedContentType(t *testing.T) {
@@ -134,9 +108,7 @@ func TestWriter_Read_UnsupportedContentType(t *testing.T) {
 
 	var out map[string]string
 	err := w.Read(req, &out)
-	if err == nil {
-		t.Fatal("expected error for unsupported content type")
-	}
+	require.Error(t, err)
 }
 
 func TestWriter_WriteError(t *testing.T) {
@@ -145,12 +117,8 @@ func TestWriter_WriteError(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 
 	err := w.WriteError(rec, req, errors.New("something failed"), http.StatusBadRequest)
-	if err != nil {
-		t.Fatalf("WriteError() error = %v", err)
-	}
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d", rec.Code)
-	}
+	require.NoError(t, err)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 func TestWriter_WriteError_DefaultStatus(t *testing.T) {
@@ -159,12 +127,8 @@ func TestWriter_WriteError_DefaultStatus(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 
 	err := w.WriteError(rec, req, errors.New("fail"))
-	if err != nil {
-		t.Fatalf("WriteError() error = %v", err)
-	}
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("status = %d, want 500", rec.Code)
-	}
+	require.NoError(t, err)
+	require.Equal(t, http.StatusInternalServerError, rec.Code)
 }
 
 func TestWriter_Read_MaxBodySize(t *testing.T) {
@@ -174,9 +138,7 @@ func TestWriter_Read_MaxBodySize(t *testing.T) {
 
 	var out map[string]string
 	err := w.Read(req, &out)
-	if err == nil {
-		t.Fatal("expected body size limit error")
-	}
+	require.Error(t, err)
 }
 
 func TestNewReadWriter(t *testing.T) {
@@ -185,15 +147,9 @@ func TestNewReadWriter(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 
 	rw := NewReadWriter(rec, req, w)
-	if rw == nil {
-		t.Fatal("NewReadWriter returned nil")
-	}
-	if rw.Request() != req {
-		t.Fatal("Request() mismatch")
-	}
-	if rw.ResponseWriter() != rec {
-		t.Fatal("ResponseWriter() mismatch")
-	}
+	require.NotNil(t, rw)
+	require.Equal(t, req, rw.Request())
+	require.Equal(t, rec, rw.ResponseWriter())
 	rw.Release()
 }
 
@@ -203,9 +159,7 @@ func TestWriter_NewReadWriter(t *testing.T) {
 	req := httptest.NewRequest("GET", "/", nil)
 
 	rw := w.NewReadWriter(rec, req)
-	if rw == nil {
-		t.Fatal("returned nil")
-	}
+	require.NotNil(t, rw)
 	rw.Release()
 }
 
@@ -218,9 +172,7 @@ func TestReadWriter_Write(t *testing.T) {
 	defer rw.Release()
 
 	err := rw.Write(map[string]string{"key": "value"})
-	if err != nil {
-		t.Fatalf("Write() error = %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestReadWriter_Read(t *testing.T) {
@@ -235,9 +187,7 @@ func TestReadWriter_Read(t *testing.T) {
 
 	var out map[string]string
 	err := rw.Read(&out)
-	if err != nil {
-		t.Fatalf("Read() error = %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestReadWriter_WriteError(t *testing.T) {
@@ -249,9 +199,7 @@ func TestReadWriter_WriteError(t *testing.T) {
 	defer rw.Release()
 
 	err := rw.WriteError(errors.New("fail"), http.StatusBadRequest)
-	if err != nil {
-		t.Fatalf("WriteError() error = %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestReadWriter_Release_ClearsFields(t *testing.T) {
@@ -272,9 +220,7 @@ func TestWriter_Write_WithAcceptWildcard(t *testing.T) {
 	req.Header.Set("Accept", "*/*")
 
 	err := w.Write(rec, req, "data")
-	if err != nil {
-		t.Fatalf("Write() error = %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestWriter_Read_EmptyBody(t *testing.T) {
@@ -286,7 +232,5 @@ func TestWriter_Read_EmptyBody(t *testing.T) {
 	var out map[string]string
 	err := w.Read(req, &out)
 	// Empty body should produce an unmarshal error
-	if err == nil {
-		t.Fatal("expected error for empty body")
-	}
+	require.Error(t, err)
 }

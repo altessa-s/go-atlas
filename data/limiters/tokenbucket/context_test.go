@@ -7,6 +7,8 @@ package tokenbucket_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/limiters/tokenbucket"
 )
 
@@ -14,24 +16,18 @@ func TestContextWithClientIP(t *testing.T) {
 	t.Run("roundtrip", func(t *testing.T) {
 		ctx := tokenbucket.ContextWithClientIP(t.Context(), "1.2.3.4")
 		got := tokenbucket.ExtractClientIp(ctx)
-		if got != "1.2.3.4" {
-			t.Errorf("ExtractClientIp() = %q, want %q", got, "1.2.3.4")
-		}
+		require.Equal(t, "1.2.3.4", got)
 	})
 
 	t.Run("empty context", func(t *testing.T) {
 		got := tokenbucket.ExtractClientIp(t.Context())
-		if got != "" {
-			t.Errorf("ExtractClientIp() = %q, want empty", got)
-		}
+		require.Equal(t, "", got)
 	})
 
 	t.Run("empty ip", func(t *testing.T) {
 		ctx := tokenbucket.ContextWithClientIP(t.Context(), "")
 		got := tokenbucket.ExtractClientIp(ctx)
-		if got != "" {
-			t.Errorf("ExtractClientIp() = %q, want empty", got)
-		}
+		require.Equal(t, "", got)
 	})
 }
 
@@ -39,23 +35,17 @@ func TestContextWithAuthToken(t *testing.T) {
 	t.Run("roundtrip", func(t *testing.T) {
 		ctx := tokenbucket.ContextWithAuthToken(t.Context(), "my-token")
 		got := tokenbucket.ExtractAuthToken(ctx)
-		if got != "my-token" {
-			t.Errorf("ExtractAuthToken() = %q, want %q", got, "my-token")
-		}
+		require.Equal(t, "my-token", got)
 	})
 
 	t.Run("empty context", func(t *testing.T) {
 		got := tokenbucket.ExtractAuthToken(t.Context())
-		if got != "" {
-			t.Errorf("ExtractAuthToken() = %q, want empty", got)
-		}
+		require.Equal(t, "", got)
 	})
 
 	t.Run("empty token", func(t *testing.T) {
 		ctx := tokenbucket.ContextWithAuthToken(t.Context(), "")
 		got := tokenbucket.ExtractAuthToken(ctx)
-		if got != "" {
-			t.Errorf("ExtractAuthToken() = %q, want empty", got)
-		}
+		require.Equal(t, "", got)
 	})
 }

@@ -7,6 +7,8 @@ package sampler
 import (
 	"math"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func FuzzNewTraceIDRatio(f *testing.F) {
@@ -21,19 +23,13 @@ func FuzzNewTraceIDRatio(f *testing.F) {
 			return
 		}
 		s := NewTraceIDRatio(ratio)
-		if s == nil {
-			t.Fatal("NewTraceIDRatio returned nil")
-		}
-		if s.Description() == "" {
-			t.Error("empty description")
-		}
+		assert.NotNil(t, s, "NewTraceIDRatio returned nil")
+		assert.NotEmpty(t, s.Description(), "empty description")
 
 		// Should not panic
 		result := s.ShouldSample(SamplingParameters{
 			TraceID: [16]byte{1, 2, 3, 4, 5, 6, 7, 8},
 		})
-		if result.Decision != Drop && result.Decision != RecordAndSample {
-			t.Errorf("unexpected decision: %v", result.Decision)
-		}
+		assert.True(t, result.Decision == Drop || result.Decision == RecordAndSample, "unexpected decision: %v", result.Decision)
 	})
 }

@@ -7,6 +7,8 @@ package health
 import (
 	"fmt"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestServingStatus_String(t *testing.T) {
@@ -23,27 +25,15 @@ func TestServingStatus_String(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {
-			if got := tt.status.String(); got != tt.want {
-				t.Errorf("String() = %q, want %q", got, tt.want)
-			}
+			require.Equal(t, tt.want, tt.status.String())
 		})
 	}
 }
 
 func TestServingStatus_Values(t *testing.T) {
-	if StatusUnknown != 0 {
-		t.Error("StatusUnknown should be 0")
-	}
-	if StatusServing != 1 {
-		t.Error("StatusServing should be 1")
-	}
-	if StatusNotServing != 2 {
-		t.Error("StatusNotServing should be 2")
-	}
-	if StatusServiceUnknown != 3 {
-		t.Error("StatusServiceUnknown should be 3")
-	}
-	if StatusDegraded != 4 {
-		t.Error("StatusDegraded should be 4")
-	}
+	require.Equal(t, ServingStatus(0), StatusUnknown)
+	require.Equal(t, ServingStatus(1), StatusServing)
+	require.Equal(t, ServingStatus(2), StatusNotServing)
+	require.Equal(t, ServingStatus(3), StatusServiceUnknown)
+	require.Equal(t, ServingStatus(4), StatusDegraded)
 }

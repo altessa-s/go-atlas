@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestPanicRecover_NoPanic(t *testing.T) {
@@ -20,15 +22,12 @@ func TestPanicRecover_NoPanic(t *testing.T) {
 	req := httptest.NewRequest("GET", "/test", nil)
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("code = %d", rec.Code)
-	}
+	require.Equal(t, http.StatusOK, rec.Code)
 }
 
 func TestPanicRecover_Dependencies(t *testing.T) {
 	m := &middleware{}
 	deps := m.Dependencies()
-	if len(deps) != 1 || deps[0] != "requestid" {
-		t.Fatalf("Dependencies() = %v", deps)
-	}
+	require.Len(t, deps, 1)
+	require.Equal(t, "requestid", deps[0])
 }

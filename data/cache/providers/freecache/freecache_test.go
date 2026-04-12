@@ -5,10 +5,11 @@
 package freecache_test
 
 import (
-	"errors"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/cache/providers"
 	"github.com/altessa-s/go-atlas/data/cache/providers/freecache"
@@ -16,16 +17,12 @@ import (
 
 func TestNew_Default(t *testing.T) {
 	p := freecache.New()
-	if p == nil {
-		t.Fatal("expected provider to be non-nil")
-	}
+	require.NotNil(t, p)
 }
 
 func TestNew_WithMaxSize(t *testing.T) {
 	p := freecache.New(freecache.WithMaxSize(1024 * 1024))
-	if p == nil {
-		t.Fatal("expected provider to be non-nil")
-	}
+	require.NotNil(t, p)
 }
 
 func TestProvider_SaveAndGet(t *testing.T) {
@@ -36,18 +33,11 @@ func TestProvider_SaveAndGet(t *testing.T) {
 	value := []byte("test-value")
 
 	err := p.Save(ctx, key, value, 10*time.Second)
-	if err != nil {
-		t.Fatalf("failed to save: %v", err)
-	}
+	require.NoError(t, err)
 
 	got, err := p.Get(ctx, key)
-	if err != nil {
-		t.Fatalf("failed to get: %v", err)
-	}
-
-	if string(got) != string(value) {
-		t.Errorf("expected %q, got %q", value, got)
-	}
+	require.NoError(t, err)
+	require.Equal(t, string(value), string(got))
 }
 
 func TestProvider_Get_Missing(t *testing.T) {
@@ -55,13 +45,7 @@ func TestProvider_Get_Missing(t *testing.T) {
 	ctx := t.Context()
 
 	_, err := p.Get(ctx, "nonexistent-key")
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-
-	if !errors.Is(err, providers.ErrMissing) {
-		t.Errorf("expected providers.ErrMissing, got %v", err)
-	}
+	require.ErrorIs(t, err, providers.ErrMissing)
 }
 
 func TestProvider_Exists_True(t *testing.T) {
@@ -72,18 +56,11 @@ func TestProvider_Exists_True(t *testing.T) {
 	value := []byte("test-value")
 
 	err := p.Save(ctx, key, value, 10*time.Second)
-	if err != nil {
-		t.Fatalf("failed to save: %v", err)
-	}
+	require.NoError(t, err)
 
 	exists, err := p.Exists(ctx, key)
-	if err != nil {
-		t.Fatalf("failed to check exists: %v", err)
-	}
-
-	if !exists {
-		t.Error("expected key to exist")
-	}
+	require.NoError(t, err)
+	require.True(t, exists, "expected key to exist")
 }
 
 func TestProvider_Exists_False(t *testing.T) {
@@ -91,13 +68,8 @@ func TestProvider_Exists_False(t *testing.T) {
 	ctx := t.Context()
 
 	exists, err := p.Exists(ctx, "nonexistent-key")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	if exists {
-		t.Error("expected key to not exist")
-	}
+	require.NoError(t, err)
+	require.False(t, exists, "expected key to not exist")
 }
 
 func TestProvider_Delete(t *testing.T) {
@@ -108,19 +80,13 @@ func TestProvider_Delete(t *testing.T) {
 	value := []byte("test-value")
 
 	err := p.Save(ctx, key, value, 10*time.Second)
-	if err != nil {
-		t.Fatalf("failed to save: %v", err)
-	}
+	require.NoError(t, err)
 
 	err = p.Delete(ctx, key)
-	if err != nil {
-		t.Fatalf("failed to delete: %v", err)
-	}
+	require.NoError(t, err)
 
 	_, err = p.Get(ctx, key)
-	if !errors.Is(err, providers.ErrMissing) {
-		t.Errorf("expected providers.ErrMissing after delete, got %v", err)
-	}
+	require.ErrorIs(t, err, providers.ErrMissing)
 }
 
 func TestProvider_DeleteMany(t *testing.T) {
@@ -132,21 +98,15 @@ func TestProvider_DeleteMany(t *testing.T) {
 
 	for _, key := range keys {
 		err := p.Save(ctx, key, value, 10*time.Second)
-		if err != nil {
-			t.Fatalf("failed to save key %s: %v", key, err)
-		}
+		require.NoError(t, err)
 	}
 
 	err := p.DeleteMany(ctx, keys...)
-	if err != nil {
-		t.Fatalf("failed to delete many: %v", err)
-	}
+	require.NoError(t, err)
 
 	for _, key := range keys {
 		_, err := p.Get(ctx, key)
-		if !errors.Is(err, providers.ErrMissing) {
-			t.Errorf("expected providers.ErrMissing for key %s after delete, got %v", key, err)
-		}
+		require.ErrorIs(t, err, providers.ErrMissing)
 	}
 }
 
@@ -158,9 +118,7 @@ func TestProvider_SaveWithTTL(t *testing.T) {
 	value := []byte("test-value")
 
 	err := p.Save(ctx, key, value, 1*time.Second)
-	if err != nil {
-		t.Fatalf("failed to save with TTL: %v", err)
-	}
+	require.NoError(t, err)
 }
 
 func TestProvider_Concurrent(t *testing.T) {

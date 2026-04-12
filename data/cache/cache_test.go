@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/data/cache/providers"
 	"github.com/altessa-s/go-atlas/data/cache/providers/noop"
 )
@@ -73,12 +75,8 @@ func (m *mockProvider) Exists(_ context.Context, key string) (bool, error) {
 func TestNew(t *testing.T) {
 	p := newMockProvider()
 	c := New(p)
-	if c == nil {
-		t.Fatal("New returned nil")
-	}
-	if c.provider != p {
-		t.Error("provider not set")
-	}
+	require.NotNil(t, c, "New returned nil")
+	require.Equal(t, p, c.provider, "provider not set")
 }
 
 func TestNew_NilProviderPanics(t *testing.T) {
@@ -92,12 +90,9 @@ func TestNew_NilProviderPanics(t *testing.T) {
 
 func TestNewNoop(t *testing.T) {
 	c := NewNoop()
-	if c == nil {
-		t.Fatal("NewNoop returned nil")
-	}
-	if _, ok := c.provider.(*noop.Provider); !ok {
-		t.Error("expected noop provider")
-	}
+	require.NotNil(t, c, "NewNoop returned nil")
+	_, ok := c.provider.(*noop.Provider)
+	require.True(t, ok, "expected noop provider")
 }
 
 func TestSave(t *testing.T) {
@@ -106,12 +101,9 @@ func TestSave(t *testing.T) {
 	ctx := t.Context()
 
 	err := c.Save(ctx, "key1", "hello")
-	if err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-	if _, ok := p.store["key1"]; !ok {
-		t.Error("key not stored in provider")
-	}
+	require.NoError(t, err)
+	_, ok := p.store["key1"]
+	require.True(t, ok, "key not stored in provider")
 }
 
 func TestGet_Hit(t *testing.T) {
@@ -123,12 +115,8 @@ func TestGet_Hit(t *testing.T) {
 
 	var result string
 	err := c.Get(ctx, "key1", &result)
-	if err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if result != "hello" {
-		t.Errorf("got %q, want %q", result, "hello")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "hello", result)
 }
 
 func TestGet_Miss(t *testing.T) {
@@ -138,9 +126,7 @@ func TestGet_Miss(t *testing.T) {
 
 	var result string
 	err := c.Get(ctx, "missing", &result)
-	if !errors.Is(err, ErrMissing) {
-		t.Errorf("expected ErrMissing, got %v", err)
-	}
+	require.ErrorIs(t, err, ErrMissing)
 }
 
 func TestExists(t *testing.T) {
@@ -151,20 +137,12 @@ func TestExists(t *testing.T) {
 	_ = c.Save(ctx, "key1", "hello")
 
 	exists, err := c.Exists(ctx, "key1")
-	if err != nil {
-		t.Fatalf("Exists: %v", err)
-	}
-	if !exists {
-		t.Error("expected true")
-	}
+	require.NoError(t, err)
+	require.True(t, exists, "expected true")
 
 	exists, err = c.Exists(ctx, "missing")
-	if err != nil {
-		t.Fatalf("Exists: %v", err)
-	}
-	if exists {
-		t.Error("expected false")
-	}
+	require.NoError(t, err)
+	require.False(t, exists, "expected false")
 }
 
 func TestDelete(t *testing.T) {
@@ -174,15 +152,11 @@ func TestDelete(t *testing.T) {
 
 	_ = c.Save(ctx, "key1", "hello")
 	err := c.Delete(ctx, "key1")
-	if err != nil {
-		t.Fatalf("Delete: %v", err)
-	}
+	require.NoError(t, err)
 
 	var result string
 	err = c.Get(ctx, "key1", &result)
-	if !errors.Is(err, ErrMissing) {
-		t.Errorf("expected ErrMissing after delete, got %v", err)
-	}
+	require.ErrorIs(t, err, ErrMissing)
 }
 
 func TestDeleteMany(t *testing.T) {
@@ -194,13 +168,8 @@ func TestDeleteMany(t *testing.T) {
 	_ = c.Save(ctx, "k2", "b")
 
 	err := c.DeleteMany(ctx, "k1", "k2")
-	if err != nil {
-		t.Fatalf("DeleteMany: %v", err)
-	}
-
-	if len(p.store) != 0 {
-		t.Errorf("expected empty store, got %d items", len(p.store))
-	}
+	require.NoError(t, err)
+	require.Len(t, p.store, 0)
 }
 
 func TestGetWithFallback_CacheHit(t *testing.T) {
@@ -215,12 +184,8 @@ func TestGetWithFallback_CacheHit(t *testing.T) {
 		t.Error("fallback should not be called on cache hit")
 		return "fallback", TTLUseDefault, nil
 	})
-	if err != nil {
-		t.Fatalf("GetWithFallback: %v", err)
-	}
-	if result != "cached" {
-		t.Errorf("got %q, want %q", result, "cached")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "cached", result)
 }
 
 func TestGetWithFallback_CacheMiss_FallbackHit(t *testing.T) {
@@ -232,12 +197,8 @@ func TestGetWithFallback_CacheMiss_FallbackHit(t *testing.T) {
 	err := c.GetWithFallback(ctx, "key1", &result, func() (any, time.Duration, error) {
 		return "from-fallback", TTLUseDefault, nil
 	})
-	if err != nil {
-		t.Fatalf("GetWithFallback: %v", err)
-	}
-	if result != "from-fallback" {
-		t.Errorf("got %q, want %q", result, "from-fallback")
-	}
+	require.NoError(t, err)
+	require.Equal(t, "from-fallback", result)
 }
 
 func TestGetWithFallback_FallbackError(t *testing.T) {
@@ -250,9 +211,7 @@ func TestGetWithFallback_FallbackError(t *testing.T) {
 	err := c.GetWithFallback(ctx, "key1", &result, func() (any, time.Duration, error) {
 		return nil, TTLUseDefault, wantErr
 	})
-	if !errors.Is(err, wantErr) {
-		t.Errorf("got %v, want %v", err, wantErr)
-	}
+	require.ErrorIs(t, err, wantErr)
 }
 
 func TestGetWithFallback_Singleflight(t *testing.T) {
@@ -272,13 +231,10 @@ func TestGetWithFallback_Singleflight(t *testing.T) {
 	_ = c.GetWithFallback(ctx, "sf-key", &r1, fallback)
 	_ = c.GetWithFallback(ctx, "sf-key", &r2, fallback)
 
-	if r1 != "value" || r2 != "value" {
-		t.Errorf("unexpected results: %q, %q", r1, r2)
-	}
+	require.Equal(t, "value", r1)
+	require.Equal(t, "value", r2)
 	// The first call triggers fallback, second gets cache hit.
-	if calls != 1 {
-		t.Errorf("fallback called %d times, want 1", calls)
-	}
+	require.Equal(t, 1, calls, "fallback called unexpected number of times")
 }
 
 func TestEmptyKeyPanics(t *testing.T) {
@@ -329,23 +285,16 @@ func TestGetWithFallback_NegativeCaching_Disabled(t *testing.T) {
 
 	var result string
 	err := c.GetWithFallback(ctx, "missing", &result, fallback)
-	if !errors.Is(err, ErrMissing) {
-		t.Fatalf("expected ErrMissing, got %v", err)
-	}
+	require.ErrorIs(t, err, ErrMissing)
 
 	// No sentinel should be stored.
-	if _, ok := p.store["missing"]; ok {
-		t.Error("sentinel should not be stored when negative caching is disabled")
-	}
+	_, ok := p.store["missing"]
+	require.False(t, ok, "sentinel should not be stored when negative caching is disabled")
 
 	// Second call should re-invoke fallback.
 	err = c.GetWithFallback(ctx, "missing", &result, fallback)
-	if !errors.Is(err, ErrMissing) {
-		t.Fatalf("expected ErrMissing, got %v", err)
-	}
-	if calls != 2 {
-		t.Errorf("fallback called %d times, want 2", calls)
-	}
+	require.ErrorIs(t, err, ErrMissing)
+	require.Equal(t, 2, calls, "fallback called unexpected number of times")
 }
 
 func TestGetWithFallback_NegativeCaching_StoresSentinel(t *testing.T) {
@@ -357,21 +306,14 @@ func TestGetWithFallback_NegativeCaching_StoresSentinel(t *testing.T) {
 	err := c.GetWithFallback(ctx, "missing", &result, func() (any, time.Duration, error) {
 		return (*string)(nil), TTLUseDefault, nil
 	})
-	if !errors.Is(err, ErrMissing) {
-		t.Fatalf("expected ErrMissing, got %v", err)
-	}
+	require.ErrorIs(t, err, ErrMissing)
 
 	// Sentinel should be stored with the negative TTL.
 	stored, ok := p.store["missing"]
-	if !ok {
-		t.Fatal("sentinel not stored in provider")
-	}
-	if len(stored) != 1 || stored[0] != 0x00 {
-		t.Errorf("expected sentinel [0x00], got %v", stored)
-	}
-	if p.lastTTL != 30*time.Second {
-		t.Errorf("expected negative TTL 30s, got %v", p.lastTTL)
-	}
+	require.True(t, ok, "sentinel not stored in provider")
+	require.Len(t, stored, 1)
+	require.Equal(t, byte(0x00), stored[0])
+	require.Equal(t, 30*time.Second, p.lastTTL)
 }
 
 func TestGetWithFallback_NegativeCaching_ReturnsMissing(t *testing.T) {
@@ -391,12 +333,8 @@ func TestGetWithFallback_NegativeCaching_ReturnsMissing(t *testing.T) {
 
 	// Second call should return ErrMissing without invoking fallback.
 	err := c.GetWithFallback(ctx, "missing", &result, fallback)
-	if !errors.Is(err, ErrMissing) {
-		t.Fatalf("expected ErrMissing, got %v", err)
-	}
-	if calls != 1 {
-		t.Errorf("fallback called %d times, want 1", calls)
-	}
+	require.ErrorIs(t, err, ErrMissing)
+	require.Equal(t, 1, calls, "fallback called unexpected number of times")
 }
 
 func TestGet_NegativeEntry_ReturnsMissing(t *testing.T) {
@@ -409,9 +347,7 @@ func TestGet_NegativeEntry_ReturnsMissing(t *testing.T) {
 
 	var result string
 	err := c.Get(ctx, "neg-key", &result)
-	if !errors.Is(err, ErrMissing) {
-		t.Errorf("expected ErrMissing, got %v", err)
-	}
+	require.ErrorIs(t, err, ErrMissing)
 }
 
 func TestExists_NegativeEntry_ReturnsFalse(t *testing.T) {
@@ -423,12 +359,8 @@ func TestExists_NegativeEntry_ReturnsFalse(t *testing.T) {
 	p.store["neg-key"] = []byte{0x00}
 
 	exists, err := c.Exists(ctx, "neg-key")
-	if err != nil {
-		t.Fatalf("Exists: %v", err)
-	}
-	if exists {
-		t.Error("expected false for negative entry")
-	}
+	require.NoError(t, err)
+	require.False(t, exists, "expected false for negative entry")
 }
 
 func TestDelete_ClearsNegativeEntry(t *testing.T) {
@@ -447,15 +379,11 @@ func TestDelete_ClearsNegativeEntry(t *testing.T) {
 	_ = c.GetWithFallback(ctx, "key1", &result, fallback)
 
 	// Delete the entry.
-	if err := c.Delete(ctx, "key1"); err != nil {
-		t.Fatalf("Delete: %v", err)
-	}
+	require.NoError(t, c.Delete(ctx, "key1"))
 
 	// Next call should re-invoke fallback.
 	_ = c.GetWithFallback(ctx, "key1", &result, fallback)
-	if calls != 2 {
-		t.Errorf("fallback called %d times, want 2", calls)
-	}
+	require.Equal(t, 2, calls, "fallback called unexpected number of times")
 }
 
 func TestSave_OverwritesNegativeEntry(t *testing.T) {
@@ -467,16 +395,10 @@ func TestSave_OverwritesNegativeEntry(t *testing.T) {
 	p.store["key1"] = []byte{0x00}
 
 	// Save a real value over it.
-	if err := c.Save(ctx, "key1", "real-value"); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
+	require.NoError(t, c.Save(ctx, "key1", "real-value"))
 
 	// Get should return the real value.
 	var result string
-	if err := c.Get(ctx, "key1", &result); err != nil {
-		t.Fatalf("Get: %v", err)
-	}
-	if result != "real-value" {
-		t.Errorf("got %q, want %q", result, "real-value")
-	}
+	require.NoError(t, c.Get(ctx, "key1", &result))
+	require.Equal(t, "real-value", result)
 }

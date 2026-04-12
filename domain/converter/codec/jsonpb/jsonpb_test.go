@@ -24,7 +24,7 @@ func TestNew_RawMessageToStruct(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("Metadata", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	require.NotNil(t, dst)
@@ -43,7 +43,7 @@ func TestNew_StructToRawMessage(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("Metadata", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	require.NotNil(t, dst)
@@ -64,7 +64,7 @@ func TestNew_RoundTrip(t *testing.T) {
 	dstVal1 := reflect.ValueOf(&intermediate).Elem()
 
 	codec("Data", src1, dstVal1, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	require.NotNil(t, intermediate)
@@ -75,7 +75,7 @@ func TestNew_RoundTrip(t *testing.T) {
 	dstVal2 := reflect.ValueOf(&result).Elem()
 
 	codec("Data", src2, dstVal2, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	require.NotNil(t, result)
@@ -95,7 +95,7 @@ func TestNew_NilRawMessage(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("Metadata", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	assert.Nil(t, dst)
@@ -110,7 +110,7 @@ func TestNew_NilStruct(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("Metadata", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	assert.Nil(t, dst)
@@ -125,7 +125,7 @@ func TestNew_EmptyRawMessage(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("Metadata", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	assert.Nil(t, dst, "empty RawMessage should not produce a Struct")
@@ -172,7 +172,7 @@ func TestNew_NonPointer_RawMessageToStruct(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("Metadata", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	assert.Equal(t, "value", dst.Fields["key"].GetStringValue())
@@ -193,7 +193,7 @@ func TestNew_NonPointer_StructToRawMessage(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("Metadata", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	var m map[string]any
@@ -210,7 +210,7 @@ func TestNew_IgnoreNil_RawMessage(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("Metadata", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	assert.Nil(t, dst)
@@ -225,7 +225,7 @@ func TestNew_IgnoreNil_Struct(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("Metadata", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	assert.Nil(t, dst)
@@ -240,7 +240,7 @@ func TestNew_NestedObject(t *testing.T) {
 	dstVal := reflect.ValueOf(&dst).Elem()
 
 	codec("Metadata", src, dstVal, func(_ string, _, _ reflect.Value) {
-		t.Fatal("next should not be called")
+		require.Fail(t, "next should not be called")
 	})
 
 	require.NotNil(t, dst)
