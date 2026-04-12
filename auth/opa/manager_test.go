@@ -22,9 +22,7 @@ func TestManager_Evaluate(t *testing.T) {
 	ctx := t.Context()
 
 	// Setup temporary policy
-	tmpDir, err := os.MkdirTemp("", "opa-test")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	policyPath := filepath.Join(tmpDir, "policy.rego")
 	policyContent := `
@@ -34,8 +32,7 @@ allow if {
     input.role == "admin"
 }
 `
-	err = os.WriteFile(policyPath, []byte(policyContent), 0644)
-	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(policyPath, []byte(policyContent), 0644))
 
 	source, err := filesystem.New(tmpDir)
 	require.NoError(t, err)
@@ -62,9 +59,7 @@ allow if {
 func TestManager_HotReload(t *testing.T) {
 	ctx := t.Context()
 
-	tmpDir, err := os.MkdirTemp("", "opa-test-hotreload")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	policyPath := filepath.Join(tmpDir, "policy.rego")
 	policyContent := `
@@ -74,8 +69,7 @@ allow if {
     input.role == "admin"
 }
 `
-	err = os.WriteFile(policyPath, []byte(policyContent), 0644)
-	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(policyPath, []byte(policyContent), 0644))
 
 	source, err := filesystem.New(tmpDir)
 	require.NoError(t, err)
@@ -118,9 +112,7 @@ allow if {
 func TestManager_Watch(t *testing.T) {
 	ctx := t.Context()
 
-	tmpDir, err := os.MkdirTemp("", "opa-test-watch")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	policyPath := filepath.Join(tmpDir, "policy.rego")
 	policyContent := `
@@ -130,8 +122,7 @@ allow if {
     input.role == "admin"
 }
 `
-	err = os.WriteFile(policyPath, []byte(policyContent), 0644)
-	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(policyPath, []byte(policyContent), 0644))
 
 	source, err := filesystem.New(tmpDir)
 	require.NoError(t, err)
@@ -175,9 +166,7 @@ allow if {
 func TestManager_HealthCheck(t *testing.T) {
 	ctx := t.Context()
 
-	tmpDir, err := os.MkdirTemp("", "opa-test-health")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	policyPath := filepath.Join(tmpDir, "policy.rego")
 	policyContent := `
@@ -187,8 +176,7 @@ allow if {
     input.role == "admin"
 }
 `
-	err = os.WriteFile(policyPath, []byte(policyContent), 0644)
-	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(policyPath, []byte(policyContent), 0644))
 
 	source, err := filesystem.New(tmpDir)
 	require.NoError(t, err)
@@ -203,9 +191,7 @@ allow if {
 func TestManager_RunUpdateCycle(t *testing.T) {
 	ctx := t.Context()
 
-	tmpDir, err := os.MkdirTemp("", "opa-test-cycle")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	policyPath := filepath.Join(tmpDir, "policy.rego")
 	policyContent := `
@@ -215,8 +201,7 @@ allow if {
     input.role == "admin"
 }
 `
-	err = os.WriteFile(policyPath, []byte(policyContent), 0644)
-	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(policyPath, []byte(policyContent), 0644))
 
 	source, err := filesystem.New(tmpDir)
 	require.NoError(t, err)

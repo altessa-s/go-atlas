@@ -28,11 +28,7 @@ func TestFileExists(t *testing.T) {
 		t.Errorf("FileExists(nonexistent) = true, want false")
 	}
 
-	tmpDir, err := os.MkdirTemp("", "testdir")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	if files.FileExists(tmpDir) {
 		t.Errorf("FileExists(%q) (dir) = true, want false", tmpDir)
@@ -40,11 +36,7 @@ func TestFileExists(t *testing.T) {
 }
 
 func TestDirExists(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "testdir")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	if !files.DirExists(tmpDir) {
 		t.Errorf("DirExists(%q) = false, want true", tmpDir)
@@ -67,11 +59,7 @@ func TestDirExists(t *testing.T) {
 }
 
 func TestDirIsEmpty(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "testdir_empty")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	empty, err := files.DirIsEmpty(tmpDir)
 	if err != nil {
@@ -100,11 +88,7 @@ func TestFindFile(t *testing.T) {
 	// Setup a dummy structure
 	// /tmp/root/config/app.yaml
 
-	tmpRoot, err := os.MkdirTemp("", "root")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(tmpRoot)
+	tmpRoot := t.TempDir()
 
 	configDir := filepath.Join(tmpRoot, "config")
 	if err := os.Mkdir(configDir, 0755); err != nil {
