@@ -67,13 +67,11 @@ func (conv *EnvToConfigConverter) Convert(fromPath, toPath, format string) error
 		}
 
 		// Handle commented lines
-		isComment := strings.HasPrefix(line, "#")
-		if isComment {
+		if comment, ok := strings.CutPrefix(line, "#"); ok {
 			if !conv.parseComments {
 				continue
 			}
-			// Remove leading # and whitespace
-			line = strings.TrimSpace(strings.TrimPrefix(line, "#"))
+			line = strings.TrimSpace(comment)
 			if line == "" {
 				continue
 			}

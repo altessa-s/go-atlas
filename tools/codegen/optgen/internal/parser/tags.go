@@ -61,8 +61,10 @@ func ParseExprList(s string) []string {
 	if s == "" {
 		return nil
 	}
-	if strings.HasPrefix(s, "[") && strings.HasSuffix(s, "]") {
-		s = strings.TrimSuffix(strings.TrimPrefix(s, "["), "]")
+	if rest, ok := strings.CutPrefix(s, "["); ok {
+		if rest, ok = strings.CutSuffix(rest, "]"); ok {
+			s = rest
+		}
 	}
 	parts := smartSplit(s, ',')
 	out := make([]string, 0, len(parts))
