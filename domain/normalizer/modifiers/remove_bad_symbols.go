@@ -8,6 +8,8 @@ import (
 	"reflect"
 	"strings"
 	"unicode"
+
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 )
 
 const (
@@ -62,7 +64,7 @@ const (
 
 // badSymbolLookup is a pre-computed lookup table for bad symbols
 // This avoids the overhead of a large switch statement
-var badSymbolLookup = map[rune]struct{}{
+var badSymbolLookup = coremaps.NewImmutableMap(map[rune]struct{}{
 	// Deprecated Unicode symbols
 	DeprecatedGraveClone: {},
 	DeprecatedAcuteClone: {},
@@ -93,7 +95,7 @@ var badSymbolLookup = map[rune]struct{}{
 	// Special characters
 	ByteOrderMark:              {},
 	ObjectReplacementCharacter: {},
-}
+})
 
 func init() {
 	// Register the modifier
@@ -148,7 +150,7 @@ func isBadSymbol(chr rune) bool {
 	}
 
 	// Fast lookup for specific bad symbols
-	if _, found := badSymbolLookup[chr]; found {
+	if badSymbolLookup.Contains(chr) {
 		return true
 	}
 

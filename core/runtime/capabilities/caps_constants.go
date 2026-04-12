@@ -4,6 +4,10 @@
 
 package capabilities
 
+import (
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
+)
+
 // Canonical Linux capability bits. Values mirror the kernel ABI and
 // are stable across kernel releases (new caps are appended; existing
 // numbers are never reused). Declared here — not via an import of
@@ -64,7 +68,7 @@ const (
 
 // capToName maps each known Cap to its canonical "CAP_*" string.
 // Populated at init from the inverse of the constant block above.
-var capToName = map[Cap]string{
+var capToName = coremaps.NewImmutableMap(map[Cap]string{
 	CAP_CHOWN:              "CAP_CHOWN",
 	CAP_DAC_OVERRIDE:       "CAP_DAC_OVERRIDE",
 	CAP_DAC_READ_SEARCH:    "CAP_DAC_READ_SEARCH",
@@ -106,14 +110,14 @@ var capToName = map[Cap]string{
 	CAP_PERFMON:            "CAP_PERFMON",
 	CAP_BPF:                "CAP_BPF",
 	CAP_CHECKPOINT_RESTORE: "CAP_CHECKPOINT_RESTORE",
-}
+})
 
 // nameToCap is the reverse of capToName, populated at init. Lookups
 // use upper-cased keys so ParseName can be case-insensitive cheaply.
-var nameToCap = func() map[string]Cap {
-	m := make(map[string]Cap, len(capToName))
-	for c, name := range capToName {
+var nameToCap = func() *coremaps.ImmutableMap[string, Cap] {
+	m := make(map[string]Cap, capToName.Len())
+	for c, name := range capToName.All() {
 		m[name] = c
 	}
-	return m
+	return coremaps.NewImmutableMap(m)
 }()

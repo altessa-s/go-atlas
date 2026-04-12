@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"maps"
 	"strings"
 	"time"
 
@@ -472,7 +473,7 @@ func parseDocJSON[T any](doc redis.Document) (*T, error) {
 func (s *Storage) TasksPaginated(ctx context.Context, pg scheduler.Pagination, f filter.Node) ([]*scheduler.TaskState, error) {
 	query := "*"
 	if f != nil {
-		trans := redisearch.NewTranslator(taskFieldSchema, filter.WithAllowedFields(scheduler.TaskFilterFields...), filter.WithFieldMapping(taskFieldMapping))
+		trans := redisearch.NewTranslator(maps.Collect(taskFieldSchema.All()), filter.WithAllowedFields(scheduler.TaskFilterFields...), filter.WithFieldMapping(maps.Collect(taskFieldMapping.All())))
 		translated, err := trans.Translate(f)
 		if err != nil {
 			return nil, coreerrs.WrapOperation(err, "translate task filter")
@@ -527,7 +528,7 @@ func (s *Storage) HistoryPaginated(ctx context.Context, taskID string, pg schedu
 	query := fmt.Sprintf("@taskId:{%s}", escapedID)
 
 	if f != nil {
-		trans := redisearch.NewTranslator(historyFieldSchema, filter.WithAllowedFields(scheduler.HistoryFilterFields...))
+		trans := redisearch.NewTranslator(maps.Collect(historyFieldSchema.All()), filter.WithAllowedFields(scheduler.HistoryFilterFields...))
 		filterQuery, err := trans.Translate(f)
 		if err != nil {
 			return nil, coreerrs.WrapOperation(err, "translate history filter")

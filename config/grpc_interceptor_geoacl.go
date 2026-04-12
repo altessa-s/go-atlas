@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"regexp"
 
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -91,9 +92,9 @@ func DefaultGrpcInterGeoAclConfig() GrpcInterGeoAclConfig {
 }
 
 // validContinentCodes is the set of valid 2-letter continent codes.
-var validContinentCodes = map[string]struct{}{
+var validContinentCodes = coremaps.NewImmutableMap(map[string]struct{}{
 	"AF": {}, "AN": {}, "AS": {}, "EU": {}, "NA": {}, "OC": {}, "SA": {},
-}
+})
 
 // regionCodePattern matches XX-YY format for region codes.
 var regionCodePattern = regexp.MustCompile(`^[A-Z]{2}-[A-Z0-9]{1,3}$`)
@@ -124,7 +125,7 @@ func validateContinentCode(value any) error {
 	if !ok {
 		return nil
 	}
-	if _, valid := validContinentCodes[s]; !valid {
+	if !validContinentCodes.Contains(s) {
 		return fmt.Errorf("invalid continent code %q; must be one of: AF, AN, AS, EU, NA, OC, SA", s)
 	}
 	return nil

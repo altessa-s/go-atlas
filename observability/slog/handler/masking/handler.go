@@ -14,6 +14,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/observability/slog/handler/internal/base"
 
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
 
@@ -22,7 +23,7 @@ import (
 type Handler struct {
 	base.Base
 	opts            *options
-	lowercaseFields map[string]MaskFunc // for case-insensitive matching
+	lowercaseFields *coremaps.ImmutableMap[string, MaskFunc] // for case-insensitive matching
 	patterns        []compiledPattern
 	pathCache       sync.Map // string -> MaskFunc
 	hasPatterns     bool
@@ -54,10 +55,11 @@ func NewHandler(inner slog.Handler, opts ...Option) slog.Handler {
 
 	// Pre-compute lowercase fields for case-insensitive matching
 	if !o.caseSensitive {
-		h.lowercaseFields = make(map[string]MaskFunc, len(o.fields))
+		tmp := make(map[string]MaskFunc, len(o.fields))
 		for k, v := range o.fields {
-			h.lowercaseFields[corestrings.InternLowerString(k)] = v
+			tmp[corestrings.InternLowerString(k)] = v
 		}
+		h.lowercaseFields = coremaps.NewImmutableMap(tmp)
 	}
 
 	// Check if we have patterns
@@ -187,7 +189,7 @@ func (h *Handler) getMaskForField(fieldName, fieldPath string) MaskFunc {
 		if h.opts.caseSensitive {
 			mask = h.opts.fields[fieldPath]
 		} else if h.lowercaseFields != nil {
-			mask = h.lowercaseFields[corestrings.InternLowerString(fieldPath)]
+			mask, _ = h.lowercaseFields.Get(corestrings.InternLowerString(fieldPath))
 		}
 	}
 
@@ -196,7 +198,7 @@ func (h *Handler) getMaskForField(fieldName, fieldPath string) MaskFunc {
 		if h.opts.caseSensitive {
 			mask = h.opts.fields[fieldName]
 		} else if h.lowercaseFields != nil {
-			mask = h.lowercaseFields[corestrings.InternLowerString(fieldName)]
+			mask, _ = h.lowercaseFields.Get(corestrings.InternLowerString(fieldName))
 		}
 	}
 

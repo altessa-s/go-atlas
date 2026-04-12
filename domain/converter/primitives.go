@@ -5,10 +5,10 @@
 package converter
 
 import (
-	"maps"
 	"reflect"
 	"unsafe"
 
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	reflectutils "github.com/altessa-s/go-atlas/domain/converter/internal/reflect"
 )
 
@@ -54,7 +54,7 @@ type ConversionKey struct {
 // It is safe for concurrent reads after construction; the converter map is
 // populated once during [NewPrimitiveRegistry] and never modified afterwards.
 type PrimitiveRegistry struct {
-	converters    map[ConversionKey]PrimitiveConverter
+	converters    *coremaps.ImmutableMap[ConversionKey, PrimitiveConverter]
 	checkOverflow bool
 }
 
@@ -69,10 +69,9 @@ type PrimitiveRegistry struct {
 //	conv, ok := registry.Get(reflect.Int32, reflect.Int64)
 func NewPrimitiveRegistry(checkOverflow ...bool) *PrimitiveRegistry {
 	r := &PrimitiveRegistry{
-		converters:    make(map[ConversionKey]PrimitiveConverter, DefaultPrimitiveConverterMapSize),
 		checkOverflow: len(checkOverflow) > 0 && checkOverflow[0],
 	}
-	r.registerAllConversions()
+	r.converters = r.buildConverters()
 	return r
 }
 
@@ -80,8 +79,7 @@ func NewPrimitiveRegistry(checkOverflow ...bool) *PrimitiveRegistry {
 // Returns the converter function and true if the conversion is supported,
 // or nil and false if no converter exists for the type pair.
 func (r *PrimitiveRegistry) Get(from, to reflect.Kind) (PrimitiveConverter, bool) {
-	conv, exists := r.converters[ConversionKey{from, to}]
-	return conv, exists
+	return r.converters.Get(ConversionKey{from, to})
 }
 
 // TryConvert attempts zero-copy conversion for primitive types.
@@ -178,8 +176,7 @@ func (r *PrimitiveRegistry) TryConvert(srcValue, dstValue reflect.Value) bool {
 //  4. The read-convert-write is atomic with respect to the single value
 //
 // #nosec G115 -- intentional narrowing conversions matching Go's type conversion behavior
-func (r *PrimitiveRegistry) registerAllConversions() {
-	// Single map containing all primitive conversions - cleaner and more maintainable
+func (r *PrimitiveRegistry) buildConverters() *coremaps.ImmutableMap[ConversionKey, PrimitiveConverter] {
 	allConverters := map[ConversionKey]PrimitiveConverter{
 		// Int conversions
 		{reflect.Int, reflect.Int8}:    func(src, dst unsafe.Pointer) { *(*int8)(dst) = int8(*(*int)(src)) },
@@ -282,8 +279,7 @@ func (r *PrimitiveRegistry) registerAllConversions() {
 		{reflect.String, reflect.String}: func(src, dst unsafe.Pointer) { *(*string)(dst) = *(*string)(src) },
 	}
 
-	// Copy all conversions into the registry
-	maps.Copy(r.converters, allConverters)
+	return coremaps.NewImmutableMap(allConverters)
 }
 
 // IsPrimitive checks if a kind represents a primitive type.

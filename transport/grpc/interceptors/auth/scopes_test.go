@@ -58,13 +58,15 @@ func TestScopeRegistry_AllScopes(t *testing.T) {
 	r.Register("/svc/A", "x")
 	r.Register("/svc/B", "y")
 
-	all := r.AllScopes()
-	require.Len(t, all, 2)
+	require.Equal(t, 2, r.Len())
 
-	// Verify it's a copy
-	all["/svc/C"] = "z"
-	_, ok := r.Scope("/svc/C")
-	require.False(t, ok, "AllScopes should return a copy")
+	got := make(map[string]Scope)
+	for k, v := range r.AllScopes() {
+		got[k] = v
+	}
+	require.Len(t, got, 2)
+	require.Equal(t, "x", got["/svc/A"])
+	require.Equal(t, "y", got["/svc/B"])
 }
 
 func TestScopeRegistry_Overwrite(t *testing.T) {
@@ -76,9 +78,52 @@ func TestScopeRegistry_Overwrite(t *testing.T) {
 	require.Equal(t, "admin", got)
 }
 
+func TestScopeRegistry_Freeze(t *testing.T) {
+	r := NewScopeRegistry()
+	r.Register("/svc/Get", "read")
+	r.Freeze()
+
+	got, ok := r.Scope("/svc/Get")
+	require.True(t, ok)
+	require.Equal(t, "read", got)
+
+	_, ok = r.Scope("/svc/Missing")
+	require.False(t, ok)
+
+	require.Equal(t, 1, r.Len())
+}
+
+func TestScopeRegistry_Freeze_Idempotent(t *testing.T) {
+	r := NewScopeRegistry()
+	r.Register("/svc/Get", "read")
+	r.Freeze()
+	r.Freeze() // must not panic
+
+	got, ok := r.Scope("/svc/Get")
+	require.True(t, ok)
+	require.Equal(t, "read", got)
+}
+
+func TestScopeRegistry_RegisterAfterFreeze_Panics(t *testing.T) {
+	r := NewScopeRegistry()
+	r.Freeze()
+
+	require.Panics(t, func() { r.Register("/svc/X", "x") })
+	require.Panics(t, func() { r.RegisterMethods("y", "/svc/Y") })
+}
+
 func BenchmarkScopeRegistry_Scope(b *testing.B) {
 	r := NewScopeRegistry()
 	r.Register("/svc/Get", "read")
+	for b.Loop() {
+		r.Scope("/svc/Get")
+	}
+}
+
+func BenchmarkScopeRegistry_Scope_Frozen(b *testing.B) {
+	r := NewScopeRegistry()
+	r.Register("/svc/Get", "read")
+	r.Freeze()
 	for b.Loop() {
 		r.Scope("/svc/Get")
 	}

@@ -166,7 +166,7 @@ func AmbientLower(c Cap) error {
 // (e.g. [CAP_NET_BIND_SERVICE]) instead.
 func ParseName(name string) (Cap, error) {
 	key := strings.ToUpper(strings.TrimSpace(name))
-	if c, ok := nameToCap[key]; ok {
+	if c, ok := nameToCap.Get(key); ok {
 		return c, nil
 	}
 	return 0, fmt.Errorf("%w: unknown capability %q", ErrInvalidOption, name)
@@ -179,7 +179,7 @@ func ParseName(name string) (Cap, error) {
 // sentinel in this package; use a separate boolean or [Sets] mask if
 // you need "absent" semantics.
 func (c Cap) String() string {
-	if name, ok := capToName[c]; ok {
+	if name, ok := capToName.Get(c); ok {
 		return name
 	}
 	return fmt.Sprintf("CAP_UNKNOWN(%d)", int(c))

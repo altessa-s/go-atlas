@@ -7,21 +7,23 @@ package mongodb
 import (
 	"github.com/altessa-s/go-atlas/domain/converter"
 	"github.com/altessa-s/go-atlas/service/scheduler"
+
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 )
 
 // taskFieldMapping maps CEL field names (camelCase) to MongoDB BSON field names.
-var taskFieldMapping = map[string]string{
+var taskFieldMapping = coremaps.NewImmutableMap(map[string]string{
 	"id": "_id", "lastRunAt": "last_run_at", "nextRunAt": "next_run_at",
 	"lastRunId": "last_run_id", "skipNextRun": "skip_next_run",
 	"disableHistory": "disable_history", "oneShot": "one_shot",
 	"createdAt": "created_at", "updatedAt": "updated_at",
-}
+})
 
 // historyFieldMapping maps CEL field names (camelCase) to MongoDB BSON field names.
-var historyFieldMapping = map[string]string{
+var historyFieldMapping = coremaps.NewImmutableMap(map[string]string{
 	"id": "_id", "taskId": "task_id", "runId": "run_id",
 	"startedAt": "started_at", "endedAt": "ended_at", "durationMs": "duration_ms",
-}
+})
 
 // taskDocument represents a task state stored in MongoDB.
 type taskDocument struct {

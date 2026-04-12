@@ -8,10 +8,12 @@ import (
 	"github.com/altessa-s/go-atlas/data/filter/translators/redisearch"
 	"github.com/altessa-s/go-atlas/domain/converter"
 	"github.com/altessa-s/go-atlas/service/scheduler"
+
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 )
 
 // taskFieldSchema maps RediSearch index field names to their types for task queries.
-var taskFieldSchema = map[string]redisearch.FieldType{
+var taskFieldSchema = coremaps.NewImmutableMap(map[string]redisearch.FieldType{
 	"id":             redisearch.FieldTypeTag,
 	"description":    redisearch.FieldTypeText,
 	"status":         redisearch.FieldTypeNumeric,
@@ -26,14 +28,14 @@ var taskFieldSchema = map[string]redisearch.FieldType{
 	"oneShot":        redisearch.FieldTypeTag,
 	"createdAt":      redisearch.FieldTypeNumeric,
 	"updatedAt":      redisearch.FieldTypeNumeric,
-}
+})
 
 // taskFieldMapping maps CEL field names to RediSearch index field names (identity for most).
 // This mapping is used when the CEL field name doesn't match the index alias.
-var taskFieldMapping = map[string]string{}
+var taskFieldMapping = coremaps.NewImmutableMap(map[string]string{})
 
 // historyFieldSchema maps RediSearch index field names to their types for history queries.
-var historyFieldSchema = map[string]redisearch.FieldType{
+var historyFieldSchema = coremaps.NewImmutableMap(map[string]redisearch.FieldType{
 	"id":         redisearch.FieldTypeTag,
 	"taskId":     redisearch.FieldTypeTag,
 	"runId":      redisearch.FieldTypeTag,
@@ -42,7 +44,7 @@ var historyFieldSchema = map[string]redisearch.FieldType{
 	"durationMs": redisearch.FieldTypeNumeric,
 	"success":    redisearch.FieldTypeTag,
 	"error":      redisearch.FieldTypeText,
-}
+})
 
 // taskData represents a task state stored in Redis as JSON.
 type taskData struct {

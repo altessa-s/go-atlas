@@ -5,7 +5,9 @@
 package auth
 
 import (
-	"maps"
+	"iter"
+
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 )
 
 // Scope represents an authorization scope string used for method-level access control.
@@ -22,36 +24,43 @@ var ScopeNone = ""
 
 // ScopeRegistry manages the mapping between gRPC method names and their required authorization scopes.
 // It provides a centralized way to define and retrieve scope requirements for different methods
-// in a gRPC service. The registry is thread-safe for reads but not for concurrent writes.
+// in a gRPC service.
 //
 // Method names should follow the full gRPC format: "/package.Service/Method"
 // For example: "/user.UserService/GetUser" or "/billing.BillingService/CreateInvoice"
 //
 // Security consideration: The ScopeRegistry should be populated during service initialization
-// and not modified during runtime to ensure consistent authorization behavior.
+// and frozen via [ScopeRegistry.Freeze] before handling requests. After freezing, the registry
+// is safe for concurrent reads without synchronization.
 //
-// Performance note: Scope lookups are O(1) operations using an internal map.
+// Performance note: Scope lookups are O(1) operations.
 type ScopeRegistry struct {
-	// scopes maps full gRPC method names to their required authorization scopes
-	scopes map[string]Scope
+	// building is the mutable map used during the registration phase.
+	building map[string]Scope
+	// frozen is the immutable map used after Freeze() is called. Nil until frozen.
+	frozen *coremaps.ImmutableMap[string, Scope]
 }
 
 // NewScopeRegistry creates a new empty ScopeRegistry.
 // The returned registry is ready to use and can be populated using Register or RegisterMethods.
+// Call [ScopeRegistry.Freeze] after registration is complete to make the registry immutable
+// and safe for concurrent reads.
 //
 // Example:
 //
 //	registry := auth.NewScopeRegistry()
 //	registry.Register("/user.UserService/GetUser", "user:read")
 //	registry.Register("/user.UserService/UpdateUser", "user:write")
+//	registry.Freeze()
 func NewScopeRegistry() *ScopeRegistry {
 	return &ScopeRegistry{
-		scopes: make(map[string]Scope),
+		building: make(map[string]Scope),
 	}
 }
 
 // Register associates a gRPC method with a required authorization scope.
 // If the method was previously registered, its scope will be updated to the new value.
+// Panics if called after [ScopeRegistry.Freeze].
 //
 // Parameters:
 //   - methodName: Full gRPC method name in format "/package.Service/Method"
@@ -66,12 +75,16 @@ func NewScopeRegistry() *ScopeRegistry {
 // Security note: Unregistered methods are denied by default — Scope() returns (_, false)
 // for methods not in the registry. Use ScopeNone to explicitly mark methods as public.
 func (r *ScopeRegistry) Register(methodName string, scope Scope) {
-	r.scopes[methodName] = scope
+	if r.frozen != nil {
+		panic("auth: Register called on frozen ScopeRegistry")
+	}
+	r.building[methodName] = scope
 }
 
 // RegisterMethods associates multiple gRPC methods with the same required authorization scope.
 // This is a convenience method for bulk registration when multiple methods share the same scope requirement.
 // If any of the methods were previously registered, their scopes will be updated to the new value.
+// Panics if called after [ScopeRegistry.Freeze].
 //
 // Parameters:
 //   - scope: Required authorization scope for all the specified methods
@@ -95,9 +108,24 @@ func (r *ScopeRegistry) Register(methodName string, scope Scope) {
 // Performance note: This method is more efficient than multiple Register calls
 // when registering many methods with the same scope.
 func (r *ScopeRegistry) RegisterMethods(scope Scope, methodNames ...string) {
-	for _, methodName := range methodNames {
-		r.scopes[methodName] = scope
+	if r.frozen != nil {
+		panic("auth: RegisterMethods called on frozen ScopeRegistry")
 	}
+	for _, methodName := range methodNames {
+		r.building[methodName] = scope
+	}
+}
+
+// Freeze converts the internal map to an immutable representation.
+// After this call, the registry is safe for concurrent reads without synchronization.
+// Subsequent calls to [ScopeRegistry.Register] or [ScopeRegistry.RegisterMethods] will panic.
+// Freeze is idempotent — calling it multiple times is safe.
+func (r *ScopeRegistry) Freeze() {
+	if r.frozen != nil {
+		return
+	}
+	r.frozen = coremaps.NewImmutableMap(r.building)
+	r.building = nil
 }
 
 // Scope retrieves the required authorization scope for a specific gRPC method.
@@ -129,22 +157,21 @@ func (r *ScopeRegistry) RegisterMethods(scope Scope, methodNames ...string) {
 // Security consideration: Always deny access for unregistered methods (ok == false).
 // Methods explicitly registered with ScopeNone are intentionally public.
 //
-// Performance note: This is an O(1) operation using map lookup.
+// Performance note: This is an O(1) operation.
 func (r *ScopeRegistry) Scope(methodName string) (Scope, bool) {
-	scope, ok := r.scopes[methodName]
+	if r.frozen != nil {
+		return r.frozen.Get(methodName)
+	}
+	scope, ok := r.building[methodName]
 	return scope, ok
 }
 
-// AllScopes returns a copy of all registered method-to-scope mappings.
-// The returned map is a defensive copy and can be safely modified without affecting the registry.
-//
-// Returns:
-//   - A map containing all method names (keys) and their required scopes (values)
+// AllScopes returns an iterator over all registered method-to-scope mappings.
+// The iterator is safe to use concurrently after [ScopeRegistry.Freeze].
 //
 // Example:
 //
-//	allScopes := registry.AllScopes()
-//	for methodName, scope := range allScopes {
+//	for methodName, scope := range registry.AllScopes() {
 //		if scope == auth.ScopeNone {
 //			fmt.Printf("%s: no scope required\n", methodName)
 //		} else {
@@ -157,12 +184,23 @@ func (r *ScopeRegistry) Scope(methodName string) (Scope, bool) {
 //   - Generating documentation of API permissions
 //   - Implementing scope validation logic
 //   - Creating administrative interfaces
-//
-// Performance note: This method creates a full copy of the internal map,
-// so it should not be called frequently in hot paths. The copy operation is O(n)
-// where n is the number of registered methods.
-func (r *ScopeRegistry) AllScopes() map[string]Scope {
-	result := make(map[string]Scope, len(r.scopes))
-	maps.Copy(result, r.scopes)
-	return result
+func (r *ScopeRegistry) AllScopes() iter.Seq2[string, Scope] {
+	if r.frozen != nil {
+		return r.frozen.All()
+	}
+	return func(yield func(string, Scope) bool) {
+		for k, v := range r.building {
+			if !yield(k, v) {
+				return
+			}
+		}
+	}
+}
+
+// Len returns the number of registered methods.
+func (r *ScopeRegistry) Len() int {
+	if r.frozen != nil {
+		return r.frozen.Len()
+	}
+	return len(r.building)
 }

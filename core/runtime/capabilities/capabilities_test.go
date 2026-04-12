@@ -110,10 +110,9 @@ func TestGet_PlatformDispatch(t *testing.T) {
 // number (e.g. defining CAP_X = 40 but forgetting 39) would silently
 // break ParseName and (Cap).String for the missing bit.
 func TestCapConstants_ContiguousRange(t *testing.T) {
-	require.Len(t, capToName, int(capLastCap)+1)
+	require.Equal(t, int(capLastCap)+1, capToName.Len())
 	for c := Cap(0); c <= capLastCap; c++ {
-		_, ok := capToName[c]
-		require.True(t, ok, "capToName missing entry for Cap(%d)", c)
+		require.True(t, capToName.Contains(c), "capToName missing entry for Cap(%d)", c)
 	}
 }
 
@@ -121,5 +120,5 @@ func TestCapConstants_ContiguousRange(t *testing.T) {
 // of entries as capToName — i.e. no two Cap values accidentally map
 // to the same string.
 func TestCapConstants_UniqueNames(t *testing.T) {
-	require.Equal(t, len(capToName), len(nameToCap), "registry size mismatch")
+	require.Equal(t, capToName.Len(), nameToCap.Len(), "registry size mismatch")
 }
