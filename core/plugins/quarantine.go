@@ -20,19 +20,20 @@ import (
 // of the SHA256, enough to identify a file without cluttering output.
 const hashPrefixLen = 12
 
-// hashFile returns the SHA256 hex digest of the file at path.
-// The entire file is read into memory; this is acceptable for plugin
-// .so files which are typically under 100 MB and are hashed only at
-// load time.
+// readAndHashFile reads the file at path into memory and returns the raw
+// bytes together with the SHA256 hex digest. Returning the bytes avoids
+// a second read when signature verification needs the same data.
 //
-// Tests override this via the Manager.hashFileFn field to avoid
-// needing real .so files on disk.
-func hashFile(path string) (string, error) {
+// The entire file is read at once; acceptable for .so files (typically
+// under 100 MB) at load time.
+//
+// Tests override this via the [Manager.readAndHashFileFn] field.
+func readAndHashFile(path string) ([]byte, string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
-	return hash.SHA256HexBytes(data), nil
+	return data, hash.SHA256HexBytes(data), nil
 }
 
 // isQuarantined reports whether filename is blacklisted with the given
@@ -106,7 +107,7 @@ func (m *Manager) Quarantine(name string) error {
 	delete(m.plugins, name)
 	m.mu.Unlock()
 
-	fileHash, err := m.hashFileFn(p.Path())
+	_, fileHash, err := m.readAndHashFileFn(p.Path())
 	if err != nil {
 		// Can't hash — still quarantine by path with empty hash.
 		// The empty hash won't match any future file read, so the

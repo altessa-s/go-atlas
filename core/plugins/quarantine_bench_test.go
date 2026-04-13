@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func BenchmarkHashFile(b *testing.B) {
+func BenchmarkReadAndHashFile(b *testing.B) {
 	dir := b.TempDir()
 	path := filepath.Join(dir, "bench.so")
 	// 1 MB file — representative of a small plugin.
@@ -20,7 +20,7 @@ func BenchmarkHashFile(b *testing.B) {
 
 	b.ResetTimer()
 	for b.Loop() {
-		_, _ = hashFile(path)
+		_, _, _ = readAndHashFile(path)
 	}
 }
 

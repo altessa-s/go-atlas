@@ -88,6 +88,12 @@ func (b *ManagerBuilder) Build(ctx context.Context) (*plugins.Manager, error) {
 		plugins.WithSandbox(plugins.SandboxOptionsFromConfig(b.cfg.Sandbox)),
 	}
 
+	if b.cfg.Signature.Mode != "" {
+		opts = append(opts, plugins.WithSignature(
+			plugins.SignatureOptionsFromConfig(b.cfg.Signature.Mode, b.cfg.Signature.PublicKeyPath),
+		))
+	}
+
 	if len(b.cfg.Load) > 0 {
 		opts = append(opts, plugins.WithLoad(b.cfg.Load...))
 	}

@@ -103,8 +103,8 @@ func TestManager_Quarantine_Runtime(t *testing.T) {
 	t.Cleanup(func() { _ = mgr.Close() })
 
 	// Stub hash function.
-	mgr.hashFileFn = func(_ string) (string, error) {
-		return "fakehash123", nil
+	mgr.readAndHashFileFn = func(_ string) ([]byte, string, error) {
+		return nil, "fakehash123", nil
 	}
 
 	// Register a fake plugin.
@@ -233,7 +233,7 @@ func TestManager_LoadPlugin_QuarantineClearedOnFileChange(t *testing.T) {
 	assert.NotEmpty(t, newHash, "file should be re-quarantined with new hash after retry fails")
 }
 
-func TestHashFile(t *testing.T) {
+func TestReadAndHashFile(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -241,26 +241,27 @@ func TestHashFile(t *testing.T) {
 	content := []byte("hello plugin")
 	require.NoError(t, os.WriteFile(path, content, 0o644))
 
-	h, err := hashFile(path)
+	data, h, err := readAndHashFile(path)
 	require.NoError(t, err)
 	assert.Len(t, h, 64, "SHA256 hex should be 64 chars")
+	assert.Equal(t, content, data)
 
 	// Same content → same hash.
-	h2, err := hashFile(path)
+	_, h2, err := readAndHashFile(path)
 	require.NoError(t, err)
 	assert.Equal(t, h, h2)
 
 	// Different content → different hash.
 	require.NoError(t, os.WriteFile(path, []byte("different"), 0o644))
-	h3, err := hashFile(path)
+	_, h3, err := readAndHashFile(path)
 	require.NoError(t, err)
 	assert.NotEqual(t, h, h3)
 }
 
-func TestHashFile_NotFound(t *testing.T) {
+func TestReadAndHashFile_NotFound(t *testing.T) {
 	t.Parallel()
 
-	_, err := hashFile("/nonexistent/path/plugin.so")
+	_, _, err := readAndHashFile("/nonexistent/path/plugin.so")
 	require.Error(t, err)
 }
 
@@ -274,8 +275,8 @@ func TestManager_LoadPlugin_HashFailureQuarantines(t *testing.T) {
 	t.Cleanup(func() { _ = mgr.Close() })
 
 	// Stub hash to fail.
-	mgr.hashFileFn = func(_ string) (string, error) {
-		return "", os.ErrPermission
+	mgr.readAndHashFileFn = func(_ string) ([]byte, string, error) {
+		return nil, "", os.ErrPermission
 	}
 
 	err := mgr.Load(t.Context())

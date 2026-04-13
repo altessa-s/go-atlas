@@ -49,6 +49,19 @@ var (
 	// incompatibility as a structured error rather than silently skipping.
 	ErrSPIVersionMismatch = errors.New("SPI version mismatch")
 
+	// ErrSignatureInvalid is returned when a plugin's detached .sig file
+	// does not verify against the configured public key.
+	ErrSignatureInvalid = errors.New("plugin signature invalid")
+
+	// ErrSignatureMissing is returned when signature verification is in
+	// "require" mode and the .so.sig companion file does not exist.
+	ErrSignatureMissing = errors.New("plugin signature file missing")
+
+	// ErrSignatureConfig is returned when the signature verification
+	// configuration is invalid (no public key, unsupported key type,
+	// bad PEM file).
+	ErrSignatureConfig = errors.New("plugin signature configuration error")
+
 	// ErrPluginQuarantined is returned when a plugin file is blacklisted
 	// because a previous load attempt with the same file hash failed.
 	// The quarantine is cleared automatically when the file changes

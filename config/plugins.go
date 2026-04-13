@@ -60,6 +60,38 @@ type Plugins struct {
 	// the first [plugins.Manager.Load]. See [PluginsSandbox] for the threat
 	// model and the very real limitations.
 	Sandbox PluginsSandbox `yaml:"sandbox"`
+
+	// Signature configures optional plugin signature verification.
+	// When enabled, each .so must have a .so.sig companion file
+	// containing a detached cryptographic signature verified against
+	// the configured public key before any plugin code is executed.
+	Signature PluginsSignature `yaml:"signature"`
+}
+
+// PluginsSignature configures plugin signature verification.
+type PluginsSignature struct {
+	// Mode controls verification behavior.
+	// "require" / "enforce" — reject plugins without a valid .sig file.
+	// "warn" — log a warning but allow unsigned plugins.
+	// "" (empty / omitted) — disable verification entirely.
+	Mode string `yaml:"mode"`
+
+	// PublicKeyPath is the filesystem path to a PEM-encoded public key
+	// (PKIX/SPKI "PUBLIC KEY" block). Required when Mode is non-empty.
+	// Accepts Ed25519, ECDSA P-256, and RSA keys.
+	PublicKeyPath string `yaml:"publicKeyPath"`
+}
+
+// Validate checks the signature configuration. When Mode is non-empty,
+// PublicKeyPath must be set and Mode must be one of the recognized values.
+func (c *PluginsSignature) Validate() error {
+	if c.Mode == "" {
+		return nil
+	}
+	return validation.ValidateStruct(c,
+		validation.Field(&c.Mode, validation.In("require", "enforce", "warn")),
+		validation.Field(&c.PublicKeyPath, validation.Required),
+	)
 }
 
 // PluginsSandbox configures Linux process-hardening primitives that the plugin
@@ -298,6 +330,7 @@ func (c *Plugins) Validate() error {
 		validation.Field(&c.WatchDebounce,
 			validation.When(c.Watch, ozzo_rules.Duration(), validation.Min(time.Millisecond))),
 		validation.Field(&c.Sandbox),
+		validation.Field(&c.Signature),
 	)
 }
 

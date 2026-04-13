@@ -77,6 +77,7 @@ if err := mgr.Quarantine("broken-plugin"); err != nil {
 | `WithWatchDebounce` | `200ms`      | Filesystem event coalesce window      |
 | `WithLogger`        | default slog | Structured logger                     |
 | `WithSandbox`       | disabled     | Linux process-hardening primitives    |
+| `WithSignature`     | disabled     | Cryptographic .so.sig verification    |
 
 ## Platform support
 

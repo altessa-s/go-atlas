@@ -78,6 +78,25 @@
 // Both checks are advisory — they do not prevent loading because
 // [plugin.Open] enforces the real ABI check.
 //
+// # Signature verification
+//
+// When enabled via [WithSignature], the manager verifies a detached
+// cryptographic signature (.so.sig file) before [plugin.Open] executes
+// any code. This prevents loading tampered or unauthorized .so files.
+//
+// Supported algorithms: Ed25519 (recommended), ECDSA P-256, RSA-PSS.
+// The public key is configured once for the manager; each .so file
+// has a companion .so.sig file containing the raw signature bytes.
+//
+// Three modes control behavior:
+//   - [SignatureRequire] / [SignatureEnforce]: reject if .sig is missing
+//     or invalid.
+//   - [SignatureWarn]: log a warning for missing .sig, but allow unsigned
+//     plugins. Invalid signatures are always rejected.
+//   - [SignatureDisabled] (default): no verification.
+//
+// Plugins that fail signature verification are quarantined automatically.
+//
 // # Quarantine
 //
 // When a plugin fails to load (broken .so, missing descriptor, Init error

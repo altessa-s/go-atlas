@@ -90,9 +90,10 @@ type Manager struct {
 	quarantineMu sync.RWMutex
 	quarantine   map[string]string
 
-	// hashFileFn abstracts file hashing so tests can inject a stub
-	// without needing real .so files. Defaults to [hashFile].
-	hashFileFn func(string) (string, error)
+	// readAndHashFileFn abstracts file reading+hashing so tests can
+	// inject a stub without needing real .so files. Returns the raw
+	// file bytes and the SHA256 hex digest. Defaults to [readAndHashFile].
+	readAndHashFileFn func(string) ([]byte, string, error)
 
 	// Watcher state. Protected by watchMu so that iterator reads on mu
 	// (taken by [Manager.Reload] from inside the watch goroutine) do not
@@ -122,7 +123,7 @@ func NewManager(opt ...Option) *Manager {
 		sandboxApply:          applySandbox,
 		sandboxSystemLibPaths: defaultLandlockSystemLibPaths,
 		quarantine:            make(map[string]string),
-		hashFileFn:            hashFile,
+		readAndHashFileFn:     readAndHashFile,
 	}
 }
 
@@ -143,6 +144,12 @@ func (m *Manager) Load(ctx context.Context) error {
 
 	if err := m.ensureSandbox(); err != nil {
 		return err
+	}
+
+	// Surface deferred signature config errors (PEM parse failure in
+	// WithSignature). Checked once per Load, not per plugin.
+	if m.opts.signatureErr != nil {
+		return m.opts.signatureErr
 	}
 
 	pluginFiles, err := m.resolvePluginFiles()
@@ -181,6 +188,10 @@ func (m *Manager) Load(ctx context.Context) error {
 func (m *Manager) Reload(ctx context.Context) error {
 	if m.closed.Load() {
 		return ErrManagerClosed
+	}
+
+	if m.opts.signatureErr != nil {
+		return m.opts.signatureErr
 	}
 
 	if err := m.ensureSandbox(); err != nil {
@@ -502,7 +513,7 @@ func (m *Manager) loadPlugin(ctx context.Context, filename string) error {
 
 	// Compute file hash for quarantine check. The hash is reused later
 	// to record the file in quarantine if the load fails.
-	fileHash, hashErr := m.hashFileFn(path)
+	pluginData, fileHash, hashErr := m.readAndHashFileFn(path)
 	if hashErr != nil {
 		// Can't read the file — quarantine with empty hash so it's
 		// retried on next Reload regardless of content (the file may
@@ -518,6 +529,13 @@ func (m *Manager) loadPlugin(ctx context.Context, filename string) error {
 	if m.isQuarantined(filename, fileHash) {
 		return coreerrs.Wrapf(ErrPluginQuarantined, "plugin %q (hash %s)", filename, fileHash[:min(hashPrefixLen, len(fileHash))])
 	}
+
+	// Verify the detached .sig BEFORE openPlugin executes init code.
+	if err := m.verifyPluginSignature(filename, path, pluginData, fileHash); err != nil {
+		return err
+	}
+	// pluginData is no longer needed; openPlugin maps the file independently.
+	// The local goes out of scope after the next statement, so GC collects it.
 
 	raw, err := openPlugin(path)
 	if err != nil {
