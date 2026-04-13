@@ -9,8 +9,8 @@ import (
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/config"
-	"github.com/altessa-s/go-atlas/core/plugins"
 	"github.com/altessa-s/go-atlas/observability/health"
+	"github.com/altessa-s/go-atlas/plugins"
 
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 )

@@ -63,7 +63,7 @@ Why this order:
    irreversible step (no relaxation for the lifetime of the calling
    task) and depends on the `NO_NEW_PRIVS` set in step 1.
 
-`core/plugins/sandbox.go` implements this sequence (minus seccomp,
+`plugins/sandbox.go` implements this sequence (minus seccomp,
 which is intentionally not wired into the plugin sandbox so the
 audited denylist stays stable across deployments — operators call
 `seccomp.BlockDangerousSyscalls()` directly during host startup if

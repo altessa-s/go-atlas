@@ -1,12 +1,12 @@
 # dispatch
 
 ```go
-import "github.com/altessa-s/go-atlas/core/runtime/concurrency/dispatch"
+import "github.com/altessa-s/go-atlas/service/dispatch"
 ```
 
 Package `dispatch` provides a generic, non-blocking, batching dispatch
 engine with optional crash-safe persistence backed by
-[`core/io/wal`](../../../io/wal).
+[`core/io/wal`](../../core/io/wal).
 
 It is the foundation for fire-and-forget producers (audit logs, request
 access logs, telemetry) where the hot path must not block on I/O but
@@ -75,10 +75,10 @@ implementations should be idempotent on the records' natural identity
 ## WAL
 
 The write-ahead log lives in its own package,
-[`core/io/wal`](../../../io/wal), and can be used independently of this
+[`core/io/wal`](../../core/io/wal), and can be used independently of this
 engine. `WithWAL(dir, codec, walOpts...)` wires it in; the full API
 surface, durability guarantees, and performance notes are documented
-in the [`core/io/wal` README](../../../io/wal/README.md). Only the
+in the [`core/io/wal` README](../../core/io/wal/README.md). Only the
 `wal.Option` variadic tail is exposed through this package — everything
 else is the WAL package's surface.
 

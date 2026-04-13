@@ -30,7 +30,7 @@ not need to invoke `prctl` themselves.
 | `ErrInvalidOption` | Operator supplied an empty or non-absolute path (sentinel) |
 
 `Apply` follows the functional-options convention used elsewhere in go-atlas
-(e.g. `core/io/files.Walk`, `core/plugins.NewManager`, `data/probfilter.NewManager`).
+(e.g. `core/io/files.Walk`, `plugins.NewManager`, `data/probfilter.NewManager`).
 Every path must be a non-empty absolute filesystem path; `Apply` validates the
 allowlist before invoking any syscall, so misconfiguration surfaces as a plain
 error (not wrapped in `ErrFailed` or `ErrUnsupported`).
@@ -120,7 +120,7 @@ err := landlock.Apply(append(baseOpts, extra...)...)
 | Audit log writer | Write access limited to the audit directory even if the code is compromised |
 | Secret loader | Read access limited to the credentials path + cache |
 | Template renderer processing untrusted templates | Template can only touch its working directory |
-| Plugin manager (see `core/plugins/sandbox.go`) | Plugins can't escape their allowlisted filesystem view |
+| Plugin manager (see `plugins/sandbox.go`) | Plugins can't escape their allowlisted filesystem view |
 | Test harness verifying the code-under-test doesn't touch unexpected paths | Fail-fast assertion via `EACCES` on forbidden access |
 
 ## Kernel ABI versions
@@ -217,6 +217,6 @@ prerequisite) before reaching here.
 - `core/runtime/rlimits` — process resource limits (step 2)
 - `core/runtime/capabilities` — Linux capability dropping (step 3)
 - `core/runtime/seccomp` — syscall denylist via seccomp-BPF (step 4)
-- `core/plugins/sandbox.go` in this repository — a real-world consumer that
+- `plugins/sandbox.go` in this repository — a real-world consumer that
   adds plugin-specific conveniences (auto-include plugin dir, system libs)
   on top of the raw `landlock.Apply` call.

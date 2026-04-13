@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/core/io/wal"
-	"github.com/altessa-s/go-atlas/core/runtime/concurrency/dispatch"
+	"github.com/altessa-s/go-atlas/service/dispatch"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 

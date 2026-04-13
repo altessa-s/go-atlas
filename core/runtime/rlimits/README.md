@@ -24,7 +24,7 @@ never be raised back above it for the lifetime of the process.
 | `ErrInvalidOption` | Operator supplied a negative rlimit value |
 
 `Apply` follows the functional-options convention used elsewhere in go-atlas
-(e.g. `core/io/files.Walk`, `core/plugins.NewManager`, `core/runtime/landlock`).
+(e.g. `core/io/files.Walk`, `plugins.NewManager`, `core/runtime/landlock`).
 Negative values are rejected before any syscall runs.
 
 ## Quick start
@@ -59,7 +59,7 @@ func main() {
 - **CLI tools processing untrusted input** (archive extractors, template
   renderers) where malformed input could trigger pathological resource
   use.
-- **Plugin hosts** (see `core/plugins/sandbox.go`) that compose rlimits
+- **Plugin hosts** (see `plugins/sandbox.go`) that compose rlimits
   with `core/runtime/nonewprivs` and `core/runtime/landlock`.
 - **Services handling sensitive data** that must not leak memory
   contents via core dumps — `WithDisableCoreDumps()` is cheap and
@@ -130,4 +130,4 @@ does not leave behind a half-applied capability state.
 - `core/runtime/capabilities` — Linux capability dropping (step 3)
 - `core/runtime/seccomp` — syscall denylist via seccomp-BPF (step 4)
 - `core/runtime/landlock` — filesystem allowlist (step 5)
-- `core/plugins/sandbox.go` — real-world consumer composing the sequence
+- `plugins/sandbox.go` — real-world consumer composing the sequence

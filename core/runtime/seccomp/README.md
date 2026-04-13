@@ -99,7 +99,7 @@ anti-pattern, and this package refuses to support one. The reasons:
 
 ## When to use it
 
-- **Plugin hosts** (see `core/plugins/sandbox.go`) where plugins
+- **Plugin hosts** (see `plugins/sandbox.go`) where plugins
   loaded via `dlopen` would otherwise inherit the host's full
   syscall surface.
 - **Long-running services** that have no reason to call `mount`,
@@ -205,6 +205,6 @@ ok
 - `core/runtime/capabilities` — Linux capability dropping, third
   step.
 - `core/runtime/landlock` — filesystem allowlist, final step.
-- `core/plugins/sandbox.go` — real-world consumer of the other
+- `plugins/sandbox.go` — real-world consumer of the other
   four hardening primitives. Seccomp integration is an optional
   follow-up when a concrete plugin-sandbox use case appears.

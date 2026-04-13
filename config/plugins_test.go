@@ -13,7 +13,7 @@ import (
 )
 
 // These tests cover the Validate methods on the operator-config types
-// in this package. They previously lived in core/plugins/sandbox_test.go
+// in this package. They previously lived in plugins/sandbox_test.go
 // but the coverage was being recorded against the wrong package — the
 // methods under test are defined here, so the tests belong here too.
 

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/runtime/concurrency/dispatch"
+	"github.com/altessa-s/go-atlas/service/dispatch"
 )
 
 // record is the domain type the engine batches and persists.

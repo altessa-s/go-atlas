@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/config"
-	"github.com/altessa-s/go-atlas/core/plugins/factory"
+	"github.com/altessa-s/go-atlas/plugins/factory"
 )
 
 func TestManagerBuilder_Build_NilConfig(t *testing.T) {

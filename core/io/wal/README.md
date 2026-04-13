@@ -98,7 +98,7 @@ and `BenchmarkWAL_OpenRecover` in `wal_bench_test.go`.
   syscall to keep on-disk offsets and accounting consistent. On a slow
   disk this limits per-process Append throughput to the disk's write
   latency — batched upstream producers (e.g.
-  [`core/runtime/concurrency/dispatch`](../../runtime/concurrency/dispatch))
+  [`service/dispatch`](../../../../service/dispatch))
   hide this by accumulating in memory before calling `Append`.
 - Header and payload are coalesced into a single scratch buffer so
   each `Append` issues exactly one `write` syscall.
@@ -117,7 +117,7 @@ or consumer back-pressure.
 
 For the common "batching async dispatcher with optional WAL durability"
 pattern, use
-[`core/runtime/concurrency/dispatch`](../../runtime/concurrency/dispatch) —
+[`service/dispatch`](../../../../service/dispatch) —
 it wraps this package behind a `Sink[T]` + `Codec[T]` interface and
 handles replay, retries, metrics, and graceful shutdown.
 

@@ -47,7 +47,7 @@ Enable it in:
 - **Long-running services** that have no reason to exec setuid binaries.
 - **CLI tools that ingest untrusted input** and want to prevent injected
   commands from escalating via `sudo`, `mount`, etc.
-- **Plugin hosts** (see `core/plugins/sandbox.go`) where a compromised
+- **Plugin hosts** (see `plugins/sandbox.go`) where a compromised
   plugin must not be able to escalate.
 - **Any process preparing to call Landlock** — `landlock_restrict_self(2)`
   requires it. Note that
@@ -100,4 +100,4 @@ unprivileged callers.
 - `core/runtime/capabilities` — Linux capability dropping (step 3)
 - `core/runtime/seccomp` — syscall denylist via seccomp-BPF (step 4)
 - `core/runtime/landlock` — filesystem allowlist (step 5)
-- `core/plugins/sandbox.go` — real-world consumer composing the sequence
+- `plugins/sandbox.go` — real-world consumer composing the sequence

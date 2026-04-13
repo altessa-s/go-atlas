@@ -69,6 +69,6 @@
 //
 // For high-throughput producers that cannot tolerate the Append mutex as
 // a throughput bottleneck, front the WAL with the batching engine in
-// [github.com/altessa-s/go-atlas/core/runtime/concurrency/dispatch],
+// [github.com/altessa-s/go-atlas/service/dispatch],
 // which accumulates items in memory and hands batches to this package.
 package wal

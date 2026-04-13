@@ -1,7 +1,7 @@
 # plugins
 
 ```go
-import "github.com/altessa-s/go-atlas/core/plugins"
+import "github.com/altessa-s/go-atlas/plugins"
 ```
 
 Dynamic plugin manager for loading and managing `.so` plugins at runtime,

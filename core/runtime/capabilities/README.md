@@ -110,7 +110,7 @@ ambient are cleared (safe default for a long-running service).
   they no longer need after startup (typical: a service started by
   systemd with `AmbientCapabilities=CAP_NET_BIND_SERVICE`, which
   binds :443 and then drops the cap).
-- **Plugin hosts** (see `core/plugins/sandbox.go`) where plugins
+- **Plugin hosts** (see `plugins/sandbox.go`) where plugins
   loaded via `dlopen` would otherwise inherit the host's caps.
 - **CLI tools** running with file capabilities that want to drop
   them before invoking untrusted subcommands.
@@ -203,4 +203,4 @@ Run with `go run smoke.go` (the binary must have
   step in the hardening sequence
 - `core/runtime/rlimits` — resource caps, second step
 - `core/runtime/landlock` — filesystem allowlist, final step
-- `core/plugins/sandbox.go` — real-world consumer composing all four
+- `plugins/sandbox.go` — real-world consumer composing all four

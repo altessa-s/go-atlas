@@ -90,7 +90,7 @@ func Get() (Sets, error) {
 // a container runtime with --cap-drop, or a small C launcher that
 // drops privileges before execve(2). This package then becomes a
 // inspection / defense-in-depth helper rather than the primary
-// mechanism. See [github.com/altessa-s/go-atlas/core/plugins].
+// mechanism. See [github.com/altessa-s/go-atlas/plugins].
 func DropAll() error {
 	return dropAllExcept(nil)
 }
