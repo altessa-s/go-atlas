@@ -325,11 +325,20 @@ func TestManager_VerifyPluginSignature_InvalidSignature(t *testing.T) {
 
 func TestWithSignature_DeferredError(t *testing.T) {
 	t.Parallel()
-	mgr := NewManager(WithSignature(SignatureOptions{
-		Mode:          SignatureRequire,
-		PublicKeyPath: "/nonexistent/key.pem",
-	}))
+	mgr := NewManager(
+		WithDir(t.TempDir()),
+		WithSignature(SignatureOptions{
+			Mode:          SignatureRequire,
+			PublicKeyPath: "/nonexistent/key.pem",
+		}),
+	)
+	t.Cleanup(func() { _ = mgr.Close() })
+
 	assert.NotNil(t, mgr.opts.signatureErr)
+
+	// Load surfaces the deferred error once, not per-plugin.
+	err := mgr.Load(t.Context())
+	assert.ErrorIs(t, err, ErrSignatureConfig)
 }
 
 // --- loadPublicKey ---
