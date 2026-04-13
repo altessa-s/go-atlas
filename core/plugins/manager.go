@@ -531,11 +531,15 @@ func (m *Manager) loadPlugin(ctx context.Context, filename string) error {
 	}
 
 	// Verify the detached .sig BEFORE openPlugin executes init code.
+	// Note: openPlugin re-reads the file from disk (Go's plugin.Open does
+	// not accept pre-read bytes). An attacker with write access to the
+	// plugin directory could swap the .so between verification and Open.
+	// The primary mitigation is filesystem permissions — the plugin
+	// directory must be writable only by the deployer, not the application
+	// user. See the Security section in doc.go.
 	if err := m.verifyPluginSignature(filename, path, pluginData, fileHash); err != nil {
 		return err
 	}
-	// pluginData is no longer needed; openPlugin maps the file independently.
-	// The local goes out of scope after the next statement, so GC collects it.
 
 	raw, err := openPlugin(path)
 	if err != nil {
