@@ -14,6 +14,16 @@ type Result struct {
 	DecisionID string `json:"decision_id,omitempty"`
 	// Allow indicates whether the request is permitted.
 	Allow bool `json:"allow"`
+	// Denials maps denial codes to human-readable messages.
+	// Empty/nil when Allow is true. O(1) lookup by code.
+	Denials map[string]string `json:"denials,omitempty"`
+}
+
+// HasDenialCode reports whether the result contains a denial with the given code.
+// O(1) map lookup.
+func (r *Result) HasDenialCode(code string) bool {
+	_, ok := r.Denials[code]
+	return ok
 }
 
 // Evaluator defines the interface for checking permissions using OPA policies.
