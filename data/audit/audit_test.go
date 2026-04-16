@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/service/dispatch"
 	"github.com/altessa-s/go-atlas/data/audit"
 	"github.com/altessa-s/go-atlas/data/audit/storages/memory"
+	"github.com/altessa-s/go-atlas/service/dispatch"
 )
 
 // newTestEngine creates a dispatch.Engine backed by the given store with

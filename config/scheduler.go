@@ -49,7 +49,7 @@ type SchedulerConcurrency struct {
 // DefaultSchedulerConcurrency returns a SchedulerConcurrency with default values.
 func DefaultSchedulerConcurrency() SchedulerConcurrency {
 	return SchedulerConcurrency{
-		Concurrency:         DefaultConcurrency(),
+		Concurrency:               DefaultConcurrency(),
 		ReservedHighPrioritySlots: defaultSchedulerReservedHighPrioritySlots,
 	}
 }

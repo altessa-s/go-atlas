@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/altessa-s/go-atlas/service/dispatch"
 	"github.com/altessa-s/go-atlas/data/audit"
 	"github.com/altessa-s/go-atlas/data/audit/storages/memory"
+	"github.com/altessa-s/go-atlas/service/dispatch"
 )
 
 func FuzzAuditor_Emit(f *testing.F) {

@@ -39,7 +39,7 @@ func NewTestAuditor(tb testing.TB, opts ...audit.Option) (*audit.Auditor, *memor
 	if err != nil {
 		tb.Fatalf("failed to create dispatch engine: %v", err)
 	}
-	if err := eng.Start(); err != nil {
+	if err = eng.Start(); err != nil {
 		tb.Fatalf("failed to start dispatch engine: %v", err)
 	}
 
@@ -47,12 +47,12 @@ func NewTestAuditor(tb testing.TB, opts ...audit.Option) (*audit.Auditor, *memor
 	if err != nil {
 		tb.Fatalf("failed to create auditor: %v", err)
 	}
-	if err := a.Start(); err != nil {
+	if err = a.Start(); err != nil {
 		tb.Fatalf("failed to start auditor: %v", err)
 	}
 
 	shutdown := ShutdownFunc(func(ctx context.Context) error {
-		_ = a.Shutdown(ctx)   //nolint:errcheck // test helper
+		_ = a.Shutdown(ctx) //nolint:errcheck // test helper
 		return eng.Shutdown(ctx)
 	})
 

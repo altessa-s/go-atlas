@@ -21,7 +21,7 @@ func newBenchEngine(b *testing.B, store audit.Storage) *dispatch.Engine[*audit.E
 	b.Helper()
 	eng, err := dispatch.NewEngine[*audit.Event](
 		audit.StorageSink{Storage: store},
-		dispatch.WithBufferSize[*audit.Event](100000),            //nolint:mnd // bench constant
+		dispatch.WithBufferSize[*audit.Event](100000),                 //nolint:mnd // bench constant
 		dispatch.WithFlushInterval[*audit.Event](50*time.Millisecond), //nolint:mnd // bench constant
 		dispatch.WithWorkers[*audit.Event](2),
 	)
