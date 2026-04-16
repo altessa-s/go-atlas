@@ -8,46 +8,39 @@ import (
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
-// auditMetrics holds all Prometheus metrics for the audit dispatcher.
+// DefaultMetricsSubsystem is the Prometheus subsystem name used when no
+// explicit subsystem is provided via [WithMetricsSubsystem].
+const DefaultMetricsSubsystem = "audit"
+
+// auditMetrics holds Prometheus metrics for the Auditor facade.
+// Dispatch-level metrics (workers, flush duration, WAL) are provided
+// by the underlying [dispatch.Engine] and are not duplicated here.
+//
 // When no [metrics.Collector] is provided, [metrics.Noop] is used and
 // all methods become zero-cost no-ops.
 type auditMetrics struct {
 	eventsEmitted metrics.Counter
 	eventsDropped metrics.Counter
-	flushDuration metrics.Timer
-	storeErrors   metrics.Counter
-	workersActive metrics.Gauge
 }
 
-func newAuditMetrics(c metrics.Collector) *auditMetrics {
+func newAuditMetrics(c metrics.Collector, subsystem string) *auditMetrics {
 	if c == nil {
 		c = metrics.Noop()
 	}
+	if subsystem == "" {
+		subsystem = DefaultMetricsSubsystem
+	}
 
-	scoped := c.WithSubsystem("audit")
+	scoped := c.WithSubsystem(subsystem)
 
 	return &auditMetrics{
 		eventsEmitted: scoped.MustCounter(metrics.MetricOpts{
 			Name: "events_emitted_total",
-			Help: "Total number of audit events successfully emitted.",
+			Help: "Total number of audit events successfully submitted to the dispatcher.",
 		}),
 		eventsDropped: scoped.MustCounter(metrics.MetricOpts{
 			Name: "events_dropped_total",
 			Help: "Total number of audit events dropped due to a full buffer.",
-		}),
-		flushDuration: scoped.MustTimer(metrics.HistogramOpts{
-			MetricOpts: metrics.MetricOpts{
-				Name: "batch_flush_duration_seconds",
-				Help: "Duration of batch flush operations in seconds.",
-			},
-		}),
-		storeErrors: scoped.MustCounter(metrics.MetricOpts{
-			Name: "store_errors_total",
-			Help: "Total number of batch store failures after all retries.",
-		}),
-		workersActive: scoped.MustGauge(metrics.MetricOpts{
-			Name: "workers_active",
-			Help: "Number of currently active dispatch workers.",
 		}),
 	}
 }

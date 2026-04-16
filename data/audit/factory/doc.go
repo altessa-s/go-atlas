@@ -10,6 +10,6 @@
 //
 //	auditor, err := factory.New(cfg.Audit).
 //	    UseLogger(logger).
-//	    UseMongoDb(db).
+//	    UseDispatcher(eng).
 //	    Build()
 package factory

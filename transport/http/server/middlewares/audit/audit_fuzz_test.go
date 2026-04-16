@@ -10,10 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/audit"
 	"github.com/altessa-s/go-atlas/data/audit/storages/memory"
+	"github.com/altessa-s/go-atlas/service/dispatch"
 
 	audithttp "github.com/altessa-s/go-atlas/transport/http/server/middlewares/audit"
 )
@@ -33,10 +34,17 @@ func FuzzMiddleware(f *testing.F) {
 		}
 
 		store := memory.New()
-		a, err := audit.New(store, audit.WithFlushInterval(50*time.Millisecond), audit.WithWorkers(1))
-		assert.NoError(t, err)
-		err = a.Start()
-		assert.NoError(t, err)
+		eng, err := dispatch.NewEngine[*audit.Event](
+			audit.StorageSink{Storage: store},
+			dispatch.WithFlushInterval[*audit.Event](50*time.Millisecond), //nolint:mnd // fuzz constant
+			dispatch.WithWorkers[*audit.Event](1),
+		)
+		require.NoError(t, err)
+		require.NoError(t, eng.Start())
+
+		a, err := audit.New(eng)
+		require.NoError(t, err)
+		require.NoError(t, a.Start())
 
 		handler := audithttp.Middleware(a)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(statusCode)
@@ -50,5 +58,6 @@ func FuzzMiddleware(f *testing.F) {
 		handler.ServeHTTP(rec, req)
 
 		_ = a.Shutdown(t.Context())
+		_ = eng.Shutdown(t.Context())
 	})
 }

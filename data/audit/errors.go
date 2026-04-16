@@ -10,9 +10,5 @@ import "errors"
 // has already been started.
 var ErrAuditorAlreadyStarted = errors.New("auditor already started")
 
-// ErrBufferFull is returned when the internal event channel is full and the
-// event is dropped. See [Auditor.Emit].
-var ErrBufferFull = errors.New("event buffer full, event dropped")
-
-// ErrNilStorage is returned by [New] when a nil [Storage] is provided.
-var ErrNilStorage = errors.New("storage is required for auditor")
+// ErrNilDispatcher is returned by [New] when a nil [Dispatcher] is provided.
+var ErrNilDispatcher = errors.New("dispatcher is required for auditor")

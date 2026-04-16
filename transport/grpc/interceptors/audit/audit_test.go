@@ -23,7 +23,8 @@ import (
 )
 
 func TestServerInterceptor_AuditsCall(t *testing.T) {
-	a, store := testhelpers.NewTestAuditor(t)
+	t.Parallel()
+	a, store, shutdown := testhelpers.NewTestAuditor(t)
 
 	i := auditgrpc.ServerInterceptor(a)
 	interceptor := i.ServerUnaryInterceptor()
@@ -37,7 +38,7 @@ func TestServerInterceptor_AuditsCall(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "ok", resp)
 
-	require.NoError(t, a.Shutdown(t.Context()))
+	require.NoError(t, shutdown(t.Context()))
 	require.Equal(t, 1, store.Len())
 
 	event := store.Events()[0]
@@ -49,7 +50,8 @@ func TestServerInterceptor_AuditsCall(t *testing.T) {
 }
 
 func TestServerInterceptor_IgnoreMethods(t *testing.T) {
-	a, store := testhelpers.NewTestAuditor(t)
+	t.Parallel()
+	a, store, shutdown := testhelpers.NewTestAuditor(t)
 
 	i := auditgrpc.ServerInterceptor(a,
 		auditgrpc.WithIgnoreMethods("/grpc.health.v1.Health/Check"),
@@ -70,11 +72,12 @@ func TestServerInterceptor_IgnoreMethods(t *testing.T) {
 	_, err = interceptor(t.Context(), nil, info, handler)
 	require.NoError(t, err)
 
-	require.NoError(t, a.Shutdown(t.Context()))
+	require.NoError(t, shutdown(t.Context()))
 	assert.Equal(t, 1, store.Len())
 }
 
 func TestServerInterceptor_NilAuditor(t *testing.T) {
+	t.Parallel()
 	i := auditgrpc.ServerInterceptor(nil)
 	interceptor := i.ServerUnaryInterceptor()
 
@@ -92,6 +95,7 @@ func TestServerInterceptor_NilAuditor(t *testing.T) {
 }
 
 func TestServerInterceptor_GRPCStatusMapping(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		err  error
@@ -107,7 +111,8 @@ func TestServerInterceptor_GRPCStatusMapping(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			a, store := testhelpers.NewTestAuditor(t)
+			t.Parallel()
+			a, store, shutdown := testhelpers.NewTestAuditor(t)
 
 			i := auditgrpc.ServerInterceptor(a)
 			interceptor := i.ServerUnaryInterceptor()
@@ -119,7 +124,7 @@ func TestServerInterceptor_GRPCStatusMapping(t *testing.T) {
 
 			_, _ = interceptor(t.Context(), nil, info, handler)
 
-			require.NoError(t, a.Shutdown(t.Context()))
+			require.NoError(t, shutdown(t.Context()))
 			require.Equal(t, 1, store.Len())
 
 			event := store.Events()[0]
@@ -130,7 +135,8 @@ func TestServerInterceptor_GRPCStatusMapping(t *testing.T) {
 }
 
 func TestServerInterceptor_ActorExtractor(t *testing.T) {
-	a, store := testhelpers.NewTestAuditor(t)
+	t.Parallel()
+	a, store, shutdown := testhelpers.NewTestAuditor(t)
 
 	i := auditgrpc.ServerInterceptor(a,
 		auditgrpc.WithActorExtractor(func(ctx context.Context) audit.Actor {
@@ -144,14 +150,15 @@ func TestServerInterceptor_ActorExtractor(t *testing.T) {
 
 	_, _ = interceptor(t.Context(), nil, info, handler)
 
-	require.NoError(t, a.Shutdown(t.Context()))
+	require.NoError(t, shutdown(t.Context()))
 	require.Equal(t, 1, store.Len())
 	assert.Equal(t, "user-42", store.Events()[0].Actor.ID)
 	assert.Equal(t, audit.ActorTypeUser, store.Events()[0].Actor.Type)
 }
 
 func TestServerInterceptor_RequestIDFromContext(t *testing.T) {
-	a, store := testhelpers.NewTestAuditor(t)
+	t.Parallel()
+	a, store, shutdown := testhelpers.NewTestAuditor(t)
 
 	i := auditgrpc.ServerInterceptor(a)
 	interceptor := i.ServerUnaryInterceptor()
@@ -163,7 +170,7 @@ func TestServerInterceptor_RequestIDFromContext(t *testing.T) {
 
 	_, _ = interceptor(ctx, nil, info, handler)
 
-	require.NoError(t, a.Shutdown(t.Context()))
+	require.NoError(t, shutdown(t.Context()))
 	require.Equal(t, 1, store.Len())
 	assert.Equal(t, "req-abc-123", store.Events()[0].Context.RequestID)
 }

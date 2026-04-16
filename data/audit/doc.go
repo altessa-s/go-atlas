@@ -11,18 +11,26 @@
 //
 // # Architecture
 //
-// Events flow through the following pipeline:
+// Auditor is a thin facade over a [Dispatcher] (typically [dispatch.Engine]).
+// The caller creates and starts the dispatch engine, then passes it to [New].
+// Events flow through the engine's pipeline:
 //
-//	Emit() → [Channel Buffer] → Worker Pool → Batch Buffer → StoreBatch()
-//	                                                              ↓
-//	                                                   (fail? → Retry with backoff)
+//	Emit() → Dispatcher.Submit() → [Channel Buffer] → Worker Pool → Batch → StoreBatch()
+//	                                                                              ↓
+//	                                                                   (fail? → Retry with backoff)
 //
 // # Usage
 //
 //	storage := memory.New() // or mongo.New(db)
-//	auditor, _ := audit.New(storage,
+//	eng, _ := dispatch.NewEngine[*audit.Event](
+//	    audit.StorageSink{Storage: storage},
+//	    dispatch.WithBufferSize[*audit.Event](10000),
+//	)
+//	eng.Start()
+//	defer eng.Shutdown(ctx)
+//
+//	auditor, _ := audit.New(eng,
 //	    audit.WithServiceInfo(audit.ServiceInfo{Name: "my-service"}),
-//	    audit.WithBufferSize(10000),
 //	)
 //	auditor.Start()
 //	defer auditor.Shutdown(ctx)

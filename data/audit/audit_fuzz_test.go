@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/altessa-s/go-atlas/service/dispatch"
 	"github.com/altessa-s/go-atlas/data/audit"
 	"github.com/altessa-s/go-atlas/data/audit/storages/memory"
 )
@@ -19,7 +20,18 @@ func FuzzAuditor_Emit(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, eventType, action, actorType, actorID, resType, resID string) {
 		store := memory.New()
-		a, err := audit.New(store, audit.WithFlushInterval(50*time.Millisecond), audit.WithWorkers(1))
+		eng, err := dispatch.NewEngine[*audit.Event](
+			audit.StorageSink{Storage: store},
+			dispatch.WithFlushInterval[*audit.Event](50*time.Millisecond),
+			dispatch.WithWorkers[*audit.Event](1),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := eng.Start(); err != nil {
+			t.Fatal(err)
+		}
+		a, err := audit.New(eng)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -39,6 +51,7 @@ func FuzzAuditor_Emit(f *testing.F) {
 		}
 		a.Emit(event)
 		_ = a.Shutdown(t.Context())
+		_ = eng.Shutdown(t.Context())
 	})
 }
 

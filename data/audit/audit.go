@@ -6,75 +6,76 @@ package audit
 
 import (
 	"context"
+	"log/slog"
 	"sync/atomic"
 	"time"
 
 	"github.com/oklog/ulid/v2"
 
 	"github.com/altessa-s/go-atlas/core/runtime"
-
-	corecontext "github.com/altessa-s/go-atlas/core/context"
 )
 
-// Auditor is the main entry point for emitting audit events.
-// It manages an asynchronous dispatcher that batches and persists events
-// with at-least-once delivery semantics.
-type Auditor struct {
-	opts       *options
-	storage    Storage
-	dispatcher *dispatcher
-	metrics    *auditMetrics
-	started    atomic.Bool
-	dropped    atomic.Int64
+// Dispatcher abstracts async item dispatch. The implementation (e.g.
+// [dispatch.Engine]) must be created and started before being passed
+// to [New], and shut down separately by the caller.
+type Dispatcher interface {
+	Submit(item *Event) bool
+	Dropped() int64
 }
 
-// New creates a new Auditor with the given storage and options.
-func New(storage Storage, opts ...Option) (*Auditor, error) {
-	if storage == nil {
-		return nil, ErrNilStorage
+// Auditor is the main entry point for emitting audit events. It is a thin
+// facade over a [Dispatcher] with an audit-specific event schema:
+// ID/timestamp auto-fill, service-info injection, and a fluent
+// EventBuilder.
+//
+// The dispatcher is an external dependency created and managed by the
+// caller — typically through [data/audit/factory]. Auditor does not know
+// or care how it is wired; it only calls [Dispatcher.Submit].
+type Auditor struct {
+	opts       *options
+	metrics    *auditMetrics
+	dispatcher Dispatcher
+	started    atomic.Bool
+}
+
+// New creates an Auditor that dispatches events through the given
+// [Dispatcher]. The dispatcher must already be started. Auditor-specific
+// tunables (service info, logger) are supplied via opts.
+func New(dispatcher Dispatcher, opts ...Option) (*Auditor, error) {
+	if dispatcher == nil {
+		return nil, ErrNilDispatcher
 	}
-
 	o := newOptions(opts...)
-
 	return &Auditor{
-		opts:    o,
-		storage: storage,
-		metrics: newAuditMetrics(o.collector),
+		opts:       o,
+		metrics:    newAuditMetrics(o.collector, o.metricsSubsystem),
+		dispatcher: dispatcher,
 	}, nil
 }
 
-// Start begins the asynchronous event processing pipeline.
+// Start marks the auditor as active and registers a shutdown hook so the
+// auditor stops accepting events on process termination. The underlying
+// [Dispatcher] must already be started by the caller.
 func (a *Auditor) Start() error {
 	if !a.started.CompareAndSwap(false, true) {
 		return ErrAuditorAlreadyStarted
 	}
 
-	a.dispatcher = newDispatcher(a.storage, a.opts, a.metrics)
-	a.dispatcher.start()
-
 	runtime.OnShutdown(a.Shutdown)
 
-	a.opts.logger.Info("auditor started",
-		"buffer_size", a.opts.bufferSize,
-		"batch_size", a.opts.batchSize,
-		"workers", a.opts.workers)
+	a.opts.logger.Info("auditor started")
 
 	return nil
 }
 
-// Shutdown gracefully stops the auditor, draining all buffered events.
-func (a *Auditor) Shutdown(ctx context.Context) error {
+// Shutdown stops the auditor from accepting new events.
+func (a *Auditor) Shutdown(_ context.Context) error {
 	if !a.started.CompareAndSwap(true, false) {
 		return nil
 	}
 
-	shutdownCtx, cancel := corecontext.WithMaxTimeout(ctx, a.opts.shutdownTimeout)
-	defer cancel()
-
-	err := a.dispatcher.shutdown(shutdownCtx)
-
 	a.opts.logger.Info("auditor stopped")
-	return err
+	return nil
 }
 
 // Emit sends an event to the async processing pipeline (fire-and-forget).
@@ -87,25 +88,22 @@ func (a *Auditor) Emit(event *Event) bool {
 
 	a.fillDefaults(event)
 
-	if !a.dispatcher.emit(event) {
-		a.dropped.Add(1)
+	if !a.dispatcher.Submit(event) {
 		a.metrics.eventsDropped.Inc()
-		if a.opts.onDrop != nil {
-			a.opts.onDrop(event)
-		}
 		a.opts.logger.Warn("audit event dropped: buffer full",
 			"event_id", event.ID,
 			"event_type", event.Type,
 			"action", event.Action)
 		return false
 	}
+
 	a.metrics.eventsEmitted.Inc()
 	return true
 }
 
 // DroppedEvents returns the total number of events dropped due to a full buffer.
 func (a *Auditor) DroppedEvents() int64 {
-	return a.dropped.Load()
+	return a.dispatcher.Dropped()
 }
 
 // NewEvent returns a fluent EventBuilder for constructing and emitting an event.
@@ -130,3 +128,20 @@ func (a *Auditor) fillDefaults(event *Event) {
 		event.Service = a.opts.serviceInfo
 	}
 }
+
+// StorageSink adapts a [Storage] to [dispatch.Sink] so it can be passed
+// to [dispatch.NewEngine]. Exported for use by factory packages.
+type StorageSink struct{ Storage Storage }
+
+// StoreBatch implements [dispatch.Sink].
+func (s StorageSink) StoreBatch(ctx context.Context, items []*Event) error {
+	return s.Storage.StoreBatch(ctx, items)
+}
+
+// JSONCodec is the default [dispatch.Codec] for audit events, using JSON
+// encoding. Exported for use by factory packages that construct the engine.
+type JSONCodec = jsonCodec
+
+// Logger returns the facade logger. Useful for factory packages that need
+// to pass the same logger to the dispatch engine.
+func (o *options) Logger() *slog.Logger { return o.logger }

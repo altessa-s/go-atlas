@@ -20,7 +20,8 @@ import (
 )
 
 func TestMiddleware_AuditsRequest(t *testing.T) {
-	a, store := testhelpers.NewTestAuditor(t)
+	t.Parallel()
+	a, store, shutdown := testhelpers.NewTestAuditor(t)
 
 	handler := audithttp.Middleware(a)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -32,7 +33,7 @@ func TestMiddleware_AuditsRequest(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rec.Code)
 
-	require.NoError(t, a.Shutdown(t.Context()))
+	require.NoError(t, shutdown(t.Context()))
 	assert.Equal(t, 1, store.Len())
 
 	events := store.Events()
@@ -43,6 +44,7 @@ func TestMiddleware_AuditsRequest(t *testing.T) {
 }
 
 func TestMiddleware_NilAuditor_PassesThrough(t *testing.T) {
+	t.Parallel()
 	called := false
 	handler := audithttp.Middleware(nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called = true
@@ -58,7 +60,8 @@ func TestMiddleware_NilAuditor_PassesThrough(t *testing.T) {
 }
 
 func TestMiddleware_IgnorePaths(t *testing.T) {
-	a, store := testhelpers.NewTestAuditor(t)
+	t.Parallel()
+	a, store, shutdown := testhelpers.NewTestAuditor(t)
 
 	handler := audithttp.Middleware(a,
 		audithttp.WithIgnorePaths("/health", "/ready"),
@@ -78,12 +81,13 @@ func TestMiddleware_IgnorePaths(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	require.NoError(t, a.Shutdown(t.Context()))
+	require.NoError(t, shutdown(t.Context()))
 	assert.Equal(t, 1, store.Len())
 }
 
 func TestMiddleware_IgnoreMethods(t *testing.T) {
-	a, store := testhelpers.NewTestAuditor(t)
+	t.Parallel()
+	a, store, shutdown := testhelpers.NewTestAuditor(t)
 
 	handler := audithttp.Middleware(a,
 		audithttp.WithIgnoreMethods("OPTIONS", "HEAD"),
@@ -99,11 +103,12 @@ func TestMiddleware_IgnoreMethods(t *testing.T) {
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	require.NoError(t, a.Shutdown(t.Context()))
+	require.NoError(t, shutdown(t.Context()))
 	assert.Equal(t, 1, store.Len())
 }
 
 func TestMiddleware_HTTPMethodToAction(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		method string
 		action audit.Action
@@ -120,7 +125,8 @@ func TestMiddleware_HTTPMethodToAction(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.method, func(t *testing.T) {
-			a, store := testhelpers.NewTestAuditor(t)
+			t.Parallel()
+			a, store, shutdown := testhelpers.NewTestAuditor(t)
 
 			handler := audithttp.Middleware(a)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusOK)
@@ -130,7 +136,7 @@ func TestMiddleware_HTTPMethodToAction(t *testing.T) {
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
 
-			require.NoError(t, a.Shutdown(t.Context()))
+			require.NoError(t, shutdown(t.Context()))
 			require.Equal(t, 1, store.Len())
 			assert.Equal(t, tt.action, store.Events()[0].Action)
 		})
@@ -138,6 +144,7 @@ func TestMiddleware_HTTPMethodToAction(t *testing.T) {
 }
 
 func TestMiddleware_StatusCodes(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name   string
 		status int
@@ -153,7 +160,8 @@ func TestMiddleware_StatusCodes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			a, store := testhelpers.NewTestAuditor(t)
+			t.Parallel()
+			a, store, shutdown := testhelpers.NewTestAuditor(t)
 
 			handler := audithttp.Middleware(a)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(tt.status)
@@ -163,7 +171,7 @@ func TestMiddleware_StatusCodes(t *testing.T) {
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
 
-			require.NoError(t, a.Shutdown(t.Context()))
+			require.NoError(t, shutdown(t.Context()))
 			require.Equal(t, 1, store.Len())
 			assert.Equal(t, tt.want, store.Events()[0].Result.Status)
 			assert.Equal(t, tt.status, store.Events()[0].Result.Code)
@@ -172,7 +180,8 @@ func TestMiddleware_StatusCodes(t *testing.T) {
 }
 
 func TestMiddleware_ActorExtractor(t *testing.T) {
-	a, store := testhelpers.NewTestAuditor(t)
+	t.Parallel()
+	a, store, shutdown := testhelpers.NewTestAuditor(t)
 
 	handler := audithttp.Middleware(a,
 		audithttp.WithActorExtractor(func(r *http.Request) audit.Actor {
@@ -190,13 +199,14 @@ func TestMiddleware_ActorExtractor(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	require.NoError(t, a.Shutdown(t.Context()))
+	require.NoError(t, shutdown(t.Context()))
 	require.Equal(t, 1, store.Len())
 	assert.Equal(t, "user-42", store.Events()[0].Actor.ID)
 }
 
 func TestMiddleware_RequestIDFromContext(t *testing.T) {
-	a, store := testhelpers.NewTestAuditor(t)
+	t.Parallel()
+	a, store, shutdown := testhelpers.NewTestAuditor(t)
 
 	handler := audithttp.Middleware(a)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -207,13 +217,14 @@ func TestMiddleware_RequestIDFromContext(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	require.NoError(t, a.Shutdown(t.Context()))
+	require.NoError(t, shutdown(t.Context()))
 	require.Equal(t, 1, store.Len())
 	assert.Equal(t, "req-123", store.Events()[0].Context.RequestID)
 }
 
 func TestNew_ReturnsMiddlewareInterface(t *testing.T) {
-	a, _ := testhelpers.NewTestAuditor(t)
+	t.Parallel()
+	a, _, _ := testhelpers.NewTestAuditor(t)
 
 	m := audithttp.New(a)
 	assert.Equal(t, "audit", m.Name())
@@ -221,6 +232,7 @@ func TestNew_ReturnsMiddlewareInterface(t *testing.T) {
 }
 
 func TestNew_NilAuditor_ReturnsNoop(t *testing.T) {
+	t.Parallel()
 	m := audithttp.New(nil)
 	assert.Equal(t, "audit", m.Name())
 

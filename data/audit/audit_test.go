@@ -5,24 +5,48 @@
 package audit_test
 
 import (
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/service/dispatch"
 	"github.com/altessa-s/go-atlas/data/audit"
 	"github.com/altessa-s/go-atlas/data/audit/storages/memory"
 )
 
+// newTestEngine creates a dispatch.Engine backed by the given store with
+// sensible test defaults. The caller can override defaults via extra opts.
+func newTestEngine(
+	tb testing.TB,
+	store audit.Storage,
+	extra ...dispatch.Option[*audit.Event],
+) *dispatch.Engine[*audit.Event] {
+	tb.Helper()
+	base := []dispatch.Option[*audit.Event]{
+		dispatch.WithBatchSize[*audit.Event](10),
+		dispatch.WithFlushInterval[*audit.Event](20 * time.Millisecond),
+		dispatch.WithWorkers[*audit.Event](2),
+	}
+	eng, err := dispatch.NewEngine[*audit.Event](
+		audit.StorageSink{Storage: store},
+		append(base, extra...)...,
+	)
+	require.NoError(tb, err)
+	return eng
+}
+
 func TestAuditor_EmitAndShutdown(t *testing.T) {
+	t.Parallel()
 	store := memory.New()
-	a, err := audit.New(store,
+	eng := newTestEngine(t, store,
+		dispatch.WithFlushInterval[*audit.Event](50*time.Millisecond),
+		dispatch.WithWorkers[*audit.Event](1),
+	)
+	require.NoError(t, eng.Start())
+	a, err := audit.New(eng,
 		audit.WithServiceInfo(audit.ServiceInfo{Name: "test-svc", Version: "1.0"}),
-		audit.WithBatchSize(10),
-		audit.WithFlushInterval(50*time.Millisecond),
-		audit.WithWorkers(1),
 	)
 	require.NoError(t, err)
 	require.NoError(t, a.Start())
@@ -41,14 +65,13 @@ func TestAuditor_EmitAndShutdown(t *testing.T) {
 	}
 
 	require.NoError(t, a.Shutdown(t.Context()))
+	require.NoError(t, eng.Shutdown(t.Context()))
 	assert.Equal(t, 50, store.Len())
 
-	// Verify service info was set.
 	events := store.Events()
 	assert.Equal(t, "test-svc", events[0].Service.Name)
 	assert.Equal(t, "1.0", events[0].Service.Version)
 
-	// Verify IDs were generated.
 	for _, e := range events {
 		assert.NotEmpty(t, e.ID)
 		assert.False(t, e.Timestamp.IsZero())
@@ -56,8 +79,13 @@ func TestAuditor_EmitAndShutdown(t *testing.T) {
 }
 
 func TestAuditor_Builder(t *testing.T) {
+	t.Parallel()
 	store := memory.New()
-	a, err := audit.New(store, audit.WithFlushInterval(50*time.Millisecond))
+	eng := newTestEngine(t, store,
+		dispatch.WithFlushInterval[*audit.Event](50*time.Millisecond),
+	)
+	require.NoError(t, eng.Start())
+	a, err := audit.New(eng)
 	require.NoError(t, err)
 	require.NoError(t, a.Start())
 
@@ -73,6 +101,7 @@ func TestAuditor_Builder(t *testing.T) {
 		Emit()
 
 	require.NoError(t, a.Shutdown(t.Context()))
+	require.NoError(t, eng.Shutdown(t.Context()))
 	assert.Equal(t, 1, store.Len())
 
 	e := store.Events()[0]
@@ -82,28 +111,26 @@ func TestAuditor_Builder(t *testing.T) {
 	assert.Equal(t, []string{"name"}, e.Resource.Changes.Fields)
 }
 
-func TestAuditor_BufferFull_DropsEvent(t *testing.T) {
+func TestAuditor_NotStarted_EmitReturnsFalse(t *testing.T) {
+	t.Parallel()
 	store := memory.New()
-
-	var dropped atomic.Int32
-	a, err := audit.New(store,
-		audit.WithBufferSize(1),
-		audit.WithWorkers(0), // invalid, defaults to DefaultWorkers
-		audit.WithOnDrop(func(_ *audit.Event) { dropped.Add(1) }),
-		audit.WithFlushInterval(time.Hour), // don't flush automatically
-	)
+	eng := newTestEngine(t, store)
+	require.NoError(t, eng.Start())
+	defer eng.Shutdown(t.Context()) //nolint:errcheck // test cleanup
+	a, err := audit.New(eng)
 	require.NoError(t, err)
 
-	// Don't start — events go to buffer but no worker drains it.
-	// Actually we need to start but make the worker very slow.
-	// Instead, test that Emit returns false when not started.
 	ok := a.Emit(&audit.Event{Type: audit.EventTypeSystem})
-	assert.False(t, ok) // Not started
+	assert.False(t, ok)
 }
 
 func TestAuditor_DoubleStart(t *testing.T) {
+	t.Parallel()
 	store := memory.New()
-	a, err := audit.New(store)
+	eng := newTestEngine(t, store)
+	require.NoError(t, eng.Start())
+	defer eng.Shutdown(t.Context()) //nolint:errcheck // test cleanup
+	a, err := audit.New(eng)
 	require.NoError(t, err)
 	require.NoError(t, a.Start())
 	defer a.Shutdown(t.Context())
@@ -112,14 +139,20 @@ func TestAuditor_DoubleStart(t *testing.T) {
 	assert.ErrorIs(t, err, audit.ErrAuditorAlreadyStarted)
 }
 
-func TestAuditor_NilStorage(t *testing.T) {
+func TestAuditor_NilEngine(t *testing.T) {
+	t.Parallel()
 	_, err := audit.New(nil)
-	assert.ErrorIs(t, err, audit.ErrNilStorage)
+	assert.ErrorIs(t, err, audit.ErrNilDispatcher)
 }
 
 func TestAuditor_Query(t *testing.T) {
+	t.Parallel()
 	store := memory.New()
-	a, err := audit.New(store, audit.WithFlushInterval(50*time.Millisecond))
+	eng := newTestEngine(t, store,
+		dispatch.WithFlushInterval[*audit.Event](50*time.Millisecond),
+	)
+	require.NoError(t, eng.Start())
+	a, err := audit.New(eng)
 	require.NoError(t, err)
 	require.NoError(t, a.Start())
 
@@ -137,31 +170,30 @@ func TestAuditor_Query(t *testing.T) {
 	})
 
 	require.NoError(t, a.Shutdown(t.Context()))
+	require.NoError(t, eng.Shutdown(t.Context()))
 
-	// Query by actor.
 	count, err := store.Count(t.Context(), &audit.Query{ActorID: "u1"})
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), count)
 
-	// Query by status.
 	count, err = store.Count(t.Context(), &audit.Query{Status: audit.ResultStatusDenied})
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), count)
 }
 
 func TestAuditor_DroppedEventsCounter(t *testing.T) {
+	t.Parallel()
 	store := memory.New()
-	a, err := audit.New(store,
-		audit.WithBufferSize(1),
-		audit.WithWorkers(1),
-		audit.WithFlushInterval(time.Hour), // prevent automatic flush
+	eng := newTestEngine(t, store,
+		dispatch.WithBufferSize[*audit.Event](1),
+		dispatch.WithWorkers[*audit.Event](1),
+		dispatch.WithFlushInterval[*audit.Event](time.Hour),
 	)
+	require.NoError(t, eng.Start())
+	a, err := audit.New(eng)
 	require.NoError(t, err)
 	require.NoError(t, a.Start())
 
-	// Fill the buffer and force drops: emit fast enough that the single
-	// worker cannot drain in time. The first event may land in the buffer,
-	// but subsequent ones will be dropped because flushInterval is huge.
 	for range 20 {
 		a.Emit(&audit.Event{
 			Type:   audit.EventTypeSystem,
@@ -172,23 +204,25 @@ func TestAuditor_DroppedEventsCounter(t *testing.T) {
 	assert.Greater(t, a.DroppedEvents(), int64(0))
 
 	require.NoError(t, a.Shutdown(t.Context()))
+	require.NoError(t, eng.Shutdown(t.Context()))
 }
 
 func TestAuditor_BackPressure(t *testing.T) {
+	t.Parallel()
 	store := memory.New()
 	const eventCount = 20
 
-	a, err := audit.New(store,
-		audit.WithBufferSize(1),
-		audit.WithWorkers(1),
-		audit.WithFlushInterval(50*time.Millisecond),
-		audit.WithBackPressure(),
+	eng := newTestEngine(t, store,
+		dispatch.WithBufferSize[*audit.Event](1),
+		dispatch.WithWorkers[*audit.Event](1),
+		dispatch.WithFlushInterval[*audit.Event](50*time.Millisecond),
+		dispatch.WithBackPressure[*audit.Event](),
 	)
+	require.NoError(t, eng.Start())
+	a, err := audit.New(eng)
 	require.NoError(t, err)
 	require.NoError(t, a.Start())
 
-	// With back-pressure enabled, Emit blocks until buffer has space,
-	// so no events should be dropped.
 	for range eventCount {
 		a.Emit(&audit.Event{
 			Type:   audit.EventTypeBusinessEvent,
@@ -199,20 +233,24 @@ func TestAuditor_BackPressure(t *testing.T) {
 	}
 
 	require.NoError(t, a.Shutdown(t.Context()))
+	require.NoError(t, eng.Shutdown(t.Context()))
 
 	assert.Equal(t, int64(0), a.DroppedEvents())
 	assert.Equal(t, eventCount, store.Len())
 }
 
 func TestAuditor_Context(t *testing.T) {
+	t.Parallel()
 	store := memory.New()
-	a, err := audit.New(store)
+	eng := newTestEngine(t, store)
+	require.NoError(t, eng.Start())
+	defer eng.Shutdown(t.Context()) //nolint:errcheck // test cleanup
+	a, err := audit.New(eng)
 	require.NoError(t, err)
 
 	ctx := audit.NewContext(t.Context(), a)
 	got := audit.FromContext(ctx)
 	assert.Equal(t, a, got)
 
-	// Nil context returns nil.
 	assert.Nil(t, audit.FromContext(t.Context()))
 }

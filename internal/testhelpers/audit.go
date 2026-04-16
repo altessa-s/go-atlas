@@ -11,31 +11,54 @@ import (
 
 	"github.com/altessa-s/go-atlas/data/audit"
 	"github.com/altessa-s/go-atlas/data/audit/storages/memory"
+	"github.com/altessa-s/go-atlas/service/dispatch"
 )
 
+// ShutdownFunc stops both the auditor and the underlying dispatch engine,
+// flushing any buffered events to storage. Call it before asserting on
+// store contents.
+type ShutdownFunc func(ctx context.Context) error
+
 // NewTestAuditor creates an [audit.Auditor] backed by [memory.Storage] for testing.
-// It applies test-friendly defaults (50ms flush interval, 1 worker, batch size 1)
-// before appending any caller-supplied opts, so callers can override individual settings.
-// The auditor is started before returning and shut down automatically via tb.Cleanup.
-func NewTestAuditor(tb testing.TB, opts ...audit.Option) (*audit.Auditor, *memory.Storage) {
+// It applies test-friendly dispatch defaults (50ms flush interval, 1 worker, batch
+// size 1) and starts both the dispatch engine and the auditor. The returned
+// [ShutdownFunc] stops both components and flushes buffered events — call it
+// before asserting on store contents. If not called explicitly, tb.Cleanup
+// shuts everything down automatically.
+func NewTestAuditor(tb testing.TB, opts ...audit.Option) (*audit.Auditor, *memory.Storage, ShutdownFunc) {
 	tb.Helper()
+
 	store := memory.New()
-	defaults := make([]audit.Option, 0, 3+len(opts)) //nolint:mnd // test constant
-	defaults = append(defaults,
-		audit.WithFlushInterval(50*time.Millisecond), //nolint:mnd // test constant
-		audit.WithWorkers(1),
-		audit.WithBatchSize(1),
+
+	eng, err := dispatch.NewEngine[*audit.Event](
+		audit.StorageSink{Storage: store},
+		dispatch.WithFlushInterval[*audit.Event](50*time.Millisecond), //nolint:mnd // test constant
+		dispatch.WithWorkers[*audit.Event](1),
+		dispatch.WithBatchSize[*audit.Event](1),
 	)
-	defaults = append(defaults, opts...)
-	a, err := audit.New(store, defaults...)
+	if err != nil {
+		tb.Fatalf("failed to create dispatch engine: %v", err)
+	}
+	if err := eng.Start(); err != nil {
+		tb.Fatalf("failed to start dispatch engine: %v", err)
+	}
+
+	a, err := audit.New(eng, opts...)
 	if err != nil {
 		tb.Fatalf("failed to create auditor: %v", err)
 	}
 	if err := a.Start(); err != nil {
 		tb.Fatalf("failed to start auditor: %v", err)
 	}
-	tb.Cleanup(func() {
-		_ = a.Shutdown(context.Background()) //nolint:errcheck // test cleanup
+
+	shutdown := ShutdownFunc(func(ctx context.Context) error {
+		_ = a.Shutdown(ctx)   //nolint:errcheck // test helper
+		return eng.Shutdown(ctx)
 	})
-	return a, store
+
+	tb.Cleanup(func() {
+		_ = shutdown(tb.Context()) //nolint:errcheck // test cleanup
+	})
+
+	return a, store, shutdown
 }

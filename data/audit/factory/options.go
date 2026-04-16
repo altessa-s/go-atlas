@@ -7,7 +7,7 @@ package factory
 import (
 	"log/slog"
 
-	"go.mongodb.org/mongo-driver/v2/mongo"
+	"github.com/altessa-s/go-atlas/data/audit"
 )
 
 // UseLogger sets the logger for the builder and all created components.
@@ -21,8 +21,9 @@ func (b *AuditorBuilder) UseDefaultLogger() *AuditorBuilder {
 	return b.UseLogger(slog.Default())
 }
 
-// UseMongoDb sets the MongoDB database for Mongo storage backends.
-func (b *AuditorBuilder) UseMongoDb(v *mongo.Database) *AuditorBuilder {
-	b.mongoDb = v
+// UseDispatcher sets the [audit.Dispatcher] that the Auditor will use for
+// async event dispatch. The dispatcher must already be started.
+func (b *AuditorBuilder) UseDispatcher(v audit.Dispatcher) *AuditorBuilder {
+	b.dispatcher = v
 	return b
 }

@@ -12,16 +12,9 @@ Package `factory` provides a fluent builder for creating an audit auditor from c
 ```go
 auditor, err := factory.New(cfg.Audit).
     UseLogger(logger).
-    UseMongoDb(db).
+    UseDispatcher(eng).
     Build()
 ```
-
-## Supported Storage Types
-
-| Type | Backend | Requires |
-|------|---------|----------|
-| `memory` | In-process slice | — |
-| `mongo` | MongoDB collection | `UseMongoDb` |
 
 ## Methods
 
@@ -36,7 +29,8 @@ auditor, err := factory.New(cfg.Audit).
 | Method | Description |
 |--------|-------------|
 | `UseLogger` | Sets the logger for the builder and all created components |
-| `UseMongoDb` | Sets the MongoDB database for Mongo storage backends |
+| `UseDefaultLogger` | Sets the logger to `slog.Default()` |
+| `UseDispatcher` | Sets the `audit.Dispatcher` (must already be started) |
 
 ### Terminal
 

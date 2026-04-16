@@ -8,25 +8,33 @@ import (
 	"testing"
 	"time"
 
+	"github.com/altessa-s/go-atlas/service/dispatch"
 	"github.com/altessa-s/go-atlas/data/audit"
 	"github.com/altessa-s/go-atlas/data/audit/storages/memory"
 )
 
 func BenchmarkAuditor_Emit(b *testing.B) {
 	store := memory.New()
-	a, err := audit.New(store,
-		audit.WithBufferSize(100000),
-		audit.WithBatchSize(500),
-		audit.WithFlushInterval(50*time.Millisecond),
-		audit.WithWorkers(4),
+	eng := newTestEngine(b, store,
+		dispatch.WithBufferSize[*audit.Event](100000),
+		dispatch.WithBatchSize[*audit.Event](500),
+		dispatch.WithFlushInterval[*audit.Event](50*time.Millisecond),
+		dispatch.WithWorkers[*audit.Event](4),
 	)
+	if err := eng.Start(); err != nil {
+		b.Fatal(err)
+	}
+	a, err := audit.New(eng)
 	if err != nil {
 		b.Fatal(err)
 	}
 	if err := a.Start(); err != nil {
 		b.Fatal(err)
 	}
-	defer a.Shutdown(b.Context())
+	defer func() {
+		a.Shutdown(b.Context())
+		eng.Shutdown(b.Context())
+	}()
 
 	event := &audit.Event{
 		Type:   audit.EventTypeAPIRequest,
@@ -47,7 +55,12 @@ func BenchmarkAuditor_Emit(b *testing.B) {
 
 func BenchmarkAuditor_NewEvent_Build(b *testing.B) {
 	store := memory.New()
-	a, err := audit.New(store)
+	eng := newTestEngine(b, store)
+	if err := eng.Start(); err != nil {
+		b.Fatal(err)
+	}
+	defer eng.Shutdown(b.Context())
+	a, err := audit.New(eng)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -66,11 +79,10 @@ func BenchmarkAuditor_New(b *testing.B) {
 	store := memory.New()
 	b.ResetTimer()
 	for b.Loop() {
-		_, _ = audit.New(store,
-			audit.WithBufferSize(1000),
-			audit.WithBatchSize(50),
-			audit.WithWorkers(2),
-		)
+		eng := newTestEngine(b, store)
+		_ = eng.Start()
+		_, _ = audit.New(eng)
+		eng.Shutdown(b.Context())
 	}
 }
 

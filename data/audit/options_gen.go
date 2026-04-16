@@ -5,53 +5,18 @@ package audit
 
 import (
 	"log/slog"
-	"time"
+	"strings"
 
-	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
-// WithBackPressure enables the backPressure option.
-func WithBackPressure() Option {
-	return func(o *options) {
-		o.backPressure = true
-	}
-}
-
-// WithBatchSize sets the batchSize option.
-func WithBatchSize(v int) Option {
-	return func(o *options) {
-		o.batchSize = v
-	}
-}
-
-// WithBufferSize sets the bufferSize option.
-func WithBufferSize(v int) Option {
-	return func(o *options) {
-		o.bufferSize = v
-	}
-}
-
 // WithCollector sets the collector option.
 func WithCollector(v metrics.Collector) Option {
 	return func(o *options) {
-		if nilcheck.IsNil(v) {
-			return
-		}
 		o.collector = v
-	}
-}
-
-// WithFlushInterval sets the flushInterval option.
-func WithFlushInterval(v time.Duration) Option {
-	return func(o *options) {
-		if v <= 0 {
-			return
-		}
-		o.flushInterval = v
 	}
 }
 
@@ -65,27 +30,26 @@ func WithLogger(v *slog.Logger) Option {
 	}
 }
 
-// WithOnDrop sets the onDrop option.
-func WithOnDrop(v DropHandler) Option {
+// WithMetricsSubsystem sets the metricsSubsystem option.
+func WithMetricsSubsystem[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
-		o.onDrop = v
-	}
-}
-
-// WithRetryAttempts sets the retryAttempts option.
-func WithRetryAttempts(v int) Option {
-	return func(o *options) {
-		o.retryAttempts = v
-	}
-}
-
-// WithRetryBackoff sets the retryBackoff option.
-func WithRetryBackoff(v time.Duration) Option {
-	return func(o *options) {
-		if v <= 0 {
-			return
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.metricsSubsystem = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.metricsSubsystem = vv
 		}
-		o.retryBackoff = v
 	}
 }
 
@@ -96,34 +60,11 @@ func WithServiceInfo(v ServiceInfo) Option {
 	}
 }
 
-// WithShutdownTimeout sets the shutdownTimeout option.
-func WithShutdownTimeout(v time.Duration) Option {
-	return func(o *options) {
-		if v <= 0 {
-			return
-		}
-		o.shutdownTimeout = v
-	}
-}
-
-// WithWorkers sets the workers option.
-func WithWorkers(v int) Option {
-	return func(o *options) {
-		o.workers = v
-	}
-}
-
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		batchSize:       DefaultBatchSize,
-		bufferSize:      DefaultBufferSize,
-		flushInterval:   DefaultFlushInterval,
-		logger:          slog.New(slog.DiscardHandler),
-		retryAttempts:   DefaultRetryAttempts,
-		retryBackoff:    DefaultRetryBackoff,
-		shutdownTimeout: DefaultShutdownTimeout,
-		workers:         DefaultWorkers,
+		logger:           slog.New(slog.DiscardHandler),
+		metricsSubsystem: DefaultMetricsSubsystem,
 	}
 }
 
