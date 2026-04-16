@@ -51,14 +51,14 @@ type Metrics struct {
 	ServiceName string `yaml:"serviceName"`
 
 	// Adapters contains adapter-specific configurations.
-	Adapters *MetricsAdapters `yaml:"adapters,omitempty" default:"-"`
+	Adapters *MetricsAdapters `yaml:"adapters" default:"-"`
 }
 
 // MetricsAdapters contains configurations for different metrics adapters.
 type MetricsAdapters struct {
 	// Prometheus contains Prometheus-specific configuration.
 	// Only used when Type is "prometheus".
-	Prometheus *MetricsPrometheus `yaml:"prometheus,omitempty" default:"-"`
+	Prometheus *MetricsPrometheus `yaml:"prometheus" default:"-"`
 }
 
 // DefaultMetrics returns a Metrics configuration with default values.

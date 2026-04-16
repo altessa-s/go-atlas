@@ -23,7 +23,7 @@ const (
 // Controls how audit events are buffered, dispatched, and persisted.
 //
 // Dispatch-level tunables (buffer, batch, workers, retries, WAL) are
-// delegated to the embedded [DispatchConfig] under the "dispatch" YAML key.
+// delegated to the embedded [Dispatch] under the "dispatch" YAML key.
 //
 // Example:
 //
@@ -35,12 +35,12 @@ const (
 //				CollectionName: "audit_events",
 //			},
 //		},
-//		Dispatch: DispatchConfig{
+//		Dispatch: Dispatch{
 //			BufferSize:    20000,
 //			BatchSize:     200,
 //			FlushInterval: 500 * time.Millisecond,
 //			Workers:       4,
-//			WAL: WALConfig{Enabled: true, Dir: "./var/audit/wal"},
+//			WAL: &WAL{Enabled: true, Dir: "./var/audit/wal"},
 //		},
 //	}
 type Audit struct {
@@ -56,7 +56,7 @@ type Audit struct {
 
 	// Dispatch holds the async dispatch engine configuration (buffer,
 	// batch, workers, retries, WAL).
-	Dispatch DispatchConfig `yaml:"dispatch"`
+	Dispatch Dispatch `yaml:"dispatch"`
 }
 
 // AuditStorage defines the storage backend configuration for audit events.

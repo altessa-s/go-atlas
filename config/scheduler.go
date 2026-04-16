@@ -25,20 +25,20 @@ const (
 	defaultSchedulerMemoryMaxHistoryPerTask   = 1000
 )
 
-// SchedulerConcurrencyConfig configures the concurrency behavior of the scheduler.
-// It embeds the base [ConcurrencyConfig] and adds scheduler-specific fields.
+// SchedulerConcurrency configures the concurrency behavior of the scheduler.
+// It embeds the base [Concurrency] and adds scheduler-specific fields.
 //
 // Example:
 //
-//	concurrency := &config.SchedulerConcurrencyConfig{
-//		ConcurrencyConfig: config.ConcurrencyConfig{
+//	concurrency := &config.SchedulerConcurrency{
+//		Concurrency: config.Concurrency{
 //			Strategy: config.ConcurrencyStatic,
 //			MaxTasks: 10,
 //		},
 //		ReservedHighPrioritySlots: 2,
 //	}
-type SchedulerConcurrencyConfig struct {
-	ConcurrencyConfig `yaml:",inline"`
+type SchedulerConcurrency struct {
+	Concurrency `yaml:",inline"`
 
 	// ReservedHighPrioritySlots is the number of concurrency slots reserved for
 	// high priority tasks. These slots cannot be used by normal/low priority tasks.
@@ -46,18 +46,18 @@ type SchedulerConcurrencyConfig struct {
 	ReservedHighPrioritySlots int `yaml:"reservedHighPrioritySlots" default:"2"`
 }
 
-// DefaultSchedulerConcurrencyConfig returns a SchedulerConcurrencyConfig with default values.
-func DefaultSchedulerConcurrencyConfig() SchedulerConcurrencyConfig {
-	return SchedulerConcurrencyConfig{
-		ConcurrencyConfig:         DefaultConcurrencyConfig(),
+// DefaultSchedulerConcurrency returns a SchedulerConcurrency with default values.
+func DefaultSchedulerConcurrency() SchedulerConcurrency {
+	return SchedulerConcurrency{
+		Concurrency:         DefaultConcurrency(),
 		ReservedHighPrioritySlots: defaultSchedulerReservedHighPrioritySlots,
 	}
 }
 
 // Validate checks that the concurrency configuration is valid.
-func (c *SchedulerConcurrencyConfig) Validate() error {
+func (c *SchedulerConcurrency) Validate() error {
 	return ValidateStruct(c,
-		validation.Field(&c.ConcurrencyConfig),
+		validation.Field(&c.Concurrency),
 		validation.Field(&c.ReservedHighPrioritySlots, validation.Min(0)),
 	)
 }
@@ -197,8 +197,8 @@ func (c *SchedulerStorageConfig) Validate() error {
 //	sched := &config.Scheduler{
 //		TickInterval:     time.Second,
 //		HistoryRetention: 7 * 24 * time.Hour,
-//		Concurrency: config.SchedulerConcurrencyConfig{
-//			ConcurrencyConfig: config.ConcurrencyConfig{
+//		Concurrency: config.SchedulerConcurrency{
+//			Concurrency: config.Concurrency{
 //				Strategy: config.ConcurrencyStatic,
 //				MaxTasks: 10,
 //			},
@@ -218,7 +218,7 @@ type Scheduler struct {
 	HistoryRetention time.Duration `yaml:"historyRetention" default:"168h"`
 
 	// Concurrency configures the concurrency behavior of the scheduler.
-	Concurrency SchedulerConcurrencyConfig `yaml:"concurrency"`
+	Concurrency SchedulerConcurrency `yaml:"concurrency"`
 
 	// StaleTaskTimeout is the duration after which a task stuck in Running status
 	// is considered stale and will be reset to Active. This handles recovery from
@@ -236,7 +236,7 @@ func DefaultScheduler() Scheduler {
 	return Scheduler{
 		TickInterval:     defaultSchedulerTickInterval,
 		HistoryRetention: defaultSchedulerHistoryRetention,
-		Concurrency:      DefaultSchedulerConcurrencyConfig(),
+		Concurrency:      DefaultSchedulerConcurrency(),
 		StaleTaskTimeout: defaultSchedulerStaleTaskTimeout,
 	}
 }

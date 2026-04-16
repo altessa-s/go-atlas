@@ -13,7 +13,7 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
-// Default values for ConcurrencyConfig.
+// Default values for Concurrency.
 const (
 	defaultConcurrencyStrategy    = ConcurrencyStatic
 	defaultConcurrencyMaxTasks    = 5
@@ -49,8 +49,8 @@ var concurrencyAllowedEnvironments = []concurrency.Environment{
 	concurrency.EnvironmentRateLimited,
 }
 
-// MemoryAwareConcurrencyConfig configures the memory-aware concurrency strategy.
-type MemoryAwareConcurrencyConfig struct {
+// MemoryAwareConcurrency configures the memory-aware concurrency strategy.
+type MemoryAwareConcurrency struct {
 	// LowMemoryMB is the memory threshold (in MB) below which concurrency is set to 1.
 	LowMemoryMB uint64 `yaml:"lowMemoryMB"`
 	// MediumMemoryMB is the memory threshold (in MB) below which concurrency is conservative.
@@ -60,7 +60,7 @@ type MemoryAwareConcurrencyConfig struct {
 }
 
 // Validate checks that memory thresholds are positive and ordered low < medium < high.
-func (c *MemoryAwareConcurrencyConfig) Validate() error {
+func (c *MemoryAwareConcurrency) Validate() error {
 	return ValidateStruct(c,
 		validation.Field(&c.LowMemoryMB, validation.Required, validation.Min(uint64(1))),
 		validation.Field(&c.MediumMemoryMB, validation.Required, validation.Min(uint64(1))),
@@ -68,8 +68,8 @@ func (c *MemoryAwareConcurrencyConfig) Validate() error {
 	)
 }
 
-// AdaptiveConcurrencyConfig configures the adaptive concurrency strategy.
-type AdaptiveConcurrencyConfig struct {
+// AdaptiveConcurrency configures the adaptive concurrency strategy.
+type AdaptiveConcurrency struct {
 	// MemoryLowThresholdMB is the available-memory threshold (in MB) below which
 	// concurrency is reduced to 25% of the base value.
 	MemoryLowThresholdMB uint64 `yaml:"memoryLowThresholdMB"`
@@ -81,22 +81,22 @@ type AdaptiveConcurrencyConfig struct {
 }
 
 // Validate checks that the adaptive concurrency thresholds are valid.
-func (c *AdaptiveConcurrencyConfig) Validate() error {
+func (c *AdaptiveConcurrency) Validate() error {
 	return ValidateStruct(c,
 		validation.Field(&c.MemoryLowThresholdMB, validation.Required, validation.Min(uint64(1))),
 		validation.Field(&c.MemoryMediumThresholdMB, validation.Required, validation.Min(uint64(1))),
 	)
 }
 
-// ConcurrencyConfig is the base concurrency configuration reusable across components.
+// Concurrency is the base concurrency configuration reusable across components.
 //
 // Example:
 //
-//	cc := &config.ConcurrencyConfig{
+//	cc := &config.Concurrency{
 //		Strategy: config.ConcurrencyStatic,
 //		MaxTasks: 10,
 //	}
-type ConcurrencyConfig struct {
+type Concurrency struct {
 	// Strategy selects the concurrency strategy.
 	// Must be one of: static, environment, memory-aware, adaptive.
 	// Defaults to "static".
@@ -115,16 +115,16 @@ type ConcurrencyConfig struct {
 
 	// MemoryAware configures the memory-aware concurrency strategy.
 	// Required when Strategy is "memory-aware".
-	MemoryAware *MemoryAwareConcurrencyConfig `yaml:"memoryAware" default:"-"`
+	MemoryAware *MemoryAwareConcurrency `yaml:"memoryAware" default:"-"`
 
 	// Adaptive configures the adaptive concurrency strategy.
 	// Required when Strategy is "adaptive".
-	Adaptive *AdaptiveConcurrencyConfig `yaml:"adaptive" default:"-"`
+	Adaptive *AdaptiveConcurrency `yaml:"adaptive" default:"-"`
 }
 
-// DefaultConcurrencyConfig returns a ConcurrencyConfig with default values.
-func DefaultConcurrencyConfig() ConcurrencyConfig {
-	return ConcurrencyConfig{
+// DefaultConcurrency returns a Concurrency with default values.
+func DefaultConcurrency() Concurrency {
+	return Concurrency{
 		Strategy:    defaultConcurrencyStrategy,
 		MaxTasks:    defaultConcurrencyMaxTasks,
 		Environment: defaultConcurrencyEnvironment,
@@ -132,7 +132,7 @@ func DefaultConcurrencyConfig() ConcurrencyConfig {
 }
 
 // Validate checks that the concurrency configuration is valid.
-func (c *ConcurrencyConfig) Validate() error {
+func (c *Concurrency) Validate() error {
 	return ValidateStruct(c,
 		validation.Field(&c.Strategy, validation.Required,
 			ozzo_rules.OneOf(concurrencyAllowedStrategies...)),
@@ -150,7 +150,7 @@ func (c *ConcurrencyConfig) Validate() error {
 // BuildLimitFunc maps the concurrency strategy to a [concurrency.ConcurrencyLimitFunc].
 // For the "static" strategy with MaxTasks=0 it returns nil (callers should fall back to defaults).
 // For "static" with a positive MaxTasks it returns a func returning that value.
-func (c *ConcurrencyConfig) BuildLimitFunc() (concurrency.ConcurrencyLimitFunc, error) {
+func (c *Concurrency) BuildLimitFunc() (concurrency.ConcurrencyLimitFunc, error) {
 	switch c.Strategy {
 	case ConcurrencyStatic, "":
 		if c.MaxTasks <= 0 {

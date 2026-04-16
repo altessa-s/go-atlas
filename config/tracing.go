@@ -103,21 +103,21 @@ type Tracing struct {
 
 	// Sampler contains sampling configuration.
 	// Controls which traces are recorded and exported.
-	Sampler *TracingSampler `yaml:"sampler,omitempty" default:"-"`
+	Sampler *TracingSampler `yaml:"sampler" default:"-"`
 
 	// Adapters contains adapter-specific configurations.
-	Adapters *TracingAdapters `yaml:"adapters,omitempty" default:"-"`
+	Adapters *TracingAdapters `yaml:"adapters" default:"-"`
 }
 
 // TracingAdapters contains configurations for different tracing adapters.
 type TracingAdapters struct {
 	// OTLP contains OTLP-specific configuration.
 	// Only used when Type is "otlp".
-	OTLP *TracingOTLP `yaml:"otlp,omitempty" default:"-"`
+	OTLP *TracingOTLP `yaml:"otlp" default:"-"`
 
 	// Console contains console-specific configuration.
 	// Only used when Type is "console".
-	Console *TracingConsole `yaml:"console,omitempty" default:"-"`
+	Console *TracingConsole `yaml:"console" default:"-"`
 }
 
 // DefaultTracing returns a Tracing configuration with default values.
@@ -237,7 +237,7 @@ type TracingOTLP struct {
 
 	// Headers are custom headers to send with requests.
 	// Useful for authentication (e.g., API keys).
-	Headers map[string]string `yaml:"headers,omitempty"`
+	Headers map[string]string `yaml:"headers"`
 
 	// Compression enables gzip compression.
 	// Defaults to true.

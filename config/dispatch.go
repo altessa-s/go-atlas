@@ -6,20 +6,20 @@ package config
 
 import "time"
 
-// DispatchConfig defines the configuration for an async dispatch engine.
+// Dispatch defines the configuration for an async dispatch engine.
 // Controls how items are buffered, batched, retried, and optionally
 // persisted to a write-ahead log.
 //
 // Example:
 //
-//	dispatch := &config.DispatchConfig{
+//	dispatch := &config.Dispatch{
 //		BufferSize:    20000,
 //		BatchSize:     200,
 //		FlushInterval: 500 * time.Millisecond,
 //		Workers:       4,
-//		WAL: WALConfig{Enabled: true, Dir: "./var/dispatch/wal"},
+//		WAL: &WAL{Enabled: true, Dir: "./var/dispatch/wal"},
 //	}
-type DispatchConfig struct {
+type Dispatch struct {
 	// BufferSize is the in-memory queue capacity.
 	BufferSize int `yaml:"bufferSize" default:"10000"`
 
@@ -46,5 +46,6 @@ type DispatchConfig struct {
 	MetricsSubsystem string `yaml:"metricsSubsystem" default:"async"`
 
 	// WAL configures the optional crash-safe write-ahead log.
-	WAL WALConfig `yaml:"wal"`
+	// Nil means WAL is disabled (pure in-memory dispatch).
+	WAL *WAL `yaml:"wal"`
 }

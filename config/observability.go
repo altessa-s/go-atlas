@@ -24,10 +24,10 @@ import validation "github.com/go-ozzo/ozzo-validation/v4"
 //	      endpoint: localhost:4317
 type Observability struct {
 	// Metrics contains configuration for the metrics collection system.
-	Metrics *Metrics `yaml:"metrics,omitempty" default:"-"`
+	Metrics *Metrics `yaml:"metrics" default:"-"`
 
 	// Tracing contains configuration for distributed tracing.
-	Tracing *Tracing `yaml:"tracing,omitempty" default:"-"`
+	Tracing *Tracing `yaml:"tracing" default:"-"`
 }
 
 // DefaultObservability returns an Observability configuration with default values.

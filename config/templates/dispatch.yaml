@@ -1,0 +1,41 @@
+# Async dispatch engine configuration.
+# This file is included via !include directive in other configuration templates.
+# Controls buffering, batching, workers, retries, and optional WAL.
+
+#  dispatch:
+#    # <int> In-memory queue capacity.
+#    # Default value: 10000
+#    bufferSize: 10000
+#
+#    # <int> Maximum batch size passed to storage.
+#    # Default value: 100
+#    batchSize: 100
+#
+#    # <duration> Maximum wait before flushing a partial batch.
+#    # Default value: 1s
+#    flushInterval: 1s
+#
+#    # <int> Number of concurrent dispatch goroutines.
+#    # Default value: 2
+#    workers: 2
+#
+#    # <int> Maximum retries per failed batch.
+#    # Default value: 3
+#    retryAttempts: 3
+#
+#    # <duration> Base duration for exponential backoff.
+#    # Default value: 100ms
+#    retryBackoff: 100ms
+#
+#    # <bool> Enable back-pressure mode.
+#    # When true, Submit blocks when the buffer is full instead of dropping items.
+#    # Default value: false
+#    backPressure: false
+#
+#    # <string> Prometheus subsystem name for engine metrics.
+#    # Default value: async
+#    metricsSubsystem: async
+#
+#    # <object> Optional crash-safe write-ahead log.
+#    # See wal.yaml for full configuration options.
+#    !include wal.yaml

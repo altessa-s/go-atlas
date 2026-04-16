@@ -4,11 +4,15 @@
 
 package config
 
-import "time"
+import (
+	"time"
 
-// WALConfig configures a write-ahead log backing an async dispatch engine.
+	validation "github.com/go-ozzo/ozzo-validation/v4"
+)
+
+// WAL configures a write-ahead log backing an async dispatch engine.
 // Shared by all subsystems that use WAL-backed dispatch (audit, reqlog, etc.).
-type WALConfig struct {
+type WAL struct {
 	// Enabled turns on local WAL durability.
 	Enabled bool `yaml:"enabled"`
 
@@ -25,4 +29,14 @@ type WALConfig struct {
 	// shorter interval reduces the loss window after a crash, at the
 	// cost of throughput.
 	FsyncInterval time.Duration `yaml:"fsyncInterval" default:"5ms"`
+}
+
+// Validate checks that the WAL configuration is valid.
+// When Enabled is true, Dir is required.
+func (w *WAL) Validate() error {
+	return ValidateStructIfEnabled(w.Enabled, w,
+		validation.Field(&w.Dir, validation.Required),
+		validation.Field(&w.MaxSegmentBytes, validation.Min(int64(1))),
+		validation.Field(&w.MaxBytes, validation.Min(int64(1))),
+	)
 }

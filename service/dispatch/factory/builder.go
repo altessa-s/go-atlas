@@ -22,7 +22,7 @@ import (
 // concurrent use.
 type EngineBuilder[T any] struct {
 	corefactory.Base
-	cfg  *config.DispatchConfig
+	cfg  *config.Dispatch
 	errs []error
 
 	// Dependencies
@@ -32,7 +32,7 @@ type EngineBuilder[T any] struct {
 
 // New creates an [EngineBuilder] for the given dispatch config.
 // Config can be nil — the error surfaces at [EngineBuilder.Build] time.
-func New[T any](cfg *config.DispatchConfig) *EngineBuilder[T] {
+func New[T any](cfg *config.Dispatch) *EngineBuilder[T] {
 	return &EngineBuilder[T]{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -96,7 +96,7 @@ func (b *EngineBuilder[T]) buildEngine() (*dispatch.Engine[T], error) {
 	opts = coreslices.AppendIf(opts, cfg.BackPressure, dispatch.WithBackPressure[T]())
 	opts = coreslices.AppendIf(opts, cfg.MetricsSubsystem != "", dispatch.WithMetricsSubsystem[T](cfg.MetricsSubsystem))
 
-	if cfg.WAL.Enabled {
+	if cfg.WAL != nil && cfg.WAL.Enabled {
 		if b.codec == nil {
 			return nil, fmt.Errorf("dispatch: codec is required when WAL is enabled")
 		}

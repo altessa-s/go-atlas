@@ -167,22 +167,22 @@ func (c *ProbabilisticFilterDefaults) Validate() error {
 // ProbabilisticFilterBloomConfig defines configuration for a specific Bloom filter.
 type ProbabilisticFilterBloomConfig struct {
 	// Storage defines the storage backend for the filter.
-	Storage *ProbabilisticFilterStorageType `yaml:"storage,omitempty"`
+	Storage *ProbabilisticFilterStorageType `yaml:"storage"`
 
 	// ExpectedItems is the expected number of elements in the filter.
 	ExpectedItems int64 `yaml:"expectedItems"`
 
 	// FalsePositiveRate is the target false positive rate.
-	FalsePositiveRate *float64 `yaml:"falsePositiveRate,omitempty"`
+	FalsePositiveRate *float64 `yaml:"falsePositiveRate"`
 
 	// RebuildCron is the cron expression for periodic filter rebuild.
-	RebuildCron *string `yaml:"rebuildCron,omitempty"`
+	RebuildCron *string `yaml:"rebuildCron"`
 
 	// RebuildOnStart enables rebuilding filter on service startup.
-	RebuildOnStart *bool `yaml:"rebuildOnStart,omitempty"`
+	RebuildOnStart *bool `yaml:"rebuildOnStart"`
 
 	// Redis defines Redis-specific configuration.
-	Redis *StorageRedisConfig `yaml:"redis,omitempty" default:"-"`
+	Redis *StorageRedisConfig `yaml:"redis" default:"-"`
 }
 
 // Validate performs validation of the Bloom filter configuration.
@@ -200,22 +200,22 @@ func (c *ProbabilisticFilterBloomConfig) Validate() error {
 // ProbabilisticFilterCuckooConfig defines configuration for a specific Cuckoo filter.
 type ProbabilisticFilterCuckooConfig struct {
 	// Storage defines the storage backend for the filter.
-	Storage *ProbabilisticFilterStorageType `yaml:"storage,omitempty"`
+	Storage *ProbabilisticFilterStorageType `yaml:"storage"`
 
 	// Capacity is the initial capacity of the filter.
 	Capacity int64 `yaml:"capacity"`
 
 	// FingerprintSize is the fingerprint size in bits.
-	FingerprintSize *int `yaml:"fingerprintSize,omitempty"`
+	FingerprintSize *int `yaml:"fingerprintSize"`
 
 	// CapacityMultiplier is the multiplier for auto-rebuild on overflow.
-	CapacityMultiplier *float64 `yaml:"capacityMultiplier,omitempty"`
+	CapacityMultiplier *float64 `yaml:"capacityMultiplier"`
 
 	// MaxCapacity is the maximum capacity limit.
-	MaxCapacity *int64 `yaml:"maxCapacity,omitempty"`
+	MaxCapacity *int64 `yaml:"maxCapacity"`
 
 	// Redis defines Redis-specific configuration.
-	Redis *StorageRedisConfig `yaml:"redis,omitempty" default:"-"`
+	Redis *StorageRedisConfig `yaml:"redis" default:"-"`
 }
 
 // Validate performs validation of the Cuckoo filter configuration.
@@ -240,10 +240,10 @@ type ProbabilisticFilterConfig struct {
 	Type ProbabilisticFilterType `yaml:"type" default:"bloom"`
 
 	// Bloom defines Bloom filter-specific configuration.
-	Bloom *ProbabilisticFilterBloomConfig `yaml:"bloom,omitempty" default:"-"`
+	Bloom *ProbabilisticFilterBloomConfig `yaml:"bloom" default:"-"`
 
 	// Cuckoo defines Cuckoo filter-specific configuration.
-	Cuckoo *ProbabilisticFilterCuckooConfig `yaml:"cuckoo,omitempty" default:"-"`
+	Cuckoo *ProbabilisticFilterCuckooConfig `yaml:"cuckoo" default:"-"`
 }
 
 var probabilisticFilterAllowedTypes = []ProbabilisticFilterType{

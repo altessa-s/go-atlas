@@ -83,7 +83,7 @@ type TokenBucketLimiterRules struct {
 	// Targets contains specific rate limiting rules for different clients.
 	// Rules are evaluated in order; the first matching rule is applied.
 	// If no target rule matches, the default rule (if specified) is used.
-	Targets []TokenBucketLimiterTargetRule `yaml:"targets,omitempty"`
+	Targets []TokenBucketLimiterTargetRule `yaml:"targets"`
 }
 
 // Validate performs validation of the rules configuration.

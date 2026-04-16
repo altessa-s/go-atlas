@@ -54,7 +54,7 @@ func AllFallbackBehaviors() []FallbackBehavior {
 type StorageNATSConfig struct {
 	// Bucket is the name of the NATS KeyValue bucket.
 	// If empty, a default bucket name will be generated based on service name.
-	Bucket string `yaml:"bucket,omitempty"`
+	Bucket string `yaml:"bucket"`
 
 	// Replicas defines the number of replicas for NATS KeyValue storage.
 	// Higher values provide better availability but increase storage overhead.
@@ -75,7 +75,7 @@ func (c *StorageNATSConfig) Validate() error {
 type StorageRedisConfig struct {
 	// KeysPrefix is a prefix for all keys in storage.
 	// Useful for namespacing when sharing storage between multiple services.
-	KeysPrefix string `yaml:"keysPrefix,omitempty"`
+	KeysPrefix string `yaml:"keysPrefix"`
 }
 
 // Validate performs validation of the Redis storage configuration.
@@ -135,15 +135,15 @@ type CacheStorageConfig struct {
 
 	// Memory defines the in-memory configuration.
 	// Required when Type is CacheStorageTypeMemory, ignored otherwise.
-	Memory *StorageMemoryConfig `yaml:"memory,omitempty" default:"-"`
+	Memory *StorageMemoryConfig `yaml:"memory" default:"-"`
 
 	// Nats defines the NATS configuration.
 	// Required when Type is CacheStorageTypeNats, ignored otherwise.
-	Nats *StorageNATSConfig `yaml:"nats,omitempty" default:"-"`
+	Nats *StorageNATSConfig `yaml:"nats" default:"-"`
 
 	// Redis defines the Redis configuration.
 	// Required when Type is CacheStorageTypeRedis, ignored otherwise.
-	Redis *StorageRedisConfig `yaml:"redis,omitempty" default:"-"`
+	Redis *StorageRedisConfig `yaml:"redis" default:"-"`
 }
 
 // Normalize allocates the provider-specific sub-config implied by [CacheStorageConfig.Type].
