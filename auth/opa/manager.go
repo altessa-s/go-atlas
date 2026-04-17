@@ -20,6 +20,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
@@ -370,27 +371,38 @@ func (e *regoEvaluator) Evaluate(ctx context.Context, input any) (*Result, error
 		return nil, coreerrs.WrapOperation(err, "evaluate policy")
 	}
 
-	if len(results) == 0 {
-		e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": "deny"}).Inc()
-		return &Result{Allow: false}, nil
-	}
-
-	if len(results[0].Expressions) == 0 {
+	if len(results) == 0 || len(results[0].Expressions) == 0 {
 		e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": "deny"}).Inc()
 		return e.buildResult(false), nil
 	}
 
-	if allow, ok := results[0].Expressions[0].Value.(bool); ok {
-		if allow {
-			e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": "allow"}).Inc()
-		} else {
-			e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": "deny"}).Inc()
-		}
+	val := results[0].Expressions[0].Value
+
+	// Path A: Boolean result (backward compatible).
+	// Queries like "data.authz.allow" return a plain bool.
+	if allow, ok := val.(bool); ok {
+		e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": allowDenyLabel(allow)}).Inc()
 		return e.buildResult(allow), nil
 	}
 
+	// Path B: Map result (structured).
+	// Queries like "data.authz.result" return {"allow": bool, "denials": [...]}.
+	if m, ok := val.(map[string]any); ok {
+		r := e.buildResultFromMap(m)
+		e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": allowDenyLabel(r.Allow)}).Inc()
+		return r, nil
+	}
+
+	// Fallback: unrecognized result type -> deny.
 	e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": "deny"}).Inc()
 	return e.buildResult(false), nil
+}
+
+func allowDenyLabel(allow bool) string {
+	if allow {
+		return "allow"
+	}
+	return "deny"
 }
 
 // Pre-allocated singleton results for the common non-logging path,
@@ -410,6 +422,55 @@ func (e *regoEvaluator) buildResult(allow bool) *Result {
 	}
 
 	return &Result{Allow: allow, DecisionID: uuid.NewString()}
+}
+
+// buildResultFromMap parses a structured OPA result object into a Result.
+// Expected shape: {"allow": bool, "denials": [{"code": "...", "message": "..."}, ...]}.
+func (e *regoEvaluator) buildResultFromMap(m map[string]any) *Result {
+	r := &Result{}
+
+	if allow, ok := m["allow"].(bool); ok {
+		r.Allow = allow
+	}
+
+	if e.manager.opts.decisionLogging {
+		r.DecisionID = uuid.NewString()
+	}
+
+	if raw, ok := m["denials"]; ok {
+		r.Denials = parseDenials(raw)
+	}
+
+	return r
+}
+
+// parseDenials converts an OPA set/array value into an ImmutableMap of code → message.
+// OPA represents sets as []any in the Go evaluation API.
+func parseDenials(v any) *coremaps.ImmutableMap[string, string] {
+	items, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+
+	denials := make(map[string]string, len(items))
+	for _, item := range items {
+		dm, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		code, _ := dm["code"].(string)
+		if code == "" {
+			continue
+		}
+		msg, _ := dm["message"].(string)
+		denials[code] = msg
+	}
+
+	if len(denials) == 0 {
+		return nil
+	}
+
+	return coremaps.NewImmutableMap(denials)
 }
 
 // Query returns the Rego query used for evaluation.

@@ -6,6 +6,8 @@ package opa
 
 import (
 	"context"
+
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 )
 
 // Result represents the result of a policy evaluation.
@@ -14,6 +16,14 @@ type Result struct {
 	DecisionID string `json:"decision_id,omitempty"`
 	// Allow indicates whether the request is permitted.
 	Allow bool `json:"allow"`
+	// Denials maps denial codes to human-readable messages.
+	// Nil when Allow is true. O(1) lookup by code.
+	Denials *coremaps.ImmutableMap[string, string]
+}
+
+// HasDenialCode reports whether the result contains a denial with the given code.
+func (r *Result) HasDenialCode(code string) bool {
+	return r.Denials != nil && r.Denials.Contains(code)
 }
 
 // Evaluator defines the interface for checking permissions using OPA policies.
