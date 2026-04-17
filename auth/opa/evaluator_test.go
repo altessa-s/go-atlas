@@ -14,16 +14,22 @@ import (
 
 	"github.com/altessa-s/go-atlas/auth/opa"
 	"github.com/altessa-s/go-atlas/auth/opa/sources/filesystem"
+
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 )
 
+func writePolicy(t *testing.T, dir, content string) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "policy.rego"), []byte(content), 0644))
+}
+
 func TestEvaluator_StructuredResult(t *testing.T) {
+	t.Parallel()
+
 	ctx := t.Context()
+	tmpDir := t.TempDir()
 
-	tmpDir, err := os.MkdirTemp("", "opa-test-structured")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	policyContent := `
+	writePolicy(t, tmpDir, `
 package test.authz
 import rego.v1
 
@@ -51,9 +57,7 @@ result := {
     "allow": allow,
     "denials": deny,
 }
-`
-	err = os.WriteFile(filepath.Join(tmpDir, "policy.rego"), []byte(policyContent), 0644)
-	require.NoError(t, err)
+`)
 
 	source, err := filesystem.New(tmpDir)
 	require.NoError(t, err)
@@ -65,6 +69,7 @@ result := {
 	evaluator := manager.Evaluator()
 
 	t.Run("Allowed_NoDenials", func(t *testing.T) {
+		t.Parallel()
 		result, err := evaluator.Evaluate(ctx, map[string]any{
 			"role":            "admin",
 			"action":          "write",
@@ -76,6 +81,7 @@ result := {
 	})
 
 	t.Run("Denied_PermissionDenied", func(t *testing.T) {
+		t.Parallel()
 		result, err := evaluator.Evaluate(ctx, map[string]any{
 			"role":            "viewer",
 			"action":          "write",
@@ -88,6 +94,7 @@ result := {
 	})
 
 	t.Run("Denied_ResourceInactive", func(t *testing.T) {
+		t.Parallel()
 		result, err := evaluator.Evaluate(ctx, map[string]any{
 			"role":            "admin",
 			"action":          "write",
@@ -97,10 +104,13 @@ result := {
 		assert.False(t, result.Allow)
 		assert.True(t, result.HasDenialCode("RESOURCE_INACTIVE"))
 		assert.False(t, result.HasDenialCode("PERMISSION_DENIED"))
-		assert.Equal(t, "resource is inactive", result.Denials["RESOURCE_INACTIVE"])
+		msg, ok := result.Denials.Get("RESOURCE_INACTIVE")
+		require.True(t, ok)
+		assert.Equal(t, "resource is inactive", msg)
 	})
 
 	t.Run("Denied_MultipleDenials", func(t *testing.T) {
+		t.Parallel()
 		result, err := evaluator.Evaluate(ctx, map[string]any{
 			"role":            "viewer",
 			"action":          "write",
@@ -110,10 +120,11 @@ result := {
 		assert.False(t, result.Allow)
 		assert.True(t, result.HasDenialCode("RESOURCE_INACTIVE"))
 		assert.True(t, result.HasDenialCode("PERMISSION_DENIED"))
-		assert.Len(t, result.Denials, 2)
+		assert.Equal(t, 2, result.Denials.Len())
 	})
 
 	t.Run("Allowed_ReadOnInactive", func(t *testing.T) {
+		t.Parallel()
 		result, err := evaluator.Evaluate(ctx, map[string]any{
 			"role":            "viewer",
 			"action":          "read",
@@ -126,21 +137,18 @@ result := {
 }
 
 func TestEvaluator_BooleanBackwardCompat(t *testing.T) {
+	t.Parallel()
+
 	ctx := t.Context()
+	tmpDir := t.TempDir()
 
-	tmpDir, err := os.MkdirTemp("", "opa-test-compat")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	policyContent := `
+	writePolicy(t, tmpDir, `
 package test.authz
 import rego.v1
 allow if {
     input.role == "admin"
 }
-`
-	err = os.WriteFile(filepath.Join(tmpDir, "policy.rego"), []byte(policyContent), 0644)
-	require.NoError(t, err)
+`)
 
 	source, err := filesystem.New(tmpDir)
 	require.NoError(t, err)
@@ -152,6 +160,7 @@ allow if {
 	evaluator := manager.Evaluator()
 
 	t.Run("Allowed_Bool", func(t *testing.T) {
+		t.Parallel()
 		result, err := evaluator.Evaluate(ctx, map[string]any{"role": "admin"})
 		require.NoError(t, err)
 		assert.True(t, result.Allow)
@@ -159,6 +168,7 @@ allow if {
 	})
 
 	t.Run("Denied_Bool", func(t *testing.T) {
+		t.Parallel()
 		result, err := evaluator.Evaluate(ctx, map[string]any{"role": "user"})
 		require.NoError(t, err)
 		assert.False(t, result.Allow)
@@ -167,20 +177,25 @@ allow if {
 }
 
 func TestResult_HasDenialCode(t *testing.T) {
+	t.Parallel()
+
 	t.Run("NilDenials", func(t *testing.T) {
+		t.Parallel()
 		r := &opa.Result{Allow: false}
 		assert.False(t, r.HasDenialCode("ANY"))
 	})
 
 	t.Run("EmptyDenials", func(t *testing.T) {
-		r := &opa.Result{Allow: false, Denials: map[string]string{}}
+		t.Parallel()
+		r := &opa.Result{Allow: false, Denials: coremaps.NewImmutableMap(map[string]string{})}
 		assert.False(t, r.HasDenialCode("ANY"))
 	})
 
 	t.Run("Found", func(t *testing.T) {
+		t.Parallel()
 		r := &opa.Result{
 			Allow:   false,
-			Denials: map[string]string{"CODE_A": "msg a"},
+			Denials: coremaps.NewImmutableMap(map[string]string{"CODE_A": "msg a"}),
 		}
 		assert.True(t, r.HasDenialCode("CODE_A"))
 		assert.False(t, r.HasDenialCode("CODE_B"))

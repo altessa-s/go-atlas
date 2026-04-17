@@ -20,6 +20,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
@@ -386,7 +387,7 @@ func (e *regoEvaluator) Evaluate(ctx context.Context, input any) (*Result, error
 
 	// Path B: Map result (structured).
 	// Queries like "data.authz.result" return {"allow": bool, "denials": [...]}.
-	if m, ok := val.(map[string]interface{}); ok {
+	if m, ok := val.(map[string]any); ok {
 		r := e.buildResultFromMap(m)
 		e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": allowDenyLabel(r.Allow)}).Inc()
 		return r, nil
@@ -425,7 +426,7 @@ func (e *regoEvaluator) buildResult(allow bool) *Result {
 
 // buildResultFromMap parses a structured OPA result object into a Result.
 // Expected shape: {"allow": bool, "denials": [{"code": "...", "message": "..."}, ...]}.
-func (e *regoEvaluator) buildResultFromMap(m map[string]interface{}) *Result {
+func (e *regoEvaluator) buildResultFromMap(m map[string]any) *Result {
 	r := &Result{}
 
 	if allow, ok := m["allow"].(bool); ok {
@@ -443,18 +444,17 @@ func (e *regoEvaluator) buildResultFromMap(m map[string]interface{}) *Result {
 	return r
 }
 
-// parseDenials converts an OPA set/array value into a map of code → message.
-// OPA represents sets as []interface{} in the Go evaluation API.
-// The map is built once at evaluation time — all subsequent lookups are O(1).
-func parseDenials(v interface{}) map[string]string {
-	items, ok := v.([]interface{})
+// parseDenials converts an OPA set/array value into an ImmutableMap of code → message.
+// OPA represents sets as []any in the Go evaluation API.
+func parseDenials(v any) *coremaps.ImmutableMap[string, string] {
+	items, ok := v.([]any)
 	if !ok {
 		return nil
 	}
 
 	denials := make(map[string]string, len(items))
 	for _, item := range items {
-		dm, ok := item.(map[string]interface{})
+		dm, ok := item.(map[string]any)
 		if !ok {
 			continue
 		}
@@ -470,7 +470,7 @@ func parseDenials(v interface{}) map[string]string {
 		return nil
 	}
 
-	return denials
+	return coremaps.NewImmutableMap(denials)
 }
 
 // Query returns the Rego query used for evaluation.
