@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"net/http"
 
 	"github.com/redis/go-redis/v9"
 
@@ -105,6 +104,14 @@ func (b *ProviderBuilder) buildProviderOptions(ctx context.Context) ([]oidc.Opti
 	}
 	opts = append(opts, revOpts...)
 
+	proxyOpts, err := cfg.Proxy.ClientOptions()
+	if err != nil {
+		return nil, b.WrapError(err, "failed to materialize oidc proxy options")
+	}
+	if len(proxyOpts) > 0 {
+		opts = append(opts, oidc.WithHTTPClientOptions(proxyOpts...))
+	}
+
 	opts = append(opts, b.buildSchedulerOptions()...)
 
 	return opts, nil
@@ -188,10 +195,11 @@ func (b *ProviderBuilder) buildRevocationStorage(cfg *config.OIDCRevocation) (oi
 		if cfg.Source.File != "" {
 			loader = &oidc.FileRevocationLoader{Path: cfg.Source.File}
 		} else if cfg.Source.URL != "" {
-			loader = &oidc.URLRevocationLoader{
-				URL:    cfg.Source.URL,
-				Client: http.DefaultClient,
-			}
+			// Client is intentionally left nil — oidc.NewProvider injects
+			// the shared HTTP client (built via httpclient.New + WithHTTPClientOptions)
+			// so revocation refresh reuses the same pool, retry policy
+			// and proxy resolver as discovery/JWKS/userinfo.
+			loader = &oidc.URLRevocationLoader{URL: cfg.Source.URL}
 		}
 	}
 

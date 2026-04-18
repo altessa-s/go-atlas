@@ -114,14 +114,68 @@ func newCircuitBreakerClient(opts options, m *httpClientMetrics) *circuitBreaker
 		}
 	}
 
-	// Apply SSRF protection if enabled
+	// Apply proxy override if configured. Clone the underlying transport
+	// before mutating its Proxy field so neither a *http.Transport supplied
+	// via WithTransport nor a *http.Client supplied via WithClient is
+	// modified in place. A nil Transport is normalised to
+	// http.DefaultTransport so callers passing &http.Client{} still see
+	// the proxy applied (otherwise net/http would fall back to
+	// http.DefaultTransport with http.ProxyFromEnvironment, silently
+	// defeating WithoutProxy / WithProxy / WithProxyURL).
+	// Custom round-trippers that are not *http.Transport are left alone.
+	if opts.proxy != nil {
+		transport := httpClient.Transport
+		if transport == nil {
+			transport = http.DefaultTransport
+		}
+		if t, ok := transport.(*http.Transport); ok {
+			cloned := t.Clone()
+			if opts.proxyTLSConfig != nil {
+				// Custom DialContext handles TCP+TLS+CONNECT manually
+				// so the proxy TLS material stays isolated from the
+				// destination's TLSClientConfig. Stdlib's
+				// Transport.Proxy must be nil — our dialer resolves
+				// the proxy via opts.proxy itself.
+				cloned.Proxy = nil
+				cloned.DialContext = proxyAwareDialer(opts.proxy, opts.proxyTLSConfig)
+			} else {
+				cloned.Proxy = opts.proxy
+			}
+			if httpClient == opts.client {
+				httpClient = &http.Client{
+					Transport:     cloned,
+					CheckRedirect: httpClient.CheckRedirect,
+					Jar:           httpClient.Jar,
+					Timeout:       httpClient.Timeout,
+				}
+			} else {
+				httpClient.Transport = cloned
+			}
+		}
+	}
+
+	// Apply SSRF protection if enabled. Mirrors the proxy block above:
+	// when httpClient still aliases opts.client (caller supplied via
+	// WithClient and we did not allocate a fresh one upstream), clone
+	// it before mutating Transport so the caller's *http.Client is
+	// never modified in place.
 	if opts.ssrfProtection {
 		transport := httpClient.Transport
 		if transport == nil {
 			transport = http.DefaultTransport
 		}
 		if t, ok := transport.(*http.Transport); ok {
-			httpClient.Transport = newSSRFSafeTransport(t, opts.ssrfAllowedCIDRs)
+			wrapped := newSSRFSafeTransport(t, opts.ssrfAllowedCIDRs)
+			if httpClient == opts.client {
+				httpClient = &http.Client{
+					Transport:     wrapped,
+					CheckRedirect: httpClient.CheckRedirect,
+					Jar:           httpClient.Jar,
+					Timeout:       httpClient.Timeout,
+				}
+			} else {
+				httpClient.Transport = wrapped
+			}
 		}
 	}
 

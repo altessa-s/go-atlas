@@ -27,15 +27,17 @@ import (
 	corectx "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
+	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
 
 var (
-	ErrInvalidToken     = errors.New("invalid token")
-	ErrCELValidation    = errors.New("CEL validation failed")
-	ErrDiscovery        = errors.New("discovery failed")
-	ErrIntrospection    = errors.New("introspection failed")
-	ErrTokenRevoked     = errors.New("token has been revoked")
-	ErrSchedulerManaged = errors.New("function is managed by scheduler, direct calls not allowed")
+	ErrInvalidToken              = errors.New("invalid token")
+	ErrCELValidation             = errors.New("CEL validation failed")
+	ErrDiscovery                 = errors.New("discovery failed")
+	ErrIntrospection             = errors.New("introspection failed")
+	ErrTokenRevoked              = errors.New("token has been revoked")
+	ErrSchedulerManaged          = errors.New("function is managed by scheduler, direct calls not allowed")
+	ErrLoaderClientNotConfigured = errors.New("revocation loader: HTTP client not configured")
 )
 
 // drainAndClose drains and closes an HTTP response body.
@@ -127,11 +129,18 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 		}
 	}
 
+	// Build the outbound HTTP client from caller-supplied options. Empty
+	// httpClientOptions yields the resilient default of httpclient.New
+	// (pooled transport, retry, breaker, env-proxy). Override per
+	// deployment via WithHTTPClientOptions(httpclient.WithRetryMax(0))
+	// and friends.
+	client := httpclient.New(o.httpClientOptions...)
+
 	// Create Provider from options
 	p := &Provider{
 		opts:              o,
 		discoveryURL:      discoveryURL,
-		client:            o.client,
+		client:            client,
 		logger:            o.logger,
 		tokenCache:        o.tokenCache,
 		revocationStorage: o.revocationStorage,
@@ -140,6 +149,16 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 		verifierOptions:   o.verifierOptions,
 		scheduler:         o.scheduler,
 		metrics:           newOIDCMetrics(o.collector),
+	}
+
+	// Share the Provider's HTTP client with any revocation loader that
+	// opts into injection by implementing [httpclient.HTTPClientSetter].
+	// Every OIDC outbound call (discovery, JWKS, introspection,
+	// userinfo, revocation) then uses the same connection pool and
+	// proxy resolver. Loaders decide their own preserve-vs-overwrite
+	// policy in their SetHTTPClient implementation.
+	if setter, ok := p.revocationLoader.(httpclient.HTTPClientSetter); ok {
+		setter.SetHTTPClient(client)
 	}
 
 	// Initialize revocation storage if not provided but filter/loader are available

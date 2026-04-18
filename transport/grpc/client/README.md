@@ -30,6 +30,11 @@ structured logging, and rich error parsing with field-level validation details.
 | `WithRetryConfig`     | --        | Enables retry with a custom `RetryConfig`                                    |
 | `WithConnectionPool`  | nil       | Enables pool mode backed by a `pool.ConnectionPool`                          |
 | `WithDialOptions`     | --        | Appends custom `grpc.DialOption` values (auth credentials, call options)     |
+| `WithProxy`           | env       | Route via `http://host:port` with optional `*url.Userinfo`                    |
+| `WithProxyURL`        | env       | Route via any proxy URL (`http`, `https`, `socks5`, `socks5h`)               |
+| `WithProxyFunc`       | env       | Custom resolver matching `http.Transport.Proxy` signature (escape hatch)     |
+| `WithoutProxy`        | env       | Disable proxy resolution including `HTTPS_PROXY` env lookup                  |
+| `WithProxyTLSConfig`  | system    | Custom `*tls.Config` for the handshake to an `https://` proxy (self-signed CA, mTLS, …) |
 | `WithMutationTimeout` | 30s       | Default timeout for Create/Update/Delete operations                          |
 | `WithQueryTimeout`    | 5s        | Default timeout for Get/List operations                                      |
 | `WithErrorConverter`  | nil       | Custom error converter overriding the default `ParseStatusError`             |

@@ -74,6 +74,11 @@ type options struct {
 	retry bool `opt:"-"`
 	// retryConfig enables gRPC retry with custom configuration.
 	retryConfig *grpcclient.RetryConfig `opt:"-"`
+	// grpcClientOptions are extra options forwarded to the underlying
+	// transport/grpc/client when Protocol is gRPC. The factory layer uses
+	// this to inject a proxy resolver materialized from
+	// config.GrpcProxy.ClientOptions. Has no effect when Protocol is HTTP.
+	grpcClientOptions []grpcclient.Option `opt:"GRPCClientOptions" optgen:"append"`
 }
 
 // WithRetry enables gRPC retry with default configuration.

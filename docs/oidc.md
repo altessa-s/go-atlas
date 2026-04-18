@@ -61,7 +61,7 @@ JWT token validation with automatic JWKS rotation, claims validation, presets, i
 
 ## Overview
 
-The `auth/oidc` package provides a transport-agnostic OIDC Provider that handles the full token validation lifecycle:
+The `auth/oidc` package is a transport-agnostic OIDC Provider that covers the token validation lifecycle:
 
 1. **Discovery** — fetches OIDC metadata from the well-known endpoint.
 2. **JWKS** — loads and caches JSON Web Key Sets with automatic or scheduled refresh.
@@ -575,6 +575,37 @@ oidc:
 | `httpTimeout` | `duration` | `30s` | HTTP timeout for JWKS endpoint requests |
 
 Without a scheduler, JWKS is refreshed automatically on cache miss.
+
+The HTTP client used for JWKS refresh, OIDC discovery, introspection,
+userinfo, and URL-based revocation honors `oidc.proxy` (see [Proxy](proxy.md))
+— so a single proxy block applies to every outbound OIDC call. Sub-components
+(e.g. URL revocation loaders) inherit the Provider's HTTP client via the
+`httpclient.HTTPClientSetter` interface.
+
+### Proxy
+
+Outbound HTTP proxy for every OIDC call (discovery, JWKS, introspection,
+userinfo, URL-based revocation loaders).
+
+```yaml
+oidc:
+  proxy:
+    mode: url
+    url: http://proxy.corp.example:3128
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `mode` | `string` | `""` (passthrough) | One of `none` / `url` / `host`. Empty = honor `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` env vars |
+| `url` | `string` | — | Proxy URL when `mode: url`. Schemes: `http`, `https`, `socks5`, `socks5h`. Port required |
+| `host` | `string` | — | Proxy hostname when `mode: host` |
+| `port` | `int` | — | Proxy port (1–65535) when `mode: host` |
+| `auth.username` | `string` | — | Proxy auth username (optional) |
+| `auth.password` | `secret` | — | Proxy auth password — supports `$__secret{...}` expansion |
+
+Omit the `proxy` block entirely to keep the env-var passthrough default. Use
+`mode: none` to disable proxy resolution explicitly. See the [Proxy guide](proxy.md)
+for full mode semantics, TLS-to-proxy options, and operator guidance.
 
 ### Revocation
 

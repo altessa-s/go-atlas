@@ -63,6 +63,12 @@ type OIDC struct {
 
 	// Revocation contains optional token/key revocation settings
 	Revocation *OIDCRevocation `yaml:"revocation" default:"-"`
+
+	// Proxy configures the outbound HTTP proxy for every OIDC call:
+	// discovery, JWKS refresh, introspection, userinfo, and URL-based
+	// revocation loaders. When omitted entirely, the standard
+	// HTTP_PROXY/HTTPS_PROXY/NO_PROXY environment variables apply.
+	Proxy *HTTPProxy `yaml:"proxy" default:"-"`
 }
 
 // DefaultOIDC returns an OIDC configuration with default values.
@@ -98,6 +104,7 @@ func (a *OIDC) Validate() error {
 		)),
 		validation.Field(&a.Presets, validation.NilOrNotEmpty),
 		validation.Field(&a.Revocation, validation.NilOrNotEmpty),
+		validation.Field(&a.Proxy),
 	)
 }
 

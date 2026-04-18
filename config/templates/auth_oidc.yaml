@@ -334,3 +334,11 @@
 #      # <string> File path to read revoked items from.
 #      # Default value: not set
 #      file:
+#
+#  # <object> Outbound HTTP proxy for ALL OIDC API requests:
+#  # discovery, JWKS refresh, introspection, userinfo, and the URL-based
+#  # revocation loader. Uncomment the !include line below AND the desired
+#  # fields in http_proxy.yaml itself to enable. When the include stays
+#  # commented the standard HTTP_PROXY/HTTPS_PROXY/NO_PROXY env variables
+#  # apply.
+#  !include http_proxy.yaml

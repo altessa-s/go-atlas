@@ -4,6 +4,7 @@
 package client
 
 import (
+	"crypto/tls"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -118,6 +119,23 @@ func WithLogger(v *slog.Logger) Option {
 func WithMaxResponseSize(v int64) Option {
 	return func(o *options) {
 		o.maxResponseSize = v
+	}
+}
+
+// WithProxyFunc sets the proxy option.
+func WithProxyFunc(v ProxyFunc) Option {
+	return func(o *options) {
+		o.proxy = v
+	}
+}
+
+// WithProxyTLSConfig sets the proxyTLSConfig option.
+func WithProxyTLSConfig(v *tls.Config) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.proxyTLSConfig = v
 	}
 }
 

@@ -8,7 +8,8 @@ package gitlab
 
 import (
 	"log/slog"
-	"time"
+
+	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
 
 // options holds the configuration for the GitLab policy source.
@@ -26,12 +27,13 @@ type options struct {
 	dir string
 	// includeData enables loading .json files as OPA data.
 	includeData bool
-	// retryMax is the maximum number of retry attempts for HTTP requests.
-	retryMax int
-	// retryWaitMin is the minimum wait time between retries.
-	retryWaitMin time.Duration
-	// retryWaitMax is the maximum wait time between retries.
-	retryWaitMax time.Duration
 	// logger sets the logger for the GitLab source.
 	logger *slog.Logger
+	// httpClientOptions are forwarded to the resilient HTTP client built
+	// by the source. Set via the generated WithHTTPClientOptions (see
+	// options_gen.go) — this is the single channel for configuring the
+	// outbound transport (proxy, retry, breaker, custom transport).
+	// Default behavior matches httpclient.New() defaults; pass
+	// httpclient.WithRetryMax(0) etc. to opt out.
+	httpClientOptions []httpclient.Option `opt:"HTTPClientOptions" optgen:"append"`
 }

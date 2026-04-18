@@ -68,8 +68,11 @@ go-atlas/
 └── transport/             # Communication layer
     ├── broker/            # Message broker (NATS JetStream)
     ├── grpc/              # gRPC server, interceptors, factory
+    │   └── client/        # gRPC client with retry, pooling, proxy support
     ├── http/              # HTTP server, router, middleware, codec
-    └── internal/          # Shared transport internals
+    │   └── client/        # HTTP client with retry, breaker, proxy, SSRF protection
+    └── internal/
+        └── proxydial/     # Shared HTTP CONNECT/SOCKS5 dialer for both clients
 ```
 
 ---
@@ -100,6 +103,16 @@ go-atlas/
 Higher layers depend on lower layers. Lateral dependencies within the same layer are
 allowed. Circular dependencies between top-level packages are prohibited.
 
+### Outbound transport
+
+The HTTP and gRPC client packages (`transport/http/client`,
+`transport/grpc/client`) share a common dialer at
+`transport/internal/proxydial`. Every consumer that makes outbound calls
+(OIDC, OPA GitLab/S3 sources, OTLP gRPC exporter) materializes
+`config.HTTPProxy` / `config.GrpcProxy` into option slices via
+`ClientOptions()` and forwards them to the relevant client. See the
+[Proxy guide](proxy.md) for the YAML schema, modes, and wiring patterns.
+
 ---
 
 ## Design principles
@@ -113,14 +126,14 @@ and observability adapters all follow this pattern.
 ### Factory pattern
 
 Components support both programmatic construction (`New()` + functional options) and
-configuration-driven creation (`factory.New(cfg).Build()`). This enables library and
-application usage. Factory subdirectories appear in 20+ packages and follow a consistent
-fluent builder API with deferred error accumulation.
+configuration-driven creation (`factory.New(cfg).Build()`), so the same package works
+as a library or an app-level component. Factory subdirectories appear in 20+ packages
+and follow a consistent fluent builder API with deferred error accumulation.
 
 ### Optional dependencies
 
 External dependencies (tracing, metrics, logging) are accepted through functional options
-and default to no-op implementations. Packages work out of the box with zero configuration.
+and default to no-op implementations. Packages work without configuration.
 
 ### Adapter pattern
 

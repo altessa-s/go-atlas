@@ -104,6 +104,13 @@
 #        # Default value: true
 #        compression: true
 #
+#        # <object> Outbound proxy for the OTLP exporter (gRPC protocol only).
+#        # Uncomment the !include line below AND the desired fields in
+#        # grpc_proxy.yaml itself to enable. When the include stays
+#        # commented grpc-go honors HTTPS_PROXY/HTTP_PROXY/NO_PROXY env
+#        # variables. Has no effect when protocol is "http".
+#        !include grpc_proxy.yaml
+#
 #      # <object> Console adapter configuration.
 #      # Only used when type is "console".
 #      console:

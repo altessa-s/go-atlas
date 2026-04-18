@@ -43,3 +43,17 @@ tracer, err := factory.New(cfg.Tracing).
 | Method | Description |
 |--------|-------------|
 | `Build(ctx)` | Assembles and returns the tracer; returns `tracing.Noop` if disabled |
+
+## Proxy wiring
+
+For the `otlp` adapter with `Protocol: grpc`, `Build(ctx)` materializes
+`cfg.OTLP.Proxy` (a [`config.GrpcProxy`](../../../config/grpc_proxy.go))
+into `grpcclient.Option` values via `cfg.OTLP.Proxy.ClientOptions()` and
+forwards them through `otlp.WithGRPCClientOptions(...)`. A nil/empty
+`Proxy` block keeps grpc-go's `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY` env
+passthrough.
+
+`Protocol: http` does not support YAML-driven proxy: the config validator
+rejects `Protocol: http + Proxy: {...}` so misconfiguration surfaces at
+load time. Use env vars instead for the HTTP exporter. See the
+[Proxy guide](../../../docs/proxy.md) for full mode semantics.

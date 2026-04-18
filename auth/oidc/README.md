@@ -24,7 +24,7 @@ validation, token introspection (RFC 7662), validation presets with matchers (na
 
 | Option                          | Default            | Description                                            |
 |---------------------------------|--------------------|--------------------------------------------------------|
-| `WithClient`                    | `http.DefaultClient` | HTTP client for discovery and JWKS requests          |
+| `WithHTTPClientOptions`         | resilient defaults | Forward `httpclient.Option` values (proxy, retry, breaker, transport) to the shared OIDC HTTP client |
 | `WithJwksHTTPTimeout`           | 30s                | Timeout for JWKS HTTP requests                         |
 | `WithTokenCache`                | nil                | Cacher implementation for validated token caching      |
 | `WithDefaultValidationOptions`  | --                 | Default validation options applied to all tokens       |
@@ -37,6 +37,30 @@ validation, token introspection (RFC 7662), validation presets with matchers (na
 | `WithRevocationSyncSchedule`    | --                 | Cron expression for revocation list synchronization    |
 | `WithServiceConfigPath`         | --                 | Path to JSON service configuration file                |
 | `WithLogger`                    | discard            | Structured logger (`*slog.Logger`)                     |
+
+## Outbound HTTP
+
+Every outbound OIDC call (discovery, JWKS refresh, introspection, userinfo,
+URL-based revocation loaders) goes through the same resilient HTTP client
+built from [`transport/http/client`](../../transport/http/client/). Configure
+proxy, retry, circuit breaker, or custom transport with:
+
+```go
+provider, err := oidc.NewProvider(discoveryURL,
+    oidc.WithHTTPClientOptions(
+        httpclient.WithProxyURL(corpProxy),
+        httpclient.WithRetryMax(3),
+    ),
+)
+```
+
+Sub-components that need the same client (e.g. URL-based revocation
+loaders) opt in by implementing
+[`httpclient.HTTPClientSetter`](../../transport/http/client/injector.go) —
+the Provider injects its own client at construction.
+
+For YAML-driven proxy configuration via `oidc.proxy`, see the
+[Proxy guide](../../docs/proxy.md).
 
 ## Validation options
 

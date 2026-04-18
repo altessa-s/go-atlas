@@ -17,6 +17,7 @@ returns an `HTTPClient` with convenience methods (Get, PostJSON, fluent RequestB
 | Circuit breaker      | Per-host circuit breakers with configurable thresholds and state-change callbacks        |
 | Rate limiting        | Pluggable client-side rate limiting via `WithLimiter` and `limiters.RequestsLimiter`     |
 | SSRF protection      | Blocks connections to private/local IPs after DNS resolution, with CIDR allowlist        |
+| Proxy                | Declarative HTTP/SOCKS5 proxy via `WithProxy`/`WithProxyURL`/`WithProxyFunc`, or `WithoutProxy` to bypass env defaults |
 | Structured errors    | Typed errors with `errors.Is` matching and extraction helpers for each failure mode      |
 
 ## Options
@@ -37,6 +38,11 @@ returns an `HTTPClient` with convenience methods (Get, PostJSON, fluent RequestB
 | `WithLogger`                 | nil     | Structured logger for request logging                                    |
 | `WithClient`                 | pooled  | Custom `*http.Client` base                                               |
 | `WithTransport`              | --      | Custom `*http.Transport` override                                        |
+| `WithProxy`                  | env     | Route requests through `http://host:port` with optional `*url.Userinfo`  |
+| `WithProxyURL`               | env     | Route requests through any proxy URL (http, https, socks5, socks5h)      |
+| `WithProxyFunc`              | env     | Custom resolver matching `http.Transport.Proxy` signature                |
+| `WithoutProxy`               | env     | Disable proxy resolution, including `HTTP_PROXY`/`HTTPS_PROXY` defaults  |
+| `WithProxyTLSConfig`         | system  | Custom `*tls.Config` for the handshake to an `https://` proxy (self-signed CA, mTLS); isolates proxy TLS from destination TLS via custom DialContext |
 | `WithErrorHandler`           | nil     | Custom error handler                                                     |
 | `WithRetryPolicyHandler`     | nil     | Custom retry policy handler                                              |
 
@@ -51,6 +57,12 @@ returns an `HTTPClient` with convenience methods (Get, PostJSON, fluent RequestB
 | `RetryExhaustedError`    | `ErrMaxRetriesExceeded`   | All retry attempts exhausted, wraps last error            |
 | `SSRFError`              | `ErrSSRFBlocked`          | Connection to private/local address blocked               |
 | `NonRetryableError`      | `ErrNonRetryable`         | Error that must not be retried (context, TLS, SSRF)       |
+
+## Interfaces
+
+| Interface           | Description                                                                          |
+|---------------------|--------------------------------------------------------------------------------------|
+| `HTTPClientSetter`  | Optional `SetHTTPClient(*http.Client)` hook a sub-component implements so a parent can hand it the same shared client (proxy, retry, breaker apply once). Used by `auth/oidc.Provider` to wire `URLRevocationLoader` |
 
 ## Subpackages
 

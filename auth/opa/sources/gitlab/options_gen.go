@@ -6,7 +6,8 @@ package gitlab
 import (
 	"log/slog"
 	"strings"
-	"time"
+
+	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
 
 // Option is a functional option for configuring options.
@@ -58,6 +59,16 @@ func WithEndpoint[T interface{ string | *string }](v T) Option {
 	}
 }
 
+// WithHTTPClientOptions appends to the httpClientOptions option.
+func WithHTTPClientOptions(v ...httpclient.Option) Option {
+	return func(o *options) {
+		if len(v) == 0 {
+			return
+		}
+		o.httpClientOptions = append(o.httpClientOptions, v...)
+	}
+}
+
 // WithIncludeData enables the includeData option.
 func WithIncludeData() Option {
 	return func(o *options) {
@@ -102,33 +113,6 @@ func WithRef[T interface{ string | *string }](v T) Option {
 			}
 			o.ref = vv
 		}
-	}
-}
-
-// WithRetryMax sets the retryMax option.
-func WithRetryMax(v int) Option {
-	return func(o *options) {
-		o.retryMax = v
-	}
-}
-
-// WithRetryWaitMax sets the retryWaitMax option.
-func WithRetryWaitMax(v time.Duration) Option {
-	return func(o *options) {
-		if v <= 0 {
-			return
-		}
-		o.retryWaitMax = v
-	}
-}
-
-// WithRetryWaitMin sets the retryWaitMin option.
-func WithRetryWaitMin(v time.Duration) Option {
-	return func(o *options) {
-		if v <= 0 {
-			return
-		}
-		o.retryWaitMin = v
 	}
 }
 

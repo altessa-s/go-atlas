@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/time/timeformat"
-	"github.com/altessa-s/go-atlas/transport/grpc/client/pool"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
@@ -69,33 +68,10 @@ import (
 //		client.WithRetry(),
 //	)
 type Client struct {
-	// Connection management
-	conn *grpc.ClientConn     // Used when pool is nil (single connection mode)
-	pool *pool.ConnectionPool // Used for connection pooling
-
-	// Configuration
-	appName string
 	address string
+	options options
 
-	// TLS and logging
-	tlsConfig *tls.Config
-	logger    *slog.Logger
-
-	// Retry configuration
-	retryConfig *RetryConfig
-
-	// Timeouts
-	mutationTimeout time.Duration // Timeout for Create/Update/Delete operations
-	queryTimeout    time.Duration // Timeout for Get/List operations
-
-	// Additional gRPC options
-	extraDialOptions []grpc.DialOption
-
-	// Custom error converter
-	errorConverter ErrorConverter
-
-	insecure    bool
-	enableRetry bool
+	conn *grpc.ClientConn // Used when pool is nil (single connection mode)
 }
 
 // New creates a new gRPC client connected to address.
@@ -108,18 +84,10 @@ type Client struct {
 // (pool-mode clients are closed through the pool's stop function instead).
 func New(ctx context.Context, address string, opts ...Option) (*Client, error) {
 	c := &Client{
-		address:         address,
-		logger:          slog.New(slog.DiscardHandler),
-		tlsConfig:       defaultSecureTLSConfig(),
-		mutationTimeout: DefaultMutationTimeout,
-		queryTimeout:    DefaultQueryTimeout,
+		address: address,
+		options: *newOptions(opts...),
 	}
 
-	for _, opt := range opts {
-		opt(c)
-	}
-
-	// Connect to the gRPC server
 	if err := c.connect(ctx); err != nil {
 		return nil, err
 	}
@@ -131,13 +99,11 @@ func New(ctx context.Context, address string, opts ...Option) (*Client, error) {
 // If pool is configured, this method does nothing as connections are managed by the pool.
 // Otherwise, it creates a single persistent connection.
 func (c *Client) connect(ctx context.Context) error {
-	// If using connection pool, skip creating a dedicated connection
-	if c.pool != nil {
-		c.logger.InfoContext(ctx, "using connection pool mode", "address", c.address)
+	if c.options.pool != nil {
+		c.options.logger.InfoContext(ctx, "using connection pool mode", "address", c.address)
 		return nil
 	}
 
-	// Single connection mode: create a persistent connection
 	dialOpts, err := c.dialOptions() //nolint:contextcheck // dialOptions builds static config, no context needed
 	if err != nil {
 		return coreerrs.WrapOperation(err, "build dial options")
@@ -148,7 +114,7 @@ func (c *Client) connect(ctx context.Context) error {
 	}
 
 	c.conn = conn
-	c.logger.InfoContext(ctx, "created single connection", "address", c.address)
+	c.options.logger.InfoContext(ctx, "created single connection", "address", c.address)
 
 	return nil
 }
@@ -167,8 +133,8 @@ func (c *Client) Close(_ context.Context) error {
 // When using pool mode, the returned connection MUST be returned via ReturnConnection.
 // When using single connection mode, calling ReturnConnection is a no-op.
 func (c *Client) GetConnection(ctx context.Context) (*grpc.ClientConn, error) {
-	if c.pool != nil {
-		return c.pool.GetConnection(ctx, c.address)
+	if c.options.pool != nil {
+		return c.options.pool.GetConnection(ctx, c.address)
 	}
 	return c.conn, nil
 }
@@ -176,8 +142,8 @@ func (c *Client) GetConnection(ctx context.Context) (*grpc.ClientConn, error) {
 // ReturnConnection returns a connection to the pool.
 // This is a no-op when using single connection mode.
 func (c *Client) ReturnConnection(conn *grpc.ClientConn) {
-	if c.pool != nil {
-		c.pool.ReturnConnection(conn)
+	if c.options.pool != nil {
+		c.options.pool.ReturnConnection(conn)
 	}
 }
 
@@ -192,9 +158,8 @@ func (c *Client) HealthCheck(ctx context.Context) error {
 	defer c.ReturnConnection(conn)
 
 	state := conn.GetState()
-	c.logger.DebugContext(ctx, "connection health check", "state", state.String(), "address", c.address)
+	c.options.logger.DebugContext(ctx, "connection health check", "state", state.String(), "address", c.address)
 
-	// Ready and Idle are considered healthy states
 	switch state {
 	case connectivity.Ready, connectivity.Idle:
 		return nil
@@ -210,17 +175,17 @@ func (c *Client) Address() string {
 
 // Logger returns the configured logger.
 func (c *Client) Logger() *slog.Logger {
-	return c.logger
+	return c.options.logger
 }
 
 // MutationTimeout returns the configured timeout for mutation operations.
 func (c *Client) MutationTimeout() time.Duration {
-	return c.mutationTimeout
+	return c.options.mutationTimeout
 }
 
 // QueryTimeout returns the configured timeout for query operations.
 func (c *Client) QueryTimeout() time.Duration {
-	return c.queryTimeout
+	return c.options.queryTimeout
 }
 
 // ApplyTimeout derives a context with the given timeout unless one is already set.
@@ -232,12 +197,12 @@ func (c *Client) ApplyTimeout(ctx context.Context, timeout time.Duration) (conte
 
 // ApplyMutationTimeout applies the mutation timeout to the context.
 func (c *Client) ApplyMutationTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	return corecontext.ApplyTimeout(ctx, c.mutationTimeout)
+	return corecontext.ApplyTimeout(ctx, c.options.mutationTimeout)
 }
 
 // ApplyQueryTimeout applies the query timeout to the context.
 func (c *Client) ApplyQueryTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
-	return corecontext.ApplyTimeout(ctx, c.queryTimeout)
+	return corecontext.ApplyTimeout(ctx, c.options.queryTimeout)
 }
 
 // healthCheckConfig is the default gRPC service configuration with health checking enabled.
@@ -270,11 +235,11 @@ var retryConfigTemplate = `{
 
 // buildServiceConfig builds gRPC service configuration with health checking and optional retry.
 func (c *Client) buildServiceConfig() string {
-	if !c.enableRetry || c.retryConfig == nil {
+	if !c.options.enableRetry || c.options.retryConfig == nil {
 		return healthCheckConfig
 	}
 
-	cfg := c.retryConfig
+	cfg := c.options.retryConfig
 	return fmt.Sprintf(retryConfigTemplate,
 		(time.Duration(cfg.MaxAttempts) * cfg.MaxBackoff).String(),
 		cfg.MaxAttempts,
@@ -314,10 +279,9 @@ func (c *Client) dialOptions() ([]grpc.DialOption, error) {
 		}),
 	}
 
-	// Add interceptors chain
 	chain := grpcinterceptors.NewChain(
 		grpclogger.ClientInterceptor(
-			grpclogger.Slog(c.logger),
+			grpclogger.Slog(c.options.logger),
 			grpclogger.WithTimeFormat(timeformat.RFC3339),
 		),
 		grpcerrstatus.ClientInterceptor(
@@ -331,28 +295,34 @@ func (c *Client) dialOptions() ([]grpc.DialOption, error) {
 	}
 	grpcOptions = append(grpcOptions, clientOptions...)
 
-	// Add transport credentials
-	if c.insecure {
+	if c.options.insecure {
 		grpcOptions = append(grpcOptions, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	} else {
-		grpcOptions = append(grpcOptions, grpc.WithTransportCredentials(credentials.NewTLS(c.tlsConfig)))
+		grpcOptions = append(grpcOptions, grpc.WithTransportCredentials(credentials.NewTLS(c.options.tlsConfig)))
 	}
 
-	// Add user agent
-	if c.appName != "" {
-		grpcOptions = append(grpcOptions, grpc.WithUserAgent(c.appName))
+	if c.options.appName != "" {
+		grpcOptions = append(grpcOptions, grpc.WithUserAgent(c.options.appName))
 	}
 
-	// Add custom dial options
-	grpcOptions = append(grpcOptions, c.extraDialOptions...)
+	// Apply proxy override. nil proxy means "no override" — grpc-go's
+	// default HTTPS_PROXY env lookup applies. extraDialOptions still
+	// runs after this so callers can layer their own
+	// grpc.WithContextDialer to override us. Resolver errors surface at
+	// first dial via the installed ContextDialer.
+	if c.options.proxy != nil {
+		grpcOptions = append(grpcOptions, grpc.WithContextDialer(proxyDialer(c.options.proxy, c.options.proxyTLSConfig)))
+	}
+
+	grpcOptions = append(grpcOptions, c.options.extraDialOptions...)
 
 	return grpcOptions, nil
 }
 
 // convertError converts a gRPC status to an error using the configured error converter.
 func (c *Client) convertError(ctx context.Context, st *status.Status) error {
-	if c.errorConverter != nil {
-		return c.errorConverter(ctx, st)
+	if c.options.errorConverter != nil {
+		return c.options.errorConverter(ctx, st)
 	}
 	return ParseStatusError(st)
 }

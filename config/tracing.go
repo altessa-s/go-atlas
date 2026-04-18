@@ -5,6 +5,8 @@
 package config
 
 import (
+	"fmt"
+
 	"github.com/altessa-s/go-atlas/core/runtime/appinfo"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -242,6 +244,16 @@ type TracingOTLP struct {
 	// Compression enables gzip compression.
 	// Defaults to true.
 	Compression bool `yaml:"compression" default:"true"`
+
+	// Proxy configures the outbound proxy for the OTLP exporter.
+	// Only valid when Protocol is "grpc" — combining Proxy with
+	// Protocol "http" is rejected at config-load to prevent silently
+	// dropping the proxy configuration. The upstream otlptracehttp
+	// transport handles its own proxy resolution via env vars; for
+	// HTTP protocol use HTTPS_PROXY/HTTP_PROXY/NO_PROXY instead.
+	// When omitted entirely (with Protocol "grpc"), grpc-go honors
+	// the same env variables.
+	Proxy *GrpcProxy `yaml:"proxy" default:"-"`
 }
 
 // DefaultTracingOTLP returns a TracingOTLP with default values.
@@ -256,6 +268,19 @@ func DefaultTracingOTLP() TracingOTLP {
 
 // Validate performs validation on the TracingOTLP configuration.
 func (o *TracingOTLP) Validate() error {
+	if o.Protocol == OTLPProtocolHTTP && o.Proxy != nil {
+		// Reject the combination at load time. Otherwise the factory
+		// would route Proxy via otlp.WithGRPCClientOptions, which the
+		// HTTP code path silently ignores — particularly dangerous
+		// for Mode=none (an operator's "no proxy" intent would
+		// silently fall back to env-based proxy through otlptracehttp).
+		return fmt.Errorf(
+			"TracingOTLP: proxy is not supported when protocol is %q; "+
+				"otlptracehttp manages its own proxy resolution via "+
+				"HTTPS_PROXY/HTTP_PROXY/NO_PROXY env vars",
+			OTLPProtocolHTTP,
+		)
+	}
 	return ValidateStruct(o,
 		validation.Field(&o.Endpoint, validation.Required),
 		validation.Field(&o.Protocol,
@@ -265,6 +290,7 @@ func (o *TracingOTLP) Validate() error {
 				OTLPProtocolHTTP,
 			).Error("must be one of: grpc, http"),
 		),
+		validation.Field(&o.Proxy),
 	)
 }
 

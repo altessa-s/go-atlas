@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/observability/tracing/adapters"
+
+	grpcclient "github.com/altessa-s/go-atlas/transport/grpc/client"
 )
 
 // Option is a functional option for configuring options.
@@ -73,6 +75,16 @@ func WithExportTimeout(v time.Duration) Option {
 			return
 		}
 		o.exportTimeout = v
+	}
+}
+
+// WithGRPCClientOptions appends to the grpcClientOptions option.
+func WithGRPCClientOptions(v ...grpcclient.Option) Option {
+	return func(o *options) {
+		if len(v) == 0 {
+			return
+		}
+		o.grpcClientOptions = append(o.grpcClientOptions, v...)
 	}
 }
 

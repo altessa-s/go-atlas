@@ -75,7 +75,7 @@ import "github.com/altessa-s/go-atlas/data/cache"
 | [`tools/codegen/optgen`](tools/codegen/optgen/) | Code generator for functional options pattern |
 | [`tools/codegen/goconfig`](tools/codegen/goconfig/) | Configuration struct code generator |
 | [`transport/broker`](transport/broker/) | Message broker abstraction (NATS JetStream, outbox) |
-| [`transport/grpc`](transport/grpc/) | gRPC server, interceptors, factory |
+| [`transport/grpc`](transport/grpc/) | gRPC server, interceptors, factory, gRPC client |
 | [`proto`](proto/) | Protobuf definitions and generated Go code for gRPC services |
 | [`transport/http`](transport/http/) | HTTP server, middlewares, codec registry, HTTP client |
 
@@ -85,6 +85,7 @@ import "github.com/altessa-s/go-atlas/data/cache"
 |-------|-------------|
 | [Architecture](docs/architecture.md) | Package structure, layering, and design principles |
 | [Configuration](docs/configuration.md) | Multi-source config loading, env vars, secrets |
+| [Proxy](docs/proxy.md) | Outbound HTTP/gRPC proxy: YAML modes, wiring, TLS to proxy |
 | [Metrics Reference](docs/metrics.md) | All 129 Prometheus metrics across 24 subsystems |
 
 Full API documentation is available at [pkg.go.dev](https://pkg.go.dev/github.com/altessa-s/go-atlas).

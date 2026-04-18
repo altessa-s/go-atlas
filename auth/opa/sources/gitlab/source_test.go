@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/auth/opa"
+
+	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
 
 func TestNew_Valid(t *testing.T) {
@@ -25,6 +27,20 @@ func TestNew_Valid(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, source)
 	defer source.Close()
+}
+
+func TestWithHTTPClientOptions_Stores(t *testing.T) {
+	t.Parallel()
+
+	o := newOptions(
+		WithHTTPClientOptions(),
+	)
+	require.Empty(t, o.httpClientOptions)
+
+	o = newOptions(
+		WithHTTPClientOptions(httpclient.WithoutProxy(), httpclient.WithoutProxy()),
+	)
+	require.Len(t, o.httpClientOptions, 2)
 }
 
 func TestNew_MissingEndpoint(t *testing.T) {

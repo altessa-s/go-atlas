@@ -67,15 +67,17 @@ func New(opts ...Option) (*Source, error) {
 
 	logger := cmp.Or(o.logger, slog.New(slog.DiscardHandler))
 
+	// Always wire the go-atlas resilient HTTP client and disable
+	// gitlab's library-level retry so there is exactly one retry layer.
+	// Mirror of how auth/oidc unconditionally builds Provider.client via
+	// httpclient.New (see auth/oidc/provider.go) — caller customisation
+	// (proxy, retry, breaker) flows through WithHTTPClientOptions or
+	// the source's own WithRetryMax / WithRetryWaitMin / WithRetryWaitMax
+	// shortcuts.
 	gitlabOpts := []gitlabapi.ClientOptionFunc{
 		gitlabapi.WithBaseURL(strings.TrimRight(o.endpoint, "/") + "/api/v4"),
-	}
-
-	if o.retryMax > 0 {
-		gitlabOpts = append(gitlabOpts,
-			gitlabapi.WithHTTPClient(newResilientHTTPClient(o, logger)),
-			gitlabapi.WithoutRetries(),
-		)
+		gitlabapi.WithHTTPClient(newResilientHTTPClient(o, logger)),
+		gitlabapi.WithoutRetries(),
 	}
 
 	client, err := gitlabapi.NewClient(o.token, gitlabOpts...)
@@ -91,21 +93,14 @@ func New(opts ...Option) (*Source, error) {
 	}, nil
 }
 
-// newResilientHTTPClient builds a go-atlas HTTP client with retry support.
+// newResilientHTTPClient builds the go-atlas HTTP client used for every
+// outbound GitLab API call. Mirrors auth/oidc.NewProvider's
+// unconditional httpclient.New: the resilient defaults (pooled
+// transport, retry, circuit breaker, env-proxy) apply unless the caller
+// overrides them via WithHTTPClientOptions(httpclient.WithRetryMax(N))
+// and friends — there is exactly one configuration channel.
 func newResilientHTTPClient(o *options, logger *slog.Logger) *http.Client {
-	clientOpts := []httpclient.Option{
-		httpclient.WithLogger(logger),
-		httpclient.WithRetryMax(o.retryMax),
-	}
-
-	if o.retryWaitMin > 0 {
-		clientOpts = append(clientOpts, httpclient.WithRetryWaitMin(o.retryWaitMin))
-	}
-
-	if o.retryWaitMax > 0 {
-		clientOpts = append(clientOpts, httpclient.WithRetryWaitMax(o.retryWaitMax))
-	}
-
+	clientOpts := append([]httpclient.Option{httpclient.WithLogger(logger)}, o.httpClientOptions...)
 	return httpclient.New(clientOpts...)
 }
 

@@ -4,7 +4,7 @@
 import "github.com/altessa-s/go-atlas/config/loader"
 ```
 
-Flexible, multi-source configuration loading with environment variable expansion,
+Multi-source configuration loading with environment variable expansion,
 secret injection, and validation.
 
 ---
@@ -270,9 +270,14 @@ components:
 | Category       | Templates                                                                             |
 |----------------|---------------------------------------------------------------------------------------|
 | Transport      | `http.yaml`, `grpc.yaml`, `broker.yaml` + middleware/interceptor dirs                 |
+| Proxy          | `http_proxy.yaml`, `grpc_proxy.yaml` (reusable via `!include`)                         |
 | Data           | `mongo.yaml`, `redis.yaml`, `nats.yaml`, `cache_storage.yaml`                         |
 | Security       | `auth.yaml`, `auth_oidc.yaml`, `opa.yaml`, `vault.yaml`, `secrets.yaml`, `tls-*.yaml` |
 | Observability  | `observability.yaml`, `health.yaml`, `logger.yaml`, `pprof.yaml`                      |
 | Services       | `scheduler.yaml`, `probabilistic_filter.yaml`, `idempotency.yaml`                     |
 | Rate limiting  | `limiter_tokenbucket.yaml`, `limiter_budget.yaml`, `dlock.yaml`                       |
 | Infrastructure | `node.yaml`, `retry.yaml`, `s3.yaml`                                                  |
+
+`http_proxy.yaml` and `grpc_proxy.yaml` are shared across consumers (OIDC,
+OPA GitLab/S3 sources, OTLP tracing) via the `!include` directive. See the
+[Proxy guide](proxy.md) for modes, wiring, and TLS-to-proxy semantics.

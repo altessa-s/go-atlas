@@ -20,8 +20,16 @@ func TestUnexpectedStatusError_Error(t *testing.T) {
 		err    UnexpectedStatusError
 		expect string
 	}{
-		{"not_found", UnexpectedStatusError{Status: 404, Method: "GET", Host: "example.com", URI: "/users"}, "unexpected response status: 404 (Not Found); request: GET example.com/users"},
-		{"server_error", UnexpectedStatusError{Status: 500, Method: "POST", Host: "api.test", URI: "/data"}, "unexpected response status: 500 (Internal Server Error); request: POST api.test/data"},
+		{
+			"not_found",
+			UnexpectedStatusError{Status: 404, Method: "GET", Host: "example.com", URI: "/users"},
+			"unexpected response status: 404 (Not Found); request: GET example.com/users",
+		},
+		{
+			"server_error",
+			UnexpectedStatusError{Status: 500, Method: "POST", Host: "api.test", URI: "/data"},
+			"unexpected response status: 500 (Internal Server Error); request: POST api.test/data",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

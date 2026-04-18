@@ -20,6 +20,8 @@
 //   - Protection: per-host circuit breakers ([WithCircuitBreakerSettings]) and bulkhead patterns to prevent cascading failures.
 //   - Rate Limiting: pluggable client-side rate limiting via [WithLimiter] and [limiters.RequestsLimiter].
 //   - SSRF Protection: optional blocking of connections to private/local IPs; see [WithSSRFProtection] and [WithSSRFAllowedCIDRs].
+//   - Proxy: declarative outbound proxy configuration via [WithProxy], [WithProxyURL], [WithProxyFunc],
+//     or [WithoutProxy]; defaults to [http.ProxyFromEnvironment].
 //   - Observability: request logging through [WithLogger] and structured error types for inspection.
 //
 // # Error Handling

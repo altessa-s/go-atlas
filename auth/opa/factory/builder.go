@@ -23,6 +23,7 @@ import (
 	s3source "github.com/altessa-s/go-atlas/auth/opa/sources/s3"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
+	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 )
@@ -137,16 +138,12 @@ func (b *ManagerBuilder) buildGitLabSource() (opa.PolicySource, error) {
 		opts = append(opts, gitlab.WithDir(gl.Dir))
 	}
 
-	if gl.RetryMax > 0 {
-		opts = append(opts, gitlab.WithRetryMax(gl.RetryMax))
+	proxyOpts, err := gl.Proxy.ClientOptions()
+	if err != nil {
+		return nil, b.WrapError(err, "failed to materialize gitlab proxy options")
 	}
-
-	if gl.RetryWaitMin > 0 {
-		opts = append(opts, gitlab.WithRetryWaitMin(gl.RetryWaitMin))
-	}
-
-	if gl.RetryWaitMax > 0 {
-		opts = append(opts, gitlab.WithRetryWaitMax(gl.RetryWaitMax))
+	if len(proxyOpts) > 0 {
+		opts = append(opts, gitlab.WithHTTPClientOptions(proxyOpts...))
 	}
 
 	opts = slices.AppendIf(opts, b.cfg.IncludeData, gitlab.WithIncludeData())
@@ -233,6 +230,19 @@ func (b *ManagerBuilder) resolveS3Client(ctx context.Context, s3Cfg *config.OPAS
 				"",
 			),
 		))
+	}
+
+	// Wire go-atlas's resilient HTTP client only when proxy is
+	// explicitly configured. Without an override the AWS SDK keeps its
+	// own HTTP client (which already honors HTTP_PROXY/HTTPS_PROXY/
+	// NO_PROXY env vars) and its own retry layer, avoiding double-retry
+	// with our breaker / retry middleware.
+	proxyOpts, err := s3Cfg.Proxy.ClientOptions()
+	if err != nil {
+		return nil, b.WrapError(err, "failed to materialize s3 proxy options")
+	}
+	if len(proxyOpts) > 0 {
+		awsCfgOpts = append(awsCfgOpts, awsconfig.WithHTTPClient(httpclient.New(proxyOpts...)))
 	}
 
 	cfg, err := awsconfig.LoadDefaultConfig(ctx, awsCfgOpts...)

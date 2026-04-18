@@ -44,17 +44,12 @@
 #  #   # Default value: "" (repository root)
 #  #   dir: policies/opa
 #  #
-#  #   # <int> Maximum number of retry attempts for HTTP requests.
-#  #   # Default value: 0 (no retries)
-#  #   retryMax: 3
-#  #
-#  #   # <duration> Minimum wait time between retries.
-#  #   # Default value: 0 (use HTTP client defaults)
-#  #   retryWaitMin: 500ms
-#  #
-#  #   # <duration> Maximum wait time between retries.
-#  #   # Default value: 0 (use HTTP client defaults)
-#  #   retryWaitMax: 10s
+#  #   # <object> Outbound HTTP proxy for GitLab API requests.
+#  #   # Uncomment the !include line below AND the desired fields in
+#  #   # http_proxy.yaml itself to enable. When the include stays
+#  #   # commented the standard HTTP_PROXY/HTTPS_PROXY/NO_PROXY env
+#  #   # variables apply.
+#  #   !include http_proxy.yaml
 #
 #  # <object> S3-specific configuration for loading policies from an S3-compatible bucket.
 #  # Required when source is "s3".
@@ -90,6 +85,13 @@
 #  #   # <bool> Enable path-style addressing (required for MinIO and some S3-compatible stores).
 #  #   # Default value: false
 #  #   pathStyle: false
+#  #
+#  #   # <object> Outbound HTTP proxy for S3 API requests.
+#  #   # Uncomment the !include line below AND the desired fields in
+#  #   # http_proxy.yaml itself to enable. When the include stays
+#  #   # commented the AWS SDK's default transport applies (which
+#  #   # already honors HTTP_PROXY / HTTPS_PROXY / NO_PROXY env vars).
+#  #   !include http_proxy.yaml
 #
 #  # <string> Rego query to evaluate for authorization decisions.
 #  # The query determines what policy rule to evaluate.

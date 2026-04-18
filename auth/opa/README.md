@@ -53,4 +53,16 @@ HTTP bundles) with hot-reloading capabilities. Modular design with pluggable pol
 | [factory](./factory)                       | Config-based manager and evaluator creation  |
 | [sources/embed](./sources/embed)           | Embedded fs.FS policy source (compile-time)  |
 | [sources/filesystem](./sources/filesystem) | Filesystem policy source with fsnotify watch |
+| [sources/gitlab](./sources/gitlab)         | GitLab repository policy source via API      |
 | [sources/s3](./sources/s3)                 | S3-compatible object store policy source     |
+
+## Outbound HTTP
+
+The GitLab and S3 sources reach external services and accept proxy / retry /
+breaker configuration through the resilient
+[`transport/http/client`](../../transport/http/client/). GitLab forwards the
+options via `gitlab.WithHTTPClientOptions(...)`; S3 swaps the AWS SDK
+transport via `awsconfig.WithHTTPClient(httpclient.New(...))` only when
+`s3.proxy` is explicitly configured (otherwise the SDK keeps its own
+transport and retry layer). See the [Proxy guide](../../docs/proxy.md) for
+YAML modes and the [factory README](./factory/) for wiring details.

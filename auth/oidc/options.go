@@ -8,13 +8,13 @@ package oidc
 
 import (
 	"log/slog"
-	"net/http"
 	"time"
 
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
+	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
 
 const (
@@ -31,8 +31,14 @@ var DefaultRequiredClaims = []string{"sub", "aud", "exp", "iat", "iss"}
 // options holds the internal configuration state for the OIDC provider.
 // This struct is not exported and is modified through Option functions.
 type options struct {
-	client                      *http.Client  `optgen:"default=http.DefaultClient"`
-	jwksHTTPTimeout             time.Duration `optgen:"default=DefaultJWKSHTTPTimeout"`
+	// httpClientOptions are forwarded to httpclient.New when the Provider
+	// builds its outbound HTTP client. The factory layer uses this to
+	// inject a proxy resolver materialized from config.HTTPProxy. Pass
+	// httpclient.WithRetryMax(0) etc. here if the resilient defaults
+	// (retry, breaker, env-proxy) are not desirable for a particular
+	// deployment.
+	httpClientOptions           []httpclient.Option `opt:"HTTPClientOptions" optgen:"append"`
+	jwksHTTPTimeout             time.Duration       `optgen:"default=DefaultJWKSHTTPTimeout"`
 	tokenCache                  Cacher
 	tokensCacheKeyPrefix        string `optgen:"default=DefaultTokensCacheKeyPrefix"`
 	revokedTokensCacheKeyPrefix string `optgen:"default=DefaultRevokedTokensCacheKeyPrefix"`

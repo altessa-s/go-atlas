@@ -5,7 +5,6 @@ package oidc
 
 import (
 	"log/slog"
-	"net/http"
 	"strings"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
+	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
 
 // Option is a functional option for configuring options.
@@ -42,16 +42,6 @@ func WithActiveTokensCacheKeyPrefix[T interface{ string | *string }](v T) Option
 	}
 }
 
-// WithClient sets the client option.
-func WithClient(v *http.Client) Option {
-	return func(o *options) {
-		if v == nil {
-			return
-		}
-		o.client = v
-	}
-}
-
 // WithCollector sets the collector option.
 func WithCollector(v metrics.Collector) Option {
 	return func(o *options) {
@@ -59,6 +49,16 @@ func WithCollector(v metrics.Collector) Option {
 			return
 		}
 		o.collector = v
+	}
+}
+
+// WithHTTPClientOptions appends to the httpClientOptions option.
+func WithHTTPClientOptions(v ...httpclient.Option) Option {
+	return func(o *options) {
+		if len(v) == 0 {
+			return
+		}
+		o.httpClientOptions = append(o.httpClientOptions, v...)
 	}
 }
 
@@ -242,7 +242,6 @@ func WithTokensCacheKeyPrefix[T interface{ string | *string }](v T) Option {
 func defaultOptions() *options {
 	return &options{
 		activeTokensCacheKeyPrefix:  DefaultActiveTokensCacheKeyPrefix,
-		client:                      http.DefaultClient,
 		jwksHTTPTimeout:             DefaultJWKSHTTPTimeout,
 		logger:                      slog.New(slog.DiscardHandler),
 		revocationItemType:          DefaultRevocationItemType,

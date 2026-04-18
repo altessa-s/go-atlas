@@ -43,6 +43,9 @@ type grpcClient struct {
 	started     bool
 
 	retryConfig *grpcclient.RetryConfig
+	// extraClientOptions are appended after retry/insecure when building
+	// the grpc-client. Sourced from grpcClientConfig.extraClientOptions.
+	extraClientOptions []grpcclient.Option
 }
 
 // grpcClientConfig holds configuration for creating a grpcClient.
@@ -56,19 +59,25 @@ type grpcClientConfig struct {
 	retry       bool
 
 	retryConfig *grpcclient.RetryConfig
+
+	// extraClientOptions are appended to the grpc-client options at
+	// Start() time. The OTLP adapter uses this slot to forward proxy
+	// resolvers materialized by the tracing factory layer.
+	extraClientOptions []grpcclient.Option
 }
 
 // newGRPCClient creates a new grpcClient with the given configuration.
 // The client is not connected until Start() is called.
 func newGRPCClient(cfg *grpcClientConfig) *grpcClient {
 	return &grpcClient{
-		endpoint:      cfg.endpoint,
-		insecure:      cfg.insecure,
-		headers:       copyAndNormalizeHeaders(cfg.headers),
-		compression:   cfg.compression,
-		exportTimeout: cfg.exportTimeout,
-		retry:         cfg.retry,
-		retryConfig:   cfg.retryConfig,
+		endpoint:           cfg.endpoint,
+		insecure:           cfg.insecure,
+		headers:            copyAndNormalizeHeaders(cfg.headers),
+		compression:        cfg.compression,
+		exportTimeout:      cfg.exportTimeout,
+		retry:              cfg.retry,
+		retryConfig:        cfg.retryConfig,
+		extraClientOptions: cfg.extraClientOptions,
 	}
 }
 
@@ -107,6 +116,11 @@ func (c *grpcClient) Start(ctx context.Context) error {
 			opts = append(opts, grpcclient.WithRetry())
 		}
 	}
+
+	// Caller-supplied options come last so they win over the defaults
+	// set above. Used by the tracing factory to inject proxy resolvers
+	// materialized from config.GrpcProxy.
+	opts = append(opts, c.extraClientOptions...)
 
 	// Create the gRPC client
 	client, err := grpcclient.New(ctx, c.endpoint, opts...)

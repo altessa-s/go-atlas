@@ -8,18 +8,23 @@ package client
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/sony/gobreaker/v2"
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/transport/http/client/limiters"
+	"github.com/altessa-s/go-atlas/transport/internal/proxydial"
 )
 
 func defaultClient() *http.Client {
@@ -37,9 +42,10 @@ func defaultPooledClient() *http.Client {
 }
 
 // Transport pool defaults matching go-cleanhttp's DefaultPooledClient.
+// Dial-level timeouts (Timeout, KeepAlive) live in
+// [transport/internal/proxydial] so the pooled transport, the proxy
+// dialer, and the gRPC proxy dialer all share one source of truth.
 const (
-	defaultDialTimeout           = 30 * time.Second
-	defaultDialKeepAlive         = 30 * time.Second
 	defaultMaxIdleConns          = 100
 	defaultIdleConnTimeout       = 90 * time.Second
 	defaultTLSHandshakeTimeout   = 10 * time.Second
@@ -48,11 +54,8 @@ const (
 
 func defaultPooledTransport() *http.Transport {
 	return &http.Transport{
-		Proxy: http.ProxyFromEnvironment,
-		DialContext: (&net.Dialer{
-			Timeout:   defaultDialTimeout,
-			KeepAlive: defaultDialKeepAlive,
-		}).DialContext,
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           proxydial.DefaultDialer().DialContext,
 		MaxIdleConns:          defaultMaxIdleConns,
 		IdleConnTimeout:       defaultIdleConnTimeout,
 		TLSHandshakeTimeout:   defaultTLSHandshakeTimeout,
@@ -107,6 +110,17 @@ type options struct {
 	// ssrfAllowedCIDRs contains CIDR prefixes exempted from SSRF blocking
 	ssrfAllowedCIDRs []netip.Prefix    `optgen:"manual"`
 	collector        metrics.Collector `optgen:"notnil"`
+	// proxy resolves the proxy URL for outgoing requests. The auto-generated
+	// setter is named WithProxyFunc to free the WithProxy name for the more
+	// common host/port/auth convenience setter declared below.
+	proxy ProxyFunc `opt:"ProxyFunc"`
+	// proxyTLSConfig customizes the TLS handshake to https:// proxies
+	// (e.g. a corporate proxy fronted by a self-signed cert). When set,
+	// the client routes outbound requests through a custom DialContext
+	// that performs TCP+TLS+CONNECT manually, isolating proxy TLS from
+	// the destination's TLSClientConfig. Has no effect for plain http://
+	// or socks5:// proxies.
+	proxyTLSConfig *tls.Config
 }
 
 // WithRetryWait configures the minimum and maximum wait times between retry attempts.
@@ -186,6 +200,84 @@ func WithSSRFAllowedCIDRs(cidrs ...netip.Prefix) Option {
 	return func(opts *options) {
 		opts.ssrfAllowedCIDRs = append(opts.ssrfAllowedCIDRs, cidrs...)
 	}
+}
+
+// ProxyFunc resolves the proxy URL for an outgoing request. It matches the
+// signature of [http.Transport.Proxy]: returning (nil, nil) means "no proxy
+// for this request"; returning a non-nil error aborts the request before
+// dialing.
+//
+// When [WithSSRFProtection] is also enabled, note that the SSRF check
+// runs against the dialed address — which becomes the proxy itself when
+// a proxy is configured. Add the proxy host's CIDR to
+// [WithSSRFAllowedCIDRs] if it lives on a private network.
+type ProxyFunc = func(*http.Request) (*url.URL, error)
+
+// WithProxy routes all requests through an HTTP proxy at host:port with
+// optional credentials. Pass nil auth for an anonymous proxy; build auth
+// with [url.UserPassword] or [url.User]. The scheme is always http — for
+// https/socks5 proxies use [WithProxyURL] instead. Setting this disables
+// the default HTTP_PROXY/HTTPS_PROXY/NO_PROXY environment lookup.
+//
+// Invalid host or port produce a resolver that fails on the first request
+// rather than silently falling back to the default proxy. The proxy is
+// only applied when the underlying transport is a [*http.Transport] —
+// custom round-trippers supplied via [WithClient] are left untouched.
+//
+// Example:
+//
+//	httpclient.New(httpclient.WithProxy("proxy.corp", 3128, url.UserPassword("svc", token)))
+func WithProxy(host string, port int, auth *url.Userinfo) Option {
+	if host == "" {
+		return WithProxyFunc(failingProxy(errors.New("httpclient: WithProxy: empty host")))
+	}
+	if port < 1 || port > 65535 {
+		return WithProxyFunc(failingProxy(fmt.Errorf("httpclient: WithProxy: invalid port %d", port)))
+	}
+	u := &url.URL{
+		Scheme: "http",
+		User:   auth,
+		Host:   net.JoinHostPort(host, strconv.Itoa(port)),
+	}
+	return WithProxyFunc(http.ProxyURL(u))
+}
+
+// WithProxyURL routes all requests through the given proxy URL. Supported
+// schemes are http, https, socks5, and socks5h. Credentials embedded in
+// the URL (http://user:pass@host:port) trigger Proxy-Authorization
+// automatically. Setting this disables the default
+// HTTP_PROXY/HTTPS_PROXY/NO_PROXY environment lookup.
+//
+// A nil URL produces a resolver that fails on the first request rather
+// than silently falling back to the default proxy.
+func WithProxyURL(u *url.URL) Option {
+	if u == nil {
+		return WithProxyFunc(failingProxy(errors.New("httpclient: WithProxyURL: nil URL")))
+	}
+	return WithProxyFunc(http.ProxyURL(u))
+}
+
+// WithoutProxy disables proxy resolution entirely, including the default
+// environment-based lookup. Use when the process runs in an environment
+// where HTTP_PROXY is set but specific clients must connect directly.
+func WithoutProxy() Option {
+	return WithProxyFunc(noProxyResolver)
+}
+
+// noProxyResolver always reports "no proxy", overriding the default
+// environment-based lookup baked into [defaultPooledTransport].
+// Returning (nil, nil) is the contract documented on [http.Transport.Proxy]
+// — a nil URL means "use no proxy for this request".
+//
+//nolint:nilnil // (nil, nil) is the http.Transport.Proxy "no proxy" contract.
+func noProxyResolver(*http.Request) (*url.URL, error) { return nil, nil }
+
+// failingProxy returns a resolver that always fails with err. Used by
+// the convenience proxy options when their inputs are invalid so that
+// misconfiguration surfaces at request time instead of being masked by
+// the default env-based proxy.
+func failingProxy(err error) ProxyFunc {
+	return func(*http.Request) (*url.URL, error) { return nil, err }
 }
 
 // DefaultOnStateChange returns a [gobreaker.Settings.OnStateChange] callback that

@@ -97,14 +97,13 @@ type OPAGitLab struct {
 	// Dir is the directory path within the repository containing policy files.
 	Dir string `yaml:"dir"`
 
-	// RetryMax is the maximum number of retry attempts for HTTP requests.
-	RetryMax int `yaml:"retryMax"`
-
-	// RetryWaitMin is the minimum wait time between retries.
-	RetryWaitMin time.Duration `yaml:"retryWaitMin"`
-
-	// RetryWaitMax is the maximum wait time between retries.
-	RetryWaitMax time.Duration `yaml:"retryWaitMax"`
+	// Proxy configures the outbound HTTP proxy for GitLab API requests.
+	// When omitted entirely, the client honors the standard
+	// HTTP_PROXY/HTTPS_PROXY/NO_PROXY environment variables. To tune
+	// retry behavior, use the programmatic gitlab.WithHTTPClientOptions
+	// channel — there is no YAML knob for retry (the source uses
+	// httpclient.New defaults).
+	Proxy *HTTPProxy `yaml:"proxy" default:"-"`
 }
 
 // Validate validates the OPAGitLab configuration.
@@ -113,6 +112,7 @@ func (c *OPAGitLab) Validate() error {
 		validation.Field(&c.Endpoint, validation.Required),
 		validation.Field(&c.Token, validation.Required),
 		validation.Field(&c.ProjectID, validation.Required),
+		validation.Field(&c.Proxy),
 	)
 }
 
@@ -149,12 +149,21 @@ type OPAS3 struct {
 
 	// PathStyle enables path-style addressing (required for MinIO and some S3-compatible stores).
 	PathStyle bool `yaml:"pathStyle"`
+
+	// Proxy configures the outbound HTTP proxy for S3 API requests.
+	// When omitted, the AWS SDK's default transport applies, which
+	// already honors the standard HTTP_PROXY/HTTPS_PROXY/NO_PROXY
+	// environment variables. Setting this swaps the SDK's default
+	// HTTP client for go-atlas's resilient client wired with the
+	// supplied proxy resolver.
+	Proxy *HTTPProxy `yaml:"proxy" default:"-"`
 }
 
 // Validate validates the OPAS3 configuration.
 func (c *OPAS3) Validate() error {
 	return ValidateStruct(c,
 		validation.Field(&c.Bucket, validation.Required),
+		validation.Field(&c.Proxy),
 	)
 }
 

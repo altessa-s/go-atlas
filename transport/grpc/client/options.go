@@ -4,10 +4,18 @@
 
 package client
 
+//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate --type=options
+
 import (
 	"context"
 	"crypto/tls"
+	"errors"
+	"fmt"
 	"log/slog"
+	"net"
+	"net/http"
+	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/altessa-s/go-atlas/transport/grpc/client/pool"
@@ -75,94 +83,6 @@ type RetryConfig struct {
 	RetryableStatusCodes []string
 }
 
-// Option is a functional option for configuring the Client.
-type Option func(*Client)
-
-// WithTLSConfig sets a custom TLS configuration for the gRPC connection.
-// Use this to configure custom certificates, cipher suites, or other TLS settings.
-//
-// Example:
-//
-//	tlsConfig := &tls.Config{
-//		MinVersion: tls.VersionTLS13,
-//		ServerName: "service.example.com",
-//	}
-//	client, err := client.New("localhost:8080",
-//		client.WithTLSConfig(tlsConfig),
-//	)
-func WithTLSConfig(t *tls.Config) Option {
-	return func(c *Client) {
-		c.tlsConfig = t
-	}
-}
-
-// WithInsecure disables TLS and uses an insecure plaintext connection.
-// This should only be used for local development or testing.
-// Never use this in production environments.
-//
-// Example:
-//
-//	client, err := client.New("localhost:8080",
-//		client.WithInsecure(),
-//	)
-func WithInsecure() Option {
-	return func(c *Client) {
-		c.tlsConfig = nil
-		c.insecure = true
-	}
-}
-
-// WithLogger sets a custom logger for the client.
-// The logger will be used to log gRPC call details, connection events, and errors.
-// If not set, a discard logger is used (no logging).
-//
-// Example:
-//
-//	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-//	client, err := client.New("localhost:8080",
-//		client.WithLogger(logger),
-//	)
-func WithLogger(logger *slog.Logger) Option {
-	return func(c *Client) {
-		c.logger = logger
-	}
-}
-
-// WithAppName sets the application name used in the gRPC User-Agent header.
-// This helps identify the client application in server logs.
-//
-// Example:
-//
-//	client, err := client.New("localhost:8080",
-//		client.WithAppName("my-service/v1.0.0"),
-//	)
-func WithAppName(appName string) Option {
-	return func(c *Client) {
-		c.appName = appName
-	}
-}
-
-// WithConnectionPool enables connection pooling for the client.
-// When enabled, the client will use a connection pool instead of a single persistent connection.
-// This is recommended for high-throughput scenarios with many concurrent requests.
-//
-// Example:
-//
-//	p := pool.New(
-//		pool.WithPoolSize(20),
-//		pool.WithMaxIdleTime(time.Hour),
-//		pool.WithLogger(logger),
-//	)
-//	client, err := client.New("localhost:8080",
-//		client.WithConnectionPool(p),
-//		client.WithLogger(logger),
-//	)
-func WithConnectionPool(p *pool.ConnectionPool) Option {
-	return func(c *Client) {
-		c.pool = p
-	}
-}
-
 // DefaultRetryConfig returns the default retry configuration.
 func DefaultRetryConfig() *RetryConfig {
 	return &RetryConfig{
@@ -174,19 +94,74 @@ func DefaultRetryConfig() *RetryConfig {
 	}
 }
 
+// ProxyFunc resolves the proxy URL for an outgoing connection. It
+// matches the signature of [http.Transport.Proxy] and the
+// [transport/http/client.ProxyFunc] alias, so resolvers are
+// interchangeable between the two clients.
+//
+// Returning (nil, nil) means "no proxy for this connection";
+// returning a non-nil error aborts the dial.
+//
+// When [WithProxyTLSConfig] is also enabled, note that the dialed
+// address becomes the proxy itself when one is configured — set the
+// proxy host's CIDR allowlist accordingly if it sits behind a private
+// network filter.
+type ProxyFunc = func(*http.Request) (*url.URL, error)
+
+// options holds the internal configuration state for the gRPC client.
+// This struct is not exported and is modified through Option functions.
+type options struct {
+	tlsConfig        *tls.Config  `optgen:"default=defaultSecureTLSConfig()"`
+	insecure         bool         `optgen:"manual"`
+	logger           *slog.Logger `optgen:"default=slog.New(slog.DiscardHandler)"`
+	appName          string
+	pool             *pool.ConnectionPool
+	enableRetry      bool              `optgen:"manual"`
+	retryConfig      *RetryConfig      `optgen:"manual"`
+	mutationTimeout  time.Duration     `optgen:"default=DefaultMutationTimeout"`
+	queryTimeout     time.Duration     `optgen:"default=DefaultQueryTimeout"`
+	extraDialOptions []grpc.DialOption `opt:"DialOptions" optgen:"append"`
+	errorConverter   ErrorConverter
+	// proxy resolves the proxy URL for outgoing connections. The auto-generated
+	// setter is named WithProxyFunc to free the WithProxy name for the more
+	// common host/port/auth convenience setter declared below.
+	proxy ProxyFunc `opt:"ProxyFunc"`
+	// proxyTLSConfig customizes the TLS handshake to https:// proxies
+	// (e.g. a corporate proxy fronted by a self-signed cert). Has no
+	// effect for plain http:// or socks5:// proxies, which never
+	// TLS-wrap the proxy connection.
+	proxyTLSConfig *tls.Config
+}
+
+// WithInsecure disables TLS and uses an insecure plaintext connection.
+// This should only be used for local development or testing.
+// Never use this in production environments.
+//
+// Example:
+//
+//	client, err := client.New(ctx, "localhost:8080",
+//		client.WithInsecure(),
+//	)
+func WithInsecure() Option {
+	return func(o *options) {
+		o.tlsConfig = nil
+		o.insecure = true
+	}
+}
+
 // WithRetry enables automatic retry with the default configuration.
 // Uses exponential backoff and retries on UNAVAILABLE, DEADLINE_EXCEEDED, and RESOURCE_EXHAUSTED.
 //
 // Example:
 //
-//	client, err := client.New("localhost:8080",
+//	client, err := client.New(ctx, "localhost:8080",
 //		client.WithRetry(),
 //		client.WithInsecure(),
 //	)
 func WithRetry() Option {
-	return func(c *Client) {
-		c.enableRetry = true
-		c.retryConfig = DefaultRetryConfig()
+	return func(o *options) {
+		o.enableRetry = true
+		o.retryConfig = DefaultRetryConfig()
 	}
 }
 
@@ -203,77 +178,83 @@ func WithRetry() Option {
 //		RetryableStatusCodes: []string{"UNAVAILABLE", "INTERNAL"},
 //	}
 //
-//	c, err := client.New("localhost:8080",
+//	c, err := client.New(ctx, "localhost:8080",
 //		client.WithRetryConfig(retryConfig),
 //		client.WithInsecure(),
 //	)
 func WithRetryConfig(config *RetryConfig) Option {
-	return func(c *Client) {
-		c.enableRetry = true
-		c.retryConfig = config
+	return func(o *options) {
+		if config == nil {
+			return
+		}
+		o.enableRetry = true
+		o.retryConfig = config
 	}
 }
 
-// WithMutationTimeout sets the default timeout for mutation operations (Create/Update/Delete).
-// If not set, the default is 30 seconds.
+// WithProxy routes connections through an HTTP proxy at host:port with
+// optional credentials. Pass nil auth for an anonymous proxy; build auth
+// with [url.UserPassword] or [url.User]. The scheme is always http —
+// for https/socks5 proxies use [WithProxyURL]. Setting this overrides
+// grpc-go's default HTTPS_PROXY/HTTP_PROXY/NO_PROXY environment lookup.
+//
+// Invalid host or port produce a resolver that fails on the first dial
+// rather than silently falling back to the env-based default.
 //
 // Example:
 //
-//	client, err := client.New("localhost:8080",
-//		client.WithMutationTimeout(60*time.Second),
-//		client.WithInsecure(),
+//	c, err := client.New(ctx, "service:443",
+//	    client.WithProxy("proxy.corp", 3128, url.UserPassword("svc", token)),
 //	)
-func WithMutationTimeout(timeout time.Duration) Option {
-	return func(c *Client) {
-		c.mutationTimeout = timeout
+func WithProxy(host string, port int, auth *url.Userinfo) Option {
+	if host == "" {
+		return WithProxyFunc(failingProxy(errors.New("grpcclient: WithProxy: empty host")))
 	}
+	if port < 1 || port > 65535 {
+		return WithProxyFunc(failingProxy(fmt.Errorf("grpcclient: WithProxy: invalid port %d", port)))
+	}
+	u := &url.URL{
+		Scheme: "http",
+		User:   auth,
+		Host:   net.JoinHostPort(host, strconv.Itoa(port)),
+	}
+	return WithProxyFunc(http.ProxyURL(u))
 }
 
-// WithQueryTimeout sets the default timeout for query operations (Get/List).
-// If not set, the default is 5 seconds.
+// WithProxyURL routes connections through the given proxy URL. Supported
+// schemes are http, https, socks5, and socks5h. Credentials embedded
+// in the URL (http://user:pass@proxy:port) trigger Proxy-Authorization
+// automatically. Setting this overrides grpc-go's default
+// HTTPS_PROXY/HTTP_PROXY/NO_PROXY environment lookup.
 //
-// Example:
-//
-//	client, err := client.New("localhost:8080",
-//		client.WithQueryTimeout(10*time.Second),
-//		client.WithInsecure(),
-//	)
-func WithQueryTimeout(timeout time.Duration) Option {
-	return func(c *Client) {
-		c.queryTimeout = timeout
+// A nil URL produces a resolver that fails on the first dial rather
+// than silently falling back to the env-based default.
+func WithProxyURL(u *url.URL) Option {
+	if u == nil {
+		return WithProxyFunc(failingProxy(errors.New("grpcclient: WithProxyURL: nil URL")))
 	}
+	return WithProxyFunc(http.ProxyURL(u))
 }
 
-// WithDialOptions adds custom gRPC dial options to the client.
-// These options are appended to the default options.
-//
-// Example:
-//
-//	client, err := client.New("localhost:8080",
-//		client.WithDialOptions(
-//			grpc.WithBlock(),
-//			grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(10*1024*1024)),
-//		),
-//	)
-func WithDialOptions(opts ...grpc.DialOption) Option {
-	return func(c *Client) {
-		c.extraDialOptions = append(c.extraDialOptions, opts...)
-	}
+// WithoutProxy disables proxy resolution entirely, including grpc-go's
+// default HTTPS_PROXY/HTTP_PROXY/NO_PROXY environment lookup. Use when
+// the process runs in an environment where HTTPS_PROXY is set but a
+// specific gRPC client must connect directly.
+func WithoutProxy() Option {
+	return WithProxyFunc(noProxyResolver)
 }
 
-// WithErrorConverter sets a custom error converter function.
-// This allows service-specific clients to provide custom error parsing logic.
+// noProxyResolver always reports "no proxy", overriding grpc-go's
+// env-based lookup. Returning (nil, nil) is the contract documented
+// on [http.Transport.Proxy].
 //
-// Example:
-//
-//	converter := func(ctx context.Context, st *status.Status) error {
-//		return MyCustomError{Code: st.Code(), Message: st.Message()}
-//	}
-//	client, err := client.New("localhost:8080",
-//		client.WithErrorConverter(converter),
-//	)
-func WithErrorConverter(converter ErrorConverter) Option {
-	return func(c *Client) {
-		c.errorConverter = converter
-	}
+//nolint:nilnil // (nil, nil) is the http.Transport.Proxy "no proxy" contract.
+func noProxyResolver(*http.Request) (*url.URL, error) { return nil, nil }
+
+// failingProxy returns a resolver that always fails with err. Used by
+// the convenience proxy options when their inputs are invalid so that
+// misconfiguration surfaces at first dial instead of being masked by
+// the default env-based proxy.
+func failingProxy(err error) ProxyFunc {
+	return func(*http.Request) (*url.URL, error) { return nil, err }
 }

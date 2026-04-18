@@ -15,6 +15,8 @@
 //   - Error handling: Rich error type with field-level validation errors
 //   - Authentication: Via WithDialOptions for custom credentials
 //   - Logging: Automatic gRPC call logging via interceptors
+//   - Proxy: declarative outbound proxy via WithProxy, WithProxyURL, or
+//     WithoutProxy; defaults to grpc-go's HTTPS_PROXY env lookup
 //
 // # Basic Usage
 //
@@ -63,7 +65,7 @@
 //	stop, _ := p.Start(ctx)
 //	defer stop()
 //
-//	c, err := client.New("service.example.com:443",
+//	c, err := client.New(ctx, "service.example.com:443",
 //		client.WithConnectionPool(p),
 //		client.WithRetry(),
 //		client.WithLogger(logger),
@@ -81,7 +83,7 @@
 //		RetryableStatusCodes: []string{"UNAVAILABLE", "INTERNAL"},
 //	}
 //
-//	c, err := client.New("localhost:8080",
+//	c, err := client.New(ctx, "localhost:8080",
 //		client.WithRetryConfig(retryConfig),
 //		client.WithInsecure(),
 //	)
@@ -122,7 +124,7 @@
 //		}
 //	}
 //
-//	c, err := client.New("localhost:8080",
+//	c, err := client.New(ctx, "localhost:8080",
 //		client.WithErrorConverter(converter),
 //	)
 //
@@ -139,8 +141,8 @@
 //		usersClient *UsersClient
 //	}
 //
-//	func New(address string, opts ...client.Option) (*Client, error) {
-//		c, err := client.New(address, opts...)
+//	func New(ctx context.Context, address string, opts ...client.Option) (*Client, error) {
+//		c, err := client.New(ctx, address, opts...)
 //		if err != nil {
 //			return nil, err
 //		}

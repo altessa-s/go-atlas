@@ -50,3 +50,12 @@ provider, err := factory.New(cfg.OIDC).
 | Method | Description |
 |--------|-------------|
 | `Build` | Assembles and returns the OIDC provider |
+
+## Proxy wiring
+
+`Build(ctx)` materializes `cfg.Proxy` (a [`config.HTTPProxy`](../../../config/http_proxy.go))
+into `httpclient.Option` values via `cfg.Proxy.ClientOptions()` and forwards
+them through `oidc.WithHTTPClientOptions(...)`. A nil/empty `Proxy` block
+keeps the default `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` env passthrough.
+See the [Proxy guide](../../../docs/proxy.md) for YAML modes and operator
+guidance.

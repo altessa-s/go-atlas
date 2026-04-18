@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/data/probfilter"
+
+	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
 
 // RevocationStorage defines a unified interface for checking and managing revoked items
@@ -128,26 +130,53 @@ func (l *FileRevocationLoader) Count(_ context.Context) (int64, error) {
 }
 
 // URLRevocationLoader loads revoked items from a remote URL (one per line).
+//
+// Client is optional when the loader is wired into an OIDC [Provider] —
+// [NewProvider] injects its shared HTTP client via [SetHTTPClient] (the
+// loader implements [httpclient.HTTPClientSetter]) so the revocation
+// refresh reuses the same pool, retry policy and proxy resolver as
+// discovery/JWKS/userinfo.
+//
+// Setting Client explicitly is still supported as an escape hatch for
+// tests or callers using URLRevocationLoader outside of [Provider]. In
+// that case StreamValues fails fast if Client is nil rather than
+// silently falling back to http.DefaultClient — match the failure with
+// [ErrLoaderClientNotConfigured] via [errors.Is].
 type URLRevocationLoader struct {
 	URL    string
 	Client *http.Client
 }
 
+// Compile-time guarantee that URLRevocationLoader satisfies the
+// HTTPClientSetter contract Provider relies on for shared-client
+// injection. Renaming or removing SetHTTPClient breaks at build time
+// instead of silently disabling the wiring at runtime.
+var _ httpclient.HTTPClientSetter = (*URLRevocationLoader)(nil)
+
+// SetHTTPClient implements [httpclient.HTTPClientSetter] for URLRevocationLoader.
+// It adopts the supplied client only when no Client was set explicitly,
+// preserving the caller's escape-hatch override.
+func (l *URLRevocationLoader) SetHTTPClient(c *http.Client) {
+	if l.Client == nil {
+		l.Client = c
+	}
+}
+
 // StreamValues implements DataLoader.
 func (l *URLRevocationLoader) StreamValues(ctx context.Context) iter.Seq2[string, error] {
 	return func(yield func(string, error) bool) {
+		if l.Client == nil {
+			yield("", fmt.Errorf("%w: set the Client field or wire the loader via oidc.NewProvider", ErrLoaderClientNotConfigured))
+			return
+		}
+
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, l.URL, nil)
 		if err != nil {
 			yield("", err)
 			return
 		}
 
-		client := l.Client
-		if client == nil {
-			client = http.DefaultClient
-		}
-
-		resp, err := client.Do(req)
+		resp, err := l.Client.Do(req)
 		if err != nil {
 			yield("", err)
 			return
