@@ -8,6 +8,7 @@ import (
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/observability/tracing"
+	"github.com/altessa-s/go-atlas/security/tlsutils/providers"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/cache"
@@ -16,7 +17,6 @@ import (
 
 	idempotencydata "github.com/altessa-s/go-atlas/data/idempotency"
 	sharedlimiter "github.com/altessa-s/go-atlas/data/limiters"
-	"github.com/altessa-s/go-atlas/security/tlsutils/providers"
 )
 
 // --- Dependency methods ---
