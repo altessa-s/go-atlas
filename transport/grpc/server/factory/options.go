@@ -16,7 +16,7 @@ import (
 
 	idempotencydata "github.com/altessa-s/go-atlas/data/idempotency"
 	sharedlimiter "github.com/altessa-s/go-atlas/data/limiters"
-	tlsproviders "github.com/altessa-s/go-atlas/security/tlsutils/providers"
+	"github.com/altessa-s/go-atlas/security/tlsutils/providers"
 )
 
 // --- Dependency methods ---
@@ -41,6 +41,12 @@ func (b *ServerBuilder) UseTlsProviders(v *tlsproviders.Providers) *ServerBuilde
 // UseCacheMetadataProcessor sets the metadata processor used by the cache interceptor.
 func (b *ServerBuilder) UseCacheMetadataProcessor(v cache.MetadataProcessor) *ServerBuilder {
 	b.cacheMetadataProcessor = v
+	return b
+}
+
+// UseCacheMethodConfigs sets per-method cache configurations.
+func (b *ServerBuilder) UseCacheMethodConfigs(v ...cache.MethodConfig) *ServerBuilder {
+	b.cacheMethodConfigs = v
 	return b
 }
 
