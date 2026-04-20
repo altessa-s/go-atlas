@@ -103,7 +103,7 @@ func (t Topic) substitute(str []string, validate bool) (string, error) {
 	case len(macros) == 0 && len(str) > 0:
 		return "", fmt.Errorf("invalid number of arguments: topic has no macros but %d arguments provided", len(str))
 	case len(macros) > 0 && (len(str) == 0 || len(str)%2 != 0 || len(macros) != len(str)/2):
-		return "", fmt.Errorf("invalid number of arguments: expected %d key-value pairs, got %d arguments", len(macros)*2, len(str))
+		return "", fmt.Errorf("invalid number of arguments: expected %d key-value pairs, got %d arguments", len(macros), len(str))
 	}
 
 	subject := string(t)
@@ -189,6 +189,9 @@ func (t Topic) Validate() error {
 			if openBrace != -1 {
 				return fmt.Errorf("nested or unclosed macro at position %d", i)
 			}
+			if i > 0 && s[i-1] != '.' {
+				return fmt.Errorf("macro at position %d must be preceded by '.'", i)
+			}
 			openBrace = i
 		case '}':
 			if openBrace == -1 {
@@ -202,6 +205,9 @@ func (t Topic) Validate() error {
 				if !((c >= 'A' && c <= 'Z') || c == '_' || (c >= '0' && c <= '9')) {
 					return fmt.Errorf("invalid character %q in macro name %q", c, name)
 				}
+			}
+			if i < len(s)-1 && s[i+1] != '.' {
+				return fmt.Errorf("macro at position %d must be followed by '.'", openBrace)
 			}
 			openBrace = -1
 		}

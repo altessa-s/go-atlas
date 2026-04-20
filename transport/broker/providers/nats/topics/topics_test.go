@@ -131,19 +131,19 @@ func TestTopic_With_Panics(t *testing.T) {
 			name:        "missing arguments for macro topic",
 			topic:       topicSingle,
 			args:        nil,
-			panicSubstr: "expected 2 key-value pairs, got 0 arguments",
+			panicSubstr: "expected 1 key-value pairs, got 0 arguments",
 		},
 		{
 			name:        "odd number of arguments",
 			topic:       topicSingle,
 			args:        []string{keyTenant.String()},
-			panicSubstr: "expected 2 key-value pairs, got 1 arguments",
+			panicSubstr: "expected 1 key-value pairs, got 1 arguments",
 		},
 		{
 			name:        "wrong number of macro pairs",
 			topic:       topicSingle,
 			args:        []string{keyTenant.String(), "acme", "EXTRA", "value"},
-			panicSubstr: "expected 2 key-value pairs, got 4 arguments",
+			panicSubstr: "expected 1 key-value pairs, got 4 arguments",
 		},
 		{
 			name:        "unknown macro",
@@ -155,7 +155,7 @@ func TestTopic_With_Panics(t *testing.T) {
 			name:        "missing required macro for two-macro topic",
 			topic:       topicTwo,
 			args:        []string{keyRegion.String(), "us"},
-			panicSubstr: "expected 4 key-value pairs, got 2 arguments",
+			panicSubstr: "expected 2 key-value pairs, got 2 arguments",
 		},
 		{
 			name:        "arguments for topic without macros",
@@ -266,13 +266,13 @@ func TestTopic_WithValidation_Errors(t *testing.T) {
 			name:       "missing macro",
 			topic:      topicTwo,
 			args:       []string{keyRegion.String(), "us"},
-			wantSubstr: "expected 4 key-value pairs, got 2 arguments",
+			wantSubstr: "expected 2 key-value pairs, got 2 arguments",
 		},
 		{
 			name:       "wrong argument count",
 			topic:      topicSingle,
 			args:       []string{keyTenant.String()},
-			wantSubstr: "expected 2 key-value pairs, got 1 arguments",
+			wantSubstr: "expected 1 key-value pairs, got 1 arguments",
 		},
 		{
 			name:       "subject too long",
@@ -449,6 +449,28 @@ func TestTopic_Validate(t *testing.T) {
 			topic:      topics.Topic("test.{OUTER{INNER}}"),
 			wantErr:    true,
 			wantSubstr: "nested or unclosed macro",
+		},
+		{
+			name:       "macro not preceded by dot",
+			topic:      topics.Topic("prefix{TENANT}"),
+			wantErr:    true,
+			wantSubstr: "must be preceded by '.'",
+		},
+		{
+			name:       "macro not followed by dot",
+			topic:      topics.Topic("{TENANT}suffix"),
+			wantErr:    true,
+			wantSubstr: "must be followed by '.'",
+		},
+		{
+			name:       "macro glued between tokens",
+			topic:      topics.Topic("foo.{X}bar"),
+			wantErr:    true,
+			wantSubstr: "must be followed by '.'",
+		},
+		{
+			name:  "macro is entire template",
+			topic: topics.Topic("{X}"),
 		},
 	}
 

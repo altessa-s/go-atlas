@@ -4,7 +4,7 @@
 
 // Package topics provides type-safe NATS subject templating with macro
 // placeholders.
-// /
+//
 // A [Topic] is a string template such as "events.{TENANT}" containing
 // curly-brace macros. Substitute macros at runtime to produce a concrete
 // subject ready for NATS publish or subscribe operations.
