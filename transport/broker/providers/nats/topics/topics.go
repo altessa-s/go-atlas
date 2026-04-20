@@ -202,7 +202,7 @@ func (t Topic) Validate() error {
 				return fmt.Errorf("empty macro name at position %d", openBrace)
 			}
 			for _, c := range name {
-				if !((c >= 'A' && c <= 'Z') || c == '_' || (c >= '0' && c <= '9')) {
+				if (c < 'A' || c > 'Z') && c != '_' && (c < '0' || c > '9') {
 					return fmt.Errorf("invalid character %q in macro name %q", c, name)
 				}
 			}
