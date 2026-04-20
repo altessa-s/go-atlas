@@ -63,6 +63,10 @@ var (
 	ErrSSRFBlocked = errors.New("ssrf: connection blocked")
 )
 
+// DefaultMaxBodySizeInError caps the response body size (in bytes) included in
+// [UnexpectedStatusError.Error] output when callers do not override it.
+const DefaultMaxBodySizeInError = 1024
+
 // UnexpectedStatusError represents an HTTP response with an unexpected status code.
 // It provides detailed information about the failed request including the status code,
 // host, URI, and HTTP method used. Matches [ErrUnexpectedStatus] via [errors.Is].
@@ -76,12 +80,23 @@ type UnexpectedStatusError struct {
 	URI string
 	// Method is the HTTP method used (GET, POST, etc.)
 	Method string
+	// Body optionally carries the response body for diagnostics.
+	// A truncated preview is included in [UnexpectedStatusError.Error] output.
+	Body []byte
 }
 
 // Error implements the error interface for UnexpectedStatusError.
 func (se UnexpectedStatusError) Error() string {
-	return fmt.Sprintf("unexpected response status: %d (%s); request: %s %s%s",
+	msg := fmt.Sprintf("unexpected response status: %d (%s); request: %s %s%s",
 		se.Status, http.StatusText(se.Status), se.Method, se.Host, se.URI)
+	if len(se.Body) > 0 {
+		body := string(se.Body)
+		if len(body) > DefaultMaxBodySizeInError {
+			body = body[:DefaultMaxBodySizeInError] + "... (truncated)"
+		}
+		msg += ". Details: " + body
+	}
+	return msg
 }
 
 // Is allows errors.Is to work with UnexpectedStatusError
