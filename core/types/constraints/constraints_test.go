@@ -13,7 +13,7 @@ import (
 )
 
 // The constraints package only declares generic type sets. There is no
-// runtime behaviour to assert, so the tests below exercise each
+// runtime behavior to assert, so the tests below exercise each
 // constraint by instantiating a trivial generic helper with every member
 // type. A successful compile proves the constraint accepts the type; the
 // test function then performs a cheap runtime check so `go test` reports
