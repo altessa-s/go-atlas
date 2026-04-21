@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/runtime/concurrency"
-	"github.com/altessa-s/go-atlas/data/leadelect"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
@@ -48,7 +47,7 @@ type options struct {
 	maxConcurrentTasks        int           `optgen:"default=DefaultMaxConcurrentTasks"`
 	reservedHighPrioritySlots int           `optgen:"default=DefaultReservedHighPrioritySlots"`
 	logger                    *slog.Logger
-	leaderElector             leadelect.LeaderElector          `optgen:"notnil" optval:"nil"`
+	leaderElector             LeaderElector                    `optgen:"notnil" optval:"nil"`
 	concurrencyLimitFunc      concurrency.ConcurrencyLimitFunc `opt:"-"`
 	collector                 metrics.Collector                `opt:"-"`
 	readinessProbe            func() bool                      `opt:"-"`

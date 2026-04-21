@@ -13,7 +13,6 @@ import (
 
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
-	"github.com/altessa-s/go-atlas/data/leadelect"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/service/scheduler"
 
@@ -32,7 +31,7 @@ type SchedulerBuilder struct {
 	errs []error
 
 	// Dependencies
-	leaderElector  leadelect.LeaderElector
+	leaderElector  scheduler.LeaderElector
 	collector      metrics.Collector
 	readinessProbe func() bool
 	mongoDb        *mongo.Database

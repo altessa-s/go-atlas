@@ -15,11 +15,19 @@ import (
 
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/data/filter"
-	"github.com/altessa-s/go-atlas/data/leadelect"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
+
+// LeaderElector is the narrow leader-election contract consumed by the
+// scheduler. Any type exposing a concurrency-safe IsLeader method satisfies
+// it — for example, *leadelect.Leader from data/leadelect.
+type LeaderElector interface {
+	// IsLeader reports whether this node currently holds leadership.
+	// Implementations must be safe for concurrent use.
+	IsLeader() bool
+}
 
 // Scheduler manages periodic and one-shot task execution with persistent state.
 // It provides task registration, status tracking, pause/resume/disable
@@ -74,7 +82,7 @@ type Scheduler struct {
 
 	// leaderElector provides distributed leader election support.
 	// If set, tasks only execute when this node is the leader.
-	leaderElector leadelect.LeaderElector
+	leaderElector LeaderElector
 
 	// readinessProbe is evaluated at the start of each tick. When non-nil and
 	// returning false, the tick is skipped — the loop keeps running but no

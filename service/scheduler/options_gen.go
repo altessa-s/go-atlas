@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
-	"github.com/altessa-s/go-atlas/data/leadelect"
 )
 
 // Option is a functional option for configuring options.
@@ -35,7 +34,7 @@ func WithHistoryRetention(v time.Duration) Option {
 }
 
 // WithLeaderElector sets the leaderElector option.
-func WithLeaderElector(v leadelect.LeaderElector) Option {
+func WithLeaderElector(v LeaderElector) Option {
 	return func(o *options) {
 		if nilcheck.IsNil(v) {
 			return

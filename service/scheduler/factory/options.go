@@ -10,8 +10,8 @@ import (
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
-	"github.com/altessa-s/go-atlas/data/leadelect"
 	"github.com/altessa-s/go-atlas/observability/metrics"
+	"github.com/altessa-s/go-atlas/service/scheduler"
 )
 
 // UseLogger sets the logger for the builder and all created components.
@@ -26,7 +26,7 @@ func (b *SchedulerBuilder) UseDefaultLogger() *SchedulerBuilder {
 }
 
 // UseLeaderElector sets the leader elector for distributed scheduling.
-func (b *SchedulerBuilder) UseLeaderElector(v leadelect.LeaderElector) *SchedulerBuilder {
+func (b *SchedulerBuilder) UseLeaderElector(v scheduler.LeaderElector) *SchedulerBuilder {
 	b.leaderElector = v
 	return b
 }
