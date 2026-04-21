@@ -410,6 +410,10 @@ func (b *ServerBuilder) WithCacheInterceptor() *ServerBuilder {
 		opts = append(opts, cache.WithMetadataProcessor(b.cacheMetadataProcessor))
 	}
 
+	if len(b.cacheMethodConfigs) > 0 {
+		opts = append(opts, cache.WithMethodConfig(b.cacheMethodConfigs...))
+	}
+
 	if len(c.IgnorePatterns) > 0 {
 		opts = append(opts, cache.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
 	}
