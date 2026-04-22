@@ -23,7 +23,7 @@ import (
 var _ interceptors.ClientInterceptor = (*clientInterceptor)(nil)
 
 type clientInterceptor struct {
-	limiter          sharedlimiter.Limiter
+	limiter          Limiter
 	logger           *slog.Logger
 	fallbackBehavior fallback.Behavior
 }
@@ -45,7 +45,7 @@ type clientInterceptor struct {
 //	    grpc.WithUnaryInterceptor(interceptor.ClientUnaryInterceptor()),
 //	    grpc.WithStreamInterceptor(interceptor.ClientStreamInterceptor()),
 //	)
-func ClientInterceptor(limiter sharedlimiter.Limiter, opts ...ClientOption) interceptors.ClientInterceptor {
+func ClientInterceptor(limiter Limiter, opts ...ClientOption) interceptors.ClientInterceptor {
 	ic := &clientInterceptor{
 		limiter:          limiter,
 		logger:           slog.Default(),
@@ -77,12 +77,12 @@ func WithClientFallbackBehavior(behavior fallback.Behavior) ClientOption {
 }
 
 // ClientUnaryInterceptor returns a new unary client interceptor that limits requests.
-func ClientUnaryInterceptor(limiter sharedlimiter.Limiter, opts ...ClientOption) stdGrpc.UnaryClientInterceptor {
+func ClientUnaryInterceptor(limiter Limiter, opts ...ClientOption) stdGrpc.UnaryClientInterceptor {
 	return ClientInterceptor(limiter, opts...).ClientUnaryInterceptor()
 }
 
 // ClientStreamInterceptor returns a new streaming client interceptor that limits requests.
-func ClientStreamInterceptor(limiter sharedlimiter.Limiter, opts ...ClientOption) stdGrpc.StreamClientInterceptor {
+func ClientStreamInterceptor(limiter Limiter, opts ...ClientOption) stdGrpc.StreamClientInterceptor {
 	return ClientInterceptor(limiter, opts...).ClientStreamInterceptor()
 }
 

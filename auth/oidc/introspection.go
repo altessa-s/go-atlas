@@ -28,6 +28,9 @@ type Filter = probfilter.Filter
 // DataLoader is an alias for probfilter.DataLoader
 type DataLoader = probfilter.DataLoader
 
+// RebuildableFilter is an alias for probfilter.RebuildableFilter
+type RebuildableFilter = probfilter.RebuildableFilter
+
 const (
 	// DefaultIntrospectionTimeout is the timeout for introspection HTTP requests.
 	DefaultIntrospectionTimeout = 10 * time.Second

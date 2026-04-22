@@ -40,6 +40,9 @@ var (
 
 const interceptorName = "limiter"
 
+// Limiter is an alias for [sharedlimiter.Limiter] from data/limiters.
+type Limiter = sharedlimiter.Limiter
+
 // Name returns the interceptor name used for dependency resolution and chain ordering.
 func Name() string { return interceptorName }
 
@@ -52,7 +55,7 @@ var _ interceptors.ServerInterceptor = (*interceptor)(nil)
 
 type interceptor struct {
 	interceptors.BaseInterceptor
-	limiter sharedlimiter.Limiter
+	limiter Limiter
 	opts    *options
 }
 
@@ -67,7 +70,7 @@ func (i *interceptor) RequiredDependencies() []string {
 }
 
 // ServerInterceptor returns a new interceptor that limits the rate of incoming requests.
-func ServerInterceptor(limiter sharedlimiter.Limiter, opt ...Option) interceptors.ServerInterceptor {
+func ServerInterceptor(limiter Limiter, opt ...Option) interceptors.ServerInterceptor {
 	opts := newOptions(opt...)
 
 	return &interceptor{
@@ -83,12 +86,12 @@ func ServerInterceptor(limiter sharedlimiter.Limiter, opt ...Option) interceptor
 }
 
 // ServerUnaryInterceptor returns a new unary server interceptor that limits the rate of incoming requests.
-func ServerUnaryInterceptor(limiter sharedlimiter.Limiter, opt ...Option) stdGrpc.UnaryServerInterceptor {
+func ServerUnaryInterceptor(limiter Limiter, opt ...Option) stdGrpc.UnaryServerInterceptor {
 	return ServerInterceptor(limiter, opt...).ServerUnaryInterceptor()
 }
 
 // ServerStreamInterceptor returns a new streaming server interceptor that limits the rate of incoming requests.
-func ServerStreamInterceptor(limiter sharedlimiter.Limiter, opt ...Option) stdGrpc.StreamServerInterceptor {
+func ServerStreamInterceptor(limiter Limiter, opt ...Option) stdGrpc.StreamServerInterceptor {
 	return ServerInterceptor(limiter, opt...).ServerStreamInterceptor()
 }
 

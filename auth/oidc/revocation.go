@@ -14,8 +14,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/altessa-s/go-atlas/data/probfilter"
-
 	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
 
@@ -36,7 +34,7 @@ type RevocationStorage interface {
 
 // filterRevocationStorage is a RevocationStorage implementation using probabilistic filters.
 type filterRevocationStorage struct {
-	filter probfilter.Filter
+	filter Filter
 	loader DataLoader
 }
 
@@ -70,7 +68,7 @@ func (s *filterRevocationStorage) Sync(ctx context.Context) error {
 		return nil
 	}
 
-	rebuildable, ok := s.filter.(probfilter.RebuildableFilter)
+	rebuildable, ok := s.filter.(RebuildableFilter)
 	if !ok {
 		return fmt.Errorf("filter type %T does not support rebuilding/syncing", s.filter)
 	}

@@ -17,6 +17,9 @@ import (
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
+// Node is an alias for [filter.Node] from data/filter.
+type Node = filter.Node
+
 // UnixNow returns the current wall-clock time as Unix seconds (UTC).
 // It is used internally for timestamping [TaskState] mutations.
 func UnixNow() int64 { return time.Now().Unix() }
@@ -208,13 +211,13 @@ type Storage interface {
 	// the query level (e.g. bson.M for MongoDB, RediSearch query for Redis,
 	// in-memory evaluator for the memory backend). Callers use the extra
 	// item to determine whether a next page exists.
-	TasksPaginated(ctx context.Context, pg Pagination, f filter.Node) ([]*TaskState, error)
+	TasksPaginated(ctx context.Context, pg Pagination, f Node) ([]*TaskState, error)
 
 	// HistoryPaginated returns up to (pg.Limit+1) history entries for taskID,
 	// sorted by StartedAt descending with ID descending as a tie-breaker,
 	// starting after the cursor position in pg. When f is non-nil the storage
 	// should apply the filter predicate at the query level.
-	HistoryPaginated(ctx context.Context, taskID string, pg HistoryPagination, f filter.Node) ([]*TaskHistory, error)
+	HistoryPaginated(ctx context.Context, taskID string, pg HistoryPagination, f Node) ([]*TaskHistory, error)
 }
 
 // generateID generates a cryptographically secure random ID.

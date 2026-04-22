@@ -13,7 +13,6 @@ import (
 	"github.com/altessa-s/go-atlas/core/encoding/serializer"
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/core/text/strings"
-	"github.com/altessa-s/go-atlas/data/cache/providers"
 	"github.com/altessa-s/go-atlas/data/cache/providers/noop"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
@@ -47,7 +46,7 @@ func isNegativeSentinel(data []byte) bool {
 // Cache provides caching functionality with configurable providers and serializers.
 // It uses singleflight to deduplicate concurrent requests for the same key.
 type Cache struct {
-	provider     providers.Provider
+	provider     Provider
 	ttl          time.Duration
 	negativeTtl  time.Duration
 	group        *singleflight.Group
@@ -62,7 +61,7 @@ type Cache struct {
 // Example:
 //
 //	c := cache.New(redisProvider, cache.WithTtl(10*time.Minute))
-func New(p providers.Provider, opts ...Option) *Cache {
+func New(p Provider, opts ...Option) *Cache {
 	panics.MustNonNil(p, "provider must be provided")
 
 	options := newOptions(opts...)

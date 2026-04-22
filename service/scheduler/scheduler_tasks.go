@@ -13,8 +13,6 @@ import (
 
 	"github.com/robfig/cron/v3"
 
-	"github.com/altessa-s/go-atlas/data/filter"
-
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
@@ -398,7 +396,7 @@ func (s *Scheduler) TasksPaginated(ctx context.Context, page PageRequest, filter
 	}
 
 	// Parse filter expression (nil when empty)
-	var filterNode filter.Node
+	var filterNode Node
 	if filterExpr != "" {
 		var err error
 		filterNode, err = s.filterParser.Parse(ctx, filterExpr)
@@ -436,7 +434,7 @@ func (s *Scheduler) HistoryPaginated(ctx context.Context, taskID string, page Pa
 	}
 
 	// Parse filter expression (nil when empty)
-	var filterNode filter.Node
+	var filterNode Node
 	if filterExpr != "" {
 		var err error
 		filterNode, err = s.filterParser.Parse(ctx, filterExpr)

@@ -38,10 +38,13 @@ var ID = interceptors.Ref(interceptorName)
 var _ driver.DrivenInterceptor = (*interceptor)(nil)
 var _ interceptors.Interceptor = (*interceptor)(nil)
 
+// Idempotency is an alias for [idempotency.Idempotency] from data/idempotency.
+type Idempotency = idempotency.Idempotency
+
 // interceptor implements the Idempotency interface.
 type interceptor struct {
 	interceptors.BaseInterceptor
-	i    idempotency.Idempotency
+	i    Idempotency
 	opts *options
 }
 
@@ -74,7 +77,7 @@ func (i *interceptor) DrivenInterceptor(ctx context.Context) (driver.Driver, con
 }
 
 // ServerInterceptor creates a new ServerInterceptor that uses the provided storage.
-func ServerInterceptor(i idempotency.Idempotency, opt ...Option) interceptors.ServerInterceptor {
+func ServerInterceptor(i Idempotency, opt ...Option) interceptors.ServerInterceptor {
 	opts := newOptions(opt...)
 
 	if opts.statusCreator == nil {

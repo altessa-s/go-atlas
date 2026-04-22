@@ -42,9 +42,12 @@ var ID = middlewares.Noop(middlewareName)
 // Compile-time interface assertion.
 var _ middlewares.Middleware = (*middleware)(nil)
 
+// Idempotency is an alias for [idempotency.Idempotency] from data/idempotency.
+type Idempotency = idempotency.Idempotency
+
 type middleware struct {
 	middlewares.BaseMiddleware
-	i    idempotency.Idempotency
+	i    Idempotency
 	opts *options
 }
 
@@ -55,10 +58,10 @@ func (m *middleware) Dependencies() []string {
 }
 
 // New creates a new idempotency middleware with the given
-// [idempotency.Idempotency] storage backend and [Option] values.
+// [Idempotency] storage backend and [Option] values.
 // If no [WithErrorHandler] option is provided, a default handler that
 // writes plain-text error responses is used.
-func New(storage idempotency.Idempotency, opt ...Option) *middleware {
+func New(storage Idempotency, opt ...Option) *middleware {
 	opts := newOptions(opt...)
 
 	if opts.errorHandler == nil {
@@ -79,7 +82,7 @@ func New(storage idempotency.Idempotency, opt ...Option) *middleware {
 
 // Middleware returns an HTTP middleware that prevents duplicate request processing.
 // This is a convenience function; prefer New() for access to the full Middleware interface.
-func Middleware(storage idempotency.Idempotency, opt ...Option) func(http.Handler) http.Handler {
+func Middleware(storage Idempotency, opt ...Option) func(http.Handler) http.Handler {
 	return New(storage, opt...).Handler
 }
 

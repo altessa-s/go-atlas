@@ -4,7 +4,7 @@
 
 // Package limiter provides middleware for per-request rate limiting.
 //
-// The middleware delegates rate decisions to a [limiters.Limiter] backend
+// The middleware delegates rate decisions to a [Limiter] backend
 // (e.g., token bucket). It enriches the limiter context with the client IP
 // (from the realip middleware) and Bearer token (from the Authorization
 // header) when available.

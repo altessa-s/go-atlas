@@ -7,7 +7,12 @@ package cache
 import (
 	"context"
 	"time"
+
+	"github.com/altessa-s/go-atlas/data/cache/providers"
 )
+
+// Provider is an alias for [providers.Provider] from data/cache/providers.
+type Provider = providers.Provider
 
 // Cacher defines the interface for basic cache operations.
 // Implementations must be safe for concurrent use.

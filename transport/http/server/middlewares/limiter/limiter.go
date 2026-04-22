@@ -29,6 +29,9 @@ const (
 
 const middlewareName = "limiter"
 
+// Limiter is an alias for [sharedlimiter.Limiter] from data/limiters.
+type Limiter = sharedlimiter.Limiter
+
 // Name returns the middleware name used for dependency resolution and chain ordering.
 func Name() string { return middlewareName }
 
@@ -41,7 +44,7 @@ var _ middlewares.Middleware = (*middleware)(nil)
 
 type middleware struct {
 	middlewares.BaseMiddleware
-	limiter          sharedlimiter.Limiter
+	limiter          Limiter
 	fallbackBehavior fallback.Behavior
 }
 
@@ -55,11 +58,11 @@ func (m *middleware) RequiredDependencies() []string {
 	return []string{realip.Name()}
 }
 
-// New creates a new rate limiter middleware with the given [sharedlimiter.Limiter]
+// New creates a new rate limiter middleware with the given [Limiter]
 // and options. The middleware declares a dependency on the "realip" middleware
 // to identify clients by IP address; if realip is absent, [http.Request.RemoteAddr]
 // is used as a fallback.
-func New(limiter sharedlimiter.Limiter, opt ...Option) *middleware {
+func New(limiter Limiter, opt ...Option) *middleware {
 	opts := newOptions(opt...)
 
 	return &middleware{
@@ -76,7 +79,7 @@ func New(limiter sharedlimiter.Limiter, opt ...Option) *middleware {
 
 // Middleware returns an HTTP middleware that limits the rate of incoming requests.
 // This is a convenience function; prefer New() for access to the full Middleware interface.
-func Middleware(limiter sharedlimiter.Limiter, opt ...Option) func(http.Handler) http.Handler {
+func Middleware(limiter Limiter, opt ...Option) func(http.Handler) http.Handler {
 	return New(limiter, opt...).Handler
 }
 
