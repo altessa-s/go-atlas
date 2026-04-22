@@ -41,6 +41,7 @@ type ServerBuilder struct {
 	// Dependencies
 	tlsProviders           *tlsproviders.Providers
 	cacheMetadataProcessor cache.MetadataProcessor
+	cacheMethodConfigs     []cache.MethodConfig
 	tracer                 tracing.Tracer
 	limiter                sharedlimiter.Limiter
 	idempotency            idempotencydata.Idempotency
