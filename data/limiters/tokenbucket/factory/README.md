@@ -40,6 +40,8 @@ limiter, err := factory.New(cfg.TokenBucketLimiter).
 | `UseRedisClient` | Sets the Redis client for Redis storage backends |
 | `UseJetstream` | Sets the NATS JetStream context for NATS storage backends |
 | `UseScheduler` | Sets the scheduler for background cleanup task registration |
+| `UseCollector` | Sets the metrics collector for recording rate limiter metrics |
+| `UseClientService` | Sets the client service used to resolve per-client rate limits from authenticated tokens |
 
 ### Terminal
 
