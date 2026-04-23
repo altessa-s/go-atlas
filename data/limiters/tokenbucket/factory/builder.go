@@ -40,10 +40,11 @@ type TokenBucketLimiterBuilder struct {
 	errs []error
 
 	// Dependencies
-	redisClient redis.UniversalClient
-	jetstream   jetstream.JetStream
-	scheduler   corescheduler.TaskRegistrar
-	collector   metrics.Collector
+	redisClient   redis.UniversalClient
+	jetstream     jetstream.JetStream
+	scheduler     corescheduler.TaskRegistrar
+	collector     metrics.Collector
+	clientService tokenbucket.ClientService
 }
 
 // New creates a [TokenBucketLimiterBuilder] for the given limiter config.
@@ -76,6 +77,9 @@ func (b *TokenBucketLimiterBuilder) Build() (*tokenbucket.RuleLimiter, error) {
 	opts := b.applyDefaults([]tokenbucket.Option{
 		tokenbucket.WithIPCacheSize(b.cfg.IpCacheSize),
 	})
+	if b.clientService != nil {
+		opts = append(opts, tokenbucket.WithClientService(b.clientService))
+	}
 
 	return tokenbucket.New(rateLimitConfig, storage, opts...)
 }
