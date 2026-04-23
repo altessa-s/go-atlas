@@ -44,8 +44,7 @@ func TestServerInterceptor_Dependencies(t *testing.T) {
 	i, ok := si.(*interceptor)
 	require.True(t, ok, "unexpected type")
 	deps := i.Dependencies()
-	require.Len(t, deps, 1)
-	require.Equal(t, "requestid", deps[0])
+	require.ElementsMatch(t, []string{"requestid", "logger"}, deps)
 }
 
 func TestServerInterceptor_ReturnsInterceptors(t *testing.T) {

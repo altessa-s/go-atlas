@@ -15,6 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas/data/cache/lru"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/health"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/logger"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/requestid"
 
 	"google.golang.org/grpc/codes"
@@ -51,9 +52,10 @@ type interceptor struct {
 }
 
 // Dependencies declares that errstatus must run after requestid so that
-// DefaultFinalizer can read the request ID from the context.
+// DefaultFinalizer can read the request ID from the context, and after
+// logger so that its PostCall observes the converted gRPC status.
 func (i *interceptor) Dependencies() []string {
-	return []string{requestid.Name()}
+	return []string{requestid.Name(), logger.Name()}
 }
 
 const convertOperation = "convert"
