@@ -118,6 +118,11 @@ logging:
 
 When the path points to a directory, all files are loaded and merged in alphabetical order. CRC32 checksums are computed for change detection.
 
+The loader confines the directory walk to the configured root: any entry whose target — after `EvalSymlinks` — resolves outside the root is rejected
+with `loader.ErrPathOutsideRoot`. Without this check a writer with access to the config volume could drop e.g. `creds.yaml -> /etc/shadow` and the
+loader would happily decode whatever the link points at. In-root symlinks (the Kubernetes ConfigMap pattern, where files are exposed via
+`..data/foo.yaml` → `..2026_04_25_…/foo.yaml`) keep working unchanged.
+
 ---
 
 ## Environment variables
