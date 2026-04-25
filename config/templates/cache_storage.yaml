@@ -1,0 +1,44 @@
+# Cache storage configuration template.
+# Common storage settings for features using CacheStorageConfig (limiter, budget limiter, idempotency, etc.).
+# This file is included via !include directive in other configuration templates.
+# storage:
+#   # <string> Type of storage backend.
+#   # Determines which storage system to use for persistence.
+#   # Supported values: memory, redis, nats
+#   # Default value: not set (required)
+#   type: redis
+#
+#   # <object> In-memory storage configuration.
+#   # Contains settings for memory-based storage.
+#   # Required when type is set to 'memory'.
+#   memory:
+#     # <string> Cron schedule for the cleanup task.
+#     # Supports standard cron format with seconds: "sec min hour day month weekday"
+#     # (e.g., "0 */5 * * * *") or descriptor format (e.g., "@every 5m").
+#     # Example: "0 */5 * * * *" (every 5 minutes)
+#     # Default value: not set
+#     cleanupSchedule:
+#
+#   # <object> NATS-specific configuration for storage.
+#   # Contains settings for NATS KeyValue bucket and replication.
+#   # Required when type is set to 'nats'.
+#   nats:
+#     # <string> Name of the NATS KeyValue bucket.
+#     # Bucket name in NATS KeyValue store.
+#     # Default value: not set (empty string)
+#     bucket: ""
+#
+#     # <int> Number of replicas for NATS KeyValue storage.
+#     # Higher values provide better availability but increase storage overhead.
+#     # Must be between 1 and 3.
+#     # Default value: 3
+#     replicas: 3
+#
+#   # <object> Redis-specific configuration for storage.
+#   # Redis-specific settings for key storage.
+#   # Required when type is set to 'redis'.
+#   redis:
+#     # <string> Prefix for all keys in storage.
+#     # Namespace prefix to avoid key conflicts.
+#     # Default value: not set (empty string)
+#     keysPrefix: ""

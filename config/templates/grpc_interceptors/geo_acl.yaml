@@ -1,0 +1,62 @@
+# Geographic access control configuration for endpoint-level geo-blocking.
+# Restricts access to specific gRPC methods based on client geographic location
+# (continent, country, region) resolved from the client IP address.
+# Requires the realip interceptor to be enabled for proper client IP extraction.
+# Requires a GeoResolver to be configured in the server builder.
+
+#geoAcl:
+#  # <bool> Enable geographic access control.
+#  # Default value: false
+#  enabled: false
+#
+#  # <list[string]> List of gRPC methods to skip geographic access control for.
+#  # Default value: not set
+#  ignoreMethods:
+#    - "/grpc.health.v1.Health/Check"
+#
+#  # <list[string]> List of regex patterns for methods to skip geographic access control.
+#  # Default value: not set
+#  ignorePatterns:
+#    - "^(?i)/grpc.health.*"
+#
+#  # <string> Default policy when a location matches neither allow nor deny lists.
+#  # "deny" = allowlist mode (deny unless allowed), "allow" = denylist mode (allow unless denied).
+#  # Supported values: deny, allow
+#  # Default value: deny
+#  defaultPolicy: deny
+#
+#  # <string> Behavior when no valid client IP is available or geo resolver fails.
+#  # Determines how to handle requests when the client location cannot be determined.
+#  # Supported values: allow, deny, error
+#  # Default value: deny
+#  fallbackBehavior: deny
+#
+#  # Default rule applied when no endpoint-specific rule matches.
+#  # Useful for setting baseline geographic access across all endpoints.
+#  defaultRule:
+#    allowContinents:
+#      - "EU"
+#      - "NA"
+#
+#  # <list> Per-endpoint or per-pattern geographic access control rules.
+#  # Each rule can target specific endpoints by name or regex patterns.
+#  # Within a rule: deny checks run first (region > country > continent),
+#  # then allow checks (region > country > continent), then defaultPolicy applies.
+#  rules:
+#    - endpoints:
+#        - "/admin.AdminService/DeleteUser"
+#      allowCountries:
+#        - "US"
+#      denyRegions:
+#        - "US-TX"
+#
+#    - patterns:
+#        - "^/internal\\..*"
+#      allowCountries:
+#        - "US"
+#        - "DE"
+#      denyCountries:
+#        - "RU"
+#        - "CN"
+#      denyContinents:
+#        - "AS"

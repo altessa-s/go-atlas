@@ -1,0 +1,268 @@
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Use of this source code is governed by license that can be found in
+// the LICENSE file.
+
+package outbox
+
+import (
+	"context"
+	"log/slog"
+	"time"
+
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+
+	corectx "github.com/altessa-s/go-atlas/core/context"
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
+)
+
+// registerTasks registers outbox tasks with the scheduler if configured.
+func (o *Outbox) registerTasks(opts *options) error {
+	if nilcheck.IsNil(o.scheduler) {
+		return nil
+	}
+
+	ctx := context.Background()
+
+	// Register dispatch task
+	if opts.dispatchSchedule != "" {
+		taskCfg := corescheduler.TaskConfig{
+			ID:             "outbox-dispatch",
+			Description:    "Dispatch unprocessed events from outbox",
+			Func:           o.RegisterDispatchSchedulerFunc(),
+			Schedule:       opts.dispatchSchedule,
+			Priority:       corescheduler.TaskPriorityNormal,
+			Unmanaged:      true,
+			DisableHistory: true,
+		}
+		if err := o.scheduler.Register(ctx, taskCfg); err != nil {
+			return coreerrs.WrapOperation(err, "register dispatch task")
+		}
+	}
+
+	// Register unlock task
+	if opts.unlockSchedule != "" {
+		taskCfg := corescheduler.TaskConfig{
+			ID:             "outbox-unlock",
+			Description:    "Unlock stuck events in outbox",
+			Func:           o.RegisterUnlockSchedulerFunc(),
+			Schedule:       opts.unlockSchedule,
+			Priority:       corescheduler.TaskPriorityNormal,
+			Unmanaged:      true,
+			DisableHistory: true,
+		}
+		if err := o.scheduler.Register(ctx, taskCfg); err != nil {
+			return coreerrs.WrapOperation(err, "register unlock task")
+		}
+	}
+
+	// Register expire task if event expiration is configured
+	if opts.expireSchedule != "" && opts.defaultEventTTL > 0 {
+		taskCfg := corescheduler.TaskConfig{
+			ID:             "outbox-expire",
+			Description:    "Mark expired events in outbox",
+			Func:           o.runExpireCycleInternal,
+			Schedule:       opts.expireSchedule,
+			Priority:       corescheduler.TaskPriorityNormal,
+			Unmanaged:      true,
+			DisableHistory: true,
+		}
+		if err := o.scheduler.Register(ctx, taskCfg); err != nil {
+			return coreerrs.WrapOperation(err, "register expire task")
+		}
+		o.schedulerExpireRegistered.Store(true)
+	}
+
+	// Register cleanup task if published events lifetime is set
+	if opts.cleanupSchedule != "" && opts.publishedEventsLifetime > 0 {
+		taskCfg := corescheduler.TaskConfig{
+			ID:             "outbox-cleanup",
+			Description:    "Cleanup old published events from outbox",
+			Func:           o.RegisterCleanupSchedulerFunc(),
+			Schedule:       opts.cleanupSchedule,
+			Priority:       corescheduler.TaskPriorityNormal,
+			DisableHistory: true,
+		}
+		if err := o.scheduler.Register(ctx, taskCfg); err != nil {
+			return coreerrs.WrapOperation(err, "register cleanup task")
+		}
+	}
+
+	return nil
+}
+
+// RegisterDispatchSchedulerFunc returns a function for use by a scheduler and marks
+// dispatch as scheduler-managed. After calling this method, direct calls to
+// RunDispatchCycle will return ErrSchedulerManaged.
+func (o *Outbox) RegisterDispatchSchedulerFunc() func(context.Context) error {
+	o.schedulerDispatchRegistered.Store(true)
+	return o.runDispatchCycleInternal
+}
+
+// RegisterUnlockSchedulerFunc returns a function for use by a scheduler and marks
+// unlock as scheduler-managed. After calling this method, direct calls to
+// RunUnlockCycle will return ErrSchedulerManaged.
+func (o *Outbox) RegisterUnlockSchedulerFunc() func(context.Context) error {
+	o.schedulerUnlockRegistered.Store(true)
+	return o.runUnlockCycleInternal
+}
+
+// RegisterCleanupSchedulerFunc returns a function for use by a scheduler and marks
+// cleanup as scheduler-managed. After calling this method, direct calls to
+// RunCleanupCycle will return ErrSchedulerManaged.
+func (o *Outbox) RegisterCleanupSchedulerFunc() func(context.Context) error {
+	o.schedulerCleanupRegistered.Store(true)
+	return o.runCleanupCycleInternal
+}
+
+// RunDispatchCycle executes a single fetch-and-dispatch cycle for unprocessed events.
+// This method is designed to be called manually for one-time dispatch.
+// If the function is registered with a scheduler, this method returns ErrSchedulerManaged.
+func (o *Outbox) RunDispatchCycle(ctx context.Context) error {
+	if o.schedulerDispatchRegistered.Load() {
+		return ErrSchedulerManaged
+	}
+	return o.runDispatchCycleInternal(ctx)
+}
+
+// runDispatchCycleInternal performs the actual dispatch cycle.
+// It is safe to call concurrently; if already running, returns immediately.
+func (o *Outbox) runDispatchCycleInternal(ctx context.Context) error {
+	// Prevent concurrent execution
+	if !o.dispatchRunning.CompareAndSwap(false, true) {
+		return nil // Already running, skip this cycle
+	}
+	defer o.dispatchRunning.Store(false)
+
+	// Create a context for this processing cycle, derived from the main context
+	// to allow cancellation propagation, but use WithoutCancel for the operation itself
+	// to let it attempt completion, bounded by specific timeouts.
+	cycleCtx := context.WithoutCancel(ctx)
+
+	stop := o.metrics.dispatchDuration.Start()
+	defer stop()
+
+	fetchCtx, cancelFetch := corectx.ApplyTimeout(cycleCtx, o.fetchTimeout)
+	events, err := o.store.FetchUnprocessedEvents(fetchCtx, o.eventsBatchSize, time.Now().UTC().Add(-o.retryInterval))
+	cancelFetch()
+
+	if err != nil {
+		if coreerrs.IsContextCanceled(err) {
+			return nil
+		}
+		return coreerrs.WrapOperation(err, "fetch unprocessed events")
+	}
+
+	if len(events) == 0 {
+		return nil // No events fetched
+	}
+
+	o.logger.DebugContext(ctx, "fetched unprocessed events", slog.Int("count", len(events)))
+
+	// Create context for handleEvents with its own timeout, derived from the *main* context.
+	handleCtx, handleCtxCancel := corectx.ApplyTimeout(ctx, o.handleTimeout)
+	defer handleCtxCancel()
+
+	o.handleEvents(handleCtx, events...)
+	return nil
+}
+
+// RunUnlockCycle executes a single cycle to unlock stuck events in the store.
+// This method is designed to be called manually for one-time unlock.
+// If the function is registered with a scheduler, this method returns ErrSchedulerManaged.
+func (o *Outbox) RunUnlockCycle(ctx context.Context) error {
+	if o.schedulerUnlockRegistered.Load() {
+		return ErrSchedulerManaged
+	}
+	return o.runUnlockCycleInternal(ctx)
+}
+
+// runUnlockCycleInternal performs the actual unlock cycle.
+// It is safe to call concurrently; if already running, returns immediately.
+func (o *Outbox) runUnlockCycleInternal(ctx context.Context) error {
+	// Prevent concurrent execution
+	if !o.unlockRunning.CompareAndSwap(false, true) {
+		return nil // Already running, skip this cycle
+	}
+	defer o.unlockRunning.Store(false)
+
+	stop := o.metrics.unlockDuration.Start()
+	defer stop()
+
+	thresholdTime := time.Now().UTC().Add(-o.maxLockTime)
+	return o.store.UnlockStuckEvents(ctx, thresholdTime)
+}
+
+// RunCleanupCycle executes a single cycle to delete processed events from the store.
+// This method is designed to be called manually for one-time cleanup.
+// If the function is registered with a scheduler, this method returns ErrSchedulerManaged.
+func (o *Outbox) RunCleanupCycle(ctx context.Context) error {
+	if o.schedulerCleanupRegistered.Load() {
+		return ErrSchedulerManaged
+	}
+	return o.runCleanupCycleInternal(ctx)
+}
+
+// runCleanupCycleInternal performs the actual cleanup cycle.
+// It is safe to call concurrently; if already running, returns immediately.
+func (o *Outbox) runCleanupCycleInternal(ctx context.Context) error {
+	// Prevent concurrent execution
+	if !o.cleanupRunning.CompareAndSwap(false, true) {
+		return nil // Already running, skip this cycle
+	}
+	defer o.cleanupRunning.Store(false)
+
+	if o.publishedEventsLifetime <= 0 {
+		return nil
+	}
+
+	stop := o.metrics.cleanupDuration.Start()
+	defer stop()
+
+	cutOffTime := time.Now().UTC().Add(-o.publishedEventsLifetime)
+	return o.store.DeleteProcessedEvents(ctx, cutOffTime)
+}
+
+// RegisterExpireSchedulerFunc returns a function for use by a scheduler and marks
+// expire as scheduler-managed. After calling this method, direct calls to
+// RunExpireCycle will return ErrSchedulerManaged.
+func (o *Outbox) RegisterExpireSchedulerFunc() func(context.Context) error {
+	o.schedulerExpireRegistered.Store(true)
+	return o.runExpireCycleInternal
+}
+
+// RunExpireCycle executes a single cycle to mark expired events in the store.
+// This method is designed to be called manually for one-time expiration.
+// If the function is registered with a scheduler, this method returns ErrSchedulerManaged.
+func (o *Outbox) RunExpireCycle(ctx context.Context) error {
+	if o.schedulerExpireRegistered.Load() {
+		return ErrSchedulerManaged
+	}
+	return o.runExpireCycleInternal(ctx)
+}
+
+// runExpireCycleInternal performs the actual expire cycle.
+// It marks pending or failed events whose ExpiresAt has passed as expired.
+// It is safe to call concurrently; if already running, returns immediately.
+func (o *Outbox) runExpireCycleInternal(ctx context.Context) error {
+	if !o.expireRunning.CompareAndSwap(false, true) {
+		return nil
+	}
+	defer o.expireRunning.Store(false)
+
+	stop := o.metrics.expireDuration.Start()
+	defer stop()
+
+	now := time.Now().UTC()
+	count, err := o.store.ExpireEvents(ctx, now)
+	if err != nil {
+		return coreerrs.WrapOperation(err, "expire events")
+	}
+
+	if count > 0 {
+		o.metrics.eventsExpired.Add(float64(count))
+		o.logger.InfoContext(ctx, "expired events marked", slog.Int64("count", count))
+	}
+
+	return nil
+}

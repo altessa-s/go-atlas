@@ -1,0 +1,182 @@
+# gRPC server configuration.
+# Defines settings for the gRPC server including interceptors and connection management.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#grpc:
+#  # <string> Specifies the address to bind to for listening.
+#  # Format: host:port or :port for all interfaces.
+#  # Default value: 0.0.0.0:7777
+#  listenAddress: 0.0.0.0:7777
+#
+#  # <bool> Enable gRPC reflection for debugging and development.
+#  # Allows tools like grpcurl to discover available services.
+#  # Default value: false
+#  reflection: false
+#
+#  # <duration> Timeout for establishing connections.
+#  # Maximum time to wait for connection establishment.
+#  # A zero or negative value will result in an immediate timeout.
+#  # Default value: not set
+#  connectionTimeout:
+#
+#  # <uint32> Maximum number of concurrent streams allowed.
+#  # If not set, gRPC uses math.MaxUint32 as the default limit.
+#  # Default value: not set
+#  maxConcurrentStreams:
+#
+#  # <int> Maximum message size in bytes that can be sent.
+#  # If not set, gRPC uses the default of 4MB (4194304 bytes).
+#  # Default value: not set
+#  maxSendMsgSize:
+#
+#  # <int> Maximum message size in bytes that can be received.
+#  # If not set, gRPC uses the default of 4MB (4194304 bytes).
+#  # Default value: not set
+#  maxRecvMsgSize:
+#
+#  # <int> Size of the write buffer in bytes.
+#  # If not set, gRPC uses the default of 32KB.
+#  # Zero or negative values will disable the write buffer.
+#  # Default value: not set
+#  writeBufferSize:
+#
+#  # <int> Size of the read buffer in bytes.
+#  # If not set, gRPC uses the default of 32KB.
+#  # Zero or negative values will disable the read buffer.
+#  # Default value: not set
+#  readBufferSize:
+#
+#  # <object> KeepAlive configuration for connection management.
+#  # Controls connection lifecycle and keep-alive behavior.
+#  keepAlive:
+#    # <duration> Duration after which idle connections are closed.
+#    # 0s means no idle timeout (connections never closed due to idleness).
+#    # Default value: 15m
+#    maxConnectionIdle: 15m
+#
+#    # <duration> Maximum duration a connection may exist before being closed.
+#    # A random jitter of +/-10% is added to spread connection storms.
+#    # Default value: 30m
+#    maxConnectionAge: 30m
+#
+#    # <duration> Grace period after maxConnectionAge before forceful closure.
+#    # Additional time allowed for graceful connection termination.
+#    # Default value: 5s
+#    maxConnectionAgeGrace: 5s
+#
+#    # <duration> Interval for keepalive pings when no activity is detected.
+#    # Minimum value enforced by gRPC is 1s.
+#    # Default value: 30s
+#    time: 30s
+#
+#    # <duration> Timeout waiting for keepalive ping response.
+#    # Time to wait for ping acknowledgment before closing connection.
+#    # Default value: 10s
+#    timeout: 10s
+#
+#    # <object> Enforcement policy for keep-alive pings.
+#    enforcementPolicy:
+#      # <duration> Minimum time between keep-alive pings from clients.
+#      # Default value: 5s
+#      minTime: 5s
+#
+#      # <bool> Permit keep-alive pings even when there are no active streams.
+#      # Default value: false
+#      permitWithoutStream: false
+#
+#  # <object> TLS/SSL configuration options.
+#  # Security settings for encrypted connections.
+#  tls:
+#    # <string> TLS provider type.
+#    # Determines how TLS certificates are obtained and managed.
+#    # Supported values: file, vault, letsencrypt, s3
+#    # Default value: file
+#    providerType: file
+#
+#    # <string> Minimum TLS version to use.
+#    # Enforces minimum security standards for connections.
+#    # Supported values: 1.2, 1.3
+#    # Default value: 1.2
+#    minVersion: 1.2
+#
+#    # <object> Client certificate authentication configuration.
+#    # Settings for mutual TLS (mTLS) authentication.
+#    client:
+#      # <bool> Enable client certificate authentication.
+#      # When true, clients must present valid certificates signed by the configured CAs.
+#      # Default value: false
+#      allowCertAuth: false
+#
+#      # <list[string]> List of paths to Certificate Authority certificate files.
+#      # Used to verify client certificates during mutual TLS authentication.
+#      # Default value: not set
+#      caCerts:
+#        - /path/to/ca-cert.pem
+#
+#  # <object> Interceptors configuration for gRPC middleware pipeline.
+#  # Configures the complete interceptor chain: cache, realIp, requestId, recovery, logger,
+#  # idempotency, auth, health, limiter, prometheus, and tracing.
+#  # Each interceptor provides specific functionality and can be enabled/disabled independently.
+#  #
+#  # Interceptor execution order and purposes:
+#  # 1. errStatus: Error-to-gRPC-status conversion and enrichment
+#  # 2. realIp: Client IP extraction from proxy headers
+#  # 3. requestId: Request correlation and distributed tracing
+#  # 4. recovery: Panic handling and service resilience
+#  # 5. tracing: Distributed tracing
+#  # 6. logger: Request/response logging for observability
+#  # 7. prometheus: Metrics collection
+#  # 8. limiter: Rate limiting and abuse prevention
+#  # 9. idempotency: Duplicate request prevention
+#  # 10. cache: Response caching for performance optimization
+#  # 11. auth: Authentication and authorization
+#  # 12. health: Health check gating
+#  interceptors:
+#    # Error-to-gRPC-status conversion and enrichment.
+#    # See grpc_interceptors/errstatus.yaml template for full configuration options.
+#    !include grpc_interceptors/errstatus.yaml
+#
+#    # Response caching for performance optimization.
+#    # See grpc_interceptors/cache.yaml template for full configuration options.
+#    !include grpc_interceptors/cache.yaml
+#
+#    # Real IP extraction from proxy headers.
+#    # See grpc_interceptors/real_ip.yaml template for full configuration options.
+#    !include grpc_interceptors/real_ip.yaml
+#
+#    # Request correlation and distributed tracing.
+#    # See grpc_interceptors/request_id.yaml template for full configuration options.
+#    !include grpc_interceptors/request_id.yaml
+#
+#    # Panic handling and service resilience.
+#    # See grpc_interceptors/recovery.yaml template for full configuration options.
+#    !include grpc_interceptors/recovery.yaml
+#
+#    # Request/response logging for observability.
+#    # See grpc_interceptors/logger.yaml template for full configuration options.
+#    !include grpc_interceptors/logger.yaml
+#
+#    # Metrics collection for monitoring and observability.
+#    # See grpc_interceptors/prometheus.yaml template for full configuration options.
+#    !include grpc_interceptors/prometheus.yaml
+#
+#    # Duplicate request prevention.
+#    # See grpc_interceptors/idempotency.yaml template for full configuration options.
+#    !include grpc_interceptors/idempotency.yaml
+#
+#    # Authentication and authorization.
+#    # See grpc_interceptors/auth.yaml template for full configuration options.
+#    !include grpc_interceptors/auth.yaml
+#
+#    # Health check gating.
+#    # See grpc_interceptors/health.yaml template for full configuration options.
+#    !include grpc_interceptors/health.yaml
+#
+#    # Rate limiting and abuse prevention.
+#    # See grpc_interceptors/limiter.yaml template for full configuration options.
+#    !include grpc_interceptors/limiter.yaml
+#
+#    # Distributed tracing.
+#    # See grpc_interceptors/tracing.yaml template for full configuration options.
+#    !include grpc_interceptors/tracing.yaml

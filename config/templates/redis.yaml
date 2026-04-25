@@ -1,0 +1,99 @@
+# Redis configuration.
+# Defines settings for connecting to and using Redis in-memory data store.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#redis:
+#  # <list[string]> Host addresses where Redis instances are running.
+#  # Specify hostname and port for Redis server connections.
+#  # Multiple hosts are used for Redis Cluster or Sentinel setups.
+#  # Default value: ["localhost:6379"]
+#  hosts:
+#    - "localhost:6379"
+#
+#  # <string> Full Redis connection string (e.g. "redis://user:pass@host:6379/0").
+#  # When set, it replaces hosts, username, password, and database.
+#  # Mutually exclusive with username and password.
+#  # Supports a single address only; for clusters with multiple seeds use hosts.
+#  # Default value: not set
+#  connectionUri:
+#
+#  # <int> Database index to select after connecting.
+#  # Redis supports multiple databases numbered 0-15 by default.
+#  # Default value: 0
+#  database: 0
+#
+#  # <string> Username for Redis ACL authentication.
+#  # Used with Redis 6.0+ Access Control Lists for user authentication.
+#  # Default value: not set
+#  username:
+#
+#  # <string> Password for Redis authentication.
+#  # Matches 'requirepass' option in Redis 5.0 or user password in Redis 6.0+ ACL.
+#  # Default value: not set
+#  password:
+#
+#  # <duration> Timeout for establishing Redis connection.
+#  # Maximum time to wait when connecting to Redis server.
+#  # Default value: 5s
+#  connectTimeout: 5s
+#
+#  # <duration> Timeout for socket read/write operations.
+#  # Maximum time for individual Redis command execution.
+#  # Default value: 5s
+#  socketTimeout: 5s
+#
+#  # <int> Maximum number of socket connections in the pool.
+#  # Controls the size of the connection pool for Redis operations.
+#  # Default value: 100
+#  poolSize: 100
+#
+#  # <int> Minimum number of idle connections maintained.
+#  # Useful when establishing new connections is slow.
+#  # Default value: 5
+#  minIdleConnections: 5
+#
+#  # <duration> Maximum age for connections before closure.
+#  # Connections older than this are closed and recreated.
+#  # Default value: 0s (connections don't age out)
+#  maxConnectionAge: 0s
+#
+#  # <duration> Timeout after which idle connections are closed.
+#  # Should be less than Redis server timeout configuration.
+#  # Default value: 5s
+#  idleTimeout: 5s
+#
+#  # <int> Maximum number of retries for failed commands.
+#  # Used for network errors or Redis cluster redirects.
+#  # Default value: 3
+#  maxRedirects: 3
+#
+#  # <bool> Enables read-only commands on Redis slave nodes.
+#  # Allows reads from replica nodes in master-slave setups.
+#  # Default value: false
+#  readOnly: false
+#
+#  # <bool> Routes read-only commands to closest master or slave by latency.
+#  # Optimizes performance by using nearest available node.
+#  # Default value: false
+#  routeByLatency: false
+#
+#  # <bool> Routes read-only commands to random master or slave nodes.
+#  # Distributes read load randomly across available nodes.
+#  # Default value: false
+#  routeRandomly: false
+#
+#  # <string> Name of Redis master for Sentinel configurations.
+#  # Used when connecting through Redis Sentinel for high availability.
+#  # Default value: not set
+#  masterName:
+#
+#  # <string> Password for Redis Sentinel authentication.
+#  # Used when Redis Sentinel requires authentication.
+#  # Default value: not set
+#  sentinelPassword:
+#
+#  # <string> Prefix for all keys stored in Redis.
+#  # Helps distinguish between different applications using the same Redis instance.
+#  # Default value: not set
+#  keysPrefix:

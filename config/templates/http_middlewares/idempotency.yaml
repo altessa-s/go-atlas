@@ -1,0 +1,40 @@
+# Idempotency configuration for duplicate request prevention.
+# Tracks keys to ensure duplicate requests return consistent results.
+# Critical for payment processing and other operations that must not be duplicated.
+
+#idempotency:
+#  # <bool> Enable idempotency checking.
+#  # Default value: false
+#  enabled: false
+#
+#  # <list[string]> List of exact URL paths to skip processing for.
+#  # Default value: not set
+#  ignorePaths:
+#    - "/health"
+#
+#  # <list[string]> List of regex patterns for URL paths to skip processing.
+#  # Default value: not set
+#  ignorePatterns:
+#    - "^/health\\..*"
+#
+#  # <string> Header name for the idempotency key.
+#  # Default value: Idempotency-Key
+#  idempotencyKeyHeader: Idempotency-Key
+#
+#  # <string> Header name for the idempotency key status response.
+#  # Default value: Idempotency-Key-Status
+#  idempotencyKeyStatusHeader: Idempotency-Key-Status
+#
+#  # <string> Header name for the idempotency key entity ID response.
+#  # Default value: Idempotency-Key-Entity-Id
+#  idempotencyKeyEntityIdHeader: Idempotency-Key-Entity-Id
+#
+#  # <string> Fallback behavior when the idempotency checker encounters errors.
+#  # Determines how to handle requests when storage backends are unavailable.
+#  # Supported values: allow, deny, error
+#  # Default value: deny
+#  fallbackBehavior: deny
+#
+#  # <bool> Require idempotency key for all non-ignored requests.
+#  # Default value: false
+#  enforceMandatory: false

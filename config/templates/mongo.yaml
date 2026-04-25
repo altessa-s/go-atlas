@@ -1,0 +1,291 @@
+# MongoDB configuration.
+# Defines settings for connecting to and authenticating with MongoDB database.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#mongodb:
+#  # <list[string]> The host addresses where MongoDB instances are running.
+#  # Specify hostname, IP address, or UNIX domain socket with optional port.
+#  # For replica sets, specify multiple hosts. For sharded clusters, specify mongos instances.
+#  # Default value: ["localhost:27017"]
+#  hosts:
+#    - localhost:27017
+#
+#  # <string> Full MongoDB connection string (e.g. "mongodb://user:pass@host:27017/db").
+#  # When set, it replaces hosts, credentials, replicaSet, directConnection, and compressors.
+#  # Mutually exclusive with credentials.
+#  # Default value: not set
+#  connectionUri:
+#
+#  # <bool> Specifies whether a direct connection should be made.
+#  # If true, connects only to the specified host without discovering others.
+#  # Cannot be true with multiple hosts or SRV schema.
+#  # Default value: false
+#  directConnection: false
+#
+#  # <string> Specifies the replica set name for the cluster.
+#  # Required for replica set deployments to enable automatic discovery.
+#  # Default value: not set
+#  replicaSet:
+#
+#  # <string> Specifies the database name to connect to.
+#  # The database where collections will be accessed.
+#  # Default value: not set (required)
+#  database:
+#
+#  # <list[string]> Specifies compression algorithms for network communication.
+#  # Reduces bandwidth usage between client and server.
+#  # Supported values: snappy (>=3.4), zlib (>=3.6), zstd (>=4.2)
+#  # Default value: not set
+#  compressors:
+#    - zstd
+#    - zlib
+#
+#  # <int> Compression level for zlib algorithm.
+#  # Range: -1 to 9, where -1 is default compression level.
+#  # Default value: -1
+#  zlibCompressionLevel: -1
+#
+#  # <duration> Timeout for creating connections to the server.
+#  # 0 means no timeout will be used.
+#  # Default value: 30s
+#  connectTimeout: 30s
+#
+#  # <int> Minimum number of connections in the connection pool.
+#  # Pool is maintained in background to ensure minimum size.
+#  # Default value: 0
+#  minPoolSize: 0
+#
+#  # <int> Maximum number of connections in the connection pool.
+#  # Requests block if this maximum is reached.
+#  # Default value: 100
+#  maxPoolSize: 100
+#
+#  # <duration> Maximum time a connection remains idle before removal.
+#  # 0 means connections can remain idle indefinitely.
+#  # Default value: 0
+#  maxIdleTimeout: 0
+#
+#  # <bool> Whether supported read operations should be retried on errors.
+#  # Requires server version >= 3.6.
+#  # Default value: true
+#  retryReads: true
+#
+#  # <bool> Whether supported write operations should be retried on errors.
+#  # Requires server version >= 3.6 and replica set or sharded cluster.
+#  # Default value: true
+#  retryWrites: true
+#
+#  # <object> Authentication credentials for MongoDB connection.
+#  credentials:
+#    # <string> Authentication mechanism for the connection.
+#    # Determines which authentication protocol to use.
+#    # Supported values: SCRAM-SHA-1, SCRAM-SHA-256, MONGODB-X509, PLAIN
+#    # Default value: SCRAM-SHA-256
+#    authMechanism: SCRAM-SHA-256
+#
+#    # <object> PLAIN (LDAP SASL) authentication properties.
+#    # Used for LDAP authentication mechanisms.
+#    plain:
+#      # <string> Username for LDAP authentication.
+#      # Default value: not set
+#      username:
+#
+#      # <string> Password for LDAP authentication.
+#      # Default value: not set
+#      password:
+#
+#    # <object> SCRAM authentication properties.
+#    # Used for SCRAM-SHA-1 and SCRAM-SHA-256 mechanisms.
+#    scram:
+#      # <string> Username for SCRAM authentication.
+#      # Default value: not set
+#      username:
+#
+#      # <string> Password for SCRAM authentication.
+#      # Default value: not set
+#      password:
+#
+#      # <string> Authentication database for SCRAM.
+#      # Database where user credentials are stored.
+#      # Default value: admin
+#      authSource: admin
+#
+#  # <object> TLS/SSL configuration options.
+#  # Enables encrypted communication with MongoDB.
+#  tls:
+#    # <string> Path to client TLS/SSL certificate file (.pem).
+#    # Required for client certificate authentication.
+#    # Default value: not set
+#    certificate:
+#
+#    # <string> Path to client TLS/SSL private key file (.pem).
+#    # Used with client certificate for authentication.
+#    # Default value: not set
+#    privateKey:
+#
+#    # <string> Password to decrypt the private key.
+#    # Required if private key is encrypted.
+#    # Default value: not set
+#    privateKeyPassword:
+#
+#    # <list[string]> Paths to CA certificate bundle files.
+#    # Defaults to system bundle if not specified.
+#    # Default value: not set
+#    caCerts:
+#      - /path/to/ca.pem
+#
+#    # <string> Server name for TLS certificate validation.
+#    # Must match the server certificate's subject name.
+#    # Default value: not set
+#    serverName:
+#
+#    # <bool> Disables various certificate validations.
+#    # Using this option is highly discouraged for security reasons.
+#    # Default value: false
+#    skipVerifyServerName: false
+#
+#  # <object> Client-side field level encryption options.
+#  # Provides automatic encryption/decryption of sensitive fields.
+#  encryption:
+#    # <string> Database name where encryption keys are stored.
+#    # If not specified, uses the main database value.
+#    # Default value: not set
+#    vaultDatabase:
+#
+#    # <string> Collection name where encryption keys are stored.
+#    # Default value: __keyVault
+#    vaultCollection: __keyVault
+#
+#    # <string> Field Level Encryption type.
+#    # Controls encryption behavior and key management.
+#    # Supported values: auto, manual
+#    # Default value: auto
+#    type: auto
+#
+#    # <object> Key Management Service (KMS) configuration.
+#    # Configures external key management for encryption keys.
+#    kms:
+#      # <string> KMS provider type.
+#      # Determines which key management service to use.
+#      # Supported values: local, amazon, azure, google
+#      # Default value: local
+#      provider: local
+#
+#      # <object> Local KMS provider configuration.
+#      # Uses local key storage for encryption keys.
+#      local:
+#        # <string> Base64-encoded 96-byte master key.
+#        # Mutually exclusive with masterKeyFile option.
+#        # Default value: not set
+#        masterKey:
+#
+#        # <string> Path to file containing master key.
+#        # Mutually exclusive with masterKey option.
+#        # Default value: not set
+#        masterKeyFile:
+#
+#      # <object> Amazon KMS provider configuration.
+#      # Uses AWS KMS for encryption key management.
+#      amazon:
+#        # <string> AWS access key ID for authentication.
+#        # Default value: not set
+#        accessKeyId:
+#
+#        # <string> AWS secret access key for authentication.
+#        # Default value: not set
+#        secretAccessKey:
+#
+#        # <string> AWS session token from STS.
+#        # Used for temporary credentials.
+#        # Default value: not set
+#        sessionToken:
+#
+#        # <string> AWS KMS key identifier.
+#        # Default value: not set
+#        key:
+#
+#        # <string> AWS region for KMS service.
+#        # Default value: not set
+#        region:
+#
+#        # <string> Custom AWS endpoint hostname.
+#        # Default value: not set
+#        endpoint:
+#
+#        # <object> TLS configuration for AWS KMS communication.
+#        !include tls-client.yaml
+#
+#      # <object> Azure KMS provider configuration.
+#      # Uses Azure Key Vault for encryption key management.
+#      azure:
+#        # <string> Azure client ID for authentication.
+#        # Default value: not set
+#        clientId:
+#
+#        # <string> Azure client secret for authentication.
+#        # Default value: not set
+#        clientSecret:
+#
+#        # <string> Azure tenant ID for authentication.
+#        # Default value: not set
+#        tenantId:
+#
+#        # <string> Azure key name in Key Vault.
+#        # Default value: not set
+#        keyName:
+#
+#        # <string> Azure key version in Key Vault.
+#        # Default value: not set
+#        keyVersion:
+#
+#        # <string> Azure Key Vault URL.
+#        # Default value: not set
+#        keyVaultEndpoint:
+#
+#        # <object> TLS configuration for Azure KMS communication.
+#        !include tls-client.yaml
+#
+#      # <object> Google KMS provider configuration.
+#      # Uses Google Cloud KMS for encryption key management.
+#      google:
+#        # <string> Google Cloud KMS endpoint.
+#        # Default value: not set
+#        endpoint:
+#
+#        # <string> Google KMS project ID.
+#        # Default value: not set
+#        projectId:
+#
+#        # <string> Google service account email.
+#        # Default value: not set
+#        email:
+#
+#        # <string> Google authentication server hostname and port.
+#        # Default value: not set
+#        authenticationEndpoint:
+#
+#        # <string> Base64-encoded service account private key.
+#        # Extract from service account JSON file.
+#        # Default value: not set
+#        privateKey:
+#
+#        # <string> Google KMS key location.
+#        # Default value: not set
+#        location:
+#
+#        # <string> Google KMS key ring name.
+#        # Default value: not set
+#        keyRing:
+#
+#        # <string> Google KMS key name.
+#        # Default value: not set
+#        keyName:
+#
+#        # <string> Google KMS key version.
+#        # Uses default version if not specified.
+#        # Default value: not set
+#        keyVersion:
+#
+#        # <object> TLS configuration for Google KMS communication.
+#        !include tls-client.yaml

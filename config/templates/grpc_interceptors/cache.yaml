@@ -1,0 +1,54 @@
+# Cache configuration for response caching interceptor.
+# Controls TTL, compression, and header behavior for cached responses.
+# Caches successful responses to improve performance and reduce backend load.
+
+#cache:
+#  # <bool> Enable response caching.
+#  # When enabled, caches responses based on request content.
+#  # Default value: false
+#  enabled: false
+#
+#  # <list[string]> List of gRPC methods to skip caching for.
+#  # Methods should be specified in the format "/service.Service/Method".
+#  # Default value: not set
+#  ignoreMethods:
+#    - "/grpc.health.v1.Health/Check"
+#
+#  # <list[string]> List of regex patterns for methods to skip caching.
+#  # Pattern-based rules for caching bypass.
+#  # Default value: not set
+#  ignorePatterns:
+#    - "^(?i)/grpc.health.*"
+#
+#  # <duration> Default TTL for successful responses.
+#  # How long successful responses are cached.
+#  # Default value: 24h
+#  successTTL: 24h
+#
+#  # <duration> Default TTL for error responses.
+#  # How long error responses are cached.
+#  # Default value: 1h
+#  errorTTL: 1h
+#
+#  # <bool> Controls whether cache hit/miss headers are added to responses.
+#  # Adds debugging headers to indicate cache status.
+#  # Default value: true
+#  enableCacheHeaders: true
+#
+#  # <string> Compression level for cached responses.
+#  # Balances storage efficiency vs CPU usage.
+#  # Supported values: none, fast, balanced, best
+#  # Default value: fast
+#  compressionPreset: fast
+#
+#  # <string> Prefix for all cache keys in storage.
+#  # Namespaces cache entries to prevent conflicts between services.
+#  # Default value: not set
+#  keysPrefix:
+#
+#  # <list[string]> gRPC metadata keys (headers) to include in the cache key hash.
+#  # If empty, a standard set of security and identity headers is used.
+#  # Default value: not set
+#  keyMetadata:
+#    - "x-user-id"
+#    - "x-tenant-id"

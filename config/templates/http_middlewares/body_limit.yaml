@@ -1,0 +1,26 @@
+# Body limit configuration for request payload size limiting.
+# Rejects requests with bodies exceeding the specified size.
+# Protects against oversized payloads that could exhaust server resources.
+#
+# Body-size enforcement is opt-in: by default `enabled: false` and the
+# server accepts requests of any size. Turn on `enabled: true` and tune
+# `maxSize` to bound request bodies for this server.
+
+#bodyLimit:
+#  # <bool> Enable body size limiting.
+#  # Default value: false
+#  enabled: false
+#
+#  # <list[string]> List of exact URL paths to skip processing for.
+#  # Default value: not set
+#  ignorePaths:
+#    - "/health"
+#
+#  # <list[string]> List of regex patterns for URL paths to skip processing.
+#  # Default value: not set
+#  ignorePatterns:
+#    - "^/health\\..*"
+#
+#  # <int64> Maximum allowed size of the request body in bytes.
+#  # Default value: 10485760 (10MB)
+#  maxSize: 10485760

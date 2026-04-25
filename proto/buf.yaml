@@ -1,0 +1,14 @@
+version: v2
+modules:
+  - path: .
+    name: buf.build/altessa-s/go-atlas
+deps:
+  - buf.build/googleapis/googleapis
+lint:
+  use:
+    - STANDARD
+  except:
+    - FIELD_LOWER_SNAKE_CASE
+breaking:
+  use:
+    - FILE

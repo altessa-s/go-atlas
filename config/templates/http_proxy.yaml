@@ -1,0 +1,49 @@
+# HTTP outbound proxy configuration for transport/http/client.
+# When this section is omitted entirely, the client respects the standard
+# HTTP_PROXY / HTTPS_PROXY / NO_PROXY environment variables (the
+# http.ProxyFromEnvironment default).
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#proxy:
+#  # <string> Proxy resolution mode. One of: none | url | host.
+#  # Omit (or leave empty) to keep the underlying transport's default
+#  # behavior — the standard HTTP_PROXY / HTTPS_PROXY / NO_PROXY env vars.
+#  #   none — disable proxy entirely, including the env-based lookup
+#  #   url  — route via a single proxy URL (set "url" below)
+#  #   host — route via a host + port (set "host" + "port" below,
+#  #          optionally "auth" for credentials)
+#  # Default value: not set (passthrough)
+#  mode: url
+#
+#  # <string> Full proxy URL. Used only when mode is "url". Must
+#  # include an explicit port — port-less URLs are rejected at config
+#  # load.
+#  # Supported schemes: http, https, socks5, socks5h.
+#  # Note: socks5 and socks5h are treated as synonyms (the underlying
+#  # golang.org/x/net/proxy.SOCKS5 always sends ATYP=DomainName, i.e.
+#  # DNS resolves on the proxy side regardless of scheme).
+#  # Credentials may be embedded as http://user:pass@proxy:port,
+#  # but for secrets prefer mode=host with the auth block below.
+#  # Default value: not set
+#  url: http://proxy.corp.example:3128
+#
+#  # <string> Proxy hostname or IP address. Used only when mode is "host".
+#  # Default value: not set
+#  host: proxy.corp.example
+#
+#  # <int> Proxy port (1-65535). Used only when mode is "host".
+#  # Default value: not set
+#  port: 3128
+#
+#  # <object> Proxy credentials. Optional even when mode is "host"
+#  # (omit for anonymous proxies). Used only when mode is "host".
+#  auth:
+#    # <string> Proxy authentication username.
+#    # Default value: not set
+#    username: svc-account
+#
+#    # <string> Proxy authentication password.
+#    # Use $__secret{namespace:key} to load from the secrets manager.
+#    # Default value: not set
+#    password: $__secret{vault:proxy-password}

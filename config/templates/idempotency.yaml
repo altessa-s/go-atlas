@@ -1,0 +1,15 @@
+# Idempotency configuration.
+# Defines settings for idempotency key management and storage.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#idempotency:
+#  # <duration> TTL for idempotency keys in storage.
+#  # How long idempotency records are kept.
+#  # Default value: 24h
+#  ttl: 24h
+#
+#  # <object> Storage configuration for idempotency keys.
+#  # Supports multiple storage backends with provider-specific settings.
+#  !include cache_storage.yaml
+#

@@ -1,0 +1,136 @@
+# HTTP server configuration.
+# Defines settings for the HTTP server that exposes API endpoints and internal services.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#http:
+#  # <string> Optional prefix for all HTTP routes.
+#  # Allows mounting the service under a specific path prefix.
+#  # Default value: not set (no prefix)
+#  routerPrefix:
+#
+#  # <string> Specifies the address to bind to for listening.
+#  # Format: host:port or :port for all interfaces.
+#  # Default value: 0.0.0.0:9080
+#  listenAddress: 0.0.0.0:9080
+#
+#  # Body-size enforcement is configured under middlewares.bodyLimit
+#  # (see http_middlewares/body_limit.yaml). It is opt-in: bodyLimit.enabled
+#  # is `false` by default, so requests are not size-limited until the
+#  # operator turns it on.
+#
+#  # <duration> Maximum time from connection establishment to full request body read.
+#  # Protects against slow client attacks.
+#  # Default value: 300s
+#  readTimeout: 300s
+#
+#  # <duration> Maximum time from end of request headers to response write completion.
+#  # For HTTPS, this is total time from connection establishment to response completion.
+#  # Default value: 300s
+#  writeTimeout: 300s
+#
+#  # <duration> Maximum idle time before disconnecting an inactive connection.
+#  # Helps manage server resources by closing idle connections.
+#  # Default value: 600s
+#  idleTimeout: 600s
+#
+#  # <bool> Enables logging of HTTP requests.
+#  # When enabled, logs all incoming HTTP requests for debugging and monitoring.
+#  # Default value: false
+#  logRequests: false
+#
+#  # <object> TLS/SSL configuration options.
+#  # If not set, the server will run in HTTP mode only.
+#  tls:
+#    # <string> TLS provider type.
+#    # Determines how TLS certificates are obtained and managed.
+#    # Supported values: file, letsencrypt, vault, s3
+#    # Default value: file
+#    providerType: file
+#
+#    # <string> Minimum TLS version to use.
+#    # Enforces minimum security standards for connections.
+#    # Supported values: 1.2, 1.3
+#    # Default value: 1.2
+#    minVersion: 1.2
+#
+#    # <object> HTTP Strict Transport Security (HSTS) settings.
+#    # Instructs browsers to only access the site over HTTPS for a specified duration.
+#    sts:
+#      # <duration> Maximum age for HSTS header.
+#      # Controls how long browsers should remember to use HTTPS.
+#      # Minimum value: 1h.
+#      # Default value: 8760h (1 year)
+#      maxAge: 8760h
+#
+#  # <object> Middlewares configuration for HTTP server pipeline.
+#  # Configures the complete middleware chain: bodyLimit, cors, idempotency, limiter,
+#  # logger, prometheus, realIp, recovery, requestId, securityHeaders, and tracing.
+#  # Each middleware provides specific functionality and can be enabled/disabled independently.
+#  #
+#  # Middleware execution order and purposes:
+#  # 1. recovery: Panic handling and service resilience
+#  # 2. realIp: Client IP extraction from proxy headers
+#  # 3. requestId: Request correlation and distributed tracing
+#  # 4. tracing: Distributed tracing with OpenTelemetry
+#  # 5. logger: Request/response logging for observability
+#  # 6. prometheus: Metrics collection for monitoring
+#  # 7. cors: Cross-Origin Resource Sharing support
+#  # 8. securityHeaders: Security-related HTTP headers
+#  # 9. bodyLimit: Request payload size limiting
+#  # 10. limiter: Rate limiting and abuse prevention
+#  # 11. idempotency: Duplicate request prevention
+#  middlewares:
+#    # Panic handling and service resilience.
+#    # See http/recovery.yaml template for full configuration options.
+#    !include http/recovery.yaml
+#
+#    # Client IP extraction from proxy headers.
+#    # See http_middlewares/real_ip.yaml template for full configuration options.
+#    !include http_middlewares/real_ip.yaml
+#
+#    # Request correlation and distributed tracing.
+#    # See http_middlewares/request_id.yaml template for full configuration options.
+#    !include http_middlewares/request_id.yaml
+#
+#    # Distributed tracing with OpenTelemetry.
+#    # See http_middlewares/tracing.yaml template for full configuration options.
+#    !include http_middlewares/tracing.yaml
+#
+#    # Request/response logging for observability.
+#    # See http_middlewares/logger.yaml template for full configuration options.
+#    !include http_middlewares/logger.yaml
+#
+#    # Metrics collection for monitoring.
+#    # See http_middlewares/prometheus.yaml template for full configuration options.
+#    !include http_middlewares/prometheus.yaml
+#
+#    # Cross-Origin Resource Sharing support.
+#    # See http_middlewares/cors.yaml template for full configuration options.
+#    !include http_middlewares/cors.yaml
+#
+#    # Security-related HTTP headers.
+#    # See http_middlewares/security_headers.yaml template for full configuration options.
+#    !include http_middlewares/security_headers.yaml
+#
+#    # Request payload size limiting.
+#    # See http_middlewares/body_limit.yaml template for full configuration options.
+#    !include http_middlewares/body_limit.yaml
+#
+#    # Rate limiting and abuse prevention.
+#    # See http_middlewares/limiter.yaml template for full configuration options.
+#    !include http_middlewares/limiter.yaml
+#
+#    # Duplicate request prevention.
+#    # See http_middlewares/idempotency.yaml template for full configuration options.
+#    !include http_middlewares/idempotency.yaml
+#
+#  # <object> Pprof profiling endpoint configuration.
+#  # Controls whether Go pprof handlers are exposed on this HTTP server.
+#  # When enabled, exposes profiling endpoints at /internal/pprof/* for
+#  # performance analysis. Should only be enabled in non-production environments
+#  # or behind restricted access.
+#  pprof:
+#    # <bool> Controls whether pprof endpoints are exposed.
+#    # Default value: false
+#    enabled: false

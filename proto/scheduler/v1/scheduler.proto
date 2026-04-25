@@ -1,0 +1,305 @@
+// Copyright 2021-2026 Altessa Solutions Inc. All rights reserved.
+// Use of this source code is governed by license that can be found in
+// the LICENSE file.
+
+syntax = "proto3";
+package io.altessa.grpc.scheduler.v1;
+
+// Specifies the package name for generated Java code.
+option java_package = "io.altessa.grpc.scheduler.v1";
+option java_multiple_files = true;
+
+option go_package = "github.com/altessa-s/go-atlas/proto/gen/scheduler/v1;schedulerv1";
+
+// Defines the RPC methods for managing scheduler tasks.
+// It includes operations for querying task state, listing tasks and history,
+// and managing task lifecycle (pause, resume, disable, enable, skip, trigger).
+service SchedulerService {
+  // Retrieves the full state of a task by its identifier.
+  rpc Get(TaskGetRequest) returns (TaskGetResponse);
+
+  // Lists summaries of all registered tasks.
+  rpc List(TasksListRequest) returns (TasksListResponse);
+
+  // Lists the execution history for a specific task.
+  rpc ListHistory(TaskHistoryListRequest) returns (TaskHistoryListResponse);
+
+  // Returns the current scheduler runtime status.
+  rpc GetStatus(SchedulerStatusGetRequest) returns (SchedulerStatusGetResponse);
+
+  // Pauses a task, preventing it from being scheduled.
+  rpc Pause(TaskPauseRequest) returns (TaskPauseResponse);
+
+  // Resumes a previously paused task.
+  rpc Resume(TaskResumeRequest) returns (TaskResumeResponse);
+
+  // Disables a task permanently until re-enabled.
+  rpc Disable(TaskDisableRequest) returns (TaskDisableResponse);
+
+  // Enables a previously disabled task.
+  rpc Enable(TaskEnableRequest) returns (TaskEnableResponse);
+
+  // Marks the next scheduled run of a task to be skipped.
+  rpc SkipNextRun(TaskSkipNextRunRequest) returns (TaskSkipNextRunResponse);
+
+  // Manually triggers immediate execution of a task.
+  rpc Trigger(TaskTriggerRequest) returns (TaskTriggerResponse);
+}
+
+// TaskStatus represents the current status of a task.
+enum TaskStatus {
+  // Unspecified value. Do not use.
+  TASK_STATUS_UNSPECIFIED = 0;
+
+  // Task is active and scheduled to run.
+  TASK_STATUS_ACTIVE = 1;
+
+  // Task is paused and will not run until resumed.
+  TASK_STATUS_PAUSED = 2;
+
+  // Task is disabled by configuration.
+  TASK_STATUS_DISABLED = 3;
+
+  // Task is currently executing.
+  TASK_STATUS_RUNNING = 4;
+}
+
+// TaskPriority defines the execution priority of a task.
+enum TaskPriority {
+  // Unspecified value. Do not use.
+  TASK_PRIORITY_UNSPECIFIED = 0;
+
+  // Low priority, executes only when no higher-priority tasks are waiting.
+  TASK_PRIORITY_LOW = 1;
+
+  // Normal priority, default for most tasks.
+  TASK_PRIORITY_NORMAL = 2;
+
+  // High priority, has reserved execution slots.
+  TASK_PRIORITY_HIGH = 3;
+
+  // Critical priority, bypasses concurrency limits.
+  TASK_PRIORITY_CRITICAL = 4;
+}
+
+// Defines the full persistent state of a scheduler task.
+// It composes TaskSummary with additional detail fields that are
+// only relevant when inspecting a single task.
+message TaskState {
+  // The summary view of the task (shared fields).
+  TaskSummary summary = 1;
+
+  // Identifier of the last execution run.
+  string lastRunId = 2;
+
+  // Arbitrary key-value metadata associated with the task.
+  map<string, string> meta = 3;
+
+  // Creation timestamp.
+  // Unix timestamp format (seconds since epoch).
+  int64 createdAt = 4;
+
+  // Last update timestamp.
+  // Unix timestamp format (seconds since epoch).
+  int64 updatedAt = 5;
+}
+
+// Defines a summary view of a task for listing.
+message TaskSummary {
+  // Unique identifier for the task.
+  string id = 1;
+
+  // Human-readable description of the task.
+  string description = 2;
+
+  // Current status of the task.
+  TaskStatus status = 3;
+
+  // Execution priority of the task.
+  TaskPriority priority = 4;
+
+  // Cron-style schedule expression.
+  string schedule = 5;
+
+  // Last execution timestamp.
+  // Unix timestamp format (seconds since epoch).
+  int64 lastRunAt = 6;
+
+  // Next scheduled execution timestamp.
+  // Unix timestamp format (seconds since epoch).
+  int64 nextRunAt = 7;
+
+  // Whether the next scheduled run should be skipped.
+  bool skipNextRun = 8;
+
+  // Whether execution history recording is disabled.
+  bool disableHistory = 9;
+
+  // Whether the task is unmanaged (externally controlled).
+  bool unmanaged = 10;
+
+  // Number of consecutive failures.
+  int32 failures = 11;
+}
+
+// Defines a record of a single task execution.
+message TaskHistory {
+  // Unique identifier for this history entry.
+  string id = 1;
+
+  // Identifier of the task that was executed.
+  string taskId = 2;
+
+  // Identifier of the execution run.
+  string runId = 3;
+
+  // Execution start timestamp.
+  // Unix timestamp format (seconds since epoch).
+  int64 startedAt = 4;
+
+  // Execution end timestamp.
+  // Unix timestamp format (seconds since epoch).
+  int64 endedAt = 5;
+
+  // Execution duration in milliseconds.
+  int64 durationMs = 6;
+
+  // Whether the execution completed successfully.
+  bool success = 7;
+
+  // Error message if the execution failed.
+  string error = 8;
+}
+
+// Defines the request message for the Get method.
+message TaskGetRequest {
+  // Required. Identifier of the task to retrieve.
+  string taskId = 1;
+}
+
+// Defines the response message for the Get method.
+message TaskGetResponse {
+  // The full task state.
+  TaskState taskState = 1;
+}
+
+// Defines the request message for the List method.
+message TasksListRequest {
+  // Optional CEL filter expression applied to each task summary.
+  string filter = 1;
+
+  // Optional. Maximum number of results per page. Default 100, max 1000.
+  int64 limit = 2;
+
+  // Optional. Opaque cursor from a previous response's nextCursor.
+  // Leave empty for the first page.
+  optional string cursor = 3;
+}
+
+// Defines the response message for the List method.
+message TasksListResponse {
+  // The list of task summaries.
+  repeated TaskSummary tasks = 1;
+
+  // Cursor for fetching the next page. Nil if no more results.
+  optional string nextCursor = 2;
+}
+
+// Defines the request message for the ListHistory method.
+message TaskHistoryListRequest {
+  // Required. Identifier of the task to retrieve history for.
+  string taskId = 1;
+
+  // Optional CEL filter expression.
+  string filter = 2;
+
+  // Optional. Maximum number of results per page. Default 100, max 1000.
+  int64 limit = 3;
+
+  // Optional. Opaque cursor from a previous response's nextCursor.
+  optional string cursor = 4;
+}
+
+// Defines the response message for the ListHistory method.
+message TaskHistoryListResponse {
+  // The list of task execution history entries.
+  repeated TaskHistory entries = 1;
+
+  // Cursor for fetching the next page. Nil if no more results.
+  optional string nextCursor = 2;
+}
+
+// Defines the request message for the GetStatus method.
+message SchedulerStatusGetRequest {}
+
+// Defines the response message for the GetStatus method.
+message SchedulerStatusGetResponse {
+  // Whether the scheduler is currently running.
+  bool isRunning = 1;
+
+  // Whether this instance is the leader in a distributed setup.
+  bool isLeader = 2;
+
+  // Number of tasks currently executing.
+  int32 runningTasksCount = 3;
+
+  // Number of available execution slots.
+  int32 availableSlots = 4;
+
+  // Number of available high-priority execution slots.
+  int32 availableHighPrioritySlots = 5;
+}
+
+// Defines the request message for the Pause method.
+message TaskPauseRequest {
+  // Required. Identifier of the task to pause.
+  string taskId = 1;
+}
+
+// Defines the response message for the Pause method.
+message TaskPauseResponse {}
+
+// Defines the request message for the Resume method.
+message TaskResumeRequest {
+  // Required. Identifier of the task to resume.
+  string taskId = 1;
+}
+
+// Defines the response message for the Resume method.
+message TaskResumeResponse {}
+
+// Defines the request message for the Disable method.
+message TaskDisableRequest {
+  // Required. Identifier of the task to disable.
+  string taskId = 1;
+}
+
+// Defines the response message for the Disable method.
+message TaskDisableResponse {}
+
+// Defines the request message for the Enable method.
+message TaskEnableRequest {
+  // Required. Identifier of the task to enable.
+  string taskId = 1;
+}
+
+// Defines the response message for the Enable method.
+message TaskEnableResponse {}
+
+// Defines the request message for the SkipNextRun method.
+message TaskSkipNextRunRequest {
+  // Required. Identifier of the task whose next run should be skipped.
+  string taskId = 1;
+}
+
+// Defines the response message for the SkipNextRun method.
+message TaskSkipNextRunResponse {}
+
+// Defines the request message for the Trigger method.
+message TaskTriggerRequest {
+  // Required. Identifier of the task to trigger.
+  string taskId = 1;
+}
+
+// Defines the response message for the Trigger method.
+message TaskTriggerResponse {}

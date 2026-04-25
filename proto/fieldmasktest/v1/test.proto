@@ -1,0 +1,73 @@
+// Copyright 2021-2026 Altessa Solutions Inc. All rights reserved.
+// Use of this source code is governed by license that can be found in
+// the LICENSE file.
+
+syntax = "proto3";
+package fieldmasktest.v1;
+option go_package = "github.com/altessa-s/go-atlas/proto/gen/fieldmasktest/v1;fieldmasktestv1";
+
+import "google/api/field_behavior.proto";
+import "google/protobuf/struct.proto";
+
+// UpdateRequest is a test message used to verify ApplyUpdateMask behavior
+// with various google.api.field_behavior annotations.
+message UpdateRequest {
+  string id = 1;
+
+  // REQUIRED: if in update_mask, must be set. Cannot be cleared.
+  optional string name = 2 [(google.api.field_behavior) = REQUIRED];
+
+  // OPTIONAL (default): can be cleared via update_mask.
+  optional string description = 3;
+
+  // REQUIRED: nested message that cannot be cleared.
+  optional Address address = 4 [(google.api.field_behavior) = REQUIRED];
+
+  // IMMUTABLE: cannot be changed after creation.
+  optional string code = 5 [(google.api.field_behavior) = IMMUTABLE];
+
+  // OUTPUT_ONLY: silently removed from the mask.
+  optional string created_at = 6 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Simple scalar for testing defaults.
+  optional int32 priority = 7;
+
+  // Repeated field for testing list clearing.
+  repeated string tags = 8;
+
+  // Map field for testing map clearing.
+  map<string, string> metadata = 9;
+
+  // Nested message without behavior annotation.
+  optional Options options = 10;
+
+  // Scalar without optional (proto3 no-presence).
+  string status = 11;
+
+  // Opaque well-known type fields for structpb testing.
+  google.protobuf.Struct extra_data = 12;
+  repeated google.protobuf.Struct struct_list = 13;
+  map<string, google.protobuf.Struct> struct_map = 14;
+
+  // ListValue field for testing dynamic list navigation.
+  google.protobuf.ListValue list_data = 15;
+
+  // Value field for testing dynamic value navigation.
+  google.protobuf.Value value_data = 16;
+}
+
+// Address is a nested message for testing recursive field behavior validation.
+message Address {
+  // REQUIRED in nested context.
+  optional string city = 1 [(google.api.field_behavior) = REQUIRED];
+
+  optional string street = 2;
+
+  optional string zip = 3;
+}
+
+// Options is a nested message without field behavior annotations.
+message Options {
+  optional string color = 1;
+  optional int32 size = 2;
+}

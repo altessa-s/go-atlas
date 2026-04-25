@@ -1,0 +1,190 @@
+# Open Policy Agent (OPA) configuration.
+# Defines settings for policy-based authorization, caching, and decision logging.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#opa:
+#  # <string> Policy source provider type.
+#  # Determines where OPA policies are loaded from.
+#  # Supported values: "filesystem", "gitlab", "embed", "s3"
+#  # Default value: filesystem
+#  source: filesystem
+#
+#  # <string> Filesystem path to the OPA policy bundle.
+#  # Required when source is "filesystem".
+#  # Can be a local directory path (e.g., "./policies") or a single .rego file.
+#  # The bundle should contain Rego policy files for authorization.
+#  # Default value: not set (required for filesystem source)
+#  bundlePath: ./policies
+#
+#  # <object> GitLab-specific configuration for loading policies from a GitLab repository.
+#  # Required when source is "gitlab".
+#  # gitlab:
+#  #   # <string> GitLab instance URL.
+#  #   # Required when source is "gitlab".
+#  #   # Default value: not set (required)
+#  #   endpoint: https://gitlab.example.com
+#  #
+#  #   # <string> GitLab API access token.
+#  #   # Required when source is "gitlab".
+#  #   # Recommended: use a project access token with read_api scope.
+#  #   # Default value: not set (required)
+#  #   token: glpat-xxxxxxxxxxxxxxxxxxxx
+#  #
+#  #   # <int> GitLab project ID.
+#  #   # Required when source is "gitlab".
+#  #   # Default value: not set (required)
+#  #   projectID: 42
+#  #
+#  #   # <string> Git ref (branch, tag, or commit SHA) to read policies from.
+#  #   # Default value: main
+#  #   ref: main
+#  #
+#  #   # <string> Directory path within the repository containing policy files.
+#  #   # Default value: "" (repository root)
+#  #   dir: policies/opa
+#  #
+#  #   # <object> Outbound HTTP proxy for GitLab API requests.
+#  #   # Uncomment the !include line below AND the desired fields in
+#  #   # http_proxy.yaml itself to enable. When the include stays
+#  #   # commented the standard HTTP_PROXY/HTTPS_PROXY/NO_PROXY env
+#  #   # variables apply.
+#  #   !include http_proxy.yaml
+#
+#  # <object> S3-specific configuration for loading policies from an S3-compatible bucket.
+#  # Required when source is "s3".
+#  # s3:
+#  #   # <string> S3 bucket name containing policy files.
+#  #   # Required when source is "s3".
+#  #   # Default value: not set (required)
+#  #   bucket: my-policies-bucket
+#  #
+#  #   # <string> Object key prefix (directory-like path) within the bucket.
+#  #   # Default value: "" (bucket root)
+#  #   prefix: policies/opa
+#  #
+#  #   # <string> AWS region for the S3 bucket.
+#  #   # Default value: not set
+#  #   region: us-east-1
+#  #
+#  #   # <string> S3-compatible endpoint URL (e.g., for MinIO).
+#  #   # Optional; defaults to the standard AWS S3 endpoint.
+#  #   # Default value: not set
+#  #   endpoint: https://s3.example.com
+#  #
+#  #   # <string> AWS access key ID.
+#  #   # Optional; defaults to environment/instance credentials.
+#  #   # Default value: not set
+#  #   accessKey:
+#  #
+#  #   # <string> AWS secret access key.
+#  #   # Optional; defaults to environment/instance credentials.
+#  #   # Default value: not set
+#  #   secretKey:
+#  #
+#  #   # <bool> Enable path-style addressing (required for MinIO and some S3-compatible stores).
+#  #   # Default value: false
+#  #   pathStyle: false
+#  #
+#  #   # <object> Outbound HTTP proxy for S3 API requests.
+#  #   # Uncomment the !include line below AND the desired fields in
+#  #   # http_proxy.yaml itself to enable. When the include stays
+#  #   # commented the AWS SDK's default transport applies (which
+#  #   # already honors HTTP_PROXY / HTTPS_PROXY / NO_PROXY env vars).
+#  #   !include http_proxy.yaml
+#
+#  # <string> Rego query to evaluate for authorization decisions.
+#  # The query determines what policy rule to evaluate.
+#  # Common patterns:
+#  #   - data.profiles.authz.allow - simple allow/deny
+#  #   - data.myapp.api.authz.allow - namespaced policies
+#  #   - data.rbac.allow - role-based access control
+#  # Default value: data.profiles.authz.allow
+#  query: data.profiles.authz.allow
+#
+#  # <bool> Enable logging of all authorization decisions.
+#  # When enabled, logs every authorization check with:
+#  #   - Input data provided to OPA
+#  #   - Policy evaluation result
+#  #   - Decision timestamp
+#  # Useful for:
+#  #   - Security auditing
+#  #   - Debugging policy rules
+#  #   - Compliance requirements
+#  # Default value: false
+#  decisionLogging: false
+#
+#  # <object> Caching configuration for authorization decisions.
+#  # When configured, caches policy evaluation results to improve performance.
+#  cache:
+#    # <bool> Enable caching of authorization decisions.
+#    # When enabled, caches policy evaluation results.
+#    # Cache key is computed from input data hash.
+#    # Benefits:
+#    #   - Reduced latency for repeated authorization checks
+#    #   - Lower CPU usage for complex policies
+#    # Considerations:
+#    #   - May cache stale decisions if policies change
+#    #   - Use watchBundle for automatic cache invalidation
+#    # Default value: false
+#    enabled: false
+#
+#    # <duration> Time-to-live for cached authorization decisions.
+#    # Determines how long a cached decision remains valid.
+#    # After TTL expires, the decision is re-evaluated.
+#    # Only applies when enabled is true.
+#    # Format: duration string (e.g., "5m", "1h", "30s")
+#    # Recommended values:
+#    #   - 1m-5m for frequently changing policies
+#    #   - 5m-15m for stable policies
+#    #   - 30m+ for rarely changing policies
+#    # Default value: 5m
+#    ttl: 5m
+#
+#  # <bool> Enable automatic policy bundle reloading.
+#  # When enabled, the Manager polls the source at pollInterval for changes.
+#  # Benefits:
+#  #   - Policy updates without service restart
+#  #   - Useful in development environments
+#  # Considerations:
+#  #   - Adds network/filesystem overhead per poll cycle
+#  #   - May cause brief inconsistency during reload
+#  # Default value: false
+#  watchBundle: false
+#
+#  # <duration> Interval between polling the source for policy changes.
+#  # Only applies when watchBundle is true.
+#  # Format: duration string (e.g., "30s", "1m", "5m")
+#  # Default value: 30s
+#  pollInterval: 30s
+#
+#  # <string> Optional cron schedule for periodic policy updates.
+#  # If set, policies are reloaded according to this schedule regardless of file changes.
+#  # This provides a fallback mechanism for remote bundles or ensures periodic refresh.
+#  # Format: cron expression with seconds (e.g., "*/5 * * * * *" for every 5 seconds)
+#  # or descriptor format (e.g., "@every 1m" for every minute).
+#  # When empty, only watchBundle (if enabled) triggers reloads.
+#  # Default value: "" (disabled)
+#  updateSchedule: ""
+#
+#  # <bool> Determines whether to run an update cycle when the manager starts.
+#  # When true, immediately loads policies on startup before processing requests.
+#  # When false, policies are loaded lazily on first use or according to schedule.
+#  # Default value: true
+#  runOnStart: true
+#
+#  # <list[string]> File extensions to include when loading policies.
+#  # Only files with these extensions will be loaded from the bundle path.
+#  # Useful for filtering policy files or including additional file types.
+#  # Default value: [".rego"]
+#  fileExtensions: [".rego"]
+#
+#  # <bool> Enable loading .json files as OPA data.
+#  # When enabled, JSON files in the policy directory are loaded into OPA's data store.
+#  # This allows separating policy logic (.rego files) from data (.json files).
+#  # Useful for:
+#  #   - Externalizing configuration data
+#  #   - Separating policy from data
+#  #   - Dynamic data updates without policy changes
+#  # Default value: false
+#  includeData: false

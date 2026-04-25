@@ -1,0 +1,47 @@
+# Token-bucket rate limiter configuration.
+# Defines settings for rate limiting, traffic control and abuse prevention.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#tokenBucketLimiter:
+#  # <int> Size of the LRU cache for IP-to-settings mappings.
+#  # This cache optimizes repeated lookups for the same client IP.
+#  # Default value: 1000
+#  ipCacheSize: 1000
+#
+#  # <object> Storage configuration for rate limit counters.
+#  # Supports multiple storage backends with provider-specific settings.
+#  !include cache_storage.yaml
+#
+#  # <object> Rate limiting rules configuration.
+#  # Defines default and target-specific rate limits.
+#  rules:
+#    # Default rate limit settings applied when no specific rule matches.
+#    # This is a required field containing default rate limits.
+#    default:
+#      # <int64> Maximum number of requests allowed within the period.
+#      # Must be a positive integer greater than 0.
+#      # Default value: 1000
+#      limit: 1000
+#      # <duration> The time window for the limit.
+#      # Must be a valid duration string parseable by time.ParseDuration.
+#      # Default value: 1h
+#      period: "1h"
+#
+#    # List of specific rate limit rules for different IPs or subnets.
+#    # Rules are evaluated in order; the first matching rule is applied.
+#    targets:
+#      # Example rule for a specific high-traffic IP address.
+#      - target: "192.168.1.100"
+#        # <int64> Maximum number of requests allowed within the period.
+#        limit: 5000
+#        # <duration> The time window for the limit.
+#        period: "1h"
+#
+#      # Example rule for an internal subnet with higher limits.
+#      - target: "10.0.0.0/8"
+#        # <int64> Maximum number of requests allowed within the period.
+#        limit: 10000
+#        # <duration> The time window for the limit.
+#        period: "1h"
+#

@@ -1,0 +1,30 @@
+# optgen configuration file
+# See: tools/codegen/optgen
+defaults:
+  # Process all struct fields, not just those with opt tags
+  all-fields: true
+
+  # Default struct type name
+  type: options
+
+  # Default output file name
+  output: options_gen.go
+
+  # Format generated files with gci (import sorting)
+  # Use {file} placeholder for the file path, or it will be appended automatically
+  # Complex commands with quotes are executed via "sh -c"
+  formatter: >-
+    gci write
+    -s standard
+    -s default
+    -s "prefix(google.golang.org)"
+    -s "prefix(golang.org)"
+    -s "prefix(github.com/altessa-s/go-atlas)"
+    -s "prefix(github.com/altessa-s)"
+    -s blank
+    -s alias
+    {file}
+
+  # Verbose output disabled by default
+  verbose: false
+
