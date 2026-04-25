@@ -9,6 +9,9 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/altessa-s/go-atlas/observability/health"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // --- Dependency methods ---
@@ -33,5 +36,29 @@ func (b *UniqBuilder) UseRedisClient(v redis.UniversalClient) *UniqBuilder {
 // UseNatsConn sets the NATS connection used for NATS-backed providers.
 func (b *UniqBuilder) UseNatsConn(v *nats.Conn) *UniqBuilder {
 	b.natsConn = v
+	return b
+}
+
+// UseCollector forwards a metrics collector to the resulting [uniq.Uniq].
+// Without it, Uniq falls back to a no-op collector and emits no metrics.
+func (b *UniqBuilder) UseCollector(v metrics.Collector) *UniqBuilder {
+	b.collector = v
+	return b
+}
+
+// UseHealthCoordinator registers the resulting [uniq.Uniq] with the
+// supplied health coordinator on construction. Combine with
+// [UniqBuilder.UseHealthServiceName] to override the default
+// "uniq" service name when several Uniq instances share a coordinator.
+func (b *UniqBuilder) UseHealthCoordinator(v *health.Coordinator) *UniqBuilder {
+	b.healthCoordinator = v
+	return b
+}
+
+// UseHealthServiceName overrides the service name used for health
+// registration. Has no effect unless [UniqBuilder.UseHealthCoordinator]
+// is also called.
+func (b *UniqBuilder) UseHealthServiceName(v string) *UniqBuilder {
+	b.healthServiceName = v
 	return b
 }

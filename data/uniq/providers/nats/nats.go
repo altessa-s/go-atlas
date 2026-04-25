@@ -27,7 +27,10 @@ type Provider struct {
 	opts *options
 }
 
-var _ providers.Provider = (*Provider)(nil)
+var (
+	_ providers.Provider = (*Provider)(nil)
+	_ providers.Prober   = (*Provider)(nil)
+)
 
 // New creates a new NATS provider with the specified connection, bucket name, and TTL.
 // The bucket is used to namespace keys and avoid conflicts between different
@@ -135,5 +138,16 @@ func (p *Provider) Clear(ctx context.Context) error {
 		return coreerrs.WrapOperation(err, "purge keys")
 	}
 
+	return nil
+}
+
+// Probe implements [providers.Prober]. Returns nil when the underlying
+// JetStream KV bucket responds; any error from kv.Status surfaces as an
+// unhealthy probe (typically caused by a closed *nats.Conn or a missing
+// bucket).
+func (p *Provider) Probe(ctx context.Context) error {
+	if _, err := p.KV().Status(ctx); err != nil {
+		return coreerrs.Wrap(err, "kv bucket unreachable")
+	}
 	return nil
 }
