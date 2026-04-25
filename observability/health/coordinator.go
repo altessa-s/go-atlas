@@ -141,6 +141,14 @@ type Coordinator struct {
 	activeWatchers    atomic.Int32
 	listCallsInFlight atomic.Int32
 
+	// overallStatusOverride forces [CheckHealth], [CheckServiceHealth] and
+	// [CheckStatus] to return a fixed status regardless of registered Checkers.
+	// Storing [StatusUnknown] (zero) means "no override" — the default behavior.
+	// Set with [Coordinator.SetOverallStatus] (typically to [StatusNotServing])
+	// to flip readiness probes during graceful shutdown without waiting for
+	// individual Checkers to reflect the shutdown.
+	overallStatusOverride atomic.Int32
+
 	closed             atomic.Bool
 	healthCheckRunning atomic.Bool // Guards against concurrent RunHealthCheckCycle calls.
 
@@ -195,13 +203,57 @@ func New(opts ...Option) *Coordinator {
 
 // Close gracefully shuts down the coordinator and all active subscriptions.
 // After Close, RunHealthCheckCycle becomes a no-op.
+//
+// Close pins the overall status to [StatusNotServing] (see
+// [Coordinator.SetOverallStatus]) and notifies every active watcher with the
+// same status, so both pull-based readers (e.g. HTTP /readyz handlers backed
+// by [Coordinator.CheckStatus]) and push-based subscribers immediately see
+// the service as not serving.
 func (c *Coordinator) Close() {
 	if !c.closed.CompareAndSwap(false, true) {
 		return // Already closed
 	}
 
-	// Notify all watchers of shutdown
+	// Make pull-API readers see NotServing immediately; pre-shutdown checkers
+	// may still return Serving while connections are torn down.
+	c.SetOverallStatus(StatusNotServing)
+
+	// Notify all watchers of shutdown.
 	c.BroadcastStatus(StatusNotServing)
+}
+
+// SetOverallStatus pins the result of [Coordinator.CheckHealth],
+// [Coordinator.CheckServiceHealth] and [Coordinator.CheckStatus] regardless
+// of registered [Checker]s. Pass [StatusUnknown] to clear the override and
+// resume polling Checkers.
+//
+// This is the pull-API counterpart to [Coordinator.BroadcastStatus]: while
+// BroadcastStatus only reaches active subscribers (e.g. gRPC Health Watch
+// streams), SetOverallStatus also affects HTTP probes and any caller that
+// invokes CheckHealth/CheckStatus directly. Typical use is graceful
+// shutdown: call SetOverallStatus(StatusNotServing) before tearing down
+// dependencies so readiness probes flip to 503 immediately.
+//
+// Example:
+//
+//	// On SIGTERM, before stopping dependencies:
+//	coordinator.SetOverallStatus(health.StatusNotServing)
+//	coordinator.BroadcastStatus(health.StatusNotServing)
+//
+// Setting the override clears the cached overall status so the next
+// CheckStatus("") observes the override without waiting for cache TTL.
+func (c *Coordinator) SetOverallStatus(status ServingStatus) {
+	c.overallStatusOverride.Store(int32(status))
+	// Drop the cached overall status so CheckStatus("") does not return a
+	// stale Serving entry from before the override was set.
+	c.statusCache.Delete("")
+}
+
+// OverallStatusOverride returns the current override set via
+// [Coordinator.SetOverallStatus], or [StatusUnknown] if no override is in
+// effect.
+func (c *Coordinator) OverallStatusOverride() ServingStatus {
+	return ServingStatus(c.overallStatusOverride.Load())
 }
 
 // RegisterService adds a service to the coordinator.
@@ -241,6 +293,12 @@ func (c *Coordinator) ListServices() iter.Seq[string] {
 
 // CheckServiceHealth checks a specific service's health.
 // Returns StatusServiceUnknown if the service is not registered.
+//
+// When an overall status override is in effect (see
+// [Coordinator.SetOverallStatus]), the override is returned for any
+// registered service. Unregistered services still return
+// [StatusServiceUnknown] so callers can distinguish missing services from
+// the shutdown signal.
 func (c *Coordinator) CheckServiceHealth(ctx context.Context, service string) ServingStatus {
 	c.servicesMu.RLock()
 	checker, ok := c.services[service]
@@ -250,12 +308,25 @@ func (c *Coordinator) CheckServiceHealth(ctx context.Context, service string) Se
 		return StatusServiceUnknown
 	}
 
+	if override := ServingStatus(c.overallStatusOverride.Load()); override != StatusUnknown {
+		return override
+	}
+
 	return checker.CheckHealth(ctx)
 }
 
 // CheckHealth checks overall health by polling all registered services.
 // Returns StatusServing only if all services are healthy or none are registered.
+//
+// When an overall status override is in effect (see
+// [Coordinator.SetOverallStatus]), the override is returned without
+// consulting any [Checker]. This lets graceful shutdown flip readiness
+// before individual dependencies report as failed.
 func (c *Coordinator) CheckHealth(ctx context.Context) ServingStatus {
+	if override := ServingStatus(c.overallStatusOverride.Load()); override != StatusUnknown {
+		return override
+	}
+
 	c.servicesMu.RLock()
 	services := make(map[string]Checker, len(c.services))
 	maps.Copy(services, c.services)
@@ -308,6 +379,22 @@ func (c *Coordinator) setCachedStatus(service string, status ServingStatus) {
 }
 
 func (c *Coordinator) getHealthStatus(ctx context.Context, service string) ServingStatus {
+	// Honor the overall status override before reading the cache so that
+	// shutdown signals (see [Coordinator.SetOverallStatus]) cannot be masked
+	// by a Serving entry written just before the override was set.
+	if override := ServingStatus(c.overallStatusOverride.Load()); override != StatusUnknown {
+		if service == "" {
+			return override
+		}
+		c.servicesMu.RLock()
+		_, ok := c.services[service]
+		c.servicesMu.RUnlock()
+		if !ok {
+			return StatusServiceUnknown
+		}
+		return override
+	}
+
 	if status, ok := c.getCachedStatus(service); ok {
 		return status
 	}

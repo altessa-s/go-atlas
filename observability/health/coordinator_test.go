@@ -88,3 +88,86 @@ func TestCoordinator_Close(t *testing.T) {
 		require.Fail(t, "timeout waiting for status update after Close")
 	}
 }
+
+func TestCoordinator_SetOverallStatus_FlipsCheckHealth(t *testing.T) {
+	c := New()
+	t.Cleanup(c.Close)
+
+	c.RegisterService("svc", Func(func(context.Context) ServingStatus { return StatusServing }))
+
+	require.Equal(t, StatusServing, c.CheckHealth(t.Context()))
+
+	c.SetOverallStatus(StatusNotServing)
+	require.Equal(t, StatusNotServing, c.OverallStatusOverride())
+	require.Equal(t, StatusNotServing, c.CheckHealth(t.Context()),
+		"CheckHealth must honor SetOverallStatus regardless of healthy checkers")
+
+	// Per-service polling and aggregated CheckStatus must agree with the override.
+	require.Equal(t, StatusNotServing, c.CheckServiceHealth(t.Context(), "svc"))
+	require.Equal(t, StatusNotServing, c.CheckStatus(t.Context(), ""))
+	require.Equal(t, StatusNotServing, c.CheckStatus(t.Context(), "svc"))
+
+	// Unknown services must still surface as ServiceUnknown so callers can
+	// distinguish a missing checker from a shutdown signal.
+	require.Equal(t, StatusServiceUnknown, c.CheckServiceHealth(t.Context(), "missing"))
+}
+
+func TestCoordinator_SetOverallStatus_BypassesCache(t *testing.T) {
+	// Long TTL ensures CheckStatus would otherwise return the cached Serving entry.
+	c := New(WithStatusCacheTTL(time.Hour))
+	t.Cleanup(c.Close)
+
+	c.RegisterService("svc", Func(func(context.Context) ServingStatus { return StatusServing }))
+
+	require.Equal(t, StatusServing, c.CheckStatus(t.Context(), ""), "warm cache with Serving")
+
+	c.SetOverallStatus(StatusNotServing)
+	require.Equal(t, StatusNotServing, c.CheckStatus(t.Context(), ""),
+		"override must short-circuit a stale cached overall status")
+}
+
+func TestCoordinator_SetOverallStatus_ClearedByUnknown(t *testing.T) {
+	c := New()
+	t.Cleanup(c.Close)
+
+	c.RegisterService("svc", Func(func(context.Context) ServingStatus { return StatusServing }))
+
+	c.SetOverallStatus(StatusNotServing)
+	require.Equal(t, StatusNotServing, c.CheckHealth(t.Context()))
+
+	c.SetOverallStatus(StatusUnknown)
+	require.Equal(t, StatusUnknown, c.OverallStatusOverride())
+	require.Equal(t, StatusServing, c.CheckHealth(t.Context()),
+		"clearing the override must restore checker-driven health")
+}
+
+func TestCoordinator_Close_FlipsPullAPI(t *testing.T) {
+	c := New()
+	c.RegisterService("svc", Func(func(context.Context) ServingStatus { return StatusServing }))
+
+	require.Equal(t, StatusServing, c.CheckHealth(t.Context()))
+
+	c.Close()
+
+	require.Equal(t, StatusNotServing, c.CheckHealth(t.Context()),
+		"Close must make pull-based readers see NotServing immediately")
+	require.Equal(t, StatusNotServing, c.CheckStatus(t.Context(), ""))
+	require.Equal(t, StatusNotServing, c.CheckServiceHealth(t.Context(), "svc"))
+}
+
+func TestCoordinator_ListStatuses_HonorsOverride(t *testing.T) {
+	c := New()
+	t.Cleanup(c.Close)
+
+	c.RegisterService("a", Func(func(context.Context) ServingStatus { return StatusServing }))
+	c.RegisterService("b", Func(func(context.Context) ServingStatus { return StatusServing }))
+
+	c.SetOverallStatus(StatusNotServing)
+
+	statuses, err := c.ListStatuses(t.Context())
+	require.NoError(t, err)
+	require.Len(t, statuses, 2)
+	for name, s := range statuses {
+		require.Equal(t, StatusNotServing, s, "service %q should reflect override", name)
+	}
+}
