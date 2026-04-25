@@ -1,0 +1,65 @@
+# HashiCorp Vault configuration.
+# Defines settings for connecting to and authenticating with Vault for secret management.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#vault:
+#  # <string> Address of the Vault server to communicate with.
+#  # Can be IP address, DNS record, or full URL with protocol and port.
+#  # The scheme (http/https) is automatically added based on TLS configuration if not present.
+#  # Default value: http://localhost:8200
+#  address: http://localhost:8200
+#
+#  # <object> Authentication configuration for Vault connection.
+#  # Defines the method and credentials used to authenticate with Vault.
+#  auth:
+#    # <string> Authentication method for Vault access.
+#    # Determines which authentication backend to use.
+#    # Supported values: token, userpass, approle
+#    # Default value: token
+#    method: token
+#
+#    # <string> Secret token for direct Vault authentication.
+#    # Used when authentication method is 'token'.
+#    # Default value: not set (required for token auth)
+#    token:
+#
+#    # <object> Username/password authentication configuration.
+#    # Used when authentication method is 'userpass'.
+#    userpass:
+#      # <string> Path to the userpass mount in Vault.
+#      # Location where userpass auth method is mounted.
+#      # Default value: not set
+#      mountPath:
+#
+#      # <string> Username for Vault authentication.
+#      # Must exist in the userpass auth backend.
+#      # Default value: not set (required for userpass auth)
+#      username:
+#
+#      # <string> Password for Vault authentication.
+#      # Corresponding password for the specified username.
+#      # Default value: not set (required for userpass auth)
+#      password:
+#
+#    # <object> AppRole authentication configuration.
+#    # Used when authentication method is 'approle'.
+#    approle:
+#      # <string> Path to the approle mount in Vault.
+#      # Location where approle auth method is mounted.
+#      # Default value: not set
+#      mountPath:
+#
+#      # <string> Role ID for AppRole authentication.
+#      # Identifier for the AppRole, similar to a username.
+#      # Default value: not set (required for approle auth)
+#      roleId:
+#
+#      # <string> Secret ID for AppRole authentication.
+#      # Secret credential for the AppRole, similar to a password.
+#      # Default value: not set (required for approle auth)
+#      secretId:
+#
+#  # <object> TLS configuration options for Vault communication.
+#  # Enables encrypted communication with Vault server.
+#  !include tls-client.yaml

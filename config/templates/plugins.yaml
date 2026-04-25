@@ -1,0 +1,216 @@
+# Dynamic plugin manager configuration.
+# Controls runtime loading of native Go .so plugins from a directory,
+# inspired by the SPI pattern in Keycloak.
+# Plugins extend the host service by exporting a Descriptor and optional Init
+# function; consuming services discover them via symbol lookup.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+#
+# Security warning: loading a .so file executes arbitrary native code in the
+# host process BEFORE the manager has a chance to inspect the descriptor.
+# Restrict the plugin directory to a path writable only by the deployer and
+# never load plugins from user uploads or world-writable locations.
+#
+# Platform note: dynamic plugin loading is only supported on darwin and linux;
+# other platforms reject the operation with an unsupported-platform error.
+
+#plugins:
+#  # <bool> Enable the plugin manager.
+#  # When false, no .so files are loaded and the manager acts as a no-op.
+#  # Default value: false
+#  enabled: false
+#
+#  # <string> Directory to scan for .so plugin files.
+#  # The manager reads .so entries directly under this path (non-recursive)
+#  # and ignores subdirectories and other file types.
+#  # Restrict the path to a location writable only by the deployer.
+#  # Default value: ./plugins
+#  dir: ./plugins
+#
+#  # <list[string]> Explicit allowlist of plugin filenames to load.
+#  # When non-empty, only these filenames (matched against base names in dir)
+#  # are loaded. Takes priority over `disabled` — when both are configured,
+#  # `disabled` is ignored.
+#  # Use this mode for production where every plugin must be explicit.
+#  # Default value: [] (load all .so files)
+#  load:
+#    - auth-jwt.so
+#    - audit-mongo.so
+#
+#  # <list[string]> Exclusion list of plugin filenames to skip.
+#  # Used only when `load` is empty: every .so file in `dir` is loaded
+#  # except those listed here.
+#  # Use this mode for development or when shipping a "load by default"
+#  # set with a few opt-out plugins.
+#  # Default value: [] (load every discovered .so)
+#  disabled:
+#    - experimental-tracer.so
+#
+#  # <duration> Maximum time allowed for a plugin's Init function to complete.
+#  # Each plugin's Init runs under context.WithTimeout(initTimeout); if it
+#  # exceeds the deadline or panics, the plugin is marked as failed and the
+#  # manager continues loading the rest.
+#  # Format: duration string (e.g., "5s", "1m", "500ms").
+#  # Must be > 1ms.
+#  # Default value: 5s
+#  initTimeout: 5s
+#
+#  # <bool> Enable a filesystem watcher on the plugin directory.
+#  # When true, new .so files dropped into `dir` at runtime are loaded
+#  # automatically after the configured debounce window.
+#  # Modifications and removals are ignored because Go's plugin package
+#  # cannot unload or replace code already mapped into the process — to
+#  # upgrade a plugin the service must be restarted.
+#  # Default value: false
+#  watch: false
+#
+#  # <duration> Debounce window for the filesystem watcher.
+#  # Coalesces rapid bursts of filesystem events (e.g. a large rsync) into
+#  # a single Reload call. Only consulted when `watch` is true.
+#  # Format: duration string (e.g., "200ms", "1s").
+#  # Must be > 1ms.
+#  # Default value: 200ms
+#  watchDebounce: 200ms
+#
+#  # <object> Linux process-hardening primitives applied lazily on the first
+#  # Manager.Load call. Read every line below before enabling.
+#  #
+#  # !!! IMPORTANT !!!
+#  #
+#  #   - Linux only. On other platforms an enabled sandbox makes plugin
+#  #     loading fail with ErrSandboxUnsupported.
+#  #   - Applied lazily and IRREVERSIBLE. Host code that runs before the
+#  #     first Load is not restricted.
+#  #   - All limits apply to the ENTIRE HOST PROCESS, not just plugin code.
+#  #     Setting maxOpenFiles too low will starve database/HTTP/Redis pools
+#  #     that the host owns.
+#  #   - Defense in depth, NOT isolation. A malicious plugin still has full
+#  #     access to host memory and can corrupt or exfiltrate anything in
+#  #     the address space.
+#  sandbox:
+#    # <bool> Master switch. When false, every other field is ignored.
+#    # Default value: false
+#    enabled: false
+#
+#    # <bool> Set PR_SET_NO_NEW_PRIVS so the process and any binary it later
+#    # execs cannot gain privileges via SUID/SGID. Recommended; has no
+#    # downside on a non-setuid host.
+#    # Default value: true
+#    noNewPrivs: true
+#
+#    # <int64> Cap the process's virtual address space (RLIMIT_AS), in bytes.
+#    # Counts every allocation in the host process, including the Go runtime,
+#    # in-process database drivers, and connection pools. 0 = unset.
+#    # Default value: 0
+#    memoryLimitBytes: 0
+#
+#    # <int64> Cap the number of open file descriptors (RLIMIT_NOFILE).
+#    # Counts every host fd: sockets, files, pipes, epoll, etc. 0 = unset.
+#    # Default value: 0
+#    maxOpenFiles: 0
+#
+#    # <int64> Cap the number of processes the user owning this process can
+#    # create (RLIMIT_NPROC). 0 = unset.
+#    # Default value: 0
+#    maxProcesses: 0
+#
+#    # <int64> Cap the maximum size of any file the process can write
+#    # (RLIMIT_FSIZE), in bytes. 0 = unset.
+#    # Default value: 0
+#    maxFileSizeBytes: 0
+#
+#    # <bool> Set RLIMIT_CORE = 0 so the process cannot leak memory contents
+#    # (including secrets) via a core dump after a crash.
+#    # Default value: false
+#    disableCoreDumps: false
+#
+#    # <object> Linux capability dropping applied between rlimits and
+#    # Landlock. Prevents a plugin loaded via dlopen from inheriting
+#    # capabilities the host process holds (via file caps, systemd
+#    # AmbientCapabilities=, docker --cap-add, or plain root).
+#    #
+#    # !!! WARNING !!!
+#    #
+#    #   - Irreversible. Once applied, the capability ceilings cannot be
+#    #     raised for the rest of the process lifetime.
+#    #
+#    #   - Process-wide in practice. The kernel syscall targets a single
+#    #     thread; the plugin sandbox applies the drop before any plugin
+#    #     goroutine is spawned so every thread the plugin later creates
+#    #     inherits the reduced set.
+#    #
+#    #   - Requires the parent sandbox.enabled = true.
+#    capabilities:
+#      # <bool> Turn Linux capability dropping on. Default: false.
+#      enabled: false
+#
+#      # <[]string> Capability names to preserve in the effective,
+#      # permitted, and bounding sets. Each entry must match a canonical
+#      # CAP_* name (case-insensitive). Unknown names fail config load.
+#      #
+#      # An empty list with enabled=true drops EVERY capability, which is
+#      # what most plugin hosts want. A non-empty list is the "bind a
+#      # privileged port then drop everything else" pattern — typical
+#      # value is ["CAP_NET_BIND_SERVICE"].
+#      #
+#      # The inheritable and ambient sets are always cleared; plugin
+#      # hosts never need to propagate capabilities across execve.
+#      keep: []
+#
+#    # <object> Linux Landlock filesystem allowlist (kernel >= 5.13).
+#    #
+#    # !!! WARNING !!!
+#    #
+#    #   - Strict allowlist with NO auto-added paths. The manager does NOT
+#    #     auto-include the plugin directory, the dynamic loader, libc, or
+#    #     any system library. Operators MUST list every path the host
+#    #     needs to read, execute, or write — otherwise plugin loading
+#    #     fails with EACCES on the loader and the host typically crashes
+#    #     soon after.
+#    #
+#    #   - Linux 5.13+ only. On older kernels an enabled Landlock block
+#    #     makes plugin loading fail with ErrSandboxFailed wrapping the
+#    #     kernel error.
+#    #
+#    #   - Process-wide and irreversible. The restrictions apply to the
+#    #     entire host process for the rest of its lifetime.
+#    #
+#    #   - Requires the parent sandbox.enabled = true. Landlock is a sub-
+#    #     feature of the umbrella sandbox.
+#    #
+#    # See docs/plugins.md for the minimum-viable allowlist on common
+#    # Linux distros (glibc x86_64, glibc arm64, musl-Alpine).
+#    landlock:
+#      # <bool> Turn Landlock on. Default: false.
+#      enabled: false
+#
+#      # <bool> Auto-add the configured plugin directory (plugins.dir) to
+#      # readPaths. Nearly every deployment needs this — without the plugin
+#      # directory in the allowlist, dlopen fails immediately. Left off by
+#      # default to preserve the strict-allowlist contract; typical
+#      # deployments should set this to true.
+#      # Default: false
+#      allowPluginDir: true
+#
+#      # <bool> Auto-add the standard system library directories (/lib,
+#      # /lib64, /usr/lib, /usr/lib64) to readPaths. Covers glibc and musl
+#      # on RHEL, Debian, Ubuntu, Fedora, Alpine, and most other mainstream
+#      # distros. NOT suitable for NixOS (libs under /nix/store), chroot
+#      # jails, or custom library prefixes — use explicit readPaths there.
+#      # Default: false
+#      allowSystemLibs: true
+#
+#      # <list[string]> Additional paths granted read+execute (and traversal
+#      # for directories). Merged with the auto-added entries from
+#      # allowPluginDir and allowSystemLibs. Every entry must be an
+#      # absolute path. Use this for read-only config and data directories.
+#      readPaths:
+#        - /etc/myservice
+#
+#      # <list[string]> Paths granted read+execute+write+truncate. Use for
+#      # log directories, runtime data directories, and anywhere the host
+#      # or its plugins need to mutate files. Every entry must be an
+#      # absolute path.
+#      readWritePaths:
+#        - /var/lib/myservice
+#        - /var/log/myservice

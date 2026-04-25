@@ -1,0 +1,20 @@
+# Budget limiter configuration.
+# Enforces a fixed request budget within a configurable time period
+# using a shared storage backend for consistent enforcement across replicas.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#budgetLimiter:
+#  # <int64> Maximum number of requests allowed within the period.
+#  # Must be a positive integer greater than 0.
+#  # Default value: not set (required)
+#  limit: 10000
+#
+#  # <duration> The time window for the budget counter.
+#  # Must be a valid duration string parseable by time.ParseDuration.
+#  # Default value: 24h
+#  period: "24h"
+#
+#  # <object> Storage configuration for budget counters.
+#  # Supports multiple storage backends with provider-specific settings.
+#  !include cache_storage.yaml

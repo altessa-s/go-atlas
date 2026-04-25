@@ -1,0 +1,51 @@
+# Logger configuration for request/response logging middleware.
+# Captures request details, status codes, and timing for observability.
+# Essential for debugging, monitoring, and audit trails in production systems.
+
+#logger:
+#  # <bool> Enable HTTP request logging.
+#  # Default value: false
+#  enabled: false
+#
+#  # <list[string]> List of exact URL paths to skip processing for.
+#  # Default value: not set
+#  ignorePaths:
+#    - "/health"
+#
+#  # <list[string]> List of regex patterns for URL paths to skip processing.
+#  # Default value: not set
+#  ignorePatterns:
+#    - "^/health\\..*"
+#
+#  # <bool> Log request bodies (CAUTION: may include sensitive data).
+#  # Default value: false
+#  logRequest: false
+#
+#  # <bool> Log response bodies (CAUTION: may include sensitive data).
+#  # Default value: true
+#  logResponse: true
+#
+#  # <string> Format for timestamps in log entries.
+#  # Supported values: rfc3339, rfc3339nano, unix, unixnano, unixmilli
+#  # Default value: rfc3339
+#  timeFormat: rfc3339
+#
+#  # <list[int]> List of HTTP response status codes to never log.
+#  # Takes precedence over logResponseCodes.
+#  # Default value: not set
+#  ignoreResponseCodes:
+#    - 200
+#    - 204
+#
+#  # <list[int]> List of HTTP response status codes to always log.
+#  # If set, only these codes (minus those in ignoreResponseCodes) will be logged.
+#  # Default value: not set
+#  logResponseCodes:
+#    - 500
+#    - 502
+#
+#  # <list[string]> List of HTTP methods to skip logging for.
+#  # Default value: not set
+#  ignoreHttpMethods:
+#    - "OPTIONS"
+#    - "HEAD"

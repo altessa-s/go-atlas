@@ -1,0 +1,29 @@
+# Enforce LF line endings
+* text=auto eol=lf
+
+# Go
+*.go text eol=lf diff=golang
+*_gen.go linguist-generated=true
+*.pb.go linguist-generated=true
+*.pb.gw.go linguist-generated=true
+*_grpc.pb.go linguist-generated=true
+
+# Dependencies
+go.sum linguist-generated=true
+
+# Protobuf
+*.proto text eol=lf
+
+# Shell
+*.sh text eol=lf
+
+# Documentation
+*.md text eol=lf diff=markdown
+LICENSE text eol=lf
+
+# Config
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+Makefile text eol=lf

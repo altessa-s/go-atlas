@@ -1,0 +1,22 @@
+# Recovery configuration for panic handling and service resilience.
+# Catches panics in gRPC handlers and converts them to proper error responses.
+# Critical for preventing service crashes and maintaining system stability.
+
+#recovery:
+#  # <bool> Enable panic recovery.
+#  # When enabled, catches panics and converts them to gRPC errors.
+#  # Default value: false
+#  enabled: false
+#
+#  # <list[string]> List of gRPC methods to skip recovery for.
+#  # These methods will fail fast without recovery.
+#  # Methods that should crash on panic instead of recovering.
+#  # Default value: not set
+#  ignoreMethods:
+#    - "/api.UserService/GetSensitiveData"
+#
+#  # <list[string]> List of regex patterns for methods to skip recovery.
+#  # Pattern-based rules for recovery bypass.
+#  # Default value: not set
+#  ignorePatterns:
+#    - "^(?i)/api.sensitive.*"

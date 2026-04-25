@@ -1,0 +1,68 @@
+# CORS configuration for handling cross-origin requests.
+# Configures which origins, methods, and headers are allowed.
+# Essential for web applications that need to accept requests from different domains.
+
+#cors:
+#  # <bool> Enable CORS support.
+#  # Default value: false
+#  enabled: false
+#
+#  # <list[string]> List of exact URL paths to skip processing for.
+#  # Default value: not set
+#  ignorePaths:
+#    - "/health"
+#
+#  # <list[string]> List of regex patterns for URL paths to skip processing.
+#  # Default value: not set
+#  ignorePatterns:
+#    - "^/health\\..*"
+#
+#  # <list[string]> List of origins allowed to make cross-origin requests.
+#  # Use ["*"] to allow all origins.
+#  # Default value: not set
+#  allowedOrigins:
+#    - "*"
+#
+#  # <list[string]> List of HTTP methods allowed for cross-origin requests.
+#  # Default value: not set
+#  allowedMethods:
+#    - "GET"
+#    - "POST"
+#    - "PUT"
+#    - "PATCH"
+#    - "DELETE"
+#    - "HEAD"
+#    - "OPTIONS"
+#
+#  # <list[string]> List of headers allowed in cross-origin requests.
+#  # Default value: not set
+#  allowedHeaders:
+#    - "Accept"
+#    - "Authorization"
+#    - "Content-Type"
+#    - "Origin"
+#    - "X-Requested-With"
+#
+#  # <list[string]> List of headers that browsers are allowed to access.
+#  # Default value: not set
+#  exposedHeaders: []
+#
+#  # <bool> Allow requests to include credentials like cookies or auth headers.
+#  # Default value: false
+#  allowCredentials: false
+#
+#  # <int> How long (in seconds) preflight results can be cached.
+#  # Default value: 86400 (24 hours)
+#  maxAge: 86400
+#
+#  # <bool> Enable support for Private Network Access preflights.
+#  # Default value: false
+#  allowPrivateNetwork: false
+#
+#  # <bool> Pass OPTIONS requests to the next handler instead of handling them internally.
+#  # Default value: false
+#  optionsPassthrough: false
+#
+#  # <int> HTTP status code to return for successful OPTIONS requests.
+#  # Default value: 204
+#  optionsSuccessStatus: 204

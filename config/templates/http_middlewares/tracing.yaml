@@ -1,0 +1,47 @@
+# Tracing configuration for distributed tracing with OpenTelemetry.
+# Controls distributed tracing for HTTP requests using OpenTelemetry.
+# Provides end-to-end visibility into request flows across service boundaries.
+
+#tracing:
+#  # <bool> Enable distributed tracing.
+#  # Default value: false
+#  enabled: false
+#
+#  # <list[string]> List of exact URL paths to skip processing for.
+#  # Default value: not set
+#  ignorePaths:
+#    - "/health"
+#
+#  # <list[string]> List of regex patterns for URL paths to skip processing.
+#  # Default value: not set
+#  ignorePatterns:
+#    - "^/health\\..*"
+#
+#  # <bool> Record request/response bodies in traces.
+#  # Warning: This can significantly increase trace size and may expose sensitive data.
+#  # Default value: false
+#  recordBody: false
+#
+#  # <bool> Record HTTP headers as span attributes.
+#  # Sensitive headers are automatically redacted based on redactedHeaders list.
+#  # Default value: true
+#  recordHeaders: true
+#
+#  # <list[string]> List of header names to redact from traces.
+#  # Values are replaced with "[REDACTED]".
+#  # Default value: ["Authorization", "Cookie", "Set-Cookie", "X-API-Key", "X-Auth-Token"]
+#  redactedHeaders:
+#    - "Authorization"
+#    - "Cookie"
+#    - "Set-Cookie"
+#    - "X-API-Key"
+#    - "X-Auth-Token"
+#
+#  # <bool> Propagate trace context from incoming requests.
+#  # When true, parent spans from incoming requests are linked to server spans.
+#  # Default value: true
+#  propagateContext: true
+#
+#  # <bool> Record client IP as span attribute.
+#  # Default value: true
+#  recordClientIP: true

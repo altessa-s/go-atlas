@@ -1,0 +1,49 @@
+# Idempotency configuration for duplicate request prevention.
+# Tracks idempotency keys to ensure duplicate requests return cached responses.
+# Essential for financial operations and critical business transactions.
+
+#idempotency:
+#  # <bool> Enable idempotency checking.
+#  # When enabled, tracks and deduplicates requests by idempotency key.
+#  # Default value: false
+#  enabled: false
+#
+#  # <list[string]> List of gRPC methods to skip idempotency checking for.
+#  # Methods that don't need idempotency protection.
+#  # Default value: not set
+#  ignoreMethods:
+#    - "/api.UserService/GetPublicData"
+#
+#  # <list[string]> List of regex patterns for methods to skip idempotency.
+#  # Pattern-based rules for idempotency bypass.
+#  # Default value: not set
+#  ignorePatterns:
+#    - "^(?i)/api.readonly.*"
+#
+#  # <string> Header name for idempotency key.
+#  # HTTP header name containing the idempotency key.
+#  # Default value: idempotency-key
+#  idempotencyKeyHeader: idempotency-key
+#
+#  # <string> Field name to extract idempotency key from request.
+#  # Field in the request message containing idempotency key.
+#  # Default value: idempotencyKey
+#  idempotencyKeyField: idempotencyKey
+#
+#  # <string> Fallback behavior when error occurs during idempotency processing.
+#  # Determines how to handle requests when storage backends are unavailable.
+#  # Supported values: allow, deny, error
+#  # Default value: deny
+#  fallbackBehavior: deny
+#
+#  # <string> Metadata key for idempotency status response.
+#  # Default value: Idempotency-Key-Status
+#  idempotencyKeyStatusMetadata: Idempotency-Key-Status
+#
+#  # <string> Metadata key for entity ID response.
+#  # Default value: Idempotency-Key-Entity-Id
+#  idempotencyKeyEntityIdMetadata: Idempotency-Key-Entity-Id
+#
+#  # <bool> Enforce mandatory idempotency key for all methods.
+#  # Default value: false
+#  enforceMandatory: false

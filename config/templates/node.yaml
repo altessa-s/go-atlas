@@ -1,0 +1,13 @@
+# Node configuration.
+# Defines settings for node identification in distributed environments.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#node:
+#  # <string> Unique identifier for this service node instance.
+#  # Used to distinguish this node from other instances in distributed deployments.
+#  # Must contain only alphanumeric characters, underscores, and hyphens.
+#  # If not set, a UUID will be automatically generated at startup.
+#  # The ID is converted to uppercase for consistency across the system.
+#  # Default value: not set (auto-generated UUID)
+#  id:

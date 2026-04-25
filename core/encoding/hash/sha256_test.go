@@ -1,0 +1,85 @@
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Use of this source code is governed by license that can be found in
+// the LICENSE file.
+
+package hash_test
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/core/encoding/hash"
+)
+
+func TestSHA256(t *testing.T) {
+	input := "hello world"
+	expectedBytes := sha256.Sum256([]byte(input))
+	expectedHex := hex.EncodeToString(expectedBytes[:])
+
+	t.Run("SHA256HexBytes", func(t *testing.T) {
+		got := hash.SHA256HexBytes([]byte(input))
+		require.Equal(t, expectedHex, got)
+	})
+
+	t.Run("SHA256HexString", func(t *testing.T) {
+		got := hash.SHA256HexString(input)
+		require.Equal(t, expectedHex, got)
+
+		// Empty string check
+		require.Equal(t, hash.SHA256HexBytes(nil), hash.SHA256HexString(""), "Empty string hash mismatch")
+	})
+
+	t.Run("SHA256HexWithPrefix", func(t *testing.T) {
+		prefix := "sha256:"
+		got := hash.SHA256HexWithPrefix(prefix, input)
+		require.Equal(t, prefix+expectedHex, got)
+
+		// Empty string with prefix
+		emptyHash := hash.SHA256HexBytes(nil)
+		require.Equal(t, prefix+emptyHash, hash.SHA256HexWithPrefix(prefix, ""))
+	})
+
+	t.Run("SHA256HexWithSalt", func(t *testing.T) {
+		data := []byte(input)
+		salt := []byte("random-salt")
+
+		salted := hash.SHA256HexWithSalt(data, salt)
+		unsalted := hash.SHA256HexBytes(data)
+
+		require.NotEqual(t, unsalted, salted, "salted hash should differ from unsalted hash")
+
+		// Same inputs produce the same hash (deterministic).
+		require.Equal(t, salted, hash.SHA256HexWithSalt(data, salt), "SHA256HexWithSalt not deterministic")
+
+		// Different salt produces a different hash.
+		other := hash.SHA256HexWithSalt(data, []byte("other-salt"))
+		require.NotEqual(t, salted, other, "different salts should produce different hashes")
+
+		// Verify against reference: sha256(salt || data).
+		ref := sha256.New()
+		ref.Write(salt)
+		ref.Write(data)
+		want := hex.EncodeToString(ref.Sum(nil))
+		require.Equal(t, want, salted)
+	})
+
+	t.Run("SHA256HexStringWithSalt", func(t *testing.T) {
+		salt := "random-salt"
+
+		salted := hash.SHA256HexStringWithSalt(input, salt)
+		unsalted := hash.SHA256HexString(input)
+
+		require.NotEqual(t, unsalted, salted, "salted hash should differ from unsalted hash")
+
+		// Must match the []byte variant.
+		byteSalted := hash.SHA256HexWithSalt([]byte(input), []byte(salt))
+		require.Equal(t, byteSalted, salted, "string and byte variants disagree")
+
+		// Empty data and salt.
+		empty := hash.SHA256HexStringWithSalt("", "")
+		require.Equal(t, hash.SHA256HexBytes(nil), empty, "empty salt+data should equal unsalted empty")
+	})
+}

@@ -1,0 +1,30 @@
+# Real IP configuration for client IP extraction from proxy headers.
+# Extracts real client IP from proxy headers (e.g., X-Forwarded-For).
+# Essential for accurate rate limiting, logging, and access control behind proxies.
+
+#realIp:
+#  # <bool> Enable real IP extraction.
+#  # Default value: false
+#  enabled: false
+#
+#  # <list[string]> List of exact URL paths to skip processing for.
+#  # Default value: not set
+#  ignorePaths:
+#    - "/health"
+#
+#  # <list[string]> List of regex patterns for URL paths to skip processing.
+#  # Default value: not set
+#  ignorePatterns:
+#    - "^/health\\..*"
+#
+#  # <list[string]> Headers to check for real IP (in order).
+#  # Default value: ["X-Forwarded-For", "X-Real-IP"]
+#  headers:
+#    - "X-Forwarded-For"
+#    - "X-Real-IP"
+#
+#  # <list[string]> Trusted proxy IP addresses or CIDR ranges.
+#  # Default value: not set
+#  trustedProxies:
+#    - "10.0.0.0/8"
+#    - "172.16.0.0/12"

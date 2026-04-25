@@ -1,0 +1,352 @@
+# Authentication configuration.
+# Defines OpenID Connect authentication settings and token validation rules.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+#
+#oidc:
+#  # <string> URL of the OpenID Connect discovery endpoint.
+#  # Required for OpenID Connect authentication.
+#  # Default value: not set
+#  discoveryUrl:
+#
+#  # <duration> Acceptable clock skew when validating timestamps.
+#  # Compensates for small time differences between servers.
+#  # Recommended value: 30s-60s for production.
+#  # Default value: 10s
+#  clockSkew: 10s
+#
+#  # <object> Token caching configuration.
+#  # Controls caching behavior for validated and revoked tokens.
+#  cache:
+#    # <bool> Enable caching of token validation results.
+#    # Significantly reduces load on OIDC provider and speeds up validation.
+#    # Default value: false
+#    enabled: false
+#
+#    # <string> Cache key prefix for validated tokens.
+#    # Allows namespacing cache keys to avoid collisions when multiple applications
+#    # or provider instances share the same cache backend.
+#    # Default value: "tokens:"
+#    tokensKeyPrefix: "tokens:"
+#
+#    # <string> Cache key prefix for revoked tokens.
+#    # Allows namespacing cache keys to avoid collisions when multiple applications
+#    # or provider instances share the same cache backend.
+#    # Default value: "revoked-tokens:"
+#    revokedTokensKeyPrefix: "revoked-tokens:"
+#
+#  # <object> JWKS-specific settings for key management.
+#  # Configures JWKS refresh behavior and HTTP timeouts.
+#  jwks:
+#    # <bool> Enables proactive JWKS refresh via an external scheduler.
+#    # Default value: true
+#    refreshEnabled: true
+#
+#    # <string> Cron schedule for periodic JWKS refresh.
+#    # Proactively updates keys before cache expiration.
+#    # Supports standard cron format with seconds: "sec min hour day month weekday"
+#    # Example: "0 0 * * * *" (every hour)
+#    # Default value: "0 0 * * * *"
+#    refreshSchedule: "0 0 * * * *"
+#
+#    # <duration> Timeout for JWKS HTTP requests.
+#    # Applies to both initial JWKS fetch and subsequent refresh operations.
+#    # Default value: 30s
+#    httpTimeout: 30s
+#
+#  # <object> Shared OAuth2 client credentials for server-to-server operations.
+#  # Used by introspection (RFC 7662) and other client credentials flows.
+#  clientCredentials:
+#    # <string> OAuth2 client identifier.
+#    # Default value: not set
+#    clientId:
+#
+#    # <string> OAuth2 client secret.
+#    # Default value: not set
+#    clientSecret:
+#
+#  # <object> RFC 7662 token introspection configuration.
+#  # Credentials come from the clientCredentials section above.
+#  introspection:
+#    # <bool> Enable token introspection.
+#    # Default value: false
+#    enabled: false
+#
+#    # <bool> Fail-closed mode: when true, ValidateToken rejects tokens with
+#    # ErrIntrospection whenever the introspection endpoint is unreachable
+#    # (network error, non-2xx response, parse failure). Without strict
+#    # mode an unreachable IdP silently bypasses revocation: the token is
+#    # accepted on its signature alone. Recommended for production.
+#    # Default value: false
+#    strict: false
+#
+#  # <object> Token validation settings.
+#  # Configures default validation rules for OIDC tokens.
+#  validation:
+#    # <string> Expected issuer (iss claim) of the token.
+#    # Must match the 'iss' claim in the token.
+#    # If not set, automatically extracted from discoveryUrl.
+#    # Default value: not set
+#    issuer:
+#
+#    # <duration> Maximum token lifetime.
+#    # Rejects tokens with exp - iat > maxTokenLifetime.
+#    # Protection against tokens with excessively long validity period.
+#    # Default value: not set (no limitation)
+#    maxTokenLifetime: 1h
+#
+#    # <object> CEL expression for custom token validation logic.
+#    # Provides flexible validation beyond standard claim checks.
+#    expression:
+#      # <string> The CEL expression to evaluate (required).
+#      # The expression must evaluate to a boolean value (true = valid, false = invalid).
+#      #
+#      # Available variables in CEL context:
+#      #   - claims: map of all token claims (e.g., claims.iss, claims.aud, claims.email)
+#      #   - token: raw token string
+#      #
+#      # Example expressions:
+#      #   - 'claims.email.endsWith("@example.com")'                    // Email domain validation
+#      #   - 'claims.role in ["admin", "editor"]'                       // Role-based validation
+#      #   - 'claims.iss.contains("accounts.google.com")'               // Issuer validation
+#      #   - 'claims.exp - claims.iat <= duration("24h").getSeconds()'  // Max lifetime check
+#      #   - 'has(claims.email) && claims.email_verified == true'       // Email verification
+#      #
+#      # Default value: '' (no custom validation)
+#      expression: ''
+#
+#      # <string> Name for this validation rule (optional).
+#      # Used in error messages and logs to identify which rule failed.
+#      # If not specified, defaults to "custom-validation".
+#      # Default value: not set
+#      name: ''
+#
+#    # <object> Claims validation configuration.
+#    # Defines requirements for JWT token claims.
+#    claims:
+#      # <list[string]> List of required claims that must be present in the token.
+#      # Token will be rejected if any of these claims is missing.
+#      # Default value: not set
+#      # To override defaults, specify your own list (empty list disables requirement).
+#      required: ["sub", "aud", "exp", "iat", "iss"]
+#
+#      # <map[string,string]> Map of expected values for specific claims.
+#      # Token must contain specified claims with exactly matching values.
+#      # Useful for validating domain-specific attributes.
+#      # Values must be strings. For complex validation use CEL expressions.
+#      # Default value: {} (no expected values)
+#      expected: {}
+#
+#      # <list[string]> Claims that should be ignored during validation.
+#      # Used to disable validation of certain claims.
+#      # Default value: [] (no claims ignored)
+#      ignored: []
+#
+#      # <list[string]> Expected audience claim in the token.
+#      # Token must contain at least one of the specified audiences.
+#      # Default value: [] (no audience validation)
+#      audience: []
+#
+#      # <list[string]> List of allowed client_id for service-to-service calls.
+#      # Tokens from other clients will be rejected.
+#      # Leave empty to allow all authenticated services.
+#      # Default value: [] (all allowed)
+#      allowedClientIds: []
+#
+#      # <list[string]> List of required scopes for service tokens.
+#      # Token must contain at least one of the specified scopes.
+#      # Default value: [] (no scope validation)
+#      requiredScopes: []
+#
+#      # <bool> Require 'azp' (authorized party) claim presence.
+#      # In multi-tenant environments helps identify the request initiator.
+#      # Default value: false
+#      requireAuthorizedParty: false
+#
+#      # <list[string]> List of allowed 'azp' claim values.
+#      # Used in conjunction with requireAuthorizedParty.
+#      # Default value: []
+#      allowedAuthorizedParties: []
+#
+#      # <bool> Allow tokens without 'sub' claim for service accounts.
+#      # Some OIDC providers don't include 'sub' in service account tokens.
+#      # Default value: false
+#      allowMissingSubject: false
+#
+#  # <object> Validation presets configuration.
+#  # Presets allow defining multiple validation rule sets that can be dynamically selected
+#  # based on token claims or custom logic. This is useful for multi-tenant applications
+#  # or when handling tokens from different identity providers.
+#  #
+#  # The presets configuration consists of two parts:
+#  # 1. 'list' - defines available presets with their validation rules
+#  # 2. 'selectors' - defines rules for automatic preset selection based on token claims
+#  #
+#  # Selectors reference presets by name (selector.presetName -> preset.name).
+#  presets:
+#    # <list[object]> List of named validation presets.
+#    # Each preset defines a complete set of validation rules that can be applied to tokens.
+#    # Presets are selected dynamically using selector rules or programmatically by name.
+#    # Default value: []
+#    list:
+#      # Example preset for Google OAuth tokens
+#      - name: google
+#
+#        # <string> Expected issuer (iss claim) for this preset.
+#        # Default value: not set
+#        issuer:
+#
+#        # <duration> Maximum token lifetime for this preset.
+#        # Default value: not set (no limitation)
+#        maxTokenLifetime: 1h
+#
+#        # <object> CEL expression for custom token validation logic.
+#        # Provides flexible validation beyond standard claim checks.
+#        expression:
+#          # <string> The CEL expression to evaluate (required).
+#          # The expression must evaluate to a boolean value (true = valid, false = invalid).
+#          #
+#          # Available variables in CEL context:
+#          #   - claims: map of all token claims (e.g., claims.iss, claims.aud, claims.email)
+#          #   - token: raw token string
+#          #
+#          # Example expressions:
+#          #   - 'claims.email.endsWith("@example.com")'                    // Email domain validation
+#          #   - 'claims.role in ["admin", "editor"]'                       // Role-based validation
+#          #   - 'claims.iss.contains("accounts.google.com")'               // Issuer validation
+#          #   - 'claims.exp - claims.iat <= duration("24h").getSeconds()'  // Max lifetime check
+#          #   - 'has(claims.email) && claims.email_verified == true'       // Email verification
+#          #
+#          # Default value: '' (no custom validation)
+#          expression: ''
+#
+#          # <string> Name for this validation rule (optional).
+#          # Used in error messages and logs to identify which rule failed.
+#          # If not specified, defaults to preset name with "-validation" suffix.
+#          # Default value: not set
+#          name: ''
+#
+#        # <object> Claims validation rules for this preset.
+#        claims:
+#          # <list[string]> Required claims for this preset.
+#          # Default value: not set
+#          # To override defaults, specify your own list (empty list disables requirement).
+#          required: ["sub", "aud", "exp", "iat", "iss"]
+#
+#          # <map[string,string]> Expected claim values for this preset.
+#          # Token must contain specified claims with exactly matching values.
+#          # Values must be strings. For complex validation use CEL expressions.
+#          # Default value: {} (no expected values)
+#          expected: {}
+#
+#          # <list[string]> Claims to ignore for this preset.
+#          # Default value: [] (no claims ignored)
+#          ignored: []
+#
+#          # <list[string]> Expected audience values for this preset.
+#          # Token must contain at least one of the specified audiences.
+#          # Default value: [] (no audience validation)
+#          audience: []
+#
+#          # <list[string]> Allowed client IDs for this preset.
+#          # Default value: []
+#          allowedClientIds: []
+#
+#          # <list[string]> Required scopes for this preset.
+#          # Default value: []
+#          requiredScopes: []
+#
+#          # <bool> Require authorized party claim for this preset.
+#          # Default value: false
+#          requireAuthorizedParty: false
+#
+#          # <list[string]> Allowed authorized parties for this preset.
+#          # Default value: []
+#          allowedAuthorizedParties: []
+#
+#          # <bool> Allow missing subject claim for this preset.
+#          # Default value: false
+#          allowMissingSubject: false
+#
+#    # <list[object]> Selector rules for automatic preset selection.
+#    # Rules are evaluated in priority order (highest priority first) to dynamically choose
+#    # validation presets based on token claims. The first matching rule determines which preset to use.
+#    # This enables advanced scenarios like multi-tenant applications or federated authentication.
+#    # Default value: []
+#    selectors:
+#      # Example selector for Google OAuth tokens
+#      - # <string> CEL expression that evaluates to true/false to select this preset.
+#        # Available variables in CEL context:
+#        #   - claims: map of all token claims (e.g., claims.iss, claims.aud)
+#        #   - token: raw token string
+#        #
+#        # Example expressions:
+#        #   - 'claims.iss.contains("accounts.google.com")'  // Select for Google tokens
+#        #   - 'claims.iss.contains("microsoftonline.com")'  // Select for Azure AD tokens
+#        #   - 'claims.azp in ["client-1", "client-2"]'      // Select by authorized party
+#        #   - 'claims.tenant_id == "my-tenant-id"'          // Select by tenant
+#        #
+#        # Default value: '' (empty expression matches nothing)
+#        expression: 'claims.iss.contains("accounts.google.com")'
+#
+#        # <int> Priority for rule evaluation (higher priority = evaluated first).
+#        # When multiple selector rules match, the one with highest priority is used.
+#        # Useful for creating fallback rules with lower priority.
+#        # Default value: 0
+#        priority: 100
+#
+#        # <string> Name of the preset to apply when this selector matches.
+#        # Must reference a preset name from the 'list' section above.
+#        # Default value: not set
+#        presetName: 'google'
+#
+#  # <object> Token/key revocation configuration.
+#  # Enables checking and synchronizing revoked items.
+#  revocation:
+#    # <bool> Enables revocation checking.
+#    # Default value: false
+#    enabled: false
+#
+#    # <bool> Enables periodic synchronization of the revocation storage.
+#    # NOTE: Must be managed via an external scheduler.
+#    # Default value: true
+#    syncEnabled: true
+#
+#    # <string> Cron schedule for periodic revocation synchronization.
+#    # Supports standard cron format with seconds: "sec min hour day month weekday"
+#    # Example: "0 0 * * * *" (every hour)
+#    # Default value: "0 0 * * * *"
+#    syncSchedule: "0 0 * * * *"
+#
+#    # <string> Specifies what items are being revoked: "token", "jti", or "kid".
+#    # Supported values: token, jti, kid
+#    # Default value: "token"
+#    itemType: "token"
+#
+#    # <object> Probabilistic filter configuration for efficient revocation checks.
+#    filter:
+#      # <string> Type of filter: "bloom" or "cuckoo".
+#      # Supported values: bloom, cuckoo
+#      # Default value: "bloom"
+#      type: "bloom"
+#      # <object> Bloom filter specific settings.
+#      bloom:
+#        # <int64> Expected number of revoked items.
+#        expectedItems: 1000000
+#
+#    # <object> Configuration for fetching the revocation list from external sources.
+#    source:
+#      # <string> URL to fetch revoked items from.
+#      # Default value: not set
+#      url:
+#      # <string> File path to read revoked items from.
+#      # Default value: not set
+#      file:
+#
+#  # <object> Outbound HTTP proxy for ALL OIDC API requests:
+#  # discovery, JWKS refresh, introspection, userinfo, and the URL-based
+#  # revocation loader. Uncomment the !include line below AND the desired
+#  # fields in http_proxy.yaml itself to enable. When the include stays
+#  # commented the standard HTTP_PROXY/HTTPS_PROXY/NO_PROXY env variables
+#  # apply.
+#  !include http_proxy.yaml

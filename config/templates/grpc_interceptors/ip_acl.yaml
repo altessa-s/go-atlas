@@ -1,0 +1,55 @@
+# IP access control configuration for endpoint-level allowlisting and denylisting.
+# Restricts access to specific gRPC methods based on client IP addresses.
+# Requires the realip interceptor to be enabled for proper client IP extraction.
+
+#ipAcl:
+#  # <bool> Enable IP access control.
+#  # Default value: false
+#  enabled: false
+#
+#  # <list[string]> List of gRPC methods to skip IP access control for.
+#  # Default value: not set
+#  ignoreMethods:
+#    - "/grpc.health.v1.Health/Check"
+#
+#  # <list[string]> List of regex patterns for methods to skip IP access control.
+#  # Default value: not set
+#  ignorePatterns:
+#    - "^(?i)/grpc.health.*"
+#
+#  # <string> Default policy when an IP matches neither allowlist nor denylist.
+#  # "deny" = allowlist mode (deny unless allowed), "allow" = denylist mode (allow unless denied).
+#  # Supported values: deny, allow
+#  # Default value: deny
+#  defaultPolicy: deny
+#
+#  # <string> Behavior when no valid client IP is available.
+#  # Determines how to handle requests when the client IP cannot be determined.
+#  # Supported values: allow, deny, error
+#  # Default value: deny
+#  fallbackBehavior: deny
+#
+#  # Default rule applied when no endpoint-specific rule matches.
+#  # Useful for setting baseline access across all endpoints.
+#  defaultRule:
+#    allowlist:
+#      - "10.0.0.0/8"
+#      - "192.168.0.0/16"
+#
+#  # <list> Per-endpoint or per-pattern access control rules.
+#  # Each rule can target specific endpoints by name or regex patterns.
+#  # Within a rule: denylist is checked first (deny wins), then allowlist,
+#  # then the defaultPolicy applies.
+#  rules:
+#    - endpoints:
+#        - "/admin.AdminService/DeleteUser"
+#        - "/admin.AdminService/UpdatePermissions"
+#      allowlist:
+#        - "10.1.1.0/24"
+#
+#    - patterns:
+#        - "^/internal\\..*"
+#      allowlist:
+#        - "10.0.0.0/8"
+#      denylist:
+#        - "10.99.0.0/16"

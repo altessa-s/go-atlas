@@ -1,0 +1,52 @@
+# Real IP configuration for extracting client IP addresses from proxy headers.
+# Extracts real client IP addresses from proxy headers like X-Forwarded-For.
+# Essential for services behind load balancers or reverse proxies.
+
+#realIp:
+#  # <bool> Enable real IP extraction.
+#  # When enabled, extracts real client IPs from proxy headers.
+#  # Default value: false
+#  enabled: false
+#
+#  # <list[string]> List of gRPC methods to skip real IP extraction for.
+#  # Methods should be specified in the format "/service.Service/Method".
+#  # Default value: not set
+#  ignoreMethods:
+#    - "/grpc.health.v1.Health/Check"
+#
+#  # <list[string]> List of regex patterns for methods to skip real IP extraction.
+#  # Pattern-based rules for real IP bypass.
+#  # Default value: not set
+#  ignorePatterns:
+#    - "^(?i)/grpc.health.*"
+#
+#  # <list[string]> List of trusted proxy IP addresses or CIDR blocks.
+#  # Only these proxies are trusted to set forwarded headers.
+#  # Default value: not set
+#  trustedProxies:
+#    - "10.0.0.0/8"
+#    - "172.16.0.0/12"
+#
+#  # <uint> Number of trusted proxies that may append X-Forwarded-For.
+#  # Controls how many proxy hops are trusted.
+#  # Default value: 0
+#  trustedProxiesCount: 0
+#
+#  # <list[string]> List of trusted peer IP addresses or CIDR blocks.
+#  # Direct peers that are trusted for IP information.
+#  # Default value: not set
+#  trustedPeers:
+#    - "::1"
+#
+#  # <list[string]> List of headers to check for real IP (in order of preference).
+#  # If empty, uses default headers: X-Forwarded-For, X-Real-IP, X-Client-IP, CF-Connecting-IP, Fastly-Client-Ip, True-Client-Ip.
+#  # Custom header priority order for IP extraction.
+#  # Default value: not set (uses built-in defaults)
+#  headers:
+#    - X-Forwarded-For
+#    - X-Real-IP
+#
+#  # <int> Size of the IP validation cache (0 to disable).
+#  # Caches IP validation results to improve performance.
+#  # Default value: 1000
+#  cacheSize: 1000

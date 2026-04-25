@@ -1,0 +1,31 @@
+# S3 storage configuration.
+# Defines settings for connecting to S3-compatible storage.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#s3:
+#  # <string> The endpoint of the S3-compatible storage service.
+#  # For AWS S3, use region-specific endpoints like s3.us-west-2.amazonaws.com.
+#  # For MinIO or other S3-compatible services, use the service URL.
+#  # Default value: http://localhost:9000
+#  endpoint: http://localhost:9000
+#
+#  # <string> Access key ID for S3 authentication.
+#  # This should be kept secure and not logged.
+#  # Default value: not set (required)
+#  accessKey:
+#
+#  # <string> Secret access key for S3 authentication.
+#  # This should be kept secure and not logged.
+#  # Default value: not set (required)
+#  secretKey:
+#
+#  # <bool> Use path-style addressing instead of virtual-hosted-style.
+#  # Enable for MinIO or S3-compatible services that require path-style URLs.
+#  # Default value: false
+#  pathStyle: false
+#
+#  # <string> AWS region for the S3 bucket.
+#  # Required. For example: us-east-1, eu-west-1.
+#  # Default value: not set (required)
+#  region:

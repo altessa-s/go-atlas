@@ -1,0 +1,38 @@
+# Distributed tracing configuration for gRPC requests.
+# Controls OpenTelemetry-based distributed tracing for request flows.
+
+#tracing:
+#  # <bool> Enable distributed tracing.
+#  # When enabled, creates spans for gRPC requests.
+#  # Default value: false
+#  enabled: false
+#
+#  # <list[string]> List of gRPC methods to skip tracing for.
+#  # Methods that should not produce trace spans.
+#  # Default value: not set
+#  ignoreMethods:
+#    - "/grpc.health.v1.Health/Check"
+#
+#  # <list[string]> List of regex patterns for methods to skip tracing.
+#  # Pattern-based rules for tracing bypass.
+#  # Default value: not set
+#  ignorePatterns:
+#    - "^(?i)/grpc.health.*"
+#
+#  # <bool> Record request/response payloads in trace spans.
+#  # Warning: This can significantly increase trace size and may expose sensitive data.
+#  # Default value: false
+#  recordPayload: false
+#
+#  # <bool> Record gRPC metadata as span attributes.
+#  # Default value: true
+#  recordMetadata: true
+#
+#  # <bool> Record streaming message events in trace spans.
+#  # Default value: true
+#  recordEvents: true
+#
+#  # <bool> Propagate trace context from incoming requests.
+#  # When true, parent spans from incoming requests are linked to server spans.
+#  # Default value: true
+#  propagateContext: true

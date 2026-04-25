@@ -1,0 +1,148 @@
+# TLS provider configuration.
+# Defines settings for various TLS certificate providers for secure communication.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#tlsProvider:
+#  # <object> File-based TLS certificate provider configuration.
+#  # Uses certificate and private key files from the local filesystem.
+#  file:
+#    # <string> Path to TLS/SSL certificate file (.pem format).
+#    # Contains the public certificate for TLS communication.
+#    # Default value: not set (required for file provider)
+#    certificate:
+#
+#    # <string> Path to TLS/SSL private key file (.pem format).
+#    # Contains the private key corresponding to the certificate.
+#    # Default value: not set (required for file provider)
+#    privateKey:
+#
+#    # <string> Password to decrypt the private key.
+#    # Required if the private key file is encrypted.
+#    # Default value: not set
+#    privateKeyPassword:
+#
+#  # <object> HashiCorp Vault PKI certificate provider configuration.
+#  # Dynamically issues and renews certificates using Vault's PKI engine.
+#  vault:
+#    # <string> Certificate common name (CN) for the issued certificate.
+#    # Primary domain name or identifier for the certificate.
+#    # Default value: not set (required for vault provider)
+#    commonName:
+#
+#    # <string> Vault role to use when issuing certificates.
+#    # Must be configured in Vault PKI engine with appropriate permissions.
+#    # Default value: not set (required for vault provider)
+#    role:
+#
+#    # <duration> How early certificates should be renewed before expiration.
+#    # Ensures certificates are renewed with sufficient time buffer.
+#    # Default value: 30m
+#    renewBefore: 30m
+#
+#    # <list[string]> Additional DNS Subject Alternative Names.
+#    # Extra domain names for the certificate.
+#    # Default value: not set
+#    subjectAlternativeNames:
+#
+#    # <list[string]> Additional IP Address Subject Alternative Names.
+#    # Extra IP addresses that should be valid for the certificate.
+#    # Default value: not set
+#    ipSubjectAlternativeNames:
+#
+#  # <object> Let's Encrypt ACME certificate provider configuration.
+#  # Automatically obtains and renews free SSL certificates from Let's Encrypt.
+#  letsencrypt:
+#    # <string> Contact email address for Let's Encrypt notifications.
+#    # Used to notify about certificate problems and expiration.
+#    # Default value: not set (required for letsencrypt provider)
+#    email:
+#
+#    # <list[string]> Domain names for which the certificate should be issued.
+#    # First domain becomes the common name. Must be publicly accessible domain names.
+#    # Default value: not set (required for letsencrypt provider)
+#    domain: []
+#
+#    # <duration> How early certificates should be renewed before expiration.
+#    # Let's Encrypt certificates are valid for 90 days.
+#    # Default value: 30m
+#    renewBefore: 30m
+#
+#    # <bool> Whether to start internal server for ACME HTTP challenge.
+#    # Required for HTTP-01 challenge validation.
+#    # Default value: false
+#    startInternalServer: false
+#
+#    # <string> Address for the internal ACME challenge server.
+#    # Only used if startInternalServer is true.
+#    # Default value: 0.0.0.0:8080
+#    listenAddress: "0.0.0.0:8080"
+#
+#  # <object> S3-based TLS certificate provider configuration.
+#  # Downloads certificates from S3-compatible storage (AWS S3, MinIO)
+#  # with periodic polling for changes using ETags.
+#  s3:
+#    # <string> S3 service endpoint URL.
+#    # For AWS S3, use regional endpoints like "https://s3.us-east-1.amazonaws.com".
+#    # For MinIO, use the MinIO server URL.
+#    # Default value: http://localhost:9000
+#    endpoint: "https://s3.us-east-1.amazonaws.com"
+#
+#    # <string> Access key ID for S3 authentication.
+#    # Default value: not set (required)
+#    accessKey: "$__secret{aws:accessKey}"
+#
+#    # <string> Secret access key for S3 authentication.
+#    # Default value: not set (required)
+#    secretKey: "$__secret{aws:secretKey}"
+#
+#    # <string> AWS region for the S3 bucket.
+#    # Default value: not set (required)
+#    region: "us-east-1"
+#
+#    # <bool> Enable path-style addressing instead of virtual-hosted-style.
+#    # Use for MinIO or S3-compatible services that do not support virtual-hosted-style URLs.
+#    # Default value: false
+#    pathStyle: false
+#
+#    # <string> S3 bucket containing the certificate files.
+#    # Default value: not set (required)
+#    bucket: "my-certs-bucket"
+#
+#    # <string> S3 object key for the PEM-encoded certificate.
+#    # Default value: not set (required)
+#    certificateKey: "certs/server.crt"
+#
+#    # <string> S3 object key for the PEM-encoded private key.
+#    # Default value: not set (required)
+#    privateKeyKey: "certs/server.key"
+#
+#    # <string> Password to decrypt the private key.
+#    # Required if the private key is encrypted.
+#    # Default value: not set
+#    privateKeyPassword: "$__secret{tls:keyPassword}"
+#
+#    # <duration> How often to check S3 for certificate changes via ETag comparison.
+#    # Uses HeadObject (no data transfer) for efficient polling.
+#    # Default value: 5m
+#    pollInterval: "5m"
+#
+#    # <object> Server-side encryption configuration for reading certificate objects.
+#    # SSE-S3 and SSE-KMS are transparent on read; SSE-C requires explicit parameters.
+#    # Default value: not set (no encryption)
+#    sse:
+#      # <string> SSE encryption type: "s3", "kms", or "c".
+#      # Default value: not set (required when sse is configured)
+#      type: "kms"
+#
+#      # <string> AWS KMS key ARN or ID. Required when type is "kms".
+#      # Default value: not set
+#      kmsKeyId: "arn:aws:kms:us-east-1:123456789:key/abcd-1234"
+#
+#      # <string> Customer-provided encryption key. Required when type is "c".
+#      # Default value: not set
+#      customerKey: "$__secret{s3:sseCustomerKey}"
+#
+#      # <string> Base64-encoded MD5 of the customer key. Required when type is "c".
+#      # Default value: not set
+#      customerKeyMd5:

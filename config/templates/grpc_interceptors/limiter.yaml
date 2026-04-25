@@ -1,0 +1,28 @@
+# Rate limiter configuration for traffic control and abuse prevention.
+# Implements per-client rate limiting to prevent service overload and abuse.
+# Essential for protecting APIs from DDoS attacks and ensuring fair usage.
+
+#limiter:
+#  # <bool> Enable rate limiting.
+#  # When enabled, applies rate limits to client requests.
+#  # Default value: false
+#  enabled: false
+#
+#  # <list[string]> List of gRPC methods to skip rate limiting for.
+#  # Methods that bypass rate limiting restrictions.
+#  # Default value: not set
+#  ignoreMethods:
+#    - "/grpc.health.v1.Health/Check"
+#    - "/api.InternalService/HealthCheck"
+#
+#  # <list[string]> List of regex patterns for methods to skip rate limiting.
+#  # Pattern-based rules for rate limiting bypass.
+#  # Default value: not set
+#  ignorePatterns:
+#    - "^(?i)/grpc.health.*"
+#
+#  # <string> Fallback behavior when rate limiting encounters errors.
+#  # Determines how to handle requests when storage backends are unavailable.
+#  # Supported values: allow, deny, error
+#  # Default value: deny
+#  fallbackBehavior: deny

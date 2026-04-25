@@ -1,0 +1,440 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://git.altessa-s.com/schemas/oidc/service-config.schema.json",
+  "title": "OIDC Service Configuration",
+  "description": "Declarative configuration schema for OIDC token validation rules, presets, and automatic preset selection",
+  "type": "object",
+  "required": ["version"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Configuration schema version",
+      "enum": ["1.0"],
+      "default": "1.0"
+    },
+    "default_validation": {
+      "$ref": "#/definitions/ValidationConfig",
+      "description": "Default validation options applied to all tokens without preset"
+    },
+    "presets": {
+      "type": "array",
+      "description": "Validation presets for different use cases",
+      "items": {
+        "$ref": "#/definitions/PresetConfig"
+      },
+      "uniqueItems": true
+    },
+    "preset_rules": {
+      "type": "array",
+      "description": "Automatic preset selection rules based on token claims",
+      "items": {
+        "$ref": "#/definitions/PresetRuleConfig"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "ValidationConfig": {
+      "type": "object",
+      "description": "Token validation configuration options",
+      "properties": {
+        "leeway": {
+          "type": "string",
+          "description": "Clock skew tolerance for time-based claims (Go duration format)",
+          "pattern": "^[0-9]+(ns|us|µs|ms|s|m|h)$",
+          "default": "0s",
+          "examples": ["5s", "10s", "30s"]
+        },
+        "verify_expiration": {
+          "type": "boolean",
+          "description": "Verify token expiration time (exp claim)",
+          "default": true
+        },
+        "verify_not_before": {
+          "type": "boolean",
+          "description": "Verify token not-before time (nbf claim)",
+          "default": false
+        },
+        "verify_issued_at": {
+          "type": "boolean",
+          "description": "Verify token issued-at time (iat claim)",
+          "default": false
+        },
+        "issuer": {
+          "type": "string",
+          "description": "Expected token issuer (iss claim)",
+          "examples": ["https://accounts.google.com", "https://auth.company.com"]
+        },
+        "audiences": {
+          "type": "array",
+          "description": "Expected token audiences (aud claim)",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "examples": [["my-api-server"], ["web-app", "mobile-app"]]
+        },
+        "subject": {
+          "type": "string",
+          "description": "Expected token subject (sub claim)",
+          "examples": ["user-123", "service-account-xyz"]
+        },
+        "required_claims": {
+          "type": "array",
+          "description": "Claims that must be present in the token",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "examples": [["email", "email_verified"], ["sub", "client_id"]]
+        },
+        "expected_claims": {
+          "type": "object",
+          "description": "Claims with expected values (exact match)",
+          "additionalProperties": true,
+          "examples": [
+            {"email_verified": true},
+            {"token_type": "Bearer", "status": "active"}
+          ]
+        },
+        "ignored_claims": {
+          "type": "array",
+          "description": "Claims to ignore during validation",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "examples": [["nonce", "at_hash"], ["jti", "sid"]]
+        },
+        "allowed_client_ids": {
+          "type": "array",
+          "description": "Allowed client_id values for service-to-service authentication. Empty list allows all",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "examples": [["service-1", "service-2"], ["internal-api", "backend-service"]]
+        },
+        "require_authorized_party": {
+          "type": "boolean",
+          "description": "Require 'azp' (authorized party) claim presence. Useful for multi-tenant scenarios",
+          "default": false
+        },
+        "allowed_authorized_parties": {
+          "type": "array",
+          "description": "Allowed 'azp' values. Only checked if require_authorized_party is true or azp is present",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "examples": [["tenant-1", "tenant-2"], ["client-app-1", "client-app-2"]]
+        },
+        "allow_missing_subject": {
+          "type": "boolean",
+          "description": "Allow tokens without 'sub' claim. Useful for service account tokens (client credentials flow)",
+          "default": false
+        },
+        "scopes": {
+          "$ref": "#/definitions/ScopesConfig",
+          "description": "OAuth2 scope validation configuration"
+        },
+        "token_lifetime": {
+          "$ref": "#/definitions/TokenLifetimeConfig",
+          "description": "Token lifetime constraints"
+        },
+        "cel_rules": {
+          "type": "array",
+          "description": "Custom CEL (Common Expression Language) validation rules",
+          "items": {
+            "$ref": "#/definitions/CELRuleConfig"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ScopesConfig": {
+      "type": "object",
+      "description": "OAuth2 scope validation configuration",
+      "properties": {
+        "required": {
+          "type": "array",
+          "description": "Scopes that must all be present",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "examples": [["openid", "profile"], ["api:read", "api:write"]]
+        },
+        "any_of": {
+          "type": "array",
+          "description": "At least one of these scopes must be present",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "examples": [["admin", "superuser"], ["read", "write", "delete"]]
+        },
+        "all_of": {
+          "type": "array",
+          "description": "All of these scopes must be present (same as required)",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "examples": [["openid", "email", "profile"]]
+        }
+      },
+      "additionalProperties": false
+    },
+    "TokenLifetimeConfig": {
+      "type": "object",
+      "description": "Token lifetime validation constraints",
+      "properties": {
+        "min": {
+          "type": "string",
+          "description": "Minimum token lifetime (Go duration format)",
+          "pattern": "^[0-9]+(ns|us|µs|ms|s|m|h)$",
+          "examples": ["1m", "5m", "10m"]
+        },
+        "max": {
+          "type": "string",
+          "description": "Maximum token lifetime (Go duration format)",
+          "pattern": "^[0-9]+(ns|us|µs|ms|s|m|h)$",
+          "examples": ["1h", "12h", "24h"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "CELRuleConfig": {
+      "type": "object",
+      "description": "CEL (Common Expression Language) validation rule",
+      "required": ["name", "expression"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Unique rule identifier (used in error messages)",
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "examples": ["email-domain", "admin-role", "active-user"]
+        },
+        "expression": {
+          "type": "string",
+          "description": "CEL expression that must evaluate to boolean true",
+          "minLength": 1,
+          "examples": [
+            "has(claims.email) && claims.email.endsWith('@company.com')",
+            "claims.role == 'admin'",
+            "has(claims.email_verified) && claims.email_verified == true"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "description": "Custom error message when validation fails",
+          "examples": [
+            "Only company email addresses are allowed",
+            "Admin role required",
+            "Email must be verified"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "PresetConfig": {
+      "type": "object",
+      "description": "Named validation preset",
+      "required": ["name", "validation"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Unique preset identifier",
+          "minLength": 1,
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "examples": ["internal-service", "user-api", "admin-only"]
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable preset description",
+          "examples": [
+            "Validation for internal microservices",
+            "Validation for user-facing API",
+            "Admin-only endpoints"
+          ]
+        },
+        "validation": {
+          "$ref": "#/definitions/ValidationConfig",
+          "description": "Validation configuration for this preset"
+        }
+      },
+      "additionalProperties": false
+    },
+    "PresetRuleConfig": {
+      "type": "object",
+      "description": "Automatic preset selection rule",
+      "required": ["preset", "conditions"],
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "Human-readable rule description",
+          "examples": [
+            "Select internal-service preset for service tokens",
+            "Select admin-only preset for admin role"
+          ]
+        },
+        "preset": {
+          "type": "string",
+          "description": "Name of the preset to apply when conditions match",
+          "minLength": 1,
+          "examples": ["internal-service", "user-api", "admin-only"]
+        },
+        "conditions": {
+          "type": "object",
+          "description": "Matching conditions (one condition type per rule)",
+          "oneOf": [
+            {
+              "required": ["claim_equals"],
+              "properties": {
+                "claim_equals": {
+                  "type": "object",
+                  "description": "Match when claim equals exact value",
+                  "additionalProperties": true,
+                  "minProperties": 1,
+                  "examples": [
+                    {"role": "admin"},
+                    {"token_type": "service"}
+                  ]
+                }
+              }
+            },
+            {
+              "required": ["claim_exists"],
+              "properties": {
+                "claim_exists": {
+                  "type": "array",
+                  "description": "Match when all specified claims exist",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "examples": [["email"], ["client_id", "scope"]]
+                }
+              }
+            },
+            {
+              "required": ["claim_contains"],
+              "properties": {
+                "claim_contains": {
+                  "type": "object",
+                  "description": "Match when claim contains substring",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "minProperties": 1,
+                  "examples": [
+                    {"email": "@company.com"},
+                    {"scope": "admin"}
+                  ]
+                }
+              }
+            },
+            {
+              "required": ["has_scope"],
+              "properties": {
+                "has_scope": {
+                  "type": "string",
+                  "description": "Match when token has specific scope",
+                  "minLength": 1,
+                  "examples": ["admin", "api:write"]
+                }
+              }
+            },
+            {
+              "required": ["has_any_scope"],
+              "properties": {
+                "has_any_scope": {
+                  "type": "array",
+                  "description": "Match when token has any of specified scopes",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "examples": [["admin", "superuser"], ["read", "write"]]
+                }
+              }
+            },
+            {
+              "required": ["has_all_scopes"],
+              "properties": {
+                "has_all_scopes": {
+                  "type": "array",
+                  "description": "Match when token has all specified scopes",
+                  "items": {
+                    "type": "string"
+                  },
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "examples": [["openid", "profile", "email"]]
+                }
+              }
+            },
+            {
+              "required": ["cel_expression"],
+              "properties": {
+                "cel_expression": {
+                  "type": "string",
+                  "description": "Match when CEL expression evaluates to true",
+                  "minLength": 1,
+                  "examples": [
+                    "has(claims.role) && claims.role == 'admin'",
+                    "has(claims.client_id) && claims.client_id.startsWith('service-')"
+                  ]
+                }
+              }
+            },
+            {
+              "required": ["matcher_and"],
+              "properties": {
+                "matcher_and": {
+                  "type": "array",
+                  "description": "Match when all nested conditions match (AND logic)",
+                  "items": {
+                    "type": "object"
+                  },
+                  "minItems": 2,
+                  "examples": [
+                    [
+                      {"claim_equals": {"role": "admin"}},
+                      {"has_scope": "api:write"}
+                    ]
+                  ]
+                }
+              }
+            },
+            {
+              "required": ["matcher_or"],
+              "properties": {
+                "matcher_or": {
+                  "type": "array",
+                  "description": "Match when any nested condition matches (OR logic)",
+                  "items": {
+                    "type": "object"
+                  },
+                  "minItems": 2,
+                  "examples": [
+                    [
+                      {"claim_equals": {"role": "admin"}},
+                      {"claim_equals": {"role": "superuser"}}
+                    ]
+                  ]
+                }
+              }
+            }
+          ],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

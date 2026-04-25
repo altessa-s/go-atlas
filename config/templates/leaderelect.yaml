@@ -1,0 +1,18 @@
+# Leader election configuration.
+# Defines settings for distributed leader election mechanism.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#leaderElector:
+#  # <string> Specifies the provider for leader election coordination.
+#  # Controls which distributed coordination system is used for leader election among service instances.
+#  # Supported values: nats
+#  # Default value: not set (required)
+#  provider: nats
+#
+#  # <duration> Time-to-live for leader election locks.
+#  # Defines how long a leader lock remains valid before requiring renewal.
+#  # Non-leader nodes will wait this duration to elect a new leader if the current leader fails to renew its lease.
+#  # Lower values provide faster failover but increase coordination overhead.
+#  # Default value: 10s
+#  ttl: 10s

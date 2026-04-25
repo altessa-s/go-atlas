@@ -1,0 +1,89 @@
+# Logging configuration.
+# Defines settings for the application's logging behavior, output format, and level.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#logger:
+#  # <string> Specifies the logging level for the application.
+#  # Controls the minimum severity of messages that will be logged.
+#  # Supported values: error, warning, info, debug, none
+#  # Default value: error
+#  level: error
+#
+#  # <string> Specifies the output destination for log messages.
+#  # Determines where log messages are written.
+#  # Supported values: stdout, stderr
+#  # Default value: stdout
+#  output: stdout
+#
+#  # <map[string,string]> Global tags that are added to all log entries.
+#  # Key-value pairs that provide additional context to every log message.
+#  # Default value: not set
+#  tags:
+#
+#  # <string> Specifies the format for timestamp in log output.
+#  # Controls how timestamps are formatted in log messages.
+#  # Default value: not set
+#  timeFormat:
+#
+#  # <string> Specifies the output format for log messages.
+#  # Controls the structure and formatting of log entries.
+#  # Supported values: json, text
+#  # Default value: text
+#  outputFormat: text
+#
+#  # <bool> Enables colorized output for better readability.
+#  # Should only be used with 'text' output format, ignored for 'json'.
+#  # Default value: false
+#  colorized: false
+#
+#  # <bool> Enables source code location information in logs.
+#  # Includes file name and line number in log entries for debugging.
+#  # Default value: false
+#  outputSource: false
+#
+#  # <object> Asynchronous buffered logging configuration.
+#  # When enabled, improves performance by writing logs in the background.
+#  # Critical logs (see bypassLevel) are still written synchronously.
+#  buffer:
+#    # <bool> Enables asynchronous buffered logging.
+#    # Default value: false
+#    enabled: false
+#
+#    # <int> Size of the log buffer (number of records).
+#    # Only used if enable is true.
+#    # Default value: 100
+#    size: 100
+#
+#    # <string> Minimum level to bypass the buffer and write synchronously.
+#    # Ensures critical logs are not lost in case of a crash.
+#    # Supported values: error, warning, info, debug, none
+#    # Default value: error
+#    bypassLevel: error
+#
+#  # <list[string]> Tags containing sensitive data to be redacted.
+#  # Log entries with these tags will have values replaced with maskString.
+#  # A non-empty list also auto-enables the advanced masking handler in
+#  # observability/slog/factory, which applies a curated default
+#  # sensitive-field set (password, token, secret, *_key, ...) and
+#  # nested-group masking on top of these explicit tags.
+#  # Default value: not set
+#  sensitiveTags:
+#
+#  # <string> The string used for masking sensitive fields.
+#  # Default value: ****
+#  maskString: ****
+#
+#  # <string> The group name for application metadata.
+#  # Default value: app
+#  appGroupName: app
+#
+#  # <map[string,string]> Per-subsystem log level overrides.
+#  # Keys are subsystem names matching the "subsystem" attribute.
+#  # Values are log levels: error, warning, info, debug, none.
+#  # Subsystems not listed here use the top-level 'level' setting.
+#  # Default value: not set
+#  subsystems:
+#    # Example:
+#    # http: debug
+#    # grpc: warning

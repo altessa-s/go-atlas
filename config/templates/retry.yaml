@@ -1,0 +1,33 @@
+# Retry configuration for external service calls.
+# Defines exponential backoff strategy for transient failures.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#retry:
+#  # <int> Maximum number of retry attempts after the initial call.
+#  # 0 means no retries (call once). -1 means unlimited retries.
+#  # Default value: 3
+#  maxAttempts: 3
+#
+#  # <duration> Initial delay before the first retry.
+#  # Default value: 500ms
+#  baseDelay: "500ms"
+#
+#  # <duration> Maximum delay between retries.
+#  # Delay increases exponentially up to this limit.
+#  # Default value: 10s
+#  maxDelay: "10s"
+#
+#  # <float64> Exponential backoff multiplier.
+#  # Delay is multiplied by this factor after each retry.
+#  # Default value: 1.5
+#  multiplier: 1.5
+#
+#  # <float64> Maximum fraction of the computed delay to add as randomized jitter (0.0–1.0).
+#  # 0 means no jitter (deterministic delays).
+#  # Default value: 0
+#  jitter: 0
+#
+#  # <duration> Maximum total wall-clock time for all attempts. 0 = no limit.
+#  # Default value: 0
+#  maxElapsedTime: "0"

@@ -1,0 +1,52 @@
+# Prometheus configuration for HTTP metrics collection and observability.
+# Collects request counts, durations, and sizes for monitoring dashboards.
+# Integrates with Prometheus ecosystem for alerting and visualization.
+
+#prometheus:
+#  # <bool> Enable Prometheus metrics collection.
+#  # Default value: false
+#  enabled: false
+#
+#  # <list[string]> List of exact URL paths to skip processing for.
+#  # Default value: not set
+#  ignorePaths:
+#    - "/health"
+#
+#  # <list[string]> List of regex patterns for URL paths to skip processing.
+#  # Default value: not set
+#  ignorePatterns:
+#    - "^/health\\..*"
+#
+#  # <string> Prometheus metric namespace prefix.
+#  # Used as the first part of metric names.
+#  # Default value: not set (empty string)
+#  namespace: ""
+#
+#  # <string> Prometheus metric subsystem name.
+#  # Used as the second part of metric names after namespace.
+#  # Default value: not set (empty string)
+#  subsystem: ""
+#
+#  # <bool> Collect request and response size metrics.
+#  # Default value: false
+#  enableSizeMetrics: false
+#
+#  # <list[float64]> Custom histogram buckets for request duration metrics in seconds.
+#  # Must be in increasing order. If not specified, reasonable defaults are used.
+#  # Default value: not set
+#  durationBuckets:
+#    - 0.001
+#    - 0.01
+#    - 0.1
+#    - 1.0
+#    - 10.0
+#
+#  # <list[float64]> Custom histogram buckets for request/response size metrics in bytes.
+#  # Only used when enableSizeMetrics is true. Must be in increasing order.
+#  # Default value: not set
+#  sizeBuckets:
+#    - 64
+#    - 1024
+#    - 16384
+#    - 262144
+#    - 1048576

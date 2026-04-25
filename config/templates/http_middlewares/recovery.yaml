@@ -1,0 +1,22 @@
+# Recovery configuration for panic handling and service resilience.
+# Catches panics in HTTP handlers and returns 500 status code.
+# Critical for preventing service crashes and maintaining system stability.
+
+#recovery:
+#  # <bool> Enable panic recovery.
+#  # Default value: false
+#  enabled: false
+#
+#  # <list[string]> List of exact URL paths to skip processing for.
+#  # Default value: not set
+#  ignorePaths:
+#    - "/health"
+#
+#  # <list[string]> List of regex patterns for URL paths to skip processing.
+#  # Default value: not set
+#  ignorePatterns:
+#    - "^/health\\..*"
+#
+#  # <bool> Log the stack trace when a panic occurs.
+#  # Default value: true
+#  logStack: true

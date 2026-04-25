@@ -1,0 +1,59 @@
+# Logger configuration for request/response logging interceptor.
+# Logs incoming requests and outgoing responses with configurable detail levels.
+# Essential for debugging, monitoring, and audit trails in production systems.
+
+#logger:
+#  # <bool> Enable request/response logging.
+#  # When enabled, logs requests and responses according to configuration.
+#  # Default value: false
+#  enabled: false
+#
+#  # <list[string]> List of gRPC methods to skip logging for.
+#  # Methods that should not appear in logs (e.g., health checks, noisy endpoints).
+#  # Default value: not set
+#  ignoreMethods:
+#    - "/grpc.health.v1.Health/Check"
+#    - "/api.MetricsService/GetMetrics"
+#
+#  # <list[string]> List of regex patterns for methods to skip logging.
+#  # Pattern-based rules for logging bypass.
+#  # Default value: not set
+#  ignorePatterns:
+#    - "^(?i)/grpc.health.*"
+#
+#  # <string> Timestamp format for log entries.
+#  # Controls how timestamps are formatted in log output.
+#  # Supported values: rfc3339, rfc3339nano, unix, unixnano, unixmilli
+#  # Default value: rfc3339
+#  timeFormat: rfc3339
+#
+#  # <bool> Log request payloads.
+#  # Set to true to include request content in logs for debugging purposes.
+#  # Default value: false
+#  logRequest: false
+#
+#  # <bool> Log response payloads.
+#  # Set to true to include response content in logs for debugging purposes.
+#  # Default value: true
+#  logResponse: true
+#
+#  # <bool> Enable context-aware logger injection.
+#  # When enabled, handlers can retrieve the logger from the request context.
+#  # Default value: false
+#  enableContextLogger: false
+#
+#  # <list[uint32]> List of gRPC response codes to never log.
+#  # Takes precedence over logGrpcResponseCodes.
+#  # Example: [0, 1] to ignore OK and CANCELLED codes.
+#  # Default value: not set
+#  ignoreGrpcResponseCodes:
+#    - 0  # OK
+#    - 1  # CANCELLED
+#
+#  # <list[uint32]> List of gRPC response codes to always log.
+#  # Example: [5, 13] to always log NOT_FOUND and INTERNAL codes.
+#  # Useful for ensuring important error responses are always captured.
+#  # Default value: not set
+#  logGrpcResponseCodes:
+#    - 5   # NOT_FOUND
+#    - 13  # INTERNAL

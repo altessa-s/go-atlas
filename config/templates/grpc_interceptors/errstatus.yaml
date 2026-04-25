@@ -1,0 +1,31 @@
+# Error status configuration for error-to-gRPC-status conversion.
+# Converts application errors to gRPC status errors and enriches error
+# responses with ErrorInfo (reason code, domain) and RequestInfo (request ID).
+# Runs first in the chain so all downstream errors are properly converted.
+
+#errStatus:
+#  # <bool> Enable error status conversion.
+#  # When enabled, converts Go errors to gRPC status errors with metadata.
+#  # Default value: false
+#  enabled: false
+#
+#  # <string> Logical domain namespace for error reason codes.
+#  # Populates errdetails.ErrorInfo.Domain in gRPC error responses.
+#  # Helps clients identify which service originated an error.
+#  # Default value: not set
+#  domain: myservice.example.com
+#
+#  # <int> Maximum number of entries in the error conversion cache.
+#  # Caches error-to-status mappings for high-throughput paths.
+#  # Set to 0 to disable caching.
+#  # Default value: 1000
+#  cacheSize: 1000
+#
+#  # <bool> Completely disable error conversion caching.
+#  # Default value: false
+#  cacheDisabled: false
+#
+#  # <bool> Restrict caching to sentinel errors only.
+#  # Prevents unbounded memory growth from caching dynamic errors.
+#  # Default value: false
+#  cacheOnlySentinel: false

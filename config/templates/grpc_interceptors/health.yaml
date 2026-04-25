@@ -1,0 +1,21 @@
+# Health check interceptor configuration.
+# When enabled, every incoming RPC is preceded by a health check;
+# if the service is unhealthy the call is rejected with Unavailable status.
+
+#health:
+#  # <bool> Enable health check interceptor.
+#  # When enabled, rejects RPCs if the service is unhealthy.
+#  # Default value: false
+#  enabled: false
+#
+#  # <list[string]> List of gRPC methods to skip health checking for.
+#  # Methods that should bypass health check gating.
+#  # Default value: not set
+#  ignoreMethods:
+#    - "/grpc.health.v1.Health/Check"
+#
+#  # <list[string]> List of regex patterns for methods to skip health checking.
+#  # Pattern-based rules for health check bypass.
+#  # Default value: not set
+#  ignorePatterns:
+#    - "^(?i)/grpc.health.*"

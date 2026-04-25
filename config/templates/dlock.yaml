@@ -1,0 +1,16 @@
+# Distributed lock configuration.
+# Defines settings for the distributed lock mechanism.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#distributionLock:
+#  # <string> Specifies the provider for the distributed lock.
+#  # Supported values: nats
+#  # Default value: not set (required)
+#  provider: nats
+#
+#  # <object> NATS provider configuration, applicable only if the provider is 'nats'.
+#  nats:
+#    # <string> Specifies the NATS bucket used for the distributed lock.
+#    # Default value: dlock
+#    bucket: dlock

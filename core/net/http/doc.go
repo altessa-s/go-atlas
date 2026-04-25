@@ -1,0 +1,20 @@
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Use of this source code is governed by license that can be found in
+// the LICENSE file.
+
+// Package http provides foundational HTTP utilities and types.
+// It complements the standard net/http package with reusable components
+// for building resilient HTTP clients and servers.
+//
+// RoundTripperFunc is stateless and safe for concurrent use.
+//
+// # Usage
+//
+//	rt := http.RoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+//	    // Intercept and modify request
+//	    req.Header.Set("User-Agent", "go-atlas")
+//	    return http.DefaultTransport.RoundTrip(req)
+//	})
+//
+//	client := &http.Client{Transport: rt}
+package http

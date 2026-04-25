@@ -1,0 +1,58 @@
+# Security headers configuration for browser protection.
+# Adds headers like X-Frame-Options, CSP, and HSTS.
+# Essential for protecting web applications against common browser-based attacks.
+
+#securityHeaders:
+#  # <bool> Enable security headers.
+#  # Default value: false
+#  enabled: false
+#
+#  # <list[string]> List of exact URL paths to skip processing for.
+#  # Default value: not set
+#  ignorePaths:
+#    - "/health"
+#
+#  # <list[string]> List of regex patterns for URL paths to skip processing.
+#  # Default value: not set
+#  ignorePatterns:
+#    - "^/health\\..*"
+#
+#  # <string> X-Frame-Options header value.
+#  # Default value: DENY
+#  frameOptions: DENY
+#
+#  # <string> Referrer-Policy header value.
+#  # Default value: strict-origin-when-cross-origin
+#  referrerPolicy: strict-origin-when-cross-origin
+#
+#  # <string> Content-Security-Policy header.
+#  # Default value: not set (empty string)
+#  contentSecurityPolicy: ""
+#
+#  # <string> Permissions-Policy header.
+#  # Default value: not set (empty string)
+#  permissionsPolicy: ""
+#
+#  # <bool> Enable Strict-Transport-Security (HSTS).
+#  # Default value: false
+#  hstsEnabled: false
+#
+#  # <int> HSTS max-age in seconds.
+#  # Default value: 31536000 (1 year)
+#  hstsMaxAge: 31536000
+#
+#  # <bool> Include subdomains in HSTS policy.
+#  # Default value: true
+#  hstsIncludeSubDomains: true
+#
+#  # <bool> Enable HSTS preload directive.
+#  # Default value: false
+#  hstsPreload: false
+#
+#  # <bool> Set X-Content-Type-Options: nosniff.
+#  # Default value: true
+#  contentTypeNoSniff: true
+#
+#  # <bool> Set X-XSS-Protection: 0 to disable browser XSS filter.
+#  # Default value: true
+#  xssProtectionDisabled: true

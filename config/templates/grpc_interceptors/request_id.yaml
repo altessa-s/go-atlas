@@ -1,0 +1,26 @@
+# Request ID configuration for request tracing and correlation.
+# Generates and propagates unique request identifiers for distributed tracing.
+# Essential for tracking requests across microservice boundaries.
+
+#requestId:
+#  # <bool> Enable request ID generation.
+#  # When enabled, ensures all requests have unique identifiers.
+#  # Default value: false
+#  enabled: false
+#
+#  # <list[string]> List of gRPC methods to skip request ID generation for.
+#  # Methods should be specified in the format "/service.Service/Method".
+#  # Default value: not set
+#  ignoreMethods:
+#    - "/grpc.health.v1.Health/Check"
+#
+#  # <list[string]> List of regex patterns for methods to skip request ID generation.
+#  # Pattern-based rules for request ID bypass.
+#  # Default value: not set
+#  ignorePatterns:
+#    - "^(?i)/grpc.health.*"
+#
+#  # <bool> Generate a request ID if none is provided.
+#  # Creates new ID when client doesn't provide one.
+#  # Default value: true
+#  generateIfMissing: true

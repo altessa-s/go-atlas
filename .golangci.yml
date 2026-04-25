@@ -1,0 +1,96 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - bidichk
+    - bodyclose
+    - contextcheck
+    - dogsled
+    - errcheck
+    - prealloc
+    - mnd
+    - unconvert
+    - asciicheck
+    - exhaustive
+    - copyloopvar
+    - goconst
+    - whitespace
+    - gocritic
+    - godox
+    - goprintffuncname
+    - govet
+    - unused
+    - lll
+    - makezero
+    - misspell
+    - nilnil
+    - noctx
+    - staticcheck
+    - predeclared
+    - unparam
+    - ineffassign
+    - dupl
+  settings:
+    lll:
+      line-length: 156
+    dogsled:
+      max-blank-identifiers: 2
+    errcheck:
+      check-type-assertions: true
+      check-blank: false
+    exhaustive:
+      default-signifies-exhaustive: true
+      package-scope-only: false
+    goconst:
+      min-len: 3
+      match-constant: true
+      numbers: true
+    staticcheck:
+      checks: ["all", "-ST1003"]
+    mnd:
+      ignored-functions:
+        - strings.SplitN
+        - strconv.*
+        - make
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+    makezero:
+      always: false
+    misspell:
+      locale: US
+    varnamelen:
+      ignore-type-assert-ok: true
+      ignore-map-index-ok: true
+      ignore-chan-recv-ok: true
+      ignore-names:
+        - err
+        - ch
+        - ok
+      ignore-decls:
+        - i int
+        - ch chan
+  exclusions:
+    generated: lax
+    paths:
+      - ".*_test\\.go"
+
+formatters:
+  enable:
+    - gci
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(google.golang.org)
+        - prefix(golang.org)
+        - prefix(github.com/altessa-s/go-atlas)
+        - prefix(github.com/altessa-s)
+        - blank
+        - alias

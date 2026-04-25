@@ -1,0 +1,123 @@
+# Observability configuration.
+# Defines settings for metrics collection, tracing, and logging.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#observability:
+#  # <object> Metrics collection configuration.
+#  # Enables abstract metrics API with configurable backend adapters.
+#  metrics:
+#    # <bool> Enables or disables metrics collection.
+#    # When disabled, all metric operations become no-ops.
+#    # Default value: false
+#    enabled: false
+#
+#    # <string> Specifies the metrics backend type.
+#    # Supported values: prometheus, noop
+#    # Default value: prometheus
+#    type: prometheus
+#
+#    # <string> Global prefix for all metrics (service name).
+#    # Becomes the first part of the metric name: {serviceName}_{subsystem}_{name}.
+#    # Example: "myapp" results in metrics like "myapp_http_requests_total".
+#    # Default value: not set
+#    serviceName:
+#
+#    # <object> Adapter-specific configurations.
+#    adapters:
+#      # <object> Prometheus adapter configuration.
+#      # Only used when type is "prometheus".
+#      prometheus:
+#        # <bool> Use a custom Prometheus registry instead of the default global registry.
+#        # Enable for testing or when you need isolated metrics.
+#        # Default value: false
+#        customRegistry: false
+#
+#  # <object> Distributed tracing configuration.
+#  # Enables OpenTelemetry-compatible tracing with configurable exporters.
+#  tracing:
+#    # <bool> Enables or disables distributed tracing.
+#    # When disabled, all tracing operations become no-ops.
+#    # Default value: false
+#    enabled: false
+#
+#    # <string> Specifies the tracing backend type.
+#    # Supported values: otlp, console, noop
+#    # Default value: otlp
+#    type: otlp
+#
+#    # <string> Identifies the service in traces.
+#    # Required when tracing is enabled.
+#    # Default value: not set
+#    serviceName:
+#
+#    # <string> Version of the service.
+#    # Optional but recommended for identifying deployments.
+#    # Default value: not set
+#    serviceVersion:
+#
+#    # <string> Deployment environment (e.g., "production", "staging").
+#    # Optional but recommended for filtering traces.
+#    # Default value: not set
+#    environment:
+#
+#    # <object> Sampling configuration.
+#    # Controls which traces are recorded and exported.
+#    sampler:
+#      # <string> Specifies the sampler type.
+#      # Supported values: always_on, always_off, trace_id_ratio, parent_based
+#      # Default value: parent_based
+#      type: parent_based
+#
+#      # <float64> Sampling ratio for trace_id_ratio and parent_based samplers.
+#      # Must be between 0.0 and 1.0.
+#      # 1.0 = sample all, 0.0 = sample none, 0.1 = sample 10%.
+#      # Default value: 1.0
+#      ratio: 1.0
+#
+#    # <object> Adapter-specific configurations.
+#    adapters:
+#      # <object> OTLP adapter configuration.
+#      # Only used when type is "otlp".
+#      otlp:
+#        # <string> OTLP collector endpoint.
+#        # For gRPC: "host:4317", for HTTP: "host:4318".
+#        # Default value: localhost:4317
+#        endpoint: localhost:4317
+#
+#        # <string> Transport protocol.
+#        # Supported values: grpc, http
+#        # Default value: grpc
+#        protocol: grpc
+#
+#        # <bool> Disables TLS.
+#        # Use for development or when connecting to a local collector.
+#        # Default value: false
+#        insecure: false
+#
+#        # <map[string,string]> Custom headers to send with requests.
+#        # Useful for authentication (e.g., API keys).
+#        # Default value: not set
+#        headers:
+#
+#        # <bool> Enables gzip compression.
+#        # Default value: true
+#        compression: true
+#
+#        # <object> Outbound proxy for the OTLP exporter (gRPC protocol only).
+#        # Uncomment the !include line below AND the desired fields in
+#        # grpc_proxy.yaml itself to enable. When the include stays
+#        # commented grpc-go honors HTTPS_PROXY/HTTP_PROXY/NO_PROXY env
+#        # variables. Has no effect when protocol is "http".
+#        !include grpc_proxy.yaml
+#
+#      # <object> Console adapter configuration.
+#      # Only used when type is "console".
+#      console:
+#        # <bool> Enables indented JSON output.
+#        # Default value: true
+#        prettyPrint: true
+#
+#        # <bool> Includes timestamps in output.
+#        # Default value: true
+#        timestamps: true

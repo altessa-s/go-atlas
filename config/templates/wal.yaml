@@ -1,0 +1,25 @@
+# Write-ahead log configuration.
+# This file is included via !include directive in other configuration templates.
+# Provides crash-safe durability for async dispatch engines.
+
+#    wal:
+#      # <bool> Enable WAL durability.
+#      # Default value: false
+#      enabled: false
+#
+#      # <string> Directory storing WAL segment files. Created if missing.
+#      # Required when enabled is true.
+#      dir: ./var/wal
+#
+#      # <int64> Maximum size of a single segment file in bytes.
+#      # Default value: 67108864 (64 MiB)
+#      maxSegmentBytes: 67108864
+#
+#      # <int64> Soft cap on total bytes across all segments.
+#      # Default value: 1073741824 (1 GiB)
+#      maxBytes: 1073741824
+#
+#      # <duration> Period between background fsync calls.
+#      # Shorter interval reduces loss window after crash, at the cost of throughput.
+#      # Default value: 5ms
+#      fsyncInterval: 5ms
