@@ -5,6 +5,8 @@
 package redis_test
 
 import (
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -45,8 +47,6 @@ func TestProvider_Allow_ExceedsLimit(t *testing.T) {
 	for range 3 {
 		_, err := p.Allow(ctx, "key1", 3, time.Minute)
 		require.NoError(t, err)
-		// Sleep to ensure unique millisecond timestamps (Lua script uses timestamp as ZADD member)
-		time.Sleep(2 * time.Millisecond)
 	}
 
 	info, err := p.Allow(ctx, "key1", 3, time.Minute)
@@ -71,7 +71,6 @@ func TestProvider_Reset(t *testing.T) {
 
 	for range 3 {
 		_, _ = p.Allow(ctx, "key1", 3, time.Minute)
-		time.Sleep(2 * time.Millisecond)
 	}
 
 	err := p.Reset(ctx, "key1")
@@ -103,6 +102,59 @@ func TestProvider_WithKeyPrefix(t *testing.T) {
 	// p2 should have independent limit
 	_, err = p2.Allow(ctx, "key", 1, time.Minute)
 	require.NoError(t, err)
+}
+
+// TestProvider_Allow_BurstSameMillisecond is a regression test for an earlier
+// bug where the Lua script used the request timestamp as both the ZSET score
+// and the member. ZSET members are unique, so two calls landing in the same
+// millisecond collapsed into one entry and bursts could exceed the limit. The
+// fix is a per-call random member; this test verifies it by firing many
+// rapid-fire calls and asserting exactly `limit` succeed.
+func TestProvider_Allow_BurstSameMillisecond(t *testing.T) {
+	p, _ := setupProvider(t)
+	ctx := t.Context()
+
+	const limit, attempts = 5, 20
+
+	allowed := 0
+	for range attempts {
+		if _, err := p.Allow(ctx, "burst-key", limit, time.Minute); err == nil {
+			allowed++
+		}
+	}
+
+	require.Equal(t, limit, allowed,
+		"sequential rapid-fire calls must be capped at limit; same-ms collapse would let them all through")
+}
+
+// TestProvider_Allow_ConcurrentBurst exercises the limiter from many
+// goroutines at once. Without the unique-member fix, parallel ZADDs in the
+// same millisecond would deduplicate and the count of allowed calls would
+// exceed `limit`.
+func TestProvider_Allow_ConcurrentBurst(t *testing.T) {
+	p, _ := setupProvider(t)
+	ctx := t.Context()
+
+	const limit, goroutines = 10, 50
+
+	var (
+		wg      sync.WaitGroup
+		allowed atomic.Int64
+		start   = make(chan struct{})
+	)
+	for range goroutines {
+		wg.Go(func() {
+			<-start
+			if _, err := p.Allow(ctx, "concurrent-key", limit, time.Minute); err == nil {
+				allowed.Add(1)
+			}
+		})
+	}
+	close(start)
+	wg.Wait()
+
+	require.Equal(t, int64(limit), allowed.Load(),
+		"concurrent calls must be capped at limit even when they land in the same millisecond")
 }
 
 func TestProvider_Allow_Panics(t *testing.T) {

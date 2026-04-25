@@ -8,11 +8,18 @@ import "github.com/redis/go-redis/v9"
 
 // luaScript implements sliding window rate limiting using Redis Lua script.
 // This ensures atomicity of the rate limiting operations.
+//
+// ARGV[4] (member) MUST be unique per call. ZSET members are unique by value,
+// so reusing the timestamp as both score and member would silently collapse
+// multiple same-millisecond requests into a single entry and let bursts bypass
+// the limit. The caller passes a random nonce; the score keeps the request
+// timestamp for window pruning and reset calculation.
 var luaScript = redis.NewScript(`
 local key = KEYS[1]
 local window = tonumber(ARGV[1])
 local limit = tonumber(ARGV[2])
 local now = tonumber(ARGV[3])
+local member = ARGV[4]
 
 -- Remove expired entries
 redis.call('zremrangebyscore', key, 0, now - window * 1000)
@@ -37,8 +44,9 @@ if current >= limit then
     return {limit, remaining, reset_time, 0}  -- 0 = not allowed
 end
 
--- Add current request
-redis.call('zadd', key, now, now)
+-- Add current request: score is the timestamp (used for pruning), member is
+-- the caller-supplied nonce so concurrent same-ms ZADDs don't collapse.
+redis.call('zadd', key, now, member)
 redis.call('expire', key, window)
 
 -- Recalculate remaining after adding current request
