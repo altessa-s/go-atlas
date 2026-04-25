@@ -19,7 +19,10 @@ type Provider struct {
 	closed atomic.Bool
 }
 
-var _ providers.Provider = (*Provider)(nil)
+var (
+	_ providers.Provider = (*Provider)(nil)
+	_ providers.Prober   = (*Provider)(nil)
+)
 
 // New creates a new NOP provider.
 func New() *Provider {
@@ -84,5 +87,14 @@ func (l *Lock) Release(ctx context.Context) error {
 // It marks the provider as closed to prevent new locks.
 func (p *Provider) Close(_ context.Context) error {
 	p.closed.Store(true)
+	return nil
+}
+
+// Probe implements [providers.Prober]. The noop provider has no
+// underlying state to probe, so it reports healthy until [Provider.Close].
+func (p *Provider) Probe(_ context.Context) error {
+	if p.closed.Load() {
+		return errors.New("provider is closed")
+	}
 	return nil
 }

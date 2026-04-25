@@ -24,6 +24,23 @@ type Provider interface {
 	Close(ctx context.Context) error
 }
 
+// Prober reports whether a provider is fit to serve. Implementations
+// may probe anything that gates readiness: transport reachability
+// (e.g. NATS connection state), required resources (e.g. KV bucket
+// accessibility), or any other invariant that must hold before the
+// provider can fulfill [Provider.Lock] requests.
+//
+// Prober is intentionally separate from [Provider] so third-party
+// implementations stay backwards-compatible: DLock probes via type
+// assertion and assumes Serving when the assertion fails.
+//
+// All in-tree providers (nats, noop) implement Prober.
+type Prober interface {
+	// Probe returns nil when the provider is healthy, or an error
+	// describing the failure otherwise.
+	Probe(ctx context.Context) error
+}
+
 // Lock is the interface that must be implemented by all locks.
 type Lock interface {
 	// GetLockInfo returns information about the current state of the lock.

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
@@ -17,9 +18,20 @@ import (
 // This prevents indefinite blocking in scenarios where locks cannot be acquired.
 const DefaultLockAcquireTimeout = 30 * time.Second
 
+// DefaultHealthServiceName is the name under which DLock registers itself
+// with the health coordinator when no override is supplied.
+const DefaultHealthServiceName = "dlock"
+
 // options contains DLock configuration.
 type options struct {
 	logger             *slog.Logger
 	lockAcquireTimeout time.Duration     `optgen:"default=DefaultLockAcquireTimeout"`
 	collector          metrics.Collector `optgen:"notnil"`
+	// healthCoordinator registers DLock with a health coordinator on
+	// construction. Disabled when nil.
+	healthCoordinator *health.Coordinator
+	// healthServiceName customizes the service name used for health
+	// registration. Useful when multiple DLock instances share one
+	// coordinator (e.g. "dlock-payments", "dlock-inventory").
+	healthServiceName string `optgen:"default=DefaultHealthServiceName"`
 }

@@ -79,12 +79,13 @@ Package: `data/cache`
 
 Package: `data/locks/dlock`
 
-| Name                             | Type      | Labels | Description                     |
-|----------------------------------|-----------|--------|---------------------------------|
-| `dlock_locks_acquired_total`     | Counter   | --     | Locks successfully acquired     |
-| `dlock_locks_failed_total`       | Counter   | --     | Lock acquisition failures       |
-| `dlock_acquire_duration_seconds` | Histogram | --     | Lock acquisition duration       |
-| `dlock_synchronizations_total`   | Counter   | --     | Synchronize calls completed     |
+| Name                             | Type      | Labels | Description                                            |
+|----------------------------------|-----------|--------|--------------------------------------------------------|
+| `dlock_locks_acquired_total`     | Counter   | --     | Locks successfully acquired                            |
+| `dlock_locks_released_total`     | Counter   | --     | Locks successfully released (paired with acquired)     |
+| `dlock_locks_failed_total`       | Counter   | --     | Lock acquisition failures                              |
+| `dlock_acquire_duration_seconds` | Histogram | --     | Lock acquisition duration                              |
+| `dlock_synchronizations_total`   | Counter   | --     | Synchronize calls completed                            |
 
 ---
 
