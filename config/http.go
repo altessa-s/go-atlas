@@ -41,8 +41,14 @@ type Http struct {
 	// Defaults to "0.0.0.0:9080" which binds to all interfaces on port 9080.
 	ListenAddress string `yaml:"listenAddress" default:"0.0.0.0:9080"`
 
-	// MaxRequestPayloadSize sets the maximum size in bytes for request payloads.
-	// Defaults to 10485760 bytes (10MB). Set to 0 for unlimited size.
+	// MaxRequestPayloadSize sets the maximum allowed size in bytes for request
+	// payloads on this server. Enforced by the body-limit middleware, which the
+	// HTTP server factory auto-registers from this value: setting it here is
+	// sufficient — no need to also enable `middlewares.bodyLimit` separately.
+	// `middlewares.bodyLimit` remains available as an explicit override
+	// (different size, or to apply ignore patterns).
+	//
+	// Defaults to 10485760 bytes (10 MB). Set to 0 to disable the limit.
 	MaxRequestPayloadSize int64 `yaml:"maxRequestPayloadSize" default:"10485760"`
 
 	// ReadTimeout is the maximum duration for reading the entire request,

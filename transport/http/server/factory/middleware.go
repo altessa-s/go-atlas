@@ -85,14 +85,35 @@ func (b *ServerBuilder) WithMiddlewares(exclude ...middlewares.Middleware) *Serv
 	return b
 }
 
-// WithBodyLimitMiddleware creates a body limit middleware from the builder's configuration.
+// WithBodyLimitMiddleware registers the body-limit middleware. The effective
+// limit is resolved as:
+//
+//  1. middlewares.bodyLimit (explicit override) when its `enabled: true`,
+//  2. otherwise the top-level `http.maxRequestPayloadSize`,
+//  3. nothing when both are 0 / unset (operator explicit opt-out).
+//
+// This keeps `MaxRequestPayloadSize` the canonical "max body size for this
+// server" knob: setting it to e.g. 10 MB means 10 MB is enforced even if the
+// operator never touches `middlewares.bodyLimit`.
 func (b *ServerBuilder) WithBodyLimitMiddleware() *ServerBuilder {
-	cfg := b.middlewaresCfg()
-	if cfg == nil || cfg.BodyLimit == nil || !cfg.BodyLimit.IsEnabled() {
+	maxSize := b.effectiveBodyLimit()
+	if maxSize <= 0 {
 		return b
 	}
-	b.configMW = append(b.configMW, bodylimitmw.New(cfg.BodyLimit.MaxSize))
+	b.configMW = append(b.configMW, bodylimitmw.New(maxSize))
 	return b
+}
+
+// effectiveBodyLimit returns the byte budget passed to the body-limit
+// middleware. See [ServerBuilder.WithBodyLimitMiddleware] for precedence.
+func (b *ServerBuilder) effectiveBodyLimit() int64 {
+	if b.cfg == nil {
+		return 0
+	}
+	if mw := b.middlewaresCfg(); mw != nil && mw.BodyLimit != nil && mw.BodyLimit.IsEnabled() {
+		return mw.BodyLimit.MaxSize
+	}
+	return b.cfg.MaxRequestPayloadSize
 }
 
 // WithCorsMiddleware creates a CORS middleware from the builder's configuration.
