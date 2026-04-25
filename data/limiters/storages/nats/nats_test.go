@@ -5,6 +5,9 @@
 package nats_test
 
 import (
+	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -91,6 +94,53 @@ func TestProvider_Reset_NonExistent(t *testing.T) {
 
 	err := provider.Reset(ctx, "nonexistent")
 	require.NoError(t, err)
+}
+
+// TestProvider_Allow_ConcurrentBurst is a regression test for an earlier bug
+// where Allow used Get + Put without revision checks, so concurrent writers
+// silently overwrote each other and many requests passed even though the
+// counter should have been at the limit. The fix is revision-based CAS via
+// jetstream Create/Update; this test verifies the property by firing many
+// goroutines at the same key and asserting the allowed count never exceeds
+// the configured limit.
+func TestProvider_Allow_ConcurrentBurst(t *testing.T) {
+	provider := setupProvider(t)
+	ctx := t.Context()
+
+	const limit, goroutines = 10, 30
+
+	var (
+		wg       sync.WaitGroup
+		allowed  atomic.Int64
+		exceeded atomic.Int64
+		other    atomic.Int64
+		start    = make(chan struct{})
+	)
+	for range goroutines {
+		wg.Go(func() {
+			<-start
+			_, err := provider.Allow(ctx, "burst-key", limit, time.Minute)
+			switch {
+			case err == nil:
+				allowed.Add(1)
+			case errors.Is(err, storages.ErrLimitExceeded):
+				exceeded.Add(1)
+			default:
+				// CAS retries can be exhausted under heavy contention; that is
+				// preferable to silently accepting the request, so it counts
+				// as "not allowed" for limit-enforcement purposes.
+				other.Add(1)
+			}
+		})
+	}
+	close(start)
+	wg.Wait()
+
+	require.LessOrEqual(t, allowed.Load(), int64(limit),
+		"concurrent CAS must never let more than `limit` requests through (allowed=%d, exceeded=%d, other=%d)",
+		allowed.Load(), exceeded.Load(), other.Load())
+	require.Equal(t, int64(goroutines), allowed.Load()+exceeded.Load()+other.Load(),
+		"every goroutine must have been accounted for")
 }
 
 func TestProvider_Allow_Panics(t *testing.T) {

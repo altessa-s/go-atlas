@@ -76,84 +76,128 @@ func New(js jetstream.JetStream, opts ...Option) (*Provider, error) {
 	}, nil
 }
 
+// maxAllowCASAttempts caps the number of retries the read-modify-write loop
+// in [Provider.Allow] performs on a NATS KV revision conflict. With per-call
+// random jitter unlikely (the algorithm itself is deterministic), pure
+// exponential contention beyond this limit usually indicates a hot key worth
+// rejecting rather than retrying indefinitely.
+const maxAllowCASAttempts = 5
+
 // Allow checks if a request should be allowed based on the rate limit using sliding window algorithm.
-// This implementation uses NATS KeyValue optimistic locking to ensure atomicity in distributed environments.
+//
+// The read-modify-write cycle uses NATS KeyValue revision-based CAS:
+// [jetstream.KeyValue.Create] for the first write to a key and
+// [jetstream.KeyValue.Update] with the entry revision for subsequent writes.
+// Concurrent updates that race on the same key are detected via
+// [jetstream.ErrKeyExists] and retried up to [maxAllowCASAttempts] times,
+// after which the call fails with a wrapped error rather than silently
+// dropping a competing update — losing a write here would let a burst slip
+// past the limit.
 func (p *Provider) Allow(ctx context.Context, key string, limit int64, period time.Duration) (*storages.LimitInfo, error) {
 	panics.MustNonNil(ctx, "context must not be nil")
 	panics.Must(key != "", "key must not be empty")
 	panics.Must(limit > 0, "limit must be greater than 0")
 	panics.Must(period > 0, "period must be greater than 0")
 
-	now := time.Now().UnixMilli()
 	windowMs := period.Milliseconds()
 
-	// Try to get existing bucket data
+	for range maxAllowCASAttempts {
+		now := time.Now().UnixMilli()
+
+		data, revision, err := p.loadBucket(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+
+		// Update bucket parameters.
+		data.Limit = limit
+		data.Window = windowMs
+		data.LastUsed = now
+
+		// Remove expired requests (sliding window).
+		cutoff := now - windowMs
+		filteredSeq := coreslices.Filter(data.Requests, func(reqTime int64) bool {
+			return reqTime > cutoff
+		})
+		data.Requests = slices.Collect(filteredSeq)
+
+		// Calculate reset time.
+		resetTime := uint64(0)
+		if len(data.Requests) > 0 {
+			//nolint:mnd
+			resetTime = uint64((data.Requests[0] + windowMs) / 1000) // #nosec G115 -- timestamps are positive
+		}
+
+		currentCount := int64(len(data.Requests))
+
+		info := &storages.LimitInfo{
+			Remaining: max(limit-currentCount, 0),
+			Reset:     int64(resetTime), // #nosec G115 -- resetTime is Unix seconds, fits int64
+		}
+
+		if currentCount >= limit {
+			// No write needed when the limit is already exceeded; no race to
+			// guard against because we are not mutating shared state.
+			return info, storages.ErrLimitExceeded
+		}
+
+		// Reserve a slot in our local copy.
+		data.Requests = append(data.Requests, now)
+		info.Remaining = max(limit-int64(len(data.Requests)), 0)
+
+		jsonData, err := json.Marshal(data)
+		if err != nil {
+			return nil, coreerrs.WrapOperation(err, "marshal rate limit data")
+		}
+
+		if err := p.casPut(ctx, key, jsonData, revision); err != nil {
+			if errors.Is(err, jetstream.ErrKeyExists) {
+				// Another writer raced us. Re-read and recompute on the next
+				// iteration; do not surface this as a user-visible error
+				// unless we exhaust the retry budget.
+				continue
+			}
+			return nil, coreerrs.WrapOperation(err, "store rate limit data in NATS KeyValue")
+		}
+
+		return info, nil
+	}
+
+	return nil, coreerrs.Wrap(errors.New("revision conflict"),
+		"NATS rate limit CAS exhausted after concurrent updates")
+}
+
+// loadBucket fetches the current bucket entry and returns the parsed data
+// plus the entry revision (0 when the key does not yet exist). The revision
+// drives the CAS write in [Provider.Allow].
+func (p *Provider) loadBucket(ctx context.Context, key string) (*bucketData, uint64, error) {
 	entry, err := p.KV().Get(ctx, key)
-	var data *bucketData
-
 	if err != nil {
-		if !errors.Is(err, jetstream.ErrKeyNotFound) {
-			return nil, coreerrs.WrapOperation(err, "get rate limit data from NATS KeyValue")
+		if errors.Is(err, jetstream.ErrKeyNotFound) {
+			return &bucketData{Requests: make([]int64, 0)}, 0, nil
 		}
-		data = &bucketData{Requests: make([]int64, 0)}
-	} else {
-		// Parse existing data
-		data = &bucketData{}
-		if err = json.Unmarshal(entry.Value(), data); err != nil {
-			return nil, coreerrs.WrapOperation(err, "unmarshal rate limit data")
-		}
+		return nil, 0, coreerrs.WrapOperation(err, "get rate limit data from NATS KeyValue")
 	}
 
-	// Update bucket parameters
-	data.Limit = limit
-	data.Window = windowMs
-	data.LastUsed = now
-
-	// Remove expired requests (sliding window)
-	cutoff := now - windowMs
-	filteredSeq := coreslices.Filter(data.Requests, func(reqTime int64) bool {
-		return reqTime > cutoff
-	})
-	data.Requests = slices.Collect(filteredSeq)
-
-	// Calculate reset time
-	resetTime := uint64(0)
-	if len(data.Requests) > 0 {
-		//nolint:mnd
-		resetTime = uint64((data.Requests[0] + windowMs) / 1000) // #nosec G115 -- timestamps are positive
+	data := &bucketData{}
+	if err := json.Unmarshal(entry.Value(), data); err != nil {
+		return nil, 0, coreerrs.WrapOperation(err, "unmarshal rate limit data")
 	}
+	return data, entry.Revision(), nil
+}
 
-	// Check if request should be allowed
-	currentCount := int64(len(data.Requests))
-
-	info := &storages.LimitInfo{
-		Remaining: max(limit-currentCount, 0),
-		Reset:     int64(resetTime), // #nosec G115 -- resetTime is Unix seconds, fits int64
+// casPut writes the bucket back to NATS KV using revision-based CAS. When
+// revision is 0 it issues [jetstream.KeyValue.Create] (succeeds only if no
+// entry exists yet); otherwise it issues [jetstream.KeyValue.Update] (succeeds
+// only when the entry still has the same revision the caller observed). Both
+// surface a revision conflict as [jetstream.ErrKeyExists].
+func (p *Provider) casPut(ctx context.Context, key string, value []byte, revision uint64) error {
+	if revision == 0 {
+		_, err := p.KV().Create(ctx, key, value)
+		return err
 	}
-
-	if currentCount >= limit {
-		return info, storages.ErrLimitExceeded
-	}
-
-	// Add current request
-	data.Requests = append(data.Requests, now)
-	info.Remaining = max(limit-int64(len(data.Requests)), 0)
-
-	// Serialize and store
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		return nil, coreerrs.WrapOperation(err, "marshal rate limit data")
-	}
-
-	// Use Put to store the data (overwrites existing data)
-	// Note: This approach may have race conditions in high-concurrency scenarios
-	// For production use, consider implementing retry logic or using external locking
-	_, err = p.KV().Put(ctx, key, jsonData)
-	if err != nil {
-		return nil, coreerrs.WrapOperation(err, "store rate limit data in NATS KeyValue")
-	}
-
-	return info, nil
+	_, err := p.KV().Update(ctx, key, value, revision)
+	return err
 }
 
 // Reset resets the rate limit for a specific key by removing all stored requests.
