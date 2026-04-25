@@ -72,6 +72,14 @@
 #    # Default value: false
 #    enabled: false
 #
+#    # <bool> Fail-closed mode: when true, ValidateToken rejects tokens with
+#    # ErrIntrospection whenever the introspection endpoint is unreachable
+#    # (network error, non-2xx response, parse failure). Without strict
+#    # mode an unreachable IdP silently bypasses revocation: the token is
+#    # accepted on its signature alone. Recommended for production.
+#    # Default value: false
+#    strict: false
+#
 #  # <object> Token validation settings.
 #  # Configures default validation rules for OIDC tokens.
 #  validation:

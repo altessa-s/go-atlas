@@ -62,8 +62,11 @@
 #    bypassLevel: error
 #
 #  # <list[string]> Tags containing sensitive data to be redacted.
-#  # Log entries with these tags will have values replaced with '***'.
-#  # Helps prevent sensitive information from appearing in logs.
+#  # Log entries with these tags will have values replaced with maskString.
+#  # A non-empty list also auto-enables the advanced masking handler in
+#  # observability/slog/factory, which applies a curated default
+#  # sensitive-field set (password, token, secret, *_key, ...) and
+#  # nested-group masking on top of these explicit tags.
 #  # Default value: not set
 #  sensitiveTags:
 #
