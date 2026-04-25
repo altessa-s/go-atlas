@@ -121,6 +121,20 @@ func TestCapListLimit(t *testing.T) {
 	require.Equal(t, int64(MaxListLimit), capListLimit(2000, logger))
 }
 
+func TestCapListOffset(t *testing.T) {
+	logger := slog.New(slog.DiscardHandler)
+
+	require.Equal(t, int64(0), capListOffset(0, logger), "zero offset must pass through unchanged")
+	require.Equal(t, int64(MaxListOffset), capListOffset(MaxListOffset, logger),
+		"offset at exactly the cap is permitted")
+	require.Equal(t, int64(MaxListOffset-1), capListOffset(MaxListOffset-1, logger),
+		"offset just below the cap passes through")
+	require.Equal(t, int64(MaxListOffset), capListOffset(MaxListOffset+1, logger),
+		"offset just above the cap is clamped")
+	require.Equal(t, int64(MaxListOffset), capListOffset(1_000_000, logger),
+		"pathological deep-skip request is clamped to MaxListOffset")
+}
+
 func TestParseSortOption(t *testing.T) {
 	t.Run("string", func(t *testing.T) {
 		d, ok := parseSortOption("name,-age")

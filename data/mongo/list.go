@@ -24,6 +24,12 @@ const (
 	// MaxListLimit is the maximum allowed number of items to return in a single query
 	// This prevents memory issues and ensures reasonable response times
 	MaxListLimit = 1000
+	// MaxListOffset caps the offset (`$skip`) accepted by [List]. `$skip` is
+	// O(N) — MongoDB has to read and discard every skipped document — so a
+	// caller asking for offset=10_000_000 trivially overloads the server.
+	// Beyond this cap the value is clamped (with a warning); use
+	// [ListCursor] for deeper pagination.
+	MaxListOffset = 10_000
 )
 
 // DefaultListSort is the default sort order for list operations
@@ -161,16 +167,22 @@ func WithListTotal(include bool) ListOption {
 
 // WithListLimit configures pagination for list operations.
 // It sets both the maximum number of items to return and the offset.
-// The limit is automatically capped at MaxListLimit to prevent memory issues.
+//
+// Both values are bounded:
+//   - limit is capped at [MaxListLimit] (default 1000) to keep response sizes sane.
+//   - offset is capped at [MaxListOffset] (default 10000) because `$skip` is O(N) on
+//     the server side; deep offsets are a cheap way to overload MongoDB. For deeper
+//     pagination use [ListCursor], which is O(1) per page.
 //
 // Parameters:
-//   - limit: Maximum number of items to return (must be > 0, capped at MaxListLimit)
-//   - offset: Number of items to skip (must be >= 0)
+//   - limit: Maximum number of items to return (must be > 0, capped at [MaxListLimit])
+//   - offset: Number of items to skip (must be >= 0, capped at [MaxListOffset])
 //
 // Example:
 //   - WithListLimit(20, 0) // First page: items 1-20
 //   - WithListLimit(20, 20) // Second page: items 21-40
 //   - WithListLimit(2000, 0) // Automatically capped to MaxListLimit (1000)
+//   - WithListLimit(20, 1_000_000) // Automatically capped to MaxListOffset (10000)
 func WithListLimit(limit, offset int64) ListOption {
 	return func(options *listOptions) {
 		if limit > 0 {
@@ -398,6 +410,7 @@ func List[T any](ctx context.Context, collection *mongo.Collection, o ...ListOpt
 	}
 
 	opts.limit = capListLimit(opts.limit, opts.logger)
+	opts.offset = capListOffset(opts.offset, opts.logger)
 
 	// Log index hint usage for monitoring and debugging
 	logHintUsage(opts.logger, opts.hint, collection.Name(), opts.filter)

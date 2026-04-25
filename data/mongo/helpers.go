@@ -336,6 +336,32 @@ func parseSortOption[T ~string | ~*string | bson.D](sort T) (bson.D, bool) {
 	return nil, false
 }
 
+// capListOffset enforces the [MaxListOffset] cap on offset-based pagination.
+// `$skip` cost is linear in offset because MongoDB has to read and discard
+// every skipped document, so accepting an arbitrary value is a cheap way
+// for a hostile client to overload the server. Past the cap the value is
+// clamped and a warning is logged so the operator can switch to ListCursor
+// (cursor pagination is O(1) per page).
+//
+// Parameters:
+//   - offset: The requested $skip value
+//   - logger: Logger for warning messages (can be DiscardLogger to suppress warnings)
+//
+// Returns:
+//   - int64: The original offset if <= [MaxListOffset], otherwise [MaxListOffset]
+func capListOffset(offset int64, logger *slog.Logger) int64 {
+	if offset > MaxListOffset {
+		logger.Warn("large list offset request capped at maximum",
+			"requested_offset", offset,
+			slog.Int("enforced_offset", MaxListOffset),
+			slog.Int("max_allowed", MaxListOffset),
+			slog.String("recommendation", "use ListCursor for deep pagination"),
+		)
+		return MaxListOffset
+	}
+	return offset
+}
+
 // capListLimit enforces the MaxListLimit constraint to prevent excessive memory usage.
 // Large limit values can cause memory pressure, slow response times, and potential
 // out-of-memory errors. This function caps the limit and logs a warning when enforcement occurs.
