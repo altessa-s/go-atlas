@@ -45,6 +45,13 @@ var (
 
 	// ErrDecode is the error that returns when decode failed.
 	ErrDecode = errors.New("decode error")
+
+	// ErrPathOutsideRoot is returned when an entry inside the configured
+	// config directory resolves (via symlink) to a target outside that
+	// directory. Without confinement a writer with access to the config
+	// directory could drop a `something.yaml -> /etc/shadow` symlink and
+	// trick the loader into reading it; the loader rejects such paths.
+	ErrPathOutsideRoot = errors.New("config path resolves outside the configured root")
 )
 
 // Validator defines the interface for configuration validation.
@@ -260,6 +267,13 @@ func (cf *Config) loadFiles() (err error) {
 
 // loadFilesFromDir loads all valid configuration files from the specified directory.
 // It iterates through directory contents and loads each valid configuration file.
+//
+// Symlink targets are resolved and confined to basePath: an entry whose
+// resolved path escapes the configured root is rejected with
+// [ErrPathOutsideRoot] rather than silently loaded. Without this check a
+// writer with access to the config directory could drop e.g.
+// `creds.yaml -> /etc/shadow` and the loader would decode whatever the
+// link points at.
 func (cf *Config) loadFilesFromDir(basePath string) error {
 	for entry, err := range corefiles.Walk(basePath) {
 		if err != nil {
@@ -271,11 +285,46 @@ func (cf *Config) loadFilesFromDir(basePath string) error {
 			return err
 		}
 
-		if err := cf.loadFile(path.Join(basePath, entry.Name()), itemInfo); err != nil {
+		entryPath := path.Join(basePath, entry.Name())
+		if err := confineToRoot(entryPath, basePath); err != nil {
+			return err
+		}
+
+		if err := cf.loadFile(entryPath, itemInfo); err != nil {
 			return err
 		}
 	}
 
+	return nil
+}
+
+// confineToRoot rejects path values that — after resolving symlinks —
+// land outside root. Both arguments are resolved through
+// [filepath.EvalSymlinks] so a chain of symlinks pointing out of the
+// config directory is caught regardless of how many hops the link makes.
+//
+// The returned error wraps [ErrPathOutsideRoot]; callers should use
+// `errors.Is(err, ErrPathOutsideRoot)` to detect the case.
+func confineToRoot(path, root string) error {
+	resolvedPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		// A broken symlink (target deleted) or denied access is itself a
+		// reason not to proceed; surface the underlying error wrapped in
+		// our sentinel so the caller can react uniformly.
+		return fmt.Errorf("%w: %s: %w", ErrPathOutsideRoot, path, err)
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return fmt.Errorf("%w: %s: %w", ErrPathOutsideRoot, root, err)
+	}
+
+	rel, err := filepath.Rel(resolvedRoot, resolvedPath)
+	if err != nil {
+		return fmt.Errorf("%w: %s: %w", ErrPathOutsideRoot, path, err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("%w: %s -> %s", ErrPathOutsideRoot, path, resolvedPath)
+	}
 	return nil
 }
 
