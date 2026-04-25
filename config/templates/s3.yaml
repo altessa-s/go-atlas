@@ -29,3 +29,10 @@
 #  # Required. For example: us-east-1, eu-west-1.
 #  # Default value: not set (required)
 #  region:
+#
+#  # <object> Outbound HTTP proxy for S3 API requests.
+#  # Uncomment the !include line below AND the desired fields in
+#  # http_proxy.yaml itself to enable. When the include stays
+#  # commented the AWS SDK's default transport applies (which
+#  # already honors HTTP_PROXY / HTTPS_PROXY / NO_PROXY env vars).
+#  !include http_proxy.yaml
