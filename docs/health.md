@@ -5,13 +5,13 @@ import (
     "github.com/altessa-s/go-atlas/observability/health"
 
     grpchealth "github.com/altessa-s/go-atlas/transport/grpc/handlers/health"
-    httphandler "github.com/altessa-s/go-atlas/transport/http/server/handler"
+    httphealth "github.com/altessa-s/go-atlas/transport/http/server/handlers/health"
 )
 ```
 
 A single `health.Coordinator` owns the per-service status registry, caches results, and pushes change notifications to subscribers. The HTTP handlers
-(`Healthz`, `Readyz`, `HealthzDetailed`) and the gRPC `Handler` (`grpc_health_v1.HealthServer`) are thin transport adapters on top of it — they query the
-same coordinator and translate its `ServingStatus` into HTTP codes or `grpc_health_v1` enum values.
+(`Healthz`, `Readyz`, `Detailed`) and the gRPC `Handler` (`grpc_health_v1.HealthServer`) are thin transport adapters on top of it — they query the same
+coordinator and translate its `ServingStatus` into HTTP codes or `grpc_health_v1` enum values.
 
 ---
 
@@ -24,7 +24,7 @@ same coordinator and translate its `ServingStatus` into HTTP codes or `grpc_heal
 | Reactive subscriptions     | Sharded watcher pool fed by `RunHealthCheckCycle`                           |
 | Periodic checks            | Optional cron schedule via `WithScheduler` + `WithCheckSchedule`            |
 | HTTP probes                | `Healthz` / `Readyz` (coordinator-backed) and `K8sHealtz` / `K8sReadyz` (stubs) |
-| HTTP detailed view         | `HealthzDetailed` lists every registered service                            |
+| HTTP detailed view         | `Detailed` lists every registered service                                   |
 | gRPC                       | `Handler` exposes `Check`, `List`, `Watch` per `grpc_health_v1`             |
 | Adaptive watcher buffers   | Channel size grows under high subscriber load                               |
 | Concurrent check limit     | `ListStatuses` fan-out is bounded                                           |
@@ -67,7 +67,8 @@ import (
     "net/http"
 
     "github.com/altessa-s/go-atlas/observability/health"
-    "github.com/altessa-s/go-atlas/transport/http/server/handler"
+
+    httphealth "github.com/altessa-s/go-atlas/transport/http/server/handlers/health"
 )
 
 func main() {
@@ -83,9 +84,9 @@ func main() {
 
     mux := http.NewServeMux()
     // Wrap into the HTTP server's writer.ReadWriter as your transport requires.
-    mux.HandleFunc("/healthz", asHTTPHandler(handler.Healthz(coord)))
-    mux.HandleFunc("/readyz",  asHTTPHandler(handler.Readyz(coord)))
-    mux.HandleFunc("/healthz/details", asHTTPHandler(handler.HealthzDetailed(coord)))
+    mux.HandleFunc("/healthz", asHTTPHandler(httphealth.Healthz(coord)))
+    mux.HandleFunc("/readyz",  asHTTPHandler(httphealth.Readyz(coord)))
+    mux.HandleFunc("/healthz/details", asHTTPHandler(httphealth.Detailed(coord)))
 
     _ = http.ListenAndServe(":8080", mux)
 }
@@ -180,19 +181,19 @@ The context passed to `CheckHealth` carries the per-check timeout configured via
 | `StatusServiceUnknown`  | `SERVICE_UNKNOWN`| `SERVICE_UNKNOWN`             | 503; gRPC `Check` returns `codes.NotFound` |
 | `StatusDegraded`        | `DEGRADED`       | `UNKNOWN` (no proto mapping)  | 503                        |
 
-`String()` produces stable values you can put on the wire; the JSON body of `Healthz`/`Readyz`/`HealthzDetailed` uses these strings.
+`String()` produces stable values you can put on the wire; the JSON body of `Healthz`/`Readyz`/`Detailed` uses these strings.
 
 ---
 
 ## HTTP handlers
 
-`transport/http/server/handler/healthz.go` ships two flavors.
+`transport/http/server/handlers/health/health.go` ships two flavors.
 
 ### Stubs — `K8sHealtz` and `K8sReadyz`
 
 ```go
 func K8sReadyz(rw writer.ReadWriter) {
-    _ = rw.Write(HealthResponse{Status: "ok"}) // always 200, no state
+    _ = rw.Write(Response{Status: "ok"}) // always 200, no state
 }
 ```
 
@@ -204,18 +205,18 @@ Both always return `{"status":"ok"}` with HTTP 200 regardless of any state. They
 > for `WithBuiltinHandlers`. They will **not** flip to `NOT_SERVING` on
 > SIGTERM, on a checker failure, or on `coord.Close()` — they don't
 > know the coordinator exists. To get readiness that reflects state,
-> register `handler.Readyz(coord)` yourself (e.g. via
-> `srv.Handle("/readyz", handler.Readyz(coord))`); from then on
+> register `httphealth.Readyz(coord)` yourself (e.g. via
+> `srv.Handle("/readyz", httphealth.Readyz(coord))`); from then on
 > `coord.Close()` (or an explicit `coord.SetOverallStatus(StatusNotServing)`)
 > flips the probe to 503 immediately — see [Lifecycle](#lifecycle-and-shutdown).
 
-### Coordinator-backed — `Healthz`, `Readyz`, `HealthzDetailed`
+### Coordinator-backed — `Healthz`, `Readyz`, `Detailed`
 
-| Handler                  | Behavior                                                                                       |
-|--------------------------|------------------------------------------------------------------------------------------------|
-| `Healthz(coord)`         | `CheckStatus(ctx, service)` (`?service=` query); 200 if `SERVING`, 503 otherwise               |
-| `Readyz(coord)`          | `CheckStatus(ctx, "")`; 200 only when **overall** is `SERVING`                                 |
-| `HealthzDetailed(coord)` | `ListStatuses(ctx)`; JSON map of every service; 503 if any service is not `SERVING`            |
+| Handler           | Behavior                                                                                       |
+|-------------------|------------------------------------------------------------------------------------------------|
+| `Healthz(coord)`  | `CheckStatus(ctx, service)` (`?service=` query); 200 if `SERVING`, 503 otherwise               |
+| `Readyz(coord)`   | `CheckStatus(ctx, "")`; 200 only when **overall** is `SERVING`                                 |
+| `Detailed(coord)` | `ListStatuses(ctx)`; JSON map of every service; 503 if any service is not `SERVING`            |
 
 Response body shape:
 
@@ -223,7 +224,7 @@ Response body shape:
 // Healthz / Readyz
 {"status":"SERVING"}
 
-// HealthzDetailed
+// Detailed
 {
   "status": "NOT_SERVING",
   "services": {
@@ -342,7 +343,7 @@ there's no point checking a service nobody is watching, and `CheckStatus` alread
 ## Lifecycle and shutdown
 
 `Coordinator.Close()` does two things in one call: it pins the overall status to `NOT_SERVING` (so every `CheckHealth`/`CheckStatus` reader — including
-`handler.Readyz(coord)` — flips to 503 immediately) and broadcasts the same status to every active subscriber. It is **not** wired to OS signals
+`httphealth.Readyz(coord)` — flips to 503 immediately) and broadcasts the same status to every active subscriber. It is **not** wired to OS signals
 automatically. A typical shutdown:
 
 ```go
@@ -368,7 +369,7 @@ down dependencies — call `coord.SetOverallStatus(health.StatusNotServing)` and
 stays usable, and you can clear the override later with `SetOverallStatus(health.StatusUnknown)`.
 
 > If you rely on the default `K8sReadyz` stub, step 1 has no effect
-> on `/readyz`. Switch to `handler.Readyz(coord)` to make the change
+> on `/readyz`. Switch to `httphealth.Readyz(coord)` to make the change
 > observable.
 
 ---
@@ -460,7 +461,7 @@ is informational — the coordinator itself does not poll on a fixed interval; e
 |---|---|
 | [`observability/health`](../observability/health) | `Coordinator`, `Checker`, `Subscription`, `ServingStatus` |
 | [`observability/health/factory`](../observability/health/factory) | `CoordinatorBuilder` from `config.Health` |
-| [`transport/http/server/handler`](../transport/http/server/handler) | `K8sHealtz`, `K8sReadyz`, `Healthz`, `Readyz`, `HealthzDetailed` |
+| [`transport/http/server/handlers/health`](../transport/http/server/handlers/health) | `K8sHealtz`, `K8sReadyz`, `Healthz`, `Readyz`, `Detailed` |
 | [`transport/grpc/handlers/health`](../transport/grpc/handlers/health) | `Handler` for `grpc_health_v1` |
 
 External `Checker` implementations shipped in this repo:

@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package handler
+package metrics
 
 import (
 	"github.com/prometheus/client_golang/prometheus"
@@ -11,9 +11,13 @@ import (
 	"github.com/altessa-s/go-atlas/transport/http/server/router"
 )
 
-// PrometheusMetrics registers a Prometheus metrics handler on the provided router.
-// Returns a subrouter mounted at /metrics.
-func PrometheusMetrics(r router.Router) router.Router {
+// Mount registers the Prometheus default-gatherer handler on r under
+// `/metrics` and returns the mounted subrouter for further chaining.
+//
+// Compression is intentionally disabled to match the Prometheus
+// scraper's expectations; pair it with the standard Prometheus exposition
+// content type that promhttp.HandlerFor sets automatically.
+func Mount(r router.Router) router.Router {
 	metricsRouter := r.PathPrefix("/metrics").Subrouter()
 	metricsRouter.Handle("/", promhttp.HandlerFor(
 		prometheus.DefaultGatherer,

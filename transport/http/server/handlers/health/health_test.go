@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package handler
+package health
 
 import (
 	"encoding/json"
@@ -27,7 +27,7 @@ func TestK8sHealtz(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp struct {
-		Data HealthResponse `json:"data"`
+		Data Response `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, "ok", resp.Data.Status)
@@ -45,44 +45,17 @@ func TestK8sReadyz(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var resp struct {
-		Data HealthResponse `json:"data"`
+		Data Response `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.Equal(t, "ok", resp.Data.Status)
 }
 
-func TestPing(t *testing.T) {
-	w := writer.New()
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest("GET", "/ping", nil)
-
-	rw := writer.NewReadWriter(rec, req, w)
-	Ping(rw)
-	rw.Release()
-
-	require.Equal(t, http.StatusOK, rec.Code)
-
-	var resp struct {
-		Data PingResponse `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Equal(t, "pong", resp.Data.Message)
-}
-
-func TestHealthResponse_JSON(t *testing.T) {
-	resp := HealthResponse{Status: "ok"}
+func TestResponse_JSON(t *testing.T) {
+	resp := Response{Status: "ok"}
 	b, err := json.Marshal(resp)
 	require.NoError(t, err)
 	var result map[string]string
-	json.Unmarshal(b, &result)
+	require.NoError(t, json.Unmarshal(b, &result))
 	require.Equal(t, "ok", result["status"])
-}
-
-func TestPingResponse_JSON(t *testing.T) {
-	resp := PingResponse{Message: "pong"}
-	b, err := json.Marshal(resp)
-	require.NoError(t, err)
-	var result map[string]string
-	json.Unmarshal(b, &result)
-	require.Equal(t, "pong", result["message"])
 }

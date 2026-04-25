@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package handler_test
+package metrics_test
 
 import (
 	"net/http"
@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/transport/http/server/handler"
+	"github.com/altessa-s/go-atlas/transport/http/server/handlers/metrics"
 	"github.com/altessa-s/go-atlas/transport/http/server/router"
 )
 
@@ -35,14 +35,6 @@ func (m *mockRouter) Use(...router.Middleware)                     {}
 func (m *mockRouter) ServeHTTP(http.ResponseWriter, *http.Request) {}
 func (m *mockRouter) Subrouter() router.Router                     { return m }
 
-func TestPrometheusMetrics(t *testing.T) {
-	r := &mockRouter{}
-	result := handler.PrometheusMetrics(r)
-	require.NotNil(t, result)
-}
-
-func TestPprof(t *testing.T) {
-	r := &mockRouter{}
-	result := handler.Pprof(r)
-	require.NotNil(t, result)
+func TestMount(t *testing.T) {
+	require.NotNil(t, metrics.Mount(&mockRouter{}))
 }

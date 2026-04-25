@@ -15,7 +15,6 @@ import (
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/transport/http/server"
-	"github.com/altessa-s/go-atlas/transport/http/server/handler"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/http/server/router/gorilla"
 	"github.com/altessa-s/go-atlas/transport/internal/geoacl"
@@ -25,6 +24,10 @@ import (
 	idempotencydata "github.com/altessa-s/go-atlas/data/idempotency"
 	sharedlimiter "github.com/altessa-s/go-atlas/data/limiters"
 	tlsproviders "github.com/altessa-s/go-atlas/security/tlsutils/providers"
+	healthh "github.com/altessa-s/go-atlas/transport/http/server/handlers/health"
+	metricsh "github.com/altessa-s/go-atlas/transport/http/server/handlers/metrics"
+	pingh "github.com/altessa-s/go-atlas/transport/http/server/handlers/ping"
+	pprofh "github.com/altessa-s/go-atlas/transport/http/server/handlers/pprof"
 	baseserver "github.com/altessa-s/go-atlas/transport/internal/server"
 )
 
@@ -268,17 +271,17 @@ func (b *ServerBuilder) registerMiddleware(srv *server.Server) error {
 // registerBuiltinHandlers registers built-in HTTP handlers (ping, healthz, readyz, pprof, metrics).
 func (b *ServerBuilder) registerBuiltinHandlers(srv *server.Server, rootRouter *gorilla.Router) {
 	if b.builtinEnabled {
-		srv.Handle(b.internalPrefix+"/ping", handler.Ping).Methods(http.MethodGet)
-		srv.Handle(b.internalPrefix+"/healthz", handler.K8sHealtz).Methods(http.MethodGet)
-		srv.Handle(b.internalPrefix+"/readyz", handler.K8sReadyz).Methods(http.MethodGet)
+		srv.Handle(b.internalPrefix+"/ping", pingh.Handler).Methods(http.MethodGet)
+		srv.Handle(b.internalPrefix+"/healthz", healthh.K8sHealtz).Methods(http.MethodGet)
+		srv.Handle(b.internalPrefix+"/readyz", healthh.K8sReadyz).Methods(http.MethodGet)
 	}
 
 	if rootRouter != nil {
 		if b.resolvePprofEnabled() {
-			handler.Pprof(rootRouter.PathPrefix(b.internalPrefix).Subrouter())
+			pprofh.Mount(rootRouter.PathPrefix(b.internalPrefix).Subrouter())
 		}
 		if b.metricsEnabled {
-			handler.PrometheusMetrics(rootRouter.PathPrefix(b.internalPrefix).Subrouter())
+			metricsh.Mount(rootRouter.PathPrefix(b.internalPrefix).Subrouter())
 		}
 	}
 }
