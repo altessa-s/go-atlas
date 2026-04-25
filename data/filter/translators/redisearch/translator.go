@@ -69,6 +69,9 @@ func NewTranslator(schema map[string]FieldType, opts ...filter.TranslatorOption)
 // Translate converts a filter AST node to a RediSearch query string.
 // Returns "*" for a nil node (match all).
 func (t *Translator) Translate(node filter.Node) (string, error) {
+	if err := t.config.RequireAllowlist(); err != nil {
+		return "", err
+	}
 	if node == nil {
 		return "*", nil
 	}

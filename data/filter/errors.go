@@ -17,6 +17,13 @@ var (
 	// ErrFieldNotAllowed indicates that a field is not in the allowed list.
 	ErrFieldNotAllowed = errors.New("field not allowed")
 
+	// ErrAllowlistRequired indicates a translator/evaluator was constructed
+	// with [WithUntrustedInput] but no [WithAllowedFields] allowlist was
+	// supplied. Translating untrusted CEL without an allowlist would let the
+	// caller filter on any field — including ones the application never
+	// intended to expose — so the call refuses to proceed.
+	ErrAllowlistRequired = errors.New("allowlist is required for untrusted input")
+
 	// ErrMaxDepthExceeded indicates the expression nesting exceeds the configured limit.
 	ErrMaxDepthExceeded = errors.New("expression depth exceeds maximum allowed")
 

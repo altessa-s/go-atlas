@@ -32,6 +32,9 @@ func NewTranslator(opts ...filter.TranslatorOption) *Translator {
 
 // Translate converts a filter AST node to a MongoDB bson.M filter.
 func (t *Translator) Translate(node filter.Node) (bson.M, error) {
+	if err := t.config.RequireAllowlist(); err != nil {
+		return nil, err
+	}
 	t.depth = 0
 	result, err := node.Accept(t)
 	if err != nil {

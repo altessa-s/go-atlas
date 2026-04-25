@@ -116,6 +116,9 @@ func NewEvaluator(opts ...TranslatorOption) *Evaluator {
 
 // Evaluate returns true if data matches the filter node.
 func (e *Evaluator) Evaluate(node Node, data map[string]any) (bool, error) {
+	if err := e.config.RequireAllowlist(); err != nil {
+		return false, err
+	}
 	e.data = data
 	e.depth = 0
 	e.ops = 0

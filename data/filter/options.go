@@ -21,12 +21,13 @@ const DefaultMaxOperations = 1000
 
 // TranslatorConfig holds configuration for translators.
 type TranslatorConfig struct {
-	allowedFields map[string]struct{}
-	fieldMapping  map[string]string
-	maxDepth      int
-	maxRegexLen   int
-	maxOperations int
-	strictMode    bool
+	allowedFields  map[string]struct{}
+	fieldMapping   map[string]string
+	maxDepth       int
+	maxRegexLen    int
+	maxOperations  int
+	strictMode     bool
+	untrustedInput bool
 }
 
 // NewTranslatorConfig creates a TranslatorConfig with default values.
@@ -129,6 +130,28 @@ func WithStrictMode(strict bool) TranslatorOption {
 	}
 }
 
+// WithUntrustedInput marks the translator/evaluator as receiving CEL
+// expressions from external (untrusted) sources, e.g. an end-user query
+// parameter. With this flag set, [TranslatorConfig.RequireAllowlist] —
+// invoked by every translator's Translate entry point — refuses to proceed
+// unless [WithAllowedFields] is also configured. Without an allowlist a
+// hostile client can filter on any internal field the storage layer
+// happens to index (e.g. `passwordHash > ""` to enumerate accounts), so
+// "no allowlist" plus "untrusted input" is treated as a misconfiguration
+// rather than a permissive default.
+//
+// Example:
+//
+//	trans := mongo.NewTranslator(
+//	    filter.WithUntrustedInput(),
+//	    filter.WithAllowedFields("name", "status", "createdAt"),
+//	)
+func WithUntrustedInput() TranslatorOption {
+	return func(c *TranslatorConfig) {
+		c.untrustedInput = true
+	}
+}
+
 // ApplyFieldMapping applies the field mapping to a field name.
 // Returns the mapped name if found, otherwise returns the original name.
 func (c *TranslatorConfig) ApplyFieldMapping(field string) string {
@@ -149,6 +172,19 @@ func (c *TranslatorConfig) IsFieldAllowed(field string) bool {
 	}
 	_, ok := c.allowedFields[field]
 	return ok
+}
+
+// RequireAllowlist returns [ErrAllowlistRequired] when the config was
+// marked as receiving untrusted input ([WithUntrustedInput]) but no
+// allowlist was configured ([WithAllowedFields]). Translators and
+// evaluators must call this at the entry point of every translation pass
+// so misconfiguration surfaces on the first untrusted query rather than
+// silently letting the caller filter on arbitrary internal fields.
+func (c *TranslatorConfig) RequireAllowlist() error {
+	if c.untrustedInput && c.allowedFields == nil {
+		return ErrAllowlistRequired
+	}
+	return nil
 }
 
 // MaxDepth returns the configured maximum depth.

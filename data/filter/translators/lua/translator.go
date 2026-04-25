@@ -52,6 +52,9 @@ func NewTranslator(tableVar string, opts ...filter.TranslatorOption) *Translator
 // Translate converts a filter AST node to a Lua boolean expression string.
 // Returns "true" for a nil node (match all).
 func (t *Translator) Translate(node filter.Node) (string, error) {
+	if err := t.config.RequireAllowlist(); err != nil {
+		return "", err
+	}
 	if node == nil {
 		return luaTrue, nil
 	}
