@@ -65,7 +65,7 @@ type ServerBuilder struct {
 	// Handlers
 	handlers       []server.Handler
 	builtinEnabled bool
-	pprofEnabled   *bool // nil = use config or default (true)
+	pprofEnabled   *bool // nil = use config or default (false: pprof is opt-in)
 	metricsEnabled bool
 	internalPrefix string
 
@@ -284,7 +284,13 @@ func (b *ServerBuilder) registerBuiltinHandlers(srv *server.Server, rootRouter *
 }
 
 // resolvePprofEnabled returns the effective pprof state:
-// programmatic override > config > default (true).
+// programmatic override > config > default (false).
+//
+// pprof exposes heap, goroutine and CPU profiles that can leak runtime
+// internals and enable cheap denial-of-service via expensive profile
+// collection. It must therefore be opt-in: enable it explicitly with
+// [ServerBuilder.WithPprof] or by setting `pprof.enabled: true` in the
+// HTTP server configuration.
 func (b *ServerBuilder) resolvePprofEnabled() bool {
 	if b.pprofEnabled != nil {
 		return *b.pprofEnabled
@@ -292,5 +298,5 @@ func (b *ServerBuilder) resolvePprofEnabled() bool {
 	if b.cfg != nil && b.cfg.Pprof != nil {
 		return b.cfg.Pprof.Enabled
 	}
-	return true
+	return false
 }
