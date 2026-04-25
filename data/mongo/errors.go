@@ -144,4 +144,10 @@ var (
 	ErrUnsupportedVersion = errors.New("unsupported mongo version")
 	// ErrDataKeyNotFound is returned when a requested data encryption key is not found
 	ErrDataKeyNotFound = errors.New("data key not found")
+	// ErrSortFieldNotAllowed is returned by [ParseSortStringStrict] when the
+	// sort string references a field that is not in the caller-supplied
+	// allowlist or starts with `$` (an operator key like `$natural`, which
+	// would force a full collection scan and is never a legitimate target
+	// for user-driven input).
+	ErrSortFieldNotAllowed = errors.New("sort field not allowed")
 )

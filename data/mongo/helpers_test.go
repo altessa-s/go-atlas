@@ -27,6 +27,14 @@ func TestParseSortString(t *testing.T) {
 		{"empty", "", nil},
 		{"whitespace only", "  ,  ", nil},
 		{"dash only", "-", nil},
+		// Operator keys (`$natural`, `$id`, ...) force a full collection
+		// scan and must never come from caller-supplied sort strings —
+		// ParseSortString silently drops them.
+		{"drops $natural", "$natural", nil},
+		{"drops $natural desc", "-$natural", nil},
+		{"keeps non-operator next to dropped $-key", "name,$natural", bson.D{
+			{Key: "name", Value: SortAscending},
+		}},
 	}
 
 	for _, tt := range tests {
@@ -39,6 +47,50 @@ func TestParseSortString(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestParseSortStringStrict(t *testing.T) {
+	allowed := []string{"name", "createdAt", "priority"}
+
+	t.Run("all allowed fields pass", func(t *testing.T) {
+		got, err := ParseSortStringStrict("name,-priority,createdAt", allowed)
+		require.NoError(t, err)
+		require.Equal(t, bson.D{
+			{Key: "name", Value: SortAscending},
+			{Key: "priority", Value: SortDescending},
+			{Key: "createdAt", Value: SortAscending},
+		}, got)
+	})
+
+	t.Run("non-allowed field rejected", func(t *testing.T) {
+		_, err := ParseSortStringStrict("name,passwordHash", allowed)
+		require.ErrorIs(t, err, ErrSortFieldNotAllowed)
+		require.Contains(t, err.Error(), `"passwordHash"`)
+	})
+
+	t.Run("operator key rejected even before allowlist check", func(t *testing.T) {
+		// $natural is rejected even if a caller mistakenly puts it in the
+		// allowlist — operator keys are reserved.
+		_, err := ParseSortStringStrict("$natural", append(allowed, "$natural"))
+		require.ErrorIs(t, err, ErrSortFieldNotAllowed)
+		require.Contains(t, err.Error(), "operator key")
+	})
+
+	t.Run("descending operator key also rejected", func(t *testing.T) {
+		_, err := ParseSortStringStrict("-$natural", allowed)
+		require.ErrorIs(t, err, ErrSortFieldNotAllowed)
+	})
+
+	t.Run("empty input returns nil without error", func(t *testing.T) {
+		got, err := ParseSortStringStrict("", allowed)
+		require.NoError(t, err)
+		require.Nil(t, got)
+	})
+
+	t.Run("empty allowlist rejects everything", func(t *testing.T) {
+		_, err := ParseSortStringStrict("name", nil)
+		require.ErrorIs(t, err, ErrSortFieldNotAllowed)
+	})
 }
 
 func TestNextPowerOfTwo(t *testing.T) {
