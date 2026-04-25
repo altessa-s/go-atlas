@@ -106,7 +106,11 @@ type Logger struct {
 	Output LoggerConsoleOutput `yaml:"output" default:"stdout"`
 	// OutputFormat controls whether logs are in text or JSON format
 	OutputFormat LogFormat `yaml:"outputFormat" default:"text"`
-	// SensitiveTags lists tag keys that should be redacted in log output
+	// SensitiveTags lists tag keys that should be redacted in log output.
+	// A non-empty list also auto-enables the advanced masking handler in
+	// observability/slog/factory, which applies a curated default
+	// sensitive-field set (password, token, secret, *_key, ...) and
+	// nested-group masking on top of these explicit tags.
 	SensitiveTags []string `yaml:"sensitiveTags"`
 	// MaskString is the string used for masking sensitive fields
 	MaskString string `yaml:"maskString" default:"****"`

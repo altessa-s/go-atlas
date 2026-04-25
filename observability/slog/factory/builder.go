@@ -82,7 +82,15 @@ func (b *LoggerBuilder) Build() (*slog.Logger, error) {
 	handler = b.wrapWithPrefixedHandler(handler)
 	handler = b.wrapWithLeveledHandler(handler)
 
-	if b.enableMasking && len(b.cfg.SensitiveTags) > 0 {
+	// Enable the advanced masking wrapper whenever the operator has
+	// declared sensitive fields in config OR opted in programmatically.
+	// Previously both knobs had to be set together, so a config with
+	// `sensitiveTags` but no [LoggerBuilder.WithEnableMasking] silently
+	// fell back to [slogx.MaskingReplaceAttr] only — which catches the
+	// listed keys but misses common patterns (e.g. `*token*`,
+	// `*password*`) and nested groups. Treating non-empty SensitiveTags
+	// as an implicit enable closes that gap.
+	if b.enableMasking || len(b.cfg.SensitiveTags) > 0 {
 		handler = b.wrapWithMaskingHandler(handler, maskString)
 	}
 
