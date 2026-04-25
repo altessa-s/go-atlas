@@ -13,12 +13,11 @@ import (
 
 // Default values for Http configuration.
 const (
-	defaultHttpListenAddress     = "0.0.0.0:9080"
-	defaultHttpMaxRequestPayload = int64(10485760) // 10MB
-	defaultHttpReadTimeout       = 300 * time.Second
-	defaultHttpWriteTimeout      = 300 * time.Second
-	defaultHttpIdleTimeout       = 600 * time.Second
-	defaultHttpLogRequests       = false
+	defaultHttpListenAddress = "0.0.0.0:9080"
+	defaultHttpReadTimeout   = 300 * time.Second
+	defaultHttpWriteTimeout  = 300 * time.Second
+	defaultHttpIdleTimeout   = 600 * time.Second
+	defaultHttpLogRequests   = false
 )
 
 // Http represents the configuration for HTTP server settings.
@@ -40,16 +39,6 @@ type Http struct {
 	// ListenAddress specifies the address and port to bind the Http server to.
 	// Defaults to "0.0.0.0:9080" which binds to all interfaces on port 9080.
 	ListenAddress string `yaml:"listenAddress" default:"0.0.0.0:9080"`
-
-	// MaxRequestPayloadSize sets the maximum allowed size in bytes for request
-	// payloads on this server. Enforced by the body-limit middleware, which the
-	// HTTP server factory auto-registers from this value: setting it here is
-	// sufficient — no need to also enable `middlewares.bodyLimit` separately.
-	// `middlewares.bodyLimit` remains available as an explicit override
-	// (different size, or to apply ignore patterns).
-	//
-	// Defaults to 10485760 bytes (10 MB). Set to 0 to disable the limit.
-	MaxRequestPayloadSize int64 `yaml:"maxRequestPayloadSize" default:"10485760"`
 
 	// ReadTimeout is the maximum duration for reading the entire request,
 	// including the body. Defaults to 300 seconds.
@@ -82,18 +71,17 @@ type Http struct {
 // DefaultHttp returns an Http configuration with default values.
 func DefaultHttp() Http {
 	return Http{
-		ListenAddress:         defaultHttpListenAddress,
-		MaxRequestPayloadSize: defaultHttpMaxRequestPayload,
-		ReadTimeout:           defaultHttpReadTimeout,
-		WriteTimeout:          defaultHttpWriteTimeout,
-		IdleTimeout:           defaultHttpIdleTimeout,
-		LogRequests:           defaultHttpLogRequests,
+		ListenAddress: defaultHttpListenAddress,
+		ReadTimeout:   defaultHttpReadTimeout,
+		WriteTimeout:  defaultHttpWriteTimeout,
+		IdleTimeout:   defaultHttpIdleTimeout,
+		LogRequests:   defaultHttpLogRequests,
 	}
 }
 
 // Validate performs validation on the Http configuration.
-// It validates the listen address format, timeout durations, payload size limits,
-// and Tls configuration if present.
+// It validates the listen address format, timeout durations, and Tls
+// configuration if present.
 //
 // Returns an error if any validation rules fail.
 func (h *Http) Validate() error {
@@ -102,7 +90,6 @@ func (h *Http) Validate() error {
 		validation.Field(&h.ReadTimeout, ozzo_rules.DurationOrZero()),
 		validation.Field(&h.WriteTimeout, ozzo_rules.DurationOrZero()),
 		validation.Field(&h.IdleTimeout, ozzo_rules.DurationOrZero()),
-		validation.Field(&h.MaxRequestPayloadSize, validation.Min(0).Error("must be a positive integer or 0")),
 		validation.Field(&h.TLS, validation.NilOrNotEmpty),
 		validation.Field(&h.Middlewares, validation.NilOrNotEmpty),
 		validation.Field(&h.Pprof, validation.NilOrNotEmpty),

@@ -1,6 +1,10 @@
 # Body limit configuration for request payload size limiting.
 # Rejects requests with bodies exceeding the specified size.
 # Protects against oversized payloads that could exhaust server resources.
+#
+# Body-size enforcement is opt-in: by default `enabled: false` and the
+# server accepts requests of any size. Turn on `enabled: true` and tune
+# `maxSize` to bound request bodies for this server.
 
 #bodyLimit:
 #  # <bool> Enable body size limiting.

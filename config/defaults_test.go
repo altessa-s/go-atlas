@@ -25,7 +25,6 @@ func TestDefaultGrpc(t *testing.T) {
 func TestDefaultHttp(t *testing.T) {
 	cfg := DefaultHttp()
 	require.NotEmpty(t, cfg.ListenAddress)
-	require.NotZero(t, cfg.MaxRequestPayloadSize)
 	require.NoError(t, cfg.Validate())
 }
 

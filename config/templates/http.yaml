@@ -14,10 +14,10 @@
 #  # Default value: 0.0.0.0:9080
 #  listenAddress: 0.0.0.0:9080
 #
-#  # <int64> Maximum allowed size of request payload in bytes.
-#  # Requests exceeding this size will be rejected. Set to 0 for unlimited size.
-#  # Default value: 10485760 (10MB)
-#  maxRequestPayloadSize: 10485760
+#  # Body-size enforcement is configured under middlewares.bodyLimit
+#  # (see http_middlewares/body_limit.yaml). It is opt-in: bodyLimit.enabled
+#  # is `false` by default, so requests are not size-limited until the
+#  # operator turns it on.
 #
 #  # <duration> Maximum time from connection establishment to full request body read.
 #  # Protects against slow client attacks.

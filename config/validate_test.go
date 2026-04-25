@@ -39,12 +39,6 @@ func TestValidate_Http_InvalidAddress(t *testing.T) {
 	require.Error(t, cfg.Validate())
 }
 
-func TestValidate_Http_NegativePayload(t *testing.T) {
-	cfg := DefaultHttp()
-	cfg.MaxRequestPayloadSize = -1
-	require.Error(t, cfg.Validate())
-}
-
 func TestValidate_Mongodb_Valid(t *testing.T) {
 	cfg := DefaultMongodb()
 	cfg.Database = "testdb"
