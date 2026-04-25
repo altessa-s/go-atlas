@@ -384,12 +384,20 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 }
 
 // checkTokenRevocation validates token revocation status using introspection or local storage.
-// Introspection errors are logged but treated as non-fatal to avoid auth outages.
+// Introspection errors are logged and treated as non-fatal by default
+// ([WithIntrospection]); enable [WithIntrospectionStrict] to instead reject
+// the token with [ErrIntrospection] when the endpoint is unreachable.
 func (p *Provider) checkTokenRevocation(ctx context.Context, token string) error {
 	if p.opts.introspectionEnabled {
 		introspectionResp, err := p.IntrospectToken(ctx, token)
 		if err != nil {
 			p.metrics.revocationCheckErrors.Inc()
+			if p.opts.introspectionStrict {
+				p.logger.WarnContext(ctx,
+					"token introspection failed in strict mode, rejecting token",
+					slog.Any("error", err))
+				return coreerrs.Wrap(ErrIntrospection, "introspection endpoint unavailable")
+			}
 			p.logger.WarnContext(ctx, "token introspection failed, continuing with signature validation", slog.Any("error", err))
 			return nil
 		}

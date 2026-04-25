@@ -338,6 +338,13 @@ func (j *OIDCJwks) Validate() error {
 type OIDCIntrospection struct {
 	// Enabled toggles introspection on or off
 	Enabled bool `yaml:"enabled" default:"false"`
+
+	// Strict makes ValidateToken reject the token whenever the introspection
+	// endpoint cannot confirm it is active (network error, non-2xx response,
+	// parse failure). Without strict mode an unreachable IdP silently
+	// bypasses revocation: the token is accepted on its signature alone.
+	// Recommended for production.
+	Strict bool `yaml:"strict" default:"false"`
 }
 
 // OIDCPresets represents validation presets configuration.

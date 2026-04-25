@@ -48,6 +48,7 @@ type options struct {
 	introspectionEnabled        bool                         `opt:"-"`
 	introspectionClientID       string                       `opt:"-"`
 	introspectionSecret         string                       `opt:"-"`
+	introspectionStrict         bool                         `opt:"-"`
 	verifierOptions             *verifierOptions             `opt:"-"`
 	presets                     map[string]*ValidationPreset `opt:"-"`
 	presetRules                 []PresetRule
@@ -84,11 +85,32 @@ func WithDefaultValidationOptions(vopt ...ValidationOption) Option {
 
 // WithIntrospection enables RFC 7662 token introspection for revocation checks.
 // Requires client credentials; results are cached for performance.
+//
+// By default introspection failures (network errors, 5xx responses, malformed
+// payloads) are logged and the token is accepted on signature validation alone
+// — fail-open. Pair this with [WithIntrospectionStrict] in production to
+// reject tokens whenever the introspection endpoint is unreachable, otherwise
+// a degraded IdP silently bypasses revocation.
 func WithIntrospection(clientID, clientSecret string) Option {
 	return func(o *options) {
 		o.introspectionEnabled = true
 		o.introspectionClientID = clientID
 		o.introspectionSecret = clientSecret
+	}
+}
+
+// WithIntrospectionStrict makes [Provider.ValidateToken] reject tokens with
+// [ErrIntrospection] whenever the configured introspection endpoint cannot
+// confirm the token is active (network error, non-2xx response, parse
+// failure). Use this in production to keep revocation enforced under IdP
+// degradation; combine with [WithIntrospection] which provides the
+// credentials.
+//
+// Without this option introspection is fail-open: errors are logged and the
+// token is accepted if its signature is valid.
+func WithIntrospectionStrict() Option {
+	return func(o *options) {
+		o.introspectionStrict = true
 	}
 }
 
