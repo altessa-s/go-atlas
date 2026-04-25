@@ -40,7 +40,30 @@ func TestDefault_Build_Error(t *testing.T) {
 	require.True(t, ok)
 	require.NotNil(t, r.Error)
 	require.Equal(t, "", r.Error.Code)
-	require.Equal(t, "something failed", r.Error.Message)
+	// Plain errors never expose err.Error() — the response must carry the
+	// generic HTTP status text instead. err.Error() may contain DB driver
+	// output, file paths or other internal details.
+	require.Equal(t, http.StatusText(http.StatusInternalServerError), r.Error.Message)
+}
+
+// TestDefault_Build_Error_DoesNotLeakRawError is a regression test: an
+// error whose Error() looks like it came from a database driver must NOT
+// surface in the response body. Only callers that explicitly implement
+// [Messager] opt in to having their message exposed.
+func TestDefault_Build_Error_DoesNotLeakRawError(t *testing.T) {
+	d := NewDefault()
+	req := httptest.NewRequest("GET", "/", nil)
+
+	const sensitive = `pq: relation "users_secret_keys" does not exist; conn=postgres://app:p4ssw0rd@db.internal:5432/app?sslmode=require`
+
+	resp, status := d.Build(req, errors.New(sensitive))
+	require.Equal(t, http.StatusInternalServerError, status)
+	r, ok := resp.(*Response)
+	require.True(t, ok)
+	require.NotContains(t, r.Error.Message, "pq:")
+	require.NotContains(t, r.Error.Message, "p4ssw0rd")
+	require.NotContains(t, r.Error.Message, "db.internal")
+	require.Equal(t, http.StatusText(http.StatusInternalServerError), r.Error.Message)
 }
 
 type customError struct {
@@ -112,8 +135,9 @@ func TestDefault_Build_ErrorWithEmptyMessage(t *testing.T) {
 	err := &emptyMessageError{}
 	resp, _ := d.Build(req, err)
 	r := resp.(*Response)
-	// Should fallback to err.Error()
-	require.Equal(t, "fallback error", r.Error.Message)
+	// Empty Messager() output falls back to the generic HTTP status text,
+	// not err.Error() (which could carry sensitive details).
+	require.Equal(t, http.StatusText(http.StatusInternalServerError), r.Error.Message)
 }
 
 type emptyMessageError struct{}

@@ -66,10 +66,14 @@ func (b *Default) buildError(err error) (any, int) {
 		return &Response{Error: &e}, status
 	}
 
-	// Extract from interfaces using errors.As (supports wrapped errors)
+	// Extract from interfaces using errors.As (supports wrapped errors).
+	// Status is resolved before message so the message fallback can mirror
+	// the chosen status (e.g. 503 -> "Service Unavailable") instead of
+	// leaking err.Error() — which is often a database driver string, a
+	// file path, or another internal detail the client must not see.
 	code := b.extractCode(err)
-	message := b.extractMessage(err)
 	status := b.extractStatus(err)
+	message := b.extractMessage(err, status)
 
 	return &Response{Error: &Error{Code: code, Message: message}}, status
 }
@@ -86,16 +90,26 @@ func (b *Default) extractCode(err error) string {
 	return ""
 }
 
-// extractMessage attempts to extract message from Messager interface.
-// Falls back to err.Error() if Messager is not implemented.
-func (b *Default) extractMessage(err error) string {
+// extractMessage returns the user-facing message for err. It uses the
+// [Messager] interface when implemented (the explicit opt-in for callers
+// that want to expose a message), otherwise it returns the generic HTTP
+// status text for status. err.Error() is intentionally never surfaced
+// here: arbitrary errors routinely contain database driver output, file
+// paths, validation diagnostics with sensitive context, etc., and leaking
+// them across the trust boundary is what this fallback exists to prevent.
+// Callers that need the original error in observability should log it
+// before invoking the writer.
+func (b *Default) extractMessage(err error, status int) string {
 	var messager Messager
 	if errors.As(err, &messager) {
 		if msg := messager.Message(); msg != "" {
 			return msg
 		}
 	}
-	return err.Error()
+	if msg := http.StatusText(status); msg != "" {
+		return msg
+	}
+	return http.StatusText(http.StatusInternalServerError)
 }
 
 // extractStatus attempts to extract HTTP status from HTTPStatuser interface.
