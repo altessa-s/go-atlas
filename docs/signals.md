@@ -1,14 +1,12 @@
 # Signals
 
-Key concepts for working with `core/runtime/signals` — OS signal handling with
-priority-based execution, worker pools, and graceful shutdown.
+Key concepts for working with `core/runtime/signals` — OS signal handling with priority-based execution, worker pools, and graceful shutdown.
 
 ```
 import "github.com/altessa-s/go-atlas/core/runtime/signals"
 ```
 
-All operations are fully thread-safe. Registration, start/stop, and signal processing
-can be called concurrently without external synchronization.
+All operations are fully thread-safe. Registration, start/stop, and signal processing can be called concurrently without external synchronization.
 
 ---
 
@@ -61,8 +59,7 @@ handler.Wait() // blocks until shutdown completes
 handler.AddHandler(fn, syscall.SIGTERM, syscall.SIGINT)
 ```
 
-Registers `fn` at `PriorityNormal` (50) for the listed signals. Multiple handlers
-can be registered for the same signal. Nil handlers are silently ignored.
+Registers `fn` at `PriorityNormal` (50) for the listed signals. Multiple handlers can be registered for the same signal. Nil handlers are silently ignored.
 
 ### Priority handlers
 
@@ -70,9 +67,8 @@ can be registered for the same signal. Nil handlers are silently ignored.
 handler.AddHandlerWithPriority(fn, signals.PriorityHighest, syscall.SIGTERM)
 ```
 
-Higher numeric priority executes first. In `SequentialMode`, a higher priority handler
-must complete before a lower priority one starts. In `ParallelMode`, priority determines
-startup order but not completion order.
+Higher numeric priority executes first. In `SequentialMode`, a higher priority handler must complete before a lower priority one starts. In `ParallelMode`,
+priority determines startup order but not completion order.
 
 ### Broadcast handlers
 
@@ -81,8 +77,8 @@ handler.AddBroadcastHandler(fn)
 handler.AddBroadcastHandlerWithPriority(fn, signals.PriorityHigh)
 ```
 
-Broadcast handlers fire on every received signal regardless of signal type. They are
-merged with signal-specific handlers and sorted by priority before execution.
+Broadcast handlers fire on every received signal regardless of signal type. They are merged with signal-specific handlers and sorted by priority before
+execution.
 
 ### Method chaining
 
@@ -121,15 +117,12 @@ Custom `Priority` values outside 1–100 are supported.
 
 ### `SequentialMode` (default)
 
-Handlers run one at a time in strict priority order within a single goroutine.
-Predictable ordering, suitable when handlers have dependencies on each other.
+Handlers run one at a time in strict priority order within a single goroutine. Predictable ordering, suitable when handlers have dependencies on each other.
 
 ### `ParallelMode`
 
-Handlers run concurrently in separate goroutines (up to the worker pool size).
-Priority determines startup order but completion order is non-deterministic.
-When the worker pool is exhausted, handlers fall back to synchronous execution
-in the current goroutine to prevent goroutine explosion.
+Handlers run concurrently in separate goroutines (up to the worker pool size). Priority determines startup order but completion order is non-deterministic.
+When the worker pool is exhausted, handlers fall back to synchronous execution in the current goroutine to prevent goroutine explosion.
 
 ```go
 signals.New(
@@ -143,16 +136,14 @@ signals.New(
 
 ## Worker pool
 
-The worker pool limits concurrent handler goroutines across all signals. When all
-slots are occupied:
+The worker pool limits concurrent handler goroutines across all signals. When all slots are occupied:
 
 - **In the signal listener** — the signal is dropped and the error handler is called
   with `"worker pool is full, signal handler dropped"`.
 - **In parallel mode** — the handler executes synchronously in the current goroutine
   instead of spawning a new one.
 
-Tune `WithWorkerPoolSize` based on how many handlers may run simultaneously. The
-default of 10 is suitable for most applications.
+Tune `WithWorkerPoolSize` based on how many handlers may run simultaneously. The default of 10 is suitable for most applications.
 
 ---
 
@@ -160,20 +151,15 @@ default of 10 is suitable for most applications.
 
 ### Handler timeout
 
-Each handler receives a context derived from the global context with a deadline set
-to `WithHandlerTimeout`. If the handler does not complete in time, a `*TimeoutError`
-is reported to the error handler. The handler's goroutine is not forcibly killed —
-it should respect `ctx.Done()`.
+Each handler receives a context derived from the global context with a deadline set to `WithHandlerTimeout`. If the handler does not complete in time, a
+`*TimeoutError` is reported to the error handler. The handler's goroutine is not forcibly killed — it should respect `ctx.Done()`.
 
-When `handlerTimeout` is zero or negative, the handler receives the global context
-without an additional deadline (fast path, no extra goroutine).
+When `handlerTimeout` is zero or negative, the handler receives the global context without an additional deadline (fast path, no extra goroutine).
 
 ### Shutdown timeout
 
-`Shutdown(ctx)` applies `WithShutdownTimeout` as a deadline on the provided context
-(via `corecontext.ApplyTimeout`, so an existing tighter deadline is preserved). If
-in-flight handlers do not complete within this window, shutdown returns a wrapped
-context error.
+`Shutdown(ctx)` applies `WithShutdownTimeout` as a deadline on the provided context (via `corecontext.ApplyTimeout`, so an existing tighter deadline is
+preserved). If in-flight handlers do not complete within this window, shutdown returns a wrapped context error.
 
 ---
 
@@ -202,8 +188,7 @@ signals.New(
 | `*PanicError` | Handler panics | `errors.As(err, &pe)` — `.Panic` holds the recovered value |
 | any `error` | Handler returns non-nil error | standard `errors.Is`/`errors.As` |
 
-Panics within the error handler itself are recovered and silently discarded to prevent
-cascading failures.
+Panics within the error handler itself are recovered and silently discarded to prevent cascading failures.
 
 ---
 
@@ -215,9 +200,8 @@ cascading failures.
 handler.Start()
 ```
 
-Begins listening for OS signals via `signal.Notify` and dispatching to handlers.
-Idempotent — calling `Start` more than once has no effect. Returns the handler for
-chaining.
+Begins listening for OS signals via `signal.Notify` and dispatching to handlers. Idempotent — calling `Start` more than once has no effect. Returns the
+handler for chaining.
 
 ### Wait
 
@@ -225,8 +209,7 @@ chaining.
 handler.Wait()
 ```
 
-Blocks until the signal handler stops. Typically called in `main` after `Start` to
-keep the process alive.
+Blocks until the signal handler stops. Typically called in `main` after `Start` to keep the process alive.
 
 ### Shutdown
 
@@ -246,8 +229,7 @@ Graceful shutdown sequence:
    system (see [runtime.md](runtime.md)).
 5. Cancels the global handler context.
 
-If the context expires before handlers finish, shutdown hooks are still attempted on a
-best-effort basis with `context.Background()`.
+If the context expires before handlers finish, shutdown hooks are still attempted on a best-effort basis with `context.Background()`.
 
 `Stop()` is a convenience wrapper that calls `Shutdown(context.Background())`.
 
@@ -257,9 +239,8 @@ Both `Shutdown` and `Stop` are idempotent — subsequent calls return nil.
 
 ## Integration with shutdown hooks
 
-`Signal.Shutdown` automatically calls `runtime.RunShutdownHooks` after all signal
-handlers complete. This means resources registered via `runtime.OnShutdown` are
-released as part of the shutdown sequence without additional wiring:
+`Signal.Shutdown` automatically calls `runtime.RunShutdownHooks` after all signal handlers complete. This means resources registered via
+`runtime.OnShutdown` are released as part of the shutdown sequence without additional wiring:
 
 ```go
 // At startup:
@@ -280,8 +261,7 @@ See [runtime.md](runtime.md) for shutdown hook ordering and guarantees.
 ## Performance
 
 - **Priority sorting** — for ≤10 handlers, insertion sort (O(n²) but fast for small N);
-  for 11–50 handlers, counting sort (O(n)); for >50 handlers, a bucket-based priority
-  queue with O(1) insertion.
+  for 11–50 handlers, counting sort (O(n)); for >50 handlers, a bucket-based priority queue with O(1) insertion.
 - **Zero-timeout fast path** — handlers without a timeout execute synchronously in the
   caller's goroutine with no extra goroutine or channel overhead.
 - **Worker pool** — channel-based semaphore prevents goroutine explosion under heavy

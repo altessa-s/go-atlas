@@ -20,9 +20,8 @@ All packages live in the `core/` layer: stdlib only, zero external dependencies.
 
 ## Batch processing
 
-`concurrency.Process` and `concurrency.ProcessCollect` run a function over a slice
-with bounded concurrency. They use a channel-based semaphore internally and respect
-context cancellation.
+`concurrency.Process` and `concurrency.ProcessCollect` run a function over a slice with bounded concurrency. They use a channel-based semaphore internally
+and respect context cancellation.
 
 ```go
 err := concurrency.Process(ctx, userIDs, func(ctx context.Context, id string) error {
@@ -33,8 +32,7 @@ err := concurrency.Process(ctx, userIDs, func(ctx context.Context, id string) er
 )
 ```
 
-`ProcessCollect` preserves input order in the result slice by writing directly into a
-pre-allocated array indexed by position (no mutex, no sort):
+`ProcessCollect` preserves input order in the result slice by writing directly into a pre-allocated array indexed by position (no mutex, no sort):
 
 ```go
 results, err := concurrency.ProcessCollect(ctx, urls, func(ctx context.Context, url string) (Response, error) {
@@ -45,8 +43,8 @@ results, err := concurrency.ProcessCollect(ctx, urls, func(ctx context.Context, 
 // results[i] corresponds to urls[i]
 ```
 
-When concurrency resolves to 1 (or the slice has a single element), both functions
-fall back to sequential execution in the caller's goroutine — no goroutine overhead.
+When concurrency resolves to 1 (or the slice has a single element), both functions fall back to sequential execution in the caller's goroutine — no
+goroutine overhead.
 
 ### Error handling
 
@@ -60,9 +58,8 @@ fall back to sequential execution in the caller's goroutine — no goroutine ove
 
 ## Concurrency limits
 
-The package provides several strategies for determining how many goroutines to run.
-All implement the `ConcurrencyLimitFunc` signature (`func() int`) and are evaluated
-each time a limit decision is needed.
+The package provides several strategies for determining how many goroutines to run. All implement the `ConcurrencyLimitFunc` signature (`func() int`) and
+are evaluated each time a limit decision is needed.
 
 ### Fixed by environment
 
@@ -80,8 +77,7 @@ concurrency.ConcurrencyForEnvironment(concurrency.EnvironmentIOBound) // NumCPU 
 
 ### Memory-aware
 
-Reads `runtime.MemStats` (cached with 1s TTL to avoid stop-the-world pauses) and
-scales concurrency by available memory:
+Reads `runtime.MemStats` (cached with 1s TTL to avoid stop-the-world pauses) and scales concurrency by available memory:
 
 ```go
 limitFn := concurrency.MemoryAwareConcurrency(
@@ -135,8 +131,8 @@ concurrency.Process(ctx, items, fn,
 
 ## Retry
 
-`retry.Do` retries a function with configurable backoff, attempt limits, and context
-cancellation. It reuses a single `time.Timer` across attempts to avoid allocations.
+`retry.Do` retries a function with configurable backoff, attempt limits, and context cancellation. It reuses a single `time.Timer` across attempts to avoid
+allocations.
 
 ```go
 err := retry.Do(ctx, retry.Config{
@@ -170,8 +166,7 @@ err := retry.Do(ctx, retry.Config{
 
 ### ExponentialConfig pooling
 
-For hot paths, use `GetExponentialConfig` / `PutExponentialConfig` to reuse config
-objects from a `sync.Pool`:
+For hot paths, use `GetExponentialConfig` / `PutExponentialConfig` to reuse config objects from a `sync.Pool`:
 
 ```go
 cfg := retry.GetExponentialConfig()
@@ -184,8 +179,7 @@ cfg.MaxDelay = 5 * time.Second
 
 ## Panic recovery
 
-`panics.Handle` recovers panics in goroutines and routes them through configurable
-handlers. All configuration uses atomic operations and is thread-safe.
+`panics.Handle` recovers panics in goroutines and routes them through configurable handlers. All configuration uses atomic operations and is thread-safe.
 
 ```go
 go func() {
@@ -226,9 +220,8 @@ panics.AddGlobalPanicHandler(func(ctx context.Context, r any) {
 
 ## Shutdown hooks
 
-`runtime.OnShutdown` registers cleanup functions executed in LIFO order when the
-application terminates. Hooks run at most once (via `sync.Once`) regardless of how
-many callers invoke `RunShutdownHooks`.
+`runtime.OnShutdown` registers cleanup functions executed in LIFO order when the application terminates. Hooks run at most once (via `sync.Once`) regardless
+of how many callers invoke `RunShutdownHooks`.
 
 ```go
 runtime.OnShutdown(func(ctx context.Context) error {
@@ -245,15 +238,13 @@ if err := runtime.RunShutdownHooks(ctx); err != nil {
 }
 ```
 
-Errors from individual hooks do not prevent subsequent hooks from running — all errors
-are collected and returned via `errors.Join`.
+Errors from individual hooks do not prevent subsequent hooks from running — all errors are collected and returned via `errors.Join`.
 
 ---
 
 ## Signal handling
 
-`signals.Signal` provides OS signal handling with priority-based execution, worker
-pools, and rate limiting.
+`signals.Signal` provides OS signal handling with priority-based execution, worker pools, and rate limiting.
 
 ```go
 handler := signals.New(
@@ -301,8 +292,7 @@ Handlers execute by priority (highest first). Predefined levels:
 
 ## Resource cleanup
 
-Type-safe wrappers around Go 1.24's `runtime.AddCleanup` for GC-triggered resource
-release:
+Type-safe wrappers around Go 1.24's `runtime.AddCleanup` for GC-triggered resource release:
 
 ```go
 cleanup := runtime.AddCleanup(obj, func(id string) {
@@ -319,11 +309,9 @@ cleanup.Stop()
 
 ### Prefer `Process` over manual goroutine management
 
-Instead of writing `sync.WaitGroup` + semaphore + error collection boilerplate,
-use `concurrency.Process`. It handles cancellation, error propagation, callbacks,
-and sequential fallback automatically. When concurrency resolves to 1 (or the
-slice has a single element), both `Process` and `ProcessCollect` fall back to
-sequential execution in the caller's goroutine — no goroutine overhead.
+Instead of writing `sync.WaitGroup` + semaphore + error collection boilerplate, use `concurrency.Process`. It handles cancellation, error propagation,
+callbacks, and sequential fallback automatically. When concurrency resolves to 1 (or the slice has a single element), both `Process` and `ProcessCollect`
+fall back to sequential execution in the caller's goroutine — no goroutine overhead.
 
 ### Choose the right concurrency limit
 
@@ -334,27 +322,23 @@ sequential execution in the caller's goroutine — no goroutine overhead.
 
 ### Always use `defer panics.Handle(ctx)` in spawned goroutines
 
-Unrecovered panics in goroutines crash the entire process — Go does not recover
-panics across goroutine boundaries. `panics.Handle` logs the panic, runs
-registered handlers, and prevents process termination (unless
-`SetReallyPanic(true)` is configured).
+Unrecovered panics in goroutines crash the entire process — Go does not recover panics across goroutine boundaries. `panics.Handle` logs the panic, runs
+registered handlers, and prevents process termination (unless `SetReallyPanic(true)` is configured).
 
 ### Register shutdown hooks early
 
-`OnShutdown` uses LIFO order. Register foundational resources (database, message broker)
-first so they are cleaned up last, after higher-level components that depend on them.
+`OnShutdown` uses LIFO order. Register foundational resources (database, message broker) first so they are cleaned up last, after higher-level components
+that depend on them.
 
 ### Use `retry.Do` for transient failures
 
-Wrap external calls (HTTP, gRPC, database reconnects) in `retry.Do` with exponential
-backoff and jitter. Always provide `ShouldRetry` to skip retries on permanent failures
-(e.g. not-found, validation errors, authentication failures).
+Wrap external calls (HTTP, gRPC, database reconnects) in `retry.Do` with exponential backoff and jitter. Always provide `ShouldRetry` to skip retries on
+permanent failures (e.g. not-found, validation errors, authentication failures).
 
 ### Prevent concurrent execution with `atomic.Bool` guards
 
-Use `CompareAndSwap` to ensure only one goroutine executes a periodic cycle at a time.
-This is lighter than a mutex when the goal is to skip overlapping invocations rather
-than queue them:
+Use `CompareAndSwap` to ensure only one goroutine executes a periodic cycle at a time. This is lighter than a mutex when the goal is to skip overlapping
+invocations rather than queue them:
 
 ```go
 if !o.dispatchRunning.CompareAndSwap(false, true) {
@@ -363,13 +347,11 @@ if !o.dispatchRunning.CompareAndSwap(false, true) {
 defer o.dispatchRunning.Store(false)
 ```
 
-This pattern is used throughout the codebase for scheduler cycles: outbox dispatch,
-health checks, secret rotation, OPA policy updates, and cursor cleanup.
+This pattern is used throughout the codebase for scheduler cycles: outbox dispatch, health checks, secret rotation, OPA policy updates, and cursor cleanup.
 
 ### Use `context.WithoutCancel` for cleanup operations
 
-When a store update or cleanup must complete even if the caller's context is canceled,
-derive a detached context with `context.WithoutCancel`:
+When a store update or cleanup must complete even if the caller's context is canceled, derive a detached context with `context.WithoutCancel`:
 
 ```go
 updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), o.updateTimeout)
@@ -379,36 +361,32 @@ if err := o.store.UpdateEvents(updateCtx, processedEvents...); err != nil {
 }
 ```
 
-This is critical for outbox event status updates and graceful HTTP shutdown — a
-canceled parent context must not prevent the operation from finishing.
+This is critical for outbox event status updates and graceful HTTP shutdown — a canceled parent context must not prevent the operation from finishing.
 
 ### Use `corecontext.ApplyTimeout` / `WithMaxTimeout`
 
-Avoid stacking timeouts. `ApplyTimeout` only adds a timeout when the context does not
-already carry a deadline — if one exists, it returns the context unchanged:
+Avoid stacking timeouts. `ApplyTimeout` only adds a timeout when the context does not already carry a deadline — if one exists, it returns the context
+unchanged:
 
 ```go
 ctx, cancel := corectx.ApplyTimeout(ctx, 5*time.Second)
 defer cancel()
 ```
 
-`WithMaxTimeout` caps the deadline at a maximum duration. If the existing deadline is
-sooner, the context is returned unchanged; if it is later (or absent), a new deadline
-is set:
+`WithMaxTimeout` caps the deadline at a maximum duration. If the existing deadline is sooner, the context is returned unchanged; if it is later (or absent),
+a new deadline is set:
 
 ```go
 ctx, cancel := corectx.WithMaxTimeout(ctx, 30*time.Second)
 defer cancel()
 ```
 
-Both functions return a no-op cancel func when no new context is created, so `defer
-cancel()` is always safe.
+Both functions return a no-op cancel func when no new context is created, so `defer cancel()` is always safe.
 
 ### Use `singleflight` for request deduplication
 
-When multiple goroutines may request the same resource concurrently (cache miss,
-secret fetch, database metadata), use `singleflight.Group` to coalesce calls and
-prevent cache stampede:
+When multiple goroutines may request the same resource concurrently (cache miss, secret fetch, database metadata), use `singleflight.Group` to coalesce
+calls and prevent cache stampede:
 
 ```go
 result, err, _ := t.fetchGroup.Do(key, func() (any, error) {
@@ -416,14 +394,13 @@ result, err, _ := t.fetchGroup.Do(key, func() (any, error) {
 })
 ```
 
-Only the first caller executes the function; all others block and receive the same
-result. This pattern is used in the cache, secrets manager, and Mongo client.
+Only the first caller executes the function; all others block and receive the same result. This pattern is used in the cache, secrets manager, and Mongo
+client.
 
 ### Reuse timers in loops with `coretime.TimerStopAndDrain`
 
-Avoid `time.After` in loops — each call allocates a new timer that is not garbage
-collected until it fires. Instead, create one `time.Timer` and reset it each
-iteration. Before calling `Reset`, drain the channel to prevent stale events:
+Avoid `time.After` in loops — each call allocates a new timer that is not garbage collected until it fires. Instead, create one `time.Timer` and reset it
+each iteration. Before calling `Reset`, drain the channel to prevent stale events:
 
 ```go
 timer := time.NewTimer(interval)
@@ -441,14 +418,12 @@ for {
 }
 ```
 
-`TimerStopAndDrain` uses a non-blocking select so it never blocks even if another
-goroutine has already consumed the event.
+`TimerStopAndDrain` uses a non-blocking select so it never blocks even if another goroutine has already consumed the event.
 
 ### Safe resource release under panic
 
-When a resource (e.g. a distributed lock) must be released whether the function
-returns normally or panics, use a mutex + bool guard callable from both `defer` and
-the panic handler:
+When a resource (e.g. a distributed lock) must be released whether the function returns normally or panics, use a mutex + bool guard callable from both
+`defer` and the panic handler:
 
 ```go
 var lockReleased bool
@@ -476,8 +451,7 @@ The guard ensures the lock is released exactly once regardless of control flow.
 
 ### Use `StopOnError: false` for non-critical fan-out
 
-When checking multiple independent resources (health checks, leader election
-callbacks, secret warmup), set `StopOnError: false` so all items are processed
+When checking multiple independent resources (health checks, leader election callbacks, secret warmup), set `StopOnError: false` so all items are processed
 even when some fail:
 
 ```go
@@ -491,9 +465,8 @@ The first error is still returned, but every item gets its chance to execute.
 
 ### Use atomics for concurrent state flags
 
-Prefer `atomic.Bool` for running-state flags, `atomic.Int64` for counters, and
-`atomic.Int32` for gauges. They are cheaper than mutexes for single-value access
-and make concurrent access explicit:
+Prefer `atomic.Bool` for running-state flags, `atomic.Int64` for counters, and `atomic.Int32` for gauges. They are cheaper than mutexes for single-value
+access and make concurrent access explicit:
 
 ```go
 type Coordinator struct {
@@ -506,5 +479,4 @@ type Outbox struct {
 }
 ```
 
-Increment with `Add(1)`, decrement with `Add(-1)`, and read with `Load()`. For
-boolean flags that gate execution, see the `atomic.Bool` guard pattern above.
+Increment with `Add(1)`, decrement with `Add(-1)`, and read with `Load()`. For boolean flags that gate execution, see the `atomic.Bool` guard pattern above.

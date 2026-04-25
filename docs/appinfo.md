@@ -1,7 +1,6 @@
 # Application Info
 
-Key concepts for working with `core/runtime/appinfo` — application metadata, version
-queries, environment variables, and filesystem paths.
+Key concepts for working with `core/runtime/appinfo` — application metadata, version queries, environment variables, and filesystem paths.
 
 ```
 import "github.com/altessa-s/go-atlas/core/runtime/appinfo"
@@ -11,8 +10,7 @@ import "github.com/altessa-s/go-atlas/core/runtime/appinfo"
 
 ## Overview
 
-The `appinfo` package exposes application metadata populated at build time via
-`-ldflags` and at init time from `debug.ReadBuildInfo`. It provides:
+The `appinfo` package exposes application metadata populated at build time via `-ldflags` and at init time from `debug.ReadBuildInfo`. It provides:
 
 - **Metadata variables** — name, project, version, commit, branch, build time
 - **Version queries** — semantic version parsing, release/pre-release checks
@@ -50,21 +48,17 @@ go build -ldflags "\
 | `StandaloneLabel` | `"standalone"` | Label returned by `EnvLabel` when built with `standalone` tag |
 | `NonStandaloneLabel` | `"cloud"` | Label returned by `EnvLabel` when built without `standalone` tag |
 
-If `Name` is not set via ldflags, `init` derives it from the module path's last
-component. If build info is unavailable, it defaults to `"unknown"`.
+If `Name` is not set via ldflags, `init` derives it from the module path's last component. If build info is unavailable, it defaults to `"unknown"`.
 
-If `Commit` or `BuildTime` are not set via ldflags, `init` reads them from
-`debug.ReadBuildInfo` settings (`vcs.revision`, `vcs.time`).
+If `Commit` or `BuildTime` are not set via ldflags, `init` reads them from `debug.ReadBuildInfo` settings (`vcs.revision`, `vcs.time`).
 
-`EnvPrefix` is sanitized at init time: hyphens and dots are replaced with underscores,
-and the result is uppercased.
+`EnvPrefix` is sanitized at init time: hyphens and dots are replaced with underscores, and the result is uppercased.
 
 ---
 
 ## Version queries
 
-`Version` is parsed into a `SemanticVersion` at init time. The struct follows the
-SemVer 2.0.0 specification:
+`Version` is parsed into a `SemanticVersion` at init time. The struct follows the SemVer 2.0.0 specification:
 
 ```go
 type SemanticVersion struct {
@@ -122,8 +116,7 @@ Functions that return information about the build toolchain and target:
 
 ### Dependencies
 
-`Deps()` returns the application's module dependencies as a `Dependencies` collection
-extracted from `debug.ReadBuildInfo`:
+`Deps()` returns the application's module dependencies as a `Dependencies` collection extracted from `debug.ReadBuildInfo`:
 
 ```go
 deps := appinfo.Deps()
@@ -142,8 +135,8 @@ Each `Dependency` has: `Path`, `Version`, `Sum`, `IsReplaced`, and `ReplacedPath
 
 ### Prefixed lookups
 
-`GetEnvVar` prepends `EnvPrefix` (with `_` separator) to the key and looks up the
-resulting uppercase variable. A leading `~` in the value is expanded to `HomeDir()`.
+`GetEnvVar` prepends `EnvPrefix` (with `_` separator) to the key and looks up the resulting uppercase variable. A leading `~` in the value is expanded to
+`HomeDir()`.
 
 ```go
 // EnvPrefix = "MYAPP"
@@ -159,9 +152,8 @@ path := appinfo.GetEnvVar("config")
 | `EnvOr(key, default)` | Returns `default` if variable is empty or unset |
 | `EnvCached(key)` | Caches on first read (thread-safe); clear with `ClearEnvCache()` |
 
-`EnvCached` uses double-checked locking (`sync.RWMutex`) to avoid re-reading the
-environment on hot paths. Call `ClearEnvCache()` in tests or after modifying
-environment variables.
+`EnvCached` uses double-checked locking (`sync.RWMutex`) to avoid re-reading the environment on hot paths. Call `ClearEnvCache()` in tests or after
+modifying environment variables.
 
 ### Home directory
 
@@ -188,9 +180,8 @@ The package defines constants for commonly used environment variable names:
 
 ## Directory paths
 
-Convention-based filesystem layout for application binaries, configuration, and state.
-All directory functions check for an `<EnvPrefix>_*_DIR` environment variable override
-before falling back to defaults.
+Convention-based filesystem layout for application binaries, configuration, and state. All directory functions check for an `<EnvPrefix>_*_DIR` environment
+variable override before falling back to defaults.
 
 | Function | Override var | Default | Description |
 |----------|-------------|---------|-------------|
@@ -200,8 +191,7 @@ before falling back to defaults.
 | `LibDir()` | `<PREFIX>_LIB_DIR` | `<VarDir>/lib/<Project>/<Name>` | Library and state files |
 | `CertsCacheDir()` | — | `<LibDir>/certs` | Cached TLS certificates |
 
-`Project` and `Name` are lowercased in path construction. If `Project` is empty, the
-project component is omitted.
+`Project` and `Name` are lowercased in path construction. If `Project` is empty, the project component is omitted.
 
 ### Creating directories
 
@@ -211,8 +201,7 @@ if err := appinfo.MakeAllDirs(); err != nil {
 }
 ```
 
-`MakeAllDirs()` creates `VarDir` and `LibDir` (and any necessary parents) using
-`os.MkdirAll` with `0777` permissions (process umask applies).
+`MakeAllDirs()` creates `VarDir` and `LibDir` (and any necessary parents) using `os.MkdirAll` with `0777` permissions (process umask applies).
 
 ### Example layout
 
@@ -240,8 +229,7 @@ go build -tags standalone
 | `go build` | `false` | `"cloud"` |
 | `go build -tags standalone` | `true` | `"standalone"` |
 
-Both `StandaloneLabel` and `NonStandaloneLabel` can be overridden via ldflags if
-custom labels are needed.
+Both `StandaloneLabel` and `NonStandaloneLabel` can be overridden via ldflags if custom labels are needed.
 
 ---
 

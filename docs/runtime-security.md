@@ -1,9 +1,7 @@
 # Runtime security
 
-Linux process-hardening primitives under `core/runtime/`. Five small,
-focused packages that lock down a Go process at startup so a compromised
-plugin or dependency cannot escalate beyond the surface the operator
-granted.
+Linux process-hardening primitives under `core/runtime/`. Five small, focused packages that lock down a Go process at startup so a compromised plugin or
+dependency cannot escalate beyond the surface the operator granted.
 
 ```go
 import (
@@ -49,31 +47,24 @@ import (
 | `seccomp`      | Linux 3.17     | amd64, arm64    | `linux && (amd64 \|\| arm64)`       |
 | `landlock`     | Linux 5.13     | any             | `linux` / `!linux`                  |
 
-`landlock` negotiates the highest mutually supported Landlock ABI at
-runtime: ABI 1 (Linux 5.13) for the base read/write/execute mask, ABI 3
-(Linux 6.2) for the `truncate` flag. Older kernels in the 5.13 to 6.1
-range silently lose `truncate`; everything else continues to work.
+`landlock` negotiates the highest mutually supported Landlock ABI at runtime: ABI 1 (Linux 5.13) for the base read/write/execute mask, ABI 3 (Linux 6.2) for
+the `truncate` flag. Older kernels in the 5.13 to 6.1 range silently lose `truncate`; everything else continues to work.
 
 ---
 
 ## Recommended hardening sequence
 
-Apply primitives in the order `nonewprivs` → `rlimits` → `capabilities`
-→ `seccomp` → `landlock`, once at process startup, before spawning
-goroutines or loading plugins. The ordering matters:
+Apply primitives in the order `nonewprivs` → `rlimits` → `capabilities` → `seccomp` → `landlock`, once at process startup, before spawning goroutines or
+loading plugins. The ordering matters:
 
 - `nonewprivs` first because both `seccomp` and `landlock` require
-  `PR_SET_NO_NEW_PRIVS` for unprivileged processes (and both will set it
-  for you, but explicit ordering keeps the failure modes legible).
+  `PR_SET_NO_NEW_PRIVS` for unprivileged processes (and both will set it for you, but explicit ordering keeps the failure modes legible).
 - `rlimits` next because hard-limit reductions are irreversible and you
-  want them in place before any subsequent step can fail and abort
-  startup.
+  want them in place before any subsequent step can fail and abort startup.
 - `capabilities` before `seccomp` so the privileged caps you actually
-  need (e.g. `CAP_NET_BIND_SERVICE` for binding port 80) are still in
-  effect during the privileged work, and dropped cleanly afterwards.
+  need (e.g. `CAP_NET_BIND_SERVICE` for binding port 80) are still in effect during the privileged work, and dropped cleanly afterwards.
 - `seccomp` before `landlock` because the seccomp denylist closes
-  syscalls (`bpf`, `unshare`, `setns`, `keyctl`) that could otherwise be
-  used to undermine the filesystem allowlist.
+  syscalls (`bpf`, `unshare`, `setns`, `keyctl`) that could otherwise be used to undermine the filesystem allowlist.
 
 ```go
 package main
@@ -160,10 +151,8 @@ func main() {
 import "github.com/altessa-s/go-atlas/core/runtime/nonewprivs"
 ```
 
-Sets the Linux `PR_SET_NO_NEW_PRIVS` bit. Once set, the calling thread
-and any binary it later `exec`s cannot gain privileges via `SUID`/`SGID`;
-the kernel silently drops the ambient escalation. The bit is
-irreversible per thread and idempotent.
+Sets the Linux `PR_SET_NO_NEW_PRIVS` bit. Once set, the calling thread and any binary it later `exec`s cannot gain privileges via `SUID`/`SGID`; the kernel
+silently drops the ambient escalation. The bit is irreversible per thread and idempotent.
 
 | Symbol            | Kind     | Purpose                                              |
 |-------------------|----------|------------------------------------------------------|
@@ -196,10 +185,8 @@ if err := nonewprivs.Set(); err != nil {
 import "github.com/altessa-s/go-atlas/core/runtime/rlimits"
 ```
 
-Installs Linux process resource limits via `setrlimit(2)`. Each option
-caps both the soft and hard limit to the configured value. Hard-limit
-reductions are irreversible for unprivileged processes. Intended for
-one-shot startup-time hardening.
+Installs Linux process resource limits via `setrlimit(2)`. Each option caps both the soft and hard limit to the configured value. Hard-limit reductions are
+irreversible for unprivileged processes. Intended for one-shot startup-time hardening.
 
 | Option / Symbol            | Resource     | Effect                                             |
 |----------------------------|--------------|----------------------------------------------------|
@@ -251,10 +238,8 @@ case errors.Is(err, rlimits.ErrFailed):
 import "github.com/altessa-s/go-atlas/core/runtime/capabilities"
 ```
 
-cgo-free interface to Linux capabilities. Wraps `capset(2)`, `capget(2)`,
-and `prctl(PR_CAPBSET_DROP)` / `prctl(PR_CAP_AMBIENT, ...)` directly,
-without libcap. For the "drop everything except what I need at
-startup" pattern.
+cgo-free interface to Linux capabilities. Wraps `capset(2)`, `capget(2)`, and `prctl(PR_CAPBSET_DROP)` / `prctl(PR_CAP_AMBIENT, ...)` directly, without
+libcap. For the "drop everything except what I need at startup" pattern.
 
 | Symbol                              | Kind     | Purpose                                          |
 |-------------------------------------|----------|--------------------------------------------------|
@@ -310,10 +295,8 @@ _ = capabilities.DropAllExcept(c)
 import "github.com/altessa-s/go-atlas/core/runtime/seccomp"
 ```
 
-Installs a fixed seccomp-BPF denylist of ~22 syscalls that a Go
-process never legitimately calls. A defense-in-depth primitive that
-reduces the blast radius of a compromised plugin or dependency, NOT a
-complete syscall sandbox.
+Installs a fixed seccomp-BPF denylist of ~22 syscalls that a Go process never legitimately calls. A defense-in-depth primitive that reduces the blast radius
+of a compromised plugin or dependency, NOT a complete syscall sandbox.
 
 | Symbol                       | Kind     | Purpose                                       |
 |------------------------------|----------|-----------------------------------------------|
@@ -326,18 +309,14 @@ complete syscall sandbox.
 A curated allowlist for a Go process is an antipattern:
 
 - The Go runtime calls many syscalls that change between Go and kernel
-  versions (`clone` vs `clone3`, `pidfd_open`, `madvise`, `rseq`,
-  `membarrier`, `getrandom`, `futex`, `epoll_pwait2`, …).
+  versions (`clone` vs `clone3`, `pidfd_open`, `madvise`, `rseq`, `membarrier`, `getrandom`, `futex`, `epoll_pwait2`, …).
 - An over-eager allowlist breaks the process under `SIGSYS` at random
   moments in production, usually not at startup.
 - A safe allowlist must be generated from production traces per Go
-  version × kernel version. That is infrastructure work, not a Go
-  package concern.
+  version × kernel version. That is infrastructure work, not a Go package concern.
 
-For syscall-level filtering beyond this fixed denylist, configure
-seccomp at the container layer: Kubernetes
-`securityContext.seccompProfile`, Docker `--security-opt seccomp=…`, or
-systemd `SystemCallFilter=`.
+For syscall-level filtering beyond this fixed denylist, configure seccomp at the container layer: Kubernetes `securityContext.seccompProfile`, Docker
+`--security-opt seccomp=…`, or systemd `SystemCallFilter=`.
 
 ### What the denylist blocks
 
@@ -352,10 +331,8 @@ systemd `SystemCallFilter=`.
 | Keyring                   | `keyctl`, `add_key`, `request_key`                        |
 | Exotic escalation vectors | `userfaultfd`, `perf_event_open`, `bpf`                   |
 
-A blocked syscall returns `EPERM`. An architecture mismatch (e.g. an x32
-syscall on an amd64 kernel) kills the process outright, because
-syscall numbers differ across arches and a filter that trusts the wrong
-numbering is worse than no filter.
+A blocked syscall returns `EPERM`. An architecture mismatch (e.g. an x32 syscall on an amd64 kernel) kills the process outright, because syscall numbers
+differ across arches and a filter that trusts the wrong numbering is worse than no filter.
 
 ```go
 err := seccomp.BlockDangerousSyscalls()
@@ -388,10 +365,8 @@ case errors.Is(err, seccomp.ErrFailed):
 import "github.com/altessa-s/go-atlas/core/runtime/landlock"
 ```
 
-Wraps the unprivileged Linux Landlock LSM filesystem sandbox. Restricts
-the calling process to a strict allowlist of paths without
-`CAP_SYS_ADMIN` or root. Restrictions are irreversible per process
-lifetime.
+Wraps the unprivileged Linux Landlock LSM filesystem sandbox. Restricts the calling process to a strict allowlist of paths without `CAP_SYS_ADMIN` or root.
+Restrictions are irreversible per process lifetime.
 
 | Symbol                              | Kind     | Purpose                                       |
 |-------------------------------------|----------|-----------------------------------------------|
@@ -461,10 +436,8 @@ Every package exposes the same three sentinel errors (where applicable):
 | `ErrInvalidOption` | Operator misconfiguration; fail fast with a config error.        |
 | `ErrFailed`        | The kernel rejected a well-formed request; wraps the raw errno.  |
 
-The wrap chain preserves the kernel `syscall.Errno`, so callers can use
-both `errors.Is(err, pkg.ErrFailed)` for sentinel matching and
-`errors.As(err, &errno)` to recover the raw errno for branching logic.
-The canonical pattern is a `switch` on the three sentinels:
+The wrap chain preserves the kernel `syscall.Errno`, so callers can use both `errors.Is(err, pkg.ErrFailed)` for sentinel matching and `errors.As(err,
+&errno)` to recover the raw errno for branching logic. The canonical pattern is a `switch` on the three sentinels:
 
 ```go
 switch {
@@ -486,22 +459,16 @@ default:
 ## What these primitives do NOT do
 
 - **Not a container replacement.** A namespace-isolated PID/mount/network
-  view is out of scope. Use a container runtime, systemd unit isolation
-  (`PrivateTmp=`, `ProtectSystem=`, `PrivateNetwork=`), or a microVM.
+  view is out of scope. Use a container runtime, systemd unit isolation (`PrivateTmp=`, `ProtectSystem=`, `PrivateNetwork=`), or a microVM.
 - **Not a memory-safety boundary.** A malicious dependency already
-  loaded in-process can read every byte of the host's address space,
-  including secrets, TLS keys, and connection state. Seccomp and
-  Landlock close specific escalation vectors (container escape,
-  kernel-module loading, ptrace, bpf, writing to disk outside the
-  allowlist), not the in-process code-execution vector.
+  loaded in-process can read every byte of the host's address space, including secrets, TLS keys, and connection state. Seccomp and Landlock close specific
+  escalation vectors (container escape, kernel-module loading, ptrace, bpf, writing to disk outside the allowlist), not the in-process code-execution
+  vector.
 - **Not a network sandbox.** None of these packages restrict outbound
-  connections. Use Linux network namespaces, eBPF, an egress firewall,
-  or an L7 proxy.
+  connections. Use Linux network namespaces, eBPF, an egress firewall, or an L7 proxy.
 - **Not retroactive across goroutines.** The per-thread primitives only
-  affect the calling thread; peer Go-runtime threads created before
-  hardening retain their original state. For a real process-wide
-  guarantee, harden externally (systemd, container runtime, C launcher)
-  before `execve(2)` of the Go binary.
+  affect the calling thread; peer Go-runtime threads created before hardening retain their original state. For a real process-wide guarantee, harden
+  externally (systemd, container runtime, C launcher) before `execve(2)` of the Go binary.
 
 ---
 
@@ -509,5 +476,4 @@ default:
 
 
 - [Plugins](plugins.md): the primary untrusted-code vector this
-  hardening stack defends against. The security warning at the top of
-  that document is the motivation for everything here.
+  hardening stack defends against. The security warning at the top of that document is the motivation for everything here.

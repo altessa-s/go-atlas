@@ -4,12 +4,10 @@
 import "github.com/altessa-s/go-atlas/core/plugins"
 ```
 
-The `plugins` package manages native Go `.so` plugins at runtime, following the
-SPI (Service Provider Interface) pattern from Keycloak. It handles only lifecycle and
-discovery — the contract a plugin must satisfy and the symbols a service looks up are
-defined by the host application. The manager loads `.so` files from a directory, resolves
-their metadata, runs an optional `Init` callback with panic recovery and a timeout, and
-lets services find providers via symbol lookup.
+The `plugins` package manages native Go `.so` plugins at runtime, following the SPI (Service Provider Interface) pattern from Keycloak. It handles only
+lifecycle and discovery — the contract a plugin must satisfy and the symbols a service looks up are defined by the host application. The manager loads `.so`
+files from a directory, resolves their metadata, runs an optional `Init` callback with panic recovery and a timeout, and lets services find providers via
+symbol lookup.
 
 > **Security warning.** Loading a `.so` file runs arbitrary native code in the host
 > process **before** the manager can inspect the descriptor. A malicious plugin can read
@@ -57,15 +55,14 @@ What the manager does:
 | Pluggable provider implementations             | Auth providers, audit sinks, codecs added without core changes     |
 | In-house extension marketplace                 | Decouple extension release cadence from host release cadence       |
 
-If you only need *configurable* behavior, use config flags. Plugins make sense when the
-extension involves Go code that the host should not know about at compile time.
+If you only need *configurable* behavior, use config flags. Plugins make sense when the extension involves Go code that the host should not know about at
+compile time.
 
 ---
 
 ## Plugin contract
 
-A plugin is a Go package compiled with `-buildmode=plugin`. It must export a
-package-level `Descriptor` variable and may optionally export `Init`.
+A plugin is a Go package compiled with `-buildmode=plugin`. It must export a package-level `Descriptor` variable and may optionally export `Init`.
 
 ### Descriptor (required)
 
@@ -98,8 +95,7 @@ var Descriptor = &plugins.Descriptor{
 }
 ```
 
-`Name` is the lookup key for `Manager.Get` and must be unique. Empty `Name` →
-`ErrInvalidDescriptor`.
+`Name` is the lookup key for `Manager.Get` and must be unique. Empty `Name` → `ErrInvalidDescriptor`.
 
 ### Init (optional)
 
@@ -120,14 +116,13 @@ var Init = func(ctx context.Context) error {
 }
 ```
 
-`Init` runs with a timeout (default 5s) and panic recovery. A panic sets `ErrPluginPanicked`;
-a returned error sets `ErrPluginFailed`. Either way the plugin moves to `StateFailed`.
-Other plugins keep loading — one failure does not stop the rest.
+`Init` runs with a timeout (default 5s) and panic recovery. A panic sets `ErrPluginPanicked`; a returned error sets `ErrPluginFailed`. Either way the plugin
+moves to `StateFailed`. Other plugins keep loading — one failure does not stop the rest.
 
 ### Service-specific symbols
 
-A plugin can export any additional symbols. The host defines the names it expects and
-finds them via `Manager.LookupAll`. Each service owns its own SPI contract.
+A plugin can export any additional symbols. The host defines the names it expects and finds them via `Manager.LookupAll`. Each service owns its own SPI
+contract.
 
 ```go
 // Plugin side:
@@ -154,25 +149,22 @@ cd ./plugins/audit-mongo
 go build -buildmode=plugin -o ../../bin/plugins/audit-mongo.so .
 ```
 
-Host and plugin must use the same go-atlas version — Go's plugin loader rejects `.so`
-files compiled against a different version of any shared dependency.
+Host and plugin must use the same go-atlas version — Go's plugin loader rejects `.so` files compiled against a different version of any shared dependency.
 
 ### DepInfo (optional)
 
-Export `DepInfo` so the manager can compare the plugin's module graph against the host's
-`debug.ReadBuildInfo`. Mismatched shared-dependency versions get a logged warning.
+Export `DepInfo` so the manager can compare the plugin's module graph against the host's `debug.ReadBuildInfo`. Mismatched shared-dependency versions get a
+logged warning.
 
 ```go
 var DepInfo = plugins.NewDepInfoFromBuild()
 ```
 
-`NewDepInfoFromBuild` snapshots `debug.ReadBuildInfo` at init time — nothing to maintain.
-Optional; absent `DepInfo` is silently skipped.
+`NewDepInfoFromBuild` snapshots `debug.ReadBuildInfo` at init time — nothing to maintain. Optional; absent `DepInfo` is silently skipped.
 
 ### SPI version negotiation
 
-To version a provider contract, export a companion `<Symbol>SPIVersion` variable next to
-the provider:
+To version a provider contract, export a companion `<Symbol>SPIVersion` variable next to the provider:
 
 ```go
 var AuthProvider         = &myAuthProvider{}
@@ -194,8 +186,7 @@ for p, sym := range plugins.NegotiateAll(mgr, "AuthProvider", constraint, logger
 }
 ```
 
-Plugins without a `<Symbol>SPIVersion` symbol pass through unchanged. Incompatible
-providers are skipped and a warning is logged.
+Plugins without a `<Symbol>SPIVersion` symbol pass through unchanged. Incompatible providers are skipped and a warning is logged.
 
 ---
 
@@ -295,8 +286,8 @@ A template with comments is at `config/templates/plugins.yaml`.
 
 ## Factory builder
 
-The `factory` package builds the manager from `config.Plugins`, runs `Load`, and
-optionally starts the watcher. Nil or disabled configs are rejected at `Build` time.
+The `factory` package builds the manager from `config.Plugins`, runs `Load`, and optionally starts the watcher. Nil or disabled configs are rejected at
+`Build` time.
 
 ```go
 import (
@@ -388,21 +379,18 @@ StateLoaded ──Init success──▶ StateReady ──Unload/Close──▶ S
 
 ## Quarantine
 
-When a plugin fails to load (broken `.so`, missing descriptor, Init error or panic),
-the manager records the file's SHA256 hash and skips it on subsequent `Load`/`Reload`
-calls. Reloading the same broken file is pointless — nothing changed. The quarantine
-clears automatically when the file hash changes (operator deployed a fix).
+When a plugin fails to load (broken `.so`, missing descriptor, Init error or panic), the manager records the file's SHA256 hash and skips it on subsequent
+`Load`/`Reload` calls. Reloading the same broken file is pointless — nothing changed. The quarantine clears automatically when the file hash changes
+(operator deployed a fix).
 
 ### Automatic quarantine
 
-Any failure in `loadPlugin` quarantines the file: `openPlugin` error, descriptor
-resolution, Init error, Init panic. The watcher picks up file changes via WRITE events
-and calls `Reload`, which recomputes the hash, clears the quarantine entry, and retries.
+Any failure in `loadPlugin` quarantines the file: `openPlugin` error, descriptor resolution, Init error, Init panic. The watcher picks up file changes via
+WRITE events and calls `Reload`, which recomputes the hash, clears the quarantine entry, and retries.
 
 ### Runtime quarantine
 
-Services that observe a plugin misbehaving at runtime (panics, repeated errors from
-exported symbols) can quarantine it explicitly:
+Services that observe a plugin misbehaving at runtime (panics, repeated errors from exported symbols) can quarantine it explicitly:
 
 ```go
 if err := mgr.Quarantine("broken-plugin"); err != nil {
@@ -410,8 +398,7 @@ if err := mgr.Quarantine("broken-plugin"); err != nil {
 }
 ```
 
-The plugin is removed from the registry, marked `StateFailed`, and its file hash is
-recorded. The next `Reload` skips it unless the file changed.
+The plugin is removed from the registry, marked `StateFailed`, and its file hash is recorded. The next `Reload` skips it unless the file changed.
 
 ### Inspecting quarantine
 
@@ -429,9 +416,8 @@ Quarantined plugins produce `ErrPluginQuarantined`, matchable via `errors.Is`.
 
 ## Signature verification
 
-Verifies `.so` files against a detached `.so.sig` signature before `plugin.Open` runs
-any code. Disabled by default. When on, each `.so` needs a companion `.sig` file
-signed with the configured public key.
+Verifies `.so` files against a detached `.so.sig` signature before `plugin.Open` runs any code. Disabled by default. When on, each `.so` needs a companion
+`.sig` file signed with the configured public key.
 
 > **TOCTOU note.** `plugin.Open` re-reads the file from disk — it doesn't accept
 > pre-read bytes. An attacker with write access to the plugin directory could swap the
@@ -508,8 +494,7 @@ mgr := plugins.NewManager(
 
 ## Filesystem watcher
 
-With `config.Plugins.Watch = true` (or `Manager.StartWatching` directly), an
-[`fsnotify`](https://github.com/fsnotify/fsnotify) watcher monitors the plugin
+With `config.Plugins.Watch = true` (or `Manager.StartWatching` directly), an [`fsnotify`](https://github.com/fsnotify/fsnotify) watcher monitors the plugin
 directory and loads new `.so` files as they appear.
 
 ### Semantics
@@ -544,9 +529,8 @@ When `cfg.Watch = true` the factory calls `StartWatching(ctx)` after the initial
 
 ## Sandbox mode
 
-The manager can apply Linux process-hardening primitives before opening any `.so` file.
-This reduces blast radius for buggy plugins — it is not isolation. Go's `plugin` package
-loads native code into the host address space, so true in-process isolation is impossible.
+The manager can apply Linux process-hardening primitives before opening any `.so` file. This reduces blast radius for buggy plugins — it is not isolation.
+Go's `plugin` package loads native code into the host address space, so true in-process isolation is impossible.
 
 > **Read this before enabling.**
 >
@@ -579,10 +563,9 @@ loads native code into the host address space, so true in-process isolation is i
 | `disableCoreDumps`         | `setrlimit(RLIMIT_CORE, 0)`                | Suppresses core dumps so memory contents (including secrets) cannot leak |
 | `landlock`                 | `landlock_create_ruleset` + `add_rule` + `restrict_self` | Strict filesystem allowlist enforced by the kernel       |
 
-`seccomp-BPF` is in [`core/runtime/seccomp`](../core/runtime/seccomp/README.md) but is
-**not** wired into the plugin sandbox. Call `seccomp.BlockDangerousSyscalls()` during
-host startup before constructing the manager. The denylist is fixed, not
-operator-configurable, to keep the audited set stable.
+`seccomp-BPF` is in [`core/runtime/seccomp`](../core/runtime/seccomp/README.md) but is **not** wired into the plugin sandbox. Call
+`seccomp.BlockDangerousSyscalls()` during host startup before constructing the manager. The denylist is fixed, not operator-configurable, to keep the
+audited set stable.
 
 ### Configuration
 
@@ -630,13 +613,11 @@ plugins:
 
 ### Capability dropping
 
-Plugins loaded via `dlopen` inherit the host's Linux capabilities. Without dropping,
-a plugin could craft raw packets, bind privileged ports, bypass DAC, trace processes,
-or mount filesystems.
+Plugins loaded via `dlopen` inherit the host's Linux capabilities. Without dropping, a plugin could craft raw packets, bind privileged ports, bypass DAC,
+trace processes, or mount filesystems.
 
-The capability-dropping pass runs between `rlimits` and Landlock, using
-[`core/runtime/capabilities`](../core/runtime/capabilities/README.md) (raw `capset(2)` +
-`prctl(2)`, no cgo).
+The capability-dropping pass runs between `rlimits` and Landlock, using [`core/runtime/capabilities`](../core/runtime/capabilities/README.md) (raw
+`capset(2)` + `prctl(2)`, no cgo).
 
 **Configuration:**
 
@@ -651,8 +632,7 @@ plugins:
       keep: []
 ```
 
-To preserve specific capabilities (typical "bind :443 then drop the
-rest" pattern), list them in `keep`:
+To preserve specific capabilities (typical "bind :443 then drop the rest" pattern), list them in `keep`:
 
 ```yaml
     capabilities:
@@ -661,8 +641,7 @@ rest" pattern), list them in `keep`:
         - CAP_NET_BIND_SERVICE
 ```
 
-Names match kernel `CAP_*` constants (case-insensitive). Unknown names fail
-`config.Validate` at load time, not at `Manager.Load`.
+Names match kernel `CAP_*` constants (case-insensitive). Unknown names fail `config.Validate` at load time, not at `Manager.Load`.
 
 > **Read this before enabling.**
 >
@@ -681,9 +660,8 @@ Names match kernel `CAP_*` constants (case-insensitive). Unknown names fail
 
 ### Landlock filesystem allowlist
 
-Landlock (Linux LSM, kernel 5.13+) lets a process restrict its own filesystem access
-without root. The sandbox uses it as a strict allowlist: anything not listed returns
-`EACCES`.
+Landlock (Linux LSM, kernel 5.13+) lets a process restrict its own filesystem access without root. The sandbox uses it as a strict allowlist: anything not
+listed returns `EACCES`.
 
 > **Read this before enabling.**
 >
@@ -713,9 +691,8 @@ without root. The sandbox uses it as a strict allowlist: anything not listed ret
 | 5   | 6.10   | scoped signals                      |
 | 6   | 6.12   | additional restrictions             |
 
-The implementation negotiates the highest ABI the kernel supports and adds `truncate`
-to the write mask on v3+. Older kernels degrade to v1. Log rotation using truncate may
-break — verify on a canary.
+The implementation negotiates the highest ABI the kernel supports and adds `truncate` to the write mask on v3+. Older kernels degrade to v1. Log rotation
+using truncate may break — verify on a canary.
 
 #### Configuration
 
@@ -747,14 +724,12 @@ plugins:
 
 #### Auto-added paths
 
-Two convenience flags merge common paths into `readPaths` at apply time. The original
-slice is cloned before merging.
+Two convenience flags merge common paths into `readPaths` at apply time. The original slice is cloned before merging.
 
 ##### `allowPluginDir`
 
-Appends `plugins.dir` to `readPaths`. Almost every deployment needs this — without it
-`dlopen` can't read the `.so`. Off by default only to preserve the strict-allowlist
-contract for audits that require every path to be explicit.
+Appends `plugins.dir` to `readPaths`. Almost every deployment needs this — without it `dlopen` can't read the `.so`. Off by default only to preserve the
+strict-allowlist contract for audits that require every path to be explicit.
 
 ##### `allowSystemLibs`
 
@@ -765,14 +740,12 @@ Appends these paths to `readPaths`:
 - `/usr/lib`
 - `/usr/lib64`
 
-Covers glibc and musl on RHEL, Debian, Ubuntu, Fedora, Alpine, and most mainstream
-distros. It's a blunt instrument:
+Covers glibc and musl on RHEL, Debian, Ubuntu, Fedora, Alpine, and most mainstream distros. It's a blunt instrument:
 
 - Grants `read+execute` on everything under those directories, not just what the
   plugin needs.
 - Does **not** include multiarch subdirs (`/lib/x86_64-linux-gnu`). On Debian/Ubuntu
-  these are usually reachable via traversal from `/lib`, but if your loader lives
-  elsewhere, add the path to `readPaths` explicitly.
+  these are usually reachable via traversal from `/lib`, but if your loader lives elsewhere, add the path to `readPaths` explicitly.
 - **Not suitable for** NixOS (libs under `/nix/store`), chroot jails, or custom
   library prefixes. Leave `allowSystemLibs` off and list `ldd` output paths manually.
 
@@ -817,8 +790,7 @@ Both forms produce identical rulesets on a standard glibc system.
 
 #### Minimum-viable allowlist by distribution
 
-Exact paths depend on libc and dynamic loader. Starting points below — verify on
-the actual deployment image.
+Exact paths depend on libc and dynamic loader. Starting points below — verify on the actual deployment image.
 
 **glibc x86_64 (RHEL, Debian, Ubuntu, Fedora):**
 
@@ -861,8 +833,7 @@ readPaths:
 
 #### Debugging permission denied errors
 
-Plugin fails to load with `permission denied`? Usually the dynamic loader or a shared
-library. Trace file accesses on a host without Landlock:
+Plugin fails to load with `permission denied`? Usually the dynamic loader or a shared library. Trace file accesses on a host without Landlock:
 
 ```bash
 strace -f -e trace=openat,execve ./myservice 2>&1 \
@@ -881,10 +852,8 @@ Any `ldd` output pointing outside `/lib`/`/usr/lib` needs an explicit allowlist 
 
 #### Failure semantics
 
-Any failure during ABI detection, ruleset creation, or `restrict_self` wraps in
-`ErrSandboxFailed` and stops `Manager.Load`. No fallback — a partial Landlock setup
-would be worse than none. The error is cached and returned by every subsequent `Load`
-and `Reload`. `CheckHealth` reports `StatusNotServing`.
+Any failure during ABI detection, ruleset creation, or `restrict_self` wraps in `ErrSandboxFailed` and stops `Manager.Load`. No fallback — a partial
+Landlock setup would be worse than none. The error is cached and returned by every subsequent `Load` and `Reload`. `CheckHealth` reports `StatusNotServing`.
 
 #### Limitations
 
@@ -904,11 +873,10 @@ The plugin sandbox wraps four standalone packages. Any service can use them dire
 |---|---|
 | `github.com/altessa-s/go-atlas/core/runtime/nonewprivs` | `PR_SET_NO_NEW_PRIVS`: defeats SUID/SGID escalation on exec |
 | `github.com/altessa-s/go-atlas/core/runtime/rlimits` | `setrlimit(2)`: caps memory, FDs, processes, file size, core dumps |
-| `github.com/altessa-s/go-atlas/core/runtime/capabilities` | `capset(2)` / `prctl(2)`: drops Linux capabilities so plugins cannot inherit the host's privileged syscalls |
+| `github.com/altessa-s/go-atlas/core/runtime/capabilities` | `capset(2)` / `prctl(2)`: drops Linux capabilities so plugins can't inherit privileges |
 | `github.com/altessa-s/go-atlas/core/runtime/landlock` | Linux Landlock LSM filesystem allowlist (kernel 5.13+) |
 
-Each has a single entry point, `ErrUnsupported`/`ErrFailed` sentinels, and a non-Linux
-stub for cross-platform builds.
+Each has a single entry point, `ErrUnsupported`/`ErrFailed` sentinels, and a non-Linux stub for cross-platform builds.
 
 ```go
 import (
@@ -949,9 +917,8 @@ if err := landlock.Apply(
 }
 ```
 
-The plugin sandbox composes all four and adds `allowPluginDir`/`allowSystemLibs`
-convenience flags plus the once-cached state machine. See each package's README for
-the standalone API.
+The plugin sandbox composes all four and adds `allowPluginDir`/`allowSystemLibs` convenience flags plus the once-cached state machine. See each package's
+README for the standalone API.
 
 ### Programmatic configuration
 
@@ -974,8 +941,7 @@ if err := mgr.Load(ctx); err != nil {
 }
 ```
 
-`plugins.SandboxOptionsFromConfig(cfg.Plugins.Sandbox)` converts the YAML config into
-the runtime struct.
+`plugins.SandboxOptionsFromConfig(cfg.Plugins.Sandbox)` converts the YAML config into the runtime struct.
 
 ### Operational guidance
 
@@ -997,29 +963,25 @@ Both soft and hard limits will show the configured value (the manager sets `Cur 
 
 **When the sandbox blocks something legitimate:**
 
-There's no "unsetrlimit". Restart with corrected config. Treat sandbox values like
-resource requests — same change-control track.
+There's no "unsetrlimit". Restart with corrected config. Treat sandbox values like resource requests — same change-control track.
 
 **Failure semantics:**
 
-Once any primitive fails, `Load` and `Reload` return the cached error on every call.
-A half-applied sandbox is worse than none at all, so the manager refuses to load plugins
-until the config is fixed or the host is restarted.
+Once any primitive fails, `Load` and `Reload` return the cached error on every call. A half-applied sandbox is worse than none at all, so the manager
+refuses to load plugins until the config is fixed or the host is restarted.
 
 ### Recommended deployment
 
 This is the runbook the per-thread `WARN` log points to.
 
-**TL;DR:** don't rely on the in-process sandbox alone for `noNewPrivs`, `capabilities`,
-or `landlock`. Drop those privileges externally before the Go binary starts. The
-in-process call is defense-in-depth, not the primary boundary.
+**TL;DR:** don't rely on the in-process sandbox alone for `noNewPrivs`, `capabilities`, or `landlock`. Drop those privileges externally before the Go binary
+starts. The in-process call is defense-in-depth, not the primary boundary.
 
 #### Why per-thread is a problem in Go
 
-`PR_SET_NO_NEW_PRIVS`, `capset(2)`, and `landlock_restrict_self(2)` are per-thread on
-Linux. By the time `main()` runs, the Go runtime already has several OS threads (sysmon,
-GC, netpoll, workers) that aren't addressable from Go. The sandbox syscalls land on the
-current thread; peer threads keep their original state.
+`PR_SET_NO_NEW_PRIVS`, `capset(2)`, and `landlock_restrict_self(2)` are per-thread on Linux. By the time `main()` runs, the Go runtime already has several
+OS threads (sysmon, GC, netpoll, workers) that aren't addressable from Go. The sandbox syscalls land on the current thread; peer threads keep their original
+state.
 
 `rlimits` and `seccomp` (with `TSYNC`) are real process-wide — they're not affected.
 
@@ -1068,8 +1030,8 @@ SystemCallErrorNumber=EPERM
 WantedBy=multi-user.target
 ```
 
-The kernel applies all restrictions before `execve(2)`. Every thread the Go runtime
-creates inherits them. The in-process sandbox becomes optional defense-in-depth.
+The kernel applies all restrictions before `execve(2)`. Every thread the Go runtime creates inherits them. The in-process sandbox becomes optional
+defense-in-depth.
 
 #### Option B: container runtime (recommended for containerized deployments)
 
@@ -1121,9 +1083,8 @@ spec:
 
 #### Option C: tiny C launcher (bare-metal without systemd)
 
-Without systemd or a container, a small C launcher drops privileges and `execve`s the
-Go binary. Since `execve` happens before any Go thread exists, all threads inherit the
-restrictions.
+Without systemd or a container, a small C launcher drops privileges and `execve`s the Go binary. Since `execve` happens before any Go thread exists, all
+threads inherit the restrictions.
 
 ```c
 // launcher.c — drop_and_exec.c
@@ -1174,8 +1135,7 @@ int main(int argc, char **argv, char **envp) {
 }
 ```
 
-This is the only way to get truly process-wide Landlock with Go: the launcher has one
-thread when it calls `landlock_restrict_self`.
+This is the only way to get truly process-wide Landlock with Go: the launcher has one thread when it calls `landlock_restrict_self`.
 
 #### When is the in-process sandbox useful?
 
@@ -1188,8 +1148,7 @@ Even with external deployment, the in-process sandbox adds:
 - Fail-closed: misconfigured sandbox (bad rlimit, unknown capability) fails
   `Manager.Load` instead of running with broken hardening.
 
-If you can't deploy A/B/C, leave the per-thread primitives off and use only `rlimits` +
-`seccomp`. Better to be honest about what's actually enforced.
+If you can't deploy A/B/C, leave the per-thread primitives off and use only `rlimits` + `seccomp`. Better to be honest about what's actually enforced.
 
 ---
 
@@ -1232,8 +1191,7 @@ Sentinel errors in `core/plugins/errors.go`, all matchable via `errors.Is`.
 | `ErrSandboxUnsupported`     | Sandbox enabled on a non-Linux platform                            |
 | `ErrSandboxFailed`          | Applying sandbox primitives failed; wraps the underlying syscall error |
 
-`Load` and `Reload` join individual failures via `errors.Join`. Successful plugins stay
-registered even when others fail.
+`Load` and `Reload` join individual failures via `errors.Join`. Successful plugins stay registered even when others fail.
 
 ---
 
@@ -1247,8 +1205,8 @@ registered even when others fail.
 | `StatusDegraded` | Some plugins failed, but at least one is still working. |
 | `StatusNotServing` | Manager closed, sandbox failed, or **every** plugin is `StateFailed`. |
 
-`StatusDegraded` matters for readiness probes — you don't want to kill a replica because
-one plugin broke. Most operators wire it to "still ready, but page on-call".
+`StatusDegraded` matters for readiness probes — you don't want to kill a replica because one plugin broke. Most operators wire it to "still ready, but page
+on-call".
 
 Register via `factory.UseHealthCoordinator`.
 
@@ -1301,13 +1259,13 @@ Go's `plugin` package cannot unload a `.so` once opened. To upgrade:
 2. Replace the `.so`.
 3. Start the host.
 
-Rolling restarts behind a load balancer keep the service up. The watcher does not help
-here — modifying an already-loaded `.so` has no effect on the running process.
+Rolling restarts behind a load balancer keep the service up. The watcher does not help here — modifying an already-loaded `.so` has no effect on the running
+process.
 
 ### Failure isolation
 
-Init panics are recovered. The plugin moves to `StateFailed`, other plugins keep loading.
-Health degrades automatically, and the joined error from `Load` carries the panic message.
+Init panics are recovered. The plugin moves to `StateFailed`, other plugins keep loading. Health degrades automatically, and the joined error from `Load`
+carries the panic message.
 
 ### Logging
 

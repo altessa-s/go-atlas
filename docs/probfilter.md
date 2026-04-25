@@ -4,13 +4,10 @@
 import "github.com/altessa-s/go-atlas/data/probfilter"
 ```
 
-Probabilistic filters answer "is X in the set?" using only in-process memory or a shared
-Redis bitmap. A negative answer is always correct -- the element is definitely not in the
-set. A positive answer may be a false positive, but the rate is configurable (typically
-0.1--1%).
+Probabilistic filters answer "is X in the set?" using only in-process memory or a shared Redis bitmap. A negative answer is always correct -- the element is
+definitely not in the set. A positive answer may be a false positive, but the rate is configurable (typically 0.1--1%).
 
-The trade-off: a small, tunable false-positive rate in exchange for zero false negatives
-and near-zero lookup cost.
+The trade-off: a small, tunable false-positive rate in exchange for zero false negatives and near-zero lookup cost.
 
 ---
 
@@ -26,8 +23,7 @@ go-atlas provides two filter types with pluggable storage backends (in-memory an
 | Full condition        | No                  | Yes (`ErrFilterFull`)           |
 | False-positive tuning | `falsePositiveRate` | Fingerprint size (8/12/16 bits) |
 
-Use **Bloom** when you only add items and can periodically rebuild.
-Use **Cuckoo** when you need to delete individual items.
+Use **Bloom** when you only add items and can periodically rebuild. Use **Cuckoo** when you need to delete individual items.
 
 ## When to use
 
@@ -82,8 +78,7 @@ removed, _ := filter.Delete(ctx, "session:abc") // true
 
 ## Configuration
 
-Filters are configured under the `probabilisticFilter` key in YAML. Shared defaults
-reduce repetition; per-filter settings override them.
+Filters are configured under the `probabilisticFilter` key in YAML. Shared defaults reduce repetition; per-filter settings override them.
 
 ```yaml
 probabilisticFilter:
@@ -199,15 +194,13 @@ mgr.Unregister("sessions")
 mgr.Close()
 ```
 
-The Manager accepts a `metrics.Collector` via `WithCollector` option for Prometheus
-instrumentation. See [Metrics](#metrics) for details.
+The Manager accepts a `metrics.Collector` via `WithCollector` option for Prometheus instrumentation. See [Metrics](#metrics) for details.
 
 ---
 
 ## Data loading and rebuild
 
-Bloom filters don't support deletion. Instead, rebuild the filter periodically from a
-fresh data source using the `DataLoader` interface.
+Bloom filters don't support deletion. Instead, rebuild the filter periodically from a fresh data source using the `DataLoader` interface.
 
 ```go
 type DataLoader interface {
@@ -235,8 +228,8 @@ loader := probfilter.NewDataLoader(
 )
 ```
 
-When `Count()` returns a positive value, `Rebuild` optimizes by pre-sizing the storage
-before streaming values. Otherwise, values are collected in memory first.
+When `Count()` returns a positive value, `Rebuild` optimizes by pre-sizing the storage before streaming values. Otherwise, values are collected in memory
+first.
 
 ### Trigger a rebuild
 
@@ -271,8 +264,7 @@ stats, err := sp.Stats(ctx)
 
 ## Metrics
 
-When a `metrics.Collector` is provided to the Manager, the following Prometheus metrics
-are recorded under the `probfilter` subsystem:
+When a `metrics.Collector` is provided to the Manager, the following Prometheus metrics are recorded under the `probfilter` subsystem:
 
 | Metric                                | Type      | Labels                  | Description                    |
 |---------------------------------------|-----------|-------------------------|--------------------------------|
@@ -295,8 +287,7 @@ are recorded under the `probfilter` subsystem:
 | Cuckoo options | `WithCapacity`                               | `WithCapacity`, `WithKeyPrefix` |
 | Requirement    | None                                         | `redis.UniversalClient`         |
 
-Redis implementations batch items into chunks of 1000 for `AddBatch` to avoid
-oversized Redis commands.
+Redis implementations batch items into chunks of 1000 for `AddBatch` to avoid oversized Redis commands.
 
 ---
 

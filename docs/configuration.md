@@ -4,15 +4,13 @@
 import "github.com/altessa-s/go-atlas/config/loader"
 ```
 
-Multi-source configuration loading with environment variable expansion,
-secret injection, and validation.
+Multi-source configuration loading with environment variable expansion, secret injection, and validation.
 
 ---
 
 ## Overview
 
-The loader merges configuration from multiple sources in order of precedence
-(later sources override earlier):
+The loader merges configuration from multiple sources in order of precedence (later sources override earlier):
 
 1. **Default values** -- struct tags (`default:"value"`)
 2. **Configuration files** -- YAML or TOML
@@ -92,8 +90,7 @@ p := loader.New(backend,
 
 ### Variable substitution
 
-Use `${VAR}` or `${VAR:default}` syntax in YAML/TOML files. Substitution happens at
-file read time, before parsing.
+Use `${VAR}` or `${VAR:default}` syntax in YAML/TOML files. Substitution happens at file read time, before parsing.
 
 ```yaml
 database:
@@ -119,8 +116,7 @@ logging:
 
 ### Multi-file loading
 
-When the path points to a directory, all files are loaded and merged in
-alphabetical order. CRC32 checksums are computed for change detection.
+When the path points to a directory, all files are loaded and merged in alphabetical order. CRC32 checksums are computed for change detection.
 
 ---
 
@@ -142,8 +138,7 @@ export DATABASE__HOST=localhost
 export DATABASE__PORT=5432
 ```
 
-Environment variable values support recursive `$VAR` unwrapping (max depth 10)
-with circular reference detection.
+Environment variable values support recursive `$VAR` unwrapping (max depth 10) with circular reference detection.
 
 ---
 
@@ -159,15 +154,13 @@ type Config struct {
 }
 ```
 
-Defaults support environment variable substitution. The `skip_zero` modifier
-prevents overwriting non-zero values: `default:"value",skip_zero`.
+Defaults support environment variable substitution. The `skip_zero` modifier prevents overwriting non-zero values: `default:"value",skip_zero`.
 
 ---
 
 ## Secret expansion
 
-The `$__secret{namespace:key}` syntax injects secrets from external providers
-at load time.
+The `$__secret{namespace:key}` syntax injects secrets from external providers at load time.
 
 ```yaml
 database:
@@ -185,9 +178,8 @@ p := loader.New(nil,
 )
 ```
 
-Secret expansion traverses all string fields, `*string`, `[]string`, and
-`map[K]string` fields recursively. By default, expansion is fail-closed --
-missing secrets cause an error.
+Secret expansion traverses all string fields, `*string`, `[]string`, and `map[K]string` fields recursively. By default, expansion is fail-closed -- missing
+secrets cause an error.
 
 ### Secret providers
 
@@ -202,8 +194,7 @@ missing secrets cause an error.
 
 ## Validation
 
-Configuration structs can implement the `Validator` interface for automatic
-validation after all sources are merged:
+Configuration structs can implement the `Validator` interface for automatic validation after all sources are merged:
 
 ```go
 type Validator interface {
@@ -211,8 +202,7 @@ type Validator interface {
 }
 ```
 
-The `config` package provides a `ValidateStruct` helper built on ozzo-validation
-for declarative field validation:
+The `config` package provides a `ValidateStruct` helper built on ozzo-validation for declarative field validation:
 
 ```go
 func (c *Config) Validate() error {
@@ -234,15 +224,13 @@ type Normalizer interface {
 }
 ```
 
-Called recursively on the root struct and all nested structs that implement the
-interface.
+Called recursively on the root struct and all nested structs that implement the interface.
 
 ---
 
 ## Strict mode
 
-When enabled via `WithStrict()`, the loader returns errors instead of silently
-ignoring issues:
+When enabled via `WithStrict()`, the loader returns errors instead of silently ignoring issues:
 
 | Error                     | Condition                                 |
 |---------------------------|-------------------------------------------|
@@ -264,8 +252,7 @@ ignoring issues:
 
 ## Configuration templates
 
-The `config/templates` package provides 30+ pre-built YAML templates for common
-components:
+The `config/templates` package provides 30+ pre-built YAML templates for common components:
 
 | Category       | Templates                                                                             |
 |----------------|---------------------------------------------------------------------------------------|
@@ -278,6 +265,5 @@ components:
 | Rate limiting  | `limiter_tokenbucket.yaml`, `limiter_budget.yaml`, `dlock.yaml`                       |
 | Infrastructure | `node.yaml`, `retry.yaml`, `s3.yaml`                                                  |
 
-`http_proxy.yaml` and `grpc_proxy.yaml` are shared across consumers (OIDC,
-OPA GitLab/S3 sources, OTLP tracing) via the `!include` directive. See the
-[Proxy guide](proxy.md) for modes, wiring, and TLS-to-proxy semantics.
+`http_proxy.yaml` and `grpc_proxy.yaml` are shared across consumers (OIDC, OPA GitLab/S3 sources, OTLP tracing) via the `!include` directive. See the [Proxy
+guide](proxy.md) for modes, wiring, and TLS-to-proxy semantics.

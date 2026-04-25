@@ -26,8 +26,8 @@ All packages live in the `core/` layer: stdlib only, zero external dependencies.
 
 ## Shutdown hooks
 
-`OnShutdown` registers a `ShutdownHook` (`func(ctx context.Context) error`) to run
-during application shutdown. `RunShutdownHooks` executes all registered hooks.
+`OnShutdown` registers a `ShutdownHook` (`func(ctx context.Context) error`) to run during application shutdown. `RunShutdownHooks` executes all registered
+hooks.
 
 ### Ordering and guarantees
 
@@ -63,11 +63,9 @@ if err := runtime.RunShutdownHooks(ctx); err != nil {
 
 ### Integration with signals and panic recovery
 
-A typical application wires shutdown hooks into the signal handler so that
-`RunShutdownHooks` is called on `SIGTERM`/`SIGINT`. Combined with
-`defer panics.Handle(ctx)` in spawned goroutines, this ensures resources are
-released even when a goroutine panics. See [concurrency.md](concurrency.md) for
-signal and panic handling details.
+A typical application wires shutdown hooks into the signal handler so that `RunShutdownHooks` is called on `SIGTERM`/`SIGINT`. Combined with `defer
+panics.Handle(ctx)` in spawned goroutines, this ensures resources are released even when a goroutine panics. See [concurrency.md](concurrency.md) for signal
+and panic handling details.
 
 ---
 
@@ -77,8 +75,8 @@ Type-safe wrappers around Go 1.24's GC-triggered cleanup APIs.
 
 ### `AddCleanup`
 
-Attaches a cleanup function to an object that runs after the object becomes
-unreachable. The returned `Cleanup` handle can cancel the cleanup before it fires.
+Attaches a cleanup function to an object that runs after the object becomes unreachable. The returned `Cleanup` handle can cancel the cleanup before it
+fires.
 
 ```go
 cleanup := runtime.AddCleanup(conn, func(id string) {
@@ -89,14 +87,12 @@ cleanup := runtime.AddCleanup(conn, func(id string) {
 cleanup.Stop()
 ```
 
-`AddCleanup` is a thin generic wrapper around `runtime.AddCleanup` (Go 1.24+).
-The cleanup function receives `arg` (not the object itself) and runs in a separate
-goroutine.
+`AddCleanup` is a thin generic wrapper around `runtime.AddCleanup` (Go 1.24+). The cleanup function receives `arg` (not the object itself) and runs in a
+separate goroutine.
 
 ### `ClearFinalizer`
 
-Removes any finalizer previously set on an object via `runtime.SetFinalizer`.
-Safe to call even if no finalizer was set.
+Removes any finalizer previously set on an object via `runtime.SetFinalizer`. Safe to call even if no finalizer was set.
 
 ```go
 runtime.ClearFinalizer(obj)
@@ -109,16 +105,15 @@ runtime.ClearFinalizer(obj)
 | Release resources tied to a specific object's lifetime (file handles, C memory) | `AddCleanup` |
 | Release shared/global resources at application exit (database pools, flush buffers) | `OnShutdown` |
 
-Cleanup functions are triggered by the garbage collector and may never run if the
-process exits first. Shutdown hooks are explicit and run when `RunShutdownHooks` is
-called. For critical resources, prefer shutdown hooks.
+Cleanup functions are triggered by the garbage collector and may never run if the process exits first. Shutdown hooks are explicit and run when
+`RunShutdownHooks` is called. For critical resources, prefer shutdown hooks.
 
 ---
 
 ## Application info (`appinfo`)
 
-The `appinfo` subpackage provides application metadata (name, version, commit),
-version queries, environment variable helpers, and convention-based directory paths.
+The `appinfo` subpackage provides application metadata (name, version, commit), version queries, environment variable helpers, and convention-based
+directory paths.
 
 See [appinfo.md](appinfo.md) for the full reference.
 

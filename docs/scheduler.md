@@ -4,12 +4,10 @@
 import "github.com/altessa-s/go-atlas/service/scheduler"
 ```
 
-In-process persistent task scheduler with cron-based scheduling, priority-based dispatch,
-and pluggable storage backends.
+In-process persistent task scheduler with cron-based scheduling, priority-based dispatch, and pluggable storage backends.
 
-The scheduler runs periodic and deferred work — cache rebuilds, cleanup jobs, report
-generation, metric aggregation — with crash recovery, concurrency control, and full
-observability.
+The scheduler runs periodic and deferred work — cache rebuilds, cleanup jobs, report generation, metric aggregation — with crash recovery, concurrency
+control, and full observability.
 
 ---
 
@@ -109,8 +107,7 @@ if err != nil {
 }
 ```
 
-The builder selects the storage backend, maps the concurrency strategy to scheduler options,
-and returns a ready-to-start `*scheduler.Scheduler`.
+The builder selects the storage backend, maps the concurrency strategy to scheduler options, and returns a ready-to-start `*scheduler.Scheduler`.
 
 | Method              | Description                                                 |
 |---------------------|-------------------------------------------------------------|
@@ -204,8 +201,8 @@ See [Storage backends](#storage-backends) for backend-specific configuration.
 
 ### Registration
 
-Register tasks by calling `Register` with a `TaskConfig`. Each task requires an `ID`,
-a `Func`, and exactly one of `Schedule` (recurring) or `RunAt` (one-shot).
+Register tasks by calling `Register` with a `TaskConfig`. Each task requires an `ID`, a `Func`, and exactly one of `Schedule` (recurring) or `RunAt`
+(one-shot).
 
 ```go
 // Recurring: standard six-field cron (with seconds).
@@ -235,25 +232,24 @@ Supported cron descriptors: `@every <duration>`, `@hourly`, `@daily`, `@weekly`,
 
 ### TaskConfig reference
 
-| Field            | Type                              | Required              | Default    | Description                                                            |
-|------------------|-----------------------------------|-----------------------|------------|------------------------------------------------------------------------|
-| `ID`             | `string`                          | yes                   | --         | Unique task identifier                                                 |
-| `Func`           | `func(ctx context.Context) error` | yes                   | --         | Function invoked on each execution                                     |
-| `Schedule`       | `string`                          | one of Schedule/RunAt | --         | Cron expression or descriptor for recurring execution                  |
-| `RunAt`          | `time.Time`                       | one of Schedule/RunAt | --         | Specific time for one-shot execution                                   |
-| `Description`    | `string`                          | no                    | `""`       | Human-readable summary for listing endpoints                           |
-| `Priority`       | `TaskPriority`                    | no                    | `Normal`   | Dispatch priority for concurrency slot allocation                      |
-| `Timeout`        | `time.Duration`                   | no                    | `0` (none) | Maximum execution duration. Context is canceled on expiry              |
-| `RunOnStart`     | `bool`                            | no                    | `false`    | Execute once immediately on registration, in addition to the schedule  |
-| `DisableHistory` | `bool`                            | no                    | `false`    | Skip recording execution history. Useful for high-frequency tasks      |
-| `Unmanaged`      | `bool`                            | no                    | `false`    | Exempt from `PauseTask` and `DisableTask`                              |
-| `Meta`           | `map[string]string`               | no                    | `nil`      | Arbitrary key-value metadata for monitoring or management              |
+| Field | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `ID` | `string` | yes | -- | Unique task identifier |
+| `Func` | `func(ctx context.Context) error` | yes | -- | Function invoked on each execution |
+| `Schedule` | `string` | one of Schedule/RunAt | -- | Cron expression or descriptor for recurring execution |
+| `RunAt` | `time.Time` | one of Schedule/RunAt | -- | Specific time for one-shot execution |
+| `Description` | `string` | no | `""` | Human-readable summary for listing endpoints |
+| `Priority` | `TaskPriority` | no | `Normal` | Dispatch priority for concurrency slot allocation |
+| `Timeout` | `time.Duration` | no | `0` (none) | Maximum execution duration. Context is canceled on expiry |
+| `RunOnStart` | `bool` | no | `false` | Execute once immediately on registration, in addition to the schedule |
+| `DisableHistory` | `bool` | no | `false` | Skip recording execution history. Useful for high-frequency tasks |
+| `Unmanaged` | `bool` | no | `false` | Exempt from `PauseTask` and `DisableTask` |
+| `Meta` | `map[string]string` | no | `nil` | Arbitrary key-value metadata for monitoring or management |
 
 ### Re-registration
 
-Calling `Register` with an existing task ID **merges** the configuration: schedule, priority,
-and description are updated; execution state (`LastRunAt`, `Failures`) is preserved. This
-lets you update a task's schedule without losing state.
+Calling `Register` with an existing task ID **merges** the configuration: schedule, priority, and description are updated; execution state (`LastRunAt`,
+`Failures`) is preserved. This lets you update a task's schedule without losing state.
 
 ### Lifecycle
 
@@ -294,8 +290,8 @@ sched.Unregister(ctx, "my-task")    // Remove from scheduler and storage
 
 ## Concurrency control
 
-The scheduler supports four concurrency strategies configurable via YAML or Go options.
-All strategies support reserved high-priority slots and `Critical` priority bypass.
+The scheduler supports four concurrency strategies configurable via YAML or Go options. All strategies support reserved high-priority slots and `Critical`
+priority bypass.
 
 ### Strategy comparison
 
@@ -317,8 +313,7 @@ sched := scheduler.New(store,
 )
 ```
 
-With `maxTasks: 10` and `reservedHighPrioritySlots: 2`, 8 slots are shared across all
-priorities, and 2 are reserved for `High` and `Critical` tasks.
+With `maxTasks: 10` and `reservedHighPrioritySlots: 2`, 8 slots are shared across all priorities, and 2 are reserved for `High` and `Critical` tasks.
 
 When `maxTasks` is `0`, all due tasks execute immediately with no limit.
 
@@ -331,8 +326,7 @@ concurrency:
 
 ### Environment presets
 
-Selects a concurrency limit from a predefined profile. The limit is computed once at
-creation time.
+Selects a concurrency limit from a predefined profile. The limit is computed once at creation time.
 
 ```go
 sched := scheduler.New(store,
@@ -385,8 +379,7 @@ concurrency:
 
 ### Adaptive
 
-Combines memory pressure and system load into a single concurrency signal, evaluated on
-each tick.
+Combines memory pressure and system load into a single concurrency signal, evaluated on each tick.
 
 ```go
 sched := scheduler.New(store,
@@ -470,8 +463,7 @@ import "github.com/altessa-s/go-atlas/service/scheduler/storages/memory"
 store := memory.New(1000)
 ```
 
-In-process storage for development, testing, and single-node deployments.
-All state is lost on restart.
+In-process storage for development, testing, and single-node deployments. All state is lost on restart.
 
 ```yaml
 storage:
@@ -539,8 +531,7 @@ Filter expressions use camelCase field names. The storage translates them to BSO
 | `createdAt`      | `created_at`      |
 | `updatedAt`      | `updated_at`      |
 
-Fields not listed (`description`, `status`, `priority`, `schedule`, `failures`, `unmanaged`)
-use the same name in both filter expressions and BSON.
+Fields not listed (`description`, `status`, `priority`, `schedule`, `failures`, `unmanaged`) use the same name in both filter expressions and BSON.
 
 </details>
 
@@ -637,8 +628,8 @@ Created by `EnsureIndexes` (idempotent).
 
 ## Distributed scheduling
 
-In multi-node deployments, use a leader elector to ensure only one instance dispatches tasks.
-All instances persist state, but only the leader executes task functions.
+In multi-node deployments, use a leader elector to ensure only one instance dispatches tasks. All instances persist state, but only the leader executes task
+functions.
 
 ```go
 sched := scheduler.New(store,
@@ -656,9 +647,8 @@ When no `WithLeaderElector` is provided, `IsLeader` always returns `true`.
 
 ## Readiness probe
 
-Defer task dispatch until all subsystems (databases, caches, message brokers) have finished
-initializing. The probe is evaluated at the start of each tick — when it returns `false`,
-the tick is skipped but the main loop keeps running so `Stop` works cleanly.
+Defer task dispatch until all subsystems (databases, caches, message brokers) have finished initializing. The probe is evaluated at the start of each tick —
+when it returns `false`, the tick is skipped but the main loop keeps running so `Stop` works cleanly.
 
 ```go
 sched := scheduler.New(store,
@@ -698,9 +688,8 @@ for entry, err := range sched.History(ctx, "my-task") {
 
 ### Paginated queries with filters
 
-`TasksPaginated` and `HistoryPaginated` accept a filter expression and cursor-based
-pagination. Filters are pushed down to the storage layer for server-side evaluation
-(MongoDB, Redis) or evaluated client-side (memory).
+`TasksPaginated` and `HistoryPaginated` accept a filter expression and cursor-based pagination. Filters are pushed down to the storage layer for server-side
+evaluation (MongoDB, Redis) or evaluated client-side (memory).
 
 ```go
 page := scheduler.PageRequest{Limit: 50}
@@ -738,10 +727,9 @@ result, err := sched.HistoryPaginated(ctx, "my-task",
 
 **Available filter fields:**
 
-| Scope   | Fields                                                                                                                                               |
-|---------|------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Tasks   | `id`, `description`, `status`, `priority`, `schedule`, `lastRunAt`, `nextRunAt`, `skipNextRun`, `disableHistory`, `unmanaged`, `oneShot`, `failures` |
-| History | `id`, `taskId`, `runId`, `startedAt`, `endedAt`, `durationMs`, `success`, `error`                                                                    |
+- **Tasks**: `id`, `description`, `status`, `priority`, `schedule`, `lastRunAt`, `nextRunAt`, `skipNextRun`,
+  `disableHistory`, `unmanaged`, `oneShot`, `failures`
+- **History**: `id`, `taskId`, `runId`, `startedAt`, `endedAt`, `durationMs`, `success`, `error`
 
 ---
 
@@ -774,9 +762,8 @@ if err := sched.Stop(ctx); err != nil {
 
 ### Metrics
 
-When a `metrics.Collector` is provided via `WithCollector`, the scheduler records Prometheus
-metrics under the `scheduler` subsystem. When no collector is configured, a no-op
-implementation is used and all operations are zero-cost.
+When a `metrics.Collector` is provided via `WithCollector`, the scheduler records Prometheus metrics under the `scheduler` subsystem. When no collector is
+configured, a no-op implementation is used and all operations are zero-cost.
 
 | Metric                                  | Type      | Labels                | Description                                      |
 |-----------------------------------------|-----------|-----------------------|--------------------------------------------------|
@@ -797,18 +784,18 @@ implementation is used and all operations are zero-cost.
 
 All errors are exported as sentinel values. Use `errors.Is` to match.
 
-| Error                  | Returned by                                                                          | Cause                                          |
-|------------------------|--------------------------------------------------------------------------------------|------------------------------------------------|
-| `ErrTaskNotFound`      | `PauseTask`, `ResumeTask`, `DisableTask`, `EnableTask`, `SkipNextRun`, `TriggerTask` | No task with the given ID in storage           |
-| `ErrTaskNotRegistered` | `Unregister`, `TriggerTask`                                                          | Task ID not in the in-memory registration map  |
-| `ErrTaskUnmanaged`     | `PauseTask`, `DisableTask`                                                           | Task has the `Unmanaged` flag set              |
-| `ErrTaskNotPaused`     | `ResumeTask`                                                                         | Task status is not `Paused`                    |
-| `ErrTaskNotDisabled`   | `EnableTask`                                                                         | Task status is not `Disabled`                  |
-| `ErrTaskDisabled`      | `TriggerTask`                                                                        | Task status is `Disabled`                      |
-| `ErrTaskCompleted`     | `PauseTask`, `ResumeTask`, `EnableTask`, `TriggerTask`                               | One-shot task already executed                 |
-| `ErrNotReady`          | `TriggerTask`                                                                        | Readiness probe returned `false`               |
-| `ErrScheduleConflict`  | `Register`                                                                           | Both `RunAt` and `Schedule` provided           |
-| `ErrInvalidCursor`     | `TasksPaginated`, `HistoryPaginated`                                                 | Cursor malformed or filter changed since issue |
+| Error | Returned by | Cause |
+|---|---|---|
+| `ErrTaskNotFound` | `PauseTask`, `ResumeTask`, `DisableTask`, `EnableTask`, `SkipNextRun`, `TriggerTask` | No task with the given ID in storage |
+| `ErrTaskNotRegistered` | `Unregister`, `TriggerTask` | Task ID not in the in-memory registration map |
+| `ErrTaskUnmanaged` | `PauseTask`, `DisableTask` | Task has the `Unmanaged` flag set |
+| `ErrTaskNotPaused` | `ResumeTask` | Task status is not `Paused` |
+| `ErrTaskNotDisabled` | `EnableTask` | Task status is not `Disabled` |
+| `ErrTaskDisabled` | `TriggerTask` | Task status is `Disabled` |
+| `ErrTaskCompleted` | `PauseTask`, `ResumeTask`, `EnableTask`, `TriggerTask` | One-shot task already executed |
+| `ErrNotReady` | `TriggerTask` | Readiness probe returned `false` |
+| `ErrScheduleConflict` | `Register` | Both `RunAt` and `Schedule` provided |
+| `ErrInvalidCursor` | `TasksPaginated`, `HistoryPaginated` | Cursor malformed or filter changed since issue |
 
 ---
 

@@ -322,8 +322,8 @@ claims, err := provider.ValidateToken(ctx, bearerToken)
 
 | Layer | Format | Purpose | Loaded by |
 |-------|--------|---------|-----------|
-| **YAML application config** | YAML | Infrastructure: discovery URL, client credentials, cache, JWKS, revocation, scheduler schedules | `config.OIDC` struct via app config loader |
-| **JSON service config** | JSON | Validation logic: claims rules, presets, preset selection rules, CEL expressions | `oidc.LoadServiceConfig()` or `WithServiceConfigPath()` |
+| **YAML application config** | YAML | Infrastructure: discovery URL, credentials, cache, JWKS, revocation, schedules | `config.OIDC` via app loader |
+| **JSON service config** | JSON | Validation logic: claims rules, presets, selection rules, CEL | `oidc.LoadServiceConfig()` / `WithServiceConfigPath()` |
 
 The two layers are complementary. YAML handles "how to connect" and "what infrastructure to use". JSON handles "what tokens to accept".
 
@@ -382,7 +382,7 @@ oidc:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `clientId` | `string` | Yes (if section present) | OAuth2 client identifier |
-| `clientSecret` | `string` | Yes (if section present) | OAuth2 client secret. Supports environment variable substitution. Stored as `Secret` type — redacted in logs and serialization |
+| `clientSecret` | `string` | Yes (if section present) | OAuth2 client secret. Env-var substitution supported. Stored as `Secret` — redacted in logs |
 
 The `clientSecret` field uses the `Secret` type internally. It is automatically redacted in:
 - Log output (`<redacted>`)
@@ -408,7 +408,8 @@ oidc:
 |-------|------|----------|---------|-------------|
 | `enabled` | `bool` | No | `false` | Toggle introspection on/off |
 
-**Validation rule:** If `introspection.enabled` is `true`, the `clientCredentials` section **must** be configured. The application will fail validation at startup otherwise.
+**Validation rule:** If `introspection.enabled` is `true`, the `clientCredentials` section **must** be configured. The application will fail validation at
+startup otherwise.
 
 ### Token Validation
 
@@ -576,16 +577,13 @@ oidc:
 
 Without a scheduler, JWKS is refreshed automatically on cache miss.
 
-The HTTP client used for JWKS refresh, OIDC discovery, introspection,
-userinfo, and URL-based revocation honors `oidc.proxy` (see [Proxy](proxy.md))
-— so a single proxy block applies to every outbound OIDC call. Sub-components
-(e.g. URL revocation loaders) inherit the Provider's HTTP client via the
+The HTTP client used for JWKS refresh, OIDC discovery, introspection, userinfo, and URL-based revocation honors `oidc.proxy` (see [Proxy](proxy.md)) — so a
+single proxy block applies to every outbound OIDC call. Sub-components (e.g. URL revocation loaders) inherit the Provider's HTTP client via the
 `httpclient.HTTPClientSetter` interface.
 
 ### Proxy
 
-Outbound HTTP proxy for every OIDC call (discovery, JWKS, introspection,
-userinfo, URL-based revocation loaders).
+Outbound HTTP proxy for every OIDC call (discovery, JWKS, introspection, userinfo, URL-based revocation loaders).
 
 ```yaml
 oidc:
@@ -603,9 +601,8 @@ oidc:
 | `auth.username` | `string` | — | Proxy auth username (optional) |
 | `auth.password` | `secret` | — | Proxy auth password — supports `$__secret{...}` expansion |
 
-Omit the `proxy` block entirely to keep the env-var passthrough default. Use
-`mode: none` to disable proxy resolution explicitly. See the [Proxy guide](proxy.md)
-for full mode semantics, TLS-to-proxy options, and operator guidance.
+Omit the `proxy` block entirely to keep the env-var passthrough default. Use `mode: none` to disable proxy resolution explicitly. See the [Proxy
+guide](proxy.md) for full mode semantics, TLS-to-proxy options, and operator guidance.
 
 ### Revocation
 

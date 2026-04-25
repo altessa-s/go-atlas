@@ -100,18 +100,14 @@ go-atlas/
 └──────────────────────────────────────────────────────────┘
 ```
 
-Higher layers depend on lower layers. Lateral dependencies within the same layer are
-allowed. Circular dependencies between top-level packages are prohibited.
+Higher layers depend on lower layers. Lateral dependencies within the same layer are allowed. Circular dependencies between top-level packages are
+prohibited.
 
 ### Outbound transport
 
-The HTTP and gRPC client packages (`transport/http/client`,
-`transport/grpc/client`) share a common dialer at
-`transport/internal/proxydial`. Every consumer that makes outbound calls
-(OIDC, OPA GitLab/S3 sources, OTLP gRPC exporter) materializes
-`config.HTTPProxy` / `config.GrpcProxy` into option slices via
-`ClientOptions()` and forwards them to the relevant client. See the
-[Proxy guide](proxy.md) for the YAML schema, modes, and wiring patterns.
+The HTTP and gRPC client packages (`transport/http/client`, `transport/grpc/client`) share a common dialer at `transport/internal/proxydial`. Every consumer
+that makes outbound calls (OIDC, OPA GitLab/S3 sources, OTLP gRPC exporter) materializes `config.HTTPProxy` / `config.GrpcProxy` into option slices via
+`ClientOptions()` and forwards them to the relevant client. See the [Proxy guide](proxy.md) for the YAML schema, modes, and wiring patterns.
 
 ---
 
@@ -119,27 +115,24 @@ The HTTP and gRPC client packages (`transport/http/client`,
 
 ### Interface-driven
 
-Every major component is defined by an interface. Implementations are injected, making
-components testable and swappable. Storage backends, secret providers, cache providers,
-and observability adapters all follow this pattern.
+Every major component is defined by an interface. Implementations are injected, making components testable and swappable. Storage backends, secret
+providers, cache providers, and observability adapters all follow this pattern.
 
 ### Factory pattern
 
-Components support both programmatic construction (`New()` + functional options) and
-configuration-driven creation (`factory.New(cfg).Build()`), so the same package works
-as a library or an app-level component. Factory subdirectories appear in 20+ packages
-and follow a consistent fluent builder API with deferred error accumulation.
+Components support both programmatic construction (`New()` + functional options) and configuration-driven creation (`factory.New(cfg).Build()`), so the same
+package works as a library or an app-level component. Factory subdirectories appear in 20+ packages and follow a consistent fluent builder API with deferred
+error accumulation.
 
 ### Optional dependencies
 
-External dependencies (tracing, metrics, logging) are accepted through functional options
-and default to no-op implementations. Packages work without configuration.
+External dependencies (tracing, metrics, logging) are accepted through functional options and default to no-op implementations. Packages work without
+configuration.
 
 ### Adapter pattern
 
-Observability (tracing, metrics), infrastructure (secrets, cache providers), and data
-access (filter translators, storage backends) use the adapter pattern: components depend
-on abstract interfaces, adapters translate to specific backends.
+Observability (tracing, metrics), infrastructure (secrets, cache providers), and data access (filter translators, storage backends) use the adapter pattern:
+components depend on abstract interfaces, adapters translate to specific backends.
 
 | Domain          | Adapters                                                     |
 |-----------------|--------------------------------------------------------------|
@@ -155,13 +148,12 @@ on abstract interfaces, adapters translate to specific backends.
 
 ### No global state
 
-All state is held in structs. No `init()` functions, no package-level variables holding
-mutable state. Concurrent usage is safe and testing is deterministic.
+All state is held in structs. No `init()` functions, no package-level variables holding mutable state. Concurrent usage is safe and testing is
+deterministic.
 
 ### Minimal public API
 
-Only export what users need. Internal packages (`internal/`) hide implementation details.
-Generated code (`*_gen.go`, `*.pb.go`) is clearly separated.
+Only export what users need. Internal packages (`internal/`) hide implementation details. Generated code (`*_gen.go`, `*.pb.go`) is clearly separated.
 
 ---
 

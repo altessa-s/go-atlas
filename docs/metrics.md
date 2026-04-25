@@ -1,8 +1,7 @@
 # Metrics
 
-All metrics are Prometheus-compatible and follow the naming convention
-`{serviceName}_{subsystem}_{name}`. The `serviceName` prefix is configured
-via `config.Metrics.ServiceName`.
+All metrics are Prometheus-compatible and follow the naming convention `{serviceName}_{subsystem}_{name}`. The `serviceName` prefix is configured via
+`config.Metrics.ServiceName`.
 
 **27 subsystems, 143 metrics.**
 
