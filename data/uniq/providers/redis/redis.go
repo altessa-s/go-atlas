@@ -54,6 +54,24 @@ func (p *Provider) AddWithValue(ctx context.Context, key string, value []byte) e
 	return nil
 }
 
+// TryAdd atomically inserts a key only if it doesn't exist using
+// Redis's SET NX. Returns (true, nil) when the insert succeeded,
+// (false, nil) when the key was already present.
+func (p *Provider) TryAdd(ctx context.Context, key string) (bool, error) {
+	return p.TryAddWithValue(ctx, key, []byte("1"))
+}
+
+// TryAddWithValue is like [Provider.TryAdd] but stores an associated
+// value when the insert succeeds. The value is ignored when the key
+// already exists.
+func (p *Provider) TryAddWithValue(ctx context.Context, key string, value []byte) (bool, error) {
+	ok, err := p.Client().SetNX(ctx, p.Key(key), value, p.opts.ttl).Result()
+	if err != nil {
+		return false, coreerrs.WrapOperation(err, "try add key")
+	}
+	return ok, nil
+}
+
 // Exist checks if a key exists in the Redis store.
 // Returns true if the key exists and hasn't expired, false otherwise.
 func (p *Provider) Exist(ctx context.Context, key string) (bool, error) {

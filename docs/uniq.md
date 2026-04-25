@@ -13,8 +13,10 @@ backends: Redis, NATS JetStream KV, and a noop for tests. Default TTL is 24 hour
 
 | Scenario | Use |
 |---|---|
-| Webhook deduplication, idempotency keys, "did I already process this event ID" | `Add` + `Exist` |
-| One-time tokens, magic links, password reset codes (with payload) | `AddWithValue` + `GetValue` |
+| Race-free "first writer wins" (idempotent webhook, one-time token redemption, duplicate event suppression) | `TryAdd` / `TryAddWithValue` |
+| Mark something as done after the work succeeded (overwrite is fine) | `Add` / `AddWithValue` |
+| Cheap "have I seen this" check (paired with a separate exclusion mechanism) | `Exist` |
+| Read a payload back | `GetValue` |
 | Free a slot early (token consumed, reset abused) | `Remove` |
 | Wipe everything (test teardown, namespace reset) | `Clear` |
 
@@ -109,8 +111,10 @@ you hand it the matching client (`UseRedisClient` for `type: redis`, `UseNatsCon
 
 | Method | Behavior |
 |---|---|
-| `Add(ctx, key)` | Insert key with the provider's default TTL. Overwrites if present |
+| `Add(ctx, key)` | Insert key with the provider's default TTL. **Overwrites** if present |
 | `AddWithValue(ctx, key, value)` | Same as Add, plus serialize `value` (default JSON) and store it |
+| `TryAdd(ctx, key)` | Atomic CAS insert. Returns `(true, nil)` on success, `(false, nil)` if key already exists |
+| `TryAddWithValue(ctx, key, value)` | CAS insert with payload. The value is dropped silently when the key already exists |
 | `Exist(ctx, key)` | Returns `true` if the key is present and not expired |
 | `GetValue(ctx, key, out)` | Reads the value; returns `ErrDoesNotExist` for missing keys |
 | `Remove(ctx, key)` | Deletes the key. No error if it didn't exist |
@@ -121,6 +125,32 @@ you're probably storing data inside the key.
 
 `AddWithValue` / `GetValue` use the configured serializer (`WithSerializer`, defaults to JSON). For binary payloads, swap in a serializer that
 skips JSON's base64 round-trip.
+
+---
+
+## Atomic CAS (`TryAdd` / `TryAddWithValue`)
+
+`Add` overwrites unconditionally. `TryAdd` is the race-free variant: it returns whether the key was actually inserted.
+
+```go
+acquired, err := u.TryAdd(ctx, "request-id-42")
+if err != nil { return err }
+if !acquired {
+    return ErrDuplicate // someone else already claimed this id
+}
+// safe: we own the key
+```
+
+Backed by `Redis SET NX` and `NATS JetStream KV.Create` — both are atomic at the storage layer, so two parallel `TryAdd` calls for the same key
+result in exactly one `(true, nil)` and one `(false, nil)`. This replaces the older `Exist` + external `dlock` workaround with a single
+round-trip.
+
+When `TryAddWithValue` reports `(false, nil)`, the caller's value is dropped silently. The original value is preserved and remains readable
+through `GetValue`. If you need to inspect what was stored before deciding what to do, follow the failed `TryAddWithValue` with a `GetValue`
+call.
+
+The noop provider always reports `(true, nil)` — it has no storage, so no key is ever "already present". Tests that need real CAS semantics
+must use a real backend (miniredis works well in unit tests).
 
 ---
 
@@ -185,7 +215,7 @@ Subsystem `uniq`. Every public method is instrumented with the `op` label.
 | `uniq_operation_duration_seconds` | histogram | `op` |
 | `uniq_operation_errors_total` | counter | `op` |
 
-`op` values: `add`, `add_with_value`, `exist`, `get_value`, `remove`, `clear`.
+`op` values: `add`, `add_with_value`, `try_add`, `try_add_with_value`, `exist`, `get_value`, `remove`, `clear`.
 
 Failure-rate dashboards: `uniq_operation_errors_total / uniq_operations_total` per `op`. Spikes on `exist` usually mean Redis or NATS is
 dropping connections. Spikes on `add_with_value` more often point at serialization failures; check the error chain for
@@ -205,8 +235,9 @@ types, `time.Time` with custom layouts, and big integers. Use `WithSerializer` t
 **Health flip-flop on Redis.** Every probe runs `PING`. If Redis is overloaded enough to drop `PING`, your application calls are also
 suffering. Fix Redis; don't suppress the probe.
 
-**`uniq.Exist` always returns false.** You're using the noop provider. Either you wired the wrong factory option (`type: memory` produces a
-noop) or you're in a test that doesn't have a real backend.
+**`uniq.Exist` always returns false** (and `TryAdd` always succeeds). You're using the noop provider. Either you wired the wrong factory
+option (`type: memory` produces a noop) or you're in a test that doesn't have a real backend. Race-regression tests for `TryAdd` need
+miniredis — noop can't reproduce the conflict.
 
 ---
 

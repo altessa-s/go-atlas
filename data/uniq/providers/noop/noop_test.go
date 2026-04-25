@@ -72,3 +72,23 @@ func TestProvider_Probe_OK(t *testing.T) {
 	p := noop.New()
 	require.NoError(t, p.Probe(t.Context()))
 }
+
+func TestProvider_TryAdd_AlwaysSucceeds(t *testing.T) {
+	p := noop.New()
+	ctx := t.Context()
+
+	ok, err := p.TryAdd(ctx, "key1")
+	require.NoError(t, err)
+	require.True(t, ok, "noop TryAdd() must always report success")
+
+	ok, err = p.TryAdd(ctx, "key1")
+	require.NoError(t, err)
+	require.True(t, ok, "noop TryAdd() must remain success on repeat (no real storage)")
+}
+
+func TestProvider_TryAddWithValue_AlwaysSucceeds(t *testing.T) {
+	p := noop.New()
+	ok, err := p.TryAddWithValue(t.Context(), "key", []byte("v"))
+	require.NoError(t, err)
+	require.True(t, ok)
+}
