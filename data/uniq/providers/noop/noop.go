@@ -14,7 +14,10 @@ import (
 // All operations are no-ops and return nil errors.
 type Provider struct{}
 
-var _ providers.Provider = (*Provider)(nil)
+var (
+	_ providers.Provider = (*Provider)(nil)
+	_ providers.Prober   = (*Provider)(nil)
+)
 
 // New creates a new NOP provider.
 func New() *Provider { return &Provider{} }
@@ -36,3 +39,7 @@ func (p *Provider) Remove(_ context.Context, _ string) error { return nil }
 
 // Clear is a no-op implementation that always returns nil.
 func (p *Provider) Clear(_ context.Context) error { return nil }
+
+// Probe implements [providers.Prober]. The noop provider has no
+// underlying state to probe and always reports healthy.
+func (p *Provider) Probe(_ context.Context) error { return nil }

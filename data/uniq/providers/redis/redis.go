@@ -23,7 +23,10 @@ type Provider struct {
 	opts *options
 }
 
-var _ providers.Provider = (*Provider)(nil)
+var (
+	_ providers.Provider = (*Provider)(nil)
+	_ providers.Prober   = (*Provider)(nil)
+)
 
 // New creates a new Redis provider with the specified client, prefix, and TTL.
 // Panics if client is nil.
@@ -110,6 +113,16 @@ func (p *Provider) Clear(ctx context.Context) error {
 	_, err := p.Client().Eval(ctx, clearScript, []string{}, p.Keys().Pattern()).Result()
 	if err != nil {
 		return coreerrs.WrapOperation(err, "clear keys")
+	}
+	return nil
+}
+
+// Probe implements [providers.Prober]. Returns nil when the Redis
+// client responds to PING; any error surfaces as an unhealthy probe
+// (typically caused by a closed client or unreachable Redis).
+func (p *Provider) Probe(ctx context.Context) error {
+	if err := p.Client().Ping(ctx).Err(); err != nil {
+		return coreerrs.Wrap(err, "redis ping failed")
 	}
 	return nil
 }

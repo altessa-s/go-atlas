@@ -8,6 +8,19 @@ import (
 	"context"
 )
 
+// Prober reports whether a provider is fit to serve. Implementations
+// may probe transport reachability or any other invariant that gates
+// readiness. Prober is intentionally separate from [Provider] so
+// third-party implementations stay backwards-compatible: Uniq probes
+// via type assertion and assumes Serving when the assertion fails.
+//
+// All in-tree providers (nats, redis, noop) implement Prober.
+type Prober interface {
+	// Probe returns nil when the provider is healthy, or an error
+	// describing the failure otherwise.
+	Probe(ctx context.Context) error
+}
+
 // Provider defines the interface that must be implemented by any storage backend
 // used with the uniq package. The interface provides methods for managing unique
 // values with support for TTL (Time To Live).

@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/altessa-s/go-atlas/core/encoding/serializer"
 	"github.com/altessa-s/go-atlas/data/uniq/providers"
@@ -40,6 +41,7 @@ const maxKeyLength = 1024
 type Uniq struct {
 	provider   providers.Provider
 	serializer serializer.Serializer
+	logger     *slog.Logger
 	metrics    *uniqMetrics
 }
 
@@ -54,11 +56,18 @@ var _ Uniquer = (*Uniq)(nil)
 func New(p providers.Provider, opt ...Option) *Uniq {
 	options := newOptions(opt...)
 
-	return &Uniq{
+	u := &Uniq{
 		provider:   p,
 		serializer: options.serializer,
+		logger:     options.logger,
 		metrics:    newUniqMetrics(options.collector),
 	}
+
+	if options.healthCoordinator != nil {
+		options.healthCoordinator.RegisterService(options.healthServiceName, u)
+	}
+
+	return u
 }
 
 // NewWithNats creates a Uniq with a NATS JetStream provider.
@@ -115,7 +124,15 @@ func (s *Uniq) AddWithValue(ctx context.Context, key string, value any) error {
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrSerializationFailed, err)
 	}
-	return s.provider.AddWithValue(ctx, key, data)
+	labels := metrics.Labels{"op": "add_with_value"}
+	s.metrics.operationsTotal.WithLabels(labels).Inc()
+	stop := s.metrics.operationDuration.WithLabels(labels).Start()
+	err = s.provider.AddWithValue(ctx, key, data)
+	stop()
+	if err != nil {
+		s.metrics.operationErrors.WithLabels(labels).Inc()
+	}
+	return err
 }
 
 // GetValue retrieves the value associated with a key.
@@ -124,8 +141,13 @@ func (s *Uniq) GetValue(ctx context.Context, key string, out any) error {
 	if err := validateKey(key); err != nil {
 		return err
 	}
+	labels := metrics.Labels{"op": "get_value"}
+	s.metrics.operationsTotal.WithLabels(labels).Inc()
+	stop := s.metrics.operationDuration.WithLabels(labels).Start()
 	val, err := s.provider.GetValue(ctx, key)
+	stop()
 	if err != nil {
+		s.metrics.operationErrors.WithLabels(labels).Inc()
 		return err
 	}
 
@@ -133,8 +155,8 @@ func (s *Uniq) GetValue(ctx context.Context, key string, out any) error {
 		return ErrDoesNotExist
 	}
 
-	err = s.serializer.Deserialize(val, out)
-	if err != nil {
+	if err := s.serializer.Deserialize(val, out); err != nil {
+		s.metrics.operationErrors.WithLabels(labels).Inc()
 		return fmt.Errorf("%w: %w", ErrDeserializationFailed, err)
 	}
 	return nil
@@ -174,7 +196,15 @@ func (s *Uniq) Remove(ctx context.Context, key string) error {
 
 // Clear removes all keys from the set.
 func (s *Uniq) Clear(ctx context.Context) error {
-	return s.provider.Clear(ctx)
+	labels := metrics.Labels{"op": "clear"}
+	s.metrics.operationsTotal.WithLabels(labels).Inc()
+	stop := s.metrics.operationDuration.WithLabels(labels).Start()
+	err := s.provider.Clear(ctx)
+	stop()
+	if err != nil {
+		s.metrics.operationErrors.WithLabels(labels).Inc()
+	}
+	return err
 }
 
 func validateKey(key string) error {
