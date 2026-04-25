@@ -140,6 +140,17 @@ func TestLocker_Lock_WithTimeout(t *testing.T) {
 	_ = lk.Release(ctx)
 }
 
+func TestLocker_Probe_OK(t *testing.T) {
+	locker := setupLocker(t)
+	require.NoError(t, locker.Probe(t.Context()))
+}
+
+func TestLocker_Probe_AfterClose(t *testing.T) {
+	locker := setupLocker(t)
+	require.NoError(t, locker.Close(t.Context()))
+	require.Error(t, locker.Probe(t.Context()), "Probe() after Close() should return error")
+}
+
 func isErrLockNotHeld(err error) bool {
 	return err != nil && err.Error() == errs.ErrLockNotHeld.Error()
 }

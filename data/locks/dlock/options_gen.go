@@ -5,9 +5,11 @@ package dlock
 
 import (
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
@@ -21,6 +23,39 @@ func WithCollector(v metrics.Collector) Option {
 			return
 		}
 		o.collector = v
+	}
+}
+
+// WithHealthCoordinator sets the healthCoordinator option.
+func WithHealthCoordinator(v *health.Coordinator) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.healthCoordinator = v
+	}
+}
+
+// WithHealthServiceName sets the healthServiceName option.
+func WithHealthServiceName[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.healthServiceName = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.healthServiceName = vv
+		}
 	}
 }
 
@@ -47,6 +82,7 @@ func WithLogger(v *slog.Logger) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
+		healthServiceName:  DefaultHealthServiceName,
 		lockAcquireTimeout: DefaultLockAcquireTimeout,
 		logger:             slog.New(slog.DiscardHandler),
 	}

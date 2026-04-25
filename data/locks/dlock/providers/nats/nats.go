@@ -79,7 +79,10 @@ type Locker struct {
 	closed      atomic.Bool
 }
 
-var _ providers.Provider = (*Locker)(nil)
+var (
+	_ providers.Provider = (*Locker)(nil)
+	_ providers.Prober   = (*Locker)(nil)
+)
 
 // config holds the internal configuration for a lock.
 type config struct {
@@ -238,6 +241,25 @@ func (l *Locker) Close(ctx context.Context) error {
 
 	if l.opts.logger != nil {
 		l.opts.logger.InfoContext(ctx, "nats dlock provider closed successfully")
+	}
+	return nil
+}
+
+// Probe implements [providers.Prober]. It returns nil when the NATS
+// connection is established and the KV bucket is reachable. Used by
+// [dlock.DLock.CheckHealth] for readiness probes.
+func (l *Locker) Probe(ctx context.Context) error {
+	if l.closed.Load() {
+		return errors.New("provider is closed")
+	}
+	if l.client == nil || l.client.Status() != nats.CONNECTED {
+		return errors.New("nats client not connected")
+	}
+	if l.kv == nil {
+		return errors.New("kv bucket not initialized")
+	}
+	if _, err := l.kv.Status(ctx); err != nil {
+		return coreerrs.Wrap(err, "kv bucket unreachable")
 	}
 	return nil
 }

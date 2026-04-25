@@ -13,6 +13,7 @@ import (
 // all methods become zero-cost no-ops.
 type dlockMetrics struct {
 	locksAcquired    metrics.Counter
+	locksReleased    metrics.Counter
 	locksFailed      metrics.Counter
 	acquireDuration  metrics.Timer
 	synchronizations metrics.Counter
@@ -29,6 +30,10 @@ func newDlockMetrics(c metrics.Collector) *dlockMetrics {
 		locksAcquired: scoped.MustCounter(metrics.MetricOpts{
 			Name: "locks_acquired_total",
 			Help: "Total number of locks successfully acquired.",
+		}),
+		locksReleased: scoped.MustCounter(metrics.MetricOpts{
+			Name: "locks_released_total",
+			Help: "Total number of locks successfully released. Pair with locks_acquired_total to detect leaks.",
 		}),
 		locksFailed: scoped.MustCounter(metrics.MetricOpts{
 			Name: "locks_failed_total",

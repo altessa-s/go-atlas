@@ -13,7 +13,9 @@ import (
 
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/locks/dlock"
+	"github.com/altessa-s/go-atlas/observability/health"
 
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 )
 
@@ -26,7 +28,9 @@ type DLockBuilder struct {
 	errs []error
 
 	// Dependencies
-	natsConn *nats.Conn
+	natsConn          *nats.Conn
+	healthCoordinator *health.Coordinator
+	healthServiceName string
 }
 
 // New creates a [DLockBuilder] for the given distribution lock config.
@@ -71,5 +75,10 @@ func (b *DLockBuilder) createNatsDLock(ctx context.Context) (*dlock.DLock, error
 
 // applyDefaults returns builder default options.
 func (b *DLockBuilder) applyDefaults() []dlock.Option {
-	return []dlock.Option{dlock.WithLogger(b.Logger())}
+	opts := []dlock.Option{dlock.WithLogger(b.Logger())}
+	opts = coreslices.AppendIf(opts, b.healthCoordinator != nil,
+		dlock.WithHealthCoordinator(b.healthCoordinator))
+	opts = coreslices.AppendIf(opts, b.healthServiceName != "",
+		dlock.WithHealthServiceName(b.healthServiceName))
+	return opts
 }

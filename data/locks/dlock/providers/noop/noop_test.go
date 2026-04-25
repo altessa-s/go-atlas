@@ -78,6 +78,17 @@ func TestProvider_Close(t *testing.T) {
 	require.NoError(t, p.Close(t.Context()))
 }
 
+func TestProvider_Probe_OK(t *testing.T) {
+	p := noop.New()
+	require.NoError(t, p.Probe(t.Context()))
+}
+
+func TestProvider_Probe_AfterClose(t *testing.T) {
+	p := noop.New()
+	require.NoError(t, p.Close(t.Context()))
+	require.Error(t, p.Probe(t.Context()), "Probe() after Close() should return error")
+}
+
 func TestProvider_Lock_DifferentKeys(t *testing.T) {
 	p := noop.New()
 	ctx := t.Context()

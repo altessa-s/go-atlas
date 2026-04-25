@@ -39,12 +39,18 @@ type DLock struct {
 func New(provider providers.Provider, opts ...Option) *DLock {
 	cfg := newOptions(opts...)
 
-	return &DLock{
+	l := &DLock{
 		provider:           provider,
 		logger:             cfg.logger,
 		lockAcquireTimeout: cfg.lockAcquireTimeout,
 		metrics:            newDlockMetrics(cfg.collector),
 	}
+
+	if cfg.healthCoordinator != nil {
+		cfg.healthCoordinator.RegisterService(cfg.healthServiceName, l)
+	}
+
+	return l
 }
 
 // NewWithNats creates a DLock with a NATS JetStream provider.
@@ -107,12 +113,17 @@ func (l *DLock) Synchronize(ctx context.Context, key string, fn func(ctx context
 	var lockReleased bool
 	var lockMutex sync.Mutex
 
-	// Safe release function that ensures lock is only released once
+	// Safe release function that ensures lock is only released once.
+	// Increments locks_released_total only on successful release so the
+	// metric stays a true positive signal for leak detection (paired
+	// with locks_acquired_total).
 	safeRelease := func() { //nolint:contextcheck
 		lockMutex.Lock()
 		defer lockMutex.Unlock()
 		if !lockReleased {
-			_ = lk.Release(context.Background()) //nolint:errcheck
+			if releaseErr := lk.Release(context.Background()); releaseErr == nil {
+				l.metrics.locksReleased.Inc()
+			}
 			lockReleased = true
 		}
 	}

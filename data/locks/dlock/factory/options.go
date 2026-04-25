@@ -8,6 +8,8 @@ import (
 	"log/slog"
 
 	"github.com/nats-io/nats.go"
+
+	"github.com/altessa-s/go-atlas/observability/health"
 )
 
 // --- Dependency methods ---
@@ -26,5 +28,22 @@ func (b *DLockBuilder) UseDefaultLogger() *DLockBuilder {
 // UseNatsConn sets the NATS connection used for distributed locking.
 func (b *DLockBuilder) UseNatsConn(v *nats.Conn) *DLockBuilder {
 	b.natsConn = v
+	return b
+}
+
+// UseHealthCoordinator registers the resulting [dlock.DLock] with the
+// supplied health coordinator on construction. Combine with
+// [DLockBuilder.UseHealthServiceName] to override the default
+// "dlock" service name when several DLock instances share a coordinator.
+func (b *DLockBuilder) UseHealthCoordinator(v *health.Coordinator) *DLockBuilder {
+	b.healthCoordinator = v
+	return b
+}
+
+// UseHealthServiceName overrides the service name used for health
+// registration. Has no effect unless [DLockBuilder.UseHealthCoordinator]
+// is also called.
+func (b *DLockBuilder) UseHealthServiceName(v string) *DLockBuilder {
+	b.healthServiceName = v
 	return b
 }
