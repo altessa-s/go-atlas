@@ -8,7 +8,8 @@ Package `fieldmask` provides hierarchical field mask utilities for Protocol Buff
 dot-separated field paths with support for filtering, pruning, set operations, and update-style validation of field annotations.
 Well-known types (`structpb.Struct`, `structpb.ListValue`, `structpb.Value`) are handled transparently — their dynamic keys are
 navigable by all mask operations. Update masks validate `google.api.field_behavior` annotations (`REQUIRED`, `IMMUTABLE`,
-`OUTPUT_ONLY`) before applying changes.
+`OUTPUT_ONLY`, `IDENTIFIER`) before applying changes. `IDENTIFIER` fields (AIP-203) are treated like `IMMUTABLE` in the update
+path — the identifier names the resource and must not be modified by an update.
 
 ## Constructors
 

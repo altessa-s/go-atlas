@@ -17,6 +17,11 @@ message UpdateRequest {
   // REQUIRED: if in update_mask, must be set. Cannot be cleared.
   optional string name = 2 [(google.api.field_behavior) = REQUIRED];
 
+  // IDENTIFIER (AIP-203): resource name. Required to identify the resource
+  // on update, but must not be modified — same constraint as IMMUTABLE in
+  // the update path.
+  optional string resource_name = 17 [(google.api.field_behavior) = IDENTIFIER];
+
   // OPTIONAL (default): can be cleared via update_mask.
   optional string description = 3;
 

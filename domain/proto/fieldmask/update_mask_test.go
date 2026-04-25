@@ -436,3 +436,59 @@ func TestApplyUpdateMask_FieldNotInSchema(t *testing.T) {
 
 	assert.Equal(t, "John", msg.GetName())
 }
+
+// AIP-203 IDENTIFIER: field in mask is rejected like IMMUTABLE.
+// update_mask: ["resource_name"], request: {resource_name: "items/123"}
+func TestApplyUpdateMask_IdentifierFieldInMask(t *testing.T) {
+	resourceName := "items/123"
+	msg := &testpb.UpdateRequest{
+		Id:           "1",
+		ResourceName: &resourceName,
+	}
+
+	mask := fieldmask.FromPaths("resource_name")
+	err := mask.ApplyUpdateMask(msg)
+	require.Error(t, err)
+
+	var behaviorErr *fieldmask.BehaviorViolationError
+	require.ErrorAs(t, err, &behaviorErr)
+	require.Len(t, behaviorErr.Violations, 1)
+	assert.Equal(t, "resource_name", behaviorErr.Violations[0].Field)
+	assert.Contains(t, behaviorErr.Violations[0].Description, "identifier")
+}
+
+// AIP-203 IDENTIFIER not in mask: identifier is set to route the update,
+// other fields are updated, identifier is preserved.
+func TestApplyUpdateMask_IdentifierNotInMask(t *testing.T) {
+	resourceName := "items/123"
+	name := "John"
+	msg := &testpb.UpdateRequest{
+		Id:           "1",
+		ResourceName: &resourceName,
+		Name:         &name,
+	}
+
+	mask := fieldmask.FromPaths("name")
+	err := mask.ApplyUpdateMask(msg)
+	require.NoError(t, err)
+
+	assert.Equal(t, "items/123", msg.GetResourceName(), "identifier preserved when not in mask")
+	assert.Equal(t, "John", msg.GetName())
+}
+
+// IDENTIFIER in mask but not set in the request still violates: matching
+// IMMUTABLE semantics so callers can't smuggle identifier mutation through
+// an empty value.
+func TestApplyUpdateMask_IdentifierFieldInMaskNotSet(t *testing.T) {
+	msg := &testpb.UpdateRequest{Id: "1"}
+
+	mask := fieldmask.FromPaths("resource_name")
+	err := mask.ApplyUpdateMask(msg)
+	require.Error(t, err)
+
+	var behaviorErr *fieldmask.BehaviorViolationError
+	require.ErrorAs(t, err, &behaviorErr)
+	require.Len(t, behaviorErr.Violations, 1)
+	assert.Equal(t, "resource_name", behaviorErr.Violations[0].Field)
+	assert.Contains(t, behaviorErr.Violations[0].Description, "identifier")
+}
