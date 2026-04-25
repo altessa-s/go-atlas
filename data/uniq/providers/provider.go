@@ -32,6 +32,18 @@ type Provider interface {
 	// AddWithValue adds a key with an associated value.
 	AddWithValue(ctx context.Context, key string, value []byte) error
 
+	// TryAdd atomically adds a key only if it does not already exist.
+	// Returns (true, nil) when the key was inserted, (false, nil) when it
+	// was already present, and (false, err) on storage failure. Use this
+	// instead of Add when you need race-free "first writer wins" semantics
+	// (e.g. one-time-token redemption, idempotent webhook handling).
+	TryAdd(ctx context.Context, key string) (bool, error)
+
+	// TryAddWithValue is like TryAdd but stores an associated value when
+	// the insert succeeds. The value is ignored when the key is already
+	// present.
+	TryAddWithValue(ctx context.Context, key string, value []byte) (bool, error)
+
 	// Exist checks if a key exists in the storage.
 	// Returns true if the key exists and hasn't expired, false otherwise.
 	Exist(ctx context.Context, key string) (bool, error)

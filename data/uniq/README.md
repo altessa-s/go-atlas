@@ -17,10 +17,16 @@ retrieving, and removing unique keys with optional associated values. Default TT
 | `WithHealthCoordinator` | unset | Auto-register with `health.Coordinator` on construction |
 | `WithHealthServiceName` | `"uniq"` | Override service name when several Uniq instances share a coordinator |
 
+## Add vs TryAdd
+
+`Add` / `AddWithValue` always overwrite — fine for "mark this done" writes after the work succeeded. `TryAdd` / `TryAddWithValue` are the
+race-free CAS variants: they return `(true, nil)` only when the key didn't exist. Use `TryAdd` for first-writer-wins flows (one-time tokens,
+idempotent webhooks, duplicate event suppression). Backed by Redis `SET NX` and NATS JetStream `KV.Create`.
+
 ## Metrics
 
 Subsystem `uniq`. Every public method is instrumented with the `op` label:
-`add`, `add_with_value`, `exist`, `get_value`, `remove`, `clear`.
+`add`, `add_with_value`, `try_add`, `try_add_with_value`, `exist`, `get_value`, `remove`, `clear`.
 
 | Metric | Type | Description |
 |---|---|---|

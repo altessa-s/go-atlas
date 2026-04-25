@@ -115,6 +115,52 @@ func (s *Uniq) Add(ctx context.Context, key string) error {
 	return err
 }
 
+// TryAdd atomically inserts a key only if it does not already exist.
+// Returns (true, nil) when the key was inserted (race won), (false, nil)
+// when the key was already present, and (false, err) on storage failure.
+//
+// Use this instead of [Uniq.Add] when you need race-free first-writer-wins
+// semantics: idempotent webhook handling, one-time-token redemption,
+// duplicate event suppression. With Add, two parallel callers can both
+// see Exist == false and both succeed; TryAdd resolves the race in the
+// storage layer (Redis SET NX, NATS KV Create).
+func (s *Uniq) TryAdd(ctx context.Context, key string) (bool, error) {
+	if err := validateKey(key); err != nil {
+		return false, err
+	}
+	labels := metrics.Labels{"op": "try_add"}
+	s.metrics.operationsTotal.WithLabels(labels).Inc()
+	stop := s.metrics.operationDuration.WithLabels(labels).Start()
+	ok, err := s.provider.TryAdd(ctx, key)
+	stop()
+	if err != nil {
+		s.metrics.operationErrors.WithLabels(labels).Inc()
+	}
+	return ok, err
+}
+
+// TryAddWithValue is like [Uniq.TryAdd] but stores an associated value
+// when the insert succeeds. The value is serialized using the configured
+// serializer and ignored when the key already exists.
+func (s *Uniq) TryAddWithValue(ctx context.Context, key string, value any) (bool, error) {
+	if err := validateKey(key); err != nil {
+		return false, err
+	}
+	data, err := s.serializer.Serialize(value)
+	if err != nil {
+		return false, fmt.Errorf("%w: %w", ErrSerializationFailed, err)
+	}
+	labels := metrics.Labels{"op": "try_add_with_value"}
+	s.metrics.operationsTotal.WithLabels(labels).Inc()
+	stop := s.metrics.operationDuration.WithLabels(labels).Start()
+	ok, err := s.provider.TryAddWithValue(ctx, key, data)
+	stop()
+	if err != nil {
+		s.metrics.operationErrors.WithLabels(labels).Inc()
+	}
+	return ok, err
+}
+
 // AddWithValue adds a key with an associated value.
 func (s *Uniq) AddWithValue(ctx context.Context, key string, value any) error {
 	if err := validateKey(key); err != nil {

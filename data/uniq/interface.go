@@ -16,6 +16,18 @@ type Uniquer interface {
 	// AddWithValue adds a key with an associated value to the uniq set.
 	AddWithValue(ctx context.Context, key string, value any) error
 
+	// TryAdd atomically inserts a key only if it does not already exist.
+	// Returns (true, nil) when the key was inserted (race won),
+	// (false, nil) when the key was already present, and (false, err)
+	// on storage failure. Use this instead of [Uniquer.Add] when you
+	// need race-free first-writer-wins semantics.
+	TryAdd(ctx context.Context, key string) (bool, error)
+
+	// TryAddWithValue is like [Uniquer.TryAdd] but stores an associated
+	// value when the insert succeeds. The value is ignored when the key
+	// already exists.
+	TryAddWithValue(ctx context.Context, key string, value any) (bool, error)
+
 	// GetValue retrieves the value associated with a key in the uniq set.
 	GetValue(ctx context.Context, key string, out any) error
 

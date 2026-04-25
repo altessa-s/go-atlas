@@ -28,6 +28,18 @@ func (p *Provider) Add(_ context.Context, _ string) error { return nil }
 // AddWithValue is a no-op implementation that always returns nil.
 func (p *Provider) AddWithValue(_ context.Context, _ string, _ []byte) error { return nil }
 
+// TryAdd is a no-op implementation that always reports success.
+// Consistent with [Provider.Exist] always returning false: the noop
+// provider has no storage, so no key is ever "already present".
+// Tests that need real CAS semantics must use a real backend.
+func (p *Provider) TryAdd(_ context.Context, _ string) (bool, error) { return true, nil }
+
+// TryAddWithValue is the no-op counterpart to [Provider.TryAdd] for
+// the value-bearing variant; the value is discarded.
+func (p *Provider) TryAddWithValue(_ context.Context, _ string, _ []byte) (bool, error) {
+	return true, nil
+}
+
 // Exist is a no-op implementation that always returns false and nil error.
 func (p *Provider) Exist(_ context.Context, _ string) (bool, error) { return false, nil }
 
