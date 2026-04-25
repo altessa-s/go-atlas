@@ -84,8 +84,9 @@ func TestAttemptLock_EmptyKey(t *testing.T) {
 	k := New(s)
 
 	ok, state, err := k.AttemptLock(t.Context(), "")
-	require.NoError(t, err)
-	require.True(t, ok, "expected true for empty key")
+	require.ErrorIs(t, err, ErrEmptyKey,
+		"empty key must surface ErrEmptyKey instead of silently succeeding (which would disable dedupe)")
+	require.False(t, ok)
 	require.Nil(t, state)
 }
 

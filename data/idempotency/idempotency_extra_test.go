@@ -32,7 +32,7 @@ func TestComplete_EmptyKey(t *testing.T) {
 	keeper := idempotency.New(storage)
 
 	err := keeper.Complete(t.Context(), "", "data")
-	require.NoError(t, err)
+	require.ErrorIs(t, err, idempotency.ErrEmptyKey)
 }
 
 func TestDelete_EmptyKey(t *testing.T) {
@@ -40,7 +40,7 @@ func TestDelete_EmptyKey(t *testing.T) {
 	keeper := idempotency.New(storage)
 
 	err := keeper.Delete(t.Context(), "")
-	require.NoError(t, err)
+	require.ErrorIs(t, err, idempotency.ErrEmptyKey)
 }
 
 func TestStorageFunc_AllMethods(t *testing.T) {

@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/data/idempotency/storages"
 )
 
 func TestMemory_Close(t *testing.T) {
@@ -32,7 +34,21 @@ func TestMemory_Complete_NonExistent(t *testing.T) {
 func TestMemory_Complete_EmptyKey(t *testing.T) {
 	s := New()
 	err := s.Complete(t.Context(), "", []byte("val"))
-	require.NoError(t, err)
+	require.ErrorIs(t, err, storages.ErrEmptyKey)
+}
+
+func TestMemory_AttemptLock_EmptyKey(t *testing.T) {
+	s := New()
+	ok, existing, err := s.AttemptLock(t.Context(), "", []byte("val"))
+	require.ErrorIs(t, err, storages.ErrEmptyKey)
+	require.False(t, ok)
+	require.Nil(t, existing)
+}
+
+func TestMemory_Delete_EmptyKey(t *testing.T) {
+	s := New()
+	err := s.Delete(t.Context(), "")
+	require.ErrorIs(t, err, storages.ErrEmptyKey)
 }
 
 func TestMemory_RunCleanup(t *testing.T) {

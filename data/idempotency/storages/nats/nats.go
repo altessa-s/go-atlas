@@ -55,7 +55,7 @@ func New(js jetstream.JetStream, opts ...Option) (*Storage, error) {
 // AttemptLock tries to acquire a lock for the given key.
 func (s *Storage) AttemptLock(ctx context.Context, key string, val []byte) (bool, []byte, error) {
 	if key == "" {
-		return true, nil, nil
+		return false, nil, storages.ErrEmptyKey
 	}
 
 	// Use Create to ensure we only set if key does not exist (atomic lock)
@@ -87,7 +87,7 @@ func (s *Storage) AttemptLock(ctx context.Context, key string, val []byte) (bool
 // Complete marks the key as successfully processed.
 func (s *Storage) Complete(ctx context.Context, key string, val []byte) error {
 	if key == "" {
-		return nil
+		return storages.ErrEmptyKey
 	}
 
 	// Overwrite existing key
@@ -102,7 +102,7 @@ func (s *Storage) Complete(ctx context.Context, key string, val []byte) error {
 // Delete removes the key from storage.
 func (s *Storage) Delete(ctx context.Context, key string) error {
 	if key == "" {
-		return nil
+		return storages.ErrEmptyKey
 	}
 
 	if err := s.KV().Delete(ctx, key); err != nil {

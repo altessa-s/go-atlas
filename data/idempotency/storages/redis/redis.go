@@ -43,7 +43,7 @@ func New(client redis.UniversalClient, opt ...Option) *Storage {
 // AttemptLock tries to acquire a lock for the given key.
 func (s *Storage) AttemptLock(ctx context.Context, key string, val []byte) (bool, []byte, error) {
 	if key == "" {
-		return true, nil, nil
+		return false, nil, storages.ErrEmptyKey
 	}
 
 	// Try to set provided key with NX (only if not exists)
@@ -77,7 +77,7 @@ func (s *Storage) AttemptLock(ctx context.Context, key string, val []byte) (bool
 // Complete marks the key as successfully processed.
 func (s *Storage) Complete(ctx context.Context, key string, val []byte) error {
 	if key == "" {
-		return nil
+		return storages.ErrEmptyKey
 	}
 
 	// Overwrite existing key with new state, keeping TTL or resetting it?
@@ -94,7 +94,7 @@ func (s *Storage) Complete(ctx context.Context, key string, val []byte) error {
 // Delete removes the key from storage.
 func (s *Storage) Delete(ctx context.Context, key string) error {
 	if key == "" {
-		return nil
+		return storages.ErrEmptyKey
 	}
 
 	if err := s.Client().Del(ctx, s.Key(key)).Err(); err != nil {

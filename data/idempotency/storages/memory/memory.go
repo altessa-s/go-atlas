@@ -70,10 +70,7 @@ func New(opt ...Option) *Storage {
 // AttemptLock tries to acquire a lock for the given key.
 func (s *Storage) AttemptLock(_ context.Context, key string, val []byte) (bool, []byte, error) {
 	if key == "" {
-		// Empty key should probably not be locked, but for safety we return true (acquired)
-		// implying no conflict, or we could error. ADR implies we shouldn't get here with empty key.
-		// Let's assume caller checks, but here we return nil state.
-		return true, nil, nil
+		return false, nil, storages.ErrEmptyKey
 	}
 
 	s.mu.Lock()
@@ -105,12 +102,12 @@ func (s *Storage) AttemptLock(_ context.Context, key string, val []byte) (bool, 
 
 // Complete marks the key as successfully processed.
 func (s *Storage) Complete(_ context.Context, key string, val []byte) error {
+	if key == "" {
+		return storages.ErrEmptyKey
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	if key == "" {
-		return nil
-	}
 
 	e, exists := s.entries[key]
 	if !exists {
@@ -134,7 +131,7 @@ func (s *Storage) Complete(_ context.Context, key string, val []byte) error {
 // Delete removes the key from storage.
 func (s *Storage) Delete(_ context.Context, key string) error {
 	if key == "" {
-		return nil
+		return storages.ErrEmptyKey
 	}
 
 	s.mu.Lock()

@@ -13,6 +13,8 @@ import (
 	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/data/idempotency/storages"
+
 	idempredis "github.com/altessa-s/go-atlas/data/idempotency/storages/redis"
 	goredis "github.com/redis/go-redis/v9"
 )
@@ -117,17 +119,15 @@ func TestStorage_EmptyKey(t *testing.T) {
 	storage, _ := setupStorage(t)
 	ctx := t.Context()
 
-	// AttemptLock with empty key should return (true, nil, nil)
+	// Empty key on every method must surface ErrEmptyKey — silently
+	// succeeding would let any caller bypass dedupe by sending a blank key.
 	locked, existingVal, err := storage.AttemptLock(ctx, "", []byte("value"))
-	require.NoError(t, err)
-	require.True(t, locked, "expected empty key to return locked=true")
+	require.ErrorIs(t, err, storages.ErrEmptyKey)
+	require.False(t, locked)
 	require.Nil(t, existingVal)
 
-	// Complete with empty key should return nil
-	require.NoError(t, storage.Complete(ctx, "", []byte("value")))
-
-	// Delete with empty key should return nil
-	require.NoError(t, storage.Delete(ctx, ""))
+	require.ErrorIs(t, storage.Complete(ctx, "", []byte("value")), storages.ErrEmptyKey)
+	require.ErrorIs(t, storage.Delete(ctx, ""), storages.ErrEmptyKey)
 }
 
 func TestStorage_TTLExpiry(t *testing.T) {

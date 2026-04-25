@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/data/idempotency/storages"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	idempnats "github.com/altessa-s/go-atlas/data/idempotency/storages/nats"
@@ -63,8 +64,8 @@ func TestStorage_AttemptLock_EmptyKey(t *testing.T) {
 	ctx := t.Context()
 
 	locked, existingVal, err := storage.AttemptLock(ctx, "", []byte("val"))
-	require.NoError(t, err)
-	require.True(t, locked, "expected empty key to return locked=true")
+	require.ErrorIs(t, err, storages.ErrEmptyKey)
+	require.False(t, locked)
 	require.Nil(t, existingVal)
 }
 
@@ -88,7 +89,7 @@ func TestStorage_Complete_EmptyKey(t *testing.T) {
 	storage := setupStorage(t)
 	ctx := t.Context()
 
-	require.NoError(t, storage.Complete(ctx, "", []byte("val")))
+	require.ErrorIs(t, storage.Complete(ctx, "", []byte("val")), storages.ErrEmptyKey)
 }
 
 func TestStorage_Delete(t *testing.T) {
@@ -111,7 +112,7 @@ func TestStorage_Delete_EmptyKey(t *testing.T) {
 	storage := setupStorage(t)
 	ctx := t.Context()
 
-	require.NoError(t, storage.Delete(ctx, ""))
+	require.ErrorIs(t, storage.Delete(ctx, ""), storages.ErrEmptyKey)
 }
 
 func TestStorage_FullLifecycle(t *testing.T) {

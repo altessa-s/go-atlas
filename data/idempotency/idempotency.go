@@ -26,6 +26,11 @@ const (
 	StatusSuccess = storages.StatusSuccess
 )
 
+// ErrEmptyKey is returned by [Keeper] when an empty idempotency key is
+// supplied. Re-exported from [storages.ErrEmptyKey] for convenience —
+// `errors.Is(err, idempotency.ErrEmptyKey)` matches both layers.
+var ErrEmptyKey = storages.ErrEmptyKey
+
 // Idempotency defines the interface for idempotency key operations.
 // Implementations must be safe for concurrent use.
 type Idempotency interface {
@@ -73,10 +78,12 @@ func New(storage storages.Storage, opt ...Option) *Keeper {
 
 // check operations are not directly supported via Keeper in new interface, as flow should be AttemptLock -> [Work] -> Complete/Delete
 
-// AttemptLock tries to acquire a lock for the given key.
+// AttemptLock tries to acquire a lock for the given key. An empty key
+// returns [ErrEmptyKey] — silently succeeding would disable dedupe for
+// any caller that reaches Keeper without validating its input.
 func (i *Keeper) AttemptLock(ctx context.Context, key string) (bool, *storages.State, error) {
 	if key == "" {
-		return true, nil, nil
+		return false, nil, ErrEmptyKey
 	}
 
 	state := storages.State{
@@ -110,10 +117,11 @@ func (i *Keeper) AttemptLock(ctx context.Context, key string) (bool, *storages.S
 	return false, &existingState, nil
 }
 
-// Complete marks the key as successfully processed.
+// Complete marks the key as successfully processed. An empty key returns
+// [ErrEmptyKey].
 func (i *Keeper) Complete(ctx context.Context, key string, data any) error {
 	if key == "" {
-		return nil
+		return ErrEmptyKey
 	}
 
 	state := storages.State{
@@ -134,10 +142,11 @@ func (i *Keeper) Complete(ctx context.Context, key string, data any) error {
 	return nil
 }
 
-// Delete removes the key from storage (e.g. on failure).
+// Delete removes the key from storage (e.g. on failure). An empty key
+// returns [ErrEmptyKey].
 func (i *Keeper) Delete(ctx context.Context, key string) error {
 	if key == "" {
-		return nil
+		return ErrEmptyKey
 	}
 	if err := i.storage.Delete(ctx, key); err != nil {
 		i.metrics.errors.Inc()
