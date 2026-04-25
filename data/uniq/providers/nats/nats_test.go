@@ -131,3 +131,49 @@ func TestProvider_Probe_AfterConnClose(t *testing.T) {
 	require.Error(t, p.Probe(t.Context()),
 		"Probe() after closing the underlying NATS connection should return an error")
 }
+
+func TestProvider_TryAdd_NewKey(t *testing.T) {
+	p := setupProvider(t)
+	ok, err := p.TryAdd(t.Context(), "fresh-key")
+	require.NoError(t, err)
+	require.True(t, ok, "TryAdd() on a missing key must report acquired=true")
+}
+
+func TestProvider_TryAdd_ExistingKey(t *testing.T) {
+	p := setupProvider(t)
+	ctx := t.Context()
+
+	require.NoError(t, p.Add(ctx, "taken"))
+
+	ok, err := p.TryAdd(ctx, "taken")
+	require.NoError(t, err)
+	require.False(t, ok, "TryAdd() on an existing key must report acquired=false (race closed)")
+}
+
+func TestProvider_TryAddWithValue_NewKey(t *testing.T) {
+	p := setupProvider(t)
+	ctx := t.Context()
+
+	ok, err := p.TryAddWithValue(ctx, "k", []byte("v1"))
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	val, err := p.GetValue(ctx, "k")
+	require.NoError(t, err)
+	require.Equal(t, "v1", string(val))
+}
+
+func TestProvider_TryAddWithValue_ExistingKey_DoesNotOverwrite(t *testing.T) {
+	p := setupProvider(t)
+	ctx := t.Context()
+
+	require.NoError(t, p.AddWithValue(ctx, "k", []byte("original")))
+
+	ok, err := p.TryAddWithValue(ctx, "k", []byte("attempted-overwrite"))
+	require.NoError(t, err)
+	require.False(t, ok, "TryAddWithValue() on existing key must not acquire")
+
+	val, err := p.GetValue(ctx, "k")
+	require.NoError(t, err)
+	require.Equal(t, "original", string(val), "TryAddWithValue() must not overwrite existing value")
+}

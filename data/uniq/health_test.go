@@ -25,6 +25,10 @@ func (minimalProvider) Add(_ context.Context, _ string) error { return nil }
 func (minimalProvider) AddWithValue(_ context.Context, _ string, _ []byte) error {
 	return nil
 }
+func (minimalProvider) TryAdd(_ context.Context, _ string) (bool, error) { return true, nil }
+func (minimalProvider) TryAddWithValue(_ context.Context, _ string, _ []byte) (bool, error) {
+	return true, nil
+}
 func (minimalProvider) Exist(_ context.Context, _ string) (bool, error)      { return false, nil }
 func (minimalProvider) GetValue(_ context.Context, _ string) ([]byte, error) { return nil, nil }
 func (minimalProvider) Remove(_ context.Context, _ string) error             { return nil }

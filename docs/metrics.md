@@ -363,7 +363,7 @@ Package: `data/uniq`
 | `uniq_operation_duration_seconds` | Histogram | `op`   | Uniqueness check operation duration |
 | `uniq_operation_errors_total`     | Counter   | `op`   | Uniqueness check operation failures |
 
-`op` label values: `add`, `add_with_value`, `exist`, `get_value`, `remove`, `clear`.
+`op` label values: `add`, `add_with_value`, `try_add`, `try_add_with_value`, `exist`, `get_value`, `remove`, `clear`.
 
 ---
 
