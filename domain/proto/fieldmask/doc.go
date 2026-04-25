@@ -10,7 +10,9 @@
 // operations ([FieldMask.Union], [FieldMask.Intersection], [FieldMask.Difference])
 // on protobuf messages. For update-style semantics, [FieldMask.ApplyUpdateMask]
 // validates google.api.field_behavior annotations (REQUIRED, IMMUTABLE,
-// OUTPUT_ONLY) before applying the mask.
+// OUTPUT_ONLY, IDENTIFIER) before applying the mask. IDENTIFIER fields are
+// treated like IMMUTABLE in the update path: per AIP-203 the identifier names
+// the resource and must not be modified by an update.
 //
 // Well-known types [structpb.Struct], [structpb.ListValue], and [structpb.Value]
 // are handled transparently — their dynamic keys are navigable by mask operations.

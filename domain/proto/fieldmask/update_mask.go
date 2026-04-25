@@ -51,13 +51,18 @@ const (
 	fieldBehaviorRequired
 	fieldBehaviorImmutable
 	fieldBehaviorOutputOnly
+	fieldBehaviorIdentifier
 )
 
 // ApplyUpdateMask applies the field mask for update operations:
-//  1. Validates field behaviors: REQUIRED, IMMUTABLE, OUTPUT_ONLY (fail-fast)
+//  1. Validates field behaviors: REQUIRED, IMMUTABLE, OUTPUT_ONLY, IDENTIFIER (fail-fast)
 //  2. Removes OUTPUT_ONLY fields from the mask
 //  3. Clears fields NOT in the mask
 //  4. Sets default values for fields IN the mask but not populated
+//
+// IDENTIFIER fields (AIP-203) are treated like IMMUTABLE: the identifier names
+// the resource and must not be modified by an update. Including such a field
+// in the mask produces a violation.
 //
 // Returns *BehaviorViolationError if any field behavior constraints are violated.
 //
@@ -77,11 +82,46 @@ func (msk FieldMask) ApplyUpdateMask(msg proto.Message) error {
 		return &BehaviorViolationError{Violations: violations}
 	}
 
+	msk.preserveIdentifierFields(msg)
 	msk.removeOutputOnlyFields(msg)
 	msk.iterateFilter(msg)
 	msk.setDefaultsForUnsetFields(msg)
 
 	return nil
+}
+
+// preserveIdentifierFields adds set IDENTIFIER fields (AIP-203) to the mask as
+// leaf entries so [FieldMask.iterateFilter] does not clear them. The identifier
+// is the resource's routing key — callers normally pass it alongside the
+// update_mask without listing it in the mask itself, and dropping it would
+// silently break the update path. Only set fields are added: if the caller did
+// not provide the identifier, this step is a no-op and downstream logic is
+// untouched.
+func (msk FieldMask) preserveIdentifierFields(msg proto.Message) {
+	prf := msg.ProtoReflect()
+	fields := prf.Descriptor().Fields()
+	for i := range fields.Len() {
+		fd := fields.Get(i)
+		name := string(fd.Name())
+		if getFieldBehavior(fd) == fieldBehaviorIdentifier {
+			if _, exists := msk[name]; !exists && prf.Has(fd) {
+				msk[name] = nil
+			}
+			continue
+		}
+		// Recurse into nested messages that are already in the mask so
+		// nested identifiers within explicitly-updated subtrees are also
+		// preserved.
+		if fd.Kind() != protoreflect.MessageKind || fd.IsList() || fd.IsMap() ||
+			isValueWellKnownType(fd) || isStructWellKnownType(fd) || isListValueWellKnownType(fd) {
+			continue
+		}
+		nested, ok := msk[name]
+		if !ok || nested == nil || !prf.Has(fd) {
+			continue
+		}
+		nested.preserveIdentifierFields(prf.Get(fd).Message().Interface())
+	}
 }
 
 func (msk FieldMask) validateFieldBehaviors(
@@ -122,6 +162,15 @@ func (msk FieldMask) validateFieldBehaviors(
 			*violations = append(*violations, FieldViolation{
 				Field:       fullPath,
 				Description: "immutable field cannot be modified",
+			})
+			continue
+
+		case fieldBehaviorIdentifier:
+			// IDENTIFIER fields (AIP-203) name the resource and must not be
+			// changed by an update — same constraint as IMMUTABLE in this path.
+			*violations = append(*violations, FieldViolation{
+				Field:       fullPath,
+				Description: "identifier field cannot be modified",
 			})
 			continue
 
@@ -203,13 +252,15 @@ func getFieldBehavior(fd protoreflect.FieldDescriptor) fieldBehavior {
 	}
 
 	for _, b := range behaviors {
-		switch b { //nolint:exhaustive // Only REQUIRED, IMMUTABLE, OUTPUT_ONLY are relevant for update mask semantics.
+		switch b { //nolint:exhaustive // INPUT_ONLY, UNORDERED_LIST, NON_EMPTY_DEFAULT have no update-mask semantics.
 		case annotations.FieldBehavior_REQUIRED:
 			return fieldBehaviorRequired
 		case annotations.FieldBehavior_IMMUTABLE:
 			return fieldBehaviorImmutable
 		case annotations.FieldBehavior_OUTPUT_ONLY:
 			return fieldBehaviorOutputOnly
+		case annotations.FieldBehavior_IDENTIFIER:
+			return fieldBehaviorIdentifier
 		}
 	}
 
