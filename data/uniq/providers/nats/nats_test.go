@@ -113,3 +113,21 @@ func TestProvider_Add_Overwrite(t *testing.T) {
 	val, _ := p.GetValue(ctx, "key1")
 	require.Equal(t, "v2", string(val))
 }
+
+func TestProvider_Probe_OK(t *testing.T) {
+	p := setupProvider(t)
+	require.NoError(t, p.Probe(t.Context()))
+}
+
+func TestProvider_Probe_AfterConnClose(t *testing.T) {
+	ns := testhelpers.StartNATSServer(t)
+	nc := testhelpers.ConnectNATS(t, ns)
+
+	bucket := strings.ReplaceAll(t.Name(), "/", "-")
+	p, err := uniqnats.New(nc, uniqnats.WithBucket(bucket))
+	require.NoError(t, err)
+
+	nc.Close()
+	require.Error(t, p.Probe(t.Context()),
+		"Probe() after closing the underlying NATS connection should return an error")
+}

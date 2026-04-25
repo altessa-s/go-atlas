@@ -112,3 +112,18 @@ func TestProvider_WithCustomPrefix(t *testing.T) {
 	exists, _ := p.Exist(ctx, "key1")
 	require.True(t, exists, "Exist() should return true with custom prefix")
 }
+
+func TestProvider_Probe_OK(t *testing.T) {
+	p := setupProvider(t)
+	require.NoError(t, p.Probe(t.Context()))
+}
+
+func TestProvider_Probe_AfterClientClose(t *testing.T) {
+	mr := miniredis.RunT(t)
+	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	p := uniqredis.New(client)
+
+	require.NoError(t, client.Close())
+	require.Error(t, p.Probe(t.Context()),
+		"Probe() after closing the underlying Redis client should return an error")
+}

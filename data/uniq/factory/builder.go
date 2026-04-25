@@ -14,7 +14,10 @@ import (
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/uniq"
 	"github.com/altessa-s/go-atlas/data/uniq/providers"
+	"github.com/altessa-s/go-atlas/observability/health"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	natsprovider "github.com/altessa-s/go-atlas/data/uniq/providers/nats"
 	noopprovider "github.com/altessa-s/go-atlas/data/uniq/providers/noop"
@@ -30,8 +33,11 @@ type UniqBuilder struct {
 	errs []error
 
 	// Dependencies
-	redisClient redis.UniversalClient
-	natsConn    *nats.Conn
+	redisClient       redis.UniversalClient
+	natsConn          *nats.Conn
+	collector         metrics.Collector
+	healthCoordinator *health.Coordinator
+	healthServiceName string
 }
 
 // New creates a [UniqBuilder] for the given cache storage config.
@@ -55,7 +61,19 @@ func (b *UniqBuilder) Build() (*uniq.Uniq, error) {
 		return nil, err
 	}
 
-	return uniq.New(provider), nil
+	return uniq.New(provider, b.applyDefaults()...), nil
+}
+
+// applyDefaults returns builder-supplied options to pass to [uniq.New].
+func (b *UniqBuilder) applyDefaults() []uniq.Option {
+	opts := []uniq.Option{uniq.WithLogger(b.Logger())}
+	opts = coreslices.AppendIf(opts, b.collector != nil,
+		uniq.WithCollector(b.collector))
+	opts = coreslices.AppendIf(opts, b.healthCoordinator != nil,
+		uniq.WithHealthCoordinator(b.healthCoordinator))
+	opts = coreslices.AppendIf(opts, b.healthServiceName != "",
+		uniq.WithHealthServiceName(b.healthServiceName))
+	return opts
 }
 
 // createProvider creates a provider based on configuration.

@@ -67,3 +67,8 @@ func TestProvider_FullLifecycle(t *testing.T) {
 	_ = p.Remove(ctx, "key1")
 	_ = p.Clear(ctx)
 }
+
+func TestProvider_Probe_OK(t *testing.T) {
+	p := noop.New()
+	require.NoError(t, p.Probe(t.Context()))
+}
