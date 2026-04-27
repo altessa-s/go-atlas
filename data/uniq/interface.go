@@ -6,6 +6,7 @@ package uniq
 
 import (
 	"context"
+	"time"
 )
 
 // Uniquer is the interface that wraps the basic methods for managing unique values.
@@ -21,12 +22,18 @@ type Uniquer interface {
 	// (false, nil) when the key was already present, and (false, err)
 	// on storage failure. Use this instead of [Uniquer.Add] when you
 	// need race-free first-writer-wins semantics.
-	TryAdd(ctx context.Context, key string) (bool, error)
+	//
+	// ttl overrides the per-key TTL for this call. Pass zero to use
+	// the value configured on the underlying provider/bucket.
+	TryAdd(ctx context.Context, key string, ttl time.Duration) (bool, error)
 
 	// TryAddWithValue is like [Uniquer.TryAdd] but stores an associated
 	// value when the insert succeeds. The value is ignored when the key
 	// already exists.
-	TryAddWithValue(ctx context.Context, key string, value any) (bool, error)
+	//
+	// ttl overrides the per-key TTL for this call. Pass zero to use
+	// the value configured on the underlying provider/bucket.
+	TryAddWithValue(ctx context.Context, key string, value any, ttl time.Duration) (bool, error)
 
 	// GetValue retrieves the value associated with a key in the uniq set.
 	GetValue(ctx context.Context, key string, out any) error

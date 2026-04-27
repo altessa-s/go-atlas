@@ -5,15 +5,18 @@
 package uniq_test
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/uniq"
+	"github.com/altessa-s/go-atlas/data/uniq/providers"
 
 	goredis "github.com/redis/go-redis/v9"
 )
@@ -25,7 +28,7 @@ func TestTryAdd_EmptyKey(t *testing.T) {
 	t.Parallel()
 
 	u := uniq.NewWithNoop()
-	ok, err := u.TryAdd(t.Context(), "")
+	ok, err := u.TryAdd(t.Context(), "", 0)
 	require.False(t, ok)
 	require.ErrorIs(t, err, uniq.ErrInvalidKey)
 }
@@ -34,7 +37,7 @@ func TestTryAdd_KeyTooLong(t *testing.T) {
 	t.Parallel()
 
 	u := uniq.NewWithNoop()
-	ok, err := u.TryAdd(t.Context(), strings.Repeat("a", 1025))
+	ok, err := u.TryAdd(t.Context(), strings.Repeat("a", 1025), 0)
 	require.False(t, ok)
 	require.ErrorIs(t, err, uniq.ErrInvalidKey)
 }
@@ -43,7 +46,7 @@ func TestTryAddWithValue_EmptyKey(t *testing.T) {
 	t.Parallel()
 
 	u := uniq.NewWithNoop()
-	ok, err := u.TryAddWithValue(t.Context(), "", "v")
+	ok, err := u.TryAddWithValue(t.Context(), "", "v", 0)
 	require.False(t, ok)
 	require.ErrorIs(t, err, uniq.ErrInvalidKey)
 }
@@ -54,7 +57,7 @@ func TestTryAddWithValue_SerializationError(t *testing.T) {
 	// JSON serializer can't encode a channel — verifies that
 	// serialization failure short-circuits before any storage call.
 	u := uniq.NewWithNoop()
-	ok, err := u.TryAddWithValue(t.Context(), "k", make(chan int))
+	ok, err := u.TryAddWithValue(t.Context(), "k", make(chan int), 0)
 	require.False(t, ok)
 	require.ErrorIs(t, err, uniq.ErrSerializationFailed)
 }
@@ -79,7 +82,7 @@ func TestTryAdd_RegressionRace(t *testing.T) {
 	)
 	for range concurrency {
 		wg.Go(func() {
-			ok, err := u.TryAdd(t.Context(), "race-key")
+			ok, err := u.TryAdd(t.Context(), "race-key", 0)
 			if err != nil {
 				errCh <- err
 				return
@@ -117,11 +120,59 @@ func TestTryAddWithValue_DoesNotOverwrite(t *testing.T) {
 
 	require.NoError(t, u.AddWithValue(ctx, "k", "original"))
 
-	ok, err := u.TryAddWithValue(ctx, "k", "loser")
+	ok, err := u.TryAddWithValue(ctx, "k", "loser", 0)
 	require.NoError(t, err)
 	require.False(t, ok)
 
 	var got string
 	require.NoError(t, u.GetValue(ctx, "k", &got))
 	require.Equal(t, "original", got)
+}
+
+// fakeTtlProvider records the ttl value seen by the most recent
+// TryAdd / TryAddWithValue call. Used to verify that *Uniq passes the
+// per-call ttl through to the provider unchanged.
+type fakeTtlProvider struct {
+	lastTtl time.Duration
+}
+
+func (p *fakeTtlProvider) Add(_ context.Context, _ string) error                    { return nil }
+func (p *fakeTtlProvider) AddWithValue(_ context.Context, _ string, _ []byte) error { return nil }
+func (p *fakeTtlProvider) Exist(_ context.Context, _ string) (bool, error)          { return false, nil }
+func (p *fakeTtlProvider) GetValue(_ context.Context, _ string) ([]byte, error)     { return nil, nil }
+func (p *fakeTtlProvider) Remove(_ context.Context, _ string) error                 { return nil }
+func (p *fakeTtlProvider) Clear(_ context.Context) error                            { return nil }
+
+func (p *fakeTtlProvider) TryAdd(_ context.Context, _ string, ttl time.Duration) (bool, error) {
+	p.lastTtl = ttl
+	return true, nil
+}
+
+func (p *fakeTtlProvider) TryAddWithValue(_ context.Context, _ string, _ []byte, ttl time.Duration) (bool, error) {
+	p.lastTtl = ttl
+	return true, nil
+}
+
+var _ providers.Provider = (*fakeTtlProvider)(nil)
+
+func TestTryAdd_PerCallTtl_PassedToProvider(t *testing.T) {
+	t.Parallel()
+
+	prov := &fakeTtlProvider{}
+	u := uniq.New(prov)
+
+	_, err := u.TryAdd(t.Context(), "k", 7*time.Second)
+	require.NoError(t, err)
+	require.Equal(t, 7*time.Second, prov.lastTtl,
+		"*Uniq.TryAdd must pass ttl through unchanged")
+
+	_, err = u.TryAddWithValue(t.Context(), "k", "v", 9*time.Second)
+	require.NoError(t, err)
+	require.Equal(t, 9*time.Second, prov.lastTtl,
+		"*Uniq.TryAddWithValue must pass ttl through unchanged")
+
+	_, err = u.TryAdd(t.Context(), "k", 0)
+	require.NoError(t, err)
+	require.Equal(t, time.Duration(0), prov.lastTtl,
+		"zero ttl must propagate as zero (provider decides fallback)")
 }

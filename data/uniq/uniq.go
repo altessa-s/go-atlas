@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/altessa-s/go-atlas/core/encoding/serializer"
 	"github.com/altessa-s/go-atlas/data/uniq/providers"
@@ -124,14 +125,17 @@ func (s *Uniq) Add(ctx context.Context, key string) error {
 // duplicate event suppression. With Add, two parallel callers can both
 // see Exist == false and both succeed; TryAdd resolves the race in the
 // storage layer (Redis SET NX, NATS KV Create).
-func (s *Uniq) TryAdd(ctx context.Context, key string) (bool, error) {
+//
+// ttl overrides the per-key TTL for this call. Pass zero to use the
+// configured provider/bucket TTL.
+func (s *Uniq) TryAdd(ctx context.Context, key string, ttl time.Duration) (bool, error) {
 	if err := validateKey(key); err != nil {
 		return false, err
 	}
 	labels := metrics.Labels{"op": "try_add"}
 	s.metrics.operationsTotal.WithLabels(labels).Inc()
 	stop := s.metrics.operationDuration.WithLabels(labels).Start()
-	ok, err := s.provider.TryAdd(ctx, key)
+	ok, err := s.provider.TryAdd(ctx, key, ttl)
 	stop()
 	if err != nil {
 		s.metrics.operationErrors.WithLabels(labels).Inc()
@@ -142,7 +146,10 @@ func (s *Uniq) TryAdd(ctx context.Context, key string) (bool, error) {
 // TryAddWithValue is like [Uniq.TryAdd] but stores an associated value
 // when the insert succeeds. The value is serialized using the configured
 // serializer and ignored when the key already exists.
-func (s *Uniq) TryAddWithValue(ctx context.Context, key string, value any) (bool, error) {
+//
+// ttl overrides the per-key TTL for this call. Pass zero to use the
+// configured provider/bucket TTL.
+func (s *Uniq) TryAddWithValue(ctx context.Context, key string, value any, ttl time.Duration) (bool, error) {
 	if err := validateKey(key); err != nil {
 		return false, err
 	}
@@ -153,7 +160,7 @@ func (s *Uniq) TryAddWithValue(ctx context.Context, key string, value any) (bool
 	labels := metrics.Labels{"op": "try_add_with_value"}
 	s.metrics.operationsTotal.WithLabels(labels).Inc()
 	stop := s.metrics.operationDuration.WithLabels(labels).Start()
-	ok, err := s.provider.TryAddWithValue(ctx, key, data)
+	ok, err := s.provider.TryAddWithValue(ctx, key, data, ttl)
 	stop()
 	if err != nil {
 		s.metrics.operationErrors.WithLabels(labels).Inc()

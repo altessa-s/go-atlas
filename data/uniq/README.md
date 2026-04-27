@@ -23,6 +23,11 @@ retrieving, and removing unique keys with optional associated values. Default TT
 race-free CAS variants: they return `(true, nil)` only when the key didn't exist. Use `TryAdd` for first-writer-wins flows (one-time tokens,
 idempotent webhooks, duplicate event suppression). Backed by Redis `SET NX` and NATS JetStream `KV.Create`.
 
+`TryAdd` / `TryAddWithValue` accept a per-call `ttl time.Duration`. Pass `0` to use the provider's configured default; pass a positive value
+to override for this call. Useful when one `Uniq` instance handles keys with different lifetimes (short-lived idempotency claims vs longer
+"already processed" markers). For the NATS backend, per-call TTL requires NATS server **2.11+** (the bucket is auto-created with
+`LimitMarkerTTL` enabled).
+
 ## Metrics
 
 Subsystem `uniq`. Every public method is instrumented with the `op` label:

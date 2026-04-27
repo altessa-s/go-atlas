@@ -6,6 +6,7 @@ package noop_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -77,18 +78,18 @@ func TestProvider_TryAdd_AlwaysSucceeds(t *testing.T) {
 	p := noop.New()
 	ctx := t.Context()
 
-	ok, err := p.TryAdd(ctx, "key1")
+	ok, err := p.TryAdd(ctx, "key1", 0)
 	require.NoError(t, err)
 	require.True(t, ok, "noop TryAdd() must always report success")
 
-	ok, err = p.TryAdd(ctx, "key1")
+	ok, err = p.TryAdd(ctx, "key1", time.Second)
 	require.NoError(t, err)
-	require.True(t, ok, "noop TryAdd() must remain success on repeat (no real storage)")
+	require.True(t, ok, "noop TryAdd() must ignore ttl and remain success on repeat")
 }
 
 func TestProvider_TryAddWithValue_AlwaysSucceeds(t *testing.T) {
 	p := noop.New()
-	ok, err := p.TryAddWithValue(t.Context(), "key", []byte("v"))
+	ok, err := p.TryAddWithValue(t.Context(), "key", []byte("v"), 0)
 	require.NoError(t, err)
 	require.True(t, ok)
 }

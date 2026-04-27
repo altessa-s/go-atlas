@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -25,8 +26,10 @@ func (minimalProvider) Add(_ context.Context, _ string) error { return nil }
 func (minimalProvider) AddWithValue(_ context.Context, _ string, _ []byte) error {
 	return nil
 }
-func (minimalProvider) TryAdd(_ context.Context, _ string) (bool, error) { return true, nil }
-func (minimalProvider) TryAddWithValue(_ context.Context, _ string, _ []byte) (bool, error) {
+func (minimalProvider) TryAdd(_ context.Context, _ string, _ time.Duration) (bool, error) {
+	return true, nil
+}
+func (minimalProvider) TryAddWithValue(_ context.Context, _ string, _ []byte, _ time.Duration) (bool, error) {
 	return true, nil
 }
 func (minimalProvider) Exist(_ context.Context, _ string) (bool, error)      { return false, nil }

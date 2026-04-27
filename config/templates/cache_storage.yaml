@@ -34,6 +34,15 @@
 #     # Default value: 3
 #     replicas: 3
 #
+#     # <duration> Time-to-live for keys in this bucket.
+#     # Honored by feature-specific factories that consume StorageNATSConfig
+#     # (currently data/uniq). For data/uniq with TryAdd-based dedup, set
+#     # this short enough that a stuck key (panic, kill -9, Remove failure)
+#     # clears before the message broker exhausts retries — typically a
+#     # small multiple of the broker AckWait.
+#     # Default value: not set (factory uses package default, see data/uniq/providers/nats/options.go)
+#     ttl: "5m"
+#
 #   # <object> Redis-specific configuration for storage.
 #   # Redis-specific settings for key storage.
 #   # Required when type is set to 'redis'.
@@ -42,3 +51,12 @@
 #     # Namespace prefix to avoid key conflicts.
 #     # Default value: not set (empty string)
 #     keysPrefix: ""
+#
+#     # <duration> Time-to-live for keys under keysPrefix.
+#     # Honored by feature-specific factories that consume StorageRedisConfig
+#     # (currently data/uniq). For data/uniq with TryAdd-based dedup, set
+#     # this short enough that a stuck key (panic, kill -9, Remove failure)
+#     # clears before the message broker exhausts retries — typically a
+#     # small multiple of the broker AckWait.
+#     # Default value: not set (factory uses package default, see data/uniq/providers/redis/options.go)
+#     ttl: "5m"

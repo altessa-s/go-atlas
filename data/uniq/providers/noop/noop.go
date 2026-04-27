@@ -6,6 +6,7 @@ package noop
 
 import (
 	"context"
+	"time"
 
 	"github.com/altessa-s/go-atlas/data/uniq/providers"
 )
@@ -30,13 +31,16 @@ func (p *Provider) AddWithValue(_ context.Context, _ string, _ []byte) error { r
 
 // TryAdd is a no-op implementation that always reports success.
 // Consistent with [Provider.Exist] always returning false: the noop
-// provider has no storage, so no key is ever "already present".
-// Tests that need real CAS semantics must use a real backend.
-func (p *Provider) TryAdd(_ context.Context, _ string) (bool, error) { return true, nil }
+// provider has no storage, so no key is ever "already present". The
+// ttl argument is ignored. Tests that need real CAS or TTL semantics
+// must use a real backend.
+func (p *Provider) TryAdd(_ context.Context, _ string, _ time.Duration) (bool, error) {
+	return true, nil
+}
 
 // TryAddWithValue is the no-op counterpart to [Provider.TryAdd] for
-// the value-bearing variant; the value is discarded.
-func (p *Provider) TryAddWithValue(_ context.Context, _ string, _ []byte) (bool, error) {
+// the value-bearing variant; both the value and ttl are discarded.
+func (p *Provider) TryAddWithValue(_ context.Context, _ string, _ []byte, _ time.Duration) (bool, error) {
 	return true, nil
 }
 
