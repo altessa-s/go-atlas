@@ -6,6 +6,7 @@ package providers
 
 import (
 	"context"
+	"time"
 )
 
 // Prober reports whether a provider is fit to serve. Implementations
@@ -37,12 +38,18 @@ type Provider interface {
 	// was already present, and (false, err) on storage failure. Use this
 	// instead of Add when you need race-free "first writer wins" semantics
 	// (e.g. one-time-token redemption, idempotent webhook handling).
-	TryAdd(ctx context.Context, key string) (bool, error)
+	//
+	// ttl overrides the provider's configured TTL for this key. Pass
+	// zero (or negative) to use the provider/bucket default.
+	TryAdd(ctx context.Context, key string, ttl time.Duration) (bool, error)
 
 	// TryAddWithValue is like TryAdd but stores an associated value when
 	// the insert succeeds. The value is ignored when the key is already
 	// present.
-	TryAddWithValue(ctx context.Context, key string, value []byte) (bool, error)
+	//
+	// ttl overrides the provider's configured TTL for this key. Pass
+	// zero (or negative) to use the provider/bucket default.
+	TryAddWithValue(ctx context.Context, key string, value []byte, ttl time.Duration) (bool, error)
 
 	// Exist checks if a key exists in the storage.
 	// Returns true if the key exists and hasn't expired, false otherwise.

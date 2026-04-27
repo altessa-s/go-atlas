@@ -6,6 +6,7 @@ package redis_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/require"
@@ -130,7 +131,7 @@ func TestProvider_Probe_AfterClientClose(t *testing.T) {
 
 func TestProvider_TryAdd_NewKey(t *testing.T) {
 	p := setupProvider(t)
-	ok, err := p.TryAdd(t.Context(), "fresh-key")
+	ok, err := p.TryAdd(t.Context(), "fresh-key", 0)
 	require.NoError(t, err)
 	require.True(t, ok, "TryAdd() on a missing key must report acquired=true")
 }
@@ -141,7 +142,7 @@ func TestProvider_TryAdd_ExistingKey(t *testing.T) {
 
 	require.NoError(t, p.Add(ctx, "taken"))
 
-	ok, err := p.TryAdd(ctx, "taken")
+	ok, err := p.TryAdd(ctx, "taken", 0)
 	require.NoError(t, err)
 	require.False(t, ok, "TryAdd() on an existing key must report acquired=false (race closed)")
 }
@@ -150,7 +151,7 @@ func TestProvider_TryAddWithValue_NewKey(t *testing.T) {
 	p := setupProvider(t)
 	ctx := t.Context()
 
-	ok, err := p.TryAddWithValue(ctx, "k", []byte("v1"))
+	ok, err := p.TryAddWithValue(ctx, "k", []byte("v1"), 0)
 	require.NoError(t, err)
 	require.True(t, ok)
 
@@ -165,11 +166,74 @@ func TestProvider_TryAddWithValue_ExistingKey_DoesNotOverwrite(t *testing.T) {
 
 	require.NoError(t, p.AddWithValue(ctx, "k", []byte("original")))
 
-	ok, err := p.TryAddWithValue(ctx, "k", []byte("attempted-overwrite"))
+	ok, err := p.TryAddWithValue(ctx, "k", []byte("attempted-overwrite"), 0)
 	require.NoError(t, err)
 	require.False(t, ok, "TryAddWithValue() on existing key must not acquire")
 
 	val, err := p.GetValue(ctx, "k")
 	require.NoError(t, err)
 	require.Equal(t, "original", string(val), "TryAddWithValue() must not overwrite existing value")
+}
+
+func TestProvider_TryAdd_PerCallTtl_OverridesDefault(t *testing.T) {
+	mr := miniredis.RunT(t)
+	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+
+	// Long default TTL — per-call short TTL must win.
+	p := uniqredis.New(client, uniqredis.WithTtl(time.Hour))
+	ctx := t.Context()
+
+	ok, err := p.TryAdd(ctx, "ephemeral", 100*time.Millisecond)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	mr.FastForward(200 * time.Millisecond)
+
+	exists, err := p.Exist(ctx, "ephemeral")
+	require.NoError(t, err)
+	require.False(t, exists, "key should have expired under per-call TTL, not the long default")
+}
+
+func TestProvider_TryAdd_ZeroTtl_UsesProviderDefault(t *testing.T) {
+	mr := miniredis.RunT(t)
+	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+
+	// Short default TTL — passing 0 must fall back to it.
+	p := uniqredis.New(client, uniqredis.WithTtl(100*time.Millisecond))
+	ctx := t.Context()
+
+	ok, err := p.TryAdd(ctx, "k", 0)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	mr.FastForward(200 * time.Millisecond)
+
+	exists, err := p.Exist(ctx, "k")
+	require.NoError(t, err)
+	require.False(t, exists, "ttl=0 must apply provider default; key should have expired")
+}
+
+func TestProvider_TryAddWithValue_PerCallTtl_StoresValueAndExpires(t *testing.T) {
+	mr := miniredis.RunT(t)
+	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+
+	p := uniqredis.New(client, uniqredis.WithTtl(time.Hour))
+	ctx := t.Context()
+
+	ok, err := p.TryAddWithValue(ctx, "k", []byte("payload"), 100*time.Millisecond)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	val, err := p.GetValue(ctx, "k")
+	require.NoError(t, err)
+	require.Equal(t, "payload", string(val), "value must be readable while key is alive")
+
+	mr.FastForward(200 * time.Millisecond)
+
+	exists, err := p.Exist(ctx, "k")
+	require.NoError(t, err)
+	require.False(t, exists, "key must expire at per-call TTL")
 }

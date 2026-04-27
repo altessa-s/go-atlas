@@ -33,6 +33,13 @@ type BucketConfig struct {
 
 	// Compression enables compression for the bucket.
 	Compression bool
+
+	// LimitMarkerTTL controls how long the bucket retains delete-tombstone
+	// markers when keys expire. Setting this to a positive value also
+	// enables per-key TTL via [jetstream.KeyTTL] when calling Create or
+	// Put. Zero leaves per-key TTL disabled, which is backward-compatible
+	// with existing buckets and NATS server versions older than 2.11.
+	LimitMarkerTTL time.Duration
 }
 
 // KVHelper provides common KeyValue operations for NATS JetStream.
@@ -72,10 +79,11 @@ func (h *KVHelper) GetOrCreateBucket(ctx context.Context, cfg BucketConfig) (jet
 		if errors.Is(err, jetstream.ErrBucketNotFound) {
 			kv, err = Retry(ctx, func() (jetstream.KeyValue, error) {
 				return h.js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{
-					Bucket:      cfg.Bucket,
-					TTL:         cfg.TTL,
-					Storage:     cfg.Storage,
-					Compression: cfg.Compression,
+					Bucket:         cfg.Bucket,
+					TTL:            cfg.TTL,
+					Storage:        cfg.Storage,
+					Compression:    cfg.Compression,
+					LimitMarkerTTL: cfg.LimitMarkerTTL,
 				})
 			})
 			if err != nil {

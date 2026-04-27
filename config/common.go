@@ -5,6 +5,8 @@
 package config
 
 import (
+	"time"
+
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -59,6 +61,16 @@ type StorageNATSConfig struct {
 	// Replicas defines the number of replicas for NATS KeyValue storage.
 	// Higher values provide better availability but increase storage overhead.
 	Replicas int `yaml:"replicas" default:"3"`
+
+	// Ttl is the time-to-live for keys stored in this bucket. Zero value
+	// (default) means the consuming factory falls back to its package
+	// default. Consumers that don't honor TTL ignore this field.
+	//
+	// For data/uniq with TryAdd-based deduplication, set this short
+	// enough that a stuck key (panic, kill -9, Remove failure) clears
+	// before the message broker exhausts retries — typically a small
+	// multiple of the broker AckWait.
+	Ttl time.Duration `yaml:"ttl"`
 }
 
 // Validate performs validation of the NATS storage configuration.
@@ -67,6 +79,7 @@ func (c *StorageNATSConfig) Validate() error {
 	return ValidateStruct(c,
 		validation.Field(&c.Bucket),
 		validation.Field(&c.Replicas, validation.Min(1), validation.Max(MaxNATSReplicas)),
+		validation.Field(&c.Ttl, validation.Min(time.Duration(0))),
 	)
 }
 
@@ -76,6 +89,16 @@ type StorageRedisConfig struct {
 	// KeysPrefix is a prefix for all keys in storage.
 	// Useful for namespacing when sharing storage between multiple services.
 	KeysPrefix string `yaml:"keysPrefix"`
+
+	// Ttl is the time-to-live for keys stored under [KeysPrefix]. Zero
+	// value (default) means the consuming factory falls back to its
+	// package default. Consumers that don't honor TTL ignore this field.
+	//
+	// For data/uniq with TryAdd-based deduplication, set this short
+	// enough that a stuck key (panic, kill -9, Remove failure) clears
+	// before the message broker exhausts retries — typically a small
+	// multiple of the broker AckWait.
+	Ttl time.Duration `yaml:"ttl"`
 }
 
 // Validate performs validation of the Redis storage configuration.
@@ -83,6 +106,7 @@ func (c *StorageRedisConfig) Validate() error {
 	return ValidateStruct(c,
 		validation.Field(&c.KeysPrefix,
 			validation.When(c.KeysPrefix != "", validation.Length(0, MaxKeyPrefixLength))),
+		validation.Field(&c.Ttl, validation.Min(time.Duration(0))),
 	)
 }
 

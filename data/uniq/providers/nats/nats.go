@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
@@ -67,6 +68,11 @@ func New(nc *nats.Conn, opts ...Option) (*Provider, error) {
 		Bucket:  options.bucket,
 		TTL:     options.ttl,
 		Storage: options.storageType,
+		// Enable per-key TTL via [jetstream.KeyTTL]. Marker retention
+		// matches the bucket TTL — uniq doesn't watch tombstones, so
+		// this is just a "non-zero to enable" signal. Requires NATS
+		// server 2.11+; older servers fail bucket creation here.
+		LimitMarkerTTL: options.ttl,
 	}, nil)
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "create/update key-value store")
@@ -97,15 +103,23 @@ func (p *Provider) AddWithValue(ctx context.Context, key string, value []byte) e
 // TryAdd atomically inserts a key only if it doesn't exist using NATS
 // JetStream's KV Create operation. Returns (true, nil) when the insert
 // succeeded, (false, nil) when the key was already present.
-func (p *Provider) TryAdd(ctx context.Context, key string) (bool, error) {
-	return p.TryAddWithValue(ctx, key, []byte(""))
+//
+// ttl overrides the bucket's TTL for this key when positive (passed
+// via [jetstream.KeyTTL]). Zero or negative falls back to the bucket
+// TTL configured at construction.
+func (p *Provider) TryAdd(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+	return p.TryAddWithValue(ctx, key, []byte(""), ttl)
 }
 
 // TryAddWithValue is like [Provider.TryAdd] but stores an associated
 // value when the insert succeeds. The value is ignored when the key
 // already exists.
-func (p *Provider) TryAddWithValue(ctx context.Context, key string, value []byte) (bool, error) {
-	if _, err := p.KV().Create(ctx, key, value); err != nil {
+func (p *Provider) TryAddWithValue(ctx context.Context, key string, value []byte, ttl time.Duration) (bool, error) {
+	var opts []jetstream.KVCreateOpt
+	if ttl > 0 {
+		opts = append(opts, jetstream.KeyTTL(ttl))
+	}
+	if _, err := p.KV().Create(ctx, key, value, opts...); err != nil {
 		if errors.Is(err, jetstream.ErrKeyExists) {
 			return false, nil
 		}
