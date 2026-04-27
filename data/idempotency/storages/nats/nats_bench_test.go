@@ -29,16 +29,16 @@ func BenchmarkStorage_AttemptLock(b *testing.B) {
 	storage := benchSetup(b)
 	ctx := b.Context()
 	for b.Loop() {
-		_, _, _ = storage.AttemptLock(ctx, "bench-key", []byte("val"))
+		_, _, _, _ = storage.AttemptLock(ctx, "bench-key", []byte("val"))
 	}
 }
 
 func BenchmarkStorage_Complete(b *testing.B) {
 	storage := benchSetup(b)
 	ctx := b.Context()
-	_, _, _ = storage.AttemptLock(ctx, "bench-key", []byte("val"))
+	_, _, lockToken, _ := storage.AttemptLock(ctx, "bench-key", []byte("val"))
 
 	for b.Loop() {
-		_ = storage.Complete(ctx, "bench-key", []byte("complete"))
+		_ = storage.Complete(ctx, "bench-key", []byte("complete"), lockToken)
 	}
 }

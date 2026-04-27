@@ -18,28 +18,26 @@ func TestMemory_Close(t *testing.T) {
 	require.NoError(t, s.Close())
 }
 
+// TestMemory_Complete_NonExistent verifies the new CAS semantics:
+// Complete on a missing key returns ErrLockStolen (the lock was either
+// never acquired or has been deleted/expired since AttemptLock).
 func TestMemory_Complete_NonExistent(t *testing.T) {
 	s := New()
 	ctx := t.Context()
 
-	// Complete upserts on nonexistent key
-	err := s.Complete(ctx, "nonexistent", []byte("val"))
-	require.NoError(t, err)
-	// Key should now exist
-	ok, existing, _ := s.AttemptLock(ctx, "nonexistent", []byte("new"))
-	require.False(t, ok, "expected lock NOT acquired after Complete upsert")
-	require.Equal(t, "val", string(existing))
+	err := s.Complete(ctx, "nonexistent", []byte("val"), nil)
+	require.ErrorIs(t, err, storages.ErrLockStolen)
 }
 
 func TestMemory_Complete_EmptyKey(t *testing.T) {
 	s := New()
-	err := s.Complete(t.Context(), "", []byte("val"))
+	err := s.Complete(t.Context(), "", []byte("val"), nil)
 	require.ErrorIs(t, err, storages.ErrEmptyKey)
 }
 
 func TestMemory_AttemptLock_EmptyKey(t *testing.T) {
 	s := New()
-	ok, existing, err := s.AttemptLock(t.Context(), "", []byte("val"))
+	ok, existing, _, err := s.AttemptLock(t.Context(), "", []byte("val"))
 	require.ErrorIs(t, err, storages.ErrEmptyKey)
 	require.False(t, ok)
 	require.Nil(t, existing)
@@ -55,16 +53,16 @@ func TestMemory_RunCleanup(t *testing.T) {
 	s := New(WithTtl(10 * time.Millisecond))
 	ctx := t.Context()
 
-	_, _, _ = s.AttemptLock(ctx, "k1", []byte("v1"))
-	_, _, _ = s.AttemptLock(ctx, "k2", []byte("v2"))
+	_, _, _, _ = s.AttemptLock(ctx, "k1", []byte("v1"))
+	_, _, _, _ = s.AttemptLock(ctx, "k2", []byte("v2"))
 
 	time.Sleep(20 * time.Millisecond)
 
 	s.RunCleanup()
 
 	// Both keys should be cleaned up, so new locks should succeed
-	ok1, _, _ := s.AttemptLock(ctx, "k1", []byte("new"))
-	ok2, _, _ := s.AttemptLock(ctx, "k2", []byte("new"))
+	ok1, _, _, _ := s.AttemptLock(ctx, "k1", []byte("new"))
+	ok2, _, _, _ := s.AttemptLock(ctx, "k2", []byte("new"))
 	require.True(t, ok1, "expected lock k1 to succeed after cleanup")
 	require.True(t, ok2, "expected lock k2 to succeed after cleanup")
 }
@@ -83,15 +81,21 @@ func TestMemory_RunCleanup_SchedulerManaged(t *testing.T) {
 	s.RunCleanup()
 }
 
+// TestMemory_Complete_Expired verifies CAS semantics on expired keys:
+// once the entry's TTL fires, Complete with the original lockToken
+// fails with ErrLockStolen rather than upserting silently.
 func TestMemory_Complete_Expired(t *testing.T) {
 	s := New(WithTtl(10 * time.Millisecond))
 	ctx := t.Context()
 
-	_, _, _ = s.AttemptLock(ctx, "k1", []byte("v1"))
+	_, _, lockToken, _ := s.AttemptLock(ctx, "k1", []byte("v1"))
 	time.Sleep(20 * time.Millisecond)
 
-	// After expiry, the entry is still in map but AttemptLock treats it as new.
-	// Complete on expired key should still work (upsert behavior).
-	err := s.Complete(ctx, "k1", []byte("done"))
-	require.NoError(t, err)
+	// Force the cleanup so the entry is actually removed (TTL expired
+	// but cleanup may not have run yet). After RunCleanup the entry is
+	// gone and Complete can no longer find a matching lock.
+	s.RunCleanup()
+
+	err := s.Complete(ctx, "k1", []byte("done"), lockToken)
+	require.ErrorIs(t, err, storages.ErrLockStolen)
 }

@@ -5,7 +5,9 @@
 package memory
 
 import (
+	"bytes"
 	"context"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -68,9 +70,9 @@ func New(opt ...Option) *Storage {
 }
 
 // AttemptLock tries to acquire a lock for the given key.
-func (s *Storage) AttemptLock(_ context.Context, key string, val []byte) (bool, []byte, error) {
+func (s *Storage) AttemptLock(_ context.Context, key string, val []byte) (bool, []byte, []byte, error) {
 	if key == "" {
-		return false, nil, storages.ErrEmptyKey
+		return false, nil, nil, storages.ErrEmptyKey
 	}
 
 	s.mu.Lock()
@@ -81,7 +83,7 @@ func (s *Storage) AttemptLock(_ context.Context, key string, val []byte) (bool, 
 		if s.options.ttl > 0 && time.Now().After(e.expiresAt) {
 			delete(s.entries, key)
 		} else {
-			return false, e.value, nil
+			return false, e.value, nil, nil
 		}
 	}
 
@@ -97,11 +99,18 @@ func (s *Storage) AttemptLock(_ context.Context, key string, val []byte) (bool, 
 	}
 
 	s.entries[key] = e
-	return true, nil, nil
+	// Token is a defensive copy of the bytes we just wrote. Complete
+	// will compare the current entry value against this token to
+	// detect a stolen lock (TTL expiry → another AttemptLock won).
+	return true, nil, slices.Clone(val), nil
 }
 
 // Complete marks the key as successfully processed.
-func (s *Storage) Complete(_ context.Context, key string, val []byte) error {
+//
+// Returns [storages.ErrLockStolen] when the key has been taken over by
+// another holder (lockToken doesn't match the current value, or the key
+// has expired between AttemptLock and Complete).
+func (s *Storage) Complete(_ context.Context, key string, val []byte, lockToken []byte) error {
 	if key == "" {
 		return storages.ErrEmptyKey
 	}
@@ -111,17 +120,12 @@ func (s *Storage) Complete(_ context.Context, key string, val []byte) error {
 
 	e, exists := s.entries[key]
 	if !exists {
-		// Key might have expired or never existed (?)
-		// If we are completing, we should probably upsert as success
-		now := time.Now()
-		e = &entry{
-			key:       key,
-			createdAt: now,
-		}
-		if s.options.ttl > 0 {
-			e.expiresAt = now.Add(s.options.ttl)
-		}
-		s.entries[key] = e
+		// Key gone — TTL expired between AttemptLock and Complete, or
+		// someone Delete'd. Either way the lock isn't ours anymore.
+		return storages.ErrLockStolen
+	}
+	if lockToken != nil && !bytes.Equal(e.value, lockToken) {
+		return storages.ErrLockStolen
 	}
 
 	e.value = val
