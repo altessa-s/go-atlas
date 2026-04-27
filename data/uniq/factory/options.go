@@ -6,6 +6,7 @@ package factory
 
 import (
 	"log/slog"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/redis/go-redis/v9"
@@ -60,5 +61,20 @@ func (b *UniqBuilder) UseHealthCoordinator(v *health.Coordinator) *UniqBuilder {
 // is also called.
 func (b *UniqBuilder) UseHealthServiceName(v string) *UniqBuilder {
 	b.healthServiceName = v
+	return b
+}
+
+// UseTtl overrides the per-key TTL for the resulting [uniq.Uniq],
+// taking precedence over the value supplied via the config's storage
+// sub-section. Pass a positive duration; zero or negative values are
+// ignored, leaving config or package default in effect.
+//
+// Use this when the same config feeds multiple [uniq.Uniq] instances
+// that need different TTLs, or in tests that want to shrink TTL to
+// keep runs fast.
+func (b *UniqBuilder) UseTtl(d time.Duration) *UniqBuilder {
+	if d > 0 {
+		b.ttlOverride = d
+	}
 	return b
 }

@@ -7,6 +7,7 @@ package nats_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -134,7 +135,7 @@ func TestProvider_Probe_AfterConnClose(t *testing.T) {
 
 func TestProvider_TryAdd_NewKey(t *testing.T) {
 	p := setupProvider(t)
-	ok, err := p.TryAdd(t.Context(), "fresh-key")
+	ok, err := p.TryAdd(t.Context(), "fresh-key", 0)
 	require.NoError(t, err)
 	require.True(t, ok, "TryAdd() on a missing key must report acquired=true")
 }
@@ -145,7 +146,7 @@ func TestProvider_TryAdd_ExistingKey(t *testing.T) {
 
 	require.NoError(t, p.Add(ctx, "taken"))
 
-	ok, err := p.TryAdd(ctx, "taken")
+	ok, err := p.TryAdd(ctx, "taken", 0)
 	require.NoError(t, err)
 	require.False(t, ok, "TryAdd() on an existing key must report acquired=false (race closed)")
 }
@@ -154,7 +155,7 @@ func TestProvider_TryAddWithValue_NewKey(t *testing.T) {
 	p := setupProvider(t)
 	ctx := t.Context()
 
-	ok, err := p.TryAddWithValue(ctx, "k", []byte("v1"))
+	ok, err := p.TryAddWithValue(ctx, "k", []byte("v1"), 0)
 	require.NoError(t, err)
 	require.True(t, ok)
 
@@ -169,11 +170,66 @@ func TestProvider_TryAddWithValue_ExistingKey_DoesNotOverwrite(t *testing.T) {
 
 	require.NoError(t, p.AddWithValue(ctx, "k", []byte("original")))
 
-	ok, err := p.TryAddWithValue(ctx, "k", []byte("attempted-overwrite"))
+	ok, err := p.TryAddWithValue(ctx, "k", []byte("attempted-overwrite"), 0)
 	require.NoError(t, err)
 	require.False(t, ok, "TryAddWithValue() on existing key must not acquire")
 
 	val, err := p.GetValue(ctx, "k")
 	require.NoError(t, err)
 	require.Equal(t, "original", string(val), "TryAddWithValue() must not overwrite existing value")
+}
+
+func TestProvider_TryAdd_PerCallTtl_OverridesBucketTtl(t *testing.T) {
+	t.Parallel()
+
+	ns := testhelpers.StartNATSServer(t)
+	nc := testhelpers.ConnectNATS(t, ns)
+
+	bucket := strings.ReplaceAll(t.Name(), "/", "-")
+	// Long bucket TTL — per-call short TTL must win via jetstream.KeyTTL.
+	p, err := uniqnats.New(nc,
+		uniqnats.WithBucket(bucket),
+		uniqnats.WithTtl(time.Hour),
+	)
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	ok, err := p.TryAdd(ctx, "ephemeral", time.Second)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	// Wait long enough for per-key TTL to fire and the server to GC the
+	// entry. NATS is lazy about expiry sweeps, so leave a comfortable
+	// margin over the 1s per-key TTL.
+	time.Sleep(2500 * time.Millisecond)
+
+	exists, err := p.Exist(ctx, "ephemeral")
+	require.NoError(t, err)
+	require.False(t, exists, "key should have expired under per-call TTL, not the long bucket TTL")
+}
+
+func TestProvider_TryAdd_ZeroTtl_UsesBucketDefault(t *testing.T) {
+	t.Parallel()
+
+	ns := testhelpers.StartNATSServer(t)
+	nc := testhelpers.ConnectNATS(t, ns)
+
+	bucket := strings.ReplaceAll(t.Name(), "/", "-")
+	// Short bucket TTL — passing 0 must fall back to it.
+	p, err := uniqnats.New(nc,
+		uniqnats.WithBucket(bucket),
+		uniqnats.WithTtl(time.Second),
+	)
+	require.NoError(t, err)
+	ctx := t.Context()
+
+	ok, err := p.TryAdd(ctx, "k", 0)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	time.Sleep(2500 * time.Millisecond)
+
+	exists, err := p.Exist(ctx, "k")
+	require.NoError(t, err)
+	require.False(t, exists, "ttl=0 must apply bucket default; key should have expired")
 }

@@ -113,8 +113,8 @@ you hand it the matching client (`UseRedisClient` for `type: redis`, `UseNatsCon
 |---|---|
 | `Add(ctx, key)` | Insert key with the provider's default TTL. **Overwrites** if present |
 | `AddWithValue(ctx, key, value)` | Same as Add, plus serialize `value` (default JSON) and store it |
-| `TryAdd(ctx, key)` | Atomic CAS insert. Returns `(true, nil)` on success, `(false, nil)` if key already exists |
-| `TryAddWithValue(ctx, key, value)` | CAS insert with payload. The value is dropped silently when the key already exists |
+| `TryAdd(ctx, key, ttl)` | Atomic CAS insert. Returns `(true, nil)` on success, `(false, nil)` if key already exists. `ttl=0` uses default |
+| `TryAddWithValue(ctx, key, value, ttl)` | CAS insert with payload. Value dropped silently when key exists. `ttl=0` uses default |
 | `Exist(ctx, key)` | Returns `true` if the key is present and not expired |
 | `GetValue(ctx, key, out)` | Reads the value; returns `ErrDoesNotExist` for missing keys |
 | `Remove(ctx, key)` | Deletes the key. No error if it didn't exist |
@@ -164,6 +164,51 @@ TTL is a property of the **provider**, not of `uniq` itself. Each provider has i
 
 There's no per-key TTL override at the `uniq` level. If you need a mix of long- and short-lived keys, run two `uniq` instances against different
 namespaces.
+
+### Setting TTL through the factory
+
+The `data/uniq/factory` builder reads TTL from `StorageRedisConfig.Ttl` / `StorageNATSConfig.Ttl` (YAML field `ttl`). If unset, the provider
+package default kicks in (24 hours for both Redis and NATS). For programmatic overrides — tests, multi-instance setups sharing one config —
+use `builder.UseTtl(d)`. Resolution order (highest precedence first):
+
+1. **Per-call** `ttl` argument to `TryAdd(ctx, key, ttl)` / `TryAddWithValue(ctx, key, value, ttl)` if positive
+2. `UseTtl(d)` on the builder if called with a positive duration
+3. `cfg.{Redis,Nats}.Ttl` if non-zero
+4. Provider default (24 hours)
+
+```yaml
+uniqStorage:
+  type: redis
+  redis:
+    keysPrefix: "myapp:uniq"
+    ttl: 5m
+```
+
+**For `TryAdd`-based deduplication, the 24-hour default is dangerous.** A stuck key (panic, kill -9, `Remove` failure between `TryAdd` and
+release) keeps the message blocked until TTL expires. Pair the `uniq` TTL with the upstream broker's `AckWait` × max-deliveries: short enough
+to clear stuck keys before retries are exhausted, long enough that legitimate dedup outlives normal retry windows. With NATS broker default
+`AckWait: 30s` and unbounded retries, somewhere around 5–15 minutes is reasonable for a typical message-processing workload.
+
+### Per-call TTL
+
+Both `TryAdd` and `TryAddWithValue` accept a `ttl time.Duration`. Pass `0` to use the configured default (most callers); pass a positive value
+to override for this single call:
+
+```go
+// Use configured default — most calls.
+ok, err := u.TryAdd(ctx, msgID, 0)
+
+// Override for a specific class of keys (short-lived idempotency claim).
+ok, err := u.TryAdd(ctx, "session:"+token, 30*time.Second)
+
+// Same with payload.
+ok, err := u.TryAddWithValue(ctx, "magic-link:"+token, payload, 5*time.Minute)
+```
+
+Backed by `Redis.SET NX ... PX <ttl>` and `NATS.KV.Create(..., jetstream.KeyTTL(ttl))`. The NATS path requires the bucket to be created with
+`LimitMarkerTTL` enabled — `data/uniq/providers/nats` does this automatically, but the **NATS server must be 2.11+** (API Level 1). Older
+servers reject bucket creation with `ErrLimitMarkerTTLNotSupported` at `New()` time, which is preferable to silently dropping the per-key TTL
+semantic at runtime.
 
 ---
 

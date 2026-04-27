@@ -7,6 +7,7 @@ package redis
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/altessa-s/go-atlas/data/internal/redisbase"
 	"github.com/altessa-s/go-atlas/data/uniq/providers"
@@ -57,15 +58,21 @@ func (p *Provider) AddWithValue(ctx context.Context, key string, value []byte) e
 // TryAdd atomically inserts a key only if it doesn't exist using
 // Redis's SET NX. Returns (true, nil) when the insert succeeded,
 // (false, nil) when the key was already present.
-func (p *Provider) TryAdd(ctx context.Context, key string) (bool, error) {
-	return p.TryAddWithValue(ctx, key, []byte("1"))
+//
+// ttl overrides the provider's configured TTL for this key when
+// positive; zero or negative falls back to [WithTtl].
+func (p *Provider) TryAdd(ctx context.Context, key string, ttl time.Duration) (bool, error) {
+	return p.TryAddWithValue(ctx, key, []byte("1"), ttl)
 }
 
 // TryAddWithValue is like [Provider.TryAdd] but stores an associated
 // value when the insert succeeds. The value is ignored when the key
 // already exists.
-func (p *Provider) TryAddWithValue(ctx context.Context, key string, value []byte) (bool, error) {
-	ok, err := p.Client().SetNX(ctx, p.Key(key), value, p.opts.ttl).Result()
+func (p *Provider) TryAddWithValue(ctx context.Context, key string, value []byte, ttl time.Duration) (bool, error) {
+	if ttl <= 0 {
+		ttl = p.opts.ttl
+	}
+	ok, err := p.Client().SetNX(ctx, p.Key(key), value, ttl).Result()
 	if err != nil {
 		return false, coreerrs.WrapOperation(err, "try add key")
 	}

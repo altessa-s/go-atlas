@@ -7,6 +7,7 @@ package factory
 import (
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"github.com/redis/go-redis/v9"
@@ -38,6 +39,10 @@ type UniqBuilder struct {
 	collector         metrics.Collector
 	healthCoordinator *health.Coordinator
 	healthServiceName string
+	// ttlOverride wins over config-supplied TTL when non-zero. Used by
+	// callers that need to set TTL programmatically (tests, multi-instance
+	// setups sharing one config).
+	ttlOverride time.Duration
 }
 
 // New creates a [UniqBuilder] for the given cache storage config.
@@ -106,7 +111,11 @@ func (b *UniqBuilder) createRedisProvider() (*redisprovider.Provider, error) {
 	if b.cfg.Redis == nil {
 		return nil, fmt.Errorf("configuration is required")
 	}
-	return redisprovider.New(b.redisClient, redisprovider.WithPrefix(b.cfg.Redis.KeysPrefix)), nil
+	opts := []redisprovider.Option{redisprovider.WithPrefix(b.cfg.Redis.KeysPrefix)}
+	if ttl := b.resolveTtl(b.cfg.Redis.Ttl); ttl > 0 {
+		opts = append(opts, redisprovider.WithTtl(ttl))
+	}
+	return redisprovider.New(b.redisClient, opts...), nil
 }
 
 // createNatsProvider creates a NATS provider from configuration.
@@ -114,5 +123,19 @@ func (b *UniqBuilder) createNatsProvider() (*natsprovider.Provider, error) {
 	if b.cfg.Nats == nil {
 		return nil, fmt.Errorf("configuration is required")
 	}
-	return natsprovider.New(b.natsConn, natsprovider.WithBucket(b.cfg.Nats.Bucket))
+	opts := []natsprovider.Option{natsprovider.WithBucket(b.cfg.Nats.Bucket)}
+	if ttl := b.resolveTtl(b.cfg.Nats.Ttl); ttl > 0 {
+		opts = append(opts, natsprovider.WithTtl(ttl))
+	}
+	return natsprovider.New(b.natsConn, opts...)
+}
+
+// resolveTtl applies the precedence: programmatic override (UseTtl) wins
+// over the config-supplied value. A zero result means "let the provider
+// fall back to its package default".
+func (b *UniqBuilder) resolveTtl(cfgTtl time.Duration) time.Duration {
+	if b.ttlOverride > 0 {
+		return b.ttlOverride
+	}
+	return cfgTtl
 }
