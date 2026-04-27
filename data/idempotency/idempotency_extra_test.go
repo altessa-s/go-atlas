@@ -31,7 +31,7 @@ func TestComplete_EmptyKey(t *testing.T) {
 	storage := testhelpers.NewMockIdempotencyStorage()
 	keeper := idempotency.New(storage)
 
-	err := keeper.Complete(t.Context(), "", "data")
+	err := keeper.Complete(t.Context(), "", "data", nil)
 	require.ErrorIs(t, err, idempotency.ErrEmptyKey)
 }
 
@@ -47,11 +47,11 @@ func TestStorageFunc_AllMethods(t *testing.T) {
 	var lockCalled, completeCalled, deleteCalled bool
 
 	sf := idempotency.StorageFunc{
-		AttemptLockFunc: func(ctx context.Context, key string, val []byte) (bool, []byte, error) {
+		AttemptLockFunc: func(ctx context.Context, key string, val []byte) (bool, []byte, []byte, error) {
 			lockCalled = true
-			return true, nil, nil
+			return true, nil, nil, nil
 		},
-		CompleteFunc: func(ctx context.Context, key string, val []byte) error {
+		CompleteFunc: func(ctx context.Context, key string, val []byte, lockToken []byte) error {
 			completeCalled = true
 			return nil
 		},
@@ -62,8 +62,8 @@ func TestStorageFunc_AllMethods(t *testing.T) {
 	}
 
 	ctx := t.Context()
-	_, _, _ = sf.AttemptLock(ctx, "k", nil)
-	_ = sf.Complete(ctx, "k", nil)
+	_, _, _, _ = sf.AttemptLock(ctx, "k", nil)
+	_ = sf.Complete(ctx, "k", nil, nil)
 	_ = sf.Delete(ctx, "k")
 
 	require.True(t, lockCalled, "AttemptLockFunc not called")

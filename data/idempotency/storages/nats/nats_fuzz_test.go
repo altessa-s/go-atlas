@@ -30,8 +30,8 @@ func FuzzStorage_AttemptLock(f *testing.F) {
 	f.Fuzz(func(t *testing.T, key string, val []byte) {
 		// NATS KV keys cannot contain '.', '*', '>' or be empty for non-empty-key path
 		// Just verify no panics
-		_, _, _ = storage.AttemptLock(ctx, key, val)
-		_ = storage.Complete(ctx, key, val)
+		_, _, _, _ = storage.AttemptLock(ctx, key, val)
+		_ = storage.Complete(ctx, key, val, nil)
 		_ = storage.Delete(ctx, key)
 	})
 }

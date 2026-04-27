@@ -58,9 +58,10 @@ func (i *interceptor) Dependencies() []string {
 // requestInterceptor handles a single request with its own state
 type requestInterceptor struct {
 	*interceptor
-	meta       *sharedmetadata.CallMetadata
-	currentKey atomic.Value
-	lockedKey  string
+	meta        *sharedmetadata.CallMetadata
+	currentKey  atomic.Value
+	lockedKey   string
+	lockedState *idempotency.State // populated by AttemptLock; required by Complete
 }
 
 // DrivenInterceptor implements the driver.DrivenInterceptor interface.
@@ -166,8 +167,10 @@ func (ri *requestInterceptor) checkIdempotency(ctx context.Context, req any) err
 		}
 	}
 
-	// Lock acquired
+	// Lock acquired — remember both the key and the *State so PostCall
+	// can pass the CAS token back to Complete.
 	ri.lockedKey = storageKey
+	ri.lockedState = state
 	return nil
 }
 
@@ -202,7 +205,11 @@ func (ri *requestInterceptor) PostCall(ctx context.Context, res any, err error) 
 		}
 	}
 
-	_ = ri.i.Complete(ctx, ri.lockedKey, data) //nolint:errcheck // Best-effort completion
+	// Best-effort completion. ErrLockStolen means the lock TTL expired
+	// while we were processing and another node took over — our result
+	// is no longer authoritative, so silently drop it rather than
+	// overwriting the new holder's state.
+	_ = ri.i.Complete(ctx, ri.lockedKey, data, ri.lockedState) //nolint:errcheck
 	return nil
 }
 

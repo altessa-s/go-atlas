@@ -22,7 +22,9 @@ func TestAttemptLock_New(t *testing.T) {
 	ok, state, err := k.AttemptLock(ctx, "key1")
 	require.NoError(t, err)
 	require.True(t, ok, "expected lock acquired")
-	require.Nil(t, state, "expected nil state for new lock")
+	require.NotNil(t, state, "AttemptLock now returns a non-nil State carrying the lock token on acquire")
+	require.Equal(t, storages.StatusInProgress, state.Status)
+	require.NotNil(t, state.LockToken(), "lock token must be populated for Complete to succeed")
 }
 
 func TestAttemptLock_InProgress(t *testing.T) {
@@ -44,8 +46,8 @@ func TestAttemptLock_Completed(t *testing.T) {
 	k := New(s)
 	ctx := t.Context()
 
-	_, _, _ = k.AttemptLock(ctx, "key1")
-	_ = k.Complete(ctx, "key1", map[string]string{"result": "ok"})
+	_, lockState, _ := k.AttemptLock(ctx, "key1")
+	_ = k.Complete(ctx, "key1", map[string]string{"result": "ok"}, lockState)
 
 	ok, state, err := k.AttemptLock(ctx, "key1")
 	require.NoError(t, err)
@@ -59,8 +61,8 @@ func TestComplete(t *testing.T) {
 	k := New(s)
 	ctx := t.Context()
 
-	_, _, _ = k.AttemptLock(ctx, "key1")
-	err := k.Complete(ctx, "key1", "result-data")
+	_, lockState, _ := k.AttemptLock(ctx, "key1")
+	err := k.Complete(ctx, "key1", "result-data", lockState)
 	require.NoError(t, err)
 }
 
@@ -93,16 +95,48 @@ func TestAttemptLock_EmptyKey(t *testing.T) {
 func TestStorageFunc(t *testing.T) {
 	called := false
 	sf := StorageFunc{
-		AttemptLockFunc: func(_ context.Context, _ string, _ []byte) (bool, []byte, error) {
+		AttemptLockFunc: func(_ context.Context, _ string, _ []byte) (bool, []byte, []byte, error) {
 			called = true
-			return true, nil, nil
+			return true, nil, nil, nil
 		},
-		CompleteFunc: func(_ context.Context, _ string, _ []byte) error { return nil },
+		CompleteFunc: func(_ context.Context, _ string, _ []byte, _ []byte) error { return nil },
 		DeleteFunc:   func(_ context.Context, _ string) error { return nil },
 	}
 
-	_, _, _ = sf.AttemptLock(t.Context(), "key", nil)
+	_, _, _, _ = sf.AttemptLock(t.Context(), "key", nil)
 	require.True(t, called, "AttemptLockFunc not called")
-	_ = sf.Complete(t.Context(), "key", nil)
+	_ = sf.Complete(t.Context(), "key", nil, nil)
 	_ = sf.Delete(t.Context(), "key")
+}
+
+// TestComplete_NilLockState verifies that Complete refuses to write
+// without the *State returned by AttemptLock — passing nil silently
+// would defeat the stolen-lock guard.
+func TestComplete_NilLockState(t *testing.T) {
+	s := testhelpers.NewMockIdempotencyStorage()
+	k := New(s)
+
+	err := k.Complete(t.Context(), "key", "data", nil)
+	require.ErrorIs(t, err, ErrMissingLockState)
+}
+
+// TestComplete_StolenLock verifies that ErrLockStolen from the
+// underlying Storage propagates unchanged through the Keeper layer.
+func TestComplete_StolenLock(t *testing.T) {
+	s := testhelpers.NewMockIdempotencyStorage()
+	k := New(s)
+	ctx := t.Context()
+
+	_, lockStateA, err := k.AttemptLock(ctx, "key1")
+	require.NoError(t, err)
+	require.NotNil(t, lockStateA)
+
+	// Simulate B taking over the key after A's TTL expired.
+	require.NoError(t, k.Delete(ctx, "key1"))
+	_, _, err = k.AttemptLock(ctx, "key1")
+	require.NoError(t, err)
+
+	err = k.Complete(ctx, "key1", "result-from-A", lockStateA)
+	require.ErrorIs(t, err, ErrLockStolen,
+		"stale Complete must surface ErrLockStolen rather than overwriting the new holder")
 }

@@ -7,11 +7,25 @@ package idempotency
 import (
 	"context"
 
+	"github.com/google/uuid"
+
 	"github.com/altessa-s/go-atlas/core/encoding/serializer"
 	"github.com/altessa-s/go-atlas/data/idempotency/storages"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
+
+// serializedState is the on-the-wire shape Keeper writes through the
+// underlying Storage. The Nonce field is added on every AttemptLock to
+// guarantee that two consecutive in-progress writes for the same key
+// produce distinct bytes — required for byte-equality CAS guards in
+// the memory and redis backends. NATS uses revisions and ignores the
+// nonce. The public [State] type does NOT carry this field.
+type serializedState struct {
+	Status storages.Status `json:"status"`
+	Data   any             `json:"data,omitempty"`
+	Nonce  string          `json:"nonce,omitempty"`
+}
 
 // Re-export types from storages for convenience
 type (
@@ -31,17 +45,35 @@ const (
 // `errors.Is(err, idempotency.ErrEmptyKey)` matches both layers.
 var ErrEmptyKey = storages.ErrEmptyKey
 
+// ErrLockStolen is returned by [Keeper.Complete] when the lock has
+// been taken over by another holder between AttemptLock and Complete
+// (typically because the lock TTL expired during processing).
+// Re-exported from [storages.ErrLockStolen].
+var ErrLockStolen = storages.ErrLockStolen
+
+// ErrMissingLockState is returned by [Keeper.Complete] when the caller
+// passes a nil lock state. The state returned by AttemptLock carries
+// the CAS token; passing nil would silently disable the stolen-lock
+// guard. Re-exported from [storages.ErrMissingLockState].
+var ErrMissingLockState = storages.ErrMissingLockState
+
 // Idempotency defines the interface for idempotency key operations.
 // Implementations must be safe for concurrent use.
 type Idempotency interface {
 	// AttemptLock tries to acquire a lock for the given key.
-	// Returns true if the lock was acquired (key didn't exist).
-	// Returns false and the current state if the key already exists.
+	// On success returns (true, *State, nil) where *State carries an
+	// opaque CAS token; pass it back to [Idempotency.Complete] to
+	// detect a stolen lock.
+	// On collision returns (false, *State, nil) with the State of
+	// the existing holder.
 	AttemptLock(ctx context.Context, key string) (bool, *storages.State, error)
 
 	// Complete marks the key as successfully processed.
-	// data is optional and used for result storage.
-	Complete(ctx context.Context, key string, data any) error
+	// lockState must be the *State returned by AttemptLock that
+	// acquired the lock; passing nil yields [ErrMissingLockState].
+	// Returns [ErrLockStolen] when the lock has been taken over by
+	// another holder since AttemptLock.
+	Complete(ctx context.Context, key string, data any, lockState *storages.State) error
 
 	// Delete removes the key from storage (e.g. on failure).
 	Delete(ctx context.Context, key string) error
@@ -86,16 +118,21 @@ func (i *Keeper) AttemptLock(ctx context.Context, key string) (bool, *storages.S
 		return false, nil, ErrEmptyKey
 	}
 
-	state := storages.State{
+	// Embed a per-attempt nonce so two consecutive lock attempts on
+	// the same key produce distinct serialized bytes. Storage backends
+	// that CAS on byte equality (memory, redis) need this to tell two
+	// holders apart. NATS uses revisions and ignores the field.
+	wire := serializedState{
 		Status: storages.StatusInProgress,
+		Nonce:  uuid.NewString(),
 	}
 
-	val, err := i.opts.serializer.Serialize(state)
+	val, err := i.opts.serializer.Serialize(wire)
 	if err != nil {
 		return false, nil, coreerrs.WrapOperation(err, "serialize state")
 	}
 
-	ok, existingVal, err := i.storage.AttemptLock(ctx, key, val)
+	ok, existingVal, lockToken, err := i.storage.AttemptLock(ctx, key, val)
 	if err != nil {
 		i.metrics.errors.Inc()
 		return false, nil, err
@@ -103,25 +140,38 @@ func (i *Keeper) AttemptLock(ctx context.Context, key string) (bool, *storages.S
 
 	if ok {
 		i.metrics.locksAcquired.Inc()
-		return true, nil, nil
+		// Carry the CAS token on the State so Complete can validate
+		// our claim later. The State itself isn't serialized at this
+		// point; we hand the freshly-built object back to the caller.
+		acquired := &storages.State{Status: storages.StatusInProgress}
+		acquired.SetLockToken(lockToken)
+		return true, acquired, nil
 	}
 
 	i.metrics.locksDenied.Inc()
 
-	// Lock failed, key exists. Deserialize existing state.
-	var existingState storages.State
-	if err := i.opts.serializer.Deserialize(existingVal, &existingState); err != nil {
+	// Lock failed, key exists. Deserialize existing state via the
+	// wire shape and strip the nonce before handing back to the
+	// caller — they shouldn't need to know about CAS plumbing.
+	var existing serializedState
+	if err := i.opts.serializer.Deserialize(existingVal, &existing); err != nil {
 		return false, nil, coreerrs.WrapOperation(err, "deserialize existing state")
 	}
 
-	return false, &existingState, nil
+	return false, &storages.State{Status: existing.Status, Data: existing.Data}, nil
 }
 
-// Complete marks the key as successfully processed. An empty key returns
-// [ErrEmptyKey].
-func (i *Keeper) Complete(ctx context.Context, key string, data any) error {
+// Complete marks the key as successfully processed. The lockState must
+// be the *State returned by [Keeper.AttemptLock] that acquired the
+// lock — its embedded CAS token gates the write. An empty key returns
+// [ErrEmptyKey]; a nil lockState returns [ErrMissingLockState];
+// a stolen lock returns [ErrLockStolen].
+func (i *Keeper) Complete(ctx context.Context, key string, data any, lockState *storages.State) error {
 	if key == "" {
 		return ErrEmptyKey
+	}
+	if lockState == nil {
+		return ErrMissingLockState
 	}
 
 	state := storages.State{
@@ -134,7 +184,7 @@ func (i *Keeper) Complete(ctx context.Context, key string, data any) error {
 		return coreerrs.WrapOperation(err, "serialize state")
 	}
 
-	if err := i.storage.Complete(ctx, key, val); err != nil {
+	if err := i.storage.Complete(ctx, key, val, lockState.LockToken()); err != nil {
 		i.metrics.errors.Inc()
 		return err
 	}

@@ -16,8 +16,8 @@ func FuzzStorage_AttemptLock(f *testing.F) {
 	f.Fuzz(func(t *testing.T, key string, val []byte) {
 		s := New()
 		ctx := t.Context()
-		_, _, _ = s.AttemptLock(ctx, key, val)
-		_ = s.Complete(ctx, key, val)
+		_, _, lockToken, _ := s.AttemptLock(ctx, key, val)
+		_ = s.Complete(ctx, key, val, lockToken)
 		_ = s.Delete(ctx, key)
 	})
 }

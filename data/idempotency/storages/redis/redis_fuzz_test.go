@@ -30,8 +30,8 @@ func FuzzStorage_AttemptLock(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, key string, val []byte) {
 		// Should not panic regardless of input
-		_, _, _ = storage.AttemptLock(ctx, key, val)
-		_ = storage.Complete(ctx, key, val)
+		_, _, _, _ = storage.AttemptLock(ctx, key, val)
+		_ = storage.Complete(ctx, key, val, nil)
 		_ = storage.Delete(ctx, key)
 	})
 }

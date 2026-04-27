@@ -107,7 +107,7 @@ func defaultErrorHandler(w http.ResponseWriter, _ *http.Request, scenario ErrorS
 func (m *middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// 1. Check/Lock
-		storageKey, err := m.checkIdempotency(w, r)
+		storageKey, lockState, err := m.checkIdempotency(w, r)
 		if err != nil {
 			return
 		}
@@ -129,7 +129,11 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 						data = entityID
 					}
 				}
-				_ = m.i.Complete(r.Context(), storageKey, data) //nolint:errcheck // Best-effort completion, main operation already succeeded
+				// Best-effort completion. ErrLockStolen here means the
+				// lock TTL expired during processing and another node
+				// took over — silently drop our result rather than
+				// overwriting the new holder's state.
+				_ = m.i.Complete(r.Context(), storageKey, data, lockState) //nolint:errcheck
 			} else {
 				// On error, delete the key
 				_ = m.i.Delete(r.Context(), storageKey) //nolint:errcheck // Best-effort cleanup, main operation already failed
@@ -138,18 +142,18 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 	})
 }
 
-func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (string, error) {
+func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (string, *idempotency.State, error) {
 	path := m.InternPath(r.URL.Path)
 	ctx := r.Context()
 
 	if m.ShouldIgnore(path) {
 		m.LogIgnored(ctx, path)
-		return "", nil
+		return "", nil, nil
 	}
 
 	// Safe HTTP methods are idempotent by definition — skip check.
 	if isSafeMethod(r.Method) {
-		return "", nil
+		return "", nil, nil
 	}
 
 	idempotencyKey := strings.TrimSpace(r.Header.Get(m.opts.idempotencyKeyHeader))
@@ -159,9 +163,9 @@ func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (s
 
 		if m.opts.enforceMandatory {
 			m.opts.errorHandler(w, r, ErrorIDKMissing, nil)
-			return "", errIdempotencyKeyMissing
+			return "", nil, errIdempotencyKeyMissing
 		}
-		return "", nil
+		return "", nil, nil
 	}
 
 	if err := m.opts.keyFormatValidator(idempotencyKey); err != nil {
@@ -169,7 +173,7 @@ func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (s
 			slog.String("method", r.Method),
 			slog.String("key", idempotencyKey))
 		m.opts.errorHandler(w, r, ErrorIDKInvalidFormat, nil)
-		return "", errIdempotencyKeyInvalidFormat
+		return "", nil, errIdempotencyKeyInvalidFormat
 	}
 
 	storageKey := m.buildKey(r.Method, path, idempotencyKey)
@@ -181,12 +185,12 @@ func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (s
 	// Try to acquire lock
 	locked, state, err := m.i.AttemptLock(ctx, storageKey)
 	if err != nil {
-		return "", m.handleStorageError(w, r, err)
+		return "", nil, m.handleStorageError(w, r, err)
 	}
 
 	if !locked {
 		if state == nil {
-			return "", m.handleStorageError(w, r, errors.New("lock failed but state is nil"))
+			return "", nil, m.handleStorageError(w, r, errors.New("lock failed but state is nil"))
 		}
 
 		if state.Status == idempotency.StatusInProgress {
@@ -196,7 +200,7 @@ func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (s
 
 			w.Header().Set(m.opts.idempotencyKeyStatusHeader, "in_progress")
 			m.opts.errorHandler(w, r, ErrorIDKInProgress, state)
-			return "", errKeyNotUnique
+			return "", nil, errKeyNotUnique
 		}
 
 		if state.Status == idempotency.StatusSuccess {
@@ -209,7 +213,7 @@ func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (s
 				w.Header().Set(m.opts.idempotencyKeyEntityIdHeader, strVal)
 			}
 			m.opts.errorHandler(w, r, ErrorIDKAlreadyUsed, state)
-			return "", errKeyNotUnique
+			return "", nil, errKeyNotUnique
 		}
 	}
 
@@ -217,7 +221,8 @@ func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (s
 		slog.String("method", r.Method),
 		slog.String("key", idempotencyKey))
 
-	return storageKey, nil
+	// Return the *State so Handler can pass its CAS token to Complete.
+	return storageKey, state, nil
 }
 
 // errKeyNotUnique is an internal error indicating the key already exists.

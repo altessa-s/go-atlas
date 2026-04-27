@@ -44,7 +44,7 @@ func TestStorage_AttemptLock_New(t *testing.T) {
 	key := "test-key"
 	val := []byte("test-value")
 
-	locked, existingVal, err := storage.AttemptLock(ctx, key, val)
+	locked, existingVal, _, err := storage.AttemptLock(ctx, key, val)
 	require.NoError(t, err)
 	require.True(t, locked, "expected lock to succeed on new key")
 	require.Nil(t, existingVal)
@@ -59,12 +59,12 @@ func TestStorage_AttemptLock_Existing(t *testing.T) {
 	val2 := []byte("second-value")
 
 	// First lock should succeed
-	locked, _, err := storage.AttemptLock(ctx, key, val1)
+	locked, _, _, err := storage.AttemptLock(ctx, key, val1)
 	require.NoError(t, err)
 	require.True(t, locked, "expected first lock to succeed")
 
 	// Second lock should fail and return first value
-	locked, existingVal, err := storage.AttemptLock(ctx, key, val2)
+	locked, existingVal, _, err := storage.AttemptLock(ctx, key, val2)
 	require.NoError(t, err)
 	require.False(t, locked, "expected second lock to fail")
 	require.Equal(t, string(val1), string(existingVal))
@@ -79,15 +79,15 @@ func TestStorage_Complete(t *testing.T) {
 	completeVal := []byte("complete-value")
 
 	// Lock the key
-	locked, _, err := storage.AttemptLock(ctx, key, lockVal)
+	locked, _, lockToken, err := storage.AttemptLock(ctx, key, lockVal)
 	require.NoError(t, err)
 	require.True(t, locked, "expected lock to succeed")
 
 	// Complete the key with new value
-	require.NoError(t, storage.Complete(ctx, key, completeVal))
+	require.NoError(t, storage.Complete(ctx, key, completeVal, lockToken))
 
 	// Attempt lock again should fail and return completed value
-	locked, existingVal, err := storage.AttemptLock(ctx, key, []byte("new-value"))
+	locked, existingVal, _, err := storage.AttemptLock(ctx, key, []byte("new-value"))
 	require.NoError(t, err)
 	require.False(t, locked, "expected lock to fail after completion")
 	require.Equal(t, string(completeVal), string(existingVal))
@@ -101,7 +101,7 @@ func TestStorage_Delete(t *testing.T) {
 	val := []byte("test-value")
 
 	// Lock the key
-	locked, _, err := storage.AttemptLock(ctx, key, val)
+	locked, _, _, err := storage.AttemptLock(ctx, key, val)
 	require.NoError(t, err)
 	require.True(t, locked, "expected lock to succeed")
 
@@ -109,7 +109,7 @@ func TestStorage_Delete(t *testing.T) {
 	require.NoError(t, storage.Delete(ctx, key))
 
 	// Lock should succeed again after deletion
-	locked, existingVal, err := storage.AttemptLock(ctx, key, val)
+	locked, existingVal, _, err := storage.AttemptLock(ctx, key, val)
 	require.NoError(t, err)
 	require.True(t, locked, "expected lock to succeed after deletion")
 	require.Nil(t, existingVal)
@@ -121,12 +121,12 @@ func TestStorage_EmptyKey(t *testing.T) {
 
 	// Empty key on every method must surface ErrEmptyKey — silently
 	// succeeding would let any caller bypass dedupe by sending a blank key.
-	locked, existingVal, err := storage.AttemptLock(ctx, "", []byte("value"))
+	locked, existingVal, _, err := storage.AttemptLock(ctx, "", []byte("value"))
 	require.ErrorIs(t, err, storages.ErrEmptyKey)
 	require.False(t, locked)
 	require.Nil(t, existingVal)
 
-	require.ErrorIs(t, storage.Complete(ctx, "", []byte("value")), storages.ErrEmptyKey)
+	require.ErrorIs(t, storage.Complete(ctx, "", []byte("value"), nil), storages.ErrEmptyKey)
 	require.ErrorIs(t, storage.Delete(ctx, ""), storages.ErrEmptyKey)
 }
 
@@ -144,7 +144,7 @@ func TestStorage_TTLExpiry(t *testing.T) {
 	val := []byte("test-value")
 
 	// Lock the key
-	locked, _, err := storage.AttemptLock(ctx, key, val)
+	locked, _, _, err := storage.AttemptLock(ctx, key, val)
 	require.NoError(t, err)
 	require.True(t, locked, "expected lock to succeed")
 
@@ -152,7 +152,7 @@ func TestStorage_TTLExpiry(t *testing.T) {
 	mr.FastForward(2 * time.Second)
 
 	// Lock should succeed again after expiry
-	locked, existingVal, err := storage.AttemptLock(ctx, key, []byte("new-value"))
+	locked, existingVal, _, err := storage.AttemptLock(ctx, key, []byte("new-value"))
 	require.NoError(t, err)
 	require.True(t, locked, "expected lock to succeed after TTL expiry")
 	require.Nil(t, existingVal)
@@ -173,18 +173,18 @@ func TestStorage_WithKeyPrefix(t *testing.T) {
 	val2 := []byte("value2")
 
 	// Lock with first prefix
-	locked, _, err := storage1.AttemptLock(ctx, key, val1)
+	locked, _, _, err := storage1.AttemptLock(ctx, key, val1)
 	require.NoError(t, err)
 	require.True(t, locked, "expected lock to succeed with prefix1")
 
 	// Lock with second prefix should also succeed (different namespace)
-	locked, existingVal, err := storage2.AttemptLock(ctx, key, val2)
+	locked, existingVal, _, err := storage2.AttemptLock(ctx, key, val2)
 	require.NoError(t, err)
 	require.True(t, locked, "expected lock to succeed with prefix2 (isolated namespace)")
 	require.Nil(t, existingVal)
 
 	// Verify both values are stored independently
-	locked, existingVal, err = storage1.AttemptLock(ctx, key, []byte("new"))
+	locked, existingVal, _, err = storage1.AttemptLock(ctx, key, []byte("new"))
 	require.NoError(t, err)
 	require.False(t, locked, "expected lock to fail on prefix1")
 	require.Equal(t, string(val1), string(existingVal))
@@ -204,7 +204,7 @@ func TestStorage_Concurrent(t *testing.T) {
 	for i := range numGoroutines {
 		wg.Go(func() {
 			val := []byte("goroutine-value")
-			locked, _, err := storage.AttemptLock(ctx, key, val)
+			locked, _, _, err := storage.AttemptLock(ctx, key, val)
 			if err != nil {
 				t.Errorf("goroutine %d: unexpected error: %v", i, err)
 				return
@@ -219,4 +219,51 @@ func TestStorage_Concurrent(t *testing.T) {
 
 	// Exactly one goroutine should have succeeded
 	require.Equal(t, int32(1), successCount.Load(), "expected exactly 1 successful lock")
+}
+
+// TestStorage_Complete_StolenLock is the regression test for the
+// stolen-lock CAS guard backed by the Lua script. Sequence:
+//
+//  1. Holder A AttemptLock with val "a-lock" → wins, gets tokenA.
+//  2. Force-delete and let B re-lock with "b-lock".
+//  3. A calls Complete with stale tokenA → must fail with
+//     ErrLockStolen and must NOT overwrite B's value.
+func TestStorage_Complete_StolenLock(t *testing.T) {
+	storage, _ := setupStorage(t)
+	ctx := t.Context()
+
+	okA, _, tokenA, err := storage.AttemptLock(ctx, "k", []byte("a-lock"))
+	require.NoError(t, err)
+	require.True(t, okA)
+	require.NotNil(t, tokenA)
+
+	require.NoError(t, storage.Delete(ctx, "k"))
+	okB, _, _, err := storage.AttemptLock(ctx, "k", []byte("b-lock"))
+	require.NoError(t, err)
+	require.True(t, okB)
+
+	err = storage.Complete(ctx, "k", []byte("a-result"), tokenA)
+	require.ErrorIs(t, err, storages.ErrLockStolen)
+
+	_, existing, _, _ := storage.AttemptLock(ctx, "k", []byte("c-lock"))
+	require.Equal(t, "b-lock", string(existing),
+		"stolen Complete must not overwrite the new holder's value")
+}
+
+// TestStorage_Complete_StolenLock_KeyExpired covers the second
+// failure mode: AttemptLock succeeded, the TTL fired (Lua GET returns
+// nil), and Complete must report ErrLockStolen rather than re-creating
+// the key.
+func TestStorage_Complete_StolenLock_KeyExpired(t *testing.T) {
+	storage, mr := setupStorage(t)
+	ctx := t.Context()
+
+	okA, _, tokenA, err := storage.AttemptLock(ctx, "k", []byte("a-lock"))
+	require.NoError(t, err)
+	require.True(t, okA)
+
+	mr.FastForward(25 * time.Hour) // beyond default 24h TTL
+
+	err = storage.Complete(ctx, "k", []byte("a-result"), tokenA)
+	require.ErrorIs(t, err, storages.ErrLockStolen)
 }

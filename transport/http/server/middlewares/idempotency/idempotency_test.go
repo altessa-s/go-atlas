@@ -71,7 +71,7 @@ func TestCheckIdempotency_SkipsSafeMethod(t *testing.T) {
 			r := httptest.NewRequest(method, "/api/v1/users", nil)
 			w := httptest.NewRecorder()
 
-			key, err := m.checkIdempotency(w, r)
+			key, _, err := m.checkIdempotency(w, r)
 			require.NoError(t, err)
 			require.Equal(t, "", key)
 			require.Equal(t, http.StatusOK, w.Code)

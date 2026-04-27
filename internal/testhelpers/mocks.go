@@ -5,8 +5,12 @@
 package testhelpers
 
 import (
+	"bytes"
 	"context"
+	"slices"
 	"sync"
+
+	"github.com/altessa-s/go-atlas/data/idempotency/storages"
 )
 
 // MockNetError implements the [net.Error] interface for testing.
@@ -115,22 +119,34 @@ func NewMockIdempotencyStorage() *MockIdempotencyStorage {
 	return &MockIdempotencyStorage{entries: make(map[string][]byte)}
 }
 
-// AttemptLock stores val under key if the key does not yet exist (returns true, nil, nil).
-// If the key already exists it returns false and the previously stored value.
-func (m *MockIdempotencyStorage) AttemptLock(_ context.Context, key string, val []byte) (bool, []byte, error) {
+// AttemptLock stores val under key if the key does not yet exist
+// (returns true, nil, lockToken, nil). The lockToken is a copy of the
+// stored value, matching the real memory backend's CAS contract. If
+// the key already exists it returns (false, existingVal, nil, nil).
+func (m *MockIdempotencyStorage) AttemptLock(_ context.Context, key string, val []byte) (bool, []byte, []byte, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if existing, ok := m.entries[key]; ok {
-		return false, existing, nil
+		return false, existing, nil, nil
 	}
 	m.entries[key] = val
-	return true, nil, nil
+	return true, nil, slices.Clone(val), nil
 }
 
-// Complete overwrites the value stored under key, marking the operation as finished.
-func (m *MockIdempotencyStorage) Complete(_ context.Context, key string, val []byte) error {
+// Complete overwrites the value stored under key when lockToken still
+// matches the current value (CAS). Returns
+// [storages.ErrLockStolen] when the lock has been taken over by another
+// holder. Pass lockToken=nil to bypass the guard for legacy tests.
+func (m *MockIdempotencyStorage) Complete(_ context.Context, key string, val []byte, lockToken []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	current, exists := m.entries[key]
+	if !exists {
+		return storages.ErrLockStolen
+	}
+	if lockToken != nil && !bytes.Equal(current, lockToken) {
+		return storages.ErrLockStolen
+	}
 	m.entries[key] = val
 	return nil
 }
