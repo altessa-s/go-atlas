@@ -22,10 +22,10 @@ func BenchmarkStorage_AttemptLock(b *testing.B) {
 func BenchmarkStorage_Complete(b *testing.B) {
 	s := New()
 	ctx := b.Context()
-	s.AttemptLock(ctx, "bench-key", []byte("in-progress"))
+	_, _, lockToken, _ := s.AttemptLock(ctx, "bench-key", []byte("in-progress"))
 	b.ResetTimer()
 	for b.Loop() {
-		s.Complete(ctx, "bench-key", []byte("done"))
+		s.Complete(ctx, "bench-key", []byte("done"), lockToken)
 	}
 }
 

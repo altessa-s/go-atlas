@@ -32,7 +32,7 @@ func BenchmarkStorage_AttemptLock(b *testing.B) {
 		key := "bench-key"
 		mr.FlushAll() // Clear between iterations
 
-		_, _, err := storage.AttemptLock(ctx, key, val)
+		_, _, _, err := storage.AttemptLock(ctx, key, val)
 		if err != nil {
 			b.Fatalf("unexpected error: %v", err)
 		}
@@ -52,13 +52,13 @@ func BenchmarkStorage_Complete(b *testing.B) {
 		mr.FlushAll() // Clear between iterations
 
 		// Lock first
-		_, _, err := storage.AttemptLock(ctx, key, lockVal)
+		_, _, lockToken, err := storage.AttemptLock(ctx, key, lockVal)
 		if err != nil {
 			b.Fatalf("unexpected error locking: %v", err)
 		}
 
 		// Benchmark the complete operation
-		err = storage.Complete(ctx, key, completeVal)
+		err = storage.Complete(ctx, key, completeVal, lockToken)
 		if err != nil {
 			b.Fatalf("unexpected error: %v", err)
 		}

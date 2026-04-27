@@ -10,19 +10,19 @@ import (
 
 // StorageFunc is an adapter to allow the use of ordinary functions as Idempotency.
 type StorageFunc struct {
-	AttemptLockFunc func(ctx context.Context, key string, val []byte) (bool, []byte, error)
-	CompleteFunc    func(ctx context.Context, key string, val []byte) error
+	AttemptLockFunc func(ctx context.Context, key string, val []byte) (bool, []byte, []byte, error)
+	CompleteFunc    func(ctx context.Context, key string, val []byte, lockToken []byte) error
 	DeleteFunc      func(ctx context.Context, key string) error
 }
 
 // AttemptLock implements the Idempotency interface.
-func (f StorageFunc) AttemptLock(ctx context.Context, key string, val []byte) (bool, []byte, error) {
+func (f StorageFunc) AttemptLock(ctx context.Context, key string, val []byte) (bool, []byte, []byte, error) {
 	return f.AttemptLockFunc(ctx, key, val)
 }
 
 // Complete implements the Idempotency interface.
-func (f StorageFunc) Complete(ctx context.Context, key string, val []byte) error {
-	return f.CompleteFunc(ctx, key, val)
+func (f StorageFunc) Complete(ctx context.Context, key string, val []byte, lockToken []byte) error {
+	return f.CompleteFunc(ctx, key, val, lockToken)
 }
 
 // Delete implements the Idempotency interface.
