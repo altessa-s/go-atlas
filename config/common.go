@@ -66,10 +66,10 @@ type StorageNATSConfig struct {
 	// (default) means the consuming factory falls back to its package
 	// default. Consumers that don't honor TTL ignore this field.
 	//
-	// For data/uniq with TryAdd-based deduplication, set this short
-	// enough that a stuck key (panic, kill -9, Remove failure) clears
-	// before the message broker exhausts retries — typically a small
-	// multiple of the broker AckWait.
+	// For data/idempotency, set this short enough that a stuck
+	// in-progress key (panic, kill -9 between AttemptLock and Complete)
+	// clears before the message broker exhausts retries — typically a
+	// small multiple of the broker AckWait.
 	Ttl time.Duration `yaml:"ttl"`
 }
 
@@ -94,10 +94,10 @@ type StorageRedisConfig struct {
 	// value (default) means the consuming factory falls back to its
 	// package default. Consumers that don't honor TTL ignore this field.
 	//
-	// For data/uniq with TryAdd-based deduplication, set this short
-	// enough that a stuck key (panic, kill -9, Remove failure) clears
-	// before the message broker exhausts retries — typically a small
-	// multiple of the broker AckWait.
+	// For data/idempotency, set this short enough that a stuck
+	// in-progress key (panic, kill -9 between AttemptLock and Complete)
+	// clears before the message broker exhausts retries — typically a
+	// small multiple of the broker AckWait.
 	Ttl time.Duration `yaml:"ttl"`
 }
 
