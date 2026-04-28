@@ -6,8 +6,8 @@
 // shared across the go-atlas project.
 //
 // The package includes:
-//   - Mock providers for uniqueness ([MockUniqProvider]),
-//     idempotency ([MockIdempotencyStorage]), and network errors ([MockNetError]).
+//   - Mock providers for idempotency ([MockIdempotencyStorage]) and
+//     network errors ([MockNetError]).
 //   - Prometheus metrics test helpers ([NewTestCollector], [GetCounterValue],
 //     [GetGaugeValue], [GetHistogramCount], [GatherMetric]).
 //   - Filter expression parsing ([MustParseFilter]).
