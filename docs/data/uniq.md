@@ -25,6 +25,45 @@ This is not a cache. There's no eviction policy beyond TTL, no LRU, no negative 
 
 ---
 
+## `uniq` vs `data/idempotency`
+
+The two packages overlap heavily — both detect duplicates, both have memory/Redis/NATS backends, both expose CAS — but they answer different
+questions:
+
+| Question the caller asks | Use |
+|---|---|
+| "Have I seen this key?" / "Don't process this twice" | **`uniq`** |
+| "Is this request in flight, already done, or new — and what was the result?" | **`idempotency`** |
+
+Concretely, `idempotency` adds a **state machine** (`InProgress` → `Success`) and a **stolen-lock guard**:
+
+- `AttemptLock` returns the current `*State` so a concurrent caller can distinguish "someone else is processing" (block, retry, or
+  short-circuit) from "already done — here's the cached result".
+- `Complete` is CAS-guarded: if the lock TTL fired during processing and another node took over, your stale `Complete` returns
+  `ErrLockStolen` instead of silently overwriting the new holder's result.
+
+`uniq.TryAdd` is also atomic CAS, but it's a one-shot claim — there's no follow-up `Complete` step, no `InProgress` vs `Success`
+distinction, and no protection against a stale writer overwriting a fresh holder. Once `TryAdd` succeeds, the bytes are just there.
+
+Use `uniq` when:
+
+- The work is fire-and-forget — you just need to dedupe replays of the same `msg.Id` (SMS sender, event-log dedup, "have we sent this email").
+- A one-time token redemption: `TryAdd(token)` either succeeds (consume) or fails (already used). No "in progress" state needed.
+- You want a thin primitive without state-machine plumbing.
+
+Use `idempotency` when:
+
+- An HTTP / gRPC handler needs to return the **cached response** for a repeated request (POST with `Idempotency-Key` header).
+- The operation is long-running and other callers should see "in progress, please retry later" rather than a generic dedup miss.
+- You need stolen-lock detection for safety (long processing risks the lock TTL firing and another node taking over).
+- You want to track success vs failure explicitly via the `State.Status` enum.
+
+If you're tempted to wrap `uniq` with an external `dlock` to get atomic exclusion plus result caching — that's exactly what `idempotency`
+already gives you in one round-trip. The smssender-style `uniq + dlock` pattern works, but `idempotency.Keeper` would do the same job with
+fewer moving parts.
+
+---
+
 ## Quick start
 
 ### Redis
@@ -288,7 +327,7 @@ miniredis — noop can't reproduce the conflict.
 
 ## Related docs
 
-- [`docs/configuration.md`](configuration.md) — overall YAML format and `cache_storage.yaml` template
-- [`docs/health.md`](health.md) — how `health.Coordinator` polls registered services
-- [`docs/metrics.md`](metrics.md) — full metric reference for the repository
-- [`data/uniq/README.md`](../data/uniq/README.md) — godoc-level option reference
+- [`docs/configuration.md`](../configuration.md) — overall YAML format and `cache_storage.yaml` template
+- [`docs/health.md`](../health.md) — how `health.Coordinator` polls registered services
+- [`docs/metrics.md`](../metrics.md) — full metric reference for the repository
+- [`data/uniq/README.md`](../../data/uniq/README.md) — godoc-level option reference

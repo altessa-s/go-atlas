@@ -9,6 +9,7 @@ import (
 	"context"
 	"slices"
 	"sync"
+	"time"
 
 	"github.com/altessa-s/go-atlas/data/idempotency/storages"
 )
@@ -151,6 +152,19 @@ func (m *MockIdempotencyStorage) Complete(_ context.Context, key string, val []b
 	return nil
 }
 
+// AttemptLockWithTTL ignores lockTtl and delegates to AttemptLock —
+// the mock doesn't model TTL. Tests that need real TTL behavior
+// should use a real backend.
+func (m *MockIdempotencyStorage) AttemptLockWithTTL(ctx context.Context, key string, val []byte, _ time.Duration) (bool, []byte, []byte, error) {
+	return m.AttemptLock(ctx, key, val)
+}
+
+// CompleteWithTTL ignores resultTtl and delegates to Complete — the
+// mock doesn't model TTL.
+func (m *MockIdempotencyStorage) CompleteWithTTL(ctx context.Context, key string, val []byte, lockToken []byte, _ time.Duration) error {
+	return m.Complete(ctx, key, val, lockToken)
+}
+
 // Delete removes the entry for key.
 func (m *MockIdempotencyStorage) Delete(_ context.Context, key string) error {
 	m.mu.Lock()
@@ -158,3 +172,13 @@ func (m *MockIdempotencyStorage) Delete(_ context.Context, key string) error {
 	delete(m.entries, key)
 	return nil
 }
+
+// SupportsAttemptLockWithTTL reports true. The mock accepts any TTL
+// on AttemptLockWithTTL (silently ignored).
+func (m *MockIdempotencyStorage) SupportsAttemptLockWithTTL() bool { return true }
+
+// SupportsCompleteWithTTL reports true. The mock accepts any TTL on
+// CompleteWithTTL (silently ignored). Tests that care about the
+// false-case (NATS-style) should construct a Storage that returns
+// false explicitly.
+func (m *MockIdempotencyStorage) SupportsCompleteWithTTL() bool { return true }

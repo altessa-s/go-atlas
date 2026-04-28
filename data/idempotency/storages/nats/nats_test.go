@@ -6,6 +6,7 @@ package nats_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -142,6 +143,56 @@ func TestStorage_FullLifecycle(t *testing.T) {
 	require.True(t, locked, "expected lock to succeed after deletion")
 }
 
+// TestStorage_AttemptLockWithTTL_OverridesBucketTtl verifies per-key
+// TTL on AttemptLock through jetstream.KeyTTL — the bucket-level TTL
+// is long but the per-call TTL fires first.
+func TestStorage_AttemptLockWithTTL_OverridesBucketTtl(t *testing.T) {
+	t.Parallel()
+
+	storage := setupStorage(t)
+	ctx := t.Context()
+
+	ok, _, _, err := storage.AttemptLockWithTTL(ctx, "k", []byte("lock"), time.Second)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	// NATS expiry is lazy — give the server time to GC the entry.
+	time.Sleep(2500 * time.Millisecond)
+
+	ok, _, _, err = storage.AttemptLockWithTTL(ctx, "k", []byte("lock2"), 0)
+	require.NoError(t, err)
+	require.True(t, ok, "per-call lockTtl should have expired the entry well before bucket TTL")
+}
+
+// TestStorage_CompleteWithTTL_ReturnsErrPerCallTtlNotSupported
+// documents the NATS limitation: KV.Put doesn't accept per-message
+// TTL options, so any positive resultTtl must be rejected loudly
+// rather than silently degrading to bucket TTL.
+func TestStorage_CompleteWithTTL_ReturnsErrPerCallTtlNotSupported(t *testing.T) {
+	storage := setupStorage(t)
+	ctx := t.Context()
+
+	_, _, lockToken, err := storage.AttemptLock(ctx, "k", []byte("lock"))
+	require.NoError(t, err)
+
+	err = storage.CompleteWithTTL(ctx, "k", []byte("result"), lockToken, 5*time.Minute)
+	require.ErrorIs(t, err, storages.ErrPerCallTtlNotSupported,
+		"NATS lacks per-call TTL on Complete and must surface the limitation explicitly")
+}
+
+// TestStorage_CompleteWithTTL_ZeroFallsThroughToBucketTtl verifies
+// that resultTtl=0 is the documented escape hatch — the call
+// delegates to plain Complete and writes succeed.
+func TestStorage_CompleteWithTTL_ZeroFallsThroughToBucketTtl(t *testing.T) {
+	storage := setupStorage(t)
+	ctx := t.Context()
+
+	_, _, lockToken, err := storage.AttemptLock(ctx, "k", []byte("lock"))
+	require.NoError(t, err)
+
+	require.NoError(t, storage.CompleteWithTTL(ctx, "k", []byte("result"), lockToken, 0))
+}
+
 // TestStorage_Complete_StolenLock is the regression test for the
 // stolen-lock CAS guard backed by [jetstream.KV.Update] with a fixed
 // expected revision. Sequence:
@@ -186,4 +237,16 @@ func TestStorage_Complete_StolenLock_MalformedToken(t *testing.T) {
 
 	err = storage.Complete(ctx, "k", []byte("a-result"), []byte("garbage"))
 	require.ErrorIs(t, err, storages.ErrLockStolen)
+}
+
+func TestStorage_SupportsAttemptLockWithTTL(t *testing.T) {
+	storage := setupStorage(t)
+	require.True(t, storage.SupportsAttemptLockWithTTL(),
+		"nats AttemptLockWithTTL works via jetstream.KeyTTL on Create")
+}
+
+func TestStorage_SupportsCompleteWithTTL(t *testing.T) {
+	storage := setupStorage(t)
+	require.False(t, storage.SupportsCompleteWithTTL(),
+		"nats CompleteWithTTL is unsupported (KV.Put/Update have no TTL option)")
 }

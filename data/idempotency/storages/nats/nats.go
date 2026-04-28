@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
 
@@ -45,6 +46,13 @@ func New(js jetstream.JetStream, opts ...Option) (*Storage, error) {
 		Bucket:  options.bucket,
 		TTL:     options.maxAge,
 		Storage: jetstream.FileStorage,
+		// Enable per-key TTL so AttemptLockWithTTL can pass
+		// jetstream.KeyTTL(d) on Create. Marker retention matches the
+		// bucket TTL — we don't watch tombstones, so any non-zero value
+		// is fine. Requires NATS server 2.11+; older servers fail
+		// bucket creation here, which is the right time to surface the
+		// requirement.
+		LimitMarkerTTL: options.maxAge,
 	}, nil)
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "create NATS KeyValue bucket")
@@ -53,14 +61,26 @@ func New(js jetstream.JetStream, opts ...Option) (*Storage, error) {
 	return &Storage{Base: base, opts: options}, nil
 }
 
-// AttemptLock tries to acquire a lock for the given key.
+// AttemptLock tries to acquire a lock for the given key using the
+// bucket's configured TTL.
 func (s *Storage) AttemptLock(ctx context.Context, key string, val []byte) (bool, []byte, []byte, error) {
+	return s.AttemptLockWithTTL(ctx, key, val, 0)
+}
+
+// AttemptLockWithTTL is like [Storage.AttemptLock] but lockTtl
+// overrides the bucket's TTL for this key when positive.
+func (s *Storage) AttemptLockWithTTL(ctx context.Context, key string, val []byte, lockTtl time.Duration) (bool, []byte, []byte, error) {
 	if key == "" {
 		return false, nil, nil, storages.ErrEmptyKey
 	}
 
+	var createOpts []jetstream.KVCreateOpt
+	if lockTtl > 0 {
+		createOpts = append(createOpts, jetstream.KeyTTL(lockTtl))
+	}
+
 	// Use Create to ensure we only set if key does not exist (atomic lock)
-	revision, err := s.KV().Create(ctx, key, val)
+	revision, err := s.KV().Create(ctx, key, val, createOpts...)
 	if err != nil {
 		if errors.Is(err, jetstream.ErrKeyExists) {
 			// Key exists, get current state
@@ -80,6 +100,19 @@ func (s *Storage) AttemptLock(ctx context.Context, key string, val []byte) (bool
 	}
 
 	return true, nil, encodeRevisionToken(revision), nil
+}
+
+// CompleteWithTTL is like [Storage.Complete] but accepts a per-call
+// resultTtl. The NATS backend cannot honor a positive resultTtl —
+// nats.go v1.51.0's KV.Put/Update don't expose per-message TTL — so
+// any resultTtl > 0 returns [storages.ErrPerCallTtlNotSupported].
+// Pass resultTtl = 0 to fall back to the bucket TTL (delegates to
+// Complete).
+func (s *Storage) CompleteWithTTL(ctx context.Context, key string, val []byte, lockToken []byte, resultTtl time.Duration) error {
+	if resultTtl > 0 {
+		return storages.ErrPerCallTtlNotSupported
+	}
+	return s.Complete(ctx, key, val, lockToken)
 }
 
 // Complete marks the key as successfully processed.
@@ -124,6 +157,17 @@ func (s *Storage) Complete(ctx context.Context, key string, val []byte, lockToke
 
 	return nil
 }
+
+// SupportsAttemptLockWithTTL implements [storages.Storage]. NATS
+// honors per-call lockTtl via jetstream.KeyTTL on Create (requires
+// the bucket to be created with LimitMarkerTTL — handled in [New]).
+func (s *Storage) SupportsAttemptLockWithTTL() bool { return true }
+
+// SupportsCompleteWithTTL implements [storages.Storage]. NATS
+// cannot honor per-call resultTtl — nats.go v1.51.0's KV.Put/Update
+// don't expose per-message TTL options. CompleteWithTTL with
+// resultTtl > 0 returns [storages.ErrPerCallTtlNotSupported].
+func (s *Storage) SupportsCompleteWithTTL() bool { return false }
 
 // encodeRevisionToken serializes a NATS KV revision into 8-byte big-endian
 // bytes for use as the opaque lockToken. Returns a fresh slice each call.

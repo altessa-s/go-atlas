@@ -7,6 +7,7 @@ package idempotency
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -118,6 +119,114 @@ func TestComplete_NilLockState(t *testing.T) {
 
 	err := k.Complete(t.Context(), "key", "data", nil)
 	require.ErrorIs(t, err, ErrMissingLockState)
+}
+
+// TestAttemptLockWithTTL_PassedToStorage verifies that the Keeper
+// forwards lockTtl unchanged to Storage.AttemptLockWithTTL.
+func TestAttemptLockWithTTL_PassedToStorage(t *testing.T) {
+	var lastTtl time.Duration
+	sf := StorageFunc{
+		AttemptLockFunc: func(_ context.Context, _ string, _ []byte) (bool, []byte, []byte, error) {
+			return true, nil, []byte("token"), nil
+		},
+		AttemptLockWithTTLFunc: func(_ context.Context, _ string, _ []byte, lockTtl time.Duration) (bool, []byte, []byte, error) {
+			lastTtl = lockTtl
+			return true, nil, []byte("token"), nil
+		},
+		CompleteFunc: func(_ context.Context, _ string, _ []byte, _ []byte) error { return nil },
+		DeleteFunc:   func(_ context.Context, _ string) error { return nil },
+	}
+	k := New(sf)
+
+	_, _, err := k.AttemptLockWithTTL(t.Context(), "key1", 7*time.Second)
+	require.NoError(t, err)
+	require.Equal(t, 7*time.Second, lastTtl, "Keeper must forward lockTtl unchanged")
+
+	_, _, err = k.AttemptLock(t.Context(), "key2")
+	require.NoError(t, err)
+	require.Equal(t, time.Duration(0), lastTtl,
+		"non-TTL AttemptLock must call AttemptLockWithTTL with ttl=0")
+}
+
+// TestCompleteWithTTL_PassedToStorage verifies that the Keeper
+// forwards resultTtl unchanged to Storage.CompleteWithTTL.
+func TestCompleteWithTTL_PassedToStorage(t *testing.T) {
+	var lastTtl time.Duration
+	sf := StorageFunc{
+		AttemptLockFunc: func(_ context.Context, _ string, _ []byte) (bool, []byte, []byte, error) {
+			return true, nil, []byte("token"), nil
+		},
+		CompleteFunc: func(_ context.Context, _ string, _ []byte, _ []byte) error { return nil },
+		CompleteWithTTLFunc: func(_ context.Context, _ string, _ []byte, _ []byte, resultTtl time.Duration) error {
+			lastTtl = resultTtl
+			return nil
+		},
+		DeleteFunc: func(_ context.Context, _ string) error { return nil },
+	}
+	k := New(sf)
+	ctx := t.Context()
+
+	_, lockState, err := k.AttemptLock(ctx, "key1")
+	require.NoError(t, err)
+	require.NotNil(t, lockState)
+
+	require.NoError(t, k.CompleteWithTTL(ctx, "key1", "data", lockState, 11*time.Second))
+	require.Equal(t, 11*time.Second, lastTtl, "Keeper must forward resultTtl unchanged")
+
+	require.NoError(t, k.Complete(ctx, "key1", "data", lockState))
+	require.Equal(t, time.Duration(0), lastTtl,
+		"non-TTL Complete must call CompleteWithTTL with ttl=0")
+}
+
+// TestSupportsCompleteWithTTL_DelegatesToStorage verifies the Keeper
+// passes through the storage's capability bit unchanged. The
+// AttemptLock-side variant is symmetric.
+func TestSupportsCompleteWithTTL_DelegatesToStorage(t *testing.T) {
+	stub := func(supportsComplete bool) StorageFunc {
+		return StorageFunc{
+			SupportsCompleteWithTTLFunc: func() bool { return supportsComplete },
+			AttemptLockFunc: func(_ context.Context, _ string, _ []byte) (bool, []byte, []byte, error) {
+				return true, nil, nil, nil
+			},
+			CompleteFunc: func(_ context.Context, _ string, _ []byte, _ []byte) error { return nil },
+			DeleteFunc:   func(_ context.Context, _ string) error { return nil },
+		}
+	}
+
+	t.Run("storage reports true", func(t *testing.T) {
+		k := New(stub(true))
+		require.True(t, k.SupportsCompleteWithTTL())
+	})
+
+	t.Run("storage reports false", func(t *testing.T) {
+		k := New(stub(false))
+		require.False(t, k.SupportsCompleteWithTTL())
+	})
+}
+
+// TestSupportsAttemptLockWithTTL_DelegatesToStorage verifies the same
+// passthrough for the lock-side capability.
+func TestSupportsAttemptLockWithTTL_DelegatesToStorage(t *testing.T) {
+	stub := func(supportsAttemptLock bool) StorageFunc {
+		return StorageFunc{
+			SupportsAttemptLockWithTTLFunc: func() bool { return supportsAttemptLock },
+			AttemptLockFunc: func(_ context.Context, _ string, _ []byte) (bool, []byte, []byte, error) {
+				return true, nil, nil, nil
+			},
+			CompleteFunc: func(_ context.Context, _ string, _ []byte, _ []byte) error { return nil },
+			DeleteFunc:   func(_ context.Context, _ string) error { return nil },
+		}
+	}
+
+	t.Run("storage reports true", func(t *testing.T) {
+		k := New(stub(true))
+		require.True(t, k.SupportsAttemptLockWithTTL())
+	})
+
+	t.Run("storage reports false", func(t *testing.T) {
+		k := New(stub(false))
+		require.False(t, k.SupportsAttemptLockWithTTL())
+	})
 }
 
 // TestComplete_StolenLock verifies that ErrLockStolen from the
