@@ -26,5 +26,5 @@ type options struct {
 }
 
 func defaultBucket() string {
-	return appinfo.Name + "-limiter"
+	return appinfo.Name + "-idempotency"
 }
