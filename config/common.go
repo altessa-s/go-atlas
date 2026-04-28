@@ -5,8 +5,6 @@
 package config
 
 import (
-	"time"
-
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -53,6 +51,10 @@ func AllFallbackBehaviors() []FallbackBehavior {
 
 // StorageNATSConfig defines common NATS-specific configuration for storage backends.
 // Contains settings for NATS KeyValue bucket creation and replication strategy.
+//
+// TTL is intentionally NOT exposed here — TTL belongs at the feature
+// level (e.g. [Idempotency.TTL]) so the same storage struct can be shared
+// across features with different lifetime requirements.
 type StorageNATSConfig struct {
 	// Bucket is the name of the NATS KeyValue bucket.
 	// If empty, a default bucket name will be generated based on service name.
@@ -61,16 +63,6 @@ type StorageNATSConfig struct {
 	// Replicas defines the number of replicas for NATS KeyValue storage.
 	// Higher values provide better availability but increase storage overhead.
 	Replicas int `yaml:"replicas" default:"3"`
-
-	// Ttl is the time-to-live for keys stored in this bucket. Zero value
-	// (default) means the consuming factory falls back to its package
-	// default. Consumers that don't honor TTL ignore this field.
-	//
-	// For data/idempotency, set this short enough that a stuck
-	// in-progress key (panic, kill -9 between AttemptLock and Complete)
-	// clears before the message broker exhausts retries — typically a
-	// small multiple of the broker AckWait.
-	Ttl time.Duration `yaml:"ttl"`
 }
 
 // Validate performs validation of the NATS storage configuration.
@@ -79,26 +71,19 @@ func (c *StorageNATSConfig) Validate() error {
 	return ValidateStruct(c,
 		validation.Field(&c.Bucket),
 		validation.Field(&c.Replicas, validation.Min(1), validation.Max(MaxNATSReplicas)),
-		validation.Field(&c.Ttl, validation.Min(time.Duration(0))),
 	)
 }
 
 // StorageRedisConfig defines common Redis-specific configuration for storage backends.
 // Contains Redis-specific settings for key prefixes and storage behavior.
+//
+// TTL is intentionally NOT exposed here — TTL belongs at the feature
+// level (e.g. [Idempotency.TTL]) so the same storage struct can be shared
+// across features with different lifetime requirements.
 type StorageRedisConfig struct {
 	// KeysPrefix is a prefix for all keys in storage.
 	// Useful for namespacing when sharing storage between multiple services.
 	KeysPrefix string `yaml:"keysPrefix"`
-
-	// Ttl is the time-to-live for keys stored under [KeysPrefix]. Zero
-	// value (default) means the consuming factory falls back to its
-	// package default. Consumers that don't honor TTL ignore this field.
-	//
-	// For data/idempotency, set this short enough that a stuck
-	// in-progress key (panic, kill -9 between AttemptLock and Complete)
-	// clears before the message broker exhausts retries — typically a
-	// small multiple of the broker AckWait.
-	Ttl time.Duration `yaml:"ttl"`
 }
 
 // Validate performs validation of the Redis storage configuration.
@@ -106,7 +91,6 @@ func (c *StorageRedisConfig) Validate() error {
 	return ValidateStruct(c,
 		validation.Field(&c.KeysPrefix,
 			validation.When(c.KeysPrefix != "", validation.Length(0, MaxKeyPrefixLength))),
-		validation.Field(&c.Ttl, validation.Min(time.Duration(0))),
 	)
 }
 
@@ -175,11 +159,17 @@ type CacheStorageConfig struct {
 func (c *CacheStorageConfig) Normalize() {
 	switch c.Type {
 	case CacheStorageTypeMemory:
-		c.Memory = &StorageMemoryConfig{}
+		if c.Memory == nil {
+			c.Memory = &StorageMemoryConfig{}
+		}
 	case CacheStorageTypeNats:
-		c.Nats = &StorageNATSConfig{}
+		if c.Nats == nil {
+			c.Nats = &StorageNATSConfig{}
+		}
 	case CacheStorageTypeRedis:
-		c.Redis = &StorageRedisConfig{}
+		if c.Redis == nil {
+			c.Redis = &StorageRedisConfig{}
+		}
 	}
 }
 
