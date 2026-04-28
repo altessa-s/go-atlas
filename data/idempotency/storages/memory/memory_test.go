@@ -101,6 +101,47 @@ func TestMemory_Concurrent(t *testing.T) {
 	require.Equal(t, 1, count, "expected exactly 1 lock acquired")
 }
 
+// TestMemory_AttemptLockWithTTL_OverridesDefault verifies per-call
+// TTL on AttemptLock: a short lockTtl wins over the long default,
+// and the entry is cleaned up by RunCleanup after expiry.
+func TestMemory_AttemptLockWithTTL_OverridesDefault(t *testing.T) {
+	s := New(WithTtl(time.Hour)) // long default
+	ctx := t.Context()
+
+	ok, _, _, err := s.AttemptLockWithTTL(ctx, "k", []byte("lock"), 10*time.Millisecond)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	time.Sleep(20 * time.Millisecond)
+	s.RunCleanup()
+
+	// Re-lock should succeed because the per-call TTL fired.
+	ok, _, _, err = s.AttemptLockWithTTL(ctx, "k", []byte("lock2"), 0)
+	require.NoError(t, err)
+	require.True(t, ok, "per-call lockTtl must override default; key should have expired")
+}
+
+// TestMemory_CompleteWithTTL_OverridesDefault verifies per-call TTL
+// on Complete: a short resultTtl shrinks the entry's lifetime to
+// resultTtl from the moment of Complete.
+func TestMemory_CompleteWithTTL_OverridesDefault(t *testing.T) {
+	s := New(WithTtl(time.Hour)) // long default
+	ctx := t.Context()
+
+	_, _, lockToken, err := s.AttemptLock(ctx, "k", []byte("lock"))
+	require.NoError(t, err)
+
+	err = s.CompleteWithTTL(ctx, "k", []byte("result"), lockToken, 10*time.Millisecond)
+	require.NoError(t, err)
+
+	time.Sleep(20 * time.Millisecond)
+	s.RunCleanup()
+
+	ok, _, _, err := s.AttemptLockWithTTL(ctx, "k", []byte("lock2"), 0)
+	require.NoError(t, err)
+	require.True(t, ok, "per-call resultTtl must override default; key should have expired")
+}
+
 // TestMemory_Complete_StolenLock is the regression test for the
 // stolen-lock CAS guard. Sequence:
 //

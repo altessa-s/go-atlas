@@ -9,6 +9,7 @@ import (
 	"errors"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 
@@ -65,14 +66,26 @@ func New(client redis.UniversalClient, opt ...Option) *Storage {
 	}
 }
 
-// AttemptLock tries to acquire a lock for the given key.
+// AttemptLock tries to acquire a lock for the given key using the
+// backend's configured TTL.
 func (s *Storage) AttemptLock(ctx context.Context, key string, val []byte) (bool, []byte, []byte, error) {
+	return s.AttemptLockWithTTL(ctx, key, val, 0)
+}
+
+// AttemptLockWithTTL is like [Storage.AttemptLock] but lockTtl
+// overrides the backend's configured TTL when positive.
+func (s *Storage) AttemptLockWithTTL(ctx context.Context, key string, val []byte, lockTtl time.Duration) (bool, []byte, []byte, error) {
 	if key == "" {
 		return false, nil, nil, storages.ErrEmptyKey
 	}
 
+	ttl := s.opts.ttl
+	if lockTtl > 0 {
+		ttl = lockTtl
+	}
+
 	// Try to set provided key with NX (only if not exists)
-	ok, err := s.Client().SetNX(ctx, s.Key(key), val, s.opts.ttl).Result()
+	ok, err := s.Client().SetNX(ctx, s.Key(key), val, ttl).Result()
 	if err != nil {
 		return false, nil, nil, coreerrs.WrapOperation(err, "attempt lock in Redis")
 	}
@@ -98,27 +111,40 @@ func (s *Storage) AttemptLock(ctx context.Context, key string, val []byte) (bool
 	return false, data, nil, nil
 }
 
-// Complete marks the key as successfully processed.
+// Complete marks the key as successfully processed using the
+// backend's configured TTL.
 //
 // Uses a Lua script (GET + SET in one round-trip) to verify that
 // the current value still matches lockToken before overwriting.
 // Returns [storages.ErrLockStolen] when the lock has been taken
 // over by another holder or has expired.
 func (s *Storage) Complete(ctx context.Context, key string, val []byte, lockToken []byte) error {
+	return s.CompleteWithTTL(ctx, key, val, lockToken, 0)
+}
+
+// CompleteWithTTL is like [Storage.Complete] but resultTtl overrides
+// the backend's configured TTL when positive. The new TTL applies from
+// the moment of Complete onwards.
+func (s *Storage) CompleteWithTTL(ctx context.Context, key string, val []byte, lockToken []byte, resultTtl time.Duration) error {
 	if key == "" {
 		return storages.ErrEmptyKey
+	}
+
+	ttl := s.opts.ttl
+	if resultTtl > 0 {
+		ttl = resultTtl
 	}
 
 	if lockToken == nil {
 		// No CAS guard requested — fall back to unconditional overwrite.
 		// Used by tests and adapters that bypass the safe path.
-		if err := s.Client().Set(ctx, s.Key(key), val, s.opts.ttl).Err(); err != nil {
+		if err := s.Client().Set(ctx, s.Key(key), val, ttl).Err(); err != nil {
 			return coreerrs.WrapOperation(err, "complete idempotency key in Redis")
 		}
 		return nil
 	}
 
-	ttlMs := strconv.FormatInt(s.opts.ttl.Milliseconds(), 10)
+	ttlMs := strconv.FormatInt(ttl.Milliseconds(), 10)
 	res, err := completeCASScript.Run(ctx, s.Client(),
 		[]string{s.Key(key)},
 		lockToken, val, ttlMs,
@@ -149,3 +175,11 @@ func (s *Storage) Delete(ctx context.Context, key string) error {
 
 	return nil
 }
+
+// SupportsAttemptLockWithTTL implements [storages.Storage]. Redis
+// honors per-call lockTtl via SET NX PX.
+func (s *Storage) SupportsAttemptLockWithTTL() bool { return true }
+
+// SupportsCompleteWithTTL implements [storages.Storage]. Redis
+// honors per-call resultTtl via the Lua script's explicit PX.
+func (s *Storage) SupportsCompleteWithTTL() bool { return true }

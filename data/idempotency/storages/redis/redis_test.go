@@ -221,6 +221,42 @@ func TestStorage_Concurrent(t *testing.T) {
 	require.Equal(t, int32(1), successCount.Load(), "expected exactly 1 successful lock")
 }
 
+// TestStorage_AttemptLockWithTTL_OverridesDefault verifies per-call
+// TTL on AttemptLock via Redis's SET NX with explicit PX.
+func TestStorage_AttemptLockWithTTL_OverridesDefault(t *testing.T) {
+	storage, mr := setupStorage(t)
+	ctx := t.Context()
+
+	ok, _, _, err := storage.AttemptLockWithTTL(ctx, "k", []byte("lock"), 100*time.Millisecond)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	mr.FastForward(200 * time.Millisecond)
+
+	ok, _, _, err = storage.AttemptLockWithTTL(ctx, "k", []byte("lock2"), 0)
+	require.NoError(t, err)
+	require.True(t, ok, "per-call lockTtl must shrink lifetime; key should have expired")
+}
+
+// TestStorage_CompleteWithTTL_OverridesDefault verifies per-call TTL
+// on Complete via the Lua script's SET ... PX argument.
+func TestStorage_CompleteWithTTL_OverridesDefault(t *testing.T) {
+	storage, mr := setupStorage(t)
+	ctx := t.Context()
+
+	_, _, lockToken, err := storage.AttemptLock(ctx, "k", []byte("lock"))
+	require.NoError(t, err)
+
+	err = storage.CompleteWithTTL(ctx, "k", []byte("result"), lockToken, 100*time.Millisecond)
+	require.NoError(t, err)
+
+	mr.FastForward(200 * time.Millisecond)
+
+	ok, _, _, err := storage.AttemptLock(ctx, "k", []byte("lock2"))
+	require.NoError(t, err)
+	require.True(t, ok, "per-call resultTtl must shrink lifetime; key should have expired")
+}
+
 // TestStorage_Complete_StolenLock is the regression test for the
 // stolen-lock CAS guard backed by the Lua script. Sequence:
 //
@@ -266,4 +302,14 @@ func TestStorage_Complete_StolenLock_KeyExpired(t *testing.T) {
 
 	err = storage.Complete(ctx, "k", []byte("a-result"), tokenA)
 	require.ErrorIs(t, err, storages.ErrLockStolen)
+}
+
+func TestStorage_SupportsAttemptLockWithTTL(t *testing.T) {
+	storage, _ := setupStorage(t)
+	require.True(t, storage.SupportsAttemptLockWithTTL())
+}
+
+func TestStorage_SupportsCompleteWithTTL(t *testing.T) {
+	storage, _ := setupStorage(t)
+	require.True(t, storage.SupportsCompleteWithTTL())
 }
