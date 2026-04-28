@@ -69,18 +69,31 @@ func New(opt ...Option) *Storage {
 	return s
 }
 
-// AttemptLock tries to acquire a lock for the given key.
-func (s *Storage) AttemptLock(_ context.Context, key string, val []byte) (bool, []byte, []byte, error) {
+// AttemptLock tries to acquire a lock for the given key using the
+// backend's configured TTL.
+func (s *Storage) AttemptLock(ctx context.Context, key string, val []byte) (bool, []byte, []byte, error) {
+	return s.AttemptLockWithTTL(ctx, key, val, 0)
+}
+
+// AttemptLockWithTTL is like [Storage.AttemptLock] but lockTtl
+// overrides the backend's configured TTL when positive.
+func (s *Storage) AttemptLockWithTTL(_ context.Context, key string, val []byte, lockTtl time.Duration) (bool, []byte, []byte, error) {
 	if key == "" {
 		return false, nil, nil, storages.ErrEmptyKey
+	}
+
+	ttl := s.options.ttl
+	if lockTtl > 0 {
+		ttl = lockTtl
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	if e, exists := s.entries[key]; exists {
-		// Check expiry
-		if s.options.ttl > 0 && time.Now().After(e.expiresAt) {
+		// Check expiry against the entry's own expiresAt — set when it
+		// was created with whatever TTL was active at the time.
+		if !e.expiresAt.IsZero() && time.Now().After(e.expiresAt) {
 			delete(s.entries, key)
 		} else {
 			return false, e.value, nil, nil
@@ -94,8 +107,8 @@ func (s *Storage) AttemptLock(_ context.Context, key string, val []byte) (bool, 
 		createdAt: now,
 	}
 
-	if s.options.ttl > 0 {
-		e.expiresAt = now.Add(s.options.ttl)
+	if ttl > 0 {
+		e.expiresAt = now.Add(ttl)
 	}
 
 	s.entries[key] = e
@@ -105,14 +118,27 @@ func (s *Storage) AttemptLock(_ context.Context, key string, val []byte) (bool, 
 	return true, nil, slices.Clone(val), nil
 }
 
-// Complete marks the key as successfully processed.
+// Complete marks the key as successfully processed using the
+// backend's configured TTL.
 //
 // Returns [storages.ErrLockStolen] when the key has been taken over by
 // another holder (lockToken doesn't match the current value, or the key
 // has expired between AttemptLock and Complete).
-func (s *Storage) Complete(_ context.Context, key string, val []byte, lockToken []byte) error {
+func (s *Storage) Complete(ctx context.Context, key string, val []byte, lockToken []byte) error {
+	return s.CompleteWithTTL(ctx, key, val, lockToken, 0)
+}
+
+// CompleteWithTTL is like [Storage.Complete] but resultTtl overrides
+// the backend's configured TTL when positive. The new TTL applies from
+// the moment of Complete onwards.
+func (s *Storage) CompleteWithTTL(_ context.Context, key string, val []byte, lockToken []byte, resultTtl time.Duration) error {
 	if key == "" {
 		return storages.ErrEmptyKey
+	}
+
+	ttl := s.options.ttl
+	if resultTtl > 0 {
+		ttl = resultTtl
 	}
 
 	s.mu.Lock()
@@ -129,6 +155,11 @@ func (s *Storage) Complete(_ context.Context, key string, val []byte, lockToken 
 	}
 
 	e.value = val
+	if ttl > 0 {
+		e.expiresAt = time.Now().Add(ttl)
+	} else {
+		e.expiresAt = time.Time{}
+	}
 	return nil
 }
 
@@ -149,3 +180,11 @@ func (s *Storage) Delete(_ context.Context, key string) error {
 func (s *Storage) Close() error {
 	return nil
 }
+
+// SupportsAttemptLockWithTTL implements [storages.Storage]. Memory
+// honors per-call lockTtl on AttemptLockWithTTL.
+func (s *Storage) SupportsAttemptLockWithTTL() bool { return true }
+
+// SupportsCompleteWithTTL implements [storages.Storage]. Memory
+// honors per-call resultTtl on CompleteWithTTL.
+func (s *Storage) SupportsCompleteWithTTL() bool { return true }
