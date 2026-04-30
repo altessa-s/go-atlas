@@ -470,3 +470,34 @@ func TestTranslator_VisitorInterface(t *testing.T) {
 	// Verify it implements filter.Visitor
 	var _ filter.Visitor = trans
 }
+
+func TestTranslator_CustomFunction_CompareField(t *testing.T) {
+	parser, err := filter.NewParser(
+		filter.WithParserNoCache(),
+		filter.WithCustomFunctions(map[string]filter.CustomFunction{
+			"createdAfter": filter.CompareField("createdAt", filter.OpGT),
+		}),
+	)
+	require.NoError(t, err)
+
+	t.Run("plain target field", func(t *testing.T) {
+		node, err := parser.Parse(t.Context(), `createdAfter("2024-01-01")`)
+		require.NoError(t, err)
+
+		got, err := NewTranslator().Translate(node)
+		require.NoError(t, err)
+		require.JSONEq(t, `{"createdAt":{"$gt":"2024-01-01"}}`, bsonToJSON(got))
+	})
+
+	t.Run("with field mapping to db column", func(t *testing.T) {
+		node, err := parser.Parse(t.Context(), `createdAfter("2024-01-01")`)
+		require.NoError(t, err)
+
+		trans := NewTranslator(filter.WithFieldMapping(map[string]string{
+			"createdAt": "created_at",
+		}))
+		got, err := trans.Translate(node)
+		require.NoError(t, err)
+		require.JSONEq(t, `{"created_at":{"$gt":"2024-01-01"}}`, bsonToJSON(got))
+	})
+}
