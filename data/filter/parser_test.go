@@ -5,6 +5,7 @@
 package filter
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -537,4 +538,161 @@ func TestNode_Children(t *testing.T) {
 		}
 		require.Equal(t, 3, count, "ListNode children")
 	})
+}
+
+func TestParser_Parse_CustomFunction_CompareField(t *testing.T) {
+	p, err := NewParser(
+		WithParserNoCache(),
+		WithCustomFunctions(map[string]CustomFunction{
+			"createdAfter": CompareField("createdAt", OpGT),
+		}),
+	)
+	require.NoError(t, err)
+
+	node, err := p.Parse(t.Context(), `createdAfter("2024-01-01")`)
+	require.NoError(t, err)
+
+	binOp, ok := node.(*BinaryOpNode)
+	require.True(t, ok, "expected BinaryOpNode, got %T", node)
+	require.Equal(t, OpGT, binOp.Op)
+
+	ident, ok := binOp.Left.(*IdentNode)
+	require.True(t, ok, "Left is not IdentNode, got %T", binOp.Left)
+	require.Equal(t, "createdAt", ident.Name)
+
+	lit, ok := binOp.Right.(*LiteralNode)
+	require.True(t, ok, "Right is not LiteralNode, got %T", binOp.Right)
+	require.Equal(t, "2024-01-01", lit.Value)
+}
+
+func TestParser_Parse_CustomFunction_HandlerError(t *testing.T) {
+	p, err := NewParser(
+		WithParserNoCache(),
+		WithCustomFunctions(map[string]CustomFunction{
+			"alwaysFails": func([]Node) (Node, error) {
+				return nil, errors.New("nope")
+			},
+		}),
+	)
+	require.NoError(t, err)
+
+	_, err = p.Parse(t.Context(), `alwaysFails(1)`)
+	require.ErrorIs(t, err, ErrInvalidExpression)
+	require.Contains(t, err.Error(), "alwaysFails")
+}
+
+func TestParser_Parse_CustomFunction_NilNode(t *testing.T) {
+	p, err := NewParser(
+		WithParserNoCache(),
+		WithCustomFunctions(map[string]CustomFunction{
+			"returnsNil": func([]Node) (Node, error) { return nil, nil },
+		}),
+	)
+	require.NoError(t, err)
+
+	_, err = p.Parse(t.Context(), `returnsNil(1)`)
+	require.ErrorIs(t, err, ErrInvalidExpression)
+	require.Contains(t, err.Error(), "nil node")
+}
+
+func TestParser_Parse_CustomFunction_Composition(t *testing.T) {
+	p, err := NewParser(
+		WithParserNoCache(),
+		WithCustomFunctions(map[string]CustomFunction{
+			"createdAfter": CompareField("createdAt", OpGT),
+		}),
+	)
+	require.NoError(t, err)
+
+	node, err := p.Parse(t.Context(), `createdAfter("2024-01-01") && status == "ok"`)
+	require.NoError(t, err)
+
+	andNode, ok := node.(*BinaryOpNode)
+	require.True(t, ok, "expected BinaryOpNode, got %T", node)
+	require.Equal(t, OpAnd, andNode.Op)
+
+	left, ok := andNode.Left.(*BinaryOpNode)
+	require.True(t, ok, "Left is not BinaryOpNode, got %T", andNode.Left)
+	require.Equal(t, OpGT, left.Op)
+	leftIdent, ok := left.Left.(*IdentNode)
+	require.True(t, ok)
+	require.Equal(t, "createdAt", leftIdent.Name)
+}
+
+func TestParser_Parse_CustomFunction_BetweenHandler(t *testing.T) {
+	between := func(args []Node) (Node, error) {
+		if len(args) != 3 {
+			return nil, errors.New("between requires 3 args")
+		}
+		field, ok := args[0].(*IdentNode)
+		if !ok {
+			return nil, errors.New("first arg must be a field identifier")
+		}
+		return &BinaryOpNode{
+			Op:    OpAnd,
+			Left:  &BinaryOpNode{Op: OpGTE, Left: field, Right: args[1]},
+			Right: &BinaryOpNode{Op: OpLTE, Left: field, Right: args[2]},
+		}, nil
+	}
+
+	p, err := NewParser(
+		WithParserNoCache(),
+		WithCustomFunctions(map[string]CustomFunction{"between": between}),
+	)
+	require.NoError(t, err)
+
+	node, err := p.Parse(t.Context(), `between(age, 18, 65)`)
+	require.NoError(t, err)
+
+	andNode, ok := node.(*BinaryOpNode)
+	require.True(t, ok, "expected BinaryOpNode, got %T", node)
+	require.Equal(t, OpAnd, andNode.Op)
+	require.Equal(t, OpGTE, andNode.Left.(*BinaryOpNode).Op)
+	require.Equal(t, OpLTE, andNode.Right.(*BinaryOpNode).Op)
+}
+
+func TestParser_Parse_CustomFunction_UnknownFallsThrough(t *testing.T) {
+	p, err := NewParser(
+		WithParserNoCache(),
+		WithCustomFunctions(map[string]CustomFunction{
+			"createdAfter": CompareField("createdAt", OpGT),
+		}),
+	)
+	require.NoError(t, err)
+
+	_, err = p.Parse(t.Context(), `unknownFunc(1)`)
+	require.ErrorIs(t, err, ErrUnsupportedOperation)
+}
+
+func TestNewParser_CustomFunctions_ReservedName(t *testing.T) {
+	_, err := NewParser(WithCustomFunctions(map[string]CustomFunction{
+		"contains": func([]Node) (Node, error) { return nil, nil },
+	}))
+	require.ErrorIs(t, err, ErrInvalidExpression)
+	require.Contains(t, err.Error(), "contains")
+}
+
+func TestNewParser_CustomFunctions_NilHandler(t *testing.T) {
+	_, err := NewParser(WithCustomFunctions(map[string]CustomFunction{
+		"createdAfter": nil,
+	}))
+	require.ErrorIs(t, err, ErrInvalidExpression)
+	require.Contains(t, err.Error(), "nil handler")
+}
+
+func TestCompareField_NonComparisonOperator(t *testing.T) {
+	h := CompareField("createdAt", OpAnd)
+	_, err := h([]Node{&LiteralNode{Value: "x"}})
+	require.ErrorIs(t, err, ErrInvalidExpression)
+	require.Contains(t, err.Error(), "not a comparison")
+}
+
+func TestCompareField_WrongArity(t *testing.T) {
+	h := CompareField("createdAt", OpGT)
+
+	_, err := h(nil)
+	require.ErrorIs(t, err, ErrInvalidExpression)
+
+	_, err = h([]Node{&LiteralNode{Value: 1}, &LiteralNode{Value: 2}})
+	require.ErrorIs(t, err, ErrInvalidExpression)
 }

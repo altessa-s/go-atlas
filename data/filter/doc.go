@@ -124,6 +124,24 @@
 //
 //	created_at >= timestamp("2024-01-01T00:00:00Z") → {"created_at": {"$gte": <time.Time>}}
 //
+// # Custom Functions
+//
+// Register custom CEL functions that the parser expands into arbitrary
+// AST nodes before the filter reaches an evaluator or translator. The
+// CompareField helper covers the common "function with one argument
+// becomes `field op arg`" shape:
+//
+//	parser, _ := filter.NewParser(filter.WithCustomFunctions(map[string]filter.CustomFunction{
+//	    "createdAfter":  filter.CompareField("createdAt", filter.OpGT),
+//	    "updatedAfter":  filter.CompareField("updatedAt", filter.OpGT),
+//	    "createdBefore": filter.CompareField("createdAt", filter.OpLT),
+//	}))
+//
+// After parsing, the AST contains a normal BinaryOpNode against the
+// target field, so WithFieldMapping and WithAllowedFields operate on
+// "createdAt" (not on the virtual "createdAfter" name). Names must not
+// collide with the built-in CEL functions listed above.
+//
 // # Parser Caching
 //
 // The parser includes an LRU cache for parsed expressions:

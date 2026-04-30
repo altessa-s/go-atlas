@@ -57,3 +57,21 @@ func BenchmarkEvaluate_Complex(b *testing.B) {
 		_, _ = eval.Evaluate(node, data)
 	}
 }
+
+func BenchmarkParseCustomFunction(b *testing.B) {
+	p, err := filter.NewParser(
+		filter.WithParserNoCache(),
+		filter.WithCustomFunctions(map[string]filter.CustomFunction{
+			"createdAfter": filter.CompareField("createdAt", filter.OpGT),
+			"updatedAfter": filter.CompareField("updatedAt", filter.OpGT),
+		}),
+	)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+	for b.Loop() {
+		_, _ = p.Parse(b.Context(), `createdAfter("2024-01-01") && updatedAfter("2024-01-02")`)
+	}
+}

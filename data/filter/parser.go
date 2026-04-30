@@ -19,6 +19,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 	exprpb "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
@@ -33,6 +34,7 @@ type parserConfig struct {
 	maxExpressionLength int
 	noCache             bool
 	collector           metrics.Collector
+	customFunctions     map[string]CustomFunction
 }
 
 // defaultParserConfig returns default parser configuration.
@@ -81,12 +83,41 @@ func WithParserCollector(c metrics.Collector) ParserOption {
 	}
 }
 
+// WithCustomFunctions registers user-defined CEL functions that the
+// parser expands into arbitrary AST nodes. Each call name(args...) in
+// a parsed expression is dispatched to the matching [CustomFunction]
+// handler; the node returned by the handler replaces the call in the
+// AST before it reaches any [Evaluator] or translator.
+//
+// Registration is validated at [NewParser] time: handlers must be
+// non-nil and names must not collide with built-in CEL functions
+// (contains, startsWith, endsWith, matches, size, has, timestamp).
+//
+// Handlers run on every parser cache miss, so they should be cheap and
+// side-effect free. The parser does not bound the depth of nodes a
+// handler returns; that limit is enforced by translators during
+// traversal via [WithMaxDepth].
+//
+// Example — exposing semantic time-range filters:
+//
+//	parser, err := filter.NewParser(filter.WithCustomFunctions(map[string]filter.CustomFunction{
+//	    "createdAfter":  filter.CompareField("createdAt", filter.OpGT),
+//	    "updatedAfter":  filter.CompareField("updatedAt", filter.OpGT),
+//	    "createdBefore": filter.CompareField("createdAt", filter.OpLT),
+//	}))
+func WithCustomFunctions(funcs map[string]CustomFunction) ParserOption {
+	return func(cfg *parserConfig) {
+		cfg.customFunctions = funcs
+	}
+}
+
 // Parser parses CEL expressions into filter AST nodes.
 type Parser struct {
 	env                 *cel.Env
 	cache               lru.Cacher[string, Node]
 	maxExpressionLength int
 	metrics             *filterMetrics
+	customFunctions     *coremaps.ImmutableMap[string, CustomFunction]
 }
 
 // getCELEnvironment returns the shared CEL environment, initialized on first call.
@@ -103,12 +134,21 @@ func NewParser(opts ...ParserOption) (*Parser, error) {
 		opt(cfg)
 	}
 
+	if err := validateCustomFunctions(cfg.customFunctions); err != nil {
+		return nil, err
+	}
+
 	env, err := getCELEnvironment()
 	if err != nil {
 		return nil, coreerrs.Wrapf(ErrParseFailed, "%v", err)
 	}
 
-	p := &Parser{env: env, maxExpressionLength: cfg.maxExpressionLength, metrics: newFilterMetrics(cfg.collector)}
+	p := &Parser{
+		env:                 env,
+		maxExpressionLength: cfg.maxExpressionLength,
+		metrics:             newFilterMetrics(cfg.collector),
+		customFunctions:     coremaps.NewImmutableMap(cfg.customFunctions),
+	}
 
 	if !cfg.noCache {
 		cache, err := lru.NewCache[string, Node](cfg.cacheSize)
@@ -317,8 +357,38 @@ func (p *Parser) convertCall(c *exprpb.Expr_Call) (Node, error) {
 		return p.convertTimestamp(c.Args)
 
 	default:
+		if p.customFunctions.Contains(c.Function) {
+			return p.convertCustomFunction(c)
+		}
 		return nil, coreerrs.Wrapf(ErrUnsupportedOperation, "%s", c.Function)
 	}
+}
+
+// convertCustomFunction converts the arguments of a registered call
+// and invokes its [CustomFunction] handler. The handler's error is
+// wrapped with [ErrInvalidExpression] so callers can use [errors.Is].
+// The caller must check [coremaps.ImmutableMap.Contains] first; this
+// method panics if c.Function is not registered.
+func (p *Parser) convertCustomFunction(c *exprpb.Expr_Call) (Node, error) {
+	h, _ := p.customFunctions.Get(c.Function)
+	args := make([]Node, 0, len(c.Args))
+	for _, a := range c.Args {
+		node, err := p.convertExpr(a)
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, node)
+	}
+	out, err := h(args)
+	if err != nil {
+		return nil, coreerrs.Wrapf(ErrInvalidExpression,
+			"custom function %q: %v", c.Function, err)
+	}
+	if out == nil {
+		return nil, coreerrs.Wrapf(ErrInvalidExpression,
+			"custom function %q returned nil node", c.Function)
+	}
+	return out, nil
 }
 
 // convertTimestamp converts a timestamp() call to a LiteralNode with time.Time.
