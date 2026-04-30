@@ -23,6 +23,13 @@ const (
 	// Environment variable unwrapping constants
 	maxDepth           = 10
 	envVarDollarPrefix = "$"
+
+	// dollarSentinel temporarily replaces escaped `$$` sequences during
+	// expansion so the resulting literal `$` is not re-interpreted as an
+	// env-var prefix by subsequent scan iterations or recursive calls.
+	// The control characters at both ends ensure it cannot collide with any
+	// realistic env-var value or user-supplied string.
+	dollarSentinel = "\x00ATL_LITERAL_DOLLAR\x00"
 )
 
 // ErrInvalidConfig is returned when the config parameter is invalid.
@@ -98,8 +105,27 @@ func normalizeEnvKey(key string) string {
 
 // unwrapEnvValue unwraps the environment variable value.
 // Prevents infinite recursion by limiting depth and tracking visited variables.
+//
+// Supported syntax in values:
+//   - "$VAR"          — expanded to the value of VAR (or empty if undefined).
+//   - "$$"            — literal "$" (escape; the second "$" is consumed).
+//   - "$$VAR"         — literal "$VAR" (no expansion of VAR).
+//   - bare "$" with no following [A-Za-z0-9_] — preserved as a literal "$".
+//
+// The "${VAR}" form is not handled here; it is processed separately by
+// substituteEnvVariables when applied to default values and templates.
 func unwrapEnvValue(value string) string {
-	return unwrapEnvValueWithDepthAndOriginal(value, value, 0, make(map[string]bool))
+	return decodeDollarSentinel(unwrapEnvValueWithDepthAndOriginal(value, value, 0, make(map[string]bool)))
+}
+
+// decodeDollarSentinel converts the dollar sentinel back to a literal `$`.
+// Called by the public entry points after expansion completes — never inside
+// the recursive workhorse, so escaped `$` survives every recursive pass.
+func decodeDollarSentinel(s string) string {
+	if !strings.Contains(s, dollarSentinel) {
+		return s
+	}
+	return strings.ReplaceAll(s, dollarSentinel, envVarDollarPrefix)
 }
 
 func unwrapEnvValueWithDepthAndOriginal(value, original string, depth int, visited map[string]bool) string {
@@ -137,15 +163,29 @@ func unwrapEnvValueWithDepthAndOriginal(value, original string, depth int, visit
 		return result
 	}
 
-	// Handle mixed strings with embedded environment variables
+	// Handle mixed strings with embedded environment variables.
+	// Track scan offset so a literal `$` (no variable name following, or a name
+	// already visited) is preserved in place — important for values like
+	// regex patterns ending in `$` or arbitrary text containing a bare `$`.
 	result := value
 	changed := false
+	offset := 0
 
 	for {
-		// Find the first $VAR pattern
-		dollarIndex := strings.Index(result, envVarDollarPrefix)
+		dollarIndex := strings.Index(result[offset:], envVarDollarPrefix)
 		if dollarIndex == -1 {
-			break // No more $ found
+			break
+		}
+		dollarIndex += offset
+
+		// Escape: `$$` collapses to a literal `$` (encoded as a sentinel so it
+		// is not re-interpreted on subsequent passes). The second `$` is
+		// consumed so a following name is NOT expanded (e.g. `$$VAR` → `$VAR`).
+		if dollarIndex+1 < len(result) && result[dollarIndex+1] == '$' {
+			result = result[:dollarIndex] + dollarSentinel + result[dollarIndex+2:]
+			offset = dollarIndex + len(dollarSentinel)
+			changed = true
+			continue
 		}
 
 		// Find the end of the variable name (next non-alphanumeric character or end of string)
@@ -163,21 +203,23 @@ func unwrapEnvValueWithDepthAndOriginal(value, original string, depth int, visit
 			if !visited[key] {
 				envValue := os.Getenv(key)
 				if envValue != "" {
-					// Replace $VAR with its value
+					// Replace $VAR with its value and continue scanning after the substitution.
 					result = result[:dollarIndex] + envValue + result[end:]
-					changed = true
-					continue // Continue processing from the beginning
-				} else {
-					// Remove undefined $VAR entirely
-					result = result[:dollarIndex] + result[end:]
+					offset = dollarIndex + len(envValue)
 					changed = true
 					continue
 				}
+				// Remove undefined $VAR entirely; resume scanning from the same position.
+				result = result[:dollarIndex] + result[end:]
+				offset = dollarIndex
+				changed = true
+				continue
 			}
 		}
 
-		// Move past this $ if we couldn't replace it
-		result = result[:dollarIndex] + result[dollarIndex+1:]
+		// No variable name follows this `$` (or the name is already visited):
+		// preserve it as a literal and advance past it.
+		offset = dollarIndex + 1
 	}
 
 	// Recursively process the result if it changed and we haven't hit max depth
@@ -214,8 +256,16 @@ func substituteEnvVariables(input string) string {
 // unwrapEnvValueStrict is the strict variant of unwrapEnvValue.
 // It returns an error if any referenced environment variable is not defined.
 // A variable that is defined but set to an empty string is not considered an error.
+//
+// Supported syntax matches unwrapEnvValue: "$VAR" expands; "$$" yields a
+// literal "$" (and the next char is not interpreted as a variable name);
+// a bare "$" with no following [A-Za-z0-9_] is preserved as a literal.
 func unwrapEnvValueStrict(value string) (string, error) {
-	return unwrapEnvValueStrictWithDepth(value, value, 0, make(map[string]bool))
+	result, err := unwrapEnvValueStrictWithDepth(value, value, 0, make(map[string]bool))
+	if err != nil {
+		return "", err
+	}
+	return decodeDollarSentinel(result), nil
 }
 
 func unwrapEnvValueStrictWithDepth(value, original string, depth int, visited map[string]bool) (string, error) {
@@ -253,14 +303,27 @@ func unwrapEnvValueStrictWithDepth(value, original string, depth int, visited ma
 		return unwrapEnvValueStrictWithDepth(envValue, original, depth+1, visited)
 	}
 
-	// Handle mixed strings with embedded environment variables
+	// Handle mixed strings with embedded environment variables.
+	// See unwrapEnvValueWithDepthAndOriginal — same logic.
 	result := value
 	changed := false
+	offset := 0
 
 	for {
-		dollarIndex := strings.Index(result, envVarDollarPrefix)
+		dollarIndex := strings.Index(result[offset:], envVarDollarPrefix)
 		if dollarIndex == -1 {
 			break
+		}
+		dollarIndex += offset
+
+		// Escape: `$$` → literal `$` (encoded as a sentinel so it is not
+		// re-interpreted on subsequent passes). Consume both characters so
+		// a following name is not expanded (e.g. `$$VAR` → `$VAR`).
+		if dollarIndex+1 < len(result) && result[dollarIndex+1] == '$' {
+			result = result[:dollarIndex] + dollarSentinel + result[dollarIndex+2:]
+			offset = dollarIndex + len(dollarSentinel)
+			changed = true
+			continue
 		}
 
 		start := dollarIndex + 1
@@ -280,12 +343,15 @@ func unwrapEnvValueStrictWithDepth(value, original string, depth int, visited ma
 					return "", fmt.Errorf("%w: $%s", ErrUndefinedEnvVar, key)
 				}
 				result = result[:dollarIndex] + envValue + result[end:]
+				offset = dollarIndex + len(envValue)
 				changed = true
 				continue
 			}
 		}
 
-		result = result[:dollarIndex] + result[dollarIndex+1:]
+		// No variable name follows this `$` (or the name is already visited):
+		// preserve it as a literal and advance past it.
+		offset = dollarIndex + 1
 	}
 
 	if changed && depth < maxDepth-1 {
