@@ -25,11 +25,3 @@ var ErrLockStolen = errors.New("idempotency: lock stolen by another holder")
 // by AttemptLock to validate the CAS token; passing nil would silently
 // disable the stolen-lock guard.
 var ErrMissingLockState = errors.New("idempotency: missing lock state")
-
-// ErrPerCallTtlNotSupported is returned by [Storage.CompleteWithTTL]
-// when the backend can't honor a positive resultTtl. Currently only
-// NATS lacks the primitive (nats.go v1.51.0's KV.Put/Update don't
-// accept TTL options). Callers that hit this can either pass
-// resultTtl=0 to fall back to the bucket TTL, or migrate to a backend
-// that supports per-call TTL (memory, redis).
-var ErrPerCallTtlNotSupported = errors.New("idempotency: per-call TTL not supported by backend")

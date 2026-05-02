@@ -84,10 +84,45 @@ func (m *MockIdempotencyStorage) AttemptLockWithTTL(ctx context.Context, key str
 	return m.AttemptLock(ctx, key, val)
 }
 
-// CompleteWithTTL ignores resultTtl and delegates to Complete — the
-// mock doesn't model TTL.
-func (m *MockIdempotencyStorage) CompleteWithTTL(ctx context.Context, key string, val []byte, lockToken []byte, _ time.Duration) error {
-	return m.Complete(ctx, key, val, lockToken)
+// Steal atomically replaces the value stored under key when its
+// current bytes equal expectedVal. Returns a copy of newVal as the
+// fresh lock token, matching the real memory backend's CAS contract.
+// Returns [storages.ErrLockStolen] when the key is missing or the
+// current value differs from expectedVal.
+func (m *MockIdempotencyStorage) Steal(_ context.Context, key string, expectedVal, newVal []byte) ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	current, exists := m.entries[key]
+	if !exists {
+		return nil, storages.ErrLockStolen
+	}
+	if !bytes.Equal(current, expectedVal) {
+		return nil, storages.ErrLockStolen
+	}
+	m.entries[key] = newVal
+	return slices.Clone(newVal), nil
+}
+
+// SetEntry overwrites the raw bytes stored under key without any CAS
+// check. Tests use this to inject a forged InProgress wire (e.g. with
+// LockedAt set in the past) to exercise the orphan-steal path.
+func (m *MockIdempotencyStorage) SetEntry(key string, val []byte) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.entries[key] = slices.Clone(val)
+}
+
+// Entry returns a copy of the bytes stored under key. The second
+// return value is false when the key is absent. Used by tests that
+// need to inspect or forge wire-level state.
+func (m *MockIdempotencyStorage) Entry(key string) ([]byte, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	val, ok := m.entries[key]
+	if !ok {
+		return nil, false
+	}
+	return slices.Clone(val), true
 }
 
 // Delete removes the entry for key.
@@ -97,13 +132,3 @@ func (m *MockIdempotencyStorage) Delete(_ context.Context, key string) error {
 	delete(m.entries, key)
 	return nil
 }
-
-// SupportsAttemptLockWithTTL reports true. The mock accepts any TTL
-// on AttemptLockWithTTL (silently ignored).
-func (m *MockIdempotencyStorage) SupportsAttemptLockWithTTL() bool { return true }
-
-// SupportsCompleteWithTTL reports true. The mock accepts any TTL on
-// CompleteWithTTL (silently ignored). Tests that care about the
-// false-case (NATS-style) should construct a Storage that returns
-// false explicitly.
-func (m *MockIdempotencyStorage) SupportsCompleteWithTTL() bool { return true }

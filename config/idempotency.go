@@ -32,6 +32,16 @@ type Idempotency struct {
 	// Keys are automatically expired after this duration to prevent storage bloat.
 	TTL time.Duration `yaml:"ttl" default:"24h"`
 
+	// MaxLockDuration is the threshold for treating an in-progress
+	// lock as orphaned. AttemptLock callers that observe a stale
+	// InProgress entry older than this attempt a CAS-steal. When unset
+	// (zero), the Keeper logs a one-time warning at construction and
+	// falls back to the package-level default
+	// (idempotency.DefaultMaxLockDuration, 5m). Set explicitly to
+	// silence the warning and document an evaluated value for this
+	// service.
+	MaxLockDuration time.Duration `yaml:"maxLockDuration"`
+
 	// Storage defines the storage configuration for idempotency keys.
 	// Required, specifies backend and settings.
 	Storage *CacheStorageConfig `yaml:"storage"`
@@ -51,6 +61,8 @@ func DefaultIdempotency() Idempotency {
 func (i *Idempotency) Validate() error {
 	return ValidateStruct(i,
 		validation.Field(&i.TTL, validation.Required, ozzo_rules.Duration(), validation.Min(time.Minute)),
+		validation.Field(&i.MaxLockDuration, validation.When(i.MaxLockDuration != 0,
+			ozzo_rules.Duration(), validation.Min(time.Second))),
 		validation.Field(&i.Storage, validation.Required),
 	)
 }

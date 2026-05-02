@@ -164,35 +164,6 @@ func TestStorage_AttemptLockWithTTL_OverridesBucketTtl(t *testing.T) {
 	require.True(t, ok, "per-call lockTtl should have expired the entry well before bucket TTL")
 }
 
-// TestStorage_CompleteWithTTL_ReturnsErrPerCallTtlNotSupported
-// documents the NATS limitation: KV.Put doesn't accept per-message
-// TTL options, so any positive resultTtl must be rejected loudly
-// rather than silently degrading to bucket TTL.
-func TestStorage_CompleteWithTTL_ReturnsErrPerCallTtlNotSupported(t *testing.T) {
-	storage := setupStorage(t)
-	ctx := t.Context()
-
-	_, _, lockToken, err := storage.AttemptLock(ctx, "k", []byte("lock"))
-	require.NoError(t, err)
-
-	err = storage.CompleteWithTTL(ctx, "k", []byte("result"), lockToken, 5*time.Minute)
-	require.ErrorIs(t, err, storages.ErrPerCallTtlNotSupported,
-		"NATS lacks per-call TTL on Complete and must surface the limitation explicitly")
-}
-
-// TestStorage_CompleteWithTTL_ZeroFallsThroughToBucketTtl verifies
-// that resultTtl=0 is the documented escape hatch — the call
-// delegates to plain Complete and writes succeed.
-func TestStorage_CompleteWithTTL_ZeroFallsThroughToBucketTtl(t *testing.T) {
-	storage := setupStorage(t)
-	ctx := t.Context()
-
-	_, _, lockToken, err := storage.AttemptLock(ctx, "k", []byte("lock"))
-	require.NoError(t, err)
-
-	require.NoError(t, storage.CompleteWithTTL(ctx, "k", []byte("result"), lockToken, 0))
-}
-
 // TestStorage_Complete_StolenLock is the regression test for the
 // stolen-lock CAS guard backed by [jetstream.KV.Update] with a fixed
 // expected revision. Sequence:
@@ -239,14 +210,56 @@ func TestStorage_Complete_StolenLock_MalformedToken(t *testing.T) {
 	require.ErrorIs(t, err, storages.ErrLockStolen)
 }
 
-func TestStorage_SupportsAttemptLockWithTTL(t *testing.T) {
+// TestStorage_Steal_Success verifies the Get→bytes.Equal→Update CAS
+// happy path: when current bytes match expectedVal, the value is
+// replaced and a fresh revision-encoded token is returned.
+func TestStorage_Steal_Success(t *testing.T) {
 	storage := setupStorage(t)
-	require.True(t, storage.SupportsAttemptLockWithTTL(),
-		"nats AttemptLockWithTTL works via jetstream.KeyTTL on Create")
+	ctx := t.Context()
+
+	_, _, origToken, err := storage.AttemptLock(ctx, "k", []byte("orphan"))
+	require.NoError(t, err)
+	require.NotNil(t, origToken)
+
+	newToken, err := storage.Steal(ctx, "k", []byte("orphan"), []byte("fresh"))
+	require.NoError(t, err)
+	require.NotNil(t, newToken)
+	require.NotEqual(t, origToken, newToken,
+		"NATS Steal must return a fresh revision-encoded token")
+
+	// Stale revision token must no longer satisfy Complete.
+	err = storage.Complete(ctx, "k", []byte("done"), origToken)
+	require.ErrorIs(t, err, storages.ErrLockStolen)
+	require.NoError(t, storage.Complete(ctx, "k", []byte("done"), newToken))
 }
 
-func TestStorage_SupportsCompleteWithTTL(t *testing.T) {
+// TestStorage_Steal_Mismatch verifies that Steal surfaces
+// ErrLockStolen when current bytes differ from expectedVal.
+func TestStorage_Steal_Mismatch(t *testing.T) {
 	storage := setupStorage(t)
-	require.False(t, storage.SupportsCompleteWithTTL(),
-		"nats CompleteWithTTL is unsupported (KV.Put/Update have no TTL option)")
+	ctx := t.Context()
+
+	_, _, _, err := storage.AttemptLock(ctx, "k", []byte("current"))
+	require.NoError(t, err)
+
+	_, err = storage.Steal(ctx, "k", []byte("stale"), []byte("fresh"))
+	require.ErrorIs(t, err, storages.ErrLockStolen)
+
+	_, existing, _, _ := storage.AttemptLock(ctx, "k", []byte("retry"))
+	require.Equal(t, "current", string(existing),
+		"failed Steal must not modify the stored value")
+}
+
+// TestStorage_Steal_KeyMissing verifies the ErrKeyNotFound branch.
+func TestStorage_Steal_KeyMissing(t *testing.T) {
+	storage := setupStorage(t)
+	_, err := storage.Steal(t.Context(), "nope", []byte("any"), []byte("fresh"))
+	require.ErrorIs(t, err, storages.ErrLockStolen)
+}
+
+// TestStorage_Steal_EmptyKey verifies the empty-key contract.
+func TestStorage_Steal_EmptyKey(t *testing.T) {
+	storage := setupStorage(t)
+	_, err := storage.Steal(t.Context(), "", []byte("any"), []byte("fresh"))
+	require.ErrorIs(t, err, storages.ErrEmptyKey)
 }

@@ -18,7 +18,8 @@ CAS guard — a stale holder cannot overwrite a fresh one. Three pluggable backe
 | Long-running operation; concurrent caller should see "in progress, retry later" | `AttemptLock` + check `State.Status == StatusInProgress` |
 | Need to know success vs failure from a previous run | `state.Status` enum + `state.Data` payload |
 | Operation that may exceed lock TTL — protect against stolen-lock overwrite | `Complete` returns `ErrLockStolen` |
-| Different lock vs result lifetimes (short lock, long result cache) | `AttemptLockWithTTL` + `CompleteWithTTL` |
+| Different lock lifetime per key (short OTP vs long webhook) | `AttemptLockWithOpts` with `LockTTL` |
+| Crashed holder leaves an InProgress entry — unblock retries before bucket TTL fires | `WithMaxLockDuration` (or per-call `MaxLockDuration`) — orphan-lock CAS-steal |
 | Failure cleanup so the next attempt can re-claim | `Delete` |
 
 ---
@@ -99,6 +100,7 @@ YAML:
 ```yaml
 idempotency:
   ttl: 1h
+  maxLockDuration: 2m   # silences the startup warning; pick a value tuned for your handler
   storage:
     type: redis
     redis:
@@ -114,15 +116,12 @@ Memory backend additionally accepts `storage.memory.cleanupSchedule` (cron strin
 | Method | Behavior |
 |---|---|
 | `AttemptLock(ctx, key)` | Atomic CAS claim. `(true, *State, nil)` on win (State carries CAS token); `(false, *State, nil)` on collision |
-| `AttemptLockWithTTL(ctx, key, lockTtl)` | Same as AttemptLock with per-call lock TTL. `lockTtl=0` falls back to bucket default |
+| `AttemptLockWithOpts(ctx, key, opts)` | Same as AttemptLock with per-call overrides — `LockTTL` (lock lifetime) and `MaxLockDuration` (orphan-reclaim threshold). Zero values fall back to backend / Keeper defaults |
 | `Complete(ctx, key, data, lockState)` | CAS-guarded write of success state. Returns `ErrLockStolen` if lock was taken over since AttemptLock |
-| `CompleteWithTTL(ctx, key, data, lockState, resultTtl)` | Per-call result TTL. **NATS** returns `ErrPerCallTtlNotSupported` if `resultTtl > 0` |
 | `Delete(ctx, key)` | Best-effort cleanup. Use on failure paths so the next attempt can re-claim |
-| `SupportsAttemptLockWithTTL()` | Capability bit — true on every in-tree backend today |
-| `SupportsCompleteWithTTL()` | Capability bit — `false` on NATS only |
 
-`*State` returned by `AttemptLock` carries a private CAS token. Pass it back to `Complete` or `CompleteWithTTL` exactly as received; passing
-`nil` returns `ErrMissingLockState` (the guard cannot be silently disabled).
+`*State` returned by `AttemptLock` carries a private CAS token. Pass it back to `Complete` exactly as received; passing `nil` returns
+`ErrMissingLockState` (the guard cannot be silently disabled).
 
 ---
 
@@ -152,51 +151,178 @@ equality; NATS uses revision and ignores the nonce).
 
 ---
 
-## Per-call TTL
+## Per-call overrides
 
-Two TTLs, independent:
-
-- **lock TTL** — how long a key stays locked in `InProgress` before another attempt can reclaim. Should be short (~max processing time × N retries).
-- **result TTL** — how long the success state is cached for downstream callers. Should be long (whatever dedup window you actually need).
-
-Typical webhook deduplication shape:
+`AttemptLockWithOpts(ctx, key, opts)` accepts a struct of per-call
+overrides. Both fields are optional; zero values fall back to defaults.
 
 ```go
-ok, state, err := keeper.AttemptLockWithTTL(ctx, webhookID, 30*time.Second) // short lock
-if err != nil { return err }
-if !ok { return cached(state) }
-
-result, err := process(ctx)
-if err != nil { _ = keeper.Delete(ctx, webhookID); return err }
-
-return keeper.CompleteWithTTL(ctx, webhookID, result, state, 24*time.Hour) // long result
+ok, state, err := keeper.AttemptLockWithOpts(ctx, key, idempotency.AttemptLockOpts{
+    LockTTL:         30 * time.Second, // override storage TTL for this lock
+    MaxLockDuration: 30 * time.Second, // tighter orphan-reclaim threshold
+})
 ```
 
-Resolution order (highest precedence first):
+| Field             | Resolution order (first match wins)                                |
+|-------------------|--------------------------------------------------------------------|
+| `LockTTL`         | per-call value > backend `WithTtl` / `WithMaxAge` > 24h hard default |
+| `MaxLockDuration` | per-call value > Keeper `WithMaxLockDuration` > `DefaultMaxLockDuration` (5m) |
 
-1. Per-call `lockTtl` / `resultTtl` argument if positive
-2. Backend-configured TTL (`memorystorage.WithTtl(d)` / `redisstorage.WithTtl(d)` / `natsstorage.WithMaxAge(d)`)
-3. Hardcoded default (24 hours)
+Useful when different keys within one Keeper need different lifetimes
+— short-lived OTP tokens vs long-running webhook processing — or when
+a slow operation genuinely needs more headroom before the orphan-steal
+kicks in.
 
-### NATS limitation
+Result TTL (lifetime of the success state after `Complete`) is fixed
+per Keeper instance via the backend-level option. If your operation
+genuinely needs `lock=30s, result=24h` style dual-TTL semantics, file
+an issue with the use case — the dual-TTL API was added speculatively
+and removed because no in-tree caller exercised it.
 
-`nats.go` v1.51.0 doesn't expose per-message TTL on `KV.Put` or `KV.Update`. As a result:
+### NATS lock-TTL requirement
 
-| Method | NATS support |
+NATS per-call `LockTTL > 0` works via `jetstream.KeyTTL` on Create —
+but the bucket must be created with `LimitMarkerTTL` (handled
+automatically in [`storages/nats.New`](../../data/idempotency/storages/nats)).
+This requires **NATS server 2.11+**. Older servers fail bucket creation
+at `New()` time with `ErrLimitMarkerTTLNotSupported`.
+
+---
+
+## Startup warning when `MaxLockDuration` is unset
+
+`Keeper.New` emits a single `slog.Warn` when no `WithMaxLockDuration`
+option is passed. The intent is **soft acknowledgment** — make every
+service owner think about whether the package default fits their
+workload, without breaking on-boarding the way Required-validation
+would.
+
+```
+level=WARN msg="idempotency: using default MaxLockDuration; review for your service" default=5m0s fix="pass idempotency.WithMaxLockDuration(d) to acknowledge or override"
+```
+
+### Why this needs a deliberate choice
+
+`MaxLockDuration` is the hinge of the [orphan-lock reclaim](#orphan-lock-reclaim)
+mechanism: the threshold past which a stale InProgress entry is treated
+as abandoned and forcibly reclaimed by the next `AttemptLock`. Picking
+it wrong has asymmetric costs:
+
+| Too short relative to real handler p99 | Too long relative to retry window |
 |---|---|
-| `AttemptLockWithTTL(... lockTtl > 0)` | ✓ via `jetstream.KeyTTL` on Create |
-| `CompleteWithTTL(... resultTtl > 0)` | ✗ returns `ErrPerCallTtlNotSupported` |
+| **False-positive steal.** Holder A is still legitimately working when caller B reclaims the key and starts its own work. A finishes, calls `Complete` → `ErrLockStolen` (correctly rejected), but B re-runs the same operation. **Duplicate side-effects** — second SMS, second bank call, second webhook delivery. Worse than the original "stuck in-progress" symptom. | **Reclaim never fires.** If `MaxLockDuration` exceeds the broker's retry window (e.g. NATS JetStream `AckWait × MaxDeliver`), the broker has already given up and dropped the message before any caller would have triggered reclaim. The orphan then waits out the storage bucket TTL — typically 24h — exactly the failure mode this feature was meant to fix. |
 
-For cross-backend code paths, branch on the capability bit:
+The "right" value is service-specific: it depends on the realistic
+upper bound of handler runtime *and* the retry window of whatever
+upstream is calling in. A service with synchronous HTTP traffic and
+30s client timeouts wants something close to 30-60s. A worker behind
+a NATS consumer with `AckWait=30s, MaxDeliver=10` wants something
+around the resulting ~5min retry window. A long-running workflow
+calling out to slow KYC providers may legitimately need 10-15 min.
+
+### Why 5 minutes as the package default
+
+The `DefaultMaxLockDuration = 5 * time.Minute` was picked as a
+reasonable middle ground for the "no one tuned this" case:
+
+- **Above the p99 of typical HTTP/webhook handlers.** Most synchronous
+  handlers complete in <30s. Slow externals (PSP/KYC/SMS gateways) can
+  push handlers to 2-3 min, but anything beyond that is uncommon. 5 min
+  leaves headroom for the long tail without being absurd.
+- **Matches default NATS JetStream retry windows.** A consumer
+  with `AckWait=30s, MaxDeliver=10` retries for ~5 min before sending
+  the message to DLQ or dropping it. Reclaim past that point is
+  futile — no caller will retry to trigger it.
+- **Below typical bucket TTLs.** Default storage TTL is 24h, so an
+  unreclaimed orphan is always cleaned up *eventually*. 5 min is the
+  point where "wait for the next retry to reclaim" beats "wait for
+  bucket TTL".
+
+It is **not** universally correct, which is why the warning exists —
+to shift the cost of the wrong default from "silent production bug"
+to "one log line at boot that nudges you to evaluate".
+
+### Alternatives considered (and why they were rejected)
+
+- **Required validation** (`WithMaxLockDuration` mandatory; `New`
+  returns an error or panics when unset). Rejected: forces every
+  caller — including tests, factory configs, and downstream services
+  on upgrade — to write the same value. When ~90% of callers want the
+  same number, that number should be the default. Required would
+  break on-boarding to score a small reduction in false-positive
+  steal risk.
+- **Sentinel + lazy resolution without warning.** Functionally
+  identical to a default, but loses the "make teams think" property
+  this whole change was about. The warning is the entire point.
+- **Per-process dedup of the warning.** Rejected as unnecessary —
+  one or two Keepers per service produces one or two log lines, which
+  is exactly the desired signal.
+
+### Silencing the warning
+
+Pass **any** explicit positive value to `WithMaxLockDuration`:
 
 ```go
-if keeper.SupportsCompleteWithTTL() {
-    return keeper.CompleteWithTTL(ctx, key, result, state, 24*time.Hour)
-}
-return keeper.Complete(ctx, key, result, state) // bucket TTL
+keeper := idempotency.New(storage,
+    idempotency.WithMaxLockDuration(2*time.Minute), // tuned for this service
+)
+
+// or, if 5m is genuinely fine after evaluating the tradeoffs above:
+keeper := idempotency.New(storage,
+    idempotency.WithMaxLockDuration(idempotency.DefaultMaxLockDuration), // explicit acknowledgment
+)
 ```
 
-`AttemptLockWithTTL` works on every in-tree backend; the capability split exists because the limitation is Complete-side only.
+Both forms silence the warning. The second one is the "I read the
+docs and 5m fits my service" idiom — code review can grep for it to
+confirm the choice was deliberate.
+
+Factory users set `idempotency.maxLockDuration` in YAML — `Build()`
+forwards it via `WithMaxLockDuration` only when set, so leaving the
+field empty intentionally surfaces the warning at boot. Keep
+`maxLockDuration` empty to flag "this service has not been tuned
+yet"; fill it in after evaluating handler runtime + upstream retry
+window.
+
+---
+
+## Orphan-lock reclaim
+
+The other classic bug: a holder crashes between `AttemptLock` and
+`Complete`/`Delete`. The InProgress entry sits in storage until the
+bucket TTL fires (default 24h), and every retry sees "in progress" even
+though no one is processing.
+
+Every InProgress wire embeds a `LockedAt` timestamp. On `AttemptLock`
+collision, if the existing entry has `Status == InProgress` and is
+older than the resolved `MaxLockDuration`, the Keeper calls the
+storage layer's `Steal` primitive to atomically replace the orphan
+with a fresh wire — and the new holder gets a fresh CAS token.
+
+The crashed holder's stale `Complete` then surfaces `ErrLockStolen`
+(its CAS token is no longer current), so callers see the normal
+"we lost the race" path and skip writing.
+
+Per-backend Steal mechanism:
+
+| Backend | Mechanism |
+|---|---|
+| memory | mutex + `bytes.Equal` + replace |
+| redis | Lua script: `GET == expectedVal ? SET PX ttl : ErrLockStolen` |
+| nats | `kv.Get` → `bytes.Equal` → `kv.Update(key, val, revision)` (revision check protects the Get/Update gap) |
+
+Tune via:
+
+| Setting                                 | Effect                                                       |
+|-----------------------------------------|--------------------------------------------------------------|
+| `WithMaxLockDuration(d)` (default `5m`) | Keeper-wide threshold for collision-time orphan-reclaim      |
+| `AttemptLockOpts{MaxLockDuration: d}`   | Per-call override (positive value wins over Keeper default)  |
+| Keeper field set to `0`                 | Disables reclaim entirely — all collisions surface as in-progress |
+
+Reclaim only triggers on the *next* `AttemptLock` collision; there's
+no background sweeper. If no caller retries the key, the entry
+remains until the bucket TTL fires (which is the original failure
+mode without this feature).
 
 ---
 
@@ -230,7 +356,6 @@ Callers don't mutate `*State` themselves — write through `Complete(data, state
 | `ErrEmptyKey` | Empty key passed to AttemptLock/Complete/Delete — silently succeeding would disable dedupe |
 | `ErrMissingLockState` | `Complete(... nil)` — the state returned by AttemptLock is required for the CAS guard |
 | `ErrLockStolen` | Lock was taken over by another holder between AttemptLock and Complete |
-| `ErrPerCallTtlNotSupported` | NATS `CompleteWithTTL(... resultTtl > 0)` — backend cannot honor per-call result TTL |
 
 ---
 
@@ -272,12 +397,10 @@ broken).
 authoritative — drop it silently. Don't retry by re-acquiring; the new holder is doing the work. If this is frequent, raise the lock TTL or
 shorten the operation.
 
-**`ErrPerCallTtlNotSupported` from `CompleteWithTTL` on NATS.** You passed a positive `resultTtl` against the NATS backend. Either set
-`resultTtl=0` (falls back to bucket TTL) or branch on `SupportsCompleteWithTTL()` to keep the call cross-backend.
-
 **`State.Status == StatusInProgress` for very long.** Lock TTL is too long relative to the operation, or a holder crashed mid-processing.
-Bucket TTL eventually frees the key; in the meantime callers see "in progress" indefinitely. Tune `lockTtl` to expected operation duration ×
-small multiple.
+Tune `WithMaxLockDuration` (or per-call `MaxLockDuration`) to expected operation duration × small multiple — the next AttemptLock past
+that threshold reclaims the orphan via CAS-steal. If no caller retries, the bucket TTL eventually frees the key; in the meantime callers
+see "in progress" until either a retry triggers reclaim or the bucket TTL fires.
 
 **Memory backend "drift" between processes.** Memory storage is in-process — two instances of the same service won't see each other's locks.
 Use Redis or NATS for distributed deployments. Memory is for tests and single-binary services.

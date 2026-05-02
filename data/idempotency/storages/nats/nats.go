@@ -5,6 +5,7 @@
 package nats
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -102,19 +103,6 @@ func (s *Storage) AttemptLockWithTTL(ctx context.Context, key string, val []byte
 	return true, nil, encodeRevisionToken(revision), nil
 }
 
-// CompleteWithTTL is like [Storage.Complete] but accepts a per-call
-// resultTtl. The NATS backend cannot honor a positive resultTtl —
-// nats.go v1.51.0's KV.Put/Update don't expose per-message TTL — so
-// any resultTtl > 0 returns [storages.ErrPerCallTtlNotSupported].
-// Pass resultTtl = 0 to fall back to the bucket TTL (delegates to
-// Complete).
-func (s *Storage) CompleteWithTTL(ctx context.Context, key string, val []byte, lockToken []byte, resultTtl time.Duration) error {
-	if resultTtl > 0 {
-		return storages.ErrPerCallTtlNotSupported
-	}
-	return s.Complete(ctx, key, val, lockToken)
-}
-
 // Complete marks the key as successfully processed.
 //
 // Uses [jetstream.KV.Update] with the revision encoded in lockToken to
@@ -158,34 +146,69 @@ func (s *Storage) Complete(ctx context.Context, key string, val []byte, lockToke
 	return nil
 }
 
-// SupportsAttemptLockWithTTL implements [storages.Storage]. NATS
-// honors per-call lockTtl via jetstream.KeyTTL on Create (requires
-// the bucket to be created with LimitMarkerTTL — handled in [New]).
-func (s *Storage) SupportsAttemptLockWithTTL() bool { return true }
+// revisionTokenLen is the byte length of a serialized NATS KV revision
+// (uint64 in big-endian). Used by encodeRevisionToken /
+// decodeRevisionToken to keep the size invariant explicit.
+const revisionTokenLen = 8
 
-// SupportsCompleteWithTTL implements [storages.Storage]. NATS
-// cannot honor per-call resultTtl — nats.go v1.51.0's KV.Put/Update
-// don't expose per-message TTL options. CompleteWithTTL with
-// resultTtl > 0 returns [storages.ErrPerCallTtlNotSupported].
-func (s *Storage) SupportsCompleteWithTTL() bool { return false }
-
-// encodeRevisionToken serializes a NATS KV revision into 8-byte big-endian
-// bytes for use as the opaque lockToken. Returns a fresh slice each call.
+// encodeRevisionToken serializes a NATS KV revision into a big-endian
+// byte slice for use as the opaque lockToken. Returns a fresh slice
+// each call.
 func encodeRevisionToken(revision uint64) []byte {
-	token := make([]byte, 8)
+	token := make([]byte, revisionTokenLen)
 	binary.BigEndian.PutUint64(token, revision)
 	return token
 }
 
-// decodeRevisionToken parses an 8-byte big-endian lockToken back into a
-// NATS KV revision. Returns ErrLockStolen for malformed tokens — a token
+// decodeRevisionToken parses a big-endian lockToken back into a NATS
+// KV revision. Returns ErrLockStolen for malformed tokens — a token
 // that didn't come from this backend's AttemptLock can't possibly match
 // any real revision.
 func decodeRevisionToken(token []byte) (uint64, error) {
-	if len(token) != 8 {
-		return 0, fmt.Errorf("%w: malformed token (len=%d, want 8)", storages.ErrLockStolen, len(token))
+	if len(token) != revisionTokenLen {
+		return 0, fmt.Errorf("%w: malformed token (len=%d, want %d)", storages.ErrLockStolen, len(token), revisionTokenLen)
 	}
 	return binary.BigEndian.Uint64(token), nil
+}
+
+// Steal atomically replaces the value when current bytes equal
+// expectedVal. Performs Get → byte-compare → Update(... revision).
+// The revision check on Update protects against the TOCTOU race
+// between Get and Update: if another caller updates the key in
+// between, our Update fails with ErrKeyExists and we surface
+// [storages.ErrLockStolen].
+//
+// Returns the new lockToken (encoded post-Update revision) on
+// success.
+func (s *Storage) Steal(ctx context.Context, key string, expectedVal, newVal []byte) ([]byte, error) {
+	if key == "" {
+		return nil, storages.ErrEmptyKey
+	}
+
+	entry, err := s.KV().Get(ctx, key)
+	if err != nil {
+		if errors.Is(err, jetstream.ErrKeyNotFound) {
+			return nil, storages.ErrLockStolen
+		}
+		return nil, coreerrs.WrapOperation(err, "get current value during steal")
+	}
+
+	if !bytes.Equal(entry.Value(), expectedVal) {
+		return nil, storages.ErrLockStolen
+	}
+
+	revision, err := s.KV().Update(ctx, key, newVal, entry.Revision())
+	if err != nil {
+		// ErrKeyExists = wrong last sequence = somebody else wrote in
+		// the Get/Update gap. ErrKeyNotFound = the key disappeared
+		// (TTL'd). Both surface as ErrLockStolen.
+		if errors.Is(err, jetstream.ErrKeyExists) || errors.Is(err, jetstream.ErrKeyNotFound) {
+			return nil, storages.ErrLockStolen
+		}
+		return nil, coreerrs.WrapOperation(err, "update during steal")
+	}
+
+	return encodeRevisionToken(revision), nil
 }
 
 // Delete removes the key from storage.

@@ -6,6 +6,8 @@ package idempotency
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,11 +23,14 @@ import (
 // guarantee that two consecutive in-progress writes for the same key
 // produce distinct bytes — required for byte-equality CAS guards in
 // the memory and redis backends. NATS uses revisions and ignores the
-// nonce. The public [State] type does NOT carry this field.
+// nonce. LockedAt records when the InProgress wire was written; Keeper
+// uses it to detect orphan locks left behind by crashed holders. The
+// public [State] type does NOT carry these fields.
 type serializedState struct {
-	Status storages.Status `json:"status"`
-	Data   any             `json:"data,omitempty"`
-	Nonce  string          `json:"nonce,omitempty"`
+	Status   storages.Status `json:"status"`
+	Data     any             `json:"data,omitempty"`
+	Nonce    string          `json:"nonce,omitempty"`
+	LockedAt time.Time       `json:"locked_at,omitzero"`
 }
 
 // Re-export types from storages for convenience
@@ -58,61 +63,49 @@ var ErrLockStolen = storages.ErrLockStolen
 // guard. Re-exported from [storages.ErrMissingLockState].
 var ErrMissingLockState = storages.ErrMissingLockState
 
-// ErrPerCallTtlNotSupported is returned by [Keeper.CompleteWithTTL]
-// when the underlying backend cannot honor a positive resultTtl.
-// Currently only NATS hits this — its KV API doesn't expose per-message
-// TTL on Put/Update. Re-exported from [storages.ErrPerCallTtlNotSupported].
-var ErrPerCallTtlNotSupported = storages.ErrPerCallTtlNotSupported
+// AttemptLockOpts customizes a single AttemptLockWithOpts call. Both
+// fields are optional; zero values fall back to Keeper / backend
+// defaults.
+type AttemptLockOpts struct {
+	// LockTTL overrides the storage backend's configured TTL for this
+	// lock. Pass <= 0 to use the backend default.
+	LockTTL time.Duration
+
+	// MaxLockDuration overrides the Keeper's configured threshold for
+	// orphan-lock reclaim. When AttemptLock observes an existing
+	// InProgress entry older than this, it issues a CAS-steal to take
+	// ownership. Pass <= 0 to use the Keeper default
+	// ([DefaultMaxLockDuration]). Set the Keeper-wide value via
+	// [WithMaxLockDuration].
+	MaxLockDuration time.Duration
+}
 
 // Idempotency defines the interface for idempotency key operations.
 // Implementations must be safe for concurrent use.
 type Idempotency interface {
 	// AttemptLock tries to acquire a lock for the given key using the
-	// backend's configured TTL. Equivalent to
-	// AttemptLockWithTTL(ctx, key, 0).
+	// backend's configured TTL and the Keeper's configured
+	// MaxLockDuration. Equivalent to
+	// AttemptLockWithOpts(ctx, key, AttemptLockOpts{}).
 	AttemptLock(ctx context.Context, key string) (bool, *storages.State, error)
 
-	// AttemptLockWithTTL is like [Idempotency.AttemptLock] but applies
-	// a per-call lockTtl that overrides the backend's configured value.
-	// Pass lockTtl <= 0 to fall back to the configured TTL.
-	//
-	// Use this when different keys need different lock lifetimes
-	// (e.g. short-lived OTP tokens vs long-running webhook
-	// processing).
-	AttemptLockWithTTL(ctx context.Context, key string, lockTtl time.Duration) (bool, *storages.State, error)
+	// AttemptLockWithOpts is like [Idempotency.AttemptLock] but
+	// applies the per-call overrides in opts. Use this when a
+	// particular key needs a different lock lifetime (e.g. short-lived
+	// OTP tokens vs long-running webhook processing) or a different
+	// orphan-reclaim threshold.
+	AttemptLockWithOpts(ctx context.Context, key string, opts AttemptLockOpts) (bool, *storages.State, error)
 
-	// Complete marks the key as successfully processed using the
-	// backend's configured TTL. Equivalent to
-	// CompleteWithTTL(ctx, key, data, lockState, 0).
+	// Complete marks the key as successfully processed. The lockState
+	// must be the *State returned by [Idempotency.AttemptLock] —
+	// its embedded CAS token gates the write. Returns
+	// [ErrLockStolen] when the lock has been taken over by another
+	// holder since AttemptLock, [ErrMissingLockState] when lockState
+	// is nil.
 	Complete(ctx context.Context, key string, data any, lockState *storages.State) error
-
-	// CompleteWithTTL is like [Idempotency.Complete] but applies a
-	// per-call resultTtl that overrides the backend's configured value.
-	// Pass resultTtl <= 0 to fall back to the configured TTL.
-	//
-	// Use this when the success result should outlive the short lock
-	// TTL — e.g. lock=30s, result=24h for webhook deduplication. The
-	// NATS backend returns [ErrPerCallTtlNotSupported] when
-	// resultTtl > 0; use Redis or memory if you need both lock and
-	// result TTL overrides.
-	CompleteWithTTL(ctx context.Context, key string, data any, lockState *storages.State, resultTtl time.Duration) error
 
 	// Delete removes the key from storage (e.g. on failure).
 	Delete(ctx context.Context, key string) error
-
-	// SupportsAttemptLockWithTTL reports whether the configured backend
-	// honors a positive lockTtl in [Idempotency.AttemptLockWithTTL].
-	// Currently true on every in-tree backend; the method exists for
-	// symmetry with [SupportsCompleteWithTTL] and for future backends
-	// that may not honor per-call lock TTLs.
-	SupportsAttemptLockWithTTL() bool
-
-	// SupportsCompleteWithTTL reports whether the configured backend
-	// honors a positive resultTtl in [Idempotency.CompleteWithTTL].
-	// Use this when the code path may run against multiple backends
-	// (e.g. NATS in production, memory in tests). When false, a
-	// positive resultTtl yields [ErrPerCallTtlNotSupported].
-	SupportsCompleteWithTTL() bool
 }
 
 // Keeper provides duplicate request detection using idempotency keys.
@@ -127,6 +120,13 @@ var _ Idempotency = (*Keeper)(nil)
 
 // New creates a new Keeper with the specified storage backend.
 //
+// When the caller does not pass [WithMaxLockDuration], New emits a
+// single slog.Warn so service owners notice they are accepting the
+// package-level default ([DefaultMaxLockDuration]) for orphan-lock
+// reclaim. Pass any explicit positive value — including
+// `WithMaxLockDuration(DefaultMaxLockDuration)` — to silence the
+// warning.
+//
 // Example:
 //
 //	keeper := idempotency.New(memoryStorage)
@@ -137,6 +137,15 @@ func New(storage storages.Storage, opt ...Option) *Keeper {
 		options.serializer = &serializer.JSON{}
 	}
 
+	if options.maxLockDuration == 0 {
+		options.logger.Warn(
+			"idempotency: using default MaxLockDuration; review for your service",
+			slog.Duration("default", DefaultMaxLockDuration),
+			slog.String("fix", "pass idempotency.WithMaxLockDuration(d) to acknowledge or override"),
+		)
+		options.maxLockDuration = DefaultMaxLockDuration
+	}
+
 	return &Keeper{
 		storage: storage,
 		opts:    options,
@@ -144,17 +153,23 @@ func New(storage storages.Storage, opt ...Option) *Keeper {
 	}
 }
 
-// check operations are not directly supported via Keeper in new interface, as flow should be AttemptLock -> [Work] -> Complete/Delete
-
 // AttemptLock tries to acquire a lock for the given key using the
-// backend's configured TTL. An empty key returns [ErrEmptyKey].
+// backend's configured TTL and the Keeper's configured
+// MaxLockDuration. An empty key returns [ErrEmptyKey].
 func (i *Keeper) AttemptLock(ctx context.Context, key string) (bool, *storages.State, error) {
-	return i.AttemptLockWithTTL(ctx, key, 0)
+	return i.AttemptLockWithOpts(ctx, key, AttemptLockOpts{})
 }
 
-// AttemptLockWithTTL is like [Keeper.AttemptLock] but lockTtl
-// overrides the backend's configured TTL when positive.
-func (i *Keeper) AttemptLockWithTTL(ctx context.Context, key string, lockTtl time.Duration) (bool, *storages.State, error) {
+// AttemptLockWithOpts is like [Keeper.AttemptLock] but applies the
+// per-call overrides in opts. See [AttemptLockOpts] for field
+// semantics.
+//
+// On collision with an existing InProgress entry whose LockedAt
+// timestamp is older than the resolved MaxLockDuration, AttemptLock
+// performs a CAS-steal via [storages.Storage.Steal] to reclaim the
+// orphaned lock. The returned *State carries a fresh lock token in
+// that case, so the caller proceeds as the legitimate holder.
+func (i *Keeper) AttemptLockWithOpts(ctx context.Context, key string, opts AttemptLockOpts) (bool, *storages.State, error) {
 	if key == "" {
 		return false, nil, ErrEmptyKey
 	}
@@ -164,8 +179,9 @@ func (i *Keeper) AttemptLockWithTTL(ctx context.Context, key string, lockTtl tim
 	// that CAS on byte equality (memory, redis) need this to tell two
 	// holders apart. NATS uses revisions and ignores the field.
 	wire := serializedState{
-		Status: storages.StatusInProgress,
-		Nonce:  uuid.NewString(),
+		Status:   storages.StatusInProgress,
+		Nonce:    uuid.NewString(),
+		LockedAt: time.Now(),
 	}
 
 	val, err := i.opts.serializer.Serialize(wire)
@@ -173,7 +189,7 @@ func (i *Keeper) AttemptLockWithTTL(ctx context.Context, key string, lockTtl tim
 		return false, nil, coreerrs.WrapOperation(err, "serialize state")
 	}
 
-	ok, existingVal, lockToken, err := i.storage.AttemptLockWithTTL(ctx, key, val, lockTtl)
+	ok, existingVal, lockToken, err := i.storage.AttemptLockWithTTL(ctx, key, val, opts.LockTTL)
 	if err != nil {
 		i.metrics.errors.Inc()
 		return false, nil, err
@@ -189,33 +205,60 @@ func (i *Keeper) AttemptLockWithTTL(ctx context.Context, key string, lockTtl tim
 		return true, acquired, nil
 	}
 
-	i.metrics.locksDenied.Inc()
-
 	// Lock failed, key exists. Deserialize existing state via the
-	// wire shape and strip the nonce before handing back to the
-	// caller — they shouldn't need to know about CAS plumbing.
+	// wire shape and strip the nonce/LockedAt before handing back to
+	// the caller — they shouldn't need to know about CAS plumbing.
 	var existing serializedState
 	if err := i.opts.serializer.Deserialize(existingVal, &existing); err != nil {
+		i.metrics.errors.Inc()
 		return false, nil, coreerrs.WrapOperation(err, "deserialize existing state")
 	}
 
+	// Orphan-steal: an InProgress entry whose LockedAt is older than
+	// the resolved MaxLockDuration belongs to a crashed (or hung)
+	// holder. CAS-steal it so retries don't get stuck behind an
+	// abandoned lock until the bucket TTL expires.
+	if existing.Status == storages.StatusInProgress {
+		if maxLock := i.resolveMaxLockDuration(opts); maxLock > 0 &&
+			!existing.LockedAt.IsZero() &&
+			time.Since(existing.LockedAt) > maxLock {
+			newToken, stealErr := i.storage.Steal(ctx, key, existingVal, val)
+			switch {
+			case stealErr == nil:
+				i.metrics.locksAcquired.Inc()
+				stolen := &storages.State{Status: storages.StatusInProgress}
+				stolen.SetLockToken(newToken)
+				return true, stolen, nil
+			case errors.Is(stealErr, storages.ErrLockStolen):
+				// Race: someone else stole or the entry vanished
+				// between our Get and Steal. Fall through and surface
+				// the previously observed state — caller will retry.
+			default:
+				i.metrics.errors.Inc()
+				return false, nil, stealErr
+			}
+		}
+	}
+
+	i.metrics.locksDenied.Inc()
 	return false, &storages.State{Status: existing.Status, Data: existing.Data}, nil
 }
 
-// Complete marks the key as successfully processed using the
-// backend's configured TTL. The lockState must be the *State
-// returned by [Keeper.AttemptLock] — its embedded CAS token gates
-// the write. An empty key returns [ErrEmptyKey]; a nil lockState
-// returns [ErrMissingLockState]; a stolen lock returns
-// [ErrLockStolen].
-func (i *Keeper) Complete(ctx context.Context, key string, data any, lockState *storages.State) error {
-	return i.CompleteWithTTL(ctx, key, data, lockState, 0)
+// resolveMaxLockDuration returns the per-call override when set,
+// otherwise the Keeper's configured value.
+func (i *Keeper) resolveMaxLockDuration(opts AttemptLockOpts) time.Duration {
+	if opts.MaxLockDuration > 0 {
+		return opts.MaxLockDuration
+	}
+	return i.opts.maxLockDuration
 }
 
-// CompleteWithTTL is like [Keeper.Complete] but resultTtl overrides
-// the backend's configured TTL when positive. The NATS backend
-// returns [ErrPerCallTtlNotSupported] for resultTtl > 0.
-func (i *Keeper) CompleteWithTTL(ctx context.Context, key string, data any, lockState *storages.State, resultTtl time.Duration) error {
+// Complete marks the key as successfully processed. The lockState
+// must be the *State returned by [Keeper.AttemptLock] — its embedded
+// CAS token gates the write. An empty key returns [ErrEmptyKey];
+// a nil lockState returns [ErrMissingLockState]; a stolen lock
+// returns [ErrLockStolen].
+func (i *Keeper) Complete(ctx context.Context, key string, data any, lockState *storages.State) error {
 	if key == "" {
 		return ErrEmptyKey
 	}
@@ -233,26 +276,12 @@ func (i *Keeper) CompleteWithTTL(ctx context.Context, key string, data any, lock
 		return coreerrs.WrapOperation(err, "serialize state")
 	}
 
-	if err := i.storage.CompleteWithTTL(ctx, key, val, lockState.LockToken(), resultTtl); err != nil {
+	if err := i.storage.Complete(ctx, key, val, lockState.LockToken()); err != nil {
 		i.metrics.errors.Inc()
 		return err
 	}
 	i.metrics.completions.Inc()
 	return nil
-}
-
-// SupportsAttemptLockWithTTL reports whether the underlying
-// [storages.Storage] honors a positive lockTtl in
-// [Keeper.AttemptLockWithTTL]. Delegates directly.
-func (i *Keeper) SupportsAttemptLockWithTTL() bool {
-	return i.storage.SupportsAttemptLockWithTTL()
-}
-
-// SupportsCompleteWithTTL reports whether the underlying
-// [storages.Storage] honors a positive resultTtl in
-// [Keeper.CompleteWithTTL]. Delegates directly.
-func (i *Keeper) SupportsCompleteWithTTL() bool {
-	return i.storage.SupportsCompleteWithTTL()
 }
 
 // Delete removes the key from storage (e.g. on failure). An empty key

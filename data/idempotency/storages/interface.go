@@ -74,36 +74,24 @@ type Storage interface {
 	AttemptLockWithTTL(ctx context.Context, key string, val []byte, lockTtl time.Duration) (acquired bool, existing []byte, lockToken []byte, err error)
 
 	// Complete writes val for key when lockToken still matches the
-	// current state (CAS). Equivalent to
-	// CompleteWithTTL(ctx, key, val, lockToken, 0).
+	// current state (CAS). Returns [ErrLockStolen] when the lock has
+	// been taken over by another holder.
 	Complete(ctx context.Context, key string, val []byte, lockToken []byte) error
 
-	// CompleteWithTTL is like [Storage.Complete] but applies a
-	// per-call resultTtl that overrides the backend's configured
-	// value. Pass resultTtl <= 0 to fall back to the configured TTL.
+	// Steal atomically replaces the existing key value when its
+	// current content equals expectedVal. Returns the new lockToken
+	// for the caller to use as the holder of the freshly-stolen lock.
 	//
-	// Use this when the success-result cache should outlive the
-	// short lock TTL (e.g. lock=30s, result=24h for webhook dedup).
+	// Returns [ErrLockStolen] when expectedVal no longer matches the
+	// current value (somebody else stole the lock between the caller's
+	// observation and this Steal call).
 	//
-	// The NATS backend returns [ErrPerCallTtlNotSupported] when
-	// resultTtl > 0 — its KV API doesn't expose per-message TTL on
-	// updates. Use Redis or memory if you need both lock and result
-	// TTL overrides.
-	CompleteWithTTL(ctx context.Context, key string, val []byte, lockToken []byte, resultTtl time.Duration) error
+	// Used by orphan reclaim: when an InProgress entry's timestamp
+	// indicates the original holder has crashed (older than the
+	// configured maxLockDuration), Keeper builds a fresh InProgress
+	// payload and calls Steal to take ownership.
+	Steal(ctx context.Context, key string, expectedVal, newVal []byte) ([]byte, error)
 
 	// Delete removes the key from storage (e.g. on failure).
 	Delete(ctx context.Context, key string) error
-
-	// SupportsAttemptLockWithTTL reports whether the backend honors a
-	// positive lockTtl in [Storage.AttemptLockWithTTL]. When false,
-	// callers must pass lockTtl = 0 (falls back to bucket TTL).
-	SupportsAttemptLockWithTTL() bool
-
-	// SupportsCompleteWithTTL reports whether the backend honors a
-	// positive resultTtl in [Storage.CompleteWithTTL]. When false,
-	// callers must either pass resultTtl = 0 (falls back to bucket
-	// TTL) or expect [ErrPerCallTtlNotSupported]. Currently NATS is
-	// the only backend that returns false here — its KV API doesn't
-	// expose per-message TTL on Put/Update.
-	SupportsCompleteWithTTL() bool
 }

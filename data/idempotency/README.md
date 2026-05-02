@@ -35,58 +35,82 @@ return keeper.Complete(ctx, key, result, state)  // state carries the CAS token
 
 Passing `nil` state to Complete returns `ErrMissingLockState` — the guard cannot be silently disabled.
 
-## Per-call TTL
+## Per-call overrides
 
-`AttemptLockWithTTL(ctx, key, lockTtl)` and `CompleteWithTTL(ctx, key, data, lockState, resultTtl)` accept per-call TTL overrides. Pass `0` to
-fall back to the backend's configured default. Lock and result TTLs are independent — short lock with long result is the typical webhook
-deduplication shape:
+`AttemptLockWithOpts(ctx, key, opts)` accepts a struct of per-call overrides:
 
 ```go
-ok, state, err := keeper.AttemptLockWithTTL(ctx, webhookID, 30*time.Second) // short lock
-if err != nil { return err }
-if !ok { /* in-flight or completed */ return nil }
-
-result, err := process(ctx)
-if err != nil { _ = keeper.Delete(ctx, webhookID); return err }
-
-return keeper.CompleteWithTTL(ctx, webhookID, result, state, 24*time.Hour)  // long result
+ok, state, err := keeper.AttemptLockWithOpts(ctx, key, idempotency.AttemptLockOpts{
+    LockTTL:         30 * time.Second, // override backend default for this lock
+    MaxLockDuration: 30 * time.Second, // tighter orphan-reclaim threshold
+})
 ```
 
-Backend matrix:
+| Field             | Zero-value behavior                                                  |
+|-------------------|----------------------------------------------------------------------|
+| `LockTTL`         | Use the backend's configured TTL (`WithTtl` / `WithMaxAge` / YAML).  |
+| `MaxLockDuration` | Use the Keeper's configured value (`WithMaxLockDuration`, default 5m). |
 
-| Backend | AttemptLockWithTTL | CompleteWithTTL |
-|---|---|---|
-| memory | per-entry `expiresAt` | per-entry `expiresAt` |
-| redis | `SET NX ... PX <ttl>` | Lua: `SET ... PX <ttl>` |
-| nats | `kv.Create(... jetstream.KeyTTL(ttl))` (requires NATS 2.11+) | **`ErrPerCallTtlNotSupported`** for resultTtl > 0 |
+Useful when different keys legitimately need different lock lifetimes
+within one Keeper instance — e.g. short-lived OTP tokens vs longer
+broker-driven webhook processing.
 
-The NATS backend cannot honor a per-call result TTL — `nats.go` v1.51.0 doesn't expose per-message TTL on `KV.Put`/`Update`. Callers either
-pass `resultTtl=0` (falls back to bucket TTL) or migrate to a backend that supports the override.
+Result TTL (how long the cached success state lives) is configured at
+the backend level. If you need per-call result-TTL control, file an
+issue with the use case — the dual-TTL API was tried and removed
+because no in-tree caller exercised it.
 
-For code paths that may run against multiple backends (e.g. NATS in production, memory in tests), capability bits report which `WithTTL`
-methods the configured backend honors:
+## Startup warning when MaxLockDuration is unset
 
-| Backend | `SupportsAttemptLockWithTTL()` | `SupportsCompleteWithTTL()` |
-|---|---|---|
-| memory | `true` | `true` |
-| redis  | `true` | `true` |
-| nats   | `true` | `false` (KV.Put has no TTL option) |
+`New` emits a single `slog.Warn` when no `WithMaxLockDuration` is passed:
 
-The Keeper delegates both to the underlying storage. Use the bits to choose a code path before calling the WithTTL methods:
+```
+level=WARN msg="idempotency: using default MaxLockDuration; review for your service" default=5m0s fix="pass idempotency.WithMaxLockDuration(d) to acknowledge or override"
+```
+
+5 minutes is a defensible default but **not** universally correct — a slow handler that legitimately runs longer would be reclaimed mid-flight,
+producing duplicate side-effects. Service owners should evaluate it explicitly:
 
 ```go
-if keeper.SupportsCompleteWithTTL() {
-    return keeper.CompleteWithTTL(ctx, key, result, state, 24*time.Hour)
-}
-return keeper.Complete(ctx, key, result, state) // bucket TTL
+keeper := idempotency.New(storage,
+    idempotency.WithMaxLockDuration(2*time.Minute), // tuned for this service
+)
+
+// or, if 5m is genuinely fine:
+keeper := idempotency.New(storage,
+    idempotency.WithMaxLockDuration(idempotency.DefaultMaxLockDuration), // explicit acknowledgment
+)
 ```
+
+Either form silences the warning. Factory users set `idempotency.maxLockDuration` in YAML to achieve the same.
+
+## Orphan-lock reclaim
+
+When a holder crashes between `AttemptLock` and `Complete`/`Delete`,
+the InProgress entry sits in storage until the bucket TTL fires
+(default 24h). To unblock retries sooner, every InProgress wire embeds
+a `LockedAt` timestamp. On collision, if the existing entry is older
+than the resolved `MaxLockDuration`, `AttemptLock` issues a CAS-steal
+via the storage layer and the new holder gets a fresh lock token.
+
+| Behavior                          | Setting                                       |
+|-----------------------------------|-----------------------------------------------|
+| Default reclaim threshold         | 5 minutes (`DefaultMaxLockDuration`).         |
+| Override Keeper-wide              | `idempotency.WithMaxLockDuration(10*time.Minute)`. |
+| Override per-call                 | `AttemptLockOpts{MaxLockDuration: 30*time.Second}`. |
+| Disable reclaim                   | Set the Keeper field to 0 — collisions surface as in-progress. |
+
+The crashed holder's stale `Complete` then surfaces `ErrLockStolen`
+because its CAS token is no longer current. Callers see this as the
+normal "we lost the race" path and skip writing.
 
 ## Options
 
-| Option           | Default | Description                  |
-|------------------|---------|------------------------------|
-| `WithLogger`     | discard | Structured logger            |
-| `WithSerializer` | JSON    | Serialization format         |
+| Option                  | Default                  | Description                                                |
+|-------------------------|--------------------------|------------------------------------------------------------|
+| `WithLogger`            | discard                  | Structured logger                                          |
+| `WithSerializer`        | JSON                     | Serialization format                                       |
+| `WithMaxLockDuration`   | `DefaultMaxLockDuration` (5m) | Threshold for orphan-lock CAS-steal on AttemptLock collision |
 
 ## Subpackages
 

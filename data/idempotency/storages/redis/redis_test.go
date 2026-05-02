@@ -238,25 +238,6 @@ func TestStorage_AttemptLockWithTTL_OverridesDefault(t *testing.T) {
 	require.True(t, ok, "per-call lockTtl must shrink lifetime; key should have expired")
 }
 
-// TestStorage_CompleteWithTTL_OverridesDefault verifies per-call TTL
-// on Complete via the Lua script's SET ... PX argument.
-func TestStorage_CompleteWithTTL_OverridesDefault(t *testing.T) {
-	storage, mr := setupStorage(t)
-	ctx := t.Context()
-
-	_, _, lockToken, err := storage.AttemptLock(ctx, "k", []byte("lock"))
-	require.NoError(t, err)
-
-	err = storage.CompleteWithTTL(ctx, "k", []byte("result"), lockToken, 100*time.Millisecond)
-	require.NoError(t, err)
-
-	mr.FastForward(200 * time.Millisecond)
-
-	ok, _, _, err := storage.AttemptLock(ctx, "k", []byte("lock2"))
-	require.NoError(t, err)
-	require.True(t, ok, "per-call resultTtl must shrink lifetime; key should have expired")
-}
-
 // TestStorage_Complete_StolenLock is the regression test for the
 // stolen-lock CAS guard backed by the Lua script. Sequence:
 //
@@ -304,12 +285,56 @@ func TestStorage_Complete_StolenLock_KeyExpired(t *testing.T) {
 	require.ErrorIs(t, err, storages.ErrLockStolen)
 }
 
-func TestStorage_SupportsAttemptLockWithTTL(t *testing.T) {
+// TestStorage_Steal_Success verifies the Lua-backed CAS-replace
+// happy path: when current bytes match expectedVal, the value is
+// rewritten and a fresh token is returned.
+func TestStorage_Steal_Success(t *testing.T) {
 	storage, _ := setupStorage(t)
-	require.True(t, storage.SupportsAttemptLockWithTTL())
+	ctx := t.Context()
+
+	_, _, _, err := storage.AttemptLock(ctx, "k", []byte("orphan"))
+	require.NoError(t, err)
+
+	newToken, err := storage.Steal(ctx, "k", []byte("orphan"), []byte("fresh"))
+	require.NoError(t, err)
+	require.Equal(t, "fresh", string(newToken),
+		"Redis backend's lock token mirrors the stored value")
+
+	// Stale token must no longer satisfy Complete.
+	err = storage.Complete(ctx, "k", []byte("done"), []byte("orphan"))
+	require.ErrorIs(t, err, storages.ErrLockStolen)
+	require.NoError(t, storage.Complete(ctx, "k", []byte("done"), newToken))
 }
 
-func TestStorage_SupportsCompleteWithTTL(t *testing.T) {
+// TestStorage_Steal_Mismatch verifies that Steal surfaces
+// ErrLockStolen when current value differs from expectedVal, and that
+// the failed call does not modify storage.
+func TestStorage_Steal_Mismatch(t *testing.T) {
 	storage, _ := setupStorage(t)
-	require.True(t, storage.SupportsCompleteWithTTL())
+	ctx := t.Context()
+
+	_, _, _, err := storage.AttemptLock(ctx, "k", []byte("current"))
+	require.NoError(t, err)
+
+	_, err = storage.Steal(ctx, "k", []byte("stale"), []byte("fresh"))
+	require.ErrorIs(t, err, storages.ErrLockStolen)
+
+	_, existing, _, _ := storage.AttemptLock(ctx, "k", []byte("retry"))
+	require.Equal(t, "current", string(existing),
+		"failed Steal must not modify the stored value")
+}
+
+// TestStorage_Steal_KeyMissing verifies the Lua "key not found"
+// branch surfaces ErrLockStolen.
+func TestStorage_Steal_KeyMissing(t *testing.T) {
+	storage, _ := setupStorage(t)
+	_, err := storage.Steal(t.Context(), "nope", []byte("any"), []byte("fresh"))
+	require.ErrorIs(t, err, storages.ErrLockStolen)
+}
+
+// TestStorage_Steal_EmptyKey verifies the empty-key contract.
+func TestStorage_Steal_EmptyKey(t *testing.T) {
+	storage, _ := setupStorage(t)
+	_, err := storage.Steal(t.Context(), "", []byte("any"), []byte("fresh"))
+	require.ErrorIs(t, err, storages.ErrEmptyKey)
 }

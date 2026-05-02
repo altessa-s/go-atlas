@@ -16,6 +16,7 @@ import (
 	"github.com/altessa-s/go-atlas/data/idempotency/storages"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	memorystorage "github.com/altessa-s/go-atlas/data/idempotency/storages/memory"
@@ -72,6 +73,8 @@ func (b *KeeperBuilder) createKeeper(storage storages.Storage) *idempotency.Keep
 		idempotency.WithLogger(b.Logger()),
 		idempotency.WithCollector(b.collector),
 	}
+	opts = coreslices.AppendIf(opts, b.cfg.MaxLockDuration > 0,
+		idempotency.WithMaxLockDuration(b.cfg.MaxLockDuration))
 	return idempotency.New(storage, opts...)
 }
 
