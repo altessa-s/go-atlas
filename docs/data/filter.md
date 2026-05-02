@@ -126,6 +126,42 @@ Constraints:
 - The expanded AST contains the **target** field (`createdAt`), so `WithFieldMapping` and `WithAllowedFields` operate on that name, not on
   the virtual one.
 
+### Built-in presets
+
+`TimestampFilters()` returns a ready-made set covering the common
+`createdAt`/`updatedAt`/`deletedAt` predicates. Functions are not
+registered automatically — opt in explicitly:
+
+```go
+filter.RegisterFunctions(filter.TimestampFilters())
+```
+
+| Function | Expansion |
+|---|---|
+| `createAfter(t)` | `createdAt > t` |
+| `createBefore(t)` | `createdAt < t` |
+| `updateAfter(t)` | `updatedAt > t` |
+| `updateBefore(t)` | `updatedAt < t` |
+| `deleteAfter(t)` | `deletedAt > t` |
+| `deleteBefore(t)` | `deletedAt < t` |
+
+The map is freshly built per call, so callers can `delete` unwanted entries before passing it on. Field names are fixed (camelCase); use
+`WithFieldMapping` on the translator when storage columns follow a different convention (e.g. snake_case).
+
+For partial registration use `SelectTimestampFilters(names ...string)` — pass the `TimestampFunc*` constants for the entries you want:
+
+```go
+filter.RegisterFunctions(filter.SelectTimestampFilters(
+    filter.TimestampFuncCreateAfter,
+    filter.TimestampFuncCreateBefore,
+    filter.TimestampFuncUpdateAfter,
+    filter.TimestampFuncUpdateBefore,
+))
+```
+
+Unknown names are silently skipped (no validation), which keeps the helper safe for dynamically constructed lists. Pass empty input to
+get an empty map.
+
 ### Application-wide registration
 
 When the same set of custom functions should be visible to every parser in the application, register them once during bootstrap:
