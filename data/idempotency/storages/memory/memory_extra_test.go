@@ -49,16 +49,6 @@ func TestMemory_Delete_EmptyKey(t *testing.T) {
 	require.ErrorIs(t, err, storages.ErrEmptyKey)
 }
 
-func TestMemory_SupportsAttemptLockWithTTL(t *testing.T) {
-	s := New()
-	require.True(t, s.SupportsAttemptLockWithTTL())
-}
-
-func TestMemory_SupportsCompleteWithTTL(t *testing.T) {
-	s := New()
-	require.True(t, s.SupportsCompleteWithTTL())
-}
-
 func TestMemory_RunCleanup(t *testing.T) {
 	s := New(WithTtl(10 * time.Millisecond))
 	ctx := t.Context()

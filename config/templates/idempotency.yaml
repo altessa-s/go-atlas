@@ -9,6 +9,15 @@
 #  # Default value: 24h
 #  ttl: 24h
 #
+#  # <duration> Threshold for treating an in-progress lock as orphaned.
+#  # On AttemptLock collision, an existing InProgress entry older than
+#  # this is reclaimed via CAS-steal so retries don't get stuck behind a
+#  # crashed holder. When unset, the Keeper logs a one-time warning at
+#  # construction and falls back to 5m. Set explicitly to silence the
+#  # warning and document an evaluated value for this service.
+#  # Default value: 5m (idempotency.DefaultMaxLockDuration)
+#  maxLockDuration: 5m
+#
 #  # <object> Storage configuration for idempotency keys.
 #  # Supports multiple storage backends with provider-specific settings.
 #  !include cache_storage.yaml

@@ -42,6 +42,29 @@ redis.call('SET', KEYS[1], ARGV[2], 'PX', ARGV[3])
 return 1
 `)
 
+// stealCASScript is the Lua script that performs a compare-and-replace
+// for [Storage.Steal]. Returns:
+//
+//	1  — current value matched expectedVal; new value written
+//	0  — current value differs from expectedVal (someone else won)
+//	-1 — key not found (TTL expired before we got here)
+//
+// KEYS[1] = redis key
+// ARGV[1] = expectedVal
+// ARGV[2] = newVal
+// ARGV[3] = TTL in milliseconds (positive integer)
+var stealCASScript = redis.NewScript(`
+local current = redis.call('GET', KEYS[1])
+if not current then
+  return -1
+end
+if current ~= ARGV[1] then
+  return 0
+end
+redis.call('SET', KEYS[1], ARGV[2], 'PX', ARGV[3])
+return 1
+`)
+
 // Storage is a Redis-backed idempotency key store with TTL support.
 // Uses atomic SET NX operations for thread-safe duplicate detection.
 type Storage struct {
@@ -119,32 +142,20 @@ func (s *Storage) AttemptLockWithTTL(ctx context.Context, key string, val []byte
 // Returns [storages.ErrLockStolen] when the lock has been taken
 // over by another holder or has expired.
 func (s *Storage) Complete(ctx context.Context, key string, val []byte, lockToken []byte) error {
-	return s.CompleteWithTTL(ctx, key, val, lockToken, 0)
-}
-
-// CompleteWithTTL is like [Storage.Complete] but resultTtl overrides
-// the backend's configured TTL when positive. The new TTL applies from
-// the moment of Complete onwards.
-func (s *Storage) CompleteWithTTL(ctx context.Context, key string, val []byte, lockToken []byte, resultTtl time.Duration) error {
 	if key == "" {
 		return storages.ErrEmptyKey
-	}
-
-	ttl := s.opts.ttl
-	if resultTtl > 0 {
-		ttl = resultTtl
 	}
 
 	if lockToken == nil {
 		// No CAS guard requested — fall back to unconditional overwrite.
 		// Used by tests and adapters that bypass the safe path.
-		if err := s.Client().Set(ctx, s.Key(key), val, ttl).Err(); err != nil {
+		if err := s.Client().Set(ctx, s.Key(key), val, s.opts.ttl).Err(); err != nil {
 			return coreerrs.WrapOperation(err, "complete idempotency key in Redis")
 		}
 		return nil
 	}
 
-	ttlMs := strconv.FormatInt(ttl.Milliseconds(), 10)
+	ttlMs := strconv.FormatInt(s.opts.ttl.Milliseconds(), 10)
 	res, err := completeCASScript.Run(ctx, s.Client(),
 		[]string{s.Key(key)},
 		lockToken, val, ttlMs,
@@ -163,6 +174,33 @@ func (s *Storage) CompleteWithTTL(ctx context.Context, key string, val []byte, l
 	}
 }
 
+// Steal atomically replaces the value when current bytes equal
+// expectedVal. Returns the new lockToken on success or
+// [storages.ErrLockStolen] when expectedVal no longer matches.
+func (s *Storage) Steal(ctx context.Context, key string, expectedVal, newVal []byte) ([]byte, error) {
+	if key == "" {
+		return nil, storages.ErrEmptyKey
+	}
+
+	ttlMs := strconv.FormatInt(s.opts.ttl.Milliseconds(), 10)
+	res, err := stealCASScript.Run(ctx, s.Client(),
+		[]string{s.Key(key)},
+		expectedVal, newVal, ttlMs,
+	).Int64()
+	if err != nil {
+		return nil, coreerrs.WrapOperation(err, "steal idempotency key in Redis")
+	}
+
+	switch res {
+	case 1:
+		return slices.Clone(newVal), nil
+	case 0, -1:
+		return nil, storages.ErrLockStolen
+	default:
+		return nil, coreerrs.Wrapf(storages.ErrLockStolen, "unexpected Lua result %d", res)
+	}
+}
+
 // Delete removes the key from storage.
 func (s *Storage) Delete(ctx context.Context, key string) error {
 	if key == "" {
@@ -175,11 +213,3 @@ func (s *Storage) Delete(ctx context.Context, key string) error {
 
 	return nil
 }
-
-// SupportsAttemptLockWithTTL implements [storages.Storage]. Redis
-// honors per-call lockTtl via SET NX PX.
-func (s *Storage) SupportsAttemptLockWithTTL() bool { return true }
-
-// SupportsCompleteWithTTL implements [storages.Storage]. Redis
-// honors per-call resultTtl via the Lua script's explicit PX.
-func (s *Storage) SupportsCompleteWithTTL() bool { return true }

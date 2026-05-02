@@ -121,25 +121,60 @@ func TestMemory_AttemptLockWithTTL_OverridesDefault(t *testing.T) {
 	require.True(t, ok, "per-call lockTtl must override default; key should have expired")
 }
 
-// TestMemory_CompleteWithTTL_OverridesDefault verifies per-call TTL
-// on Complete: a short resultTtl shrinks the entry's lifetime to
-// resultTtl from the moment of Complete.
-func TestMemory_CompleteWithTTL_OverridesDefault(t *testing.T) {
-	s := New(WithTtl(time.Hour)) // long default
+// TestMemory_Steal_Success verifies that Steal replaces the value
+// when current bytes match expectedVal and returns a fresh lock token.
+func TestMemory_Steal_Success(t *testing.T) {
+	s := New()
 	ctx := t.Context()
 
-	_, _, lockToken, err := s.AttemptLock(ctx, "k", []byte("lock"))
+	_, _, _, err := s.AttemptLock(ctx, "k", []byte("orphan"))
 	require.NoError(t, err)
 
-	err = s.CompleteWithTTL(ctx, "k", []byte("result"), lockToken, 10*time.Millisecond)
+	newToken, err := s.Steal(ctx, "k", []byte("orphan"), []byte("fresh"))
+	require.NoError(t, err)
+	require.NotNil(t, newToken)
+	require.Equal(t, "fresh", string(newToken),
+		"memory backend's lock token is a copy of the stored value")
+
+	// The original "orphan" token must no longer satisfy Complete.
+	err = s.Complete(ctx, "k", []byte("done"), []byte("orphan"))
+	require.ErrorIs(t, err, storages.ErrLockStolen)
+
+	// The stolen token must succeed.
+	require.NoError(t, s.Complete(ctx, "k", []byte("done"), newToken))
+}
+
+// TestMemory_Steal_Mismatch verifies that Steal surfaces ErrLockStolen
+// when the current value differs from expectedVal.
+func TestMemory_Steal_Mismatch(t *testing.T) {
+	s := New()
+	ctx := t.Context()
+
+	_, _, _, err := s.AttemptLock(ctx, "k", []byte("current"))
 	require.NoError(t, err)
 
-	time.Sleep(20 * time.Millisecond)
-	s.RunCleanup()
+	_, err = s.Steal(ctx, "k", []byte("stale"), []byte("fresh"))
+	require.ErrorIs(t, err, storages.ErrLockStolen,
+		"Steal must reject when expectedVal does not match current bytes")
 
-	ok, _, _, err := s.AttemptLockWithTTL(ctx, "k", []byte("lock2"), 0)
-	require.NoError(t, err)
-	require.True(t, ok, "per-call resultTtl must override default; key should have expired")
+	_, existing, _, _ := s.AttemptLock(ctx, "k", []byte("retry"))
+	require.Equal(t, "current", string(existing),
+		"failed Steal must not modify the stored value")
+}
+
+// TestMemory_Steal_KeyMissing verifies that Steal on an absent key
+// surfaces ErrLockStolen.
+func TestMemory_Steal_KeyMissing(t *testing.T) {
+	s := New()
+	_, err := s.Steal(t.Context(), "nope", []byte("any"), []byte("fresh"))
+	require.ErrorIs(t, err, storages.ErrLockStolen)
+}
+
+// TestMemory_Steal_EmptyKey verifies the empty-key contract.
+func TestMemory_Steal_EmptyKey(t *testing.T) {
+	s := New()
+	_, err := s.Steal(t.Context(), "", []byte("any"), []byte("fresh"))
+	require.ErrorIs(t, err, storages.ErrEmptyKey)
 }
 
 // TestMemory_Complete_StolenLock is the regression test for the
