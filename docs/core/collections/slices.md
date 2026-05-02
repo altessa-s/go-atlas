@@ -12,7 +12,7 @@ All pure functions return new slices without modifying inputs. Nil inputs are tr
 
 ---
 
-## Package map
+## API overview
 
 | Symbol group        | Purpose                                                                                                                |
 |---------------------|------------------------------------------------------------------------------------------------------------------------|

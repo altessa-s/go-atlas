@@ -13,4 +13,4 @@ layout mirrors `transport/grpc/handlers`.
 | [`metrics`](./metrics) | `/metrics` | Prometheus default-gatherer endpoint |
 
 The HTTP server factory (`transport/http/server/factory`) wires all four under the configured internal prefix when the corresponding
-toggle is on. See [docs/health.md](../../../../docs/health.md) for the broader picture.
+toggle is on. See [docs/observability/health.md](../../../../docs/observability/health.md) for the broader picture.

@@ -162,6 +162,33 @@ filter.RegisterFunctions(filter.SelectTimestampFilters(
 Unknown names are silently skipped (no validation), which keeps the helper safe for dynamically constructed lists. Pass empty input to
 get an empty map.
 
+#### `BetweenFilter()` — generic range predicate
+
+```go
+filter.RegisterFunctions(filter.BetweenFilter())
+```
+
+| Function | Expansion |
+|---|---|
+| `between(field, lo, hi)` | `field >= lo && field <= hi` |
+
+The first argument must be an identifier (a field reference), the bounds may be any expression the translator accepts. The expanded
+And-tree is portable across all translators, so the same call works against MongoDB, RediSearch, and the in-memory evaluator.
+
+#### `SoftDeleteFilters()` — soft-delete predicates
+
+```go
+filter.RegisterFunctions(filter.SoftDeleteFilters())
+```
+
+| Function | Expansion |
+|---|---|
+| `notDeleted()` | `deletedAt == null` |
+| `onlyDeleted()` | `deletedAt != null` |
+
+Equality with `null` matches both missing and explicitly null values under MongoDB and the in-memory evaluator — the semantics callers
+typically want for soft delete. For a stricter "field absent" check, use the built-in `!has(deletedAt)` directly.
+
 ### Application-wide registration
 
 When the same set of custom functions should be visible to every parser in the application, register them once during bootstrap:
@@ -196,9 +223,9 @@ global registry must use `ResetGlobalCustomFunctions()` (e.g. via `t.Cleanup`) a
 
 | Package | Output | Use when |
 |---|---|---|
-| [`translators/mongo`](../../data/filter/translators/mongo) | `bson.M` | MongoDB collection scan or aggregation `$match` |
-| [`translators/redisearch`](../../data/filter/translators/redisearch) | RediSearch query string | Server-side filter on a Redis hash with the RediSearch module |
-| [`translators/lua`](../../data/filter/translators/lua) | Lua boolean expression | Filter plain Redis keys via `EVAL` |
+| `translators/mongo` | `bson.M` | MongoDB collection scan or aggregation `$match` |
+| `translators/redisearch` | RediSearch query string | Server-side filter on a Redis hash with the RediSearch module |
+| `translators/lua` | Lua boolean expression | Filter plain Redis keys via `EVAL` |
 
 All translators implement `filter.Visitor` and accept the same `TranslatorOption` set (allowlist, field mapping, depth limit, untrusted-input
 guard, strict mode).
@@ -312,7 +339,5 @@ not run global-registry tests in parallel with each other.
 
 ## Related docs
 
-- [`data/filter/README.md`](../../data/filter/README.md) — godoc-level option reference
 - [`docs/configuration.md`](../configuration.md) — overall YAML format
 - [`docs/metrics.md`](../metrics.md) — full metrics reference for the repository
-- [`data/mongo`](../../data/mongo) — pairs naturally with `translators/mongo` for repository code

@@ -530,7 +530,7 @@ When `cfg.Watch = true` the factory calls `StartWatching(ctx)` after the initial
 ## Sandbox mode
 
 The manager can apply Linux process-hardening primitives before opening any `.so` file. This reduces blast radius for buggy plugins — it is not isolation.
-Go's `plugin` package loads native code into the host address space, so true in-process isolation is impossible.
+Go's `plugin` package loads native code into the host address space, so in-process isolation is impossible.
 
 > **Read this before enabling.**
 >
@@ -563,7 +563,7 @@ Go's `plugin` package loads native code into the host address space, so true in-
 | `disableCoreDumps`         | `setrlimit(RLIMIT_CORE, 0)`                | Suppresses core dumps so memory contents (including secrets) cannot leak |
 | `landlock`                 | `landlock_create_ruleset` + `add_rule` + `restrict_self` | Strict filesystem allowlist enforced by the kernel       |
 
-`seccomp-BPF` is in [`core/runtime/seccomp`](../core/runtime/seccomp/README.md) but is **not** wired into the plugin sandbox. Call
+`seccomp-BPF` is in `core/runtime/seccomp` but is **not** wired into the plugin sandbox. Call
 `seccomp.BlockDangerousSyscalls()` during host startup before constructing the manager. The denylist is fixed, not operator-configurable, to keep the
 audited set stable.
 
@@ -616,7 +616,7 @@ plugins:
 Plugins loaded via `dlopen` inherit the host's Linux capabilities. Without dropping, a plugin could craft raw packets, bind privileged ports, bypass DAC,
 trace processes, or mount filesystems.
 
-The capability-dropping pass runs between `rlimits` and Landlock, using [`core/runtime/capabilities`](../core/runtime/capabilities/README.md) (raw
+The capability-dropping pass runs between `rlimits` and Landlock, using `core/runtime/capabilities` (raw
 `capset(2)` + `prctl(2)`, no cgo).
 
 **Configuration:**

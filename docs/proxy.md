@@ -22,13 +22,9 @@ Configure outbound HTTP and gRPC egress through forward proxies — corporate eg
 
 Proxy support lives in three layers:
 
-1. **Config structs** — [`config.HTTPProxy`](../config/http_proxy.go) and
-   [`config.GrpcProxy`](../config/grpc_proxy.go) define the YAML schema and materialize into option slices via `ClientOptions()`.
-2. **Client options** — the `WithProxy*` family of functional options on
-   [`transport/http/client`](../transport/http/client/) and [`transport/grpc/client`](../transport/grpc/client/) applies the options to the respective
-   clients.
-3. **Shared dialer** — [`transport/internal/proxydial`](../transport/internal/proxydial/)
-   implements HTTP CONNECT (RFC 7231 §4.3.6), SOCKS5, and the `*tls.Config` merge rules used by both clients.
+1. **Config structs** — `config.HTTPProxy` and `config.GrpcProxy` define the YAML schema and materialize into option slices via `ClientOptions()`.
+2. **Client options** — the `WithProxy*` family of functional options on `transport/http/client` and `transport/grpc/client` applies the options to the respective clients.
+3. **Shared dialer** — `transport/internal/proxydial` implements HTTP CONNECT (RFC 7231 §4.3.6), SOCKS5, and the `*tls.Config` merge rules used by both clients.
 
 ### Default behavior
 
@@ -56,7 +52,7 @@ An explicit configuration overrides the env-based default — including the `Mod
 | `config.GrpcProxyAuth` | Username + secret-redacted password for gRPC proxy |
 | `config.GrpcProxyMode` | Mode enum: `none` / `url` / `host` (or empty = passthrough) |
 
-### HTTP client options (`transport/http/client`)
+### HTTP client options
 
 | Option | Description |
 |--------|-------------|
@@ -67,7 +63,7 @@ An explicit configuration overrides the env-based default — including the `Mod
 | `WithProxyTLSConfig(cfg)` | Custom `*tls.Config` for the handshake to an `https://` proxy |
 | `HTTPClientSetter` | Interface `SetHTTPClient(*http.Client)` for sub-components that adopt the parent's client |
 
-### gRPC client options (`transport/grpc/client`)
+### gRPC client options
 
 | Option | Description |
 |--------|-------------|
@@ -77,10 +73,9 @@ An explicit configuration overrides the env-based default — including the `Mod
 | `WithoutProxy()` | Disable proxy resolution including grpc-go's env lookup |
 | `WithProxyTLSConfig(cfg)` | Custom `*tls.Config` for the handshake to an `https://` proxy |
 
-### Shared dialer (`transport/internal/proxydial`)
+### Shared dialer
 
-Internal package consumed by both clients. Exports `HTTPConnect`, `SOCKS5Dialer`, `TLSConfig`, plus shared `DefaultDialer()` / `DefaultDialTimeout` (30s) /
-`DefaultDialKeepAlive` (30s) so both transports agree on TCP-level options.
+Both transports agree on TCP-level options through a shared dialer that exposes HTTP CONNECT, SOCKS5, TLS-config merging, and a default `Dialer` with `DialTimeout` / `DialKeepAlive` of 30s each.
 
 ---
 
@@ -141,7 +136,7 @@ The `Validate()` methods enforce:
 ### `!include` pattern for reusable proxy blocks
 
 The YAML loader supports `!include <file>`, so every consumer can reuse the same template. This is how
-[`config/templates/opa.yaml`](../config/templates/opa.yaml) wires proxy settings for GitLab and S3 policy sources:
+`config/templates/opa.yaml` wires proxy settings for GitLab and S3 policy sources:
 
 ```yaml
 opa:
@@ -214,7 +209,7 @@ c, err := grpcclient.New(ctx, "service.example.com:443",
     grpcclient.WithProxy("proxy.corp", 3128, nil),
 )
 
-// HTTPS proxy with a self-signed CA — the most-asked case.
+// HTTPS proxy with a self-signed CA.
 pool := x509.NewCertPool()
 pool.AppendCertsFromPEM(corpProxyCA)
 c, err = grpcclient.New(ctx, "service.example.com:443",
@@ -237,7 +232,7 @@ client's constructor.
 
 ### OIDC
 
-[`auth/oidc/factory/builder.go`](../auth/oidc/factory/builder.go):
+`auth/oidc/factory/builder.go`:
 
 ```go
 proxyOpts, err := cfg.Proxy.ClientOptions()
@@ -249,12 +244,12 @@ if len(proxyOpts) > 0 {
 }
 ```
 
-The Provider's HTTP client is shared with any revocation loader that implements [`httpclient.HTTPClientSetter`](../transport/http/client/injector.go) — so
+The Provider's HTTP client is shared with any revocation loader that implements `httpclient.HTTPClientSetter` — so
 discovery, JWKS refresh, introspection, userinfo, and URL-based revocation all use the same connection pool and proxy.
 
 ### OPA — GitLab source
 
-[`auth/opa/factory/builder.go`](../auth/opa/factory/builder.go):
+`auth/opa/factory/builder.go`:
 
 ```go
 proxyOpts, err := gl.Proxy.ClientOptions()
@@ -284,7 +279,7 @@ if len(proxyOpts) > 0 {
 
 ### OTLP — gRPC exporter
 
-[`observability/tracing/adapters/otlp/grpc_client.go`](../observability/tracing/adapters/otlp/grpc_client.go):
+`observability/tracing/adapters/otlp/grpc_client.go`:
 
 ```go
 opts := []grpcclient.Option{}
@@ -399,5 +394,5 @@ output automatically.
 - [Configuration guide](configuration.md) — loader, env vars, templates
 - [Architecture](architecture.md) — package layout, layering
 - [OIDC](oidc.md) — `oidc.proxy` field, JWKS / introspection clients
-- [`transport/http/client`](../transport/http/client/) — HTTP client API reference
-- [`transport/grpc/client`](../transport/grpc/client/) — gRPC client API reference
+- `transport/http/client` — HTTP client API reference
+- `transport/grpc/client` — gRPC client API reference

@@ -13,7 +13,7 @@
 //     a [observability/health.Coordinator] and translate its
 //     [observability/health.ServingStatus] into HTTP 200/503 plus a JSON
 //     body. Use these once your dependencies report health into a
-//     coordinator (see docs/health.md).
+//     coordinator (see docs/observability/health.md).
 //
 // # Usage
 //

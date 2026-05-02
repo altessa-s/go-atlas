@@ -4,20 +4,6 @@ Key concepts for working with concurrency using `core/runtime` and its subpackag
 
 ---
 
-## Package map
-
-| Package | Purpose |
-|---------|---------|
-| `core/runtime` | Shutdown hooks, resource cleanup (GC finalizers) |
-| `core/runtime/concurrency` | Adaptive concurrency limits, batch processing |
-| `core/retry` | Retry loops with backoff and context cancellation |
-| `core/runtime/panics` | Panic recovery and runtime assertions |
-| `core/runtime/signals` | OS signal handling with priority and worker pools |
-
-All packages live in the `core/` layer: stdlib only, zero external dependencies.
-
----
-
 ## Batch processing
 
 `concurrency.Process` and `concurrency.ProcessCollect` run a function over a slice with bounded concurrency. They use a channel-based semaphore internally
