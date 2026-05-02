@@ -6,6 +6,7 @@ package filter
 
 import (
 	"context"
+	"maps"
 	"sync"
 	"time"
 
@@ -30,11 +31,13 @@ const DefaultParserCacheSize = 1000
 
 // parserConfig holds parser configuration.
 type parserConfig struct {
-	cacheSize           int
-	maxExpressionLength int
-	noCache             bool
-	collector           metrics.Collector
-	customFunctions     map[string]CustomFunction
+	cacheSize                 int
+	maxExpressionLength       int
+	noCache                   bool
+	collector                 metrics.Collector
+	customFunctions           map[string]CustomFunction
+	allowedFunctions          map[string]struct{}
+	skipGlobalCustomFunctions bool
 }
 
 // defaultParserConfig returns default parser configuration.
@@ -83,6 +86,36 @@ func WithParserCollector(c metrics.Collector) ParserOption {
 	}
 }
 
+// WithAllowedFunctions restricts which CEL functions the parser
+// accepts. The whitelist covers built-in named functions (contains,
+// startsWith, endsWith, matches, size, timestamp) and any handlers
+// registered via [WithCustomFunctions]. Operators (==, !=, <, &&, ||,
+// !, in) and the has() macro are baseline grammar and are always
+// allowed.
+//
+// When this option is not set, every function reachable from the
+// parser is accepted (the historical default). A name registered as a
+// custom function but absent from the whitelist is rejected at parse
+// time with [ErrFunctionNotAllowed], not at [NewParser] — that keeps
+// the "global registry + per-parser narrowing" pattern available.
+//
+// Example — only allow safe substring queries plus a custom shortcut:
+//
+//	parser, _ := filter.NewParser(
+//	    filter.WithAllowedFunctions("contains", "startsWith", "createdAfter"),
+//	    filter.WithCustomFunctions(map[string]filter.CustomFunction{
+//	        "createdAfter": filter.CompareField("createdAt", filter.OpGT),
+//	    }),
+//	)
+func WithAllowedFunctions(names ...string) ParserOption {
+	return func(c *parserConfig) {
+		c.allowedFunctions = make(map[string]struct{}, len(names))
+		for _, n := range names {
+			c.allowedFunctions[n] = struct{}{}
+		}
+	}
+}
+
 // WithCustomFunctions registers user-defined CEL functions that the
 // parser expands into arbitrary AST nodes. Each call name(args...) in
 // a parsed expression is dispatched to the matching [CustomFunction]
@@ -111,6 +144,17 @@ func WithCustomFunctions(funcs map[string]CustomFunction) ParserOption {
 	}
 }
 
+// WithoutGlobalCustomFunctions excludes the package-level registry
+// (populated via [RegisterFunctions]) from this parser's effective
+// function set. The parser then only sees functions passed via
+// [WithCustomFunctions]. Useful in tests and for isolated parsers
+// that should not pick up application-wide registrations.
+func WithoutGlobalCustomFunctions() ParserOption {
+	return func(cfg *parserConfig) {
+		cfg.skipGlobalCustomFunctions = true
+	}
+}
+
 // Parser parses CEL expressions into filter AST nodes.
 type Parser struct {
 	env                 *cel.Env
@@ -118,6 +162,7 @@ type Parser struct {
 	maxExpressionLength int
 	metrics             *filterMetrics
 	customFunctions     *coremaps.ImmutableMap[string, CustomFunction]
+	allowedFunctions    *coremaps.ImmutableMap[string, struct{}]
 }
 
 // getCELEnvironment returns the shared CEL environment, initialized on first call.
@@ -147,7 +192,8 @@ func NewParser(opts ...ParserOption) (*Parser, error) {
 		env:                 env,
 		maxExpressionLength: cfg.maxExpressionLength,
 		metrics:             newFilterMetrics(cfg.collector),
-		customFunctions:     coremaps.NewImmutableMap(cfg.customFunctions),
+		customFunctions:     coremaps.NewImmutableMap(mergeCustomFunctions(cfg)),
+		allowedFunctions:    coremaps.NewImmutableMap(cfg.allowedFunctions),
 	}
 
 	if !cfg.noCache {
@@ -159,6 +205,25 @@ func NewParser(opts ...ParserOption) (*Parser, error) {
 	}
 
 	return p, nil
+}
+
+// mergeCustomFunctions builds the effective custom-function map for a
+// new parser: the package-level registry (unless opted out) overlaid
+// with per-parser registrations. Per-parser entries win on name
+// collision because the explicit option is more specific than the
+// global default.
+func mergeCustomFunctions(cfg *parserConfig) map[string]CustomFunction {
+	var globals map[string]CustomFunction
+	if !cfg.skipGlobalCustomFunctions {
+		globals = snapshotGlobalCustomFunctions()
+	}
+	if len(globals) == 0 && len(cfg.customFunctions) == 0 {
+		return nil
+	}
+	out := make(map[string]CustomFunction, len(globals)+len(cfg.customFunctions))
+	maps.Copy(out, globals)
+	maps.Copy(out, cfg.customFunctions)
+	return out
 }
 
 // Parse parses a CEL expression and returns the corresponding AST node.
@@ -300,6 +365,10 @@ func (p *Parser) buildFieldPath(s *exprpb.Expr_Select) (string, error) {
 
 // convertCall converts a CEL call expression to the appropriate node type.
 func (p *Parser) convertCall(c *exprpb.Expr_Call) (Node, error) {
+	if isUserFunction(c.Function) && p.allowedFunctions.Len() > 0 &&
+		!p.allowedFunctions.Contains(c.Function) {
+		return nil, coreerrs.Wrapf(ErrFunctionNotAllowed, "%s", c.Function)
+	}
 	switch c.Function {
 	// Comparison operators
 	case operators.Equals:

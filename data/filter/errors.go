@@ -17,6 +17,13 @@ var (
 	// ErrFieldNotAllowed indicates that a field is not in the allowed list.
 	ErrFieldNotAllowed = errors.New("field not allowed")
 
+	// ErrFunctionNotAllowed indicates that a CEL function (built-in or
+	// custom) is not in the allowed list configured via
+	// [WithAllowedFunctions]. Operators (==, !=, <, &&, ||, !, in) and
+	// the has() macro are part of the baseline grammar and are not
+	// subject to this whitelist.
+	ErrFunctionNotAllowed = errors.New("function not allowed")
+
 	// ErrAllowlistRequired indicates a translator/evaluator was constructed
 	// with [WithUntrustedInput] but no [WithAllowedFields] allowlist was
 	// supplied. Translating untrusted CEL without an allowlist would let the

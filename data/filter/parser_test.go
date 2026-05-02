@@ -696,3 +696,236 @@ func TestCompareField_WrongArity(t *testing.T) {
 	_, err = h([]Node{&LiteralNode{Value: 1}, &LiteralNode{Value: 2}})
 	require.ErrorIs(t, err, ErrInvalidExpression)
 }
+
+func TestParser_Parse_AllowedFunctions(t *testing.T) {
+	tests := []struct {
+		name    string
+		expr    string
+		wantErr error
+	}{
+		{"allowed built-in", `name.contains("a")`, nil},
+		{"blocked built-in", `name.matches("a")`, ErrFunctionNotAllowed},
+		{"allowed custom", `createdAfter("2024-01-01")`, nil},
+		{"unregistered custom (blocked by allowlist first)", `unknownFunc(1)`, ErrFunctionNotAllowed},
+		{"operator: equality", `name == "John"`, nil},
+		{"operator: logical and", `name == "John" && active`, nil},
+		{"operator: logical or", `a == 1 || b == 2`, nil},
+		{"operator: in", `status in ["a", "b"]`, nil},
+		{"operator: unary not", `!active`, nil},
+		{"macro: has", `has(user.email)`, nil},
+		{"comparison chain", `age >= 18 && age < 65`, nil},
+	}
+
+	p, err := NewParser(
+		WithParserNoCache(),
+		WithAllowedFunctions("contains", "createdAfter"),
+		WithCustomFunctions(map[string]CustomFunction{
+			"createdAfter": CompareField("createdAt", OpGT),
+		}),
+	)
+	require.NoError(t, err)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := p.Parse(t.Context(), tt.expr)
+			if tt.wantErr == nil {
+				require.NoError(t, err, "Parse(%q)", tt.expr)
+				return
+			}
+			require.ErrorIs(t, err, tt.wantErr, "Parse(%q)", tt.expr)
+		})
+	}
+}
+
+func TestParser_Parse_AllowedFunctions_AllowedButUnregistered(t *testing.T) {
+	p, err := NewParser(
+		WithParserNoCache(),
+		WithAllowedFunctions("createdAfter"),
+		// no custom registration for createdAfter
+	)
+	require.NoError(t, err)
+
+	_, err = p.Parse(t.Context(), `createdAfter("2024-01-01")`)
+	require.ErrorIs(t, err, ErrUnsupportedOperation,
+		"allowlist passes but no handler exists, must surface as ErrUnsupportedOperation")
+}
+
+func TestParser_Parse_AllowedFunctions_NotConfiguredAllowsAll(t *testing.T) {
+	p, err := NewParser(WithParserNoCache())
+	require.NoError(t, err)
+
+	_, err = p.Parse(t.Context(), `name.matches("^J.*")`)
+	require.NoError(t, err, "without WithAllowedFunctions every function is allowed")
+}
+
+// withCleanGlobalRegistry resets the package-level registry before and
+// after the test so global-registry tests don't leak into one another.
+// These tests must not run in parallel with each other.
+func withCleanGlobalRegistry(t *testing.T) {
+	t.Helper()
+	ResetGlobalCustomFunctions()
+	t.Cleanup(ResetGlobalCustomFunctions)
+}
+
+func TestRegisterFunctions_ParserPicksUpGlobal(t *testing.T) {
+	withCleanGlobalRegistry(t)
+
+	require.NoError(t, RegisterFunctions(map[string]CustomFunction{
+		"createdAfter": CompareField("createdAt", OpGT),
+	}))
+
+	p, err := NewParser(WithParserNoCache())
+	require.NoError(t, err)
+
+	node, err := p.Parse(t.Context(), `createdAfter("2024-01-01")`)
+	require.NoError(t, err)
+
+	bin, ok := node.(*BinaryOpNode)
+	require.True(t, ok, "expected BinaryOpNode, got %T", node)
+	require.Equal(t, OpGT, bin.Op)
+	require.Equal(t, "createdAt", bin.Left.(*IdentNode).Name)
+}
+
+func TestRegisterFunctions_PerParserOverride(t *testing.T) {
+	withCleanGlobalRegistry(t)
+
+	require.NoError(t, RegisterFunctions(map[string]CustomFunction{
+		"shortcut": CompareField("createdAt", OpGT),
+	}))
+
+	override := func([]Node) (Node, error) {
+		return &LiteralNode{Value: "override"}, nil
+	}
+	p, err := NewParser(
+		WithParserNoCache(),
+		WithCustomFunctions(map[string]CustomFunction{"shortcut": override}),
+	)
+	require.NoError(t, err)
+
+	node, err := p.Parse(t.Context(), `shortcut(1)`)
+	require.NoError(t, err)
+	lit, ok := node.(*LiteralNode)
+	require.True(t, ok, "expected LiteralNode, got %T", node)
+	require.Equal(t, "override", lit.Value)
+}
+
+func TestRegisterFunctions_WithoutGlobal(t *testing.T) {
+	withCleanGlobalRegistry(t)
+
+	require.NoError(t, RegisterFunctions(map[string]CustomFunction{
+		"createdAfter": CompareField("createdAt", OpGT),
+	}))
+
+	p, err := NewParser(WithParserNoCache(), WithoutGlobalCustomFunctions())
+	require.NoError(t, err)
+
+	_, err = p.Parse(t.Context(), `createdAfter("2024-01-01")`)
+	require.ErrorIs(t, err, ErrUnsupportedOperation,
+		"opt-out parser must not see globally registered functions")
+}
+
+func TestRegisterFunctions_DuplicateName(t *testing.T) {
+	withCleanGlobalRegistry(t)
+
+	require.NoError(t, RegisterFunctions(map[string]CustomFunction{
+		"createdAfter": CompareField("createdAt", OpGT),
+	}))
+
+	err := RegisterFunctions(map[string]CustomFunction{
+		"createdAfter": CompareField("created_at", OpGT),
+	})
+	require.ErrorIs(t, err, ErrInvalidExpression)
+	require.Contains(t, err.Error(), "already registered")
+}
+
+func TestRegisterFunctions_Validation(t *testing.T) {
+	withCleanGlobalRegistry(t)
+
+	t.Run("reserved name", func(t *testing.T) {
+		err := RegisterFunctions(map[string]CustomFunction{
+			"contains": func([]Node) (Node, error) { return nil, nil },
+		})
+		require.ErrorIs(t, err, ErrInvalidExpression)
+	})
+
+	t.Run("nil handler", func(t *testing.T) {
+		err := RegisterFunctions(map[string]CustomFunction{
+			"createdAfter": nil,
+		})
+		require.ErrorIs(t, err, ErrInvalidExpression)
+	})
+}
+
+func TestGlobalCustomFunctions_Snapshot(t *testing.T) {
+	withCleanGlobalRegistry(t)
+
+	require.Empty(t, GlobalCustomFunctions())
+
+	require.NoError(t, RegisterFunctions(map[string]CustomFunction{
+		"createdAfter": CompareField("createdAt", OpGT),
+	}))
+
+	snap := GlobalCustomFunctions()
+	require.Len(t, snap, 1)
+	require.NotNil(t, snap["createdAfter"])
+
+	// Mutating the snapshot must not affect the registry.
+	delete(snap, "createdAfter")
+	require.Len(t, GlobalCustomFunctions(), 1)
+}
+
+func TestRegisterFunctions_CombinesWithPerParser(t *testing.T) {
+	withCleanGlobalRegistry(t)
+
+	require.NoError(t, RegisterFunctions(map[string]CustomFunction{
+		"createdAfter": CompareField("createdAt", OpGT),
+	}))
+
+	p, err := NewParser(
+		WithParserNoCache(),
+		WithCustomFunctions(map[string]CustomFunction{
+			"updatedAfter": CompareField("updatedAt", OpGT),
+		}),
+	)
+	require.NoError(t, err)
+
+	for _, expr := range []string{`createdAfter("2024-01-01")`, `updatedAfter("2024-01-02")`} {
+		t.Run(expr, func(t *testing.T) {
+			_, err := p.Parse(t.Context(), expr)
+			require.NoError(t, err, "Parse(%q)", expr)
+		})
+	}
+}
+
+func TestIsUserFunction(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{"_==_", false},
+		{"_!=_", false},
+		{"_<_", false},
+		{"_<=_", false},
+		{"_>_", false},
+		{"_>=_", false},
+		{"_&&_", false},
+		{"_||_", false},
+		{"!_", false},
+		{"@in", false},
+		{"has", false},
+		{"contains", true},
+		{"startsWith", true},
+		{"endsWith", true},
+		{"matches", true},
+		{"size", true},
+		{"timestamp", true},
+		{"createdAfter", true},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, isUserFunction(tt.name))
+		})
+	}
+}

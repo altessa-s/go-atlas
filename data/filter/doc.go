@@ -69,6 +69,16 @@
 //	    filter.WithAllowedFields("name", "age", "email"),
 //	)
 //
+// Function Allowlist - restrict which CEL functions can be called.
+// Operators (==, !=, <, &&, ||, !, in) and the has() macro are
+// baseline grammar and are always allowed. Custom functions registered
+// via WithCustomFunctions must also appear in the allowlist when one
+// is configured:
+//
+//	parser, _ := filter.NewParser(
+//	    filter.WithAllowedFunctions("contains", "startsWith", "createdAfter"),
+//	)
+//
 // Depth Limit - protect against DoS via deeply nested expressions:
 //
 //	trans := mongo.NewTranslator(
@@ -136,6 +146,11 @@
 //	    "updatedAfter":  filter.CompareField("updatedAt", filter.OpGT),
 //	    "createdBefore": filter.CompareField("createdAt", filter.OpLT),
 //	}))
+//
+// For application-wide registration, call RegisterFunctions once during
+// bootstrap (main or init). Every subsequent NewParser picks the global
+// set up by default; WithCustomFunctions overrides matching names, and
+// WithoutGlobalCustomFunctions opts a single parser out entirely.
 //
 // After parsing, the AST contains a normal BinaryOpNode against the
 // target field, so WithFieldMapping and WithAllowedFields operate on
