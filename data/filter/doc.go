@@ -137,9 +137,11 @@
 // # Custom Functions
 //
 // Register custom CEL functions that the parser expands into arbitrary
-// AST nodes before the filter reaches an evaluator or translator. The
-// CompareField helper covers the common "function with one argument
-// becomes `field op arg`" shape:
+// AST nodes before the filter reaches an evaluator or translator.
+// Constant covers parameter-less predicates over a fixed value
+// (`name() → field op value`); CompareField covers one-argument
+// predicates over a user-supplied operand
+// (`name(arg) → field op arg`).
 //
 //	parser, _ := filter.NewParser(filter.WithCustomFunctions(map[string]filter.CustomFunction{
 //	    "createdAfter":  filter.CompareField("createdAt", filter.OpGT),

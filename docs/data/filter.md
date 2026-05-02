@@ -91,7 +91,20 @@ Register CEL functions that the parser expands into AST nodes before evaluation 
 field names: a client sends `createdAfter("2024-01-01")` and the parser rewrites it to `createdAt > "2024-01-01"`. Translators never see the
 virtual name.
 
-`CompareField(field, op)` is the canonical building block for the common "function with one argument becomes `field op arg`" shape:
+`Constant(field, op, value)` and `CompareField(field, op)` are the two fundamental building blocks:
+
+- `Constant` — parameter-less predicate (`name() → field op value`). Natural fit for domain status enums and fixed thresholds.
+- `CompareField` — one-argument predicate (`name(arg) → field op arg`). Natural fit for "after / before" comparisons over a caller-supplied operand.
+
+```go
+filter.RegisterFunctions(map[string]filter.CustomFunction{
+    "isActive":     filter.Constant("status", filter.OpEqual, "active"),
+    "isPending":    filter.Constant("status", filter.OpEqual, "pending"),
+    "hasFailures":  filter.Constant("failures", filter.OpGT, int64(0)),
+})
+```
+
+`CompareField` is shown below for the "with argument" case:
 
 ```go
 parser, _ := filter.NewParser(filter.WithCustomFunctions(map[string]filter.CustomFunction{

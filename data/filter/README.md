@@ -55,14 +55,21 @@ before the filter reaches an evaluator or translator. This is the way to
 expose semantic shortcuts such as `createdAfter("2024-01-01")` that map
 to `createdAt > "2024-01-01"` against the model.
 
-`CompareField(field, op)` is the canonical building block for the common
-"function with one argument becomes `field op arg`" shape:
+`Constant(field, op, value)` and `CompareField(field, op)` are the two
+fundamental building blocks. `Constant` exposes a parameter-less
+predicate (`name() → field op value`) — the natural shape for status
+enums and fixed thresholds. `CompareField` exposes a one-argument
+predicate (`name(arg) → field op arg`) — the natural shape for
+"after / before / above / below"-style comparisons over a user-supplied
+operand:
 
 ```go
 parser, _ := filter.NewParser(filter.WithCustomFunctions(map[string]filter.CustomFunction{
     "createdAfter":  filter.CompareField("createdAt", filter.OpGT),
     "updatedAfter":  filter.CompareField("updatedAt", filter.OpGT),
     "createdBefore": filter.CompareField("createdAt", filter.OpLT),
+    "isActive":      filter.Constant("status", filter.OpEqual, "active"),
+    "hasFailures":   filter.Constant("failures", filter.OpGT, int64(0)),
 }))
 ```
 
