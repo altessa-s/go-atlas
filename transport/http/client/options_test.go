@@ -100,6 +100,32 @@ func TestWithTransport_Nil(t *testing.T) {
 	require.Nil(t, opts.transport)
 }
 
+func TestWithMetricsSubsystem(t *testing.T) {
+	opts := newOptions(WithMetricsSubsystem("egrul"))
+	require.Equal(t, "egrul", opts.metricsSubsystem)
+}
+
+func TestWithMetricsSubsystem_StringPtr(t *testing.T) {
+	sub := "kfocus"
+	opts := newOptions(WithMetricsSubsystem(&sub))
+	require.Equal(t, "kfocus", opts.metricsSubsystem)
+}
+
+func TestWithMetricsSubsystem_NilPtr(t *testing.T) {
+	opts := newOptions(WithMetricsSubsystem[*string](nil))
+	require.Equal(t, DefaultMetricsSubsystem, opts.metricsSubsystem)
+}
+
+func TestWithMetricsSubsystem_Empty(t *testing.T) {
+	opts := newOptions(WithMetricsSubsystem(""))
+	require.Equal(t, DefaultMetricsSubsystem, opts.metricsSubsystem)
+}
+
+func TestWithMetricsSubsystem_Default(t *testing.T) {
+	opts := newOptions()
+	require.Equal(t, DefaultMetricsSubsystem, opts.metricsSubsystem)
+}
+
 func TestDefaultConstants(t *testing.T) {
 	require.Greater(t, DefaultRetryWaitMin, time.Duration(0))
 	require.Greater(t, DefaultRetryWaitMax, time.Duration(0))

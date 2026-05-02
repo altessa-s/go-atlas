@@ -64,7 +64,7 @@ type retryRoundTripper struct {
 // orchestration to [coreretry.Do].
 func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	if rt.metrics == nil {
-		rt.metrics = newHTTPClientMetrics(nil)
+		rt.metrics = newHTTPClientMetrics(nil, "")
 	}
 
 	var bodyBytes []byte

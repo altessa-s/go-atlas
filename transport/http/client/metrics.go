@@ -8,6 +8,14 @@ import (
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
+// DefaultMetricsSubsystem is the Prometheus subsystem name used when no
+// explicit subsystem is provided via [WithMetricsSubsystem]. Override it
+// when the same process runs several HTTP clients against different
+// upstreams so each clients metrics land in their own namespace
+// (e.g. egrul_requests_total vs kfocus_requests_total) and do not collide
+// when registered against a shared [prometheus.Registerer].
+const DefaultMetricsSubsystem = "http_client"
+
 // httpClientMetrics holds all Prometheus metrics for the HTTP client.
 // When no [metrics.Collector] is provided, [metrics.Noop] is used and
 // all methods become zero-cost no-ops.
@@ -20,12 +28,15 @@ type httpClientMetrics struct {
 	circuitBreakerState metrics.Gauge
 }
 
-func newHTTPClientMetrics(c metrics.Collector) *httpClientMetrics {
+func newHTTPClientMetrics(c metrics.Collector, subsystem string) *httpClientMetrics {
 	if c == nil {
 		c = metrics.Noop()
 	}
+	if subsystem == "" {
+		subsystem = DefaultMetricsSubsystem
+	}
 
-	scoped := c.WithSubsystem("http_client")
+	scoped := c.WithSubsystem(subsystem)
 
 	return &httpClientMetrics{
 		requestsTotal: scoped.MustCounter(metrics.MetricOpts{

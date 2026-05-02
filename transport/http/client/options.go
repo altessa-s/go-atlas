@@ -110,6 +110,7 @@ type options struct {
 	// ssrfAllowedCIDRs contains CIDR prefixes exempted from SSRF blocking
 	ssrfAllowedCIDRs []netip.Prefix    `optgen:"manual"`
 	collector        metrics.Collector `optgen:"notnil"`
+	metricsSubsystem string            `optgen:"default=DefaultMetricsSubsystem"`
 	// proxy resolves the proxy URL for outgoing requests. The auto-generated
 	// setter is named WithProxyFunc to free the WithProxy name for the more
 	// common host/port/auth convenience setter declared below.

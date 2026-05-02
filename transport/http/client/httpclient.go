@@ -76,7 +76,7 @@ func New(opt ...Option) *http.Client {
 }
 
 func (c *Client) retractableClient() *http.Client {
-	m := newHTTPClientMetrics(c.options.collector)
+	m := newHTTPClientMetrics(c.options.collector, c.options.metricsSubsystem)
 	cbClient := newCircuitBreakerClient(c.options, m)
 	stdClient := cbClient.standardClient()
 
