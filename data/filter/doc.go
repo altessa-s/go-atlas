@@ -152,6 +152,18 @@
 // set up by default; WithCustomFunctions overrides matching names, and
 // WithoutGlobalCustomFunctions opts a single parser out entirely.
 //
+// TimestampFilters returns a ready-made preset for createAfter /
+// createBefore / updateAfter / updateBefore / deleteAfter /
+// deleteBefore. The preset is opt-in — call RegisterFunctions or
+// WithCustomFunctions explicitly to enable it. SelectTimestampFilters
+// builds a subset of the same preset for cases where only some of the
+// predicates apply (for example, models without a soft delete).
+//
+// BetweenFilter exposes a generic range predicate between(field, lo, hi)
+// that expands to field >= lo && field <= hi. SoftDeleteFilters exposes
+// notDeleted() and onlyDeleted() keyed off the standard deletedAt
+// field. Both presets are opt-in.
+//
 // After parsing, the AST contains a normal BinaryOpNode against the
 // target field, so WithFieldMapping and WithAllowedFields operate on
 // "createdAt" (not on the virtual "createdAfter" name). Names must not

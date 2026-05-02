@@ -76,6 +76,59 @@ Names must not collide with built-in CEL functions (`contains`,
 field name (e.g. `createdAt`), since the virtual call is gone after
 parsing.
 
+### Built-in presets
+
+`TimestampFilters()` returns a ready-made set for the common
+`createdAt`/`updatedAt`/`deletedAt` predicates — opt in explicitly:
+
+```go
+filter.RegisterFunctions(filter.TimestampFilters())
+// createAfter(t)  → createdAt > t
+// createBefore(t) → createdAt < t
+// updateAfter(t)  → updatedAt > t
+// updateBefore(t) → updatedAt < t
+// deleteAfter(t)  → deletedAt > t
+// deleteBefore(t) → deletedAt < t
+```
+
+Field names are fixed (camelCase). For snake_case columns add
+`WithFieldMapping{"createdAt":"created_at",...}` on the translator.
+
+For partial registration use `SelectTimestampFilters(names ...string)`:
+
+```go
+filter.RegisterFunctions(filter.SelectTimestampFilters(
+    filter.TimestampFuncCreateAfter,
+    filter.TimestampFuncUpdateAfter,
+))
+```
+
+Unknown names are silently skipped — pass the `TimestampFunc*` constants to avoid typos.
+
+`BetweenFilter()` exposes a generic range predicate
+`between(field, lo, hi)` → `field >= lo && field <= hi`. The first
+argument must be an identifier; the bounds can be any literal or
+expression the translator accepts.
+
+```go
+filter.RegisterFunctions(filter.BetweenFilter())
+// CEL: between(age, 18, 65)
+// CEL: between(price, 100.0, 500.0)
+```
+
+`SoftDeleteFilters()` exposes the canonical soft-delete predicates
+keyed off `deletedAt`:
+
+```go
+filter.RegisterFunctions(filter.SoftDeleteFilters())
+// notDeleted()  → deletedAt == null
+// onlyDeleted() → deletedAt != null
+```
+
+Equality with `null` matches both missing and explicitly null values
+under MongoDB and the in-memory evaluator. If your storage needs a
+stricter "absent" check, use `!has(deletedAt)` directly instead.
+
 ### Application-wide registration
 
 Register once during bootstrap so every subsequently constructed
