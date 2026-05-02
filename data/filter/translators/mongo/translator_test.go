@@ -471,6 +471,51 @@ func TestTranslator_VisitorInterface(t *testing.T) {
 	var _ filter.Visitor = trans
 }
 
+func TestTranslator_BuiltinPresets(t *testing.T) {
+	tests := []struct {
+		name     string
+		funcs    map[string]filter.CustomFunction
+		expr     string
+		wantJSON string
+	}{
+		{
+			name:     "between expands to and-tree",
+			funcs:    filter.BetweenFilter(),
+			expr:     `between(age, 18, 65)`,
+			wantJSON: `{"$and":[{"age":{"$gte":18}},{"age":{"$lte":65}}]}`,
+		},
+		{
+			name:     "notDeleted expands to null equality",
+			funcs:    filter.SoftDeleteFilters(),
+			expr:     `notDeleted()`,
+			wantJSON: `{"deletedAt":null}`,
+		},
+		{
+			name:     "onlyDeleted expands to $ne null",
+			funcs:    filter.SoftDeleteFilters(),
+			expr:     `onlyDeleted()`,
+			wantJSON: `{"deletedAt":{"$ne":null}}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parser, err := filter.NewParser(
+				filter.WithParserNoCache(),
+				filter.WithCustomFunctions(tt.funcs),
+			)
+			require.NoError(t, err)
+
+			node, err := parser.Parse(t.Context(), tt.expr)
+			require.NoError(t, err)
+
+			got, err := NewTranslator().Translate(node)
+			require.NoError(t, err)
+			require.JSONEq(t, tt.wantJSON, bsonToJSON(got))
+		})
+	}
+}
+
 func TestTranslator_CustomFunction_CompareField(t *testing.T) {
 	parser, err := filter.NewParser(
 		filter.WithParserNoCache(),
