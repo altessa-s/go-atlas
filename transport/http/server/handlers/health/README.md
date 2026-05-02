@@ -25,4 +25,4 @@ HTTP handlers for liveness and readiness probes. Static stubs work without any d
 | `ServiceResponse` | `Detailed` | `{"status":"...", "services":{...}}` |
 | `ServiceStatus` | nested in `ServiceResponse` | `{"status":"..."}` |
 
-See [docs/health.md](../../../../../docs/health.md) for the broader picture (Coordinator API, gRPC twin, lifecycle).
+See [docs/observability/health.md](../../../../../docs/observability/health.md) for the broader picture (Coordinator API, gRPC twin, lifecycle).

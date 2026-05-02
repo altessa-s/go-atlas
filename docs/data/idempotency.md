@@ -183,7 +183,7 @@ and removed because no in-tree caller exercised it.
 
 NATS per-call `LockTTL > 0` works via `jetstream.KeyTTL` on Create —
 but the bucket must be created with `LimitMarkerTTL` (handled
-automatically in [`storages/nats.New`](../../data/idempotency/storages/nats)).
+automatically in `storages/nats.New`).
 This requires **NATS server 2.11+**. Older servers fail bucket creation
 at `New()` time with `ErrLimitMarkerTTLNotSupported`.
 
@@ -363,10 +363,10 @@ Callers don't mutate `*State` themselves — write through `Complete(data, state
 
 `go-atlas` ships HTTP and gRPC interceptors that wrap a `Keeper`:
 
-- [`transport/http/server/middlewares/idempotency`](../../transport/http/server/middlewares/idempotency) — reads the configured header
+- `transport/http/server/middlewares/idempotency` — reads the configured header
   (default `Idempotency-Key`), short-circuits with `409 Conflict` for in-progress requests and `422 Unprocessable Entity` for already-used
   keys, captures the response body for replay.
-- [`transport/grpc/interceptors/idempotency`](../../transport/grpc/interceptors/idempotency) — same model with metadata-based key extraction
+- `transport/grpc/interceptors/idempotency` — same model with metadata-based key extraction
   and gRPC status codes.
 
 Both stash the `*State` returned by `AttemptLock` per-request and pass it to `Complete` in the post-handler hook so the stolen-lock guard
@@ -414,4 +414,3 @@ go-atlas to a version before per-key TTL was wired in (not recommended — you l
 
 - [`docs/configuration.md`](../configuration.md) — overall YAML format and `cache_storage.yaml` template
 - [`docs/metrics.md`](../metrics.md) — full metric reference for the repository
-- [`data/idempotency/README.md`](../../data/idempotency/README.md) — godoc-level option reference

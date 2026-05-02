@@ -12,7 +12,7 @@ All pure functions return new maps without modifying inputs. Nil inputs are trea
 
 ---
 
-## Package map
+## API overview
 
 | Symbol group        | Purpose                                                              |
 |---------------------|----------------------------------------------------------------------|
