@@ -126,6 +126,34 @@ Constraints:
 - The expanded AST contains the **target** field (`createdAt`), so `WithFieldMapping` and `WithAllowedFields` operate on that name, not on
   the virtual one.
 
+### Application-wide registration
+
+When the same set of custom functions should be visible to every parser in the application, register them once during bootstrap:
+
+```go
+func init() {
+    if err := filter.RegisterFunctions(map[string]filter.CustomFunction{
+        "createdAfter":  filter.CompareField("createdAt", filter.OpGT),
+        "updatedAfter":  filter.CompareField("updatedAt", filter.OpGT),
+    }); err != nil {
+        panic(err)
+    }
+}
+
+// Anywhere — the parser picks the global registry up by default.
+parser, _ := filter.NewParser()
+```
+
+| API | Purpose |
+|---|---|
+| `RegisterFunctions(m)` | Add to the package-level registry. Re-registering a name returns an error |
+| `GlobalCustomFunctions()` | Snapshot of the registry for inspection or debugging |
+| `ResetGlobalCustomFunctions()` | Test helper — clears the registry; not for production code |
+| `WithoutGlobalCustomFunctions()` | Parser opt-out: ignore the global registry for this parser only |
+
+Per-parser `WithCustomFunctions` still overrides global entries by name — explicit configuration beats the default. Tests that mutate the
+global registry must use `ResetGlobalCustomFunctions()` (e.g. via `t.Cleanup`) and must not run in parallel with each other.
+
 ---
 
 ## Translators
@@ -151,6 +179,7 @@ guard, strict mode).
 | `WithMaxOperations` | 1000 visits | Total node visits per evaluation — kills wide flat ORs |
 | `WithMaxRegexLength` | 1024 bytes | Pattern length passed to `matches()` |
 | `WithAllowedFields` | (none) | Whitelist of queryable field names |
+| `WithAllowedFunctions` | (none) | Whitelist of callable function names (built-in and custom). Operators and `has()` always allowed |
 | `WithUntrustedInput` | off | Marks input as user-supplied; refuses to run without an allowlist |
 | `WithStrictMode` | off | Fail (vs. ignore) on unsupported operations |
 
@@ -188,6 +217,7 @@ The mapping applies after custom-function expansion, so the chain
 | `ErrUnsupportedOperation` | Operator/function not supported by the target translator (e.g., regex `matches` on Lua) |
 | `ErrUnsupportedType` | Literal type not representable in the target backend |
 | `ErrFieldNotAllowed` | Field outside `WithAllowedFields` |
+| `ErrFunctionNotAllowed` | Function outside `WithAllowedFunctions` (built-in or custom) |
 | `ErrAllowlistRequired` | `WithUntrustedInput` set without `WithAllowedFields` |
 | `ErrMaxDepthExceeded` | AST nesting above `WithMaxDepth` |
 | `ErrMaxOperationsExceeded` | Visits above `WithMaxOperations` |
@@ -232,6 +262,15 @@ allowlists per-environment beat shared defaults.
 
 **Translator + custom function disagreement.** `WithFieldMapping` and `WithAllowedFields` operate on the **target** field name produced by
 the custom function, not on the virtual call name. If you whitelist `createdAfter` you'll get `ErrFieldNotAllowed` for `createdAt`.
+
+**`ErrFunctionNotAllowed` for a function you registered.** `WithAllowedFunctions` and `WithCustomFunctions` are independent — registering a
+handler does not auto-allow the name. When a whitelist is configured, every callable name (built-ins like `contains` and your custom
+functions) must appear in it. This is intentional: it lets one global parser registry serve multiple endpoints, each narrowing the visible
+function set on its own.
+
+**Test sees a function it didn't register.** A previous test (or `init()`) registered the function via `RegisterFunctions` and the global
+state leaked. Add `t.Cleanup(filter.ResetGlobalCustomFunctions)` (or use `WithoutGlobalCustomFunctions()` on the parser under test) and do
+not run global-registry tests in parallel with each other.
 
 ---
 
