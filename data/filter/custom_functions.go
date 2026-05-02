@@ -5,6 +5,9 @@
 package filter
 
 import (
+	"maps"
+	"sync"
+
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
@@ -58,6 +61,21 @@ var reservedFunctionNames = coremaps.NewImmutableMap(map[string]struct{}{
 	"timestamp":  {},
 })
 
+// isUserFunction reports whether name is a user-callable named
+// function subject to [WithAllowedFunctions]. CEL operator function
+// ids start with _, @, or ! (e.g. _==_, @in, !_) and the has() macro
+// is part of the baseline grammar — none of them are user functions.
+func isUserFunction(name string) bool {
+	if name == "" {
+		return false
+	}
+	switch name[0] {
+	case '_', '@', '!':
+		return false
+	}
+	return name != "has"
+}
+
 // validateCustomFunctions rejects nil handlers and names that collide
 // with reserved CEL built-ins. It is called from [NewParser] so a
 // misconfiguration surfaces at construction time rather than during
@@ -74,4 +92,80 @@ func validateCustomFunctions(funcs map[string]CustomFunction) error {
 		}
 	}
 	return nil
+}
+
+// globalCustomFunctions backs the package-level registry consulted by
+// every [NewParser] call (unless the parser opts out via
+// [WithoutGlobalCustomFunctions]). Reads are common; writes happen only
+// during application bootstrap, so [sync.RWMutex] is the right tool.
+var (
+	globalCustomFunctionsMu sync.RWMutex
+	globalCustomFunctions   = map[string]CustomFunction{}
+)
+
+// RegisterFunctions adds custom CEL functions to the package-level
+// registry that every subsequent [NewParser] consults by default. It
+// is intended to be called once during application bootstrap (main or
+// init) so call sites need not repeat the registration in every
+// [WithCustomFunctions].
+//
+// Validation matches [WithCustomFunctions]: nil handlers and names
+// that collide with built-in CEL functions (contains, startsWith,
+// endsWith, matches, size, has, timestamp) are rejected. Re-registering
+// a name that is already in the registry returns an error — function
+// values are not comparable in Go, so "same handler" cannot be
+// distinguished from "different handler" idempotently. Use
+// [ResetGlobalCustomFunctions] from tests that mutate the registry.
+//
+// Per-parser [WithCustomFunctions] still works and overrides any
+// global registration with the same name. Use
+// [WithoutGlobalCustomFunctions] to opt a single Parser out of the
+// global set entirely.
+func RegisterFunctions(funcs map[string]CustomFunction) error {
+	if err := validateCustomFunctions(funcs); err != nil {
+		return err
+	}
+	globalCustomFunctionsMu.Lock()
+	defer globalCustomFunctionsMu.Unlock()
+	for name := range funcs {
+		if _, exists := globalCustomFunctions[name]; exists {
+			return coreerrs.Wrapf(ErrInvalidExpression,
+				"custom function %q already registered globally", name)
+		}
+	}
+	maps.Copy(globalCustomFunctions, funcs)
+	return nil
+}
+
+// GlobalCustomFunctions returns a snapshot of the package-level
+// registry. Mutating the returned map has no effect on subsequently
+// constructed parsers.
+func GlobalCustomFunctions() map[string]CustomFunction {
+	globalCustomFunctionsMu.RLock()
+	defer globalCustomFunctionsMu.RUnlock()
+	out := make(map[string]CustomFunction, len(globalCustomFunctions))
+	maps.Copy(out, globalCustomFunctions)
+	return out
+}
+
+// ResetGlobalCustomFunctions clears the package-level registry. It is
+// intended for tests that register functions globally and need to
+// restore baseline state — production code should not call it.
+func ResetGlobalCustomFunctions() {
+	globalCustomFunctionsMu.Lock()
+	defer globalCustomFunctionsMu.Unlock()
+	globalCustomFunctions = map[string]CustomFunction{}
+}
+
+// snapshotGlobalCustomFunctions returns a shallow copy of the registry
+// for use during [NewParser] merge.
+func snapshotGlobalCustomFunctions() map[string]CustomFunction {
+	globalCustomFunctionsMu.RLock()
+	defer globalCustomFunctionsMu.RUnlock()
+	if len(globalCustomFunctions) == 0 {
+		return nil
+	}
+	out := make(map[string]CustomFunction, len(globalCustomFunctions))
+	maps.Copy(out, globalCustomFunctions)
+	return out
 }

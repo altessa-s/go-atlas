@@ -36,6 +36,8 @@ via the visitor pattern. Includes security features: field allowlists, depth lim
 | `WithParserCacheSize`      | 100     | LRU cache capacity for parsed AST                  |
 | `WithParserNoCache`        | --      | Disable expression caching                         |
 | `WithCustomFunctions`      | --      | Register custom CEL functions (see below)          |
+| `WithoutGlobalCustomFunctions` | --  | Skip the package-level registry (see below)        |
+| `WithAllowedFunctions`     | all     | Whitelist of callable function names (excludes operators and `has`) |
 
 ## Translator options
 
@@ -73,6 +75,30 @@ Names must not collide with built-in CEL functions (`contains`,
 `WithFieldMapping` and `WithAllowedFields` operate on the **target**
 field name (e.g. `createdAt`), since the virtual call is gone after
 parsing.
+
+### Application-wide registration
+
+Register once during bootstrap so every subsequently constructed
+parser sees the same set without repeating the configuration:
+
+```go
+func init() {
+    err := filter.RegisterFunctions(map[string]filter.CustomFunction{
+        "createdAfter":  filter.CompareField("createdAt", filter.OpGT),
+        "updatedAfter":  filter.CompareField("updatedAt", filter.OpGT),
+    })
+    if err != nil { panic(err) }
+}
+
+// Anywhere in the app — picks up the global registry by default.
+parser, _ := filter.NewParser()
+```
+
+`WithCustomFunctions` still works and overrides global entries by
+name. `WithoutGlobalCustomFunctions()` opts a single parser out of the
+global set entirely (useful for tests). Re-registering an existing
+name returns an error — `ResetGlobalCustomFunctions()` is provided for
+test isolation.
 
 ## Subpackages
 
