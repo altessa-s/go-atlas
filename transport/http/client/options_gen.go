@@ -122,6 +122,29 @@ func WithMaxResponseSize(v int64) Option {
 	}
 }
 
+// WithMetricsSubsystem sets the metricsSubsystem option.
+func WithMetricsSubsystem[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.metricsSubsystem = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.metricsSubsystem = vv
+		}
+	}
+}
+
 // WithProxyFunc sets the proxy option.
 func WithProxyFunc(v ProxyFunc) Option {
 	return func(o *options) {
@@ -191,6 +214,7 @@ func defaultOptions() *options {
 		breakerTimeout:     DefaultBreakerTimeout,
 		client:             defaultClient(),
 		logger:             slog.New(slog.DiscardHandler),
+		metricsSubsystem:   DefaultMetricsSubsystem,
 		retryMax:           DefaultRetryMax,
 		retryWaitMax:       DefaultRetryWaitMax,
 		retryWaitMin:       DefaultRetryWaitMin,
