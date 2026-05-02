@@ -124,21 +124,9 @@ func (s *Storage) AttemptLockWithTTL(_ context.Context, key string, val []byte, 
 // Returns [storages.ErrLockStolen] when the key has been taken over by
 // another holder (lockToken doesn't match the current value, or the key
 // has expired between AttemptLock and Complete).
-func (s *Storage) Complete(ctx context.Context, key string, val []byte, lockToken []byte) error {
-	return s.CompleteWithTTL(ctx, key, val, lockToken, 0)
-}
-
-// CompleteWithTTL is like [Storage.Complete] but resultTtl overrides
-// the backend's configured TTL when positive. The new TTL applies from
-// the moment of Complete onwards.
-func (s *Storage) CompleteWithTTL(_ context.Context, key string, val []byte, lockToken []byte, resultTtl time.Duration) error {
+func (s *Storage) Complete(_ context.Context, key string, val []byte, lockToken []byte) error {
 	if key == "" {
 		return storages.ErrEmptyKey
-	}
-
-	ttl := s.options.ttl
-	if resultTtl > 0 {
-		ttl = resultTtl
 	}
 
 	s.mu.Lock()
@@ -155,12 +143,38 @@ func (s *Storage) CompleteWithTTL(_ context.Context, key string, val []byte, loc
 	}
 
 	e.value = val
-	if ttl > 0 {
-		e.expiresAt = time.Now().Add(ttl)
+	if s.options.ttl > 0 {
+		e.expiresAt = time.Now().Add(s.options.ttl)
 	} else {
 		e.expiresAt = time.Time{}
 	}
 	return nil
+}
+
+// Steal atomically replaces the value when current bytes equal
+// expectedVal. Returns the new lockToken on success or
+// [storages.ErrLockStolen] when expectedVal no longer matches.
+func (s *Storage) Steal(_ context.Context, key string, expectedVal, newVal []byte) ([]byte, error) {
+	if key == "" {
+		return nil, storages.ErrEmptyKey
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	e, exists := s.entries[key]
+	if !exists {
+		return nil, storages.ErrLockStolen
+	}
+	if !bytes.Equal(e.value, expectedVal) {
+		return nil, storages.ErrLockStolen
+	}
+
+	e.value = newVal
+	if s.options.ttl > 0 {
+		e.expiresAt = time.Now().Add(s.options.ttl)
+	}
+	return slices.Clone(newVal), nil
 }
 
 // Delete removes the key from storage.
@@ -180,11 +194,3 @@ func (s *Storage) Delete(_ context.Context, key string) error {
 func (s *Storage) Close() error {
 	return nil
 }
-
-// SupportsAttemptLockWithTTL implements [storages.Storage]. Memory
-// honors per-call lockTtl on AttemptLockWithTTL.
-func (s *Storage) SupportsAttemptLockWithTTL() bool { return true }
-
-// SupportsCompleteWithTTL implements [storages.Storage]. Memory
-// honors per-call resultTtl on CompleteWithTTL.
-func (s *Storage) SupportsCompleteWithTTL() bool { return true }

@@ -5,6 +5,7 @@ package idempotency
 
 import (
 	"log/slog"
+	"time"
 
 	"github.com/altessa-s/go-atlas/core/encoding/serializer"
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
@@ -31,6 +32,16 @@ func WithLogger(v *slog.Logger) Option {
 			return
 		}
 		o.logger = v
+	}
+}
+
+// WithMaxLockDuration sets the maxLockDuration option.
+func WithMaxLockDuration(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.maxLockDuration = v
 	}
 }
 
