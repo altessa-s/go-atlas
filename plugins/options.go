@@ -28,8 +28,8 @@ type options struct {
 	initTimeout   time.Duration  `optgen:"default=DefaultInitTimeout"`
 	watchDebounce time.Duration  `optgen:"default=DefaultWatchDebounce"`
 	sandbox       SandboxOptions `optgen:"manual"`
-	signature     signatureState // resolved key + mode; set by WithSignature
-	signatureErr  error          // deferred PEM parse error from WithSignature
+	signature     signatureState `opt:"-"` // resolved key + mode; set by WithSignature
+	signatureErr  error          `opt:"-"` // deferred PEM parse error from WithSignature
 }
 
 // WithSandbox configures Linux process-hardening primitives applied lazily on
