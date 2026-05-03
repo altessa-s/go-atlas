@@ -221,6 +221,83 @@ func TestPool_Metrics_ConnectionErrors(t *testing.T) {
 	assert.Equal(t, float64(1), val, "connection_errors_total should be 1")
 }
 
+// TestPool_MetricsSubsystem_CustomNamespace confirms that WithMetricsSubsystem
+// scopes pool metrics under the caller's chosen subsystem instead of the
+// default "grpc_connection_pool".
+func TestPool_MetricsSubsystem_CustomNamespace(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	collector := testhelpers.NewTestCollector(registry)
+
+	p := New(
+		WithCleanupInterval(50*time.Millisecond),
+		WithCollector(collector),
+		WithMetricsSubsystem("egrul"),
+		WithClientFactory(testFactory),
+	)
+
+	ctx := t.Context()
+	stop, err := p.Start(ctx)
+	require.NoError(t, err)
+	defer stop()
+
+	conn, err := p.GetConnection(ctx, "localhost:0")
+	require.NoError(t, err)
+	p.ReturnConnection(conn)
+
+	val := testhelpers.GetCounterValue(t, registry, "test_egrul_connections_created_total",
+		"target", "localhost:0")
+	assert.Equal(t, float64(1), val, "connections_created_total should be scoped under egrul")
+
+	require.Nil(t, testhelpers.GatherMetric(t, registry, "test_grpc_connection_pool_connections_created_total"),
+		"default subsystem must not appear when a custom one is set")
+}
+
+// TestPool_MetricsSubsystem_TwoPoolsShareRegistry pins the contract that two
+// pools with distinct subsystems can share the same Prometheus registry
+// without panicking on duplicate metric registration.
+func TestPool_MetricsSubsystem_TwoPoolsShareRegistry(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	collector := testhelpers.NewTestCollector(registry)
+
+	require.NotPanics(t, func() {
+		egrul := New(
+			WithCleanupInterval(50*time.Millisecond),
+			WithCollector(collector),
+			WithMetricsSubsystem("egrul"),
+			WithClientFactory(testFactory),
+		)
+		kfocus := New(
+			WithCleanupInterval(50*time.Millisecond),
+			WithCollector(collector),
+			WithMetricsSubsystem("kfocus"),
+			WithClientFactory(testFactory),
+		)
+
+		ctx := t.Context()
+		stopE, err := egrul.Start(ctx)
+		require.NoError(t, err)
+		defer stopE()
+		stopK, err := kfocus.Start(ctx)
+		require.NoError(t, err)
+		defer stopK()
+
+		connE, err := egrul.GetConnection(ctx, "localhost:0")
+		require.NoError(t, err)
+		egrul.ReturnConnection(connE)
+
+		connK, err := kfocus.GetConnection(ctx, "localhost:0")
+		require.NoError(t, err)
+		kfocus.ReturnConnection(connK)
+	})
+
+	assert.Equal(t, float64(1),
+		testhelpers.GetCounterValue(t, registry, "test_egrul_connections_created_total",
+			"target", "localhost:0"))
+	assert.Equal(t, float64(1),
+		testhelpers.GetCounterValue(t, registry, "test_kfocus_connections_created_total",
+			"target", "localhost:0"))
+}
+
 // --- helpers ---
 
 func testFactory(_ context.Context, target string) (*grpc.ClientConn, error) {

@@ -7,6 +7,7 @@ package factory
 import (
 	"log/slog"
 
+	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/security/tlsutils/providers"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
@@ -54,6 +55,25 @@ func (b *ServerBuilder) UseCacheMethodConfigs(v ...cache.MethodConfig) *ServerBu
 func (b *ServerBuilder) UseTracer(v tracing.Tracer) *ServerBuilder {
 	b.tracer = v
 	return b
+}
+
+// UseCollector sets the metrics collector used by the metrics interceptor.
+// When unset, the metrics interceptor falls back to [metrics.Noop] and emits
+// no samples — even if metrics is enabled in config. Wire a collector
+// (typically `metrics.New(metrics.WithAdapter(...))`) at service init time
+// to produce real metrics.
+func (b *ServerBuilder) UseCollector(v metrics.Collector) *ServerBuilder {
+	b.collector = v
+	return b
+}
+
+// Collector returns the metrics collector configured via [UseCollector],
+// or [metrics.Noop] when none was set.
+func (b *ServerBuilder) Collector() metrics.Collector {
+	if b.collector == nil {
+		return metrics.Noop()
+	}
+	return b.collector
 }
 
 // UseLimiter sets the rate limiter used by the limiter interceptor.

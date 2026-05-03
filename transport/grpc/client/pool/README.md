@@ -25,6 +25,7 @@ thresholds. Callers must return every connection obtained via `GetConnection` by
 | `WithConnectTimeout`  | 10s     | Timeout for establishing a new connection                                     |
 | `WithLogger`          | discard | Structured logger for pool lifecycle events                                   |
 | `WithClientFactory`   | nil     | Custom factory function for creating gRPC connections                         |
+| `WithMetricsSubsystem` | `grpc_connection_pool` | Prometheus subsystem for emitted metrics; override per upstream so multiple pools can share one registry |
 
 ## Errors
 

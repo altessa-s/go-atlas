@@ -23,8 +23,8 @@ type MiddlewaresConfig struct {
 	Limiter *HttpInterLimiterConfig `yaml:"limiter" default:"-"`
 	// Logger contains configuration for logging middleware.
 	Logger *HttpInterLoggerConfig `yaml:"logger" default:"-"`
-	// Prometheus contains configuration for Prometheus metrics middleware.
-	Prometheus *HttpInterPrometheusConfig `yaml:"prometheus" default:"-"`
+	// Metrics contains configuration for the metrics middleware.
+	Metrics *HttpInterMetricsConfig `yaml:"metrics" default:"-"`
 	// RealIp contains configuration for real IP extraction middleware.
 	RealIp *HttpInterRealIpConfig `yaml:"realIp" default:"-"`
 	// Recovery contains configuration for panic recovery middleware.
@@ -48,7 +48,7 @@ func (c *MiddlewaresConfig) Validate() error {
 		validation.Field(&c.GeoAcl, validation.NilOrNotEmpty),
 		validation.Field(&c.Limiter, validation.NilOrNotEmpty),
 		validation.Field(&c.Logger, validation.NilOrNotEmpty),
-		validation.Field(&c.Prometheus, validation.NilOrNotEmpty),
+		validation.Field(&c.Metrics, validation.NilOrNotEmpty),
 		validation.Field(&c.RealIp, validation.NilOrNotEmpty),
 		validation.Field(&c.Recovery, validation.NilOrNotEmpty),
 		validation.Field(&c.RequestId, validation.NilOrNotEmpty),
@@ -67,7 +67,7 @@ func DefaultMiddlewaresConfig() MiddlewaresConfig {
 	geoAcl := DefaultHttpInterGeoAclConfig()
 	limiter := DefaultHttpInterLimiterConfig()
 	logger := DefaultHttpInterLoggerConfig()
-	prometheus := DefaultHttpInterPrometheusConfig()
+	metricsCfg := DefaultHttpInterMetricsConfig()
 	realIp := DefaultHttpInterRealIpConfig()
 	recovery := DefaultHttpInterRecoveryConfig()
 	requestId := DefaultHttpInterRequestIdConfig()
@@ -82,7 +82,7 @@ func DefaultMiddlewaresConfig() MiddlewaresConfig {
 		GeoAcl:          &geoAcl,
 		Limiter:         &limiter,
 		Logger:          &logger,
-		Prometheus:      &prometheus,
+		Metrics:         &metricsCfg,
 		RealIp:          &realIp,
 		Recovery:        &recovery,
 		RequestId:       &requestId,

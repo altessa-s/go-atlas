@@ -4,15 +4,15 @@
 
 package config
 
-// HttpInterPrometheusConfig defines the configuration for HTTP Prometheus metrics collection middleware.
-type HttpInterPrometheusConfig struct {
+// HttpInterMetricsConfig defines the configuration for HTTP metrics
+// collection middleware. The underlying [metrics.Collector] is wired
+// separately on the ServerBuilder via `UseCollector`; this struct only
+// describes per-server tunables.
+type HttpInterMetricsConfig struct {
 	// BaseHttpMiddlewareConfig provides standard enable and filtering fields.
 	BaseHttpMiddlewareConfig `yaml:",inline"`
 
-	// Namespace is the Prometheus metric namespace.
-	Namespace string `yaml:"namespace"`
-
-	// Subsystem is the Prometheus metric subsystem.
+	// Subsystem is the metric subsystem.
 	Subsystem string `yaml:"subsystem"`
 
 	// EnableSizeMetrics enables collection of request and response size metrics.
@@ -25,14 +25,15 @@ type HttpInterPrometheusConfig struct {
 	SizeBuckets []float64 `yaml:"sizeBuckets"`
 }
 
-// Validate performs validation of the HttpInterPrometheusConfig.
-func (c *HttpInterPrometheusConfig) Validate() error {
+// Validate performs validation of the HttpInterMetricsConfig.
+func (c *HttpInterMetricsConfig) Validate() error {
 	return c.ValidateBase()
 }
 
-// DefaultHttpInterPrometheusConfig returns a configuration for prometheus middleware with default values.
-func DefaultHttpInterPrometheusConfig() HttpInterPrometheusConfig {
-	return HttpInterPrometheusConfig{
+// DefaultHttpInterMetricsConfig returns a configuration for the metrics
+// middleware with default values.
+func DefaultHttpInterMetricsConfig() HttpInterMetricsConfig {
+	return HttpInterMetricsConfig{
 		BaseHttpMiddlewareConfig: BaseHttpMiddlewareConfig{
 			EnableMixin: EnableMixin{Enabled: false},
 		},
@@ -40,6 +41,6 @@ func DefaultHttpInterPrometheusConfig() HttpInterPrometheusConfig {
 }
 
 // IsEnabled returns true if the middleware is enabled.
-func (c *HttpInterPrometheusConfig) IsEnabled() bool {
+func (c *HttpInterMetricsConfig) IsEnabled() bool {
 	return c != nil && c.Enabled
 }

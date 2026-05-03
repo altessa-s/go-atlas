@@ -13,6 +13,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/transport/http/server"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
@@ -42,6 +43,7 @@ type ServerBuilder struct {
 	// Dependencies
 	tlsProviders *tlsproviders.Providers
 	tracer       tracing.Tracer
+	collector    metrics.Collector
 	limiter      sharedlimiter.Limiter
 	idempotency  idempotencydata.Idempotency
 	geoResolver  geoacl.GeoResolver

@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package prometheus
+package metrics
 
 import (
 	"context"
@@ -10,10 +10,8 @@ import (
 	"math/rand"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-
-	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/core/text/strings"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
 	"google.golang.org/grpc/codes"
@@ -23,8 +21,8 @@ import (
 	stdGrpc "google.golang.org/grpc"
 )
 
-// interceptorName is the name of the prometheus interceptor.
-const interceptorName = "prometheus"
+// interceptorName is the name of the metrics interceptor.
+const interceptorName = "metrics"
 
 // Name returns the interceptor name used for dependency resolution and chain ordering.
 func Name() string { return interceptorName }
@@ -39,15 +37,15 @@ var _ interceptors.ServerInterceptor = (*serverInterceptorWrapper)(nil)
 // Ensure streamWrapper implements grpc.ServerStream interface.
 var _ stdGrpc.ServerStream = (*streamWrapper)(nil)
 
-// serverInterceptorWrapper wraps the singleton metrics interceptor
-// with instance-specific configuration (ignore checker, options).
+// serverInterceptorWrapper wraps the metrics interceptor with
+// instance-specific configuration (ignore checker, options).
 type serverInterceptorWrapper struct {
 	interceptors.BaseInterceptor
 	*interceptor
 	opts *options
 }
 
-// ServerUnaryInterceptor returns a new unary server interceptor that collects Prometheus metrics.
+// ServerUnaryInterceptor returns a new unary server interceptor that collects metrics.
 func (w *serverInterceptorWrapper) ServerUnaryInterceptor() stdGrpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *stdGrpc.UnaryServerInfo, handler stdGrpc.UnaryHandler) (resp any, err error) {
 		_, meta := sharedmetadata.EnsureInContext(ctx, info.FullMethod, info)
@@ -59,11 +57,11 @@ func (w *serverInterceptorWrapper) ServerUnaryInterceptor() stdGrpc.UnaryServerI
 		}
 
 		w.requestsInFlight.Inc()
-		w.requestsInFlightByMethod.WithLabelValues(meta.FullyMethodName).Inc()
+		w.requestsInFlightByMethod.WithLabels(metrics.Labels{methodLabel: meta.FullyMethodName}).Inc()
 
 		defer func() {
 			w.requestsInFlight.Dec()
-			w.requestsInFlightByMethod.WithLabelValues(meta.FullyMethodName).Dec()
+			w.requestsInFlightByMethod.WithLabels(metrics.Labels{methodLabel: meta.FullyMethodName}).Dec()
 			w.recordMetrics(meta.FullyMethodName, meta.StartTime, req, resp, err)
 		}()
 
@@ -71,7 +69,7 @@ func (w *serverInterceptorWrapper) ServerUnaryInterceptor() stdGrpc.UnaryServerI
 	}
 }
 
-// ServerStreamInterceptor returns a new streaming server interceptor that collects Prometheus metrics.
+// ServerStreamInterceptor returns a new streaming server interceptor that collects metrics.
 func (w *serverInterceptorWrapper) ServerStreamInterceptor() stdGrpc.StreamServerInterceptor {
 	return func(srv any, stream stdGrpc.ServerStream, info *stdGrpc.StreamServerInfo, handler stdGrpc.StreamHandler) error {
 		_, meta := sharedmetadata.EnsureInContext(stream.Context(), info.FullMethod, info)
@@ -83,11 +81,11 @@ func (w *serverInterceptorWrapper) ServerStreamInterceptor() stdGrpc.StreamServe
 		}
 
 		w.requestsInFlight.Inc()
-		w.requestsInFlightByMethod.WithLabelValues(meta.FullyMethodName).Inc()
+		w.requestsInFlightByMethod.WithLabels(metrics.Labels{methodLabel: meta.FullyMethodName}).Inc()
 
 		defer func() {
 			w.requestsInFlight.Dec()
-			w.requestsInFlightByMethod.WithLabelValues(meta.FullyMethodName).Dec()
+			w.requestsInFlightByMethod.WithLabels(metrics.Labels{methodLabel: meta.FullyMethodName}).Dec()
 		}()
 
 		// Wrap the stream to track per-message metrics if streaming metrics are enabled
@@ -125,16 +123,15 @@ func (w *serverInterceptorWrapper) Dependencies() []string {
 
 type interceptor struct {
 	opts                     *options
-	requestsTotal            *prometheus.CounterVec
-	requestDuration          *prometheus.HistogramVec
-	requestsInFlight         prometheus.Gauge
-	requestsInFlightByMethod *prometheus.GaugeVec
-	requestSize              *prometheus.HistogramVec
-	responseSize             *prometheus.HistogramVec
-	streamMessagesSent       *prometheus.CounterVec
-	streamMessagesReceived   *prometheus.CounterVec
-	streamMessageSize        *prometheus.HistogramVec
-	registeredMetrics        []prometheus.Collector
+	requestsTotal            metrics.Counter
+	requestDuration          metrics.Histogram
+	requestsInFlight         metrics.Gauge
+	requestsInFlightByMethod metrics.Gauge
+	requestSize              metrics.Histogram
+	responseSize             metrics.Histogram
+	streamMessagesSent       metrics.Counter
+	streamMessagesReceived   metrics.Counter
+	streamMessageSize        metrics.Histogram
 }
 
 // streamWrapper wraps a grpc.ServerStream to intercept SendMsg and RecvMsg calls
@@ -154,22 +151,20 @@ type streamWrapper struct {
 	streamSampled       bool
 }
 
-// ServerInterceptor returns a new interceptor that collects Prometheus metrics for gRPC requests.
+// ServerInterceptor returns a new interceptor that collects metrics for gRPC requests.
 //
-// This function uses a singleton pattern to ensure that Prometheus metrics are registered
-// only once per process. Calling this function multiple times will return interceptors
-// that share the same underlying metrics collectors.
-//
-// Note: The metrics configuration (namespace, subsystem, buckets) is determined by
-// the first call to this function. Subsequent calls with different options will use
-// the metrics from the first initialization.
+// Each call constructs a fresh interceptor wired to the provided
+// [metrics.Collector]. The underlying adapter deduplicates metric
+// registrations by name, so reusing the same collector across multiple
+// calls with the same subsystem is safe and shares the same metric
+// vectors. To emit metrics for two unrelated upstreams against a single
+// registry, pass distinct subsystems via [WithMetricsSubsystem].
 func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
 	opts := newOptions(opt...)
 
-	// Use singleton pattern to avoid "already registered" errors
-	i := getOrCreateServerMetrics(opts)
+	i := &interceptor{opts: opts}
+	i.initializeMetrics()
 
-	// Return a wrapper that uses the shared metrics but has its own ignore checker
 	return &serverInterceptorWrapper{
 		BaseInterceptor: interceptors.NewBaseInterceptorWithFilter(
 			interceptorName,
@@ -182,37 +177,14 @@ func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
 	}
 }
 
-// ServerUnaryInterceptor returns a new unary server interceptor that collects Prometheus metrics.
+// ServerUnaryInterceptor returns a new unary server interceptor that collects metrics.
 func ServerUnaryInterceptor(opt ...Option) stdGrpc.UnaryServerInterceptor {
 	return ServerInterceptor(opt...).ServerUnaryInterceptor()
 }
 
-// ServerStreamInterceptor returns a new streaming server interceptor that collects Prometheus metrics.
+// ServerStreamInterceptor returns a new streaming server interceptor that collects metrics.
 func ServerStreamInterceptor(opt ...Option) stdGrpc.StreamServerInterceptor {
 	return ServerInterceptor(opt...).ServerStreamInterceptor()
-}
-
-// ClientInterceptor returns a new interceptor that collects Prometheus metrics for gRPC client calls.
-//
-// This function uses a singleton pattern to ensure that Prometheus metrics are registered
-// only once per process. Calling this function multiple times will return interceptors
-// that share the same underlying metrics collectors.
-//
-// Example:
-//
-//	interceptor := prometheus.ClientInterceptor(
-//	    prometheus.WithNamespace("myapp"),
-//	    prometheus.WithSubsystem("grpc_client"),
-//	    prometheus.WithEnableSizeMetrics(true),
-//	)
-//	conn, err := grpc.Dial(
-//	    target,
-//	    grpc.WithUnaryInterceptor(interceptor.ClientUnaryInterceptor()),
-//	    grpc.WithStreamInterceptor(interceptor.ClientStreamInterceptor()),
-//	)
-func ClientInterceptor(opt ...Option) interceptors.ClientInterceptor {
-	opts := newOptions(opt...)
-	return getOrCreateClientMetrics(opts)
 }
 
 // Name returns the name of the interceptor.
@@ -292,10 +264,10 @@ func (s *streamWrapper) SendMsg(m any) error {
 		// Record message size if both stream and size metrics are enabled
 		if s.interceptor.opts.enableSizeMetrics && s.interceptor.streamMessageSize != nil {
 			if size, ok := prominternal.GetMessageSize(m); ok {
-				s.interceptor.streamMessageSize.WithLabelValues(
-					s.fullMethod,
-					directionSent,
-				).Observe(float64(size))
+				s.interceptor.streamMessageSize.WithLabels(metrics.Labels{
+					methodLabel:    s.fullMethod,
+					directionLabel: directionSent,
+				}).Observe(float64(size))
 			}
 		}
 	}
@@ -326,10 +298,10 @@ func (s *streamWrapper) RecvMsg(m any) error {
 		// Record message size if both stream and size metrics are enabled
 		if s.interceptor.opts.enableSizeMetrics && s.interceptor.streamMessageSize != nil {
 			if size, ok := prominternal.GetMessageSize(m); ok {
-				s.interceptor.streamMessageSize.WithLabelValues(
-					s.fullMethod,
-					directionReceived,
-				).Observe(float64(size))
+				s.interceptor.streamMessageSize.WithLabels(metrics.Labels{
+					methodLabel:    s.fullMethod,
+					directionLabel: directionReceived,
+				}).Observe(float64(size))
 			}
 		}
 	}
@@ -411,117 +383,94 @@ func (s *streamWrapper) finalizeStreamMetrics() {
 
 	// Only record metrics if the counters are initialized
 	if s.interceptor.streamMessagesSent != nil && scaledSent > 0 {
-		s.interceptor.streamMessagesSent.WithLabelValues(
-			s.fullMethod, // Already interned when stream was created
-			internedStatus,
-		).Add(scaledSent)
+		s.interceptor.streamMessagesSent.WithLabels(metrics.Labels{
+			methodLabel: s.fullMethod, // Already interned when stream was created
+			statusLabel: internedStatus,
+		}).Add(scaledSent)
 	}
 
 	if s.interceptor.streamMessagesReceived != nil && scaledReceived > 0 {
-		s.interceptor.streamMessagesReceived.WithLabelValues(
-			s.fullMethod, // Already interned when stream was created
-			internedStatus,
-		).Add(scaledReceived)
+		s.interceptor.streamMessagesReceived.WithLabels(metrics.Labels{
+			methodLabel: s.fullMethod, // Already interned when stream was created
+			statusLabel: internedStatus,
+		}).Add(scaledReceived)
 	}
 }
 
 func (i *interceptor) initializeMetrics() {
-	// Core request metrics
-	i.requestsTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: i.buildMetricName("server_requests_total"),
-			Help: "Total number of gRPC server requests with method and status labels",
-		}, []string{methodLabel, statusLabel})
+	scoped := i.opts.collector.WithSubsystem(i.opts.metricsSubsystem)
 
-	i.requestDuration = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    i.buildMetricName("server_request_duration_seconds"),
-			Help:    "Duration of gRPC server requests in seconds",
-			Buckets: i.opts.durationBuckets,
-		}, []string{methodLabel, statusLabel})
+	i.requestsTotal = scoped.MustCounter(metrics.MetricOpts{
+		Name:       "server_requests_total",
+		Help:       "Total number of gRPC server requests with method and status labels",
+		LabelNames: []string{methodLabel, statusLabel},
+	})
 
-	i.requestsInFlight = prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Name: i.buildMetricName("server_requests_in_flight"),
-			Help: "Current number of concurrent gRPC server requests being processed",
+	i.requestDuration = scoped.MustHistogram(metrics.HistogramOpts{
+		MetricOpts: metrics.MetricOpts{
+			Name:       "server_request_duration_seconds",
+			Help:       "Duration of gRPC server requests in seconds",
+			LabelNames: []string{methodLabel, statusLabel},
+		},
+		Buckets: i.opts.durationBuckets,
+	})
+
+	i.requestsInFlight = scoped.MustGauge(metrics.MetricOpts{
+		Name: "server_requests_in_flight",
+		Help: "Current number of concurrent gRPC server requests being processed",
+	})
+
+	i.requestsInFlightByMethod = scoped.MustGauge(metrics.MetricOpts{
+		Name:       "server_requests_in_flight_by_method",
+		Help:       "Current number of concurrent gRPC server requests being processed by method",
+		LabelNames: []string{methodLabel},
+	})
+
+	if i.opts.enableSizeMetrics {
+		i.requestSize = scoped.MustHistogram(metrics.HistogramOpts{
+			MetricOpts: metrics.MetricOpts{
+				Name:       "server_request_size_bytes",
+				Help:       "Size of gRPC server request messages in bytes",
+				LabelNames: []string{methodLabel, statusLabel},
+			},
+			Buckets: i.opts.sizeBuckets,
 		})
 
-	i.requestsInFlightByMethod = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: i.buildMetricName("server_requests_in_flight_by_method"),
-			Help: "Current number of concurrent gRPC server requests being processed by method",
-		}, []string{methodLabel})
-
-	// Optional size metrics
-	if i.opts.enableSizeMetrics {
-		i.requestSize = prometheus.NewHistogramVec(
-			prometheus.HistogramOpts{
-				Name:    i.buildMetricName("server_request_size_bytes"),
-				Help:    "Size of gRPC server request messages in bytes",
-				Buckets: i.opts.sizeBuckets,
-			}, []string{methodLabel, statusLabel})
-
-		i.responseSize = prometheus.NewHistogramVec(
-			prometheus.HistogramOpts{
-				Name:    i.buildMetricName("server_response_size_bytes"),
-				Help:    "Size of gRPC server response messages in bytes",
-				Buckets: i.opts.sizeBuckets,
-			}, []string{methodLabel, statusLabel})
+		i.responseSize = scoped.MustHistogram(metrics.HistogramOpts{
+			MetricOpts: metrics.MetricOpts{
+				Name:       "server_response_size_bytes",
+				Help:       "Size of gRPC server response messages in bytes",
+				LabelNames: []string{methodLabel, statusLabel},
+			},
+			Buckets: i.opts.sizeBuckets,
+		})
 	}
 
-	// Optional streaming message metrics (only when enabled)
 	if i.opts.enableStreamMetrics {
-		i.streamMessagesSent = prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Name: i.buildMetricName("server_stream_messages_sent_total"),
-				Help: "Total number of messages sent by server in streaming responses",
-			}, []string{methodLabel, statusLabel})
+		i.streamMessagesSent = scoped.MustCounter(metrics.MetricOpts{
+			Name:       "server_stream_messages_sent_total",
+			Help:       "Total number of messages sent by server in streaming responses",
+			LabelNames: []string{methodLabel, statusLabel},
+		})
 
-		i.streamMessagesReceived = prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Name: i.buildMetricName("server_stream_messages_received_total"),
-				Help: "Total number of messages received from client in streaming requests",
-			}, []string{methodLabel, statusLabel})
+		i.streamMessagesReceived = scoped.MustCounter(metrics.MetricOpts{
+			Name:       "server_stream_messages_received_total",
+			Help:       "Total number of messages received from client in streaming requests",
+			LabelNames: []string{methodLabel, statusLabel},
+		})
 
 		// Stream message size metric (only if both stream and size metrics are enabled)
 		if i.opts.enableSizeMetrics {
-			i.streamMessageSize = prometheus.NewHistogramVec(
-				prometheus.HistogramOpts{
-					Name:    i.buildMetricName("server_stream_message_size_bytes"),
-					Help:    "Size of individual gRPC stream messages in bytes",
-					Buckets: i.opts.sizeBuckets,
-				}, []string{methodLabel, directionLabel})
+			i.streamMessageSize = scoped.MustHistogram(metrics.HistogramOpts{
+				MetricOpts: metrics.MetricOpts{
+					Name:       "server_stream_message_size_bytes",
+					Help:       "Size of individual gRPC stream messages in bytes",
+					LabelNames: []string{methodLabel, directionLabel},
+				},
+				Buckets: i.opts.sizeBuckets,
+			})
 		}
 	}
-}
-
-func (i *interceptor) registerMetrics() {
-	// Collect all metrics for registration
-	collectors := []prometheus.Collector{
-		i.requestsTotal,
-		i.requestDuration,
-		i.requestsInFlight,
-		i.requestsInFlightByMethod,
-	}
-
-	if i.opts.enableSizeMetrics {
-		collectors = append(collectors, i.requestSize, i.responseSize)
-	}
-
-	// Only register streaming metrics if enabled
-	if i.opts.enableStreamMetrics {
-		collectors = append(collectors, i.streamMessagesSent, i.streamMessagesReceived)
-		if i.opts.enableSizeMetrics {
-			collectors = append(collectors, i.streamMessageSize)
-		}
-	}
-
-	// Register metrics with the configured registerer using iter.Seq for modern iteration
-	for collector := range slices.Values(collectors) {
-		_ = i.opts.registerer.Register(collector) //nolint:errcheck // Ignore AlreadyRegisteredError for singleton pattern
-	}
-
-	i.registeredMetrics = collectors
 }
 
 func (i *interceptor) recordMetrics(fullMethod string, startTime time.Time, req, resp any, err error) {
@@ -534,8 +483,4 @@ func (i *interceptor) recordMetrics(fullMethod string, startTime time.Time, req,
 		logPrefix:       "",
 	}
 	recorder.record(fullMethod, startTime, req, resp, err)
-}
-
-func (i *interceptor) buildMetricName(suffix string) string {
-	return prominternal.BuildMetricNameWithDefault(i.opts.namespace, i.opts.subsystem, suffix, DefaultMetricPrefix)
 }

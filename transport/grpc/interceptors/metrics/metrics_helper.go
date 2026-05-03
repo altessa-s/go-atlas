@@ -2,28 +2,27 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package prometheus
+package metrics
 
 import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/text/strings"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	prominternal "github.com/altessa-s/go-atlas/transport/internal/prometheus"
-	prom "github.com/prometheus/client_golang/prometheus"
 )
 
-// metricsRecorder provides common metrics recording functionality
-// for both server and client interceptors.
+// metricsRecorder provides common metrics recording functionality.
 type metricsRecorder struct {
-	requestsTotal   *prom.CounterVec
-	requestDuration *prom.HistogramVec
-	requestSize     *prom.HistogramVec
-	responseSize    *prom.HistogramVec
+	requestsTotal   metrics.Counter
+	requestDuration metrics.Histogram
+	requestSize     metrics.Histogram
+	responseSize    metrics.Histogram
 	opts            *options
 	logPrefix       string
 }
@@ -32,26 +31,27 @@ type metricsRecorder struct {
 func (r *metricsRecorder) record(fullMethod string, startTime time.Time, req, resp any, err error) {
 	duration := time.Since(startTime)
 	statusCode := getStatusCode(err)
-	statusString := statusCode.String()
 
-	// Intern strings to reduce memory usage for Prometheus labels
 	internedMethod := strings.InternString(fullMethod)
-	internedStatus := strings.InternString(statusString)
+	internedStatus := strings.InternString(statusCode.String())
 
-	// Record core metrics
-	r.requestsTotal.WithLabelValues(internedMethod, internedStatus).Inc()
-	r.requestDuration.WithLabelValues(internedMethod, internedStatus).Observe(duration.Seconds())
+	labels := metrics.Labels{
+		methodLabel: internedMethod,
+		statusLabel: internedStatus,
+	}
 
-	// Record optional size metrics
+	r.requestsTotal.WithLabels(labels).Inc()
+	r.requestDuration.WithLabels(labels).Observe(duration.Seconds())
+
 	if r.opts.enableSizeMetrics && r.requestSize != nil && r.responseSize != nil {
 		if req != nil {
 			if size, ok := prominternal.GetMessageSize(req); ok {
-				r.requestSize.WithLabelValues(internedMethod, internedStatus).Observe(float64(size))
+				r.requestSize.WithLabels(labels).Observe(float64(size))
 			}
 		}
 		if resp != nil {
 			if size, ok := prominternal.GetMessageSize(resp); ok {
-				r.responseSize.WithLabelValues(internedMethod, internedStatus).Observe(float64(size))
+				r.responseSize.WithLabels(labels).Observe(float64(size))
 			}
 		}
 	}

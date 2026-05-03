@@ -17,7 +17,7 @@ import (
 	ipaclmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/ipacl"
 	limitermw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/limiter"
 	loggermw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/logger"
-	prometheusmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/prometheus"
+	metricsmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/metrics"
 	realipmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/realip"
 	recoverymw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/recovery"
 	requestidmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/requestid"
@@ -66,7 +66,7 @@ func (b *ServerBuilder) WithMiddlewares(exclude ...middlewares.Middleware) *Serv
 		{recoverymw.Name(), b.WithRecoveryMiddleware},
 		{tracingmw.Name(), b.WithTracingMiddleware},
 		{loggermw.Name(), b.WithLoggerMiddleware},
-		{prometheusmw.Name(), b.WithPrometheusMiddleware},
+		{metricsmw.Name(), b.WithMetricsMiddleware},
 		{corsmw.Name(), b.WithCorsMiddleware},
 		{securityheadersmw.Name(), b.WithSecurityHeadersMiddleware},
 		{bodylimitmw.Name(), b.WithBodyLimitMiddleware},
@@ -282,35 +282,35 @@ func (b *ServerBuilder) WithLoggerMiddleware() *ServerBuilder {
 	return b
 }
 
-// WithPrometheusMiddleware creates a Prometheus metrics middleware from the builder's configuration.
-func (b *ServerBuilder) WithPrometheusMiddleware() *ServerBuilder {
+// WithMetricsMiddleware creates a metrics middleware from the builder's configuration.
+func (b *ServerBuilder) WithMetricsMiddleware() *ServerBuilder {
 	cfg := b.middlewaresCfg()
-	if cfg == nil || cfg.Prometheus == nil || !cfg.Prometheus.IsEnabled() {
+	if cfg == nil || cfg.Metrics == nil || !cfg.Metrics.IsEnabled() {
 		return b
 	}
 
-	c := cfg.Prometheus
-	configOpts := []prometheusmw.Option{
-		prometheusmw.WithLogger(b.Logger()),
-		prometheusmw.WithNamespace(c.Namespace),
-		prometheusmw.WithSubsystem(c.Subsystem),
-		prometheusmw.WithIgnorePaths(c.IgnorePaths...),
+	c := cfg.Metrics
+	configOpts := []metricsmw.Option{
+		metricsmw.WithLogger(b.Logger()),
+		metricsmw.WithCollector(b.Collector()),
+		metricsmw.WithMetricsSubsystem(c.Subsystem),
+		metricsmw.WithIgnorePaths(c.IgnorePaths...),
 	}
 
 	if len(c.IgnorePatterns) > 0 {
-		configOpts = append(configOpts, prometheusmw.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
+		configOpts = append(configOpts, metricsmw.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
 	}
 
 	if len(c.DurationBuckets) > 0 {
-		configOpts = append(configOpts, prometheusmw.WithDurationBuckets(c.DurationBuckets))
+		configOpts = append(configOpts, metricsmw.WithDurationBuckets(c.DurationBuckets))
 	}
 	if len(c.SizeBuckets) > 0 {
-		configOpts = append(configOpts, prometheusmw.WithSizeBuckets(c.SizeBuckets))
+		configOpts = append(configOpts, metricsmw.WithSizeBuckets(c.SizeBuckets))
 	}
 
-	configOpts = slices.AppendIf(configOpts, c.EnableSizeMetrics, prometheusmw.WithEnableSizeMetrics())
+	configOpts = slices.AppendIf(configOpts, c.EnableSizeMetrics, metricsmw.WithEnableSizeMetrics())
 
-	b.configMW = append(b.configMW, prometheusmw.New(configOpts...))
+	b.configMW = append(b.configMW, metricsmw.New(configOpts...))
 	return b
 }
 

@@ -121,7 +121,7 @@ factory.New(cfg.Http).
 | `WithIdempotencyMiddleware` | Idempotency middleware (requires keeper) |
 | `WithLimiterMiddleware` | Rate limiter middleware (requires limiter) |
 | `WithLoggerMiddleware` | Structured request logging middleware |
-| `WithPrometheusMiddleware` | Prometheus metrics middleware |
+| `WithMetricsMiddleware` | Metrics middleware (`metrics.Collector`-backed) |
 | `WithRealIPMiddleware` | Real client IP extraction middleware |
 | `WithRecoveryMiddleware` | Panic recovery middleware |
 | `WithRequestIDMiddleware` | Request ID extraction/generation middleware |

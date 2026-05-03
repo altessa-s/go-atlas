@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package prometheus
+package metrics
 
 import "net/http"
 

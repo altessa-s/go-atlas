@@ -1,9 +1,10 @@
-# Prometheus configuration for gRPC metrics collection interceptor.
-# Collects various metrics about gRPC requests and responses including request counts,
-# durations, and optionally message sizes and streaming metrics for monitoring and observability.
+# Configuration for the gRPC metrics collection interceptor.
+# Collects request counts, durations, and optionally message sizes and
+# streaming metrics. Wires into the metrics.Collector configured at
+# service init time via ServerBuilder.UseCollector.
 
-#prometheus:
-#  # <bool> Enable Prometheus metrics collection.
+#metrics:
+#  # <bool> Enable metrics collection.
 #  # When enabled, collects gRPC metrics according to configuration.
 #  # Default value: false
 #  enabled: false
@@ -22,14 +23,11 @@
 #  ignorePatterns:
 #    - "^(?i)/grpc.health.*"
 #
-#  # <string> Prometheus metric namespace.
-#  # Used as the first part of metric names (e.g., "myapp" -> "myapp_grpc_server_requests_total").
-#  # Empty namespace is allowed and results in metrics without namespace prefix.
-#  # Default value: not set
-#  namespace:
-#
-#  # <string> Prometheus metric subsystem.
-#  # Used as the second part of metric names after namespace.
+#  # <string> Metric subsystem.
+#  # Used as the second part of metric names after the collector's service name
+#  # (e.g., "api" -> "<service>_api_server_requests_total"). Override per
+#  # process-local upstream when several gRPC servers share one collector to
+#  # keep metric namespaces distinct.
 #  # Default value: grpc
 #  subsystem: grpc
 #

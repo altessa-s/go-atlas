@@ -8,6 +8,13 @@ import (
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
+// DefaultMetricsSubsystem is the Prometheus subsystem name used when no
+// explicit subsystem is provided via [WithMetricsSubsystem]. Override it
+// when several pools target different upstreams from the same process so
+// each pools metrics land in their own namespace and do not collide when
+// registered against a shared [prometheus.Registerer].
+const DefaultMetricsSubsystem = "grpc_connection_pool"
+
 // poolMetrics holds all Prometheus metrics for the gRPC connection pool.
 // When no [metrics.Collector] is provided, [metrics.Noop] is used and
 // all methods become zero-cost no-ops.
@@ -25,12 +32,15 @@ type poolMetrics struct {
 	cleanupRemoved     metrics.Counter
 }
 
-func newPoolMetrics(c metrics.Collector) *poolMetrics {
+func newPoolMetrics(c metrics.Collector, subsystem string) *poolMetrics {
 	if c == nil {
 		c = metrics.Noop()
 	}
+	if subsystem == "" {
+		subsystem = DefaultMetricsSubsystem
+	}
 
-	scoped := c.WithSubsystem("grpc_connection_pool")
+	scoped := c.WithSubsystem(subsystem)
 
 	return &poolMetrics{
 		connectionsCreated: scoped.MustCounter(metrics.MetricOpts{

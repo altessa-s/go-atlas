@@ -102,8 +102,8 @@
 #    !include http_middlewares/logger.yaml
 #
 #    # Metrics collection for monitoring.
-#    # See http_middlewares/prometheus.yaml template for full configuration options.
-#    !include http_middlewares/prometheus.yaml
+#    # See http_middlewares/metrics.yaml template for full configuration options.
+#    !include http_middlewares/metrics.yaml
 #
 #    # Cross-Origin Resource Sharing support.
 #    # See http_middlewares/cors.yaml template for full configuration options.

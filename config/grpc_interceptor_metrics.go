@@ -10,33 +10,31 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
-// GrpcInterPrometheusSamplingStrategy defines how sampling is applied to streaming messages.
-type GrpcInterPrometheusSamplingStrategy string
+// GrpcInterMetricsSamplingStrategy defines how sampling is applied to streaming messages.
+type GrpcInterMetricsSamplingStrategy string
 
 const (
-	// GrpcInterPrometheusPerMessageSampling samples individual messages within a stream.
+	// GrpcInterMetricsPerMessageSampling samples individual messages within a stream.
 	// Each message is sampled independently based on the sampling rate.
-	GrpcInterPrometheusPerMessageSampling GrpcInterPrometheusSamplingStrategy = "per_message"
+	GrpcInterMetricsPerMessageSampling GrpcInterMetricsSamplingStrategy = "per_message"
 
-	// GrpcInterPrometheusPerStreamSampling samples entire streams as a unit.
+	// GrpcInterMetricsPerStreamSampling samples entire streams as a unit.
 	// Either the entire stream is sampled or not at all.
-	GrpcInterPrometheusPerStreamSampling GrpcInterPrometheusSamplingStrategy = "per_stream"
+	GrpcInterMetricsPerStreamSampling GrpcInterMetricsSamplingStrategy = "per_stream"
 )
 
-// GrpcInterPrometheusConfig defines the configuration for Prometheus metrics interceptor.
-// Controls which metrics are collected and how they are configured.
-type GrpcInterPrometheusConfig struct {
+// GrpcInterMetricsConfig defines the configuration for the metrics interceptor.
+// Controls which metrics are collected and how they are configured. The
+// underlying [metrics.Collector] is wired separately on the ServerBuilder via
+// `UseCollector`; this struct only describes per-server tunables.
+type GrpcInterMetricsConfig struct {
 	// BaseGrpcInterceptorConfig provides common interceptor configuration.
 	BaseGrpcInterceptorConfig `yaml:",inline"`
 
-	// Namespace is the Prometheus metric namespace.
-	// Used as the first part of metric names (e.g., "myapp" -> "myapp_grpc_server_requests_total").
-	// Empty namespace is allowed and results in metrics without namespace prefix.
-	Namespace string `yaml:"namespace" default:""`
-
-	// Subsystem is the Prometheus metric subsystem.
-	// Used as the second part of metric names after namespace (e.g., "api" -> "myapp_api_server_requests_total").
-	// Default is "grpc" which results in standard gRPC metric names.
+	// Subsystem is the metric subsystem.
+	// Used as the second part of metric names after the collector's service
+	// name (e.g., "api" -> "<service>_api_server_requests_total"). Default
+	// is "grpc" which results in standard gRPC metric names.
 	Subsystem string `yaml:"subsystem" default:"grpc"`
 
 	// DurationBuckets defines custom histogram buckets for request duration metrics in seconds.
@@ -68,16 +66,16 @@ type GrpcInterPrometheusConfig struct {
 	// StreamSamplingStrategy defines how sampling is applied to streaming messages.
 	// Only effective when EnableStreamMetrics is true and StreamSamplingRate < 1.0.
 	// "per_message" = sample individual messages, "per_stream" = sample entire streams.
-	StreamSamplingStrategy GrpcInterPrometheusSamplingStrategy `yaml:"streamSamplingStrategy" default:"per_message"`
+	StreamSamplingStrategy GrpcInterMetricsSamplingStrategy `yaml:"streamSamplingStrategy" default:"per_message"`
 }
 
-// IsEnabled returns true if Prometheus metrics collection is enabled.
+// IsEnabled returns true if metrics collection is enabled.
 // This is a convenience method to check if the interceptor should be active.
-func (c *GrpcInterPrometheusConfig) IsEnabled() bool {
+func (c *GrpcInterMetricsConfig) IsEnabled() bool {
 	return c != nil && c.Enabled
 }
 
-// Validate performs validation of the Prometheus interceptor configuration.
+// Validate performs validation of the metrics interceptor configuration.
 // Ensures all fields are properly configured for metrics collection.
 //
 // Validation rules:
@@ -89,22 +87,22 @@ func (c *GrpcInterPrometheusConfig) IsEnabled() bool {
 //   - IgnorePatterns: each pattern must be non-empty when specified
 //
 // Returns an error if validation fails, nil otherwise.
-func (c *GrpcInterPrometheusConfig) Validate() error {
+func (c *GrpcInterMetricsConfig) Validate() error {
 	return c.ValidateBase(func() error {
 		return ValidateStruct(c,
 			validation.Field(&c.DurationBuckets, validation.By(validateIncreasingOrder)),
 			validation.Field(&c.SizeBuckets, validation.By(validateIncreasingOrder)),
 			validation.Field(&c.StreamSamplingRate, validation.Min(0.0), validation.Max(1.0)),
-			validation.Field(&c.StreamSamplingStrategy, validation.In(GrpcInterPrometheusPerMessageSampling,
-				GrpcInterPrometheusPerStreamSampling)),
+			validation.Field(&c.StreamSamplingStrategy, validation.In(GrpcInterMetricsPerMessageSampling,
+				GrpcInterMetricsPerStreamSampling)),
 		)
 	})
 }
 
-// DefaultGrpcInterPrometheusConfig returns a GrpcInterPrometheusConfig with default values.
-// Prometheus metrics collection is disabled by default.
-func DefaultGrpcInterPrometheusConfig() GrpcInterPrometheusConfig {
-	return GrpcInterPrometheusConfig{
+// DefaultGrpcInterMetricsConfig returns a GrpcInterMetricsConfig with default values.
+// Metrics collection is disabled by default.
+func DefaultGrpcInterMetricsConfig() GrpcInterMetricsConfig {
+	return GrpcInterMetricsConfig{
 		BaseGrpcInterceptorConfig: BaseGrpcInterceptorConfig{
 			EnableMixin: EnableMixin{Enabled: false},
 		},
@@ -112,7 +110,7 @@ func DefaultGrpcInterPrometheusConfig() GrpcInterPrometheusConfig {
 		EnableSizeMetrics:      false,
 		EnableStreamMetrics:    false,
 		StreamSamplingRate:     1.0,
-		StreamSamplingStrategy: GrpcInterPrometheusPerMessageSampling,
+		StreamSamplingStrategy: GrpcInterMetricsPerMessageSampling,
 	}
 }
 

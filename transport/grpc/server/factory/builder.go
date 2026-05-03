@@ -11,6 +11,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/security/tlsutils"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
@@ -43,6 +44,7 @@ type ServerBuilder struct {
 	cacheMetadataProcessor cache.MetadataProcessor
 	cacheMethodConfigs     []cache.MethodConfig
 	tracer                 tracing.Tracer
+	collector              metrics.Collector
 	limiter                sharedlimiter.Limiter
 	idempotency            idempotencydata.Idempotency
 	cacher                 cache.Cacher

@@ -85,7 +85,7 @@ func New(opts ...Option) *ConnectionPool {
 	return &ConnectionPool{
 		opts:    options,
 		logger:  options.logger,
-		metrics: newPoolMetrics(options.collector),
+		metrics: newPoolMetrics(options.collector, options.metricsSubsystem),
 	}
 }
 
