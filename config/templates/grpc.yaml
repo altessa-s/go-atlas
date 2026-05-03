@@ -158,8 +158,8 @@
 #    !include grpc_interceptors/logger.yaml
 #
 #    # Metrics collection for monitoring and observability.
-#    # See grpc_interceptors/prometheus.yaml template for full configuration options.
-#    !include grpc_interceptors/prometheus.yaml
+#    # See grpc_interceptors/metrics.yaml template for full configuration options.
+#    !include grpc_interceptors/metrics.yaml
 #
 #    # Duplicate request prevention.
 #    # See grpc_interceptors/idempotency.yaml template for full configuration options.

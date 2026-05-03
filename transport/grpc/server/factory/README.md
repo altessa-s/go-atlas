@@ -57,7 +57,7 @@ srv, err := factory.New(cfg.Grpc).
 |--------|-------------|
 | `WithInterceptors(exclude ...interceptors.Interceptor)` | Creates all enabled interceptors from `cfg.Interceptors`; pass typed IDs (e.g., `auth.ID`) to skip specific ones |
 | `WithLoggerInterceptor()` | Adds a structured request/response logging interceptor |
-| `WithPrometheusInterceptor()` | Adds a Prometheus metrics collection interceptor |
+| `WithMetricsInterceptor()` | Adds a metrics collection interceptor (`metrics.Collector`-backed) |
 | `WithTracingInterceptor()` | Adds a distributed tracing interceptor |
 | `WithRealIPInterceptor()` | Adds a real client IP extraction interceptor |
 | `WithRecoveryInterceptor()` | Adds a panic recovery interceptor |

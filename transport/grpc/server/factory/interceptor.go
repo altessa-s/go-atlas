@@ -16,7 +16,6 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/idempotency"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/limiter"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/logger"
-	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/prometheus"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/protovalidator"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/realip"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/recovery"
@@ -25,6 +24,7 @@ import (
 
 	geoaclinter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/geoacl"
 	ipaclinter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/ipacl"
+	metricsint "github.com/altessa-s/go-atlas/transport/grpc/interceptors/metrics"
 	bufhelpers "github.com/altessa-s/go-atlas/transport/grpc/interceptors/protovalidator/buf"
 	tracinginter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/tracing"
 	sharedreqid "github.com/altessa-s/go-atlas/transport/internal/requestid"
@@ -71,7 +71,7 @@ func (b *ServerBuilder) WithInterceptors(exclude ...interceptors.Interceptor) *S
 		{recovery.Name(), b.WithRecoveryInterceptor},
 		{tracinginter.Name(), b.WithTracingInterceptor},
 		{logger.Name(), b.WithLoggerInterceptor},
-		{prometheus.Name(), b.WithPrometheusInterceptor},
+		{metricsint.Name(), b.WithMetricsInterceptor},
 		{ipaclinter.Name(), b.WithIpAclInterceptor},
 		{geoaclinter.Name(), b.WithGeoAclInterceptor},
 		{limiter.Name(), b.WithLimiterInterceptor},
@@ -118,36 +118,36 @@ func (b *ServerBuilder) WithLoggerInterceptor() *ServerBuilder {
 	return b
 }
 
-// WithPrometheusInterceptor creates a Prometheus metrics interceptor from the builder's configuration.
-func (b *ServerBuilder) WithPrometheusInterceptor() *ServerBuilder {
+// WithMetricsInterceptor creates a metrics interceptor from the builder's configuration.
+func (b *ServerBuilder) WithMetricsInterceptor() *ServerBuilder {
 	cfg := b.interceptorsCfg()
-	if cfg == nil || cfg.Prometheus == nil || !cfg.Prometheus.IsEnabled() {
+	if cfg == nil || cfg.Metrics == nil || !cfg.Metrics.IsEnabled() {
 		return b
 	}
 
-	c := cfg.Prometheus
-	configOpts := []prometheus.Option{
-		prometheus.WithLogger(b.Logger()),
-		prometheus.WithNamespace(c.Namespace),
-		prometheus.WithSubsystem(c.Subsystem),
-		prometheus.WithStreamSamplingRate(c.StreamSamplingRate),
-		prometheus.WithStreamSamplingStrategy(prometheus.StreamSamplingStrategy(c.StreamSamplingStrategy)),
+	c := cfg.Metrics
+	configOpts := []metricsint.Option{
+		metricsint.WithLogger(b.Logger()),
+		metricsint.WithCollector(b.Collector()),
+		metricsint.WithMetricsSubsystem(c.Subsystem),
+		metricsint.WithStreamSamplingRate(c.StreamSamplingRate),
+		metricsint.WithStreamSamplingStrategy(metricsint.StreamSamplingStrategy(c.StreamSamplingStrategy)),
 	}
 
-	configOpts = slices.AppendIf(configOpts, c.EnableSizeMetrics, prometheus.WithEnableSizeMetrics())
-	configOpts = slices.AppendIf(configOpts, c.EnableStreamMetrics, prometheus.WithEnableStreamMetrics())
+	configOpts = slices.AppendIf(configOpts, c.EnableSizeMetrics, metricsint.WithEnableSizeMetrics())
+	configOpts = slices.AppendIf(configOpts, c.EnableStreamMetrics, metricsint.WithEnableStreamMetrics())
 	if len(c.DurationBuckets) > 0 {
-		configOpts = append(configOpts, prometheus.WithDurationBuckets(c.DurationBuckets))
+		configOpts = append(configOpts, metricsint.WithDurationBuckets(c.DurationBuckets))
 	}
 	if len(c.SizeBuckets) > 0 {
-		configOpts = append(configOpts, prometheus.WithSizeBuckets(c.SizeBuckets))
+		configOpts = append(configOpts, metricsint.WithSizeBuckets(c.SizeBuckets))
 	}
-	configOpts = append(configOpts, prometheus.WithIgnoreMethods(c.IgnoreMethods...))
+	configOpts = append(configOpts, metricsint.WithIgnoreMethods(c.IgnoreMethods...))
 	if len(c.IgnorePatterns) > 0 {
-		configOpts = append(configOpts, prometheus.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
+		configOpts = append(configOpts, metricsint.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
 	}
 
-	b.interceptors = append(b.interceptors, prometheus.ServerInterceptor(configOpts...))
+	b.interceptors = append(b.interceptors, metricsint.ServerInterceptor(configOpts...))
 	return b
 }
 

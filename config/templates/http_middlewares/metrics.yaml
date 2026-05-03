@@ -1,9 +1,10 @@
-# Prometheus configuration for HTTP metrics collection and observability.
+# Configuration for the HTTP metrics collection middleware.
 # Collects request counts, durations, and sizes for monitoring dashboards.
-# Integrates with Prometheus ecosystem for alerting and visualization.
+# Wires into the metrics.Collector configured at service init time via
+# ServerBuilder.UseCollector.
 
-#prometheus:
-#  # <bool> Enable Prometheus metrics collection.
+#metrics:
+#  # <bool> Enable metrics collection.
 #  # Default value: false
 #  enabled: false
 #
@@ -17,13 +18,11 @@
 #  ignorePatterns:
 #    - "^/health\\..*"
 #
-#  # <string> Prometheus metric namespace prefix.
-#  # Used as the first part of metric names.
-#  # Default value: not set (empty string)
-#  namespace: ""
-#
-#  # <string> Prometheus metric subsystem name.
-#  # Used as the second part of metric names after namespace.
+#  # <string> Metric subsystem name.
+#  # Used as the second part of metric names after the collector's service
+#  # name (e.g., "api" -> "<service>_api_server_requests_total"). Override
+#  # per process-local upstream when several HTTP servers share one
+#  # collector to keep metric namespaces distinct.
 #  # Default value: not set (empty string)
 #  subsystem: ""
 #
