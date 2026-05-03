@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package prometheus
+package metrics
 
 //go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate --type=options
 
@@ -10,8 +10,7 @@ import (
 	"log/slog"
 	"regexp"
 
-	"github.com/prometheus/client_golang/prometheus"
-
+	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/defaults"
 
 	prominternal "github.com/altessa-s/go-atlas/transport/internal/prometheus"
@@ -20,7 +19,7 @@ import (
 // Use defaults package for optgen code generation
 var _ = defaults.IgnorePatterns
 
-// Prometheus metric labels (use shared interned labels)
+// Metric labels (use shared interned labels).
 var (
 	methodLabel    = prominternal.MethodLabel
 	statusLabel    = prominternal.StatusLabel
@@ -53,12 +52,12 @@ const (
 	PerStreamSampling StreamSamplingStrategy = "per_stream"
 )
 
-// Default constants for metric configuration
-const (
-	DefaultNamespace    = ""
-	DefaultSubsystem    = "grpc"
-	DefaultMetricPrefix = "grpc_"
-)
+// DefaultMetricsSubsystem is the Prometheus subsystem name used when no
+// explicit subsystem is provided via [WithMetricsSubsystem]. Override it
+// when several gRPC servers run in the same process so each server's
+// metrics land in their own namespace and do not collide when registered
+// against a shared [metrics.Collector].
+const DefaultMetricsSubsystem = "grpc"
 
 // Default bucket configurations (use shared defaults from internal package)
 var (
@@ -70,9 +69,8 @@ var (
 )
 
 type options struct {
-	namespace              string                `optgen:"default=DefaultNamespace"`
-	subsystem              string                `optgen:"default=DefaultSubsystem"`
-	registerer             prometheus.Registerer `optgen:"default=prometheus.DefaultRegisterer,notnil"`
+	collector              metrics.Collector `optgen:"notnil"`
+	metricsSubsystem       string            `optgen:"default=DefaultMetricsSubsystem"`
 	logger                 *slog.Logger
 	durationBuckets        []float64 `opt:"-" optgen:"default=DefaultDurationBuckets"`
 	sizeBuckets            []float64 `opt:"-" optgen:"default=DefaultSizeBuckets"`

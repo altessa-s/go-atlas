@@ -2,20 +2,22 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package prometheus
+package metrics
 
 import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
+
 	prom "github.com/prometheus/client_golang/prometheus"
 )
 
 func BenchmarkMiddleware_Handler(b *testing.B) {
-	reg := prom.NewRegistry()
-	m := New(WithRegisterer(reg))
-	handler := m.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	coll := testhelpers.NewTestCollector(prom.NewRegistry())
+	m := New(WithCollector(coll))
+	handler := m.Handler(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
 	req := httptest.NewRequest("GET", "/bench", nil)
 	for b.Loop() {
 		rec := httptest.NewRecorder()

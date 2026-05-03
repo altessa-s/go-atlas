@@ -5,6 +5,7 @@ package pool
 
 import (
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
@@ -71,6 +72,29 @@ func WithMaxIdleTime(v time.Duration) Option {
 	}
 }
 
+// WithMetricsSubsystem sets the metricsSubsystem option.
+func WithMetricsSubsystem[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.metricsSubsystem = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.metricsSubsystem = vv
+		}
+	}
+}
+
 // WithSize sets the size option.
 func WithSize(v int) Option {
 	return func(o *options) {
@@ -81,11 +105,12 @@ func WithSize(v int) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		cleanupInterval: DefaultCleanupInterval,
-		connectTimeout:  DefaultConnectTimeout,
-		logger:          slog.New(slog.DiscardHandler),
-		maxIdleTime:     DefaultMaxIdleTime,
-		size:            DefaultPoolSize,
+		cleanupInterval:  DefaultCleanupInterval,
+		connectTimeout:   DefaultConnectTimeout,
+		logger:           slog.New(slog.DiscardHandler),
+		maxIdleTime:      DefaultMaxIdleTime,
+		metricsSubsystem: DefaultMetricsSubsystem,
+		size:             DefaultPoolSize,
 	}
 }
 

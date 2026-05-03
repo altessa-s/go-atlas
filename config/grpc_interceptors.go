@@ -31,8 +31,8 @@ type InterceptorsConfig struct {
 	Limiter *GrpcInterLimiterConfig `yaml:"limiter" default:"-"`
 	// Logger contains configuration for logging interceptor.
 	Logger *GrpcInterLoggerConfig `yaml:"logger" default:"-"`
-	// Prometheus contains configuration for Prometheus metrics interceptor.
-	Prometheus *GrpcInterPrometheusConfig `yaml:"prometheus" default:"-"`
+	// Metrics contains configuration for the metrics interceptor.
+	Metrics *GrpcInterMetricsConfig `yaml:"metrics" default:"-"`
 	// Tracing contains configuration for distributed tracing interceptor.
 	Tracing *GrpcInterTracingConfig `yaml:"tracing" default:"-"`
 	// ErrStatus contains configuration for error status interceptor.
@@ -54,7 +54,7 @@ func (c *InterceptorsConfig) Validate() error {
 		validation.Field(&c.GeoAcl, validation.NilOrNotEmpty),
 		validation.Field(&c.Limiter, validation.NilOrNotEmpty),
 		validation.Field(&c.Logger, validation.NilOrNotEmpty),
-		validation.Field(&c.Prometheus, validation.NilOrNotEmpty),
+		validation.Field(&c.Metrics, validation.NilOrNotEmpty),
 		validation.Field(&c.Tracing, validation.NilOrNotEmpty),
 		validation.Field(&c.ErrStatus, validation.NilOrNotEmpty),
 	)
@@ -74,7 +74,7 @@ func DefaultInterceptorsConfig() InterceptorsConfig {
 	geoAcl := DefaultGrpcInterGeoAclConfig()
 	limiter := DefaultGrpcInterLimiterConfig()
 	logger := DefaultGrpcInterLoggerConfig()
-	prometheus := DefaultGrpcInterPrometheusConfig()
+	metricsCfg := DefaultGrpcInterMetricsConfig()
 	tracing := DefaultGrpcInterTracingConfig()
 	errStatus := DefaultGrpcInterErrStatusConfig()
 
@@ -90,7 +90,7 @@ func DefaultInterceptorsConfig() InterceptorsConfig {
 		GeoAcl:      &geoAcl,
 		Limiter:     &limiter,
 		Logger:      &logger,
-		Prometheus:  &prometheus,
+		Metrics:     &metricsCfg,
 		Tracing:     &tracing,
 		ErrStatus:   &errStatus,
 	}
