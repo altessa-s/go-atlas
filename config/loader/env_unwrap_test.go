@@ -44,6 +44,23 @@ type embeddedRoot struct {
 	Interceptor *embeddedInterceptor `yaml:"interceptor"`
 }
 
+// embeddedAlpha and embeddedBeta intentionally declare an identically-named
+// slice field. Together they pin down the precedence contract of
+// findStructFieldRecursive (and findFieldInStruct): when two `,inline`
+// embedded structs expose the same name, the first-declared wins.
+type embeddedAlpha struct {
+	Items []string `yaml:"items"`
+}
+
+type embeddedBeta struct {
+	Items []string `yaml:"items"`
+}
+
+type embeddedShadowingRoot struct {
+	embeddedAlpha `yaml:",inline"`
+	embeddedBeta  `yaml:",inline"`
+}
+
 func TestLoad_EnvSlice_InsideInlineEmbeddedStruct(t *testing.T) {
 	t.Setenv("DIRECT__0", "top-a")
 	t.Setenv("DIRECT__1", "top-b")
@@ -88,6 +105,28 @@ func TestLoad_EnvSlice_InsideInlineEmbeddedStruct_Cleanup(t *testing.T) {
 		require.Empty(t, cfg.Interceptor.IgnoreMethods)
 		require.Empty(t, cfg.Interceptor.IgnorePatterns)
 	}
+}
+
+// When two `,inline` embedded structs declare a field with the same name,
+// the first-declared wins. This matches Go's reflection iteration order
+// and the precedence used by findFieldInStruct, which is the contract
+// findStructFieldRecursive must mirror so that the StructField metadata
+// returned for a slice always corresponds to the value that was actually
+// set.
+func TestLoad_EnvSlice_EmbeddedShadowing(t *testing.T) {
+	t.Setenv("ITEMS__0", "first")
+	t.Setenv("ITEMS__1", "second")
+
+	cfg := &embeddedShadowingRoot{}
+	l := loader.New(nil)
+
+	_, err := l.Load(cfg)
+	require.NoError(t, err)
+
+	require.Equal(t, []string{"first", "second"}, cfg.embeddedAlpha.Items,
+		"first-declared embedded must win for shadowed slice fields")
+	require.Empty(t, cfg.embeddedBeta.Items,
+		"shadowed embedded slice must remain unset")
 }
 
 // Regression test: trailing `$` in env values must be preserved by the
