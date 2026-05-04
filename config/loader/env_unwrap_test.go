@@ -5,13 +5,15 @@
 package loader_test
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/config/loader"
 )
+
+// All tests in this file mutate process environment via t.Setenv, which is
+// incompatible with t.Parallel — keep them serial.
 
 // Regression test: slice fields declared inside `,inline` embedded structs
 // must be loadable from environment variables using the array index syntax
@@ -73,10 +75,9 @@ func TestLoad_EnvSlice_InsideInlineEmbeddedStruct(t *testing.T) {
 
 func TestLoad_EnvSlice_InsideInlineEmbeddedStruct_Cleanup(t *testing.T) {
 	// Sanity: when no embedded slice envs are set, the field stays nil/empty
-	// instead of being mis-populated by leakage from sibling envs.
-	os.Unsetenv("INTERCEPTOR__IGNORE_METHODS__0")
-	os.Unsetenv("INTERCEPTOR__IGNORE_PATTERNS__0")
-
+	// instead of being mis-populated by leakage from sibling envs. The prior
+	// test's t.Setenv values have already been restored by t.Cleanup, so no
+	// manual unset is needed here.
 	cfg := &embeddedRoot{}
 	l := loader.New(nil)
 
@@ -255,4 +256,31 @@ func TestLoad_EnvValue_DollarDollarEscape_Strict(t *testing.T) {
 	require.Equal(t, "$", cfg.Pattern)
 	require.Equal(t, []string{"$LITERAL", "a$b"}, cfg.Patterns,
 		"strict mode must apply $$ escape and skip env lookup for the escaped name")
+}
+
+// A bare "$" with no variable name must be preserved as a literal in both
+// modes. The early-return path used to treat "$" as a reference to a
+// variable with empty name and either strip it (non-strict) or error
+// (strict), contradicting the documented contract.
+
+func TestLoad_EnvValue_BareDollar_NonStrict(t *testing.T) {
+	t.Setenv("PATTERN", "$")
+
+	cfg := &trailingDollarConfig{}
+	l := loader.New(nil)
+
+	_, err := l.Load(cfg)
+	require.NoError(t, err)
+	require.Equal(t, "$", cfg.Pattern, "bare `$` must be preserved as a literal")
+}
+
+func TestLoad_EnvValue_BareDollar_Strict(t *testing.T) {
+	t.Setenv("PATTERN", "$")
+
+	cfg := &trailingDollarConfig{}
+	l := loader.New(nil, loader.WithStrict())
+
+	_, err := l.Load(cfg)
+	require.NoError(t, err, "strict mode must not treat bare `$` as an undefined variable")
+	require.Equal(t, "$", cfg.Pattern, "bare `$` must be preserved as a literal in strict mode")
 }

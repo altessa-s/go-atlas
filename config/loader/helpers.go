@@ -133,8 +133,10 @@ func unwrapEnvValueWithDepthAndOriginal(value, original string, depth int, visit
 		return original // Stop at max depth, return original value
 	}
 
-	// Handle simple case where entire value is a single environment variable
-	if strings.HasPrefix(value, envVarDollarPrefix) && !strings.ContainsAny(value[1:], "$/\\") {
+	// Handle simple case where entire value is a single environment variable.
+	// Skip when value is a bare "$" — it has no variable name and must be
+	// preserved as a literal by the mixed-string scan below.
+	if len(value) > 1 && strings.HasPrefix(value, envVarDollarPrefix) && !strings.ContainsAny(value[1:], "$/\\") {
 		key := value[1:]
 
 		if visited[key] {
@@ -273,8 +275,10 @@ func unwrapEnvValueStrictWithDepth(value, original string, depth int, visited ma
 		return original, nil
 	}
 
-	// Handle simple case where entire value is a single environment variable
-	if strings.HasPrefix(value, envVarDollarPrefix) && !strings.ContainsAny(value[1:], "$/\\") {
+	// Handle simple case where entire value is a single environment variable.
+	// Skip when value is a bare "$" — it has no variable name and must be
+	// preserved as a literal by the mixed-string scan below.
+	if len(value) > 1 && strings.HasPrefix(value, envVarDollarPrefix) && !strings.ContainsAny(value[1:], "$/\\") {
 		key := value[1:]
 
 		if visited[key] {
