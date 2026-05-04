@@ -121,6 +121,84 @@ func TestHTTPProxy_ClientOptions_URLParseError(t *testing.T) {
 	assert.Nil(t, opts)
 }
 
+func TestHTTPProxy_DialContext_NilReceiver(t *testing.T) {
+	t.Parallel()
+	var p *HTTPProxy
+	dial, err := p.DialContext()
+	assert.NoError(t, err)
+	assert.Nil(t, dial, "nil receiver means direct dial; caller skips wiring")
+}
+
+func TestHTTPProxy_DialContext_PassthroughReturnsNil(t *testing.T) {
+	t.Parallel()
+	for name, cfg := range map[string]HTTPProxy{
+		"empty_mode":    {},
+		"explicit_none": {Mode: HTTPProxyModeNone},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			dial, err := cfg.DialContext()
+			assert.NoError(t, err)
+			assert.Nil(t, dial)
+		})
+	}
+}
+
+func TestHTTPProxy_DialContext_URL(t *testing.T) {
+	t.Parallel()
+	for name, scheme := range map[string]string{
+		"http":    "http",
+		"https":   "https",
+		"socks5":  "socks5",
+		"socks5h": "socks5h",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			cfg := HTTPProxy{Mode: HTTPProxyModeURL, URL: scheme + "://proxy.example.com:8443"}
+			dial, err := cfg.DialContext()
+			assert.NoError(t, err)
+			assert.NotNil(t, dial, "%s scheme must produce a dialer", scheme)
+		})
+	}
+}
+
+func TestHTTPProxy_DialContext_Host(t *testing.T) {
+	t.Parallel()
+	cfg := HTTPProxy{Mode: HTTPProxyModeHost, Host: "proxy.example.com", Port: 8443}
+	dial, err := cfg.DialContext()
+	assert.NoError(t, err)
+	assert.NotNil(t, dial)
+}
+
+func TestHTTPProxy_DialContext_HostWithAuth(t *testing.T) {
+	t.Parallel()
+	cfg := HTTPProxy{
+		Mode: HTTPProxyModeHost,
+		Host: "proxy.example.com",
+		Port: 8443,
+		Auth: &HTTPProxyAuth{Username: "svc", Password: Secret("hunter2")},
+	}
+	dial, err := cfg.DialContext()
+	assert.NoError(t, err)
+	assert.NotNil(t, dial)
+}
+
+func TestHTTPProxy_DialContext_UnknownMode(t *testing.T) {
+	t.Parallel()
+	cfg := HTTPProxy{Mode: "bogus"}
+	dial, err := cfg.DialContext()
+	assert.Error(t, err)
+	assert.Nil(t, dial)
+}
+
+func TestHTTPProxy_DialContext_URLParseError(t *testing.T) {
+	t.Parallel()
+	cfg := HTTPProxy{Mode: HTTPProxyModeURL, URL: "::bad"}
+	dial, err := cfg.DialContext()
+	assert.Error(t, err)
+	assert.Nil(t, dial)
+}
+
 // TestHTTPProxy_ClientOptions_RoutesThroughProxy spins up an httptest
 // server in proxy role and checks that the materialized options actually
 // route requests through it for every non-trivial mode.

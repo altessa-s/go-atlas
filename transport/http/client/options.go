@@ -24,7 +24,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/transport/http/client/limiters"
-	"github.com/altessa-s/go-atlas/transport/internal/proxydial"
+	"github.com/altessa-s/go-atlas/transport/proxydial"
 )
 
 func defaultClient() *http.Client {
@@ -43,7 +43,7 @@ func defaultPooledClient() *http.Client {
 
 // Transport pool defaults matching go-cleanhttp's DefaultPooledClient.
 // Dial-level timeouts (Timeout, KeepAlive) live in
-// [transport/internal/proxydial] so the pooled transport, the proxy
+// [transport/proxydial] so the pooled transport, the proxy
 // dialer, and the gRPC proxy dialer all share one source of truth.
 const (
 	defaultMaxIdleConns          = 100

@@ -24,7 +24,7 @@ Proxy support lives in three layers:
 
 1. **Config structs** — `config.HTTPProxy` and `config.GrpcProxy` define the YAML schema and materialize into option slices via `ClientOptions()`.
 2. **Client options** — the `WithProxy*` family of functional options on `transport/http/client` and `transport/grpc/client` applies the options to the respective clients.
-3. **Shared dialer** — `transport/internal/proxydial` implements HTTP CONNECT (RFC 7231 §4.3.6), SOCKS5, and the `*tls.Config` merge rules used by both clients.
+3. **Shared dialer** — `transport/proxydial` implements HTTP CONNECT (RFC 7231 §4.3.6), SOCKS5, and the `*tls.Config` merge rules used by both clients.
 
 ### Default behavior
 
@@ -222,6 +222,52 @@ c, err = grpcclient.New(ctx, "service.example.com:443",
     grpcclient.WithoutProxy(),
 )
 ```
+
+### Non-HTTP consumers (SMTP, IMAP, raw TCP, custom protocols)
+
+Protocols that do not go through `net/http` use the [`transport/proxydial`](../transport/proxydial) package directly. The high-level entry point is
+`(*config.HTTPProxy).DialContext(opts...)` — it returns a `DialContextFunc` (`func(ctx, network, addr) (net.Conn, error)`) that any library accepting a custom
+dialer can consume.
+
+```go
+import (
+    "github.com/altessa-s/go-atlas/transport/proxydial"
+    "github.com/wneessen/go-mail"
+)
+
+// Build the dialer once, when the SMTP provider starts.
+dialFunc, err := cfg.SMTP.Proxy.DialContext()
+if err != nil {
+    return nil, fmt.Errorf("build smtp proxy dialer: %w", err)
+}
+
+mailOpts := []mail.Option{ /* host, auth, TLS policy, ... */ }
+if dialFunc != nil {
+    mailOpts = append(mailOpts, mail.WithDialContextFunc(dialFunc))
+}
+client, err := mail.NewClient(cfg.SMTP.Host, mailOpts...)
+```
+
+A nil result means proxying is opted out of — caller should leave the
+library on its default direct dialer. Concrete behaviour by `Mode`:
+
+| Mode             | DialContext result                                                          |
+|------------------|-----------------------------------------------------------------------------|
+| empty / `none`   | `nil` — direct dial                                                         |
+| `url`            | tunnel resolved from `cfg.URL` scheme (`http`/`https`/`socks5`/`socks5h`)   |
+| `host`           | http-proxy tunnel to `cfg.Host:cfg.Port` with optional `cfg.Auth`           |
+
+For consumers without an `HTTPProxy` config (proxy comes from env, runtime override, custom resolver), use `proxydial.FromURL` directly:
+
+```go
+proxyURL, _ := url.Parse(os.Getenv("HTTPS_PROXY"))
+dialFunc, err := proxydial.FromURL(proxyURL,
+    proxydial.WithDialer(&net.Dialer{Timeout: 5 * time.Second}),
+)
+```
+
+Real-world fits: SMTP (`go-mail`), IMAP/POP3, LDAP, AMQP, Kafka, NATS, MQTT, Redis, MongoDB, PostgreSQL/MySQL drivers — every library that exposes a custom
+dialer hook accepts a `DialContextFunc` produced by `proxydial`.
 
 ---
 
