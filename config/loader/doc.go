@@ -17,6 +17,19 @@
 //   - Automatic validation: uses struct tags for validation logic.
 //   - Nested configuration: supports complex structures and maps.
 //
+// # Environment variable expansion in values
+//
+// Values read from environment variables (and env-defaults applied via
+// the "default" struct tag) go through a $VAR expansion pass:
+//
+//   - "$VAR"   - replaced with the value of VAR (empty if unset).
+//   - "$$"     - literal "$" (escape; the second "$" is consumed).
+//   - "$$VAR"  - literal "$VAR" (the second "$" is consumed; VAR is NOT expanded).
+//   - bare "$" - preserved as a literal when not followed by [A-Za-z0-9_].
+//
+// The "${VAR}" form is NOT recognized by this pass; it is handled
+// separately for default-value templates.
+//
 // # Secret Expansion
 //
 // The loader supports automatic expansion of secret placeholders using the syntax:
