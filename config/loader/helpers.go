@@ -165,10 +165,50 @@ func unwrapEnvValueWithDepthAndOriginal(value, original string, depth int, visit
 		return result
 	}
 
-	// Handle mixed strings with embedded environment variables.
-	// Track scan offset so a literal `$` (no variable name following, or a name
-	// already visited) is preserved in place — important for values like
-	// regex patterns ending in `$` or arbitrary text containing a bare `$`.
+	result, changed, _ := scanDollarTokens(value, func(key string) (string, tokenAction, error) {
+		if visited[key] {
+			return "", tokenKeepLiteral, nil
+		}
+		// Non-strict: undefined and defined-but-empty are indistinguishable
+		// and both result in $VAR being dropped (substituted with "").
+		return os.Getenv(key), tokenSubstitute, nil
+	})
+
+	// Recursively process the result if it changed and we haven't hit max depth
+	if changed && depth < maxDepth-1 {
+		return unwrapEnvValueWithDepthAndOriginal(result, original, depth+1, visited)
+	}
+
+	return result
+}
+
+// tokenAction describes how scanDollarTokens should handle a `$VAR` token.
+type tokenAction int
+
+const (
+	// tokenSubstitute replaces the `$VAR` (including the `$`) with the
+	// callback's returned string. An empty string drops the token entirely.
+	tokenSubstitute tokenAction = iota
+	// tokenKeepLiteral leaves the `$` in place and advances past it,
+	// treating it as a literal — used for already-visited (circular) keys.
+	tokenKeepLiteral
+)
+
+// scanDollarTokens runs one expansion pass over value:
+//
+//   - `$$` is replaced by a sentinel that survives recursive passes and is
+//     decoded back to a literal `$` by decodeDollarSentinel at the top level.
+//   - `$NAME` (where NAME matches [A-Za-z0-9_]+) calls onVar(NAME). The
+//     callback returns either a substitution string or tokenKeepLiteral to
+//     preserve the `$` as-is. Any non-nil error is propagated immediately.
+//   - A bare `$` (no following [A-Za-z0-9_]) is preserved as a literal.
+//
+// Returns the rewritten string, whether any token was rewritten, and the
+// callback's first error if it returned one.
+func scanDollarTokens(
+	value string,
+	onVar func(key string) (string, tokenAction, error),
+) (string, bool, error) {
 	result := value
 	changed := false
 	offset := 0
@@ -190,7 +230,7 @@ func unwrapEnvValueWithDepthAndOriginal(value, original string, depth int, visit
 			continue
 		}
 
-		// Find the end of the variable name (next non-alphanumeric character or end of string)
+		// Scan the variable name: contiguous [A-Za-z0-9_].
 		start := dollarIndex + 1
 		end := start
 		for end < len(result) && (result[end] == '_' ||
@@ -201,35 +241,25 @@ func unwrapEnvValueWithDepthAndOriginal(value, original string, depth int, visit
 		}
 
 		if end > start {
-			key := result[start:end]
-			if !visited[key] {
-				envValue := os.Getenv(key)
-				if envValue != "" {
-					// Replace $VAR with its value and continue scanning after the substitution.
-					result = result[:dollarIndex] + envValue + result[end:]
-					offset = dollarIndex + len(envValue)
-					changed = true
-					continue
-				}
-				// Remove undefined $VAR entirely; resume scanning from the same position.
-				result = result[:dollarIndex] + result[end:]
-				offset = dollarIndex
+			replacement, action, err := onVar(result[start:end])
+			if err != nil {
+				return "", false, err
+			}
+			if action == tokenSubstitute {
+				result = result[:dollarIndex] + replacement + result[end:]
+				offset = dollarIndex + len(replacement)
 				changed = true
 				continue
 			}
+			// tokenKeepLiteral falls through to the literal-preserve branch.
 		}
 
-		// No variable name follows this `$` (or the name is already visited):
-		// preserve it as a literal and advance past it.
+		// No variable name follows this `$` (or the callback opted to keep it
+		// literal): preserve it and advance past it.
 		offset = dollarIndex + 1
 	}
 
-	// Recursively process the result if it changed and we haven't hit max depth
-	if changed && depth < maxDepth-1 {
-		return unwrapEnvValueWithDepthAndOriginal(result, original, depth+1, visited)
-	}
-
-	return result
+	return result, changed, nil
 }
 
 // userHomeDir returns the home directory of the user.
@@ -307,55 +337,19 @@ func unwrapEnvValueStrictWithDepth(value, original string, depth int, visited ma
 		return unwrapEnvValueStrictWithDepth(envValue, original, depth+1, visited)
 	}
 
-	// Handle mixed strings with embedded environment variables.
-	// See unwrapEnvValueWithDepthAndOriginal — same logic.
-	result := value
-	changed := false
-	offset := 0
-
-	for {
-		dollarIndex := strings.Index(result[offset:], envVarDollarPrefix)
-		if dollarIndex == -1 {
-			break
+	result, changed, err := scanDollarTokens(value, func(key string) (string, tokenAction, error) {
+		if visited[key] {
+			return "", tokenKeepLiteral, nil
 		}
-		dollarIndex += offset
-
-		// Escape: `$$` → literal `$` (encoded as a sentinel so it is not
-		// re-interpreted on subsequent passes). Consume both characters so
-		// a following name is not expanded (e.g. `$$VAR` → `$VAR`).
-		if dollarIndex+1 < len(result) && result[dollarIndex+1] == '$' {
-			result = result[:dollarIndex] + dollarSentinel + result[dollarIndex+2:]
-			offset = dollarIndex + len(dollarSentinel)
-			changed = true
-			continue
+		envValue, ok := os.LookupEnv(key)
+		if !ok {
+			return "", tokenSubstitute, fmt.Errorf("%w: $%s", ErrUndefinedEnvVar, key)
 		}
-
-		start := dollarIndex + 1
-		end := start
-		for end < len(result) && (result[end] == '_' ||
-			(result[end] >= 'A' && result[end] <= 'Z') ||
-			(result[end] >= 'a' && result[end] <= 'z') ||
-			(result[end] >= '0' && result[end] <= '9')) {
-			end++
-		}
-
-		if end > start {
-			key := result[start:end]
-			if !visited[key] {
-				envValue, ok := os.LookupEnv(key)
-				if !ok {
-					return "", fmt.Errorf("%w: $%s", ErrUndefinedEnvVar, key)
-				}
-				result = result[:dollarIndex] + envValue + result[end:]
-				offset = dollarIndex + len(envValue)
-				changed = true
-				continue
-			}
-		}
-
-		// No variable name follows this `$` (or the name is already visited):
-		// preserve it as a literal and advance past it.
-		offset = dollarIndex + 1
+		// Strict mode: defined-but-empty substitutes "" (not an error).
+		return envValue, tokenSubstitute, nil
+	})
+	if err != nil {
+		return "", err
 	}
 
 	if changed && depth < maxDepth-1 {
