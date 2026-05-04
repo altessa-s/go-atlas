@@ -13,6 +13,7 @@ default values, and secret expansion.
 - Pluggable backends via `backend.Backend` interface (YAML is the default)
 - Nested env mapping with `__` delimiter (`GRPC__INTERCEPTORS__CACHE__ENABLE`)
 - Variable substitution: `${VAR}` or `${VAR:default}`
+- Inline `$VAR` expansion in env values with `$$` escape (see below)
 - Secret expansion: `$__secret{namespace:key}` via `secrets.Manager`
 - Automatic validation, normalization, and default application
 - Thread-safe after initialization
@@ -48,6 +49,23 @@ default values, and secret expansion.
 | `WithSkipEnv`           | Skip environment variable loading                |
 | `WithSkipDefaults`      | Skip default value application                   |
 | `WithSecretsManager`    | Enable `$__secret{}` expansion                   |
+
+## Environment variable expansion in values
+
+Values read from environment variables go through a `$VAR` expansion pass
+before being assigned to config fields:
+
+| Input          | Result                                       |
+|----------------|----------------------------------------------|
+| `$VAR`         | Value of `VAR` (empty if unset)              |
+| `$$`           | Literal `$` (escape; second `$` is consumed) |
+| `$$VAR`        | Literal `$VAR` (no expansion of `VAR`)       |
+| Bare `$`       | Preserved as a literal                       |
+
+The `${VAR}` form is handled by a separate substitution pass (used for
+default-value templates). In strict mode (`WithStrict`), referencing an
+undefined `$VAR` returns an error; the `$$` escape and bare `$` never
+trigger lookups and are safe in strict mode.
 
 ## Sentinel errors
 
