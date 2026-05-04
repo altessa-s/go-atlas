@@ -145,42 +145,24 @@ func (cf *Config) findFieldByPath(fieldPath string) *field {
 			return nil
 		}
 
-		// If this is the last part and it's a slice, create a field descriptor for it
+		// If this is the last part and it's a slice, create a field descriptor for it.
+		// Resolve struct field metadata via recursive walk so slices declared inside
+		// `,inline` embedded structs (e.g. BaseGrpcInterceptorConfig.IgnorePatterns)
+		// also work — direct iteration over NumField() would miss them.
 		if i == len(parts)-1 && fieldValue.Kind() == reflect.Slice {
-			// Find the struct field info for the slice
-			var structField reflect.StructField
-			foundField := false
-			structType := currentValue.Type()
-
-			for j := range structType.NumField() {
-				sf := structType.Field(j)
-				if cf.fieldMatches(sf, part) {
-					structField = sf
-					foundField = true
-					break
-				}
+			structField, foundField := cf.findStructFieldRecursive(currentValue.Type(), part)
+			if !foundField {
+				// Fall back to a synthetic StructField — setSliceElements only
+				// reads .value, so this is sufficient to set the slice.
+				structField = reflect.StructField{Name: part, Type: fieldValue.Type()}
 			}
 
-			if foundField {
-				// Check if this field should include parent map info
-				// This happens when we navigated through a map to get here
-				var parentMapPtr *reflect.Value
-				var mapKeyPtr *reflect.Value
-				var parentValuePtr *reflect.Value
-
-				// We need to get the parent map info from earlier in the path
-				// Let's reconstruct the path to find if there was a map
-				// For now, return a basic field descriptor
-				return &field{
-					name:        structField.Name,
-					fullName:    fieldPath,
-					value:       fieldValue,
-					field:       structField,
-					tags:        make(map[string]string),
-					parentMap:   parentMapPtr,
-					mapKey:      mapKeyPtr,
-					parentValue: parentValuePtr,
-				}
+			return &field{
+				name:     structField.Name,
+				fullName: fieldPath,
+				value:    fieldValue,
+				field:    structField,
+				tags:     make(map[string]string),
 			}
 		}
 
@@ -605,6 +587,40 @@ func (cf *Config) findFieldInStruct(structValue reflect.Value, fieldName string)
 	}
 
 	return reflect.Value{}, false
+}
+
+// findStructFieldRecursive searches a struct type for a field matching name,
+// following the same precedence as findFieldInStruct: direct fields first,
+// then `,inline` embedded structs. Returns the matching reflect.StructField
+// (preserving its tags) so callers can use it as field metadata even when
+// the field is declared inside an embedded struct.
+func (cf *Config) findStructFieldRecursive(structType reflect.Type, fieldName string) (reflect.StructField, bool) {
+	for i := range structType.NumField() {
+		f := structType.Field(i)
+		if f.Anonymous {
+			continue
+		}
+		if cf.fieldMatches(f, fieldName) {
+			return f, true
+		}
+	}
+	for i := range structType.NumField() {
+		f := structType.Field(i)
+		if !f.Anonymous {
+			continue
+		}
+		ft := f.Type
+		if ft.Kind() == reflect.Pointer {
+			ft = ft.Elem()
+		}
+		if ft.Kind() != reflect.Struct {
+			continue
+		}
+		if sf, ok := cf.findStructFieldRecursive(ft, fieldName); ok {
+			return sf, true
+		}
+	}
+	return reflect.StructField{}, false
 }
 
 // fieldMatches checks if a field matches the given name based on tag or field name.
