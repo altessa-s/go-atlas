@@ -22,6 +22,7 @@ import (
 
 	"github.com/sony/gobreaker/v2"
 
+	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/transport/http/client/limiters"
 	"github.com/altessa-s/go-atlas/transport/internal/proxydial"
@@ -64,6 +65,28 @@ func defaultPooledTransport() *http.Transport {
 		MaxIdleConnsPerHost:   runtime.GOMAXPROCS(0) + 1,
 	}
 }
+
+// Health integration defaults. Override via WithHealthRetryWindow,
+// WithHealthRetryThreshold, and WithHealthRetryMinSamples.
+const (
+	// DefaultHealthServiceName is the service name used when registering
+	// the aggregate health checker; mirrors [DefaultMetricsSubsystem]
+	// to keep dashboards and alerts visually aligned.
+	DefaultHealthServiceName = DefaultMetricsSubsystem
+	// DefaultHealthRetryWindow is the rolling window over which retry rate
+	// contributes to the aggregate health status.
+	DefaultHealthRetryWindow = 60 * time.Second
+	// DefaultHealthRetryBucketCount is the number of buckets in the retry-rate ring.
+	DefaultHealthRetryBucketCount = 6
+	// DefaultHealthRetryDegradedThreshold is the retry-rate fraction (0.0-1.0)
+	// at or above which the checker reports [health.StatusDegraded] regardless
+	// of circuit breaker state.
+	DefaultHealthRetryDegradedThreshold = 0.2
+	// DefaultHealthRetryMinSamples is the minimum number of requests required
+	// in the window before retry-rate is allowed to influence the status,
+	// preventing flapping on tiny samples.
+	DefaultHealthRetryMinSamples = 10
+)
 
 // CircuitBreakerSettings defines per-host circuit breaker configuration.
 // Supply it via [WithCircuitBreakerSettings] to override the global breaker
@@ -111,6 +134,34 @@ type options struct {
 	ssrfAllowedCIDRs []netip.Prefix    `optgen:"manual"`
 	collector        metrics.Collector `optgen:"notnil"`
 	metricsSubsystem string            `optgen:"default=DefaultMetricsSubsystem"`
+	// healthCoordinator opts the client into [observability/health] integration.
+	// When non-nil the constructor registers an aggregate [Checker] that derives
+	// its [ServingStatus] from per-host circuit breaker state and a sliding
+	// window of retry rate. Leave nil to disable the integration entirely.
+	healthCoordinator *health.Coordinator
+	// healthServiceName is the service name used when registering the aggregate
+	// checker. Defaults to [DefaultHealthServiceName] which mirrors
+	// [DefaultMetricsSubsystem] for visual consistency in dashboards.
+	healthServiceName string `optgen:"default=DefaultHealthServiceName"`
+	// healthPerHost toggles per-host service registration in addition to the
+	// aggregate one. Only hosts present in [hostBreakerSettings] at construction
+	// time are registered to avoid unbounded growth of the service registry.
+	// Set via [WithPerHostHealthChecks].
+	healthPerHost bool `optgen:"manual"`
+	// healthRetryWindow is the duration of the rolling window over which retry
+	// rate contributes to the health status.
+	healthRetryWindow time.Duration `optgen:"default=DefaultHealthRetryWindow"`
+	// healthRetryBuckets is the number of buckets in the retry-rate ring.
+	// More buckets give finer expiry; fewer reduce read-side work.
+	healthRetryBuckets int `optgen:"default=DefaultHealthRetryBucketCount"`
+	// healthRetryThreshold is the retry-rate fraction (0.0-1.0) at or above
+	// which the aggregate reports [health.StatusDegraded] independently of
+	// breaker state.
+	healthRetryThreshold float64 `optgen:"default=DefaultHealthRetryDegradedThreshold"`
+	// healthRetryMinSamples is the minimum number of requests in the window
+	// before retry rate is allowed to lower the status. Below this threshold
+	// retry-rate input is ignored to avoid flapping on small samples.
+	healthRetryMinSamples uint64 `optgen:"default=DefaultHealthRetryMinSamples"`
 	// proxy resolves the proxy URL for outgoing requests. The auto-generated
 	// setter is named WithProxyFunc to free the WithProxy name for the more
 	// common host/port/auth convenience setter declared below.
@@ -182,6 +233,28 @@ func WithCircuitBreakerSettings(hostname string, settings *CircuitBreakerSetting
 func WithSSRFProtection() Option {
 	return func(opts *options) {
 		opts.ssrfProtection = true
+	}
+}
+
+// WithPerHostHealthChecks enables per-host [observability/health.Checker]
+// registration in addition to the aggregate service. Only hosts that already
+// have explicit settings configured via [WithCircuitBreakerSettings] are
+// registered — lazy hosts continue to contribute to the aggregate status
+// only. This bound on growth matters because [health.Coordinator] keeps
+// registered services alive for the lifetime of the client.
+//
+// Has no effect unless [WithHealthCoordinator] is also set.
+//
+// Example:
+//
+//	client := httpclient.New(
+//	    httpclient.WithHealthCoordinator(coord),
+//	    httpclient.WithCircuitBreakerSettings("api.example.com", &httpclient.CircuitBreakerSettings{...}),
+//	    httpclient.WithPerHostHealthChecks(),
+//	)
+func WithPerHostHealthChecks() Option {
+	return func(opts *options) {
+		opts.healthPerHost = true
 	}
 }
 

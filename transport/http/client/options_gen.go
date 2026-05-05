@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/transport/http/client/limiters"
 )
@@ -92,6 +93,70 @@ func WithCollector(v metrics.Collector) Option {
 func WithErrorHandler(v ErrorHandler) Option {
 	return func(o *options) {
 		o.errorHandler = v
+	}
+}
+
+// WithHealthCoordinator sets the healthCoordinator option.
+func WithHealthCoordinator(v *health.Coordinator) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.healthCoordinator = v
+	}
+}
+
+// WithHealthRetryBuckets sets the healthRetryBuckets option.
+func WithHealthRetryBuckets(v int) Option {
+	return func(o *options) {
+		o.healthRetryBuckets = v
+	}
+}
+
+// WithHealthRetryMinSamples sets the healthRetryMinSamples option.
+func WithHealthRetryMinSamples(v uint64) Option {
+	return func(o *options) {
+		o.healthRetryMinSamples = v
+	}
+}
+
+// WithHealthRetryThreshold sets the healthRetryThreshold option.
+func WithHealthRetryThreshold(v float64) Option {
+	return func(o *options) {
+		o.healthRetryThreshold = v
+	}
+}
+
+// WithHealthRetryWindow sets the healthRetryWindow option.
+func WithHealthRetryWindow(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.healthRetryWindow = v
+	}
+}
+
+// WithHealthServiceName sets the healthServiceName option.
+func WithHealthServiceName[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.healthServiceName = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.healthServiceName = vv
+		}
 	}
 }
 
@@ -209,15 +274,20 @@ func WithTransport(v *http.Transport) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		breakerInterval:    DefaultBreakerInterval,
-		breakerMaxRequests: DefaultBreakerMaxRequests,
-		breakerTimeout:     DefaultBreakerTimeout,
-		client:             defaultClient(),
-		logger:             slog.New(slog.DiscardHandler),
-		metricsSubsystem:   DefaultMetricsSubsystem,
-		retryMax:           DefaultRetryMax,
-		retryWaitMax:       DefaultRetryWaitMax,
-		retryWaitMin:       DefaultRetryWaitMin,
+		breakerInterval:       DefaultBreakerInterval,
+		breakerMaxRequests:    DefaultBreakerMaxRequests,
+		breakerTimeout:        DefaultBreakerTimeout,
+		client:                defaultClient(),
+		healthRetryBuckets:    DefaultHealthRetryBucketCount,
+		healthRetryMinSamples: DefaultHealthRetryMinSamples,
+		healthRetryThreshold:  DefaultHealthRetryDegradedThreshold,
+		healthRetryWindow:     DefaultHealthRetryWindow,
+		healthServiceName:     DefaultHealthServiceName,
+		logger:                slog.New(slog.DiscardHandler),
+		metricsSubsystem:      DefaultMetricsSubsystem,
+		retryMax:              DefaultRetryMax,
+		retryWaitMax:          DefaultRetryWaitMax,
+		retryWaitMin:          DefaultRetryWaitMin,
 	}
 }
 

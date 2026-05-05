@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	"google.golang.org/grpc"
@@ -48,6 +49,16 @@ type ConnectionPool struct {
 	pools     sync.Map // map[string]*targetPool
 	connOwner sync.Map // map[*grpc.ClientConn]*targetPool — O(1) lookup for ReturnConnection
 	stopped   atomic.Bool
+
+	// tracker observes per-conn connectivity state and powers
+	// [SubscribeTarget], [StateForTarget], and the optional health helper.
+	// Always allocated; watcher goroutines are spawned only when a consumer
+	// has opted in.
+	tracker *stateTracker
+	// health is the optional observability/health helper. Always allocated
+	// (zero-overhead when no coordinator is configured) so [CheckHealth]
+	// works as a public API regardless of opt-in.
+	health *poolHealth
 }
 
 // targetPool manages connections for a specific target address.
@@ -82,11 +93,15 @@ type pooledConnection struct {
 //	defer p.ReturnConnection(conn)
 func New(opts ...Option) *ConnectionPool {
 	options := newOptions(opts...)
-	return &ConnectionPool{
+	cp := &ConnectionPool{
 		opts:    options,
 		logger:  options.logger,
 		metrics: newPoolMetrics(options.collector, options.metricsSubsystem),
+		tracker: newStateTracker(),
 	}
+	cp.health = newPoolHealth(cp)
+	cp.tracker.onTargetStateChange = cp.health.onTargetStateChange
+	return cp
 }
 
 // Start begins background cleanup of idle connections.
@@ -118,6 +133,10 @@ func (cp *ConnectionPool) Start(ctx context.Context) (func(), error) {
 		"max_idle_time", cp.opts.maxIdleTime,
 		"cleanup_interval", cp.opts.cleanupInterval)
 
+	// Register the optional aggregate health checker. Per-target services
+	// are registered lazily as targets first appear via onConnAttached.
+	cp.health.register()
+
 	stopCh := make(chan struct{})
 	done := make(chan struct{})
 	var stopOnce sync.Once
@@ -131,9 +150,11 @@ func (cp *ConnectionPool) Start(ctx context.Context) (func(), error) {
 		for {
 			select {
 			case <-ctx.Done():
+				cp.tracker.shutdown()
 				cp.closeAllPools(ctx)
 				return
 			case <-stopCh:
+				cp.tracker.shutdown()
 				cp.closeAllPools(ctx)
 				return
 			case <-ticker.C:
@@ -183,6 +204,34 @@ func (cp *ConnectionPool) GetConnection(ctx context.Context, target string) (*gr
 	// Get or create target pool
 	tPool := cp.getOrCreateTargetPool(target) //nolint:contextcheck // pool creation is context-independent
 	return tPool.getConnection(ctx)
+}
+
+// SubscribeTarget delivers per-conn [connectivity.State] updates for the
+// given target. The first call across the pool implicitly enables the state
+// tracker so existing conns gain watcher goroutines. Returns
+// [ErrConnectionPoolClosed] if the pool has already been shut down.
+//
+// The returned function unsubscribes; calling it after Close is a no-op.
+// Multiple subscribers for the same target are supported.
+func (cp *ConnectionPool) SubscribeTarget(target string, cb func(connectivity.State)) (func(), error) {
+	if cp.stopped.Load() {
+		return nil, ErrConnectionPoolClosed
+	}
+	return cp.tracker.subscribe(target, cb), nil
+}
+
+// StateForTarget returns the best (most-ready) [connectivity.State] across
+// all conns currently tracked for target. Returns [connectivity.Idle] when
+// the target is unknown or has no live conns.
+func (cp *ConnectionPool) StateForTarget(target string) connectivity.State {
+	return cp.tracker.stateForTarget(target)
+}
+
+// CheckHealth implements [observability/health.Checker] for the aggregate
+// pool service. It returns the worst per-target status across the pool, or
+// [health.StatusServing] when no targets are tracked.
+func (cp *ConnectionPool) CheckHealth(ctx context.Context) health.ServingStatus {
+	return cp.health.CheckHealth(ctx)
 }
 
 // ReturnConnection returns a connection to the pool for reuse.
@@ -377,6 +426,11 @@ func (tp *targetPool) createConnection(ctx context.Context) (*grpc.ClientConn, e
 	// Register conn→targetPool mapping for O(1) ReturnConnection
 	if tp.pool != nil {
 		tp.pool.connOwner.Store(conn, tp)
+		// Track connectivity state for health/subscriptions before
+		// surfacing the conn to callers. Lazy per-target health
+		// registration runs after the tracker has the entry.
+		tp.pool.tracker.attach(tp.target, pc)
+		tp.pool.health.onConnAttached(tp.target)
 	}
 
 	m.connectionsCreated.WithLabels(metrics.Labels{"target": tp.target}).Inc()
@@ -407,6 +461,11 @@ func (tp *targetPool) closeConnection(pc *pooledConnection, reason closeReason) 
 
 	// Remove conn→targetPool mapping
 	if tp.pool != nil {
+		// Detach the watcher (if any) and unregister the per-target
+		// health service before closing the conn so a final
+		// state-change does not race with conn.Close.
+		tp.pool.tracker.detach(tp.target, pc)
+		tp.pool.health.onConnDetached(tp.target)
 		tp.pool.connOwner.Delete(pc.conn)
 
 		m := tp.pool.metrics

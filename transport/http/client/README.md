@@ -46,6 +46,12 @@ returns an `HTTPClient` with convenience methods (Get, PostJSON, fluent RequestB
 | `WithErrorHandler`           | nil           | Custom error handler                                                                                                                                 |
 | `WithRetryPolicyHandler`     | nil           | Custom retry policy handler                                                                                                                          |
 | `WithMetricsSubsystem`       | `http_client` | Prometheus subsystem for emitted metrics; override per upstream so multiple clients can share one registry                                           |
+| `WithHealthCoordinator`      | nil           | Opts the client into `observability/health`; aggregate status derives from breaker state and retry rate                                              |
+| `WithHealthServiceName`      | `http_client` | Service name used for the aggregate health checker; mirrors `WithMetricsSubsystem` for visual consistency                                            |
+| `WithPerHostHealthChecks`    | off           | Also register `<service>.<host>` checkers for hosts configured via `WithCircuitBreakerSettings`                                                      |
+| `WithHealthRetryWindow`      | 60s           | Rolling window for retry-rate contribution to health status                                                                                          |
+| `WithHealthRetryThreshold`   | 0.20          | Retry-rate fraction at or above which the aggregate reports `Degraded`                                                                               |
+| `WithHealthRetryMinSamples`  | 10            | Minimum requests in the window before retry rate is allowed to lower status                                                                          |
 
 ## Errors
 
@@ -64,6 +70,44 @@ returns an `HTTPClient` with convenience methods (Get, PostJSON, fluent RequestB
 | Interface          | Description                                                                                                                                                                                                          |
 |--------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `HTTPClientSetter` | Optional `SetHTTPClient(*http.Client)` hook a sub-component implements so a parent can hand it the same shared client (proxy, retry, breaker apply once). Used by `auth/oidc.Provider` to wire `URLRevocationLoader` |
+
+## Health
+
+Pass `WithHealthCoordinator(coord)` to register the client with
+`observability/health`. The aggregate checker (default service name
+`http_client`) reports:
+
+| Status        | When                                                                              |
+|---------------|-----------------------------------------------------------------------------------|
+| `Serving`     | every breaker is closed AND retry rate ≤ threshold (or sample below `MinSamples`) |
+| `Degraded`    | any half-open, ≥ 1 open while ≥ 1 closed exists, OR retry rate above threshold    |
+| `NotServing`  | every breaker is open (and at least one breaker exists)                           |
+
+Coordinator subscribers receive an immediate push on every breaker state
+transition (the recompute runs in a goroutine because the gobreaker callback
+holds the breaker's internal mutex). Pull-based callers (`/healthz`,
+`/readyz`, gRPC `Check`) read the cached value through `CheckStatus`.
+
+Add `WithPerHostHealthChecks()` to also register `http_client.<host>` for
+each host configured via `WithCircuitBreakerSettings`. Lazy hosts (no
+explicit settings) only contribute to the aggregate. Tune retry-rate input
+via `WithHealthRetryWindow`, `WithHealthRetryThreshold`, and
+`WithHealthRetryMinSamples`.
+
+```go
+coord := health.New()
+defer coord.Close()
+
+c := client.New(
+    client.WithHealthCoordinator(coord),
+    client.WithCircuitBreakerSettings("api.example.com", &client.CircuitBreakerSettings{Name: "api"}),
+    client.WithPerHostHealthChecks(),
+)
+
+// Whatever already serves /healthz from the same coordinator now reflects
+// the HTTP client's circuit breaker and retry-rate state.
+_ = c
+```
 
 ## Subpackages
 

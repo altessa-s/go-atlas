@@ -28,4 +28,18 @@
 // After calling stop (or canceling the context passed to [ConnectionPool.Start]),
 // all connections are closed and further calls to [ConnectionPool.GetConnection]
 // return [ErrConnectionPoolClosed].
+//
+// # Health integration
+//
+// Pass [WithHealthCoordinator] to register an aggregate [health.Checker]
+// reporting the worst per-target status across the pool. When
+// [WithPerTargetHealthChecks] is set, a `<service>.<target>` checker is
+// registered lazily on the first conn for a target and removed when its
+// last conn is closed. The mapping from gRPC [connectivity.State] to
+// [health.ServingStatus] uses [DefaultStateMapper] (override with
+// [WithHealthStateMapper]).
+//
+// External consumers can observe state without a coordinator via the
+// public [ConnectionPool.SubscribeTarget] / [ConnectionPool.StateForTarget]
+// API; the gRPC client uses these in pool mode.
 package pool

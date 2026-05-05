@@ -57,6 +57,7 @@ type retryRoundTripper struct {
 	errorHandler       ErrorHandler
 	retryPolicyHandler RetryPolicyHandler
 	metrics            *httpClientMetrics
+	health             *httpClientHealth
 }
 
 // RoundTrip implements [http.RoundTripper]. On the first call it buffers the
@@ -90,12 +91,14 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	stop := rt.metrics.requestDuration.WithLabels(metrics.Labels{"method": method}).Start()
 	defer stop()
 
+	var retryAttempts int
 	perRequestOpts := append(make([]coreretry.Option, 0, len(rt.retryOpts)+2), rt.retryOpts...)
 	perRequestOpts = append(perRequestOpts,
 		coreretry.WithShouldRetry(func(err error) bool {
 			return rt.shouldRetry(err)
 		}),
 		coreretry.WithOnRetry(func(attempt int, err error, delay time.Duration) {
+			retryAttempts++
 			rt.metrics.retries.Inc()
 			if rt.logger != nil {
 				rt.logger.DebugContext(ctx,
@@ -170,6 +173,7 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 		statusClass = statusToClass(lastResp.StatusCode)
 	}
 	rt.metrics.requestsTotal.WithLabels(metrics.Labels{"method": method, "status_class": statusClass}).Inc()
+	rt.health.recordRequest(req.URL.Hostname(), retryAttempts > 0)
 
 	// Handle retry exhaustion.
 	if retryErr != nil && lastResp == nil {

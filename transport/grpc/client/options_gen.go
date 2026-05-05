@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/transport/grpc/client/pool"
 
 	"google.golang.org/grpc"
@@ -54,6 +56,49 @@ func WithDialOptions(v ...grpc.DialOption) Option {
 func WithErrorConverter(v ErrorConverter) Option {
 	return func(o *options) {
 		o.errorConverter = v
+	}
+}
+
+// WithHealthCoordinator sets the healthCoordinator option.
+func WithHealthCoordinator(v *health.Coordinator) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.healthCoordinator = v
+	}
+}
+
+// WithHealthServiceName sets the healthServiceName option.
+func WithHealthServiceName[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.healthServiceName = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.healthServiceName = vv
+		}
+	}
+}
+
+// WithHealthStateMapper sets the healthStateMapper option.
+func WithHealthStateMapper(v StateMapper) Option {
+	return func(o *options) {
+		if nilcheck.IsNil(v) {
+			return
+		}
+		o.healthStateMapper = v
 	}
 }
 
@@ -127,10 +172,12 @@ func WithTlsConfig(v *tls.Config) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		logger:          slog.New(slog.DiscardHandler),
-		mutationTimeout: DefaultMutationTimeout,
-		queryTimeout:    DefaultQueryTimeout,
-		tlsConfig:       defaultSecureTLSConfig(),
+		healthServiceName: DefaultClientHealthServiceName,
+		healthStateMapper: pool.DefaultStateMapper,
+		logger:            slog.New(slog.DiscardHandler),
+		mutationTimeout:   DefaultMutationTimeout,
+		queryTimeout:      DefaultQueryTimeout,
+		tlsConfig:         defaultSecureTLSConfig(),
 	}
 }
 
