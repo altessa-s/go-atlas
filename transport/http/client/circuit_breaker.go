@@ -86,6 +86,12 @@ type circuitBreakerClient struct {
 	breakerCache sync.Map // map[string]*gobreaker.CircuitBreaker[*http.Response]
 	// stringInterner provides efficient string interning for hostnames
 	stringInterner *corestrings.Interner
+	// health is set by [retractableClient] after construction so the global
+	// breaker callback (already wired via the closure passed to gobreaker.NewCircuitBreaker)
+	// and per-host callbacks (created lazily in [getBreakerForHost]) can both
+	// reach the health helper without a circular dependency in construction.
+	// atomic.Pointer ensures the load inside callbacks is race-clean.
+	health atomic.Pointer[httpClientHealth]
 }
 
 // defaultReadyToTrip determines when the circuit breaker should trip to open state.
@@ -188,17 +194,6 @@ func newCircuitBreakerClient(opts options, m *httpClientMetrics) *circuitBreaker
 	}
 
 	client := &circuitBreakerClient{
-		// nolint:bodyclose
-		CircuitBreaker: gobreaker.NewCircuitBreaker[*http.Response](gobreaker.Settings{
-			Name:        cbName,
-			MaxRequests: opts.breakerMaxRequests,
-			Interval:    opts.breakerInterval,
-			Timeout:     opts.breakerTimeout,
-			ReadyToTrip: defaultReadyToTrip,
-			OnStateChange: func(name string, _ gobreaker.State, to gobreaker.State) {
-				m.circuitBreakerState.WithLabels(metrics.Labels{"host": name}).Set(gobreakerStateToFloat(to))
-			},
-		}),
 		client:              httpClient,
 		logger:              opts.logger,
 		metrics:             m,
@@ -210,6 +205,22 @@ func newCircuitBreakerClient(opts options, m *httpClientMetrics) *circuitBreaker
 		// HTTP client typically has predictable string patterns (hostnames, common headers)
 		stringInterner: corestrings.NewInterner(hostnameInternerSize), // Smaller than global default (8192)
 	}
+	// Wire the global breaker after the struct is allocated so the closure
+	// can reach client.health (set later by retractableClient).
+	// nolint:bodyclose
+	client.CircuitBreaker = gobreaker.NewCircuitBreaker[*http.Response](gobreaker.Settings{
+		Name:        cbName,
+		MaxRequests: opts.breakerMaxRequests,
+		Interval:    opts.breakerInterval,
+		Timeout:     opts.breakerTimeout,
+		ReadyToTrip: defaultReadyToTrip,
+		OnStateChange: func(name string, _ gobreaker.State, to gobreaker.State) {
+			m.circuitBreakerState.WithLabels(metrics.Labels{"host": name}).Set(gobreakerStateToFloat(to))
+			if h := client.health.Load(); h != nil {
+				h.notifyAggregate()
+			}
+		},
+	})
 
 	return client
 }
@@ -285,14 +296,17 @@ func (c *circuitBreakerClient) getBreakerForHost(hostname string) *gobreaker.Cir
 		readyToTrip = defaultReadyToTrip
 	}
 
-	onStateChange := settings.OnStateChange
-	if c.metrics != nil {
-		userCb := onStateChange
-		onStateChange = func(n string, from gobreaker.State, to gobreaker.State) {
+	userCb := settings.OnStateChange
+	onStateChange := func(n string, from gobreaker.State, to gobreaker.State) {
+		if c.metrics != nil {
 			c.metrics.circuitBreakerState.WithLabels(metrics.Labels{"host": hostname}).Set(gobreakerStateToFloat(to))
-			if userCb != nil {
-				userCb(n, from, to)
-			}
+		}
+		if h := c.health.Load(); h != nil {
+			h.notifyAggregate()
+			h.notifyHost(hostname)
+		}
+		if userCb != nil {
+			userCb(n, from, to)
 		}
 	}
 
