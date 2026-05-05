@@ -72,6 +72,10 @@ type Client struct {
 	options options
 
 	conn *grpc.ClientConn // Used when pool is nil (single connection mode)
+
+	// health is the optional [observability/health] integration. nil when
+	// no coordinator is configured.
+	health *clientHealth
 }
 
 // New creates a new gRPC client connected to address.
@@ -101,6 +105,10 @@ func New(ctx context.Context, address string, opts ...Option) (*Client, error) {
 func (c *Client) connect(ctx context.Context) error {
 	if c.options.pool != nil {
 		c.options.logger.InfoContext(ctx, "using connection pool mode", "address", c.address)
+		c.health = newClientHealth(c)
+		if err := c.health.attach(ctx); err != nil {
+			return coreerrs.WrapOperation(err, "attach health")
+		}
 		return nil
 	}
 
@@ -116,6 +124,12 @@ func (c *Client) connect(ctx context.Context) error {
 	c.conn = conn
 	c.options.logger.InfoContext(ctx, "created single connection", "address", c.address)
 
+	c.health = newClientHealth(c)
+	if err := c.health.attach(ctx); err != nil {
+		_ = conn.Close()
+		return coreerrs.WrapOperation(err, "attach health")
+	}
+
 	return nil
 }
 
@@ -123,6 +137,7 @@ func (c *Client) connect(ctx context.Context) error {
 // In pool mode this is a no-op because the pool owns the connections.
 // Close is idempotent and safe to call on a nil connection.
 func (c *Client) Close(_ context.Context) error {
+	c.health.detach()
 	if c.conn != nil {
 		return c.conn.Close()
 	}

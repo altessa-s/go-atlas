@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	"google.golang.org/grpc"
@@ -54,4 +55,22 @@ type options struct {
 	collector metrics.Collector `optgen:"notnil"`
 	// metricsSubsystem sets the Prometheus subsystem name for emitted metrics.
 	metricsSubsystem string `optgen:"default=DefaultMetricsSubsystem"`
+	// healthCoordinator opts the pool into [observability/health] integration.
+	// When non-nil the pool registers an aggregate [health.Checker] that
+	// reflects the worst per-target status across all tracked connections.
+	// Leave nil to disable the integration entirely.
+	healthCoordinator *health.Coordinator
+	// healthServiceName is the service name used when registering the
+	// aggregate checker. Defaults to [DefaultPoolHealthServiceName].
+	healthServiceName string `optgen:"default=DefaultPoolHealthServiceName"`
+	// healthPerTarget toggles per-target service registration in addition to
+	// the aggregate one. Per-target services are registered lazily on the
+	// first conn for a target and removed when its last conn is closed.
+	// Set via [WithPerTargetHealthChecks].
+	healthPerTarget bool `optgen:"notnil"`
+	// healthStateMapper maps [connectivity.State] to [health.ServingStatus].
+	// Set via [WithHealthStateMapper]. A nil value is rejected by the
+	// option; the helper falls back to [DefaultStateMapper] when the field
+	// is unset.
+	healthStateMapper StateMapper `optgen:"notnil,default=DefaultStateMapper"`
 }

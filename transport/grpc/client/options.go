@@ -18,11 +18,22 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/transport/grpc/client/pool"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/status"
 )
+
+// StateMapper is the same type as [pool.StateMapper]; the alias lets callers
+// declare a single mapper and pass it to either [WithHealthStateMapper] or
+// [pool.WithHealthStateMapper].
+type StateMapper = pool.StateMapper
+
+// DefaultClientHealthServiceName is the default service name used when a
+// [health.Coordinator] is configured. Mirrors the metrics subsystem
+// convention so dashboards and alerts stay aligned.
+const DefaultClientHealthServiceName = "grpc_client"
 
 // Default configuration values.
 const (
@@ -131,6 +142,20 @@ type options struct {
 	// effect for plain http:// or socks5:// proxies, which never
 	// TLS-wrap the proxy connection.
 	proxyTLSConfig *tls.Config
+	// healthCoordinator opts the client into [observability/health]
+	// integration. In single-connection mode the client runs its own
+	// [grpc.ClientConn.WaitForStateChange] watcher; in pool mode it
+	// subscribes to [pool.ConnectionPool.SubscribeTarget] for its address.
+	// Leave nil to disable.
+	healthCoordinator *health.Coordinator
+	// healthServiceName is the service name used when registering the
+	// client's checker. Defaults to [DefaultClientHealthServiceName].
+	healthServiceName string `optgen:"default=DefaultClientHealthServiceName"`
+	// healthStateMapper translates [connectivity.State] into
+	// [health.ServingStatus]. Set via [WithHealthStateMapper]. A nil value
+	// is rejected by the option; the helper falls back to
+	// [pool.DefaultStateMapper] when the field is unset.
+	healthStateMapper StateMapper `optgen:"notnil,default=pool.DefaultStateMapper"`
 }
 
 // WithInsecure disables TLS and uses an insecure plaintext connection.

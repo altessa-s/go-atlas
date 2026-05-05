@@ -22,7 +22,8 @@
 //   - SSRF Protection: optional blocking of connections to private/local IPs; see [WithSSRFProtection] and [WithSSRFAllowedCIDRs].
 //   - Proxy: declarative outbound proxy configuration via [WithProxy], [WithProxyURL], [WithProxyFunc],
 //     or [WithoutProxy]; defaults to [http.ProxyFromEnvironment].
-//   - Observability: request logging through [WithLogger] and structured error types for inspection.
+//   - Observability: request logging through [WithLogger], structured error types for inspection,
+//     and optional integration with [observability/health] via [WithHealthCoordinator] (see Health below).
 //
 // # Error Handling
 //
@@ -36,6 +37,23 @@
 //   - [IsRetryExhaustedError] extracts [RetryExhaustedError] (matches [ErrMaxRetriesExceeded]).
 //   - [IsSSRFError] extracts [SSRFError] (matches [ErrSSRFBlocked]).
 //   - [IsTemporaryError] checks for transient conditions that may succeed on retry.
+//
+// # Health integration
+//
+// Pass an [observability/health.Coordinator] via [WithHealthCoordinator] to
+// register the client as a health checker. The aggregate status is derived
+// from the global and per-host circuit breakers and a sliding window of
+// retry rate (see [DefaultHealthRetryWindow], [DefaultHealthRetryDegradedThreshold],
+// [DefaultHealthRetryMinSamples]):
+//
+//   - all breakers closed and retry rate ≤ threshold → SERVING
+//   - any half-open or open-while-others-closed, or retry rate above threshold → DEGRADED
+//   - all breakers open → NOT_SERVING
+//
+// Subscribers via [Coordinator.Subscribe] receive immediate updates on every
+// breaker state transition; pull-based callers see the cached value through
+// [Coordinator.CheckStatus]. Per-host services for hosts configured via
+// [WithCircuitBreakerSettings] can be opted into with [WithPerHostHealthChecks].
 //
 // # Usage
 //

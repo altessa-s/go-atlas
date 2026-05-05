@@ -71,6 +71,28 @@
 //		client.WithLogger(logger),
 //	)
 //
+// # Health integration
+//
+// Pass an [observability/health.Coordinator] via [WithHealthCoordinator] to
+// register the client as a health checker. The status is derived from
+// [grpc.ClientConn] connectivity state via [DefaultStateMapper] (override
+// with [WithHealthStateMapper]):
+//
+//   - Ready / Idle / Connecting → Serving
+//   - TransientFailure → Degraded (gRPC reconnects automatically)
+//   - Shutdown → NotServing
+//
+// In single-connection mode the client owns a watcher goroutine that calls
+// [grpc.ClientConn.WaitForStateChange] and pushes status updates to the
+// coordinator on every transition. In pool mode the client subscribes to
+// the pool's state-tracker via [pool.ConnectionPool.SubscribeTarget] for
+// its address; the pool itself can be configured with its own coordinator
+// via [pool.WithHealthCoordinator] for an aggregate, multi-target view.
+//
+//	c, err := client.New(ctx, "service.example.com:443",
+//		client.WithHealthCoordinator(coord),
+//	)
+//
 // # Custom Retry Configuration
 //
 // Configure custom retry behavior:

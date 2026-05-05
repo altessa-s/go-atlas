@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
@@ -49,6 +50,56 @@ func WithConnectTimeout(v time.Duration) Option {
 			return
 		}
 		o.connectTimeout = v
+	}
+}
+
+// WithHealthCoordinator sets the healthCoordinator option.
+func WithHealthCoordinator(v *health.Coordinator) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.healthCoordinator = v
+	}
+}
+
+// WithHealthPerTarget enables the healthPerTarget option.
+func WithHealthPerTarget() Option {
+	return func(o *options) {
+		o.healthPerTarget = true
+	}
+}
+
+// WithHealthServiceName sets the healthServiceName option.
+func WithHealthServiceName[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.healthServiceName = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.healthServiceName = vv
+		}
+	}
+}
+
+// WithHealthStateMapper sets the healthStateMapper option.
+func WithHealthStateMapper(v StateMapper) Option {
+	return func(o *options) {
+		if nilcheck.IsNil(v) {
+			return
+		}
+		o.healthStateMapper = v
 	}
 }
 
@@ -105,12 +156,14 @@ func WithSize(v int) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		cleanupInterval:  DefaultCleanupInterval,
-		connectTimeout:   DefaultConnectTimeout,
-		logger:           slog.New(slog.DiscardHandler),
-		maxIdleTime:      DefaultMaxIdleTime,
-		metricsSubsystem: DefaultMetricsSubsystem,
-		size:             DefaultPoolSize,
+		cleanupInterval:   DefaultCleanupInterval,
+		connectTimeout:    DefaultConnectTimeout,
+		healthServiceName: DefaultPoolHealthServiceName,
+		healthStateMapper: DefaultStateMapper,
+		logger:            slog.New(slog.DiscardHandler),
+		maxIdleTime:       DefaultMaxIdleTime,
+		metricsSubsystem:  DefaultMetricsSubsystem,
+		size:              DefaultPoolSize,
 	}
 }
 
