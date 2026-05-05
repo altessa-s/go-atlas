@@ -9,9 +9,10 @@
 //
 // # Layered API
 //
-//   - [FromConfig] — high-level: build a [DialContextFunc] from a
-//     [config.HTTPProxy]. The intended entry point for service code
-//     that already loads HTTPProxy from YAML/env.
+//   - [transport/proxydial/factory] — high-level: a fluent builder
+//     that turns a [config.HTTPProxy] into a [DialContextFunc].
+//     The intended entry point for service code that already loads
+//     HTTPProxy from YAML/env.
 //
 //   - [FromURL] — middle-level: build a [DialContextFunc] from a
 //     parsed *url.URL. Use when the proxy comes from somewhere other
@@ -35,7 +36,8 @@
 // `WithProxy`, `WithProxyTLSConfig`). Both internally delegate the
 // "open TCP, optionally wrap with TLS, send CONNECT" wire flow to
 // this package. Public consumers that need raw-TCP-through-proxy
-// (SMTP, SOAP, etc.) use [FromConfig] / [FromURL] directly.
+// (SMTP, SOAP, etc.) use [transport/proxydial/factory] /
+// [FromURL] directly.
 //
 // # Out of scope
 //

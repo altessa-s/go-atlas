@@ -6,10 +6,7 @@ package config
 
 import (
 	"fmt"
-	"net"
 	"net/url"
-
-	"github.com/altessa-s/go-atlas/transport/proxydial"
 
 	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
@@ -220,49 +217,6 @@ func (p *HTTPProxy) ClientOptions() ([]httpclient.Option, error) {
 		return []httpclient.Option{httpclient.WithProxyURL(u)}, nil
 	case HTTPProxyModeHost:
 		return []httpclient.Option{httpclient.WithProxy(p.Host, p.Port, p.userinfo())}, nil
-	default:
-		return nil, fmt.Errorf("HTTPProxy: unknown mode %q", p.Mode)
-	}
-}
-
-// DialContext materializes the proxy configuration into a
-// [proxydial.DialContextFunc] suitable for any client that needs a
-// raw-TCP dial through the configured proxy: SMTP (go-mail's
-// WithDialContextFunc), SOAP, gRPC's WithContextDialer, or any
-// custom protocol that does not go through net/http.
-//
-// A nil receiver, an empty Mode, or [HTTPProxyModeNone] returns
-// (nil, nil) — caller should treat that as "use a direct dial" and
-// skip wiring a custom dialer at all.
-//
-// For [HTTPProxyModeURL], URL is parsed and dispatched by scheme.
-// For [HTTPProxyModeHost], Host:Port is treated as an http://
-// proxy with optional Auth credentials. The actual wire flow
-// (HTTP CONNECT, SOCKS5) lives in [proxydial].
-//
-// HTTP and gRPC clients should keep using [HTTPProxy.ClientOptions]
-// — this method is for consumers without an httpclient/grpcclient
-// in the picture.
-func (p *HTTPProxy) DialContext(opts ...proxydial.Option) (proxydial.DialContextFunc, error) {
-	if p == nil {
-		return nil, nil //nolint:nilnil
-	}
-	switch p.Mode {
-	case "", HTTPProxyModeNone:
-		return nil, nil //nolint:nilnil
-	case HTTPProxyModeURL:
-		u, err := url.Parse(p.URL)
-		if err != nil {
-			return nil, fmt.Errorf("HTTPProxy: parse url: %w", err)
-		}
-		return proxydial.FromURL(u, opts...)
-	case HTTPProxyModeHost:
-		u := &url.URL{
-			Scheme: "http",
-			Host:   net.JoinHostPort(p.Host, fmt.Sprintf("%d", p.Port)),
-			User:   p.userinfo(),
-		}
-		return proxydial.FromURL(u, opts...)
 	default:
 		return nil, fmt.Errorf("HTTPProxy: unknown mode %q", p.Mode)
 	}

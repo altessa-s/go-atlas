@@ -8,16 +8,20 @@ Forward-proxy dialers for client connections that do **not** go through `net/htt
 
 ## When to use what
 
-| Layer        | Symbol                                          | Use when…                                                              |
-|--------------|-------------------------------------------------|------------------------------------------------------------------------|
-| **High**     | `(*config.HTTPProxy).DialContext(opts...)`      | Your service already loads `HTTPProxy` from YAML/env                   |
-| **Middle**   | `proxydial.FromURL(u, opts...)`                 | Proxy comes from a `*url.URL` (env, runtime override, custom resolver) |
-| **Low**      | `proxydial.HTTPConnect` / `proxydial.SOCKS5Dialer` | One-shot persistent connection, custom retry policy, custom TLS handshake |
+| Layer        | Symbol                                                | Use when…                                                                  |
+|--------------|-------------------------------------------------------|----------------------------------------------------------------------------|
+| **High**     | `factory.New(cfg).Use*().Build(ctx)`                  | Your service already loads `HTTPProxy` from YAML/env                       |
+| **Middle**   | `proxydial.FromURL(u, opts...)`                       | Proxy comes from a `*url.URL` (env, runtime override, custom resolver)     |
+| **Low**      | `proxydial.HTTPConnect` / `proxydial.SOCKS5Dialer`    | One-shot persistent connection, custom retry policy, custom TLS handshake  |
 
 ## Quick example: SMTP via go-mail
 
 ```go
-dialFunc, err := config.Proxy.DialContext()
+import proxydialfactory "github.com/altessa-s/go-atlas/transport/proxydial/factory"
+
+dialFunc, err := proxydialfactory.New(cfg.Proxy).
+    UseLogger(logger).
+    Build(ctx)
 if err != nil {
     return nil, fmt.Errorf("build smtp proxy dialer: %w", err)
 }
@@ -50,7 +54,7 @@ client := &http.Client{Transport: tr}
 
 | Symbol                                    | Description                                                                                    |
 |-------------------------------------------|------------------------------------------------------------------------------------------------|
-| `(*config.HTTPProxy).DialContext`         | High-level — fold an `HTTPProxy` config into a `DialContextFunc`                               |
+| `factory.DialerBuilder`                   | High-level — fluent builder that folds an `HTTPProxy` config into a `DialContextFunc`          |
 | `FromURL`                                 | Middle-level — build a `DialContextFunc` from a parsed `*url.URL`                              |
 | `HTTPConnect`                             | Low-level — open TCP+TLS to the proxy and send a `CONNECT` for `addr`                          |
 | `SOCKS5Dialer`                            | Low-level — construct a SOCKS5 dialer for `proxyURL`                                           |

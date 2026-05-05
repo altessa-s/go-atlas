@@ -225,18 +225,20 @@ c, err = grpcclient.New(ctx, "service.example.com:443",
 
 ### Non-HTTP consumers (SMTP, IMAP, raw TCP, custom protocols)
 
-Protocols that do not go through `net/http` use the [`transport/proxydial`](../transport/proxydial) package directly. The high-level entry point is
-`(*config.HTTPProxy).DialContext(opts...)` — it returns a `DialContextFunc` (`func(ctx, network, addr) (net.Conn, error)`) that any library accepting a custom
-dialer can consume.
+Protocols that do not go through `net/http` use the [`transport/proxydial`](../transport/proxydial) package via its fluent factory at
+[`transport/proxydial/factory`](../transport/proxydial/factory). The factory takes a `*config.HTTPProxy` and returns a `DialContextFunc`
+(`func(ctx, network, addr) (net.Conn, error)`) that any library accepting a custom dialer can consume.
 
 ```go
 import (
-    "github.com/altessa-s/go-atlas/transport/proxydial"
+    proxydialfactory "github.com/altessa-s/go-atlas/transport/proxydial/factory"
     "github.com/wneessen/go-mail"
 )
 
 // Build the dialer once, when the SMTP provider starts.
-dialFunc, err := cfg.SMTP.Proxy.DialContext()
+dialFunc, err := proxydialfactory.New(cfg.SMTP.Proxy).
+    UseLogger(logger).
+    Build(ctx)
 if err != nil {
     return nil, fmt.Errorf("build smtp proxy dialer: %w", err)
 }
@@ -251,11 +253,14 @@ client, err := mail.NewClient(cfg.SMTP.Host, mailOpts...)
 A nil result means proxying is opted out of — caller should leave the
 library on its default direct dialer. Concrete behaviour by `Mode`:
 
-| Mode             | DialContext result                                                          |
+| Mode             | Build() result                                                              |
 |------------------|-----------------------------------------------------------------------------|
 | empty / `none`   | `nil` — direct dial                                                         |
 | `url`            | tunnel resolved from `cfg.URL` scheme (`http`/`https`/`socks5`/`socks5h`)   |
 | `host`           | http-proxy tunnel to `cfg.Host:cfg.Port` with optional `cfg.Auth`           |
+
+The builder also exposes `UseDialer` (custom `*net.Dialer`) and `UseProxyTLSConfig` (TLS to the proxy itself) for callers that need to
+override the defaults.
 
 For consumers without an `HTTPProxy` config (proxy comes from env, runtime override, custom resolver), use `proxydial.FromURL` directly:
 

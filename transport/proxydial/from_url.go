@@ -60,9 +60,9 @@ func WithProxyTLSConfig(cfg *tls.Config) Option {
 // A nil proxyURL returns (nil, nil) — caller should treat that as
 // "use a direct dial" and skip wiring a custom dialer at all.
 //
-// For HTTPProxy-driven configuration prefer
-// [config.HTTPProxy.DialContext] which folds Mode/Host/Port/Auth
-// into the right URL before delegating here.
+// For HTTPProxy-driven configuration prefer the
+// [transport/proxydial/factory] builder, which folds
+// Mode/Host/Port/Auth into the right URL before delegating here.
 func FromURL(proxyURL *url.URL, opts ...Option) (DialContextFunc, error) {
 	if proxyURL == nil {
 		return nil, nil //nolint:nilnil
