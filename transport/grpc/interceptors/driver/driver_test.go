@@ -5,6 +5,7 @@
 package driver
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -40,6 +41,10 @@ func TestNoopDriver(t *testing.T) {
 
 	err = d.PostCall(ctx, "resp", nil)
 	require.NoError(t, err)
+
+	sentinel := errors.New("sentinel")
+	err = d.PostCall(ctx, "resp", sentinel)
+	require.ErrorIs(t, err, sentinel)
 }
 
 func BenchmarkNoopDriver_PreCall(b *testing.B) {

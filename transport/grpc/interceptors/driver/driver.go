@@ -93,5 +93,5 @@ func NoopDriver() Driver {
 
 type noopDriver struct{}
 
-func (noopDriver) PreCall(context.Context, any) (any, error)  { return nil, nil } //nolint:nilnil // NoopDriver intentionally returns nil values
-func (noopDriver) PostCall(context.Context, any, error) error { return nil }
+func (noopDriver) PreCall(context.Context, any) (any, error)          { return nil, nil } //nolint:nilnil // NoopDriver intentionally returns nil values
+func (noopDriver) PostCall(_ context.Context, _ any, err error) error { return err }
