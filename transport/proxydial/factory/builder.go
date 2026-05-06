@@ -5,7 +5,6 @@
 package factory
 
 import (
-	"context"
 	"crypto/tls"
 	"fmt"
 	"log/slog"
@@ -16,18 +15,16 @@ import (
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/transport/proxydial"
 
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 )
 
 // DialerBuilder assembles a [proxydial.DialContextFunc] from a
 // [config.HTTPProxy] using a fluent API. Create instances with [New].
-// Errors from fluent methods are accumulated and reported at
-// [DialerBuilder.Build] time. The builder is not safe for concurrent
-// use.
+// The builder is not safe for concurrent use.
 type DialerBuilder struct {
 	corefactory.Base
-	cfg  *config.HTTPProxy
-	errs []error
+	cfg *config.HTTPProxy
 
 	// Dependencies
 	dialer         *net.Dialer
@@ -53,17 +50,8 @@ func New(cfg *config.HTTPProxy) *DialerBuilder {
 // Returns (nil, nil) when proxying is disabled (nil receiver, nil
 // cfg, empty Mode, or [config.HTTPProxyModeNone]). Caller treats
 // that as "use a direct dial" and skips wiring a custom dialer.
-//
-// The ctx is reserved for future use (DNS lookup of the proxy host,
-// dependency probes); current implementation does not consult it.
-func (b *DialerBuilder) Build(_ context.Context) (proxydial.DialContextFunc, error) {
-	if b == nil {
-		return nil, nil //nolint:nilnil
-	}
-	if err := corefactory.JoinErrors(b.errs); err != nil {
-		return nil, err
-	}
-	if b.cfg == nil {
+func (b *DialerBuilder) Build() (proxydial.DialContextFunc, error) {
+	if b == nil || b.cfg == nil {
 		return nil, nil //nolint:nilnil
 	}
 
@@ -107,12 +95,8 @@ func (b *DialerBuilder) proxyURL() (*url.URL, error) {
 // skip the corresponding Use* method.
 func (b *DialerBuilder) dialOptions() []proxydial.Option {
 	var opts []proxydial.Option
-	if b.dialer != nil {
-		opts = append(opts, proxydial.WithDialer(b.dialer))
-	}
-	if b.proxyTLSConfig != nil {
-		opts = append(opts, proxydial.WithProxyTLSConfig(b.proxyTLSConfig))
-	}
+	opts = coreslices.AppendIf(opts, b.dialer != nil, proxydial.WithDialer(b.dialer))
+	opts = coreslices.AppendIf(opts, b.proxyTLSConfig != nil, proxydial.WithProxyTLSConfig(b.proxyTLSConfig))
 	return opts
 }
 

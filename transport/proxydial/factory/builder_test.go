@@ -5,31 +5,30 @@
 package factory_test
 
 import (
-	"context"
 	"crypto/tls"
 	"net"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/transport/proxydial/factory"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestBuild_NilBuilder(t *testing.T) {
 	t.Parallel()
 	var b *factory.DialerBuilder
-	dial, err := b.Build(context.Background())
-	assert.NoError(t, err)
-	assert.Nil(t, dial)
+	dial, err := b.Build()
+	require.NoError(t, err)
+	require.Nil(t, dial)
 }
 
 func TestBuild_NilConfig(t *testing.T) {
 	t.Parallel()
-	dial, err := factory.New(nil).Build(context.Background())
-	assert.NoError(t, err)
-	assert.Nil(t, dial, "nil cfg means direct dial; caller skips wiring")
+	dial, err := factory.New(nil).Build()
+	require.NoError(t, err)
+	require.Nil(t, dial, "nil cfg means direct dial; caller skips wiring")
 }
 
 func TestBuild_PassthroughReturnsNil(t *testing.T) {
@@ -40,9 +39,9 @@ func TestBuild_PassthroughReturnsNil(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			dial, err := factory.New(&cfg).Build(context.Background())
-			assert.NoError(t, err)
-			assert.Nil(t, dial)
+			dial, err := factory.New(&cfg).Build()
+			require.NoError(t, err)
+			require.Nil(t, dial)
 		})
 	}
 }
@@ -58,9 +57,9 @@ func TestBuild_URL(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			cfg := &config.HTTPProxy{Mode: config.HTTPProxyModeURL, URL: scheme + "://proxy.example.com:8443"}
-			dial, err := factory.New(cfg).Build(context.Background())
-			assert.NoError(t, err)
-			assert.NotNil(t, dial, "%s scheme must produce a dialer", scheme)
+			dial, err := factory.New(cfg).Build()
+			require.NoError(t, err)
+			require.NotNil(t, dial, "%s scheme must produce a dialer", scheme)
 		})
 	}
 }
@@ -68,9 +67,9 @@ func TestBuild_URL(t *testing.T) {
 func TestBuild_Host(t *testing.T) {
 	t.Parallel()
 	cfg := &config.HTTPProxy{Mode: config.HTTPProxyModeHost, Host: "proxy.example.com", Port: 8443}
-	dial, err := factory.New(cfg).Build(context.Background())
-	assert.NoError(t, err)
-	assert.NotNil(t, dial)
+	dial, err := factory.New(cfg).Build()
+	require.NoError(t, err)
+	require.NotNil(t, dial)
 }
 
 func TestBuild_HostWithAuth(t *testing.T) {
@@ -81,25 +80,25 @@ func TestBuild_HostWithAuth(t *testing.T) {
 		Port: 8443,
 		Auth: &config.HTTPProxyAuth{Username: "svc", Password: config.Secret("hunter2")},
 	}
-	dial, err := factory.New(cfg).Build(context.Background())
-	assert.NoError(t, err)
-	assert.NotNil(t, dial)
+	dial, err := factory.New(cfg).Build()
+	require.NoError(t, err)
+	require.NotNil(t, dial)
 }
 
 func TestBuild_UnknownMode(t *testing.T) {
 	t.Parallel()
 	cfg := &config.HTTPProxy{Mode: "bogus"}
-	dial, err := factory.New(cfg).Build(context.Background())
-	assert.Error(t, err)
-	assert.Nil(t, dial)
+	dial, err := factory.New(cfg).Build()
+	require.Error(t, err)
+	require.Nil(t, dial)
 }
 
 func TestBuild_URLParseError(t *testing.T) {
 	t.Parallel()
 	cfg := &config.HTTPProxy{Mode: config.HTTPProxyModeURL, URL: "::bad"}
-	dial, err := factory.New(cfg).Build(context.Background())
-	assert.Error(t, err)
-	assert.Nil(t, dial)
+	dial, err := factory.New(cfg).Build()
+	require.Error(t, err)
+	require.Nil(t, dial)
 }
 
 func TestBuild_FluentDependenciesApply(t *testing.T) {
@@ -108,7 +107,7 @@ func TestBuild_FluentDependenciesApply(t *testing.T) {
 	dial, err := factory.New(cfg).
 		UseDialer(&net.Dialer{Timeout: 1 * time.Millisecond}).
 		UseProxyTLSConfig(&tls.Config{MinVersion: tls.VersionTLS12}).
-		Build(context.Background())
+		Build()
 	require.NoError(t, err)
 	require.NotNil(t, dial, "fluent dependencies must not break dialer construction")
 }

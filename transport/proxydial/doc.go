@@ -9,10 +9,11 @@
 //
 // # Layered API
 //
-//   - [transport/proxydial/factory] — high-level: a fluent builder
-//     that turns a [config.HTTPProxy] into a [DialContextFunc].
-//     The intended entry point for service code that already loads
-//     HTTPProxy from YAML/env.
+//   - [github.com/altessa-s/go-atlas/transport/proxydial/factory] —
+//     high-level: a fluent builder that turns a
+//     [github.com/altessa-s/go-atlas/config.HTTPProxy] into a
+//     [DialContextFunc]. The intended entry point for service code
+//     that already loads HTTPProxy from YAML/env.
 //
 //   - [FromURL] — middle-level: build a [DialContextFunc] from a
 //     parsed *url.URL. Use when the proxy comes from somewhere other
@@ -31,12 +32,14 @@
 //
 // # Why this exists
 //
-// [transport/http/client] and [transport/grpc/client] each accept a
+// [github.com/altessa-s/go-atlas/transport/http/client] and
+// [github.com/altessa-s/go-atlas/transport/grpc/client] each accept a
 // proxy configuration via their option pattern (`WithProxyURL`,
 // `WithProxy`, `WithProxyTLSConfig`). Both internally delegate the
 // "open TCP, optionally wrap with TLS, send CONNECT" wire flow to
 // this package. Public consumers that need raw-TCP-through-proxy
-// (SMTP, SOAP, etc.) use [transport/proxydial/factory] /
+// (SMTP, SOAP, etc.) use
+// [github.com/altessa-s/go-atlas/transport/proxydial/factory] or
 // [FromURL] directly.
 //
 // # Out of scope

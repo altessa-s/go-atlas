@@ -10,7 +10,7 @@ Forward-proxy dialers for client connections that do **not** go through `net/htt
 
 | Layer        | Symbol                                                | Use when…                                                                  |
 |--------------|-------------------------------------------------------|----------------------------------------------------------------------------|
-| **High**     | `factory.New(cfg).Use*().Build(ctx)`                  | Your service already loads `HTTPProxy` from YAML/env                       |
+| **High**     | `factory.New(cfg).Use*().Build()`                     | Your service already loads `HTTPProxy` from YAML/env                       |
 | **Middle**   | `proxydial.FromURL(u, opts...)`                       | Proxy comes from a `*url.URL` (env, runtime override, custom resolver)     |
 | **Low**      | `proxydial.HTTPConnect` / `proxydial.SOCKS5Dialer`    | One-shot persistent connection, custom retry policy, custom TLS handshake  |
 
@@ -21,7 +21,7 @@ import proxydialfactory "github.com/altessa-s/go-atlas/transport/proxydial/facto
 
 dialFunc, err := proxydialfactory.New(cfg.Proxy).
     UseLogger(logger).
-    Build(ctx)
+    Build()
 if err != nil {
     return nil, fmt.Errorf("build smtp proxy dialer: %w", err)
 }

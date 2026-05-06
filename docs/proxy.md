@@ -238,7 +238,7 @@ import (
 // Build the dialer once, when the SMTP provider starts.
 dialFunc, err := proxydialfactory.New(cfg.SMTP.Proxy).
     UseLogger(logger).
-    Build(ctx)
+    Build()
 if err != nil {
     return nil, fmt.Errorf("build smtp proxy dialer: %w", err)
 }
