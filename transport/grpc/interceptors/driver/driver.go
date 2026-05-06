@@ -93,5 +93,10 @@ func NoopDriver() Driver {
 
 type noopDriver struct{}
 
-func (noopDriver) PreCall(context.Context, any) (any, error)  { return nil, nil } //nolint:nilnil // NoopDriver intentionally returns nil values
-func (noopDriver) PostCall(context.Context, any, error) error { return nil }
+func (noopDriver) PreCall(context.Context, any) (any, error) { return nil, nil } //nolint:nilnil // NoopDriver intentionally returns nil values
+
+// PostCall passes the error through unchanged. Returning a hard-coded nil here
+// would cause the no-op driver to silently swallow upstream errors when used
+// as part of an interceptor chain (for example, when an interceptor without
+// custom logic relies on NoopDriver for its lifecycle hooks).
+func (noopDriver) PostCall(_ context.Context, _ any, err error) error { return err }

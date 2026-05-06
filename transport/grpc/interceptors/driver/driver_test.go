@@ -5,6 +5,7 @@
 package driver
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -40,6 +41,24 @@ func TestNoopDriver(t *testing.T) {
 
 	err = d.PostCall(ctx, "resp", nil)
 	require.NoError(t, err)
+}
+
+// TestNoopDriver_PostCall_PassesThroughError guards against regressing into
+// silently swallowing errors. Any inbound error must be returned unchanged so
+// that callers higher up the interceptor chain still observe the failure.
+func TestNoopDriver_PostCall_PassesThroughError(t *testing.T) {
+	d := NoopDriver()
+	ctx := t.Context()
+
+	t.Run("nil error stays nil", func(t *testing.T) {
+		require.NoError(t, d.PostCall(ctx, "resp", nil))
+	})
+
+	t.Run("non-nil error is preserved", func(t *testing.T) {
+		want := errors.New("boom")
+		got := d.PostCall(ctx, "resp", want)
+		require.ErrorIs(t, got, want)
+	})
 }
 
 func BenchmarkNoopDriver_PreCall(b *testing.B) {
