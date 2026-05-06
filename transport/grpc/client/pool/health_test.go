@@ -83,20 +83,24 @@ func TestStateTrackerSubscribeFanOutAndUnsubscribe(t *testing.T) {
 	tr := newStateTracker()
 	t.Cleanup(tr.shutdown)
 
-	pc := newTrackedConn(t)
-	tr.attach("api", pc)
+	// Pre-mark an entry with a non-nil cancel so the implicit enable() in
+	// subscribe sees a "watcher already running" sentinel and does not
+	// spawn its own goroutine. This isolates fan-out from watcher races.
+	entry := &trackedEntry{state: connectivity.Idle, cancel: func() {}}
+	tr.mu.Lock()
+	tr.perTarget["api"] = map[*pooledConnection]*trackedEntry{(*pooledConnection)(nil): entry}
+	tr.mu.Unlock()
 
 	var got1, got2 atomic.Int32
 	unsub1 := tr.subscribe("api", func(s connectivity.State) { got1.Store(int32(s)) })
 	unsub2 := tr.subscribe("api", func(s connectivity.State) { got2.Store(int32(s)) })
 
-	// Direct fan-out without spawning a watcher.
-	tr.recordAndFanOut("api", pc, tr.perTarget["api"][pc], connectivity.Ready)
+	tr.recordAndFanOut("api", entry, connectivity.Ready)
 	require.Equal(t, int32(connectivity.Ready), got1.Load())
 	require.Equal(t, int32(connectivity.Ready), got2.Load())
 
 	unsub1()
-	tr.recordAndFanOut("api", pc, tr.perTarget["api"][pc], connectivity.TransientFailure)
+	tr.recordAndFanOut("api", entry, connectivity.TransientFailure)
 	require.Equal(t, int32(connectivity.Ready), got1.Load(), "unsubscribed callback was invoked")
 	require.Equal(t, int32(connectivity.TransientFailure), got2.Load())
 	unsub2()
@@ -202,7 +206,7 @@ func TestPoolHealthPerTargetRegistration(t *testing.T) {
 
 	p := New(
 		WithHealthCoordinator(coord),
-		WithPerTargetHealthChecks(),
+		WithHealthPerTarget(),
 	)
 	t.Cleanup(func() { p.tracker.shutdown() })
 	p.health.register()
@@ -253,7 +257,7 @@ func TestPoolPushNotifyOnStateChange(t *testing.T) {
 
 	p := New(
 		WithHealthCoordinator(coord),
-		WithPerTargetHealthChecks(),
+		WithHealthPerTarget(),
 	)
 	stop, err := p.Start(t.Context())
 	require.NoError(t, err)

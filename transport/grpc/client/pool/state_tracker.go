@@ -165,16 +165,16 @@ func (t *stateTracker) spawnWatcher(target string, pc *pooledConnection, entry *
 func (t *stateTracker) watch(ctx context.Context, target string, pc *pooledConnection, entry *trackedEntry) {
 	defer t.wg.Done()
 	state := pc.conn.GetState()
-	t.recordAndFanOut(target, pc, entry, state)
+	t.recordAndFanOut(target, entry, state)
 	for pc.conn.WaitForStateChange(ctx, state) {
 		state = pc.conn.GetState()
-		t.recordAndFanOut(target, pc, entry, state)
+		t.recordAndFanOut(target, entry, state)
 	}
 }
 
 // recordAndFanOut updates the entry's last-seen state, invokes the
 // pool-level callback, and notifies subscribers for this target.
-func (t *stateTracker) recordAndFanOut(target string, _ *pooledConnection, entry *trackedEntry, state connectivity.State) {
+func (t *stateTracker) recordAndFanOut(target string, entry *trackedEntry, state connectivity.State) {
 	t.mu.Lock()
 	entry.state = state
 	t.mu.Unlock()
