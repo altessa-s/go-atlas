@@ -60,15 +60,11 @@ type poolHealth struct {
 }
 
 func newPoolHealth(p *ConnectionPool) *poolHealth {
-	mapper := p.opts.healthStateMapper
-	if mapper == nil {
-		mapper = DefaultStateMapper
-	}
 	return &poolHealth{
 		pool:              p,
 		coordinator:       p.opts.healthCoordinator,
 		serviceName:       p.opts.healthServiceName,
-		mapper:            mapper,
+		mapper:            p.opts.healthStateMapper,
 		perTarget:         p.opts.healthPerTarget,
 		registeredTargets: make(map[string]int),
 	}

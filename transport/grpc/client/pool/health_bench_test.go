@@ -56,6 +56,6 @@ func BenchmarkSubscribeFanOut(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		tr.recordAndFanOut("api", pc, entry, connectivity.Ready)
+		tr.recordAndFanOut("api", entry, connectivity.Ready)
 	}
 }

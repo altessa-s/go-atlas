@@ -28,7 +28,7 @@ thresholds. Callers must return every connection obtained via `GetConnection` by
 | `WithMetricsSubsystem` | `grpc_connection_pool` | Prometheus subsystem for emitted metrics; override per upstream so multiple pools can share one registry |
 | `WithHealthCoordinator`     | nil          | Opts the pool into `observability/health` aggregate registration                                |
 | `WithHealthServiceName`     | `grpc_pool`  | Service name registered with the coordinator                                                    |
-| `WithPerTargetHealthChecks` | off          | Also register `<service>.<target>` checkers lazily on first conn for that target                |
+| `WithHealthPerTarget` | off          | Also register `<service>.<target>` checkers lazily on first conn for that target                |
 | `WithHealthStateMapper`     | default      | Override the `connectivity.State` → `health.ServingStatus` mapping                              |
 
 ## Public API

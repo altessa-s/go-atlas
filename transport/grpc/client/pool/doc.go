@@ -33,7 +33,7 @@
 //
 // Pass [WithHealthCoordinator] to register an aggregate [health.Checker]
 // reporting the worst per-target status across the pool. When
-// [WithPerTargetHealthChecks] is set, a `<service>.<target>` checker is
+// [WithHealthPerTarget] is set, a `<service>.<target>` checker is
 // registered lazily on the first conn for a target and removed when its
 // last conn is closed. The mapping from gRPC [connectivity.State] to
 // [health.ServingStatus] uses [DefaultStateMapper] (override with

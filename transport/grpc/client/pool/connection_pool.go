@@ -99,8 +99,11 @@ func New(opts ...Option) *ConnectionPool {
 		metrics: newPoolMetrics(options.collector, options.metricsSubsystem),
 		tracker: newStateTracker(),
 	}
+	// poolHealth wires its onTargetStateChange callback into the tracker
+	// during register() (called from Start). Until then the tracker has no
+	// callback consumer and any external SubscribeTarget caller fans out
+	// independently.
 	cp.health = newPoolHealth(cp)
-	cp.tracker.onTargetStateChange = cp.health.onTargetStateChange
 	return cp
 }
 

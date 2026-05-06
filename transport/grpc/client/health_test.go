@@ -93,32 +93,16 @@ func TestClientCheckHealthPoolMode(t *testing.T) {
 
 	c, err := New(t.Context(), unreachableTarget,
 		WithInsecure(),
-		WithDialOptions(),
+		WithPool(p),
 		WithHealthCoordinator(coord),
 	)
-	// In pool mode connect() does not dial; we still need a client conn so
-	// the pool's tracker has something to observe.
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = c.Close(t.Context()) })
 
-	// The above c is single mode (we didn't pass WithConnectionPool).
-	// Recreate as pool mode:
-	c2, err := New(t.Context(), unreachableTarget,
-		WithInsecure(),
-		withConnectionPool(p),
-		WithHealthCoordinator(coord),
-	)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = c2.Close(t.Context()) })
-
-	// Pool mode: CheckHealth derives from pool.StateForTarget.
-	require.Equal(t, health.StatusServing, c2.health.CheckHealth(t.Context()))
-}
-
-// withConnectionPool is a thin wrapper around the generated WithPool so the
-// test reads cleanly in pool-mode coverage.
-func withConnectionPool(p *pool.ConnectionPool) Option {
-	return WithPool(p)
+	// Pool mode: CheckHealth derives from pool.StateForTarget. With no
+	// conn yet borrowed for this target the pool reports Idle, which the
+	// default mapper treats as Serving.
+	require.Equal(t, health.StatusServing, c.health.CheckHealth(t.Context()))
 }
 
 func TestClientPushNotifyPoolMode(t *testing.T) {
