@@ -63,7 +63,7 @@ func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 		children[i] = child.WithAttrs(attrs)
 	}
 	return &Handler{
-		inner:      h.inner.WithAttrs(attrs).(*slog.MultiHandler),
+		inner:      slog.NewMultiHandler(children...),
 		handlers:   children,
 		concurrent: h.concurrent,
 	}
@@ -79,7 +79,7 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 		children[i] = child.WithGroup(name)
 	}
 	return &Handler{
-		inner:      h.inner.WithGroup(name).(*slog.MultiHandler),
+		inner:      slog.NewMultiHandler(children...),
 		handlers:   children,
 		concurrent: h.concurrent,
 	}
