@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/altessa-s/go-atlas/transport/internal/proxydial"
+	"github.com/altessa-s/go-atlas/transport/proxydial"
 )
 
 // proxyAwareDialer returns a *http.Transport-compatible DialContext

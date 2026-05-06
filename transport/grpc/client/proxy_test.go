@@ -252,7 +252,7 @@ func TestWithProxyTLSConfig_StoresOption(t *testing.T) {
 	o := &options{}
 	WithProxyTLSConfig(cfg)(o)
 	require.Same(t, cfg, o.proxyTLSConfig)
-	// Merge / clone semantics live in transport/internal/proxydial and
+	// Merge / clone semantics live in transport/proxydial and
 	// are exercised in proxydial_test.go — the test here only verifies
 	// the option-storage hook on options.
 }
