@@ -105,7 +105,7 @@ prohibited.
 
 ### Outbound transport
 
-The HTTP and gRPC client packages (`transport/http/client`, `transport/grpc/client`) share a common dialer at `transport/internal/proxydial`. Every consumer
+The HTTP and gRPC client packages (`transport/http/client`, `transport/grpc/client`) share a common dialer at `transport/proxydial`. Every consumer
 that makes outbound calls (OIDC, OPA GitLab/S3 sources, OTLP gRPC exporter) materializes `config.HTTPProxy` / `config.GrpcProxy` into option slices via
 `ClientOptions()` and forwards them to the relevant client. See the [Proxy guide](proxy.md) for the YAML schema, modes, and wiring patterns.
 

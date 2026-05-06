@@ -32,3 +32,23 @@ func BenchmarkBasicAuthHeader(b *testing.B) {
 		_ = basicAuthHeader(auth)
 	}
 }
+
+func BenchmarkFromURL_HTTPS(b *testing.B) {
+	u, _ := url.Parse("https://proxy.example.com:8443")
+	for b.Loop() {
+		_, _ = FromURL(u)
+	}
+}
+
+func BenchmarkFromURL_SOCKS5(b *testing.B) {
+	u, _ := url.Parse("socks5://socks.example.com:1080")
+	for b.Loop() {
+		_, _ = FromURL(u)
+	}
+}
+
+func BenchmarkFromURL_Nil(b *testing.B) {
+	for b.Loop() {
+		_, _ = FromURL(nil)
+	}
+}
