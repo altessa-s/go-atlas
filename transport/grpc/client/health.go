@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/altessa-s/go-atlas/observability/health"
-	"github.com/altessa-s/go-atlas/transport/grpc/client/pool"
 
 	"google.golang.org/grpc/connectivity"
 )
@@ -46,15 +45,11 @@ func newClientHealth(c *Client) *clientHealth {
 	if c.options.healthCoordinator == nil {
 		return nil
 	}
-	mapper := c.options.healthStateMapper
-	if mapper == nil {
-		mapper = pool.DefaultStateMapper
-	}
 	return &clientHealth{
 		client:      c,
 		coordinator: c.options.healthCoordinator,
 		serviceName: c.options.healthServiceName,
-		mapper:      mapper,
+		mapper:      c.options.healthStateMapper,
 	}
 }
 

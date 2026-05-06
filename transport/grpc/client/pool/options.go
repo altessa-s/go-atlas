@@ -66,7 +66,7 @@ type options struct {
 	// healthPerTarget toggles per-target service registration in addition to
 	// the aggregate one. Per-target services are registered lazily on the
 	// first conn for a target and removed when its last conn is closed.
-	// Set via [WithPerTargetHealthChecks].
+	// Set via [WithHealthPerTarget].
 	healthPerTarget bool `optgen:"notnil"`
 	// healthStateMapper maps [connectivity.State] to [health.ServingStatus].
 	// Set via [WithHealthStateMapper]. A nil value is rejected by the
