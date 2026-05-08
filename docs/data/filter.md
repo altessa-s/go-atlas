@@ -5,9 +5,9 @@ import "github.com/altessa-s/go-atlas/data/filter"
 ```
 
 A CEL-based filter engine: parse a Common Expression Language string into an intermediate AST, then either evaluate it in-memory against a
-`map[string]any` or translate it to a database query (`bson.M` for MongoDB, RediSearch syntax, or Lua boolean for Redis `EVAL`). One CEL
-expression — multiple back ends. Custom CEL functions let you expose semantic shortcuts (`createdAfter("2024-01-01")`) without leaking storage
-field names into the API.
+`map[string]any` or translate it to a database query (`bson.M` for MongoDB, RediSearch syntax, Lua boolean for Redis `EVAL`, or a
+Meilisearch filter expression). One CEL expression — multiple back ends. Custom CEL functions let you expose semantic shortcuts
+(`createdAfter("2024-01-01")`) without leaking storage field names into the API.
 
 ---
 
@@ -19,6 +19,7 @@ field names into the API.
 | In-memory predicate over decoded data (config gating, in-process search) | `Parser` + `Evaluator` |
 | Server-side filter on plain Redis keys via `EVAL` | `translators/lua` |
 | Server-side filter on a RediSearch index | `translators/redisearch` |
+| Server-side filter on a Meilisearch index | `translators/meili` |
 | Expose semantic API filters (`createdAfter`, `between`) that map to real columns | `WithCustomFunctions` + `CompareField` |
 | Untrusted CEL from end users | `WithUntrustedInput` + `WithAllowedFields` (mandatory pair) |
 | Decouple API field names from DB columns | `WithFieldMapping` |
@@ -239,9 +240,14 @@ global registry must use `ResetGlobalCustomFunctions()` (e.g. via `t.Cleanup`) a
 | `translators/mongo` | `bson.M` | MongoDB collection scan or aggregation `$match` |
 | `translators/redisearch` | RediSearch query string | Server-side filter on a Redis hash with the RediSearch module |
 | `translators/lua` | Lua boolean expression | Filter plain Redis keys via `EVAL` |
+| `translators/meili` | Meilisearch filter string | Server-side filter on a Meilisearch index |
 
 All translators implement `filter.Visitor` and accept the same `TranslatorOption` set (allowlist, field mapping, depth limit, untrusted-input
 guard, strict mode).
+
+`translators/meili` rejects `endsWith`, `matches` (regex), and `size()` with `ErrUnsupportedOperation` — Meilisearch's filter grammar has no
+counterparts. `timestamp(...)` literals are emitted as Unix seconds: store the corresponding fields as numeric epoch seconds and add them to
+the index's `filterableAttributes`; sub-second precision is dropped.
 
 ---
 
@@ -311,7 +317,7 @@ Subsystem `filter`:
 |---|---|---|
 | `filter_parse_duration_seconds` | histogram | Parse latency (cache hit ≈ 0) |
 | `filter_parse_errors_total` | counter | Parse failures (any cause) |
-| `filter_translations_total{target_backend}` | counter | Translations performed, labeled by backend (`mongo`, `redisearch`, `lua`) |
+| `filter_translations_total{target_backend}` | counter | Translations performed, labeled by backend (`mongo`, `redisearch`, `lua`, `meili`) |
 
 Pass a collector via `WithParserCollector(c)`. Translators do not emit translations themselves yet — wire `translations_total{target_backend=...}`
 in your call site if you need per-backend visibility. Regex pattern cache stats are exposed in code via
@@ -322,8 +328,9 @@ in your call site if you need per-backend visibility. Regex pattern cache stats 
 ## Failure modes
 
 **`ErrUnsupportedOperation` from a translator at runtime.** Not every operator/function is implementable in every backend (Lua doesn't do
-regex; RediSearch doesn't do `size()` over arbitrary types). Either narrow the queryable set with `WithAllowedFields` and document the API
-contract, or enable `WithStrictMode(true)` and surface the failure to the API layer up front.
+regex; RediSearch doesn't do `size()` over arbitrary types; Meilisearch has no `endsWith`, `matches`, or `size()`). Either narrow the
+queryable set with `WithAllowedFields` and document the API contract, or enable `WithStrictMode(true)` and surface the failure to the API
+layer up front.
 
 **Cache-poisoning by deep input.** `WithMaxExpressionLength` is the first line of defense — long expressions never enter the LRU cache. Keep
 the limit conservative for untrusted callers (under 1 KiB is plenty for typical filters).
