@@ -11,16 +11,17 @@ import (
 )
 
 // MustParseFilter creates a no-cache [filter.Parser] and parses the given
-// expression, failing the test on any error.
-func MustParseFilter(t *testing.T, expr string) filter.Node {
-	t.Helper()
+// expression, failing the test on any error. Accepts [testing.TB] so it can
+// be called from both tests and benchmarks.
+func MustParseFilter(tb testing.TB, expr string) filter.Node {
+	tb.Helper()
 	p, err := filter.NewParser(filter.WithParserNoCache())
 	if err != nil {
-		t.Fatalf("NewParser() error = %v", err)
+		tb.Fatalf("NewParser() error = %v", err)
 	}
-	node, err := p.Parse(t.Context(), expr)
+	node, err := p.Parse(tb.Context(), expr)
 	if err != nil {
-		t.Fatalf("Parse(%q) error = %v", expr, err)
+		tb.Fatalf("Parse(%q) error = %v", expr, err)
 	}
 	return node
 }
