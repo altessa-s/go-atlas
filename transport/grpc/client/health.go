@@ -14,7 +14,7 @@ import (
 )
 
 // clientHealth implements the optional [observability/health] integration
-// for [Client]. Behaviour depends on the client's mode:
+// for [Client]. Behavior depends on the client's mode:
 //
 //   - Single-connection mode: a watcher goroutine calls
 //     [grpc.ClientConn.WaitForStateChange] on the client-owned conn and
@@ -63,6 +63,7 @@ func (h *clientHealth) attach(ctx context.Context) error {
 	h.coordinator.RegisterService(h.serviceName, h)
 
 	if h.client.options.pool != nil {
+		//nolint:contextcheck // pool watcher lifecycle is pool-scoped, not request-scoped
 		unsub, err := h.client.options.pool.SubscribeTarget(h.client.address, h.onPoolStateChange)
 		if err != nil {
 			return err
@@ -74,11 +75,13 @@ func (h *clientHealth) attach(ctx context.Context) error {
 		return nil
 	}
 
-	// Single mode: own watcher goroutine.
+	// Single mode: own watcher goroutine. The watcher must outlive the
+	// attach call's context, so it is rooted at a fresh background ctx
+	// owned by this helper and cancelled in detach.
 	watcherCtx, cancel := context.WithCancel(context.Background())
 	h.cancel = cancel
 	h.wg.Add(1)
-	go h.watchSingle(watcherCtx)
+	go h.watchSingle(watcherCtx) //nolint:contextcheck // watcher lifecycle is detach-scoped, not request-scoped
 	return nil
 }
 
