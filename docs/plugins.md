@@ -42,6 +42,7 @@ What the manager does:
 - Tracks state atomically: `StateLoaded` → `StateReady` / `StateFailed` → `StateUnloaded`
 - Iterates plugins (`Plugins`, `Names`, `Ready`) and discovers providers (`LookupAll`, `NegotiateAll`)
 - Warns on Go-version or dependency mismatches between host and plugin (`GoVersion`, `DepInfo`)
+- Enforces host major-version compatibility via `Descriptor.HostVersion` (configurable via `HostVersionMode`)
 - Verifies detached `.so.sig` signatures before executing any plugin code (optional)
 - Quarantines failed plugins by file hash; clears when the file changes
 - Optionally watches the directory for new `.so` files at runtime
@@ -161,6 +162,36 @@ var DepInfo = plugins.NewDepInfoFromBuild()
 ```
 
 `NewDepInfoFromBuild` snapshots `debug.ReadBuildInfo` at init time — nothing to maintain. Optional; absent `DepInfo` is silently skipped.
+
+### HostVersion (optional, enforced)
+
+Set `Descriptor.HostVersion` to the host service semver this plugin was built against. When the manager is configured via `WithHostVersion` — the factory
+auto-wires it from `core/runtime/appinfo.Version` when the application has been stamped with a non-default version — the loader compares the **major** components
+and rejects mismatches.
+
+Unlike `GoVersion` and `DepInfo` (advisory), this check is enforced by default. SemVer guarantees ABI compatibility within a major version, so a plugin built
+for v2.x stays compatible with hosts on v2.5.3 but must be rejected on v3.0.0.
+
+```go
+var Descriptor = plugins.Descriptor{
+    Name:        "audit-mongo",
+    Version:     "1.2.0",
+    HostVersion: "2.5.0",       // built against the v2.x host contract
+    GoVersion:   runtime.Version(),
+}
+```
+
+Strictness is controlled by `HostVersionMode`:
+
+| Mode                  | On major mismatch                                          |
+|-----------------------|------------------------------------------------------------|
+| `HostVersionEnforce`  | Return `ErrHostVersionMismatch`, quarantine the plugin     |
+| `HostVersionWarn`     | Log a warning, load anyway (canary phase)                  |
+| `HostVersionDisabled` | Skip the check entirely (operator kill-switch)             |
+
+The default is `HostVersionEnforce`. The check is skipped silently when either side leaves its version empty, preserving backwards compatibility with plugins
+built before this field was added. The host's `appinfo.Version` default `"0.0.0"` also counts as "not set" — the factory does not auto-wire `WithHostVersion`
+in dev builds, so `go run ./cmd/service` keeps loading plugins that declare a real `HostVersion`.
 
 ### SPI version negotiation
 
@@ -310,7 +341,7 @@ defer mgr.Close()
 | `UseLogger(*slog.Logger)`                       | Injects the structured logger                                     |
 | `UseHealthCoordinator(*health.Coordinator)`     | Registers the manager as a `health.Checker` under the default name `"plugins"` |
 | `UseHealthServiceName(string)`                  | Overrides the health service name (no-op for empty input)         |
-| `Build(context.Context)`                        | Validates, runs `Load(ctx)`, and optionally `StartWatching(ctx)`  |
+| `Build(context.Context)`                        | Validates, runs `Load(ctx)`, and optionally `StartWatching(ctx)`. Auto-wires `WithHostVersion(appinfo.Version)` when the binary was stamped with a non-default version. |
 
 > Pass the **application** context to `Build` when `cfg.Watch` is true. The watcher's
 > lifetime is bound to that context: when it is canceled, the watch goroutine exits.
@@ -1186,6 +1217,7 @@ Sentinel errors in `core/plugins/errors.go`, all matchable via `errors.Is`.
 | `ErrSignatureConfig`        | Bad PEM, unsupported key type, or missing public key path          |
 | `ErrPluginQuarantined`      | Plugin file is blacklisted; same hash as a previous failed load    |
 | `ErrSPIVersionMismatch`     | Plugin's SPI version does not satisfy the host's `SPIConstraint`   |
+| `ErrHostVersionMismatch`    | Plugin's `Descriptor.HostVersion` major differs from the host major (Enforce mode) |
 | `ErrManagerClosed`          | Method called on a closed manager                                  |
 | `ErrDirNotFound`            | Configured plugin directory does not exist                         |
 | `ErrSandboxUnsupported`     | Sandbox enabled on a non-Linux platform                            |
@@ -1293,7 +1325,15 @@ type Descriptor struct {
     Version     string
     Description string
     GoVersion   string // advisory; compared against runtime.Version() at load time
+    HostVersion string // enforced; major compared against the host service semver when both sides declare
 }
+
+type HostVersionMode int
+const (
+    HostVersionEnforce HostVersionMode = iota // default; mismatch returns ErrHostVersionMismatch
+    HostVersionWarn                           // log and load anyway
+    HostVersionDisabled                       // skip the check entirely
+)
 
 type DepInfo struct {
     GoVersion string
@@ -1350,6 +1390,8 @@ func WithLoad(...string) Option
 func WithDisabled(...string) Option
 func WithInitTimeout(time.Duration) Option
 func WithWatchDebounce(time.Duration) Option
+func WithHostVersion(string) Option
+func WithHostVersionMode(HostVersionMode) Option
 func WithSandbox(SandboxOptions) Option
 func WithSignature(SignatureOptions) Option
 ```

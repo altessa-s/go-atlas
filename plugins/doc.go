@@ -64,19 +64,30 @@
 //
 // Go's [plugin.Open] requires the host and the plugin to be compiled with
 // the same Go toolchain version and identical shared-dependency versions.
-// Violations produce cryptic runtime errors. The package provides two
-// optional, advisory mechanisms for early detection:
+// Violations produce cryptic runtime errors. The package provides three
+// mechanisms for early detection:
 //
-//   - [Descriptor.GoVersion]: set it to [runtime.Version] in the plugin.
-//     The manager compares it against the host's own version at load time
-//     and logs a warning on mismatch.
-//   - DepInfo symbol: export a package-level variable named DepInfo of type
-//     [*DepInfo] (use [NewDepInfoFromBuild] for convenience). The manager
-//     compares the plugin's module dependency graph against the host's
-//     [debug.ReadBuildInfo] and logs mismatched shared modules.
+//   - [Descriptor.GoVersion] (advisory): set it to [runtime.Version] in
+//     the plugin. The manager compares it against the host's own version
+//     at load time and logs a warning on mismatch.
+//   - DepInfo symbol (advisory): export a package-level variable named
+//     DepInfo of type [*DepInfo] (use [NewDepInfoFromBuild] for
+//     convenience). The manager compares the plugin's module dependency
+//     graph against the host's [debug.ReadBuildInfo] and logs mismatched
+//     shared modules.
+//   - [Descriptor.HostVersion] (enforced): set it to the host service
+//     semver (e.g. "2.1.0"). When the manager is configured via
+//     [WithHostVersion] (the [factory] package wires this from
+//     [appinfo.Version] automatically) the loader compares the major
+//     components and rejects mismatches with [ErrHostVersionMismatch].
+//     The strictness is controlled by [HostVersionMode]
+//     (Enforce/Warn/Disabled). This is the recommended mechanism for
+//     production-grade SemVer compatibility — the other two only surface
+//     warnings.
 //
-// Both checks are advisory — they do not prevent loading because
-// [plugin.Open] enforces the real ABI check.
+// The first two checks are advisory because [plugin.Open] enforces the
+// real Go-toolchain ABI; HostVersion is independent of that and reflects
+// the host service's own SemVer compatibility contract.
 //
 // # Signature verification
 //
