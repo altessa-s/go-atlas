@@ -34,4 +34,11 @@
 // Logical: &&, ||, !
 // Membership: in, has()
 // String: contains(), startsWith()
+//
+// # Timestamps
+//
+// timestamp(...) literals are emitted as Unix seconds — Meilisearch filters
+// numeric attributes only, so the corresponding fields must be stored as
+// numeric epoch seconds and listed in the index's filterableAttributes.
+// Sub-second precision is dropped.
 package meili

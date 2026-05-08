@@ -135,7 +135,7 @@ func (t *Translator) VisitList(n *filter.ListNode) (any, error) {
 
 // translateComparison handles comparison operators.
 func (t *Translator) translateComparison(op filter.Operator, left, right filter.Node) (string, error) {
-	if call, ok := left.(*filter.CallNode); ok && call.Op == filter.OpSize {
+	if isSizeCall(left) || isSizeCall(right) {
 		return "", coreerrs.Wrap(filter.ErrUnsupportedOperation, "size() comparisons")
 	}
 
@@ -351,6 +351,12 @@ func formatLiteral(v any) (string, error) {
 	default:
 		return "", coreerrs.Wrapf(filter.ErrUnsupportedType, "%T", v)
 	}
+}
+
+// isSizeCall reports whether n is a `size(x)` / `x.size()` call.
+func isSizeCall(n filter.Node) bool {
+	call, ok := n.(*filter.CallNode)
+	return ok && call.Op == filter.OpSize
 }
 
 // quoteString wraps a string in double quotes, escaping `\` and `"`.

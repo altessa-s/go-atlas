@@ -204,8 +204,20 @@ func TestTranslator_HasFunction(t *testing.T) {
 func TestTranslator_SizeFunction_Unsupported(t *testing.T) {
 	trans := NewTranslator()
 
-	t.Run("size equality", func(t *testing.T) {
+	t.Run("size equality lhs", func(t *testing.T) {
 		node := testhelpers.MustParseFilter(t, `tags.size() == 3`)
+		_, err := trans.Translate(node)
+		require.ErrorIs(t, err, filter.ErrUnsupportedOperation)
+	})
+
+	t.Run("size equality rhs", func(t *testing.T) {
+		node := testhelpers.MustParseFilter(t, `3 == tags.size()`)
+		_, err := trans.Translate(node)
+		require.ErrorIs(t, err, filter.ErrUnsupportedOperation)
+	})
+
+	t.Run("size ordering rhs", func(t *testing.T) {
+		node := testhelpers.MustParseFilter(t, `5 < tags.size()`)
 		_, err := trans.Translate(node)
 		require.ErrorIs(t, err, filter.ErrUnsupportedOperation)
 	})
@@ -215,6 +227,43 @@ func TestTranslator_SizeFunction_Unsupported(t *testing.T) {
 		_, err := trans.Translate(node)
 		require.ErrorIs(t, err, filter.ErrUnsupportedOperation)
 	})
+}
+
+func TestTranslator_Timestamp(t *testing.T) {
+	// timestamp() literals are emitted as Unix seconds — Meilisearch filters
+	// numeric attributes only, and sub-second precision is dropped.
+	trans := NewTranslator()
+
+	tests := []struct {
+		name string
+		expr string
+		want string
+	}{
+		{
+			"equality",
+			`createdAt == timestamp("2024-01-02T03:04:05Z")`,
+			`createdAt = 1704164645`,
+		},
+		{
+			"greater than",
+			`createdAt > timestamp("2024-01-02T03:04:05Z")`,
+			`createdAt > 1704164645`,
+		},
+		{
+			"sub-second precision is dropped",
+			`createdAt == timestamp("2024-01-02T03:04:05.789Z")`,
+			`createdAt = 1704164645`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			node := testhelpers.MustParseFilter(t, tt.expr)
+			got, err := trans.Translate(node)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
 }
 
 func TestTranslator_NullValue(t *testing.T) {

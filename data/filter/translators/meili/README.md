@@ -10,3 +10,8 @@ logical operators, list membership, `contains` / `startsWith` predicates and
 `has()` field-existence checks. Operations without a Meilisearch counterpart —
 `endsWith`, `matches` (regex), `size()` — are rejected with
 `filter.ErrUnsupportedOperation`.
+
+`timestamp(...)` literals are emitted as Unix seconds (Meilisearch filters
+numeric attributes only); store the corresponding fields as numeric epoch
+seconds and add them to the index's `filterableAttributes`. Sub-second
+precision is dropped.
