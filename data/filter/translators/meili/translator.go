@@ -361,8 +361,10 @@ func isSizeCall(n filter.Node) bool {
 
 // quoteString wraps a string in double quotes, escaping `\` and `"`.
 func quoteString(s string) string {
+	const surroundingQuotes = 2 // opening + closing `"`
+
 	var b strings.Builder
-	b.Grow(len(s) + 2)
+	b.Grow(len(s) + surroundingQuotes)
 	b.WriteByte('"')
 	for _, r := range s {
 		switch r {
