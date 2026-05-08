@@ -52,6 +52,36 @@ func WithDisabled(v ...string) Option {
 	}
 }
 
+// WithHostVersion sets the hostVersion option.
+func WithHostVersion[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.hostVersion = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.hostVersion = vv
+		}
+	}
+}
+
+// WithHostVersionMode sets the hostVersionMode option.
+func WithHostVersionMode(v HostVersionMode) Option {
+	return func(o *options) {
+		o.hostVersionMode = v
+	}
+}
+
 // WithInitTimeout sets the initTimeout option.
 func WithInitTimeout(v time.Duration) Option {
 	return func(o *options) {
@@ -100,10 +130,11 @@ func WithWatchDebounce(v time.Duration) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		dir:           DefaultDir,
-		initTimeout:   DefaultInitTimeout,
-		logger:        slog.New(slog.DiscardHandler),
-		watchDebounce: DefaultWatchDebounce,
+		dir:             DefaultDir,
+		hostVersionMode: DefaultHostVersionMode,
+		initTimeout:     DefaultInitTimeout,
+		logger:          slog.New(slog.DiscardHandler),
+		watchDebounce:   DefaultWatchDebounce,
 	}
 }
 

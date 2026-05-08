@@ -41,6 +41,26 @@ type Descriptor struct {
 	// [plugin.Open] itself enforces the real ABI check. The warning gives
 	// operators a clear diagnostic before the cryptic runtime error.
 	GoVersion string
+
+	// HostVersion is the semver string of the host service version this
+	// plugin was built against (e.g. "2.1.0"). When this field is non-empty
+	// AND the manager was configured via [WithHostVersion], the loader
+	// compares the major component of both versions. A mismatch is
+	// enforced according to [HostVersionMode]:
+	//
+	//   - [HostVersionEnforce] (default): return [ErrHostVersionMismatch]
+	//     and quarantine the plugin.
+	//   - [HostVersionWarn]: log a warning and load anyway.
+	//   - [HostVersionDisabled]: skip the check entirely.
+	//
+	// Unlike [Descriptor.GoVersion] and the DepInfo symbol, this check is
+	// designed to be enforcing in production: SemVer guarantees backwards
+	// compatibility within a major version, so a host on v2.5.3 can load
+	// a plugin built for v2.1.0, but must reject one built for v3.x.x.
+	//
+	// Leave empty to opt out (legacy plugins, or plugins that explicitly
+	// target multiple host majors and gate behavior at runtime).
+	HostVersion string
 }
 
 // Validate reports whether the descriptor is well-formed enough for the

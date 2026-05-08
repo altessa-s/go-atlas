@@ -554,6 +554,15 @@ func (m *Manager) loadPlugin(ctx context.Context, filename string) error {
 		return coreerrs.Wrapf(err, "plugin %q", filename)
 	}
 
+	// Host major-version check. Unlike the GoVersion / DepInfo advisories
+	// below, this is enforced (in HostVersionEnforce mode) because SemVer
+	// guarantees ABI compatibility within a major; a v3 host loading a
+	// v2-built plugin is a hard incompatibility, not a build hint.
+	if err = m.checkHostMajor(desc); err != nil {
+		m.addQuarantine(filename, fileHash)
+		return coreerrs.Wrapf(err, "plugin %q", desc.Name)
+	}
+
 	// Advisory Go-version skew check. A mismatch does not prevent loading
 	// because plugin.Open enforces the real ABI check; the warning gives
 	// operators a clear breadcrumb before the cryptic runtime error.

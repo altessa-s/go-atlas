@@ -19,17 +19,47 @@ const (
 	DefaultWatchDebounce = 200 * time.Millisecond
 )
 
+// HostVersionMode controls strictness of the host major version check
+// performed when both [Descriptor.HostVersion] and [WithHostVersion]
+// declare a version. The default is [HostVersionEnforce] — production
+// deployments should keep this default; the other modes exist for
+// canary rollouts and emergency operations.
+type HostVersionMode int
+
+const (
+	// HostVersionEnforce returns [ErrHostVersionMismatch] and quarantines
+	// the plugin when its declared major does not match the host's.
+	// This is the default and matches the behavior most operators want.
+	HostVersionEnforce HostVersionMode = iota
+
+	// HostVersionWarn logs a warning on mismatch but allows the plugin
+	// to load. Intended for canary phases where operators want visibility
+	// before enforcing.
+	HostVersionWarn
+
+	// HostVersionDisabled skips the check entirely, even when both sides
+	// declare a version. Use as a temporary kill-switch when an urgent
+	// rollout requires loading a plugin that declares an incompatible
+	// major; pair with a follow-up plugin rebuild.
+	HostVersionDisabled
+)
+
+// DefaultHostVersionMode is the default value applied via optgen.
+const DefaultHostVersionMode = HostVersionEnforce
+
 // options contains Manager configuration.
 type options struct {
-	logger        *slog.Logger
-	dir           string         `optgen:"default=DefaultDir"`
-	load          []string       `optgen:"append"`
-	disabled      []string       `optgen:"append"`
-	initTimeout   time.Duration  `optgen:"default=DefaultInitTimeout"`
-	watchDebounce time.Duration  `optgen:"default=DefaultWatchDebounce"`
-	sandbox       SandboxOptions `optgen:"manual"`
-	signature     signatureState `opt:"-"` // resolved key + mode; set by WithSignature
-	signatureErr  error          `opt:"-"` // deferred PEM parse error from WithSignature
+	logger          *slog.Logger
+	dir             string          `optgen:"default=DefaultDir"`
+	load            []string        `optgen:"append"`
+	disabled        []string        `optgen:"append"`
+	initTimeout     time.Duration   `optgen:"default=DefaultInitTimeout"`
+	watchDebounce   time.Duration   `optgen:"default=DefaultWatchDebounce"`
+	hostVersion     string          // host service semver, compared against Descriptor.HostVersion at load time
+	hostVersionMode HostVersionMode `optgen:"default=DefaultHostVersionMode"`
+	sandbox         SandboxOptions  `optgen:"manual"`
+	signature       signatureState  `opt:"-"` // resolved key + mode; set by WithSignature
+	signatureErr    error           `opt:"-"` // deferred PEM parse error from WithSignature
 }
 
 // WithSandbox configures Linux process-hardening primitives applied lazily on

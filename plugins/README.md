@@ -26,6 +26,15 @@ Every `.so` must export:
 
 - `var Descriptor = plugins.Descriptor{Name: "…", Version: "…", GoVersion: runtime.Version()}`
 
+Optional `Descriptor` field:
+
+- `HostVersion: "2.1.0"` — host service semver this plugin was built
+  against. When the manager is configured with `WithHostVersion` (the
+  factory package auto-wires this from `appinfo.Version`), majors are
+  compared at load time. Mismatches return `ErrHostVersionMismatch`
+  unless `WithHostVersionMode` is set to `HostVersionWarn` /
+  `HostVersionDisabled`.
+
 Optional symbols:
 
 - `func Init(ctx context.Context) error` or `var Init = func(ctx context.Context) error { … }`
@@ -68,16 +77,18 @@ if err := mgr.Quarantine("broken-plugin"); err != nil {
 
 ## Options
 
-| Option              | Default      | Description                           |
-|---------------------|--------------|---------------------------------------|
-| `WithDir`           | `./plugins`  | Directory scanned for `.so` files     |
-| `WithLoad`          | `[]`         | Allowlist of filenames                |
-| `WithDisabled`      | `[]`         | Exclusion list                        |
-| `WithInitTimeout`   | `5s`         | Per-plugin Init timeout               |
-| `WithWatchDebounce` | `200ms`      | Filesystem event coalesce window      |
-| `WithLogger`        | default slog | Structured logger                     |
-| `WithSandbox`       | disabled     | Linux process-hardening primitives    |
-| `WithSignature`     | disabled     | Cryptographic .so.sig verification    |
+| Option                 | Default              | Description                                                                          |
+|------------------------|----------------------|--------------------------------------------------------------------------------------|
+| `WithDir`              | `./plugins`          | Directory scanned for `.so` files                                                    |
+| `WithLoad`             | `[]`                 | Allowlist of filenames                                                               |
+| `WithDisabled`         | `[]`                 | Exclusion list                                                                       |
+| `WithInitTimeout`      | `5s`                 | Per-plugin Init timeout                                                              |
+| `WithWatchDebounce`    | `200ms`              | Filesystem event coalesce window                                                     |
+| `WithLogger`           | default slog         | Structured logger                                                                    |
+| `WithHostVersion`      | unset (check off)    | Host service semver compared against `Descriptor.HostVersion` major; factory auto-wires from `appinfo.Version` |
+| `WithHostVersionMode`  | `HostVersionEnforce` | Strictness when both versions declared: `Enforce` (reject), `Warn` (log), `Disabled` |
+| `WithSandbox`          | disabled             | Linux process-hardening primitives                                                   |
+| `WithSignature`        | disabled             | Cryptographic .so.sig verification                                                   |
 
 ## Platform support
 

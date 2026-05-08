@@ -83,4 +83,11 @@ var (
 	// (PR_SET_NO_NEW_PRIVS, setrlimit) fails. The wrapped error preserves the
 	// underlying syscall error for inspection.
 	ErrSandboxFailed = errors.New("plugin sandbox setup failed")
+
+	// ErrHostVersionMismatch is returned when a plugin's [Descriptor.HostVersion]
+	// declares a major version that does not match the host service major
+	// configured via [WithHostVersion]. The plugin is quarantined and excluded
+	// from the registry. Only returned in [HostVersionEnforce] mode; [HostVersionWarn]
+	// logs and loads anyway, [HostVersionDisabled] skips the check entirely.
+	ErrHostVersionMismatch = errors.New("plugin host major version mismatch")
 )
