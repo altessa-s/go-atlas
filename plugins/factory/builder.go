@@ -9,9 +9,11 @@ import (
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/config"
+	"github.com/altessa-s/go-atlas/core/runtime/appinfo"
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/plugins"
 
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 )
 
@@ -87,6 +89,16 @@ func (b *ManagerBuilder) Build(ctx context.Context) (*plugins.Manager, error) {
 		plugins.WithWatchDebounce(b.cfg.WatchDebounce),
 		plugins.WithSandbox(plugins.SandboxOptionsFromConfig(b.cfg.Sandbox)),
 	}
+
+	// Auto-wire the host service version from appinfo when it has been
+	// stamped via -ldflags. The default "0.0.0" is treated as "unset" so
+	// dev builds (go run …) do not fail to load plugins that declare a
+	// real HostVersion. Production builds with a real version get the
+	// HostVersionEnforce check active without further configuration.
+	opts = coreslices.AppendIf(opts,
+		appinfo.Version != "" && appinfo.Version != "0.0.0",
+		plugins.WithHostVersion(appinfo.Version),
+	)
 
 	if b.cfg.Signature.Mode != "" {
 		opts = append(opts, plugins.WithSignature(
