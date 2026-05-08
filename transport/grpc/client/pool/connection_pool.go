@@ -138,6 +138,7 @@ func (cp *ConnectionPool) Start(ctx context.Context) (func(), error) {
 
 	// Register the optional aggregate health checker. Per-target services
 	// are registered lazily as targets first appear via onConnAttached.
+	//nolint:contextcheck // tracker watchers run on the pool-owned parent ctx, not Start's ctx
 	cp.health.register()
 
 	stopCh := make(chan struct{})
@@ -432,6 +433,7 @@ func (tp *targetPool) createConnection(ctx context.Context) (*grpc.ClientConn, e
 		// Track connectivity state for health/subscriptions before
 		// surfacing the conn to callers. Lazy per-target health
 		// registration runs after the tracker has the entry.
+		//nolint:contextcheck // watcher lifecycle is pool-scoped, not request-scoped
 		tp.pool.tracker.attach(tp.target, pc)
 		tp.pool.health.onConnAttached(tp.target)
 	}

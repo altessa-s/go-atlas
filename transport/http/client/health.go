@@ -229,7 +229,7 @@ func (h *httpClientHealth) aggregateStatus() health.ServingStatus {
 	var nClosed, nOpen, nHalfOpen int
 
 	if h.cb != nil {
-		switch h.cb.CircuitBreaker.State() {
+		switch h.cb.State() {
 		case gobreaker.StateClosed:
 			nClosed++
 		case gobreaker.StateOpen:
