@@ -14,13 +14,6 @@ import (
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
-	prominternal "github.com/altessa-s/go-atlas/transport/internal/prometheus"
-)
-
-// Metric labels (use shared interned labels).
-var (
-	methodLabel = prominternal.MethodLabel
-	statusLabel = prominternal.StatusLabel
 )
 
 const middlewareName = "metrics"

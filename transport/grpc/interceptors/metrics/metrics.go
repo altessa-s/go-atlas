@@ -17,7 +17,6 @@ import (
 	"google.golang.org/grpc/codes"
 
 	sharedmetadata "github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
-	prominternal "github.com/altessa-s/go-atlas/transport/internal/prometheus"
 	stdGrpc "google.golang.org/grpc"
 )
 
@@ -263,7 +262,7 @@ func (s *streamWrapper) SendMsg(m any) error {
 
 		// Record message size if both stream and size metrics are enabled
 		if s.interceptor.opts.enableSizeMetrics && s.interceptor.streamMessageSize != nil {
-			if size, ok := prominternal.GetMessageSize(m); ok {
+			if size, ok := getMessageSize(m); ok {
 				s.interceptor.streamMessageSize.WithLabels(metrics.Labels{
 					methodLabel:    s.fullMethod,
 					directionLabel: directionSent,
@@ -297,7 +296,7 @@ func (s *streamWrapper) RecvMsg(m any) error {
 
 		// Record message size if both stream and size metrics are enabled
 		if s.interceptor.opts.enableSizeMetrics && s.interceptor.streamMessageSize != nil {
-			if size, ok := prominternal.GetMessageSize(m); ok {
+			if size, ok := getMessageSize(m); ok {
 				s.interceptor.streamMessageSize.WithLabels(metrics.Labels{
 					methodLabel:    s.fullMethod,
 					directionLabel: directionReceived,

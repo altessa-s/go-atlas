@@ -12,8 +12,6 @@ import (
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/defaults"
-
-	prominternal "github.com/altessa-s/go-atlas/transport/internal/prometheus"
 )
 
 // Use defaults package for optgen code generation
@@ -25,15 +23,6 @@ var _ = defaults.IgnorePatterns
 // metrics land in their own namespace and do not collide when registered
 // against a shared [metrics.Collector].
 const DefaultMetricsSubsystem = "http"
-
-// Default bucket configurations (use shared defaults from internal package)
-var (
-	// DefaultDurationBuckets provides reasonable latency buckets for HTTP requests.
-	DefaultDurationBuckets = prominternal.DefaultDurationBuckets
-
-	// DefaultSizeBuckets provides reasonable message size buckets for HTTP requests.
-	DefaultSizeBuckets = prominternal.DefaultSizeBuckets
-)
 
 // options holds configuration for the Prometheus middleware.
 type options struct {
@@ -58,8 +47,8 @@ func WithDurationBuckets(buckets []float64) Option {
 		}
 
 		// Validate buckets are in increasing order
-		prominternal.MustValidateBuckets(buckets, "duration")
-		o.durationBuckets = prominternal.CopyBuckets(buckets)
+		mustValidateBuckets(buckets, "duration")
+		o.durationBuckets = cloneBuckets(buckets)
 	}
 }
 
@@ -75,7 +64,7 @@ func WithSizeBuckets(buckets []float64) Option {
 		}
 
 		// Validate buckets are in increasing order
-		prominternal.MustValidateBuckets(buckets, "size")
-		o.sizeBuckets = prominternal.CopyBuckets(buckets)
+		mustValidateBuckets(buckets, "size")
+		o.sizeBuckets = cloneBuckets(buckets)
 	}
 }

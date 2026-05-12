@@ -41,7 +41,6 @@ require (
 	github.com/oklog/ulid/v2 v2.1.1
 	github.com/open-policy-agent/opa v1.15.2
 	github.com/prometheus/client_golang v1.23.2
-	github.com/prometheus/client_model v0.6.2
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/seiflotfy/cuckoofilter v0.0.0-20240715131351-a2f2c23f1771
@@ -148,6 +147,7 @@ require (
 	github.com/onsi/gomega v1.39.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/power-devops/perfstat v0.0.0-20240221224432-82ca36839d55 // indirect
+	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.66.1 // indirect
 	github.com/prometheus/procfs v0.17.0 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20250401214520-65e299d6c5c9 // indirect

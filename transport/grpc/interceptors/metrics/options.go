@@ -12,25 +12,10 @@ import (
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/defaults"
-
-	prominternal "github.com/altessa-s/go-atlas/transport/internal/prometheus"
 )
 
 // Use defaults package for optgen code generation
 var _ = defaults.IgnorePatterns
-
-// Metric labels (use shared interned labels).
-var (
-	methodLabel    = prominternal.MethodLabel
-	statusLabel    = prominternal.StatusLabel
-	directionLabel = prominternal.DirectionLabel
-)
-
-// Direction label values for streaming metrics (use shared interned values)
-var (
-	directionSent     = prominternal.DirectionSent
-	directionReceived = prominternal.DirectionReceived
-)
 
 // Sampling strategy constants
 const (
@@ -59,15 +44,6 @@ const (
 // against a shared [metrics.Collector].
 const DefaultMetricsSubsystem = "grpc"
 
-// Default bucket configurations (use shared defaults from internal package)
-var (
-	// DefaultDurationBuckets provides reasonable latency buckets for gRPC requests.
-	DefaultDurationBuckets = prominternal.DefaultDurationBuckets
-
-	// DefaultSizeBuckets provides reasonable message size buckets for gRPC requests.
-	DefaultSizeBuckets = prominternal.DefaultSizeBuckets
-)
-
 type options struct {
 	collector              metrics.Collector `optgen:"notnil"`
 	metricsSubsystem       string            `optgen:"default=DefaultMetricsSubsystem"`
@@ -93,8 +69,8 @@ func WithDurationBuckets(buckets []float64) Option {
 		}
 
 		// Validate buckets are in increasing order
-		prominternal.MustValidateBuckets(buckets, "duration")
-		o.durationBuckets = prominternal.CopyBuckets(buckets)
+		mustValidateBuckets(buckets, "duration")
+		o.durationBuckets = cloneBuckets(buckets)
 	}
 }
 
@@ -110,7 +86,7 @@ func WithSizeBuckets(buckets []float64) Option {
 		}
 
 		// Validate buckets are in increasing order
-		prominternal.MustValidateBuckets(buckets, "size")
-		o.sizeBuckets = prominternal.CopyBuckets(buckets)
+		mustValidateBuckets(buckets, "size")
+		o.sizeBuckets = cloneBuckets(buckets)
 	}
 }
