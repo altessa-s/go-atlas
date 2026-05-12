@@ -14,7 +14,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
-	prominternal "github.com/altessa-s/go-atlas/transport/internal/prometheus"
 )
 
 // metricsRecorder provides common metrics recording functionality.
@@ -45,12 +44,12 @@ func (r *metricsRecorder) record(fullMethod string, startTime time.Time, req, re
 
 	if r.opts.enableSizeMetrics && r.requestSize != nil && r.responseSize != nil {
 		if req != nil {
-			if size, ok := prominternal.GetMessageSize(req); ok {
+			if size, ok := getMessageSize(req); ok {
 				r.requestSize.WithLabels(labels).Observe(float64(size))
 			}
 		}
 		if resp != nil {
-			if size, ok := prominternal.GetMessageSize(resp); ok {
+			if size, ok := getMessageSize(resp); ok {
 				r.responseSize.WithLabels(labels).Observe(float64(size))
 			}
 		}

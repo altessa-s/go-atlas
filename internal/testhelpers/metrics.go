@@ -7,107 +7,78 @@ package testhelpers
 import (
 	"testing"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/stretchr/testify/require"
-
 	"github.com/altessa-s/go-atlas/observability/metrics"
-
-	promadapter "github.com/altessa-s/go-atlas/observability/metrics/adapters/prometheus"
-	promio "github.com/prometheus/client_model/go"
+	"github.com/altessa-s/go-atlas/observability/metrics/adapters/memory"
 )
 
-// NewTestCollector creates a [metrics.Collector] backed by the given
-// Prometheus [prometheus.Registry] with service name "test".
-func NewTestCollector(registry *prometheus.Registry) metrics.Collector {
-	adapter := promadapter.New(promadapter.WithRegistry(registry))
-	return metrics.New(metrics.WithServiceName("test"), metrics.WithAdapter(adapter))
+// TestCollector pairs a [metrics.Collector] with an in-memory
+// [memory.Adapter] so tests can register metrics through the standard
+// collector API and read back accumulated values without standing up a
+// Prometheus registry.
+//
+// Methods of the embedded Collector are forwarded directly, so a
+// *TestCollector can be passed anywhere a [metrics.Collector] is
+// expected. Lookup methods of [memory.Adapter] are likewise forwarded
+// for assertions in tests.
+type TestCollector struct {
+	metrics.Collector
+	*memory.Adapter
 }
 
-// GatherMetric gathers all metrics from the registry and returns the named family.
-func GatherMetric(t *testing.T, registry *prometheus.Registry, name string) *promio.MetricFamily {
+// NewTestCollector creates a fresh [TestCollector] with service name
+// "test". Each call returns an independent collector so tests can run
+// in parallel without sharing metric state.
+func NewTestCollector() *TestCollector {
+	mem := memory.New()
+	coll := metrics.New(metrics.WithServiceName("test"), metrics.WithAdapter(mem))
+	return &TestCollector{Collector: coll, Adapter: mem}
+}
+
+// GatherMetric reports whether a metric with the given name has been
+// registered on tc. Use it to assert presence or absence of a metric
+// without caring about its accumulated value.
+func GatherMetric(t *testing.T, tc *TestCollector, name string) bool {
 	t.Helper()
-	families, err := registry.Gather()
-	require.NoError(t, err)
-	for _, mf := range families {
-		if mf.GetName() == name {
-			return mf
-		}
-	}
-	return nil
+	return tc.Exists(name)
 }
 
-// GetGaugeValue finds a gauge metric by name and returns its value.
-func GetGaugeValue(t *testing.T, registry *prometheus.Registry, name string, labelPairs ...string) float64 {
+// GetCounterValue returns the accumulated value of the named counter
+// for the given label pairs. labelPairs must be a flat list of
+// alternating key/value strings ("method", "GET", "status_class", "2xx"),
+// matching the labels supplied when the counter was observed. Returns
+// 0 when the metric or label combination is unknown.
+func GetCounterValue(t *testing.T, tc *TestCollector, name string, labelPairs ...string) float64 {
 	t.Helper()
-	mf := GatherMetric(t, registry, name)
-	if mf == nil {
-		return 0
-	}
-	m := FindMetricByLabels(mf.GetMetric(), labelPairs...)
-	if m == nil {
-		return 0
-	}
-	return m.GetGauge().GetValue()
+	return tc.CounterValue(name, labelsFromPairs(labelPairs))
 }
 
-// GetCounterValue finds a counter metric by name and label pairs, returning its value.
-func GetCounterValue(t *testing.T, registry *prometheus.Registry, name string, labelPairs ...string) float64 {
+// GetGaugeValue returns the most recently set value of the named gauge
+// for the given label pairs. See [GetCounterValue] for the labelPairs
+// format. Returns 0 when the metric or label combination is unknown.
+func GetGaugeValue(t *testing.T, tc *TestCollector, name string, labelPairs ...string) float64 {
 	t.Helper()
-	mf := GatherMetric(t, registry, name)
-	if mf == nil {
-		return 0
-	}
-	m := FindMetricByLabels(mf.GetMetric(), labelPairs...)
-	if m == nil {
-		return 0
-	}
-	return m.GetCounter().GetValue()
+	return tc.GaugeValue(name, labelsFromPairs(labelPairs))
 }
 
-// GetHistogramCount finds a histogram metric by name and returns its sample count.
-func GetHistogramCount(t *testing.T, registry *prometheus.Registry, name string, labelPairs ...string) uint64 {
+// GetHistogramCount returns the number of observations recorded for
+// the named histogram and label combination. See [GetCounterValue] for
+// the labelPairs format. Returns 0 when the metric or label combination
+// is unknown.
+func GetHistogramCount(t *testing.T, tc *TestCollector, name string, labelPairs ...string) uint64 {
 	t.Helper()
-	mf := GatherMetric(t, registry, name)
-	if mf == nil {
-		return 0
-	}
-	m := FindMetricByLabels(mf.GetMetric(), labelPairs...)
-	if m == nil {
-		return 0
-	}
-	return m.GetHistogram().GetSampleCount()
+	return tc.HistogramCount(name, labelsFromPairs(labelPairs))
 }
 
-// FindMetricByLabels finds a metric within a family matching the given label key-value pairs.
-func FindMetricByLabels(ms []*promio.Metric, labelPairs ...string) *promio.Metric {
-	if len(labelPairs) == 0 {
-		if len(ms) > 0 {
-			return ms[0]
-		}
+// labelsFromPairs converts a flat key/value slice into a map. An odd
+// number of elements drops the trailing key, matching the legacy
+// permissive behavior callers relied on.
+func labelsFromPairs(pairs []string) map[string]string {
+	if len(pairs) == 0 {
 		return nil
 	}
-	for _, m := range ms {
-		if MatchLabels(m.GetLabel(), labelPairs...) {
-			return m
-		}
+	out := make(map[string]string, len(pairs)/2)
+	for i := 0; i+1 < len(pairs); i += 2 {
+		out[pairs[i]] = pairs[i+1]
 	}
-	return nil
-}
-
-// MatchLabels checks whether a metric's labels match all given key-value pairs.
-func MatchLabels(labels []*promio.LabelPair, pairs ...string) bool {
-	for i := 0; i < len(pairs)-1; i += 2 {
-		key, val := pairs[i], pairs[i+1]
-		found := false
-		for _, lp := range labels {
-			if lp.GetName() == key && lp.GetValue() == val {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return false
-		}
-	}
-	return true
+	return out
 }

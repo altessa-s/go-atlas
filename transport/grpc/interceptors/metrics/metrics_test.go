@@ -13,8 +13,6 @@ import (
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-
-	prom "github.com/prometheus/client_golang/prometheus"
 )
 
 func TestGetStatusCode(t *testing.T) {
@@ -34,17 +32,15 @@ func TestGetStatusCode(t *testing.T) {
 		})
 	}
 }
-
 func TestServerInterceptor_WithCustomCollector(t *testing.T) {
-	coll := testhelpers.NewTestCollector(prom.NewRegistry())
-	i := ServerInterceptor(WithCollector(coll))
+	tc := testhelpers.NewTestCollector()
+	i := ServerInterceptor(WithCollector(tc))
 	require.NotNil(t, i, "should not be nil")
 	require.Equal(t, "metrics", i.Name())
 }
-
 func TestServerInterceptor_Dependencies(t *testing.T) {
-	coll := testhelpers.NewTestCollector(prom.NewRegistry())
-	i, _ := ServerInterceptor(WithCollector(coll)).(*serverInterceptorWrapper) //nolint:errcheck
+	tc := testhelpers.NewTestCollector()
+	i, _ := ServerInterceptor(WithCollector(tc)).(*serverInterceptorWrapper) //nolint:errcheck
 	deps := i.Dependencies()
 	require.Len(t, deps, 1)
 	require.Equal(t, "metadata", deps[0])
@@ -56,12 +52,11 @@ func TestServerInterceptor_Dependencies(t *testing.T) {
 // the bug that motivated the move from singleton + raw Registerer to
 // metrics.Collector + WithMetricsSubsystem.
 func TestServerInterceptor_TwoSubsystemsShareCollector(t *testing.T) {
-	registry := prom.NewRegistry()
-	coll := testhelpers.NewTestCollector(registry)
+	tc := testhelpers.NewTestCollector()
 
 	require.NotPanics(t, func() {
-		_ = ServerInterceptor(WithCollector(coll), WithMetricsSubsystem("egrul"))
-		_ = ServerInterceptor(WithCollector(coll), WithMetricsSubsystem("kfocus"))
+		_ = ServerInterceptor(WithCollector(tc), WithMetricsSubsystem("egrul"))
+		_ = ServerInterceptor(WithCollector(tc), WithMetricsSubsystem("kfocus"))
 	})
 }
 
@@ -69,15 +64,13 @@ func TestServerInterceptor_TwoSubsystemsShareCollector(t *testing.T) {
 // dedupes by name: calling ServerInterceptor twice with the same collector
 // and same subsystem reuses the existing metric vectors without panic.
 func TestServerInterceptor_SameSubsystemReusesMetrics(t *testing.T) {
-	registry := prom.NewRegistry()
-	coll := testhelpers.NewTestCollector(registry)
+	tc := testhelpers.NewTestCollector()
 
 	require.NotPanics(t, func() {
-		_ = ServerInterceptor(WithCollector(coll))
-		_ = ServerInterceptor(WithCollector(coll))
+		_ = ServerInterceptor(WithCollector(tc))
+		_ = ServerInterceptor(WithCollector(tc))
 	})
 }
-
 func BenchmarkGetStatusCode(b *testing.B) {
 	err := status.Error(codes.NotFound, "not found")
 	for b.Loop() {

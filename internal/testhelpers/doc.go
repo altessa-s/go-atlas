@@ -8,8 +8,9 @@
 // The package includes:
 //   - Mock providers for idempotency ([MockIdempotencyStorage]) and
 //     network errors ([MockNetError]).
-//   - Prometheus metrics test helpers ([NewTestCollector], [GetCounterValue],
-//     [GetGaugeValue], [GetHistogramCount], [GatherMetric]).
+//   - In-memory metrics test helpers ([NewTestCollector], [GetCounterValue],
+//     [GetGaugeValue], [GetHistogramCount], [GatherMetric]). The collector
+//     stores observations in memory, so tests do not depend on Prometheus.
 //   - Filter expression parsing ([MustParseFilter]).
 //   - Pointer helpers ([StringPtr], [IntPtr], [TimePtr]).
 //   - HTTP and I/O test doubles ([RoundTripFunc], [MockReadCloser]).

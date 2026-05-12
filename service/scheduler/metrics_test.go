@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -51,13 +50,12 @@ func TestScheduler_Metrics_Noop(t *testing.T) {
 }
 
 func TestScheduler_Metrics_TasksRegistered(t *testing.T) {
-	registry := prometheus.NewRegistry()
-	collector := testhelpers.NewTestCollector(registry)
+	tc := testhelpers.NewTestCollector()
 
 	storage := memory.New(100)
 	s := scheduler.New(storage,
 		scheduler.WithTickInterval(50*time.Millisecond),
-		scheduler.WithCollector(collector),
+		scheduler.WithCollector(tc),
 	)
 
 	ctx := t.Context()
@@ -78,24 +76,23 @@ func TestScheduler_Metrics_TasksRegistered(t *testing.T) {
 		ID: "task-b", Schedule: "@every 1h", Func: noop,
 	}))
 
-	val := testhelpers.GetGaugeValue(t, registry, "test_scheduler_tasks_registered")
+	val := testhelpers.GetGaugeValue(t, tc, "test_scheduler_tasks_registered")
 	assert.Equal(t, float64(2), val, "should have 2 registered tasks")
 
 	// Unregister one
 	require.NoError(t, s.Unregister(ctx, "task-a"))
 
-	val = testhelpers.GetGaugeValue(t, registry, "test_scheduler_tasks_registered")
+	val = testhelpers.GetGaugeValue(t, tc, "test_scheduler_tasks_registered")
 	assert.Equal(t, float64(1), val, "should have 1 registered task after unregister")
 }
 
 func TestScheduler_Metrics_TaskExecution(t *testing.T) {
-	registry := prometheus.NewRegistry()
-	collector := testhelpers.NewTestCollector(registry)
+	tc := testhelpers.NewTestCollector()
 
 	storage := memory.New(100)
 	s := scheduler.New(storage,
 		scheduler.WithTickInterval(50*time.Millisecond),
-		scheduler.WithCollector(collector),
+		scheduler.WithCollector(tc),
 	)
 
 	ctx := t.Context()
@@ -123,28 +120,27 @@ func TestScheduler_Metrics_TaskExecution(t *testing.T) {
 		2*time.Second, 50*time.Millisecond)
 
 	// Check tasksDispatched counter
-	dispatched := testhelpers.GetCounterValue(t, registry, "test_scheduler_tasks_dispatched_total",
+	dispatched := testhelpers.GetCounterValue(t, tc, "test_scheduler_tasks_dispatched_total",
 		"task_id", "metrics-task", "priority", "normal")
 	assert.GreaterOrEqual(t, dispatched, float64(1), "tasks_dispatched_total should be >= 1")
 
 	// Check taskDuration histogram has observations
-	duration := testhelpers.GetHistogramCount(t, registry, "test_scheduler_task_duration_seconds",
+	duration := testhelpers.GetHistogramCount(t, tc, "test_scheduler_task_duration_seconds",
 		"task_id", "metrics-task", "priority", "normal")
 	assert.GreaterOrEqual(t, duration, uint64(1), "task_duration_seconds should have >= 1 observation")
 
 	// Check tickDuration has observations
-	tickCount := testhelpers.GetHistogramCount(t, registry, "test_scheduler_tick_duration_seconds")
+	tickCount := testhelpers.GetHistogramCount(t, tc, "test_scheduler_tick_duration_seconds")
 	assert.GreaterOrEqual(t, tickCount, uint64(1), "tick_duration_seconds should have >= 1 observation")
 }
 
 func TestScheduler_Metrics_TaskErrors(t *testing.T) {
-	registry := prometheus.NewRegistry()
-	collector := testhelpers.NewTestCollector(registry)
+	tc := testhelpers.NewTestCollector()
 
 	storage := memory.New(100)
 	s := scheduler.New(storage,
 		scheduler.WithTickInterval(50*time.Millisecond),
-		scheduler.WithCollector(collector),
+		scheduler.WithCollector(tc),
 	)
 
 	ctx := t.Context()
@@ -169,7 +165,7 @@ func TestScheduler_Metrics_TaskErrors(t *testing.T) {
 	require.Eventually(t, func() bool { return execCount.Load() >= 1 },
 		2*time.Second, 50*time.Millisecond)
 
-	errorCount := testhelpers.GetCounterValue(t, registry, "test_scheduler_task_errors_total",
+	errorCount := testhelpers.GetCounterValue(t, tc, "test_scheduler_task_errors_total",
 		"task_id", "failing-task")
 	assert.GreaterOrEqual(t, errorCount, float64(1), "task_errors_total should be >= 1")
 }

@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -51,14 +50,13 @@ func TestAuditor_Metrics_Noop(t *testing.T) {
 
 func TestAuditor_Metrics_EventsEmitted(t *testing.T) {
 	t.Parallel()
-	registry := prometheus.NewRegistry()
-	collector := testhelpers.NewTestCollector(registry)
+	tc := testhelpers.NewTestCollector()
 
 	store := memory.New()
 	eng := newTestEngine(t, store)
 	require.NoError(t, eng.Start())
 
-	a, err := audit.New(eng, audit.WithCollector(collector))
+	a, err := audit.New(eng, audit.WithCollector(tc))
 	require.NoError(t, err)
 	require.NoError(t, a.Start())
 
@@ -70,14 +68,13 @@ func TestAuditor_Metrics_EventsEmitted(t *testing.T) {
 	require.NoError(t, a.Shutdown(t.Context()))
 	require.NoError(t, eng.Shutdown(t.Context()))
 
-	val := testhelpers.GetCounterValue(t, registry, "test_audit_events_emitted_total")
+	val := testhelpers.GetCounterValue(t, tc, "test_audit_events_emitted_total")
 	assert.Equal(t, float64(1), val, "events_emitted_total should be 1")
 }
 
 func TestAuditor_Metrics_EventsDropped(t *testing.T) {
 	t.Parallel()
-	registry := prometheus.NewRegistry()
-	collector := testhelpers.NewTestCollector(registry)
+	tc := testhelpers.NewTestCollector()
 
 	// Use a blocking sink that never returns, so the single worker stays
 	// busy and the buffer (size 1) fills up, causing drops.
@@ -94,7 +91,7 @@ func TestAuditor_Metrics_EventsDropped(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, eng.Start())
 
-	a, err := audit.New(eng, audit.WithCollector(collector))
+	a, err := audit.New(eng, audit.WithCollector(tc))
 	require.NoError(t, err)
 	require.NoError(t, a.Start())
 
@@ -115,21 +112,20 @@ func TestAuditor_Metrics_EventsDropped(t *testing.T) {
 	close(blocked)
 	require.NoError(t, eng.Shutdown(t.Context()))
 
-	val := testhelpers.GetCounterValue(t, registry, "test_audit_events_dropped_total")
+	val := testhelpers.GetCounterValue(t, tc, "test_audit_events_dropped_total")
 	assert.GreaterOrEqual(t, val, float64(1), "events_dropped_total should be >= 1")
 }
 
 func TestAuditor_Metrics_CustomSubsystem(t *testing.T) {
 	t.Parallel()
-	registry := prometheus.NewRegistry()
-	collector := testhelpers.NewTestCollector(registry)
+	tc := testhelpers.NewTestCollector()
 
 	store := memory.New()
 	eng := newTestEngine(t, store)
 	require.NoError(t, eng.Start())
 
 	a, err := audit.New(eng,
-		audit.WithCollector(collector),
+		audit.WithCollector(tc),
 		audit.WithMetricsSubsystem("myaudit"),
 	)
 	require.NoError(t, err)
@@ -143,6 +139,6 @@ func TestAuditor_Metrics_CustomSubsystem(t *testing.T) {
 	require.NoError(t, a.Shutdown(t.Context()))
 	require.NoError(t, eng.Shutdown(t.Context()))
 
-	val := testhelpers.GetCounterValue(t, registry, "test_myaudit_events_emitted_total")
+	val := testhelpers.GetCounterValue(t, tc, "test_myaudit_events_emitted_total")
 	assert.Equal(t, float64(1), val)
 }

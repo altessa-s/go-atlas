@@ -10,13 +10,11 @@ import (
 	"testing"
 
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
-
-	prom "github.com/prometheus/client_golang/prometheus"
 )
 
 func BenchmarkMiddleware_Handler(b *testing.B) {
-	coll := testhelpers.NewTestCollector(prom.NewRegistry())
-	m := New(WithCollector(coll))
+	tc := testhelpers.NewTestCollector()
+	m := New(WithCollector(tc))
 	handler := m.Handler(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {}))
 	req := httptest.NewRequest("GET", "/bench", nil)
 	for b.Loop() {
@@ -24,7 +22,6 @@ func BenchmarkMiddleware_Handler(b *testing.B) {
 		handler.ServeHTTP(rec, req)
 	}
 }
-
 func BenchmarkRecorder(b *testing.B) {
 	rec := httptest.NewRecorder()
 	for b.Loop() {

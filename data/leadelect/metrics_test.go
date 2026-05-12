@@ -7,7 +7,6 @@ package leadelect
 import (
 	"testing"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
@@ -26,9 +25,9 @@ func TestLeaderMetrics_Noop(t *testing.T) {
 }
 
 func TestLeaderMetrics_Prometheus(t *testing.T) {
-	registry := prometheus.NewRegistry()
-	collector := testhelpers.NewTestCollector(registry)
-	m := newLeaderMetrics(collector)
+	tc := testhelpers.NewTestCollector()
+
+	m := newLeaderMetrics(tc)
 
 	m.transitions.WithLabels(metrics.Labels{"type": "became_leader"}).Inc()
 	m.isLeader.Set(1)
@@ -36,16 +35,16 @@ func TestLeaderMetrics_Prometheus(t *testing.T) {
 	stop()
 	m.callbackErrors.Inc()
 
-	val := testhelpers.GetCounterValue(t, registry, "test_leader_election_transitions_total",
+	val := testhelpers.GetCounterValue(t, tc, "test_leader_election_transitions_total",
 		"type", "became_leader")
 	assert.Equal(t, float64(1), val)
 
-	gauge := testhelpers.GetGaugeValue(t, registry, "test_leader_election_is_leader")
+	gauge := testhelpers.GetGaugeValue(t, tc, "test_leader_election_is_leader")
 	assert.Equal(t, float64(1), gauge)
 
-	count := testhelpers.GetHistogramCount(t, registry, "test_leader_election_callback_duration_seconds")
+	count := testhelpers.GetHistogramCount(t, tc, "test_leader_election_callback_duration_seconds")
 	assert.GreaterOrEqual(t, count, uint64(1))
 
-	errors := testhelpers.GetCounterValue(t, registry, "test_leader_election_callback_errors_total")
+	errors := testhelpers.GetCounterValue(t, tc, "test_leader_election_callback_errors_total")
 	assert.Equal(t, float64(1), errors)
 }
