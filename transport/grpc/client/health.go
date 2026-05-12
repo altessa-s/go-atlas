@@ -77,7 +77,7 @@ func (h *clientHealth) attach(ctx context.Context) error {
 
 	// Single mode: own watcher goroutine. The watcher must outlive the
 	// attach call's context, so it is rooted at a fresh background ctx
-	// owned by this helper and cancelled in detach.
+	// owned by this helper and canceled in detach.
 	watcherCtx, cancel := context.WithCancel(context.Background())
 	h.cancel = cancel
 	h.wg.Add(1)
