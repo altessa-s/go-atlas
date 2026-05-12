@@ -47,6 +47,15 @@ const (
 	ErrorIDKAlreadyUsed
 )
 
+// Reason codes attached to the [errdetails.ErrorInfo] detail of idempotency
+// errors emitted by [defaultStatusCreator].
+const (
+	ReasonIDKMissing       = "IDEMPOTENCY_KEY_MISSING"
+	ReasonIDKInvalidFormat = "IDEMPOTENCY_KEY_INVALID_FORMAT"
+	ReasonIDKInProgress    = "IDEMPOTENCY_KEY_IN_PROGRESS"
+	ReasonIDKAlreadyUsed   = "IDEMPOTENCY_KEY_ALREADY_USED"
+)
+
 // KeyFormatValidator validates the format of an idempotency key.
 // Returns nil if the key is valid, or ErrInvalidFormat if invalid.
 type KeyFormatValidator func(key string) error
