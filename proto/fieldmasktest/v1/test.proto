@@ -4,6 +4,11 @@
 
 syntax = "proto3";
 package fieldmasktest.v1;
+
+// Specifies the package name for generated Java code.
+option java_package = "io.altessa.grpc.fieldmasktest.v1";
+option java_multiple_files = true;
+
 option go_package = "github.com/altessa-s/go-atlas/proto/gen/fieldmasktest/v1;fieldmasktestv1";
 
 import "google/api/field_behavior.proto";

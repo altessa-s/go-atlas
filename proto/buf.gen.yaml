@@ -6,3 +6,7 @@ plugins:
   - local: protoc-gen-go-grpc
     out: gen
     opt: paths=source_relative
+  - protoc_builtin: java
+    out: gen/java
+  - local: protoc-gen-grpc-java
+    out: gen/java
