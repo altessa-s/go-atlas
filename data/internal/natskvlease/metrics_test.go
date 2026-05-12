@@ -7,7 +7,6 @@ package natskvlease
 import (
 	"testing"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
@@ -23,27 +22,27 @@ func TestLeaseMetrics_Noop(t *testing.T) {
 }
 
 func TestLeaseMetrics_Prometheus(t *testing.T) {
-	registry := prometheus.NewRegistry()
-	collector := testhelpers.NewTestCollector(registry)
-	m := newLeaseMetrics(collector)
+	tc := testhelpers.NewTestCollector()
+
+	m := newLeaseMetrics(tc)
 
 	m.operations.WithLabels(metrics.Labels{"op": "acquire", "result": "success"}).Inc()
 	m.operations.WithLabels(metrics.Labels{"op": "renew", "result": "success"}).Inc()
 	m.operations.WithLabels(metrics.Labels{"op": "release", "result": "success"}).Inc()
 	m.leaseHeld.Set(1)
 
-	val := testhelpers.GetCounterValue(t, registry, "test_nats_kv_lease_operations_total",
+	val := testhelpers.GetCounterValue(t, tc, "test_nats_kv_lease_operations_total",
 		"op", "acquire", "result", "success")
 	assert.Equal(t, float64(1), val)
 
-	val = testhelpers.GetCounterValue(t, registry, "test_nats_kv_lease_operations_total",
+	val = testhelpers.GetCounterValue(t, tc, "test_nats_kv_lease_operations_total",
 		"op", "renew", "result", "success")
 	assert.Equal(t, float64(1), val)
 
-	val = testhelpers.GetCounterValue(t, registry, "test_nats_kv_lease_operations_total",
+	val = testhelpers.GetCounterValue(t, tc, "test_nats_kv_lease_operations_total",
 		"op", "release", "result", "success")
 	assert.Equal(t, float64(1), val)
 
-	gauge := testhelpers.GetGaugeValue(t, registry, "test_nats_kv_lease_lease_held")
+	gauge := testhelpers.GetGaugeValue(t, tc, "test_nats_kv_lease_lease_held")
 	assert.Equal(t, float64(1), gauge)
 }

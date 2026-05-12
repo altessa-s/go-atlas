@@ -7,7 +7,6 @@ package auth
 import (
 	"testing"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
@@ -25,9 +24,9 @@ func TestVaultAuthMetrics_Noop(t *testing.T) {
 }
 
 func TestVaultAuthMetrics_Prometheus(t *testing.T) {
-	registry := prometheus.NewRegistry()
-	collector := testhelpers.NewTestCollector(registry)
-	m := newVaultAuthMetrics(collector)
+	tc := testhelpers.NewTestCollector()
+
+	m := newVaultAuthMetrics(tc)
 
 	m.authAttempts.Inc()
 	m.authAttempts.Inc()
@@ -36,18 +35,18 @@ func TestVaultAuthMetrics_Prometheus(t *testing.T) {
 	m.tokenRenewals.Inc()
 	m.tokenRenewalErrors.Inc()
 
-	val := testhelpers.GetCounterValue(t, registry, "test_vault_auth_auth_attempts_total")
+	val := testhelpers.GetCounterValue(t, tc, "test_vault_auth_auth_attempts_total")
 	assert.Equal(t, float64(2), val)
 
-	val = testhelpers.GetCounterValue(t, registry, "test_vault_auth_auth_errors_total", "type", "permanent")
+	val = testhelpers.GetCounterValue(t, tc, "test_vault_auth_auth_errors_total", "type", "permanent")
 	assert.Equal(t, float64(1), val)
 
-	val = testhelpers.GetCounterValue(t, registry, "test_vault_auth_auth_errors_total", "type", "transient")
+	val = testhelpers.GetCounterValue(t, tc, "test_vault_auth_auth_errors_total", "type", "transient")
 	assert.Equal(t, float64(1), val)
 
-	val = testhelpers.GetCounterValue(t, registry, "test_vault_auth_token_renewals_total")
+	val = testhelpers.GetCounterValue(t, tc, "test_vault_auth_token_renewals_total")
 	assert.Equal(t, float64(1), val)
 
-	val = testhelpers.GetCounterValue(t, registry, "test_vault_auth_token_renewal_errors_total")
+	val = testhelpers.GetCounterValue(t, tc, "test_vault_auth_token_renewal_errors_total")
 	assert.Equal(t, float64(1), val)
 }
