@@ -9,7 +9,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
@@ -26,9 +25,9 @@ func TestMetricsSubsystem_DefaultRegistersUnderHTTPClient(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	registry := prometheus.NewRegistry()
+	tc := testhelpers.NewTestCollector()
 	c := httpclient.New(
-		httpclient.WithCollector(testhelpers.NewTestCollector(registry)),
+		httpclient.WithCollector(tc),
 		httpclient.WithRetryMax(0),
 	)
 
@@ -36,7 +35,7 @@ func TestMetricsSubsystem_DefaultRegistersUnderHTTPClient(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
 
-	val := testhelpers.GetCounterValue(t, registry, "test_http_client_requests_total",
+	val := testhelpers.GetCounterValue(t, tc, "test_http_client_requests_total",
 		"method", "GET", "status_class", "2xx")
 	require.Equal(t, float64(1), val)
 }
@@ -50,9 +49,9 @@ func TestMetricsSubsystem_CustomRoutesMetricsToOwnNamespace(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	registry := prometheus.NewRegistry()
+	tc := testhelpers.NewTestCollector()
 	c := httpclient.New(
-		httpclient.WithCollector(testhelpers.NewTestCollector(registry)),
+		httpclient.WithCollector(tc),
 		httpclient.WithMetricsSubsystem("egrul"),
 		httpclient.WithRetryMax(0),
 	)
@@ -61,35 +60,34 @@ func TestMetricsSubsystem_CustomRoutesMetricsToOwnNamespace(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
 
-	val := testhelpers.GetCounterValue(t, registry, "test_egrul_requests_total",
+	val := testhelpers.GetCounterValue(t, tc, "test_egrul_requests_total",
 		"method", "GET", "status_class", "2xx")
 	require.Equal(t, float64(1), val)
 
-	require.Nil(t, testhelpers.GatherMetric(t, registry, "test_http_client_requests_total"),
+	require.False(t, testhelpers.GatherMetric(t, tc, "test_http_client_requests_total"),
 		"default subsystem must not appear when a custom one is set")
 }
 
 // TestMetricsSubsystem_TwoClientsShareRegistry pins the contract that two
-// HTTP clients with distinct subsystems can share the same Prometheus
-// registry without panicking on duplicate metric registration — the bug
-// that motivated this option.
+// HTTP clients with distinct subsystems can share the same collector
+// without panicking on duplicate metric registration — the bug that
+// motivated this option.
 func TestMetricsSubsystem_TwoClientsShareRegistry(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
 
-	registry := prometheus.NewRegistry()
-	collector := testhelpers.NewTestCollector(registry)
+	tc := testhelpers.NewTestCollector()
 
 	require.NotPanics(t, func() {
 		egrul := httpclient.New(
-			httpclient.WithCollector(collector),
+			httpclient.WithCollector(tc),
 			httpclient.WithMetricsSubsystem("egrul"),
 			httpclient.WithRetryMax(0),
 		)
 		kfocus := httpclient.New(
-			httpclient.WithCollector(collector),
+			httpclient.WithCollector(tc),
 			httpclient.WithMetricsSubsystem("kfocus"),
 			httpclient.WithRetryMax(0),
 		)
@@ -104,9 +102,9 @@ func TestMetricsSubsystem_TwoClientsShareRegistry(t *testing.T) {
 	})
 
 	require.Equal(t, float64(1),
-		testhelpers.GetCounterValue(t, registry, "test_egrul_requests_total",
+		testhelpers.GetCounterValue(t, tc, "test_egrul_requests_total",
 			"method", "GET", "status_class", "2xx"))
 	require.Equal(t, float64(1),
-		testhelpers.GetCounterValue(t, registry, "test_kfocus_requests_total",
+		testhelpers.GetCounterValue(t, tc, "test_kfocus_requests_total",
 			"method", "GET", "status_class", "2xx"))
 }
