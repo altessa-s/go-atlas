@@ -16,6 +16,7 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/driver"
 	"github.com/altessa-s/go-atlas/transport/internal/fallback"
 
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -99,20 +100,29 @@ func ServerInterceptor(i Idempotency, opt ...Option) interceptors.ServerIntercep
 	return interceptors.ServerDrivenInterceptor(ic)
 }
 
-// defaultStatusCreator creates a basic gRPC status error.
+// defaultStatusCreator creates a gRPC status for an idempotency error and
+// attaches an [errdetails.ErrorInfo] detail with a scenario-specific reason code.
 func defaultStatusCreator(_ context.Context, scenario ErrorScenario, _ *idempotency.State) *status.Status {
+	var (
+		st     *status.Status
+		reason string
+	)
 	switch scenario {
 	case ErrorIDKMissing:
-		return status.New(codes.InvalidArgument, "Idempotency key is required for this operation")
+		st, reason = status.New(codes.InvalidArgument, "Idempotency key is required for this operation"), ReasonIDKMissing
 	case ErrorIDKInvalidFormat:
-		return status.New(codes.InvalidArgument, "Idempotency key must be a valid lowercase UUID v4")
+		st, reason = status.New(codes.InvalidArgument, "Idempotency key must be a valid lowercase UUID v4"), ReasonIDKInvalidFormat
 	case ErrorIDKInProgress:
-		return status.New(codes.Aborted, "A request with this idempotency key is currently being processed")
+		st, reason = status.New(codes.Aborted, "A request with this idempotency key is currently being processed"), ReasonIDKInProgress
 	case ErrorIDKAlreadyUsed:
-		return status.New(codes.FailedPrecondition, "This idempotency key has already been used")
+		st, reason = status.New(codes.FailedPrecondition, "This idempotency key has already been used"), ReasonIDKAlreadyUsed
 	default:
 		return status.New(codes.Internal, "Unknown idempotency error")
 	}
+	if enriched, err := st.WithDetails(&errdetails.ErrorInfo{Reason: reason}); err == nil {
+		return enriched
+	}
+	return st
 }
 
 // checkIdempotency performs the idempotency check for a request.
