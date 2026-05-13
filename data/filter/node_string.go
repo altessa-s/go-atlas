@@ -48,11 +48,12 @@ func _() {
 	_ = x[OpSize-14]
 	_ = x[OpHas-15]
 	_ = x[OpExists-16]
+	_ = x[OpSubstring-17]
 }
 
-const _Operator_name = "OpEqualOpNotEqualOpLTOpLTEOpGTOpGTEOpAndOpOrOpNotOpInOpContainsOpStartsWithOpEndsWithOpMatchesOpSizeOpHasOpExists"
+const _Operator_name = "OpEqualOpNotEqualOpLTOpLTEOpGTOpGTEOpAndOpOrOpNotOpInOpContainsOpStartsWithOpEndsWithOpMatchesOpSizeOpHasOpExistsOpSubstring"
 
-var _Operator_index = [...]uint8{0, 7, 17, 21, 26, 30, 35, 40, 44, 49, 53, 63, 75, 85, 94, 100, 105, 113}
+var _Operator_index = [...]uint8{0, 7, 17, 21, 26, 30, 35, 40, 44, 49, 53, 63, 75, 85, 94, 100, 105, 113, 124}
 
 func (i Operator) String() string {
 	idx := int(i) - 0

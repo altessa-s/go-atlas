@@ -59,6 +59,7 @@ var reservedFunctionNames = coremaps.NewImmutableMap(map[string]struct{}{
 	"size":       {},
 	"has":        {},
 	"timestamp":  {},
+	"substring":  {},
 })
 
 // isUserFunction reports whether name is a user-callable named
@@ -111,7 +112,7 @@ var (
 //
 // Validation matches [WithCustomFunctions]: nil handlers and names
 // that collide with built-in CEL functions (contains, startsWith,
-// endsWith, matches, size, has, timestamp) are rejected. Re-registering
+// endsWith, matches, size, has, timestamp, substring) are rejected. Re-registering
 // a name that is already in the registry returns an error — function
 // values are not comparable in Go, so "same handler" cannot be
 // distinguished from "different handler" idempotently. Use
