@@ -76,7 +76,7 @@ import "github.com/altessa-s/go-atlas/data/cache"
 | [`tools/codegen/goconfig`](tools/codegen/goconfig/) | Configuration struct code generator |
 | [`transport/broker`](transport/broker/) | Message broker abstraction (NATS JetStream, outbox) |
 | [`transport/grpc`](transport/grpc/) | gRPC server, interceptors, factory, gRPC client |
-| [`proto`](proto/) | Protobuf definitions and generated Go code for gRPC services |
+| [`proto`](proto/) | Protobuf schema source for gRPC services; bindings published to `atlas-proto-gen-{go,java}` (see [Proto release](docs/proto-release.md)) |
 | [`transport/http`](transport/http/) | HTTP server, middlewares, codec registry, HTTP client |
 
 ## Documentation
@@ -88,6 +88,7 @@ import "github.com/altessa-s/go-atlas/data/cache"
 | [Health](docs/observability/health.md) | Coordinator, HTTP probes (`/healthz`, `/readyz`), gRPC `grpc_health_v1` |
 | [Proxy](docs/proxy.md) | Outbound HTTP/gRPC proxy: YAML modes, wiring, TLS to proxy |
 | [Metrics Reference](docs/metrics.md) | All 129 Prometheus metrics across 24 subsystems |
+| [Proto release](docs/proto-release.md) | gRPC schema flow: Two-PR dance, tag mirror to `atlas-proto-gen-{go,java}` |
 
 Full API documentation is available at [pkg.go.dev](https://pkg.go.dev/github.com/altessa-s/go-atlas).
 

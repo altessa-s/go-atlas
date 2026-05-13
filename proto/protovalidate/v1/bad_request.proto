@@ -10,7 +10,7 @@ package io.altessa.grpc.protovalidate.v1;
 option java_package = "io.altessa.grpc.protovalidate.v1";
 option java_multiple_files = true;
 
-option go_package = "github.com/altessa-s/go-atlas/proto/gen/protovalidate/v1;protovalidatev1";
+option go_package = "github.com/altessa-s/atlas-proto-gen-go/protovalidate/v1;protovalidatev1";
 
 import "google/protobuf/descriptor.proto";
 
