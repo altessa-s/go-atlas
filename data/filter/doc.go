@@ -32,6 +32,7 @@
 //   - startsWith() - prefix match
 //   - endsWith() - suffix match
 //   - matches() - regex match
+//   - substring(start, [end]) - half-open [start, end) substring; 0-indexed (runes); evaluator only
 //
 // Other:
 //   - size() - array/string length
