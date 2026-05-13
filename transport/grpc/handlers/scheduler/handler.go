@@ -13,7 +13,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	schedulerv1 "github.com/altessa-s/go-atlas/proto/gen/scheduler/v1"
+	schedulerv1 "github.com/altessa-s/atlas-proto-gen-go/scheduler/v1"
 	sched "github.com/altessa-s/go-atlas/service/scheduler"
 	stdGrpc "google.golang.org/grpc"
 )

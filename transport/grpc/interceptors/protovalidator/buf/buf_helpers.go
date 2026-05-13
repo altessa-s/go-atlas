@@ -22,8 +22,8 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
+	protovalidatev1 "github.com/altessa-s/atlas-proto-gen-go/protovalidate/v1"
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
-	protovalidatev1 "github.com/altessa-s/go-atlas/proto/gen/protovalidate/v1"
 )
 
 var (

@@ -39,9 +39,17 @@ lint: tidy fmt ## Run linter
 tidy: ## Run go mod tidy
 	@go mod tidy
 
-.PHONY: proto
-proto: ## Generate Go code from proto files using buf
-	@cd proto && buf generate
+.PHONY: proto proto-go proto-java proto-testpb
+proto: proto-go proto-java proto-testpb  ## Generate all language bindings locally (ephemeral output, except testpb)
+
+proto-go:  ## Generate Go bindings into proto/gen/go/ (gitignored, published to atlas-proto-gen-go)
+	@cd proto && buf generate --template buf.gen.go.yaml --path scheduler/v1 --path protovalidate/v1
+
+proto-java:  ## Generate Java bindings into proto/gen/java/ (gitignored, published to atlas-proto-gen-java)
+	@cd proto && buf generate --template buf.gen.java.yaml --path scheduler/v1 --path protovalidate/v1
+
+proto-testpb:  ## Regenerate the local fieldmasktest fixture into proto/gen/fieldmasktest/ (committed)
+	@cd proto && buf generate --template buf.gen.testpb.yaml --path fieldmasktest/v1
 
 .PHONY: generate
 generate: ## Run go generate on all packages
