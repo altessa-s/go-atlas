@@ -14,8 +14,10 @@ via the visitor pattern. Includes security features: field allowlists, depth lim
 | Comparison | `==`, `!=`, `<`, `<=`, `>`, `>=`                           |
 | Logical    | `&&`, `\|\|`, `!`                                          |
 | Membership | `in`, `has()`                                              |
-| String     | `contains()`, `startsWith()`, `endsWith()`, `matches()`   |
+| String     | `contains()`, `startsWith()`, `endsWith()`, `matches()`, `substring()`¹ |
 | Other      | `size()`, `timestamp()`                                    |
+
+¹ `substring()` is supported by the in-memory evaluator only; translators reject it with `ErrUnsupportedOperation`.
 
 ## Key types
 
@@ -78,7 +80,8 @@ node — including nested `BinaryOpNode` trees — so multi-argument
 functions like `between(field, lo, hi)` are also expressible.
 
 Names must not collide with built-in CEL functions (`contains`,
-`startsWith`, `endsWith`, `matches`, `size`, `has`, `timestamp`).
+`startsWith`, `endsWith`, `matches`, `size`, `has`, `timestamp`,
+`substring`).
 `WithFieldMapping` and `WithAllowedFields` operate on the **target**
 field name (e.g. `createdAt`), since the virtual call is gone after
 parsing.
