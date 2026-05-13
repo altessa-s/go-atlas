@@ -124,7 +124,8 @@ func WithAllowedFunctions(names ...string) ParserOption {
 //
 // Registration is validated at [NewParser] time: handlers must be
 // non-nil and names must not collide with built-in CEL functions
-// (contains, startsWith, endsWith, matches, size, has, timestamp).
+// (contains, startsWith, endsWith, matches, size, has, timestamp,
+// substring).
 //
 // Handlers run on every parser cache miss, so they should be cheap and
 // side-effect free. The parser does not bound the depth of nodes a
@@ -405,6 +406,8 @@ func (p *Parser) convertCall(c *exprpb.Expr_Call) (Node, error) {
 		return p.convertMethodCall(OpEndsWith, c.Target, c.Args)
 	case "matches":
 		return p.convertMethodCall(OpMatches, c.Target, c.Args)
+	case "substring":
+		return p.convertMethodCall(OpSubstring, c.Target, c.Args)
 
 	// Size function
 	case "size":

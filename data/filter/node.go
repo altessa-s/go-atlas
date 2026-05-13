@@ -68,6 +68,9 @@ const (
 	OpHas
 	// OpExists is an alias for [OpHas].
 	OpExists
+
+	// OpSubstring returns a half-open [start, end) substring of a string.
+	OpSubstring
 )
 
 // IsComparison returns true if the operator is a comparison operator.
@@ -80,7 +83,10 @@ func (o Operator) IsLogical() bool {
 	return o >= OpAnd && o <= OpNot
 }
 
-// IsStringOp returns true if the operator is a string operation.
+// IsStringOp returns true if the operator is a boolean-returning string
+// predicate: contains, startsWith, endsWith, matches. It does not
+// include OpSubstring, which returns a string and is intended to be
+// embedded inside comparisons rather than used as a predicate.
 func (o Operator) IsStringOp() bool {
 	return o >= OpContains && o <= OpMatches
 }

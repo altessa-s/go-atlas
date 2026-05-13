@@ -117,6 +117,59 @@ func TestEvaluator_StringFunctions(t *testing.T) {
 	}
 }
 
+func TestEvaluator_Substring(t *testing.T) {
+	p := newTestParser(t)
+	eval := filter.NewEvaluator()
+
+	data := map[string]any{
+		"recipient": "+381607123",
+		"age":       int64(30),
+		"greeting":  "Привет", // 6 runes, 12 UTF-8 bytes — used to pin rune-indexing
+	}
+
+	tests := []struct {
+		name    string
+		expr    string
+		want    bool
+		wantErr bool
+	}{
+		{name: "two-arg prefix slice", expr: `recipient.substring(0, 4) == "+381"`, want: true},
+		{name: "two-arg middle slice", expr: `recipient.substring(4, 7) == "607"`, want: true},
+		{name: "one-arg suffix slice", expr: `recipient.substring(7) == "123"`, want: true},
+		{name: "empty range", expr: `recipient.substring(3, 3) == ""`, want: true},
+		{name: "ascii full-length range", expr: `recipient.substring(0, 10) == "+381607123"`, want: true},
+		{name: "no match against literal", expr: `recipient.substring(0, 4) == "+1"`, want: false},
+		{name: "composed with logical", expr: `recipient.substring(0, 4) == "+381" && recipient.substring(4, 7) == "607"`, want: true},
+		// Multibyte: indices count runes, not UTF-8 bytes. greeting is 6 runes
+		// (12 bytes); substring(0, 3) must yield the 3-rune prefix.
+		{name: "multibyte rune-indexed prefix", expr: `greeting.substring(0, 3) == "При"`, want: true},
+		{name: "multibyte rune-indexed full", expr: `greeting.substring(0, 6) == "Привет"`, want: true},
+		// Out-of-range here is 7 runes, not 13 bytes — proves the bound is
+		// against rune length and not byte length.
+		{name: "multibyte end past rune length rejected", expr: `greeting.substring(0, 7)`, wantErr: true},
+		{name: "zero args rejected", expr: `recipient.substring()`, wantErr: true},
+		{name: "negative start rejected", expr: `recipient.substring(-1, 4)`, wantErr: true},
+		{name: "end past length rejected", expr: `recipient.substring(0, 99)`, wantErr: true},
+		{name: "start greater than end rejected", expr: `recipient.substring(5, 2)`, wantErr: true},
+		{name: "non-string target rejected", expr: `age.substring(0, 1)`, wantErr: true},
+		{name: "non-int arg rejected", expr: `recipient.substring("a")`, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			node, err := p.Parse(t.Context(), tt.expr)
+			require.NoError(t, err, "Parse(%q)", tt.expr)
+			got, err := eval.Evaluate(node, data)
+			if tt.wantErr {
+				require.Error(t, err, "Evaluate(%q) should fail", tt.expr)
+				return
+			}
+			require.NoError(t, err, "Evaluate(%q)", tt.expr)
+			require.Equal(t, tt.want, got, "Evaluate(%q)", tt.expr)
+		})
+	}
+}
+
 func TestEvaluator_In(t *testing.T) {
 	p := newTestParser(t)
 	eval := filter.NewEvaluator()

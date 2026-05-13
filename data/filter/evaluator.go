@@ -227,6 +227,8 @@ func (e *Evaluator) VisitCall(n *CallNode) (any, error) {
 		return e.evalHas(n)
 	case OpSize:
 		return e.evalSize(n)
+	case OpSubstring:
+		return e.evalSubstring(n)
 	default:
 		return nil, coreerrs.Wrapf(ErrUnsupportedOperation, "function %v", n.Op)
 	}
@@ -414,6 +416,68 @@ func (e *Evaluator) evalSize(n *CallNode) (any, error) {
 	default:
 		return nil, coreerrs.Wrapf(ErrUnsupportedOperation, "size() not supported for %T", target)
 	}
+}
+
+// evalSubstring returns target[start:end] (or target[start:] when end is
+// omitted). Indices are 0-based and the range is half-open, matching the
+// cel-go ext.Strings extension. start and end must be int64; both must lie
+// within [0, len(runes)] and start must be <= end, otherwise an
+// [ErrInvalidExpression] is returned.
+//
+// Indexing is over Unicode code points (runes), not bytes — same as
+// cel-go ext.Strings — so a 3-rune Cyrillic prefix is substring(0, 3)
+// regardless of the underlying UTF-8 byte length.
+func (e *Evaluator) evalSubstring(n *CallNode) (any, error) {
+	const (
+		minSubstringArgs = 1
+		maxSubstringArgs = 2
+	)
+	target, err := n.Target.Accept(e)
+	if err != nil {
+		return nil, err
+	}
+	s, ok := target.(string)
+	if !ok {
+		return nil, coreerrs.Wrapf(ErrInvalidExpression, "substring() target must be string, got %T", target)
+	}
+	if len(n.Args) < minSubstringArgs || len(n.Args) > maxSubstringArgs {
+		return nil, coreerrs.Wrap(ErrInvalidExpression, "substring() requires 1 or 2 arguments")
+	}
+	start, err := e.evalIntArg(n.Args[0])
+	if err != nil {
+		return nil, err
+	}
+	// []rune(s) allocates 4×runeCount bytes per call. Fine for short
+	// inputs (phone numbers, ids, names); rewrite as a
+	// utf8.DecodeRuneInString walk if substring starts running on long
+	// content fields under load.
+	runes := []rune(s)
+	end := int64(len(runes))
+	if len(n.Args) == maxSubstringArgs {
+		end, err = e.evalIntArg(n.Args[1])
+		if err != nil {
+			return nil, err
+		}
+	}
+	if start < 0 || end < 0 || start > end || end > int64(len(runes)) {
+		return nil, coreerrs.Wrapf(ErrInvalidExpression,
+			"substring(%d, %d) out of range for string of length %d", start, end, len(runes))
+	}
+	return string(runes[start:end]), nil
+}
+
+// evalIntArg evaluates a Node and asserts the result is an int64. Used by
+// integer-arg functions like substring.
+func (e *Evaluator) evalIntArg(n Node) (int64, error) {
+	v, err := n.Accept(e)
+	if err != nil {
+		return 0, err
+	}
+	i, ok := v.(int64)
+	if !ok {
+		return 0, coreerrs.Wrapf(ErrInvalidExpression, "argument must be int, got %T", v)
+	}
+	return i, nil
 }
 
 // lookupField resolves a potentially dotted field path in the data map.
