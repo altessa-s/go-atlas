@@ -211,6 +211,31 @@ func TestParser_Parse_StringFunctions(t *testing.T) {
 	}
 }
 
+func TestParser_Parse_Substring(t *testing.T) {
+	p, _ := NewParser(WithParserNoCache())
+
+	tests := []struct {
+		name     string
+		expr     string
+		wantArgs int
+	}{
+		{"one-arg", `recipient.substring(7)`, 1},
+		{"two-arg", `recipient.substring(0, 4)`, 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			node, err := p.Parse(t.Context(), tt.expr)
+			require.NoError(t, err, "Parse(%q)", tt.expr)
+			call, ok := node.(*CallNode)
+			require.True(t, ok, "Parse(%q) did not return CallNode, got %T", tt.expr, node)
+			require.Equal(t, OpSubstring, call.Op, "Parse(%q).Op", tt.expr)
+			require.NotNil(t, call.Target, "call.Target is nil")
+			require.Len(t, call.Args, tt.wantArgs, "Parse(%q).Args", tt.expr)
+		})
+	}
+}
+
 func TestParser_Parse_SizeFunction(t *testing.T) {
 	p, _ := NewParser(WithParserNoCache())
 
@@ -408,7 +433,7 @@ func TestOperator_IsStringOp(t *testing.T) {
 		require.True(t, op.IsStringOp(), "%v.IsStringOp()", op)
 	}
 
-	nonStringOps := []Operator{OpEqual, OpAnd, OpIn, OpSize}
+	nonStringOps := []Operator{OpEqual, OpAnd, OpIn, OpSize, OpSubstring}
 	for _, op := range nonStringOps {
 		require.False(t, op.IsStringOp(), "%v.IsStringOp()", op)
 	}
