@@ -389,7 +389,8 @@ const file_fieldmasktest_v1_test_proto_rawDesc = "" +
 	"\x05color\x18\x01 \x01(\tH\x00R\x05color\x88\x01\x01\x12\x17\n" +
 	"\x04size\x18\x02 \x01(\x05H\x01R\x04size\x88\x01\x01B\b\n" +
 	"\x06_colorB\a\n" +
-	"\x05_sizeBJZHgithub.com/altessa-s/go-atlas/proto/gen/fieldmasktest/v1;fieldmasktestv1b\x06proto3"
+	"\x05_sizeBn\n" +
+	" io.altessa.grpc.fieldmasktest.v1P\x01ZHgithub.com/altessa-s/go-atlas/proto/gen/fieldmasktest/v1;fieldmasktestv1b\x06proto3"
 
 var (
 	file_fieldmasktest_v1_test_proto_rawDescOnce sync.Once

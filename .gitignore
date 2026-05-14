@@ -49,9 +49,3 @@ vendor/
 
 # OS
 tmp/
-
-# Proto generation: published bindings are ephemeral artifacts here,
-# committed in altessa-s/atlas-proto-gen-{go,java}.
-# proto/gen/fieldmasktest/ stays committed — it's a local test fixture.
-proto/gen/go/
-proto/gen/java/

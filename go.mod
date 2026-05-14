@@ -11,8 +11,8 @@ require (
 	github.com/MicahParks/jwkset v0.11.0
 	github.com/MicahParks/keyfunc/v3 v3.8.0
 	github.com/alicebob/miniredis/v2 v2.37.0
-	github.com/altessa-s/atlas-proto-gen-go v0.1.0
 	github.com/altessa-s/ozzo-rules v1.16.0
+	github.com/altessa-s/proto-gen-go v0.1.0
 	github.com/aohorodnyk/mimeheader v0.0.6
 	github.com/aws/aws-sdk-go-v2 v1.41.6
 	github.com/aws/aws-sdk-go-v2/config v1.32.16
