@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
+	"google.golang.org/protobuf/types/descriptorpb"
 
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 	badrequestv1 "github.com/altessa-s/proto-gen-go/badrequest/v1"
@@ -150,14 +151,25 @@ func BuildValidator(filter protovalidate.Filter) func(_ context.Context, msg pro
 	}
 }
 
+// convertFieldType maps protovalidate's *descriptorpb.FieldDescriptorProto_Type
+// to *badrequestv1.FieldType. Both enums use identical numeric values
+// (1..18 for the concrete proto types), so the conversion is a numeric cast.
+func convertFieldType(t *descriptorpb.FieldDescriptorProto_Type) *badrequestv1.FieldType {
+	if t == nil {
+		return nil
+	}
+	v := badrequestv1.FieldType(*t)
+	return &v
+}
+
 // buildFieldPathComponent converts a protovalidate FieldPathElement to a common FieldPathComponent.
 func buildFieldPathComponent(element *validate.FieldPathElement) *badrequestv1.FieldPathComponent {
 	fieldElement := &badrequestv1.FieldPathComponent{
 		Number:       element.FieldNumber,
 		Name:         element.FieldName,
-		Type:         element.FieldType,
-		MapKeyType:   element.KeyType,
-		MapValueType: element.ValueType,
+		Type:         convertFieldType(element.FieldType),
+		MapKeyType:   convertFieldType(element.KeyType),
+		MapValueType: convertFieldType(element.ValueType),
 	}
 
 	switch s := element.Subscript.(type) {
