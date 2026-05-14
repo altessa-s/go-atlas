@@ -22,8 +22,8 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	protovalidatev1 "github.com/altessa-s/atlas-proto-gen-go/protovalidate/v1"
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
+	badrequestv1 "github.com/altessa-s/proto-gen-go/badrequest/v1"
 )
 
 var (
@@ -123,16 +123,16 @@ func BuildValidator(filter protovalidate.Filter) func(_ context.Context, msg pro
 			return err
 		}
 
-		fields := make([]*protovalidatev1.FieldViolation, 0, len(ve.Violations))
+		fields := make([]*badrequestv1.FieldViolation, 0, len(ve.Violations))
 		for _, violation := range ve.Violations {
-			field := &protovalidatev1.FieldViolation{
+			field := &badrequestv1.FieldViolation{
 				Message:   violation.Proto.Message,
 				Code:      ptr.Wrap(BuildErrorCode(violation.Proto.GetRuleId(), violation.Proto.GetField())),
 				FieldPath: ptr.WrapNonZero(protovalidate.FieldPathString(violation.Proto.GetField())),
 			}
 
 			if field.FieldPath != nil {
-				field.FieldPathComponents = make([]*protovalidatev1.FieldPathComponent, 0, len(violation.Proto.GetField().GetElements()))
+				field.FieldPathComponents = make([]*badrequestv1.FieldPathComponent, 0, len(violation.Proto.GetField().GetElements()))
 				for _, element := range violation.Proto.GetField().GetElements() {
 					field.FieldPathComponents = append(field.FieldPathComponents, buildFieldPathComponent(element))
 				}
@@ -142,7 +142,7 @@ func BuildValidator(filter protovalidate.Filter) func(_ context.Context, msg pro
 		}
 
 		st := status.New(codes.InvalidArgument, "Validation Failed")
-		st, _ = st.WithDetails(&protovalidatev1.BadRequest{ //nolint:errcheck
+		st, _ = st.WithDetails(&badrequestv1.BadRequest{ //nolint:errcheck
 			FieldViolations: fields,
 		})
 
@@ -151,8 +151,8 @@ func BuildValidator(filter protovalidate.Filter) func(_ context.Context, msg pro
 }
 
 // buildFieldPathComponent converts a protovalidate FieldPathElement to a common FieldPathComponent.
-func buildFieldPathComponent(element *validate.FieldPathElement) *protovalidatev1.FieldPathComponent {
-	fieldElement := &protovalidatev1.FieldPathComponent{
+func buildFieldPathComponent(element *validate.FieldPathElement) *badrequestv1.FieldPathComponent {
+	fieldElement := &badrequestv1.FieldPathComponent{
 		Number:       element.FieldNumber,
 		Name:         element.FieldName,
 		Type:         element.FieldType,
@@ -165,13 +165,13 @@ func buildFieldPathComponent(element *validate.FieldPathElement) *protovalidatev
 		fieldElement.IsRepeated = ptr.Wrap(true)
 		fieldElement.RepeatedIndex = ptr.Wrap(s.Index)
 	case *validate.FieldPathElement_BoolKey:
-		fieldElement.MapKey = &protovalidatev1.FieldPathComponent_BoolKey{BoolKey: s.BoolKey}
+		fieldElement.MapKey = &badrequestv1.FieldPathComponent_BoolKey{BoolKey: s.BoolKey}
 	case *validate.FieldPathElement_IntKey:
-		fieldElement.MapKey = &protovalidatev1.FieldPathComponent_IntKey{IntKey: s.IntKey}
+		fieldElement.MapKey = &badrequestv1.FieldPathComponent_IntKey{IntKey: s.IntKey}
 	case *validate.FieldPathElement_UintKey:
-		fieldElement.MapKey = &protovalidatev1.FieldPathComponent_UintKey{UintKey: s.UintKey}
+		fieldElement.MapKey = &badrequestv1.FieldPathComponent_UintKey{UintKey: s.UintKey}
 	case *validate.FieldPathElement_StringKey:
-		fieldElement.MapKey = &protovalidatev1.FieldPathComponent_StringKey{StringKey: s.StringKey}
+		fieldElement.MapKey = &badrequestv1.FieldPathComponent_StringKey{StringKey: s.StringKey}
 	}
 
 	return fieldElement

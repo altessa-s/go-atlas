@@ -9,7 +9,7 @@ package io.altessa.grpc.scheduler.v1;
 option java_package = "io.altessa.grpc.scheduler.v1";
 option java_multiple_files = true;
 
-option go_package = "github.com/altessa-s/atlas-proto-gen-go/scheduler/v1;schedulerv1";
+option go_package = "github.com/altessa-s/go-atlas/proto/gen/scheduler/v1;schedulerv1";
 
 // Defines the RPC methods for managing scheduler tasks.
 // It includes operations for querying task state, listing tasks and history,
