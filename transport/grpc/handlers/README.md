@@ -5,7 +5,8 @@ a `grpc.Server`.
 
 ## Subpackages
 
-| Package                          | Description                                                            |
-|----------------------------------|------------------------------------------------------------------------|
-| [health](./health)               | gRPC health checking protocol (grpc_health_v1) backed by Coordinator  |
-| [scheduler](./scheduler)         | SchedulerService handler for task lifecycle and history management     |
+| Package                          | Description                                                                |
+|----------------------------------|----------------------------------------------------------------------------|
+| [health](./health)               | gRPC health checking protocol (grpc_health_v1) backed by Coordinator       |
+| [scheduler](./scheduler)         | SchedulerService handler for task lifecycle and history management         |
+| [serviceinfo](./serviceinfo)     | ServiceInfoService reporting build, version, leader status, and uptime     |
