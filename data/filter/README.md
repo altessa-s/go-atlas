@@ -33,22 +33,46 @@ via the visitor pattern. Includes security features: field allowlists, depth lim
 
 ## Parser options
 
-| Option                     | Default | Description                                        |
-|----------------------------|---------|----------------------------------------------------|
-| `WithParserCacheSize`      | 100     | LRU cache capacity for parsed AST                  |
-| `WithParserNoCache`        | --      | Disable expression caching                         |
-| `WithCustomFunctions`      | --      | Register custom CEL functions (see below)          |
-| `WithoutGlobalCustomFunctions` | --  | Skip the package-level registry (see below)        |
-| `WithAllowedFunctions`     | all     | Whitelist of callable function names (excludes operators and `has`) |
+| Option                         | Default | Description                                        |
+|--------------------------------|---------|----------------------------------------------------|
+| `WithParserCacheSize`          | 1000    | LRU cache capacity for parsed AST                  |
+| `WithParserNoCache`            | --      | Disable expression caching                         |
+| `WithMaxExpressionLength`      | 4096    | Maximum CEL expression length in bytes; longer expressions are rejected before parsing |
+| `WithAllowedFunctions`         | all     | Whitelist of callable function names (excludes operators and `has`) |
+| `WithCustomFunctions`          | --      | Register custom CEL functions (see below)          |
+| `WithoutGlobalCustomFunctions` | --      | Skip the package-level registry (see below)        |
+| `WithParserCollector`          | --      | Prometheus metrics collector for parse latency, error counters, and regex-cache stats |
 
 ## Translator options
 
-| Option               | Default     | Description                          |
-|----------------------|-------------|--------------------------------------|
-| `WithAllowedFields`  | all         | Whitelist of queryable field names   |
-| `WithFieldMapping`   | identity    | CEL field name to DB column mapping  |
-| `WithMaxDepth`       | 20          | Maximum AST nesting depth            |
-| `WithStrictMode`     | false       | Fail on unsupported operations       |
+| Option                 | Default  | Description                                        |
+|------------------------|----------|----------------------------------------------------|
+| `WithAllowedFields`    | all      | Whitelist of queryable field names                 |
+| `WithFieldMapping`     | identity | CEL field name to DB column mapping                |
+| `WithMaxDepth`         | 20       | Maximum AST nesting depth                          |
+| `WithMaxRegexLength`   | 1024     | Maximum length of a regex pattern in `matches()`; protects against ReDoS-style payloads |
+| `WithMaxOperations`    | 1000     | Maximum AST node visits per translation; protects against wide expressions (e.g. hundreds of OR-ed conditions) |
+| `WithStrictMode(bool)` | false    | Fail on unsupported operations                     |
+| `WithUntrustedInput`   | --       | Mark translator/evaluator as receiving untrusted input — requires `WithAllowedFields`, otherwise `Translate` returns `ErrAllowlistRequired` |
+
+These options also apply to `NewEvaluator`. `WithMaxRegexLength` and
+`WithMaxOperations` are the evaluator's primary DoS guards.
+
+### Untrusted input
+
+When translating CEL coming from external clients, pair
+`WithUntrustedInput()` with `WithAllowedFields(...)`. Without an
+allowlist a hostile client can filter on any indexed field
+(e.g. `passwordHash > ""` to enumerate accounts), so the combination
+"untrusted + no allowlist" is treated as misconfiguration —
+`Translate` returns `ErrAllowlistRequired` instead of proceeding.
+
+```go
+trans := mongo.NewTranslator(
+    filter.WithUntrustedInput(),
+    filter.WithAllowedFields("name", "status", "createdAt"),
+)
+```
 
 ## Custom functions
 
@@ -165,8 +189,9 @@ test isolation.
 
 ## Subpackages
 
-| Package                                        | Description                       |
-|------------------------------------------------|-----------------------------------|
-| [translators/mongo](./translators/mongo)       | AST to MongoDB `bson.M`           |
-| [translators/redisearch](./translators/redisearch) | AST to RediSearch query syntax |
-| [translators/lua](./translators/lua)           | AST to Lua boolean expression     |
+| Package                                            | Output                       | Constructor                                                            |
+|----------------------------------------------------|------------------------------|------------------------------------------------------------------------|
+| [translators/mongo](./translators/mongo)           | `bson.M`                     | `NewTranslator(opts ...filter.TranslatorOption)`                       |
+| [translators/meili](./translators/meili)           | Meilisearch filter string    | `NewTranslator(opts ...filter.TranslatorOption)`                       |
+| [translators/redisearch](./translators/redisearch) | RediSearch query string      | `NewTranslator(schema map[string]FieldType, opts ...filter.TranslatorOption)` |
+| [translators/lua](./translators/lua)               | Lua boolean expression       | `NewTranslator(tableVar string, opts ...filter.TranslatorOption)`      |
