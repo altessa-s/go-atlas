@@ -83,7 +83,7 @@ type options struct {
 
 	// leaderProvider supplies leader state. Nil disables the
 	// is_leader / leader_id fields entirely.
-	leaderProvider LeaderProvider
+	leaderProvider LeaderProvider `optgen:"notnil" optval:"nil"`
 
 	// extraMetadata is merged on top of the runtime/build metadata
 	// populated by [appinfo]. Conflicting keys from the caller win.
