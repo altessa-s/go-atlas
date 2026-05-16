@@ -1,7 +1,7 @@
 # Outbound Proxy Configuration
 
-Configure outbound HTTP and gRPC egress through forward proxies — corporate egress gateways, SOCKS5 tunnels, and HTTPS proxies with self-signed certificates
-— using the same YAML-driven model across every consumer in go-atlas.
+Configure outbound HTTP and gRPC egress through forward proxies — corporate egress gateways, SOCKS5 tunnels, and HTTPS proxies with self-signed
+certificates — using the same YAML-driven model across every consumer in go-atlas.
 
 ## Table of contents
 
@@ -23,8 +23,10 @@ Configure outbound HTTP and gRPC egress through forward proxies — corporate eg
 Proxy support lives in three layers:
 
 1. **Config structs** — `config.HTTPProxy` and `config.GrpcProxy` define the YAML schema and materialize into option slices via `ClientOptions()`.
-2. **Client options** — the `WithProxy*` family of functional options on `transport/http/client` and `transport/grpc/client` applies the options to the respective clients.
-3. **Shared dialer** — `transport/proxydial` implements HTTP CONNECT (RFC 7231 §4.3.6), SOCKS5, and the `*tls.Config` merge rules used by both clients.
+2. **Client options** — the `WithProxy*` family of functional options on `transport/http/client` and `transport/grpc/client` applies the options to
+   the respective clients.
+3. **Shared dialer** — `transport/proxydial` implements HTTP CONNECT (RFC 7231 §4.3.6), SOCKS5, and the `*tls.Config` merge rules used by both
+   clients.
 
 ### Default behavior
 
@@ -75,7 +77,8 @@ An explicit configuration overrides the env-based default — including the `Mod
 
 ### Shared dialer
 
-Both transports agree on TCP-level options through a shared dialer that exposes HTTP CONNECT, SOCKS5, TLS-config merging, and a default `Dialer` with `DialTimeout` / `DialKeepAlive` of 30s each.
+Both transports agree on TCP-level options through a shared dialer that exposes HTTP CONNECT, SOCKS5, TLS-config merging, and a default `Dialer` with
+`DialTimeout` / `DialKeepAlive` of 30s each.
 
 ---
 
@@ -271,15 +274,15 @@ dialFunc, err := proxydial.FromURL(proxyURL,
 )
 ```
 
-Real-world fits: SMTP (`go-mail`), IMAP/POP3, LDAP, AMQP, Kafka, NATS, MQTT, Redis, MongoDB, PostgreSQL/MySQL drivers — every library that exposes a custom
-dialer hook accepts a `DialContextFunc` produced by `proxydial`.
+Real-world fits: SMTP (`go-mail`), IMAP/POP3, LDAP, AMQP, Kafka, NATS, MQTT, Redis, MongoDB, PostgreSQL/MySQL drivers — every library that exposes a
+custom dialer hook accepts a `DialContextFunc` produced by `proxydial`.
 
 ---
 
 ## Wiring patterns
 
-Every consumer that supports proxy configuration follows the same pattern: materialize the config via `ClientOptions()` and pass the options to the target
-client's constructor.
+Every consumer that supports proxy configuration follows the same pattern: materialize the config via `ClientOptions()` and pass the options to the
+target client's constructor.
 
 ### OIDC
 
@@ -314,9 +317,9 @@ if len(proxyOpts) > 0 {
 
 ### OPA — S3 source
 
-S3 is the one consumer that **conditionally injects** the resilient HTTP client — only when proxy is explicitly configured. Without an override the AWS SDK
-keeps its own HTTP client (which already honors `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`) and its own retry layer, avoiding double-retry with go-atlas's
-breaker:
+S3 is the one consumer that **conditionally injects** the resilient HTTP client — only when proxy is explicitly configured. Without an override the
+AWS SDK keeps its own HTTP client (which already honors `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY`) and its own retry layer, avoiding double-retry with
+go-atlas's breaker:
 
 ```go
 proxyOpts, err := s3Cfg.Proxy.ClientOptions()
@@ -377,8 +380,8 @@ Every other field (`RootCAs`, `Certificates`, `InsecureSkipVerify`, …) is pres
 Both schemes are accepted by validation, but they behave **identically** in this implementation: `golang.org/x/net/proxy.SOCKS5` always sends
 `ATYP=DomainName` for hostname addresses, so DNS resolution happens on the proxy side regardless of scheme.
 
-Callers that genuinely need client-side DNS (for example to bypass a proxy's split-horizon resolver) must pre-resolve to an IP literal before handing the
-address to the client.
+Callers that genuinely need client-side DNS (for example to bypass a proxy's split-horizon resolver) must pre-resolve to an IP literal before handing
+the address to the client.
 
 ---
 
@@ -417,26 +420,26 @@ duplicating literals.
 
 ### Port is mandatory
 
-URL-mode proxies must include an explicit port. The YAML validator rejects `http://proxy.corp` with a clear error — stdlib's implicit port map (80/443/1080)
-is bypassed deliberately because the custom dial path does not use it. Operators see the error at config load, not at every dial.
+URL-mode proxies must include an explicit port. The YAML validator rejects `http://proxy.corp` with a clear error — stdlib's implicit port map
+(80/443/1080) is bypassed deliberately because the custom dial path does not use it. Operators see the error at config load, not at every dial.
 
 ### Prefer `Mode: host` with `auth` block for credentials
 
-Putting credentials into `url: http://user:pass@proxy:3128` works, but secrets are harder to mask in logs and harder to rotate independently of the URL. The
-`host` / `port` / `auth` form with `password: $__secret{...}` keeps the secret out of plain YAML and gets redacted in `fmt` / `JSON` / `YAML` / `slog`
-output automatically.
+Putting credentials into `url: http://user:pass@proxy:3128` works, but secrets are harder to mask in logs and harder to rotate independently of the
+URL. The `host` / `port` / `auth` form with `password: $__secret{...}` keeps the secret out of plain YAML and gets redacted in `fmt` / `JSON` / `YAML`
+/ `slog` output automatically.
 
 ---
 
 ## Known limitations
 
 - **OTLP `Protocol: http`**: `TracingOTLP.Proxy` is a `*GrpcProxy` and only
-  wires into the gRPC exporter path. The config validator rejects the combination `Protocol: http` + `Proxy: {...}` at load time — the HTTP exporter must
-  use env-var proxy (`HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`) instead. Full HTTP-exporter wiring would require separate
+  wires into the gRPC exporter path. The config validator rejects the combination `Protocol: http` + `Proxy: {...}` at load time — the HTTP exporter
+  must use env-var proxy (`HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`) instead. Full HTTP-exporter wiring would require separate
   `otlp.WithHTTPClientOptions([]otlptracehttp.Option)` plumbing and is tracked as a future enhancement.
 - **OPA — S3**: the AWS SDK has its own retry layer, so go-atlas's resilient
-  client is injected only when proxy is explicitly configured. If you need breaker / circuit-breaker semantics on S3 traffic without also setting a proxy,
-  open an issue — the current design trades that off for single-retry correctness.
+  client is injected only when proxy is explicitly configured. If you need breaker / circuit-breaker semantics on S3 traffic without also setting a
+  proxy, open an issue — the current design trades that off for single-retry correctness.
 - **Client-side DNS for SOCKS5**: not available — see
   [SOCKS5 vs SOCKS5h](#socks5-vs-socks5h).
 

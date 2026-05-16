@@ -5,9 +5,9 @@ import "github.com/altessa-s/go-atlas/data/filter"
 ```
 
 A CEL-based filter engine: parse a Common Expression Language string into an intermediate AST, then either evaluate it in-memory against a
-`map[string]any` or translate it to a database query (`bson.M` for MongoDB, RediSearch syntax, Lua boolean for Redis `EVAL`, or a
-Meilisearch filter expression). One CEL expression — multiple back ends. Custom CEL functions let you expose semantic shortcuts
-(`createdAfter("2024-01-01")`) without leaking storage field names into the API.
+`map[string]any` or translate it to a database query (`bson.M` for MongoDB, RediSearch syntax, Lua boolean for Redis `EVAL`, or a Meilisearch filter
+expression). One CEL expression — multiple back ends. Custom CEL functions let you expose semantic shortcuts (`createdAfter("2024-01-01")`) without
+leaking storage field names into the API.
 
 ---
 
@@ -142,9 +142,8 @@ Constraints:
 
 ### Built-in presets
 
-`TimestampFilters()` returns a ready-made set covering the common
-`createdAt`/`updatedAt`/`deletedAt` predicates. Functions are not
-registered automatically — opt in explicitly:
+`TimestampFilters()` returns a ready-made set covering the common `createdAt`/`updatedAt`/`deletedAt` predicates. Functions are not registered
+automatically — opt in explicitly:
 
 ```go
 filter.RegisterFunctions(filter.TimestampFilters())

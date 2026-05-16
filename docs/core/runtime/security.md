@@ -47,15 +47,15 @@ import (
 | `seccomp`      | Linux 3.17     | amd64, arm64    | `linux && (amd64 \|\| arm64)`       |
 | `landlock`     | Linux 5.13     | any             | `linux` / `!linux`                  |
 
-`landlock` negotiates the highest mutually supported Landlock ABI at runtime: ABI 1 (Linux 5.13) for the base read/write/execute mask, ABI 3 (Linux 6.2) for
-the `truncate` flag. Older kernels in the 5.13 to 6.1 range silently lose `truncate`; everything else continues to work.
+`landlock` negotiates the highest mutually supported Landlock ABI at runtime: ABI 1 (Linux 5.13) for the base read/write/execute mask, ABI 3 (Linux
+6.2) for the `truncate` flag. Older kernels in the 5.13 to 6.1 range silently lose `truncate`; everything else continues to work.
 
 ---
 
 ## Recommended hardening sequence
 
-Apply primitives in the order `nonewprivs` → `rlimits` → `capabilities` → `seccomp` → `landlock`, once at process startup, before spawning goroutines or
-loading plugins. The ordering matters:
+Apply primitives in the order `nonewprivs` → `rlimits` → `capabilities` → `seccomp` → `landlock`, once at process startup, before spawning
+goroutines or loading plugins. The ordering matters:
 
 - `nonewprivs` first because both `seccomp` and `landlock` require
   `PR_SET_NO_NEW_PRIVS` for unprivileged processes (and both will set it for you, but explicit ordering keeps the failure modes legible).
@@ -151,8 +151,8 @@ func main() {
 import "github.com/altessa-s/go-atlas/core/runtime/nonewprivs"
 ```
 
-Sets the Linux `PR_SET_NO_NEW_PRIVS` bit. Once set, the calling thread and any binary it later `exec`s cannot gain privileges via `SUID`/`SGID`; the kernel
-silently drops the ambient escalation. The bit is irreversible per thread and idempotent.
+Sets the Linux `PR_SET_NO_NEW_PRIVS` bit. Once set, the calling thread and any binary it later `exec`s cannot gain privileges via `SUID`/`SGID`; the
+kernel silently drops the ambient escalation. The bit is irreversible per thread and idempotent.
 
 | Symbol            | Kind     | Purpose                                              |
 |-------------------|----------|------------------------------------------------------|
@@ -185,8 +185,8 @@ if err := nonewprivs.Set(); err != nil {
 import "github.com/altessa-s/go-atlas/core/runtime/rlimits"
 ```
 
-Installs Linux process resource limits via `setrlimit(2)`. Each option caps both the soft and hard limit to the configured value. Hard-limit reductions are
-irreversible for unprivileged processes. Intended for one-shot startup-time hardening.
+Installs Linux process resource limits via `setrlimit(2)`. Each option caps both the soft and hard limit to the configured value. Hard-limit
+reductions are irreversible for unprivileged processes. Intended for one-shot startup-time hardening.
 
 | Option / Symbol            | Resource     | Effect                                             |
 |----------------------------|--------------|----------------------------------------------------|
@@ -295,8 +295,8 @@ _ = capabilities.DropAllExcept(c)
 import "github.com/altessa-s/go-atlas/core/runtime/seccomp"
 ```
 
-Installs a fixed seccomp-BPF denylist of ~22 syscalls that a Go process never legitimately calls. A defense-in-depth primitive that reduces the blast radius
-of a compromised plugin or dependency, NOT a complete syscall sandbox.
+Installs a fixed seccomp-BPF denylist of ~22 syscalls that a Go process never legitimately calls. A defense-in-depth primitive that reduces the blast
+radius of a compromised plugin or dependency, NOT a complete syscall sandbox.
 
 | Symbol                       | Kind     | Purpose                                       |
 |------------------------------|----------|-----------------------------------------------|
@@ -365,8 +365,8 @@ case errors.Is(err, seccomp.ErrFailed):
 import "github.com/altessa-s/go-atlas/core/runtime/landlock"
 ```
 
-Wraps the unprivileged Linux Landlock LSM filesystem sandbox. Restricts the calling process to a strict allowlist of paths without `CAP_SYS_ADMIN` or root.
-Restrictions are irreversible per process lifetime.
+Wraps the unprivileged Linux Landlock LSM filesystem sandbox. Restricts the calling process to a strict allowlist of paths without `CAP_SYS_ADMIN` or
+root. Restrictions are irreversible per process lifetime.
 
 | Symbol                              | Kind     | Purpose                                       |
 |-------------------------------------|----------|-----------------------------------------------|
@@ -461,9 +461,9 @@ default:
 - **Not a container replacement.** A namespace-isolated PID/mount/network
   view is out of scope. Use a container runtime, systemd unit isolation (`PrivateTmp=`, `ProtectSystem=`, `PrivateNetwork=`), or a microVM.
 - **Not a memory-safety boundary.** A malicious dependency already
-  loaded in-process can read every byte of the host's address space, including secrets, TLS keys, and connection state. Seccomp and Landlock close specific
-  escalation vectors (container escape, kernel-module loading, ptrace, bpf, writing to disk outside the allowlist), not the in-process code-execution
-  vector.
+  loaded in-process can read every byte of the host's address space, including secrets, TLS keys, and connection state. Seccomp and Landlock close
+  specific escalation vectors (container escape, kernel-module loading, ptrace, bpf, writing to disk outside the allowlist), not the in-process
+  code-execution vector.
 - **Not a network sandbox.** None of these packages restrict outbound
   connections. Use Linux network namespaces, eBPF, an egress firewall, or an L7 proxy.
 - **Not retroactive across goroutines.** The per-thread primitives only

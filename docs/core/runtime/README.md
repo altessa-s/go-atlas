@@ -24,8 +24,8 @@ Stdlib only, zero external dependencies.
 
 ## Shutdown hooks
 
-`OnShutdown` registers a `ShutdownHook` (`func(ctx context.Context) error`) to run during application shutdown. `RunShutdownHooks` executes all registered
-hooks.
+`OnShutdown` registers a `ShutdownHook` (`func(ctx context.Context) error`) to run during application shutdown. `RunShutdownHooks` executes all
+registered hooks.
 
 ### Ordering and guarantees
 
@@ -62,8 +62,8 @@ if err := runtime.RunShutdownHooks(ctx); err != nil {
 ### Integration with signals and panic recovery
 
 A typical application wires shutdown hooks into the signal handler so that `RunShutdownHooks` is called on `SIGTERM`/`SIGINT`. Combined with `defer
-panics.Handle(ctx)` in spawned goroutines, this ensures resources are released even when a goroutine panics. See [concurrency.md](concurrency.md) for signal
-and panic handling details.
+panics.Handle(ctx)` in spawned goroutines, this ensures resources are released even when a goroutine panics. See [concurrency.md](concurrency.md) for
+signal and panic handling details.
 
 ---
 

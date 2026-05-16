@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/audit"
 ```
 
-Async audit trail for user actions. Events go through a buffered channel into a worker pool, get batched, and land in storage. The caller never blocks. If
-the process crashes mid-flight, an optional WAL recovers what was in the buffer.
+Async audit trail for user actions. Events go through a buffered channel into a worker pool, get batched, and land in storage. The caller never
+blocks. If the process crashes mid-flight, an optional WAL recovers what was in the buffer.
 
 ---
 

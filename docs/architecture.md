@@ -120,9 +120,9 @@ providers, cache providers, and observability adapters all follow this pattern.
 
 ### Factory pattern
 
-Components support both programmatic construction (`New()` + functional options) and configuration-driven creation (`factory.New(cfg).Build()`), so the same
-package works as a library or an app-level component. Factory subdirectories appear in 20+ packages and follow a consistent fluent builder API with deferred
-error accumulation.
+Components support both programmatic construction (`New()` + functional options) and configuration-driven creation (`factory.New(cfg).Build()`), so
+the same package works as a library or an app-level component. Factory subdirectories appear in 20+ packages and follow a consistent fluent builder
+API with deferred error accumulation.
 
 ### Optional dependencies
 
@@ -131,8 +131,8 @@ configuration.
 
 ### Adapter pattern
 
-Observability (tracing, metrics), infrastructure (secrets, cache providers), and data access (filter translators, storage backends) use the adapter pattern:
-components depend on abstract interfaces, adapters translate to specific backends.
+Observability (tracing, metrics), infrastructure (secrets, cache providers), and data access (filter translators, storage backends) use the adapter
+pattern: components depend on abstract interfaces, adapters translate to specific backends.
 
 | Domain          | Adapters                                                     |
 |-----------------|--------------------------------------------------------------|

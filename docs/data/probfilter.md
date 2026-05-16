@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/probfilter"
 ```
 
-Probabilistic filters answer "is X in the set?" using only in-process memory or a shared Redis bitmap. A negative answer is always correct -- the element is
-definitely not in the set. A positive answer may be a false positive, but the rate is configurable (typically 0.1--1%).
+Probabilistic filters answer "is X in the set?" using only in-process memory or a shared Redis bitmap. A negative answer is always correct -- the
+element is definitely not in the set. A positive answer may be a false positive, but the rate is configurable (typically 0.1--1%).
 
 The trade-off: a small, tunable false-positive rate in exchange for zero false negatives and near-zero lookup cost.
 
@@ -228,8 +228,8 @@ loader := probfilter.NewDataLoader(
 )
 ```
 
-When `Count()` returns a positive value, `Rebuild` optimizes by pre-sizing the storage before streaming values. Otherwise, values are collected in memory
-first.
+When `Count()` returns a positive value, `Rebuild` optimizes by pre-sizing the storage before streaming values. Otherwise, values are collected in
+memory first.
 
 ### Trigger a rebuild
 

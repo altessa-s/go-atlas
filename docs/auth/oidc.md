@@ -262,7 +262,8 @@ type Coordinator interface {
 ## What's provided
 
 - A core `Provider`: discovery, JWKS validation, claims and CEL-based rules, presets, revocation, introspection.
-- A YAML-driven builder that constructs the `Provider` from the `auth.oidc` config block and wires logger, scheduler, token cache, and revocation backend.
+- A YAML-driven builder that constructs the `Provider` from the `auth.oidc` config block and wires logger, scheduler, token cache, and revocation
+  backend.
 - A gRPC adapter (`AuthFunc` + `Claims` struct) and a default validator for use with gRPC interceptors.
 
 ## Quick Start
@@ -406,8 +407,8 @@ oidc:
 | `enabled` | `bool` | No | `false` | Toggle introspection on/off |
 | `strict` | `bool` | No | `false` | Fail-closed: reject tokens with `ErrIntrospection` when the introspection endpoint is unreachable |
 
-**Validation rule:** If `introspection.enabled` is `true`, the `clientCredentials` section **must** be configured. The application will fail validation at
-startup otherwise.
+**Validation rule:** If `introspection.enabled` is `true`, the `clientCredentials` section **must** be configured. The application will fail
+validation at startup otherwise.
 
 #### Fail-open vs strict mode
 
@@ -597,9 +598,9 @@ oidc:
 
 Without a scheduler, JWKS is refreshed automatically on cache miss.
 
-The HTTP client used for JWKS refresh, OIDC discovery, introspection, userinfo, and URL-based revocation honors `oidc.proxy` (see [Proxy](../proxy.md)) — so a
-single proxy block applies to every outbound OIDC call. Sub-components (e.g. URL revocation loaders) inherit the Provider's HTTP client via the
-`httpclient.HTTPClientSetter` interface.
+The HTTP client used for JWKS refresh, OIDC discovery, introspection, userinfo, and URL-based revocation honors `oidc.proxy` (see [Proxy](../proxy.md))
+— so a single proxy block applies to every outbound OIDC call. Sub-components (e.g. URL revocation loaders) inherit the Provider's HTTP client via
+the `httpclient.HTTPClientSetter` interface.
 
 ### Proxy
 
@@ -660,7 +661,8 @@ Either `source.url` or `source.file` is required when revocation is enabled.
 
 ## JSON Service Config
 
-The JSON service config provides fine-grained validation logic. It is loaded at provider startup and compiled (CEL expressions are pre-compiled and cached).
+The JSON service config provides fine-grained validation logic. It is loaded at provider startup and compiled (CEL expressions are pre-compiled and
+cached).
 
 ### Loading
 
