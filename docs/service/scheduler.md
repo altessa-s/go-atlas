@@ -6,8 +6,8 @@ import "github.com/altessa-s/go-atlas/service/scheduler"
 
 In-process persistent task scheduler with cron-based scheduling, priority-based dispatch, and pluggable storage backends.
 
-The scheduler runs periodic and deferred work — cache rebuilds, cleanup jobs, report generation, metric aggregation — with crash recovery, concurrency
-control, and full observability.
+The scheduler runs periodic and deferred work — cache rebuilds, cleanup jobs, report generation, metric aggregation — with crash recovery,
+concurrency control, and full observability.
 
 ---
 
@@ -290,8 +290,8 @@ sched.Unregister(ctx, "my-task")    // Remove from scheduler and storage
 
 ## Concurrency control
 
-The scheduler supports four concurrency strategies configurable via YAML or Go options. All strategies support reserved high-priority slots and `Critical`
-priority bypass.
+The scheduler supports four concurrency strategies configurable via YAML or Go options. All strategies support reserved high-priority slots and
+`Critical` priority bypass.
 
 ### Strategy comparison
 
@@ -647,8 +647,8 @@ When no `WithLeaderElector` is provided, `IsLeader` always returns `true`.
 
 ## Readiness probe
 
-Defer task dispatch until all subsystems (databases, caches, message brokers) have finished initializing. The probe is evaluated at the start of each tick —
-when it returns `false`, the tick is skipped but the main loop keeps running so `Stop` works cleanly.
+Defer task dispatch until all subsystems (databases, caches, message brokers) have finished initializing. The probe is evaluated at the start of each
+tick — when it returns `false`, the tick is skipped but the main loop keeps running so `Stop` works cleanly.
 
 ```go
 sched := scheduler.New(store,
@@ -688,8 +688,8 @@ for entry, err := range sched.History(ctx, "my-task") {
 
 ### Paginated queries with filters
 
-`TasksPaginated` and `HistoryPaginated` accept a filter expression and cursor-based pagination. Filters are pushed down to the storage layer for server-side
-evaluation (MongoDB, Redis) or evaluated client-side (memory).
+`TasksPaginated` and `HistoryPaginated` accept a filter expression and cursor-based pagination. Filters are pushed down to the storage layer for
+server-side evaluation (MongoDB, Redis) or evaluated client-side (memory).
 
 ```go
 page := scheduler.PageRequest{Limit: 50}
@@ -762,8 +762,8 @@ if err := sched.Stop(ctx); err != nil {
 
 ### Metrics
 
-When a `metrics.Collector` is provided via `WithCollector`, the scheduler records Prometheus metrics under the `scheduler` subsystem. When no collector is
-configured, a no-op implementation is used and all operations are zero-cost.
+When a `metrics.Collector` is provided via `WithCollector`, the scheduler records Prometheus metrics under the `scheduler` subsystem. When no
+collector is configured, a no-op implementation is used and all operations are zero-cost.
 
 | Metric                                  | Type      | Labels                | Description                                      |
 |-----------------------------------------|-----------|-----------------------|--------------------------------------------------|

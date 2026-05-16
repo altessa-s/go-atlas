@@ -135,8 +135,8 @@ Each `Dependency` has: `Path`, `Version`, `Sum`, `IsReplaced`, and `ReplacedPath
 
 ### Prefixed lookups
 
-`GetEnvVar` prepends `EnvPrefix` (with `_` separator) to the key and looks up the resulting uppercase variable. A leading `~` in the value is expanded to
-`HomeDir()`.
+`GetEnvVar` prepends `EnvPrefix` (with `_` separator) to the key and looks up the resulting uppercase variable. A leading `~` in the value is expanded
+to `HomeDir()`.
 
 ```go
 // EnvPrefix = "MYAPP"
@@ -180,8 +180,8 @@ The package defines constants for commonly used environment variable names:
 
 ## Directory paths
 
-Convention-based filesystem layout for application binaries, configuration, and state. All directory functions check for an `<EnvPrefix>_*_DIR` environment
-variable override before falling back to defaults.
+Convention-based filesystem layout for application binaries, configuration, and state. All directory functions check for an `<EnvPrefix>_*_DIR`
+environment variable override before falling back to defaults.
 
 | Function | Override var | Default | Description |
 |----------|-------------|---------|-------------|

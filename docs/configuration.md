@@ -183,8 +183,8 @@ p := loader.New(nil,
 )
 ```
 
-Secret expansion traverses all string fields, `*string`, `[]string`, and `map[K]string` fields recursively. By default, expansion is fail-closed -- missing
-secrets cause an error.
+Secret expansion traverses all string fields, `*string`, `[]string`, and `map[K]string` fields recursively. By default, expansion is fail-closed --
+missing secrets cause an error.
 
 ### Secret providers
 
@@ -270,5 +270,5 @@ The `config/templates` package provides 30+ pre-built YAML templates for common 
 | Rate limiting  | `limiter_tokenbucket.yaml`, `limiter_budget.yaml`, `dlock.yaml`                       |
 | Infrastructure | `node.yaml`, `retry.yaml`, `s3.yaml`                                                  |
 
-`http_proxy.yaml` and `grpc_proxy.yaml` are shared across consumers (OIDC, OPA GitLab/S3 sources, OTLP tracing) via the `!include` directive. See the [Proxy
-guide](proxy.md) for modes, wiring, and TLS-to-proxy semantics.
+`http_proxy.yaml` and `grpc_proxy.yaml` are shared across consumers (OIDC, OPA GitLab/S3 sources, OTLP tracing) via the `!include` directive. See the
+[Proxy guide](proxy.md) for modes, wiring, and TLS-to-proxy semantics.

@@ -1,12 +1,14 @@
 # Maps
 
-Generic utilities for map transformation, filtering, conversion, and high-performance read-only storage. Complements the standard library `maps` package with merging, swapping, flat-key expansion, weak references, and a Swiss-table-based `ImmutableMap`.
+Generic utilities for map transformation, filtering, conversion, and high-performance read-only storage. Complements the standard library `maps`
+package with merging, swapping, flat-key expansion, weak references, and a Swiss-table-based `ImmutableMap`.
 
 ```go
 import coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 ```
 
-All pure functions return new maps without modifying inputs. Nil inputs are treated as empty and never panic. `ImmutableMap`, `WeakMap`, and `Pool` are safe for concurrent use; `WeakRef` is a value type with the same lifetime semantics as `weak.Pointer`.
+All pure functions return new maps without modifying inputs. Nil inputs are treated as empty and never panic. `ImmutableMap`, `WeakMap`, and `Pool`
+are safe for concurrent use; `WeakRef` is a value type with the same lifetime semantics as `weak.Pointer`.
 
 > **Import alias:** always import as `coremaps` to avoid the name clash with stdlib `maps`.
 
@@ -30,7 +32,8 @@ All pure functions return new maps without modifying inputs. Nil inputs are trea
 
 ### Merge
 
-`Merge(src, dst)` returns a new map combining both inputs. Keys in `src` overwrite keys in `dst`. Neither input is mutated; the result is freshly allocated and pre-sized to `len(src) + len(dst)`.
+`Merge(src, dst)` returns a new map combining both inputs. Keys in `src` overwrite keys in `dst`. Neither input is mutated; the result is freshly
+allocated and pre-sized to `len(src) + len(dst)`.
 
 ```go
 defaults := map[string]string{"theme": "light", "lang": "en"}
@@ -43,7 +46,8 @@ When one input is empty, `Merge` returns a copy of the other (never the original
 
 ### Swap
 
-`Swap` transposes keys and values. Both `K` and `V` must be `comparable`. If `src` contains duplicate values, exactly one of the corresponding keys is retained. Which one wins is non-deterministic, since Go randomizes map iteration order.
+`Swap` transposes keys and values. Both `K` and `V` must be `comparable`. If `src` contains duplicate values, exactly one of the corresponding keys
+is retained. Which one wins is non-deterministic, since Go randomizes map iteration order.
 
 ```go
 codes := map[string]int{"error": 500, "success": 200}
@@ -118,7 +122,8 @@ nested := coremaps.FromFlatMapWithHandler(flat, func(key string, existing any) {
 })
 ```
 
-The handler is observability-only — entries are always skipped on conflict. The hot loop uses `strings.IndexByte` (single-byte SIMD scan) instead of `strings.Split`, so no intermediate slices are allocated per key.
+The handler is observability-only — entries are always skipped on conflict. The hot loop uses `strings.IndexByte` (single-byte SIMD scan) instead of
+`strings.Split`, so no intermediate slices are allocated per key.
 
 ### `keyMapper`
 
@@ -132,7 +137,8 @@ flat := coremaps.ToFlatMap(nested, strings.ToLower)
 
 ## Iterators
 
-`Keys`, `Values`, `Filter`, and `Map` return `iter.Seq` / `iter.Seq2` producers (Go 1.23+). They allocate nothing during construction and yield entries lazily, which means iterations can be terminated early without paying for the unyielded items.
+`Keys`, `Values`, `Filter`, and `Map` return `iter.Seq` / `iter.Seq2` producers (Go 1.23+). They allocate nothing during construction and yield entries
+lazily, which means iterations can be terminated early without paying for the unyielded items.
 
 ```go
 for k := range coremaps.Keys(m) {
@@ -149,13 +155,15 @@ for k, v := range coremaps.Filter(m, func(_ string, v int) bool { return v > 0 }
 }
 ```
 
-Use `Filter` / `Map` over `FilterMap` / `ConvertMap` whenever the result is consumed exactly once. The materialized variants exist for callers that need a true `map[K]V` (cache, return value, JSON marshal target).
+Use `Filter` / `Map` over `FilterMap` / `ConvertMap` whenever the result is consumed exactly once. The materialized variants exist for callers that
+need a true `map[K]V` (cache, return value, JSON marshal target).
 
 ---
 
 ## ImmutableMap
 
-`ImmutableMap[K, V]` is a read-only hash map built once from a standard Go map or two parallel slices. After construction it cannot be modified and is safe for concurrent reads without synchronization or defensive copies.
+`ImmutableMap[K, V]` is a read-only hash map built once from a standard Go map or two parallel slices. After construction it cannot be modified and is
+safe for concurrent reads without synchronization or defensive copies.
 
 ```go
 src := map[string]int{"a": 1, "b": 2, "c": 3}
@@ -192,7 +200,8 @@ size := m.Len()
 
 ### Construction
 
-`NewImmutableMap` copies from a source `map[K]V`; the source is not retained and may be reused or discarded by the caller. `NewImmutableMapFromEntries` accepts parallel slices and panics on length mismatch. Useful when entries arrive from a streaming source:
+`NewImmutableMap` copies from a source `map[K]V`; the source is not retained and may be reused or discarded by the caller. `NewImmutableMapFromEntries`
+accepts parallel slices and panics on length mismatch. Useful when entries arrive from a streaming source:
 
 ```go
 keys := []string{"a", "b", "c"}
@@ -218,22 +227,29 @@ Iteration order is hash-dependent and not guaranteed.
 
 `ImmutableMap` uses an open-addressing Swiss-table layout:
 
-- **Group size 8** — control bytes are packed into one `uint64` per group; lookup uses SWAR (SIMD Within A Register) bit-tricks to scan all 8 lanes in a single integer comparison, no branches.
-- **H2 fingerprint** — the low 7 bits of the hash are stored as a per-slot fingerprint; bit 7 distinguishes empty slots. This lets `Get` reject most candidate slots without touching the keys array.
-- **87.5% target load factor** — the table is sized to `n*8/7` slots, rounded up to a multiple of 8. Higher density than the runtime map, with predictable probe sequences.
+- **Group size 8** — control bytes are packed into one `uint64` per group; lookup uses SWAR (SIMD Within A Register) bit-tricks to scan all 8 lanes
+  in a single integer comparison, no branches.
+- **H2 fingerprint** — the low 7 bits of the hash are stored as a per-slot fingerprint; bit 7 distinguishes empty slots. This lets `Get` reject most
+  candidate slots without touching the keys array.
+- **87.5% target load factor** — the table is sized to `n*8/7` slots, rounded up to a multiple of 8. Higher density than the runtime map, with
+  predictable probe sequences.
 - **`hash/maphash` per-instance seed** — randomizes the layout so adjacent maps don't share collision patterns.
 
-The data is laid out as three contiguous slices (`ctrl`, `keys`, `vals`), which the GC scans as plain arrays. There are no overflow chains or per-bucket pointers, so the scan time is O(1) regardless of population.
+The data is laid out as three contiguous slices (`ctrl`, `keys`, `vals`), which the GC scans as plain arrays. There are no overflow chains or
+per-bucket pointers, so the scan time is O(1) regardless of population.
 
 ### Freeze pattern
 
-When a type has a mutable registration phase followed by a long read-only phase, store both a `map` (writes) and an `*ImmutableMap` (reads). Add a `Freeze()` method that builds the `ImmutableMap` and nils the mutable map. `Register` after `Freeze` should panic. The reference implementation lives in `transport/grpc/interceptors/auth.ScopeRegistry`.
+When a type has a mutable registration phase followed by a long read-only phase, store both a `map` (writes) and an `*ImmutableMap` (reads). Add a
+`Freeze()` method that builds the `ImmutableMap` and nils the mutable map. `Register` after `Freeze` should panic. The reference implementation lives
+in `transport/grpc/interceptors/auth.ScopeRegistry`.
 
 ---
 
 ## WeakMap
 
-`WeakMap[K, V]` is a concurrency-safe map that holds `weak.Pointer` references to its values. Entries are automatically removed when the GC reclaims the referenced value via `runtime.AddCleanup` — no periodic sweeps, no background goroutines, no manual eviction policy.
+`WeakMap[K, V]` is a concurrency-safe map that holds `weak.Pointer` references to its values. Entries are automatically removed when the GC reclaims
+the referenced value via `runtime.AddCleanup` — no periodic sweeps, no background goroutines, no manual eviction policy.
 
 ```go
 cache := coremaps.NewWeakMap[string, *Session]()
@@ -252,10 +268,14 @@ cache.Range(func(k string, s *Session) bool {
 
 ### Properties
 
-- **GC-driven eviction** — when a value loses all strong references, the cleanup callback removes the corresponding entry on the next GC cycle. No CPU overhead between cycles.
-- **Approximate `Len`** — may include entries whose values have already been collected but whose cleanup callbacks haven't fired yet. Call `Cleanup()` first if an exact count is needed.
-- **Snapshot iteration** — `Range` takes a snapshot under a write lock, then iterates without holding any lock; `f` may safely call other `WeakMap` methods.
-- **Set(nil)** — equivalent to `Delete`. Set to a non-nil value re-arms the cleanup; the old cleanup callback no-ops because it checks pointer identity before deleting.
+- **GC-driven eviction** — when a value loses all strong references, the cleanup callback removes the corresponding entry on the next GC cycle. No
+  CPU overhead between cycles.
+- **Approximate `Len`** — may include entries whose values have already been collected but whose cleanup callbacks haven't fired yet. Call
+  `Cleanup()` first if an exact count is needed.
+- **Snapshot iteration** — `Range` takes a snapshot under a write lock, then iterates without holding any lock; `f` may safely call other `WeakMap`
+  methods.
+- **Set(nil)** — equivalent to `Delete`. Set to a non-nil value re-arms the cleanup; the old cleanup callback no-ops because it checks pointer
+  identity before deleting.
 
 ### When to use
 
@@ -279,7 +299,8 @@ if v := ref.Value(); v != nil {
 }
 ```
 
-`IsAlive` returns the current liveness, but the result may be invalidated immediately after the call returns. Always prefer `Value() != nil` and hold on to the returned pointer for the duration of the operation.
+`IsAlive` returns the current liveness, but the result may be invalidated immediately after the call returns. Always prefer `Value() != nil` and hold
+on to the returned pointer for the duration of the operation.
 
 ---
 
@@ -302,8 +323,11 @@ func handle(req *Request) {
 
 ### Behavior
 
-- **`Get`** clears the map before handing it out, so callers always receive an empty map. If the pool is empty, a fresh map of `defaultCap` capacity is allocated.
-- **`GetWithCapacity(n)`** asks for at least `n` buckets. Requests within `defaultCap` reuse the pooled allocation directly. Larger requests discard the pooled map and allocate a freshly-sized one — Go does not expose a map's underlying capacity, so a previously-grown pooled map cannot be distinguished from a baseline-sized one.
+- **`Get`** clears the map before handing it out, so callers always receive an empty map. If the pool is empty, a fresh map of `defaultCap` capacity
+  is allocated.
+- **`GetWithCapacity(n)`** asks for at least `n` buckets. Requests within `defaultCap` reuse the pooled allocation directly. Larger requests discard
+  the pooled map and allocate a freshly-sized one — Go does not expose a map's underlying capacity, so a previously-grown pooled map cannot be
+  distinguished from a baseline-sized one.
 - **`Put`** clears the map and returns it. Maps with `len(*m) > 1024` are discarded so the pool does not retain runaway allocations.
 - **Sentinel value** — `0` or negative `defaultCap` is replaced with `64`.
 
@@ -327,23 +351,28 @@ out := slices.Collect(coremaps.Filter(m, isHot))
 out := coremaps.FilterMap(m, isHot)
 ```
 
-`FilterMap` / `ConvertMap` exist for cases where the result is the artifact (cache value, return type, JSON payload). Otherwise prefer the lazy variants.
+`FilterMap` / `ConvertMap` exist for cases where the result is the artifact (cache value, return type, JSON payload). Otherwise prefer the lazy
+variants.
 
 ### Reach for `ImmutableMap` for build-once-read-many
 
-If a map is constructed in a factory or `init` and never written afterward, `ImmutableMap` is the explicit lock-free contract. It documents the intent in the type itself: there's no `// do not modify` comment to rot.
+If a map is constructed in a factory or `init` and never written afterward, `ImmutableMap` is the explicit lock-free contract. It documents the intent
+in the type itself: there's no `// do not modify` comment to rot.
 
 ### Use `WeakMap` only when GC timing is acceptable
 
-`WeakMap` is the right tool when "evict eventually after the value is unreferenced" is the policy you want. It is the wrong tool when there is a deadline ("evict after 60s of idle"). Mixing the two surprises future readers; reach for `data/cache` instead.
+`WeakMap` is the right tool when "evict eventually after the value is unreferenced" is the policy you want. It is the wrong tool when there is a
+deadline ("evict after 60s of idle"). Mixing the two surprises future readers; reach for `data/cache` instead.
 
 ### Pool maps in hot paths only
 
-`sync.Pool` overhead is non-trivial for cold paths. Pool only when allocation profiling identifies a hot path that constructs and discards the same shape of map every request.
+`sync.Pool` overhead is non-trivial for cold paths. Pool only when allocation profiling identifies a hot path that constructs and discards the same
+shape of map every request.
 
 ### Treat `nil` and empty as equivalent
 
-Every function in this package treats `nil` map input as empty. Returns are also `nil` when the result is empty, so `len(result) == 0` is the only check callers need.
+Every function in this package treats `nil` map input as empty. Returns are also `nil` when the result is empty, so `len(result) == 0` is the only
+check callers need.
 
 ### Always alias the import
 
@@ -358,10 +387,12 @@ The bare name collides with stdlib `maps`; the project-wide alias is `coremaps`.
 ## Performance notes
 
 - `Merge`, `Swap`, `FilterMap`, `ConvertMap`, `FromSlice`, `FromSliceWith` pre-size the result map from the input length to avoid rehashing.
-- `FilterMap` pre-sizes to `len/2` on the assumption that filters reject roughly half. Past that, normal map growth kicks in, still cheaper than starting at `0`.
+- `FilterMap` pre-sizes to `len/2` on the assumption that filters reject roughly half. Past that, normal map growth kicks in, still cheaper than
+  starting at `0`.
 - `ToKeyValueSlice` pre-sizes the result to `len(m)*2` and appends in a single pass.
 - `FromFlatMap` walks each key with `strings.IndexByte` and reuses the substring view, so there's no `strings.Split` allocation per key.
-- `ImmutableMap.Get` is allocation-free: the SWAR `matchByte` runs in a few cycles and short-circuits on the first empty slot in the probe sequence (early termination because the table is build-once: there are no tombstones).
+- `ImmutableMap.Get` is allocation-free: the SWAR `matchByte` runs in a few cycles and short-circuits on the first empty slot in the probe sequence
+  (early termination because the table is build-once: there are no tombstones).
 - `ImmutableMap` has exactly 3 heap allocations regardless of size (`ctrl`, `keys`, `vals` slices), versus the runtime map's growing bucket array.
 - `WeakMap.Range` snapshots under a write lock so user code in `f` cannot deadlock against further `Set` / `Delete` calls.
 - `Pool.Put` clears the map before re-pooling, so `Get` is `O(1)` instead of paying the clear cost on the consumer side.

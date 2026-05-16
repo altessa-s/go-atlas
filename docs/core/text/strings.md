@@ -20,8 +20,8 @@ strings.IsEmpty[*string](nil) // true
 strings.IsEmptyOrWhitespace("  \t") // true — allocation-free, rune-based
 ```
 
-`IsEmpty` is generic over `~string | ~*string`. `IsEmptyOrWhitespace` avoids the `strings.TrimSpace` allocation by iterating runes directly; prefer it in
-hot paths.
+`IsEmpty` is generic over `~string | ~*string`. `IsEmptyOrWhitespace` avoids the `strings.TrimSpace` allocation by iterating runes directly; prefer
+it in hot paths.
 
 ### Trimming checks
 
@@ -102,13 +102,13 @@ parts := strings.Split("a,,b", strings.SplitOptions{
 // ["a", "b"]
 ```
 
-Case-insensitive splitting uses an optimized path when byte lengths are preserved, falling back to a cached regex for Unicode special casing (bounded at 256
-entries).
+Case-insensitive splitting uses an optimized path when byte lengths are preserved, falling back to a cached regex for Unicode special casing (bounded
+at 256 entries).
 
 ### SplitSeq (lazy iterator)
 
-`SplitSeq` returns an `iter.Seq[string]` with the same semantics as `Split` but avoids allocating an intermediate slice. Suitable for large inputs or early
-termination:
+`SplitSeq` returns an `iter.Seq[string]` with the same semantics as `Split` but avoids allocating an intermediate slice. Suitable for large inputs or
+early termination:
 
 ```go
 for part := range strings.SplitSeq(largeCSV, strings.SplitOptions{Separator: ","}) {
@@ -182,7 +182,8 @@ Both use `unsafe.StringData`/`unsafe.SliceData` (Go 1.20+). The safety contract:
 
 ### Unsafe equality
 
-`StringEqualsUnsafe` compares data pointers first (O(1) for interned strings), then falls back to standard `==` or `strings.EqualFold` if lengths differ.
+`StringEqualsUnsafe` compares data pointers first (O(1) for interned strings), then falls back to standard `==` or `strings.EqualFold` if lengths
+differ.
 
 ---
 

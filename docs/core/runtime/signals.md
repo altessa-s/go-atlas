@@ -59,7 +59,8 @@ handler.Wait() // blocks until shutdown completes
 handler.AddHandler(fn, syscall.SIGTERM, syscall.SIGINT)
 ```
 
-Registers `fn` at `PriorityNormal` (50) for the listed signals. Multiple handlers can be registered for the same signal. Nil handlers are silently ignored.
+Registers `fn` at `PriorityNormal` (50) for the listed signals. Multiple handlers can be registered for the same signal. Nil handlers are silently
+ignored.
 
 ### Priority handlers
 
@@ -67,8 +68,8 @@ Registers `fn` at `PriorityNormal` (50) for the listed signals. Multiple handler
 handler.AddHandlerWithPriority(fn, signals.PriorityHighest, syscall.SIGTERM)
 ```
 
-Higher numeric priority executes first. In `SequentialMode`, a higher priority handler must complete before a lower priority one starts. In `ParallelMode`,
-priority determines startup order but not completion order.
+Higher numeric priority executes first. In `SequentialMode`, a higher priority handler must complete before a lower priority one starts. In
+`ParallelMode`, priority determines startup order but not completion order.
 
 ### Broadcast handlers
 
@@ -117,12 +118,14 @@ Custom `Priority` values outside 1–100 are supported.
 
 ### `SequentialMode` (default)
 
-Handlers run one at a time in strict priority order within a single goroutine. Predictable ordering, suitable when handlers have dependencies on each other.
+Handlers run one at a time in strict priority order within a single goroutine. Predictable ordering, suitable when handlers have dependencies on each
+other.
 
 ### `ParallelMode`
 
-Handlers run concurrently in separate goroutines (up to the worker pool size). Priority determines startup order but completion order is non-deterministic.
-When the worker pool is exhausted, handlers fall back to synchronous execution in the current goroutine to prevent goroutine explosion.
+Handlers run concurrently in separate goroutines (up to the worker pool size). Priority determines startup order but completion order is
+non-deterministic. When the worker pool is exhausted, handlers fall back to synchronous execution in the current goroutine to prevent goroutine
+explosion.
 
 ```go
 signals.New(
@@ -200,8 +203,8 @@ Panics within the error handler itself are recovered and silently discarded to p
 handler.Start()
 ```
 
-Begins listening for OS signals via `signal.Notify` and dispatching to handlers. Idempotent — calling `Start` more than once has no effect. Returns the
-handler for chaining.
+Begins listening for OS signals via `signal.Notify` and dispatching to handlers. Idempotent — calling `Start` more than once has no effect. Returns
+the handler for chaining.
 
 ### Wait
 

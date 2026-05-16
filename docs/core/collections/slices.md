@@ -1,12 +1,15 @@
 # Slices
 
-Generic utilities for slice transformation, filtering, deduplication, grouping, ordering, conditional appends, parallel processing, and pooling. Complements the standard library `slices` package with patterns that recur throughout the project.
+Generic utilities for slice transformation, filtering, deduplication, grouping, ordering, conditional appends, parallel processing, and pooling.
+Complements the standard library `slices` package with patterns that recur throughout the project.
 
 ```go
 import coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 ```
 
-All pure functions return new slices without modifying inputs. Nil inputs are treated as empty and never panic. Closures passed as predicates or transforms are never copied, so feel free to capture state. `Pool` is safe for concurrent use; `FilterParallel` and `MapParallel` invoke the predicate from multiple goroutines.
+All pure functions return new slices without modifying inputs. Nil inputs are treated as empty and never panic. Closures passed as predicates or
+transforms are never copied, so feel free to capture state. `Pool` is safe for concurrent use; `FilterParallel` and `MapParallel` invoke the predicate
+from multiple goroutines.
 
 > **Import alias:** always import as `coreslices` to avoid the name clash with stdlib `slices`.
 
@@ -44,16 +47,19 @@ unique := coreslices.DeduplicateBy(people, func(p Person) int { return p.ID })
 
 ### Optimizations
 
-- **Copy-on-write** — the input slice is returned as-is when no duplicates are found. The result slice is allocated only on the first detected duplicate.
+- **Copy-on-write** — the input slice is returned as-is when no duplicates are found. The result slice is allocated only on the first detected
+  duplicate.
 - **Consecutive-duplicate fast path** — adjacent duplicates are detected with a `lastKey` cache, skipping the map lookup.
-- **Bounded pre-allocation** — the seen-set map is sized at `min(len(collection), 128)` so very large slices with frequent duplicates do not over-allocate.
+- **Bounded pre-allocation** — the seen-set map is sized at `min(len(collection), 128)` so very large slices with frequent duplicates do not
+  over-allocate.
 - **Identity wrapper** — `Deduplicate` is a thin wrapper around `DeduplicateBy(s, identity)`; both share the same code path.
 
 ---
 
 ## Removal
 
-`Delete` removes the first occurrence of an element, returning the original slice unchanged when the element is absent. It delegates to `slices.Delete` after locating the index, so the cost is `O(n)` plus a single shift.
+`Delete` removes the first occurrence of an element, returning the original slice unchanged when the element is absent. It delegates to
+`slices.Delete` after locating the index, so the cost is `O(n)` plus a single shift.
 
 ```go
 words := []string{"a", "b", "c"}
@@ -84,7 +90,8 @@ evenStrs := coreslices.ToWithFilter(nums,
 ) // ["even:2"]
 ```
 
-`ToWithFilter` is the canonical way to chain a filter + transform without paying for the intermediate slice. The result is `nil` when no element passes, matching the `FilterMap` convention from the maps package.
+`ToWithFilter` is the canonical way to chain a filter + transform without paying for the intermediate slice. The result is `nil` when no element
+passes, matching the `FilterMap` convention from the maps package.
 
 `To` uses `~[]E` constraints so named slice types (`type IDs []int`) pass through without explicit conversion.
 
@@ -108,7 +115,8 @@ lastEven, _ := coreslices.FilterLast(nums, func(n int) bool { return n%2 == 0 })
 ### `FilterParallel` characteristics
 
 - Below `32 * NumCPU * 2` elements (e.g., ~512 on an 8-core machine) it falls back to the sequential lazy `Filter` — no goroutine overhead.
-- Above that threshold it dispatches to `core/runtime/concurrency.ProcessCollect`, returning items in input order with respect to dispatch but with a sentinel `errFiltered` for rejected entries (filtered out before return).
+- Above that threshold it dispatches to `core/runtime/concurrency.ProcessCollect`, returning items in input order with respect to dispatch but with a
+  sentinel `errFiltered` for rejected entries (filtered out before return).
 - The predicate must be safe for concurrent invocation.
 
 ---
@@ -142,13 +150,15 @@ coreslices.IsNonDecreasing([]int{1, 2, 2, 3})   // true (equal values allowed)
 coreslices.IsNonIncreasing([]int{3, 2, 2, 1})   // true
 ```
 
-All four take any `cmp.Ordered` element type and short-circuit on the first violation. Empty and single-element slices return `true` for every check (vacuously satisfied).
+All four take any `cmp.Ordered` element type and short-circuit on the first violation. Empty and single-element slices return `true` for every check
+(vacuously satisfied).
 
 ---
 
 ## Conditional append
 
-The `Append*` family is the project-wide replacement for `if cond { s = append(s, x) }`. They keep factory and builder chains expression-shaped (one `opts = ...` line per concept) and match the existing style across the repo.
+The `Append*` family is the project-wide replacement for `if cond { s = append(s, x) }`. They keep factory and builder chains expression-shaped (one
+`opts = ...` line per concept) and match the existing style across the repo.
 
 | Function           | When to use                                                               |
 |--------------------|---------------------------------------------------------------------------|
@@ -172,9 +182,11 @@ handlers := []Handler{authHandler}
 handlers = coreslices.AppendNonNil(handlers, optionalMetricsHandler())
 ```
 
-`AppendNonNil` uses `core/types/nilcheck.IsNil`, which correctly distinguishes typed-nil interfaces (`var err error = (*pathError)(nil)`) from a true nil. Bare `value != nil` does not catch that case, and it's a well-known footgun.
+`AppendNonNil` uses `core/types/nilcheck.IsNil`, which correctly distinguishes typed-nil interfaces (`var err error = (*pathError)(nil)`) from a true
+nil. Bare `value != nil` does not catch that case, and it's a well-known footgun.
 
-`AppendIf` evaluates its variadic values eagerly. When evaluation is expensive or unsafe (dereferencing a maybe-nil pointer), use `AppendIfFunc`, which calls `fn` only after checking `cond`.
+`AppendIf` evaluates its variadic values eagerly. When evaluation is expensive or unsafe (dereferencing a maybe-nil pointer), use `AppendIfFunc`,
+which calls `fn` only after checking `cond`.
 
 The plain `if cond { s = append(s, x) }` form is acceptable only when the branch contains additional logic that doesn't fit a single `Append*` call.
 
@@ -191,13 +203,15 @@ l := coreslices.ToList(nums)        // *list.List
 back := coreslices.FromList[int](l) // [1, 2, 3]
 ```
 
-`FromList` performs a per-element type assertion to `T` and silently skips elements that don't match. Use the `List` iterator (below) when you want to walk a `*list.List` lazily without building a slice at all.
+`FromList` performs a per-element type assertion to `T` and silently skips elements that don't match. Use the `List` iterator (below) when you want to
+walk a `*list.List` lazily without building a slice at all.
 
 ---
 
 ## Iterators
 
-Lazy `iter.Seq` / `iter.Seq2` producers (Go 1.23+). Construction allocates nothing. Iteration is lazy, so early termination is free and pipelines stay zero-allocation.
+Lazy `iter.Seq` / `iter.Seq2` producers (Go 1.23+). Construction allocates nothing. Iteration is lazy, so early termination is free and pipelines
+stay zero-allocation.
 
 | Iterator    | Description                                       |
 |-------------|---------------------------------------------------|
@@ -230,7 +244,8 @@ seq := coreslices.MapSeq(
 result := slices.Collect(coreslices.Take(seq, 100))
 ```
 
-`Chunk` shares the underlying array with `collection`. Sub-slices are views, not copies, so mutating a yielded chunk mutates the source. This is intentional for high-throughput batch processing; copy explicitly when you need isolation.
+`Chunk` shares the underlying array with `collection`. Sub-slices are views, not copies, so mutating a yielded chunk mutates the source. This is
+intentional for high-throughput batch processing; copy explicitly when you need isolation.
 
 `Backward` is an `iter.Seq2[int, T]` so the yielded index matches the original position, not the reverse-iteration step.
 
@@ -255,8 +270,10 @@ func handle(req *Request) {
 ### Behavior
 
 - **`Get`** resets the slice length to zero while preserving the underlying capacity. Cold path (pool empty): allocates `make([]T, 0, defaultCap)`.
-- **`GetWithCapacity(n)`** replaces the pooled slice with a freshly allocated one when `cap(*slice) < n` and `n <= 1024`. Use it when you know an approximate upper bound and want to avoid grow-and-copy churn during `append`.
-- **`Put`** calls `clear` on the slice (so referenced values can be GC'd), resets the length, and returns it to the pool. Slices with `cap > 1024` are discarded so the pool does not retain runaway buffers.
+- **`GetWithCapacity(n)`** replaces the pooled slice with a freshly allocated one when `cap(*slice) < n` and `n <= 1024`. Use it when you know an
+  approximate upper bound and want to avoid grow-and-copy churn during `append`.
+- **`Put`** calls `clear` on the slice (so referenced values can be GC'd), resets the length, and returns it to the pool. Slices with `cap > 1024`
+  are discarded so the pool does not retain runaway buffers.
 - **Sentinel value** — `0` or negative `defaultCap` is replaced with `64`.
 
 ### `EnsureCapacity`
@@ -268,14 +285,17 @@ buf := make([]int, 0, 4)
 coreslices.EnsureCapacity(&buf, 100) // grows to capacity 128
 ```
 
-Returns `true` when a new backing array was allocated. The power-of-two rounding only applies up to `maxSlicePoolCapacity` (1024); larger requests get exactly the requested capacity.
+Returns `true` when a new backing array was allocated. The power-of-two rounding only applies up to `maxSlicePoolCapacity` (1024); larger requests
+get exactly the requested capacity.
 
 ### Best practices
 
 - **Always pair with `defer Put`** — leaking a pooled slice back to the GC defeats the purpose.
 - **Don't share** — never hand a pooled slice to another goroutine; ownership is bounded by `Get` / `Put`.
-- **Match `defaultCap` to the median request size.** Too small and `GetWithCapacity` reallocates often; too large and every pooled instance wastes memory.
-- **Don't pool slices of pointer-heavy structs without thinking about GC** — `clear` handles the slice elements, but the values they reference may still be live until the next pool turnover.
+- **Match `defaultCap` to the median request size.** Too small and `GetWithCapacity` reallocates often; too large and every pooled instance wastes
+  memory.
+- **Don't pool slices of pointer-heavy structs without thinking about GC** — `clear` handles the slice elements, but the values they reference may
+  still be live until the next pool turnover.
 
 ---
 
@@ -299,7 +319,8 @@ The materialized variants (`To`, `ToWithFilter`, etc.) exist for cases where the
 
 ### Use `ToWithFilter` to avoid two passes
 
-`ToWithFilter` is roughly twice as fast as `Filter` followed by `To` for non-trivial slice sizes, because it skips the intermediate slice and walks the input exactly once.
+`ToWithFilter` is roughly twice as fast as `Filter` followed by `To` for non-trivial slice sizes, because it skips the intermediate slice and walks
+the input exactly once.
 
 ### Pick the right `FilterFirst` / `FilterLast` / `Filter`
 
@@ -322,13 +343,16 @@ for _, it := range items {
 
 ### Use `MapParallel` / `FilterParallel` only on large inputs
 
-The threshold (`32 * NumCPU * 2` elements, e.g. ~512 on 8 cores) is set so the goroutine setup cost is amortized over enough work to pay back. Below that, sequential wins. Don't second-guess the threshold without a benchmark.
+The threshold (`32 * NumCPU * 2` elements, e.g. ~512 on 8 cores) is set so the goroutine setup cost is amortized over enough work to pay back. Below
+that, sequential wins. Don't second-guess the threshold without a benchmark.
 
 The predicate / transformation must be safe for concurrent invocation. `MapParallel` preserves input order; `FilterParallel` does not necessarily.
 
 ### Use the `Append*` helpers in factory chains
 
-The project standard for conditional appends is the `Append*` family. The `if`-style is acceptable only when the branch contains additional logic that doesn't fit a single helper call. Reference style: `transport/grpc/server/factory/builder.go`, `data/audit/factory/builder.go`, `auth/oidc/factory/builder.go`.
+The project standard for conditional appends is the `Append*` family. The `if`-style is acceptable only when the branch contains additional logic
+that doesn't fit a single helper call. Reference style: `transport/grpc/server/factory/builder.go`, `data/audit/factory/builder.go`,
+`auth/oidc/factory/builder.go`.
 
 ```go
 // Good — expression-shaped.
@@ -350,7 +374,8 @@ if cfg.HasTLS() {
 
 ### Treat `nil` and empty as equivalent
 
-Every function in this package treats `nil` slice input as empty. Returns are also `nil` when the result is empty, so `len(result) == 0` is the only check callers need.
+Every function in this package treats `nil` slice input as empty. Returns are also `nil` when the result is empty, so `len(result) == 0` is the only
+check callers need.
 
 ### Always alias the import
 
@@ -364,9 +389,11 @@ The bare name collides with stdlib `slices`; the project-wide alias is `coreslic
 
 ## Performance notes
 
-- `Deduplicate` / `DeduplicateBy` are copy-on-write — no allocation when the input is already unique. Map pre-allocation is bounded at 128 to avoid over-allocation when duplicates are common.
+- `Deduplicate` / `DeduplicateBy` are copy-on-write — no allocation when the input is already unique. Map pre-allocation is bounded at 128 to avoid
+  over-allocation when duplicates are common.
 - A consecutive-duplicate fast path skips the map lookup when adjacent elements share a key, which is common in sorted inputs.
-- For tiny slices (≤32 elements) a linear scan with a slice-of-seen-keys is roughly 25× faster than a map; the package's lookup helpers internally pick the right path.
+- For tiny slices (≤32 elements) a linear scan with a slice-of-seen-keys is roughly 25× faster than a map; the package's lookup helpers internally
+  pick the right path.
 - `FilterFirst`, `FilterLast`, `Any`, `All`, `Reduce` are zero-allocation and short-circuit on first match / first failure.
 - `MapParallel` chunks the work statically over `NumCPU` goroutines via `sync.WaitGroup.Go` (Go 1.25+); no semaphore overhead.
 - `FilterParallel` delegates to `core/runtime/concurrency.ProcessCollect`, which respects context cancellation and uses a channel-based semaphore.

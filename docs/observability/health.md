@@ -9,9 +9,9 @@ import (
 )
 ```
 
-A single `health.Coordinator` owns the per-service status registry, caches results, and pushes change notifications to subscribers. The HTTP handlers
-(`Healthz`, `Readyz`, `Detailed`) and the gRPC `Handler` (`grpc_health_v1.HealthServer`) are thin transport adapters on top of it — they query the same
-coordinator and translate its `ServingStatus` into HTTP codes or `grpc_health_v1` enum values.
+A single `health.Coordinator` owns the per-service status registry, caches results, and pushes change notifications to subscribers. The HTTP
+handlers (`Healthz`, `Readyz`, `Detailed`) and the gRPC `Handler` (`grpc_health_v1.HealthServer`) are thin transport adapters on top of it —
+they query the same coordinator and translate its `ServingStatus` into HTTP codes or `grpc_health_v1` enum values.
 
 ---
 
@@ -211,8 +211,8 @@ func K8sReadyz(rw writer.ReadWriter) {
 }
 ```
 
-Both always return `{"status":"ok"}` with HTTP 200 regardless of any state. They exist for the simplest deployments where the only signal that matters is
-"the process is up and the listener is accepting".
+Both always return `{"status":"ok"}` with HTTP 200 regardless of any state. They exist for the simplest deployments where the only signal that
+matters is "the process is up and the listener is accepting".
 
 > **Default wiring caveat.** `transport/http/server/factory` registers
 > `K8sHealtz` at `/internal/healthz` and `K8sReadyz` at `/internal/readyz`
@@ -278,9 +278,9 @@ send InitialStatus
         └── new status from coordinator → forward (skip if equal to last)
 ```
 
-The `stop <-chan struct{}` you pass to `Handler.Register` is the shutdown signal for in-flight Watch streams. Close it before `grpcServer.GracefulStop()` so
-subscribers get a clean `codes.Canceled` instead of a torn connection. `coord.Close()` is orthogonal: it broadcasts `NOT_SERVING`, which subscribers receive
-as one final update before their context fires.
+The `stop <-chan struct{}` you pass to `Handler.Register` is the shutdown signal for in-flight Watch streams. Close it before
+`grpcServer.GracefulStop()` so subscribers get a clean `codes.Canceled` instead of a torn connection. `coord.Close()` is orthogonal: it
+broadcasts `NOT_SERVING`, which subscribers receive as one final update before their context fires.
 
 ---
 
@@ -349,16 +349,16 @@ go func() {
 }()
 ```
 
-Cycles are mutually exclusive: a second call while one is running returns immediately. The cycle iterates **only** services that have active subscribers —
-there's no point checking a service nobody is watching, and `CheckStatus` already covers ad-hoc lookups via the cache.
+Cycles are mutually exclusive: a second call while one is running returns immediately. The cycle iterates **only** services that have active
+subscribers — there's no point checking a service nobody is watching, and `CheckStatus` already covers ad-hoc lookups via the cache.
 
 ---
 
 ## Lifecycle and shutdown
 
-`Coordinator.Close()` does two things in one call: it pins the overall status to `NOT_SERVING` (so every `CheckHealth`/`CheckStatus` reader — including
-`httphealth.Readyz(coord)` — flips to 503 immediately) and broadcasts the same status to every active subscriber. It is **not** wired to OS signals
-automatically. A typical shutdown:
+`Coordinator.Close()` does two things in one call: it pins the overall status to `NOT_SERVING` (so every `CheckHealth`/`CheckStatus` reader —
+including `httphealth.Readyz(coord)` — flips to 503 immediately) and broadcasts the same status to every active subscriber. It is **not** wired
+to OS signals automatically. A typical shutdown:
 
 ```go
 ctx, cancel := signal.NotifyContext(context.Background(),
@@ -378,9 +378,9 @@ grpcServer.GracefulStop()
 _ = httpServer.Shutdown(ctx)
 ```
 
-If you want to flip readiness *without* shutting the coordinator down yet — for example to drain traffic and let in-flight requests settle before tearing
-down dependencies — call `coord.SetOverallStatus(health.StatusNotServing)` and `coord.BroadcastStatus(health.StatusNotServing)` directly; the coordinator
-stays usable, and you can clear the override later with `SetOverallStatus(health.StatusUnknown)`.
+If you want to flip readiness *without* shutting the coordinator down yet — for example to drain traffic and let in-flight requests settle
+before tearing down dependencies — call `coord.SetOverallStatus(health.StatusNotServing)` and `coord.BroadcastStatus(health.StatusNotServing)`
+directly; the coordinator stays usable, and you can clear the override later with `SetOverallStatus(health.StatusUnknown)`.
 
 > If you rely on the default `K8sReadyz` stub, step 1 has no effect
 > on `/readyz`. Switch to `httphealth.Readyz(coord)` to make the change
@@ -471,7 +471,8 @@ is informational — the coordinator itself does not poll on a fixed interval; e
 
 ## What's provided
 
-- A coordinator with subscriptions, per-service `Checker` interface, and a four-state status model (`Unknown` / `Serving` / `NotServing` / `ShuttingDown`).
+- A coordinator with subscriptions, per-service `Checker` interface, and a four-state status model
+  (`Unknown` / `Serving` / `NotServing` / `ShuttingDown`).
 - A YAML-driven builder that turns the config block above into a ready coordinator.
 - HTTP probe handlers — Kubernetes `livez` / `readyz`, plus richer endpoints that surface per-service status as JSON.
 - A gRPC handler that implements the standard `grpc_health_v1` service against the same coordinator.
