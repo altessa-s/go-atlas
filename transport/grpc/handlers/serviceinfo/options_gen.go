@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/altessa-s/go-atlas/core/runtime/appinfo"
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 )
 
 // Option is a functional option for configuring options.
@@ -22,6 +23,9 @@ func WithExtraMetadata(v map[string]string) Option {
 // WithLeaderProvider sets the leaderProvider option.
 func WithLeaderProvider(v LeaderProvider) Option {
 	return func(o *options) {
+		if nilcheck.IsNil(v) {
+			return
+		}
 		o.leaderProvider = v
 	}
 }
