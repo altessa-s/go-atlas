@@ -1,0 +1,46 @@
+# HTTP client health monitoring configuration.
+# Tracks HTTP client health based on retry rates and circuit breaker state.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#httpHealthClient:
+#  # <string> Service name registered with the health coordinator.
+#  # This name appears in health status reports and metrics.
+#  # REQUIRED field - must be set.
+#  serviceName: "external-api"
+#
+#  # <duration> Sliding window duration for calculating retry rates.
+#  # Health status degrades when retry rate exceeds threshold within this window.
+#  # Default value: 60s
+#  retryWindow: "60s"
+#
+#  # <float64> Maximum acceptable retry rate (0.0-1.0).
+#  # When exceeded, the service health status changes to DEGRADED.
+#  # Default value: 0.2 (20% retry rate)
+#  retryThreshold: 0.2
+#
+#  # <uint64> Minimum number of requests in the window before retry rate affects health status.
+#  # Prevents false positives from low traffic periods.
+#  # Default value: 10
+#  retryMinSamples: 10
+#
+#  # <int> Number of buckets in the sliding window.
+#  # More buckets provide finer granularity at the cost of memory.
+#  # Default value: 60
+#  retryBuckets: 60
+#
+#  # <bool> Enable per-host health checks.
+#  # When true, registers separate health checkers for each configured host.
+#  # Only applies to clients with explicit per-host circuit breaker settings.
+#  # Default value: false
+#  perHost: false
+#
+# Example configuration:
+#
+# httpHealthClient:
+#   serviceName: "payment-gateway"
+#   retryWindow: "30s"
+#   retryThreshold: 0.15
+#   retryMinSamples: 5
+#   retryBuckets: 30
+#   perHost: true
