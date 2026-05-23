@@ -61,7 +61,8 @@ func TestNew_OptionalFieldsOmittedWhenEmpty(t *testing.T) {
 
 	require.Nil(t, out.ServiceDescription)
 	require.Nil(t, out.ServiceId)
-	require.Nil(t, out.ProtoVersion, "handler never sets proto_version — callers route it through WithExtraMetadata if needed")
+	// Note: ProtoVersion field was removed from serviceinfov1.ServiceInfo
+	// If proto version info is needed, it should be added through WithExtraMetadata
 }
 
 func TestGet_LeaderProviderIsLeader(t *testing.T) {
