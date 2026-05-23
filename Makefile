@@ -168,6 +168,16 @@ release: ## Semantic versioning - create and push a new release tag
 	@git push origin $(VERSION)
 	@echo "Release $(VERSION) created and pushed"
 
+.PHONY: build-tools
+build-tools: ## Build command-line tools
+	@echo "Building plugin-sign..."
+	@go build -o bin/plugin-sign ./cmd/plugin-sign
+
+.PHONY: install-tools
+install-tools: ## Install command-line tools to GOPATH/bin
+	@echo "Installing plugin-sign..."
+	@go install ./cmd/plugin-sign
+
 .PHONY: security-scan
 security-scan: ## Security checks - run vulnerability and security scanners
 	@echo "Running Go vulnerability check..."

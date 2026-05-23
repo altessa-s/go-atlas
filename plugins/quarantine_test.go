@@ -61,7 +61,7 @@ func TestManager_IsQuarantined(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			mgr := NewManager()
+			mgr := NewManager(WithSignatureDisabled())
 			mgr.quarantine = tc.store
 
 			got := mgr.isQuarantined(tc.filename, tc.fileHash)
@@ -83,7 +83,7 @@ func TestManager_AddQuarantine(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
 
-	mgr := NewManager(WithLogger(logger))
+	mgr := NewManager(WithLogger(logger), WithSignatureDisabled())
 
 	mgr.addQuarantine("broken.so", "deadbeef1234")
 
@@ -99,7 +99,7 @@ func TestManager_AddQuarantine(t *testing.T) {
 func TestManager_Quarantine_Runtime(t *testing.T) {
 	t.Parallel()
 
-	mgr := NewManager()
+	mgr := NewManager(WithSignatureDisabled())
 	t.Cleanup(func() { _ = mgr.Close() })
 
 	// Stub hash function.
@@ -134,7 +134,7 @@ func TestManager_Quarantine_Runtime(t *testing.T) {
 func TestManager_Quarantine_NotFound(t *testing.T) {
 	t.Parallel()
 
-	mgr := NewManager()
+	mgr := NewManager(WithSignatureDisabled())
 	err := mgr.Quarantine("nonexistent")
 	assert.ErrorIs(t, err, ErrPluginNotFound)
 }
@@ -142,7 +142,7 @@ func TestManager_Quarantine_NotFound(t *testing.T) {
 func TestManager_Quarantine_Closed(t *testing.T) {
 	t.Parallel()
 
-	mgr := NewManager()
+	mgr := NewManager(WithSignatureDisabled())
 	require.NoError(t, mgr.Close())
 	err := mgr.Quarantine("any")
 	assert.ErrorIs(t, err, ErrManagerClosed)
@@ -151,7 +151,7 @@ func TestManager_Quarantine_Closed(t *testing.T) {
 func TestManager_Quarantined_Iterator(t *testing.T) {
 	t.Parallel()
 
-	mgr := NewManager()
+	mgr := NewManager(WithSignatureDisabled())
 	mgr.quarantine["a.so"] = "hash1"
 	mgr.quarantine["b.so"] = "hash2"
 
@@ -165,7 +165,7 @@ func TestManager_Quarantined_Iterator(t *testing.T) {
 func TestManager_Quarantined_Empty(t *testing.T) {
 	t.Parallel()
 
-	mgr := NewManager()
+	mgr := NewManager(WithSignatureDisabled())
 	count := 0
 	for range mgr.Quarantined() {
 		count++
@@ -180,7 +180,7 @@ func TestManager_LoadPlugin_QuarantineOnFailure(t *testing.T) {
 	bogusPath := filepath.Join(dir, "bogus.so")
 	require.NoError(t, os.WriteFile(bogusPath, []byte("not a real plugin"), 0o644))
 
-	mgr := NewManager(WithDir(dir))
+	mgr := NewManager(WithDir(dir), WithSignatureDisabled())
 	t.Cleanup(func() { _ = mgr.Close() })
 
 	// First load fails (bogus .so) and quarantines the file.
@@ -206,7 +206,7 @@ func TestManager_LoadPlugin_QuarantineClearedOnFileChange(t *testing.T) {
 	bogusPath := filepath.Join(dir, "changing.so")
 	require.NoError(t, os.WriteFile(bogusPath, []byte("version1"), 0o644))
 
-	mgr := NewManager(WithDir(dir))
+	mgr := NewManager(WithDir(dir), WithSignatureDisabled())
 	t.Cleanup(func() { _ = mgr.Close() })
 
 	// First load fails and quarantines.
@@ -271,7 +271,7 @@ func TestManager_LoadPlugin_HashFailureQuarantines(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "unreadable.so"), []byte("x"), 0o644))
 
-	mgr := NewManager(WithDir(dir))
+	mgr := NewManager(WithDir(dir), WithSignatureDisabled())
 	t.Cleanup(func() { _ = mgr.Close() })
 
 	// Stub hash to fail.
@@ -293,7 +293,7 @@ func TestManager_LoadPlugin_HashFailureQuarantines(t *testing.T) {
 func TestManager_Close_ClearsQuarantine(t *testing.T) {
 	t.Parallel()
 
-	mgr := NewManager()
+	mgr := NewManager(WithSignatureDisabled())
 	mgr.quarantine["stale.so"] = "oldhash"
 
 	require.NoError(t, mgr.Close())
@@ -306,7 +306,7 @@ func TestManager_Close_ClearsQuarantine(t *testing.T) {
 func TestManager_Quarantined_AfterClose(t *testing.T) {
 	t.Parallel()
 
-	mgr := NewManager()
+	mgr := NewManager(WithSignatureDisabled())
 	mgr.quarantine["a.so"] = "hash"
 	require.NoError(t, mgr.Close())
 

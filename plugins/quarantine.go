@@ -7,10 +7,7 @@ package plugins
 import (
 	"iter"
 	"log/slog"
-	"os"
 	"path/filepath"
-
-	"github.com/altessa-s/go-atlas/core/encoding/hash"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
@@ -19,22 +16,6 @@ import (
 // and error strings when displaying a file hash. 12 hex chars = 6 bytes
 // of the SHA256, enough to identify a file without cluttering output.
 const hashPrefixLen = 12
-
-// readAndHashFile reads the file at path into memory and returns the raw
-// bytes together with the SHA256 hex digest. Returning the bytes avoids
-// a second read when signature verification needs the same data.
-//
-// The entire file is read at once; acceptable for .so files (typically
-// under 100 MB) at load time.
-//
-// Tests override this via the [Manager.readAndHashFileFn] field.
-func readAndHashFile(path string) ([]byte, string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, "", err
-	}
-	return data, hash.SHA256HexBytes(data), nil
-}
 
 // isQuarantined reports whether filename is blacklisted with the given
 // hash. If the file was quarantined with a different hash (the file
@@ -57,6 +38,9 @@ func (m *Manager) isQuarantined(filename, fileHash string) bool {
 	// Re-check under write lock; another goroutine may have cleared it.
 	if h, ok := m.quarantine[filename]; ok && h != fileHash {
 		delete(m.quarantine, filename)
+		if m.metrics != nil {
+			m.metrics.quarantineCleared.Inc()
+		}
 		m.logger.Info("plugin file changed, quarantine cleared",
 			slog.String("file", filename),
 		)
@@ -79,6 +63,12 @@ func (m *Manager) addQuarantine(filename, fileHash string) {
 		slog.String("file", filename),
 		slog.String("hash", fileHash[:min(hashPrefixLen, len(fileHash))]),
 	)
+
+	// Track quarantine metrics
+	if m.metrics != nil {
+		m.metrics.quarantineAdded.Inc()
+		m.updateStateMetrics() // Updates quarantine size gauge
+	}
 }
 
 // Quarantine explicitly blacklists a loaded plugin by name. Use this

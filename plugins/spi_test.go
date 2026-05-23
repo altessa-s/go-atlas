@@ -119,7 +119,7 @@ func TestNegotiateAll(t *testing.T) {
 	t.Parallel()
 
 	// Build a manager with three ready plugins, each with a cached Provider symbol.
-	mgr := NewManager()
+	mgr := NewManager(WithSignatureDisabled())
 	t.Cleanup(func() { _ = mgr.Close() })
 
 	// p1: versioned, compatible (major=2, minor=1).
@@ -183,7 +183,7 @@ func TestNegotiateAll(t *testing.T) {
 func TestNegotiateAll_EmptyManager(t *testing.T) {
 	t.Parallel()
 
-	mgr := NewManager()
+	mgr := NewManager(WithSignatureDisabled())
 	t.Cleanup(func() { _ = mgr.Close() })
 
 	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))

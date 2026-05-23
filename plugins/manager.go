@@ -95,6 +95,12 @@ type Manager struct {
 	// file bytes and the SHA256 hex digest. Defaults to [readAndHashFile].
 	readAndHashFileFn func(string) ([]byte, string, error)
 
+	// metrics holds all metric collectors for observability.
+	metrics *pluginMetrics
+
+	// hashCache caches file hashes with mtime validation to avoid redundant I/O.
+	hashCache *hashCache
+
 	// Watcher state. Protected by watchMu so that iterator reads on mu
 	// (taken by [Manager.Reload] from inside the watch goroutine) do not
 	// contend with lifecycle transitions.
@@ -115,7 +121,14 @@ type Manager struct {
 //	)
 func NewManager(opt ...Option) *Manager {
 	opts := newOptions(opt...)
-	return &Manager{
+
+	// Set default signature mode if not explicitly configured
+	if opts.signature.mode == "" && opts.signature.pubKey == nil && opts.signatureErr == nil {
+		opts.signature.mode = DefaultSignatureMode
+	}
+
+	cache := newHashCache()
+	mgr := &Manager{
 		plugins:               make(map[string]*Plugin),
 		opts:                  opts,
 		logger:                opts.logger,
@@ -123,8 +136,17 @@ func NewManager(opt ...Option) *Manager {
 		sandboxApply:          applySandbox,
 		sandboxSystemLibPaths: defaultLandlockSystemLibPaths,
 		quarantine:            make(map[string]string),
-		readAndHashFileFn:     readAndHashFile,
+		readAndHashFileFn: func(path string) ([]byte, string, error) {
+			return readAndHashFileWithCache(path, cache)
+		},
+		metrics:   initMetrics(opts.metrics),
+		hashCache: cache,
 	}
+
+	// Update initial state metrics
+	mgr.updateStateMetrics()
+
+	return mgr
 }
 
 // Load scans the configured directory for .so files and loads them
@@ -422,6 +444,11 @@ func (m *Manager) Close() error {
 	clear(m.quarantine)
 	m.quarantineMu.Unlock()
 
+	// Clear the hash cache
+	if m.hashCache != nil {
+		m.hashCache.clear()
+	}
+
 	return nil
 }
 
@@ -509,6 +536,13 @@ func setOf(items []string) map[string]struct{} {
 // (see [ErrInvalidInit] in [resolveInit]) and the plugin is NOT
 // registered.
 func (m *Manager) loadPlugin(ctx context.Context, filename string) error {
+	// Track load attempt
+	if m.metrics != nil {
+		m.metrics.loadAttempts.Inc()
+		stop := m.metrics.loadDuration.Start()
+		defer stop()
+	}
+
 	path := filepath.Join(m.opts.dir, filename)
 
 	// Compute file hash for quarantine check. The hash is reused later
@@ -650,6 +684,13 @@ func (m *Manager) loadPlugin(ctx context.Context, filename string) error {
 		slog.String("file", filename),
 		slog.String("state", p.State().String()),
 	)
+
+	// Track successful load
+	if m.metrics != nil {
+		m.metrics.loadSuccess.Inc()
+		m.metrics.pluginsLoaded.Inc()
+		m.updateStateMetrics()
+	}
 
 	return nil
 }
@@ -912,9 +953,20 @@ func (m *Manager) recordWatcherReloadResult(err error) {
 // [errors.Join] so neither signal is lost — losing the original init error
 // would mask the root cause.
 func (m *Manager) safeInit(ctx context.Context, p *Plugin, initFn func(context.Context) error) (retErr error) {
+	// Track init attempt
+	if m.metrics != nil {
+		m.metrics.initAttempts.Inc()
+		stop := m.metrics.initDuration.Start()
+		defer stop()
+	}
+
 	defer panics.HandleWithOpts(ctx,
 		panics.NewHandleOpts().SetReallyPanic(false),
 		func(_ context.Context, r any) {
+			if m.metrics != nil {
+				m.metrics.initPanics.Inc()
+				m.metrics.initFailures.Inc()
+			}
 			panicErr := coreerrs.Wrapf(ErrPluginPanicked, "plugin %q panicked during init: %v", p.Name(), r)
 			p.setErr(panicErr)
 			p.setState(StateFailed)
@@ -935,6 +987,9 @@ func (m *Manager) safeInit(ctx context.Context, p *Plugin, initFn func(context.C
 	defer cancel()
 
 	if err := initFn(initCtx); err != nil {
+		if m.metrics != nil {
+			m.metrics.initFailures.Inc()
+		}
 		// JoinWrap keeps both the ErrPluginFailed sentinel AND the
 		// inner cause reachable via errors.Is / errors.As. A plain
 		// Wrapf(ErrPluginFailed, "...: %v", ..., err) would discard
@@ -946,6 +1001,9 @@ func (m *Manager) safeInit(ctx context.Context, p *Plugin, initFn func(context.C
 		return failErr
 	}
 
+	if m.metrics != nil {
+		m.metrics.initSuccess.Inc()
+	}
 	p.setState(StateReady)
 	return nil
 }

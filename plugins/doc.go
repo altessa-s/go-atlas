@@ -100,11 +100,12 @@
 // has a companion .so.sig file containing the raw signature bytes.
 //
 // Three modes control behavior:
-//   - [SignatureRequire] / [SignatureEnforce]: reject if .sig is missing
-//     or invalid.
+//   - [SignatureRequire] / [SignatureEnforce] (default): reject if .sig is missing
+//     or invalid. This is the secure default for production.
 //   - [SignatureWarn]: log a warning for missing .sig, but allow unsigned
 //     plugins. Invalid signatures are always rejected.
-//   - [SignatureDisabled] (default): no verification.
+//   - [SignatureDisabled]: no verification. SECURITY WARNING: Use only in
+//     development or when explicitly required.
 //
 // Plugins that fail signature verification are quarantined automatically.
 //

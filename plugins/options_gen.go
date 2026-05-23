@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/collections/slices"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // Option is a functional option for configuring options.
@@ -114,6 +115,13 @@ func WithLogger(v *slog.Logger) Option {
 			return
 		}
 		o.logger = v
+	}
+}
+
+// WithMetrics sets the metrics option.
+func WithMetrics(v metrics.Collector) Option {
+	return func(o *options) {
+		o.metrics = v
 	}
 }
 

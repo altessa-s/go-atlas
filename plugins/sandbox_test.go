@@ -67,7 +67,7 @@ func TestApplySandbox_Disabled_NoOp(t *testing.T) {
 }
 
 func TestEnsureSandbox_DisabledIsNoop(t *testing.T) {
-	mgr := NewManager() // sandbox unset → Enabled=false
+	mgr := NewManager(WithSignatureDisabled()) // sandbox unset → Enabled=false
 	t.Cleanup(func() { _ = mgr.Close() })
 
 	require.NoError(t, mgr.ensureSandbox())

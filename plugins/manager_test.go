@@ -28,14 +28,14 @@ func newTestPlugin(name string, state State) *Plugin {
 }
 
 func TestManager_NewManager(t *testing.T) {
-	mgr := NewManager()
+	mgr := NewManager(WithSignatureDisabled())
 	assert.NotNil(t, mgr)
 	assert.NotNil(t, mgr.plugins)
 	assert.False(t, mgr.closed.Load())
 }
 
 func TestManager_Load_DirNotFound(t *testing.T) {
-	mgr := NewManager(WithDir("/nonexistent/path"))
+	mgr := NewManager(WithDir("/nonexistent/path"), WithSignatureDisabled())
 	err := mgr.Load(t.Context())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrDirNotFound)
@@ -43,7 +43,7 @@ func TestManager_Load_DirNotFound(t *testing.T) {
 
 func TestManager_Load_EmptyDir(t *testing.T) {
 	dir := t.TempDir()
-	mgr := NewManager(WithDir(dir))
+	mgr := NewManager(WithDir(dir), WithSignatureDisabled())
 	err := mgr.Load(t.Context())
 	require.NoError(t, err)
 }
@@ -54,7 +54,7 @@ func TestManager_Load_SkipsNonSoFiles(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "lib.dylib"), []byte("hello"), 0o644))
 	require.NoError(t, os.Mkdir(filepath.Join(dir, "subdir"), 0o755))
 
-	mgr := NewManager(WithDir(dir))
+	mgr := NewManager(WithDir(dir), WithSignatureDisabled())
 	err := mgr.Load(t.Context())
 	require.NoError(t, err)
 
@@ -104,27 +104,27 @@ func TestManager_resolvePluginFiles_AllLoaded(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte{}, 0o644))
 	}
 
-	mgr := NewManager(WithDir(dir))
+	mgr := NewManager(WithDir(dir), WithSignatureDisabled())
 	files, err := mgr.resolvePluginFiles()
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{"x.so", "y.so"}, files)
 }
 
 func TestManager_Get_NotFound(t *testing.T) {
-	mgr := NewManager()
+	mgr := NewManager(WithSignatureDisabled())
 	_, err := mgr.Get("nonexistent")
 	assert.ErrorIs(t, err, ErrPluginNotFound)
 }
 
 func TestManager_MustGet_Panics(t *testing.T) {
-	mgr := NewManager()
+	mgr := NewManager(WithSignatureDisabled())
 	assert.Panics(t, func() {
 		mgr.MustGet("nonexistent")
 	})
 }
 
 func TestManager_Close(t *testing.T) {
-	mgr := NewManager()
+	mgr := NewManager(WithSignatureDisabled())
 
 	// Add a fake plugin directly for testing.
 	mgr.plugins["test"] = newTestPlugin("test", StateReady)
@@ -136,20 +136,20 @@ func TestManager_Close(t *testing.T) {
 }
 
 func TestManager_Close_Idempotent(t *testing.T) {
-	mgr := NewManager()
+	mgr := NewManager(WithSignatureDisabled())
 	require.NoError(t, mgr.Close())
 	require.NoError(t, mgr.Close())
 }
 
 func TestManager_Load_AfterClose(t *testing.T) {
-	mgr := NewManager()
+	mgr := NewManager(WithSignatureDisabled())
 	require.NoError(t, mgr.Close())
 	err := mgr.Load(t.Context())
 	assert.ErrorIs(t, err, ErrManagerClosed)
 }
 
 func TestManager_Unload(t *testing.T) {
-	mgr := NewManager()
+	mgr := NewManager(WithSignatureDisabled())
 	mgr.plugins["test"] = newTestPlugin("test", StateReady)
 
 	err := mgr.Unload("test")
@@ -160,7 +160,7 @@ func TestManager_Unload(t *testing.T) {
 }
 
 func TestManager_Unload_NotFound(t *testing.T) {
-	mgr := NewManager()
+	mgr := NewManager(WithSignatureDisabled())
 	err := mgr.Unload("nonexistent")
 	assert.ErrorIs(t, err, ErrPluginNotFound)
 }
@@ -194,7 +194,7 @@ func TestManager_CheckHealth_PluginStates(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			mgr := NewManager()
+			mgr := NewManager(WithSignatureDisabled())
 			t.Cleanup(func() { _ = mgr.Close() })
 			for name, state := range tc.plugins {
 				mgr.plugins[name] = newTestPlugin(name, state)
@@ -205,7 +205,7 @@ func TestManager_CheckHealth_PluginStates(t *testing.T) {
 }
 
 func TestManager_Iterators(t *testing.T) {
-	mgr := NewManager()
+	mgr := NewManager(WithSignatureDisabled())
 	mgr.plugins["ready1"] = newTestPlugin("ready1", StateReady)
 	mgr.plugins["ready2"] = newTestPlugin("ready2", StateReady)
 	mgr.plugins["failed"] = newTestPlugin("failed", StateFailed)
@@ -233,7 +233,7 @@ func TestManager_Iterators(t *testing.T) {
 }
 
 func TestManager_LookupAll(t *testing.T) {
-	mgr := NewManager()
+	mgr := NewManager(WithSignatureDisabled())
 
 	// Simulate ready plugins with cached symbols.
 	p1 := newTestPlugin("p1", StateReady)
@@ -300,7 +300,7 @@ func TestPlugin_Accessors(t *testing.T) {
 }
 
 func TestManager_Len(t *testing.T) {
-	mgr := NewManager()
+	mgr := NewManager(WithSignatureDisabled())
 	assert.Equal(t, 0, mgr.Len())
 
 	mgr.plugins["a"] = newTestPlugin("a", StateReady)
@@ -343,7 +343,7 @@ func TestManager_Reload_SkipsExisting(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte{}, 0o644))
 	}
 
-	mgr := NewManager(WithDir(dir))
+	mgr := NewManager(WithDir(dir), WithSignatureDisabled())
 
 	// Simulate "a.so" as already loaded.
 	existing := &Plugin{
@@ -364,7 +364,7 @@ func TestManager_Reload_SkipsExisting(t *testing.T) {
 }
 
 func TestManager_Reload_AfterClose(t *testing.T) {
-	mgr := NewManager()
+	mgr := NewManager(WithSignatureDisabled())
 	require.NoError(t, mgr.Close())
 	err := mgr.Reload(t.Context())
 	assert.ErrorIs(t, err, ErrManagerClosed)
@@ -384,7 +384,7 @@ func TestManager_Reload_PartialFailureJoinsErrors(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, []byte("not a plugin"), 0o644))
 	}
 
-	mgr := NewManager(WithDir(dir))
+	mgr := NewManager(WithDir(dir), WithSignatureDisabled())
 	t.Cleanup(func() { _ = mgr.Close() })
 
 	err := mgr.Reload(t.Context())
@@ -415,7 +415,7 @@ func TestManager_Reload_PartialFailureJoinsErrors(t *testing.T) {
 // Plugin.state to verify the atomic-field fix is race-free under -race.
 func TestManager_ConcurrentStateAccess(t *testing.T) {
 	ctx := t.Context()
-	mgr := NewManager()
+	mgr := NewManager(WithSignatureDisabled())
 	mgr.plugins["a"] = newTestPlugin("a", StateLoaded)
 	mgr.plugins["b"] = newTestPlugin("b", StateLoaded)
 

@@ -28,10 +28,13 @@ const sigExtension = ".sig"
 type SignatureMode string
 
 const (
-	// SignatureDisabled disables signature verification (default).
-	SignatureDisabled SignatureMode = ""
+	// SignatureDisabled disables signature verification.
+	// SECURITY WARNING: This mode allows loading unsigned plugins which could
+	// contain malicious code. Only use in development or when explicitly required.
+	SignatureDisabled SignatureMode = "disabled"
 
-	// SignatureRequire rejects plugins without a valid .sig file.
+	// SignatureRequire rejects plugins without a valid .sig file (default).
+	// This is the recommended mode for production deployments.
 	SignatureRequire SignatureMode = "require"
 
 	// SignatureEnforce is an alias for [SignatureRequire].
@@ -46,7 +49,7 @@ const (
 // [WithSignature] when constructing the manager, or use
 // [SignatureOptionsFromConfig] to convert from [config.PluginsSignature].
 type SignatureOptions struct {
-	// Mode controls verification behavior. Default is [SignatureDisabled].
+	// Mode controls verification behavior. Default is [SignatureRequire].
 	Mode SignatureMode
 
 	// PublicKey is the verification key. When set, PublicKeyPath is
@@ -60,10 +63,11 @@ type SignatureOptions struct {
 }
 
 // signatureState is the resolved signature config stored in [options].
-// A nil pubKey means verification is disabled.
+// A nil pubKey and empty pubKeys means verification is disabled.
 type signatureState struct {
-	mode   SignatureMode
-	pubKey crypto.PublicKey
+	mode    SignatureMode
+	pubKey  crypto.PublicKey   // Single key (legacy)
+	pubKeys []crypto.PublicKey // Multiple keys for rotation
 }
 
 // verifySignature checks a detached signature file against pluginData.
@@ -76,7 +80,8 @@ func verifySignature(pubKey crypto.PublicKey, pluginData []byte, sigPath string)
 
 	switch key := pubKey.(type) {
 	case ed25519.PublicKey:
-		if !ed25519.Verify(key, pluginData, sig) {
+		digest := sha256.Sum256(pluginData)
+		if !ed25519.Verify(key, digest[:], sig) {
 			return ErrSignatureInvalid
 		}
 		return nil
@@ -153,15 +158,52 @@ func loadPublicKey(opts SignatureOptions) (crypto.PublicKey, error) {
 // verification is enabled. On failure it quarantines the plugin.
 // Returns nil when verification is disabled or succeeds.
 func (m *Manager) verifyPluginSignature(filename, path string, data []byte, fileHash string) error {
+	// Track signature verification attempt
+	if m.metrics != nil {
+		m.metrics.signatureAttempts.Inc()
+		stop := m.metrics.signatureDuration.Start()
+		defer stop()
+	}
+
 	sig := m.opts.signature
-	if sig.pubKey == nil {
+
+	// If signature verification is disabled, allow unsigned plugins.
+	if sig.mode == SignatureDisabled {
+		if m.metrics != nil {
+			m.metrics.signatureSuccess.Inc()
+		}
+		return nil
+	}
+
+	// If no public key is configured but signature is required, fail.
+	if sig.pubKey == nil && len(sig.pubKeys) == 0 {
+		if sig.mode == SignatureRequire || sig.mode == SignatureEnforce {
+			if m.metrics != nil {
+				m.metrics.signatureFailures.Inc()
+			}
+			m.addQuarantine(filename, fileHash)
+			return coreerrs.Wrapf(ErrSignatureConfig, "plugin %q: signature required but no public key configured", filename)
+		}
+		// SignatureWarn or empty mode with no key - allow unsigned.
+		if m.metrics != nil {
+			m.metrics.signatureSuccess.Inc()
+		}
 		return nil
 	}
 
 	sigPath := path + sigExtension
 
-	err := verifySignature(sig.pubKey, data, sigPath)
+	// Use multi-key verification if multiple keys configured
+	var err error
+	if len(sig.pubKeys) > 0 {
+		err = verifySignatureMultiKey(sig.pubKeys, data, sigPath)
+	} else {
+		err = verifySignature(sig.pubKey, data, sigPath)
+	}
 	if err == nil {
+		if m.metrics != nil {
+			m.metrics.signatureSuccess.Inc()
+		}
 		m.logger.Info("plugin signature verified",
 			slog.String("file", filename),
 			slog.String("hash", fileHash[:min(hashPrefixLen, len(fileHash))]),
@@ -175,14 +217,23 @@ func (m *Manager) verifyPluginSignature(filename, path string, data []byte, file
 			m.logger.Warn("plugin signature file missing; loading anyway (mode=warn)",
 				slog.String("file", filename),
 			)
+			if m.metrics != nil {
+				m.metrics.signatureSuccess.Inc() // Allowed in warn mode
+			}
 			return nil
 		}
 		// require / enforce
+		if m.metrics != nil {
+			m.metrics.signatureFailures.Inc()
+		}
 		m.addQuarantine(filename, fileHash)
 		return coreerrs.Wrapf(ErrSignatureMissing, "plugin %q: %s not found", filename, sigPath)
 	}
 
 	// Bad signature or read error — quarantine unconditionally.
+	if m.metrics != nil {
+		m.metrics.signatureFailures.Inc()
+	}
 	m.addQuarantine(filename, fileHash)
 	return coreerrs.Wrapf(ErrSignatureInvalid, "plugin %q", filename)
 }

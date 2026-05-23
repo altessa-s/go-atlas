@@ -1,7 +1,7 @@
 # Plugins
 
 ```go
-import "github.com/altessa-s/go-atlas/core/plugins"
+import "github.com/altessa-s/go-atlas/plugins"
 ```
 
 The `plugins` package manages native Go `.so` plugins at runtime, following the SPI (Service Provider Interface) pattern from Keycloak. It handles only
@@ -11,9 +11,15 @@ providers via symbol lookup.
 
 > **Security warning.** Loading a `.so` file runs arbitrary native code in the host
 > process **before** the manager can inspect the descriptor. A malicious plugin can read
-> process memory, open files, make network calls, or call `exit`. Only load plugins from
-> directories writable by the deployer alone — never from user uploads, network shares,
-> or world-writable locations.
+> process memory, open files, make network calls, or call `exit`. The manager provides
+> defense-in-depth security through:
+> 
+> - **Signature verification** (enabled by default) - cryptographic integrity checks
+> - **Sandboxing** (opt-in) - Linux security primitives to limit blast radius
+> - **Quarantine** (automatic) - persistent blacklist of failed plugins
+> 
+> Only load plugins from directories writable by the deployer alone — never from user
+> uploads, network shares, or world-writable locations.
 
 > **Platform note.** Dynamic plugin loading is only supported on `darwin` and `linux`
 > (Go's `plugin` package limitation). On other platforms the manager returns
@@ -33,7 +39,7 @@ Main types:
 | `DepInfo`         | Optional dependency snapshot for detecting version skew.         |
 | `SPIVersion`      | Contract version a plugin provider declares.                     |
 | `SPIConstraint`   | Version requirements the host checks providers against.          |
-| `SignatureOptions` | Configuration for optional `.so.sig` cryptographic verification. |
+| `SignatureOptions` | Configuration for `.so.sig` cryptographic verification (required by default). |
 
 What the manager does:
 
@@ -43,7 +49,7 @@ What the manager does:
 - Iterates plugins (`Plugins`, `Names`, `Ready`) and discovers providers (`LookupAll`, `NegotiateAll`)
 - Warns on Go-version or dependency mismatches between host and plugin (`GoVersion`, `DepInfo`)
 - Enforces host major-version compatibility via `Descriptor.HostVersion` (configurable via `HostVersionMode`)
-- Verifies detached `.so.sig` signatures before executing any plugin code (optional)
+- Verifies detached `.so.sig` signatures before executing any plugin code (required by default, configurable)
 - Quarantines failed plugins by file hash; clears when the file changes
 - Optionally watches the directory for new `.so` files at runtime
 
@@ -295,9 +301,9 @@ plugins:
   watch: true
   watchDebounce: 200ms
 
-  # Optional signature verification (see Signature section below).
+  # Signature verification (see Signature section below).
   signature:
-    mode: ""                # "require", "warn", or "" (disabled)
+    mode: require           # "require" (default), "warn", or "disabled"
     publicKeyPath: ""       # PEM file with PKIX "PUBLIC KEY" block
 ```
 
@@ -310,7 +316,7 @@ plugins:
 | `initTimeout`   | `time.Duration` | `5s`         | Per-plugin `Init` timeout                           |
 | `watch`         | `bool`          | `false`      | Enable filesystem watcher                           |
 | `watchDebounce` | `time.Duration` | `200ms`      | Coalesce window for filesystem events               |
-| `signature`     | object          | (disabled)   | Cryptographic `.so.sig` verification; see below     |
+| `signature`     | object          | (see below)  | Cryptographic `.so.sig` verification; see below     |
 
 A template with comments is at `config/templates/plugins.yaml`.
 
@@ -448,8 +454,8 @@ Quarantined plugins produce `ErrPluginQuarantined`, matchable via `errors.Is`.
 
 ## Signature verification
 
-Verifies `.so` files against a detached `.so.sig` signature before `plugin.Open` runs any code. Disabled by default. When on, each `.so` needs a
-companion `.sig` file signed with the configured public key.
+Verifies `.so` files against a detached `.so.sig` signature before `plugin.Open` runs any code. **Enabled by default (`SignatureRequire` mode) for security.** Each `.so` needs a
+companion `.sig` file signed with the configured public key. To disable signature verification (not recommended for production), explicitly set mode to `"disabled"`.
 
 > **TOCTOU note.** `plugin.Open` re-reads the file from disk — it doesn't accept
 > pre-read bytes. An attacker with write access to the plugin directory could swap the
@@ -463,14 +469,14 @@ plugins:
   enabled: true
   dir: /opt/myservice/plugins
   signature:
-    mode: require          # "require", "warn", or "" (disabled)
+    mode: require          # "require" (default), "warn", or "disabled"
     publicKeyPath: /etc/myservice/plugin-signing-key.pub
 ```
 
-| Field           | Type     | Default | Description                                     |
-|-----------------|----------|---------|-------------------------------------------------|
-| `mode`          | `string` | `""`    | `"require"` rejects unsigned, `"warn"` allows   |
-| `publicKeyPath` | `string` | `""`    | PEM file with PKIX "PUBLIC KEY" block            |
+| Field           | Type     | Default     | Description                                     |
+|-----------------|----------|-------------|-------------------------------------------------|
+| `mode`          | `string` | `"require"` | `"require"` rejects unsigned, `"warn"` allows, `"disabled"` skips verification |
+| `publicKeyPath` | `string` | `""`        | PEM file with PKIX "PUBLIC KEY" block            |
 
 ### Algorithms
 
@@ -480,27 +486,73 @@ plugins:
 | ECDSA P-256  | `*ecdsa.PublicKey`    | ASN.1 DER           | ~70 bytes |
 | RSA-PSS      | `*rsa.PublicKey`      | raw PSS signature   | key/8     |
 
-Ed25519 signs the raw `.so` bytes. ECDSA and RSA sign the SHA-256 digest.
+All algorithms sign the SHA-256 digest of the `.so` file for consistency.
 
 ### Modes
 
-- **`require`** / **`enforce`**: plugin without valid `.sig` → `ErrSignatureMissing`,
-  quarantined.
+- **`require`** / **`enforce`** (default): plugin without valid `.sig` → `ErrSignatureMissing`,
+  quarantined. This is the secure default for production.
 - **`warn`**: missing `.sig` → warning log, plugin loads anyway. Invalid signature →
   still rejected and quarantined.
-- **`""` (default)**: no verification.
+- **`disabled`**: no verification. **SECURITY WARNING:** Only use in development or when explicitly required.
+  Must be explicitly set - absence of signature configuration defaults to `require` mode.
 
-### Signing a plugin (offline)
+### Signing plugins
+
+#### Using the CLI tool (recommended)
+
+```bash
+# Install the signing tool
+go install github.com/altessa-s/go-atlas/cmd/plugin-sign@latest
+
+# Generate keys (Ed25519 recommended)
+openssl genpkey -algorithm ed25519 -out private.pem
+openssl pkey -in private.pem -pubout -out public.pem
+
+# Sign plugins
+plugin-sign -key private.pem plugin1.so plugin2.so
+
+# Sign all plugins in a directory
+plugin-sign -key private.pem -dir ./plugins
+
+# Verify signatures
+plugin-sign -verify -pubkey public.pem -dir ./plugins
+```
+
+#### Manual signing
 
 ```bash
 # Ed25519:
 openssl genpkey -algorithm Ed25519 -out plugin-key.pem
 openssl pkey -in plugin-key.pem -pubout -out plugin-key.pub
 
-# Sign:
-openssl pkeyutl -sign -inkey plugin-key.pem -rawin \
-    -in myplugin.so -out myplugin.so.sig
+# Compute SHA-256 and sign:
+openssl dgst -sha256 -binary myplugin.so | \
+    openssl pkeyutl -sign -inkey plugin-key.pem -rawin -out myplugin.so.sig
 ```
+
+### Key rotation
+
+Support multiple public keys during key rotation for zero-downtime transitions:
+
+```go
+mgr := plugins.NewManager(
+    plugins.WithDir("./plugins"),
+    plugins.WithMultiKeySignature(plugins.MultiKeySignatureOptions{
+        Mode: plugins.SignatureRequire,
+        PublicKeyPaths: []string{
+            "/etc/keys/new-public.pem",  // Try new key first
+            "/etc/keys/old-public.pem",  // Fall back to old key
+        },
+    }),
+)
+```
+
+During rotation:
+1. Deploy new public key alongside old key
+2. Update manager configuration with both keys
+3. Re-sign plugins with new key at your pace
+4. Once all plugins use new key, remove old key from configuration
 
 ### Programmatic use
 
@@ -511,6 +563,12 @@ mgr := plugins.NewManager(
         Mode:      plugins.SignatureRequire,
         PublicKey:  myEd25519PublicKey, // or use PublicKeyPath for PEM
     }),
+)
+
+// For development/testing only - explicitly disable signatures
+mgr := plugins.NewManager(
+    plugins.WithDir("./plugins"),
+    plugins.WithSignatureDisabled(), // SECURITY WARNING: Explicit opt-out
 )
 ```
 
@@ -1229,6 +1287,43 @@ Sentinel errors in `core/plugins/errors.go`, all matchable via `errors.Is`.
 
 ---
 
+## Metrics
+
+The manager exports Prometheus metrics when configured with a collector:
+
+```go
+mgr := plugins.NewManager(
+    plugins.WithDir("./plugins"),
+    plugins.WithMetrics(prometheusRegistry),
+)
+```
+
+### Available metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `plugin_signature_attempts_total` | Counter | Total signature verification attempts |
+| `plugin_signature_success_total` | Counter | Successful signature verifications |
+| `plugin_signature_failures_total` | Counter | Failed signature verifications |
+| `plugin_signature_duration_seconds` | Histogram | Time spent verifying signatures |
+| `plugin_load_attempts_total` | Counter | Plugin load attempts |
+| `plugin_load_success_total` | Counter | Successful plugin loads |
+| `plugin_load_failures_total` | Counter | Failed plugin loads |
+| `plugin_load_duration_seconds` | Histogram | Time spent loading plugins |
+| `plugin_quarantine_additions_total` | Counter | Plugins added to quarantine |
+| `plugin_quarantine_removals_total` | Counter | Plugins removed from quarantine |
+| `plugin_quarantine_hits_total` | Counter | Quarantined plugins skipped |
+| `plugin_init_attempts_total` | Counter | Init function invocations |
+| `plugin_init_success_total` | Counter | Successful Init completions |
+| `plugin_init_failures_total` | Counter | Init failures (errors) |
+| `plugin_init_panics_total` | Counter | Init panics recovered |
+| `plugin_init_duration_seconds` | Histogram | Time spent in Init functions |
+| `plugin_state` | Gauge | Current plugin states (labels: `state`) |
+
+All metrics use the subsystem `plugin` by default.
+
+---
+
 ## Health check
 
 `Manager` implements `observability/health.Checker` with three states:
@@ -1243,6 +1338,39 @@ Sentinel errors in `core/plugins/errors.go`, all matchable via `errors.Is`.
 page on-call".
 
 Register via `factory.UseHealthCoordinator`.
+
+---
+
+## Performance optimizations
+
+### Hash caching
+
+The manager implements intelligent file hash caching with modification time (mtime) validation to avoid redundant I/O:
+
+- **First load**: Reads file, computes SHA-256, caches with mtime
+- **Subsequent loads**: Validates mtime, reuses cached hash if unchanged
+- **Performance gain**: ~5x throughput improvement (8.4 GB/s cached vs 1.7 GB/s uncached)
+
+The cache is automatically invalidated when:
+- File modification time changes
+- File size changes
+- File is deleted
+- Manager is closed
+
+### Benchmarks
+
+The package includes comprehensive benchmarks for performance tuning:
+
+```bash
+# Run signature verification benchmarks
+go test -bench BenchmarkVerifySignature ./plugins
+
+# Run hash caching benchmarks
+go test -bench BenchmarkHashCache ./plugins
+
+# Run manager-level benchmarks
+go test -bench BenchmarkManager ./plugins
+```
 
 ---
 
@@ -1364,13 +1492,21 @@ type SignatureOptions struct {
     PublicKeyPath string
 }
 
+type MultiKeySignatureOptions struct {
+    Mode           SignatureMode
+    PublicKeys     []crypto.PublicKey
+    PublicKeyPaths []string
+}
+
 type SignatureMode string
 const (
-    SignatureDisabled SignatureMode = ""
-    SignatureRequire  SignatureMode = "require"
-    SignatureEnforce  SignatureMode = "enforce"
-    SignatureWarn     SignatureMode = "warn"
+    SignatureDisabled SignatureMode = "disabled"  // SECURITY WARNING: Allows unsigned plugins
+    SignatureRequire  SignatureMode = "require"   // Default: Secure for production
+    SignatureEnforce  SignatureMode = "enforce"   // Alias for SignatureRequire
+    SignatureWarn     SignatureMode = "warn"      // Log warning but allow unsigned
 )
+
+const DefaultSignatureMode = SignatureRequire  // Secure by default
 
 type State int
 const (
@@ -1396,6 +1532,9 @@ func WithHostVersion(string) Option
 func WithHostVersionMode(HostVersionMode) Option
 func WithSandbox(SandboxOptions) Option
 func WithSignature(SignatureOptions) Option
+func WithMultiKeySignature(MultiKeySignatureOptions) Option
+func WithSignatureDisabled() Option
+func WithMetrics(metrics.Collector) Option
 ```
 
 ### Free functions
