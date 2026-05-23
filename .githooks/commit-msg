@@ -1,0 +1,94 @@
+#!/bin/bash
+# Git hook to validate commit messages against Conventional Commits format
+# and verify scopes against commit_scopes.txt
+#
+# To install this hook:
+#   git config core.hooksPath .githooks
+# Or copy to .git/hooks/:
+#   cp .githooks/commit-msg .git/hooks/commit-msg
+
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Get the commit message from the file
+COMMIT_MSG_FILE="$1"
+COMMIT_MSG=$(cat "$COMMIT_MSG_FILE")
+
+# Path to the commit scopes file (relative to repo root)
+SCOPES_FILE="commit_scopes.txt"
+
+# Valid commit types
+VALID_TYPES="feat fix docs style refactor test chore ci perf build"
+
+# Skip if it's a merge commit
+if [[ "$COMMIT_MSG" =~ ^Merge ]]; then
+    exit 0
+fi
+
+# Skip if it's a revert commit
+if [[ "$COMMIT_MSG" =~ ^Revert ]]; then
+    exit 0
+fi
+
+# Function to print error and exit
+error_exit() {
+    echo -e "${RED}✗ Commit validation failed${NC}"
+    echo -e "$1"
+    echo ""
+    echo "Expected format: type(scope): description"
+    echo ""
+    echo "Examples:"
+    echo "  feat(data/mongo): add cursor pagination support"
+    echo "  fix(transport/http): handle nil pointer in retry logic"
+    echo "  docs(README): update installation instructions"
+    echo ""
+    echo "Valid types: $VALID_TYPES"
+    echo "Valid scopes: See commit_scopes.txt"
+    exit 1
+}
+
+# Check Conventional Commits format
+if [[ "$COMMIT_MSG" =~ ^([a-z]+)(\(([^\)]+)\))?:\ (.+) ]]; then
+    TYPE="${BASH_REMATCH[1]}"
+    SCOPE="${BASH_REMATCH[3]}"  # Optional
+    DESCRIPTION="${BASH_REMATCH[4]}"
+    
+    # Validate type
+    if ! echo "$VALID_TYPES" | grep -wq "$TYPE"; then
+        error_exit "${YELLOW}Invalid type '${TYPE}'${NC}\nValid types: $VALID_TYPES"
+    fi
+    
+    # Validate scope if present
+    if [[ -n "$SCOPE" ]]; then
+        # Check if commit_scopes.txt exists
+        if [[ ! -f "$SCOPES_FILE" ]]; then
+            echo -e "${YELLOW}Warning: $SCOPES_FILE not found, skipping scope validation${NC}"
+        else
+            # Extract valid scopes (non-comment, non-empty lines)
+            if ! grep -E '^[a-zA-Z0-9/_-]+' "$SCOPES_FILE" | awk '{print $1}' | grep -v '^#' | grep -Fxq "$SCOPE"; then
+                error_exit "${YELLOW}Invalid scope '${SCOPE}'${NC}\nCheck commit_scopes.txt for valid scopes"
+            fi
+        fi
+    fi
+    
+    # Validate description
+    if [[ -z "$DESCRIPTION" ]]; then
+        error_exit "${YELLOW}Missing description after colon${NC}"
+    fi
+    
+    # Warn if description starts with uppercase (convention is lowercase)
+    if [[ "${DESCRIPTION:0:1}" =~ [A-Z] ]]; then
+        echo -e "${YELLOW}⚠ Warning: Description should start with lowercase letter${NC}"
+    fi
+    
+    # Success
+    echo -e "${GREEN}✓ Valid commit message${NC}"
+    exit 0
+else
+    error_exit "${YELLOW}Commit message doesn't follow Conventional Commits format${NC}"
+fi
