@@ -157,7 +157,12 @@ func (r *responseRecorder) Write(b []byte) (int, error) {
 	if !r.headersSent {
 		r.headersSent = true
 	}
-	n, err := r.ResponseWriter.Write(b)
+	// CodeQL: False positive - responseRecorder is a transparent middleware proxy that doesn't
+	// modify or generate response data. It only forwards bytes from the actual handler to the
+	// client while collecting metrics. XSS prevention must be done in the handlers that generate
+	// the response content, not in infrastructure middleware.
+	// nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter
+	n, err := r.ResponseWriter.Write(b) //nolint:gosec // transparent proxy
 	r.bytesWritten += int64(n)
 	return n, err
 }
