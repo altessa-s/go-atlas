@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+set -e -o pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -28,7 +28,15 @@ is_valid_type() {
 get_valid_scopes() {
     # Read the file and extract scopes (lines that are not comments or empty)
     # Scopes can contain letters, numbers, hyphens, and forward slashes
-    grep -E '^[a-zA-Z0-9/_-]+' "$SCOPES_FILE" | awk '{print $1}' | grep -v '^#' | sort -u
+    if [[ ! -f "$SCOPES_FILE" ]]; then
+        echo "Error: $SCOPES_FILE not found!" >&2
+        return 1
+    fi
+    
+    grep -E '^[a-zA-Z0-9/_-]+' "$SCOPES_FILE" | awk '{print $1}' | grep -v '^#' | sort -u || {
+        echo "Error: Failed to extract scopes from $SCOPES_FILE" >&2
+        return 1
+    }
 }
 
 # Function to validate a single commit message
@@ -51,10 +59,12 @@ validate_commit() {
     
     # Check for Conventional Commits format with optional scope
     # Format: type[(scope)]: description
+    echo "  Checking regex match for: '$commit_msg'"
     if [[ "$commit_msg" =~ ^([a-z]+)(\(([^\)]+)\))?:\ (.+) ]]; then
         local type="${BASH_REMATCH[1]}"
         local scope="${BASH_REMATCH[3]}"  # Optional
         local description="${BASH_REMATCH[4]}"
+        echo "  Regex matched - type: '$type', scope: '$scope', description: '$description'"
         
         # Validate type
         if ! is_valid_type "$type"; then
@@ -64,8 +74,15 @@ validate_commit() {
         # Validate scope if present
         if [[ -n "$scope" ]]; then
             # Check if scope exists in the allowed list
-            if ! get_valid_scopes | grep -Fxq "$scope"; then
+            local valid_scopes
+            valid_scopes=$(get_valid_scopes)
+            if [[ -z "$valid_scopes" ]]; then
+                errors+=("Failed to load valid scopes from commit_scopes.txt")
+            elif ! echo "$valid_scopes" | grep -Fxq "$scope"; then
                 errors+=("Invalid scope '$scope'. Check commit_scopes.txt for valid scopes")
+                # Debug: show available scopes
+                echo "  Available scopes (first 10):"
+                echo "$valid_scopes" | head -10 | sed 's/^/    /'
             fi
         fi
         
@@ -148,7 +165,17 @@ main() {
         
         echo "Processing commit: $hash - $msg"
         ((total++))
-        if ! validate_commit "$hash" "$msg"; then
+        
+        # Try validation with error trapping
+        set +e  # Temporarily disable exit on error
+        validate_commit "$hash" "$msg"
+        local validation_result=$?
+        set -e  # Re-enable exit on error
+        
+        if [[ $validation_result -eq 0 ]]; then
+            echo "  ✓ Validation passed"
+        else
+            echo "  ✗ Validation failed with exit code: $validation_result" >&2
             ((failed++))
             echo "  ^^ This commit failed validation"
         fi
