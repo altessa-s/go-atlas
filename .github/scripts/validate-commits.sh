@@ -173,12 +173,18 @@ main() {
         msg=$(echo "$line" | cut -d' ' -f2-)
         
         echo "Processing commit: $hash - $msg"
+        echo "DEBUG: About to increment total from $total"
         ((total++))
+        echo "DEBUG: total is now $total"
+        
+        echo "DEBUG: About to call validate_commit function"
         
         # Try validation with error trapping
         set +e  # Temporarily disable exit on error
+        echo "DEBUG: Calling validate_commit with args: '$hash' '$msg'"
         validate_commit "$hash" "$msg"
         local validation_result=$?
+        echo "DEBUG: validate_commit returned with exit code: $validation_result"
         set -e  # Re-enable exit on error
         
         if [[ $validation_result -eq 0 ]]; then
