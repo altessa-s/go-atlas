@@ -82,15 +82,13 @@ func (b *LoggerBuilder) Build() (*slog.Logger, error) {
 	handler = b.wrapWithPrefixedHandler(handler)
 	handler = b.wrapWithLeveledHandler(handler)
 
-	// Enable the advanced masking wrapper whenever the operator has
-	// declared sensitive fields in config OR opted in programmatically.
-	// Previously both knobs had to be set together, so a config with
-	// `sensitiveTags` but no [LoggerBuilder.WithEnableMasking] silently
-	// fell back to [slogx.MaskingReplaceAttr] only — which catches the
-	// listed keys but misses common patterns (e.g. `*token*`,
-	// `*password*`) and nested groups. Treating non-empty SensitiveTags
-	// as an implicit enable closes that gap.
-	if b.enableMasking || len(b.cfg.SensitiveTags) > 0 {
+	// Enable the advanced masking wrapper when:
+	// - EnableDefaultMasks is true (explicit opt-in for standard masks)
+	// - MaskRules are configured (custom mask rules)
+	// - SensitiveTags are declared (backward compatibility)
+	// - EnableMasking is set programmatically
+	if b.cfg.EnableDefaultMasks || len(b.cfg.MaskRules) > 0 ||
+		len(b.cfg.SensitiveTags) > 0 || b.enableMasking {
 		handler = b.wrapWithMaskingHandler(handler, maskString)
 	}
 
@@ -220,13 +218,38 @@ func (b *LoggerBuilder) wrapWithPrefixedHandler(handler slog.Handler) slog.Handl
 
 // wrapWithMaskingHandler adds masking to the handler chain.
 func (b *LoggerBuilder) wrapWithMaskingHandler(handler slog.Handler, maskString string) slog.Handler {
-	opts := []masking.Option{masking.WithDefaults()}
-	if maskString != "" {
-		opts = append(opts, masking.WithDefaultMask(masking.FixedMask(maskString)))
+	opts := []masking.Option{}
+
+	// Add default masks if enabled explicitly or if SensitiveTags are present (backward compatibility)
+	if b.cfg.EnableDefaultMasks || len(b.cfg.SensitiveTags) > 0 || b.enableMasking {
+		opts = append(opts, masking.WithDefaults())
 	}
 
+	// Process mask rules from configuration
+	for _, rule := range b.cfg.MaskRules {
+		maskFunc, err := masking.CreateMask(rule.Type, rule.Params)
+		if err != nil {
+			// Log error but continue - don't fail the entire logger creation
+			b.errs = append(b.errs, fmt.Errorf("invalid mask rule for %s: %w",
+				cmp.Or(rule.Field, rule.Pattern), err))
+			continue
+		}
+
+		if rule.Field != "" {
+			opts = append(opts, masking.WithField(rule.Field, maskFunc))
+		} else if rule.Pattern != "" {
+			opts = append(opts, masking.WithPattern(rule.Pattern, maskFunc))
+		}
+	}
+
+	// Backward compatibility with sensitiveTags - add them as additional field masks
 	for _, tag := range b.cfg.SensitiveTags {
 		opts = append(opts, masking.WithField(tag, masking.FullMask()))
+	}
+
+	// Set default mask string if provided
+	if maskString != "" {
+		opts = append(opts, masking.WithDefaultMask(masking.FixedMask(maskString)))
 	}
 
 	return masking.NewHandler(handler, opts...)
