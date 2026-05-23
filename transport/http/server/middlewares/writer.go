@@ -87,7 +87,13 @@ func (rw *ResponseWriter) Write(b []byte) (int, error) {
 		}
 	}
 
-	return rw.ResponseWriter.Write(b)
+	// CodeQL: False positive - ResponseWriter is a transparent middleware wrapper that
+	// captures response metrics. The bytes 'b' come from the actual HTTP handler via
+	// its Write calls, not from user input. This middleware doesn't generate or modify
+	// content, it only forwards what handlers produce while capturing it for observability.
+	// The actual XSS prevention must happen in the handlers that generate the content.
+	// nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter
+	return rw.ResponseWriter.Write(b) //nolint:gosec // Transparent proxy forwarding handler output
 }
 
 // StatusCode returns the captured status code.

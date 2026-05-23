@@ -96,7 +96,12 @@ func (wr *Writer) Write(w http.ResponseWriter, r *http.Request, data any) error 
 	w.Header().Set(headers.ContentType, mimeType+"; charset=utf-8")
 	w.WriteHeader(statusCode)
 
-	if _, err = w.Write(body); err != nil {
+	// CodeQL: False positive - 'body' is a codec-encoded response structure (JSON/XML/Protobuf),
+	// not raw user input. The responseBuilder.Build() method creates a controlled response
+	// structure from the handler's return value, which is then encoded to the negotiated format
+	// by the codec. The resulting bytes are safe for writing as they're structured data, not HTML.
+	// nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter
+	if _, err = w.Write(body); err != nil { //nolint:gosec // Safe encoded response data
 		return coreerrs.WrapOperation(err, "write response body")
 	}
 
@@ -234,14 +239,25 @@ func (wr *Writer) writeError(w http.ResponseWriter, r *http.Request, err error, 
 	// Write error response (Content-Length is set automatically)
 	w.Header().Set(headers.ContentType, mimeType+"; charset=utf-8")
 	w.WriteHeader(statusCode)
-	_, _ = w.Write(body) //nolint:errcheck // Best effort for error response
+	// CodeQL: False positive - 'body' is an encoded error response structure, not user input.
+	// The responseBuilder.Build() method creates a controlled error structure that explicitly
+	// avoids exposing raw error messages. The extractMessage() method returns only safe,
+	// predefined messages (HTTP status text or explicitly allowed messages via Messager interface).
+	// The response is then encoded (JSON/XML/etc) by the codec, not written as raw HTML.
+	// nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter
+	_, _ = w.Write(body) //nolint:errcheck,gosec // Best effort for error response, safe encoded data
 
 	return nil
 }
 
 // writeFallback writes the default fallback message and logs any write errors.
 func (wr *Writer) writeFallback(ctx context.Context, w http.ResponseWriter) {
-	if _, err := w.Write([]byte(DefaultFallbackMessage)); err != nil {
+	// CodeQL: False positive - DefaultFallbackMessage is a compile-time constant string
+	// ("Internal Server Error") defined in constants.go, not user input. This is only
+	// written as a last resort when the codec itself fails, ensuring clients always
+	// receive some response rather than a connection drop.
+	// nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter
+	if _, err := w.Write([]byte(DefaultFallbackMessage)); err != nil { //nolint:gosec // Constant string, not user input
 		if wr.options.logger != nil {
 			wr.options.logger.WarnContext(ctx, "fallback response write failed", "error", err)
 		}

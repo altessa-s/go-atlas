@@ -95,7 +95,12 @@ func (e *ErrorInterceptor) Write(b []byte) (int, error) {
 		e.written = true
 	}
 
-	return e.ResponseWriter.Write(b)
+	// CodeQL: False positive - ErrorInterceptor is a transparent middleware proxy that
+	// conditionally buffers error responses for custom formatting. For non-error responses,
+	// it forwards bytes directly from the handler without modification. XSS prevention must
+	// be done in the handlers that generate content, not in infrastructure middleware.
+	// nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter
+	return e.ResponseWriter.Write(b) //nolint:gosec // Transparent proxy for non-error responses
 }
 
 // Flush writes any buffered error response using the ErrorWriter.

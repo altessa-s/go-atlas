@@ -38,7 +38,12 @@ func (r *recorder) WriteHeader(statusCode int) {
 func (r *recorder) Write(b []byte) (int, error) {
 	r.headerWritten = true
 
-	size, err := r.ResponseWriter.Write(b)
+	// CodeQL: False positive - recorder is a transparent middleware wrapper that captures
+	// response metrics. The bytes 'b' come from the actual HTTP handler, not user input.
+	// This middleware only measures response size without modifying content. XSS prevention
+	// must happen in the handlers that generate the content, not in metrics middleware.
+	// nosemgrep: go.lang.security.audit.xss.no-direct-write-to-responsewriter
+	size, err := r.ResponseWriter.Write(b) //nolint:gosec // Transparent proxy for metrics
 	if err == nil {
 		r.size += size
 	}
