@@ -4,7 +4,7 @@
 
 package grpc
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate --type=options
+//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
 
 import (
 	"github.com/altessa-s/go-atlas/transport/internal/timeouts"

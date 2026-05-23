@@ -4,7 +4,7 @@
 
 package memory
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate
+//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate
 
 // DefaultExpectedItems is the default expected number of items.
 const DefaultExpectedItems = 100000

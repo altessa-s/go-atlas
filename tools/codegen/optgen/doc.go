@@ -10,7 +10,7 @@
 //
 // Typical usage via go:generate:
 //
-//	//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate --type=Options
+//	//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=Options
 //
 // See the [commands] package for CLI flags and the [plugin] package for extension points.
 package main

@@ -4,7 +4,7 @@
 
 package tlsle
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate --type=options --option-error --all-fields
+//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options --option-error --all-fields
 
 import (
 	"errors"

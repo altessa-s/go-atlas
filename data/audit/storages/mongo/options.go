@@ -6,7 +6,7 @@ package mongo
 
 import "time"
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate --type=options
+//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
 
 const (
 	// DefaultCollectionName is the default MongoDB collection for audit events.

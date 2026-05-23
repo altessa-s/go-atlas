@@ -10,7 +10,7 @@ import (
 	_ "github.com/altessa-s/go-atlas/core/runtime/appinfo"
 )
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate --type=options
+//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
 
 // LeaderProvider is the consumer-side contract for leader-election state.
 // The method names match data/leadelect.Leader so that *leadelect.Leader

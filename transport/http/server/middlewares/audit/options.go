@@ -12,7 +12,7 @@ import (
 	"github.com/altessa-s/go-atlas/data/audit"
 )
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate --type=options
+//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
 
 // ActorExtractor extracts an Actor from an HTTP request.
 type ActorExtractor func(r *http.Request) audit.Actor

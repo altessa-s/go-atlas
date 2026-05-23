@@ -6,7 +6,7 @@ package redis
 
 import "time"
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate --type=options
+//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
 
 const (
 	// DefaultKeyPrefix is the default Redis key prefix prepended to all keys

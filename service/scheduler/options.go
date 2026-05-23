@@ -12,7 +12,7 @@ import (
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate --type=options
+//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
 
 const (
 	// DefaultTickInterval is the default interval between scheduler loop iterations.
