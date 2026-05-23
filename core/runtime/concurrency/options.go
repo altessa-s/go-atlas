@@ -4,7 +4,7 @@
 
 package concurrency
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate
+//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate
 
 // SuccessCallback is invoked by [Process] and [ProcessCollect] after an
 // item has been processed without error. The callback runs while

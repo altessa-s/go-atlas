@@ -15,7 +15,7 @@ import (
 // Use defaults package for optgen code generation
 var _ = defaults.IgnorePatterns
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate --type=options
+//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
 
 // BodyRedactFunc is called to redact sensitive data from request/response body
 // content before it is written to logs. It receives the raw body string and

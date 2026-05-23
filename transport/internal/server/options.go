@@ -20,7 +20,7 @@ const (
 	DefaultName = ""
 )
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate --type=options
+//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
 
 // options holds [BaseServer] configuration populated by functional
 // [Option] values via optgen.

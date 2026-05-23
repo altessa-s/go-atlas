@@ -4,7 +4,7 @@
 
 package landlock
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate
+//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate
 
 // options configures a Landlock ruleset. Populated via [Option] functions
 // passed to [Apply]. Every path must be a non-empty absolute filesystem
