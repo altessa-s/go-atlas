@@ -87,3 +87,58 @@
 #    # Example:
 #    # http: debug
 #    # grpc: warning
+#
+#  # <list[object]> Custom masking rules for specific fields.
+#  # Each rule specifies a field/pattern and the mask function to apply.
+#  # Available mask types: full, smart, email, phone, credit_card, url, s3_url,
+#  # partial, fixed, pattern, hash, cached_partial
+#  # Default value: not set
+#  maskRules:
+#    # Mask email addresses with specialized email masking
+#    # - field: email
+#    #   type: email
+#    
+#    # Mask URLs preserving only filename
+#    # - field: url
+#    #   type: url
+#    
+#    # Mask S3/cloud storage URLs with operation ID extraction
+#    # - field: s3_url
+#    #   type: s3_url
+#    
+#    # Partial masking - show first 4 and last 2 characters
+#    # - field: account_id
+#    #   type: partial
+#    #   params:
+#    #     showFirst: 4
+#    #     showLast: 2
+#    #     maskChar: "X"
+#    
+#    # Fixed replacement string
+#    # - field: sensitive_data
+#    #   type: fixed
+#    #   params:
+#    #     value: "[REDACTED]"
+#    
+#    # Pattern-based field matching with smart masking
+#    # - pattern: ".*_token$"
+#    #   type: smart
+#    
+#    # Replace all digits with asterisks
+#    # - pattern: ".*_id$"
+#    #   type: pattern
+#    #   params:
+#    #     pattern: "\\d"
+#    #     replacement: "*"
+#    
+#    # Hash-based masking with prefix
+#    # - field: user_id
+#    #   type: hash
+#    #   params:
+#    #     prefix: "user:"
+#
+#  # <bool> Enable standard masking for common sensitive fields.
+#  # Automatically masks: password, token, secret, api_key, authorization,
+#  # credit_card, email, phone, and patterns like *_key, *password*, *secret*, *token*
+#  # Default value: false
+#  enableDefaultMasks: false

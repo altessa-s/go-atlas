@@ -84,6 +84,28 @@ func (b *LoggerBuffer) Validate() error {
 	)
 }
 
+// LoggerMaskRule defines a masking rule for specific fields or patterns.
+// It specifies which mask function to apply and its parameters.
+type LoggerMaskRule struct {
+	// Field specifies the exact field name to mask
+	Field string `yaml:"field"`
+	// Pattern specifies a regex pattern for matching field names (alternative to Field)
+	Pattern string `yaml:"pattern"`
+	// Type is the name of the registered mask function to use
+	Type string `yaml:"type"`
+	// Params contains parameters for parameterized mask functions
+	Params map[string]any `yaml:"params"`
+}
+
+// Validate checks that the LoggerMaskRule is valid.
+func (r *LoggerMaskRule) Validate() error {
+	return ValidateStruct(r,
+		validation.Field(&r.Type, validation.Required),
+		validation.Field(&r.Field, validation.When(r.Pattern == "", validation.Required.Error("either field or pattern must be specified"))),
+		validation.Field(&r.Pattern, validation.When(r.Field == "", validation.Required.Error("either field or pattern must be specified"))),
+	)
+}
+
 // Logger configures logging behavior for applications.
 // It controls log levels, output destinations, formatting, and metadata handling.
 //
@@ -123,6 +145,10 @@ type Logger struct {
 	// Subsystems overrides per-subsystem log levels.
 	// Keys are subsystem names matching the "subsystem" attribute.
 	Subsystems map[string]LoggerLevel `yaml:"subsystems"`
+	// MaskRules defines custom masking rules for specific fields
+	MaskRules []LoggerMaskRule `yaml:"maskRules"`
+	// EnableDefaultMasks enables the standard set of masks (password, token, secret, etc)
+	EnableDefaultMasks bool `yaml:"enableDefaultMasks"`
 }
 
 // DefaultLogger returns a Logger configuration with default values.
@@ -147,5 +173,6 @@ func (l *Logger) Validate() error {
 		validation.Field(&l.Buffer),
 		validation.Field(&l.Subsystems, validation.Each(ozzo_rules.OneOf(LoggerLevelError, LoggerLevelWarning,
 			LoggerLevelInfo, LoggerLevelDebug, LoggerLevelNone))),
+		validation.Field(&l.MaskRules),
 	)
 }

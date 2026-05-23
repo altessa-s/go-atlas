@@ -17,3 +17,5 @@ an inner handler. Supports full masks, fixed replacement strings, and per-field 
 | `WithDefaultMask`  | Set the fallback mask for unmatched fields         |
 | `FullMask`         | Replace entire value with mask characters          |
 | `FixedMask`        | Replace value with a fixed string                  |
+| `URLMask`          | Mask sensitive parts of URLs (buckets, paths)      |
+| `S3URLMask`        | Redact S3/cloud storage URLs for safe logging      |
