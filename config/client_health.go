@@ -27,6 +27,9 @@ const (
 
 	// DefaultHealthClientRetryBuckets is the default number of buckets in the sliding window.
 	DefaultHealthClientRetryBuckets = 60
+
+	// MaxHealthClientRetryBuckets is the maximum allowed number of buckets (1 hour with 1-second buckets).
+	MaxHealthClientRetryBuckets = 3600
 )
 
 // HealthClientStateMapper defines the mapping strategy from gRPC connection states to health status.
@@ -176,7 +179,7 @@ func (h *HTTPHealthClient) Validate() error {
 		validation.Field(&h.RetryMinSamples,
 			validation.When(h.RetryMinSamples > 0, validation.Min(uint64(1)))),
 		validation.Field(&h.RetryBuckets,
-			validation.When(h.RetryBuckets > 0, validation.Min(1), validation.Max(3600))),
+			validation.When(h.RetryBuckets > 0, validation.Min(1), validation.Max(MaxHealthClientRetryBuckets))),
 	)
 }
 
