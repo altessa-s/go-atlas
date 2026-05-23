@@ -24,7 +24,7 @@ const (
 	DefaultCacheDisabled = false
 )
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate --type=options
+//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
 
 // options holds [Extractor] configuration. Fields are populated by
 // functional [Option] values and have sensible defaults set via optgen.

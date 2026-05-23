@@ -4,7 +4,7 @@
 
 package mongo
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate --type=config --all-fields
+//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=config --all-fields
 
 import (
 	"log/slog"

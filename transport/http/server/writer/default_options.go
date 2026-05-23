@@ -4,7 +4,7 @@
 
 package writer
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate --type=defaultBuilderOptions --output=default_options_gen.go --option-type=DefaultBuilderOption --option-prefix=DefaultBuilder
+//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=defaultBuilderOptions --output=default_options_gen.go --option-type=DefaultBuilderOption --option-prefix=DefaultBuilder
 
 // defaultBuilderOptions holds configuration for the Default builder.
 type defaultBuilderOptions struct {

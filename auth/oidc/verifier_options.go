@@ -4,7 +4,7 @@
 
 package oidc
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate --type=verifierOptions --option-type=ValidationOption --output=verifier_options_gen.go --option-prefix=Validation
+//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=verifierOptions --option-type=ValidationOption --output=verifier_options_gen.go --option-prefix=Validation
 
 import (
 	"slices"

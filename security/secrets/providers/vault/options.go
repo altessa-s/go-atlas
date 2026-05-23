@@ -19,7 +19,7 @@ const (
 	DefaultSecretPath = "blitz" // Default base path for secrets within the KV engine
 )
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate
+//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate
 
 // options contains configuration settings for the Vault storage.
 // It is configured through the functional options passed to New.
