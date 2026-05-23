@@ -64,18 +64,25 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/):
 [optional footer(s)]
 ```
 
-**Types:** `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`, `perf`
+**Types:** `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`, `perf`, `build`, `style`
 
-**Scope** is the top-level package (e.g., `transport`, `config`, `data`).
+**Scope** must match one of the allowed scopes in [`commit_scopes.txt`](commit_scopes.txt). The scope represents the package or module affected by the change.
 
 Examples:
 
 ```
-feat(transport): add gRPC reflection support
+feat(transport/grpc): add gRPC reflection support
 fix(data/cache): handle nil pointer in Redis fallback
 docs(README): add quick start examples
 test(domain/converter): add benchmark for slice conversion
+build(root): update Go version to 1.25
 ```
+
+### Automated Validation
+
+- **GitHub Actions** automatically validates all commit messages and PR titles
+- **Local validation** can be enabled with: `git config core.hooksPath .githooks`
+- Run `.github/scripts/validate-commits.sh` to check your commits before pushing
 
 ## Code Style
 
