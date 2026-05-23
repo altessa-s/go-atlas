@@ -27,7 +27,7 @@ func BenchmarkUnwrapSPIVersion(b *testing.B) {
 }
 
 func BenchmarkNegotiateAll(b *testing.B) {
-	mgr := NewManager()
+	mgr := NewManager(WithSignatureDisabled())
 	b.Cleanup(func() { _ = mgr.Close() })
 
 	const pluginCount = 50

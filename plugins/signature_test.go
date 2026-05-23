@@ -46,7 +46,8 @@ func TestVerifySignature_Ed25519_OK(t *testing.T) {
 	require.NoError(t, err)
 
 	data := []byte("plugin binary content")
-	sig := ed25519.Sign(priv, data)
+	hash := sha256.Sum256(data)
+	sig := ed25519.Sign(priv, hash[:])
 
 	sigPath := filepath.Join(t.TempDir(), "test.so.sig")
 	require.NoError(t, os.WriteFile(sigPath, sig, 0o644))
@@ -60,7 +61,8 @@ func TestVerifySignature_Ed25519_Bad(t *testing.T) {
 	require.NoError(t, err)
 
 	data := []byte("plugin binary content")
-	sig := ed25519.Sign(priv, data)
+	hash := sha256.Sum256(data)
+	sig := ed25519.Sign(priv, hash[:])
 	sig[0] ^= 0xff // corrupt
 
 	sigPath := filepath.Join(t.TempDir(), "test.so.sig")
@@ -215,8 +217,8 @@ func TestParsePublicKeyPEM_WrongBlockType(t *testing.T) {
 
 func TestManager_VerifyPluginSignature_Disabled(t *testing.T) {
 	t.Parallel()
-	mgr := NewManager()
-	// signature.pubKey is nil by default → no-op.
+	mgr := NewManager(WithSignatureDisabled())
+	// With SignatureDisabled, verification is a no-op.
 	err := mgr.verifyPluginSignature("test.so", "/path/test.so", []byte("data"), "abc")
 	assert.NoError(t, err)
 }
@@ -276,7 +278,8 @@ func TestManager_VerifyPluginSignature_ValidSignature(t *testing.T) {
 	require.NoError(t, err)
 
 	data := []byte("plugin binary")
-	sig := ed25519.Sign(priv, data)
+	hash := sha256.Sum256(data)
+	sig := ed25519.Sign(priv, hash[:])
 
 	dir := t.TempDir()
 	soPath := filepath.Join(dir, "good.so")
@@ -298,7 +301,8 @@ func TestManager_VerifyPluginSignature_InvalidSignature(t *testing.T) {
 	require.NoError(t, err)
 
 	data := []byte("plugin binary")
-	sig := ed25519.Sign(priv, data)
+	hash := sha256.Sum256(data)
+	sig := ed25519.Sign(priv, hash[:])
 	sig[0] ^= 0xff // corrupt
 
 	dir := t.TempDir()

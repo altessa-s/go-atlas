@@ -25,7 +25,7 @@ func BenchmarkReadAndHashFile(b *testing.B) {
 }
 
 func BenchmarkIsQuarantined_Miss(b *testing.B) {
-	mgr := NewManager()
+	mgr := NewManager(WithSignatureDisabled())
 	mgr.quarantine["other.so"] = "somehash"
 
 	b.ResetTimer()
@@ -35,7 +35,7 @@ func BenchmarkIsQuarantined_Miss(b *testing.B) {
 }
 
 func BenchmarkIsQuarantined_Hit(b *testing.B) {
-	mgr := NewManager()
+	mgr := NewManager(WithSignatureDisabled())
 	mgr.quarantine["target.so"] = "matchhash"
 
 	b.ResetTimer()

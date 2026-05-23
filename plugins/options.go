@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"slices"
 	"time"
+
+	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // Default values for plugin manager options.
@@ -17,6 +19,9 @@ const (
 	DefaultDir           = "./plugins"
 	DefaultInitTimeout   = 5 * time.Second
 	DefaultWatchDebounce = 200 * time.Millisecond
+	// DefaultSignatureMode is the default signature verification mode.
+	// Set to SignatureRequire for security by default.
+	DefaultSignatureMode = SignatureRequire
 )
 
 // HostVersionMode controls strictness of the host major version check
@@ -50,16 +55,17 @@ const DefaultHostVersionMode = HostVersionEnforce
 // options contains Manager configuration.
 type options struct {
 	logger          *slog.Logger
-	dir             string          `optgen:"default=DefaultDir"`
-	load            []string        `optgen:"append"`
-	disabled        []string        `optgen:"append"`
-	initTimeout     time.Duration   `optgen:"default=DefaultInitTimeout"`
-	watchDebounce   time.Duration   `optgen:"default=DefaultWatchDebounce"`
-	hostVersion     string          // host service semver, compared against Descriptor.HostVersion at load time
-	hostVersionMode HostVersionMode `optgen:"default=DefaultHostVersionMode"`
-	sandbox         SandboxOptions  `optgen:"manual"`
-	signature       signatureState  `opt:"-"` // resolved key + mode; set by WithSignature
-	signatureErr    error           `opt:"-"` // deferred PEM parse error from WithSignature
+	dir             string            `optgen:"default=DefaultDir"`
+	load            []string          `optgen:"append"`
+	disabled        []string          `optgen:"append"`
+	initTimeout     time.Duration     `optgen:"default=DefaultInitTimeout"`
+	watchDebounce   time.Duration     `optgen:"default=DefaultWatchDebounce"`
+	hostVersion     string            // host service semver, compared against Descriptor.HostVersion at load time
+	hostVersionMode HostVersionMode   `optgen:"default=DefaultHostVersionMode"`
+	sandbox         SandboxOptions    `optgen:"manual"`
+	signature       signatureState    `opt:"-"` // resolved key + mode; set by WithSignature
+	signatureErr    error             `opt:"-"` // deferred PEM parse error from WithSignature
+	metrics         metrics.Collector // metrics collector for observability
 }
 
 // WithSandbox configures Linux process-hardening primitives applied lazily on
@@ -101,6 +107,18 @@ func WithSignature(o SignatureOptions) Option {
 		opts.signature = signatureState{
 			mode:   o.Mode,
 			pubKey: key,
+		}
+	}
+}
+
+// WithSignatureDisabled disables signature verification.
+// SECURITY WARNING: This completely disables signature verification,
+// allowing unsigned plugins to be loaded. Use only in development or tests.
+// For production, use WithSignature with a proper public key.
+func WithSignatureDisabled() Option {
+	return func(opts *options) {
+		opts.signature = signatureState{
+			mode: SignatureDisabled,
 		}
 	}
 }

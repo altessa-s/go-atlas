@@ -3,7 +3,7 @@
 All metrics are Prometheus-compatible and follow the naming convention `{serviceName}_{subsystem}_{name}`. The `serviceName` prefix is configured via
 `config.Metrics.ServiceName`.
 
-**27 subsystems, 143 metrics.**
+**28 subsystems, 160 metrics.**
 
 ---
 
@@ -375,3 +375,29 @@ Package: `security/vault/auth`
 | `vault_auth_auth_errors_total`          | Counter | `type` | Authentication errors             |
 | `vault_auth_token_renewals_total`       | Counter | --     | Successful token renewals         |
 | `vault_auth_token_renewal_errors_total` | Counter | --     | Token renewal errors              |
+
+---
+
+## plugin
+
+Package: `plugins`
+
+| Name                                  | Type      | Labels                     | Description                                        |
+|---------------------------------------|-----------|----------------------------|---------------------------------------------------|
+| `plugin_signature_attempts_total`     | Counter   | --                        | Plugin signature verification attempts             |
+| `plugin_signature_successes_total`    | Counter   | --                        | Successful plugin signature verifications          |
+| `plugin_signature_failures_total`     | Counter   | `reason`                  | Failed plugin signature verifications              |
+| `plugin_signature_duration_seconds`   | Histogram | --                        | Plugin signature verification duration             |
+| `plugin_load_attempts_total`          | Counter   | --                        | Plugin loading attempts                            |
+| `plugin_load_successes_total`         | Counter   | --                        | Successful plugin loads                            |
+| `plugin_load_failures_total`          | Counter   | `reason`                  | Failed plugin loads                                |
+| `plugin_load_duration_seconds`        | Histogram | --                        | Plugin loading duration                            |
+| `plugin_quarantine_additions_total`   | Counter   | `reason`                  | Plugins added to quarantine                        |
+| `plugin_quarantine_removals_total`    | Counter   | --                        | Plugins removed from quarantine                    |
+| `plugin_quarantine_hits_total`        | Counter   | --                        | Quarantined plugin load attempts blocked           |
+| `plugin_init_attempts_total`          | Counter   | `plugin`                  | Plugin initialization attempts                     |
+| `plugin_init_successes_total`         | Counter   | `plugin`                  | Successful plugin initializations                  |
+| `plugin_init_failures_total`          | Counter   | `plugin`, `error`         | Failed plugin initializations                      |
+| `plugin_init_panics_total`            | Counter   | `plugin`                  | Plugin initialization panics                       |
+| `plugin_init_duration_seconds`        | Histogram | `plugin`                  | Plugin initialization duration                     |
+| `plugin_states`                       | Gauge     | `state`                   | Current plugin states (ready/failed/unloaded)      |

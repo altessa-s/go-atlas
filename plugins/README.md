@@ -9,6 +9,10 @@ inspired by Keycloak's SPI (Service Provider Interface). Framework-agnostic:
 manages plugin lifecycle while consuming services define their own provider
 interfaces and discover them via symbol lookup.
 
+> **⚠️ SECURITY: Signature verification is enabled by default.** Starting from this version,
+> `NewManager()` requires plugin signatures. Unsigned plugins will be rejected unless you
+> explicitly disable verification. See [MIGRATION.md](MIGRATION.md) for upgrade instructions.
+
 ## Key types
 
 | Type             | Purpose                                               |
@@ -88,7 +92,7 @@ if err := mgr.Quarantine("broken-plugin"); err != nil {
 | `WithHostVersion`      | unset (check off)    | Host service semver compared against `Descriptor.HostVersion` major; factory auto-wires from `appinfo.Version` |
 | `WithHostVersionMode`  | `HostVersionEnforce` | Strictness when both versions declared: `Enforce` (reject), `Warn` (log), `Disabled` |
 | `WithSandbox`          | disabled             | Linux process-hardening primitives                                                   |
-| `WithSignature`        | disabled             | Cryptographic .so.sig verification                                                   |
+| `WithSignature`        | SignatureRequire     | Cryptographic .so.sig verification (default: require signature)                      |
 
 ## Platform support
 
