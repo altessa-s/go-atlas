@@ -112,7 +112,7 @@ func readAndHashFileWithCache(path string, cache *hashCache) ([]byte, string, er
 	if err != nil {
 		return nil, "", fmt.Errorf("open plugin: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Get file info for cache
 	stat, err := file.Stat()

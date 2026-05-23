@@ -236,6 +236,10 @@ func (m *Manager) updateStateMetrics() {
 			ready++
 		case StateFailed:
 			failed++
+		case StateLoaded, StateUnloaded:
+			// StateLoaded: plugins not yet initialized
+			// StateUnloaded: plugins that have been removed
+			// These are not counted as ready or failed
 		}
 	}
 	m.mu.RUnlock()
