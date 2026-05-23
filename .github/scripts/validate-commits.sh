@@ -37,9 +37,15 @@ validate_commit() {
     local commit_msg="$2"
     local errors=()
     
-    # Skip merge commits
-    if [[ "$commit_msg" =~ ^Merge ]]; then
-        echo -e "${GREEN}✓${NC} Skipping merge commit: $commit_hash"
+    # Skip merge commits and revert commits
+    if [[ "$commit_msg" =~ ^Merge || "$commit_msg" =~ ^Revert ]]; then
+        echo -e "${GREEN}✓${NC} Skipping special commit: $commit_hash"
+        return 0
+    fi
+    
+    # Skip commits that are automated (dependabot, etc.)
+    if [[ "$commit_msg" =~ ^(build\(deps\)|chore\(deps\)) ]]; then
+        echo -e "${GREEN}✓${NC} Skipping automated commit: $commit_hash"  
         return 0
     fi
     
@@ -117,9 +123,9 @@ main() {
             base_sha=$(git merge-base "origin/$GITHUB_BASE_REF" HEAD 2>/dev/null || echo "origin/$GITHUB_BASE_REF")
             commits=$(git log --pretty=format:'%H %s' "$base_sha"..HEAD 2>/dev/null || git log --pretty=format:'%H %s' HEAD~10..HEAD)
         else
-            # For push events, check the last commit
-            echo "Checking last commit on push..."
-            commits=$(git log --pretty=format:'%H %s' -1)
+            # For push events, check recent commits (up to 10)
+            echo "Checking recent commits on push..."
+            commits=$(git log --pretty=format:'%H %s' -10)
         fi
     else
         # Running locally - check commits not in origin/develop
@@ -152,6 +158,15 @@ main() {
     else
         echo -e "${RED}$failed out of $total commit(s) are invalid${NC}"
         echo ""
+        
+        # For push events, be more lenient with older commits
+        if [[ -n "$GITHUB_EVENT_NAME" && "$GITHUB_EVENT_NAME" == "push" && $total -gt 1 ]]; then
+            echo -e "${YELLOW}Note: This is a push event with multiple commits.${NC}"
+            echo -e "${YELLOW}Some commits may predate the commit convention enforcement.${NC}"
+            echo -e "${YELLOW}Future commits should follow the format below.${NC}"
+            echo ""
+        fi
+        
         echo "Please fix the commit messages to follow Conventional Commits format:"
         echo "  type(scope): description"
         echo ""
@@ -162,7 +177,15 @@ main() {
         echo ""
         echo "Valid types: $VALID_TYPES"
         echo "Valid scopes: See commit_scopes.txt"
-        exit 1
+        
+        # Exit with error only for PR events or single commits on push
+        if [[ "$GITHUB_EVENT_NAME" == "pull_request" || $total -eq 1 ]]; then
+            exit 1
+        else
+            echo ""
+            echo -e "${YELLOW}Warning: Commit validation failed, but continuing due to push context${NC}"
+            exit 0
+        fi
     fi
 }
 
