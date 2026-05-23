@@ -45,6 +45,13 @@ validate_commit() {
     local commit_msg="$2"
     local errors=()
     
+    # Add error trapping for this function
+    trap 'echo "  ERROR: validate_commit failed at line $LINENO with exit code $?" >&2; return 1' ERR
+    
+    echo "  DEBUG: validate_commit called with hash='$commit_hash' msg='$commit_msg'"
+    echo "  DEBUG: SCOPES_FILE='$SCOPES_FILE'"
+    echo "  DEBUG: Checking if commit_scopes.txt exists: $(ls -la commit_scopes.txt 2>&1 || echo 'FILE NOT FOUND')"
+    
     # Skip merge commits, revert commits, and automated commits
     if [[ "$commit_msg" =~ ^(Merge|Revert|Auto.merge) ]]; then
         echo -e "${GREEN}✓${NC} Skipping special commit: $commit_hash"
