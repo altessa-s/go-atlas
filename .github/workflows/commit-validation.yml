@@ -1,0 +1,99 @@
+name: Commit Validation
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  validate-commits:
+    name: Validate Commit Messages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Fetch enough history to validate all commits in PR
+          fetch-depth: 0
+      
+      - name: Validate commit messages
+        run: |
+          chmod +x .github/scripts/validate-commits.sh
+          .github/scripts/validate-commits.sh
+
+  validate-pr-title:
+    name: Validate PR Title
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            commit_scopes.txt
+            .github/scripts
+      
+      - name: Validate PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -e
+          
+          # Colors
+          RED='\033[0;31m'
+          GREEN='\033[0;32m'
+          YELLOW='\033[1;33m'
+          NC='\033[0m'
+          
+          echo "Validating PR title: $PR_TITLE"
+          
+          # Valid types
+          VALID_TYPES="feat fix docs style refactor test chore ci perf build"
+          
+          # Check Conventional Commits format
+          if [[ "$PR_TITLE" =~ ^([a-z]+)(\(([^)]+)\))?:\ (.+) ]]; then
+              TYPE="${BASH_REMATCH[1]}"
+              SCOPE="${BASH_REMATCH[3]}"
+              DESC="${BASH_REMATCH[4]}"
+              
+              # Check type
+              if ! echo "$VALID_TYPES" | grep -wq "$TYPE"; then
+                  echo -e "${RED}✗ Invalid type '$TYPE'${NC}"
+                  echo "Valid types: $VALID_TYPES"
+                  exit 1
+              fi
+              
+              # Check scope if present
+              if [[ -n "$SCOPE" ]]; then
+                  # Extract valid scopes from commit_scopes.txt
+                  if ! grep -E "^[a-zA-Z0-9/_-]+" commit_scopes.txt | awk '{print $1}' | grep -v '^#' | grep -Fxq "$SCOPE"; then
+                      echo -e "${RED}✗ Invalid scope '$SCOPE'${NC}"
+                      echo "Check commit_scopes.txt for valid scopes"
+                      exit 1
+                  fi
+              fi
+              
+              # Check description
+              if [[ -z "$DESC" ]]; then
+                  echo -e "${RED}✗ Missing description${NC}"
+                  exit 1
+              elif [[ "${DESC:0:1}" =~ [A-Z] ]]; then
+                  echo -e "${YELLOW}⚠ Description should start with lowercase${NC}"
+              fi
+              
+              echo -e "${GREEN}✓ Valid PR title${NC}"
+          else
+              echo -e "${RED}✗ PR title doesn't follow Conventional Commits format${NC}"
+              echo "Expected: type(scope): description"
+              echo "Examples:"
+              echo "  feat(data/mongo): add cursor pagination"
+              echo "  fix(transport/http): resolve retry bug"
+              echo "  docs(README): update examples"
+              exit 1
+          fi
