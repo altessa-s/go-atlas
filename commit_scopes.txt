@@ -1,0 +1,220 @@
+# Commit Scopes for go-atlas
+# Use these scopes in conventional commits: type(scope): description
+# Example: feat(data/mongo): add cursor pagination support
+
+# Root-level scopes
+root                        # Changes to go.mod, Makefile, CI/CD, project-wide configs
+
+# Authentication & Authorization
+auth                        # General auth changes
+auth/oidc                   # OIDC/JWT validation, JWKS
+auth/opa                    # Open Policy Agent integration
+
+# Commands
+cmd                         # CLI tools and commands
+cmd/plugin-sign             # Plugin signing utility
+
+# Configuration
+config                      # General config management
+config/loader               # Multi-source config loading
+config/templates            # Pre-built config structs
+
+# Core Utilities (zero-dependency)
+core                        # General core utilities
+core/collections            # Generic collections helpers
+core/collections/maps       # Map utilities and ImmutableMap
+core/collections/slices     # Slice utilities
+core/context                # Context utilities
+core/encoding               # Hash and serializer abstractions
+core/encoding/hash          # Hash implementations
+core/encoding/serializer    # Serializer implementations
+core/errors                 # Structured error handling
+core/factory                # Generic factory pattern
+core/io                     # File I/O helpers
+core/io/files               # File operations
+core/io/wal                 # Write-ahead log
+core/net                    # Network utilities
+core/net/http               # HTTP client middleware
+core/retry                  # Retry logic with backoff
+core/runtime                # Runtime utilities
+core/runtime/concurrency    # Concurrency primitives
+core/runtime/concurrency/dispatch  # Async batching dispatcher
+core/runtime/panics         # Panic recovery
+core/runtime/signals        # OS signal handling
+core/runtime/shutdown       # Shutdown hooks
+core/scheduler              # Task scheduling abstractions
+core/text                   # Text utilities
+core/text/strings           # String helpers and interning
+core/time                   # Time utilities
+core/types                  # Type helpers
+core/types/bits             # Bit manipulation
+core/types/constraints      # Generic constraints
+core/types/nilcheck         # Nil checking
+core/types/optional         # Optional type
+core/types/ptr              # Pointer utilities
+core/types/result           # Result type
+
+# Data Layer
+data                        # General data layer changes
+data/audit                  # Audit event system
+data/audit/factory          # Audit factory
+data/audit/storages         # Audit storage implementations
+data/cache                  # Caching abstractions
+data/cache/factory          # Cache factory
+data/cache/lru              # LRU cache implementation
+data/filter                 # CEL expression parser
+data/filter/translators     # DB query translators
+data/idempotency            # Idempotency key management
+data/idempotency/factory    # Idempotency factory
+data/idempotency/storages   # Idempotency storage implementations
+data/internal               # Internal data utilities
+data/internal/natskvlease   # NATS KV lease implementation
+data/leadelect              # Leader election
+data/leadelect/factory      # Leader election factory
+data/leadelect/providers    # Leader election providers
+data/limiters               # Rate limiting
+data/limiters/tokenbucket   # Token bucket implementation
+data/limiters/tokenbucket/factory  # Token bucket factory
+data/locks                  # Distributed locking
+data/locks/dlock            # Distributed lock implementation
+data/locks/dlock/factory    # Lock factory
+data/locks/dlock/providers  # Lock providers
+data/mongo                  # MongoDB repository layer
+data/mongo/factory          # MongoDB factory
+data/mongo/kms              # MongoDB CSFLE/KMS
+data/mongo/kms/factory      # KMS factory
+data/mongo/cursor_storages  # Cursor storage implementations
+data/outbox                 # Transactional outbox
+data/outbox/factory         # Outbox factory
+data/probfilter             # Probabilistic filters
+data/probfilter/factory     # Probfilter factory
+data/uniq                   # Uniqueness constraints
+data/uniq/factory           # Uniqueness factory
+
+# Domain Layer
+domain                      # General domain utilities
+domain/converter            # Struct conversion
+domain/fieldtracker         # Field change tracking
+domain/normalizer           # Data normalization
+domain/normalizer/modifiers # Normalization modifiers
+domain/proto                # Protobuf utilities
+domain/proto/fieldmask      # Field mask operations
+domain/validation           # Domain validation
+
+# Infrastructure
+infrastructure              # General infrastructure
+infrastructure/mongo        # MongoDB client setup
+infrastructure/mongo/factory # MongoDB client factory
+infrastructure/nats         # NATS connection management
+infrastructure/nats/factory # NATS factory
+infrastructure/redis        # Redis client setup
+infrastructure/redis/factory # Redis factory
+
+# Internal (test helpers)
+internal                    # Internal utilities
+internal/testhelpers        # Shared test helpers
+
+# Observability
+observability               # General observability
+observability/appstats      # Application statistics
+observability/health        # Health checks
+observability/health/factory # Health check factory
+observability/internal      # Internal observability utilities
+observability/metrics       # Prometheus metrics
+observability/metrics/factory # Metrics factory
+observability/slog          # Structured logging
+observability/slog/factory  # Slog factory
+observability/slog/handler  # Slog handlers
+observability/tracing       # Distributed tracing
+observability/tracing/factory # Tracing factory
+observability/tracing/adapters # Tracing adapters
+observability/tracing/propagation # Context propagation
+
+# Plugins
+plugins                     # Plugin system
+plugins/factory             # Plugin factory
+
+# Protocol Buffers
+proto                       # Protobuf definitions
+proto/gen                   # Generated protobuf code
+proto/scheduler             # Scheduler proto definitions
+
+# Security
+security                    # General security
+security/secrets            # Secret management
+security/secrets/factory    # Secrets factory
+security/tlsutils           # TLS utilities
+security/tlsutils/factory   # TLS factory
+security/tlsutils/ocsp      # OCSP stapling
+security/tlsutils/providers # TLS providers
+security/vault              # HashiCorp Vault
+security/vault/auth         # Vault authentication
+security/vault/factory      # Vault factory
+
+# Service Components
+service                     # General service components
+service/dispatch            # Dispatch service
+service/id                  # Service identity (ULID/UUID)
+service/scheduler           # Distributed cron scheduler
+service/scheduler/factory   # Scheduler factory
+service/scheduler/storages  # Scheduler storage implementations
+
+# Code Generation Tools
+tools                       # Development tools
+tools/codegen               # Code generation
+tools/codegen/goconfig      # Config struct generator
+tools/codegen/optgen        # Functional options generator
+tools/codegen/optgen/internal # Optgen internals
+tools/codegen/optgen/plugin # Optgen plugin
+tools/codegen/shared        # Shared codegen utilities
+
+# Transport Layer
+transport                   # General transport layer
+transport/broker            # Message broker abstractions
+transport/broker/factory    # Broker factory
+transport/broker/inprogress # In-progress message tracking
+transport/broker/outbox     # Broker outbox integration
+transport/broker/providers  # Broker provider implementations
+transport/grpc              # gRPC transport
+transport/grpc/client       # gRPC client
+transport/grpc/client/pool  # gRPC connection pooling
+transport/grpc/handlers     # gRPC handlers
+transport/grpc/interceptors # gRPC interceptors
+transport/grpc/interceptors/audit # Audit interceptor
+transport/grpc/interceptors/auth # Auth interceptor
+transport/grpc/interceptors/cache # Cache interceptor
+transport/grpc/interceptors/errstatus # Error status interceptor
+transport/grpc/server       # gRPC server
+transport/grpc/server/factory # gRPC server factory
+transport/http              # HTTP transport
+transport/http/client       # HTTP client with retries
+transport/http/server       # HTTP server
+transport/http/server/codec # HTTP codecs
+transport/http/server/factory # HTTP server factory
+transport/http/server/middlewares # HTTP middlewares
+transport/http/server/middlewares/audit # Audit middleware
+transport/http/server/middlewares/auth # Auth middleware
+transport/http/server/middlewares/cache # Cache middleware
+transport/http/server/middlewares/cors # CORS middleware
+transport/http/server/middlewares/defaults # Default middlewares
+transport/http/server/middlewares/gzip # Gzip middleware
+transport/http/server/middlewares/idempotency # Idempotency middleware
+transport/http/server/middlewares/logger # Logger middleware
+transport/http/server/middlewares/mkclient # Client maker middleware
+transport/http/server/middlewares/otel # OpenTelemetry middleware
+transport/http/server/middlewares/prometheus # Prometheus middleware
+transport/http/server/middlewares/recovery # Panic recovery middleware
+transport/http/server/middlewares/requestlimiter # Request limiter middleware
+transport/http/server/middlewares/request_id # Request ID middleware
+transport/http/server/middlewares/retry # Retry middleware
+transport/http/server/middlewares/timeout # Timeout middleware
+transport/http/server/router # HTTP routers
+transport/http/server/writer # HTTP response writers
+transport/internal          # Shared transport internals
+transport/internal/server   # Shared server code
+transport/internal/validation # Request validation
+transport/proxydial         # Proxy dialing support
+
+# Documentation & Development
+docs                        # Documentation
+devtools                    # Development tool dependencies
