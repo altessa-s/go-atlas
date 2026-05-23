@@ -24,8 +24,24 @@ jobs:
       
       - name: Validate commit messages
         run: |
+          echo "Event: ${{ github.event_name }}"
+          echo "Ref: ${{ github.ref }}"
+          echo "SHA: ${{ github.sha }}"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "Base ref: ${{ github.base_ref }}"
+            echo "Head ref: ${{ github.head_ref }}"
+          fi
+          
+          echo "Git log (last 10 commits):"
+          git log --oneline -10
+          
+          echo "Running validation script..."
           chmod +x .github/scripts/validate-commits.sh
-          .github/scripts/validate-commits.sh
+          .github/scripts/validate-commits.sh || {
+            echo "Validation script failed with exit code $?"
+            echo "Checking what commits were processed..."
+            exit 1
+          }
 
   validate-pr-title:
     name: Validate PR Title

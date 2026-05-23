@@ -134,6 +134,11 @@ main() {
         commits=$(git log --pretty=format:'%H %s' origin/develop..HEAD 2>/dev/null || git log --pretty=format:'%H %s' -10)
     fi
     
+    # Debug: show what commits we're checking
+    echo "Found commits to check:"
+    echo "$commits"
+    echo "========================================="
+    
     # Validate each commit
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
@@ -141,9 +146,11 @@ main() {
         hash=$(echo "$line" | cut -d' ' -f1)
         msg=$(echo "$line" | cut -d' ' -f2-)
         
+        echo "Processing commit: $hash - $msg"
         ((total++))
         if ! validate_commit "$hash" "$msg"; then
             ((failed++))
+            echo "  ^^ This commit failed validation"
         fi
     done <<< "$commits"
     
