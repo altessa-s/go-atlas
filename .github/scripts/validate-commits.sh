@@ -45,15 +45,6 @@ validate_commit() {
     local commit_msg="$2"
     local errors=()
     
-    echo "  DEBUG: Function entry successful"
-    echo "  DEBUG: validate_commit called with hash='$commit_hash' msg='$commit_msg'"
-    echo "  DEBUG: SCOPES_FILE='$SCOPES_FILE'"
-    echo "  DEBUG: Current directory: $(pwd)"
-    
-    # For now, just return success to test if the issue is in this function
-    echo "  DEBUG: Testing - returning success immediately"
-    return 0
-    
     # Skip merge commits, revert commits, and automated commits
     if [[ "$commit_msg" =~ ^(Merge|Revert|Auto.merge) ]]; then
         echo -e "${GREEN}✓${NC} Skipping special commit: $commit_hash"
@@ -68,12 +59,10 @@ validate_commit() {
     
     # Check for Conventional Commits format with optional scope
     # Format: type[(scope)]: description
-    echo "  Checking regex match for: '$commit_msg'"
     if [[ "$commit_msg" =~ ^([a-z]+)(\(([^\)]+)\))?:\ (.+) ]]; then
         local type="${BASH_REMATCH[1]}"
         local scope="${BASH_REMATCH[3]}"  # Optional
         local description="${BASH_REMATCH[4]}"
-        echo "  Regex matched - type: '$type', scope: '$scope', description: '$description'"
         
         # Validate type
         if ! is_valid_type "$type"; then
@@ -89,9 +78,6 @@ validate_commit() {
                 errors+=("Failed to load valid scopes from commit_scopes.txt")
             elif ! echo "$valid_scopes" | grep -Fxq "$scope"; then
                 errors+=("Invalid scope '$scope'. Check commit_scopes.txt for valid scopes")
-                # Debug: show available scopes
-                echo "  Available scopes (first 10):"
-                echo "$valid_scopes" | head -10 | sed 's/^/    /'
             fi
         fi
         
@@ -174,7 +160,7 @@ main() {
         
         echo "Processing commit: $hash - $msg"
         echo "DEBUG: About to increment total from $total"
-        ((total++))
+        total=$((total + 1))
         echo "DEBUG: total is now $total"
         
         echo "DEBUG: About to call validate_commit function"
@@ -191,7 +177,7 @@ main() {
             echo "  ✓ Validation passed"
         else
             echo "  ✗ Validation failed with exit code: $validation_result" >&2
-            ((failed++))
+            failed=$((failed + 1))
             echo "  ^^ This commit failed validation"
         fi
     done <<< "$commits"
