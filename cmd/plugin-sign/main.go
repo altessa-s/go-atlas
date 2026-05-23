@@ -38,7 +38,6 @@ import (
 	"encoding/pem"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -203,7 +202,8 @@ func signFile(path string, key crypto.PrivateKey) error {
 
 	// Write signature file
 	sigPath := path + ".sig"
-	if err := os.WriteFile(sigPath, signature, 0o644); err != nil {
+	const defaultFileMode = 0o644
+	if err := os.WriteFile(sigPath, signature, defaultFileMode); err != nil {
 		return fmt.Errorf("write signature: %w", err)
 	}
 
@@ -299,22 +299,4 @@ func loadPublicKey(path string) (crypto.PublicKey, error) {
 	}
 
 	return pub, nil
-}
-
-// copyFile copies a file from src to dst.
-func copyFile(dst, src string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, in)
-	return err
 }
