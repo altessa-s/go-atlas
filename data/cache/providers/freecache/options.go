@@ -4,7 +4,7 @@
 
 package freecache
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate
+//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate
 
 // DefaultMaxSize is the default maximum cache size (100MB).
 const DefaultMaxSize = 100 * 1024 * 1024

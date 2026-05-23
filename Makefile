@@ -170,13 +170,32 @@ release: ## Semantic versioning - create and push a new release tag
 
 .PHONY: build-tools
 build-tools: ## Build command-line tools
-	@echo "Building plugin-sign..."
+	@echo "Building CLI tools..."
+	@mkdir -p bin
 	@go build -o bin/plugin-sign ./cmd/plugin-sign
+	@go build -o bin/optgen ./cmd/optgen
+	@go build -o bin/goconfig ./cmd/goconfig
+	@echo "Built: plugin-sign, optgen, goconfig"
 
 .PHONY: install-tools
 install-tools: ## Install command-line tools to GOPATH/bin
-	@echo "Installing plugin-sign..."
+	@echo "Installing CLI tools..."
 	@go install ./cmd/plugin-sign
+	@go install ./cmd/optgen
+	@go install ./cmd/goconfig
+	@echo "Installed: plugin-sign, optgen, goconfig"
+
+.PHONY: build-plugin-sign
+build-plugin-sign: ## Build plugin signing tool
+	@go build -o bin/plugin-sign ./cmd/plugin-sign
+
+.PHONY: build-optgen
+build-optgen: ## Build functional options generator
+	@go build -o bin/optgen ./cmd/optgen
+
+.PHONY: build-goconfig
+build-goconfig: ## Build configuration converter
+	@go build -o bin/goconfig ./cmd/goconfig
 
 .PHONY: security-scan
 security-scan: ## Security checks - run vulnerability and security scanners

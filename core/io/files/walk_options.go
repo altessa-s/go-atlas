@@ -4,7 +4,7 @@
 
 package files
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate --type=walkOptions --output=walk_options_gen.go --option-type=WalkOption
+//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=walkOptions --output=walk_options_gen.go --option-type=WalkOption
 
 import "strings"
 

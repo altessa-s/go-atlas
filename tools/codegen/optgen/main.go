@@ -6,7 +6,7 @@
 //
 // Usage:
 //
-//	//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate --type=options
+//	//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
 //
 // The generator looks for fields with `opt` tags in the specified struct type
 // and generates corresponding WithXxx functions.

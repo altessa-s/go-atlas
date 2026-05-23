@@ -4,7 +4,7 @@
 
 package rlimits
 
-//go:generate go run github.com/altessa-s/go-atlas/tools/codegen/optgen generate --type=options
+//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
 
 // options configures a batch of rlimits. Populated via [Option] functions
 // passed to [Apply]. Zero values leave the kernel default in place for
