@@ -38,6 +38,13 @@ var (
 	ErrTokenRevoked              = errors.New("token has been revoked")
 	ErrSchedulerManaged          = errors.New("function is managed by scheduler, direct calls not allowed")
 	ErrLoaderClientNotConfigured = errors.New("revocation loader: HTTP client not configured")
+	// ErrJWKSStale is returned when the time since the last successful JWKS
+	// refresh exceeds the configured [DefaultJWKSMaxStaleness] (or whatever
+	// the operator passed via [WithJWKSMaxStaleness]) and the failure mode
+	// is [JWKSFailureModeEnforce]. It signals that the cached key set may
+	// have missed an IdP-side rotation and that any cached/locally-verifiable
+	// token must no longer be trusted.
+	ErrJWKSStale = errors.New("JWKS cache too stale to trust")
 )
 
 // drainAndClose drains and closes an HTTP response body.
@@ -93,6 +100,15 @@ type Provider struct {
 	jwksRefreshRunning atomic.Bool // Guards against concurrent RefreshJWKS calls.
 
 	schedulerJWKSRefreshRegistered atomic.Bool // Marks if RefreshJWKS is managed by scheduler.
+
+	// lastJWKSRefreshUnixNanos records when the locally cached JWKS was
+	// last fully refreshed by the provider. It is read by
+	// [Provider.checkJWKSStaleness] to enforce the
+	// [WithJWKSMaxStaleness] freshness budget and is updated atomically
+	// from every successful path that replaces the cache contents
+	// (initial bootstrap in [Provider.initializeJWKS] and every
+	// successful refreshJWKSInternal).
+	lastJWKSRefreshUnixNanos atomic.Int64
 
 	// metrics provides Prometheus-compatible instrumentation for OIDC operations.
 	metrics *oidcMetrics
@@ -283,6 +299,15 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 	if token == "" {
 		p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 		return nil, coreerrs.Wrap(ErrInvalidToken, "token is empty")
+	}
+
+	// Refuse to validate against a stale key set when the operator has
+	// opted in via WithJWKSMaxStaleness — see [Provider.checkJWKSStaleness]
+	// for the per-mode behavior. Runs first so cached claims and
+	// introspection short-circuits do not bypass the staleness budget.
+	if err := p.checkJWKSStaleness(ctx); err != nil {
+		p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
+		return nil, err
 	}
 
 	if err := p.checkTokenRevocation(ctx, token); err != nil {
@@ -585,11 +610,15 @@ func (p *Provider) initializeJWKS() error {
 		Ctx:         p.backgroundCtx,
 		HTTPTimeout: p.opts.jwksHTTPTimeout,
 		RefreshErrorHandler: func(ctx context.Context, err error) {
-			// Log JWKS refresh errors but don't fail
-			// The cached keys will continue to be used until refresh succeeds
+			// Log JWKS refresh errors and expose the staleness age so
+			// operators tracking [WithJWKSMaxStaleness] can correlate the
+			// log line with the staleness budget. The cached keys keep
+			// being served until a refresh succeeds; whether validation
+			// keeps trusting them is controlled by checkJWKSStaleness.
 			p.logger.ErrorContext(ctx, "failed to refresh JWKS keys",
 				slog.Any("error", err),
-				slog.String("jwks_url", p.discoveryInfo.JwksURL))
+				slog.String("jwks_url", p.discoveryInfo.JwksURL),
+				slog.Duration("since_last_refresh", p.jwksAge()))
 		},
 	}
 
@@ -609,7 +638,82 @@ func (p *Provider) initializeJWKS() error {
 		return coreerrs.WrapOperation(err, "create JWKS keyfunc")
 	}
 
+	// Seed the staleness anchor so [Provider.checkJWKSStaleness] does not
+	// reject every request issued before the first scheduled refresh.
+	// Construction is the first authoritative "fresh-as-of-now" event.
+	p.markJWKSRefreshed()
+
 	return nil
+}
+
+// markJWKSRefreshed records the current wall-clock time as the last
+// authoritative JWKS refresh. Callers MUST invoke it only when the
+// storage has been fully repopulated from the IdP (initial bootstrap,
+// successful scheduled refresh, successful manual [Provider.RefreshJWKS]).
+func (p *Provider) markJWKSRefreshed() {
+	p.lastJWKSRefreshUnixNanos.Store(time.Now().UnixNano())
+}
+
+// jwksAge returns the time elapsed since the last successful JWKS refresh.
+// Returns zero if no successful refresh has been recorded yet (the field
+// is seeded in [Provider.initializeJWKS], so in practice this only happens
+// in unit tests that bypass NewProvider).
+func (p *Provider) jwksAge() time.Duration {
+	stored := p.lastJWKSRefreshUnixNanos.Load()
+	if stored == 0 {
+		return 0
+	}
+	age := time.Since(time.Unix(0, stored))
+	if age < 0 {
+		return 0
+	}
+	return age
+}
+
+// checkJWKSStaleness reacts when the local JWKS cache has not been
+// refreshed within [WithJWKSMaxStaleness]. Behavior is controlled by
+// [WithJWKSFailureMode]:
+//
+//   - [JWKSFailureModeEnforce] (default) returns [ErrJWKSStale] so the
+//     caller rejects the validation;
+//   - [JWKSFailureModeWarn] logs at error level and lets the validation
+//     proceed;
+//   - [JWKSFailureModeDisabled] is a no-op.
+//
+// A zero [WithJWKSMaxStaleness] disables the check regardless of mode,
+// preserving the historical opt-in behavior so callers without an
+// active refresh path are not surprised by sudden rejections.
+func (p *Provider) checkJWKSStaleness(ctx context.Context) error {
+	maxStaleness := p.opts.jwksMaxStaleness
+	if maxStaleness <= 0 {
+		return nil
+	}
+	mode := p.opts.jwksFailureMode
+	if mode == JWKSFailureModeDisabled {
+		return nil
+	}
+
+	age := p.jwksAge()
+	if age <= maxStaleness {
+		return nil
+	}
+
+	p.metrics.jwksStaleRejections.Inc()
+	switch mode {
+	case JWKSFailureModeWarn:
+		p.logger.ErrorContext(ctx,
+			"JWKS cache exceeded staleness budget but JWKSFailureModeWarn is configured; allowing validation",
+			slog.Duration("age", age),
+			slog.Duration("max_staleness", maxStaleness))
+		return nil
+	default: // JWKSFailureModeEnforce — also covers empty/unknown modes.
+		p.logger.ErrorContext(ctx,
+			"JWKS cache exceeded staleness budget; rejecting validation",
+			slog.Duration("age", age),
+			slog.Duration("max_staleness", maxStaleness))
+		return coreerrs.Wrapf(ErrJWKSStale,
+			"jwks age %s exceeds max staleness %s", age, maxStaleness)
+	}
 }
 
 // validateClaims performs custom claims validation based on verifier options.

@@ -173,6 +173,10 @@ func (p *Provider) validateTokenWithPreset(ctx context.Context, token string, pr
 		return nil, coreerrs.Wrap(ErrInvalidToken, "token is empty")
 	}
 
+	if err := p.checkJWKSStaleness(ctx); err != nil {
+		return nil, err
+	}
+
 	if err := p.checkTokenRevocation(ctx, token); err != nil {
 		return nil, err
 	}

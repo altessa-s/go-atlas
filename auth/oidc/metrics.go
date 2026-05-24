@@ -20,6 +20,7 @@ type oidcMetrics struct {
 	jwksRefreshes         metrics.Counter
 	jwksRefreshErrors     metrics.Counter
 	jwksRefreshDuration   metrics.Timer
+	jwksStaleRejections   metrics.Counter
 	revocationCheckErrors metrics.Counter
 }
 
@@ -68,6 +69,10 @@ func newOIDCMetrics(c metrics.Collector) *oidcMetrics {
 				Name: "jwks_refresh_duration_seconds",
 				Help: "Duration of JWKS refresh operations in seconds.",
 			},
+		}),
+		jwksStaleRejections: scoped.MustCounter(metrics.MetricOpts{
+			Name: "jwks_stale_rejections_total",
+			Help: "Total number of validations affected by an over-stale JWKS cache (enforced or warned).",
 		}),
 		revocationCheckErrors: scoped.MustCounter(metrics.MetricOpts{
 			Name: "revocation_check_errors_total",

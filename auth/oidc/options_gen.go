@@ -72,6 +72,16 @@ func WithHealthCoordinator(v *health.Coordinator) Option {
 	}
 }
 
+// WithJWKSMaxStaleness sets the jwksMaxStaleness option.
+func WithJWKSMaxStaleness(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.jwksMaxStaleness = v
+	}
+}
+
 // WithJwksHTTPTimeout sets the jwksHTTPTimeout option.
 func WithJwksHTTPTimeout(v time.Duration) Option {
 	return func(o *options) {
@@ -242,6 +252,8 @@ func WithTokensCacheKeyPrefix[T interface{ string | *string }](v T) Option {
 func defaultOptions() *options {
 	return &options{
 		activeTokensCacheKeyPrefix:  DefaultActiveTokensCacheKeyPrefix,
+		jwksMaxStaleness:            DefaultJWKSMaxStaleness,
+		jwksFailureMode:             DefaultJWKSFailureMode,
 		jwksHTTPTimeout:             DefaultJWKSHTTPTimeout,
 		logger:                      slog.New(slog.DiscardHandler),
 		revocationItemType:          DefaultRevocationItemType,
