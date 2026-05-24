@@ -225,38 +225,41 @@ func (p *Provider) TokenEndpoint() string {
 	return p.discoveryInfo.TokenURL
 }
 
-// parseToken parses a JWT and verifies its signature, returning the claims.
-// Valid signing methods are always enforced (DefaultValidMethods) to prevent
-// algorithm confusion attacks. Optional parser options can customize other behavior.
-func (p *Provider) parseToken(token string, opts ...jwt.ParserOption) (map[string]any, error) {
+// parseToken parses a JWT and verifies its signature, returning the claims
+// and the verified token header. Valid signing methods are always enforced
+// (DefaultValidMethods) to prevent algorithm confusion attacks. Optional
+// parser options can customize other behavior.
+func (p *Provider) parseToken(token string, opts ...jwt.ParserOption) (jwt.MapClaims, map[string]any, error) {
 	// Prepend valid methods restriction so it applies to all parse paths.
 	// Callers can override by passing their own jwt.WithValidMethods (last wins).
 	opts = append([]jwt.ParserOption{jwt.WithValidMethods(DefaultValidMethods)}, opts...)
 
 	jwtToken, err := jwt.Parse(token, p.jwks.Keyfunc, opts...)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if !jwtToken.Valid {
-		return nil, coreerrs.Wrap(ErrInvalidToken, "token is invalid")
+		return nil, nil, coreerrs.Wrap(ErrInvalidToken, "token is invalid")
 	}
 
 	claims, ok := jwtToken.Claims.(jwt.MapClaims)
 	if !ok {
-		return nil, coreerrs.Wrap(ErrInvalidToken, "invalid claims type")
+		return nil, nil, coreerrs.Wrap(ErrInvalidToken, "invalid claims type")
 	}
 
-	return claims, nil
+	return claims, jwtToken.Header, nil
 }
 
 // verifySignature verifies JWT signature and returns parsed claims.
 func (p *Provider) verifySignature(token string) (map[string]any, error) {
-	return p.parseToken(token)
+	claims, _, err := p.parseToken(token)
+	return claims, err
 }
 
 // parseTokenWithoutClaimsValidation parses a JWT without validating claims.
-func (p *Provider) parseTokenWithoutClaimsValidation(token string) (map[string]any, error) {
+// Returns claims and the verified token header.
+func (p *Provider) parseTokenWithoutClaimsValidation(token string) (jwt.MapClaims, map[string]any, error) {
 	return p.parseToken(token, jwt.WithoutClaimsValidation())
 }
 
@@ -293,25 +296,35 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 		var claims map[string]any
 		if err := p.tokenCache.Get(ctx, cacheKey, &claims); err == nil {
 			p.metrics.cacheHits.Inc()
-			// Cache hit - return cached claims
+			// Re-run the post-verification revocation check against cached
+			// claims so that a token revoked after caching is still rejected
+			// for the remainder of its TTL.
+			if err := p.checkTokenRevocationVerifiedCached(ctx, token, claims); err != nil {
+				p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
+				return nil, err
+			}
 			return claims, nil
 		}
 		p.metrics.cacheMisses.Inc()
 		// Cache miss or error - fall through to validation
 	}
 
-	var presetClaims map[string]any
+	var presetClaims jwt.MapClaims
+	var presetHeader map[string]any
 	var presetVerifier *verifierOptions
 	var presetCELRules []celPreCompiledValidationRule
 
 	// Fast path: no presets, no default options, and no overrides
 	if len(opt) == 0 && p.verifierOptions == nil && len(p.opts.presetRules) == 0 {
-		claims, err := p.parseAndValidateToken(token, &verifierOptions{}, nil)
+		claims, header, err := p.parseAndValidateToken(token, &verifierOptions{}, nil)
 		if err != nil {
 			p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 			return nil, err
 		}
-		p.cacheValidatedClaims(ctx, token, claims)
+		if err := p.finalizeValidatedToken(ctx, token, claims, header); err != nil {
+			p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
+			return nil, err
+		}
 		return claims, nil
 	}
 
@@ -319,7 +332,7 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 	// try automatic preset selection
 	if len(opt) == 0 && len(p.opts.presetRules) > 0 {
 		// Step 1: Verify signature FIRST for security (without claim validation)
-		claimsForPreset, err := p.parseTokenWithoutClaimsValidation(token)
+		claimsForPreset, headerForPreset, err := p.parseTokenWithoutClaimsValidation(token)
 		if err != nil {
 			p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 			p.logger.ErrorContext(ctx, "signature verification failed", slog.Any("error", err))
@@ -334,6 +347,7 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 			preset := p.getPreset(presetName)
 			if preset != nil && preset.compiledVerifier != nil {
 				presetClaims = claimsForPreset
+				presetHeader = headerForPreset
 				presetVerifier = preset.compiledVerifier
 				presetCELRules = preset.compiledCELRules
 			} else if preset == nil {
@@ -352,7 +366,10 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 			return nil, err
 		}
 
-		p.cacheValidatedClaims(ctx, token, presetClaims)
+		if err := p.finalizeValidatedToken(ctx, token, presetClaims, presetHeader); err != nil {
+			p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
+			return nil, err
+		}
 		return presetClaims, nil
 	}
 
@@ -371,19 +388,31 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 		compiledCELRules = compileVerifierCELRules(ops, p.logger)
 	}
 
-	claims, err := p.parseAndValidateToken(token, ops, compiledCELRules)
+	claims, header, err := p.parseAndValidateToken(token, ops, compiledCELRules)
 	if err != nil {
 		p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 		p.logger.ErrorContext(ctx, "failed to validate token", slog.Any("error", err))
 		return nil, err
 	}
 
-	p.cacheValidatedClaims(ctx, token, claims)
+	if err := p.finalizeValidatedToken(ctx, token, claims, header); err != nil {
+		p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
+		return nil, err
+	}
 
 	return claims, nil
 }
 
 // checkTokenRevocation validates token revocation status using introspection or local storage.
+//
+// This is the pre-signature-verification check. Introspection always runs
+// (the IdP is the source of truth). For local revocation storage it runs
+// only when the storage is keyed on the full token — claims (jti) or header
+// (kid) extracted from an unverified JWT are attacker-controlled and must
+// not drive security-relevant lookups, so jti/kid checks are deferred to
+// [Provider.checkTokenRevocationVerified] which runs after signature
+// verification.
+//
 // Introspection errors are logged and treated as non-fatal by default
 // ([WithIntrospection]); enable [WithIntrospectionStrict] to instead reject
 // the token with [ErrIntrospection] when the endpoint is unreachable.
@@ -411,7 +440,39 @@ func (p *Provider) checkTokenRevocation(ctx context.Context, token string) error
 		return nil
 	}
 
-	item := p.revocationItemFromToken(token)
+	// jti/kid lookups need verified claims/header — defer to
+	// checkTokenRevocationVerified called after signature verification.
+	if p.opts.revocationItemType == RevocationItemTypeJTI || p.opts.revocationItemType == RevocationItemTypeKID {
+		return nil
+	}
+
+	isRevoked, err := p.revocationStorage.IsRevoked(ctx, token)
+	if err == nil && isRevoked {
+		p.logger.DebugContext(ctx, "token found in revocation storage",
+			"item_type", p.opts.revocationItemType)
+		return ErrTokenRevoked
+	}
+
+	return nil
+}
+
+// checkTokenRevocationVerified runs the revocation lookup that depends on
+// signature-verified data (jti claim or kid header). It must only be called
+// after [Provider.parseAndValidateToken] or [Provider.parseTokenWithoutClaimsValidation]
+// has returned successfully — passing unverified claims/header would
+// reintroduce the bypass this method is designed to prevent.
+//
+// For full-token revocation storage this is a no-op: the pre-verification
+// check in [Provider.checkTokenRevocation] already covers that case.
+func (p *Provider) checkTokenRevocationVerified(ctx context.Context, token string, claims jwt.MapClaims, header map[string]any) error {
+	if p.revocationStorage == nil {
+		return nil
+	}
+	if p.opts.revocationItemType != RevocationItemTypeJTI && p.opts.revocationItemType != RevocationItemTypeKID {
+		return nil
+	}
+
+	item := revocationItemFromVerifiedClaims(p.opts.revocationItemType, claims, header, token)
 	isRevoked, err := p.revocationStorage.IsRevoked(ctx, item)
 	if err == nil && isRevoked {
 		p.logger.DebugContext(ctx, "item found in revocation storage",
@@ -423,28 +484,58 @@ func (p *Provider) checkTokenRevocation(ctx context.Context, token string) error
 	return nil
 }
 
-func (p *Provider) revocationItemFromToken(token string) string {
-	item := token
+// checkTokenRevocationVerifiedCached runs the post-verification revocation
+// lookup against cached claims. The cache is keyed by the full token, so a
+// cache hit proves the same token was previously signature-verified — making
+// it safe to recover the JWT header via ParseUnverified solely to read the
+// kid for kid-type revocation lookups.
+func (p *Provider) checkTokenRevocationVerifiedCached(ctx context.Context, token string, claims map[string]any) error {
+	if p.revocationStorage == nil {
+		return nil
+	}
 	if p.opts.revocationItemType != RevocationItemTypeJTI && p.opts.revocationItemType != RevocationItemTypeKID {
-		return item
+		return nil
 	}
 
-	if t, _, err := new(jwt.Parser).ParseUnverified(token, jwt.MapClaims{}); err == nil {
-		switch p.opts.revocationItemType {
-		case RevocationItemTypeJTI:
-			if claims, ok := t.Claims.(jwt.MapClaims); ok {
-				if jti, ok := claims[RevocationItemTypeJTI].(string); ok {
-					item = jti
-				}
-			}
-		case RevocationItemTypeKID:
-			if kid, ok := t.Header[RevocationItemTypeKID].(string); ok {
-				item = kid
+	var header map[string]any
+	if p.opts.revocationItemType == RevocationItemTypeKID {
+		if t, _, err := new(jwt.Parser).ParseUnverified(token, jwt.MapClaims{}); err == nil {
+			header = t.Header
+		}
+	}
+	return p.checkTokenRevocationVerified(ctx, token, jwt.MapClaims(claims), header)
+}
+
+// revocationItemFromVerifiedClaims extracts the revocation lookup key from
+// signature-verified claims/header. Falls back to the full token when the
+// configured field is missing so the caller still gets a deterministic key.
+func revocationItemFromVerifiedClaims(itemType string, claims jwt.MapClaims, header map[string]any, token string) string {
+	switch itemType {
+	case RevocationItemTypeJTI:
+		if jti, ok := claims[RevocationItemTypeJTI].(string); ok && jti != "" {
+			return jti
+		}
+	case RevocationItemTypeKID:
+		if header != nil {
+			if kid, ok := header[RevocationItemTypeKID].(string); ok && kid != "" {
+				return kid
 			}
 		}
 	}
+	return token
+}
 
-	return item
+// finalizeValidatedToken centralizes the work that must run after every
+// successful signature/claims verification path: the post-verification
+// revocation lookup followed by caching the validated claims. Keeping it
+// in one helper guarantees that any future validation path inherits the
+// same security boundary without ad-hoc duplication.
+func (p *Provider) finalizeValidatedToken(ctx context.Context, token string, claims jwt.MapClaims, header map[string]any) error {
+	if err := p.checkTokenRevocationVerified(ctx, token, claims, header); err != nil {
+		return err
+	}
+	p.cacheValidatedClaims(ctx, token, claims)
+	return nil
 }
 
 func (p *Provider) getDiscoveryInfo(ctx context.Context) error {
@@ -826,28 +917,29 @@ func (p *Provider) buildParserOptions(ops *verifierOptions) []jwt.ParserOption {
 }
 
 // parseAndValidateToken parses and validates a JWT with the given options.
-func (p *Provider) parseAndValidateToken(token string, ops *verifierOptions, compiledCELRules []celPreCompiledValidationRule) (jwt.MapClaims, error) {
+// Returns the verified claims and token header.
+func (p *Provider) parseAndValidateToken(token string, ops *verifierOptions, compiledCELRules []celPreCompiledValidationRule) (jwt.MapClaims, map[string]any, error) {
 	parserOpts := p.buildParserOptions(ops)
 
 	jwtToken, err := jwt.Parse(token, p.jwks.Keyfunc, parserOpts...)
 	if err != nil {
-		return nil, coreerrs.Wrapf(ErrInvalidToken, "%s", err)
+		return nil, nil, coreerrs.Wrapf(ErrInvalidToken, "%s", err)
 	}
 
 	if !jwtToken.Valid {
-		return nil, coreerrs.Wrap(ErrInvalidToken, "token is invalid")
+		return nil, nil, coreerrs.Wrap(ErrInvalidToken, "token is invalid")
 	}
 
 	claims, ok := jwtToken.Claims.(jwt.MapClaims)
 	if !ok {
-		return nil, coreerrs.Wrap(ErrInvalidToken, "invalid claims type")
+		return nil, nil, coreerrs.Wrap(ErrInvalidToken, "invalid claims type")
 	}
 
 	if err := p.validateClaims(claims, ops, compiledCELRules); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return claims, nil
+	return claims, jwtToken.Header, nil
 }
 
 func (p *Provider) validateWithPresetClaims(claims map[string]any, ops *verifierOptions, compiledCELRules []celPreCompiledValidationRule) error {

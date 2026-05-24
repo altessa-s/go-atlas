@@ -13,8 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
-
 	"github.com/altessa-s/go-atlas/data/probfilter"
 
 	corecontext "github.com/altessa-s/go-atlas/core/context"
@@ -84,32 +82,22 @@ func (p *Provider) IntrospectToken(ctx context.Context, token string) (*Introspe
 		return nil, coreerrs.Wrap(ErrIntrospection, "introspection client credentials not configured")
 	}
 
-	// Check revocation storage first (pre-introspect check)
-	if p.revocationStorage != nil {
-		item := token
-		switch p.opts.revocationItemType {
-		case RevocationItemTypeJTI:
-			if t, _, err := new(jwt.Parser).ParseUnverified(token, jwt.MapClaims{}); err == nil {
-				if claims, ok := t.Claims.(jwt.MapClaims); ok {
-					if jti, ok := claims[RevocationItemTypeJTI].(string); ok {
-						item = jti
-					}
-				}
-			}
-		case RevocationItemTypeKID:
-			if t, _, err := new(jwt.Parser).ParseUnverified(token, jwt.MapClaims{}); err == nil {
-				if kid, ok := t.Header[RevocationItemTypeKID].(string); ok {
-					item = kid
-				}
-			}
-		}
-
-		isRevoked, err := p.revocationStorage.IsRevoked(ctx, item)
+	// Pre-introspection revocation storage probe. We only short-circuit
+	// when the storage is keyed on the full token — extracting jti/kid from
+	// an unverified JWT to query the filter would let an attacker pick a
+	// key that the filter is guaranteed to miss (probabilistic filters
+	// never produce false negatives for added items, but they always say
+	// "not present" for keys that were never added). For jti/kid item
+	// types the probe is skipped and the request always reaches the IdP,
+	// which is the authoritative source.
+	if p.revocationStorage != nil &&
+		p.opts.revocationItemType != RevocationItemTypeJTI &&
+		p.opts.revocationItemType != RevocationItemTypeKID {
+		isRevoked, err := p.revocationStorage.IsRevoked(ctx, token)
 		if err == nil && !isRevoked {
-			// Storage (e.g. Bloom filter) says definitely NOT revoked
-			p.logger.DebugContext(ctx, "item not found in revocation storage, skipping introspection",
-				"item_type", p.opts.revocationItemType,
-				"item", item)
+			// Storage (e.g. Bloom filter) says definitely NOT revoked.
+			p.logger.DebugContext(ctx, "token not found in revocation storage, skipping introspection",
+				"item_type", p.opts.revocationItemType)
 			return &IntrospectionResponse{Active: true}, nil
 		}
 	}
@@ -197,21 +185,31 @@ func (p *Provider) IntrospectToken(ctx context.Context, token string) (*Introspe
 					"ttl", ttl)
 			}
 
-			// Also add to revocation storage to optimize subsequent checks
+			// Also add to revocation storage to optimize subsequent checks.
+			// We only populate the storage with values the IdP confirmed
+			// (full token, or jti returned by introspection). The kid is
+			// not returned by RFC 7662 introspection and reading it from
+			// the local header via ParseUnverified is unsafe — an attacker
+			// could craft a non-active token with the kid of a legitimate
+			// signing key, poisoning the revocation set and denying service
+			// to every token that genuinely uses that kid. Operators using
+			// kid-based revocation must populate it via the Sync path from
+			// a trusted source.
 			if p.revocationStorage != nil {
-				item := token
-				if p.opts.revocationItemType == RevocationItemTypeJTI && introspectionResp.Jti != "" {
-					item = introspectionResp.Jti
-				} else if p.opts.revocationItemType == RevocationItemTypeKID {
-					// KID is not typically returned in introspection response,
-					// so we fall back to full token or use the one from header if we can parse it.
-					if t, _, err := new(jwt.Parser).ParseUnverified(token, jwt.MapClaims{}); err == nil {
-						if kid, ok := t.Header[RevocationItemTypeKID].(string); ok {
-							item = kid
-						}
+				var item string
+				switch p.opts.revocationItemType {
+				case RevocationItemTypeJTI:
+					if introspectionResp.Jti != "" {
+						item = introspectionResp.Jti
 					}
+				case RevocationItemTypeKID:
+					// Skip — see security note above.
+				default:
+					item = token
 				}
-				_ = p.revocationStorage.MarkRevoked(ctx, item, ttl) //nolint:errcheck // Best-effort operation
+				if item != "" {
+					_ = p.revocationStorage.MarkRevoked(ctx, item, ttl) //nolint:errcheck // best-effort
+				}
 			}
 		} else {
 			ttl := boundedIntrospectionTTL(&introspectionResp, ActiveTokenCacheDuration)
