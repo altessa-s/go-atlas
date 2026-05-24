@@ -239,6 +239,13 @@ func indirectType(t reflect.Type) reflect.Type {
 	return t
 }
 
+// errDeduplicationKeyEncode is recorded when bson.Marshal fails inside
+// generateDeduplicationKey. Marshal errors here mean we cannot safely
+// dedupe the request — the function falls back to a per-key sentinel so
+// the singleflight slot stays unique and we never coalesce two
+// potentially-different queries.
+const deduplicationKeyMarshalSentinel = "\x00bson-marshal-error\x00"
+
 // generateDeduplicationKey creates a deterministic SHA-256 hash key from filter parameters.
 // This function is used for query deduplication in singleflight patterns to ensure that
 // identical queries (same prefix and filter) map to the same deduplication key.
@@ -267,24 +274,45 @@ func generateDeduplicationKey(prefix string, filter bson.M) string {
 		return prefix
 	}
 
-	// Sort keys first, then write key=value pairs directly to a builder
-	// to avoid intermediate []string allocation and per-key fmt.Sprintf.
+	// Sort keys so the same filter always produces the same key regardless
+	// of map iteration order.
 	keys := make([]string, 0, len(filter))
 	for k := range filter {
 		keys = append(keys, k)
 	}
 	slices.Sort(keys)
 
+	// Build a sorted bson.D and marshal it: BSON is a typed, canonical
+	// wire format so distinct values that share a Go fmt.Sprint
+	// representation (int32(1) vs int64(1), []byte("1") vs "1", two
+	// structs with identical String()) end up with different bytes and
+	// therefore different SHA-256 hashes. Using fmt.Fprint here would
+	// silently coalesce those distinct queries through singleflight and
+	// the second caller would receive the first caller's result.
+	d := make(bson.D, len(keys))
+	for i, key := range keys {
+		d[i] = bson.E{Key: key, Value: filter[key]}
+	}
+
 	var sb strings.Builder
 	sb.WriteString(prefix)
 	sb.WriteByte(':')
-	for i, key := range keys {
-		if i > 0 {
+
+	if encoded, err := bson.Marshal(d); err == nil {
+		sb.Write(encoded)
+	} else {
+		// Marshal failed (unsupported type, cycle, etc.). Avoid collapsing
+		// every failed-to-encode filter onto the same key — encode the
+		// error site into the dedupe key so distinct filters that both
+		// fail still get distinct singleflight slots, accepting a single
+		// missed-dedup over a wrong-result coalescence.
+		sb.WriteString(deduplicationKeyMarshalSentinel)
+		for _, key := range keys {
+			sb.WriteString(key)
+			sb.WriteByte('=')
+			fmt.Fprintf(&sb, "%#v", filter[key])
 			sb.WriteByte(';')
 		}
-		sb.WriteString(key)
-		sb.WriteByte('=')
-		fmt.Fprint(&sb, filter[key])
 	}
 
 	// Use SHA-256 for collision-resistant hashing (essential for correct singleflight deduplication)

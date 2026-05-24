@@ -171,3 +171,86 @@ func TestParseSortOption(t *testing.T) {
 		require.False(t, ok, "expected not ok for empty bson.D")
 	})
 }
+
+// TestGenerateDeduplicationKey_DistinguishesTypeSiblings is the regression
+// guard for the BSON-aware fix: values that share a fmt.Sprint
+// representation but differ by Go type (and therefore by BSON type) must
+// produce DIFFERENT singleflight keys. Before the fix, the fmt.Fprint
+// path silently coalesced these into the same key, so the second caller
+// inherited the first caller's result for a semantically different query.
+func TestGenerateDeduplicationKey_DistinguishesTypeSiblings(t *testing.T) {
+	cases := []struct {
+		name string
+		a    bson.M
+		b    bson.M
+	}{
+		{
+			name: "int32 vs int64",
+			a:    bson.M{"v": int32(1)},
+			b:    bson.M{"v": int64(1)},
+		},
+		{
+			name: "string vs bytes",
+			a:    bson.M{"v": "1"},
+			b:    bson.M{"v": []byte("1")},
+		},
+		{
+			name: "int vs string",
+			a:    bson.M{"v": 1},
+			b:    bson.M{"v": "1"},
+		},
+		{
+			name: "float64 vs int64",
+			a:    bson.M{"v": float64(1)},
+			b:    bson.M{"v": int64(1)},
+		},
+		{
+			name: "bool true vs string true",
+			a:    bson.M{"v": true},
+			b:    bson.M{"v": "true"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ka := generateDeduplicationKey("db:coll", tc.a)
+			kb := generateDeduplicationKey("db:coll", tc.b)
+			require.NotEqual(t, ka, kb,
+				"distinct BSON types must yield distinct singleflight keys — otherwise queries get incorrectly coalesced (a=%v b=%v)", tc.a, tc.b)
+		})
+	}
+}
+
+// TestGenerateDeduplicationKey_StableAcrossMapIteration confirms the
+// dependency on sorted keys is preserved — Go map iteration is randomized,
+// so the function MUST produce the same key for the same logical filter
+// across calls.
+func TestGenerateDeduplicationKey_StableAcrossMapIteration(t *testing.T) {
+	filter := bson.M{"a": 1, "b": "two", "c": int64(3), "d": []byte("four")}
+
+	first := generateDeduplicationKey("p", filter)
+	for range 100 {
+		require.Equal(t, first, generateDeduplicationKey("p", filter),
+			"same filter must produce the same key regardless of map iteration order")
+	}
+}
+
+// TestGenerateDeduplicationKey_DistinctFiltersDiverge sanity-checks the
+// basic correctness path: changing any key or value MUST produce a
+// different key.
+func TestGenerateDeduplicationKey_DistinctFiltersDiverge(t *testing.T) {
+	base := generateDeduplicationKey("p", bson.M{"a": 1, "b": 2})
+
+	require.NotEqual(t, base, generateDeduplicationKey("p", bson.M{"a": 1, "b": 3}),
+		"different values must diverge")
+	require.NotEqual(t, base, generateDeduplicationKey("p", bson.M{"a": 1, "b": 2, "c": 3}),
+		"extra key must diverge")
+	require.NotEqual(t, base, generateDeduplicationKey("q", bson.M{"a": 1, "b": 2}),
+		"different prefix must diverge")
+}
+
+// TestGenerateDeduplicationKey_EmptyFilter pins the early-return path.
+func TestGenerateDeduplicationKey_EmptyFilter(t *testing.T) {
+	require.Equal(t, "p", generateDeduplicationKey("p", nil))
+	require.Equal(t, "p", generateDeduplicationKey("p", bson.M{}))
+}
