@@ -103,8 +103,10 @@ func (p *Provider) refreshJWKSInternal(ctx context.Context) error {
 	refreshErr := p.doRefreshJWKS(ctx)
 	if refreshErr != nil {
 		p.metrics.jwksRefreshErrors.Inc()
+		return refreshErr
 	}
-	return refreshErr
+	p.markJWKSRefreshed()
+	return nil
 }
 
 func (p *Provider) doRefreshJWKS(ctx context.Context) error {

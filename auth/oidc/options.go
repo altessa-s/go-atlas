@@ -23,6 +23,46 @@ const (
 
 	// DefaultRevocationItemType is the default type of items stored in revocation storage.
 	DefaultRevocationItemType = "token"
+
+	// DefaultJWKSMaxStaleness is the default maximum age allowed for the
+	// locally cached JWKS before validation reacts per the configured
+	// [JWKSFailureMode]. A value of zero (the default) disables the
+	// staleness check entirely — callers that want to enforce a freshness
+	// bound must opt in via [WithJWKSMaxStaleness] and pair it with an
+	// active refresh path ([WithJWKSRefreshSchedule] or manual
+	// [Provider.RefreshJWKS] calls).
+	DefaultJWKSMaxStaleness time.Duration = 0
+
+	// DefaultJWKSFailureMode is the default behavior when the JWKS cache
+	// exceeds [DefaultJWKSMaxStaleness]. Production safe: [JWKSFailureModeEnforce]
+	// rejects validation, matching the rest of the project's safety-mode
+	// pattern (see the plugins `SignatureMode` precedent).
+	DefaultJWKSFailureMode = JWKSFailureModeEnforce
+)
+
+// JWKSFailureMode controls how the provider reacts when its locally cached
+// JWKS has not been refreshed within [DefaultJWKSMaxStaleness] (or whatever
+// the operator passed via [WithJWKSMaxStaleness]).
+type JWKSFailureMode string
+
+const (
+	// JWKSFailureModeEnforce rejects validation with [ErrJWKSStale] once the
+	// staleness threshold is crossed. This is the production-safe default —
+	// it guarantees that a token whose signing key may have been rotated
+	// upstream cannot be accepted on the strength of an unrefreshed cache.
+	JWKSFailureModeEnforce JWKSFailureMode = "enforce"
+
+	// JWKSFailureModeWarn logs an error every time validation observes a
+	// stale JWKS cache but still allows the token through. Use this for
+	// soft rollouts where rejecting traffic would be worse than serving
+	// possibly-stale-keyed requests for a bounded window.
+	JWKSFailureModeWarn JWKSFailureMode = "warn"
+
+	// JWKSFailureModeDisabled bypasses the staleness check entirely. It is
+	// equivalent to leaving [DefaultJWKSMaxStaleness] at zero and exists so
+	// operators can override a non-zero default supplied through config
+	// without recompiling.
+	JWKSFailureModeDisabled JWKSFailureMode = "disabled"
 )
 
 // DefaultRequiredClaims is the list of claims required by OIDC specification.
@@ -39,6 +79,8 @@ type options struct {
 	// deployment.
 	httpClientOptions           []httpclient.Option `opt:"HTTPClientOptions" optgen:"append"`
 	jwksHTTPTimeout             time.Duration       `optgen:"default=DefaultJWKSHTTPTimeout"`
+	jwksMaxStaleness            time.Duration       `opt:"JWKSMaxStaleness" optgen:"default=DefaultJWKSMaxStaleness"`
+	jwksFailureMode             JWKSFailureMode     `optgen:"manual,default=DefaultJWKSFailureMode"`
 	tokenCache                  Cacher
 	tokensCacheKeyPrefix        string `optgen:"default=DefaultTokensCacheKeyPrefix"`
 	revokedTokensCacheKeyPrefix string `optgen:"default=DefaultRevokedTokensCacheKeyPrefix"`
@@ -136,6 +178,23 @@ func WithJWKSRefreshSchedule(schedule string) Option {
 	return func(o *options) {
 		o.jwksRefreshEnabled = true
 		o.jwksRefreshSchedule = schedule
+	}
+}
+
+// WithJWKSFailureMode selects how the provider reacts when its locally
+// cached JWKS has not been refreshed within [WithJWKSMaxStaleness].
+// Defaults to [JWKSFailureModeEnforce]. Unknown / empty modes leave the
+// default in place.
+//
+// Pair this with [WithJWKSMaxStaleness] (and an active refresh path such
+// as [WithJWKSRefreshSchedule] or manual [Provider.RefreshJWKS] calls);
+// without a non-zero staleness budget the mode has no effect.
+func WithJWKSFailureMode(mode JWKSFailureMode) Option {
+	return func(o *options) {
+		switch mode {
+		case JWKSFailureModeEnforce, JWKSFailureModeWarn, JWKSFailureModeDisabled:
+			o.jwksFailureMode = mode
+		}
 	}
 }
 
