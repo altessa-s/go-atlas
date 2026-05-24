@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/altessa-s/go-atlas/observability/slog/handler/internal/base"
@@ -29,6 +30,15 @@ import (
 // fmt.Sprint so masking failures cannot crash the logger.
 const maxMaskDescentDepth = 10
 
+// maxPathCacheEntries caps the per-handler memoization map for masked
+// field paths. Once the cap is reached the cache is atomically swapped
+// for a fresh empty map (epoch-style reset) so an attacker driving
+// dynamic group names (request IDs, tenant slugs, header names) into
+// the slog tree cannot grow the cache for the lifetime of the process.
+// 4096 is enough to absorb the steady-state working set of any
+// realistic service while keeping peak memory bounded.
+const maxPathCacheEntries = 4096
+
 // Handler wraps a [slog.Handler] to mask sensitive fields based on configuration.
 // Field matching is case-insensitive. Safe for concurrent use.
 type Handler struct {
@@ -36,8 +46,13 @@ type Handler struct {
 	opts            *options
 	lowercaseFields *coremaps.ImmutableMap[string, MaskFunc] // for case-insensitive matching
 	patterns        []compiledPattern
-	pathCache       sync.Map // string -> MaskFunc
-	hasPatterns     bool
+	// pathCache memoizes mask resolution per field path. Stored as an
+	// atomic.Pointer[sync.Map] so [Handler.bumpPathCache] can swap in a
+	// fresh empty map (epoch reset) once [maxPathCacheEntries] is
+	// reached — preventing unbounded growth under dynamic group names.
+	pathCache      atomic.Pointer[sync.Map]
+	pathCacheCount atomic.Int64
+	hasPatterns    bool
 }
 
 type compiledPattern struct {
@@ -63,6 +78,9 @@ func NewHandler(inner slog.Handler, opts ...Option) slog.Handler {
 		Base: base.NewBase(inner),
 		opts: o,
 	}
+	// Seed the path cache with an empty map; subsequent epoch resets
+	// allocate a fresh one and swap it in atomically.
+	h.pathCache.Store(&sync.Map{})
 
 	// Pre-compute lowercase fields for case-insensitive matching
 	if !o.caseSensitive {
@@ -127,13 +145,19 @@ func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 		maskedAttrs = append(maskedAttrs, h.maskAttribute(attr, groups))
 	}
 
-	return &Handler{
+	cloned := &Handler{
 		Base:            h.WithAttrsBase(maskedAttrs),
 		opts:            h.opts,
 		lowercaseFields: h.lowercaseFields,
 		patterns:        h.patterns,
 		hasPatterns:     h.hasPatterns,
 	}
+	// Each derived handler gets its own bounded path cache. Sharing the
+	// parent's cache would let derived handlers steal cap from each
+	// other; isolating them keeps the maxPathCacheEntries bound a
+	// per-handler invariant.
+	cloned.pathCache.Store(&sync.Map{})
+	return cloned
 }
 
 // WithGroup returns a new Handler with the given group name.
@@ -142,13 +166,15 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 		return h
 	}
 
-	return &Handler{
+	cloned := &Handler{
 		Base:            h.WithGroupBase(name),
 		opts:            h.opts,
 		lowercaseFields: h.lowercaseFields,
 		patterns:        h.patterns,
 		hasPatterns:     h.hasPatterns,
 	}
+	cloned.pathCache.Store(&sync.Map{})
+	return cloned
 }
 
 // maskAttribute recursively masks an attribute based on configuration
@@ -387,13 +413,13 @@ func isAtomicType(t reflect.Type) bool {
 
 // getMaskForField uses pre-computed data for faster lookups
 func (h *Handler) getMaskForField(fieldName, fieldPath string) MaskFunc {
+	cache := h.pathCache.Load()
+
 	// Try cache first
-	if cached, ok := h.pathCache.Load(fieldPath); ok {
-		if mask, ok := cached.(MaskFunc); ok && mask != nil {
+	if cached, ok := cache.Load(fieldPath); ok {
+		if mask, ok := cached.(MaskFunc); ok {
 			return mask
 		}
-		// nil means no mask needed
-		return nil
 	}
 
 	var mask MaskFunc
@@ -432,8 +458,29 @@ func (h *Handler) getMaskForField(fieldName, fieldPath string) MaskFunc {
 		}
 	}
 
-	// Cache the result (including nil for no mask)
-	h.pathCache.Store(fieldPath, mask)
+	// Only cache POSITIVE matches. Caching every nil result would let
+	// an attacker driving dynamic group/field names (request IDs,
+	// tenant slugs, header names) grow the cache without bound — those
+	// paths are exactly the ones that will always miss. Positive hits
+	// represent the configured field universe and are naturally
+	// bounded by the user's mask list.
+	if mask != nil {
+		// Epoch reset: once we hit the cap, swap the whole map for a
+		// fresh empty one. Coarser than LRU but allocation-free on the
+		// hot path and bounds the worst-case memory footprint hard.
+		if h.pathCacheCount.Load() >= maxPathCacheEntries {
+			fresh := &sync.Map{}
+			if h.pathCache.CompareAndSwap(cache, fresh) {
+				h.pathCacheCount.Store(0)
+				cache = fresh
+			} else {
+				cache = h.pathCache.Load()
+			}
+		}
+		if _, loaded := cache.LoadOrStore(fieldPath, mask); !loaded {
+			h.pathCacheCount.Add(1)
+		}
+	}
 
 	return mask
 }
