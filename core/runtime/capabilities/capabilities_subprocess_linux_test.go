@@ -42,7 +42,7 @@ func TestDropAll_ZeroesEverySetInSubprocess(t *testing.T) {
 	if os.Getenv("CI") == "true" || os.Getenv("GITHUB_ACTIONS") == "true" {
 		t.Skip("skipping capabilities test in CI environment")
 	}
-	
+
 	exectest.RunInSubprocess(t, func() {
 		if err := capabilities.DropAll(); err != nil {
 			exectest.Failf("DropAll: %v", err)
@@ -91,7 +91,7 @@ func TestDropAllExcept_KeepsListedAndDropsRestInSubprocess(t *testing.T) {
 	if os.Getenv("CI") == "true" || os.Getenv("GITHUB_ACTIONS") == "true" {
 		t.Skip("skipping capabilities test in CI environment")
 	}
-	
+
 	exectest.RunInSubprocess(t, func() {
 		// Read the starting snapshot so we can detect the
 		// "unprivileged runner" case correctly.
