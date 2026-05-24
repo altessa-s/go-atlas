@@ -10,11 +10,13 @@ Internally `Optional[T]` carries `(value, present)` by value: `Some(v)` does **n
 
 ## Functions
 
-| Function    | Description                                                              |
-|-------------|--------------------------------------------------------------------------|
-| `Some[T]`   | `T` -> `Optional[T]` (carries `v`)                                       |
-| `None[T]`   | `()` -> `Optional[T]` (empty)                                            |
-| `Of[T]`     | `(T, bool)` -> `Optional[T]` (canonical bridge from `value, ok` lookups) |
+| Function      | Description                                                              |
+|---------------|--------------------------------------------------------------------------|
+| `Some[T]`     | `T` -> `Optional[T]` (carries `v`)                                       |
+| `None[T]`     | `()` -> `Optional[T]` (empty)                                            |
+| `Of[T]`       | `(T, bool)` -> `Optional[T]` (canonical bridge from `value, ok` lookups) |
+| `FromPtr[T]`  | `*T` -> `Optional[T]` (None if nil, Some with dereferenced value)        |
+| `ToPtr[T]`    | `Optional[T]` -> `*T` (nil if None, pointer to value if Some)           |
 
 ## Methods
 
@@ -56,4 +58,9 @@ if nick, ok := u.Nickname.Get(); ok {
 // Bridge from a (value, ok) lookup.
 opt := optional.Of(m[k])
 host := opt.OrDefault("localhost")
+
+// Convert from/to pointers.
+var ptr *string
+opt = optional.FromPtr(ptr) // None
+ptr = optional.ToPtr(optional.Some("hello")) // &"hello"
 ```
