@@ -9,6 +9,7 @@ import (
 	"net"
 	"slices"
 
+	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
@@ -168,6 +169,13 @@ func (s *Server) Start() (err error) {
 	// Use BaseServer.Start with gRPC-specific callback
 	return s.BaseServer.Start("grpc", func(ln net.Listener, errCh chan<- error) {
 		go func() {
+			// Recover panics that happen before grpc.Server.Serve has a
+			// chance to install its own per-stream recovery (e.g. during
+			// listener setup or option realization). Mirrors the
+			// equivalent recovery in transport/http/server/http.go so a
+			// panic in the spawn goroutine cannot bring down the process.
+			defer panics.Handle(context.Background())
+
 			if err := s.grpc.Serve(ln); err != nil {
 				// Non-blocking send to avoid panic if channel is no longer being read
 				select {
