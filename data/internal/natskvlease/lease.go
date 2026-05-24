@@ -79,6 +79,12 @@ type Lease struct {
 	metrics *leaseMetrics
 
 	isHeld atomic.Bool
+	// value holds the lease payload (owner identifier) as an atomically
+	// swappable pointer. The camping goroutine reads it on every Renew
+	// while UpdateValue may be called concurrently from a callback
+	// goroutine (e.g. dlock.OnRenewed) — using atomic.Pointer keeps
+	// reads and writes race-free without locking the hot Renew path.
+	value  atomic.Pointer[[]byte]
 	cancel context.CancelFunc
 	logger *slog.Logger
 }
@@ -93,19 +99,36 @@ func leaseLoggers(cfg LeaseConfig) (base *slog.Logger, scoped *slog.Logger) {
 func NewLease(kv jetstream.KeyValue, cfg LeaseConfig) *Lease {
 	logger, scoped := leaseLoggers(cfg)
 
-	return &Lease{
+	l := &Lease{
 		ops:     NewKVOps(kv, logger),
 		config:  cfg,
 		metrics: newLeaseMetrics(cfg.Collector),
 		logger:  scoped,
 	}
+	// Seed the race-safe value from the initial config. Take a defensive
+	// copy so a caller who mutates the slice they passed in does not
+	// race with the renew goroutine reading it.
+	initial := append([]byte(nil), cfg.Value...)
+	l.value.Store(&initial)
+	return l
+}
+
+// currentValue returns the most-recently-set lease payload (initial
+// LeaseConfig.Value, or whatever the latest UpdateValue installed).
+// The returned slice MUST NOT be mutated by callers — it is shared with
+// concurrent reads.
+func (l *Lease) currentValue() []byte {
+	if p := l.value.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // Acquire attempts to acquire the lease.
 // Returns true if successfully acquired, false if already held by another owner.
 func (l *Lease) Acquire(ctx context.Context) (bool, error) {
 	// Try to create the key - only succeeds if it doesn't exist
-	_, err := l.ops.Create(ctx, l.config.Key, l.config.Value)
+	_, err := l.ops.Create(ctx, l.config.Key, l.currentValue())
 	if err == nil {
 		l.isHeld.Store(true)
 		l.metrics.leaseHeld.Set(1)
@@ -144,7 +167,7 @@ func (l *Lease) tryTakeoverStale(ctx context.Context) (bool, error) {
 	// Check if we're already the owner
 	if l.config.IsOwner != nil && l.config.IsOwner(entry.Value()) {
 		// We own it, just update to renew
-		_, err := l.ops.Update(ctx, l.config.Key, l.config.Value, entry.Revision())
+		_, err := l.ops.Update(ctx, l.config.Key, l.currentValue(), entry.Revision())
 		if err == nil {
 			l.isHeld.Store(true)
 			return true, nil
@@ -189,7 +212,7 @@ func (l *Lease) Renew(ctx context.Context) (bool, error) {
 	}
 
 	// Update with new value (potentially updated timestamp)
-	_, err = l.ops.Update(ctx, l.config.Key, l.config.Value, entry.Revision())
+	_, err = l.ops.Update(ctx, l.config.Key, l.currentValue(), entry.Revision())
 	if err != nil {
 		if errors.Is(err, jetstream.ErrKeyExists) {
 			// Revision mismatch - someone else modified
@@ -263,8 +286,14 @@ func (l *Lease) GetOps() *KVOps {
 
 // UpdateValue updates the value stored with the lease.
 // The new value will be used in subsequent renewals.
+//
+// Safe to call concurrently with the renew goroutine — UpdateValue
+// atomically swaps an internal pointer rather than mutating the existing
+// slice. A defensive copy is taken so the caller may safely mutate or
+// recycle the supplied buffer after the call returns.
 func (l *Lease) UpdateValue(val []byte) {
-	l.config.Value = val
+	cp := append([]byte(nil), val...)
+	l.value.Store(&cp)
 }
 
 // RunCamping starts a camping loop that maintains the lease.
