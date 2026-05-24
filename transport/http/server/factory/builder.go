@@ -53,9 +53,10 @@ type ServerBuilder struct {
 	routerSet bool
 
 	// Timeouts (nil = use config value)
-	readTimeout  *time.Duration
-	writeTimeout *time.Duration
-	idleTimeout  *time.Duration
+	readTimeout       *time.Duration
+	readHeaderTimeout *time.Duration
+	writeTimeout      *time.Duration
+	idleTimeout       *time.Duration
 
 	// TLS override
 	tlsConfig *tls.Config
@@ -159,6 +160,17 @@ func (b *ServerBuilder) buildServerOptions(router server.Router) []server.Option
 		opts = append(opts, server.WithReadTimeout(*b.readTimeout))
 	} else {
 		opts = append(opts, server.WithReadTimeout(b.cfg.ReadTimeout))
+	}
+
+	if b.readHeaderTimeout != nil {
+		opts = append(opts, server.WithReadHeaderTimeout(*b.readHeaderTimeout))
+	} else if b.cfg.ReadHeaderTimeout > 0 {
+		// Honor an explicit config value, but fall back to the server
+		// package's own default (DefaultReadHeaderTimeout) for older
+		// configs that predate this field. Falling through silently
+		// would leave the server with ReadHeaderTimeout=0, which is
+		// the unsafe pre-fix behavior we're closing.
+		opts = append(opts, server.WithReadHeaderTimeout(b.cfg.ReadHeaderTimeout))
 	}
 
 	if b.writeTimeout != nil {

@@ -26,6 +26,8 @@ import (
 func TestDefaultOptions(t *testing.T) {
 	opts := defaultOptions()
 	require.Equal(t, DefaultReadTimeout, opts.readTimeout)
+	require.Equal(t, DefaultReadHeaderTimeout, opts.readHeaderTimeout,
+		"ReadHeaderTimeout MUST default to a non-zero value (Slowloris defense, gosec G112)")
 	require.Equal(t, DefaultWriteTimeout, opts.writeTimeout)
 	require.Equal(t, DefaultIdleTimeout, opts.idleTimeout)
 	require.Equal(t, DefaultMaxHeaderBytes, opts.maxHeaderBytes)
@@ -39,6 +41,37 @@ func TestWithReadTimeout(t *testing.T) {
 func TestWithReadTimeout_Negative(t *testing.T) {
 	opts := newOptions(WithReadTimeout(-1))
 	require.Equal(t, DefaultReadTimeout, opts.readTimeout)
+}
+
+func TestWithReadHeaderTimeout(t *testing.T) {
+	opts := newOptions(WithReadHeaderTimeout(7 * time.Second))
+	require.Equal(t, 7*time.Second, opts.readHeaderTimeout)
+}
+
+func TestWithReadHeaderTimeout_Negative(t *testing.T) {
+	opts := newOptions(WithReadHeaderTimeout(-1))
+	require.Equal(t, DefaultReadHeaderTimeout, opts.readHeaderTimeout,
+		"a negative value must NOT clobber the safe default with 0 — that would re-introduce the Slowloris hole")
+}
+
+func TestNew_PropagatesReadHeaderTimeoutToHTTPServer(t *testing.T) {
+	// End-to-end check that the option actually reaches the underlying
+	// *http.Server. Start the server, then assert via the internal field —
+	// Slowloris defense lives in the stdlib field, not in our Server
+	// struct copy.
+	srv := newTestServer(t, "/", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	require.NoError(t, srv.Start())
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(ctx)
+	})
+
+	require.Equal(t, DefaultReadHeaderTimeout, srv.http.ReadHeaderTimeout,
+		"Server.Start must set http.Server.ReadHeaderTimeout — otherwise gosec G112 still triggers and Slowloris is wide open")
 }
 
 func TestWithWriteTimeout(t *testing.T) {

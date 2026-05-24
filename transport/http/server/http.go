@@ -69,16 +69,17 @@ var _ RouteRegistrar = (*Server)(nil)
 type Server struct {
 	*baseserver.BaseServer
 
-	stopCh         chan struct{}
-	http           *http.Server
-	router         Router
-	readTimeout    time.Duration
-	writeTimeout   time.Duration
-	idleTimeout    time.Duration
-	maxHeaderBytes int
-	writer         ResponseWriter
-	middleware     []Middleware
-	handlers       []Handler
+	stopCh            chan struct{}
+	http              *http.Server
+	router            Router
+	readTimeout       time.Duration
+	readHeaderTimeout time.Duration
+	writeTimeout      time.Duration
+	idleTimeout       time.Duration
+	maxHeaderBytes    int
+	writer            ResponseWriter
+	middleware        []Middleware
+	handlers          []Handler
 }
 
 // New creates a new HTTP [Server]. A [Router] is required (via [WithRouter]);
@@ -96,14 +97,15 @@ func New(opts ...Option) (*Server, error) {
 	}
 
 	srv := &Server{
-		BaseServer:     baseserver.NewBaseServer(cfg.baseOpts...),
-		stopCh:         make(chan struct{}),
-		router:         cfg.router,
-		readTimeout:    cfg.readTimeout,
-		writeTimeout:   cfg.writeTimeout,
-		idleTimeout:    cfg.idleTimeout,
-		maxHeaderBytes: cfg.maxHeaderBytes,
-		writer:         cfg.writer,
+		BaseServer:        baseserver.NewBaseServer(cfg.baseOpts...),
+		stopCh:            make(chan struct{}),
+		router:            cfg.router,
+		readTimeout:       cfg.readTimeout,
+		readHeaderTimeout: cfg.readHeaderTimeout,
+		writeTimeout:      cfg.writeTimeout,
+		idleTimeout:       cfg.idleTimeout,
+		maxHeaderBytes:    cfg.maxHeaderBytes,
+		writer:            cfg.writer,
 	}
 
 	return srv, nil
@@ -209,14 +211,23 @@ func (s *Server) Start() (err error) {
 		initRouter.Initialize()
 	}
 
-	// Configure HTTP server
+	// Configure HTTP server.
+	//
+	// ReadHeaderTimeout caps the header-read phase independently of the
+	// full ReadTimeout. Without it, the per-request budget is the full
+	// ReadTimeout (15s by default; up to 300s under config-level
+	// overrides), which a Slowloris-style client can use to pin a
+	// goroutine per connection by trickling header bytes. ReadHeaderTimeout
+	// (default DefaultReadHeaderTimeout) bounds the header phase to
+	// seconds while keeping the body-read budget unchanged.
 	s.http = &http.Server{
-		Handler:        s.router,
-		TLSConfig:      s.TLSConfig(),
-		ReadTimeout:    s.readTimeout,
-		WriteTimeout:   s.writeTimeout,
-		IdleTimeout:    s.idleTimeout,
-		MaxHeaderBytes: s.maxHeaderBytes,
+		Handler:           s.router,
+		TLSConfig:         s.TLSConfig(),
+		ReadTimeout:       s.readTimeout,
+		ReadHeaderTimeout: s.readHeaderTimeout,
+		WriteTimeout:      s.writeTimeout,
+		IdleTimeout:       s.idleTimeout,
+		MaxHeaderBytes:    s.maxHeaderBytes,
 	}
 
 	// Use BaseServer.Start with HTTP-specific callback
