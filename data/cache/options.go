@@ -16,11 +16,25 @@ import (
 // DefaultTTL is the default time-to-live for cache items (1 hour).
 const DefaultTTL = 1 * time.Hour
 
+// DefaultMaxConcurrentFallbacks bounds the number of fallback functions
+// the cache will run in parallel, regardless of how many distinct keys
+// arrive at GetWithFallback. Without this bound an attacker driving
+// arbitrary cache keys (one per request) can launch an unbounded number
+// of slow downstream calls in parallel — singleflight only dedupes
+// IDENTICAL keys, so distinct attacker-chosen keys all pass through.
+//
+// 1024 is high enough that legitimate traffic never queues in practice
+// (singleflight already collapses repeats of hot keys), but low enough
+// that the worst-case memory footprint of in-flight fallbacks is
+// bounded and the downstream gets reasonable backpressure under attack.
+const DefaultMaxConcurrentFallbacks = 1024
+
 // options contains Cache configuration.
 type options struct {
-	ttl         time.Duration `optgen:"default=DefaultTTL"`
-	negativeTtl time.Duration // zero = disabled
-	serializer  serializer.Serializer
-	collector   metrics.Collector `optgen:"notnil"`
-	name        string
+	ttl                    time.Duration `optgen:"default=DefaultTTL"`
+	negativeTtl            time.Duration // zero = disabled
+	maxConcurrentFallbacks int           `optgen:"default=DefaultMaxConcurrentFallbacks"`
+	serializer             serializer.Serializer
+	collector              metrics.Collector `optgen:"notnil"`
+	name                   string
 }
