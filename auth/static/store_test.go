@@ -214,12 +214,12 @@ func TestRateLimitedStore_Validate(t *testing.T) {
 		t.Parallel()
 		inner := static.NewInMemoryStore()
 		limiter := &denyLimiter{allow: false}
-		s := static.NewRateLimitedStore(inner, limiter, nil)
+		s := static.NewRateLimitedStore(inner, limiter, func(context.Context) string { return "client-1" })
 
 		_, err := s.Validate(t.Context(), "anything")
 		require.ErrorIs(t, err, static.ErrRateLimited)
-		require.NotContains(t, err.Error(), "global",
-			"rate-limit key (here the default \"global\") must not leak into the error string — it propagates to logs and gRPC/HTTP error payloads")
+		require.NotContains(t, err.Error(), "client-1",
+			"rate-limit key must not leak into the error string — it propagates to logs and gRPC/HTTP error payloads")
 	})
 
 	t.Run("failed auth records failure", func(t *testing.T) {
@@ -249,15 +249,29 @@ func TestRateLimitedStore_Validate(t *testing.T) {
 	t.Run("nil store panics", func(t *testing.T) {
 		t.Parallel()
 		require.Panics(t, func() {
-			static.NewRateLimitedStore(nil, &denyLimiter{}, nil)
+			static.NewRateLimitedStore(nil, &denyLimiter{}, func(context.Context) string { return "k" })
 		})
 	})
 
 	t.Run("nil limiter panics", func(t *testing.T) {
 		t.Parallel()
 		require.Panics(t, func() {
-			static.NewRateLimitedStore(static.NewInMemoryStore(), nil, nil)
+			static.NewRateLimitedStore(static.NewInMemoryStore(), nil, func(context.Context) string { return "k" })
 		})
+	})
+
+	// Regression: a nil KeyFunc must panic just like nil store / limiter.
+	// The previous implementation silently defaulted to a single global
+	// bucket, which let one attacker triggering ErrRateLimited lock out
+	// every legitimate user — a DoS amplification. Callers must commit
+	// to a partitioning strategy at construction time.
+	t.Run("nil keyFn panics", func(t *testing.T) {
+		t.Parallel()
+		require.PanicsWithValue(t,
+			"auth/static: RateLimitedStore requires a non-nil KeyFunc — a default global bucket would let one attacker rate-limit every legitimate user",
+			func() {
+				static.NewRateLimitedStore(static.NewInMemoryStore(), &denyLimiter{}, nil)
+			})
 	})
 
 	// Regression: 1 valid + N invalid attempts must accumulate the N
@@ -303,7 +317,11 @@ func (e errStore) Validate(context.Context, string) (any, error) { return nil, e
 func TestRateLimitedStore_PropagatesStoreError(t *testing.T) {
 	t.Parallel()
 	sentinel := errors.New("custom error")
-	s := static.NewRateLimitedStore(errStore{err: sentinel}, &denyLimiter{allow: true}, nil)
+	s := static.NewRateLimitedStore(
+		errStore{err: sentinel},
+		&denyLimiter{allow: true},
+		func(context.Context) string { return "k" },
+	)
 	_, err := s.Validate(t.Context(), "x")
 	require.ErrorIs(t, err, sentinel)
 }
