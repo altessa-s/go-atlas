@@ -39,6 +39,13 @@ func WithCleanupSchedule[T interface{ string | *string }](v T) Option {
 	}
 }
 
+// WithMaxBuckets sets the maxBuckets option.
+func WithMaxBuckets(v int) Option {
+	return func(o *options) {
+		o.maxBuckets = v
+	}
+}
+
 // WithMaxIdleTime sets the maxIdleTime option.
 func WithMaxIdleTime(v time.Duration) Option {
 	return func(o *options) {
@@ -65,6 +72,7 @@ func WithScheduler(v corescheduler.TaskRegistrar) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
+		maxBuckets:  DefaultMaxBuckets,
 		maxIdleTime: DefaultMaxIdleTime,
 	}
 }
