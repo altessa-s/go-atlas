@@ -65,7 +65,7 @@ func TestEngineBuilder_Build_Success(t *testing.T) {
 	engine, err := builder.Build()
 	require.NoError(t, err)
 	require.NotNil(t, engine)
-	
+
 	// Cleanup
 	require.NoError(t, engine.Shutdown(context.Background()))
 }
@@ -93,7 +93,7 @@ func TestEngineBuilder_Build_WithWAL(t *testing.T) {
 	engine, err := builder.Build()
 	require.NoError(t, err)
 	require.NotNil(t, engine)
-	
+
 	// Cleanup
 	require.NoError(t, engine.Shutdown(context.Background()))
 }
