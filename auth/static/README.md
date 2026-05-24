@@ -83,8 +83,15 @@ store := static.NewInMemoryStore(static.WithHMACKey(secret))
 ### Rate limiting
 
 `RateLimitedStore` wraps a `TokenStore` and consults a caller-supplied `RateLimiter`. The package does not ship an implementation — wire one
-from `data/limiters/tokenbucket`, a Redis-backed limiter, or any other source. On a successful validation the limiter is reset for the
-request key so legitimate clients are not punished for past failures.
+from `data/limiters/tokenbucket`, a Redis-backed limiter, or any other source.
+
+The contract is **failure-only**: `Allow` is a pure check that MUST NOT consume budget by itself, and `RecordFailure` is the only path that
+debits the per-key counter. Successful validations never touch the limiter. This shape exists to defeat the success-resets-counter brute-force
+bypass: if a success could reset (or even just refund) the budget, an attacker holding a single valid token could interleave 1 valid + N invalid
+attempts and the invalid attempts would never accumulate.
+
+Because the decorator never refunds, the limiter MUST self-decay (token-bucket refill, sliding window, TTL'd counter) — a monotonic counter will
+eventually lock legitimate clients out of their own tokens.
 
 ```go
 limiter := myLimiter // implements static.RateLimiter
