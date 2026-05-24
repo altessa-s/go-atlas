@@ -17,6 +17,8 @@ import (
 	"sync"
 
 	"github.com/altessa-s/go-atlas/config/loader/backend"
+
+	coreio "github.com/altessa-s/go-atlas/core/io"
 )
 
 const (
@@ -54,8 +56,18 @@ func (cf *Config) loadAndDecode(f *file, out any) (err error) {
 		_ = osFile.Close()
 	}()
 
-	// Read file content for environment variable substitution
-	content, err := io.ReadAll(osFile)
+	// Read file content for environment variable substitution. The read
+	// is bounded by maxConfigBytes (default DefaultMaxConfigBytes, 16
+	// MiB): without a cap, a symlink to /dev/zero or a multi-GB tmpfs
+	// file would OOM the loader before the YAML parser ever rejected
+	// the input. Operators with genuinely huge configs can raise the
+	// cap via WithMaxConfigBytes.
+	maxBytes := cf.options.maxConfigBytes
+	if maxBytes <= 0 {
+		maxBytes = DefaultMaxConfigBytes
+	}
+	limited := coreio.NewLimitedReadCloser(osFile, maxBytes)
+	content, err := io.ReadAll(limited)
 	if err != nil && err != io.EOF {
 		err = fmt.Errorf("%w: %s: %w", ErrDecode, f.name, err)
 		return
