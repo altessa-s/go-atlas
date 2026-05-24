@@ -9,6 +9,7 @@ root                        # Changes to go.mod, Makefile, CI/CD, project-wide c
 auth                        # General auth changes
 auth/oidc                   # OIDC/JWT validation, JWKS
 auth/opa                    # Open Policy Agent integration
+auth/static                 # Static auth provider
 
 # Commands
 cmd                         # CLI tools and commands

@@ -202,8 +202,8 @@ func TestHTTPIntegration_DynamicTokenManagement(t *testing.T) {
 
 type denyLimiter struct{}
 
-func (denyLimiter) Allow(context.Context, string) bool { return false }
-func (denyLimiter) Reset(string)                       {}
+func (denyLimiter) Allow(context.Context, string) bool    { return false }
+func (denyLimiter) RecordFailure(context.Context, string) {}
 
 type errStore struct{ err error }
 
