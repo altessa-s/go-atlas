@@ -37,6 +37,7 @@ core/net                    # Network utilities
 core/net/http               # HTTP client middleware
 core/retry                  # Retry logic with backoff
 core/runtime                # Runtime utilities
+core/runtime/capabilities   # Linux capabilities management
 core/runtime/concurrency    # Concurrency primitives
 core/runtime/concurrency/dispatch  # Async batching dispatcher
 core/runtime/panics         # Panic recovery
