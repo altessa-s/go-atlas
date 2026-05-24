@@ -60,5 +60,15 @@ type LockInfo struct {
 	LastRenewed  time.Time     // The time the lock was last renewed.
 	TTL          time.Duration // The time-to-live duration of the lock.
 	FencingToken uint64        // Monotonically increasing token for fencing stale lock holders.
-	IsStale      bool          // Whether the lock is stale.
+
+	// IsStale is a BEST-EFFORT reporting hint computed from
+	// time.Now().Sub(LastRenewed) > TTL. The subtraction uses non-monotonic
+	// wall-clock fields that may differ between the holder and the
+	// observer node, so IsStale can flip across NTP corrections or
+	// clock skew — callers MUST NOT use it to make safety-critical
+	// decisions. The only authoritative liveness signal is the
+	// JetStream KV TTL: once the underlying key expires the lease is
+	// definitively gone, and the [FencingToken] revision is the
+	// authoritative ordering primitive for write-fencing.
+	IsStale bool
 }

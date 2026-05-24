@@ -113,6 +113,10 @@ func (l *lock) GetLockInfo(ctx context.Context) (*providers.LockInfo, error) {
 		return nil, err
 	}
 
+	// Best-effort staleness hint — see [providers.LockInfo.IsStale] for
+	// the caveats. The subtraction below is wall-clock-based and may
+	// disagree between nodes; safety-critical decisions belong to the
+	// FencingToken / KV TTL path, never to this flag.
 	now := time.Now()
 	isStale := now.Sub(metadata.LastRenewed) > time.Duration(metadata.TTL)
 
