@@ -42,12 +42,25 @@ type ValidationRulesConfig struct {
 	// Default: "0s"
 	Leeway string `json:"leeway,omitempty"`
 
-	// VerifyExpiration enables verification of token expiration time (exp claim).
-	// Default: true
+	// VerifyExpiration controls verification of token expiration (exp claim).
+	//
+	// Tri-state:
+	//   - nil (field omitted): jwt-go default — exp is validated when
+	//     present, missing exp is accepted.
+	//   - true: exp is required AND validated; tokens without exp are
+	//     rejected with [ErrInvalidToken]. Equivalent to passing
+	//     [WithValidationExpirationRequired] at runtime.
+	//   - false: REJECTED at config-load time with [ErrInvalidConfig].
+	//     Disabling exp validation safely is not supported by the
+	//     underlying JWT library (the only switch is the all-or-nothing
+	//     [jwt.WithoutClaimsValidation]); rejecting an explicit `false`
+	//     keeps the misconfiguration loud instead of silently inverting
+	//     operator intent.
 	VerifyExpiration *bool `json:"verify_expiration,omitempty"`
 
-	// VerifyNotBefore enables verification of token not-before time (nbf claim).
-	// Default: false
+	// VerifyNotBefore controls verification of token not-before time (nbf claim).
+	// Same tri-state semantics as [ValidationRulesConfig.VerifyExpiration]:
+	// nil = jwt-go default, true = require nbf, false = config error.
 	VerifyNotBefore *bool `json:"verify_not_before,omitempty"`
 
 	// VerifyIssuedAt enables verification of token issued-at time (iat claim).
@@ -326,8 +339,18 @@ func (v *ValidationRulesConfig) ToValidationOptions() ([]ValidationOption, error
 		opts = append(opts, WithValidationLeeway(duration))
 	}
 
-	// Note: VerifyExpiration and VerifyNotBefore are handled automatically by JWT library
-	// We only support WithValidationIssuedAt() for now
+	// Verify expiration: nil = jwt-go default (exp validated when present);
+	// true = require the claim (also rejects tokens missing exp). An
+	// explicit false is refused at config-validation time, so by the time
+	// we reach this conversion it cannot reach the runtime path.
+	if v.VerifyExpiration != nil && *v.VerifyExpiration {
+		opts = append(opts, WithValidationExpirationRequired())
+	}
+
+	// Verify not-before: same tri-state as VerifyExpiration above.
+	if v.VerifyNotBefore != nil && *v.VerifyNotBefore {
+		opts = append(opts, WithValidationNotBeforeRequired())
+	}
 
 	// Verify issued at
 	if v.VerifyIssuedAt != nil {
@@ -649,6 +672,24 @@ func validateValidationRulesConfig(config *ValidationRulesConfig, path string) e
 		if _, err := time.ParseDuration(config.Leeway); err != nil {
 			return coreerrs.Wrapf(ErrInvalidDuration, "invalid %s.leeway: %v", path, err)
 		}
+	}
+
+	// Reject an explicit `false` on the verify_expiration / verify_not_before
+	// switches. The underlying jwt-go library does not expose per-claim
+	// opt-outs (the only switch is the all-or-nothing WithoutClaimsValidation),
+	// so silently honoring `false` here would either be a no-op (the JWT
+	// library keeps validating) or, worse, leave operators thinking they
+	// disabled a check that is still running. Refusing the value at
+	// config-load time keeps the misconfiguration loud.
+	if config.VerifyExpiration != nil && !*config.VerifyExpiration {
+		return coreerrs.Wrapf(ErrInvalidConfig,
+			"%s.verify_expiration: explicit `false` is not supported — omit the field to keep the JWT default or set it to true to require the exp claim",
+			path)
+	}
+	if config.VerifyNotBefore != nil && !*config.VerifyNotBefore {
+		return coreerrs.Wrapf(ErrInvalidConfig,
+			"%s.verify_not_before: explicit `false` is not supported — omit the field to keep the JWT default or set it to true to require the nbf claim",
+			path)
 	}
 
 	// Validate token lifetime

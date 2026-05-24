@@ -89,6 +89,13 @@ func WithValidationExpectedClaims(v map[string]string) ValidationOption {
 	}
 }
 
+// WithValidationExpirationRequired enables the expirationRequired option.
+func WithValidationExpirationRequired() ValidationOption {
+	return func(o *verifierOptions) {
+		o.expirationRequired = true
+	}
+}
+
 // WithValidationIgnoredClaims sets the ignoredClaims option.
 func WithValidationIgnoredClaims(v ...string) ValidationOption {
 	return func(o *verifierOptions) {
@@ -151,6 +158,13 @@ func WithValidationMaxTokenLifetime(v time.Duration) ValidationOption {
 			return
 		}
 		o.maxTokenLifetime = v
+	}
+}
+
+// WithValidationNotBeforeRequired enables the notBeforeRequired option.
+func WithValidationNotBeforeRequired() ValidationOption {
+	return func(o *verifierOptions) {
+		o.notBeforeRequired = true
 	}
 }
 

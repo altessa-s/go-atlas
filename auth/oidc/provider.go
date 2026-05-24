@@ -1000,6 +1000,21 @@ func (p *Provider) buildParserOptions(ops *verifierOptions) []jwt.ParserOption {
 		parserOpts = append(parserOpts, jwt.WithIssuedAt())
 	}
 
+	// Require the exp claim to be present when explicitly opted in. The
+	// jwt-go library always validates exp when it appears in the token;
+	// WithExpirationRequired adds the stricter contract that a token
+	// without exp is rejected (matches `verify_expiration: true` in the
+	// service config).
+	if ops.expirationRequired {
+		parserOpts = append(parserOpts, jwt.WithExpirationRequired())
+	}
+
+	// Same contract for the nbf claim — `verify_not_before: true` in the
+	// service config translates to "nbf must be present and respected".
+	if ops.notBeforeRequired {
+		parserOpts = append(parserOpts, jwt.WithNotBeforeRequired())
+	}
+
 	// Always verify issuer (use discovery issuer as fallback)
 	issuer := ops.issuer
 	if issuer == "" {

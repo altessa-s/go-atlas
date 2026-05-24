@@ -47,13 +47,13 @@
         },
         "verify_expiration": {
           "type": "boolean",
-          "description": "Verify token expiration time (exp claim)",
-          "default": true
+          "description": "Require the exp claim. Omit to keep the JWT-library default (validate when present, allow when missing). Setting true rejects tokens without exp. Setting false is rejected at config-load time — disabling exp validation safely is not supported by the underlying JWT library.",
+          "enum": [true]
         },
         "verify_not_before": {
           "type": "boolean",
-          "description": "Verify token not-before time (nbf claim)",
-          "default": false
+          "description": "Require the nbf claim. Omit to keep the JWT-library default. Setting true rejects tokens without nbf. Setting false is rejected at config-load time.",
+          "enum": [true]
         },
         "verify_issued_at": {
           "type": "boolean",
