@@ -170,7 +170,16 @@ func (o *Outbox) dispatchEvent(ctx context.Context, event Event) error {
 	err := coreretry.Do(ctx, func(ctx context.Context) error {
 		return o.handler(ctx, event)
 	},
-		coreretry.WithMaxAttempts(-1), // retry until success or ctx cancellation
+		// Bound the per-event retry loop by retryMaxAttempts. Previously
+		// this was -1 (retry until ctx cancellation), so a single poison
+		// message returning a "transient-looking" error would occupy a
+		// worker slot in concurrency.ProcessCollect indefinitely while
+		// every other event waited. Using the same attempt budget that
+		// the outbox state machine uses keeps the two layers aligned —
+		// once the per-event budget is exhausted, the event flows back
+		// to the store and gets picked up on a later cycle (subject to
+		// isReadyForRetry).
+		coreretry.WithMaxAttempts(int(o.retryMaxAttempts)),
 		coreretry.WithShouldRetry(func(err error) bool {
 			if coreerrs.IsContextCanceled(err) {
 				return false
