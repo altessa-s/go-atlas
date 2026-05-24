@@ -453,6 +453,14 @@ func (m *Mongo) Client() *mongo.Client {
 func GetEntity[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collection, filter bson.M) (E, error) {
 	var zero E
 
+	// Reject filters that smuggle server-side JavaScript operators
+	// ($where / $function / $accumulator) at any depth. The public
+	// signature accepts bson.M from untrusted callers, so this is the
+	// last common chokepoint before the filter reaches the driver.
+	if err := validateFilter(filter); err != nil {
+		return zero, err
+	}
+
 	opLabels := metrics.Labels{"op": "find_one", "collection": col.Name()}
 	m.metrics.operationsTotal.WithLabels(opLabels).Inc()
 	stopOp := m.metrics.operationDuration.WithLabels(opLabels).Start()
@@ -533,6 +541,12 @@ func GetEntity[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collectio
 //
 //	users, err := mongotools.GetEntities[UserModel, UserEntity](ctx, mongo, collection, bson.M{"active": true})
 func GetEntities[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collection, filter bson.M) ([]E, error) {
+	// Same chokepoint as GetEntity — reject server-side JS operators
+	// before any work is done.
+	if err := validateFilter(filter); err != nil {
+		return nil, err
+	}
+
 	opLabels := metrics.Labels{"op": "find", "collection": col.Name()}
 	m.metrics.operationsTotal.WithLabels(opLabels).Inc()
 	stopOp := m.metrics.operationDuration.WithLabels(opLabels).Start()

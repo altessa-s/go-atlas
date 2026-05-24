@@ -254,3 +254,112 @@ func TestGenerateDeduplicationKey_EmptyFilter(t *testing.T) {
 	require.Equal(t, "p", generateDeduplicationKey("p", nil))
 	require.Equal(t, "p", generateDeduplicationKey("p", bson.M{}))
 }
+
+// TestValidateFilter_RejectsDangerousOperators is the regression guard:
+// every operator in [dangerousFilterOperators] must be blocked at any
+// depth of the filter — including nested inside $expr, $or, $and, and
+// $nor arrays.
+func TestValidateFilter_RejectsDangerousOperators(t *testing.T) {
+	cases := []struct {
+		name   string
+		filter bson.M
+		op     string
+	}{
+		{
+			name:   "top-level $where",
+			filter: bson.M{"$where": "this.x == this.y"},
+			op:     "$where",
+		},
+		{
+			name:   "top-level $function",
+			filter: bson.M{"$function": bson.M{"body": "function() {}", "lang": "js"}},
+			op:     "$function",
+		},
+		{
+			name:   "top-level $accumulator",
+			filter: bson.M{"$accumulator": bson.M{}},
+			op:     "$accumulator",
+		},
+		{
+			name: "nested in $expr via bson.M",
+			filter: bson.M{
+				"$expr": bson.M{"$function": bson.M{"body": "function() {}", "lang": "js"}},
+			},
+			op: "$function",
+		},
+		{
+			name: "nested in $or via []bson.M",
+			filter: bson.M{
+				"$or": []bson.M{
+					{"a": 1},
+					{"$where": "true"},
+				},
+			},
+			op: "$where",
+		},
+		{
+			name: "nested in $or via []any",
+			filter: bson.M{
+				"$or": []any{
+					bson.M{"a": 1},
+					bson.M{"$where": "true"},
+				},
+			},
+			op: "$where",
+		},
+		{
+			name: "nested in $and via bson.A",
+			filter: bson.M{
+				"$and": bson.A{
+					bson.M{"a": 1},
+					bson.M{"$accumulator": bson.M{}},
+				},
+			},
+			op: "$accumulator",
+		},
+		{
+			name: "deeply nested via bson.D",
+			filter: bson.M{
+				"$expr": bson.D{{Key: "$function", Value: bson.M{}}},
+			},
+			op: "$function",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateFilter(tc.filter)
+			require.ErrorIs(t, err, ErrFilterContainsDangerousOperator,
+				"validateFilter must surface ErrFilterContainsDangerousOperator")
+			require.Contains(t, err.Error(), tc.op,
+				"error must name the offending operator so logs locate the attacker payload")
+		})
+	}
+}
+
+// TestValidateFilter_AllowsLegitimateOperators confirms the deny-list is
+// narrow: common comparison / logical / projection operators must pass
+// untouched. Blocking them would break every real query.
+func TestValidateFilter_AllowsLegitimateOperators(t *testing.T) {
+	cases := []bson.M{
+		{"_id": "abc"},
+		{"$or": []bson.M{{"a": 1}, {"b": 2}}},
+		{"age": bson.M{"$gt": 18, "$lt": 65}},
+		{"tags": bson.M{"$in": []string{"x", "y"}}},
+		{"$and": bson.A{bson.M{"x": 1}, bson.M{"y": 2}}},
+		{"$expr": bson.M{"$eq": []string{"$field1", "$field2"}}}, // $expr without nested $function — safe
+		{"name": bson.M{"$regex": "^a", "$options": "i"}},        // regex is a perf hazard, not RCE; allowed
+		{"score": bson.M{"$exists": true, "$ne": nil}},
+	}
+
+	for i, filter := range cases {
+		require.NoError(t, validateFilter(filter),
+			"case %d (%v) must pass — only RCE-grade operators are blocked", i, filter)
+	}
+}
+
+// TestValidateFilter_EmptyAndNil pins the edge cases.
+func TestValidateFilter_EmptyAndNil(t *testing.T) {
+	require.NoError(t, validateFilter(nil))
+	require.NoError(t, validateFilter(bson.M{}))
+}
