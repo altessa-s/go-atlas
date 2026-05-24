@@ -108,6 +108,16 @@ func (b *ServerBuilder) WithReadTimeout(d time.Duration) *ServerBuilder {
 	return b
 }
 
+// WithReadHeaderTimeout overrides the per-request header-read timeout
+// from config. This is the Slowloris defense knob — it bounds the
+// header-read phase independently of [ServerBuilder.WithReadTimeout],
+// so streaming-friendly read budgets can coexist with a tight header
+// budget. Use [server.DefaultReadHeaderTimeout] as a sane lower bound.
+func (b *ServerBuilder) WithReadHeaderTimeout(d time.Duration) *ServerBuilder {
+	b.readHeaderTimeout = &d
+	return b
+}
+
 // WithWriteTimeout overrides the write timeout from config.
 func (b *ServerBuilder) WithWriteTimeout(d time.Duration) *ServerBuilder {
 	b.writeTimeout = &d

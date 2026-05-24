@@ -13,11 +13,12 @@ import (
 
 // Default values for Http configuration.
 const (
-	defaultHttpListenAddress = "0.0.0.0:9080"
-	defaultHttpReadTimeout   = 300 * time.Second
-	defaultHttpWriteTimeout  = 300 * time.Second
-	defaultHttpIdleTimeout   = 600 * time.Second
-	defaultHttpLogRequests   = false
+	defaultHttpListenAddress     = "0.0.0.0:9080"
+	defaultHttpReadTimeout       = 300 * time.Second
+	defaultHttpReadHeaderTimeout = 10 * time.Second
+	defaultHttpWriteTimeout      = 300 * time.Second
+	defaultHttpIdleTimeout       = 600 * time.Second
+	defaultHttpLogRequests       = false
 )
 
 // Http represents the configuration for HTTP server settings.
@@ -43,6 +44,13 @@ type Http struct {
 	// ReadTimeout is the maximum duration for reading the entire request,
 	// including the body. Defaults to 300 seconds.
 	ReadTimeout time.Duration `yaml:"readTimeout" default:"300s"`
+
+	// ReadHeaderTimeout caps the time the server spends reading the
+	// request headers. Independent from ReadTimeout, this is the primary
+	// Slowloris defense: it bounds the header-read phase to a short window
+	// even when ReadTimeout is intentionally long (e.g. for streaming
+	// uploads). Defaults to 10 seconds.
+	ReadHeaderTimeout time.Duration `yaml:"readHeaderTimeout" default:"10s"`
 
 	// WriteTimeout is the maximum duration before timing out writes of the response.
 	// Defaults to 300 seconds.
@@ -71,11 +79,12 @@ type Http struct {
 // DefaultHttp returns an Http configuration with default values.
 func DefaultHttp() Http {
 	return Http{
-		ListenAddress: defaultHttpListenAddress,
-		ReadTimeout:   defaultHttpReadTimeout,
-		WriteTimeout:  defaultHttpWriteTimeout,
-		IdleTimeout:   defaultHttpIdleTimeout,
-		LogRequests:   defaultHttpLogRequests,
+		ListenAddress:     defaultHttpListenAddress,
+		ReadTimeout:       defaultHttpReadTimeout,
+		ReadHeaderTimeout: defaultHttpReadHeaderTimeout,
+		WriteTimeout:      defaultHttpWriteTimeout,
+		IdleTimeout:       defaultHttpIdleTimeout,
+		LogRequests:       defaultHttpLogRequests,
 	}
 }
 
@@ -88,6 +97,7 @@ func (h *Http) Validate() error {
 	return ValidateStruct(h,
 		validation.Field(&h.ListenAddress, ozzo_rules.ListenAddress()),
 		validation.Field(&h.ReadTimeout, ozzo_rules.DurationOrZero()),
+		validation.Field(&h.ReadHeaderTimeout, ozzo_rules.DurationOrZero()),
 		validation.Field(&h.WriteTimeout, ozzo_rules.DurationOrZero()),
 		validation.Field(&h.IdleTimeout, ozzo_rules.DurationOrZero()),
 		validation.Field(&h.TLS, validation.NilOrNotEmpty),

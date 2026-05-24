@@ -17,6 +17,14 @@ const (
 	// DefaultReadTimeout is the default timeout for reading the entire request.
 	DefaultReadTimeout = 15 * time.Second
 
+	// DefaultReadHeaderTimeout caps the time the server spends reading the
+	// request headers — including the request line — independent of
+	// [DefaultReadTimeout]. Required to defend against Slowloris-style
+	// attacks where a malicious client trickles headers byte-by-byte to
+	// pin a goroutine per connection within the full ReadTimeout window
+	// (also resolves gosec G112).
+	DefaultReadHeaderTimeout = 10 * time.Second
+
 	// DefaultWriteTimeout is the default timeout for writing the response.
 	DefaultWriteTimeout = 15 * time.Second
 
@@ -30,10 +38,11 @@ const (
 type options struct {
 	baseOpts []baseserver.Option `opt:"BaseOptions"`
 
-	router         Router        `optgen:"notnil"`
-	readTimeout    time.Duration `optgen:"default=DefaultReadTimeout"`
-	writeTimeout   time.Duration `optgen:"default=DefaultWriteTimeout"`
-	idleTimeout    time.Duration `optgen:"default=DefaultIdleTimeout"`
-	maxHeaderBytes int           `optgen:"default=DefaultMaxHeaderBytes"`
-	writer         ResponseWriter
+	router            Router        `optgen:"notnil"`
+	readTimeout       time.Duration `optgen:"default=DefaultReadTimeout"`
+	readHeaderTimeout time.Duration `optgen:"default=DefaultReadHeaderTimeout"`
+	writeTimeout      time.Duration `optgen:"default=DefaultWriteTimeout"`
+	idleTimeout       time.Duration `optgen:"default=DefaultIdleTimeout"`
+	maxHeaderBytes    int           `optgen:"default=DefaultMaxHeaderBytes"`
+	writer            ResponseWriter
 }

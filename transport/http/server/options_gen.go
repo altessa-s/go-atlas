@@ -41,6 +41,16 @@ func WithMaxHeaderBytes(v int) Option {
 	}
 }
 
+// WithReadHeaderTimeout sets the readHeaderTimeout option.
+func WithReadHeaderTimeout(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.readHeaderTimeout = v
+	}
+}
+
 // WithReadTimeout sets the readTimeout option.
 func WithReadTimeout(v time.Duration) Option {
 	return func(o *options) {
@@ -81,10 +91,11 @@ func WithWriter(v ResponseWriter) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		idleTimeout:    DefaultIdleTimeout,
-		maxHeaderBytes: DefaultMaxHeaderBytes,
-		readTimeout:    DefaultReadTimeout,
-		writeTimeout:   DefaultWriteTimeout,
+		idleTimeout:       DefaultIdleTimeout,
+		maxHeaderBytes:    DefaultMaxHeaderBytes,
+		readHeaderTimeout: DefaultReadHeaderTimeout,
+		readTimeout:       DefaultReadTimeout,
+		writeTimeout:      DefaultWriteTimeout,
 	}
 }
 
