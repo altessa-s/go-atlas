@@ -42,6 +42,8 @@ type verifierOptions struct {
 	withoutClaimsValidation  bool `opt:"ClaimsValidation" optval:"invert"`
 	leeway                   time.Duration
 	issuedAt                 bool
+	expirationRequired       bool
+	notBeforeRequired        bool
 	issuer                   string
 	subject                  string
 	audience                 []string
