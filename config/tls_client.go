@@ -20,6 +20,32 @@ import (
 // SkipVerify to false.
 const EnvAllowInsecureTLS = "ATLAS_ALLOW_INSECURE_TLS"
 
+// TLSSkipVerifyMode controls how the TLS factory reacts when a
+// [TlsClient] config has SkipVerify=true. Follows the project's
+// safety-mode pattern (mirror of plugins.SignatureMode and
+// oidc.JWKSFailureMode) so operators have a uniform escape hatch shape.
+type TLSSkipVerifyMode string
+
+const (
+	// TLSSkipVerifyModeEnforce rejects SkipVerify=true at TLS-config build
+	// time with an error. This is the production-safe default — an
+	// operator who needs to disable verification (lab, debugging) must
+	// opt in explicitly via Warn or Disabled rather than silently
+	// shipping an insecure client.
+	TLSSkipVerifyModeEnforce TLSSkipVerifyMode = "enforce"
+
+	// TLSSkipVerifyModeWarn allows SkipVerify=true but logs a loud
+	// warning on every CreateClientConfig call. Use during deliberate
+	// canary windows where downstream isn't yet exposing a trusted CA.
+	TLSSkipVerifyModeWarn TLSSkipVerifyMode = "warn"
+
+	// TLSSkipVerifyModeDisabled silently allows SkipVerify=true with no
+	// log. Intended exclusively for unit/integration tests that wire up
+	// localhost-only fixtures; using it in any deployable artifact is a
+	// review blocker.
+	TLSSkipVerifyModeDisabled TLSSkipVerifyMode = "disabled"
+)
+
 // TlsClient represents the configuration for Tls client connections.
 // It contains certificates, private keys, and CA certificates needed for
 // establishing secure Tls connections as a client.
@@ -48,6 +74,17 @@ type TlsClient struct {
 	// WARNING: Setting this to true makes connections insecure.
 	// Defaults to false.
 	SkipVerify bool `yaml:"skipVerifyServerName" default:"false"`
+
+	// SkipVerifyMode controls how the TLS factory handles a SkipVerify=true
+	// config — see [TLSSkipVerifyMode] for the semantics. The YAML loader
+	// fills in "enforce" via the default tag; programmatic callers must
+	// set it explicitly (the factory rejects an empty/unknown value with
+	// [factory.ErrInsecureSkipVerifyRejected] rather than inheriting a
+	// silent fallback). Pair this with the env-var gate
+	// ([EnvAllowInsecureTLS]) — Normalize zeros out SkipVerify when the
+	// env var is missing, and SkipVerifyMode then gates the residual case
+	// where the env var IS set.
+	SkipVerifyMode TLSSkipVerifyMode `yaml:"skipVerifyMode" default:"enforce"`
 }
 
 // Normalize processes the Tls client configuration by resolving file paths.
