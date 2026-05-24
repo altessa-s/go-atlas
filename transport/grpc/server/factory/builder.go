@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
@@ -29,6 +30,25 @@ import (
 	tlsproviders "github.com/altessa-s/go-atlas/security/tlsutils/providers"
 	grpcserver "github.com/altessa-s/go-atlas/transport/grpc/server"
 	baseserver "github.com/altessa-s/go-atlas/transport/internal/server"
+)
+
+// Default keepalive enforcement policy applied by [ServerBuilder.Build]
+// when the operator config does not provide explicit values. The stdlib
+// gRPC server falls back to a permissive policy (5m MinTime) when none
+// is registered with the server, and that fallback only triggers because
+// the policy slot is empty — registering ANY policy is what matters.
+// Picking explicit, conservative values keeps the ping-flood door shut
+// regardless of whether the operator filled in [config.Grpc.KeepAlive].
+const (
+	// DefaultGrpcEnforcementMinTime is the minimum ping interval clients
+	// must respect. Pings under this cadence cause the server to send
+	// GOAWAY and drop the connection.
+	DefaultGrpcEnforcementMinTime = 30 * time.Second
+
+	// DefaultGrpcEnforcementPermitWithoutStream rejects keepalive pings
+	// from connections with no active RPCs. Operators serving long-lived
+	// idle streams should override via config.
+	DefaultGrpcEnforcementPermitWithoutStream = false
 )
 
 // ServerBuilder assembles a gRPC [grpcserver.Server] step by step using a fluent API.
@@ -187,14 +207,31 @@ func (b *ServerBuilder) buildGrpcOptions() []grpc.ServerOption {
 			Time:                  cfg.KeepAlive.Time,
 			Timeout:               cfg.KeepAlive.Timeout,
 		}))
-
-		if cfg.KeepAlive.EnforcementPolicy != nil {
-			opts = append(opts, grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
-				MinTime:             cfg.KeepAlive.EnforcementPolicy.MinTime,
-				PermitWithoutStream: cfg.KeepAlive.EnforcementPolicy.PermitWithoutStream,
-			}))
-		}
 	}
 
+	// Always install an enforcement policy — see the package-level
+	// constants for the rationale. Without this, configs that leave
+	// KeepAlive (or EnforcementPolicy inside it) nil silently fall back
+	// to the permissive stdlib default and the server has no real
+	// ping-flood defense.
+	opts = append(opts, grpc.KeepaliveEnforcementPolicy(keepaliveEnforcementPolicy(cfg)))
+
 	return opts
+}
+
+// keepaliveEnforcementPolicy resolves the enforcement policy to install
+// on the gRPC server: the config value when supplied, otherwise the
+// package-level safe defaults. Split out so unit tests can exercise the
+// fallback paths without spinning up a full server.
+func keepaliveEnforcementPolicy(cfg *config.Grpc) keepalive.EnforcementPolicy {
+	if cfg != nil && cfg.KeepAlive != nil && cfg.KeepAlive.EnforcementPolicy != nil {
+		return keepalive.EnforcementPolicy{
+			MinTime:             cfg.KeepAlive.EnforcementPolicy.MinTime,
+			PermitWithoutStream: cfg.KeepAlive.EnforcementPolicy.PermitWithoutStream,
+		}
+	}
+	return keepalive.EnforcementPolicy{
+		MinTime:             DefaultGrpcEnforcementMinTime,
+		PermitWithoutStream: DefaultGrpcEnforcementPermitWithoutStream,
+	}
 }

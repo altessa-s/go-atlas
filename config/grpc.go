@@ -42,13 +42,23 @@ func (c *GrpcTls) Validate() error {
 // GrpcEnforcementPolicy represents keepalive enforcement policy for gRPC server.
 // It defines rules for connection keepalive behavior and stream requirements.
 type GrpcEnforcementPolicy struct {
-	// MinTime is the minimum amount of time a client should wait before sending a keepalive ping.
-	// Defaults to 5s.
-	MinTime time.Duration `yaml:"minTime" default:"5s"`
+	// MinTime is the minimum interval a client must wait between keepalive
+	// pings. Pings sent more often than MinTime cause the server to send
+	// GOAWAY and close the connection — this is the primary ping-flood
+	// defense. Defaults to 30s, matching the explicit safe baseline applied
+	// by the gRPC factory; bring it down (e.g. to 10s) only for clients
+	// whose keepalive cadence requires it, and never raise it past the
+	// expected client cadence (the stdlib's 5m default is permissive in
+	// disguise — it lets malicious clients flood the connection table
+	// because gRPC servers without an explicit policy reach it through a
+	// silent fallback).
+	MinTime time.Duration `yaml:"minTime" default:"30s"`
 
-	// PermitWithoutStream allows clients to send keepalive pings even when there are no active streams.
-	// If false, server will close the connection if a keepalive ping is received when no streams are active.
-	// Defaults to true.
+	// PermitWithoutStream allows clients to send keepalive pings even when
+	// there are no active streams. Defaults to false: when no streams are
+	// active, keepalive pings are rejected (the connection is closed). Set
+	// to true for long-lived idle connections (e.g. pub/sub streams) that
+	// rely on keepalive to detect dead peers.
 	PermitWithoutStream bool `yaml:"permitWithoutStream" default:"false"`
 }
 
