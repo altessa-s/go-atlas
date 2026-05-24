@@ -187,7 +187,7 @@ func (p *Provider) validateTokenWithPreset(ctx context.Context, token string, pr
 	}
 
 	// Verify signature first (without claim validation)
-	claims, err := p.parseTokenWithoutClaimsValidation(token)
+	claims, header, err := p.parseTokenWithoutClaimsValidation(token)
 	if err != nil {
 		return nil, coreerrs.Wrapf(ErrInvalidToken, "signature verification failed: %v", err)
 	}
@@ -197,7 +197,9 @@ func (p *Provider) validateTokenWithPreset(ctx context.Context, token string, pr
 		return nil, err
 	}
 
-	p.cacheValidatedClaims(ctx, token, claims)
+	if err := p.finalizeValidatedToken(ctx, token, claims, header); err != nil {
+		return nil, err
+	}
 	return claims, nil
 }
 
