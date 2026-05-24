@@ -104,8 +104,15 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 		return &storages.LimitInfo{Remaining: 0, Reset: int64(resetTime)}, storages.ErrLimitExceeded
 	}
 
-	// Add the bucket if it doesn't exist yet
+	// Add the bucket if it doesn't exist yet. When the configured cap is
+	// reached, evict the least-recently-used bucket to make room — this
+	// bounds memory hard even when no cleanup scheduler is wired up,
+	// closing the DoS window an attacker driving arbitrary keys could
+	// otherwise exploit.
 	if !exists {
+		if p.options.maxBuckets > 0 && len(p.buckets) >= p.options.maxBuckets {
+			p.evictLRULocked()
+		}
 		p.buckets[key] = b
 	}
 
@@ -140,6 +147,31 @@ func (p *Provider) Reset(ctx context.Context, key string) error {
 // No-op since there are no background goroutines to stop.
 func (p *Provider) Close() error {
 	return nil
+}
+
+// evictLRULocked drops the bucket with the oldest lastUsed timestamp.
+// The caller MUST hold p.mu in write mode. A full O(n) scan is acceptable
+// because this only runs at the cap boundary (rarely) and the cap itself
+// keeps n small enough (default 100k) that the scan completes in low
+// milliseconds. The map is not ordered, so we cannot do better without
+// a parallel LRU list — accepting the linear scan in exchange for keeping
+// the hot Allow path lock-free of list maintenance.
+func (p *Provider) evictLRULocked() {
+	var (
+		oldestKey  string
+		oldestTime time.Time
+		first      = true
+	)
+	for k, v := range p.buckets {
+		if first || v.lastUsed.Before(oldestTime) {
+			oldestKey = k
+			oldestTime = v.lastUsed
+			first = false
+		}
+	}
+	if !first {
+		delete(p.buckets, oldestKey)
+	}
 }
 
 var _ storages.Storage = (*Provider)(nil)
