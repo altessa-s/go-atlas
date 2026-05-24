@@ -15,6 +15,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/data/internal/natskvlease"
 	"github.com/altessa-s/go-atlas/data/leadelect/providers"
 	"github.com/altessa-s/go-atlas/observability/metrics"
@@ -187,10 +188,19 @@ func (p *Provider) Start(ctx context.Context, cfg providers.Config) error {
 	var stopCtx context.Context
 	stopCtx, p.stopCtxCancel = context.WithCancel(ctx)
 
-	// Start notification handler
-	p.notificationWg.Go(func() { p.notificationHandler(stopCtx) })
+	// Start notification handler. Each spawned goroutine ships with
+	// panics.Handle per the repo rule — without it a panic in a NATS
+	// driver callback or in safeChannelSend would crash the process
+	// instead of being logged and contained to the affected goroutine.
+	p.notificationWg.Go(func() {
+		defer panics.Handle(stopCtx)
+		p.notificationHandler(stopCtx)
+	})
 
-	p.wg.Go(func() { p.camping(stopCtx) })
+	p.wg.Go(func() {
+		defer panics.Handle(stopCtx)
+		p.camping(stopCtx)
+	})
 
 	return nil
 }

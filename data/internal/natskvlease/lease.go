@@ -14,6 +14,7 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
@@ -313,7 +314,13 @@ func (l *Lease) RunCamping(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 
-	go l.campingLoop(ctx)
+	go func() {
+		// Repo rule: every spawned goroutine ships with panics.Handle,
+		// otherwise a panic in the renew loop (a callback that throws,
+		// a NATS-driver bug, etc.) takes the whole process down.
+		defer panics.Handle(ctx)
+		l.campingLoop(ctx)
+	}()
 	return true, nil
 }
 
@@ -401,7 +408,11 @@ func (m *LeaseManager) Start(ctx context.Context) error {
 	}
 
 	ctx, m.cancel = context.WithCancel(ctx)
-	go m.managementLoop(ctx)
+	go func() {
+		// Same goroutine-recovery contract as RunCamping above.
+		defer panics.Handle(ctx)
+		m.managementLoop(ctx)
+	}()
 	return nil
 }
 
