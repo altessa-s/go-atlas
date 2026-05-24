@@ -81,6 +81,13 @@ func WithEnvSectionDelimiter[T interface{ string | *string }](v T) Option {
 	}
 }
 
+// WithMaxConfigBytes sets the maxConfigBytes option.
+func WithMaxConfigBytes(v int64) Option {
+	return func(o *options) {
+		o.maxConfigBytes = v
+	}
+}
+
 // WithPath sets the path option.
 func WithPath[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
@@ -153,6 +160,7 @@ func defaultOptions() *options {
 	return &options{
 		envDelimiter:        DefaultEnvDelimiter,
 		envSectionDelimiter: DefaultEnvSectionDelimiter,
+		maxConfigBytes:      DefaultMaxConfigBytes,
 		structTag:           DefaultStructTagName,
 	}
 }

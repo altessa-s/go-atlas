@@ -21,6 +21,17 @@ const defaultSecretsTimeout = 5 * time.Second
 // DefaultStructTagName is the default struct tag name for configuration field mapping.
 const DefaultStructTagName = "yaml"
 
+// DefaultMaxConfigBytes caps how many bytes the loader will read from a
+// single configuration file. Without a cap, a symlink pointing to
+// `/dev/zero`, a multi-GB tmpfs file, or a malicious include target
+// could OOM the loader before the YAML parser ever rejected the input.
+//
+// 16 MiB is generous compared to realistic config files (typical
+// service configs are a few KB to a few hundred KB) but tight enough
+// that the worst-case read is bounded to a memory size the loader
+// process can safely handle even on small instances.
+const DefaultMaxConfigBytes int64 = 16 * 1024 * 1024
+
 const (
 	defaultValueTagName = "default"
 	envTagName          = "env"
@@ -32,6 +43,7 @@ type options struct {
 	envDelimiter        string `optgen:"default=DefaultEnvDelimiter"`
 	envSectionDelimiter string `optgen:"default=DefaultEnvSectionDelimiter"`
 	structTag           string `optgen:"default=DefaultStructTagName"`
+	maxConfigBytes      int64  `optgen:"default=DefaultMaxConfigBytes"`
 	skipEnv             bool
 	skipDefaults        bool
 	strict              bool `optgen:"manual"`
