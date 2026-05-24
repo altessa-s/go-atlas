@@ -34,6 +34,7 @@ Every middleware sub-package exports three identification helpers:
 | Package                                    | Description                                                    |
 |--------------------------------------------|----------------------------------------------------------------|
 | [audit](./audit)                           | Automatic request auditing via `data/audit.Auditor`            |
+| [auth](./auth)                             | Authentication with Bearer tokens, API keys, and custom schemes |
 | [bodylimit](./bodylimit)                   | Request body size enforcement (Content-Length + streaming)      |
 | [cors](./cors)                             | Cross-Origin Resource Sharing header management                |
 | [defaults](./defaults)                     | Shared default configurations and constants                    |

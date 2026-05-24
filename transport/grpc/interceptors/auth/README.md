@@ -43,3 +43,4 @@ pluggable `Auth` function, ClientInterceptor injects tokens into outgoing metada
 | Package              | Description                                      |
 |----------------------|--------------------------------------------------|
 | [oidc](./oidc)       | OIDC token validation and claims extraction       |
+| [static](./static)   | Static token/API key adapter over [`auth/static`](../../../../auth/static) |
