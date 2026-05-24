@@ -25,6 +25,13 @@ func WithCollector(v metrics.Collector) Option {
 	}
 }
 
+// WithMaxConcurrentFallbacks sets the maxConcurrentFallbacks option.
+func WithMaxConcurrentFallbacks(v int) Option {
+	return func(o *options) {
+		o.maxConcurrentFallbacks = v
+	}
+}
+
 // WithName sets the name option.
 func WithName[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
@@ -78,8 +85,9 @@ func WithTtl(v time.Duration) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		serializer: &serializer.JSON{},
-		ttl:        DefaultTTL,
+		maxConcurrentFallbacks: DefaultMaxConcurrentFallbacks,
+		serializer:             &serializer.JSON{},
+		ttl:                    DefaultTTL,
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	"github.com/altessa-s/go-atlas/data/cache/providers/noop"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	"golang.org/x/sync/semaphore"
 	"golang.org/x/sync/singleflight"
 
 	corecontext "github.com/altessa-s/go-atlas/core/context"
@@ -44,12 +45,15 @@ func isNegativeSentinel(data []byte) bool {
 }
 
 // Cache provides caching functionality with configurable providers and serializers.
-// It uses singleflight to deduplicate concurrent requests for the same key.
+// It uses singleflight to deduplicate concurrent requests for the same key
+// and bounds the total number of in-flight fallback functions via a
+// semaphore (see [DefaultMaxConcurrentFallbacks]).
 type Cache struct {
 	provider     Provider
 	ttl          time.Duration
 	negativeTtl  time.Duration
 	group        *singleflight.Group
+	fallbackSem  *semaphore.Weighted // nil when maxConcurrentFallbacks <= 0
 	serializer   serializer.Serializer
 	metrics      *cacheMetrics
 	metricLabels metrics.Labels
@@ -66,7 +70,7 @@ func New(p Provider, opts ...Option) *Cache {
 
 	options := newOptions(opts...)
 
-	return &Cache{
+	c := &Cache{
 		provider:     p,
 		ttl:          options.ttl,
 		negativeTtl:  options.negativeTtl,
@@ -75,6 +79,10 @@ func New(p Provider, opts ...Option) *Cache {
 		metrics:      newCacheMetrics(options.collector),
 		metricLabels: metrics.Labels{"cache_name": options.name},
 	}
+	if options.maxConcurrentFallbacks > 0 {
+		c.fallbackSem = semaphore.NewWeighted(int64(options.maxConcurrentFallbacks))
+	}
+	return c
 }
 
 // NewNoop creates a new Cache instance with a no-op provider that discards all writes.
@@ -120,11 +128,36 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 
 	c.metrics.misses.WithLabels(c.metricLabels).Inc()
 
+	// Bound the total number of in-flight fallbacks across all keys.
+	// singleflight only collapses requests for the SAME key — an
+	// attacker driving distinct keys can launch one fallback per key
+	// and starve the downstream. The semaphore provides backpressure
+	// independent of key cardinality. Acquire honors ctx so callers see
+	// timeouts rather than indefinite waits.
+	if c.fallbackSem != nil {
+		if err := c.fallbackSem.Acquire(ctx, 1); err != nil {
+			c.metrics.errors.WithLabels(c.metricLabels).Inc()
+			return err
+		}
+		defer c.fallbackSem.Release(1)
+	}
+
 	fv, err, _ := c.group.Do(key, func() (any, error) {
 		stop := c.metrics.fallbackDuration.Start()
 		val, ttl, fErr := fallback()
 		stop()
 		if fErr != nil {
+			// ErrMissing from the fallback signals an authoritative
+			// not-found. Write the negative-cache sentinel so a stream
+			// of attacker-driven misses for the same key does NOT keep
+			// stampeding the downstream — previously this branch
+			// skipped the negative write and every subsequent miss
+			// re-ran the fallback.
+			if errors.Is(fErr, ErrMissing) && c.negativeTtl > 0 {
+				if sErr := c.provider.Save(ctx, key, negativeSentinel, c.negativeTtl); sErr != nil {
+					c.metrics.errors.WithLabels(c.metricLabels).Inc()
+				}
+			}
 			return nil, fErr
 		}
 

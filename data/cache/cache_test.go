@@ -402,3 +402,88 @@ func TestSave_OverwritesNegativeEntry(t *testing.T) {
 	require.NoError(t, c.Get(ctx, "key1", &result))
 	require.Equal(t, "real-value", result)
 }
+
+// TestGetWithFallback_ErrMissingWritesNegativeCache is the regression
+// guard for the cache-stampede fix. A fallback that signals
+// not-found via ErrMissing MUST cause a negative-cache sentinel to be
+// written so subsequent identical lookups do NOT re-execute the
+// fallback for the duration of negativeTtl. Before the fix this branch
+// returned the error without writing the sentinel, leaving every
+// repeated attacker-driven miss to stampede the downstream.
+func TestGetWithFallback_ErrMissingWritesNegativeCache(t *testing.T) {
+	p := newMockProvider()
+	c := New(p, WithNegativeTtl(30*time.Second))
+	ctx := t.Context()
+
+	calls := 0
+	fallback := func() (any, time.Duration, error) {
+		calls++
+		return nil, TTLUseDefault, ErrMissing
+	}
+
+	var result string
+	err := c.GetWithFallback(ctx, "miss-key", &result, fallback)
+	require.ErrorIs(t, err, ErrMissing, "first call must surface ErrMissing")
+	require.Equal(t, 1, calls, "first call must invoke fallback")
+
+	// Verify the sentinel was written.
+	v, getErr := p.Get(ctx, "miss-key")
+	require.NoError(t, getErr, "negative-cache sentinel must be persisted by the fallback path")
+	require.True(t, isNegativeSentinel(v), "stored value must be the negative sentinel")
+
+	// Second call must hit the negative cache, NOT the fallback —
+	// proves the stampede is closed.
+	err = c.GetWithFallback(ctx, "miss-key", &result, fallback)
+	require.ErrorIs(t, err, ErrMissing)
+	require.Equal(t, 1, calls, "negative cache must short-circuit subsequent fallback invocations")
+}
+
+// TestGetWithFallback_TransientErrorDoesNotPoisonNegativeCache pins the
+// safety guarantee that ONLY ErrMissing writes a negative entry.
+// Transient failures (network, serializer, etc.) must surface to the
+// caller without persisting a misleading "not found" sentinel.
+func TestGetWithFallback_TransientErrorDoesNotPoisonNegativeCache(t *testing.T) {
+	p := newMockProvider()
+	c := New(p, WithNegativeTtl(30*time.Second))
+	ctx := t.Context()
+
+	transient := errors.New("downstream temporarily unavailable")
+	calls := 0
+	fallback := func() (any, time.Duration, error) {
+		calls++
+		return nil, TTLUseDefault, transient
+	}
+
+	var result string
+	err := c.GetWithFallback(ctx, "tx-err", &result, fallback)
+	require.ErrorIs(t, err, transient)
+
+	// No sentinel must have been written for a transient error.
+	_, getErr := p.Get(ctx, "tx-err")
+	require.ErrorIs(t, getErr, providers.ErrMissing,
+		"transient failures must NOT poison the cache — only authoritative ErrMissing does")
+
+	// Second call must invoke fallback again (no negative-cache shortcut).
+	err = c.GetWithFallback(ctx, "tx-err", &result, fallback)
+	require.ErrorIs(t, err, transient)
+	require.Equal(t, 2, calls, "transient failures must keep retrying — no implicit negative cache")
+}
+
+// TestNew_DefaultFallbackSemBound pins the default behavior of the
+// in-flight cap. A cache constructed with the public defaults must
+// install a semaphore so attacker-driven distinct keys cannot launch
+// unbounded parallel downstream calls.
+func TestNew_DefaultFallbackSemBound(t *testing.T) {
+	c := New(newMockProvider())
+	require.NotNil(t, c.fallbackSem,
+		"default options must install the in-flight fallback semaphore — otherwise distinct-key DoS is open by default")
+}
+
+// TestNew_DisabledFallbackSem proves the opt-out path: setting the
+// option to <=0 disables the cap (matches the legacy pre-fix behavior
+// for operators who explicitly want unbounded parallel fallbacks).
+func TestNew_DisabledFallbackSem(t *testing.T) {
+	c := New(newMockProvider(), WithMaxConcurrentFallbacks(0))
+	require.Nil(t, c.fallbackSem,
+		"WithMaxConcurrentFallbacks(0) must disable the cap")
+}
