@@ -194,3 +194,151 @@ func TestComparable(t *testing.T) {
 	require.Equal(t, optional.None[int](), optional.None[int]())
 	require.NotEqual(t, optional.Some(0), optional.None[int]())
 }
+
+func TestFromPtr(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil pointer returns None", func(t *testing.T) {
+		t.Parallel()
+		var ptr *int
+		opt := optional.FromPtr(ptr)
+		require.True(t, opt.IsNone())
+		require.False(t, opt.IsSome())
+	})
+
+	t.Run("non-nil pointer returns Some", func(t *testing.T) {
+		t.Parallel()
+		value := 42
+		opt := optional.FromPtr(&value)
+		require.True(t, opt.IsSome())
+		require.False(t, opt.IsNone())
+		v, ok := opt.Get()
+		require.True(t, ok)
+		require.Equal(t, 42, v)
+	})
+
+	t.Run("zero value pointer returns Some(zero)", func(t *testing.T) {
+		t.Parallel()
+		var zero int
+		opt := optional.FromPtr(&zero)
+		require.True(t, opt.IsSome())
+		v, ok := opt.Get()
+		require.True(t, ok)
+		require.Equal(t, 0, v)
+	})
+
+	t.Run("string type", func(t *testing.T) {
+		t.Parallel()
+		str := "hello"
+		opt := optional.FromPtr(&str)
+		require.Equal(t, "hello", opt.Value())
+
+		var nilStr *string
+		opt = optional.FromPtr(nilStr)
+		require.True(t, opt.IsNone())
+	})
+
+	t.Run("struct type", func(t *testing.T) {
+		t.Parallel()
+		type Person struct {
+			Name string
+			Age  int
+		}
+
+		person := Person{Name: "Alice", Age: 30}
+		opt := optional.FromPtr(&person)
+		require.Equal(t, Person{Name: "Alice", Age: 30}, opt.Value())
+
+		var nilPerson *Person
+		opt = optional.FromPtr(nilPerson)
+		require.True(t, opt.IsNone())
+	})
+}
+
+func TestToPtr(t *testing.T) {
+	t.Parallel()
+
+	t.Run("None returns nil", func(t *testing.T) {
+		t.Parallel()
+		opt := optional.None[int]()
+		ptr := optional.ToPtr(opt)
+		require.Nil(t, ptr)
+	})
+
+	t.Run("Some returns pointer to value", func(t *testing.T) {
+		t.Parallel()
+		opt := optional.Some(42)
+		ptr := optional.ToPtr(opt)
+		require.NotNil(t, ptr)
+		require.Equal(t, 42, *ptr)
+	})
+
+	t.Run("Some(zero) returns pointer to zero", func(t *testing.T) {
+		t.Parallel()
+		opt := optional.Some(0)
+		ptr := optional.ToPtr(opt)
+		require.NotNil(t, ptr)
+		require.Equal(t, 0, *ptr)
+	})
+
+	t.Run("string type", func(t *testing.T) {
+		t.Parallel()
+		opt := optional.Some("hello")
+		ptr := optional.ToPtr(opt)
+		require.NotNil(t, ptr)
+		require.Equal(t, "hello", *ptr)
+
+		opt = optional.None[string]()
+		ptr = optional.ToPtr(opt)
+		require.Nil(t, ptr)
+	})
+
+	t.Run("struct type", func(t *testing.T) {
+		t.Parallel()
+		type Person struct {
+			Name string
+			Age  int
+		}
+
+		opt := optional.Some(Person{Name: "Bob", Age: 25})
+		ptr := optional.ToPtr(opt)
+		require.NotNil(t, ptr)
+		require.Equal(t, Person{Name: "Bob", Age: 25}, *ptr)
+
+		opt = optional.None[Person]()
+		ptr = optional.ToPtr(opt)
+		require.Nil(t, ptr)
+	})
+}
+
+func TestFromPtrToPtr_RoundTrip(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil roundtrip", func(t *testing.T) {
+		t.Parallel()
+		var original *int
+		opt := optional.FromPtr(original)
+		result := optional.ToPtr(opt)
+		require.Nil(t, result)
+	})
+
+	t.Run("value roundtrip", func(t *testing.T) {
+		t.Parallel()
+		value := 42
+		original := &value
+		opt := optional.FromPtr(original)
+		result := optional.ToPtr(opt)
+		require.NotNil(t, result)
+		require.Equal(t, 42, *result)
+		// Note: result is a new pointer, not the same as original
+		require.NotSame(t, original, result)
+	})
+
+	t.Run("Some to pointer to Optional", func(t *testing.T) {
+		t.Parallel()
+		opt := optional.Some(100)
+		ptr := optional.ToPtr(opt)
+		opt2 := optional.FromPtr(ptr)
+		require.Equal(t, opt, opt2)
+	})
+}

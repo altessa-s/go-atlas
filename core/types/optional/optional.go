@@ -91,3 +91,21 @@ func (o Optional[T]) OrElse(fn func() T) T {
 	}
 	return o.value
 }
+
+// FromPtr converts a pointer to an Optional. Returns None if the pointer is nil,
+// otherwise Some with the dereferenced value.
+func FromPtr[T any](ptr *T) Optional[T] {
+	if ptr == nil {
+		return None[T]()
+	}
+	return Some(*ptr)
+}
+
+// ToPtr converts an Optional to a pointer. Returns nil if the Optional is None,
+// otherwise a pointer to the contained value.
+func ToPtr[T any](opt Optional[T]) *T {
+	if v, ok := opt.Get(); ok {
+		return &v
+	}
+	return nil
+}

@@ -90,3 +90,51 @@ func BenchmarkOrElseNone(b *testing.B) {
 	}
 	_ = sink
 }
+
+func BenchmarkFromPtr_Nil(b *testing.B) {
+	var ptr *int
+	var sink optional.Optional[int]
+	for b.Loop() {
+		sink = optional.FromPtr(ptr)
+	}
+	_ = sink
+}
+
+func BenchmarkFromPtr_Value(b *testing.B) {
+	value := 42
+	ptr := &value
+	var sink optional.Optional[int]
+	for b.Loop() {
+		sink = optional.FromPtr(ptr)
+	}
+	_ = sink
+}
+
+func BenchmarkToPtr_None(b *testing.B) {
+	opt := optional.None[int]()
+	var sink *int
+	for b.Loop() {
+		sink = optional.ToPtr(opt)
+	}
+	_ = sink
+}
+
+func BenchmarkToPtr_Some(b *testing.B) {
+	opt := optional.Some(42)
+	var sink *int
+	for b.Loop() {
+		sink = optional.ToPtr(opt)
+	}
+	_ = sink
+}
+
+func BenchmarkFromPtrToPtr_RoundTrip(b *testing.B) {
+	value := 42
+	original := &value
+	var sink *int
+	for b.Loop() {
+		opt := optional.FromPtr(original)
+		sink = optional.ToPtr(opt)
+	}
+	_ = sink
+}
