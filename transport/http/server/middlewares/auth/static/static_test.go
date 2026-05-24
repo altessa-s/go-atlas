@@ -60,7 +60,7 @@ func TestAuthFunc_ErrorWrapping(t *testing.T) {
 		},
 		{
 			name:          "rate limited",
-			store:         static.NewRateLimitedStore(static.NewInMemoryStore(), denyLimiter{}, nil),
+			store:         static.NewRateLimitedStore(static.NewInMemoryStore(), denyLimiter{}, func(context.Context) string { return "client-1" }),
 			token:         "x",
 			wantSentinels: []error{auth.ErrUnauthorized, authstatic.ErrRateLimited},
 		},

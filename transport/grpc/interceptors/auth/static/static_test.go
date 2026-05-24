@@ -73,7 +73,7 @@ func TestAuthFunc_ErrorMapping(t *testing.T) {
 		},
 		{
 			name:     "rate limited",
-			store:    static.NewRateLimitedStore(static.NewInMemoryStore(), denyLimiter{}, nil),
+			store:    static.NewRateLimitedStore(static.NewInMemoryStore(), denyLimiter{}, func(context.Context) string { return "client-1" }),
 			req:      auth.Request{Base: auth.Base{AuthMethod: auth.MethodToken}, Payload: &auth.TokenCredentials{Token: "anything"}},
 			wantCode: codes.ResourceExhausted,
 		},

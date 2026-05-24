@@ -47,7 +47,12 @@ type RateLimiter interface {
 // implementations return the client IP, an API-key prefix, or a tenant id.
 //
 // Returning an empty string causes [RateLimitedStore] to skip the rate-limit
-// check for that request.
+// check for that request — useful for trusted internal traffic that should
+// not consume per-tenant budget. Returning the SAME non-empty key for every
+// request is forbidden by contract: the limiter then becomes a single global
+// bucket and a single attacker can lock out every legitimate user (DoS
+// amplification). Callers MUST partition by an attribute correlated with
+// the suspected attacker (IP, ASN, account, tenant), not a constant.
 type KeyFunc func(ctx context.Context) string
 
 // RateLimitedStore is a [TokenStore] decorator that consults a [RateLimiter]
@@ -60,9 +65,12 @@ type RateLimitedStore struct {
 	keyFn   KeyFunc
 }
 
-// NewRateLimitedStore wraps store with rate-limiting. Panics if store or
-// limiter is nil — both are required and there is no safe default. When
-// keyFn is nil, all requests share a single global rate-limit key.
+// NewRateLimitedStore wraps store with rate-limiting. Panics if any of
+// store, limiter, or keyFn is nil — none have a safe default. In particular
+// there is no built-in "global" KeyFunc: collapsing every caller into one
+// shared bucket would let a single attacker trip [ErrRateLimited] for every
+// legitimate user. The caller MUST partition traffic via [KeyFunc] (client
+// IP, tenant id, API-key prefix, etc.) so per-attacker isolation is real.
 func NewRateLimitedStore(store TokenStore, limiter RateLimiter, keyFn KeyFunc) *RateLimitedStore {
 	if store == nil {
 		panic("auth/static: RateLimitedStore requires a non-nil TokenStore")
@@ -71,7 +79,7 @@ func NewRateLimitedStore(store TokenStore, limiter RateLimiter, keyFn KeyFunc) *
 		panic("auth/static: RateLimitedStore requires a non-nil RateLimiter")
 	}
 	if keyFn == nil {
-		keyFn = func(context.Context) string { return "global" }
+		panic("auth/static: RateLimitedStore requires a non-nil KeyFunc — a default global bucket would let one attacker rate-limit every legitimate user")
 	}
 	return &RateLimitedStore{store: store, limiter: limiter, keyFn: keyFn}
 }
