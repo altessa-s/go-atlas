@@ -10,12 +10,12 @@
 //
 //	adapter := memory.NewAdapter()
 //	collector := metrics.NewCollector(adapter, "test")
-//	
+//
 //	// Record metrics
 //	collector.Counter("requests", "Total requests").
 //	    WithLabels("method", "GET").
 //	    Add(1)
-//	
+//
 //	// Assert in tests
 //	value := adapter.GetCounter("test_requests", map[string]string{"method": "GET"})
 //	require.Equal(t, 1.0, value)
