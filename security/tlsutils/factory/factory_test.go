@@ -84,8 +84,9 @@ func TestProvidersBuilder_CreateClientConfig_SkipVerify_with_env(t *testing.T) {
 
 	b := New(nil)
 	cfg := &config.TlsClient{
-		ServerName: "example.com",
-		SkipVerify: true,
+		ServerName:     "example.com",
+		SkipVerify:     true,
+		SkipVerifyMode: config.TLSSkipVerifyModeWarn, // explicit opt-in past Enforce default
 	}
 	cfg.Normalize() // env-guard permits SkipVerify
 
@@ -93,7 +94,114 @@ func TestProvidersBuilder_CreateClientConfig_SkipVerify_with_env(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, tlsConfig)
-	assert.True(t, tlsConfig.InsecureSkipVerify, "InsecureSkipVerify must be true when env guard is set")
+	assert.True(t, tlsConfig.InsecureSkipVerify, "InsecureSkipVerify must be true when env guard is set and mode is Warn")
+}
+
+// TestProvidersBuilder_CreateClientConfig_SkipVerify_EmptyModeRejects is
+// the regression guard for the audit finding: a programmatic config that
+// sets SkipVerify=true without choosing a SkipVerifyMode must be rejected
+// with [ErrInsecureSkipVerifyRejected]. The YAML loader fills in
+// "enforce" via the default tag, so this path exists only for hand-built
+// configs that forgot to set the field — and even those must be loud,
+// not silent.
+func TestProvidersBuilder_CreateClientConfig_SkipVerify_EmptyModeRejects(t *testing.T) {
+	t.Setenv(config.EnvAllowInsecureTLS, "true") // bypass the env-var defense in depth
+
+	b := New(nil)
+	cfg := &config.TlsClient{
+		ServerName: "example.com",
+		SkipVerify: true,
+		// SkipVerifyMode omitted — empty string must hit the fail-safe path.
+	}
+	cfg.Normalize()
+
+	tlsConfig, err := b.CreateClientConfig(cfg)
+
+	require.ErrorIs(t, err, ErrInsecureSkipVerifyRejected,
+		"empty SkipVerifyMode must refuse SkipVerify=true with a typed error — silent acceptance is the original audit finding")
+	assert.Nil(t, tlsConfig, "no TLS config must be returned on rejection")
+}
+
+// TestProvidersBuilder_CreateClientConfig_SkipVerify_EnforceModeRejects
+// covers the explicit-enforce path — operator wrote `skipVerifyMode:
+// enforce` in YAML (or set the field programmatically). The result must
+// be identical to the empty-mode path: a typed error and no TLS config.
+func TestProvidersBuilder_CreateClientConfig_SkipVerify_EnforceModeRejects(t *testing.T) {
+	t.Setenv(config.EnvAllowInsecureTLS, "true")
+
+	b := New(nil)
+	cfg := &config.TlsClient{
+		ServerName:     "example.com",
+		SkipVerify:     true,
+		SkipVerifyMode: config.TLSSkipVerifyModeEnforce,
+	}
+	cfg.Normalize()
+
+	tlsConfig, err := b.CreateClientConfig(cfg)
+	require.ErrorIs(t, err, ErrInsecureSkipVerifyRejected,
+		"explicit Enforce mode must produce the same rejection as the empty/default path")
+	assert.Nil(t, tlsConfig)
+}
+
+// TestProvidersBuilder_CreateClientConfig_SkipVerify_DisabledMode covers
+// the test-only break-glass: no error, no log line — operator/test takes
+// full responsibility.
+func TestProvidersBuilder_CreateClientConfig_SkipVerify_DisabledMode(t *testing.T) {
+	t.Setenv(config.EnvAllowInsecureTLS, "true")
+
+	b := New(nil)
+	cfg := &config.TlsClient{
+		ServerName:     "example.com",
+		SkipVerify:     true,
+		SkipVerifyMode: config.TLSSkipVerifyModeDisabled,
+	}
+	cfg.Normalize()
+
+	tlsConfig, err := b.CreateClientConfig(cfg)
+	require.NoError(t, err)
+	require.NotNil(t, tlsConfig)
+	assert.True(t, tlsConfig.InsecureSkipVerify,
+		"Disabled mode must silently honor SkipVerify=true — for localhost test fixtures only")
+}
+
+// TestProvidersBuilder_CreateClientConfig_SkipVerify_UnknownModeFailsSafe
+// ensures an unrecognized SkipVerifyMode value (e.g. a typo in YAML)
+// behaves like Enforce rather than silently slipping through.
+func TestProvidersBuilder_CreateClientConfig_SkipVerify_UnknownModeFailsSafe(t *testing.T) {
+	t.Setenv(config.EnvAllowInsecureTLS, "true")
+
+	b := New(nil)
+	cfg := &config.TlsClient{
+		ServerName:     "example.com",
+		SkipVerify:     true,
+		SkipVerifyMode: "bogus",
+	}
+	cfg.Normalize()
+
+	tlsConfig, err := b.CreateClientConfig(cfg)
+	require.ErrorIs(t, err, ErrInsecureSkipVerifyRejected,
+		"unknown SkipVerifyMode value must fail safe (Enforce) — never silently allow")
+	assert.Nil(t, tlsConfig)
+}
+
+// TestProvidersBuilder_CreateClientConfig_SkipVerifyFalseIgnoresMode pins
+// the contract that SkipVerifyMode is only consulted when SkipVerify is
+// actually true. A safe config (SkipVerify=false) must build successfully
+// regardless of mode.
+func TestProvidersBuilder_CreateClientConfig_SkipVerifyFalseIgnoresMode(t *testing.T) {
+	t.Parallel()
+
+	b := New(nil)
+	cfg := &config.TlsClient{
+		ServerName:     "example.com",
+		SkipVerify:     false,
+		SkipVerifyMode: "bogus", // intentionally invalid — must not matter
+	}
+
+	tlsConfig, err := b.CreateClientConfig(cfg)
+	require.NoError(t, err)
+	require.NotNil(t, tlsConfig)
+	assert.False(t, tlsConfig.InsecureSkipVerify)
 }
 
 func TestProvidersBuilder_Build_NilConfig(t *testing.T) {

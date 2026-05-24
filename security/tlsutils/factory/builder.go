@@ -7,6 +7,7 @@ package factory
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"log/slog"
 	"path/filepath"
 
@@ -26,6 +27,13 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	vaultApi "github.com/hashicorp/vault/api"
 )
+
+// ErrInsecureSkipVerifyRejected is returned by [ProvidersBuilder.CreateClientConfig]
+// when SkipVerify is true and the configured [config.TLSSkipVerifyMode] is
+// [config.TLSSkipVerifyModeEnforce] (the default). Operators who genuinely
+// need to skip verification must explicitly opt out via SkipVerifyMode=warn
+// (logged) or SkipVerifyMode=disabled (silent, tests only).
+var ErrInsecureSkipVerifyRejected = errors.New("security/tlsutils: SkipVerify is true but SkipVerifyMode is enforce — refusing to disable certificate verification")
 
 // ProvidersBuilder assembles a [tlsproviders.Providers] registry step by step using a fluent API.
 // Create instances with [New]. Errors are accumulated and reported at [ProvidersBuilder.Build] time.
@@ -124,10 +132,30 @@ func (b *ProvidersBuilder) CreateClientConfig(cfg *config.TlsClient) (*tls.Confi
 	}
 
 	tlsConfig := tlsutils.DefaultClientTLSConfig(cfg.ServerName)
-	tlsConfig.InsecureSkipVerify = cfg.SkipVerify
 	if cfg.SkipVerify {
-		b.Logger().Warn("TLS certificate verification is disabled — connections are susceptible to man-in-the-middle attacks",
-			slog.String("server_name", cfg.ServerName))
+		switch cfg.SkipVerifyMode {
+		case config.TLSSkipVerifyModeEnforce:
+			return nil, b.WrapError(ErrInsecureSkipVerifyRejected,
+				"refusing to build TLS client config for server "+cfg.ServerName)
+		case config.TLSSkipVerifyModeWarn:
+			b.Logger().Warn("TLS certificate verification is disabled — connections are susceptible to man-in-the-middle attacks",
+				slog.String("server_name", cfg.ServerName))
+			tlsConfig.InsecureSkipVerify = true
+		case config.TLSSkipVerifyModeDisabled:
+			// Silent opt-out: explicit operator/test consent, no log,
+			// no error. Use only in tests with localhost fixtures.
+			tlsConfig.InsecureSkipVerify = true
+		default:
+			// Empty or unrecognized mode — fail safe with the Enforce
+			// error. The YAML loader fills in the default:"enforce"
+			// struct tag, so this path is reached only by programmatic
+			// callers that built TlsClient by hand and forgot to set
+			// SkipVerifyMode, or by a typo in YAML. Either way we want
+			// the operator to commit to a value explicitly rather than
+			// inheriting a silent fallback.
+			return nil, b.WrapError(ErrInsecureSkipVerifyRejected,
+				"SkipVerifyMode must be one of enforce/warn/disabled (got "+string(cfg.SkipVerifyMode)+")")
+		}
 	}
 	tlsConfig.RootCAs = caPool
 	if len(certs) > 0 {
