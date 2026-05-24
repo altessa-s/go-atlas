@@ -150,4 +150,14 @@ var (
 	// would force a full collection scan and is never a legitimate target
 	// for user-driven input).
 	ErrSortFieldNotAllowed = errors.New("sort field not allowed")
+
+	// ErrFilterContainsDangerousOperator is returned by [GetEntity] and
+	// [GetEntities] when the supplied filter references a MongoDB operator
+	// that executes server-side code or has a well-known abuse path. The
+	// public signatures accept bson.M from untrusted callers, so silently
+	// passing $where / $function / $accumulator into the driver would
+	// expose the application to RCE through any endpoint that builds a
+	// filter from request data. The check fires at any depth — including
+	// inside $expr / $or / $and arrays.
+	ErrFilterContainsDangerousOperator = errors.New("filter contains a dangerous MongoDB operator")
 )

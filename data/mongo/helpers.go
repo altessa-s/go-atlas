@@ -246,6 +246,79 @@ func indirectType(t reflect.Type) reflect.Type {
 // potentially-different queries.
 const deduplicationKeyMarshalSentinel = "\x00bson-marshal-error\x00"
 
+// dangerousFilterOperators is the deny-list of MongoDB query operators
+// that execute server-side JavaScript (or otherwise have a well-known
+// abuse path) and therefore must never appear in a filter built from
+// untrusted input. The list is intentionally narrow — perf-only hazards
+// like $regex stay allowed; only operators that grant attacker-controlled
+// code execution on the database are blocked.
+var dangerousFilterOperators = map[string]struct{}{
+	"$where":       {}, // arbitrary JavaScript evaluated server-side
+	"$function":    {}, // user-defined JavaScript inside aggregations / $expr
+	"$accumulator": {}, // user-defined JavaScript accumulator
+}
+
+// validateFilter walks a bson.M filter and reports
+// [ErrFilterContainsDangerousOperator] when any dangerous operator (see
+// [dangerousFilterOperators]) is reachable at any depth. The walk
+// descends into nested bson.M, bson.D, and any-typed slices so operators
+// hidden inside $expr / $or / $and / $nor arrays are caught too.
+//
+// Callers (GetEntity, GetEntities, and any future query helper that
+// accepts bson.M from untrusted boundaries) MUST run this before passing
+// the filter to the driver. The check is O(n) over the filter document
+// and runs once per call, before the network round-trip — cost is
+// negligible compared to the query itself.
+func validateFilter(filter bson.M) error {
+	for key, value := range filter {
+		if _, blocked := dangerousFilterOperators[key]; blocked {
+			return fmt.Errorf("%w: %s", ErrFilterContainsDangerousOperator, key)
+		}
+		if err := validateFilterValue(value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateFilterValue recurses into common BSON value shapes. Unknown
+// types (primitives) are accepted — only structured values can hide
+// operators.
+func validateFilterValue(v any) error {
+	switch v := v.(type) {
+	case bson.M:
+		return validateFilter(v)
+	case bson.D:
+		for _, e := range v {
+			if _, blocked := dangerousFilterOperators[e.Key]; blocked {
+				return fmt.Errorf("%w: %s", ErrFilterContainsDangerousOperator, e.Key)
+			}
+			if err := validateFilterValue(e.Value); err != nil {
+				return err
+			}
+		}
+	case bson.A:
+		for _, item := range v {
+			if err := validateFilterValue(item); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for _, item := range v {
+			if err := validateFilterValue(item); err != nil {
+				return err
+			}
+		}
+	case []bson.M:
+		for _, item := range v {
+			if err := validateFilter(item); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // generateDeduplicationKey creates a deterministic SHA-256 hash key from filter parameters.
 // This function is used for query deduplication in singleflight patterns to ensure that
 // identical queries (same prefix and filter) map to the same deduplication key.
