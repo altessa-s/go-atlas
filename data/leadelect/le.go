@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/runtime/concurrency"
+	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/data/leadelect/providers"
 	"github.com/altessa-s/go-atlas/data/leadelect/providers/nats"
 	"github.com/altessa-s/go-atlas/observability/metrics"
@@ -139,6 +140,11 @@ func (le *Leader) Start(ctx context.Context) error {
 	}
 
 	go func() {
+		// Repo rule: every spawned goroutine ships with panics.Handle so
+		// a panic inside a user callback (becomeLeader / lostLeader) does
+		// not crash the process.
+		defer panics.Handle(ctx)
+
 		// NOTE: We intentionally do NOT close channels here.
 		// The provider sends to these channels from another goroutine.
 		// Closing them here would cause "send on closed channel" panic
