@@ -91,7 +91,10 @@ func (b *ServerBuilder) WithBodyLimitMiddleware() *ServerBuilder {
 	if cfg == nil || cfg.BodyLimit == nil || !cfg.BodyLimit.IsEnabled() {
 		return b
 	}
-	b.configMW = append(b.configMW, bodylimitmw.New(cfg.BodyLimit.MaxSize))
+	var opts []bodylimitmw.Option
+	opts = slices.AppendIf(opts, cfg.BodyLimit.RequireContentLength,
+		bodylimitmw.WithRequireContentLength())
+	b.configMW = append(b.configMW, bodylimitmw.New(cfg.BodyLimit.MaxSize, opts...))
 	return b
 }
 

@@ -17,6 +17,22 @@ type HttpInterBodyLimitConfig struct {
 	// MaxSize is the maximum allowed size of the request body in bytes.
 	// Defaults to 10MB (10485760 bytes).
 	MaxSize int64 `yaml:"maxSize" default:"10485760"`
+
+	// RequireContentLength rejects body-bearing requests
+	// (POST/PUT/PATCH/DELETE) that omit Content-Length with
+	// 411 Length Required. Closes a chunked-body bypass: without it,
+	// Transfer-Encoding: chunked sets ContentLength=-1 and slips past
+	// the MaxSize pre-check until the handler reads the body — an
+	// attacker can then drip chunks for the full readTimeout window
+	// if a handler ignores its body.
+	//
+	// The YAML default is true: production deployments rarely need
+	// chunked uploads, and leaving the bypass open is worse than
+	// rejecting a few legitimate streaming clients. The matching Go
+	// API option [bodylimit.WithRequireContentLength] is opt-in and
+	// stays off by default for backward compatibility with existing
+	// programmatic callers.
+	RequireContentLength bool `yaml:"requireContentLength" default:"true"`
 }
 
 // Validate performs validation of the HttpInterBodyLimitConfig.
@@ -34,7 +50,8 @@ func DefaultHttpInterBodyLimitConfig() HttpInterBodyLimitConfig {
 		BaseHttpMiddlewareConfig: BaseHttpMiddlewareConfig{
 			EnableMixin: EnableMixin{Enabled: false},
 		},
-		MaxSize: DefaultBodyLimitMaxSize,
+		MaxSize:              DefaultBodyLimitMaxSize,
+		RequireContentLength: true,
 	}
 }
 
