@@ -45,12 +45,21 @@ const (
 	DefaultFailureMode = FailureModeSoft
 )
 
+// DefaultMaxCacheEntries caps the in-memory OCSP-response cache. The
+// existing lazy-cleanup pass only runs every defaultCleanupInterval
+// calls and only removes EXPIRED entries — so an mTLS server presenting
+// many distinct client certificates (or being asked to staple for many
+// chains) grows the cache without bound between cleanup ticks. 4096 is
+// enough to absorb realistic workloads while keeping the cap honest.
+const DefaultMaxCacheEntries = 4096
+
 type options struct {
 	httpClient        *http.Client
 	retryPolicy       RetryPolicy `optgen:"notnil"`
 	logger            *slog.Logger
 	enableCompression bool        `opt:"Compression"`
 	failureMode       FailureMode `optgen:"manual,default=DefaultFailureMode"`
+	maxCacheEntries   int         `optgen:"default=DefaultMaxCacheEntries"`
 
 	// Scheduler configuration
 	scheduler       corescheduler.TaskRegistrar `optgen:"notnil"`

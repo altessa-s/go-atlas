@@ -43,6 +43,13 @@ func WithLogger(v *slog.Logger) Option {
 	}
 }
 
+// WithMaxCacheEntries sets the maxCacheEntries option.
+func WithMaxCacheEntries(v int) Option {
+	return func(o *options) {
+		o.maxCacheEntries = v
+	}
+}
+
 // WithRefreshSchedule sets the refreshSchedule option.
 func WithRefreshSchedule[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
@@ -89,8 +96,9 @@ func WithScheduler(v corescheduler.TaskRegistrar) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		failureMode: DefaultFailureMode,
-		logger:      slog.New(slog.DiscardHandler),
+		failureMode:     DefaultFailureMode,
+		logger:          slog.New(slog.DiscardHandler),
+		maxCacheEntries: DefaultMaxCacheEntries,
 	}
 }
 
