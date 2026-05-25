@@ -9,6 +9,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/security/tlsutils"
 
+	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	tlss3 "github.com/altessa-s/go-atlas/security/tlsutils/providers/s3"
 	vaultApi "github.com/hashicorp/vault/api"
 )
@@ -47,5 +48,17 @@ func (b *ProvidersBuilder) UseCacheDir(v string) *ProvidersBuilder {
 // UseS3Client sets the S3 client for the S3 TLS provider.
 func (b *ProvidersBuilder) UseS3Client(v tlss3.S3API) *ProvidersBuilder {
 	b.s3Client = v
+	return b
+}
+
+// UseScheduler injects a TaskRegistrar used by [ProvidersBuilder.Build]
+// to register periodic OCSP refresh. Required only when the YAML config
+// sets a non-empty tlsProvider.ocsp.refreshSchedule and no stapler was
+// already injected via [ProvidersBuilder.UseOcspStapler]. When omitted
+// the auto-constructed stapler still works — entries refresh lazily on
+// the first cache miss after expiration — but fresh handshakes can
+// block on an OCSP fetch.
+func (b *ProvidersBuilder) UseScheduler(v corescheduler.TaskRegistrar) *ProvidersBuilder {
+	b.scheduler = v
 	return b
 }

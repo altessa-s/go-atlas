@@ -146,3 +146,60 @@
 #      # <string> Base64-encoded MD5 of the customer key. Required when type is "c".
 #      # Default value: not set
 #      customerKeyMd5:
+#
+#  # <object> OCSP stapler configuration. When enabled and no stapler
+#  # was injected programmatically via ProvidersBuilder.UseOcspStapler,
+#  # the factory auto-constructs a stapler from these fields and
+#  # attaches it to every certificate provider it builds.
+#  ocsp:
+#    # <bool> Toggle automatic OCSP stapler construction.
+#    # Default value: false
+#    enabled: false
+#
+#    # <string> Behavior when the stapler cannot fetch a valid OCSP
+#    # response for a certificate. Mirrors the project-wide safety-mode
+#    # pattern (plugins.SignatureMode, oidc.JWKSFailureMode,
+#    # config.TLSSkipVerifyMode).
+#    # Supported values:
+#    #   - soft -- return the cert without an OCSP staple when the
+#    #     responder is unreachable or returns an invalid response.
+#    #     Maximises availability — a transient OCSP outage does not
+#    #     break new connections — but a revoked certificate may be
+#    #     served alongside its valid TLS material.
+#    #   - hard -- abort the TLS handshake when an OCSP staple cannot
+#    #     be produced. Use in environments where the cost of a
+#    #     temporary outage is acceptable but the cost of serving a
+#    #     possibly-revoked certificate is not (PCI-DSS, regulated
+#    #     industries, security-sensitive APIs).
+#    # Default value: soft
+#    failureMode: soft
+#
+#    # <bool> Enable gzip compression of cached OCSP responses.
+#    # Cache entries are typically 1-2 KiB; compression cuts that by
+#    # 50-70 % at negligible CPU cost.
+#    # Default value: true
+#    enableCompression: true
+#
+#    # <int> Maximum number of OCSP responses kept in the in-memory
+#    # cache. Set to 0 to disable the cap (legacy unbounded behavior —
+#    # only safe when the certificate population is small and known).
+#    # The default is generous enough for typical mTLS server workloads
+#    # (a few hundred client certs) without letting an adversarial mTLS
+#    # client population grow the map between lazy-cleanup ticks.
+#    # Default value: 4096
+#    maxCacheEntries: 4096
+#
+#    # <string> Cron schedule for periodic RunRefreshAll. Requires a
+#    # TaskRegistrar injected via ProvidersBuilder.UseScheduler;
+#    # without a scheduler the schedule is ignored and cache entries
+#    # refresh lazily on the next GetOCSPStaple miss. Format: 6-field
+#    # cron (seconds-precision) — same as the rest of the project's
+#    # scheduler tasks.
+#    # Default value: not set (lazy refresh only)
+#    refreshSchedule:
+#
+#    # <duration> Caps a single OCSP responder fetch. Hard-fail mode
+#    # multiplies this through every fresh connection that misses the
+#    # cache, so keep it tight.
+#    # Default value: 10s
+#    httpTimeout: 10s

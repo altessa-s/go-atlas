@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"log/slog"
+	"net/http"
 	"path/filepath"
 
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -19,6 +20,8 @@ import (
 	"github.com/altessa-s/go-atlas/security/tlsutils"
 
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
+	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
+	tlsocsp "github.com/altessa-s/go-atlas/security/tlsutils/ocsp"
 	tlsproviders "github.com/altessa-s/go-atlas/security/tlsutils/providers"
 	tlsfile "github.com/altessa-s/go-atlas/security/tlsutils/providers/file"
 	tlsle "github.com/altessa-s/go-atlas/security/tlsutils/providers/le"
@@ -45,6 +48,7 @@ type ProvidersBuilder struct {
 
 	// Dependencies
 	ocspStapler tlsutils.OCSPStapler
+	scheduler   corescheduler.TaskRegistrar
 	vaultClient *vaultApi.Client
 	s3Client    tlss3.S3API
 	cacheDir    string
@@ -70,6 +74,10 @@ func (b *ProvidersBuilder) Build() (*tlsproviders.Providers, error) {
 
 	if b.cfg == nil {
 		return &tlsproviders.Providers{}, nil
+	}
+
+	if err := b.ensureOcspStaplerFromConfig(); err != nil {
+		return nil, b.WrapError(err, "failed to build OCSP stapler from config")
 	}
 
 	providers := &tlsproviders.Providers{}
@@ -322,4 +330,53 @@ func (b *ProvidersBuilder) s3ProviderOpts() []tlss3.Option {
 		return []tlss3.Option{tlss3.WithOcspStapler(b.ocspStapler)}
 	})
 	return opts
+}
+
+// ensureOcspStaplerFromConfig populates b.ocspStapler from b.cfg.OCSP
+// when (a) the operator enabled OCSP via YAML, (b) no stapler was
+// already injected programmatically via UseOcspStapler, and (c) the
+// config block validated successfully. The auto-built stapler inherits
+// failureMode, compression, cache cap, HTTP timeout, and (when a
+// scheduler is also injected) the periodic refresh schedule.
+//
+// A programmatically-injected stapler always wins — operators staging
+// custom retry / HTTP-client plumbing don't lose it just because they
+// also filled in the YAML block.
+func (b *ProvidersBuilder) ensureOcspStaplerFromConfig() error {
+	if b.ocspStapler != nil {
+		return nil
+	}
+	ocspCfg := b.cfg.OCSP
+	if ocspCfg == nil || !ocspCfg.Enabled {
+		return nil
+	}
+
+	opts := []tlsocsp.Option{
+		tlsocsp.WithFailureMode(tlsocsp.FailureMode(ocspCfg.FailureMode)),
+		tlsocsp.WithMaxCacheEntries(ocspCfg.MaxCacheEntries),
+	}
+	if ocspCfg.EnableCompression {
+		opts = append(opts, tlsocsp.WithCompression())
+	}
+	if ocspCfg.HTTPTimeout > 0 {
+		opts = append(opts, tlsocsp.WithHttpClient(&http.Client{Timeout: ocspCfg.HTTPTimeout}))
+	}
+	if b.Logger() != nil {
+		opts = append(opts, tlsocsp.WithLogger(b.Logger()))
+	}
+
+	// Scheduler + refreshSchedule pair gates the periodic refresh:
+	// missing either one means the stapler still works, it just
+	// refreshes lazily on cache misses inside GetOCSPStaple. The OCSP
+	// option ignores empty refreshSchedule via its TrimSpace guard, so
+	// the AppendIf checks here mirror that for clarity.
+	if b.scheduler != nil {
+		opts = append(opts, tlsocsp.WithScheduler(b.scheduler))
+	}
+	if ocspCfg.RefreshSchedule != "" {
+		opts = append(opts, tlsocsp.WithRefreshSchedule(ocspCfg.RefreshSchedule))
+	}
+
+	b.ocspStapler = tlsocsp.NewOCSPStapler(opts...)
+	return nil
 }
