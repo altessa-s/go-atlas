@@ -282,6 +282,25 @@ func DefaultTLSConfig() *tls.Config {
 	}
 }
 
+// DefaultTLSConfigStrict returns a server TLS configuration that
+// requires TLS 1.3. Modern clients all support TLS 1.3; locking it as
+// the minimum drops the long tail of weak suites the TLS 1.2 path
+// allows and removes downgrade attack surface entirely. The
+// CipherSuites field is intentionally left empty — for TLS 1.3 the
+// stdlib enforces its own modern AEAD-only list and the TLS 1.2
+// pinned suites are ignored.
+//
+// Example:
+//
+//	config := tlsutils.DefaultTLSConfigStrict()
+//	config.Certificates = []tls.Certificate{cert}
+//	server := &http.Server{TLSConfig: config}
+func DefaultTLSConfigStrict() *tls.Config {
+	return &tls.Config{
+		MinVersion: tls.VersionTLS13,
+	}
+}
+
 // DefaultClientTLSConfig returns a secure default TLS configuration for client connections.
 // The configuration enforces TLS 1.2+ and sets the server name for certificate validation.
 // The serverName parameter is used for SNI and certificate verification.
@@ -295,6 +314,37 @@ func DefaultClientTLSConfig(serverName string) *tls.Config {
 		MinVersion:   tls.VersionTLS12,
 		CipherSuites: cipherSuits,
 		ServerName:   serverName,
+	}
+}
+
+// DefaultClientTLSConfigStrict is the client-side counterpart of
+// [DefaultTLSConfigStrict]. Use when you control both endpoints and
+// want to force TLS 1.3 across the wire.
+func DefaultClientTLSConfigStrict(serverName string) *tls.Config {
+	return &tls.Config{
+		MinVersion: tls.VersionTLS13,
+		ServerName: serverName,
+	}
+}
+
+// ResolveMinTLSVersion translates a human-readable version string
+// ("1.2" / "1.3") into the corresponding [tls.VersionTLSxx] constant.
+// Empty or unrecognized inputs return the safe default ([tls.VersionTLS12])
+// and report ok=false so callers can reject the config rather than
+// silently accept a typo that would otherwise be ignored. Mirrors the
+// project's safety-mode pattern of fail-safe-on-unknown.
+//
+// Recognized values (case-insensitive, leading/trailing space trimmed):
+//   - "1.2", "tls1.2", "tlsv1.2" → [tls.VersionTLS12]
+//   - "1.3", "tls1.3", "tlsv1.3" → [tls.VersionTLS13]
+func ResolveMinTLSVersion(s string) (uint16, bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "1.2", "tls1.2", "tlsv1.2":
+		return tls.VersionTLS12, true
+	case "1.3", "tls1.3", "tlsv1.3":
+		return tls.VersionTLS13, true
+	default:
+		return tls.VersionTLS12, false
 	}
 }
 
