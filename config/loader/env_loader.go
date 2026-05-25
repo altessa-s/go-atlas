@@ -635,26 +635,33 @@ func (cf *Config) findRootFieldByName(fieldName string) *field {
 
 // fieldNameMatches checks if a field matches the given name based on tags or field name.
 // This is a helper function used by other field matching functions to avoid code duplication.
+//
+// Previously the comparisons went through corestrings.InternLowerString
+// — a GLOBAL LRU cache. A process that ingests untrusted env keys
+// (containers, sidecars, plugin hosts) churned the global interner
+// and evicted legitimately-hot strings used elsewhere in the binary.
+// Plain strings.ToLower allocates one short string per comparison
+// (config-load-time, not a hot path) but keeps the global interner
+// reserved for callers that actually benefit from pointer-identity.
 func (cf *Config) fieldNameMatches(structTag, envTag, fieldName, targetName string) bool {
-	// Intern target name for efficient comparisons
-	targetLower := corestrings.InternLowerString(targetName)
+	targetLower := strings.ToLower(targetName)
 
 	// Check env tag first (highest priority)
-	if envTag != "" && corestrings.InternLowerString(envTag) == targetLower {
+	if envTag != "" && strings.ToLower(envTag) == targetLower {
 		return true
 	}
 
 	// Check struct tag (yaml, json, etc.)
 	if structTag != "" {
 		convertedTag := corestrings.ToScreamingSnakeCase(structTag)
-		if corestrings.InternLowerString(convertedTag) == targetLower {
+		if strings.ToLower(convertedTag) == targetLower {
 			return true
 		}
 	}
 
 	// Convert field name to SCREAMING_SNAKE_CASE for comparison
 	convertedFieldName := corestrings.ToScreamingSnakeCase(fieldName)
-	return corestrings.InternLowerString(convertedFieldName) == targetLower
+	return strings.ToLower(convertedFieldName) == targetLower
 }
 
 // fieldMatchesByName checks if a struct field matches the given name.
