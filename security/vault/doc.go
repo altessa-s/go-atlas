@@ -11,6 +11,6 @@
 //		vault.WithAuthMethod(approle.New("role-id", "secret-id")),
 //		vault.WithLogger(slog.Default()),
 //	)
-//	client.RunRenewal()
+//	client.RunRenewalWithContext(ctx)
 //	defer client.StopRenewal()
 package vault
