@@ -29,5 +29,26 @@
 #
 #  # <bool> Disables TLS certificate verification.
 #  # Using this option is highly discouraged for security reasons.
+#  # Even with this true, Normalize() resets it to false unless the
+#  # ATLAS_ALLOW_INSECURE_TLS environment variable is also set to "true".
 #  # Default value: false
 #  skipVerifyServerName: false
+#
+#  # <string> Gates the residual case where ATLAS_ALLOW_INSECURE_TLS is
+#  # set AND skipVerifyServerName: true survived Normalize(). Mirrors the
+#  # project-wide safety-mode pattern (plugins.SignatureMode,
+#  # oidc.JWKSFailureMode).
+#  # Supported values:
+#  #   - enforce  -- TLS factory rejects SkipVerify=true at build time
+#  #     with factory.ErrInsecureSkipVerifyRejected. Production-safe
+#  #     default; an operator who needs to disable verification (lab,
+#  #     debugging) must opt in via warn or disabled.
+#  #   - warn     -- allows SkipVerify=true but logs a loud warning on
+#  #     every CreateClientConfig call. Use during deliberate canary
+#  #     windows where downstream isn't yet exposing a trusted CA.
+#  #   - disabled -- silently allows SkipVerify=true with no log.
+#  #     Intended exclusively for unit/integration tests that wire up
+#  #     localhost-only fixtures; using it in any deployable artifact is
+#  #     a review blocker.
+#  # Default value: enforce
+#  skipVerifyMode: enforce

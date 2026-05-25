@@ -24,6 +24,15 @@
 #  # Default value: 300s
 #  readTimeout: 300s
 #
+#  # <duration> Caps the header-read phase independently of readTimeout.
+#  # Primary Slowloris defense: bounds the header phase to a short window
+#  # even when readTimeout is intentionally long (e.g. for streaming uploads).
+#  # Tightening it below the default trades resilience to slow clients
+#  # against tolerance for transient network jitter; the default is the
+#  # smallest value that survives normal congested-internet handshakes.
+#  # Default value: 10s
+#  readHeaderTimeout: 10s
+#
 #  # <duration> Maximum time from end of request headers to response write completion.
 #  # For HTTPS, this is total time from connection establishment to response completion.
 #  # Default value: 300s
