@@ -95,10 +95,17 @@ func (v *Value[T]) Clear() {
 	// Attempt to clear the Value field if it contains sensitive data
 	v.clearValueField()
 
-	// Clear other string fields that might contain sensitive data
-	corestrings.ZeroString(v.Key)
-	corestrings.ZeroString(v.EncodedKey)
-	corestrings.ZeroString(v.Version)
+	// Key / EncodedKey / Version are identifiers and metadata, not
+	// secret material — the actual secret bytes live in EncodedValue
+	// (zeroed by clearValueField above) and the typed Value field.
+	// Previously we also ran ZeroString over these fields, but that
+	// fires SIGSEGV + debug.SetPanicOnFault recovery for every
+	// interned string (and string literals returned by providers are
+	// commonly interned). The fault-and-recover is functional but
+	// expensive enough to surface in tracing under load. Drop the
+	// unsafe zeroing for identifier fields and just reset the
+	// references — the underlying bytes are unreachable from this
+	// struct after the assignment and will be GC'd normally.
 	v.Key = ""
 	v.EncodedKey = ""
 	v.Version = ""
@@ -199,7 +206,12 @@ func NewValue[T any](key string, value T, encodedValue []byte, version string) *
 		version:      version,
 	}
 
-	// Set cleanup to automatically clear sensitive data using Go 1.24+ runtime mechanism
+	// Set cleanup to automatically clear sensitive data using Go 1.24+ runtime mechanism.
+	// Same rationale as [Value.Clear]: only the secret-bearing fields
+	// (encodedValue bytes, the SecureString-wrapped typed value) get
+	// zeroed. Key / EncodedKey / Version are identifiers/metadata —
+	// running ZeroString over them costs a SIGSEGV+recover per call
+	// for interned strings without protecting anything sensitive.
 	v.cleanup = coreruntime.AddCleanup(v, func(d *cleanupData) {
 		if d.encodedValue != nil {
 			corestrings.ZeroBytes(d.encodedValue)
@@ -207,10 +219,6 @@ func NewValue[T any](key string, value T, encodedValue []byte, version string) *
 		if d.ss != nil {
 			d.ss.Clear()
 		}
-		// Attempt to clear string backing arrays
-		corestrings.ZeroString(d.key)
-		corestrings.ZeroString(d.encodedKey)
-		corestrings.ZeroString(d.version)
 	}, data)
 
 	return v
