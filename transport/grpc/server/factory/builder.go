@@ -153,8 +153,8 @@ func (b *ServerBuilder) buildServerTlsConfig() (*tls.Config, error) {
 		return nil, b.WrapError(err, "failed to create TLS config from provider")
 	}
 
-	if cfg.MinTLSVersion == "1.3" {
-		tlsConfig.MinVersion = tls.VersionTLS13
+	if err := applyMinTLSVersion(tlsConfig, cfg.MinTLSVersion); err != nil {
+		return nil, b.WrapError(err, "tls.minVersion")
 	}
 
 	// mTLS client authentication
@@ -168,6 +168,34 @@ func (b *ServerBuilder) buildServerTlsConfig() (*tls.Config, error) {
 	}
 
 	return tlsConfig, nil
+}
+
+// applyMinTLSVersion resolves the YAML-supplied minVersion string into a
+// tls.VersionTLSxx constant via [tlsutils.ResolveMinTLSVersion] and applies
+// it to the provider-supplied tls.Config. When the operator pins TLS 1.3
+// the legacy 1.2 cipher list seeded by the provider is cleared so the
+// resulting config matches [tlsutils.DefaultTLSConfigStrict] semantics —
+// otherwise CipherSuites stays populated with 1.2-only entries that the
+// stdlib silently ignores under TLS 1.3 and operators reading the config
+// would assume those suites are still meaningful.
+//
+// An empty minVersion (legacy callers, or YAML that omitted the field) is
+// accepted as "leave the provider default in place"; any other unknown
+// value is rejected so a typo (e.g. "v1.3") cannot silently fall back to
+// the stdlib default.
+func applyMinTLSVersion(tlsConfig *tls.Config, raw string) error {
+	if raw == "" {
+		return nil
+	}
+	v, ok := tlsutils.ResolveMinTLSVersion(raw)
+	if !ok {
+		return fmt.Errorf("unknown TLS version %q: supported values are 1.2, 1.3", raw)
+	}
+	tlsConfig.MinVersion = v
+	if v == tls.VersionTLS13 {
+		tlsConfig.CipherSuites = nil
+	}
+	return nil
 }
 
 // buildGrpcOptions builds gRPC server options from the builder's configuration.
