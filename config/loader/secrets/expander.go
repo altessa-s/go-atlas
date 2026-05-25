@@ -143,8 +143,17 @@ func (e *Expander) Expand(ctx context.Context, content string) (string, error) {
 		// Retrieve the secret value
 		secretValue, err := e.getSecretValue(ctx, secretKey)
 		if err != nil {
+			// Log the namespace/key (operator-private context) ONCE at
+			// debug level. The returned error is intentionally redacted
+			// — failOnError propagates this to operator-visible log
+			// streams (CI, ops dashboards), and a literal secret name
+			// like "vault_unseal_key" or "mongo_root_password" in those
+			// streams is information leak even without the secret value.
+			e.logger.DebugContext(ctx, "secret expansion target",
+				slog.String("namespace", namespace),
+				slog.String("key", key))
 			if e.failOnError {
-				return "", coreerrs.Wrapf(err, "secret expansion failed for %s:%s", namespace, key)
+				return "", coreerrs.Wrap(err, "secret expansion failed; see debug log for the offending key")
 			}
 			e.logger.WarnContext(ctx, "failed to retrieve secret",
 				slog.String("namespace", namespace),
