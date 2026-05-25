@@ -16,7 +16,6 @@ import (
 
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/data/cache/lru"
-	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -25,136 +24,6 @@ import (
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 	exprpb "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
 )
-
-// DefaultParserCacheSize is the maximum number of parsed AST nodes to cache.
-const DefaultParserCacheSize = 1000
-
-// parserConfig holds parser configuration.
-type parserConfig struct {
-	cacheSize                 int
-	maxExpressionLength       int
-	noCache                   bool
-	collector                 metrics.Collector
-	customFunctions           map[string]CustomFunction
-	allowedFunctions          map[string]struct{}
-	skipGlobalCustomFunctions bool
-}
-
-// defaultParserConfig returns default parser configuration.
-func defaultParserConfig() *parserConfig {
-	return &parserConfig{
-		cacheSize:           DefaultParserCacheSize,
-		maxExpressionLength: DefaultMaxExpressionLength,
-		noCache:             false,
-	}
-}
-
-// ParserOption configures the Parser.
-type ParserOption func(*parserConfig)
-
-// WithParserCacheSize sets the LRU cache size for parsed expressions.
-func WithParserCacheSize(size int) ParserOption {
-	return func(c *parserConfig) {
-		if size > 0 {
-			c.cacheSize = size
-		}
-	}
-}
-
-// WithParserNoCache disables caching of parsed expressions.
-func WithParserNoCache() ParserOption {
-	return func(c *parserConfig) {
-		c.noCache = true
-	}
-}
-
-// WithMaxExpressionLength sets the maximum allowed CEL expression length in bytes.
-// Expressions exceeding this length will be rejected before parsing.
-// This prevents excessive memory usage during parsing and LRU cache pollution.
-func WithMaxExpressionLength(n int) ParserOption {
-	return func(c *parserConfig) {
-		if n > 0 {
-			c.maxExpressionLength = n
-		}
-	}
-}
-
-// WithParserCollector sets the metrics collector for parser instrumentation.
-func WithParserCollector(c metrics.Collector) ParserOption {
-	return func(cfg *parserConfig) {
-		cfg.collector = c
-	}
-}
-
-// WithAllowedFunctions restricts which CEL functions the parser
-// accepts. The whitelist covers built-in named functions (contains,
-// startsWith, endsWith, matches, size, timestamp) and any handlers
-// registered via [WithCustomFunctions]. Operators (==, !=, <, &&, ||,
-// !, in) and the has() macro are baseline grammar and are always
-// allowed.
-//
-// When this option is not set, every function reachable from the
-// parser is accepted (the historical default). A name registered as a
-// custom function but absent from the whitelist is rejected at parse
-// time with [ErrFunctionNotAllowed], not at [NewParser] — that keeps
-// the "global registry + per-parser narrowing" pattern available.
-//
-// Example — only allow safe substring queries plus a custom shortcut:
-//
-//	parser, _ := filter.NewParser(
-//	    filter.WithAllowedFunctions("contains", "startsWith", "createdAfter"),
-//	    filter.WithCustomFunctions(map[string]filter.CustomFunction{
-//	        "createdAfter": filter.CompareField("createdAt", filter.OpGT),
-//	    }),
-//	)
-func WithAllowedFunctions(names ...string) ParserOption {
-	return func(c *parserConfig) {
-		c.allowedFunctions = make(map[string]struct{}, len(names))
-		for _, n := range names {
-			c.allowedFunctions[n] = struct{}{}
-		}
-	}
-}
-
-// WithCustomFunctions registers user-defined CEL functions that the
-// parser expands into arbitrary AST nodes. Each call name(args...) in
-// a parsed expression is dispatched to the matching [CustomFunction]
-// handler; the node returned by the handler replaces the call in the
-// AST before it reaches any [Evaluator] or translator.
-//
-// Registration is validated at [NewParser] time: handlers must be
-// non-nil and names must not collide with built-in CEL functions
-// (contains, startsWith, endsWith, matches, size, has, timestamp,
-// substring).
-//
-// Handlers run on every parser cache miss, so they should be cheap and
-// side-effect free. The parser does not bound the depth of nodes a
-// handler returns; that limit is enforced by translators during
-// traversal via [WithMaxDepth].
-//
-// Example — exposing semantic time-range filters:
-//
-//	parser, err := filter.NewParser(filter.WithCustomFunctions(map[string]filter.CustomFunction{
-//	    "createdAfter":  filter.CompareField("createdAt", filter.OpGT),
-//	    "updatedAfter":  filter.CompareField("updatedAt", filter.OpGT),
-//	    "createdBefore": filter.CompareField("createdAt", filter.OpLT),
-//	}))
-func WithCustomFunctions(funcs map[string]CustomFunction) ParserOption {
-	return func(cfg *parserConfig) {
-		cfg.customFunctions = funcs
-	}
-}
-
-// WithoutGlobalCustomFunctions excludes the package-level registry
-// (populated via [RegisterFunctions]) from this parser's effective
-// function set. The parser then only sees functions passed via
-// [WithCustomFunctions]. Useful in tests and for isolated parsers
-// that should not pick up application-wide registrations.
-func WithoutGlobalCustomFunctions() ParserOption {
-	return func(cfg *parserConfig) {
-		cfg.skipGlobalCustomFunctions = true
-	}
-}
 
 // Parser parses CEL expressions into filter AST nodes.
 type Parser struct {
@@ -175,10 +44,7 @@ var getCELEnvironment = sync.OnceValues(func() (*cel.Env, error) {
 
 // NewParser creates a new CEL expression parser.
 func NewParser(opts ...ParserOption) (*Parser, error) {
-	cfg := defaultParserConfig()
-	for _, opt := range opts {
-		opt(cfg)
-	}
+	cfg := newParserConfig(opts...)
 
 	if err := validateCustomFunctions(cfg.customFunctions); err != nil {
 		return nil, err
