@@ -17,6 +17,7 @@ import (
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/transport/http/server"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
+	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/recovery"
 	"github.com/altessa-s/go-atlas/transport/http/server/router/gorilla"
 	"github.com/altessa-s/go-atlas/transport/internal/geoacl"
 
@@ -241,6 +242,32 @@ func (b *ServerBuilder) buildServerTlsConfig() (*tls.Config, error) {
 	return tlsConfig, nil
 }
 
+// pinRecoveryOutermost moves the recovery middleware (if present) to
+// position 0 of the ordered slice so it wraps every other middleware
+// in the chain. Topological ordering otherwise places requestid before
+// recovery (recovery declares requestid as a dependency), which leaves
+// a panic inside requestid uncaught. Recovery still observes the
+// request ID from context — requestid runs INSIDE recovery and
+// populates the context before any handler panic — so the dependency
+// contract is preserved in spirit.
+func pinRecoveryOutermost(ordered []middlewares.Middleware) []middlewares.Middleware {
+	for i, mw := range ordered {
+		if mw == nil || mw.Name() != recovery.Name() {
+			continue
+		}
+		if i == 0 {
+			return ordered
+		}
+		// Move ordered[i] to index 0 while preserving the relative
+		// order of the rest. copy() handles overlapping ranges.
+		rec := ordered[i]
+		copy(ordered[1:i+1], ordered[0:i])
+		ordered[0] = rec
+		return ordered
+	}
+	return ordered
+}
+
 // registerMiddleware collects all middleware, filters by disabledMW, sorts,
 // deduplicates, and registers them on the server.
 func (b *ServerBuilder) registerMiddleware(srv *server.Server) error {
@@ -269,6 +296,17 @@ func (b *ServerBuilder) registerMiddleware(srv *server.Server) error {
 		if err != nil {
 			return err
 		}
+		// Force the recovery middleware (if present) to be outermost,
+		// regardless of where the topological sort placed it. Recovery
+		// declares requestid as a dependency so the sort puts requestid
+		// outside recovery — but that means a panic inside requestid
+		// (or any non-middleware path the sort placed before recovery)
+		// would crash the process instead of being caught. Recovery's
+		// dependency is "I read requestid from context if available",
+		// which still works when requestid runs INSIDE recovery: the
+		// inner middleware populates the context BEFORE the handler
+		// panics, and recovery's defer fires with the populated value.
+		ordered = pinRecoveryOutermost(ordered)
 		srv.RegisterMiddleware(slices.To(ordered, func(v middlewares.Middleware) server.Middleware {
 			return v.Handler
 		})...)
