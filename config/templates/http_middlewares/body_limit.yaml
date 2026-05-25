@@ -24,3 +24,17 @@
 #  # <int64> Maximum allowed size of the request body in bytes.
 #  # Default value: 10485760 (10MB)
 #  maxSize: 10485760
+#
+#  # <bool> Reject body-bearing requests (POST/PUT/PATCH/DELETE) that
+#  # omit Content-Length, responding with 411 Length Required. Without
+#  # this, a Transfer-Encoding: chunked request sets ContentLength=-1
+#  # and slips past maxSize until the handler reads the body — an
+#  # attacker can drip chunks for the full readTimeout window if a
+#  # handler ignores its body. The YAML default is the strict choice:
+#  # production deployments rarely need chunked uploads, and the cost
+#  # of leaving the bypass open is worse than rejecting a few legitimate
+#  # streaming clients. Set explicitly to false on endpoints that
+#  # accept streaming uploads without Content-Length (some media
+#  # ingest pipelines, server-sent file proxies).
+#  # Default value: true
+#  requireContentLength: true
