@@ -121,6 +121,19 @@ type Stapler struct {
 
 	schedulerRefreshAllRegistered atomic.Bool // Marks if RunRefreshAll is managed by scheduler.
 	enableCompression             bool
+	// failureMode controls handshake behavior when GetOCSPStaple cannot
+	// produce a valid response — see [FailureMode] for the rationale.
+	failureMode FailureMode
+}
+
+// FailureMode returns the configured [FailureMode]. [StapleOCSPToConfig]
+// uses this to decide whether a failed staple-fetch should be served
+// as a cert-without-staple (Soft) or rejected (Hard).
+func (s *Stapler) FailureMode() FailureMode {
+	if s.failureMode == "" {
+		return DefaultFailureMode
+	}
+	return s.failureMode
 }
 
 type ocspCacheEntry struct {
@@ -157,12 +170,18 @@ func NewOCSPStapler(opts ...Option) *Stapler {
 		logger = slog.New(slog.DiscardHandler)
 	}
 
+	failureMode := o.failureMode
+	if failureMode == "" {
+		failureMode = DefaultFailureMode
+	}
+
 	s := &Stapler{
 		cache:             make(map[string]*ocspCacheEntry),
 		httpClient:        httpClient,
 		retryPolicy:       o.retryPolicy,
 		logger:            logger,
 		enableCompression: o.enableCompression,
+		failureMode:       failureMode,
 		scheduler:         o.scheduler,
 	}
 
@@ -610,10 +629,55 @@ func (s *Stapler) prepareCacheEntry(ctx context.Context, response []byte, nextUp
 	}
 }
 
+// failureModeAware is an optional interface satisfied by OCSP staplers
+// that expose a [FailureMode]. [StapleOCSPToConfig] consults it to
+// decide whether a failed staple-fetch should abort the handshake
+// (Hard) or fall through with the unstapled certificate (Soft).
+// Implemented by [*Stapler]; custom OCSPStapler implementations
+// without this method fall back to Soft for backwards compatibility.
+type failureModeAware interface {
+	FailureMode() FailureMode
+}
+
+// resolveFailureMode reports the stapler's configured FailureMode,
+// defaulting to Soft for staplers that don't expose one.
+func resolveFailureMode(stapler tlsutils.OCSPStapler) FailureMode {
+	if fma, ok := stapler.(failureModeAware); ok {
+		return fma.FailureMode()
+	}
+	return FailureModeSoft
+}
+
+// stapleOrEnforce wraps the common "fetch + decide based on failure
+// mode" flow used by both server and client certificate paths.
+// Returns (certWithStaple, nil) on success, (cert, nil) in Soft mode
+// when the staple is missing, or (nil, error) in Hard mode.
+func stapleOrEnforce(ctx context.Context, stapler tlsutils.OCSPStapler, cert *tls.Certificate) (*tls.Certificate, error) {
+	ocspResp, err := stapler.GetOCSPStaple(ctx, cert)
+	if err == nil && len(ocspResp) > 0 {
+		return tlsutils.CloneCertificateWithOCSPStaple(cert, ocspResp), nil
+	}
+
+	if resolveFailureMode(stapler) == FailureModeHard {
+		if err != nil {
+			return nil, coreerrs.WrapOperation(err, "ocsp staple required (hard-fail mode)")
+		}
+		return nil, errors.New("ocsp staple required (hard-fail mode): empty response")
+	}
+
+	// Soft mode: surrender the staple but still serve the certificate.
+	return cert, nil
+}
+
 // StapleOCSPToConfig adds OCSP stapling to a TLS config.
 // It wraps the GetCertificate and GetClientCertificate functions to add OCSP staples.
 // If the config already has these functions, they will be wrapped to preserve existing behavior.
 // The TLS handshake context is used for OCSP requests.
+//
+// Failure mode (see [FailureMode]) is read from the stapler: a Hard-mode
+// stapler aborts the handshake when no valid OCSP response can be
+// produced; the default Soft-mode behavior serves the certificate
+// without a staple.
 //
 // Example:
 //
@@ -650,13 +714,7 @@ func StapleOCSPToConfig(config *tls.Config, stapler tlsutils.OCSPStapler) error 
 		ctx, cancel := context.WithTimeout(hello.Context(), handshakeOCSPTimeout)
 		defer cancel()
 
-		ocspResp, err := stapler.GetOCSPStaple(ctx, cert)
-		if err == nil && len(ocspResp) > 0 {
-			return tlsutils.CloneCertificateWithOCSPStaple(cert, ocspResp), nil
-		}
-
-		// Return the original certificate if OCSP stapling fails
-		return cert, nil
+		return stapleOrEnforce(ctx, stapler, cert)
 	}
 
 	// Also handle client certificates if needed
@@ -672,12 +730,7 @@ func StapleOCSPToConfig(config *tls.Config, stapler tlsutils.OCSPStapler) error 
 			ctx, cancel := context.WithTimeout(info.Context(), handshakeOCSPTimeout)
 			defer cancel()
 
-			ocspResp, err := stapler.GetOCSPStaple(ctx, cert)
-			if err == nil && len(ocspResp) > 0 {
-				return tlsutils.CloneCertificateWithOCSPStaple(cert, ocspResp), nil
-			}
-
-			return cert, nil
+			return stapleOrEnforce(ctx, stapler, cert)
 		}
 	}
 

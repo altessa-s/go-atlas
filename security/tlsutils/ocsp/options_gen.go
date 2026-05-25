@@ -89,7 +89,8 @@ func WithScheduler(v corescheduler.TaskRegistrar) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		logger: slog.New(slog.DiscardHandler),
+		failureMode: DefaultFailureMode,
+		logger:      slog.New(slog.DiscardHandler),
 	}
 }
 
