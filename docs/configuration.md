@@ -68,21 +68,23 @@ p := loader.New(backend,
     loader.WithSkipDefaults(),
     loader.WithSecretsManager(manager),
     loader.WithStrict(),
+    loader.WithMaxConfigBytes(16 * 1024 * 1024),
 )
 ```
 
-| Option                    | Default  | Description                                             |
-|---------------------------|----------|---------------------------------------------------------|
-| `WithPath`                | --       | Config file path. Supports `~` home directory expansion |
-| `WithPathOnEnvKey`        | --       | Load path from env var with a fallback default path     |
-| `WithEnvPrefix`           | `""`     | Prefix for all environment variables (e.g. `APP_`)      |
-| `WithEnvDelimiter`        | `"_"`    | Delimiter for compound env var names                    |
-| `WithEnvSectionDelimiter` | `"__"`   | Delimiter for nested struct mapping in env vars         |
-| `WithStructTag`           | `"yaml"` | Struct tag name for field mapping                       |
-| `WithSkipEnv`             | `false`  | Skip environment variable loading                       |
-| `WithSkipDefaults`        | `false`  | Skip default value application                          |
-| `WithSecretsManager`      | `nil`    | Secrets manager for `$__secret{}` expansion             |
-| `WithStrict`              | `false`  | Error on undefined env vars and unsupported field types |
+| Option                    | Default              | Description                                                                                                                                       |
+|---------------------------|----------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
+| `WithPath`                | --                   | Config file path. Supports `~` home directory expansion                                                                                           |
+| `WithPathOnEnvKey`        | --                   | Load path from env var with a fallback default path                                                                                               |
+| `WithEnvPrefix`           | `""`                 | Prefix for all environment variables (e.g. `APP_`)                                                                                                |
+| `WithEnvDelimiter`        | `"_"`                | Delimiter for compound env var names                                                                                                              |
+| `WithEnvSectionDelimiter` | `"__"`               | Delimiter for nested struct mapping in env vars                                                                                                   |
+| `WithStructTag`           | `"yaml"`             | Struct tag name for field mapping                                                                                                                 |
+| `WithSkipEnv`             | `false`              | Skip environment variable loading                                                                                                                 |
+| `WithSkipDefaults`        | `false`              | Skip default value application                                                                                                                    |
+| `WithSecretsManager`      | `nil`                | Secrets manager for `$__secret{}` expansion                                                                                                       |
+| `WithStrict`              | `false`              | Error on undefined env vars and unsupported field types                                                                                           |
+| `WithMaxConfigBytes`      | `16 MiB`             | Cap per-file read size. Guards against `/dev/zero`, multi-GB tmpfs files, or malicious include targets that would OOM the loader before parsing   |
 
 ---
 
