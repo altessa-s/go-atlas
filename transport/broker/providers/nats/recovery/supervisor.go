@@ -13,6 +13,8 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/altessa-s/go-atlas/core/runtime/panics"
+
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	coreretry "github.com/altessa-s/go-atlas/core/retry"
 )
@@ -47,6 +49,14 @@ type Supervisor struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	// recoveriesWG tracks every spawned runStreamRecovery /
+	// runConsumerRecovery goroutine so [Supervisor.Close] can wait for
+	// in-flight retries to finish unwinding before declaring the
+	// supervisor stopped. Previously the goroutines were spawned with
+	// bare `go` and Close() only flipped the cancel signal — leaving
+	// callers with no way to observe a clean shutdown.
+	recoveriesWG sync.WaitGroup
 }
 
 // SupervisorConfig holds configuration for the Supervisor.
@@ -87,9 +97,15 @@ func NewSupervisor(cfg SupervisorConfig) *Supervisor {
 	}
 }
 
-// Close stops the supervisor and cancels any ongoing recovery operations.
+// Close stops the supervisor and waits for every in-flight recovery
+// goroutine to unwind. Cancel happens first so the recovery loops see
+// their context die and bail out of any in-progress retry; the Wait
+// then blocks until each runStreamRecovery / runConsumerRecovery
+// returns. This makes shutdown observable — callers can rely on Close
+// returning ⇒ no recovery goroutines are still touching state.
 func (s *Supervisor) Close() {
 	s.cancel()
+	s.recoveriesWG.Wait()
 }
 
 // markAsRecovering marks a stream as being recovered.
@@ -191,8 +207,17 @@ func (s *Supervisor) RecoverStream(streamName string, event any) {
 		return
 	}
 
-	// Run recovery in a goroutine to not block the caller.
-	go s.runStreamRecovery(streamName)
+	// Run recovery in a goroutine to not block the caller. Use
+	// WaitGroup.Go (Go 1.25) so Close can wait for in-flight retries
+	// to drain — keeps shutdown observable and prevents the recovery
+	// goroutine from racing the test harness's t.Cleanup.
+	s.recoveriesWG.Go(func() {
+		// Repo rule: every spawned goroutine ships with panics.Handle so a
+		// panic in a registry callback or NATS-driver call doesn't take the
+		// process down with it.
+		defer panics.Handle(s.ctx)
+		s.runStreamRecovery(streamName)
+	})
 }
 
 // runStreamRecovery performs the actual stream recovery with retries.
@@ -264,8 +289,12 @@ func (s *Supervisor) RecoverConsumer(stream, consumer string, event any) {
 		// Continue with automatic recovery below.
 	}
 
-	// Run recovery in a goroutine.
-	go s.runConsumerRecovery(stream, consumer)
+	// Run recovery in a goroutine — see RecoverStream for the
+	// rationale (WaitGroup-tracked + panics.Handle).
+	s.recoveriesWG.Go(func() {
+		defer panics.Handle(s.ctx)
+		s.runConsumerRecovery(stream, consumer)
+	})
 }
 
 // runConsumerRecovery performs the actual consumer recovery with retries.
