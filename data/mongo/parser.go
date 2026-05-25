@@ -494,90 +494,25 @@ type Parser struct {
 	shouldEncrypt bool
 }
 
-// ParserOption represents a functional option for configuring the Parser.
-type ParserOption func(*Parser)
-
-// WithParserUpdate configures the parser for update operations.
-// When enabled, the parser applies update-specific field processing rules.
-func WithParserUpdate(update bool) ParserOption {
-	return func(p *Parser) {
-		p.update = update
-	}
-}
-
-// WithParserEncryption configures the parser to handle field encryption.
-// When enabled, the parser will process encryption metadata from models and tags.
-func WithParserEncryption(shouldEncrypt bool) ParserOption {
-	return func(p *Parser) {
-		p.shouldEncrypt = shouldEncrypt
-	}
-}
-
-// WithParserEncryptionModels configures the parser with encryption model mappings.
-// These models define which fields should be encrypted and how.
-func WithParserEncryptionModels(models map[reflect.Type]*EncryptionModel) ParserOption {
-	return func(p *Parser) {
-		p.encryptionModels = models
-	}
-}
-
-// WithParserBSONTagName sets the name of the BSON tag to use for field configuration.
-// Default is "bson" if not specified.
-func WithParserBSONTagName(tagName string) ParserOption {
-	return func(p *Parser) {
-		p.bsonTagName = tagName
-	}
-}
-
-// WithParserEncryptionTagName sets the name of the encryption tag to use for field encryption configuration.
-// Default is "encryption" if not specified.
-func WithParserEncryptionTagName(tagName string) ParserOption {
-	return func(p *Parser) {
-		p.encryptionTagName = tagName
-	}
-}
-
-// WithParserCacheSize configures the maximum cache size for parser metadata.
-// Default is MaxCacheSize (1000) if not specified.
-func WithParserCacheSize(maxSize int) ParserOption {
-	return func(p *Parser) {
-		if maxSize > 0 {
-			p.cache = newParserCache(maxSize)
-		}
-	}
-}
-
-// WithParserCacheEvictionAge sets the age threshold for cache eviction.
-// Entries older than this duration can be evicted during cache cleanup.
-func WithParserCacheEvictionAge(age time.Duration) ParserOption {
-	return func(p *Parser) {
-		if p.cache != nil && age > 0 {
-			p.cache.SetEvictionAge(age)
-		}
-	}
-}
-
 // NewParser creates a new Parser instance with the specified options.
 // The parser is responsible for extracting metadata from struct fields and nested structures.
 // Uses advanced caching by default for optimal performance.
 func NewParser(opts ...ParserOption) *Parser {
-	parser := &Parser{
-		encryptionModels:  make(map[reflect.Type]*EncryptionModel),
-		bsonTagName:       "bson",                       // Default tag name for BSON fields
-		encryptionTagName: "encryption",                 // Default tag name for encryption fields
-		cache:             newParserCache(MaxCacheSize), // Default advanced cache
+	o := newParserOptions(opts...)
+
+	cache := newParserCache(o.cacheSize)
+	if o.cacheEvictionAge > 0 {
+		cache.SetEvictionAge(o.cacheEvictionAge)
 	}
 
-	for _, opt := range opts {
-		opt(parser)
+	return &Parser{
+		encryptionModels:  o.encryptionModels,
+		bsonTagName:       o.bsonTagName,
+		encryptionTagName: o.encryptionTagName,
+		cache:             cache,
+		update:            o.update,
+		shouldEncrypt:     o.shouldEncrypt,
 	}
-
-	// Ensure cache is initialized even if no cache options provided
-	if parser.cache == nil {
-		parser.cache = newParserCache(MaxCacheSize)
-	}
-
-	return parser
 }
 
 // ParseStruct parses a Go struct with advanced caching and reference counting.
