@@ -161,9 +161,15 @@ func (s *Server) Start() (err error) {
 		h.Register(s.grpc, s.stopCh)
 	}
 
-	// Enable reflection if configured
+	// Enable reflection if configured. Reflection exposes the full
+	// service / method / field schema to any caller that can reach
+	// the gRPC port — useful for development but a recon foothold in
+	// production. Log a loud WARN at registration so operators can
+	// grep for "reflection enabled" in their startup logs and catch
+	// accidental production-enablement.
 	if s.reflection {
 		reflection.Register(s.grpc)
+		s.Logger().Warn("gRPC reflection enabled — service schema is publicly discoverable; disable in production")
 	}
 
 	// Use BaseServer.Start with gRPC-specific callback
