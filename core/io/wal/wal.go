@@ -93,6 +93,15 @@ type WAL struct {
 
 	fsyncDone chan struct{}
 	fsyncWG   sync.WaitGroup
+
+	// lastFsyncErr captures the most recent background fsync failure
+	// so callers can observe whether the WAL is in a "logged but
+	// silent" failure state via [WAL.Faulted]. Previously fsync errors
+	// were logged and forgotten — a durability primitive that loses
+	// an fsync should not be invisible to consumers who care about
+	// the guarantee. Stored as atomic.Pointer to keep reads lock-free
+	// and the hot append/fsync paths uncoupled.
+	lastFsyncErr atomic.Pointer[error]
 }
 
 // Open opens (or creates) a WAL in dir, recovering any existing segment
@@ -166,8 +175,16 @@ func (w *WAL) recover() ([]Record, error) {
 			return nil, readErr
 		}
 		if len(recs) == 0 {
-			// Empty / corrupt-from-start segment: remove it.
-			_ = os.Remove(sf.path)
+			// Empty / corrupt-from-start segment: remove it. Log
+			// failures (EACCES, EBUSY, read-only mount) rather than
+			// silently swallowing them — those signal an operator
+			// misconfiguration the WAL would otherwise hide.
+			if rmErr := os.Remove(sf.path); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+				w.opts.logger.Warn("wal: failed to remove empty/corrupt segment on recovery",
+					slog.String("path", sf.path),
+					slog.Any("error", rmErr),
+				)
+			}
 			continue
 		}
 		// Truncate trailing torn record(s).
@@ -450,11 +467,33 @@ func (w *WAL) fsyncOnce() {
 		return
 	}
 	if err := f.Sync(); err != nil {
+		// Stash the latest failure so callers can observe via
+		// [WAL.Faulted]. Previously the error was logged and dropped —
+		// a durability primitive that loses an fsync should at minimum
+		// expose the state to consumers who actually care about the
+		// guarantee.
+		w.lastFsyncErr.Store(&err)
 		w.opts.logger.Error("wal: background fsync failed",
 			slog.Uint64("segment_id", id),
 			slog.Any("error", err),
 		)
+		return
 	}
+	// Success — clear any previous error so transient failures don't
+	// stick as a "permanently faulted" signal.
+	w.lastFsyncErr.Store(nil)
+}
+
+// Faulted reports the last background-fsync error and nil-if-healthy.
+// Returns nil when no fsync has failed since the last successful one;
+// otherwise returns the captured error so consumers can fail-stop,
+// page operators, or surface a metric. The check is lock-free and
+// cheap to poll.
+func (w *WAL) Faulted() error {
+	if p := w.lastFsyncErr.Load(); p != nil {
+		return *p
+	}
+	return nil
 }
 
 // Sync forces an immediate fsync on the active segment.
