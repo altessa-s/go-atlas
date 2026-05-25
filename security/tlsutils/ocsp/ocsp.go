@@ -124,6 +124,11 @@ type Stapler struct {
 	// failureMode controls handshake behavior when GetOCSPStaple cannot
 	// produce a valid response — see [FailureMode] for the rationale.
 	failureMode FailureMode
+	// maxCacheEntries bounds the OCSP response cache. When zero, the
+	// cache is unbounded (legacy behavior; opt-out for callers who
+	// know their cert population is small and want to skip eviction
+	// bookkeeping).
+	maxCacheEntries int
 }
 
 // FailureMode returns the configured [FailureMode]. [StapleOCSPToConfig]
@@ -182,6 +187,7 @@ func NewOCSPStapler(opts ...Option) *Stapler {
 		logger:            logger,
 		enableCompression: o.enableCompression,
 		failureMode:       failureMode,
+		maxCacheEntries:   o.maxCacheEntries,
 		scheduler:         o.scheduler,
 	}
 
@@ -315,11 +321,48 @@ func (s *Stapler) GetOCSPStaple(ctx context.Context, cert *tls.Certificate) ([]b
 	cacheEntry := s.prepareCacheEntry(ctx, response, nextUpdate)
 
 	s.mu.Lock()
+	// Enforce the cap before inserting. evictOldestLocked picks the
+	// entry whose nextUpdate is closest to "now" — expired entries go
+	// first, then the soonest-to-expire — so the eviction does
+	// minimum damage to the cache's hit rate.
+	if s.maxCacheEntries > 0 {
+		for len(s.cache) >= s.maxCacheEntries {
+			if !s.evictOldestLocked() {
+				break // pathological: no entries available to evict
+			}
+		}
+	}
 	s.cache[cacheKey] = cacheEntry
 	cacheEntry.cert = cert
 	s.mu.Unlock()
 
 	return response, nil
+}
+
+// evictOldestLocked removes the cache entry with the earliest nextUpdate.
+// Caller must hold s.mu in write mode. Returns true when an entry was
+// removed, false when the cache is already empty.
+func (s *Stapler) evictOldestLocked() bool {
+	var (
+		oldestKey  string
+		oldestTime time.Time
+		first      = true
+	)
+	for key, entry := range s.cache {
+		entry.mu.RLock()
+		t := entry.nextUpdate
+		entry.mu.RUnlock()
+		if first || t.Before(oldestTime) {
+			oldestKey = key
+			oldestTime = t
+			first = false
+		}
+	}
+	if first {
+		return false
+	}
+	delete(s.cache, oldestKey)
+	return true
 }
 
 // fetchOCSPResponse fetches a fresh OCSP response for the certificate.
