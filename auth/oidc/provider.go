@@ -38,6 +38,12 @@ var (
 	ErrTokenRevoked              = errors.New("token has been revoked")
 	ErrSchedulerManaged          = errors.New("function is managed by scheduler, direct calls not allowed")
 	ErrLoaderClientNotConfigured = errors.New("revocation loader: HTTP client not configured")
+	// ErrFilterNotRebuildable is returned by [filterRevocationStorage.Sync]
+	// when the underlying filter does not implement [RebuildableFilter].
+	ErrFilterNotRebuildable = errors.New("revocation filter does not support rebuild/sync")
+	// ErrRevocationLoadFailed is returned by [URLRevocationLoader] and
+	// related sources when the upstream signals a non-OK status.
+	ErrRevocationLoadFailed = errors.New("revocation source load failed")
 	// ErrJWKSStale is returned when the time since the last successful JWKS
 	// refresh exceeds the configured [DefaultJWKSMaxStaleness] (or whatever
 	// the operator passed via [WithJWKSMaxStaleness]) and the failure mode
