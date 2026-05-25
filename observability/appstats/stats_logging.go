@@ -37,28 +37,20 @@ type StatsLogger struct {
 	logger *slog.Logger
 }
 
-// StatsLoggerOption configures StatsLogger behavior.
-type StatsLoggerOption func(*StatsLogger)
-
-// WithLogger sets a custom logger for stats logging.
-// If nil, slog.Default() is used.
-func WithLogger(logger *slog.Logger) StatsLoggerOption {
-	return func(s *StatsLogger) {
-		if logger != nil {
-			s.logger = logger
-		}
-	}
-}
+// StatsLoggerOption is a deprecated alias for [Option] retained to
+// keep existing call sites compiling. New code should use [Option].
+//
+// Deprecated: use [Option].
+type StatsLoggerOption = Option
 
 // NewStatsLogger creates a new StatsLogger with the given options.
-func NewStatsLogger(opts ...StatsLoggerOption) *StatsLogger {
-	s := &StatsLogger{
-		logger: slog.Default(),
+// When no [WithLogger] option is supplied, [slog.Default] is used.
+func NewStatsLogger(opts ...Option) *StatsLogger {
+	o := newOptions(opts...)
+	if o.logger == nil {
+		o.logger = slog.Default()
 	}
-	for _, opt := range opts {
-		opt(s)
-	}
-	return s
+	return &StatsLogger{logger: o.logger}
 }
 
 // RunLogCycle performs a single logging cycle of application statistics.
