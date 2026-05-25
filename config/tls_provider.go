@@ -43,6 +43,12 @@ type TlsProvider struct {
 	// S3 contains S3-based certificate provider settings.
 	// Used when certificates are downloaded from S3-compatible storage.
 	S3 *TlsProviderS3 `yaml:"s3" default:"-"`
+
+	// OCSP configures the OCSP stapler attached to file / Vault / S3
+	// providers. When nil (or Enabled=false) the builder does not
+	// auto-construct a stapler; programmatic callers may still inject
+	// one via ProvidersBuilder.UseOcspStapler.
+	OCSP *TlsProviderOCSP `yaml:"ocsp" default:"-"`
 }
 
 // Validate performs validation on the Tls provider configuration.
@@ -55,5 +61,6 @@ func (c *TlsProvider) Validate() error {
 		validation.Field(&c.LetsEncrypt, validation.Required.When(c.LetsEncrypt != nil)),
 		validation.Field(&c.Vault, validation.Required.When(c.Vault != nil)),
 		validation.Field(&c.S3, validation.Required.When(c.S3 != nil)),
+		validation.Field(&c.OCSP, validation.NilOrNotEmpty),
 	)
 }
