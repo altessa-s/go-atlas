@@ -7,6 +7,7 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"fmt"
 	"log/slog"
 	"math/big"
 	"sync"
@@ -279,7 +280,14 @@ func (a *Authenticator) runWatcher(ctx context.Context) {
 		case err := <-a.watcher.DoneCh():
 			if err != nil {
 				a.metrics.tokenRenewalErrors.Inc()
-				a.logger.WarnContext(ctx, "error renewing token, backing off and retrying", "error", err)
+				// The raw Vault SDK error may carry lease IDs and
+				// internal request URLs (role/path). Logging it
+				// verbatim leaks operational topology to whoever sees
+				// the warning stream. Use a stable message and log
+				// the error TYPE only; the full error still
+				// propagates to errCh for callers who need it.
+				a.logger.WarnContext(ctx, "vault token renewal failed, backing off and retrying",
+					"error_type", fmt.Sprintf("%T", err))
 				// Non-blocking send to error channel
 				select {
 				case a.errCh <- err:
