@@ -236,11 +236,22 @@ func (shard *parserCacheShard) evictLRUEntries() {
 		return int(a.age - b.age)
 	})
 
-	// Evict the oldest/least used entries (scaled for shard size)
-	evictBatchSize := max(1, CacheEvictionBatchSize/DefaultNumShards)
+	// Evict the oldest/least used entries until the shard is below the
+	// low-water mark. Previously this was a fixed batch of 3 entries
+	// per shard (CacheEvictionBatchSize / DefaultNumShards = 50/16 ≈ 3)
+	// which meant a saturated shard stayed saturated forever — every
+	// eviction removed 3 entries only to have 3 new misses repopulate
+	// them. Targeting a low-water mark (75% of shard capacity)
+	// guarantees the cache actually shrinks on overflow and keeps the
+	// active set fresh.
+	lowWater := max(1, shard.maxSize*3/4)
+	target := len(shard.entries) - lowWater
+	if target <= 0 {
+		return
+	}
 	evicted := 0
 	for _, candidate := range candidates {
-		if evicted >= evictBatchSize || len(shard.entries)-evicted <= shard.maxSize-evictBatchSize {
+		if evicted >= target {
 			break
 		}
 
