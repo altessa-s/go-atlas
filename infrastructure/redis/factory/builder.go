@@ -7,6 +7,7 @@ package factory
 import (
 	"cmp"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"time"
@@ -46,6 +47,21 @@ type ClientBuilder struct {
 	// Dependencies
 	healthCoordinator *health.Coordinator
 	healthServiceName string
+	// tlsConfig is applied to the field-based universal options when
+	// non-nil. The URI-based path (rediss://) picks up TLS through the
+	// scheme; field-based configs (Hosts/Password/Database) had no
+	// path to TLS at all before this hook — operators got plaintext
+	// connections silently regardless of deployment posture.
+	tlsConfig *tls.Config
+}
+
+// WithTLSConfig installs a *tls.Config to apply to the Redis client.
+// Used by the field-based config path; the URI-based path ignores
+// this and reads TLS from the rediss:// scheme instead. Without this
+// hook, field-based configs silently fall back to plaintext.
+func (b *ClientBuilder) WithTLSConfig(cfg *tls.Config) *ClientBuilder {
+	b.tlsConfig = cfg
+	return b
 }
 
 // New creates a [ClientBuilder] for the given Redis config.
@@ -147,6 +163,15 @@ func (b *ClientBuilder) universalOptionsFromFields() *redis.UniversalOptions {
 	if b.cfg.MasterName != "" {
 		opts.MasterName = b.cfg.MasterName
 		opts.SentinelPassword = b.cfg.SentinelPassword.Expose()
+	}
+
+	// Apply TLS material if the operator wired it in via WithTLSConfig.
+	// Without this hook a field-based config (Hosts/Password/Database)
+	// silently produced a plaintext connection regardless of the
+	// deployment's TLS posture — security regression vs the URI-based
+	// path which honors the rediss:// scheme automatically.
+	if b.tlsConfig != nil {
+		opts.TLSConfig = b.tlsConfig
 	}
 
 	return opts
