@@ -7,7 +7,6 @@ package opa
 import (
 	"cmp"
 	"context"
-	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -222,7 +221,7 @@ func (m *Manager) reload(ctx context.Context) error {
 		m.lastError.Store(&err)
 		m.broadcastError(err)
 		m.metrics.policyReloads.WithLabels(metrics.Labels{"result": "fetch_error"}).Inc()
-		return fmt.Errorf("%w: %w", ErrBundleFetchFailed, err)
+		return coreerrs.JoinWrap(ErrBundleFetchFailed, err)
 	}
 
 	currentRevision := m.Revision()
@@ -239,7 +238,7 @@ func (m *Manager) reload(ctx context.Context) error {
 			m.lastError.Store(&loadErr)
 			m.broadcastError(loadErr)
 			m.metrics.policyReloads.WithLabels(metrics.Labels{"result": "prepare_error"}).Inc()
-			return fmt.Errorf("%w: %w", ErrQueryPrepareFailed, loadErr)
+			return coreerrs.JoinWrap(ErrQueryPrepareFailed, loadErr)
 		}
 	}
 
@@ -259,7 +258,7 @@ func (m *Manager) reload(ctx context.Context) error {
 		m.lastError.Store(&err)
 		m.broadcastError(err)
 		m.metrics.policyReloads.WithLabels(metrics.Labels{"result": "prepare_error"}).Inc()
-		return fmt.Errorf("%w: %w", ErrQueryPrepareFailed, err)
+		return coreerrs.JoinWrap(ErrQueryPrepareFailed, err)
 	}
 
 	// Atomically update the prepared query
@@ -301,7 +300,7 @@ func loadBundleData(ctx context.Context, store storage.Store, data map[string]an
 	for key, value := range data {
 		path, ok := storage.ParsePath("/" + key)
 		if !ok {
-			return fmt.Errorf("invalid data path %q", key)
+			return coreerrs.Wrapf(ErrInvalidDataPath, "%q", key)
 		}
 		if err := store.Write(ctx, txn, storage.AddOp, path, value); err != nil {
 			return coreerrs.Wrapf(err, "write data %q", key)

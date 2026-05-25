@@ -7,13 +7,13 @@ package oidc
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"io"
 	"iter"
 	"net/http"
 	"os"
 	"time"
 
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
 
@@ -70,7 +70,7 @@ func (s *filterRevocationStorage) Sync(ctx context.Context) error {
 
 	rebuildable, ok := s.filter.(RebuildableFilter)
 	if !ok {
-		return fmt.Errorf("filter type %T does not support rebuilding/syncing", s.filter)
+		return coreerrs.Wrapf(ErrFilterNotRebuildable, "filter type %T", s.filter)
 	}
 
 	return rebuildable.Rebuild(ctx, s.loader)
@@ -164,7 +164,7 @@ func (l *URLRevocationLoader) SetHTTPClient(c *http.Client) {
 func (l *URLRevocationLoader) StreamValues(ctx context.Context) iter.Seq2[string, error] {
 	return func(yield func(string, error) bool) {
 		if l.Client == nil {
-			yield("", fmt.Errorf("%w: set the Client field or wire the loader via oidc.NewProvider", ErrLoaderClientNotConfigured))
+			yield("", coreerrs.Wrap(ErrLoaderClientNotConfigured, "set the Client field or wire the loader via oidc.NewProvider"))
 			return
 		}
 
@@ -186,7 +186,7 @@ func (l *URLRevocationLoader) StreamValues(ctx context.Context) iter.Seq2[string
 		}()
 
 		if resp.StatusCode != http.StatusOK {
-			yield("", fmt.Errorf("URL revocation loader: unexpected status %d", resp.StatusCode))
+			yield("", coreerrs.Wrapf(ErrRevocationLoadFailed, "URL revocation loader: status %d", resp.StatusCode))
 			return
 		}
 

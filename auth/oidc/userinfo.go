@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -61,7 +60,7 @@ type UserInfo struct {
 func (p *Provider) UserInfo(ctx context.Context, tokenSource oauth2.TokenSource) (*UserInfo, error) {
 	endpoint := p.UserinfoEndpoint()
 	if endpoint == "" {
-		return nil, fmt.Errorf("userinfo endpoint is not available")
+		return nil, coreerrs.Wrap(ErrDiscovery, "userinfo endpoint is not available")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
@@ -91,7 +90,7 @@ func (p *Provider) UserInfo(ctx context.Context, tokenSource oauth2.TokenSource)
 	coreio.PutBuffer(buf)
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("unexpected status %s: %s", resp.Status, sanitizeErrorBody(body))
+		return nil, coreerrs.Wrapf(ErrInvalidToken, "userinfo: unexpected status %s: %s", resp.Status, sanitizeErrorBody(body))
 	}
 
 	ct := resp.Header.Get("Content-Type")
