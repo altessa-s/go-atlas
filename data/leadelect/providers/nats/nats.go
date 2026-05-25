@@ -59,6 +59,13 @@ type Provider struct {
 	providerConfig atomic.Pointer[providers.Config]
 	notificationCh chan notificationEvent
 	notificationWg sync.WaitGroup
+
+	// notificationCloseOnce gates close(p.notificationCh) so a second
+	// Stop() (or Stop() racing with a partial-Start failure) cannot
+	// panic with "close of closed channel". The notificationHandler
+	// goroutine treats a closed channel as a clean shutdown signal so
+	// the first close still drives the intended teardown.
+	notificationCloseOnce sync.Once
 }
 
 var _ providers.Provider = (*Provider)(nil)
@@ -214,8 +221,15 @@ func (p *Provider) Stop(_ context.Context) error {
 	p.stop()
 	p.wg.Wait()
 
-	// Close notification channel and wait for handler to finish
-	close(p.notificationCh)
+	// Close notification channel and wait for handler to finish. The
+	// close is gated by sync.Once so a second Stop (or a Stop racing
+	// with a failed partial Start) cannot trigger "close of closed
+	// channel" — the prior code relied on safeChannelSend's panic
+	// recovery as a paper bag for this lifecycle bug instead of
+	// closing the door properly.
+	p.notificationCloseOnce.Do(func() {
+		close(p.notificationCh)
+	})
 	p.notificationWg.Wait()
 
 	return nil
