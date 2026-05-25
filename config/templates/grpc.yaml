@@ -27,11 +27,17 @@
 #
 #  # <int> Maximum message size in bytes that can be sent.
 #  # If not set, gRPC uses the default of 4MB (4194304 bytes).
+#  # Must be positive and at most 64 MiB (67108864) — zero/negative would
+#  # disable the size limit and a larger cap invites OOM on a single
+#  # malicious request. Operators with genuinely larger needs must raise
+#  # MaxGrpcMessageSize in their own validator.
 #  # Default value: not set
 #  maxSendMsgSize:
 #
 #  # <int> Maximum message size in bytes that can be received.
 #  # If not set, gRPC uses the default of 4MB (4194304 bytes).
+#  # Must be positive and at most 64 MiB (67108864) — same rationale as
+#  # maxSendMsgSize.
 #  # Default value: not set
 #  maxRecvMsgSize:
 #
@@ -77,11 +83,19 @@
 #
 #    # <object> Enforcement policy for keep-alive pings.
 #    enforcementPolicy:
-#      # <duration> Minimum time between keep-alive pings from clients.
-#      # Default value: 5s
-#      minTime: 5s
+#      # <duration> Minimum interval a client must wait between keepalive pings.
+#      # Pings sent more often than minTime cause the server to send GOAWAY and
+#      # close the connection — the primary ping-flood defense. The default
+#      # mirrors the explicit safe baseline applied by the gRPC factory; bring
+#      # it down (e.g. to 10s) only for clients whose keepalive cadence
+#      # requires it, and never raise it past the expected client cadence
+#      # (the stdlib's 5m fallback is permissive in disguise).
+#      # Default value: 30s
+#      minTime: 30s
 #
 #      # <bool> Permit keep-alive pings even when there are no active streams.
+#      # Leave false unless the workload needs long-lived idle connections
+#      # (e.g. pub/sub streams) that rely on keepalive to detect dead peers.
 #      # Default value: false
 #      permitWithoutStream: false
 #

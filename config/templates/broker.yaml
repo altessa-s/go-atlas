@@ -97,6 +97,12 @@
 #    messagesBatchSize: 200
 #
 #    # <uint32> Maximum number of retry attempts for failed publishes.
+#    # Doubles as the per-dispatch-cycle budget: a single event cannot
+#    # spin the dispatch loop forever — once this many attempts fail in
+#    # one cycle, the failure escalates to the outbox state machine and
+#    # the event is picked up again on the next cycle subject to
+#    # isReadyForRetry. Without this bound a permanently-cancelled
+#    # context would starve every other event behind the failing one.
 #    # Must be between 1 and 100.
 #    # Default value: 10
 #    retryMaxAttempts: 10
