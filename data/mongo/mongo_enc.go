@@ -226,6 +226,28 @@ func (m *Mongo) CreateDataKey(ctx context.Context, altName string) (*DataKeyId, 
 	return &ret, nil
 }
 
+// InvalidateDataKey drops the cached DataKeyId for altName so the next
+// [Mongo.DataKey] call re-fetches the canonical id from the key vault.
+// Call this after rotating or replacing the underlying key vault
+// document out-of-band — without invalidation, the process keeps using
+// the cached id for the lifetime of the [Mongo] instance and silently
+// defeats key rotation.
+func (m *Mongo) InvalidateDataKey(altName string) {
+	m.dkids.Delete(altName)
+}
+
+// InvalidateAllDataKeys clears every cached DataKeyId. Useful after a
+// bulk key-vault refresh or when the process suspects its cache is
+// stale (e.g. after reconnecting to a different vault instance).
+// Functionally equivalent to a full cache flush; the next DataKey call
+// for any altName will re-fetch from the vault.
+func (m *Mongo) InvalidateAllDataKeys() {
+	m.dkids.Range(func(k, _ any) bool {
+		m.dkids.Delete(k)
+		return true
+	})
+}
+
 // ConvertToNewDocument converts a Go struct to a BSON document for insertion operations.
 // It handles field encryption using explicit encryption, removes nil/empty fields,
 // and processes nested structures.
