@@ -213,8 +213,10 @@ func (s *Store) FetchUnprocessedEvents(ctx context.Context, batchSize uint32, la
 		},
 	}
 
-	var mongoEvents []event // Internal representation for MongoDB documents
-	currentTime := time.Now().UTC()
+	var (
+		mongoEvents []event   // Internal representation for MongoDB documents
+		currentTime time.Time // Lock timestamp; reassigned on every transaction attempt.
+	)
 
 	// Use a transaction to ensure Find + UpdateMany are atomic.
 	// Without a transaction, another process could fetch the same pending events
@@ -227,7 +229,12 @@ func (s *Store) FetchUnprocessedEvents(ctx context.Context, batchSize uint32, la
 
 	_, err = sess.WithTransaction(ctx, func(sessCtx context.Context) (any, error) { //nolint:contextcheck
 		// Reset on retry — WithTransaction may re-execute the callback on transient errors.
+		// time.Now() also moves inside the callback so each attempt records a FRESH lock
+		// timestamp; otherwise a transaction retried after a long pause would publish a
+		// stale LockedOn that looks expired to the next reader and triggers premature
+		// unlock-stuck-events sweeps.
 		mongoEvents = nil
+		currentTime = time.Now().UTC()
 
 		cursor, txErr := s.collection.Find(sessCtx, filter,
 			mongoOptions.Find().SetSort(bson.M{collectionFieldCreatedAt: 1}).SetLimit(int64(batchSize)))
