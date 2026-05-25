@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -96,6 +97,16 @@ type Manager[T any] struct {
 	// fetchGroup deduplicates concurrent Value(ctx, key, true) calls for the same key,
 	// preventing cache stampede when multiple goroutines miss the cache simultaneously.
 	fetchGroup singleflight.Group
+
+	// saveVersions tracks a per-key Save generation counter so the
+	// cache-update inside updateValueWithRetry can detect a concurrent
+	// [Manager.Save] and skip writing a stale fetch result over the
+	// fresh value. Without this, a Save that lands while an in-flight
+	// fetch is still talking to the storage would have its cache.Put
+	// overwritten by the fetch's older value — the canonical race
+	// flagged in the audit. Keyed by the secret key; the value is the
+	// generation counter incremented by every successful Save.
+	saveVersions sync.Map // map[string]*atomic.Int64
 
 	// updateCycleRunning guards against concurrent RunUpdateCycle calls
 	updateCycleRunning atomic.Bool
@@ -219,6 +230,17 @@ func (t *Manager[T]) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
+// saveVersion returns the (lazily-allocated) per-key Save generation
+// counter used to detect Save races inside updateValueWithRetry.
+func (t *Manager[T]) saveVersion(key string) *atomic.Int64 {
+	if v, ok := t.saveVersions.Load(key); ok {
+		return v.(*atomic.Int64) //nolint:errcheck // type is fixed at the only Store() site
+	}
+	fresh := new(atomic.Int64)
+	actual, _ := t.saveVersions.LoadOrStore(key, fresh)
+	return actual.(*atomic.Int64) //nolint:errcheck // same — value type is invariant
+}
+
 // updateValueWithRetry retrieves a secret value from storage with retry logic.
 // Uses exponential backoff with configurable base delay, multiplier, and maximum delay.
 // Logs warnings for individual retry attempts and errors for complete failures.
@@ -229,6 +251,13 @@ func (t *Manager[T]) Delete(ctx context.Context, key string) error {
 func (t *Manager[T]) updateValueWithRetry(ctx context.Context, key string) (*Value[T], error) {
 	stop := t.metrics.fetchDuration.Start()
 	defer stop()
+
+	// Snapshot the Save generation BEFORE the fetch. If a Save lands
+	// while the storage round-trip is in flight, the generation will
+	// differ when we come back and we must NOT publish our stale fetch
+	// result over the fresh value Save just put in the cache.
+	ver := t.saveVersion(key)
+	versionBefore := ver.Load()
 
 	var val *Value[T]
 
@@ -245,8 +274,17 @@ func (t *Manager[T]) updateValueWithRetry(ctx context.Context, key string) (*Val
 		return nil, err
 	}
 
-	t.cache.Put(key, val)
-	t.opts.logger.DebugContext(ctx, "value updated", slog.String("key", key))
+	if ver.Load() == versionBefore {
+		t.cache.Put(key, val)
+		t.opts.logger.DebugContext(ctx, "value updated", slog.String("key", key))
+	} else {
+		// Save raced this fetch. The cached value is already fresh —
+		// keep it and return our fetched value to the caller anyway so
+		// they see a coherent (post-fetch) snapshot.
+		t.opts.logger.DebugContext(ctx,
+			"skipping cache write — Save raced fetch",
+			slog.String("key", key))
+	}
 
 	return val, nil
 }
@@ -591,6 +629,13 @@ func (t *Manager[T]) saveWithRetry(ctx context.Context, key string, value T) err
 	if err != nil {
 		return err
 	}
+
+	// Bump the per-key Save generation BEFORE touching the cache. Any
+	// in-flight updateValueWithRetry that started before us will now
+	// observe a different generation when it returns and skip its
+	// cache.Put — preventing the fresh value we are about to publish
+	// from being silently overwritten by a stale fetch result.
+	t.saveVersion(key).Add(1)
 
 	// Update negative filter
 	if t.negativeFilter != nil {
