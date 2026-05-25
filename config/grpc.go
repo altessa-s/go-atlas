@@ -5,6 +5,7 @@
 package config
 
 import (
+	"fmt"
 	"time"
 
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
@@ -15,6 +16,17 @@ import (
 const (
 	defaultGrpcListenAddress = "0.0.0.0:7777"
 	defaultGrpcReflection    = false
+
+	// MaxGrpcMessageSize caps the value operators can configure for
+	// MaxSendMsgSize / MaxRecvMsgSize via YAML. The stdlib gRPC server
+	// has no upper bound on this field — left unchecked, an operator
+	// could ship a config setting it to math.MaxInt32 (~2 GiB),
+	// effectively disabling the inbound size limit and inviting OOM on
+	// a single malicious request. 64 MiB matches the largest sane
+	// production payload (large protobuf, batch RPC); operators with
+	// genuinely larger needs must opt out by raising the cap in their
+	// own validator.
+	MaxGrpcMessageSize = 64 * 1024 * 1024
 )
 
 // GrpcTls represents TLS configuration for gRPC servers.
@@ -195,6 +207,9 @@ func DefaultGrpc() Grpc {
 //
 // Returns an error if any validation rules fail.
 func (g *Grpc) Validate() error {
+	if err := g.validateMessageSizes(); err != nil {
+		return err
+	}
 	return ValidateStruct(g,
 		validation.Field(&g.ListenAddress, ozzo_rules.ListenAddress()),
 		validation.Field(&g.ConnectionTimeout, validation.NilOrNotEmpty,
@@ -203,4 +218,32 @@ func (g *Grpc) Validate() error {
 		validation.Field(&g.KeepAlive, validation.Required.When(g.KeepAlive != nil)),
 		validation.Field(&g.Interceptors, validation.Required.When(g.Interceptors != nil)),
 	)
+}
+
+// validateMessageSizes rejects MaxSendMsgSize / MaxRecvMsgSize values
+// that would either disable the size limit (negative / zero) or push
+// past [MaxGrpcMessageSize]. ozzo-validation doesn't ship a numeric
+// range rule we can chain through `validation.Field`, so the check
+// lives here as plain Go to keep the error path obvious.
+func (g *Grpc) validateMessageSizes() error {
+	for _, f := range []struct {
+		name  string
+		value *int
+	}{
+		{"maxSendMsgSize", g.MaxSendMsgSize},
+		{"maxRecvMsgSize", g.MaxRecvMsgSize},
+	} {
+		if f.value == nil {
+			continue
+		}
+		v := *f.value
+		if v <= 0 {
+			return fmt.Errorf("grpc.%s: must be positive (got %d) — zero/negative disables the size limit", f.name, v)
+		}
+		if v > MaxGrpcMessageSize {
+			return fmt.Errorf("grpc.%s: must be <= %d bytes (got %d) — a single message that large invites OOM on a malicious request",
+				f.name, MaxGrpcMessageSize, v)
+		}
+	}
+	return nil
 }
