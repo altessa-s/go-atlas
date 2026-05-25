@@ -31,17 +31,30 @@ func (s RegexCacheStatsSnapshot) HitRate() float64 {
 // callback functions to avoid an import cycle:
 //
 //	rcm := metrics.NewRegexCacheMetrics(collector,
-//	    filter.RegexCacheStatsSnapshot, // stats provider
-//	    filter.ResetRegexCacheStats,    // stats resetter
+//	    filter.RegexCacheStatsSnapshot, // stats provider (cumulative)
+//	    nil,                            // resetFunc (legacy, optional)
 //	)
 //	sched.Register(ctx, scheduler.TaskConfig{
 //	    ID:       "regex-cache-metrics",
 //	    Schedule: "0 */1 * * * *",
 //	    Func:     func(ctx context.Context) error { rcm.Report(); return nil },
 //	})
+//
+// statsFunc must return CUMULATIVE counters — [RegexCacheMetrics.Report]
+// tracks previous values internally and computes deltas, so the upstream
+// is no longer required to reset between reports.
 type RegexCacheMetrics struct {
 	statsFunc func() RegexCacheStatsSnapshot
 	resetFunc func()
+
+	// Previous-snapshot bookkeeping for delta computation. Holds the
+	// last cumulative values observed by Report; the next Report adds
+	// only the difference. Removes the previous reliance on resetFunc
+	// being called between reports — the old contract conflated "stats
+	// provider" with "consumer reset hook" and any caller that forgot
+	// to wire resetFunc would have inflated the counters monotonically.
+	prevHits   uint64
+	prevMisses uint64
 
 	hitsTotal   Counter
 	missesTotal Counter
@@ -50,8 +63,11 @@ type RegexCacheMetrics struct {
 }
 
 // NewRegexCacheMetrics creates a [RegexCacheMetrics] that reports stats from
-// the regex pattern cache. The statsFunc and resetFunc callbacks decouple this
-// bridge from the filter package, avoiding import cycles.
+// the regex pattern cache. statsFunc must return cumulative counters; the
+// returned metrics tracks deltas internally. resetFunc is kept for
+// backwards compatibility — pass nil for new code; if non-nil it is
+// invoked after each Report to give legacy callers a hook for their own
+// bookkeeping, but the metric output no longer depends on it.
 //
 // If c is nil, [Noop] is used and all operations become zero-cost no-ops.
 func NewRegexCacheMetrics(c Collector, statsFunc func() RegexCacheStatsSnapshot, resetFunc func()) *RegexCacheMetrics {
@@ -83,15 +99,41 @@ func NewRegexCacheMetrics(c Collector, statsFunc func() RegexCacheStatsSnapshot,
 	}
 }
 
-// Report reads the current regex cache stats snapshot and pushes delta
-// counters and absolute gauges into the metrics collector.
+// Report reads the current regex cache stats snapshot and pushes the
+// delta since the previous Report into the counters. Gauges are absolute.
+// A backwards step (cumulative counter went down — typical when the
+// upstream cache is explicitly cleared) is treated as a counter reset:
+// the new value becomes the baseline and no negative delta is published.
 func (m *RegexCacheMetrics) Report() {
 	stats := m.statsFunc()
 
-	m.hitsTotal.Add(float64(stats.Hits))
-	m.missesTotal.Add(float64(stats.Misses))
+	hitsDelta, prevHits := deltaCounter(m.prevHits, stats.Hits)
+	missesDelta, prevMisses := deltaCounter(m.prevMisses, stats.Misses)
+
+	m.prevHits = prevHits
+	m.prevMisses = prevMisses
+
+	if hitsDelta > 0 {
+		m.hitsTotal.Add(float64(hitsDelta))
+	}
+	if missesDelta > 0 {
+		m.missesTotal.Add(float64(missesDelta))
+	}
 	m.currentSize.Set(float64(stats.Size))
 	m.hitRate.Set(stats.HitRate())
 
-	m.resetFunc()
+	if m.resetFunc != nil {
+		m.resetFunc()
+	}
+}
+
+// deltaCounter computes the additive delta between two snapshots of a
+// monotonic counter. A backwards step (cur < prev) is treated as a
+// reset — caller should re-baseline at cur rather than publishing a
+// negative delta. Returns (delta, newPrev).
+func deltaCounter(prev, cur uint64) (delta uint64, newPrev uint64) {
+	if cur < prev {
+		return 0, cur
+	}
+	return cur - prev, cur
 }
