@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strings"
 
 	"github.com/nats-io/nats.go"
@@ -137,7 +138,12 @@ func (b *ConnectionBuilder) Build() (*nats.Conn, error) {
 	}
 	conn, err := nats.Connect(url, opts...)
 	if err != nil {
-		return nil, err
+		// nats.Connect's error can include the connection URL — which
+		// may carry inline userinfo (nats://user:pass@host). Wrap with
+		// a stable message and use the URL with userinfo stripped so
+		// the credentials don't leak through whatever log path picks
+		// the error up.
+		return nil, fmt.Errorf("connect to NATS at %s: %w", redactNATSURL(url), err)
 	}
 
 	if b.healthCoordinator != nil {
@@ -244,4 +250,23 @@ func ConsumerConfig(
 	}
 
 	return consumerCfg, nil
+}
+
+// redactNATSURL strips userinfo (user[:password]@) from a NATS
+// connection string before it is logged or returned in an error.
+// Multi-URL comma-separated lists are handled — each component is
+// redacted independently. Inputs that don't parse as a URL are
+// returned unchanged (the redaction only applies when there's userinfo
+// to strip).
+func redactNATSURL(raw string) string {
+	parts := strings.Split(raw, ",")
+	for i, p := range parts {
+		u, err := url.Parse(strings.TrimSpace(p))
+		if err != nil || u.User == nil {
+			continue
+		}
+		u.User = nil
+		parts[i] = u.String()
+	}
+	return strings.Join(parts, ",")
 }
