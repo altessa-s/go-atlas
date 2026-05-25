@@ -598,6 +598,26 @@ oidc:
 
 Without a scheduler, JWKS is refreshed automatically on cache miss.
 
+#### Staleness check (Go-only)
+
+The Go API exposes a freshness bound for the locally cached JWKS so an unreachable IdP cannot keep accepting tokens forever on
+unrefreshed keys:
+
+```go
+provider, _ := oidc.NewProvider(ctx, discoveryURL,
+    oidc.WithJWKSMaxStaleness(15 * time.Minute),
+    oidc.WithJWKSFailureMode(oidc.JWKSFailureModeEnforce),
+)
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `WithJWKSMaxStaleness(d)` | `0` (disabled) | Maximum age of the local JWKS cache before the failure mode kicks in. Pair with an active refresh path (`WithJWKSRefreshSchedule` or manual `Provider.RefreshJWKS`) |
+| `WithJWKSFailureMode(mode)` | `JWKSFailureModeEnforce` | Reaction when the staleness budget is exceeded: `Enforce` (reject with `ErrJWKSStale`), `Warn` (log and accept), `Disabled` (no check) |
+
+The staleness check is not exposed through YAML — leave the threshold at zero to keep the legacy "validate on whatever the cache holds"
+behavior, or opt in via Go options when a freshness guarantee is required.
+
 The HTTP client used for JWKS refresh, OIDC discovery, introspection, userinfo, and URL-based revocation honors `oidc.proxy` (see [Proxy](../proxy.md))
 — so a single proxy block applies to every outbound OIDC call. Sub-components (e.g. URL revocation loaders) inherit the Provider's HTTP client via
 the `httpclient.HTTPClientSetter` interface.
@@ -656,6 +676,21 @@ oidc:
 | `source.file` | `string` | — | Local file path for revocation list |
 
 Either `source.url` or `source.file` is required when revocation is enabled.
+
+#### Signature-verification ordering
+
+Revocation lookups follow a two-phase rule so an attacker cannot poison the check with forged claims or trigger work against the
+introspection endpoint with garbage JWTs:
+
+| `itemType` | When the lookup runs | Why |
+|------------|---------------------|-----|
+| `token` | **Before** signature verification | The full encoded JWT is opaque — using it as the lookup key never trusts attacker-controlled data |
+| `jti` | **After** signature verification | The `jti` claim only becomes trustworthy once the signature is checked |
+| `kid` | **After** signature verification | The `kid` header is forgeable until the signature pins it to a known key |
+
+Introspection still runs against the IdP because the IdP is the source of truth, but local probabilistic / storage lookups that key
+on `jti` or `kid` are deferred until parsing has succeeded. Operators do not need to change anything — the ordering is enforced
+inside the provider.
 
 ---
 
@@ -735,8 +770,8 @@ Used in `default_validation` and in each preset's `validation` field.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `leeway` | `string` (duration) | `"0s"` | Clock skew tolerance for `exp`, `nbf`, `iat` |
-| `verify_expiration` | `bool` | `true` | Verify `exp` claim |
-| `verify_not_before` | `bool` | `false` | Verify `nbf` claim |
+| `verify_expiration` | `bool` (tri-state) | omit | Tri-state: omit = jwt-go default (validate when present); `true` = require the `exp` claim AND validate it; `false` = **rejected at config-load time** with `ErrInvalidConfig` (the JWT library has no per-claim opt-out, so silently honoring `false` would mislead operators) |
+| `verify_not_before` | `bool` (tri-state) | omit | Same tri-state semantics as `verify_expiration` for the `nbf` claim |
 | `verify_issued_at` | `bool` | `false` | Verify `iat` claim |
 | `issuer` | `string` | — | Expected `iss` claim (exact match) |
 | `audiences` | `[]string` | — | Expected `aud` values (at least one must match) |
