@@ -84,6 +84,17 @@ type Outbox struct {
 	// ExpireSchedule defines the cron schedule for the expire task that marks
 	// pending/failed events past their ExpiresAt as expired.
 	ExpireSchedule string `yaml:"expireSchedule" default:"@every 11s"`
+
+	// Scheduler task IDs. Set these to distinct non-default values when
+	// running multiple Outbox instances against the same scheduler — the
+	// underlying registrar upserts by ID, so two instances sharing
+	// "outbox-dispatch" would silently overwrite each other's Func
+	// pointers. The runtime rejects collisions across the four IDs at
+	// startup via outbox.ErrTaskIDCollision.
+	DispatchTaskID string `yaml:"dispatchTaskID" default:"outbox-dispatch"`
+	UnlockTaskID   string `yaml:"unlockTaskID" default:"outbox-unlock"`
+	ExpireTaskID   string `yaml:"expireTaskID" default:"outbox-expire"`
+	CleanupTaskID  string `yaml:"cleanupTaskID" default:"outbox-cleanup"`
 }
 
 // Validate performs validation of the Outbox configuration.
@@ -94,5 +105,9 @@ func (c Outbox) Validate() error {
 		validation.Field(&c.UpdateTimeout, validation.Min(time.Millisecond)),
 		validation.Field(&c.MessagesBatchSize, validation.Min(uint32(1)), validation.Max(uint32(maxOutboxMessagesBatchSize))),
 		validation.Field(&c.RetryMaxAttempts, validation.Min(uint32(1)), validation.Max(uint32(maxOutboxRetryMaxAttempts))),
+		validation.Field(&c.DispatchTaskID, validation.Required),
+		validation.Field(&c.UnlockTaskID, validation.Required),
+		validation.Field(&c.ExpireTaskID, validation.Required),
+		validation.Field(&c.CleanupTaskID, validation.Required),
 	)
 }

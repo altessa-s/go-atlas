@@ -91,7 +91,12 @@ type options struct {
 	cleanupSchedule  string
 
 	// Scheduler task IDs — overridable so multiple Outbox instances can coexist
-	// in a single scheduler without ID collisions.
+	// in a single scheduler without ID collisions. The generated WithXxx
+	// setters TrimSpace the input and treat an empty / whitespace-only string
+	// as a no-op (the default is kept) — this matches the repo-wide optgen
+	// string-setter convention. Pass distinct non-empty values when running
+	// more than one Outbox against the same scheduler; collisions are
+	// rejected at registerTasks time via [ErrTaskIDCollision].
 	dispatchTaskID string `optgen:"default=DefaultDispatchTaskID"`
 	unlockTaskID   string `optgen:"default=DefaultUnlockTaskID"`
 	expireTaskID   string `optgen:"default=DefaultExpireTaskID"`
