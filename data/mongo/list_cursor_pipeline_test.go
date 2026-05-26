@@ -245,34 +245,100 @@ func TestBuildCursorFilter(t *testing.T) {
 	})
 }
 
-func TestBuildFacetStage(t *testing.T) {
-	t.Run("without total and without projection", func(t *testing.T) {
-		got := buildFacetStage(10, nil, false, nil, false)
+// testCollectionName is the collection name used in pipeline tests; surfaces in $unionWith.coll.
+const testCollectionName = "test_collection"
+
+func TestBuildItemsAggregationStages(t *testing.T) {
+	t.Run("limit only", func(t *testing.T) {
+		got := buildItemsAggregationStages(10, nil, nil)
 		require.Len(t, got, 1)
-		facet := got[0].(bson.M)["$facet"].(bson.M)
-		require.NotContains(t, facet, "count", "count should not be present when includeTotal is false")
-		items := facet["items"].(bson.A)
-		limitStage := items[0].(bson.M)
-		require.Equal(t, int64(11), limitStage["$limit"], "limit should be 10 + lookahead")
+		assertBsonDStageKey(t, got[0], "$limit")
+		require.Equal(t, int64(11), got[0].(bson.M)["$limit"], "limit should be 10 + lookahead")
 	})
 
-	t.Run("with total", func(t *testing.T) {
-		got := buildFacetStage(20, nil, true, nil, false)
-		facet := got[0].(bson.M)["$facet"].(bson.M)
-		require.Contains(t, facet, "count", "count should be present when includeTotal is true")
+	t.Run("limit + decoration", func(t *testing.T) {
+		decoration := bson.A{
+			bson.D{{Key: "$lookup", Value: bson.M{"from": "translations", "localField": "_id", "foreignField": "entity_id", "as": "translations"}}},
+		}
+		got := buildItemsAggregationStages(10, nil, decoration)
+		require.Len(t, got, 2)
+		assertBsonDStageKey(t, got[0], "$limit")
+		assertBsonDStageKey(t, got[1], "$lookup")
 	})
 
-	t.Run("with projection", func(t *testing.T) {
-		proj := bson.M{"name": 1, "age": 1}
-		got := buildFacetStage(10, proj, false, nil, false)
-		facet := got[0].(bson.M)["$facet"].(bson.M)
-		items := facet["items"].(bson.A)
-		require.Len(t, items, 2, "expected $limit + $project")
+	t.Run("limit + decoration + projection", func(t *testing.T) {
+		decoration := bson.A{bson.D{{Key: "$lookup", Value: bson.M{"from": "translations"}}}}
+		proj := bson.M{"name": 1}
+		got := buildItemsAggregationStages(10, proj, decoration)
+		require.Len(t, got, 3)
+		assertBsonDStageKey(t, got[0], "$limit")
+		assertBsonDStageKey(t, got[1], "$lookup")
+		assertBsonDStageKey(t, got[2], "$project")
+	})
+
+	t.Run("limit + projection (no decoration)", func(t *testing.T) {
+		got := buildItemsAggregationStages(10, bson.M{"name": 1}, nil)
+		require.Len(t, got, 2)
+		assertBsonDStageKey(t, got[0], "$limit")
+		assertBsonDStageKey(t, got[1], "$project")
+	})
+}
+
+func TestBuildCountUnionStages(t *testing.T) {
+	t.Run("includeTotal=false: only $group + $project total=-1", func(t *testing.T) {
+		got := buildCountUnionStages(testCollectionName, bson.M{"status": "active"}, false)
+		require.Len(t, got, 2)
+		assertBsonDStageKey(t, got[0], "$group")
+		assertBsonDStageKey(t, got[1], "$project")
+
+		// Final $project must set total to -1 (sentinel for "not computed").
+		proj := got[1].(bson.M)["$project"].(bson.M)
+		require.EqualValues(t, -1, proj["total"], "total should be -1 when includeTotal is false")
+	})
+
+	t.Run("includeTotal=true: $replaceRoot + $unionWith + $group + $project", func(t *testing.T) {
+		got := buildCountUnionStages(testCollectionName, bson.M{"status": "active"}, true)
+		require.Len(t, got, 4)
+		assertBsonDStageKey(t, got[0], "$replaceRoot")
+		assertBsonDStageKey(t, got[1], "$unionWith")
+		assertBsonDStageKey(t, got[2], "$group")
+		assertBsonDStageKey(t, got[3], "$project")
+	})
+
+	t.Run("$unionWith targets the same collection", func(t *testing.T) {
+		got := buildCountUnionStages(testCollectionName, bson.M{"status": "active"}, true)
+		union := got[1].(bson.M)["$unionWith"].(bson.M)
+		require.Equal(t, testCollectionName, union["coll"], "$unionWith should target the originating collection")
+	})
+
+	t.Run("count sub-pipeline contains user filter but never cursor filter", func(t *testing.T) {
+		userFilter := bson.M{"status": "active"}
+		got := buildCountUnionStages(testCollectionName, userFilter, true)
+		subPipeline := got[1].(bson.M)["$unionWith"].(bson.M)["pipeline"].(bson.A)
+
+		// Expected: $match (userFilter), $count, $replaceRoot (tag as "count").
+		require.Len(t, subPipeline, 3)
+		matchStage := subPipeline[0].(bson.M)["$match"].(bson.M)
+		require.Equal(t, "active", matchStage["status"], "$match should carry the user filter")
+		require.NotContains(t, matchStage, "$and", "user filter should not be wrapped in $and (no cursor_filter expected)")
+		require.NotContains(t, matchStage, "cursor_id", "cursor filter must not leak into count sub-pipeline")
+		assertBsonDStageKey(t, subPipeline[1], "$count")
+		assertBsonDStageKey(t, subPipeline[2], "$replaceRoot")
+	})
+
+	t.Run("empty user filter omits $match in count sub-pipeline", func(t *testing.T) {
+		got := buildCountUnionStages(testCollectionName, bson.M{}, true)
+		subPipeline := got[1].(bson.M)["$unionWith"].(bson.M)["pipeline"].(bson.A)
+
+		// Expected: $count, $replaceRoot — no $match when filter is empty.
+		require.Len(t, subPipeline, 2)
+		assertBsonDStageKey(t, subPipeline[0], "$count")
+		assertBsonDStageKey(t, subPipeline[1], "$replaceRoot")
 	})
 }
 
 func TestBuildCursorPipeline(t *testing.T) {
-	t.Run("basic pipeline has correct stage order", func(t *testing.T) {
+	t.Run("basic pipeline starts with $match then $sort, sort has cursor_id tiebreaker", func(t *testing.T) {
 		opts := &listCursorOptions{
 			sort:          bson.D{{Key: "created_at", Value: int32(-1)}},
 			filter:        bson.M{"status": "active"},
@@ -281,22 +347,16 @@ func TestBuildCursorPipeline(t *testing.T) {
 			includeTotal:  true,
 		}
 
-		pipeline := buildCursorPipeline(opts)
+		pipeline := buildCursorPipeline(opts, testCollectionName)
 
-		// Pipeline should have: $match, $sort, $facet, $unwind, $project (at minimum)
 		require.GreaterOrEqual(t, len(pipeline), 3)
-
-		// First stage must be $match
 		require.Contains(t, pipeline[0].(bson.M), "$match", "first stage should be $match")
 
-		// Second stage must be $sort
 		sortStage, ok := pipeline[1].(bson.M)["$sort"]
 		require.True(t, ok, "second stage should be $sort")
-
-		// Sort must include cursor_id tiebreaker
 		sortDoc := sortStage.(bson.D)
 		lastField := sortDoc[len(sortDoc)-1]
-		require.Equal(t, "cursor_id", lastField.Key, "last sort field")
+		require.Equal(t, "cursor_id", lastField.Key, "last sort field should be cursor_id")
 	})
 
 	t.Run("opts.sort is not mutated by tiebreaker addition", func(t *testing.T) {
@@ -308,7 +368,7 @@ func TestBuildCursorPipeline(t *testing.T) {
 		}
 		originalSortLen := len(opts.sort)
 
-		buildCursorPipeline(opts)
+		buildCursorPipeline(opts, testCollectionName)
 
 		require.Len(t, opts.sort, originalSortLen, "opts.sort was mutated")
 	})
@@ -321,56 +381,41 @@ func TestBuildCursorPipeline(t *testing.T) {
 			cursorIdField: "cursor_id",
 		}
 
-		pipeline := buildCursorPipeline(opts)
+		pipeline := buildCursorPipeline(opts, testCollectionName)
 
 		sortStage := pipeline[0].(bson.M)["$sort"].(bson.D) // $sort is first when no filter/cursor
 		require.Len(t, sortStage, 2, "sort should still have 2 fields")
 	})
 
-	t.Run("without total omits count in facet", func(t *testing.T) {
+	t.Run("includeTotal=false omits $unionWith and $replaceRoot tag", func(t *testing.T) {
 		opts := baseCursorOpts()
 
-		pipeline := buildCursorPipeline(opts)
+		pipeline := buildCursorPipeline(opts, testCollectionName)
 
-		facetIdx := findStageIndex(pipeline, "$facet")
-		require.GreaterOrEqual(t, facetIdx, 0, "$facet stage not found")
-		facet := pipeline[facetIdx].(bson.M)["$facet"].(bson.M)
-		require.NotContains(t, facet, "count", "facet should not include count when includeTotal is false")
+		require.Less(t, findStageIndex(pipeline, "$unionWith"), 0, "$unionWith must not be present when includeTotal is false")
+		require.Less(t, findStageIndex(pipeline, "$replaceRoot"), 0, "$replaceRoot tag must not be present when includeTotal is false")
+
+		// Final $project sets total to -1.
+		projIdx := findStageIndex(pipeline, "$project")
+		require.GreaterOrEqual(t, projIdx, 0, "$project stage not found")
+		proj := pipeline[projIdx].(bson.M)["$project"].(bson.M)
+		require.EqualValues(t, -1, proj["total"], "total should be -1 when includeTotal is false")
 	})
-}
 
-func TestBuildFacetStage_WithDecorationStages(t *testing.T) {
-	decoration := bson.A{
-		bson.D{{Key: "$lookup", Value: bson.M{"from": "translations", "localField": "_id", "foreignField": "entity_id", "as": "translations"}}},
-	}
+	t.Run("includeTotal=true wires up $replaceRoot + $unionWith + $group + $project", func(t *testing.T) {
+		opts := baseCursorOpts()
+		opts.filter = bson.M{"status": "active"}
+		opts.includeTotal = true
 
-	got := buildFacetStage(10, nil, false, decoration, false)
-	facet := got[0].(bson.M)["$facet"].(bson.M)
-	items := facet["items"].(bson.A)
+		pipeline := buildCursorPipeline(opts, testCollectionName)
 
-	// items pipeline: $limit, $lookup
-	require.Len(t, items, 2)
-
-	assertBsonDStageKey(t, items[0], "$limit")
-	assertBsonDStageKey(t, items[1], "$lookup")
-}
-
-func TestBuildFacetStage_WithDecorationAndProjection(t *testing.T) {
-	decoration := bson.A{
-		bson.D{{Key: "$lookup", Value: bson.M{"from": "translations"}}},
-	}
-	proj := bson.M{"name": 1}
-
-	got := buildFacetStage(10, proj, false, decoration, false)
-	facet := got[0].(bson.M)["$facet"].(bson.M)
-	items := facet["items"].(bson.A)
-
-	// items pipeline: $limit, $lookup, $project
-	require.Len(t, items, 3)
-
-	assertBsonDStageKey(t, items[0], "$limit")
-	assertBsonDStageKey(t, items[1], "$lookup")
-	assertBsonDStageKey(t, items[2], "$project")
+		assertStageOrder(t, pipeline, "$match", "$sort")
+		assertStageOrder(t, pipeline, "$sort", "$limit")
+		assertStageOrder(t, pipeline, "$limit", "$replaceRoot")
+		assertStageOrder(t, pipeline, "$replaceRoot", "$unionWith")
+		assertStageOrder(t, pipeline, "$unionWith", "$group")
+		assertStageOrder(t, pipeline, "$group", "$project")
+	})
 }
 
 func TestBuildCursorPipeline_WithStages(t *testing.T) {
@@ -379,13 +424,65 @@ func TestBuildCursorPipeline_WithStages(t *testing.T) {
 
 	opts := baseCursorOpts()
 	opts.filter = bson.M{"status": "active"}
+	opts.includeTotal = true
 	opts.stages = bson.A{lookupStage, unwindStage}
 
-	pipeline := buildCursorPipeline(opts)
+	pipeline := buildCursorPipeline(opts, testCollectionName)
 
+	// Custom stages sit between $sort and $limit.
 	assertStageOrder(t, pipeline, "$sort", "$lookup")
 	assertStageOrder(t, pipeline, "$lookup", "$unwind")
-	assertStageOrder(t, pipeline, "$unwind", "$facet")
+	assertStageOrder(t, pipeline, "$unwind", "$limit")
+}
+
+func TestBuildCursorPipeline_CustomStagesDoNotLeakIntoCountSubPipeline(t *testing.T) {
+	// Custom stages like $unwind change cardinality; total must reflect source documents
+	// matching the user filter, so custom stages must not run inside the count sub-pipeline.
+	unwind := bson.D{{Key: "$unwind", Value: "$tags"}}
+
+	opts := baseCursorOpts()
+	opts.filter = bson.M{"status": "active"}
+	opts.includeTotal = true
+	opts.stages = bson.A{unwind}
+
+	pipeline := buildCursorPipeline(opts, testCollectionName)
+
+	unionIdx := findStageIndex(pipeline, "$unionWith")
+	require.GreaterOrEqual(t, unionIdx, 0, "$unionWith stage not found")
+	subPipeline := pipeline[unionIdx].(bson.M)["$unionWith"].(bson.M)["pipeline"].(bson.A)
+
+	// Sub-pipeline must contain $match + $count + $replaceRoot only — no $unwind.
+	for _, stage := range subPipeline {
+		require.Less(t, findStageIndex(bson.A{stage}, "$unwind"), 0, "count sub-pipeline must not include custom $unwind stage")
+	}
+}
+
+func TestBuildCursorPipeline_CursorFilterDoesNotLeakIntoCountSubPipeline(t *testing.T) {
+	// cursor_filter must not affect total: the count sub-pipeline's $match should carry
+	// only user filter, never cursor conditions.
+	oid := bson.NewObjectID()
+	cursor := &Cursor{CursorId: oid.Hex()}
+
+	opts := baseCursorOpts()
+	opts.filter = bson.M{"status": "active"}
+	opts.cursor = cursor
+	opts.includeTotal = true
+
+	pipeline := buildCursorPipeline(opts, testCollectionName)
+
+	// Main pipeline's $match has user_filter AND cursor_filter (combined with $and).
+	mainMatch := pipeline[0].(bson.M)["$match"].(bson.M)
+	require.Contains(t, mainMatch, "$and", "main $match should combine user and cursor filters")
+
+	// Count sub-pipeline's $match has user_filter only (no $and, no cursor_id).
+	unionIdx := findStageIndex(pipeline, "$unionWith")
+	require.GreaterOrEqual(t, unionIdx, 0, "$unionWith stage not found")
+	subPipeline := pipeline[unionIdx].(bson.M)["$unionWith"].(bson.M)["pipeline"].(bson.A)
+
+	countMatch := subPipeline[0].(bson.M)["$match"].(bson.M)
+	require.Equal(t, "active", countMatch["status"], "count sub-pipeline $match should keep user filter")
+	require.NotContains(t, countMatch, "$and", "count sub-pipeline $match must not be wrapped in $and (no cursor filter)")
+	require.NotContains(t, countMatch, "cursor_id", "count sub-pipeline $match must not contain cursor_id")
 }
 
 func TestBuildCursorPipeline_WithDecorationStages(t *testing.T) {
@@ -394,21 +491,16 @@ func TestBuildCursorPipeline_WithDecorationStages(t *testing.T) {
 	opts := baseCursorOpts()
 	opts.decorationStages = bson.A{decoration}
 
-	pipeline := buildCursorPipeline(opts)
+	pipeline := buildCursorPipeline(opts, testCollectionName)
 
-	facetIdx := findStageIndex(pipeline, "$facet")
-	require.GreaterOrEqual(t, facetIdx, 0, "$facet stage not found")
+	// Decoration stage should sit between $limit and the final shaping stages.
+	assertStageOrder(t, pipeline, "$limit", "$lookup")
+	assertStageOrder(t, pipeline, "$lookup", "$group")
 
-	facet := pipeline[facetIdx].(bson.M)["$facet"].(bson.M)
-	items := facet["items"].(bson.A)
-
-	require.GreaterOrEqual(t, len(items), 2)
-
-	assertBsonDStageKey(t, items[0], "$limit")
-	assertBsonDStageKey(t, items[1], "$lookup")
-
-	// Verify $limit has lookahead
-	limitVal := items[0].(bson.M)["$limit"].(int64)
+	// $limit must have lookahead applied.
+	limitIdx := findStageIndex(pipeline, "$limit")
+	require.GreaterOrEqual(t, limitIdx, 0, "$limit stage not found")
+	limitVal := pipeline[limitIdx].(bson.M)["$limit"].(int64)
 	require.Equal(t, int64(11), limitVal, "$limit should be 10 + 1 lookahead")
 }
 
@@ -420,22 +512,16 @@ func TestBuildCursorPipeline_WithBothStageTypes(t *testing.T) {
 	opts.stages = bson.A{stage}
 	opts.decorationStages = bson.A{decoration}
 
-	pipeline := buildCursorPipeline(opts)
+	pipeline := buildCursorPipeline(opts, testCollectionName)
 
+	// Custom stage (opts.stages) comes between $sort and $limit; decoration ($lookup) comes after $limit.
 	assertStageOrder(t, pipeline, "$sort", "$addFields")
-	assertStageOrder(t, pipeline, "$addFields", "$facet")
-
-	// Decoration stage should be in facet items pipeline
-	facetIdx := findStageIndex(pipeline, "$facet")
-	facet := pipeline[facetIdx].(bson.M)["$facet"].(bson.M)
-	items := facet["items"].(bson.A)
-
-	assertBsonDStageKey(t, items[0], "$limit")
-	assertBsonDStageKey(t, items[1], "$lookup")
+	assertStageOrder(t, pipeline, "$addFields", "$limit")
+	assertStageOrder(t, pipeline, "$limit", "$lookup")
 }
 
 func TestBuildCursorPipeline_EmptyStages(t *testing.T) {
-	// Verify backward compatibility: nil stages produce identical pipeline
+	// Verify backward compatibility: nil stages produce identical pipeline to omitting them entirely.
 	optsWithout := baseCursorOpts()
 	optsWithout.filter = bson.M{"status": "active"}
 	optsWithout.includeTotal = true
@@ -446,8 +532,8 @@ func TestBuildCursorPipeline_EmptyStages(t *testing.T) {
 	optsWith.stages = nil
 	optsWith.decorationStages = nil
 
-	pipelineWithout := buildCursorPipeline(optsWithout)
-	pipelineWith := buildCursorPipeline(optsWith)
+	pipelineWithout := buildCursorPipeline(optsWithout, testCollectionName)
+	pipelineWith := buildCursorPipeline(optsWith, testCollectionName)
 
 	require.Len(t, pipelineWith, len(pipelineWithout), "pipelines differ in length")
 }
@@ -517,77 +603,6 @@ func TestStageOptions_SkipsNil(t *testing.T) {
 			require.Equal(t, 1, tt.getLen(opts), "nil should be filtered")
 		})
 	}
-}
-
-func TestBuildFacetStage_PreCountedTotal(t *testing.T) {
-	t.Run("preCountedTotal adds $unset and reads from annotation field", func(t *testing.T) {
-		got := buildFacetStage(10, nil, true, nil, true)
-		facet := got[0].(bson.M)["$facet"].(bson.M)
-
-		// Items pipeline should have: $limit, $unset
-		items := facet["items"].(bson.A)
-		require.Len(t, items, 2)
-		assertBsonDStageKey(t, items[0], "$limit")
-		assertBsonDStageKey(t, items[1], "$unset")
-
-		// Count branch should read from annotation field, not use $count
-		count := facet["count"].(bson.A)
-		require.Len(t, count, 2)
-		assertBsonDStageKey(t, count[0], "$limit")
-		assertBsonDStageKey(t, count[1], "$project")
-	})
-
-	t.Run("preCountedTotal false uses standard $count", func(t *testing.T) {
-		got := buildFacetStage(10, nil, true, nil, false)
-		facet := got[0].(bson.M)["$facet"].(bson.M)
-
-		count := facet["count"].(bson.A)
-		require.Len(t, count, 1)
-		assertBsonDStageKey(t, count[0], "$count")
-	})
-}
-
-func TestBuildCursorPipeline_PreCountedTotalWithStages(t *testing.T) {
-	t.Run("stages + includeTotal injects $setWindowFields", func(t *testing.T) {
-		opts := baseCursorOpts()
-		opts.includeTotal = true
-		opts.stages = bson.A{bson.D{{Key: "$unwind", Value: "$tags"}}}
-
-		pipeline := buildCursorPipeline(opts)
-
-		assertStageOrder(t, pipeline, "$setWindowFields", "$unwind")
-		assertStageOrder(t, pipeline, "$unwind", "$facet")
-
-		// Facet count branch should use pre-computed total
-		facetIdx := findStageIndex(pipeline, "$facet")
-		facet := pipeline[facetIdx].(bson.M)["$facet"].(bson.M)
-		count := facet["count"].(bson.A)
-		assertBsonDStageKey(t, count[0], "$limit")
-		assertBsonDStageKey(t, count[1], "$project")
-	})
-
-	t.Run("stages without includeTotal skips $setWindowFields", func(t *testing.T) {
-		opts := baseCursorOpts()
-		opts.stages = bson.A{bson.D{{Key: "$unwind", Value: "$tags"}}}
-
-		pipeline := buildCursorPipeline(opts)
-
-		require.Less(t, findStageIndex(pipeline, "$setWindowFields"), 0, "$setWindowFields should not be present when includeTotal is false")
-	})
-
-	t.Run("includeTotal without stages uses standard $count", func(t *testing.T) {
-		opts := baseCursorOpts()
-		opts.includeTotal = true
-
-		pipeline := buildCursorPipeline(opts)
-
-		require.Less(t, findStageIndex(pipeline, "$setWindowFields"), 0, "$setWindowFields should not be present when no custom stages")
-
-		facetIdx := findStageIndex(pipeline, "$facet")
-		facet := pipeline[facetIdx].(bson.M)["$facet"].(bson.M)
-		count := facet["count"].(bson.A)
-		assertBsonDStageKey(t, count[0], "$count")
-	})
 }
 
 // assertStageOrder verifies that stage at key a appears before stage at key b in the pipeline.
