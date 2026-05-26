@@ -110,3 +110,19 @@ func TestNormalize_SliceOfStructs(t *testing.T) {
 	require.NoError(t, normalizer.Normalize(s))
 	require.Equal(t, "foo", s.Items[0].Name)
 }
+
+func TestNormalize_NilOnEmpty_EmptyStringPointer(t *testing.T) {
+	type S struct {
+		Inn *string `normalize:"trim,nil_on_empty"`
+	}
+
+	empty := ""
+	s := &S{Inn: &empty}
+	require.NoError(t, normalizer.Normalize(s))
+	require.Nil(t, s.Inn)
+
+	whitespace := "   "
+	s2 := &S{Inn: &whitespace}
+	require.NoError(t, normalizer.Normalize(s2))
+	require.Nil(t, s2.Inn)
+}
