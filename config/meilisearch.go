@@ -7,9 +7,10 @@ package config
 import (
 	"time"
 
+	"github.com/go-ozzo/ozzo-validation/v4/is"
+
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
-	"github.com/go-ozzo/ozzo-validation/v4/is"
 )
 
 // Default values for Meilisearch configuration.

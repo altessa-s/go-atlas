@@ -60,7 +60,7 @@ func New(host string, opts ...Option) (*Client, error) {
 }
 
 // Health pings the server and returns an error if it is unreachable.
-// Honours ctx for cancellation.
+// Honors ctx for cancellation.
 func (c *Client) Health(ctx context.Context) error {
 	if _, err := c.sdk.HealthWithContext(ctx); err != nil {
 		return fmt.Errorf("meilisearch health check failed: %w", err)

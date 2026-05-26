@@ -13,7 +13,7 @@ import (
 )
 
 // IndexSettings holds the attribute lists Meilisearch exposes for per-index
-// full-text, filter, and sort behaviour.
+// full-text, filter, and sort behavior.
 type IndexSettings struct {
 	// SearchableAttributes are fields used for full-text matching.
 	SearchableAttributes []string
