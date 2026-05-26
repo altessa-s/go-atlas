@@ -140,6 +140,29 @@ func WithEventsBatchSize(v uint32) Option {
 	}
 }
 
+// WithExpireSchedule sets the expireSchedule option.
+func WithExpireSchedule[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.expireSchedule = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.expireSchedule = vv
+		}
+	}
+}
+
 // WithExpireTaskID sets the expireTaskID option.
 func WithExpireTaskID[T interface{ string | *string }](v T) Option {
 	return func(o *options) {

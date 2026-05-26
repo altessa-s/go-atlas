@@ -9,7 +9,6 @@ package outbox
 import (
 	"context"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
@@ -89,6 +88,7 @@ type options struct {
 	dispatchSchedule string
 	unlockSchedule   string
 	cleanupSchedule  string
+	expireSchedule   string
 
 	// Scheduler task IDs — overridable so multiple Outbox instances can coexist
 	// in a single scheduler without ID collisions. The generated WithXxx
@@ -110,9 +110,6 @@ type options struct {
 	// Default TTL applied to events at save time when ExpiresAt is not set.
 	// 0 means disabled (no expiration). Minimum 1s.
 	defaultEventTTL time.Duration `opt:"-"`
-
-	// Scheduler schedule for the expire cycle - handled manually.
-	expireSchedule string `opt:"-"`
 
 	// Metrics collector for outbox instrumentation.
 	collector metrics.Collector `optgen:"notnil"`
@@ -191,29 +188,5 @@ func WithDefaultEventTTL(d time.Duration) Option {
 			return
 		}
 		o.defaultEventTTL = d
-	}
-}
-
-// WithExpireSchedule sets the cron schedule for the expire cycle that marks
-// pending/failed events past their ExpiresAt as expired.
-func WithExpireSchedule[T interface{ string | *string }](v T) Option {
-	return func(o *options) {
-		switch t := any(v).(type) {
-		case string:
-			trimmed := strings.TrimSpace(t)
-			if trimmed == "" {
-				return
-			}
-			o.expireSchedule = trimmed
-		case *string:
-			if t == nil {
-				return
-			}
-			trimmed := strings.TrimSpace(*t)
-			if trimmed == "" {
-				return
-			}
-			o.expireSchedule = trimmed
-		}
 	}
 }
