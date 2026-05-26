@@ -13,14 +13,23 @@ import (
 )
 
 // Internal field names used by the $unionWith-based count pipeline.
-// Underscored to avoid collision with user document fields.
+// kindField and itemEnvelopeField are double-underscored to avoid
+// collision with user document fields — both surface inside $replaceRoot
+// expressions that wrap arbitrary $$ROOT documents, so any clash would
+// silently lose user data. The envelope is unwrapped via $cond + $$REMOVE
+// before results leave the pipeline, but the safety guarantee has to
+// hold INSIDE the pipeline regardless.
+//
+// kindItem / kindCount are tag values, not field names — they don't need
+// the underscore guard because they're only ever compared with $eq, never
+// used as document keys.
 const (
 	// kindField tags each document in the union as either an item or the count result.
 	kindField = "__kind"
 	kindItem  = "item"
 	kindCount = "count"
 	// itemEnvelopeField wraps the original item document so the tag does not pollute its fields.
-	itemEnvelopeField = "item"
+	itemEnvelopeField = "__item"
 )
 
 // buildCursorFilter constructs a MongoDB filter for cursor-based pagination using cursor_id.
@@ -356,7 +365,10 @@ func buildCountUnionStages(collectionName string, userFilter bson.M, includeTota
 //
 // Performance characteristics:
 //   - O(1) pagination depth (unlike offset-based which is O(n))
-//   - Single database round-trip for items + count
+//   - Single database round-trip: items + count travel together as one aggregation
+//   - The $unionWith count branch re-applies userFilter against the same collection, so
+//     ensure the user filter is index-backed — otherwise the count branch costs a full
+//     collection scan in addition to the items branch
 //   - Efficient index usage with proper $match before $sort
 func buildCursorPipeline(opts *listCursorOptions, collectionName string) bson.A {
 	// Extend sort with cursor_id tiebreaker for deterministic pagination.

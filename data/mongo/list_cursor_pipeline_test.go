@@ -615,6 +615,50 @@ func assertStageOrder(t *testing.T, pipeline bson.A, before, after string) {
 	require.Less(t, bi, ai, "%s (idx %d) should be before %s (idx %d)", before, bi, after, ai)
 }
 
+// TestBuildCursorPipeline_CountSubPipelineIsIdenticalAcrossPages is the
+// stability invariant at the pipeline level. The bug PR #44 fixed was
+// that "total" decreased as the caller paged through results — caused
+// by the cursor filter leaking into the count branch. The simplest
+// regression guard: build the pipeline at three distinct paginated
+// positions (no cursor, then two non-trivial cursor positions) and
+// assert the count sub-pipeline embedded in $unionWith is byte-equal
+// across all three. If a future refactor reintroduces a per-page
+// dependency into the count branch, this test catches it without
+// needing a live MongoDB.
+//
+// The shape check substitutes for an end-to-end integration test:
+// $unionWith.pipeline is the contract — its independence from cursor
+// state is exactly what makes total stable on the wire.
+func TestBuildCursorPipeline_CountSubPipelineIsIdenticalAcrossPages(t *testing.T) {
+	cursors := []*Cursor{
+		nil,                                  // page 1: no cursor yet
+		{CursorId: bson.NewObjectID().Hex()}, // page 2
+		{CursorId: bson.NewObjectID().Hex()}, // page 3
+	}
+
+	countSubPipelines := make([]bson.A, 0, len(cursors))
+	for _, cur := range cursors {
+		opts := baseCursorOpts()
+		opts.filter = bson.M{"status": "active"}
+		opts.cursor = cur
+		opts.includeTotal = true
+
+		pipeline := buildCursorPipeline(opts, testCollectionName)
+
+		unionIdx := findStageIndex(pipeline, "$unionWith")
+		require.GreaterOrEqual(t, unionIdx, 0, "every paginated call must include the $unionWith count branch")
+		sub := pipeline[unionIdx].(bson.M)["$unionWith"].(bson.M)["pipeline"].(bson.A)
+		countSubPipelines = append(countSubPipelines, sub)
+	}
+
+	// Each sub-pipeline must equal the first one. If any differ, the
+	// cursor (or some other per-page state) is leaking into the count.
+	for i := 1; i < len(countSubPipelines); i++ {
+		require.Equal(t, countSubPipelines[0], countSubPipelines[i],
+			"count sub-pipeline at page %d must be byte-equal to page 1 — total stability depends on it", i+1)
+	}
+}
+
 // baseCursorOpts returns a minimal listCursorOptions for testing.
 func baseCursorOpts() *listCursorOptions {
 	return &listCursorOptions{

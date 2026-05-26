@@ -7,6 +7,13 @@ import "github.com/altessa-s/go-atlas/data/mongo"
 Package `mongo` provides a MongoDB client wrapper with Client-Side Field Level Encryption (CSFLE), transaction handling, connection pooling, and
 structured logging.
 
+## Requirements
+
+- **MongoDB 4.4+** — required by the cursor-paginated `ListCursor` aggregation. The count branch uses `$unionWith` (introduced in 4.4) to keep
+  `total` stable across pages independent of the cursor position. Offset-based `List` only needs the `$facet` baseline (3.4+), but the rest of
+  the package is built and tested against 4.4+.
+- CSFLE features additionally require a libmongocrypt-compatible driver and a configured KMS provider.
+
 ## Features
 
 - Client-Side Field Level Encryption with multi-cloud KMS support
