@@ -295,7 +295,8 @@ func WithListCursorStorage(storage CursorStorage) ListCursorOption {
 }
 
 // WithListCursorStages adds custom aggregation pipeline stages that are inserted after $sort
-// and before $facet. These stages operate on the entire filtered and sorted result set.
+// and before the items branch. These stages operate on the entire filtered and sorted result
+// set fed into the items branch.
 //
 // Typical use cases include $lookup for joining data needed for sorting or filtering,
 // $addFields for computed fields, or $unwind for denormalization.
@@ -305,10 +306,20 @@ func WithListCursorStorage(storage CursorStorage) ListCursorOption {
 // WARNING: Do not modify the cursor ID field or sort fields in these stages, as this
 // will break cursor-based pagination.
 //
-// When WithListCursorTotal(true) is used together with custom stages, the total count is
-// pre-computed via $setWindowFields (requires MongoDB 5.0+) BEFORE stages are applied.
-// This ensures the count reflects the original document cardinality even when stages
-// contain $unwind or other cardinality-changing operations.
+// Effect on WithListCursorTotal:
+//
+// Total is always computed by an independent count sub-pipeline (via $unionWith, requires
+// MongoDB 4.4+) scoped to the user filter only. Custom stages added here DO NOT run inside
+// the count sub-pipeline — total reflects the source-document cardinality, not whatever
+// cardinality the stages would produce. This holds for both shrinking ($match on joined
+// data) and expanding ($unwind) stages.
+//
+// Example: with WithListCursorStages($lookup-categories, $match: category.archived=false)
+// the items branch returns only documents whose joined category is not archived, but total
+// counts ALL documents matching the user filter — the joined-data $match does not filter
+// the count. If you need total to reflect post-stage cardinality, push the equivalent
+// predicate into the user filter (filter.WithMatch / repo-level filter) instead of into
+// stages.
 //
 // Example:
 //
