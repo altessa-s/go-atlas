@@ -41,6 +41,29 @@ func WithCleanupSchedule[T interface{ string | *string }](v T) Option {
 	}
 }
 
+// WithCleanupTaskID sets the cleanupTaskID option.
+func WithCleanupTaskID[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.cleanupTaskID = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.cleanupTaskID = vv
+		}
+	}
+}
+
 // WithCollector sets the collector option.
 func WithCollector(v metrics.Collector) Option {
 	return func(o *options) {
@@ -84,6 +107,29 @@ func WithDispatchSchedule[T interface{ string | *string }](v T) Option {
 	}
 }
 
+// WithDispatchTaskID sets the dispatchTaskID option.
+func WithDispatchTaskID[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.dispatchTaskID = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.dispatchTaskID = vv
+		}
+	}
+}
+
 // WithEventsBatchSize sets the eventsBatchSize option.
 func WithEventsBatchSize(v uint32) Option {
 	return func(o *options) {
@@ -91,6 +137,29 @@ func WithEventsBatchSize(v uint32) Option {
 			return
 		}
 		o.eventsBatchSize = v
+	}
+}
+
+// WithExpireTaskID sets the expireTaskID option.
+func WithExpireTaskID[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.expireTaskID = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.expireTaskID = vv
+		}
 	}
 }
 
@@ -167,6 +236,29 @@ func WithUnlockSchedule[T interface{ string | *string }](v T) Option {
 	}
 }
 
+// WithUnlockTaskID sets the unlockTaskID option.
+func WithUnlockTaskID[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.unlockTaskID = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.unlockTaskID = vv
+		}
+	}
+}
+
 // WithUpdateTimeout sets the updateTimeout option.
 func WithUpdateTimeout(v time.Duration) Option {
 	return func(o *options) {
@@ -180,12 +272,16 @@ func WithUpdateTimeout(v time.Duration) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
+		cleanupTaskID:           DefaultCleanupTaskID,
+		dispatchTaskID:          DefaultDispatchTaskID,
 		eventsBatchSize:         DefaultEventsBatchSize,
+		expireTaskID:            DefaultExpireTaskID,
 		fetchTimeout:            DefaultFetchTimeout,
 		handleTimeout:           DefaultHandleTimeout,
 		logger:                  slog.New(slog.DiscardHandler),
 		publishedEventsLifetime: DefaultPublishedEventsLifetime,
 		retryMaxAttempts:        DefaultRetryMaxAttempts,
+		unlockTaskID:            DefaultUnlockTaskID,
 		updateTimeout:           DefaultUpdateTimeout,
 	}
 }

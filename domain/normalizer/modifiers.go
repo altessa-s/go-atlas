@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/domain/normalizer/modifiers"
 )
 
@@ -83,11 +82,6 @@ func putModifierChain(chain *modifierChain) {
 // This version eliminates any boxing and provides better performance.
 func applyModifierChainTyped(v reflect.Value, modifierChain *modifierChain) error {
 	if len(modifierChain.Entries) == 0 {
-		return nil
-	}
-
-	// Fast-path: Early exit for empty strings
-	if nilcheck.IsEmptyValue(v) {
 		return nil
 	}
 
