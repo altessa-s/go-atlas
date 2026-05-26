@@ -46,6 +46,18 @@ const (
 
 	// DefaultUpdateTimeout is the default Store.UpdateEvents timeout (5 seconds).
 	DefaultUpdateTimeout = 5 * time.Second
+
+	// DefaultDispatchTaskID is the scheduler task ID for the dispatch cycle.
+	DefaultDispatchTaskID = "outbox-dispatch"
+
+	// DefaultUnlockTaskID is the scheduler task ID for the unlock cycle.
+	DefaultUnlockTaskID = "outbox-unlock"
+
+	// DefaultExpireTaskID is the scheduler task ID for the expire cycle.
+	DefaultExpireTaskID = "outbox-expire"
+
+	// DefaultCleanupTaskID is the scheduler task ID for the cleanup cycle.
+	DefaultCleanupTaskID = "outbox-cleanup"
 )
 
 // options contains configuration fields for Outbox that can be set via Option functions.
@@ -77,6 +89,13 @@ type options struct {
 	dispatchSchedule string
 	unlockSchedule   string
 	cleanupSchedule  string
+
+	// Scheduler task IDs — overridable so multiple Outbox instances can coexist
+	// in a single scheduler without ID collisions.
+	dispatchTaskID string `optgen:"default=DefaultDispatchTaskID"`
+	unlockTaskID   string `optgen:"default=DefaultUnlockTaskID"`
+	expireTaskID   string `optgen:"default=DefaultExpireTaskID"`
+	cleanupTaskID  string `optgen:"default=DefaultCleanupTaskID"`
 
 	// ShouldRetry determines whether a failed dispatch should be retried.
 	// Return true to retry, false to stop retrying. If nil, all errors
