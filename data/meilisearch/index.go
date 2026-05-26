@@ -6,9 +6,10 @@ package meilisearch
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"log/slog"
 
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	msdk "github.com/meilisearch/meilisearch-go"
 )
 
@@ -40,30 +41,37 @@ type IndexDefinition struct {
 
 // IndexExists reports whether indexName is present on the server.
 // Returns false (no error) if the server responds with "index_not_found".
-func (c *Client) IndexExists(_ context.Context, indexName string) (bool, error) {
-	_, err := c.sdk.GetIndex(indexName)
+// ctx bounds the underlying GetIndex round-trip — passing a cancelled
+// context aborts the call immediately instead of waiting for the SDK's
+// per-request timeout.
+func (c *Client) IndexExists(ctx context.Context, indexName string) (bool, error) {
+	_, err := c.sdk.GetIndexWithContext(ctx, indexName)
 	if err != nil {
-		if IsErrorIndexNotFound(err) {
+		if classified := classifySDKError(err); classified != nil && errors.Is(classified, ErrIndexNotFound) {
 			return false, nil
 		}
-		return false, fmt.Errorf("get index %s: %w", indexName, err)
+		return false, coreerrs.Wrapf(err, "get index %s", indexName)
 	}
 
 	return true, nil
 }
 
 // EnsureIndex creates name if missing and applies settings. Idempotent:
-// re-running with the same definition is safe.
+// re-running with the same definition is safe — an existing index
+// surfaces ErrIndexAlreadyExists from the create call, which we treat
+// as a successful "create or update" outcome and fall through to the
+// settings update.
 func (c *Client) EnsureIndex(ctx context.Context, name, primaryKey string, settings *IndexSettings) error {
 	_, err := c.sdk.CreateIndexWithContext(ctx, &msdk.IndexConfig{
 		Uid:        name,
 		PrimaryKey: primaryKey,
 	})
 	if err != nil {
-		if !IsErrorIndexAlreadyExists(err) {
-			return fmt.Errorf("create index %s: %w", name, err)
+		classified := classifySDKError(err)
+		if classified == nil || !errors.Is(classified, ErrIndexAlreadyExists) {
+			return coreerrs.Wrapf(err, "create index %s", name)
 		}
-		c.logger.Debug("index already exists", slog.String("index", name))
+		c.logger.DebugContext(ctx, "index already exists", slog.String("index", name))
 	}
 
 	if settings != nil {
@@ -72,7 +80,7 @@ func (c *Client) EnsureIndex(ctx context.Context, name, primaryKey string, setti
 		}
 	}
 
-	c.logger.Info("index ensured",
+	c.logger.InfoContext(ctx, "index ensured",
 		slog.String("index", name),
 		slog.String("primary_key", primaryKey))
 
@@ -88,38 +96,35 @@ func (c *Client) UpdateIndexSettings(ctx context.Context, indexName string, sett
 		SortableAttributes:   settings.SortableAttributes,
 	})
 	if err != nil {
-		return fmt.Errorf("update settings for %s: %w", indexName, err)
+		return coreerrs.Wrapf(err, "update settings for %s", indexName)
 	}
 
 	return nil
 }
 
-// SetupIndexes creates missing indexes and updates settings on existing ones
-// for every definition in defs. Call this once at startup; order does not
-// matter and each definition is processed independently.
-func SetupIndexes(ctx context.Context, c *Client, defs []IndexDefinition, logger *slog.Logger) error {
+// SetupIndexes ensures every index in defs exists with the configured
+// settings. Call this once at startup; order is not significant and
+// each definition is processed independently.
+//
+// Relies on [Client.EnsureIndex]'s built-in idempotency: an existing
+// index surfaces ErrIndexAlreadyExists from the create call, which
+// EnsureIndex silently absorbs and falls through to the settings
+// update. The previous explicit IndexExists probe introduced a
+// TOCTOU window where a concurrent process could create the index
+// between the check and the create — relying on the existing-index
+// error path eliminates that window.
+//
+// Uses the Client's own logger; SetupIndexes intentionally does not
+// accept a logger parameter to avoid the "two loggers, which wins?"
+// trap on per-call observability.
+func (c *Client) SetupIndexes(ctx context.Context, defs []IndexDefinition) error {
 	for _, def := range defs {
-		exists, err := c.IndexExists(ctx, def.Name)
-		if err != nil {
-			return fmt.Errorf("check index %s: %w", def.Name, err)
-		}
-
-		if exists {
-			if def.Settings != nil {
-				if err := c.UpdateIndexSettings(ctx, def.Name, def.Settings); err != nil {
-					return err
-				}
-			}
-			continue
-		}
-
 		if err := c.EnsureIndex(ctx, def.Name, def.PrimaryKey, def.Settings); err != nil {
-			return fmt.Errorf("ensure index %s: %w", def.Name, err)
+			return coreerrs.Wrapf(err, "ensure index %s", def.Name)
 		}
-		logger.Info("created index", slog.String("index", def.Name))
 	}
 
-	logger.Info("all indexes successfully configured")
+	c.logger.InfoContext(ctx, "all indexes configured", slog.Int("count", len(defs)))
 
 	return nil
 }

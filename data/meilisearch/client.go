@@ -6,10 +6,10 @@ package meilisearch
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"net/http"
 
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	msdk "github.com/meilisearch/meilisearch-go"
 )
 
@@ -30,12 +30,18 @@ type Client struct {
 // New creates a [Client] targeting host and verifies connectivity with a
 // Health round-trip. Returns an error if the server is unreachable.
 //
-// host is the Meilisearch base URL (e.g. http://localhost:7700). Pass
-// [WithAPIKey], [WithTimeout], or [WithLogger] to override the defaults.
-func New(host string, opts ...Option) (*Client, error) {
-	o := newOptions(opts)
+// ctx bounds the initial health probe — pass a context with a deadline
+// (or [context.Background] if startup should only be capped by the
+// configured timeout). host is the Meilisearch base URL (e.g.
+// http://localhost:7700). Pass [WithAPIKey], [WithTimeout], [WithLogger],
+// or [WithHTTPClient] to override the defaults.
+func New(ctx context.Context, host string, opts ...Option) (*Client, error) {
+	o := newOptions(opts...)
 
-	httpClient := &http.Client{Timeout: o.timeout}
+	httpClient := o.httpClient
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: o.timeout}
+	}
 
 	sdkOpts := []msdk.Option{msdk.WithCustomClient(httpClient)}
 	if o.apiKey != "" {
@@ -50,11 +56,11 @@ func New(host string, opts ...Option) (*Client, error) {
 		logger:     o.logger.With(slog.String("component", loggerComponent)),
 	}
 
-	if _, err := sdk.Health(); err != nil {
-		return nil, fmt.Errorf("meilisearch health check failed: %w", err)
+	if _, err := sdk.HealthWithContext(ctx); err != nil {
+		return nil, coreerrs.WrapOperation(err, "meilisearch health check")
 	}
 
-	c.logger.Info("meilisearch client initialized", slog.String("host", host))
+	c.logger.InfoContext(ctx, "meilisearch client initialized", slog.String("host", host))
 
 	return c, nil
 }
@@ -63,12 +69,14 @@ func New(host string, opts ...Option) (*Client, error) {
 // Honors ctx for cancellation.
 func (c *Client) Health(ctx context.Context) error {
 	if _, err := c.sdk.HealthWithContext(ctx); err != nil {
-		return fmt.Errorf("meilisearch health check failed: %w", err)
+		return coreerrs.WrapOperation(err, "meilisearch health check")
 	}
 	return nil
 }
 
 // Close releases idle HTTP connections held by the underlying client.
+// Always returns nil — kept as an io.Closer-compatible signature so
+// callers can defer it uniformly.
 func (c *Client) Close() error {
 	c.httpClient.CloseIdleConnections()
 	c.logger.Debug("meilisearch client closed")

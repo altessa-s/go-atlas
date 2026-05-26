@@ -18,6 +18,10 @@ type SearchRequest struct {
 	Query string
 
 	// Filter is an optional Meilisearch filter expression.
+	//
+	// SECURITY: see [Client.DeleteDocumentsByFilter] for the
+	// filter-injection considerations — the same caveats apply when
+	// constructing Filter from user input.
 	Filter string
 
 	// Sort specifies sorting rules in Meilisearch DSL (e.g. "created_at:desc").
@@ -36,9 +40,13 @@ type SearchResult struct {
 	// target type without coupling this package to domain models.
 	Hits []json.RawMessage
 
-	// TotalHits is the estimated total number of matching documents
-	// reported by Meilisearch.
-	TotalHits int64
+	// EstimatedTotalHits is Meilisearch's estimate of the total number of
+	// matching documents. The "Estimated" prefix is intentional and
+	// matches the SDK field name: Meilisearch trades exact counts for
+	// search latency, so this number can drift slightly between
+	// invocations even for an unchanged corpus. Treat it as an
+	// approximation, not a database count.
+	EstimatedTotalHits int64
 }
 
 // MeilisearchClient is the surface domain code depends on. [Client] implements it.
@@ -53,10 +61,13 @@ type MeilisearchClient interface {
 	DeleteDocuments(ctx context.Context, indexName string, documentIDs []string) (int64, error)
 
 	// DeleteDocumentsByFilter removes documents matching the Meilisearch
-	// filter expression. Returns task UID.
+	// filter expression. Returns task UID. See [Client.DeleteDocumentsByFilter]
+	// for the filter-injection caveat.
 	DeleteDocumentsByFilter(ctx context.Context, indexName, filter string) (int64, error)
 
-	// GetAllDocumentIDs paginates through the index and returns every primary key.
+	// GetAllDocumentIDs paginates through the index and returns every primary key
+	// (assumes the default "id" field; use [Client.GetAllDocumentIDsWithPrimaryKey]
+	// directly when the index uses a different primary key).
 	GetAllDocumentIDs(ctx context.Context, indexName string) ([]string, error)
 
 	// Search runs a full-text query against the specified index.

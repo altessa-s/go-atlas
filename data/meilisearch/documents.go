@@ -5,11 +5,12 @@
 package meilisearch
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	msdk "github.com/meilisearch/meilisearch-go"
 )
 
@@ -17,9 +18,12 @@ import (
 // when paginating through an index.
 const documentIDListBatchSize int64 = 1000
 
-// documentIDFields restricts [Client.GetAllDocumentIDs] responses to the
-// primary key only, so the full document body is not transferred.
-var documentIDFields = []string{"id"}
+// defaultPrimaryKeyField is the field name used by [Client.GetAllDocumentIDs]
+// when the caller does not pass an explicit primary key. Meilisearch's
+// recommended default is "id", but any index can use a different key —
+// callers using a non-default primary key should pass it explicitly via
+// [Client.GetAllDocumentIDsWithPrimaryKey] instead.
+const defaultPrimaryKeyField = "id"
 
 // IndexDocuments adds or updates documents in indexName. documents must be a
 // slice (or array) of structs/maps that include the index's primary key.
@@ -27,10 +31,10 @@ var documentIDFields = []string{"id"}
 func (c *Client) IndexDocuments(ctx context.Context, indexName string, documents any) (int64, error) {
 	task, err := c.sdk.Index(indexName).AddDocumentsWithContext(ctx, documents, nil)
 	if err != nil {
-		return 0, fmt.Errorf("index documents in %s: %w", indexName, err)
+		return 0, coreerrs.Wrapf(err, "index documents in %s", indexName)
 	}
 
-	c.logger.Debug("documents indexed",
+	c.logger.DebugContext(ctx, "documents indexed",
 		slog.String("index", indexName),
 		slog.Int64("task_uid", task.TaskUID))
 
@@ -41,10 +45,10 @@ func (c *Client) IndexDocuments(ctx context.Context, indexName string, documents
 func (c *Client) DeleteDocument(ctx context.Context, indexName, documentID string) (int64, error) {
 	task, err := c.sdk.Index(indexName).DeleteDocumentWithContext(ctx, documentID, nil)
 	if err != nil {
-		return 0, fmt.Errorf("delete document %s from %s: %w", documentID, indexName, err)
+		return 0, coreerrs.Wrapf(err, "delete document %s from %s", documentID, indexName)
 	}
 
-	c.logger.Debug("document deleted",
+	c.logger.DebugContext(ctx, "document deleted",
 		slog.String("index", indexName),
 		slog.String("document_id", documentID),
 		slog.Int64("task_uid", task.TaskUID))
@@ -56,10 +60,10 @@ func (c *Client) DeleteDocument(ctx context.Context, indexName, documentID strin
 func (c *Client) DeleteDocuments(ctx context.Context, indexName string, documentIDs []string) (int64, error) {
 	task, err := c.sdk.Index(indexName).DeleteDocumentsWithContext(ctx, documentIDs, nil)
 	if err != nil {
-		return 0, fmt.Errorf("delete documents from %s: %w", indexName, err)
+		return 0, coreerrs.Wrapf(err, "delete documents from %s", indexName)
 	}
 
-	c.logger.Debug("documents deleted",
+	c.logger.DebugContext(ctx, "documents deleted",
 		slog.String("index", indexName),
 		slog.Int("count", len(documentIDs)),
 		slog.Int64("task_uid", task.TaskUID))
@@ -69,13 +73,24 @@ func (c *Client) DeleteDocuments(ctx context.Context, indexName string, document
 
 // DeleteDocumentsByFilter removes documents matching the given Meilisearch
 // filter expression. Returns task UID.
+//
+// SECURITY: filter is passed unchanged to Meilisearch. The Meilisearch
+// filter DSL is not SQL, but it still supports field comparisons and
+// expression composition (AND / OR / NOT / IN). Building filter from
+// concatenated user input lets an attacker widen the deletion to
+// documents they should not be able to touch (e.g. "tenant_id =
+// 'their_id' OR true" → wipes the whole index). Construct filter via a
+// trusted DSL builder, escape user-supplied values, or restrict the
+// caller's role at the Meilisearch API-key level.
 func (c *Client) DeleteDocumentsByFilter(ctx context.Context, indexName, filter string) (int64, error) {
 	task, err := c.sdk.Index(indexName).DeleteDocumentsByFilterWithContext(ctx, filter, nil)
 	if err != nil {
-		return 0, fmt.Errorf("delete documents by filter from %s: %w", indexName, err)
+		return 0, coreerrs.Wrapf(err, "delete documents by filter from %s", indexName)
 	}
 
-	c.logger.Debug("documents deleted by filter",
+	// Filter expressions can encode caller-supplied values; log only at
+	// Debug level and never elevate to Info without redaction.
+	c.logger.DebugContext(ctx, "documents deleted by filter",
 		slog.String("index", indexName),
 		slog.String("filter", filter),
 		slog.Int64("task_uid", task.TaskUID))
@@ -84,9 +99,25 @@ func (c *Client) DeleteDocumentsByFilter(ctx context.Context, indexName, filter 
 }
 
 // GetAllDocumentIDs paginates through indexName and returns every document's
-// primary key. Intended for sync/reconciliation flows; pulls
-// [documentIDListBatchSize] IDs per round-trip and reads only the "id" field.
+// primary key. Assumes the index's primary key is the default "id" field —
+// callers using a different primary key must use
+// [Client.GetAllDocumentIDsWithPrimaryKey] instead.
 func (c *Client) GetAllDocumentIDs(ctx context.Context, indexName string) ([]string, error) {
+	return c.GetAllDocumentIDsWithPrimaryKey(ctx, indexName, defaultPrimaryKeyField)
+}
+
+// GetAllDocumentIDsWithPrimaryKey paginates through indexName and returns
+// every document's primary-key value. primaryKey names the field to
+// project — pass "" to fall back to [defaultPrimaryKeyField]. Pulls
+// [documentIDListBatchSize] IDs per round-trip and reads only the named
+// field, so the body of each document is never transferred.
+//
+// Unmarshal failures on individual hits are logged at Warn (with the
+// offending field name) and the hit is skipped; a misconfigured
+// primary-key type (e.g. an int-typed key extracted as string) would
+// otherwise return an empty slice with no diagnostic.
+func (c *Client) GetAllDocumentIDsWithPrimaryKey(ctx context.Context, indexName, primaryKey string) ([]string, error) {
+	primaryKey = cmp.Or(primaryKey, defaultPrimaryKeyField)
 	index := c.sdk.Index(indexName)
 
 	var (
@@ -99,20 +130,27 @@ func (c *Client) GetAllDocumentIDs(ctx context.Context, indexName string) ([]str
 		err := index.GetDocumentsWithContext(ctx, &msdk.DocumentsQuery{
 			Offset: offset,
 			Limit:  documentIDListBatchSize,
-			Fields: documentIDFields,
+			Fields: []string{primaryKey},
 		}, &result)
 		if err != nil {
-			return nil, fmt.Errorf("get document IDs from %s (offset %d): %w", indexName, offset, err)
+			return nil, coreerrs.Wrapf(err, "get document IDs from %s (offset %d)", indexName, offset)
 		}
 
 		for _, hit := range result.Results {
-			raw, ok := hit["id"]
+			raw, ok := hit[primaryKey]
 			if !ok {
+				c.logger.WarnContext(ctx, "primary key field missing from document",
+					slog.String("index", indexName),
+					slog.String("primary_key", primaryKey))
 				continue
 			}
 
 			var id string
 			if err := json.Unmarshal(raw, &id); err != nil {
+				c.logger.WarnContext(ctx, "failed to decode primary key as string — check primary-key type",
+					slog.String("index", indexName),
+					slog.String("primary_key", primaryKey),
+					slog.Any("error", err))
 				continue
 			}
 
@@ -125,8 +163,9 @@ func (c *Client) GetAllDocumentIDs(ctx context.Context, indexName string) ([]str
 		}
 	}
 
-	c.logger.Debug("retrieved all document IDs",
+	c.logger.DebugContext(ctx, "retrieved all document IDs",
 		slog.String("index", indexName),
+		slog.String("primary_key", primaryKey),
 		slog.Int("count", len(allIDs)))
 
 	return allIDs, nil
@@ -134,6 +173,11 @@ func (c *Client) GetAllDocumentIDs(ctx context.Context, indexName string) ([]str
 
 // Search runs a full-text query against the specified index and returns raw
 // JSON hits so callers can deserialize into their own document types.
+//
+// Search queries can carry caller-supplied values (email addresses,
+// names, free-text). The query string is NOT logged — operators that
+// need it for debugging should enable Meilisearch-side request logging
+// rather than route PII through the application log.
 func (c *Client) Search(ctx context.Context, req *SearchRequest) (*SearchResult, error) {
 	sdkReq := &msdk.SearchRequest{
 		Sort:   req.Sort,
@@ -146,26 +190,25 @@ func (c *Client) Search(ctx context.Context, req *SearchRequest) (*SearchResult,
 
 	resp, err := c.sdk.Index(req.IndexName).SearchWithContext(ctx, req.Query, sdkReq)
 	if err != nil {
-		return nil, fmt.Errorf("search index %s: %w", req.IndexName, err)
+		return nil, coreerrs.Wrapf(err, "search index %s", req.IndexName)
 	}
 
 	hits := make([]json.RawMessage, 0, len(resp.Hits))
 	for _, hit := range resp.Hits {
 		raw, err := json.Marshal(hit)
 		if err != nil {
-			return nil, fmt.Errorf("marshal search hit: %w", err)
+			return nil, coreerrs.WrapOperation(err, "marshal search hit")
 		}
 		hits = append(hits, raw)
 	}
 
-	c.logger.Debug("search completed",
+	c.logger.DebugContext(ctx, "search completed",
 		slog.String("index", req.IndexName),
-		slog.String("query", req.Query),
-		slog.Int64("total_hits", resp.EstimatedTotalHits),
+		slog.Int64("estimated_total_hits", resp.EstimatedTotalHits),
 		slog.Int("hits", len(hits)))
 
 	return &SearchResult{
-		Hits:      hits,
-		TotalHits: resp.EstimatedTotalHits,
+		Hits:               hits,
+		EstimatedTotalHits: resp.EstimatedTotalHits,
 	}, nil
 }
