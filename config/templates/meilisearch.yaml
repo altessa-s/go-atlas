@@ -20,3 +20,13 @@
 #  # Applies to every outbound request (search, index, delete, health).
 #  # Default value: 30s
 #  timeout: 30s
+#
+#  # <object> TLS settings for HTTPS deployments. Leave commented for
+#  # plaintext HTTP (only safe on localhost / internal network).
+#  # See tls-client.yaml for the full field list (certificate,
+#  # privateKey, caCerts, serverName, skipVerifyServerName, etc.).
+#  # SkipVerify=true requires also opting into skipVerifyMode=warn or
+#  # =disabled — the default enforce mode refuses to disable cert
+#  # verification.
+#  #tls:
+#  #  !include tls-client.yaml

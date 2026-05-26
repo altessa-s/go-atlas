@@ -7,14 +7,18 @@ package factory
 import (
 	"cmp"
 	"context"
+	"crypto/tls"
 	"errors"
 	"log/slog"
+	"net/http"
+	"time"
 
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/meilisearch"
 	"github.com/altessa-s/go-atlas/observability/health"
 
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
+	tlsfactory "github.com/altessa-s/go-atlas/security/tlsutils/factory"
 )
 
 // defaultHealthServiceName is used when registering a health checker if
@@ -75,6 +79,14 @@ func (b *ClientBuilder) Build(ctx context.Context) (*meilisearch.Client, error) 
 		opts = append(opts, meilisearch.WithAPIKey(key))
 	}
 
+	if b.cfg.TLS != nil {
+		httpClient, err := b.buildHTTPClient(b.cfg.TLS, b.cfg.Timeout)
+		if err != nil {
+			return nil, b.WrapError(err, "build TLS http.Client")
+		}
+		opts = append(opts, meilisearch.WithHTTPClient(httpClient))
+	}
+
 	client, err := meilisearch.New(ctx, b.cfg.Host, opts...)
 	if err != nil {
 		return nil, b.WrapError(err, "create meilisearch client")
@@ -89,3 +101,32 @@ func (b *ClientBuilder) Build(ctx context.Context) (*meilisearch.Client, error) 
 
 	return client, nil
 }
+
+// buildHTTPClient resolves the YAML TlsClient block into an *http.Client
+// suitable for the Meilisearch SDK. Delegates the TLS-config construction
+// to security/tlsutils/factory so the SkipVerifyMode safety guard, CA
+// pool assembly, mTLS client-cert loading, and ATLAS_ALLOW_INSECURE_TLS
+// env-var handling all happen in the single canonical place — the
+// Meilisearch factory does not reimplement any of it.
+//
+// timeout is taken from the Meilisearch block and applied to the
+// resulting http.Client so the WithTimeout option still bounds every
+// outbound request, including the synchronous startup probe.
+func (b *ClientBuilder) buildHTTPClient(tlsCfg *config.TlsClient, timeout time.Duration) (*http.Client, error) {
+	tlsConfig, err := tlsfactory.New(nil).UseLogger(b.Logger()).CreateClientConfig(tlsCfg)
+	if err != nil {
+		return nil, err
+	}
+	return &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			TLSClientConfig: tlsConfig,
+		},
+	}, nil
+}
+
+// Compile-time assertion: tls.Config is referenced indirectly via
+// http.Transport.TLSClientConfig — keep the import stable in case the
+// build flips between Go versions that strip unused imports more
+// aggressively. The actual value is constructed via tlsfactory.
+var _ = (*tls.Config)(nil)

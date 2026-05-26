@@ -20,14 +20,19 @@ const (
 )
 
 // Meilisearch represents the configuration for connecting to a Meilisearch
-// instance. It contains the server URL, optional API key, and HTTP timeout.
+// instance. It contains the server URL, optional API key, HTTP timeout,
+// and optional TLS settings for HTTPS deployments.
 //
 // Example:
 //
 //	ms := &config.Meilisearch{
-//		Host:    "http://meilisearch:7700",
+//		Host:    "https://meilisearch.example.com",
 //		APIKey:  "masterKey",
 //		Timeout: 30 * time.Second,
+//		TLS: &config.TlsClient{
+//			CACerts:        []string{"/etc/ssl/internal-ca.pem"},
+//			SkipVerifyMode: config.TLSSkipVerifyModeEnforce,
+//		},
 //	}
 type Meilisearch struct {
 	// Host is the Meilisearch server URL.
@@ -42,6 +47,18 @@ type Meilisearch struct {
 	// Timeout is the HTTP client timeout for Meilisearch requests.
 	// Defaults to 30 seconds.
 	Timeout time.Duration `yaml:"timeout" default:"30s"`
+
+	// TLS configures the HTTPS transport. When non-nil, the factory
+	// builds an *http.Client with the resulting *tls.Config and threads
+	// it into the Meilisearch SDK via WithHTTPClient. Leave nil for
+	// plaintext HTTP (the SDK still works, but the connection is
+	// unencrypted — only safe for localhost or internal-network
+	// deployments).
+	//
+	// Honors the SkipVerifyMode safety guard: setting SkipVerify=true
+	// without explicitly opting into a less-strict mode is refused at
+	// build time.
+	TLS *TlsClient `yaml:"tls" default:"-"`
 }
 
 // DefaultMeilisearch returns a [Meilisearch] configuration populated with
@@ -55,10 +72,11 @@ func DefaultMeilisearch() Meilisearch {
 
 // Validate performs validation on the [Meilisearch] configuration.
 // Host must be a non-empty URL; Timeout, when set, must be a positive
-// duration.
+// duration; TLS, when set, must pass its own validation.
 func (m *Meilisearch) Validate() error {
 	return ValidateStruct(m,
 		validation.Field(&m.Host, validation.Required, is.URL),
 		validation.Field(&m.Timeout, ozzo_rules.DurationOrZero()),
+		validation.Field(&m.TLS, validation.NilOrNotEmpty),
 	)
 }
