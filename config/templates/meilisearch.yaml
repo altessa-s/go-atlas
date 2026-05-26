@@ -1,0 +1,22 @@
+# Meilisearch configuration.
+# Defines settings for connecting to a Meilisearch full-text search server.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#meilisearch:
+#  # <string> Meilisearch server URL.
+#  # Includes scheme, host and port of the Meilisearch instance.
+#  # Default value: "http://localhost:7700"
+#  host: "http://localhost:7700"
+#
+#  # <string> Master or admin API key for Meilisearch.
+#  # Sent in the Authorization header on every request.
+#  # Leave empty to skip authentication — useful for local development
+#  # against an open instance.
+#  # Default value: not set
+#  apiKey:
+#
+#  # <duration> HTTP client timeout for Meilisearch requests.
+#  # Applies to every outbound request (search, index, delete, health).
+#  # Default value: 30s
+#  timeout: 30s
