@@ -12,6 +12,17 @@ import (
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 )
 
+// Internal field names used by the $unionWith-based count pipeline.
+// Underscored to avoid collision with user document fields.
+const (
+	// kindField tags each document in the union as either an item or the count result.
+	kindField = "__kind"
+	kindItem  = "item"
+	kindCount = "count"
+	// itemEnvelopeField wraps the original item document so the tag does not pollute its fields.
+	itemEnvelopeField = "item"
+)
+
 // buildCursorFilter constructs a MongoDB filter for cursor-based pagination using cursor_id.
 // Since cursor_id (ObjectID) is lexicographically sortable and contains timestamp, we only need
 // to compare cursor_id values without separate timestamp comparison.
@@ -229,58 +240,97 @@ func buildSortStage(sort bson.D) bson.A {
 	return bson.A{bson.M{"$sort": sortStage}}
 }
 
-// totalAnnotationField is the temporary field name used by $setWindowFields to store
-// the pre-computed document count before custom pipeline stages are applied.
-// This ensures accurate totals even when custom stages change document cardinality (e.g., $unwind).
-const totalAnnotationField = "__atlas_total"
-
-// buildFacetStage creates the $facet stage for parallel items and count queries.
+// buildItemsAggregationStages builds the items portion of the pipeline:
+// $limit (with lookahead), decoration stages, and an optional $project.
 // Fetches limit+1 items to determine if there are more pages.
 //
 // Parameters:
 //   - limit: Maximum number of items to return
 //   - projection: Optional field projection
-//   - includeTotal: Whether to include total count
 //   - decorationStages: Optional pipeline stages inserted after $limit (e.g., $lookup for display data)
-//   - preCountedTotal: When true, total was pre-computed via $setWindowFields and stored in
-//     totalAnnotationField; the count branch reads it instead of running $count
 //
 // Returns:
-//   - bson.A: Pipeline stages with $facet
-func buildFacetStage(limit int64, projection bson.M, includeTotal bool, decorationStages bson.A, preCountedTotal bool) bson.A {
-	// Build items pipeline: limit + lookahead + decoration stages + optional projection
-	itemsPipeline := bson.A{
+//   - bson.A: Pipeline stages for the items branch
+func buildItemsAggregationStages(limit int64, projection bson.M, decorationStages bson.A) bson.A {
+	stages := bson.A{
 		bson.M{"$limit": limit + paginationLookaheadCount},
 	}
+	stages = append(stages, decorationStages...)
+	stages = slices.AppendIf[any](stages, projection != nil, bson.M{"$project": projection})
+	return stages
+}
 
-	itemsPipeline = append(itemsPipeline, decorationStages...)
-
-	// Remove the annotation field so it doesn't leak into results
-	if preCountedTotal {
-		itemsPipeline = append(itemsPipeline, bson.M{"$unset": totalAnnotationField})
-	}
-
-	itemsPipeline = slices.AppendIf[any](itemsPipeline, projection != nil, bson.M{"$project": projection})
-
-	// Build facet stage
-	facetStage := bson.M{
-		"items": itemsPipeline,
-	}
-
-	if includeTotal {
-		if preCountedTotal {
-			// Read the pre-computed count from the annotation field.
-			// Any single document carries the correct value, so $limit: 1 is sufficient.
-			facetStage["count"] = bson.A{
-				bson.M{"$limit": int64(1)},
-				bson.M{"$project": bson.M{"total": "$" + totalAnnotationField}},
-			}
-		} else {
-			facetStage["count"] = bson.A{bson.M{"$count": "total"}}
+// buildCountUnionStages appends the stages that produce the final {items, total} envelope.
+// The count is computed via $unionWith with an independent sub-pipeline scoped to userFilter
+// only (no cursor filter, no custom stages), so total stays stable across pages.
+// When includeTotal is false, items are collapsed and total is set to -1.
+//
+// Parameters:
+//   - collectionName: Name of the collection being queried; used in $unionWith.coll
+//   - userFilter: User filter applied to the count sub-pipeline (cursor filter must not leak here)
+//   - includeTotal: Whether to compute the total count
+//
+// Returns:
+//   - bson.A: Stages that shape the result into {items, total}
+func buildCountUnionStages(collectionName string, userFilter bson.M, includeTotal bool) bson.A {
+	if !includeTotal {
+		// No counting: collapse items into {items, total: -1}.
+		return bson.A{
+			bson.M{"$group": bson.M{
+				"_id":   nil,
+				"items": bson.M{"$push": "$$ROOT"},
+			}},
+			bson.M{"$project": bson.M{
+				"_id":   0,
+				"items": "$items",
+				"total": int64(-1),
+			}},
 		}
 	}
 
-	return bson.A{bson.M{"$facet": facetStage}}
+	// Tag each item so $group below can distinguish it from the count entry.
+	tagItem := bson.M{"$replaceRoot": bson.M{"newRoot": bson.M{
+		itemEnvelopeField: "$$ROOT",
+		kindField:         kindItem,
+	}}}
+
+	// Count sub-pipeline: independent query scoped to userFilter only.
+	countSubPipeline := bson.A{}
+	if len(userFilter) > 0 {
+		countSubPipeline = append(countSubPipeline, bson.M{"$match": userFilter})
+	}
+	countSubPipeline = append(countSubPipeline,
+		bson.M{"$count": "total"},
+		bson.M{"$replaceRoot": bson.M{"newRoot": bson.M{
+			"total":   "$total",
+			kindField: kindCount,
+		}}},
+	)
+
+	unionStage := bson.M{"$unionWith": bson.M{
+		"coll":     collectionName,
+		"pipeline": countSubPipeline,
+	}}
+
+	// $$REMOVE skips the push so the items array never contains the count entry.
+	groupStage := bson.M{"$group": bson.M{
+		"_id": nil,
+		"items": bson.M{"$push": bson.M{"$cond": bson.A{
+			bson.M{"$eq": bson.A{"$" + kindField, kindItem}},
+			"$" + itemEnvelopeField,
+			"$$REMOVE",
+		}}},
+		"totalValue": bson.M{"$max": "$total"},
+	}}
+
+	// $ifNull defaults total to 0 when the collection is empty (no count documents).
+	projectStage := bson.M{"$project": bson.M{
+		"_id":   0,
+		"items": "$items",
+		"total": bson.M{"$ifNull": bson.A{"$totalValue", int64(0)}},
+	}}
+
+	return bson.A{tagItem, unionStage, groupStage, projectStage}
 }
 
 // buildCursorPipeline constructs an optimized MongoDB aggregation pipeline for cursor-based pagination.
@@ -289,19 +339,17 @@ func buildFacetStage(limit int64, projection bson.M, includeTotal bool, decorati
 // Pipeline stages (in order):
 //  1. $match: Combines user filter with cursor filter (if cursor provided)
 //  2. $sort: Orders results by the specified sort fields
-//  3. $setWindowFields: Pre-computes total count (only when custom stages + includeTotal, requires MongoDB 5.0+)
-//  4. Custom stages (via WithListCursorStages): operate on entire result set
-//  5. $facet: Splits into parallel pipelines for items and count
-//     - items: $limit (fetch limit+1) + decoration stages (via WithListCursorDecorationStages) + $project (optional)
-//     - count: $count or pre-computed total (total documents matching filter)
-//  6. $unwind + $project: Transforms facet output into {items: [], total: N} structure
+//  3. Custom stages (via WithListCursorStages): operate on entire result set
+//  4. Items aggregation: $limit (fetch limit+1), decoration stages (via WithListCursorDecorationStages), optional $project
+//  5. Count + final shape: $replaceRoot + $unionWith + $group + $project, see buildCountUnionStages
 //
 // The pipeline fetches limit+1 items to efficiently determine if there are more pages
-// without requiring a separate count query. If we get more than limit items, we know
-// there's a next page and can construct the cursor from the last visible item.
+// without requiring a separate count query. The count branch uses $unionWith with an
+// independent sub-pipeline scoped to userFilter only, so total stays stable across pages.
 //
 // Parameters:
 //   - opts: Configuration options including filter, sort, limit, cursor, projection, etc.
+//   - collectionName: Name of the collection being queried; required by $unionWith.coll
 //
 // Returns:
 //   - bson.A: Complete aggregation pipeline ready for execution
@@ -310,7 +358,7 @@ func buildFacetStage(limit int64, projection bson.M, includeTotal bool, decorati
 //   - O(1) pagination depth (unlike offset-based which is O(n))
 //   - Single database round-trip for items + count
 //   - Efficient index usage with proper $match before $sort
-func buildCursorPipeline(opts *listCursorOptions) bson.A {
+func buildCursorPipeline(opts *listCursorOptions, collectionName string) bson.A {
 	// Extend sort with cursor_id tiebreaker for deterministic pagination.
 	// A local variable is used intentionally — opts.sort must stay unchanged
 	// because cursor generation and checksum validation depend on the original value.
@@ -329,32 +377,22 @@ func buildCursorPipeline(opts *listCursorOptions) bson.A {
 	// 2. SORT - Order results
 	pipeline = append(pipeline, buildSortStage(sort)...)
 
-	// 3. PRE-COUNT TOTAL - When custom stages may change document cardinality (e.g., $unwind),
-	// annotate each document with the true count BEFORE stages are applied.
-	// Uses $setWindowFields (requires MongoDB 5.0+) to avoid materializing documents.
-	preCountedTotal := len(opts.stages) > 0 && opts.includeTotal
-	if preCountedTotal {
-		pipeline = append(pipeline, bson.M{
-			"$setWindowFields": bson.M{
-				"output": bson.M{
-					totalAnnotationField: bson.M{"$count": bson.M{}},
-				},
-			},
-		})
-	}
-
-	// 4. CUSTOM STAGES - User-provided stages after $sort, before $facet
+	// 3. CUSTOM STAGES - User-provided stages after $sort, before items aggregation
 	pipeline = append(pipeline, opts.stages...)
 
-	// 5. FACET - Split into items and count branches
-	pipeline = append(pipeline, buildFacetStage(
+	// 4. ITEMS - $limit (fetch limit+1) + decoration stages + optional projection
+	pipeline = append(pipeline, buildItemsAggregationStages(
 		opts.limit,
 		opts.projection,
-		opts.includeTotal,
 		opts.decorationStages,
-		preCountedTotal,
 	)...)
 
-	// 6. UNWIND AND PROJECT - Transform facet results
-	return appendFacetResultTransform(pipeline, opts.includeTotal)
+	// 5. COUNT + FINAL SHAPE - tag items, join independent count, collapse into {items, total}
+	pipeline = append(pipeline, buildCountUnionStages(
+		collectionName,
+		opts.filter,
+		opts.includeTotal,
+	)...)
+
+	return pipeline
 }

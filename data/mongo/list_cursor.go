@@ -476,7 +476,7 @@ func ListCursor[T any](ctx context.Context, collection *mongo.Collection, o ...L
 		"cursor_provided", opts.cursor != nil)
 
 	// Build optimized pipeline
-	pipeline := buildCursorPipeline(opts)
+	pipeline := buildCursorPipeline(opts, collection.Name())
 
 	// Execute explain analysis if requested
 	executeExplainIfRequested(ctx, collection, pipeline, opts.hint, opts.explain, opts.logger)
