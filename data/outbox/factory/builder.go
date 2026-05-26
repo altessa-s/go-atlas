@@ -89,9 +89,20 @@ func (b *OutboxBuilder) createOutboxWithStore(store outbox.Store, handler outbox
 
 	opts := b.buildOutboxOptions()
 
-	// Add scheduler and schedule options if scheduler is available
+	// Add scheduler and schedule options if scheduler is available.
+	// Task IDs go on every time (not gated by the schedule strings)
+	// because the runtime collision check inspects all four IDs even
+	// when some schedules are empty — keeping the IDs in lockstep with
+	// their YAML counterparts means a config change that flips a
+	// schedule on inherits the operator's overrides automatically.
 	if b.scheduler != nil {
-		opts = append(opts, outbox.WithScheduler(b.scheduler))
+		opts = append(opts,
+			outbox.WithScheduler(b.scheduler),
+			outbox.WithDispatchTaskID(b.cfg.DispatchTaskID),
+			outbox.WithUnlockTaskID(b.cfg.UnlockTaskID),
+			outbox.WithExpireTaskID(b.cfg.ExpireTaskID),
+			outbox.WithCleanupTaskID(b.cfg.CleanupTaskID),
+		)
 		if b.cfg.DispatchSchedule != "" {
 			opts = append(opts, outbox.WithDispatchSchedule(b.cfg.DispatchSchedule))
 		}

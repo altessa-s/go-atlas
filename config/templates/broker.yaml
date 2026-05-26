@@ -116,3 +116,19 @@
 #    # If true, only the latest event for each topic in a batch will be published.
 #    # Default value: false
 #    topicCompaction: false
+#
+#    # Scheduler task IDs. Override the defaults only when running multiple
+#    # Outbox instances against the SAME scheduler — the scheduler upserts
+#    # by ID, so two instances both registering "outbox-dispatch" would
+#    # silently overwrite each other's dispatch Func pointer. Collisions
+#    # across the four IDs are rejected at startup with
+#    # outbox.ErrTaskIDCollision, so a typo that aliases two of them is
+#    # surfaced before the scheduler ever spins.
+#    # Default value: outbox-dispatch
+#    dispatchTaskID: outbox-dispatch
+#    # Default value: outbox-unlock
+#    unlockTaskID: outbox-unlock
+#    # Default value: outbox-expire
+#    expireTaskID: outbox-expire
+#    # Default value: outbox-cleanup
+#    cleanupTaskID: outbox-cleanup

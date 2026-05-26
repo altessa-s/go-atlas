@@ -22,6 +22,10 @@ func (o *Outbox) registerTasks(opts *options) error {
 		return nil
 	}
 
+	if err := validateTaskIDs(opts); err != nil {
+		return err
+	}
+
 	ctx := context.Background()
 
 	// Register dispatch task
@@ -239,6 +243,41 @@ func (o *Outbox) RunExpireCycle(ctx context.Context) error {
 		return ErrSchedulerManaged
 	}
 	return o.runExpireCycleInternal(ctx)
+}
+
+// validateTaskIDs rejects configurations in which two or more of the
+// scheduler task IDs (dispatch / unlock / expire / cleanup) collide.
+// The underlying scheduler upserts by ID, so a collision would silently
+// overwrite the first task's Func pointer with the second's instead of
+// running both — we'd rather fail loudly at startup than ship a partially
+// scheduled outbox. Checks all four IDs unconditionally (even when some
+// schedules are empty, so the next operator who flips the schedule on
+// inherits a working set of IDs).
+func validateTaskIDs(opts *options) error {
+	ids := [...]struct {
+		name, value string
+	}{
+		{"dispatchTaskID", opts.dispatchTaskID},
+		{"unlockTaskID", opts.unlockTaskID},
+		{"expireTaskID", opts.expireTaskID},
+		{"cleanupTaskID", opts.cleanupTaskID},
+	}
+	seen := make(map[string]string, len(ids))
+	for _, id := range ids {
+		if id.value == "" {
+			// Generated WithXxx setters TrimSpace to non-empty; the
+			// defaults are non-empty constants. An empty value here
+			// would mean a programmatic caller bypassed the setter and
+			// assigned the field directly — not a collision but still
+			// an invalid scheduler ID.
+			return coreerrs.Wrapf(ErrTaskIDCollision, "%s is empty", id.name)
+		}
+		if prev, dup := seen[id.value]; dup {
+			return coreerrs.Wrapf(ErrTaskIDCollision, "%s and %s both resolve to %q", prev, id.name, id.value)
+		}
+		seen[id.value] = id.name
+	}
+	return nil
 }
 
 // runExpireCycleInternal performs the actual expire cycle.
