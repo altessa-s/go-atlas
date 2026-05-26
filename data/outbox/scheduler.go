@@ -27,7 +27,7 @@ func (o *Outbox) registerTasks(opts *options) error {
 	// Register dispatch task
 	if opts.dispatchSchedule != "" {
 		taskCfg := corescheduler.TaskConfig{
-			ID:             "outbox-dispatch",
+			ID:             opts.dispatchTaskID,
 			Description:    "Dispatch unprocessed events from outbox",
 			Func:           o.RegisterDispatchSchedulerFunc(),
 			Schedule:       opts.dispatchSchedule,
@@ -43,7 +43,7 @@ func (o *Outbox) registerTasks(opts *options) error {
 	// Register unlock task
 	if opts.unlockSchedule != "" {
 		taskCfg := corescheduler.TaskConfig{
-			ID:             "outbox-unlock",
+			ID:             opts.unlockTaskID,
 			Description:    "Unlock stuck events in outbox",
 			Func:           o.RegisterUnlockSchedulerFunc(),
 			Schedule:       opts.unlockSchedule,
@@ -59,7 +59,7 @@ func (o *Outbox) registerTasks(opts *options) error {
 	// Register expire task if event expiration is configured
 	if opts.expireSchedule != "" && opts.defaultEventTTL > 0 {
 		taskCfg := corescheduler.TaskConfig{
-			ID:             "outbox-expire",
+			ID:             opts.expireTaskID,
 			Description:    "Mark expired events in outbox",
 			Func:           o.runExpireCycleInternal,
 			Schedule:       opts.expireSchedule,
@@ -76,7 +76,7 @@ func (o *Outbox) registerTasks(opts *options) error {
 	// Register cleanup task if published events lifetime is set
 	if opts.cleanupSchedule != "" && opts.publishedEventsLifetime > 0 {
 		taskCfg := corescheduler.TaskConfig{
-			ID:             "outbox-cleanup",
+			ID:             opts.cleanupTaskID,
 			Description:    "Cleanup old published events from outbox",
 			Func:           o.RegisterCleanupSchedulerFunc(),
 			Schedule:       opts.cleanupSchedule,
