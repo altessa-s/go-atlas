@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"google.golang.org/protobuf/types/known/timestamppb"
-
 	"github.com/altessa-s/go-atlas/domain/converter"
+
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestNew_TimestampToTime(t *testing.T) {
@@ -292,11 +292,12 @@ type tspbProto struct {
 	Meta      map[string]*timestamppb.Timestamp
 }
 
-// TestNew_ThroughConverter exercises the codec end-to-end through the converter
-// (not by calling it directly), covering both directions and slice elements. This
-// guards against the converter dispatching struct-kind fields field-by-field
-// before consulting codecs, which silently zeroed time.Time <-> Timestamp.
-func TestNew_ThroughConverter(t *testing.T) {
+// TestCodec_ThroughConverter exercises the tspb codec end-to-end through the
+// converter (not by calling it directly), covering both directions and
+// slice / map elements. This guards against the converter dispatching
+// struct-kind fields field-by-field before consulting codecs, which silently
+// zeroed time.Time <-> Timestamp.
+func TestCodec_ThroughConverter(t *testing.T) {
 	now := time.Date(2026, 5, 27, 10, 0, 0, 0, time.UTC)
 	other := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 

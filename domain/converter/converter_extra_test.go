@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/domain/converter"
+
 	convcodec "github.com/altessa-s/go-atlas/domain/converter/codec"
 )
 
@@ -264,6 +265,87 @@ func TestWithCodecs_ConvertibleFallbackStillRuns(t *testing.T) {
 	converter.Convert(src{Temp: celsius(36.6)}, &out, converter.WithCodecs(passthrough))
 
 	require.InEpsilon(t, 36.6, out.Temp, 1e-9, "convertible scalar fallback must run after a delegating codec")
+}
+
+// TestWithCodecs_InterceptsSliceAndMapElements widens
+// TestWithCodecs_InterceptsStructKind to cover slice and map element
+// types. The codec hook fires per-element during slice / map traversal
+// — a regression that skipped the codec on element conversion would
+// leave the synthetic struct payload empty for the whole collection,
+// not just one field.
+func TestWithCodecs_InterceptsSliceAndMapElements(t *testing.T) {
+	type legacyName struct{ Full string }
+	type displayName struct{ Value string }
+	type src struct {
+		Names    []legacyName
+		ByRegion map[string]legacyName
+	}
+	type dst struct {
+		Names    []displayName
+		ByRegion map[string]displayName
+	}
+
+	legacyType := reflect.TypeOf(legacyName{})
+	displayType := reflect.TypeOf(displayName{})
+
+	codec := func(field string, s, d reflect.Value, next convcodec.CodecHandler) {
+		si := reflect.Indirect(s)
+		di := reflect.Indirect(d)
+		if si.IsValid() && di.IsValid() && si.Type() == legacyType && di.Type() == displayType {
+			di.FieldByName("Value").SetString(si.FieldByName("Full").String())
+			return
+		}
+		next(field, s, d)
+	}
+
+	in := src{
+		Names: []legacyName{{Full: "Ada"}, {Full: "Bob"}},
+		ByRegion: map[string]legacyName{
+			"eu": {Full: "Carol"},
+			"us": {Full: "Dan"},
+		},
+	}
+	var out dst
+	converter.Convert(in, &out, converter.WithCodecs(codec))
+
+	require.Len(t, out.Names, 2)
+	require.Equal(t, "Ada", out.Names[0].Value)
+	require.Equal(t, "Bob", out.Names[1].Value)
+	require.Equal(t, "Carol", out.ByRegion["eu"].Value)
+	require.Equal(t, "Dan", out.ByRegion["us"].Value)
+}
+
+// TestWithCodecs_InterceptsNestedStructField pins the codec dispatch
+// for a struct field one level deep. The current implementation calls
+// convertValue recursively while walking struct fields — this test
+// proves the codec sees nested codec-handled fields, not just the
+// outermost one. Without it a future change that broke recursion
+// (e.g. an "only fire codecs at the top level" optimization) would
+// silently regress.
+func TestWithCodecs_InterceptsNestedStructField(t *testing.T) {
+	type legacyName struct{ Full string }
+	type displayName struct{ Value string }
+	type srcInner struct{ Name legacyName }
+	type dstInner struct{ Name displayName }
+	type src struct{ Inner srcInner }
+	type dst struct{ Inner dstInner }
+
+	legacyType := reflect.TypeOf(legacyName{})
+	displayType := reflect.TypeOf(displayName{})
+
+	codec := func(field string, s, d reflect.Value, next convcodec.CodecHandler) {
+		si := reflect.Indirect(s)
+		di := reflect.Indirect(d)
+		if si.IsValid() && di.IsValid() && si.Type() == legacyType && di.Type() == displayType {
+			di.FieldByName("Value").SetString(si.FieldByName("Full").String())
+			return
+		}
+		next(field, s, d)
+	}
+
+	var out dst
+	converter.Convert(src{Inner: srcInner{Name: legacyName{Full: "Ada"}}}, &out, converter.WithCodecs(codec))
+	require.Equal(t, "Ada", out.Inner.Name.Value, "codec must intercept the codec-handled struct field even when wrapped in another struct")
 }
 
 func TestConvert_EmbeddedStructs(t *testing.T) {

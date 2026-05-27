@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	convcodec "github.com/altessa-s/go-atlas/domain/converter/codec"
 	reflectutils "github.com/altessa-s/go-atlas/domain/converter/internal/reflect"
 )
 
@@ -37,6 +38,13 @@ type Converter[T ConversionSource, U ConversionDestination] struct {
 	// Clean abstractions for performance optimization
 	typeCache         TypeCache
 	primitiveRegistry *PrimitiveRegistry
+	// convertByKindHandler caches the bound method value passed as the
+	// codec chain's terminal handler. Taking a method value (conv.convertByKind)
+	// allocates a small closure each time, so caching it once at construction
+	// time eliminates an allocation per field for codec-using converters that
+	// walk many fields. Initialized by every constructor below; never nil
+	// after construction.
+	convertByKindHandler convcodec.CodecHandler
 }
 
 // Shared global resources reused by one-shot Convert() calls to avoid
@@ -69,6 +77,7 @@ func Convert[T ConversionSource, U ConversionDestination](src T, dst U, opt ...O
 	if o.overflowCheck {
 		conv.primitiveRegistry = NewPrimitiveRegistry(true)
 	}
+	conv.convertByKindHandler = conv.convertByKind
 	conv.Convert(src, dst)
 	return dst
 }
@@ -92,6 +101,7 @@ func New[T ConversionSource, U ConversionDestination](opt ...Option) *Converter[
 		typeCache:         NewTypeCache(),
 		primitiveRegistry: NewPrimitiveRegistry(o.overflowCheck),
 	}
+	conv.convertByKindHandler = conv.convertByKind
 
 	return conv
 }
@@ -111,6 +121,7 @@ func NewShared[T ConversionSource, U ConversionDestination](opt ...Option) *Conv
 		typeCache:         sharedTypeCache,
 		primitiveRegistry: sharedPrimitiveRegistry,
 	}
+	conv.convertByKindHandler = conv.convertByKind
 
 	if o.overflowCheck {
 		// If overflow check is needed, we might need a specific registry or just use the shared one
@@ -571,19 +582,21 @@ func (conv *Converter[T, U]) convertValue(fieldName string, srcValue reflect.Val
 		return
 	}
 
-	// Fast path: zero-copy primitive conversion (common for numeric fields)
-	if !conv.opts.codecsSet.HasCodecs() {
-		if conv.primitiveRegistry.TryConvert(srcValue, dstValue) {
-			return
-		}
+	// When codecs are registered, route the entire dispatch through the
+	// codec chain so a codec-handled type whose Go kind is struct/slice/map
+	// is consulted before the built-in field-by-field copy below — otherwise
+	// the kind-dispatch shadows the codec and silently zeros codec-handled
+	// types like time.Time. The primitive fast-path is skipped on this
+	// branch because codecs may also intercept primitives (e.g. an enum-int
+	// codec); convertByKind reaches the same primitive path as terminal.
+	if conv.opts.codecsSet.HasCodecs() {
+		conv.opts.codecsSet.Run(fieldName, srcValue, dstValue, conv.convertByKindHandler)
+		return
 	}
 
-	// When codecs are registered, run them before the built-in struct/slice/map
-	// dispatch, passing that dispatch as the codec chain's terminal handler.
-	// Without this, a codec-handled type whose Go kind is struct/slice/map would be
-	// shadowed by the built-in field-by-field copy below and never reach its codec.
-	if conv.opts.codecsSet.HasCodecs() {
-		conv.opts.codecsSet.Run(fieldName, srcValue, dstValue, conv.convertByKind)
+	// Fast path: zero-copy primitive conversion (common for numeric fields).
+	// Only safe when no codecs are registered.
+	if conv.primitiveRegistry.TryConvert(srcValue, dstValue) {
 		return
 	}
 
