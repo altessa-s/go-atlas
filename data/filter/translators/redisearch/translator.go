@@ -185,6 +185,12 @@ func (t *Translator) translateComparison(op filter.Operator, left, right filter.
 		return "", err
 	}
 
+	if ident, ok := left.(*filter.IdentNode); ok {
+		if err := t.config.CheckLiteralKind(ident.Name, right); err != nil {
+			return "", err
+		}
+	}
+
 	value, err := right.Accept(t)
 	if err != nil {
 		return "", err
@@ -308,6 +314,12 @@ func (t *Translator) translateIn(left, right filter.Node) (string, error) {
 	field, err := t.getFieldName(left)
 	if err != nil {
 		return "", err
+	}
+
+	if ident, ok := left.(*filter.IdentNode); ok {
+		if err := t.config.CheckLiteralKind(ident.Name, right); err != nil {
+			return "", err
+		}
 	}
 
 	values, err := right.Accept(t)

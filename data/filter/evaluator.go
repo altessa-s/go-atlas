@@ -300,6 +300,11 @@ func (e *Evaluator) evalLogicalOr(left, right Node) (any, error) {
 
 // evalComparison evaluates comparison operators.
 func (e *Evaluator) evalComparison(op Operator, left, right Node) (any, error) {
+	if ident, ok := left.(*IdentNode); ok {
+		if err := e.config.CheckLiteralKind(ident.Name, right); err != nil {
+			return nil, err
+		}
+	}
 	lv, err := left.Accept(e)
 	if err != nil {
 		return nil, err
@@ -313,6 +318,11 @@ func (e *Evaluator) evalComparison(op Operator, left, right Node) (any, error) {
 
 // evalIn checks if the left value is in the right list.
 func (e *Evaluator) evalIn(left, right Node) (any, error) {
+	if ident, ok := left.(*IdentNode); ok {
+		if err := e.config.CheckLiteralKind(ident.Name, right); err != nil {
+			return nil, err
+		}
+	}
 	lv, err := left.Accept(e)
 	if err != nil {
 		return nil, err

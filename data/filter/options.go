@@ -4,6 +4,12 @@
 
 package filter
 
+import (
+	"time"
+
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+)
+
 // DefaultMaxDepth is the default maximum expression nesting depth.
 const DefaultMaxDepth = 20
 
@@ -19,10 +25,56 @@ const DefaultMaxExpressionLength = 4096
 // Prevents DoS via wide expressions (e.g., 100 OR-ed conditions at depth 1).
 const DefaultMaxOperations = 1000
 
+// FieldKind is the declared kind of a queryable field, used by translators
+// and the in-memory evaluator to reject filter literals whose Go type does
+// not align with the field's schema. See [WithFieldTypes].
+type FieldKind uint8
+
+const (
+	// FieldKindUnspecified disables type-checking for a field. Equivalent to
+	// omitting the field from the [WithFieldTypes] map.
+	FieldKindUnspecified FieldKind = iota
+	// FieldKindInt accepts CEL integer literals (int64, uint64).
+	FieldKindInt
+	// FieldKindFloat accepts CEL numeric literals (float64, int64, uint64).
+	FieldKindFloat
+	// FieldKindString accepts CEL string literals.
+	FieldKindString
+	// FieldKindBool accepts CEL bool literals.
+	FieldKindBool
+	// FieldKindBytes accepts CEL bytes literals.
+	FieldKindBytes
+	// FieldKindTimestamp accepts time.Time values produced by timestamp().
+	FieldKindTimestamp
+)
+
+// String returns the kind's name for use in error messages.
+func (k FieldKind) String() string {
+	switch k {
+	case FieldKindUnspecified:
+		return "unspecified"
+	case FieldKindInt:
+		return "int"
+	case FieldKindFloat:
+		return "float"
+	case FieldKindString:
+		return "string"
+	case FieldKindBool:
+		return "bool"
+	case FieldKindBytes:
+		return "bytes"
+	case FieldKindTimestamp:
+		return "timestamp"
+	default:
+		return "FieldKind(?)"
+	}
+}
+
 // TranslatorConfig holds configuration for translators.
 type TranslatorConfig struct {
 	allowedFields  map[string]struct{}
 	fieldMapping   map[string]string
+	fieldTypes     map[string]FieldKind
 	maxDepth       int
 	maxRegexLen    int
 	maxOperations  int
@@ -71,6 +123,23 @@ func WithAllowedFields(fields ...string) TranslatorOption {
 func WithFieldMapping(mapping map[string]string) TranslatorOption {
 	return func(c *TranslatorConfig) {
 		c.fieldMapping = mapping
+	}
+}
+
+// WithFieldTypes declares the expected kind for each queryable field.
+// When set, translation fails with [ErrFieldTypeMismatch] for literals whose
+// Go type does not match the declared kind. Fields absent from the map skip
+// the check. Keys are CEL-side field names, the same as [WithAllowedFields].
+//
+// Example:
+//
+//	trans := mongo.NewTranslator(filter.WithFieldTypes(map[string]filter.FieldKind{
+//	    "status":    filter.FieldKindInt,
+//	    "createdAt": filter.FieldKindTimestamp,
+//	}))
+func WithFieldTypes(types map[string]FieldKind) TranslatorOption {
+	return func(c *TranslatorConfig) {
+		c.fieldTypes = types
 	}
 }
 
@@ -172,6 +241,91 @@ func (c *TranslatorConfig) IsFieldAllowed(field string) bool {
 	}
 	_, ok := c.allowedFields[field]
 	return ok
+}
+
+// FieldKind returns the declared kind for a CEL-side field name, or
+// [FieldKindUnspecified] when the field has no declaration.
+func (c *TranslatorConfig) FieldKind(field string) FieldKind {
+	if c.fieldTypes == nil {
+		return FieldKindUnspecified
+	}
+	return c.fieldTypes[field]
+}
+
+// CheckLiteralKind verifies that the right-hand side AST node of a
+// comparison or `in` expression carries literal value(s) assignable to
+// the kind declared for field. Non-literal right-hand sides (e.g. a
+// custom-function call that returned a [BinaryOpNode]) are skipped —
+// the check is static and limited to what the parser produced as a
+// constant. Fields without a declared kind are accepted unconditionally.
+func (c *TranslatorConfig) CheckLiteralKind(field string, right Node) error {
+	kind := c.FieldKind(field)
+	if kind == FieldKindUnspecified {
+		return nil
+	}
+	switch n := right.(type) {
+	case *LiteralNode:
+		return checkSingleLiteral(field, kind, n.Value)
+	case *ListNode:
+		for i, elem := range n.Elements {
+			lit, ok := elem.(*LiteralNode)
+			if !ok {
+				continue
+			}
+			if lit.Value == nil {
+				continue
+			}
+			if !kindAccepts(kind, lit.Value) {
+				return coreerrs.Wrapf(ErrFieldTypeMismatch,
+					"field %q (%s): list element [%d] has type %T", field, kind, i, lit.Value)
+			}
+		}
+	}
+	return nil
+}
+
+// checkSingleLiteral validates one literal value; nil (CEL null) matches anything.
+func checkSingleLiteral(field string, kind FieldKind, value any) error {
+	if value == nil {
+		return nil
+	}
+	if !kindAccepts(kind, value) {
+		return coreerrs.Wrapf(ErrFieldTypeMismatch,
+			"field %q (%s): value has type %T", field, kind, value)
+	}
+	return nil
+}
+
+// kindAccepts reports whether value's Go type is assignable to kind.
+// FieldKindFloat accepts integer literals too — CEL parses whole numbers
+// as int64, so `price >= 100` would otherwise be rejected against a
+// double field.
+func kindAccepts(kind FieldKind, value any) bool {
+	switch kind {
+	case FieldKindInt:
+		switch value.(type) {
+		case int64, uint64:
+			return true
+		}
+	case FieldKindFloat:
+		switch value.(type) {
+		case float64, int64, uint64:
+			return true
+		}
+	case FieldKindString:
+		_, ok := value.(string)
+		return ok
+	case FieldKindBool:
+		_, ok := value.(bool)
+		return ok
+	case FieldKindBytes:
+		_, ok := value.([]byte)
+		return ok
+	case FieldKindTimestamp:
+		_, ok := value.(time.Time)
+		return ok
+	}
+	return false
 }
 
 // RequireAllowlist returns [ErrAllowlistRequired] when the config was

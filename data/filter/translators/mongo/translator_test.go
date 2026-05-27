@@ -407,6 +407,55 @@ func TestTranslator_TimestampComparison(t *testing.T) {
 	require.True(t, hasGte, "expected $gte operator for timestamp comparison")
 }
 
+func TestTranslator_WithFieldTypes(t *testing.T) {
+	trans := NewTranslator(filter.WithFieldTypes(map[string]filter.FieldKind{
+		"status":    filter.FieldKindInt,
+		"active":    filter.FieldKindBool,
+		"name":      filter.FieldKindString,
+		"price":     filter.FieldKindFloat,
+		"createdAt": filter.FieldKindTimestamp,
+	}))
+
+	t.Run("match", func(t *testing.T) {
+		tests := []struct{ expr string }{
+			{`status == 1`},
+			{`status in [1, 2, 3]`},
+			{`active == true`},
+			{`name == "Alice"`},
+			{`price >= 100`},
+			{`price >= 100.0`},
+			{`createdAt >= timestamp("2024-01-01T00:00:00Z")`},
+			{`status == null`},
+			{`other == "anything"`},
+		}
+		for _, tt := range tests {
+			t.Run(tt.expr, func(t *testing.T) {
+				node := testhelpers.MustParseFilter(t, tt.expr)
+				_, err := trans.Translate(node)
+				require.NoError(t, err)
+			})
+		}
+	})
+
+	t.Run("mismatch", func(t *testing.T) {
+		tests := []struct{ expr string }{
+			{`status == "qwer"`},
+			{`status == 1.5`},
+			{`active == 1`},
+			{`name == 42`},
+			{`status in [1, "qwer", 3]`},
+			{`createdAt == "2024-01-01"`},
+		}
+		for _, tt := range tests {
+			t.Run(tt.expr, func(t *testing.T) {
+				node := testhelpers.MustParseFilter(t, tt.expr)
+				_, err := trans.Translate(node)
+				require.ErrorIs(t, err, filter.ErrFieldTypeMismatch)
+			})
+		}
+	})
+}
+
 func TestTranslator_NullValue(t *testing.T) {
 	trans := NewTranslator()
 
