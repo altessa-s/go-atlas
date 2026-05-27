@@ -5,6 +5,7 @@
 package filter
 
 import (
+	"fmt"
 	"time"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
@@ -258,6 +259,11 @@ func (c *TranslatorConfig) FieldKind(field string) FieldKind {
 // custom-function call that returned a [BinaryOpNode]) are skipped —
 // the check is static and limited to what the parser produced as a
 // constant. Fields without a declared kind are accepted unconditionally.
+//
+// CheckLiteralKind operates on one (field, literal) pair. For a generic
+// comparison whose operand order is not known up-front, prefer
+// [TranslatorConfig.CheckComparison] — it inspects both sides and
+// dispatches to CheckLiteralKind for whichever one is the field.
 func (c *TranslatorConfig) CheckLiteralKind(field string, right Node) error {
 	kind := c.FieldKind(field)
 	if kind == FieldKindUnspecified {
@@ -277,9 +283,30 @@ func (c *TranslatorConfig) CheckLiteralKind(field string, right Node) error {
 			}
 			if !kindAccepts(kind, lit.Value) {
 				return coreerrs.Wrapf(ErrFieldTypeMismatch,
-					"field %q (%s): list element [%d] has type %T", field, kind, i, lit.Value)
+					"field %q (%s): list element [%d] is %s (want %s)",
+					field, kind, i, valueKindName(lit.Value), kind)
 			}
 		}
+	}
+	return nil
+}
+
+// CheckComparison verifies a binary comparison operator against the
+// declared field-type schema regardless of operand order. Both
+// `status == "x"` and `"x" == status` flow through the same check —
+// the symmetric form is required because CEL comparisons are
+// commutative in their semantic intent and operators may reorder
+// before evaluation.
+//
+// When neither operand is an IdentNode (literal-on-literal, or
+// function-call results on both sides), CheckComparison is a no-op:
+// there is no schema-bound field to validate against.
+func (c *TranslatorConfig) CheckComparison(left, right Node) error {
+	if ident, ok := left.(*IdentNode); ok {
+		return c.CheckLiteralKind(ident.Name, right)
+	}
+	if ident, ok := right.(*IdentNode); ok {
+		return c.CheckLiteralKind(ident.Name, left)
 	}
 	return nil
 }
@@ -291,7 +318,8 @@ func checkSingleLiteral(field string, kind FieldKind, value any) error {
 	}
 	if !kindAccepts(kind, value) {
 		return coreerrs.Wrapf(ErrFieldTypeMismatch,
-			"field %q (%s): value has type %T", field, kind, value)
+			"field %q (%s): value is %s (want %s)",
+			field, kind, valueKindName(value), kind)
 	}
 	return nil
 }
@@ -303,6 +331,11 @@ func checkSingleLiteral(field string, kind FieldKind, value any) error {
 func kindAccepts(kind FieldKind, value any) bool {
 	switch kind {
 	case FieldKindUnspecified:
+		// Unreachable in practice — every caller short-circuits on
+		// Unspecified before reaching kindAccepts. Kept as an explicit
+		// case so the exhaustive-switch linter does not flag the
+		// switch, and so a future caller that bypasses the short-circuit
+		// inherits the safe accept-all behavior.
 		return true
 	case FieldKindInt:
 		switch value.(type) {
@@ -328,6 +361,30 @@ func kindAccepts(kind FieldKind, value any) bool {
 		return ok
 	}
 	return false
+}
+
+// valueKindName returns the [FieldKind]-flavored label for a Go value,
+// so error messages speak in DSL terms (int / string / bool / …)
+// instead of Go's typename (int64 / []byte / time.Time). Falls back to
+// %T-style formatting for values that don't map to any FieldKind —
+// the message stays informative even for unexpected types.
+func valueKindName(value any) string {
+	switch value.(type) {
+	case int64, uint64:
+		return FieldKindInt.String()
+	case float64:
+		return FieldKindFloat.String()
+	case string:
+		return FieldKindString.String()
+	case bool:
+		return FieldKindBool.String()
+	case []byte:
+		return FieldKindBytes.String()
+	case time.Time:
+		return FieldKindTimestamp.String()
+	default:
+		return fmt.Sprintf("%T", value)
+	}
 }
 
 // RequireAllowlist returns [ErrAllowlistRequired] when the config was

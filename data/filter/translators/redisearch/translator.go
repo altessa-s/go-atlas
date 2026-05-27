@@ -185,10 +185,8 @@ func (t *Translator) translateComparison(op filter.Operator, left, right filter.
 		return "", err
 	}
 
-	if ident, ok := left.(*filter.IdentNode); ok {
-		if err = t.config.CheckLiteralKind(ident.Name, right); err != nil {
-			return "", err
-		}
+	if err = t.config.CheckComparison(left, right); err != nil {
+		return "", err
 	}
 
 	value, err := right.Accept(t)
