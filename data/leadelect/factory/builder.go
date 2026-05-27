@@ -64,8 +64,10 @@ func (b *LeaderBuilder) Build(ctx context.Context) (*leadelect.Leader, error) {
 		return nil, err
 	}
 
-	leCfg := b.buildConfig()
-	return leadelect.New(provider, leCfg, leadelect.WithCollector(b.collector)), nil
+	return leadelect.New(provider, b.key, b.nodeId,
+		leadelect.WithTtl(b.cfg.Ttl),
+		leadelect.WithCollector(b.collector),
+	), nil
 }
 
 // createNatsProvider creates a NATS leader election provider.
@@ -85,13 +87,4 @@ func (b *LeaderBuilder) createNatsProvider(ctx context.Context) (*natsprovider.P
 	}
 
 	return provider, nil
-}
-
-// buildConfig creates leadelect.Config from builder state and config.
-func (b *LeaderBuilder) buildConfig() leadelect.Config {
-	return leadelect.Config{
-		Key:    b.key,
-		TTL:    b.cfg.Ttl,
-		NodeId: b.nodeId,
-	}
 }

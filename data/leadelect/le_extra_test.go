@@ -60,7 +60,7 @@ func TestOnBecomesLeaderPrintCallback(t *testing.T) {
 
 func TestOnLeaderLostPrintCallback(t *testing.T) {
 	prov := &mockProvider{nodeID: "node-1", leaderID: "other"}
-	le := leadelect.New(prov, leadelect.Config{})
+	le := leadelect.New(prov, "", "")
 	// Should not panic
 	leadelect.OnLeaderLostPrintCallback(t.Context(), le)
 }
@@ -74,11 +74,10 @@ func TestLeader_RegisterOnBecomesLeader_Called(t *testing.T) {
 		isLeader: true,
 	}
 
-	le := leadelect.New(prov, leadelect.Config{
-		Key:    "test",
-		TTL:    time.Second,
-		NodeId: "node-1",
-	}, leadelect.WithHandlerTimeout(2*time.Second))
+	le := leadelect.New(prov, "test", "node-1",
+		leadelect.WithTtl(time.Second),
+		leadelect.WithHandlerTimeout(2*time.Second),
+	)
 
 	le.RegisterOnBecomesLeader(func(_ context.Context, _ leadelect.LeaderElector) {
 		mu.Lock()
@@ -100,7 +99,7 @@ func TestLeader_RegisterOnBecomesLeader_Called(t *testing.T) {
 
 func TestLeader_RegisterOnLeaderLost_NilSafe(t *testing.T) {
 	prov := &mockProvider{}
-	le := leadelect.New(prov, leadelect.Config{})
+	le := leadelect.New(prov, "", "")
 	// Registering nil should not panic
 	le.RegisterOnLeaderLost(nil)
 	le.RegisterOnBecomesLeader(nil)
@@ -108,13 +107,13 @@ func TestLeader_RegisterOnLeaderLost_NilSafe(t *testing.T) {
 
 func TestNew_WithDefaultHandlerTimeout(t *testing.T) {
 	prov := &mockProvider{nodeID: "n1"}
-	le := leadelect.New(prov, leadelect.Config{})
+	le := leadelect.New(prov, "", "")
 	require.NotNil(t, le)
 }
 
 func TestWithHandlerTimeout_Zero(t *testing.T) {
 	prov := &mockProvider{nodeID: "n1"}
 	// Zero timeout should be ignored, keeping default
-	le := leadelect.New(prov, leadelect.Config{}, leadelect.WithHandlerTimeout(0))
+	le := leadelect.New(prov, "", "", leadelect.WithHandlerTimeout(0))
 	require.NotNil(t, le)
 }

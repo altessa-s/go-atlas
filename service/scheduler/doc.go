@@ -50,6 +50,6 @@
 // For distributed environments, use WithLeaderElector to ensure tasks run on
 // only one node:
 //
-//	le, _ := leadelect.NewWithNats(conn, cfg)
+//	le, _ := leadelect.NewWithNats(ctx, conn, "my-service", "node-1")
 //	s := scheduler.New(storage, scheduler.WithLeaderElector(le))
 package scheduler

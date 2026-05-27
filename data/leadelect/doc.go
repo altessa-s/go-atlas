@@ -15,14 +15,13 @@
 //
 // # Usage
 //
-//	provider, _ := nats.NewProvider(conn, nats.WithBucket("leaders"))
-//	le := leadelect.New(provider,
-//	    leadelect.WithOnBecomeLeader(func() {
-//	        log.Println("Acquired leadership, starting background tasks...")
-//	    }),
-//	    leadelect.WithOnEvicted(func() {
-//	        log.Println("Lost leadership, stopping background tasks...")
-//	    }),
-//	)
+//	provider, _ := nats.New(ctx, conn, nats.WithBucket("leaders"))
+//	le := leadelect.New(provider, "my-service", "node-1", leadelect.WithTtl(30*time.Second))
+//	le.RegisterOnBecomesLeader(func(ctx context.Context, _ leadelect.LeaderElector) {
+//	    log.Println("Acquired leadership, starting background tasks...")
+//	})
+//	le.RegisterOnLeaderLost(func(ctx context.Context, _ leadelect.LeaderElector) {
+//	    log.Println("Lost leadership, stopping background tasks...")
+//	})
 //	le.Start(ctx)
 package leadelect

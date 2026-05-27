@@ -33,10 +33,21 @@ func WithHandlerTimeout(v time.Duration) Option {
 	}
 }
 
+// WithTtl sets the ttl option.
+func WithTtl(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.ttl = v
+	}
+}
+
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
 		handlerTimeout: DefaultHandlerTimeout,
+		ttl:            DefaultTTL,
 	}
 }
 
