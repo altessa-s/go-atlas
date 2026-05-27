@@ -300,6 +300,9 @@ func (e *Evaluator) evalLogicalOr(left, right Node) (any, error) {
 
 // evalComparison evaluates comparison operators.
 func (e *Evaluator) evalComparison(op Operator, left, right Node) (any, error) {
+	if err := e.config.CheckComparison(left, right); err != nil {
+		return nil, err
+	}
 	lv, err := left.Accept(e)
 	if err != nil {
 		return nil, err
@@ -311,8 +314,16 @@ func (e *Evaluator) evalComparison(op Operator, left, right Node) (any, error) {
 	return compare(op, lv, rv)
 }
 
-// evalIn checks if the left value is in the right list.
+// evalIn checks if the left value is in the right list. The schema
+// check uses CheckLiteralKind directly because `in` has a fixed shape
+// (ident on the left, list on the right) — the symmetric
+// CheckComparison would also work but the asymmetry is intentional.
 func (e *Evaluator) evalIn(left, right Node) (any, error) {
+	if ident, ok := left.(*IdentNode); ok {
+		if err := e.config.CheckLiteralKind(ident.Name, right); err != nil {
+			return nil, err
+		}
+	}
 	lv, err := left.Accept(e)
 	if err != nil {
 		return nil, err
