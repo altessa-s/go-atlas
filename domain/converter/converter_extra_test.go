@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/domain/converter"
+	convcodec "github.com/altessa-s/go-atlas/domain/converter/codec"
 )
 
 type SrcUser struct {
@@ -204,6 +205,65 @@ func TestTypeCache_InvalidateAndClear(t *testing.T) {
 func TestWithCodecs_Empty(t *testing.T) {
 	conv := converter.New[*SrcUser, *DstUser](converter.WithCodecs())
 	require.NotNil(t, conv)
+}
+
+// TestWithCodecs_InterceptsStructKind is a regression test: a registered codec
+// must be consulted before the built-in struct-to-struct field copy. Otherwise a
+// codec-handled type whose Go kind is struct is shadowed by field-by-field copy,
+// which (for differing field names or unexported-only fields like time.Time)
+// silently yields a zero value.
+func TestWithCodecs_InterceptsStructKind(t *testing.T) {
+	type legacyName struct{ Full string }
+	type displayName struct{ Value string }
+	type src struct {
+		ID   string
+		Name legacyName
+	}
+	type dst struct {
+		ID   string
+		Name displayName
+	}
+
+	legacyType := reflect.TypeOf(legacyName{})
+	displayType := reflect.TypeOf(displayName{})
+
+	// Maps legacyName -> displayName. Field names differ, so the default struct
+	// copy would leave Value empty; only the codec can populate it.
+	codec := func(field string, s, d reflect.Value, next convcodec.CodecHandler) {
+		si := reflect.Indirect(s)
+		di := reflect.Indirect(d)
+		if si.IsValid() && di.IsValid() && si.Type() == legacyType && di.Type() == displayType {
+			di.FieldByName("Value").SetString(si.FieldByName("Full").String())
+			return
+		}
+		next(field, s, d)
+	}
+
+	var out dst
+	converter.Convert(src{ID: "u1", Name: legacyName{Full: "Ada"}}, &out, converter.WithCodecs(codec))
+
+	require.Equal(t, "u1", out.ID, "plain assignable field must still convert with a codec registered")
+	require.Equal(t, "Ada", out.Name.Value, "codec must intercept the struct-kind field")
+}
+
+// TestWithCodecs_ConvertibleFallbackStillRuns guards the refactor that made the
+// built-in dispatch the codec chain's terminal handler: a codec that always
+// delegates must still let the convertible-scalar fallback run (here a defined
+// type to its underlying type).
+func TestWithCodecs_ConvertibleFallbackStillRuns(t *testing.T) {
+	type celsius float64
+	type src struct{ Temp celsius }
+	type dst struct{ Temp float64 }
+
+	// Never handles anything; always delegates to the rest of the chain.
+	passthrough := func(field string, s, d reflect.Value, next convcodec.CodecHandler) {
+		next(field, s, d)
+	}
+
+	var out dst
+	converter.Convert(src{Temp: celsius(36.6)}, &out, converter.WithCodecs(passthrough))
+
+	require.InEpsilon(t, 36.6, out.Temp, 1e-9, "convertible scalar fallback must run after a delegating codec")
 }
 
 func TestConvert_EmbeddedStructs(t *testing.T) {

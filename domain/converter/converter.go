@@ -578,6 +578,23 @@ func (conv *Converter[T, U]) convertValue(fieldName string, srcValue reflect.Val
 		}
 	}
 
+	// When codecs are registered, run them before the built-in struct/slice/map
+	// dispatch, passing that dispatch as the codec chain's terminal handler.
+	// Without this, a codec-handled type whose Go kind is struct/slice/map would be
+	// shadowed by the built-in field-by-field copy below and never reach its codec.
+	if conv.opts.codecsSet.HasCodecs() {
+		conv.opts.codecsSet.Run(fieldName, srcValue, dstValue, conv.convertByKind)
+		return
+	}
+
+	conv.convertByKind(fieldName, srcValue, dstValue)
+}
+
+// convertByKind performs the built-in conversion dispatched on the source and
+// destination reflect kinds (struct, slice, map), falling back to a convertible
+// scalar conversion. It is used directly on the codec-free path and as the
+// terminal handler of the codec chain, so it must not invoke codecs itself.
+func (conv *Converter[T, U]) convertByKind(fieldName string, srcValue reflect.Value, dstValue reflect.Value) {
 	// Pre-compute type information once
 	srcType := srcValue.Type()
 	dstType := dstValue.Type()
@@ -617,8 +634,8 @@ func (conv *Converter[T, U]) convertValue(fieldName string, srcValue reflect.Val
 		return
 	}
 
-	// Fallback to codec handling (least common cases ~5%)
-	conv.handleCodecConversion(fieldName, srcValue, dstValue)
+	// Fallback to convertible scalar conversion (least common cases ~5%)
+	conv.convertConvertible(fieldName, srcValue, dstValue)
 }
 
 // convertStructToSlice converts a struct to a slice containing that struct.
@@ -635,31 +652,35 @@ func (conv *Converter[T, U]) convertStructToSlice(fieldName string, srcValue ref
 	}
 }
 
-// handleCodecConversion handles conversion using codecs or fallback conversion.
-func (conv *Converter[T, U]) handleCodecConversion(fieldName string, srcValue reflect.Value, dstValue reflect.Value) {
-	conv.opts.codecsSet.Run(fieldName, srcValue, dstValue, func(fieldName string, src, dst reflect.Value) {
-		if dst.Kind() == reflect.Pointer && dst.IsNil() {
-			dst.Set(reflect.New(dst.Type().Elem()))
-			dst = dst.Elem()
+// convertConvertible performs a direct convertible-type conversion (e.g. between
+// defined types that share an underlying type) when no codec or structural
+// conversion applies. It honors the overflow-check option for narrowing numeric
+// conversions. This is the terminal step of the built-in dispatch and never
+// invokes codecs.
+func (conv *Converter[T, U]) convertConvertible(fieldName string, srcValue reflect.Value, dstValue reflect.Value) {
+	dst := dstValue
+	if dst.Kind() == reflect.Pointer && dst.IsNil() {
+		dst.Set(reflect.New(dst.Type().Elem()))
+		dst = dst.Elem()
+	}
+
+	dst = reflect.Indirect(dst)
+
+	dstType := IndirectType(dst.Type())
+
+	if !conv.isTypeCachedConvertible(IndirectType(srcValue.Type()), dstType) {
+		return
+	}
+
+	srcIndirect := reflect.Indirect(srcValue)
+	srcKind := srcIndirect.Kind()
+	dstKind := dst.Kind()
+	if conv.opts.overflowCheck && IsPrimitive(srcKind) && IsPrimitive(dstKind) {
+		if wouldOverflow(srcIndirect, dst) {
+			panic(OverflowError{Field: fieldName, From: srcKind, To: dstKind, Value: srcIndirect.Interface()})
 		}
-
-		dst = reflect.Indirect(dst)
-
-		srcType := IndirectType(src.Type())
-		dstType := IndirectType(dst.Type())
-
-		if conv.isTypeCachedConvertible(srcType, IndirectType(dstType)) {
-			srcIndirect := reflect.Indirect(srcValue)
-			srcKind := srcIndirect.Kind()
-			dstKind := dst.Kind()
-			if conv.opts.overflowCheck && IsPrimitive(srcKind) && IsPrimitive(dstKind) {
-				if wouldOverflow(srcIndirect, dst) {
-					panic(OverflowError{Field: fieldName, From: srcKind, To: dstKind, Value: srcIndirect.Interface()})
-				}
-			}
-			dst.Set(srcIndirect.Convert(dstType))
-		}
-	})
+	}
+	dst.Set(srcIndirect.Convert(dstType))
 }
 
 // isTypeCachedAssignable checks if src type is assignable to dst type using cache

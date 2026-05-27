@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/altessa-s/go-atlas/domain/converter"
 )
 
 func TestNew_TimestampToTime(t *testing.T) {
@@ -274,4 +276,56 @@ func TestNew_NilPointer_Int64(t *testing.T) {
 	})
 
 	assert.Nil(t, dst, "dst should remain nil when src is nil pointer")
+}
+
+type tspbEntity struct {
+	ID        string
+	CreatedAt time.Time
+	Stamps    []time.Time
+	Meta      map[string]time.Time
+}
+
+type tspbProto struct {
+	ID        string
+	CreatedAt *timestamppb.Timestamp
+	Stamps    []*timestamppb.Timestamp
+	Meta      map[string]*timestamppb.Timestamp
+}
+
+// TestNew_ThroughConverter exercises the codec end-to-end through the converter
+// (not by calling it directly), covering both directions and slice elements. This
+// guards against the converter dispatching struct-kind fields field-by-field
+// before consulting codecs, which silently zeroed time.Time <-> Timestamp.
+func TestNew_ThroughConverter(t *testing.T) {
+	now := time.Date(2026, 5, 27, 10, 0, 0, 0, time.UTC)
+	other := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+
+	t.Run("time.Time to Timestamp", func(t *testing.T) {
+		src := tspbEntity{
+			ID:        "e1",
+			CreatedAt: now,
+			Stamps:    []time.Time{now, other},
+			Meta:      map[string]time.Time{"k": other},
+		}
+		var dst tspbProto
+		converter.Convert(src, &dst, converter.WithCodecs(New()))
+
+		assert.Equal(t, "e1", dst.ID)
+		require.NotNil(t, dst.CreatedAt)
+		assert.True(t, now.Equal(dst.CreatedAt.AsTime()))
+		require.Len(t, dst.Stamps, 2)
+		assert.True(t, now.Equal(dst.Stamps[0].AsTime()))
+		assert.True(t, other.Equal(dst.Stamps[1].AsTime()))
+		require.Contains(t, dst.Meta, "k")
+		assert.True(t, other.Equal(dst.Meta["k"].AsTime()))
+	})
+
+	t.Run("Timestamp to time.Time", func(t *testing.T) {
+		src := tspbProto{ID: "e2", CreatedAt: timestamppb.New(now)}
+		var dst tspbEntity
+		converter.Convert(src, &dst, converter.WithCodecs(New()))
+
+		assert.Equal(t, "e2", dst.ID)
+		assert.True(t, now.Equal(dst.CreatedAt))
+	})
 }
