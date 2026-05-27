@@ -80,6 +80,7 @@ data/locks                  # Distributed locking
 data/locks/dlock            # Distributed lock implementation
 data/locks/dlock/factory    # Lock factory
 data/locks/dlock/providers  # Lock providers
+data/meilisearch            # Meilisearch client wrapper
 data/mongo                  # MongoDB repository layer
 data/mongo/factory          # MongoDB factory
 data/mongo/kms              # MongoDB CSFLE/KMS
@@ -104,6 +105,8 @@ domain/validation           # Domain validation
 
 # Infrastructure
 infrastructure              # General infrastructure
+infrastructure/meilisearch  # Meilisearch client setup
+infrastructure/meilisearch/factory # Meilisearch client factory
 infrastructure/mongo        # MongoDB client setup
 infrastructure/mongo/factory # MongoDB client factory
 infrastructure/nats         # NATS connection management
