@@ -8,11 +8,7 @@
 // Example:
 //
 //	conn, _ := nats.Connect("nats://localhost:4222")
-//	provider, _ := nats.New(conn, nats.WithLogger(logger))
-//	config := leadelect.Config{
-//	    Key:    "my-service-leader",
-//	    NodeId: "instance-1",
-//	    TTL:    30 * time.Second,
-//	}
-//	provider.Start(ctx, config)
+//	provider, _ := nats.New(ctx, conn, nats.WithLogger(logger))
+//	le := leadelect.New(provider, "my-service-leader", "instance-1", leadelect.WithTtl(30*time.Second))
+//	le.Start(ctx)
 package nats

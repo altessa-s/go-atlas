@@ -15,7 +15,7 @@ import (
 
 func BenchmarkLeader_IsLeader(b *testing.B) {
 	prov := &mockProvider{isLeader: true}
-	le := leadelect.New(prov, leadelect.Config{})
+	le := leadelect.New(prov, "", "")
 
 	for b.Loop() {
 		le.IsLeader()
@@ -24,7 +24,7 @@ func BenchmarkLeader_IsLeader(b *testing.B) {
 
 func BenchmarkLeader_RegisterOnLeaderLost(b *testing.B) {
 	prov := &mockProvider{}
-	le := leadelect.New(prov, leadelect.Config{})
+	le := leadelect.New(prov, "", "")
 	cb := func(_ context.Context, _ leadelect.LeaderElector) {}
 
 	for b.Loop() {
@@ -34,12 +34,11 @@ func BenchmarkLeader_RegisterOnLeaderLost(b *testing.B) {
 
 func BenchmarkLeader_StartStop(b *testing.B) {
 	prov := &mockProvider{}
-	cfg := leadelect.Config{Key: "bench", TTL: time.Second, NodeId: "n1"}
 	ctx := b.Context()
 	_ = providers.Config{} // ensure import
 
 	for b.Loop() {
-		le := leadelect.New(prov, cfg)
+		le := leadelect.New(prov, "bench", "n1", leadelect.WithTtl(time.Second))
 		_ = le.Start(ctx)
 		_ = le.Stop(ctx)
 	}

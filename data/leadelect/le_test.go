@@ -47,29 +47,28 @@ func (m *mockProvider) IsRunning() bool                            { return m.is
 
 func TestNew(t *testing.T) {
 	prov := &mockProvider{nodeID: "node1"}
-	cfg := leadelect.Config{Key: "election", TTL: 10 * time.Second, NodeId: "node1"}
 
-	le := leadelect.New(prov, cfg)
+	le := leadelect.New(prov, "election", "node1", leadelect.WithTtl(10*time.Second))
 	require.NotNil(t, le)
 }
 
 func TestLeader_NodeId(t *testing.T) {
 	prov := &mockProvider{nodeID: "node-42"}
-	le := leadelect.New(prov, leadelect.Config{})
+	le := leadelect.New(prov, "", "")
 
 	require.Equal(t, "node-42", le.NodeId())
 }
 
 func TestLeader_IsLeader(t *testing.T) {
 	prov := &mockProvider{isLeader: true}
-	le := leadelect.New(prov, leadelect.Config{})
+	le := leadelect.New(prov, "", "")
 
 	require.True(t, le.IsLeader())
 }
 
 func TestLeader_LeaderId(t *testing.T) {
 	prov := &mockProvider{leaderID: "leader-1"}
-	le := leadelect.New(prov, leadelect.Config{})
+	le := leadelect.New(prov, "", "")
 	ctx := t.Context()
 
 	id, err := le.LeaderId(ctx)
@@ -79,14 +78,14 @@ func TestLeader_LeaderId(t *testing.T) {
 
 func TestLeader_IsRunning_BeforeStart(t *testing.T) {
 	prov := &mockProvider{}
-	le := leadelect.New(prov, leadelect.Config{})
+	le := leadelect.New(prov, "", "")
 
 	require.False(t, le.IsRunning(), "IsRunning() should be false before Start()")
 }
 
 func TestLeader_Start_SetsRunning(t *testing.T) {
 	prov := &mockProvider{}
-	le := leadelect.New(prov, leadelect.Config{Key: "test", TTL: time.Second, NodeId: "n1"})
+	le := leadelect.New(prov, "test", "n1", leadelect.WithTtl(time.Second))
 	ctx := t.Context()
 
 	err := le.Start(ctx)
@@ -98,7 +97,7 @@ func TestLeader_Start_SetsRunning(t *testing.T) {
 
 func TestLeader_Stop_ClearsRunning(t *testing.T) {
 	prov := &mockProvider{}
-	le := leadelect.New(prov, leadelect.Config{Key: "test", TTL: time.Second, NodeId: "n1"})
+	le := leadelect.New(prov, "test", "n1", leadelect.WithTtl(time.Second))
 	ctx := t.Context()
 
 	_ = le.Start(ctx)
@@ -109,7 +108,7 @@ func TestLeader_Stop_ClearsRunning(t *testing.T) {
 
 func TestLeader_Stop_Idempotent(t *testing.T) {
 	prov := &mockProvider{}
-	le := leadelect.New(prov, leadelect.Config{})
+	le := leadelect.New(prov, "", "")
 	ctx := t.Context()
 
 	_ = le.Start(ctx)
@@ -126,7 +125,7 @@ func TestLeader_Start_Idempotent(t *testing.T) {
 			return nil
 		},
 	}
-	le := leadelect.New(prov, leadelect.Config{Key: "test", TTL: time.Second, NodeId: "n1"})
+	le := leadelect.New(prov, "test", "n1", leadelect.WithTtl(time.Second))
 	ctx := t.Context()
 
 	_ = le.Start(ctx)
@@ -138,7 +137,7 @@ func TestLeader_Start_Idempotent(t *testing.T) {
 
 func TestLeader_RegisterCallbacks(t *testing.T) {
 	prov := &mockProvider{}
-	le := leadelect.New(prov, leadelect.Config{})
+	le := leadelect.New(prov, "", "")
 
 	// Should not panic
 	le.RegisterOnLeaderLost(func(_ context.Context, _ leadelect.LeaderElector) {})
@@ -147,18 +146,6 @@ func TestLeader_RegisterCallbacks(t *testing.T) {
 
 func TestLeader_WithHandlerTimeout(t *testing.T) {
 	prov := &mockProvider{}
-	le := leadelect.New(prov, leadelect.Config{}, leadelect.WithHandlerTimeout(5*time.Second))
+	le := leadelect.New(prov, "", "", leadelect.WithHandlerTimeout(5*time.Second))
 	require.NotNil(t, le)
-}
-
-func TestConfig_Fields(t *testing.T) {
-	cfg := leadelect.Config{
-		Key:    "election-key",
-		TTL:    30 * time.Second,
-		NodeId: "node-1",
-	}
-
-	require.Equal(t, "election-key", cfg.Key)
-	require.Equal(t, 30*time.Second, cfg.TTL)
-	require.Equal(t, "node-1", cfg.NodeId)
 }

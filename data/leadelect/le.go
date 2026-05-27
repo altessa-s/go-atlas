@@ -26,7 +26,9 @@ import (
 // It wraps a provider and notifies registered callbacks on leadership changes.
 type Leader struct {
 	provider providers.Provider
-	cfg      Config
+	key      string
+	nodeID   string
+	ttl      time.Duration
 	metrics  *leaderMetrics
 
 	lostMu       sync.RWMutex
@@ -40,18 +42,21 @@ type Leader struct {
 	isRunning      atomic.Bool
 }
 
-// New creates a new Leader with the given provider and configuration.
-// Default handler timeout is 3 seconds.
+// New creates a new Leader for the given election key and node identifier.
+// TTL defaults to [DefaultTTL] and can be overridden with [WithTTL].
+// Default handler timeout is [DefaultHandlerTimeout].
 //
 // Example:
 //
-//	le := leadelect.New(provider, cfg)
-func New(provider providers.Provider, cfg Config, opts ...Option) *Leader {
+//	le := leadelect.New(provider, "my-service", "node-1", leadelect.WithTTL(30*time.Second))
+func New(provider providers.Provider, key, nodeID string, opts ...Option) *Leader {
 	options := newOptions(opts...)
 
 	le := &Leader{
 		provider:       provider,
-		cfg:            cfg,
+		key:            key,
+		nodeID:         nodeID,
+		ttl:            options.ttl,
 		metrics:        newLeaderMetrics(options.collector),
 		handlerTimeout: options.handlerTimeout,
 	}
@@ -63,15 +68,15 @@ func New(provider providers.Provider, cfg Config, opts ...Option) *Leader {
 //
 // Example:
 //
-//	le, err := leadelect.NewWithNats(ctx, conn, cfg)
-func NewWithNats(ctx context.Context, conn *natsio.Conn, cfg Config, opts ...Option) (*Leader, error) {
+//	le, err := leadelect.NewWithNats(ctx, conn, "my-service", "node-1")
+func NewWithNats(ctx context.Context, conn *natsio.Conn, key, nodeID string, opts ...Option) (*Leader, error) {
 	prov, err := nats.New(ctx, conn)
 
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "create nats leader elector")
 	}
 
-	return New(prov, cfg, opts...), nil
+	return New(prov, key, nodeID, opts...), nil
 }
 
 // Stop gracefully stops the leader election and waits for running callbacks.
@@ -131,9 +136,9 @@ func (le *Leader) Start(ctx context.Context) error {
 	stopCh := make(chan struct{})
 
 	provCfg := providers.Config{
-		Key:      le.cfg.Key,
-		TTL:      le.cfg.TTL,
-		NodeId:   le.cfg.NodeId,
+		Key:      le.key,
+		TTL:      le.ttl,
+		NodeId:   le.nodeID,
 		LostCh:   lostCh,
 		BecameCh: becomeCh,
 		StopCh:   stopCh,
