@@ -5,9 +5,12 @@
 package converter_test
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/altessa-s/go-atlas/domain/converter"
+
+	convcodec "github.com/altessa-s/go-atlas/domain/converter/codec"
 )
 
 type BenchSmall struct {
@@ -72,5 +75,35 @@ func BenchmarkConvert_OneOff(b *testing.B) {
 	b.ResetTimer()
 	for b.Loop() {
 		converter.Convert(src, &dst)
+	}
+}
+
+// BenchmarkConvert_Large_WithPassthroughCodec is the baseline for the
+// codec-registered path. PR #46 reroutes the entire dispatch through
+// the codec chain when any codec is registered (so a codec-handled
+// struct type doesn't get shadowed by the built-in field-by-field
+// copy). The passthrough codec used here never handles anything — it
+// always delegates to the terminal handler — so this bench measures
+// the per-field overhead of the chain-routing path against the
+// codec-free baseline ([BenchmarkConvert_Large]). The two should be
+// roughly comparable; a large regression points at the codec
+// indirection (or the convertByKindHandler caching going stale).
+func BenchmarkConvert_Large_WithPassthroughCodec(b *testing.B) {
+	src := BenchLarge{
+		A: "a", B: "b", C: "c", D: "d", E: "e", F: "f", G: "g", H: "h",
+		I: 1, J: 2, K: 3, L: 4, M: 5, N: 6, O: 7, P: 8,
+		Nested: BenchSmall{A: 1, B: 2, C: 3},
+	}
+	var dst BenchLarge
+
+	passthrough := func(field string, s, d reflect.Value, next convcodec.CodecHandler) {
+		next(field, s, d)
+	}
+
+	conv := converter.New[BenchLarge, *BenchLarge](converter.WithCodecs(passthrough))
+
+	b.ResetTimer()
+	for b.Loop() {
+		conv.Convert(src, &dst)
 	}
 }
