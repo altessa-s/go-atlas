@@ -91,7 +91,7 @@ func TestKindAccepts(t *testing.T) {
 // powers the FieldKindMismatch error message. Operators see DSL terms
 // (int / string / timestamp), not Go typenames (int64 / time.Time).
 // A regression here makes error messages mention internals the
-// operator doesn't recognise.
+// operator doesn't recognize.
 func TestValueKindName(t *testing.T) {
 	t.Parallel()
 

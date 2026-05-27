@@ -50,5 +50,5 @@ func TestLoad_HttpInterBodyLimitConfig_DefaultTagRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 
 	require.True(t, cfg.BodyLimit.RequireContentLength,
-		"loader must materialise RequireContentLength=true from the `default:` tag — a typo here would silently invert the production default")
+		"loader must materialize RequireContentLength=true from the `default:` tag — a typo here would silently invert the production default")
 }
