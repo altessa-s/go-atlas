@@ -254,7 +254,7 @@ client, err := mail.NewClient(cfg.SMTP.Host, mailOpts...)
 ```
 
 A nil result means proxying is opted out of — caller should leave the
-library on its default direct dialer. Concrete behaviour by `Mode`:
+library on its default direct dialer. Concrete behavior by `Mode`:
 
 | Mode             | Build() result                                                              |
 |------------------|-----------------------------------------------------------------------------|

@@ -250,7 +250,7 @@ func TestPerHostCheckerReportsBreakerState(t *testing.T) {
 	defer coord.Close()
 
 	settings := &CircuitBreakerSettings{
-		// Trip on a single failure for deterministic test behaviour.
+		// Trip on a single failure for deterministic test behavior.
 		ReadyToTrip: func(_ gobreaker.Counts) bool { return true },
 	}
 	h := newTestHealth(t, coord,
@@ -261,7 +261,7 @@ func TestPerHostCheckerReportsBreakerState(t *testing.T) {
 	checker := &perHostChecker{parent: h, host: "api.example.com"}
 	require.Equal(t, health.StatusServing, checker.CheckHealth(t.Context()))
 
-	// Force the per-host breaker to materialise and trip it.
+	// Force the per-host breaker to materialize and trip it.
 	hostCB := h.cb.getBreakerForHost("api.example.com")
 	_, err := hostCB.Execute(func() (*http.Response, error) {
 		return nil, errors.New("forced")

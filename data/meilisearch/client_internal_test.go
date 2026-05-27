@@ -116,7 +116,7 @@ func TestErrIndexNotFound_ErrorsIsViaPredicate(t *testing.T) {
 
 	sdkErr := newSDKErrorWithCode(errCodeIndexNotFound)
 	classified := classifySDKError(sdkErr)
-	require.NotNil(t, classified, "classifySDKError must recognise index_not_found")
+	require.NotNil(t, classified, "classifySDKError must recognize index_not_found")
 	require.ErrorIs(t, classified, ErrIndexNotFound, "errors.Is must match the sentinel")
 	require.ErrorIs(t, classified, sdkErr, "classified error must still wrap the original SDK error")
 }
@@ -132,7 +132,7 @@ func TestErrIndexAlreadyExists_ErrorsIsViaPredicate(t *testing.T) {
 }
 
 // TestClassifySDKError_UnknownCodeReturnsNil pins the negative path:
-// an SDK error with an unrecognised code is not classified, so the
+// an SDK error with an unrecognized code is not classified, so the
 // caller falls through to the generic Wrapf path.
 func TestClassifySDKError_UnknownCodeReturnsNil(t *testing.T) {
 	t.Parallel()
