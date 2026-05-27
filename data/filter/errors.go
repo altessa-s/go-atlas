@@ -40,6 +40,10 @@ var (
 	// ErrUnsupportedType indicates an unsupported literal or value type.
 	ErrUnsupportedType = errors.New("unsupported type")
 
+	// ErrFieldTypeMismatch indicates a literal in the filter is not assignable
+	// to the kind declared for the field via [WithFieldTypes].
+	ErrFieldTypeMismatch = errors.New("filter value type does not match field type")
+
 	// ErrEmptyExpression indicates an empty or whitespace-only expression was provided.
 	ErrEmptyExpression = errors.New("expression cannot be empty")
 
