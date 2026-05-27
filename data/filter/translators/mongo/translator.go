@@ -165,7 +165,7 @@ func (t *Translator) translateComparison(op filter.Operator, left, right filter.
 	}
 
 	if ident, ok := left.(*filter.IdentNode); ok {
-		if err := t.config.CheckLiteralKind(ident.Name, right); err != nil {
+		if err = t.config.CheckLiteralKind(ident.Name, right); err != nil {
 			return nil, err
 		}
 	}
@@ -301,7 +301,7 @@ func (t *Translator) translateIn(left, right filter.Node) (bson.M, error) {
 	}
 
 	if ident, ok := left.(*filter.IdentNode); ok {
-		if err := t.config.CheckLiteralKind(ident.Name, right); err != nil {
+		if err = t.config.CheckLiteralKind(ident.Name, right); err != nil {
 			return nil, err
 		}
 	}

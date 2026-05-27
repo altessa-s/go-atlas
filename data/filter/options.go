@@ -302,6 +302,8 @@ func checkSingleLiteral(field string, kind FieldKind, value any) error {
 // double field.
 func kindAccepts(kind FieldKind, value any) bool {
 	switch kind {
+	case FieldKindUnspecified:
+		return true
 	case FieldKindInt:
 		switch value.(type) {
 		case int64, uint64:
