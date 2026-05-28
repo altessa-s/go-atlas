@@ -68,6 +68,7 @@ err = client.SetupIndexes(ctx, []meilisearch.IndexDefinition{
 | `Client.DeleteDocument(ctx, index, id)`                           | Delete single document                                      |
 | `Client.DeleteDocuments(ctx, index, ids)`                         | Delete by ID list                                          |
 | `Client.DeleteDocumentsByFilter(ctx, index, filter)`              | Delete by Meilisearch filter expression (see SECURITY)     |
+| `Client.FetchDocuments(ctx, index, filter, offset, limit)`        | Paginated fetch by filter; returns `*FetchResult` with raw hits and total (see SECURITY) |
 | `Client.GetAllDocumentIDs(ctx, index)`                            | Paginated ID list (default `"id"` primary key)             |
 | `Client.GetAllDocumentIDsWithPrimaryKey(ctx, index, key)`         | Same, but with an explicit primary-key field name          |
 | `Client.Search(ctx, req)`                                         | Full-text search; returns `[]json.RawMessage` hits         |
@@ -92,8 +93,8 @@ the caller's role at the API-key level.
 
 ### PII in logs
 
-`Client.Search` does NOT log the query string — search queries can carry email addresses, names, or other PII. Use Meilisearch's server-side
-request logging if you need the queries for debugging.
+`Client.Search` and `Client.FetchDocuments` do NOT log the query / filter — they can carry email addresses, names, or other PII. Use
+Meilisearch's server-side request logging if you need them for debugging.
 
 `Client.DeleteDocumentsByFilter` does log the filter at Debug level (operator-visible). Treat the Debug log as containing whatever values the
 filter encodes.

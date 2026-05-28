@@ -49,6 +49,20 @@ type SearchResult struct {
 	EstimatedTotalHits int64
 }
 
+// FetchResult holds the response of a [Client.FetchDocuments] call.
+type FetchResult struct {
+	// Hits contains raw JSON documents so callers can deserialize into any
+	// target type without coupling this package to domain models.
+	Hits []json.RawMessage
+
+	// Total is the total number of documents matching the filter (across
+	// all pages), as reported by Meilisearch. Use it to decide whether
+	// another page is worth fetching instead of relying on a short-page
+	// signal — the latter is ambiguous when Total is an exact multiple of
+	// Limit.
+	Total int64
+}
+
 // MeilisearchClient is the surface domain code depends on. [Client] implements it.
 type MeilisearchClient interface {
 	// IndexDocuments adds or updates documents in indexName. Returns task UID.
@@ -64,6 +78,11 @@ type MeilisearchClient interface {
 	// filter expression. Returns task UID. See [Client.DeleteDocumentsByFilter]
 	// for the filter-injection caveat.
 	DeleteDocumentsByFilter(ctx context.Context, indexName, filter string) (int64, error)
+
+	// FetchDocuments returns a page of raw documents matching the optional
+	// Meilisearch filter. See [Client.FetchDocuments] for the
+	// filter-injection caveat.
+	FetchDocuments(ctx context.Context, indexName, filter string, offset, limit int64) (*FetchResult, error)
 
 	// GetAllDocumentIDs paginates through the index and returns every primary key
 	// (assumes the default "id" field; use [Client.GetAllDocumentIDsWithPrimaryKey]
