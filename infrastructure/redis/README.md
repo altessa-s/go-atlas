@@ -14,7 +14,8 @@ client, err := factory.New(cfg.Redis).
 
 ## Features
 
-- **Dual config paths** — connection-URI based (`ConnectionURI`, parsed via `redis.ParseURL`) or field-based (hosts, credentials, pool settings), converging in `ClientBuilder.UniversalOptions`
+- **Dual config paths** — connection-URI based (`ConnectionURI`, parsed via `redis.ParseURL`) or field-based (hosts, credentials, pool settings),
+  converging in `ClientBuilder.UniversalOptions`
 - **Auto mode detection** — sentinel when `MasterName` is set, cluster when multiple hosts are provided, standalone otherwise
 - **Authentication** — username/password with optional sentinel password
 - **Connection pooling** — configurable pool size, idle connections, timeouts, and max connection age

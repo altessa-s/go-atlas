@@ -48,7 +48,9 @@ Lazy `iter.Seq` / `iter.Seq2` iterators for zero-allocation pipelines. Use `slic
 
 ## ImmutableMap
 
-`ImmutableMap[K, V]` is a read-only hash map that cannot be modified after construction. Build once from a `map[K]V` or parallel key/value slices, then read concurrently without locks or defensive copies. Uses a Swiss-table layout with flat arrays for lower memory overhead (~1.5–2× savings at scale) and reduced GC pressure compared to a standard Go map.
+`ImmutableMap[K, V]` is a read-only hash map that cannot be modified after construction. Build once from a `map[K]V` or parallel key/value slices,
+then read concurrently without locks or defensive copies. Uses a Swiss-table layout with flat arrays for lower memory overhead (~1.5–2× savings at
+scale) and reduced GC pressure compared to a standard Go map.
 
 ```go
 src := map[string]int{"a": 1, "b": 2, "c": 3}

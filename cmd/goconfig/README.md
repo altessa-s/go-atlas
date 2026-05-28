@@ -8,7 +8,8 @@ Configuration file converter for go-tools config parser.
 
 ## Overview
 
-`goconfig` converts between different configuration formats, understanding the go-tools config parser structure with proper field name transformations and nesting.
+`goconfig` converts between different configuration formats, understanding the go-tools config parser structure with proper field name
+transformations and nesting.
 
 ## Installation
 

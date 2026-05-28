@@ -4,7 +4,9 @@
 import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/metrics"
 ```
 
-Package `metrics` provides metrics collection for gRPC servers via the `observability/metrics.Collector` abstraction. Default metrics: requests_total, request_duration_seconds, requests_in_flight, requests_in_flight_by_method. Optional: request_size_bytes, response_size_bytes, stream messages.
+Package `metrics` provides metrics collection for gRPC servers via the `observability/metrics.Collector` abstraction. Default metrics:
+requests_total, request_duration_seconds, requests_in_flight, requests_in_flight_by_method. Optional: request_size_bytes, response_size_bytes,
+stream messages.
 
 ## Default metrics
 
@@ -15,7 +17,8 @@ Package `metrics` provides metrics collection for gRPC servers via the `observab
 | `server_requests_in_flight`           | Gauge     | --             | Current concurrent requests    |
 | `server_requests_in_flight_by_method` | Gauge     | method         | Concurrent requests per method |
 
-Metric names are prefixed with the collector's service name and the configured subsystem (default `grpc`), so the full metric becomes `<service>_grpc_server_requests_total`.
+Metric names are prefixed with the collector's service name and the configured subsystem (default `grpc`), so the full metric becomes
+`<service>_grpc_server_requests_total`.
 
 ## Optional metrics (enabled via options)
 

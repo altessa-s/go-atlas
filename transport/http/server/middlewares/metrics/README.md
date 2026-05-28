@@ -4,11 +4,14 @@
 import "github.com/altessa-s/go-atlas/transport/http/server/middlewares/metrics"
 ```
 
-Package `metrics` provides middleware that records HTTP server metrics via the `observability/metrics.Collector` abstraction. Each call to `New` constructs a fresh middleware wired to the supplied collector; the underlying adapter deduplicates metric registrations by name, so reusing the same collector across multiple calls with the same subsystem shares the same metric vectors.
+Package `metrics` provides middleware that records HTTP server metrics via the `observability/metrics.Collector` abstraction. Each call to `New`
+constructs a fresh middleware wired to the supplied collector; the underlying adapter deduplicates metric registrations by name, so reusing the
+same collector across multiple calls with the same subsystem shares the same metric vectors.
 
 ## Metrics
 
-Metric names are prefixed with the collector's service name and the configured subsystem (default `http`), so the full name becomes `<service>_http_server_requests_total`.
+Metric names are prefixed with the collector's service name and the configured subsystem (default `http`), so the full name becomes
+`<service>_http_server_requests_total`.
 
 | Metric                            | Type      | Description                                              |
 |-----------------------------------|-----------|----------------------------------------------------------|

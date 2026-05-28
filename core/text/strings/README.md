@@ -86,7 +86,8 @@ Lock-free, LRU-evicting string deduplication. Two-tier cache: hot (atomic slots)
 
 ### Performance monitoring
 
-`Stats()` returns an `InternerStats` snapshot with atomic counters for hot hits, cold hits, misses, and evictions. Convenience methods compute hit rates:
+`Stats()` returns an `InternerStats` snapshot with atomic counters for hot hits, cold hits, misses, and evictions. Convenience methods compute hit
+rates:
 
 ```go
 stats := interner.Stats()
