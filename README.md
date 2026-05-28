@@ -50,15 +50,16 @@ import "github.com/altessa-s/go-atlas/data/cache"
 | [`data/leadelect`](data/leadelect/) | Leader election (NATS KV-based) |
 | [`data/limiters`](data/limiters/) | Token-bucket rate limiting (Redis, NATS, memory) |
 | [`data/locks`](data/locks/) | Distributed locking (NATS) |
+| [`data/meilisearch`](data/meilisearch/) | Meilisearch SDK wrapper with context propagation and sentinel-error classification |
 | [`data/mongo`](data/mongo/) | MongoDB repository patterns, cursor pagination, CSFLE, migrations |
 | [`data/outbox`](data/outbox/) | Transactional outbox (MongoDB-backed) |
 | [`data/probfilter`](data/probfilter/) | Bloom and Cuckoo probabilistic filters |
-| [`data/uniq`](data/uniq/) | Uniqueness constraint providers (NATS, Redis, no-op) |
 | [`domain/converter`](domain/converter/) | Generic struct-to-struct conversion with codecs and lazy iterators |
 | [`domain/fieldtracker`](domain/fieldtracker/) | Struct field change tracking |
 | [`domain/normalizer`](domain/normalizer/) | Tag-driven data normalization with pluggable modifiers |
 | [`domain/proto`](domain/proto/) | Protobuf field mask utilities |
 | [`domain/validation`](domain/validation/) | ISO 7064 MOD 11-10 check-digit computation and validation |
+| [`infrastructure/meilisearch`](infrastructure/meilisearch/) | Meilisearch client setup and lifecycle |
 | [`infrastructure/mongo`](infrastructure/mongo/) | MongoDB client setup and lifecycle |
 | [`infrastructure/nats`](infrastructure/nats/) | NATS connection management |
 | [`infrastructure/redis`](infrastructure/redis/) | Redis client setup |
@@ -67,17 +68,26 @@ import "github.com/altessa-s/go-atlas/data/cache"
 | [`observability/metrics`](observability/metrics/) | Prometheus metrics via interface-driven adapters |
 | [`observability/slog`](observability/slog/) | slog extensions: nil-safe helpers, colorized and PII-masking handlers |
 | [`observability/tracing`](observability/tracing/) | Distributed tracing (OpenTelemetry, OTLP, console) with samplers |
+| [`plugins`](plugins/) | Dynamic `.so` plugin manager with signature verification and sandboxing |
 | [`security/secrets`](security/secrets/) | Generic secret manager with LRU cache, watch, and scheduler refresh |
 | [`security/tlsutils`](security/tlsutils/) | TLS helpers, OCSP stapling, Let's Encrypt (Certify), Vault-backed certs |
 | [`security/vault`](security/vault/) | HashiCorp Vault client (AppRole, token, userpass auth) |
+| [`service/dispatch`](service/dispatch/) | Generic non-blocking batching dispatch engine with optional WAL persistence |
 | [`service/id`](service/id/) | Service identity (ULID/UUID) from env, file, or static |
 | [`service/scheduler`](service/scheduler/) | Distributed cron scheduler with priority queues and leader election |
-| [`tools/codegen/optgen`](tools/codegen/optgen/) | Code generator for functional options pattern |
-| [`tools/codegen/goconfig`](tools/codegen/goconfig/) | Configuration struct code generator |
 | [`transport/broker`](transport/broker/) | Message broker abstraction (NATS JetStream, outbox) |
 | [`transport/grpc`](transport/grpc/) | gRPC server, interceptors, factory, gRPC client |
-| [`proto`](proto/) | Protobuf definitions and generated Go code for gRPC services |
 | [`transport/http`](transport/http/) | HTTP server, middlewares, codec registry, HTTP client |
+| [`transport/proxydial`](transport/proxydial/) | Forward-proxy dialers (HTTP CONNECT, SOCKS5) for non-`net/http` clients |
+| [`proto`](proto/) | Protobuf definitions and generated Go code for gRPC services |
+
+## Command-line tools
+
+| Tool | Description |
+|------|-------------|
+| [`cmd/optgen`](cmd/optgen/) | Code generator for the functional options pattern |
+| [`cmd/goconfig`](cmd/goconfig/) | Configuration struct code generator and format converter |
+| [`cmd/plugin-sign`](cmd/plugin-sign/) | Sign and verify `.so` plugins with Ed25519 / ECDSA / RSA-PSS |
 
 ## Documentation
 
@@ -86,6 +96,7 @@ import "github.com/altessa-s/go-atlas/data/cache"
 | [Architecture](docs/architecture.md) | Package structure, layering, and design principles |
 | [Configuration](docs/configuration.md) | Multi-source config loading, env vars, secrets |
 | [Health](docs/observability/health.md) | Coordinator, HTTP probes (`/healthz`, `/readyz`), gRPC `grpc_health_v1` |
+| [Plugins](docs/plugins.md) | Dynamic plugin loading, signature verification, sandboxing |
 | [Proxy](docs/proxy.md) | Outbound HTTP/gRPC proxy: YAML modes, wiring, TLS to proxy |
 | [Metrics Reference](docs/metrics.md) | All 129 Prometheus metrics across 24 subsystems |
 
