@@ -25,7 +25,7 @@ type FailureMode string
 const (
 	// FailureModeSoft (default) returns the certificate without an OCSP
 	// staple when the responder is unreachable or returns an invalid
-	// response. Maximises availability — a transient OCSP outage does
+	// response. Maximizes availability — a transient OCSP outage does
 	// not break new connections — but a revoked certificate may be
 	// served alongside its valid TLS material.
 	FailureModeSoft FailureMode = "soft"

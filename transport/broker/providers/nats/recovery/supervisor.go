@@ -73,7 +73,7 @@ type SupervisorConfig struct {
 }
 
 // NewSupervisor creates a new Supervisor with the given configuration.
-// The supervisor owns a detached background context (cancelled by
+// The supervisor owns a detached background context (canceled by
 // [Supervisor.Stop]) because its watcher goroutines must outlive any
 // request-scoped context the caller might have. Termination is honest:
 // Stop() invokes the stored cancel — no goroutine leaks once the

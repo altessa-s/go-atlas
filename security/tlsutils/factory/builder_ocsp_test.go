@@ -38,7 +38,7 @@ func TestEnsureOcspStaplerFromConfig_DisabledSkipsBuild(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			b := New(tc.cfg)
-			require.NoError(t, b.ensureOcspStaplerFromConfig())
+			b.ensureOcspStaplerFromConfig()
 			require.Nil(t, b.ocspStapler, "disabled OCSP must not produce a stapler")
 		})
 	}
@@ -62,7 +62,7 @@ func TestEnsureOcspStaplerFromConfig_EnabledBuildsStapler(t *testing.T) {
 		},
 	}
 	b := New(cfg)
-	require.NoError(t, b.ensureOcspStaplerFromConfig())
+	b.ensureOcspStaplerFromConfig()
 	require.NotNil(t, b.ocspStapler, "enabled OCSP must produce a stapler")
 
 	// The constructed stapler exposes its FailureMode so the operator
@@ -88,7 +88,7 @@ func TestEnsureOcspStaplerFromConfig_InjectionWinsOverYAML(t *testing.T) {
 		OCSP: &config.TlsProviderOCSP{Enabled: true, FailureMode: "hard"},
 	}
 	b := New(cfg).UseOcspStapler(injected)
-	require.NoError(t, b.ensureOcspStaplerFromConfig())
+	b.ensureOcspStaplerFromConfig()
 	require.Same(t, tlsutils.OCSPStapler(injected), b.ocspStapler,
 		"programmatic stapler must survive an enabled YAML OCSP block")
 }

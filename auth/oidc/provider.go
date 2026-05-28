@@ -1043,7 +1043,11 @@ func (p *Provider) buildParserOptions(ops *verifierOptions) []jwt.ParserOption {
 
 // parseAndValidateToken parses and validates a JWT with the given options.
 // Returns the verified claims and token header.
-func (p *Provider) parseAndValidateToken(token string, ops *verifierOptions, compiledCELRules []celPreCompiledValidationRule) (jwt.MapClaims, map[string]any, error) {
+func (p *Provider) parseAndValidateToken(
+	token string,
+	ops *verifierOptions,
+	compiledCELRules []celPreCompiledValidationRule,
+) (jwt.MapClaims, map[string]any, error) {
 	parserOpts := p.buildParserOptions(ops)
 
 	jwtToken, err := jwt.Parse(token, p.jwks.Keyfunc, parserOpts...)
