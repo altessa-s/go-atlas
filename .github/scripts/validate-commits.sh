@@ -45,21 +45,29 @@ validate_commit() {
     local commit_msg="$2"
     local errors=()
     
+    # Regex patterns must live in variables rather than appear literally
+    # on the RHS of [[ =~ ]] — bash 5.2 (Ubuntu 24.04 runner default)
+    # tightened parsing and rejects bare regex containing escaped parens
+    # as a "syntax error: unexpected token `)'".
+    local special_pattern='^(Merge|Revert|Auto.merge)'
+    local deps_pattern='^(build\(deps\)|chore\(deps\))'
+    local conv_pattern='^([a-z]+)(\(([^)]+)\))?:[[:space:]](.+)'
+
     # Skip merge commits, revert commits, and automated commits
-    if [[ "$commit_msg" =~ ^(Merge|Revert|Auto.merge) ]]; then
+    if [[ "$commit_msg" =~ $special_pattern ]]; then
         echo -e "${GREEN}✓${NC} Skipping special commit: $commit_hash"
         return 0
     fi
-    
+
     # Skip commits that are automated (dependabot, etc.)
-    if [[ "$commit_msg" =~ ^(build\(deps\)|chore\(deps\)) ]]; then
-        echo -e "${GREEN}✓${NC} Skipping automated commit: $commit_hash"  
+    if [[ "$commit_msg" =~ $deps_pattern ]]; then
+        echo -e "${GREEN}✓${NC} Skipping automated commit: $commit_hash"
         return 0
     fi
-    
+
     # Check for Conventional Commits format with optional scope
     # Format: type[(scope)]: description
-    if [[ "$commit_msg" =~ ^([a-z]+)(\(([^\)]+)\))?:\ (.+) ]]; then
+    if [[ "$commit_msg" =~ $conv_pattern ]]; then
         local type="${BASH_REMATCH[1]}"
         local scope="${BASH_REMATCH[3]}"  # Optional
         local description="${BASH_REMATCH[4]}"
