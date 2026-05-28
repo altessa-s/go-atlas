@@ -323,3 +323,86 @@ func TestClient_DeleteDocumentsByFilter_PassesFilterThrough(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, filter, captured, "filter must reach the SDK byte-for-byte — no escaping or rewriting is done by this wrapper")
 }
+
+// TestClient_FetchDocuments_ReturnsRawHitsAndTotal guards the same
+// hit-marshaling loop as Search and pins the Total round-trip:
+// FetchResult.Total must mirror DocumentsResult.Total so paginating
+// callers can decide when to stop without relying on a short-page signal.
+func TestClient_FetchDocuments_ReturnsRawHitsAndTotal(t *testing.T) {
+	t.Parallel()
+
+	idx := &fakeIndex{
+		getDocumentsFn: func(_ context.Context, _ *msdk.DocumentsQuery, resp *msdk.DocumentsResult) error {
+			resp.Results = msdk.Hits{
+				{
+					"id":    json.RawMessage(`"1"`),
+					"title": json.RawMessage(`"alpha"`),
+				},
+			}
+			resp.Total = 42
+			return nil
+		},
+	}
+	sdk := &fakeSDK{indexFn: func(_ string) msdk.IndexManager { return idx }}
+	c := newTestClient(sdk)
+
+	result, err := c.FetchDocuments(t.Context(), "things", "", 0, 1)
+	require.NoError(t, err)
+	require.Equal(t, int64(42), result.Total, "Total must mirror DocumentsResult.Total — callers paginate against it")
+	require.Len(t, result.Hits, 1)
+
+	var hit map[string]string
+	require.NoError(t, json.Unmarshal(result.Hits[0], &hit))
+	require.Equal(t, "1", hit["id"])
+	require.Equal(t, "alpha", hit["title"])
+}
+
+// TestClient_FetchDocuments_PassesFilterAndPaginationThrough pins the
+// SECURITY contract (filter is opaque) and the offset/limit parameter
+// order — both are int64, so a positional swap would be a silent bug.
+func TestClient_FetchDocuments_PassesFilterAndPaginationThrough(t *testing.T) {
+	t.Parallel()
+
+	var captured *msdk.DocumentsQuery
+	idx := &fakeIndex{
+		getDocumentsFn: func(_ context.Context, q *msdk.DocumentsQuery, resp *msdk.DocumentsResult) error {
+			captured = q
+			resp.Total = 0
+			return nil
+		},
+	}
+	sdk := &fakeSDK{indexFn: func(_ string) msdk.IndexManager { return idx }}
+	c := newTestClient(sdk)
+
+	const filter = `tenant_id = "abc"`
+	_, err := c.FetchDocuments(t.Context(), "things", filter, 100, 25)
+	require.NoError(t, err)
+	require.NotNil(t, captured)
+	require.Equal(t, filter, captured.Filter, "filter must reach the SDK byte-for-byte")
+	require.Equal(t, int64(100), captured.Offset, "offset must map to DocumentsQuery.Offset — call order is (offset, limit)")
+	require.Equal(t, int64(25), captured.Limit, "limit must map to DocumentsQuery.Limit — call order is (offset, limit)")
+}
+
+// TestClient_FetchDocuments_EmptyFilterOmitsFilter pins the `if filter
+// != ""` branch: an empty filter must not populate DocumentsQuery.Filter,
+// so the SDK request stays unfiltered instead of asking Meilisearch to
+// parse an empty expression.
+func TestClient_FetchDocuments_EmptyFilterOmitsFilter(t *testing.T) {
+	t.Parallel()
+
+	var captured *msdk.DocumentsQuery
+	idx := &fakeIndex{
+		getDocumentsFn: func(_ context.Context, q *msdk.DocumentsQuery, resp *msdk.DocumentsResult) error {
+			captured = q
+			resp.Total = 0
+			return nil
+		},
+	}
+	sdk := &fakeSDK{indexFn: func(_ string) msdk.IndexManager { return idx }}
+	c := newTestClient(sdk)
+
+	_, err := c.FetchDocuments(t.Context(), "things", "", 0, 10)
+	require.NoError(t, err)
+	require.NotNil(t, captured)
+	require.Nil(t, captured.Filter, "empty filter must leave DocumentsQuery.Filter unset")
+}
