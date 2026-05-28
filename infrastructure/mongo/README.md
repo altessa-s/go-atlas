@@ -22,7 +22,8 @@ if err := m.Connect(ctx); err != nil {
 
 ## Features
 
-- **Dual config paths** — connection-URI based (`ConnectionURI`) or field-based (hosts, credentials, pool settings), converging in `MongoBuilder.ClientOptions`
+- **Dual config paths** — connection-URI based (`ConnectionURI`) or field-based (hosts, credentials, pool settings), converging in
+  `MongoBuilder.ClientOptions`
 - **Authentication** — X.509, PLAIN (LDAP proxy), SCRAM-SHA-1, and SCRAM-SHA-256
 - **TLS** — delegated via `UseTlsConfig`; applied to both URI and field-based paths
 - **Compression** — configurable compressors with optional zlib compression level

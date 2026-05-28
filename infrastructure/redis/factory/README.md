@@ -57,4 +57,5 @@ Mode is detected automatically from configuration — no explicit mode field is 
 
 ## Configuration Modes
 
-When `ConnectionURI` is set, it is parsed via `redis.ParseURL` to extract address, auth, TLS, and database number; pool, timeout, sentinel, and routing fields from config are applied on top. Otherwise, options are built from individual config fields.
+When `ConnectionURI` is set, it is parsed via `redis.ParseURL` to extract address, auth, TLS, and database number; pool, timeout, sentinel, and
+routing fields from config are applied on top. Otherwise, options are built from individual config fields.

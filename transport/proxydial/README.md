@@ -4,7 +4,8 @@
 import "github.com/altessa-s/go-atlas/transport/proxydial"
 ```
 
-Forward-proxy dialers for client connections that do **not** go through `net/http`: SMTP, SOAP, raw TCP, gRPC, or any other protocol that needs to tunnel through a corporate or egress proxy.
+Forward-proxy dialers for client connections that do **not** go through `net/http`: SMTP, SOAP, raw TCP, gRPC, or any other protocol that needs
+to tunnel through a corporate or egress proxy.
 
 ## When to use what
 

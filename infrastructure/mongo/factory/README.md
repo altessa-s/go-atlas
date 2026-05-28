@@ -59,6 +59,8 @@ The returned `*mongo.Mongo` is not yet connected — call `Connect` to establish
 
 ## Configuration Modes
 
-When `ConnectionURI` is set, `ApplyURI` is used as the base and pool/timeout/retry/TLS fields are layered on top. Otherwise, options are built from individual config fields including hosts, credentials, replica set, compressors, and direct connection flag.
+When `ConnectionURI` is set, `ApplyURI` is used as the base and pool/timeout/retry/TLS fields are layered on top. Otherwise, options are built from
+individual config fields including hosts, credentials, replica set, compressors, and direct connection flag.
 
-When `Encryption` is configured, CSFLE auto-encryption is applied in bypass mode so reads transparently decrypt while writes use the explicit encryption path.
+When `Encryption` is configured, CSFLE auto-encryption is applied in bypass mode so reads transparently decrypt while writes use the explicit
+encryption path.

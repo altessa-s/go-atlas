@@ -15,6 +15,7 @@ and messaging clients with authentication, TLS, connection pooling, health check
 
 - **Configuration-driven** — each factory reads from `config.*` structs; no hardcoded defaults leak into application code.
 - **Dual config paths** — connection-URI based or field-based configuration, converging into one set of driver options.
-- **Fluent builders** — each factory uses a fluent builder (embedding `corefactory.Base`) with deferred error accumulation; configuration errors surface at `Build()` time.
+- **Fluent builders** — each factory uses a fluent builder (embedding `corefactory.Base`) with deferred error accumulation; configuration errors
+  surface at `Build()` time.
 - **Health integration** — provide a `health.Coordinator` via `UseHealthCoordinator` to auto-register infrastructure health checks.
 - **TLS delegation** — TLS setup is delegated to `security/tlsutils/factory` when a TLS config section is present.

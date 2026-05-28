@@ -63,9 +63,11 @@ plugin-sign -verify -pubkey public.pem -dir ./plugins
 
 ## How It Works
 
-1. **Signing**: Reads the plugin file, computes SHA-256 hash, signs the hash with the private key, and writes raw signature bytes to a `.sig` file.
+1. **Signing**: Reads the plugin file, computes SHA-256 hash, signs the hash with the private key, and writes raw signature bytes to a `.sig`
+   file.
 
-2. **Verification**: Reads both the plugin and its `.sig` file, computes the plugin's SHA-256 hash, and verifies the signature matches using the public key.
+2. **Verification**: Reads both the plugin and its `.sig` file, computes the plugin's SHA-256 hash, and verifies the signature matches using the
+   public key.
 
 3. **File Convention**: For each `plugin.so`, the signature is stored in `plugin.so.sig` in the same directory.
 

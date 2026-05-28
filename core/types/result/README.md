@@ -4,7 +4,9 @@
 import "github.com/altessa-s/go-atlas/core/types/result"
 ```
 
-Package `result` provides a generic `Result[T]` value that holds either a value of type `T` or an `error`. It is meant for places where Go's idiomatic `(T, error)` tuple is awkward to express — channel elements, slice values, map values — not as a general replacement for `(T, error)` returns.
+Package `result` provides a generic `Result[T]` value that holds either a value of type `T` or an `error`. It is meant for places where Go's
+idiomatic `(T, error)` tuple is awkward to express — channel elements, slice values, map values — not as a general replacement for `(T, error)`
+returns.
 
 The zero value of `Result[T]` is a valid `Ok` of the zero value of `T`. All constructors and methods are pure and safe for concurrent use.
 
@@ -36,7 +38,8 @@ The zero value of `Result[T]` is a valid `Ok` of the zero value of `T`. All cons
 
 ## When NOT to use
 
-- **Ordinary synchronous calls.** Keep returning `(T, error)` and use `if err != nil`. Wrapping return values in `Result[T]` adds noise without removing any.
+- **Ordinary synchronous calls.** Keep returning `(T, error)` and use `if err != nil`. Wrapping return values in `Result[T]` adds noise without
+  removing any.
 - **Panic on error.** Use the existing helper instead of adding an `Unwrap`-style method:
 
   ```go
@@ -44,8 +47,10 @@ The zero value of `Result[T]` is a valid `Ok` of the zero value of `T`. All cons
   ```
 
   See [`core/runtime/panics`](../../runtime/panics/README.md).
-- **Asynchronous fan-out with aggregated errors.** Prefer [`core/runtime/concurrency.ProcessCollect`](../../runtime/concurrency/README.md) over a hand-rolled `chan Result[T]`.
-- **Functional pipelines (`Map`, `AndThen`, `Then`, …).** In Go they read as nested closures rather than terse pipelines, so plain `if err != nil` stays shorter and clearer. Convert back with `Get` and use ordinary control flow.
+- **Asynchronous fan-out with aggregated errors.** Prefer [`core/runtime/concurrency.ProcessCollect`](../../runtime/concurrency/README.md) over a
+  hand-rolled `chan Result[T]`.
+- **Functional pipelines (`Map`, `AndThen`, `Then`, …).** In Go they read as nested closures rather than terse pipelines, so plain `if err != nil`
+  stays shorter and clearer. Convert back with `Get` and use ordinary control flow.
 
 ## Usage
 

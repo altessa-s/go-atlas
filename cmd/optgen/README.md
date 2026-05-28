@@ -8,7 +8,8 @@ Generate functional option functions from struct field tags.
 
 ## Overview
 
-`optgen` generates type-safe functional option functions from struct field tags. It supports defaults, validation, value transformation, and custom plugins.
+`optgen` generates type-safe functional option functions from struct field tags. It supports defaults, validation, value transformation, and
+custom plugins.
 
 ## Installation
 

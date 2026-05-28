@@ -454,8 +454,9 @@ Quarantined plugins produce `ErrPluginQuarantined`, matchable via `errors.Is`.
 
 ## Signature verification
 
-Verifies `.so` files against a detached `.so.sig` signature before `plugin.Open` runs any code. **Enabled by default (`SignatureRequire` mode) for security.** Each `.so` needs a
-companion `.sig` file signed with the configured public key. To disable signature verification (not recommended for production), explicitly set mode to `"disabled"`.
+Verifies `.so` files against a detached `.so.sig` signature before `plugin.Open` runs any code. **Enabled by default (`SignatureRequire` mode) for
+security.** Each `.so` needs a companion `.sig` file signed with the configured public key. To disable signature verification (not recommended for
+production), explicitly set mode to `"disabled"`.
 
 > **TOCTOU note.** `plugin.Open` re-reads the file from disk — it doesn't accept
 > pre-read bytes. An attacker with write access to the plugin directory could swap the

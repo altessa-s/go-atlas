@@ -4,7 +4,8 @@ Scripts used in GitHub Actions workflows for automated validation and checks.
 
 ## validate-commits.sh
 
-Validates commit messages against [Conventional Commits](https://www.conventionalcommits.org/) format and checks scopes against [`commit_scopes.txt`](../../commit_scopes.txt).
+Validates commit messages against [Conventional Commits](https://www.conventionalcommits.org/) format and checks scopes against
+[`commit_scopes.txt`](../../commit_scopes.txt).
 
 ### Features
 
@@ -54,7 +55,8 @@ feat(data): Add feature           # Description should start lowercase
 
 ### Configuration
 
-The script uses [`commit_scopes.txt`](../../commit_scopes.txt) as the source of truth for valid scopes. Update that file to add or modify allowed scopes.
+The script uses [`commit_scopes.txt`](../../commit_scopes.txt) as the source of truth for valid scopes. Update that file to add or modify allowed
+scopes.
 
 ### Exit Codes
 
