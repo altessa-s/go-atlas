@@ -98,6 +98,49 @@ func (c *Client) DeleteDocumentsByFilter(ctx context.Context, indexName, filter 
 	return task.TaskUID, nil
 }
 
+// FetchDocuments returns a page of raw JSON documents from indexName that
+// match the optional Meilisearch filter expression. offset and limit
+// paginate the result set; the returned [FetchResult.Total] is the total
+// number of matching documents across all pages — use it to decide whether
+// another page is worth fetching. Pass filter="" to fetch unfiltered
+// documents.
+//
+// SECURITY: filter is passed unchanged to Meilisearch. Construct it via a
+// trusted DSL builder or escape user-supplied values — see
+// [Client.DeleteDocumentsByFilter] for the same caveat.
+//
+// The filter is NOT logged — it can carry caller-supplied values that
+// would route PII through the application log. This matches
+// [Client.Search]'s policy and intentionally diverges from
+// [Client.DeleteDocumentsByFilter].
+func (c *Client) FetchDocuments(ctx context.Context, indexName, filter string, offset, limit int64) (*FetchResult, error) {
+	query := &msdk.DocumentsQuery{Offset: offset, Limit: limit}
+	if filter != "" {
+		query.Filter = filter
+	}
+
+	var result msdk.DocumentsResult
+	if err := c.sdk.Index(indexName).GetDocumentsWithContext(ctx, query, &result); err != nil {
+		return nil, coreerrs.Wrapf(err, "fetch documents from %s", indexName)
+	}
+
+	hits := make([]json.RawMessage, 0, len(result.Results))
+	for _, hit := range result.Results {
+		raw, err := json.Marshal(hit)
+		if err != nil {
+			return nil, coreerrs.WrapOperation(err, "marshal fetched hit")
+		}
+		hits = append(hits, raw)
+	}
+
+	c.logger.DebugContext(ctx, "documents fetched",
+		slog.String("index", indexName),
+		slog.Int64("total", result.Total),
+		slog.Int("count", len(hits)))
+
+	return &FetchResult{Hits: hits, Total: result.Total}, nil
+}
+
 // GetAllDocumentIDs paginates through indexName and returns every document's
 // primary key. Assumes the index's primary key is the default "id" field —
 // callers using a different primary key must use
