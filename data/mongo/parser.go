@@ -42,6 +42,13 @@ const (
 
 	// Sharding constants for high-concurrency scenarios
 	DefaultNumShards = 16 // Number of cache shards (must be power of 2)
+
+	// EvictionLowWaterNumerator and EvictionLowWaterDenominator express
+	// the low-water mark as a 3/4 (75%) fraction of shard capacity.
+	// The shard evicts down to this mark on overflow so saturated
+	// shards strictly shrink instead of treadmilling at capacity.
+	EvictionLowWaterNumerator   = 3
+	EvictionLowWaterDenominator = 4
 )
 
 // CachedStructMetadata contains metadata with minimal overhead
@@ -244,7 +251,7 @@ func (shard *parserCacheShard) evictLRUEntries() {
 	// them. Targeting a low-water mark (75% of shard capacity)
 	// guarantees the cache actually shrinks on overflow and keeps the
 	// active set fresh.
-	lowWater := max(1, shard.maxSize*3/4)
+	lowWater := max(1, shard.maxSize*EvictionLowWaterNumerator/EvictionLowWaterDenominator)
 	target := len(shard.entries) - lowWater
 	if target <= 0 {
 		return

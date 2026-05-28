@@ -65,7 +65,7 @@ type TlsProviderOCSP struct {
 	//
 	//   - "soft" (default): return the cert without an OCSP staple
 	//     when the responder is unreachable or returns an invalid
-	//     response. Maximises availability — a transient OCSP outage
+	//     response. Maximizes availability — a transient OCSP outage
 	//     does not break new connections — but a revoked certificate
 	//     may be served alongside its valid TLS material.
 	//   - "hard": return an error from the GetCertificate /

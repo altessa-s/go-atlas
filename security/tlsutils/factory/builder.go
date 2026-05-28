@@ -36,7 +36,9 @@ import (
 // [config.TLSSkipVerifyModeEnforce] (the default). Operators who genuinely
 // need to skip verification must explicitly opt out via SkipVerifyMode=warn
 // (logged) or SkipVerifyMode=disabled (silent, tests only).
-var ErrInsecureSkipVerifyRejected = errors.New("security/tlsutils: SkipVerify is true but SkipVerifyMode is enforce — refusing to disable certificate verification")
+var ErrInsecureSkipVerifyRejected = errors.New(
+	"security/tlsutils: SkipVerify is true but SkipVerifyMode is enforce — refusing to disable certificate verification",
+)
 
 // ProvidersBuilder assembles a [tlsproviders.Providers] registry step by step using a fluent API.
 // Create instances with [New]. Errors are accumulated and reported at [ProvidersBuilder.Build] time.
@@ -76,9 +78,7 @@ func (b *ProvidersBuilder) Build() (*tlsproviders.Providers, error) {
 		return &tlsproviders.Providers{}, nil
 	}
 
-	if err := b.ensureOcspStaplerFromConfig(); err != nil {
-		return nil, b.WrapError(err, "failed to build OCSP stapler from config")
-	}
+	b.ensureOcspStaplerFromConfig()
 
 	providers := &tlsproviders.Providers{}
 
@@ -342,13 +342,13 @@ func (b *ProvidersBuilder) s3ProviderOpts() []tlss3.Option {
 // A programmatically-injected stapler always wins — operators staging
 // custom retry / HTTP-client plumbing don't lose it just because they
 // also filled in the YAML block.
-func (b *ProvidersBuilder) ensureOcspStaplerFromConfig() error {
+func (b *ProvidersBuilder) ensureOcspStaplerFromConfig() {
 	if b.ocspStapler != nil {
-		return nil
+		return
 	}
 	ocspCfg := b.cfg.OCSP
 	if ocspCfg == nil || !ocspCfg.Enabled {
-		return nil
+		return
 	}
 
 	opts := []tlsocsp.Option{
@@ -378,5 +378,4 @@ func (b *ProvidersBuilder) ensureOcspStaplerFromConfig() error {
 	}
 
 	b.ocspStapler = tlsocsp.NewOCSPStapler(opts...)
-	return nil
 }

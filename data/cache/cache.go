@@ -135,7 +135,7 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 	// independent of key cardinality. Acquire honors ctx so callers see
 	// timeouts rather than indefinite waits.
 	if c.fallbackSem != nil {
-		if err := c.fallbackSem.Acquire(ctx, 1); err != nil {
+		if err = c.fallbackSem.Acquire(ctx, 1); err != nil {
 			c.metrics.errors.WithLabels(c.metricLabels).Inc()
 			return err
 		}

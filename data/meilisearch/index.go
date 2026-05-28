@@ -41,7 +41,7 @@ type IndexDefinition struct {
 
 // IndexExists reports whether indexName is present on the server.
 // Returns false (no error) if the server responds with "index_not_found".
-// ctx bounds the underlying GetIndex round-trip — passing a cancelled
+// ctx bounds the underlying GetIndex round-trip — passing a canceled
 // context aborts the call immediately instead of waiting for the SDK's
 // per-request timeout.
 func (c *Client) IndexExists(ctx context.Context, indexName string) (bool, error) {

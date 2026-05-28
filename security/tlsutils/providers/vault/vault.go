@@ -56,7 +56,7 @@ func New(opt ...Option) (*Vault, error) {
 		return nil, err
 	}
 
-	// OCSP staple-refresh runs on a detached background context (cancelled
+	// OCSP staple-refresh runs on a detached background context (canceled
 	// by [Vault.Shutdown]) because it outlives any request-scoped
 	// context the caller might pass through New. Termination is honest:
 	// Shutdown invokes ocspCancel — no goroutine leak on stop.

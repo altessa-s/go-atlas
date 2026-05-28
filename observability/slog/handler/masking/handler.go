@@ -268,9 +268,13 @@ func (h *Handler) walkAny(rv reflect.Value, groups []string, depth int) (slog.Va
 		return h.walkMap(rv, groups, depth)
 	case reflect.Slice, reflect.Array:
 		return h.walkSlice(rv, groups, depth)
+	default:
+		// Scalars, pointers, channels, funcs, interfaces, and unsafe
+		// pointers do not have walkable substructure. Returning
+		// (zero, false) signals the caller to pass the value through
+		// to the underlying handler unchanged.
+		return slog.Value{}, false
 	}
-
-	return slog.Value{}, false
 }
 
 // walkStruct walks the exported fields of a struct and rebuilds the
@@ -342,7 +346,10 @@ func (h *Handler) attrForField(name string, field reflect.Value, parentGroups []
 		}
 		return slog.String(name, mask(fmt.Sprint(v)))
 	}
-	childGroups := append(parentGroups, name)
+	// Force a fresh backing array via the three-index slice expression
+	// — recursive walks otherwise share parentGroups' storage and a
+	// sibling branch can overwrite an earlier child's path mid-walk.
+	childGroups := append(parentGroups[:len(parentGroups):len(parentGroups)], name)
 	if nested, ok := h.walkAny(field, childGroups, depth+1); ok {
 		return slog.Attr{Key: name, Value: nested}
 	}
