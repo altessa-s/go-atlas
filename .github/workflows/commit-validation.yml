@@ -72,8 +72,12 @@ jobs:
           # Valid types
           VALID_TYPES="feat fix docs style refactor test chore ci perf build"
           
-          # Check Conventional Commits format
-          if [[ "$PR_TITLE" =~ ^([a-z]+)(\(([^)]+)\))?:\ (.+) ]]; then
+          # Check Conventional Commits format. The regex must live in a
+          # variable rather than appear literally on the RHS of [[ =~ ]] —
+          # bash 5.2 (Ubuntu 24.04 runner default) tightened parsing and
+          # rejects bare regex with parens/escapes as a syntax error.
+          TITLE_PATTERN='^([a-z]+)(\(([^)]+)\))?:[[:space:]](.+)'
+          if [[ "$PR_TITLE" =~ $TITLE_PATTERN ]]; then
               TYPE="${BASH_REMATCH[1]}"
               SCOPE="${BASH_REMATCH[3]}"
               DESC="${BASH_REMATCH[4]}"
