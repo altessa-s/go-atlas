@@ -96,6 +96,7 @@ import "github.com/altessa-s/go-atlas/data/cache"
 | [Architecture](docs/architecture.md) | Package structure, layering, and design principles |
 | [Configuration](docs/configuration.md) | Multi-source config loading, env vars, secrets |
 | [Health](docs/observability/health.md) | Coordinator, HTTP probes (`/healthz`, `/readyz`), gRPC `grpc_health_v1` |
+| [Logging (slog)](docs/observability/slog.md) | `slogx` helpers, context-scoped loggers, handler chain (buffered, colorized, leveled, masking, multi, prefixed) |
 | [Plugins](docs/plugins.md) | Dynamic plugin loading, signature verification, sandboxing |
 | [Proxy](docs/proxy.md) | Outbound HTTP/gRPC proxy: YAML modes, wiring, TLS to proxy |
 | [Metrics Reference](docs/metrics.md) | All 129 Prometheus metrics across 24 subsystems |
