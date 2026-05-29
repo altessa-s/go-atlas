@@ -189,6 +189,11 @@ func computeFilterHash(filter bson.M) string {
 	}
 
 	// Marshal to JSON for a deterministic key order across calls.
-	b, _ := json.Marshal(filter) //nolint:errcheck // bson.M filters are always JSON-serializable
+	b, err := json.Marshal(filter)
+	if err != nil {
+		// Distinct domain so an unmarshalable filter never collides with the empty-filter
+		// hash, which would make ValidateFilter pass for a mismatched cursor.
+		return corehash.SHA256HexString(fmt.Sprintf("err:%d:%s", len(filter), err))
+	}
 	return corehash.SHA256HexString(string(b))
 }
