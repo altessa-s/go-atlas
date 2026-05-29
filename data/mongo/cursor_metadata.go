@@ -5,10 +5,8 @@
 package mongo
 
 import (
+	"encoding/json"
 	"fmt"
-	"maps"
-	"slices"
-	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -171,10 +169,8 @@ func (m *CursorMetadata) ToCursor() (*Cursor, error) {
 // computeFilterHash creates a deterministic SHA-256 hash from a MongoDB filter.
 // This is used for validating that filters haven't changed between pagination requests.
 //
-// The function ensures deterministic hashing by:
-//  1. Sorting filter keys alphabetically (maps have random iteration order in Go)
-//  2. Creating a consistent string representation
-//  3. Hashing with SHA-256
+// The function ensures deterministic hashing by marshaling the filter to JSON,
+// which sorts map keys at every nesting level (Go map iteration order is random).
 //
 // Parameters:
 //   - filter: MongoDB filter using bson.M syntax
@@ -185,27 +181,19 @@ func (m *CursorMetadata) ToCursor() (*Cursor, error) {
 //
 // Example:
 //   - computeFilterHash(bson.M{"age": 25, "name": "John"})
-//     → "a1b2c3..." (SHA-256 of "age=25;name=John")
+//     → SHA-256 of `{"age":25,"name":"John"}`
 func computeFilterHash(filter bson.M) string {
 	if len(filter) == 0 {
 		// Empty filter gets a consistent hash
 		return corehash.SHA256HexString("")
 	}
 
-	// Extract and sort keys for deterministic order
-	keys := slices.Sorted(maps.Keys(filter))
-
-	// Build deterministic string representation using strings.Builder
-	// to avoid O(n²) string concatenation and per-key fmt.Sprintf allocations.
-	var sb strings.Builder
-	for i, key := range keys {
-		if i > 0 {
-			sb.WriteByte(';')
-		}
-		sb.WriteString(key)
-		sb.WriteByte('=')
-		fmt.Fprint(&sb, filter[key])
+	// Marshal to JSON for a deterministic key order across calls.
+	b, err := json.Marshal(filter)
+	if err != nil {
+		// Distinct domain so an unmarshalable filter never collides with the empty-filter
+		// hash, which would make ValidateFilter pass for a mismatched cursor.
+		return corehash.SHA256HexString(fmt.Sprintf("err:%d:%s", len(filter), err))
 	}
-
-	return corehash.SHA256HexString(sb.String())
+	return corehash.SHA256HexString(string(b))
 }
