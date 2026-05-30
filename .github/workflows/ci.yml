@@ -79,6 +79,4 @@ jobs:
           govulncheck ./...
 
       - name: Run gosec
-        run: |
-          cd devtools && go install github.com/securego/gosec/v2/cmd/gosec
-          gosec -quiet -exclude-generated ./...
+        run: make gosec
