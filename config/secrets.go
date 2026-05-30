@@ -14,7 +14,7 @@ import (
 // Default values for Secrets configuration.
 const (
 	defaultSecretsProvider         = SecretsProviderMemory
-	defaultSecretsUpdateSchedule   = "0 */5 * * * *" // every 5 minutes
+	defaultSecretsUpdateSchedule   = "0 */5 * * * *" // #nosec G101 -- cron schedule string (every 5 minutes), not a credential
 	defaultSecretsCacheMaxSize     = 1000
 	defaultSecretsRetryMaxAttempts = 3
 	defaultSecretsRetryBaseDelay   = time.Second

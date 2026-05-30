@@ -202,7 +202,7 @@ func Exponential(cfg ExponentialConfig) NextDelayFunc {
 		}
 
 		if jitter > 0 {
-			d += time.Duration(float64(d) * jitter * rand.Float64())
+			d += time.Duration(float64(d) * jitter * rand.Float64()) // #nosec G404 -- non-cryptographic jitter for retry backoff timing
 			if cfg.MaxDelay > 0 && d > cfg.MaxDelay {
 				d = cfg.MaxDelay
 			}

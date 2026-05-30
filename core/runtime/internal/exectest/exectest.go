@@ -144,6 +144,7 @@ func runParent(t *testing.T) {
 	// `noctx` linter and ties the child's lifetime to the test's
 	// context so a timed-out parent test kills its child instead of
 	// leaking it.
+	// #nosec G204 -- re-executes the test binary (os.Args[0]) for subprocess testing
 	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^"+testName+"$", "-test.v")
 	cmd.Env = append(os.Environ(), childEnvVar+"=1")
 	out, err := cmd.CombinedOutput()

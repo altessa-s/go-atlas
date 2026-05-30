@@ -32,7 +32,7 @@ const (
 	EnvNATSURL = "NATS_URL"
 
 	// EnvAnthropicAPIKey is the environment variable holding the Anthropic API key.
-	EnvAnthropicAPIKey = "ANTHROPIC_API_KEY"
+	EnvAnthropicAPIKey = "ANTHROPIC_API_KEY" // #nosec G101 -- environment variable name, not a credential value
 
 	// EnvVaultToken is the environment variable holding a HashiCorp Vault
 	// authentication token.

@@ -14,6 +14,20 @@ DUPL_THRESHOLD ?= 60
 DUPL_PATH ?= .
 DUPL_IGNORE_REGEX ?= (_gen\.go|\.pb(\.[^/]*)?\.go|_grpc\.pb\.go|\.pb\.gw\.go)
 
+# gosec rule classes excluded globally because they are by-design or redundant
+# for a transport/auth/secrets toolkit. Verified false positives in KEPT rules
+# (G101, G103, G204, G404, ...) are suppressed individually via `// #nosec` so
+# those rules still gate new code. Revisit the excludes below in a dedicated
+# audit before relaxing further.
+#   G104 - redundant with golangci-lint's errcheck (the project's error gate)
+#   G115 - integer overflow on reviewed-safe numeric conversions (hash/proto/sizing)
+#   G117 - exported config fields named like secrets (PrivateKey/SessionToken/JWT)
+#   G304 - file reads from operator-provided paths (config/secrets/TLS/plugins/codegen)
+#   G702/G703/G704/G705 - experimental taint analysis (cmd-inject/path/SSRF/XSS):
+#          flags the toolkit's core function (outbound HTTP to configured endpoints,
+#          HTTP response writing, config path reads); provenance is the caller's job
+GOSEC_EXCLUDED_RULES ?= G104,G115,G117,G304,G702,G703,G704,G705
+
 .PHONY: all
 all: help
 
@@ -197,6 +211,11 @@ build-optgen: ## Build functional options generator
 build-goconfig: ## Build configuration converter
 	@go build -o bin/goconfig ./cmd/goconfig
 
+.PHONY: gosec
+gosec: ## Run gosec static security scanner (see GOSEC_EXCLUDED_RULES)
+	@cd devtools && go install github.com/securego/gosec/v2/cmd/gosec
+	@gosec -quiet -exclude-generated -exclude=$(GOSEC_EXCLUDED_RULES) ./...
+
 .PHONY: security-scan
 security-scan: ## Security checks - run vulnerability and security scanners
 	@echo "Running Go vulnerability check..."
@@ -205,7 +224,7 @@ security-scan: ## Security checks - run vulnerability and security scanners
 	@echo ""
 	@echo "Running gosec security scanner..."
 	@cd devtools && go install github.com/securego/gosec/v2/cmd/gosec
-	@gosec -quiet -exclude-generated ./...
+	@gosec -quiet -exclude-generated -exclude=$(GOSEC_EXCLUDED_RULES) ./...
 	@echo ""
 	@echo "Security scan completed"
 

@@ -579,6 +579,7 @@ func (c *GenerateCommand) formatFile(cmd *cobra.Command, filePath string) error 
 	}
 
 	// Execute the formatter directly without shell
+	// #nosec G204 -- formatter executable resolved from trusted codegen config, not user input
 	fmtCmd := exec.CommandContext(cmd.Context(), executable, args...)
 	fmtCmd.Stdout = cmd.OutOrStdout()
 	fmtCmd.Stderr = cmd.ErrOrStderr()
