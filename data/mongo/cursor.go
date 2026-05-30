@@ -574,7 +574,10 @@ func NewCursorWithMetadata(cursorId string, sort bson.D, cursorIdField string, f
 	}
 
 	// Compute filter hash for validation (always, even for empty filter)
-	filterHash := computeFilterHash(filter)
+	filterHash, err := computeFilterHash(filter)
+	if err != nil {
+		return nil, coreerrs.WrapOperation(err, "compute filter hash")
+	}
 
 	// Store SortValue only when sorting by a field different from cursorIdField.
 	// This enables compound cursor filter for correct pagination.
@@ -684,7 +687,10 @@ func (c *Cursor) ValidateFilter(filter bson.M) error {
 	}
 
 	// Compute current filter hash
-	currentHash := computeFilterHash(filter)
+	currentHash, err := computeFilterHash(filter)
+	if err != nil {
+		return coreerrs.WrapOperation(err, "compute filter hash")
+	}
 
 	// Compare hashes
 	if c.FilterHash != currentHash {
