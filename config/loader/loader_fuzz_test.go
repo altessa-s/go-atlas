@@ -5,7 +5,6 @@
 package loader_test
 
 import (
-	"os"
 	"testing"
 
 	"github.com/altessa-s/go-atlas/config/loader"
@@ -22,8 +21,7 @@ func FuzzLoad_EnvParsing(f *testing.F) {
 			return
 		}
 
-		os.Setenv(key, value)
-		defer os.Unsetenv(key)
+		t.Setenv(key, value)
 
 		cfg := &TestConfig{}
 		l := loader.New(nil)

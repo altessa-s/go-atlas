@@ -147,8 +147,9 @@ func TestBuild_TLSConfigThreadsThroughToHTTPClient(t *testing.T) {
 	defer srv.Close()
 
 	tlsCfg := &config.TlsClient{
-		ServerName: strings.TrimPrefix(srv.URL, "https://"),
-		SkipVerify: true,
+		ServerName:     strings.TrimPrefix(srv.URL, "https://"),
+		SkipVerify:     true,
+		SkipVerifyMode: config.TLSSkipVerifyModeDisabled,
 	}
 	tlsCfg.Normalize()
 

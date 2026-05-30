@@ -23,12 +23,8 @@ func BenchmarkLoad_Defaults(b *testing.B) {
 }
 
 func BenchmarkLoad_Env(b *testing.B) {
-	os.Setenv("APP_NAME", "bench-app")
-	os.Setenv("PORT", "1234")
-	defer func() {
-		os.Unsetenv("APP_NAME")
-		os.Unsetenv("PORT")
-	}()
+	b.Setenv("APP_NAME", "bench-app")
+	b.Setenv("PORT", "1234")
 
 	cfg := &TestConfig{}
 	l := loader.New(nil)
