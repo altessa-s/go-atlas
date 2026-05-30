@@ -13,7 +13,7 @@ import (
 func BenchmarkComputeFilterHash_Empty(b *testing.B) {
 	filter := bson.M{}
 	for b.Loop() {
-		_ = computeFilterHash(filter)
+		_, _ = computeFilterHash(filter)
 	}
 }
 
@@ -24,7 +24,7 @@ func BenchmarkComputeFilterHash_Flat(b *testing.B) {
 		"status":          int64(2),
 	}
 	for b.Loop() {
-		_ = computeFilterHash(filter)
+		_, _ = computeFilterHash(filter)
 	}
 }
 
@@ -34,6 +34,6 @@ func BenchmarkComputeFilterHash_NestedAnd(b *testing.B) {
 		bson.M{"cooperation_format": int64(3)},
 	}}
 	for b.Loop() {
-		_ = computeFilterHash(filter)
+		_, _ = computeFilterHash(filter)
 	}
 }

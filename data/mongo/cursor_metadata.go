@@ -79,7 +79,10 @@ func NewCursorMetadata(cursorId string, sort bson.D, cursorIdField string, filte
 	}
 
 	// Compute filter hash for validation
-	filterHash := computeFilterHash(filter)
+	filterHash, err := computeFilterHash(filter)
+	if err != nil {
+		return nil, coreerrs.WrapOperation(err, "compute filter hash")
+	}
 
 	// Store sort field value only if sorting by different field
 	// Encode as base64 BSON to preserve MongoDB type precision
@@ -123,7 +126,10 @@ func (m *CursorMetadata) GetSort() (bson.D, error) {
 // Returns:
 //   - error: ErrCursorFilterMismatch if filter has changed, nil if valid
 func (m *CursorMetadata) ValidateFilter(filter bson.M) error {
-	currentHash := computeFilterHash(filter)
+	currentHash, err := computeFilterHash(filter)
+	if err != nil {
+		return coreerrs.WrapOperation(err, "compute filter hash")
+	}
 	if m.FilterHash != currentHash {
 		return coreerrs.Wrapf(ErrCursorFilterMismatch, "expected hash %s, got %s",
 			m.FilterHash, currentHash)
@@ -166,6 +172,11 @@ func (m *CursorMetadata) ToCursor() (*Cursor, error) {
 	return cursor, nil
 }
 
+// emptyFilterHash is the precomputed hash returned by computeFilterHash for
+// nil or empty filters. The empty-filter branch is hot — list endpoints without
+// a filter take it on every cursor write and ValidateFilter call.
+var emptyFilterHash = corehash.SHA256HexString("")
+
 // computeFilterHash creates a deterministic SHA-256 hash from a MongoDB filter.
 // This is used for validating that filters haven't changed between pagination requests.
 //
@@ -176,24 +187,24 @@ func (m *CursorMetadata) ToCursor() (*Cursor, error) {
 //   - filter: MongoDB filter using bson.M syntax
 //
 // Returns:
-//   - string: 64-character hex-encoded SHA-256 hash
-//   - Empty filter returns hash of empty string
+//   - string: 64-character hex-encoded SHA-256 hash; empty filter returns a fixed hash.
+//   - error: [ErrCursorFilterUnmarshalable] wrapped with the underlying json.Marshal error
+//     when the filter contains a value json cannot encode (NaN/Inf, channel, function,
+//     cycle, or a MarshalJSON that returns an error). Cursor construction/validation
+//     surface this so two distinct bad filters never silently share a hash.
 //
 // Example:
 //   - computeFilterHash(bson.M{"age": 25, "name": "John"})
-//     → SHA-256 of `{"age":25,"name":"John"}`
-func computeFilterHash(filter bson.M) string {
+//     → SHA-256 of `{"age":25,"name":"John"}`, nil
+func computeFilterHash(filter bson.M) (string, error) {
 	if len(filter) == 0 {
-		// Empty filter gets a consistent hash
-		return corehash.SHA256HexString("")
+		return emptyFilterHash, nil
 	}
 
 	// Marshal to JSON for a deterministic key order across calls.
 	b, err := json.Marshal(filter)
 	if err != nil {
-		// Distinct domain so an unmarshalable filter never collides with the empty-filter
-		// hash, which would make ValidateFilter pass for a mismatched cursor.
-		return corehash.SHA256HexString(fmt.Sprintf("err:%d:%s", len(filter), err))
+		return "", fmt.Errorf("%w: %w", ErrCursorFilterUnmarshalable, err)
 	}
-	return corehash.SHA256HexString(string(b))
+	return corehash.SHA256HexString(string(b)), nil
 }

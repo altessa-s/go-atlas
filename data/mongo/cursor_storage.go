@@ -87,6 +87,13 @@ var (
 	// produce inconsistent results. Clients must restart pagination with new filters.
 	ErrCursorFilterMismatch = errors.New("cursor filter has changed between requests")
 
+	// ErrCursorFilterUnmarshalable indicates the filter contains a value that
+	// json.Marshal cannot encode (NaN/Inf floats, channels, functions, cyclic refs,
+	// or a type whose MarshalJSON returned an error). Surfacing this as a typed
+	// error prevents silent hash collisions between distinct bad filters and
+	// signals that the caller is constructing the filter incorrectly.
+	ErrCursorFilterUnmarshalable = errors.New("cursor filter is not JSON-serializable")
+
 	// ErrStorageRequired indicates a server-side cursor was provided but no storage is configured.
 	// This occurs when a client sends a ULID-format cursor but ListCursor was called without
 	// WithListCursorStorage option.

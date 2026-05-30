@@ -25,22 +25,32 @@ func TestComputeFilterHash_StableAcrossMapIteration(t *testing.T) {
 		bson.M{"cooperation_format": int64(3)},
 	}}
 
-	first := computeFilterHash(filter)
+	first, err := computeFilterHash(filter)
+	require.NoError(t, err)
 	for range 1000 {
-		require.Equal(t, first, computeFilterHash(filter),
+		got, err := computeFilterHash(filter)
+		require.NoError(t, err)
+		require.Equal(t, first, got,
 			"same filter must produce the same hash regardless of map iteration order")
 	}
 }
 
 // TestComputeFilterHash_EmptyFilter pins down the empty-filter contract: nil
-// and zero-length bson.M share the same fixed hash, and that hash differs from
-// any non-empty filter (including unmarshalable ones, see the NaN test below).
+// and zero-length bson.M share the same fixed hash, distinct from any
+// non-empty filter.
 func TestComputeFilterHash_EmptyFilter(t *testing.T) {
 	t.Parallel()
 
-	empty := computeFilterHash(bson.M{})
-	require.Equal(t, empty, computeFilterHash(nil))
-	require.NotEqual(t, empty, computeFilterHash(bson.M{"x": 1}))
+	empty, err := computeFilterHash(bson.M{})
+	require.NoError(t, err)
+
+	nilHash, err := computeFilterHash(nil)
+	require.NoError(t, err)
+	require.Equal(t, empty, nilHash)
+
+	other, err := computeFilterHash(bson.M{"x": 1})
+	require.NoError(t, err)
+	require.NotEqual(t, empty, other)
 }
 
 // TestComputeFilterHash_DistinctFiltersDistinctHashes guards against silent
@@ -68,7 +78,9 @@ func TestComputeFilterHash_DistinctFiltersDistinctHashes(t *testing.T) {
 
 	hashes := make(map[string]string, len(cases))
 	for name, filter := range cases {
-		hashes[name] = computeFilterHash(filter)
+		h, err := computeFilterHash(filter)
+		require.NoError(t, err, "case %q", name)
+		hashes[name] = h
 	}
 
 	seen := make(map[string]string, len(hashes))
@@ -93,22 +105,81 @@ func TestComputeFilterHash_DeepNestingStable(t *testing.T) {
 		},
 	}
 
-	first := computeFilterHash(filter)
+	first, err := computeFilterHash(filter)
+	require.NoError(t, err)
 	for range 200 {
-		require.Equal(t, first, computeFilterHash(filter))
+		got, err := computeFilterHash(filter)
+		require.NoError(t, err)
+		require.Equal(t, first, got)
 	}
 }
 
-// TestComputeFilterHash_UnmarshalableFilterIsNotEmpty ensures a filter that
-// json.Marshal cannot encode (NaN float) does NOT collide with the empty-filter
-// hash — otherwise ValidateFilter would accept a mismatched cursor.
-func TestComputeFilterHash_UnmarshalableFilterIsNotEmpty(t *testing.T) {
+// TestComputeFilterHash_UnmarshalableFilterReturnsTypedError verifies that
+// computeFilterHash refuses to hash a filter json.Marshal cannot encode (NaN,
+// here) and surfaces [ErrCursorFilterUnmarshalable]. This is the fail-loud
+// contract that lets callers distinguish a programming error in filter
+// construction from a benign hash mismatch.
+func TestComputeFilterHash_UnmarshalableFilterReturnsTypedError(t *testing.T) {
 	t.Parallel()
 
 	bad := bson.M{"score": math.NaN()}
 
-	require.NotEqual(t, computeFilterHash(bson.M{}), computeFilterHash(bad),
-		"unmarshalable filter must not share the empty-filter hash domain")
-	require.Equal(t, computeFilterHash(bad), computeFilterHash(bad),
-		"unmarshalable filter must still hash deterministically across calls")
+	_, err := computeFilterHash(bad)
+	require.ErrorIs(t, err, ErrCursorFilterUnmarshalable)
+}
+
+// TestComputeFilterHash_DistinctBadFiltersBothFail closes the gap where two
+// different unmarshalable filters could otherwise share the same error-domain
+// hash. With fail-loud semantics, both inputs return [ErrCursorFilterUnmarshalable]
+// and no hash is produced — preventing ValidateFilter from accepting a
+// mismatched cursor.
+func TestComputeFilterHash_DistinctBadFiltersBothFail(t *testing.T) {
+	t.Parallel()
+
+	cases := []bson.M{
+		{"x": math.NaN()},
+		{"y": math.NaN()},
+		{"a": math.Inf(1), "b": math.Inf(-1)},
+		{"nested": bson.M{"deep": math.NaN()}},
+	}
+
+	for _, filter := range cases {
+		_, err := computeFilterHash(filter)
+		require.ErrorIs(t, err, ErrCursorFilterUnmarshalable)
+	}
+}
+
+// TestNewCursorWithMetadata_UnmarshalableFilterPropagatesError verifies the
+// constructor surfaces the typed error to callers rather than embedding a
+// silently-wrong hash in the cursor.
+func TestNewCursorWithMetadata_UnmarshalableFilterPropagatesError(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewCursorWithMetadata(
+		"507f1f77bcf86cd799439011",
+		bson.D{{Key: "created_at", Value: -1}},
+		"_id",
+		bson.M{"score": math.NaN()},
+		nil,
+	)
+	require.ErrorIs(t, err, ErrCursorFilterUnmarshalable)
+}
+
+// TestCursorValidateFilter_UnmarshalableFilterPropagatesError verifies the
+// validator surfaces the typed error so handlers can tell a malformed filter
+// apart from a real mismatch.
+func TestCursorValidateFilter_UnmarshalableFilterPropagatesError(t *testing.T) {
+	t.Parallel()
+
+	cursor, err := NewCursorWithMetadata(
+		"507f1f77bcf86cd799439011",
+		bson.D{{Key: "created_at", Value: -1}},
+		"_id",
+		bson.M{"status": "active"},
+		nil,
+	)
+	require.NoError(t, err)
+
+	err = cursor.ValidateFilter(bson.M{"score": math.NaN()})
+	require.ErrorIs(t, err, ErrCursorFilterUnmarshalable)
 }
