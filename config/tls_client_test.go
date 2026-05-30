@@ -45,3 +45,23 @@ func TestTlsClient_Normalize_SkipVerify_false_unaffected(t *testing.T) {
 
 	assert.False(t, c.SkipVerify)
 }
+
+func TestTlsClient_Normalize_SkipVerifyMode_defaults_to_enforce(t *testing.T) {
+	t.Parallel()
+
+	c := &TlsClient{}
+	c.Normalize()
+
+	assert.Equal(t, TLSSkipVerifyModeEnforce, c.SkipVerifyMode,
+		"empty SkipVerifyMode must default to enforce to match the YAML loader")
+}
+
+func TestTlsClient_Normalize_SkipVerifyMode_preserved(t *testing.T) {
+	t.Parallel()
+
+	c := &TlsClient{SkipVerifyMode: TLSSkipVerifyModeDisabled}
+	c.Normalize()
+
+	assert.Equal(t, TLSSkipVerifyModeDisabled, c.SkipVerifyMode,
+		"an explicit SkipVerifyMode must not be overwritten")
+}

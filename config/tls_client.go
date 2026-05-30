@@ -91,6 +91,10 @@ type TlsClient struct {
 // It attempts to locate certificate and key files using the findFile helper.
 // If SkipVerify is true but the ATLAS_ALLOW_INSECURE_TLS environment variable
 // is not set to "true", SkipVerify is reset to false.
+// An empty SkipVerifyMode is defaulted to the production-safe
+// [TLSSkipVerifyModeEnforce] so programmatic callers that build TlsClient by
+// hand match the YAML loader (which applies the default:"enforce" tag) instead
+// of failing the factory with a confusing empty-mode error.
 // This method should be called after loading configuration.
 func (c *TlsClient) Normalize() {
 	c.Certificate = utils.FindFile(c.Certificate)
@@ -98,6 +102,10 @@ func (c *TlsClient) Normalize() {
 
 	for i, ca := range c.CACerts {
 		c.CACerts[i] = utils.FindFile(ca)
+	}
+
+	if c.SkipVerifyMode == "" {
+		c.SkipVerifyMode = TLSSkipVerifyModeEnforce
 	}
 
 	if c.SkipVerify && !strings.EqualFold(os.Getenv(EnvAllowInsecureTLS), "true") {
