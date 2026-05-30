@@ -59,20 +59,12 @@ func TestLoad_Defaults(t *testing.T) {
 }
 
 func TestLoad_Env(t *testing.T) {
-	os.Setenv("APP_NAME", "env-app")
-	os.Setenv("PORT", "9090")
-	os.Setenv("DEBUG", "true")
-	os.Setenv("TIMEOUT", "10s")
-	os.Setenv("DB_HOST", "db-prod")
+	t.Setenv("APP_NAME", "env-app")
+	t.Setenv("PORT", "9090")
+	t.Setenv("DEBUG", "true")
+	t.Setenv("TIMEOUT", "10s")
+	t.Setenv("DB_HOST", "db-prod")
 	// Array/Slice via env is complex, tested separately or trusted via specific env loader
-
-	defer func() {
-		os.Unsetenv("APP_NAME")
-		os.Unsetenv("PORT")
-		os.Unsetenv("DEBUG")
-		os.Unsetenv("TIMEOUT")
-		os.Unsetenv("DB_HOST")
-	}()
 
 	cfg := &TestConfig{}
 	l := loader.New(nil)
