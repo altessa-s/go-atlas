@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -346,10 +347,10 @@ func (h *Handler) attrForField(name string, field reflect.Value, parentGroups []
 		}
 		return slog.String(name, mask(fmt.Sprint(v)))
 	}
-	// Force a fresh backing array via the three-index slice expression
-	// — recursive walks otherwise share parentGroups' storage and a
-	// sibling branch can overwrite an earlier child's path mid-walk.
-	childGroups := append(parentGroups[:len(parentGroups):len(parentGroups)], name)
+	// slices.Concat allocates a fresh backing array — recursive walks
+	// otherwise share parentGroups' storage and a sibling branch can
+	// overwrite an earlier child's path mid-walk.
+	childGroups := slices.Concat(parentGroups, []string{name})
 	if nested, ok := h.walkAny(field, childGroups, depth+1); ok {
 		return slog.Attr{Key: name, Value: nested}
 	}
