@@ -502,32 +502,42 @@ All algorithms sign the SHA-256 digest of the `.so` file for consistency.
 
 #### Using the CLI tool (recommended)
 
+`plugin-sign` is a verb-style CLI: `keygen` generates a key pair, `sign` signs one or more `.so` files, `verify` checks them. Keys are PKCS#8 PEM
+for the private half and PKIX PEM for the public half — both directly consumable by `sign`/`verify` and by `WithSignature.PublicKeyPath` at
+runtime.
+
 ```bash
 # Install the signing tool
 go install github.com/altessa-s/go-atlas/cmd/plugin-sign@latest
 
-# Generate keys (Ed25519 recommended)
-openssl genpkey -algorithm ed25519 -out private.pem
-openssl pkey -in private.pem -pubout -out public.pem
+# Generate a key pair (Ed25519 recommended; supports also ecdsa | rsa)
+plugin-sign keygen -alg ed25519 -priv-out private.pem -pub-out public.pem
 
-# Sign plugins
-plugin-sign -key private.pem plugin1.so plugin2.so
+# Sign specific plugins
+plugin-sign sign -key private.pem plugin1.so plugin2.so
 
-# Sign all plugins in a directory
-plugin-sign -key private.pem -dir ./plugins
+# Sign every .so in a directory
+plugin-sign sign -key private.pem -dir ./plugins
 
 # Verify signatures
-plugin-sign -verify -pubkey public.pem -dir ./plugins
+plugin-sign verify -pubkey public.pem -dir ./plugins
 ```
 
-#### Manual signing
+`keygen` writes the private key with mode `0600` and the public key with `0644`, and refuses to overwrite existing files unless `-force` is
+passed. RSA defaults to 3072 bits; override with `-rsa-bits` (allowed range 2048–4096). See
+[`cmd/plugin-sign/README.md`](../cmd/plugin-sign/README.md) for the full flag reference and the migration table from the previous flag-only CLI.
+
+#### Manual signing with openssl
+
+When you cannot install `plugin-sign` (locked-down CI image, audit policy that pins to `openssl`), generate keys and signatures with `openssl`
+directly. PKCS#8 / PKIX is the format `plugin-sign verify` and the runtime loader expect.
 
 ```bash
-# Ed25519:
+# Generate Ed25519 keys
 openssl genpkey -algorithm Ed25519 -out plugin-key.pem
 openssl pkey -in plugin-key.pem -pubout -out plugin-key.pub
 
-# Compute SHA-256 and sign:
+# Compute SHA-256 and sign
 openssl dgst -sha256 -binary myplugin.so | \
     openssl pkeyutl -sign -inkey plugin-key.pem -rawin -out myplugin.so.sig
 ```

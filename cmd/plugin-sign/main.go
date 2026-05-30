@@ -2,29 +2,22 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Command plugin-sign creates cryptographic signatures for Go plugins.
+// Command plugin-sign creates and verifies cryptographic signatures for Go plugins,
+// and generates the key pairs used to do so. The CLI is verb-style.
 //
 // Usage:
 //
-//	plugin-sign -key private.pem plugin1.so plugin2.so ...
-//	plugin-sign -key private.pem -dir ./plugins
+//	plugin-sign keygen -alg ed25519 -priv-out private.pem -pub-out public.pem
+//	plugin-sign sign   -key private.pem plugin1.so plugin2.so ...
+//	plugin-sign sign   -key private.pem -dir ./plugins
+//	plugin-sign verify -pubkey public.pem plugin.so
 //
 // The tool creates a .sig file for each plugin containing the raw signature bytes.
 // Supports Ed25519 (recommended), ECDSA P-256, and RSA-PSS algorithms.
 //
-// Generate key pairs:
-//
-//	# Ed25519 (recommended)
-//	openssl genpkey -algorithm ed25519 -out private.pem
-//	openssl pkey -in private.pem -pubout -out public.pem
-//
-//	# ECDSA P-256
-//	openssl ecparam -name prime256v1 -genkey -out private.pem
-//	openssl ec -in private.pem -pubout -out public.pem
-//
-//	# RSA-PSS
-//	openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out private.pem
-//	openssl rsa -in private.pem -pubout -out public.pem
+// Keys produced by `plugin-sign keygen` are PKCS#8 PEM for the private half and
+// PKIX PEM for the public half — both directly consumable by `sign` / `verify`.
+// External tools (e.g. openssl) that emit PKCS#8 / PKIX are also accepted.
 package main
 
 import (
@@ -36,81 +29,96 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-var (
-	keyFile = flag.String("key", "", "Path to private key PEM file (required)")
-	dir     = flag.String("dir", "", "Directory containing .so files to sign")
-	verify  = flag.Bool("verify", false, "Verify signatures instead of creating them")
-	pubKey  = flag.String("pubkey", "", "Path to public key PEM file (for verification)")
-	verbose = flag.Bool("v", false, "Verbose output")
+const (
+	// exitUsageError is the conventional exit code for "user passed bad arguments"
+	// — distinct from the generic exit 1 used by log.Fatal for runtime failures.
+	exitUsageError = 2
+
+	// minArgvLenWithVerb is the minimum len(os.Args) when a verb is present:
+	// argv[0] is the binary name, argv[1] is the verb.
+	minArgvLenWithVerb = 2
 )
 
 func main() {
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: %s [options] [plugin.so ...]\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "\nSigns Go plugin files with cryptographic signatures.\n\n")
-		fmt.Fprintf(os.Stderr, "Options:\n")
-		flag.PrintDefaults()
-		fmt.Fprintf(os.Stderr, "\nExamples:\n")
-		fmt.Fprintf(os.Stderr, "  Sign specific plugins:\n")
-		fmt.Fprintf(os.Stderr, "    %s -key private.pem plugin1.so plugin2.so\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "\n  Sign all plugins in a directory:\n")
-		fmt.Fprintf(os.Stderr, "    %s -key private.pem -dir ./plugins\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "\n  Verify signatures:\n")
-		fmt.Fprintf(os.Stderr, "    %s -verify -pubkey public.pem plugin.so\n", os.Args[0])
+	if len(os.Args) < minArgvLenWithVerb {
+		printUsage(os.Stderr)
+		os.Exit(exitUsageError)
 	}
-	flag.Parse()
+	verb, args := os.Args[1], os.Args[2:]
 
-	if *verify {
-		if err := runVerify(); err != nil {
-			log.Fatal(err)
-		}
+	var err error
+	switch verb {
+	case "sign":
+		err = runSign(args)
+	case "verify":
+		err = runVerify(args)
+	case "keygen":
+		err = runKeygen(args)
+	case "-h", "-help", "--help", "help":
+		printUsage(os.Stdout)
 		return
+	default:
+		_, _ = fmt.Fprintf(os.Stderr, "unknown command %q\n\n", verb)
+		printUsage(os.Stderr)
+		os.Exit(exitUsageError)
 	}
-
-	if err := runSign(); err != nil {
+	if err != nil {
 		log.Fatal(err)
 	}
 }
 
-func runSign() error {
+func printUsage(w io.Writer) {
+	const usageTemplate = `Usage: %[1]s <command> [options] [args...]
+
+Commands:
+  keygen   Generate a signing key pair (ed25519 | ecdsa | rsa)
+  sign     Sign one or more plugin .so files
+  verify   Verify .sig files for one or more plugins
+
+Examples:
+  %[1]s keygen -alg ed25519 -priv-out private.pem -pub-out public.pem
+  %[1]s sign   -key private.pem plugin1.so plugin2.so
+  %[1]s sign   -key private.pem -dir ./plugins
+  %[1]s verify -pubkey public.pem plugin.so
+
+Run '%[1]s <command> -h' to see flags for a specific command.
+`
+	_, _ = fmt.Fprintf(w, usageTemplate, os.Args[0])
+}
+
+func runSign(args []string) error {
+	fs := flag.NewFlagSet("sign", flag.ContinueOnError)
+	keyFile := fs.String("key", "", "Path to private key PEM file (required)")
+	dir := fs.String("dir", "", "Directory containing .so files to sign")
+	verbose := fs.Bool("v", false, "Verbose output")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
 	if *keyFile == "" {
 		return fmt.Errorf("private key file required (-key)")
 	}
 
-	// Load private key
 	key, err := loadPrivateKey(*keyFile)
 	if err != nil {
 		return fmt.Errorf("load private key: %w", err)
 	}
 
-	// Collect .so files to sign
-	var files []string
-	if *dir != "" {
-		entries, err := os.ReadDir(*dir)
-		if err != nil {
-			return fmt.Errorf("read directory %q: %w", *dir, err)
-		}
-		for _, e := range entries {
-			if !e.IsDir() && strings.HasSuffix(e.Name(), ".so") {
-				files = append(files, filepath.Join(*dir, e.Name()))
-			}
-		}
-	}
-	files = append(files, flag.Args()...)
-
-	if len(files) == 0 {
-		return fmt.Errorf("no plugin files specified")
+	files, err := collectPluginFiles(*dir, fs.Args())
+	if err != nil {
+		return err
 	}
 
-	// Sign each file
 	for _, file := range files {
 		if err := signFile(file, key); err != nil {
 			return fmt.Errorf("sign %q: %w", file, err)
@@ -124,37 +132,28 @@ func runSign() error {
 	return nil
 }
 
-func runVerify() error {
-	if *pubKey == "" {
-		return fmt.Errorf("public key file required (-pubkey) for verification")
+func runVerify(args []string) error {
+	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
+	pubKey := fs.String("pubkey", "", "Path to public key PEM file (required)")
+	dir := fs.String("dir", "", "Directory containing .so files to verify")
+	if err := fs.Parse(args); err != nil {
+		return err
 	}
 
-	// Load public key
+	if *pubKey == "" {
+		return fmt.Errorf("public key file required (-pubkey)")
+	}
+
 	key, err := loadPublicKey(*pubKey)
 	if err != nil {
 		return fmt.Errorf("load public key: %w", err)
 	}
 
-	// Collect .so files to verify
-	var files []string
-	if *dir != "" {
-		entries, err := os.ReadDir(*dir)
-		if err != nil {
-			return fmt.Errorf("read directory %q: %w", *dir, err)
-		}
-		for _, e := range entries {
-			if !e.IsDir() && strings.HasSuffix(e.Name(), ".so") {
-				files = append(files, filepath.Join(*dir, e.Name()))
-			}
-		}
-	}
-	files = append(files, flag.Args()...)
-
-	if len(files) == 0 {
-		return fmt.Errorf("no plugin files specified")
+	files, err := collectPluginFiles(*dir, fs.Args())
+	if err != nil {
+		return err
 	}
 
-	// Verify each file
 	var failed int
 	for _, file := range files {
 		if err := verifyFile(file, key); err != nil {
@@ -171,17 +170,34 @@ func runVerify() error {
 	return nil
 }
 
+func collectPluginFiles(dir string, positional []string) ([]string, error) {
+	var files []string
+	if dir != "" {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return nil, fmt.Errorf("read directory %q: %w", dir, err)
+		}
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".so") {
+				files = append(files, filepath.Join(dir, e.Name()))
+			}
+		}
+	}
+	files = append(files, positional...)
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no plugin files specified")
+	}
+	return files, nil
+}
+
 func signFile(path string, key crypto.PrivateKey) error {
-	// Read plugin file
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read file: %w", err)
 	}
 
-	// Compute hash
 	hash := sha256.Sum256(data)
 
-	// Sign based on key type
 	var signature []byte
 	switch k := key.(type) {
 	case ed25519.PrivateKey:
@@ -200,7 +216,6 @@ func signFile(path string, key crypto.PrivateKey) error {
 		return fmt.Errorf("unsupported key type: %T", key)
 	}
 
-	// Write signature file
 	sigPath := path + ".sig"
 	const defaultFileMode = 0o644
 	if err := os.WriteFile(sigPath, signature, defaultFileMode); err != nil {
@@ -211,23 +226,19 @@ func signFile(path string, key crypto.PrivateKey) error {
 }
 
 func verifyFile(path string, key crypto.PublicKey) error {
-	// Read plugin file
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read file: %w", err)
 	}
 
-	// Read signature file
 	sigPath := path + ".sig"
 	signature, err := os.ReadFile(sigPath)
 	if err != nil {
 		return fmt.Errorf("read signature: %w", err)
 	}
 
-	// Compute hash
 	hash := sha256.Sum256(data)
 
-	// Verify based on key type
 	switch k := key.(type) {
 	case ed25519.PublicKey:
 		if !ed25519.Verify(k, hash[:], signature) {
@@ -248,6 +259,12 @@ func verifyFile(path string, key crypto.PublicKey) error {
 	return nil
 }
 
+// loadPrivateKey reads a PEM-encoded private key. It accepts (in order)
+// PKCS#8, PKCS#1 (legacy RSA), SEC1 EC, and a raw 32-byte Ed25519 seed. If
+// none of those work the returned error joins the per-format failure so the
+// caller can see which formats were tried and why each one rejected the
+// input — e.g. an encrypted PKCS#8 PEM surfaces "x509: encrypted private
+// key is not supported" instead of a generic parse error.
 func loadPrivateKey(path string) (crypto.PrivateKey, error) {
 	pemBytes, err := os.ReadFile(path)
 	if err != nil {
@@ -259,27 +276,34 @@ func loadPrivateKey(path string) (crypto.PrivateKey, error) {
 		return nil, fmt.Errorf("no PEM block found")
 	}
 
-	// Try parsing as PKCS8 (works for all key types)
+	var parseErrs []error
+
 	if key, err := x509.ParsePKCS8PrivateKey(block.Bytes); err == nil {
 		return key, nil
+	} else {
+		parseErrs = append(parseErrs, fmt.Errorf("PKCS#8: %w", err))
 	}
 
-	// Try parsing as PKCS1 (RSA only, for legacy keys)
 	if key, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
 		return key, nil
+	} else {
+		parseErrs = append(parseErrs, fmt.Errorf("PKCS#1: %w", err))
 	}
 
-	// Try parsing as EC private key
 	if key, err := x509.ParseECPrivateKey(block.Bytes); err == nil {
 		return key, nil
+	} else {
+		parseErrs = append(parseErrs, fmt.Errorf("SEC1 EC: %w", err))
 	}
 
-	// Try raw Ed25519 seed (32 bytes)
 	if len(block.Bytes) == ed25519.SeedSize {
 		return ed25519.NewKeyFromSeed(block.Bytes), nil
 	}
+	parseErrs = append(parseErrs,
+		fmt.Errorf("raw Ed25519 seed: block is %d bytes, expected %d", len(block.Bytes), ed25519.SeedSize))
 
-	return nil, fmt.Errorf("failed to parse private key")
+	return nil, fmt.Errorf("failed to parse private key (PEM type %q): %w",
+		block.Type, errors.Join(parseErrs...))
 }
 
 func loadPublicKey(path string) (crypto.PublicKey, error) {
