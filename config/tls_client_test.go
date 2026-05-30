@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// Serial: t.Setenv modifies a process-wide env var; t.Parallel panics when Setenv is in use.
 func TestTlsClient_Normalize_SkipVerify_without_env(t *testing.T) {
 	t.Setenv(EnvAllowInsecureTLS, "")
 
@@ -19,6 +20,7 @@ func TestTlsClient_Normalize_SkipVerify_without_env(t *testing.T) {
 	assert.False(t, c.SkipVerify, "SkipVerify must be reset to false without "+EnvAllowInsecureTLS)
 }
 
+// Serial: see TestTlsClient_Normalize_SkipVerify_without_env.
 func TestTlsClient_Normalize_SkipVerify_with_env(t *testing.T) {
 	t.Setenv(EnvAllowInsecureTLS, "true")
 
@@ -28,6 +30,7 @@ func TestTlsClient_Normalize_SkipVerify_with_env(t *testing.T) {
 	assert.True(t, c.SkipVerify, "SkipVerify must remain true when "+EnvAllowInsecureTLS+" is set")
 }
 
+// Serial: see TestTlsClient_Normalize_SkipVerify_without_env.
 func TestTlsClient_Normalize_SkipVerify_with_env_case_insensitive(t *testing.T) {
 	t.Setenv(EnvAllowInsecureTLS, "TRUE")
 
