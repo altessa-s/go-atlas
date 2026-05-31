@@ -52,6 +52,7 @@ import "github.com/altessa-s/go-atlas/data/cache"
 | [`data/locks`](data/locks/) | Distributed locking (NATS) |
 | [`data/meilisearch`](data/meilisearch/) | Meilisearch SDK wrapper with context propagation and sentinel-error classification |
 | [`data/mongo`](data/mongo/) | MongoDB repository patterns, cursor pagination, CSFLE, migrations |
+| [`data/orderby`](data/orderby/) | AIP-132 `order_by` DSL parser with translators for MongoDB, Meilisearch, RediSearch |
 | [`data/outbox`](data/outbox/) | Transactional outbox (MongoDB-backed) |
 | [`data/probfilter`](data/probfilter/) | Bloom and Cuckoo probabilistic filters |
 | [`domain/converter`](domain/converter/) | Generic struct-to-struct conversion with codecs and lazy iterators |
