@@ -87,6 +87,8 @@ data/mongo/factory          # MongoDB factory
 data/mongo/kms              # MongoDB CSFLE/KMS
 data/mongo/kms/factory      # KMS factory
 data/mongo/cursor_storages  # Cursor storage implementations
+data/orderby                # AIP-132 order_by DSL parser
+data/orderby/translators    # Order_by DB translators (Mongo, Meili, RediSearch)
 data/outbox                 # Transactional outbox
 data/outbox/factory         # Outbox factory
 data/probfilter             # Probabilistic filters
