@@ -2,12 +2,16 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package config
+package config_test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/altessa-s/go-atlas/config"
+)
 
 func BenchmarkTlsClientNormalize(b *testing.B) {
-	c := TlsClient{
+	c := config.TlsClient{
 		Certificate: "/tmp/cert.pem",
 		PrivateKey:  "/tmp/key.pem",
 		CACerts:     []string{"/tmp/ca.pem"},
@@ -19,9 +23,9 @@ func BenchmarkTlsClientNormalize(b *testing.B) {
 	}
 }
 
-func BenchmarkTlsClientNormalize_SkipVerifyMode(b *testing.B) {
-	c := TlsClient{
-		SkipVerifyMode: TLSSkipVerifyModeEnforce,
+func BenchmarkTlsClientNormalizeSkipVerifyMode(b *testing.B) {
+	c := config.TlsClient{
+		SkipVerifyMode: config.TLSSkipVerifyModeEnforce,
 	}
 
 	for b.Loop() {
