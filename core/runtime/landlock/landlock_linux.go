@@ -188,7 +188,7 @@ func createRuleset(handledAccessFs uint64) (int, error) {
 	}
 	r1, _, errno := unix.Syscall(
 		unix.SYS_LANDLOCK_CREATE_RULESET,
-		uintptr(unsafe.Pointer(&attr)),
+		uintptr(unsafe.Pointer(&attr)), // #nosec G103 -- required by landlock_create_ruleset(2) ABI; attr lives on the stack for the syscall duration
 		unsafe.Sizeof(attr),
 		0,
 	)
@@ -218,7 +218,7 @@ func addPathRule(rulesetFd int, path string, accessMask uint64) error {
 		unix.SYS_LANDLOCK_ADD_RULE,
 		uintptr(rulesetFd),
 		uintptr(unix.LANDLOCK_RULE_PATH_BENEATH),
-		uintptr(unsafe.Pointer(&attr)),
+		uintptr(unsafe.Pointer(&attr)), // #nosec G103 -- required by landlock_add_rule(2) ABI; attr lives on the stack for the syscall duration
 		0, 0, 0,
 	)
 	if errno != 0 {

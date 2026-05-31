@@ -227,7 +227,7 @@ func install() (retErr error) {
 		unix.SYS_SECCOMP,
 		uintptr(unix.SECCOMP_SET_MODE_FILTER),
 		uintptr(unix.SECCOMP_FILTER_FLAG_TSYNC),
-		uintptr(unsafe.Pointer(&fprog)),
+		uintptr(unsafe.Pointer(&fprog)), // #nosec G103 -- required by seccomp(2) ABI; fprog lives on the stack for the syscall duration
 	)
 	if errno != 0 {
 		return fmt.Errorf("%w: seccomp(SET_MODE_FILTER): %w", ErrFailed, errno)
