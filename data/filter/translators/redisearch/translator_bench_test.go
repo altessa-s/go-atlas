@@ -13,7 +13,7 @@ import (
 
 func BenchmarkTranslate_Simple(b *testing.B) {
 	node := testhelpers.MustParseFilter(b, `status == 1`)
-	trans := NewTranslator(testSchema)
+	trans := mustTranslator(b, testSchema)
 
 	for b.Loop() {
 		_, _ = trans.Translate(node)
@@ -23,7 +23,7 @@ func BenchmarkTranslate_Simple(b *testing.B) {
 func BenchmarkTranslate_Complex(b *testing.B) {
 	node := testhelpers.MustParseFilter(b,
 		`(status == 1 && priority >= 3) && (failures == 0 && age > 10)`)
-	trans := NewTranslator(testSchema)
+	trans := mustTranslator(b, testSchema)
 
 	for b.Loop() {
 		_, _ = trans.Translate(node)
@@ -32,7 +32,7 @@ func BenchmarkTranslate_Complex(b *testing.B) {
 
 func BenchmarkTranslate_FieldMapping(b *testing.B) {
 	node := testhelpers.MustParseFilter(b, `mapped_status == 1`)
-	trans := NewTranslator(
+	trans := mustTranslator(b,
 		map[string]FieldType{"mapped_status": FieldTypeNumeric},
 		filter.WithFieldMapping(map[string]string{"status": "mapped_status"}),
 	)

@@ -8,8 +8,11 @@ import (
 	"fmt"
 	"time"
 
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
+
+//go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=translatorOptions --output=translator_options_gen.go --option-type=TranslatorOption
 
 // DefaultMaxDepth is the default maximum expression nesting depth.
 const DefaultMaxDepth = 20
@@ -71,186 +74,146 @@ func (k FieldKind) String() string {
 	}
 }
 
-// TranslatorConfig holds configuration for translators.
-type TranslatorConfig struct {
-	allowedFields  map[string]struct{}
-	fieldMapping   map[string]string
-	fieldTypes     map[string]FieldKind
-	maxDepth       int
-	maxRegexLen    int
-	maxOperations  int
+// translatorOptions is the optgen target — a private struct that holds
+// the configuration shared by every database translator and the
+// in-memory evaluator. The struct is unexported so callers cannot
+// bypass the constructor; cross-package access happens through the
+// public [TranslatorContext] type alias and the read methods defined on
+// *translatorOptions below.
+//
+// allowedFields, fieldMapping, and fieldTypes are stored as
+// [coremaps.ImmutableMap] — they are built once by [WithAllowedFields]
+// / [WithFieldMapping] / [WithFieldTypes] and only read afterwards,
+// which is precisely the build-once-read-many shape AGENTS.md mandates
+// ImmutableMap for. All three setters are hand-written because optgen
+// cannot express the variadic / map-to-ImmutableMap conversions.
+type translatorOptions struct {
+	allowedFields  *coremaps.ImmutableMap[string, struct{}]  `opt:"-"`
+	fieldMapping   *coremaps.ImmutableMap[string, string]    `opt:"-"`
+	fieldTypes     *coremaps.ImmutableMap[string, FieldKind] `opt:"-"`
+	maxDepth       int                                       `optgen:"default=DefaultMaxDepth" optval:"positive"`
+	maxRegexLength int                                       `optgen:"default=DefaultMaxRegexLength" optval:"positive"`
+	maxOperations  int                                       `optgen:"default=DefaultMaxOperations" optval:"positive"`
 	strictMode     bool
 	untrustedInput bool
 }
 
-// NewTranslatorConfig creates a TranslatorConfig with default values.
-func NewTranslatorConfig() *TranslatorConfig {
-	return &TranslatorConfig{
-		maxDepth:      DefaultMaxDepth,
-		maxRegexLen:   DefaultMaxRegexLength,
-		maxOperations: DefaultMaxOperations,
-		strictMode:    false,
+// TranslatorContext is the public read-side handle that translator
+// subpackages and the in-memory evaluator thread through their
+// Translate / Evaluate calls. It is a type alias for the
+// package-private [translatorOptions] struct, so the read methods are
+// accessible cross-package while the raw fields stay encapsulated. A
+// *TranslatorContext is always the product of a successful
+// [NewTranslatorContext] call — there is no allow-list misconfiguration
+// left to surface at translation time.
+type TranslatorContext = translatorOptions
+
+// NewTranslatorContext builds a [TranslatorContext] with the given
+// options applied and validates the result. It fails with
+// [ErrAllowlistRequired] when [WithUntrustedInput] was set but no
+// non-empty [WithAllowedFields] allow-list was provided — that
+// combination would otherwise silently produce a deny-all translator,
+// which is almost always a configuration bug.
+//
+// Translator constructors call this from their NewTranslator
+// implementations and propagate the error. Misconfiguration therefore
+// surfaces at process start rather than on the first request.
+func NewTranslatorContext(opts ...TranslatorOption) (*TranslatorContext, error) {
+	ctx := newTranslatorOptions(opts...)
+	if err := ctx.requireAllowlist(); err != nil {
+		return nil, err
 	}
+	return ctx, nil
 }
 
-// TranslatorOption configures a translator.
-type TranslatorOption func(*TranslatorConfig)
-
-// WithAllowedFields sets a whitelist of allowed field names.
-// When set, any field not in the list will cause translation to fail.
-// This is a security feature to prevent unauthorized field access.
+// WithAllowedFields sets a whitelist of allowed field names. When set,
+// any field not in the list will cause translation or evaluation to
+// fail with [ErrFieldNotAllowed]. Keys are matched against the
+// CEL-side field name verbatim, so callers configure nested fields
+// exactly as they appear in the DSL ("address.city"). The list is
+// frozen into a [coremaps.ImmutableMap] so lookups are
+// allocation-free and the policy cannot drift after the context is
+// constructed.
 //
 // Example:
 //
-//	trans := mongo.NewTranslator(filter.WithAllowedFields("name", "age", "email"))
+//	trans, err := mongo.NewTranslator(filter.WithAllowedFields("name", "age", "email"))
 func WithAllowedFields(fields ...string) TranslatorOption {
-	return func(c *TranslatorConfig) {
-		c.allowedFields = make(map[string]struct{}, len(fields))
+	return func(o *translatorOptions) {
+		m := make(map[string]struct{}, len(fields))
 		for _, f := range fields {
-			c.allowedFields[f] = struct{}{}
+			m[f] = struct{}{}
 		}
+		o.allowedFields = coremaps.NewImmutableMap(m)
 	}
 }
 
-// WithFieldMapping sets a mapping from CEL field names to database column names.
-// This allows using user-friendly names in CEL while mapping to actual DB columns.
+// WithFieldMapping sets a mapping from CEL field names to database
+// column names. This lets callers expose user-friendly names in the
+// API surface while filtering against the underlying storage
+// representation. The mapping is copied into a
+// [coremaps.ImmutableMap] so subsequent mutations of the caller's map
+// cannot affect a constructed translator.
 //
 // Example:
 //
-//	trans := mongo.NewTranslator(filter.WithFieldMapping(map[string]string{
+//	trans, err := mongo.NewTranslator(filter.WithFieldMapping(map[string]string{
 //	    "userName": "user_name",
 //	    "createdAt": "created_at",
 //	}))
 func WithFieldMapping(mapping map[string]string) TranslatorOption {
-	return func(c *TranslatorConfig) {
-		c.fieldMapping = mapping
+	return func(o *translatorOptions) {
+		o.fieldMapping = coremaps.NewImmutableMap(mapping)
 	}
 }
 
 // WithFieldTypes declares the expected kind for each queryable field.
-// When set, translation fails with [ErrFieldTypeMismatch] for literals whose
-// Go type does not match the declared kind. Fields absent from the map skip
-// the check. Keys are CEL-side field names, the same as [WithAllowedFields].
+// When set, translation or evaluation fails with
+// [ErrFieldTypeMismatch] for literals whose Go type does not match the
+// declared kind. Fields absent from the map skip the check. Keys are
+// CEL-side field names, the same as [WithAllowedFields].
 //
 // Example:
 //
-//	trans := mongo.NewTranslator(filter.WithFieldTypes(map[string]filter.FieldKind{
+//	trans, err := mongo.NewTranslator(filter.WithFieldTypes(map[string]filter.FieldKind{
 //	    "status":    filter.FieldKindInt,
 //	    "createdAt": filter.FieldKindTimestamp,
 //	}))
 func WithFieldTypes(types map[string]FieldKind) TranslatorOption {
-	return func(c *TranslatorConfig) {
-		c.fieldTypes = types
+	return func(o *translatorOptions) {
+		o.fieldTypes = coremaps.NewImmutableMap(types)
 	}
 }
 
-// WithMaxDepth sets the maximum allowed expression nesting depth.
-// This is a DoS protection to prevent deeply nested expressions from
-// consuming excessive resources.
-//
-// Example:
-//
-//	trans := mongo.NewTranslator(filter.WithMaxDepth(10))
-func WithMaxDepth(depth int) TranslatorOption {
-	return func(c *TranslatorConfig) {
-		if depth > 0 {
-			c.maxDepth = depth
-		}
-	}
-}
-
-// WithMaxRegexLength sets the maximum allowed length for regex patterns
-// in matches(). This prevents excessive CPU usage from complex regex evaluation.
-//
-// Example:
-//
-//	eval := filter.NewEvaluator(filter.WithMaxRegexLength(512))
-func WithMaxRegexLength(n int) TranslatorOption {
-	return func(c *TranslatorConfig) {
-		if n > 0 {
-			c.maxRegexLen = n
-		}
-	}
-}
-
-// WithMaxOperations sets the maximum number of AST node visits during
-// evaluation or translation. This prevents DoS via wide expressions
-// (e.g., hundreds of OR-ed conditions at depth 1).
-//
-// Example:
-//
-//	eval := filter.NewEvaluator(filter.WithMaxOperations(500))
-func WithMaxOperations(n int) TranslatorOption {
-	return func(c *TranslatorConfig) {
-		if n > 0 {
-			c.maxOperations = n
-		}
-	}
-}
-
-// WithStrictMode enables strict mode, which causes translation to fail
-// on any unsupported operation rather than ignoring it.
-//
-// Example:
-//
-//	trans := mongo.NewTranslator(filter.WithStrictMode(true))
-func WithStrictMode(strict bool) TranslatorOption {
-	return func(c *TranslatorConfig) {
-		c.strictMode = strict
-	}
-}
-
-// WithUntrustedInput marks the translator/evaluator as receiving CEL
-// expressions from external (untrusted) sources, e.g. an end-user query
-// parameter. With this flag set, [TranslatorConfig.RequireAllowlist] —
-// invoked by every translator's Translate entry point — refuses to proceed
-// unless [WithAllowedFields] is also configured. Without an allowlist a
-// hostile client can filter on any internal field the storage layer
-// happens to index (e.g. `passwordHash > ""` to enumerate accounts), so
-// "no allowlist" plus "untrusted input" is treated as a misconfiguration
-// rather than a permissive default.
-//
-// Example:
-//
-//	trans := mongo.NewTranslator(
-//	    filter.WithUntrustedInput(),
-//	    filter.WithAllowedFields("name", "status", "createdAt"),
-//	)
-func WithUntrustedInput() TranslatorOption {
-	return func(c *TranslatorConfig) {
-		c.untrustedInput = true
-	}
-}
-
-// ApplyFieldMapping applies the field mapping to a field name.
-// Returns the mapped name if found, otherwise returns the original name.
-func (c *TranslatorConfig) ApplyFieldMapping(field string) string {
-	if c.fieldMapping == nil {
+// ApplyFieldMapping applies the field mapping to a field name. Returns
+// the mapped name if found, otherwise returns the original name.
+func (o *translatorOptions) ApplyFieldMapping(field string) string {
+	if o.fieldMapping == nil {
 		return field
 	}
-	if mapped, ok := c.fieldMapping[field]; ok {
+	if mapped, ok := o.fieldMapping.Get(field); ok {
 		return mapped
 	}
 	return field
 }
 
-// IsFieldAllowed checks if a field is allowed.
-// Returns true if no allowlist is set or if the field is in the allowlist.
-func (c *TranslatorConfig) IsFieldAllowed(field string) bool {
-	if c.allowedFields == nil {
+// IsFieldAllowed reports whether a field is allowed. Returns true when
+// no allow-list is configured at all.
+func (o *translatorOptions) IsFieldAllowed(field string) bool {
+	if o.allowedFields == nil {
 		return true
 	}
-	_, ok := c.allowedFields[field]
-	return ok
+	return o.allowedFields.Contains(field)
 }
 
 // FieldKind returns the declared kind for a CEL-side field name, or
 // [FieldKindUnspecified] when the field has no declaration.
-func (c *TranslatorConfig) FieldKind(field string) FieldKind {
-	if c.fieldTypes == nil {
+func (o *translatorOptions) FieldKind(field string) FieldKind {
+	if o.fieldTypes == nil {
 		return FieldKindUnspecified
 	}
-	return c.fieldTypes[field]
+	kind, _ := o.fieldTypes.Get(field)
+	return kind
 }
 
 // CheckLiteralKind verifies that the right-hand side AST node of a
@@ -262,10 +225,10 @@ func (c *TranslatorConfig) FieldKind(field string) FieldKind {
 //
 // CheckLiteralKind operates on one (field, literal) pair. For a generic
 // comparison whose operand order is not known up-front, prefer
-// [TranslatorConfig.CheckComparison] — it inspects both sides and
+// [TranslatorContext.CheckComparison] — it inspects both sides and
 // dispatches to CheckLiteralKind for whichever one is the field.
-func (c *TranslatorConfig) CheckLiteralKind(field string, right Node) error {
-	kind := c.FieldKind(field)
+func (o *translatorOptions) CheckLiteralKind(field string, right Node) error {
+	kind := o.FieldKind(field)
 	if kind == FieldKindUnspecified {
 		return nil
 	}
@@ -301,12 +264,48 @@ func (c *TranslatorConfig) CheckLiteralKind(field string, right Node) error {
 // When neither operand is an IdentNode (literal-on-literal, or
 // function-call results on both sides), CheckComparison is a no-op:
 // there is no schema-bound field to validate against.
-func (c *TranslatorConfig) CheckComparison(left, right Node) error {
+func (o *translatorOptions) CheckComparison(left, right Node) error {
 	if ident, ok := left.(*IdentNode); ok {
-		return c.CheckLiteralKind(ident.Name, right)
+		return o.CheckLiteralKind(ident.Name, right)
 	}
 	if ident, ok := right.(*IdentNode); ok {
-		return c.CheckLiteralKind(ident.Name, left)
+		return o.CheckLiteralKind(ident.Name, left)
+	}
+	return nil
+}
+
+// MaxDepth returns the configured maximum depth.
+func (o *translatorOptions) MaxDepth() int { return o.maxDepth }
+
+// MaxRegexLength returns the configured maximum regex pattern length.
+func (o *translatorOptions) MaxRegexLength() int { return o.maxRegexLength }
+
+// MaxOperations returns the configured maximum number of AST node visits.
+func (o *translatorOptions) MaxOperations() int { return o.maxOperations }
+
+// StrictMode returns whether strict mode is enabled.
+func (o *translatorOptions) StrictMode() bool { return o.strictMode }
+
+// requireAllowlist returns [ErrAllowlistRequired] when the context was
+// marked as receiving untrusted input ([WithUntrustedInput]) but no
+// usable allow-list was configured ([WithAllowedFields]).
+// [NewTranslatorContext] runs this once at construction so the check
+// disappears from the translation hot path — callers never see a
+// misconfigured *TranslatorContext.
+//
+// An empty allow-list (e.g. `WithAllowedFields()` or
+// `WithAllowedFields(slice...)` where the slice happened to be empty)
+// is treated the same as no allow-list at all: the deny-all behavior
+// it would otherwise produce is almost always a configuration bug — a
+// forgotten append, an empty slice from a config loader, a misspelled
+// struct field — and it is more useful to fail loudly than to silently
+// reject every query.
+func (o *translatorOptions) requireAllowlist() error {
+	if !o.untrustedInput {
+		return nil
+	}
+	if o.allowedFields == nil || o.allowedFields.Len() == 0 {
+		return ErrAllowlistRequired
 	}
 	return nil
 }
@@ -385,47 +384,4 @@ func valueKindName(value any) string {
 	default:
 		return fmt.Sprintf("%T", value)
 	}
-}
-
-// RequireAllowlist returns [ErrAllowlistRequired] when the config was
-// marked as receiving untrusted input ([WithUntrustedInput]) but no
-// allowlist was configured ([WithAllowedFields]). Translators and
-// evaluators must call this at the entry point of every translation pass
-// so misconfiguration surfaces on the first untrusted query rather than
-// silently letting the caller filter on arbitrary internal fields.
-func (c *TranslatorConfig) RequireAllowlist() error {
-	if c.untrustedInput && c.allowedFields == nil {
-		return ErrAllowlistRequired
-	}
-	return nil
-}
-
-// MaxDepth returns the configured maximum depth.
-func (c *TranslatorConfig) MaxDepth() int {
-	return c.maxDepth
-}
-
-// MaxRegexLength returns the configured maximum regex pattern length.
-func (c *TranslatorConfig) MaxRegexLength() int {
-	return c.maxRegexLen
-}
-
-// MaxOperations returns the configured maximum number of AST node visits.
-func (c *TranslatorConfig) MaxOperations() int {
-	return c.maxOperations
-}
-
-// StrictMode returns whether strict mode is enabled.
-func (c *TranslatorConfig) StrictMode() bool {
-	return c.strictMode
-}
-
-// SetAllowedFields sets the allowed fields map.
-func (c *TranslatorConfig) SetAllowedFields(fields map[string]struct{}) {
-	c.allowedFields = fields
-}
-
-// SetFieldMapping sets the field mapping.
-func (c *TranslatorConfig) SetFieldMapping(mapping map[string]string) {
-	c.fieldMapping = mapping
 }

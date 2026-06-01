@@ -13,6 +13,17 @@ import (
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
+// mustTranslator builds a translator and fails the test on any
+// construction error. Keeps the success-path tests free of
+// error-wiring noise; tests that exercise construction failures call
+// [NewTranslator] directly.
+func mustTranslator(tb testing.TB, tableVar string, opts ...filter.TranslatorOption) *Translator {
+	tb.Helper()
+	tr, err := NewTranslator(tableVar, opts...)
+	require.NoError(tb, err)
+	return tr
+}
+
 func TestTranslator_BasicComparisons(t *testing.T) {
 	tests := []struct {
 		name string
@@ -71,7 +82,7 @@ func TestTranslator_BasicComparisons(t *testing.T) {
 		},
 	}
 
-	trans := NewTranslator("")
+	trans := mustTranslator(t, "")
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -111,7 +122,7 @@ func TestTranslator_LogicalOperators(t *testing.T) {
 		},
 	}
 
-	trans := NewTranslator("")
+	trans := mustTranslator(t, "")
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -141,7 +152,7 @@ func TestTranslator_NestedFields(t *testing.T) {
 		},
 	}
 
-	trans := NewTranslator("")
+	trans := mustTranslator(t, "")
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -171,7 +182,7 @@ func TestTranslator_InOperator(t *testing.T) {
 		},
 	}
 
-	trans := NewTranslator("")
+	trans := mustTranslator(t, "")
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -206,7 +217,7 @@ func TestTranslator_StringFunctions(t *testing.T) {
 		},
 	}
 
-	trans := NewTranslator("")
+	trans := mustTranslator(t, "")
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -219,7 +230,7 @@ func TestTranslator_StringFunctions(t *testing.T) {
 }
 
 func TestTranslator_UnsupportedOperations(t *testing.T) {
-	trans := NewTranslator("")
+	trans := mustTranslator(t, "")
 
 	node := testhelpers.MustParseFilter(t, `name.matches("^A.*")`)
 	_, err := trans.Translate(node)
@@ -227,7 +238,7 @@ func TestTranslator_UnsupportedOperations(t *testing.T) {
 }
 
 func TestTranslator_HasFunction(t *testing.T) {
-	trans := NewTranslator("")
+	trans := mustTranslator(t, "")
 
 	node := testhelpers.MustParseFilter(t, `has(user.email)`)
 	got, err := trans.Translate(node)
@@ -253,7 +264,7 @@ func TestTranslator_SizeFunction(t *testing.T) {
 		},
 	}
 
-	trans := NewTranslator("")
+	trans := mustTranslator(t, "")
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -266,7 +277,7 @@ func TestTranslator_SizeFunction(t *testing.T) {
 }
 
 func TestTranslator_NilNode(t *testing.T) {
-	trans := NewTranslator("")
+	trans := mustTranslator(t, "")
 
 	got, err := trans.Translate(nil)
 	require.NoError(t, err)
@@ -274,7 +285,7 @@ func TestTranslator_NilNode(t *testing.T) {
 }
 
 func TestTranslator_WithAllowedFields(t *testing.T) {
-	trans := NewTranslator("", filter.WithAllowedFields("name", "age"))
+	trans := mustTranslator(t, "", filter.WithAllowedFields("name", "age"))
 
 	t.Run("allowed field", func(t *testing.T) {
 		node := testhelpers.MustParseFilter(t, `name == "John"`)
@@ -290,7 +301,7 @@ func TestTranslator_WithAllowedFields(t *testing.T) {
 }
 
 func TestTranslator_WithFieldMapping(t *testing.T) {
-	trans := NewTranslator("",
+	trans := mustTranslator(t, "",
 		filter.WithFieldMapping(map[string]string{
 			"userName": "user_name",
 		}),
@@ -303,7 +314,7 @@ func TestTranslator_WithFieldMapping(t *testing.T) {
 }
 
 func TestTranslator_WithMaxDepth(t *testing.T) {
-	trans := NewTranslator("", filter.WithMaxDepth(2))
+	trans := mustTranslator(t, "", filter.WithMaxDepth(2))
 
 	t.Run("within depth", func(t *testing.T) {
 		node := testhelpers.MustParseFilter(t, `a == 1 && b == 2`)
@@ -319,7 +330,7 @@ func TestTranslator_WithMaxDepth(t *testing.T) {
 }
 
 func TestTranslator_CustomTableVar(t *testing.T) {
-	trans := NewTranslator("item")
+	trans := mustTranslator(t, "item")
 
 	node := testhelpers.MustParseFilter(t, `name == "test"`)
 	got, err := trans.Translate(node)
@@ -345,7 +356,7 @@ func TestTranslator_StringEscaping(t *testing.T) {
 		},
 	}
 
-	trans := NewTranslator("")
+	trans := mustTranslator(t, "")
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -375,7 +386,7 @@ func TestTranslator_ComplexExpressions(t *testing.T) {
 		},
 	}
 
-	trans := NewTranslator("")
+	trans := mustTranslator(t, "")
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -388,14 +399,54 @@ func TestTranslator_ComplexExpressions(t *testing.T) {
 }
 
 func TestTranslator_VisitorInterface(t *testing.T) {
-	trans := NewTranslator("")
+	trans := mustTranslator(t, "")
 	var _ filter.Visitor = trans
 }
 
-func TestNewTranslator_DefaultConfig(t *testing.T) {
-	trans := NewTranslator("")
-	require.NotNil(t, trans)
-	require.NotNil(t, trans.config)
-	require.Equal(t, filter.DefaultMaxDepth, trans.config.MaxDepth())
+// TestNewTranslator_DefaultTableVar pins the positional-argument
+// default: an empty tableVar resolves to "d". The MaxDepth default is
+// covered at the canonical level by
+// data/filter::TestTranslatorContext_MaxDepth and is not re-asserted
+// here.
+func TestNewTranslator_DefaultTableVar(t *testing.T) {
+	trans := mustTranslator(t, "")
 	require.Equal(t, "d", trans.tableVar)
+}
+
+// TestNewTranslator_UntrustedInput_RequiresAllowlist locks the contract
+// that misconfiguration is rejected at construction, not at the first
+// Translate call.
+func TestNewTranslator_UntrustedInput_RequiresAllowlist(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewTranslator("row", filter.WithUntrustedInput())
+	require.ErrorIs(t, err, filter.ErrAllowlistRequired)
+
+	_, err = NewTranslator("row",
+		filter.WithUntrustedInput(),
+		filter.WithAllowedFields("name"),
+	)
+	require.NoError(t, err)
+}
+
+// TestNewTranslator_UntrustedInput_EmptyAllowlist guards the
+// misconfiguration path where WithAllowedFields was called with no
+// arguments (or with an empty slice from a config loader). The check
+// has to happen at construction so the bug surfaces during boot, not
+// on the first untrusted query.
+func TestNewTranslator_UntrustedInput_EmptyAllowlist(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewTranslator("row",
+		filter.WithUntrustedInput(),
+		filter.WithAllowedFields(),
+	)
+	require.ErrorIs(t, err, filter.ErrAllowlistRequired)
+
+	var empty []string
+	_, err = NewTranslator("row",
+		filter.WithUntrustedInput(),
+		filter.WithAllowedFields(empty...),
+	)
+	require.ErrorIs(t, err, filter.ErrAllowlistRequired)
 }

@@ -14,7 +14,8 @@ import (
 
 func TestEvaluator_FieldTypes_Match(t *testing.T) {
 	p := newTestParser(t)
-	eval := filter.NewEvaluator(
+	eval := mustEvaluator(t,
+
 		filter.WithFieldTypes(map[string]filter.FieldKind{
 			"status": filter.FieldKindInt,
 			"active": filter.FieldKindBool,
@@ -55,7 +56,8 @@ func TestEvaluator_FieldTypes_Match(t *testing.T) {
 
 func TestEvaluator_FieldTypes_Mismatch(t *testing.T) {
 	p := newTestParser(t)
-	eval := filter.NewEvaluator(
+	eval := mustEvaluator(t,
+
 		filter.WithFieldTypes(map[string]filter.FieldKind{
 			"status": filter.FieldKindInt,
 			"active": filter.FieldKindBool,
@@ -91,7 +93,7 @@ func TestEvaluator_FieldTypes_Mismatch(t *testing.T) {
 
 func TestEvaluator_FieldTypes_NoConfig(t *testing.T) {
 	p := newTestParser(t)
-	eval := filter.NewEvaluator()
+	eval := mustEvaluator(t)
 
 	node, err := p.Parse(t.Context(), `status == "qwer"`)
 	require.NoError(t, err, "Parse")
@@ -110,7 +112,8 @@ func TestEvaluator_FieldTypes_NoConfig(t *testing.T) {
 // literal. The PR-45 review flagged this as a hook reach gap.
 func TestEvaluator_FieldTypes_MirroredComparison(t *testing.T) {
 	p := newTestParser(t)
-	eval := filter.NewEvaluator(
+	eval := mustEvaluator(t,
+
 		filter.WithFieldTypes(map[string]filter.FieldKind{
 			"status": filter.FieldKindInt,
 		}),
@@ -139,7 +142,8 @@ func TestEvaluator_FieldTypes_MirroredComparison(t *testing.T) {
 // gone undetected — these tests pin both the match and mismatch path.
 func TestEvaluator_FieldTypes_BytesAndTimestamp(t *testing.T) {
 	p := newTestParser(t)
-	eval := filter.NewEvaluator(
+	eval := mustEvaluator(t,
+
 		filter.WithFieldTypes(map[string]filter.FieldKind{
 			"createdAt": filter.FieldKindTimestamp,
 		}),
@@ -177,7 +181,8 @@ func TestEvaluator_FieldTypes_BytesAndTimestamp(t *testing.T) {
 // declaration.
 func TestEvaluator_FieldTypes_ErrorMessageIsHumanReadable(t *testing.T) {
 	p := newTestParser(t)
-	eval := filter.NewEvaluator(
+	eval := mustEvaluator(t,
+
 		filter.WithFieldTypes(map[string]filter.FieldKind{
 			"status": filter.FieldKindInt,
 		}),

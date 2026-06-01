@@ -13,6 +13,17 @@ import (
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
+// mustTranslator builds a translator and fails the test on any
+// construction error. Keeps the success-path tests free of
+// error-wiring noise; tests that exercise construction failures call
+// [NewTranslator] directly.
+func mustTranslator(tb testing.TB, opts ...filter.TranslatorOption) *Translator {
+	tb.Helper()
+	tr, err := NewTranslator(opts...)
+	require.NoError(tb, err)
+	return tr
+}
+
 func TestTranslator_BasicComparisons(t *testing.T) {
 	tests := []struct {
 		name string
@@ -30,7 +41,7 @@ func TestTranslator_BasicComparisons(t *testing.T) {
 		{"less than or equal", `age <= 65`, `age <= 65`},
 	}
 
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -75,7 +86,7 @@ func TestTranslator_LogicalOperators(t *testing.T) {
 		},
 	}
 
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -97,7 +108,7 @@ func TestTranslator_NestedFields(t *testing.T) {
 		{"three levels", `user.profile.name == "John"`, `user.profile.name = "John"`},
 	}
 
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -132,7 +143,7 @@ func TestTranslator_InOperator(t *testing.T) {
 		},
 	}
 
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -146,7 +157,7 @@ func TestTranslator_InOperator(t *testing.T) {
 
 func TestTranslator_InOperator_ValueInField_Rejected(t *testing.T) {
 	// `'value' in field` is rejected for parity with the MongoDB translator.
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 	node := testhelpers.MustParseFilter(t, `"units" in dictionaryCodes`)
 	_, err := trans.Translate(node)
 	require.ErrorIs(t, err, filter.ErrInvalidExpression)
@@ -162,7 +173,7 @@ func TestTranslator_StringFunctions(t *testing.T) {
 		{"startsWith", `name.startsWith("J")`, `name STARTS WITH "J"`},
 	}
 
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -175,7 +186,7 @@ func TestTranslator_StringFunctions(t *testing.T) {
 }
 
 func TestTranslator_UnsupportedStringFunctions(t *testing.T) {
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 
 	t.Run("endsWith", func(t *testing.T) {
 		node := testhelpers.MustParseFilter(t, `name.endsWith("x")`)
@@ -193,7 +204,7 @@ func TestTranslator_UnsupportedStringFunctions(t *testing.T) {
 func TestTranslator_HasFunction(t *testing.T) {
 	// CEL's `has()` macro requires a field-selection expression (dotted path),
 	// not a bare identifier — that's a parser-level rule.
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 
 	node := testhelpers.MustParseFilter(t, `has(user.email)`)
 	got, err := trans.Translate(node)
@@ -202,7 +213,7 @@ func TestTranslator_HasFunction(t *testing.T) {
 }
 
 func TestTranslator_SizeFunction_Unsupported(t *testing.T) {
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 
 	t.Run("size equality lhs", func(t *testing.T) {
 		node := testhelpers.MustParseFilter(t, `tags.size() == 3`)
@@ -232,7 +243,7 @@ func TestTranslator_SizeFunction_Unsupported(t *testing.T) {
 func TestTranslator_Timestamp(t *testing.T) {
 	// timestamp() literals are emitted as Unix seconds — Meilisearch filters
 	// numeric attributes only, and sub-second precision is dropped.
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 
 	tests := []struct {
 		name string
@@ -276,7 +287,7 @@ func TestTranslator_NullValue(t *testing.T) {
 		{"is not null", `deleted_at != null`, `deleted_at IS NOT NULL`},
 	}
 
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -289,7 +300,7 @@ func TestTranslator_NullValue(t *testing.T) {
 }
 
 func TestTranslator_NullValue_OrderingUnsupported(t *testing.T) {
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 	node := testhelpers.MustParseFilter(t, `deleted_at > null`)
 	_, err := trans.Translate(node)
 	require.ErrorIs(t, err, filter.ErrUnsupportedOperation)
@@ -318,7 +329,7 @@ func TestTranslator_StringEscaping(t *testing.T) {
 		},
 	}
 
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -331,7 +342,8 @@ func TestTranslator_StringEscaping(t *testing.T) {
 }
 
 func TestTranslator_WithAllowedFields(t *testing.T) {
-	trans := NewTranslator(filter.WithAllowedFields("name", "age"))
+	trans := mustTranslator(t,
+		filter.WithAllowedFields("name", "age"))
 
 	t.Run("allowed", func(t *testing.T) {
 		node := testhelpers.MustParseFilter(t, `name == "John"`)
@@ -346,19 +358,17 @@ func TestTranslator_WithAllowedFields(t *testing.T) {
 	})
 }
 
-func TestTranslator_UntrustedInputRequiresAllowlist(t *testing.T) {
-	trans := NewTranslator(filter.WithUntrustedInput())
-
-	node := testhelpers.MustParseFilter(t, `name == "John"`)
-	_, err := trans.Translate(node)
+func TestNewTranslator_UntrustedInputRequiresAllowlist(t *testing.T) {
+	_, err := NewTranslator(filter.WithUntrustedInput())
 	require.ErrorIs(t, err, filter.ErrAllowlistRequired)
 }
 
 func TestTranslator_WithFieldMapping(t *testing.T) {
-	trans := NewTranslator(filter.WithFieldMapping(map[string]string{
-		"organizationIds": "organization_id",
-		"dictionaryCodes": "dictionary_code",
-	}))
+	trans := mustTranslator(t,
+		filter.WithFieldMapping(map[string]string{
+			"organizationIds": "organization_id",
+			"dictionaryCodes": "dictionary_code",
+		}))
 
 	tests := []struct {
 		name string
@@ -393,7 +403,8 @@ func TestTranslator_WithFieldMapping(t *testing.T) {
 }
 
 func TestTranslator_WithMaxDepth(t *testing.T) {
-	trans := NewTranslator(filter.WithMaxDepth(2))
+	trans := mustTranslator(t,
+		filter.WithMaxDepth(2))
 
 	t.Run("within depth", func(t *testing.T) {
 		node := testhelpers.MustParseFilter(t, `name == "John" && age >= 18`)
@@ -411,7 +422,8 @@ func TestTranslator_WithMaxDepth(t *testing.T) {
 func TestTranslator_RealProtoCases(t *testing.T) {
 	// Cases drawn from
 	// proto/services/grpc/dictionaries/v1/search/dictionaries_search_service.proto.
-	trans := NewTranslator(
+	trans := mustTranslator(t,
+
 		filter.WithAllowedFields("status", "type", "visibility", "organizationIds", "dictionaryCodes"),
 		filter.WithFieldMapping(map[string]string{
 			"organizationIds": "organization_id",
@@ -451,15 +463,8 @@ func TestTranslator_RealProtoCases(t *testing.T) {
 	}
 }
 
-func TestNewTranslator_DefaultConfig(t *testing.T) {
-	trans := NewTranslator()
-	require.NotNil(t, trans)
-	require.NotNil(t, trans.config)
-	require.Equal(t, filter.DefaultMaxDepth, trans.config.MaxDepth())
-}
-
 func TestTranslator_VisitorInterface(t *testing.T) {
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 	var _ filter.Visitor = trans
 }
 

@@ -12,13 +12,16 @@
 //	parser, _ := filter.NewParser()
 //	ast, _ := parser.Parse(ctx, `name == "John" && age >= 18`)
 //
-//	trans := mongo.NewTranslator()
+//	trans, err := mongo.NewTranslator()
+//	if err != nil {
+//	    return err
+//	}
 //	bsonFilter, _ := trans.Translate(ast)
 //	// Result: {"$and": [{"name": "John"}, {"age": {"$gte": 18}}]}
 //
 // # With Options
 //
-//	trans := mongo.NewTranslator(
+//	trans, err := mongo.NewTranslator(
 //	    filter.WithAllowedFields("name", "age", "email"),
 //	    filter.WithFieldMapping(map[string]string{
 //	        "userName": "user_name",

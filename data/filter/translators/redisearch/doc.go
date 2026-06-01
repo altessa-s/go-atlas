@@ -18,13 +18,16 @@
 //	    "status":   redisearch.FieldTypeNumeric,
 //	    "priority": redisearch.FieldTypeNumeric,
 //	}
-//	trans := redisearch.NewTranslator(schema)
+//	trans, err := redisearch.NewTranslator(schema)
+//	if err != nil {
+//	    return err
+//	}
 //	query, _ := trans.Translate(ast)
 //	// Result: "(@status:[1 1] @priority:[3 +inf])"
 //
 // # With Options
 //
-//	trans := redisearch.NewTranslator(schema,
+//	trans, err := redisearch.NewTranslator(schema,
 //	    filter.WithAllowedFields("status", "priority", "id"),
 //	    filter.WithFieldMapping(map[string]string{
 //	        "lastRunAt": "lastRunAt",

@@ -50,35 +50,22 @@ func TestCallNode_Children(t *testing.T) {
 	require.Equal(t, 2, count, "CallNode children count")
 }
 
-func TestTranslatorConfig_MaxDepth(t *testing.T) {
-	cfg := filter.NewTranslatorConfig()
-	filter.WithMaxDepth(5)(cfg)
-	require.Equal(t, 5, cfg.MaxDepth())
+func TestTranslatorContext_MaxDepth(t *testing.T) {
+	ctx, err := filter.NewTranslatorContext(filter.WithMaxDepth(5))
+	require.NoError(t, err)
+	require.Equal(t, 5, ctx.MaxDepth())
 }
 
-func TestTranslatorConfig_StrictMode(t *testing.T) {
-	cfg := filter.NewTranslatorConfig()
-	filter.WithStrictMode(true)(cfg)
-	require.True(t, cfg.StrictMode(), "StrictMode() should be true")
-}
-
-func TestTranslatorConfig_SetAllowedFields(t *testing.T) {
-	cfg := filter.NewTranslatorConfig()
-	cfg.SetAllowedFields(map[string]struct{}{"name": {}, "age": {}})
-	require.True(t, cfg.IsFieldAllowed("name"), "name should be allowed")
-	require.False(t, cfg.IsFieldAllowed("other"), "other should not be allowed")
-}
-
-func TestTranslatorConfig_SetFieldMapping(t *testing.T) {
-	cfg := filter.NewTranslatorConfig()
-	cfg.SetFieldMapping(map[string]string{"name": "full_name"})
-	require.Equal(t, "full_name", cfg.ApplyFieldMapping("name"))
+func TestTranslatorContext_StrictMode(t *testing.T) {
+	ctx, err := filter.NewTranslatorContext(filter.WithStrictMode())
+	require.NoError(t, err)
+	require.True(t, ctx.StrictMode(), "StrictMode() should be true")
 }
 
 func TestEvaluator_NilNotEqual(t *testing.T) {
 	parser, _ := filter.NewParser()
 	node, _ := parser.Parse(t.Context(), "name != null")
-	ev := filter.NewEvaluator()
+	ev := mustEvaluator(t)
 
 	result, err := ev.Evaluate(node, map[string]any{"name": "hello"})
 	require.NoError(t, err)
