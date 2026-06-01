@@ -16,13 +16,12 @@ import (
 
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/service/scheduler"
-	"github.com/altessa-s/go-atlas/service/scheduler/storages/memory"
 
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
 func TestScheduler_Metrics_Noop(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 	ctx := t.Context()
@@ -52,7 +51,7 @@ func TestScheduler_Metrics_Noop(t *testing.T) {
 func TestScheduler_Metrics_TasksRegistered(t *testing.T) {
 	tc := testhelpers.NewTestCollector()
 
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage,
 		scheduler.WithTickInterval(50*time.Millisecond),
 		scheduler.WithCollector(tc),
@@ -89,7 +88,7 @@ func TestScheduler_Metrics_TasksRegistered(t *testing.T) {
 func TestScheduler_Metrics_TaskExecution(t *testing.T) {
 	tc := testhelpers.NewTestCollector()
 
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage,
 		scheduler.WithTickInterval(50*time.Millisecond),
 		scheduler.WithCollector(tc),
@@ -137,7 +136,7 @@ func TestScheduler_Metrics_TaskExecution(t *testing.T) {
 func TestScheduler_Metrics_TaskErrors(t *testing.T) {
 	tc := testhelpers.NewTestCollector()
 
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage,
 		scheduler.WithTickInterval(50*time.Millisecond),
 		scheduler.WithCollector(tc),

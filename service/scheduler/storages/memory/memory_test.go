@@ -15,6 +15,14 @@ import (
 	"github.com/altessa-s/go-atlas/service/scheduler/storages/memory"
 )
 
+// mustNew builds a Storage and fails the test on construction error.
+func mustNew(tb testing.TB, maxHistoryPerTask int) *memory.Storage {
+	tb.Helper()
+	s, err := memory.New(maxHistoryPerTask)
+	require.NoError(tb, err)
+	return s
+}
+
 func TestNew_DefaultMaxHistory(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -27,14 +35,14 @@ func TestNew_DefaultMaxHistory(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := memory.New(tt.input)
+			s := mustNew(t, tt.input)
 			assert.NotNil(t, s)
 		})
 	}
 }
 
 func TestStorage_GetTask_NotFound(t *testing.T) {
-	s := memory.New(100)
+	s := mustNew(t, 100)
 	ctx := t.Context()
 
 	state, err := s.GetTask(ctx, "nonexistent")
@@ -43,7 +51,7 @@ func TestStorage_GetTask_NotFound(t *testing.T) {
 }
 
 func TestStorage_UpsertAndGetTask(t *testing.T) {
-	s := memory.New(100)
+	s := mustNew(t, 100)
 	ctx := t.Context()
 
 	state := &scheduler.TaskState{
@@ -71,7 +79,7 @@ func TestStorage_UpsertAndGetTask(t *testing.T) {
 }
 
 func TestStorage_UpsertTask_Update(t *testing.T) {
-	s := memory.New(100)
+	s := mustNew(t, 100)
 	ctx := t.Context()
 
 	state := &scheduler.TaskState{TaskSummary: scheduler.TaskSummary{ID: "task-1", Status: scheduler.TaskStatusActive}}
@@ -85,7 +93,7 @@ func TestStorage_UpsertTask_Update(t *testing.T) {
 }
 
 func TestStorage_DeleteTask(t *testing.T) {
-	s := memory.New(100)
+	s := mustNew(t, 100)
 	ctx := t.Context()
 
 	_ = s.UpsertTask(ctx, &scheduler.TaskState{TaskSummary: scheduler.TaskSummary{ID: "task-1", Status: scheduler.TaskStatusActive}})
@@ -106,7 +114,7 @@ func TestStorage_DeleteTask(t *testing.T) {
 }
 
 func TestStorage_Tasks_SortedByID(t *testing.T) {
-	s := memory.New(100)
+	s := mustNew(t, 100)
 	ctx := t.Context()
 
 	_ = s.UpsertTask(ctx, &scheduler.TaskState{TaskSummary: scheduler.TaskSummary{ID: "c-task"}})
@@ -123,7 +131,7 @@ func TestStorage_Tasks_SortedByID(t *testing.T) {
 }
 
 func TestStorage_AddHistory_TrimOverLimit(t *testing.T) {
-	s := memory.New(3) // limit 3
+	s := mustNew(t, 3) // limit 3
 	ctx := t.Context()
 
 	for i := range 5 {
@@ -142,7 +150,7 @@ func TestStorage_AddHistory_TrimOverLimit(t *testing.T) {
 }
 
 func TestStorage_History_SortedDescending(t *testing.T) {
-	s := memory.New(100)
+	s := mustNew(t, 100)
 	ctx := t.Context()
 
 	for i := range 5 {
@@ -162,7 +170,7 @@ func TestStorage_History_SortedDescending(t *testing.T) {
 }
 
 func TestStorage_History_Empty(t *testing.T) {
-	s := memory.New(100)
+	s := mustNew(t, 100)
 	ctx := t.Context()
 
 	count := 0
@@ -173,7 +181,7 @@ func TestStorage_History_Empty(t *testing.T) {
 }
 
 func TestStorage_CleanupHistory(t *testing.T) {
-	s := memory.New(100)
+	s := mustNew(t, 100)
 	ctx := t.Context()
 
 	now := time.Now()
@@ -198,14 +206,14 @@ func TestStorage_CleanupHistory(t *testing.T) {
 }
 
 func TestStorage_DeleteTask_Nonexistent(t *testing.T) {
-	s := memory.New(100)
+	s := mustNew(t, 100)
 	// Should not error
 	err := s.DeleteTask(t.Context(), "nonexistent")
 	assert.NoError(t, err)
 }
 
 func TestStorage_TasksPaginated(t *testing.T) {
-	s := memory.New(100)
+	s := mustNew(t, 100)
 	ctx := t.Context()
 
 	// Insert 5 tasks
@@ -236,14 +244,14 @@ func TestStorage_TasksPaginated(t *testing.T) {
 }
 
 func TestStorage_TasksPaginated_Empty(t *testing.T) {
-	s := memory.New(100)
+	s := mustNew(t, 100)
 	result, err := s.TasksPaginated(t.Context(), scheduler.Pagination{Limit: 10}, nil)
 	require.NoError(t, err)
 	assert.Empty(t, result)
 }
 
 func TestStorage_HistoryPaginated(t *testing.T) {
-	s := memory.New(100)
+	s := mustNew(t, 100)
 	ctx := t.Context()
 
 	// Add 5 history entries with distinct StartedAt values
@@ -276,7 +284,7 @@ func TestStorage_HistoryPaginated(t *testing.T) {
 }
 
 func TestStorage_HistoryPaginated_Empty(t *testing.T) {
-	s := memory.New(100)
+	s := mustNew(t, 100)
 	result, err := s.HistoryPaginated(t.Context(), "nonexistent", scheduler.HistoryPagination{Pagination: scheduler.Pagination{Limit: 10}}, nil)
 	require.NoError(t, err)
 	assert.Empty(t, result)

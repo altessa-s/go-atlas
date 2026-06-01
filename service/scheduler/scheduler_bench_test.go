@@ -10,13 +10,12 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/service/scheduler"
-	"github.com/altessa-s/go-atlas/service/scheduler/storages/memory"
 
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
 func BenchmarkScheduler_New(b *testing.B) {
-	storage := memory.New(100)
+	storage := mustNewMemory(b, 100)
 	b.ResetTimer()
 	for b.Loop() {
 		_ = scheduler.New(storage, scheduler.WithTickInterval(time.Second))
@@ -24,7 +23,7 @@ func BenchmarkScheduler_New(b *testing.B) {
 }
 
 func BenchmarkScheduler_Register(b *testing.B) {
-	storage := memory.New(100)
+	storage := mustNewMemory(b, 100)
 	s := scheduler.New(storage, scheduler.WithTickInterval(time.Hour))
 	ctx := b.Context()
 	if err := s.Start(ctx); err != nil {
@@ -47,7 +46,7 @@ func BenchmarkScheduler_Register(b *testing.B) {
 }
 
 func BenchmarkMemoryStorage_UpsertTask(b *testing.B) {
-	storage := memory.New(100)
+	storage := mustNewMemory(b, 100)
 	ctx := b.Context()
 	state := &scheduler.TaskState{
 		TaskSummary: scheduler.TaskSummary{
@@ -64,7 +63,7 @@ func BenchmarkMemoryStorage_UpsertTask(b *testing.B) {
 }
 
 func BenchmarkMemoryStorage_GetTask(b *testing.B) {
-	storage := memory.New(100)
+	storage := mustNewMemory(b, 100)
 	ctx := b.Context()
 	_ = storage.UpsertTask(ctx, &scheduler.TaskState{
 		TaskSummary: scheduler.TaskSummary{
@@ -81,7 +80,7 @@ func BenchmarkMemoryStorage_GetTask(b *testing.B) {
 }
 
 func BenchmarkMemoryStorage_AddHistory(b *testing.B) {
-	storage := memory.New(1000)
+	storage := mustNewMemory(b, 1000)
 	ctx := b.Context()
 
 	b.ResetTimer()
@@ -97,7 +96,7 @@ func BenchmarkMemoryStorage_AddHistory(b *testing.B) {
 }
 
 func BenchmarkMemoryStorage_Tasks(b *testing.B) {
-	storage := memory.New(100)
+	storage := mustNewMemory(b, 100)
 	ctx := b.Context()
 	for i := range 100 {
 		_ = storage.UpsertTask(ctx, &scheduler.TaskState{

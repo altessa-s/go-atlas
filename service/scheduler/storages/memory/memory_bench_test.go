@@ -9,11 +9,10 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/service/scheduler"
-	"github.com/altessa-s/go-atlas/service/scheduler/storages/memory"
 )
 
 func BenchmarkStorage_UpsertTask(b *testing.B) {
-	s := memory.New(100)
+	s := mustNew(b, 100)
 	ctx := b.Context()
 	state := &scheduler.TaskState{
 		TaskSummary: scheduler.TaskSummary{
@@ -30,7 +29,7 @@ func BenchmarkStorage_UpsertTask(b *testing.B) {
 }
 
 func BenchmarkStorage_GetTask(b *testing.B) {
-	s := memory.New(100)
+	s := mustNew(b, 100)
 	ctx := b.Context()
 	_ = s.UpsertTask(ctx, &scheduler.TaskState{
 		TaskSummary: scheduler.TaskSummary{
@@ -47,7 +46,7 @@ func BenchmarkStorage_GetTask(b *testing.B) {
 }
 
 func BenchmarkStorage_AddHistory(b *testing.B) {
-	s := memory.New(10000)
+	s := mustNew(b, 10000)
 	ctx := b.Context()
 
 	b.ResetTimer()
@@ -62,7 +61,7 @@ func BenchmarkStorage_AddHistory(b *testing.B) {
 }
 
 func BenchmarkStorage_Tasks(b *testing.B) {
-	s := memory.New(100)
+	s := mustNew(b, 100)
 	ctx := b.Context()
 	for i := range 50 {
 		_ = s.UpsertTask(ctx, &scheduler.TaskState{
@@ -82,7 +81,7 @@ func BenchmarkStorage_Tasks(b *testing.B) {
 }
 
 func BenchmarkStorage_History(b *testing.B) {
-	s := memory.New(1000)
+	s := mustNew(b, 1000)
 	ctx := b.Context()
 	for i := range 100 {
 		_ = s.AddHistory(ctx, &scheduler.TaskHistory{
@@ -100,7 +99,7 @@ func BenchmarkStorage_History(b *testing.B) {
 }
 
 func BenchmarkStorage_CleanupHistory(b *testing.B) {
-	s := memory.New(1000)
+	s := mustNew(b, 1000)
 	ctx := b.Context()
 	now := time.Now()
 	for i := range 100 {

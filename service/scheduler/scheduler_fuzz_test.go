@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/service/scheduler"
-	"github.com/altessa-s/go-atlas/service/scheduler/storages/memory"
 
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
@@ -25,7 +24,7 @@ func FuzzScheduler_Register(f *testing.F) {
 	f.Add("task", "0 */5 * * * *", "every 5 min")
 
 	f.Fuzz(func(t *testing.T, id, schedule, description string) {
-		storage := memory.New(10)
+		storage := mustNewMemory(t, 10)
 		s := scheduler.New(storage, scheduler.WithTickInterval(time.Hour))
 		ctx := t.Context()
 		require.NoError(t, s.Start(ctx))
@@ -51,7 +50,7 @@ func FuzzMemoryStorage_UpsertAndGet(f *testing.F) {
 	f.Add("task-xyz", "0 0 * * * *", int32(3))
 
 	f.Fuzz(func(t *testing.T, id, schedule string, status int32) {
-		storage := memory.New(10)
+		storage := mustNewMemory(t, 10)
 		ctx := t.Context()
 
 		state := &scheduler.TaskState{
