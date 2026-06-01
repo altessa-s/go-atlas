@@ -11,9 +11,8 @@ Production-ready Go building blocks for distributed systems — transport, cachi
 
 ## Overview
 
-go-atlas is a modular Go toolkit for building production-grade distributed services. It provides a composable set of packages — each usable
-independently — covering transport (HTTP, gRPC, NATS), caching, observability, authentication, secret management, configuration, and domain
-utilities.
+go-atlas is a modular Go toolkit for distributed services. Each package is usable on its own and covers one concern: transport (HTTP, gRPC, NATS),
+caching, observability, authentication, secret management, configuration, and domain utilities.
 
 Every major component is defined by an interface, implementations are injected via functional options, and unset dependencies default to safe
 no-ops. Import only what you need — there is no framework bootstrap or global state.

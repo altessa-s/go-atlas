@@ -210,14 +210,14 @@ if err := fieldbehavior.StripResponse(resp, fieldbehavior.WithStrict()); err != 
 // Still call StripResponse without WithStrict afterward to actually clear them.
 ```
 
-`strict + clear` is two calls — there is no single-pass "report and clear" mode by design. Strict makes the message untouched so the caller can decide
-to reject the request before any business logic runs against partially-cleared data.
+`strict + clear` is two calls — there is no single-pass "report and clear" mode by design. Strict leaves the message untouched so the caller can reject
+the request before any business logic runs against partially-cleared data.
 
 ---
 
 ## Wiring into gRPC
 
-A reusable interceptor pattern (out of scope for the package itself, but trivial to write):
+A reusable interceptor pattern (out of scope for the package — wire it up in your gRPC layer):
 
 ```go
 // stripInterceptor sanitises every Create/Update request body before the
@@ -249,8 +249,8 @@ func stripInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, 
 }
 ```
 
-A productionised interceptor that handles the method-name → strip-kind mapping automatically (e.g. by reading `google.api.method_signature` or matching
-the AIP naming conventions) is on the roadmap.
+If you want the method-name → strip-kind mapping to happen automatically — driven by `google.api.method_signature` or the AIP naming conventions —
+that lives in your application's interceptor stack, not here.
 
 ---
 
@@ -269,7 +269,7 @@ BenchmarkStripCreateEmpty-14        44 µs/op        840 B/op       20 allocs/op
 Notes:
 
 * `StripCreate` is heavier on the first iteration because it clears nested message subtrees, which forces `protoreflect.Mutable` allocations on each
-  child. Steady-state numbers (after JIT/cache warmup, `go test -bench -benchtime=10s`) settle 5–10× lower.
+  child. Steady-state numbers (`go test -bench -benchtime=10s`, once the descriptor caches are warm) settle 5–10× lower.
 * The empty-resource benchmark isolates the descriptor walk: ~44 µs is the floor for a Resource with ~30 fields and no work to do.
 * Strict mode is *faster* than mutation in this fixture because it skips the `protoreflect.Mutable` allocations and only appends to a slice.
 
