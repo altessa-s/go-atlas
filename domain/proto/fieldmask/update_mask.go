@@ -7,6 +7,8 @@ package fieldmask
 import (
 	"strings"
 
+	"github.com/altessa-s/go-atlas/domain/proto/internal/behavior"
+
 	"google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -239,19 +241,12 @@ func (msk FieldMask) setDefaultsForUnsetFields(msg proto.Message) {
 	}
 }
 
-// getFieldBehavior reads the google.api.field_behavior annotation from a field descriptor.
+// getFieldBehavior collapses the google.api.field_behavior annotation list of
+// fd into the single fieldBehavior value that governs update-mask semantics.
+// INPUT_ONLY, UNORDERED_LIST and NON_EMPTY_DEFAULT have no update-mask meaning
+// and are reported as fieldBehaviorOptional.
 func getFieldBehavior(fd protoreflect.FieldDescriptor) fieldBehavior {
-	opts := fd.Options()
-	if opts == nil {
-		return fieldBehaviorOptional
-	}
-
-	behaviors, ok := proto.GetExtension(opts, annotations.E_FieldBehavior).([]annotations.FieldBehavior)
-	if !ok {
-		return fieldBehaviorOptional
-	}
-
-	for _, b := range behaviors {
+	for _, b := range behavior.Get(fd) {
 		switch b { //nolint:exhaustive // INPUT_ONLY, UNORDERED_LIST, NON_EMPTY_DEFAULT have no update-mask semantics.
 		case annotations.FieldBehavior_REQUIRED:
 			return fieldBehaviorRequired
