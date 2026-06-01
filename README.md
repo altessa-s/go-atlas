@@ -58,7 +58,7 @@ import "github.com/altessa-s/go-atlas/data/cache"
 | [`domain/converter`](domain/converter/) | Generic struct-to-struct conversion with codecs and lazy iterators |
 | [`domain/fieldtracker`](domain/fieldtracker/) | Struct field change tracking |
 | [`domain/normalizer`](domain/normalizer/) | Tag-driven data normalization with pluggable modifiers |
-| [`domain/proto`](domain/proto/) | Protobuf field mask utilities |
+| [`domain/proto`](domain/proto/) | Protobuf field mask and `field_behavior`-driven payload sanitisation |
 | [`domain/validation`](domain/validation/) | ISO 7064 MOD 11-10 check-digit computation and validation |
 | [`infrastructure/meilisearch`](infrastructure/meilisearch/) | Meilisearch client setup and lifecycle |
 | [`infrastructure/mongo`](infrastructure/mongo/) | MongoDB client setup and lifecycle |
@@ -101,6 +101,7 @@ import "github.com/altessa-s/go-atlas/data/cache"
 | [Plugins](docs/plugins.md) | Dynamic plugin loading, signature verification, sandboxing |
 | [Proxy](docs/proxy.md) | Outbound HTTP/gRPC proxy: YAML modes, wiring, TLS to proxy |
 | [Metrics Reference](docs/metrics.md) | All 129 Prometheus metrics across 24 subsystems |
+| [Field Behavior](docs/domain/proto/fieldbehavior.md) | Strip `google.api.field_behavior` fields (OUTPUT_ONLY / IDENTIFIER / IMMUTABLE / INPUT_ONLY) from Create / Update / Response payloads |
 
 Full API documentation is available at [pkg.go.dev](https://pkg.go.dev/github.com/altessa-s/go-atlas).
 

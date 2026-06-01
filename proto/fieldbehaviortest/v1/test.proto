@@ -1,0 +1,80 @@
+// Copyright 2026 Altessa Solutions Inc. All rights reserved.
+// Use of this source code is governed by license that can be found in
+// the LICENSE file.
+
+syntax = "proto3";
+package fieldbehaviortest.v1;
+
+option java_package = "io.altessa.grpc.fieldbehaviortest.v1";
+option java_multiple_files = true;
+option go_package = "github.com/altessa-s/go-atlas/proto/gen/fieldbehaviortest/v1;fieldbehaviortestv1";
+
+import "google/api/field_behavior.proto";
+
+// Resource exercises every google.api.field_behavior value plus a few fields
+// without annotations. It is consumed by the fieldbehavior and
+// internal/behavior test suites under domain/proto.
+message Resource {
+  // IDENTIFIER: server-minted ID. Stripped from Create and Update payloads.
+  string id = 1 [(google.api.field_behavior) = IDENTIFIER];
+
+  // REQUIRED: caller must supply on writes. Never stripped.
+  string name = 2 [(google.api.field_behavior) = REQUIRED];
+
+  // IMMUTABLE: set on Create, cannot be modified on Update.
+  string tenant_id = 3 [(google.api.field_behavior) = IMMUTABLE];
+
+  // OUTPUT_ONLY: server-managed; stripped from request payloads.
+  string create_time = 4 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // INPUT_ONLY: accepted on input, stripped from response payloads.
+  string password = 5 [(google.api.field_behavior) = INPUT_ONLY];
+
+  // No annotation: plain field, never stripped.
+  string description = 6;
+
+  // Nested message without annotation: traversed recursively.
+  Profile profile = 7;
+
+  // Nested message with OUTPUT_ONLY: cleared as a whole, not traversed.
+  Profile audit = 8 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Repeated of messages: traversed per element.
+  repeated Profile aliases = 9;
+
+  // Map<string, Message>: traversed per value.
+  map<string, Profile> labels = 10;
+
+  // Repeated with field-level OUTPUT_ONLY: entire list cleared.
+  repeated string tags = 11 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Map with field-level OUTPUT_ONLY: entire map cleared.
+  map<string, string> server_meta = 12 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Oneof with INPUT_ONLY on the secret variant.
+  oneof source {
+    string source_url = 20;
+    string source_token = 21 [(google.api.field_behavior) = INPUT_ONLY];
+  }
+
+  // Field with multiple behaviors (REQUIRED + IMMUTABLE).
+  string slug = 30 [
+    (google.api.field_behavior) = REQUIRED,
+    (google.api.field_behavior) = IMMUTABLE
+  ];
+}
+
+// Profile is a nested message with its own field_behavior annotations.
+message Profile {
+  // Nested IDENTIFIER (e.g. profile.id is server-set).
+  string id = 1 [(google.api.field_behavior) = IDENTIFIER];
+
+  // No annotation.
+  string display_name = 2;
+
+  // Nested OUTPUT_ONLY.
+  string updated_at = 3 [(google.api.field_behavior) = OUTPUT_ONLY];
+
+  // Nested INPUT_ONLY (e.g. an auth token).
+  string secret = 4 [(google.api.field_behavior) = INPUT_ONLY];
+}
