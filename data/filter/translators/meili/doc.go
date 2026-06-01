@@ -14,13 +14,16 @@
 //	parser, _ := filter.NewParser()
 //	ast, _ := parser.Parse(ctx, `status == 2 && type in [1, 2]`)
 //
-//	trans := meili.NewTranslator()
+//	trans, err := meili.NewTranslator()
+//	if err != nil {
+//	    return err
+//	}
 //	expr, _ := trans.Translate(ast)
 //	// Result: (status = 2) AND (type IN [1, 2])
 //
 // # With Options
 //
-//	trans := meili.NewTranslator(
+//	trans, err := meili.NewTranslator(
 //	    filter.WithUntrustedInput(),
 //	    filter.WithAllowedFields("status", "type", "organizationIds"),
 //	    filter.WithFieldMapping(map[string]string{

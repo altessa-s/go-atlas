@@ -22,7 +22,7 @@ import (
 // expressions, a few mismatch expressions, asserts
 // ErrFieldTypeMismatch via errors.Is.
 func TestTranslator_WithFieldTypes(t *testing.T) {
-	trans := NewTranslator("d", filter.WithFieldTypes(map[string]filter.FieldKind{
+	trans := mustTranslator(t, "d", filter.WithFieldTypes(map[string]filter.FieldKind{
 		"status":    filter.FieldKindInt,
 		"active":    filter.FieldKindBool,
 		"name":      filter.FieldKindString,

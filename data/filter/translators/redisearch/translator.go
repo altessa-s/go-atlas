@@ -51,27 +51,29 @@ var tagEscaper = strings.NewReplacer(
 
 // Translator converts filter AST nodes to RediSearch query strings.
 type Translator struct {
-	config *filter.TranslatorConfig
+	config *filter.TranslatorContext
 	schema map[string]FieldType
 	depth  int
 }
 
-// NewTranslator creates a new RediSearch translator with the given schema and options.
-// The schema maps field names (after field mapping is applied) to their RediSearch types.
-func NewTranslator(schema map[string]FieldType, opts ...filter.TranslatorOption) *Translator {
-	cfg := filter.NewTranslatorConfig()
-	for _, opt := range opts {
-		opt(cfg)
+// NewTranslator creates a new RediSearch translator with the given
+// schema and options. The schema maps field names (after field mapping
+// is applied) to their RediSearch types. Returns
+// [filter.ErrAllowlistRequired] when [filter.WithUntrustedInput] is set
+// without a non-empty [filter.WithAllowedFields] — the
+// misconfiguration is surfaced here rather than on the first Translate
+// call.
+func NewTranslator(schema map[string]FieldType, opts ...filter.TranslatorOption) (*Translator, error) {
+	ctx, err := filter.NewTranslatorContext(opts...)
+	if err != nil {
+		return nil, err
 	}
-	return &Translator{config: cfg, schema: schema}
+	return &Translator{config: ctx, schema: schema}, nil
 }
 
 // Translate converts a filter AST node to a RediSearch query string.
 // Returns "*" for a nil node (match all).
 func (t *Translator) Translate(node filter.Node) (string, error) {
-	if err := t.config.RequireAllowlist(); err != nil {
-		return "", err
-	}
 	if node == nil {
 		return "*", nil
 	}

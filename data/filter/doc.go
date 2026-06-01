@@ -53,7 +53,10 @@
 //	}
 //
 //	// Create a MongoDB translator
-//	trans := mongo.NewTranslator()
+//	trans, err := mongo.NewTranslator()
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
 //
 //	// Translate to bson.M
 //	bsonFilter, err := trans.Translate(ast)
@@ -64,10 +67,22 @@
 //
 // # Security Features
 //
-// Field Allowlist - restrict which fields can be queried:
+// Field Allowlist - restrict which fields can be queried. Keys are the
+// CEL-side names, identical to what appears in [WithFieldMapping]:
 //
-//	trans := mongo.NewTranslator(
+//	trans, err := mongo.NewTranslator(
 //	    filter.WithAllowedFields("name", "age", "email"),
+//	)
+//
+// Untrusted Input - mark the translator as receiving CEL expressions
+// from external sources. The combination of [WithUntrustedInput] and a
+// missing or empty [WithAllowedFields] is rejected at construction with
+// [ErrAllowlistRequired], so misconfiguration surfaces at process start
+// rather than on the first untrusted query:
+//
+//	trans, err := mongo.NewTranslator(
+//	    filter.WithUntrustedInput(),
+//	    filter.WithAllowedFields("name", "status", "createdAt"),
 //	)
 //
 // Function Allowlist - restrict which CEL functions can be called.
@@ -82,7 +97,7 @@
 //
 // Depth Limit - protect against DoS via deeply nested expressions:
 //
-//	trans := mongo.NewTranslator(
+//	trans, err := mongo.NewTranslator(
 //	    filter.WithMaxDepth(10),
 //	)
 //
@@ -90,7 +105,7 @@
 //
 // Map CEL field names to database column names:
 //
-//	trans := mongo.NewTranslator(
+//	trans, err := mongo.NewTranslator(
 //	    filter.WithFieldMapping(map[string]string{
 //	        "userName":  "user_name",
 //	        "createdAt": "created_at",

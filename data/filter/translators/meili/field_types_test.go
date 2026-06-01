@@ -19,7 +19,7 @@ import (
 // per-backend coverage so a future regression cannot delete it
 // silently.
 func TestTranslator_WithFieldTypes(t *testing.T) {
-	trans := NewTranslator(filter.WithFieldTypes(map[string]filter.FieldKind{
+	trans := mustTranslator(t, filter.WithFieldTypes(map[string]filter.FieldKind{
 		"status":    filter.FieldKindInt,
 		"active":    filter.FieldKindBool,
 		"name":      filter.FieldKindString,

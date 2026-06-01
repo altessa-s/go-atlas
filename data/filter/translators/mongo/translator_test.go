@@ -20,6 +20,17 @@ func bsonToJSON(m bson.M) string {
 	return string(b)
 }
 
+// mustTranslator builds a translator and fails the test on any
+// construction error. Keeps the success-path tests free of
+// error-wiring noise; tests that exercise construction failures call
+// [NewTranslator] directly.
+func mustTranslator(tb testing.TB, opts ...filter.TranslatorOption) *Translator {
+	tb.Helper()
+	tr, err := NewTranslator(opts...)
+	require.NoError(tb, err)
+	return tr
+}
+
 func TestTranslator_BasicComparisons(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -68,7 +79,7 @@ func TestTranslator_BasicComparisons(t *testing.T) {
 		},
 	}
 
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -104,7 +115,7 @@ func TestTranslator_LogicalOperators(t *testing.T) {
 		},
 	}
 
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -135,7 +146,7 @@ func TestTranslator_NestedFields(t *testing.T) {
 		},
 	}
 
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -166,7 +177,7 @@ func TestTranslator_InOperator(t *testing.T) {
 		},
 	}
 
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -212,7 +223,7 @@ func TestTranslator_StringFunctions(t *testing.T) {
 		},
 	}
 
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -226,7 +237,7 @@ func TestTranslator_StringFunctions(t *testing.T) {
 }
 
 func TestTranslator_MatchesRegexValidation(t *testing.T) {
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 
 	t.Run("valid regex", func(t *testing.T) {
 		node := testhelpers.MustParseFilter(t, `name.matches("^[A-Z][a-z]+$")`)
@@ -241,18 +252,29 @@ func TestTranslator_MatchesRegexValidation(t *testing.T) {
 	})
 
 	t.Run("too long regex", func(t *testing.T) {
-		// Build a regex that exceeds maxRegexLength (1024)
-		longPattern := `name.matches("` + string(make([]byte, 1025)) + `")`
-		// We can't use mustParse for this since CEL parser may reject it.
-		// Instead test the regexPassthrough function directly.
-		_, err := regexPassthrough(string(make([]byte, 1025)))
+		// Build a regex that exceeds default maxRegexLength (1024).
+		// Tests the method-bound regexPassthrough directly because the
+		// CEL parser may reject the synthetic 1025-byte literal before
+		// it reaches the translator.
+		trans := mustTranslator(t)
+		_, err := trans.regexPassthrough(string(make([]byte, 1025)))
 		require.ErrorIs(t, err, filter.ErrInvalidRegex)
-		_ = longPattern // avoid unused
+	})
+
+	t.Run("WithMaxRegexLength is honored", func(t *testing.T) {
+		// Regression guard: WithMaxRegexLength was previously ignored by
+		// the mongo translator (regexPassthrough hardcoded
+		// DefaultMaxRegexLength). The configured cap must now actually
+		// apply.
+		trans := mustTranslator(t, filter.WithMaxRegexLength(10))
+		_, err := trans.regexPassthrough(string(make([]byte, 64)))
+		require.ErrorIs(t, err, filter.ErrInvalidRegex,
+			"WithMaxRegexLength(10) must reject 64-byte pattern")
 	})
 }
 
 func TestTranslator_HasFunction(t *testing.T) {
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 
 	node := testhelpers.MustParseFilter(t, `has(user.email)`)
 	result, err := trans.Translate(node)
@@ -279,7 +301,7 @@ func TestTranslator_SizeFunction(t *testing.T) {
 		},
 	}
 
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -315,7 +337,7 @@ func TestTranslator_ComplexExpressions(t *testing.T) {
 		},
 	}
 
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -328,7 +350,8 @@ func TestTranslator_ComplexExpressions(t *testing.T) {
 }
 
 func TestTranslator_WithAllowedFields(t *testing.T) {
-	trans := NewTranslator(filter.WithAllowedFields("name", "age"))
+	trans := mustTranslator(t,
+		filter.WithAllowedFields("name", "age"))
 
 	t.Run("allowed field", func(t *testing.T) {
 		node := testhelpers.MustParseFilter(t, `name == "John"`)
@@ -344,10 +367,11 @@ func TestTranslator_WithAllowedFields(t *testing.T) {
 }
 
 func TestTranslator_WithFieldMapping(t *testing.T) {
-	trans := NewTranslator(filter.WithFieldMapping(map[string]string{
-		"userName":  "user_name",
-		"createdAt": "created_at",
-	}))
+	trans := mustTranslator(t,
+		filter.WithFieldMapping(map[string]string{
+			"userName":  "user_name",
+			"createdAt": "created_at",
+		}))
 
 	tests := []struct {
 		name     string
@@ -378,7 +402,8 @@ func TestTranslator_WithFieldMapping(t *testing.T) {
 }
 
 func TestTranslator_WithMaxDepth(t *testing.T) {
-	trans := NewTranslator(filter.WithMaxDepth(2))
+	trans := mustTranslator(t,
+		filter.WithMaxDepth(2))
 
 	t.Run("within depth", func(t *testing.T) {
 		node := testhelpers.MustParseFilter(t, `name == "John" && age >= 18`)
@@ -394,7 +419,7 @@ func TestTranslator_WithMaxDepth(t *testing.T) {
 }
 
 func TestTranslator_TimestampComparison(t *testing.T) {
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 
 	node := testhelpers.MustParseFilter(t, `created_at >= timestamp("2024-01-01T00:00:00Z")`)
 	result, err := trans.Translate(node)
@@ -408,13 +433,14 @@ func TestTranslator_TimestampComparison(t *testing.T) {
 }
 
 func TestTranslator_WithFieldTypes(t *testing.T) {
-	trans := NewTranslator(filter.WithFieldTypes(map[string]filter.FieldKind{
-		"status":    filter.FieldKindInt,
-		"active":    filter.FieldKindBool,
-		"name":      filter.FieldKindString,
-		"price":     filter.FieldKindFloat,
-		"createdAt": filter.FieldKindTimestamp,
-	}))
+	trans := mustTranslator(t,
+		filter.WithFieldTypes(map[string]filter.FieldKind{
+			"status":    filter.FieldKindInt,
+			"active":    filter.FieldKindBool,
+			"name":      filter.FieldKindString,
+			"price":     filter.FieldKindFloat,
+			"createdAt": filter.FieldKindTimestamp,
+		}))
 
 	t.Run("match", func(t *testing.T) {
 		tests := []struct{ expr string }{
@@ -457,7 +483,7 @@ func TestTranslator_WithFieldTypes(t *testing.T) {
 }
 
 func TestTranslator_NullValue(t *testing.T) {
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 
 	node := testhelpers.MustParseFilter(t, `deleted_at == null`)
 	result, err := trans.Translate(node)
@@ -465,56 +491,82 @@ func TestTranslator_NullValue(t *testing.T) {
 	require.Equal(t, `{"deleted_at":null}`, bsonToJSON(result))
 }
 
-func TestNewTranslator_DefaultConfig(t *testing.T) {
-	trans := NewTranslator()
-	require.NotNil(t, trans)
-	require.NotNil(t, trans.config)
-	require.Equal(t, filter.DefaultMaxDepth, trans.config.MaxDepth())
+// TestNewTranslator_UntrustedInput_RequiresAllowlist locks the contract
+// that misconfiguration is rejected at construction, not at the first
+// Translate call.
+func TestNewTranslator_UntrustedInput_RequiresAllowlist(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewTranslator(filter.WithUntrustedInput())
+	require.ErrorIs(t, err, filter.ErrAllowlistRequired)
+
+	_, err = NewTranslator(
+		filter.WithUntrustedInput(),
+		filter.WithAllowedFields("name"),
+	)
+	require.NoError(t, err)
 }
 
-func TestTranslatorConfig_ApplyFieldMapping(t *testing.T) {
-	cfg := filter.NewTranslatorConfig()
-	cfg.SetFieldMapping(map[string]string{
+// TestNewTranslator_UntrustedInput_EmptyAllowlist guards the
+// misconfiguration path where WithAllowedFields was called with no
+// arguments (or with an empty slice from a config loader). The check
+// has to happen at construction so the bug surfaces during boot, not
+// on the first untrusted query.
+func TestNewTranslator_UntrustedInput_EmptyAllowlist(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewTranslator(
+		filter.WithUntrustedInput(),
+		filter.WithAllowedFields(),
+	)
+	require.ErrorIs(t, err, filter.ErrAllowlistRequired)
+
+	var empty []string
+	_, err = NewTranslator(
+		filter.WithUntrustedInput(),
+		filter.WithAllowedFields(empty...),
+	)
+	require.ErrorIs(t, err, filter.ErrAllowlistRequired)
+}
+
+func TestTranslatorContext_ApplyFieldMapping(t *testing.T) {
+	ctx, err := filter.NewTranslatorContext(filter.WithFieldMapping(map[string]string{
 		"userName": "user_name",
-	})
+	}))
+	require.NoError(t, err)
 
 	t.Run("mapped field", func(t *testing.T) {
-		got := cfg.ApplyFieldMapping("userName")
-		require.Equal(t, "user_name", got)
+		require.Equal(t, "user_name", ctx.ApplyFieldMapping("userName"))
 	})
 
 	t.Run("unmapped field", func(t *testing.T) {
-		got := cfg.ApplyFieldMapping("email")
-		require.Equal(t, "email", got)
+		require.Equal(t, "email", ctx.ApplyFieldMapping("email"))
 	})
 
 	t.Run("nil mapping", func(t *testing.T) {
-		cfg2 := filter.NewTranslatorConfig()
-		got := cfg2.ApplyFieldMapping("any")
-		require.Equal(t, "any", got)
+		bare, err := filter.NewTranslatorContext()
+		require.NoError(t, err)
+		require.Equal(t, "any", bare.ApplyFieldMapping("any"))
 	})
 }
 
-func TestTranslatorConfig_IsFieldAllowed(t *testing.T) {
+func TestTranslatorContext_IsFieldAllowed(t *testing.T) {
 	t.Run("no allowlist", func(t *testing.T) {
-		cfg := filter.NewTranslatorConfig()
-		require.True(t, cfg.IsFieldAllowed("any_field"), "IsFieldAllowed should return true when no allowlist is set")
+		ctx, err := filter.NewTranslatorContext()
+		require.NoError(t, err)
+		require.True(t, ctx.IsFieldAllowed("any_field"), "IsFieldAllowed should return true when no allowlist is set")
 	})
 
 	t.Run("with allowlist", func(t *testing.T) {
-		cfg := filter.NewTranslatorConfig()
-		cfg.SetAllowedFields(map[string]struct{}{
-			"name": {},
-			"age":  {},
-		})
-
-		require.True(t, cfg.IsFieldAllowed("name"))
-		require.False(t, cfg.IsFieldAllowed("email"))
+		ctx, err := filter.NewTranslatorContext(filter.WithAllowedFields("name", "age"))
+		require.NoError(t, err)
+		require.True(t, ctx.IsFieldAllowed("name"))
+		require.False(t, ctx.IsFieldAllowed("email"))
 	})
 }
 
 func TestTranslator_VisitorInterface(t *testing.T) {
-	trans := NewTranslator()
+	trans := mustTranslator(t)
 
 	// Verify it implements filter.Visitor
 	var _ filter.Visitor = trans
@@ -558,7 +610,7 @@ func TestTranslator_BuiltinPresets(t *testing.T) {
 			node, err := parser.Parse(t.Context(), tt.expr)
 			require.NoError(t, err)
 
-			got, err := NewTranslator().Translate(node)
+			got, err := mustTranslator(t).Translate(node)
 			require.NoError(t, err)
 			require.JSONEq(t, tt.wantJSON, bsonToJSON(got))
 		})
@@ -578,7 +630,7 @@ func TestTranslator_CustomFunction_CompareField(t *testing.T) {
 		node, err := parser.Parse(t.Context(), `createdAfter("2024-01-01")`)
 		require.NoError(t, err)
 
-		got, err := NewTranslator().Translate(node)
+		got, err := mustTranslator(t).Translate(node)
 		require.NoError(t, err)
 		require.JSONEq(t, `{"createdAt":{"$gt":"2024-01-01"}}`, bsonToJSON(got))
 	})
@@ -587,9 +639,10 @@ func TestTranslator_CustomFunction_CompareField(t *testing.T) {
 		node, err := parser.Parse(t.Context(), `createdAfter("2024-01-01")`)
 		require.NoError(t, err)
 
-		trans := NewTranslator(filter.WithFieldMapping(map[string]string{
-			"createdAt": "created_at",
-		}))
+		trans := mustTranslator(t,
+			filter.WithFieldMapping(map[string]string{
+				"createdAt": "created_at",
+			}))
 		got, err := trans.Translate(node)
 		require.NoError(t, err)
 		require.JSONEq(t, `{"created_at":{"$gt":"2024-01-01"}}`, bsonToJSON(got))

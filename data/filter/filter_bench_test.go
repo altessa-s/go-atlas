@@ -36,7 +36,7 @@ func BenchmarkParse_Complex(b *testing.B) {
 
 func BenchmarkEvaluate_Simple(b *testing.B) {
 	p, _ := filter.NewParser(filter.WithParserNoCache())
-	eval := filter.NewEvaluator()
+	eval := mustEvaluator(b)
 	node, _ := p.Parse(b.Context(), `name == "Alice"`)
 	data := map[string]any{"name": "Alice", "age": int64(30)}
 
@@ -48,7 +48,7 @@ func BenchmarkEvaluate_Simple(b *testing.B) {
 
 func BenchmarkEvaluate_Complex(b *testing.B) {
 	p, _ := filter.NewParser(filter.WithParserNoCache())
-	eval := filter.NewEvaluator()
+	eval := mustEvaluator(b)
 	node, _ := p.Parse(b.Context(), `name == "Alice" && age >= 18 && status in ["active", "pending"]`)
 	data := map[string]any{"name": "Alice", "age": int64(30), "status": "active"}
 

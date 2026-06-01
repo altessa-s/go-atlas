@@ -19,9 +19,20 @@ func newTestParser(t *testing.T) *filter.Parser {
 	return p
 }
 
+// mustEvaluator builds an evaluator and fails the test on any
+// construction error. Keeps the success-path tests free of
+// error-wiring noise; tests that exercise construction failures call
+// [filter.NewEvaluator] directly.
+func mustEvaluator(tb testing.TB, opts ...filter.TranslatorOption) *filter.Evaluator {
+	tb.Helper()
+	e, err := filter.NewEvaluator(opts...)
+	require.NoError(tb, err)
+	return e
+}
+
 func TestEvaluator_Comparison(t *testing.T) {
 	p := newTestParser(t)
-	eval := filter.NewEvaluator()
+	eval := mustEvaluator(t)
 
 	data := map[string]any{
 		"name":   "Alice",
@@ -58,7 +69,7 @@ func TestEvaluator_Comparison(t *testing.T) {
 
 func TestEvaluator_Logical(t *testing.T) {
 	p := newTestParser(t)
-	eval := filter.NewEvaluator()
+	eval := mustEvaluator(t)
 
 	data := map[string]any{
 		"status": "active",
@@ -89,7 +100,7 @@ func TestEvaluator_Logical(t *testing.T) {
 
 func TestEvaluator_StringFunctions(t *testing.T) {
 	p := newTestParser(t)
-	eval := filter.NewEvaluator()
+	eval := mustEvaluator(t)
 
 	data := map[string]any{"name": "hello-world"}
 
@@ -119,7 +130,7 @@ func TestEvaluator_StringFunctions(t *testing.T) {
 
 func TestEvaluator_Substring(t *testing.T) {
 	p := newTestParser(t)
-	eval := filter.NewEvaluator()
+	eval := mustEvaluator(t)
 
 	data := map[string]any{
 		"recipient": "+381607123",
@@ -172,7 +183,7 @@ func TestEvaluator_Substring(t *testing.T) {
 
 func TestEvaluator_In(t *testing.T) {
 	p := newTestParser(t)
-	eval := filter.NewEvaluator()
+	eval := mustEvaluator(t)
 
 	data := map[string]any{"status": "active"}
 
@@ -197,7 +208,7 @@ func TestEvaluator_In(t *testing.T) {
 
 func TestEvaluator_Has(t *testing.T) {
 	p := newTestParser(t)
-	eval := filter.NewEvaluator()
+	eval := mustEvaluator(t)
 
 	data := map[string]any{
 		"name": "test",
@@ -231,7 +242,7 @@ func TestEvaluator_Has(t *testing.T) {
 
 func TestEvaluator_NestedFields(t *testing.T) {
 	p := newTestParser(t)
-	eval := filter.NewEvaluator()
+	eval := mustEvaluator(t)
 
 	data := map[string]any{
 		"address": map[string]any{
@@ -248,7 +259,8 @@ func TestEvaluator_NestedFields(t *testing.T) {
 
 func TestEvaluator_AllowedFields(t *testing.T) {
 	p := newTestParser(t)
-	eval := filter.NewEvaluator(filter.WithAllowedFields("name"))
+	eval := mustEvaluator(t,
+		filter.WithAllowedFields("name"))
 
 	data := map[string]any{"name": "test", "secret": "hidden"}
 
@@ -260,9 +272,10 @@ func TestEvaluator_AllowedFields(t *testing.T) {
 
 func TestEvaluator_FieldMapping(t *testing.T) {
 	p := newTestParser(t)
-	eval := filter.NewEvaluator(filter.WithFieldMapping(map[string]string{
-		"userName": "user_name",
-	}))
+	eval := mustEvaluator(t,
+		filter.WithFieldMapping(map[string]string{
+			"userName": "user_name",
+		}))
 
 	data := map[string]any{"user_name": "alice"}
 
@@ -275,7 +288,7 @@ func TestEvaluator_FieldMapping(t *testing.T) {
 
 func TestEvaluator_Size(t *testing.T) {
 	p := newTestParser(t)
-	eval := filter.NewEvaluator()
+	eval := mustEvaluator(t)
 
 	data := map[string]any{"name": "hello"}
 
@@ -288,7 +301,7 @@ func TestEvaluator_Size(t *testing.T) {
 
 func TestEvaluator_NilComparison(t *testing.T) {
 	p := newTestParser(t)
-	eval := filter.NewEvaluator()
+	eval := mustEvaluator(t)
 
 	data := map[string]any{"name": "test"}
 
@@ -304,7 +317,7 @@ func TestEvaluator_RegexLengthLimit(t *testing.T) {
 	data := map[string]any{"name": "hello"}
 
 	t.Run("short regex is accepted", func(t *testing.T) {
-		eval := filter.NewEvaluator()
+		eval := mustEvaluator(t)
 		node, err := p.Parse(t.Context(), `name.matches("^hello")`)
 		require.NoError(t, err, "Parse")
 		got, err := eval.Evaluate(node, data)
@@ -313,7 +326,7 @@ func TestEvaluator_RegexLengthLimit(t *testing.T) {
 	})
 
 	t.Run("regex exceeding default limit is rejected", func(t *testing.T) {
-		eval := filter.NewEvaluator()
+		eval := mustEvaluator(t)
 		// Build expression with a regex pattern exceeding 1024 bytes
 		longPattern := make([]byte, 1025)
 		for i := range longPattern {
@@ -330,7 +343,8 @@ func TestEvaluator_RegexLengthLimit(t *testing.T) {
 	})
 
 	t.Run("custom regex length limit", func(t *testing.T) {
-		eval := filter.NewEvaluator(filter.WithMaxRegexLength(10))
+		eval := mustEvaluator(t,
+			filter.WithMaxRegexLength(10))
 		node := &filter.CallNode{
 			Op:     filter.OpMatches,
 			Target: &filter.IdentNode{Name: "name"},
@@ -347,7 +361,7 @@ func TestEvaluator_MaxOperations(t *testing.T) {
 	data := map[string]any{"a": int64(1), "b": int64(2), "c": int64(3)}
 
 	t.Run("normal expression within limit", func(t *testing.T) {
-		eval := filter.NewEvaluator()
+		eval := mustEvaluator(t)
 		node, err := p.Parse(t.Context(), `a == 1 && b == 2`)
 		require.NoError(t, err, "Parse")
 		got, err := eval.Evaluate(node, data)
@@ -356,7 +370,8 @@ func TestEvaluator_MaxOperations(t *testing.T) {
 	})
 
 	t.Run("expression exceeding low limit is rejected", func(t *testing.T) {
-		eval := filter.NewEvaluator(filter.WithMaxOperations(3))
+		eval := mustEvaluator(t,
+			filter.WithMaxOperations(3))
 		// a == 1 && b == 2 visits: BinaryOp(&&), BinaryOp(==), Ident(a), Literal(1), BinaryOp(==), ...
 		// With limit=3, it should fail after 3 operations
 		node, err := p.Parse(t.Context(), `a == 1 && b == 2`)

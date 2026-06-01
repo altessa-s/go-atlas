@@ -16,24 +16,25 @@ import (
 
 // Translator converts filter AST nodes to Meilisearch filter expressions.
 type Translator struct {
-	config *filter.TranslatorConfig
+	config *filter.TranslatorContext
 	depth  int
 }
 
-// NewTranslator creates a new Meilisearch translator with the given options.
-func NewTranslator(opts ...filter.TranslatorOption) *Translator {
-	cfg := filter.NewTranslatorConfig()
-	for _, opt := range opts {
-		opt(cfg)
+// NewTranslator creates a new Meilisearch translator with the given
+// options. Returns [filter.ErrAllowlistRequired] when
+// [filter.WithUntrustedInput] is set without a non-empty
+// [filter.WithAllowedFields] — the misconfiguration is surfaced here
+// rather than on the first Translate call.
+func NewTranslator(opts ...filter.TranslatorOption) (*Translator, error) {
+	ctx, err := filter.NewTranslatorContext(opts...)
+	if err != nil {
+		return nil, err
 	}
-	return &Translator{config: cfg}
+	return &Translator{config: ctx}, nil
 }
 
 // Translate converts a filter AST node to a Meilisearch filter expression.
 func (t *Translator) Translate(node filter.Node) (string, error) {
-	if err := t.config.RequireAllowlist(); err != nil {
-		return "", err
-	}
 	t.depth = 0
 	result, err := node.Accept(t)
 	if err != nil {

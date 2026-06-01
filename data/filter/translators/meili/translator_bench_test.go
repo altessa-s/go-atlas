@@ -13,7 +13,7 @@ import (
 
 func BenchmarkTranslate_Simple(b *testing.B) {
 	node := testhelpers.MustParseFilter(b, `name == "John"`)
-	trans := NewTranslator()
+	trans := mustTranslator(b)
 
 	for b.Loop() {
 		_, _ = trans.Translate(node)
@@ -23,7 +23,7 @@ func BenchmarkTranslate_Simple(b *testing.B) {
 func BenchmarkTranslate_Complex(b *testing.B) {
 	node := testhelpers.MustParseFilter(b,
 		`(name == "John" || name == "Jane") && age >= 18 && status in ["active", "pending"]`)
-	trans := NewTranslator()
+	trans := mustTranslator(b)
 
 	for b.Loop() {
 		_, _ = trans.Translate(node)
@@ -33,7 +33,7 @@ func BenchmarkTranslate_Complex(b *testing.B) {
 func BenchmarkTranslate_FieldMapping(b *testing.B) {
 	node := testhelpers.MustParseFilter(b,
 		`organizationIds in ["org-1", "org-2"] && status == 2`)
-	trans := NewTranslator(filter.WithFieldMapping(map[string]string{
+	trans := mustTranslator(b, filter.WithFieldMapping(map[string]string{
 		"organizationIds": "organization_id",
 	}))
 

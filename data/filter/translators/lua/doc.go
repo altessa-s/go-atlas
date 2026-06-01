@@ -11,13 +11,16 @@
 //	parser, _ := filter.NewParser()
 //	ast, _ := parser.Parse(ctx, `name == "John" && age >= 18`)
 //
-//	trans := lua.NewTranslator("d")
+//	trans, err := lua.NewTranslator("d")
+//	if err != nil {
+//	    return err
+//	}
 //	expr, _ := trans.Translate(ast)
 //	// Result: `((d["name"] == "John") and (d["age"] >= 18))`
 //
 // # With Options
 //
-//	trans := lua.NewTranslator("item",
+//	trans, err := lua.NewTranslator("item",
 //	    filter.WithAllowedFields("name", "age", "status"),
 //	    filter.WithFieldMapping(map[string]string{
 //	        "userName": "user_name",

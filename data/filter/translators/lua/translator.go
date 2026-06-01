@@ -31,30 +31,31 @@ var luaStringEscaper = strings.NewReplacer(
 
 // Translator converts filter AST nodes to Lua boolean expressions.
 type Translator struct {
-	config   *filter.TranslatorConfig
+	config   *filter.TranslatorContext
 	tableVar string
 	depth    int
 }
 
-// NewTranslator creates a new Lua translator with the given table variable name and options.
-// If tableVar is empty, "d" is used as the default.
-func NewTranslator(tableVar string, opts ...filter.TranslatorOption) *Translator {
+// NewTranslator creates a new Lua translator with the given table
+// variable name and options. If tableVar is empty, "d" is used as the
+// default. Returns [filter.ErrAllowlistRequired] when
+// [filter.WithUntrustedInput] is set without a non-empty
+// [filter.WithAllowedFields] — the misconfiguration is surfaced here
+// rather than on the first Translate call.
+func NewTranslator(tableVar string, opts ...filter.TranslatorOption) (*Translator, error) {
 	if tableVar == "" {
 		tableVar = "d"
 	}
-	cfg := filter.NewTranslatorConfig()
-	for _, opt := range opts {
-		opt(cfg)
+	ctx, err := filter.NewTranslatorContext(opts...)
+	if err != nil {
+		return nil, err
 	}
-	return &Translator{config: cfg, tableVar: tableVar}
+	return &Translator{config: ctx, tableVar: tableVar}, nil
 }
 
 // Translate converts a filter AST node to a Lua boolean expression string.
 // Returns "true" for a nil node (match all).
 func (t *Translator) Translate(node filter.Node) (string, error) {
-	if err := t.config.RequireAllowlist(); err != nil {
-		return "", err
-	}
 	if node == nil {
 		return luaTrue, nil
 	}

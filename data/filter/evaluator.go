@@ -99,26 +99,26 @@ func getCompiledRegex(pattern string) (*regexp.Regexp, error) {
 
 // Evaluator evaluates a filter AST against an in-memory map.
 type Evaluator struct {
-	config *TranslatorConfig
+	config *TranslatorContext
 	data   map[string]any
 	depth  int
 	ops    int
 }
 
-// NewEvaluator creates a new in-memory evaluator with the given options.
-func NewEvaluator(opts ...TranslatorOption) *Evaluator {
-	cfg := NewTranslatorConfig()
-	for _, opt := range opts {
-		opt(cfg)
+// NewEvaluator creates a new in-memory evaluator with the given
+// options. Returns [ErrAllowlistRequired] when [WithUntrustedInput] is
+// set without a non-empty [WithAllowedFields] — the misconfiguration
+// is surfaced here rather than on the first Evaluate call.
+func NewEvaluator(opts ...TranslatorOption) (*Evaluator, error) {
+	ctx, err := NewTranslatorContext(opts...)
+	if err != nil {
+		return nil, err
 	}
-	return &Evaluator{config: cfg}
+	return &Evaluator{config: ctx}, nil
 }
 
 // Evaluate returns true if data matches the filter node.
 func (e *Evaluator) Evaluate(node Node, data map[string]any) (bool, error) {
-	if err := e.config.RequireAllowlist(); err != nil {
-		return false, err
-	}
 	e.data = data
 	e.depth = 0
 	e.ops = 0

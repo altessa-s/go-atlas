@@ -32,7 +32,7 @@ func TestRegexCacheStats_ViaEvaluator(t *testing.T) {
 	require.NoError(t, err, "Parse")
 
 	data := map[string]any{"name": "test123"}
-	ev := filter.NewEvaluator()
+	ev := mustEvaluator(t)
 	_, err = ev.Evaluate(node, data)
 	require.NoError(t, err, "Evaluate")
 

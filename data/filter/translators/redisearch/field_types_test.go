@@ -24,7 +24,7 @@ import (
 // on top to confirm the two schema layers don't conflict and the
 // type-check still fires.
 func TestTranslator_WithFieldTypes(t *testing.T) {
-	trans := NewTranslator(testSchema, filter.WithFieldTypes(map[string]filter.FieldKind{
+	trans := mustTranslator(t, testSchema, filter.WithFieldTypes(map[string]filter.FieldKind{
 		"status":    filter.FieldKindInt,
 		"active":    filter.FieldKindBool,
 		"name":      filter.FieldKindString,

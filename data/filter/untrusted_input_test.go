@@ -17,11 +17,16 @@ import (
 )
 
 // TestUntrustedInput_RequiresAllowlist guards against regressing the
-// CEL-from-untrusted-source vulnerability: a translator marked with
-// [filter.WithUntrustedInput] must refuse to translate unless an explicit
-// allowlist is configured. Without that, a hostile client could filter on
-// any field the storage layer indexes (e.g. `passwordHash > ""` to
-// enumerate accounts), which is exactly what this knob exists to prevent.
+// CEL-from-untrusted-source vulnerability: a translator or evaluator
+// marked with [filter.WithUntrustedInput] must refuse construction
+// unless an explicit allow-list is also configured. Without that, a
+// hostile client could filter on any field the storage layer indexes
+// (e.g. `passwordHash > ""` to enumerate accounts), which is exactly
+// what this knob exists to prevent.
+//
+// The check happens in [filter.NewTranslatorContext] (and therefore in
+// every translator/evaluator constructor) so misconfiguration surfaces
+// at process start rather than on the first untrusted query.
 func TestUntrustedInput_RequiresAllowlist(t *testing.T) {
 	const safeField, expr = "name", `name == "x"`
 
@@ -29,18 +34,19 @@ func TestUntrustedInput_RequiresAllowlist(t *testing.T) {
 		t.Parallel()
 		node := testhelpers.MustParseFilter(t, expr)
 
-		// Untrusted + no allowlist -> rejected.
-		trans := mongo.NewTranslator(filter.WithUntrustedInput())
-		_, err := trans.Translate(node)
+		// Untrusted + no allow-list -> constructor rejects.
+		_, err := mongo.NewTranslator(filter.WithUntrustedInput())
 		require.ErrorIs(t, err, filter.ErrAllowlistRequired)
 
-		// Untrusted + allowlist -> translated.
-		trans = mongo.NewTranslator(filter.WithUntrustedInput(), filter.WithAllowedFields(safeField))
+		// Untrusted + allow-list -> constructs and translates.
+		trans, err := mongo.NewTranslator(filter.WithUntrustedInput(), filter.WithAllowedFields(safeField))
+		require.NoError(t, err)
 		_, err = trans.Translate(node)
 		require.NoError(t, err)
 
-		// Trusted (default) + no allowlist -> still permissive (backwards compat).
-		trans = mongo.NewTranslator()
+		// Trusted (default) + no allow-list -> still permissive (backwards compat).
+		trans, err = mongo.NewTranslator()
+		require.NoError(t, err)
 		_, err = trans.Translate(node)
 		require.NoError(t, err)
 	})
@@ -49,11 +55,11 @@ func TestUntrustedInput_RequiresAllowlist(t *testing.T) {
 		t.Parallel()
 		node := testhelpers.MustParseFilter(t, expr)
 
-		trans := lua.NewTranslator("row", filter.WithUntrustedInput())
-		_, err := trans.Translate(node)
+		_, err := lua.NewTranslator("row", filter.WithUntrustedInput())
 		require.ErrorIs(t, err, filter.ErrAllowlistRequired)
 
-		trans = lua.NewTranslator("row", filter.WithUntrustedInput(), filter.WithAllowedFields(safeField))
+		trans, err := lua.NewTranslator("row", filter.WithUntrustedInput(), filter.WithAllowedFields(safeField))
+		require.NoError(t, err)
 		_, err = trans.Translate(node)
 		require.NoError(t, err)
 	})
@@ -63,11 +69,11 @@ func TestUntrustedInput_RequiresAllowlist(t *testing.T) {
 		node := testhelpers.MustParseFilter(t, expr)
 		schema := map[string]redisearch.FieldType{safeField: redisearch.FieldTypeText}
 
-		trans := redisearch.NewTranslator(schema, filter.WithUntrustedInput())
-		_, err := trans.Translate(node)
+		_, err := redisearch.NewTranslator(schema, filter.WithUntrustedInput())
 		require.ErrorIs(t, err, filter.ErrAllowlistRequired)
 
-		trans = redisearch.NewTranslator(schema, filter.WithUntrustedInput(), filter.WithAllowedFields(safeField))
+		trans, err := redisearch.NewTranslator(schema, filter.WithUntrustedInput(), filter.WithAllowedFields(safeField))
+		require.NoError(t, err)
 		_, err = trans.Translate(node)
 		require.NoError(t, err)
 	})
@@ -76,13 +82,35 @@ func TestUntrustedInput_RequiresAllowlist(t *testing.T) {
 		t.Parallel()
 		node := testhelpers.MustParseFilter(t, expr)
 
-		eval := filter.NewEvaluator(filter.WithUntrustedInput())
-		_, err := eval.Evaluate(node, map[string]any{safeField: "x"})
+		_, err := filter.NewEvaluator(filter.WithUntrustedInput())
 		require.ErrorIs(t, err, filter.ErrAllowlistRequired)
 
-		eval = filter.NewEvaluator(filter.WithUntrustedInput(), filter.WithAllowedFields(safeField))
+		eval, err := filter.NewEvaluator(filter.WithUntrustedInput(), filter.WithAllowedFields(safeField))
+		require.NoError(t, err)
 		ok, err := eval.Evaluate(node, map[string]any{safeField: "x"})
 		require.NoError(t, err)
 		require.True(t, ok)
 	})
+}
+
+// TestUntrustedInput_EmptyAllowlist guards the configuration-bug path
+// where [filter.WithAllowedFields] was called with no arguments (e.g.
+// an empty slice from a config loader). The check has to happen at
+// construction so the bug surfaces during boot, not on the first
+// untrusted query.
+func TestUntrustedInput_EmptyAllowlist(t *testing.T) {
+	t.Parallel()
+
+	_, err := mongo.NewTranslator(
+		filter.WithUntrustedInput(),
+		filter.WithAllowedFields(),
+	)
+	require.ErrorIs(t, err, filter.ErrAllowlistRequired)
+
+	var empty []string
+	_, err = mongo.NewTranslator(
+		filter.WithUntrustedInput(),
+		filter.WithAllowedFields(empty...),
+	)
+	require.ErrorIs(t, err, filter.ErrAllowlistRequired)
 }
