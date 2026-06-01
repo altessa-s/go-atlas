@@ -53,7 +53,6 @@ via the visitor pattern. Includes security features: field allowlists, depth lim
 | `WithMaxDepth`       | 20       | Maximum AST nesting depth                                                                                         |
 | `WithMaxRegexLength` | 1024     | Maximum length of a regex pattern in `matches()`; protects against ReDoS-style payloads                           |
 | `WithMaxOperations`  | 1000     | Maximum AST node visits per translation; protects against wide expressions (e.g. hundreds of OR-ed conditions)    |
-| `WithStrictMode`     | false    | Fail on unsupported operations                                                                                    |
 | `WithUntrustedInput` | --       | Mark translator/evaluator as receiving untrusted input — requires `WithAllowedFields`, otherwise the constructor returns `ErrAllowlistRequired` |
 
 These options also apply to `NewEvaluator`. `WithMaxRegexLength` and

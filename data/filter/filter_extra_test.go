@@ -56,12 +56,6 @@ func TestTranslatorContext_MaxDepth(t *testing.T) {
 	require.Equal(t, 5, ctx.MaxDepth())
 }
 
-func TestTranslatorContext_StrictMode(t *testing.T) {
-	ctx, err := filter.NewTranslatorContext(filter.WithStrictMode())
-	require.NoError(t, err)
-	require.True(t, ctx.StrictMode(), "StrictMode() should be true")
-}
-
 func TestEvaluator_NilNotEqual(t *testing.T) {
 	parser, _ := filter.NewParser()
 	node, _ := parser.Parse(t.Context(), "name != null")

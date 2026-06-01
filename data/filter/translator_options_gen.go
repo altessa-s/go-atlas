@@ -36,13 +36,6 @@ func WithMaxRegexLength(v int) TranslatorOption {
 	}
 }
 
-// WithStrictMode enables the strictMode option.
-func WithStrictMode() TranslatorOption {
-	return func(o *translatorOptions) {
-		o.strictMode = true
-	}
-}
-
 // WithUntrustedInput enables the untrustedInput option.
 func WithUntrustedInput() TranslatorOption {
 	return func(o *translatorOptions) {

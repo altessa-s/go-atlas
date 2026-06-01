@@ -94,7 +94,6 @@ type translatorOptions struct {
 	maxDepth       int                                       `optgen:"default=DefaultMaxDepth" optval:"positive"`
 	maxRegexLength int                                       `optgen:"default=DefaultMaxRegexLength" optval:"positive"`
 	maxOperations  int                                       `optgen:"default=DefaultMaxOperations" optval:"positive"`
-	strictMode     bool
 	untrustedInput bool
 }
 
@@ -282,9 +281,6 @@ func (o *translatorOptions) MaxRegexLength() int { return o.maxRegexLength }
 
 // MaxOperations returns the configured maximum number of AST node visits.
 func (o *translatorOptions) MaxOperations() int { return o.maxOperations }
-
-// StrictMode returns whether strict mode is enabled.
-func (o *translatorOptions) StrictMode() bool { return o.strictMode }
 
 // requireAllowlist returns [ErrAllowlistRequired] when the context was
 // marked as receiving untrusted input ([WithUntrustedInput]) but no
