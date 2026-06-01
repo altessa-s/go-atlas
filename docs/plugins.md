@@ -14,9 +14,9 @@ providers via symbol lookup.
 > process memory, open files, make network calls, or call `exit`. The manager provides
 > defense-in-depth security through:
 > 
-> - **Signature verification** (enabled by default) - cryptographic integrity checks
-> - **Sandboxing** (opt-in) - Linux security primitives to limit blast radius
-> - **Quarantine** (automatic) - persistent blacklist of failed plugins
+> - **Signature verification** (on by default) — cryptographic integrity checks
+> - **Sandboxing** (opt-in) — Linux security primitives that bound blast radius
+> - **Quarantine** (automatic) — persistent blacklist of failed plugins
 > 
 > Only load plugins from directories writable by the deployer alone — never from user
 > uploads, network shares, or world-writable locations.
@@ -1356,21 +1356,17 @@ Register via `factory.UseHealthCoordinator`.
 
 ### Hash caching
 
-The manager implements intelligent file hash caching with modification time (mtime) validation to avoid redundant I/O:
+The manager caches the SHA-256 of each `.so` keyed by `(path, mtime, size)` so repeat `Load`/`Reload` calls skip the re-read:
 
-- **First load**: Reads file, computes SHA-256, caches with mtime
-- **Subsequent loads**: Validates mtime, reuses cached hash if unchanged
-- **Performance gain**: ~5x throughput improvement (8.4 GB/s cached vs 1.7 GB/s uncached)
+- **First load**: read file, compute SHA-256, cache with mtime
+- **Subsequent loads**: compare mtime + size; reuse the cached hash if both match
+- **Throughput**: 8.4 GB/s cached vs 1.7 GB/s uncached on the bench host (~5x)
 
-The cache is automatically invalidated when:
-- File modification time changes
-- File size changes
-- File is deleted
-- Manager is closed
+The cache entry is dropped when the file's mtime or size changes, when the file is removed, or when the manager closes.
 
 ### Benchmarks
 
-The package includes comprehensive benchmarks for performance tuning:
+Benchmarks ship next to the package so you can rerun them on the target host:
 
 ```bash
 # Run signature verification benchmarks
