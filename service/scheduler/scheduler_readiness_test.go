@@ -13,13 +13,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/service/scheduler"
-	"github.com/altessa-s/go-atlas/service/scheduler/storages/memory"
 
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
 func TestScheduler_NoReadinessProbe_DispatchesImmediately(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 	ctx := t.Context()
@@ -50,7 +49,7 @@ func TestScheduler_NoReadinessProbe_DispatchesImmediately(t *testing.T) {
 }
 
 func TestScheduler_ReadinessProbe_False_SkipsTick(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage,
 		scheduler.WithTickInterval(50*time.Millisecond),
 		scheduler.WithReadinessProbe(func() bool { return false }),
@@ -83,7 +82,7 @@ func TestScheduler_ReadinessProbe_False_SkipsTick(t *testing.T) {
 }
 
 func TestScheduler_ReadinessProbe_FalseToTrue_Transition(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 
 	var ready atomic.Bool
 
@@ -126,7 +125,7 @@ func TestScheduler_ReadinessProbe_FalseToTrue_Transition(t *testing.T) {
 }
 
 func TestScheduler_TriggerTask_NotReady_ReturnsErrNotReady(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage,
 		scheduler.WithTickInterval(50*time.Millisecond),
 		scheduler.WithReadinessProbe(func() bool { return false }),
@@ -152,7 +151,7 @@ func TestScheduler_TriggerTask_NotReady_ReturnsErrNotReady(t *testing.T) {
 }
 
 func TestScheduler_ReadinessProbe_RunOnStart_FiresAfterReady(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 
 	var ready atomic.Bool
 
@@ -194,7 +193,7 @@ func TestScheduler_ReadinessProbe_RunOnStart_FiresAfterReady(t *testing.T) {
 }
 
 func TestScheduler_IsReady_NoProbe(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage)
 
 	require.True(t, s.IsReady(), "expected IsReady()=true when no probe is configured")
@@ -203,7 +202,7 @@ func TestScheduler_IsReady_NoProbe(t *testing.T) {
 func TestScheduler_IsReady_WithProbe(t *testing.T) {
 	var ready atomic.Bool
 
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage,
 		scheduler.WithReadinessProbe(func() bool { return ready.Load() }),
 	)

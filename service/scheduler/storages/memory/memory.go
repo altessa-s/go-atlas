@@ -17,6 +17,7 @@ import (
 	"github.com/altessa-s/go-atlas/service/scheduler"
 
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // Storage is an in-memory implementation of [scheduler.Storage] that keeps task
@@ -41,22 +42,41 @@ type Storage struct {
 // oldest entry is silently discarded. If maxHistoryPerTask is zero or negative
 // it defaults to 1000.
 //
+// Returns an error only if constructing the internal task / history filter
+// evaluators fails, which propagates [filter.ErrAllowlistRequired] from a
+// future configuration regression. Today the option set is static and the
+// call cannot fail in practice — the error is exposed so callers don't have
+// to assume a non-fallible contract that the underlying [filter.NewEvaluator]
+// does not promise.
+//
 // Example:
 //
-//	storage := memory.New(100)
+//	storage, err := memory.New(100)
+//	if err != nil {
+//	    return err
+//	}
 //	sched := scheduler.New(storage)
-func New(maxHistoryPerTask int) *Storage {
+func New(maxHistoryPerTask int) (*Storage, error) {
 	if maxHistoryPerTask <= 0 {
 		maxHistoryPerTask = 1000
+	}
+
+	taskEval, err := filter.NewEvaluator(filter.WithAllowedFields(scheduler.TaskFilterFields...))
+	if err != nil {
+		return nil, coreerrs.Wrap(err, "build task filter evaluator")
+	}
+	historyEval, err := filter.NewEvaluator(filter.WithAllowedFields(scheduler.HistoryFilterFields...))
+	if err != nil {
+		return nil, coreerrs.Wrap(err, "build history filter evaluator")
 	}
 
 	return &Storage{
 		tasks:            make(map[string]*scheduler.TaskState),
 		history:          make(map[string][]*scheduler.TaskHistory),
 		maxHist:          maxHistoryPerTask,
-		taskEvaluator:    filter.NewEvaluator(filter.WithAllowedFields(scheduler.TaskFilterFields...)),
-		historyEvaluator: filter.NewEvaluator(filter.WithAllowedFields(scheduler.HistoryFilterFields...)),
-	}
+		taskEvaluator:    taskEval,
+		historyEvaluator: historyEval,
+	}, nil
 }
 
 // GetTask retrieves the current [scheduler.TaskState] for the given id.

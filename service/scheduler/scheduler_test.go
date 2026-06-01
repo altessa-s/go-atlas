@@ -21,8 +21,17 @@ import (
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
+// mustNewMemory builds an in-memory Storage and fails the test on
+// construction error. Shared across all scheduler_test.go files.
+func mustNewMemory(tb testing.TB, maxHistoryPerTask int) *memory.Storage {
+	tb.Helper()
+	s, err := memory.New(maxHistoryPerTask)
+	require.NoError(tb, err)
+	return s
+}
+
 func TestScheduler_RegisterAndRun(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 	ctx := t.Context()
@@ -54,7 +63,7 @@ func TestScheduler_RegisterAndRun(t *testing.T) {
 }
 
 func TestScheduler_PauseResume(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 	ctx := t.Context()
@@ -92,7 +101,7 @@ func TestScheduler_PauseResume(t *testing.T) {
 }
 
 func TestScheduler_SkipNextRun(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 	ctx := t.Context()
@@ -132,7 +141,7 @@ func TestScheduler_SkipNextRun(t *testing.T) {
 }
 
 func TestScheduler_Tasks(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage)
 
 	ctx := t.Context()
@@ -165,7 +174,7 @@ func TestScheduler_Tasks(t *testing.T) {
 }
 
 func TestScheduler_History(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 	ctx := t.Context()
@@ -206,7 +215,7 @@ func TestScheduler_History(t *testing.T) {
 }
 
 func TestMemoryStorage_GetTask(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	ctx := t.Context()
 
 	// Get non-existent task
@@ -235,7 +244,7 @@ func TestMemoryStorage_GetTask(t *testing.T) {
 }
 
 func TestMemoryStorage_History(t *testing.T) {
-	storage := memory.New(5) // Small limit for testing
+	storage := mustNewMemory(t, 5) // Small limit for testing
 	ctx := t.Context()
 
 	taskID := "test"
@@ -269,7 +278,7 @@ func TestMemoryStorage_History(t *testing.T) {
 }
 
 func TestScheduler_ConcurrencyLimit(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	// Limit to 2 concurrent tasks
 	s := scheduler.New(storage,
 		scheduler.WithTickInterval(50*time.Millisecond),
@@ -327,7 +336,7 @@ func TestScheduler_ConcurrencyLimit(t *testing.T) {
 }
 
 func TestScheduler_UnlimitedConcurrency(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	// No concurrency limit (default)
 	s := scheduler.New(storage, scheduler.WithTickInterval(50*time.Millisecond))
 
@@ -347,7 +356,7 @@ func TestScheduler_UnlimitedConcurrency(t *testing.T) {
 }
 
 func TestScheduler_LongRunningTasksDoNotBlock(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage,
 		scheduler.WithTickInterval(50*time.Millisecond),
 		scheduler.WithMaxConcurrentTasks(10), // Enough slots
@@ -396,7 +405,7 @@ func TestScheduler_LongRunningTasksDoNotBlock(t *testing.T) {
 }
 
 func TestScheduler_CriticalPriorityBypassesLimits(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage,
 		scheduler.WithTickInterval(50*time.Millisecond),
 		scheduler.WithMaxConcurrentTasks(1), // Very strict limit
@@ -451,7 +460,7 @@ func TestScheduler_CriticalPriorityBypassesLimits(t *testing.T) {
 }
 
 func TestScheduler_LowPriorityDeferred(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	// 1 slot total, no reserved slots
 	s := scheduler.New(storage,
 		scheduler.WithTickInterval(50*time.Millisecond),
@@ -534,7 +543,7 @@ func TestTaskPriority_String(t *testing.T) {
 }
 
 func TestMemoryStorage_Tasks(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	ctx := t.Context()
 
 	// Add some tasks
@@ -562,7 +571,7 @@ func TestMemoryStorage_Tasks(t *testing.T) {
 }
 
 func TestMemoryStorage_HistoryIter(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	ctx := t.Context()
 	taskID := "test"
 
@@ -596,7 +605,7 @@ func TestMemoryStorage_HistoryIter(t *testing.T) {
 }
 
 func TestScheduler_IsLeader(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 
 	// Without leader election, always returns true
 	s := scheduler.New(storage)
@@ -604,7 +613,7 @@ func TestScheduler_IsLeader(t *testing.T) {
 }
 
 func TestScheduler_UnmanagedTask(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 	ctx := t.Context()
@@ -652,7 +661,7 @@ func TestScheduler_UnmanagedTask(t *testing.T) {
 }
 
 func TestScheduler_DisableHistory(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 	ctx := t.Context()
@@ -700,7 +709,7 @@ func TestScheduler_DisableHistory(t *testing.T) {
 }
 
 func TestScheduler_TaskSummaryFlags(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage)
 
 	ctx := t.Context()
@@ -734,7 +743,7 @@ func TestScheduler_TaskSummaryFlags(t *testing.T) {
 }
 
 func TestScheduler_TypedErrors(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage)
 
 	ctx := t.Context()
@@ -773,7 +782,7 @@ func TestScheduler_TypedErrors(t *testing.T) {
 }
 
 func TestScheduler_OneShotTask_ExecutesOnceAndCompletes(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 	ctx := t.Context()
@@ -818,7 +827,7 @@ func TestScheduler_OneShotTask_ExecutesOnceAndCompletes(t *testing.T) {
 }
 
 func TestScheduler_OneShotTask_RunAtInPast(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 	ctx := t.Context()
@@ -852,7 +861,7 @@ func TestScheduler_OneShotTask_RunAtInPast(t *testing.T) {
 }
 
 func TestScheduler_OneShotTask_ValidationErrors(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage)
 
 	ctx := t.Context()
@@ -883,7 +892,7 @@ func TestScheduler_OneShotTask_ValidationErrors(t *testing.T) {
 }
 
 func TestScheduler_OneShotTask_TriggerCompleted(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 	ctx := t.Context()
@@ -913,7 +922,7 @@ func TestScheduler_OneShotTask_TriggerCompleted(t *testing.T) {
 }
 
 func TestScheduler_OneShotTask_ManualTriggerBeforeTime(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 	ctx := t.Context()
@@ -951,7 +960,7 @@ func TestScheduler_OneShotTask_ManualTriggerBeforeTime(t *testing.T) {
 }
 
 func TestScheduler_OneShotTask_PauseResume(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 	ctx := t.Context()
@@ -997,7 +1006,7 @@ func TestScheduler_OneShotTask_PauseResume(t *testing.T) {
 }
 
 func TestScheduler_OneShotTask_History(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage, scheduler.WithTickInterval(50*time.Millisecond))
 
 	ctx := t.Context()
@@ -1030,7 +1039,7 @@ func TestScheduler_OneShotTask_History(t *testing.T) {
 }
 
 func TestScheduler_OneShotTask_TaskSummary(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage)
 
 	ctx := t.Context()
@@ -1060,7 +1069,7 @@ func TestScheduler_OneShotTask_TaskSummary(t *testing.T) {
 }
 
 func TestTasksCollect(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	ctx := t.Context()
 
 	// Add some tasks
@@ -1083,7 +1092,7 @@ func TestTasksCollect(t *testing.T) {
 
 // generateTestID generates a simple ID for testing.
 func TestScheduler_DynamicConcurrencyLimit(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	// Dynamic limit of 2
 	s := scheduler.New(storage,
 		scheduler.WithTickInterval(50*time.Millisecond),
@@ -1134,7 +1143,7 @@ func TestScheduler_DynamicConcurrencyLimit(t *testing.T) {
 }
 
 func TestScheduler_DynamicConcurrencyAdaptive(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	var limit atomic.Int32
 	limit.Store(1)
 
@@ -1195,7 +1204,7 @@ func TestScheduler_DynamicConcurrencyAdaptive(t *testing.T) {
 }
 
 func TestScheduler_WithEnvironment(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage,
 		scheduler.WithTickInterval(50*time.Millisecond),
 		scheduler.WithEnvironment(concurrency.EnvironmentRateLimited), // limit = 3
@@ -1220,7 +1229,7 @@ func TestScheduler_WithEnvironment(t *testing.T) {
 }
 
 func TestScheduler_DynamicCriticalBypassesLimit(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	// Dynamic limit of 1
 	s := scheduler.New(storage,
 		scheduler.WithTickInterval(50*time.Millisecond),
@@ -1276,7 +1285,7 @@ func TestScheduler_DynamicCriticalBypassesLimit(t *testing.T) {
 }
 
 func TestScheduler_DynamicLimitFuncPrecedence(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	// Both static and dynamic set: dynamic should take precedence
 	s := scheduler.New(storage,
 		scheduler.WithTickInterval(50*time.Millisecond),
@@ -1297,7 +1306,7 @@ func TestScheduler_DynamicLimitFuncPrecedence(t *testing.T) {
 }
 
 func TestScheduler_DynamicRunningCountAccuracy(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage,
 		scheduler.WithTickInterval(50*time.Millisecond),
 		scheduler.WithConcurrencyLimitFunc(func() int { return 10 }),
@@ -1348,7 +1357,7 @@ func TestScheduler_DynamicRunningCountAccuracy(t *testing.T) {
 }
 
 func TestScheduler_RecoverStaleTasksOnStartup(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	ctx := t.Context()
 
 	// Simulate a crashed scheduler: insert a task in Running status
@@ -1401,7 +1410,7 @@ func TestScheduler_RecoverStaleTasksOnStartup(t *testing.T) {
 }
 
 func TestScheduler_RecoverStaleTasksPeriodic(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 
 	// Use a very short stale timeout for testing
 	s := scheduler.New(storage,
@@ -1445,7 +1454,7 @@ func TestScheduler_RecoverStaleTasksPeriodic(t *testing.T) {
 }
 
 func TestScheduler_RunningTaskNotRecoveredPrematurely(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 
 	s := scheduler.New(storage,
 		scheduler.WithTickInterval(50*time.Millisecond),
@@ -1541,7 +1550,7 @@ func generatePaddedID(n int) string {
 }
 
 func TestScheduler_TasksPaginated_NoFilter(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage, scheduler.WithTickInterval(time.Hour))
 	ctx := t.Context()
 	_ = s.Start(ctx)
@@ -1570,7 +1579,7 @@ func TestScheduler_TasksPaginated_NoFilter(t *testing.T) {
 }
 
 func TestScheduler_TasksPaginated_DefaultLimit(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage, scheduler.WithTickInterval(time.Hour))
 	ctx := t.Context()
 	_ = s.Start(ctx)
@@ -1586,7 +1595,7 @@ func TestScheduler_TasksPaginated_DefaultLimit(t *testing.T) {
 }
 
 func TestScheduler_TasksPaginated_InvalidCursor(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage, scheduler.WithTickInterval(time.Hour))
 	ctx := t.Context()
 	_ = s.Start(ctx)
@@ -1597,7 +1606,7 @@ func TestScheduler_TasksPaginated_InvalidCursor(t *testing.T) {
 }
 
 func TestScheduler_HistoryPaginated_NoFilter(t *testing.T) {
-	storage := memory.New(1000)
+	storage := mustNewMemory(t, 1000)
 	s := scheduler.New(storage, scheduler.WithTickInterval(time.Hour))
 	ctx := t.Context()
 	_ = s.Start(ctx)
@@ -1642,7 +1651,7 @@ func TestScheduler_HistoryPaginated_NoFilter(t *testing.T) {
 }
 
 func TestScheduler_HistoryPaginated_InvalidCursor(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage, scheduler.WithTickInterval(time.Hour))
 	ctx := t.Context()
 	_ = s.Start(ctx)
@@ -1653,7 +1662,7 @@ func TestScheduler_HistoryPaginated_InvalidCursor(t *testing.T) {
 }
 
 func TestScheduler_TasksPaginated_WithFilter(t *testing.T) {
-	storage := memory.New(100)
+	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage, scheduler.WithTickInterval(time.Hour))
 	ctx := t.Context()
 	_ = s.Start(ctx)
@@ -1683,7 +1692,7 @@ func TestScheduler_TasksPaginated_WithFilter(t *testing.T) {
 }
 
 func TestScheduler_HistoryPaginated_WithFilter(t *testing.T) {
-	storage := memory.New(1000)
+	storage := mustNewMemory(t, 1000)
 	s := scheduler.New(storage, scheduler.WithTickInterval(time.Hour))
 	ctx := t.Context()
 	_ = s.Start(ctx)

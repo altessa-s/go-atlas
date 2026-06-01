@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/service/scheduler"
-	"github.com/altessa-s/go-atlas/service/scheduler/storages/memory"
 )
 
 func FuzzStorage_UpsertAndGet(f *testing.F) {
@@ -20,7 +19,7 @@ func FuzzStorage_UpsertAndGet(f *testing.F) {
 	f.Add("task-abc", int32(4), "0 0 * * * *")
 
 	f.Fuzz(func(t *testing.T, id string, status int32, schedule string) {
-		s := memory.New(10)
+		s := mustNew(t, 10)
 		ctx := t.Context()
 
 		state := &scheduler.TaskState{
@@ -46,7 +45,7 @@ func FuzzStorage_AddHistory(f *testing.F) {
 	f.Add("", "", "", int64(0), false, "some error")
 
 	f.Fuzz(func(t *testing.T, id, taskID, runID string, startedAt int64, success bool, errMsg string) {
-		s := memory.New(5)
+		s := mustNew(t, 5)
 		ctx := t.Context()
 
 		h := &scheduler.TaskHistory{
