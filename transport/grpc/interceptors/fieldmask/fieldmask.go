@@ -286,6 +286,21 @@ func (ri *requestInterceptor) applyUpdateMask(ctx context.Context, req proto.Mes
 
 	msk := pbfieldmask.FromProtoFieldMask(rawMask)
 
+	// AIP-134: when the wire update_mask is present but empty, the request
+	// updates every populated field. Opt-in via WithApplyEmptyUpdateMask so
+	// services that historically treat the empty case as a deliberate
+	// passthrough keep that semantic.
+	if len(msk) == 0 && ri.opts.applyEmptyUpdateMask {
+		msk = pbfieldmask.FromSetFields[pbfieldmask.FieldMask](resource)
+		if len(msk) == 0 {
+			ri.LogDebug(ctx, "fieldmask update_mask empty, no populated fields", method)
+			return nil
+		}
+		ri.LogDebug(ctx, "fieldmask update_mask synthesised from set fields", method,
+			slog.Int("synthesised_paths", len(msk)),
+		)
+	}
+
 	if applyErr := msk.ApplyUpdateMask(resource); applyErr != nil {
 		return ri.convertUpdateError(ctx, method, applyErr)
 	}

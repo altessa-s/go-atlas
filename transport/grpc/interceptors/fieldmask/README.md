@@ -35,6 +35,7 @@ classification for a specific fully-qualified method.
 | `WithDefaultUpdateExtractor(fn)`        | built-in reflection              | Global default update extractor used when no per-method override matches.  |
 | `WithDefaultReadExtractor(fn)`          | built-in chain                   | Global default read extractor.                                             |
 | `WithMetadataReadMaskHeader(name)`      | `"x-goog-fieldmask"`             | Override the gRPC metadata key the built-in AIP-157 read extractor reads.  |
+| `WithApplyEmptyUpdateMask()`            | off                              | AIP-134: when `update_mask` is present but empty, synthesise from `FromSetFields(resource)` and apply normally. |
 | `WithIgnoreMethods(...string)`          | --                               | Fully-qualified method names to bypass entirely.                           |
 | `WithIgnorePatterns(...*regexp.Regexp)` | `defaults.IgnorePatterns`        | Regex patterns to bypass (default skips reflection and health probes).     |
 | `WithLogger(*slog.Logger)`              | discard                          | Logger for debug/error messages.                                           |
