@@ -1,10 +1,11 @@
-// Copyright 2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
 package fieldmask_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -228,6 +229,123 @@ func TestDefaultReadExtractor(t *testing.T) {
 	mask, ok := extract(t.Context(), req)
 	require.True(t, ok)
 	require.Equal(t, []string{"name"}, mask.GetPaths())
+}
+
+func TestChainReadExtractors(t *testing.T) {
+	t.Parallel()
+
+	mask := &fieldmaskpb.FieldMask{Paths: []string{"name"}}
+	matching := func(_ context.Context, _ proto.Message) (*fieldmaskpb.FieldMask, bool) {
+		return mask, true
+	}
+	nonMatching := func(_ context.Context, _ proto.Message) (*fieldmaskpb.FieldMask, bool) {
+		return nil, false
+	}
+
+	t.Run("first ok wins", func(t *testing.T) {
+		t.Parallel()
+
+		second := &fieldmaskpb.FieldMask{Paths: []string{"description"}}
+		chain := fieldmask.ChainReadExtractors(
+			matching,
+			func(_ context.Context, _ proto.Message) (*fieldmaskpb.FieldMask, bool) { return second, true },
+		)
+
+		got, ok := chain(t.Context(), &pb.GetResourceRequest{})
+		require.True(t, ok)
+		require.Same(t, mask, got)
+	})
+
+	t.Run("first miss falls through to next", func(t *testing.T) {
+		t.Parallel()
+
+		chain := fieldmask.ChainReadExtractors(nonMatching, matching)
+
+		got, ok := chain(t.Context(), &pb.GetResourceRequest{})
+		require.True(t, ok)
+		require.Same(t, mask, got)
+	})
+
+	t.Run("all miss returns ok=false", func(t *testing.T) {
+		t.Parallel()
+
+		chain := fieldmask.ChainReadExtractors(nonMatching, nonMatching)
+		_, ok := chain(t.Context(), &pb.GetResourceRequest{})
+		require.False(t, ok)
+	})
+
+	t.Run("nil entries skipped", func(t *testing.T) {
+		t.Parallel()
+
+		chain := fieldmask.ChainReadExtractors(nil, matching, nil)
+		got, ok := chain(t.Context(), &pb.GetResourceRequest{})
+		require.True(t, ok)
+		require.Same(t, mask, got)
+	})
+
+	t.Run("zero functions returns nil", func(t *testing.T) {
+		t.Parallel()
+
+		require.Nil(t, fieldmask.ChainReadExtractors())
+		require.Nil(t, fieldmask.ChainReadExtractors(nil, nil))
+	})
+}
+
+func TestChainUpdateExtractors(t *testing.T) {
+	t.Parallel()
+
+	mask := &fieldmaskpb.FieldMask{Paths: []string{"name"}}
+	res := &pb.Resource{Name: "n"}
+	wb := func(*fieldmaskpb.FieldMask) {}
+
+	matching := func(_ context.Context, _ proto.Message) (*fieldmaskpb.FieldMask, proto.Message, func(*fieldmaskpb.FieldMask), bool) {
+		return mask, res, wb, true
+	}
+	nonMatching := func(_ context.Context, _ proto.Message) (*fieldmaskpb.FieldMask, proto.Message, func(*fieldmaskpb.FieldMask), bool) {
+		return nil, nil, nil, false
+	}
+
+	t.Run("first ok wins", func(t *testing.T) {
+		t.Parallel()
+
+		chain := fieldmask.ChainUpdateExtractors(matching, nonMatching)
+		m, r, w, ok := chain(t.Context(), &pb.UpdateResourceRequest{})
+		require.True(t, ok)
+		require.Same(t, mask, m)
+		require.Same(t, res, r)
+		require.NotNil(t, w)
+	})
+
+	t.Run("first miss falls through", func(t *testing.T) {
+		t.Parallel()
+
+		chain := fieldmask.ChainUpdateExtractors(nonMatching, matching)
+		_, _, _, ok := chain(t.Context(), &pb.UpdateResourceRequest{})
+		require.True(t, ok)
+	})
+
+	t.Run("all miss returns ok=false", func(t *testing.T) {
+		t.Parallel()
+
+		chain := fieldmask.ChainUpdateExtractors(nonMatching, nonMatching)
+		_, _, _, ok := chain(t.Context(), &pb.UpdateResourceRequest{})
+		require.False(t, ok)
+	})
+
+	t.Run("nil entries skipped", func(t *testing.T) {
+		t.Parallel()
+
+		chain := fieldmask.ChainUpdateExtractors(nil, matching)
+		_, _, _, ok := chain(t.Context(), &pb.UpdateResourceRequest{})
+		require.True(t, ok)
+	})
+
+	t.Run("zero functions returns nil", func(t *testing.T) {
+		t.Parallel()
+
+		require.Nil(t, fieldmask.ChainUpdateExtractors())
+		require.Nil(t, fieldmask.ChainUpdateExtractors(nil, nil))
+	})
 }
 
 func TestNewUpdateExtractor_ReturnsProtoMessage(t *testing.T) {

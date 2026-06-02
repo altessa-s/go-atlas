@@ -1,4 +1,4 @@
-// Copyright 2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
@@ -12,7 +12,9 @@ import (
 
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldmask"
 
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
@@ -243,6 +245,131 @@ func TestServerInterceptor_DefaultExtractorOverride(t *testing.T) {
 		_, gotResp, err := runUnary(t, uni, "/x.v1.X/GetNestedResource", req, resp, nil)
 		require.NoError(t, err)
 		require.Empty(t, gotResp.(*pb.Resource).GetDescription())
+	})
+}
+
+// TestServerInterceptor_MetadataReadMask covers the AIP-157 modern path:
+// the built-in read extractor reads x-goog-fieldmask metadata before
+// falling back to the deprecated request-message read_mask.
+func TestServerInterceptor_MetadataReadMask(t *testing.T) {
+	t.Parallel()
+
+	runWithMetadata := func(t *testing.T, uni grpc.UnaryServerInterceptor, md metadata.MD, req, resp any) (any, error) {
+		t.Helper()
+
+		ctx := t.Context()
+		if md != nil {
+			ctx = metadata.NewIncomingContext(ctx, md)
+		}
+
+		info := &grpc.UnaryServerInfo{FullMethod: "/x.v1.X/GetResource"}
+		handler := func(_ context.Context, _ any) (any, error) {
+			return resp, nil
+		}
+		return uni(ctx, req, info, handler)
+	}
+
+	t.Run("metadata wins over absent request-field mask", func(t *testing.T) {
+		t.Parallel()
+
+		uni := newUnary(t)
+		md := metadata.Pairs(pbfieldmask.DefaultMetadataReadMaskHeader, "name")
+		req := &pb.GetResourceRequest{Name: "id-1"}
+		resp := &pb.Resource{Id: "id-1", Name: "kept", Description: "dropped"}
+
+		got, err := runWithMetadata(t, uni, md, req, resp)
+		require.NoError(t, err)
+
+		out := got.(*pb.Resource)
+		require.Equal(t, "kept", out.GetName())
+		require.Empty(t, out.GetDescription())
+		require.Empty(t, out.GetId())
+	})
+
+	t.Run("metadata wins over request-field mask", func(t *testing.T) {
+		t.Parallel()
+
+		uni := newUnary(t)
+		md := metadata.Pairs(pbfieldmask.DefaultMetadataReadMaskHeader, "name")
+		req := &pb.GetResourceRequest{
+			Name:     "id-1",
+			ReadMask: &fieldmaskpb.FieldMask{Paths: []string{"description"}},
+		}
+		resp := &pb.Resource{Name: "kept", Description: "dropped"}
+
+		got, err := runWithMetadata(t, uni, md, req, resp)
+		require.NoError(t, err)
+
+		out := got.(*pb.Resource)
+		require.Equal(t, "kept", out.GetName())
+		require.Empty(t, out.GetDescription(), "metadata header overrides request-field mask")
+	})
+
+	t.Run("metadata absent falls back to request-field mask", func(t *testing.T) {
+		t.Parallel()
+
+		uni := newUnary(t)
+		req := &pb.GetResourceRequest{
+			Name:     "id-1",
+			ReadMask: &fieldmaskpb.FieldMask{Paths: []string{"name"}},
+		}
+		resp := &pb.Resource{Name: "kept", Description: "dropped"}
+
+		got, err := runWithMetadata(t, uni, nil, req, resp)
+		require.NoError(t, err)
+
+		out := got.(*pb.Resource)
+		require.Equal(t, "kept", out.GetName())
+		require.Empty(t, out.GetDescription())
+	})
+
+	t.Run("metadata star means all fields (passthrough)", func(t *testing.T) {
+		t.Parallel()
+
+		uni := newUnary(t)
+		md := metadata.Pairs(pbfieldmask.DefaultMetadataReadMaskHeader, "*")
+		req := &pb.GetResourceRequest{Name: "id-1"}
+		resp := &pb.Resource{Name: "kept", Description: "also kept"}
+
+		got, err := runWithMetadata(t, uni, md, req, resp)
+		require.NoError(t, err)
+
+		out := got.(*pb.Resource)
+		require.Equal(t, "kept", out.GetName())
+		require.Equal(t, "also kept", out.GetDescription())
+	})
+
+	t.Run("custom header via WithMetadataReadMaskHeader", func(t *testing.T) {
+		t.Parallel()
+
+		uni := newUnary(t, fieldmask.WithMetadataReadMaskHeader("x-custom-fieldmask"))
+		md := metadata.Pairs("x-custom-fieldmask", "name")
+		req := &pb.GetResourceRequest{Name: "id-1"}
+		resp := &pb.Resource{Name: "kept", Description: "dropped"}
+
+		got, err := runWithMetadata(t, uni, md, req, resp)
+		require.NoError(t, err)
+
+		out := got.(*pb.Resource)
+		require.Equal(t, "kept", out.GetName())
+		require.Empty(t, out.GetDescription())
+	})
+
+	t.Run("default header ignored when custom header is set", func(t *testing.T) {
+		t.Parallel()
+
+		uni := newUnary(t, fieldmask.WithMetadataReadMaskHeader("x-custom-fieldmask"))
+		md := metadata.Pairs(pbfieldmask.DefaultMetadataReadMaskHeader, "name")
+		req := &pb.GetResourceRequest{Name: "id-1"}
+		resp := &pb.Resource{Name: "kept", Description: "also kept"}
+
+		got, err := runWithMetadata(t, uni, md, req, resp)
+		require.NoError(t, err)
+
+		out := got.(*pb.Resource)
+		require.Equal(t, "kept", out.GetName())
+		require.Equal(t, "also kept", out.GetDescription(),
+			"default header must not be consulted once a custom header is configured")
 	})
 }
 

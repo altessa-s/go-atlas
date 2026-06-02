@@ -34,9 +34,19 @@ path — the identifier names the resource and must not be modified by an update
 
 ## Request extraction
 
-Reflection helpers that locate the conventional AIP-134 `update_mask` and AIP-157 `read_mask` fields on a gRPC request message. They look at
-descriptors only and do not import any gRPC types — non-gRPC callers can reuse them. The transport-layer wrapper lives in
-[`transport/grpc/interceptors/fieldmask`](../../../transport/grpc/interceptors/fieldmask/README.md).
+Read the `update_mask` and the read mask off a gRPC request. There are three transports; all of them return `*fieldmaskpb.FieldMask`.
+
+| AIP                          | Transport                                                                | Helper                                              |
+|------------------------------|--------------------------------------------------------------------------|-----------------------------------------------------|
+| AIP-134                      | `update_mask` field on the request message                               | `ExtractUpdateMask` / `DefaultUpdateExtractor`      |
+| AIP-157 (modern)             | gRPC metadata `x-goog-fieldmask` (or HTTP `$fields` mapped by gateway)   | `MetadataReadExtractor`                             |
+| AIP-157 via AIP-161 (legacy) | `read_mask` field on the request message — deprecated by AIP-161         | `ExtractReadMask` / `DefaultReadExtractor`          |
+
+Reflection helpers stay gRPC-unaware (descriptors only); the metadata helper reads `metadata.FromIncomingContext`. All three work from non-gRPC
+callers too. The interceptor in [`transport/grpc/interceptors/fieldmask`](../../../transport/grpc/interceptors/fieldmask/README.md) chains
+`MetadataReadExtractor → DefaultReadExtractor` by default, so the modern path is preferred and the deprecated path keeps working.
+
+### Reflection helpers
 
 | Function                                          | Description                                                                                          |
 |---------------------------------------------------|------------------------------------------------------------------------------------------------------|
@@ -66,5 +76,50 @@ extract := fieldmask.NewUpdateExtractor(
     func(r *pb.UpdateBucketRequest) *fieldmaskpb.FieldMask { return r.GetOptions().GetUpdateMask() },
     func(r *pb.UpdateBucketRequest) *pb.Bucket             { return r.GetBucket() },
     func(r *pb.UpdateBucketRequest, m *fieldmaskpb.FieldMask) { r.Options.UpdateMask = m },
+)
+```
+
+### Metadata-based read mask (AIP-157)
+
+AIP-161 deprecates the request-message `read_mask` and routes callers through AIP-157, which moves the mask onto a side channel — the
+`x-goog-fieldmask` gRPC metadata key in Google Cloud (and the matching `$fields` HTTP query, mapped by grpc-gateway). `MetadataReadExtractor`
+reads that header.
+
+| Symbol                                       | Purpose                                                                                                                                |
+|----------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------|
+| `MetadataReadExtractor(opts ...MetadataExtractorOption)` | Reads the field mask from incoming gRPC metadata per AIP-157.                                                                          |
+| `WithMetadataHeader(name)`                   | Override the metadata key. Defaults to `DefaultMetadataReadMaskHeader` (`"x-goog-fieldmask"`).                                         |
+| `DefaultMetadataReadMaskHeader`              | Constant for the default header name.                                                                                                  |
+
+Semantics:
+
+| Metadata state                              | Result                                                |
+|---------------------------------------------|-------------------------------------------------------|
+| No incoming metadata in `ctx`               | `ok=false` (silent passthrough)                       |
+| Header absent                               | `ok=false`                                            |
+| Header empty / whitespace only              | `ok=false` (AIP-157: omitted ⇒ all fields)            |
+| Header == `"*"`                             | `ok=false` (AIP-157: `*` ⇒ all fields)                |
+| Header == `"name,authors.given_name"`       | `&fieldmaskpb.FieldMask{Paths: [name, …]}, true`      |
+| Multiple values on the same key             | First value wins; the rest are ignored                |
+| Surrounding whitespace around paths         | Trimmed; empty entries dropped                        |
+
+```go
+extract := fieldmask.MetadataReadExtractor(fieldmask.WithMetadataHeader("x-custom-fieldmask"))
+```
+
+### Chaining extractors
+
+`ChainReadExtractors` and `ChainUpdateExtractors` combine extractors and return the first one that signals `ok=true`. Nil entries are
+skipped; an empty chain returns `nil`.
+
+| Symbol                          | Purpose                                                                                                       |
+|---------------------------------|---------------------------------------------------------------------------------------------------------------|
+| `ChainReadExtractors(fns ...)`  | First-ok-wins composition over `ReadExtractorFunc`. Used by the gRPC interceptor to combine metadata + legacy request-field paths. |
+| `ChainUpdateExtractors(fns ...)`| Same for `UpdateExtractorFunc`. Exposed for per-service composition; the gRPC interceptor's update path is a single extractor because AIP-134 mandates `update_mask` on the request message. |
+
+```go
+read := fieldmask.ChainReadExtractors(
+    fieldmask.MetadataReadExtractor(),        // AIP-157 modern path
+    fieldmask.DefaultReadExtractor(),         // AIP-161 deprecated request-field fallback
 )
 ```
