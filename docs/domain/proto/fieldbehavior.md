@@ -217,7 +217,32 @@ the request before any business logic runs against partially-cleared data.
 
 ## Wiring into gRPC
 
-A reusable interceptor pattern (out of scope for the package — wire it up in your gRPC layer):
+The ready-made interceptor lives at [`transport/grpc/interceptors/fieldbehavior`](../../../transport/grpc/interceptors/fieldbehavior/README.md). It
+classifies methods by AIP-133/AIP-134 prefixes (`Create*`, `BatchCreate*` → `StripCreate`; `Update*`, `Patch*`, `BatchUpdate*` → `StripUpdate`),
+strips the response of every successful call, and exposes a `WithMethodKind(fullMethod, kind)` override for methods that don't follow the naming
+convention.
+
+```go
+import (
+    "github.com/altessa-s/go-atlas/transport/grpc/interceptors"
+    "github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldbehavior"
+)
+
+server := grpc.NewServer(grpc.UnaryInterceptor(
+    interceptors.Chain(
+        // ... metadata, auth, ...
+        fieldbehavior.ServerInterceptor(
+            fieldbehavior.WithMethodKind("/x.v1.X/ImportResource", fieldbehavior.KindCreate),
+            fieldbehavior.WithMethodKind("/x.v1.X/RotateKey",      fieldbehavior.KindSkip),
+        ),
+        // ... protovalidator (run after fieldbehavior), handler ...
+    ),
+))
+```
+
+If you prefer to keep the strip logic inside a handler — for example to short-circuit on a strict-mode violation before any business logic runs —
+call `StripCreate` / `StripUpdate` / `StripResponse` directly. Hand-rolling a unary interceptor is also fine when the application has a single
+hosted service and the canonical interceptor's classifier or chain hooks don't fit:
 
 ```go
 // stripInterceptor sanitises every Create/Update request body before the
@@ -248,9 +273,6 @@ func stripInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, 
     return resp, nil
 }
 ```
-
-If you want the method-name → strip-kind mapping to happen automatically — driven by `google.api.method_signature` or the AIP naming conventions —
-that lives in your application's interceptor stack, not here.
 
 ---
 
