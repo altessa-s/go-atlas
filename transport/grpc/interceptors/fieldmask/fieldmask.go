@@ -107,7 +107,7 @@ func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
 		extractOpts = append(extractOpts, pbfieldmask.WithResourceField(opts.resourceFieldName))
 	}
 
-	builtinUpdate, builtinRead := newBuiltinExtractors(extractOpts)
+	builtinUpdate, builtinRead := newBuiltinExtractors(extractOpts, opts.metadataReadMaskHeader)
 
 	ic := &interceptor{
 		BaseInterceptor: interceptors.NewBaseInterceptorWithFilter(

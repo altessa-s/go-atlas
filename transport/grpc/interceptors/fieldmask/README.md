@@ -33,7 +33,8 @@ classification for a specific fully-qualified method.
 | `WithUpdateExtractor(fullMethod, fn)`   | --                               | Per-method update extractor. See [Custom extractors](#custom-extractors).  |
 | `WithReadExtractor(fullMethod, fn)`     | --                               | Per-method read extractor.                                                 |
 | `WithDefaultUpdateExtractor(fn)`        | built-in reflection              | Global default update extractor used when no per-method override matches.  |
-| `WithDefaultReadExtractor(fn)`          | built-in reflection              | Global default read extractor.                                             |
+| `WithDefaultReadExtractor(fn)`          | built-in chain                   | Global default read extractor.                                             |
+| `WithMetadataReadMaskHeader(name)`      | `"x-goog-fieldmask"`             | Override the gRPC metadata key the built-in AIP-157 read extractor reads.  |
 | `WithIgnoreMethods(...string)`          | --                               | Fully-qualified method names to bypass entirely.                           |
 | `WithIgnorePatterns(...*regexp.Regexp)` | `defaults.IgnorePatterns`        | Regex patterns to bypass (default skips reflection and health probes).     |
 | `WithLogger(*slog.Logger)`              | discard                          | Logger for debug/error messages.                                           |
@@ -70,11 +71,23 @@ For every call the interceptor resolves the extractor in this order:
 
 1. **Per-method override** registered via `WithUpdateExtractor(fullMethod, fn)` / `WithReadExtractor(fullMethod, fn)` — wins when `fn != nil`.
 2. **Global default** registered via `WithDefaultUpdateExtractor(fn)` / `WithDefaultReadExtractor(fn)` — used when no per-method match.
-3. **Built-in reflection** (`pbfieldmask.DefaultUpdateExtractor` / `DefaultReadExtractor`) — the bottom-of-stack fallback. Honors
-   `WithMaskFieldName` / `WithResourceFieldName`.
+3. **Built-in** — the bottom-of-stack fallback.
+   - Update path: `pbfieldmask.DefaultUpdateExtractor` (single reflection extractor). Honors `WithMaskFieldName` / `WithResourceFieldName`.
+   - Read path: `pbfieldmask.ChainReadExtractors(MetadataReadExtractor, DefaultReadExtractor)` — modern AIP-157 metadata header first, deprecated
+     AIP-161 request-message `read_mask` second.
 
 A custom extractor returning `ok=false` means "I do not handle this request" — the interceptor logs at Debug and passes through. It does **not**
 fall back to a lower tier. This keeps the precedence deterministic when callers register an extractor specifically to disable handling for a method.
+
+### AIP-157 metadata read mask
+
+AIP-161 marks `read_mask` on the request message as **deprecated** and forwards callers to AIP-157, which transports the mask through a side
+channel: the gRPC metadata key `x-goog-fieldmask` (and the corresponding HTTP `$fields` query parameter, mapped by grpc-gateway). The built-in
+read chain consults that header first and falls back to the request-message `read_mask` when the header is absent. Explicit `"*"` and missing
+header both mean "all fields" per AIP-157 — the interceptor passes the response through unfiltered.
+
+Override the header name with `WithMetadataReadMaskHeader("x-custom-fieldmask")`. The override applies only to the built-in chain; callers
+that replace the read extractor wholesale via `WithDefaultReadExtractor` or `WithReadExtractor` own their own header convention.
 
 ### Writeback
 

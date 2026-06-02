@@ -1,4 +1,4 @@
-// Copyright 2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
@@ -10,6 +10,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/domain/proto/fieldmask"
 
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	pb "github.com/altessa-s/go-atlas/proto/gen/fieldbehaviortest/v1"
@@ -63,6 +64,35 @@ func BenchmarkDefaultUpdateExtractor(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		_, _, _, _ = extract(context.Background(), req)
+	}
+}
+
+func BenchmarkChainReadExtractors_FirstHit(b *testing.B) {
+	inner := fieldmask.DefaultReadExtractor()
+	chain := fieldmask.ChainReadExtractors(inner, inner)
+	req := &pb.GetResourceRequest{
+		Name:     "id",
+		ReadMask: &fieldmaskpb.FieldMask{Paths: []string{"name"}},
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = chain(context.Background(), req)
+	}
+}
+
+func BenchmarkChainReadExtractors_SecondHit(b *testing.B) {
+	miss := func(context.Context, proto.Message) (*fieldmaskpb.FieldMask, bool) { return nil, false }
+	hit := fieldmask.DefaultReadExtractor()
+	chain := fieldmask.ChainReadExtractors(miss, hit)
+	req := &pb.GetResourceRequest{
+		Name:     "id",
+		ReadMask: &fieldmaskpb.FieldMask{Paths: []string{"name"}},
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = chain(context.Background(), req)
 	}
 }
 

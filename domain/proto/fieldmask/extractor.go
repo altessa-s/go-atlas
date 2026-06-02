@@ -1,4 +1,4 @@
-// Copyright 2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
@@ -117,6 +117,67 @@ func NewReadExtractor[ReqT proto.Message](
 		}
 
 		return mask, true
+	}
+}
+
+// ChainReadExtractors returns a [ReadExtractorFunc] that invokes each fn in
+// order and returns the first result that signals ok=true. ok=false from
+// every fn yields ok=false, which the gRPC interceptor treats as a silent
+// passthrough.
+//
+// Nil entries are skipped. ChainReadExtractors called with no functions, or
+// with only nil entries, returns nil — the caller is expected to handle the
+// nil chain like any other absent extractor.
+//
+// Use the chain to combine modern transports (gRPC metadata per AIP-157)
+// with legacy fallbacks (deprecated request-message read_mask per AIP-161)
+// without forcing the caller to pick one source.
+func ChainReadExtractors(fns ...ReadExtractorFunc) ReadExtractorFunc {
+	compact := make([]ReadExtractorFunc, 0, len(fns))
+	for _, fn := range fns {
+		if fn != nil {
+			compact = append(compact, fn)
+		}
+	}
+
+	if len(compact) == 0 {
+		return nil
+	}
+
+	return func(ctx context.Context, req proto.Message) (*fieldmaskpb.FieldMask, bool) {
+		for _, fn := range compact {
+			if mask, ok := fn(ctx, req); ok {
+				return mask, true
+			}
+		}
+		return nil, false
+	}
+}
+
+// ChainUpdateExtractors mirrors [ChainReadExtractors] for
+// [UpdateExtractorFunc]. Exported for symmetry and per-service composition;
+// the gRPC interceptor's built-in update path is a single extractor because
+// AIP-134 requires update_mask on the request message and does not sanction
+// a side-channel transport.
+func ChainUpdateExtractors(fns ...UpdateExtractorFunc) UpdateExtractorFunc {
+	compact := make([]UpdateExtractorFunc, 0, len(fns))
+	for _, fn := range fns {
+		if fn != nil {
+			compact = append(compact, fn)
+		}
+	}
+
+	if len(compact) == 0 {
+		return nil
+	}
+
+	return func(ctx context.Context, req proto.Message) (*fieldmaskpb.FieldMask, proto.Message, func(*fieldmaskpb.FieldMask), bool) {
+		for _, fn := range compact {
+			if mask, resource, writeback, ok := fn(ctx, req); ok {
+				return mask, resource, writeback, true
+			}
+		}
+		return nil, nil, nil, false
 	}
 }
 

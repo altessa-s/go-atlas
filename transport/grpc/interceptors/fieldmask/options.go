@@ -59,6 +59,12 @@ type options struct {
 	// [WithDefaultReadExtractor].
 	defaultReadExtractor pbfieldmask.ReadExtractorFunc `opt:"-"`
 
+	// metadataReadMaskHeader overrides the gRPC metadata key the built-in
+	// AIP-157 read extractor consults. Empty means use the default
+	// [pbfieldmask.DefaultMetadataReadMaskHeader]. Populated by
+	// [WithMetadataReadMaskHeader].
+	metadataReadMaskHeader string `opt:"-"`
+
 	// ignoreMethods is a list of method names to skip entirely. Example:
 	// ["/grpc.health.v1.Health/Check"].
 	ignoreMethods []string
@@ -176,5 +182,22 @@ func WithDefaultReadExtractor(fn pbfieldmask.ReadExtractorFunc) Option {
 		}
 
 		o.defaultReadExtractor = fn
+	}
+}
+
+// WithMetadataReadMaskHeader overrides the gRPC metadata key the built-in
+// AIP-157 read extractor consults. Empty name is ignored and the default
+// [pbfieldmask.DefaultMetadataReadMaskHeader] ("x-goog-fieldmask") is used.
+//
+// Only the built-in read chain is affected — callers that replace the read
+// extractor entirely via [WithDefaultReadExtractor] or [WithReadExtractor]
+// own their own header convention.
+func WithMetadataReadMaskHeader(name string) Option {
+	return func(o *options) {
+		if name == "" {
+			return
+		}
+
+		o.metadataReadMaskHeader = name
 	}
 }

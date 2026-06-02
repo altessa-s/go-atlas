@@ -89,6 +89,37 @@ message GetResourceRequest {
   google.protobuf.FieldMask read_mask = 2;
 }
 
+// NestedUpdateResourceRequest exercises the non-canonical AIP-134 shape
+// where the update_mask is nested inside an Options sub-message. Consumed
+// by the fieldmask gRPC interceptor tests for custom extractor support.
+message NestedUpdateResourceRequest {
+  message Options {
+    // Field mask listing which fields of resource should be updated.
+    google.protobuf.FieldMask update_mask = 1;
+  }
+
+  // The resource to update.
+  Resource resource = 1 [(google.api.field_behavior) = REQUIRED];
+
+  // Per-call options carrying the update_mask.
+  Options options = 2;
+}
+
+// NestedGetResourceRequest exercises the non-canonical AIP-157 shape where
+// the read_mask is nested inside an Options sub-message.
+message NestedGetResourceRequest {
+  message Options {
+    // Field mask listing which fields of the response should be returned.
+    google.protobuf.FieldMask read_mask = 1;
+  }
+
+  // Resource name (routing key).
+  string name = 1 [(google.api.field_behavior) = REQUIRED];
+
+  // Per-call options carrying the read_mask.
+  Options options = 2;
+}
+
 // Profile is a nested message with its own field_behavior annotations.
 message Profile {
   // Nested IDENTIFIER (e.g. profile.id is server-set).

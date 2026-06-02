@@ -39,6 +39,16 @@
 // helpers in the same function shape and serve as the interceptor's
 // built-in fallback.
 //
+// AIP-161 deprecates carrying the read mask on the request message and
+// directs callers to AIP-157, which transports the mask through a side
+// channel (HTTP "$fields" query, gRPC "x-goog-fieldmask" metadata).
+// [MetadataReadExtractor] reads that metadata header and returns a mask in
+// the same shape. [ChainReadExtractors] and [ChainUpdateExtractors]
+// combine multiple extractors and return the first one that signals
+// ok=true — the gRPC interceptor's default read extractor is the chain
+// (metadata, request-field) so modern services work out of the box while
+// legacy request-field deployments keep functioning unchanged.
+//
 // Example:
 //
 //	mask := fieldmask.FromPaths("user.name", "user.address.city")
