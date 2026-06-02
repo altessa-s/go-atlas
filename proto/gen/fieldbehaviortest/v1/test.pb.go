@@ -15,6 +15,7 @@ import (
 
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
+	fieldmaskpb "google.golang.org/protobuf/types/known/fieldmaskpb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -231,6 +232,122 @@ func (*Resource_SourceUrl) isResource_Source() {}
 
 func (*Resource_SourceToken) isResource_Source() {}
 
+// UpdateResourceRequest mirrors the AIP-134 update RPC shape: a resource
+// payload paired with an update_mask. Consumed by the fieldmask gRPC
+// interceptor tests.
+type UpdateResourceRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The resource to update. Annotated as REQUIRED so the validation surface
+	// matches what real services declare.
+	Resource *Resource `protobuf:"bytes,1,opt,name=resource,proto3" json:"resource,omitempty"`
+	// Field mask listing which fields of resource should be updated. Per
+	// AIP-134 the mask is required on the wire even though absent masks have
+	// a defined fallback behavior.
+	UpdateMask    *fieldmaskpb.FieldMask `protobuf:"bytes,2,opt,name=update_mask,json=updateMask,proto3" json:"update_mask,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UpdateResourceRequest) Reset() {
+	*x = UpdateResourceRequest{}
+	mi := &file_fieldbehaviortest_v1_test_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UpdateResourceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UpdateResourceRequest) ProtoMessage() {}
+
+func (x *UpdateResourceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_fieldbehaviortest_v1_test_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UpdateResourceRequest.ProtoReflect.Descriptor instead.
+func (*UpdateResourceRequest) Descriptor() ([]byte, []int) {
+	return file_fieldbehaviortest_v1_test_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *UpdateResourceRequest) GetResource() *Resource {
+	if x != nil {
+		return x.Resource
+	}
+	return nil
+}
+
+func (x *UpdateResourceRequest) GetUpdateMask() *fieldmaskpb.FieldMask {
+	if x != nil {
+		return x.UpdateMask
+	}
+	return nil
+}
+
+// GetResourceRequest mirrors the AIP-157 read RPC shape: a resource name
+// paired with a read_mask. Consumed by the fieldmask gRPC interceptor tests.
+type GetResourceRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Resource name (routing key).
+	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// Field mask listing which fields of the response should be returned.
+	ReadMask      *fieldmaskpb.FieldMask `protobuf:"bytes,2,opt,name=read_mask,json=readMask,proto3" json:"read_mask,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetResourceRequest) Reset() {
+	*x = GetResourceRequest{}
+	mi := &file_fieldbehaviortest_v1_test_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetResourceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetResourceRequest) ProtoMessage() {}
+
+func (x *GetResourceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_fieldbehaviortest_v1_test_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetResourceRequest.ProtoReflect.Descriptor instead.
+func (*GetResourceRequest) Descriptor() ([]byte, []int) {
+	return file_fieldbehaviortest_v1_test_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *GetResourceRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *GetResourceRequest) GetReadMask() *fieldmaskpb.FieldMask {
+	if x != nil {
+		return x.ReadMask
+	}
+	return nil
+}
+
 // Profile is a nested message with its own field_behavior annotations.
 type Profile struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -248,7 +365,7 @@ type Profile struct {
 
 func (x *Profile) Reset() {
 	*x = Profile{}
-	mi := &file_fieldbehaviortest_v1_test_proto_msgTypes[1]
+	mi := &file_fieldbehaviortest_v1_test_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -260,7 +377,7 @@ func (x *Profile) String() string {
 func (*Profile) ProtoMessage() {}
 
 func (x *Profile) ProtoReflect() protoreflect.Message {
-	mi := &file_fieldbehaviortest_v1_test_proto_msgTypes[1]
+	mi := &file_fieldbehaviortest_v1_test_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -273,7 +390,7 @@ func (x *Profile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Profile.ProtoReflect.Descriptor instead.
 func (*Profile) Descriptor() ([]byte, []int) {
-	return file_fieldbehaviortest_v1_test_proto_rawDescGZIP(), []int{1}
+	return file_fieldbehaviortest_v1_test_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *Profile) GetId() string {
@@ -308,7 +425,7 @@ var File_fieldbehaviortest_v1_test_proto protoreflect.FileDescriptor
 
 const file_fieldbehaviortest_v1_test_proto_rawDesc = "" +
 	"\n" +
-	"\x1ffieldbehaviortest/v1/test.proto\x12\x14fieldbehaviortest.v1\x1a\x1fgoogle/api/field_behavior.proto\"\xac\x06\n" +
+	"\x1ffieldbehaviortest/v1/test.proto\x12\x14fieldbehaviortest.v1\x1a\x1fgoogle/api/field_behavior.proto\x1a google/protobuf/field_mask.proto\"\xac\x06\n" +
 	"\bResource\x12\x13\n" +
 	"\x02id\x18\x01 \x01(\tB\x03\xe0A\bR\x02id\x12\x17\n" +
 	"\x04name\x18\x02 \x01(\tB\x03\xe0A\x02R\x04name\x12 \n" +
@@ -335,7 +452,14 @@ const file_fieldbehaviortest_v1_test_proto_rawDesc = "" +
 	"\x0fServerMetaEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\b\n" +
-	"\x06source\"\x82\x01\n" +
+	"\x06source\"\x95\x01\n" +
+	"\x15UpdateResourceRequest\x12?\n" +
+	"\bresource\x18\x01 \x01(\v2\x1e.fieldbehaviortest.v1.ResourceB\x03\xe0A\x02R\bresource\x12;\n" +
+	"\vupdate_mask\x18\x02 \x01(\v2\x1a.google.protobuf.FieldMaskR\n" +
+	"updateMask\"f\n" +
+	"\x12GetResourceRequest\x12\x17\n" +
+	"\x04name\x18\x01 \x01(\tB\x03\xe0A\x02R\x04name\x127\n" +
+	"\tread_mask\x18\x02 \x01(\v2\x1a.google.protobuf.FieldMaskR\breadMask\"\x82\x01\n" +
 	"\aProfile\x12\x13\n" +
 	"\x02id\x18\x01 \x01(\tB\x03\xe0A\bR\x02id\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\x12\"\n" +
@@ -356,25 +480,31 @@ func file_fieldbehaviortest_v1_test_proto_rawDescGZIP() []byte {
 	return file_fieldbehaviortest_v1_test_proto_rawDescData
 }
 
-var file_fieldbehaviortest_v1_test_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_fieldbehaviortest_v1_test_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_fieldbehaviortest_v1_test_proto_goTypes = []any{
-	(*Resource)(nil), // 0: fieldbehaviortest.v1.Resource
-	(*Profile)(nil),  // 1: fieldbehaviortest.v1.Profile
-	nil,              // 2: fieldbehaviortest.v1.Resource.LabelsEntry
-	nil,              // 3: fieldbehaviortest.v1.Resource.ServerMetaEntry
+	(*Resource)(nil),              // 0: fieldbehaviortest.v1.Resource
+	(*UpdateResourceRequest)(nil), // 1: fieldbehaviortest.v1.UpdateResourceRequest
+	(*GetResourceRequest)(nil),    // 2: fieldbehaviortest.v1.GetResourceRequest
+	(*Profile)(nil),               // 3: fieldbehaviortest.v1.Profile
+	nil,                           // 4: fieldbehaviortest.v1.Resource.LabelsEntry
+	nil,                           // 5: fieldbehaviortest.v1.Resource.ServerMetaEntry
+	(*fieldmaskpb.FieldMask)(nil), // 6: google.protobuf.FieldMask
 }
 var file_fieldbehaviortest_v1_test_proto_depIdxs = []int32{
-	1, // 0: fieldbehaviortest.v1.Resource.profile:type_name -> fieldbehaviortest.v1.Profile
-	1, // 1: fieldbehaviortest.v1.Resource.audit:type_name -> fieldbehaviortest.v1.Profile
-	1, // 2: fieldbehaviortest.v1.Resource.aliases:type_name -> fieldbehaviortest.v1.Profile
-	2, // 3: fieldbehaviortest.v1.Resource.labels:type_name -> fieldbehaviortest.v1.Resource.LabelsEntry
-	3, // 4: fieldbehaviortest.v1.Resource.server_meta:type_name -> fieldbehaviortest.v1.Resource.ServerMetaEntry
-	1, // 5: fieldbehaviortest.v1.Resource.LabelsEntry.value:type_name -> fieldbehaviortest.v1.Profile
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	3, // 0: fieldbehaviortest.v1.Resource.profile:type_name -> fieldbehaviortest.v1.Profile
+	3, // 1: fieldbehaviortest.v1.Resource.audit:type_name -> fieldbehaviortest.v1.Profile
+	3, // 2: fieldbehaviortest.v1.Resource.aliases:type_name -> fieldbehaviortest.v1.Profile
+	4, // 3: fieldbehaviortest.v1.Resource.labels:type_name -> fieldbehaviortest.v1.Resource.LabelsEntry
+	5, // 4: fieldbehaviortest.v1.Resource.server_meta:type_name -> fieldbehaviortest.v1.Resource.ServerMetaEntry
+	0, // 5: fieldbehaviortest.v1.UpdateResourceRequest.resource:type_name -> fieldbehaviortest.v1.Resource
+	6, // 6: fieldbehaviortest.v1.UpdateResourceRequest.update_mask:type_name -> google.protobuf.FieldMask
+	6, // 7: fieldbehaviortest.v1.GetResourceRequest.read_mask:type_name -> google.protobuf.FieldMask
+	3, // 8: fieldbehaviortest.v1.Resource.LabelsEntry.value:type_name -> fieldbehaviortest.v1.Profile
+	9, // [9:9] is the sub-list for method output_type
+	9, // [9:9] is the sub-list for method input_type
+	9, // [9:9] is the sub-list for extension type_name
+	9, // [9:9] is the sub-list for extension extendee
+	0, // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_fieldbehaviortest_v1_test_proto_init() }
@@ -392,7 +522,7 @@ func file_fieldbehaviortest_v1_test_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_fieldbehaviortest_v1_test_proto_rawDesc), len(file_fieldbehaviortest_v1_test_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   4,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -53,6 +53,7 @@ Every interceptor sub-package exports three identification helpers:
 | [driver](./driver)                             | Core interfaces for the driven interceptor pattern    |
 | [errstatus](./errstatus)                       | Error-to-status and status-to-error conversion        |
 | [fieldbehavior](./fieldbehavior)               | AIP-203 `field_behavior` strip on request/response    |
+| [fieldmask](./fieldmask)                       | AIP-134 `update_mask` + AIP-157 `read_mask` enforcement |
 | [health](./health)                             | Service health checking                               |
 | [idempotency](./idempotency)                   | Idempotent request handling via metadata keys         |
 | [limiter](./limiter)                           | Rate limiting with standard response headers          |
