@@ -77,6 +77,15 @@ func (msk FieldMask) ApplyUpdateMask(msg proto.Message) error {
 		return nil
 	}
 
+	if msg != nil {
+		descriptor := msg.ProtoReflect().Descriptor()
+		for _, path := range msk.ToPaths() {
+			if err := rejectIndexedRepeatedAccess(descriptor, path); err != nil {
+				return err
+			}
+		}
+	}
+
 	var violations []FieldViolation
 	msk.validateFieldBehaviors(msg, "", &violations)
 

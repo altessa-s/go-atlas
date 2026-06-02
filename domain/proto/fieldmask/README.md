@@ -32,6 +32,10 @@ path — the identifier names the resource and must not be modified by an update
 | `ToPaths`              | Return a sorted slice of dot-separated path strings                                                    |
 | `ApplyUpdateMask`      | Copy masked fields from source to destination with field behavior validation                           |
 
+`ApplyUpdateMask` also rejects indexed access into repeated fields (`authors.0`, `authors.0.given_name`) as `ValidationError` per AIP-161:
+update masks address whole repeated fields, never a single element. To replace one entry, callers replace the entire list. Read paths
+(`Filter`, `Prune`, `Validate`) tolerate the same segments — AIP-161 lets the implementation ignore them on read.
+
 ## Request extraction
 
 Read the `update_mask` and the read mask off a gRPC request. There are three transports; all of them return `*fieldmaskpb.FieldMask`.

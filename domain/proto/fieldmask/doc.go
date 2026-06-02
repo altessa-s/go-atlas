@@ -14,6 +14,13 @@
 // treated like IMMUTABLE in the update path: per AIP-203 the identifier names
 // the resource and must not be modified by an update.
 //
+// [FieldMask.ApplyUpdateMask] also rejects indexed access to repeated fields
+// (`authors.0`, `authors.0.given_name`) as [ValidationError] per AIP-161:
+// update masks address whole repeated fields, never an individual element.
+// Read paths ([FieldMask.Filter], [FieldMask.Prune], [FieldMask.Validate])
+// tolerate the same segments — AIP-161 lets the implementation ignore them
+// on read.
+//
 // Well-known types [structpb.Struct], [structpb.ListValue], and [structpb.Value]
 // are handled transparently — their dynamic keys are navigable by mask operations.
 //
