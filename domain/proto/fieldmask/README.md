@@ -36,6 +36,24 @@ path — the identifier names the resource and must not be modified by an update
 update masks address whole repeated fields, never a single element. To replace one entry, callers replace the entire list. Read paths
 (`Filter`, `Prune`, `Validate`) tolerate the same segments — AIP-161 lets the implementation ignore them on read.
 
+### Backtick-quoted map keys (AIP-161)
+
+Map keys that contain a dot or other non-identifier characters are wrapped in backticks so the dot is not mistaken for a path separator. The
+parser (`FromPaths`, `Contains`, `Validate`) treats a backtick-quoted run as a single segment and strips the backticks; `ToPaths` re-quotes any
+key that still contains a dot, so the round-trip is lossless.
+
+```go
+mask := fieldmask.FromPaths(
+    "reviews.`John Smith`.score",       // key has a space, no dot
+    "metadata.`google.com/project`",    // key has a dot — backticks survive ToPaths
+)
+
+mask.Contains("reviews.`John Smith`.score") // true
+mask.ToPaths()                              // ["metadata.`google.com/project`", "reviews.John Smith.score"]
+```
+
+The same syntax is honored by `Filter`, `Prune`, and `ApplyUpdateMask` when traversing `map<string, …>` fields.
+
 ## Request extraction
 
 Read the `update_mask` and the read mask off a gRPC request. There are three transports; all of them return `*fieldmaskpb.FieldMask`.
