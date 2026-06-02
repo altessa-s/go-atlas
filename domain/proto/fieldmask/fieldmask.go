@@ -393,6 +393,7 @@ func (msk FieldMask) IsEmpty() bool {
 }
 
 // Contains checks if a dot-separated path exists in the FieldMask.
+// Backtick-quoted segments are honored per AIP-161 (e.g. “reviews.`John Smith` “).
 //
 // Example:
 //
@@ -402,7 +403,10 @@ func (msk FieldMask) Contains(path string) bool {
 		return false
 	}
 
-	parts := strings.Split(path, PathSeparator)
+	parts := splitPath(path)
+	if len(parts) == 0 {
+		return false
+	}
 	currentLevel := msk
 
 	for i, part := range parts {
@@ -661,11 +665,14 @@ func applyToMessageList(fd protoreflect.FieldDescriptor, lst protoreflect.List, 
 }
 
 // buildPaths recursively traverses the mask and appends full paths.
+// Segments containing a dot are wrapped in backticks per AIP-161 so the
+// path round-trips through [FromPaths].
 func (msk FieldMask) buildPaths(prefix string, paths *[]string) {
 	for field, nested := range msk {
-		currentPath := field
+		seg := quotePathSegment(field)
+		currentPath := seg
 		if prefix != "" {
-			currentPath = prefix + PathSeparator + field
+			currentPath = prefix + PathSeparator + seg
 		}
 
 		if nested == nil {
@@ -679,48 +686,97 @@ func (msk FieldMask) buildPaths(prefix string, paths *[]string) {
 }
 
 // fromPath parses a dot-separated path and builds nested structure.
+// Backtick-quoted segments (AIP-161, e.g. “reviews.`John Smith` “) are
+// preserved as a single segment with the backticks stripped.
 func fromPath(mask FieldMask, path string) {
 	if path == "" {
 		return
 	}
+	parts := splitPath(path)
+	// Trailing separators ("a.") produce a trailing empty segment; the
+	// historical behavior is to treat the parent as a leaf. Drop them.
+	for len(parts) > 0 && parts[len(parts)-1] == "" {
+		parts = parts[:len(parts)-1]
+	}
+	fromPathParts(mask, parts)
+}
 
-	// Find the first dot in the path
-	dotIndex := strings.Index(path, PathSeparator)
-	if dotIndex == -1 {
-		// If no dot is found, this is a leaf field or the end of a branch.
-		// Leaf dominates: if a parent leaf is present, nested paths are redundant.
-		mask[path] = nil
+// fromPathParts inserts pre-split segments into mask, preserving the
+// "leaf dominates branch" rule used by fromPath.
+func fromPathParts(mask FieldMask, parts []string) {
+	if len(parts) == 0 {
 		return
 	}
-
-	// Split the path into the current field and the rest
-	field := path[:dotIndex]
-	if field == "" {
-		// Invalid path format
+	head := parts[0]
+	if head == "" {
+		// Empty segment ("" or ".x") — malformed; drop silently.
 		return
 	}
-
-	rest := path[dotIndex+1:]
-	if rest == "" {
-		// If there's nothing left after the last dot, treat it as a leaf field.
-		mask[field] = nil
+	if len(parts) == 1 {
+		// Leaf dominates: overwrite any existing branch.
+		mask[head] = nil
 		return
 	}
-
-	// Get or create the nested mask for this field
-	nested, exists := mask[field]
+	nested, exists := mask[head]
 	if exists && nested == nil {
-		// Leaf dominates: do not expand into nested mask if the parent field is already a leaf.
+		// Leaf already present; nested paths are redundant.
 		return
 	}
 	if !exists {
 		nested = make(FieldMask)
-		mask[field] = nested
+		mask[head] = nested
 	}
-	// If 'nested' exists and is not nil, it means it's already a branch, so we use it.
+	fromPathParts(nested, parts[1:])
+}
 
-	// Continue parsing the rest of the path recursively
-	fromPath(nested, rest)
+// splitPath splits a dot-separated path into segments, respecting
+// backtick-quoted segments per AIP-161. A pair of backticks delimits a
+// single segment that may contain dots or other non-identifier
+// characters — typically a map key such as “reviews.`John Smith` “ or
+// “metadata.`google.com/project` “. Backticks are stripped from the
+// returned segments.
+//
+// Unterminated backticks are tolerated: the parser stays inside the
+// quoted state until the end of input, which is consistent with the
+// AIP examples and avoids spurious splits on a malformed input. The
+// returned slice never includes a leading or trailing nil — callers
+// strip empty edge segments before consuming.
+func splitPath(path string) []string {
+	if path == "" {
+		return nil
+	}
+	var (
+		parts    []string
+		current  strings.Builder
+		inQuotes bool
+	)
+	current.Grow(len(path))
+	for i := 0; i < len(path); i++ {
+		c := path[i]
+		switch {
+		case c == '`':
+			inQuotes = !inQuotes
+		case c == '.' && !inQuotes:
+			parts = append(parts, current.String())
+			current.Reset()
+		default:
+			current.WriteByte(c)
+		}
+	}
+	parts = append(parts, current.String())
+	return parts
+}
+
+// quotePathSegment wraps a path segment in backticks when it contains a
+// dot — without quoting, the segment would be re-parsed as multiple
+// path components. Map keys produced via [protoreflect.MapKey.String]
+// pass through unchanged when they consist of plain identifier
+// characters, so the helper is a no-op for the common case.
+func quotePathSegment(seg string) string {
+	if !strings.ContainsRune(seg, '.') {
+		return seg
+	}
+	return "`" + seg + "`"
 }
 
 // zeroValueForScalar returns the zero value for a scalar field type.
@@ -867,11 +923,14 @@ func (msk FieldMask) pruneStructValue(v *structpb.Value) {
 }
 
 // buildStructPaths enumerates paths for a google.protobuf.Struct.
+// Struct keys are arbitrary strings; ones containing a dot are quoted
+// in backticks so they round-trip through [FromPaths].
 func buildStructPaths(s *structpb.Struct, prefix string, paths *[]string) {
 	for key, val := range s.GetFields() {
-		keyPath := key
+		seg := quotePathSegment(key)
+		keyPath := seg
 		if prefix != "" {
-			keyPath = prefix + PathSeparator + key
+			keyPath = prefix + PathSeparator + seg
 		}
 		*paths = append(*paths, keyPath)
 		if val != nil {
@@ -980,7 +1039,7 @@ func buildPathsRecursive(msg protoreflect.Message, prefix string, paths *[]strin
 			// Map
 			m := v.Map()
 			m.Range(func(k protoreflect.MapKey, mapVal protoreflect.Value) bool {
-				keyPath := path + PathSeparator + k.String()
+				keyPath := path + PathSeparator + quotePathSegment(k.String())
 
 				if !onlySetFields {
 					*paths = append(*paths, keyPath)
@@ -1065,7 +1124,7 @@ func rejectIndexedRepeatedAccess(descriptor protoreflect.MessageDescriptor, path
 		return nil
 	}
 
-	parts := strings.Split(path, PathSeparator)
+	parts := splitPath(path)
 	currentDescriptor := descriptor
 	var previousField protoreflect.FieldDescriptor
 
@@ -1142,7 +1201,7 @@ func validatePath(descriptor protoreflect.MessageDescriptor, path string) error 
 		return nil
 	}
 
-	parts := strings.Split(path, PathSeparator)
+	parts := splitPath(path)
 	currentDescriptor := descriptor
 	var previousField protoreflect.FieldDescriptor
 

@@ -21,6 +21,13 @@
 // tolerate the same segments — AIP-161 lets the implementation ignore them
 // on read.
 //
+// Map keys that contain a dot or other non-identifier characters are
+// addressed by wrapping the key in backticks per AIP-161, for example
+// `reviews.` + "`John Smith`" or `metadata.` + "`google.com/project`".
+// The path parser ([FromPaths], [FieldMask.Contains], [FieldMask.Validate])
+// treats a backtick-quoted run as a single segment; [FieldMask.ToPaths]
+// re-quotes keys that contain a dot so the round-trip is lossless.
+//
 // Well-known types [structpb.Struct], [structpb.ListValue], and [structpb.Value]
 // are handled transparently — their dynamic keys are navigable by mask operations.
 //

@@ -28,6 +28,23 @@ func BenchmarkFromPaths(b *testing.B) {
 	}
 }
 
+// BenchmarkFromPaths_Backtick measures the parser hot path for AIP-161
+// backtick-quoted map keys, where a single segment may contain dots
+// and the splitter cannot fall back on strings.Split.
+func BenchmarkFromPaths_Backtick(b *testing.B) {
+	paths := []string{
+		"reviews.`John Smith`",
+		"reviews.`Alice O'Connor`.score",
+		"metadata.`google.com/project`",
+		"labels.`group.admin`.display_name",
+	}
+
+	b.ResetTimer()
+	for b.Loop() {
+		_ = fieldmask.FromPaths(paths...)
+	}
+}
+
 func BenchmarkToPaths(b *testing.B) {
 	m := fieldmask.FromPaths(
 		"user.name",
