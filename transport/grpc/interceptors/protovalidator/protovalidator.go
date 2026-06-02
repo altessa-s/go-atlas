@@ -150,13 +150,10 @@ func (ri *requestInterceptor) validate(ctx context.Context, req any) (err error)
 	}
 
 	// Check if method should be ignored
-	method := ""
-	if ri.meta != nil {
-		method = ri.meta.FullyMethodName
-		if ri.ShouldIgnore(method) {
-			ri.LogDebug(ctx, "skipping validation for ignored method", method)
-			return nil
-		}
+	method := ri.meta.Method()
+	if method != "" && ri.ShouldIgnore(method) {
+		ri.LogDebug(ctx, "skipping validation for ignored method", method)
+		return nil
 	}
 
 	// Perform validation with panic recovery
