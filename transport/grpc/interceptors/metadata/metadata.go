@@ -174,6 +174,32 @@ func FromContext(ctx context.Context) (*CallMetadata, bool) {
 	return c, ok
 }
 
+// Method returns the FullyMethodName of c, or "" when c is nil. It removes
+// the nil check that callers would otherwise sprinkle alongside every
+// [FromContext] call.
+func (c *CallMetadata) Method() string {
+	if c == nil {
+		return ""
+	}
+
+	return c.FullyMethodName
+}
+
+// MethodFromContext returns the FullyMethodName of the [CallMetadata] in ctx,
+// or "" when no metadata is attached. Equivalent to
+//
+//	meta, _ := metadata.FromContext(ctx)
+//	method := meta.Method()
+//
+// collapsed into one call for use in interceptor logging and dispatch paths
+// that don't care to distinguish "no metadata" from "metadata without a
+// method name".
+func MethodFromContext(ctx context.Context) string {
+	c, _ := FromContext(ctx)
+
+	return c.Method()
+}
+
 // NewContext returns a new context with CallMetadata injected.
 func NewContext(ctx context.Context, c *CallMetadata) context.Context {
 	return context.WithValue(ctx, callMetadataKey{}, c)
