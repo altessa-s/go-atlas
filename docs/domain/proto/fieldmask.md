@@ -150,6 +150,10 @@ callers — anywhere you have a `proto.Message`.
 | `SetUpdateMask(req, mask, opts...)`   | Writeback the cleaned mask onto the request. Returns `ErrFieldNotSettable` on shape mismatch.    |
 | `MetadataReadExtractor(opts...)`      | Read the mask from gRPC metadata per AIP-157. Default key `x-goog-fieldmask`.                    |
 
+`ApplyUpdateMask` additionally rejects indexed access to repeated fields (`authors.0`, `authors.0.given_name`) as `ValidationError` per AIP-161
+— update masks address whole repeated fields, never a single element. Read paths tolerate the same segments (AIP-161 lets the implementation
+ignore them on read).
+
 ---
 
 ## Custom extractors

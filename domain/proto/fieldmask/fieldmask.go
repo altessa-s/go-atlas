@@ -1048,6 +1048,94 @@ func buildPathsRecursive(msg protoreflect.Message, prefix string, paths *[]strin
 	})
 }
 
+// rejectIndexedRepeatedAccess returns ValidationError when path addresses a
+// single element of a repeated field (`authors.0`, `authors.0.given_name`).
+// AIP-161 forbids such segments on the update path and AIP-134 update masks
+// never address an individual repeated entry — to replace one, callers
+// replace the entire list. The interceptor maps the returned ValidationError
+// to gRPC InvalidArgument.
+//
+// Unrelated path issues (unknown field, scalar dereference, malformed map
+// key) are ignored on purpose: this check has a single responsibility, and
+// the downstream walker keeps its existing tolerance for paths it cannot
+// resolve. Read paths (`Filter`, `Prune`, `Validate`) are unaffected — per
+// AIP-161 the implementation MAY ignore indexed segments on read.
+func rejectIndexedRepeatedAccess(descriptor protoreflect.MessageDescriptor, path string) error {
+	if path == "" {
+		return nil
+	}
+
+	parts := strings.Split(path, PathSeparator)
+	currentDescriptor := descriptor
+	var previousField protoreflect.FieldDescriptor
+
+	for _, part := range parts {
+		if previousField != nil {
+			if previousField.IsList() {
+				if _, err := strconv.Atoi(part); err == nil {
+					return &ValidationError{
+						Path: path,
+						Reason: "indexed access to repeated field '" + string(previousField.Name()) +
+							"' is not permitted on update; replace the entire list instead",
+					}
+				}
+				// Non-numeric segment after a repeated field: it is a field
+				// name on the list-element message. Step into the element
+				// descriptor so the next iteration keeps tracking lists/maps.
+				if previousField.Kind() == protoreflect.MessageKind &&
+					!isValueWellKnownType(previousField) && !isStructWellKnownType(previousField) &&
+					!isListValueWellKnownType(previousField) {
+					currentDescriptor = previousField.Message()
+				} else {
+					currentDescriptor = nil
+				}
+				previousField = nil
+				// Fall through to lookup `part` as a field on currentDescriptor.
+			} else if previousField.IsMap() {
+				// Map keys are not list indexes; AIP-161's index restriction
+				// does not apply to them. Step into the map-value descriptor
+				// so a nested list inside a map value still gets the check.
+				if previousField.MapValue().Kind() == protoreflect.MessageKind &&
+					!isValueWellKnownMessage(previousField.MapValue().Message()) &&
+					!isStructWellKnownMessage(previousField.MapValue().Message()) &&
+					!isListValueWellKnownMessage(previousField.MapValue().Message()) {
+					currentDescriptor = previousField.MapValue().Message()
+				} else {
+					currentDescriptor = nil
+				}
+				previousField = nil
+				continue
+			}
+		}
+
+		if currentDescriptor == nil {
+			return nil
+		}
+
+		field := currentDescriptor.Fields().ByName(protoreflect.Name(part))
+		if field == nil {
+			return nil
+		}
+
+		switch {
+		case field.IsList() || field.IsMap():
+			previousField = field
+			currentDescriptor = nil
+		case field.Kind() == protoreflect.MessageKind:
+			if isValueWellKnownType(field) || isStructWellKnownType(field) || isListValueWellKnownType(field) {
+				return nil
+			}
+			currentDescriptor = field.Message()
+			previousField = nil
+		default:
+			currentDescriptor = nil
+			previousField = nil
+		}
+	}
+
+	return nil
+}
+
 // validatePath validates a path against a message descriptor.
 func validatePath(descriptor protoreflect.MessageDescriptor, path string) error {
 	if path == "" {
