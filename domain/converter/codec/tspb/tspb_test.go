@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package tspb
+package tspb_test
 
 import (
 	"reflect"
@@ -13,14 +13,17 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/domain/converter"
+	"github.com/altessa-s/go-atlas/domain/converter/codec/tspb"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestNew_TimestampToTime(t *testing.T) {
+	t.Parallel()
+
 	now := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
 	ts := timestamppb.New(now)
-	codec := New()
+	codec := tspb.New()
 
 	src := reflect.ValueOf(ts).Elem()
 	var dst time.Time
@@ -34,8 +37,10 @@ func TestNew_TimestampToTime(t *testing.T) {
 }
 
 func TestNew_TimeToTimestamp(t *testing.T) {
+	t.Parallel()
+
 	now := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
-	codec := New()
+	codec := tspb.New()
 
 	src := reflect.ValueOf(now)
 	var dst timestamppb.Timestamp
@@ -49,9 +54,11 @@ func TestNew_TimeToTimestamp(t *testing.T) {
 }
 
 func TestNew_TimestampToInt64(t *testing.T) {
+	t.Parallel()
+
 	now := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
 	ts := timestamppb.New(now)
-	codec := New()
+	codec := tspb.New()
 
 	src := reflect.ValueOf(ts).Elem()
 	var dst int64
@@ -65,8 +72,10 @@ func TestNew_TimestampToInt64(t *testing.T) {
 }
 
 func TestNew_Int64ToTimestamp(t *testing.T) {
+	t.Parallel()
+
 	var unix int64 = 1750000000
-	codec := New()
+	codec := tspb.New()
 
 	src := reflect.ValueOf(unix)
 	var dst timestamppb.Timestamp
@@ -80,9 +89,11 @@ func TestNew_Int64ToTimestamp(t *testing.T) {
 }
 
 func TestNew_Pointer_TimestampToTime(t *testing.T) {
+	t.Parallel()
+
 	now := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
 	ts := timestamppb.New(now)
-	codec := New()
+	codec := tspb.New()
 
 	src := reflect.ValueOf(ts)
 	var dst *time.Time
@@ -97,8 +108,10 @@ func TestNew_Pointer_TimestampToTime(t *testing.T) {
 }
 
 func TestNew_Pointer_TimeToTimestamp(t *testing.T) {
+	t.Parallel()
+
 	now := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
-	codec := New()
+	codec := tspb.New()
 
 	src := reflect.ValueOf(&now)
 	var dst *timestamppb.Timestamp
@@ -113,9 +126,11 @@ func TestNew_Pointer_TimeToTimestamp(t *testing.T) {
 }
 
 func TestNew_Pointer_TimestampToInt64(t *testing.T) {
+	t.Parallel()
+
 	now := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
 	ts := timestamppb.New(now)
-	codec := New()
+	codec := tspb.New()
 
 	src := reflect.ValueOf(ts)
 	var dst *int64
@@ -130,8 +145,10 @@ func TestNew_Pointer_TimestampToInt64(t *testing.T) {
 }
 
 func TestNew_Pointer_Int64ToTimestamp(t *testing.T) {
+	t.Parallel()
+
 	var unix int64 = 1750000000
-	codec := New()
+	codec := tspb.New()
 
 	src := reflect.ValueOf(&unix)
 	var dst *timestamppb.Timestamp
@@ -146,7 +163,9 @@ func TestNew_Pointer_Int64ToTimestamp(t *testing.T) {
 }
 
 func TestNew_IgnoreZero_Timestamp(t *testing.T) {
-	codec := New(WithIgnoreZero())
+	t.Parallel()
+
+	codec := tspb.New(tspb.WithIgnoreZero())
 
 	// Zero timestamp: seconds=0, nanos=0 (Unix epoch)
 	ts := &timestamppb.Timestamp{}
@@ -163,7 +182,9 @@ func TestNew_IgnoreZero_Timestamp(t *testing.T) {
 }
 
 func TestNew_IgnoreZero_Time(t *testing.T) {
-	codec := New(WithIgnoreZero())
+	t.Parallel()
+
+	codec := tspb.New(tspb.WithIgnoreZero())
 
 	src := reflect.ValueOf(time.Time{})
 	orig := timestamppb.New(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
@@ -177,7 +198,9 @@ func TestNew_IgnoreZero_Time(t *testing.T) {
 }
 
 func TestNew_IgnoreZero_Int64(t *testing.T) {
-	codec := New(WithIgnoreZero())
+	t.Parallel()
+
+	codec := tspb.New(tspb.WithIgnoreZero())
 
 	src := reflect.ValueOf(int64(0))
 	orig := timestamppb.New(time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC))
@@ -191,9 +214,11 @@ func TestNew_IgnoreZero_Int64(t *testing.T) {
 }
 
 func TestNew_Milliseconds(t *testing.T) {
+	t.Parallel()
+
 	now := time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC)
 	ts := timestamppb.New(now)
-	codec := New(WithMilliseconds())
+	codec := tspb.New(tspb.WithMilliseconds())
 
 	// Timestamp -> int64 (milliseconds)
 	src := reflect.ValueOf(ts).Elem()
@@ -219,7 +244,9 @@ func TestNew_Milliseconds(t *testing.T) {
 }
 
 func TestNew_PassThrough(t *testing.T) {
-	codec := New()
+	t.Parallel()
+
+	codec := tspb.New()
 
 	src := reflect.ValueOf("hello")
 	var dst string
@@ -234,7 +261,9 @@ func TestNew_PassThrough(t *testing.T) {
 }
 
 func TestNew_NilPointer_Timestamp(t *testing.T) {
-	codec := New()
+	t.Parallel()
+
+	codec := tspb.New()
 
 	var src *timestamppb.Timestamp
 	srcVal := reflect.ValueOf(src)
@@ -249,7 +278,9 @@ func TestNew_NilPointer_Timestamp(t *testing.T) {
 }
 
 func TestNew_NilPointer_Time(t *testing.T) {
-	codec := New()
+	t.Parallel()
+
+	codec := tspb.New()
 
 	var src *time.Time
 	srcVal := reflect.ValueOf(src)
@@ -264,7 +295,9 @@ func TestNew_NilPointer_Time(t *testing.T) {
 }
 
 func TestNew_NilPointer_Int64(t *testing.T) {
-	codec := New()
+	t.Parallel()
+
+	codec := tspb.New()
 
 	var src *int64
 	srcVal := reflect.ValueOf(src)
@@ -298,10 +331,14 @@ type tspbProto struct {
 // struct-kind fields field-by-field before consulting codecs, which silently
 // zeroed time.Time <-> Timestamp.
 func TestCodec_ThroughConverter(t *testing.T) {
+	t.Parallel()
+
 	now := time.Date(2026, 5, 27, 10, 0, 0, 0, time.UTC)
 	other := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 
 	t.Run("time.Time to Timestamp", func(t *testing.T) {
+		t.Parallel()
+
 		src := tspbEntity{
 			ID:        "e1",
 			CreatedAt: now,
@@ -309,7 +346,7 @@ func TestCodec_ThroughConverter(t *testing.T) {
 			Meta:      map[string]time.Time{"k": other},
 		}
 		var dst tspbProto
-		converter.Convert(src, &dst, converter.WithCodecs(New()))
+		converter.Convert(src, &dst, converter.WithCodecs(tspb.New()))
 
 		assert.Equal(t, "e1", dst.ID)
 		require.NotNil(t, dst.CreatedAt)
@@ -322,9 +359,11 @@ func TestCodec_ThroughConverter(t *testing.T) {
 	})
 
 	t.Run("Timestamp to time.Time", func(t *testing.T) {
+		t.Parallel()
+
 		src := tspbProto{ID: "e2", CreatedAt: timestamppb.New(now)}
 		var dst tspbEntity
-		converter.Convert(src, &dst, converter.WithCodecs(New()))
+		converter.Convert(src, &dst, converter.WithCodecs(tspb.New()))
 
 		assert.Equal(t, "e2", dst.ID)
 		assert.True(t, now.Equal(dst.CreatedAt))

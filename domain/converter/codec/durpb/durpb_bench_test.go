@@ -2,18 +2,20 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package durpb
+package durpb_test
 
 import (
 	"reflect"
 	"testing"
 	"time"
 
+	"github.com/altessa-s/go-atlas/domain/converter/codec/durpb"
+
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
 func BenchmarkNew_DurationToGo(b *testing.B) {
-	codec := New()
+	codec := durpb.New()
 	pb := durationpb.New(90*time.Minute + 500*time.Millisecond)
 	src := reflect.ValueOf(pb).Elem()
 	handler := func(_ string, _, _ reflect.Value) {}
@@ -28,7 +30,7 @@ func BenchmarkNew_DurationToGo(b *testing.B) {
 }
 
 func BenchmarkNew_GoToDuration(b *testing.B) {
-	codec := New()
+	codec := durpb.New()
 	d := 90*time.Minute + 500*time.Millisecond
 	src := reflect.ValueOf(d)
 	handler := func(_ string, _, _ reflect.Value) {}
@@ -43,7 +45,7 @@ func BenchmarkNew_GoToDuration(b *testing.B) {
 }
 
 func BenchmarkNew_PassThrough(b *testing.B) {
-	codec := New()
+	codec := durpb.New()
 	src := reflect.ValueOf("hello")
 	handler := func(_ string, _, _ reflect.Value) {}
 
