@@ -27,6 +27,13 @@ const (
 	// (e.g. "user.name").
 	PathSeparator = "."
 
+	// WildcardSegment is the AIP-161 path component matching every element
+	// of a repeated field or every value of a map field, written "*".
+	// Inside a [FieldMask] it is stored as a regular key — protobuf field
+	// names cannot contain "*" so there is no collision risk with real
+	// fields at the same level.
+	WildcardSegment = "*"
+
 	// DefaultEstimatedPathCapacity is the initial slice capacity when collecting
 	// paths from a protobuf message via [FromMessage] or [FromSetFields].
 	DefaultEstimatedPathCapacity = 24
@@ -507,7 +514,19 @@ func (msk FieldMask) iterateFilter(msg proto.Message) {
 
 		switch {
 		case fd.IsList():
-			applyToMessageList(fd, prf.Get(fd).List(), effectiveNested, func(nested FieldMask, m proto.Message) {
+			// AIP-161 wildcard: when nested has a "*" key, that sub-mask
+			// is the per-element mask; a leaf "*" (nil sub-mask) means
+			// "keep the whole list as-is". When no wildcard is present
+			// the implicit form is preserved — nested is applied to every
+			// element directly.
+			perElement := effectiveNested
+			if wildcardMask, ok := effectiveNested[WildcardSegment]; ok {
+				if wildcardMask == nil {
+					return true
+				}
+				perElement = wildcardMask
+			}
+			applyToMessageList(fd, prf.Get(fd).List(), perElement, func(nested FieldMask, m proto.Message) {
 				nested.iterateFilter(m)
 			})
 		case fd.IsMap():
@@ -517,26 +536,31 @@ func (msk FieldMask) iterateFilter(msg proto.Message) {
 			}
 
 			mapKeyMask := effectiveNested // This is the mask for the map field (e.g., msk["flags"])
+			wildcardMask, hasWildcard := mapKeyMask[WildcardSegment]
+			mapValueDesc := fd.MapValue()
 
 			mm.Range(func(k protoreflect.MapKey, mapVal protoreflect.Value) bool {
 				keyString := k.String()
-				// Look up the string key in the map's specific mask.
 				specificValueMask, specificKeyInMapMaskExists := mapKeyMask[keyString]
 
-				if !specificKeyInMapMaskExists {
-					mm.Clear(k) // Key not found in the specific map mask, remove entry
+				var finalValueMask FieldMask
+				switch {
+				case specificKeyInMapMaskExists:
+					finalValueMask = specificValueMask
+				case hasWildcard:
+					// AIP-161: "*" applies to every value not matched by a
+					// specific key entry.
+					finalValueMask = wildcardMask
+				default:
+					mm.Clear(k) // Not targeted by any rule, drop the entry.
 					return true
 				}
 
-				finalValueMask := specificValueMask
 				if finalValueMask == nil {
-					return true // Keep value as is (key exists, value mask is nil)
+					return true // Keep value as is (leaf rule).
 				}
 
-				// Check the kind of the map value using its descriptor
-				mapValueDesc := fd.MapValue()
 				if mapValueDesc != nil && mapValueDesc.Kind() == protoreflect.MessageKind {
-					// Use finalValueMask as the mask for the value message structure
 					finalValueMask.iterateFilter(mapVal.Message().Interface())
 				}
 				return true
@@ -600,7 +624,18 @@ func (msk FieldMask) iteratePrune(msg proto.Message) {
 
 		switch {
 		case fd.IsList():
-			applyToMessageList(fd, prf.Get(fd).List(), pruneMask, func(nested FieldMask, m proto.Message) {
+			// AIP-161 wildcard mirror of Filter: a leaf "*" clears the
+			// whole list (the wildcard says "prune every element"); a
+			// branch "*" sub-mask becomes the per-element prune mask.
+			perElement := pruneMask
+			if wildcardMask, ok := pruneMask[WildcardSegment]; ok {
+				if wildcardMask == nil {
+					prf.Clear(fd)
+					return true
+				}
+				perElement = wildcardMask
+			}
+			applyToMessageList(fd, prf.Get(fd).List(), perElement, func(nested FieldMask, m proto.Message) {
 				nested.iteratePrune(m)
 			})
 		case fd.IsMap():
@@ -611,29 +646,31 @@ func (msk FieldMask) iteratePrune(msg proto.Message) {
 
 			// pruneMask now holds the mask for the map keys/values (e.g., msk["flags"])
 			mapKeyMask := pruneMask
+			wildcardMask, hasWildcard := mapKeyMask[WildcardSegment]
 			mapValueDesc := fd.MapValue() // Get descriptor for map values
 
 			mm.Range(func(k protoreflect.MapKey, mapVal protoreflect.Value) bool {
 				keyString := k.String()
-				// Look up the string key in the map's specific mask.
 				specificValueMask, specificKeyInMapMaskExists := mapKeyMask[keyString]
 
-				if !specificKeyInMapMaskExists {
-					return true // This key is not targeted by the prune mask, keep entry.
+				var finalValuePruneMask FieldMask
+				switch {
+				case specificKeyInMapMaskExists:
+					finalValuePruneMask = specificValueMask
+				case hasWildcard:
+					// AIP-161: "*" prunes every value not matched by a
+					// specific key entry.
+					finalValuePruneMask = wildcardMask
+				default:
+					return true // No rule targets this key — keep it.
 				}
 
-				finalValuePruneMask := specificValueMask
-
-				// This map entry is targeted. Decide how to prune.
 				if finalValuePruneMask == nil {
-					// Mask is leaf for this key (e.g., "flags.active"), clear the entry.
-					mm.Clear(k)
+					mm.Clear(k) // Leaf rule — prune the entry entirely.
 					return true
 				}
 
-				// Prune recursively within the value if it's a message
 				if mapValueDesc != nil && mapValueDesc.Kind() == protoreflect.MessageKind {
-					// Use finalValuePruneMask as the mask for the value message structure
 					finalValuePruneMask.iteratePrune(mapVal.Message().Interface())
 				}
 				return true
@@ -1230,6 +1267,28 @@ func validatePath(descriptor protoreflect.MessageDescriptor, path string) error 
 				}
 				return nil
 			} else if previousField.IsList() {
+				// AIP-161 wildcard: "*" matches every element. For message
+				// lists, step into the element descriptor so the remaining
+				// segments resolve against the element schema. For scalar
+				// lists, the wildcard must be the terminal segment.
+				if part == WildcardSegment {
+					if previousField.Kind() == protoreflect.MessageKind {
+						if isValueWellKnownType(previousField) || isStructWellKnownType(previousField) ||
+							isListValueWellKnownType(previousField) {
+							return nil
+						}
+						currentDescriptor = previousField.Message()
+						previousField = nil
+						continue
+					}
+					if i < len(parts)-1 {
+						return &ValidationError{
+							Path:   path,
+							Reason: "cannot access field beyond wildcard on list of scalar type at field: " + parts[i-1],
+						}
+					}
+					return nil
+				}
 				// Current part should be a numeric index or a field in the list element
 				if _, err := strconv.Atoi(part); err == nil {
 					// This is a list index

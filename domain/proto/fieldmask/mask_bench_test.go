@@ -45,6 +45,23 @@ func BenchmarkFromPaths_Backtick(b *testing.B) {
 	}
 }
 
+// BenchmarkFromPaths_Wildcard measures the parser hot path for AIP-161
+// wildcard segments — the path-build cost should be on par with plain
+// segments since "*" is stored as a regular FieldMask key.
+func BenchmarkFromPaths_Wildcard(b *testing.B) {
+	paths := []string{
+		"aliases.*",
+		"aliases.*.display_name",
+		"labels.*.display_name",
+		"labels.admin.id",
+	}
+
+	b.ResetTimer()
+	for b.Loop() {
+		_ = fieldmask.FromPaths(paths...)
+	}
+}
+
 func BenchmarkToPaths(b *testing.B) {
 	m := fieldmask.FromPaths(
 		"user.name",

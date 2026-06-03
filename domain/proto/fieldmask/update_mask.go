@@ -200,13 +200,88 @@ func (msk FieldMask) validateFieldBehaviors(
 }
 
 func (msk FieldMask) removeOutputOnlyFields(msg proto.Message) {
-	fields := msg.ProtoReflect().Descriptor().Fields()
-	for fieldName := range msk {
+	if msg == nil {
+		return
+	}
+	msk.stripOutputOnlyForDescriptor(msg.ProtoReflect().Descriptor())
+}
+
+// stripOutputOnlyForDescriptor removes OUTPUT_ONLY fields at the level
+// of desc and recurses into wildcard sub-masks ("*") so OUTPUT_ONLY
+// fields under AIP-161 wildcarded subtrees are also stripped from the
+// writeback mask. The wildcard key itself is not a real field on desc
+// and is skipped at this level; recursion uses the element descriptor
+// of the parent repeated / map field.
+//
+// Per the plan's scope, only "*" sub-masks trigger recursion. The
+// historical implicit form (e.g. "aliases.updated_at") is preserved
+// as-is so existing callers see the same behaviour.
+func (msk FieldMask) stripOutputOnlyForDescriptor(desc protoreflect.MessageDescriptor) {
+	if desc == nil {
+		return
+	}
+	fields := desc.Fields()
+	for fieldName, nested := range msk {
+		if fieldName == WildcardSegment {
+			continue
+		}
 		fd := fields.ByName(protoreflect.Name(fieldName))
-		if fd != nil && getFieldBehavior(fd) == fieldBehaviorOutputOnly {
+		if fd == nil {
+			continue
+		}
+		if getFieldBehavior(fd) == fieldBehaviorOutputOnly {
+			delete(msk, fieldName)
+			continue
+		}
+		if nested == nil {
+			continue
+		}
+		wildcardMask, hasWildcard := nested[WildcardSegment]
+		if !hasWildcard || wildcardMask == nil {
+			continue
+		}
+		elemDesc := wildcardElementDescriptor(fd)
+		if elemDesc == nil {
+			continue
+		}
+		wildcardMask.stripOutputOnlyForDescriptor(elemDesc)
+		if len(wildcardMask) == 0 {
+			delete(nested, WildcardSegment)
+		}
+		if len(nested) == 0 {
 			delete(msk, fieldName)
 		}
 	}
+}
+
+// wildcardElementDescriptor returns the message descriptor used as the
+// recursion target for the "*" wildcard on fd: the list element message
+// for repeated fields or the map value message for maps. Returns nil
+// for scalar collections and dynamic well-known types whose subtree is
+// not navigable by the schema.
+func wildcardElementDescriptor(fd protoreflect.FieldDescriptor) protoreflect.MessageDescriptor {
+	switch {
+	case fd.IsList():
+		if fd.Kind() != protoreflect.MessageKind {
+			return nil
+		}
+		m := fd.Message()
+		if m == nil || isValueWellKnownMessage(m) || isStructWellKnownMessage(m) || isListValueWellKnownMessage(m) {
+			return nil
+		}
+		return m
+	case fd.IsMap():
+		v := fd.MapValue()
+		if v == nil || v.Kind() != protoreflect.MessageKind {
+			return nil
+		}
+		m := v.Message()
+		if m == nil || isValueWellKnownMessage(m) || isStructWellKnownMessage(m) || isListValueWellKnownMessage(m) {
+			return nil
+		}
+		return m
+	}
+	return nil
 }
 
 func (msk FieldMask) setDefaultsForUnsetFields(msg proto.Message) {

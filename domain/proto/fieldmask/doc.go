@@ -28,6 +28,17 @@
 // treats a backtick-quoted run as a single segment; [FieldMask.ToPaths]
 // re-quotes keys that contain a dot so the round-trip is lossless.
 //
+// The AIP-161 wildcard segment "*" ([WildcardSegment]) matches every
+// element of a repeated field or every value of a map field. It is
+// honored by [FieldMask.Filter], [FieldMask.Prune], [FieldMask.Validate]
+// and [FieldMask.ApplyUpdateMask]: a leaf wildcard ("aliases.*") keeps
+// (or, for [FieldMask.Prune], clears) the whole collection; a branch
+// wildcard ("aliases.*.display_name") applies the nested sub-mask to
+// every element / value. For maps a specific-key entry wins over the
+// wildcard for matched keys. [FieldMask.ApplyUpdateMask] strips
+// OUTPUT_ONLY fields transitively through wildcard sub-masks before
+// writing the cleaned mask back.
+//
 // Well-known types [structpb.Struct], [structpb.ListValue], and [structpb.Value]
 // are handled transparently — their dynamic keys are navigable by mask operations.
 //
