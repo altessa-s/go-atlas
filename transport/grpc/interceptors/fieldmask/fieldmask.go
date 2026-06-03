@@ -358,10 +358,10 @@ func (ri *requestInterceptor) filterResponse(ctx context.Context, resp proto.Mes
 }
 
 // convertUpdateError maps ApplyUpdateMask errors to gRPC status responses.
-// BehaviorViolationError becomes InvalidArgument + google.rpc.BadRequest;
+// UpdateMaskBehaviorError becomes InvalidArgument + google.rpc.BadRequest;
 // ValidationError becomes InvalidArgument; everything else becomes Internal.
 func (ri *requestInterceptor) convertUpdateError(ctx context.Context, method string, applyErr error) error {
-	var behaviorErr *pbfieldmask.BehaviorViolationError
+	var behaviorErr *pbfieldmask.UpdateMaskBehaviorError
 	if errors.As(applyErr, &behaviorErr) {
 		ri.LogDebug(ctx, "fieldmask update_mask behavior violation", method,
 			slog.Int("violations", len(behaviorErr.Violations)),
@@ -387,7 +387,7 @@ func (ri *requestInterceptor) convertUpdateError(ctx context.Context, method str
 
 // buildBehaviorStatus produces an InvalidArgument status carrying a
 // google.rpc.BadRequest detail with one FieldViolation per offending field.
-func buildBehaviorStatus(err *pbfieldmask.BehaviorViolationError) *status.Status {
+func buildBehaviorStatus(err *pbfieldmask.UpdateMaskBehaviorError) *status.Status {
 	violations := make([]*errdetails.BadRequest_FieldViolation, 0, len(err.Violations))
 	for _, v := range err.Violations {
 		violations = append(violations, &errdetails.BadRequest_FieldViolation{

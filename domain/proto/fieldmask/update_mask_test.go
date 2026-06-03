@@ -97,7 +97,7 @@ func TestApplyUpdateMask_RequiredNestedMessageNotSet(t *testing.T) {
 	err := mask.ApplyUpdateMask(msg)
 	require.Error(t, err)
 
-	var behaviorErr *fieldmask.BehaviorViolationError
+	var behaviorErr *fieldmask.UpdateMaskBehaviorError
 	require.ErrorAs(t, err, &behaviorErr)
 	require.Len(t, behaviorErr.Violations, 1)
 	assert.Equal(t, "address", behaviorErr.Violations[0].Path)
@@ -162,7 +162,7 @@ func TestApplyUpdateMask_RequiredFieldNotSet(t *testing.T) {
 	err := mask.ApplyUpdateMask(msg)
 	require.Error(t, err)
 
-	var behaviorErr *fieldmask.BehaviorViolationError
+	var behaviorErr *fieldmask.UpdateMaskBehaviorError
 	require.ErrorAs(t, err, &behaviorErr)
 	require.Len(t, behaviorErr.Violations, 1)
 	assert.Equal(t, "name", behaviorErr.Violations[0].Path)
@@ -221,7 +221,7 @@ func TestApplyUpdateMask_ImmutableField(t *testing.T) {
 	err := mask.ApplyUpdateMask(msg)
 	require.Error(t, err)
 
-	var behaviorErr *fieldmask.BehaviorViolationError
+	var behaviorErr *fieldmask.UpdateMaskBehaviorError
 	require.ErrorAs(t, err, &behaviorErr)
 	require.Len(t, behaviorErr.Violations, 1)
 	assert.Equal(t, "code", behaviorErr.Violations[0].Path)
@@ -264,7 +264,7 @@ func TestApplyUpdateMask_NestedRequiredField(t *testing.T) {
 	err := mask.ApplyUpdateMask(msg)
 	require.Error(t, err)
 
-	var behaviorErr *fieldmask.BehaviorViolationError
+	var behaviorErr *fieldmask.UpdateMaskBehaviorError
 	require.ErrorAs(t, err, &behaviorErr)
 	require.Len(t, behaviorErr.Violations, 1)
 	assert.Equal(t, "address.city", behaviorErr.Violations[0].Path)
@@ -302,7 +302,7 @@ func TestApplyUpdateMask_MultipleViolations(t *testing.T) {
 	err := mask.ApplyUpdateMask(msg)
 	require.Error(t, err)
 
-	var behaviorErr *fieldmask.BehaviorViolationError
+	var behaviorErr *fieldmask.UpdateMaskBehaviorError
 	require.ErrorAs(t, err, &behaviorErr)
 	assert.GreaterOrEqual(t, len(behaviorErr.Violations), 2)
 }
@@ -381,7 +381,7 @@ func TestApplyUpdateMask_ImmutableFieldNotSet(t *testing.T) {
 	err := mask.ApplyUpdateMask(msg)
 	require.Error(t, err)
 
-	var behaviorErr *fieldmask.BehaviorViolationError
+	var behaviorErr *fieldmask.UpdateMaskBehaviorError
 	require.ErrorAs(t, err, &behaviorErr)
 	require.Len(t, behaviorErr.Violations, 1)
 	assert.Contains(t, behaviorErr.Violations[0].Reason, "immutable")
@@ -450,7 +450,7 @@ func TestApplyUpdateMask_IdentifierFieldInMask(t *testing.T) {
 	err := mask.ApplyUpdateMask(msg)
 	require.Error(t, err)
 
-	var behaviorErr *fieldmask.BehaviorViolationError
+	var behaviorErr *fieldmask.UpdateMaskBehaviorError
 	require.ErrorAs(t, err, &behaviorErr)
 	require.Len(t, behaviorErr.Violations, 1)
 	assert.Equal(t, "resource_name", behaviorErr.Violations[0].Path)
@@ -486,7 +486,7 @@ func TestApplyUpdateMask_IdentifierFieldInMaskNotSet(t *testing.T) {
 	err := mask.ApplyUpdateMask(msg)
 	require.Error(t, err)
 
-	var behaviorErr *fieldmask.BehaviorViolationError
+	var behaviorErr *fieldmask.UpdateMaskBehaviorError
 	require.ErrorAs(t, err, &behaviorErr)
 	require.Len(t, behaviorErr.Violations, 1)
 	assert.Equal(t, "resource_name", behaviorErr.Violations[0].Path)
