@@ -85,6 +85,14 @@ For a `KindUpdate` method, on every unary call (and every streamed frame):
 The handler can then treat `req.GetUpdateMask().GetPaths()` as a clean instruction list — no IMMUTABLE/IDENTIFIER booby traps, no OUTPUT_ONLY
 writes to discard at the storage layer.
 
+### Empty `update_mask` (AIP-134 fallback)
+
+AIP-134 specifies that a present-but-empty `update_mask` means "update every populated field on the resource". The interceptor is opt-in here:
+without `WithApplyEmptyUpdateMask()` an empty mask is a deliberate no-op (the historical behaviour). With the option on, the interceptor calls
+`pbfieldmask.FromSetFields(resource)` to synthesise a mask covering every populated editable field and runs `ApplyUpdateMask` against it — so
+IMMUTABLE/IDENTIFIER fields the client populated still raise `BehaviorViolationError`, and OUTPUT_ONLY fields are stripped from the writeback
+mask. A missing `update_mask` field (extractor returns `ok=false`) is unaffected and stays a passthrough.
+
 ---
 
 ## Read path
@@ -110,6 +118,8 @@ saves a CPU pass and the response is already minimal).
 | `WithSkipReadMask()`                    | off                              | Disable the response-side `Filter` pass on `KindRead` methods.             |
 | `WithMaskFieldName(name)`               | `"update_mask"` / `"read_mask"`  | Override the conventional mask field name (descriptor name).               |
 | `WithResourceFieldName(name)`           | first non-mask message field     | Override the resource carrier field name on Update requests.               |
+| `WithMetadataReadMaskHeader(name)`      | `"x-goog-fieldmask"`             | Override the gRPC metadata key the built-in AIP-157 read extractor reads.  |
+| `WithApplyEmptyUpdateMask()`            | off                              | AIP-134: when `update_mask` is present but empty, synthesise from `FromSetFields(resource)` and apply normally. |
 | `WithIgnoreMethods(...string)`          | --                               | Fully-qualified method names to bypass entirely.                           |
 | `WithIgnorePatterns(...*regexp.Regexp)` | `defaults.IgnorePatterns`        | Regex patterns to bypass (default skips reflection and health probes).     |
 | `WithLogger(*slog.Logger)`              | discard                          | Logger for debug/error messages.                                           |
@@ -153,6 +163,24 @@ callers — anywhere you have a `proto.Message`.
 `ApplyUpdateMask` additionally rejects indexed access to repeated fields (`authors.0`, `authors.0.given_name`) as `ValidationError` per AIP-161
 — update masks address whole repeated fields, never a single element. Read paths tolerate the same segments (AIP-161 lets the implementation
 ignore them on read).
+
+### AIP-161 path grammar
+
+The path parser used by `ExtractUpdateMask` / `ExtractReadMask` / `MetadataReadExtractor` and by every operation on the resulting
+`fieldmask.FieldMask` follows the AIP-161 grammar:
+
+| Construct                                | Example                                | Semantics                                                                                       |
+|------------------------------------------|----------------------------------------|-------------------------------------------------------------------------------------------------|
+| Plain dotted path                        | `profile.display_name`                 | Descend into a singular message field.                                                          |
+| Backtick-quoted segment                  | ``reviews.`John Smith`.score``         | One segment; honored by `Filter`, `Prune`, `Validate`, `ApplyUpdateMask` when traversing maps.  |
+| Backtick-quoted segment with a dot       | ``metadata.`google.com/project` ``     | `ToPaths` re-quotes keys that still contain a dot, so the round-trip is lossless.               |
+| Wildcard segment on a repeated field     | `aliases.*.display_name`               | Branch wildcard — apply the nested mask to every element. `aliases.*` (leaf) keeps the whole list (or clears it on `Prune`). |
+| Wildcard segment on a map field          | `labels.*.display_name`                | Same shape over `map<string, …>`. A specific-key entry (`labels.admin.id`) wins over `*` for matched keys. |
+| Indexed access on a repeated field       | `authors.0` / `authors.0.given_name`   | **Rejected** on the update path as `InvalidArgument` (AIP-161). Tolerated on read.              |
+
+`ApplyUpdateMask` strips `OUTPUT_ONLY` fields transitively through wildcard sub-masks before writing back: `aliases.*.updated_at` (where
+`updated_at` is `OUTPUT_ONLY` on `Profile`) is removed from the cleaned mask, and the parent collection entry is dropped too if the wildcard
+sub-mask collapses to empty.
 
 ---
 
@@ -232,4 +260,5 @@ Return `nil` from the writeback slot to skip writeback (e.g. when the handler re
 * [`transport/grpc/interceptors/fieldmask`](../../../transport/grpc/interceptors/fieldmask/README.md) — package-level reference.
 * **AIP-134** — Standard Update method ([aip.dev/134](https://google.aip.dev/134)).
 * **AIP-157** — Partial responses with `read_mask` ([aip.dev/157](https://google.aip.dev/157)).
+* **AIP-161** — Field masks: path grammar (backtick-quoted segments, `*` wildcards, indexed-access restriction) ([aip.dev/161](https://google.aip.dev/161)).
 * **AIP-203** — `field_behavior` annotations ([aip.dev/203](https://google.aip.dev/203)).

@@ -54,6 +54,26 @@ mask.ToPaths()                              // ["metadata.`google.com/project`",
 
 The same syntax is honored by `Filter`, `Prune`, and `ApplyUpdateMask` when traversing `map<string, …>` fields.
 
+### Wildcard segments (AIP-161)
+
+The `*` segment (constant `WildcardSegment`) matches every element of a repeated field or every value of a map field. It is honored by
+`Filter`, `Prune`, `Validate`, and `ApplyUpdateMask`. A leaf wildcard keeps (or, for `Prune`, clears) the whole collection; a branch wildcard
+applies the nested sub-mask to every element or value. For maps, a specific-key entry wins over the wildcard for matched keys.
+
+```go
+fieldmask.FromPaths("aliases.*.display_name")   // keep display_name on every alias
+fieldmask.FromPaths("labels.*")                 // leaf wildcard — Filter keeps every entry, Prune clears them all
+
+mask := fieldmask.FromPaths(
+    "labels.admin.id",       // specific key wins for "admin"
+    "labels.*.display_name", // wildcard governs the rest
+)
+```
+
+`ApplyUpdateMask` strips OUTPUT_ONLY fields transitively through wildcard sub-masks: `aliases.*.updated_at` (where `updated_at` is
+OUTPUT_ONLY on `Profile`) is removed from the writeback mask before the handler sees it. When a wildcard sub-mask becomes empty after the
+strip, the parent collection is dropped from the mask as well.
+
 ## Request extraction
 
 Read the `update_mask` and the read mask off a gRPC request. There are three transports; all of them return `*fieldmaskpb.FieldMask`.
