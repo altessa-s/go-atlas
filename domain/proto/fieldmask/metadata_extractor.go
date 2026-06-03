@@ -92,9 +92,8 @@ func MetadataReadExtractor(opts ...MetadataExtractorOption) ReadExtractorFunc {
 // its individual paths. Surrounding whitespace is trimmed and empty
 // segments are dropped.
 func parseMetadataMaskHeader(raw string) []string {
-	parts := strings.Split(raw, ",")
-	paths := make([]string, 0, len(parts))
-	for _, p := range parts {
+	var paths []string
+	for p := range strings.SplitSeq(raw, ",") {
 		if trimmed := strings.TrimSpace(p); trimmed != "" {
 			paths = append(paths, trimmed)
 		}

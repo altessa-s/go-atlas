@@ -5,6 +5,8 @@
 package fieldmask
 
 import (
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/altessa-s/go-atlas/domain/proto/internal/behavior"
@@ -123,8 +125,7 @@ func (msk FieldMask) preserveIdentifierFields(msg proto.Message) {
 		// Recurse into nested messages that are already in the mask so
 		// nested identifiers within explicitly-updated subtrees are also
 		// preserved.
-		if fd.Kind() != protoreflect.MessageKind || fd.IsList() || fd.IsMap() ||
-			isValueWellKnownType(fd) || isStructWellKnownType(fd) || isListValueWellKnownType(fd) {
+		if fd.Kind() != protoreflect.MessageKind || fd.IsList() || fd.IsMap() || isDynamicWellKnownType(fd) {
 			continue
 		}
 		nested, ok := msk[name]
@@ -143,7 +144,11 @@ func (msk FieldMask) validateFieldBehaviors(
 	prf := msg.ProtoReflect()
 	fields := prf.Descriptor().Fields()
 
-	for fieldName, nested := range msk {
+	// Iterate in sorted order so BehaviorViolationError.Violations is deterministic
+	// across runs — Violations is rendered into google.rpc.BadRequest by the gRPC
+	// interceptor and stable order matters for client diagnostics and tests.
+	for _, fieldName := range slices.Sorted(maps.Keys(msk)) {
+		nested := msk[fieldName]
 		fd := fields.ByName(protoreflect.Name(fieldName))
 		if fd == nil {
 			continue
@@ -190,8 +195,7 @@ func (msk FieldMask) validateFieldBehaviors(
 		}
 
 		if nested != nil && fd.Kind() == protoreflect.MessageKind &&
-			!fd.IsList() && !fd.IsMap() && !isValueWellKnownType(fd) && !isStructWellKnownType(fd) &&
-			!isListValueWellKnownType(fd) && isSet {
+			!fd.IsList() && !fd.IsMap() && !isDynamicWellKnownType(fd) && isSet {
 			nested.validateFieldBehaviors(
 				prf.Get(fd).Message().Interface(), fullPath, violations,
 			)
@@ -266,7 +270,7 @@ func wildcardElementDescriptor(fd protoreflect.FieldDescriptor) protoreflect.Mes
 			return nil
 		}
 		m := fd.Message()
-		if m == nil || isValueWellKnownMessage(m) || isStructWellKnownMessage(m) || isListValueWellKnownMessage(m) {
+		if m == nil || isDynamicWellKnownMessage(m) {
 			return nil
 		}
 		return m
@@ -276,7 +280,7 @@ func wildcardElementDescriptor(fd protoreflect.FieldDescriptor) protoreflect.Mes
 			return nil
 		}
 		m := v.Message()
-		if m == nil || isValueWellKnownMessage(m) || isStructWellKnownMessage(m) || isListValueWellKnownMessage(m) {
+		if m == nil || isDynamicWellKnownMessage(m) {
 			return nil
 		}
 		return m
@@ -296,8 +300,7 @@ func (msk FieldMask) setDefaultsForUnsetFields(msg proto.Message) {
 
 		if prf.Has(fd) {
 			if nested != nil && fd.Kind() == protoreflect.MessageKind &&
-				!fd.IsList() && !fd.IsMap() && !isValueWellKnownType(fd) && !isStructWellKnownType(fd) &&
-				!isListValueWellKnownType(fd) {
+				!fd.IsList() && !fd.IsMap() && !isDynamicWellKnownType(fd) {
 				nested.setDefaultsForUnsetFields(prf.Get(fd).Message().Interface())
 			}
 			continue
@@ -305,17 +308,18 @@ func (msk FieldMask) setDefaultsForUnsetFields(msg proto.Message) {
 
 		switch {
 		case fd.IsList(), fd.IsMap():
-			// Force non-nil empty to distinguish clear from absent.
+			// AIP-134 distinguishes "clear this field" (in mask, absent on the
+			// resource) from "leave alone" (not in mask). For maps prf.Mutable
+			// already materialises a non-nil empty map; for lists we have to
+			// poke the list to allocate a backing array, then truncate so the
+			// observable state is "set, length 0" rather than "unset".
 			mv := prf.Mutable(fd)
 			if fd.IsList() {
-				list := mv.List()
-				list.Append(list.NewElement())
-				list.Truncate(0)
+				materializeEmptyList(mv.List())
 			}
 		case fd.Kind() == protoreflect.MessageKind:
 			nestedMsg := prf.NewField(fd).Message()
-			if nested != nil && !isValueWellKnownType(fd) && !isStructWellKnownType(fd) &&
-				!isListValueWellKnownType(fd) {
+			if nested != nil && !isDynamicWellKnownType(fd) {
 				nested.setDefaultsForUnsetFields(nestedMsg.Interface())
 			}
 			prf.Set(fd, protoreflect.ValueOfMessage(nestedMsg))
@@ -323,6 +327,16 @@ func (msk FieldMask) setDefaultsForUnsetFields(msg proto.Message) {
 			prf.Set(fd, fd.Default())
 		}
 	}
+}
+
+// materializeEmptyList forces list into a "set, length 0" state. protoreflect
+// does not expose a direct "mark as set" primitive for repeated fields; the
+// idiomatic workaround is to append a fresh element and immediately truncate.
+// Used by setDefaultsForUnsetFields to honor the AIP-134 "clear this field"
+// signal from the update mask.
+func materializeEmptyList(list protoreflect.List) {
+	list.Append(list.NewElement())
+	list.Truncate(0)
 }
 
 // getFieldBehavior collapses the google.api.field_behavior annotation list of
