@@ -6,7 +6,8 @@ package fieldmask
 
 import (
 	"context"
-	"reflect"
+
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
@@ -77,7 +78,7 @@ func NewUpdateExtractor[ReqT, ResT proto.Message](
 		}
 
 		res := getResource(req)
-		if isTypedNil(res) {
+		if nilcheck.IsNil(res) {
 			return nil, nil, nil, false
 		}
 
@@ -207,21 +208,4 @@ func DefaultReadExtractor(opts ...ExtractOption) ReadExtractorFunc {
 	return func(_ context.Context, req proto.Message) (*fieldmaskpb.FieldMask, bool) {
 		return ExtractReadMask(req, opts...)
 	}
-}
-
-// isTypedNil reports whether v is a typed-nil interface (e.g. (*pb.Resource)(nil)
-// wrapped in proto.Message). A plain `v == nil` is not enough because the
-// interface header carries a non-nil type descriptor.
-func isTypedNil(v proto.Message) bool {
-	if v == nil {
-		return true
-	}
-
-	rv := reflect.ValueOf(v)
-	switch rv.Kind() { //nolint:exhaustive // Only pointer-shaped messages need the nil-pointer check.
-	case reflect.Ptr, reflect.Interface, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func:
-		return rv.IsNil()
-	}
-
-	return false
 }

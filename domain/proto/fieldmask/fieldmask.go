@@ -5,14 +5,9 @@
 package fieldmask
 
 import (
-	"hash/fnv"
-	"maps"
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
-
-	"github.com/altessa-s/go-atlas/data/cache/lru"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -45,59 +40,12 @@ const (
 	// MinMapCapacity is the minimum [FieldMask] map capacity to reduce
 	// early rehashing.
 	MinMapCapacity = 8
-
-	// DefaultToPathsCacheSize is the LRU cache capacity for [FieldMask.ToPaths]
-	// results, keyed by a hash of the mask structure.
-	DefaultToPathsCacheSize = 256
 )
-
-// Global LRU cache for ToPaths results using hashicorp/golang-lru.
-// Initialized lazily to avoid panicking in init() for a performance optimization.
-var (
-	toPathsCacheOnce   sync.Once
-	toPathsCacheSize   = DefaultToPathsCacheSize
-	globalToPathsCache lru.Cacher[uint64, []string]
-)
-
-func getToPathsCache() lru.Cacher[uint64, []string] {
-	toPathsCacheOnce.Do(func() {
-		if toPathsCacheSize <= 0 {
-			return
-		}
-		cache, err := lru.NewCache[uint64, []string](toPathsCacheSize)
-		if err != nil {
-			// Best-effort: caching is an optimization, so degrade gracefully.
-			return
-		}
-		globalToPathsCache = cache
-	})
-	return globalToPathsCache
-}
 
 // FieldMask represents a hierarchical field mask as a nested map structure.
 // Keys are field names; nil values indicate leaf fields (keep/prune the entire subtree).
 // All methods are safe for nil or empty receivers and produce deterministic output.
 type FieldMask map[string]FieldMask
-
-// hash computes a hash for the FieldMask for caching.
-func (msk FieldMask) hash() uint64 {
-	h := fnv.New64a()
-	// Sort keys for consistent hashing
-	keys := slices.Sorted(maps.Keys(msk))
-
-	for _, k := range keys {
-		_, _ = h.Write([]byte(k))
-		_, _ = h.Write([]byte{0}) // Separator
-		if nested := msk[k]; nested != nil {
-			// Recursively hash nested masks
-			nestedHash := nested.hash()
-			//nolint:mnd // Standard uint64 to bytes conversion
-			_, _ = h.Write([]byte{byte(nestedHash), byte(nestedHash >> 8), byte(nestedHash >> 16), byte(nestedHash >> 24),
-				byte(nestedHash >> 32), byte(nestedHash >> 40), byte(nestedHash >> 48), byte(nestedHash >> 56)})
-		}
-	}
-	return h.Sum64()
-}
 
 // estimateMapCapacity estimates required map capacity based on path count.
 func estimateMapCapacity(pathCount int) int {
@@ -172,22 +120,24 @@ func FromSetFields[T interface{ []string | FieldMask }](msg proto.Message) T {
 }
 
 func fromMessage[T interface{ []string | FieldMask }](msg proto.Message, onlySet bool) T {
-	var tmp T
+	var zero T
 	if msg == nil {
-		return tmp
+		return zero
 	}
 
-	pathsList := make([]string, 0, DefaultEstimatedPathCapacity)
-	buildPathsRecursive(msg.ProtoReflect(), "", &pathsList, onlySet)
+	paths := make([]string, 0, DefaultEstimatedPathCapacity)
+	buildPathsRecursive(msg.ProtoReflect(), "", &paths, onlySet)
 
-	switch any(tmp).(type) {
+	// The constraint admits only []string or FieldMask; pick the branch by
+	// inspecting the zero value's dynamic type.
+	switch any(zero).(type) {
 	case []string:
-		slices.Sort(pathsList)
-		tmp = any(pathsList).(T) //nolint:errcheck
+		slices.Sort(paths)
+		return any(paths).(T) //nolint:errcheck // covered by the type constraint.
 	case FieldMask:
-		tmp = any(FromPaths(pathsList...)).(T) //nolint:errcheck
+		return any(FromPaths(paths...)).(T) //nolint:errcheck // covered by the type constraint.
 	}
-	return tmp
+	return zero
 }
 
 // PrunePaths removes fields from the message matching the given paths.
@@ -212,37 +162,17 @@ func (msk FieldMask) ToProtoFieldMask() *fieldmaskpb.FieldMask {
 }
 
 // ToPaths converts the FieldMask to a flat list of dot-separated paths.
-// Results are cached using LRU cache for improved performance.
+// Output order is deterministic (lexicographic).
 func (msk FieldMask) ToPaths() []string {
 	if len(msk) == 0 {
 		return []string{}
 	}
 
-	// Try to get from cache first
-	hash := msk.hash()
-	if cache := getToPathsCache(); cache != nil {
-		if cached, ok := cache.Get(hash); ok {
-			// Return a copy to prevent modifications to cached data
-			result := make([]string, len(cached))
-			copy(result, cached)
-			return result
-		}
-	}
-
-	// Cache miss - compute paths
-	capacity := msk.estimatePathCount()
-	paths := make([]string, 0, capacity)
+	paths := make([]string, 0, msk.estimatePathCount())
 	msk.buildPaths("", &paths)
 
-	// Ensure deterministic output order (map iteration order is randomized).
+	// Map iteration order is randomized; sort for deterministic output.
 	slices.Sort(paths)
-
-	// Store a copy in cache to prevent external modifications
-	pathsCopy := make([]string, len(paths))
-	copy(pathsCopy, paths)
-	if cache := getToPathsCache(); cache != nil {
-		cache.Put(hash, pathsCopy)
-	}
 
 	return paths
 }
@@ -902,6 +832,21 @@ func isValueWellKnownMessage(md protoreflect.MessageDescriptor) bool {
 	return md != nil && md.FullName() == valueMessageFullName
 }
 
+// isDynamicWellKnownType returns true when fd points to one of the dynamic
+// well-known types — google.protobuf.Value, Struct, or ListValue — whose
+// subtree is not navigable by the static field-mask schema. Callers use it to
+// short-circuit recursion into such fields.
+func isDynamicWellKnownType(fd protoreflect.FieldDescriptor) bool {
+	return isValueWellKnownType(fd) || isStructWellKnownType(fd) || isListValueWellKnownType(fd)
+}
+
+// isDynamicWellKnownMessage is the descriptor-keyed counterpart of
+// [isDynamicWellKnownType] used when the caller has a message descriptor in hand
+// (e.g. map value descriptor or list element descriptor).
+func isDynamicWellKnownMessage(md protoreflect.MessageDescriptor) bool {
+	return isValueWellKnownMessage(md) || isStructWellKnownMessage(md) || isListValueWellKnownMessage(md)
+}
+
 // filterStruct keeps only keys matching the mask in a google.protobuf.Struct.
 func (msk FieldMask) filterStruct(s *structpb.Struct) {
 	if s == nil || len(s.GetFields()) == 0 {
@@ -1178,9 +1123,7 @@ func rejectIndexedRepeatedAccess(descriptor protoreflect.MessageDescriptor, path
 				// Non-numeric segment after a repeated field: it is a field
 				// name on the list-element message. Step into the element
 				// descriptor so the next iteration keeps tracking lists/maps.
-				if previousField.Kind() == protoreflect.MessageKind &&
-					!isValueWellKnownType(previousField) && !isStructWellKnownType(previousField) &&
-					!isListValueWellKnownType(previousField) {
+				if previousField.Kind() == protoreflect.MessageKind && !isDynamicWellKnownType(previousField) {
 					currentDescriptor = previousField.Message()
 				} else {
 					currentDescriptor = nil
@@ -1192,9 +1135,7 @@ func rejectIndexedRepeatedAccess(descriptor protoreflect.MessageDescriptor, path
 				// does not apply to them. Step into the map-value descriptor
 				// so a nested list inside a map value still gets the check.
 				if previousField.MapValue().Kind() == protoreflect.MessageKind &&
-					!isValueWellKnownMessage(previousField.MapValue().Message()) &&
-					!isStructWellKnownMessage(previousField.MapValue().Message()) &&
-					!isListValueWellKnownMessage(previousField.MapValue().Message()) {
+					!isDynamicWellKnownMessage(previousField.MapValue().Message()) {
 					currentDescriptor = previousField.MapValue().Message()
 				} else {
 					currentDescriptor = nil
@@ -1218,7 +1159,7 @@ func rejectIndexedRepeatedAccess(descriptor protoreflect.MessageDescriptor, path
 			previousField = field
 			currentDescriptor = nil
 		case field.Kind() == protoreflect.MessageKind:
-			if isValueWellKnownType(field) || isStructWellKnownType(field) || isListValueWellKnownType(field) {
+			if isDynamicWellKnownType(field) {
 				return nil
 			}
 			currentDescriptor = field.Message()
@@ -1249,9 +1190,7 @@ func validatePath(descriptor protoreflect.MessageDescriptor, path string) error 
 				// Current part is a map key - any string is valid
 				// Check if map value is a message type
 				if previousField.MapValue().Kind() == protoreflect.MessageKind {
-					if isValueWellKnownMessage(previousField.MapValue().Message()) ||
-						isStructWellKnownMessage(previousField.MapValue().Message()) ||
-						isListValueWellKnownMessage(previousField.MapValue().Message()) {
+					if isDynamicWellKnownMessage(previousField.MapValue().Message()) {
 						return nil // WKT with dynamic structure: accept any sub-path
 					}
 					currentDescriptor = previousField.MapValue().Message()
@@ -1273,8 +1212,7 @@ func validatePath(descriptor protoreflect.MessageDescriptor, path string) error 
 				// lists, the wildcard must be the terminal segment.
 				if part == WildcardSegment {
 					if previousField.Kind() == protoreflect.MessageKind {
-						if isValueWellKnownType(previousField) || isStructWellKnownType(previousField) ||
-							isListValueWellKnownType(previousField) {
+						if isDynamicWellKnownType(previousField) {
 							return nil
 						}
 						currentDescriptor = previousField.Message()
@@ -1293,8 +1231,7 @@ func validatePath(descriptor protoreflect.MessageDescriptor, path string) error 
 				if _, err := strconv.Atoi(part); err == nil {
 					// This is a list index
 					if previousField.Kind() == protoreflect.MessageKind {
-						if isValueWellKnownType(previousField) || isStructWellKnownType(previousField) ||
-							isListValueWellKnownType(previousField) {
+						if isDynamicWellKnownType(previousField) {
 							return nil // WKT with dynamic structure: accept any sub-path
 						}
 						currentDescriptor = previousField.Message()
@@ -1348,7 +1285,7 @@ func validatePath(descriptor protoreflect.MessageDescriptor, path string) error 
 				previousField = field
 				currentDescriptor = nil // Will be set when processing the key/index
 			case field.Kind() == protoreflect.MessageKind:
-				if isValueWellKnownType(field) || isStructWellKnownType(field) || isListValueWellKnownType(field) {
+				if isDynamicWellKnownType(field) {
 					return nil // WKT with dynamic structure: accept any sub-path
 				}
 				// Nested message
