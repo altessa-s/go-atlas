@@ -17,16 +17,18 @@ import (
 )
 
 // FieldViolation describes a single field-behavior constraint that was violated
-// during [FieldMask.ApplyUpdateMask]. Field is the dot-separated path, and
-// Description explains the rejection reason.
-type FieldViolation struct {
-	Field       string // Dot-separated path of the offending field.
-	Description string // Human-readable reason for the violation.
-}
+// during [FieldMask.ApplyUpdateMask]. Path is the dot-separated path, Behavior
+// is the google.api.field_behavior value that triggered the violation, and
+// Reason explains the rejection in human-readable form.
+//
+// FieldViolation is an alias for [behavior.Violation] so the gRPC interceptor
+// can render fieldmask and fieldbehavior violations through the same
+// google.rpc.BadRequest FieldViolation mapping.
+type FieldViolation = behavior.Violation
 
 // BehaviorViolationError is returned by [FieldMask.ApplyUpdateMask] when one or
 // more google.api.field_behavior annotations are violated (REQUIRED, IMMUTABLE,
-// OUTPUT_ONLY). Inspect Violations for per-field details.
+// OUTPUT_ONLY, IDENTIFIER). Inspect Violations for per-field details.
 type BehaviorViolationError struct {
 	Violations []FieldViolation // One entry per violated field.
 }
@@ -40,23 +42,13 @@ func (e *BehaviorViolationError) Error() string {
 			buf.WriteString("; ")
 		}
 
-		buf.WriteString(v.Field)
+		buf.WriteString(v.Path)
 		buf.WriteString(": ")
-		buf.WriteString(v.Description)
+		buf.WriteString(v.Reason)
 	}
 
 	return buf.String()
 }
-
-type fieldBehavior int
-
-const (
-	fieldBehaviorOptional fieldBehavior = iota
-	fieldBehaviorRequired
-	fieldBehaviorImmutable
-	fieldBehaviorOutputOnly
-	fieldBehaviorIdentifier
-)
 
 // ApplyUpdateMask applies the field mask for update operations:
 //  1. Validates field behaviors: REQUIRED, IMMUTABLE, OUTPUT_ONLY, IDENTIFIER (fail-fast)
@@ -116,7 +108,7 @@ func (msk FieldMask) preserveIdentifierFields(msg proto.Message) {
 	for i := range fields.Len() {
 		fd := fields.Get(i)
 		name := string(fd.Name())
-		if getFieldBehavior(fd) == fieldBehaviorIdentifier {
+		if behavior.Has(fd, annotations.FieldBehavior_IDENTIFIER) {
 			if _, exists := msk[name]; !exists && prf.Has(fd) {
 				msk[name] = nil
 			}
@@ -154,43 +146,39 @@ func (msk FieldMask) validateFieldBehaviors(
 			continue
 		}
 
-		fullPath := fieldName
-		if prefix != "" {
-			fullPath = prefix + PathSeparator + fieldName
-		}
-
+		fullPath := behavior.JoinPath(prefix, fieldName)
 		isSet := prf.Has(fd)
-		behavior := getFieldBehavior(fd)
 
-		switch behavior {
-		case fieldBehaviorOptional:
-			// No validation needed for optional fields.
-		case fieldBehaviorRequired:
+		switch firstUpdateMaskBehavior(fd) { //nolint:exhaustive // other behaviors have no update-mask semantics and are intentionally treated as optional.
+		case annotations.FieldBehavior_REQUIRED:
 			if !isSet {
 				*violations = append(*violations, FieldViolation{
-					Field:       fullPath,
-					Description: "required field cannot be cleared",
+					Path:     fullPath,
+					Behavior: annotations.FieldBehavior_REQUIRED,
+					Reason:   "required field cannot be cleared",
 				})
 				continue
 			}
 
-		case fieldBehaviorImmutable:
+		case annotations.FieldBehavior_IMMUTABLE:
 			*violations = append(*violations, FieldViolation{
-				Field:       fullPath,
-				Description: "immutable field cannot be modified",
+				Path:     fullPath,
+				Behavior: annotations.FieldBehavior_IMMUTABLE,
+				Reason:   "immutable field cannot be modified",
 			})
 			continue
 
-		case fieldBehaviorIdentifier:
+		case annotations.FieldBehavior_IDENTIFIER:
 			// IDENTIFIER fields (AIP-203) name the resource and must not be
 			// changed by an update — same constraint as IMMUTABLE in this path.
 			*violations = append(*violations, FieldViolation{
-				Field:       fullPath,
-				Description: "identifier field cannot be modified",
+				Path:     fullPath,
+				Behavior: annotations.FieldBehavior_IDENTIFIER,
+				Reason:   "identifier field cannot be modified",
 			})
 			continue
 
-		case fieldBehaviorOutputOnly:
+		case annotations.FieldBehavior_OUTPUT_ONLY:
 			continue
 		}
 
@@ -219,7 +207,7 @@ func (msk FieldMask) removeOutputOnlyFields(msg proto.Message) {
 //
 // Per the plan's scope, only "*" sub-masks trigger recursion. The
 // historical implicit form (e.g. "aliases.updated_at") is preserved
-// as-is so existing callers see the same behaviour.
+// as-is so existing callers see the same behavior.
 func (msk FieldMask) stripOutputOnlyForDescriptor(desc protoreflect.MessageDescriptor) {
 	if desc == nil {
 		return
@@ -233,7 +221,7 @@ func (msk FieldMask) stripOutputOnlyForDescriptor(desc protoreflect.MessageDescr
 		if fd == nil {
 			continue
 		}
-		if getFieldBehavior(fd) == fieldBehaviorOutputOnly {
+		if behavior.Has(fd, annotations.FieldBehavior_OUTPUT_ONLY) {
 			delete(msk, fieldName)
 			continue
 		}
@@ -310,7 +298,7 @@ func (msk FieldMask) setDefaultsForUnsetFields(msg proto.Message) {
 		case fd.IsList(), fd.IsMap():
 			// AIP-134 distinguishes "clear this field" (in mask, absent on the
 			// resource) from "leave alone" (not in mask). For maps prf.Mutable
-			// already materialises a non-nil empty map; for lists we have to
+			// already materializes a non-nil empty map; for lists we have to
 			// poke the list to allocate a backing array, then truncate so the
 			// observable state is "set, length 0" rather than "unset".
 			mv := prf.Mutable(fd)
@@ -339,23 +327,21 @@ func materializeEmptyList(list protoreflect.List) {
 	list.Truncate(0)
 }
 
-// getFieldBehavior collapses the google.api.field_behavior annotation list of
-// fd into the single fieldBehavior value that governs update-mask semantics.
-// INPUT_ONLY, UNORDERED_LIST and NON_EMPTY_DEFAULT have no update-mask meaning
-// and are reported as fieldBehaviorOptional.
-func getFieldBehavior(fd protoreflect.FieldDescriptor) fieldBehavior {
+// firstUpdateMaskBehavior collapses the google.api.field_behavior annotation
+// list of fd into the single value that governs update-mask semantics:
+// REQUIRED, IMMUTABLE, OUTPUT_ONLY, or IDENTIFIER. INPUT_ONLY, UNORDERED_LIST
+// and NON_EMPTY_DEFAULT have no update-mask meaning and are reported as
+// FIELD_BEHAVIOR_UNSPECIFIED so the caller treats them as optional.
+func firstUpdateMaskBehavior(fd protoreflect.FieldDescriptor) annotations.FieldBehavior {
 	for _, b := range behavior.Get(fd) {
 		switch b { //nolint:exhaustive // INPUT_ONLY, UNORDERED_LIST, NON_EMPTY_DEFAULT have no update-mask semantics.
-		case annotations.FieldBehavior_REQUIRED:
-			return fieldBehaviorRequired
-		case annotations.FieldBehavior_IMMUTABLE:
-			return fieldBehaviorImmutable
-		case annotations.FieldBehavior_OUTPUT_ONLY:
-			return fieldBehaviorOutputOnly
-		case annotations.FieldBehavior_IDENTIFIER:
-			return fieldBehaviorIdentifier
+		case annotations.FieldBehavior_REQUIRED,
+			annotations.FieldBehavior_IMMUTABLE,
+			annotations.FieldBehavior_OUTPUT_ONLY,
+			annotations.FieldBehavior_IDENTIFIER:
+			return b
 		}
 	}
 
-	return fieldBehaviorOptional
+	return annotations.FieldBehavior_FIELD_BEHAVIOR_UNSPECIFIED
 }

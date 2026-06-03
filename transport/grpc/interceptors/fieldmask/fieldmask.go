@@ -296,8 +296,8 @@ func (ri *requestInterceptor) applyUpdateMask(ctx context.Context, req proto.Mes
 			ri.LogDebug(ctx, "fieldmask update_mask empty, no populated fields", method)
 			return nil
 		}
-		ri.LogDebug(ctx, "fieldmask update_mask synthesised from set fields", method,
-			slog.Int("synthesised_paths", len(msk)),
+		ri.LogDebug(ctx, "fieldmask update_mask synthesized from set fields", method,
+			slog.Int("synthesized_paths", len(msk)),
 		)
 	}
 
@@ -391,8 +391,8 @@ func buildBehaviorStatus(err *pbfieldmask.BehaviorViolationError) *status.Status
 	violations := make([]*errdetails.BadRequest_FieldViolation, 0, len(err.Violations))
 	for _, v := range err.Violations {
 		violations = append(violations, &errdetails.BadRequest_FieldViolation{
-			Field:       v.Field,
-			Description: v.Description,
+			Field:       v.Path,
+			Description: v.Reason,
 		})
 	}
 

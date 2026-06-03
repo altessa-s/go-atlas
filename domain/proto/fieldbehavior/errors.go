@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	"google.golang.org/genproto/googleapis/api/annotations"
+	"github.com/altessa-s/go-atlas/domain/proto/internal/behavior"
 )
 
 // ErrMaxDepthExceeded is returned when [Strip] traverses more nested levels
@@ -18,17 +18,12 @@ import (
 var ErrMaxDepthExceeded = errors.New("fieldbehavior: max traversal depth exceeded")
 
 // BehaviorViolation describes a single populated field that would have been
-// stripped in non-strict mode.
-type BehaviorViolation struct {
-	// Path is the dot-separated path to the field in the original message.
-	// Repeated and map entries are indexed: "aliases[2].id",
-	// "labels[\"foo\"].id".
-	Path string
-
-	// Behavior is the first matching google.api.field_behavior value that
-	// triggered the violation.
-	Behavior annotations.FieldBehavior
-}
+// stripped in non-strict mode. It aliases [behavior.Violation] so the gRPC
+// interceptor can render fieldbehavior and fieldmask violations through a
+// single google.rpc.BadRequest FieldViolation mapping. The Reason field of
+// [behavior.Violation] is left empty by fieldbehavior — strict-mode strip
+// conveys intent through Behavior alone.
+type BehaviorViolation = behavior.Violation
 
 // BehaviorViolationError aggregates every field whose value would have been
 // cleared by [Strip] under [WithStrict]. The message is left untouched when
