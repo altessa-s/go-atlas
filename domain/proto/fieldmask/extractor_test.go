@@ -283,11 +283,18 @@ func TestChainReadExtractors(t *testing.T) {
 		require.Same(t, mask, got)
 	})
 
-	t.Run("zero functions returns nil", func(t *testing.T) {
+	t.Run("zero functions returns no-op", func(t *testing.T) {
 		t.Parallel()
 
-		require.Nil(t, fieldmask.ChainReadExtractors())
-		require.Nil(t, fieldmask.ChainReadExtractors(nil, nil))
+		for _, chain := range []fieldmask.ReadExtractorFunc{
+			fieldmask.ChainReadExtractors(),
+			fieldmask.ChainReadExtractors(nil, nil),
+		} {
+			require.NotNil(t, chain)
+			mask, ok := chain(t.Context(), &pb.GetResourceRequest{})
+			require.False(t, ok)
+			require.Nil(t, mask)
+		}
 	})
 }
 
@@ -340,11 +347,20 @@ func TestChainUpdateExtractors(t *testing.T) {
 		require.True(t, ok)
 	})
 
-	t.Run("zero functions returns nil", func(t *testing.T) {
+	t.Run("zero functions returns no-op", func(t *testing.T) {
 		t.Parallel()
 
-		require.Nil(t, fieldmask.ChainUpdateExtractors())
-		require.Nil(t, fieldmask.ChainUpdateExtractors(nil, nil))
+		for _, chain := range []fieldmask.UpdateExtractorFunc{
+			fieldmask.ChainUpdateExtractors(),
+			fieldmask.ChainUpdateExtractors(nil, nil),
+		} {
+			require.NotNil(t, chain)
+			mask, res, wb, ok := chain(t.Context(), &pb.UpdateResourceRequest{})
+			require.False(t, ok)
+			require.Nil(t, mask)
+			require.Nil(t, res)
+			require.Nil(t, wb)
+		}
 	})
 }
 

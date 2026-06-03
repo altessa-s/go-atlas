@@ -65,7 +65,9 @@ func WithResourceField(name string) ExtractOption {
 	}
 }
 
-func (o *extractOptions) maskOr(def string) string {
+// maskFieldNameOr returns the configured mask field name, falling back to def
+// when the option is unset.
+func (o *extractOptions) maskFieldNameOr(def string) string {
 	if o.maskField != "" {
 		return o.maskField
 	}
@@ -99,7 +101,7 @@ func newExtractOptions(opts []ExtractOption) *extractOptions {
 func ExtractUpdateMask(req proto.Message, opts ...ExtractOption) (mask *fieldmaskpb.FieldMask, resource proto.Message, ok bool) {
 	o := newExtractOptions(opts)
 
-	maskMsg, prf, maskFD, found := lookupFieldMask(req, o.maskOr(DefaultUpdateMaskFieldName), true)
+	maskMsg, prf, maskFD, found := lookupFieldMask(req, o.maskFieldNameOr(DefaultUpdateMaskFieldName), true)
 	if !found || maskMsg == nil {
 		return nil, nil, false
 	}
@@ -117,7 +119,7 @@ func ExtractUpdateMask(req proto.Message, opts ...ExtractOption) (mask *fieldmas
 func ExtractReadMask(req proto.Message, opts ...ExtractOption) (mask *fieldmaskpb.FieldMask, ok bool) {
 	o := newExtractOptions(opts)
 
-	maskMsg, _, _, found := lookupFieldMask(req, o.maskOr(DefaultReadMaskFieldName), true)
+	maskMsg, _, _, found := lookupFieldMask(req, o.maskFieldNameOr(DefaultReadMaskFieldName), true)
 	if !found || maskMsg == nil {
 		return nil, false
 	}
@@ -133,7 +135,7 @@ func ExtractReadMask(req proto.Message, opts ...ExtractOption) (mask *fieldmaskp
 func SetUpdateMask(req proto.Message, mask *fieldmaskpb.FieldMask, opts ...ExtractOption) error {
 	o := newExtractOptions(opts)
 
-	_, prf, fd, found := lookupFieldMask(req, o.maskOr(DefaultUpdateMaskFieldName), false)
+	_, prf, fd, found := lookupFieldMask(req, o.maskFieldNameOr(DefaultUpdateMaskFieldName), false)
 	if !found {
 		return ErrFieldNotSettable
 	}

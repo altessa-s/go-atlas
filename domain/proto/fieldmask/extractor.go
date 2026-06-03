@@ -128,8 +128,8 @@ func NewReadExtractor[ReqT proto.Message](
 // passthrough.
 //
 // Nil entries are skipped. ChainReadExtractors called with no functions, or
-// with only nil entries, returns nil — the caller is expected to handle the
-// nil chain like any other absent extractor.
+// with only nil entries, returns a no-op extractor that always reports
+// ok=false — callers can rely on the result being non-nil and safe to call.
 //
 // Use the chain to combine modern transports (gRPC metadata per AIP-157)
 // with legacy fallbacks (deprecated request-message read_mask per AIP-161)
@@ -137,7 +137,9 @@ func NewReadExtractor[ReqT proto.Message](
 func ChainReadExtractors(fns ...ReadExtractorFunc) ReadExtractorFunc {
 	compact := slices.DeleteFunc(slices.Clone(fns), func(f ReadExtractorFunc) bool { return f == nil })
 	if len(compact) == 0 {
-		return nil
+		return func(context.Context, proto.Message) (*fieldmaskpb.FieldMask, bool) {
+			return nil, false
+		}
 	}
 
 	return func(ctx context.Context, req proto.Message) (*fieldmaskpb.FieldMask, bool) {
@@ -155,10 +157,15 @@ func ChainReadExtractors(fns ...ReadExtractorFunc) ReadExtractorFunc {
 // the gRPC interceptor's built-in update path is a single extractor because
 // AIP-134 requires update_mask on the request message and does not sanction
 // a side-channel transport.
+//
+// As with [ChainReadExtractors], a call with no functions or only nil
+// entries returns a no-op extractor that always reports ok=false.
 func ChainUpdateExtractors(fns ...UpdateExtractorFunc) UpdateExtractorFunc {
 	compact := slices.DeleteFunc(slices.Clone(fns), func(f UpdateExtractorFunc) bool { return f == nil })
 	if len(compact) == 0 {
-		return nil
+		return func(context.Context, proto.Message) (*fieldmaskpb.FieldMask, proto.Message, func(*fieldmaskpb.FieldMask), bool) {
+			return nil, nil, nil, false
+		}
 	}
 
 	return func(ctx context.Context, req proto.Message) (*fieldmaskpb.FieldMask, proto.Message, func(*fieldmaskpb.FieldMask), bool) {
@@ -183,6 +190,9 @@ func DefaultUpdateExtractor(opts ...ExtractOption) UpdateExtractorFunc {
 			return nil, nil, nil, false
 		}
 
+		// Invariant: ExtractUpdateMask just resolved the mask field on req with
+		// the same opts, so SetUpdateMask cannot return ErrFieldNotSettable
+		// here. The discard is intentional and safe by construction.
 		writeback := func(m *fieldmaskpb.FieldMask) {
 			_ = SetUpdateMask(req, m, opts...)
 		}

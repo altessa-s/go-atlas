@@ -26,15 +26,19 @@ import (
 // google.rpc.BadRequest FieldViolation mapping.
 type FieldViolation = behavior.Violation
 
-// BehaviorViolationError is returned by [FieldMask.ApplyUpdateMask] when one or
+// UpdateMaskBehaviorError is returned by [FieldMask.ApplyUpdateMask] when one or
 // more google.api.field_behavior annotations are violated (REQUIRED, IMMUTABLE,
 // OUTPUT_ONLY, IDENTIFIER). Inspect Violations for per-field details.
-type BehaviorViolationError struct {
+//
+// Distinct from [fieldbehavior.BehaviorViolationError]: this one carries
+// per-field Reason strings produced by the update-mask validator, while the
+// fieldbehavior variant aggregates strip-time violations without a reason.
+type UpdateMaskBehaviorError struct {
 	Violations []FieldViolation // One entry per violated field.
 }
 
-func (e *BehaviorViolationError) Error() string {
-	buf := strings.Builder{}
+func (e *UpdateMaskBehaviorError) Error() string {
+	var buf strings.Builder
 	buf.WriteString("field behavior violation: ")
 
 	for i, v := range e.Violations {
@@ -60,12 +64,17 @@ func (e *BehaviorViolationError) Error() string {
 // the resource and must not be modified by an update. Including such a field
 // in the mask produces a violation.
 //
-// Returns *BehaviorViolationError if any field behavior constraints are violated.
+// Returns *UpdateMaskBehaviorError if any field behavior constraints are violated.
 //
 // This ensures the service can distinguish:
 //   - "don't update this field" (field not in mask)
 //   - "clear this field" (field in mask, set to default)
 //   - "update this field" (field in mask, set to value)
+//
+// Mutates the receiver: IDENTIFIER leaves of msg are added to msk and
+// OUTPUT_ONLY entries are removed, so the cleaned msk reflects what was
+// actually applied. Callers that want to reuse the original mask should
+// pass [FieldMask.Clone] of it.
 func (msk FieldMask) ApplyUpdateMask(msg proto.Message) error {
 	if len(msk) == 0 {
 		return nil
@@ -84,7 +93,7 @@ func (msk FieldMask) ApplyUpdateMask(msg proto.Message) error {
 	msk.validateFieldBehaviors(msg, "", &violations)
 
 	if len(violations) > 0 {
-		return &BehaviorViolationError{Violations: violations}
+		return &UpdateMaskBehaviorError{Violations: violations}
 	}
 
 	msk.preserveIdentifierFields(msg)

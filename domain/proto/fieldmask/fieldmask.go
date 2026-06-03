@@ -5,6 +5,7 @@
 package fieldmask
 
 import (
+	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -278,7 +279,7 @@ func (msk FieldMask) Intersection(other FieldMask) FieldMask {
 //	diff := mask1.Difference(mask2)
 func (msk FieldMask) Difference(other FieldMask) FieldMask {
 	if len(msk) == 0 {
-		return FieldMask{} // Difference from empty set is empty
+		return make(FieldMask) // Difference from empty set is empty
 	} else if len(other) == 0 {
 		return msk.Clone() // Difference from empty set is the original set
 	}
@@ -554,7 +555,7 @@ func splitPath(path string) []string {
 		inQuotes bool
 	)
 	current.Grow(len(path))
-	for i := 0; i < len(path); i++ {
+	for i := range len(path) {
 		c := path[i]
 		switch {
 		case c == '`':
@@ -605,6 +606,8 @@ func zeroValueForScalar(fd protoreflect.FieldDescriptor) protoreflect.Value {
 	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
 		zeroValue = protoreflect.ValueOfUint64(0)
 	default:
+		// GroupKind, MessageKind, and any future non-scalar kinds have no
+		// scalar zero — callers gate on zeroValue.IsValid() before use.
 	}
 	return zeroValue
 }
@@ -861,9 +864,8 @@ func rejectIndexedRepeatedAccess(descriptor protoreflect.MessageDescriptor, path
 	return pathWalker{
 		onListIndex: func(list protoreflect.FieldDescriptor, _ string, _ bool) error {
 			return &ValidationError{
-				Path: path,
-				Reason: "indexed access to repeated field '" + string(list.Name()) +
-					"' is not permitted on update; replace the entire list instead",
+				Path:   path,
+				Reason: fmt.Sprintf("indexed access to repeated field '%s' is not permitted on update; replace the entire list instead", list.Name()),
 			}
 		},
 	}.Walk(descriptor, path)
@@ -879,43 +881,43 @@ func validatePath(descriptor protoreflect.MessageDescriptor, path string) error 
 		onListWildcardOnScalar: func(list protoreflect.FieldDescriptor) error {
 			return &ValidationError{
 				Path:   path,
-				Reason: "cannot access field beyond wildcard on list of scalar type at field: " + string(list.Name()),
+				Reason: fmt.Sprintf("cannot access field beyond wildcard on list of scalar type at field: %s", list.Name()),
 			}
 		},
 		onListIndexOnScalar: func(list protoreflect.FieldDescriptor) error {
 			return &ValidationError{
 				Path:   path,
-				Reason: "cannot access field in list of scalar type at field: " + string(list.Name()),
+				Reason: fmt.Sprintf("cannot access field in list of scalar type at field: %s", list.Name()),
 			}
 		},
 		onListFieldOnScalar: func(list protoreflect.FieldDescriptor, segment string) error {
 			return &ValidationError{
 				Path:   path,
-				Reason: "cannot access field '" + segment + "' in list of scalar type at field: " + string(list.Name()),
+				Reason: fmt.Sprintf("cannot access field '%s' in list of scalar type at field: %s", segment, list.Name()),
 			}
 		},
 		onMapScalarValueDeref: func(mapField protoreflect.FieldDescriptor) error {
 			return &ValidationError{
 				Path:   path,
-				Reason: "cannot access nested field in map with scalar values at field: " + string(mapField.Name()),
+				Reason: fmt.Sprintf("cannot access nested field in map with scalar values at field: %s", mapField.Name()),
 			}
 		},
 		onMissingField: func(parent protoreflect.MessageDescriptor, segment string) error {
 			return &ValidationError{
 				Path:   path,
-				Reason: "field '" + segment + "' does not exist in message " + string(parent.FullName()),
+				Reason: fmt.Sprintf("field '%s' does not exist in message %s", segment, parent.FullName()),
 			}
 		},
 		onNonMessageContext: func(segment string) error {
 			return &ValidationError{
 				Path:   path,
-				Reason: "attempting to access field in non-message type at part: " + segment,
+				Reason: fmt.Sprintf("attempting to access field in non-message type at part: %s", segment),
 			}
 		},
 		onScalarDeref: func(scalar protoreflect.FieldDescriptor, next string) error {
 			return &ValidationError{
 				Path:   path,
-				Reason: "cannot access field '" + next + "' in scalar field: " + string(scalar.Name()),
+				Reason: fmt.Sprintf("cannot access field '%s' in scalar field: %s", next, scalar.Name()),
 			}
 		},
 	}.Walk(descriptor, path)

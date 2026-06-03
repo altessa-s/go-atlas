@@ -240,8 +240,12 @@ func (s *stripper) fieldValue(
 }
 
 // firstMatchingBehavior returns the first value of behavior.Get(fd) that
-// appears in set. It is only called when HasAny already returned true, so the
-// result is always a real behavior — never the zero value in practice.
+// appears in set. It is only called after [behavior.HasAny] returned true, so
+// at least one match is guaranteed; a no-match outcome would indicate a
+// concurrent descriptor mutation between HasAny and this call, which the
+// protobuf runtime does not permit. Panicking surfaces that invariant
+// violation immediately instead of attributing a bogus
+// FIELD_BEHAVIOR_UNSPECIFIED to a real violation downstream.
 func firstMatchingBehavior(
 	fd protoreflect.FieldDescriptor,
 	set []annotations.FieldBehavior,
@@ -252,5 +256,5 @@ func firstMatchingBehavior(
 		}
 	}
 
-	return annotations.FieldBehavior_FIELD_BEHAVIOR_UNSPECIFIED
+	panic("fieldbehavior: firstMatchingBehavior invoked without a matching behavior — HasAny invariant violated")
 }
