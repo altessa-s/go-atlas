@@ -11,7 +11,7 @@
 //
 // Custom type conversions are handled by pluggable codecs registered via
 // [WithCodecs]; see the codec sub-packages ([convcodec], [pbwrap], [tspb],
-// [unixtime], [jsonpb], [oneof], [mapslice]) for built-in converters.
+// [durpb], [unixtime], [jsonpb], [oneof], [mapslice]) for built-in converters.
 //
 // Lazy iteration over slices and maps is available via [ConvertSeq] and
 // [ConvertMapSeq], which convert elements on demand without pre-allocating a

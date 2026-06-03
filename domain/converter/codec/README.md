@@ -25,6 +25,7 @@ order inside a `Set`.
 |-------------|-----------------------------------------------------|
 | `pbwrap`    | `wrapperspb.*` <-> Go primitives                    |
 | `tspb`      | `timestamppb.Timestamp` <-> `time.Time` / `int64`   |
+| `durpb`     | `durationpb.Duration` <-> `time.Duration`           |
 | `unixtime`  | `time.Time` <-> `int64` Unix timestamp               |
 | `jsonpb`    | `json.RawMessage` <-> `structpb.Struct`              |
 | `oneof`     | Struct <-> protobuf oneof interface                  |
