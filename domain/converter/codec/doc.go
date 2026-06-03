@@ -12,6 +12,7 @@
 //   - [github.com/altessa-s/go-atlas/domain/converter/codec/unixtime] — time.Time ↔ int64 Unix timestamp conversion
 //   - [github.com/altessa-s/go-atlas/domain/converter/codec/jsonpb] — json.RawMessage ↔ structpb.Struct conversion
 //   - [github.com/altessa-s/go-atlas/domain/converter/codec/tspb] — timestamppb.Timestamp ↔ time.Time / int64 conversion
+//   - [github.com/altessa-s/go-atlas/domain/converter/codec/durpb] — durationpb.Duration ↔ time.Duration conversion
 //
 // Example usage:
 //
