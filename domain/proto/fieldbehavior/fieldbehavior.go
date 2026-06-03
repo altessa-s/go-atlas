@@ -63,29 +63,21 @@ func Strip(msg proto.Message, opts ...Option) error {
 // resource embedded in a Create request before validation. The default set is
 // applied first; a caller's [WithBehaviors] overrides it entirely.
 func StripCreate(msg proto.Message, opts ...Option) error {
-	return Strip(msg, prepend(WithBehaviors(DefaultCreateBehaviors...), opts)...)
+	return Strip(msg, slices.Concat([]Option{WithBehaviors(DefaultCreateBehaviors...)}, opts)...)
 }
 
 // StripUpdate clears fields marked OUTPUT_ONLY, IDENTIFIER, or IMMUTABLE.
 // Use it on the resource embedded in an Update request before applying the
 // update mask.
 func StripUpdate(msg proto.Message, opts ...Option) error {
-	return Strip(msg, prepend(WithBehaviors(DefaultUpdateBehaviors...), opts)...)
+	return Strip(msg, slices.Concat([]Option{WithBehaviors(DefaultUpdateBehaviors...)}, opts)...)
 }
 
 // StripResponse clears fields marked INPUT_ONLY. Use it on a server response
 // before returning it to the caller so secrets (passwords, tokens) never leak
 // through the read path.
 func StripResponse(msg proto.Message, opts ...Option) error {
-	return Strip(msg, prepend(WithBehaviors(DefaultResponseBehaviors...), opts)...)
-}
-
-func prepend(first Option, rest []Option) []Option {
-	out := make([]Option, 0, len(rest)+1)
-	out = append(out, first)
-	out = append(out, rest...)
-
-	return out
+	return Strip(msg, slices.Concat([]Option{WithBehaviors(DefaultResponseBehaviors...)}, opts)...)
 }
 
 type stripper struct {
@@ -124,7 +116,7 @@ func (s *stripper) visit(
 	depth int,
 	violations *[]BehaviorViolation,
 ) error {
-	path := joinPath(prefix, string(fd.Name()))
+	path := behavior.JoinPath(prefix, string(fd.Name()))
 
 	if behavior.HasAny(fd, s.opts.behaviors...) {
 		if !prf.Has(fd) {
@@ -192,15 +184,9 @@ func (s *stripper) walkList(
 ) error {
 	list := s.fieldValue(prf, fd, violations).List()
 
-	for i := range list.Len() {
-		elem := list.Get(i).Message()
-
-		if err := s.walk(elem, fmt.Sprintf("%s[%d]", path, i), depth, violations); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return behavior.ForEachMessageInList(list, func(i int, elem protoreflect.Message) error {
+		return s.walk(elem, fmt.Sprintf("%s[%d]", path, i), depth, violations)
+	})
 }
 
 func (s *stripper) walkMap(
@@ -251,14 +237,6 @@ func (s *stripper) fieldValue(
 	}
 
 	return prf.Mutable(fd)
-}
-
-func joinPath(prefix, name string) string {
-	if prefix == "" {
-		return name
-	}
-
-	return prefix + "." + name
 }
 
 // firstMatchingBehavior returns the first value of behavior.Get(fd) that

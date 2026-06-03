@@ -6,6 +6,7 @@ package fieldmask
 
 import (
 	"context"
+	"slices"
 
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 
@@ -134,13 +135,7 @@ func NewReadExtractor[ReqT proto.Message](
 // with legacy fallbacks (deprecated request-message read_mask per AIP-161)
 // without forcing the caller to pick one source.
 func ChainReadExtractors(fns ...ReadExtractorFunc) ReadExtractorFunc {
-	compact := make([]ReadExtractorFunc, 0, len(fns))
-	for _, fn := range fns {
-		if fn != nil {
-			compact = append(compact, fn)
-		}
-	}
-
+	compact := slices.DeleteFunc(slices.Clone(fns), func(f ReadExtractorFunc) bool { return f == nil })
 	if len(compact) == 0 {
 		return nil
 	}
@@ -161,13 +156,7 @@ func ChainReadExtractors(fns ...ReadExtractorFunc) ReadExtractorFunc {
 // AIP-134 requires update_mask on the request message and does not sanction
 // a side-channel transport.
 func ChainUpdateExtractors(fns ...UpdateExtractorFunc) UpdateExtractorFunc {
-	compact := make([]UpdateExtractorFunc, 0, len(fns))
-	for _, fn := range fns {
-		if fn != nil {
-			compact = append(compact, fn)
-		}
-	}
-
+	compact := slices.DeleteFunc(slices.Clone(fns), func(f UpdateExtractorFunc) bool { return f == nil })
 	if len(compact) == 0 {
 		return nil
 	}

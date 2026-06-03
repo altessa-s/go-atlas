@@ -100,7 +100,7 @@ func TestApplyUpdateMask_RequiredNestedMessageNotSet(t *testing.T) {
 	var behaviorErr *fieldmask.BehaviorViolationError
 	require.ErrorAs(t, err, &behaviorErr)
 	require.Len(t, behaviorErr.Violations, 1)
-	assert.Equal(t, "address", behaviorErr.Violations[0].Field)
+	assert.Equal(t, "address", behaviorErr.Violations[0].Path)
 }
 
 // RFC edge case 4: Repeated (list) field in mask, not set.
@@ -165,8 +165,8 @@ func TestApplyUpdateMask_RequiredFieldNotSet(t *testing.T) {
 	var behaviorErr *fieldmask.BehaviorViolationError
 	require.ErrorAs(t, err, &behaviorErr)
 	require.Len(t, behaviorErr.Violations, 1)
-	assert.Equal(t, "name", behaviorErr.Violations[0].Field)
-	assert.Contains(t, behaviorErr.Violations[0].Description, "required")
+	assert.Equal(t, "name", behaviorErr.Violations[0].Path)
+	assert.Contains(t, behaviorErr.Violations[0].Reason, "required")
 
 	// Message should NOT be modified on error (fail-fast).
 	assert.Equal(t, "1", msg.GetId(), "message should not be modified on validation error")
@@ -224,8 +224,8 @@ func TestApplyUpdateMask_ImmutableField(t *testing.T) {
 	var behaviorErr *fieldmask.BehaviorViolationError
 	require.ErrorAs(t, err, &behaviorErr)
 	require.Len(t, behaviorErr.Violations, 1)
-	assert.Equal(t, "code", behaviorErr.Violations[0].Field)
-	assert.Contains(t, behaviorErr.Violations[0].Description, "immutable")
+	assert.Equal(t, "code", behaviorErr.Violations[0].Path)
+	assert.Contains(t, behaviorErr.Violations[0].Reason, "immutable")
 }
 
 // RFC edge case 11: OUTPUT_ONLY field in mask (silently ignored).
@@ -267,8 +267,8 @@ func TestApplyUpdateMask_NestedRequiredField(t *testing.T) {
 	var behaviorErr *fieldmask.BehaviorViolationError
 	require.ErrorAs(t, err, &behaviorErr)
 	require.Len(t, behaviorErr.Violations, 1)
-	assert.Equal(t, "address.city", behaviorErr.Violations[0].Field)
-	assert.Contains(t, behaviorErr.Violations[0].Description, "required")
+	assert.Equal(t, "address.city", behaviorErr.Violations[0].Path)
+	assert.Contains(t, behaviorErr.Violations[0].Reason, "required")
 }
 
 func TestApplyUpdateMask_NestedRequiredFieldSet(t *testing.T) {
@@ -384,7 +384,7 @@ func TestApplyUpdateMask_ImmutableFieldNotSet(t *testing.T) {
 	var behaviorErr *fieldmask.BehaviorViolationError
 	require.ErrorAs(t, err, &behaviorErr)
 	require.Len(t, behaviorErr.Violations, 1)
-	assert.Contains(t, behaviorErr.Violations[0].Description, "immutable")
+	assert.Contains(t, behaviorErr.Violations[0].Reason, "immutable")
 }
 
 func TestApplyUpdateMask_OutputOnlyRemovedFromMask(t *testing.T) {
@@ -453,8 +453,8 @@ func TestApplyUpdateMask_IdentifierFieldInMask(t *testing.T) {
 	var behaviorErr *fieldmask.BehaviorViolationError
 	require.ErrorAs(t, err, &behaviorErr)
 	require.Len(t, behaviorErr.Violations, 1)
-	assert.Equal(t, "resource_name", behaviorErr.Violations[0].Field)
-	assert.Contains(t, behaviorErr.Violations[0].Description, "identifier")
+	assert.Equal(t, "resource_name", behaviorErr.Violations[0].Path)
+	assert.Contains(t, behaviorErr.Violations[0].Reason, "identifier")
 }
 
 // AIP-203 IDENTIFIER not in mask: identifier is set to route the update,
@@ -489,6 +489,6 @@ func TestApplyUpdateMask_IdentifierFieldInMaskNotSet(t *testing.T) {
 	var behaviorErr *fieldmask.BehaviorViolationError
 	require.ErrorAs(t, err, &behaviorErr)
 	require.Len(t, behaviorErr.Violations, 1)
-	assert.Equal(t, "resource_name", behaviorErr.Violations[0].Field)
-	assert.Contains(t, behaviorErr.Violations[0].Description, "identifier")
+	assert.Equal(t, "resource_name", behaviorErr.Violations[0].Path)
+	assert.Contains(t, behaviorErr.Violations[0].Reason, "identifier")
 }

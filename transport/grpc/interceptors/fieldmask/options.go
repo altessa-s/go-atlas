@@ -65,7 +65,7 @@ type options struct {
 	// [WithMetadataReadMaskHeader].
 	metadataReadMaskHeader string `opt:"-"`
 
-	// applyEmptyUpdateMask enables the AIP-134 fallback that synthesises
+	// applyEmptyUpdateMask enables the AIP-134 fallback that synthesizes
 	// the update_mask from set fields of the resource when the wire
 	// update_mask is present but carries zero paths. Off by default to
 	// preserve the historical no-op semantics. Populated by
@@ -213,13 +213,13 @@ func WithMetadataReadMaskHeader(name string) Option {
 // every populated field" fallback on KindUpdate methods.
 //
 // When the request carries an update_mask field with zero paths AND the
-// resource sub-message is present, the interceptor synthesises a mask via
+// resource sub-message is present, the interceptor synthesizes a mask via
 // [pbfieldmask.FromSetFields] over the resource and applies it normally.
-// The synthesised mask is then validated like an explicit one — IMMUTABLE
+// The synthesized mask is then validated like an explicit one — IMMUTABLE
 // and IDENTIFIER fields raise BehaviorViolationError, OUTPUT_ONLY fields
 // are stripped before the cleaned mask is written back.
 //
-// Default behaviour is unchanged (an empty mask is a no-op) so existing
+// Default behavior is unchanged (an empty mask is a no-op) so existing
 // services that rely on it as a deliberate passthrough are not affected.
 // The fallback does not fire when the update_mask field is absent
 // altogether — that case is still a passthrough.

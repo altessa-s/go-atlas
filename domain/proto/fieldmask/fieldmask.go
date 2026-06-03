@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/altessa-s/go-atlas/domain/proto/internal/behavior"
+
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
@@ -407,100 +409,21 @@ func (msk FieldMask) Filter(msg proto.Message) {
 	msk.iterateFilter(msg)
 }
 
-// iterateFilter recursively applies the filter mask.
+// iterateFilter recursively applies the filter mask: unmatched fields are
+// cleared, matched-leaf fields are kept as-is, matched-branch fields recurse.
+// The traversal state machine lives in [FieldMask.walk]; this function only
+// supplies the filter-side action callbacks.
 func (msk FieldMask) iterateFilter(msg proto.Message) {
-	if s, ok := msg.(*structpb.Struct); ok {
-		msk.filterStruct(s)
-		return
-	}
-	if lv, ok := msg.(*structpb.ListValue); ok {
-		msk.filterListValue(lv)
-		return
-	}
-	if v, ok := msg.(*structpb.Value); ok {
-		msk.filterStructValue(v)
-		return
-	}
-	prf := msg.ProtoReflect()
-
-	prf.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
-		field := string(fd.Name())
-
-		// Determine the effective mask for this specific field
-		nested, exists := msk[field]
-
-		if !exists {
-			prf.Clear(fd)
-			return true
-		}
-
-		effectiveNested := nested
-
-		// Field should be kept. Now check if its contents need filtering.
-		if effectiveNested == nil {
-			// Keep the entire field/subtree as is (mask is leaf)
-			return true
-		}
-
-		switch {
-		case fd.IsList():
-			// AIP-161 wildcard: when nested has a "*" key, that sub-mask
-			// is the per-element mask; a leaf "*" (nil sub-mask) means
-			// "keep the whole list as-is". When no wildcard is present
-			// the implicit form is preserved — nested is applied to every
-			// element directly.
-			perElement := effectiveNested
-			if wildcardMask, ok := effectiveNested[WildcardSegment]; ok {
-				if wildcardMask == nil {
-					return true
-				}
-				perElement = wildcardMask
-			}
-			applyToMessageList(fd, prf.Get(fd).List(), perElement, func(nested FieldMask, m proto.Message) {
-				nested.iterateFilter(m)
-			})
-		case fd.IsMap():
-			mm := prf.Get(fd).Map()
-			if !mm.IsValid() || mm.Len() == 0 {
-				return true // Keep empty map field if map itself is kept
-			}
-
-			mapKeyMask := effectiveNested // This is the mask for the map field (e.g., msk["flags"])
-			wildcardMask, hasWildcard := mapKeyMask[WildcardSegment]
-			mapValueDesc := fd.MapValue()
-
-			mm.Range(func(k protoreflect.MapKey, mapVal protoreflect.Value) bool {
-				keyString := k.String()
-				specificValueMask, specificKeyInMapMaskExists := mapKeyMask[keyString]
-
-				var finalValueMask FieldMask
-				switch {
-				case specificKeyInMapMaskExists:
-					finalValueMask = specificValueMask
-				case hasWildcard:
-					// AIP-161: "*" applies to every value not matched by a
-					// specific key entry.
-					finalValueMask = wildcardMask
-				default:
-					mm.Clear(k) // Not targeted by any rule, drop the entry.
-					return true
-				}
-
-				if finalValueMask == nil {
-					return true // Keep value as is (leaf rule).
-				}
-
-				if mapValueDesc != nil && mapValueDesc.Kind() == protoreflect.MessageKind {
-					finalValueMask.iterateFilter(mapVal.Message().Interface())
-				}
-				return true
-			})
-
-		case fd.Kind() == protoreflect.MessageKind:
-			// Apply the effectiveNested mask recursively to the sub-message
-			effectiveNested.iterateFilter(prf.Get(fd).Message().Interface())
-		} // default case: scalars, enums - already kept if shouldKeep is true
-		return true // Continue to next field
+	msk.walk(msg, maskOp{
+		onUnmatched:         func(prf protoreflect.Message, fd protoreflect.FieldDescriptor) { prf.Clear(fd) },
+		onLeaf:              func(protoreflect.Message, protoreflect.FieldDescriptor) {},
+		recurse:             func(n FieldMask, m proto.Message) { n.iterateFilter(m) },
+		onListWildcardLeaf:  func(protoreflect.Message, protoreflect.FieldDescriptor) {},
+		onMapEntryUnmatched: func(mm protoreflect.Map, k protoreflect.MapKey) { mm.Clear(k) },
+		onMapEntryLeaf:      func(protoreflect.Map, protoreflect.MapKey) {},
+		onStruct:            func(m FieldMask, s *structpb.Struct) { m.filterStruct(s) },
+		onListValue:         func(m FieldMask, lv *structpb.ListValue) { m.filterListValue(lv) },
+		onStructValue:       func(m FieldMask, v *structpb.Value) { m.filterStructValue(v) },
 	})
 }
 
@@ -517,118 +440,35 @@ func (msk FieldMask) Prune(msg proto.Message) {
 	msk.iteratePrune(msg)
 }
 
-// iteratePrune recursively applies the prune mask.
+// iteratePrune recursively applies the prune mask: matched-leaf fields are
+// cleared, matched-branch fields recurse with the sub-mask, unmatched fields
+// are left untouched. Mirror of [FieldMask.iterateFilter] — both share the
+// [FieldMask.walk] state machine and only differ in their action callbacks.
 func (msk FieldMask) iteratePrune(msg proto.Message) {
-	if s, ok := msg.(*structpb.Struct); ok {
-		msk.pruneStruct(s)
-		return
-	}
-	if lv, ok := msg.(*structpb.ListValue); ok {
-		msk.pruneListValue(lv)
-		return
-	}
-	if v, ok := msg.(*structpb.Value); ok {
-		msk.pruneStructValue(v)
-		return
-	}
-	prf := msg.ProtoReflect()
-
-	prf.Range(func(fd protoreflect.FieldDescriptor, v protoreflect.Value) bool {
-		field := string(fd.Name())
-
-		// Determine if this field should be pruned based on the specific mask
-		nested, exists := msk[field]
-
-		if !exists {
-			return true // Field not in mask, leave it untouched
-		}
-
-		pruneMask := nested
-
-		// Field is targeted by the mask. Decide how to prune.
-		if pruneMask == nil {
-			// Mask is a leaf (e.g., "field"), clear the field entirely.
-			prf.Clear(fd)
-			return true
-		}
-
-		switch {
-		case fd.IsList():
-			// AIP-161 wildcard mirror of Filter: a leaf "*" clears the
-			// whole list (the wildcard says "prune every element"); a
-			// branch "*" sub-mask becomes the per-element prune mask.
-			perElement := pruneMask
-			if wildcardMask, ok := pruneMask[WildcardSegment]; ok {
-				if wildcardMask == nil {
-					prf.Clear(fd)
-					return true
-				}
-				perElement = wildcardMask
-			}
-			applyToMessageList(fd, prf.Get(fd).List(), perElement, func(nested FieldMask, m proto.Message) {
-				nested.iteratePrune(m)
-			})
-		case fd.IsMap():
-			mm := prf.Get(fd).Map()
-			if !mm.IsValid() || mm.Len() == 0 {
-				return true
-			} // Empty map field
-
-			// pruneMask now holds the mask for the map keys/values (e.g., msk["flags"])
-			mapKeyMask := pruneMask
-			wildcardMask, hasWildcard := mapKeyMask[WildcardSegment]
-			mapValueDesc := fd.MapValue() // Get descriptor for map values
-
-			mm.Range(func(k protoreflect.MapKey, mapVal protoreflect.Value) bool {
-				keyString := k.String()
-				specificValueMask, specificKeyInMapMaskExists := mapKeyMask[keyString]
-
-				var finalValuePruneMask FieldMask
-				switch {
-				case specificKeyInMapMaskExists:
-					finalValuePruneMask = specificValueMask
-				case hasWildcard:
-					// AIP-161: "*" prunes every value not matched by a
-					// specific key entry.
-					finalValuePruneMask = wildcardMask
-				default:
-					return true // No rule targets this key — keep it.
-				}
-
-				if finalValuePruneMask == nil {
-					mm.Clear(k) // Leaf rule — prune the entry entirely.
-					return true
-				}
-
-				if mapValueDesc != nil && mapValueDesc.Kind() == protoreflect.MessageKind {
-					finalValuePruneMask.iteratePrune(mapVal.Message().Interface())
-				}
-				return true
-			})
-
-		case fd.Kind() == protoreflect.MessageKind:
-			// Apply the pruneMask recursively to the sub-message
-			pruneMask.iteratePrune(prf.Get(fd).Message().Interface())
-		} // default case: scalars, enums - already cleared if pruneMask was nil
-		return true
+	msk.walk(msg, maskOp{
+		onUnmatched:         func(protoreflect.Message, protoreflect.FieldDescriptor) {},
+		onLeaf:              func(prf protoreflect.Message, fd protoreflect.FieldDescriptor) { prf.Clear(fd) },
+		recurse:             func(n FieldMask, m proto.Message) { n.iteratePrune(m) },
+		onListWildcardLeaf:  func(prf protoreflect.Message, fd protoreflect.FieldDescriptor) { prf.Clear(fd) },
+		onMapEntryUnmatched: func(protoreflect.Map, protoreflect.MapKey) {},
+		onMapEntryLeaf:      func(mm protoreflect.Map, k protoreflect.MapKey) { mm.Clear(k) },
+		onStruct:            func(m FieldMask, s *structpb.Struct) { m.pruneStruct(s) },
+		onListValue:         func(m FieldMask, lv *structpb.ListValue) { m.pruneListValue(lv) },
+		onStructValue:       func(m FieldMask, v *structpb.Value) { m.pruneStructValue(v) },
 	})
 }
 
 func applyToMessageList(fd protoreflect.FieldDescriptor, lst protoreflect.List, nested FieldMask, apply func(FieldMask, proto.Message)) {
-	if lst.Len() == 0 {
+	if lst.Len() == 0 || fd.Kind() != protoreflect.MessageKind || fd.Message() == nil {
 		return
 	}
 
-	// Only message lists can be traversed.
-	if fd.Kind() != protoreflect.MessageKind || fd.Message() == nil {
-		return
-	}
-
-	// Apply the nested mask to each element.
+	// Apply the nested mask to each element via the shared list iterator.
 	// Note: index-specific masks are not supported; nested applies to all elements.
-	for i := range lst.Len() {
-		apply(nested, lst.Get(i).Message().Interface())
-	}
+	_ = behavior.ForEachMessageInList(lst, func(_ int, m protoreflect.Message) error {
+		apply(nested, m.Interface())
+		return nil
+	})
 }
 
 // buildPaths recursively traverses the mask and appends full paths.
@@ -636,11 +476,7 @@ func applyToMessageList(fd protoreflect.FieldDescriptor, lst protoreflect.List, 
 // path round-trips through [FromPaths].
 func (msk FieldMask) buildPaths(prefix string, paths *[]string) {
 	for field, nested := range msk {
-		seg := quotePathSegment(field)
-		currentPath := seg
-		if prefix != "" {
-			currentPath = prefix + PathSeparator + seg
-		}
+		currentPath := behavior.JoinPath(prefix, quotePathSegment(field))
 
 		if nested == nil {
 			// Leaf node, add the full path
@@ -787,196 +623,119 @@ func isFieldSet(msg protoreflect.Message, fd protoreflect.FieldDescriptor, v pro
 	}
 }
 
-// structMessageFullName is the full protobuf name for google.protobuf.Struct.
-const structMessageFullName = protoreflect.FullName("google.protobuf.Struct")
-
-// isStructWellKnownType returns true when fd points to a google.protobuf.Struct
-// message field. Struct needs special handling: its dynamic keys are navigable
-// by field mask operations, unlike opaque types (Value, ListValue).
-func isStructWellKnownType(fd protoreflect.FieldDescriptor) bool {
-	return fd.Kind() == protoreflect.MessageKind && fd.Message().FullName() == structMessageFullName
-}
-
-// isStructWellKnownMessage returns true when md is the google.protobuf.Struct descriptor.
-func isStructWellKnownMessage(md protoreflect.MessageDescriptor) bool {
-	return md != nil && md.FullName() == structMessageFullName
-}
-
-// listValueMessageFullName is the full protobuf name for google.protobuf.ListValue.
-const listValueMessageFullName = protoreflect.FullName("google.protobuf.ListValue")
-
-// isListValueWellKnownType returns true when fd points to a google.protobuf.ListValue
-// message field. ListValue needs special handling: the mask is applied to all elements
-// of the list that are Struct or nested ListValue values.
-func isListValueWellKnownType(fd protoreflect.FieldDescriptor) bool {
-	return fd.Kind() == protoreflect.MessageKind && fd.Message().FullName() == listValueMessageFullName
-}
-
-// isListValueWellKnownMessage returns true when md is the google.protobuf.ListValue descriptor.
-func isListValueWellKnownMessage(md protoreflect.MessageDescriptor) bool {
-	return md != nil && md.FullName() == listValueMessageFullName
-}
-
-// valueMessageFullName is the full protobuf name for google.protobuf.Value.
-const valueMessageFullName = protoreflect.FullName("google.protobuf.Value")
-
-// isValueWellKnownType returns true when fd points to a google.protobuf.Value
-// message field. Value needs special handling: it can hold a Struct, ListValue,
-// or a scalar, and the dispatch logic reuses filterStructValue/pruneStructValue.
-func isValueWellKnownType(fd protoreflect.FieldDescriptor) bool {
-	return fd.Kind() == protoreflect.MessageKind && fd.Message().FullName() == valueMessageFullName
-}
-
-// isValueWellKnownMessage returns true when md is the google.protobuf.Value descriptor.
-func isValueWellKnownMessage(md protoreflect.MessageDescriptor) bool {
-	return md != nil && md.FullName() == valueMessageFullName
-}
+// Full protobuf names of the dynamic well-known types whose subtree is not
+// navigable by the static field-mask schema. Callers use the predicates below
+// to short-circuit recursion into such fields.
+const (
+	structMessageFullName    protoreflect.FullName = "google.protobuf.Struct"
+	listValueMessageFullName protoreflect.FullName = "google.protobuf.ListValue"
+	valueMessageFullName     protoreflect.FullName = "google.protobuf.Value"
+)
 
 // isDynamicWellKnownType returns true when fd points to one of the dynamic
-// well-known types — google.protobuf.Value, Struct, or ListValue — whose
-// subtree is not navigable by the static field-mask schema. Callers use it to
-// short-circuit recursion into such fields.
+// well-known types — google.protobuf.Value, Struct, or ListValue.
 func isDynamicWellKnownType(fd protoreflect.FieldDescriptor) bool {
-	return isValueWellKnownType(fd) || isStructWellKnownType(fd) || isListValueWellKnownType(fd)
+	if fd.Kind() != protoreflect.MessageKind {
+		return false
+	}
+	return isDynamicWellKnownMessage(fd.Message())
 }
 
 // isDynamicWellKnownMessage is the descriptor-keyed counterpart of
 // [isDynamicWellKnownType] used when the caller has a message descriptor in hand
 // (e.g. map value descriptor or list element descriptor).
 func isDynamicWellKnownMessage(md protoreflect.MessageDescriptor) bool {
-	return isValueWellKnownMessage(md) || isStructWellKnownMessage(md) || isListValueWellKnownMessage(md)
+	if md == nil {
+		return false
+	}
+	switch md.FullName() {
+	case structMessageFullName, listValueMessageFullName, valueMessageFullName:
+		return true
+	}
+	return false
 }
 
 // filterStruct keeps only keys matching the mask in a google.protobuf.Struct.
+// Uses the shared [FieldMask.walkStruct] traversal — only the action callbacks
+// differ from [FieldMask.pruneStruct].
 func (msk FieldMask) filterStruct(s *structpb.Struct) {
-	if s == nil || len(s.GetFields()) == 0 {
-		return
-	}
-	for key, val := range s.GetFields() {
-		nested, exists := msk[key]
-		if !exists {
-			delete(s.Fields, key)
-			continue
-		}
-		if nested == nil || val == nil {
-			continue // Keep entire value as-is
-		}
-		nested.filterStructValue(val)
-	}
+	msk.walkStruct(s, structOp{
+		onUnmatched: func(s *structpb.Struct, key string) { delete(s.Fields, key) },
+		onLeaf:      func(*structpb.Struct, string) {},
+		recurse:     func(n FieldMask, v *structpb.Value) { n.filterStructValue(v) },
+	})
 }
 
-// filterStructValue applies a filter mask to a structpb.Value.
-// Struct and ListValue children are recursed into; scalar values are kept as-is.
+// filterStructValue applies a filter mask to a structpb.Value. Struct and
+// ListValue children are recursed into; scalar values are kept as-is.
 func (msk FieldMask) filterStructValue(v *structpb.Value) {
-	if sv := v.GetStructValue(); sv != nil {
-		msk.filterStruct(sv)
-	} else if lv := v.GetListValue(); lv != nil {
-		msk.filterListValue(lv)
-	}
+	dispatchStructValue(v, msk.filterStruct, msk.filterListValue)
 }
 
 // pruneStruct removes keys matching the mask from a google.protobuf.Struct.
+// Mirror of [FieldMask.filterStruct] over the same [FieldMask.walkStruct]
+// state machine.
 func (msk FieldMask) pruneStruct(s *structpb.Struct) {
-	if s == nil || len(s.GetFields()) == 0 {
-		return
-	}
-	for key, val := range s.GetFields() {
-		nested, exists := msk[key]
-		if !exists {
-			continue // Not targeted, keep
-		}
-		if nested == nil {
-			delete(s.Fields, key) // Leaf mask, prune
-			continue
-		}
-		if val != nil {
-			nested.pruneStructValue(val)
-		}
-	}
+	msk.walkStruct(s, structOp{
+		onUnmatched: func(*structpb.Struct, string) {},
+		onLeaf:      func(s *structpb.Struct, key string) { delete(s.Fields, key) },
+		recurse:     func(n FieldMask, v *structpb.Value) { n.pruneStructValue(v) },
+	})
 }
 
-// pruneStructValue applies a prune mask to a structpb.Value.
+// pruneStructValue applies a prune mask to a structpb.Value. Mirror of
+// [FieldMask.filterStructValue].
 func (msk FieldMask) pruneStructValue(v *structpb.Value) {
-	if sv := v.GetStructValue(); sv != nil {
-		msk.pruneStruct(sv)
-	} else if lv := v.GetListValue(); lv != nil {
-		msk.pruneListValue(lv)
-	}
+	dispatchStructValue(v, msk.pruneStruct, msk.pruneListValue)
 }
 
-// buildStructPaths enumerates paths for a google.protobuf.Struct.
-// Struct keys are arbitrary strings; ones containing a dot are quoted
-// in backticks so they round-trip through [FromPaths].
+// buildStructPaths enumerates paths for a google.protobuf.Struct. Struct keys
+// are arbitrary strings; ones containing a dot are quoted in backticks so they
+// round-trip through [FromPaths].
 func buildStructPaths(s *structpb.Struct, prefix string, paths *[]string) {
 	for key, val := range s.GetFields() {
-		seg := quotePathSegment(key)
-		keyPath := seg
-		if prefix != "" {
-			keyPath = prefix + PathSeparator + seg
-		}
+		keyPath := behavior.JoinPath(prefix, quotePathSegment(key))
 		*paths = append(*paths, keyPath)
-		if val != nil {
-			if val.GetStructValue() != nil {
-				buildStructPaths(val.GetStructValue(), keyPath, paths)
-			} else if val.GetListValue() != nil {
-				buildListValuePaths(val.GetListValue(), keyPath, paths)
-			}
-		}
+		dispatchStructValue(val,
+			func(sv *structpb.Struct) { buildStructPaths(sv, keyPath, paths) },
+			func(lv *structpb.ListValue) { buildListValuePaths(lv, keyPath, paths) },
+		)
 	}
 }
 
-// filterListValue applies the mask to all elements of a ListValue.
-// For each Value element that is a Struct, the mask is applied as Struct keys.
-// For each Value element that is a ListValue, the mask is applied recursively.
+// filterListValue applies the mask to all elements of a ListValue. For each
+// Value element that is a Struct, the mask is applied as Struct keys; for
+// each Value element that is a ListValue, the mask is applied recursively.
 func (msk FieldMask) filterListValue(lv *structpb.ListValue) {
-	if lv == nil {
-		return
-	}
-	for _, v := range lv.GetValues() {
-		if v == nil {
-			continue
-		}
-		msk.filterStructValue(v)
-	}
+	walkListValue(lv, msk.filterStructValue)
 }
 
 // pruneListValue prunes matching keys from all elements of a ListValue.
+// Mirror of [FieldMask.filterListValue].
 func (msk FieldMask) pruneListValue(lv *structpb.ListValue) {
-	if lv == nil {
-		return
-	}
-	for _, v := range lv.GetValues() {
-		if v == nil {
-			continue
-		}
-		msk.pruneStructValue(v)
-	}
+	walkListValue(lv, msk.pruneStructValue)
 }
 
-// buildListValuePaths enumerates paths for a ListValue.
+// buildListValuePaths enumerates paths for a ListValue. Each element index
+// becomes a path component; nested Struct or ListValue elements recurse.
 func buildListValuePaths(lv *structpb.ListValue, prefix string, paths *[]string) {
 	for i, v := range lv.GetValues() {
 		indexPath := prefix + PathSeparator + strconv.Itoa(i)
 		*paths = append(*paths, indexPath)
-		if v == nil {
-			continue
-		}
-		if sv := v.GetStructValue(); sv != nil {
-			buildStructPaths(sv, indexPath, paths)
-		} else if nested := v.GetListValue(); nested != nil {
-			buildListValuePaths(nested, indexPath, paths)
-		}
+		dispatchStructValue(v,
+			func(sv *structpb.Struct) { buildStructPaths(sv, indexPath, paths) },
+			func(nested *structpb.ListValue) { buildListValuePaths(nested, indexPath, paths) },
+		)
 	}
 }
 
-// buildValuePaths enumerates paths for a google.protobuf.Value.
-// Struct and ListValue children are recursed into; scalar values produce no sub-paths.
+// buildValuePaths enumerates paths for a google.protobuf.Value. Struct and
+// ListValue children are recursed into; scalar values produce no sub-paths.
 func buildValuePaths(v *structpb.Value, prefix string, paths *[]string) {
-	if sv := v.GetStructValue(); sv != nil {
-		buildStructPaths(sv, prefix, paths)
-	} else if lv := v.GetListValue(); lv != nil {
-		buildListValuePaths(lv, prefix, paths)
-	}
+	dispatchStructValue(v,
+		func(sv *structpb.Struct) { buildStructPaths(sv, prefix, paths) },
+		func(lv *structpb.ListValue) { buildListValuePaths(lv, prefix, paths) },
+	)
 }
 
 // buildPathsRecursive builds paths for a message. If onlySetFields is true, only set fields are included.
@@ -1005,10 +764,7 @@ func buildPathsRecursive(msg protoreflect.Message, prefix string, paths *[]strin
 		}
 
 		// Field is considered for inclusion (either set or we want all fields).
-		path := string(fd.Name())
-		if prefix != "" {
-			path = prefix + PathSeparator + path
-		}
+		path := behavior.JoinPath(prefix, string(fd.Name()))
 		*paths = append(*paths, path) // Changed: append to *paths
 
 		// Handle nested structures recursively
@@ -1102,206 +858,67 @@ func buildPathsRecursive(msg protoreflect.Message, prefix string, paths *[]strin
 // resolve. Read paths (`Filter`, `Prune`, `Validate`) are unaffected — per
 // AIP-161 the implementation MAY ignore indexed segments on read.
 func rejectIndexedRepeatedAccess(descriptor protoreflect.MessageDescriptor, path string) error {
-	if path == "" {
-		return nil
-	}
-
-	parts := splitPath(path)
-	currentDescriptor := descriptor
-	var previousField protoreflect.FieldDescriptor
-
-	for _, part := range parts {
-		if previousField != nil {
-			if previousField.IsList() {
-				if _, err := strconv.Atoi(part); err == nil {
-					return &ValidationError{
-						Path: path,
-						Reason: "indexed access to repeated field '" + string(previousField.Name()) +
-							"' is not permitted on update; replace the entire list instead",
-					}
-				}
-				// Non-numeric segment after a repeated field: it is a field
-				// name on the list-element message. Step into the element
-				// descriptor so the next iteration keeps tracking lists/maps.
-				if previousField.Kind() == protoreflect.MessageKind && !isDynamicWellKnownType(previousField) {
-					currentDescriptor = previousField.Message()
-				} else {
-					currentDescriptor = nil
-				}
-				previousField = nil
-				// Fall through to lookup `part` as a field on currentDescriptor.
-			} else if previousField.IsMap() {
-				// Map keys are not list indexes; AIP-161's index restriction
-				// does not apply to them. Step into the map-value descriptor
-				// so a nested list inside a map value still gets the check.
-				if previousField.MapValue().Kind() == protoreflect.MessageKind &&
-					!isDynamicWellKnownMessage(previousField.MapValue().Message()) {
-					currentDescriptor = previousField.MapValue().Message()
-				} else {
-					currentDescriptor = nil
-				}
-				previousField = nil
-				continue
+	return pathWalker{
+		onListIndex: func(list protoreflect.FieldDescriptor, _ string, _ bool) error {
+			return &ValidationError{
+				Path: path,
+				Reason: "indexed access to repeated field '" + string(list.Name()) +
+					"' is not permitted on update; replace the entire list instead",
 			}
-		}
-
-		if currentDescriptor == nil {
-			return nil
-		}
-
-		field := currentDescriptor.Fields().ByName(protoreflect.Name(part))
-		if field == nil {
-			return nil
-		}
-
-		switch {
-		case field.IsList() || field.IsMap():
-			previousField = field
-			currentDescriptor = nil
-		case field.Kind() == protoreflect.MessageKind:
-			if isDynamicWellKnownType(field) {
-				return nil
-			}
-			currentDescriptor = field.Message()
-			previousField = nil
-		default:
-			currentDescriptor = nil
-			previousField = nil
-		}
-	}
-
-	return nil
+		},
+	}.Walk(descriptor, path)
 }
 
-// validatePath validates a path against a message descriptor.
+// validatePath validates a path against a message descriptor. Every malformed
+// segment surfaces as *ValidationError; tolerant traversal (silent stop on
+// unknown fields, scalar deref, malformed map keys) is the job of
+// [rejectIndexedRepeatedAccess]. Both walkers share the same state machine —
+// see [pathWalker].
 func validatePath(descriptor protoreflect.MessageDescriptor, path string) error {
-	if path == "" {
-		return nil
-	}
-
-	parts := splitPath(path)
-	currentDescriptor := descriptor
-	var previousField protoreflect.FieldDescriptor
-
-	for i, part := range parts {
-		// Check if the previous field was a map or list, in which case the current part is a key/index
-		if previousField != nil {
-			if previousField.IsMap() {
-				// Current part is a map key - any string is valid
-				// Check if map value is a message type
-				if previousField.MapValue().Kind() == protoreflect.MessageKind {
-					if isDynamicWellKnownMessage(previousField.MapValue().Message()) {
-						return nil // WKT with dynamic structure: accept any sub-path
-					}
-					currentDescriptor = previousField.MapValue().Message()
-					previousField = nil
-					continue
-				}
-				// Map with scalar values - this should be the last part
-				if i < len(parts)-1 {
-					return &ValidationError{
-						Path:   path,
-						Reason: "cannot access nested field in map with scalar values at field: " + parts[i-1],
-					}
-				}
-				return nil
-			} else if previousField.IsList() {
-				// AIP-161 wildcard: "*" matches every element. For message
-				// lists, step into the element descriptor so the remaining
-				// segments resolve against the element schema. For scalar
-				// lists, the wildcard must be the terminal segment.
-				if part == WildcardSegment {
-					if previousField.Kind() == protoreflect.MessageKind {
-						if isDynamicWellKnownType(previousField) {
-							return nil
-						}
-						currentDescriptor = previousField.Message()
-						previousField = nil
-						continue
-					}
-					if i < len(parts)-1 {
-						return &ValidationError{
-							Path:   path,
-							Reason: "cannot access field beyond wildcard on list of scalar type at field: " + parts[i-1],
-						}
-					}
-					return nil
-				}
-				// Current part should be a numeric index or a field in the list element
-				if _, err := strconv.Atoi(part); err == nil {
-					// This is a list index
-					if previousField.Kind() == protoreflect.MessageKind {
-						if isDynamicWellKnownType(previousField) {
-							return nil // WKT with dynamic structure: accept any sub-path
-						}
-						currentDescriptor = previousField.Message()
-						previousField = nil
-						continue
-					}
-					// List of scalars - this should be the last part
-					if i < len(parts)-1 {
-						return &ValidationError{
-							Path:   path,
-							Reason: "cannot access field in list of scalar type at field: " + parts[i-1],
-						}
-					}
-					return nil
-				}
-				// Not a numeric index, treat as field in list element message
-				if previousField.Kind() != protoreflect.MessageKind {
-					return &ValidationError{
-						Path:   path,
-						Reason: "cannot access field '" + part + "' in list of scalar type at field: " + parts[i-1],
-					}
-				}
-				currentDescriptor = previousField.Message()
-				previousField = nil
-				// Continue to validate 'part' as a field name below
-			}
-		}
-
-		if currentDescriptor == nil {
+	return pathWalker{
+		onListWildcardOnScalar: func(list protoreflect.FieldDescriptor) error {
 			return &ValidationError{
 				Path:   path,
-				Reason: "attempting to access field in non-message type at part: " + part,
+				Reason: "cannot access field beyond wildcard on list of scalar type at field: " + string(list.Name()),
 			}
-		}
-
-		// Find the field descriptor
-		field := currentDescriptor.Fields().ByName(protoreflect.Name(part))
-		if field == nil {
+		},
+		onListIndexOnScalar: func(list protoreflect.FieldDescriptor) error {
 			return &ValidationError{
 				Path:   path,
-				Reason: "field '" + part + "' does not exist in message " + string(currentDescriptor.FullName()),
+				Reason: "cannot access field in list of scalar type at field: " + string(list.Name()),
 			}
-		}
-
-		// Check if we need to go deeper
-		if i < len(parts)-1 {
-			// Check the field type to determine the next descriptor
-			switch {
-			case field.IsMap() || field.IsList():
-				// Next part will be a map key or list index
-				previousField = field
-				currentDescriptor = nil // Will be set when processing the key/index
-			case field.Kind() == protoreflect.MessageKind:
-				if isDynamicWellKnownType(field) {
-					return nil // WKT with dynamic structure: accept any sub-path
-				}
-				// Nested message
-				currentDescriptor = field.Message()
-				previousField = nil
-			default:
-				// Scalar field - can't go deeper
-				return &ValidationError{
-					Path:   path,
-					Reason: "cannot access field '" + parts[i+1] + "' in scalar field: " + part,
-				}
+		},
+		onListFieldOnScalar: func(list protoreflect.FieldDescriptor, segment string) error {
+			return &ValidationError{
+				Path:   path,
+				Reason: "cannot access field '" + segment + "' in list of scalar type at field: " + string(list.Name()),
 			}
-		}
-	}
-
-	return nil
+		},
+		onMapScalarValueDeref: func(mapField protoreflect.FieldDescriptor) error {
+			return &ValidationError{
+				Path:   path,
+				Reason: "cannot access nested field in map with scalar values at field: " + string(mapField.Name()),
+			}
+		},
+		onMissingField: func(parent protoreflect.MessageDescriptor, segment string) error {
+			return &ValidationError{
+				Path:   path,
+				Reason: "field '" + segment + "' does not exist in message " + string(parent.FullName()),
+			}
+		},
+		onNonMessageContext: func(segment string) error {
+			return &ValidationError{
+				Path:   path,
+				Reason: "attempting to access field in non-message type at part: " + segment,
+			}
+		},
+		onScalarDeref: func(scalar protoreflect.FieldDescriptor, next string) error {
+			return &ValidationError{
+				Path:   path,
+				Reason: "cannot access field '" + next + "' in scalar field: " + string(scalar.Name()),
+			}
+		},
+	}.Walk(descriptor, path)
 }
 
 // ValidationError is returned by [FieldMask.Validate] when a field path does not

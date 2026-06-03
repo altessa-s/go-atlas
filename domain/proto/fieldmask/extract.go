@@ -97,31 +97,14 @@ func newExtractOptions(opts []ExtractOption) *extractOptions {
 //   - Both fields must be populated on req; an unset mask or resource yields
 //     ok=false so the caller can fall through to a passthrough.
 func ExtractUpdateMask(req proto.Message, opts ...ExtractOption) (mask *fieldmaskpb.FieldMask, resource proto.Message, ok bool) {
-	if req == nil {
-		return nil, nil, false
-	}
-
 	o := newExtractOptions(opts)
-	maskName := o.maskOr(DefaultUpdateMaskFieldName)
 
-	prf := req.ProtoReflect()
-	if !prf.IsValid() {
+	maskMsg, prf, maskFD, found := lookupFieldMask(req, o.maskOr(DefaultUpdateMaskFieldName), true)
+	if !found || maskMsg == nil {
 		return nil, nil, false
 	}
 
-	fields := prf.Descriptor().Fields()
-
-	maskFD := fields.ByName(protoreflect.Name(maskName))
-	if !isFieldMask(maskFD) || !prf.Has(maskFD) {
-		return nil, nil, false
-	}
-
-	maskMsg, _ := prf.Get(maskFD).Message().Interface().(*fieldmaskpb.FieldMask)
-	if maskMsg == nil {
-		return nil, nil, false
-	}
-
-	resFD := resolveResourceField(fields, maskFD, o.resourceField)
+	resFD := resolveResourceField(prf.Descriptor().Fields(), maskFD, o.resourceField)
 	if resFD == nil || !prf.Has(resFD) {
 		return maskMsg, nil, false
 	}
@@ -132,25 +115,10 @@ func ExtractUpdateMask(req proto.Message, opts ...ExtractOption) (mask *fieldmas
 // ExtractReadMask locates the AIP-157 read_mask field on req. Returns
 // (mask, true) when the field is present and populated.
 func ExtractReadMask(req proto.Message, opts ...ExtractOption) (mask *fieldmaskpb.FieldMask, ok bool) {
-	if req == nil {
-		return nil, false
-	}
-
 	o := newExtractOptions(opts)
-	maskName := o.maskOr(DefaultReadMaskFieldName)
 
-	prf := req.ProtoReflect()
-	if !prf.IsValid() {
-		return nil, false
-	}
-
-	fd := prf.Descriptor().Fields().ByName(protoreflect.Name(maskName))
-	if !isFieldMask(fd) || !prf.Has(fd) {
-		return nil, false
-	}
-
-	maskMsg, _ := prf.Get(fd).Message().Interface().(*fieldmaskpb.FieldMask)
-	if maskMsg == nil {
+	maskMsg, _, _, found := lookupFieldMask(req, o.maskOr(DefaultReadMaskFieldName), true)
+	if !found || maskMsg == nil {
 		return nil, false
 	}
 
@@ -163,20 +131,10 @@ func ExtractReadMask(req proto.Message, opts ...ExtractOption) (mask *fieldmaskp
 // Returns [ErrFieldNotSettable] when req does not expose an update_mask
 // field of type [fieldmaskpb.FieldMask].
 func SetUpdateMask(req proto.Message, mask *fieldmaskpb.FieldMask, opts ...ExtractOption) error {
-	if req == nil {
-		return ErrFieldNotSettable
-	}
-
 	o := newExtractOptions(opts)
-	maskName := o.maskOr(DefaultUpdateMaskFieldName)
 
-	prf := req.ProtoReflect()
-	if !prf.IsValid() {
-		return ErrFieldNotSettable
-	}
-
-	fd := prf.Descriptor().Fields().ByName(protoreflect.Name(maskName))
-	if !isFieldMask(fd) {
+	_, prf, fd, found := lookupFieldMask(req, o.maskOr(DefaultUpdateMaskFieldName), false)
+	if !found {
 		return ErrFieldNotSettable
 	}
 
@@ -188,6 +146,50 @@ func SetUpdateMask(req proto.Message, mask *fieldmaskpb.FieldMask, opts ...Extra
 	prf.Set(fd, protoreflect.ValueOfMessage(mask.ProtoReflect()))
 
 	return nil
+}
+
+// lookupFieldMask resolves the named [fieldmaskpb.FieldMask] field on req. It
+// is the single point of validation shared by [ExtractUpdateMask],
+// [ExtractReadMask], and [SetUpdateMask] so the "find the well-known mask
+// field" boilerplate stays consistent across read, update, and writeback
+// paths.
+//
+// Returns found=true only when req is non-nil, reflects to a valid message,
+// and exposes a singular google.protobuf.FieldMask field named name. When
+// mustBeSet is true the field must additionally be populated on req — used
+// by the extractor paths so an unset mask yields ok=false; SetUpdateMask
+// passes mustBeSet=false because it needs the descriptor even to clear the
+// field. The returned mask is non-nil only when the field is populated and
+// the underlying message value type-asserts cleanly.
+func lookupFieldMask(req proto.Message, name string, mustBeSet bool) (
+	mask *fieldmaskpb.FieldMask,
+	prf protoreflect.Message,
+	fd protoreflect.FieldDescriptor,
+	found bool,
+) {
+	if req == nil {
+		return nil, nil, nil, false
+	}
+
+	prf = req.ProtoReflect()
+	if !prf.IsValid() {
+		return nil, nil, nil, false
+	}
+
+	fd = prf.Descriptor().Fields().ByName(protoreflect.Name(name))
+	if !isFieldMask(fd) {
+		return nil, nil, nil, false
+	}
+
+	if !prf.Has(fd) {
+		if mustBeSet {
+			return nil, nil, nil, false
+		}
+		return nil, prf, fd, true
+	}
+
+	mask, _ = prf.Get(fd).Message().Interface().(*fieldmaskpb.FieldMask)
+	return mask, prf, fd, true
 }
 
 // isFieldMask reports whether fd is a singular message field whose descriptor
