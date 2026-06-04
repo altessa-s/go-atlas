@@ -206,6 +206,10 @@ func (t *Translator) buildComparisonFilter(field string, op filter.Operator, val
 
 // translateSizeComparison handles size() comparisons like tags.size() == 3.
 func (t *Translator) translateSizeComparison(op filter.Operator, call *filter.CallNode, right filter.Node) (bson.M, error) {
+	if call.Target == nil {
+		return nil, coreerrs.Wrap(filter.ErrInvalidExpression, "size() must be called as a method, e.g. field.size()")
+	}
+
 	field, err := t.getFieldName(call.Target)
 	if err != nil {
 		return nil, err
@@ -356,6 +360,10 @@ func (t *Translator) translateRegexOp(target filter.Node, args []filter.Node, tr
 
 // translateSize handles the size() function.
 func (t *Translator) translateSize(target filter.Node) (bson.M, error) {
+	if target == nil {
+		return nil, coreerrs.Wrap(filter.ErrInvalidExpression, "size() must be called as a method, e.g. field.size()")
+	}
+
 	field, err := t.getFieldName(target)
 	if err != nil {
 		return nil, err
@@ -377,6 +385,10 @@ func (t *Translator) translateHas(target filter.Node) (bson.M, error) {
 
 // getFieldName extracts the field name from a node.
 func (t *Translator) getFieldName(node filter.Node) (string, error) {
+	if node == nil {
+		return "", coreerrs.Wrap(filter.ErrInvalidExpression, "missing field reference")
+	}
+
 	result, err := node.Accept(t)
 	if err != nil {
 		return "", err
