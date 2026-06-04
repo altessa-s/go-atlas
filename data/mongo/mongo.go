@@ -487,7 +487,11 @@ func GetEntity[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collectio
 		}
 
 		entityType := reflect.TypeFor[E]()
-		conv := converter.NewShared[T, any](converter.WithHandleEmbeddedStructs(true))
+		convOpts := append(
+			[]converter.Option{converter.WithHandleEmbeddedStructs(true)},
+			m.config.ConverterOptions...,
+		)
+		conv := converter.NewShared[T, any](convOpts...)
 
 		var dst any
 		if entityType.Kind() == reflect.Pointer {
@@ -584,7 +588,11 @@ func GetEntities[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collect
 		// Convert MongoDB documents to domain entities with pre-allocated slice
 		entityType := reflect.TypeFor[E]()
 		isPtr := entityType.Kind() == reflect.Pointer
-		conv := converter.NewShared[T, any](converter.WithHandleEmbeddedStructs(true))
+		convOpts := append(
+			[]converter.Option{converter.WithHandleEmbeddedStructs(true)},
+			m.config.ConverterOptions...,
+		)
+		conv := converter.NewShared[T, any](convOpts...)
 		entities := make([]E, 0, len(models))
 
 		if isPtr {

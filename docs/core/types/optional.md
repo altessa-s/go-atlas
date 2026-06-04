@@ -18,11 +18,14 @@ heap allocation per `Some`.
 
 ## API overview
 
-| Symbol group | Members                                |
-|--------------|----------------------------------------|
-| Constructors | `Some`, `None`, `Of`                   |
-| Accessors    | `Get`, `Value`, `IsSome`, `IsNone`     |
-| Fallbacks    | `OrDefault`, `OrElse`                  |
+| Symbol group  | Members                                                                  |
+|---------------|--------------------------------------------------------------------------|
+| Constructors  | `Some`, `None`, `Of`, `FromPtr`                                          |
+| Accessors     | `Get`, `Value`, `IsSome`, `IsNone`, `IsZero`                             |
+| Fallbacks     | `OrDefault`, `OrElse`                                                    |
+| Conversions   | `ToPtr`                                                                  |
+| Serialization | `MarshalBSONValue`, `UnmarshalBSONValue`, `MarshalJSON`, `UnmarshalJSON` |
+| Reflection    | `IsOptionalType`, `InnerType`, `GetReflect`, `SomeReflect`, `NoneReflect`|
 
 ---
 
@@ -56,6 +59,17 @@ result carries the zero value of `T`:
 opt := optional.Of(m[key])   // Some(v) if found, None otherwise
 ```
 
+### FromPtr
+
+`FromPtr[T](ptr *T) Optional[T]` builds `None` from a nil pointer and `Some(*ptr)` from a non-nil pointer. Useful at the boundary with legacy
+APIs that still return `*T`:
+
+```go
+opt := optional.FromPtr(legacyAPI())
+```
+
+`ToPtr[T](opt Optional[T]) *T` is the reverse direction (`None → nil`, `Some(v) → &v`) — listed under **Conversions** below.
+
 ---
 
 ## Accessors
@@ -79,6 +93,7 @@ Direct accessors for code that wants only one side of the pair:
 | `Value() T`     | The contained value as-is. Returns the zero value of `T` when the `Optional` is `None` — use `Get` if you must distinguish a real `Some(zero)` from `None`. |
 | `IsSome() bool` | The `Optional` carries a value.                                                                                               |
 | `IsNone() bool` | The `Optional` is empty.                                                                                                      |
+| `IsZero() bool` | Synonym for `IsNone`. Lets the BSON encoder treat `Optional` as a zero value under `bson:",omitempty"` (see **Serialization**). |
 
 ---
 
@@ -102,6 +117,88 @@ v := opt.OrElse(func() int {
     return loadDefaultFromDisk()
 })
 ```
+
+---
+
+## Conversions
+
+### ToPtr
+
+`ToPtr[T](opt Optional[T]) *T` returns `nil` when `opt` is `None` and a pointer to the contained value when `opt` is `Some`. It is the
+counterpart to `FromPtr` and is the right escape hatch when handing the value to a legacy API that expects `*T`:
+
+```go
+opt := optional.Some("hi")
+legacy.SetField(optional.ToPtr(opt))   // legacy.SetField(*string)
+```
+
+Note that `ToPtr` allocates: the returned pointer is the address of an internal copy of the value, not of the storage inside the `Optional`.
+
+---
+
+## Serialization
+
+`Optional[T]` implements `bson.ValueMarshaler` / `bson.ValueUnmarshaler` and `json.Marshaler` / `json.Unmarshaler`, so it works out of the box
+with `go.mongodb.org/mongo-driver/v2` and `encoding/json`. `Some(v)` is encoded as the underlying `v`; `None` is encoded as BSON `null` or
+JSON `null`. `Some(zero T)` is preserved through a round-trip — it does not collapse to `None`.
+
+| Direction        | `Some(v)`           | `None`              | Notes                                                                                  |
+|------------------|---------------------|---------------------|----------------------------------------------------------------------------------------|
+| BSON marshal     | underlying BSON `v` | BSON `null`         | Combined with `IsZero`, `bson:",omitempty"` omits `None` fields entirely from the wire |
+| BSON unmarshal   | `Some(v)`           | `None`              | BSON `null` or an absent field both decode to `None`                                   |
+| JSON marshal     | `json.Marshal(v)`   | literal `null`      | `encoding/json` does not consult `IsZero`; a `None` field always emits `null`          |
+| JSON unmarshal   | `Some(v)`           | `None`              | JSON `null` or an absent field both decode to `None`                                   |
+
+```go
+type Doc struct {
+    DeletedAt optional.Optional[time.Time] `bson:"deleted_at,omitempty" json:"deleted_at"`
+    Note      optional.Optional[string]    `bson:"note,omitempty"      json:"note"`
+}
+
+raw, _ := bson.Marshal(Doc{DeletedAt: optional.None[time.Time]()})
+// raw does not contain "deleted_at" at all (IsZero + omitempty).
+
+raw, _ = bson.Marshal(Doc{Note: optional.Some("")})
+// raw DOES contain "note": "" — Some(zero) is not collapsed to None.
+```
+
+When the matching Mongo model still uses `*T` (asymmetric `Optional ↔ *T` mapping), pair this with the codec from
+[`domain/converter/codecs/optionalcodec`](../../../domain/converter/codecs/optionalcodec/README.md) and pass it through
+`data/mongo.WithConverterOptions`:
+
+```go
+m, err := mongo.New("mydb",
+    mongo.WithConverterOptions(
+        converter.WithCodecs(optionalcodec.Codec),
+    ),
+)
+```
+
+Because the marshaller methods must live on the type itself, `core/types/optional` is the only `core/*` package with a non-stdlib dependency
+(`go.mongodb.org/mongo-driver/v2/bson`). The trade-off is intentional: it makes `Optional` a first-class Mongo field type without forcing a
+wrapper type at every call site.
+
+---
+
+## Reflection escape hatch
+
+A small set of reflection helpers ships alongside `Optional[T]` for codec authors and serializers that need to detect, read, and construct
+`Optional[T]` values without compile-time knowledge of `T`. Ordinary user code should never reach for these — use the type system instead.
+
+| Function                                       | Purpose                                                                            |
+|------------------------------------------------|------------------------------------------------------------------------------------|
+| `IsOptionalType(t reflect.Type) bool`          | Reports whether `t` is an `Optional[T]` instantiation from this package            |
+| `InnerType(optType reflect.Type) reflect.Type` | Returns the type parameter `T` of an `Optional[T]`; panics on non-Optional         |
+| `GetReflect(opt reflect.Value) (reflect.Value, bool)` | Extracts the `(value, present)` pair from an Optional reflect value         |
+| `SomeReflect(optType, value reflect.Value) reflect.Value` | Builds `Some(value)` as a `reflect.Value` of `optType`                  |
+| `NoneReflect(optType reflect.Type) reflect.Value` | Returns a `None` `reflect.Value` of `optType`                                   |
+
+Internally these use `reflect.NewAt` + `unsafe.Pointer` to alias the unexported `value`/`present` fields — the same technique
+`encoding/json` and `encoding/gob` use to populate user structs. They live inside the same package as `Optional[T]` so the unsafe surface
+stays in one well-defined place.
+
+The canonical consumer is [`domain/converter/codecs/optionalcodec`](../../../domain/converter/codecs/optionalcodec/README.md), which bridges
+`Optional[T] ↔ *T`, `Optional[T] ↔ T`, and `Optional[T] ↔ Optional[T]` during struct-to-struct conversion.
 
 ---
 
@@ -151,3 +248,6 @@ lives elsewhere; `Optional[T]` is the right tool when the value is owned by the 
 - [result.md](result.md) — sibling type for "value or error".
 - `core/types/ptr` — pointer constructors and safe dereference for the cases where `*T` is the right encoding.
 - `core/types/optional/README.md` — package-level reference next to the source.
+- [`domain/converter/codecs/optionalcodec`](../../../domain/converter/codecs/optionalcodec/README.md) — converter codec bridging
+  `Optional[T] ↔ *T` / `T` / `Optional[T]` for struct-to-struct conversion (used by `data/mongo.GetEntity` / `GetEntities`
+  via `mongo.WithConverterOptions`).

@@ -42,4 +42,24 @@
 // when you want the type signature to advertise optionality.
 //
 // For "value or error" use core/types/result.Result instead.
+//
+// # Serialization
+//
+// Optional implements bson.ValueMarshaler/bson.ValueUnmarshaler and
+// json.Marshaler/json.Unmarshaler. Some(v) is encoded as the underlying
+// value v; None is encoded as BSON null / JSON null. The IsZero method
+// makes `bson:",omitempty"` strip None fields entirely on the wire.
+//
+// Some(zero(T)) is preserved through round-trip (it does not collapse
+// to None), letting callers distinguish "absent" from "present but
+// zero" — which is the main reason to reach for Optional in the first
+// place. Standard encoding/json does not consult IsZero, so JSON
+// Marshal of a None field always emits null; use *Optional[T] when JSON
+// field omission matters.
+//
+// Because the BSON marshallers live on the type, this package depends
+// on go.mongodb.org/mongo-driver/v2/bson — the only external dependency
+// in core/*. The trade-off is intentional: making Optional usable as
+// a first-class Mongo field type cannot be achieved from a sibling
+// package.
 package optional

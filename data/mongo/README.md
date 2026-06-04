@@ -23,19 +23,20 @@ structured logging.
 
 ## Options
 
-| Option                   | Default           | Description                         |
-|--------------------------|-------------------|-------------------------------------|
-| `WithKMS`                | nil               | KMS provider for CSFLE              |
-| `WithVaultDatabase`      | same as main      | Database for encryption keys        |
-| `WithVaultCollection`    | `__keyVault`      | Collection for encryption keys      |
-| `WithEncryptionEnabled`  | false             | Enable Client-Side Field Encryption |
-| `WithEncryptionModel`    | --                | Per-struct field encryption config  |
-| `WithBSONTagName`        | `bson`            | Tag name for BSON field mapping     |
-| `WithEncryptionTagName`  | `encryption`      | Tag name for encryption mapping     |
-| `WithClient`             | nil               | Pre-initialized `mongo.Client`      |
-| `WithClientOptions`      | nil               | Custom `mongo.ClientOptions`        |
-| `WithTransactionOptions` | snapshot/majority | Transaction read/write concerns     |
-| `WithLogger`             | discard           | Structured logger                   |
+| Option                   | Default           | Description                                                       |
+|--------------------------|-------------------|-------------------------------------------------------------------|
+| `WithKMS`                | nil               | KMS provider for CSFLE                                            |
+| `WithVaultDatabase`      | same as main      | Database for encryption keys                                      |
+| `WithVaultCollection`    | `__keyVault`      | Collection for encryption keys                                    |
+| `WithEncryptionEnabled`  | false             | Enable Client-Side Field Encryption                               |
+| `WithEncryptionModel`    | --                | Per-struct field encryption config                                |
+| `WithBSONTagName`        | `bson`            | Tag name for BSON field mapping                                   |
+| `WithEncryptionTagName`  | `encryption`      | Tag name for encryption mapping                                   |
+| `WithClient`             | nil               | Pre-initialized `mongo.Client`                                    |
+| `WithClientOptions`      | nil               | Custom `mongo.ClientOptions`                                      |
+| `WithTransactionOptions` | snapshot/majority | Transaction read/write concerns                                   |
+| `WithLogger`             | discard           | Structured logger                                                 |
+| `WithConverterOptions`   | --                | Extra `converter.Option`s threaded into `GetEntity`/`GetEntities` |
 
 ## Subpackages
 

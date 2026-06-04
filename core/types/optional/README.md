@@ -23,14 +23,40 @@ the zero value of `Optional[T]` is a valid `None`.
 
 ## Methods
 
-| Method               | Description                                                          |
-|----------------------|----------------------------------------------------------------------|
-| `Get() (T, bool)`    | Underlying pair; the bridge back to idiomatic Go control flow        |
-| `Value() T`          | Contained value (zero value of `T` if `Optional` is `None`)          |
-| `IsSome() bool`      | Reports whether the `Optional` carries a value                       |
-| `IsNone() bool`      | Reports whether the `Optional` is empty                              |
-| `OrDefault(def T) T` | Contained value if `Some`, otherwise `def`                           |
-| `OrElse(fn) T`       | Contained value if `Some`, otherwise `fn()` (only invoked on `None`) |
+| Method                                     | Description                                                          |
+|--------------------------------------------|----------------------------------------------------------------------|
+| `Get() (T, bool)`                          | Underlying pair; the bridge back to idiomatic Go control flow        |
+| `Value() T`                                | Contained value (zero value of `T` if `Optional` is `None`)          |
+| `IsSome() bool`                            | Reports whether the `Optional` carries a value                       |
+| `IsNone() bool`                            | Reports whether the `Optional` is empty                              |
+| `OrDefault(def T) T`                       | Contained value if `Some`, otherwise `def`                           |
+| `OrElse(fn) T`                             | Contained value if `Some`, otherwise `fn()` (only invoked on `None`) |
+| `IsZero() bool`                            | `true` when `None`; lets `bson:",omitempty"` strip `None` fields     |
+| `MarshalBSONValue() (byte, []byte, error)` | Some → underlying BSON value; None → BSON `null`                     |
+| `UnmarshalBSONValue(byte, []byte) error`   | BSON `null` → None; otherwise decode into `T` and store as Some      |
+| `MarshalJSON() ([]byte, error)`            | Some → `json.Marshal(v)`; None → `null`                              |
+| `UnmarshalJSON([]byte) error`              | JSON `null` → None; otherwise decode into `T` and store as Some      |
+
+## Serialization
+
+`Optional[T]` implements `bson.ValueMarshaler` / `bson.ValueUnmarshaler` and `json.Marshaler` / `json.Unmarshaler`, so it works out of the box with
+the `go.mongodb.org/mongo-driver/v2` driver and `encoding/json`. `Some(v)` is encoded as `v`, `None` as `null`. Combined with `IsZero`, the
+`bson:",omitempty"` tag omits `None` fields entirely from the on-the-wire document.
+
+`Some(zeroT)` is preserved through a round-trip — it does not collapse to `None` — letting callers distinguish "absent" from "present but zero".
+Standard `encoding/json` does not consult `IsZero`, so a `None` field marshals as `null`; use `*Optional[T]` when JSON field omission matters.
+
+```go
+type Doc struct {
+    DeletedAt optional.Optional[time.Time] `bson:"deleted_at,omitempty" json:"deleted_at"`
+}
+
+raw, _ := bson.Marshal(Doc{DeletedAt: optional.None[time.Time]()})
+// raw does not contain "deleted_at" at all.
+```
+
+Because the marshaller methods must live on the type, this is the only `core/*` package with a non-stdlib dependency
+(`go.mongodb.org/mongo-driver/v2/bson`). The trade-off is intentional: it makes `Optional` a first-class Mongo field type.
 
 ## When to use
 
