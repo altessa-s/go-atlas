@@ -299,6 +299,11 @@ func TestTranslator_SizeFunction(t *testing.T) {
 			expr: `tags.size() != 0`,
 			want: `{"tags":{"$not":{"$size":0}}}`,
 		},
+		{
+			name: "size greater than",
+			expr: `tags.size() > 0`,
+			want: `{"$expr":{"$gt":[{"$size":{"$ifNull":["$tags",[]]}},0]}}`,
+		},
 	}
 
 	trans := mustTranslator(t)
@@ -310,6 +315,32 @@ func TestTranslator_SizeFunction(t *testing.T) {
 			require.NoError(t, err)
 			got := bsonToJSON(result)
 			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestTranslator_SizeFunctionValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		expr string
+	}{
+		{
+			name: "function form greater than",
+			expr: `size(tags) > 0`,
+		},
+		{
+			name: "function form equal",
+			expr: `size(tags) == 3`,
+		},
+	}
+
+	trans := mustTranslator(t)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			node := testhelpers.MustParseFilter(t, tt.expr)
+			_, err := trans.Translate(node)
+			require.ErrorIs(t, err, filter.ErrInvalidExpression)
 		})
 	}
 }
