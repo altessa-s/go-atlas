@@ -17,6 +17,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/writeconcern"
 
 	"github.com/altessa-s/go-atlas/data/mongo/kms"
+	"github.com/altessa-s/go-atlas/domain/converter"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -118,6 +119,14 @@ type config struct {
 
 	// Collector provides Prometheus-compatible metrics for MongoDB operations.
 	Collector metrics.Collector `optgen:"notnil"`
+
+	// ConverterOptions are appended to the default converter options when
+	// data/mongo helpers (GetEntity, GetEntities) convert decoded Mongo
+	// models to domain entities. The built-in WithHandleEmbeddedStructs(true)
+	// is always applied first; user options follow and can extend the
+	// pipeline (e.g. by registering a codec for optional.Optional[T] ↔ *T).
+	// Set via WithConverterOptions.
+	ConverterOptions []converter.Option `opt:"-"`
 }
 
 // WithTransactionOptions sets custom transaction options for MongoDB transactions.
@@ -166,6 +175,23 @@ func WithEncryptionModel(model ...*EncryptionModel) Option {
 			}
 			c.EncryptionModels[typ] = m
 		}
+	}
+}
+
+// WithConverterOptions adds converter.Option values that are appended to the
+// defaults when GetEntity and GetEntities convert decoded Mongo models to
+// domain entities. The built-in WithHandleEmbeddedStructs(true) is always
+// applied first; user options follow and can extend the conversion pipeline.
+//
+// A typical use case is registering a codec that bridges custom field types,
+// for example optional.Optional[T] ↔ *T:
+//
+//	mongo.WithConverterOptions(converter.WithCodecs(optionalcodec.Codec))
+//
+// Successive calls accumulate options in registration order.
+func WithConverterOptions(opts ...converter.Option) Option {
+	return func(c *config) {
+		c.ConverterOptions = append(c.ConverterOptions, opts...)
 	}
 }
 
