@@ -21,7 +21,6 @@ import (
 // failingHandler is the terminal CodecHandler used by direct codec tests
 // where the codec is expected to handle the conversion itself.
 func failingHandler(t *testing.T) convcodec.CodecHandler {
-	t.Helper()
 	return func(fieldName string, src, dst reflect.Value) {
 		t.Helper()
 		t.Fatalf("codec delegated to handler for %q (src=%v dst=%v): Codec should have handled the pair",
