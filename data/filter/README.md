@@ -50,6 +50,7 @@ via the visitor pattern. Includes security features: field allowlists, depth lim
 | `WithAllowedFields`  | all      | Whitelist of queryable field names; keys are the CEL-side names, identical to those used in `WithFieldMapping`    |
 | `WithFieldMapping`   | identity | CEL field name to DB column mapping                                                                               |
 | `WithFieldTypes`     | --       | Declared kind per field; literals are checked against the declared kind and rejected with `ErrFieldTypeMismatch`  |
+| `WithEnumValues`     | --       | Allowed integer value set per enum field; literals outside the set are rejected with `ErrEnumValueNotAllowed`     |
 | `WithMaxDepth`       | 20       | Maximum AST nesting depth                                                                                         |
 | `WithMaxRegexLength` | 1024     | Maximum length of a regex pattern in `matches()`; protects against ReDoS-style payloads                           |
 | `WithMaxOperations`  | 1000     | Maximum AST node visits per translation; protects against wide expressions (e.g. hundreds of OR-ed conditions)    |
