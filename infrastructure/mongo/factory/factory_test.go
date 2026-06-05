@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/config"
+	"github.com/altessa-s/go-atlas/domain/converter"
 	"github.com/altessa-s/go-atlas/observability/health"
 )
 
@@ -29,6 +30,18 @@ func TestNew_WithOptions(t *testing.T) {
 		UseLogger(logger).
 		UseHealthCoordinator(coord)
 	require.NotNil(t, b)
+}
+
+func TestUseConverterOptions_AccumulatesAcrossCalls(t *testing.T) {
+	b := New(&config.Mongodb{Database: "x"}).
+		UseConverterOptions(converter.WithIgnoreZeroValues()).
+		UseConverterOptions(converter.WithIgnoreNilValues())
+	require.Len(t, b.converterOpts, 2)
+}
+
+func TestUseConverterOptions_DefaultEmpty(t *testing.T) {
+	b := New(&config.Mongodb{Database: "x"})
+	require.Empty(t, b.converterOpts)
 }
 
 func TestClientOptions(t *testing.T) {
