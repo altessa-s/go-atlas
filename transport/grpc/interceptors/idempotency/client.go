@@ -5,16 +5,18 @@
 package idempotency
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 
 	"github.com/google/uuid"
+
 	"google.golang.org/grpc/metadata"
 )
 
 // keyNamespace anchors derived keys to this package so that identical (seed, call)
 // inputs produced elsewhere cannot collide with keys minted here.
-var keyNamespace = uuid.NewSHA1(uuid.NameSpaceURL,
-	[]byte("github.com/altessa-s/go-atlas/transport/grpc/interceptors/idempotency"))
+const keyNamespace = "github.com/altessa-s/go-atlas/transport/grpc/interceptors/idempotency"
 
 // DeriveKey returns a deterministic idempotency key for a single outbound mutating call.
 // It is derived from seed — a stable identifier of the logical operation that stays
@@ -31,9 +33,8 @@ var keyNamespace = uuid.NewSHA1(uuid.NameSpaceURL,
 //
 //	key := idempotency.DeriveKey(operationID, "users.UserService/Update")
 func DeriveKey(seed, call string) string {
-	u := uuid.NewSHA1(keyNamespace, []byte(seed+"\x00"+call))
-	u[6] = (u[6] & 0x0f) | 0x40
-	return u.String()
+	sum := sha256.Sum256([]byte(keyNamespace + "\x00" + seed + "\x00" + call))
+	return uuid.Must(uuid.NewRandomFromReader(bytes.NewReader(sum[:]))).String()
 }
 
 // WithKey returns a copy of ctx with key attached as outgoing gRPC metadata under
