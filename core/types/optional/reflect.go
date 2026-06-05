@@ -51,8 +51,10 @@ func InnerType(optType reflect.Type) reflect.Type {
 // present is false it carries the zero value of T.
 //
 // GetReflect panics when opt is not a struct value passing IsOptionalType.
-// The opt value must be addressable so the unexported fields can be
-// aliased through unsafe.Pointer.
+// If opt is not addressable it is first copied into an addressable
+// temporary, so callers may pass non-addressable values (for example,
+// reflect.ValueOf(someOptional) directly) without an explicit New/Set
+// dance.
 func GetReflect(opt reflect.Value) (reflect.Value, bool) {
 	if !IsOptionalType(opt.Type()) {
 		panic("optional.GetReflect: not an Optional[T] value: " + describeType(opt.Type()))
