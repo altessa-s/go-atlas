@@ -25,17 +25,14 @@ var keyNamespace = uuid.NewSHA1(uuid.NameSpaceURL,
 // downstream calls made while handling one operation do not collide — the server scopes
 // idempotency per service, not per method.
 //
-// The result is a lowercase UUID v4 string accepted by [DefaultKeyValidator]: the bytes
-// come from a SHA-1 name-based UUID with the version and variant nibbles set to the v4
-// layout, so it is structurally a v4 UUID yet fully deterministic.
+// The result is a lowercase UUID v4 accepted by [DefaultKeyValidator].
 //
 // Example:
 //
 //	key := idempotency.DeriveKey(operationID, "users.UserService/Update")
 func DeriveKey(seed, call string) string {
 	u := uuid.NewSHA1(keyNamespace, []byte(seed+"\x00"+call))
-	u[6] = (u[6] & 0x0f) | 0x40 // version 4
-	u[8] = (u[8] & 0x3f) | 0x80 // RFC 4122 variant
+	u[6] = (u[6] & 0x0f) | 0x40
 	return u.String()
 }
 
