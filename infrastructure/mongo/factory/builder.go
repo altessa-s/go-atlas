@@ -15,6 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/data/mongo"
 	"github.com/altessa-s/go-atlas/data/mongo/kms"
+	"github.com/altessa-s/go-atlas/domain/converter"
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
@@ -36,6 +37,7 @@ type MongoBuilder struct {
 	healthCoordinator *health.Coordinator
 	healthServiceName string
 	collector         metrics.Collector
+	converterOpts     []converter.Option
 }
 
 // New creates a [MongoBuilder] for the given MongoDB config.
@@ -107,6 +109,9 @@ func (b *MongoBuilder) createMongoOptionsFromConfig() ([]mongo.Option, error) {
 		mongo.WithLogger(b.Logger()),
 		mongo.WithCollector(b.collector),
 	}
+	opts = slices.AppendIfFunc(opts, len(b.converterOpts) > 0, func() []mongo.Option {
+		return []mongo.Option{mongo.WithConverterOptions(b.converterOpts...)}
+	})
 
 	return b.applyEncryption(clientOpts, opts)
 }

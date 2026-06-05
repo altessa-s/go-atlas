@@ -44,12 +44,13 @@ The returned `*mongo.Mongo` is not yet connected — call `Connect` to establish
 
 ### Dependencies
 
-| Method                 | Description                                                     |
-|------------------------|-----------------------------------------------------------------|
-| `UseLogger`            | Sets the logger for the builder and all created components      |
-| `UseTlsConfig`         | Sets the TLS configuration for secure connections               |
-| `UseKmsProvider`       | Sets the KMS provider for client-side field level encryption    |
-| `UseHealthCoordinator` | Registers a health checker under service name `"mongo"`         |
+| Method                 | Description                                                                  |
+|------------------------|------------------------------------------------------------------------------|
+| `UseLogger`            | Sets the logger for the builder and all created components                   |
+| `UseTlsConfig`         | Sets the TLS configuration for secure connections                            |
+| `UseKmsProvider`       | Sets the KMS provider for client-side field level encryption                 |
+| `UseHealthCoordinator` | Registers a health checker under service name `"mongo"`                      |
+| `UseConverterOptions`  | Forwards extra `converter.Option`s to `mongo.WithConverterOptions` (codecs)  |
 
 ### Terminal
 

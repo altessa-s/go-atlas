@@ -9,6 +9,7 @@ import (
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/data/mongo/kms"
+	"github.com/altessa-s/go-atlas/domain/converter"
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
@@ -55,5 +56,17 @@ func (b *MongoBuilder) UseHealthServiceName(v string) *MongoBuilder {
 // UseCollector sets the [metrics.Collector] for recording MongoDB metrics.
 func (b *MongoBuilder) UseCollector(v metrics.Collector) *MongoBuilder {
 	b.collector = v
+	return b
+}
+
+// UseConverterOptions registers extra [converter.Option] values that the
+// builder forwards to [mongo.WithConverterOptions] when constructing the
+// [mongo.Mongo] client. Successive calls accumulate options.
+//
+// Useful for plugging in a codec that bridges custom field types between
+// the Mongo model and the domain entity, for example
+// optionalcodec.Codec to convert optional.Optional[T] ↔ *T.
+func (b *MongoBuilder) UseConverterOptions(opts ...converter.Option) *MongoBuilder {
+	b.converterOpts = append(b.converterOpts, opts...)
 	return b
 }
