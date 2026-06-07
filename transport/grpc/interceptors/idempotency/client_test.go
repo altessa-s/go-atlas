@@ -2,73 +2,66 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package idempotency
+package idempotency_test
 
 import (
-	"context"
 	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/idempotency"
 
 	"google.golang.org/grpc/metadata"
 )
 
 func TestDeriveKey_DeterministicAndValid(t *testing.T) {
-	k1 := DeriveKey("operation-1", "svc.Service/Call")
-	k2 := DeriveKey("operation-1", "svc.Service/Call")
-	if k1 != k2 {
-		t.Fatalf("DeriveKey is not deterministic: %q != %q", k1, k2)
-	}
-	if err := DefaultKeyValidator(k1); err != nil {
-		t.Fatalf("derived key %q is not a valid lowercase UUID v4: %v", k1, err)
-	}
+	t.Parallel()
+
+	k1 := idempotency.DeriveKey("operation-1", "svc.Service/Call")
+	k2 := idempotency.DeriveKey("operation-1", "svc.Service/Call")
+	require.Equal(t, k1, k2, "DeriveKey must be deterministic")
+	require.NoError(t, idempotency.DefaultKeyValidator(k1), "derived key must satisfy DefaultKeyValidator")
 }
 
 func TestDeriveKey_DistinctPerSeedAndCall(t *testing.T) {
-	base := DeriveKey("operation-1", "svc.Service/Call")
-	if got := DeriveKey("operation-2", "svc.Service/Call"); got == base {
-		t.Fatal("a different seed must yield a different key")
-	}
-	if got := DeriveKey("operation-1", "svc.Service/Other"); got == base {
-		t.Fatal("a different call must yield a different key")
-	}
+	t.Parallel()
+
+	base := idempotency.DeriveKey("operation-1", "svc.Service/Call")
+	require.NotEqual(t, base, idempotency.DeriveKey("operation-2", "svc.Service/Call"), "a different seed must yield a different key")
+	require.NotEqual(t, base, idempotency.DeriveKey("operation-1", "svc.Service/Other"), "a different call must yield a different key")
 }
 
 func TestWithKey_AttachesSingleHeaderValue(t *testing.T) {
+	t.Parallel()
+
 	const key = "3b24398f-257d-4879-8ba1-89cb176abe72"
 
-	ctx := WithKey(context.Background(), key)
+	ctx := idempotency.WithKey(t.Context(), key)
 
 	md, ok := metadata.FromOutgoingContext(ctx)
-	if !ok {
-		t.Fatal("expected outgoing metadata to be present")
-	}
-	if got := md.Get(DefaultIdempotencyKeyHeader); len(got) != 1 || got[0] != key {
-		t.Fatalf("unexpected %s header: %v", DefaultIdempotencyKeyHeader, got)
-	}
+	require.True(t, ok, "outgoing metadata must be present")
+	require.Equal(t, []string{key}, md.Get(idempotency.DefaultIdempotencyKeyHeader))
 }
 
 func TestWithKey_PreservesExistingMetadata(t *testing.T) {
-	ctx := metadata.AppendToOutgoingContext(context.Background(), "authorization", "Bearer t")
+	t.Parallel()
 
-	ctx = WithKey(ctx, "3b24398f-257d-4879-8ba1-89cb176abe72")
+	ctx := metadata.AppendToOutgoingContext(t.Context(), "authorization", "Bearer t")
+
+	ctx = idempotency.WithKey(ctx, "3b24398f-257d-4879-8ba1-89cb176abe72")
 
 	md, _ := metadata.FromOutgoingContext(ctx)
-	if got := md.Get("authorization"); len(got) != 1 || got[0] != "Bearer t" {
-		t.Fatalf("existing metadata not preserved: %v", got)
-	}
+	require.Equal(t, []string{"Bearer t"}, md.Get("authorization"), "existing metadata must be preserved")
 }
 
 func TestWithDerivedKey_AttachesValidHeader(t *testing.T) {
-	ctx := WithDerivedKey(context.Background(), "operation-1", "svc.Service/Call")
+	t.Parallel()
+
+	ctx := idempotency.WithDerivedKey(t.Context(), "operation-1", "svc.Service/Call")
 
 	md, ok := metadata.FromOutgoingContext(ctx)
-	if !ok {
-		t.Fatal("expected outgoing metadata to be present")
-	}
-	got := md.Get(DefaultIdempotencyKeyHeader)
-	if len(got) != 1 {
-		t.Fatalf("expected exactly one header value, got %v", got)
-	}
-	if err := DefaultKeyValidator(got[0]); err != nil {
-		t.Fatalf("attached key %q is invalid: %v", got[0], err)
-	}
+	require.True(t, ok, "outgoing metadata must be present")
+	got := md.Get(idempotency.DefaultIdempotencyKeyHeader)
+	require.Len(t, got, 1, "expected exactly one header value")
+	require.NoError(t, idempotency.DefaultKeyValidator(got[0]), "attached key must satisfy DefaultKeyValidator")
 }

@@ -53,7 +53,7 @@ Every interceptor sub-package exports three identification helpers:
 | [driver](./driver)                             | Core interfaces for the driven interceptor pattern    |
 | [errstatus](./errstatus)                       | Error-to-status and status-to-error conversion        |
 | [health](./health)                             | Service health checking                               |
-| [idempotency](./idempotency)                   | Idempotent request handling via metadata keys         |
+| [idempotency](./idempotency)                   | Server interceptor for idempotent request handling, plus client-side helpers and `UnaryClientInterceptor` |
 | [limiter](./limiter)                           | Rate limiting with standard response headers          |
 | [logger](./logger)                             | Comprehensive request and response logging            |
 | [metadata](./metadata)                         | Call metadata extraction and context injection         |
