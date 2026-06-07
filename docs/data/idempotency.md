@@ -325,7 +325,11 @@ Callers don't mutate `*State` themselves — write through `Complete(data, state
 
 - `transport/http/server/middlewares/idempotency` — reads the configured header (default `Idempotency-Key`), short-circuits with `409 Conflict`
   for in-progress requests and `422 Unprocessable Entity` for already-used keys, captures the response body for replay.
-- `transport/grpc/interceptors/idempotency` — same model with metadata-based key extraction and gRPC status codes.
+- `transport/grpc/interceptors/idempotency` — same model with metadata-based key extraction and gRPC status codes. Ships a client-side
+  counterpart in the same package: `DeriveKey(seed, call)` mints a deterministic UUID v4 anchored to the package namespace, `WithKey` /
+  `WithDerivedKey` attach the key to the outgoing metadata, and `UnaryClientInterceptor` stamps a derived key on every call whose context
+  was tagged with `WithOperation(ctx, operationID)`. The server scopes idempotency per service, so the `call` component (typically
+  `info.FullMethod`) keeps sibling downstream calls within one operation from colliding.
 
 Both stash the `*State` returned by `AttemptLock` per-request and pass it to `Complete` in the post-handler hook so the stolen-lock guard
 applies to real traffic, not just test code.

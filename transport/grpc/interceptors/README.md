@@ -55,7 +55,7 @@ Every interceptor sub-package exports three identification helpers:
 | [fieldbehavior](./fieldbehavior)               | AIP-203 `field_behavior` strip on request/response    |
 | [fieldmask](./fieldmask)                       | AIP-134 `update_mask` + AIP-157 `read_mask` enforcement |
 | [health](./health)                             | Service health checking                               |
-| [idempotency](./idempotency)                   | Idempotent request handling via metadata keys         |
+| [idempotency](./idempotency)                   | Server interceptor for idempotent request handling, plus client-side helpers and `UnaryClientInterceptor` |
 | [limiter](./limiter)                           | Rate limiting with standard response headers          |
 | [logger](./logger)                             | Comprehensive request and response logging            |
 | [metadata](./metadata)                         | Call metadata extraction and context injection         |
