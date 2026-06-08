@@ -108,12 +108,14 @@ func NoneReflect(optType reflect.Type) reflect.Value {
 // Optional[T] is fixed and the helper lives in the same package as
 // the type definition.
 func readUnexportedField(field reflect.Value) reflect.Value {
+	// #nosec G103 -- audited unsafe: aliases an Optional[T] field whose layout is fixed by this package.
 	return reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem()
 }
 
 // writeUnexportedField stores src into the unexported field dst by
 // aliasing dst's storage through unsafe.Pointer.
 func writeUnexportedField(dst, src reflect.Value) {
+	// #nosec G103 -- audited unsafe: aliases an Optional[T] field whose layout is fixed by this package.
 	reflect.NewAt(dst.Type(), unsafe.Pointer(dst.UnsafeAddr())).Elem().Set(src)
 }
 
