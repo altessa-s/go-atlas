@@ -54,12 +54,14 @@ Every interceptor sub-package exports three identification helpers:
 | [errstatus](./errstatus)                       | Error-to-status and status-to-error conversion        |
 | [fieldbehavior](./fieldbehavior)               | AIP-203 `field_behavior` strip on request/response    |
 | [fieldmask](./fieldmask)                       | AIP-134 `update_mask` + AIP-157 `read_mask` enforcement |
+| [geoacl](./geoacl)                             | Country/region-based access control on caller IP      |
 | [health](./health)                             | Service health checking                               |
 | [idempotency](./idempotency)                   | Server interceptor for idempotent request handling, plus client-side helpers and `UnaryClientInterceptor` |
+| [ipacl](./ipacl)                               | IP/CIDR allow- and deny-list enforcement              |
 | [limiter](./limiter)                           | Rate limiting with standard response headers          |
 | [logger](./logger)                             | Comprehensive request and response logging            |
 | [metadata](./metadata)                         | Call metadata extraction and context injection         |
-| [prometheus](./prometheus)                     | Prometheus metrics collection                         |
+| [metrics](./metrics)                           | Prometheus metrics collection                         |
 | [protovalidator](./protovalidator)             | Protocol buffer message validation                    |
 | [realip](./realip)                             | Real client IP extraction from proxy headers          |
 | [recovery](./recovery)                         | Panic recovery with stack trace capture               |

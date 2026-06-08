@@ -17,3 +17,4 @@ resilience, observability, security, and configuration-driven creation of all tr
 | [broker](./broker)     | High-level message broker with Transactional Outbox pattern and NATS JetStream provider            |
 | [grpc](./grpc)         | gRPC server and client with connection pooling, interceptor chain, and service handlers            |
 | [http](./http)         | HTTP server and client with content negotiation, middleware chain, and pluggable router             |
+| [proxydial](./proxydial) | Forward-proxy dialers for non-HTTP client connections (SMTP, SOAP, raw TCP, gRPC over CONNECT/SOCKS5) |

@@ -14,7 +14,7 @@ Handlers receive a `writer.ReadWriter` for content-negotiated request/response h
 |------------------------------------|--------------------------------------------------------------------------|
 | [codec](./codec)                   | Content-type codecs and registry with content negotiation                |
 | [factory](./factory)               | Configuration-driven server and middleware creation                      |
-| [handler](./handler)               | Common HTTP handlers (ping, healthz, pprof, metrics)                    |
+| [handlers](./handlers)             | Common HTTP handlers (ping, healthz, pprof, metrics)                    |
 | [middlewares](./middlewares)        | Middleware interfaces, chain, and dependency-based ordering              |
 | [responder](./responder)           | Structured error response interception                                   |
 | [router](./router)                 | Router interfaces and implementations (gorilla, std)                    |

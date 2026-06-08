@@ -16,6 +16,7 @@ import "github.com/altessa-s/go-atlas/core/runtime/appinfo"
 | Shutdown hooks, GC resource cleanup | this file |
 | Application metadata, version queries, env vars, directory paths | [appinfo.md](appinfo.md) |
 | Adaptive concurrency limits, batch processing, retry loops, panic recovery | [concurrency.md](concurrency.md) |
+| Linux process hardening: capabilities, seccomp, landlock, rlimits, no-new-privs | [security.md](security.md) |
 | OS signal handling with priority and worker pools | [signals.md](signals.md) |
 
 Stdlib only, zero external dependencies.
@@ -123,6 +124,8 @@ See [appinfo.md](appinfo.md) for the full reference.
   directory paths
 - [concurrency.md](concurrency.md) — batch processing, concurrency limits, retry,
   panic recovery
+- [security.md](security.md) — Linux process-hardening primitives: capabilities,
+  seccomp, landlock, rlimits, no-new-privs
 - [signals.md](signals.md) — OS signal handling, priority execution, worker pools,
   graceful shutdown
 - [../../service/scheduler.md](../../service/scheduler.md) — periodic task scheduling

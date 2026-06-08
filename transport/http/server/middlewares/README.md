@@ -39,10 +39,12 @@ Every middleware sub-package exports three identification helpers:
 | [cors](./cors)                             | Cross-Origin Resource Sharing header management                |
 | [defaults](./defaults)                     | Shared default configurations and constants                    |
 | [driver](./driver)                         | Driven Middleware pattern with pre/post request hooks           |
+| [geoacl](./geoacl)                         | Country/region-based access control on caller IP                |
 | [idempotency](./idempotency)              | Idempotent request handling via Idempotency-Key header         |
+| [ipacl](./ipacl)                           | IP/CIDR allow- and deny-list enforcement                        |
 | [limiter](./limiter)                       | Per-request rate limiting with standard headers                |
 | [logger](./logger)                         | Structured request/response logging                            |
-| [prometheus](./prometheus)                 | Prometheus metrics collection for HTTP requests                |
+| [metrics](./metrics)                       | Prometheus metrics collection for HTTP requests                |
 | [realip](./realip)                         | Real client IP extraction from request headers                 |
 | [recovery](./recovery)                     | Panic recovery with stack trace logging                        |
 | [requestid](./requestid)                   | UUID v4 request ID extraction or generation                    |

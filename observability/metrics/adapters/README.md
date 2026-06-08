@@ -19,4 +19,5 @@ into a specific backend format (Prometheus, StatsD, OpenTelemetry, etc.). Use `M
 
 | Package                    | Description                              |
 |----------------------------|------------------------------------------|
+| [memory](./memory)         | In-memory adapter for tests and assertions |
 | [prometheus](./prometheus) | Prometheus adapter using `client_golang` |

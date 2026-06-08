@@ -27,4 +27,5 @@ Let's Encrypt), key formats (PKCS#8, PKCS#1, SEC1), and TLS 1.2+ defaults.
 | [providers](./providers)               | Certificate provider registry          |
 | [providers/file](./providers/file)     | File-based certificate loading         |
 | [providers/le](./providers/le)         | Let's Encrypt ACME integration         |
+| [providers/s3](./providers/s3)         | S3-backed certificate loading          |
 | [providers/vault](./providers/vault)   | Vault PKI engine certificates          |

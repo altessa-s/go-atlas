@@ -30,3 +30,10 @@ optimal throughput.
 | `ConvertSeq`    | Lazy iterator over converted slice elements            |
 | `ConvertMapSeq` | Lazy iterator over converted map key-value pairs       |
 | `IndirectType`  | Dereference all pointer layers from a `reflect.Type`   |
+
+## Subpackages
+
+| Package                                          | Description                                          |
+|--------------------------------------------------|------------------------------------------------------|
+| [codec](./codec)                                 | Pluggable codec interface and chain execution engine |
+| [codecs/optionalcodec](./codecs/optionalcodec)   | `core/types/optional.Optional[T]` field codec        |

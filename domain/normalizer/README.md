@@ -37,3 +37,9 @@ Custom modifiers can be registered via `modifiers.RegisterModifier`.
 
 Nested structs, slices, and arrays are traversed recursively. Struct field metadata is cached for
 optimal performance on repeated calls.
+
+## Subpackages
+
+| Package                    | Description                                  |
+|----------------------------|----------------------------------------------|
+| [modifiers](./modifiers)   | Built-in and custom modifier functions       |
