@@ -21,4 +21,5 @@ Package `providers` defines interfaces for TLS certificate providers and a regis
 |----------------------------|------------------------------------------|
 | [file](./file)             | File-based certs with optional reload    |
 | [le](./le)                 | Let's Encrypt ACME integration           |
+| [s3](./s3)                 | S3-backed certs with optional reload     |
 | [vault](./vault)           | Vault PKI engine for dynamic certs       |

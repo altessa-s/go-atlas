@@ -12,13 +12,14 @@ Foundation packages for the Atlas framework. Every package under `core/` uses on
 | [encoding](./encoding)         | Hashing and serialization                                  |
 | [errors](./errors)             | Error wrapping, construction, and classification           |
 | [factory](./factory)           | Base type for factory pattern implementations              |
-| [io](./io)                     | Buffer pools, limited readers, file-system helpers         |
+| [io](./io)                     | Buffer pools, limited readers, file-system helpers, WAL    |
 | [net](./net)                   | HTTP round-tripper adapter                                 |
+| [retry](./retry)               | Stdlib-only retry loop with pluggable delay policies       |
 | [runtime](./runtime)           | Finalizers, shutdown hooks, concurrency, signals, panics   |
 | [scheduler](./scheduler)       | Task scheduling interface and priority model               |
 | [text](./text)                 | String manipulation, interning, secure storage             |
 | [time](./time)                 | Safe timer management and time formatting                  |
-| [types](./types)               | Bit manipulation, type constraints, nil checks, pointers   |
+| [types](./types)               | Bits, constraints, nil checks, optional, pointers, redacted strings, result |
 
 ## Design principles
 

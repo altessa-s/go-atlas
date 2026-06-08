@@ -22,6 +22,7 @@ An `io.Reader` that always fails with a given error. Useful for tests that need 
 
 ## Subpackages
 
-| Package          | Description                                          |
-|------------------|------------------------------------------------------|
-| [files](./files) | File/directory existence checks, multi-path search   |
+| Package          | Description                                                                |
+|------------------|----------------------------------------------------------------------------|
+| [files](./files) | File/directory existence checks, multi-path search                         |
+| [wal](./wal)     | Segmented append-only write-ahead log with CRC32, fsync policy, recovery   |

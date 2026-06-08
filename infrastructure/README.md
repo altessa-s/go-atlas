@@ -5,11 +5,12 @@ and messaging clients with authentication, TLS, connection pooling, health check
 
 ## Packages
 
-| Package            | Description                                                                            |
-|--------------------|----------------------------------------------------------------------------------------|
-| [mongo](./mongo)   | MongoDB client factory with SCRAM/X.509 auth, TLS, compression, and CSFLE encryption  |
-| [nats](./nats)     | NATS connection factory with NKey/token/userpass auth, JetStream consumer configuration |
-| [redis](./redis)   | Redis client factory with standalone, sentinel, and cluster mode auto-detection         |
+| Package                       | Description                                                                            |
+|-------------------------------|----------------------------------------------------------------------------------------|
+| [meilisearch](./meilisearch)  | Meilisearch client factory with API-key auth, retries, and idempotent index setup      |
+| [mongo](./mongo)              | MongoDB client factory with SCRAM/X.509 auth, TLS, compression, and CSFLE encryption  |
+| [nats](./nats)                | NATS connection factory with NKey/token/userpass auth, JetStream consumer configuration |
+| [redis](./redis)              | Redis client factory with standalone, sentinel, and cluster mode auto-detection         |
 
 ## Design principles
 

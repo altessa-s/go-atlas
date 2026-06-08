@@ -1,7 +1,7 @@
 # data
 
 Data layer for the Atlas framework. Provides storage abstractions, caching, filtering and sorting DSLs, distributed locks, leader election, rate
-limiting, idempotency, outbox pattern, probabilistic filters, and unique value storage.
+limiting, idempotency, outbox pattern, probabilistic filters, and search.
 
 ## Packages
 
@@ -14,8 +14,8 @@ limiting, idempotency, outbox pattern, probabilistic filters, and unique value s
 | [leadelect](./leadelect)     | Distributed leader election for service coordination               |
 | [limiters](./limiters)       | Rate limiting interfaces and token bucket implementation           |
 | [locks](./locks)             | Distributed locking abstractions                                   |
+| [meilisearch](./meilisearch) | Context-aware Meilisearch client with idempotent index setup       |
 | [mongo](./mongo)             | MongoDB client wrapper with CSFLE, transactions, and cursor paging |
 | [orderby](./orderby)         | AIP-132 `order_by` DSL parser with MongoDB / Meili / RediSearch translators ([deep dive](../docs/data/orderby.md)) |
 | [outbox](./outbox)           | Transactional Outbox pattern for at-least-once event delivery      |
 | [probfilter](./probfilter)   | Probabilistic data structures (Bloom, Cuckoo) for existence checks |
-| [uniq](./uniq)               | Unique value management with pluggable storage backends            |

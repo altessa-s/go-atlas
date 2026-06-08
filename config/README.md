@@ -49,12 +49,15 @@ method to retrieve the underlying value when needed.
 
 ## Subpackages
 
-| Package                     | Description                                          |
-|-----------------------------|------------------------------------------------------|
-| `config/loader`             | Multi-source configuration loading                   |
-| `config/loader/backend`     | Backend interface for file format parsers             |
-| `config/loader/backend/toml`| TOML backend (`github.com/BurntSushi/toml`)          |
-| `config/loader/backend/yaml3`| YAML backend (`gopkg.in/yaml.v3`) with `!include`  |
-| `config/loader/secrets`     | `$__secret{ns:key}` placeholder expansion            |
-| `config/internal/utils`     | Internal file-lookup helpers                         |
-| `config/internal/validators`| Internal custom validators (MongoDB)                 |
+| Package                            | Description                                                  |
+|------------------------------------|--------------------------------------------------------------|
+| `config/loader`                    | Multi-source configuration loading                           |
+| `config/loader/backend`            | Backend interface for file format parsers                    |
+| `config/loader/backend/toml`       | TOML backend (`github.com/BurntSushi/toml`)                  |
+| `config/loader/backend/yaml3`      | YAML backend (`gopkg.in/yaml.v3`) with `!include`            |
+| `config/loader/secrets`            | `$__secret{ns:key}` placeholder expansion                    |
+| `config/templates`                 | Pre-built config structs for common transport components     |
+| `config/templates/grpc_interceptors` | Ready-to-use gRPC interceptor config structs               |
+| `config/templates/http_middlewares` | Ready-to-use HTTP middleware config structs                 |
+| `config/internal/utils`            | Internal file-lookup helpers                                 |
+| `config/internal/validators`       | Internal custom validators (MongoDB)                         |

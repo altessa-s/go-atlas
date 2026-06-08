@@ -9,6 +9,7 @@ for policy-based access control — both with pluggable backends and automatic l
 |--------------------|----------------------------------------------------------------------|
 | [oidc](./oidc)     | OIDC JWT validation with JWKS rotation, presets, and introspection   |
 | [opa](./opa)       | OPA policy evaluation with hot-reload and event-driven architecture  |
+| [static](./static) | Static token / API-key validator for service-to-service auth         |
 
 ## Design principles
 

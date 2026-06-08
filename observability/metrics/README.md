@@ -81,5 +81,6 @@ Exported metrics (subsystem `regex_cache`):
 | Package                                      | Description                                      |
 |----------------------------------------------|--------------------------------------------------|
 | [adapters](./adapters)                       | Adapter interface and `MultiAdapter` broadcaster |
+| [adapters/memory](./adapters/memory)         | In-memory adapter for tests and assertions       |
 | [adapters/prometheus](./adapters/prometheus)  | Prometheus backend with HTTP `/metrics` handler  |
 | [factory](./factory)                         | Configuration-based `Collector` creation         |
