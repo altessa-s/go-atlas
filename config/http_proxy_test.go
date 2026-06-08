@@ -206,10 +206,10 @@ func TestHTTPProxy_PasswordRedaction(t *testing.T) {
 
 	// Cover every common output sink: fmt %+v on the dereferenced struct
 	// (the pointer-print path shows an address, not the fields), and the
-	// fmt.Stringer/%v path on Secret directly.
+	// fmt.Stringer/%v path on RedactedString directly.
 	rendered := fmt.Sprintf("%+v", *auth) + " | " + fmt.Sprintf("%v", auth.Password)
 	assert.NotContains(t, rendered, password)
-	assert.Contains(t, rendered, redacted)
+	assert.Contains(t, rendered, "<redacted>")
 }
 
 func TestDefaultHTTPProxy(t *testing.T) {

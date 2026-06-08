@@ -37,8 +37,9 @@
 //
 // # Secret Handling
 //
-// The [Secret] type wraps sensitive strings and automatically redacts them in
-// fmt, JSON, YAML, and slog output. Use it for passwords, tokens, and keys.
+// Sensitive fields use [github.com/altessa-s/go-atlas/core/types/redacted.RedactedString],
+// which redacts the value in fmt, log/slog, JSON, YAML, encoding.TextMarshaler,
+// and BSON output. Use it for passwords, tokens, and keys.
 //
 // # Subpackages
 //
