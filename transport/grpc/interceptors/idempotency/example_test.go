@@ -8,10 +8,10 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/idempotency"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
-
-	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/idempotency"
 )
 
 // ExampleDeriveKey demonstrates the two load-bearing invariants of [DeriveKey]:

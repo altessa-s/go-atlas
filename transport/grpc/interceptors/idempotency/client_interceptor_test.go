@@ -11,10 +11,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/idempotency"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
-
-	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/idempotency"
 )
 
 const (
