@@ -58,6 +58,20 @@ func BenchmarkEvaluate_Complex(b *testing.B) {
 	}
 }
 
+func BenchmarkEvaluate_EnumValues(b *testing.B) {
+	p, _ := filter.NewParser(filter.WithParserNoCache())
+	eval := mustEvaluator(b, filter.WithEnumValues(map[string][]int64{
+		"role": {1, 2, 3, 4, 6, 7},
+	}))
+	node, _ := p.Parse(b.Context(), `role == 7`)
+	data := map[string]any{"role": int64(7)}
+
+	b.ResetTimer()
+	for b.Loop() {
+		_, _ = eval.Evaluate(node, data)
+	}
+}
+
 func BenchmarkParseCustomFunction(b *testing.B) {
 	p, err := filter.NewParser(
 		filter.WithParserNoCache(),

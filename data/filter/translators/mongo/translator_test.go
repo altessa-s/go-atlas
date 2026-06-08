@@ -679,3 +679,55 @@ func TestTranslator_CustomFunction_CompareField(t *testing.T) {
 		require.JSONEq(t, `{"created_at":{"$gt":"2024-01-01"}}`, bsonToJSON(got))
 	})
 }
+
+func TestTranslator_EnumValues(t *testing.T) {
+	trans := mustTranslator(t,
+		filter.WithEnumValues(map[string][]int64{
+			"role": {1, 2, 3, 4, 6, 7},
+		}))
+
+	t.Run("in range", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			expr     string
+			wantJSON string
+		}{
+			{
+				name:     "equal",
+				expr:     `role == 7`,
+				wantJSON: `{"role":7}`,
+			},
+			{
+				name:     "in list",
+				expr:     `role in [1, 2, 3]`,
+				wantJSON: `{"role":{"$in":[1,2,3]}}`,
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				node := testhelpers.MustParseFilter(t, tt.expr)
+				result, err := trans.Translate(node)
+				require.NoError(t, err)
+				require.JSONEq(t, tt.wantJSON, bsonToJSON(result))
+			})
+		}
+	})
+
+	t.Run("out of range", func(t *testing.T) {
+		exprs := []string{
+			`role == 10`,
+			`role != 9`,
+			`role >= 8`,
+			`role in [1, 5, 7]`,
+		}
+
+		for _, expr := range exprs {
+			t.Run(expr, func(t *testing.T) {
+				node := testhelpers.MustParseFilter(t, expr)
+				_, err := trans.Translate(node)
+				require.ErrorIs(t, err, filter.ErrEnumValueNotAllowed)
+			})
+		}
+	})
+}

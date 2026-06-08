@@ -44,6 +44,10 @@ var (
 	// to the kind declared for the field via [WithFieldTypes].
 	ErrFieldTypeMismatch = errors.New("filter value type does not match field type")
 
+	// ErrEnumValueNotAllowed indicates an integer literal in the filter is not in
+	// the value set declared for the field via [WithEnumValues].
+	ErrEnumValueNotAllowed = errors.New("filter value is not an allowed enum value")
+
 	// ErrEmptyExpression indicates an empty or whitespace-only expression was provided.
 	ErrEmptyExpression = errors.New("expression cannot be empty")
 

@@ -6,6 +6,8 @@ package filter
 
 import (
 	"fmt"
+	"math"
+	"slices"
 	"time"
 
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
@@ -81,19 +83,20 @@ func (k FieldKind) String() string {
 // public [TranslatorContext] type alias and the read methods defined on
 // *translatorOptions below.
 //
-// allowedFields, fieldMapping, and fieldTypes are stored as
+// allowedFields, fieldMapping, fieldTypes, and enumValues are stored as
 // [coremaps.ImmutableMap] — they are built once by [WithAllowedFields]
-// / [WithFieldMapping] / [WithFieldTypes] and only read afterwards,
-// which is precisely the build-once-read-many shape AGENTS.md mandates
-// ImmutableMap for. All three setters are hand-written because optgen
+// / [WithFieldMapping] / [WithFieldTypes] / [WithEnumValues] and only read
+// afterwards, which is precisely the build-once-read-many shape AGENTS.md
+// mandates ImmutableMap for. All four setters are hand-written because optgen
 // cannot express the variadic / map-to-ImmutableMap conversions.
 type translatorOptions struct {
-	allowedFields  *coremaps.ImmutableMap[string, struct{}]  `opt:"-"`
-	fieldMapping   *coremaps.ImmutableMap[string, string]    `opt:"-"`
-	fieldTypes     *coremaps.ImmutableMap[string, FieldKind] `opt:"-"`
-	maxDepth       int                                       `optgen:"default=DefaultMaxDepth" optval:"positive"`
-	maxRegexLength int                                       `optgen:"default=DefaultMaxRegexLength" optval:"positive"`
-	maxOperations  int                                       `optgen:"default=DefaultMaxOperations" optval:"positive"`
+	allowedFields  *coremaps.ImmutableMap[string, struct{}]                                `opt:"-"`
+	fieldMapping   *coremaps.ImmutableMap[string, string]                                  `opt:"-"`
+	fieldTypes     *coremaps.ImmutableMap[string, FieldKind]                               `opt:"-"`
+	enumValues     *coremaps.ImmutableMap[string, *coremaps.ImmutableMap[int64, struct{}]] `opt:"-"`
+	maxDepth       int                                                                     `optgen:"default=DefaultMaxDepth" optval:"positive"`
+	maxRegexLength int                                                                     `optgen:"default=DefaultMaxRegexLength" optval:"positive"`
+	maxOperations  int                                                                     `optgen:"default=DefaultMaxOperations" optval:"positive"`
 	untrustedInput bool
 }
 
@@ -184,6 +187,38 @@ func WithFieldTypes(types map[string]FieldKind) TranslatorOption {
 	}
 }
 
+// WithEnumValues declares the set of allowed integer values for each enum
+// field. When set, an integer literal compared against the field (==, !=,
+// ordering, or as an `in` list element) that is not in the set fails
+// translation or evaluation with [ErrEnumValueNotAllowed]. Fields absent
+// from the map skip the check. Keys are CEL-side field names, the same as
+// [WithAllowedFields].
+//
+// Null literals (`field == null`) and non-integer literals bypass the
+// membership check — the latter are caught by [WithFieldTypes] when a
+// kind is declared. The check is static: only literal right-hand sides
+// produced by the parser are validated; custom-function results and
+// other dynamic nodes are left to the runtime.
+//
+// Example:
+//
+//	trans, err := mongo.NewTranslator(filter.WithEnumValues(map[string][]int64{
+//	    "role": {1, 2, 3, 4, 6, 7},
+//	}))
+func WithEnumValues(values map[string][]int64) TranslatorOption {
+	return func(o *translatorOptions) {
+		sets := make(map[string]*coremaps.ImmutableMap[int64, struct{}], len(values))
+		for field, allowed := range values {
+			set := make(map[int64]struct{}, len(allowed))
+			for _, v := range allowed {
+				set[v] = struct{}{}
+			}
+			sets[field] = coremaps.NewImmutableMap(set)
+		}
+		o.enumValues = coremaps.NewImmutableMap(sets)
+	}
+}
+
 // ApplyFieldMapping applies the field mapping to a field name. Returns
 // the mapped name if found, otherwise returns the original name.
 func (o *translatorOptions) ApplyFieldMapping(field string) string {
@@ -215,18 +250,38 @@ func (o *translatorOptions) FieldKind(field string) FieldKind {
 	return kind
 }
 
+// EnumValues returns the declared allowed-value set for a CEL-side field
+// name, or (nil, false) when the field has no enum declaration.
+func (o *translatorOptions) EnumValues(field string) (*coremaps.ImmutableMap[int64, struct{}], bool) {
+	if o.enumValues == nil {
+		return nil, false
+	}
+	return o.enumValues.Get(field)
+}
+
 // CheckLiteralKind verifies that the right-hand side AST node of a
-// comparison or `in` expression carries literal value(s) assignable to
-// the kind declared for field. Non-literal right-hand sides (e.g. a
-// custom-function call that returned a [BinaryOpNode]) are skipped —
-// the check is static and limited to what the parser produced as a
-// constant. Fields without a declared kind are accepted unconditionally.
+// comparison or `in` expression is compatible with the schema declared for
+// field: its literal value(s) must match the declared kind ([WithFieldTypes])
+// and, for enum fields, be members of the declared value set
+// ([WithEnumValues]). Non-literal right-hand sides (e.g. a custom-function
+// call that returned a [BinaryOpNode]) are skipped — the check is static and
+// limited to what the parser produced as a constant.
 //
 // CheckLiteralKind operates on one (field, literal) pair. For a generic
 // comparison whose operand order is not known up-front, prefer
 // [TranslatorContext.CheckComparison] — it inspects both sides and
 // dispatches to CheckLiteralKind for whichever one is the field.
 func (o *translatorOptions) CheckLiteralKind(field string, right Node) error {
+	if err := o.checkLiteralFieldKind(field, right); err != nil {
+		return err
+	}
+	return o.checkEnumMembership(field, right)
+}
+
+// checkLiteralFieldKind verifies the literal value(s) on the right-hand side
+// are assignable to the kind declared for field via [WithFieldTypes]. Fields
+// without a declared kind are accepted unconditionally.
+func (o *translatorOptions) checkLiteralFieldKind(field string, right Node) error {
 	kind := o.FieldKind(field)
 	if kind == FieldKindUnspecified {
 		return nil
@@ -247,6 +302,32 @@ func (o *translatorOptions) CheckLiteralKind(field string, right Node) error {
 				return coreerrs.Wrapf(ErrFieldTypeMismatch,
 					"field %q (%s): list element [%d] is %s (want %s)",
 					field, kind, i, valueKindName(lit.Value), kind)
+			}
+		}
+	}
+	return nil
+}
+
+// checkEnumMembership verifies the integer literal(s) on the right-hand side
+// are members of the value set declared for field via [WithEnumValues].
+// Fields without a declared set, nil literals, and non-integer literals are
+// accepted — the latter are the province of [checkLiteralFieldKind].
+func (o *translatorOptions) checkEnumMembership(field string, right Node) error {
+	set, ok := o.EnumValues(field)
+	if !ok {
+		return nil
+	}
+	switch n := right.(type) {
+	case *LiteralNode:
+		return checkEnumLiteral(field, set, n.Value)
+	case *ListNode:
+		for _, elem := range n.Elements {
+			lit, ok := elem.(*LiteralNode)
+			if !ok {
+				continue
+			}
+			if err := checkEnumLiteral(field, set, lit.Value); err != nil {
+				return err
 			}
 		}
 	}
@@ -317,6 +398,38 @@ func checkSingleLiteral(field string, kind FieldKind, value any) error {
 			field, kind, valueKindName(value), kind)
 	}
 	return nil
+}
+
+// checkEnumLiteral rejects an integer literal that is not in the field's
+// declared enum set; nil (CEL null) and non-integer literals are accepted.
+func checkEnumLiteral(field string, set *coremaps.ImmutableMap[int64, struct{}], value any) error {
+	v, ok := enumInt64(value)
+	if !ok || set.Contains(v) {
+		return nil
+	}
+	return coreerrs.Wrapf(ErrEnumValueNotAllowed,
+		"field %q: value %d is not in %v", field, v, slices.Sorted(set.Keys()))
+}
+
+// enumInt64 normalizes a CEL integer literal to int64. CEL's parser emits
+// int64 for plain integer literals (`5`) and uint64 for the unsigned-suffix
+// form (`5u`); both must be enforced against the same int64-keyed set.
+// Uint64 values above [math.MaxInt64] cannot fit the set and are reported
+// as (0, false) so the membership check is bypassed rather than producing
+// a spurious ErrEnumValueNotAllowed. Non-integer literals report false and
+// are left to the kind check.
+func enumInt64(value any) (int64, bool) {
+	switch v := value.(type) {
+	case int64:
+		return v, true
+	case uint64:
+		if v > math.MaxInt64 {
+			return 0, false
+		}
+		return int64(v), true
+	default:
+		return 0, false
+	}
 }
 
 // kindAccepts reports whether value's Go type is assignable to kind.
