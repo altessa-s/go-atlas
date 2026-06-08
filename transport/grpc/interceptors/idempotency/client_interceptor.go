@@ -120,7 +120,7 @@ func maybeStampIdempotencyKey(ctx context.Context, method string, cfg *clientOpt
 }
 
 // withHeaderValue is the header-name-agnostic twin of [WithKey]. It exists so
-// the interceptor can honour a custom header without duplicating
+// the interceptor can honor a custom header without duplicating
 // metadata-copy logic.
 func withHeaderValue(ctx context.Context, header, value string) context.Context {
 	md, ok := metadata.FromOutgoingContext(ctx)

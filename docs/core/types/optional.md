@@ -246,6 +246,7 @@ lives elsewhere; `Optional[T]` is the right tool when the value is owned by the 
 ## See also
 
 - [result.md](result.md) — sibling type for "value or error".
+- [redacted.md](redacted.md) — sibling type for credential and sensitive-string fields that redact themselves in fmt, slog, JSON, YAML, and BSON.
 - `core/types/ptr` — pointer constructors and safe dereference for the cases where `*T` is the right encoding.
 - `core/types/optional/README.md` — package-level reference next to the source.
 - [`domain/converter/codecs/optionalcodec`](../../../domain/converter/codecs/optionalcodec/README.md) — converter codec bridging

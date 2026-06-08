@@ -148,6 +148,7 @@ v := r.OrElse(func(err error) int {
 ## See also
 
 - [optional.md](optional.md) — sibling type for "value or absent" without an error channel.
+- [redacted.md](redacted.md) — sibling type for credential and sensitive-string fields that redact themselves in fmt, slog, JSON, YAML, and BSON.
 - [`core/runtime/panics`](../runtime/README.md) — `MustResult[T]` for panic-on-error semantics.
 - [../runtime/concurrency.md](../runtime/concurrency.md) — `Process`/`ProcessCollect` for fan-out with aggregated errors.
 - `core/types/result/README.md` — package-level reference next to the source.

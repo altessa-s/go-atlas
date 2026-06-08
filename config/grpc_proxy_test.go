@@ -148,7 +148,7 @@ func TestGrpcProxy_PasswordRedaction(t *testing.T) {
 
 	rendered := fmt.Sprintf("%+v", *auth) + " | " + fmt.Sprintf("%v", auth.Password)
 	assert.NotContains(t, rendered, password)
-	assert.Contains(t, rendered, redacted)
+	assert.Contains(t, rendered, "<redacted>")
 }
 
 func TestGrpcProxy_userinfo(t *testing.T) {
