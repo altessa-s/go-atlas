@@ -194,6 +194,12 @@ func WithFieldTypes(types map[string]FieldKind) TranslatorOption {
 // from the map skip the check. Keys are CEL-side field names, the same as
 // [WithAllowedFields].
 //
+// Null literals (`field == null`) and non-integer literals bypass the
+// membership check — the latter are caught by [WithFieldTypes] when a
+// kind is declared. The check is static: only literal right-hand sides
+// produced by the parser are validated; custom-function results and
+// other dynamic nodes are left to the runtime.
+//
 // Example:
 //
 //	trans, err := mongo.NewTranslator(filter.WithEnumValues(map[string][]int64{
@@ -405,8 +411,13 @@ func checkEnumLiteral(field string, set *coremaps.ImmutableMap[int64, struct{}],
 		"field %q: value %d is not in %v", field, v, slices.Sorted(set.Keys()))
 }
 
-// enumInt64 normalizes a CEL integer literal to int64. Non-integer literals
-// report false and are left to the kind check.
+// enumInt64 normalizes a CEL integer literal to int64. CEL's parser emits
+// int64 for plain integer literals (`5`) and uint64 for the unsigned-suffix
+// form (`5u`); both must be enforced against the same int64-keyed set.
+// Uint64 values above [math.MaxInt64] cannot fit the set and are reported
+// as (0, false) so the membership check is bypassed rather than producing
+// a spurious ErrEnumValueNotAllowed. Non-integer literals report false and
+// are left to the kind check.
 func enumInt64(value any) (int64, bool) {
 	switch v := value.(type) {
 	case int64:
