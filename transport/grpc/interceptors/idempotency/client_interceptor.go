@@ -62,9 +62,9 @@ var DefaultClientMethodFilter MethodFilter = func(string) bool { return true }
 // small; expand only when a real call site demands it. Fields are populated by
 // the optgen-generated With* options in client_options_gen.go.
 type clientOptions struct {
-	idempotencyKeyHeader string         `optgen:"default=DefaultIdempotencyKeyHeader"`
-	seedExtractor        SeedExtractor  `optgen:"default=DefaultClientSeedExtractor"`
-	methodFilter         MethodFilter   `optgen:"default=DefaultClientMethodFilter"`
+	idempotencyKeyHeader string        `optgen:"default=DefaultIdempotencyKeyHeader"`
+	seedExtractor        SeedExtractor `optgen:"default=DefaultClientSeedExtractor"`
+	methodFilter         MethodFilter  `optgen:"default=DefaultClientMethodFilter"`
 }
 
 // UnaryClientInterceptor returns a [grpc.UnaryClientInterceptor] that stamps a
