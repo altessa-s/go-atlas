@@ -10,14 +10,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"google.golang.org/protobuf/types/known/durationpb"
-	"google.golang.org/protobuf/types/known/timestamppb"
-
 	"github.com/altessa-s/go-atlas/core/types/optional"
 	"github.com/altessa-s/go-atlas/domain/converter"
 	"github.com/altessa-s/go-atlas/domain/converter/codec/durpb"
 	"github.com/altessa-s/go-atlas/domain/converter/codec/tspb"
 	"github.com/altessa-s/go-atlas/domain/converter/codecs/optionalcodec"
+
+	"google.golang.org/protobuf/types/known/durationpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // composeOpts mirrors how a service registers the codec chain at the proto
@@ -134,4 +134,54 @@ func TestCompose_ProtoToOptional_ZeroInnerBecomesNone(t *testing.T) {
 
 	require.True(t, dom.DeleteTime.IsNone(), "non-nil epoch Timestamp must collapse to None")
 	require.True(t, dom.TTL.IsNone(), "non-nil zero Duration must collapse to None")
+}
+
+// TestCompose_WithoutDownstreamCodec_IsFootgun pins the documented contract
+// that composition requires the inner-type codec to be registered after
+// optionalcodec. Without tspb the Optional[time.Time] -> *Timestamp path falls
+// through to the converter's terminal field-by-field copy, which produces a
+// non-nil but semantically empty *Timestamp (Seconds=0, Nanos=0) instead of
+// either the source instant or a clean failure. The test exists so that any
+// future change to the fallback behaviour (e.g. promoting the mismatch to a
+// panic, or leaving dst nil) shows up as a deliberate test update rather than
+// a silent regression.
+func TestCompose_WithoutDownstreamCodec_IsFootgun(t *testing.T) {
+	t.Parallel()
+
+	now := time.Unix(1700000000, 0).UTC()
+	var pb composeProto
+	converter.Convert(&composeDomain{DeleteTime: optional.Some(now)}, &pb,
+		converter.WithCodecs(optionalcodec.Codec), // no tspb / durpb
+		converter.WithIgnoreZeroValues(),
+	)
+
+	require.NotNil(t, pb.DeleteTime, "current behavior: field-by-field copy materializes a non-nil *Timestamp")
+	require.NotEqual(t, now.Unix(), pb.DeleteTime.GetSeconds(),
+		"without tspb the inner time.Time is not bridged into the *Timestamp value")
+}
+
+type composeOptInt struct {
+	V optional.Optional[int]
+}
+
+type composeOptInt64 struct {
+	V optional.Optional[int64]
+}
+
+// TestCompose_OptionalToOptional_DifferentInner pins the documented limit:
+// Optional[A] -> Optional[B] with different inner types is not handled by the
+// codec and is left to the chain. With no downstream codec for int -> int64
+// the field-by-field copy refuses the assignment and the destination stays at
+// its zero (None) value. This anchors the limitation called out in the godoc
+// so a future change that adds Optional<->Optional bridging shows up as a
+// deliberate test update.
+func TestCompose_OptionalToOptional_DifferentInner(t *testing.T) {
+	t.Parallel()
+
+	var dst composeOptInt64
+	converter.Convert(&composeOptInt{V: optional.Some(42)}, &dst,
+		converter.WithCodecs(optionalcodec.Codec),
+	)
+
+	require.True(t, dst.V.IsNone(), "Optional[int] -> Optional[int64] is not bridged; destination must stay None")
 }

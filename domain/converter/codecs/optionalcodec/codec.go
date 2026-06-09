@@ -31,14 +31,28 @@ import (
 // Optional[time.Time] ↔ *timestamppb.Timestamp work via tspb,
 // Optional[time.Duration] ↔ *durationpb.Duration via durpb, and so on, as long
 // as a downstream codec handles the inner type. For the composition to fire,
-// this codec must run before that downstream codec. On the W → Optional[T]
-// side, a converted inner that is the struct-zero value of T — as reported by
-// reflect.Value.IsZero, i.e. an all-zero struct, not a type's own IsZero
-// method — is treated as absent (None), matching the None ↔ nil/zero presence
-// convention. The distinction matters for time.Time: a *timestamppb.Timestamp
-// that tspb materializes into a located time.Time is struct-non-zero and stays
-// Some; only true absence (a nil pointer, or a value tspb's WithIgnoreZero
-// skips so the inner stays pristine) maps to None.
+// this codec must run before that downstream codec; if no downstream codec
+// claims the inner T ↔ W pair the value is handed to the converter's terminal
+// field-by-field copy, which will either no-op or fail depending on type
+// compatibility — the caller is responsible for registering the right bridge.
+//
+// Optional[A] ↔ Optional[B] with different inner types is not handled: the pair
+// is delegated to the chain unchanged. Register a custom codec for that bridge
+// if you need it.
+//
+// On the W → Optional[T] side a converted inner that is the struct-zero value
+// of T — as reported by reflect.Value.IsZero, i.e. an all-zero struct, not a
+// type's own IsZero method — is treated as absent (None), matching the
+// None ↔ nil/zero presence convention used by the direct shapes. The
+// distinction matters for time.Time: a *timestamppb.Timestamp that tspb
+// materializes into a located time.Time is struct-non-zero and stays Some;
+// only true absence (a nil pointer, or a value tspb's WithIgnoreZero skips so
+// the inner stays pristine) maps to None. For time.Duration the same rule
+// means a non-nil *durationpb.Duration whose value is zero collapses to None —
+// an observable consequence of the convention, not a special case. Callers
+// that need to distinguish "explicit zero" from "absent" for such inner types
+// should use a direct Optional[T] ↔ *T mapping instead of composing through a
+// downstream codec that strips the wrapper.
 //
 // When neither a direct shape nor composition applies the codec delegates to
 // the chain via next, leaving other codecs and the built-in field-by-field
