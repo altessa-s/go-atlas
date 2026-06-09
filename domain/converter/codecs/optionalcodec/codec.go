@@ -14,22 +14,41 @@ import (
 
 // Codec bridges optional.Optional[T] fields and matching pointer / value
 // counterparts during struct-to-struct conversion. It is intended to be
-// registered with converter.WithCodecs(optionalcodec.Codec).
+// registered with converter.WithCodecs(optionalcodec.Codec), and — so that
+// composition (below) works — placed BEFORE any type-specific codec it should
+// compose with (e.g. tspb, durpb).
 //
-// Supported conversions, all in both directions:
+// Direct shapes, all in both directions:
 //
 //   - Optional[T] ↔ Optional[T]: direct assignment.
 //   - Optional[T] ↔ *T:           None ↔ nil pointer; Some(v) ↔ &v.
 //   - Optional[T] ↔ T:            None ↔ zero T; Some(v) ↔ v.
 //
-// When the source / destination shapes do not match one of the above
-// patterns the codec delegates to the chain via next, leaving other
-// codecs and the built-in field-by-field copy untouched.
+// Composition: when one side is Optional[T] and the other is some type W that
+// the codec itself does not bridge (e.g. *timestamppb.Timestamp,
+// *durationpb.Duration), the codec unwraps / wraps the Optional and delegates
+// the inner T ↔ W conversion to the rest of the chain. This lets
+// Optional[time.Time] ↔ *timestamppb.Timestamp work via tspb,
+// Optional[time.Duration] ↔ *durationpb.Duration via durpb, and so on, as long
+// as a downstream codec handles the inner type. For the composition to fire,
+// this codec must run before that downstream codec. On the W → Optional[T]
+// side, a converted inner that is the struct-zero value of T — as reported by
+// reflect.Value.IsZero, i.e. an all-zero struct, not a type's own IsZero
+// method — is treated as absent (None), matching the None ↔ nil/zero presence
+// convention. The distinction matters for time.Time: a *timestamppb.Timestamp
+// that tspb materializes into a located time.Time is struct-non-zero and stays
+// Some; only true absence (a nil pointer, or a value tspb's WithIgnoreZero
+// skips so the inner stays pristine) maps to None.
 //
-// The codec is safe for concurrent use and allocation-light: it builds
-// at most one reflect.Value per call (and only when an Optional has to
-// be constructed or extracted), reusing the destination slot in every
-// other case.
+// When neither a direct shape nor composition applies the codec delegates to
+// the chain via next, leaving other codecs and the built-in field-by-field
+// copy untouched.
+//
+// The codec is safe for concurrent use and allocation-light: a direct shape
+// builds at most one reflect.Value (and only when an Optional has to be
+// constructed or extracted); the composition path builds at most two (the
+// materialized inner value plus the wrapping Optional). The destination slot is
+// reused in every other case.
 func Codec(fieldName string, src, dst reflect.Value, next convcodec.CodecHandler) {
 	srcType := src.Type()
 	dstType := dst.Type()
@@ -70,6 +89,28 @@ func Codec(fieldName string, src, dst reflect.Value, next convcodec.CodecHandler
 
 	case dstIsOpt && srcType == optional.InnerType(dstType):
 		dst.Set(optional.SomeReflect(dstType, src))
+
+	case srcIsOpt && !dstIsOpt:
+		// Optional[T] -> W (W bridged by a downstream codec, e.g. *Timestamp).
+		// Unwrap and delegate the inner T -> W conversion to the chain.
+		value, present := optional.GetReflect(src)
+		if !present {
+			dst.SetZero()
+			return
+		}
+		next(fieldName, value, dst)
+
+	case dstIsOpt && !srcIsOpt:
+		// W -> Optional[T]: convert W -> inner T via the chain, then wrap.
+		// A struct-zero inner (reflect.Value.IsZero — all-zero value, not a
+		// type's own IsZero method) is treated as absent (None).
+		inner := reflect.New(optional.InnerType(dstType)).Elem()
+		next(fieldName, src, inner)
+		if inner.IsZero() {
+			dst.Set(optional.NoneReflect(dstType))
+			return
+		}
+		dst.Set(optional.SomeReflect(dstType, inner))
 
 	default:
 		next(fieldName, src, dst)
