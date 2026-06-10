@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -25,6 +26,12 @@ import (
 
 // Ensure kms package is recognized as used
 var _ kms.Provider
+
+// BSON marshaling interface types, resolved once for the recurseIntoStruct guard.
+var (
+	bsonMarshalerType      = reflect.TypeFor[bson.Marshaler]()
+	bsonValueMarshalerType = reflect.TypeFor[bson.ValueMarshaler]()
+)
 
 // EncryptionAlg represents the encryption algorithm used for field-level encryption.
 type EncryptionAlg string
@@ -523,10 +530,60 @@ func (m *Mongo) isSliceField(fieldValue reflect.Value, fieldType reflect.StructF
 		(!update || !m.isOmitOnUpdate(fieldType))
 }
 
-// isStructPointerField checks if a field is a pointer to a struct.
+// isStructPointerField checks if a field is a pointer to a struct that should
+// be recursed into for document processing.
 func (m *Mongo) isStructPointerField(fieldValue reflect.Value, fieldType reflect.StructField) bool {
-	return fieldValue.Type().Kind() == reflect.Pointer && !fieldValue.IsNil() &&
-		indirectType(fieldType.Type).Kind() == reflect.Struct
+	if fieldValue.Type().Kind() != reflect.Pointer || fieldValue.IsNil() {
+		return false
+	}
+	elem := indirectType(fieldType.Type)
+	return elem.Kind() == reflect.Struct && recurseIntoStruct(elem)
+}
+
+// structRecursionCache memoizes recurseIntoStruct decisions. The set of struct
+// types encountered during document conversion is finite, so an unbounded
+// sync.Map is sufficient and avoids the per-element reflection scan on hot
+// slice/map walks.
+var structRecursionCache sync.Map // map[reflect.Type]bool
+
+// recurseIntoStruct reports whether a struct of type t should be walked
+// field-by-field during document conversion. A struct is walked only when it
+// exposes exported fields AND does not define its own BSON serialization:
+//   - Opaque structs such as time.Time carry only unexported fields and the BSON
+//     driver serializes them as scalar values; recursing into them yields
+//     "entity contains no processable fields".
+//   - Types implementing bson.Marshaler/bson.ValueMarshaler serialize themselves
+//     into a single value, so walking their exported fields would discard the
+//     custom encoding and produce a wrong document.
+//
+// Both cases are treated as scalar leaves. Decisions are memoized because
+// slice/map walks query this once per element.
+func recurseIntoStruct(t reflect.Type) bool {
+	if cached, ok := structRecursionCache.Load(t); ok {
+		return cached.(bool)
+	}
+	walk := hasExportedField(t) && !implementsBSONMarshaler(t)
+	structRecursionCache.Store(t, walk)
+	return walk
+}
+
+// hasExportedField reports whether t has at least one exported field.
+func hasExportedField(t reflect.Type) bool {
+	for i := range t.NumField() {
+		if t.Field(i).IsExported() {
+			return true
+		}
+	}
+	return false
+}
+
+// implementsBSONMarshaler reports whether t or *t implements a custom BSON
+// marshaling interface (bson.Marshaler or bson.ValueMarshaler). The pointer
+// type's method set is a superset of the value type's, so checking *t covers
+// both value- and pointer-receiver implementations.
+func implementsBSONMarshaler(t reflect.Type) bool {
+	ptr := reflect.PointerTo(t)
+	return ptr.Implements(bsonMarshalerType) || ptr.Implements(bsonValueMarshalerType)
 }
 
 // isMapField checks if a field is a non-empty map that should be processed.
@@ -546,7 +603,11 @@ func (m *Mongo) processSliceField(
 	itemsSetDoc := bson.A{}
 
 	for i := range meta.fieldValue.Len() {
-		if reflect.Indirect(meta.fieldValue.Index(i)).Kind() != reflect.Struct {
+		// Scalar-leaf structs (opaque like time.Time, or custom BSON marshalers)
+		// are serialized by the driver as a single value; recursing into them
+		// would fail or discard the custom encoding. See recurseIntoStruct.
+		elem := reflect.Indirect(meta.fieldValue.Index(i))
+		if elem.Kind() != reflect.Struct || !recurseIntoStruct(elem.Type()) {
 			itemsSetDoc = append(itemsSetDoc, meta.fieldValue.Index(i).Interface())
 			continue
 		}
@@ -591,7 +652,10 @@ func (m *Mongo) processMapField(ctx context.Context, meta fieldMetadata, update 
 			return setDoc, unsetDoc, fmt.Errorf("%s: map key must be string", meta.fieldName)
 		}
 		mapKey := mapiter.Key().String()
-		if reflect.Indirect(mapiter.Value()).Kind() == reflect.Struct {
+		// Same scalar-leaf guard as processSliceField: time.Time and custom BSON
+		// marshalers are scalars to the driver, not documents to recurse into.
+		mapElem := reflect.Indirect(mapiter.Value())
+		if mapElem.Kind() == reflect.Struct && recurseIntoStruct(mapElem.Type()) {
 			chSetDoc, chUnSetDoc, err := m.convertToDocument(ctx, mapiter.Value().Interface(), update, false)
 			if err != nil {
 				return setDoc, unsetDoc, err
