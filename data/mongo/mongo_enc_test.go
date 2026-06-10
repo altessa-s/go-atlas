@@ -36,6 +36,26 @@ type opaqueCollectionsEntity struct {
 	ByKey map[string]time.Time `bson:"by_key"`
 }
 
+// customMoney has an exported field but defines its own BSON serialization via
+// bson.ValueMarshaler, so the walker must treat it as a scalar leaf instead of
+// recursing into Amount.
+type customMoney struct {
+	Amount int64
+}
+
+func (m customMoney) MarshalBSONValue() (byte, []byte, error) {
+	typ, data, err := bson.MarshalValue(m.Amount)
+	return byte(typ), data, err
+}
+
+type marshalerEntity struct {
+	ID       string                 `bson:"_id"`
+	Price    customMoney            `bson:"price"`
+	PricePtr *customMoney           `bson:"price_ptr"`
+	Prices   []customMoney          `bson:"prices"`
+	ByKey    map[string]customMoney `bson:"by_key"`
+}
+
 func TestConvertToNewDocument_OpaqueStructPointer_StoredAsScalar(t *testing.T) {
 	t.Parallel()
 
@@ -134,6 +154,35 @@ func TestConvertToNewDocument_OpaqueStructsInSliceAndMap(t *testing.T) {
 		"time.Time elements of slices and maps must not be recursed into")
 	require.Equal(t, bson.A{t1, t2}, doc["times"])
 	require.Equal(t, bson.M{"created": t1}, doc["by_key"])
+}
+
+func TestConvertToNewDocument_CustomMarshalerStructStoredAsScalar(t *testing.T) {
+	t.Parallel()
+
+	m, err := New("testdb")
+	require.NoError(t, err)
+
+	price := customMoney{Amount: 100}
+	entity := &marshalerEntity{
+		ID:       "m1",
+		Price:    price,
+		PricePtr: &customMoney{Amount: 200},
+		Prices:   []customMoney{{Amount: 1}, {Amount: 2}},
+		ByKey:    map[string]customMoney{"eur": {Amount: 9}},
+	}
+
+	doc, err := m.ConvertToNewDocument(t.Context(), entity)
+	require.NoError(t, err,
+		"a struct implementing bson.ValueMarshaler must be stored as-is, not walked")
+
+	require.Equal(t, price, doc["price"],
+		"value field must keep the custom-marshaler struct, not a recursed bson.M")
+	require.Equal(t, &customMoney{Amount: 200}, doc["price_ptr"],
+		"pointer field must keep the custom-marshaler struct pointer")
+	require.Equal(t, bson.A{customMoney{Amount: 1}, customMoney{Amount: 2}}, doc["prices"],
+		"slice elements must not be recursed into")
+	require.Equal(t, bson.M{"eur": customMoney{Amount: 9}}, doc["by_key"],
+		"map values must not be recursed into")
 }
 
 func TestHasExportedField(t *testing.T) {

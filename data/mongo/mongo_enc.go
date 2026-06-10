@@ -27,6 +27,12 @@ import (
 // Ensure kms package is recognized as used
 var _ kms.Provider
 
+// BSON marshaling interface types, resolved once for the recurseIntoStruct guard.
+var (
+	bsonMarshalerType      = reflect.TypeFor[bson.Marshaler]()
+	bsonValueMarshalerType = reflect.TypeFor[bson.ValueMarshaler]()
+)
+
 // EncryptionAlg represents the encryption algorithm used for field-level encryption.
 type EncryptionAlg string
 
@@ -531,36 +537,53 @@ func (m *Mongo) isStructPointerField(fieldValue reflect.Value, fieldType reflect
 		return false
 	}
 	elem := indirectType(fieldType.Type)
-	// Only recurse into structs that expose processable (exported) fields.
-	// Opaque structs such as time.Time carry only unexported fields and the
-	// BSON driver serializes them as scalar values; recursing into them yields
-	// "entity contains no processable fields". Treat those as leaf scalars so a
-	// *time.Time field (e.g. a soft-delete timestamp) is stored, not walked.
-	return elem.Kind() == reflect.Struct && hasExportedField(elem)
+	return elem.Kind() == reflect.Struct && recurseIntoStruct(elem)
 }
 
-// exportedFieldCache memoizes hasExportedField results. The set of struct types
-// encountered during document conversion is finite, so an unbounded sync.Map is
-// sufficient and avoids the per-element reflection scan on hot collection paths.
-var exportedFieldCache sync.Map // map[reflect.Type]bool
+// structRecursionCache memoizes recurseIntoStruct decisions. The set of struct
+// types encountered during document conversion is finite, so an unbounded
+// sync.Map is sufficient and avoids the per-element reflection scan on hot
+// slice/map walks.
+var structRecursionCache sync.Map // map[reflect.Type]bool
 
-// hasExportedField reports whether t has at least one exported field. It guards
-// the document processor from recursing into opaque structs (time.Time, etc.)
-// that the BSON driver already serializes as scalar values. Results are memoized
-// per type because slice/map walks call it once per element.
-func hasExportedField(t reflect.Type) bool {
-	if cached, ok := exportedFieldCache.Load(t); ok {
+// recurseIntoStruct reports whether a struct of type t should be walked
+// field-by-field during document conversion. A struct is walked only when it
+// exposes exported fields AND does not define its own BSON serialization:
+//   - Opaque structs such as time.Time carry only unexported fields and the BSON
+//     driver serializes them as scalar values; recursing into them yields
+//     "entity contains no processable fields".
+//   - Types implementing bson.Marshaler/bson.ValueMarshaler serialize themselves
+//     into a single value, so walking their exported fields would discard the
+//     custom encoding and produce a wrong document.
+//
+// Both cases are treated as scalar leaves. Decisions are memoized because
+// slice/map walks query this once per element.
+func recurseIntoStruct(t reflect.Type) bool {
+	if cached, ok := structRecursionCache.Load(t); ok {
 		return cached.(bool)
 	}
-	has := false
+	walk := hasExportedField(t) && !implementsBSONMarshaler(t)
+	structRecursionCache.Store(t, walk)
+	return walk
+}
+
+// hasExportedField reports whether t has at least one exported field.
+func hasExportedField(t reflect.Type) bool {
 	for i := range t.NumField() {
 		if t.Field(i).IsExported() {
-			has = true
-			break
+			return true
 		}
 	}
-	exportedFieldCache.Store(t, has)
-	return has
+	return false
+}
+
+// implementsBSONMarshaler reports whether t or *t implements a custom BSON
+// marshaling interface (bson.Marshaler or bson.ValueMarshaler). The pointer
+// type's method set is a superset of the value type's, so checking *t covers
+// both value- and pointer-receiver implementations.
+func implementsBSONMarshaler(t reflect.Type) bool {
+	ptr := reflect.PointerTo(t)
+	return ptr.Implements(bsonMarshalerType) || ptr.Implements(bsonValueMarshalerType)
 }
 
 // isMapField checks if a field is a non-empty map that should be processed.
@@ -580,11 +603,11 @@ func (m *Mongo) processSliceField(
 	itemsSetDoc := bson.A{}
 
 	for i := range meta.fieldValue.Len() {
-		// Opaque structs (no exported fields, e.g. time.Time) are serialized by
-		// the BSON driver as scalar values; recursing into them would fail with
-		// "entity contains no processable fields".
+		// Scalar-leaf structs (opaque like time.Time, or custom BSON marshalers)
+		// are serialized by the driver as a single value; recursing into them
+		// would fail or discard the custom encoding. See recurseIntoStruct.
 		elem := reflect.Indirect(meta.fieldValue.Index(i))
-		if elem.Kind() != reflect.Struct || !hasExportedField(elem.Type()) {
+		if elem.Kind() != reflect.Struct || !recurseIntoStruct(elem.Type()) {
 			itemsSetDoc = append(itemsSetDoc, meta.fieldValue.Index(i).Interface())
 			continue
 		}
@@ -629,10 +652,10 @@ func (m *Mongo) processMapField(ctx context.Context, meta fieldMetadata, update 
 			return setDoc, unsetDoc, fmt.Errorf("%s: map key must be string", meta.fieldName)
 		}
 		mapKey := mapiter.Key().String()
-		// Same opaque-struct guard as processSliceField: time.Time and friends
-		// are scalars to the BSON driver, not documents to recurse into.
+		// Same scalar-leaf guard as processSliceField: time.Time and custom BSON
+		// marshalers are scalars to the driver, not documents to recurse into.
 		mapElem := reflect.Indirect(mapiter.Value())
-		if mapElem.Kind() == reflect.Struct && hasExportedField(mapElem.Type()) {
+		if mapElem.Kind() == reflect.Struct && recurseIntoStruct(mapElem.Type()) {
 			chSetDoc, chUnSetDoc, err := m.convertToDocument(ctx, mapiter.Value().Interface(), update, false)
 			if err != nil {
 				return setDoc, unsetDoc, err
