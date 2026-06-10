@@ -219,10 +219,9 @@ func WithMetadataReadMaskHeader(name string) Option {
 // and IDENTIFIER fields raise BehaviorViolationError, OUTPUT_ONLY fields
 // are stripped before the cleaned mask is written back.
 //
-// Default behavior is unchanged (an empty mask is a no-op) so existing
-// services that rely on it as a deliberate passthrough are not affected.
-// The fallback does not fire when the update_mask field is absent
-// altogether — that case is still a passthrough.
+// By default an explicit empty update_mask updates nothing: ApplyUpdateMask
+// clears the resource. The fallback does not fire when the update_mask field
+// is absent altogether; that case stays a passthrough.
 func WithApplyEmptyUpdateMask() Option {
 	return func(o *options) {
 		o.applyEmptyUpdateMask = true
