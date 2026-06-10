@@ -60,6 +60,10 @@ func (e *UpdateMaskBehaviorError) Error() string {
 //  3. Clears fields NOT in the mask
 //  4. Sets default values for fields IN the mask but not populated
 //
+// An empty mask clears every field, so an explicit empty update_mask updates
+// nothing. This differs from an omitted update_mask, which updates all populated
+// fields and is handled by the caller before reaching this method.
+//
 // IDENTIFIER fields (AIP-203) are treated like IMMUTABLE: the identifier names
 // the resource and must not be modified by an update. Including such a field
 // in the mask produces a violation.
@@ -76,16 +80,14 @@ func (e *UpdateMaskBehaviorError) Error() string {
 // actually applied. Callers that want to reuse the original mask should
 // pass [FieldMask.Clone] of it.
 func (msk FieldMask) ApplyUpdateMask(msg proto.Message) error {
-	if len(msk) == 0 {
+	if msg == nil {
 		return nil
 	}
 
-	if msg != nil {
-		descriptor := msg.ProtoReflect().Descriptor()
-		for _, path := range msk.ToPaths() {
-			if err := rejectIndexedRepeatedAccess(descriptor, path); err != nil {
-				return err
-			}
+	descriptor := msg.ProtoReflect().Descriptor()
+	for _, path := range msk.ToPaths() {
+		if err := rejectIndexedRepeatedAccess(descriptor, path); err != nil {
+			return err
 		}
 	}
 

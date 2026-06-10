@@ -20,11 +20,10 @@ import (
 	pb "github.com/altessa-s/go-atlas/proto/gen/fieldbehaviortest/v1"
 )
 
-// TestServerInterceptor_EmptyUpdateMask_NoOptOff confirms the
-// backward-compatible default: a wire update_mask with zero paths is a
-// deliberate no-op when WithApplyEmptyUpdateMask is not configured. The
-// handler sees the request as-is, including any IMMUTABLE / IDENTIFIER
-// fields the client populated — no synthesis, no violation.
+// TestServerInterceptor_EmptyUpdateMask_NoOptOff confirms the default: without
+// WithApplyEmptyUpdateMask, a wire update_mask with zero paths clears the
+// resource (an explicit empty mask updates nothing). No synthesis, and no
+// field-behavior violation since validation only inspects masked fields.
 func TestServerInterceptor_EmptyUpdateMask_NoOptOff(t *testing.T) {
 	t.Parallel()
 
@@ -35,11 +34,13 @@ func TestServerInterceptor_EmptyUpdateMask_NoOptOff(t *testing.T) {
 	}
 
 	seenReq, _, err := runUnary(t, uni, "/x.v1.X/UpdateResource", req, &pb.Resource{}, nil)
-	require.NoError(t, err, "empty mask without opt-in is a no-op (no IMMUTABLE violation)")
+	require.NoError(t, err, "empty mask without opt-in clears the resource without violation")
 
 	got, ok := seenReq.(*pb.UpdateResourceRequest)
 	require.True(t, ok)
-	require.Empty(t, got.GetUpdateMask().GetPaths(), "empty mask must remain empty on writeback")
+	require.Empty(t, got.GetResource().GetName(), "empty mask clears populated fields")
+	require.Empty(t, got.GetResource().GetTenantId(), "empty mask clears populated fields")
+	require.Empty(t, got.GetUpdateMask().GetPaths(), "empty mask remains empty on writeback")
 }
 
 // TestServerInterceptor_EmptyUpdateMask_SynthesisesFromSetFields covers
@@ -124,9 +125,9 @@ func TestServerInterceptor_EmptyUpdateMask_ImmutableRejected(t *testing.T) {
 }
 
 // TestServerInterceptor_EmptyUpdateMask_NoPopulatedFields covers the
-// degenerate case: opt-in is on but the resource itself is empty. There
-// is nothing to update, so the interceptor stays a no-op rather than
-// invoking ApplyUpdateMask with an empty mask (which is a no-op anyway).
+// degenerate case: opt-in is on but the resource itself is empty. There is
+// nothing to synthesize, so the interceptor returns early and leaves the
+// already-empty request untouched.
 func TestServerInterceptor_EmptyUpdateMask_NoPopulatedFields(t *testing.T) {
 	t.Parallel()
 

@@ -21,8 +21,8 @@ func TestApplyUpdateMask_EmptyMask(t *testing.T) {
 	msg := &testpb.UpdateRequest{Id: "1", Status: "active"}
 	err := fieldmask.FieldMask{}.ApplyUpdateMask(msg)
 	require.NoError(t, err)
-	assert.Equal(t, "1", msg.GetId())
-	assert.Equal(t, "active", msg.GetStatus())
+	assert.Equal(t, "", msg.GetId())
+	assert.Equal(t, "", msg.GetStatus())
 }
 
 // RFC edge case 1: Scalar field in mask, not set in request.
