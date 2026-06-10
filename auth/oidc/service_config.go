@@ -169,7 +169,6 @@ var (
 // Example:
 //
 //	config, _ := oidc.LoadServiceConfig("./config/oidc-service.json")
-//
 func LoadServiceConfig(path string) (*ServiceConfig, error) {
 	// Defence-in-depth: resolve symlinks before reading so a symlinked config
 	// path cannot silently redirect the read to an unexpected target. The path

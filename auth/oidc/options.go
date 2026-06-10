@@ -10,11 +10,11 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/altessa-s/go-atlas/core/types/redacted"
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
-	"github.com/altessa-s/go-atlas/core/types/redacted"
 	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
 
