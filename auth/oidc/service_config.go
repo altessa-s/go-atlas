@@ -170,7 +170,7 @@ var (
 //
 //	config, _ := oidc.LoadServiceConfig("./config/oidc-service.json")
 func LoadServiceConfig(path string) (*ServiceConfig, error) {
-	// Defence-in-depth: resolve symlinks before reading so a symlinked config
+	// Defense-in-depth: resolve symlinks before reading so a symlinked config
 	// path cannot silently redirect the read to an unexpected target. The path
 	// still comes from trusted operator configuration.
 	resolved, err := filepath.EvalSymlinks(path)

@@ -777,7 +777,8 @@ func (p *Provider) checkAudienceConfigured(ops *verifierOptions) error {
 
 	switch p.opts.audienceFailureMode {
 	case AudienceFailureModeWarn:
-		p.logger.Warn("token validated without an expected audience; cross-audience replay is possible (configure WithValidationAudience or set WithAudienceFailureMode)")
+		p.logger.Warn("token validated without an expected audience; cross-audience replay is possible " +
+			"(configure WithValidationAudience or set WithAudienceFailureMode)")
 		return nil
 	case AudienceFailureModeDisabled:
 		return nil
