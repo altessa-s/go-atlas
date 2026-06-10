@@ -653,6 +653,13 @@ func (m *Mongo) processMapField(ctx context.Context, meta fieldMetadata, update 
 			return setDoc, unsetDoc, fmt.Errorf("%s: map key must be string", meta.fieldName)
 		}
 		mapKey := mapiter.Key().String()
+		// Reject MongoDB operator-like keys ($-prefixed) before they reach the
+		// BSON document. A map[string]any field carrying a key such as "$set"
+		// would otherwise be embedded verbatim and could be interpreted as an
+		// update operator, mutating fields outside the intended scope.
+		if strings.HasPrefix(mapKey, "$") {
+			return setDoc, unsetDoc, fmt.Errorf("%s: map key %q must not start with %q (reserved for MongoDB operators)", meta.fieldName, mapKey, "$")
+		}
 		// Same scalar-leaf guard as processSliceField: time.Time and custom BSON
 		// marshalers are scalars to the driver, not documents to recurse into.
 		mapElem := reflect.Indirect(mapiter.Value())
