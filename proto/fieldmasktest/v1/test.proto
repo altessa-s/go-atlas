@@ -33,6 +33,10 @@ message UpdateRequest {
   // REQUIRED: nested message that cannot be cleared.
   optional Address address = 4 [(google.api.field_behavior) = REQUIRED];
 
+  // Unannotated nested message with a REQUIRED child (Address.city): a sub-mask
+  // must reject clearing that child even when this parent is absent.
+  optional Address shipping_address = 18;
+
   // IMMUTABLE: cannot be changed after creation.
   optional string code = 5 [(google.api.field_behavior) = IMMUTABLE];
 

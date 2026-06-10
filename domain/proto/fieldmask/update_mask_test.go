@@ -290,6 +290,23 @@ func TestApplyUpdateMask_NestedRequiredFieldSet(t *testing.T) {
 	assert.Equal(t, "Main St", msg.GetAddress().GetStreet())
 }
 
+// Nested REQUIRED field whose unannotated parent message is absent from the request.
+// update_mask: ["shipping_address.city"], request: {id: "1"}
+// shipping_address is not REQUIRED and not set; city is REQUIRED → error.
+func TestApplyUpdateMask_NestedRequiredFieldParentAbsent(t *testing.T) {
+	msg := &testpb.UpdateRequest{Id: "1"}
+
+	mask := fieldmask.FromPaths("shipping_address.city")
+	err := mask.ApplyUpdateMask(msg)
+	require.Error(t, err)
+
+	var behaviorErr *fieldmask.UpdateMaskBehaviorError
+	require.ErrorAs(t, err, &behaviorErr)
+	require.Len(t, behaviorErr.Violations, 1)
+	assert.Equal(t, "shipping_address.city", behaviorErr.Violations[0].Path)
+	assert.Contains(t, behaviorErr.Violations[0].Reason, "required")
+}
+
 func TestApplyUpdateMask_MultipleViolations(t *testing.T) {
 	code := "abc"
 	msg := &testpb.UpdateRequest{

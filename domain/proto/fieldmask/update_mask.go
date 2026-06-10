@@ -192,7 +192,7 @@ func (msk FieldMask) validateFieldBehaviors(
 		}
 
 		if nested != nil && fd.Kind() == protoreflect.MessageKind &&
-			!fd.IsList() && !fd.IsMap() && !isDynamicWellKnownType(fd) && isSet {
+			!fd.IsList() && !fd.IsMap() && !isDynamicWellKnownType(fd) {
 			nested.validateFieldBehaviors(
 				prf.Get(fd).Message().Interface(), fullPath, violations,
 			)
