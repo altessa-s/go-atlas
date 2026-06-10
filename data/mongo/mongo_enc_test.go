@@ -5,7 +5,6 @@
 package mongo
 
 import (
-	"context"
 	"reflect"
 	"testing"
 	"time"
@@ -38,13 +37,15 @@ type opaqueCollectionsEntity struct {
 }
 
 func TestConvertToNewDocument_OpaqueStructPointer_StoredAsScalar(t *testing.T) {
+	t.Parallel()
+
 	m, err := New("testdb")
 	require.NoError(t, err)
 
 	ts := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 	entity := &opaqueStructEntity{ID: "f1", Name: "pending", UpdatedAt: &ts}
 
-	doc, err := m.ConvertToNewDocument(context.Background(), entity)
+	doc, err := m.ConvertToNewDocument(t.Context(), entity)
 	require.NoError(t, err,
 		"non-nil *time.Time must be treated as a scalar leaf, not recursed into")
 	require.Equal(t, &ts, doc["updated_at"],
@@ -53,24 +54,28 @@ func TestConvertToNewDocument_OpaqueStructPointer_StoredAsScalar(t *testing.T) {
 }
 
 func TestConvertToNewDocument_NilOpaqueStructPointer(t *testing.T) {
+	t.Parallel()
+
 	m, err := New("testdb")
 	require.NoError(t, err)
 
 	entity := &opaqueStructEntity{ID: "f2", Name: "active"}
 
-	doc, err := m.ConvertToNewDocument(context.Background(), entity)
+	doc, err := m.ConvertToNewDocument(t.Context(), entity)
 	require.NoError(t, err)
 	require.Equal(t, "active", doc["name"])
 }
 
 func TestConvertToUpdateDocument_OpaqueStructPointer_GoesToSet(t *testing.T) {
+	t.Parallel()
+
 	m, err := New("testdb")
 	require.NoError(t, err)
 
 	ts := time.Date(2026, 6, 10, 12, 0, 0, 0, time.UTC)
 	entity := &opaqueStructEntity{ID: "f3", Name: "pending", UpdatedAt: &ts}
 
-	doc, err := m.ConvertToUpdateDocument(context.Background(), entity)
+	doc, err := m.ConvertToUpdateDocument(t.Context(), entity)
 	require.NoError(t, err)
 
 	set, ok := doc["$set"].(bson.M)
@@ -79,12 +84,14 @@ func TestConvertToUpdateDocument_OpaqueStructPointer_GoesToSet(t *testing.T) {
 }
 
 func TestConvertToUpdateDocument_NilOpaqueStructPointer_GoesToUnset(t *testing.T) {
+	t.Parallel()
+
 	m, err := New("testdb")
 	require.NoError(t, err)
 
 	entity := &opaqueStructEntity{ID: "f4", Name: "active"}
 
-	doc, err := m.ConvertToUpdateDocument(context.Background(), entity)
+	doc, err := m.ConvertToUpdateDocument(t.Context(), entity)
 	require.NoError(t, err)
 
 	unset, ok := doc["$unset"].(bson.M)
@@ -93,12 +100,14 @@ func TestConvertToUpdateDocument_NilOpaqueStructPointer_GoesToUnset(t *testing.T
 }
 
 func TestConvertToNewDocument_StructPointerWithExportedFields_StillRecursed(t *testing.T) {
+	t.Parallel()
+
 	m, err := New("testdb")
 	require.NoError(t, err)
 
 	entity := &nestedParentEntity{ID: "p1", Child: &nestedChild{Value: "v"}}
 
-	doc, err := m.ConvertToNewDocument(context.Background(), entity)
+	doc, err := m.ConvertToNewDocument(t.Context(), entity)
 	require.NoError(t, err)
 
 	child, ok := doc["child"].(bson.M)
@@ -107,6 +116,8 @@ func TestConvertToNewDocument_StructPointerWithExportedFields_StillRecursed(t *t
 }
 
 func TestConvertToNewDocument_OpaqueStructsInSliceAndMap(t *testing.T) {
+	t.Parallel()
+
 	m, err := New("testdb")
 	require.NoError(t, err)
 
@@ -118,7 +129,7 @@ func TestConvertToNewDocument_OpaqueStructsInSliceAndMap(t *testing.T) {
 		ByKey: map[string]time.Time{"created": t1},
 	}
 
-	doc, err := m.ConvertToNewDocument(context.Background(), entity)
+	doc, err := m.ConvertToNewDocument(t.Context(), entity)
 	require.NoError(t, err,
 		"time.Time elements of slices and maps must not be recursed into")
 	require.Equal(t, bson.A{t1, t2}, doc["times"])
@@ -126,6 +137,8 @@ func TestConvertToNewDocument_OpaqueStructsInSliceAndMap(t *testing.T) {
 }
 
 func TestHasExportedField(t *testing.T) {
+	t.Parallel()
+
 	type exported struct{ A string }
 	type unexported struct{ a string } //nolint:unused // exercised via reflection
 	type empty struct{}
@@ -143,6 +156,7 @@ func TestHasExportedField(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			require.Equal(t, tt.want, hasExportedField(reflect.TypeOf(tt.target)))
 		})
 	}
