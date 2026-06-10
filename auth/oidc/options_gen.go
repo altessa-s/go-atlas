@@ -252,6 +252,7 @@ func WithTokensCacheKeyPrefix[T interface{ string | *string }](v T) Option {
 func defaultOptions() *options {
 	return &options{
 		activeTokensCacheKeyPrefix:  DefaultActiveTokensCacheKeyPrefix,
+		audienceFailureMode:         DefaultAudienceFailureMode,
 		jwksMaxStaleness:            DefaultJWKSMaxStaleness,
 		jwksFailureMode:             DefaultJWKSFailureMode,
 		jwksHTTPTimeout:             DefaultJWKSHTTPTimeout,
