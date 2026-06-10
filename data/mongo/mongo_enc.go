@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -538,16 +539,28 @@ func (m *Mongo) isStructPointerField(fieldValue reflect.Value, fieldType reflect
 	return elem.Kind() == reflect.Struct && hasExportedField(elem)
 }
 
+// exportedFieldCache memoizes hasExportedField results. The set of struct types
+// encountered during document conversion is finite, so an unbounded sync.Map is
+// sufficient and avoids the per-element reflection scan on hot collection paths.
+var exportedFieldCache sync.Map // map[reflect.Type]bool
+
 // hasExportedField reports whether t has at least one exported field. It guards
 // the document processor from recursing into opaque structs (time.Time, etc.)
-// that the BSON driver already serializes as scalar values.
+// that the BSON driver already serializes as scalar values. Results are memoized
+// per type because slice/map walks call it once per element.
 func hasExportedField(t reflect.Type) bool {
+	if cached, ok := exportedFieldCache.Load(t); ok {
+		return cached.(bool)
+	}
+	has := false
 	for i := range t.NumField() {
 		if t.Field(i).IsExported() {
-			return true
+			has = true
+			break
 		}
 	}
-	return false
+	exportedFieldCache.Store(t, has)
+	return has
 }
 
 // isMapField checks if a field is a non-empty map that should be processed.
