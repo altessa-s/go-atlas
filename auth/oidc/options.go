@@ -14,6 +14,7 @@ import (
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
+	"github.com/altessa-s/go-atlas/core/types/redacted"
 	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
 
@@ -126,7 +127,7 @@ type options struct {
 	logger                      *slog.Logger
 	introspectionEnabled        bool                         `opt:"-"`
 	introspectionClientID       string                       `opt:"-"`
-	introspectionSecret         string                       `opt:"-"`
+	introspectionSecret         redacted.RedactedString      `opt:"-"`
 	introspectionFailOpen       bool                         `opt:"-"`
 	verifierOptions             *verifierOptions             `opt:"-"`
 	presets                     map[string]*ValidationPreset `opt:"-"`
@@ -176,7 +177,7 @@ func WithIntrospection(clientID, clientSecret string) Option {
 	return func(o *options) {
 		o.introspectionEnabled = true
 		o.introspectionClientID = clientID
-		o.introspectionSecret = clientSecret
+		o.introspectionSecret = redacted.RedactedString(clientSecret)
 	}
 }
 

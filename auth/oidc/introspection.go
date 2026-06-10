@@ -78,7 +78,7 @@ func (p *Provider) IntrospectToken(ctx context.Context, token string) (*Introspe
 		return nil, coreerrs.Wrap(ErrIntrospection, "introspection endpoint not available in discovery document")
 	}
 
-	if p.opts.introspectionClientID == "" || p.opts.introspectionSecret == "" {
+	if p.opts.introspectionClientID == "" || p.opts.introspectionSecret.IsEmpty() {
 		return nil, coreerrs.Wrap(ErrIntrospection, "introspection client credentials not configured")
 	}
 
@@ -145,7 +145,7 @@ func (p *Provider) IntrospectToken(ctx context.Context, token string) (*Introspe
 	// Set headers
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
-	req.SetBasicAuth(p.opts.introspectionClientID, p.opts.introspectionSecret)
+	req.SetBasicAuth(p.opts.introspectionClientID, p.opts.introspectionSecret.Expose())
 
 	// Execute request
 	resp, err := p.client.Do(req) //nolint:bodyclose
