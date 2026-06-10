@@ -38,7 +38,7 @@ func newRevocationTestProvider(t *testing.T, rt http.RoundTripper, opts options)
 	}
 }
 
-func TestProvider_checkTokenRevocation_FailOpenByDefault(t *testing.T) {
+func TestProvider_checkTokenRevocation_FailClosedByDefault(t *testing.T) {
 	t.Parallel()
 
 	transportErr := errors.New("connection refused")
@@ -48,11 +48,13 @@ func TestProvider_checkTokenRevocation_FailOpenByDefault(t *testing.T) {
 
 	p := newRevocationTestProvider(t, rt, options{})
 
-	require.NoError(t, p.checkTokenRevocation(t.Context(), "any-token"),
-		"default (non-strict) introspection failure must be swallowed")
+	err := p.checkTokenRevocation(t.Context(), "any-token")
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrIntrospection,
+		"default (fail-closed) introspection failure must surface ErrIntrospection")
 }
 
-func TestProvider_checkTokenRevocation_StrictRejectsOnTransportError(t *testing.T) {
+func TestProvider_checkTokenRevocation_FailOpenSwallowsTransportError(t *testing.T) {
 	t.Parallel()
 
 	transportErr := errors.New("connection refused")
@@ -60,12 +62,10 @@ func TestProvider_checkTokenRevocation_StrictRejectsOnTransportError(t *testing.
 		return nil, transportErr
 	})
 
-	p := newRevocationTestProvider(t, rt, options{introspectionStrict: true})
+	p := newRevocationTestProvider(t, rt, options{introspectionFailOpen: true})
 
-	err := p.checkTokenRevocation(t.Context(), "any-token")
-	require.Error(t, err)
-	require.ErrorIs(t, err, ErrIntrospection,
-		"strict mode must surface ErrIntrospection on transport failure")
+	require.NoError(t, p.checkTokenRevocation(t.Context(), "any-token"),
+		"fail-open mode must swallow introspection transport failures")
 }
 
 func TestProvider_checkTokenRevocation_StrictRejectsOn5xx(t *testing.T) {
@@ -80,7 +80,7 @@ func TestProvider_checkTokenRevocation_StrictRejectsOn5xx(t *testing.T) {
 		}, nil
 	})
 
-	p := newRevocationTestProvider(t, rt, options{introspectionStrict: true})
+	p := newRevocationTestProvider(t, rt, options{})
 
 	err := p.checkTokenRevocation(t.Context(), "any-token")
 	require.Error(t, err)
@@ -101,7 +101,7 @@ func TestProvider_checkTokenRevocation_StrictAcceptsActiveToken(t *testing.T) {
 		}, nil
 	})
 
-	p := newRevocationTestProvider(t, rt, options{introspectionStrict: true})
+	p := newRevocationTestProvider(t, rt, options{})
 
 	require.NoError(t, p.checkTokenRevocation(t.Context(), "any-token"),
 		"strict mode must still accept tokens the IdP confirms as active")
@@ -120,7 +120,7 @@ func TestProvider_checkTokenRevocation_StrictRejectsInactiveToken(t *testing.T) 
 		}, nil
 	})
 
-	p := newRevocationTestProvider(t, rt, options{introspectionStrict: true})
+	p := newRevocationTestProvider(t, rt, options{})
 
 	err := p.checkTokenRevocation(t.Context(), "any-token")
 	require.ErrorIs(t, err, ErrTokenRevoked,

@@ -399,38 +399,39 @@ oidc:
     clientSecret: "${OIDC_CLIENT_SECRET}"
   introspection:
     enabled: true
-    strict: true              # production: reject tokens when IdP is unreachable
+    # fail_open defaults to false (fail-closed) — the secure production default.
 ```
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `enabled` | `bool` | No | `false` | Toggle introspection on/off |
-| `strict` | `bool` | No | `false` | Fail-closed: reject tokens with `ErrIntrospection` when the introspection endpoint is unreachable |
+| `fail_open` | `bool` | No | `false` | Fail-open: accept tokens on signature alone when the introspection endpoint is unreachable. Default `false` is fail-closed |
 
 **Validation rule:** If `introspection.enabled` is `true`, the `clientCredentials` section **must** be configured. The application will fail
 validation at startup otherwise.
 
-#### Fail-open vs strict mode
+#### Fail-closed (default) vs fail-open mode
 
-By default introspection is **fail-open**: if the IdP is unreachable (network error, 5xx, parse failure) the provider logs a warning, increments
-`oidc_revocation_check_errors_total`, and accepts the token on its signature alone. That keeps authentication available during IdP degradation but lets
-revoked tokens slip through until the endpoint is back. **Strict mode** flips this trade-off: any introspection failure rejects the token with
-`ErrIntrospection`. Use it in production when revocation is a hard requirement (logout, compromised credentials, session cutoff).
+By default introspection is **fail-closed**: if the IdP is unreachable (network error, 5xx, parse failure) the provider logs a warning, increments
+`oidc_revocation_check_errors_total`, and rejects the token with `ErrIntrospection`. That keeps revocation enforced during IdP degradation.
+**Fail-open mode** (`fail_open: true`) flips this trade-off: any introspection failure is logged and the token is accepted on its signature alone.
+This keeps authentication available during IdP degradation but lets revoked tokens slip through until the endpoint is back — use it only when
+availability outweighs revocation guarantees.
 
-| Scenario | Default (fail-open) | `strict: true` |
+| Scenario | Default (fail-closed) | `fail_open: true` |
 |---|---|---|
 | Endpoint returns `200 OK`, `active=true` | accept | accept |
 | Endpoint returns `200 OK`, `active=false` | reject (`ErrTokenRevoked`) | reject (`ErrTokenRevoked`) |
-| Network error / DNS failure | warn, accept (signature only) | warn, reject (`ErrIntrospection`) |
-| Endpoint returns 5xx / unparseable body | warn, accept (signature only) | warn, reject (`ErrIntrospection`) |
+| Network error / DNS failure | warn, reject (`ErrIntrospection`) | warn, accept (signature only) |
+| Endpoint returns 5xx / unparseable body | warn, reject (`ErrIntrospection`) | warn, accept (signature only) |
 | `introspection.enabled: false` | falls through to revocation storage if configured | same |
 
-The behavior also exists on the Go API: `oidc.WithIntrospectionStrict()` sits next to `oidc.WithIntrospection(clientID, secret)` and can be passed to
+The behavior also exists on the Go API: `oidc.WithIntrospectionFailOpen()` sits next to `oidc.WithIntrospection(clientID, secret)` and can be passed to
 `oidc.NewProvider` directly without going through YAML.
 
-**Operator guidance:** turn `strict` on in production when introspection is enabled. Pair it with a generous IdP timeout and retries on the HTTP client
-(both honored via `oidc.proxy` and the shared `httpclient`) so that transient hiccups don't translate to user-visible 401s. Cache hits never go to the
-network — `strict` only affects requests that actually reach the endpoint.
+**Operator guidance:** leave `fail_open` at its default (`false`) in production when introspection is enabled. Pair it with a generous IdP timeout and
+retries on the HTTP client (both honored via `oidc.proxy` and the shared `httpclient`) so that transient hiccups don't translate to user-visible 401s.
+Cache hits never go to the network — fail-closed only affects requests that actually reach the endpoint.
 
 ### Token Validation
 

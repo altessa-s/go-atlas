@@ -560,7 +560,8 @@ var structRecursionCache sync.Map // map[reflect.Type]bool
 // slice/map walks query this once per element.
 func recurseIntoStruct(t reflect.Type) bool {
 	if cached, ok := structRecursionCache.Load(t); ok {
-		return cached.(bool)
+		walk, _ := cached.(bool)
+		return walk
 	}
 	walk := hasExportedField(t) && !implementsBSONMarshaler(t)
 	structRecursionCache.Store(t, walk)
