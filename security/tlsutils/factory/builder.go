@@ -150,8 +150,12 @@ func (b *ProvidersBuilder) CreateClientConfig(cfg *config.TlsClient) (*tls.Confi
 				slog.String("server_name", cfg.ServerName))
 			tlsConfig.InsecureSkipVerify = true
 		case config.TLSSkipVerifyModeDisabled:
-			// Silent opt-out: explicit operator/test consent, no log,
-			// no error. Use only in tests with localhost fixtures.
+			// Explicit operator/test opt-out. Still log it: an operator who
+			// disables verification should see runtime evidence of it, matching
+			// the Warn mode above. Use only in tests with localhost fixtures.
+			b.Logger().Warn("TLS certificate verification disabled via TLSSkipVerifyModeDisabled (explicit opt-out) — "+
+				"connections are susceptible to man-in-the-middle attacks",
+				slog.String("server_name", cfg.ServerName))
 			tlsConfig.InsecureSkipVerify = true
 		default:
 			// Empty or unrecognized mode — fail safe with the Enforce

@@ -81,7 +81,7 @@ func AuthFunc(store TokenStore) auth.AuthFunc {
 		if !ok {
 			return nil, status.Error(codes.Unauthenticated, "missing token credentials")
 		}
-		data, err := store.Validate(ctx, creds.Token)
+		data, err := store.Validate(ctx, creds.Token.Expose())
 		if err != nil {
 			return nil, toGRPCStatus(err)
 		}

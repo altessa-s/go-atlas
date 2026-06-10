@@ -560,7 +560,8 @@ var structRecursionCache sync.Map // map[reflect.Type]bool
 // slice/map walks query this once per element.
 func recurseIntoStruct(t reflect.Type) bool {
 	if cached, ok := structRecursionCache.Load(t); ok {
-		return cached.(bool)
+		walk, _ := cached.(bool)
+		return walk
 	}
 	walk := hasExportedField(t) && !implementsBSONMarshaler(t)
 	structRecursionCache.Store(t, walk)
@@ -652,6 +653,13 @@ func (m *Mongo) processMapField(ctx context.Context, meta fieldMetadata, update 
 			return setDoc, unsetDoc, fmt.Errorf("%s: map key must be string", meta.fieldName)
 		}
 		mapKey := mapiter.Key().String()
+		// Reject MongoDB operator-like keys ($-prefixed) before they reach the
+		// BSON document. A map[string]any field carrying a key such as "$set"
+		// would otherwise be embedded verbatim and could be interpreted as an
+		// update operator, mutating fields outside the intended scope.
+		if strings.HasPrefix(mapKey, "$") {
+			return setDoc, unsetDoc, fmt.Errorf("%s: map key %q must not start with %q (reserved for MongoDB operators)", meta.fieldName, mapKey, "$")
+		}
 		// Same scalar-leaf guard as processSliceField: time.Time and custom BSON
 		// marshalers are scalars to the driver, not documents to recurse into.
 		mapElem := reflect.Indirect(mapiter.Value())
@@ -678,6 +686,15 @@ func (m *Mongo) processDefaultField(ctx context.Context, meta fieldMetadata, set
 	setDoc[meta.fieldName] = meta.fieldValue.Interface()
 
 	if !meta.fieldValue.IsZero() && meta.shouldEncrypt && meta.algorithmString != "" && meta.keyAltName != "" {
+		// Fail closed: a field marked for encryption must never be written
+		// when encryption is not configured. Without this guard the code
+		// would call the (possibly nil) encryption client directly, bypassing
+		// the IsEncryptionConfigured check that Encrypt enforces.
+		if !m.IsEncryptionConfigured() {
+			return setDoc, unsetDoc, coreerrs.Wrapf(ErrEncryptionNotEnabled,
+				"field %q is marked for encryption but encryption is not configured", meta.fieldName)
+		}
+
 		alg, err := EncryptionAlgFromAlias(meta.algorithmString)
 		if alg == "" {
 			return setDoc, unsetDoc, err

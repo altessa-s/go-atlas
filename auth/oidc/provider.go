@@ -36,6 +36,7 @@ var (
 	ErrDiscovery                 = errors.New("discovery failed")
 	ErrIntrospection             = errors.New("introspection failed")
 	ErrTokenRevoked              = errors.New("token has been revoked")
+	ErrAudienceNotConfigured     = errors.New("no expected audience configured")
 	ErrSchedulerManaged          = errors.New("function is managed by scheduler, direct calls not allowed")
 	ErrLoaderClientNotConfigured = errors.New("revocation loader: HTTP client not configured")
 	// ErrFilterNotRebuildable is returned by [filterRevocationStorage.Sync]
@@ -444,22 +445,23 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 // [Provider.checkTokenRevocationVerified] which runs after signature
 // verification.
 //
-// Introspection errors are logged and treated as non-fatal by default
-// ([WithIntrospection]); enable [WithIntrospectionStrict] to instead reject
-// the token with [ErrIntrospection] when the endpoint is unreachable.
+// Introspection errors are fatal by default: the token is rejected with
+// [ErrIntrospection] when the endpoint is unreachable ([WithIntrospection]).
+// Enable [WithIntrospectionFailOpen] to instead log the error and accept the
+// token on its signature alone.
 func (p *Provider) checkTokenRevocation(ctx context.Context, token string) error {
 	if p.opts.introspectionEnabled {
 		introspectionResp, err := p.IntrospectToken(ctx, token)
 		if err != nil {
 			p.metrics.revocationCheckErrors.Inc()
-			if p.opts.introspectionStrict {
-				p.logger.WarnContext(ctx,
-					"token introspection failed in strict mode, rejecting token",
-					slog.Any("error", err))
-				return coreerrs.Wrap(ErrIntrospection, "introspection endpoint unavailable")
+			if p.opts.introspectionFailOpen {
+				p.logger.WarnContext(ctx, "token introspection failed, continuing with signature validation", slog.Any("error", err))
+				return nil
 			}
-			p.logger.WarnContext(ctx, "token introspection failed, continuing with signature validation", slog.Any("error", err))
-			return nil
+			p.logger.WarnContext(ctx,
+				"token introspection failed, rejecting token",
+				slog.Any("error", err))
+			return coreerrs.Wrap(ErrIntrospection, "introspection endpoint unavailable")
 		}
 		if !introspectionResp.Active {
 			return ErrTokenRevoked
@@ -728,6 +730,10 @@ func (p *Provider) validateClaims(claims map[string]any, ops *verifierOptions, c
 		return nil
 	}
 
+	if err := p.checkAudienceConfigured(ops); err != nil {
+		return err
+	}
+
 	// Use the pre-built ignored claims set (populated by buildIgnoredSet).
 	ignored := ops.ignoredClaimsSet
 
@@ -756,6 +762,30 @@ func (p *Provider) validateClaims(claims map[string]any, ops *verifierOptions, c
 	}
 
 	return validateCELRules(claims, compiledCELRules)
+}
+
+// checkAudienceConfigured enforces the provider's [AudienceFailureMode] when
+// validation runs without an expected audience. With an expected audience set
+// its value is enforced by the jwt parser ([Provider.buildParserOptions]); the
+// `aud` claim being merely present (DefaultRequiredClaims) does not bind the
+// token to this service, so an unconfigured audience is treated per the mode:
+// enforce rejects, warn logs and continues, disabled is silent.
+func (p *Provider) checkAudienceConfigured(ops *verifierOptions) error {
+	if len(ops.audience) > 0 {
+		return nil
+	}
+
+	switch p.opts.audienceFailureMode {
+	case AudienceFailureModeWarn:
+		p.logger.Warn("token validated without an expected audience; cross-audience replay is possible " +
+			"(configure WithValidationAudience or set WithAudienceFailureMode)")
+		return nil
+	case AudienceFailureModeDisabled:
+		return nil
+	default: // AudienceFailureModeEnforce
+		return coreerrs.Wrap(ErrAudienceNotConfigured,
+			"refusing to validate token without an expected audience (set WithValidationAudience or relax via WithAudienceFailureMode)")
+	}
 }
 
 func isIgnoredClaim(ignored map[string]struct{}, claim string) bool {

@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/altessa-s/go-atlas/core/types/redacted"
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
@@ -65,6 +66,42 @@ const (
 	JWKSFailureModeDisabled JWKSFailureMode = "disabled"
 )
 
+// DefaultAudienceFailureMode is the default behavior when a token is validated
+// without any expected audience configured (neither [WithValidationAudience]
+// nor an `audience` entry in the service config). Production safe:
+// [AudienceFailureModeEnforce] rejects validation, matching the rest of the
+// project's safety-mode pattern (see [JWKSFailureMode] and the plugins
+// `SignatureMode` precedent). The default-required `aud` claim only guarantees
+// the token carries *an* audience — without an expected value to match against,
+// a token minted for a different service replays successfully.
+const DefaultAudienceFailureMode = AudienceFailureModeEnforce
+
+// AudienceFailureMode controls how the provider reacts when token validation
+// runs without any expected audience configured. When an expected audience is
+// set, its value is always enforced regardless of this mode.
+type AudienceFailureMode string
+
+const (
+	// AudienceFailureModeEnforce rejects validation with [ErrAudienceNotConfigured]
+	// whenever no expected audience is configured. This is the production-safe
+	// default — it prevents accepting a token minted for a different audience
+	// (cross-audience replay) on the strength of the `aud` claim merely being
+	// present.
+	AudienceFailureModeEnforce AudienceFailureMode = "enforce"
+
+	// AudienceFailureModeWarn logs an error every time validation runs without
+	// an expected audience but still allows the token through. Use this for
+	// soft rollouts where rejecting traffic would be worse than accepting
+	// tokens whose audience cannot be bound to this service.
+	AudienceFailureModeWarn AudienceFailureMode = "warn"
+
+	// AudienceFailureModeDisabled bypasses the check entirely: tokens validate
+	// without an expected audience and no diagnostic is emitted. Equivalent to
+	// the pre-hardening behavior; opt in only when audience binding is provably
+	// handled elsewhere.
+	AudienceFailureModeDisabled AudienceFailureMode = "disabled"
+)
+
 // DefaultRequiredClaims is the list of claims required by OIDC specification.
 var DefaultRequiredClaims = []string{"sub", "aud", "exp", "iat", "iss"}
 
@@ -81,6 +118,7 @@ type options struct {
 	jwksHTTPTimeout             time.Duration       `optgen:"default=DefaultJWKSHTTPTimeout"`
 	jwksMaxStaleness            time.Duration       `opt:"JWKSMaxStaleness" optgen:"default=DefaultJWKSMaxStaleness"`
 	jwksFailureMode             JWKSFailureMode     `optgen:"manual,default=DefaultJWKSFailureMode"`
+	audienceFailureMode         AudienceFailureMode `optgen:"manual,default=DefaultAudienceFailureMode"`
 	tokenCache                  Cacher
 	tokensCacheKeyPrefix        string `optgen:"default=DefaultTokensCacheKeyPrefix"`
 	revokedTokensCacheKeyPrefix string `optgen:"default=DefaultRevokedTokensCacheKeyPrefix"`
@@ -89,8 +127,8 @@ type options struct {
 	logger                      *slog.Logger
 	introspectionEnabled        bool                         `opt:"-"`
 	introspectionClientID       string                       `opt:"-"`
-	introspectionSecret         string                       `opt:"-"`
-	introspectionStrict         bool                         `opt:"-"`
+	introspectionSecret         redacted.RedactedString      `opt:"-"`
+	introspectionFailOpen       bool                         `opt:"-"`
 	verifierOptions             *verifierOptions             `opt:"-"`
 	presets                     map[string]*ValidationPreset `opt:"-"`
 	presetRules                 []PresetRule
@@ -128,31 +166,33 @@ func WithDefaultValidationOptions(vopt ...ValidationOption) Option {
 // WithIntrospection enables RFC 7662 token introspection for revocation checks.
 // Requires client credentials; results are cached for performance.
 //
-// By default introspection failures (network errors, 5xx responses, malformed
-// payloads) are logged and the token is accepted on signature validation alone
-// — fail-open. Pair this with [WithIntrospectionStrict] in production to
-// reject tokens whenever the introspection endpoint is unreachable, otherwise
-// a degraded IdP silently bypasses revocation.
+// Introspection is fail-closed by default: when the endpoint cannot confirm a
+// token is active (network error, non-2xx response, malformed payload) the
+// token is rejected with [ErrIntrospection]. This keeps revocation enforced
+// under IdP degradation. Opt into fail-open behavior with
+// [WithIntrospectionFailOpen] only when availability must be preferred over
+// revocation guarantees — be aware that a degraded IdP then silently bypasses
+// revocation.
 func WithIntrospection(clientID, clientSecret string) Option {
 	return func(o *options) {
 		o.introspectionEnabled = true
 		o.introspectionClientID = clientID
-		o.introspectionSecret = clientSecret
+		o.introspectionSecret = redacted.RedactedString(clientSecret)
 	}
 }
 
-// WithIntrospectionStrict makes [Provider.ValidateToken] reject tokens with
-// [ErrIntrospection] whenever the configured introspection endpoint cannot
-// confirm the token is active (network error, non-2xx response, parse
-// failure). Use this in production to keep revocation enforced under IdP
-// degradation; combine with [WithIntrospection] which provides the
-// credentials.
+// WithIntrospectionFailOpen relaxes introspection to fail-open: when the
+// configured endpoint cannot confirm a token is active (network error, non-2xx
+// response, parse failure) the error is logged and the token is accepted on
+// its signature alone. Use this only when IdP availability must take
+// precedence over revocation enforcement — under this mode a degraded or
+// unreachable IdP silently bypasses revocation checks.
 //
-// Without this option introspection is fail-open: errors are logged and the
-// token is accepted if its signature is valid.
-func WithIntrospectionStrict() Option {
+// Without this option introspection is fail-closed (the secure default):
+// errors reject the token with [ErrIntrospection].
+func WithIntrospectionFailOpen() Option {
 	return func(o *options) {
-		o.introspectionStrict = true
+		o.introspectionFailOpen = true
 	}
 }
 
@@ -194,6 +234,20 @@ func WithJWKSFailureMode(mode JWKSFailureMode) Option {
 		switch mode {
 		case JWKSFailureModeEnforce, JWKSFailureModeWarn, JWKSFailureModeDisabled:
 			o.jwksFailureMode = mode
+		}
+	}
+}
+
+// WithAudienceFailureMode selects how the provider reacts when token
+// validation runs without any expected audience configured. Defaults to
+// [AudienceFailureModeEnforce]. Unknown / empty modes leave the default in
+// place. When an expected audience is configured (via [WithValidationAudience]
+// or service config) its value is always enforced regardless of this mode.
+func WithAudienceFailureMode(mode AudienceFailureMode) Option {
+	return func(o *options) {
+		switch mode {
+		case AudienceFailureModeEnforce, AudienceFailureModeWarn, AudienceFailureModeDisabled:
+			o.audienceFailureMode = mode
 		}
 	}
 }

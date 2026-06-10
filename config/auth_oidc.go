@@ -339,12 +339,13 @@ type OIDCIntrospection struct {
 	// Enabled toggles introspection on or off
 	Enabled bool `yaml:"enabled" default:"false"`
 
-	// Strict makes ValidateToken reject the token whenever the introspection
-	// endpoint cannot confirm it is active (network error, non-2xx response,
-	// parse failure). Without strict mode an unreachable IdP silently
-	// bypasses revocation: the token is accepted on its signature alone.
-	// Recommended for production.
-	Strict bool `yaml:"strict" default:"false"`
+	// FailOpen relaxes introspection to fail-open: when the endpoint cannot
+	// confirm a token is active (network error, non-2xx response, parse
+	// failure) the token is accepted on its signature alone. The default
+	// (false) is fail-closed — an unreachable IdP rejects the token, keeping
+	// revocation enforced. Set this to true only when IdP availability must
+	// take precedence over revocation guarantees.
+	FailOpen bool `yaml:"fail_open" default:"false"`
 }
 
 // OIDCPresets represents validation presets configuration.

@@ -14,6 +14,22 @@ import (
 	"github.com/altessa-s/go-atlas/core/types/optional"
 )
 
+// TestOptionalFieldLayout guards the field order and names that the unsafe
+// reflect helpers (readUnexportedField/writeUnexportedField) rely on. Those
+// helpers alias Optional[T] storage by field index; if a future refactor
+// reorders or renames the fields, this test fails loudly instead of letting
+// the unsafe access silently corrupt values.
+func TestOptionalFieldLayout(t *testing.T) {
+	t.Parallel()
+
+	typ := reflect.TypeFor[optional.Optional[int]]()
+	require.Equal(t, 2, typ.NumField(), "Optional[T] must have exactly two fields")
+
+	require.Equal(t, "value", typ.Field(0).Name, "field 0 must be 'value'")
+	require.Equal(t, "present", typ.Field(1).Name, "field 1 must be 'present'")
+	require.Equal(t, reflect.Bool, typ.Field(1).Type.Kind(), "field 'present' must be bool")
+}
+
 func TestIsOptionalType(t *testing.T) {
 	t.Parallel()
 

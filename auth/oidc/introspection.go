@@ -78,7 +78,7 @@ func (p *Provider) IntrospectToken(ctx context.Context, token string) (*Introspe
 		return nil, coreerrs.Wrap(ErrIntrospection, "introspection endpoint not available in discovery document")
 	}
 
-	if p.opts.introspectionClientID == "" || p.opts.introspectionSecret == "" {
+	if p.opts.introspectionClientID == "" || p.opts.introspectionSecret.IsEmpty() {
 		return nil, coreerrs.Wrap(ErrIntrospection, "introspection client credentials not configured")
 	}
 
@@ -107,8 +107,7 @@ func (p *Provider) IntrospectToken(ctx context.Context, token string) (*Introspe
 		cacheKey := tokenCacheKey(p.opts.revokedTokensCacheKeyPrefix, token)
 		var cachedRevoked bool
 		if err := p.tokenCache.Get(ctx, cacheKey, &cachedRevoked); err == nil && cachedRevoked {
-			p.logger.DebugContext(ctx, "token found in revoked cache",
-				"cache_key", cacheKey)
+			p.logger.DebugContext(ctx, "token found in revoked cache")
 			return &IntrospectionResponse{Active: false}, nil
 		}
 	}
@@ -118,8 +117,7 @@ func (p *Provider) IntrospectToken(ctx context.Context, token string) (*Introspe
 		cacheKey := tokenCacheKey(p.opts.activeTokensCacheKeyPrefix, token)
 		var cachedResponse IntrospectionResponse
 		if err := p.tokenCache.Get(ctx, cacheKey, &cachedResponse); err == nil {
-			p.logger.DebugContext(ctx, "token found in active cache",
-				"cache_key", cacheKey)
+			p.logger.DebugContext(ctx, "token found in active cache")
 			return &cachedResponse, nil
 		}
 	}
@@ -145,7 +143,7 @@ func (p *Provider) IntrospectToken(ctx context.Context, token string) (*Introspe
 	// Set headers
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
-	req.SetBasicAuth(p.opts.introspectionClientID, p.opts.introspectionSecret)
+	req.SetBasicAuth(p.opts.introspectionClientID, p.opts.introspectionSecret.Expose())
 
 	// Execute request
 	resp, err := p.client.Do(req) //nolint:bodyclose
@@ -181,7 +179,6 @@ func (p *Provider) IntrospectToken(ctx context.Context, token string) (*Introspe
 				_ = p.tokenCache.Save(ctx, cacheKey, true, ttl) //nolint:errcheck
 
 				p.logger.DebugContext(ctx, "caching revoked token",
-					"cache_key", cacheKey,
 					"ttl", ttl)
 			}
 
@@ -218,7 +215,6 @@ func (p *Provider) IntrospectToken(ctx context.Context, token string) (*Introspe
 				_ = p.tokenCache.Save(ctx, cacheKey, introspectionResp, ttl) //nolint:errcheck
 
 				p.logger.DebugContext(ctx, "caching active token",
-					"cache_key", cacheKey,
 					"ttl", ttl)
 			}
 		}

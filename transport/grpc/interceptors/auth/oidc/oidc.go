@@ -49,7 +49,7 @@ func AuthFunc(validator Validator) auth.AuthFunc {
 			return nil, status.Error(codes.Unauthenticated, "Missing token")
 		}
 
-		claims, err := validator.ValidateToken(ctx, tokenCred.Token)
+		claims, err := validator.ValidateToken(ctx, tokenCred.Token.Expose())
 		if err != nil {
 			return nil, status.Error(codes.Unauthenticated, "Token validation failed")
 		}

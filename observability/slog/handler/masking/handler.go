@@ -392,7 +392,6 @@ var (
 	timeType          = reflect.TypeFor[time.Time]()
 	durationType      = reflect.TypeFor[time.Duration]()
 	textMarshalerType = reflect.TypeFor[encoding.TextMarshaler]()
-	stringerType      = reflect.TypeFor[fmt.Stringer]()
 	logValuerType     = reflect.TypeFor[slog.LogValuer]()
 	byteSliceType     = reflect.TypeFor[[]byte]()
 )
@@ -413,9 +412,12 @@ func isAtomicType(t reflect.Type) bool {
 	if t.Implements(textMarshalerType) || reflect.PointerTo(t).Implements(textMarshalerType) {
 		return true
 	}
-	if t.Implements(stringerType) || reflect.PointerTo(t).Implements(stringerType) {
-		return true
-	}
+	// fmt.Stringer is intentionally NOT treated as atomic: it is a display
+	// hint, not a canonical encoding. A struct with sensitive fields that also
+	// implements String() must still be descended into and masked field by
+	// field; otherwise its String() output would be logged verbatim, bypassing
+	// the masking handler. Only slog.LogValuer (which explicitly controls log
+	// representation) and encoding.TextMarshaler stop descent here.
 	return false
 }
 

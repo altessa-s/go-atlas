@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -168,10 +169,16 @@ var (
 // Example:
 //
 //	config, _ := oidc.LoadServiceConfig("./config/oidc-service.json")
-//
-// #nosec G304 -- path comes from trusted configuration
 func LoadServiceConfig(path string) (*ServiceConfig, error) {
-	data, err := os.ReadFile(path)
+	// Defense-in-depth: resolve symlinks before reading so a symlinked config
+	// path cannot silently redirect the read to an unexpected target. The path
+	// still comes from trusted operator configuration.
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return nil, coreerrs.WrapOperation(err, "resolve config file path")
+	}
+
+	data, err := os.ReadFile(resolved) // #nosec G304 -- path comes from trusted configuration, symlinks resolved above
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "read config file")
 	}
