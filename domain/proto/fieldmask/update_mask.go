@@ -60,9 +60,11 @@ func (e *UpdateMaskBehaviorError) Error() string {
 //  3. Clears fields NOT in the mask
 //  4. Sets default values for fields IN the mask but not populated
 //
-// An empty mask clears every field, so an explicit empty update_mask updates
-// nothing. This differs from an omitted update_mask, which updates all populated
-// fields and is handled by the caller before reaching this method.
+// With an empty mask the message itself is cleared, but the update is driven by
+// the mask: an empty mask lists no fields and so updates nothing. This differs
+// from an omitted update_mask, whose handling (passthrough, or synthesis from
+// the resource's set fields) is decided by the caller before reaching this
+// method.
 //
 // IDENTIFIER fields (AIP-203) are treated like IMMUTABLE: the identifier names
 // the resource and must not be modified by an update. Including such a field
