@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/altessa-s/go-atlas/core/types/redacted"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth/static"
 )
@@ -61,7 +62,7 @@ func BenchmarkAuthFunc_Parallel(b *testing.B) {
 		for pb.Next() {
 			req := auth.Request{
 				Base:    auth.Base{AuthMethod: auth.MethodToken},
-				Payload: &auth.TokenCredentials{Token: "token_" + strconv.Itoa(i%1000)},
+				Payload: &auth.TokenCredentials{Token: redacted.RedactedString("token_" + strconv.Itoa(i%1000))},
 			}
 			_, _ = fn(ctx, req)
 			i++

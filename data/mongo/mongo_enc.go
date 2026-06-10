@@ -679,6 +679,15 @@ func (m *Mongo) processDefaultField(ctx context.Context, meta fieldMetadata, set
 	setDoc[meta.fieldName] = meta.fieldValue.Interface()
 
 	if !meta.fieldValue.IsZero() && meta.shouldEncrypt && meta.algorithmString != "" && meta.keyAltName != "" {
+		// Fail closed: a field marked for encryption must never be written
+		// when encryption is not configured. Without this guard the code
+		// would call the (possibly nil) encryption client directly, bypassing
+		// the IsEncryptionConfigured check that Encrypt enforces.
+		if !m.IsEncryptionConfigured() {
+			return setDoc, unsetDoc, coreerrs.Wrapf(ErrEncryptionNotEnabled,
+				"field %q is marked for encryption but encryption is not configured", meta.fieldName)
+		}
+
 		alg, err := EncryptionAlgFromAlias(meta.algorithmString)
 		if alg == "" {
 			return setDoc, unsetDoc, err

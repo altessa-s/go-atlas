@@ -83,7 +83,7 @@ func TestRequest_TokenCredentials(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			tc, ok := tt.req.TokenCredentials()
 			require.Equal(t, tt.wantOK, ok)
-			require.False(t, ok && tc.Token != tt.wantTok)
+			require.False(t, ok && tc.Token.Expose() != tt.wantTok)
 		})
 	}
 }
