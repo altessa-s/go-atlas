@@ -523,10 +523,31 @@ func (m *Mongo) isSliceField(fieldValue reflect.Value, fieldType reflect.StructF
 		(!update || !m.isOmitOnUpdate(fieldType))
 }
 
-// isStructPointerField checks if a field is a pointer to a struct.
+// isStructPointerField checks if a field is a pointer to a struct that should
+// be recursed into for document processing.
 func (m *Mongo) isStructPointerField(fieldValue reflect.Value, fieldType reflect.StructField) bool {
-	return fieldValue.Type().Kind() == reflect.Pointer && !fieldValue.IsNil() &&
-		indirectType(fieldType.Type).Kind() == reflect.Struct
+	if fieldValue.Type().Kind() != reflect.Pointer || fieldValue.IsNil() {
+		return false
+	}
+	elem := indirectType(fieldType.Type)
+	// Only recurse into structs that expose processable (exported) fields.
+	// Opaque structs such as time.Time carry only unexported fields and the
+	// BSON driver serializes them as scalar values; recursing into them yields
+	// "entity contains no processable fields". Treat those as leaf scalars so a
+	// *time.Time field (e.g. a soft-delete timestamp) is stored, not walked.
+	return elem.Kind() == reflect.Struct && hasExportedField(elem)
+}
+
+// hasExportedField reports whether t has at least one exported field. It guards
+// the document processor from recursing into opaque structs (time.Time, etc.)
+// that the BSON driver already serializes as scalar values.
+func hasExportedField(t reflect.Type) bool {
+	for i := range t.NumField() {
+		if t.Field(i).IsExported() {
+			return true
+		}
+	}
+	return false
 }
 
 // isMapField checks if a field is a non-empty map that should be processed.
@@ -546,7 +567,11 @@ func (m *Mongo) processSliceField(
 	itemsSetDoc := bson.A{}
 
 	for i := range meta.fieldValue.Len() {
-		if reflect.Indirect(meta.fieldValue.Index(i)).Kind() != reflect.Struct {
+		// Opaque structs (no exported fields, e.g. time.Time) are serialized by
+		// the BSON driver as scalar values; recursing into them would fail with
+		// "entity contains no processable fields".
+		elem := reflect.Indirect(meta.fieldValue.Index(i))
+		if elem.Kind() != reflect.Struct || !hasExportedField(elem.Type()) {
 			itemsSetDoc = append(itemsSetDoc, meta.fieldValue.Index(i).Interface())
 			continue
 		}
@@ -591,7 +616,10 @@ func (m *Mongo) processMapField(ctx context.Context, meta fieldMetadata, update 
 			return setDoc, unsetDoc, fmt.Errorf("%s: map key must be string", meta.fieldName)
 		}
 		mapKey := mapiter.Key().String()
-		if reflect.Indirect(mapiter.Value()).Kind() == reflect.Struct {
+		// Same opaque-struct guard as processSliceField: time.Time and friends
+		// are scalars to the BSON driver, not documents to recurse into.
+		mapElem := reflect.Indirect(mapiter.Value())
+		if mapElem.Kind() == reflect.Struct && hasExportedField(mapElem.Type()) {
 			chSetDoc, chUnSetDoc, err := m.convertToDocument(ctx, mapiter.Value().Interface(), update, false)
 			if err != nil {
 				return setDoc, unsetDoc, err
