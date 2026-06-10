@@ -286,10 +286,10 @@ func (ri *requestInterceptor) applyUpdateMask(ctx context.Context, req proto.Mes
 
 	msk := pbfieldmask.FromProtoFieldMask(rawMask)
 
-	// AIP-134: when the wire update_mask is present but empty, the request
-	// updates every populated field. Opt-in via WithApplyEmptyUpdateMask so
-	// services that historically treat the empty case as a deliberate
-	// passthrough keep that semantic.
+	// An empty update_mask clears the resource by default (ApplyUpdateMask
+	// below). Opt-in via WithApplyEmptyUpdateMask to instead synthesize a mask
+	// from the resource's set fields, applying AIP-134 "update every populated
+	// field".
 	if len(msk) == 0 && ri.opts.applyEmptyUpdateMask {
 		msk = pbfieldmask.FromSetFields[pbfieldmask.FieldMask](resource)
 		if len(msk) == 0 {
