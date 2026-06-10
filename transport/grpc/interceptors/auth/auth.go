@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/altessa-s/go-atlas/core/types/redacted"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/errstatus"
 
@@ -131,7 +132,7 @@ func (i *interceptor) authenticateWithToken(ctx context.Context, callMeta *share
 			MethodName:      callMeta.MethodName,
 			FullyMethodName: callMeta.FullyMethodName,
 		},
-		Payload: &TokenCredentials{Token: token},
+		Payload: &TokenCredentials{Token: redacted.RedactedString(token)},
 	}
 
 	var data any
