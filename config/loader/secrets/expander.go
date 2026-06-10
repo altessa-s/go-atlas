@@ -64,6 +64,12 @@ func New(manager Manager, opts ...Option) *Expander {
 		opt(e)
 	}
 
+	if !e.failOnError {
+		e.logger.Warn("secret expander configured in fail-open mode (WithFailOnError(false)): " +
+			"unresolved secret placeholders will be replaced with empty strings instead of failing. " +
+			"This can silently produce empty credentials and allow unauthenticated access — do not use in production")
+	}
+
 	return e
 }
 
