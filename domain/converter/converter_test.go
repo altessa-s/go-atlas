@@ -273,3 +273,104 @@ func TestIsPrimitive(t *testing.T) {
 		require.Equal(t, tt.want, converter.IsPrimitive(tt.kind), "IsPrimitive(%v)", tt.kind)
 	}
 }
+
+// Types exercising WithUpdateMerge: a sparse source merged onto an existing
+// destination. Source and destination are distinct types so every field flows
+// through the struct-merge path rather than a direct assignment.
+type MergeDeepSource struct{ Code *string }
+
+type MergeDeepDest struct{ Code *string }
+
+type MergeNestedSource struct {
+	Field *string
+	Label *string
+	Deep  *MergeDeepSource
+}
+
+type MergeNestedDest struct {
+	Field *string
+	Label string
+	Deep  *MergeDeepDest
+}
+
+type MergeSource struct {
+	Name   *string
+	Title  *string
+	Nested *MergeNestedSource
+	Tags   []string
+}
+
+type MergeDest struct {
+	Name   *string
+	Title  *string
+	Nested *MergeNestedDest
+	Tags   []string
+}
+
+func TestConvert_UpdateMerge(t *testing.T) {
+	sp := func(s string) *string { return &s }
+
+	tests := []struct {
+		name string
+		dst  MergeDest
+		src  MergeSource
+		want MergeDest
+	}{
+		{
+			name: "scalar set, scalar clear, nil scalar skipped",
+			dst:  MergeDest{Name: sp("Old"), Title: sp("M")},
+			src:  MergeSource{Name: sp("New"), Title: sp("")},
+			want: MergeDest{Name: sp("New"), Title: sp("")},
+		},
+		{
+			name: "nested merge preserves untouched siblings",
+			dst:  MergeDest{Nested: &MergeNestedDest{Field: sp("a"), Label: "b", Deep: &MergeDeepDest{Code: sp("c")}}},
+			src:  MergeSource{Nested: &MergeNestedSource{Field: sp("x")}},
+			want: MergeDest{Nested: &MergeNestedDest{Field: sp("x"), Label: "b", Deep: &MergeDeepDest{Code: sp("c")}}},
+		},
+		{
+			name: "present-but-empty nested struct clears whole field",
+			dst:  MergeDest{Nested: &MergeNestedDest{Field: sp("a"), Label: "b"}},
+			src:  MergeSource{Nested: &MergeNestedSource{}},
+			want: MergeDest{Nested: nil},
+		},
+		{
+			name: "nested struct absent from update is preserved",
+			dst:  MergeDest{Nested: &MergeNestedDest{Field: sp("a")}},
+			src:  MergeSource{Name: sp("X")},
+			want: MergeDest{Name: sp("X"), Nested: &MergeNestedDest{Field: sp("a")}},
+		},
+		{
+			name: "clear one sub-field, update another, preserve the rest",
+			dst:  MergeDest{Nested: &MergeNestedDest{Field: sp("a"), Label: "b", Deep: &MergeDeepDest{Code: sp("c")}}},
+			src:  MergeSource{Nested: &MergeNestedSource{Field: sp(""), Label: sp("new")}},
+			want: MergeDest{Nested: &MergeNestedDest{Field: sp(""), Label: "new", Deep: &MergeDeepDest{Code: sp("c")}}},
+		},
+		{
+			name: "clears a deeply nested object while preserving its parent",
+			dst:  MergeDest{Nested: &MergeNestedDest{Field: sp("a"), Deep: &MergeDeepDest{Code: sp("c")}}},
+			src:  MergeSource{Nested: &MergeNestedSource{Deep: &MergeDeepSource{}}},
+			want: MergeDest{Nested: &MergeNestedDest{Field: sp("a"), Deep: nil}},
+		},
+		{
+			name: "nil slice is skipped",
+			dst:  MergeDest{Tags: []string{"a", "b"}},
+			src:  MergeSource{Name: sp("X")},
+			want: MergeDest{Name: sp("X"), Tags: []string{"a", "b"}},
+		},
+		{
+			name: "non-nil slice replaces",
+			dst:  MergeDest{Tags: []string{"a", "b"}},
+			src:  MergeSource{Tags: []string{"c"}},
+			want: MergeDest{Tags: []string{"c"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := tt.dst
+			converter.Convert(&tt.src, &dst, converter.WithUpdateMerge())
+			require.Equal(t, tt.want, dst)
+		})
+	}
+}

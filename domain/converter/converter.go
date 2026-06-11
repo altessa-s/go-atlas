@@ -11,7 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	convcodec "github.com/altessa-s/go-atlas/domain/converter/codec"
+	"github.com/altessa-s/go-atlas/domain/converter/codec"
+
 	reflectutils "github.com/altessa-s/go-atlas/domain/converter/internal/reflect"
 )
 
@@ -622,6 +623,12 @@ func (conv *Converter[T, U]) convertByKind(fieldName string, srcValue reflect.Va
 		if dstKind == reflect.Struct {
 			// Common case: both structs - optimize pointer handling
 			srcIsNil := srcValue.Kind() == reflect.Pointer && srcValue.IsNil()
+			// Partial-update merge: a present-but-empty nested struct clears the destination instead of recursing.
+			if conv.opts.updateMerge && !srcIsNil &&
+				isUpdateStructEmpty(reflect.Indirect(srcValue)) {
+				dstValue.Set(reflect.Zero(dstValue.Type()))
+				return
+			}
 			if dstValue.Kind() == reflect.Pointer && dstValue.IsNil() && !srcIsNil {
 				dstValue.Set(reflect.New(dstValueType))
 			}
@@ -716,6 +723,27 @@ func isStructZero(v reflect.Value) bool {
 		field := v.Field(i)
 		if !field.IsZero() {
 			return false
+		}
+	}
+	return true
+}
+
+// isUpdateStructEmpty reports whether v carries no update instructions: every
+// pointer/slice/map/interface field is nil and every other field is its zero
+// value. Used by [WithUpdateMerge] to detect a present-but-empty nested update
+// struct, which signals "clear the whole field" rather than "merge nothing".
+func isUpdateStructEmpty(v reflect.Value) bool {
+	for i := range v.NumField() {
+		field := v.Field(i)
+		switch field.Kind() {
+		case reflect.Pointer, reflect.Slice, reflect.Map, reflect.Interface:
+			if !field.IsNil() {
+				return false
+			}
+		default:
+			if !field.IsZero() {
+				return false
+			}
 		}
 	}
 	return true
