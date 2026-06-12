@@ -5,7 +5,7 @@ import "github.com/altessa-s/go-atlas/core/runtime/seccomp"
 ```
 
 A minimal, cgo-free Go wrapper around the Linux seccomp-BPF
-subsystem that installs a **fixed denylist** of ~22 syscalls a Go
+subsystem that installs a **fixed denylist** of ~23 syscalls a Go
 process never legitimately calls. One function, no configuration, no
 allowlist API — intentionally.
 
@@ -49,7 +49,7 @@ called and which a legitimate plugin host has no reason to invoke:
 |---|---|
 | Filesystem manipulation | `mount`, `umount2`, `pivot_root`, `chroot`, `swapon`, `swapoff` |
 | Kernel module loading | `init_module`, `finit_module`, `delete_module` |
-| Kernel reload | `kexec_file_load` |
+| Kernel reload | `kexec_load`, `kexec_file_load` |
 | System control | `reboot` |
 | Debugging / memory inspection | `ptrace`, `process_vm_readv`, `process_vm_writev` |
 | Namespace manipulation | `unshare`, `setns` |

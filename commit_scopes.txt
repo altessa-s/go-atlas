@@ -44,6 +44,7 @@ core/runtime/concurrency/dispatch  # Async batching dispatcher
 core/runtime/panics         # Panic recovery
 core/runtime/signals        # OS signal handling
 core/runtime/shutdown       # Shutdown hooks
+core/runtime/seccomp        # Seccomp utilities
 core/scheduler              # Task scheduling abstractions
 core/text                   # Text utilities
 core/text/strings           # String helpers and interning
