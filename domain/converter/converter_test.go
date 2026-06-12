@@ -7,6 +7,7 @@ package converter_test
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -274,7 +275,7 @@ func TestIsPrimitive(t *testing.T) {
 	}
 }
 
-// Types exercising WithUpdateMerge: a sparse source merged onto an existing
+// Types exercising WithSparseMerge: a sparse source merged onto an existing
 // destination. Source and destination are distinct types so every field flows
 // through the struct-merge path rather than a direct assignment.
 type MergeDeepSource struct{ Code *string }
@@ -307,7 +308,7 @@ type MergeDest struct {
 	Tags   []string
 }
 
-func TestConvert_UpdateMerge(t *testing.T) {
+func TestConvert_SparseMerge(t *testing.T) {
 	sp := func(s string) *string { return &s }
 
 	tests := []struct {
@@ -369,7 +370,119 @@ func TestConvert_UpdateMerge(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dst := tt.dst
-			converter.Convert(&tt.src, &dst, converter.WithUpdateMerge())
+			converter.Convert(&tt.src, &dst, converter.WithSparseMerge())
+			require.Equal(t, tt.want, dst)
+		})
+	}
+}
+
+// Types exercising WithSparseMerge when source and destination share the same
+// type: the assignability fast path must not replace nested structs wholesale.
+type MergeSameNested struct {
+	Field *string
+	Label *string
+}
+
+type MergeSame struct {
+	Name   *string
+	Nested *MergeSameNested
+	Stamp  *time.Time
+}
+
+func TestConvert_SparseMerge_SameType(t *testing.T) {
+	sp := func(s string) *string { return &s }
+	now := time.Now()
+
+	tests := []struct {
+		name string
+		dst  MergeSame
+		src  MergeSame
+		want MergeSame
+	}{
+		{
+			name: "nested merge preserves untouched siblings",
+			dst:  MergeSame{Nested: &MergeSameNested{Field: sp("a"), Label: sp("b")}},
+			src:  MergeSame{Nested: &MergeSameNested{Field: sp("x")}},
+			want: MergeSame{Nested: &MergeSameNested{Field: sp("x"), Label: sp("b")}},
+		},
+		{
+			name: "present-but-empty nested struct clears whole field",
+			dst:  MergeSame{Nested: &MergeSameNested{Field: sp("a"), Label: sp("b")}},
+			src:  MergeSame{Nested: &MergeSameNested{}},
+			want: MergeSame{Nested: nil},
+		},
+		{
+			name: "opaque struct without exported fields is assigned wholesale",
+			dst:  MergeSame{Name: sp("Old")},
+			src:  MergeSame{Stamp: &now},
+			want: MergeSame{Name: sp("Old"), Stamp: &now},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := tt.dst
+			converter.Convert(&tt.src, &dst, converter.WithSparseMerge())
+			require.Equal(t, tt.want, dst)
+		})
+	}
+}
+
+func TestConvert_SparseMerge_NoAliasing(t *testing.T) {
+	sp := func(s string) *string { return &s }
+
+	dst := MergeSame{Nested: &MergeSameNested{Field: sp("a"), Label: sp("b")}}
+	src := MergeSame{Nested: &MergeSameNested{Field: sp("x")}}
+
+	converter.Convert(&src, &dst, converter.WithSparseMerge())
+
+	require.NotSame(t, src.Nested, dst.Nested,
+		"destination must not alias the source nested struct")
+}
+
+// Types exercising WithSparseMerge with non-pointer nested structs: they carry
+// no presence signal, so a zero value merges normally and never clears.
+type MergeValMetaSource struct{ Note *string }
+
+type MergeValMetaDest struct{ Note *string }
+
+type MergeValSource struct {
+	Name *string
+	Meta MergeValMetaSource
+}
+
+type MergeValDest struct {
+	Name *string
+	Meta MergeValMetaDest
+}
+
+func TestConvert_SparseMerge_NonPointerNestedStruct(t *testing.T) {
+	sp := func(s string) *string { return &s }
+
+	tests := []struct {
+		name string
+		dst  MergeValDest
+		src  MergeValSource
+		want MergeValDest
+	}{
+		{
+			name: "untouched zero non-pointer struct preserves destination",
+			dst:  MergeValDest{Meta: MergeValMetaDest{Note: sp("important")}},
+			src:  MergeValSource{Name: sp("X")},
+			want: MergeValDest{Name: sp("X"), Meta: MergeValMetaDest{Note: sp("important")}},
+		},
+		{
+			name: "non-pointer struct with set field merges",
+			dst:  MergeValDest{Meta: MergeValMetaDest{Note: sp("old")}},
+			src:  MergeValSource{Meta: MergeValMetaSource{Note: sp("new")}},
+			want: MergeValDest{Meta: MergeValMetaDest{Note: sp("new")}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst := tt.dst
+			converter.Convert(&tt.src, &dst, converter.WithSparseMerge())
 			require.Equal(t, tt.want, dst)
 		})
 	}
