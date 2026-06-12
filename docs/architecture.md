@@ -40,6 +40,7 @@ go-atlas/
 │   ├── probfilter/        # Probabilistic filters (Bloom, Cuckoo)
 │   └── uniq/              # Uniqueness constraints
 ├── domain/                # Domain logic helpers
+│   ├── behavior/          # field_behavior strip (create/update/response)
 │   ├── converter/         # Struct-to-struct conversion
 │   ├── fieldtracker/      # Field change tracking
 │   ├── normalizer/        # Data normalization

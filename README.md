@@ -54,6 +54,7 @@ import "github.com/altessa-s/go-atlas/data/cache"
 | [`data/orderby`](data/orderby/) | AIP-132 `order_by` DSL parser with translators for MongoDB, Meilisearch, RediSearch |
 | [`data/outbox`](data/outbox/) | Transactional outbox (MongoDB-backed) |
 | [`data/probfilter`](data/probfilter/) | Bloom and Cuckoo probabilistic filters |
+| [`domain/behavior`](domain/behavior/) | Struct-tag `field_behavior` strip for Create / Update / Response payloads |
 | [`domain/converter`](domain/converter/) | Generic struct-to-struct conversion with codecs and lazy iterators |
 | [`domain/fieldtracker`](domain/fieldtracker/) | Struct field change tracking |
 | [`domain/normalizer`](domain/normalizer/) | Tag-driven data normalization with pluggable modifiers |

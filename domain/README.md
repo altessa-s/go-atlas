@@ -7,6 +7,8 @@ These packages operate on plain Go structs and protobuf messages without dependi
 
 | Package                        | Description                                          |
 |--------------------------------|------------------------------------------------------|
+| `behavior`                     | Struct-tag behavior strip/clean core + pluggable output `Translator` |
+| `behavior/translators/mongo`   | MongoDB `bson.M` translator: `$set`/`$unset` documents + projections |
 | `converter`                    | High-performance struct-to-struct conversion          |
 | `converter/codec`              | Pluggable codec interface and chain execution engine  |
 | `converter/codec/durpb`        | `durationpb.Duration` <-> `time.Duration` codec        |

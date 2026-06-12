@@ -105,6 +105,7 @@ domain/normalizer/modifiers # Normalization modifiers
 domain/proto                # Protobuf utilities
 domain/proto/fieldmask      # Field mask operations
 domain/validation           # Domain validation
+domain/behavior             # Domain behaviors
 
 # Infrastructure
 infrastructure              # General infrastructure
