@@ -9,6 +9,7 @@ import (
 	"container/list"
 	"context"
 	"errors"
+	"fmt"
 	"runtime"
 	"slices"
 	"sync"
@@ -195,9 +196,8 @@ func FilterParallel[T any](collection []T, predicate func(T) bool) []T {
 		return slices.Collect(Filter(collection, predicate))
 	}
 
-	// Parallel processing.
-	// We ignore the error because FilterParallel is designed to be a best-effort parallel filter
-	// where errors (like our "filtered" sentinel) are expected and indicate exclusion.
+	// Parallel processing. The errFiltered sentinel is expected and indicates
+	// exclusion of an element; it is the only error the worker can return.
 	results, err := concurrency.ProcessCollect(context.Background(), collection, func(ctx context.Context, item T) (T, error) {
 		if predicate(item) {
 			return item, nil
@@ -205,9 +205,12 @@ func FilterParallel[T any](collection []T, predicate func(T) bool) []T {
 		var zero T
 		return zero, errFiltered
 	})
-	if err != nil {
-		// Error is expected during filtering, we continue with whatever was collected.
-		return results
+	if err != nil && !errors.Is(err, errFiltered) {
+		// Unreachable by design: the predicate is bool-only and the worker returns
+		// only errFiltered, so any other error means a bug in ProcessCollect or this
+		// function. Panicking surfaces it immediately instead of silently returning
+		// a partially filtered result.
+		panic(fmt.Sprintf("slices.FilterParallel: unexpected error from ProcessCollect: %v", err))
 	}
 
 	return results
