@@ -51,9 +51,9 @@ func getBitWidth[T constraints.Integer]() uint64 {
 	case uint64, int64:
 		return BitsInUint64
 	case uint, int:
-		return uint64(unsafe.Sizeof(uint(0)) * 8) // #nosec G103 -- compile-time size query only, no pointer arithmetic
+		return uint64(unsafe.Sizeof(uint(0)) * BitsInByte) // #nosec G103 -- compile-time size query only, no pointer arithmetic
 	case uintptr:
-		return uint64(unsafe.Sizeof(uintptr(0)) * 8) // #nosec G103 -- compile-time size query only, no pointer arithmetic
+		return uint64(unsafe.Sizeof(uintptr(0)) * BitsInByte) // #nosec G103 -- compile-time size query only, no pointer arithmetic
 	default:
 		return BitsInUint64
 	}
