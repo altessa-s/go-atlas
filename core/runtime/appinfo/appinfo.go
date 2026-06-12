@@ -305,6 +305,12 @@ var versionInfoTmpl = `
   env prefix:       {{.envPrefix}}
 `
 
+// versionInfoTemplate is parsed once at package initialization so that
+// [AppVersion] does not re-parse the template on every call.
+//
+//nolint:gochecknoglobals // parse-once template cache, read-only after init
+var versionInfoTemplate = template.Must(template.New("version").Parse(versionInfoTmpl))
+
 // AppVersion returns a multi-line, human-readable summary of the application's
 // version, revision, build date, build tags, Go version, platform, and
 // environment prefix. The output is intended for CLI --version flags and
@@ -322,10 +328,8 @@ func AppVersion() string {
 		"envLabel":  EnvLabel(),
 		"envPrefix": EnvPrefix,
 	}
-	t := template.Must(template.New("version").Parse(versionInfoTmpl))
-
 	var buf bytes.Buffer
-	if err := t.ExecuteTemplate(&buf, "version", m); err != nil {
+	if err := versionInfoTemplate.ExecuteTemplate(&buf, "version", m); err != nil {
 		return ""
 	}
 	return strings.TrimSpace(buf.String())

@@ -13,11 +13,11 @@
 // Values can be set via ldflags during build:
 //
 //	go build -ldflags "
-//	  -X 'appinfo.Name=MyApp'
-//	  -X 'appinfo.Version=1.2.3'
-//	  -X 'appinfo.Commit=abc123'
-//	  -X 'appinfo.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)'
-//	  -X 'appinfo.EnvPrefix=MYAPP'
+//	  -X 'github.com/altessa-s/go-atlas/core/runtime/appinfo.Name=MyApp'
+//	  -X 'github.com/altessa-s/go-atlas/core/runtime/appinfo.Version=1.2.3'
+//	  -X 'github.com/altessa-s/go-atlas/core/runtime/appinfo.Commit=abc123'
+//	  -X 'github.com/altessa-s/go-atlas/core/runtime/appinfo.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)'
+//	  -X 'github.com/altessa-s/go-atlas/core/runtime/appinfo.EnvPrefix=MYAPP'
 //	"
 //
 // # Usage

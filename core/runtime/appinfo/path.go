@@ -5,8 +5,9 @@
 package appinfo
 
 import (
+	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 	"strings"
 )
 
@@ -16,7 +17,7 @@ import (
 // to "/opt/bin".
 func BinDir() string {
 	if dir := GetEnvVar("BIN_DIR"); dir != "" {
-		return path.Clean(strings.TrimRight(dir, "/"))
+		return filepath.Clean(strings.TrimRight(dir, "/"))
 	}
 	return "/opt/bin"
 }
@@ -27,7 +28,7 @@ func BinDir() string {
 // to "/var".
 func VarDir() string {
 	if dir := GetEnvVar("VAR_DIR"); dir != "" {
-		return path.Clean(strings.TrimRight(dir, "/"))
+		return filepath.Clean(strings.TrimRight(dir, "/"))
 	}
 	return "/var"
 }
@@ -48,7 +49,7 @@ func EtcDir() string {
 	}
 	pathComps = append(pathComps, strings.ToLower(Name))
 
-	return path.Join(pathComps...)
+	return filepath.Join(pathComps...)
 }
 
 // LibDir returns the directory for application library and state files.
@@ -67,7 +68,7 @@ func LibDir() string {
 	}
 	pathComps = append(pathComps, strings.ToLower(Name))
 
-	p := path.Join(pathComps...)
+	p := filepath.Join(pathComps...)
 	return p
 }
 
@@ -83,9 +84,9 @@ func CertsCacheDir() string {
 // #nosec G301 -- os.ModePerm (0777) is intentional for app directories, umask applies
 func MakeAllDirs() error {
 	dirs := []string{VarDir(), LibDir()}
-	for i := range len(dirs) {
-		if err := os.MkdirAll(dirs[i], os.ModePerm); err != nil {
-			return err
+	for _, dir := range dirs {
+		if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+			return fmt.Errorf("mkdir %s: %w", dir, err)
 		}
 	}
 	return nil
