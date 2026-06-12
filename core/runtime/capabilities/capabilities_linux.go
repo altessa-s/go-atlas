@@ -180,9 +180,23 @@ func getSnapshot() (Sets, error) {
 // "actual" capabilities diverge from the requested snapshot. Without
 // the step annotation an operator sees only the underlying errno
 // and has no way to reconstruct what state the thread is in.
-func applySnapshot(s Sets) error {
+//
+// When a failure occurs after the thread state has already been
+// mutated (any successful ambient/capset/bounding syscall), the OS
+// thread pin is retained — the goroutine carries the lock away on
+// exit. Releasing a thread whose capability state diverged mid-way
+// would hand the scheduler a thread that behaves differently from
+// its peers. Failures before the first mutation (snapshot read,
+// validation) release the pin as usual. Same policy as the sibling
+// seccomp package.
+func applySnapshot(s Sets) (retErr error) {
 	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
+	mutated := false
+	defer func() {
+		if retErr == nil || !mutated {
+			runtime.UnlockOSThread()
+		}
+	}()
 
 	cur, err := getSnapshot()
 	if err != nil {
@@ -230,6 +244,7 @@ func applySnapshot(s Sets) error {
 				c, c, err,
 			)
 		}
+		mutated = true
 	}
 
 	// Install the new effective/permitted/inheritable. If this fails
@@ -244,6 +259,7 @@ func applySnapshot(s Sets) error {
 			s.Effective, s.Permitted, s.Inheritable, err,
 		)
 	}
+	mutated = true
 
 	// Drop bounding bits that should no longer be present. This is
 	// irreversible — once dropped from bounding, the bit cannot be
