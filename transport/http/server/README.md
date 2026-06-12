@@ -5,7 +5,7 @@ import "github.com/altessa-s/go-atlas/transport/http/server"
 ```
 
 Package `server` provides an HTTP server with graceful shutdown, middleware support, and pluggable router implementations. The router
-abstraction decouples the server from any specific routing library, allowing implementations to be swapped without changing handler code.
+abstraction decouples the server from any specific routing library, so implementations can be swapped without changing handler code.
 Handlers receive a `writer.ReadWriter` for content-negotiated request/response handling instead of raw `http.ResponseWriter`.
 
 ## Subpackages

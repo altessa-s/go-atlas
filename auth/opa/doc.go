@@ -73,5 +73,5 @@
 // # Thread Safety
 //
 // All public methods on [Manager] and [Evaluator] are safe for concurrent use.
-// Policy updates are applied atomically, ensuring consistent evaluation results.
+// Policy updates are applied atomically; evaluations always see a consistent policy set.
 package opa

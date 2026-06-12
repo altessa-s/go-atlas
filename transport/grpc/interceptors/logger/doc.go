@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package logger provides gRPC interceptors for comprehensive request and response logging.
+// Package logger provides gRPC interceptors for request and response logging.
 // It captures method calls, timing, errors, and custom fields with structured logging support.
 //
 // Example:

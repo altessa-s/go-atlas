@@ -930,7 +930,7 @@ claims, err := provider.ValidateTokenWithPreset(ctx, token, "admin-only")
 
 ### Preset Selection Rules
 
-Rules evaluated in order to automatically select a preset based on token claims.
+Rules pick a preset automatically based on token claims.
 
 ```json
 {

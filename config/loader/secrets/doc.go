@@ -63,8 +63,8 @@
 //   - An error is logged (if a logger is configured)
 //   - Processing continues with remaining placeholders
 //
-// This behavior ensures that configuration loading does not fail due to missing
-// secrets, allowing applications to handle missing values appropriately.
+// Configuration loading therefore does not fail on missing secrets;
+// the application decides how to handle the empty values.
 //
 // # Thread Safety
 //

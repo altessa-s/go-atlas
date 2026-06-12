@@ -4,11 +4,10 @@
 
 // Package redis provides a Redis-backed implementation of the [scheduler.Storage] interface.
 // It stores task states and execution history as JSON documents using RedisJSON,
-// and leverages RediSearch for indexed querying and filtering.
+// and uses RediSearch for indexed querying and filtering.
 //
 // [Storage] is safe for concurrent use by multiple goroutines and across multiple
-// processes, making it suitable for distributed scheduling scenarios where multiple
-// scheduler instances share state.
+// processes, so several scheduler instances can share state.
 //
 // # Prerequisites
 //

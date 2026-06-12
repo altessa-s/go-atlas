@@ -5,7 +5,7 @@ import "github.com/altessa-s/go-atlas/auth/opa/sources/embed"
 ```
 
 Package `embed` implements an OPA policy source backed by an embedded filesystem.
-It allows OPA policies to be compiled directly into the binary, eliminating the need for external policy files at runtime.
+OPA policies compile directly into the binary, so no external policy files are needed at runtime.
 
 ## Usage
 

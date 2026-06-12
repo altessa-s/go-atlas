@@ -8,7 +8,7 @@
 // with support for concurrent operations, retry logic, and base64 encoding.
 //
 // The GCP provider supports complete CRUD operations, automatic concurrent
-// retrieval, and comprehensive error handling with GCP-specific error mapping.
+// retrieval, and GCP-specific error mapping.
 // All operations are performed using the official Google Cloud Secret Manager
 // client with proper authentication and connection management.
 //

@@ -5,7 +5,7 @@ import ping "github.com/altessa-s/go-atlas/transport/http/server/handlers/ping"
 ```
 
 Tiny static `/ping` HTTP handler. Always returns 200 with `{"message":"pong"}`. Useful when probe traffic must avoid touching real
-dependencies (the more comprehensive option is `handlers/health`).
+dependencies (when you do want real checks, use `handlers/health`).
 
 ## Symbols
 
