@@ -13,7 +13,9 @@
 //
 // # Usage
 //
-//	rt := http.RoundTripperFunc(func(req *http.Request) (*http.Response, error) {
+//	import corehttp "github.com/altessa-s/go-atlas/core/net/http"
+//
+//	rt := corehttp.RoundTripperFunc(func(req *http.Request) (*http.Response, error) {
 //	    // Clone before mutating: RoundTrippers must not modify the request.
 //	    req = req.Clone(req.Context())
 //	    req.Header.Set("User-Agent", "go-atlas")
