@@ -576,8 +576,15 @@ func (conv *Converter[T, U]) convertValue(fieldName string, srcValue reflect.Val
 	}
 
 	// Branch prediction optimization: reorder checks based on likelihood
-	// Most likely path: direct type assignability (90%+ of cases)
-	if conv.isTypeCachedAssignable(srcValue.Type(), dstValue.Type()) {
+	// Most likely path: direct type assignability (90%+ of cases).
+	// Under WithSparseMerge identically-typed nested structs must skip this
+	// shortcut: assigning the value wholesale would replace the destination
+	// object (aliasing the source pointer) instead of merging field-by-field,
+	// so they fall through to convertByKind. Structs without exported fields
+	// (time.Time and similar opaque types) cannot be merged field-by-field
+	// and keep the direct assignment.
+	if conv.isTypeCachedAssignable(srcValue.Type(), dstValue.Type()) &&
+		(!conv.opts.sparseMerge || !conv.isMergeableStruct(srcValue.Type())) {
 		dstValue.Set(srcValue)
 		return
 	}
@@ -622,6 +629,16 @@ func (conv *Converter[T, U]) convertByKind(fieldName string, srcValue reflect.Va
 		if dstKind == reflect.Struct {
 			// Common case: both structs - optimize pointer handling
 			srcIsNil := srcValue.Kind() == reflect.Pointer && srcValue.IsNil()
+			// Sparse merge: a present-but-empty nested struct pointer
+			// clears the destination instead of recursing. Only a pointer
+			// carries a presence signal — a non-pointer source struct is
+			// always "present", so its zero value merges normally instead of
+			// destroying the destination field.
+			if conv.opts.sparseMerge && srcValue.Kind() == reflect.Pointer && !srcIsNil &&
+				isSparseStructEmpty(srcValue.Elem()) {
+				dstValue.Set(reflect.Zero(dstValue.Type()))
+				return
+			}
 			if dstValue.Kind() == reflect.Pointer && dstValue.IsNil() && !srcIsNil {
 				dstValue.Set(reflect.New(dstValueType))
 			}
@@ -710,12 +727,44 @@ func (conv *Converter[T, U]) isTypeCachedConvertible(srcType, dstType reflect.Ty
 	return srcInfo.IsConvertible(srcType, dstType)
 }
 
+// isMergeableStruct reports whether t (after pointer indirection) is a struct
+// that [WithSparseMerge] can merge field-by-field, i.e. it has at least one
+// exported field. Structs without exported fields (time.Time and similar
+// opaque types) cannot be merged and must be assigned wholesale.
+func (conv *Converter[T, U]) isMergeableStruct(t reflect.Type) bool {
+	if IndirectType(t).Kind() != reflect.Struct {
+		return false
+	}
+	return len(conv.typeCache.GetTypeInfo(t).ByName) > 0
+}
+
 // isStructZero returns true if all fields of the struct are zero values.
 func isStructZero(v reflect.Value) bool {
 	for i := range v.NumField() {
 		field := v.Field(i)
 		if !field.IsZero() {
 			return false
+		}
+	}
+	return true
+}
+
+// isSparseStructEmpty reports whether v carries no update instructions: every
+// pointer/slice/map/interface field is nil and every other field is its zero
+// value. Used by [WithSparseMerge] to detect a present-but-empty nested update
+// struct, which signals "clear the whole field" rather than "merge nothing".
+func isSparseStructEmpty(v reflect.Value) bool {
+	for i := range v.NumField() {
+		field := v.Field(i)
+		switch field.Kind() {
+		case reflect.Pointer, reflect.Slice, reflect.Map, reflect.Interface:
+			if !field.IsNil() {
+				return false
+			}
+		default:
+			if !field.IsZero() {
+				return false
+			}
 		}
 	}
 	return true

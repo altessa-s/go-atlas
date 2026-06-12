@@ -13,6 +13,13 @@
 // [WithCodecs]; see the codec sub-packages ([convcodec], [pbwrap], [tspb],
 // [durpb], [unixtime], [jsonpb], [oneof], [mapslice]) for built-in converters.
 //
+// Source value handling is controlled by [WithIgnoreZeroValues] (skip every
+// zero source value), [WithIgnoreNilValues] (skip nil pointers, slices, and
+// maps), and [WithSparseMerge] (apply the source as a sparse partial update
+// with JSON Merge Patch-like semantics). [WithSparseMerge] is mutually
+// exclusive with [WithIgnoreZeroValues] and subsumes [WithIgnoreNilValues] —
+// nil sources are skipped the same way.
+//
 // Lazy iteration over slices and maps is available via [ConvertSeq] and
 // [ConvertMapSeq], which convert elements on demand without pre-allocating a
 // full destination collection.
