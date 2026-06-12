@@ -15,7 +15,6 @@
 //   - WithShutdownTimeout(duration): Graceful shutdown timeout (default: 30s).
 //   - WithHandlerTimeout(duration): Individual handler timeout (default: 5s).
 //   - WithExecutionMode(mode): Sequential or Parallel (default: Sequential).
-//   - WithRateLimit(maxTokens, refillRate, interval): Token bucket rate limiting.
 //
 // # Usage
 //
@@ -24,7 +23,7 @@
 //	    signals.WithShutdownTimeout(10*time.Second),
 //	)
 //
-//	handler.AddHandler(func(sig os.Signal) error {
+//	handler.AddHandler(func(ctx context.Context, sig os.Signal) error {
 //	    fmt.Println("Shutting down...")
 //	    return cleanup()
 //	}, syscall.SIGTERM, syscall.SIGINT)
