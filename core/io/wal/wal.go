@@ -49,6 +49,15 @@ var (
 	ErrClosed = errors.New("wal: closed")
 	// ErrFull is returned by Append when the max-bytes cap is exceeded.
 	ErrFull = errors.New("wal: full")
+	// ErrEmptyPayload is returned by Append for zero-length payloads. The
+	// on-disk format cannot represent them: recovery treats a zero record
+	// length as corruption, so accepting one would silently truncate every
+	// record written after it in the same segment on the next Open.
+	ErrEmptyPayload = errors.New("wal: empty payload")
+	// ErrPayloadTooLarge is returned by Append when the payload exceeds the
+	// per-record limit enforced during recovery (64 MiB); writing it would
+	// make the segment unrecoverable past that record.
+	ErrPayloadTooLarge = errors.New("wal: payload too large")
 )
 
 // Record is a record found during WAL recovery.
@@ -90,6 +99,7 @@ type WAL struct {
 	scratch []byte // reusable encode buffer; guarded by mu
 	totalSz atomic.Int64
 	closed  atomic.Bool
+	closing atomic.Bool // single-winner guard for Close; see Close
 
 	fsyncDone chan struct{}
 	fsyncWG   sync.WaitGroup
@@ -279,12 +289,21 @@ func (w *WAL) openNewActiveLocked() error {
 
 // Append writes payload to the active segment and returns its offset. The
 // data lands in the OS page cache; durability is provided by the periodic
-// fsync goroutine. Returns ErrClosed after Close, or ErrFull when MaxBytes
-// is configured and exceeded.
+// fsync goroutine. Returns ErrClosed after Close, ErrFull when MaxBytes
+// is configured and exceeded, ErrEmptyPayload for zero-length payloads,
+// or ErrPayloadTooLarge for payloads over 64 MiB — the latter two cannot
+// be represented by the on-disk format and would be treated as corruption
+// on recovery, truncating every record written after them.
 //
 // Header and payload are coalesced into a single write under the lock,
 // which halves the syscall count relative to a naive two-write encoding.
 func (w *WAL) Append(payload []byte) (Offset, error) {
+	if len(payload) == 0 {
+		return Offset{}, ErrEmptyPayload
+	}
+	if len(payload) > maxRecordBytes {
+		return Offset{}, ErrPayloadTooLarge
+	}
 	if w.closed.Load() {
 		return Offset{}, ErrClosed
 	}
@@ -516,14 +535,16 @@ func (w *WAL) Sync() error {
 // primitive must not silently drop the final flush result. Calling
 // Close more than once is a no-op and returns nil.
 func (w *WAL) Close() error {
-	// Stop the fsync goroutine first, then mark closed so any in-flight Acks
-	// from consumer goroutines that finish concurrently still take effect.
-	w.mu.Lock()
-	if w.closed.Load() {
-		w.mu.Unlock()
+	// Single-winner guard: exactly one caller proceeds to stop the fsync
+	// goroutine and close files; concurrent and repeated calls return nil
+	// immediately. Guarding with w.closed under the mutex is not enough —
+	// it is only set further down, so two racing callers could both pass
+	// the check and both close(w.fsyncDone), panicking. The closed flag
+	// is still set late, under w.mu, so in-flight Acks from consumer
+	// goroutines that finish concurrently still take effect.
+	if !w.closing.CompareAndSwap(false, true) {
 		return nil
 	}
-	w.mu.Unlock()
 
 	close(w.fsyncDone)
 	w.fsyncWG.Wait()
