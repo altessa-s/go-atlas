@@ -472,10 +472,12 @@ func (s *Signal) Shutdown(ctx context.Context) error {
 		s.globalCancel() // Cancel context after graceful completion
 		return nil
 	case <-ctx.Done():
-		// Timeout occurred, force cancellation of all handlers
-		// Still try to run hooks if possible, but with what context? best effort
-		runtime.RunShutdownHooks(context.Background()) //nolint:errcheck,contextcheck // best-effort during shutdown timeout, original ctx is expired
+		// Timeout occurred: cancel the handler context FIRST so in-flight
+		// handlers (and the wg.Wait waiter goroutine above) unwind
+		// immediately instead of running on while hooks execute.
 		s.globalCancel()
+		// Still try to run hooks, best effort — the original ctx is expired.
+		runtime.RunShutdownHooks(context.Background()) //nolint:errcheck,contextcheck // best-effort during shutdown timeout, original ctx is expired
 		return coreerrs.Wrap(ctx.Err(), "shutdown timeout")
 	}
 }
@@ -516,8 +518,10 @@ func (s *Signal) signalsListener() {
 				s.safeCallErrorHandler(sig, errors.New("worker pool is full, signal handler dropped"))
 			}
 		case <-s.stop:
-			// Stop listening for signals
-			signal.Stop(s.signalChannel)
+			// Stop listening. signal.Stop is owned by Shutdown, which has
+			// already called it before queueing the stop message — calling
+			// it again here would be harmless (the stdlib serializes it)
+			// but obscures who is responsible for unsubscribing.
 			return
 		}
 	}
@@ -526,15 +530,15 @@ func (s *Signal) signalsListener() {
 // runHandlers orchestrates the execution of all registered handlers for a specific signal.
 // Uses optimized execution path with priority queue optimizations.
 func (s *Signal) runHandlers(sig os.Signal) {
-	// For large handler counts, use priority queue for O(1) operations
+	// Count and snapshot under a single read lock: releasing it between
+	// the count and the copy would let a concurrent AddHandler change the
+	// set, so the branch decision below could be made on a stale total.
 	s.mx.RLock()
-	totalHandlers := len(s.broadcastHandlers)
-	if sigHandlers, ok := s.handlers[sig]; ok {
-		totalHandlers += len(sigHandlers)
-	}
-	s.mx.RUnlock()
+	sigHandlers := s.handlers[sig]
+	totalHandlers := len(s.broadcastHandlers) + len(sigHandlers)
 
 	if totalHandlers == 0 {
+		s.mx.RUnlock()
 		return
 	}
 
@@ -544,14 +548,11 @@ func (s *Signal) runHandlers(sig os.Signal) {
 	if totalHandlers > LargeHandlerCountThreshold {
 		pq := newPriorityQueue()
 
-		s.mx.RLock()
 		for _, entry := range s.broadcastHandlers {
 			pq.addHandler(entry)
 		}
-		if sigHandlers, ok := s.handlers[sig]; ok {
-			for _, entry := range sigHandlers {
-				pq.addHandler(entry)
-			}
+		for _, entry := range sigHandlers {
+			pq.addHandler(entry)
 		}
 		s.mx.RUnlock()
 
@@ -559,12 +560,8 @@ func (s *Signal) runHandlers(sig os.Signal) {
 	} else {
 		// Use traditional approach for smaller handler sets
 		handlers = make([]handlerEntry, 0, HandlerSliceInitialCapacity)
-
-		s.mx.RLock()
 		handlers = append(handlers, s.broadcastHandlers...)
-		if sigHandlers, ok := s.handlers[sig]; ok {
-			handlers = append(handlers, sigHandlers...)
-		}
+		handlers = append(handlers, sigHandlers...)
 		s.mx.RUnlock()
 
 		s.sortHandlers(handlers)
