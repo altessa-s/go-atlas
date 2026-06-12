@@ -6,7 +6,6 @@ package maps_test
 
 import (
 	"maps"
-	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -17,6 +16,8 @@ import (
 )
 
 func TestMerge(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		src      map[string]int
@@ -57,6 +58,7 @@ func TestMerge(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := coremaps.Merge(tt.src, tt.dst)
 			require.True(t, maps.Equal(got, tt.expected), "Merge() = %v, want %v", got, tt.expected)
 			// Verify immutability
@@ -73,6 +75,8 @@ func TestMerge(t *testing.T) {
 }
 
 func TestSwap(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		input    map[string]int
@@ -92,6 +96,7 @@ func TestSwap(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got := coremaps.Swap(tt.input)
 			require.True(t, maps.Equal(got, tt.expected), "Swap() = %v, want %v", got, tt.expected)
 		})
@@ -99,6 +104,8 @@ func TestSwap(t *testing.T) {
 }
 
 func TestFilterMap(t *testing.T) {
+	t.Parallel()
+
 	input := map[string]int{"a": 1, "b": 2, "c": 3}
 	got := coremaps.FilterMap(input, func(k string, v int) bool {
 		return v%2 != 0
@@ -110,6 +117,8 @@ func TestFilterMap(t *testing.T) {
 }
 
 func TestConvertMap(t *testing.T) {
+	t.Parallel()
+
 	input := map[string]int{"a": 1, "b": 2}
 	got := coremaps.ConvertMap(input, func(k string, v int) (int, string) {
 		return v, k
@@ -119,6 +128,8 @@ func TestConvertMap(t *testing.T) {
 }
 
 func TestFromSlice(t *testing.T) {
+	t.Parallel()
+
 	users := []testhelpers.User{{ID: 1, Name: "A"}, {ID: 2, Name: "B"}, {ID: 1, Name: "A2"}} // Duplicate ID 1
 
 	// Last one wins
@@ -131,6 +142,8 @@ func TestFromSlice(t *testing.T) {
 }
 
 func TestFromSliceWith(t *testing.T) {
+	t.Parallel()
+
 	users := []testhelpers.User{{ID: 1, Name: "A"}, {ID: 2, Name: "B"}}
 	got := coremaps.FromSliceWith(users, func(u testhelpers.User) (int, string) {
 		return u.ID, u.Name
@@ -140,6 +153,8 @@ func TestFromSliceWith(t *testing.T) {
 }
 
 func TestToKeyValueSlice(t *testing.T) {
+	t.Parallel()
+
 	input := map[string]string{"k1": "v1"}
 	got := coremaps.ToKeyValueSlice(input)
 	require.Len(t, got, 2)
@@ -153,39 +168,133 @@ func TestToKeyValueSlice(t *testing.T) {
 	require.Nil(t, coremaps.ToKeyValueSlice[string, int](nil), "ToKeyValueSlice(nil) should return nil")
 }
 
+func TestMergeWith(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		src      map[string]int
+		dst      map[string]int
+		resolve  func(string, int, int) int
+		expected map[string]int
+	}{
+		{
+			name:     "disjoint maps resolve not called",
+			src:      map[string]int{"a": 1},
+			dst:      map[string]int{"b": 2},
+			resolve:  func(_ string, s, d int) int { return s + d },
+			expected: map[string]int{"a": 1, "b": 2},
+		},
+		{
+			name:     "overlapping key accumulates",
+			src:      map[string]int{"a": 3, "b": 1},
+			dst:      map[string]int{"a": 5, "c": 2},
+			resolve:  func(_ string, s, d int) int { return s + d },
+			expected: map[string]int{"a": 8, "b": 1, "c": 2},
+		},
+		{
+			name:     "overlapping key src wins",
+			src:      map[string]int{"a": 1},
+			dst:      map[string]int{"a": 2},
+			resolve:  func(_ string, s, _ int) int { return s },
+			expected: map[string]int{"a": 1},
+		},
+		{
+			name:     "empty src returns copy of dst",
+			src:      nil,
+			dst:      map[string]int{"a": 1},
+			resolve:  func(_ string, s, _ int) int { return s },
+			expected: map[string]int{"a": 1},
+		},
+		{
+			name:     "empty dst returns copy of src",
+			src:      map[string]int{"a": 1},
+			dst:      nil,
+			resolve:  func(_ string, s, _ int) int { return s },
+			expected: map[string]int{"a": 1},
+		},
+		{
+			name:     "both empty returns nil",
+			src:      nil,
+			dst:      nil,
+			resolve:  func(_ string, s, _ int) int { return s },
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := coremaps.MergeWith(tt.src, tt.dst, tt.resolve)
+			require.True(t, maps.Equal(got, tt.expected), "MergeWith() = %v, want %v", got, tt.expected)
+		})
+	}
+}
+
+func TestMergeAll(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		layers   []map[string]string
+		expected map[string]string
+	}{
+		{
+			name:     "no layers returns nil",
+			layers:   nil,
+			expected: nil,
+		},
+		{
+			name:     "all empty layers returns nil",
+			layers:   []map[string]string{nil, nil},
+			expected: nil,
+		},
+		{
+			name:     "single layer",
+			layers:   []map[string]string{{"a": "1"}},
+			expected: map[string]string{"a": "1"},
+		},
+		{
+			name:     "last layer wins on conflict",
+			layers:   []map[string]string{{"a": "base", "b": "base"}, {"b": "mid"}, {"a": "top", "c": "top"}},
+			expected: map[string]string{"a": "top", "b": "mid", "c": "top"},
+		},
+		{
+			name:     "disjoint layers merged",
+			layers:   []map[string]string{{"a": "1"}, {"b": "2"}, {"c": "3"}},
+			expected: map[string]string{"a": "1", "b": "2", "c": "3"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := coremaps.MergeAll(tt.layers...)
+			require.True(t, maps.Equal(got, tt.expected), "MergeAll() = %v, want %v", got, tt.expected)
+		})
+	}
+}
+
 func TestFlatMap(t *testing.T) {
+	t.Parallel()
+
 	t.Run("ToFlatMap", func(t *testing.T) {
+		t.Parallel()
 		nested := map[string]any{
 			"a": map[string]any{
 				"b": 1,
-				"c": map[string]any{
-					"d": 2,
-				},
+				"c": map[string]any{"d": 2},
 			},
 			"e": 3,
 		}
-		got := coremaps.ToFlatMap(nested, nil)
-		expected := map[string]any{
-			"a.b":   1,
-			"a.c.d": 2,
-			"e":     3,
-		}
-		require.True(t, reflect.DeepEqual(got, expected), "ToFlatMap() = %v, want %v", got, expected)
+		require.Equal(t, map[string]any{"a.b": 1, "a.c.d": 2, "e": 3}, coremaps.ToFlatMap(nested, nil))
 	})
 
 	t.Run("FromFlatMap", func(t *testing.T) {
-		flat := map[string]any{
-			"a.b":   1,
-			"a.c.d": 2,
-			"e":     3,
-		}
+		t.Parallel()
+		flat := map[string]any{"a.b": 1, "a.c.d": 2, "e": 3}
 		got := coremaps.FromFlatMap(flat)
 
-		// Need robust deep check due to map iterations order when building back
-		// But logically it should match structure.
-		// "a": map{"b":1, "c": map{"d":2}}
-
-		// Helper to safely cast
 		getNested := func(m map[string]any, keys ...string) any {
 			curr := any(m)
 			for _, k := range keys {
@@ -198,62 +307,15 @@ func TestFlatMap(t *testing.T) {
 			return curr
 		}
 
-		require.Equal(t, 1, getNested(got, "a", "b"), "FromFlatMap failed to reconstruct a.b")
-		require.Equal(t, 2, getNested(got, "a", "c", "d"), "FromFlatMap failed to reconstruct a.c.d")
-		require.Equal(t, 3, getNested(got, "e"), "FromFlatMap failed to reconstruct e")
+		require.Equal(t, 1, getNested(got, "a", "b"))
+		require.Equal(t, 2, getNested(got, "a", "c", "d"))
+		require.Equal(t, 3, getNested(got, "e"))
 	})
 
 	t.Run("ConflictHandler", func(t *testing.T) {
-		// Conflict: a.b=1 vs a=2
-		// If "a" comes first as scalar 2, then "a.b" sees conflict.
-		// Map iteration order is random, so we can't deterministically force order purely by input map literal.
-		// However, FromFlatMap implementation sorts keys? No it iterates range.
-
-		flat := map[string]any{
-			"foo":     "bar",
-			"foo.bar": "baz",
-		}
-
-		conflicts := 0
-		coremaps.FromFlatMapWithHandler(flat, func(key string, existing any) {
-			conflicts++
-		})
-
-		if conflicts == 0 {
-			// It's possible due to random order we didn't hit conflict if the scalar key was processed last
-			// Wait, the conflict logic:
-			// If we process "foo.bar" -> out["foo"] = map...
-			// Then process "foo" -> out["foo"] = "bar" -> OVERWRITES map if logic allows?
-			// FromFlatMapWithHandler code:
-			// if no dot: out[key] = value -> OVERWRITES blindly.
-			// if dot: loops segments. check if existing is map.
-
-			// So:
-			// Case 1: "foo" then "foo.bar"
-			// 1. out["foo"] = "bar"
-			// 2. "foo.bar": segment "foo". existing is "bar" (string). !ok conversion to map. Conflict!
-
-			// Case 2: "foo.bar" then "foo"
-			// 1. out["foo"] = map...
-			// 2. "foo": out["foo"] = "bar". Overwrites map. No conflict reported callback, just overwrite?
-			// Let's re-read code in FromFlatMapWithHandler.
-
-			// Code check:
-			// dotIdx < 0 -> out[key] = value. YES, overwrites.
-
-			// So conflict handler only triggers if we try to treat a scalar as a map traversal node.
-			// We can trigger this reliably if we ensure the scalar is set first? No reliable way with Go map iteration.
-			// But tests should ideally be deterministic.
-			// Maybe just note that this test depends on iteration order potentially?
-			// Or we can assume that EVENTUALLY it handles conflicts.
-			// Actually for comprehensive test we strictly want to test the HANDLER.
-			// To test handler we need to force the condition. But we can't force iteration order.
-			// We can construct a Scenario where we manually call internal logic, but we can't access internal logic.
-
-			// Alternative: Ensure conflict by having a path that conflicts with ALREADY set structure from previous key.
-			// But previous key is determined by range loop.
-			// For now let's skip complex conflict test or try to populate enough data to hit it statistically, or mock.
-			// Or just accept simple test.
-		}
+		t.Parallel()
+		// Conflict detection is iteration-order-dependent; verify no panic occurs.
+		flat := map[string]any{"foo": "bar", "foo.bar": "baz"}
+		coremaps.FromFlatMapWithHandler(flat, func(_ string, _ any) {})
 	})
 }

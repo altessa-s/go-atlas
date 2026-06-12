@@ -18,9 +18,12 @@ return new maps without modifying inputs; nil maps are treated as empty and neve
 | `FromSlice`              | Build a map from a slice using a key extractor       |
 | `FromSliceWith`          | Build a map from a slice using a key-value extractor |
 | `ToKeyValueSlice`        | Flatten a map to `[]any{k1, v1, k2, v2, ...}`        |
-| `FromFlatMap`            | Expand dot-separated keys into nested maps           |
-| `FromFlatMapWithHandler` | Same as `FromFlatMap` with a conflict callback       |
-| `ToFlatMap`              | Flatten nested maps into dot-separated keys          |
+| `MergeWith`              | Combine two maps with a custom conflict resolver      |
+| `MergeAll`               | Overlay N maps in order; last layer wins              |
+| `MergeDeep`              | Recursively merge nested `map[string]any` structures  |
+| `FromFlatMap`            | Expand dot-separated keys into nested maps            |
+| `FromFlatMapWithHandler` | Same as `FromFlatMap` with a conflict callback        |
+| `ToFlatMap`              | Flatten nested maps into dot-separated keys           |
 
 ## Iterators
 
