@@ -7,6 +7,7 @@ package panics_test
 import (
 	"context"
 	"log/slog"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -159,6 +160,34 @@ func TestAddGlobalPanicHandler(t *testing.T) {
 
 	// Restore defaults
 	panics.SetGlobalPanicHandlers()
+}
+
+// TestAddGlobalPanicHandler_ConcurrentRegistration guards against the
+// lost-update race: AddGlobalPanicHandler used to do a load-modify-store
+// on the atomic.Value, so two concurrent registrations could both build
+// on the same base slice and one handler silently vanished.
+func TestAddGlobalPanicHandler_ConcurrentRegistration(t *testing.T) {
+	panics.SetGlobalPanicHandlers() // start from a clean slate
+	t.Cleanup(func() { panics.SetGlobalPanicHandlers() })
+
+	const n = 64
+	var calls atomic.Int32
+	var wg sync.WaitGroup
+	for range n {
+		wg.Go(func() {
+			panics.AddGlobalPanicHandler(func(context.Context, any) {
+				calls.Add(1)
+			})
+		})
+	}
+	wg.Wait()
+
+	func() {
+		defer panics.HandleWithOpts(t.Context(), panics.NewHandleOpts().SetReallyPanic(false))
+		panic("boom")
+	}()
+
+	require.Equal(t, int32(n), calls.Load(), "every concurrently registered handler must run")
 }
 
 func TestInvalidArgument_Triggers(t *testing.T) {

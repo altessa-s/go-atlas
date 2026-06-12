@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"runtime"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -230,6 +231,14 @@ func processRecovery(ctx context.Context, r any, opts *HandleOpts, handler ...Pa
 }
 
 var globalPanicHandlers = atomic.Value{}
+
+// globalPanicHandlersMu serializes writers of globalPanicHandlers.
+// AddGlobalPanicHandler is a read-modify-write: two concurrent calls
+// both loading the same base slice would each store base+own and one
+// handler would be silently lost. Readers (processRecovery) stay
+// lock-free on the atomic.Value.
+var globalPanicHandlersMu sync.Mutex
+
 var panicLogger = atomic.Value{}
 var loggerFromContext = atomic.Value{} // stores LoggerFromContextFunc
 
@@ -251,6 +260,9 @@ func AddGlobalPanicHandler(handler PanicHandler) {
 		return
 	}
 
+	globalPanicHandlersMu.Lock()
+	defer globalPanicHandlersMu.Unlock()
+
 	var handlers PanicHandlers
 	if existing, ok := globalPanicHandlers.Load().(PanicHandlers); ok && len(existing) > 0 {
 		handlers = make(PanicHandlers, 0, len(existing)+1)
@@ -269,6 +281,11 @@ func AddGlobalPanicHandler(handler PanicHandler) {
 // installed at package init time. Pass an empty slice to disable global
 // handling entirely. This function is safe for concurrent use.
 func SetGlobalPanicHandlers(handlers ...PanicHandler) {
+	// Serialize with AddGlobalPanicHandler: without the lock a Set landing
+	// between Add's load and store would be clobbered by Add's stale base.
+	globalPanicHandlersMu.Lock()
+	defer globalPanicHandlersMu.Unlock()
+
 	// Store an immutable copy (no shared backing array).
 	globalPanicHandlers.Store(clonePanicHandlers(handlers))
 }
