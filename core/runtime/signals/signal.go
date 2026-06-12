@@ -5,11 +5,13 @@
 package signals
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/signal"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -106,7 +108,11 @@ type priorityBucket struct {
 // priorityQueue implements an optimized priority queue using buckets
 type priorityQueue struct {
 	buckets [PriorityBucketCount]*priorityBucket
-	mutex   sync.RWMutex
+	// overflow collects handlers whose custom priority does not match any
+	// predefined bucket; getHandlersInOrder merges them into the correct
+	// position relative to the bucketed handlers.
+	overflow []handlerEntry
+	mutex    sync.RWMutex
 }
 
 // handlerEntry represents a single handler with its execution mode and timeout configuration.
@@ -292,21 +298,10 @@ func (pq *priorityQueue) addHandler(entry handlerEntry) {
 		}
 	}
 
-	// Create new bucket if not found (for custom priorities)
-	for i, bucket := range pq.buckets {
-		if bucket == nil {
-			pq.buckets[i] = &priorityBucket{
-				priority: entry.priority,
-				handlers: []handlerEntry{entry},
-			}
-			return
-		}
-	}
-
-	// Fallback to first bucket if all slots used
-	if pq.buckets[0] != nil {
-		pq.buckets[0].handlers = append(pq.buckets[0].handlers, entry)
-	}
+	// Custom priority with no matching predefined bucket: collect it in the
+	// overflow slice so getHandlersInOrder can merge it at the correct
+	// position instead of misfiling it into the highest-priority bucket.
+	pq.overflow = append(pq.overflow, entry)
 }
 
 // getHandlersInOrder returns all handlers sorted by priority (high to low)
@@ -314,7 +309,7 @@ func (pq *priorityQueue) getHandlersInOrder() []handlerEntry {
 	pq.mutex.RLock()
 	defer pq.mutex.RUnlock()
 
-	var totalHandlers int
+	totalHandlers := len(pq.overflow)
 	for _, bucket := range pq.buckets {
 		if bucket != nil {
 			totalHandlers += len(bucket.handlers)
@@ -333,6 +328,17 @@ func (pq *priorityQueue) getHandlersInOrder() []handlerEntry {
 		if bucket != nil && len(bucket.handlers) > 0 {
 			result = append(result, bucket.handlers...)
 		}
+	}
+
+	// Merge overflow (custom-priority) handlers into the correct position.
+	// The stable sort preserves registration order within equal priorities;
+	// overflow priorities never collide with bucket priorities because
+	// addHandler routes exact matches into the buckets.
+	if len(pq.overflow) > 0 {
+		result = append(result, pq.overflow...)
+		slices.SortStableFunc(result, func(a, b handlerEntry) int {
+			return cmp.Compare(b.priority, a.priority)
+		})
 	}
 
 	return result
