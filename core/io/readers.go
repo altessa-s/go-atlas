@@ -22,7 +22,9 @@ var ErrReadLimitExceeded = errors.New("read limit exceeded")
 // in tests and error-path simulations where a reader must fail deterministically.
 // Create instances with [NewErrorReader].
 type ErrorReader struct {
-	// Err is the error returned by every call to [ErrorReader.Read].
+	// Err is the error returned by every call to [ErrorReader.Read]. It must be
+	// set before the first Read and must not be mutated afterward, as Read
+	// accesses it without synchronization.
 	Err error
 }
 

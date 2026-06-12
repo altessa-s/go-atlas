@@ -9,24 +9,23 @@ import (
 	"sync"
 )
 
-// BufferPool is a [sync.Pool] that manages reusable [bytes.Buffer] instances to reduce
-// garbage collection pressure. Callers should prefer [GetBuffer] and [PutBuffer] over
-// accessing BufferPool directly, since those helpers reset buffers and enforce a
-// capacity threshold to prevent unbounded memory retention. BufferPool is safe for
-// concurrent use.
-var BufferPool = sync.Pool{
+// bufferPool is a [sync.Pool] that manages reusable [bytes.Buffer] instances to reduce
+// garbage collection pressure. All access goes through [GetBuffer] and [PutBuffer],
+// which reset buffers and enforce a capacity threshold to prevent unbounded memory
+// retention. bufferPool is safe for concurrent use.
+var bufferPool = sync.Pool{
 	New: func() any {
 		return &bytes.Buffer{}
 	},
 }
 
-// GetBuffer retrieves a [bytes.Buffer] from [BufferPool], resets it, and returns it
-// ready for use. If the pool is empty or the retrieved value is not a *bytes.Buffer,
+// GetBuffer retrieves a [bytes.Buffer] from the internal pool, resets it, and returns
+// it ready for use. If the pool is empty or the retrieved value is not a *bytes.Buffer,
 // a fresh buffer is allocated. The returned buffer is safe to write to immediately.
 // Callers should return the buffer with [PutBuffer] when finished to enable reuse.
 // This function is safe for concurrent use.
 func GetBuffer() *bytes.Buffer {
-	buf, ok := BufferPool.Get().(*bytes.Buffer)
+	buf, ok := bufferPool.Get().(*bytes.Buffer)
 	if !ok {
 		buf = &bytes.Buffer{}
 	}
@@ -34,7 +33,7 @@ func GetBuffer() *bytes.Buffer {
 	return buf
 }
 
-// PutBuffer returns a [bytes.Buffer] to [BufferPool] for reuse after resetting it.
+// PutBuffer returns a [bytes.Buffer] to the internal pool for reuse after resetting it.
 // If buf is nil, the call is a no-op. Buffers whose capacity exceeds 64 KB are
 // silently discarded instead of being returned to the pool, preventing a single
 // large allocation from persisting in the pool and consuming excessive memory.
@@ -49,5 +48,5 @@ func PutBuffer(buf *bytes.Buffer) {
 		return
 	}
 	buf.Reset()
-	BufferPool.Put(buf)
+	bufferPool.Put(buf)
 }
