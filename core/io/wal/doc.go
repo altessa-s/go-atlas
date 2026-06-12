@@ -41,6 +41,11 @@
 // at the time of a crash) are returned by the next Open call. Consumers
 // must therefore be idempotent with respect to replayed payloads.
 //
+// Append rejects zero-length payloads (ErrEmptyPayload) and payloads over
+// the 64 MiB per-record limit (ErrPayloadTooLarge): the on-disk format
+// cannot represent either, and recovery would treat such a record as
+// corruption, truncating every record written after it in the segment.
+//
 // # Concurrency
 //
 // Append, Ack, Sync, Stats and Close are safe to call concurrently from

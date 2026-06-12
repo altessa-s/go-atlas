@@ -17,6 +17,7 @@ queues) layer their own encoding and semantics on top.
 | Open or recover | `wal.Open(dir, opts...)` |
 | Replay each `Record` | `process(r.Payload) → w.Ack(r.Offset)` |
 | Hot path | `off, err := w.Append(payload)` then later `w.Ack(off)` |
+| Health check | `w.Faulted()` — returns the last background-fsync error, nil when healthy |
 | Force flush | `w.Sync()` |
 | Shutdown | `w.Close()` — aggregates final Sync/Close errors via `errors.Join` |
 
@@ -45,10 +46,16 @@ with respect to replayed payloads.
 
 ## Sentinel errors
 
-| Error       | Meaning                                                        |
-|-------------|----------------------------------------------------------------|
-| `ErrClosed` | Returned by `Append` and other mutating ops after `Close`      |
-| `ErrFull`   | Returned by `Append` when the `WithMaxBytes` soft cap is exceeded |
+| Error                | Meaning                                                        |
+|----------------------|----------------------------------------------------------------|
+| `ErrClosed`          | Returned by `Append` and other mutating ops after `Close`      |
+| `ErrFull`            | Returned by `Append` when the `WithMaxBytes` soft cap is exceeded |
+| `ErrEmptyPayload`    | Returned by `Append` for zero-length payloads — the on-disk format cannot represent them |
+| `ErrPayloadTooLarge` | Returned by `Append` for payloads over the 64 MiB per-record limit enforced during recovery |
+
+`Append` rejects empty payloads and payloads over 64 MiB up front: recovery treats a zero or
+implausibly large record length as corruption, so writing one would silently truncate every
+record appended after it in the same segment on the next `Open`.
 
 ## Durability guarantees
 
