@@ -11,7 +11,8 @@
 // # Usage
 //
 //	rt := http.RoundTripperFunc(func(req *http.Request) (*http.Response, error) {
-//	    // Intercept and modify request
+//	    // Clone before mutating: RoundTrippers must not modify the request.
+//	    req = req.Clone(req.Context())
 //	    req.Header.Set("User-Agent", "go-atlas")
 //	    return http.DefaultTransport.RoundTrip(req)
 //	})

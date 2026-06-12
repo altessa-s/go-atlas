@@ -14,13 +14,17 @@ import (
 )
 
 func TestRoundTripperFunc(t *testing.T) {
+	t.Parallel()
+
 	called := false
 	fn := corehttp.RoundTripperFunc(func(req *http.Request) (*http.Response, error) {
 		called = true
 		return &http.Response{StatusCode: 200}, nil
 	})
 
-	req, _ := http.NewRequest("GET", "http://example.com", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://example.com", nil)
+	require.NoError(t, err)
+
 	resp, err := fn.RoundTrip(req)
 
 	require.NoError(t, err, "RoundTrip failed")
