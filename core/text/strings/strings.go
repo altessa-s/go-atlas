@@ -474,6 +474,10 @@ type ContainsOptions struct {
 // ContainsResult holds the outcome of a [Contains] search, including whether
 // the substring was found, how many times it occurred, and the byte positions
 // of each match (populated only when [ContainsOptions.Count] is true).
+// When [ContainsOptions.CaseSensitive] is false, Positions are byte offsets
+// into the case-folded copy of the haystack; they coincide with offsets into
+// the original string whenever lowercasing is length-preserving (always true
+// for ASCII).
 type ContainsResult struct {
 	Found     bool  // Found indicates whether the substring was found.
 	Count     int   // Count is the number of occurrences (only set when ContainsOptions.Count is true).
@@ -494,7 +498,10 @@ type ContainsResult struct {
 //	// r.Found = true
 func Contains(s, substr string, opts ContainsOptions) ContainsResult {
 	if substr == "" {
-		return ContainsResult{Found: true, Count: 1, Positions: []int{0}}
+		if opts.Count {
+			return ContainsResult{Found: true, Count: 1, Positions: []int{0}}
+		}
+		return ContainsResult{Found: true}
 	}
 
 	searchStr := s
@@ -524,8 +531,15 @@ func Contains(s, substr string, opts ContainsOptions) ContainsResult {
 		actualPos := start + idx
 
 		if opts.MatchWholeWords {
-			// Check if this is a whole word match
-			if !isWholeWordMatch(s, actualPos, len(substr)) {
+			// The boundary check and the advance step must use the same
+			// string the index scan ran on: actualPos is a byte offset
+			// into searchStr, and when CaseSensitive is false ToLower can
+			// change byte lengths (e.g. U+1E9E "ẞ", 3 bytes, folds to
+			// U+00DF "ß", 2 bytes), so indexing the original s with it
+			// would misalign. Lowercasing never turns a letter or digit
+			// into a non-letter (or vice versa), so classifying the
+			// neighbors in the folded string is equivalent.
+			if !isWholeWordMatch(searchStr, actualPos, len(searchSubstr)) {
 				start = actualPos + 1
 				continue
 			}
@@ -541,7 +555,7 @@ func Contains(s, substr string, opts ContainsOptions) ContainsResult {
 			return ContainsResult{Found: true}
 		}
 
-		start = actualPos + len(substr)
+		start = actualPos + len(searchSubstr)
 	}
 
 	return ContainsResult{
