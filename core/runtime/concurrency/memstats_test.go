@@ -2,6 +2,10 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
+// The tests in this file run serially (no t.Parallel) because they all mutate
+// the package-level mem-stats cache singleton (globalMemStatsCache) via
+// SetMemStatsCacheTTL and InvalidateMemStatsCache.
+
 package concurrency
 
 import (
@@ -17,6 +21,7 @@ func TestGetCachedMemStats_ReturnsSameDataWithinTTL(t *testing.T) {
 	// Reset cache state
 	InvalidateMemStatsCache()
 	SetMemStatsCacheTTL(time.Second)
+	t.Cleanup(func() { SetMemStatsCacheTTL(DefaultMemStatsCacheTTL) })
 
 	// First call should populate cache
 	stats1 := getCachedMemStats()
@@ -33,6 +38,7 @@ func TestGetCachedMemStats_RefreshesAfterTTL(t *testing.T) {
 	// Set a very short TTL for testing
 	InvalidateMemStatsCache()
 	SetMemStatsCacheTTL(10 * time.Millisecond)
+	t.Cleanup(func() { SetMemStatsCacheTTL(DefaultMemStatsCacheTTL) })
 
 	// First call
 	stats1 := getCachedMemStats()
@@ -52,14 +58,12 @@ func TestGetCachedMemStats_RefreshesAfterTTL(t *testing.T) {
 	// We can't guarantee values changed, but the call should succeed
 	// and return valid data
 	require.NotZero(t, stats2.Sys, "Sys should be non-zero")
-
-	// Reset TTL to default
-	SetMemStatsCacheTTL(DefaultMemStatsCacheTTL)
 }
 
 func TestGetCachedMemStats_ConcurrentAccess(t *testing.T) {
 	InvalidateMemStatsCache()
 	SetMemStatsCacheTTL(50 * time.Millisecond)
+	t.Cleanup(func() { SetMemStatsCacheTTL(DefaultMemStatsCacheTTL) })
 
 	const numGoroutines = 100
 	var wg sync.WaitGroup
@@ -84,14 +88,12 @@ func TestGetCachedMemStats_ConcurrentAccess(t *testing.T) {
 	}
 
 	require.Equal(t, numGoroutines, count)
-
-	// Reset TTL
-	SetMemStatsCacheTTL(DefaultMemStatsCacheTTL)
 }
 
 func TestInvalidateMemStatsCache(t *testing.T) {
 	InvalidateMemStatsCache()
 	SetMemStatsCacheTTL(time.Hour) // Long TTL
+	t.Cleanup(func() { SetMemStatsCacheTTL(DefaultMemStatsCacheTTL) })
 
 	// First call populates cache
 	stats1 := getCachedMemStats()
@@ -103,9 +105,6 @@ func TestInvalidateMemStatsCache(t *testing.T) {
 	// Next call should refresh (though values might be same)
 	stats2 := getCachedMemStats()
 	require.NotNil(t, stats2, "getCachedMemStats returned nil after invalidation")
-
-	// Reset TTL
-	SetMemStatsCacheTTL(DefaultMemStatsCacheTTL)
 }
 
 func TestGetAvailableMemoryMB(t *testing.T) {
@@ -122,6 +121,7 @@ func TestGetAvailableMemoryMB(t *testing.T) {
 func TestSetMemStatsCacheTTL_NegativeValue(t *testing.T) {
 	// Negative TTL should default to DefaultMemStatsCacheTTL
 	SetMemStatsCacheTTL(-1)
+	t.Cleanup(func() { SetMemStatsCacheTTL(DefaultMemStatsCacheTTL) })
 
 	ttl := time.Duration(globalMemStatsCache.ttl.Load())
 	require.Equal(t, DefaultMemStatsCacheTTL, ttl)

@@ -6,7 +6,7 @@ package concurrency_test
 
 import (
 	"context"
-	"math/rand"
+	"math/rand/v2"
 	"testing"
 	"time"
 
@@ -27,7 +27,7 @@ func TestProcessCollect_Ordering(t *testing.T) {
 	ctx := t.Context()
 	results, err := concurrency.ProcessCollect(ctx, input, func(ctx context.Context, item int) (int, error) {
 		// Random delay between 0 and 10ms
-		time.Sleep(time.Duration(rand.Intn(10)) * time.Millisecond)
+		time.Sleep(time.Duration(rand.IntN(10)) * time.Millisecond)
 		return item, nil
 	}, concurrency.WithConcurrency[int](10))
 
