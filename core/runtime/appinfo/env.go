@@ -133,7 +133,7 @@ func ExpandPath(path string) string {
 //
 // For lookups that do not require the prefix, use [Env] or [EnvOr] instead.
 func GetEnvVar(key string) string {
-	if strings.ToUpper(EnvPrefix) != "" {
+	if EnvPrefix != "" {
 		key = strings.TrimRight(EnvPrefix, "_") + "_" + key
 	}
 	p := os.Getenv(strings.ToUpper(key))
