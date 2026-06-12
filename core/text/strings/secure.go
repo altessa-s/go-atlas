@@ -400,6 +400,11 @@ func ZeroBytes(data []byte) {
 	clear(data)
 }
 
+// zeroStringMu serializes the debug.SetPanicOnFault set/restore window in
+// [ZeroString]; the flag is process-global and concurrent toggling would let
+// one goroutine's restore disarm another's in-flight fault recovery.
+var zeroStringMu sync.Mutex
+
 // ZeroString attempts to overwrite the bytes backing s with zeros using unsafe
 // pointer arithmetic. This is a best-effort operation: if s resides in
 // read-only memory (e.g. a string literal or a constant folded by the
@@ -416,11 +421,6 @@ func ZeroBytes(data []byte) {
 //	password := getUserInput()
 //	defer ZeroString(password)
 //
-// zeroStringMu serializes the debug.SetPanicOnFault set/restore window in
-// [ZeroString]; the flag is process-global and concurrent toggling would let
-// one goroutine's restore disarm another's in-flight fault recovery.
-var zeroStringMu sync.Mutex
-
 // #nosec G103 -- intentional unsafe for secure memory zeroing
 func ZeroString(s string) {
 	if s == EmptyStringValue {
