@@ -13,7 +13,15 @@ Package `concurrency` provides adaptive concurrency limit calculation and a conc
 | `Process`        | Apply a function to every item with bounded concurrency |
 | `ProcessCollect` | Same as `Process` but collect transformed results       |
 
-Configure via functional options: `WithConcurrency`, `WithLimitFunc`, `WithStopOnError`, `WithOnSuccess`, `WithOnError`.
+## Options
+
+| Option            | Description                                                  |
+|-------------------|--------------------------------------------------------------|
+| `WithConcurrency` | Fixed concurrency limit (number of worker goroutines)        |
+| `WithLimitFunc`   | Dynamic limit via a `ConcurrencyLimitFunc` strategy          |
+| `WithStopOnError` | Cancel remaining work after the first error                  |
+| `WithOnSuccess`   | Callback invoked after each successfully processed item      |
+| `WithOnError`     | Callback invoked with the item and error after each failure  |
 
 ## Concurrency strategies
 

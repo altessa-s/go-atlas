@@ -45,9 +45,13 @@ const (
 	// memory statistics to megabytes.
 	BytesToMB = 1024
 
-	// Pressure scaling factors for concurrency adjustment
-	severePressureFactor = 0.25 // Factor for severe resource pressure
-	mediumPressureFactor = 0.5  // Factor for medium resource pressure
+	// severePressureFactor scales concurrency down under severe resource
+	// pressure.
+	severePressureFactor = 0.25
+
+	// mediumPressureFactor scales concurrency down under medium resource
+	// pressure.
+	mediumPressureFactor = 0.5
 )
 
 // Environment identifies the workload profile for [ConcurrencyForEnvironment].

@@ -7,7 +7,7 @@
 // runtime conditions (CPU, memory, load) and a concurrent batch processor
 // for parallelizing work across collections.
 //
-// Concurrency Calculation:
+// # Concurrency Calculation
 //
 // The package offers several strategies for determining optimal concurrency:
 //   - Environment-based: predefined limits for common scenarios (CPU-bound, IO-bound, etc.)
@@ -15,7 +15,7 @@
 //   - Load-aware: adjusts limits based on system load averages
 //   - Adaptive: combines multiple factors for complex resource management
 //
-// Batch Processing:
+// # Batch Processing
 //
 // The batch processor allows concurrent execution of functions over slices with
 // configurable concurrency limits and error handling strategies. It supports
