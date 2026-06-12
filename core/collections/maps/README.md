@@ -22,7 +22,7 @@ return new maps without modifying inputs; nil maps are treated as empty and neve
 | `FromFlatMapWithHandler` | Same as `FromFlatMap` with a conflict callback       |
 | `ToFlatMap`              | Flatten nested maps into dot-separated keys          |
 
-## Iterators (Go 1.23+)
+## Iterators
 
 Lazy `iter.Seq` / `iter.Seq2` iterators for zero-allocation pipelines. Use `slices.Collect()` to materialize results into concrete map values.
 

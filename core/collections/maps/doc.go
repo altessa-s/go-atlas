@@ -15,7 +15,7 @@
 // Slice to map conversion: Use [FromSlice] when you need the slice element
 // as the map value, and [FromSliceWith] when you need custom key-value extraction.
 //
-// # Iterators (Go 1.23+)
+// # Iterators
 //
 // Keys, Values, Filter, Map return iter.Seq iterators for memory efficiency.
 // Use slices.Collect() to materialize results into slices when needed.
