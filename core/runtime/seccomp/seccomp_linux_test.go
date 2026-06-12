@@ -123,14 +123,14 @@ func TestBuildFilter_ArchMismatchLandsOnKill(t *testing.T) {
 // deletes an entry (merge conflict resolution, rebase, typo) would
 // silently weaken the filter; this test makes that loud.
 func TestDangerousSyscalls_ExpectedCount(t *testing.T) {
-	require.Len(t, dangerousSyscalls, 22, "if the change is intentional, update this test and the package README")
+	require.Len(t, dangerousSyscalls, 23, "if the change is intentional, update this test and the package README")
 }
 
 // TestDangerousSyscalls_RequiredMembership asserts that every
 // security-critical entry that the package's threat model promises to
 // block is actually present in the denylist. The count test above
 // catches deletions but not substitutions: a refactor that swaps
-// SYS_BPF for SYS_OPEN would keep the count at 22 and silently let
+// SYS_BPF for SYS_OPEN would keep the count at 23 and silently let
 // eBPF programs reach the kernel from a "hardened" plugin host.
 //
 // This test is the canonical contract for what the denylist guarantees.
@@ -159,6 +159,7 @@ func TestDangerousSyscalls_RequiredMembership(t *testing.T) {
 		{"SYS_FINIT_MODULE", uint32(unix.SYS_FINIT_MODULE)},
 		{"SYS_DELETE_MODULE", uint32(unix.SYS_DELETE_MODULE)},
 		// Kernel reload.
+		{"SYS_KEXEC_LOAD", uint32(unix.SYS_KEXEC_LOAD)},
 		{"SYS_KEXEC_FILE_LOAD", uint32(unix.SYS_KEXEC_FILE_LOAD)},
 		// System control.
 		{"SYS_REBOOT", uint32(unix.SYS_REBOOT)},

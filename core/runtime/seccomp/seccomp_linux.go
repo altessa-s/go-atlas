@@ -45,7 +45,10 @@ var dangerousSyscalls = []uint32{
 	uint32(unix.SYS_FINIT_MODULE),
 	uint32(unix.SYS_DELETE_MODULE),
 
-	// Kernel reload.
+	// Kernel reload. Both interfaces must be blocked: kexec_load(2) is
+	// the legacy variant of kexec_file_load(2) and achieves the same
+	// kernel replacement, so denying only one leaves a trivial bypass.
+	uint32(unix.SYS_KEXEC_LOAD),
 	uint32(unix.SYS_KEXEC_FILE_LOAD),
 
 	// System control.

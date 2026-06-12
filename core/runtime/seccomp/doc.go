@@ -9,7 +9,7 @@
 //
 // # Denylist, not allowlist
 //
-// This package intentionally ships a **fixed denylist** of ~22
+// This package intentionally ships a **fixed denylist** of ~23
 // syscalls (mount, kexec, init_module, reboot, ptrace, bpf,
 // userfaultfd, and friends) and does NOT expose an API for curating
 // an allowlist. A curated allowlist for a Go-runtime process is an
@@ -50,7 +50,7 @@
 //	  init_module, finit_module, delete_module
 //
 //	Kernel reload:
-//	  kexec_file_load
+//	  kexec_load, kexec_file_load
 //
 //	System control:
 //	  reboot
