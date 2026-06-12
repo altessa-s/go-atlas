@@ -38,7 +38,9 @@ func GetExponentialConfig() *ExponentialConfig {
 }
 
 // PutExponentialConfig resets config and returns it to the internal sync.Pool
-// for reuse. Passing nil is a safe no-op.
+// for reuse. Passing nil is a safe no-op. It is safe to call immediately after
+// passing the config to [Exponential], because Exponential copies the struct
+// by value.
 func PutExponentialConfig(config *ExponentialConfig) {
 	if config == nil {
 		return

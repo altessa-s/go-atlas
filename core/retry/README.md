@@ -7,15 +7,15 @@ import "github.com/altessa-s/go-atlas/core/retry"
 Package `retry` provides a small, stdlib-only retry loop with context cancellation, configurable delay policies, and timer reuse —
 zero `time.After` allocations per attempt, so it fits high-throughput retry loops in hot paths.
 
-## Config
+## Options
 
-| Field            | Description                                              |
-|------------------|----------------------------------------------------------|
-| `MaxAttempts`    | Max attempt index (0 = try once, -1 = unlimited)         |
-| `MaxElapsedTime` | Wall-clock cap across all attempts                       |
-| `ShouldRetry`    | Predicate; `false` stops retrying immediately            |
-| `NextDelay`      | Delay function `(attempt, err) -> Duration`; `<=0` stops |
-| `OnRetry`        | Optional callback after each failed attempt              |
+| Option               | Description                                              |
+|----------------------|----------------------------------------------------------|
+| `WithMaxAttempts`    | Max attempt index (0 = try once, -1 = unlimited)         |
+| `WithMaxElapsedTime` | Wall-clock cap across all attempts                       |
+| `WithShouldRetry`    | Predicate; `false` stops retrying immediately            |
+| `WithNextDelay`      | Delay function `(attempt, err) -> Duration`; `<=0` stops |
+| `WithOnRetry`        | Optional callback after each failed attempt              |
 
 ## Exponential backoff
 
