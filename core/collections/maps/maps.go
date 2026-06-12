@@ -21,28 +21,20 @@ func Merge[K comparable, T any](src map[K]T, dst map[K]T) map[K]T {
 		if len(dst) == 0 {
 			return nil
 		}
-		// Return a copy of dst to maintain immutability
 		result := make(map[K]T, len(dst))
 		maps.Copy(result, dst)
 		return result
 	}
 
 	if len(dst) == 0 {
-		// Return a copy of src to avoid modifying the original
 		result := make(map[K]T, len(src))
 		maps.Copy(result, src)
 		return result
 	}
 
-	// Merge both maps into a new map
 	result := make(map[K]T, len(dst)+len(src))
-
-	// Copy dst first
 	maps.Copy(result, dst)
-
-	// Copy src, overwriting any duplicate keys
 	maps.Copy(result, src)
-
 	return result
 }
 
@@ -182,6 +174,83 @@ func FromSliceWith[T any, K comparable, V any](collection []T, fn func(T) (K, V)
 		result[k] = v
 	}
 
+	return result
+}
+
+// MergeWith creates a new map containing all key-value pairs from both src and dst.
+// When a key exists in both maps, resolve is called with the key and both values
+// (src value first, dst value second) to produce the merged result. Neither input
+// map is modified. If both maps are empty or nil, nil is returned.
+//
+// Use [Merge] when source values should unconditionally take precedence. Use
+// MergeWith when conflict resolution requires custom logic (e.g. accumulating
+// counters or taking the maximum).
+//
+// Example:
+//
+//	a := map[string]int{"hits": 3, "misses": 1}
+//	b := map[string]int{"hits": 5, "errors": 2}
+//	merged := MergeWith(a, b, func(_ string, srcVal, dstVal int) int {
+//	    return srcVal + dstVal
+//	})
+//	// merged is map[string]int{"hits": 8, "misses": 1, "errors": 2}
+func MergeWith[K comparable, V any](src, dst map[K]V, resolve func(K, V, V) V) map[K]V {
+	if len(src) == 0 {
+		if len(dst) == 0 {
+			return nil
+		}
+		result := make(map[K]V, len(dst))
+		maps.Copy(result, dst)
+		return result
+	}
+	if len(dst) == 0 {
+		result := make(map[K]V, len(src))
+		maps.Copy(result, src)
+		return result
+	}
+
+	result := make(map[K]V, len(dst)+len(src))
+	maps.Copy(result, dst)
+	for k, srcVal := range src {
+		if dstVal, ok := result[k]; ok {
+			result[k] = resolve(k, srcVal, dstVal)
+		} else {
+			result[k] = srcVal
+		}
+	}
+	return result
+}
+
+// MergeAll creates a new map by overlaying layers in order: the first layer has
+// the lowest priority and the last layer has the highest priority. When the same
+// key appears in multiple layers, the value from the rightmost layer wins. All
+// input maps are left unmodified. If no layers are provided or all layers are
+// empty, nil is returned.
+//
+// MergeAll(defaults, userConfig, runtimeOverrides) is equivalent to
+// Merge(runtimeOverrides, Merge(userConfig, defaults)) but allocates a single
+// result map regardless of the number of layers.
+//
+// Example:
+//
+//	defaults := map[string]string{"theme": "light", "lang": "en", "timeout": "30s"}
+//	user     := map[string]string{"theme": "dark"}
+//	runtime  := map[string]string{"timeout": "5s"}
+//	result   := MergeAll(defaults, user, runtime)
+//	// result is map[string]string{"theme": "dark", "lang": "en", "timeout": "5s"}
+func MergeAll[K comparable, V any](layers ...map[K]V) map[K]V {
+	totalSize := 0
+	for _, l := range layers {
+		totalSize += len(l)
+	}
+	if totalSize == 0 {
+		return nil
+	}
+
+	result := make(map[K]V, totalSize)
+	for _, layer := range layers {
+		maps.Copy(result, layer)
+	}
 	return result
 }
 
