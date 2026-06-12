@@ -6,11 +6,31 @@ package errors_test
 
 import (
 	"errors"
+	"net"
 	"net/url"
+	"os"
+	"syscall"
 	"testing"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
+
+// TestIsConnectionRefused_SyscallErrorWrap pins the realistic error shape
+// produced by net.Dial on a refused connection: the errno is wrapped in
+// *os.SyscallError inside *net.OpError, not stored as a bare syscall.Errno.
+func TestIsConnectionRefused_SyscallErrorWrap(t *testing.T) {
+	opErr := &net.OpError{
+		Op:  "dial",
+		Net: "tcp",
+		Err: os.NewSyscallError("connect", syscall.ECONNREFUSED),
+	}
+	if !coreerrs.IsConnectionRefused(opErr) {
+		t.Error("should detect ECONNREFUSED wrapped in *os.SyscallError inside *net.OpError")
+	}
+	if !coreerrs.IsConnectionRefused(&url.Error{Op: "Get", URL: "http://x", Err: opErr}) {
+		t.Error("should detect ECONNREFUSED through a *url.Error layer")
+	}
+}
 
 func TestIsURLError(t *testing.T) {
 	urlErr := &url.Error{Op: "Get", URL: "http://x", Err: errors.New("fail")}
