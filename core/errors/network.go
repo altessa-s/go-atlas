@@ -96,8 +96,8 @@ func IsResourceRedirects(err error) bool {
 	if err == nil {
 		return false
 	}
-	if urlErr, ok := AsType[*url.Error](err); ok {
-		return redirectsErrorRe.MatchString(urlErr.Error())
+	if urlErr, ok := AsType[*url.Error](err); ok && urlErr.Err != nil {
+		return redirectsErrorRe.MatchString(urlErr.Err.Error())
 	}
 	return false
 }
@@ -113,8 +113,8 @@ func IsUnsupportedProtocolScheme(err error) bool {
 	if err == nil {
 		return false
 	}
-	if urlErr, ok := AsType[*url.Error](err); ok {
-		return schemeErrorRe.MatchString(urlErr.Error())
+	if urlErr, ok := AsType[*url.Error](err); ok && urlErr.Err != nil {
+		return schemeErrorRe.MatchString(urlErr.Err.Error())
 	}
 	return false
 }
