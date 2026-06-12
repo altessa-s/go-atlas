@@ -60,6 +60,7 @@ func FromFlatMapWithHandler(in map[string]any, onConflict ConflictHandler) map[s
 	}
 
 	out := make(map[string]any)
+nextKey:
 	for key, value := range in {
 		// Optimization: if no dot, just set and continue
 		dotIdx := strings.IndexByte(key, '.')
@@ -91,7 +92,7 @@ func FromFlatMapWithHandler(in map[string]any, onConflict ConflictHandler) map[s
 						onConflict(key, existing)
 					}
 					// Skip this key
-					goto nextKey
+					continue nextKey
 				}
 			} else {
 				next = make(map[string]any)
@@ -99,7 +100,6 @@ func FromFlatMapWithHandler(in map[string]any, onConflict ConflictHandler) map[s
 			}
 			current = next
 		}
-	nextKey:
 	}
 
 	return out
