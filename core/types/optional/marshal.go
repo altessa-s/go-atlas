@@ -11,7 +11,9 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
-// jsonNull is the canonical JSON encoding of None.
+// jsonNull is the canonical JSON encoding of None. It is returned
+// directly from MarshalJSON, so callers must not modify the returned
+// slice (encoding/json never does).
 var jsonNull = []byte("null")
 
 // IsZero reports whether the Optional is None. It lets struct fields

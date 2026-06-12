@@ -84,7 +84,7 @@ func (o Optional[T]) OrDefault(def T) T {
 
 // OrElse returns the contained value if Some, otherwise the result
 // of calling fn. fn is invoked only on the None path; it must not be
-// nil when the Optional may be None.
+// nil when the Optional may be None — a nil fn panics when invoked.
 func (o Optional[T]) OrElse(fn func() T) T {
 	if !o.present {
 		return fn()
