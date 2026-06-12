@@ -29,7 +29,7 @@ assign string values into it via reflection — the explicit `Unmarshal*` method
 | `MarshalText() ([]byte, error)`            | `[]byte("<redacted>")`                                                            |
 | `UnmarshalText([]byte) error`              | Stores incoming bytes verbatim                                                    |
 | `MarshalBSONValue() (byte, []byte, error)` | BSON string `<redacted>`                                                          |
-| `UnmarshalBSONValue(byte, []byte) error`   | Decodes a BSON string into the underlying value                                   |
+| `UnmarshalBSONValue(byte, []byte) error`   | Decodes a BSON string into the underlying value; BSON null clears it to `""`      |
 
 ## Serialization
 
@@ -60,6 +60,14 @@ raw, _ := json.Marshal(cfg)
 conn := cfg.URI.Expose() // intentional, plain text
 client, _ := mongo.Connect(options.Client().ApplyURI(conn))
 ```
+
+## Limitations
+
+Redaction is enforced only on the `fmt` / `log/slog` / `encoding/json` / `yaml.v3` / `encoding.TextMarshaler` / `bson` code paths, all of which
+dispatch through the interfaces implemented above. Reflect-based access bypasses them entirely: `reflect.Value.String()` on a `RedactedString`
+field returns the plaintext, and any library that reads named-string fields via `reflect` without routing through `fmt`, `json`, or `bson`
+(custom serializers, deep-copy or diff utilities, template engines walking structs) sees the secret. Treat `RedactedString` as protection against
+accidental output, not as an access-control boundary.
 
 ## When to use
 
