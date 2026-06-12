@@ -8,6 +8,7 @@ package landlock
 
 import (
 	"fmt"
+	"runtime"
 	"unsafe"
 
 	"github.com/altessa-s/go-atlas/core/runtime/nonewprivs"
@@ -84,7 +85,16 @@ const writeAccessMask = unix.LANDLOCK_ACCESS_FS_WRITE_FILE |
 // effect on the thread that ran apply. Steps 1 (probe) and 2 (NNP) are
 // ordered this way deliberately so that "Landlock is unsupported" is a
 // pure read, never leaving the process partially committed.
-func apply(readPaths, readWritePaths []string) error {
+//
+// Steps 2-7 run with the goroutine pinned to its OS thread. Both
+// PR_SET_NO_NEW_PRIVS and landlock_restrict_self(2) are per-thread
+// operations; without the pin the scheduler may migrate the goroutine
+// between them and restrict_self lands on a thread without NNP, failing
+// with EPERM. On failure after the NNP bit is committed the pin is
+// retained (the goroutine carries the lock away on exit) — the thread
+// holds NO_NEW_PRIVS without the ruleset and must not return to the
+// scheduler's reuse pool. Same policy as the sibling seccomp package.
+func apply(readPaths, readWritePaths []string) (retErr error) {
 	// Step 1: probe ABI support before any irreversible side effect.
 	// ABIVersion is a pure read (landlock_create_ruleset with the
 	// VERSION flag), so on kernels without Landlock we return cleanly
@@ -100,6 +110,16 @@ func apply(readPaths, readWritePaths []string) error {
 		return fmt.Errorf("%w: kernel reports ABI version %d", ErrUnsupported, abi)
 	}
 
+	// Pin for steps 2-7: prctl and restrict_self must hit the same
+	// OS thread. See the function comment for the failure policy.
+	runtime.LockOSThread()
+	nnpSet := false
+	defer func() {
+		if retErr == nil || !nnpSet {
+			runtime.UnlockOSThread()
+		}
+	}()
+
 	// Step 2: NO_NEW_PRIVS is a prerequisite for landlock_restrict_self
 	// on any process without CAP_SYS_ADMIN. Delegated to the standalone
 	// [nonewprivs] package so both primitives share one canonical
@@ -112,6 +132,7 @@ func apply(readPaths, readWritePaths []string) error {
 	if setErr := nonewprivs.Set(); setErr != nil {
 		return fmt.Errorf("%w: %w", ErrFailed, setErr)
 	}
+	nnpSet = true
 
 	read, write := accessMasks(abi)
 
