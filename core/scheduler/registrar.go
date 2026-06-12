@@ -113,6 +113,7 @@ type TaskConfig struct {
 	// exclusive with Schedule.
 	RunAt time.Time
 	// Meta holds arbitrary key-value pairs attached to the task for
-	// use by monitoring, logging, or management tooling.
+	// use by monitoring, logging, or management tooling. Callers must not
+	// modify Meta after passing the TaskConfig to Register.
 	Meta map[string]string
 }
