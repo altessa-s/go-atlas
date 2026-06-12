@@ -4,7 +4,11 @@
 
 package bits
 
-import "github.com/altessa-s/go-atlas/core/types/constraints"
+import (
+	"unsafe"
+
+	"github.com/altessa-s/go-atlas/core/types/constraints"
+)
 
 const (
 	// BitsInByte is the number of bits in a byte (8).
@@ -46,6 +50,8 @@ func getBitWidth[T constraints.Integer]() uint64 {
 		return BitsInUint32
 	case uint64, int64, uint, int:
 		return BitsInUint64
+	case uintptr:
+		return uint64(unsafe.Sizeof(uintptr(0)) * 8) // #nosec G103 -- compile-time size query only, no pointer arithmetic
 	default:
 		return BitsInUint64
 	}
