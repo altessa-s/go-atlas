@@ -7,6 +7,8 @@ package hash
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"hash"
+	"io"
 	"unsafe"
 )
 
@@ -149,3 +151,39 @@ func SHA256HexStringWithSalt(s, salt string) string {
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
+
+// Hasher accumulates a running digest over successive Write calls.
+// It embeds [io.Writer] and is compatible with [io.MultiWriter] for streaming:
+//
+//	h := hash.NewSHA256Hasher()
+//	io.Copy(io.MultiWriter(dst, h), src)
+//	checksum := h.SumHex()
+type Hasher interface {
+	io.Writer
+	// SumHex returns the current lowercase hex-encoded digest without resetting state.
+	SumHex() string
+}
+
+// SHA256Hasher implements [Hasher] using SHA-256.
+// Construct it with [NewSHA256Hasher]; the zero value is not usable.
+type SHA256Hasher struct {
+	h hash.Hash
+}
+
+var _ Hasher = (*SHA256Hasher)(nil)
+
+// NewSHA256Hasher returns a new SHA256Hasher ready to accept writes.
+func NewSHA256Hasher() *SHA256Hasher {
+	return &SHA256Hasher{h: sha256.New()}
+}
+
+// Write feeds p into the running SHA-256 digest.
+func (s *SHA256Hasher) Write(p []byte) (int, error) { return s.h.Write(p) }
+
+// SumHex returns the lowercase hex-encoded SHA-256 digest of all bytes written so far.
+// It does not reset the hash state; subsequent writes continue accumulating.
+func (s *SHA256Hasher) SumHex() string { return hex.EncodeToString(s.h.Sum(nil)) }
+
+// HexSum returns the lowercase hex-encoded current digest of h.
+// It does not reset the hash state.
+func HexSum(h hash.Hash) string { return hex.EncodeToString(h.Sum(nil)) }

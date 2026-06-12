@@ -29,3 +29,23 @@ func BenchmarkSHA256HexString(b *testing.B) {
 		}
 	})
 }
+
+func BenchmarkSHA256Hasher(b *testing.B) {
+	data := []byte(strings.Repeat("a", 1024))
+
+	b.Run("Streaming", func(b *testing.B) {
+		for b.Loop() {
+			h := hash.NewSHA256Hasher()
+			h.Write(data)
+			_ = h.SumHex()
+		}
+	})
+
+	b.Run("HexSum", func(b *testing.B) {
+		for b.Loop() {
+			h := sha256.New()
+			h.Write(data)
+			_ = hash.HexSum(h)
+		}
+	})
+}

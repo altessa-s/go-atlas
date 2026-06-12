@@ -7,6 +7,8 @@ package hash_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -81,5 +83,87 @@ func TestSHA256(t *testing.T) {
 		// Empty data and salt.
 		empty := hash.SHA256HexStringWithSalt("", "")
 		require.Equal(t, hash.SHA256HexBytes(nil), empty, "empty salt+data should equal unsalted empty")
+	})
+}
+
+func TestSHA256Hasher(t *testing.T) {
+	t.Parallel()
+
+	t.Run("single_write", func(t *testing.T) {
+		t.Parallel()
+		input := []byte("hello world")
+		h := hash.NewSHA256Hasher()
+		n, err := h.Write(input)
+		require.NoError(t, err)
+		require.Equal(t, len(input), n)
+		require.Equal(t, hash.SHA256HexBytes(input), h.SumHex())
+	})
+
+	t.Run("multi_write_equals_single", func(t *testing.T) {
+		t.Parallel()
+		h := hash.NewSHA256Hasher()
+		for _, p := range []string{"hello", " ", "world"} {
+			_, err := h.Write([]byte(p))
+			require.NoError(t, err)
+		}
+		require.Equal(t, hash.SHA256HexBytes([]byte("hello world")), h.SumHex())
+	})
+
+	t.Run("io_copy", func(t *testing.T) {
+		t.Parallel()
+		input := "hello world"
+		h := hash.NewSHA256Hasher()
+		_, err := io.Copy(h, strings.NewReader(input))
+		require.NoError(t, err)
+		require.Equal(t, hash.SHA256HexBytes([]byte(input)), h.SumHex())
+	})
+
+	t.Run("empty", func(t *testing.T) {
+		t.Parallel()
+		h := hash.NewSHA256Hasher()
+		require.Equal(t, hash.SHA256HexBytes(nil), h.SumHex())
+	})
+
+	t.Run("sum_hex_is_stable", func(t *testing.T) {
+		t.Parallel()
+		h := hash.NewSHA256Hasher()
+		_, err := h.Write([]byte("data"))
+		require.NoError(t, err)
+		require.Equal(t, h.SumHex(), h.SumHex(), "SumHex must not reset state")
+	})
+
+}
+
+func TestHexSum(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{"hello_world", "hello world"},
+		{"empty", ""},
+		{"binary_data", "\x00\x01\x02"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := sha256.New()
+			h.Write([]byte(tc.input))
+			got := hash.HexSum(h)
+			want := hash.SHA256HexBytes([]byte(tc.input))
+			require.Equal(t, want, got)
+		})
+	}
+
+	t.Run("matches_sha256_hasher", func(t *testing.T) {
+		t.Parallel()
+		input := "test data"
+		sh := hash.NewSHA256Hasher()
+		sh.Write([]byte(input))
+		stdH := sha256.New()
+		stdH.Write([]byte(input))
+		require.Equal(t, hash.HexSum(stdH), sh.SumHex())
 	})
 }
