@@ -64,6 +64,16 @@ func TestWithDefault(t *testing.T) {
 		require.True(t, ok, "expected deadline to be set")
 	})
 
+	t.Run("zero timeout is a no-op", func(t *testing.T) {
+		origCtx := t.Context()
+		ctx, cancel := corecontext.WithDefault(origCtx, 0)
+		defer cancel()
+		require.Equal(t, origCtx, ctx, "expected original context")
+		_, ok := ctx.Deadline()
+		require.False(t, ok, "expected no deadline to be set")
+		require.NoError(t, ctx.Err(), "expected context not to be canceled")
+	})
+
 	t.Run("nil context defaults to background", func(t *testing.T) {
 		ctx, cancel := corecontext.WithDefault(nil, time.Millisecond) //nolint:staticcheck // intentionally passing nil
 		defer cancel()

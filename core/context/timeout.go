@@ -30,12 +30,16 @@ func ApplyTimeout(ctx context.Context, timeout time.Duration) (context.Context, 
 // WithDefault returns a derived [context.Context] with defaultTimeout applied
 // when the incoming context does not already carry a deadline. If ctx is nil,
 // [context.Background] is used as the base context. When a deadline is already
-// present, the original context is returned with a no-op cancel func.
-// The caller must always call the returned [context.CancelFunc] to avoid
-// resource leaks.
+// present, or defaultTimeout is zero, the original context is returned with a
+// no-op cancel func. The caller must always call the returned
+// [context.CancelFunc] to avoid resource leaks.
 func WithDefault(ctx context.Context, defaultTimeout time.Duration) (context.Context, context.CancelFunc) {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+
+	if defaultTimeout == 0 {
+		return ctx, func() {}
 	}
 
 	if _, hasDeadline := ctx.Deadline(); hasDeadline {
