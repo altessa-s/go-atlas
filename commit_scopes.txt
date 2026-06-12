@@ -46,6 +46,7 @@ core/runtime/signals        # OS signal handling
 core/runtime/shutdown       # Shutdown hooks
 core/runtime/seccomp        # Seccomp utilities
 core/runtime/landlock       # Landlock utilities
+core/runtime/nonewprivs     # No New Privileges utilities
 core/scheduler              # Task scheduling abstractions
 core/text                   # Text utilities
 core/text/strings           # String helpers and interning
