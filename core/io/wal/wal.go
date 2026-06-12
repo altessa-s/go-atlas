@@ -92,11 +92,14 @@ type WAL struct {
 	dir  string
 	opts *options
 
-	mu      sync.Mutex
-	active  *segmentRef   // current writable segment
-	sealed  []*segmentRef // sealed segments waiting for full ack
-	nextID  uint64
-	scratch []byte // reusable encode buffer; guarded by mu
+	mu     sync.Mutex
+	active *segmentRef   // current writable segment
+	sealed []*segmentRef // sealed segments waiting for full ack
+	nextID uint64
+	// scratch is the reusable encode buffer, guarded by mu. It is grow-only:
+	// a single large record (up to maxRecordBytes) permanently inflates it.
+	// Accepted trade-off — avoids per-Append allocation churn on the hot path.
+	scratch []byte
 	totalSz atomic.Int64
 	closed  atomic.Bool
 	closing atomic.Bool // single-winner guard for Close; see Close
