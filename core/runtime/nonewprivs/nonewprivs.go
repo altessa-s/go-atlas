@@ -44,6 +44,13 @@ var (
 // for binaries spawned from a NNP-set thread, which is the
 // fundamental property the bit is named for.
 //
+// Callers that sequence Set with another per-thread syscall that
+// requires the bit (seccomp(2), landlock_restrict_self(2)) must hold
+// [runtime.LockOSThread] across the whole sequence — otherwise the
+// scheduler may migrate the goroutine between the calls and the
+// follow-up syscall lands on a thread without NNP. The sibling
+// seccomp and landlock packages do this internally.
+//
 // For a real process-wide NNP, set the bit externally before the Go
 // binary starts: a systemd unit with NoNewPrivileges=yes, a container
 // runtime with --security-opt=no-new-privileges, or a C launcher that
