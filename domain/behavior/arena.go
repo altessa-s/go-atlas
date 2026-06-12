@@ -19,7 +19,9 @@ const arenaChunkLen = 64
 // chunks, which keeps never-pooled walks allocation-equivalent to plain make.
 var arenaPool = sync.Pool{New: func() any { return &arena{chunkLen: arenaChunkLen} }}
 
-func acquireArena() *arena { return arenaPool.Get().(*arena) }
+func acquireArena() *arena {
+	return arenaPool.Get().(*arena) //nolint:errcheck // pool only contains *arena by design
+}
 
 // releaseArena resets a and returns it to the pool. Callers must not release
 // an arena whose tree may still be referenced — after a translator panic the

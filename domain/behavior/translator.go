@@ -1,4 +1,4 @@
-// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Copyright 2026 ALTESSA SOLUTIONS INC. All rights reserved.
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
@@ -281,8 +281,10 @@ func descendList(f *Field, fv reflect.Value, o *options, a *arena, depth int) er
 				if err != nil {
 					return err
 				}
+				items := a.allocObjects(1)
+				items[0] = child
 				f.Collection = a.newCollection()
-				f.Collection.Items = append(a.allocObjects(1)[:0], child)
+				f.Collection.Items = items
 			}
 		}
 		return nil
@@ -346,8 +348,10 @@ func descendMap(f *Field, fv reflect.Value, o *options, a *arena, depth int) err
 				if err != nil {
 					return err
 				}
+				items := a.allocObjects(1)
+				items[0] = child
 				f.Collection = a.newCollection()
-				f.Collection.Items = append(a.allocObjects(1)[:0], child)
+				f.Collection.Items = items
 			}
 		}
 		return nil
