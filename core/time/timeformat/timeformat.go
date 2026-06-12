@@ -145,9 +145,11 @@ func FormatTime(t time.Time, format Format) any {
 
 // FormatDuration formats d using the given [Format] and returns a type suitable
 // for structured logging or JSON serialization. For Unix-based formats ([Unix],
-// [UnixMilli], [UnixMicro], [UnixNano]) the result is an int64 of nanoseconds.
-// For RFC layouts and any unrecognized format the [time.Duration] value is
-// returned as-is, allowing the encoder to apply its own duration rendering.
+// [UnixMilli], [UnixMicro], [UnixNano]) the result is always an int64 of
+// nanoseconds, regardless of which Unix format is selected — the format only
+// signals that a numeric value is wanted, not the resolution. For RFC layouts
+// and any unrecognized format the [time.Duration] value is returned as-is,
+// allowing the encoder to apply its own duration rendering.
 func FormatDuration(d time.Duration, format Format) any {
 	switch format {
 	case UnixNano, UnixMicro, UnixMilli, Unix:
