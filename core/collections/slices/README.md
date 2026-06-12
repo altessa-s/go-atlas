@@ -43,7 +43,7 @@ new slices without modifying inputs; nil slices are treated as empty and never c
 | `IsNonDecreasing`        | Every pair satisfies `a <= b`                  |
 | `IsNonIncreasing`        | Every pair satisfies `a >= b`                  |
 
-## Iterators (Go 1.23+)
+## Iterators
 
 Lazy `iter.Seq` iterators for zero-allocation pipelines. Use `slices.Collect()` to materialize results into concrete slice values on demand.
 

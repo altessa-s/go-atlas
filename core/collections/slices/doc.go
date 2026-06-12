@@ -7,7 +7,7 @@
 //
 // All functions are read-only and safe for concurrent use. Functions create new slices/maps without modifying inputs.
 //
-// # Iterators (Go 1.23+)
+// # Iterators
 //
 // Filter, Map, Chunk, and other collection operations return iter.Seq iterators for memory efficiency.
 // Use slices.Collect() to materialize results into slices when needed.
