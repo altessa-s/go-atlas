@@ -59,7 +59,7 @@ func processWithOptions[T any](
 ) error {
 	concurrency := getConcurrency(cfg)
 	if concurrency == 1 || len(items) == 1 {
-		return processSequential(ctx, items, fn, cfg.onSuccess, cfg.onError)
+		return processSequential(ctx, items, fn, cfg)
 	}
 
 	// Internal context to cancel all workers if stopOnError is true
@@ -218,28 +218,37 @@ func ProcessCollect[T, R any](
 }
 
 // processSequential processes items one by one in the current goroutine.
+// It mirrors the parallel path's stopOnError semantics: when unset, all
+// items are still processed and the first error encountered is returned.
 func processSequential[T any](
 	ctx context.Context,
 	items []T,
 	fn ProcessFunc[T],
-	onSuccess func(T),
-	onError func(T, error),
+	cfg *options[T],
 ) error {
+	var firstErr error
 	for _, item := range items {
 		if err := fn(ctx, item); err != nil {
-			if onError != nil {
-				onError(item, err)
+			if cfg.onError != nil {
+				cfg.onError(item, err)
 			}
-			return err
-		}
-		if onSuccess != nil {
-			onSuccess(item)
+			if cfg.stopOnError {
+				return err
+			}
+			if firstErr == nil {
+				firstErr = err
+			}
+		} else if cfg.onSuccess != nil {
+			cfg.onSuccess(item)
 		}
 		if ctx.Err() != nil {
+			if firstErr != nil {
+				return firstErr
+			}
 			return ctx.Err()
 		}
 	}
-	return nil
+	return firstErr
 }
 
 func getConcurrency[T any](cfg *options[T]) int {

@@ -59,6 +59,40 @@ func TestProcess_OnSuccessOnError(t *testing.T) {
 	require.GreaterOrEqual(t, successCount.Load(), int32(1))
 }
 
+func TestProcess_Sequential_ContinueOnError_ProcessesAllItems(t *testing.T) {
+	wantErr := errors.New("fail")
+	var processed atomic.Int32
+
+	err := concurrency.Process(t.Context(), []int{1, 2, 3}, func(_ context.Context, item int) error {
+		processed.Add(1)
+		if item == 2 {
+			return wantErr
+		}
+		return nil
+	}, concurrency.WithConcurrency[int](1))
+
+	require.ErrorIs(t, err, wantErr)
+	require.Equal(t, int32(3), processed.Load(),
+		"without WithStopOnError the sequential path must process every item")
+}
+
+func TestProcess_Sequential_StopOnError_StopsAtFirstError(t *testing.T) {
+	wantErr := errors.New("fail")
+	var processed atomic.Int32
+
+	err := concurrency.Process(t.Context(), []int{1, 2, 3}, func(_ context.Context, item int) error {
+		processed.Add(1)
+		if item == 1 {
+			return wantErr
+		}
+		return nil
+	}, concurrency.WithConcurrency[int](1), concurrency.WithStopOnError[int]())
+
+	require.ErrorIs(t, err, wantErr)
+	require.Equal(t, int32(1), processed.Load(),
+		"with WithStopOnError the sequential path must stop at the first error")
+}
+
 func TestProcess_EmptyItems(t *testing.T) {
 	err := concurrency.Process(t.Context(), []int{}, func(ctx context.Context, item int) error {
 		t.Error("should not be called")
