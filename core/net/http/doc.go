@@ -8,6 +8,9 @@
 //
 // RoundTripperFunc is stateless and safe for concurrent use.
 //
+// Import this package under the corehttp alias to avoid shadowing the
+// standard library net/http.
+//
 // # Usage
 //
 //	rt := http.RoundTripperFunc(func(req *http.Request) (*http.Response, error) {

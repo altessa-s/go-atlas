@@ -19,9 +19,9 @@ import "net/http"
 // also safe for concurrent use.
 type RoundTripperFunc func(req *http.Request) (*http.Response, error)
 
-// RoundTrip executes the underlying function with r and returns its results,
+// RoundTrip executes the underlying function with req and returns its results,
 // implementing the [http.RoundTripper] interface. It propagates any error
 // returned by the wrapped function unchanged.
-func (rt RoundTripperFunc) RoundTrip(r *http.Request) (*http.Response, error) {
-	return rt(r)
+func (rt RoundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return rt(req)
 }
