@@ -194,6 +194,32 @@ func TestContains(t *testing.T) {
 		require.Equal(t, 2, res.Count)
 		require.Equal(t, []int{0, 5}, res.Positions)
 	})
+
+	// Regression: the whole-word boundary check used to index the ORIGINAL
+	// string with offsets computed on the LOWERCASED copy. When case folding
+	// changes byte lengths ("İ" U+0130, 2 bytes, lowers to "i̇",
+	// 3 bytes) the offsets shift and a legitimate match was rejected.
+	t.Run("Whole Words CaseFold LengthChange", func(t *testing.T) {
+		res := corestrings.Contains("İstanbul word", "word", corestrings.ContainsOptions{
+			CaseSensitive:   false,
+			MatchWholeWords: true,
+		})
+		require.True(t, res.Found, "Should find 'word' after a length-changing case fold")
+	})
+
+	// Contract: Count and Positions are populated only when opts.Count is
+	// true — including the empty-substring fast path.
+	t.Run("Empty Substr Honors Count Option", func(t *testing.T) {
+		res := corestrings.Contains("abc", "", corestrings.ContainsOptions{})
+		require.True(t, res.Found)
+		require.Zero(t, res.Count)
+		require.Nil(t, res.Positions)
+
+		res = corestrings.Contains("abc", "", corestrings.ContainsOptions{Count: true})
+		require.True(t, res.Found)
+		require.Equal(t, 1, res.Count)
+		require.Equal(t, []int{0}, res.Positions)
+	})
 }
 
 func TestSafeComparisons(t *testing.T) {
