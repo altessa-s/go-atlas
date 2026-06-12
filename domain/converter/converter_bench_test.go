@@ -107,3 +107,31 @@ func BenchmarkConvert_Large_WithPassthroughCodec(b *testing.B) {
 		conv.Convert(src, &dst)
 	}
 }
+
+// BenchmarkConvert_SparseMerge measures the sparse-merge path: a
+// sparse pointer-based source applied onto a populated destination, with a
+// nested struct merged recursively.
+func BenchmarkConvert_SparseMerge(b *testing.B) {
+	name := "name"
+	field := "field"
+
+	type benchMergeNested struct {
+		Field *string
+		Label *string
+	}
+	type benchMerge struct {
+		Name   *string
+		Title  *string
+		Nested *benchMergeNested
+	}
+
+	src := benchMerge{Name: &name, Nested: &benchMergeNested{Field: &field}}
+	dst := benchMerge{Title: &name, Nested: &benchMergeNested{Label: &field}}
+
+	conv := converter.New[*benchMerge, *benchMerge](converter.WithSparseMerge())
+
+	b.ResetTimer()
+	for b.Loop() {
+		conv.Convert(&src, &dst)
+	}
+}

@@ -31,12 +31,18 @@ const (
 	// DefaultHandleEmbeddedStructs controls whether embedded (anonymous) struct
 	// fields are recursively expanded during conversion.
 	DefaultHandleEmbeddedStructs = false
+
+	// DefaultSparseMerge controls whether sparse-merge (partial-update)
+	// semantics are applied: nil sources skipped, present-but-empty nested
+	// structs clear the destination field.
+	DefaultSparseMerge = false
 )
 
 type options struct {
 	codecsSet                      *convcodec.Set
 	ignoreZeroValues               bool
 	ignoreNilValues                bool
+	sparseMerge                    bool
 	ignoreFields                   map[string]struct{}
 	fieldMappings                  map[string]string
 	handleEmbeddedStructs          bool
@@ -51,6 +57,7 @@ func defaultOptions() *options {
 		fieldMappings:                  make(map[string]string, DefaultFieldMappingsCapacity),
 		ignoreZeroValues:               DefaultIgnoreZeroValues,
 		ignoreNilValues:                DefaultIgnoreNilValues,
+		sparseMerge:                    DefaultSparseMerge,
 		handleEmbeddedStructs:          DefaultHandleEmbeddedStructs,
 		alwaysInitializeEmbeddedStruct: DefaultEmbeddedStructInitialization,
 	}
@@ -81,22 +88,24 @@ func WithCodecs(codec ...convcodec.Codec) Option {
 // WithIgnoreZeroValues configures the converter to skip zero values during conversion.
 // When enabled, fields with zero values (empty strings, 0 for numbers, nil pointers, etc.)
 // in the source struct will not be copied to the destination struct.
-// This option is mutually exclusive with WithIgnoreNilValues.
+// This option is mutually exclusive with WithIgnoreNilValues and WithSparseMerge.
 func WithIgnoreZeroValues() Option {
 	return func(o *options) {
 		o.ignoreZeroValues = true
 		o.ignoreNilValues = DefaultIgnoreNilValues
+		o.sparseMerge = DefaultSparseMerge
 	}
 }
 
 // WithIgnoreNilValues configures the converter to skip nil values during conversion.
 // When enabled, fields with nil values (nil pointers, nil slices, nil maps)
 // in the source struct will not be copied to the destination struct.
-// This option is mutually exclusive with WithIgnoreZeroValues.
+// This option is mutually exclusive with WithIgnoreZeroValues and WithSparseMerge.
 func WithIgnoreNilValues() Option {
 	return func(o *options) {
 		o.ignoreNilValues = true
 		o.ignoreZeroValues = DefaultIgnoreZeroValues
+		o.sparseMerge = DefaultSparseMerge
 	}
 }
 
@@ -163,5 +172,38 @@ func WithHandleEmbeddedStructs(initializeEmbeddedStruct bool) Option {
 	return func(o *options) {
 		o.handleEmbeddedStructs = true
 		o.alwaysInitializeEmbeddedStruct = initializeEmbeddedStruct
+	}
+}
+
+// WithSparseMerge configures the converter for sparse-merge (partial-update)
+// semantics, applying a sparse source onto an existing destination. For each
+// source field:
+//   - nil pointer/slice/map -> skipped (destination left unchanged)
+//   - non-nil scalar pointer (including a pointer to the zero value) -> written
+//     to the destination, so an explicit empty value clears it
+//   - non-nil nested struct pointer with at least one set field -> merged
+//     recursively
+//   - non-nil nested struct pointer with no set fields -> destination field
+//     zeroed, clearing the whole nested object
+//
+// The semantics apply at every nesting depth. Nil sources are skipped just like
+// WithIgnoreNilValues, so this option is mutually exclusive with
+// WithIgnoreZeroValues and supersedes WithIgnoreNilValues.
+//
+// The source must express optionality through pointers:
+//   - A non-pointer scalar field is always "present" and is copied as-is,
+//     including its zero value — it overwrites the destination. Use pointer
+//     fields for every optional scalar.
+//   - A non-pointer nested struct field is likewise always "present": it is
+//     merged field-by-field and never triggers the clear-on-empty rule, so an
+//     untouched zero struct merges nothing instead of wiping the destination.
+//
+// Structs without exported fields (time.Time and similar opaque types) cannot
+// be merged field-by-field and are assigned to the destination wholesale.
+func WithSparseMerge() Option {
+	return func(o *options) {
+		o.sparseMerge = true
+		o.ignoreNilValues = true
+		o.ignoreZeroValues = DefaultIgnoreZeroValues
 	}
 }
