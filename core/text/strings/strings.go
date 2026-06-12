@@ -680,11 +680,11 @@ func TimingSafeSubstringMatch(s, substr string) bool {
 	return found == 1
 }
 
-// StringEqualsUnsafe compares two strings for equality with a fast path that
-// checks whether both share the same backing memory (common when strings have
-// been interned). If the lengths differ, it falls back to
-// [strings.EqualFold] for a case-insensitive comparison. For same-length
-// strings with different data pointers, a standard == comparison is used.
+// StringEqualsUnsafe compares two strings for exact (case-sensitive)
+// equality with a fast path that checks whether both share the same backing
+// memory (common when strings have been interned). Strings of different
+// lengths are never equal. For same-length strings with different data
+// pointers, a standard == comparison is used.
 //
 // # Safety Invariants
 //
@@ -710,7 +710,10 @@ func TimingSafeSubstringMatch(s, substr string) bool {
 // #nosec G103 -- intentional pointer comparison for performance optimization
 func StringEqualsUnsafe(a, b string) bool {
 	if len(a) != len(b) {
-		return strings.EqualFold(a, b) // Fallback to Unicode comparison
+		// Different lengths can never be byte-equal. The earlier
+		// strings.EqualFold fallback made the function case-insensitive
+		// for different-length inputs only — a semantic landmine.
+		return false
 	}
 
 	if len(a) == 0 {

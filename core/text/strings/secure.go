@@ -118,9 +118,12 @@ func initializeSecureStringStorage(ss *SecureString, s string, fromPool bool) {
 
 // NewSecureString creates a [SecureString] initialized with the given
 // sensitive data. The instance is drawn from an internal [sync.Pool] to
-// reduce allocation pressure. A runtime cleanup is registered so that, if
-// the instance is garbage collected without an explicit [SecureString.Clear],
-// the underlying bytes are still zeroed.
+// reduce allocation pressure. For heap-backed storage (strings longer than
+// [DefaultSmallStringOptimizationThreshold] bytes) a runtime cleanup is
+// registered so that, if the instance is garbage collected without an
+// explicit [SecureString.Clear], the underlying bytes are still zeroed.
+// Inline-stored (small) data cannot be zeroed by a GC cleanup and relies
+// on an explicit Clear.
 //
 // Callers must call [SecureString.Clear] when the data is no longer needed.
 // For an empty string, no cleanup is registered and the instance is returned
@@ -142,8 +145,15 @@ func NewSecureString(s string) *SecureString {
 
 	initializeSecureStringStorage(ss, s, true)
 
-	// Register cleanup for larger strings or safety
-	ss.cleanup = coreruntime.AddCleanup(ss, cleanupSecureString, ss.data)
+	// A GC cleanup can only cover heap-backed storage: the cleanup argument
+	// must not point into the object being collected, so the inline array
+	// cannot be zeroed after ss becomes unreachable. Registering a cleanup
+	// with a nil data slice (as the inline path used to do) is a no-op that
+	// only suggests a guarantee the runtime cannot provide. Inline data is
+	// zeroed by an explicit Clear or on pool reuse.
+	if !ss.useInlineStorage {
+		ss.cleanup = coreruntime.AddCleanup(ss, cleanupSecureString, ss.data)
+	}
 	return ss
 }
 
@@ -406,6 +416,11 @@ func ZeroBytes(data []byte) {
 //	password := getUserInput()
 //	defer ZeroString(password)
 //
+// zeroStringMu serializes the debug.SetPanicOnFault set/restore window in
+// [ZeroString]; the flag is process-global and concurrent toggling would let
+// one goroutine's restore disarm another's in-flight fault recovery.
+var zeroStringMu sync.Mutex
+
 // #nosec G103 -- intentional unsafe for secure memory zeroing
 func ZeroString(s string) {
 	if s == EmptyStringValue {
@@ -419,6 +434,13 @@ func ZeroString(s string) {
 	// segment) causes a SIGSEGV. By default Go treats a SIGSEGV on a non-nil
 	// address as fatal (runtime.throw) which recover() cannot catch.
 	// debug.SetPanicOnFault converts such faults into recoverable panics.
+	//
+	// SetPanicOnFault is a process-global flag, so the set/restore window is
+	// serialized: without the lock, goroutine A restoring the previous value
+	// while goroutine B is mid-zeroing would turn B's fault back into a
+	// fatal runtime throw.
+	zeroStringMu.Lock()
+	defer zeroStringMu.Unlock()
 	prev := debug.SetPanicOnFault(true)
 	defer debug.SetPanicOnFault(prev)
 
