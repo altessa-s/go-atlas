@@ -151,8 +151,9 @@ func (ho *HandleOpts) SetReallyPanic(rp bool) *HandleOpts {
 
 // HandleWithOpts recovers from a panic and executes global handlers (registered
 // via [AddGlobalPanicHandler] or [SetGlobalPanicHandlers]) followed by any
-// handlers passed directly. Before invoking handlers, it runs
-// [runtime.RunShutdownHooks] to flush buffered logs and telemetry.
+// handlers passed directly. When the panic is re-thrown (re-panic enabled),
+// it first runs [runtime.RunShutdownHooks] to flush buffered logs and
+// telemetry; swallowed panics leave the process-wide shutdown hooks untouched.
 //
 // The opts parameter overrides global behavior (see [HandleOpts]). Pass nil
 // to use the global defaults.
@@ -194,16 +195,13 @@ func Handle(ctx context.Context, handler ...PanicHandler) {
 // panicShutdownTimeout is the maximum time to wait for shutdown hooks during panic recovery.
 const panicShutdownTimeout = 2 * time.Second
 
-// processRecovery handles the recovered panic value by running shutdown hooks,
-// invoking global and local handlers, and optionally re-panicking.
+// processRecovery handles the recovered panic value by invoking global and
+// local handlers and optionally re-panicking. Shutdown hooks run only on the
+// re-panic path: they execute at most once process-wide (sync.Once), so
+// running them for every recovered-and-swallowed panic would consume that
+// budget on the first routine panic and a later real shutdown would silently
+// skip all hooks.
 func processRecovery(ctx context.Context, r any, opts *HandleOpts, handler ...PanicHandler) {
-	// Run global shutdown hooks (best effort, short timeout)
-	// We use a background context because the original context might be canceled or invalid
-	// This ensures buffered logs are flushed even during panic
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), panicShutdownTimeout)
-	coreruntime.RunShutdownHooks(shutdownCtx) //nolint:errcheck,contextcheck // best-effort during panic, original ctx may be invalid
-	cancel()
-
 	if handlers, ok := globalPanicHandlers.Load().(PanicHandlers); ok {
 		for _, fn := range handlers {
 			fn(ctx, r)
@@ -220,6 +218,13 @@ func processRecovery(ctx context.Context, r any, opts *HandleOpts, handler ...Pa
 	}
 
 	if rp {
+		// The re-panic is expected to take down the process, so flush
+		// buffered logs and telemetry first (best effort, short timeout).
+		// A background context is used because the original context might
+		// be canceled or invalid.
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), panicShutdownTimeout)
+		coreruntime.RunShutdownHooks(shutdownCtx) //nolint:errcheck,contextcheck // best-effort during panic, original ctx may be invalid
+		cancel()
 		panic(r)
 	}
 }

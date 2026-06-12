@@ -7,12 +7,35 @@ package panics_test
 import (
 	"context"
 	"log/slog"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
+
+	coreruntime "github.com/altessa-s/go-atlas/core/runtime"
 )
+
+// TestHandle_SwallowedPanic_DoesNotConsumeShutdownHooks guards against the
+// regression where every recovered panic ran the process-wide shutdown hooks,
+// consuming their once-only budget so a later real shutdown silently skipped
+// them. Hooks may only run on the re-panic path.
+func TestHandle_SwallowedPanic_DoesNotConsumeShutdownHooks(t *testing.T) {
+	var hookRan atomic.Bool
+	coreruntime.OnShutdown(func(context.Context) error {
+		hookRan.Store(true)
+		return nil
+	})
+
+	func() {
+		defer panics.HandleWithOpts(t.Context(), panics.NewHandleOpts().SetReallyPanic(false))
+		panic("routine panic")
+	}()
+
+	require.False(t, hookRan.Load(),
+		"a recovered-and-swallowed panic must not run process-wide shutdown hooks")
+}
 
 func TestNewHandleOpts(t *testing.T) {
 	opts := panics.NewHandleOpts()
