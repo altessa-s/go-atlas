@@ -5,7 +5,7 @@ import "github.com/altessa-s/go-atlas/transport/http/server/router"
 ```
 
 Package `router` defines the `Router` and `Route` interfaces that abstract HTTP routing functionality. These interfaces decouple the
-server from any specific routing library, allowing implementations to be swapped without changing handler code. A `Router` supports
+server from any specific routing library, so implementations can be swapped without changing handler code. A `Router` supports
 handler and middleware registration, path-prefix matching, and subrouter creation.
 
 ## Key types

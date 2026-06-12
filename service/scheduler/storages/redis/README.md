@@ -5,8 +5,8 @@ import "github.com/altessa-s/go-atlas/service/scheduler/storages/redis"
 ```
 
 Package `redis` implements `scheduler.Storage` using RedisJSON for document storage and RediSearch for
-indexed querying. Safe for concurrent use across multiple processes, making it suitable for distributed
-scheduling where multiple service instances share scheduler state through a single Redis cluster.
+indexed querying. Safe for concurrent use across multiple processes, so several service instances
+can share scheduler state through a single Redis cluster.
 
 ## Prerequisites
 

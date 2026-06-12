@@ -59,7 +59,7 @@ Every interceptor sub-package exports three identification helpers:
 | [idempotency](./idempotency)                   | Server interceptor for idempotent request handling, plus client-side helpers and `UnaryClientInterceptor` |
 | [ipacl](./ipacl)                               | IP/CIDR allow- and deny-list enforcement              |
 | [limiter](./limiter)                           | Rate limiting with standard response headers          |
-| [logger](./logger)                             | Comprehensive request and response logging            |
+| [logger](./logger)                             | Request and response logging                          |
 | [metadata](./metadata)                         | Call metadata extraction and context injection         |
 | [metrics](./metrics)                           | Prometheus metrics collection                         |
 | [protovalidator](./protovalidator)             | Protocol buffer message validation                    |

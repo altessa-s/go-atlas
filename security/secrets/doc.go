@@ -3,9 +3,9 @@
 // the LICENSE file.
 
 // Package secrets provides centralized secret management with automatic caching,
-// comprehensive error handling, and real-time watch capabilities.
-// It serves as the primary interface for applications to access secrets from various
-// storage providers while maintaining optimal performance through intelligent caching strategies.
+// typed errors, and real-time watch capabilities.
+// It is the primary interface for applications to access secrets from various
+// storage providers; an LRU cache keeps frequently used secrets in memory.
 //
 // The package supports multiple storage backends including Google Cloud Secret Manager,
 // HashiCorp Vault, Yandex Cloud Lockbox, and in-memory storage. All operations are
@@ -18,7 +18,7 @@
 //   - Full CRUD operations: Create, Read, Update, Delete secrets with version tracking
 //   - Real-time Watch API for secret change notifications with event filtering
 //   - Scheduler-based cache updates via RunUpdateCycle for periodic synchronization
-//   - Concurrent secret retrieval with worker pools for optimal performance
+//   - Concurrent secret retrieval with worker pools
 //   - Generic type support for different secret value types (string, []byte, custom structs)
 //   - Thread-safe operations with proper synchronization and atomic operations
 //   - Configurable encoding/decoding for keys and values with codec interface
@@ -38,7 +38,7 @@
 // background updates, and provider abstraction. Providers implement the storage
 // logic for specific backends like HashiCorp Vault, Google Cloud Secret Manager,
 // or Yandex Cloud Lockbox. The WatchManager provides real-time notifications when
-// secrets are created, updated, or deleted, enabling applications to react immediately
+// secrets are created, updated, or deleted, so applications can react immediately
 // to configuration changes.
 //
 // Basic Usage Example:
@@ -128,7 +128,7 @@
 //	}
 //
 // Static providers can additionally implement the Static interface to indicate
-// that their secrets don't change over time, allowing for optimization.
+// that their secrets don't change over time, which lets the Manager skip periodic refresh.
 //
 // # Caching Strategy:
 //
@@ -152,7 +152,7 @@
 //
 // # Error Handling:
 //
-// The package provides comprehensive error handling:
+// Error handling includes:
 //   - Standard error types (ErrNotFound, ErrDecoding, etc.)
 //   - Provider-specific error mapping
 //   - Retry logic for transient failures

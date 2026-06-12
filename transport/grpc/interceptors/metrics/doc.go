@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package metrics provides comprehensive metrics collection for gRPC servers
+// Package metrics provides metrics collection for gRPC servers
 // via the [observability/metrics.Collector] abstraction. It implements both
 // unary and streaming interceptors that automatically collect detailed
 // metrics about request counts, durations, status codes, and optionally

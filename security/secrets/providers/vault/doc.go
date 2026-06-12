@@ -8,9 +8,9 @@
 // concurrent operations, version management, and flexible path configuration.
 //
 // The Vault provider supports complete CRUD operations, automatic concurrent
-// retrieval, and comprehensive error handling with Vault-specific error mapping.
-// It leverages Vault's KV v2 engine capabilities including versioning, metadata
-// management, and secure storage with encryption at rest.
+// retrieval, and Vault-specific error mapping.
+// It uses Vault's KV v2 engine features: versioning, metadata
+// management, and encryption at rest.
 //
 // Authentication is handled through the provided Vault client, which must be
 // properly configured with a valid token and appropriate policies. The provider

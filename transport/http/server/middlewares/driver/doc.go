@@ -5,7 +5,7 @@
 // Package driver provides the Driven Middleware pattern for HTTP middlewares.
 //
 // The Driven Middleware pattern separates lifecycle hooks from the HTTP handler
-// mechanics, making it easier to implement middlewares that need pre/post processing.
+// mechanics, so middlewares that need pre/post processing are easier to implement.
 // This pattern mirrors the gRPC interceptor driver pattern for consistency.
 //
 // # Basic Usage

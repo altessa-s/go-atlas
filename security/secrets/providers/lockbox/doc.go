@@ -8,9 +8,9 @@
 // concurrent operations, IAM authentication, and base64 encoding.
 //
 // The Lockbox provider supports complete CRUD operations, automatic concurrent
-// retrieval, and comprehensive error handling with Yandex Cloud error mapping.
+// retrieval, and Yandex Cloud error mapping.
 // It uses a dual-client architecture with separate clients for secret management
-// and payload retrieval operations, optimizing performance and security.
+// and payload retrieval operations.
 //
 // Authentication is handled through Yandex Cloud service account key authentication
 // with automatic JWT token generation and refresh. The provider requires appropriate

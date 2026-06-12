@@ -13,8 +13,8 @@
 // than deriving identity from the request context.
 //
 // The limiter reuses storage backends from [github.com/altessa-s/go-atlas/data/limiters/storages]
-// (memory, Redis, NATS) for distributed counter state, ensuring consistent budget
-// enforcement across multiple service replicas.
+// (memory, Redis, NATS) for distributed counter state, so budget
+// enforcement stays consistent across service replicas.
 //
 // # Usage
 //

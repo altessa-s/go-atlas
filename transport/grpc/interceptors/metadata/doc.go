@@ -13,7 +13,7 @@
 // efficient repeated lookups.
 //
 // The [Interceptor] function returns a [driver.DrivenInterceptor] that the
-// [interceptors.Chain] automatically prepends, ensuring all downstream
+// [interceptors.Chain] automatically prepends, so all downstream
 // interceptors have access to [CallMetadata] without manual setup.
 //
 // Example:

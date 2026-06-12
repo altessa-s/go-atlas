@@ -5,8 +5,8 @@
 // Package ocsp provides OCSP stapling for TLS certificates with caching and compression.
 //
 // OCSP (Online Certificate Status Protocol) stapling improves TLS handshake performance
-// by including certificate revocation status in the TLS handshake, eliminating the need
-// for clients to contact the CA directly.
+// by including certificate revocation status in the TLS handshake, so clients
+// don't have to contact the CA directly.
 //
 // # Features
 //

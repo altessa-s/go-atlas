@@ -4,7 +4,7 @@
 import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/logger"
 ```
 
-Package `logger` provides gRPC interceptors for comprehensive request and response logging. Captures method calls, timing, gRPC status codes,
+Package `logger` provides gRPC interceptors for request and response logging. Captures method calls, timing, gRPC status codes,
 errors, request/response payloads, request IDs, trace correlation, and client IP with structured logging support via a pluggable `Logger` interface.
 
 ## Key types

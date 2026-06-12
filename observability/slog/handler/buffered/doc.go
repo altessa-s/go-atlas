@@ -6,7 +6,7 @@
 // records and writes them via a background goroutine.
 //
 // Records at or above the bypass level ([WithBypassLevel], default [slog.LevelError])
-// are written synchronously after flushing the buffer, ensuring high-severity
+// are written synchronously after flushing the buffer, so high-severity
 // entries are never lost. When the buffer is full, records fall back to
 // synchronous writes rather than being dropped.
 //

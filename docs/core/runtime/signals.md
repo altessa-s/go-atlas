@@ -83,7 +83,7 @@ execution.
 
 ### Method chaining
 
-All registration methods return the `SignalHandler` interface, enabling chaining:
+All registration methods return the `SignalHandler` interface, so calls chain:
 
 ```go
 signals.New(

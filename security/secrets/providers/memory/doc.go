@@ -9,8 +9,8 @@
 //
 // The memory provider loads all secrets from a provided map during initialization
 // and serves them from memory. It implements the Static interface, indicating
-// that secrets don't change over time, which allows the manager to skip
-// periodic refresh operations for optimal performance.
+// that secrets don't change over time, which lets the manager skip
+// periodic refresh operations.
 //
 // This provider is particularly useful in scenarios where:
 //   - Testing applications with known secret values
@@ -67,8 +67,8 @@
 // Thread Safety:
 //
 // All provider operations are thread-safe and can be used concurrently from
-// multiple goroutines. The provider uses read-write mutex protection to ensure
-// data consistency while allowing concurrent read operations for optimal performance.
+// multiple goroutines. The provider uses a read-write mutex, so reads proceed
+// concurrently and writes stay consistent.
 //
 // Limitations:
 //
