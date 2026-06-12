@@ -44,6 +44,58 @@ func newTestWAL(tb testing.TB, extraOpts ...Option) (*WAL, string) {
 	return w, dir
 }
 
+func TestWAL_Close_Concurrent_NoPanic(t *testing.T) {
+	t.Parallel()
+	w, _ := newTestWAL(t)
+
+	const goroutines = 16
+	start := make(chan struct{})
+	errs := make(chan error, goroutines)
+	var wg sync.WaitGroup
+	for range goroutines {
+		wg.Go(func() {
+			<-start
+			errs <- w.Close()
+		})
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+}
+
+func TestWAL_Append_EmptyPayload_IsRejected(t *testing.T) {
+	t.Parallel()
+	w, dir := newTestWAL(t)
+
+	_, err := w.Append(nil)
+	require.ErrorIs(t, err, ErrEmptyPayload)
+	_, err = w.Append([]byte{})
+	require.ErrorIs(t, err, ErrEmptyPayload)
+
+	// A record written after the rejected appends must survive recovery:
+	// nothing with a zero length may reach the segment file.
+	_, err = w.Append([]byte("alive"))
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+
+	w2, recovered, err := Open(dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = w2.Close() })
+	require.Len(t, recovered, 1)
+	require.Equal(t, []byte("alive"), recovered[0].Payload)
+}
+
+func TestWAL_Append_PayloadTooLarge_IsRejected(t *testing.T) {
+	t.Parallel()
+	w, _ := newTestWAL(t)
+
+	_, err := w.Append(make([]byte, maxRecordBytes+1))
+	require.ErrorIs(t, err, ErrPayloadTooLarge)
+}
+
 func TestOpen_EmptyDir_ReturnsError(t *testing.T) {
 	t.Parallel()
 	w, recovered, err := Open("")
