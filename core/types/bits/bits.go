@@ -48,8 +48,10 @@ func getBitWidth[T constraints.Integer]() uint64 {
 		return BitsInUint16
 	case uint32, int32:
 		return BitsInUint32
-	case uint64, int64, uint, int:
+	case uint64, int64:
 		return BitsInUint64
+	case uint, int:
+		return uint64(unsafe.Sizeof(uint(0)) * 8) // #nosec G103 -- compile-time size query only, no pointer arithmetic
 	case uintptr:
 		return uint64(unsafe.Sizeof(uintptr(0)) * 8) // #nosec G103 -- compile-time size query only, no pointer arithmetic
 	default:
@@ -322,7 +324,7 @@ func ReverseBits[T constraints.Integer](value T) T {
 	maxBits := getBitWidth[T]()
 	result := T(0)
 
-	for i := uint64(0); i < maxBits; i++ {
+	for i := range maxBits {
 		if IsBitSet(value, i) {
 			result = SetBit(result, maxBits-1-i)
 		}
