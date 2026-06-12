@@ -274,8 +274,14 @@ func RotateLeft[T constraints.Integer](value T, n uint64) T {
 		return value
 	}
 
-	mask := T((1 << maxBits) - 1)
-	return ((value << n) | (value >> (maxBits - n))) & mask
+	// Rotate in the unsigned domain: for signed T the >> operator is
+	// arithmetic and would smear the sign bit into the wrapped-around
+	// positions. widthMask confines the sign-extended uint64(value) to
+	// the type's bit width (and is all-ones when maxBits == 64, since a
+	// 64-bit shift of a uint64 yields 0).
+	widthMask := uint64(1)<<maxBits - 1
+	uv := uint64(value) & widthMask
+	return T(((uv << n) | (uv >> (maxBits - n))) & widthMask)
 }
 
 // RotateRight performs a circular right rotation of value by n bit positions.
@@ -293,8 +299,10 @@ func RotateRight[T constraints.Integer](value T, n uint64) T {
 		return value
 	}
 
-	mask := T((1 << maxBits) - 1)
-	return ((value >> n) | (value << (maxBits - n))) & mask
+	// See RotateLeft for why the rotation runs in the unsigned domain.
+	widthMask := uint64(1)<<maxBits - 1
+	uv := uint64(value) & widthMask
+	return T(((uv >> n) | (uv << (maxBits - n))) & widthMask)
 }
 
 // ReverseBits returns value with all bits mirrored: the least significant bit
