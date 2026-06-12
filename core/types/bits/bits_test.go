@@ -5,6 +5,7 @@
 package bits
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -245,6 +246,18 @@ func TestRotateRight(t *testing.T) {
 			require.Equal(t, tt.want, RotateRight(tt.val, tt.n))
 		})
 	}
+}
+
+// TestRotate_SignedTypes guards against the arithmetic-shift regression:
+// the rotation used to run in the signed domain, where >> sign-extends and
+// smears the sign bit into the wrapped-around positions (RotateLeft(int8(-127), 1)
+// returned -1 instead of 3).
+func TestRotate_SignedTypes(t *testing.T) {
+	require.Equal(t, int8(0b00000011), RotateLeft(int8(-127), 1))
+	require.Equal(t, int8(-64), RotateRight(int8(-127), 1)) // 0b10000001 -> 0b11000000
+	require.Equal(t, int64(1), RotateLeft(int64(math.MinInt64), 1))
+	require.Equal(t, int64(math.MinInt64), RotateRight(int64(1), 1))
+	require.Equal(t, int32(-1), RotateLeft(int32(-1), 5)) // all-ones is rotation-invariant
 }
 
 func TestReverseBits(t *testing.T) {
