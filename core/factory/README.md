@@ -14,6 +14,7 @@ logging, dependency validation, and standardized error formatting out of the box
 | `NewBase`                | Create `Base` with logger (nil-safe, uses discard)       |
 | `Logger`                 | Return the configured `*slog.Logger`                     |
 | `RequireDependency`      | Error if a single dependency is nil                      |
-| `RequireAllDependencies` | Error on the first nil in a `map[string]any`             |
+| `RequireAllDependencies` | Aggregate all nil entries of a `map[string]any` into one error via `errors.Join` |
 | `Errorf`                 | Formatted error (no wrapping)                            |
 | `WrapError`              | Wrap error with `%w` for `errors.Is`/`errors.As` support |
+| `JoinErrors`             | Package-level: nil for empty slice, the sole error as-is, else `errors.Join`     |

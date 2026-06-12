@@ -26,14 +26,14 @@
 //
 // # Error Helpers
 //
-// Use the error helper functions for consistent error messages:
+// Use the [Base] error helper methods for consistent error messages:
 //
-//	if dep == nil {
-//	    return nil, factory.RequiredError("redis client", "Redis storage")
+//	if err := b.RequireDependency(dep, "redis client"); err != nil {
+//	    return nil, err
 //	}
 //
 //	if err := doSomething(); err != nil {
-//	    return nil, factory.WrapError(err, "creating provider")
+//	    return nil, b.WrapError(err, "creating provider")
 //	}
 //
 // # Validation
