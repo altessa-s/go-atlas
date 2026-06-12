@@ -11,8 +11,10 @@ import (
 // Wrap returns a pointer to a copy of the provided value. This is primarily useful
 // for creating pointers to literals, constants, or inline expressions where the
 // address-of operator (&) cannot be applied directly. The type parameter T must
-// satisfy [constraints.Primitive]. See also [WrapNonZero] to skip zero values
-// and [Unwrap] for safe dereferencing.
+// satisfy [constraints.Primitive]: the constraint is deliberately narrower than
+// any because these helpers target scalar values (numbers, strings, booleans);
+// for arbitrary types take the address with &v directly. See also [WrapNonZero]
+// to skip zero values and [Unwrap] for safe dereferencing.
 //
 // Example:
 //
