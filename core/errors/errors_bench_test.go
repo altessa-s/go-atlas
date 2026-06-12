@@ -1,0 +1,33 @@
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Use of this source code is governed by license that can be found in
+// the LICENSE file.
+
+package errors_test
+
+import (
+	"testing"
+
+	"github.com/altessa-s/go-atlas/core/errors"
+
+	std_errors "errors"
+)
+
+// BenchmarkProvider measures the happy path — a non-nil cause being wrapped.
+// Useful to confirm the nil guard adds no measurable overhead to the common
+// path.
+func BenchmarkProvider(b *testing.B) {
+	cause := std_errors.New("connection refused")
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = errors.Provider("Redis", cause)
+	}
+}
+
+// BenchmarkProvider_NilFastPath measures the new nil guard path. It should be
+// near-zero cost and allocation-free.
+func BenchmarkProvider_NilFastPath(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = errors.Provider("Redis", nil)
+	}
+}

@@ -36,23 +36,3 @@ func TestProvider_WrapsCauseAndPreservesChain(t *testing.T) {
 	const want = "failed to create Redis provider: connection refused"
 	require.Equal(t, want, err.Error())
 }
-
-// BenchmarkProvider measures the happy path — a non-nil cause being wrapped.
-// Useful to confirm the nil guard adds no measurable overhead to the common
-// path.
-func BenchmarkProvider(b *testing.B) {
-	cause := std_errors.New("connection refused")
-	b.ReportAllocs()
-	for b.Loop() {
-		_ = errors.Provider("Redis", cause)
-	}
-}
-
-// BenchmarkProvider_NilFastPath measures the new nil guard path. It should be
-// near-zero cost and allocation-free.
-func BenchmarkProvider_NilFastPath(b *testing.B) {
-	b.ReportAllocs()
-	for b.Loop() {
-		_ = errors.Provider("Redis", nil)
-	}
-}
