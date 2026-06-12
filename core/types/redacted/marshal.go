@@ -80,9 +80,14 @@ func (s RedactedString) MarshalBSONValue() (byte, []byte, error) {
 }
 
 // UnmarshalBSONValue implements bson.ValueUnmarshaler. It expects a
-// BSON string and stores it verbatim into the underlying value. Other
-// BSON types are rejected.
+// BSON string and stores it verbatim into the underlying value. BSON
+// null clears the value to the empty string. Other BSON types are
+// rejected.
 func (s *RedactedString) UnmarshalBSONValue(typ byte, data []byte) error {
+	if bson.Type(typ) == bson.TypeNull {
+		*s = ""
+		return nil
+	}
 	var v string
 	if err := bson.UnmarshalValue(bson.Type(typ), data, &v); err != nil {
 		return fmt.Errorf("redacted: unmarshal bson: %w", err)

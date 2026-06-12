@@ -153,6 +153,15 @@ func TestOrElseInvocationCount(t *testing.T) {
 	})
 }
 
+func TestOrElseNilFnPanicsOnErr(t *testing.T) {
+	t.Parallel()
+
+	r := result.Err[string](errSentinel)
+	require.Panics(t, func() {
+		r.OrElse(nil)
+	})
+}
+
 type fooStruct struct {
 	A int
 	B string

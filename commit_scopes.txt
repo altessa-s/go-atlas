@@ -59,6 +59,7 @@ core/types/nilcheck         # Nil checking
 core/types/optional         # Optional type
 core/types/ptr              # Pointer utilities
 core/types/result           # Result type
+core/types/redacted         # Redacted types for sensitive data
 core/time/timeformat       # Common time formatters (RFC3339, etc.)
 
 # Data Layer

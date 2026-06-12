@@ -190,6 +190,14 @@ func TestRedactedString_UnmarshalBSONValue(t *testing.T) {
 	require.Equal(t, plain, s.Expose())
 }
 
+func TestRedactedString_UnmarshalBSONValue_Null(t *testing.T) {
+	t.Parallel()
+
+	s := redacted.RedactedString(plain)
+	require.NoError(t, s.UnmarshalBSONValue(byte(bson.TypeNull), nil))
+	require.Empty(t, s.Expose())
+}
+
 func TestRedactedString_BSONRoundTrip(t *testing.T) {
 	t.Parallel()
 
