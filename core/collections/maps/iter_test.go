@@ -14,6 +14,8 @@ import (
 )
 
 func TestKeys(t *testing.T) {
+	t.Parallel()
+
 	m := map[string]int{"a": 1, "b": 2}
 	got := make(map[string]bool)
 	for k := range coremaps.Keys(m) {
@@ -24,6 +26,8 @@ func TestKeys(t *testing.T) {
 }
 
 func TestValues(t *testing.T) {
+	t.Parallel()
+
 	m := map[string]int{"a": 1, "b": 2}
 	sum := 0
 	for v := range coremaps.Values(m) {
@@ -33,6 +37,8 @@ func TestValues(t *testing.T) {
 }
 
 func TestFilter(t *testing.T) {
+	t.Parallel()
+
 	m := map[string]int{"a": 1, "b": 2, "c": 3}
 	got := maps.Collect(coremaps.Filter(m, func(_ string, v int) bool { return v > 1 }))
 	require.Len(t, got, 2)
@@ -41,6 +47,8 @@ func TestFilter(t *testing.T) {
 }
 
 func TestMapIter(t *testing.T) {
+	t.Parallel()
+
 	m := map[string]int{"a": 1}
 	got := maps.Collect(coremaps.Map(m, func(k string, _ int) (string, string) {
 		return k + "!", "val"
@@ -49,6 +57,8 @@ func TestMapIter(t *testing.T) {
 }
 
 func TestPool(t *testing.T) {
+	t.Parallel()
+
 	pool := coremaps.NewPool[string, int](10)
 	m := pool.Get()
 	require.NotNil(t, m)
@@ -66,6 +76,8 @@ func TestPool(t *testing.T) {
 // away the pooled map and returned a fresh allocation. The fix fast-paths
 // requests within defaultCap by returning the pooled pointer untouched.
 func TestPool_GetWithCapacity_ReusesWithinDefault(t *testing.T) {
+	t.Parallel()
+
 	pool := coremaps.NewPool[string, int](64)
 
 	// Seed the pool with a known map pointer.
@@ -88,6 +100,8 @@ func TestPool_GetWithCapacity_ReusesWithinDefault(t *testing.T) {
 }
 
 func TestWeakRef(t *testing.T) {
+	t.Parallel()
+
 	val := 42
 	ref := coremaps.MakeWeakRef(&val)
 	require.True(t, ref.IsAlive(), "IsAlive() should be true for live reference")
@@ -97,6 +111,8 @@ func TestWeakRef(t *testing.T) {
 }
 
 func TestWeakMap_Basic(t *testing.T) {
+	t.Parallel()
+
 	wm := coremaps.NewWeakMap[string, int]()
 
 	val := 42
@@ -115,6 +131,8 @@ func TestWeakMap_Basic(t *testing.T) {
 }
 
 func TestWeakMap_Range(t *testing.T) {
+	t.Parallel()
+
 	wm := coremaps.NewWeakMap[string, int]()
 	v1 := 1
 	v2 := 2
@@ -126,10 +144,12 @@ func TestWeakMap_Range(t *testing.T) {
 		count++
 		return true
 	})
-	require.Equal(t, 2, count, "Range() visited %d entries, want 2", count)
+	require.Equal(t, 2, count)
 }
 
 func TestWeakMap_Cleanup(t *testing.T) {
+	t.Parallel()
+
 	wm := coremaps.NewWeakMap[string, int]()
 	v := 42
 	wm.Set("key", &v)
