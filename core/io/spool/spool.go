@@ -18,6 +18,11 @@ import (
 // call — io.CopyN allocates a fresh LimitedReader internally on every call.
 var lrPool = sync.Pool{New: func() any { return new(io.LimitedReader) }}
 
+// maxHeadPrealloc caps the head buffer's initial Grow at one page so a large
+// memory threshold does not preallocate more than is useful before the first
+// read reveals the actual content size.
+const maxHeadPrealloc = 4096
+
 // ErrTooLarge is returned by [New] when the source exceeds the cap set via
 // [WithMaxBytes]. Callers can test for it with [errors.Is].
 var ErrTooLarge = errors.New("spool: content exceeds max bytes")
@@ -62,9 +67,9 @@ func newNoTee(r io.Reader, o *options) (*Spool, error) {
 	}
 
 	var head bytes.Buffer
-	head.Grow(min(int(firstLimit), 4096))
+	head.Grow(min(int(firstLimit), maxHeadPrealloc))
 
-	lr := lrPool.Get().(*io.LimitedReader)
+	lr, _ := lrPool.Get().(*io.LimitedReader)
 	lr.R, lr.N = r, firstLimit
 	n, err := head.ReadFrom(lr)
 	lr.R = nil
@@ -97,9 +102,9 @@ func newWithTee(r io.Reader, o *options) (*Spool, error) {
 	}
 
 	var head bytes.Buffer
-	head.Grow(min(int(firstLimit), 4096))
+	head.Grow(min(int(firstLimit), maxHeadPrealloc))
 
-	lr := lrPool.Get().(*io.LimitedReader)
+	lr, _ := lrPool.Get().(*io.LimitedReader)
 	lr.R, lr.N = r, firstLimit
 	n, err := io.Copy(io.MultiWriter(&head, o.tee), lr)
 	lr.R = nil
@@ -143,7 +148,7 @@ func spillToFile(r io.Reader, headBytes []byte, f *os.File, tee io.Writer, n, ma
 	)
 	if maxBytes > 0 {
 		rem := maxBytes - n
-		lr := lrPool.Get().(*io.LimitedReader)
+		lr, _ := lrPool.Get().(*io.LimitedReader)
 		lr.R, lr.N = r, rem+1
 		m, err = io.Copy(fileDst, lr)
 		lr.R = nil
