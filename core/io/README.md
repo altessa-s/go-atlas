@@ -20,6 +20,13 @@ truncating the data. Concurrent-safe — `Close` can be called from multiple gor
 
 An `io.Reader` that always fails with a given error. Useful for tests that need to simulate I/O failures without hitting the file system.
 
+## RangeReadSeeker
+
+Adapts a `RangeOpener` — any "open a ranged read at offset" function (S3 `GetObject` with a `Range` header, an HTTP Range request) — to
+`io.ReadSeekCloser` for consumers that need random access over a remote object without downloading it up front. Reads lazily open a
+ranged request at the current position; `Seek` only moves the position and forces the next `Read` to reopen. A body shorter than the
+requested range surfaces as `io.ErrUnexpectedEOF`. Not safe for concurrent use; the caller must `Close` it to release the open body.
+
 ## Subpackages
 
 | Package          | Description                                                                |
