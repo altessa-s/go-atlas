@@ -27,6 +27,15 @@ Adapts a `RangeOpener` — any "open a ranged read at offset" function (S3 `GetO
 ranged request at the current position; `Seek` only moves the position and forces the next `Read` to reopen. A body shorter than the
 requested range surfaces as `io.ErrUnexpectedEOF`. Not safe for concurrent use; the caller must `Close` it to release the open body.
 
+## Spool
+
+Materializes an `io.Reader` exactly once into a local, rewindable `io.ReadSeekCloser` — in memory for small content, in a temp file once it
+exceeds the memory threshold — so consumers can re-read it from offset 0 without re-touching the (possibly remote) origin. Options:
+`WithSpoolMemThreshold` overrides the memory/file cutoff (`DefaultSpoolMemThreshold`, 4 MiB); `WithSpoolMaxBytes(n)` caps the size and
+returns `ErrSpoolTooLarge` past it (`n <= 0` is unlimited); `WithSpoolTee(w)` mirrors every byte into `w` during the single pass so a digest
+(e.g. SHA-256) can be computed without a second read. `Size` reports the materialized length. The source is never closed (caller owns it);
+`Close` removes a spilled temp file and is idempotent. Not safe for concurrent use.
+
 ## Subpackages
 
 | Package          | Description                                                                |
