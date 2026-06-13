@@ -18,6 +18,8 @@ import (
 )
 
 func TestErrorReader(t *testing.T) {
+	t.Parallel()
+
 	expectedErr := errors.New("expected error")
 	reader := coreio.NewErrorReader(expectedErr)
 
@@ -29,7 +31,10 @@ func TestErrorReader(t *testing.T) {
 }
 
 func TestLimitedReadCloser(t *testing.T) {
+	t.Parallel()
+
 	t.Run("UnderLimit", func(t *testing.T) {
+		t.Parallel()
 		baseReader := io.NopCloser(strings.NewReader("hello"))
 		lrc := coreio.NewLimitedReadCloser(baseReader, 10)
 
@@ -40,6 +45,7 @@ func TestLimitedReadCloser(t *testing.T) {
 	})
 
 	t.Run("AtLimit", func(t *testing.T) {
+		t.Parallel()
 		baseReader := io.NopCloser(strings.NewReader("hello"))
 		lrc := coreio.NewLimitedReadCloser(baseReader, 5)
 
@@ -49,6 +55,7 @@ func TestLimitedReadCloser(t *testing.T) {
 	})
 
 	t.Run("OverLimit", func(t *testing.T) {
+		t.Parallel()
 		baseReader := io.NopCloser(strings.NewReader("hello world"))
 		lrc := coreio.NewLimitedReadCloser(baseReader, 5)
 
@@ -57,6 +64,7 @@ func TestLimitedReadCloser(t *testing.T) {
 	})
 
 	t.Run("CloseCallsUnderlying", func(t *testing.T) {
+		t.Parallel()
 		mrc := &testhelpers.MockReadCloser{Reader: strings.NewReader("test")}
 		lrc := coreio.NewLimitedReadCloser(mrc, 100)
 		lrc.Close()
@@ -65,6 +73,8 @@ func TestLimitedReadCloser(t *testing.T) {
 }
 
 func TestErrorReader_CustomError(t *testing.T) {
+	t.Parallel()
+
 	customErr := errors.New("custom read error")
 	reader := coreio.NewErrorReader(customErr)
 
@@ -75,6 +85,8 @@ func TestErrorReader_CustomError(t *testing.T) {
 }
 
 func TestLimitedReadCloser_ZeroLimit(t *testing.T) {
+	t.Parallel()
+
 	baseReader := io.NopCloser(strings.NewReader("data"))
 	lrc := coreio.NewLimitedReadCloser(baseReader, 0)
 
@@ -83,6 +95,8 @@ func TestLimitedReadCloser_ZeroLimit(t *testing.T) {
 }
 
 func TestLimitedReadCloser_ExactlyOneByte(t *testing.T) {
+	t.Parallel()
+
 	baseReader := io.NopCloser(strings.NewReader("x"))
 	lrc := coreio.NewLimitedReadCloser(baseReader, 1)
 
@@ -92,6 +106,8 @@ func TestLimitedReadCloser_ExactlyOneByte(t *testing.T) {
 }
 
 func TestBufferPool(t *testing.T) {
+	t.Parallel()
+
 	buf := coreio.GetBuffer()
 	require.NotNil(t, buf)
 	buf.WriteString("test")
