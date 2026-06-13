@@ -5,6 +5,8 @@
 package io_test
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"io"
 	"strings"
@@ -39,5 +41,28 @@ func BenchmarkLimitedReadCloser_Read(b *testing.B) {
 				b.Fatal(err)
 			}
 		}
+	}
+}
+
+func BenchmarkRangeReadSeeker_Read(b *testing.B) {
+	data := []byte(strings.Repeat("x", 1024))
+	open := func(_ context.Context, offset, length int64) (io.ReadCloser, error) {
+		end := min(offset+length, int64(len(data)))
+		return io.NopCloser(bytes.NewReader(data[offset:end])), nil
+	}
+	dst := make([]byte, 256)
+
+	for b.Loop() {
+		rs := coreio.NewRangeReadSeeker(b.Context(), int64(len(data)), open)
+		for {
+			_, err := rs.Read(dst)
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+		rs.Close()
 	}
 }
