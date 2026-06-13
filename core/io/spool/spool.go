@@ -9,9 +9,14 @@ import (
 	"errors"
 	"io"
 	"os"
+	"sync"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
+
+// lrPool reuses *io.LimitedReader values so New avoids one heap allocation per
+// call — io.CopyN allocates a fresh LimitedReader internally on every call.
+var lrPool = sync.Pool{New: func() any { return new(io.LimitedReader) }}
 
 // ErrTooLarge is returned by [New] when the source exceeds the cap set via
 // [WithMaxBytes]. Callers can test for it with [errors.Is].
@@ -24,6 +29,10 @@ var ErrTooLarge = errors.New("spool: content exceeds max bytes")
 // releases the backing store. A Spool is not safe for concurrent use.
 type Spool struct {
 	io.ReadSeeker
+	// inMem is the embedded bytes.Reader for in-memory spools. Embedding it
+	// here avoids a separate heap allocation; file-backed spools leave it at
+	// its zero value.
+	inMem   bytes.Reader
 	size    int64
 	cleanup func() error
 }
@@ -34,7 +43,17 @@ type Spool struct {
 // Closed to release a spilled temp file.
 func New(r io.Reader, opts ...Option) (*Spool, error) {
 	o := newOptions(opts...)
+	if o.tee == nil {
+		return newNoTee(r, o)
+	}
+	return newWithTee(r, o)
+}
 
+// newNoTee is the fast path for [New] when no tee writer is configured.
+// head bytes.Buffer lives in its own function scope where &head is never
+// converted to io.Writer, so the compiler's escape analysis keeps head on
+// the stack and saves one heap allocation per call.
+func newNoTee(r io.Reader, o *options) (*Spool, error) {
 	// Read one byte past the smaller of the memory threshold and the cap: that
 	// is enough to decide memory-vs-spill and to detect an over-cap source.
 	firstLimit := o.memThreshold + 1
@@ -42,45 +61,94 @@ func New(r io.Reader, opts ...Option) (*Spool, error) {
 		firstLimit = o.maxBytes + 1
 	}
 
-	// headDst tees into the observer (when set) so the digest sees every byte
-	// written to the in-memory buffer.
 	var head bytes.Buffer
-	var headDst io.Writer = &head
-	if o.tee != nil {
-		headDst = io.MultiWriter(&head, o.tee)
-	}
-	n, err := io.CopyN(headDst, r, firstLimit)
-	if err != nil && !errors.Is(err, io.EOF) {
+	head.Grow(min(int(firstLimit), 4096))
+
+	lr := lrPool.Get().(*io.LimitedReader)
+	lr.R, lr.N = r, firstLimit
+	n, err := head.ReadFrom(lr)
+	lr.R = nil
+	lrPool.Put(lr)
+	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "read into spool")
 	}
 	if o.maxBytes > 0 && n > o.maxBytes {
 		return nil, ErrTooLarge
 	}
 	if n <= o.memThreshold {
-		return &Spool{ReadSeeker: bytes.NewReader(head.Bytes()), size: n}, nil
+		sp := &Spool{size: n}
+		sp.inMem.Reset(head.Bytes())
+		sp.ReadSeeker = &sp.inMem
+		return sp, nil
 	}
 
 	f, err := os.CreateTemp("", "spool-*")
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "create spool file")
 	}
+	return spillToFile(r, head.Bytes(), f, nil, n, o.maxBytes)
+}
+
+// newWithTee handles [New] when a tee writer is configured.
+func newWithTee(r io.Reader, o *options) (*Spool, error) {
+	firstLimit := o.memThreshold + 1
+	if o.maxBytes > 0 && o.maxBytes+1 < firstLimit {
+		firstLimit = o.maxBytes + 1
+	}
+
+	var head bytes.Buffer
+	head.Grow(min(int(firstLimit), 4096))
+
+	lr := lrPool.Get().(*io.LimitedReader)
+	lr.R, lr.N = r, firstLimit
+	n, err := io.Copy(io.MultiWriter(&head, o.tee), lr)
+	lr.R = nil
+	lrPool.Put(lr)
+	if err != nil {
+		return nil, coreerrs.WrapOperation(err, "read into spool")
+	}
+	if o.maxBytes > 0 && n > o.maxBytes {
+		return nil, ErrTooLarge
+	}
+	if n <= o.memThreshold {
+		sp := &Spool{size: n}
+		sp.inMem.Reset(head.Bytes())
+		sp.ReadSeeker = &sp.inMem
+		return sp, nil
+	}
+
+	f, err := os.CreateTemp("", "spool-*")
+	if err != nil {
+		return nil, coreerrs.WrapOperation(err, "create spool file")
+	}
+	return spillToFile(r, head.Bytes(), f, o.tee, n, o.maxBytes)
+}
+
+// spillToFile writes headBytes to f, copies the remainder of r into f (teeing
+// into tee when non-nil), seeks f to offset 0, and returns the file-backed
+// Spool. On any error it closes and removes f.
+func spillToFile(r io.Reader, headBytes []byte, f *os.File, tee io.Writer, n, maxBytes int64) (*Spool, error) {
 	remove := func() error { return errors.Join(f.Close(), os.Remove(f.Name())) }
-	// The head is already teed; write it to the file without re-teeing.
-	if _, err = f.Write(head.Bytes()); err != nil {
+	// The head is already teed (when a tee is set); write it to the file only.
+	if _, err := f.Write(headBytes); err != nil {
 		return nil, errors.Join(coreerrs.WrapOperation(err, "spill spool"), remove())
 	}
-
-	// fileDst tees the remainder of the source into the observer.
 	var fileDst io.Writer = f
-	if o.tee != nil {
-		fileDst = io.MultiWriter(f, o.tee)
+	if tee != nil {
+		fileDst = io.MultiWriter(f, tee)
 	}
-
-	var m int64
-	if o.maxBytes > 0 {
-		rem := o.maxBytes - n
-		m, err = io.CopyN(fileDst, r, rem+1)
-		if err != nil && !errors.Is(err, io.EOF) {
+	var (
+		m   int64
+		err error
+	)
+	if maxBytes > 0 {
+		rem := maxBytes - n
+		lr := lrPool.Get().(*io.LimitedReader)
+		lr.R, lr.N = r, rem+1
+		m, err = io.Copy(fileDst, lr)
+		lr.R = nil
+		lrPool.Put(lr)
+		if err != nil {
 			return nil, errors.Join(coreerrs.WrapOperation(err, "spill spool"), remove())
 		}
 		if m > rem {
@@ -89,7 +157,6 @@ func New(r io.Reader, opts ...Option) (*Spool, error) {
 	} else if m, err = io.Copy(fileDst, r); err != nil {
 		return nil, errors.Join(coreerrs.WrapOperation(err, "spill spool"), remove())
 	}
-
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return nil, errors.Join(coreerrs.WrapOperation(err, "rewind spool"), remove())
 	}
