@@ -9,7 +9,7 @@ Foundation packages for the Atlas framework. Every package under `core/` uses on
 |--------------------------------|------------------------------------------------------------|
 | [collections](./collections)   | Generic maps and slices utilities, iterators, pools        |
 | [context](./context)           | Context timeout helpers                                    |
-| [encoding](./encoding)         | Hashing and serialization                                  |
+| [encoding](./encoding)         | Hashing, serialization, and entity-tags (ETags)            |
 | [errors](./errors)             | Error wrapping, construction, and classification           |
 | [factory](./factory)           | Base type for factory pattern implementations              |
 | [io](./io)                     | Buffer pools, limited readers, file-system helpers, WAL    |
