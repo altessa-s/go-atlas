@@ -96,7 +96,7 @@ resp.Etag = cur.String() // `"<sha256-hex>"`, ready for the proto field
 
 ```go
 fi, _ := os.Stat(path)
-tag := etag.FromModTime(fi.Size(), fi.ModTime()) // W/"<size>-<mtime>"
+tag := etag.FromModTime(fi.Size(), fi.ModTime()) // W/"<size16>-<unixnano16>" (both base-16)
 ```
 
 ## See also
