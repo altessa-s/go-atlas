@@ -294,6 +294,13 @@ func (h *Handler) walkStruct(rv reflect.Value, groups []string, depth int) (slog
 		}
 		attrs = append(attrs, h.attrForField(name, rv.Field(i), groups, depth))
 	}
+	// No exported fields: nothing to mask or rebuild. An empty group would
+	// replace the value, and slog drops empty groups — so the attribute would
+	// vanish. Signal "not rebuilt" so the caller keeps the original and lets the
+	// downstream handler render it canonically (e.g. an error via Error()).
+	if len(attrs) == 0 {
+		return slog.Value{}, false
+	}
 	return slog.GroupValue(attrs...), true
 }
 
@@ -308,6 +315,12 @@ func (h *Handler) walkMap(rv reflect.Value, groups []string, depth int) (slog.Va
 	for iter := rv.MapRange(); iter.Next(); {
 		key := iter.Key().String()
 		attrs = append(attrs, h.attrForField(key, iter.Value(), groups, depth))
+	}
+	// Same empty-group hazard as walkStruct: an empty map rebuilds to an empty
+	// group, which slog omits — the attribute would vanish. Signal "not rebuilt"
+	// so the caller keeps the original and it renders canonically (e.g. map[]).
+	if len(attrs) == 0 {
+		return slog.Value{}, false
 	}
 	return slog.GroupValue(attrs...), true
 }
@@ -327,6 +340,12 @@ func (h *Handler) walkSlice(rv reflect.Value, groups []string, depth int) (slog.
 		}
 		// Atomic element — pass through as-is via slog.AnyValue.
 		attrs = append(attrs, slog.Attr{Key: key, Value: slog.AnyValue(elem.Interface())})
+	}
+	// Same empty-group hazard as walkStruct: an empty slice/array rebuilds to an
+	// empty group, which slog omits — the attribute would vanish. Signal "not
+	// rebuilt" so the caller keeps the original and it renders canonically (e.g. []).
+	if len(attrs) == 0 {
+		return slog.Value{}, false
 	}
 	return slog.GroupValue(attrs...), true
 }
