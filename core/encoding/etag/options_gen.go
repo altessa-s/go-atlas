@@ -3,12 +3,19 @@
 
 package etag
 
+import (
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+)
+
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
 // WithNewHash sets the newHash option.
 func WithNewHash(v NewHashFunc) Option {
 	return func(o *options) {
+		if nilcheck.IsNil(v) {
+			return
+		}
 		o.newHash = v
 	}
 }
