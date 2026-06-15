@@ -16,6 +16,12 @@ import (
 // never matches another tag. Construct tags with [Strong], [Weak],
 // [FromModTime], [Parse], or a [Generator]. Tag is comparable and safe to use
 // as a map key.
+//
+// The empty opaque-tag is not representable: although RFC 7232 permits `""`
+// syntactically, this package treats an empty value as absence so the two
+// states cannot be confused. [Strong] and [Weak] collapse an empty value to
+// the zero Tag, [Parse] rejects `""`, and [Tag.String] renders the zero Tag as
+// the empty string (never `""`) so it cannot be emitted as a header.
 type Tag struct {
 	value string
 	weak  bool
@@ -24,14 +30,21 @@ type Tag struct {
 // Strong returns a strong entity-tag wrapping value (rendered as `"value"`).
 // value must be a valid opaque-tag body: it may not contain a double quote or
 // control characters. Generated tags always satisfy this; for untrusted input
-// use [Parse] instead.
+// use [Parse] instead. An empty value yields the zero (absent) Tag.
 func Strong(value string) Tag {
+	if value == "" {
+		return Tag{}
+	}
 	return Tag{value: value}
 }
 
 // Weak returns a weak entity-tag wrapping value (rendered as `W/"value"`).
-// The same character constraints as [Strong] apply to value.
+// The same character constraints as [Strong] apply to value. An empty value
+// yields the zero (absent) Tag.
 func Weak(value string) Tag {
+	if value == "" {
+		return Tag{}
+	}
 	return Tag{value: value, weak: true}
 }
 
@@ -63,8 +76,13 @@ func (t Tag) IsWeak() bool { return t.weak }
 func (t Tag) IsZero() bool { return t == Tag{} }
 
 // String renders t as an HTTP header value: `"value"` when strong and
-// `W/"value"` when weak. The zero Tag renders as `""`.
+// `W/"value"` when weak. The zero (absent) Tag renders as the empty string, so
+// callers can guard emission with a plain `if s := t.String(); s != ""` check
+// and never write a bogus `ETag: ""` header.
 func (t Tag) String() string {
+	if t.value == "" {
+		return ""
+	}
 	if t.weak {
 		return `W/"` + t.value + `"`
 	}

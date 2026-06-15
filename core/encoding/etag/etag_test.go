@@ -25,8 +25,8 @@ func TestTagConstructorsAndString(t *testing.T) {
 	}{
 		{name: "strong", tag: etag.Strong("abc"), value: "abc", string: `"abc"`},
 		{name: "weak", tag: etag.Weak("abc"), weak: true, value: "abc", string: `W/"abc"`},
-		{name: "empty strong", tag: etag.Strong(""), value: "", string: `""`},
-		{name: "zero", tag: etag.Tag{}, value: "", string: `""`},
+		{name: "empty strong collapses to absent", tag: etag.Strong(""), value: "", string: ``},
+		{name: "zero renders empty", tag: etag.Tag{}, value: "", string: ``},
 	}
 
 	for _, tc := range tests {
@@ -42,7 +42,8 @@ func TestTagConstructorsAndString(t *testing.T) {
 func TestTagIsZero(t *testing.T) {
 	t.Parallel()
 	require.True(t, etag.Tag{}.IsZero())
-	require.True(t, etag.Strong("").IsZero()) // empty strong is indistinguishable from absent
+	require.True(t, etag.Strong("").IsZero()) // empty value collapses to the absent zero Tag
+	require.True(t, etag.Weak("").IsZero())   // including the weak constructor
 	require.False(t, etag.Strong("x").IsZero())
 	require.False(t, etag.Weak("x").IsZero())
 }
