@@ -29,6 +29,7 @@ core/context                # Context utilities
 core/encoding               # Hash and serializer abstractions
 core/encoding/hash          # Hash implementations
 core/encoding/serializer    # Serializer implementations
+core/encoding/etag          # ETag generation
 core/errors                 # Structured error handling
 core/factory                # Generic factory pattern
 core/io                     # File I/O helpers

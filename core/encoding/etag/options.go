@@ -27,5 +27,5 @@ var DefaultNewHash NewHashFunc = sha256.New
 // generated [Option] values (the With* constructors).
 type options struct {
 	// newHash constructs the hash.Hash used for content-based strong tags.
-	newHash NewHashFunc `optgen:"default=DefaultNewHash"`
+	newHash NewHashFunc `optgen:"default=DefaultNewHash,notnil"`
 }
