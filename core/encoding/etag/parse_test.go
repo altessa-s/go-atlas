@@ -24,7 +24,7 @@ func TestParse(t *testing.T) {
 	}{
 		{name: "strong", input: `"abc"`, want: etag.Strong("abc")},
 		{name: "weak", input: `W/"abc"`, want: etag.Weak("abc")},
-		{name: "empty value", input: `""`, want: etag.Strong("")},
+		{name: "empty opaque-tag rejected", input: `""`, wantErr: true},
 		{name: "surrounding spaces", input: `  "abc"  `, want: etag.Strong("abc")},
 		{name: "obs-text byte", input: "\"a\x80b\"", want: etag.Strong("a\x80b")},
 

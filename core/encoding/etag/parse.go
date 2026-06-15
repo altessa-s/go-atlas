@@ -16,8 +16,9 @@ var ErrInvalidTag = errors.New("invalid entity-tag")
 
 // Parse parses a single HTTP entity-tag such as `"abc"` or `W/"abc"` into a
 // [Tag]. Surrounding whitespace is tolerated; any trailing content makes the
-// input invalid. It returns an error wrapping [ErrInvalidTag] on malformed
-// input.
+// input invalid. The empty opaque-tag `""` is rejected: this package does not
+// represent empty tags (see [Tag]). It returns an error wrapping
+// [ErrInvalidTag] on malformed input.
 func Parse(s string) (Tag, error) {
 	t, rest, ok := parseOne(strings.TrimSpace(s))
 	if !ok || strings.TrimSpace(rest) != "" {
@@ -75,6 +76,9 @@ func parseOne(s string) (Tag, string, bool) {
 	for i := 1; i < len(s); i++ {
 		switch c := s[i]; {
 		case c == '"':
+			if i == 1 {
+				return Tag{}, s, false // empty opaque-tag `""` is not representable
+			}
 			return Tag{value: s[1:i], weak: weak}, s[i+1:], true
 		case !isETagChar(c):
 			return Tag{}, s, false
