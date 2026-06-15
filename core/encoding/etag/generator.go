@@ -39,11 +39,10 @@ func (g *Generator) Hash(data []byte) Tag {
 // s. It avoids copying s with a zero-copy string-to-[]byte conversion, valid
 // because the hash only reads the bytes for the duration of the call (see
 // core/encoding/hash for the full safety rationale).
-//
-//nolint:gosec // G103: zero-copy read-only hashing, bytes never escape.
 func (g *Generator) HashString(s string) Tag {
 	h := g.opts.newHash()
 	if s != "" {
+		// #nosec G103 -- zero-copy read-only hashing, bytes never escape.
 		h.Write(unsafe.Slice(unsafe.StringData(s), len(s)))
 	}
 	return Strong(corehash.HexSum(h))
