@@ -1,0 +1,92 @@
+# Saga orchestrator configuration.
+# Defines settings for the saga engine (data/saga): state-store backend plus
+# step/compensation timeouts, retries, and the background recovery cycle.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#saga:
+#  # <object> State-store backend that persists saga instances.
+#  # Each backend has its own nested section; only the one named by 'type' is used.
+#  storage:
+#    # <string> Storage backend type.
+#    # Supported values: memory, nats, mongo, redis
+#    # Default value: memory
+#    type: memory
+#
+#    # <object> In-process storage configuration (data/saga/storages/memory).
+#    # The backend has no tunables; the section exists for symmetry.
+#    # Used when type is set to 'memory'.
+#    memory: {}
+#
+#    # <object> NATS JetStream KeyValue storage configuration
+#    # (data/saga/storages/nats). Used when type is set to 'nats'.
+#    nats:
+#      # <string> Name of the NATS KeyValue bucket.
+#      # Default value: saga
+#      bucket: saga
+#
+#      # <duration> Per-key expiry applied to the bucket (NATS KV MaxAge). It must
+#      # outlive any saga's running time; zero is widened to a 30-day backstop by
+#      # the store.
+#      # Default value: 720h (30 days)
+#      max_age: 720h
+#
+#    # <object> MongoDB storage configuration (data/saga/storages/mongo).
+#    # Used when type is set to 'mongo'.
+#    mongo:
+#      # <string> Collection that stores saga instances.
+#      # Default value: saga_instances
+#      collection: saga_instances
+#
+#    # <object> Redis storage configuration (data/saga/storages/redis).
+#    # Used when type is set to 'redis'.
+#    redis:
+#      # <string> Prefix prepended to every Redis key.
+#      # Default value: "saga:"
+#      keys_prefix: "saga:"
+#
+#      # <duration> Per-key expiry applied on every write; zero persists forever.
+#      # Default value: 0 (persist)
+#      ttl: 0s
+#
+#  # <duration> Per-step timeout for a single action or compensation invocation.
+#  # Default value: 30s
+#  step_timeout: 30s
+#
+#  # <duration> Per-instance deadline enabling auto-rollback by the recovery cycle.
+#  # Zero disables it.
+#  # Default value: 0s (disabled)
+#  saga_timeout: 0s
+#
+#  # <int> Total attempts (including the first) for a forward step action.
+#  # Default value: 3
+#  max_step_attempts: 3
+#
+#  # <duration> First exponential-backoff delay between step retries.
+#  # Default value: 100ms
+#  step_retry_base_delay: 100ms
+#
+#  # <duration> Cap on the step-retry backoff.
+#  # Default value: 5s
+#  step_retry_max_delay: 5s
+#
+#  # <int> Total attempts for a single compensation before the saga fails.
+#  # Default value: 5
+#  max_compensation_attempts: 5
+#
+#  # <int> Fan-out limit for parallel-group steps (0 = core IO-bound default).
+#  # Default value: 0
+#  step_concurrency: 0
+#
+#  # <string> Cron expression for the background recovery cycle.
+#  # Supports descriptor format (e.g. "@every 1m") or standard cron.
+#  # Default value: "@every 1m"
+#  recovery_schedule: "@every 1m"
+#
+#  # <int> Maximum instances processed per recovery cycle.
+#  # Default value: 100
+#  recovery_batch_size: 100
+#
+#  # <string> Scheduler task ID for the background recovery cycle.
+#  # Default value: "saga-recovery"
+#  recovery_task_id: "saga-recovery"
