@@ -95,6 +95,7 @@ import "github.com/altessa-s/go-atlas/data/cache"
 | Guide | Description |
 |-------|-------------|
 | [Architecture](docs/architecture.md) | Package structure, layering, and design principles |
+| [Saga](docs/saga.md) | Saga orchestration: model, status lifecycle, crash recovery, diagrams, and examples |
 | [Configuration](docs/configuration.md) | Multi-source config loading, env vars, secrets |
 | [Health](docs/observability/health.md) | Coordinator, HTTP probes (`/healthz`, `/readyz`), gRPC `grpc_health_v1` |
 | [Logging (slog)](docs/observability/slog.md) | `slogx` helpers, context-scoped loggers, handler chain (buffered, colorized, leveled, masking, multi, prefixed) |
