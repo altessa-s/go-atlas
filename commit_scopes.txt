@@ -102,6 +102,7 @@ data/probfilter             # Probabilistic filters
 data/probfilter/factory     # Probfilter factory
 data/uniq                   # Uniqueness constraints
 data/uniq/factory           # Uniqueness factory
+data/saga                   # Saga orchestration
 
 # Domain Layer
 domain                      # General domain utilities
