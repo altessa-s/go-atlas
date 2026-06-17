@@ -319,6 +319,28 @@ Package: `observability/metrics` (bridge for `data/filter`)
 
 ---
 
+## saga
+
+Package: `data/saga`
+
+| Name                                  | Type      | Labels | Description                                       |
+|---------------------------------------|-----------|--------|---------------------------------------------------|
+| `saga_started_total`                  | Counter   | --     | Saga instances started                            |
+| `saga_completed_total`                | Counter   | --     | Saga instances that committed all stages          |
+| `saga_compensated_total`              | Counter   | --     | Saga instances that fully rolled back             |
+| `saga_failed_total`                   | Counter   | --     | Saga instances that entered the Failed state      |
+| `saga_in_flight`                      | Gauge     | --     | Saga instances currently executing                |
+| `saga_steps_executed_total`           | Counter   | --     | Forward step actions that committed               |
+| `saga_step_failures_total`            | Counter   | --     | Forward step actions that failed after retries    |
+| `saga_step_retries_total`             | Counter   | --     | Step action retry attempts                        |
+| `saga_compensations_total`            | Counter   | --     | Compensations that ran successfully               |
+| `saga_compensation_failures_total`    | Counter   | --     | Compensations that failed after retries           |
+| `saga_recovery_cycles_total`          | Counter   | --     | Background recovery cycles executed               |
+| `saga_recovered_total`                | Counter   | --     | Stalled or timed-out instances picked up          |
+| `saga_stage_duration_seconds`         | Histogram | --     | Forward stage execution duration                  |
+
+---
+
 ## scheduler
 
 Package: `service/scheduler`
