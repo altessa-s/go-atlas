@@ -37,6 +37,12 @@ var (
 	// ErrIndexAlreadyExists is wrapped into the returned error when
 	// Meilisearch responds with the "index_already_exists" code.
 	ErrIndexAlreadyExists = errors.New("meilisearch: index already exists")
+
+	// ErrTaskFailed is wrapped into the returned error when a Meilisearch
+	// task observed by [Client.WaitForTask] reaches a terminal state other
+	// than "succeeded". Match it with [errors.Is]; the wrapping message
+	// carries the task status, error code, and message for diagnosis.
+	ErrTaskFailed = errors.New("meilisearch: task failed")
 )
 
 // IsErrorIndexNotFound reports whether err is a Meilisearch
