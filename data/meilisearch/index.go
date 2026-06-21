@@ -102,6 +102,55 @@ func (c *Client) UpdateIndexSettings(ctx context.Context, indexName string, sett
 	return nil
 }
 
+// SwapPair names two existing indexes whose documents Meilisearch swaps
+// atomically within a single task. Order is irrelevant — the swap is
+// symmetric.
+type SwapPair struct {
+	// Lhs and Rhs are the UIDs of the two indexes to swap. Both must
+	// already exist on the server.
+	Lhs string
+	Rhs string
+}
+
+// errNoSwapPairs guards [Client.SwapIndexes] against a no-op call: with
+// zero pairs the SDK would still issue a request and hand back a task UID
+// that swaps nothing, which a caller could then [Client.WaitForTask] on by
+// mistake. Returned (wrapped) instead of contacting the server.
+var errNoSwapPairs = errors.New("meilisearch: no swap pairs provided")
+
+// SwapIndexes atomically swaps the documents of every pair in a single
+// Meilisearch task. Both indexes in each pair must already exist (this
+// wrapper does not request the SDK's "rename" behavior). Returns the task
+// UID; pair it with [Client.WaitForTask] to block until the swap is
+// applied.
+//
+// Calling with no pairs is a caller error and returns an error wrapping
+// [errNoSwapPairs] without contacting the server.
+//
+// Typical use is a zero-downtime rebuild: populate a fresh index, then
+// swap it with the live one so readers flip atomically.
+func (c *Client) SwapIndexes(ctx context.Context, pairs ...SwapPair) (int64, error) {
+	if len(pairs) == 0 {
+		return 0, coreerrs.Wrap(errNoSwapPairs, "swap indexes")
+	}
+
+	params := make([]*msdk.SwapIndexesParams, 0, len(pairs))
+	for _, p := range pairs {
+		params = append(params, &msdk.SwapIndexesParams{Indexes: []string{p.Lhs, p.Rhs}})
+	}
+
+	task, err := c.sdk.SwapIndexesWithContext(ctx, params)
+	if err != nil {
+		return 0, coreerrs.Wrapf(err, "swap indexes")
+	}
+
+	c.logger.DebugContext(ctx, "indexes swapped",
+		slog.Int("pairs", len(pairs)),
+		slog.Int64("task_uid", task.TaskUID))
+
+	return task.TaskUID, nil
+}
+
 // SetupIndexes ensures every index in defs exists with the configured
 // settings. Call this once at startup; order is not significant and
 // each definition is processed independently.

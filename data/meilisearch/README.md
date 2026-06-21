@@ -59,6 +59,7 @@ err = client.SetupIndexes(ctx, []meilisearch.IndexDefinition{
 | `Client.EnsureIndex(ctx, name, primaryKey, settings)`         | Idempotent create-or-update                                  |
 | `Client.UpdateIndexSettings(ctx, name, settings)`             | Update searchable / filterable / sortable attrs              |
 | `Client.SetupIndexes(ctx, defs)`                              | Bulk idempotent EnsureIndex over a slice of definitions      |
+| `Client.SwapIndexes(ctx, pairs...)`                           | Atomically swap document sets of `SwapPair`s in one task; returns task UID (errors on zero pairs) |
 
 ### Documents
 
@@ -73,12 +74,22 @@ err = client.SetupIndexes(ctx, []meilisearch.IndexDefinition{
 | `Client.GetAllDocumentIDsWithPrimaryKey(ctx, index, key)`         | Same, but with an explicit primary-key field name          |
 | `Client.Search(ctx, req)`                                         | Full-text search; returns `[]json.RawMessage` hits         |
 
+### Tasks
+
+Write methods (`IndexDocuments`, `DeleteDocuments`, `SwapIndexes`, …) are fire-and-forget: they return a Meilisearch task UID. Await completion
+with `WaitForTask`.
+
+| Method                                          | Description                                                                                  |
+|-------------------------------------------------|----------------------------------------------------------------------------------------------|
+| `Client.WaitForTask(ctx, taskUID, interval)`    | Block until the task reaches a terminal state (`interval` 0 = SDK default 50ms); wraps `ErrTaskFailed` on a non-`succeeded` status |
+
 ## Errors
 
 | Sentinel                 | Predicate                          | Maps to Meilisearch code   |
 |--------------------------|------------------------------------|----------------------------|
 | `ErrIndexNotFound`       | `IsErrorIndexNotFound(err)`        | `index_not_found`          |
 | `ErrIndexAlreadyExists`  | `IsErrorIndexAlreadyExists(err)`   | `index_already_exists`     |
+| `ErrTaskFailed`          | `errors.Is(err, ErrTaskFailed)`    | task terminal status ≠ `succeeded` |
 
 Both `errors.Is(err, ErrIndexNotFound)` and `IsErrorIndexNotFound(err)` work — the latter exists for backward compatibility and they always agree.
 
