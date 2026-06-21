@@ -64,6 +64,10 @@ type FetchResult struct {
 	Total int64
 }
 
+// Compile-time guarantee that [Client] satisfies the interface its doc
+// comment promises.
+var _ MeilisearchClient = (*Client)(nil)
+
 // MeilisearchClient is the surface domain code depends on. [Client] implements it.
 type MeilisearchClient interface {
 	// IndexDocuments adds or updates documents in indexName. Returns task UID.

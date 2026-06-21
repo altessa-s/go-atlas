@@ -60,6 +60,28 @@ func TestClient_SwapIndexes_WrapsSDKError(t *testing.T) {
 	require.ErrorIs(t, err, sentinel)
 }
 
+// TestClient_SwapIndexes_NoPairs verifies a call with zero pairs fails fast
+// with errNoSwapPairs and never reaches the SDK — guarding against a no-op
+// task UID the caller might mistakenly await.
+func TestClient_SwapIndexes_NoPairs(t *testing.T) {
+	t.Parallel()
+
+	called := false
+	sdk := &fakeSDK{
+		swapIndexesFn: func(_ context.Context, _ []*msdk.SwapIndexesParams) (*msdk.TaskInfo, error) {
+			called = true
+			return &msdk.TaskInfo{TaskUID: 1}, nil
+		},
+	}
+	c := newTestClient(sdk)
+
+	uid, err := c.SwapIndexes(t.Context())
+	require.Error(t, err)
+	require.ErrorIs(t, err, errNoSwapPairs)
+	require.Zero(t, uid)
+	require.False(t, called, "SDK must not be contacted when no pairs are given")
+}
+
 // TestClient_WaitForTask_SucceedsAndPassesArgs verifies the happy path and
 // that the caller's taskUID + interval reach the context-aware SDK variant.
 func TestClient_WaitForTask_SucceedsAndPassesArgs(t *testing.T) {
