@@ -7,6 +7,7 @@ package meilisearch
 import (
 	"context"
 	"encoding/json"
+	"time"
 )
 
 // SearchRequest holds parameters for a full-text search query.
@@ -63,6 +64,10 @@ type FetchResult struct {
 	Total int64
 }
 
+// Compile-time guarantee that [Client] satisfies the interface its doc
+// comment promises.
+var _ MeilisearchClient = (*Client)(nil)
+
 // MeilisearchClient is the surface domain code depends on. [Client] implements it.
 type MeilisearchClient interface {
 	// IndexDocuments adds or updates documents in indexName. Returns task UID.
@@ -91,4 +96,13 @@ type MeilisearchClient interface {
 
 	// Search runs a full-text query against the specified index.
 	Search(ctx context.Context, req *SearchRequest) (*SearchResult, error)
+
+	// SwapIndexes atomically swaps the documents of each index pair in a
+	// single task. Returns the task UID; await it with WaitForTask.
+	SwapIndexes(ctx context.Context, pairs ...SwapPair) (int64, error)
+
+	// WaitForTask blocks until the task identified by taskUID reaches a
+	// terminal state, polling every interval (0 = SDK default). Returns an
+	// error wrapping ErrTaskFailed when the task did not succeed.
+	WaitForTask(ctx context.Context, taskUID int64, interval time.Duration) error
 }
