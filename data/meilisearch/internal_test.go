@@ -7,6 +7,7 @@ package meilisearch
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	msdk "github.com/meilisearch/meilisearch-go"
 )
@@ -31,6 +32,8 @@ type fakeSDK struct {
 	indexFn       func(uid string) msdk.IndexManager
 	getIndexFn    func(ctx context.Context, uid string) (*msdk.IndexResult, error)
 	createIndexFn func(ctx context.Context, cfg *msdk.IndexConfig) (*msdk.TaskInfo, error)
+	swapIndexesFn func(ctx context.Context, params []*msdk.SwapIndexesParams) (*msdk.TaskInfo, error)
+	waitForTaskFn func(ctx context.Context, taskUID int64, interval time.Duration) (*msdk.Task, error)
 }
 
 func (f *fakeSDK) HealthWithContext(ctx context.Context) (*msdk.Health, error) {
@@ -59,6 +62,20 @@ func (f *fakeSDK) CreateIndexWithContext(ctx context.Context, cfg *msdk.IndexCon
 		return f.createIndexFn(ctx, cfg)
 	}
 	return &msdk.TaskInfo{TaskUID: 1}, nil
+}
+
+func (f *fakeSDK) SwapIndexesWithContext(ctx context.Context, params []*msdk.SwapIndexesParams) (*msdk.TaskInfo, error) {
+	if f.swapIndexesFn != nil {
+		return f.swapIndexesFn(ctx, params)
+	}
+	return &msdk.TaskInfo{TaskUID: 1}, nil
+}
+
+func (f *fakeSDK) WaitForTaskWithContext(ctx context.Context, taskUID int64, interval time.Duration) (*msdk.Task, error) {
+	if f.waitForTaskFn != nil {
+		return f.waitForTaskFn(ctx, taskUID, interval)
+	}
+	return &msdk.Task{Status: msdk.TaskStatusSucceeded, TaskUID: taskUID}, nil
 }
 
 // fakeIndex satisfies msdk.IndexManager the same way fakeSDK satisfies
