@@ -20,15 +20,6 @@ import (
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
-// LeaderElector is the narrow leader-election contract consumed by the
-// scheduler. Any type exposing a concurrency-safe IsLeader method satisfies
-// it — for example, *leadelect.Leader from data/leadelect.
-type LeaderElector interface {
-	// IsLeader reports whether this node currently holds leadership.
-	// Implementations must be safe for concurrent use.
-	IsLeader() bool
-}
-
 // Scheduler manages periodic and one-shot task execution with persistent state.
 // It provides task registration, status tracking, pause/resume/disable
 // capabilities, execution history recording, and stale-task recovery.

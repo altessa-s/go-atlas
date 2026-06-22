@@ -48,19 +48,6 @@ const (
 // dead-letter queue or alert. It must not block for long.
 type DeadLetterFunc func(inst *Instance)
 
-// LeaderElector is the narrow leader-election contract consumed by the
-// orchestrator to gate the background recovery cycle so that, in a multi-node
-// deployment, only the elected leader scans the store. When set via
-// [WithLeaderElector], the recovery cycle is a no-op on nodes whose IsLeader
-// reports false. Gating is an optimization, not a correctness requirement: the
-// store's optimistic-concurrency check already makes concurrent recovery cycles
-// safe; the gate only avoids redundant scans and writes. A *leadelect.Leader
-// satisfies this interface.
-type LeaderElector interface {
-	// IsLeader reports whether this node should run the recovery cycle now.
-	IsLeader() bool
-}
-
 // options holds the orchestrator configuration. Configure it through the
 // generated With* constructors and the hand-written options below.
 type options struct {
