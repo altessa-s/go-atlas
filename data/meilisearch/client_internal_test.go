@@ -197,6 +197,65 @@ func TestClient_SetupIndexes_RunsEnsureForEveryDef(t *testing.T) {
 	require.Equal(t, []string{"alpha", "beta"}, created)
 }
 
+// TestClient_DeleteIndex_PassesNameAndReturnsTaskUID is the happy-path
+// coverage for the post-swap cleanup method: the index name must reach the
+// context-aware SDK variant and the task UID must be propagated so callers
+// can await it with WaitForTask.
+func TestClient_DeleteIndex_PassesNameAndReturnsTaskUID(t *testing.T) {
+	t.Parallel()
+
+	const wantUID int64 = 17
+	var gotName string
+	sdk := &fakeSDK{
+		deleteIndexFn: func(_ context.Context, uid string) (*msdk.TaskInfo, error) {
+			gotName = uid
+			return &msdk.TaskInfo{TaskUID: wantUID}, nil
+		},
+	}
+	c := newTestClient(sdk)
+
+	got, err := c.DeleteIndex(t.Context(), "workers_new")
+	require.NoError(t, err)
+	require.Equal(t, wantUID, got)
+	require.Equal(t, "workers_new", gotName)
+}
+
+// TestClient_DeleteIndex_TreatsIndexNotFoundAsNoOp confirms idempotent
+// cleanup: an already-absent index surfaces "index_not_found", which must
+// collapse to a (0, nil) no-op so a re-run after a partial reindex is safe.
+func TestClient_DeleteIndex_TreatsIndexNotFoundAsNoOp(t *testing.T) {
+	t.Parallel()
+
+	sdk := &fakeSDK{
+		deleteIndexFn: func(_ context.Context, _ string) (*msdk.TaskInfo, error) {
+			return nil, newSDKErrorWithCode(errCodeIndexNotFound)
+		},
+	}
+	c := newTestClient(sdk)
+
+	uid, err := c.DeleteIndex(t.Context(), "missing")
+	require.NoError(t, err, "index_not_found must surface as a (0, nil) no-op, not an error")
+	require.Zero(t, uid)
+}
+
+// TestClient_DeleteIndex_WrapsSDKError confirms an unclassified SDK error
+// round-trips through coreerrs so errors.Is still reaches the original.
+func TestClient_DeleteIndex_WrapsSDKError(t *testing.T) {
+	t.Parallel()
+
+	sentinel := errors.New("delete rejected")
+	sdk := &fakeSDK{
+		deleteIndexFn: func(_ context.Context, _ string) (*msdk.TaskInfo, error) {
+			return nil, sentinel
+		},
+	}
+	c := newTestClient(sdk)
+
+	_, err := c.DeleteIndex(t.Context(), "workers_new")
+	require.Error(t, err)
+	require.ErrorIs(t, err, sentinel)
+}
+
 // TestClient_IndexDocuments_ReturnsTaskUID is the happy-path coverage
 // for the most-called write method. Confirms ctx propagation and
 // task UID extraction.
