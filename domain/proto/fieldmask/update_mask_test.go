@@ -454,6 +454,56 @@ func TestApplyUpdateMask_FieldNotInSchema(t *testing.T) {
 	assert.Equal(t, "John", msg.GetName())
 }
 
+// AIP-161: with WithPathValidation an unknown root path is rejected, not ignored.
+func TestApplyUpdateMask_WithPathValidation_RejectsUnknownRootPath(t *testing.T) {
+	desc := "hello"
+	msg := &testpb.UpdateRequest{Id: "1", Description: &desc}
+
+	mask := fieldmask.FromPaths("descriptionggg")
+	err := mask.ApplyUpdateMask(msg, fieldmask.WithPathValidation())
+
+	var validationErr *fieldmask.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "descriptionggg", validationErr.Path)
+}
+
+// AIP-161: an invalid nested leaf is rejected before any mutation, so the parent
+// struct is preserved instead of being silently cleared (data-loss regression).
+func TestApplyUpdateMask_WithPathValidation_RejectsNestedAndPreservesData(t *testing.T) {
+	color := "red"
+	size := int32(42)
+	msg := &testpb.UpdateRequest{
+		Id:      "1",
+		Options: &testpb.Options{Color: &color, Size: &size},
+	}
+
+	mask := fieldmask.FromPaths("options.colorrr")
+	err := mask.ApplyUpdateMask(msg, fieldmask.WithPathValidation())
+
+	var validationErr *fieldmask.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "options.colorrr", validationErr.Path)
+
+	// No data loss: the whole Options struct is untouched.
+	require.NotNil(t, msg.GetOptions())
+	assert.Equal(t, "red", msg.GetOptions().GetColor())
+	assert.Equal(t, int32(42), msg.GetOptions().GetSize())
+}
+
+// With WithPathValidation a valid nested path still applies without error.
+func TestApplyUpdateMask_WithPathValidation_ValidPathApplies(t *testing.T) {
+	color := "red"
+	msg := &testpb.UpdateRequest{
+		Id:      "1",
+		Options: &testpb.Options{Color: &color},
+	}
+
+	mask := fieldmask.FromPaths("options.color")
+	err := mask.ApplyUpdateMask(msg, fieldmask.WithPathValidation())
+	require.NoError(t, err)
+	assert.Equal(t, "red", msg.GetOptions().GetColor())
+}
+
 // AIP-203 IDENTIFIER: field in mask is rejected like IMMUTABLE.
 // update_mask: ["resource_name"], request: {resource_name: "items/123"}
 func TestApplyUpdateMask_IdentifierFieldInMask(t *testing.T) {
