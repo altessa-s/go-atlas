@@ -99,6 +99,8 @@ import "github.com/altessa-s/go-atlas/data/cache"
 | [Architecture](docs/architecture.md) | Package structure, layering, and design principles |
 | [Saga](docs/saga.md) | Saga orchestration: model, status lifecycle, crash recovery, diagrams, and examples |
 | [Configuration](docs/configuration.md) | Multi-source config loading, env vars, secrets |
+| [Self-Issued JWT](docs/auth/selfjwt.md) | Per-subject JWT minting and fail-closed verification, key rotation, verification-key cache |
+| [Static Tokens](docs/auth/static.md) | API-key / pre-shared token validation, HMAC-SHA256 storage, failure-only rate limiting |
 | [Health](docs/observability/health.md) | Coordinator, HTTP probes (`/healthz`, `/readyz`), gRPC `grpc_health_v1` |
 | [Logging (slog)](docs/observability/slog.md) | `slogx` helpers, context-scoped loggers, handler chain (buffered, colorized, leveled, masking, multi, prefixed) |
 | [Plugins](docs/plugins.md) | Dynamic plugin loading, signature verification, sandboxing |
