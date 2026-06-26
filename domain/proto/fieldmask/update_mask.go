@@ -5,6 +5,7 @@
 package fieldmask
 
 import (
+	"errors"
 	"maps"
 	"slices"
 	"strings"
@@ -55,7 +56,8 @@ func (e *UpdateMaskBehaviorError) Error() string {
 }
 
 // ApplyUpdateMask applies the field mask for update operations:
-//  1. With [WithPathValidation], rejects paths absent from the schema (fail-fast)
+//  1. With [WithPathValidation] set to [PathValidationEnforce], rejects paths absent
+//     from the schema (fail-fast); [PathValidationWarn] reports them and continues
 //  2. Validates field behaviors: REQUIRED, IMMUTABLE, OUTPUT_ONLY, IDENTIFIER (fail-fast)
 //  3. Removes OUTPUT_ONLY fields from the mask
 //  4. Clears fields NOT in the mask
@@ -71,9 +73,9 @@ func (e *UpdateMaskBehaviorError) Error() string {
 // the resource and must not be modified by an update. Including such a field
 // in the mask produces a violation.
 //
-// Returns *ValidationError when [WithPathValidation] is set and a path does not
-// exist in the schema, or *UpdateMaskBehaviorError if any field behavior
-// constraints are violated.
+// Returns *ValidationError when [WithPathValidation] is [PathValidationEnforce] and
+// a path does not exist in the schema, or *UpdateMaskBehaviorError if any field
+// behavior constraints are violated.
 //
 // This ensures the service can distinguish:
 //   - "don't update this field" (field not in mask)
@@ -89,14 +91,28 @@ func (msk FieldMask) ApplyUpdateMask(msg proto.Message, opts ...ApplyOption) err
 		return nil
 	}
 
-	if newApplyOptions(opts...).validatePaths {
-		if err := msk.Validate(msg); err != nil {
-			return err
+	descriptor := msg.ProtoReflect().Descriptor()
+	paths := msk.ToPaths()
+
+	if o := newApplyOptions(opts...); o.shouldValidatePaths() {
+		for _, path := range paths {
+			err := validatePath(descriptor, path)
+			if err == nil {
+				continue
+			}
+			if o.pathValidation == PathValidationEnforce {
+				return err // fail-fast on the first schema-invalid path.
+			}
+			// PathValidationWarn: report every bad path but still apply the mask.
+			// shouldValidatePaths guarantees a non-nil reporter here.
+			var validationErr *ValidationError
+			if errors.As(err, &validationErr) {
+				o.pathReporter(validationErr)
+			}
 		}
 	}
 
-	descriptor := msg.ProtoReflect().Descriptor()
-	for _, path := range msk.ToPaths() {
+	for _, path := range paths {
 		if err := rejectIndexedRepeatedAccess(descriptor, path); err != nil {
 			return err
 		}

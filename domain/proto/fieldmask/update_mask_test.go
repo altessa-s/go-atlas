@@ -460,7 +460,7 @@ func TestApplyUpdateMask_WithPathValidation_RejectsUnknownRootPath(t *testing.T)
 	msg := &testpb.UpdateRequest{Id: "1", Description: &desc}
 
 	mask := fieldmask.FromPaths("descriptionggg")
-	err := mask.ApplyUpdateMask(msg, fieldmask.WithPathValidation())
+	err := mask.ApplyUpdateMask(msg, fieldmask.WithPathValidation(fieldmask.PathValidationEnforce))
 
 	var validationErr *fieldmask.ValidationError
 	require.ErrorAs(t, err, &validationErr)
@@ -478,7 +478,7 @@ func TestApplyUpdateMask_WithPathValidation_RejectsNestedAndPreservesData(t *tes
 	}
 
 	mask := fieldmask.FromPaths("options.colorrr")
-	err := mask.ApplyUpdateMask(msg, fieldmask.WithPathValidation())
+	err := mask.ApplyUpdateMask(msg, fieldmask.WithPathValidation(fieldmask.PathValidationEnforce))
 
 	var validationErr *fieldmask.ValidationError
 	require.ErrorAs(t, err, &validationErr)
@@ -499,9 +499,70 @@ func TestApplyUpdateMask_WithPathValidation_ValidPathApplies(t *testing.T) {
 	}
 
 	mask := fieldmask.FromPaths("options.color")
-	err := mask.ApplyUpdateMask(msg, fieldmask.WithPathValidation())
+	err := mask.ApplyUpdateMask(msg, fieldmask.WithPathValidation(fieldmask.PathValidationEnforce))
 	require.NoError(t, err)
 	assert.Equal(t, "red", msg.GetOptions().GetColor())
+}
+
+// PathValidationWarn reports the bad path through the reporter but does not fail:
+// the mask is still applied, preserving the Disabled behavior.
+func TestApplyUpdateMask_WithPathValidation_WarnReportsAndApplies(t *testing.T) {
+	desc := "hello"
+	msg := &testpb.UpdateRequest{Id: "1", Description: &desc}
+
+	var reported []string
+	mask := fieldmask.FromPaths("descriptionggg")
+	err := mask.ApplyUpdateMask(msg,
+		fieldmask.WithPathValidation(fieldmask.PathValidationWarn),
+		fieldmask.WithPathValidationReporter(func(ve *fieldmask.ValidationError) { reported = append(reported, ve.Path) }),
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"descriptionggg"}, reported)
+}
+
+// PathValidationWarn reports every schema-invalid path, not just the first
+// (collect-all), unlike PathValidationEnforce which fails fast on the first.
+func TestApplyUpdateMask_WithPathValidation_WarnReportsAllInvalidPaths(t *testing.T) {
+	desc := "hello"
+	color := "red"
+	msg := &testpb.UpdateRequest{
+		Id:          "1",
+		Description: &desc,
+		Options:     &testpb.Options{Color: &color},
+	}
+
+	var reported []string
+	mask := fieldmask.FromPaths("descriptionggg", "optionsxxx", "options.colorrr")
+	err := mask.ApplyUpdateMask(msg,
+		fieldmask.WithPathValidation(fieldmask.PathValidationWarn),
+		fieldmask.WithPathValidationReporter(func(ve *fieldmask.ValidationError) { reported = append(reported, ve.Path) }),
+	)
+
+	require.NoError(t, err)
+	// ToPaths is sorted, so the reported order is deterministic.
+	assert.Equal(t, []string{"descriptionggg", "options.colorrr", "optionsxxx"}, reported)
+}
+
+// PathValidationWarn with no reporter is a silent no-op: no panic, no error.
+func TestApplyUpdateMask_WithPathValidation_WarnWithoutReporter(t *testing.T) {
+	desc := "hello"
+	msg := &testpb.UpdateRequest{Id: "1", Description: &desc}
+
+	mask := fieldmask.FromPaths("descriptionggg")
+	err := mask.ApplyUpdateMask(msg, fieldmask.WithPathValidation(fieldmask.PathValidationWarn))
+	require.NoError(t, err)
+}
+
+// The default (no option) leaves schema-invalid paths ignored, unchanged from
+// before WithPathValidation existed.
+func TestApplyUpdateMask_WithPathValidation_DisabledByDefault(t *testing.T) {
+	desc := "hello"
+	msg := &testpb.UpdateRequest{Id: "1", Description: &desc}
+
+	mask := fieldmask.FromPaths("descriptionggg")
+	err := mask.ApplyUpdateMask(msg)
+	require.NoError(t, err)
 }
 
 // AIP-203 IDENTIFIER: field in mask is rejected like IMMUTABLE.

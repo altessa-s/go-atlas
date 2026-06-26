@@ -36,6 +36,26 @@ path — the identifier names the resource and must not be modified by an update
 update masks address whole repeated fields, never a single element. To replace one entry, callers replace the entire list. Read paths
 (`Filter`, `Prune`, `Validate`) tolerate the same segments — AIP-161 lets the implementation ignore them on read.
 
+By default `ApplyUpdateMask` silently ignores paths absent from the message schema. `WithPathValidation` selects how those paths are treated (AIP-161),
+running `Validate` before any mutation:
+
+| Mode                      | Behavior                                                                                                |
+|---------------------------|--------------------------------------------------------------------------------------------------------|
+| `PathValidationDisabled`  | Default. Ignore schema-invalid paths — historical behavior.                                            |
+| `PathValidationWarn`      | Report the bad path to `WithPathValidationReporter` and still apply the mask.                          |
+| `PathValidationEnforce`   | Reject with `ValidationError` before any mutation, so a typo cannot clear a sibling subtree.           |
+
+```go
+// Fail fast on unknown paths.
+err := mask.ApplyUpdateMask(msg, fieldmask.WithPathValidation(fieldmask.PathValidationEnforce))
+
+// Or surface them without breaking callers while a fix rolls out.
+err = mask.ApplyUpdateMask(msg,
+    fieldmask.WithPathValidation(fieldmask.PathValidationWarn),
+    fieldmask.WithPathValidationReporter(func(ve *fieldmask.ValidationError) { log.Warn("bad mask path", "path", ve.Path) }),
+)
+```
+
 ### Backtick-quoted map keys (AIP-161)
 
 Map keys that contain a dot or other non-identifier characters are wrapped in backticks so the dot is not mistaken for a path separator. The
