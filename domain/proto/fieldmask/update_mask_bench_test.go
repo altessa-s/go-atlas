@@ -40,3 +40,20 @@ func BenchmarkApplyUpdateMask_RejectIndexed(b *testing.B) {
 		_ = mask.ApplyUpdateMask(msg)
 	}
 }
+
+// BenchmarkApplyUpdateMask_WithPathValidation measures the happy path with
+// WithPathValidation enabled, so the extra Validate pass on a valid mask stays
+// cheap relative to the unvalidated steady state.
+func BenchmarkApplyUpdateMask_WithPathValidation(b *testing.B) {
+	paths := []string{"name", "description", "profile.display_name"}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		mask := fieldmask.FromPaths(paths...)
+		_ = mask.ApplyUpdateMask(&pb.Resource{
+			Name:        "n",
+			Description: "d",
+			Profile:     &pb.Profile{DisplayName: "p"},
+		}, fieldmask.WithPathValidation(fieldmask.PathValidationEnforce))
+	}
+}
