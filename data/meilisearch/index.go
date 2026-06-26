@@ -102,6 +102,31 @@ func (c *Client) UpdateIndexSettings(ctx context.Context, indexName string, sett
 	return nil
 }
 
+// DeleteIndex removes the index named name and returns the task UID; pair
+// it with [Client.WaitForTask] to block until the deletion is applied. The
+// typical use is post-swap cleanup of the stale rebuild index in a
+// zero-downtime reindex.
+//
+// Deleting an index that is already absent is treated as a successful
+// no-op: it returns a zero task UID and a nil error so repeated cleanup is
+// idempotent. Skip [Client.WaitForTask] when the returned UID is zero.
+func (c *Client) DeleteIndex(ctx context.Context, name string) (int64, error) {
+	task, err := c.sdk.DeleteIndexWithContext(ctx, name)
+	if err != nil {
+		if classified := classifySDKError(err); classified != nil && errors.Is(classified, ErrIndexNotFound) {
+			c.logger.DebugContext(ctx, "index already absent", slog.String("index", name))
+			return 0, nil
+		}
+		return 0, coreerrs.Wrapf(err, "delete index %s", name)
+	}
+
+	c.logger.DebugContext(ctx, "index deletion enqueued",
+		slog.String("index", name),
+		slog.Int64("task_uid", task.TaskUID))
+
+	return task.TaskUID, nil
+}
+
 // SwapPair names two existing indexes whose documents Meilisearch swaps
 // atomically within a single task. Order is irrelevant — the swap is
 // symmetric.
