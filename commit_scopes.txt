@@ -36,6 +36,8 @@ core/factory                # Generic factory pattern
 core/io                     # File I/O helpers
 core/io/files               # File operations
 core/io/wal                 # Write-ahead log
+core/io/spool               # Spool file management
+core/io/spoolbudget         # Spool budget management
 core/net                    # Network utilities
 core/net/http               # HTTP client middleware
 core/retry                  # Retry logic with backoff
