@@ -23,9 +23,11 @@ type cacheEntry struct {
 
 // keyCache caches resolved verification keys by (subject, kid) with a TTL so
 // the verifier avoids a key-provider lookup on every request. It is safe for
-// concurrent use. Expired entries are evicted lazily on read; a hard maxEntries
-// cap bounds memory so a churn of short-lived subjects (one-off principals,
-// rotated-away kids) cannot grow the map without limit.
+// concurrent use. An expired entry is treated as a miss on read but is removed
+// from the map only when a capacity-bound put triggers eviction; a hard
+// maxEntries cap then bounds memory so a churn of short-lived subjects (one-off
+// principals, rotated-away kids) cannot grow the map without limit. A
+// non-positive maxEntries disables the cap, leaving the cache unbounded.
 type keyCache struct {
 	ttl        time.Duration
 	maxEntries int

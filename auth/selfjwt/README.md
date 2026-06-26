@@ -48,7 +48,8 @@ Verification is fail-closed:
 - Each `VerificationKey` must name the `Algorithm` it verifies; the verifier rejects a token whose algorithm is empty or mismatched,
   binding every key to a single scheme.
 - An `exp` claim is mandatory, and temporal claims (`exp` / `nbf`) are validated with the configured clock-skew leeway.
-- Resolved verification keys are cached per `(subject, kid)` with a TTL and a hard entry cap.
+- Resolved verification keys are cached per `(subject, kid)` with a TTL and a hard entry cap. Concurrent misses for the same key are
+  collapsed into a single `KeyProvider` lookup (singleflight), so a burst of requests for an uncached subject cannot stampede the provider.
 
 ## Usage
 
