@@ -32,12 +32,12 @@ Transport-neutral validation of API keys and other pre-shared credentials agains
 
 ## Overview
 
-The `auth/static` package validates pre-shared credentials — API keys, opaque tokens, service keys — without an identity provider. It
+The `auth/static` package validates pre-shared credentials (API keys, opaque tokens, service keys) without an identity provider. It
 exposes a small [`TokenStore`](#tokenstore) interface and a default [`InMemoryStore`](#inmemorystore) that keys tokens by their
 HMAC-SHA256 digest, never by plaintext.
 
 It is transport-neutral: the gRPC interceptor at `transport/grpc/interceptors/auth/static` and the HTTP middleware at
-`transport/http/server/middlewares/auth/static` are thin adapters over this package — see [Transport Integration](#transport-integration).
+`transport/http/server/middlewares/auth/static` are thin adapters over this package (see [Transport Integration](#transport-integration)).
 
 Two decorators compose with the core store:
 
@@ -189,14 +189,14 @@ not usable; always construct with `NewInMemoryStore`.
 ## Storage and Timing
 
 `InMemoryStore` keys tokens by their HMAC-SHA256 digest. The plaintext token is hashed at insertion time and discarded; only digests are
-retained in memory. A lookup is a single map probe — there is no linear scan and no early-break loop — so timing depends on token length
-only, not on token position or membership. The HMAC instance is recycled through a `sync.Pool`, so a steady-state lookup allocates only the
-digest byte slice.
+retained in memory. A lookup is a single map probe (no linear scan, no early-break loop), so timing depends on token length only, not on
+token position or membership. The HMAC instance is recycled through a `sync.Pool`, so a steady-state lookup allocates only the digest byte
+slice.
 
 ## Stable Cross-Process Digests
 
 The default HMAC key is generated from `crypto/rand` once per `InMemoryStore`, so digests are not valid across restarts or across
-processes. When several processes must agree on the storage digest of a token — a shared cache, distributed rate-limit keying — pass a
+processes. When several processes must agree on the storage digest of a token (a shared cache, distributed rate-limit keying), pass a
 stable key:
 
 ```go
@@ -206,7 +206,7 @@ store := static.NewInMemoryStore(static.WithHMACKey(secret)) // secret >= 16 byt
 ## Rate Limiting
 
 `RateLimitedStore` wraps any `TokenStore` and consults a caller-supplied `RateLimiter` before delegating. The package ships **no**
-limiter implementation — wire one from `data/limiters/tokenbucket`, a Redis-backed limiter, or any other source through the interface.
+limiter implementation; wire one from `data/limiters/tokenbucket`, a Redis-backed limiter, or any other source through the interface.
 
 ```go
 limiter := myLimiter // implements static.RateLimiter
@@ -215,7 +215,7 @@ store := static.NewRateLimitedStore(inner, limiter, func(ctx context.Context) st
 })
 ```
 
-`NewRateLimitedStore` panics if `store`, `limiter`, or `keyFn` is nil — none has a safe default.
+`NewRateLimitedStore` panics if `store`, `limiter`, or `keyFn` is nil; none has a safe default.
 
 ### The Failure-Only Contract
 
@@ -255,7 +255,7 @@ The key is never embedded in the returned error text, keeping client identifiers
 | `ErrEmptyToken` | Token is the empty string |
 | `ErrRateLimited` | `RateLimitedStore` rejects a request via its `RateLimiter` |
 
-Compare with `errors.Is`, not `==` — the transport adapters wrap these with additional context while preserving the cause.
+Compare with `errors.Is`, not `==`: the transport adapters wrap these with additional context while preserving the cause.
 
 ## Metrics
 
@@ -303,7 +303,7 @@ original cause for logs and custom `auth.ErrorHandler` implementations. Branch w
 
 - Plaintext tokens are hashed and discarded at insertion; only HMAC-SHA256 digests live in memory, and lookups are constant-time with
   respect to membership and position (timing depends on token length only).
-- The default HMAC key is per-instance and ephemeral — pass `WithHMACKey` only when cross-process digest stability is genuinely needed.
+- The default HMAC key is per-instance and ephemeral; pass `WithHMACKey` only when cross-process digest stability is genuinely needed.
 - Always transport tokens over TLS and rotate them on a schedule. Apply brute-force protection at a higher layer via `RateLimitedStore` or
   a transport-level rate limiter; the store itself does not throttle.
 
