@@ -42,6 +42,7 @@ go-atlas/
 ├── domain/                # Domain logic helpers
 │   ├── behavior/          # field_behavior strip (create/update/response)
 │   ├── converter/         # Struct-to-struct conversion
+│   ├── eventbus/          # Synchronous in-process event bus (transaction-safe)
 │   ├── fieldtracker/      # Field change tracking
 │   ├── normalizer/        # Data normalization
 │   ├── proto/             # Protobuf utilities (field masks)
@@ -163,7 +164,7 @@ Only export what users need. Internal packages (`internal/`) hide implementation
 | Package           | May depend on                                                                  |
 |-------------------|--------------------------------------------------------------------------------|
 | `core/`           | Standard library only (zero external deps)                                     |
-| `domain/`         | `core/`, `proto/`, `data/cache/lru` (field mask caching)                       |
+| `domain/`         | `core/`, `proto/`, `observability/`, `data/cache/lru` (field mask caching)     |
 | `data/`           | `core/`, external libraries                                                    |
 | `infrastructure/` | `core/`, `config/`, external client libraries                                  |
 | `observability/`  | `core/`, adapter libraries (Prometheus, OpenTelemetry)                         |

@@ -1,7 +1,7 @@
 # domain
 
-The `domain` directory groups packages for domain-layer data transformation, validation, and protobuf utilities.
-These packages operate on plain Go structs and protobuf messages without depending on infrastructure concerns.
+The `domain` directory groups packages for domain-layer data transformation, validation, protobuf utilities, and in-process
+coordination. These packages operate on plain Go structs and protobuf messages without depending on infrastructure concerns.
 
 ## Subpackages
 
@@ -19,6 +19,8 @@ These packages operate on plain Go structs and protobuf messages without dependi
 | `converter/codec/tspb`         | `timestamppb.Timestamp` <-> `time.Time`/`int64` codec |
 | `converter/codec/unixtime`     | `time.Time` <-> `int64` Unix timestamp codec          |
 | `converter/codecs/optionalcodec` | `core/types/optional.Optional[T]` field codec       |
+| `eventbus`                     | Synchronous, lock-free, transaction-safe in-process event bus |
+| `eventbus/uow`                 | In-process unit of work: post-commit effects with LIFO compensation |
 | `fieldtracker`                 | Detect changed fields between two struct instances    |
 | `normalizer`                   | Tag-based string normalization for struct fields      |
 | `normalizer/modifiers`         | Built-in and custom modifier functions                |
