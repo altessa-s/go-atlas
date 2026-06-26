@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+
+	"golang.org/x/sync/singleflight"
 )
 
 // Verifier validates self-issued tokens and returns the verified [Token]. It
@@ -23,6 +25,10 @@ type Verifier struct {
 	// parserOpts are the JWT parser options, fixed for the verifier's lifetime
 	// and built once in NewVerifier so Verify allocates no option slice per call.
 	parserOpts []jwt.ParserOption
+	// flight collapses concurrent key-provider lookups for the same
+	// (subject, kid) so a burst of misses for an uncached principal does not
+	// stampede the provider. Its zero value is ready for use.
+	flight singleflight.Group
 }
 
 // NewVerifier builds a Verifier over the given key provider.
@@ -117,10 +123,25 @@ func (v *Verifier) publicKey(ctx context.Context, subject, kid string) (Verifica
 		return vk, nil
 	}
 	v.opts.metrics.recordCacheLookup(false)
-	vk, err := v.src.VerificationKey(ctx, subject, kid)
+
+	// Collapse concurrent misses for the same (subject, kid) into a single
+	// provider lookup. The NUL separator keeps the flight key unambiguous
+	// across the subject/kid boundary.
+	res, err, _ := v.flight.Do(subject+"\x00"+kid, func() (any, error) {
+		// Re-check the cache: a peer flight for this key may have populated it
+		// between our miss above and our entry into the singleflight group.
+		if vk, ok := v.cache.get(subject, kid); ok {
+			return vk, nil
+		}
+		vk, err := v.src.VerificationKey(ctx, subject, kid)
+		if err != nil {
+			return VerificationKey{}, err
+		}
+		v.cache.put(subject, kid, vk)
+		return vk, nil
+	})
 	if err != nil {
 		return VerificationKey{}, err
 	}
-	v.cache.put(subject, kid, vk)
-	return vk, nil
+	return res.(VerificationKey), nil
 }
