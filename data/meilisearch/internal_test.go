@@ -32,6 +32,7 @@ type fakeSDK struct {
 	indexFn       func(uid string) msdk.IndexManager
 	getIndexFn    func(ctx context.Context, uid string) (*msdk.IndexResult, error)
 	createIndexFn func(ctx context.Context, cfg *msdk.IndexConfig) (*msdk.TaskInfo, error)
+	deleteIndexFn func(ctx context.Context, uid string) (*msdk.TaskInfo, error)
 	swapIndexesFn func(ctx context.Context, params []*msdk.SwapIndexesParams) (*msdk.TaskInfo, error)
 	waitForTaskFn func(ctx context.Context, taskUID int64, interval time.Duration) (*msdk.Task, error)
 }
@@ -60,6 +61,13 @@ func (f *fakeSDK) GetIndexWithContext(ctx context.Context, uid string) (*msdk.In
 func (f *fakeSDK) CreateIndexWithContext(ctx context.Context, cfg *msdk.IndexConfig) (*msdk.TaskInfo, error) {
 	if f.createIndexFn != nil {
 		return f.createIndexFn(ctx, cfg)
+	}
+	return &msdk.TaskInfo{TaskUID: 1}, nil
+}
+
+func (f *fakeSDK) DeleteIndexWithContext(ctx context.Context, uid string) (*msdk.TaskInfo, error) {
+	if f.deleteIndexFn != nil {
+		return f.deleteIndexFn(ctx, uid)
 	}
 	return &msdk.TaskInfo{TaskUID: 1}, nil
 }
