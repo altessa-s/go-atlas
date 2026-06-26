@@ -38,7 +38,9 @@ returns `ErrSpoolTooLarge` past it (`n <= 0` is unlimited); `WithSpoolTee(w)` mi
 
 ## Subpackages
 
-| Package          | Description                                                                |
-|------------------|----------------------------------------------------------------------------|
-| [files](./files) | File/directory existence checks, multi-path search                         |
-| [wal](./wal)     | Segmented append-only write-ahead log with CRC32, fsync policy, recovery   |
+| Package                      | Description                                                                |
+|------------------------------|----------------------------------------------------------------------------|
+| [files](./files)             | File/directory existence checks, multi-path search                         |
+| [spool](./spool)             | Materialize a reader into a rewindable in-memory/temp-file backing store    |
+| [spoolbudget](./spoolbudget) | Process-wide disk ceiling charged across concurrent `Spool` reservations   |
+| [wal](./wal)                 | Segmented append-only write-ahead log with CRC32, fsync policy, recovery   |
