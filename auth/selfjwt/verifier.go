@@ -143,5 +143,6 @@ func (v *Verifier) publicKey(ctx context.Context, subject, kid string) (Verifica
 	if err != nil {
 		return VerificationKey{}, err
 	}
-	return res.(VerificationKey), nil
+	vk, _ := res.(VerificationKey)
+	return vk, nil
 }
