@@ -117,6 +117,7 @@ domain/proto                # Protobuf utilities
 domain/proto/fieldmask      # Field mask operations
 domain/validation           # Domain validation
 domain/behavior             # Domain behaviors
+domain/eventbus             # Event bus abstractions
 
 # Infrastructure
 infrastructure              # General infrastructure

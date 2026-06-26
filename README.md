@@ -58,6 +58,7 @@ import "github.com/altessa-s/go-atlas/data/cache"
 | [`data/probfilter`](data/probfilter/) | Bloom and Cuckoo probabilistic filters |
 | [`domain/behavior`](domain/behavior/) | Struct-tag `field_behavior` strip for Create / Update / Response payloads |
 | [`domain/converter`](domain/converter/) | Generic struct-to-struct conversion with codecs and lazy iterators |
+| [`domain/eventbus`](domain/eventbus/) | Synchronous, lock-free, transaction-safe in-process event bus for decoupling domains |
 | [`domain/fieldtracker`](domain/fieldtracker/) | Struct field change tracking |
 | [`domain/normalizer`](domain/normalizer/) | Tag-driven data normalization with pluggable modifiers |
 | [`domain/proto`](domain/proto/) | Protobuf field mask and `field_behavior`-driven payload sanitisation |
@@ -108,6 +109,7 @@ import "github.com/altessa-s/go-atlas/data/cache"
 | [Proxy](docs/proxy.md) | Outbound HTTP/gRPC proxy: YAML modes, wiring, TLS to proxy |
 | [Metrics Reference](docs/metrics.md) | All 129 Prometheus metrics across 24 subsystems |
 | [Field Behavior](docs/domain/proto/fieldbehavior.md) | Strip `google.api.field_behavior` fields (OUTPUT_ONLY / IDENTIFIER / IMMUTABLE / INPUT_ONLY) from Create / Update / Response payloads |
+| [Event Bus](docs/domain/eventbus.md) | In-process event bus: delivery & transaction semantics, the `uow` post-commit compensation companion, pluggable database backends |
 
 Full API documentation is available at [pkg.go.dev](https://pkg.go.dev/github.com/altessa-s/go-atlas).
 
