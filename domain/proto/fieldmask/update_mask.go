@@ -5,6 +5,7 @@
 package fieldmask
 
 import (
+	"errors"
 	"maps"
 	"slices"
 	"strings"
@@ -55,10 +56,12 @@ func (e *UpdateMaskBehaviorError) Error() string {
 }
 
 // ApplyUpdateMask applies the field mask for update operations:
-//  1. Validates field behaviors: REQUIRED, IMMUTABLE, OUTPUT_ONLY, IDENTIFIER (fail-fast)
-//  2. Removes OUTPUT_ONLY fields from the mask
-//  3. Clears fields NOT in the mask
-//  4. Sets default values for fields IN the mask but not populated
+//  1. With [WithPathValidation] set to [PathValidationEnforce], rejects paths absent
+//     from the schema (fail-fast); [PathValidationWarn] reports them and continues
+//  2. Validates field behaviors: REQUIRED, IMMUTABLE, OUTPUT_ONLY, IDENTIFIER (fail-fast)
+//  3. Removes OUTPUT_ONLY fields from the mask
+//  4. Clears fields NOT in the mask
+//  5. Sets default values for fields IN the mask but not populated
 //
 // With an empty mask the message itself is cleared, but the update is driven by
 // the mask: an empty mask lists no fields and so updates nothing. This differs
@@ -70,7 +73,9 @@ func (e *UpdateMaskBehaviorError) Error() string {
 // the resource and must not be modified by an update. Including such a field
 // in the mask produces a violation.
 //
-// Returns *UpdateMaskBehaviorError if any field behavior constraints are violated.
+// Returns *ValidationError when [WithPathValidation] is [PathValidationEnforce] and
+// a path does not exist in the schema, or *UpdateMaskBehaviorError if any field
+// behavior constraints are violated.
 //
 // This ensures the service can distinguish:
 //   - "don't update this field" (field not in mask)
@@ -81,13 +86,33 @@ func (e *UpdateMaskBehaviorError) Error() string {
 // OUTPUT_ONLY entries are removed, so the cleaned msk reflects what was
 // actually applied. Callers that want to reuse the original mask should
 // pass [FieldMask.Clone] of it.
-func (msk FieldMask) ApplyUpdateMask(msg proto.Message) error {
+func (msk FieldMask) ApplyUpdateMask(msg proto.Message, opts ...ApplyOption) error {
 	if msg == nil {
 		return nil
 	}
 
 	descriptor := msg.ProtoReflect().Descriptor()
-	for _, path := range msk.ToPaths() {
+	paths := msk.ToPaths()
+
+	if o := newApplyOptions(opts...); o.shouldValidatePaths() {
+		for _, path := range paths {
+			err := validatePath(descriptor, path)
+			if err == nil {
+				continue
+			}
+			if o.pathValidation == PathValidationEnforce {
+				return err // fail-fast on the first schema-invalid path.
+			}
+			// PathValidationWarn: report every bad path but still apply the mask.
+			// shouldValidatePaths guarantees a non-nil reporter here.
+			var validationErr *ValidationError
+			if errors.As(err, &validationErr) {
+				o.pathReporter(validationErr)
+			}
+		}
+	}
+
+	for _, path := range paths {
 		if err := rejectIndexedRepeatedAccess(descriptor, path); err != nil {
 			return err
 		}
