@@ -39,6 +39,8 @@ import "github.com/altessa-s/go-atlas/data/cache"
 |---------|-------------|
 | [`auth/oidc`](auth/oidc/) | OIDC/JWT validation with JWKS auto-refresh, CEL rules, token revocation |
 | [`auth/opa`](auth/opa/) | Open Policy Agent with bundle hot-reloading |
+| [`auth/selfjwt`](auth/selfjwt/) | Self-issued JWT minting and verification with per-subject keys and rotation |
+| [`auth/static`](auth/static/) | Static token / API-key validator for service-to-service auth |
 | [`config/loader`](config/loader/) | Multi-source config loading (YAML/TOML, env vars, secrets) with validation |
 | [`config/templates`](config/templates/) | Pre-built configuration structs for common components |
 | [`core`](core/) | Collections, errors, context, encoding, retry, scheduling, types (zero external deps) |
