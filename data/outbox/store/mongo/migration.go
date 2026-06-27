@@ -13,6 +13,11 @@ import (
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
+// millisPerSecond converts between Unix seconds (the legacy int64 representation)
+// and the millisecond epoch used by BSON Date: $toDate reads a number as
+// milliseconds, and $toLong on a Date yields milliseconds.
+const millisPerSecond = int64(1000) //nolint:mnd // definition of the named constant
+
 // MigrateTimestampsToDate converts legacy outbox documents whose timestamp fields
 // were stored as int64 Unix seconds into BSON Date, in place. It must be run once
 // per collection before serving traffic with the current store, which compares
@@ -39,7 +44,7 @@ func MigrateTimestampsToDate(ctx context.Context, collection *mongo.Collection) 
 		path := "$" + field
 		return bson.M{"$cond": bson.A{
 			bson.M{"$gt": bson.A{path, 0}},
-			bson.M{"$toDate": bson.M{"$multiply": bson.A{path, int64(1000)}}},
+			bson.M{"$toDate": bson.M{"$multiply": bson.A{path, millisPerSecond}}},
 			"$$REMOVE",
 		}}
 	}
@@ -47,7 +52,7 @@ func MigrateTimestampsToDate(ctx context.Context, collection *mongo.Collection) 
 	createdPath := "$" + collectionFieldCreatedAt
 	pipeline := mongo.Pipeline{bson.D{{Key: "$set", Value: bson.M{
 		// created_at is always present and positive in legacy documents.
-		collectionFieldCreatedAt:     bson.M{"$toDate": bson.M{"$multiply": bson.A{createdPath, int64(1000)}}},
+		collectionFieldCreatedAt:     bson.M{"$toDate": bson.M{"$multiply": bson.A{createdPath, millisPerSecond}}},
 		collectionFieldPublishedAt:   secondsToDate(collectionFieldPublishedAt),
 		collectionFieldLastAttemptOn: secondsToDate(collectionFieldLastAttemptOn),
 		collectionFieldLockedOn:      secondsToDate(collectionFieldLockedOn),
@@ -82,14 +87,14 @@ func RevertTimestampsToUnix(ctx context.Context, collection *mongo.Collection) (
 		path := "$" + field
 		return bson.M{"$cond": bson.A{
 			bson.M{"$eq": bson.A{bson.M{"$type": path}, "date"}},
-			bson.M{"$toLong": bson.M{"$divide": bson.A{bson.M{"$toLong": path}, int64(1000)}}},
+			bson.M{"$toLong": bson.M{"$divide": bson.A{bson.M{"$toLong": path}, millisPerSecond}}},
 			"$$REMOVE",
 		}}
 	}
 
 	createdPath := "$" + collectionFieldCreatedAt
 	pipeline := mongo.Pipeline{bson.D{{Key: "$set", Value: bson.M{
-		collectionFieldCreatedAt:     bson.M{"$toLong": bson.M{"$divide": bson.A{bson.M{"$toLong": createdPath}, int64(1000)}}},
+		collectionFieldCreatedAt:     bson.M{"$toLong": bson.M{"$divide": bson.A{bson.M{"$toLong": createdPath}, millisPerSecond}}},
 		collectionFieldPublishedAt:   dateToSeconds(collectionFieldPublishedAt),
 		collectionFieldLastAttemptOn: dateToSeconds(collectionFieldLastAttemptOn),
 		collectionFieldLockedOn:      dateToSeconds(collectionFieldLockedOn),
