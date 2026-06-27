@@ -17,19 +17,19 @@ type cleanupCallStore struct {
 	deleteCalls atomic.Int64
 }
 
-func (s *cleanupCallStore) FetchUnprocessedEvents(ctx context.Context, batchSize uint32, lastAttemptBefore time.Time) ([]Event, error) {
+func (s *cleanupCallStore) FetchUnprocessedEvents(ctx context.Context, batchSize uint32, retryAfter time.Duration) ([]Event, error) {
 	return nil, nil
 }
-func (s *cleanupCallStore) DeleteProcessedEvents(ctx context.Context, since time.Time) error {
+func (s *cleanupCallStore) DeleteProcessedEvents(ctx context.Context, olderThan time.Duration) error {
 	s.deleteCalls.Add(1)
 	return nil
 }
-func (s *cleanupCallStore) UnlockStuckEvents(ctx context.Context, lockedBefore time.Time) error {
+func (s *cleanupCallStore) UnlockStuckEvents(ctx context.Context, lockExpiry time.Duration) error {
 	return nil
 }
 func (s *cleanupCallStore) SaveEvents(ctx context.Context, events ...Event) error   { return nil }
 func (s *cleanupCallStore) UpdateEvents(ctx context.Context, events ...Event) error { return nil }
-func (s *cleanupCallStore) ExpireEvents(ctx context.Context, now time.Time) (int64, error) {
+func (s *cleanupCallStore) ExpireEvents(ctx context.Context) (int64, error) {
 	return 0, nil
 }
 

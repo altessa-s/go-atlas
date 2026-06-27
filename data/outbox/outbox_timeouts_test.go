@@ -16,7 +16,7 @@ type deadlineCapturingStore struct {
 	deadlineCh chan time.Duration
 }
 
-func (s *deadlineCapturingStore) FetchUnprocessedEvents(ctx context.Context, _ uint32, _ time.Time) ([]Event, error) {
+func (s *deadlineCapturingStore) FetchUnprocessedEvents(ctx context.Context, _ uint32, _ time.Duration) ([]Event, error) {
 	if dl, ok := ctx.Deadline(); ok {
 		// Report remaining time until deadline at the moment of the call.
 		select {
@@ -27,11 +27,13 @@ func (s *deadlineCapturingStore) FetchUnprocessedEvents(ctx context.Context, _ u
 	return nil, nil
 }
 
-func (s *deadlineCapturingStore) DeleteProcessedEvents(context.Context, time.Time) error { return nil }
-func (s *deadlineCapturingStore) UnlockStuckEvents(context.Context, time.Time) error     { return nil }
+func (s *deadlineCapturingStore) DeleteProcessedEvents(context.Context, time.Duration) error {
+	return nil
+}
+func (s *deadlineCapturingStore) UnlockStuckEvents(context.Context, time.Duration) error { return nil }
 func (s *deadlineCapturingStore) SaveEvents(context.Context, ...Event) error             { return nil }
 func (s *deadlineCapturingStore) UpdateEvents(context.Context, ...Event) error           { return nil }
-func (s *deadlineCapturingStore) ExpireEvents(context.Context, time.Time) (int64, error) {
+func (s *deadlineCapturingStore) ExpireEvents(context.Context) (int64, error) {
 	return 0, nil
 }
 

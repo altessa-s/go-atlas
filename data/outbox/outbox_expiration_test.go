@@ -21,17 +21,17 @@ type expirationStore struct {
 	expireErr    error
 }
 
-func (s *expirationStore) FetchUnprocessedEvents(context.Context, uint32, time.Time) ([]Event, error) {
+func (s *expirationStore) FetchUnprocessedEvents(context.Context, uint32, time.Duration) ([]Event, error) {
 	return nil, nil
 }
-func (s *expirationStore) DeleteProcessedEvents(context.Context, time.Time) error { return nil }
-func (s *expirationStore) UnlockStuckEvents(context.Context, time.Time) error     { return nil }
+func (s *expirationStore) DeleteProcessedEvents(context.Context, time.Duration) error { return nil }
+func (s *expirationStore) UnlockStuckEvents(context.Context, time.Duration) error     { return nil }
 func (s *expirationStore) SaveEvents(_ context.Context, events ...Event) error {
 	s.savedEvents = append(s.savedEvents, events...)
 	return nil
 }
 func (s *expirationStore) UpdateEvents(context.Context, ...Event) error { return nil }
-func (s *expirationStore) ExpireEvents(_ context.Context, _ time.Time) (int64, error) {
+func (s *expirationStore) ExpireEvents(_ context.Context) (int64, error) {
 	s.expireCalls.Add(1)
 	return s.expireResult, s.expireErr
 }
