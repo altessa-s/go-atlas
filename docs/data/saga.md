@@ -1,7 +1,7 @@
 # Saga orchestration
 
-This guide explains the [`data/saga`](../data/saga) package: what an orchestration saga is, how the engine drives one, how it survives
-crashes, and how to wire a durable backend. For the terse API reference see the package [`README`](../data/saga/README.md); this page is the
+This guide explains the [`data/saga`](../../data/saga) package: what an orchestration saga is, how the engine drives one, how it survives
+crashes, and how to wire a durable backend. For the terse API reference see the package [`README`](../../data/saga/README.md); this page is the
 narrative version with diagrams and worked examples.
 
 ## What problem it solves
@@ -17,7 +17,7 @@ Use a saga when:
 - each step can be undone by an idempotent compensation (release the hold, refund the charge);
 - you can tolerate brief inconsistency between a step committing and its compensation running.
 
-Do **not** reach for a saga when a single local transaction (or the [outbox](../data/outbox) pattern for "DB write + publish") already gives
+Do **not** reach for a saga when a single local transaction (or the [outbox](../../data/outbox) pattern for "DB write + publish") already gives
 you atomicity.
 
 ## Core model
@@ -267,7 +267,7 @@ orch := saga.New(store, def,
 
 ### Durable backend via the factory
 
-In production, assemble the orchestrator from [`config.Saga`](../config/saga.go) and an injected client. The factory picks the store named by
+In production, assemble the orchestrator from [`config.Saga`](../../config/saga.go) and an injected client. The factory picks the store named by
 `config.Saga.Storage.Type` and wires every option.
 
 ```go
@@ -285,7 +285,7 @@ orch, err := factory.New(&cfg, def).
     Build()
 ```
 
-The YAML equivalent (see [`config/templates/saga.yaml`](../config/templates/saga.yaml)):
+The YAML equivalent (see [`config/templates/saga.yaml`](../../config/templates/saga.yaml)):
 
 ```yaml
 saga:
@@ -313,12 +313,12 @@ if err := orch.RunRecoveryCycle(ctx); err != nil {
 
 | Backend  | Package                                                  | Durable | Version token        | Recovery scan                                  | Notes                                          |
 |----------|---------------------------------------------------------|---------|----------------------|------------------------------------------------|------------------------------------------------|
-| `memory` | [`storages/memory`](../data/saga/storages/memory)       | no      | in-struct counter    | map scan                                       | Single node, tests, reference implementation.  |
-| `mongo`  | [`storages/mongo`](../data/saga/storages/mongo)         | yes     | document `version`   | `(status, deadline)` compound index            | Query-capable; one document per instance.      |
-| `redis`  | [`storages/redis`](../data/saga/storages/redis)         | yes     | hash field, Lua CAS  | sorted set scored by recover-eligibility time  | No auto-delete without a TTL — see retention.  |
-| `nats`   | [`storages/nats`](../data/saga/storages/nats)           | yes     | KV revision          | full bucket scan                               | Bucket carries a long backstop TTL by default. |
+| `memory` | [`storages/memory`](../../data/saga/storages/memory)       | no      | in-struct counter    | map scan                                       | Single node, tests, reference implementation.  |
+| `mongo`  | [`storages/mongo`](../../data/saga/storages/mongo)         | yes     | document `version`   | `(status, deadline)` compound index            | Query-capable; one document per instance.      |
+| `redis`  | [`storages/redis`](../../data/saga/storages/redis)         | yes     | hash field, Lua CAS  | sorted set scored by recover-eligibility time  | No auto-delete without a TTL — see retention.  |
+| `nats`   | [`storages/nats`](../../data/saga/storages/nats)           | yes     | KV revision          | full bucket scan                               | Bucket carries a long backstop TTL by default. |
 
-All backends return the same sentinel errors from [`errs`](../data/saga/errs) (`ErrInstanceNotFound`, `ErrInstanceExists`,
+All backends return the same sentinel errors from [`errs`](../../data/saga/errs) (`ErrInstanceNotFound`, `ErrInstanceExists`,
 `ErrVersionConflict`, …); match them with `errors.Is`.
 
 ## Compensation policy
@@ -370,6 +370,6 @@ namespace, e.g. `myapp_saga_started_total`).
 
 ## See also
 
-- [`data/saga/README.md`](../data/saga/README.md) — API reference and full option table.
-- [docs/configuration.md](configuration.md) — how config is loaded from YAML, env, and secrets.
-- [docs/metrics.md](metrics.md) — the full metrics catalog across subsystems.
+- [`data/saga/README.md`](../../data/saga/README.md) — API reference and full option table.
+- [docs/configuration.md](../configuration.md) — how config is loaded from YAML, env, and secrets.
+- [docs/metrics.md](../metrics.md) — the full metrics catalog across subsystems.

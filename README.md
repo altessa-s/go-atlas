@@ -98,7 +98,8 @@ import "github.com/altessa-s/go-atlas/data/cache"
 | Guide | Description |
 |-------|-------------|
 | [Architecture](docs/architecture.md) | Package structure, layering, and design principles |
-| [Saga](docs/saga.md) | Saga orchestration: model, status lifecycle, crash recovery, diagrams, and examples |
+| [Coordination & Consistency](docs/coordination.md) | Choosing between `eventbus`, `uow`, `outbox`, `broker`, and `saga`; the dual-write problem; how they compose |
+| [Saga](docs/data/saga.md) | Saga orchestration: model, status lifecycle, crash recovery, diagrams, and examples |
 | [Configuration](docs/configuration.md) | Multi-source config loading, env vars, secrets |
 | [Self-Issued JWT](docs/auth/selfjwt.md) | Per-subject JWT minting and fail-closed verification, key rotation, verification-key cache |
 | [Static Tokens](docs/auth/static.md) | API-key / pre-shared token validation, HMAC-SHA256 storage, failure-only rate limiting |
