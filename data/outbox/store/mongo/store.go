@@ -32,6 +32,14 @@ const (
 	collectionFieldExpiresAt     = "expires_at"      // Expiration timestamp field.
 )
 
+// serverNow is the MongoDB aggregation variable that yields the current datetime
+// on the server (the primary at apply time). Using it instead of a client-supplied
+// timestamp makes lock/retry/expiry decisions clock-skew safe: every replica sees
+// the same single clock, so skewed wall clocks cannot disagree on whether an event
+// is due, stuck, or expired. In a transaction $$NOW is the transaction start time,
+// so the fetch filter and the lock update observe a consistent instant.
+const serverNow = "$$NOW"
+
 // Store implements outbox.Store interface using MongoDB as the backend.
 type Store struct {
 	collection     *mongo.Collection
@@ -86,35 +94,43 @@ func NewWithCollectionOptions(col *mongo.Collection, opt ...Option) (*Store, err
 	return s, nil
 }
 
-// UnlockStuckEvents resets in-progress events locked before since to pending status.
-func (s *Store) UnlockStuckEvents(ctx context.Context, since time.Time) error {
+// UnlockStuckEvents resets in-progress events locked for longer than lockExpiry to
+// pending. The lock age is evaluated server-side ($$NOW - lockExpiry) so a sweeper
+// running on a skewed instance cannot prematurely unlock an event another instance
+// is still publishing, nor leave a genuinely dead lock stuck.
+func (s *Store) UnlockStuckEvents(ctx context.Context, lockExpiry time.Duration) error {
 	filter := bson.M{
-		collectionFieldLockedOn: bson.M{"$lt": since.Unix()}, // Locked before the 'since' time
-		collectionFieldStatus:   outbox.StatusInProgress,     // Only consider events currently in progress
+		collectionFieldStatus: outbox.StatusInProgress, // Only events currently in progress.
+		"$expr": bson.M{"$lt": bson.A{
+			"$" + collectionFieldLockedOn,
+			bson.M{"$subtract": bson.A{serverNow, lockExpiry.Milliseconds()}},
+		}},
 	}
-	update := bson.M{
-		"$set": bson.M{
-			collectionFieldStatus:   outbox.StatusPending, // Reset status to Pending
-			collectionFieldLockedOn: 0,                    // Clear the lock time
-		},
-	}
-	_, err := s.collection.UpdateMany(ctx, filter, update)
-	if err != nil {
+	// Aggregation-pipeline update so $$NOW-derived semantics stay server-side; the
+	// lock is cleared (null) to mark the event unlocked.
+	update := mongo.Pipeline{bson.D{{Key: "$set", Value: bson.M{
+		collectionFieldStatus:   outbox.StatusPending,
+		collectionFieldLockedOn: nil,
+	}}}}
+	if _, err := s.collection.UpdateMany(ctx, filter, update); err != nil {
 		return coreerrs.WrapOperation(err, "unlock stuck events in MongoDB")
 	}
 	return nil
 }
 
-// DeleteProcessedEvents removes processed events (sent, skipped, or expired) older than since.
-func (s *Store) DeleteProcessedEvents(ctx context.Context, since time.Time) error {
+// DeleteProcessedEvents removes processed events (sent, skipped, or expired) whose
+// publication is older than olderThan, evaluated server-side ($$NOW - olderThan).
+func (s *Store) DeleteProcessedEvents(ctx context.Context, olderThan time.Duration) error {
 	filter := bson.M{
-		collectionFieldPublishedAt: bson.M{"$lt": since.Unix()},
 		collectionFieldStatus: bson.M{"$in": []outbox.Status{
 			outbox.StatusSent, outbox.StatusSkipped, outbox.StatusExpired,
 		}},
+		"$expr": bson.M{"$lt": bson.A{
+			"$" + collectionFieldPublishedAt,
+			bson.M{"$subtract": bson.A{serverNow, olderThan.Milliseconds()}},
+		}},
 	}
-	_, err := s.collection.DeleteMany(ctx, filter)
-	if err != nil {
+	if _, err := s.collection.DeleteMany(ctx, filter); err != nil {
 		return coreerrs.WrapOperation(err, "delete processed events from MongoDB")
 	}
 	return nil
@@ -122,6 +138,11 @@ func (s *Store) DeleteProcessedEvents(ctx context.Context, since time.Time) erro
 
 // UpdateEvents performs a bulk update of event states in MongoDB.
 // Returns nil if no events are provided.
+//
+// last_attempt_on is stamped with the server clock ($$NOW) rather than a
+// client timestamp, so the retry gate in FetchUnprocessedEvents (which also
+// compares against $$NOW) stays clock-skew safe regardless of which instance
+// dispatched the event. The lock is cleared so the event leaves the in-progress set.
 func (s *Store) UpdateEvents(ctx context.Context, events ...outbox.Event) error {
 	if len(events) == 0 {
 		return nil
@@ -131,24 +152,21 @@ func (s *Store) UpdateEvents(ctx context.Context, events ...outbox.Event) error 
 	for i := range len(events) {
 		ev := events[i]
 
-		// bson.D (ordered slice) is more cache-friendly than bson.M (map) for
-		// fixed-schema updates and avoids two map allocations per event.
-		updateDoc := bson.D{{Key: "$set", Value: bson.D{
-			{Key: collectionFieldStatus, Value: string(ev.Status)},
-			{Key: collectionFieldLastAttemptOn, Value: ev.LastAttemptOn.Unix()},
-			{Key: collectionFieldLockedOn, Value: ev.LockedOn.Unix()},
-			{Key: collectionFieldLastAttempts, Value: ev.Attempts},
-			{Key: collectionFieldPublishedAt, Value: ev.PublishedAt.Unix()},
-		}}}
-
+		set := bson.M{
+			collectionFieldStatus:        string(ev.Status),
+			collectionFieldLastAttempts:  ev.Attempts,
+			collectionFieldLastAttemptOn: serverNow,
+			collectionFieldLockedOn:      nullableDate(ev.LockedOn),
+			collectionFieldPublishedAt:   nullableDate(ev.PublishedAt),
+		}
+		// Aggregation-pipeline update is required to reference $$NOW.
 		model := mongo.NewUpdateOneModel().
 			SetFilter(bson.D{{Key: collectionFieldId, Value: ev.Id}}).
-			SetUpdate(updateDoc)
+			SetUpdate(mongo.Pipeline{bson.D{{Key: "$set", Value: set}}})
 		writeModels = append(writeModels, model)
 	}
 
-	_, err := s.collection.BulkWrite(ctx, writeModels)
-	if err != nil {
+	if _, err := s.collection.BulkWrite(ctx, writeModels); err != nil {
 		return coreerrs.Wrap(err, "MongoDB BulkWrite failed for UpdateEvents")
 	}
 	return nil
@@ -170,52 +188,58 @@ func (s *Store) SaveEvents(ctx context.Context, events ...outbox.Event) error {
 			Id:        ev.Id,
 			Status:    string(ev.Status),
 			Event:     ev.Payload,
-			CreatedAt: ev.CreatedAt.Unix(),
+			CreatedAt: ev.CreatedAt.UTC(),
 			Topic:     ev.Key,
 			Attempts:  ev.Attempts,
 			LastError: ev.LastError,
-			// PublishedAt, LastAttemptOn, LockedOn are initially zero/default for new events
-		}
-		if !ev.ExpiresAt.IsZero() {
-			doc.ExpiresAt = ev.ExpiresAt.Unix()
+			ExpiresAt: nullableDate(ev.ExpiresAt),
+			// PublishedAt, LastAttemptOn, LockedOn are nil for new events.
 		}
 		insertModels = append(insertModels, mongo.NewInsertOneModel().SetDocument(doc))
 	}
 
-	_, err := s.collection.BulkWrite(ctx, insertModels)
-	if err != nil {
+	if _, err := s.collection.BulkWrite(ctx, insertModels); err != nil {
 		return coreerrs.Wrap(err, "MongoDB BulkWrite failed for SaveEvents")
 	}
 	return nil
 }
 
-// FetchUnprocessedEvents retrieves pending or failed events and locks them for processing.
-// Events are sorted by creation time; failed events must have last attempt before lastAttemptBefore.
-func (s *Store) FetchUnprocessedEvents(ctx context.Context, batchSize uint32, lastAttemptBefore time.Time) ([]outbox.Event, error) {
-	nowUnix := time.Now().UTC().Unix()
-	// Exclude events whose ExpiresAt has passed.
-	// The expires_at field uses omitempty, so documents without expiration have no field at all.
+// FetchUnprocessedEvents retrieves pending events, and failed events whose last
+// attempt is older than retryAfter, then locks them for processing.
+//
+// Both the retry deadline ($$NOW - retryAfter) and the not-yet-expired predicate
+// ($expires_at > $$NOW) are evaluated against the MongoDB server clock, and the
+// lock timestamp is written as $$NOW — never a client time — so concurrent
+// instances with skewed wall clocks agree on eligibility and lock freshness.
+func (s *Store) FetchUnprocessedEvents(ctx context.Context, batchSize uint32, retryAfter time.Duration) ([]outbox.Event, error) {
+	// Exclude events whose ExpiresAt has passed. Documents without expiration omit
+	// the field entirely (pointer + omitempty), so $exists:false admits them.
 	notExpiredFilter := bson.M{"$or": bson.A{
 		bson.M{collectionFieldExpiresAt: bson.M{"$exists": false}},
-		bson.M{collectionFieldExpiresAt: bson.M{"$gt": nowUnix}},
+		bson.M{"$expr": bson.M{"$gt": bson.A{"$" + collectionFieldExpiresAt, serverNow}}},
 	}}
 
-	filter := bson.M{
-		"$and": bson.A{
-			bson.M{"$or": bson.A{
-				bson.M{collectionFieldStatus: outbox.StatusPending},
-				bson.M{
-					collectionFieldStatus:        outbox.StatusFailed,
-					collectionFieldLastAttemptOn: bson.M{"$lt": lastAttemptBefore.Unix()},
-				},
+	// Pending events are always eligible; failed events only once their last
+	// attempt is older than retryAfter relative to the server clock.
+	readyFilter := bson.M{"$or": bson.A{
+		bson.M{collectionFieldStatus: outbox.StatusPending},
+		bson.M{
+			collectionFieldStatus: outbox.StatusFailed,
+			"$expr": bson.M{"$lt": bson.A{
+				"$" + collectionFieldLastAttemptOn,
+				bson.M{"$subtract": bson.A{serverNow, retryAfter.Milliseconds()}},
 			}},
-			notExpiredFilter,
 		},
-	}
+	}}
+
+	filter := bson.M{"$and": bson.A{readyFilter, notExpiredFilter}}
 
 	var (
-		mongoEvents []event   // Internal representation for MongoDB documents
-		currentTime time.Time // Lock timestamp; reassigned on every transaction attempt.
+		mongoEvents []event
+		// lockedAt is informational only: the authoritative lock timestamp is the
+		// server's $$NOW written below. The returned LockedOn is cleared by the
+		// dispatcher before the event is used, so an approximate client value is fine.
+		lockedAt time.Time
 	)
 
 	// Use a transaction to ensure Find + UpdateMany are atomic.
@@ -229,12 +253,8 @@ func (s *Store) FetchUnprocessedEvents(ctx context.Context, batchSize uint32, la
 
 	_, err = sess.WithTransaction(ctx, func(sessCtx context.Context) (any, error) { //nolint:contextcheck
 		// Reset on retry — WithTransaction may re-execute the callback on transient errors.
-		// time.Now() also moves inside the callback so each attempt records a FRESH lock
-		// timestamp; otherwise a transaction retried after a long pause would publish a
-		// stale LockedOn that looks expired to the next reader and triggers premature
-		// unlock-stuck-events sweeps.
 		mongoEvents = nil
-		currentTime = time.Now().UTC()
+		lockedAt = time.Now().UTC()
 
 		cursor, txErr := s.collection.Find(sessCtx, filter,
 			mongoOptions.Find().SetSort(bson.M{collectionFieldCreatedAt: 1}).SetLimit(int64(batchSize)))
@@ -251,16 +271,15 @@ func (s *Store) FetchUnprocessedEvents(ctx context.Context, batchSize uint32, la
 			return 0, nil // No events to process
 		}
 
-		// Collect IDs of fetched events to update their status.
+		// Collect IDs of fetched events to lock them.
 		idsToLock := slices.Collect(coreslices.Map(mongoEvents, func(e event) string { return e.Id }))
 
-		// Update the status to InProgress and set LockedOn for the fetched events.
-		update := bson.M{"$set": bson.M{
+		// Lock via aggregation-pipeline update so locked_on carries the server clock.
+		update := mongo.Pipeline{bson.D{{Key: "$set", Value: bson.M{
 			collectionFieldStatus:   outbox.StatusInProgress,
-			collectionFieldLockedOn: currentTime.Unix(),
-		}}
-		_, txErr = s.collection.UpdateMany(sessCtx, bson.M{collectionFieldId: bson.M{"$in": idsToLock}}, update)
-		if txErr != nil {
+			collectionFieldLockedOn: serverNow,
+		}}}}
+		if _, txErr = s.collection.UpdateMany(sessCtx, bson.M{collectionFieldId: bson.M{"$in": idsToLock}}, update); txErr != nil {
 			return nil, coreerrs.Wrap(txErr, "MongoDB UpdateMany (to lock events) failed in FetchUnprocessedEvents")
 		}
 		return 0, nil
@@ -270,46 +289,63 @@ func (s *Store) FetchUnprocessedEvents(ctx context.Context, batchSize uint32, la
 		return nil, err
 	}
 	if len(mongoEvents) == 0 {
-		return []outbox.Event{}, nil // Return empty slice if no events fetched
+		return []outbox.Event{}, nil
 	}
 
 	// Convert MongoDB event entities to public outbox.Event type.
-	// The LockedOn time is set to the time when they were locked in this operation.
 	// Note: BSON field "event" maps to Event.Payload in the public API.
 	return slices.Collect(coreslices.Map(mongoEvents, func(ev event) outbox.Event {
-		e := outbox.Event{
+		return outbox.Event{
 			Id:            ev.Id,
 			Key:           ev.Topic,
 			Payload:       ev.Event,
 			Status:        outbox.StatusInProgress,
 			LastError:     ev.LastError,
 			Attempts:      ev.Attempts,
-			CreatedAt:     time.Unix(ev.CreatedAt, 0),
-			PublishedAt:   time.Unix(ev.PublishedAt, 0),
-			LastAttemptOn: time.Unix(ev.LastAttemptOn, 0),
-			LockedOn:      currentTime, // Reflect the time they were locked in this fetch operation
+			CreatedAt:     ev.CreatedAt,
+			PublishedAt:   dateValue(ev.PublishedAt),
+			LastAttemptOn: dateValue(ev.LastAttemptOn),
+			ExpiresAt:     dateValue(ev.ExpiresAt),
+			LockedOn:      lockedAt,
 		}
-		if ev.ExpiresAt > 0 {
-			e.ExpiresAt = time.Unix(ev.ExpiresAt, 0)
-		}
-		return e
 	})), nil
 }
 
 // ExpireEvents marks pending or failed events whose ExpiresAt has passed as expired.
-func (s *Store) ExpireEvents(ctx context.Context, now time.Time) (int64, error) {
+// The deadline is evaluated against the server clock ($expires_at <= $$NOW), and
+// published_at is stamped with $$NOW so subsequent cleanup is clock-skew safe too.
+func (s *Store) ExpireEvents(ctx context.Context) (int64, error) {
 	filter := bson.M{
 		collectionFieldStatus:    bson.M{"$in": []outbox.Status{outbox.StatusPending, outbox.StatusFailed}},
-		collectionFieldExpiresAt: bson.M{"$gt": int64(0), "$lte": now.Unix()},
+		collectionFieldExpiresAt: bson.M{"$exists": true},
+		"$expr":                  bson.M{"$lte": bson.A{"$" + collectionFieldExpiresAt, serverNow}},
 	}
-	update := bson.M{"$set": bson.M{
+	update := mongo.Pipeline{bson.D{{Key: "$set", Value: bson.M{
 		collectionFieldStatus:      outbox.StatusExpired,
-		collectionFieldPublishedAt: now.Unix(),
-		collectionFieldLockedOn:    0,
-	}}
+		collectionFieldPublishedAt: serverNow,
+		collectionFieldLockedOn:    nil,
+	}}}}
 	result, err := s.collection.UpdateMany(ctx, filter, update)
 	if err != nil {
 		return 0, coreerrs.WrapOperation(err, "expire events in MongoDB")
 	}
 	return result.ModifiedCount, nil
+}
+
+// nullableDate returns a UTC *time.Time for a non-zero instant, or nil so the field
+// is omitted/null in MongoDB. A nil pointer keeps "unset" distinct from a real date.
+func nullableDate(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+	u := t.UTC()
+	return &u
+}
+
+// dateValue dereferences a stored *time.Time, returning the zero time when absent.
+func dateValue(t *time.Time) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return *t
 }

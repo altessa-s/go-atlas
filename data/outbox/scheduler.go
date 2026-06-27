@@ -7,7 +7,6 @@ package outbox
 import (
 	"context"
 	"log/slog"
-	"time"
 
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 
@@ -147,7 +146,7 @@ func (o *Outbox) runDispatchCycleInternal(ctx context.Context) error {
 	defer stop()
 
 	fetchCtx, cancelFetch := corectx.ApplyTimeout(cycleCtx, o.fetchTimeout)
-	events, err := o.store.FetchUnprocessedEvents(fetchCtx, o.eventsBatchSize, time.Now().UTC().Add(-o.retryInterval))
+	events, err := o.store.FetchUnprocessedEvents(fetchCtx, o.eventsBatchSize, o.retryInterval)
 	cancelFetch()
 
 	if err != nil {
@@ -193,8 +192,7 @@ func (o *Outbox) runUnlockCycleInternal(ctx context.Context) error {
 	stop := o.metrics.unlockDuration.Start()
 	defer stop()
 
-	thresholdTime := time.Now().UTC().Add(-o.maxLockTime)
-	return o.store.UnlockStuckEvents(ctx, thresholdTime)
+	return o.store.UnlockStuckEvents(ctx, o.maxLockTime)
 }
 
 // RunCleanupCycle executes a single cycle to delete processed events from the store.
@@ -223,8 +221,7 @@ func (o *Outbox) runCleanupCycleInternal(ctx context.Context) error {
 	stop := o.metrics.cleanupDuration.Start()
 	defer stop()
 
-	cutOffTime := time.Now().UTC().Add(-o.publishedEventsLifetime)
-	return o.store.DeleteProcessedEvents(ctx, cutOffTime)
+	return o.store.DeleteProcessedEvents(ctx, o.publishedEventsLifetime)
 }
 
 // RegisterExpireSchedulerFunc returns a function for use by a scheduler and marks
@@ -292,8 +289,7 @@ func (o *Outbox) runExpireCycleInternal(ctx context.Context) error {
 	stop := o.metrics.expireDuration.Start()
 	defer stop()
 
-	now := time.Now().UTC()
-	count, err := o.store.ExpireEvents(ctx, now)
+	count, err := o.store.ExpireEvents(ctx)
 	if err != nil {
 		return coreerrs.WrapOperation(err, "expire events")
 	}
