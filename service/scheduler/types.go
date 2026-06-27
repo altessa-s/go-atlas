@@ -184,6 +184,20 @@ type Storage interface {
 	// must treat [TaskState.ID] as the primary key.
 	UpsertTask(ctx context.Context, state *TaskState) error
 
+	// ClaimRun atomically transitions task id from active→running for the
+	// occurrence scheduled at expectedNextRunAt, stamping RunStartedAt and
+	// LastRunID. It returns true iff THIS caller won the claim.
+	//
+	// The write MUST be a single atomic conditional update (CAS): match on
+	// status==active and, when expectedNextRunAt is non-zero, additionally on
+	// nextRunAt==expectedNextRunAt (the occurrence fence). This makes duplicate
+	// execution impossible even when two schedulers dispatch the same occurrence
+	// concurrently — for example during a leader-election split-brain window —
+	// so leadership becomes a throughput optimization, not a correctness
+	// dependency. Implementations return (false, nil) when no document matched
+	// (already claimed, advanced, or no longer active).
+	ClaimRun(ctx context.Context, id string, expectedNextRunAt, runStartedAt int64, runID string) (bool, error)
+
 	// DeleteTask removes a task and its associated state from storage.
 	// Deleting a non-existent task should be a no-op (no error).
 	DeleteTask(ctx context.Context, id string) error
