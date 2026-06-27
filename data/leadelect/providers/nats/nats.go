@@ -59,6 +59,14 @@ type Provider struct {
 	// monotonic clock and is immune to wall-clock jumps.
 	lastRenewOK atomic.Pointer[time.Time]
 
+	// fenceToken holds the KV revision of the lease this node currently holds. The
+	// JetStream KV revision is strictly increasing per key, so it doubles as a
+	// Kleppmann fencing token: a node that froze while holding revision R can only
+	// re-emit R, while whichever node next acquired the key advanced it past R.
+	// Stored together with lastRenewOK (token first) so a Fence reader that
+	// observes a fresh lease also observes the matching token.
+	fenceToken atomic.Uint64
+
 	stopCtxCancel context.CancelFunc
 	wg            sync.WaitGroup
 
@@ -125,7 +133,7 @@ func New(ctx context.Context, client *nats.Conn, opts ...Option) (*Provider, err
 	p.kv, err = kvHelper.GetOrCreateBucket(ctx, natskvlease.BucketConfig{
 		Bucket:      p.opts.bucket,
 		TTL:         DefaultBucketKeysTTL,
-		Storage:     jetstream.MemoryStorage,
+		Storage:     p.opts.storage,
 		Compression: true,
 	})
 	if err != nil {
@@ -161,10 +169,28 @@ func (p *Provider) IsLeader() bool {
 	return time.Since(*last) < lease
 }
 
-// markRenewed records the monotonic instant of a confirmed lease (successful
-// acquire or renew) so IsLeader can expire stale leadership.
-func (p *Provider) markRenewed() {
+// Fence returns the KV revision of the lease this node currently holds, or 0
+// when it is not a fresh leader. The revision is strictly increasing per key, so
+// it is a valid fencing token: a frozen holder can only re-present its stale
+// revision while the node that subsequently acquired the key advanced it.
+// Gating on IsLeader means an expired lease (by the freshness bound) reports 0,
+// so a zombie leader cannot hand a downstream store a token that still passes.
+func (p *Provider) Fence() uint64 {
+	if !p.IsLeader() {
+		return 0
+	}
+	return p.fenceToken.Load()
+}
+
+// markRenewed records a confirmed lease (successful acquire or renew): its
+// fencing token (the KV revision just written) and the monotonic instant, so
+// IsLeader can expire stale leadership and Fence can report the term. The token
+// is stored before the timestamp so a Fence reader that observes a fresh lease
+// via lastRenewOK is guaranteed to also observe the matching token (sync/atomic
+// operations are sequentially consistent).
+func (p *Provider) markRenewed(token uint64) {
 	now := time.Now()
+	p.fenceToken.Store(token)
 	p.lastRenewOK.Store(&now)
 }
 
@@ -348,11 +374,11 @@ func (p *Provider) camping(ctx context.Context) {
 	defer watcher.Stop() //nolint:errcheck
 
 	acquire := func() {
-		acquired, err := p.acquire(ctx)
+		acquired, token, err := p.acquire(ctx)
 		if acquired {
 			// Record the confirmed lease before publishing leadership so a
 			// concurrent IsLeader sees a fresh timestamp, not a stale/nil one.
-			p.markRenewed()
+			p.markRenewed(token)
 		}
 		p.setLeader(ctx, acquired, becameCh, lostCh)
 
@@ -367,7 +393,7 @@ func (p *Provider) camping(ctx context.Context) {
 	}
 
 	renew := func() {
-		renewed, err := p.renew(ctx)
+		renewed, token, err := p.renew(ctx)
 		if err != nil {
 			if coreerrs.IsContextCanceled(err) {
 				return
@@ -379,7 +405,7 @@ func (p *Provider) camping(ctx context.Context) {
 		}
 
 		if renewed {
-			p.markRenewed()
+			p.markRenewed(token)
 		}
 		p.setLeader(ctx, renewed, becameCh, lostCh)
 	}
@@ -471,39 +497,40 @@ func (p *Provider) queueNotification(ctx context.Context, eventType notification
 }
 
 // acquire attempts to acquire leadership by creating or updating the key.
-// Returns true if leadership was successfully acquired, false otherwise.
-func (p *Provider) acquire(ctx context.Context) (bool, error) {
+// Returns true and the KV revision of the held lease (the fencing token) when
+// leadership was successfully acquired, or false and 0 otherwise.
+func (p *Provider) acquire(ctx context.Context) (bool, uint64, error) {
 	config := p.providerConfig.Load()
 
 	// Attempt to create the key - this works only if the key doesn't exist.
 	_, err := p.kvOps.Create(ctx, config.Key, []byte(config.NodeId))
 	if err != nil && !errors.Is(err, jetstream.ErrKeyExists) {
 		p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "acquire", "result": "failure"}).Inc()
-		return false, err
+		return false, 0, err
 	}
 
 	entry, getErr := p.kvOps.Get(ctx, config.Key)
 	if getErr == nil && string(entry.Value()) == config.NodeId {
 		// We are the current leader, so we can update the key to renew the lease.
-		_, updateErr := p.kvOps.Update(ctx, config.Key, []byte(config.NodeId), entry.Revision())
+		rev, updateErr := p.kvOps.Update(ctx, config.Key, []byte(config.NodeId), entry.Revision())
 		if updateErr == nil {
 			p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "acquire", "result": "success"}).Inc()
 		} else {
 			p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "acquire", "result": "failure"}).Inc()
 		}
-		return updateErr == nil, updateErr
+		return updateErr == nil, rev, updateErr
 	} else if errors.Is(getErr, jetstream.ErrKeyNotFound) {
-		_, err = p.kvOps.Create(ctx, config.Key, []byte(config.NodeId))
-		if err == nil {
+		rev, createErr := p.kvOps.Create(ctx, config.Key, []byte(config.NodeId))
+		if createErr == nil {
 			p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "acquire", "result": "success"}).Inc()
 		} else {
 			p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "acquire", "result": "failure"}).Inc()
 		}
-		return err == nil, err
+		return createErr == nil, rev, createErr
 	}
 
 	p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "acquire", "result": "failure"}).Inc()
-	return false, getErr
+	return false, 0, getErr
 }
 
 // resign gives up leadership by deleting the key if this node is the current leader.
@@ -540,30 +567,31 @@ func (p *Provider) resign(ctx context.Context) error {
 }
 
 // renew attempts to renew the lease by updating the key with the same value.
-// Returns true if the renewal was successful, false otherwise.
-func (p *Provider) renew(ctx context.Context) (bool, error) {
+// Returns true and the new KV revision (the refreshed fencing token) on success,
+// or false and 0 otherwise.
+func (p *Provider) renew(ctx context.Context) (bool, uint64, error) {
 	config := p.providerConfig.Load()
 
 	entry, err := p.kvOps.Get(ctx, config.Key)
 	if err != nil {
 		p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "renew", "result": "failure"}).Inc()
-		return false, err
+		return false, 0, err
 	}
 
 	// Check if we are still the owner before renewing
 	if entry == nil || string(entry.Value()) != config.NodeId {
 		p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "renew", "result": "failure"}).Inc()
-		return false, nil
+		return false, 0, nil
 	}
 
 	// Update the key with the same value, which resets the TTL.
-	_, err = p.kvOps.Update(ctx, config.Key, []byte(config.NodeId), entry.Revision())
+	rev, err := p.kvOps.Update(ctx, config.Key, []byte(config.NodeId), entry.Revision())
 	if err == nil {
 		p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "renew", "result": "success"}).Inc()
 	} else {
 		p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "renew", "result": "failure"}).Inc()
 	}
-	return err == nil, err
+	return err == nil, rev, err
 }
 
 func (p *Provider) stop() {

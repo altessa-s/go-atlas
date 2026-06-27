@@ -17,6 +17,14 @@ type LeaderElector interface {
 	// IsLeader returns true if this instance is the leader.
 	IsLeader() bool
 
+	// Fence returns the fencing token of the leadership term this node currently
+	// holds, or 0 when it is not a fresh leader. The token is monotonically
+	// non-decreasing across terms; a new holder always observes a strictly
+	// greater token than any prior term. Thread it into the conditional write of
+	// a downstream store (record the highest token accepted, reject lower ones)
+	// to make leadership a correctness fence rather than a best-effort hint.
+	Fence() uint64
+
 	// NodeId returns this node's unique identifier.
 	NodeId() string
 

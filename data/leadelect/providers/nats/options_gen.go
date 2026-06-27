@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/nats-io/nats.go/jetstream"
+
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
@@ -64,12 +66,20 @@ func WithRenewRatio(v float64) Option {
 	}
 }
 
+// WithStorage sets the storage option.
+func WithStorage(v jetstream.StorageType) Option {
+	return func(o *options) {
+		o.storage = v
+	}
+}
+
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
 		bucket:     DefaultBucket,
 		logger:     slog.New(slog.DiscardHandler),
 		renewRatio: DefaultRenewRatio,
+		storage:    DefaultStorage,
 	}
 }
 

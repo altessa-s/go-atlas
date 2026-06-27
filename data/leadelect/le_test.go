@@ -24,6 +24,7 @@ type mockProvider struct {
 	isLeader  bool
 	nodeID    string
 	isRunning bool
+	fence     uint64
 }
 
 func (m *mockProvider) Start(ctx context.Context, cfg providers.Config) error {
@@ -42,6 +43,7 @@ func (m *mockProvider) Stop(ctx context.Context) error {
 
 func (m *mockProvider) LeaderId(_ context.Context) (string, error) { return m.leaderID, nil }
 func (m *mockProvider) IsLeader() bool                             { return m.isLeader }
+func (m *mockProvider) Fence() uint64                              { return m.fence }
 func (m *mockProvider) NodeId() string                             { return m.nodeID }
 func (m *mockProvider) IsRunning() bool                            { return m.isRunning }
 
@@ -64,6 +66,13 @@ func TestLeader_IsLeader(t *testing.T) {
 	le := leadelect.New(prov, "", "")
 
 	require.True(t, le.IsLeader())
+}
+
+func TestLeader_Fence(t *testing.T) {
+	prov := &mockProvider{isLeader: true, fence: 99}
+	le := leadelect.New(prov, "", "")
+
+	require.Equal(t, uint64(99), le.Fence(), "Fence must delegate to the provider")
 }
 
 func TestLeader_LeaderId(t *testing.T) {

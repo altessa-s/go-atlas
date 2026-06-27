@@ -50,6 +50,7 @@ func (m *callbackProvider) Stop(ctx context.Context) error {
 
 func (m *callbackProvider) LeaderId(_ context.Context) (string, error) { return m.leaderID, nil }
 func (m *callbackProvider) IsLeader() bool                             { return m.isLeader }
+func (m *callbackProvider) Fence() uint64                              { return 0 }
 func (m *callbackProvider) NodeId() string                             { return m.nodeID }
 func (m *callbackProvider) IsRunning() bool                            { return m.running }
 

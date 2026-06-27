@@ -87,6 +87,34 @@ func TestMarkRenewed_RefreshesLease(t *testing.T) {
 	p := leaderProvider(time.Second, &old)
 	require.False(t, p.IsLeader(), "precondition: stale")
 
-	p.markRenewed()
+	p.markRenewed(7)
 	require.True(t, p.IsLeader(), "markRenewed must refresh the lease and restore leadership")
+	require.Equal(t, uint64(7), p.Fence(), "markRenewed must record the fencing token")
+}
+
+func TestFence_FreshLeaseReportsToken(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	p := leaderProvider(time.Hour, &now)
+	p.fenceToken.Store(42)
+	require.Equal(t, uint64(42), p.Fence(), "a fresh leader reports its fencing token")
+}
+
+func TestFence_StaleLeaseReportsZero(t *testing.T) {
+	t.Parallel()
+	// Lease older than the TTL: IsLeader self-demotes, so Fence must not hand out
+	// a token a downstream store would still accept.
+	old := time.Now().Add(-2 * time.Second)
+	p := leaderProvider(time.Second, &old)
+	p.fenceToken.Store(42)
+	require.Zero(t, p.Fence(), "a stale leader must report a zero fencing token")
+}
+
+func TestFence_NotLeaderReportsZero(t *testing.T) {
+	t.Parallel()
+	now := time.Now()
+	p := leaderProvider(time.Hour, &now)
+	p.fenceToken.Store(42)
+	p.isLeader.Store(false)
+	require.Zero(t, p.Fence(), "a non-leader must report a zero fencing token")
 }

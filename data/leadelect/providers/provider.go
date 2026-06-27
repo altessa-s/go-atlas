@@ -18,6 +18,17 @@ type Provider interface {
 	// IsLeader returns true if this instance is the leader.
 	IsLeader() bool
 
+	// Fence returns the fencing token of the leadership term this node currently
+	// holds, or 0 when it is not a fresh leader. The token is monotonically
+	// non-decreasing across terms: every acquisition or renewal observes a token
+	// greater than or equal to the previous holder's, and a new holder always
+	// observes a strictly greater token than any prior term. Downstream storage
+	// can record the highest token it has accepted and reject writes carrying a
+	// lower one, fencing out a stale or partitioned zombie leader whose IsLeader
+	// has not yet self-demoted. It is gated by IsLeader, so a lease that has
+	// expired by the freshness bound reports 0.
+	Fence() uint64
+
 	// NodeId returns this node's unique identifier.
 	NodeId() string
 
