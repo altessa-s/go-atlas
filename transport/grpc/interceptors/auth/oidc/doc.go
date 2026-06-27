@@ -86,39 +86,36 @@
 //	    return claims, nil
 //	}
 //
-// # Integration with Scope Registry
+// # Integration with scope-based authorization
 //
-// Combine OIDC validation with scope-based authorization:
-//
-//	registry := auth.NewScopeRegistry()
-//	registry.RegisterMethods("user:read", "/user.UserService/GetUser")
+// Keep the AuthFunc focused on authentication — return the verified claims — and
+// layer authorization on with the transport-neutral
+// github.com/altessa-s/go-atlas/auth/scope package, wired through the auth
+// interceptor's ScopeClientAuth. Deny-by-default and the method→scope policy
+// live in the scope.Enforcer, not in the AuthFunc:
 //
 //	authFunc := auth.AuthFunc(func(ctx context.Context, req auth.Request) (any, error) {
 //	    tokenCreds, ok := req.TokenCredentials()
 //	    if !ok {
 //	        return nil, status.Error(codes.Unauthenticated, "invalid credentials")
 //	    }
-//
-//	    // Validate OIDC token
-//	    claims, err := oidcValidator.ValidateToken(ctx, tokenCreds.Token)
+//	    claims, err := oidcValidator.ValidateToken(ctx, tokenCreds.Token.Expose())
 //	    if err != nil {
 //	        return nil, status.Error(codes.Unauthenticated, "token validation failed")
 //	    }
-//
-//	    // Check scopes (deny by default for unregistered methods)
-//	    requiredScope, ok := registry.Scope(req.FullyMethodName)
-//	    if !ok {
-//	        return nil, status.Error(codes.PermissionDenied, "method not registered in scope registry")
-//	    }
-//	    if requiredScope != "" {
-//	        userScopes := claims["scopes"].([]string)
-//	        if !hasScope(userScopes, requiredScope) {
-//	            return nil, status.Error(codes.PermissionDenied, "insufficient permissions")
-//	        }
-//	    }
-//
-//	    return claims, nil
+//	    return claims, nil // *oidc.Claims becomes Credentials.Data
 //	})
+//
+//	reg := scope.NewRegistry()
+//	reg.RegisterMany("user:read", "/user.UserService/GetUser")
+//	reg.Freeze()
+//	enf := scope.NewEnforcer(reg, scope.ScopeAuthorizer(
+//	    func(c *oidc.Claims) []string { return c.Scopes }, scope.Exact()))
+//
+//	interceptor := auth.ServerInterceptor(
+//	    auth.WithAuthFunc(authFunc),
+//	    auth.WithClientAuth(auth.ScopeClientAuth(enf)),
+//	)
 //
 // # Claims Structure
 //

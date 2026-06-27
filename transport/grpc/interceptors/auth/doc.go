@@ -7,8 +7,10 @@
 //
 // Use [ServerInterceptor] with an [Auth] function to validate tokens on the
 // server side. For client-side token injection, use [ClientInterceptor] with
-// [TokenCredentials]. The [ScopeRegistry] maps gRPC methods to required OAuth
-// scopes for authorization checks.
+// [TokenCredentials]. Scope-based authorization is layered on via
+// [ScopeClientAuth], which drives a transport-neutral
+// [github.com/altessa-s/go-atlas/auth/scope.Enforcer] from the verified
+// principal in [Credentials].
 //
 // Bearer tokens are extracted from the "authorization" gRPC metadata header.
 // After successful authentication, [Credentials] are injected into the context

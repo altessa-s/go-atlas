@@ -10,7 +10,8 @@ Package structure, layering, and design principles of go-atlas.
 go-atlas/
 ├── auth/                  # Authentication & authorization
 │   ├── oidc/              # OpenID Connect (JWT validation, JWKS)
-│   └── opa/               # Open Policy Agent integration
+│   ├── opa/               # Open Policy Agent integration
+│   └── scope/             # Scope-based authorization policy (transport-neutral)
 ├── config/                # Configuration management
 │   ├── loader/            # Multi-source config loading (YAML, TOML, env)
 │   └── templates/         # Configuration templates (30+ YAML presets)
