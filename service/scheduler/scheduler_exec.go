@@ -405,40 +405,31 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 		slog.String("priority", task.config.Priority.String()),
 		slog.String("run_id", runID))
 
-	// Re-read fresh state and update to running to avoid overwriting concurrent changes
-	currentState, err := s.storage.GetTask(ctx, state.ID)
-	if err != nil || currentState == nil {
-		s.metrics.storageErrors.WithLabels(metrics.Labels{"op": "get_task"}).Inc()
-		s.logger.ErrorContext(ctx, "failed to get current task state",
+	// Atomically claim this occurrence (active→running) at the storage layer.
+	// The claim — not leadership — is the correctness boundary: even if two
+	// scheduler instances dispatch the same occurrence (e.g. during a
+	// leader-election split-brain window), the CAS in ClaimRun lets exactly one
+	// win, so the task body runs at most once per occurrence. state.NextRunAt is
+	// the occurrence fence. A lost claim (already running, advanced, or no longer
+	// active) is a clean no-op for this caller.
+	claimed, err := s.storage.ClaimRun(ctx, state.ID, state.NextRunAt, startTime.Unix(), runID)
+	if err != nil {
+		s.metrics.storageErrors.WithLabels(metrics.Labels{"op": "claim_run"}).Inc()
+		s.logger.ErrorContext(ctx, "failed to claim task run, aborting execution",
 			slog.String("task_id", state.ID),
 			slog.Any("error", err))
 		return
 	}
-	// Only proceed if task is still active (not paused/disabled during scheduling)
-	if currentState.Status != TaskStatusActive {
-		s.logger.DebugContext(ctx, "task status changed, skipping execution",
-			slog.String("task_id", state.ID),
-			slog.String("current_status", currentState.Status.String()))
+	if !claimed {
+		s.logger.DebugContext(ctx, "task run not claimed (already running, advanced, or not active), skipping execution",
+			slog.String("task_id", state.ID))
 		return
 	}
-	currentState.Status = TaskStatusRunning
-	currentState.RunStartedAt = startTime.Unix()
-	currentState.UpdatedAt = startTime.Unix()
-	if upsertErr := s.storage.UpsertTask(ctx, currentState); upsertErr != nil {
-		s.metrics.storageErrors.WithLabels(metrics.Labels{"op": "upsert_task"}).Inc()
-		s.logger.ErrorContext(ctx, "failed to update task status to running, aborting execution",
-			slog.String("task_id", state.ID),
-			slog.Any("error", upsertErr))
-		return
-	}
-	// Use currentState for the rest of execution.
-	//
-	// NOTE: there is a narrow race window between GetTask and UpsertTask above
-	// where another process could modify the state. True compare-and-swap (CAS)
-	// semantics would require storage-level support (e.g. MongoDB findAndModify
-	// with a version field). The re-read pattern used here minimizes but does
-	// not eliminate this window.
-	state = currentState
+	// Reflect the claimed transition locally for the remainder of execution.
+	state.Status = TaskStatusRunning
+	state.RunStartedAt = startTime.Unix()
+	state.LastRunID = runID
+	state.UpdatedAt = startTime.Unix()
 
 	// Create execution context with timeout if specified
 	execCtx, cancel := corectx.ApplyTimeout(ctx, task.config.Timeout)

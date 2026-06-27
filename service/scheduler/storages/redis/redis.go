@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"iter"
 	"maps"
+	"strconv"
 	"strings"
 	"time"
 
@@ -223,6 +224,49 @@ func (s *Storage) UpsertTask(ctx context.Context, state *scheduler.TaskState) er
 	}
 
 	return nil
+}
+
+// claimRunScript atomically transitions a task JSON document from active→running
+// for a specific occurrence. It runs entirely server-side under Redis's single-
+// threaded execution, so the read-check-write is atomic: KEYS[1] is the task key;
+// ARGV = [activeStatus, expectedNextRunAt, runningStatus, runStartedAt, jsonRunID].
+// Returns 1 when this caller claimed the run, 0 otherwise.
+const claimRunScript = `
+local s = redis.call('JSON.GET', KEYS[1], '$.status')
+if (not s) or s == '[]' then return 0 end
+if tonumber(string.match(s, '(-?%d+)')) ~= tonumber(ARGV[1]) then return 0 end
+local exp = tonumber(ARGV[2])
+if exp ~= 0 then
+  local nr = redis.call('JSON.GET', KEYS[1], '$.next_run_at')
+  if (not nr) or nr == '[]' then return 0 end
+  if tonumber(string.match(nr, '(-?%d+)')) ~= exp then return 0 end
+end
+redis.call('JSON.SET', KEYS[1], '$.status', ARGV[3])
+redis.call('JSON.SET', KEYS[1], '$.run_started_at', ARGV[4])
+redis.call('JSON.SET', KEYS[1], '$.updated_at', ARGV[4])
+redis.call('JSON.SET', KEYS[1], '$.last_run_id', ARGV[5])
+return 1
+`
+
+// ClaimRun atomically transitions the task from active→running for the occurrence
+// scheduled at expectedNextRunAt by executing claimRunScript via EVAL. Redis runs
+// the script atomically, so concurrent callers cannot both claim one occurrence.
+func (s *Storage) ClaimRun(ctx context.Context, id string, expectedNextRunAt, runStartedAt int64, runID string) (bool, error) {
+	res, err := s.client.Eval(ctx, claimRunScript, []string{s.taskKey(id)},
+		int(scheduler.TaskStatusActive),
+		expectedNextRunAt,
+		int(scheduler.TaskStatusRunning),
+		runStartedAt,
+		strconv.Quote(runID), // JSON-encoded string for JSON.SET
+	).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return false, nil
+		}
+		return false, coreerrs.WrapOperation(err, "claim task run")
+	}
+	n, _ := res.(int64)
+	return n == 1, nil
 }
 
 // DeleteTask removes a task state and all of its associated history entries

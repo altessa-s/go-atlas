@@ -109,6 +109,29 @@ func (m *Storage) UpsertTask(_ context.Context, state *scheduler.TaskState) erro
 	return nil
 }
 
+// ClaimRun atomically transitions the task from active→running for the
+// occurrence scheduled at expectedNextRunAt. Because all access is serialized by
+// the storage mutex, the read-check-write is a single critical section, so two
+// concurrent callers can never both claim the same occurrence.
+func (m *Storage) ClaimRun(_ context.Context, id string, expectedNextRunAt, runStartedAt int64, runID string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	state, ok := m.tasks[id]
+	if !ok || state.Status != scheduler.TaskStatusActive {
+		return false, nil
+	}
+	if expectedNextRunAt != 0 && state.NextRunAt != expectedNextRunAt {
+		return false, nil
+	}
+
+	state.Status = scheduler.TaskStatusRunning
+	state.RunStartedAt = runStartedAt
+	state.LastRunID = runID
+	state.UpdatedAt = runStartedAt
+	return true, nil
+}
+
 // DeleteTask removes the [scheduler.TaskState] and all associated
 // [scheduler.TaskHistory] entries for the given id. Deleting a non-existent
 // task is a no-op and does not return an error.

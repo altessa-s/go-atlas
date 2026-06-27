@@ -137,6 +137,29 @@ func (s *Storage) UpsertTask(ctx context.Context, state *scheduler.TaskState) er
 	return err
 }
 
+// ClaimRun atomically transitions the task from active→running for the
+// occurrence scheduled at expectedNextRunAt via a single conditional UpdateOne.
+// The filter matches status==active (and next_run_at==expectedNextRunAt when
+// non-zero), so MongoDB's atomic document update guarantees that at most one
+// concurrent caller flips the document and thus wins the claim.
+func (s *Storage) ClaimRun(ctx context.Context, id string, expectedNextRunAt, runStartedAt int64, runID string) (bool, error) {
+	filter := bson.M{"_id": id, "status": int32(scheduler.TaskStatusActive)}
+	if expectedNextRunAt != 0 {
+		filter["next_run_at"] = expectedNextRunAt
+	}
+	update := bson.M{"$set": bson.M{
+		"status":         int32(scheduler.TaskStatusRunning),
+		"run_started_at": runStartedAt,
+		"last_run_id":    runID,
+		"updated_at":     runStartedAt,
+	}}
+	res, err := s.tasks.UpdateOne(ctx, filter, update)
+	if err != nil {
+		return false, err
+	}
+	return res.ModifiedCount == 1, nil
+}
+
 // DeleteTask removes the task document and all associated history entries for
 // the given task ID. Deleting a non-existent task is not considered an error.
 // If the task deletion succeeds but history cleanup fails, the error from the
