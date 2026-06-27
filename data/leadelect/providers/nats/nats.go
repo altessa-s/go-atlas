@@ -50,6 +50,15 @@ type Provider struct {
 	isRunning atomic.Bool
 	isLeader  atomic.Bool
 
+	// lastRenewOK holds the monotonic instant of the last confirmed leadership
+	// (a successful acquire or renew). IsLeader treats leadership as expired once
+	// the lease elapses since this instant, so a frozen or partitioned camping
+	// goroutine — which cannot run its own watchdog — can no longer report stale
+	// leadership after the KV key would have expired server-side and been
+	// re-acquired elsewhere. Stored as a *time.Time so time.Since uses the
+	// monotonic clock and is immune to wall-clock jumps.
+	lastRenewOK atomic.Pointer[time.Time]
+
 	stopCtxCancel context.CancelFunc
 	wg            sync.WaitGroup
 
@@ -129,8 +138,34 @@ func New(ctx context.Context, client *nats.Conn, opts ...Option) (*Provider, err
 }
 
 // IsLeader returns true if this instance is the elected leader.
+//
+// Beyond the cached leadership flag, it enforces a freshness bound: leadership is
+// reported only while the time since the last confirmed lease is below the
+// effective lease lifetime. This closes the split-brain window where a frozen or
+// partitioned camping goroutine would otherwise keep returning a stale true after
+// the KV key expired server-side and another node acquired it. The check runs in
+// the caller's goroutine, so it holds even when camping itself is starved.
 func (p *Provider) IsLeader() bool {
-	return p.isLeader.Load()
+	if !p.isRunning.Load() || !p.isLeader.Load() {
+		return false
+	}
+	cfg := p.providerConfig.Load()
+	last := p.lastRenewOK.Load()
+	if cfg == nil || last == nil {
+		return false
+	}
+	// The KV key expires after DefaultBucketKeysTTL; never report leadership past
+	// the point another node could have re-acquired it, even if the configured
+	// election TTL is larger.
+	lease := min(cfg.TTL, DefaultBucketKeysTTL)
+	return time.Since(*last) < lease
+}
+
+// markRenewed records the monotonic instant of a confirmed lease (successful
+// acquire or renew) so IsLeader can expire stale leadership.
+func (p *Provider) markRenewed() {
+	now := time.Now()
+	p.lastRenewOK.Store(&now)
 }
 
 // LeaderId returns the current leader's ID, or empty string if none.
@@ -314,6 +349,11 @@ func (p *Provider) camping(ctx context.Context) {
 
 	acquire := func() {
 		acquired, err := p.acquire(ctx)
+		if acquired {
+			// Record the confirmed lease before publishing leadership so a
+			// concurrent IsLeader sees a fresh timestamp, not a stale/nil one.
+			p.markRenewed()
+		}
 		p.setLeader(ctx, acquired, becameCh, lostCh)
 
 		if err != nil {
@@ -338,6 +378,9 @@ func (p *Provider) camping(ctx context.Context) {
 			return
 		}
 
+		if renewed {
+			p.markRenewed()
+		}
 		p.setLeader(ctx, renewed, becameCh, lostCh)
 	}
 
