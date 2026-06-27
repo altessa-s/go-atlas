@@ -33,6 +33,13 @@ callback determines delivery method (message broker, HTTP, gRPC, etc.).
 | `WithShouldRetry`             | nil       | Custom retry predicate                 |
 | `WithLogger`                  | discard   | Structured logger                      |
 
+## Server-clock leases
+
+The retry, lock-expiry, and retention windows passed to the `Store` are **durations**, not absolute timestamps: `FetchUnprocessedEvents(retryAfter)`,
+`UnlockStuckEvents(lockExpiry)`, `DeleteProcessedEvents(olderThan)`, and `ExpireEvents`. The store evaluates them against its own database server clock,
+so a worker whose wall clock is skewed cannot prematurely unlock another worker's in-flight event or leak a stuck one. See
+[store/mongo](./store/mongo) for the MongoDB `$$NOW` implementation and the one-time BSON `Date` migration.
+
 ## Subpackages
 
 | Package                          | Description                          |
