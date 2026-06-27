@@ -96,6 +96,10 @@ func (le *Leader) LeaderId(ctx context.Context) (string, error) { return le.prov
 // IsLeader returns true if this instance is the current leader.
 func (le *Leader) IsLeader() bool { return le.provider.IsLeader() }
 
+// Fence returns the fencing token of the leadership term this node currently
+// holds, or 0 when it is not a fresh leader. See [LeaderElector.Fence].
+func (le *Leader) Fence() uint64 { return le.provider.Fence() }
+
 // NodeId returns this node's unique identifier.
 func (le *Leader) NodeId() string { return le.provider.NodeId() }
 

@@ -9,10 +9,17 @@ replicas, with automatic re-election on node failures and a callback system for 
 
 ## Key types
 
-| Type / Interface | Description                                      |
-|------------------|--------------------------------------------------|
-| `Leader`         | Main leader election manager                     |
-| `LeaderElector`  | Interface: LeaderId, IsLeader, NodeId, IsRunning |
+| Type / Interface | Description                                             |
+|------------------|---------------------------------------------------------|
+| `Leader`         | Main leader election manager                            |
+| `LeaderElector`  | Interface: LeaderId, IsLeader, Fence, NodeId, IsRunning |
+
+## Fencing
+
+`IsLeader` reports leadership but cannot, on its own, stop a frozen or partitioned former leader from acting on a stale belief. `Fence` closes that
+gap: it returns a monotonically non-decreasing token for the current leadership term (the NATS provider sources it from the JetStream KV revision), or
+`0` when this node is not a fresh leader. Thread the token into the conditional write of a downstream store — record the highest token accepted and
+reject any lower one — so a zombie leader's late write is rejected even if it still believes `IsLeader`.
 
 ## Constructor
 
