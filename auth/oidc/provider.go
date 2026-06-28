@@ -24,6 +24,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	authjwt "github.com/altessa-s/go-atlas/auth/jwt"
 	corectx "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
@@ -74,12 +75,16 @@ type discoveryInfo struct {
 	Algorithms       []string `json:"id_token_signing_alg_values_supported"`
 }
 
+// IsValid reports whether the discovery document carries the fields this
+// provider needs to verify tokens: the issuer, the JWKS URI, and at least one
+// supported signing algorithm. The authorization, token, and userinfo endpoints
+// are intentionally not required — they belong to the OAuth flow / UserInfo, not
+// to token validation, and per OpenID Connect Discovery 1.0 §3 userinfo_endpoint
+// is only RECOMMENDED. Requiring them would reject spec-valid token-only IdPs.
+// UserInfo calls guard the empty endpoint themselves.
 func (d *discoveryInfo) IsValid() bool {
 	return d.Issuer != "" &&
-		d.AuthURL != "" &&
-		d.TokenURL != "" &&
 		d.JwksURL != "" &&
-		d.UserInfoURL != "" &&
 		len(d.Algorithms) > 0
 }
 
@@ -90,6 +95,7 @@ type Provider struct {
 	client              *http.Client
 	discoveryInfo       *discoveryInfo
 	jwks                keyfunc.Keyfunc
+	keyResolver         authjwt.KeyResolver
 	backgroundCtx       context.Context
 	cancelBackgroundCtx context.CancelFunc
 	logger              *slog.Logger
@@ -196,10 +202,14 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 	p.validatePresetSelectionRules()
 
 	// Compile all presets (apply options and compile CEL rules)
-	p.compilePresets()
+	if err := p.compilePresets(); err != nil {
+		return nil, err
+	}
 
 	// Validate and compile CEL rules in verifier options
-	p.validateCELRules()
+	if err := p.validateCELRules(); err != nil {
+		return nil, err
+	}
 
 	// Pre-build the ignored claims lookup set for the default verifier options.
 	if p.verifierOptions != nil {
@@ -248,42 +258,55 @@ func (p *Provider) TokenEndpoint() string {
 	return p.discoveryInfo.TokenURL
 }
 
-// parseToken parses a JWT and verifies its signature, returning the claims
-// and the verified token header. Valid signing methods are always enforced
-// (DefaultValidMethods) to prevent algorithm confusion attacks. Optional
-// parser options can customize other behavior.
-func (p *Provider) parseToken(token string, opts ...jwt.ParserOption) (jwt.MapClaims, map[string]any, error) {
-	// Prepend valid methods restriction so it applies to all parse paths.
-	// Callers can override by passing their own jwt.WithValidMethods (last wins).
-	opts = append([]jwt.ParserOption{jwt.WithValidMethods(DefaultValidMethods)}, opts...)
+// headerToMap converts a verified authjwt.Header into the map[string]any header
+// shape the revocation and caching paths consume.
+func headerToMap(hdr authjwt.Header) map[string]any {
+	return map[string]any{"alg": hdr.Alg, "kid": hdr.Kid, "typ": hdr.Typ}
+}
 
-	jwtToken, err := jwt.Parse(token, p.jwks.Keyfunc, opts...)
+// toAuthAlgorithms converts a list of JWT method names into the [authjwt.Algorithm]
+// allow-list the verifier expects.
+func toAuthAlgorithms(methods []string) []authjwt.Algorithm {
+	algs := make([]authjwt.Algorithm, len(methods))
+	for i, m := range methods {
+		algs[i] = authjwt.Algorithm(m)
+	}
+	return algs
+}
+
+// verifySignature verifies a JWT signature and validates its temporal claims
+// when present, without binding audience / subject. It is used for signed
+// userinfo responses, which legitimately omit exp — so exp is validated if
+// present but not required (matching the prior signature-plus-temporal
+// behavior). Leeway is zero to mirror the previous strict default. The issuer
+// is bound when discovery resolved one, so a signed userinfo response from a
+// different issuer sharing the JWKS is rejected.
+func (p *Provider) verifySignature(ctx context.Context, token string) (map[string]any, error) {
+	opts := []authjwt.Option{
+		authjwt.WithAllowedAlgorithms(toAuthAlgorithms(DefaultValidMethods)...),
+		authjwt.WithExpirationOptional(),
+		authjwt.WithLeeway(0),
+	}
+	if p.discoveryInfo != nil && p.discoveryInfo.Issuer != "" {
+		opts = append(opts, authjwt.WithIssuer(p.discoveryInfo.Issuer))
+	}
+	v := authjwt.NewVerifier(p.keyResolver, opts...)
+	claims, err := v.Verify(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any(claims), nil
+}
+
+// parseTokenWithoutClaimsValidation parses a JWT and verifies its signature
+// without validating claims. Returns claims and the verified token header.
+func (p *Provider) parseTokenWithoutClaimsValidation(ctx context.Context, token string) (jwt.MapClaims, map[string]any, error) {
+	v := authjwt.NewVerifier(p.keyResolver, p.jwtVerifyOptions(&verifierOptions{})...)
+	claims, hdr, err := v.VerifySignature(ctx, token)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	if !jwtToken.Valid {
-		return nil, nil, coreerrs.Wrap(ErrInvalidToken, "token is invalid")
-	}
-
-	claims, ok := jwtToken.Claims.(jwt.MapClaims)
-	if !ok {
-		return nil, nil, coreerrs.Wrap(ErrInvalidToken, "invalid claims type")
-	}
-
-	return claims, jwtToken.Header, nil
-}
-
-// verifySignature verifies JWT signature and returns parsed claims.
-func (p *Provider) verifySignature(token string) (map[string]any, error) {
-	claims, _, err := p.parseToken(token)
-	return claims, err
-}
-
-// parseTokenWithoutClaimsValidation parses a JWT without validating claims.
-// Returns claims and the verified token header.
-func (p *Provider) parseTokenWithoutClaimsValidation(token string) (jwt.MapClaims, map[string]any, error) {
-	return p.parseToken(token, jwt.WithoutClaimsValidation())
+	return jwt.MapClaims(claims), headerToMap(hdr), nil
 }
 
 // ValidateToken validates a JWT and returns its claims using default options.
@@ -344,11 +367,12 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 	var presetClaims jwt.MapClaims
 	var presetHeader map[string]any
 	var presetVerifier *verifierOptions
+	var presetAuthVerifier *authjwt.Verifier
 	var presetCELRules []celPreCompiledValidationRule
 
 	// Fast path: no presets, no default options, and no overrides
 	if len(opt) == 0 && p.verifierOptions == nil && len(p.opts.presetRules) == 0 {
-		claims, header, err := p.parseAndValidateToken(token, &verifierOptions{}, nil)
+		claims, header, err := p.parseAndValidateToken(ctx, token, &verifierOptions{}, nil)
 		if err != nil {
 			p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 			return nil, err
@@ -364,7 +388,7 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 	// try automatic preset selection
 	if len(opt) == 0 && len(p.opts.presetRules) > 0 {
 		// Step 1: Verify signature FIRST for security (without claim validation)
-		claimsForPreset, headerForPreset, err := p.parseTokenWithoutClaimsValidation(token)
+		claimsForPreset, headerForPreset, err := p.parseTokenWithoutClaimsValidation(ctx, token)
 		if err != nil {
 			p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 			p.logger.ErrorContext(ctx, "signature verification failed", slog.Any("error", err))
@@ -381,6 +405,7 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 				presetClaims = claimsForPreset
 				presetHeader = headerForPreset
 				presetVerifier = preset.compiledVerifier
+				presetAuthVerifier = preset.compiledAuthVerifier
 				presetCELRules = preset.compiledCELRules
 			} else if preset == nil {
 				// Preset rule matched but preset not registered - log warning
@@ -392,7 +417,7 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 	}
 
 	if presetVerifier != nil {
-		if err := p.validateWithPresetClaims(presetClaims, presetVerifier, presetCELRules); err != nil {
+		if err := p.validateWithPresetClaims(presetClaims, presetAuthVerifier, presetVerifier, presetCELRules); err != nil {
 			p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 			p.logger.ErrorContext(ctx, "failed to validate token", slog.Any("error", err))
 			return nil, err
@@ -417,10 +442,15 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 		ops = cloneVerifierOptions(p.verifierOptions)
 		applyValidationOptions(ops, opt...)
 		ops.buildIgnoredSet()
-		compiledCELRules = compileVerifierCELRules(ops, p.logger)
+		var celErr error
+		compiledCELRules, celErr = compileVerifierCELRules(ops)
+		if celErr != nil {
+			p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
+			return nil, celErr
+		}
 	}
 
-	claims, header, err := p.parseAndValidateToken(token, ops, compiledCELRules)
+	claims, header, err := p.parseAndValidateToken(ctx, token, ops, compiledCELRules)
 	if err != nil {
 		p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 		p.logger.ErrorContext(ctx, "failed to validate token", slog.Any("error", err))
@@ -480,7 +510,15 @@ func (p *Provider) checkTokenRevocation(ctx context.Context, token string) error
 	}
 
 	isRevoked, err := p.revocationStorage.IsRevoked(ctx, token)
-	if err == nil && isRevoked {
+	if err != nil {
+		// Fail-open, but never silently: a broken revocation store must be
+		// observable so an operator can react instead of trusting tokens blindly.
+		p.metrics.revocationCheckErrors.Inc()
+		p.logger.ErrorContext(ctx, "revocation storage check failed; allowing token (fail-open)",
+			"item_type", p.opts.revocationItemType, "error", err)
+		return nil
+	}
+	if isRevoked {
 		p.logger.DebugContext(ctx, "token found in revocation storage",
 			"item_type", p.opts.revocationItemType)
 		return ErrTokenRevoked
@@ -507,7 +545,14 @@ func (p *Provider) checkTokenRevocationVerified(ctx context.Context, token strin
 
 	item := revocationItemFromVerifiedClaims(p.opts.revocationItemType, claims, header, token)
 	isRevoked, err := p.revocationStorage.IsRevoked(ctx, item)
-	if err == nil && isRevoked {
+	if err != nil {
+		// Fail-open, but never silently — see checkTokenRevocation.
+		p.metrics.revocationCheckErrors.Inc()
+		p.logger.ErrorContext(ctx, "revocation storage check failed; allowing token (fail-open)",
+			"item_type", p.opts.revocationItemType, "error", err)
+		return nil
+	}
+	if isRevoked {
 		p.logger.DebugContext(ctx, "item found in revocation storage",
 			"item_type", p.opts.revocationItemType,
 			"item", item)
@@ -646,6 +691,27 @@ func (p *Provider) initializeJWKS() error {
 		return coreerrs.WrapOperation(err, "create JWKS keyfunc")
 	}
 
+	// Bridge the keyfunc JWKS cache to an authjwt.KeyResolver. keyfunc/v3 reads
+	// only the "kid" and "alg" header fields (not token.Method), so a minimal
+	// synthetic token carrying the verified header is enough to look up the key.
+	// token.Method is intentionally nil here: it is never read by keyfunc/v3, so
+	// this depends on that library behavior. If a future keyfunc version reads
+	// token.Method.Alg() this would nil-panic — the go.mod pin and the JWKS
+	// tests guard against that. The resolved key's Algorithm is left empty so
+	// authjwt's allow-list (WithAllowedAlgorithms) governs the accepted
+	// algorithms; authjwt still rejects a nil key.
+	p.keyResolver = authjwt.KeyResolverFunc(func(ctx context.Context, hdr authjwt.Header, _ authjwt.Claims) (authjwt.VerificationKey, error) {
+		tok := &jwt.Token{Header: map[string]any{"alg": hdr.Alg}}
+		if hdr.Kid != "" {
+			tok.Header["kid"] = hdr.Kid
+		}
+		key, err := p.jwks.KeyfuncCtx(ctx)(tok)
+		if err != nil {
+			return authjwt.VerificationKey{}, err
+		}
+		return authjwt.VerificationKey{Key: key}, nil
+	})
+
 	// Seed the staleness anchor so [Provider.checkJWKSStaleness] does not
 	// reject every request issued before the first scheduled refresh.
 	// Construction is the first authoritative "fresh-as-of-now" event.
@@ -766,7 +832,7 @@ func (p *Provider) validateClaims(claims map[string]any, ops *verifierOptions, c
 
 // checkAudienceConfigured enforces the provider's [AudienceFailureMode] when
 // validation runs without an expected audience. With an expected audience set
-// its value is enforced by the jwt parser ([Provider.buildParserOptions]); the
+// its value is enforced by the jwt verifier ([Provider.jwtVerifyOptions]); the
 // `aud` claim being merely present (DefaultRequiredClaims) does not bind the
 // token to this service, so an unconfigured audience is treated per the mode:
 // enforce rejects, warn logs and continues, disabled is silent.
@@ -1004,19 +1070,17 @@ func getTokenExpirationTTL(claims map[string]any) time.Duration {
 	return time.Duration(ttl) * time.Second
 }
 
-// buildParserOptions converts verifier options to JWT parser options.
-// Used for both jwt.Parse() and jwt.NewValidator().
-func (p *Provider) buildParserOptions(ops *verifierOptions) []jwt.ParserOption {
+// jwtVerifyOptions converts verifier options to authjwt verifier options. It
+// maps only the registered-claim knobs authjwt enforces (algorithms, leeway,
+// exp/nbf/iat, issuer, subject, audience); the OIDC-specific checks
+// (required/expected/ignored claims, scopes, authorized party, CEL rules) stay
+// in [Provider.validateClaims]. Claims validation is toggled at the call site
+// via VerifySignature vs VerifyWithHeader, so withoutClaimsValidation is not
+// translated here.
+func (p *Provider) jwtVerifyOptions(ops *verifierOptions) []authjwt.Option {
 	if ops == nil {
 		return nil
 	}
-
-	// Early return if all validation is disabled
-	if ops.withoutClaimsValidation {
-		return []jwt.ParserOption{jwt.WithoutClaimsValidation()}
-	}
-
-	var parserOpts []jwt.ParserOption
 
 	// Restrict allowed signing algorithms to prevent algorithm confusion attacks.
 	// Use configured methods if set, otherwise fall back to DefaultValidMethods.
@@ -1024,92 +1088,104 @@ func (p *Provider) buildParserOptions(ops *verifierOptions) []jwt.ParserOption {
 	if len(validMethods) == 0 {
 		validMethods = DefaultValidMethods
 	}
-	parserOpts = append(parserOpts, jwt.WithValidMethods(validMethods))
+	verifyOpts := []authjwt.Option{authjwt.WithAllowedAlgorithms(toAuthAlgorithms(validMethods)...)}
 
-	// Add leeway (clock skew tolerance)
-	if ops.leeway > 0 {
-		parserOpts = append(parserOpts, jwt.WithLeeway(ops.leeway))
-	}
+	// Clock-skew tolerance. Passed unconditionally so ops.leeway == 0 yields
+	// strict, no-skew temporal validation (authjwt's WithLeeway accepts zero)
+	// instead of falling back to authjwt's 30s default.
+	verifyOpts = append(verifyOpts, authjwt.WithLeeway(ops.leeway))
 
-	// Verify issued-at claim if requested
-	if ops.issuedAt {
-		parserOpts = append(parserOpts, jwt.WithIssuedAt())
-	}
-
-	// Require the exp claim to be present when explicitly opted in. The
-	// jwt-go library always validates exp when it appears in the token;
-	// WithExpirationRequired adds the stricter contract that a token
-	// without exp is rejected (matches `verify_expiration: true` in the
-	// service config).
+	// Require the exp claim to be present when explicitly opted in. authjwt
+	// defaults exp-required ON, so the inverse must be applied explicitly to
+	// preserve OIDC's opt-in semantics (a token without exp is accepted unless
+	// expirationRequired was set; exp is still validated when present).
 	if ops.expirationRequired {
-		parserOpts = append(parserOpts, jwt.WithExpirationRequired())
+		verifyOpts = append(verifyOpts, authjwt.WithExpirationRequired())
+	} else {
+		verifyOpts = append(verifyOpts, authjwt.WithExpirationOptional())
 	}
 
 	// Same contract for the nbf claim — `verify_not_before: true` in the
 	// service config translates to "nbf must be present and respected".
 	if ops.notBeforeRequired {
-		parserOpts = append(parserOpts, jwt.WithNotBeforeRequired())
+		verifyOpts = append(verifyOpts, authjwt.WithNotBeforeRequired())
+	}
+
+	// Verify issued-at claim if requested
+	if ops.issuedAt {
+		verifyOpts = append(verifyOpts, authjwt.WithIssuedAt())
 	}
 
 	// Always verify issuer (use discovery issuer as fallback)
-	issuer := ops.issuer
-	if issuer == "" {
-		issuer = p.discoveryInfo.Issuer
+	iss := ops.issuer
+	if iss == "" && p.discoveryInfo != nil {
+		iss = p.discoveryInfo.Issuer
 	}
-	parserOpts = append(parserOpts, jwt.WithIssuer(issuer))
+	if iss != "" {
+		verifyOpts = append(verifyOpts, authjwt.WithIssuer(iss))
+	}
 
 	// Verify subject if specified
 	if ops.subject != "" {
-		parserOpts = append(parserOpts, jwt.WithSubject(ops.subject))
+		verifyOpts = append(verifyOpts, authjwt.WithSubject(ops.subject))
 	}
 
 	// Verify audience if specified
 	if len(ops.audience) > 0 {
-		parserOpts = append(parserOpts, jwt.WithAudience(ops.audience...))
+		verifyOpts = append(verifyOpts, authjwt.WithAudiences(ops.audience...))
 	}
 
-	return parserOpts
+	return verifyOpts
 }
 
 // parseAndValidateToken parses and validates a JWT with the given options.
 // Returns the verified claims and token header.
 func (p *Provider) parseAndValidateToken(
+	ctx context.Context,
 	token string,
 	ops *verifierOptions,
 	compiledCELRules []celPreCompiledValidationRule,
 ) (jwt.MapClaims, map[string]any, error) {
-	parserOpts := p.buildParserOptions(ops)
+	v := authjwt.NewVerifier(p.keyResolver, p.jwtVerifyOptions(ops)...)
 
-	jwtToken, err := jwt.Parse(token, p.jwks.Keyfunc, parserOpts...)
+	var (
+		claims authjwt.Claims
+		hdr    authjwt.Header
+		err    error
+	)
+	if ops.withoutClaimsValidation {
+		claims, hdr, err = v.VerifySignature(ctx, token)
+	} else {
+		claims, hdr, err = v.VerifyWithHeader(ctx, token)
+	}
 	if err != nil {
 		return nil, nil, coreerrs.Wrapf(ErrInvalidToken, "%s", err)
 	}
 
-	if !jwtToken.Valid {
-		return nil, nil, coreerrs.Wrap(ErrInvalidToken, "token is invalid")
-	}
-
-	claims, ok := jwtToken.Claims.(jwt.MapClaims)
-	if !ok {
-		return nil, nil, coreerrs.Wrap(ErrInvalidToken, "invalid claims type")
-	}
-
-	if err := p.validateClaims(claims, ops, compiledCELRules); err != nil {
+	mc := jwt.MapClaims(claims)
+	if err := p.validateClaims(mc, ops, compiledCELRules); err != nil {
 		return nil, nil, err
 	}
 
-	return claims, jwtToken.Header, nil
+	return mc, headerToMap(hdr), nil
 }
 
-func (p *Provider) validateWithPresetClaims(claims map[string]any, ops *verifierOptions, compiledCELRules []celPreCompiledValidationRule) error {
+func (p *Provider) validateWithPresetClaims(
+	claims map[string]any,
+	verifier *authjwt.Verifier,
+	ops *verifierOptions,
+	compiledCELRules []celPreCompiledValidationRule,
+) error {
 	if ops == nil || ops.withoutClaimsValidation {
 		return nil
 	}
 
-	validatorOpts := p.buildParserOptions(ops)
-	validator := jwt.NewValidator(validatorOpts...)
-
-	if err := validator.Validate(jwt.MapClaims(claims)); err != nil {
+	// Reuse the preset's pre-built verifier; fall back to building one only if a
+	// caller passes none (e.g. a transient, non-preset option set).
+	if verifier == nil {
+		verifier = authjwt.NewVerifier(p.keyResolver, p.jwtVerifyOptions(ops)...)
+	}
+	if err := verifier.ValidateClaims(authjwt.Claims(claims)); err != nil {
 		return coreerrs.Wrapf(ErrInvalidToken, "%s", err)
 	}
 

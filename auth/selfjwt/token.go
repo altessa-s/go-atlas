@@ -4,11 +4,7 @@
 
 package selfjwt
 
-import (
-	"time"
-
-	"github.com/golang-jwt/jwt/v5"
-)
+import "time"
 
 // Token is the verified result of [Verifier.Verify]: the registered claims a
 // caller needs plus the granted scopes. Any richer principal model (roles,
@@ -22,12 +18,4 @@ type Token struct {
 	Scopes []string
 	// Expiry is the exp claim.
 	Expiry time.Time
-}
-
-// tokenClaims is the JWT claim set for self-issued tokens: the registered
-// claims plus the granted permission scopes. It satisfies jwt.Claims through
-// the embedded jwt.RegisteredClaims.
-type tokenClaims struct {
-	jwt.RegisteredClaims
-	Scopes []string `json:"scopes,omitempty"`
 }

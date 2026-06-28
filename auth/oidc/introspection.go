@@ -15,6 +15,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/data/probfilter"
 
+	authjwt "github.com/altessa-s/go-atlas/auth/jwt"
 	corecontext "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	coreio "github.com/altessa-s/go-atlas/core/io"
@@ -57,13 +58,15 @@ type IntrospectionResponse struct {
 	Username  string `json:"username,omitempty"`
 	TokenType string `json:"token_type,omitempty"`
 	Sub       string `json:"sub,omitempty"`
-	Aud       string `json:"aud,omitempty"`
-	Iss       string `json:"iss,omitempty"`
-	Jti       string `json:"jti,omitempty"`
-	Exp       int64  `json:"exp,omitempty"`
-	Iat       int64  `json:"iat,omitempty"`
-	Nbf       int64  `json:"nbf,omitempty"`
-	Active    bool   `json:"active"`
+	// Aud is the token audience. RFC 7662 mirrors JWT semantics, so aud may be a
+	// single string or an array; authjwt.Audience accepts both on decode.
+	Aud    authjwt.Audience `json:"aud,omitempty"`
+	Iss    string           `json:"iss,omitempty"`
+	Jti    string           `json:"jti,omitempty"`
+	Exp    int64            `json:"exp,omitempty"`
+	Iat    int64            `json:"iat,omitempty"`
+	Nbf    int64            `json:"nbf,omitempty"`
+	Active bool             `json:"active"`
 }
 
 // IntrospectToken performs RFC 7662 token introspection to check if a token is active.
