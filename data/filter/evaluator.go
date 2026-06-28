@@ -156,14 +156,11 @@ func (e *Evaluator) VisitIdent(n *IdentNode) (any, error) {
 
 // VisitBinaryOp evaluates binary operations.
 func (e *Evaluator) VisitBinaryOp(n *BinaryOpNode) (any, error) {
-	if err := e.checkOps(); err != nil {
+	done, err := e.enterNode()
+	if err != nil {
 		return nil, err
 	}
-	if err := e.checkDepth(); err != nil {
-		return nil, err
-	}
-	e.depth++
-	defer func() { e.depth-- }()
+	defer done()
 
 	switch n.Op {
 	case OpAnd:
@@ -179,14 +176,11 @@ func (e *Evaluator) VisitBinaryOp(n *BinaryOpNode) (any, error) {
 
 // VisitUnaryOp evaluates unary operations.
 func (e *Evaluator) VisitUnaryOp(n *UnaryOpNode) (any, error) {
-	if err := e.checkOps(); err != nil {
+	done, err := e.enterNode()
+	if err != nil {
 		return nil, err
 	}
-	if err := e.checkDepth(); err != nil {
-		return nil, err
-	}
-	e.depth++
-	defer func() { e.depth-- }()
+	defer done()
 
 	if n.Op != OpNot {
 		return nil, coreerrs.Wrapf(ErrUnsupportedOperation, "unary operator %v", n.Op)
@@ -205,14 +199,11 @@ func (e *Evaluator) VisitUnaryOp(n *UnaryOpNode) (any, error) {
 
 // VisitCall evaluates function calls.
 func (e *Evaluator) VisitCall(n *CallNode) (any, error) {
-	if err := e.checkOps(); err != nil {
+	done, err := e.enterNode()
+	if err != nil {
 		return nil, err
 	}
-	if err := e.checkDepth(); err != nil {
-		return nil, err
-	}
-	e.depth++
-	defer func() { e.depth-- }()
+	defer done()
 
 	switch n.Op {
 	case OpContains:
@@ -252,50 +243,45 @@ func (e *Evaluator) VisitList(n *ListNode) (any, error) {
 
 // evalLogicalAnd short-circuits on false.
 func (e *Evaluator) evalLogicalAnd(left, right Node) (any, error) {
-	lv, err := left.Accept(e)
-	if err != nil {
-		return nil, err
-	}
-	lb, ok := lv.(bool)
-	if !ok {
-		return nil, coreerrs.Wrap(ErrInvalidExpression, "&& requires bool operands")
-	}
-	if !lb {
-		return false, nil
-	}
-	rv, err := right.Accept(e)
-	if err != nil {
-		return nil, err
-	}
-	rb, ok := rv.(bool)
-	if !ok {
-		return nil, coreerrs.Wrap(ErrInvalidExpression, "&& requires bool operands")
-	}
-	return rb, nil
+	return e.evalLogical(left, right, "&&", false)
 }
 
 // evalLogicalOr short-circuits on true.
 func (e *Evaluator) evalLogicalOr(left, right Node) (any, error) {
-	lv, err := left.Accept(e)
+	return e.evalLogical(left, right, "||", true)
+}
+
+// evalLogical evaluates a short-circuiting binary boolean operator. When the
+// left operand equals shortCircuit, that value is returned without evaluating
+// the right operand (false for &&, true for ||). opName labels the operator in
+// error messages.
+func (e *Evaluator) evalLogical(left, right Node, opName string, shortCircuit bool) (any, error) {
+	lb, err := e.evalBoolOperand(left, opName)
 	if err != nil {
 		return nil, err
 	}
-	lb, ok := lv.(bool)
-	if !ok {
-		return nil, coreerrs.Wrap(ErrInvalidExpression, "|| requires bool operands")
+	if lb == shortCircuit {
+		return shortCircuit, nil
 	}
-	if lb {
-		return true, nil
-	}
-	rv, err := right.Accept(e)
+	rb, err := e.evalBoolOperand(right, opName)
 	if err != nil {
 		return nil, err
-	}
-	rb, ok := rv.(bool)
-	if !ok {
-		return nil, coreerrs.Wrap(ErrInvalidExpression, "|| requires bool operands")
 	}
 	return rb, nil
+}
+
+// evalBoolOperand evaluates n and asserts the result is a bool. opName labels
+// the operator in the error message.
+func (e *Evaluator) evalBoolOperand(n Node, opName string) (bool, error) {
+	v, err := n.Accept(e)
+	if err != nil {
+		return false, err
+	}
+	b, ok := v.(bool)
+	if !ok {
+		return false, coreerrs.Wrapf(ErrInvalidExpression, "%s requires bool operands", opName)
+	}
+	return b, nil
 }
 
 // evalComparison evaluates comparison operators.
@@ -621,6 +607,21 @@ func valuesEqual(a, b any) bool {
 		return an == bn
 	}
 	return a == b
+}
+
+// enterNode runs the per-node operation and depth guards shared by the
+// compound visitor methods (binary, unary, call). On success it increments the
+// recursion depth and returns a cleanup function the caller must defer to
+// restore it.
+func (e *Evaluator) enterNode() (func(), error) {
+	if err := e.checkOps(); err != nil {
+		return nil, err
+	}
+	if err := e.checkDepth(); err != nil {
+		return nil, err
+	}
+	e.depth++
+	return func() { e.depth-- }, nil
 }
 
 func (e *Evaluator) checkDepth() error {
