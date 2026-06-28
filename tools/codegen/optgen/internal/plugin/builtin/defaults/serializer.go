@@ -10,13 +10,8 @@ import (
 
 // SerializerDefaultPlugin provides default values for serializer.Serializer types.
 // It generates: &serializer.JSON{}
-type SerializerDefaultPlugin struct{}
-
-func (p *SerializerDefaultPlugin) Meta() plugin.Meta {
-	return plugin.Meta{
-		Kind:     plugin.KindTypeDefault,
-		Priority: 0,
-	}
+type SerializerDefaultPlugin struct {
+	typeDefaultBase
 }
 
 func (p *SerializerDefaultPlugin) CanProvideDefault(typeStr string) bool {

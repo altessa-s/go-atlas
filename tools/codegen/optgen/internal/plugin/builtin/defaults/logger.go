@@ -10,13 +10,8 @@ import (
 
 // LoggerDefaultPlugin provides default values for *slog.Logger types.
 // It generates: slog.New(slog.DiscardHandler)
-type LoggerDefaultPlugin struct{}
-
-func (p *LoggerDefaultPlugin) Meta() plugin.Meta {
-	return plugin.Meta{
-		Kind:     plugin.KindTypeDefault,
-		Priority: 0,
-	}
+type LoggerDefaultPlugin struct {
+	typeDefaultBase
 }
 
 func (p *LoggerDefaultPlugin) CanProvideDefault(typeStr string) bool {
