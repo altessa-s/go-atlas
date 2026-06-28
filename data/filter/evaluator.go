@@ -330,50 +330,54 @@ func (e *Evaluator) evalIn(left, right Node) (any, error) {
 	return false, nil
 }
 
-// evalStringFunc evaluates contains/startsWith/endsWith.
-func (e *Evaluator) evalStringFunc(n *CallNode, fn func(string, string) bool) (any, error) {
+// stringCallArgs resolves the target and the single string argument shared by
+// the string-valued call functions (contains/startsWith/endsWith/matches). A
+// non-string target yields handled=false with no error so the caller can return
+// false — matching the permissive semantics on non-string fields. label names
+// the function in error messages.
+func (e *Evaluator) stringCallArgs(n *CallNode, label string) (s, arg string, handled bool, err error) {
 	target, err := n.Target.Accept(e)
 	if err != nil {
-		return nil, err
+		return "", "", false, err
 	}
 	s, ok := target.(string)
 	if !ok {
-		return false, nil
+		return "", "", false, nil
 	}
 	if len(n.Args) != 1 {
-		return nil, coreerrs.Wrap(ErrInvalidExpression, "string function requires exactly 1 argument")
+		return "", "", false, coreerrs.Wrapf(ErrInvalidExpression, "%s requires exactly 1 argument", label)
 	}
-	arg, err := n.Args[0].Accept(e)
+	av, err := n.Args[0].Accept(e)
+	if err != nil {
+		return "", "", false, err
+	}
+	arg, ok = av.(string)
+	if !ok {
+		return "", "", false, coreerrs.Wrapf(ErrInvalidExpression, "%s argument must be a string", label)
+	}
+	return s, arg, true, nil
+}
+
+// evalStringFunc evaluates contains/startsWith/endsWith.
+func (e *Evaluator) evalStringFunc(n *CallNode, fn func(string, string) bool) (any, error) {
+	s, substr, handled, err := e.stringCallArgs(n, "string function")
 	if err != nil {
 		return nil, err
 	}
-	substr, ok := arg.(string)
-	if !ok {
-		return nil, coreerrs.Wrap(ErrInvalidExpression, "string function argument must be a string")
+	if !handled {
+		return false, nil
 	}
 	return fn(s, substr), nil
 }
 
 // evalMatches evaluates regex matching.
 func (e *Evaluator) evalMatches(n *CallNode) (any, error) {
-	target, err := n.Target.Accept(e)
+	s, pattern, handled, err := e.stringCallArgs(n, "matches()")
 	if err != nil {
 		return nil, err
 	}
-	s, ok := target.(string)
-	if !ok {
+	if !handled {
 		return false, nil
-	}
-	if len(n.Args) != 1 {
-		return nil, coreerrs.Wrap(ErrInvalidExpression, "matches() requires exactly 1 argument")
-	}
-	arg, err := n.Args[0].Accept(e)
-	if err != nil {
-		return nil, err
-	}
-	pattern, ok := arg.(string)
-	if !ok {
-		return nil, coreerrs.Wrap(ErrInvalidExpression, "matches() argument must be a string")
 	}
 	if vErr := ValidateRegex(pattern, e.config.MaxRegexLength()); vErr != nil {
 		return nil, vErr
@@ -477,38 +481,35 @@ func (e *Evaluator) evalIntArg(n Node) (int64, error) {
 	return i, nil
 }
 
-// lookupField resolves a potentially dotted field path in the data map.
-func lookupField(data map[string]any, field string) any {
-	parts := strings.Split(field, ".")
+// walkField resolves a potentially dotted field path in the data map. The
+// second result reports whether the full path exists; the first holds the value
+// at that path (nil when the path is absent).
+func walkField(data map[string]any, field string) (any, bool) {
 	var current any = data
-	for _, part := range parts {
+	for part := range strings.SplitSeq(field, ".") {
 		m, ok := current.(map[string]any)
 		if !ok {
-			return nil
+			return nil, false
 		}
 		current, ok = m[part]
 		if !ok {
-			return nil
+			return nil, false
 		}
 	}
-	return current
+	return current, true
+}
+
+// lookupField resolves a potentially dotted field path in the data map,
+// returning nil when the path is absent.
+func lookupField(data map[string]any, field string) any {
+	v, _ := walkField(data, field)
+	return v
 }
 
 // fieldExists checks whether a dotted field path exists in the data map.
 func fieldExists(data map[string]any, field string) bool {
-	parts := strings.Split(field, ".")
-	var current any = data
-	for _, part := range parts {
-		m, ok := current.(map[string]any)
-		if !ok {
-			return false
-		}
-		current, ok = m[part]
-		if !ok {
-			return false
-		}
-	}
-	return true
+	_, ok := walkField(data, field)
+	return ok
 }
 
 // compare performs typed comparison.
