@@ -301,16 +301,11 @@ func RotateLeft[T constraints.Integer](value T, n uint64) T {
 //
 //	RotateRight(uint8(0b10000001), 1) // 0b11000000 (192)
 func RotateRight[T constraints.Integer](value T, n uint64) T {
+	// A right rotation by n equals a left rotation by maxBits-n (the
+	// complement). When n is a multiple of maxBits the complement is maxBits,
+	// which RotateLeft reduces back to 0 and returns value unchanged.
 	maxBits := getBitWidth[T]()
-	n %= maxBits // Handle n > maxBits
-	if n == 0 {
-		return value
-	}
-
-	// See RotateLeft for why the rotation runs in the unsigned domain.
-	widthMask := uint64(1)<<maxBits - 1
-	uv := uint64(value) & widthMask
-	return T(((uv >> n) | (uv << (maxBits - n))) & widthMask)
+	return RotateLeft(value, maxBits-n%maxBits)
 }
 
 // ReverseBits returns value with all bits mirrored: the least significant bit
