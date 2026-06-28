@@ -60,12 +60,12 @@ func TestScopesClaim(t *testing.T) {
 		claims map[string]any
 		want   int
 	}{
-		{"space_separated", map[string]any{"scopes": "openid profile"}, 2},
-		{"string_slice", map[string]any{"scopes": []string{"a", "b", "c"}}, 3},
-		{"any_slice", map[string]any{"scopes": []any{"x", "y"}}, 2},
+		{"space_separated", map[string]any{"scope": "openid profile"}, 2},
+		{"string_slice", map[string]any{"scope": []string{"a", "b", "c"}}, 3},
+		{"any_slice", map[string]any{"scope": []any{"x", "y"}}, 2},
 		{"missing", map[string]any{}, 0},
-		{"empty_string", map[string]any{"scopes": ""}, 0},
-		{"filtered_empty", map[string]any{"scopes": []string{"", ""}}, 0},
+		{"empty_string", map[string]any{"scope": ""}, 0},
+		{"filtered_empty", map[string]any{"scope": []string{"", ""}}, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -76,7 +76,7 @@ func TestScopesClaim(t *testing.T) {
 }
 
 func TestScopesClaim_Sorted(t *testing.T) {
-	got := scopesClaim(map[string]any{"scopes": "z a m"})
+	got := scopesClaim(map[string]any{"scope": "z a m"})
 	require.Len(t, got, 3)
 	require.Equal(t, "a", got[0])
 	require.Equal(t, "m", got[1])
@@ -118,7 +118,7 @@ func TestExtractClaims(t *testing.T) {
 		"email":              "j@d.com",
 		"iss":                "https://issuer",
 		"aud":                "client1",
-		"scopes":             "openid profile",
+		"scope":              "openid profile",
 		"exp":                float64(1700000000),
 		"iat":                float64(1699999000),
 		"name":               "John Doe",
@@ -135,11 +135,11 @@ func TestExtractClaims(t *testing.T) {
 
 func BenchmarkExtractClaims(b *testing.B) {
 	raw := map[string]any{
-		"sub":    "user1",
-		"iss":    "https://issuer",
-		"aud":    "client1",
-		"scopes": "openid profile",
-		"exp":    float64(1700000000),
+		"sub":   "user1",
+		"iss":   "https://issuer",
+		"aud":   "client1",
+		"scope": "openid profile",
+		"exp":   float64(1700000000),
 	}
 	for b.Loop() {
 		extractClaims(raw)

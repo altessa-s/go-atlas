@@ -93,12 +93,12 @@ func audienceClaim(claims map[string]any, key string) []string {
 	return nil
 }
 
-// scopesClaim extracts OAuth 2.0 scopes from the "scopes" claim.
-// Supports three formats: space-separated string, string array, or mixed array.
-// Empty scopes are filtered out and the result is sorted alphabetically.
-// Returns nil if the key is not found or all scopes are empty.
+// scopesClaim extracts OAuth 2.0 scopes from the "scope" claim (RFC 6749 §3.3,
+// RFC 9068 §2.2.3). Supports three formats: space-separated string, string
+// array, or mixed array. Empty scopes are filtered out and the result is sorted
+// alphabetically. Returns nil if the key is not found or all scopes are empty.
 func scopesClaim(claims map[string]any) []string {
-	value, ok := claims["scopes"]
+	value, ok := claims["scope"]
 	if !ok {
 		return nil
 	}
