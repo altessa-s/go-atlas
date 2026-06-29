@@ -15,7 +15,7 @@
 //     client-facing reason code — never the raw rule ID. "required" on field
 //     "userName" produces "USER_NAME_REQUIRED"; standard rules map to registry
 //     codes (e.g. "int64.gte" -> "INVALID_MIN_LENGTH_OR_VALUE"); unknown or
-//     uncatalogued rules become "UNKNOWN". See package
+//     uncataloged rules become "UNKNOWN". See package
 //     [github.com/altessa-s/go-atlas/transport/grpc/interceptors/protovalidator/reasoncode].
 //   - [BuildValidationFilter]: returns a [protovalidate.FilterFunc] controlling
 //     which messages are validated (currently allows all).

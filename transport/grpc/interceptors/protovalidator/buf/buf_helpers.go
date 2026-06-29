@@ -14,11 +14,11 @@ import (
 	"buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	"buf.build/go/protovalidate"
 
+	"github.com/altessa-s/proto-gen-go/badrequest/v1"
+
 	"github.com/altessa-s/go-atlas/core/types/ptr"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/protovalidator/reasoncode"
-
-	"github.com/altessa-s/proto-gen-go/badrequest/v1"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

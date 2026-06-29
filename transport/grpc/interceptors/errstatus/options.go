@@ -11,10 +11,10 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/altessa-s/proto-gen-go/badrequest/v1"
+
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/internal/requestid"
-
-	"github.com/altessa-s/proto-gen-go/badrequest/v1"
 
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
