@@ -50,13 +50,13 @@ func TestAuthFunc_ErrorWrapping(t *testing.T) {
 			name:          "invalid token",
 			store:         static.NewInMemoryStore(),
 			token:         "bad",
-			wantSentinels: []error{auth.ErrUnauthorized, authstatic.ErrInvalidToken},
+			wantSentinels: []error{auth.ErrUnauthorized, authstatic.ErrTokenInvalid},
 		},
 		{
 			name:          "empty token",
 			store:         static.NewInMemoryStore(),
 			token:         "",
-			wantSentinels: []error{auth.ErrUnauthorized, authstatic.ErrEmptyToken},
+			wantSentinels: []error{auth.ErrUnauthorized, authstatic.ErrTokenEmpty},
 		},
 		{
 			name:          "rate limited",

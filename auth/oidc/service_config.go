@@ -49,7 +49,7 @@ type ValidationRulesConfig struct {
 	//   - nil (field omitted): jwt-go default — exp is validated when
 	//     present, missing exp is accepted.
 	//   - true: exp is required AND validated; tokens without exp are
-	//     rejected with [ErrInvalidToken]. Equivalent to passing
+	//     rejected with [ErrTokenInvalid]. Equivalent to passing
 	//     [WithValidationExpirationRequired] at runtime.
 	//   - false: REJECTED at config-load time with [ErrInvalidConfig].
 	//     Disabling exp validation safely is not supported by the

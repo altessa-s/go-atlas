@@ -48,8 +48,8 @@ func TestInMemoryStore_Validate(t *testing.T) {
 		wantErr error
 	}{
 		{"valid token", "valid_token", nil},
-		{"invalid token", "invalid_token", static.ErrInvalidToken},
-		{"empty token", "", static.ErrEmptyToken},
+		{"invalid token", "invalid_token", static.ErrTokenInvalid},
+		{"empty token", "", static.ErrTokenEmpty},
 	}
 
 	for _, tc := range cases {
@@ -92,7 +92,7 @@ func TestInMemoryStore_AddRemoveToken(t *testing.T) {
 	require.Equal(t, 0, s.TokenCount())
 
 	_, err = s.Validate(t.Context(), "token1")
-	require.ErrorIs(t, err, static.ErrInvalidToken)
+	require.ErrorIs(t, err, static.ErrTokenInvalid)
 
 	// Removing missing token is a no-op.
 	s.RemoveToken("nonexistent")
@@ -229,7 +229,7 @@ func TestRateLimitedStore_Validate(t *testing.T) {
 		s := static.NewRateLimitedStore(inner, limiter, func(context.Context) string { return "k" })
 
 		_, err := s.Validate(t.Context(), "bad")
-		require.ErrorIs(t, err, static.ErrInvalidToken)
+		require.ErrorIs(t, err, static.ErrTokenInvalid)
 		require.Equal(t, []string{"k"}, limiter.failedKeys,
 			"failed validation must debit the per-key budget exactly once")
 	})
@@ -293,7 +293,7 @@ func TestRateLimitedStore_Validate(t *testing.T) {
 			require.NoError(t, err, "valid token must keep validating")
 
 			_, err = s.Validate(t.Context(), "bad")
-			require.ErrorIs(t, err, static.ErrInvalidToken)
+			require.ErrorIs(t, err, static.ErrTokenInvalid)
 		}
 
 		require.Equal(t, cycles, limiter.failuresFor(key),

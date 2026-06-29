@@ -62,11 +62,18 @@ func isUnsafeSigningMethod(method string) bool {
 	return len(method) >= 2 && strings.EqualFold(method[:2], "HS")
 }
 
+// DefaultLeeway is the clock-skew tolerance applied to exp / nbf / iat during
+// validation. It matches [github.com/altessa-s/go-atlas/auth/jwt.DefaultLeeway]
+// and [github.com/altessa-s/go-atlas/auth/selfjwt.DefaultLeeway] so the same
+// token validates identically across the auth/* token packages. Pass
+// WithValidationLeeway(0) to opt out of any tolerance.
+const DefaultLeeway = 30 * time.Second
+
 // verifierOptions holds token validation configuration.
 // This struct is not exported and is modified through ValidationOption functions.
 type verifierOptions struct {
 	withoutClaimsValidation  bool          `opt:"ClaimsValidation" optval:"invert"`
-	leeway                   time.Duration `optval:"positive=allow_zero"`
+	leeway                   time.Duration `optgen:"default=DefaultLeeway" optval:"positive=allow_zero"`
 	issuedAt                 bool
 	expirationRequired       bool
 	notBeforeRequired        bool

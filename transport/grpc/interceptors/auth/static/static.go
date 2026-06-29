@@ -67,7 +67,7 @@ func NewRateLimitedStore(store TokenStore, limiter RateLimiter, keyFn KeyFunc) *
 // AuthFunc returns an [auth.AuthFunc] that validates the credential token
 // against store. Errors from store are mapped to gRPC status codes:
 //
-//   - [static.ErrInvalidToken] / [static.ErrEmptyToken] → codes.Unauthenticated
+//   - [static.ErrTokenInvalid] / [static.ErrTokenEmpty] → codes.Unauthenticated
 //   - [static.ErrRateLimited]                          → codes.ResourceExhausted
 //   - any other error                                  → codes.Internal
 //
@@ -91,7 +91,7 @@ func AuthFunc(store TokenStore) auth.AuthFunc {
 
 func toGRPCStatus(err error) error {
 	switch {
-	case errors.Is(err, static.ErrInvalidToken), errors.Is(err, static.ErrEmptyToken):
+	case errors.Is(err, static.ErrTokenInvalid), errors.Is(err, static.ErrTokenEmpty):
 		return status.Error(codes.Unauthenticated, "invalid token")
 	case errors.Is(err, static.ErrRateLimited):
 		return status.Error(codes.ResourceExhausted, "too many authentication attempts")

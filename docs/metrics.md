@@ -233,17 +233,17 @@ Package: `data/leadelect/providers/nats`
 
 Package: `auth/oidc`
 
-| Name                                 | Type      | Labels   | Description                          |
-|--------------------------------------|-----------|----------|--------------------------------------|
-| `oidc_token_validations_total`       | Counter   | `issuer` | Token validation attempts            |
-| `oidc_validation_errors_total`       | Counter   | `issuer` | Token validation errors              |
-| `oidc_revocation_check_errors_total` | Counter   | --       | Token revocation check failures      |
-| `oidc_validation_duration_seconds`   | Histogram | --       | Token validation duration            |
-| `oidc_cache_hits_total`              | Counter   | --       | Token cache hits                     |
-| `oidc_cache_misses_total`            | Counter   | --       | Token cache misses                   |
-| `oidc_jwks_refreshes_total`          | Counter   | --       | JWKS refresh operations              |
-| `oidc_jwks_refresh_errors_total`     | Counter   | --       | Failed JWKS refresh operations       |
-| `oidc_jwks_refresh_duration_seconds` | Histogram | --       | JWKS refresh duration                |
+| Name                                      | Type      | Labels   | Description                     |
+|-------------------------------------------|-----------|----------|---------------------------------|
+| `auth_oidc_token_validations_total`       | Counter   | `issuer` | Token validation attempts       |
+| `auth_oidc_validation_errors_total`       | Counter   | `issuer` | Token validation errors         |
+| `auth_oidc_revocation_check_errors_total` | Counter   | --       | Token revocation check failures |
+| `auth_oidc_validation_duration_seconds`   | Histogram | --       | Token validation duration       |
+| `auth_oidc_cache_hits_total`              | Counter   | --       | Token cache hits                |
+| `auth_oidc_cache_misses_total`            | Counter   | --       | Token cache misses              |
+| `auth_oidc_jwks_refreshes_total`          | Counter   | --       | JWKS refresh operations         |
+| `auth_oidc_jwks_refresh_errors_total`     | Counter   | --       | Failed JWKS refresh operations  |
+| `auth_oidc_jwks_refresh_duration_seconds` | Histogram | --       | JWKS refresh duration           |
 
 ---
 
@@ -251,13 +251,13 @@ Package: `auth/oidc`
 
 Package: `auth/opa`
 
-| Name                                 | Type      | Labels   | Description                     |
-|--------------------------------------|-----------|----------|---------------------------------|
-| `opa_policy_reloads_total`           | Counter   | `result` | Policy reload operations        |
-| `opa_policy_reload_duration_seconds` | Histogram | --       | Policy reload duration          |
-| `opa_evaluations_total`              | Counter   | `result` | Policy evaluations              |
-| `opa_evaluation_duration_seconds`    | Histogram | --       | Policy evaluation duration      |
-| `opa_modules_loaded`                 | Gauge     | --       | Policy modules currently loaded |
+| Name                                      | Type      | Labels   | Description                     |
+|-------------------------------------------|-----------|----------|---------------------------------|
+| `auth_opa_policy_reloads_total`           | Counter   | `result` | Policy reload operations        |
+| `auth_opa_policy_reload_duration_seconds` | Histogram | --       | Policy reload duration          |
+| `auth_opa_evaluations_total`              | Counter   | `result` | Policy evaluations              |
+| `auth_opa_evaluation_duration_seconds`    | Histogram | --       | Policy evaluation duration      |
+| `auth_opa_modules_loaded`                 | Gauge     | --       | Policy modules currently loaded |
 
 ---
 

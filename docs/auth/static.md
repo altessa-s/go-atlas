@@ -97,7 +97,7 @@ sequenceDiagram
             S-->>RLS: data
             RLS-->>App: data
         else miss
-            S-->>RLS: ErrInvalidToken / ErrEmptyToken
+            S-->>RLS: ErrTokenInvalid / ErrTokenEmpty
             RLS->>L: RecordFailure(key)
             RLS-->>App: error
         end
@@ -127,9 +127,9 @@ store := static.NewInMemoryStore(
 
 data, err := store.Validate(ctx, token)
 switch {
-case errors.Is(err, static.ErrEmptyToken):
+case errors.Is(err, static.ErrTokenEmpty):
     // no credential supplied
-case errors.Is(err, static.ErrInvalidToken):
+case errors.Is(err, static.ErrTokenInvalid):
     // reject
 case err != nil:
     // other
@@ -165,7 +165,7 @@ HMAC-SHA256 is 32 bytes. Keys below the floor are silently ignored and the rando
 ```go
 type TokenStore interface {
     // Validate returns the data associated with token, or an error wrapping
-    // ErrInvalidToken / ErrEmptyToken if the token is rejected.
+    // ErrTokenInvalid / ErrTokenEmpty if the token is rejected.
     Validate(ctx context.Context, token string) (any, error)
 }
 ```
@@ -251,8 +251,8 @@ The key is never embedded in the returned error text, keeping client identifiers
 
 | Sentinel | Returned when |
 |----------|---------------|
-| `ErrInvalidToken` | Token is non-empty but not registered with the store |
-| `ErrEmptyToken` | Token is the empty string |
+| `ErrTokenInvalid` | Token is non-empty but not registered with the store |
+| `ErrTokenEmpty` | Token is the empty string |
 | `ErrRateLimited` | `RateLimitedStore` rejects a request via its `RateLimiter` |
 
 Compare with `errors.Is`, not `==`: the transport adapters wrap these with additional context while preserving the cause.
@@ -281,8 +281,8 @@ transport's error model. Configure the store with `auth/static`; the adapter wir
 
 | `auth/static` error | gRPC status code |
 |---------------------|------------------|
-| `ErrInvalidToken` | `codes.Unauthenticated` |
-| `ErrEmptyToken` | `codes.Unauthenticated` |
+| `ErrTokenInvalid` | `codes.Unauthenticated` |
+| `ErrTokenEmpty` | `codes.Unauthenticated` |
 | `ErrRateLimited` | `codes.ResourceExhausted` |
 | anything else | `codes.Internal` |
 
@@ -297,7 +297,7 @@ interceptor := auth.ServerInterceptor(
 
 `transport/http/server/middlewares/auth/static` provides `AuthFunc`, wrapping store errors with `auth.ErrUnauthorized` while preserving the
 original cause for logs and custom `auth.ErrorHandler` implementations. Branch with `errors.Is(err, auth.ErrUnauthorized)` or
-`errors.Is(err, static.ErrInvalidToken)`.
+`errors.Is(err, static.ErrTokenInvalid)`.
 
 ## Security Notes
 

@@ -32,7 +32,7 @@ import (
 )
 
 var (
-	ErrInvalidToken              = errors.New("invalid token")
+	ErrTokenInvalid              = errors.New("invalid token")
 	ErrCELValidation             = errors.New("CEL validation failed")
 	ErrDiscovery                 = errors.New("discovery failed")
 	ErrIntrospection             = errors.New("introspection failed")
@@ -301,7 +301,7 @@ func (p *Provider) verifySignature(ctx context.Context, token string) (map[strin
 // parseTokenWithoutClaimsValidation parses a JWT and verifies its signature
 // without validating claims. Returns claims and the verified token header.
 func (p *Provider) parseTokenWithoutClaimsValidation(ctx context.Context, token string) (jwt.MapClaims, map[string]any, error) {
-	v := authjwt.NewVerifier(p.keyResolver, p.jwtVerifyOptions(&verifierOptions{})...)
+	v := authjwt.NewVerifier(p.keyResolver, p.jwtVerifyOptions(defaultVerifierOptions())...)
 	claims, hdr, err := v.VerifySignature(ctx, token)
 	if err != nil {
 		return nil, nil, err
@@ -328,7 +328,7 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 	// Reject empty tokens immediately
 	if token == "" {
 		p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
-		return nil, coreerrs.Wrap(ErrInvalidToken, "token is empty")
+		return nil, coreerrs.Wrap(ErrTokenInvalid, "token is empty")
 	}
 
 	// Refuse to validate against a stale key set when the operator has
@@ -372,7 +372,7 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 
 	// Fast path: no presets, no default options, and no overrides
 	if len(opt) == 0 && p.verifierOptions == nil && len(p.opts.presetRules) == 0 {
-		claims, header, err := p.parseAndValidateToken(ctx, token, &verifierOptions{}, nil)
+		claims, header, err := p.parseAndValidateToken(ctx, token, defaultVerifierOptions(), nil)
 		if err != nil {
 			p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 			return nil, err
@@ -392,7 +392,7 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 		if err != nil {
 			p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 			p.logger.ErrorContext(ctx, "signature verification failed", slog.Any("error", err))
-			return nil, coreerrs.Wrapf(ErrInvalidToken, "signature verification failed: %v", err)
+			return nil, coreerrs.Wrapf(ErrTokenInvalid, "signature verification failed: %v", err)
 		}
 
 		// Step 2: Select preset based on verified claims
@@ -879,13 +879,13 @@ func validateRequiredClaims(claims map[string]any, ops *verifierOptions, ignored
 
 		value, exists := claims[claim]
 		if !exists {
-			return coreerrs.Wrapf(ErrInvalidToken, "missing required claim '%s'", claim)
+			return coreerrs.Wrapf(ErrTokenInvalid, "missing required claim '%s'", claim)
 		}
 
 		if claim == "sub" {
 			subStr, ok := value.(string)
 			if !ok || subStr == "" {
-				return coreerrs.Wrap(ErrInvalidToken, "claim 'sub' cannot be empty")
+				return coreerrs.Wrap(ErrTokenInvalid, "claim 'sub' cannot be empty")
 			}
 		}
 	}
@@ -901,12 +901,12 @@ func validateExpectedClaims(claims map[string]any, ops *verifierOptions, ignored
 
 		actualValue, exists := claims[claim]
 		if !exists {
-			return coreerrs.Wrapf(ErrInvalidToken, "missing expected claim '%s'", claim)
+			return coreerrs.Wrapf(ErrTokenInvalid, "missing expected claim '%s'", claim)
 		}
 
 		actualStr := fmt.Sprint(actualValue)
 		if actualStr != expectedValue {
-			return coreerrs.Wrapf(ErrInvalidToken, "claim '%s' has unexpected value", claim)
+			return coreerrs.Wrapf(ErrTokenInvalid, "claim '%s' has unexpected value", claim)
 		}
 	}
 
@@ -923,16 +923,16 @@ func validateAllowedClientIDs(claims map[string]any, allowed []string) error {
 		clientID, exists = claims["azp"]
 	}
 	if !exists {
-		return coreerrs.Wrap(ErrInvalidToken, "missing 'client_id' or 'azp' claim for client ID validation")
+		return coreerrs.Wrap(ErrTokenInvalid, "missing 'client_id' or 'azp' claim for client ID validation")
 	}
 
 	clientIDStr, ok := clientID.(string)
 	if !ok {
-		return coreerrs.Wrap(ErrInvalidToken, "claim 'client_id' is not a string")
+		return coreerrs.Wrap(ErrTokenInvalid, "claim 'client_id' is not a string")
 	}
 
 	if !slices.Contains(allowed, clientIDStr) {
-		return coreerrs.Wrap(ErrInvalidToken, "client_id is not in the allowed list")
+		return coreerrs.Wrap(ErrTokenInvalid, "client_id is not in the allowed list")
 	}
 
 	return nil
@@ -954,18 +954,18 @@ func validateRequiredScopes(claims map[string]any, requiredScopes []string) erro
 		}
 	}
 
-	return coreerrs.Wrap(ErrInvalidToken, "token does not contain any of the required scopes")
+	return coreerrs.Wrap(ErrTokenInvalid, "token does not contain any of the required scopes")
 }
 
 func strictScopeClaim(claims map[string]any) ([]string, error) {
 	scopeValue, exists := claims["scope"]
 	if !exists {
-		return nil, coreerrs.Wrap(ErrInvalidToken, "missing 'scope' claim for scope validation")
+		return nil, coreerrs.Wrap(ErrTokenInvalid, "missing 'scope' claim for scope validation")
 	}
 
 	scopes, ok := normalizeScopeValue(scopeValue)
 	if !ok {
-		return nil, coreerrs.Wrap(ErrInvalidToken, "claim 'scope' has invalid type")
+		return nil, coreerrs.Wrap(ErrTokenInvalid, "claim 'scope' has invalid type")
 	}
 
 	return scopes, nil
@@ -978,16 +978,16 @@ func validateAuthorizedParty(claims map[string]any, require bool, allowedParties
 
 	azp, exists := claims["azp"]
 	if !exists {
-		return coreerrs.Wrap(ErrInvalidToken, "missing required 'azp' (authorized party) claim")
+		return coreerrs.Wrap(ErrTokenInvalid, "missing required 'azp' (authorized party) claim")
 	}
 
 	azpStr, ok := azp.(string)
 	if !ok {
-		return coreerrs.Wrap(ErrInvalidToken, "claim 'azp' is not a string")
+		return coreerrs.Wrap(ErrTokenInvalid, "claim 'azp' is not a string")
 	}
 
 	if len(allowedParties) > 0 && !slices.Contains(allowedParties, azpStr) {
-		return coreerrs.Wrap(ErrInvalidToken, "authorized party is not in the allowed list")
+		return coreerrs.Wrap(ErrTokenInvalid, "authorized party is not in the allowed list")
 	}
 
 	return nil
@@ -1002,16 +1002,16 @@ func validateTokenLifetime(claims map[string]any, maxLifetime time.Duration) err
 	iatTime, iatOk := parseClaimAsInt64(claims, "iat")
 
 	if !expOk || !iatOk {
-		return coreerrs.Wrap(ErrInvalidToken, "missing or invalid 'exp' or 'iat' claim for lifetime validation")
+		return coreerrs.Wrap(ErrTokenInvalid, "missing or invalid 'exp' or 'iat' claim for lifetime validation")
 	}
 
 	lifetime := time.Duration(expTime-iatTime) * time.Second
 	if lifetime < 0 {
-		return coreerrs.Wrap(ErrInvalidToken, "invalid token lifetime (exp < iat)")
+		return coreerrs.Wrap(ErrTokenInvalid, "invalid token lifetime (exp < iat)")
 	}
 
 	if lifetime > maxLifetime {
-		return coreerrs.Wrapf(ErrInvalidToken, "token lifetime %v exceeds maximum allowed %v", lifetime, maxLifetime)
+		return coreerrs.Wrapf(ErrTokenInvalid, "token lifetime %v exceeds maximum allowed %v", lifetime, maxLifetime)
 	}
 
 	return nil
@@ -1159,7 +1159,7 @@ func (p *Provider) parseAndValidateToken(
 		claims, hdr, err = v.VerifyWithHeader(ctx, token)
 	}
 	if err != nil {
-		return nil, nil, coreerrs.Wrapf(ErrInvalidToken, "%s", err)
+		return nil, nil, coreerrs.Wrapf(ErrTokenInvalid, "%s", err)
 	}
 
 	mc := jwt.MapClaims(claims)
@@ -1186,7 +1186,7 @@ func (p *Provider) validateWithPresetClaims(
 		verifier = authjwt.NewVerifier(p.keyResolver, p.jwtVerifyOptions(ops)...)
 	}
 	if err := verifier.ValidateClaims(authjwt.Claims(claims)); err != nil {
-		return coreerrs.Wrapf(ErrInvalidToken, "%s", err)
+		return coreerrs.Wrapf(ErrTokenInvalid, "%s", err)
 	}
 
 	return p.validateClaims(claims, ops, compiledCELRules)
@@ -1205,7 +1205,7 @@ func (p *Provider) cacheValidatedClaims(ctx context.Context, token string, claim
 
 func cloneVerifierOptions(base *verifierOptions) *verifierOptions {
 	if base == nil {
-		return &verifierOptions{}
+		return defaultVerifierOptions()
 	}
 
 	cloned := *base

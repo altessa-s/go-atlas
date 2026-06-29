@@ -8,6 +8,11 @@ import (
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
+// DefaultMetricsSubsystem is the Prometheus subsystem prefix applied to every
+// metric this package emits. It follows the auth_<package> scheme shared with
+// the sibling auth/* packages (auth_static, auth_selfjwt, auth_oidc).
+const DefaultMetricsSubsystem = "auth_opa"
+
 // opaMetrics holds all Prometheus metrics for the OPA policy manager.
 // When no [metrics.Collector] is provided, [metrics.Noop] is used and
 // all methods become zero-cost no-ops.
@@ -24,7 +29,7 @@ func newOpaMetrics(c metrics.Collector) *opaMetrics {
 		c = metrics.Noop()
 	}
 
-	scoped := c.WithSubsystem("opa")
+	scoped := c.WithSubsystem(DefaultMetricsSubsystem)
 
 	return &opaMetrics{
 		policyReloads: scoped.MustCounter(metrics.MetricOpts{

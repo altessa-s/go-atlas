@@ -40,8 +40,10 @@ type OIDC struct {
 	// DiscoveryUrl is the URL of the OpenID Connect discovery endpoint
 	DiscoveryUrl string `yaml:"discoveryUrl"`
 
-	// ClockSkew is the acceptable time difference when validating timestamps
-	ClockSkew time.Duration `yaml:"clockSkew" default:"10s"`
+	// ClockSkew is the acceptable time difference when validating timestamps.
+	// Defaults to 30s to match the auth/oidc, auth/jwt, and auth/selfjwt Go-API
+	// leeway default.
+	ClockSkew time.Duration `yaml:"clockSkew" default:"30s"`
 
 	// Cache contains optional token caching settings
 	Cache *OIDCCache `yaml:"cache" default:"-"`

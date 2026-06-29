@@ -121,5 +121,5 @@ func (e errStore) Validate(context.Context, string) (any, error) { return nil, e
 // package — adapters above this layer rely on errors.Is across the boundary.
 func TestErrorSentinelsAcrossPackage(t *testing.T) {
 	t.Parallel()
-	require.True(t, errors.Is(authstatic.ErrInvalidToken, authstatic.ErrInvalidToken))
+	require.True(t, errors.Is(authstatic.ErrTokenInvalid, authstatic.ErrTokenInvalid))
 }

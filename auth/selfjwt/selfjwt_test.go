@@ -180,7 +180,7 @@ func TestVerifyRejectsExpired(t *testing.T) {
 	res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
 	require.NoError(t, err)
 
-	late := selfjwt.NewVerifier(p, clockOpt(baseTime.Add(2*time.Hour)), selfjwt.WithClockSkew(time.Minute))
+	late := selfjwt.NewVerifier(p, clockOpt(baseTime.Add(2*time.Hour)), selfjwt.WithLeeway(time.Minute))
 	_, err = late.Verify(t.Context(), res.Token)
 	require.ErrorIs(t, err, selfjwt.ErrTokenExpired)
 }
@@ -192,7 +192,7 @@ func TestVerifyRejectsNotYetValid(t *testing.T) {
 	res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
 	require.NoError(t, err)
 
-	early := selfjwt.NewVerifier(p, clockOpt(baseTime.Add(-5*time.Minute)), selfjwt.WithClockSkew(30*time.Second))
+	early := selfjwt.NewVerifier(p, clockOpt(baseTime.Add(-5*time.Minute)), selfjwt.WithLeeway(30*time.Second))
 	_, err = early.Verify(t.Context(), res.Token)
 	require.ErrorIs(t, err, selfjwt.ErrTokenInvalid)
 }
