@@ -13,6 +13,7 @@ auth/static                 # Static auth provider
 auth/selfjwt                # Self-signed JWT auth provider
 auth/jwt                    # JWT auth utilities
 auth/scope                  # Scope management
+auth/audit                  # Audit logging for auth events
 
 # Commands
 cmd                         # CLI tools and commands
