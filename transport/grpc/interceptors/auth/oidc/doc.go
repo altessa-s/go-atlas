@@ -106,11 +106,17 @@
 //	    return claims, nil // *oidc.Claims becomes Credentials.Data
 //	})
 //
-//	reg := scope.NewRegistry()
-//	reg.RegisterMany("user:read", "/user.UserService/GetUser")
-//	reg.Freeze()
-//	enf := scope.NewEnforcer(reg, scope.ScopeAuthorizer(
-//	    func(c *oidc.Claims) []string { return c.Scopes }, scope.Exact()))
+//	    // Check scopes (deny by default for unregistered methods)
+//	    requiredScope, ok := registry.Scope(req.FullyMethodName)
+//	    if !ok {
+//	        return nil, status.Error(codes.PermissionDenied, "method not registered in scope registry")
+//	    }
+//	    if requiredScope != "" {
+//	        userScopes := claims["scope"].([]string)
+//	        if !hasScope(userScopes, requiredScope) {
+//	            return nil, status.Error(codes.PermissionDenied, "insufficient permissions")
+//	        }
+//	    }
 //
 //	interceptor := auth.ServerInterceptor(
 //	    auth.WithAuthFunc(authFunc),

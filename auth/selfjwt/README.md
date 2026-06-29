@@ -6,8 +6,9 @@ import "github.com/altessa-s/go-atlas/auth/selfjwt"
 
 Package `selfjwt` mints and verifies self-issued JWTs for services that are both the issuer and the verifier of their own per-subject
 tokens. A token is signed with a subject's private key, carries that key's id in the `kid` header, and is later verified by resolving the
-subject's public key for that `kid` — so rotating a subject's signing key (issuing a new `kid`) invalidates every token still carrying the
-old one.
+subject's public key for that `kid` — so rotating a subject's signing key (issuing a new `kid`) lets the verifier reject tokens still
+carrying the old one. Rejection is immediate for a `kid` that was never cached; for an already-cached `kid` it takes effect within at most
+`WithCacheTTL`, or at once when the caller drops the entry via `Verifier.InvalidateKey` / `Verifier.InvalidateSubject` on rotation.
 
 Unlike [`auth/oidc`](../oidc), which validates tokens from an external identity provider against a remote JWKS, `selfjwt` owns both ends.
 
@@ -16,7 +17,7 @@ Unlike [`auth/oidc`](../oidc), which validates tokens from an external identity 
 | Type / Interface  | Description                                                                                  |
 |-------------------|----------------------------------------------------------------------------------------------|
 | `Minter`          | Issues a signed token for a subject, stamping the signing key's id into the `kid` header      |
-| `Verifier`        | Validates a token fail-closed and returns the verified `Token`                                |
+| `Verifier`        | Validates a token fail-closed and returns the verified `Token`; `InvalidateKey` / `InvalidateSubject` drop cached keys on rotation |
 | `KeyProvider`     | The single seam to a caller's key storage: resolves signing and verification keys             |
 | `SigningKey`      | A subject's current signing material: private key, algorithm, and non-empty key id            |
 | `VerificationKey` | A subject's public key for a `kid`, bound to the algorithm it verifies                         |
@@ -50,6 +51,9 @@ Verification is fail-closed:
 - An `exp` claim is mandatory, and temporal claims (`exp` / `nbf`) are validated with the configured clock-skew leeway.
 - Resolved verification keys are cached per `(subject, kid)` with a TTL and a hard entry cap. Concurrent misses for the same key are
   collapsed into a single `KeyProvider` lookup (singleflight), so a burst of requests for an uncached subject cannot stampede the provider.
+- The cache bounds the rotation-to-rejection window: an already-cached `kid` keeps verifying for up to `WithCacheTTL` after rotation,
+  because a cache hit skips the `KeyProvider` (so its `ErrKeyRotated` is not seen). To revoke immediately, call `Verifier.InvalidateKey`
+  (or `InvalidateSubject`) on rotation, or set a short `WithCacheTTL` (`0` disables caching for strict, no-lag verification).
 
 ## Usage
 
@@ -70,6 +74,13 @@ tok, err := verifier.Verify(ctx, res.Token)
 // ErrKeyRotated) and ErrTokenExpired / ErrTokenInvalid as the caller sees fit.
 ```
 
+When one process both issues and verifies its own tokens, build the pair with `New` so a single option list configures both sides and
+their shared settings (issuer, clock) cannot drift apart:
+
+```go
+minter, verifier := selfjwt.New(provider, selfjwt.WithIssuer("billing"))
+```
+
 ## Errors
 
 | Sentinel                 | Meaning                                                                       |
@@ -80,3 +91,4 @@ tok, err := verifier.Verify(ctx, res.Token)
 | `ErrKeyRotated`          | Subject is known but the `kid` is not (propagated unwrapped)                  |
 | `ErrAlgorithmNotAllowed` | Algorithm is unregistered, unmatched, or the resolved key names no algorithm  |
 | `ErrSigningKeyInvalid`   | `KeyProvider` returned signing material that cannot be verified (e.g. empty key id) |
+| `ErrSubjectRequired`     | `MintRequest.Subject` is empty (`Minter` rejects it before signing)           |

@@ -15,7 +15,7 @@ cursor-based paginated listing with CEL filter push-down.
 | Type / Interface | Description                                                                    |
 |------------------|--------------------------------------------------------------------------------|
 | `Scheduler`      | Core scheduler: register tasks, dispatch on tick, pause/resume/disable         |
-| `Storage`        | Persistence interface (9 methods) implemented by every backend                 |
+| `Storage`        | Persistence interface (10 methods) implemented by every backend                |
 | `TaskState`      | Full persistent state of a task including schedule, priority, timestamps       |
 | `TaskSummary`    | Lightweight read-only view returned by listing endpoints                       |
 | `TaskHistory`    | Record of a single execution: start/end time, success flag, error, run ID     |
@@ -51,6 +51,13 @@ cursor-based paginated listing with CEL filter push-down.
 | `ErrTaskDisabled`      | TriggerTask -- cannot trigger manual execution of a disabled task    |
 | `ErrTaskCompleted`     | Pause, Resume, Enable, TriggerTask -- one-shot task already finished |
 | `ErrScheduleConflict`  | Register -- both RunAt and Schedule were provided simultaneously     |
+
+## Single execution
+
+In a multi-node deployment a `WithLeaderElector` keeps one instance dispatching, but leadership is only a throughput optimization. Each run is claimed
+through `Storage.ClaimRun` — a single atomic compare-and-swap (`active → running`, fenced on the occurrence's `next_run_at`) — so even if two
+instances believe they are leader during an election split-brain, exactly one claim wins and a task function runs at most once per occurrence. See
+[docs/service/scheduler.md](../../docs/service/scheduler.md#single-execution-is-enforced-at-the-storage-layer).
 
 ## Subpackages
 

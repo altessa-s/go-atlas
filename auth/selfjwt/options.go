@@ -42,8 +42,8 @@ var defaultRand io.Reader = rand.Reader
 type options struct {
 	issuer            string        `optgen:"default=DefaultIssuer"`
 	maxTokenLifetime  time.Duration `optgen:"default=DefaultMaxTokenLifetime"`
-	clockSkew         time.Duration `optgen:"default=DefaultClockSkew"`
-	cacheTTL          time.Duration `optgen:"default=DefaultCacheTTL"`
+	clockSkew         time.Duration `optgen:"default=DefaultClockSkew" optval:"positive=allow_zero"`
+	cacheTTL          time.Duration `optgen:"default=DefaultCacheTTL" optval:"positive=allow_zero"`
 	cacheMaxEntries   int           `optgen:"default=DefaultCacheMaxEntries"`
 	allowedAlgorithms []Algorithm   `optgen:"manual,default=defaultAllowedAlgorithms"`
 	rand              io.Reader     `optgen:"default=defaultRand"`
