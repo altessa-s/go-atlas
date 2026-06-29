@@ -51,6 +51,8 @@ func TestScopeClientAuthDeniesMissingScope(t *testing.T) {
 	_, err := ca.ClientAuth(t.Context(), credsFor(methodWrite, &testPrincipal{scopes: []string{"files:read"}}))
 	require.ErrorIs(t, err, scope.ErrAccessDenied)
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
+	// A genuine denial is not a wiring bug.
+	require.NotErrorIs(t, err, auth.ErrPrincipalTypeMismatch)
 }
 
 func TestScopeClientAuthDeniesUnregistered(t *testing.T) {
@@ -67,4 +69,8 @@ func TestScopeClientAuthDeniesWrongPrincipalType(t *testing.T) {
 	_, err := ca.ClientAuth(t.Context(), credsFor(methodWrite, "not-a-principal"))
 	require.ErrorIs(t, err, scope.ErrAccessDenied)
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
+	// A wiring bug stays observable as its own cause, yet is indistinguishable
+	// to the client (same PermissionDenied status and message as a real denial).
+	require.ErrorIs(t, err, auth.ErrPrincipalTypeMismatch)
+	require.Equal(t, "permission denied", status.Convert(err).Message())
 }
