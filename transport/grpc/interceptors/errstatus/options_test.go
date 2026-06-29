@@ -13,9 +13,12 @@ import (
 
 	"github.com/altessa-s/go-atlas/transport/internal/requestid"
 
+	"github.com/altessa-s/proto-gen-go/badrequest/v1"
+
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 // requireErrorInfo extracts errdetails.ErrorInfo from a gRPC status error.
@@ -204,4 +207,51 @@ func TestWithStatusConverterFunc(t *testing.T) {
 
 	// matcher always returns true
 	require.True(t, opts.statusConverter[0].Matcher(t.Context(), status.New(codes.OK, "")), "Matcher should always return true")
+}
+
+// statusWithFieldCodes builds an InvalidArgument status carrying a BadRequest
+// detail whose field violations have the given codes ("" means no code).
+func statusWithFieldCodes(t *testing.T, fieldCodes ...string) *status.Status {
+	t.Helper()
+	violations := make([]*badrequestv1.FieldViolation, 0, len(fieldCodes))
+	for _, code := range fieldCodes {
+		fv := &badrequestv1.FieldViolation{}
+		if code != "" {
+			fv.Code = proto.String(code)
+		}
+		violations = append(violations, fv)
+	}
+	st, err := status.New(codes.InvalidArgument, "validation failed").
+		WithDetails(&badrequestv1.BadRequest{FieldViolations: violations})
+	require.NoError(t, err)
+	return st
+}
+
+func TestDefaultFinalizer_PromotesFieldViolationCode(t *testing.T) {
+	t.Run("promotes_coded_violation", func(t *testing.T) {
+		result := DefaultFinalizer(t.Context(), statusWithFieldCodes(t, "FIELD_A_CODE").Err())
+		require.Equal(t, "FIELD_A_CODE", requireErrorInfo(t, result).Reason)
+	})
+
+	t.Run("first_non_empty_code_wins", func(t *testing.T) {
+		result := DefaultFinalizer(t.Context(), statusWithFieldCodes(t, "", "FIELD_B_CODE").Err())
+		require.Equal(t, "FIELD_B_CODE", requireErrorInfo(t, result).Reason)
+	})
+
+	t.Run("no_code_falls_back_to_grpc_reason", func(t *testing.T) {
+		result := DefaultFinalizer(t.Context(), statusWithFieldCodes(t, "").Err())
+		require.Equal(t, "INVALID_ARGUMENT", requireErrorInfo(t, result).Reason)
+	})
+
+	t.Run("no_bad_request_keeps_grpc_reason", func(t *testing.T) {
+		result := DefaultFinalizer(t.Context(), status.New(codes.InvalidArgument, "bad").Err())
+		require.Equal(t, "INVALID_ARGUMENT", requireErrorInfo(t, result).Reason)
+	})
+
+	t.Run("with_domain_promotes_and_sets_domain", func(t *testing.T) {
+		result := DefaultFinalizerWithDomain("svc.example.com")(t.Context(), statusWithFieldCodes(t, "FIELD_C_CODE").Err())
+		ei := requireErrorInfo(t, result)
+		require.Equal(t, "FIELD_C_CODE", ei.Reason)
+		require.Equal(t, "svc.example.com", ei.Domain)
+	})
 }
