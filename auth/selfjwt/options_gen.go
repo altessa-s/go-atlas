@@ -22,7 +22,7 @@ func WithCacheMaxEntries(v int) Option {
 // WithCacheTTL sets the cacheTTL option.
 func WithCacheTTL(v time.Duration) Option {
 	return func(o *options) {
-		if v <= 0 {
+		if v < 0 {
 			return
 		}
 		o.cacheTTL = v
@@ -39,7 +39,7 @@ func WithClock(v Clock) Option {
 // WithClockSkew sets the clockSkew option.
 func WithClockSkew(v time.Duration) Option {
 	return func(o *options) {
-		if v <= 0 {
+		if v < 0 {
 			return
 		}
 		o.clockSkew = v

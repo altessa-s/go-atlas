@@ -56,6 +56,11 @@ func (c *keyCache) get(subject, kid string) (VerificationKey, bool) {
 // is at its size cap it first drops expired entries and, if that frees nothing,
 // evicts arbitrary entries until a slot is free, keeping the map bounded.
 func (c *keyCache) put(subject, kid string, key VerificationKey) {
+	// A non-positive TTL disables caching: every lookup hits the KeyProvider, so
+	// there is nothing to store (get would treat any entry as already expired).
+	if c.ttl <= 0 {
+		return
+	}
 	now := c.clock.Now()
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -80,4 +85,27 @@ func (c *keyCache) evictLocked(now time.Time) {
 		}
 		delete(c.items, k)
 	}
+}
+
+// deleteKey removes the cached entry for (subject, kid). It is a no-op when no
+// entry is present.
+func (c *keyCache) deleteKey(subject, kid string) {
+	c.mu.Lock()
+	delete(c.items, cacheKey{subject: subject, kid: kid})
+	c.mu.Unlock()
+}
+
+// deleteSubject removes every cached entry for subject regardless of kid,
+// returning the number of entries dropped.
+func (c *keyCache) deleteSubject(subject string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	n := 0
+	for k := range c.items {
+		if k.subject == subject {
+			delete(c.items, k)
+			n++
+		}
+	}
+	return n
 }

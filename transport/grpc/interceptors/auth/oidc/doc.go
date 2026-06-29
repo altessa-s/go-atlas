@@ -111,7 +111,7 @@
 //	        return nil, status.Error(codes.PermissionDenied, "method not registered in scope registry")
 //	    }
 //	    if requiredScope != "" {
-//	        userScopes := claims["scopes"].([]string)
+//	        userScopes := claims["scope"].([]string)
 //	        if !hasScope(userScopes, requiredScope) {
 //	            return nil, status.Error(codes.PermissionDenied, "insufficient permissions")
 //	        }

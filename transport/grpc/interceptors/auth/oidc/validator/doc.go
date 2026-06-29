@@ -78,13 +78,13 @@
 // The validator handles scopes in multiple formats:
 //
 //	// Space-separated string
-//	"scopes": "openid profile email user:read"
+//	"scope": "openid profile email user:read"
 //
 //	// Array of strings
-//	"scopes": ["openid", "profile", "email", "user:read"]
+//	"scope": ["openid", "profile", "email", "user:read"]
 //
 //	// Mixed array (non-string values filtered out)
-//	"scopes": ["openid", 123, "profile", null, "email"]
+//	"scope": ["openid", 123, "profile", null, "email"]
 //
 // Scopes are automatically:
 //   - Filtered (empty strings removed)
@@ -206,7 +206,7 @@
 //	        return map[string]any{
 //	            "sub": "user-123",
 //	            "email": "user@example.com",
-//	            "scopes": []string{"openid", "profile"},
+//	            "scope": []string{"openid", "profile"},
 //	        }, nil
 //	    }
 //	    return nil, errors.New("invalid token")

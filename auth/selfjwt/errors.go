@@ -36,4 +36,9 @@ var (
 	// returns signing material that cannot produce a verifiable token, such as
 	// an empty key id (the verifier rejects a token whose kid header is empty).
 	ErrSigningKeyInvalid = errors.New("auth/selfjwt: invalid signing key")
+
+	// ErrSubjectRequired is returned by [Minter] when a [MintRequest] carries an
+	// empty subject. A subject is mandatory: an empty sub yields a token the
+	// verifier always rejects (resolveKey requires a non-empty subject).
+	ErrSubjectRequired = errors.New("auth/selfjwt: subject required")
 )
