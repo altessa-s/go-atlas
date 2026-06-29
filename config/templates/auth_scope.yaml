@@ -1,0 +1,21 @@
+# Scope authorization registry — declarative action-key→required-scope table.
+# Consumed by auth/scope/factory.New(&cfg).Build(); the matcher and authorizer
+# stay in code, since they depend on the caller's principal type.
+scope:
+  # Each rule registers every key in `keys` as requiring `scope`.
+  # An action key must appear in at most one rule.
+  rules:
+    # Read access.
+    - scope: "files:read"
+      keys:
+        - "/files.v1.Files/Read"
+        - "/files.v1.Files/List"
+    # Write access.
+    - scope: "files:write"
+      keys:
+        - "/files.v1.Files/Write"
+        - "/files.v1.Files/Delete"
+    # Public endpoints — empty scope, always allowed once authenticated.
+    - scope: ""
+      keys:
+        - "/health.v1.Health/Check"
