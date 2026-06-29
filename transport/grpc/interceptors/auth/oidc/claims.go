@@ -130,3 +130,15 @@ type Claims struct {
 	//   roles := claims.RawClaims["roles"].([]string)
 	RawClaims map[string]any `json:"-"`
 }
+
+// ScopesOf returns the OAuth scopes granted to c, ready to use as the scopesOf
+// argument of github.com/altessa-s/go-atlas/auth/scope.ScopeAuthorizer. A nil c
+// yields no scopes:
+//
+//	enf := scope.NewEnforcer(reg, scope.ScopeAuthorizer(oidc.ScopesOf, scope.Exact()))
+func ScopesOf(c *Claims) []string {
+	if c == nil {
+		return nil
+	}
+	return c.Scopes
+}
