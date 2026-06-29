@@ -55,4 +55,21 @@
 //	if err := enf.Enforce(p, "/files.v1.Files/Write"); err != nil {
 //	    // errors.Is(err, scope.ErrAccessDenied)
 //	}
+//
+// # Object-level authorization
+//
+// When the decision depends on the specific resource being acted on (ownership,
+// per-object ACLs), use the [ResourceEnforcer] / [ResourceAuthorizer] variants.
+// They mirror the action-level API with one extra resource parameter and the same
+// deny-by-default registry and fail-closed [ResourceEnforcer.Enforce] semantics.
+// Lift the scope and superuser logic with [LiftAuthorizer] and AND it with an
+// ownership predicate via [ResourceAllOf]:
+//
+//	scoped := scope.LiftAuthorizer[*Principal, *Doc](base)
+//	owns := func(p *Principal, d *Doc, _ scope.Scope) bool { return d.OwnerID == p.ID }
+//	enf := scope.NewResourceEnforcer(reg, scope.ResourceAllOf(scoped, owns))
+//
+//	if err := enf.Enforce(p, doc, "/docs.v1.Docs/Update"); err != nil {
+//	    // errors.Is(err, scope.ErrAccessDenied)
+//	}
 package scope
