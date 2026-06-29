@@ -276,6 +276,79 @@ func TestVerifyRejectsRotatedKid(t *testing.T) {
 	require.ErrorIs(t, err, selfjwt.ErrKeyRotated)
 }
 
+// TestCachedKeySurvivesRotationUntilInvalidateKey documents the revocation-lag:
+// once a (subject, kid) key is cached, the same verifier keeps accepting a
+// token with that kid after rotation (the provider is not consulted) until the
+// cache entry is dropped — here via InvalidateKey.
+func TestCachedKeySurvivesRotationUntilInvalidateKey(t *testing.T) {
+	t.Parallel()
+	p := newProvider(t, selfjwt.AlgEdDSA)
+	m := selfjwt.NewMinter(p, clockOpt(baseTime))
+	v := selfjwt.NewVerifier(p, clockOpt(baseTime))
+
+	res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
+	require.NoError(t, err)
+
+	// Prime the cache for (subject, kid-1).
+	_, err = v.Verify(t.Context(), res.Token)
+	require.NoError(t, err)
+	require.Equal(t, 1, p.pubCalls)
+
+	// Rotate: the provider now only knows kid-2 and would reject kid-1.
+	p.kid = "kid-2"
+
+	// Within the cache TTL the rotated-away token still verifies from cache; the
+	// provider is not consulted, so ErrKeyRotated is never observed.
+	_, err = v.Verify(t.Context(), res.Token)
+	require.NoError(t, err)
+	require.Equal(t, 1, p.pubCalls)
+
+	// InvalidateKey drops the entry, forcing a provider lookup that now rejects.
+	v.InvalidateKey(testSubject, testKeyID)
+	_, err = v.Verify(t.Context(), res.Token)
+	require.ErrorIs(t, err, selfjwt.ErrKeyRotated)
+	require.Equal(t, 2, p.pubCalls)
+}
+
+// TestInvalidateSubjectClosesRotationWindow verifies InvalidateSubject drops a
+// subject's cached key without the caller knowing the retired kid.
+func TestInvalidateSubjectClosesRotationWindow(t *testing.T) {
+	t.Parallel()
+	p := newProvider(t, selfjwt.AlgEdDSA)
+	m := selfjwt.NewMinter(p, clockOpt(baseTime))
+	v := selfjwt.NewVerifier(p, clockOpt(baseTime))
+
+	res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
+	require.NoError(t, err)
+
+	_, err = v.Verify(t.Context(), res.Token)
+	require.NoError(t, err)
+
+	p.kid = "kid-2"
+	v.InvalidateSubject(testSubject)
+
+	_, err = v.Verify(t.Context(), res.Token)
+	require.ErrorIs(t, err, selfjwt.ErrKeyRotated)
+}
+
+// TestCacheTTLZeroDisablesCaching verifies WithCacheTTL(0) bypasses the cache so
+// every verification consults the KeyProvider (no rotation lag).
+func TestCacheTTLZeroDisablesCaching(t *testing.T) {
+	t.Parallel()
+	p := newProvider(t, selfjwt.AlgEdDSA)
+	m := selfjwt.NewMinter(p, clockOpt(baseTime))
+	v := selfjwt.NewVerifier(p, clockOpt(baseTime), selfjwt.WithCacheTTL(0))
+
+	res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
+	require.NoError(t, err)
+
+	_, err = v.Verify(t.Context(), res.Token)
+	require.NoError(t, err)
+	_, err = v.Verify(t.Context(), res.Token)
+	require.NoError(t, err)
+	require.Equal(t, 2, p.pubCalls) // no caching: provider hit on every verify
+}
+
 func TestVerifyRejectsUnknownSubject(t *testing.T) {
 	t.Parallel()
 	p := newProvider(t, selfjwt.AlgEdDSA)
@@ -302,6 +375,28 @@ func TestVerifyCachesVerificationKey(t *testing.T) {
 	_, err = v.Verify(t.Context(), res.Token)
 	require.NoError(t, err)
 	require.Equal(t, 1, p.pubCalls) // second verify served from cache
+}
+
+func TestNewPairsMinterAndVerifier(t *testing.T) {
+	t.Parallel()
+	p := newProvider(t, selfjwt.AlgEdDSA)
+	// One option list builds both sides, so the issuer (and clock) cannot drift.
+	m, v := selfjwt.New(p, clockOpt(baseTime), selfjwt.WithIssuer(testIssuer))
+
+	res, err := m.Mint(t.Context(), selfjwt.MintRequest{Subject: testSubject, TTL: time.Hour})
+	require.NoError(t, err)
+	tok, err := v.Verify(t.Context(), res.Token)
+	require.NoError(t, err)
+	require.Equal(t, testSubject, tok.Subject)
+}
+
+func TestMintRejectsEmptySubject(t *testing.T) {
+	t.Parallel()
+	p := newProvider(t, selfjwt.AlgEdDSA)
+	m := selfjwt.NewMinter(p, clockOpt(baseTime))
+
+	_, err := m.Mint(t.Context(), selfjwt.MintRequest{TTL: time.Hour})
+	require.ErrorIs(t, err, selfjwt.ErrSubjectRequired)
 }
 
 func TestMintRejectsEmptyKeyID(t *testing.T) {

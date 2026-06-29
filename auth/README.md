@@ -1,16 +1,17 @@
 # auth
 
-Authentication and authorization subsystem for the Atlas framework. Provides OpenID Connect token validation, self-issued JWT minting and
-verification, and Open Policy Agent integration for policy-based access control — all with pluggable backends and automatic lifecycle
-management.
+Authentication and authorization subsystem for the Atlas framework. Provides a low-level JWT signing/verification toolkit, OpenID Connect
+token validation, self-issued JWT minting and verification, and Open Policy Agent integration for policy-based access control — all with
+pluggable backends and automatic lifecycle management.
 
 ## Packages
 
 | Package              | Description                                                                 |
 |----------------------|-----------------------------------------------------------------------------|
+| [jwt](./jwt)         | Low-level JWT signing/verification toolkit (Signer/Verifier/Claims) over golang-jwt; shared core for selfjwt and oidc |
 | [oidc](./oidc)       | OIDC JWT validation with JWKS rotation, presets, and introspection          |
 | [opa](./opa)         | OPA policy evaluation with hot-reload and event-driven architecture         |
-| [selfjwt](./selfjwt) | Self-issued JWT minting and verification with per-subject keys and rotation |
+| [selfjwt](./selfjwt) | Self-issued JWT minting and verification with per-subject keys and rotation; `New` builds a matched minter/verifier pair |
 | [static](./static)   | Static token / API-key validator for service-to-service auth               |
 
 ## Design principles

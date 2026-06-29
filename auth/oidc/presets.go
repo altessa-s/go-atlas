@@ -8,15 +8,17 @@ import (
 	"context"
 	"slices"
 
+	authjwt "github.com/altessa-s/go-atlas/auth/jwt"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // ValidationPreset represents a named, reusable set of validation options.
 type ValidationPreset struct {
-	name             string
-	options          []ValidationOption
-	compiledVerifier *verifierOptions               // Pre-compiled verifier options
-	compiledCELRules []celPreCompiledValidationRule // Pre-compiled CEL rules
+	name                 string
+	options              []ValidationOption
+	compiledVerifier     *verifierOptions               // Pre-compiled verifier options
+	compiledAuthVerifier *authjwt.Verifier              // Pre-built JWT verifier for compiledVerifier
+	compiledCELRules     []celPreCompiledValidationRule // Pre-compiled CEL rules
 }
 
 // NewValidationPreset creates a named validation preset with the given options.
@@ -58,9 +60,9 @@ type PresetRule struct {
 }
 
 // compilePresets pre-compiles all registered presets during provider initialization.
-func (p *Provider) compilePresets() {
+func (p *Provider) compilePresets() error {
 	if len(p.opts.presets) == 0 {
-		return
+		return nil
 	}
 
 	for _, preset := range p.opts.presets {
@@ -68,15 +70,24 @@ func (p *Provider) compilePresets() {
 		ops := &verifierOptions{}
 		applyValidationOptions(ops, preset.options...)
 
-		// Compile CEL rules if any and store separately
-		preset.compiledCELRules = compileVerifierCELRules(ops, p.logger)
+		// Compile CEL rules if any and store separately. A malformed CEL rule is
+		// a configuration error: fail fast at construction rather than silently
+		// dropping it.
+		compiledCEL, err := compileVerifierCELRules(ops)
+		if err != nil {
+			return coreerrs.Wrapf(err, "preset %q", preset.name)
+		}
+		preset.compiledCELRules = compiledCEL
 
 		// Pre-build ignored claims set for the compiled verifier
 		ops.buildIgnoredSet()
 
-		// Store compiled verifier in preset
+		// Store compiled verifier in preset, plus a pre-built JWT verifier so the
+		// validation path does not allocate a fresh one per request.
 		preset.compiledVerifier = ops
+		preset.compiledAuthVerifier = authjwt.NewVerifier(p.keyResolver, p.jwtVerifyOptions(ops)...)
 	}
+	return nil
 }
 
 // validatePresetSelectionRules filters invalid rules and sorts by priority.
@@ -186,18 +197,25 @@ func (p *Provider) validateTokenWithPreset(ctx context.Context, token string, pr
 		cacheKey := tokenCacheKey(p.opts.tokensCacheKeyPrefix, token)
 		var claims map[string]any
 		if err := p.tokenCache.Get(ctx, cacheKey, &claims); err == nil {
+			// The pre-verification checkTokenRevocation above does not cover
+			// jti/kid revocation (those need verified data). Re-run the
+			// post-verification lookup on the cache hit so a token revoked after
+			// it was cached is rejected before its TTL expires.
+			if err := p.checkTokenRevocationVerifiedCached(ctx, token, claims); err != nil {
+				return nil, err
+			}
 			return claims, nil
 		}
 	}
 
 	// Verify signature first (without claim validation)
-	claims, header, err := p.parseTokenWithoutClaimsValidation(token)
+	claims, header, err := p.parseTokenWithoutClaimsValidation(ctx, token)
 	if err != nil {
 		return nil, coreerrs.Wrapf(ErrInvalidToken, "signature verification failed: %v", err)
 	}
 
 	// Validate with pre-compiled verifier
-	if err := p.validateWithPresetClaims(claims, preset.compiledVerifier, preset.compiledCELRules); err != nil {
+	if err := p.validateWithPresetClaims(claims, preset.compiledAuthVerifier, preset.compiledVerifier, preset.compiledCELRules); err != nil {
 		return nil, err
 	}
 

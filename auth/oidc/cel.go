@@ -87,6 +87,8 @@ func CELMatcher(ctx context.Context, expression string) PresetMatcherFunc {
 	if cache == nil {
 		program, err := compileCELExpression(expression)
 		if err != nil {
+			slog.Default().Error("oidc: CEL preset matcher failed to compile; it will never match",
+				"expression", expression, "error", err)
 			return func(claims map[string]any) bool { return false }
 		}
 		return func(claims map[string]any) bool {
@@ -99,6 +101,8 @@ func CELMatcher(ctx context.Context, expression string) PresetMatcherFunc {
 	})
 
 	if err != nil {
+		slog.Default().Error("oidc: CEL preset matcher failed to compile; it will never match",
+			"expression", expression, "error", err)
 		return func(claims map[string]any) bool {
 			return false
 		}
@@ -136,46 +140,58 @@ func MustCELMatcher(expression string) PresetMatcherFunc {
 }
 
 // validateCELRules compiles CEL rules from verifier options and stores them in the Provider.
-func (p *Provider) validateCELRules() {
+func (p *Provider) validateCELRules() error {
 	if p.verifierOptions == nil || len(p.verifierOptions.celRules) == 0 {
-		return
+		return nil
 	}
 
-	p.celCompiledRules = compileCELRules(p.verifierOptions.celRules, p.logger)
+	compiled, err := compileCELRules(p.verifierOptions.celRules)
+	if err != nil {
+		return err
+	}
+	p.celCompiledRules = compiled
 	p.verifierOptions.celRules = nil // Clear source rules after compilation
+	return nil
 }
 
 // compileVerifierCELRules compiles CEL rules from verifierOptions, returning compiled rules.
 // The celRules field is cleared after compilation.
-func compileVerifierCELRules(ops *verifierOptions, logger *slog.Logger) []celPreCompiledValidationRule {
+func compileVerifierCELRules(ops *verifierOptions) ([]celPreCompiledValidationRule, error) {
 	if ops == nil || len(ops.celRules) == 0 {
-		return nil
+		return nil, nil
 	}
 
-	compiled := compileCELRules(ops.celRules, logger)
+	compiled, err := compileCELRules(ops.celRules)
+	if err != nil {
+		return nil, err
+	}
 	ops.celRules = nil // Clear source rules after compilation
-	return compiled
+	return compiled, nil
 }
 
-// compileCELRules compiles CEL rules into pre-compiled matchers, filtering invalid ones.
-func compileCELRules(rules []CELValidationRule, logger *slog.Logger) []celPreCompiledValidationRule {
+// compileCELRules compiles CEL rules into pre-compiled matchers. A malformed
+// rule (empty name/expression or an expression that fails to compile) is a
+// configuration error and is returned, not silently skipped — mirroring the
+// strict checks in the service-config loader so a typo cannot quietly drop a
+// validation rule (which would weaken validation).
+func compileCELRules(rules []CELValidationRule) ([]celPreCompiledValidationRule, error) {
 	if len(rules) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	validRules := make([]celPreCompiledValidationRule, 0, len(rules))
-	for _, rule := range rules {
-		// Validate rule name and expression
-		if rule.Name == "" || rule.Expression == "" {
-			logger.Warn("skipping invalid CEL rule", "name", rule.Name, "has_expression", rule.Expression != "")
-			continue
+	for i, rule := range rules {
+		if rule.Name == "" {
+			return nil, coreerrs.Wrapf(ErrInvalidCEL, "cel_rules[%d].name is required", i)
+		}
+		if rule.Expression == "" {
+			return nil, coreerrs.Wrapf(ErrInvalidCEL, "cel_rules[%q].expression is required", rule.Name)
 		}
 
 		// Compile CEL expression
 		program, err := compileCELExpression(rule.Expression)
 		if err != nil {
-			logger.Warn("skipping invalid CEL rule", "name", rule.Name, slog.Any("error", err))
-			continue
+			return nil, coreerrs.Wrapf(ErrInvalidCEL, "cel_rules[%q]: %v", rule.Name, err)
 		}
 
 		// Prime cache to avoid cold-start compilation
@@ -194,7 +210,7 @@ func compileCELRules(rules []CELValidationRule, logger *slog.Logger) []celPreCom
 			},
 		})
 	}
-	return validRules
+	return validRules, nil
 }
 
 // compileCELExpression compiles a CEL expression into a program.
