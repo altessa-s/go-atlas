@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/altessa-s/go-atlas/auth/audit"
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
@@ -42,6 +43,9 @@ type options struct {
 	runOnStart bool `opt:"-"`
 	// collector for metrics collection.
 	collector metrics.Collector `optgen:"notnil"`
+	// auditRecorder records authorization decisions for every evaluation.
+	// Nil by default, which disables auditing.
+	auditRecorder *audit.Recorder
 }
 
 // WithUpdateSchedule configures periodic policy update task for the scheduler.

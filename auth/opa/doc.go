@@ -70,6 +70,20 @@
 //	    UseScheduler(scheduler).
 //	    Build(ctx)
 //
+// # Auditing
+//
+// Pass [WithAuditRecorder] to record every evaluation decision through an
+// auth/audit Recorder. The recorder is nil-safe and applies its own recording
+// and failure policies; under the default deny-only mode only denials are
+// recorded. Each decision sets Action to the Rego query and an "engine" = "opa"
+// attribute. Recording never alters the verdict in best-effort mode; under
+// audit.FailureRequired a failed write on an allowed evaluation makes Evaluate
+// return an error so nothing proceeds unrecorded.
+//
+//	rec := audit.NewRecorder(sink, audit.WithPolicyMode(audit.PolicyAll))
+//	manager, err := opa.NewManager(ctx, source, "data.authz.allow",
+//	    opa.WithAuditRecorder(rec))
+//
 // # Thread Safety
 //
 // All public methods on [Manager] and [Evaluator] are safe for concurrent use.
