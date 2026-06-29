@@ -13,11 +13,14 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Validator defines the interface for OIDC token validation.
+// Validator defines the interface for OIDC token validation. It returns the
+// verified token's structured [Claims], so a validator and the [AuthFunc] /
+// [validator.DefaultValidator] built on it agree on one claim type rather than
+// a raw map. Returns an error if the token is invalid, expired, or verification
+// fails.
 type Validator interface {
-	// ValidateToken verifies the token and extracts claims from it.
-	// Returns an error if the token is invalid, expired, or verification fails.
-	ValidateToken(ctx context.Context, token string) (map[string]any, error)
+	// ValidateToken verifies the token and extracts its claims.
+	ValidateToken(ctx context.Context, token string) (*Claims, error)
 }
 
 // AuthFunc creates a gRPC authentication function that validates OIDC tokens.

@@ -68,7 +68,7 @@ type Claims struct {
 
 	// Scopes lists the OAuth 2.0 scopes granted to the token. Use these for
 	// authorization decisions. Scopes are extracted from the "scope" claim
-	// and automatically sorted alphabetically.
+	// (space-separated string or array) in their original token order.
 	//
 	// Example: ["openid", "profile", "email", "user:read", "user:write"]
 	Scopes []string `json:"scope"`

@@ -24,7 +24,7 @@ Package `oidc` provides OIDC (OpenID Connect) token validation for the auth inte
 | `Email`             | `email`              | User email address                                |
 | `Issuer`            | `iss`                | OIDC provider that issued the token               |
 | `Audience`          | `aud`                | Intended token recipients (string or array)        |
-| `Scopes`            | `scope`              | Granted OAuth 2.0 scopes (sorted alphabetically)  |
+| `Scopes`            | `scope`              | Granted OAuth 2.0 scopes (original token order)  |
 | `ExpiresAt`         | `exp`                | Token expiration time                              |
 | `IssuedAt`          | `iat`                | Token issuance time                                |
 | `NotBefore`         | `nbf`                | Token validity start time                          |

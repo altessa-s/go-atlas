@@ -19,6 +19,10 @@ type Provider interface {
 	ValidateToken(context.Context, string) (map[string]any, error)
 }
 
+// DefaultValidator satisfies [oidc.Validator]: it returns the verified token's
+// structured [oidc.Claims], so it drops straight into [oidc.AuthFunc].
+var _ oidc.Validator = (*DefaultValidator)(nil)
+
 // DefaultValidator validates tokens using an OIDC Provider and extracts
 // standard OIDC claims from the token. It uses fixed claim keys that follow
 // the OpenID Connect Core 1.0 specification.
@@ -67,7 +71,8 @@ func NewDefaultValidator(p Provider, opts ...Option) *DefaultValidator {
 //   - An array of strings (e.g., ["openid", "profile", "email"])
 //   - An array of mixed types (non-string values are filtered out)
 //
-// Scopes are automatically sorted alphabetically for consistent ordering.
+// Scopes preserve their original token order. Claim parsing is delegated to the
+// shared github.com/altessa-s/go-atlas/auth/jwt accessors.
 //
 // Returns a Claims struct containing all extracted information, or an error
 // if token verification fails. Errors are logged using the configured logger.
