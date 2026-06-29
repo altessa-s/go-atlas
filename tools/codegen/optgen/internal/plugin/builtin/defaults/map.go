@@ -12,13 +12,8 @@ import (
 
 // MapDefaultPlugin provides default values for map types.
 // It generates: make(map[K]V)
-type MapDefaultPlugin struct{}
-
-func (p *MapDefaultPlugin) Meta() plugin.Meta {
-	return plugin.Meta{
-		Kind:     plugin.KindTypeDefault,
-		Priority: 0,
-	}
+type MapDefaultPlugin struct {
+	typeDefaultBase
 }
 
 func (p *MapDefaultPlugin) CanProvideDefault(typeStr string) bool {

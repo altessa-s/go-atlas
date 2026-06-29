@@ -47,7 +47,9 @@ effect leaves inconsistency. That is the deliberate single-process trade-off.
 The transactional-outbox pattern. The event is **persisted to a store in the same transaction as the state change**, then dispatched later by background
 workers (dispatch, retry, cleanup, stuck-event recovery). This is the crash-safe answer to the dual write: because the event is written atomically with
 the state, it cannot be lost; because it is delivered out-of-band, the transaction never waits on the network. Delivery is **at-least-once**,
-transport-agnostic (the `Handler` decides how to deliver: broker, HTTP, gRPC).
+transport-agnostic (the `Handler` decides how to deliver: broker, HTTP, gRPC). Lease and retention windows are evaluated against the **database
+server clock** (MongoDB `$$NOW`), not the worker's wall clock, so a clock-skewed worker can neither prematurely steal a locked event nor leak one;
+timestamps are stored as BSON `Date` (run `MigrateTimestampsToDate` once on a legacy collection).
 
 ### `transport/broker` — asynchronous messaging between services
 

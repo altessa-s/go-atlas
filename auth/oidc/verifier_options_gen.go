@@ -144,7 +144,7 @@ func WithValidationIssuer[T interface{ string | *string }](v T) ValidationOption
 // WithValidationLeeway sets the leeway option.
 func WithValidationLeeway(v time.Duration) ValidationOption {
 	return func(o *verifierOptions) {
-		if v <= 0 {
+		if v < 0 {
 			return
 		}
 		o.leeway = v

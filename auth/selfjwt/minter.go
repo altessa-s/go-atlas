@@ -7,26 +7,34 @@ package selfjwt
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
+	"github.com/altessa-s/go-atlas/auth/jwt"
 )
 
 // Minter issues signed self-issued tokens. It loads a subject's signing key
 // from the [KeyProvider] and signs a JWT carrying the subject, a random jti,
 // the granted scopes, and the registered temporal claims. The token's kid
 // header is the signing key's id so the verifier can resolve the public key and
-// a key rotation invalidates the token.
+// a key rotation invalidates the token. The signing crypto and algorithm
+// allow-list are delegated to [github.com/altessa-s/go-atlas/auth/jwt.Signer].
 type Minter struct {
-	src  KeyProvider
-	opts *options
+	src    KeyProvider
+	signer *jwt.Signer
+	opts   *options
 }
 
 // NewMinter builds a Minter over the given key provider.
 func NewMinter(src KeyProvider, opts ...Option) *Minter {
-	return &Minter{src: src, opts: newOptions(opts...)}
+	o := newOptions(opts...)
+	return &Minter{
+		src:    src,
+		signer: jwt.NewSigner(jwt.WithAllowedAlgorithms(toJWTAlgorithms(o.allowedAlgorithms)...)),
+		opts:   o,
+	}
 }
 
 // MintRequest is the intent to issue a token for a subject. TTL is clamped to
@@ -55,16 +63,15 @@ func (m *Minter) Mint(ctx context.Context, req MintRequest) (MintResult, error) 
 }
 
 func (m *Minter) mint(ctx context.Context, req MintRequest) (MintResult, error) {
+	// A subject is mandatory: an empty sub yields a token the verifier always
+	// rejects (resolveKey requires a non-empty subject), so fail at mint time
+	// rather than emit an unverifiable token.
+	if req.Subject == "" {
+		return MintResult{}, ErrSubjectRequired
+	}
 	sk, err := m.src.SigningKey(ctx, req.Subject)
 	if err != nil {
 		return MintResult{}, err
-	}
-	if sk.KeyID == "" {
-		return MintResult{}, fmt.Errorf("%w: empty key id", ErrSigningKeyInvalid)
-	}
-	method := jwt.GetSigningMethod(sk.Algorithm.String())
-	if method == nil {
-		return MintResult{}, fmt.Errorf("%w: %q", ErrAlgorithmNotAllowed, sk.Algorithm)
 	}
 	jti, err := newID(m.opts.rand)
 	if err != nil {
@@ -78,25 +85,50 @@ func (m *Minter) mint(ctx context.Context, req MintRequest) (MintResult, error) 
 	}
 	exp := now.Add(ttl)
 
-	claims := tokenClaims{
-		RegisteredClaims: jwt.RegisteredClaims{
-			Issuer:    m.opts.issuer,
-			Subject:   req.Subject,
-			ID:        jti,
-			IssuedAt:  jwt.NewNumericDate(now),
-			NotBefore: jwt.NewNumericDate(now),
-			ExpiresAt: jwt.NewNumericDate(exp),
-		},
-		Scopes: req.Scopes,
+	claims := jwt.Claims{
+		"sub": req.Subject,
+		"jti": jti,
+		"iat": now.Unix(),
+		"nbf": now.Unix(),
+		"exp": exp.Unix(),
 	}
-	token := jwt.NewWithClaims(method, claims)
-	token.Header["kid"] = sk.KeyID
+	if m.opts.issuer != "" {
+		claims["iss"] = m.opts.issuer
+	}
+	if len(req.Scopes) > 0 {
+		claims["scope"] = req.Scopes
+	}
 
-	raw, err := token.SignedString(sk.Key)
+	raw, err := m.signer.Sign(jwt.SigningKey{KeyID: sk.KeyID, Algorithm: jwt.Algorithm(sk.Algorithm), Key: sk.Key}, claims)
 	if err != nil {
-		return MintResult{}, fmt.Errorf("selfjwt: sign token: %w", err)
+		return MintResult{}, mapSignErr(err)
 	}
 	return MintResult{Token: raw, ID: jti, Expiry: exp}, nil
+}
+
+// mapSignErr translates the auth/jwt signing sentinels back onto the selfjwt
+// contract so callers keep matching [ErrSigningKeyInvalid] / [ErrAlgorithmNotAllowed].
+func mapSignErr(err error) error {
+	switch {
+	case errors.Is(err, jwt.ErrSigningKeyInvalid):
+		return fmt.Errorf("%w: %w", ErrSigningKeyInvalid, err)
+	case errors.Is(err, jwt.ErrAlgorithmNotAllowed):
+		return fmt.Errorf("%w: %w", ErrAlgorithmNotAllowed, err)
+	default:
+		// Any other signing failure (bad key type, entropy failure) still maps to
+		// the documented sentinel so callers can match ErrSigningKeyInvalid.
+		return fmt.Errorf("%w: %w", ErrSigningKeyInvalid, err)
+	}
+}
+
+// toJWTAlgorithms converts the selfjwt allow-list to the auth/jwt algorithm type
+// shared by the minter's signer and the verifier.
+func toJWTAlgorithms(algs []Algorithm) []jwt.Algorithm {
+	out := make([]jwt.Algorithm, len(algs))
+	for i, a := range algs {
+		out[i] = jwt.Algorithm(a)
+	}
+	return out
 }
 
 // newID returns a random 128-bit token id as a hex string.

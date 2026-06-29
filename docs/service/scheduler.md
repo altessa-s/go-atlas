@@ -643,6 +643,20 @@ if sched.IsLeader() {
 
 When no `WithLeaderElector` is provided, `IsLeader` always returns `true`.
 
+### Single execution is enforced at the storage layer
+
+Leadership is a **throughput optimization, not a correctness dependency**. A leader-election lease can briefly overlap — a frozen or partitioned
+former leader may still believe `IsLeader()` while a new leader takes over — so two instances can dispatch the *same* occurrence at once. To make
+duplicate execution impossible regardless, the scheduler claims each run through `Storage.ClaimRun`, a single atomic compare-and-swap:
+
+- The write matches on `status == active` and, for the scheduled occurrence, `next_run_at == expectedNextRunAt` (the occurrence fence), flipping the
+  task to `running` in one operation. Exactly one concurrent caller can match, so exactly one wins the claim; the loser skips the tick.
+- MongoDB implements it as one conditional `UpdateOne`; Redis as a single server-side `EVAL` (Lua) script; the memory backend under its mutex. All
+  three are atomic read-check-write, so the guarantee holds even during a leader-election split-brain window.
+
+The result: even if `IsLeader()` is wrong for a moment, a task function still runs at most once per occurrence. See also the fencing token exposed by
+[`data/leadelect`](../data/leadelect/README.md) (`LeaderElector.Fence`), which a store can additionally use to reject a stale leader's writes.
+
 ---
 
 ## Readiness probe

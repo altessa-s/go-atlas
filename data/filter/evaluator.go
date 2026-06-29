@@ -156,14 +156,11 @@ func (e *Evaluator) VisitIdent(n *IdentNode) (any, error) {
 
 // VisitBinaryOp evaluates binary operations.
 func (e *Evaluator) VisitBinaryOp(n *BinaryOpNode) (any, error) {
-	if err := e.checkOps(); err != nil {
+	done, err := e.enterNode()
+	if err != nil {
 		return nil, err
 	}
-	if err := e.checkDepth(); err != nil {
-		return nil, err
-	}
-	e.depth++
-	defer func() { e.depth-- }()
+	defer done()
 
 	switch n.Op {
 	case OpAnd:
@@ -179,14 +176,11 @@ func (e *Evaluator) VisitBinaryOp(n *BinaryOpNode) (any, error) {
 
 // VisitUnaryOp evaluates unary operations.
 func (e *Evaluator) VisitUnaryOp(n *UnaryOpNode) (any, error) {
-	if err := e.checkOps(); err != nil {
+	done, err := e.enterNode()
+	if err != nil {
 		return nil, err
 	}
-	if err := e.checkDepth(); err != nil {
-		return nil, err
-	}
-	e.depth++
-	defer func() { e.depth-- }()
+	defer done()
 
 	if n.Op != OpNot {
 		return nil, coreerrs.Wrapf(ErrUnsupportedOperation, "unary operator %v", n.Op)
@@ -205,14 +199,11 @@ func (e *Evaluator) VisitUnaryOp(n *UnaryOpNode) (any, error) {
 
 // VisitCall evaluates function calls.
 func (e *Evaluator) VisitCall(n *CallNode) (any, error) {
-	if err := e.checkOps(); err != nil {
+	done, err := e.enterNode()
+	if err != nil {
 		return nil, err
 	}
-	if err := e.checkDepth(); err != nil {
-		return nil, err
-	}
-	e.depth++
-	defer func() { e.depth-- }()
+	defer done()
 
 	switch n.Op {
 	case OpContains:
@@ -252,50 +243,45 @@ func (e *Evaluator) VisitList(n *ListNode) (any, error) {
 
 // evalLogicalAnd short-circuits on false.
 func (e *Evaluator) evalLogicalAnd(left, right Node) (any, error) {
-	lv, err := left.Accept(e)
-	if err != nil {
-		return nil, err
-	}
-	lb, ok := lv.(bool)
-	if !ok {
-		return nil, coreerrs.Wrap(ErrInvalidExpression, "&& requires bool operands")
-	}
-	if !lb {
-		return false, nil
-	}
-	rv, err := right.Accept(e)
-	if err != nil {
-		return nil, err
-	}
-	rb, ok := rv.(bool)
-	if !ok {
-		return nil, coreerrs.Wrap(ErrInvalidExpression, "&& requires bool operands")
-	}
-	return rb, nil
+	return e.evalLogical(left, right, "&&", false)
 }
 
 // evalLogicalOr short-circuits on true.
 func (e *Evaluator) evalLogicalOr(left, right Node) (any, error) {
-	lv, err := left.Accept(e)
+	return e.evalLogical(left, right, "||", true)
+}
+
+// evalLogical evaluates a short-circuiting binary boolean operator. When the
+// left operand equals shortCircuit, that value is returned without evaluating
+// the right operand (false for &&, true for ||). opName labels the operator in
+// error messages.
+func (e *Evaluator) evalLogical(left, right Node, opName string, shortCircuit bool) (any, error) {
+	lb, err := e.evalBoolOperand(left, opName)
 	if err != nil {
 		return nil, err
 	}
-	lb, ok := lv.(bool)
-	if !ok {
-		return nil, coreerrs.Wrap(ErrInvalidExpression, "|| requires bool operands")
+	if lb == shortCircuit {
+		return shortCircuit, nil
 	}
-	if lb {
-		return true, nil
-	}
-	rv, err := right.Accept(e)
+	rb, err := e.evalBoolOperand(right, opName)
 	if err != nil {
 		return nil, err
-	}
-	rb, ok := rv.(bool)
-	if !ok {
-		return nil, coreerrs.Wrap(ErrInvalidExpression, "|| requires bool operands")
 	}
 	return rb, nil
+}
+
+// evalBoolOperand evaluates n and asserts the result is a bool. opName labels
+// the operator in the error message.
+func (e *Evaluator) evalBoolOperand(n Node, opName string) (bool, error) {
+	v, err := n.Accept(e)
+	if err != nil {
+		return false, err
+	}
+	b, ok := v.(bool)
+	if !ok {
+		return false, coreerrs.Wrapf(ErrInvalidExpression, "%s requires bool operands", opName)
+	}
+	return b, nil
 }
 
 // evalComparison evaluates comparison operators.
@@ -344,50 +330,54 @@ func (e *Evaluator) evalIn(left, right Node) (any, error) {
 	return false, nil
 }
 
-// evalStringFunc evaluates contains/startsWith/endsWith.
-func (e *Evaluator) evalStringFunc(n *CallNode, fn func(string, string) bool) (any, error) {
+// stringCallArgs resolves the target and the single string argument shared by
+// the string-valued call functions (contains/startsWith/endsWith/matches). A
+// non-string target yields handled=false with no error so the caller can return
+// false — matching the permissive semantics on non-string fields. label names
+// the function in error messages.
+func (e *Evaluator) stringCallArgs(n *CallNode, label string) (s, arg string, handled bool, err error) {
 	target, err := n.Target.Accept(e)
 	if err != nil {
-		return nil, err
+		return "", "", false, err
 	}
 	s, ok := target.(string)
 	if !ok {
-		return false, nil
+		return "", "", false, nil
 	}
 	if len(n.Args) != 1 {
-		return nil, coreerrs.Wrap(ErrInvalidExpression, "string function requires exactly 1 argument")
+		return "", "", false, coreerrs.Wrapf(ErrInvalidExpression, "%s requires exactly 1 argument", label)
 	}
-	arg, err := n.Args[0].Accept(e)
+	av, err := n.Args[0].Accept(e)
+	if err != nil {
+		return "", "", false, err
+	}
+	arg, ok = av.(string)
+	if !ok {
+		return "", "", false, coreerrs.Wrapf(ErrInvalidExpression, "%s argument must be a string", label)
+	}
+	return s, arg, true, nil
+}
+
+// evalStringFunc evaluates contains/startsWith/endsWith.
+func (e *Evaluator) evalStringFunc(n *CallNode, fn func(string, string) bool) (any, error) {
+	s, substr, handled, err := e.stringCallArgs(n, "string function")
 	if err != nil {
 		return nil, err
 	}
-	substr, ok := arg.(string)
-	if !ok {
-		return nil, coreerrs.Wrap(ErrInvalidExpression, "string function argument must be a string")
+	if !handled {
+		return false, nil
 	}
 	return fn(s, substr), nil
 }
 
 // evalMatches evaluates regex matching.
 func (e *Evaluator) evalMatches(n *CallNode) (any, error) {
-	target, err := n.Target.Accept(e)
+	s, pattern, handled, err := e.stringCallArgs(n, "matches()")
 	if err != nil {
 		return nil, err
 	}
-	s, ok := target.(string)
-	if !ok {
+	if !handled {
 		return false, nil
-	}
-	if len(n.Args) != 1 {
-		return nil, coreerrs.Wrap(ErrInvalidExpression, "matches() requires exactly 1 argument")
-	}
-	arg, err := n.Args[0].Accept(e)
-	if err != nil {
-		return nil, err
-	}
-	pattern, ok := arg.(string)
-	if !ok {
-		return nil, coreerrs.Wrap(ErrInvalidExpression, "matches() argument must be a string")
 	}
 	if vErr := ValidateRegex(pattern, e.config.MaxRegexLength()); vErr != nil {
 		return nil, vErr
@@ -491,38 +481,35 @@ func (e *Evaluator) evalIntArg(n Node) (int64, error) {
 	return i, nil
 }
 
-// lookupField resolves a potentially dotted field path in the data map.
-func lookupField(data map[string]any, field string) any {
-	parts := strings.Split(field, ".")
+// walkField resolves a potentially dotted field path in the data map. The
+// second result reports whether the full path exists; the first holds the value
+// at that path (nil when the path is absent).
+func walkField(data map[string]any, field string) (any, bool) {
 	var current any = data
-	for _, part := range parts {
+	for part := range strings.SplitSeq(field, ".") {
 		m, ok := current.(map[string]any)
 		if !ok {
-			return nil
+			return nil, false
 		}
 		current, ok = m[part]
 		if !ok {
-			return nil
+			return nil, false
 		}
 	}
-	return current
+	return current, true
+}
+
+// lookupField resolves a potentially dotted field path in the data map,
+// returning nil when the path is absent.
+func lookupField(data map[string]any, field string) any {
+	v, _ := walkField(data, field)
+	return v
 }
 
 // fieldExists checks whether a dotted field path exists in the data map.
 func fieldExists(data map[string]any, field string) bool {
-	parts := strings.Split(field, ".")
-	var current any = data
-	for _, part := range parts {
-		m, ok := current.(map[string]any)
-		if !ok {
-			return false
-		}
-		current, ok = m[part]
-		if !ok {
-			return false
-		}
-	}
-	return true
+	_, ok := walkField(data, field)
+	return ok
 }
 
 // compare performs typed comparison.
@@ -621,6 +608,21 @@ func valuesEqual(a, b any) bool {
 		return an == bn
 	}
 	return a == b
+}
+
+// enterNode runs the per-node operation and depth guards shared by the
+// compound visitor methods (binary, unary, call). On success it increments the
+// recursion depth and returns a cleanup function the caller must defer to
+// restore it.
+func (e *Evaluator) enterNode() (func(), error) {
+	if err := e.checkOps(); err != nil {
+		return nil, err
+	}
+	if err := e.checkDepth(); err != nil {
+		return nil, err
+	}
+	e.depth++
+	return func() { e.depth-- }, nil
 }
 
 func (e *Evaluator) checkDepth() error {

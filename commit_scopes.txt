@@ -11,6 +11,7 @@ auth/oidc                   # OIDC/JWT validation, JWKS
 auth/opa                    # Open Policy Agent integration
 auth/static                 # Static auth provider
 auth/selfjwt                # Self-signed JWT auth provider
+auth/jwt                    # JWT auth utilities
 
 # Commands
 cmd                         # CLI tools and commands

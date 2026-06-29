@@ -97,7 +97,7 @@ func (p *Provider) UserInfo(ctx context.Context, tokenSource oauth2.TokenSource)
 	mediaType, _, parseErr := mime.ParseMediaType(ct)
 	if parseErr == nil && mediaType == "application/jwt" {
 		// Verify JWT signature and extract claims in a single operation
-		claims, err := p.verifySignature(string(body))
+		claims, err := p.verifySignature(ctx, string(body))
 		if err != nil {
 			return nil, coreerrs.WrapOperation(err, "verify userinfo JWT signature")
 		}

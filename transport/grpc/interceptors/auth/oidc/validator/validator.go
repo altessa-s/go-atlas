@@ -36,7 +36,7 @@ type DefaultValidator struct {
 //   - Email: "email"
 //   - Issuer: "iss"
 //   - Audience: "aud"
-//   - Scopes: "scopes"
+//   - Scopes: "scope"
 //   - Expires At: "exp"
 //   - Issued At: "iat"
 //   - Not Before: "nbf"
@@ -60,9 +60,9 @@ func NewDefaultValidator(p Provider, opts ...Option) *DefaultValidator {
 //  1. Verifies the token signature and validity via the OIDC provider
 //  2. Extracts standard OIDC claims (sub, iss, aud, exp, iat, nbf)
 //  3. Extracts user information claims (preferred_username, name, email, etc.)
-//  4. Extracts OAuth 2.0 scopes from the "scopes" claim
+//  4. Extracts OAuth 2.0 scopes from the "scope" claim
 //
-// The scopes claim is extracted from the "scopes" key and can be provided as:
+// The scopes claim is extracted from the "scope" key and can be provided as:
 //   - A space-separated string (e.g., "openid profile email")
 //   - An array of strings (e.g., ["openid", "profile", "email"])
 //   - An array of mixed types (non-string values are filtered out)

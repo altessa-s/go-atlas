@@ -52,6 +52,9 @@ func TestKeyCacheEnforcesMaxEntries(t *testing.T) {
 	// A churn of distinct kids must never grow the cache beyond the cap.
 	for i := range max * 4 {
 		c.put("s", strconv.Itoa(i), VerificationKey{Algorithm: AlgEdDSA})
-		require.LessOrEqual(t, len(c.items), max)
+		c.mu.RLock()
+		n := len(c.items)
+		c.mu.RUnlock()
+		require.LessOrEqual(t, n, max)
 	}
 }
