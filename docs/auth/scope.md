@@ -15,6 +15,7 @@ with no knowledge of transports, I/O, or what a principal is, so the same policy
   - [gRPC](#grpc)
   - [HTTP](#http)
   - [OIDC claims](#oidc-claims)
+  - [Roles](#roles)
 - [API Reference](#api-reference)
 - [Design Notes](#design-notes)
 - [See Also](#see-also)
@@ -118,6 +119,36 @@ import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth/oidc"
 enf := scope.NewEnforcer(reg, scope.ScopeAuthorizer(oidc.ScopesOf, scope.Exact()))
 ```
 
+### Roles
+
+When a service models access as roles rather than raw scopes, `RoleScopes` maps roles to scopes so it can still drive the scope `Enforcer`.
+The core stays role-agnostic: the role→scope table is the caller's policy, and a caller-supplied `rolesOf` extractor reads roles off the
+principal — no role or identity field enters the core. `RoleAuthorizer` is the thin composite over `ScopeAuthorizer` + `RoleScopesOf`.
+
+```go
+type Principal struct {
+    Roles     []string
+    Superuser bool
+}
+
+rs := scope.NewRoleScopes(map[string][]scope.Scope{
+    "viewer": {"files:read"},
+    "editor": {"files:read", "files:write"},
+    "admin":  {"files:read", "files:write", "users:manage"},
+})
+
+// rolesOf reads roles off the caller's own principal; the core never names a role field.
+authorize := scope.RoleAuthorizer(func(p *Principal) []string { return p.Roles }, rs, scope.Exact())
+
+// Add a superuser bypass exactly as with a plain scope authorizer:
+authorize = scope.AnyOf(authorize, func(p *Principal, _ scope.Scope) bool { return p.Superuser })
+
+enf := scope.NewEnforcer(reg, authorize)
+```
+
+`RoleScopes.ScopesFor(roles…)` returns the deduplicated union of the roles' scopes (unknown roles contribute nothing), and
+`RoleScopesOf(rolesOf, rs)` is the `scopesOf` adapter if you prefer to build the authorizer through `ScopeAuthorizer` yourself.
+
 ## API Reference
 
 | Symbol                                | Description                                                                                   |
@@ -130,6 +161,10 @@ enf := scope.NewEnforcer(reg, scope.ScopeAuthorizer(oidc.ScopesOf, scope.Exact()
 | `Exact()`                             | `Matcher` of flat membership. The default strategy.                                            |
 | `Wildcard(sep)`                       | `Matcher` honoring hierarchical grants: `"*"` and `"files:*"` (with `sep` `":"`) cover more.   |
 | `ScopeAuthorizer(scopesOf, m)`        | Build the common `Authorizer` from a scope extractor and a matcher.                            |
+| `NewRoleScopes(mapping)`              | Immutable role→scopes table from `map[string][]Scope`; scope slices are cloned.                |
+| `RoleScopes.ScopesFor(roles…)`        | Deduplicated union of the roles' scopes; unknown roles and a nil receiver yield nil.           |
+| `RoleScopesOf(rolesOf, rs)`           | Adapt a `rolesOf func(P) []string` into the `scopesOf` that `ScopeAuthorizer` expects.         |
+| `RoleAuthorizer(rolesOf, rs, m)`      | Convenience for `ScopeAuthorizer(RoleScopesOf(rolesOf, rs), m)` — roles stay caller-side.       |
 | `AnyOf(authorizers…)`                 | Compose authorizers with OR — granted if any is (empty denies). E.g. scope **or** superuser.    |
 | `AllOf(authorizers…)`                 | Compose authorizers with AND — granted only if all are (empty grants). E.g. scope **and** gate. |
 | `NewEnforcer(reg, authorize)`         | Enforcer backed by `reg`, delegating the satisfy decision to `authorize`.                      |

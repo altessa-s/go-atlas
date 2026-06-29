@@ -72,4 +72,19 @@
 //	if err := enf.Enforce(p, doc, "/docs.v1.Docs/Update"); err != nil {
 //	    // errors.Is(err, scope.ErrAccessDenied)
 //	}
+//
+// # Role-based access
+//
+// Services that model access as roles rather than raw scopes can map roles to
+// scopes with [RoleScopes] instead of hand-writing the expansion. The core stays
+// role-agnostic: the role→scope table is the caller's policy, and a caller-supplied
+// rolesOf extractor reads roles off the principal, so no role field enters the core.
+// [RoleAuthorizer] composes the table and extractor into a plain [Authorizer]:
+//
+//	rs := scope.NewRoleScopes(map[string][]scope.Scope{
+//	    "viewer": {"files:read"},
+//	    "editor": {"files:read", "files:write"},
+//	})
+//	authorize := scope.RoleAuthorizer(func(p *Principal) []string { return p.Roles }, rs, scope.Exact())
+//	enf := scope.NewEnforcer(reg, authorize) // OR-in a superuser bypass with scope.AnyOf if needed
 package scope
