@@ -17,16 +17,16 @@ import (
 )
 
 type mockValidator struct {
-	claims map[string]any
+	claims *Claims
 	err    error
 }
 
-func (m *mockValidator) ValidateToken(_ context.Context, _ string) (map[string]any, error) {
+func (m *mockValidator) ValidateToken(_ context.Context, _ string) (*Claims, error) {
 	return m.claims, m.err
 }
 
 func TestAuthFunc_Success(t *testing.T) {
-	v := &mockValidator{claims: map[string]any{"sub": "user1"}}
+	v := &mockValidator{claims: &Claims{Subject: "user1"}}
 	fn := AuthFunc(v)
 
 	req := auth.Request{
@@ -36,9 +36,9 @@ func TestAuthFunc_Success(t *testing.T) {
 
 	result, err := fn(t.Context(), req)
 	require.NoError(t, err)
-	claims, ok := result.(map[string]any)
-	require.True(t, ok, "expected map[string]any")
-	require.Equal(t, "user1", claims["sub"])
+	claims, ok := result.(*Claims)
+	require.True(t, ok, "expected *Claims")
+	require.Equal(t, "user1", claims.Subject)
 }
 
 func TestAuthFunc_MissingToken(t *testing.T) {
