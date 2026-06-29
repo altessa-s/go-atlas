@@ -522,7 +522,10 @@ func (b *ServerBuilder) WithErrStatusInterceptor() *ServerBuilder {
 // This is a programmatic interceptor — it is not driven by config and must be called explicitly.
 func (b *ServerBuilder) WithBufValidatorInterceptor() *ServerBuilder {
 	b.interceptors = append(b.interceptors, protovalidator.ServerInterceptor(
-		protovalidator.ValidatorFunc(bufhelpers.BuildValidator(bufhelpers.BuildValidationFilter())),
+		protovalidator.ValidatorFunc(bufhelpers.BuildValidator(
+			bufhelpers.BuildValidationFilter(),
+			bufhelpers.WithResolver(b.reasonResolver),
+		)),
 		protovalidator.WithLogger(b.Logger()),
 	))
 	return b

@@ -14,6 +14,7 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/cache"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/health"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/protovalidator/reasoncode"
 	"github.com/altessa-s/go-atlas/transport/internal/geoacl"
 
 	idempotencydata "github.com/altessa-s/go-atlas/data/idempotency"
@@ -79,6 +80,15 @@ func (b *ServerBuilder) Collector() metrics.Collector {
 // UseLimiter sets the rate limiter used by the limiter interceptor.
 func (b *ServerBuilder) UseLimiter(v sharedlimiter.Limiter) *ServerBuilder {
 	b.limiter = v
+	return b
+}
+
+// UseReasonCodeResolver sets the resolver used by the protovalidate interceptor
+// to translate validation rule IDs into canonical, client-facing reason codes.
+// It lets a service supply its own rule catalog (see [reasoncode.NewResolver]);
+// when unset, only the standard rules are mapped.
+func (b *ServerBuilder) UseReasonCodeResolver(v *reasoncode.Resolver) *ServerBuilder {
+	b.reasonResolver = v
 	return b
 }
 
