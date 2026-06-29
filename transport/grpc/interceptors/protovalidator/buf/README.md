@@ -7,32 +7,38 @@ import bufhelpers "github.com/altessa-s/go-atlas/transport/grpc/interceptors/pro
 Package `bufhelpers` provides helpers for working with buf protovalidate validation errors in gRPC interceptors.
 It converts validation violations into structured error responses with detailed field-level information.
 
+Each violation's `FieldViolation.Code` is a **canonical, client-facing reason code** — never the raw
+protovalidate rule ID. Standard rules map to registry codes (`int64.gte` → `INVALID_MIN_LENGTH_OR_VALUE`,
+`string.email` → `INVALID_FORMAT_EMAIL`), `required` becomes `{FIELD}_REQUIRED`, and any rule that is
+neither a known standard rule nor present in the supplied catalog resolves to `UNKNOWN`. See the
+[`reasoncode`](../reasoncode) package for the mapping and `WithResolver` to register a service's own
+rule catalog.
+
 ## Usage
 
 ```go
-// Create validator function
-validator := bufhelpers.BuildValidator()
+// Create a validator. Pass WithResolver to map a service's own rule IDs to
+// canonical reason codes; standard rules are mapped out of the box.
+validator := bufhelpers.BuildValidator(
+    bufhelpers.BuildValidationFilter(),
+    bufhelpers.WithResolver(reasoncode.NewResolver(myService.ReasonCodeCatalog)),
+)
 
 // Validate a proto message
-if err := validator(msg); err != nil {
-    // Error contains structured BadRequest details
+if err := validator(ctx, msg); err != nil {
+    // Error carries a BadRequest detail whose FieldViolations[].Code are
+    // canonical reason codes (e.g. INVALID_MIN_LENGTH_OR_VALUE).
     return err
 }
-
-// Build validation filter
-filter := bufhelpers.BuildValidationFilter()
-
-// Generate error codes from violations
-code := bufhelpers.BuildErrorCode("required", "userName")
-// Returns: "USER_NAME_REQUIRED"
 ```
 
 ## Key Functions
 
 | Function | Description |
 |----------|-------------|
-| `BuildValidator` | Creates a proto message validator with structured error details |
-| `BuildErrorCode` | Derives error codes from rule IDs and field paths |
+| `BuildValidator` | Creates a proto message validator with structured error details; accepts `WithResolver` |
+| `BuildErrorCode` | Maps a rule ID + field path to a canonical reason code (never the raw rule ID) |
+| `WithResolver` | Registers a service's reason-code catalog for the validator |
 | `BuildValidationFilter` | Returns filter controlling which messages are validated |
 | `BuildValidationError` | Formats violations into human-readable error strings |
 

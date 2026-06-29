@@ -9,9 +9,14 @@
 //   - [BuildValidator]: creates a proto message validator function that validates
 //     messages using [protovalidate.Validator], converts violations into structured
 //     [protovalidatev1.BadRequest] details attached to gRPC status responses, and
-//     generates human-readable error messages via [BuildValidationError].
-//   - [BuildErrorCode]: derives error codes from rule IDs and field paths
-//     (e.g., "required" on field "userName" produces "USER_NAME_REQUIRED").
+//     generates human-readable error messages via [BuildValidationError]. Pass
+//     [WithResolver] to supply a service's own reason-code catalog.
+//   - [BuildErrorCode]: maps a violation's rule ID and field path to a canonical,
+//     client-facing reason code — never the raw rule ID. "required" on field
+//     "userName" produces "USER_NAME_REQUIRED"; standard rules map to registry
+//     codes (e.g. "int64.gte" -> "INVALID_MIN_LENGTH_OR_VALUE"); unknown or
+//     uncatalogued rules become "UNKNOWN". See package
+//     [github.com/altessa-s/go-atlas/transport/grpc/interceptors/protovalidator/reasoncode].
 //   - [BuildValidationFilter]: returns a [protovalidate.FilterFunc] controlling
 //     which messages are validated (currently allows all).
 //   - [BuildValidationError]: joins all violations into a single formatted error
