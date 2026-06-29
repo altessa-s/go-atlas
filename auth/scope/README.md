@@ -103,6 +103,36 @@ if err := enf.Enforce(p, doc, "/docs.v1.Docs/Update"); err != nil {
 }
 ```
 
+## Role-based access
+
+Services that model access as roles rather than raw scopes can map roles to scopes with `RoleScopes` instead of hand-writing the
+expansion. The core stays role-agnostic: the role→scope table is the caller's policy, and a caller-supplied `rolesOf` extractor reads
+roles off the principal, so no role field enters the core. `RoleAuthorizer` composes the table and extractor into a plain `Authorizer`.
+
+| Type / Function                       | Description                                                                                       |
+|---------------------------------------|---------------------------------------------------------------------------------------------------|
+| `RoleScopes`                          | Immutable role→scopes table built once with `NewRoleScopes`, safe for concurrent reads.            |
+| `NewRoleScopes(mapping)`              | Build the table from `map[string][]Scope`; scope slices are cloned. Nil/empty grants nothing.      |
+| `RoleScopes.ScopesFor(roles…)`        | Union of the roles' scopes, first-seen order, deduplicated. Unknown roles and nil receiver → nil.  |
+| `RoleScopesOf[P](rolesOf, rs)`        | Adapt a `rolesOf func(P) []string` into the `scopesOf` that `ScopeAuthorizer` expects.             |
+| `RoleAuthorizer[P](rolesOf, rs, m)`   | Convenience for `ScopeAuthorizer(RoleScopesOf(rolesOf, rs), m)`.                                   |
+
+```go
+rs := scope.NewRoleScopes(map[string][]scope.Scope{
+    "viewer": {"files:read"},
+    "editor": {"files:read", "files:write"},
+    "admin":  {"files:read", "files:write", "users:manage"},
+})
+
+// rolesOf reads roles off the caller's own principal — the core never names a role field.
+authorize := scope.RoleAuthorizer(func(p *Principal) []string { return p.Roles }, rs, scope.Exact())
+
+// Add a superuser bypass exactly as with a plain scope authorizer:
+authorize = scope.AnyOf(authorize, func(p *Principal, _ scope.Scope) bool { return p.Superuser })
+
+enf := scope.NewEnforcer(reg, authorize)
+```
+
 ## Transports
 
 This is a policy primitive only. The gRPC adapter `ScopeClientAuth` in

@@ -274,7 +274,9 @@ if err := enf.Enforce(claims, "/files.v1.Files/Write"); err != nil {
 }
 ```
 
-Compose extra rules (superuser, tenant) by wrapping the authorizer — the core stays free of those fields. See [scope.md](scope.md).
+Compose extra rules (superuser, tenant) by wrapping the authorizer; the core stays free of those fields. If the service models access as
+roles, `scope.RoleAuthorizer(rolesOf, scope.NewRoleScopes(table), scope.Exact())` maps roles to scopes with roles still supplied by the
+caller. See [scope.md](scope.md).
 
 ### OPA policy with audit
 
