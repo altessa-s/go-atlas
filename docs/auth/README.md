@@ -98,15 +98,17 @@ when configuration is loaded from YAML/env through `config/loader`.
 
 ### Factory + config template
 
-Two packages ship a `factory/` builder that constructs the component from a config struct; the rest are configured directly in code.
+Three packages ship a `factory/` builder that constructs the component from a config struct; the rest are configured directly in code.
 
-| Package | Factory entrypoint                       | Config struct (Go)        | YAML template                       |
-|---------|------------------------------------------|---------------------------|-------------------------------------|
-| `oidc`  | `oidc/factory.New(cfg *config.OIDC) *ProviderBuilder` | `config.OIDC` (`config/auth_oidc.go`) | `config/templates/auth_oidc.yaml` |
-| `opa`   | `opa/factory.New(cfg *config.OPA) *ManagerBuilder`    | `config.OPA` (`config/opa.go`)        | — (configured via `config.OPA`)   |
+| Package | Factory entrypoint                       | Config struct (Go)                  | YAML template                       |
+|---------|------------------------------------------|-------------------------------------|-------------------------------------|
+| `oidc`  | `oidc/factory.New(cfg *config.OIDC) *ProviderBuilder` | `config.OIDC` (`config/auth_oidc.go`)  | `config/templates/auth_oidc.yaml`  |
+| `opa`   | `opa/factory.New(cfg *config.OPA) *ManagerBuilder`    | `config.OPA` (`config/opa.go`)         | — (configured via `config.OPA`)    |
+| `scope` | `scope/factory.New(cfg *config.ScopeRegistry) *RegistryBuilder` | `config.ScopeRegistry` (`config/auth_scope.go`) | `config/templates/auth_scope.yaml` |
 
 The builder pattern resolves dependencies and applies options; see each package's `factory/` README for the `Build`/accessor surface. The
-`config/templates/auth.yaml` template is the aggregate auth section consumed by `config/loader`.
+`config/templates/auth.yaml` template is the aggregate auth section consumed by `config/loader`. The `scope` factory builds only the
+deny-by-default registry from config — the matcher and authorizer stay in code, since they depend on the caller's principal type.
 
 ## Transport Wiring
 

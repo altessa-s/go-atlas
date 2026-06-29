@@ -16,6 +16,7 @@ with no knowledge of transports, I/O, or what a principal is, so the same policy
   - [HTTP](#http)
   - [OIDC claims](#oidc-claims)
   - [Roles](#roles)
+  - [Config-driven registry](#config-driven-registry)
 - [API Reference](#api-reference)
 - [Design Notes](#design-notes)
 - [See Also](#see-also)
@@ -148,6 +149,33 @@ enf := scope.NewEnforcer(reg, authorize)
 
 `RoleScopes.ScopesFor(roles…)` returns the deduplicated union of the roles' scopes (unknown roles contribute nothing), and
 `RoleScopesOf(rolesOf, rs)` is the `scopesOf` adapter if you prefer to build the authorizer through `ScopeAuthorizer` yourself.
+
+### Config-driven registry
+
+The registry can be built from configuration instead of by hand, symmetric with the OPA factory. `auth/scope/factory.New(cfg).Build()`
+registers the rules in a `config.ScopeRegistry` and returns a frozen registry. Only the key→scope table is declarative; the matcher and
+authorizer stay in code, since they depend on the principal type.
+
+```go
+import scopefactory "github.com/altessa-s/go-atlas/auth/scope/factory"
+
+reg, err := scopefactory.New(&cfg.Scope).Build() // cfg.Scope is a config.ScopeRegistry
+if err != nil {
+    return err
+}
+enf := scope.NewEnforcer(reg, scope.ScopeAuthorizer(scopesOf, scope.Exact()))
+```
+
+```yaml
+scope:
+  rules:
+    - scope: "files:read"
+      keys: ["/files.v1.Files/Read", "/files.v1.Files/List"]
+    - scope: ""               # public
+      keys: ["/health.v1.Health/Check"]
+```
+
+`Build` rejects a nil config, a rule with no keys, or an action key that appears in more than one rule.
 
 ## API Reference
 
