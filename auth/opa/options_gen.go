@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/altessa-s/go-atlas/auth/audit"
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
@@ -16,6 +17,16 @@ import (
 
 // Option is a functional option for configuring options.
 type Option func(o *options)
+
+// WithAuditRecorder sets the auditRecorder option.
+func WithAuditRecorder(v *audit.Recorder) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.auditRecorder = v
+	}
+}
 
 // WithCollector sets the collector option.
 func WithCollector(v metrics.Collector) Option {

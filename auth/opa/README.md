@@ -30,6 +30,22 @@ HTTP bundles) with hot-reloading capabilities. Modular design with pluggable pol
 | `WithScheduler`          | nil       | Task registrar for periodic policy update cycles             |
 | `WithUpdateSchedule`     | --        | Cron expression and run-on-start flag for scheduled updates  |
 | `WithHealthCoordinator`  | nil       | Register manager with health coordinator                     |
+| `WithAuditRecorder`      | nil       | Record every evaluation decision through an `*audit.Recorder` |
+
+## Auditing
+
+`WithAuditRecorder` wires an [`auth/audit`](../audit/) `*Recorder` so every evaluation produces an authorization `Decision`. The recorder is
+nil-safe and applies its own policies: under the default deny-only mode grants are dropped and only denials are recorded. Each decision carries
+`Action` set to the manager's Rego query, an `engine=opa` attribute (plus `revision` when a bundle revision is loaded), and, for denials, a
+`Reason` of the result `DecisionID` when decision logging is enabled or `"deny"` otherwise. Recording never changes the verdict in the default
+best-effort failure mode; under `audit.FailureRequired` a failed write on an *allowed* evaluation makes `Evaluate` return an error wrapping
+`audit.ErrAuditFailed`, so nothing proceeds unrecorded.
+
+```go
+manager, err := opa.NewManager(ctx, source, "data.authz.allow",
+    opa.WithAuditRecorder(audit.NewRecorder(sink, audit.WithPolicyMode(audit.PolicyAll))),
+)
+```
 
 ## Errors
 

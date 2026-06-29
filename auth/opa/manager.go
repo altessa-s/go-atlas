@@ -17,6 +17,7 @@ import (
 	"github.com/open-policy-agent/opa/v1/storage"
 	"github.com/open-policy-agent/opa/v1/storage/inmem"
 
+	"github.com/altessa-s/go-atlas/auth/audit"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
@@ -370,9 +371,21 @@ func (e *regoEvaluator) Evaluate(ctx context.Context, input any) (*Result, error
 		return nil, coreerrs.WrapOperation(err, "evaluate policy")
 	}
 
+	r := e.resolveResult(results)
+	e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": allowDenyLabel(r.Allow)}).Inc()
+
+	if err := e.recordDecision(ctx, r); err != nil {
+		return nil, err
+	}
+
+	return r, nil
+}
+
+// resolveResult maps an OPA result set onto a [Result], handling the boolean,
+// structured-map, and empty/unrecognized cases (the latter two deny).
+func (e *regoEvaluator) resolveResult(results rego.ResultSet) *Result {
 	if len(results) == 0 || len(results[0].Expressions) == 0 {
-		e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": "deny"}).Inc()
-		return e.buildResult(false), nil
+		return e.buildResult(false)
 	}
 
 	val := results[0].Expressions[0].Value
@@ -380,21 +393,44 @@ func (e *regoEvaluator) Evaluate(ctx context.Context, input any) (*Result, error
 	// Path A: Boolean result (backward compatible).
 	// Queries like "data.authz.allow" return a plain bool.
 	if allow, ok := val.(bool); ok {
-		e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": allowDenyLabel(allow)}).Inc()
-		return e.buildResult(allow), nil
+		return e.buildResult(allow)
 	}
 
 	// Path B: Map result (structured).
 	// Queries like "data.authz.result" return {"allow": bool, "denials": [...]}.
 	if m, ok := val.(map[string]any); ok {
-		r := e.buildResultFromMap(m)
-		e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": allowDenyLabel(r.Allow)}).Inc()
-		return r, nil
+		return e.buildResultFromMap(m)
 	}
 
 	// Fallback: unrecognized result type -> deny.
-	e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": "deny"}).Inc()
-	return e.buildResult(false), nil
+	return e.buildResult(false)
+}
+
+// recordDecision forwards the evaluation outcome to the configured audit
+// recorder. The recorder is nil-safe and drops grants under its deny-only
+// policy, so this is called unconditionally. A record failure aborts an
+// allowed evaluation (so nothing proceeds unrecorded) only when the recorder
+// runs in required-failure mode; on a denial the error is ignored.
+func (e *regoEvaluator) recordDecision(ctx context.Context, r *Result) error {
+	d := audit.Decision{
+		Time:       time.Now().UTC(),
+		Allowed:    r.Allow,
+		Action:     e.manager.query,
+		Attributes: map[string]string{"engine": "opa"},
+	}
+	if !r.Allow {
+		d.Reason = cmp.Or(r.DecisionID, "deny")
+	}
+	if rev := e.manager.Revision(); rev != "" {
+		d.Attributes["revision"] = rev
+	}
+
+	recErr := e.manager.opts.auditRecorder.Record(ctx, d)
+	if r.Allow && recErr != nil {
+		return coreerrs.WrapOperation(recErr, "record decision")
+	}
+
+	return nil
 }
 
 func allowDenyLabel(allow bool) string {
