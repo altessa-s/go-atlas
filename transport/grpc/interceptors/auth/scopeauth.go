@@ -7,7 +7,9 @@ package auth
 import (
 	"context"
 	"errors"
+	"time"
 
+	"github.com/altessa-s/go-atlas/auth/audit"
 	"github.com/altessa-s/go-atlas/auth/scope"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
@@ -70,15 +72,73 @@ var errPrincipalTypeMismatch = interceptors.NewError(
 //	    auth.WithAuthFunc(authFunc),
 //	    auth.WithClientAuth(auth.ScopeClientAuth(enf)),
 //	)
-func ScopeClientAuth[P any](e *scope.Enforcer[P]) ClientAuth {
+//
+// Pass [WithScopeAudit] to record every decision through an
+// [github.com/altessa-s/go-atlas/auth/audit.Recorder].
+func ScopeClientAuth[P any](e *scope.Enforcer[P], opts ...ScopeClientAuthOption[P]) ClientAuth {
+	var cfg scopeClientAuthConfig[P]
+	for _, opt := range opts {
+		opt(&cfg)
+	}
 	return ClientAuthFunc(func(ctx context.Context, cred Credentials) (context.Context, error) {
 		p, ok := cred.Data.(P)
 		if !ok {
-			return ctx, errPrincipalTypeMismatch
+			return ctx, cfg.finalize(ctx, cred, "", false, "principal_type_mismatch", errPrincipalTypeMismatch)
 		}
 		if err := e.Enforce(p, cred.FullyMethodName); err != nil {
-			return ctx, errScopeDenied
+			return ctx, cfg.finalize(ctx, cred, cfg.subject(p), false, "scope_denied", errScopeDenied)
 		}
-		return ctx, nil
+		return ctx, cfg.finalize(ctx, cred, cfg.subject(p), true, "", nil)
 	})
+}
+
+// ScopeClientAuthOption configures [ScopeClientAuth].
+type ScopeClientAuthOption[P any] func(*scopeClientAuthConfig[P])
+
+type scopeClientAuthConfig[P any] struct {
+	recorder  *audit.Recorder
+	subjectOf func(P) string
+}
+
+// WithScopeAudit records every authorization decision through rec, keyed on the
+// gRPC full method. subjectOf extracts the principal identity for the record;
+// pass nil to leave the subject empty (it is not called on a principal-type
+// mismatch, where no principal is available). When rec is configured with
+// audit.FailureRequired and recording an otherwise-allowed call fails, the call
+// is failed with codes.Internal so nothing proceeds unrecorded.
+func WithScopeAudit[P any](rec *audit.Recorder, subjectOf func(P) string) ScopeClientAuthOption[P] {
+	return func(c *scopeClientAuthConfig[P]) {
+		c.recorder = rec
+		c.subjectOf = subjectOf
+	}
+}
+
+func (c scopeClientAuthConfig[P]) subject(p P) string {
+	if c.subjectOf == nil {
+		return ""
+	}
+	return c.subjectOf(p)
+}
+
+// finalize records the decision when auditing is configured and returns the
+// authorization error to surface. A failed required audit on an allowed call
+// becomes a codes.Internal error so the call does not proceed unrecorded.
+func (c scopeClientAuthConfig[P]) finalize(
+	ctx context.Context, cred Credentials, subject string, allowed bool, reason string, authErr error,
+) error {
+	if c.recorder == nil {
+		return authErr
+	}
+	recErr := c.recorder.Record(ctx, audit.Decision{
+		Time:       time.Now().UTC(),
+		Allowed:    allowed,
+		Subject:    subject,
+		Action:     cred.FullyMethodName,
+		Reason:     reason,
+		Attributes: map[string]string{"transport": "grpc"},
+	})
+	if recErr != nil && authErr == nil {
+		return status.Error(codes.Internal, "authorization audit failed")
+	}
+	return authErr
 }
