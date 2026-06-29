@@ -77,6 +77,32 @@ if err := enf.Enforce(p, "/files.v1.Files/Write"); err != nil {
 }
 ```
 
+## Object-level authorization
+
+When a decision depends on the specific resource being acted on (ownership, per-object ACLs), use the resource-aware variants. They
+mirror the action-level API with one extra resource parameter `R`, the same deny-by-default registry, and the same fail-closed
+decision (unregistered key denied, empty scope public and resource not consulted).
+
+| Type / Function                       | Description                                                                                       |
+|---------------------------------------|---------------------------------------------------------------------------------------------------|
+| `ResourceAuthorizer[P, R]`            | `func(p P, r R, required Scope) bool` — object-level extension point (scope + ownership + tenant). |
+| `LiftAuthorizer[P, R](a)`             | Adapt an `Authorizer[P]` to a `ResourceAuthorizer[P, R]` that ignores the resource.                |
+| `ResourceAnyOf` / `ResourceAllOf`     | Compose resource authorizers with OR / AND (same identities as `AnyOf` / `AllOf`).                 |
+| `NewResourceEnforcer(reg, authorize)` | `ResourceEnforcer[P, R]` backed by `reg`.                                                          |
+| `ResourceEnforcer.Enforce(p, r, key)` | `nil` if allowed, else `ErrAccessDenied`.                                                          |
+
+```go
+base := scope.ScopeAuthorizer(func(p *Principal) []scope.Scope { return p.Scopes }, scope.Exact())
+scoped := scope.LiftAuthorizer[*Principal, *Doc](base)
+owns := func(p *Principal, d *Doc, _ scope.Scope) bool { return d.OwnerID == p.ID }
+
+// "has the scope AND owns the resource"; OR-in a superuser bypass if needed.
+enf := scope.NewResourceEnforcer(reg, scope.ResourceAllOf(scoped, owns))
+if err := enf.Enforce(p, doc, "/docs.v1.Docs/Update"); err != nil {
+    // errors.Is(err, scope.ErrAccessDenied)
+}
+```
+
 ## Transports
 
 This is a policy primitive only. The gRPC adapter `ScopeClientAuth` in
