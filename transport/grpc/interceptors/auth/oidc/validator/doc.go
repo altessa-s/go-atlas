@@ -88,7 +88,7 @@
 //
 // Scopes are automatically:
 //   - Filtered (empty strings removed)
-//   - Sorted alphabetically
+//   - Preserved in original token order
 //   - Returned as nil if no valid scopes found
 //
 // # Audience Handling
@@ -193,7 +193,7 @@
 //   - JWKS keys are cached by the OIDC provider implementation
 //   - Claims extraction is lightweight (JSON parsing)
 //   - Single-pass extraction with minimal allocations
-//   - Scope sorting is O(n log n) where n is number of scopes
+//   - Claim parsing is delegated to the shared auth/jwt accessors
 //
 // # Testing
 //

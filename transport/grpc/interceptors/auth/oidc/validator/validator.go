@@ -71,7 +71,8 @@ func NewDefaultValidator(p Provider, opts ...Option) *DefaultValidator {
 //   - An array of strings (e.g., ["openid", "profile", "email"])
 //   - An array of mixed types (non-string values are filtered out)
 //
-// Scopes are automatically sorted alphabetically for consistent ordering.
+// Scopes preserve their original token order. Claim parsing is delegated to the
+// shared github.com/altessa-s/go-atlas/auth/jwt accessors.
 //
 // Returns a Claims struct containing all extracted information, or an error
 // if token verification fails. Errors are logged using the configured logger.
