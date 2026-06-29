@@ -8,7 +8,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
+	"github.com/altessa-s/go-atlas/auth/audit"
 	"github.com/altessa-s/go-atlas/auth/static"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/auth"
@@ -69,19 +71,83 @@ func NewRateLimitedStore(store TokenStore, limiter RateLimiter, keyFn KeyFunc) *
 // causes via [errors.Is]. The original error chain is preserved for logs and
 // custom [auth.ErrorHandler] implementations.
 //
+// Pass [WithAudit] to record each authentication decision through an
+// [github.com/altessa-s/go-atlas/auth/audit.Recorder].
+//
 // Panics if store is nil — an unauthenticated middleware is not a usable
 // default.
-func AuthFunc(store TokenStore) auth.AuthFunc {
+func AuthFunc(store TokenStore, opts ...AuthOption) auth.AuthFunc {
 	if store == nil {
 		panic("transport/http/.../auth/static: AuthFunc requires a non-nil TokenStore")
+	}
+	var cfg authConfig
+	for _, opt := range opts {
+		opt(&cfg)
 	}
 	return auth.AuthenticateFunc(func(ctx context.Context, token string) (any, error) {
 		data, err := store.Validate(ctx, token)
 		if err != nil {
+			_ = cfg.record(ctx, nil, false, auditReason(err))
 			return nil, translateError(err)
+		}
+		if recErr := cfg.record(ctx, data, true, ""); recErr != nil {
+			return nil, recErr
 		}
 		return data, nil
 	})
+}
+
+// AuthOption configures [AuthFunc].
+type AuthOption func(*authConfig)
+
+type authConfig struct {
+	recorder  *audit.Recorder
+	subjectOf func(any) string
+}
+
+// WithAudit records each authentication decision through rec, with action
+// "authenticate". subjectOf extracts the principal identity from the value the
+// store returned on success; pass nil to leave the subject empty. When rec is
+// configured with audit.FailureRequired and recording an otherwise-successful
+// authentication fails, that error is returned so the request fails closed
+// (nothing proceeds unrecorded).
+func WithAudit(rec *audit.Recorder, subjectOf func(any) string) AuthOption {
+	return func(c *authConfig) {
+		c.recorder = rec
+		c.subjectOf = subjectOf
+	}
+}
+
+func (c authConfig) record(ctx context.Context, data any, allowed bool, reason string) error {
+	if c.recorder == nil {
+		return nil
+	}
+	subject := ""
+	if allowed && c.subjectOf != nil {
+		subject = c.subjectOf(data)
+	}
+	return c.recorder.Record(ctx, audit.Decision{
+		Time:       time.Now().UTC(),
+		Allowed:    allowed,
+		Subject:    subject,
+		Action:     "authenticate",
+		Reason:     reason,
+		Attributes: map[string]string{"transport": "http"},
+	})
+}
+
+// auditReason maps a store error to a stable audit reason token.
+func auditReason(err error) string {
+	switch {
+	case errors.Is(err, static.ErrTokenInvalid):
+		return "invalid_token"
+	case errors.Is(err, static.ErrTokenEmpty):
+		return "empty_token"
+	case errors.Is(err, static.ErrRateLimited):
+		return "rate_limited"
+	default:
+		return "error"
+	}
 }
 
 func translateError(err error) error {
