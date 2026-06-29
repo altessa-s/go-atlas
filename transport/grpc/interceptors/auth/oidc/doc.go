@@ -55,10 +55,13 @@
 //	        return nil, status.Error(codes.Unauthenticated, "no credentials")
 //	    }
 //
-//	    // Claims are stored in the Data field
-//	    claims := creds.Data.(map[string]any)
-//	    subject := claims["sub"].(string)
-//	    email := claims["email"].(string)
+//	    // The verified *Claims are stored in the Data field
+//	    claims, ok := creds.Data.(*oidc.Claims)
+//	    if !ok {
+//	        return nil, status.Error(codes.Unauthenticated, "unexpected credentials type")
+//	    }
+//	    subject := claims.Subject
+//	    email := claims.Email
 //
 //	    return s.getUserBySubject(subject)
 //	}
@@ -68,18 +71,17 @@
 // Implement the Validator interface for custom validation logic:
 //
 //	type CustomValidator struct {
-//	    provider oidc.Provider
+//	    inner oidc.Validator // e.g. a *validator.DefaultValidator
 //	}
 //
-//	func (v *CustomValidator) ValidateToken(ctx context.Context, token string) (map[string]any, error) {
-//	    // Validate token using provider
-//	    claims, err := v.provider.ValidateToken(ctx, token)
+//	func (v *CustomValidator) ValidateToken(ctx context.Context, token string) (*oidc.Claims, error) {
+//	    claims, err := v.inner.ValidateToken(ctx, token)
 //	    if err != nil {
 //	        return nil, err
 //	    }
 //
-//	    // Additional validation logic
-//	    if claims["tenant_id"] != "expected-tenant" {
+//	    // Additional validation logic against the raw claim set.
+//	    if claims.RawClaims["tenant_id"] != "expected-tenant" {
 //	        return nil, errors.New("invalid tenant")
 //	    }
 //
@@ -112,7 +114,7 @@
 //	        return nil, status.Error(codes.PermissionDenied, "method not registered in scope registry")
 //	    }
 //	    if requiredScope != "" {
-//	        userScopes := claims["scope"].([]string)
+//	        userScopes := claims.Scopes
 //	        if !hasScope(userScopes, requiredScope) {
 //	            return nil, status.Error(codes.PermissionDenied, "insufficient permissions")
 //	        }

@@ -19,6 +19,10 @@ type Provider interface {
 	ValidateToken(context.Context, string) (map[string]any, error)
 }
 
+// DefaultValidator satisfies [oidc.Validator]: it returns the verified token's
+// structured [oidc.Claims], so it drops straight into [oidc.AuthFunc].
+var _ oidc.Validator = (*DefaultValidator)(nil)
+
 // DefaultValidator validates tokens using an OIDC Provider and extracts
 // standard OIDC claims from the token. It uses fixed claim keys that follow
 // the OpenID Connect Core 1.0 specification.
