@@ -65,7 +65,7 @@ func NewRateLimitedStore(store TokenStore, limiter RateLimiter, keyFn KeyFunc) *
 // AuthFunc returns an [auth.AuthFunc] that validates the token against store.
 // Errors from store are wrapped so callers can match both the transport-level
 // [auth.ErrUnauthorized] / [auth.ErrInvalidToken] sentinels and the underlying
-// [static.ErrInvalidToken] / [static.ErrEmptyToken] / [static.ErrRateLimited]
+// [static.ErrTokenInvalid] / [static.ErrTokenEmpty] / [static.ErrRateLimited]
 // causes via [errors.Is]. The original error chain is preserved for logs and
 // custom [auth.ErrorHandler] implementations.
 //
@@ -86,7 +86,7 @@ func AuthFunc(store TokenStore) auth.AuthFunc {
 
 func translateError(err error) error {
 	switch {
-	case errors.Is(err, static.ErrInvalidToken), errors.Is(err, static.ErrEmptyToken):
+	case errors.Is(err, static.ErrTokenInvalid), errors.Is(err, static.ErrTokenEmpty):
 		return fmt.Errorf("%w: %w", auth.ErrUnauthorized, err)
 	case errors.Is(err, static.ErrRateLimited):
 		return fmt.Errorf("%w: %w", auth.ErrUnauthorized, err)

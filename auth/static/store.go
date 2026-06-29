@@ -22,7 +22,7 @@ const hmacKeySize = 32
 // Implementations must be safe for concurrent use.
 type TokenStore interface {
 	// Validate returns the data associated with token, or an error wrapping
-	// [ErrInvalidToken] / [ErrEmptyToken] if the token is rejected.
+	// [ErrTokenInvalid] / [ErrTokenEmpty] if the token is rejected.
 	Validate(ctx context.Context, token string) (any, error)
 }
 
@@ -75,7 +75,7 @@ func (s *InMemoryStore) Validate(_ context.Context, token string) (any, error) {
 
 	if token == "" {
 		s.recordValidation(false, start)
-		return nil, ErrEmptyToken
+		return nil, ErrTokenEmpty
 	}
 
 	key := s.digest(token)
@@ -85,7 +85,7 @@ func (s *InMemoryStore) Validate(_ context.Context, token string) (any, error) {
 
 	s.recordValidation(ok, start)
 	if !ok {
-		return nil, ErrInvalidToken
+		return nil, ErrTokenInvalid
 	}
 	return data, nil
 }

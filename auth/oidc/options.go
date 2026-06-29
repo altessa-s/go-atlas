@@ -155,11 +155,7 @@ type options struct {
 // These apply to all validations unless overridden by per-call options.
 func WithDefaultValidationOptions(vopt ...ValidationOption) Option {
 	return func(o *options) {
-		verifierOpts := &verifierOptions{}
-		for _, opt := range vopt {
-			opt(verifierOpts)
-		}
-		o.verifierOptions = verifierOpts
+		o.verifierOptions = newVerifierOptions(vopt...)
 	}
 }
 

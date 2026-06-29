@@ -36,16 +36,6 @@ func WithClock(v Clock) Option {
 	}
 }
 
-// WithClockSkew sets the clockSkew option.
-func WithClockSkew(v time.Duration) Option {
-	return func(o *options) {
-		if v < 0 {
-			return
-		}
-		o.clockSkew = v
-	}
-}
-
 // WithIssuer sets the issuer option.
 func WithIssuer[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
@@ -66,6 +56,16 @@ func WithIssuer[T interface{ string | *string }](v T) Option {
 			}
 			o.issuer = vv
 		}
+	}
+}
+
+// WithLeeway sets the leeway option.
+func WithLeeway(v time.Duration) Option {
+	return func(o *options) {
+		if v < 0 {
+			return
+		}
+		o.leeway = v
 	}
 }
 
@@ -103,8 +103,8 @@ func defaultOptions() *options {
 		cacheMaxEntries:   DefaultCacheMaxEntries,
 		cacheTTL:          DefaultCacheTTL,
 		clock:             defaultClock,
-		clockSkew:         DefaultClockSkew,
 		issuer:            DefaultIssuer,
+		leeway:            DefaultLeeway,
 		maxTokenLifetime:  DefaultMaxTokenLifetime,
 		rand:              defaultRand,
 	}

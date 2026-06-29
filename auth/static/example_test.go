@@ -90,7 +90,7 @@ func ExampleNewRateLimitedStore() {
 	// First bad attempt: passes Allow (budget=1), validation fails,
 	// RecordFailure drops the budget to zero.
 	_, err := store.Validate(context.Background(), "bad")
-	fmt.Println(errors.Is(err, static.ErrInvalidToken))
+	fmt.Println(errors.Is(err, static.ErrTokenInvalid))
 
 	// Second bad attempt: Allow now denies — budget exhausted.
 	_, err = store.Validate(context.Background(), "bad")

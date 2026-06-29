@@ -40,7 +40,7 @@ func NewVerifier(src KeyProvider, opts ...Option) *Verifier {
 		opts:  o,
 	}
 	jwtOpts := []jwt.Option{
-		jwt.WithLeeway(o.clockSkew),
+		jwt.WithLeeway(o.leeway),
 		jwt.WithClock(o.clock),
 		jwt.WithAllowedAlgorithms(toJWTAlgorithms(o.allowedAlgorithms)...),
 	}

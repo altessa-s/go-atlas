@@ -21,9 +21,10 @@ const (
 	// DefaultMaxTokenLifetime is the ceiling a requested token TTL is clamped to.
 	DefaultMaxTokenLifetime = 30 * 24 * time.Hour
 
-	// DefaultClockSkew is the leeway applied to exp / nbf verification to tolerate
-	// clock drift between minter and verifier.
-	DefaultClockSkew = 30 * time.Second
+	// DefaultLeeway is the clock-skew tolerance applied to exp / nbf verification
+	// to absorb clock drift between minter and verifier. Named to match
+	// [github.com/altessa-s/go-atlas/auth/jwt.DefaultLeeway].
+	DefaultLeeway = 30 * time.Second
 
 	// DefaultCacheTTL is how long a resolved verification key is cached in
 	// process before it is reloaded from the key provider.
@@ -42,7 +43,7 @@ var defaultRand io.Reader = rand.Reader
 type options struct {
 	issuer            string        `optgen:"default=DefaultIssuer"`
 	maxTokenLifetime  time.Duration `optgen:"default=DefaultMaxTokenLifetime"`
-	clockSkew         time.Duration `optgen:"default=DefaultClockSkew" optval:"positive=allow_zero"`
+	leeway            time.Duration `optgen:"default=DefaultLeeway" optval:"positive=allow_zero"`
 	cacheTTL          time.Duration `optgen:"default=DefaultCacheTTL" optval:"positive=allow_zero"`
 	cacheMaxEntries   int           `optgen:"default=DefaultCacheMaxEntries"`
 	allowedAlgorithms []Algorithm   `optgen:"manual,default=defaultAllowedAlgorithms"`

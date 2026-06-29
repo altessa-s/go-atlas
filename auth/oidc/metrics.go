@@ -8,6 +8,11 @@ import (
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
+// DefaultMetricsSubsystem is the Prometheus subsystem prefix applied to every
+// metric this package emits. It follows the auth_<package> scheme shared with
+// the sibling auth/* packages (auth_static, auth_selfjwt, auth_opa).
+const DefaultMetricsSubsystem = "auth_oidc"
+
 // oidcMetrics holds all Prometheus metrics for the OIDC provider.
 // When no [metrics.Collector] is provided, [metrics.Noop] is used and
 // all methods become zero-cost no-ops.
@@ -29,7 +34,7 @@ func newOIDCMetrics(c metrics.Collector) *oidcMetrics {
 		c = metrics.Noop()
 	}
 
-	scoped := c.WithSubsystem("oidc")
+	scoped := c.WithSubsystem(DefaultMetricsSubsystem)
 
 	return &oidcMetrics{
 		tokenValidations: scoped.MustCounter(metrics.MetricOpts{

@@ -90,7 +90,7 @@ func (p *Provider) UserInfo(ctx context.Context, tokenSource oauth2.TokenSource)
 	coreio.PutBuffer(buf)
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, coreerrs.Wrapf(ErrInvalidToken, "userinfo: unexpected status %s: %s", resp.Status, sanitizeErrorBody(body))
+		return nil, coreerrs.Wrapf(ErrTokenInvalid, "userinfo: unexpected status %s: %s", resp.Status, sanitizeErrorBody(body))
 	}
 
 	ct := resp.Header.Get("Content-Type")

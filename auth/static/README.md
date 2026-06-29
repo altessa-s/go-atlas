@@ -30,8 +30,8 @@ HMAC-SHA256 digest of each token. Used by the gRPC interceptor at `transport/grp
 
 | Error               | Returned when                                            |
 |---------------------|----------------------------------------------------------|
-| `ErrInvalidToken`   | Token is non-empty but not registered with the store     |
-| `ErrEmptyToken`     | Token is the empty string                                |
+| `ErrTokenInvalid`   | Token is non-empty but not registered with the store     |
+| `ErrTokenEmpty`     | Token is the empty string                                |
 | `ErrRateLimited`    | `RateLimitedStore` rejects a request via its `RateLimiter` |
 
 Compare with `errors.Is` rather than `==` — adapters in the transport packages wrap these errors with additional context.
@@ -49,7 +49,7 @@ store := static.NewInMemoryStore(
 )
 
 data, err := store.Validate(ctx, token)
-if errors.Is(err, static.ErrInvalidToken) {
+if errors.Is(err, static.ErrTokenInvalid) {
     // reject
 }
 ```

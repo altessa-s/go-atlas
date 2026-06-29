@@ -12,7 +12,7 @@ package selfjwt
 // — so they cannot drift apart through divergent option lists.
 //
 // Options that only one side consumes are harmless to the other: the minter
-// ignores WithAllowedAlgorithms / WithClockSkew, and the verifier ignores
+// ignores WithAllowedAlgorithms / WithLeeway, and the verifier ignores
 // WithMaxTokenLifetime / WithRand.
 func New(src KeyProvider, opts ...Option) (*Minter, *Verifier) {
 	return NewMinter(src, opts...), NewVerifier(src, opts...)

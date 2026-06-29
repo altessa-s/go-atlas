@@ -12,8 +12,8 @@
 #  # <duration> Acceptable clock skew when validating timestamps.
 #  # Compensates for small time differences between servers.
 #  # Recommended value: 30s-60s for production.
-#  # Default value: 10s
-#  clockSkew: 10s
+#  # Default value: 30s
+#  clockSkew: 30s
 #
 #  # <object> Token caching configuration.
 #  # Controls caching behavior for validated and revoked tokens.

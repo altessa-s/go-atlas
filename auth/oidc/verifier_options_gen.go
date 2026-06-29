@@ -232,6 +232,7 @@ func WithValidationSubject[T interface{ string | *string }](v T) ValidationOptio
 func defaultVerifierOptions() *verifierOptions {
 	return &verifierOptions{
 		expectedClaims: make(map[string]string),
+		leeway:         DefaultLeeway,
 	}
 }
 

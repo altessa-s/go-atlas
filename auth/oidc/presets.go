@@ -67,8 +67,7 @@ func (p *Provider) compilePresets() error {
 
 	for _, preset := range p.opts.presets {
 		// Apply preset options to create compiled verifier
-		ops := &verifierOptions{}
-		applyValidationOptions(ops, preset.options...)
+		ops := newVerifierOptions(preset.options...)
 
 		// Compile CEL rules if any and store separately. A malformed CEL rule is
 		// a configuration error: fail fast at construction rather than silently
@@ -161,7 +160,7 @@ func (p *Provider) getPreset(name string) *ValidationPreset {
 func (p *Provider) ValidateTokenWithPreset(ctx context.Context, token string, presetName string, opt ...ValidationOption) (map[string]any, error) {
 	preset := p.getPreset(presetName)
 	if preset == nil {
-		return nil, coreerrs.Wrapf(ErrInvalidToken, "validation preset '%s' not found", presetName)
+		return nil, coreerrs.Wrapf(ErrTokenInvalid, "validation preset '%s' not found", presetName)
 	}
 
 	// Fast path: use pre-compiled verifier if no additional options
@@ -181,7 +180,7 @@ func (p *Provider) ValidateTokenWithPreset(ctx context.Context, token string, pr
 func (p *Provider) validateTokenWithPreset(ctx context.Context, token string, preset *ValidationPreset) (map[string]any, error) {
 	// Reject empty tokens immediately
 	if token == "" {
-		return nil, coreerrs.Wrap(ErrInvalidToken, "token is empty")
+		return nil, coreerrs.Wrap(ErrTokenInvalid, "token is empty")
 	}
 
 	if err := p.checkJWKSStaleness(ctx); err != nil {
@@ -211,7 +210,7 @@ func (p *Provider) validateTokenWithPreset(ctx context.Context, token string, pr
 	// Verify signature first (without claim validation)
 	claims, header, err := p.parseTokenWithoutClaimsValidation(ctx, token)
 	if err != nil {
-		return nil, coreerrs.Wrapf(ErrInvalidToken, "signature verification failed: %v", err)
+		return nil, coreerrs.Wrapf(ErrTokenInvalid, "signature verification failed: %v", err)
 	}
 
 	// Validate with pre-compiled verifier

@@ -8,11 +8,11 @@ import "errors"
 
 // Sentinel errors returned by [TokenStore] implementations.
 var (
-	// ErrInvalidToken is returned when the token is not registered with the store.
-	ErrInvalidToken = errors.New("auth/static: invalid token")
+	// ErrTokenInvalid is returned when the token is not registered with the store.
+	ErrTokenInvalid = errors.New("auth/static: invalid token")
 
-	// ErrEmptyToken is returned when an empty token is supplied.
-	ErrEmptyToken = errors.New("auth/static: empty token")
+	// ErrTokenEmpty is returned when an empty token is supplied.
+	ErrTokenEmpty = errors.New("auth/static: empty token")
 
 	// ErrRateLimited is returned when [RateLimitedStore] rejects a request
 	// because the supplied [RateLimiter] denies it.
