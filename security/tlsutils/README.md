@@ -15,6 +15,8 @@ Let's Encrypt), key formats (PKCS#8, PKCS#1, SEC1), and TLS 1.2+ defaults.
 | `LoadFromConcatenatedFile`    | Load cert + key from a single PEM file   |
 | `DefaultTLSConfig`            | Secure TLS 1.2+ server configuration     |
 | `DefaultClientTLSConfig`      | Secure TLS 1.2+ client configuration     |
+| `ClientTLSConfig`             | Strict client mTLS config presenting a cert from a provider |
+| `DialContext`                 | Dial a peer over mutual TLS using a client-cert provider |
 | `BuildCAPool`                 | Build certificate pool from CA files     |
 | `CloneCertificateWithOCSPStaple` | Attach OCSP staple to certificate     |
 

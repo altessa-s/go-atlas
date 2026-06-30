@@ -11,6 +11,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"net"
 	"os"
 	"strings"
 
@@ -330,6 +331,45 @@ func DefaultClientTLSConfigStrict(serverName string) *tls.Config {
 		MinVersion: tls.VersionTLS13,
 		ServerName: serverName,
 	}
+}
+
+// clientCertificateSource supplies the client certificate presented during
+// a TLS handshake. It is the consumer-side view of
+// tlsproviders.ClientCertificate, declared here so this package does not
+// import its own providers subpackage. The stdlib calls the method whenever
+// the server requests a client certificate (mutual TLS).
+type clientCertificateSource interface {
+	GetClientCertificate(*tls.CertificateRequestInfo) (*tls.Certificate, error)
+}
+
+// ClientTLSConfig builds a TLS 1.3 client configuration that presents a
+// client certificate supplied by src on every handshake, for mutual TLS on
+// outgoing connections. The certificate is pulled per handshake, so a
+// rotating source (file watcher, Vault lease) is reflected without rebuilding
+// the config. serverName is used for SNI and server-certificate verification
+// against the system roots; set RootCAs on the returned config to pin a
+// private CA.
+//
+// Example:
+//
+//	cfg := tlsutils.ClientTLSConfig(provider, "peer.internal")
+//	conn, err := tls.Dial("tcp", "peer.internal:8443", cfg)
+func ClientTLSConfig(src clientCertificateSource, serverName string) *tls.Config {
+	cfg := DefaultClientTLSConfigStrict(serverName)
+	cfg.GetClientCertificate = src.GetClientCertificate
+	return cfg
+}
+
+// DialContext opens a mutual-TLS connection to addr, presenting the client
+// certificate from src. It is a thin convenience over [ClientTLSConfig] and
+// [tls.Dialer]. An empty serverName lets the dialer derive it from addr.
+//
+// Example:
+//
+//	conn, err := tlsutils.DialContext(ctx, "tcp", "peer.internal:8443", provider, "")
+func DialContext(ctx context.Context, network, addr string, src clientCertificateSource, serverName string) (net.Conn, error) {
+	d := tls.Dialer{Config: ClientTLSConfig(src, serverName)}
+	return d.DialContext(ctx, network, addr)
 }
 
 // ResolveMinTLSVersion translates a human-readable version string
