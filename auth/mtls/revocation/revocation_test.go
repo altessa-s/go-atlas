@@ -15,6 +15,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -173,6 +174,91 @@ func TestCacheBounded(t *testing.T) {
 	require.NoError(t, c.Check(leafB)) // hit 2: caches B, evicts A (cap 1)
 	require.NoError(t, c.Check(leafA)) // hit 3: A was evicted → re-queries
 	require.Equal(t, int32(3), hits.Load())
+}
+
+// statusResponder always answers with a fixed HTTP status, counting hits.
+func statusResponder(t testing.TB, code int, hits *atomic.Int32) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(code)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestRetryClassification(t *testing.T) {
+	t.Parallel()
+	ca, caKey := makeCA(t)
+
+	t.Run("5xx is retried", func(t *testing.T) {
+		t.Parallel()
+		var hits atomic.Int32
+		srv := statusResponder(t, http.StatusInternalServerError, &hits)
+		leaf := makeLeaf(t, ca, caKey, 42, srv.URL)
+		_ = revocation.New([]*x509.Certificate{ca}, revocation.WithMaxAttempts(3)).Check(leaf)
+		require.Greater(t, hits.Load(), int32(1)) // retried beyond the first attempt
+	})
+
+	t.Run("4xx is terminal", func(t *testing.T) {
+		t.Parallel()
+		var hits atomic.Int32
+		srv := statusResponder(t, http.StatusBadRequest, &hits)
+		leaf := makeLeaf(t, ca, caKey, 43, srv.URL)
+		_ = revocation.New([]*x509.Certificate{ca}, revocation.WithMaxAttempts(3)).Check(leaf)
+		require.Equal(t, int32(1), hits.Load())
+	})
+}
+
+func TestSingleflightDedup(t *testing.T) {
+	t.Parallel()
+	ca, caKey := makeCA(t)
+	var hits atomic.Int32
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		<-release // hold the request in-flight so concurrent callers must dedup
+		serial := big.NewInt(42)
+		if body, rerr := io.ReadAll(r.Body); rerr == nil {
+			if req, perr := ocsp.ParseRequest(body); perr == nil {
+				serial = req.SerialNumber
+			}
+		}
+		der, err := ocsp.CreateResponse(ca, ca, ocsp.Response{
+			Status:       ocsp.Good,
+			SerialNumber: serial,
+			ThisUpdate:   time.Now().Add(-time.Minute),
+			NextUpdate:   time.Now().Add(time.Hour),
+			IssuerHash:   crypto.SHA256,
+		}, caKey)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/ocsp-response")
+		_, _ = w.Write(der)
+	}))
+	t.Cleanup(srv.Close)
+
+	leaf := makeLeaf(t, ca, caKey, 42, srv.URL)
+	c := revocation.New([]*x509.Certificate{ca})
+
+	const n = 8
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Go(func() { errs[i] = c.Check(leaf) })
+	}
+	// One shared query reaches the responder; broken dedup would let others in too.
+	require.Eventually(t, func() bool { return hits.Load() >= 1 }, time.Second, time.Millisecond)
+	time.Sleep(50 * time.Millisecond) // give any non-deduped calls time to arrive
+	close(release)
+	wg.Wait()
+
+	require.Equal(t, int32(1), hits.Load())
+	for _, e := range errs {
+		require.NoError(t, e)
+	}
 }
 
 func TestNilCertIsNoOp(t *testing.T) {

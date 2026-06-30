@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"slices"
 	"sync"
@@ -20,6 +21,7 @@ import (
 	"github.com/altessa-s/go-atlas/core/retry"
 
 	"golang.org/x/crypto/ocsp"
+	"golang.org/x/sync/singleflight"
 
 	coremtls "github.com/altessa-s/go-atlas/auth/mtls"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
@@ -45,6 +47,28 @@ var (
 	ErrUnknownStatus = errors.New("revocation: OCSP responder returned unknown status")
 )
 
+// responderStatusError carries a non-200 OCSP HTTP status so the retry filter
+// can distinguish a retryable 5xx from a terminal 4xx.
+type responderStatusError struct{ code int }
+
+func (e *responderStatusError) Error() string {
+	return fmt.Sprintf("revocation: OCSP responder returned status %d", e.code)
+}
+
+// shouldRetryOCSP retries only transient failures — network errors and HTTP 5xx.
+// Parse errors and 4xx responses are terminal, so they fail fast.
+func shouldRetryOCSP(err error) bool {
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	var statusErr *responderStatusError
+	if errors.As(err, &statusErr) {
+		return statusErr.code >= http.StatusInternalServerError
+	}
+	return false
+}
+
 // Checker performs live OCSP revocation checks against a peer's leaf certificate
 // and produces a [coremtls.CertValidator]. It is the network-backed counterpart
 // to the in-memory [coremtls.RevocationList]: instead of a static denylist it
@@ -68,6 +92,7 @@ type Checker struct {
 
 	mu    sync.RWMutex
 	cache map[string]cacheEntry
+	sf    singleflight.Group
 }
 
 type cacheEntry struct {
@@ -130,15 +155,36 @@ func (c *Checker) Check(leaf *x509.Certificate) error {
 		return nil
 	}
 
-	revoked, ttl, err := c.queryOCSP(leaf, issuer)
+	revoked, err := c.checkOnce(key, leaf, issuer)
 	if err != nil {
 		return c.indeterminate(err)
 	}
-	c.store(key, revoked, ttl)
 	if revoked {
 		return coremtls.ErrRevoked
 	}
 	return nil
+}
+
+// checkOnce performs the OCSP query for key, deduplicating concurrent misses for
+// the same certificate so a burst of handshakes triggers a single responder
+// round-trip — the rest share its result instead of stampeding the responder.
+func (c *Checker) checkOnce(key string, leaf, issuer *x509.Certificate) (bool, error) {
+	v, err, _ := c.sf.Do(key, func() (any, error) {
+		if e, ok := c.lookup(key); ok { // another caller may have just filled it
+			return e.revoked, nil
+		}
+		revoked, ttl, qerr := c.queryOCSP(leaf, issuer)
+		if qerr != nil {
+			return false, qerr
+		}
+		c.store(key, revoked, ttl)
+		return revoked, nil
+	})
+	if err != nil {
+		return false, err
+	}
+	revoked, _ := v.(bool)
+	return revoked, nil
 }
 
 // indeterminate applies the fail mode to a status that could not be confirmed.
@@ -231,6 +277,7 @@ func (c *Checker) queryOCSP(leaf, issuer *x509.Certificate) (revoked bool, ttl t
 		return nil
 	},
 		retry.WithMaxAttempts(c.maxAttempts),
+		retry.WithShouldRetry(shouldRetryOCSP),
 		retry.WithNextDelay(retry.Exponential(retry.ExponentialConfig{
 			BaseDelay: retryBaseDelay,
 			MaxDelay:  retryMaxDelay,
@@ -263,7 +310,7 @@ func (c *Checker) post(ctx context.Context, url string, body []byte) ([]byte, er
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("revocation: OCSP responder returned status %d", resp.StatusCode)
+		return nil, &responderStatusError{code: resp.StatusCode}
 	}
 	return io.ReadAll(io.LimitReader(resp.Body, maxOCSPRespBytes))
 }
