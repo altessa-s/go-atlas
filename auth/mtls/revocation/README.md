@@ -17,6 +17,7 @@ certificate, caches the answer until its NextUpdate, retries transient failures 
 | `WithTimeout(d)`        | Bounds a single check across all attempts (default 5s).                                        |
 | `WithMaxAttempts(n)`    | OCSP attempts with exponential backoff (default 3).                                            |
 | `WithMaxTTL(d)`         | Caps how long a status is cached, regardless of NextUpdate (default 1h).                       |
+| `WithMaxCacheEntries(n)`| Bounds the status cache (default 4096); on overflow it sweeps expired entries, then evicts one. |
 | `WithClock(now)`        | Time source override (tests).                                                                  |
 
 ## Issuers

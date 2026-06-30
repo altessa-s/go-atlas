@@ -15,6 +15,7 @@ authorization-decision audit trail — all with pluggable backends and automatic
 | [scope](./scope)     | Transport-neutral, deny-by-default scope-based authorization (core + gRPC/HTTP adapters) |
 | [selfjwt](./selfjwt) | Self-issued JWT minting and verification with per-subject keys and rotation; `New` builds a matched minter/verifier pair |
 | [mtls](./mtls)       | Verified mTLS client cert → principal core: identity + validators (expiry, trust-domain, revocation, subject/issuer/CA-pin, DNS-SAN, EKU) + audit; behind the gRPC/HTTP mTLS adapters |
+| [mtls/revocation](./mtls/revocation) | Live OCSP peer-revocation `CertValidator`: queries the issuer's responder, TTL-caches the result, fail-open/closed; network-backed complement to `mtls.RevocationList` |
 | [spiffe](./spiffe)   | SPIFFE ID parsing from X.509 certificates (trust domain + path); pure primitive behind the mTLS interceptor |
 | [static](./static)   | Static token / API-key validator for service-to-service auth               |
 

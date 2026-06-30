@@ -57,13 +57,14 @@ var (
 // certificates are supplied at construction (in mTLS these are the same CA
 // certificates configured as ClientCAs/RootCAs). Safe for concurrent use.
 type Checker struct {
-	issuers     []*x509.Certificate
-	httpClient  *http.Client
-	failMode    FailMode
-	timeout     time.Duration
-	maxAttempts int
-	maxTTL      time.Duration
-	now         func() time.Time
+	issuers         []*x509.Certificate
+	httpClient      *http.Client
+	failMode        FailMode
+	timeout         time.Duration
+	maxAttempts     int
+	maxTTL          time.Duration
+	maxCacheEntries int
+	now             func() time.Time
 
 	mu    sync.RWMutex
 	cache map[string]cacheEntry
@@ -87,14 +88,15 @@ func New(issuers []*x509.Certificate, opts ...Option) *Checker {
 		now = time.Now
 	}
 	return &Checker{
-		issuers:     slices.Clone(issuers),
-		httpClient:  hc,
-		failMode:    o.failMode,
-		timeout:     o.timeout,
-		maxAttempts: o.maxAttempts,
-		maxTTL:      o.maxTTL,
-		now:         now,
-		cache:       make(map[string]cacheEntry),
+		issuers:         slices.Clone(issuers),
+		httpClient:      hc,
+		failMode:        o.failMode,
+		timeout:         o.timeout,
+		maxAttempts:     o.maxAttempts,
+		maxTTL:          o.maxTTL,
+		maxCacheEntries: o.maxCacheEntries,
+		now:             now,
+		cache:           make(map[string]cacheEntry),
 	}
 }
 
@@ -178,8 +180,30 @@ func (c *Checker) store(key string, revoked bool, ttl time.Duration) {
 		return
 	}
 	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, exists := c.cache[key]; !exists && len(c.cache) >= c.maxCacheEntries {
+		c.evictLocked()
+	}
 	c.cache[key] = cacheEntry{revoked: revoked, expiry: c.now().Add(ttl)}
-	c.mu.Unlock()
+}
+
+// evictLocked drops expired entries to make room; if none are expired it drops
+// one arbitrary entry, keeping the cache bounded by maxCacheEntries. The caller
+// holds c.mu.
+func (c *Checker) evictLocked() {
+	now := c.now()
+	for k, e := range c.cache {
+		if now.After(e.expiry) {
+			delete(c.cache, k)
+		}
+	}
+	if len(c.cache) < c.maxCacheEntries {
+		return
+	}
+	for k := range c.cache { // still full: evict one to make room
+		delete(c.cache, k)
+		return
+	}
 }
 
 // queryOCSP fetches and parses the OCSP status, retrying transient failures.

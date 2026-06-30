@@ -40,15 +40,19 @@ const (
 	// DefaultMaxTTL caps how long a cached status is trusted, regardless of the
 	// responder's NextUpdate.
 	DefaultMaxTTL = time.Hour
+	// DefaultMaxCacheEntries bounds the in-memory status cache so a server
+	// presenting many distinct client certificates cannot grow it without limit.
+	DefaultMaxCacheEntries = 4096
 )
 
 type options struct {
-	httpClient  *http.Client     `optgen:"notnil"`
-	failMode    FailMode         `optgen:"manual,default=DefaultFailMode"`
-	timeout     time.Duration    `optgen:"default=DefaultTimeout"`
-	maxAttempts int              `optgen:"default=DefaultMaxAttempts"`
-	maxTTL      time.Duration    `optgen:"default=DefaultMaxTTL"`
-	now         func() time.Time `opt:"-"`
+	httpClient      *http.Client     `optgen:"notnil"`
+	failMode        FailMode         `optgen:"manual,default=DefaultFailMode"`
+	timeout         time.Duration    `optgen:"default=DefaultTimeout"`
+	maxAttempts     int              `optgen:"default=DefaultMaxAttempts"`
+	maxTTL          time.Duration    `optgen:"default=DefaultMaxTTL"`
+	maxCacheEntries int              `optgen:"default=DefaultMaxCacheEntries"`
+	now             func() time.Time `opt:"-"`
 }
 
 // WithFailMode selects how the checker reacts to an indeterminate status.
