@@ -14,7 +14,7 @@ authorization-decision audit trail — all with pluggable backends and automatic
 | [opa](./opa)         | OPA policy evaluation with hot-reload and event-driven architecture         |
 | [scope](./scope)     | Transport-neutral, deny-by-default scope-based authorization (core + gRPC/HTTP adapters) |
 | [selfjwt](./selfjwt) | Self-issued JWT minting and verification with per-subject keys and rotation; `New` builds a matched minter/verifier pair |
-| [mtls](./mtls)       | Verified mTLS client cert → principal core: identity + validators (expiry, trust-domain, revocation) + audit; behind the gRPC/HTTP mTLS adapters |
+| [mtls](./mtls)       | Verified mTLS client cert → principal core: identity + validators (expiry, trust-domain, revocation, subject/issuer/CA-pin, DNS-SAN, EKU) + audit; behind the gRPC/HTTP mTLS adapters |
 | [spiffe](./spiffe)   | SPIFFE ID parsing from X.509 certificates (trust domain + path); pure primitive behind the mTLS interceptor |
 | [static](./static)   | Static token / API-key validator for service-to-service auth               |
 

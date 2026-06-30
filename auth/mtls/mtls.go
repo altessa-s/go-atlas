@@ -163,6 +163,16 @@ func reasonOf(err error) string {
 		return "untrusted_domain"
 	case errors.Is(err, ErrRevoked):
 		return "revoked"
+	case errors.Is(err, ErrSubjectMismatch):
+		return "subject_mismatch"
+	case errors.Is(err, ErrIssuerMismatch):
+		return "issuer_mismatch"
+	case errors.Is(err, ErrUntrustedCA):
+		return "untrusted_ca"
+	case errors.Is(err, ErrDNSNameMismatch):
+		return "dns_mismatch"
+	case errors.Is(err, ErrEKUMissing):
+		return "eku_missing"
 	case errors.Is(err, spiffe.ErrNoSVID):
 		return "no_svid"
 	case errors.Is(err, spiffe.ErrMultipleURIs):

@@ -49,6 +49,7 @@ require (
 	github.com/shirou/gopsutil/v4 v4.26.4
 	github.com/sony/gobreaker/v2 v2.4.0
 	github.com/spf13/cobra v1.10.2
+	github.com/spiffe/go-spiffe/v2 v2.8.1
 	github.com/stretchr/testify v1.11.1
 	github.com/xakep666/mongo-migrate v0.4.1
 	github.com/yandex-cloud/go-genproto v0.82.0
