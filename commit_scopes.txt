@@ -14,6 +14,7 @@ auth/selfjwt                # Self-signed JWT auth provider
 auth/jwt                    # JWT auth utilities
 auth/scope                  # Scope management
 auth/audit                  # Audit logging for auth events
+auth/mtls                   # Mutual TLS support
 
 # Commands
 cmd                         # CLI tools and commands
@@ -170,6 +171,7 @@ security/tlsutils           # TLS utilities
 security/tlsutils/factory   # TLS factory
 security/tlsutils/ocsp      # OCSP stapling
 security/tlsutils/providers # TLS providers
+security/tlsutils/spiffe    # SPIFFE integration
 security/vault              # HashiCorp Vault
 security/vault/auth         # Vault authentication
 security/vault/factory      # Vault factory
