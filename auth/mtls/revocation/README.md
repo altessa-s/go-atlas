@@ -5,8 +5,9 @@ import "github.com/altessa-s/go-atlas/auth/mtls/revocation"
 ```
 
 Live OCSP peer-revocation as an [`auth/mtls`](../) `CertValidator`. A `Checker` queries the issuer's OCSP responder for the peer's leaf
-certificate, caches the answer until its NextUpdate, retries transient failures with backoff, and rejects a revoked peer with
-`coremtls.ErrRevoked`. It is the network-backed counterpart to the in-memory `coremtls.RevocationList`.
+certificate, caches the answer until its NextUpdate, retries only transient failures (network errors / HTTP 5xx) with backoff,
+deduplicates concurrent misses for the same certificate (singleflight), and rejects a revoked peer with `coremtls.ErrRevoked`. It is the
+network-backed counterpart to the in-memory `coremtls.RevocationList`.
 
 ## Options
 
