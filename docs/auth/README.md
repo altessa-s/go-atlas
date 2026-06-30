@@ -23,6 +23,7 @@ This document is the map; for depth on any one mechanism, follow the per-topic g
   - [Static API-key authentication (HTTP)](#static-api-key-authentication-http)
   - [OIDC token validation](#oidc-token-validation)
   - [Self-issued JWTs between services](#self-issued-jwts-between-services)
+  - [mTLS / SPIFFE identity](#mtls--spiffe-identity)
   - [Scope policy over OIDC claims](#scope-policy-over-oidc-claims)
   - [OPA policy with audit](#opa-policy-with-audit)
   - [Full gRPC server: OIDC + scope + audit](#full-grpc-server-oidc--scope--audit)
@@ -38,7 +39,7 @@ unit-tested with a fake principal.
 
 | Question                          | Layer    | Packages                                  |
 |-----------------------------------|----------|-------------------------------------------|
-| Who is the caller?                | AuthN    | `jwt`, [`oidc`](oidc.md), [`selfjwt`](selfjwt.md), [`static`](static.md) |
+| Who is the caller?                | AuthN    | `jwt`, [`oidc`](oidc.md), [`selfjwt`](selfjwt.md), [`static`](static.md), `spiffe`/`mtls` |
 | May this caller do this action?   | AuthZ    | [`scope`](scope.md), [`opa`](opa.md)      |
 | What was decided, and why?        | Audit    | [`audit`](audit.md)                       |
 
@@ -52,6 +53,9 @@ of its own. Audit records either layer's outcome.
 | `auth/jwt`                  | AuthN core  | Low-level JWT `Signer`/`Verifier`/`Claims` over golang-jwt; the shared core for selfjwt and oidc. | — |
 | `auth/oidc`                 | AuthN       | OIDC/JWT validation with JWKS auto-rotation, CEL claim rules, introspection, presets.          | [oidc.md](oidc.md) |
 | `auth/selfjwt`              | AuthN       | Self-issued JWT minting + verification with per-subject keys and rotation.                     | [selfjwt.md](selfjwt.md) |
+| `auth/spiffe`               | AuthN       | SPIFFE ID parsing from X.509 certificates (trust domain + path); pure primitive.              | — |
+| `auth/mtls`                 | AuthN       | Verified client cert → principal core: identity + validators (expiry, trust-domain, revocation) + audit. | — |
+| `transport/.../auth/mtls`   | AuthN       | gRPC interceptor + HTTP middleware deriving a principal from the verified mTLS client certificate. | — |
 | `auth/static`               | AuthN       | Static token / API-key validation for service-to-service calls, with optional rate limiting.   | [static.md](static.md) |
 | `auth/scope`                | AuthZ       | Transport-neutral, deny-by-default scope policy (`Registry` + `Enforcer` + `Matcher`).         | [scope.md](scope.md) |
 | `auth/opa`                  | AuthZ       | Open Policy Agent Rego evaluation with policy hot-reload and event-driven reload.              | [opa.md](opa.md) |
@@ -98,13 +102,15 @@ when configuration is loaded from YAML/env through `config/loader`.
 
 ### Factory + config template
 
-Three packages ship a `factory/` builder that constructs the component from a config struct; the rest are configured directly in code.
+Four packages ship a `factory/` builder that constructs the component (or its options) from a config struct; the rest are configured
+directly in code.
 
 | Package | Factory entrypoint                       | Config struct (Go)                  | YAML template                       |
 |---------|------------------------------------------|-------------------------------------|-------------------------------------|
 | `oidc`  | `oidc/factory.New(cfg *config.OIDC) *ProviderBuilder` | `config.OIDC` (`config/auth_oidc.go`)  | `config/templates/auth_oidc.yaml`  |
 | `opa`   | `opa/factory.New(cfg *config.OPA) *ManagerBuilder`    | `config.OPA` (`config/opa.go`)         | — (configured via `config.OPA`)    |
 | `scope` | `scope/factory.New(cfg *config.ScopeRegistry) *RegistryBuilder` | `config.ScopeRegistry` (`config/auth_scope.go`) | `config/templates/auth_scope.yaml` |
+| `mtls`  | `mtls/factory.New(cfg *config.MTLS) *Builder` (returns `[]mtls.Option`) | `config.MTLS` (`config/auth_mtls.go`) | `config/templates/auth_mtls.yaml`  |
 
 The builder pattern resolves dependencies and applies options; see each package's `factory/` README for the `Build`/accessor surface. The
 `config/templates/auth.yaml` template is the aggregate auth section consumed by `config/loader`. The `scope` factory builds only the
@@ -251,6 +257,36 @@ if err != nil {
 }
 _ = tok // verified claims; default leeway 30s
 ```
+
+### mTLS / SPIFFE identity
+
+In a mesh, the caller's identity is its verified mTLS client certificate. The transport-free core `auth/mtls` derives a principal (by
+default the certificate's SPIFFE ID), runs validators, and records audit; the gRPC interceptor and HTTP middleware only extract the verified
+certificate. Configure behavior with the core's options. The TLS credentials that require and verify the client cert are set up on the server
+separately (see `security/tlsutils`).
+
+```go
+import (
+    coremtls "github.com/altessa-s/go-atlas/auth/mtls"
+    grpcauth "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
+    grpcmtls "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth/mtls"
+)
+
+interceptor := grpcauth.ServerInterceptor(
+    grpcauth.WithAuthFn(grpcmtls.AuthFunc(                          // peer cert → spiffe.ID as Credentials.Data
+        coremtls.WithValidator(coremtls.ExpiryValidator(nil, 30*time.Second)),
+        coremtls.WithValidator(coremtls.TrustDomainValidator("example.org")),
+        coremtls.WithValidator(revocations.Validator()),           // a *coremtls.RevocationList
+        coremtls.WithAudit(rec, func(p any) string { id, _ := p.(spiffe.ID); return id.String() }),
+    )),
+    grpcauth.WithClientAuth(grpcauth.ScopeClientAuth(enf)),         // authorize on the spiffe.ID
+)
+```
+
+The same options drive the HTTP middleware `httpmtls.Middleware(opts…)` (it installs the principal via `auth.ContextWithPrincipal` for
+`ScopeMiddleware`). Override the principal with `coremtls.WithIdentity(func(*x509.Certificate) (any, error) { … })` — e.g. to carry the
+subject common name or pair the SPIFFE ID with `scope.RoleScopes`. Build the validator options from config with
+`mtls/factory.New(&cfg.MTLS).Options()`. A caller that did not complete mTLS is rejected with `codes.Unauthenticated` (gRPC) / 401 (HTTP).
 
 ### Scope policy over OIDC claims
 
