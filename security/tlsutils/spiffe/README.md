@@ -43,6 +43,13 @@ client := &http.Client{Transport: provider.HTTPTransport()}
 `Provider` exposes both sides: `MTLSServerConfig()` for inbound, and `MTLSClientConfig()` / `DialContext` / `HTTPTransport()` for outbound
 calls. Server identity is verified by SPIFFE ID, not DNS name.
 
+For gRPC, `ServerCredentials()` / `ClientCredentials()` return `credentials.TransportCredentials`:
+
+```go
+grpcServer := grpc.NewServer(grpc.Creds(provider.ServerCredentials()))
+conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(provider.ClientCredentials()))
+```
+
 Derive the authorizer from configuration with the [factory](./factory) subpackage:
 
 ```go
