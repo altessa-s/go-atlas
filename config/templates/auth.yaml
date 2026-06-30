@@ -1,5 +1,6 @@
 # Authentication and Authorization configuration.
-# Combines OpenID Connect (OIDC) and Open Policy Agent (OPA) settings.
+# Combines OpenID Connect (OIDC) and mutual-TLS authentication with Open Policy
+# Agent (OPA) and scope-registry authorization under a single node.
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.
 
@@ -8,6 +9,12 @@
 #  # Configures token validation, discovery, and provider integration.
 #  !include auth_oidc.yaml
 #
+#  # Mutual-TLS peer authentication — certificate-validation policy.
+#  !include auth_mtls.yaml
+#
 #  # Open Policy Agent (OPA) authorization settings.
 #  # Defines settings for policy evaluation, caching, and decision logging.
 #  !include opa.yaml
+#
+#  # Scope authorization registry — action-key→required-scope table.
+#  !include auth_scope.yaml
