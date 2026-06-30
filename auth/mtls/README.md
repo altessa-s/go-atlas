@@ -55,7 +55,8 @@ auth := mtls.NewAuthenticator(mtls.WithValidator(rl.Validator())) // rejects lis
 ```
 
 The `security/tlsutils/ocsp` helpers staple the *server's own* certificate status during the handshake; they do not answer "is this peer
-certificate revoked". For live OCSP / full CRL semantics over the client certificate, write your own `CertValidator`.
+certificate revoked". For **live** peer revocation the [`revocation`](./revocation) subpackage queries the issuer's OCSP responder, caches
+the result, and returns a `CertValidator` (`revocation.New(caCerts).Validator()`) — the network-backed complement to `RevocationList`.
 
 ## Usage
 

@@ -54,7 +54,7 @@ of its own. Audit records either layer's outcome.
 | `auth/oidc`                 | AuthN       | OIDC/JWT validation with JWKS auto-rotation, CEL claim rules, introspection, presets.          | [oidc.md](oidc.md) |
 | `auth/selfjwt`              | AuthN       | Self-issued JWT minting + verification with per-subject keys and rotation.                     | [selfjwt.md](selfjwt.md) |
 | `auth/spiffe`               | AuthN       | SPIFFE ID parsing from X.509 certificates (trust domain + path); pure primitive.              | — |
-| `auth/mtls`                 | AuthN       | Verified client cert → principal core: identity + validators (expiry, trust-domain, revocation, subject/issuer/CA-pin, DNS-SAN, EKU) + audit. | — |
+| `auth/mtls`                 | AuthN       | Verified client cert → principal core: identity + validators (expiry, trust-domain, revocation incl. live-OCSP, subject/issuer/CA-pin, DNS-SAN, EKU) + audit. | — |
 | `transport/.../auth/mtls`   | AuthN       | gRPC interceptor + HTTP middleware deriving a principal from the verified mTLS client certificate. | — |
 | `security/tlsutils/spiffe`  | mTLS source | Producer side: fetches the service's own rotating SVID + trust bundle from the SPIFFE Workload API and builds rotating mTLS configs/dialers. | — |
 | `auth/static`               | AuthN       | Static token / API-key validation for service-to-service calls, with optional rate limiting.   | [static.md](static.md) |
@@ -287,7 +287,9 @@ interceptor := grpcauth.ServerInterceptor(
 The same options drive the HTTP middleware `httpmtls.Middleware(opts…)` (it installs the principal via `auth.ContextWithPrincipal` for
 `ScopeMiddleware`). Override the principal with `coremtls.WithIdentity(func(*x509.Certificate) (any, error) { … })` — e.g. to carry the
 subject common name or pair the SPIFFE ID with `scope.RoleScopes`. Build the validator options from config with
-`mtls/factory.New(&cfg.MTLS).Options()`. A caller that did not complete mTLS is rejected with `codes.Unauthenticated` (gRPC) / 401 (HTTP).
+`mtls/factory.New(&cfg.MTLS).Options()` — beyond `trustDomains`/`checkExpiry` it also emits the classic-PKI pins from
+`allowedSubjectCNs`, `allowedIssuerCNs`, `issuerKeyIDs`, `allowedDNSNames`, and `requiredEKUs`. A caller that did not complete mTLS is
+rejected with `codes.Unauthenticated` (gRPC) / 401 (HTTP).
 
 That covers the *verifier* side — turning a peer's certificate into a principal. The *producer* side, obtaining the service's own SVID and
 keeping it fresh, lives in `security/tlsutils/spiffe`. It pulls the X.509-SVID and trust bundle from the SPIFFE Workload API (a SPIRE agent
