@@ -85,6 +85,20 @@ func TestHTTPTransport(t *testing.T) {
 	require.NotNil(t, tr.DialTLSContext)
 }
 
+func TestGRPCCredentials(t *testing.T) {
+	t.Parallel()
+	p, err := spiffe.NewProvider(&fakeSource{}, anyAuthorizer())
+	require.NoError(t, err)
+
+	server := p.ServerCredentials()
+	require.NotNil(t, server)
+	require.Equal(t, "tls", server.Info().SecurityProtocol)
+
+	client := p.ClientCredentials()
+	require.NotNil(t, client)
+	require.Equal(t, "tls", client.Info().SecurityProtocol)
+}
+
 func TestClose(t *testing.T) {
 	t.Parallel()
 	src := &fakeSource{}

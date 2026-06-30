@@ -17,6 +17,8 @@ import (
 	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
 
+	"google.golang.org/grpc/credentials"
+
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
@@ -121,6 +123,22 @@ func (p *Provider) HTTPTransport() *http.Transport {
 	t := base.Clone()
 	t.DialTLSContext = p.DialContext
 	return t
+}
+
+// ServerCredentials returns gRPC transport credentials for a mutual-TLS server,
+// backed by [Provider.MTLSServerConfig]. Pass them to grpc.NewServer through
+// grpc.Creds (or the framework server builder); the presented SVID rotates on
+// every handshake like the HTTP server config.
+func (p *Provider) ServerCredentials() credentials.TransportCredentials {
+	return credentials.NewTLS(p.MTLSServerConfig())
+}
+
+// ClientCredentials returns gRPC transport credentials for a mutual-TLS client,
+// backed by [Provider.MTLSClientConfig]. Pass them to grpc.NewClient through
+// grpc.WithTransportCredentials. Server identity is verified by SPIFFE ID, not
+// the dial target's host.
+func (p *Provider) ClientCredentials() credentials.TransportCredentials {
+	return credentials.NewTLS(p.MTLSClientConfig())
 }
 
 // Close releases the underlying source. For a Workload API source this closes
