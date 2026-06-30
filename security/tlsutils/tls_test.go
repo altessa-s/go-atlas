@@ -6,6 +6,7 @@ package tlsutils_test
 
 import (
 	"crypto/tls"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -13,6 +14,18 @@ import (
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/security/tlsutils"
 )
+
+// stubClientCert is a clientCertificateSource that always returns the same
+// certificate and records whether it was asked.
+type stubClientCert struct {
+	cert   tls.Certificate
+	called bool
+}
+
+func (s *stubClientCert) GetClientCertificate(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+	s.called = true
+	return &s.cert, nil
+}
 
 func TestLoadFromBytes_Valid(t *testing.T) {
 	certPEM, keyPEM, _ := testhelpers.SelfSignedCert(t)
@@ -43,6 +56,40 @@ func TestDefaultClientTLSConfig(t *testing.T) {
 	config := tlsutils.DefaultClientTLSConfig("example.com")
 	require.Equal(t, uint16(tls.VersionTLS12), config.MinVersion)
 	require.Equal(t, "example.com", config.ServerName)
+}
+
+func TestClientTLSConfig(t *testing.T) {
+	_, _, cert := testhelpers.SelfSignedCert(t)
+	src := &stubClientCert{cert: cert}
+
+	config := tlsutils.ClientTLSConfig(src, "peer.internal")
+	require.Equal(t, uint16(tls.VersionTLS13), config.MinVersion)
+	require.Equal(t, "peer.internal", config.ServerName)
+	require.NotNil(t, config.GetClientCertificate)
+
+	got, err := config.GetClientCertificate(&tls.CertificateRequestInfo{})
+	require.NoError(t, err)
+	require.True(t, src.called)
+	require.Equal(t, cert.Certificate, got.Certificate)
+}
+
+func TestDialContext(t *testing.T) {
+	_, _, cert := testhelpers.SelfSignedCert(t)
+	src := &stubClientCert{cert: cert}
+
+	// A TLS server whose certificate is signed by an untrusted (test) CA. The
+	// strict client config built by DialContext verifies against the system
+	// roots, so the handshake must fail at server-certificate verification —
+	// proving DialContext performed a real strict-TLS handshake.
+	srv := httptest.NewTLSServer(nil)
+	t.Cleanup(srv.Close)
+
+	conn, err := tlsutils.DialContext(t.Context(), "tcp", srv.Listener.Addr().String(), src, "")
+	if conn != nil {
+		_ = conn.Close()
+	}
+	var verifyErr *tls.CertificateVerificationError
+	require.ErrorAs(t, err, &verifyErr)
 }
 
 func TestCloneCertificateWithOCSPStaple(t *testing.T) {
