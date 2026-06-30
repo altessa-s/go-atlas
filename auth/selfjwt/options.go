@@ -9,7 +9,10 @@ package selfjwt
 import (
 	"crypto/rand"
 	"io"
+	"slices"
 	"time"
+
+	"github.com/altessa-s/go-atlas/auth/jwt"
 )
 
 // Default tunables for the minter and verifier.
@@ -53,4 +56,24 @@ type options struct {
 	// metrics records mint/verify outcomes, latency, and cache hit/miss.
 	// When nil, all metric writes are no-ops.
 	metrics *Metrics
+
+	// revocation, when set, rejects a verified token whose jti has been revoked.
+	// It is forwarded to the embedded jwt verifier and reported as
+	// [github.com/altessa-s/go-atlas/auth/jwt.ErrTokenRevoked]. Nil leaves
+	// revocation unchecked. Set via the generated WithRevocation.
+	revocation jwt.RevocationChecker `optgen:"notnil"`
+}
+
+// WithAllowedAlgorithms sets the signature algorithms the verifier accepts,
+// replacing the default asymmetric allow-list ([DefaultAllowedAlgorithms]).
+// Restricting or extending the set is the supported way to add support for a
+// new algorithm: register a signing method with golang-jwt, then list it here.
+// A call with no algorithms is ignored so the safe default is never cleared.
+func WithAllowedAlgorithms(algs ...Algorithm) Option {
+	return func(o *options) {
+		if len(algs) == 0 {
+			return
+		}
+		o.allowedAlgorithms = slices.Clone(algs)
+	}
 }

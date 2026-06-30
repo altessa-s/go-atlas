@@ -7,6 +7,8 @@ import (
 	"io"
 	"strings"
 	"time"
+
+	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 )
 
 // Option is a functional option for configuring options.
@@ -110,6 +112,16 @@ func WithNotBeforeRequired() Option {
 func WithRand(v io.Reader) Option {
 	return func(o *options) {
 		o.rand = v
+	}
+}
+
+// WithRevocation sets the revocation option.
+func WithRevocation(v RevocationChecker) Option {
+	return func(o *options) {
+		if nilcheck.IsNil(v) {
+			return
+		}
+		o.revocation = v
 	}
 }
 

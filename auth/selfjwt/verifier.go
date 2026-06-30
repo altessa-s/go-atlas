@@ -47,6 +47,9 @@ func NewVerifier(src KeyProvider, opts ...Option) *Verifier {
 	if o.issuer != "" {
 		jwtOpts = append(jwtOpts, jwt.WithIssuer(o.issuer))
 	}
+	if o.revocation != nil {
+		jwtOpts = append(jwtOpts, jwt.WithRevocation(o.revocation))
+	}
 	v.jwt = jwt.NewVerifier(jwt.KeyResolverFunc(v.resolveKey), jwtOpts...)
 	return v
 }
@@ -111,6 +114,9 @@ func mapVerifyErr(err error) error {
 		return err
 	case errors.Is(err, jwt.ErrAlgorithmNotAllowed):
 		return fmt.Errorf("%w: %w", ErrAlgorithmNotAllowed, err)
+	case errors.Is(err, jwt.ErrTokenRevoked):
+		// Propagate the jwt sentinel unwrapped so a caller can errors.Is on it.
+		return err
 	case errors.Is(err, jwt.ErrTokenExpired):
 		return fmt.Errorf("%w: %w", ErrTokenExpired, err)
 	case errors.Is(err, ErrTokenInvalid):

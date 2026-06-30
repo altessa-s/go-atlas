@@ -82,6 +82,13 @@ type options struct {
 	// requiredClaims names claims that must be present (beyond the temporal
 	// claims golang-jwt enforces). Set via [WithRequiredClaims].
 	requiredClaims []string `opt:"-"`
+
+	// revocation, when set, rejects a verified token whose jti has been revoked,
+	// after its signature and registered claims validate, with [ErrTokenRevoked].
+	// A token with an empty jti is never matched. Nil leaves revocation
+	// unchecked. Back it with auth/denylist or any [RevocationChecker]. Set via
+	// the generated WithRevocation.
+	revocation RevocationChecker `optgen:"notnil"`
 }
 
 // WithAllowedAlgorithms sets the signature algorithms the signer and verifier

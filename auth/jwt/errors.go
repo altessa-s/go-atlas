@@ -35,4 +35,8 @@ var (
 	// cannot produce a verifiable token, such as an empty key id (a verifier
 	// rejects a token whose kid header is empty).
 	ErrSigningKeyInvalid = errors.New("auth/jwt: invalid signing key")
+
+	// ErrTokenRevoked is returned when the token's jti has been revoked through
+	// the [RevocationChecker] configured with [WithRevocation].
+	ErrTokenRevoked = errors.New("auth/jwt: token revoked")
 )
