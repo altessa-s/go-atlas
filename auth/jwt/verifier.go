@@ -134,9 +134,19 @@ func (v *Verifier) ValidateClaims(claims Claims) error {
 	return v.validateExtraClaims(claims)
 }
 
+// RevocationChecker reports whether a token, identified by its jti claim, has
+// been revoked. It is the consumer-side view of a denylist — auth/denylist
+// satisfies it — declared here so the verifier depends on the seam, not a
+// concrete store, and can be backed by an in-memory denylist now and a
+// distributed one later.
+type RevocationChecker interface {
+	// IsRevoked reports whether the token id (jti) has been revoked.
+	IsRevoked(id string) bool
+}
+
 // validateExtraClaims enforces the checks the package layers on top of
-// golang-jwt's registered-claim validation: the required claims and the
-// accepted audience set.
+// golang-jwt's registered-claim validation: the required claims, the accepted
+// audience set, and revocation of the token's jti.
 func (v *Verifier) validateExtraClaims(claims Claims) error {
 	for _, name := range v.opts.requiredClaims {
 		if !claims.Has(name) {
@@ -145,6 +155,11 @@ func (v *Verifier) validateExtraClaims(claims Claims) error {
 	}
 	if len(v.opts.audiences) > 0 && !audienceMatches(claims.Audience(), v.opts.audiences) {
 		return fmt.Errorf("%w: audience not accepted", ErrTokenInvalid)
+	}
+	if v.opts.revocation != nil {
+		if jti := claims.ID(); jti != "" && v.opts.revocation.IsRevoked(jti) {
+			return fmt.Errorf("%w: %q", ErrTokenRevoked, jti)
+		}
 	}
 	return nil
 }
