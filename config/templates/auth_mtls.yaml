@@ -1,0 +1,13 @@
+# Mutual-TLS authentication validators — the certificate-validation policy
+# consumed by auth/mtls/factory.New(&cfg).Options(). The identity function and
+# audit recorder are wired in code; the TLS credentials that require and verify
+# the client certificate are configured on the server via security/tlsutils.
+mtls:
+  # Pin the accepted SPIFFE trust domains. Empty accepts any trust domain.
+  trustDomains:
+    - "example.org"
+  # Re-validate the certificate validity window on every call (long-lived
+  # connections that outlive their certificate). Defaults to true.
+  checkExpiry: true
+  # Clock-skew tolerance for the expiry re-check. Defaults to 30s.
+  expiryLeeway: 30s

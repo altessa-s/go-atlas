@@ -140,6 +140,15 @@ func (m *middleware) handleAuthError(w http.ResponseWriter, r *http.Request, err
 	http.Error(w, "Authentication failed", http.StatusUnauthorized)
 }
 
+// ContextWithPrincipal returns a copy of ctx carrying principal as the
+// authenticated data that [FromContext] reads. Authentication middlewares that
+// establish the principal outside the token flow — for example the mTLS
+// middleware, which derives it from the client certificate — use it to install
+// their result so downstream authorization (e.g. [ScopeMiddleware]) sees it.
+func ContextWithPrincipal(ctx context.Context, principal any) context.Context {
+	return context.WithValue(ctx, authContextKey, principal)
+}
+
 // FromContext extracts authentication data from the context.
 // Returns nil if no authentication data is present.
 func FromContext(ctx context.Context) any {
