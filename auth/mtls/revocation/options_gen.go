@@ -28,6 +28,13 @@ func WithMaxAttempts(v int) Option {
 	}
 }
 
+// WithMaxCacheEntries sets the maxCacheEntries option.
+func WithMaxCacheEntries(v int) Option {
+	return func(o *options) {
+		o.maxCacheEntries = v
+	}
+}
+
 // WithMaxTTL sets the maxTTL option.
 func WithMaxTTL(v time.Duration) Option {
 	return func(o *options) {
@@ -51,10 +58,11 @@ func WithTimeout(v time.Duration) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		failMode:    DefaultFailMode,
-		maxAttempts: DefaultMaxAttempts,
-		maxTTL:      DefaultMaxTTL,
-		timeout:     DefaultTimeout,
+		failMode:        DefaultFailMode,
+		maxAttempts:     DefaultMaxAttempts,
+		maxCacheEntries: DefaultMaxCacheEntries,
+		maxTTL:          DefaultMaxTTL,
+		timeout:         DefaultTimeout,
 	}
 }
 

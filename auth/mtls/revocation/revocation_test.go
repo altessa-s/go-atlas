@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"io"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -76,9 +77,15 @@ func responder(t testing.TB, ca *x509.Certificate, caKey crypto.Signer, status i
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
+		serial := big.NewInt(42)
+		if body, rerr := io.ReadAll(r.Body); rerr == nil {
+			if req, perr := ocsp.ParseRequest(body); perr == nil {
+				serial = req.SerialNumber
+			}
+		}
 		tmpl := ocsp.Response{
 			Status:       status,
-			SerialNumber: big.NewInt(42),
+			SerialNumber: serial,
 			ThisUpdate:   time.Now().Add(-time.Minute),
 			NextUpdate:   time.Now().Add(time.Hour),
 			IssuerHash:   crypto.SHA256,
@@ -151,6 +158,21 @@ func TestNoIssuer(t *testing.T) {
 	require.ErrorIs(t,
 		revocation.New(nil, revocation.WithFailMode(revocation.FailClosed)).Check(leaf),
 		revocation.ErrNoIssuer)
+}
+
+func TestCacheBounded(t *testing.T) {
+	t.Parallel()
+	ca, caKey := makeCA(t)
+	var hits atomic.Int32
+	srv := responder(t, ca, caKey, ocsp.Good, &hits)
+	leafA := makeLeaf(t, ca, caKey, 42, srv.URL)
+	leafB := makeLeaf(t, ca, caKey, 43, srv.URL)
+
+	c := revocation.New([]*x509.Certificate{ca}, revocation.WithMaxCacheEntries(1))
+	require.NoError(t, c.Check(leafA)) // hit 1: caches A
+	require.NoError(t, c.Check(leafB)) // hit 2: caches B, evicts A (cap 1)
+	require.NoError(t, c.Check(leafA)) // hit 3: A was evicted → re-queries
+	require.Equal(t, int32(3), hits.Load())
 }
 
 func TestNilCertIsNoOp(t *testing.T) {

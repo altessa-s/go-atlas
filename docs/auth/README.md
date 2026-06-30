@@ -55,6 +55,7 @@ of its own. Audit records either layer's outcome.
 | `auth/selfjwt`              | AuthN       | Self-issued JWT minting + verification with per-subject keys and rotation.                     | [selfjwt.md](selfjwt.md) |
 | `auth/spiffe`               | AuthN       | SPIFFE ID parsing from X.509 certificates (trust domain + path); pure primitive.              | — |
 | `auth/mtls`                 | AuthN       | Verified client cert → principal core: identity + validators (expiry, trust-domain, revocation incl. live-OCSP, subject/issuer/CA-pin, DNS-SAN, EKU) + audit. | — |
+| `auth/mtls/revocation`      | AuthN       | Live OCSP peer-revocation `CertValidator`: queries the issuer's responder, TTL-caches, fail-open/closed; network-backed complement to `RevocationList`. | — |
 | `transport/.../auth/mtls`   | AuthN       | gRPC interceptor + HTTP middleware deriving a principal from the verified mTLS client certificate. | — |
 | `security/tlsutils/spiffe`  | mTLS source | Producer side: fetches the service's own rotating SVID + trust bundle from the SPIFFE Workload API and builds rotating mTLS configs/dialers. | — |
 | `auth/static`               | AuthN       | Static token / API-key validation for service-to-service calls, with optional rate limiting.   | [static.md](static.md) |
@@ -277,7 +278,7 @@ interceptor := grpcauth.ServerInterceptor(
     grpcauth.WithAuthFn(grpcmtls.AuthFunc(                          // peer cert → spiffe.ID as Credentials.Data
         coremtls.WithValidator(coremtls.ExpiryValidator(nil, 30*time.Second)),
         coremtls.WithValidator(coremtls.TrustDomainValidator("example.org")),
-        coremtls.WithValidator(revocations.Validator()),           // a *coremtls.RevocationList
+        coremtls.WithValidator(revocations.Validator()),           // static denylist, or revocation.New(caCerts) for live OCSP
         coremtls.WithAudit(rec, func(p any) string { id, _ := p.(spiffe.ID); return id.String() }),
     )),
     grpcauth.WithClientAuth(grpcauth.ScopeClientAuth(enf)),         // authorize on the spiffe.ID
