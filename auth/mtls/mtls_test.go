@@ -7,6 +7,7 @@ package mtls_test
 import (
 	"context"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"errors"
 	"math/big"
 	"net/url"
@@ -135,6 +136,69 @@ func TestRevocationList(t *testing.T) {
 	require.True(t, mtls.NewRevocationList("7").IsRevoked("7"))
 	var nilRL *mtls.RevocationList
 	require.NoError(t, nilRL.Validator()(cert))
+}
+
+func TestSubjectValidator(t *testing.T) {
+	t.Parallel()
+	cert := &x509.Certificate{Subject: pkix.Name{CommonName: "billing", Organization: []string{"Acme"}}}
+
+	require.NoError(t, mtls.SubjectValidator()(cert)) // empty is a no-op
+	require.NoError(t, mtls.SubjectValidator(pkix.Name{CommonName: "billing"})(cert))
+	// Any-of: matches the second candidate.
+	require.NoError(t, mtls.SubjectValidator(pkix.Name{CommonName: "x"}, pkix.Name{CommonName: "billing"})(cert))
+	require.ErrorIs(t, mtls.SubjectValidator(pkix.Name{CommonName: "other"})(cert), mtls.ErrSubjectMismatch)
+	// Subset: the Organization must also match.
+	require.ErrorIs(t,
+		mtls.SubjectValidator(pkix.Name{CommonName: "billing", Organization: []string{"Evil"}})(cert),
+		mtls.ErrSubjectMismatch)
+}
+
+func TestIssuerValidator(t *testing.T) {
+	t.Parallel()
+	cert := &x509.Certificate{Issuer: pkix.Name{CommonName: "Acme Root CA"}}
+
+	require.NoError(t, mtls.IssuerValidator(pkix.Name{CommonName: "Acme Root CA"})(cert))
+	require.ErrorIs(t, mtls.IssuerValidator(pkix.Name{CommonName: "Evil CA"})(cert), mtls.ErrIssuerMismatch)
+}
+
+func TestAuthorityKeyIDValidator(t *testing.T) {
+	t.Parallel()
+	cert := &x509.Certificate{AuthorityKeyId: []byte{1, 2, 3}}
+
+	require.NoError(t, mtls.AuthorityKeyIDValidator()(cert)) // empty is a no-op
+	require.NoError(t, mtls.AuthorityKeyIDValidator([]byte{9}, []byte{1, 2, 3})(cert))
+	require.ErrorIs(t, mtls.AuthorityKeyIDValidator([]byte{9})(cert), mtls.ErrUntrustedCA)
+}
+
+func TestDNSNameValidator(t *testing.T) {
+	t.Parallel()
+	cert := &x509.Certificate{DNSNames: []string{"api.example.org"}}
+
+	require.NoError(t, mtls.DNSNameValidator()(cert)) // empty is a no-op
+	require.NoError(t, mtls.DNSNameValidator("api.example.org")(cert))
+	require.NoError(t, mtls.DNSNameValidator("other.org", "api.example.org")(cert)) // any-of
+	require.ErrorIs(t, mtls.DNSNameValidator("other.org")(cert), mtls.ErrDNSNameMismatch)
+
+	// Wildcard SANs are honored via VerifyHostname.
+	wild := &x509.Certificate{DNSNames: []string{"*.example.org"}}
+	require.NoError(t, mtls.DNSNameValidator("api.example.org")(wild))
+}
+
+func TestEKUValidator(t *testing.T) {
+	t.Parallel()
+	cert := &x509.Certificate{ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}
+
+	require.NoError(t, mtls.EKUValidator()(cert)) // empty is a no-op
+	require.NoError(t, mtls.EKUValidator(x509.ExtKeyUsageClientAuth)(cert))
+	require.ErrorIs(t, mtls.EKUValidator(x509.ExtKeyUsageServerAuth)(cert), mtls.ErrEKUMissing)
+	// AND-semantics: missing one required EKU rejects.
+	require.ErrorIs(t,
+		mtls.EKUValidator(x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth)(cert),
+		mtls.ErrEKUMissing)
+
+	// ExtKeyUsageAny satisfies every requirement.
+	anyCert := &x509.Certificate{ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageAny}}
+	require.NoError(t, mtls.EKUValidator(x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth)(anyCert))
 }
 
 func subjectOf(p any) string {

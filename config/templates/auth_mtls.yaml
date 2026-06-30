@@ -11,3 +11,15 @@ mtls:
   checkExpiry: true
   # Clock-skew tolerance for the expiry re-check. Defaults to 30s.
   expiryLeeway: 30s
+  # Classic-PKI pins (for identity in the DN rather than a SPIFFE URI). Each is
+  # empty by default — the check is skipped unless set.
+  # Accepted certificate Subject CommonNames.
+  allowedSubjectCNs: []
+  # Accepted issuer (CA) CommonNames — narrows chain trust to specific issuers.
+  allowedIssuerCNs: []
+  # Accepted issuing-CA Authority Key IDs, hex-encoded — the most robust CA pin.
+  issuerKeyIDs: []
+  # Accepted DNS Subject Alternative Names (wildcard SANs honored).
+  allowedDNSNames: []
+  # Required extended key usages: clientAuth, serverAuth, any.
+  requiredEKUs: []

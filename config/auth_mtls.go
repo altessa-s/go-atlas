@@ -5,6 +5,8 @@
 package config
 
 import (
+	"encoding/hex"
+	"fmt"
 	"time"
 
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
@@ -40,13 +42,45 @@ type MTLS struct {
 	// ExpiryLeeway is the clock-skew tolerance for the expiry re-check. Applies
 	// when CheckExpiry is true. Defaults to 30s.
 	ExpiryLeeway time.Duration `yaml:"expiryLeeway" default:"30s"`
+
+	// AllowedSubjectCNs pins the accepted certificate Subject CommonNames, for
+	// classic-PKI identity carried in the DN rather than a SPIFFE URI. Empty
+	// disables the check.
+	AllowedSubjectCNs []string `yaml:"allowedSubjectCNs"`
+
+	// AllowedIssuerCNs pins the accepted issuer (CA) CommonNames, narrowing the
+	// handshake's chain trust to specific issuers. Empty disables the check.
+	AllowedIssuerCNs []string `yaml:"allowedIssuerCNs"`
+
+	// IssuerKeyIDs pins the accepted issuing-CA Authority Key IDs, hex-encoded.
+	// The most robust CA pin. Empty disables the check.
+	IssuerKeyIDs []string `yaml:"issuerKeyIDs"`
+
+	// AllowedDNSNames pins the accepted DNS Subject Alternative Names (wildcard
+	// SANs honored). Empty disables the check.
+	AllowedDNSNames []string `yaml:"allowedDNSNames"`
+
+	// RequiredEKUs requires the certificate to assert these extended key usages.
+	// Accepted values: "clientAuth", "serverAuth", "any". Empty disables the check.
+	RequiredEKUs []string `yaml:"requiredEKUs"`
 }
 
 // Validate validates the mTLS configuration.
 func (c *MTLS) Validate() error {
 	return ValidateStruct(c,
 		validation.Field(&c.ExpiryLeeway, validation.When(c.CheckExpiry, ozzo_rules.Duration())),
+		validation.Field(&c.IssuerKeyIDs, validation.Each(validation.By(validHexString))),
+		validation.Field(&c.RequiredEKUs, validation.Each(validation.In("clientAuth", "serverAuth", "any"))),
 	)
+}
+
+// validHexString reports whether value is a hex-decodable string.
+func validHexString(value any) error {
+	s, _ := value.(string)
+	if _, err := hex.DecodeString(s); err != nil {
+		return fmt.Errorf("must be hex-encoded: %w", err)
+	}
+	return nil
 }
 
 // DefaultMTLS returns an MTLS configuration with default values.

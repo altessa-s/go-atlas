@@ -32,12 +32,20 @@ The default identity is the certificate's SPIFFE ID (via [`auth/spiffe`](../spif
 | `ExpiryValidator(now, leeway)`      | Re-check the validity window each call (long-lived connections). `now` defaults to `time.Now`.   |
 | `TrustDomainValidator(domains…)`    | Pin accepted SPIFFE trust domains; empty list = any.                                            |
 | `RevocationList` / `NewRevocationList` | Concurrency-safe serial-number denylist; `Revoke`/`Restore`/`IsRevoked`, `Validator()` → `CertValidator`. |
+| `SubjectValidator(names…)`          | Pin accepted Subject DNs (classic-PKI identity); subset-match on `pkix.Name`, empty list = any.   |
+| `IssuerValidator(names…)`           | Pin accepted issuer (CA) DNs; same subset rule, empty list = any.                                |
+| `AuthorityKeyIDValidator(keyIDs…)`  | Pin accepted issuing-CA Authority Key IDs; robust CA pin over the verified chain, empty = any.    |
+| `DNSNameValidator(names…)`          | Pin accepted DNS SANs via `VerifyHostname` (wildcard-aware); empty list = any.                    |
+| `EKUValidator(ekus…)`               | Require the cert to assert every given extended key usage (`ExtKeyUsageAny` satisfies all); empty = none. |
 
 ## Validation beyond TLS
 
 The TLS handshake already verifies the certificate chain and validity window at connection time. Validators run on **every** call, which
 matters for long-lived connections (streams, pooled HTTP/2): `ExpiryValidator` re-checks the validity window so a connection that outlives
-its certificate is rejected; `TrustDomainValidator` pins trust domains. For revocation, `RevocationList` is a built-in concurrency-safe
+its certificate is rejected; `TrustDomainValidator` pins SPIFFE trust domains, while `SubjectValidator` / `IssuerValidator` /
+`AuthorityKeyIDValidator` are the classic-PKI counterpart — pin the certificate DN, the issuer DN, or the issuing-CA key ID when identity
+lives in the DN rather than a SPIFFE URI. `DNSNameValidator` pins accepted DNS SANs (wildcard-aware), and `EKUValidator` requires extended
+key usages (`clientAuth` on a server verifying clients, `serverAuth` on a client verifying the server). For revocation, `RevocationList` is a built-in concurrency-safe
 serial-number denylist — feed it from a CRL poll, an admin action, or a cached OCSP result:
 
 ```go

@@ -6,6 +6,7 @@ package factory_test
 
 import (
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"net/url"
 	"testing"
 	"time"
@@ -61,6 +62,70 @@ func TestOptionsEnforceTrustDomainAndExpiry(t *testing.T) {
 	// expired
 	_, err = a.Authenticate(t.Context(), cert(t, "spiffe://example.org/x", farPast))
 	require.ErrorIs(t, err, coremtls.ErrCertExpired)
+}
+
+func TestOptionsEnforceSubjectAndCA(t *testing.T) {
+	t.Parallel()
+	opts, err := factory.New(&config.MTLS{
+		AllowedSubjectCNs: []string{"billing"},
+		IssuerKeyIDs:      []string{"0a0b"},
+	}).Options()
+	require.NoError(t, err)
+	a := coremtls.NewAuthenticator(opts...)
+
+	withDN := func(cn string, aki []byte) *x509.Certificate {
+		c := cert(t, "spiffe://example.org/x", time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC))
+		c.Subject = pkix.Name{CommonName: cn}
+		c.AuthorityKeyId = aki
+		return c
+	}
+
+	_, err = a.Authenticate(t.Context(), withDN("billing", []byte{0x0a, 0x0b}))
+	require.NoError(t, err)
+
+	_, err = a.Authenticate(t.Context(), withDN("other", []byte{0x0a, 0x0b}))
+	require.ErrorIs(t, err, coremtls.ErrSubjectMismatch)
+
+	_, err = a.Authenticate(t.Context(), withDN("billing", []byte{0xff}))
+	require.ErrorIs(t, err, coremtls.ErrUntrustedCA)
+}
+
+func TestOptionsInvalidIssuerKeyID(t *testing.T) {
+	t.Parallel()
+	_, err := factory.New(&config.MTLS{IssuerKeyIDs: []string{"zz"}}).Options()
+	require.Error(t, err)
+}
+
+func TestOptionsEnforceDNSAndEKU(t *testing.T) {
+	t.Parallel()
+	opts, err := factory.New(&config.MTLS{
+		AllowedDNSNames: []string{"api.example.org"},
+		RequiredEKUs:    []string{"clientAuth"},
+	}).Options()
+	require.NoError(t, err)
+	a := coremtls.NewAuthenticator(opts...)
+
+	withSAN := func(dns string, eku x509.ExtKeyUsage) *x509.Certificate {
+		c := cert(t, "spiffe://example.org/x", time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC))
+		c.DNSNames = []string{dns}
+		c.ExtKeyUsage = []x509.ExtKeyUsage{eku}
+		return c
+	}
+
+	_, err = a.Authenticate(t.Context(), withSAN("api.example.org", x509.ExtKeyUsageClientAuth))
+	require.NoError(t, err)
+
+	_, err = a.Authenticate(t.Context(), withSAN("evil.org", x509.ExtKeyUsageClientAuth))
+	require.ErrorIs(t, err, coremtls.ErrDNSNameMismatch)
+
+	_, err = a.Authenticate(t.Context(), withSAN("api.example.org", x509.ExtKeyUsageServerAuth))
+	require.ErrorIs(t, err, coremtls.ErrEKUMissing)
+}
+
+func TestOptionsUnknownEKU(t *testing.T) {
+	t.Parallel()
+	_, err := factory.New(&config.MTLS{RequiredEKUs: []string{"bogus"}}).Options()
+	require.Error(t, err)
 }
 
 func TestOptionsNoValidatorsWhenDisabled(t *testing.T) {
