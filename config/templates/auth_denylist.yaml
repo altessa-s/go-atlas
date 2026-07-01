@@ -1,0 +1,36 @@
+# Token-revocation denylist — a negative cache in front of a distributed
+# authoritative store. The negative filter is built by
+# auth/denylist/negcache/factory.NewBuilder and the authoritative store by
+# auth/denylist/storages/redis.New; the Redis client and callbacks are wired in
+# code.
+denylist:
+  # Turn the denylist on. When false the component is skipped and the remaining
+  # fields are not required. Defaults to false.
+  enabled: false
+  # Redis key prefix for the authoritative revocation store
+  # (auth/denylist/storages/redis.WithKeyPrefix). Required when enabled.
+  # Defaults to "denylist:revoked:".
+  key_prefix: "denylist:revoked:"
+  # How often the negative filter is rebuilt from the authoritative store.
+  # Zero (omitted) disables periodic rebuilds. Format: duration string
+  # (e.g., "5m", "1h", "30s"). Optional.
+  rebuild_interval: 5m
+  # Prometheus metrics subsystem override for the negative cache. Empty falls
+  # back to the package default. Optional.
+  metrics_subsystem: ""
+  # Negative-filter configuration passed to
+  # auth/denylist/negcache/factory.NewBuilder.
+  filter:
+    # <string> Type of probabilistic filter to use.
+    # Supported values: bloom, cuckoo
+    # Default value: bloom
+    type: bloom
+    bloom:
+      # <int64> Expected number of revoked tokens the filter is sized for.
+      # Required for Bloom filter.
+      expectedItems: 1000000
+      # Override defaults if needed:
+      # storage: redis
+      # falsePositiveRate: 0.001
+      # rebuildCron: "0 0 */2 * * *"
+      # rebuildOnStart: false
