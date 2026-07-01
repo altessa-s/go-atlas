@@ -1,0 +1,17 @@
+# WebhookSignature — HMAC signing/verification of webhook bodies (security/hmacsign).
+# Drives the hmacsign factory: a Verifier for inbound webhooks or a Signer for
+# outbound ones.
+webhookSignature:
+  # Provider wire format: "github" (X-Hub-Signature-256) or "stripe" (Stripe-Signature).
+  scheme: stripe
+
+  # Shared webhook secret. Supports file:/env:/vault: references.
+  secret: env:WEBHOOK_SECRET
+
+  # Extra secrets the verifier also accepts, for zero-downtime rotation. Ignored
+  # when signing.
+  additionalSecrets: []
+
+  # Replay window for a timestamped scheme (Stripe). Zero disables the timestamp
+  # check.
+  tolerance: 5m
