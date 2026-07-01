@@ -1,0 +1,83 @@
+# Client-side OAuth2 token acquisition configuration.
+# Fetches tokens from an external identity provider for outbound,
+# service-to-service calls (the acquisition counterpart to the inbound `oidc` block).
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+#
+#oauth2Client:
+#  # <string> IdP token endpoint. Provide either this or discoveryUrl.
+#  # Default value: not set
+#  tokenUrl: "https://idp.example.com/oauth2/token"
+#
+#  # <string> OIDC discovery document. When set instead of tokenUrl, the token
+#  # endpoint is resolved from discovery at build time (requires an injected
+#  # OIDC provider). Provide either this or tokenUrl.
+#  # Default value: not set
+#  discoveryUrl: "https://idp.example.com/.well-known/openid-configuration"
+#
+#  # <string> OAuth2 client identifier authenticating this service. Required.
+#  # Default value: not set
+#  clientId: "my-service"
+#
+#  # <string> OAuth2 client secret. Leave empty for a public client.
+#  # Supports secret references (env:, file:, vault:) via the Secret type.
+#  # Default value: not set
+#  clientSecret: "env:OAUTH2_CLIENT_SECRET"
+#
+#  # <list> OAuth2 scopes requested from the IdP.
+#  # Default value: not set
+#  scopes:
+#    - "orders:read"
+#    - "orders:write"
+#
+#  # <string> How client credentials are presented: auto | header | params.
+#  # "auto" lets the library detect; "header" uses HTTP Basic; "params" uses the body.
+#  # Default value: auto
+#  authStyle: auto
+#
+#  # <map> Extra, non-standard token-request parameters (e.g. Auth0 "audience").
+#  # Default value: not set
+#  endpointParams:
+#    audience: "https://api.example.com"
+#
+#  # <duration> Refresh tokens this long before their exp (clock-skew margin).
+#  # Zero uses the x/oauth2 default (~10s). Applies to client_credentials and exchange.
+#  # Default value: not set
+#  earlyExpiry: 30s
+#
+#  # <object> JWT-assertion client authentication (RFC 7523), superseding
+#  # clientSecret/authStyle. Omitted uses the plain secret.
+#  clientAuth:
+#    # <string> "private_key_jwt" (signed assertion) or "client_secret_jwt" (HMAC).
+#    method: private_key_jwt
+#
+#    # <string> PEM signing key for private_key_jwt (supports file:/env:/vault: refs).
+#    privateKey: "file:/etc/keys/oauth2-client.pem"
+#
+#    # <string> kid header matching the public key registered with the IdP.
+#    keyId: "key-1"
+#
+#    # <string> Asymmetric JWA for private_key_jwt (RS256|ES256|EdDSA|PS256|...).
+#    # Default value: RS256
+#    algorithm: RS256
+#
+#    # <duration> Assertion validity window. Default value: 5m
+#    assertionLifetime: 5m
+#
+#    # <string> Override the assertion aud claim. Default: the token endpoint.
+#    assertionAudience: ""
+#
+#  # <object> Retry of token exchanges with exponential backoff.
+#  # Omitted disables retrying.
+#  retry:
+#    # <int> Number of retries after the first attempt (0 disables).
+#    # Default value: 0
+#    attempts: 3
+#
+#    # <duration> Backoff before the first retry.
+#    # Default value: 200ms
+#    baseDelay: 200ms
+#
+#    # <duration> Cap on the exponential backoff between retries.
+#    # Default value: 5s
+#    maxDelay: 5s
