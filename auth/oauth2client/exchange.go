@@ -26,16 +26,17 @@ import (
 )
 
 // GrantTypeTokenExchange is the RFC 8693 grant_type value.
-const GrantTypeTokenExchange = "urn:ietf:params:oauth:grant-type:token-exchange"
+const GrantTypeTokenExchange = "urn:ietf:params:oauth:grant-type:token-exchange" // #nosec G101 -- RFC 8693 grant_type URI, not a credential
 
 // Token type identifiers for the subject_token_type, actor_token_type, and
-// requested_token_type parameters (RFC 8693 §3).
+// requested_token_type parameters (RFC 8693 §3). The values are public URIs
+// from the RFC, not credentials.
 const (
-	TokenTypeAccessToken  = "urn:ietf:params:oauth:token-type:access_token"
-	TokenTypeRefreshToken = "urn:ietf:params:oauth:token-type:refresh_token"
-	TokenTypeIDToken      = "urn:ietf:params:oauth:token-type:id_token"
-	TokenTypeSAML2        = "urn:ietf:params:oauth:token-type:saml2"
-	TokenTypeJWT          = "urn:ietf:params:oauth:token-type:jwt"
+	TokenTypeAccessToken  = "urn:ietf:params:oauth:token-type:access_token"  // #nosec G101 -- RFC 8693 token-type URI, not a credential
+	TokenTypeRefreshToken = "urn:ietf:params:oauth:token-type:refresh_token" // #nosec G101 -- RFC 8693 token-type URI, not a credential
+	TokenTypeIDToken      = "urn:ietf:params:oauth:token-type:id_token"      // #nosec G101 -- RFC 8693 token-type URI, not a credential
+	TokenTypeSAML2        = "urn:ietf:params:oauth:token-type:saml2"         // #nosec G101 -- RFC 8693 token-type URI, not a credential
+	TokenTypeJWT          = "urn:ietf:params:oauth:token-type:jwt"           // #nosec G101 -- RFC 8693 token-type URI, not a credential
 )
 
 // maxExchangeResponseSize caps the bytes read from the token endpoint. A token
