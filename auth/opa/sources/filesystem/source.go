@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"iter"
 	"log/slog"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -22,6 +21,7 @@ import (
 	"github.com/altessa-s/go-atlas/auth/opa"
 	"github.com/altessa-s/go-atlas/core/io/files"
 
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	corehash "github.com/altessa-s/go-atlas/core/encoding/hash"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
@@ -41,7 +41,7 @@ type Source struct {
 	path       string
 	opts       *options
 	logger     *slog.Logger
-	extensions map[string]struct{}
+	extensions *coremaps.ImmutableMap[string, struct{}]
 
 	mu     sync.Mutex
 	closed bool
@@ -72,7 +72,7 @@ func New(path string, opts ...Option) (*Source, error) {
 		path:       path,
 		opts:       o,
 		logger:     cmp.Or(o.logger, slog.New(slog.DiscardHandler)),
-		extensions: extensions,
+		extensions: coremaps.NewImmutableMap(extensions),
 	}, nil
 }
 
@@ -163,7 +163,7 @@ func (s *Source) walkDirectory(root string, modules map[string][]byte, data *map
 		ext := filepath.Ext(entry.Name())
 
 		// Check for policy files
-		if _, ok := s.extensions[ext]; ok {
+		if s.extensions.Contains(ext) {
 			content, readErr := os.ReadFile(path)
 			if readErr != nil {
 				return coreerrs.Wrapf(readErr, "read policy %s", path)
@@ -278,13 +278,13 @@ func (s *Source) Path() string {
 
 // Extensions returns the file extensions being watched as a slice.
 func (s *Source) Extensions() []string {
-	return slices.Collect(maps.Keys(s.extensions))
+	return slices.Collect(s.extensions.Keys())
 }
 
 // ExtensionsIter returns an iterator over the file extensions being watched.
 // This is more efficient when you don't need a slice.
 func (s *Source) ExtensionsIter() iter.Seq[string] {
-	return maps.Keys(s.extensions)
+	return s.extensions.Keys()
 }
 
 // Compile-time interface check.

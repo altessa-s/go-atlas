@@ -14,6 +14,7 @@ import (
 
 	coremtls "github.com/altessa-s/go-atlas/auth/mtls"
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 )
 
 // ekuByName maps configuration EKU names to their x509 values.
@@ -54,18 +55,18 @@ func (b *Builder) Options() ([]coremtls.Option, error) {
 		return nil, fmt.Errorf("mtls/factory: configuration is required")
 	}
 	var opts []coremtls.Option
-	if b.cfg.CheckExpiry {
-		opts = append(opts, coremtls.WithValidator(coremtls.ExpiryValidator(nil, b.cfg.ExpiryLeeway)))
-	}
-	if len(b.cfg.TrustDomains) > 0 {
-		opts = append(opts, coremtls.WithValidator(coremtls.TrustDomainValidator(b.cfg.TrustDomains...)))
-	}
-	if len(b.cfg.AllowedSubjectCNs) > 0 {
-		opts = append(opts, coremtls.WithValidator(coremtls.SubjectValidator(cnNames(b.cfg.AllowedSubjectCNs)...)))
-	}
-	if len(b.cfg.AllowedIssuerCNs) > 0 {
-		opts = append(opts, coremtls.WithValidator(coremtls.IssuerValidator(cnNames(b.cfg.AllowedIssuerCNs)...)))
-	}
+	opts = coreslices.AppendIfFunc(opts, b.cfg.CheckExpiry, func() []coremtls.Option {
+		return []coremtls.Option{coremtls.WithValidator(coremtls.ExpiryValidator(nil, b.cfg.ExpiryLeeway))}
+	})
+	opts = coreslices.AppendIfFunc(opts, len(b.cfg.TrustDomains) > 0, func() []coremtls.Option {
+		return []coremtls.Option{coremtls.WithValidator(coremtls.TrustDomainValidator(b.cfg.TrustDomains...))}
+	})
+	opts = coreslices.AppendIfFunc(opts, len(b.cfg.AllowedSubjectCNs) > 0, func() []coremtls.Option {
+		return []coremtls.Option{coremtls.WithValidator(coremtls.SubjectValidator(cnNames(b.cfg.AllowedSubjectCNs)...))}
+	})
+	opts = coreslices.AppendIfFunc(opts, len(b.cfg.AllowedIssuerCNs) > 0, func() []coremtls.Option {
+		return []coremtls.Option{coremtls.WithValidator(coremtls.IssuerValidator(cnNames(b.cfg.AllowedIssuerCNs)...))}
+	})
 	if len(b.cfg.IssuerKeyIDs) > 0 {
 		keyIDs := make([][]byte, 0, len(b.cfg.IssuerKeyIDs))
 		for _, h := range b.cfg.IssuerKeyIDs {
@@ -77,9 +78,9 @@ func (b *Builder) Options() ([]coremtls.Option, error) {
 		}
 		opts = append(opts, coremtls.WithValidator(coremtls.AuthorityKeyIDValidator(keyIDs...)))
 	}
-	if len(b.cfg.AllowedDNSNames) > 0 {
-		opts = append(opts, coremtls.WithValidator(coremtls.DNSNameValidator(b.cfg.AllowedDNSNames...)))
-	}
+	opts = coreslices.AppendIfFunc(opts, len(b.cfg.AllowedDNSNames) > 0, func() []coremtls.Option {
+		return []coremtls.Option{coremtls.WithValidator(coremtls.DNSNameValidator(b.cfg.AllowedDNSNames...))}
+	})
 	if len(b.cfg.RequiredEKUs) > 0 {
 		ekus, err := parseEKUs(b.cfg.RequiredEKUs)
 		if err != nil {

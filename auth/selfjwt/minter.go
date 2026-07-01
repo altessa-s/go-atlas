@@ -32,7 +32,7 @@ func NewMinter(src KeyProvider, opts ...Option) *Minter {
 	o := newOptions(opts...)
 	return &Minter{
 		src:    src,
-		signer: jwt.NewSigner(jwt.WithAllowedAlgorithms(toJWTAlgorithms(o.allowedAlgorithms)...)),
+		signer: jwt.NewSigner(jwt.WithAllowedAlgorithms(o.allowedAlgorithms...)),
 		opts:   o,
 	}
 }
@@ -99,7 +99,7 @@ func (m *Minter) mint(ctx context.Context, req MintRequest) (MintResult, error) 
 		claims["scope"] = req.Scopes
 	}
 
-	raw, err := m.signer.Sign(jwt.SigningKey{KeyID: sk.KeyID, Algorithm: jwt.Algorithm(sk.Algorithm), Key: sk.Key}, claims)
+	raw, err := m.signer.Sign(sk, claims)
 	if err != nil {
 		return MintResult{}, mapSignErr(err)
 	}
@@ -119,16 +119,6 @@ func mapSignErr(err error) error {
 		// the documented sentinel so callers can match ErrSigningKeyInvalid.
 		return fmt.Errorf("%w: %w", ErrSigningKeyInvalid, err)
 	}
-}
-
-// toJWTAlgorithms converts the selfjwt allow-list to the auth/jwt algorithm type
-// shared by the minter's signer and the verifier.
-func toJWTAlgorithms(algs []Algorithm) []jwt.Algorithm {
-	out := make([]jwt.Algorithm, len(algs))
-	for i, a := range algs {
-		out[i] = jwt.Algorithm(a)
-	}
-	return out
 }
 
 // newID returns a random 128-bit token id as a hex string.

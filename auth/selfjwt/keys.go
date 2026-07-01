@@ -6,36 +6,24 @@ package selfjwt
 
 import (
 	"context"
-	"crypto"
+
+	"github.com/altessa-s/go-atlas/auth/jwt"
 )
 
-// SigningKey is a subject's current signing material: a private key, its
-// algorithm, and the key id stamped into the token header so the verifier can
-// resolve the matching public key.
-type SigningKey struct {
-	// KeyID is the key identifier written to the token's "kid" header. It must
-	// be non-empty: [Minter.Mint] returns [ErrSigningKeyInvalid] for an empty
-	// KeyID, since the verifier rejects a token whose kid header is empty.
-	KeyID string
-	// Algorithm is the signature algorithm Key is used with.
-	Algorithm Algorithm
-	// Key is the private key. Its concrete type must match Algorithm as
-	// golang-jwt expects: ed25519.PrivateKey for EdDSA, *ecdsa.PrivateKey for
-	// ES*, *rsa.PrivateKey for RS*/PS*.
-	Key crypto.PrivateKey
-}
+// SigningKey aliases [github.com/altessa-s/go-atlas/auth/jwt.SigningKey]: a
+// subject's current signing material — a private key, its algorithm, and the key
+// id stamped into the token header so the verifier can resolve the matching
+// public key. KeyID must be non-empty: [Minter.Mint] returns
+// [ErrSigningKeyInvalid] for an empty KeyID, since the verifier rejects a token
+// whose kid header is empty.
+type SigningKey = jwt.SigningKey
 
-// VerificationKey is a subject's public key for a given kid, together with the
-// algorithm it must be used with.
-type VerificationKey struct {
-	// Algorithm is the signature algorithm Key verifies. It is required: the
-	// verifier rejects the token with [ErrAlgorithmNotAllowed] when it is empty
-	// or does not match the token's algorithm, binding each key to one scheme.
-	Algorithm Algorithm
-	// Key is the public key: ed25519.PublicKey, *ecdsa.PublicKey, or
-	// *rsa.PublicKey.
-	Key crypto.PublicKey
-}
+// VerificationKey aliases [github.com/altessa-s/go-atlas/auth/jwt.VerificationKey]:
+// a subject's public key for a given kid together with the algorithm it must be
+// used with. selfjwt requires Algorithm to be set — the verifier rejects a key
+// with an empty Algorithm as [ErrAlgorithmNotAllowed], binding each key to one
+// scheme.
+type VerificationKey = jwt.VerificationKey
 
 // KeyProvider supplies a subject's signing and verification keys. It is the
 // single seam between selfjwt and a caller's key storage; selfjwt never sees

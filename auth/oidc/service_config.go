@@ -13,6 +13,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/altessa-s/go-atlas/core/collections/slices"
+	"github.com/altessa-s/go-atlas/core/types/ptr"
+
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
@@ -283,9 +286,7 @@ func (c *ServiceConfig) ToProviderOptions() ([]Option, error) {
 			return nil, coreerrs.WrapOperation(err, "convert default_validation")
 		}
 
-		if len(validationOpts) > 0 {
-			opts = append(opts, WithDefaultValidationOptions(validationOpts...))
-		}
+		opts = slices.AppendIf(opts, len(validationOpts) > 0, WithDefaultValidationOptions(validationOpts...))
 	}
 
 	// Presets
@@ -350,21 +351,13 @@ func (v *ValidationRulesConfig) ToValidationOptions() ([]ValidationOption, error
 	// true = require the claim (also rejects tokens missing exp). An
 	// explicit false is refused at config-validation time, so by the time
 	// we reach this conversion it cannot reach the runtime path.
-	if v.VerifyExpiration != nil && *v.VerifyExpiration {
-		opts = append(opts, WithValidationExpirationRequired())
-	}
+	opts = slices.AppendIf(opts, ptr.Unwrap(v.VerifyExpiration), WithValidationExpirationRequired())
 
 	// Verify not-before: same tri-state as VerifyExpiration above.
-	if v.VerifyNotBefore != nil && *v.VerifyNotBefore {
-		opts = append(opts, WithValidationNotBeforeRequired())
-	}
+	opts = slices.AppendIf(opts, ptr.Unwrap(v.VerifyNotBefore), WithValidationNotBeforeRequired())
 
 	// Verify issued at
-	if v.VerifyIssuedAt != nil {
-		if *v.VerifyIssuedAt {
-			opts = append(opts, WithValidationIssuedAt())
-		}
-	}
+	opts = slices.AppendIf(opts, ptr.Unwrap(v.VerifyIssuedAt), WithValidationIssuedAt())
 
 	// Issuer
 	opts = append(opts, WithValidationIssuer(v.Issuer))
@@ -400,19 +393,13 @@ func (v *ValidationRulesConfig) ToValidationOptions() ([]ValidationOption, error
 	opts = append(opts, WithValidationAllowedClientIDs(v.AllowedClientIDs...))
 
 	// Require authorized party
-	if v.RequireAuthorizedParty != nil && *v.RequireAuthorizedParty {
-		opts = append(opts, WithValidationRequireAuthorizedParty())
-	}
+	opts = slices.AppendIf(opts, ptr.Unwrap(v.RequireAuthorizedParty), WithValidationRequireAuthorizedParty())
 
 	// Allowed authorized parties
-	if len(v.AllowedAuthorizedParties) > 0 {
-		opts = append(opts, WithValidationAllowedAuthorizedParties(v.AllowedAuthorizedParties...))
-	}
+	opts = slices.AppendIf(opts, len(v.AllowedAuthorizedParties) > 0, WithValidationAllowedAuthorizedParties(v.AllowedAuthorizedParties...))
 
 	// Allow missing subject
-	if v.AllowMissingSubject != nil && *v.AllowMissingSubject {
-		opts = append(opts, WithValidationAllowMissingSubject())
-	}
+	opts = slices.AppendIf(opts, ptr.Unwrap(v.AllowMissingSubject), WithValidationAllowMissingSubject())
 
 	// Scopes
 	if v.Scopes != nil {
@@ -421,9 +408,7 @@ func (v *ValidationRulesConfig) ToValidationOptions() ([]ValidationOption, error
 		allScopes = append(allScopes, v.Scopes.Required...)
 		allScopes = append(allScopes, v.Scopes.AllOf...)
 
-		if len(allScopes) > 0 {
-			opts = append(opts, WithValidationRequiredScopes(allScopes...))
-		}
+		opts = slices.AppendIf(opts, len(allScopes) > 0, WithValidationRequiredScopes(allScopes...))
 
 		// AnyOf: at least one of the specified scopes must be present
 		// Implemented using native HasAnyScope matcher wrapped in CEL validation
@@ -463,9 +448,7 @@ func (v *ValidationRulesConfig) ToValidationOptions() ([]ValidationOption, error
 				return nil, coreerrs.Wrapf(ErrInvalidDuration, "invalid token_lifetime.max: %v", err)
 			}
 
-			if maxDuration > 0 {
-				opts = append(opts, WithValidationMaxTokenLifetime(maxDuration))
-			}
+			opts = slices.AppendIf(opts, maxDuration > 0, WithValidationMaxTokenLifetime(maxDuration))
 		}
 
 		// Note: Min lifetime is not directly supported
