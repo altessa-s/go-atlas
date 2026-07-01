@@ -14,11 +14,11 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/cache"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/health"
-	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/protovalidator/reasoncode"
 	"github.com/altessa-s/go-atlas/transport/internal/geoacl"
 
 	idempotencydata "github.com/altessa-s/go-atlas/data/idempotency"
 	sharedlimiter "github.com/altessa-s/go-atlas/data/limiters"
+	bufhelpers "github.com/altessa-s/go-atlas/transport/grpc/interceptors/protovalidator/buf"
 )
 
 // --- Dependency methods ---
@@ -83,12 +83,13 @@ func (b *ServerBuilder) UseLimiter(v sharedlimiter.Limiter) *ServerBuilder {
 	return b
 }
 
-// UseReasonCodeResolver sets the resolver used by the protovalidate interceptor
-// to translate validation rule IDs into canonical, client-facing reason codes.
-// It lets a service supply its own rule catalog (see [reasoncode.NewResolver]);
-// when unset, only the standard rules are mapped.
-func (b *ServerBuilder) UseReasonCodeResolver(v *reasoncode.Resolver) *ServerBuilder {
-	b.reasonResolver = v
+// UseReasonCode sets the function used by the protovalidate interceptor to
+// translate validation rule IDs into canonical, client-facing reason codes. The
+// set of codes is part of a service's public error contract, so the service
+// supplies its own [bufhelpers.ReasonCoder]; when unset, no code is emitted and
+// consumers fall back to the generic gRPC-status reason.
+func (b *ServerBuilder) UseReasonCode(v bufhelpers.ReasonCoder) *ServerBuilder {
+	b.reasonCode = v
 	return b
 }
 

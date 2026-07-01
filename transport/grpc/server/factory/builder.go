@@ -19,7 +19,6 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/cache"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/health"
-	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/protovalidator/reasoncode"
 	"github.com/altessa-s/go-atlas/transport/internal/geoacl"
 
 	"google.golang.org/grpc"
@@ -29,6 +28,7 @@ import (
 	idempotencydata "github.com/altessa-s/go-atlas/data/idempotency"
 	sharedlimiter "github.com/altessa-s/go-atlas/data/limiters"
 	tlsproviders "github.com/altessa-s/go-atlas/security/tlsutils/providers"
+	bufhelpers "github.com/altessa-s/go-atlas/transport/grpc/interceptors/protovalidator/buf"
 	grpcserver "github.com/altessa-s/go-atlas/transport/grpc/server"
 	baseserver "github.com/altessa-s/go-atlas/transport/internal/server"
 )
@@ -73,7 +73,7 @@ type ServerBuilder struct {
 	clientAuth             auth.ClientAuth
 	healthChecker          health.Health
 	geoResolver            geoacl.GeoResolver
-	reasonResolver         *reasoncode.Resolver
+	reasonCode             bufhelpers.ReasonCoder
 
 	// Interceptors
 	interceptors []interceptors.ServerInterceptor

@@ -524,7 +524,7 @@ func (b *ServerBuilder) WithBufValidatorInterceptor() *ServerBuilder {
 	b.interceptors = append(b.interceptors, protovalidator.ServerInterceptor(
 		protovalidator.ValidatorFunc(bufhelpers.BuildValidator(
 			bufhelpers.BuildValidationFilter(),
-			bufhelpers.WithResolver(b.reasonResolver),
+			bufhelpers.WithReasonCode(b.reasonCode),
 		)),
 		protovalidator.WithLogger(b.Logger()),
 	))

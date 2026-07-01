@@ -10,13 +10,12 @@
 //     messages using [protovalidate.Validator], converts violations into structured
 //     [protovalidatev1.BadRequest] details attached to gRPC status responses, and
 //     generates human-readable error messages via [BuildValidationError]. Pass
-//     [WithResolver] to supply a service's own reason-code catalog.
-//   - [BuildErrorCode]: maps a violation's rule ID and field path to a canonical,
-//     client-facing reason code — never the raw rule ID. "required" on field
-//     "userName" produces "USER_NAME_REQUIRED"; standard rules map to registry
-//     codes (e.g. "int64.gte" -> "INVALID_MIN_LENGTH_OR_VALUE"); unknown or
-//     uncataloged rules become "UNKNOWN". See package
-//     [github.com/altessa-s/go-atlas/transport/grpc/interceptors/protovalidator/reasoncode].
+//     [WithReasonCode] to attach a service-defined, client-facing reason code to
+//     each field violation.
+//   - [WithReasonCode]: supplies a [ReasonCoder] mapping a rule ID and field name
+//     to a canonical reason code. go-atlas ships no built-in mapping — the set of
+//     codes is part of a service's public error contract, so the service owns it;
+//     when unset, no code is emitted.
 //   - [BuildValidationFilter]: returns a [protovalidate.FilterFunc] controlling
 //     which messages are validated (currently allows all).
 //   - [BuildValidationError]: joins all violations into a single formatted error

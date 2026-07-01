@@ -12,17 +12,12 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func BenchmarkBuildErrorCode_Required(b *testing.B) {
+func BenchmarkLeafFieldName(b *testing.B) {
 	path := &validate.FieldPath{Elements: []*validate.FieldPathElement{
+		{FieldName: proto.String("parent")},
 		{FieldName: proto.String("userName")},
 	}}
 	for b.Loop() {
-		_ = BuildErrorCode("required", path)
-	}
-}
-
-func BenchmarkBuildErrorCode_Standard(b *testing.B) {
-	for b.Loop() {
-		_ = BuildErrorCode("int64.gte", nil)
+		_ = leafFieldName(path)
 	}
 }

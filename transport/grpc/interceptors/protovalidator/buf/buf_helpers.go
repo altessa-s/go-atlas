@@ -18,7 +18,6 @@ import (
 
 	"github.com/altessa-s/go-atlas/core/types/ptr"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
-	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/protovalidator/reasoncode"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -27,12 +26,14 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
-var (
-	// validator is the singleton protovalidate.Validator instance.
-	validator protovalidate.Validator
-	// validatorOnce ensures validator is initialized only once.
-	validatorOnce sync.Once
-)
+// newValidator lazily constructs the process-wide protovalidate.Validator on
+// first use and memoizes both the validator and any construction error, so the
+// (expensive) CEL compilation happens once. Caching the error together with the
+// validator means a failed construction is reported consistently on every call
+// instead of leaving a nil validator behind a dropped error.
+var newValidator = sync.OnceValues(func() (protovalidate.Validator, error) {
+	return protovalidate.New()
+})
 
 // BuildValidationError converts a ValidationError to a human-readable error message
 // combining all violations into a single formatted message.
@@ -54,38 +55,44 @@ func BuildValidationError(ve *protovalidate.ValidationError) error {
 	return errors.New(bldr.String())
 }
 
-// defaultResolver maps the standard protovalidate rule IDs to canonical reason
-// codes. It carries no catalog; services supply their own via [WithResolver].
-var defaultResolver = reasoncode.NewResolver(nil)
-
-// BuildErrorCode generates a canonical reason code from a rule ID and field path
-// using the default (standard-rules-only) resolver. For "required" violations it
-// returns "{FIELD_NAME}_REQUIRED" from the last field-path component; every other
-// rule is mapped to a canonical code (see package [reasoncode]). It has no
-// message, so it cannot resolve numeric range rules; use [BuildValidator] for
-// full resolution against a service catalog.
-func BuildErrorCode(ruleID string, fieldPath *validate.FieldPath) string {
-	return defaultResolver.ResolveViolation(newViolationView(ruleID, fieldPath, nil))
-}
+// ReasonCoder maps a protovalidate rule ID and the violated field name to a
+// service-defined, client-facing reason code. The field name is the last segment
+// of the violated field path, provided because a "required" violation typically
+// derives its code from it. An empty result means "no code": the resulting
+// [badrequestv1.FieldViolation.Code] is left unset and downstream consumers fall
+// back to the generic gRPC-status reason.
+//
+// go-atlas ships no built-in mapping — the set of reason codes is part of a
+// service's public error contract, so the service supplies its own ReasonCoder
+// (see [WithReasonCode]).
+type ReasonCoder func(ruleID, fieldName string) string
 
 // validatorConfig holds options for [BuildValidator].
 type validatorConfig struct {
-	resolver *reasoncode.Resolver
+	reasonCode ReasonCoder
 }
 
 // Option configures [BuildValidator].
 type Option func(*validatorConfig)
 
-// WithResolver sets the resolver used to translate validation rule IDs into
-// canonical reason codes, letting a service supply its own catalog (see
-// [reasoncode.NewResolver]). When unset, only the standard rules are resolved.
-// A nil resolver is ignored.
-func WithResolver(r *reasoncode.Resolver) Option {
+// WithReasonCode sets the [ReasonCoder] used to derive each field violation's
+// canonical reason code. When unset, no code is emitted. A nil coder is ignored.
+func WithReasonCode(fn ReasonCoder) Option {
 	return func(c *validatorConfig) {
-		if r != nil {
-			c.resolver = r
+		if fn != nil {
+			c.reasonCode = fn
 		}
 	}
+}
+
+// leafFieldName returns the last segment of a violated field path, or "" when the
+// path is empty.
+func leafFieldName(fp *validate.FieldPath) string {
+	elements := fp.GetElements()
+	if len(elements) == 0 {
+		return ""
+	}
+	return elements[len(elements)-1].GetFieldName()
 }
 
 // BuildValidationFilter creates a filter function that determines which messages
@@ -99,16 +106,13 @@ func BuildValidationFilter() protovalidate.FilterFunc {
 // BuildValidator creates a protocol buffer message validator function.
 // It validates messages using protovalidate and converts errors to gRPC status codes.
 func BuildValidator(filter protovalidate.Filter, opts ...Option) func(_ context.Context, msg proto.Message) error {
-	cfg := validatorConfig{resolver: defaultResolver}
+	var cfg validatorConfig
 	for _, opt := range opts {
 		opt(&cfg)
 	}
 
 	return func(_ context.Context, msg proto.Message) error {
-		var err error
-		validatorOnce.Do(func() {
-			validator, err = protovalidate.New()
-		})
+		validator, err := newValidator()
 		if err != nil {
 			return err
 		}
@@ -127,8 +131,13 @@ func BuildValidator(filter protovalidate.Filter, opts ...Option) func(_ context.
 		for _, violation := range ve.Violations {
 			field := &badrequestv1.FieldViolation{
 				Message:   violation.Proto.Message,
-				Code:      ptr.Wrap(cfg.resolver.ResolveViolation(newViolationView(violation.Proto.GetRuleId(), violation.Proto.GetField(), msg))),
 				FieldPath: ptr.WrapNonZero(protovalidate.FieldPathString(violation.Proto.GetField())),
+			}
+
+			if cfg.reasonCode != nil {
+				if code := cfg.reasonCode(violation.Proto.GetRuleId(), leafFieldName(violation.Proto.GetField())); code != "" {
+					field.Code = ptr.Wrap(code)
+				}
 			}
 
 			if field.FieldPath != nil {
