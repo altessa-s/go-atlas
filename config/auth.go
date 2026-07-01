@@ -39,6 +39,10 @@ type Auth struct {
 	// Scope contains the action-key→required-scope registry for scope-based
 	// authorization. If nil or empty, scope authorization is disabled.
 	Scope *ScopeRegistry `yaml:"scope" default:"-"`
+
+	// Denylist contains the token-revocation denylist configuration. If
+	// disabled, token revocation checks are skipped.
+	Denylist Denylist `yaml:"denylist"`
 }
 
 // DefaultAuth returns an Auth configuration with default values. Every
@@ -49,10 +53,11 @@ func DefaultAuth() Auth {
 	mtls := DefaultMTLS()
 	scope := DefaultScopeRegistry()
 	return Auth{
-		OIDC:  &oidc,
-		OPA:   &opa,
-		MTLS:  &mtls,
-		Scope: &scope,
+		OIDC:     &oidc,
+		OPA:      &opa,
+		MTLS:     &mtls,
+		Scope:    &scope,
+		Denylist: DefaultDenylist(),
 	}
 }
 
@@ -66,6 +71,7 @@ func (a *Auth) Validate() error {
 		validation.Field(&a.OPA, validation.NilOrNotEmpty),
 		validation.Field(&a.MTLS, validation.NilOrNotEmpty),
 		validation.Field(&a.Scope),
+		validation.Field(&a.Denylist),
 	)
 }
 

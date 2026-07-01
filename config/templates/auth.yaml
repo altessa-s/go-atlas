@@ -18,3 +18,6 @@
 #
 #  # Scope authorization registry — action-key→required-scope table.
 #  !include auth_scope.yaml
+#
+#  # Token-revocation denylist — negative cache over a distributed store.
+#  !include auth_denylist.yaml
