@@ -93,6 +93,17 @@ func (b *ServerBuilder) UseReasonCode(v bufhelpers.ReasonCoder) *ServerBuilder {
 	return b
 }
 
+// UseReasonCodeResolver is the interface-based counterpart of [UseReasonCode]:
+// it accepts any [bufhelpers.ReasonCodeResolver] (e.g. a service catalog type
+// with a Resolve method) and adapts it to the validator's coder. A nil resolver
+// is ignored.
+func (b *ServerBuilder) UseReasonCodeResolver(v bufhelpers.ReasonCodeResolver) *ServerBuilder {
+	if v != nil {
+		b.reasonCode = v.Resolve
+	}
+	return b
+}
+
 // UseIdempotency sets the idempotency keeper used by the idempotency interceptor.
 func (b *ServerBuilder) UseIdempotency(v idempotencydata.Idempotency) *ServerBuilder {
 	b.idempotency = v

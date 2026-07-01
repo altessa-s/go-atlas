@@ -85,6 +85,26 @@ func WithReasonCode(fn ReasonCoder) Option {
 	}
 }
 
+// ReasonCodeResolver is the interface form of [ReasonCoder]: any type whose
+// Resolve method matches the [ReasonCoder] signature can drive reason-code
+// derivation. Prefer it (via [WithResolver]) when the mapping is stateful — e.g.
+// a service catalog — and a named type reads better than a bare function; the
+// two are interchangeable.
+type ReasonCodeResolver interface {
+	Resolve(ruleID, fieldName string) string
+}
+
+// WithResolver is the interface-based counterpart of [WithReasonCode]: it adapts
+// a [ReasonCodeResolver] to the [ReasonCoder] the validator uses internally. A
+// nil resolver is ignored.
+func WithResolver(r ReasonCodeResolver) Option {
+	return func(c *validatorConfig) {
+		if r != nil {
+			c.reasonCode = r.Resolve
+		}
+	}
+}
+
 // leafFieldName returns the last segment of a violated field path, or "" when the
 // path is empty.
 func leafFieldName(fp *validate.FieldPath) string {
