@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"path"
 	"slices"
 	"strings"
@@ -19,6 +18,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/auth/opa"
 
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 )
@@ -29,7 +29,7 @@ import (
 type Source struct {
 	opts       *options
 	logger     *slog.Logger
-	extensions map[string]struct{}
+	extensions *coremaps.ImmutableMap[string, struct{}]
 	// normalizedPrefix is opts.prefix guaranteed to end with "/" (or empty).
 	// Pre-computed to avoid repeated normalization in relativeKey.
 	normalizedPrefix string
@@ -66,7 +66,7 @@ func New(opts ...Option) (*Source, error) {
 	return &Source{
 		opts:             o,
 		logger:           cmp.Or(o.logger, slog.New(slog.DiscardHandler)),
-		extensions:       extensions,
+		extensions:       coremaps.NewImmutableMap(extensions),
 		normalizedPrefix: normalizedPrefix,
 	}, nil
 }
@@ -105,7 +105,7 @@ func (s *Source) Fetch(ctx context.Context) (*opa.PolicyBundle, error) {
 		relKey := s.relativeKey(key)
 		ext := path.Ext(key)
 
-		if _, ok := s.extensions[ext]; ok {
+		if s.extensions.Contains(ext) {
 			modules[relKey] = content
 			continue
 		}
@@ -165,7 +165,7 @@ func (s *Source) Close() error {
 
 // Extensions returns the file extensions being loaded as a slice.
 func (s *Source) Extensions() []string {
-	return slices.Collect(maps.Keys(s.extensions))
+	return slices.Collect(s.extensions.Keys())
 }
 
 // listObjects paginates through ListObjectsV2 and returns all matching object keys.
@@ -194,7 +194,7 @@ func (s *Source) listObjects(ctx context.Context) ([]string, error) {
 			key := *obj.Key
 			ext := path.Ext(key)
 
-			if _, ok := s.extensions[ext]; ok {
+			if s.extensions.Contains(ext) {
 				keys = append(keys, key)
 				continue
 			}

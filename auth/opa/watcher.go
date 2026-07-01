@@ -7,6 +7,8 @@ package opa
 import (
 	"cmp"
 	"sync"
+
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 )
 
 // watchManager manages subscriptions to policy events.
@@ -21,7 +23,7 @@ type watchManager struct {
 type subscriber struct {
 	ch             chan PolicyEvent
 	done           chan struct{}
-	eventTypes     map[EventType]struct{}
+	eventTypes     *coremaps.ImmutableMap[EventType, struct{}]
 	overflowPolicy BufferOverflowPolicy
 	closedOnce     sync.Once
 }
@@ -44,10 +46,11 @@ func (w *watchManager) subscribe(opts WatchOptions) *WatchResult {
 	}
 
 	if len(opts.EventTypes) > 0 {
-		sub.eventTypes = make(map[EventType]struct{}, len(opts.EventTypes))
+		eventTypes := make(map[EventType]struct{}, len(opts.EventTypes))
 		for _, et := range opts.EventTypes {
-			sub.eventTypes[et] = struct{}{}
+			eventTypes[et] = struct{}{}
 		}
+		sub.eventTypes = coremaps.NewImmutableMap(eventTypes)
 	}
 
 	w.mu.Lock()
@@ -99,7 +102,7 @@ func (w *watchManager) broadcast(event PolicyEvent) {
 	subs := make([]*subscriber, 0, len(w.subscribers))
 	for sub := range w.subscribers {
 		if sub.eventTypes != nil {
-			if _, ok := sub.eventTypes[event.Type]; !ok {
+			if !sub.eventTypes.Contains(event.Type) {
 				continue
 			}
 		}

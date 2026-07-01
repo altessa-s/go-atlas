@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"maps"
 	"path"
 	"slices"
 	"strings"
@@ -20,6 +19,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/auth/opa"
 
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	corehash "github.com/altessa-s/go-atlas/core/encoding/hash"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
@@ -40,7 +40,7 @@ type Source struct {
 	dir        string
 	opts       *options
 	logger     *slog.Logger
-	extensions map[string]struct{}
+	extensions *coremaps.ImmutableMap[string, struct{}]
 
 	mu     sync.Mutex
 	closed bool
@@ -79,7 +79,7 @@ func New(fsys fs.FS, dir string, opts ...Option) (*Source, error) {
 		dir:        dir,
 		opts:       o,
 		logger:     cmp.Or(o.logger, slog.New(slog.DiscardHandler)),
-		extensions: extensions,
+		extensions: coremaps.NewImmutableMap(extensions),
 	}, nil
 }
 
@@ -146,7 +146,7 @@ func (s *Source) walkDirectory(root string, modules map[string][]byte, data *map
 
 		ext := path.Ext(d.Name())
 
-		if _, ok := s.extensions[ext]; ok {
+		if s.extensions.Contains(ext) {
 			content, readErr := fs.ReadFile(s.fsys, p)
 			if readErr != nil {
 				return coreerrs.Wrapf(readErr, "read policy %s", p)
@@ -260,7 +260,7 @@ func (s *Source) Dir() string {
 
 // Extensions returns the file extensions being loaded as a slice.
 func (s *Source) Extensions() []string {
-	return slices.Collect(maps.Keys(s.extensions))
+	return slices.Collect(s.extensions.Keys())
 }
 
 // Compile-time interface check.

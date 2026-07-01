@@ -25,6 +25,7 @@ import (
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	authjwt "github.com/altessa-s/go-atlas/auth/jwt"
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corectx "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
@@ -287,9 +288,9 @@ func (p *Provider) verifySignature(ctx context.Context, token string) (map[strin
 		authjwt.WithExpirationOptional(),
 		authjwt.WithLeeway(0),
 	}
-	if p.discoveryInfo != nil && p.discoveryInfo.Issuer != "" {
-		opts = append(opts, authjwt.WithIssuer(p.discoveryInfo.Issuer))
-	}
+	opts = coreslices.AppendIfFunc(opts, p.discoveryInfo != nil && p.discoveryInfo.Issuer != "", func() []authjwt.Option {
+		return []authjwt.Option{authjwt.WithIssuer(p.discoveryInfo.Issuer)}
+	})
 	v := authjwt.NewVerifier(p.keyResolver, opts...)
 	claims, err := v.Verify(ctx, token)
 	if err != nil {
@@ -1107,33 +1108,23 @@ func (p *Provider) jwtVerifyOptions(ops *verifierOptions) []authjwt.Option {
 
 	// Same contract for the nbf claim — `verify_not_before: true` in the
 	// service config translates to "nbf must be present and respected".
-	if ops.notBeforeRequired {
-		verifyOpts = append(verifyOpts, authjwt.WithNotBeforeRequired())
-	}
+	verifyOpts = coreslices.AppendIf(verifyOpts, ops.notBeforeRequired, authjwt.WithNotBeforeRequired())
 
 	// Verify issued-at claim if requested
-	if ops.issuedAt {
-		verifyOpts = append(verifyOpts, authjwt.WithIssuedAt())
-	}
+	verifyOpts = coreslices.AppendIf(verifyOpts, ops.issuedAt, authjwt.WithIssuedAt())
 
 	// Always verify issuer (use discovery issuer as fallback)
 	iss := ops.issuer
 	if iss == "" && p.discoveryInfo != nil {
 		iss = p.discoveryInfo.Issuer
 	}
-	if iss != "" {
-		verifyOpts = append(verifyOpts, authjwt.WithIssuer(iss))
-	}
+	verifyOpts = coreslices.AppendIf(verifyOpts, iss != "", authjwt.WithIssuer(iss))
 
 	// Verify subject if specified
-	if ops.subject != "" {
-		verifyOpts = append(verifyOpts, authjwt.WithSubject(ops.subject))
-	}
+	verifyOpts = coreslices.AppendIf(verifyOpts, ops.subject != "", authjwt.WithSubject(ops.subject))
 
 	// Verify audience if specified
-	if len(ops.audience) > 0 {
-		verifyOpts = append(verifyOpts, authjwt.WithAudiences(ops.audience...))
-	}
+	verifyOpts = coreslices.AppendIf(verifyOpts, len(ops.audience) > 0, authjwt.WithAudiences(ops.audience...))
 
 	return verifyOpts
 }

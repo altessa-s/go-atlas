@@ -13,6 +13,8 @@ import (
 	"github.com/altessa-s/go-atlas/auth/jwt"
 
 	"golang.org/x/sync/singleflight"
+
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 )
 
 // Verifier validates self-issued tokens and returns the verified [Token]. It
@@ -42,14 +44,10 @@ func NewVerifier(src KeyProvider, opts ...Option) *Verifier {
 	jwtOpts := []jwt.Option{
 		jwt.WithLeeway(o.leeway),
 		jwt.WithClock(o.clock),
-		jwt.WithAllowedAlgorithms(toJWTAlgorithms(o.allowedAlgorithms)...),
+		jwt.WithAllowedAlgorithms(o.allowedAlgorithms...),
 	}
-	if o.issuer != "" {
-		jwtOpts = append(jwtOpts, jwt.WithIssuer(o.issuer))
-	}
-	if o.revocation != nil {
-		jwtOpts = append(jwtOpts, jwt.WithRevocation(o.revocation))
-	}
+	jwtOpts = coreslices.AppendIf(jwtOpts, o.issuer != "", jwt.WithIssuer(o.issuer))
+	jwtOpts = coreslices.AppendIf(jwtOpts, o.revocation != nil, jwt.WithRevocation(o.revocation))
 	v.jwt = jwt.NewVerifier(jwt.KeyResolverFunc(v.resolveKey), jwtOpts...)
 	return v
 }
@@ -99,7 +97,7 @@ func (v *Verifier) resolveKey(ctx context.Context, hdr jwt.Header, unverified jw
 	if vk.Algorithm == "" {
 		return jwt.VerificationKey{}, ErrAlgorithmNotAllowed
 	}
-	return jwt.VerificationKey{Algorithm: jwt.Algorithm(vk.Algorithm), Key: vk.Key}, nil
+	return vk, nil
 }
 
 // mapVerifyErr translates auth/jwt verification errors back onto the selfjwt

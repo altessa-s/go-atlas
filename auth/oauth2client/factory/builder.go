@@ -160,13 +160,13 @@ func (b *Builder) options() []oauth2client.Option {
 	opts = slices.AppendIf(opts, b.logger != nil, oauth2client.WithLogger(b.logger))
 	opts = slices.AppendIf(opts, b.metrics != nil, oauth2client.WithMetrics(b.metrics))
 	opts = slices.AppendIf(opts, cfg.EarlyExpiry > 0, oauth2client.WithEarlyExpiry(cfg.EarlyExpiry))
-	if cfg.IsRetryConfigured() && cfg.Retry.Attempts > 0 {
-		opts = append(opts,
+	opts = slices.AppendIfFunc(opts, cfg.IsRetryConfigured() && cfg.Retry.Attempts > 0, func() []oauth2client.Option {
+		return []oauth2client.Option{
 			oauth2client.WithRetryAttempts(cfg.Retry.Attempts),
 			oauth2client.WithRetryBaseDelay(cfg.Retry.BaseDelay),
 			oauth2client.WithRetryMaxDelay(cfg.Retry.MaxDelay),
-		)
-	}
+		}
+	})
 	return opts
 }
 
@@ -200,12 +200,8 @@ func (b *Builder) clientAuthOption() (oauth2client.Option, error) {
 // config clientAuth block, loading the signing key for private_key_jwt.
 func (b *Builder) buildConfigClientAuth(ca *config.OAuth2ClientAuth) (oauth2client.ClientAuthenticator, error) {
 	var opts []oauth2client.AssertionOption
-	if ca.AssertionLifetime > 0 {
-		opts = append(opts, oauth2client.WithAssertionLifetime(ca.AssertionLifetime))
-	}
-	if ca.AssertionAudience != "" {
-		opts = append(opts, oauth2client.WithAssertionAudience(ca.AssertionAudience))
-	}
+	opts = slices.AppendIf(opts, ca.AssertionLifetime > 0, oauth2client.WithAssertionLifetime(ca.AssertionLifetime))
+	opts = slices.AppendIf(opts, ca.AssertionAudience != "", oauth2client.WithAssertionAudience(ca.AssertionAudience))
 	switch ca.Method {
 	case config.OAuth2ClientAuthClientSecretJWT:
 		return oauth2client.ClientSecretJWT(b.cfg.ClientId, b.cfg.ClientSecret.Expose(), opts...)

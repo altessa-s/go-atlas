@@ -130,21 +130,15 @@ func (b *ManagerBuilder) buildGitLabSource() (opa.PolicySource, error) {
 		gitlab.WithLogger(b.Logger()),
 	}
 
-	if gl.Ref != "" {
-		opts = append(opts, gitlab.WithRef(gl.Ref))
-	}
+	opts = slices.AppendIf(opts, gl.Ref != "", gitlab.WithRef(gl.Ref))
 
-	if gl.Dir != "" {
-		opts = append(opts, gitlab.WithDir(gl.Dir))
-	}
+	opts = slices.AppendIf(opts, gl.Dir != "", gitlab.WithDir(gl.Dir))
 
 	proxyOpts, err := gl.Proxy.ClientOptions()
 	if err != nil {
 		return nil, b.WrapError(err, "failed to materialize gitlab proxy options")
 	}
-	if len(proxyOpts) > 0 {
-		opts = append(opts, gitlab.WithHTTPClientOptions(proxyOpts...))
-	}
+	opts = slices.AppendIf(opts, len(proxyOpts) > 0, gitlab.WithHTTPClientOptions(proxyOpts...))
 
 	opts = slices.AppendIf(opts, b.cfg.IncludeData, gitlab.WithIncludeData())
 
@@ -197,9 +191,7 @@ func (b *ManagerBuilder) buildS3Source(ctx context.Context) (opa.PolicySource, e
 		s3source.WithExtensions(cfg.FileExtensions...),
 	}
 
-	if s3Cfg.Prefix != "" {
-		s3Opts = append(s3Opts, s3source.WithPrefix(s3Cfg.Prefix))
-	}
+	s3Opts = slices.AppendIf(s3Opts, s3Cfg.Prefix != "", s3source.WithPrefix(s3Cfg.Prefix))
 
 	s3Opts = slices.AppendIf(s3Opts, cfg.IncludeData, s3source.WithIncludeData())
 
@@ -276,16 +268,12 @@ func (b *ManagerBuilder) buildManager(ctx context.Context, source opa.PolicySour
 	}
 	managerOpts = slices.AppendIf(managerOpts, cfg.DecisionLogging, opa.WithDecisionLogging())
 
-	if cfg.PollInterval > 0 {
-		managerOpts = append(managerOpts, opa.WithPollInterval(cfg.PollInterval))
-	}
+	managerOpts = slices.AppendIf(managerOpts, cfg.PollInterval > 0, opa.WithPollInterval(cfg.PollInterval))
 
-	if b.scheduler != nil && cfg.UpdateSchedule != "" {
-		managerOpts = append(managerOpts,
-			opa.WithScheduler(b.scheduler),
-			opa.WithUpdateSchedule(cfg.UpdateSchedule, cfg.RunOnStart),
-		)
-	}
+	managerOpts = slices.AppendIf(managerOpts, b.scheduler != nil && cfg.UpdateSchedule != "",
+		opa.WithScheduler(b.scheduler),
+		opa.WithUpdateSchedule(cfg.UpdateSchedule, cfg.RunOnStart),
+	)
 
 	manager, err := opa.NewManager(ctx, source, cfg.Query, managerOpts...)
 	if err != nil {

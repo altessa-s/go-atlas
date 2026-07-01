@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	gojwt "github.com/golang-jwt/jwt/v5"
 )
 
@@ -44,21 +45,11 @@ func buildParserOptions(o *options) []gojwt.ParserOption {
 		gojwt.WithLeeway(o.leeway),
 		gojwt.WithTimeFunc(o.clock.Now),
 	}
-	if o.expirationRequired {
-		parserOpts = append(parserOpts, gojwt.WithExpirationRequired())
-	}
-	if o.notBeforeRequired {
-		parserOpts = append(parserOpts, gojwt.WithNotBeforeRequired())
-	}
-	if o.issuedAt {
-		parserOpts = append(parserOpts, gojwt.WithIssuedAt())
-	}
-	if o.issuer != "" {
-		parserOpts = append(parserOpts, gojwt.WithIssuer(o.issuer))
-	}
-	if o.subject != "" {
-		parserOpts = append(parserOpts, gojwt.WithSubject(o.subject))
-	}
+	parserOpts = coreslices.AppendIf(parserOpts, o.expirationRequired, gojwt.WithExpirationRequired())
+	parserOpts = coreslices.AppendIf(parserOpts, o.notBeforeRequired, gojwt.WithNotBeforeRequired())
+	parserOpts = coreslices.AppendIf(parserOpts, o.issuedAt, gojwt.WithIssuedAt())
+	parserOpts = coreslices.AppendIf(parserOpts, o.issuer != "", gojwt.WithIssuer(o.issuer))
+	parserOpts = coreslices.AppendIf(parserOpts, o.subject != "", gojwt.WithSubject(o.subject))
 	return parserOpts
 }
 
