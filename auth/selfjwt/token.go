@@ -4,7 +4,11 @@
 
 package selfjwt
 
-import "time"
+import (
+	"time"
+
+	"github.com/altessa-s/go-atlas/auth/principal"
+)
 
 // Token is the verified result of [Verifier.Verify]: the registered claims a
 // caller needs plus the granted scopes. Any richer principal model (roles,
@@ -18,4 +22,12 @@ type Token struct {
 	Scopes []string
 	// Expiry is the exp claim.
 	Expiry time.Time
+}
+
+// Principal returns the verified identity as a canonical
+// [principal.Principal] — its Subject and Scopes — for callers standardizing on
+// that type as their authorization subject across transports. A self-issued
+// token carries no tenant, roles, or extra claims, so those stay empty.
+func (t Token) Principal() principal.Principal {
+	return principal.Principal{Subject: t.Subject, Scopes: t.Scopes}
 }

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/auth/audit"
+	"github.com/altessa-s/go-atlas/auth/principal"
 	"github.com/altessa-s/go-atlas/auth/spiffe"
 )
 
@@ -33,6 +34,20 @@ type IdentityFunc func(*x509.Certificate) (any, error)
 // no SPIFFE ID URI SAN.
 func SPIFFEIdentity(cert *x509.Certificate) (any, error) {
 	return spiffe.IDFromCertificate(cert)
+}
+
+// PrincipalIdentity is an opt-in [IdentityFunc] that derives a canonical
+// [principal.Principal] (its Subject set to the certificate's SPIFFE ID) for
+// callers standardizing on principal.Principal as the authorization subject
+// across transports. Wire it with [WithIdentity]; the default stays
+// [SPIFFEIdentity]. It fails when the certificate carries no SPIFFE ID URI SAN.
+// A certificate carries no scopes or roles, so only Subject is populated.
+func PrincipalIdentity(cert *x509.Certificate) (any, error) {
+	id, err := spiffe.IDFromCertificate(cert)
+	if err != nil {
+		return nil, err
+	}
+	return principal.Principal{Subject: id.String()}, nil
 }
 
 type options struct {
