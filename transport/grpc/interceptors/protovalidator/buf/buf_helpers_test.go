@@ -9,9 +9,10 @@ import (
 
 	"buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/protovalidator/reasoncode"
+
+	"google.golang.org/protobuf/proto"
 )
 
 func fieldPath(names ...string) *validate.FieldPath {

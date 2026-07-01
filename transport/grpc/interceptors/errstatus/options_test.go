@@ -11,9 +11,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/transport/internal/requestid"
-
 	"github.com/altessa-s/proto-gen-go/badrequest/v1"
+
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/protovalidator/reasoncode"
+	"github.com/altessa-s/go-atlas/transport/internal/requestid"
 
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
@@ -241,6 +242,16 @@ func TestDefaultFinalizer_PromotesFieldViolationCode(t *testing.T) {
 	t.Run("no_code_falls_back_to_grpc_reason", func(t *testing.T) {
 		result := DefaultFinalizer(t.Context(), statusWithFieldCodes(t, "").Err())
 		require.Equal(t, "INVALID_ARGUMENT", requireErrorInfo(t, result).Reason)
+	})
+
+	t.Run("unknown_code_falls_back_to_grpc_reason", func(t *testing.T) {
+		result := DefaultFinalizer(t.Context(), statusWithFieldCodes(t, reasoncode.Unknown).Err())
+		require.Equal(t, "INVALID_ARGUMENT", requireErrorInfo(t, result).Reason)
+	})
+
+	t.Run("skips_unknown_and_promotes_next_meaningful_code", func(t *testing.T) {
+		result := DefaultFinalizer(t.Context(), statusWithFieldCodes(t, reasoncode.Unknown, "FIELD_D_CODE").Err())
+		require.Equal(t, "FIELD_D_CODE", requireErrorInfo(t, result).Reason)
 	})
 
 	t.Run("no_bad_request_keeps_grpc_reason", func(t *testing.T) {

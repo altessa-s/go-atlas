@@ -88,8 +88,14 @@ func leafNumericValue(m protoreflect.Message, elements []*validate.FieldPathElem
 	return 0, nil, false
 }
 
-// numericFloat converts a scalar numeric protoreflect value to a float64.
+// numericFloat converts a scalar numeric protoreflect value to a float64. A
+// repeated or map field is not a numeric scalar even when its element kind is
+// numeric (its value is a list or map, not a number), so it reports ok=false
+// rather than reading the value — which would panic.
 func numericFloat(fd protoreflect.FieldDescriptor, v protoreflect.Value) (float64, bool) {
+	if fd.IsList() || fd.IsMap() {
+		return 0, false
+	}
 	switch fd.Kind() {
 	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind,
 		protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
