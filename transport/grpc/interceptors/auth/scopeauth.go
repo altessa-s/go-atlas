@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/auth/audit"
+	"github.com/altessa-s/go-atlas/auth/principal"
 	"github.com/altessa-s/go-atlas/auth/scope"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
@@ -90,6 +91,18 @@ func ScopeClientAuth[P any](e *scope.Enforcer[P], opts ...ScopeClientAuthOption[
 		}
 		return ctx, cfg.finalize(ctx, cred, cfg.subject(p), true, "", nil)
 	})
+}
+
+// ScopeClientAuthPrincipal is [ScopeClientAuth] specialized to the canonical
+// [principal.Principal], the standard authorization subject an authentication
+// adapter stashes in Credentials.Data. It is a convenience so callers write
+// ScopeClientAuthPrincipal(e) instead of ScopeClientAuth[principal.Principal](e);
+// pass [WithScopeAudit] with subjectOf func(principal.Principal) string to record
+// the subject (typically p.Subject).
+func ScopeClientAuthPrincipal(
+	e *scope.Enforcer[principal.Principal], opts ...ScopeClientAuthOption[principal.Principal],
+) ClientAuth {
+	return ScopeClientAuth(e, opts...)
 }
 
 // ScopeClientAuthOption configures [ScopeClientAuth].

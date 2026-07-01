@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/auth/audit"
+	"github.com/altessa-s/go-atlas/auth/principal"
 	"github.com/altessa-s/go-atlas/auth/scope"
 )
 
@@ -51,6 +52,19 @@ func ScopeMiddleware[P any](e *scope.Enforcer[P], keyFunc func(*http.Request) st
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// ScopeMiddlewarePrincipal is [ScopeMiddleware] specialized to the canonical
+// [principal.Principal], the standard authorization subject an authentication
+// [Middleware] installs in the request context. It is a convenience so callers
+// write ScopeMiddlewarePrincipal(e, keyFunc) instead of
+// ScopeMiddleware[principal.Principal](e, keyFunc); pass [WithScopeAudit] with
+// subjectOf func(principal.Principal) string to record the subject.
+func ScopeMiddlewarePrincipal(
+	e *scope.Enforcer[principal.Principal], keyFunc func(*http.Request) string,
+	opts ...ScopeMiddlewareOption[principal.Principal],
+) func(http.Handler) http.Handler {
+	return ScopeMiddleware(e, keyFunc, opts...)
 }
 
 // ScopeMiddlewareOption configures [ScopeMiddleware].
