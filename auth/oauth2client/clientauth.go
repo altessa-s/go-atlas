@@ -19,7 +19,7 @@ import (
 
 // ClientAssertionTypeJWTBearer is the client_assertion_type value for a JWT
 // bearer client assertion (RFC 7523 §2.2).
-const ClientAssertionTypeJWTBearer = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer" // #nosec G101 -- RFC 7523 client_assertion_type URI, not a credential
+const ClientAssertionTypeJWTBearer = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer" // #nosec G101 -- RFC 7523 URI, not a credential
 
 // DefaultClientAssertionLifetime is how long a minted client assertion is valid.
 // Assertions are short-lived and minted fresh per token request.
