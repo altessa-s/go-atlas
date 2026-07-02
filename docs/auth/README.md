@@ -23,6 +23,7 @@ This document is the map; for depth on any one mechanism, follow the per-topic g
   - [Static API-key authentication (HTTP)](#static-api-key-authentication-http)
   - [OIDC token validation](#oidc-token-validation)
   - [Self-issued JWTs between services](#self-issued-jwts-between-services)
+  - [Outbound service-to-service tokens (OAuth2 client)](#outbound-service-to-service-tokens-oauth2-client)
   - [mTLS / SPIFFE identity](#mtls--spiffe-identity)
   - [Scope policy over OIDC claims](#scope-policy-over-oidc-claims)
   - [OPA policy with audit](#opa-policy-with-audit)
@@ -37,22 +38,29 @@ The two halves answer different questions. An authenticator proves identity and 
 decides access. Because they stay separate, the same OIDC token can feed either an OPA policy or a scope check, and a scope policy can be
 unit-tested with a fake principal.
 
-| Question                          | Layer    | Packages                                  |
-|-----------------------------------|----------|-------------------------------------------|
-| Who is the caller?                | AuthN    | `jwt`, [`oidc`](oidc.md), [`selfjwt`](selfjwt.md), [`static`](static.md), `spiffe`/`mtls` |
-| May this caller do this action?   | AuthZ    | [`scope`](scope.md), [`opa`](opa.md)      |
-| What was decided, and why?        | Audit    | [`audit`](audit.md)                       |
+| Question                          | Layer          | Packages                                  |
+|-----------------------------------|----------------|-------------------------------------------|
+| Who is the caller?                | AuthN          | `jwt`, [`oidc`](oidc.md), [`selfjwt`](selfjwt.md), [`static`](static.md), `spiffe`/`mtls` |
+| What identity do we pass around?  | Shared type    | `principal`                               |
+| How do I authenticate outbound?   | AuthN (client) | `oauth2client`, `security/tlsutils/spiffe` |
+| Is this token still valid?        | Revocation     | `denylist`                                |
+| May this caller do this action?   | AuthZ          | [`scope`](scope.md), [`opa`](opa.md)      |
+| What was decided, and why?        | Audit          | [`audit`](audit.md)                       |
 
-AuthN produces a *principal* (an OIDC `*Claims`, a static token's associated data, …). AuthZ consumes that principal and owns no identity type
-of its own. Audit records either layer's outcome.
+AuthN produces a *principal* — an OIDC `*Claims`, a static token's associated data, or the canonical `principal.Principal` an adapter builds
+via `principal.FromClaims`. AuthZ consumes that principal and owns no identity type of its own. Audit records either layer's outcome. The
+first four rows above are inbound (someone calling *this* service); `oauth2client` is the mirror image — this service acquiring a token to
+call *someone else*.
 
 ## Package Map
 
 | Package                     | Role        | Summary                                                                                       | Guide |
 |-----------------------------|-------------|-----------------------------------------------------------------------------------------------|-------|
+| `auth/principal`            | Shared type | Canonical verified-identity (`Subject`/`Tenant`/`Scopes`/`Roles`/`Claims` + accessors + `FromClaims`); the standard `P` for scope authorizers. | [principal.md](principal.md) |
 | `auth/jwt`                  | AuthN core  | Low-level JWT `Signer`/`Verifier`/`Claims` over golang-jwt; the shared core for selfjwt and oidc. | — |
 | `auth/oidc`                 | AuthN       | OIDC/JWT validation with JWKS auto-rotation, CEL claim rules, introspection, presets.          | [oidc.md](oidc.md) |
 | `auth/selfjwt`              | AuthN       | Self-issued JWT minting + verification with per-subject keys and rotation.                     | [selfjwt.md](selfjwt.md) |
+| `auth/oauth2client`         | AuthN (client) | Acquires IdP tokens for outbound calls: client_credentials / refresh / auth_code / device + RFC 8693 exchange; returns a self-refreshing `oauth2.TokenSource`. | [oauth2client.md](oauth2client.md) |
 | `auth/spiffe`               | AuthN       | SPIFFE ID parsing from X.509 certificates (trust domain + path); pure primitive.              | — |
 | `auth/mtls`                 | AuthN       | Verified client cert → principal core: identity + validators (expiry, trust-domain, revocation incl. live-OCSP, subject/issuer/CA-pin, DNS-SAN, EKU) + audit. | — |
 | `auth/mtls/revocation`      | AuthN       | Live OCSP peer-revocation `CertValidator`: queries the issuer's responder, TTL-caches, fail-open/closed; network-backed complement to `RevocationList`. | — |
@@ -63,6 +71,9 @@ of its own. Audit records either layer's outcome.
 | `auth/opa`                  | AuthZ       | Open Policy Agent Rego evaluation with policy hot-reload and event-driven reload.              | [opa.md](opa.md) |
 | `auth/audit`               | Audit       | `Decision` + consumer-side `Sink` seam + `Recorder` with policy/failure modes.                | [audit.md](audit.md) |
 | `auth/audit/sinks/dataaudit` | Audit sink | Bridges `audit.Sink` to the framework's `data/audit` dispatcher.                               | [audit.md](audit.md) |
+| `auth/denylist`            | Revocation  | Reusable token-revocation seam: concurrency-safe set of revoked ids (jti/subject), permanent or TTL-bounded, exposed as a `Checker`; never evicts a live entry. | [denylist.md](denylist.md) |
+| `auth/denylist/negcache`   | Revocation  | Probabilistic negative cache (Bloom/Cuckoo) in front of an authoritative store — never-revoked tokens answered locally, no false negatives. | [denylist.md](denylist.md) |
+| `auth/denylist/storages/redis` | Revocation | Redis-backed authoritative denylist store for cross-instance revocation.                   | [denylist.md](denylist.md) |
 
 ## The Request Pipeline
 
@@ -104,15 +115,17 @@ when configuration is loaded from YAML/env through `config/loader`.
 
 ### Factory + config template
 
-Four packages ship a `factory/` builder that constructs the component (or its options) from a config struct; the rest are configured
+Several packages ship a `factory/` builder that constructs the component (or its options) from a config struct; the rest are configured
 directly in code.
 
-| Package | Factory entrypoint                       | Config struct (Go)                  | YAML template                       |
-|---------|------------------------------------------|-------------------------------------|-------------------------------------|
-| `oidc`  | `oidc/factory.New(cfg *config.OIDC) *ProviderBuilder` | `config.OIDC` (`config/auth_oidc.go`)  | `config/templates/auth_oidc.yaml`  |
-| `opa`   | `opa/factory.New(cfg *config.OPA) *ManagerBuilder`    | `config.OPA` (`config/opa.go`)         | — (configured via `config.OPA`)    |
-| `scope` | `scope/factory.New(cfg *config.ScopeRegistry) *RegistryBuilder` | `config.ScopeRegistry` (`config/auth_scope.go`) | `config/templates/auth_scope.yaml` |
-| `mtls`  | `mtls/factory.New(cfg *config.MTLS) *Builder` (returns `[]mtls.Option`) | `config.MTLS` (`config/auth_mtls.go`) | `config/templates/auth_mtls.yaml`  |
+| Package        | Factory entrypoint                       | Config struct (Go)                  | YAML template                       |
+|----------------|------------------------------------------|-------------------------------------|-------------------------------------|
+| `oidc`         | `oidc/factory.New(cfg *config.OIDC) *ProviderBuilder` | `config.OIDC` (`config/auth_oidc.go`)  | `config/templates/auth_oidc.yaml`  |
+| `opa`          | `opa/factory.New(cfg *config.OPA) *ManagerBuilder`    | `config.OPA` (`config/opa.go`)         | — (configured via `config.OPA`)    |
+| `scope`        | `scope/factory.New(cfg *config.ScopeRegistry) *RegistryBuilder` | `config.ScopeRegistry` (`config/auth_scope.go`) | `config/templates/auth_scope.yaml` |
+| `mtls`         | `mtls/factory.New(cfg *config.MTLS) *Builder` (returns `[]mtls.Option`) | `config.MTLS` (`config/auth_mtls.go`) | `config/templates/auth_mtls.yaml`  |
+| `oauth2client` | `oauth2client/factory.New(cfg *config.OAuth2Client) *Builder` (`Build` → `oauth2.TokenSource`, `BuildExchanger` → `*Exchanger`) | `config.OAuth2Client` (`config/oauth2_client.go`) | `config/templates/oauth2_client.yaml` |
+| `denylist`     | `denylist/negcache/factory.NewBuilder(...)` (negative filter) + `denylist/storages/redis.New(...)` (authoritative store) | `config.Denylist` (`config/auth_denylist.go`) | `config/templates/auth_denylist.yaml` |
 
 The builder pattern resolves dependencies and applies options; see each package's `factory/` README for the `Build`/accessor surface. The
 `config/templates/auth.yaml` template is the aggregate auth section consumed by `config/loader`. The `scope` factory builds only the
@@ -259,6 +272,36 @@ if err != nil {
 }
 _ = tok // verified claims; default leeway 30s
 ```
+
+### Outbound service-to-service tokens (OAuth2 client)
+
+The mirror of the AuthN recipes: instead of verifying an inbound token, this service acquires one to call a peer. `ClientCredentials`
+returns a self-refreshing `oauth2.TokenSource`, which drops straight into the gRPC client credentials — no adapter.
+
+```go
+import (
+    "github.com/altessa-s/go-atlas/auth/oauth2client"
+    "github.com/altessa-s/go-atlas/transport/grpc/client"
+)
+
+src := oauth2client.ClientCredentials(ctx, tokenURL, clientID, clientSecret,
+    oauth2client.WithScopes("orders:read", "orders:write"),
+)
+creds := client.NewInsecureTokenCredentials(src) // outbound calls now carry a fresh token
+```
+
+To propagate the caller's identity to a downstream service, trade the inbound token for a downstream-scoped one (RFC 8693 token exchange):
+
+```go
+ex := oauth2client.NewExchanger(tokenURL, clientID, clientSecret)
+tok, err := ex.Exchange(ctx, oauth2client.ExchangeRequest{
+    SubjectToken: inboundAccessToken,
+    Audience:     "https://downstream.internal",
+})
+```
+
+Load either from `config.OAuth2Client` (the factory path) with `oauth2client/factory.New(cfg.OAuth2Client).Build(ctx)`; when the config
+sets `discoveryUrl` instead of `tokenUrl`, inject an `oidc.Provider` as the token-endpoint source via `Builder.UseTokenEndpointSource`.
 
 ### mTLS / SPIFFE identity
 
@@ -410,8 +453,13 @@ Here `validator` is any `grpcoidc.Validator` (`ValidateToken(ctx, token) (*Claim
 
 - **Audit.** Any AuthN/AuthZ decision can be recorded through an `audit.Recorder` without coupling the deciding engine to storage. The adapter
   hooks (`WithScopeAudit`, `static`/`oidc` `WithAudit`, `opa.WithAuditRecorder`) are non-breaking opt-ins. See [audit.md](audit.md).
-- **Metrics.** `oidc`, `opa`, `selfjwt`, and `static` expose Prometheus telemetry under stable subsystems (`auth_oidc`, `auth_opa`, …); see
-  [../metrics.md](../metrics.md). Metrics aggregate; audit records each decision. They answer different questions, so keep both.
+- **Metrics.** `oidc`, `opa`, `selfjwt`, `static`, `oauth2client`, and `denylist/negcache` expose Prometheus telemetry under stable
+  subsystems (`auth_oidc`, `auth_opa`, `auth_oauth2client`, `auth_denylist_negcache`, …); see [../metrics.md](../metrics.md). Metrics
+  aggregate; audit records each decision. They answer different questions, so keep both.
+- **Revocation.** `denylist` is a shared seam for rejecting tokens revoked before their natural expiry: a verifier consults a `Checker`,
+  backed by an in-memory set now and a Redis store (`denylist/storages/redis`) later, optionally fronted by a probabilistic negative cache
+  (`denylist/negcache`) that answers the never-revoked common case without a network hop. It complements — does not replace — `oidc`'s own
+  introspection-based revocation.
 - **Defaults & clock skew.** Token validators share a consistent default leeway of `30s` (`oidc`, `selfjwt`); error sentinels are aligned
   (`ErrTokenInvalid`, `ErrTokenEmpty`, `ErrRateLimited`) so adapters map them uniformly to gRPC codes / HTTP status.
 - **Hot-reload.** `oidc` rotates JWKS keys and `opa` reloads policy from its source without a restart, keeping decisions current.
@@ -430,7 +478,8 @@ Here `validator` is any `grpcoidc.Validator` (`ValidateToken(ctx, token) (*Claim
 
 ## See Also
 
-- [oidc.md](oidc.md) · [opa.md](opa.md) · [scope.md](scope.md) · [selfjwt.md](selfjwt.md) · [static.md](static.md) · [audit.md](audit.md)
+- [oidc.md](oidc.md) · [opa.md](opa.md) · [scope.md](scope.md) · [selfjwt.md](selfjwt.md) · [static.md](static.md) · [audit.md](audit.md) ·
+  [principal.md](principal.md) · [oauth2client.md](oauth2client.md) · [denylist.md](denylist.md)
 - [`auth/` package README](../../auth/README.md) — code-level quick reference and package listing.
 - [../architecture.md](../architecture.md) — overall package map and layering.
 - [../configuration.md](../configuration.md) — multi-source config loading for the factory path.
