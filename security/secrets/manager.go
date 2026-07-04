@@ -108,6 +108,11 @@ type Manager[T any] struct {
 	// generation counter incremented by every successful Save.
 	saveVersions sync.Map // map[string]*atomic.Int64
 
+	// clearCacheMu serializes ClearCache so a graceful-shutdown call and the
+	// force-shutdown timeout path cannot run Value.Clear() on the same entry
+	// concurrently, which would be a data race on the zeroed sensitive fields.
+	clearCacheMu sync.Mutex
+
 	// updateCycleRunning guards against concurrent RunUpdateCycle calls
 	updateCycleRunning atomic.Bool
 
@@ -377,6 +382,9 @@ func (t *Manager[T]) Value(ctx context.Context, key string, force bool) (*Value[
 //
 // This operation is thread-safe but will block other cache operations during execution.
 func (t *Manager[T]) ClearCache(ctx context.Context) {
+	t.clearCacheMu.Lock()
+	defer t.clearCacheMu.Unlock()
+
 	var clearedCount int
 	for key, value := range t.cache.All() {
 		value.Clear()
