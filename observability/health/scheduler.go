@@ -119,7 +119,7 @@ func (c *Coordinator) runHealthCheckCycleInternal(ctx context.Context) error {
 		// Collect watchers that need notification
 		var toNotify []*watcher
 		for w := range watchers {
-			if w.lastStatus != currentStatus {
+			if ServingStatus(w.lastStatus.Load()) != currentStatus {
 				toNotify = append(toNotify, w)
 			}
 		}
@@ -130,9 +130,9 @@ func (c *Coordinator) runHealthCheckCycleInternal(ctx context.Context) error {
 		for _, w := range toNotify {
 			c.logger.Info("health status changed",
 				slog.String("service", service),
-				slog.String("from", w.lastStatus.String()),
+				slog.String("from", ServingStatus(w.lastStatus.Load()).String()),
 				slog.String("to", currentStatus.String()))
-			w.lastStatus = currentStatus
+			w.lastStatus.Store(int32(currentStatus))
 			w.notify(currentStatus)
 		}
 	}
