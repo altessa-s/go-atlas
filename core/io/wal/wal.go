@@ -489,6 +489,17 @@ func (w *WAL) fsyncOnce() {
 		return
 	}
 	if err := f.Sync(); err != nil {
+		// The active segment may have been rotated between capturing f and
+		// calling Sync: Append/sealActiveLocked syncs and closes the old
+		// file under w.mu, so f.Sync then returns os.ErrClosed. Because the
+		// seal path already fsynced that segment, the data is durable and
+		// the error is benign — do not report it as a fault.
+		w.mu.Lock()
+		rotated := w.active == nil || w.active.file != f
+		w.mu.Unlock()
+		if rotated && errors.Is(err, os.ErrClosed) {
+			return
+		}
 		// Stash the latest failure so callers can observe via
 		// [WAL.Faulted]. Previously the error was logged and dropped —
 		// a durability primitive that loses an fsync should at minimum
