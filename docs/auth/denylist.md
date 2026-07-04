@@ -31,13 +31,14 @@ distributed without touching the verifier.
 import "github.com/altessa-s/go-atlas/auth/denylist"
 ```
 
-Two companion packages extend the seam across a network:
+Companion packages extend the seam across a network:
 
 | Package                          | Role                                                                                             |
 |----------------------------------|--------------------------------------------------------------------------------------------------|
 | `auth/denylist`                  | In-memory exact set + the `Checker` seam. The whole story for a single process.                  |
 | `auth/denylist/storages/redis`   | Redis-backed exact store for cross-instance revocation; native per-key TTL, no sweeper.          |
 | `auth/denylist/negcache`         | Probabilistic negative cache fronting an authoritative store — never-revoked tokens answered locally. |
+| `auth/denylist/mirror`           | Synchronous local snapshot of a distributed store; satisfies `jwt.RevocationChecker` so jwt/selfjwt verifiers enforce distributed revocation with no hot-path network call. |
 
 It complements, rather than replaces, mechanisms a token package already has: `oidc` carries introspection-based revocation, and `selfjwt`
 rotates keys. `denylist` is the small explicit seam any of them can share.
@@ -133,6 +134,9 @@ The hit rate is `fast_negative / total` — the share of lookups that skipped th
 filter. A nil collector or `*Metrics` makes every recording a zero-cost no-op. The core `denylist` and the Redis store expose no metrics of
 their own.
 
+`mirror.WithMetrics(mirror.NewMetrics(collector, ""))` records, under subsystem `auth_denylist_mirror`, `refreshes_total{result}`
+(`ok`/`error`) and the `snapshot_size` gauge — watch a climbing `result="error"` rate for a source going stale.
+
 ## API Reference
 
 | Symbol                                       | Description                                                                        |
@@ -166,5 +170,6 @@ their own.
 - [`auth/denylist` README](../../auth/denylist/README.md) · [`negcache` README](../../auth/denylist/negcache/README.md) ·
   [`storages/redis` README](../../auth/denylist/storages/redis/README.md) — package quick references.
 - [`data/probfilter`](../../data/probfilter) — the Bloom/Cuckoo filter behind `negcache`.
+- [`auth/denylist/mirror`](../../auth/denylist/mirror) — synchronous local snapshot of a distributed store for the `jwt.RevocationChecker` seam.
 - [oidc.md](oidc.md) · [selfjwt.md](selfjwt.md) — token packages that consult a `Checker`.
 - [architecture.md](../architecture.md) — package map and layering.

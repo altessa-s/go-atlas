@@ -74,6 +74,7 @@ call *someone else*.
 | `auth/denylist`            | Revocation  | Reusable token-revocation seam: concurrency-safe set of revoked ids (jti/subject), permanent or TTL-bounded, exposed as a `Checker`; never evicts a live entry. | [denylist.md](denylist.md) |
 | `auth/denylist/negcache`   | Revocation  | Probabilistic negative cache (Bloom/Cuckoo) in front of an authoritative store — never-revoked tokens answered locally, no false negatives. | [denylist.md](denylist.md) |
 | `auth/denylist/storages/redis` | Revocation | Redis-backed authoritative denylist store for cross-instance revocation.                   | [denylist.md](denylist.md) |
+| `auth/denylist/mirror`     | Revocation  | Synchronous local snapshot of a distributed denylist; satisfies `jwt.RevocationChecker` for jwt/selfjwt with no hot-path network call. | [denylist.md](denylist.md) |
 
 ## The Request Pipeline
 
@@ -454,7 +455,8 @@ Here `validator` is any `grpcoidc.Validator` (`ValidateToken(ctx, token) (*Claim
 - **Audit.** Any AuthN/AuthZ decision can be recorded through an `audit.Recorder` without coupling the deciding engine to storage. The adapter
   hooks (`WithScopeAudit`, `static`/`oidc` `WithAudit`, `opa.WithAuditRecorder`) are non-breaking opt-ins. See [audit.md](audit.md).
 - **Metrics.** `oidc`, `opa`, `selfjwt`, `static`, `oauth2client`, and `denylist/negcache` expose Prometheus telemetry under stable
-  subsystems (`auth_oidc`, `auth_opa`, `auth_oauth2client`, `auth_denylist_negcache`, …); see [../metrics.md](../metrics.md). Metrics
+  subsystems (`auth_oidc`, `auth_opa`, `auth_oauth2client`, `auth_denylist_negcache`, `auth_denylist_mirror`, …); see
+  [../metrics.md](../metrics.md). Metrics
   aggregate; audit records each decision. They answer different questions, so keep both.
 - **Revocation.** `denylist` is a shared seam for rejecting tokens revoked before their natural expiry: a verifier consults a `Checker`,
   backed by an in-memory set now and a Redis store (`denylist/storages/redis`) later, optionally fronted by a probabilistic negative cache
