@@ -207,8 +207,9 @@ func (p *Provider) validateTokenWithPreset(ctx context.Context, token string, pr
 		}
 	}
 
-	// Verify signature first (without claim validation)
-	claims, header, err := p.parseTokenWithoutClaimsValidation(ctx, token)
+	// Verify signature first (without claim validation), enforcing the preset's
+	// algorithm restriction so the signature is not accepted under a wider set.
+	claims, header, err := p.parseTokenWithoutClaimsValidation(ctx, token, preset.compiledVerifier)
 	if err != nil {
 		return nil, coreerrs.Wrapf(ErrTokenInvalid, "signature verification failed: %v", err)
 	}

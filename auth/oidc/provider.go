@@ -301,13 +301,26 @@ func (p *Provider) verifySignature(ctx context.Context, token string) (map[strin
 
 // parseTokenWithoutClaimsValidation parses a JWT and verifies its signature
 // without validating claims. Returns claims and the verified token header.
-func (p *Provider) parseTokenWithoutClaimsValidation(ctx context.Context, token string) (jwt.MapClaims, map[string]any, error) {
-	v := authjwt.NewVerifier(p.keyResolver, p.jwtVerifyOptions(defaultVerifierOptions())...)
+func (p *Provider) parseTokenWithoutClaimsValidation(ctx context.Context, token string, ops *verifierOptions) (jwt.MapClaims, map[string]any, error) {
+	if ops == nil {
+		ops = defaultVerifierOptions()
+	}
+	v := authjwt.NewVerifier(p.keyResolver, p.jwtVerifyOptions(ops)...)
 	claims, hdr, err := v.VerifySignature(ctx, token)
 	if err != nil {
 		return nil, nil, err
 	}
 	return jwt.MapClaims(claims), headerToMap(hdr), nil
+}
+
+// algorithmAllowed reports whether alg is permitted by ops. An empty validMethods
+// set falls back to DefaultValidMethods, mirroring [Provider.jwtVerifyOptions].
+func algorithmAllowed(ops *verifierOptions, alg string) bool {
+	methods := ops.validMethods
+	if len(methods) == 0 {
+		methods = DefaultValidMethods
+	}
+	return slices.Contains(methods, alg)
 }
 
 // ValidateToken validates a JWT and returns its claims using default options.
@@ -388,8 +401,11 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 	// If no options provided and preset selection rules are configured,
 	// try automatic preset selection
 	if len(opt) == 0 && len(p.opts.presetRules) > 0 {
-		// Step 1: Verify signature FIRST for security (without claim validation)
-		claimsForPreset, headerForPreset, err := p.parseTokenWithoutClaimsValidation(ctx, token)
+		// Step 1: Verify signature FIRST for security (without claim validation).
+		// The preset is only known after inspecting the claims, so the signature
+		// is verified against the default algorithm set here; the selected
+		// preset's algorithm restriction is enforced in Step 3 below.
+		claimsForPreset, headerForPreset, err := p.parseTokenWithoutClaimsValidation(ctx, token, nil)
 		if err != nil {
 			p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 			p.logger.ErrorContext(ctx, "signature verification failed", slog.Any("error", err))
@@ -403,6 +419,15 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 		if presetName != "" {
 			preset := p.getPreset(presetName)
 			if preset != nil && preset.compiledVerifier != nil {
+				// Enforce the selected preset's algorithm restriction: the
+				// signature was verified against the default (wide) set in
+				// Step 1, so a token whose signing algorithm the preset does
+				// not allow must be rejected here.
+				alg, _ := headerForPreset["alg"].(string)
+				if !algorithmAllowed(preset.compiledVerifier, alg) {
+					p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
+					return nil, coreerrs.Wrapf(ErrTokenInvalid, "signing algorithm %q not allowed by preset '%s'", alg, presetName)
+				}
 				presetClaims = claimsForPreset
 				presetHeader = headerForPreset
 				presetVerifier = preset.compiledVerifier
