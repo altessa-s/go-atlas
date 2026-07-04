@@ -24,16 +24,19 @@ import (
 
 // streamSubscriber implements broker.Subscriber for NATS JetStream.
 type streamSubscriber struct {
-	consumerConfig   *jetstream.ConsumerConfig
-	consumerName     string
-	js               jetstream.JetStream
+	consumerConfig *jetstream.ConsumerConfig
+	consumerName   string
+	js             jetstream.JetStream
+	opts           []jetstream.PullConsumeOpt
+	handlersWg     sync.WaitGroup
+	provider       *Nats
+	metrics        *subscriberMetrics
+
+	// mu guards the lifecycle fields below, which Subscribe writes and
+	// Unsubscribe/Closed read from potentially different goroutines.
+	mu               sync.Mutex
 	consumeContext   jetstream.ConsumeContext // Manages the lifecycle of the NATS Consume operation.
-	opts             []jetstream.PullConsumeOpt
-	handlerCtx       context.Context
 	handlerCtxCancel context.CancelFunc
-	handlersWg       sync.WaitGroup
-	provider         *Nats
-	metrics          *subscriberMetrics
 }
 
 func newStreamSubscriber(natsProvider *Nats, opt []jetstream.PullConsumeOpt) *streamSubscriber {
@@ -101,17 +104,22 @@ func SubscriberWithConsumerName(consumerName string, opt ...jetstream.PullConsum
 // Unsubscribe drains buffered messages, cancels the handler context, and waits
 // for all in-flight handlers to complete before returning.
 func (ss *streamSubscriber) Unsubscribe() {
-	if ss.consumeContext == nil {
+	ss.mu.Lock()
+	consumeContext := ss.consumeContext
+	cancel := ss.handlerCtxCancel
+	ss.mu.Unlock()
+
+	if consumeContext == nil {
 		return
 	}
 
 	// Drain unsubscribes from the stream and cancels subscription.
 	// All messages that are already in the buffer will be processed in callback function.
-	ss.consumeContext.Drain() // Drain ensures graceful shutdown.
+	consumeContext.Drain() // Drain ensures graceful shutdown.
 
 	// Cancel the handler context and wait for all handlers to finish their work.
-	if ss.handlerCtxCancel != nil {
-		ss.handlerCtxCancel()
+	if cancel != nil {
+		cancel()
 	}
 	ss.handlersWg.Wait()
 }
@@ -130,10 +138,13 @@ func (ss *streamSubscriber) Subscribe(ctx context.Context, handler broker.Subscr
 
 	// Always derive a fresh cancellable handler context from the Subscribe ctx.
 	// If Subscribe is called again, cancel the previous handler context first.
+	handlerCtx, handlerCtxCancel := context.WithCancel(ctx)
+	ss.mu.Lock()
 	if ss.handlerCtxCancel != nil {
 		ss.handlerCtxCancel()
 	}
-	ss.handlerCtx, ss.handlerCtxCancel = context.WithCancel(ctx)
+	ss.handlerCtxCancel = handlerCtxCancel
+	ss.mu.Unlock()
 
 	// Determine the JetStream stream name based on the subject (topic).
 	streamName, err := ss.js.StreamNameBySubject(ctx, handler.Topic())
@@ -176,7 +187,7 @@ func (ss *streamSubscriber) Subscribe(ctx context.Context, handler broker.Subscr
 	// Cache consumer config outside the hot loop — AckWait is static per consumer.
 	ackWait := consumer.CachedInfo().Config.AckWait
 
-	ss.consumeContext, err = consumer.Consume(func(jsMsg jetstream.Msg) {
+	consumeContext, err := consumer.Consume(func(jsMsg jetstream.Msg) {
 		// Fused filter+transform: single pass over headers, no intermediate map.
 		headers := jsMsg.Headers()
 		metaData := make([]msg.MetaData, 0, len(headers))
@@ -201,29 +212,37 @@ func (ss *streamSubscriber) Subscribe(ctx context.Context, handler broker.Subscr
 		// Inline defers instead of IIFE to avoid closure allocation per message.
 		ss.handlersWg.Add(1)
 		defer ss.handlersWg.Done()
-		defer panics.Handle(ss.handlerCtx)
+		defer panics.Handle(handlerCtx)
 
 		subjectLabels := metrics.Labels{"subject": jsMsg.Subject()}
 		ss.metrics.messagesReceived.WithLabels(subjectLabels).Inc()
 		stopTimer := ss.metrics.processingDuration.WithLabels(subjectLabels).Start()
-		handler.Handle(ss.handlerCtx, msg.NewMessageWithMeta(jsMsg.Subject(), jsMsg.Data(), metaData, msgOpts...))
+		handler.Handle(handlerCtx, msg.NewMessageWithMeta(jsMsg.Subject(), jsMsg.Data(), metaData, msgOpts...))
 		stopTimer()
 	}, ss.opts...)
 	if err != nil {
 		return coreerrs.Wrapf(err, "failed to start consuming from consumer on stream '%s'", streamName)
 	}
 
+	ss.mu.Lock()
+	ss.consumeContext = consumeContext
+	ss.mu.Unlock()
+
 	return nil
 }
 
 // Closed returns a channel that closes when the consumer has fully stopped.
 func (ss *streamSubscriber) Closed() <-chan struct{} {
-	if ss.consumeContext == nil {
+	ss.mu.Lock()
+	consumeContext := ss.consumeContext
+	ss.mu.Unlock()
+
+	if consumeContext == nil {
 		// If consumeContext was never initialized (e.g., Subscribe failed or was not called),
 		// return a pre-closed channel to prevent blocking.
 		ch := make(chan struct{})
 		close(ch)
 		return ch
 	}
-	return ss.consumeContext.Closed()
+	return consumeContext.Closed()
 }
