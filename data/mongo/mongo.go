@@ -183,7 +183,10 @@ func New(database string, opts ...Option) (*Mongo, error) {
 //
 // Note: If an error occurs, the connection is automatically cleaned up by calling Close().
 func (m *Mongo) Connect(ctx context.Context) (err error) {
-	if m.connected.Load() {
+	// Claim the connection atomically so two concurrent Connect calls cannot both
+	// run the setup below and race on m.client / version fields (leaking the
+	// first client). The loser returns nil immediately.
+	if !m.connected.CompareAndSwap(false, true) {
 		return nil
 	}
 
@@ -192,10 +195,12 @@ func (m *Mongo) Connect(ctx context.Context) (err error) {
 
 	defer func() { //nolint:contextcheck // Close() creates its own context internally
 		if err == nil {
-			m.connected.Store(true)
 			return
 		}
 
+		// connected is already true (claimed above), so Close's own
+		// CompareAndSwap(true,false) wins: it releases the claim and cleans up
+		// the partially-established connection.
 		m.Close()
 	}()
 
