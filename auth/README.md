@@ -24,6 +24,7 @@ authorization-decision audit trail — all with pluggable backends and automatic
 | [denylist](./denylist) | Reusable token-revocation seam: concurrency-safe set of revoked ids (jti/subject), permanent or TTL-bounded, exposed as a `Checker`; never evicts a live entry |
 | [denylist/negcache](./denylist/negcache) | Probabilistic negative cache (Bloom/Cuckoo filter) in front of an authoritative revocation store, answering never-revoked tokens locally |
 | [denylist/storages/redis](./denylist/storages/redis) | Redis-backed authoritative denylist store for cross-instance token revocation |
+| [denylist/mirror](./denylist/mirror) | Synchronous local snapshot of a distributed denylist; satisfies `jwt.RevocationChecker` so jwt/selfjwt verifiers enforce distributed revocation with no hot-path network call |
 
 ## Design principles
 
