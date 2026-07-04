@@ -377,8 +377,11 @@ func (si *Interner) evictInBackground() {
 		}
 	}
 
-	// Return pooled slice
-	*candidatesPtr = candidates
+	// Return pooled slice. Clear it first so the retained evictionCandidate
+	// entries do not keep their interned key strings alive in the pool across
+	// GC cycles — the opposite of what eviction is meant to achieve.
+	clear(candidates)
+	*candidatesPtr = candidates[:0]
 	evictionCandidatesPool.Put(candidatesPtr)
 
 	// Update counters
