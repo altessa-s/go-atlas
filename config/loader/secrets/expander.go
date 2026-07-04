@@ -161,9 +161,10 @@ func (e *Expander) Expand(ctx context.Context, content string) (string, error) {
 			if e.failOnError {
 				return "", coreerrs.Wrap(err, "secret expansion failed; see debug log for the offending key")
 			}
-			e.logger.WarnContext(ctx, "failed to retrieve secret",
-				slog.String("namespace", namespace),
-				slog.String("key", key),
+			// Do not include namespace/key here: WARN ships to operator-visible
+			// log streams, and a literal secret name is an information leak. The
+			// debug log above already captured them for local diagnosis.
+			e.logger.WarnContext(ctx, "failed to retrieve secret; see debug log for the offending key",
 				slog.Any("error", err))
 			secretValue = ""
 		}
