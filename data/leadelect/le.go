@@ -175,14 +175,20 @@ func (le *Leader) Start(ctx context.Context) error {
 				}
 				le.metrics.transitions.WithLabels(metrics.Labels{"type": "became_leader"}).Inc()
 				le.metrics.isLeader.Set(1)
-				le.runCallback(ctx, le.onBecomesLeader...)
+				le.becomeMu.RLock()
+				cbs := le.onBecomesLeader
+				le.becomeMu.RUnlock()
+				le.runCallback(ctx, cbs...)
 			case _, ok := <-lostCh:
 				if !ok {
 					return
 				}
 				le.metrics.transitions.WithLabels(metrics.Labels{"type": "lost_leader"}).Inc()
 				le.metrics.isLeader.Set(0)
-				le.runCallback(ctx, le.onLeaderLost...)
+				le.lostMu.RLock()
+				cbs := le.onLeaderLost
+				le.lostMu.RUnlock()
+				le.runCallback(ctx, cbs...)
 			}
 		}
 	}()
