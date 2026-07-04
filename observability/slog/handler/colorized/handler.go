@@ -20,7 +20,7 @@ var noColorMu sync.Mutex
 // It uses lazy evaluation, lock-free caches, and buffer pooling for performance.
 // Safe for concurrent use.
 type Handler struct {
-	mu   sync.Mutex // Protects non-concurrent-safe operations
+	mu   *sync.Mutex // Protects writes to the shared writer; shared across clones
 	w    io.Writer
 	opts *options
 
@@ -52,6 +52,7 @@ func NewHandler(w io.Writer, opts ...Option) slog.Handler {
 	// Expensive operations like color map conversion and group prefix building
 	// are deferred until they're actually needed.
 	h := &Handler{
+		mu:              new(sync.Mutex),
 		w:               w,
 		opts:            o,
 		minLevel:        o.level.Level(),
@@ -134,6 +135,7 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 // clone creates a copy of the handler
 func (h *Handler) clone() *Handler {
 	return &Handler{
+		mu:              h.mu, // Share the writer mutex so all clones serialize writes
 		w:               h.w,
 		opts:            h.opts,
 		lazyColorMap:    h.lazyColorMap, // Share the lazy color map
