@@ -201,6 +201,12 @@ func (le *Leader) runCallback(ctx context.Context, fn ...Callback) {
 		return
 	}
 
+	// Register the whole batch with the wait group synchronously, before Process
+	// spawns any goroutine, so Stop's Wait cannot observe a zero counter while a
+	// callback goroutine is still being launched.
+	le.handlersWg.Add(1)
+	defer le.handlersWg.Done()
+
 	stop := le.metrics.callbackDuration.Start()
 	defer stop()
 
@@ -210,9 +216,6 @@ func (le *Leader) runCallback(ctx context.Context, fn ...Callback) {
 		// Create a new context for each callback with its specific timeout.
 		cbCtx, cancel := corecontext.WithMaxTimeout(ctx, le.handlerTimeout)
 		defer cancel()
-
-		le.handlersWg.Add(1)
-		defer le.handlersWg.Done()
 
 		f(cbCtx, le)
 
