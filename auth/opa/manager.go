@@ -440,20 +440,13 @@ func allowDenyLabel(allow bool) string {
 	return "deny"
 }
 
-// Pre-allocated singleton results for the common non-logging path,
-// avoiding a heap allocation on every policy evaluation.
-var (
-	resultAllow = &Result{Allow: true}
-	resultDeny  = &Result{Allow: false}
-)
-
 // buildResult creates a Result with optional DecisionID based on logging settings.
 func (e *regoEvaluator) buildResult(allow bool) *Result {
 	if !e.manager.opts.decisionLogging {
-		if allow {
-			return resultAllow
-		}
-		return resultDeny
+		// Allocate a fresh Result rather than returning a shared singleton:
+		// Result has exported mutable fields, so a caller enriching the value
+		// would otherwise corrupt every concurrent evaluation.
+		return &Result{Allow: allow}
 	}
 
 	return &Result{Allow: allow, DecisionID: uuid.NewString()}
