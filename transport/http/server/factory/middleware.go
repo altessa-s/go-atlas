@@ -38,6 +38,12 @@ func (b *ServerBuilder) middlewaresCfg() *config.MiddlewaresConfig {
 // (b.cfg.Middlewares) and adds them. If not called, no config-based middleware
 // will be applied. Can be combined with WithMiddleware() and Without*Middleware().
 //
+// Authentication is intentionally NOT part of this set: unlike the gRPC server
+// factory, no auth/scope middleware is installed here, because HTTP auth needs
+// per-application configuration (token source, protected routes). Callers that
+// require authentication must add it explicitly via WithMiddleware(auth.New(...))
+// — relying on WithMiddlewares alone leaves routes unauthenticated.
+//
 // The optional exclude parameter accepts middleware references to skip.
 // Each middleware package exports an ID variable that can be used here.
 //
