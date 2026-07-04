@@ -831,7 +831,10 @@ func (s *Signal) executeHandlerEntryOptimized(entry handlerEntry, sig os.Signal)
 	defer cancel()
 
 	done := make(chan error, 1)
-	go func() {
+	// Track the handler goroutine in s.wg so Shutdown's wg.Wait cannot return
+	// while a handler is still running after this function returns on timeout.
+	// The parent's deferred cancel signals ctx so a well-behaved handler exits.
+	s.wg.Go(func() {
 		defer func() {
 			if r := recover(); r != nil {
 				done <- &PanicError{Signal: sig, Panic: r}
@@ -840,7 +843,7 @@ func (s *Signal) executeHandlerEntryOptimized(entry handlerEntry, sig os.Signal)
 
 		err := entry.contextHandler(ctx, sig)
 		done <- err
-	}()
+	})
 
 	select {
 	case err := <-done:
