@@ -54,15 +54,16 @@ type cachedStatus struct {
 
 type watcher struct {
 	ch         chan ServingStatus
-	lastStatus ServingStatus
+	lastStatus atomic.Int32 // ServingStatus; atomic so the notify loop and readers don't race
 	closed     atomic.Int32
 }
 
 func newWatcher(buffer int, initialStatus ServingStatus) *watcher {
-	return &watcher{
-		ch:         make(chan ServingStatus, buffer),
-		lastStatus: initialStatus,
+	w := &watcher{
+		ch: make(chan ServingStatus, buffer),
 	}
+	w.lastStatus.Store(int32(initialStatus))
+	return w
 }
 
 func (w *watcher) notify(status ServingStatus) {
