@@ -17,6 +17,7 @@ import (
 	"github.com/altessa-s/go-atlas/security/tlsutils"
 
 	corectx "github.com/altessa-s/go-atlas/core/context"
+	"github.com/altessa-s/go-atlas/security/tlsutils/ocsp"
 	tlsproviders "github.com/altessa-s/go-atlas/security/tlsutils/providers"
 )
 
@@ -106,20 +107,18 @@ func (v *Vault) GetClientCertificate(info *tls.CertificateRequestInfo) (*tls.Cer
 }
 
 func (v *Vault) withOCSPStaple(ctx context.Context, cert *tls.Certificate) (*tls.Certificate, error) {
-	// Add OCSP stapling if enabled
-	if v.ocspStapler != nil && cert != nil {
-		// Apply timeout to prevent slow OCSP responses from blocking TLS handshake
-		ocspCtx, cancel := corectx.ApplyTimeout(ctx, ocspTimeout)
-		defer cancel()
-
-		// GetOCSPStaple caches the certificate for scheduler-based refresh
-		ocspResp, err := v.ocspStapler.GetOCSPStaple(ocspCtx, cert)
-		if err == nil && len(ocspResp) > 0 {
-			return tlsutils.CloneCertificateWithOCSPStaple(cert, ocspResp), nil
-		}
+	if v.ocspStapler == nil || cert == nil {
+		return cert, nil
 	}
 
-	return cert, nil
+	// Apply timeout to prevent slow OCSP responses from blocking TLS handshake.
+	ocspCtx, cancel := corectx.ApplyTimeout(ctx, ocspTimeout)
+	defer cancel()
+
+	// Delegate to ocsp so the stapler's FailureMode is honored: a Hard-mode
+	// stapler aborts the handshake instead of silently serving an unstapled
+	// certificate, matching the file and S3 providers.
+	return ocsp.StapleCertificate(ocspCtx, v.ocspStapler, cert)
 }
 
 // TLSConfig returns a TLS configuration with Vault certificate management.

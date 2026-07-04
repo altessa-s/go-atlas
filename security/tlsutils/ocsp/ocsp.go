@@ -712,6 +712,20 @@ func stapleOrEnforce(ctx context.Context, stapler tlsutils.OCSPStapler, cert *tl
 	return cert, nil
 }
 
+// StapleCertificate fetches an OCSP staple for cert and returns a stapled copy,
+// honoring the stapler's [FailureMode]: a Hard-mode stapler returns an error
+// when no valid staple can be produced, while Soft mode returns the unstapled
+// certificate. Use this from per-certificate callbacks (GetCertificate /
+// GetClientCertificate) where [StapleOCSPToConfig] cannot be applied.
+//
+// Returns cert unchanged when stapler or cert is nil.
+func StapleCertificate(ctx context.Context, stapler tlsutils.OCSPStapler, cert *tls.Certificate) (*tls.Certificate, error) {
+	if stapler == nil || cert == nil {
+		return cert, nil
+	}
+	return stapleOrEnforce(ctx, stapler, cert)
+}
+
 // StapleOCSPToConfig adds OCSP stapling to a TLS config.
 // It wraps the GetCertificate and GetClientCertificate functions to add OCSP staples.
 // If the config already has these functions, they will be wrapped to preserve existing behavior.
