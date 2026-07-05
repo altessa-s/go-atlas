@@ -3,7 +3,7 @@
 // the LICENSE file.
 
 // Package serviceinfo implements the gRPC ServiceInfoService
-// (github.com/altessa-s/proto-gen-go/serviceinfo/v1).
+// (github.com/altessa-s/proto-gen-go/io/altessa/serviceinfo/v1).
 //
 // [Handler] returns runtime metadata for a service instance: name,
 // description, identifiers, semantic version, build details, leader

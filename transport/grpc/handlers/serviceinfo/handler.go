@@ -16,16 +16,18 @@ import (
 	"github.com/altessa-s/go-atlas/core/types/ptr"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
-	serviceinfov1 "github.com/altessa-s/proto-gen-go/serviceinfo/v1"
+	serviceinfov1 "github.com/altessa-s/proto-gen-go/io/altessa/serviceinfo/v1"
 	stdGrpc "google.golang.org/grpc"
 	stdstrings "strings"
 )
 
 // Handler implements [serviceinfov1.ServiceInfoServiceServer]. The
 // static portion of the response is built once in [New]; per-request
-// dynamic fields (is_leader, leader_id, start_time, uptime) are layered
+// dynamic fields (leader, leader_id, start_time, uptime) are layered
 // on top of a defensive [proto.Clone] of the cached message.
 type Handler struct {
 	serviceinfov1.UnimplementedServiceInfoServiceServer
@@ -63,9 +65,9 @@ func (h *Handler) Get(ctx context.Context, _ *emptypb.Empty) (*serviceinfov1.Ser
 	panics.Must(ok, "proto.Clone returned an unexpected concrete type")
 
 	if h.leaderProvider != nil {
-		out.IsLeader = h.leaderProvider.IsLeader()
+		out.Leader = h.leaderProvider.IsLeader()
 		leaderID := h.serviceID
-		if !out.IsLeader {
+		if !out.Leader {
 			if id, err := h.leaderProvider.LeaderId(ctx); err == nil && id != "" {
 				leaderID = id
 			}
@@ -75,8 +77,8 @@ func (h *Handler) Get(ctx context.Context, _ *emptypb.Empty) (*serviceinfov1.Ser
 		}
 	}
 
-	out.StartTime = ptr.Wrap(h.startTime.Format(time.RFC3339))
-	out.Uptime = ptr.Wrap(uint64(time.Since(h.startTime).Seconds()))
+	out.StartTime = timestamppb.New(h.startTime)
+	out.Uptime = durationpb.New(time.Since(h.startTime))
 
 	return out, nil
 }
@@ -91,7 +93,7 @@ func buildStaticInfo(o *options) *serviceinfov1.ServiceInfo {
 		ServiceDescription: ptr.WrapNonZero(o.serviceDescription),
 		ServiceId:          ptr.WrapNonZero(o.serviceID),
 		FullVersion:        appinfo.Version,
-		BuildTime:          appinfo.BuildTime,
+		BuildTime:          buildTimestamp(),
 		Branch:             ptr.WrapNonZero(appinfo.Branch),
 		Commit:             ptr.WrapNonZero(appinfo.Commit),
 		BuildTags:          ptr.WrapNonZero(appinfo.BuildTags()),
@@ -105,6 +107,16 @@ func buildStaticInfo(o *options) *serviceinfov1.ServiceInfo {
 	}
 
 	return info
+}
+
+// buildTimestamp parses appinfo.BuildTime (RFC 3339) into a protobuf
+// timestamp, returning nil when it is unset or malformed.
+func buildTimestamp() *timestamppb.Timestamp {
+	t, err := time.Parse(time.RFC3339, appinfo.BuildTime)
+	if err != nil {
+		return nil
+	}
+	return timestamppb.New(t)
 }
 
 // buildMetadata composes the metadata map from runtime/build values and

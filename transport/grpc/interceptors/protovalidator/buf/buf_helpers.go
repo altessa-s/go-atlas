@@ -14,7 +14,7 @@ import (
 	"buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	"buf.build/go/protovalidate"
 
-	"github.com/altessa-s/proto-gen-go/badrequest/v1"
+	"github.com/altessa-s/proto-gen-go/io/altessa/badrequest/v1"
 
 	"github.com/altessa-s/go-atlas/core/types/ptr"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
@@ -202,7 +202,7 @@ func buildFieldPathComponent(element *validate.FieldPathElement) *badrequestv1.F
 
 	switch s := element.Subscript.(type) {
 	case *validate.FieldPathElement_Index:
-		fieldElement.IsRepeated = ptr.Wrap(true)
+		fieldElement.RepeatedField = ptr.Wrap(true)
 		fieldElement.RepeatedIndex = ptr.Wrap(s.Index)
 	case *validate.FieldPathElement_BoolKey:
 		fieldElement.MapKey = &badrequestv1.FieldPathComponent_BoolKey{BoolKey: s.BoolKey}

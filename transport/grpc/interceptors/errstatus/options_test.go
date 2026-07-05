@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/proto-gen-go/badrequest/v1"
+	"github.com/altessa-s/proto-gen-go/io/altessa/badrequest/v1"
 
 	"github.com/altessa-s/go-atlas/transport/internal/requestid"
 

@@ -5,7 +5,7 @@ import "github.com/altessa-s/go-atlas/transport/grpc/handlers/serviceinfo"
 ```
 
 Package `serviceinfo` implements the gRPC `ServiceInfoService` from
-[`github.com/altessa-s/proto-gen-go/serviceinfo/v1`](https://pkg.go.dev/github.com/altessa-s/proto-gen-go/serviceinfo/v1).
+[`github.com/altessa-s/proto-gen-go/io/altessa/serviceinfo/v1`](https://pkg.go.dev/github.com/altessa-s/proto-gen-go/io/altessa/serviceinfo/v1).
 The `Handler` reports name, description, identifiers, semantic version, build
 details, leader status, uptime, and arbitrary metadata. The static portion is
 built once in `New` from `core/runtime/appinfo` and protobuf-cloned on every
