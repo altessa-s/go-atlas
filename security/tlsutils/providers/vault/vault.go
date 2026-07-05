@@ -15,9 +15,9 @@ import (
 	"github.com/johanbrandhorst/certify/issuers/vault"
 
 	"github.com/altessa-s/go-atlas/security/tlsutils"
+	"github.com/altessa-s/go-atlas/security/tlsutils/ocsp"
 
 	corectx "github.com/altessa-s/go-atlas/core/context"
-	"github.com/altessa-s/go-atlas/security/tlsutils/ocsp"
 	tlsproviders "github.com/altessa-s/go-atlas/security/tlsutils/providers"
 )
 
