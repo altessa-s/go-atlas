@@ -288,26 +288,34 @@ func (s *Stapler) GetOCSPStaple(ctx context.Context, cert *tls.Certificate) ([]b
 	s.mu.RUnlock()
 
 	if exists {
+		// Snapshot the entry under a read lock, then release it immediately so
+		// the read lock is not held across the network fetch below (which would
+		// serialize RunRefreshCycle behind handshake traffic).
 		entry.mu.RLock()
-		defer entry.mu.RUnlock()
+		valid := time.Now().Before(entry.nextUpdate)
+		isCompressed := entry.isCompressed
+		response := entry.response
+		originalSize := entry.originalSize
+		compressedSize := entry.compressedSize
+		entry.mu.RUnlock()
 
 		// Return cached response if still valid
-		if time.Now().Before(entry.nextUpdate) {
-			if entry.isCompressed {
+		if valid {
+			if isCompressed {
 				// Decompress before returning
-				decompressed, err := decompressData(entry.response)
+				decompressed, err := decompressData(response)
 				if err != nil {
 					s.logger.WarnContext(ctx, "failed to decompress cached OCSP response", slog.Any("error", err))
 					// Fall through to fetch new response
 				} else {
 					s.logger.DebugContext(ctx, "returning decompressed OCSP response from cache",
-						"original_size", entry.originalSize,
-						"compressed_size", entry.compressedSize,
-						"compression_ratio", float64(entry.compressedSize)/float64(entry.originalSize))
+						"original_size", originalSize,
+						"compressed_size", compressedSize,
+						"compression_ratio", float64(compressedSize)/float64(originalSize))
 					return decompressed, nil
 				}
 			} else {
-				return entry.response, nil
+				return response, nil
 			}
 		}
 	}
