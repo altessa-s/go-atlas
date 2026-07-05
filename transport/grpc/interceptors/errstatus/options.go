@@ -11,6 +11,8 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/altessa-s/proto-gen-go/badrequest/v1"
+
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/internal/requestid"
 
@@ -286,7 +288,7 @@ func ensureErrorInfo(st *status.Status, domain string) *status.Status {
 	}
 
 	if errorInfo == nil {
-		ei := &errdetails.ErrorInfo{Reason: GrpcStatusToReasonCode(st), Domain: domain}
+		ei := &errdetails.ErrorInfo{Reason: reasonForStatus(st), Domain: domain}
 		if st2, err := st.WithDetails(ei); err == nil {
 			return st2
 		}
@@ -333,6 +335,28 @@ func withDomainFinalizer(f Finalizer, domain string) Finalizer {
 	return func(ctx context.Context, err error) error {
 		return defaultFinalize(ctx, err, domain)
 	}
+}
+
+// reasonForStatus derives the ErrorInfo reason for a status. When the status
+// carries a protovalidate [badrequestv1.BadRequest] detail, it promotes the
+// primary (first non-empty) FieldViolation.Code — the specific, canonical
+// validation reason code — so a client reading ErrorInfo.Reason sees the same
+// code as the field violation instead of the generic gRPC-code reason. An empty
+// code carries no more information than the gRPC-code reason and is skipped. It
+// falls back to [GrpcStatusToReasonCode] when there is no coded field violation.
+func reasonForStatus(st *status.Status) string {
+	for _, d := range st.Details() {
+		br, ok := d.(*badrequestv1.BadRequest)
+		if !ok {
+			continue
+		}
+		for _, fv := range br.GetFieldViolations() {
+			if code := fv.GetCode(); code != "" {
+				return code
+			}
+		}
+	}
+	return GrpcStatusToReasonCode(st)
 }
 
 // GrpcStatusToReasonCode maps gRPC status codes to error reason codes.

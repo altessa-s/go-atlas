@@ -9,9 +9,13 @@
 //   - [BuildValidator]: creates a proto message validator function that validates
 //     messages using [protovalidate.Validator], converts violations into structured
 //     [protovalidatev1.BadRequest] details attached to gRPC status responses, and
-//     generates human-readable error messages via [BuildValidationError].
-//   - [BuildErrorCode]: derives error codes from rule IDs and field paths
-//     (e.g., "required" on field "userName" produces "USER_NAME_REQUIRED").
+//     generates human-readable error messages via [BuildValidationError]. Pass
+//     [WithReasonCode] to attach a service-defined, client-facing reason code to
+//     each field violation.
+//   - [WithReasonCode]: supplies a [ReasonCoder] mapping a rule ID and field name
+//     to a canonical reason code. go-atlas ships no built-in mapping — the set of
+//     codes is part of a service's public error contract, so the service owns it;
+//     when unset, no code is emitted.
 //   - [BuildValidationFilter]: returns a [protovalidate.FilterFunc] controlling
 //     which messages are validated (currently allows all).
 //   - [BuildValidationError]: joins all violations into a single formatted error
