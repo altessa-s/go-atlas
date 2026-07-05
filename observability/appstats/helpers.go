@@ -190,7 +190,7 @@ type CachedMetrics struct {
 var (
 	cachedMetrics  = &CachedMetrics{}
 	metricsMu      sync.Mutex
-	stringBuffer   = sync.Pool{New: func() any { return make([]byte, 0, StringFormatBufferSize) }}
+	stringBuffer   = sync.Pool{New: func() any { b := make([]byte, 0, StringFormatBufferSize); return &b }}
 	memStatsBuffer = sync.Pool{New: func() any { return &runtime.MemStats{} }}
 
 	// metricCollectionTasks is a static list of background metric collectors,
@@ -339,14 +339,15 @@ func collectCPUMetrics(ctx context.Context, timestamp int64) {
 	serviceCPU, err := proc.CPUPercent()
 	if err == nil {
 		if bufInterface := stringBuffer.Get(); bufInterface != nil {
-			buf, ok := bufInterface.([]byte)
+			bufPtr, ok := bufInterface.(*[]byte)
 			if !ok {
 				return
 			}
-			buf = strconv.AppendFloat(buf[:0], serviceCPU, 'f', 2, 64)
+			buf := strconv.AppendFloat((*bufPtr)[:0], serviceCPU, 'f', 2, 64)
 			buf = append(buf, '%')
 			cachedMetrics.ServiceCPU.Store(string(buf))
-			stringBuffer.Put(buf) //nolint:staticcheck
+			*bufPtr = buf
+			stringBuffer.Put(bufPtr)
 		}
 	}
 
@@ -355,14 +356,15 @@ func collectCPUMetrics(ctx context.Context, timestamp int64) {
 	cpuPercents, err := cpu.PercentWithContext(ctx, 0, false)
 	if err == nil && len(cpuPercents) > 0 {
 		if bufInterface := stringBuffer.Get(); bufInterface != nil {
-			buf, ok := bufInterface.([]byte)
+			bufPtr, ok := bufInterface.(*[]byte)
 			if !ok {
 				return
 			}
-			buf = strconv.AppendFloat(buf[:0], cpuPercents[0], 'f', 2, 64)
+			buf := strconv.AppendFloat((*bufPtr)[:0], cpuPercents[0], 'f', 2, 64)
 			buf = append(buf, '%')
 			cachedMetrics.SystemCPU.Store(string(buf))
-			stringBuffer.Put(buf) //nolint:staticcheck
+			*bufPtr = buf
+			stringBuffer.Put(bufPtr)
 		}
 	}
 
@@ -394,34 +396,31 @@ func collectMemoryMetrics(ctx context.Context, timestamp int64) {
 	}
 
 	// Pre-allocate buffers for string formatting
-	serviceBufInterface := stringBuffer.Get()
-	serviceBuf, ok := serviceBufInterface.([]byte)
+	serviceBufPtr, ok := stringBuffer.Get().(*[]byte)
 	if !ok {
 		return
 	}
 
-	systemBufInterface := stringBuffer.Get()
-	systemBuf, ok := systemBufInterface.([]byte)
+	systemBufPtr, ok := stringBuffer.Get().(*[]byte)
 	if !ok {
-		stringBuffer.Put(serviceBuf) //nolint:staticcheck
+		stringBuffer.Put(serviceBufPtr)
 		return
 	}
 
-	totalBufInterface := stringBuffer.Get()
-	totalBuf, ok := totalBufInterface.([]byte)
+	totalBufPtr, ok := stringBuffer.Get().(*[]byte)
 	if !ok {
-		stringBuffer.Put(serviceBuf) //nolint:staticcheck
-		stringBuffer.Put(systemBuf)  //nolint:staticcheck
+		stringBuffer.Put(serviceBufPtr)
+		stringBuffer.Put(systemBufPtr)
 		return
 	}
 
-	serviceBuf = strconv.AppendFloat(serviceBuf[:0], float64(memInfo.RSS)/float64(vmStat.Total)*100, 'f', 2, 64)
+	serviceBuf := strconv.AppendFloat((*serviceBufPtr)[:0], float64(memInfo.RSS)/float64(vmStat.Total)*100, 'f', 2, 64)
 	serviceBuf = append(serviceBuf, '%')
 
-	systemBuf = strconv.AppendFloat(systemBuf[:0], vmStat.UsedPercent, 'f', 2, 64)
+	systemBuf := strconv.AppendFloat((*systemBufPtr)[:0], vmStat.UsedPercent, 'f', 2, 64)
 	systemBuf = append(systemBuf, '%')
 
-	totalBuf = strconv.AppendFloat(totalBuf[:0], float64(vmStat.Total), 'f', 2, 64)
+	totalBuf := strconv.AppendFloat((*totalBufPtr)[:0], float64(vmStat.Total), 'f', 2, 64)
 
 	memData := &MemoryLoadData{
 		Service: string(serviceBuf),
@@ -433,9 +432,12 @@ func collectMemoryMetrics(ctx context.Context, timestamp int64) {
 	cachedMetrics.MemoryTimestamp.Store(timestamp)
 
 	// Return buffers to pool
-	stringBuffer.Put(serviceBuf) //nolint:staticcheck
-	stringBuffer.Put(systemBuf)  //nolint:staticcheck
-	stringBuffer.Put(totalBuf)   //nolint:staticcheck
+	*serviceBufPtr = serviceBuf
+	*systemBufPtr = systemBuf
+	*totalBufPtr = totalBuf
+	stringBuffer.Put(serviceBufPtr)
+	stringBuffer.Put(systemBufPtr)
+	stringBuffer.Put(totalBufPtr)
 }
 
 // collectNetworkMetrics collects cumulative network I/O statistics.
@@ -668,13 +670,13 @@ func GetApplicationStats(ctx context.Context) *ApplicationStats {
 	} else {
 		// Pre-allocate buffer for formatting
 		if bufInterface := stringBuffer.Get(); bufInterface != nil {
-			buf, ok := bufInterface.([]byte)
+			bufPtr, ok := bufInterface.(*[]byte)
 			if !ok {
 				// Fallback to fmt.Sprintf if type assertion fails
 				stats.Network.BytesReceived = fmt.Sprintf("%.0f bytes", bytesReceived)
 				stats.Network.BytesSent = fmt.Sprintf("%.0f bytes", bytesSent)
 			} else {
-				buf = strconv.AppendFloat(buf[:0], bytesReceived, 'f', 0, 64)
+				buf := strconv.AppendFloat((*bufPtr)[:0], bytesReceived, 'f', 0, 64)
 				buf = append(buf, " bytes"...)
 				stats.Network.BytesReceived = string(buf)
 
@@ -682,7 +684,8 @@ func GetApplicationStats(ctx context.Context) *ApplicationStats {
 				buf = append(buf, " bytes"...)
 				stats.Network.BytesSent = string(buf)
 
-				stringBuffer.Put(buf) //nolint:staticcheck
+				*bufPtr = buf
+				stringBuffer.Put(bufPtr)
 			}
 		} else {
 			// Fallback if Get() returns nil
