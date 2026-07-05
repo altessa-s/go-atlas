@@ -6,6 +6,7 @@ package scope
 
 import (
 	"iter"
+	"sync/atomic"
 
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 )
@@ -26,7 +27,9 @@ type Registry struct {
 	// building is the mutable map used during the registration phase.
 	building map[string]Scope
 	// frozen is the immutable snapshot used after Freeze. Nil until frozen.
-	frozen *coremaps.ImmutableMap[string, Scope]
+	// Stored atomically so Freeze (writer) and Required/All/Len (readers) are
+	// synchronized across the build→serve boundary without a read lock.
+	frozen atomic.Pointer[coremaps.ImmutableMap[string, Scope]]
 }
 
 // NewRegistry returns an empty [Registry] ready for registration.
@@ -38,7 +41,7 @@ func NewRegistry() *Registry {
 // wins. Registering an empty scope marks key as intentionally public. Panics if
 // called after [Registry.Freeze].
 func (r *Registry) Register(key string, scope Scope) {
-	if r.frozen != nil {
+	if r.frozen.Load() != nil {
 		panic("scope: Register called on frozen Registry")
 	}
 	r.building[key] = scope
@@ -47,7 +50,7 @@ func (r *Registry) Register(key string, scope Scope) {
 // RegisterMany records that every key in keys requires scope. It is a
 // convenience for bulk registration. Panics if called after [Registry.Freeze].
 func (r *Registry) RegisterMany(scope Scope, keys ...string) {
-	if r.frozen != nil {
+	if r.frozen.Load() != nil {
 		panic("scope: RegisterMany called on frozen Registry")
 	}
 	for _, key := range keys {
@@ -59,10 +62,10 @@ func (r *Registry) RegisterMany(scope Scope, keys ...string) {
 // reads. Subsequent [Registry.Register] / [Registry.RegisterMany] calls panic.
 // Freeze is idempotent.
 func (r *Registry) Freeze() {
-	if r.frozen != nil {
+	if r.frozen.Load() != nil {
 		return
 	}
-	r.frozen = coremaps.NewImmutableMap(r.building)
+	r.frozen.Store(coremaps.NewImmutableMap(r.building))
 	r.building = nil
 }
 
@@ -70,8 +73,8 @@ func (r *Registry) Freeze() {
 // Callers MUST honor ok: an unregistered key (ok=false) is denied by default. A
 // registered public endpoint returns ("", true).
 func (r *Registry) Required(key string) (Scope, bool) {
-	if r.frozen != nil {
-		return r.frozen.Get(key)
+	if f := r.frozen.Load(); f != nil {
+		return f.Get(key)
 	}
 	scope, ok := r.building[key]
 	return scope, ok
@@ -81,8 +84,8 @@ func (r *Registry) Required(key string) (Scope, bool) {
 // safe for concurrent use after [Registry.Freeze]. Useful for auditing and
 // generating permission documentation.
 func (r *Registry) All() iter.Seq2[string, Scope] {
-	if r.frozen != nil {
-		return r.frozen.All()
+	if f := r.frozen.Load(); f != nil {
+		return f.All()
 	}
 	return func(yield func(string, Scope) bool) {
 		for k, v := range r.building {
@@ -95,8 +98,8 @@ func (r *Registry) All() iter.Seq2[string, Scope] {
 
 // Len returns the number of registered keys.
 func (r *Registry) Len() int {
-	if r.frozen != nil {
-		return r.frozen.Len()
+	if f := r.frozen.Load(); f != nil {
+		return f.Len()
 	}
 	return len(r.building)
 }
