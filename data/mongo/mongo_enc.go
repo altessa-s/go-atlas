@@ -324,6 +324,14 @@ func (m *Mongo) ConvertToNewDocument(ctx context.Context, entity any) (bson.M, e
 //   - Fields with `omitonupdate` tag -> ignored completely
 //   - `_id` field -> automatically excluded from $set
 //
+// Nested structures (pointer-to-struct fields and struct values inside maps) use
+// whole-object replacement: the nested struct is emitted as a single $set
+// subdocument that fully replaces the stored one. A nested nil/zero field is
+// therefore simply absent from the replacement (effectively removed); no
+// per-field nested $unset such as {"parent.child": nil} is generated. If you
+// need dotted-path partial updates that preserve untouched nested fields already
+// in the database, see PLAN_B_mongo_nested_partial_update.md at the repo root.
+//
 // Field encryption can be configured in two ways:
 //  1. WithEncryptionModel() option (recommended) - configures encryption programmatically
 //  2. Struct tags - `encrypted:"algorithm,keyAltName"` - encrypts the field
@@ -628,18 +636,23 @@ func (m *Mongo) processSliceField(
 }
 
 // processStructPointerField handles the conversion of pointer-to-struct fields.
+//
+// Nested structs use whole-object replacement: the nested $set subdocument is
+// written as a single value under the parent field, fully replacing the stored
+// subdocument. Nested nil/zero fields are absent from that subdocument and are
+// therefore already removed by the replacement, so the recursion's nested
+// $unset map is intentionally discarded — emitting it as {parent: {child: ...}}
+// would be an invalid MongoDB $unset (it would drop the whole parent). See
+// ConvertToUpdateDocument for the documented contract.
 func (m *Mongo) processStructPointerField(ctx context.Context, meta fieldMetadata, update bool,
 	setDoc, unsetDoc bson.M) (bson.M, bson.M, error) {
-	chSetDoc, chUnSetDoc, err := m.convertToDocument(ctx, meta.fieldValue.Interface(),
+	chSetDoc, _, err := m.convertToDocument(ctx, meta.fieldValue.Interface(),
 		update, meta.shouldEncrypt && meta.algorithmString == NestedEncryptionKey)
 	if err != nil {
 		return setDoc, unsetDoc, err
 	}
 
 	setDoc[meta.fieldName] = chSetDoc
-	if len(chUnSetDoc) > 0 && len(setDoc) == 0 {
-		unsetDoc[meta.fieldName] = chUnSetDoc
-	}
 	return setDoc, unsetDoc, nil
 }
 
@@ -664,14 +677,14 @@ func (m *Mongo) processMapField(ctx context.Context, meta fieldMetadata, update 
 		// marshalers are scalars to the driver, not documents to recurse into.
 		mapElem := reflect.Indirect(mapiter.Value())
 		if mapElem.Kind() == reflect.Struct && recurseIntoStruct(mapElem.Type()) {
-			chSetDoc, chUnSetDoc, err := m.convertToDocument(ctx, mapiter.Value().Interface(), update, false)
+			// Whole-object replacement, as in processStructPointerField: the map
+			// value's nested $set subdocument fully replaces the stored one, so
+			// the recursion's nested $unset map is intentionally discarded.
+			chSetDoc, _, err := m.convertToDocument(ctx, mapiter.Value().Interface(), update, false)
 			if err != nil {
 				return setDoc, unsetDoc, err
 			}
 			mm[mapKey] = chSetDoc
-			if len(chUnSetDoc) > 0 && len(setDoc) == 0 {
-				mm[mapKey] = chUnSetDoc
-			}
 			continue
 		}
 		mm[mapKey] = mapiter.Value().Interface()
