@@ -14,6 +14,8 @@ import (
 	"buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	"buf.build/go/protovalidate"
 
+	"github.com/altessa-s/proto-gen-go/badrequest/v1"
+
 	"github.com/altessa-s/go-atlas/core/types/ptr"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 
@@ -22,28 +24,16 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
-
-	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
-	badrequestv1 "github.com/altessa-s/proto-gen-go/badrequest/v1"
 )
 
-var (
-	// validator is the singleton protovalidate.Validator instance.
-	validator protovalidate.Validator
-	// validatorOnce ensures validator is initialized only once.
-	validatorOnce sync.Once
-)
-
-const (
-	// ruleIDRequired is the rule ID for required field violations.
-	ruleIDRequired = "required"
-
-	// requiredSuffix is the suffix appended to field names for required violations.
-	requiredSuffix = "_REQUIRED"
-
-	// requiredFallback is the fallback error code when field name cannot be extracted.
-	requiredFallback = "REQUIRED"
-)
+// newValidator lazily constructs the process-wide protovalidate.Validator on
+// first use and memoizes both the validator and any construction error, so the
+// (expensive) CEL compilation happens once. Caching the error together with the
+// validator means a failed construction is reported consistently on every call
+// instead of leaving a nil validator behind a dropped error.
+var newValidator = sync.OnceValues(func() (protovalidate.Validator, error) {
+	return protovalidate.New()
+})
 
 // BuildValidationError converts a ValidationError to a human-readable error message
 // combining all violations into a single formatted message.
@@ -65,33 +55,64 @@ func BuildValidationError(ve *protovalidate.ValidationError) error {
 	return errors.New(bldr.String())
 }
 
-// BuildErrorCode generates an error code based on the rule ID and field path.
-// For "required" rule violations, it returns "{FIELD_NAME}_REQUIRED" where FIELD_NAME
-// is the last component of the field path in uppercase.
-// For other violations, it returns the uppercase rule ID.
-func BuildErrorCode(ruleID string, fieldPath *validate.FieldPath) string {
-	if ruleID == "" {
+// ReasonCoder maps a protovalidate rule ID and the violated field name to a
+// service-defined, client-facing reason code. The field name is the last segment
+// of the violated field path, provided because a "required" violation typically
+// derives its code from it. An empty result means "no code": the resulting
+// [badrequestv1.FieldViolation.Code] is left unset and downstream consumers fall
+// back to the generic gRPC-status reason.
+//
+// go-atlas ships no built-in mapping — the set of reason codes is part of a
+// service's public error contract, so the service supplies its own ReasonCoder
+// (see [WithReasonCode]).
+type ReasonCoder func(ruleID, fieldName string) string
+
+// validatorConfig holds options for [BuildValidator].
+type validatorConfig struct {
+	reasonCode ReasonCoder
+}
+
+// Option configures [BuildValidator].
+type Option func(*validatorConfig)
+
+// WithReasonCode sets the [ReasonCoder] used to derive each field violation's
+// canonical reason code. When unset, no code is emitted. A nil coder is ignored.
+func WithReasonCode(fn ReasonCoder) Option {
+	return func(c *validatorConfig) {
+		if fn != nil {
+			c.reasonCode = fn
+		}
+	}
+}
+
+// ReasonCodeResolver is the interface form of [ReasonCoder]: any type whose
+// Resolve method matches the [ReasonCoder] signature can drive reason-code
+// derivation. Prefer it (via [WithResolver]) when the mapping is stateful — e.g.
+// a service catalog — and a named type reads better than a bare function; the
+// two are interchangeable.
+type ReasonCodeResolver interface {
+	Resolve(ruleID, fieldName string) string
+}
+
+// WithResolver is the interface-based counterpart of [WithReasonCode]: it adapts
+// a [ReasonCodeResolver] to the [ReasonCoder] the validator uses internally. A
+// nil resolver is ignored.
+func WithResolver(r ReasonCodeResolver) Option {
+	return func(c *validatorConfig) {
+		if r != nil {
+			c.reasonCode = r.Resolve
+		}
+	}
+}
+
+// leafFieldName returns the last segment of a violated field path, or "" when the
+// path is empty.
+func leafFieldName(fp *validate.FieldPath) string {
+	elements := fp.GetElements()
+	if len(elements) == 0 {
 		return ""
 	}
-
-	// For required field violations, format as FIELD_NAME_REQUIRED
-	if strings.ToLower(ruleID) == ruleIDRequired {
-		if fieldPath != nil {
-			elements := fieldPath.GetElements()
-			if len(elements) > 0 {
-				// Get the last element's field name (for nested fields)
-				lastName := elements[len(elements)-1].GetFieldName()
-				if lastName != "" {
-					return corestrings.ToScreamingSnakeCase(lastName) + requiredSuffix
-				}
-			}
-		}
-		// Fallback if we can't extract field name
-		return requiredFallback
-	}
-
-	// For other violations, return uppercase rule ID
-	return strings.ToUpper(ruleID)
+	return elements[len(elements)-1].GetFieldName()
 }
 
 // BuildValidationFilter creates a filter function that determines which messages
@@ -104,12 +125,14 @@ func BuildValidationFilter() protovalidate.FilterFunc {
 
 // BuildValidator creates a protocol buffer message validator function.
 // It validates messages using protovalidate and converts errors to gRPC status codes.
-func BuildValidator(filter protovalidate.Filter) func(_ context.Context, msg proto.Message) error {
+func BuildValidator(filter protovalidate.Filter, opts ...Option) func(_ context.Context, msg proto.Message) error {
+	var cfg validatorConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
 	return func(_ context.Context, msg proto.Message) error {
-		var err error
-		validatorOnce.Do(func() {
-			validator, err = protovalidate.New()
-		})
+		validator, err := newValidator()
 		if err != nil {
 			return err
 		}
@@ -128,8 +151,13 @@ func BuildValidator(filter protovalidate.Filter) func(_ context.Context, msg pro
 		for _, violation := range ve.Violations {
 			field := &badrequestv1.FieldViolation{
 				Message:   violation.Proto.Message,
-				Code:      ptr.Wrap(BuildErrorCode(violation.Proto.GetRuleId(), violation.Proto.GetField())),
 				FieldPath: ptr.WrapNonZero(protovalidate.FieldPathString(violation.Proto.GetField())),
+			}
+
+			if cfg.reasonCode != nil {
+				if code := cfg.reasonCode(violation.Proto.GetRuleId(), leafFieldName(violation.Proto.GetField())); code != "" {
+					field.Code = ptr.Wrap(code)
+				}
 			}
 
 			if field.FieldPath != nil {

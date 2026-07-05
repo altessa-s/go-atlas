@@ -18,6 +18,7 @@ import (
 
 	idempotencydata "github.com/altessa-s/go-atlas/data/idempotency"
 	sharedlimiter "github.com/altessa-s/go-atlas/data/limiters"
+	bufhelpers "github.com/altessa-s/go-atlas/transport/grpc/interceptors/protovalidator/buf"
 )
 
 // --- Dependency methods ---
@@ -79,6 +80,27 @@ func (b *ServerBuilder) Collector() metrics.Collector {
 // UseLimiter sets the rate limiter used by the limiter interceptor.
 func (b *ServerBuilder) UseLimiter(v sharedlimiter.Limiter) *ServerBuilder {
 	b.limiter = v
+	return b
+}
+
+// UseReasonCode sets the function used by the protovalidate interceptor to
+// translate validation rule IDs into canonical, client-facing reason codes. The
+// set of codes is part of a service's public error contract, so the service
+// supplies its own [bufhelpers.ReasonCoder]; when unset, no code is emitted and
+// consumers fall back to the generic gRPC-status reason.
+func (b *ServerBuilder) UseReasonCode(v bufhelpers.ReasonCoder) *ServerBuilder {
+	b.reasonCode = v
+	return b
+}
+
+// UseReasonCodeResolver is the interface-based counterpart of [UseReasonCode]:
+// it accepts any [bufhelpers.ReasonCodeResolver] (e.g. a service catalog type
+// with a Resolve method) and adapts it to the validator's coder. A nil resolver
+// is ignored.
+func (b *ServerBuilder) UseReasonCodeResolver(v bufhelpers.ReasonCodeResolver) *ServerBuilder {
+	if v != nil {
+		b.reasonCode = v.Resolve
+	}
 	return b
 }
 
