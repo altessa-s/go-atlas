@@ -16,8 +16,8 @@ cloud.google.com/go/auth/oauth2adapt v0.2.8 h1:keo8NaayQZ6wimpNSmW5OPc283g65QNIi
 cloud.google.com/go/auth/oauth2adapt v0.2.8/go.mod h1:XQ9y31RkqZCcwJWNSx2Xvric3RrU88hAYYbjDWYDL+c=
 cloud.google.com/go/compute/metadata v0.9.0 h1:pDUj4QMoPejqq20dK0Pg2N4yG9zIkYGdBtwLoEkH9Zs=
 cloud.google.com/go/compute/metadata v0.9.0/go.mod h1:E0bWwX5wTnLPedCKqk3pJmVgCBSM6qQI1yTBdEb3C10=
-cloud.google.com/go/iam v1.7.0 h1:JD3zh0C6LHl16aCn5Akff0+GELdp1+4hmh6ndoFLl8U=
-cloud.google.com/go/iam v1.7.0/go.mod h1:tetWZW1PD/m6vcuY2Zj/aU0eCHNPuxedbnbRTyKXvdY=
+cloud.google.com/go/iam v1.11.0 h1:KieQ9Pb+LLPak1O3Rv3GgCxhnmkYf7Xyh0P5HfF1jFM=
+cloud.google.com/go/iam v1.11.0/go.mod h1:KP+nKGugNJW4LcLx1uEZcq1ok5sQHFaQehQNl4QDgV4=
 cloud.google.com/go/secretmanager v1.20.0 h1:GjE3NoyFXo7ipRPy26PMmg4oRX1Ra8fswH45r16rWV0=
 cloud.google.com/go/secretmanager v1.20.0/go.mod h1:9OmSuOeiiUicANglrbdKWSnT3gYkRcXuUQDk7dDW0zU=
 github.com/Azure/go-ansiterm v0.0.0-20170929234023-d6e3b3328b78 h1:w+iIsaOQNcT7OZ575w+acHgRric5iCyQh+xv+KJ4HB8=
@@ -61,8 +61,8 @@ github.com/alicebob/miniredis/v2 v2.38.0 h1:nZAzCR+Lj+Vxk4ZXzm2NuKq2O33RXj1XxJ2e
 github.com/alicebob/miniredis/v2 v2.38.0/go.mod h1:TcL7YfarKPGDAthEtl5NBeHZfeUQj6OXMm/+iu5cLMM=
 github.com/altessa-s/ozzo-rules v1.16.0 h1:mJzL3NtaZABm8ksskQHqf77k1U2X9xwOfxFi6cQey1E=
 github.com/altessa-s/ozzo-rules v1.16.0/go.mod h1:aPGlyfaTaoJsOMitbdf5Dd408bvGe9/TP4hB5CmtPAs=
-github.com/altessa-s/proto-gen-go v0.1.2 h1:ktbJtKOv9AHsxJodS+zqfAWtE6PC0yR7ml6Njtkqtl8=
-github.com/altessa-s/proto-gen-go v0.1.2/go.mod h1:cPfIXwLmjyj9kdsJbC6/+m2Bp+WOlSkGcmwW58ZpIlU=
+github.com/altessa-s/proto-gen-go v0.3.0 h1:Gwit0s3CEMboSnJvrL7deyT5a7P1vrE7S0nBEx9MAb8=
+github.com/altessa-s/proto-gen-go v0.3.0/go.mod h1:o23zofBjpGtIsCWa3CewTufbsM+GkFLGh6pl8BV82Ic=
 github.com/andreyvit/diff v0.0.0-20170406064948-c7f18ee00883 h1:bvNMNQO63//z+xNgfBlViaCIJKLlCJ6/fmUseuG0wVQ=
 github.com/andreyvit/diff v0.0.0-20170406064948-c7f18ee00883/go.mod h1:rCTlJbsFo29Kk6CurOXKm700vrz8f0KW0JNfpkRJY/8=
 github.com/andybalholm/brotli v1.1.1 h1:PR2pgnyFznKEugtsUo0xLdDop5SKXd5Qf5ysW+7XdTA=
@@ -1076,8 +1076,8 @@ google.golang.org/genproto v0.0.0-20190530194941-fb225487d101/go.mod h1:z3L6/3dT
 google.golang.org/genproto v0.0.0-20190819201941-24fa4b261c55/go.mod h1:DMBHOl98Agz4BDEuKkezgsaosCRResVns1a3J2ZsMNc=
 google.golang.org/genproto v0.0.0-20200513103714-09dca8ec2884/go.mod h1:55QSHmfGQM9UVYDPBsyGGes0y52j32PQ3BqQfXhyH3c=
 google.golang.org/genproto v0.0.0-20200526211855-cb27e3aa2013/go.mod h1:NbSheEEYHJ7i3ixzK3sjbqSGDJWnxyFXZblF3eUsNvo=
-google.golang.org/genproto v0.0.0-20260319201613-d00831a3d3e7 h1:XzmzkmB14QhVhgnawEVsOn6OFsnpyxNPRY9QV01dNB0=
-google.golang.org/genproto v0.0.0-20260319201613-d00831a3d3e7/go.mod h1:L43LFes82YgSonw6iTXTxXUX1OlULt4AQtkik4ULL/I=
+google.golang.org/genproto v0.0.0-20260526163538-3dc84a4a5aaa h1:mfj8IS4EA4VAR9a6QDVxTQkLY64iBybb5QI1B4pXrpE=
+google.golang.org/genproto v0.0.0-20260526163538-3dc84a4a5aaa/go.mod h1:fuT7yonGw1Iq2oa+YC0fyqPPQJkgo/54gPNC6VitOkI=
 google.golang.org/genproto/googleapis/api v0.0.0-20260523011958-0a33c5d7ca68 h1:WVVw1Nl19li0fMX++FJ3ye1z9+S1N35QODDy5qpnaXw=
 google.golang.org/genproto/googleapis/api v0.0.0-20260523011958-0a33c5d7ca68/go.mod h1:1dCETSCY2YKZNXQE3h4fun3TYwF5p8jejRKZgfWAgAY=
 google.golang.org/genproto/googleapis/rpc v0.0.0-20260523011958-0a33c5d7ca68 h1:PvEgGJf9C/1u5CHkInMg7UFYYUoiaQmW2LbtH0pjB78=

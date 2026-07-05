@@ -12,7 +12,7 @@ require (
 	github.com/MicahParks/keyfunc/v3 v3.8.0
 	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/altessa-s/ozzo-rules v1.16.0
-	github.com/altessa-s/proto-gen-go v0.1.2
+	github.com/altessa-s/proto-gen-go v0.3.0
 	github.com/aohorodnyk/mimeheader v0.0.6
 	github.com/aws/aws-sdk-go-v2 v1.41.7
 	github.com/aws/aws-sdk-go-v2/config v1.32.18
@@ -77,7 +77,7 @@ require (
 	cloud.google.com/go/auth v0.20.0 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
-	cloud.google.com/go/iam v1.7.0 // indirect
+	cloud.google.com/go/iam v1.11.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/adrg/postcode v0.1.0 // indirect
 	github.com/agnivade/levenshtein v1.2.1 // indirect
@@ -184,6 +184,6 @@ require (
 	golang.org/x/exp v0.0.0-20250813145105-42675adae3e6 // indirect
 	golang.org/x/text v0.37.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
-	google.golang.org/genproto v0.0.0-20260319201613-d00831a3d3e7 // indirect
+	google.golang.org/genproto v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )

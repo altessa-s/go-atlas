@@ -41,7 +41,7 @@ func TestNew_DefaultsFromAppinfo(t *testing.T) {
 
 	require.Equal(t, appinfo.Name, out.GetServiceName())
 	require.Equal(t, appinfo.Version, out.GetFullVersion())
-	require.False(t, out.GetIsLeader())
+	require.False(t, out.GetLeader())
 	require.Nil(t, out.LeaderId, "no leader provider configured -> leader_id must be unset")
 
 	md := out.GetMetadata()
@@ -76,7 +76,7 @@ func TestGet_LeaderProviderIsLeader(t *testing.T) {
 
 	out, err := h.Get(t.Context(), &emptypb.Empty{})
 	require.NoError(t, err)
-	require.True(t, out.GetIsLeader())
+	require.True(t, out.GetLeader())
 	require.Equal(t, "node-a", out.GetLeaderId(), "leader uses own serviceID without consulting LeaderId(ctx)")
 	require.Equal(t, 0, leader.calls, "LeaderId(ctx) must not be called when this instance is leader")
 }
@@ -92,7 +92,7 @@ func TestGet_LeaderProviderNotLeader(t *testing.T) {
 
 	out, err := h.Get(t.Context(), &emptypb.Empty{})
 	require.NoError(t, err)
-	require.False(t, out.GetIsLeader())
+	require.False(t, out.GetLeader())
 	require.Equal(t, "node-b", out.GetLeaderId())
 	require.Equal(t, 1, leader.calls)
 }
@@ -139,7 +139,7 @@ func TestGet_LeaderFunc(t *testing.T) {
 
 	out, err := h.Get(t.Context(), &emptypb.Empty{})
 	require.NoError(t, err)
-	require.False(t, out.GetIsLeader())
+	require.False(t, out.GetLeader())
 	require.Equal(t, "node-c", out.GetLeaderId())
 	require.NotNil(t, ctxSeen, "request context must reach the leader func")
 }
@@ -150,7 +150,7 @@ func TestWithLeader_NilFnIsNoOp(t *testing.T) {
 	h := serviceinfo.New(serviceinfo.WithLeader(nil))
 	out, err := h.Get(t.Context(), &emptypb.Empty{})
 	require.NoError(t, err)
-	require.False(t, out.GetIsLeader())
+	require.False(t, out.GetLeader())
 	require.Nil(t, out.LeaderId)
 }
 
@@ -166,7 +166,7 @@ func TestWithLeader_LastCallWins(t *testing.T) {
 
 	out, err := h.Get(t.Context(), &emptypb.Empty{})
 	require.NoError(t, err)
-	require.False(t, out.GetIsLeader(), "WithLeader applied last must win over WithLeaderProvider")
+	require.False(t, out.GetLeader(), "WithLeader applied last must win over WithLeaderProvider")
 	require.Equal(t, "func-leader", out.GetLeaderId())
 }
 
