@@ -16,15 +16,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSSRFControl_BlocksLoopback(t *testing.T) {
+func TestSSRFControl_AllowsLoopback(t *testing.T) {
 	ctrl := ssrfControl(nil)
 
-	err := ctrl("tcp", "127.0.0.1:80", nil)
-	require.Error(t, err)
-
-	var ssrfErr *SSRFError
-	require.ErrorAs(t, err, &ssrfErr)
-	assert.Equal(t, "127.0.0.1", ssrfErr.IP)
+	// Loopback is exempt by default (IPv4 and IPv6).
+	assert.NoError(t, ctrl("tcp", "127.0.0.1:80", nil))
+	assert.NoError(t, ctrl("tcp", "[::1]:80", nil))
 }
 
 func TestSSRFControl_BlocksPrivateRFC1918(t *testing.T) {
@@ -106,7 +103,6 @@ func TestSSRFControl_BlocksIPv6Private(t *testing.T) {
 		name    string
 		address string
 	}{
-		{"loopback", "[::1]:80"},
 		{"link-local", "[fe80::1]:80"},
 		{"ULA", "[fd00::1]:80"},
 	}
@@ -123,12 +119,16 @@ func TestSSRFControl_BlocksIPv6Private(t *testing.T) {
 }
 
 func TestSSRFControl_Disabled(t *testing.T) {
-	// When ssrfProtection is false, newCircuitBreakerClient should not wrap
-	// the transport. Verify by checking that a plain options struct does not
-	// create an SSRF-safe transport.
-	opts := *newOptions()
+	// SSRF protection is on by default; WithoutSSRFProtection turns it off, so
+	// newCircuitBreakerClient does not wrap the transport.
+	opts := *newOptions(WithoutSSRFProtection())
 	assert.False(t, opts.ssrfProtection)
 	assert.Nil(t, opts.ssrfAllowedCIDRs)
+}
+
+func TestSSRFControl_EnabledByDefault(t *testing.T) {
+	opts := *newOptions()
+	assert.True(t, opts.ssrfProtection, "SSRF protection must be on by default")
 }
 
 func TestSSRFError_ErrorMessage(t *testing.T) {

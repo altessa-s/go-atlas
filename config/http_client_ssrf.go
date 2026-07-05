@@ -22,13 +22,11 @@ import (
 //	}
 //	client := httpclient.New(opts...)
 //
-// Safe-by-default: the zero value keeps SSRF protection ENABLED, so a config
-// that omits the block still blocks connections to private and local IP
-// addresses (RFC1918, loopback, link-local). This is deliberately stricter
-// than the raw httpclient.New default, which leaves protection off to keep the
-// Go API backward-compatible. The strict posture lives in the config layer so
-// existing programmatic callers are unaffected while YAML-driven clients are
-// secure out of the box. Set Disabled to opt a config-driven client out.
+// Safe-by-default: the zero value keeps SSRF protection ENABLED (matching the
+// httpclient.New default), so a config that omits the block still blocks
+// connections to private and local IP addresses (RFC1918, loopback,
+// link-local). Set Disabled to opt a config-driven client out, or list
+// AllowedCIDRs to exempt known internal networks while keeping protection on.
 type HTTPClientSSRF struct {
 	// Disabled turns SSRF protection off. The zero value (false) keeps
 	// protection ENABLED — see the type doc for the safe-by-default rationale.
@@ -42,9 +40,10 @@ type HTTPClientSSRF struct {
 	AllowedCIDRs []string `yaml:"allowed_cidrs"`
 }
 
-// DefaultHTTPClientSSRF returns the zero-value HTTPClientSSRF, whose
-// materialized options enable SSRF protection with no CIDR exemptions — the
-// strict, safe-by-default posture for config-driven clients.
+// DefaultHTTPClientSSRF returns the zero-value HTTPClientSSRF, which keeps SSRF
+// protection enabled with no CIDR exemptions — the strict, safe-by-default
+// posture. It materializes no options because httpclient.New is already
+// protected by default.
 func DefaultHTTPClientSSRF() HTTPClientSSRF {
 	return HTTPClientSSRF{}
 }
@@ -74,19 +73,22 @@ func validateCIDRPrefix(value any) error {
 // ClientOptions materializes the SSRF policy into a slice of
 // transport/http/client options ready to be passed to httpclient.New.
 //
-// A nil receiver or a Disabled policy returns (nil, nil), leaving the client
-// without SSRF protection. Otherwise it returns httpclient.WithSSRFProtection
-// plus, when AllowedCIDRs is non-empty, httpclient.WithSSRFAllowedCIDRs. An
-// unparseable CIDR surfaces as an error here rather than at request time.
+// Because httpclient.New enables SSRF protection by default, a nil receiver or
+// an enabled policy with no AllowedCIDRs returns (nil, nil) — the client keeps
+// its protected default. A Disabled policy returns httpclient.WithoutSSRFProtection.
+// An enabled policy with AllowedCIDRs returns httpclient.WithSSRFAllowedCIDRs.
+// An unparseable CIDR surfaces as an error here rather than at request time.
 func (s *HTTPClientSSRF) ClientOptions() ([]httpclient.Option, error) {
-	if s == nil || s.Disabled {
+	if s == nil {
 		return nil, nil
 	}
 
-	opts := []httpclient.Option{httpclient.WithSSRFProtection()}
+	if s.Disabled {
+		return []httpclient.Option{httpclient.WithoutSSRFProtection()}, nil
+	}
 
 	if len(s.AllowedCIDRs) == 0 {
-		return opts, nil
+		return nil, nil
 	}
 
 	prefixes := make([]netip.Prefix, 0, len(s.AllowedCIDRs))
@@ -98,5 +100,5 @@ func (s *HTTPClientSSRF) ClientOptions() ([]httpclient.Option, error) {
 		prefixes = append(prefixes, prefix)
 	}
 
-	return append(opts, httpclient.WithSSRFAllowedCIDRs(prefixes...)), nil
+	return []httpclient.Option{httpclient.WithSSRFAllowedCIDRs(prefixes...)}, nil
 }

@@ -288,6 +288,7 @@ func defaultOptions() *options {
 		retryMax:              DefaultRetryMax,
 		retryWaitMax:          DefaultRetryWaitMax,
 		retryWaitMin:          DefaultRetryWaitMin,
+		ssrfProtection:        DefaultSSRFProtection,
 	}
 }
 
