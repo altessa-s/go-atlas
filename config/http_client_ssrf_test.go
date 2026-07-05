@@ -20,29 +20,29 @@ func TestHTTPClientSSRF_ClientOptions(t *testing.T) {
 		wantErr  bool
 	}{
 		{
-			name:     "nil receiver disables protection",
+			name:     "nil receiver keeps protected default",
 			cfg:      nil,
 			wantOpts: 0,
 		},
 		{
-			name:     "zero value enables protection",
+			name:     "zero value keeps protected default",
 			cfg:      &HTTPClientSSRF{},
-			wantOpts: 1,
+			wantOpts: 0,
 		},
 		{
-			name:     "disabled produces no options",
+			name:     "disabled emits opt-out option",
 			cfg:      &HTTPClientSSRF{Disabled: true},
-			wantOpts: 0,
+			wantOpts: 1,
 		},
 		{
 			name:     "disabled ignores allowed cidrs",
 			cfg:      &HTTPClientSSRF{Disabled: true, AllowedCIDRs: []string{"10.0.0.0/8"}},
-			wantOpts: 0,
+			wantOpts: 1,
 		},
 		{
-			name:     "allowed cidrs add a second option",
+			name:     "allowed cidrs emit exemption option",
 			cfg:      &HTTPClientSSRF{AllowedCIDRs: []string{"10.0.0.0/8", "192.168.0.0/16"}},
-			wantOpts: 2,
+			wantOpts: 1,
 		},
 		{
 			name:    "invalid cidr surfaces an error",
@@ -103,5 +103,5 @@ func TestDefaultHTTPClientSSRF_IsStrict(t *testing.T) {
 
 	opts, err := cfg.ClientOptions()
 	require.NoError(t, err)
-	require.Len(t, opts, 1, "default must materialize SSRF protection")
+	require.Empty(t, opts, "default relies on httpclient.New's protected default, so emits no options")
 }

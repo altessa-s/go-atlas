@@ -49,7 +49,11 @@ func ssrfControl(allowedPrefixes []netip.Prefix) func(network, address string, c
 			return err
 		}
 
-		if clientip.IsPrivate(ip) && !clientip.InList(ip, allowedPrefixes) {
+		// Loopback (127.0.0.0/8, ::1) is exempt by default. Blocking it would
+		// break local development and httptest-based callers, and loopback SSRF
+		// is a far rarer vector than access to internal networks or cloud
+		// metadata — which remain blocked (RFC1918, link-local, ULA, etc.).
+		if clientip.IsPrivate(ip) && !ip.IsLoopback() && !clientip.InList(ip, allowedPrefixes) {
 			return &SSRFError{
 				Host: host,
 				IP:   ip.String(),

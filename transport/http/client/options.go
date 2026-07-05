@@ -128,8 +128,9 @@ type options struct {
 	limiter            limiters.RequestsLimiter `optgen:"notnil"`
 	// hostBreakerSettings maps hostnames to their circuit breaker settings
 	hostBreakerSettings map[string]*CircuitBreakerSettings `opt:"-"`
-	// ssrfProtection enables blocking connections to private/local IP addresses
-	ssrfProtection bool `optgen:"manual"`
+	// ssrfProtection enables blocking connections to private/local IP addresses.
+	// Defaults to DefaultSSRFProtection (on); opt out with WithoutSSRFProtection.
+	ssrfProtection bool `optgen:"manual,default=DefaultSSRFProtection"`
 	// ssrfAllowedCIDRs contains CIDR prefixes exempted from SSRF blocking
 	ssrfAllowedCIDRs []netip.Prefix    `optgen:"manual"`
 	collector        metrics.Collector `optgen:"notnil"`
@@ -220,19 +221,45 @@ func WithCircuitBreakerSettings(hostname string, settings *CircuitBreakerSetting
 	}
 }
 
+// DefaultSSRFProtection is the default value of the SSRF-protection toggle:
+// protection is ON by default, blocking connections to private and local IP
+// addresses. Opt a specific client out with [WithoutSSRFProtection].
+const DefaultSSRFProtection = true
+
 // WithSSRFProtection enables SSRF protection that blocks connections to
-// private and local IP addresses (RFC1918, loopback, link-local, etc.).
-// The check runs after DNS resolution but before the TCP connection is established,
-// preventing both direct private-IP requests and DNS rebinding attacks.
+// private IP addresses (RFC1918, link-local, ULA, cloud metadata, etc.).
+// Loopback (127.0.0.0/8, ::1) is exempt by default. The check runs after DNS
+// resolution but before the TCP connection is established, preventing both
+// direct private-IP requests and DNS rebinding attacks.
+//
+// SSRF protection is ON by default ([DefaultSSRFProtection]); this option is
+// only needed to re-enable it after a [WithoutSSRFProtection]. Use
+// [WithSSRFAllowedCIDRs] to exempt known internal networks.
 //
 // Example:
 //
 //	client := httpclient.New(
-//	    httpclient.WithSSRFProtection(),
+//	    httpclient.WithSSRFAllowedCIDRs(netip.MustParsePrefix("10.0.1.0/24")),
 //	)
 func WithSSRFProtection() Option {
 	return func(opts *options) {
 		opts.ssrfProtection = true
+	}
+}
+
+// WithoutSSRFProtection disables the default SSRF protection, letting the client
+// connect to private and local IP addresses. Use for internal service-to-service
+// clients that must reach private hosts and cannot enumerate them via
+// [WithSSRFAllowedCIDRs].
+//
+// Example:
+//
+//	client := httpclient.New(
+//	    httpclient.WithoutSSRFProtection(),
+//	)
+func WithoutSSRFProtection() Option {
+	return func(opts *options) {
+		opts.ssrfProtection = false
 	}
 }
 
