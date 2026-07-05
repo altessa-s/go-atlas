@@ -187,5 +187,7 @@ func (i *interceptor) authenticateWithToken(ctx context.Context, callMeta *share
 // Credentials.Headers to prevent accidental leakage of secrets through
 // logging, forwarding, or storage.
 func isSensitiveHeader(key string) bool {
-	return strings.EqualFold(key, "authorization")
+	return strings.EqualFold(key, "authorization") ||
+		strings.EqualFold(key, "cookie") ||
+		strings.EqualFold(key, "proxy-authorization")
 }
