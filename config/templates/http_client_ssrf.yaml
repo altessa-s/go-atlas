@@ -1,0 +1,25 @@
+# SSRF (Server-Side Request Forgery) egress policy for transport/http/client.
+# Safe-by-default: when this section is omitted entirely, SSRF protection is
+# ENABLED — the client blocks connections to private and local IP addresses
+# (RFC1918, loopback, link-local), after DNS resolution and before the TCP
+# connection, defeating DNS-rebinding as well as direct private-IP requests.
+#
+# This config-layer default is deliberately stricter than the raw
+# httpclient.New default (protection off), which stays that way to keep the Go
+# API backward-compatible.
+
+#ssrf:
+#  # <bool> Turn SSRF protection OFF. Omit or set false to keep protection
+#  # ENABLED (the strict, safe-by-default posture). Set true only for clients
+#  # that must reach arbitrary private addresses and cannot enumerate them via
+#  # allowed_cidrs below.
+#  # Default value: false (protection enabled)
+#  disabled: false
+#
+#  # <list<string>> CIDR prefixes exempted from SSRF blocking, for known
+#  # internal service-to-service targets on private networks. Ignored when
+#  # disabled is true.
+#  # Default value: not set (no exemptions)
+#  allowed_cidrs:
+#    - 10.0.1.0/24
+#    - 192.168.10.0/24
