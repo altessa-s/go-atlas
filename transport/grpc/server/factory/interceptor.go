@@ -12,6 +12,7 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/cache"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/errstatus"
+	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldbehavior"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/health"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/idempotency"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/limiter"
@@ -78,6 +79,7 @@ func (b *ServerBuilder) WithInterceptors(exclude ...interceptors.Interceptor) *S
 		{idempotency.Name(), b.WithIdempotencyInterceptor},
 		{cache.Name(), b.WithCacheInterceptor},
 		{auth.Name(), b.WithAuthInterceptor},
+		{fieldbehavior.Name(), b.WithFieldBehaviorInterceptor},
 		{protovalidator.Name(), b.WithBufValidatorInterceptor},
 		{health.Name(), b.WithHealthInterceptor},
 	}
@@ -515,6 +517,19 @@ func (b *ServerBuilder) WithErrStatusInterceptor() *ServerBuilder {
 	}
 
 	b.interceptors = append(b.interceptors, errstatus.ServerInterceptor(opts...))
+	return b
+}
+
+// WithFieldBehaviorInterceptor adds the field_behavior sanitizer to the chain.
+// It is always on (not config-gated): for protos without google.api.field_behavior
+// annotations it is a no-op, and for annotated ones it keeps INPUT_ONLY fields out
+// of responses and OUTPUT_ONLY/IDENTIFIER fields out of accepted requests. Ordering
+// is handled by its Dependencies() (it runs after auth), so response sanitization is
+// enforced by default rather than being opt-in.
+func (b *ServerBuilder) WithFieldBehaviorInterceptor() *ServerBuilder {
+	b.interceptors = append(b.interceptors, fieldbehavior.ServerInterceptor(
+		fieldbehavior.WithLogger(b.Logger()),
+	))
 	return b
 }
 
