@@ -5,6 +5,7 @@
 package secrets
 
 import (
+	"log/slog"
 	"reflect"
 	"unsafe"
 
@@ -34,8 +35,11 @@ import (
 // and from different goroutines.
 //
 // JSON Serialization:
-// Value supports JSON marshaling/unmarshaling for persistence and network
-// transmission. The encoded forms are preserved during serialization.
+// Only non-sensitive metadata (Key, EncodedKey, Version) is JSON-serialized;
+// the secret payload fields (Value, EncodedValue) carry json:"-" so an
+// accidental json.Marshal or slog.Any never leaks the secret. Persistence goes
+// through the codec, which encodes the payload directly rather than marshaling
+// this wrapper. Value also implements [slog.LogValuer] to redact itself in logs.
 type Value[T any] struct {
 	// Key is the original unencoded secret identifier used by clients for lookups
 	Key string `json:"key"`
@@ -44,12 +48,15 @@ type Value[T any] struct {
 	EncodedKey string `json:"encoded_key"`
 
 	// Value contains the actual secret data of type T
-	// Common types include string, []byte, or custom configuration structs
-	Value T `json:"value"`
+	// Common types include string, []byte, or custom configuration structs.
+	// It is never JSON-serialized (json:"-") so an accidental json.Marshal or
+	// response encode can never emit the plaintext secret.
+	Value T `json:"-"`
 
-	// EncodedValue is the encoded binary representation of the secret value
-	// Used by storage providers for persistence and network transmission
-	EncodedValue []byte `json:"encoded_value"`
+	// EncodedValue is the encoded binary representation of the secret value.
+	// Like Value it is excluded from JSON (json:"-"); storage providers persist
+	// the encoded bytes through the codec, not by marshaling this wrapper.
+	EncodedValue []byte `json:"-"`
 
 	// Version is the provider-specific version identifier for change tracking
 	// Format varies by provider (e.g., sequential numbers, timestamps, hashes)
@@ -63,6 +70,21 @@ const (
 	defaultSliceCapacity = 64   // Default capacity for pooled slices
 	maxPoolCapacity      = 1024 // Maximum capacity to store in pool
 )
+
+// LogValue implements [slog.LogValuer] so a Value is redacted whenever it reaches
+// a structured logger (e.g. via slog.Any). It exposes only non-sensitive metadata
+// and never the secret payload. slog treats a LogValuer atomically, so the secret
+// fields are not walked by reflection.
+func (v *Value[T]) LogValue() slog.Value {
+	if v == nil {
+		return slog.StringValue("<nil secret>")
+	}
+	return slog.GroupValue(
+		slog.String("key", v.Key),
+		slog.String("version", v.Version),
+		slog.String("value", "[REDACTED]"),
+	)
+}
 
 // Clear securely clears all sensitive data from the Value and removes any finalizer.
 // This method zeros out the EncodedValue slice and attempts to clear

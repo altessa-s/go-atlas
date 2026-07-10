@@ -168,6 +168,14 @@ func (lb *Token) Shutdown() {
 
 		// Wait for all background refresh goroutines to complete
 		lb.backgroundRefreshWg.Wait()
+
+		// Wipe secret material so the RSA private key and live IAM token do not
+		// linger in the heap after shutdown (recoverable via a process/heap dump).
+		lb.tokenMx.Lock()
+		clear(lb.privKey)
+		lb.privKey = nil
+		lb.token = ""
+		lb.tokenMx.Unlock()
 	})
 }
 
