@@ -105,7 +105,9 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 					"http client retrying request",
 					slog.Int("attempt", attempt),
 					slog.String("method", req.Method),
-					slog.String("url", req.URL.String()),
+					// Omit the query string: outbound URLs may carry signed-URL
+					// credentials or tokens that must not reach debug logs.
+					slog.String("url", req.URL.Scheme+"://"+req.URL.Host+req.URL.Path),
 					slog.String("error", err.Error()),
 					slog.Duration("delay", delay),
 				)
