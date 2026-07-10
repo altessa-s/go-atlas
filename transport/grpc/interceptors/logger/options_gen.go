@@ -88,6 +88,13 @@ func WithLogResponse() Option {
 	}
 }
 
+// WithPayloadRedactor sets the payloadRedactor option.
+func WithPayloadRedactor(v PayloadRedactor) Option {
+	return func(o *options) {
+		o.payloadRedactor = v
+	}
+}
+
 // WithTimeFormat sets the timeFormat option.
 func WithTimeFormat(v timeformat.Format) Option {
 	return func(o *options) {
@@ -98,9 +105,10 @@ func WithTimeFormat(v timeformat.Format) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		contextLogger:  nil,
-		ignorePatterns: defaults.IgnorePatterns,
-		timeFormat:     timeformat.RFC3339,
+		contextLogger:   nil,
+		ignorePatterns:  defaults.IgnorePatterns,
+		payloadRedactor: nil,
+		timeFormat:      timeformat.RFC3339,
 	}
 }
 
