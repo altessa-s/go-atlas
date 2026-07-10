@@ -9,6 +9,7 @@ import (
 
 	"github.com/hashicorp/vault/api/auth/userpass"
 
+	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 	"github.com/altessa-s/go-atlas/security/vault/auth"
 
 	vaultApi "github.com/hashicorp/vault/api"
@@ -20,13 +21,16 @@ type AuthMethod = auth.MountPathMethod
 // Option configures AuthMethod.
 type Option = auth.MethodOption[*AuthMethod]
 
-// New creates a new userpass authentication method.
+// New creates a new userpass authentication method. The password is held in a
+// SecureString and zeroed when the method's Shutdown runs, so it does not remain
+// in the heap for the process lifetime.
 func New(username, password string, opt ...Option) *AuthMethod {
 	username = strings.TrimSpace(username)
-	password = strings.TrimSpace(password)
+	pw := corestrings.NewSecureString(strings.TrimSpace(password))
 
+	opt = append(opt, auth.WithSecret(pw))
 	return auth.NewMountPathMethodOptions("userpass", userpass.WithMountPath, func(opts ...userpass.LoginOption) (vaultApi.AuthMethod, error) {
-		return userpass.NewUserpassAuth(username, &userpass.Password{FromString: password}, opts...)
+		return userpass.NewUserpassAuth(username, &userpass.Password{FromString: pw.String()}, opts...)
 	}, opt...)
 }
 

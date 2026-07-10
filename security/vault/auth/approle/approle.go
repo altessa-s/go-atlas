@@ -9,6 +9,7 @@ import (
 
 	"github.com/hashicorp/vault/api/auth/approle"
 
+	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 	"github.com/altessa-s/go-atlas/security/vault/auth"
 
 	vaultApi "github.com/hashicorp/vault/api"
@@ -25,16 +26,19 @@ func WithMountPath[T interface{ string | *string }](path T) Option {
 // AuthMethod implements Vault AppRole authentication.
 type AuthMethod = auth.MountPathMethod
 
-func newLogin(roleID, secretID string) func(opts ...approle.LoginOption) (vaultApi.AuthMethod, error) {
+func newLogin(roleID string, secretID *corestrings.SecureString) func(opts ...approle.LoginOption) (vaultApi.AuthMethod, error) {
 	return func(opts ...approle.LoginOption) (vaultApi.AuthMethod, error) {
-		return approle.NewAppRoleAuth(roleID, &approle.SecretID{FromString: secretID}, opts...)
+		return approle.NewAppRoleAuth(roleID, &approle.SecretID{FromString: secretID.String()}, opts...)
 	}
 }
 
-// New creates a new AppRole authentication method.
+// New creates a new AppRole authentication method. The secret ID is held in a
+// SecureString and zeroed when the method's Shutdown runs, so it does not remain
+// in the heap for the process lifetime.
 func New(roleID, secretID string, opt ...Option) *AuthMethod {
 	roleID = strings.TrimSpace(roleID)
-	secretID = strings.TrimSpace(secretID)
+	sid := corestrings.NewSecureString(strings.TrimSpace(secretID))
 
-	return auth.NewMountPathMethodOptions("approle", approle.WithMountPath, newLogin(roleID, secretID), opt...)
+	opt = append(opt, auth.WithSecret(sid))
+	return auth.NewMountPathMethodOptions("approle", approle.WithMountPath, newLogin(roleID, sid), opt...)
 }
