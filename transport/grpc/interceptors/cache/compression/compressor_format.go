@@ -74,23 +74,11 @@ func encodeDataWithHeader(header OptimizedHeader, data []byte, totalSize int) ([
 
 // Zero-copy encoding for small to large data with pooled slice reuse
 func encodeDataZeroCopy(header OptimizedHeader, data []byte, totalSize int) ([]byte, error) {
-	// Try to get appropriately sized slice from pool first
-	var result []byte
-	if totalSize <= LargeBufferSize {
-		pooledSlice := getSizedSliceBuffer(totalSize)
-		if cap(pooledSlice) >= totalSize {
-			result = pooledSlice[:totalSize]
-			// Slice will be returned to pool by caller via putSizedSliceBuffer
-		} else {
-			// Pool slice too small, allocate directly
-			result = make([]byte, totalSize)
-			// Return undersized slice back to pool
-			putSizedSliceBuffer(pooledSlice, cap(pooledSlice))
-		}
-	} else {
-		// For very large data, direct allocation is more efficient
-		result = make([]byte, totalSize)
-	}
+	// The encoded buffer is returned to the caller and written to the response,
+	// so it must be caller-owned. It must not be drawn from a pool: a pooled slice
+	// that escapes here is never safely returned and, once reused, would alias
+	// another request's data.
+	result := make([]byte, totalSize)
 
 	// Zero-copy header encoding directly into result buffer
 	if err := encodeHeaderZeroCopy(header, result[:headerSize]); err != nil {
@@ -266,46 +254,6 @@ func putSizedBytesBuffer(buf *bytes.Buffer, originalSize int) {
 		}
 
 		pool.Put(buf)
-	}
-}
-
-// getSizedSliceBuffer returns an appropriately sized slice from the pool
-func getSizedSliceBuffer(expectedSize int) []byte {
-	var poolIndex int
-
-	switch {
-	case expectedSize <= SmallBufferSize:
-		poolIndex = 0
-	case expectedSize <= MediumBufferSize:
-		poolIndex = 1
-	default:
-		poolIndex = 2
-	}
-
-	if slice, ok := sliceBufferPools[poolIndex].Get().([]byte); ok {
-		return slice[:0] // Reset length while keeping capacity
-	}
-
-	// Fallback: create new slice with optimal capacity
-	capacity := getOptimalBufferCapacity(expectedSize)
-	return make([]byte, 0, capacity)
-}
-
-// putSizedSliceBuffer returns a slice to the appropriate pool
-func putSizedSliceBuffer(slice []byte, originalSize int) {
-	if cap(slice) <= maxPooledBufferSize {
-		var poolIndex int
-
-		switch {
-		case originalSize <= SmallBufferSize:
-			poolIndex = 0
-		case originalSize <= MediumBufferSize:
-			poolIndex = 1
-		default:
-			poolIndex = 2
-		}
-
-		sliceBufferPools[poolIndex].Put(slice[:0]) //nolint:staticcheck // Allocations minimized by buffer pooling
 	}
 }
 

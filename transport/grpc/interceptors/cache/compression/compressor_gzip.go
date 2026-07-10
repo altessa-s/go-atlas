@@ -113,17 +113,11 @@ func (c *GzipCompressor) streamDecompress(ctx context.Context, reader *gzip.Read
 		return nil, fmt.Errorf("invalid expected size for decompression: %d", expectedSize)
 	}
 
-	// Use appropriately sized pooled buffer for result
-	result := getSizedSliceBuffer(expectedSize)
-	defer putSizedSliceBuffer(result, expectedSize)
-
-	// Ensure result has correct capacity
-	if cap(result) < expectedSize {
-		// Pool buffer too small, allocate appropriately
-		result = make([]byte, 0, expectedSize)
-	} else {
-		result = result[:0] // Reset length while keeping capacity
-	}
+	// The accumulator is returned to the caller, so it must be caller-owned and
+	// never drawn from a pool. A pooled backing array would be handed back to the
+	// pool (here or during growth) while the returned slice still aliases it,
+	// leaking one request's decompressed payload into the next.
+	result := make([]byte, 0, expectedSize)
 
 	// Use optimally sized streaming buffer
 	streamingBufSize := getOptimalStreamingBufferSize(expectedSize)
@@ -201,17 +195,14 @@ func (c *GzipCompressor) validateBufferSize(newSize, expectedSize int) error {
 	return nil
 }
 
-// growBuffer grows the buffer capacity using appropriate strategy (pooled vs direct allocation)
+// growBuffer grows the buffer capacity using direct allocation. The grown slice
+// propagates up to the caller of streamDecompress, so it must never be backed by
+// a pooled array: a pooled result would alias a buffer that is later reused for
+// another request, exposing one request's data to the next.
 func (c *GzipCompressor) growBuffer(result []byte, newSize int) ([]byte, error) {
-	// Calculate optimal capacity
 	newCapacity, err := c.calculateBufferCapacity(newSize)
 	if err != nil {
 		return nil, err
-	}
-
-	// Choose allocation strategy based on capacity
-	if newCapacity <= LargeBufferSize {
-		return c.growBufferFromPool(result, newCapacity)
 	}
 	return c.growBufferDirect(result, newCapacity), nil
 }
@@ -236,25 +227,6 @@ func (c *GzipCompressor) calculateBufferCapacity(newSize int) (int, error) {
 	}
 
 	return newCapacity, nil
-}
-
-// growBufferFromPool attempts to grow buffer using pooled resources
-func (c *GzipCompressor) growBufferFromPool(result []byte, newCapacity int) ([]byte, error) {
-	newBuffer := getSizedSliceBuffer(newCapacity)
-	if cap(newBuffer) >= newCapacity {
-		// Pool buffer is large enough, use zero-copy
-		newBuffer = newBuffer[:len(result)]
-		copy(newBuffer, result)
-		// Return old buffer to pool if it came from pool
-		putSizedSliceBuffer(result, cap(result))
-		return newBuffer, nil
-	}
-
-	// Pool buffer too small, use direct allocation
-	newResultBuffer := c.growBufferDirect(result, newCapacity)
-	// Return undersized buffer back to pool
-	putSizedSliceBuffer(newBuffer, cap(newBuffer))
-	return newResultBuffer, nil
 }
 
 // growBufferDirect grows buffer using direct memory allocation
