@@ -166,6 +166,8 @@ func toGRPCStatus(err error) error {
 	case errors.Is(err, static.ErrRateLimited):
 		return status.Error(codes.ResourceExhausted, "too many authentication attempts")
 	default:
-		return status.Errorf(codes.Internal, "auth: %v", err)
+		// Unknown store errors (driver messages, connection strings) must not reach
+		// the client; the failure category is still recorded via the audit reason.
+		return status.Error(codes.Internal, "Internal Server Error")
 	}
 }

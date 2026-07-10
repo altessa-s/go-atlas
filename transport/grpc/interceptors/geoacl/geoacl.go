@@ -120,7 +120,9 @@ func (i *interceptor) checkAccess(ctx context.Context, method string) error {
 		case fallback.Allow:
 			return nil
 		case fallback.Error:
-			return status.Errorf(codes.Internal, "geo resolver error: %v", err)
+			// The resolver error is already logged above; return a generic status
+			// so resolver internals (DB/GeoIP paths, hostnames) never reach clients.
+			return status.Error(codes.Internal, "Internal Server Error")
 		default:
 			return status.Error(codes.PermissionDenied, "Access Denied")
 		}

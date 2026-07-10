@@ -71,14 +71,16 @@ func AuthFunc(opts ...coremtls.Option) auth.AuthFunc {
 	return func(ctx context.Context, _ auth.Request) (any, error) {
 		cert, err := PeerCertificate(ctx)
 		if err != nil {
-			return nil, status.Error(codes.Unauthenticated, err.Error())
+			// Never surface the underlying TLS/identity error text to the caller:
+			// it can reveal server TLS configuration or certificate chain details.
+			return nil, status.Error(codes.Unauthenticated, "unauthenticated")
 		}
 		principal, err := authenticator.Authenticate(ctx, cert)
 		if err != nil {
 			if errors.Is(err, audit.ErrAuditFailed) {
 				return nil, status.Error(codes.Internal, "mtls: audit failed")
 			}
-			return nil, status.Error(codes.Unauthenticated, err.Error())
+			return nil, status.Error(codes.Unauthenticated, "unauthenticated")
 		}
 		return principal, nil
 	}

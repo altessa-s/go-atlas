@@ -172,10 +172,12 @@ func (ri *requestInterceptor) validate(ctx context.Context, req any) (err error)
 			slog.String("message_type", msgType),
 		)
 
-		// Wrap non-gRPC errors
+		// Wrap non-gRPC errors. The validator's raw message may echo submitted
+		// values or internal detail, so keep it internal (NewError preserves it for
+		// logging) and hand the client only a generic status.
 		if _, ok := status.FromError(validationErr); !ok {
 			return interceptors.NewError(
-				status.Newf(codes.InvalidArgument, "validation failed: %v", validationErr),
+				status.New(codes.InvalidArgument, "Validation Failed"),
 				validationErr,
 			)
 		}

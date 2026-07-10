@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"net/netip"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -129,7 +128,8 @@ func TestUnaryInterceptor_ResolverError_FallbackError(t *testing.T) {
 	s, ok := status.FromError(err)
 	require.True(t, ok, "code = %v, want Internal", s.Code())
 	require.Equal(t, codes.Internal, s.Code())
-	require.True(t, strings.Contains(s.Message(), "geo lookup failed"), "message = %q, want it to contain resolver error", s.Message())
+	require.Equal(t, "Internal Server Error", s.Message(), "resolver error text must not leak to the client")
+	require.NotContains(t, s.Message(), "geo lookup failed")
 }
 
 func TestUnaryInterceptor_IgnoredMethod(t *testing.T) {

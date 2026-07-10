@@ -131,7 +131,7 @@ func TestValidate_ErrorWrapping(t *testing.T) {
 			name:         "plain error",
 			validatorErr: errors.New("validation error"),
 			wantCode:     codes.InvalidArgument,
-			wantContains: "validation failed: validation error",
+			wantContains: "Validation Failed",
 		},
 		{
 			name:         "gRPC status error",
