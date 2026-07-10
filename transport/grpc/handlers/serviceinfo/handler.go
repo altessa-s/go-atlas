@@ -17,7 +17,6 @@ import (
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
-	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	serviceinfov1 "github.com/altessa-s/proto-gen-go/io/altessa/serviceinfo/v1"
@@ -52,15 +51,22 @@ func New(opts ...Option) *Handler {
 }
 
 // Register attaches the handler to gs. The stop channel is unused —
-// Get is unary and has no streams to terminate on shutdown.
+// GetServiceInfo is unary and has no streams to terminate on shutdown.
 func (h *Handler) Register(gs *stdGrpc.Server, _ <-chan struct{}) {
 	serviceinfov1.RegisterServiceInfoServiceServer(gs, h)
 }
 
-// Get returns the cached static info plus dynamic per-request fields.
+// GetServiceInfo returns the service info of this instance.
+func (h *Handler) GetServiceInfo(
+	ctx context.Context, _ *serviceinfov1.GetServiceInfoRequest,
+) (*serviceinfov1.GetServiceInfoResponse, error) {
+	return &serviceinfov1.GetServiceInfoResponse{ServiceInfo: h.Snapshot(ctx)}, nil
+}
+
+// Snapshot returns the cached static info plus dynamic per-request fields.
 // The returned pointer is safe to mutate by the caller; each call
 // produces a fresh deep copy via [proto.Clone].
-func (h *Handler) Get(ctx context.Context, _ *emptypb.Empty) (*serviceinfov1.ServiceInfo, error) {
+func (h *Handler) Snapshot(ctx context.Context) *serviceinfov1.ServiceInfo {
 	out, ok := proto.Clone(h.static).(*serviceinfov1.ServiceInfo)
 	panics.Must(ok, "proto.Clone returned an unexpected concrete type")
 
@@ -80,7 +86,7 @@ func (h *Handler) Get(ctx context.Context, _ *emptypb.Empty) (*serviceinfov1.Ser
 	out.StartTime = timestamppb.New(h.startTime)
 	out.Uptime = durationpb.New(time.Since(h.startTime))
 
-	return out, nil
+	return out
 }
 
 // buildStaticInfo assembles the immutable portion of the ServiceInfo
