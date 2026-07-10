@@ -138,12 +138,14 @@ func (b *ConnectionBuilder) Build() (*nats.Conn, error) {
 	}
 	conn, err := nats.Connect(url, opts...)
 	if err != nil {
-		// nats.Connect's error can include the connection URL — which
-		// may carry inline userinfo (nats://user:pass@host). Wrap with
-		// a stable message and use the URL with userinfo stripped so
-		// the credentials don't leak through whatever log path picks
-		// the error up.
-		return nil, fmt.Errorf("connect to NATS at %s: %w", redactNATSURL(url), err)
+		// nats.Connect's error can embed the connection URL verbatim — which
+		// may carry inline userinfo (nats://user:pass@host), and it references
+		// individual servers, not the comma-joined list. Scrub every raw host
+		// occurrence from the error text before returning so credentials cannot
+		// leak through whatever log path picks the error up. The wrapped chain is
+		// dropped intentionally (callers do not match nats.Connect's internal
+		// errors), which is the price of guaranteeing no credential leak.
+		return nil, fmt.Errorf("connect to NATS at %s: %s", redactNATSURL(url), scrubURLCredentials(err.Error(), url))
 	}
 
 	if b.healthCoordinator != nil {
@@ -269,4 +271,17 @@ func redactNATSURL(raw string) string {
 		parts[i] = u.String()
 	}
 	return strings.Join(parts, ",")
+}
+
+// scrubURLCredentials removes inline userinfo from every occurrence of a raw host
+// (taken from the comma-separated url) in msg, replacing it with the redacted
+// form. It is used to sanitize error strings that may echo a connection URL
+// carrying credentials.
+func scrubURLCredentials(msg, url string) string {
+	for raw := range strings.SplitSeq(url, ",") {
+		if raw = strings.TrimSpace(raw); raw != "" {
+			msg = strings.ReplaceAll(msg, raw, redactNATSURL(raw))
+		}
+	}
+	return msg
 }
