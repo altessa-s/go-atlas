@@ -83,7 +83,7 @@ func TestResourceEnforce(t *testing.T) {
 		},
 		{
 			name:      "unregistered key denied even when authorizer would allow",
-			authorize: scope.ResourceAllOf[*resPrincipal, *resDoc](), // identity: always grants
+			authorize: func(*resPrincipal, *resDoc, scope.Scope) bool { return true }, // would grant
 			principal: owner,
 			resource:  doc,
 			key:       "/docs.v1.Docs/Unknown",
@@ -132,8 +132,9 @@ func TestResourceCombinatorIdentities(t *testing.T) {
 	p := &resPrincipal{}
 	d := &resDoc{}
 
-	// AllOf with no authorizers is the AND identity (grants); AnyOf is the OR
-	// identity (denies) — mirroring the action-level combinators.
-	require.True(t, scope.ResourceAllOf[*resPrincipal, *resDoc]()(p, d, "x"))
+	// Both empty combinators are fail-closed (deny): AllOf denies for lack of a
+	// satisfied authorizer, AnyOf denies for lack of any — mirroring the
+	// action-level combinators.
+	require.False(t, scope.ResourceAllOf[*resPrincipal, *resDoc]()(p, d, "x"))
 	require.False(t, scope.ResourceAnyOf[*resPrincipal, *resDoc]()(p, d, "x"))
 }

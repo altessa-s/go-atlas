@@ -47,9 +47,9 @@ func ResourceAnyOf[P, R any](authorizers ...ResourceAuthorizer[P, R]) ResourceAu
 
 // ResourceAllOf composes resource authorizers with logical AND: the result grants
 // access only when every one of them does (short-circuiting on the first denial).
-// With no authorizers it always grants — the identity for AND. Use it to layer
-// the ownership check on top of the lifted scope check, e.g. "has the scope AND
-// owns the resource".
+// With no authorizers it denies — fail-closed, so a mis-wired empty ResourceAllOf
+// can never silently grant every action. Use it to layer the ownership check on
+// top of the lifted scope check, e.g. "has the scope AND owns the resource".
 func ResourceAllOf[P, R any](authorizers ...ResourceAuthorizer[P, R]) ResourceAuthorizer[P, R] {
 	return func(p P, r R, required Scope) bool {
 		for _, a := range authorizers {
@@ -57,7 +57,7 @@ func ResourceAllOf[P, R any](authorizers ...ResourceAuthorizer[P, R]) ResourceAu
 				return false
 			}
 		}
-		return true
+		return len(authorizers) > 0
 	}
 }
 
