@@ -246,7 +246,7 @@ func (ri *requestInterceptor) PostCall(ctx context.Context, resp any, err error)
 
 	if resp != nil && ri.opts.logResponse {
 		if p, ok := resp.(proto.Message); ok {
-			fields = append(fields, slogx.Field{Key: observability.FieldKeyResponseContent, Value: p.ProtoReflect().Interface()})
+			fields = append(fields, slogx.Field{Key: observability.FieldKeyResponseContent, Value: ri.redactPayload(p)})
 		}
 	}
 
@@ -263,9 +263,20 @@ func (ri *requestInterceptor) PreCall(ctx context.Context, req any) (any, error)
 	if !ri.meta.IsClient {
 		p, ok := req.(proto.Message)
 		if ok {
-			slogx.AppendField(ctx, observability.FieldKeyRequestContent, p.ProtoReflect().Interface())
+			slogx.AppendField(ctx, observability.FieldKeyRequestContent, ri.redactPayload(p))
 		}
 	}
 
 	return nil, nil //nolint:nilnil
+}
+
+// redactPayload returns the value to log for a request or response proto,
+// applying the configured payload redactor when set. Without a redactor the raw
+// proto is logged, so callers enabling payload logging in production should set
+// WithPayloadRedactor to keep sensitive fields out of the logs.
+func (ri *requestInterceptor) redactPayload(p proto.Message) any {
+	if ri.opts.payloadRedactor != nil {
+		return ri.opts.payloadRedactor(p)
+	}
+	return p.ProtoReflect().Interface()
 }

@@ -10,12 +10,19 @@ import (
 	"log/slog"
 	"regexp"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/altessa-s/go-atlas/core/time/timeformat"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/defaults"
 )
 
 // Use defaults package for optgen code generation
 var _ = defaults.IgnorePatterns
+
+// PayloadRedactor transforms a request or response proto into a loggable value
+// with sensitive fields removed. Return a redacted copy or a summary string;
+// never the original credential-bearing fields.
+type PayloadRedactor func(proto.Message) any
 
 // options configures the logger interceptor.
 type options struct {
@@ -38,4 +45,9 @@ type options struct {
 	// Handlers can retrieve it via slogx.FromContextOrDefault(ctx).
 	// If nil, context injection is disabled (default behavior).
 	contextLogger *slog.Logger `optgen:"default=nil"`
+	// payloadRedactor, when set, transforms a request or response proto into a
+	// loggable value with sensitive fields removed before it is logged. When nil
+	// the raw proto is logged. It only applies when logRequest/logResponse is on,
+	// and is the only way to keep INPUT_ONLY/credential fields out of payload logs.
+	payloadRedactor PayloadRedactor `optgen:"default=nil"`
 }
