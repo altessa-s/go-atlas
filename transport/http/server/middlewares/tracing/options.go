@@ -75,7 +75,9 @@ func requestAttributes(r *http.Request) []tracing.Attribute {
 
 	return []tracing.Attribute{
 		tracing.String(HTTPMethodKey, r.Method),
-		tracing.String(HTTPURLKey, r.URL.String()),
+		// Deliberately omit the query string: it can carry tokens, API keys, or
+		// OAuth codes that would otherwise be exported verbatim to the tracing backend.
+		tracing.String(HTTPURLKey, scheme+"://"+r.Host+r.URL.Path),
 		tracing.String(HTTPTargetKey, r.URL.Path),
 		tracing.String(HTTPHostKey, r.Host),
 		tracing.String(HTTPSchemeKey, scheme),
