@@ -46,8 +46,10 @@ func AnyOf[P any](authorizers ...Authorizer[P]) Authorizer[P] {
 
 // AllOf composes authorizers with logical AND: the result grants access only
 // when every one of them does (short-circuiting on the first denial). With no
-// authorizers it always grants — the identity for AND. Use it to layer an extra
-// gate on top of the scope check, e.g. "has the scope AND the tenant is active".
+// authorizers it denies — fail-closed, so a mis-wired empty AllOf (e.g.
+// NewEnforcer(reg, scope.AllOf())) can never silently grant every action. Use it
+// to layer an extra gate on top of the scope check, e.g. "has the scope AND the
+// tenant is active".
 func AllOf[P any](authorizers ...Authorizer[P]) Authorizer[P] {
 	return func(p P, required Scope) bool {
 		for _, a := range authorizers {
@@ -55,7 +57,7 @@ func AllOf[P any](authorizers ...Authorizer[P]) Authorizer[P] {
 				return false
 			}
 		}
-		return true
+		return len(authorizers) > 0
 	}
 }
 

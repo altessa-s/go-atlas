@@ -26,7 +26,7 @@ func TestAllOf(t *testing.T) {
 	t.Parallel()
 	require.True(t, scope.AllOf(yesAuthorizer, yesAuthorizer)(&principal{}, "x"))
 	require.False(t, scope.AllOf(yesAuthorizer, noAuthorizer)(&principal{}, "x"))
-	require.True(t, scope.AllOf[*principal]()(&principal{}, "x"), "empty AllOf grants")
+	require.False(t, scope.AllOf[*principal]()(&principal{}, "x"), "empty AllOf denies (fail-closed)")
 }
 
 func TestAnyOfSuperuserComposition(t *testing.T) {
