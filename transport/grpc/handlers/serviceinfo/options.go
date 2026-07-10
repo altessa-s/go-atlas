@@ -28,7 +28,7 @@ type LeaderProvider interface {
 
 // LeaderFunc is the function shape accepted by [WithLeader] for callers
 // that don't have a [LeaderProvider]-shaped object. It is invoked once
-// per Get request — keep it cheap. Returning a non-nil error from the
+// per snapshot — keep it cheap. Returning a non-nil error from the
 // internal LeaderId call is impossible via this adapter, so the error
 // path is never exercised; the handler treats an empty leaderID as
 // "leader unknown" and falls back to the configured serviceID.
@@ -48,8 +48,8 @@ func WithLeader(fn LeaderFunc) Option {
 }
 
 // leaderFnAdapter satisfies [LeaderProvider] by invoking the wrapped
-// function on every call. Note that handler.Get calls IsLeader and then
-// LeaderId, which means fn is invoked twice per request. The default
+// function on every call. Note that [Handler.Snapshot] calls IsLeader and
+// then LeaderId, which means fn is invoked twice per request. The default
 // LeaderProvider call site is not on a hot path, so this is acceptable.
 type leaderFnAdapter struct {
 	fn LeaderFunc

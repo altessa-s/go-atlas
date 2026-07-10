@@ -21,9 +21,12 @@ request to keep callers isolated from each other.
 
 ## RPCs
 
-| Method | Type  | Description                                                  |
-|--------|-------|--------------------------------------------------------------|
-| `Get`  | Unary | Returns service metadata; static fields cached, dynamic fields recomputed per call |
+| Method           | Type  | Description                                                  |
+|------------------|-------|--------------------------------------------------------------|
+| `GetServiceInfo` | Unary | Returns service metadata; static fields cached, dynamic fields recomputed per call |
+
+`Handler.Snapshot(ctx)` returns the `*serviceinfov1.ServiceInfo` message
+directly, for in-process callers that do not go through gRPC.
 
 ## Options
 

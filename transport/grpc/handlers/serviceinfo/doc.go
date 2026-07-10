@@ -8,8 +8,8 @@
 // [Handler] returns runtime metadata for a service instance: name,
 // description, identifiers, semantic version, build details, leader
 // status, uptime, and arbitrary metadata. The static portion is built
-// once in [New] from [appinfo] and protobuf-cloned on every Get to keep
-// callers isolated from each other.
+// once in [New] from [appinfo] and protobuf-cloned on every request to
+// keep callers isolated from each other.
 //
 // # Usage
 //

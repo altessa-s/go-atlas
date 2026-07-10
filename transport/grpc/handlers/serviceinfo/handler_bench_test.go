@@ -10,23 +10,23 @@ import (
 
 	"github.com/altessa-s/go-atlas/transport/grpc/handlers/serviceinfo"
 
-	"google.golang.org/protobuf/types/known/emptypb"
+	serviceinfov1 "github.com/altessa-s/proto-gen-go/io/altessa/serviceinfo/v1"
 )
 
-func BenchmarkHandler_Get(b *testing.B) {
+func BenchmarkHandler_GetServiceInfo(b *testing.B) {
 	h := serviceinfo.New(serviceinfo.WithServiceID("node-a"))
 	ctx := context.Background()
-	req := &emptypb.Empty{}
+	req := &serviceinfov1.GetServiceInfoRequest{}
 
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := h.Get(ctx, req); err != nil {
+		if _, err := h.GetServiceInfo(ctx, req); err != nil {
 			b.Fatal(err)
 		}
 	}
 }
 
-func BenchmarkHandler_GetWithLeader(b *testing.B) {
+func BenchmarkHandler_GetServiceInfoWithLeader(b *testing.B) {
 	h := serviceinfo.New(
 		serviceinfo.WithServiceID("node-a"),
 		serviceinfo.WithLeader(func(_ context.Context) (bool, string) {
@@ -34,11 +34,11 @@ func BenchmarkHandler_GetWithLeader(b *testing.B) {
 		}),
 	)
 	ctx := context.Background()
-	req := &emptypb.Empty{}
+	req := &serviceinfov1.GetServiceInfoRequest{}
 
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := h.Get(ctx, req); err != nil {
+		if _, err := h.GetServiceInfo(ctx, req); err != nil {
 			b.Fatal(err)
 		}
 	}
