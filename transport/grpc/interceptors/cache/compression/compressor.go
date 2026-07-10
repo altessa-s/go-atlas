@@ -192,28 +192,6 @@ var (
 	}
 
 	// Note: bytesBufferPool now delegates to sized pools for backward compatibility
-
-	// sliceBufferPools for zero-copy operations with different sizes
-	sliceBufferPools = [3]*sync.Pool{
-		// Small slice pool (up to 8KB)
-		{
-			New: func() any {
-				return make([]byte, 0, SmallBufferSize)
-			},
-		},
-		// Medium slice pool (up to 64KB)
-		{
-			New: func() any {
-				return make([]byte, 0, MediumBufferSize)
-			},
-		},
-		// Large slice pool (up to 256KB)
-		{
-			New: func() any {
-				return make([]byte, 0, LargeBufferSize)
-			},
-		},
-	}
 )
 
 // NewCompressor creates a new GzipCompressor with the specified configuration.
