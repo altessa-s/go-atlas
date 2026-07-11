@@ -25,6 +25,13 @@ func WithCollector(v metrics.Collector) Option {
 	}
 }
 
+// WithKeyNamespace sets the keyNamespace option.
+func WithKeyNamespace(v KeyNamespaceFunc) Option {
+	return func(o *options) {
+		o.keyNamespace = v
+	}
+}
+
 // WithMaxConcurrentFallbacks sets the maxConcurrentFallbacks option.
 func WithMaxConcurrentFallbacks(v int) Option {
 	return func(o *options) {
@@ -85,6 +92,7 @@ func WithTtl(v time.Duration) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
+		keyNamespace:           nil,
 		maxConcurrentFallbacks: DefaultMaxConcurrentFallbacks,
 		serializer:             &serializer.JSON{},
 		ttl:                    DefaultTTL,

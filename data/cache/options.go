@@ -7,11 +7,20 @@ package cache
 //go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate
 
 import (
+	"context"
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/encoding/serializer"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
+
+// KeyNamespaceFunc derives a namespace prefix from the request context so cache
+// entries and in-flight singleflight de-duplication are isolated per
+// tenant/subject. It is the recommended way to prevent cross-tenant fan-in when
+// callers might otherwise build the same bare key for different principals.
+// Returning "" disables prefixing for that call, which is the backward-compatible
+// default (no namespace configured).
+type KeyNamespaceFunc func(context.Context) string
 
 // DefaultTTL is the default time-to-live for cache items (1 hour).
 const DefaultTTL = 1 * time.Hour
@@ -37,4 +46,7 @@ type options struct {
 	serializer             serializer.Serializer
 	collector              metrics.Collector `optgen:"notnil"`
 	name                   string
+	// keyNamespace, when set, isolates cache entries and singleflight de-dup by a
+	// per-context namespace (typically tenant/subject). Nil = no prefixing.
+	keyNamespace KeyNamespaceFunc `optgen:"default=nil"`
 }
