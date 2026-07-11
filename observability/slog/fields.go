@@ -119,21 +119,16 @@ func FieldsFromContext(ctx context.Context) Fields {
 	return n
 }
 
-// fieldsWrapperPool reduces allocations for fieldsWrapper.
-var fieldsWrapperPool = sync.Pool{
-	New: func() any {
-		return &fieldsWrapper{
-			fields: make(Fields, 0, 20), // Pre-allocate typical capacity
-		}
-	},
-}
-
 // InjectFields stores fields in the context for later retrieval via [FieldsFromContext].
 // Subsequent calls to [AppendField] and [AppendFields] mutate the stored fields.
+//
+// The wrapper is allocated fresh per context and deliberately not pooled: it is
+// request-scoped and lives as long as the context, so returning it to a sync.Pool
+// while the context still references it would let a later request observe or
+// overwrite another request's fields (a cross-request data leak). The previous
+// pool was also never returned, so it provided no reuse regardless.
 func InjectFields(ctx context.Context, f Fields) context.Context {
-	fw := fieldsWrapperPool.Get().(*fieldsWrapper) //nolint:errcheck
-	fw.fields = fw.fields[:0]                      // Reset slice but keep capacity
-	fw.fields = append(fw.fields, f...)
+	fw := &fieldsWrapper{fields: append(make(Fields, 0, len(f)), f...)}
 	return context.WithValue(ctx, fieldsContextKey{}, fw)
 }
 
