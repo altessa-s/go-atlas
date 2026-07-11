@@ -165,22 +165,22 @@ func TestCompileTimeTypeError_Unwrap_NonError(t *testing.T) {
 func TestObjectPools_StringSlice(t *testing.T) {
 	p := converter.NewObjectPools()
 	s := p.GetStringSlice(5)
-	require.GreaterOrEqual(t, cap(s), 5)
-	s = append(s, "a", "b")
+	require.GreaterOrEqual(t, cap(*s), 5)
+	*s = append(*s, "a", "b")
 	p.PutStringSlice(s)
 }
 
 func TestObjectPools_BoolSlice_PutGet(t *testing.T) {
 	p := converter.NewObjectPools()
 	s := p.GetBoolSlice(3)
-	require.Len(t, s, 3)
+	require.Len(t, *s, 3)
 	p.PutBoolSlice(s)
 }
 
 func TestObjectPools_ValueSlice_PutGet(t *testing.T) {
 	p := converter.NewObjectPools()
 	s := p.GetValueSlice(4)
-	require.Len(t, s, 4)
+	require.Len(t, *s, 4)
 	p.PutValueSlice(s)
 }
 
