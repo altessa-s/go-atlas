@@ -206,6 +206,13 @@ type FieldAccess struct {
 	Values   []reflect.Value
 	Exists   []bool
 	MaxIndex int
+
+	// valuesPtr / existsPtr are the pooled slice pointers backing Values / Exists.
+	// Release returns these exact pointers to the pool, preserving pool identity so
+	// a backing array is never handed to two callers at once. Do not read them for
+	// field access — use Values / Exists.
+	valuesPtr *[]reflect.Value
+	existsPtr *[]bool
 }
 
 // NewFieldAccess creates array-based field access for faster lookups.
@@ -221,9 +228,11 @@ func NewFieldAccess(v reflect.Value, info *TypeInfo) *FieldAccess {
 	fieldExists := getPooledBoolSlice(info.NumFields)
 
 	access := &FieldAccess{
-		Values:   fieldValues,
-		Exists:   fieldExists,
-		MaxIndex: info.NumFields - 1,
+		Values:    *fieldValues,
+		Exists:    *fieldExists,
+		MaxIndex:  info.NumFields - 1,
+		valuesPtr: fieldValues,
+		existsPtr: fieldExists,
 	}
 
 	// Populate array with field values
@@ -238,10 +247,12 @@ func NewFieldAccess(v reflect.Value, info *TypeInfo) *FieldAccess {
 // Release returns the pooled slices back to the global pool for reuse.
 // Must be called when the FieldAccess is no longer needed (typically via defer).
 func (access *FieldAccess) Release() {
-	putPooledValueSlice(access.Values)
-	putPooledBoolSlice(access.Exists)
+	putPooledValueSlice(access.valuesPtr)
+	putPooledBoolSlice(access.existsPtr)
 	access.Values = nil
 	access.Exists = nil
+	access.valuesPtr = nil
+	access.existsPtr = nil
 }
 
 // GetField performs O(1) field lookup using array indexing.

@@ -44,82 +44,72 @@ func NewObjectPools() *ObjectPools {
 	}
 }
 
-// GetStringSlice gets a string slice from the pool with minimum capacity
-func (p *ObjectPools) GetStringSlice(minCap int) []string {
+// GetStringSlice gets a string slice from the pool with the given minimum
+// capacity. It returns the pooled *[]string so [ObjectPools.PutStringSlice]
+// receives the exact same pointer, preserving pool identity: a value-based API
+// would let the same backing array be returned to the pool twice and then handed
+// to two callers at once (a cross-caller aliasing hazard).
+func (p *ObjectPools) GetStringSlice(minCap int) *[]string {
 	if minCap <= 0 {
 		minCap = DefaultPoolCapacity
 	}
-	slicePtr := p.stringSlices.GetWithCapacity(minCap)
-	return *slicePtr
+	return p.stringSlices.GetWithCapacity(minCap)
 }
 
-// PutStringSlice returns a string slice to the pool
-func (p *ObjectPools) PutStringSlice(slice []string) {
+// PutStringSlice returns a string slice to the pool. slice must be the pointer
+// obtained from [ObjectPools.GetStringSlice]; after the call it must not be used.
+func (p *ObjectPools) PutStringSlice(slice *[]string) {
 	if slice != nil {
-		slice = slice[:0] // Reset length
-		p.stringSlices.Put(&slice)
+		p.stringSlices.Put(slice)
 	}
 }
 
-// GetBoolSlice gets a bool slice from the pool with minimum length
-func (p *ObjectPools) GetBoolSlice(length int) []bool {
-	if length <= 0 {
-		return []bool{}
-	}
-
+// GetBoolSlice gets a bool slice of the given length (cleared) from the pool.
+// It returns the pooled pointer; see [ObjectPools.GetStringSlice] for why.
+func (p *ObjectPools) GetBoolSlice(length int) *[]bool {
 	slicePtr := p.boolSlices.GetWithCapacity(length)
-	slice := *slicePtr
-
-	// Ensure we have enough capacity
-	if cap(slice) < length {
-		slice = make([]bool, length)
-	} else {
-		slice = slice[:length]
-		// Clear the slice values
-		for i := range slice {
-			slice[i] = false
-		}
-	}
-
-	return slice
-}
-
-// PutBoolSlice returns a bool slice to the pool
-func (p *ObjectPools) PutBoolSlice(slice []bool) {
-	if slice != nil {
-		slice = slice[:0] // Reset length
-		p.boolSlices.Put(&slice)
-	}
-}
-
-// GetValueSlice gets a reflect.Value slice from the pool
-func (p *ObjectPools) GetValueSlice(length int) []reflect.Value {
 	if length <= 0 {
-		return []reflect.Value{}
+		return slicePtr
 	}
-
-	slicePtr := p.valueSlices.GetWithCapacity(length)
-	slice := *slicePtr
-
-	// Ensure we have enough capacity
-	if cap(slice) < length {
-		slice = make([]reflect.Value, length)
+	if cap(*slicePtr) < length {
+		*slicePtr = make([]bool, length)
 	} else {
-		slice = slice[:length]
-		// Clear the slice values
-		for i := range slice {
-			slice[i] = reflect.Value{}
-		}
+		*slicePtr = (*slicePtr)[:length]
+		clear(*slicePtr)
 	}
-
-	return slice
+	return slicePtr
 }
 
-// PutValueSlice returns a reflect.Value slice to the pool
-func (p *ObjectPools) PutValueSlice(slice []reflect.Value) {
+// PutBoolSlice returns a bool slice to the pool. slice must be the pointer
+// obtained from [ObjectPools.GetBoolSlice]; after the call it must not be used.
+func (p *ObjectPools) PutBoolSlice(slice *[]bool) {
 	if slice != nil {
-		slice = slice[:0] // Reset length
-		p.valueSlices.Put(&slice)
+		p.boolSlices.Put(slice)
+	}
+}
+
+// GetValueSlice gets a reflect.Value slice of the given length (cleared) from the
+// pool. It returns the pooled pointer; see [ObjectPools.GetStringSlice] for why.
+func (p *ObjectPools) GetValueSlice(length int) *[]reflect.Value {
+	slicePtr := p.valueSlices.GetWithCapacity(length)
+	if length <= 0 {
+		return slicePtr
+	}
+	if cap(*slicePtr) < length {
+		*slicePtr = make([]reflect.Value, length)
+	} else {
+		*slicePtr = (*slicePtr)[:length]
+		clear(*slicePtr)
+	}
+	return slicePtr
+}
+
+// PutValueSlice returns a reflect.Value slice to the pool. slice must be the
+// pointer obtained from [ObjectPools.GetValueSlice]; after the call it must not
+// be used.
+func (p *ObjectPools) PutValueSlice(slice *[]reflect.Value) {
+	if slice != nil {
+		p.valueSlices.Put(slice)
 	}
 }
 
@@ -129,21 +119,21 @@ var globalPools = NewObjectPools()
 // Package-level convenience functions that use the global pools
 
 // getPooledBoolSlice gets a bool slice from the global pool
-func getPooledBoolSlice(length int) []bool {
+func getPooledBoolSlice(length int) *[]bool {
 	return globalPools.GetBoolSlice(length)
 }
 
 // getPooledValueSlice gets a reflect.Value slice from the global pool
-func getPooledValueSlice(length int) []reflect.Value {
+func getPooledValueSlice(length int) *[]reflect.Value {
 	return globalPools.GetValueSlice(length)
 }
 
 // putPooledValueSlice returns a reflect.Value slice to the global pool
-func putPooledValueSlice(slice []reflect.Value) {
+func putPooledValueSlice(slice *[]reflect.Value) {
 	globalPools.PutValueSlice(slice)
 }
 
 // putPooledBoolSlice returns a bool slice to the global pool
-func putPooledBoolSlice(slice []bool) {
+func putPooledBoolSlice(slice *[]bool) {
 	globalPools.PutBoolSlice(slice)
 }
