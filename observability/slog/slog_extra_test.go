@@ -68,6 +68,22 @@ func TestFieldsFromContext_Empty(t *testing.T) {
 	require.Nil(t, fields)
 }
 
+// TestInjectFields_IsolatesContexts pins that each InjectFields allocates its own
+// wrapper: fields injected into (or appended to) one context never bleed into
+// another. This is the reason the wrapper is not pooled.
+func TestInjectFields_IsolatesContexts(t *testing.T) {
+	ctxA := slogx.InjectFields(t.Context(), slogx.Fields{{Key: "tenant", Value: "A"}})
+	ctxB := slogx.InjectFields(t.Context(), slogx.Fields{{Key: "tenant", Value: "B"}})
+
+	slogx.AppendField(ctxA, "secret", "for-A-only")
+
+	a := slogx.FieldsFromContext(ctxA)
+	b := slogx.FieldsFromContext(ctxB)
+
+	require.Equal(t, slogx.Fields{{Key: "tenant", Value: "A"}, {Key: "secret", Value: "for-A-only"}}, a)
+	require.Equal(t, slogx.Fields{{Key: "tenant", Value: "B"}}, b)
+}
+
 func TestInjectFields_AndRetrieve(t *testing.T) {
 	f := slogx.Fields{
 		{Key: "k1", Value: "v1"},
