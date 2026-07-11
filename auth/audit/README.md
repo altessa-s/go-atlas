@@ -32,6 +32,22 @@ of its own.
 | `Recorder.Record(ctx, d)`      | Submit a decision under the configured policies; returns non-nil only under `FailureRequired`.   |
 | `WithPolicyMode(m)`            | Select `PolicyDenyOnly` / `PolicyAll`.                                                          |
 | `WithFailureMode(m)`           | Select `FailureBestEffort` / `FailureRequired`.                                                 |
+| `WithAttributeSanitizer(s)`    | Scrub `Decision.Attributes` values before the sink (opt-in; see below).                          |
+
+## Attribute sanitization
+
+`Decision.Attributes` is a free-form `map[string]string`. It is convenient for context (tenant, trace id, transport) but a caller can accidentally
+place a secret in it (an `Authorization` value, a token, a cookie), which then reaches the sink and any downstream log. Sanitization is **opt-in**:
+audit is a record of truth, so nothing is altered by default. Pass `WithAttributeSanitizer` to scrub values before they are recorded — the caller's
+map is never mutated (a sanitized copy is sent to the sink):
+
+```go
+rec := audit.NewRecorder(sink, audit.WithAttributeSanitizer(audit.RedactSensitiveAttributes))
+```
+
+`RedactSensitiveAttributes` replaces the value of any attribute whose key contains a `DefaultSensitiveAttributeKeys` substring
+(`password`, `token`, `authorization`, `cookie`, `secret`, …, case-insensitive) with `RedactedAttributePlaceholder`. Keys are never changed. For
+other policies (hashing, dropping, domain-specific keys) supply your own `AttributeSanitizer func(key, value string) string`.
 
 ## Policies
 
