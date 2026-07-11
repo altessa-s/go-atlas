@@ -57,6 +57,24 @@ m, _ := mongo.New("app", mongo.WithDeduplicationIdentity(func(ctx context.Contex
 
 Returning `""` (or leaving the option unset) keeps the key identical to the un-prefixed form, so single-tenant callers are unaffected.
 
+## Stateful cursor isolation
+
+In stateful mode (`WithListCursorStorage`), `ListCursor` returns an opaque ULID token and keeps the pagination metadata server-side. The token is a
+bearer credential: any caller presenting it — with the same filter — continues that pagination. If a token leaks or is guessed, another principal can
+page through the original principal's result set.
+
+**Contract:** in multi-tenant deployments, bind the cursor to the principal with `WithListCursorSubject`. The subject is recorded when the "next"
+token is minted and re-checked on every continuation; a mismatch returns `ErrCursorSubjectMismatch`:
+
+```go
+res, err := mongo.ListCursor[User](ctx, coll,
+    mongo.WithListCursorStorage(store),
+    mongo.WithListCursorSubject(principal.FromContext(ctx).Tenant()), // "" leaves the cursor unbound
+)
+```
+
+Binding is opt-in: a cursor minted without a subject stays replayable by any caller, so existing callers are unaffected.
+
 ## Subpackages
 
 | Package                                              | Description                   |

@@ -56,6 +56,14 @@ type CursorMetadata struct {
 	// Used to build the $gt/$lt filter for the next page.
 	// Omitted if sorting by CursorIdField to save space.
 	SortValue string `json:"sort_value,omitempty"`
+
+	// Subject binds the cursor to the principal that created it (e.g. tenant or
+	// user id). When set, ValidateSubject rejects a continuation request whose
+	// subject differs, so a stateful cursor token leaked or guessed by another
+	// principal cannot be replayed to page through the original principal's data.
+	// Empty means unbound — the backward-compatible default when no subject is
+	// configured (see WithListCursorSubject).
+	Subject string `json:"subject,omitempty"`
 }
 
 // NewCursorMetadata creates cursor metadata from pagination parameters.
@@ -133,6 +141,28 @@ func (m *CursorMetadata) ValidateFilter(filter bson.M) error {
 	if m.FilterHash != currentHash {
 		return coreerrs.Wrapf(ErrCursorFilterMismatch, "expected hash %s, got %s",
 			m.FilterHash, currentHash)
+	}
+	return nil
+}
+
+// ValidateSubject checks that the continuation request comes from the same
+// principal that created the cursor. It is opt-in: when the stored Subject is
+// empty (no subject was bound at creation), any caller is allowed, preserving
+// backward compatibility. When the stored Subject is non-empty, a differing
+// subject returns [ErrCursorSubjectMismatch] so a leaked or guessed cursor
+// token cannot be replayed by another principal.
+//
+// Parameters:
+//   - subject: Identity of the requesting principal (typically tenant/user id)
+//
+// Returns:
+//   - error: ErrCursorSubjectMismatch if the cursor is bound to a different subject
+func (m *CursorMetadata) ValidateSubject(subject string) error {
+	if m.Subject == "" {
+		return nil
+	}
+	if m.Subject != subject {
+		return coreerrs.Wrap(ErrCursorSubjectMismatch, "stateful cursor bound to a different principal")
 	}
 	return nil
 }

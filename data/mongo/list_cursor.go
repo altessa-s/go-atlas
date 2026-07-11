@@ -63,6 +63,7 @@ type listCursorOptions struct {
 	collation        *options.Collation // Collation for string comparison rules
 	stages           bson.A             // Custom pipeline stages inserted after $sort, before $facet
 	decorationStages bson.A             // Custom pipeline stages inserted inside $facet → items, after $limit
+	subject          string             // Principal bound to stateful cursors (empty = unbound)
 }
 
 // defaultListCursorOptions returns default configuration for cursor-based pagination.
@@ -294,6 +295,26 @@ func WithListCursorStorage(storage CursorStorage) ListCursorOption {
 	}
 }
 
+// WithListCursorSubject binds stateful cursors to the requesting principal
+// (typically a tenant or user id extracted from the request context). When set,
+// the metadata stored for a "next" token records the subject, and a continuation
+// request whose subject differs is rejected with [ErrCursorSubjectMismatch] —
+// so a stateful cursor token leaked or guessed by another principal cannot be
+// replayed to page through the original principal's data.
+//
+// Only meaningful together with WithListCursorStorage (stateful mode). An empty
+// subject leaves cursors unbound, which is the backward-compatible default.
+//
+//	res, err := mongo.ListCursor[User](ctx, coll,
+//		mongo.WithListCursorStorage(store),
+//		mongo.WithListCursorSubject(principal.FromContext(ctx).Tenant()),
+//	)
+func WithListCursorSubject(subject string) ListCursorOption {
+	return func(options *listCursorOptions) {
+		options.subject = subject
+	}
+}
+
 // WithListCursorStages adds custom aggregation pipeline stages that are inserted after $sort
 // and before the items branch. These stages operate on the entire filtered and sorted result
 // set fed into the items branch.
@@ -453,7 +474,7 @@ func ListCursor[T any](ctx context.Context, collection *mongo.Collection, o ...L
 
 	// Parse cursor token if provided (handles both ULID and stateless formats)
 	if opts.cursorToken != "" {
-		cursor, err := parseCursorToken(ctx, opts.cursorToken, opts.storage, opts.filter)
+		cursor, err := parseCursorToken(ctx, opts.cursorToken, opts.storage, opts.filter, opts.subject)
 		if err != nil {
 			return nil, err
 		}
@@ -561,7 +582,7 @@ func ListCursor[T any](ctx context.Context, collection *mongo.Collection, o ...L
 		}
 
 		// Generate next cursor token (ULID if storage configured, base64 JSON otherwise)
-		nextCursorToken, err := generateNextCursorToken(ctx, cursorId, opts.sort, opts.cursorIdField, opts.filter, opts.storage, sortValue)
+		nextCursorToken, err := generateNextCursorToken(ctx, cursorId, opts.sort, opts.cursorIdField, opts.filter, opts.storage, sortValue, opts.subject)
 		if err != nil {
 			return nil, coreerrs.WrapOperation(err, "generate next cursor")
 		}
