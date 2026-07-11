@@ -7,6 +7,7 @@ package cors
 import (
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -150,4 +151,40 @@ func TestNew_AllowAllOrigins_NoPanic(t *testing.T) {
 func TestNew_AllowCredentials_NoPanic(t *testing.T) {
 	m := New(WithAllowedOrigins("https://example.com"), WithAllowCredentials())
 	require.NotNil(t, m)
+}
+
+// TestNew_BroadOriginPatternWithCredentials_Panics pins the fix: a regex that
+// matches arbitrary origins is as dangerous as AllowAllOrigins when combined with
+// credentials, and must be rejected the same way.
+func TestNew_BroadOriginPatternWithCredentials_Panics(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		pattern string
+	}{
+		{"match everything", `.*`},
+		{"any scheme+host", `^https?://.*$`},
+		{"empty pattern", ``},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			defer func() {
+				r := recover()
+				require.NotNil(t, r, "expected panic for broad pattern %q", tc.pattern)
+				msg, ok := r.(string)
+				require.True(t, ok && strings.Contains(msg, "insecure configuration"), "unexpected panic: %v", r)
+			}()
+			New(WithAllowedOriginPatterns(regexp.MustCompile(tc.pattern)), WithAllowCredentials())
+		})
+	}
+}
+
+// TestNew_NarrowOriginPatternWithCredentials_NoPanic verifies a domain-anchored
+// pattern + credentials is allowed and still matches its own origins.
+func TestNew_NarrowOriginPatternWithCredentials_NoPanic(t *testing.T) {
+	m := New(
+		WithAllowedOriginPatterns(regexp.MustCompile(`^https://[a-z0-9-]+\.example\.com$`)),
+		WithAllowCredentials(),
+	)
+	require.NotNil(t, m)
+	require.True(t, m.isOriginAllowed("https://app.example.com"))
+	require.False(t, m.isOriginAllowed("https://evil.invalid"))
 }

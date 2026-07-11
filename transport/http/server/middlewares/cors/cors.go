@@ -6,6 +6,8 @@ package cors
 
 import (
 	"net/http"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -75,6 +77,18 @@ func New(opt ...Option) *middleware {
 	if opts.allowAllOrigins && opts.allowCredentials {
 		panic("cors: insecure configuration: AllowAllOrigins and AllowCredentials cannot both be enabled " +
 			"— this allows any website to make credentialed requests on behalf of your users")
+	}
+
+	// A regex that matches arbitrary foreign origins is equivalent to AllowAllOrigins:
+	// combined with credentials it lets any site issue credentialed requests and read
+	// the response (the handler echoes the request Origin, not a wildcard). Reject the
+	// combination the same way. Narrow, app-specific patterns are unaffected.
+	if opts.allowCredentials {
+		if p := firstBroadOriginPattern(opts.allowedOriginPatterns); p != nil {
+			panic("cors: insecure configuration: AllowCredentials with an origin pattern that matches arbitrary origins (`" +
+				p.String() + "`) — this allows any website to make credentialed requests on behalf of your users; " +
+				"anchor the pattern to your own domains")
+		}
 	}
 
 	m := &middleware{
@@ -179,6 +193,31 @@ func (m *middleware) precompute() {
 	if m.opts.maxAge > 0 {
 		m.maxAgeStr = strconv.Itoa(m.opts.maxAge)
 	}
+}
+
+// broadOriginCanaries are origins that no domain-anchored pattern should match.
+// A pattern matching any of them is effectively allow-all (e.g. `.*`, `^https?://`)
+// and is unsafe to combine with credentials.
+var broadOriginCanaries = []string{
+	"https://cors-wildcard-canary.invalid",
+	"http://cors-wildcard-canary.invalid",
+	"null",
+}
+
+// firstBroadOriginPattern returns the first pattern that matches a canary foreign
+// origin, or nil when every pattern is suitably narrow. Returning the regexp (not
+// its string) avoids conflating "not found" with an empty-string pattern, which
+// itself matches everything.
+func firstBroadOriginPattern(patterns []*regexp.Regexp) *regexp.Regexp {
+	for _, pattern := range patterns {
+		if pattern == nil {
+			continue
+		}
+		if slices.ContainsFunc(broadOriginCanaries, pattern.MatchString) {
+			return pattern
+		}
+	}
+	return nil
 }
 
 // isOriginAllowed checks if the given origin is allowed.

@@ -24,3 +24,14 @@ Allow-Headers, Allow-Credentials, Expose-Headers, and Max-Age. Supports prefligh
 | `WithOptionsSuccessStatus`| 204             | HTTP status code for successful OPTIONS responses                  |
 | `WithLogger`              | nil             | Structured logger for CORS events                                  |
 | `WithIgnorePaths`         | --              | Paths to exclude from CORS processing                              |
+
+## Credentials safety
+
+`New` panics on constructor when `WithAllowCredentials` is combined with a wildcard origin policy, because the handler echoes the request `Origin`
+(never a `*` wildcard) — so an over-broad policy plus credentials lets any site issue credentialed cross-origin requests and read the response. Two
+combinations are rejected:
+
+- `WithAllowAllOrigins` + `WithAllowCredentials`.
+- `WithAllowCredentials` + a `WithAllowedOriginPatterns` regex that matches arbitrary origins (e.g. `.*`, `^https?://.*$`, or an empty pattern).
+
+Domain-anchored patterns such as `^https://[a-z0-9-]+\.example\.com$` are unaffected. Anchor your patterns to your own domains.
