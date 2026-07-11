@@ -45,6 +45,27 @@ func WithContentTypeNoSniff() Option {
 	}
 }
 
+// WithCrossOriginEmbedderPolicy sets the crossOriginEmbedderPolicy option.
+func WithCrossOriginEmbedderPolicy(v CrossOriginEmbedderPolicy) Option {
+	return func(o *options) {
+		o.crossOriginEmbedderPolicy = v
+	}
+}
+
+// WithCrossOriginOpenerPolicy sets the crossOriginOpenerPolicy option.
+func WithCrossOriginOpenerPolicy(v CrossOriginOpenerPolicy) Option {
+	return func(o *options) {
+		o.crossOriginOpenerPolicy = v
+	}
+}
+
+// WithCrossOriginResourcePolicy sets the crossOriginResourcePolicy option.
+func WithCrossOriginResourcePolicy(v CrossOriginResourcePolicy) Option {
+	return func(o *options) {
+		o.crossOriginResourcePolicy = v
+	}
+}
+
 // WithFrameOptions sets the frameOptions option.
 func WithFrameOptions(v FrameOptions) Option {
 	return func(o *options) {

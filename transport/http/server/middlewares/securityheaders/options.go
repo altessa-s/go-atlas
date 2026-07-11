@@ -57,6 +57,52 @@ const (
 	ReferrerPolicyUnsafeURL ReferrerPolicy = "unsafe-url"
 )
 
+// CrossOriginOpenerPolicy represents the Cross-Origin-Opener-Policy header value.
+// COOP isolates the browsing context group; it can break OAuth popups and other
+// cross-window integrations, so it is off by default and opt-in only.
+type CrossOriginOpenerPolicy string
+
+const (
+	// COOPSameOrigin isolates the document to same-origin documents.
+	COOPSameOrigin CrossOriginOpenerPolicy = "same-origin"
+	// COOPSameOriginAllowPopups keeps isolation but preserves references to popups
+	// it opens — the safer choice when the app opens OAuth/consent popups.
+	COOPSameOriginAllowPopups CrossOriginOpenerPolicy = "same-origin-allow-popups"
+	// COOPUnsafeNone disables isolation (the browser default).
+	COOPUnsafeNone CrossOriginOpenerPolicy = "unsafe-none"
+)
+
+// CrossOriginEmbedderPolicy represents the Cross-Origin-Embedder-Policy header
+// value. COEP=require-corp is the most disruptive security header — it blocks any
+// cross-origin subresource lacking CORP/CORS — so it is off by default and must
+// be enabled explicitly, never via a preset.
+type CrossOriginEmbedderPolicy string
+
+const (
+	// COEPRequireCorp requires every cross-origin subresource to opt in via CORP
+	// or CORS. Enables cross-origin isolation but commonly breaks third-party
+	// resources; enable only after auditing every embedded resource.
+	COEPRequireCorp CrossOriginEmbedderPolicy = "require-corp"
+	// COEPCredentialless loads cross-origin subresources without credentials
+	// instead of blocking them — a softer alternative to require-corp.
+	COEPCredentialless CrossOriginEmbedderPolicy = "credentialless"
+	// COEPUnsafeNone disables embedder policy (the browser default).
+	COEPUnsafeNone CrossOriginEmbedderPolicy = "unsafe-none"
+)
+
+// CrossOriginResourcePolicy represents the Cross-Origin-Resource-Policy header
+// value, which controls who may embed this response as a subresource.
+type CrossOriginResourcePolicy string
+
+const (
+	// CORPSameOrigin allows only same-origin documents to embed the resource.
+	CORPSameOrigin CrossOriginResourcePolicy = "same-origin"
+	// CORPSameSite allows same-site documents to embed the resource.
+	CORPSameSite CrossOriginResourcePolicy = "same-site"
+	// CORPCrossOrigin allows any origin to embed the resource.
+	CORPCrossOrigin CrossOriginResourcePolicy = "cross-origin"
+)
+
 // options configures the security headers middleware.
 type options struct {
 	logger         *slog.Logger
@@ -104,4 +150,18 @@ type options struct {
 	// Setting this to 0 is recommended as browser XSS filters can introduce vulnerabilities.
 	// Default: true (header is set to 0)
 	xssProtectionDisabled bool `optgen:"default=true"`
+
+	// crossOriginOpenerPolicy sets the Cross-Origin-Opener-Policy header.
+	// Empty string (default) means the header is not set. Opt-in: COOP can break
+	// cross-window integrations (OAuth popups, embedding).
+	crossOriginOpenerPolicy CrossOriginOpenerPolicy
+
+	// crossOriginEmbedderPolicy sets the Cross-Origin-Embedder-Policy header.
+	// Empty string (default) means the header is not set. Opt-in and disruptive:
+	// require-corp blocks cross-origin subresources without CORP/CORS.
+	crossOriginEmbedderPolicy CrossOriginEmbedderPolicy
+
+	// crossOriginResourcePolicy sets the Cross-Origin-Resource-Policy header.
+	// Empty string (default) means the header is not set.
+	crossOriginResourcePolicy CrossOriginResourcePolicy
 }
