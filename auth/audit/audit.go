@@ -96,6 +96,15 @@ func (r *Recorder) Record(ctx context.Context, d Decision) error {
 	if d.Allowed && r.opts.policyMode == PolicyDenyOnly {
 		return nil
 	}
+	// Scrub secret-bearing attributes when a sanitizer is configured. Build a
+	// copy so the caller's Attributes map is never mutated.
+	if r.opts.attributeSanitizer != nil && len(d.Attributes) > 0 {
+		sanitized := make(map[string]string, len(d.Attributes))
+		for k, v := range d.Attributes {
+			sanitized[k] = r.opts.attributeSanitizer(k, v)
+		}
+		d.Attributes = sanitized
+	}
 	if err := r.sink.Record(ctx, d); err != nil {
 		if r.opts.failureMode == FailureRequired {
 			return fmt.Errorf("%w: %w", ErrAuditFailed, err)
