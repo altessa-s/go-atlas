@@ -79,6 +79,14 @@ func (wr *Writer) Write(w http.ResponseWriter, r *http.Request, data any) error 
 		return ErrNilRequest
 	}
 
+	if !wr.options.responseSanitizationDisabled {
+		sanitized, err := sanitizeResponse(data)
+		if err != nil {
+			return wr.writeError(w, r, err, http.StatusInternalServerError)
+		}
+		data = sanitized
+	}
+
 	structuredResponse, statusCode := wr.options.responseBuilder.Build(r, data)
 
 	encoder, mimeType, err := wr.negotiateEncoder(r)

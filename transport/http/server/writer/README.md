@@ -19,3 +19,20 @@ data in a `Response` envelope. `ReadWriter` combines read and write operations i
 | `Coder`          | Interface for errors that provide a machine-readable error code                        |
 | `Messager`       | Interface for errors that provide a custom user-facing message                         |
 | `HTTPStatuser`   | Interface for errors that specify their HTTP status code                                |
+
+## Response sanitization
+
+When the response value is a `proto.Message`, `Write` and `WriteStream` strip fields annotated `google.api.field_behavior = INPUT_ONLY`
+before encoding, so write-path secrets (passwords, one-time tokens) never leak back to clients on the read path. This mirrors the gRPC
+`fieldbehavior` interceptor for the HTTP transport.
+
+Sanitization is **on by default** and secure-by-default:
+
+- The handler's message is never mutated — a strict-mode detection pass leaves the original untouched, and the INPUT_ONLY fields are
+  cleared on a `proto.Clone` copy that gets encoded.
+- The clone is allocated only when a populated INPUT_ONLY field is actually present. A proto response with nothing to strip — the common
+  case — incurs a single read-only traversal and no copy.
+- Non-proto responses (maps, structs, slices) pass through unchanged.
+
+Disable it with `WithResponseSanitizationDisabled()` when a service has an external reason to emit INPUT_ONLY fields on the read path.
+See [`domain/proto/fieldbehavior`](../../../../domain/proto/fieldbehavior/README.md) for the underlying strip semantics.
