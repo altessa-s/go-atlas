@@ -5,6 +5,7 @@
 package mongo
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"math/bits"
@@ -342,6 +343,21 @@ func validateFilterValue(v any) error {
 //
 // Use case: In distributed systems with concurrent identical queries, this key enables
 // deduplication to ensure only one query executes while others wait for the result.
+// deduplicationKey builds the singleflight key for a read, mixing in the
+// optional per-context identity segment (WithDeduplicationIdentity) ahead of the
+// db:collection base. When no identity func is configured, or it returns "", the
+// key is identical to the un-prefixed form so existing callers are unaffected.
+// The identity segment ensures two callers issuing the same filter concurrently
+// are only collapsed when they share an identity — never across tenants.
+func (m *Mongo) deduplicationKey(ctx context.Context, base string, filter bson.M) string {
+	if m.config.dedupIdentity != nil {
+		if id := m.config.dedupIdentity(ctx); id != "" {
+			base = id + ":" + base
+		}
+	}
+	return generateDeduplicationKey(base, filter)
+}
+
 func generateDeduplicationKey(prefix string, filter bson.M) string {
 	if len(filter) == 0 {
 		return prefix

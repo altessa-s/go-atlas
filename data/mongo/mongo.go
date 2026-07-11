@@ -471,9 +471,10 @@ func GetEntity[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collectio
 	stopOp := m.metrics.operationDuration.WithLabels(opLabels).Start()
 	defer stopOp()
 
-	// Generate a deduplication key from filter for singleflight request deduplication
-	// Include database name to prevent cross-database data leakage
-	deduplicationKey := generateDeduplicationKey(col.Database().Name()+":"+col.Name(), filter)
+	// Generate a deduplication key from filter for singleflight request deduplication.
+	// Include database name to prevent cross-database data leakage, and the optional
+	// per-context identity so identical filters from different callers never collapse.
+	deduplicationKey := m.deduplicationKey(ctx, col.Database().Name()+":"+col.Name(), filter)
 
 	// Use singleflight to prevent duplicate concurrent requests
 	data, err, _ := m.singleFlight.Do(deduplicationKey, func() (any, error) {
@@ -561,9 +562,10 @@ func GetEntities[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collect
 	stopOp := m.metrics.operationDuration.WithLabels(opLabels).Start()
 	defer stopOp()
 
-	// Generate a deduplication key from filter for singleflight request deduplication
-	// Include database name to prevent cross-database data leakage
-	deduplicationKey := generateDeduplicationKey(col.Database().Name()+":"+col.Name()+deduplicationKeySuffixList, filter)
+	// Generate a deduplication key from filter for singleflight request deduplication.
+	// Include database name to prevent cross-database data leakage, and the optional
+	// per-context identity so identical filters from different callers never collapse.
+	deduplicationKey := m.deduplicationKey(ctx, col.Database().Name()+":"+col.Name()+deduplicationKeySuffixList, filter)
 
 	// Use singleflight to prevent duplicate concurrent requests
 	data, err, _ := m.singleFlight.Do(deduplicationKey, func() (any, error) {
