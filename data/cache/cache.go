@@ -57,6 +57,7 @@ type Cache struct {
 	serializer   serializer.Serializer
 	metrics      *cacheMetrics
 	metricLabels metrics.Labels
+	keyNamespace KeyNamespaceFunc // nil = no per-context namespacing
 }
 
 // New creates a new Cache instance with the given provider and options.
@@ -78,6 +79,7 @@ func New(p Provider, opts ...Option) *Cache {
 		serializer:   options.serializer,
 		metrics:      newCacheMetrics(options.collector),
 		metricLabels: metrics.Labels{"cache_name": options.name},
+		keyNamespace: options.keyNamespace,
 	}
 	if options.maxConcurrentFallbacks > 0 {
 		c.fallbackSem = semaphore.NewWeighted(int64(options.maxConcurrentFallbacks))
@@ -93,6 +95,38 @@ func New(p Provider, opts ...Option) *Cache {
 //	c := cache.NewNoop()
 func NewNoop(opts ...Option) *Cache {
 	return New(noop.New(), opts...)
+}
+
+// effectiveKey applies the optional per-context namespace so cache entries and
+// singleflight de-duplication are isolated by tenant/subject. It is applied
+// uniformly to every provider operation and to the singleflight key, so a Get
+// and its matching Save always agree. A nil namespace or an empty result leaves
+// the key unchanged (backward-compatible default).
+func (c *Cache) effectiveKey(ctx context.Context, key string) string {
+	if c.keyNamespace == nil {
+		return key
+	}
+	if ns := c.keyNamespace(ctx); ns != "" {
+		return ns + ":" + key
+	}
+	return key
+}
+
+// effectiveKeys maps effectiveKey over a slice, allocating only when a non-empty
+// namespace is actually applied.
+func (c *Cache) effectiveKeys(ctx context.Context, keys []string) []string {
+	if c.keyNamespace == nil {
+		return keys
+	}
+	ns := c.keyNamespace(ctx)
+	if ns == "" {
+		return keys
+	}
+	out := make([]string, len(keys))
+	for i, k := range keys {
+		out[i] = ns + ":" + k
+	}
+	return out
 }
 
 // GetWithFallback retrieves a cached value or calls fallback if not found.
@@ -113,7 +147,11 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 	ctx, cancel := corecontext.WithDefault(ctx, defaultContextTimeout)
 	defer cancel()
 
-	val, err := c.provider.Get(ctx, key)
+	// Namespace the key for both the backend and singleflight so concurrent
+	// callers from different tenants never collapse onto one another's result.
+	ek := c.effectiveKey(ctx, key)
+
+	val, err := c.provider.Get(ctx, ek)
 	if err == nil {
 		if isNegativeSentinel(val) {
 			c.metrics.negativeHits.WithLabels(c.metricLabels).Inc()
@@ -142,7 +180,7 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 		defer c.fallbackSem.Release(1)
 	}
 
-	fv, err, _ := c.group.Do(key, func() (any, error) {
+	fv, err, _ := c.group.Do(ek, func() (any, error) {
 		stop := c.metrics.fallbackDuration.Start()
 		val, ttl, fErr := fallback()
 		stop()
@@ -154,7 +192,7 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 			// skipped the negative write and every subsequent miss
 			// re-ran the fallback.
 			if errors.Is(fErr, ErrMissing) && c.negativeTtl > 0 {
-				if sErr := c.provider.Save(ctx, key, negativeSentinel, c.negativeTtl); sErr != nil {
+				if sErr := c.provider.Save(ctx, ek, negativeSentinel, c.negativeTtl); sErr != nil {
 					c.metrics.errors.WithLabels(c.metricLabels).Inc()
 				}
 			}
@@ -163,7 +201,7 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 
 		if vv := reflect.ValueOf(val); vv.Kind() == reflect.Pointer && vv.IsNil() {
 			if c.negativeTtl > 0 {
-				if sErr := c.provider.Save(ctx, key, negativeSentinel, c.negativeTtl); sErr != nil {
+				if sErr := c.provider.Save(ctx, ek, negativeSentinel, c.negativeTtl); sErr != nil {
 					c.metrics.errors.WithLabels(c.metricLabels).Inc()
 				}
 			}
@@ -180,7 +218,7 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 			cacheTtl = ttl
 		}
 
-		if fErr = c.provider.Save(ctx, key, cacheData, cacheTtl); fErr != nil {
+		if fErr = c.provider.Save(ctx, ek, cacheData, cacheTtl); fErr != nil {
 			return nil, fErr
 		}
 
@@ -219,7 +257,7 @@ func (c *Cache) Save(ctx context.Context, key string, value any, ttl ...time.Dur
 	}
 
 	stop := c.metrics.writeDuration.Start()
-	err = c.provider.Save(ctx, key, cacheData, cacheTtl)
+	err = c.provider.Save(ctx, c.effectiveKey(ctx, key), cacheData, cacheTtl)
 	stop()
 	return err
 }
@@ -236,7 +274,7 @@ func (c *Cache) Exists(ctx context.Context, key string) (bool, error) {
 	ctx, cancel := corecontext.WithDefault(ctx, defaultContextTimeout)
 	defer cancel()
 
-	data, err := c.provider.Get(ctx, key)
+	data, err := c.provider.Get(ctx, c.effectiveKey(ctx, key))
 	if err != nil {
 		if errors.Is(err, ErrMissing) {
 			return false, nil
@@ -266,7 +304,7 @@ func (c *Cache) Get(ctx context.Context, key string, value any) error {
 	ctx, cancel := corecontext.WithDefault(ctx, defaultContextTimeout)
 	defer cancel()
 
-	data, err := c.provider.Get(ctx, key)
+	data, err := c.provider.Get(ctx, c.effectiveKey(ctx, key))
 	if err != nil {
 		if errors.Is(err, ErrMissing) {
 			c.metrics.misses.WithLabels(c.metricLabels).Inc()
@@ -303,7 +341,7 @@ func (c *Cache) Delete(ctx context.Context, key string) error {
 	ctx, cancel := corecontext.WithDefault(ctx, defaultContextTimeout)
 	defer cancel()
 
-	return c.provider.Delete(ctx, key)
+	return c.provider.Delete(ctx, c.effectiveKey(ctx, key))
 }
 
 // DeleteMany removes multiple keys from the cache in a single operation.
@@ -318,5 +356,5 @@ func (c *Cache) DeleteMany(ctx context.Context, key ...string) error {
 	ctx, cancel := corecontext.WithDefault(ctx, defaultContextTimeout)
 	defer cancel()
 
-	return c.provider.DeleteMany(ctx, key...)
+	return c.provider.DeleteMany(ctx, c.effectiveKeys(ctx, key)...)
 }
