@@ -168,8 +168,14 @@ func (ri *requestInterceptor) checkIdempotency(ctx context.Context, req any) err
 		}
 		if state.Status == idempotency.StatusSuccess {
 			md := grpcmetadata.Pairs(ri.opts.idempotencyKeyStatusMetadata, "success")
-			if strVal, ok := state.Data.(string); ok && strVal != "" {
-				md.Set(ri.opts.idempotencyKeyEntityIdMetadata, strVal)
+			// Only echo the stored entity id when explicitly enabled. The caller
+			// presenting a duplicate key is not verified to be the principal that
+			// created the original entity, so returning it by default would leak
+			// another principal's entity id to anyone who reuses the key.
+			if ri.opts.exposeEntityID {
+				if strVal, ok := state.Data.(string); ok && strVal != "" {
+					md.Set(ri.opts.idempotencyKeyEntityIdMetadata, strVal)
+				}
 			}
 			_ = grpc.SetHeader(ctx, md) //nolint:errcheck // Optional metadata
 

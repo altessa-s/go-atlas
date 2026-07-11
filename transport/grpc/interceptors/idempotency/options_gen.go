@@ -29,6 +29,13 @@ func WithEntityIdExtractor(v EntityIdExtractor) Option {
 	}
 }
 
+// WithExposeEntityID enables the exposeEntityID option.
+func WithExposeEntityID() Option {
+	return func(o *options) {
+		o.exposeEntityID = true
+	}
+}
+
 // WithFallbackBehavior sets the fallbackBehavior option.
 func WithFallbackBehavior(v fallback.Behavior) Option {
 	return func(o *options) {
@@ -149,6 +156,7 @@ func WithStatusCreator(v StatusCreator) Option {
 func defaultOptions() *options {
 	return &options{
 		enforceMandatory:               false,
+		exposeEntityID:                 false,
 		fallbackBehavior:               fallback.Deny,
 		idempotencyKeyEntityIdMetadata: DefaultIdempotencyKeyEntityIdMetadata,
 		idempotencyKeyHeader:           DefaultIdempotencyKeyHeader,
