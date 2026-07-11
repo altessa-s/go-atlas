@@ -25,6 +25,7 @@ const (
 	HeaderPermissionsPolicy      = "Permissions-Policy"
 	HeaderCrossOriginOpenerPol   = "Cross-Origin-Opener-Policy"
 	HeaderCrossOriginEmbedderPol = "Cross-Origin-Embedder-Policy"
+	HeaderCrossOriginResourcePol = "Cross-Origin-Resource-Policy"
 )
 
 const middlewareName = "securityheaders"
@@ -159,6 +160,19 @@ func (m *middleware) setHeaders(w http.ResponseWriter) {
 	// Controls which browser features can be used
 	if m.opts.permissionsPolicy != "" {
 		h.Set(HeaderPermissionsPolicy, m.opts.permissionsPolicy)
+	}
+
+	// Cross-Origin-Opener-Policy / -Embedder-Policy / -Resource-Policy.
+	// All opt-in (unset by default): they can break cross-window integrations and
+	// cross-origin subresources, so they are emitted only when configured.
+	if m.opts.crossOriginOpenerPolicy != "" {
+		h.Set(HeaderCrossOriginOpenerPol, string(m.opts.crossOriginOpenerPolicy))
+	}
+	if m.opts.crossOriginEmbedderPolicy != "" {
+		h.Set(HeaderCrossOriginEmbedderPol, string(m.opts.crossOriginEmbedderPolicy))
+	}
+	if m.opts.crossOriginResourcePolicy != "" {
+		h.Set(HeaderCrossOriginResourcePol, string(m.opts.crossOriginResourcePolicy))
 	}
 }
 
