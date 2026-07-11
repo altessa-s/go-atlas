@@ -116,6 +116,20 @@ type Keeper struct {
 	metrics *keeperMetrics
 }
 
+// effectiveKey applies the optional per-context namespace so idempotency keys are
+// isolated by tenant/subject. It is applied uniformly to every storage operation
+// (AttemptLock/Steal/Complete/Delete). A nil namespace or an empty result leaves
+// the key unchanged (backward-compatible default).
+func (i *Keeper) effectiveKey(ctx context.Context, key string) string {
+	if i.opts.keyNamespace == nil {
+		return key
+	}
+	if ns := i.opts.keyNamespace(ctx); ns != "" {
+		return ns + ":" + key
+	}
+	return key
+}
+
 var _ Idempotency = (*Keeper)(nil)
 
 // New creates a new Keeper with the specified storage backend.
@@ -174,6 +188,10 @@ func (i *Keeper) AttemptLockWithOpts(ctx context.Context, key string, opts Attem
 		return false, nil, ErrEmptyKey
 	}
 
+	// Namespace the key so two tenants using the same idempotency key never
+	// share a lock or a stored response.
+	ek := i.effectiveKey(ctx, key)
+
 	// Embed a per-attempt nonce so two consecutive lock attempts on
 	// the same key produce distinct serialized bytes. Storage backends
 	// that CAS on byte equality (memory, redis) need this to tell two
@@ -189,7 +207,7 @@ func (i *Keeper) AttemptLockWithOpts(ctx context.Context, key string, opts Attem
 		return false, nil, coreerrs.WrapOperation(err, "serialize state")
 	}
 
-	ok, existingVal, lockToken, err := i.storage.AttemptLockWithTTL(ctx, key, val, opts.LockTTL)
+	ok, existingVal, lockToken, err := i.storage.AttemptLockWithTTL(ctx, ek, val, opts.LockTTL)
 	if err != nil {
 		i.metrics.errors.Inc()
 		return false, nil, err
@@ -222,7 +240,7 @@ func (i *Keeper) AttemptLockWithOpts(ctx context.Context, key string, opts Attem
 		if maxLock := i.resolveMaxLockDuration(opts); maxLock > 0 &&
 			!existing.LockedAt.IsZero() &&
 			time.Since(existing.LockedAt) > maxLock {
-			newToken, stealErr := i.storage.Steal(ctx, key, existingVal, val)
+			newToken, stealErr := i.storage.Steal(ctx, ek, existingVal, val)
 			switch {
 			case stealErr == nil:
 				i.metrics.locksAcquired.Inc()
@@ -276,7 +294,7 @@ func (i *Keeper) Complete(ctx context.Context, key string, data any, lockState *
 		return coreerrs.WrapOperation(err, "serialize state")
 	}
 
-	if err := i.storage.Complete(ctx, key, val, lockState.LockToken()); err != nil {
+	if err := i.storage.Complete(ctx, i.effectiveKey(ctx, key), val, lockState.LockToken()); err != nil {
 		i.metrics.errors.Inc()
 		return err
 	}
@@ -290,7 +308,7 @@ func (i *Keeper) Delete(ctx context.Context, key string) error {
 	if key == "" {
 		return ErrEmptyKey
 	}
-	if err := i.storage.Delete(ctx, key); err != nil {
+	if err := i.storage.Delete(ctx, i.effectiveKey(ctx, key)); err != nil {
 		i.metrics.errors.Inc()
 		return err
 	}

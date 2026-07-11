@@ -25,6 +25,13 @@ func WithCollector(v metrics.Collector) Option {
 	}
 }
 
+// WithKeyNamespace sets the keyNamespace option.
+func WithKeyNamespace(v KeyNamespaceFunc) Option {
+	return func(o *options) {
+		o.keyNamespace = v
+	}
+}
+
 // WithLogger sets the logger option.
 func WithLogger(v *slog.Logger) Option {
 	return func(o *options) {
@@ -58,8 +65,9 @@ func WithSerializer(v serializer.Serializer) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		logger:     slog.New(slog.DiscardHandler),
-		serializer: &serializer.JSON{},
+		keyNamespace: nil,
+		logger:       slog.New(slog.DiscardHandler),
+		serializer:   &serializer.JSON{},
 	}
 }
 

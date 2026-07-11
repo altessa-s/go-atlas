@@ -7,6 +7,26 @@ import "github.com/altessa-s/go-atlas/data/idempotency"
 Package `idempotency` provides duplicate request detection using idempotency keys. Supports multiple storage backends (memory, Redis, NATS) for
 single-instance and distributed systems.
 
+## Tenant isolation (multi-tenant deployments)
+
+The idempotency key is global unless you scope it. Two tenants that submit the **same** bare key collide in one keyspace, so a tenant that knows or
+guesses another tenant's key can be served that tenant's completed response (`Complete` stores the response `Data`, and a subsequent `AttemptLock`
+returns it). In a multi-tenant service this is a cross-tenant data leak.
+
+**Contract:** scope keys to the tenant/subject. Either prefix every key you pass, or configure `WithKeyNamespace` so the `Keeper` prefixes every
+storage operation (`AttemptLock`, `Steal`, `Complete`, `Delete`) automatically:
+
+```go
+k := idempotency.New(storage,
+    idempotency.WithMaxLockDuration(2*time.Minute),
+    idempotency.WithKeyNamespace(func(ctx context.Context) string {
+        return principal.FromContext(ctx).Tenant() // "" disables prefixing (backward-compatible default)
+    }),
+)
+```
+
+Returning `""` leaves keys unchanged, so existing single-tenant callers are unaffected.
+
 ## Stolen-lock detection
 
 `AttemptLock` returns a `*State` carrying an opaque CAS token. `Complete` requires that same `*State` back; if the lock has been taken over
