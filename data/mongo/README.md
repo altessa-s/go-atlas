@@ -37,6 +37,25 @@ structured logging.
 | `WithTransactionOptions` | snapshot/majority | Transaction read/write concerns                                   |
 | `WithLogger`             | discard           | Structured logger                                                 |
 | `WithConverterOptions`   | --                | Extra `converter.Option`s threaded into `GetEntity`/`GetEntities` |
+| `WithDeduplicationIdentity` | nil            | Per-context identity segment for the read singleflight key (see below) |
+
+## Read deduplication and tenant isolation
+
+`GetEntity` and `GetEntities` collapse concurrent identical reads through a `singleflight` group keyed by `db:collection:hash(filter)`. Two callers
+issuing the **same** filter at the same time run one query and share its result. That is correct only when the result is a pure function of the
+filter. If caller identity affects what a query returns but lives **outside** the filter — e.g. per-tenant CSFLE data keys, a read scope applied by a
+session, or a read preference bound to the caller — then collapsing identical filters across tenants can hand one tenant another's result.
+
+**Contract:** in such deployments, configure `WithDeduplicationIdentity` so the identity (tenant/subject) is mixed into the deduplication key. Callers
+are then only collapsed when they share an identity:
+
+```go
+m, _ := mongo.New("app", mongo.WithDeduplicationIdentity(func(ctx context.Context) string {
+    return principal.FromContext(ctx).Tenant() // "" disables prefixing (backward-compatible default)
+}))
+```
+
+Returning `""` (or leaving the option unset) keeps the key identical to the un-prefixed form, so single-tenant callers are unaffected.
 
 ## Subpackages
 

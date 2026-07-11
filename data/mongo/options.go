@@ -7,6 +7,7 @@ package mongo
 //go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=config --all-fields
 
 import (
+	"context"
 	"log/slog"
 	"reflect"
 	"time"
@@ -44,6 +45,17 @@ const (
 	// DefaultVaultCollection is the default collection name for key vault
 	DefaultVaultCollection = "__keyVault"
 )
+
+// DeduplicationIdentityFunc derives a caller-identity segment (typically
+// tenant/subject) from the request context. It is mixed into the singleflight
+// deduplication key for GetEntity/GetEntities so that two callers issuing the
+// same filter concurrently are only collapsed into one in-flight query when they
+// share an identity. Without it, an identical filter from different callers
+// collapses and one may receive the other's result (a cross-tenant leak when
+// isolation is enforced outside the filter, e.g. via CSFLE keys or read scope).
+// Returning "" disables prefixing for that call — the backward-compatible
+// default when no identity func is configured.
+type DeduplicationIdentityFunc func(context.Context) string
 
 // EncryptionField defines how a specific struct field should be encrypted.
 type EncryptionField struct {
@@ -127,6 +139,12 @@ type config struct {
 	// pipeline (e.g. by registering a codec for optional.Optional[T] ↔ *T).
 	// Set via WithConverterOptions.
 	ConverterOptions []converter.Option `opt:"-"`
+
+	// dedupIdentity, when set, adds a per-context identity segment to the
+	// GetEntity/GetEntities singleflight key so identical filters from
+	// different callers never collapse. Nil = no prefixing. Set via
+	// WithDeduplicationIdentity.
+	dedupIdentity DeduplicationIdentityFunc `opt:"-"`
 }
 
 // WithTransactionOptions sets custom transaction options for MongoDB transactions.
@@ -192,6 +210,23 @@ func WithEncryptionModel(model ...*EncryptionModel) Option {
 func WithConverterOptions(opts ...converter.Option) Option {
 	return func(c *config) {
 		c.ConverterOptions = append(c.ConverterOptions, opts...)
+	}
+}
+
+// WithDeduplicationIdentity sets a function that derives a per-context identity
+// segment (typically tenant/subject) mixed into the GetEntity/GetEntities
+// singleflight deduplication key. This prevents two callers with the same filter
+// but different identities from collapsing onto one another's in-flight query.
+//
+// Returning "" from fn disables prefixing for that call, so existing callers are
+// unaffected when no identity func is configured.
+//
+//	m, _ := mongo.New("app", mongo.WithDeduplicationIdentity(func(ctx context.Context) string {
+//		return principal.FromContext(ctx).Tenant()
+//	}))
+func WithDeduplicationIdentity(fn DeduplicationIdentityFunc) Option {
+	return func(c *config) {
+		c.dedupIdentity = fn
 	}
 }
 
