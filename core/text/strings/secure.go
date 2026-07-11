@@ -410,6 +410,14 @@ var zeroStringMu sync.Mutex
 // read-only memory (e.g. a string literal or a constant folded by the
 // compiler), the write will cause a panic that is silently recovered.
 //
+// Interned strings are the same case: an interned value (see [Interner] /
+// [InternString], and note that string literals returned by many libraries are
+// interned) may live in read-only storage or share its backing with other
+// holders, so ZeroString is a silent no-op on it — and a successful write would
+// corrupt every other holder of that backing. Never rely on ZeroString to erase
+// a secret that may be interned; keep secrets in [SecureString], which always
+// owns private, writable storage.
+//
 // For reliable zeroing, prefer [SecureString] which always owns its backing
 // storage. ZeroString is most useful as a defense-in-depth measure for
 // heap-allocated strings obtained from I/O (user input, network reads, etc.).
