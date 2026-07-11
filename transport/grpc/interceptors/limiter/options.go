@@ -21,4 +21,5 @@ type options struct {
 	ignoreMethods    []string
 	ignorePatterns   []*regexp.Regexp  `optgen:"default=defaults.IgnorePatterns"`
 	fallbackBehavior fallback.Behavior `optgen:"default=fallback.Deny"`
+	exposeHeaders    bool              `optgen:"default=false"`
 }

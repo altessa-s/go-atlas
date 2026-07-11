@@ -4,8 +4,11 @@
 import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/limiter"
 ```
 
-Package `limiter` provides gRPC interceptors for rate limiting. Server-side injects standard rate-limit response headers (`x-ratelimit-limit`,
-`x-ratelimit-remaining`, `x-ratelimit-reset`). Returns `codes.ResourceExhausted` on limit exceeded. Configurable fallback behavior on failure.
+Package `limiter` provides gRPC interceptors for rate limiting. On limit exceeded it returns `codes.ResourceExhausted`, with configurable fallback
+behavior on limiter failure. Standard rate-limit response headers (`x-ratelimit-limit`, `x-ratelimit-remaining`, `x-ratelimit-reset`) reveal the
+configured capacity, so they are **withheld by default** and emitted only when `WithExposeHeaders` is set — rate limiting itself is unaffected. The
+interceptor also declares `auth` as an ordering dependency so, when an auth interceptor is present, authentication runs first (per-principal limiting;
+unauthenticated requests rejected before consuming limiter budget).
 
 ## Key types
 
@@ -21,6 +24,7 @@ Package `limiter` provides gRPC interceptors for rate limiting. Server-side inje
 | `WithIgnoreMethods`    | --                 | Methods to skip rate limiting                       |
 | `WithIgnorePatterns`   | reflection, health | Regex patterns for methods to skip                  |
 | `WithFallbackBehavior` | Deny               | Behavior on limiter failure (Allow, Deny, or Error) |
+| `WithExposeHeaders`    | false (off)        | Emit `x-ratelimit-*` response headers               |
 
 ## Client options
 

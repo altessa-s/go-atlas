@@ -16,6 +16,13 @@ import (
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
+// WithExposeHeaders enables the exposeHeaders option.
+func WithExposeHeaders() Option {
+	return func(o *options) {
+		o.exposeHeaders = true
+	}
+}
+
 // WithFallbackBehavior sets the fallbackBehavior option.
 func WithFallbackBehavior(v fallback.Behavior) Option {
 	return func(o *options) {
@@ -62,6 +69,7 @@ func WithLogger(v *slog.Logger) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
+		exposeHeaders:    false,
 		fallbackBehavior: fallback.Deny,
 		ignorePatterns:   defaults.IgnorePatterns,
 		logger:           slog.New(slog.DiscardHandler),
