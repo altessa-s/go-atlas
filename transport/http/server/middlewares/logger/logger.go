@@ -218,6 +218,16 @@ func New(logHandler LogHandler, opt ...Option) *middleware {
 
 	opts := newOptions(opt...)
 
+	// Secure-by-default: body logging with no redactor would write raw request /
+	// response bodies (credentials, tokens, PII) straight to logs. When body
+	// logging is enabled without an explicit [WithBodyRedactor], install a
+	// fully-masking redactor so nothing sensitive leaks. Callers that genuinely
+	// want raw bodies opt in with an identity redactor:
+	// WithBodyRedactor(func(b string) string { return b }).
+	if (opts.logRequest || opts.logResponse) && opts.bodyRedactor == nil {
+		opts.bodyRedactor = redactAllBody
+	}
+
 	// Build ignore methods map for O(1) lookup
 	ignoreMethodsMap := make(map[string]struct{}, len(opts.ignoreMethods))
 	for _, method := range opts.ignoreMethods {
