@@ -157,6 +157,9 @@ func TestMiddleware_BodyRedactor(t *testing.T) {
 	require.True(t, strings.Contains(respContent, "[REDACTED]"))
 }
 
+// TestMiddleware_BodyRedactor_Nil pins the secure-by-default behavior: enabling
+// body logging without a redactor must NOT write raw bodies. The middleware
+// installs a fully-masking redactor, so bodies are replaced with the placeholder.
 func TestMiddleware_BodyRedactor_Nil(t *testing.T) {
 	var loggedFields slogx.Fields
 	lh := LogHandlerFunc(func(ctx context.Context, msg string, statusCode int, fields slogx.Fields) {
@@ -182,6 +185,34 @@ func TestMiddleware_BodyRedactor_Nil(t *testing.T) {
 		}
 	}
 
+	// Raw bodies must not leak; both are replaced by the safe placeholder.
+	require.Equal(t, DefaultRedactedBodyPlaceholder, reqContent)
+	require.Equal(t, DefaultRedactedBodyPlaceholder, respContent)
+	require.NotContains(t, reqContent, "request-body")
+	require.NotContains(t, respContent, "response-body")
+}
+
+// TestMiddleware_BodyRedactor_ExplicitPassthrough verifies the opt-in escape
+// hatch: an identity redactor restores raw-body logging for callers that want it.
+func TestMiddleware_BodyRedactor_ExplicitPassthrough(t *testing.T) {
+	var loggedFields slogx.Fields
+	lh := LogHandlerFunc(func(ctx context.Context, msg string, statusCode int, fields slogx.Fields) {
+		loggedFields = fields
+	})
+
+	mw := Middleware(lh, WithLogRequest(), WithBodyRedactor(func(b string) string { return b }))
+	handler := mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	body := strings.NewReader(`request-body`)
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("POST", "/test", body))
+
+	var reqContent string
+	for _, f := range loggedFields {
+		if f.Key == observability.FieldKeyRequestContent {
+			reqContent = f.Value.(string)
+		}
+	}
 	require.Equal(t, "request-body", reqContent)
-	require.Equal(t, "response-body", respContent)
 }
