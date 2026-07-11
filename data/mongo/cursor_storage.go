@@ -99,6 +99,12 @@ var (
 	// WithListCursorStorage option.
 	ErrStorageRequired = errors.New("cursor storage required for server-side cursor format")
 
+	// ErrCursorSubjectMismatch indicates a stateful cursor bound to one subject was
+	// replayed by a different subject. Only returned when the cursor was created with
+	// a subject (WithListCursorSubject configured); subject-less cursors are not checked,
+	// so the binding is opt-in and backward-compatible.
+	ErrCursorSubjectMismatch = errors.New("cursor subject does not match the requesting principal")
+
 	// ErrInvalidCursorFormat indicates the cursor token format is invalid or unrecognized.
 	// Valid formats are:
 	//   - ULID (26 characters) for server-side storage (stateful mode)

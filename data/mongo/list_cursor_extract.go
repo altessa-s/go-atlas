@@ -136,7 +136,7 @@ func isBase32Char(c rune) bool {
 // Returns:
 //   - *Cursor: Loaded cursor with metadata
 //   - error: If parsing/loading fails
-func parseCursorToken(ctx context.Context, token string, storage CursorStorage, filter bson.M) (*Cursor, error) {
+func parseCursorToken(ctx context.Context, token string, storage CursorStorage, filter bson.M, subject string) (*Cursor, error) {
 	if token == "" {
 		// Empty token is valid - means no cursor provided, start from beginning
 		return nil, nil //nolint:nilnil // nil cursor with nil error is semantically correct here
@@ -157,6 +157,12 @@ func parseCursorToken(ctx context.Context, token string, storage CursorStorage, 
 
 		// Validate filter hasn't changed
 		if validationErr := metadata.ValidateFilter(filter); validationErr != nil {
+			return nil, validationErr
+		}
+
+		// Validate the cursor belongs to the requesting principal (opt-in: only
+		// enforced when the cursor was created with a subject bound).
+		if validationErr := metadata.ValidateSubject(subject); validationErr != nil {
 			return nil, validationErr
 		}
 
@@ -206,6 +212,7 @@ func generateNextCursorToken(
 	filter bson.M,
 	storage CursorStorage,
 	sortValue any,
+	subject string,
 ) (string, error) {
 	if storage != nil {
 		// Server-side storage mode: create metadata and store
@@ -213,6 +220,10 @@ func generateNextCursorToken(
 		if err != nil {
 			return "", coreerrs.WrapOperation(err, "create cursor metadata")
 		}
+
+		// Bind the cursor to the requesting principal so it can't be replayed by
+		// another. Empty subject leaves the cursor unbound (backward-compatible).
+		metadata.Subject = subject
 
 		// Generate ULID key
 		key := ulid.Make().String()
