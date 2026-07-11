@@ -84,6 +84,13 @@ func WithResponseBuilder(v Builder) Option {
 	}
 }
 
+// WithResponseSanitizationDisabled enables the responseSanitizationDisabled option.
+func WithResponseSanitizationDisabled() Option {
+	return func(o *options) {
+		o.responseSanitizationDisabled = true
+	}
+}
+
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{

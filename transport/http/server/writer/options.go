@@ -26,4 +26,10 @@ type options struct {
 	maxBodySize                int64           // 0 means no limit
 	logger                     *slog.Logger    // for logging fallback errors
 	errorConverter             ErrorConverter  // optional custom error converter
+
+	// responseSanitizationDisabled turns off field_behavior INPUT_ONLY
+	// stripping of proto.Message responses. Sanitization is on by default (zero
+	// value false); set it with [WithResponseSanitizationDisabled] only when the
+	// caller has an external reason to emit INPUT_ONLY fields on the read path.
+	responseSanitizationDisabled bool
 }
