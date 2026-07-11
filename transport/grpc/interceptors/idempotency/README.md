@@ -27,7 +27,15 @@ from gRPC metadata (default header: `Idempotency-Key`). Uses the driven intercep
 | `WithEnforceMandatory`            | false                      | When true, require idempotency key on all requests |
 | `WithKeyFormatValidator`          | UUID v4                    | Custom key format validation function        |
 | `WithEntityIdExtractor`           | nil                        | Extract entity ID from response              |
+| `WithExposeEntityID`              | false (off)                | Echo the stored entity ID to duplicate callers (see below) |
 | `WithStatusCreator`               | default messages           | Custom error status creation function        |
+
+### Entity-ID exposure is opt-in
+
+On a duplicate request whose key already resolved to a success, the interceptor can return the stored entity ID in the
+`Idempotency-Key-Entity-Id` response metadata. That is **off by default**: the caller presenting a duplicate key is not verified to be the
+principal that created the original entity, so echoing it unconditionally would leak another principal's entity ID to anyone who reuses (or guesses)
+the key. Enable `WithExposeEntityID()` only when idempotency keys are unguessable and scoped per principal, or when the entity ID is not sensitive.
 | `WithIgnoreMethods`               | --                         | Methods to skip idempotency checking         |
 | `WithIgnorePatterns`              | reflection, health         | Regex patterns for methods to skip           |
 

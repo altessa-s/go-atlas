@@ -80,6 +80,7 @@ type options struct {
 	idempotencyKeyEntityIdMetadata string             `optgen:"default=DefaultIdempotencyKeyEntityIdMetadata"`
 	fallbackBehavior               fallback.Behavior  `optgen:"default=fallback.Deny"`
 	enforceMandatory               bool               `optgen:"default=false" optval:"param"`
+	exposeEntityID                 bool               `optgen:"default=false"`
 	keyFormatValidator             KeyFormatValidator `optgen:"default=DefaultKeyValidator"`
 	entityIdExtractor              EntityIdExtractor
 	statusCreator                  StatusCreator
