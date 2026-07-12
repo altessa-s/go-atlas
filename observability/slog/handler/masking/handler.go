@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -54,6 +55,16 @@ type Handler struct {
 	pathCache      atomic.Pointer[sync.Map]
 	pathCacheCount atomic.Int64
 	hasPatterns    bool
+	// typeVerdicts memoizes, per reflect.Type, whether a KindAny value of
+	// that type can transitively expose a field name matching a configured
+	// mask. Shared across derived handlers (the mask configuration is
+	// shared too); bounded by the program's type universe, so no epoch
+	// reset is needed. Consulted only when typeSkip is true.
+	typeVerdicts *sync.Map
+	// typeSkip enables the static type verdict. Regex patterns can match
+	// arbitrary group prefixes, which the per-type analysis cannot see, so
+	// the skip is sound only for fields-only configurations.
+	typeSkip bool
 }
 
 type compiledPattern struct {
@@ -107,6 +118,8 @@ func NewHandler(inner slog.Handler, opts ...Option) slog.Handler {
 		}
 	}
 	h.hasPatterns = len(h.patterns) > 0
+	h.typeSkip = !h.hasPatterns
+	h.typeVerdicts = &sync.Map{}
 
 	return h
 }
@@ -152,6 +165,8 @@ func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 		lowercaseFields: h.lowercaseFields,
 		patterns:        h.patterns,
 		hasPatterns:     h.hasPatterns,
+		typeVerdicts:    h.typeVerdicts,
+		typeSkip:        h.typeSkip,
 	}
 	// Each derived handler gets its own bounded path cache. Sharing the
 	// parent's cache would let derived handlers steal cap from each
@@ -173,6 +188,8 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 		lowercaseFields: h.lowercaseFields,
 		patterns:        h.patterns,
 		hasPatterns:     h.hasPatterns,
+		typeVerdicts:    h.typeVerdicts,
+		typeSkip:        h.typeSkip,
 	}
 	cloned.pathCache.Store(&sync.Map{})
 	return cloned
@@ -185,23 +202,25 @@ func (h *Handler) maskAttribute(attr slog.Attr, groups []string) slog.Attr {
 		return attr
 	}
 
-	// Check if this field should be masked
-	fieldPath := h.buildFieldPath(groups, attr.Key)
-
-	// Handle groups recursively
+	// Handle groups recursively. Group keys themselves are never
+	// mask-checked (only members are), so the field path is built after
+	// this branch. slices.Concat gives the members a fresh backing array —
+	// a plain append could let sibling subtrees share and overwrite the
+	// same storage mid-walk.
 	if attr.Value.Kind() == slog.KindGroup {
-		// Process group members
 		groupAttrs := attr.Value.Group()
 		maskedGroup := make([]slog.Attr, 0, len(groupAttrs))
+		childGroups := slices.Concat(groups, []string{attr.Key})
 
 		for _, ga := range groupAttrs {
-			maskedGroup = append(maskedGroup, h.maskAttribute(ga, append(groups, attr.Key)))
+			maskedGroup = append(maskedGroup, h.maskAttribute(ga, childGroups))
 		}
 
 		return slog.Group(attr.Key, attrsToAny(maskedGroup)...)
 	}
 
 	// Check if field should be masked
+	fieldPath := h.buildFieldPath(groups, attr.Key)
 	if mask := h.getMaskForField(attr.Key, fieldPath); mask != nil {
 		return h.applyMask(attr, mask)
 	}
@@ -231,11 +250,106 @@ func (h *Handler) descendIntoAny(key string, value slog.Value, groups []string) 
 	if raw == nil {
 		return slog.Attr{}, false
 	}
+	// Fields-only configurations can prove statically that a type's
+	// transitive field names never match a mask — skip the reflection walk
+	// and let the value render natively, exactly like the no-masking fast
+	// path in Handle.
+	if h.typeSkip && !h.typeCanMatch(reflect.TypeOf(raw)) {
+		return slog.Attr{}, false
+	}
 	walked, walkedOK := h.walkAny(reflect.ValueOf(raw), append(groups, key), 0)
 	if !walkedOK {
 		return slog.Attr{}, false
 	}
 	return slog.Attr{Key: key, Value: walked}, true
+}
+
+// typeCanMatch reports whether a value of type t can transitively expose a
+// field name (or dynamic map key) matching a configured mask field. Verdicts
+// are memoized per type; the type universe of logged values is bounded by
+// the program's code, so the cache cannot grow unbounded.
+func (h *Handler) typeCanMatch(t reflect.Type) bool {
+	if v, ok := h.typeVerdicts.Load(t); ok {
+		return v.(bool) //nolint:errcheck // only bools are stored
+	}
+	verdict := h.computeTypeCanMatch(t, make(map[reflect.Type]bool))
+	h.typeVerdicts.Store(t, verdict)
+	return verdict
+}
+
+// computeTypeCanMatch is the uncached DFS behind [Handler.typeCanMatch]. It
+// mirrors walkAny's descent rules: pointers unwrap, atomic types stop,
+// structs/slices recurse, string-keyed maps expose dynamic keys the static
+// analysis cannot see (conservatively a match). Interfaces hide the dynamic
+// type, so they are conservatively a match too. The visiting set breaks
+// recursive types: revisiting a type cannot add names beyond its first pass.
+func (h *Handler) computeTypeCanMatch(t reflect.Type, visiting map[reflect.Type]bool) bool {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	if t.Kind() == reflect.Interface {
+		return true
+	}
+	if isAtomicType(t) {
+		return false
+	}
+	if visiting[t] {
+		return false
+	}
+
+	switch t.Kind() {
+	case reflect.Struct:
+		visiting[t] = true
+		for i := range t.NumField() {
+			ft := t.Field(i)
+			if !ft.IsExported() {
+				continue
+			}
+			name := structFieldName(ft)
+			if name == "" { // json:"-"
+				continue
+			}
+			if h.fieldNameCanMatch(name) || h.computeTypeCanMatch(ft.Type, visiting) {
+				return true
+			}
+		}
+		return false
+	case reflect.Map:
+		// Non-string-keyed maps are never walked (walkMap passes them
+		// through untouched), so only string keys count.
+		return t.Key().Kind() == reflect.String
+	case reflect.Slice, reflect.Array:
+		return h.computeTypeCanMatch(t.Elem(), visiting)
+	default:
+		return false
+	}
+}
+
+// fieldNameCanMatch reports whether a walked field name can satisfy either
+// lookup in getMaskForField: the exact-name check (key == name) or the
+// dotted-path check — a path's last segment is always the field name, so a
+// configured key can only match when it ends with "."+name.
+func (h *Handler) fieldNameCanMatch(name string) bool {
+	if h.opts.caseSensitive {
+		suffix := "." + name
+		for k := range h.opts.fields {
+			if k == name || strings.HasSuffix(k, suffix) {
+				return true
+			}
+		}
+		return false
+	}
+	if h.lowercaseFields == nil {
+		return false
+	}
+	lower := corestrings.InternLowerString(name)
+	suffix := "." + lower
+	for k := range h.lowercaseFields.All() {
+		if k == lower || strings.HasSuffix(k, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 // walkAny is the reflect-driven recursive walker used by descendIntoAny.
@@ -333,7 +447,7 @@ func (h *Handler) walkSlice(rv reflect.Value, groups []string, depth int) (slog.
 	attrs := make([]slog.Attr, 0, rv.Len())
 	for i := range rv.Len() {
 		elem := rv.Index(i)
-		key := fmt.Sprintf("[%d]", i)
+		key := sliceIndexKey(i)
 		if nested, ok := h.walkAny(elem, groups, depth+1); ok {
 			attrs = append(attrs, slog.Attr{Key: key, Value: nested})
 			continue
@@ -348,6 +462,23 @@ func (h *Handler) walkSlice(rv reflect.Value, groups []string, depth int) (slog.
 		return slog.Value{}, false
 	}
 	return slog.GroupValue(attrs...), true
+}
+
+// sliceIndexKeys pre-renders the "[i]" keys walkSlice assigns to elements so
+// the per-element hot path avoids fmt.Sprintf. 64 covers realistic log
+// payloads; larger indexes fall back to allocating.
+var sliceIndexKeys = func() (keys [64]string) {
+	for i := range keys {
+		keys[i] = "[" + strconv.Itoa(i) + "]"
+	}
+	return keys
+}()
+
+func sliceIndexKey(i int) string {
+	if i < len(sliceIndexKeys) {
+		return sliceIndexKeys[i]
+	}
+	return "[" + strconv.Itoa(i) + "]"
 }
 
 // attrForField checks whether the supplied field matches a mask rule
