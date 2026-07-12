@@ -139,7 +139,8 @@ All `.go` files must include the copyright header. Run `make copyright` to add i
 ## Pull Request Process
 
 1. Ensure `make lint` and `make test-all` pass.
-2. Update `CHANGELOG.md` under the `[Unreleased]` section if your change is user-facing.
+2. Write conventional commit messages: release notes are generated from them by goreleaser at release time, there is no
+   manually maintained `CHANGELOG.md`.
 3. Fill out the PR template completely.
 4. One approving review is required before merging.
 

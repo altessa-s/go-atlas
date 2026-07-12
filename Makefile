@@ -152,22 +152,8 @@ clean: ## Remove generated artifacts (coverage.out, bench.txt)
 .PHONY: copyright
 copyright: ## Add copyright header to all files
 	@echo "Updating copyright header to all go files"
+	@cd devtools && go install github.com/altessa-s/go-copyright-checker
 	go-copyright-checker check --fix .
-
-.PHONY: changelog
-changelog: ## Update changelog
-	@echo "Updating CHANGELOG file"
-	@cd devtools && go install github.com/git-chglog/git-chglog/cmd/git-chglog
-	git-chglog --next-tag=$(CHANGELOG_NEXT_VERSION) -o CHANGELOG.md
-
-.PHONY: precommit-install
-precommit-install: ## Install pre-commit hooks
-	@pip3 install pre-commit
-	@pre-commit install
-
-.PHONY: precommit-run
-precommit-run: ## Run pre-commit hooks
-	@pre-commit run --all-files
 
 .PHONY: release
 release: ## Semantic versioning - create and push a new release tag
