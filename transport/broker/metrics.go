@@ -5,6 +5,8 @@
 package broker
 
 import (
+	"sync"
+
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
@@ -15,6 +17,32 @@ type brokerMetrics struct {
 	messagesPublished metrics.Counter
 	publishErrors     metrics.Counter
 	publishDuration   metrics.Timer
+
+	// published and errors cache label-bound counters per subject so the
+	// per-publish path does not rebuild the label map on every message.
+	// Cardinality is bounded by the set of subjects the service publishes to.
+	published sync.Map // string → metrics.Counter
+	errors    sync.Map // string → metrics.Counter
+}
+
+// publishedFor returns the messagesPublished counter bound to the subject,
+// binding the label set on first use.
+func (m *brokerMetrics) publishedFor(subject string) metrics.Counter {
+	if v, ok := m.published.Load(subject); ok {
+		return v.(metrics.Counter) //nolint:errcheck
+	}
+	v, _ := m.published.LoadOrStore(subject, m.messagesPublished.WithLabels(metrics.Labels{"subject": subject}))
+	return v.(metrics.Counter) //nolint:errcheck
+}
+
+// errorsFor returns the publishErrors counter bound to the subject,
+// binding the label set on first use.
+func (m *brokerMetrics) errorsFor(subject string) metrics.Counter {
+	if v, ok := m.errors.Load(subject); ok {
+		return v.(metrics.Counter) //nolint:errcheck
+	}
+	v, _ := m.errors.LoadOrStore(subject, m.publishErrors.WithLabels(metrics.Labels{"subject": subject}))
+	return v.(metrics.Counter) //nolint:errcheck
 }
 
 func newBrokerMetrics(c metrics.Collector) *brokerMetrics {

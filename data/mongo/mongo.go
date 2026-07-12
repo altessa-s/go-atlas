@@ -23,7 +23,6 @@ import (
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/data/mongo/kms"
 	"github.com/altessa-s/go-atlas/domain/converter"
-	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	"golang.org/x/sync/singleflight"
 
@@ -466,9 +465,9 @@ func GetEntity[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collectio
 		return zero, err
 	}
 
-	opLabels := metrics.Labels{"op": "find_one", "collection": col.Name()}
-	m.metrics.operationsTotal.WithLabels(opLabels).Inc()
-	stopOp := m.metrics.operationDuration.WithLabels(opLabels).Start()
+	op := m.metrics.operation("find_one", col.Name())
+	op.total.Inc()
+	stopOp := op.duration.Start()
 	defer stopOp()
 
 	// Generate a deduplication key from filter for singleflight request deduplication.
@@ -557,9 +556,9 @@ func GetEntities[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collect
 		return nil, err
 	}
 
-	opLabels := metrics.Labels{"op": "find", "collection": col.Name()}
-	m.metrics.operationsTotal.WithLabels(opLabels).Inc()
-	stopOp := m.metrics.operationDuration.WithLabels(opLabels).Start()
+	op := m.metrics.operation("find", col.Name())
+	op.total.Inc()
+	stopOp := op.duration.Start()
 	defer stopOp()
 
 	// Generate a deduplication key from filter for singleflight request deduplication.

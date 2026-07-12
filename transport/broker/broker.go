@@ -9,7 +9,6 @@ import (
 	"errors"
 	"log/slog"
 
-	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/transport/broker/msg"
 )
 
@@ -70,7 +69,7 @@ func (b *Broker) Publish(ctx context.Context, msg msg.Message) error {
 		b.recordPublishError(err, msg)
 		return err
 	}
-	b.metrics.messagesPublished.WithLabels(metrics.Labels{"subject": msg.Topic}).Inc()
+	b.metrics.publishedFor(msg.Topic).Inc()
 	return nil
 }
 
@@ -89,7 +88,7 @@ func (b *Broker) PublishBatch(ctx context.Context, msgs ...msg.Message) error {
 		return err
 	}
 	for _, m := range msgs {
-		b.metrics.messagesPublished.WithLabels(metrics.Labels{"subject": m.Topic}).Inc()
+		b.metrics.publishedFor(m.Topic).Inc()
 	}
 	return nil
 }
@@ -124,7 +123,7 @@ func (b *Broker) PublishAny(ctx context.Context, m ...any) error {
 		return err
 	}
 	for _, m := range msgs {
-		b.metrics.messagesPublished.WithLabels(metrics.Labels{"subject": m.Topic}).Inc()
+		b.metrics.publishedFor(m.Topic).Inc()
 	}
 	return nil
 }
@@ -145,7 +144,7 @@ func (b *Broker) Subscriber(factory SubscriberFactory) Subscriber {
 // the message subject.
 func (b *Broker) recordPublishError(err error, mm ...msg.Message) {
 	for _, m := range mm {
-		b.metrics.publishErrors.WithLabels(metrics.Labels{"subject": m.Topic}).Inc()
+		b.metrics.errorsFor(m.Topic).Inc()
 		b.logger.Error("publish failed",
 			slog.String("subject", m.Topic),
 			slog.Any("error", err))

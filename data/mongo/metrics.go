@@ -5,6 +5,8 @@
 package mongo
 
 import (
+	"sync"
+
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
@@ -18,6 +20,32 @@ type mongoMetrics struct {
 	transactionErrors   metrics.Counter
 	operationsTotal     metrics.Counter
 	operationDuration   metrics.Timer
+
+	// ops caches label-bound operation handles per "op:collection" key so the
+	// per-query path does not rebuild the label map and wrapper on every call.
+	// Cardinality is bounded by ops × collections.
+	ops sync.Map // string → *opMetrics
+}
+
+// opMetrics bundles the handles for one (op, collection) label pair.
+type opMetrics struct {
+	total    metrics.Counter
+	duration metrics.Timer
+}
+
+// operation returns the cached handles for the given operation and collection,
+// binding the label set on first use.
+func (m *mongoMetrics) operation(op, collection string) *opMetrics {
+	key := op + ":" + collection
+	if v, ok := m.ops.Load(key); ok {
+		return v.(*opMetrics) //nolint:errcheck
+	}
+	labels := metrics.Labels{"op": op, "collection": collection}
+	v, _ := m.ops.LoadOrStore(key, &opMetrics{
+		total:    m.operationsTotal.WithLabels(labels),
+		duration: m.operationDuration.WithLabels(labels),
+	})
+	return v.(*opMetrics) //nolint:errcheck
 }
 
 func newMongoMetrics(c metrics.Collector) *mongoMetrics {

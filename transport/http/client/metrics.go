@@ -5,6 +5,8 @@
 package client
 
 import (
+	"sync"
+
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
@@ -26,6 +28,44 @@ type httpClientMetrics struct {
 	requestDuration     metrics.Timer
 	circuitBreakerTrips metrics.Counter
 	circuitBreakerState metrics.Gauge
+
+	// Per-request label sets are cached so the hot RoundTrip path does not
+	// rebuild label maps per call. Cardinality is bounded by HTTP methods
+	// (× 5 status classes for totals).
+	durations sync.Map // method → metrics.Timer
+	totals    sync.Map // method+":"+status_class → metrics.Counter
+	errors    sync.Map // method → metrics.Counter
+}
+
+// durationFor returns the requestDuration timer bound to the method label,
+// binding it on first use.
+func (m *httpClientMetrics) durationFor(method string) metrics.Timer {
+	if v, ok := m.durations.Load(method); ok {
+		return v.(metrics.Timer) //nolint:errcheck
+	}
+	v, _ := m.durations.LoadOrStore(method, m.requestDuration.WithLabels(metrics.Labels{"method": method}))
+	return v.(metrics.Timer) //nolint:errcheck
+}
+
+// totalFor returns the requestsTotal counter bound to the (method,
+// status_class) label pair, binding it on first use.
+func (m *httpClientMetrics) totalFor(method, statusClass string) metrics.Counter {
+	key := method + ":" + statusClass
+	if v, ok := m.totals.Load(key); ok {
+		return v.(metrics.Counter) //nolint:errcheck
+	}
+	v, _ := m.totals.LoadOrStore(key, m.requestsTotal.WithLabels(metrics.Labels{"method": method, "status_class": statusClass}))
+	return v.(metrics.Counter) //nolint:errcheck
+}
+
+// errorsFor returns the requestErrors counter bound to the method label,
+// binding it on first use.
+func (m *httpClientMetrics) errorsFor(method string) metrics.Counter {
+	if v, ok := m.errors.Load(method); ok {
+		return v.(metrics.Counter) //nolint:errcheck
+	}
+	v, _ := m.errors.LoadOrStore(method, m.requestErrors.WithLabels(metrics.Labels{"method": method}))
+	return v.(metrics.Counter) //nolint:errcheck
 }
 
 func newHTTPClientMetrics(c metrics.Collector, subsystem string) *httpClientMetrics {
