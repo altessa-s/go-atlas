@@ -94,6 +94,20 @@ if err := mgr.Quarantine("broken-plugin"); err != nil {
 | `WithSandbox`          | disabled             | Linux process-hardening primitives                                                   |
 | `WithSignature`        | SignatureRequire     | Cryptographic .so.sig verification (default: require signature)                      |
 
+## Security
+
+Loading a plugin executes arbitrary native code in the host process: `plugin.Open` runs the plugin's `init` functions before the manager can
+inspect anything, and Go cannot unload a plugin. Treat every `.so` under the configured directory as fully trusted code from the same supply
+chain as the host binary:
+
+- Restrict the plugin directory to a path writable only by the deployer (not the application user); in production prefer a read-only mount.
+- Never load plugins from user uploads, network shares, or world-writable locations.
+- Keep signature verification in its default `SignatureRequire` mode.
+
+With signatures enabled the manager verifies the detached `.sig` before `plugin.Open` and re-hashes the file after it, quarantining the plugin
+on mismatch (`ErrPluginModified`). This narrows — but cannot fully close — the TOCTOU window of Go's path-based plugin API; filesystem
+permissions remain the primary control. See the Security section in the [package documentation](doc.go) for the full threat model.
+
 ## Platform support
 
 Plugin loading is supported on `darwin` and `linux` only (Go `plugin` package

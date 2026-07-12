@@ -68,6 +68,16 @@ var (
 	// (different SHA256). See [Manager.Quarantine] and [Manager.Quarantined].
 	ErrPluginQuarantined = errors.New("plugin quarantined")
 
+	// ErrPluginModified is returned when the plugin file's hash after
+	// [plugin.Open] differs from the hash that passed signature
+	// verification, i.e. the file was swapped on disk inside the
+	// verify→open window (TOCTOU). The plugin is quarantined under the
+	// new hash and never registered. Note that the swapped file's init
+	// code has already run inside plugin.Open — Go cannot unload a
+	// plugin — so filesystem permissions remain the primary control; see
+	// the Security section in the package documentation.
+	ErrPluginModified = errors.New("plugin file changed between signature verification and load")
+
 	// ErrManagerClosed is returned when operations are attempted on a closed manager.
 	ErrManagerClosed = errors.New("plugin manager is closed")
 
