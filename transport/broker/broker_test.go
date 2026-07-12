@@ -7,6 +7,7 @@ package broker_test
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"slices"
 	"sync"
 	"testing"
@@ -89,6 +90,45 @@ func (o *recordingOutbox) messages() []msg.Message {
 	o.mu.Lock()
 	defer o.mu.Unlock()
 	return slices.Clone(o.published)
+}
+
+// capturingHandler is a slog.Handler that records every log record for assertions.
+type capturingHandler struct {
+	mu      sync.Mutex
+	records []slog.Record
+}
+
+func (h *capturingHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *capturingHandler) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.records = append(h.records, r)
+	return nil
+}
+
+func (h *capturingHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *capturingHandler) WithGroup(string) slog.Handler      { return h }
+
+func (h *capturingHandler) snapshot() []slog.Record {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return slices.Clone(h.records)
+}
+
+// attrValue returns the string form of the named attribute of r, if present.
+func attrValue(r slog.Record, key string) (string, bool) {
+	var val string
+	var found bool
+	r.Attrs(func(a slog.Attr) bool {
+		if a.Key == key {
+			val = a.Value.String()
+			found = true
+			return false
+		}
+		return true
+	})
+	return val, found
 }
 
 func topics(mm []msg.Message) []string {
@@ -212,12 +252,21 @@ func TestPublishBatch_Metrics_Error(t *testing.T) {
 	tc := testhelpers.NewTestCollector()
 	b := broker.New(&recordingProvider{err: errPublish}, broker.WithCollector(tc))
 
-	require.ErrorIs(t, b.PublishBatch(t.Context(), msg.Message{Topic: "orders"}), errPublish)
+	err := b.PublishBatch(t.Context(),
+		msg.Message{Topic: "orders"},
+		msg.Message{Topic: "events"},
+	)
+	require.ErrorIs(t, err, errPublish)
 
-	// Pins current behavior: batch failures increment the error counter
-	// without the "subject" label.
-	failed := testhelpers.GetCounterValue(t, tc, "test_broker_publish_errors_total")
-	require.Equal(t, float64(1), failed)
+	// Batch failures attribute the error to every affected subject.
+	orders := testhelpers.GetCounterValue(t, tc, "test_broker_publish_errors_total", "subject", "orders")
+	require.Equal(t, float64(1), orders)
+
+	events := testhelpers.GetCounterValue(t, tc, "test_broker_publish_errors_total", "subject", "events")
+	require.Equal(t, float64(1), events)
+
+	unlabeled := testhelpers.GetCounterValue(t, tc, "test_broker_publish_errors_total")
+	require.Zero(t, unlabeled)
 
 	published := testhelpers.GetCounterValue(t, tc, "test_broker_messages_published_total", "subject", "orders")
 	require.Zero(t, published)
@@ -275,9 +324,11 @@ func TestPublishAny_ConversionError(t *testing.T) {
 	}
 
 	tc := testhelpers.NewTestCollector()
+	logs := &capturingHandler{}
 	b := broker.New(provider,
 		broker.WithPublishConverter(converter),
 		broker.WithCollector(tc),
+		broker.WithLogger(slog.New(logs)),
 	)
 
 	err := b.PublishAny(t.Context(), "ok", "bad")
@@ -290,6 +341,11 @@ func TestPublishAny_ConversionError(t *testing.T) {
 
 	observations := testhelpers.GetHistogramCount(t, tc, "test_broker_publish_duration_seconds")
 	require.Zero(t, observations)
+
+	// The conversion failure is still logged at Error level.
+	records := logs.snapshot()
+	require.Len(t, records, 1)
+	require.Equal(t, slog.LevelError, records[0].Level)
 }
 
 func TestPublishAny_PublishError(t *testing.T) {
@@ -308,10 +364,32 @@ func TestPublishAny_PublishError(t *testing.T) {
 
 	require.ErrorIs(t, b.PublishAny(t.Context(), "payload"), errPublish)
 
-	// Pins current behavior: PublishAny failures increment the error counter
-	// without the "subject" label.
-	failed := testhelpers.GetCounterValue(t, tc, "test_broker_publish_errors_total")
+	// PublishAny failures attribute the error to the converted message's subject.
+	failed := testhelpers.GetCounterValue(t, tc, "test_broker_publish_errors_total", "subject", "events")
 	require.Equal(t, float64(1), failed)
+
+	unlabeled := testhelpers.GetCounterValue(t, tc, "test_broker_publish_errors_total")
+	require.Zero(t, unlabeled)
+}
+
+func TestPublish_Error_LogsSubject(t *testing.T) {
+	t.Parallel()
+
+	logs := &capturingHandler{}
+	b := broker.New(&recordingProvider{err: errPublish}, broker.WithLogger(slog.New(logs)))
+
+	require.ErrorIs(t, b.Publish(t.Context(), msg.Message{Topic: "orders"}), errPublish)
+
+	records := logs.snapshot()
+	require.Len(t, records, 1)
+	require.Equal(t, slog.LevelError, records[0].Level)
+
+	subject, ok := attrValue(records[0], "subject")
+	require.True(t, ok, "log record must carry the subject attribute")
+	require.Equal(t, "orders", subject)
+
+	_, ok = attrValue(records[0], "error")
+	require.True(t, ok, "log record must carry the error attribute")
 }
 
 func TestSubscriber_DelegatesToProvider(t *testing.T) {

@@ -66,12 +66,11 @@ func (b *Broker) Publish(ctx context.Context, msg msg.Message) error {
 	stop := b.metrics.publishDuration.Start()
 	err := b.outbox.Publish(ctx, msg)
 	stop()
-	labels := metrics.Labels{"subject": msg.Topic}
 	if err != nil {
-		b.metrics.publishErrors.WithLabels(labels).Inc()
+		b.recordPublishError(err, msg)
 		return err
 	}
-	b.metrics.messagesPublished.WithLabels(labels).Inc()
+	b.metrics.messagesPublished.WithLabels(metrics.Labels{"subject": msg.Topic}).Inc()
 	return nil
 }
 
@@ -86,7 +85,7 @@ func (b *Broker) PublishBatch(ctx context.Context, msgs ...msg.Message) error {
 	err := b.outbox.PublishBatch(ctx, msgs...)
 	stop()
 	if err != nil {
-		b.metrics.publishErrors.Inc()
+		b.recordPublishError(err, msgs...)
 		return err
 	}
 	for _, m := range msgs {
@@ -111,6 +110,7 @@ func (b *Broker) PublishAny(ctx context.Context, m ...any) error {
 	for _, v := range m {
 		convertedMsg, err := b.publishConverter(v)
 		if err != nil {
+			b.logger.Error("message conversion failed", slog.Any("error", err))
 			return err
 		}
 		msgs = append(msgs, convertedMsg)
@@ -120,7 +120,7 @@ func (b *Broker) PublishAny(ctx context.Context, m ...any) error {
 	err := b.outbox.PublishBatch(ctx, msgs...)
 	stop()
 	if err != nil {
-		b.metrics.publishErrors.Inc()
+		b.recordPublishError(err, msgs...)
 		return err
 	}
 	for _, m := range msgs {
@@ -138,6 +138,18 @@ func (b *Broker) PublishAny(ctx context.Context, m ...any) error {
 //	sub.Subscribe(ctx, handler)
 func (b *Broker) Subscriber(factory SubscriberFactory) Subscriber {
 	return b.provider.Subscriber(factory)
+}
+
+// recordPublishError records a failed publish attempt for every message in mm:
+// the per-subject error counter is incremented and the failure is logged with
+// the message subject.
+func (b *Broker) recordPublishError(err error, mm ...msg.Message) {
+	for _, m := range mm {
+		b.metrics.publishErrors.WithLabels(metrics.Labels{"subject": m.Topic}).Inc()
+		b.logger.Error("publish failed",
+			slog.String("subject", m.Topic),
+			slog.Any("error", err))
+	}
 }
 
 // nopOutbox is a no-operation Outboxer that publishes directly via the Provider.
