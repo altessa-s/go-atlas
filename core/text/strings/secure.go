@@ -322,27 +322,9 @@ func (ss *SecureString) Clear() {
 
 	if ss.length > 0 {
 		if ss.useInlineStorage {
-			// Clear inline storage with optimized strategy
-			if ss.length <= OptimizedMemoryZeroingThreshold {
-				// Manual loop is faster for small data
-				for i := range ss.length {
-					ss.inline[i] = ZeroByte
-				}
-			} else {
-				// Use clear() builtin for larger data
-				clear(ss.inline[:ss.length])
-			}
+			ZeroBytes(ss.inline[:ss.length])
 		} else if ss.data != nil {
-			// Clear heap storage with optimized strategy
-			if len(ss.data) <= OptimizedMemoryZeroingThreshold {
-				// Manual loop is faster for small data
-				for i := range ss.data {
-					ss.data[i] = ZeroByte
-				}
-			} else {
-				// Use clear() builtin for larger data (2-3x faster)
-				clear(ss.data)
-			}
+			ZeroBytes(ss.data)
 			ss.data = nil
 		}
 		ss.length = 0
