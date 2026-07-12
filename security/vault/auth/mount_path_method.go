@@ -8,7 +8,6 @@ import (
 	"context"
 
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
-
 	vaultApi "github.com/hashicorp/vault/api"
 )
 

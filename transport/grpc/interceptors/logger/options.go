@@ -10,10 +10,10 @@ import (
 	"log/slog"
 	"regexp"
 
-	"google.golang.org/protobuf/proto"
-
 	"github.com/altessa-s/go-atlas/core/time/timeformat"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/defaults"
+
+	"google.golang.org/protobuf/proto"
 )
 
 // Use defaults package for optgen code generation

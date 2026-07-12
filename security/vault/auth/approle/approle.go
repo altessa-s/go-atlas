@@ -9,9 +9,9 @@ import (
 
 	"github.com/hashicorp/vault/api/auth/approle"
 
-	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 	"github.com/altessa-s/go-atlas/security/vault/auth"
 
+	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 	vaultApi "github.com/hashicorp/vault/api"
 )
 
