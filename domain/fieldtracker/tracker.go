@@ -355,8 +355,9 @@ func (ft *Tracker) compareSliceFast(before, after reflect.Value, prefix string, 
 	var indexBuf [IndexBufferSize]byte
 	buf := indexBuf[:0]
 
-	for i := range before.Len() {
-		// Build path with index
+	// buildPath materializes the "prefix[i]" path string. It is called lazily —
+	// only for elements that actually need a reported path.
+	buildPath := func(i int) string {
 		buf = strconv.AppendInt(buf[:0], int64(i), 10)
 
 		itemPath := make([]byte, 0, len(prefix)+len(buf)+2)
@@ -364,20 +365,60 @@ func (ft *Tracker) compareSliceFast(before, after reflect.Value, prefix string, 
 		itemPath = append(itemPath, '[')
 		itemPath = append(itemPath, buf...)
 		itemPath = append(itemPath, ']')
+		return string(itemPath)
+	}
 
+	for i := range before.Len() {
 		beforeItem := before.Index(i)
 		afterItem := after.Index(i)
 
-		pathStr := string(itemPath)
+		// Compare primitive elements before building their path: on the common
+		// all-equal diff the loop is then allocation-free instead of paying two
+		// path allocations per element.
+		if eq, ok := primitiveEqual(beforeItem, afterItem); ok {
+			if !eq {
+				if pathStr := buildPath(i); !ft.isIgnored(pathStr) {
+					*changed = append(*changed, pathStr)
+				}
+			}
+			continue
+		}
+
+		pathStr := buildPath(i)
 		if beforeItem.Kind() == reflect.Struct {
 			ft.compareStructsFast(beforeItem, afterItem, pathStr, changed, depth)
 		} else if !ft.fastCompare(beforeItem, afterItem, pathStr, changed, depth) {
-			if _, ok := ft.opts.ignoreFields[pathStr]; !ok {
+			if !ft.isIgnored(pathStr) {
 				*changed = append(*changed, pathStr)
 			}
 		}
 	}
 	return true
+}
+
+// isIgnored reports whether path is in the configured ignore set.
+func (ft *Tracker) isIgnored(path string) bool {
+	_, ok := ft.opts.ignoreFields[path]
+	return ok
+}
+
+// primitiveEqual reports whether both values are of a directly comparable
+// primitive kind (ok) and, if so, whether they are equal.
+func primitiveEqual(before, after reflect.Value) (equal, ok bool) {
+	switch before.Kind() {
+	case reflect.String:
+		return before.String() == after.String(), true
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return before.Int() == after.Int(), true
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return before.Uint() == after.Uint(), true
+	case reflect.Float32, reflect.Float64:
+		return before.Float() == after.Float(), true
+	case reflect.Bool:
+		return before.Bool() == after.Bool(), true
+	default:
+		return false, false
+	}
 }
 
 // compareMapFast optimized map comparison
