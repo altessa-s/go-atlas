@@ -6,6 +6,7 @@ package memory
 
 import (
 	"context"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,7 +19,12 @@ import (
 
 // bucket represents a sliding window bucket for rate limiting.
 type bucket struct {
+	// requests holds request timestamps in non-decreasing order (time.Now is
+	// monotonic and appends happen under the provider lock). Live entries are
+	// requests[head:]; the prefix before head is expired and reclaimed by
+	// amortized compaction in Allow.
 	requests []time.Time
+	head     int
 	limit    int64
 	window   time.Duration
 	lastUsed time.Time
@@ -82,20 +88,24 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 
 	cutoff := now.Add(-period)
 
-	// In-place compaction: two-pointer technique avoids allocating a new slice.
-	n := 0
-	for _, reqTime := range b.requests {
-		if reqTime.After(cutoff) {
-			b.requests[n] = reqTime
-			n++
-		}
+	// Timestamps are sorted (see bucket.requests), so the expired prefix ends
+	// at a binary-searchable index — O(log n) instead of rescanning the whole
+	// window on every call.
+	live := b.requests[b.head:]
+	b.head += sort.Search(len(live), func(i int) bool { return live[i].After(cutoff) })
+
+	// Compact once the expired prefix dominates, keeping the backing array
+	// bounded at ~2x the live window with amortized O(1) cost per call.
+	if b.head > len(b.requests)/2 {
+		kept := copy(b.requests, b.requests[b.head:])
+		b.requests = b.requests[:kept]
+		b.head = 0
 	}
-	b.requests = b.requests[:n]
-	validRequests := n
+	validRequests := len(b.requests) - b.head
 
 	resetTime := uint64(0)
-	if len(b.requests) > 0 {
-		resetTime = uint64(b.requests[0].Add(period).Unix()) // #nosec G115 -- Unix timestamps are positive
+	if validRequests > 0 {
+		resetTime = uint64(b.requests[b.head].Add(period).Unix()) // #nosec G115 -- Unix timestamps are positive
 	}
 
 	// Check if rate limit is exceeded
@@ -121,7 +131,7 @@ func (p *Provider) Allow(ctx context.Context, key string, limit int64, period ti
 
 	// Calculate remaining after adding this request
 	info := &storages.LimitInfo{
-		Remaining: max(limit-int64(len(b.requests)), 0),
+		Remaining: max(limit-int64(len(b.requests)-b.head), 0),
 		Reset:     int64(resetTime), // #nosec G115 -- resetTime is Unix seconds, fits int64
 	}
 
@@ -138,6 +148,7 @@ func (p *Provider) Reset(ctx context.Context, key string) error {
 
 	if b, exists := p.buckets[key]; exists {
 		b.requests = b.requests[:0]
+		b.head = 0
 	}
 
 	return nil
