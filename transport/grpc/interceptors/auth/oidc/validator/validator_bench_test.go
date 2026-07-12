@@ -6,11 +6,38 @@ package validator
 
 import "testing"
 
+// BenchmarkDefaultValidator_ValidateToken measures the validator happy path
+// with a minimal claim set.
+func BenchmarkDefaultValidator_ValidateToken(b *testing.B) {
+	p := &mockProvider{claims: map[string]any{"sub": "user1"}}
+	v := NewDefaultValidator(p)
+	ctx := b.Context()
+	b.ReportAllocs()
+	for b.Loop() {
+		v.ValidateToken(ctx, "tok") //nolint:errcheck
+	}
+}
+
+// BenchmarkExtractClaims measures raw claim-map extraction into the typed
+// claims struct.
+func BenchmarkExtractClaims(b *testing.B) {
+	raw := map[string]any{
+		"sub":   "user1",
+		"iss":   "https://issuer",
+		"aud":   "client1",
+		"scope": "openid profile",
+		"exp":   float64(1700000000),
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		extractClaims(raw)
+	}
+}
+
 // BenchmarkDefaultValidator_ValidateToken_FullClaims measures the validator
 // happy path with a representative full OIDC claim set, exercising the claim
 // extraction paths (audience array, scope string, numeric dates). It reuses
-// the mockProvider fixture from validator_test.go; the minimal-claims variant
-// lives there as BenchmarkDefaultValidator_ValidateToken.
+// the mockProvider fixture from validator_test.go.
 func BenchmarkDefaultValidator_ValidateToken_FullClaims(b *testing.B) {
 	p := &mockProvider{claims: map[string]any{
 		"sub":                "user-12345",

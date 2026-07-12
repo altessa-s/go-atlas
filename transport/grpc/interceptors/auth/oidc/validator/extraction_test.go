@@ -123,16 +123,3 @@ func TestExtractClaims_Full(t *testing.T) {
 	require.Len(t, c.Scopes, 2)
 	require.NotNil(t, c.RawClaims, "RawClaims should not be nil")
 }
-
-func BenchmarkExtractClaims(b *testing.B) {
-	raw := map[string]any{
-		"sub":   "user1",
-		"iss":   "https://issuer",
-		"aud":   "client1",
-		"scope": "openid profile",
-		"exp":   float64(1700000000),
-	}
-	for b.Loop() {
-		extractClaims(raw)
-	}
-}
