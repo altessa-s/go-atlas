@@ -91,9 +91,11 @@ func (f Fields) ToSlogArgs() []any {
 
 // ToSlogAttrs converts Fields to slog.Attr slice for LogAttrs().
 func (f Fields) ToSlogAttrs() []slog.Attr {
-	return slices.Collect(coreslices.Map(f, func(field Field) slog.Attr {
-		return slog.Any(field.Key, field.Value)
-	}))
+	attrs := make([]slog.Attr, 0, len(f))
+	for _, field := range f {
+		attrs = append(attrs, slog.Any(field.Key, field.Value))
+	}
+	return attrs
 }
 
 // fieldsWrapper wraps Fields with a mutex for thread-safe access.
@@ -178,10 +180,16 @@ func FieldsToAttrs(fields Fields) []slog.Attr {
 			continue
 		}
 
-		parts := strings.Split(key, ".")
+		// Walk the dot-separated segments in place (no strings.Split allocation).
 		current := root
-		for i := range len(parts) - 1 {
-			part := parts[i]
+		rest := key
+		for {
+			i := strings.IndexByte(rest, '.')
+			if i < 0 {
+				break
+			}
+			part := rest[:i]
+			rest = rest[i+1:]
 			next, ok := current[part]
 			if !ok {
 				child := make(map[string]any)
@@ -198,9 +206,8 @@ func FieldsToAttrs(fields Fields) []slog.Attr {
 			current = child
 		}
 
-		last := parts[len(parts)-1]
-		if _, exists := current[last]; !exists {
-			current[last] = f.Value
+		if _, exists := current[rest]; !exists {
+			current[rest] = f.Value
 		}
 	}
 
@@ -208,27 +215,15 @@ func FieldsToAttrs(fields Fields) []slog.Attr {
 }
 
 func mapToAttrs(data map[string]any) []slog.Attr {
-	keys := slices.Sorted(maps.Keys(data))
-
-	return slices.Collect(coreslices.Map(keys, func(k string) slog.Attr {
-		v := data[k]
-		switch typed := v.(type) {
-		case map[string]any:
-			return groupAttr(k, typed)
-		default:
-			return valueToAttr(k, typed)
+	attrs := make([]slog.Attr, 0, len(data))
+	for _, k := range slices.Sorted(maps.Keys(data)) {
+		if child, ok := data[k].(map[string]any); ok {
+			attrs = append(attrs, slog.GroupAttrs(k, mapToAttrs(child)...))
+			continue
 		}
-	}))
-}
-
-func groupAttr(key string, data map[string]any) slog.Attr {
-	children := mapToAttrs(data)
-
-	// slog.Group expects a flat list of Attr or key/value pairs.
-	args := slices.Collect(coreslices.Map(children, func(attr slog.Attr) any {
-		return attr
-	}))
-	return slog.Group(key, args...)
+		attrs = append(attrs, valueToAttr(k, data[k]))
+	}
+	return attrs
 }
 
 func valueToAttr(key string, v any) slog.Attr {
