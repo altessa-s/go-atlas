@@ -5,6 +5,9 @@
 package compression
 
 import (
+	"bytes"
+	"compress/gzip"
+	"math/rand/v2"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -86,6 +89,65 @@ func TestNewCompressor_Defaults(t *testing.T) {
 	c := NewCompressor(0, 0, 0)
 	require.Equal(t, DefaultMinSize, c.minSize)
 	require.Equal(t, DefaultLevel, c.compressionLevel)
+}
+
+// TestGzipCompressor_Decompress_ActualOutputExceedsDeclaredSize verifies that a
+// crafted blob whose declared OriginalSize passes the compression-ratio gates
+// but whose gzip stream actually expands far beyond it is rejected instead of
+// being decompressed unbounded (zip-bomb protection on the small-payload path).
+func TestGzipCompressor_Decompress_ActualOutputExceedsDeclaredSize(t *testing.T) {
+	gzipBytes := func(t *testing.T, payload []byte) []byte {
+		t.Helper()
+		var buf bytes.Buffer
+		w := gzip.NewWriter(&buf)
+		_, err := w.Write(payload)
+		require.NoError(t, err)
+		require.NoError(t, w.Close())
+		return buf.Bytes()
+	}
+
+	tests := []struct {
+		name         string
+		payload      func() []byte
+		declaredSize int
+	}{
+		{
+			// Zeros compress to a few KB, keeping the blob below
+			// maxPooledBufferSize: exercises the pooled io.ReadAll path.
+			name:         "small_compressed_blob",
+			payload:      func() []byte { return make([]byte, 4*1024*1024) },
+			declaredSize: 40 * 1024,
+		},
+		{
+			// Incompressible data keeps the compressed blob above
+			// maxPooledBufferSize: exercises the streaming path.
+			name: "large_compressed_blob",
+			payload: func() []byte {
+				r := rand.New(rand.NewPCG(1, 2))
+				p := make([]byte, 3*1024*1024)
+				for i := range p {
+					p[i] = byte(r.UintN(256))
+				}
+				return p
+			},
+			declaredSize: 512 * 1024,
+		},
+	}
+
+	c := NewCompressor(10, 0, 6)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			blob, err := encodeCompressedData(compressedData{
+				Metadata: Metadata{IsCompressed: true, OriginalSize: tt.declaredSize},
+				Data:     gzipBytes(t, tt.payload()),
+			})
+			require.NoError(t, err)
+
+			_, err = c.Decompress(t.Context(), blob)
+			require.ErrorIs(t, err, ErrBufferSizeExceeded)
+		})
+	}
 }
 
 func BenchmarkGzipCompressor_Compress(b *testing.B) {
