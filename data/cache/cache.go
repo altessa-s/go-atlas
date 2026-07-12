@@ -14,7 +14,6 @@ import (
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/core/text/strings"
 	"github.com/altessa-s/go-atlas/data/cache/providers/noop"
-	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	"golang.org/x/sync/semaphore"
 	"golang.org/x/sync/singleflight"
@@ -56,7 +55,6 @@ type Cache struct {
 	fallbackSem  *semaphore.Weighted // nil when maxConcurrentFallbacks <= 0
 	serializer   serializer.Serializer
 	metrics      *cacheMetrics
-	metricLabels metrics.Labels
 	keyNamespace KeyNamespaceFunc // nil = no per-context namespacing
 }
 
@@ -77,8 +75,7 @@ func New(p Provider, opts ...Option) *Cache {
 		negativeTtl:  options.negativeTtl,
 		group:        &singleflight.Group{},
 		serializer:   options.serializer,
-		metrics:      newCacheMetrics(options.collector),
-		metricLabels: metrics.Labels{"cache_name": options.name},
+		metrics:      newCacheMetrics(options.collector, options.name),
 		keyNamespace: options.keyNamespace,
 	}
 	if options.maxConcurrentFallbacks > 0 {
@@ -154,17 +151,17 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 	val, err := c.provider.Get(ctx, ek)
 	if err == nil {
 		if isNegativeSentinel(val) {
-			c.metrics.negativeHits.WithLabels(c.metricLabels).Inc()
+			c.metrics.negativeHits.Inc()
 			return ErrMissing
 		}
-		c.metrics.hits.WithLabels(c.metricLabels).Inc()
+		c.metrics.hits.Inc()
 		return c.serializer.Deserialize(val, value)
 	} else if !errors.Is(err, ErrMissing) {
-		c.metrics.errors.WithLabels(c.metricLabels).Inc()
+		c.metrics.errors.Inc()
 		return err
 	}
 
-	c.metrics.misses.WithLabels(c.metricLabels).Inc()
+	c.metrics.misses.Inc()
 
 	// Bound the total number of in-flight fallbacks across all keys.
 	// singleflight only collapses requests for the SAME key — an
@@ -174,7 +171,7 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 	// timeouts rather than indefinite waits.
 	if c.fallbackSem != nil {
 		if err = c.fallbackSem.Acquire(ctx, 1); err != nil {
-			c.metrics.errors.WithLabels(c.metricLabels).Inc()
+			c.metrics.errors.Inc()
 			return err
 		}
 		defer c.fallbackSem.Release(1)
@@ -193,7 +190,7 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 			// re-ran the fallback.
 			if errors.Is(fErr, ErrMissing) && c.negativeTtl > 0 {
 				if sErr := c.provider.Save(ctx, ek, negativeSentinel, c.negativeTtl); sErr != nil {
-					c.metrics.errors.WithLabels(c.metricLabels).Inc()
+					c.metrics.errors.Inc()
 				}
 			}
 			return nil, fErr
@@ -202,7 +199,7 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 		if vv := reflect.ValueOf(val); vv.Kind() == reflect.Pointer && vv.IsNil() {
 			if c.negativeTtl > 0 {
 				if sErr := c.provider.Save(ctx, ek, negativeSentinel, c.negativeTtl); sErr != nil {
-					c.metrics.errors.WithLabels(c.metricLabels).Inc()
+					c.metrics.errors.Inc()
 				}
 			}
 			return nil, ErrMissing
@@ -307,19 +304,19 @@ func (c *Cache) Get(ctx context.Context, key string, value any) error {
 	data, err := c.provider.Get(ctx, c.effectiveKey(ctx, key))
 	if err != nil {
 		if errors.Is(err, ErrMissing) {
-			c.metrics.misses.WithLabels(c.metricLabels).Inc()
+			c.metrics.misses.Inc()
 		} else {
-			c.metrics.errors.WithLabels(c.metricLabels).Inc()
+			c.metrics.errors.Inc()
 		}
 		return err
 	}
 
 	if isNegativeSentinel(data) {
-		c.metrics.negativeHits.WithLabels(c.metricLabels).Inc()
+		c.metrics.negativeHits.Inc()
 		return ErrMissing
 	}
 
-	c.metrics.hits.WithLabels(c.metricLabels).Inc()
+	c.metrics.hits.Inc()
 	return c.serializer.Deserialize(data, value)
 }
 

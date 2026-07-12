@@ -16,8 +16,6 @@ import (
 
 	"github.com/sony/gobreaker/v2"
 
-	"github.com/altessa-s/go-atlas/observability/metrics"
-
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	coreio "github.com/altessa-s/go-atlas/core/io"
 	coreretry "github.com/altessa-s/go-atlas/core/retry"
@@ -88,7 +86,7 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 
 	ctx := req.Context()
 	method := req.Method
-	stop := rt.metrics.requestDuration.WithLabels(metrics.Labels{"method": method}).Start()
+	stop := rt.metrics.durationFor(method).Start()
 	defer stop()
 
 	var retryAttempts int
@@ -174,12 +172,12 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	if lastResp != nil {
 		statusClass = statusToClass(lastResp.StatusCode)
 	}
-	rt.metrics.requestsTotal.WithLabels(metrics.Labels{"method": method, "status_class": statusClass}).Inc()
+	rt.metrics.totalFor(method, statusClass).Inc()
 	rt.health.recordRequest(req.URL.Hostname(), retryAttempts > 0)
 
 	// Handle retry exhaustion.
 	if retryErr != nil && lastResp == nil {
-		rt.metrics.requestErrors.WithLabels(metrics.Labels{"method": method}).Inc()
+		rt.metrics.errorsFor(method).Inc()
 		if rt.errorHandler != nil {
 			return rt.errorHandler(nil, retryErr, rt.maxAttempts+1)
 		}
@@ -187,7 +185,7 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	}
 
 	if retryErr != nil {
-		rt.metrics.requestErrors.WithLabels(metrics.Labels{"method": method}).Inc()
+		rt.metrics.errorsFor(method).Inc()
 		// We have a response but also an error (e.g., retryable status exhausted).
 		if rt.errorHandler != nil {
 			return rt.errorHandler(lastResp, retryErr, rt.maxAttempts+1)
