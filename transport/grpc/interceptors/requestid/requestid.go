@@ -7,7 +7,6 @@ package requestid
 import (
 	"context"
 	"errors"
-	"sync"
 
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/internal/requestid"
@@ -35,44 +34,6 @@ var ID = interceptors.Ref(interceptorName)
 // the generator is not configured to generate missing IDs. The error is surfaced
 // as a gRPC [codes.InvalidArgument] status.
 var ErrInvalidRequestId = errors.New("invalid request ID, it must be a UUID v4")
-
-// MaxMetadataPoolSize is the maximum size of metadata maps that will be returned to the pool.
-const MaxMetadataPoolSize = 10
-
-// metadataPool reduces allocations for metadata operations.
-var metadataPool = sync.Pool{
-	New: func() any {
-		return metadata.New(nil)
-	},
-}
-
-// getMetadata returns a clean metadata map from the pool.
-func getMetadata() metadata.MD {
-	md := metadataPool.Get().(metadata.MD) //nolint:errcheck
-	// Clear any existing entries using modern range iteration
-	for k := range md {
-		delete(md, k)
-	}
-	return md
-}
-
-// putMetadata returns a metadata map to the pool.
-func putMetadata(md metadata.MD) {
-	if len(md) > MaxMetadataPoolSize {
-		return // Prevent memory leaks from oversized maps
-	}
-	metadataPool.Put(md)
-}
-
-// GetMetadata returns a clean metadata map from the pool (exported for testing).
-func GetMetadata() metadata.MD {
-	return getMetadata()
-}
-
-// PutMetadata returns a metadata map to the pool (exported for testing).
-func PutMetadata(md metadata.MD) {
-	putMetadata(md)
-}
 
 // grpcHeaderGetter adapts gRPC metadata to the HeaderGetter interface.
 type grpcHeaderGetter struct {
@@ -217,16 +178,16 @@ func (i *interceptor) clientAttachRequestID(ctx context.Context) context.Context
 		return ctx // No ID and generation disabled, return original context
 	}
 
-	// If we have a request ID, attach it to outgoing metadata
+	// If we have a request ID, attach it to outgoing metadata. The metadata
+	// map must stay live for the whole RPC, so it is built fresh here — never
+	// pooled and recycled.
 	var md metadata.MD
 	if existingMD, ok := metadata.FromOutgoingContext(ctx); ok {
 		md = existingMD.Copy()
+		md.Set(i.gen.HeaderName(), reqID)
 	} else {
-		md = getMetadata()
-		defer putMetadata(md)
+		md = metadata.Pairs(i.gen.HeaderName(), reqID)
 	}
-
-	md.Set(i.gen.HeaderName(), reqID)
 	return metadata.NewOutgoingContext(ctx, md)
 }
 
