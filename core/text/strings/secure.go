@@ -322,7 +322,11 @@ func (ss *SecureString) Clear() {
 
 	if ss.length > 0 {
 		if ss.useInlineStorage {
-			ZeroBytes(ss.inline[:ss.length])
+			// Zero the entire inline array, not just [:length]: a pooled
+			// SecureString reused for a shorter secret would otherwise leave
+			// the previous (longer) plaintext's tail bytes intact in the
+			// pooled backing array.
+			ZeroBytes(ss.inline[:])
 		} else if ss.data != nil {
 			ZeroBytes(ss.data)
 			ss.data = nil
