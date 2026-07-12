@@ -30,9 +30,13 @@ func capitalizeFirst(s string) string {
 
 // derivePackageName extracts the package name from an import path.
 // Handles special cases:
-//   - Versioned imports: github.com/redis/go-redis/v9 → redis
+//   - Versioned imports: github.com/redis/go-redis/v9 → go-redis
 //   - .go suffix: github.com/nats-io/nats.go → nats
 //   - Regular imports: github.com/foo/bar → bar
+//
+// Note that the result is the last meaningful path segment, which may differ
+// from the actual Go package name (e.g. go-redis vs package redis); callers
+// that need the real package name must handle that themselves.
 func derivePackageName(path string) string {
 	parts := strings.Split(path, "/")
 	pkgName := parts[len(parts)-1]

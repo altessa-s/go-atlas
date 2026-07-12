@@ -112,18 +112,33 @@ func parseOptChecks(s string) (map[string]string, error) {
 	if s == "" {
 		return map[string]string{}, nil
 	}
-	out := parseFlagKV(smartSplit(s, ','))
+	parts := smartSplit(s, ',')
+	out := parseFlagKV(parts)
 	if len(out) == 0 {
 		return map[string]string{}, nil
 	}
 
-	if err := validateOptChecks(out); err != nil {
+	if err := validateOptChecks(out, bareKeys(parts)); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func validateOptChecks(m map[string]string) error {
+// bareKeys reports which items were written without an explicit "=value"
+// part. parseFlagKV coerces such items to "true", which is fine for flags but
+// must not satisfy checks that require a value.
+func bareKeys(parts []string) map[string]bool {
+	bare := make(map[string]bool, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" && strings.Index(part, "=") <= 0 {
+			bare[part] = true
+		}
+	}
+	return bare
+}
+
+func validateOptChecks(m map[string]string, bare map[string]bool) error {
 	specs := plugin.CheckSpecs()
 	if len(specs) == 0 {
 		// If no specs are registered (e.g. parser used standalone), don't enforce.
@@ -135,7 +150,7 @@ func validateOptChecks(m map[string]string) error {
 		if !ok {
 			return fmt.Errorf("optcheck: unknown key %q", k)
 		}
-		if spec.RequiresValue && strings.TrimSpace(v) == "" {
+		if spec.RequiresValue && (bare[k] || strings.TrimSpace(v) == "") {
 			return fmt.Errorf("optcheck: %s requires a value", k)
 		}
 	}
