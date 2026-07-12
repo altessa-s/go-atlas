@@ -511,6 +511,28 @@ func setOf(items []string) map[string]struct{} {
 	})
 }
 
+// recheckHashAfterOpen re-reads and re-hashes the plugin file after
+// [plugin.Open] and compares the result against the hash that passed
+// signature verification. Go's plugin API only accepts a path, so the bytes
+// it mapped are not necessarily the bytes that were verified; a mismatch
+// means the file was swapped inside the verify→open window. The file is
+// quarantined — under the new hash, so a subsequent operator fix clears the
+// entry — and [ErrPluginModified] is returned. A double swap that restores
+// the original file before this re-read is not detectable with a path-based
+// API; filesystem permissions remain the primary control.
+func (m *Manager) recheckHashAfterOpen(filename, path, verifiedHash string) error {
+	_, reHash, err := m.readAndHashFileFn(path)
+	if err != nil {
+		m.addQuarantine(filename, "")
+		return coreerrs.Wrapf(err, "plugin %q: re-hash after open", filename)
+	}
+	if reHash != verifiedHash {
+		m.addQuarantine(filename, reHash)
+		return coreerrs.Wrapf(ErrPluginModified, "plugin %q", filename)
+	}
+	return nil
+}
+
 // loadPlugin opens a single .so file, resolves its descriptor, runs Init
 // if present, and only then registers the plugin in the manager's
 // registry. Returned errors carry the failing plugin filename and wrap
@@ -567,8 +589,9 @@ func (m *Manager) loadPlugin(ctx context.Context, filename string) error {
 	// Verify the detached .sig BEFORE openPlugin executes init code.
 	// Note: openPlugin re-reads the file from disk (Go's plugin.Open does
 	// not accept pre-read bytes). An attacker with write access to the
-	// plugin directory could swap the .so between verification and Open.
-	// The primary mitigation is filesystem permissions — the plugin
+	// plugin directory could swap the .so between verification and Open;
+	// recheckHashAfterOpen below detects the swap after the fact. The
+	// primary mitigation remains filesystem permissions — the plugin
 	// directory must be writable only by the deployer, not the application
 	// user. See the Security section in doc.go.
 	if err := m.verifyPluginSignature(filename, path, pluginData, fileHash); err != nil {
@@ -579,6 +602,15 @@ func (m *Manager) loadPlugin(ctx context.Context, filename string) error {
 	if err != nil {
 		m.addQuarantine(filename, fileHash)
 		return coreerrs.Wrapf(err, "plugin %q", filename)
+	}
+
+	// TOCTOU hardening: re-hash the file plugin.Open just loaded and compare
+	// against the signature-verified hash. On mismatch the plugin is
+	// quarantined and never registered — although the swapped file's init
+	// code has already run inside plugin.Open (Go cannot unload a plugin),
+	// none of its symbols are resolved or exposed to the host.
+	if err := m.recheckHashAfterOpen(filename, path, fileHash); err != nil {
+		return err
 	}
 
 	lookup := symbolLookupFromPlugin(raw)

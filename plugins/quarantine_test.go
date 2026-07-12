@@ -6,6 +6,7 @@ package plugins
 
 import (
 	"bytes"
+	"errors"
 	"log/slog"
 	"maps"
 	"os"
@@ -315,4 +316,65 @@ func TestManager_Quarantined_AfterClose(t *testing.T) {
 		count++
 	}
 	assert.Equal(t, 0, count, "Quarantined() on closed manager yields nothing")
+}
+
+func TestManager_RecheckHashAfterOpen(t *testing.T) {
+	t.Parallel()
+
+	readErr := errors.New("read failed")
+
+	tests := []struct {
+		name         string
+		reHash       string
+		readErr      error
+		wantErr      error
+		wantQuar     bool
+		wantQuarHash string
+	}{
+		{
+			name:   "hash unchanged passes",
+			reHash: "verified-hash",
+		},
+		{
+			name:         "hash mismatch quarantines under new hash",
+			reHash:       "swapped-hash",
+			wantErr:      ErrPluginModified,
+			wantQuar:     true,
+			wantQuarHash: "swapped-hash",
+		},
+		{
+			name:         "re-read failure quarantines with empty hash",
+			readErr:      readErr,
+			wantErr:      readErr,
+			wantQuar:     true,
+			wantQuarHash: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			mgr := NewManager(WithSignatureDisabled())
+			mgr.readAndHashFileFn = func(string) ([]byte, string, error) {
+				return nil, tc.reHash, tc.readErr
+			}
+
+			err := mgr.recheckHashAfterOpen("a.so", "/plugins/a.so", "verified-hash")
+
+			if tc.wantErr == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, tc.wantErr)
+			}
+
+			mgr.quarantineMu.RLock()
+			gotHash, exists := mgr.quarantine["a.so"]
+			mgr.quarantineMu.RUnlock()
+			require.Equal(t, tc.wantQuar, exists)
+			if tc.wantQuar {
+				assert.Equal(t, tc.wantQuarHash, gotHash)
+			}
+		})
+	}
 }

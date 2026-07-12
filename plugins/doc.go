@@ -170,11 +170,21 @@
 // Concretely:
 //
 //   - Restrict the plugin directory to a path writable only by the deployer
-//     (not the application user).
+//     (not the application user). In production, prefer serving it from a
+//     read-only mount so the file cannot change while the host is running.
 //   - Do not load plugins from user uploads, network shares, or world-writable
 //     locations.
 //   - Pin plugin versions and verify integrity (checksum, signature) outside
 //     the manager when the deployment surface allows it.
+//
+// When signature verification is enabled, the manager verifies the detached
+// .sig against the file bytes BEFORE [plugin.Open] and re-hashes the file
+// AFTER plugin.Open, quarantining the plugin on mismatch
+// ([ErrPluginModified]). This narrows — but cannot fully close — the TOCTOU
+// window inherent to Go's path-based plugin API: a swapped file's init code
+// has already run by the time the mismatch is detected, and a double swap
+// that restores the original file before the re-read is undetectable.
+// Filesystem permissions (or a read-only mount) remain the primary control.
 //
 // # Sandbox mode
 //
