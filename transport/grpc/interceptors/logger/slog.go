@@ -21,12 +21,29 @@ import (
 //   - Error: all other codes (Unknown, InvalidArgument, Internal, Unavailable, etc.)
 //
 // Duplicate fields are deduplicated via [slogx.Fields.Unique] before emission.
+//
+// The returned logger also implements [LevelChecker], letting the
+// interceptor skip field building for calls whose mapped level the handler
+// filters out.
 func Slog(l *slog.Logger) Logger {
-	return LoggerFunc(func(ctx context.Context, msg string, grpcCode codes.Code, fields slogx.Fields) {
-		level := grpcCodeToLevel(grpcCode)
-		attrs := slogx.FieldsToAttrs(fields.Unique())
-		l.LogAttrs(ctx, level, msg, attrs...)
-	})
+	return slogLogger{l: l}
+}
+
+// slogLogger adapts a [slog.Logger] to the [Logger] and [LevelChecker]
+// interfaces.
+type slogLogger struct {
+	l *slog.Logger
+}
+
+// Log implements [Logger].
+func (s slogLogger) Log(ctx context.Context, msg string, grpcCode codes.Code, fields slogx.Fields) {
+	attrs := slogx.FieldsToAttrs(fields.Unique())
+	s.l.LogAttrs(ctx, grpcCodeToLevel(grpcCode), msg, attrs...)
+}
+
+// Enabled implements [LevelChecker].
+func (s slogLogger) Enabled(ctx context.Context, grpcCode codes.Code) bool {
+	return s.l.Enabled(ctx, grpcCodeToLevel(grpcCode))
 }
 
 func grpcCodeToLevel(code codes.Code) slog.Level {
