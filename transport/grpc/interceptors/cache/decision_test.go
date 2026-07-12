@@ -62,11 +62,3 @@ func TestDefaultSuccessAndErrorDecision(t *testing.T) {
 		})
 	}
 }
-
-func BenchmarkDefaultSuccessOnlyDecision(b *testing.B) {
-	fn := DefaultSuccessOnlyDecision(5 * time.Minute)
-	ctx := b.Context()
-	for b.Loop() {
-		fn(ctx, "/svc/Method", nil, "resp", nil)
-	}
-}

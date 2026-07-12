@@ -94,3 +94,24 @@ func BenchmarkServerInterceptor_CacheHit(b *testing.B) {
 		b.Fatalf("expected cache hits after warm-up, handler invoked %d times", handlerCalls)
 	}
 }
+
+// BenchmarkDefaultKeyGenerator measures the bare key build path without
+// identity metadata.
+func BenchmarkDefaultKeyGenerator(b *testing.B) {
+	ctx := b.Context()
+	b.ReportAllocs()
+	for b.Loop() {
+		DefaultKeyGenerator(ctx, "/svc/Get", "req") //nolint:errcheck
+	}
+}
+
+// BenchmarkDefaultSuccessOnlyDecision measures the per-response caching
+// decision on the success path.
+func BenchmarkDefaultSuccessOnlyDecision(b *testing.B) {
+	fn := DefaultSuccessOnlyDecision(5 * time.Minute)
+	ctx := b.Context()
+	b.ReportAllocs()
+	for b.Loop() {
+		fn(ctx, "/svc/Method", nil, "resp", nil)
+	}
+}

@@ -67,10 +67,3 @@ func TestNewKeyGenerator_WithProcessor(t *testing.T) {
 func TestDefaultMetadataKeys(t *testing.T) {
 	require.NotEqual(t, 0, len(DefaultMetadataKeys))
 }
-
-func BenchmarkDefaultKeyGenerator(b *testing.B) {
-	ctx := b.Context()
-	for b.Loop() {
-		DefaultKeyGenerator(ctx, "/svc/Get", "req") //nolint:errcheck
-	}
-}

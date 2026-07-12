@@ -14,8 +14,7 @@ const benchRoundTripPayloadSize = 2048
 
 // benchRoundTripPayload builds a compressible but non-trivial payload of the
 // given size from repeated JSON-like records, approximating serialized
-// response data. Individual Compress/Decompress benchmarks live in
-// compression_test.go; this file covers the full round trip.
+// response data.
 func benchRoundTripPayload(size int) []byte {
 	pattern := []byte(`{"id":12345,"name":"benchmark-record","active":true,"score":98.7},`)
 	buf := bytes.Repeat(pattern, size/len(pattern)+1)
@@ -36,5 +35,42 @@ func BenchmarkGzipCompressor_RoundTrip(b *testing.B) {
 		if _, err := c.Decompress(ctx, compressed); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+func BenchmarkGzipCompressor_Compress(b *testing.B) {
+	c := NewCompressor(10, 0, 6)
+	ctx := b.Context()
+	data := make([]byte, 4096)
+	for i := range data {
+		data[i] = byte(i%26) + 'a'
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		c.Compress(ctx, data) //nolint:errcheck
+	}
+}
+
+func BenchmarkGzipCompressor_Decompress(b *testing.B) {
+	c := NewCompressor(10, 0, 6)
+	ctx := b.Context()
+	data := make([]byte, 4096)
+	for i := range data {
+		data[i] = byte(i%26) + 'a'
+	}
+	compressed, _ := c.Compress(ctx, data)
+	b.ReportAllocs()
+	for b.Loop() {
+		c.Decompress(ctx, compressed) //nolint:errcheck
+	}
+}
+
+func BenchmarkNoOpCompressor_Compress(b *testing.B) {
+	c := NewNoOpCompressor()
+	ctx := b.Context()
+	data := make([]byte, 1024)
+	b.ReportAllocs()
+	for b.Loop() {
+		c.Compress(ctx, data) //nolint:errcheck
 	}
 }
