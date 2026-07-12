@@ -22,8 +22,6 @@ type ObjectPools struct {
 	stringSlices *slices.Pool[string]
 	boolSlices   *slices.Pool[bool]
 	valueSlices  *slices.Pool[reflect.Value]
-	typeSlices   *slices.Pool[reflect.Type]
-	kindSlices   *slices.Pool[reflect.Kind]
 }
 
 // NewObjectPools creates a new set of object pools for reducing allocations.
@@ -39,8 +37,6 @@ func NewObjectPools() *ObjectPools {
 		stringSlices: slices.NewPool[string](DefaultPoolCapacity),
 		boolSlices:   slices.NewPool[bool](DefaultPoolCapacity),
 		valueSlices:  slices.NewPool[reflect.Value](DefaultPoolCapacity),
-		typeSlices:   slices.NewPool[reflect.Type](DefaultPoolCapacity),
-		kindSlices:   slices.NewPool[reflect.Kind](DefaultPoolCapacity),
 	}
 }
 
