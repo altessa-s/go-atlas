@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -54,6 +55,12 @@ var (
 	// have missed an IdP-side rotation and that any cached/locally-verifiable
 	// token must no longer be trusted.
 	ErrJWKSStale = errors.New("JWKS cache too stale to trust")
+	// ErrDiscoveryValidation is returned by [Provider.getDiscoveryInfo] in
+	// [DiscoveryValidationModeEnforce] when the discovery document's issuer
+	// does not match the configured issuer, or when an advertised endpoint is
+	// non-HTTPS or does not share the issuer's host. It signals a possible
+	// mix-up / SSRF attempt via a malicious or compromised discovery response.
+	ErrDiscoveryValidation = errors.New("discovery document failed issuer/endpoint validation")
 )
 
 // maxDiscoveryResponseSize is the maximum bytes read from the OIDC discovery
@@ -693,9 +700,103 @@ func (p *Provider) getDiscoveryInfo(ctx context.Context) error {
 		return coreerrs.Wrap(ErrDiscovery, "received uncompleted discovery info")
 	}
 
+	// Mix-up / SSRF defense: verify the document's issuer and the endpoints it
+	// advertises before any of them are fetched or sent credentials. A
+	// malicious or compromised IdP (or a network attacker on a non-HTTPS
+	// fetch) must not be able to redirect JWKS/introspection/userinfo calls to
+	// an attacker-chosen host.
+	if err = p.validateDiscoveredEndpoints(&dInfo); err != nil {
+		return err
+	}
+
 	p.discoveryInfo = &dInfo
 
 	return nil
+}
+
+// deriveExpectedIssuer strips the well-known discovery suffix from the
+// configured discovery URL to recover the issuer identifier that the discovery
+// document's issuer field must equal (RFC 8414 §3 / OIDC Discovery §4).
+// Trailing slashes are trimmed so the comparison is stable.
+func deriveExpectedIssuer(discoveryURL string) string {
+	issuer := discoveryURL
+	for _, suffix := range []string{
+		"/.well-known/openid-configuration",
+		"/.well-known/oauth-authorization-server",
+	} {
+		if trimmed, ok := strings.CutSuffix(issuer, suffix); ok {
+			issuer = trimmed
+			break
+		}
+	}
+	return strings.TrimRight(issuer, "/")
+}
+
+// validateDiscoveredEndpoints enforces the discovery issuer/endpoint contract
+// selected by [WithDiscoveryValidationMode]: the document's issuer must equal
+// the configured issuer, and every advertised endpoint must be HTTPS and share
+// the issuer's host. In [DiscoveryValidationModeWarn] violations are logged and
+// the document is accepted; in [DiscoveryValidationModeDisabled] the check is
+// skipped entirely.
+func (p *Provider) validateDiscoveredEndpoints(d *discoveryInfo) error {
+	// A Provider built without options (only reachable in white-box tests;
+	// NewProvider always populates opts) has no configured mode — skip.
+	if p.opts == nil || p.opts.discoveryValidationMode == DiscoveryValidationModeDisabled {
+		return nil
+	}
+
+	expectedIssuer := deriveExpectedIssuer(p.discoveryURL)
+
+	var violations []string
+	if strings.TrimRight(d.Issuer, "/") != expectedIssuer {
+		violations = append(violations,
+			fmt.Sprintf("issuer %q does not match configured issuer %q", d.Issuer, expectedIssuer))
+	}
+
+	issuerHost := ""
+	if u, err := url.Parse(expectedIssuer); err == nil {
+		issuerHost = u.Host
+		if u.Scheme != "https" {
+			violations = append(violations, fmt.Sprintf("issuer %q is not HTTPS", expectedIssuer))
+		}
+	}
+
+	for _, ep := range []struct{ name, raw string }{
+		{"jwks_uri", d.JwksURL},
+		{"token_endpoint", d.TokenURL},
+		{"introspection_endpoint", d.IntrospectionURL},
+		{"userinfo_endpoint", d.UserInfoURL},
+		{"authorization_endpoint", d.AuthURL},
+	} {
+		if ep.raw == "" {
+			continue
+		}
+		u, err := url.Parse(ep.raw)
+		if err != nil {
+			violations = append(violations, fmt.Sprintf("%s %q is not a valid URL", ep.name, ep.raw))
+			continue
+		}
+		if u.Scheme != "https" {
+			violations = append(violations, fmt.Sprintf("%s %q is not HTTPS", ep.name, ep.raw))
+		}
+		if issuerHost != "" && u.Host != issuerHost {
+			violations = append(violations,
+				fmt.Sprintf("%s host %q does not match issuer host %q", ep.name, u.Host, issuerHost))
+		}
+	}
+
+	if len(violations) == 0 {
+		return nil
+	}
+
+	if p.opts.discoveryValidationMode == DiscoveryValidationModeWarn {
+		p.logger.Error("discovery document failed issuer/endpoint validation; loading anyway (warn mode)",
+			slog.String("discovery_url", p.discoveryURL),
+			slog.Any("violations", violations))
+		return nil
+	}
+
+	return coreerrs.Wrapf(ErrDiscoveryValidation, "%s", strings.Join(violations, "; "))
 }
 
 // initializeJWKS sets up JWKS storage with automatic refresh.

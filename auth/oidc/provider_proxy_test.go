@@ -59,6 +59,9 @@ func TestNewProvider_BuildsResilientClient(t *testing.T) {
 	srv := stubOIDCServer(t)
 	p, err := NewProvider(t.Context(), srv.URL,
 		WithHTTPClientOptions(httpclient.WithRetryMax(0), httpclient.WithoutProxy()),
+		// httptest serves plain-HTTP on loopback; disable discovery endpoint
+		// pinning for the stub IdP.
+		WithDiscoveryValidationMode(DiscoveryValidationModeDisabled),
 	)
 	require.NoError(t, err)
 	t.Cleanup(p.Close)
@@ -79,6 +82,9 @@ func TestNewProvider_InjectsClientIntoURLRevocationLoader(t *testing.T) {
 		WithHTTPClientOptions(httpclient.WithRetryMax(0)),
 		WithRevocationLoader(loader),
 		WithRevocationFilter(noopFilter{}),
+		// httptest serves plain-HTTP on loopback; disable discovery endpoint
+		// pinning for the stub IdP.
+		WithDiscoveryValidationMode(DiscoveryValidationModeDisabled),
 	)
 	require.NoError(t, err)
 	t.Cleanup(p.Close)

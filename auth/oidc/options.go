@@ -102,6 +102,48 @@ const (
 	AudienceFailureModeDisabled AudienceFailureMode = "disabled"
 )
 
+// DefaultDiscoveryValidationMode is the default handling of the discovery
+// document's issuer and endpoint URLs. Production safe:
+// [DiscoveryValidationModeEnforce] rejects a discovery response whose issuer
+// does not match the configured URL, or whose endpoints are non-HTTPS or
+// cross-origin — the mix-up / SSRF defense described on
+// [DiscoveryValidationMode].
+const DefaultDiscoveryValidationMode = DiscoveryValidationModeEnforce
+
+// DiscoveryValidationMode controls how the provider validates the OIDC
+// discovery document before trusting the endpoint URLs it advertises
+// (jwks_uri, token_endpoint, introspection_endpoint, userinfo_endpoint,
+// authorization_endpoint).
+//
+// Without validation a malicious or compromised IdP — or a network attacker
+// on a non-HTTPS discovery fetch — can point those endpoints at hosts it
+// controls, exfiltrating the introspection client secret (sent as HTTP Basic
+// auth) and live user access tokens (sent as Bearer), or driving SSRF against
+// internal addresses. Enforce mode closes this by requiring:
+//   - the document's issuer to equal the configured issuer (RFC 8414 §3.3 /
+//     OIDC Discovery §4.3 exact match);
+//   - every advertised endpoint to use https;
+//   - every advertised endpoint to share the issuer's host.
+type DiscoveryValidationMode string
+
+const (
+	// DiscoveryValidationModeEnforce rejects discovery with
+	// [ErrDiscoveryValidation] when the issuer mismatches or any endpoint is
+	// non-HTTPS or cross-origin. Recommended for production.
+	DiscoveryValidationModeEnforce DiscoveryValidationMode = "enforce"
+
+	// DiscoveryValidationModeWarn logs an error for every violation but loads
+	// the discovery document anyway. Use only during migration while auditing
+	// a non-conforming IdP.
+	DiscoveryValidationModeWarn DiscoveryValidationMode = "warn"
+
+	// DiscoveryValidationModeDisabled bypasses issuer/endpoint validation
+	// entirely: the discovery response is trusted as-is. Equivalent to the
+	// pre-hardening behavior; opt in only for a loopback/test IdP or when the
+	// discovery transport is provably attacker-proof.
+	DiscoveryValidationModeDisabled DiscoveryValidationMode = "disabled"
+)
+
 // DefaultRequiredClaims is the list of claims required by OIDC specification.
 var DefaultRequiredClaims = []string{"sub", "aud", "exp", "iat", "iss"}
 
@@ -114,11 +156,12 @@ type options struct {
 	// httpclient.WithRetryMax(0) etc. here if the resilient defaults
 	// (retry, breaker, env-proxy) are not desirable for a particular
 	// deployment.
-	httpClientOptions           []httpclient.Option `opt:"HTTPClientOptions" optgen:"append"`
-	jwksHTTPTimeout             time.Duration       `optgen:"default=DefaultJWKSHTTPTimeout"`
-	jwksMaxStaleness            time.Duration       `opt:"JWKSMaxStaleness" optgen:"default=DefaultJWKSMaxStaleness"`
-	jwksFailureMode             JWKSFailureMode     `optgen:"manual,default=DefaultJWKSFailureMode"`
-	audienceFailureMode         AudienceFailureMode `optgen:"manual,default=DefaultAudienceFailureMode"`
+	httpClientOptions           []httpclient.Option     `opt:"HTTPClientOptions" optgen:"append"`
+	jwksHTTPTimeout             time.Duration           `optgen:"default=DefaultJWKSHTTPTimeout"`
+	jwksMaxStaleness            time.Duration           `opt:"JWKSMaxStaleness" optgen:"default=DefaultJWKSMaxStaleness"`
+	jwksFailureMode             JWKSFailureMode         `optgen:"manual,default=DefaultJWKSFailureMode"`
+	audienceFailureMode         AudienceFailureMode     `optgen:"manual,default=DefaultAudienceFailureMode"`
+	discoveryValidationMode     DiscoveryValidationMode `optgen:"manual,default=DefaultDiscoveryValidationMode"`
 	tokenCache                  Cacher
 	tokensCacheKeyPrefix        string `optgen:"default=DefaultTokensCacheKeyPrefix"`
 	revokedTokensCacheKeyPrefix string `optgen:"default=DefaultRevokedTokensCacheKeyPrefix"`
@@ -244,6 +287,19 @@ func WithAudienceFailureMode(mode AudienceFailureMode) Option {
 		switch mode {
 		case AudienceFailureModeEnforce, AudienceFailureModeWarn, AudienceFailureModeDisabled:
 			o.audienceFailureMode = mode
+		}
+	}
+}
+
+// WithDiscoveryValidationMode selects how the provider validates the OIDC
+// discovery document's issuer and endpoint URLs before trusting them.
+// Defaults to [DiscoveryValidationModeEnforce]. Unknown / empty modes leave
+// the default in place. See [DiscoveryValidationMode] for the threat model.
+func WithDiscoveryValidationMode(mode DiscoveryValidationMode) Option {
+	return func(o *options) {
+		switch mode {
+		case DiscoveryValidationModeEnforce, DiscoveryValidationModeWarn, DiscoveryValidationModeDisabled:
+			o.discoveryValidationMode = mode
 		}
 	}
 }
