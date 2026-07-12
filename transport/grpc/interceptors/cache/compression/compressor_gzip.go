@@ -99,7 +99,7 @@ func (c *GzipCompressor) decompressSmall(_ context.Context, data []byte, result 
 
 	// Decompress using gzip (only supported compression)
 	if result.Metadata.IsCompressed {
-		return c.doDecompress(result.Data)
+		return c.doDecompress(result.Data, expectedSize)
 	}
 
 	// Should not reach here as we already handled uncompressed data above
@@ -278,10 +278,26 @@ func (c *GzipCompressor) doCompress(data []byte) ([]byte, error) {
 	return result, nil
 }
 
-func (c *GzipCompressor) doDecompress(data []byte) ([]byte, error) {
+// decompressionOutputCap returns the maximum output the non-streaming
+// decompression path may produce for the declared original size, mirroring the
+// expectedSize*maxDecompressionSizeMultiplier contract validateBufferSize
+// enforces on the streaming path. A non-positive declared size falls back to
+// the absolute maxDecompressionSize limit.
+func decompressionOutputCap(expectedSize int) int {
+	if expectedSize <= 0 {
+		return maxDecompressionSize
+	}
+	limit := expectedSize * maxDecompressionSizeMultiplier
+	if limit > maxDecompressionSize {
+		return maxDecompressionSize
+	}
+	return limit
+}
+
+func (c *GzipCompressor) doDecompress(data []byte, expectedSize int) ([]byte, error) {
 	// For very large data, use streaming to avoid large memory allocations
 	if len(data) > maxPooledBufferSize {
-		return c.doDecompressStreaming(data)
+		return c.doDecompressStreaming(data, expectedSize)
 	}
 
 	pooledReader := getGzipReader()
@@ -300,19 +316,31 @@ func (c *GzipCompressor) doDecompress(data []byte) ([]byte, error) {
 		}
 	}
 
-	result, err := io.ReadAll(pooledReader.reader)
+	// Security: cap the actual decompressed output — the attacker-controlled
+	// gzip stream may expand far beyond the declared original size.
+	limit := decompressionOutputCap(expectedSize)
+	result, err := io.ReadAll(io.LimitReader(pooledReader.reader, int64(limit)+1))
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "read decompressed data")
+	}
+	if len(result) > limit {
+		return nil, fmt.Errorf("decompressed data exceeds allowed size %d for declared original size %d: %w",
+			limit, expectedSize, ErrBufferSizeExceeded)
 	}
 	return result, nil
 }
 
-func (c *GzipCompressor) doDecompressStreaming(data []byte) ([]byte, error) {
+func (c *GzipCompressor) doDecompressStreaming(data []byte, expectedSize int) ([]byte, error) {
 	reader, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = reader.Close() }()
+
+	// Security: cap the actual decompressed output — the attacker-controlled
+	// gzip stream may expand far beyond the declared original size.
+	limit := decompressionOutputCap(expectedSize)
+	limited := io.LimitReader(reader, int64(limit)+1)
 
 	// Pre-allocate result buffer to avoid growing slice
 	// Use a reasonable size based on typical compression ratios
@@ -325,7 +353,7 @@ func (c *GzipCompressor) doDecompressStreaming(data []byte) ([]byte, error) {
 
 	// Read in chunks to avoid large intermediate allocations
 	for {
-		n, err := reader.Read(buf.Bytes()[:cap(buf.Bytes())])
+		n, err := limited.Read(buf.Bytes()[:cap(buf.Bytes())])
 		if n > 0 {
 			result = append(result, buf.Bytes()[:n]...)
 		}
@@ -336,6 +364,11 @@ func (c *GzipCompressor) doDecompressStreaming(data []byte) ([]byte, error) {
 			return nil, err
 		}
 		buf.Reset()
+	}
+
+	if len(result) > limit {
+		return nil, fmt.Errorf("decompressed data exceeds allowed size %d for declared original size %d: %w",
+			limit, expectedSize, ErrBufferSizeExceeded)
 	}
 
 	return result, nil
