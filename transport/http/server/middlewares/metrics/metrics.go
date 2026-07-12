@@ -141,17 +141,35 @@ func (m *Middleware) initializeMetrics() {
 	}
 }
 
+// statusStrings caches the decimal form of every valid HTTP status code so
+// the per-request path avoids strconv.Itoa and an interner lookup.
+var statusStrings = func() [600]string {
+	var a [600]string
+	for i := 100; i < 600; i++ {
+		a[i] = strconv.Itoa(i)
+	}
+	return a
+}()
+
+// statusString returns the decimal form of an HTTP status code, falling back
+// to strconv for out-of-range values.
+func statusString(code int) string {
+	if code >= 100 && code < 600 {
+		return statusStrings[code]
+	}
+	return strconv.Itoa(code)
+}
+
 // recordMetrics records all metrics for a completed request.
 func (m *Middleware) recordMetrics(r *http.Request, rec *recorder, startTime time.Time) {
 	duration := time.Since(startTime)
-	statusCode := strconv.Itoa(rec.StatusCode())
+	statusCode := statusString(rec.StatusCode())
 
 	internedMethod := corestrings.InternString(r.Method)
-	internedStatus := corestrings.InternString(statusCode)
 
 	labels := metrics.Labels{
 		methodLabel: internedMethod,
-		statusLabel: internedStatus,
+		statusLabel: statusCode,
 	}
 
 	m.requestsTotal.WithLabels(labels).Inc()

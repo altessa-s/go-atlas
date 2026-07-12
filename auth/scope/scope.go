@@ -44,7 +44,9 @@ func Wildcard(sep string) Matcher {
 			if g == required || g == "*" {
 				return true
 			}
-			if prefix, ok := strings.CutSuffix(g, suffix); ok && strings.HasPrefix(required, prefix+sep) {
+			// A matching grant is prefix+sep+"*", so g[:len(g)-1] is
+			// prefix+sep without allocating.
+			if strings.HasSuffix(g, suffix) && strings.HasPrefix(required, g[:len(g)-1]) {
 				return true
 			}
 		}
