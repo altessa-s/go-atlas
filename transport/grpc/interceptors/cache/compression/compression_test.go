@@ -149,37 +149,3 @@ func TestGzipCompressor_Decompress_ActualOutputExceedsDeclaredSize(t *testing.T)
 		})
 	}
 }
-
-func BenchmarkGzipCompressor_Compress(b *testing.B) {
-	c := NewCompressor(10, 0, 6)
-	ctx := b.Context()
-	data := make([]byte, 4096)
-	for i := range data {
-		data[i] = byte(i%26) + 'a'
-	}
-	for b.Loop() {
-		c.Compress(ctx, data) //nolint:errcheck
-	}
-}
-
-func BenchmarkGzipCompressor_Decompress(b *testing.B) {
-	c := NewCompressor(10, 0, 6)
-	ctx := b.Context()
-	data := make([]byte, 4096)
-	for i := range data {
-		data[i] = byte(i%26) + 'a'
-	}
-	compressed, _ := c.Compress(ctx, data)
-	for b.Loop() {
-		c.Decompress(ctx, compressed) //nolint:errcheck
-	}
-}
-
-func BenchmarkNoOpCompressor_Compress(b *testing.B) {
-	c := NewNoOpCompressor()
-	ctx := b.Context()
-	data := make([]byte, 1024)
-	for b.Loop() {
-		c.Compress(ctx, data) //nolint:errcheck
-	}
-}
