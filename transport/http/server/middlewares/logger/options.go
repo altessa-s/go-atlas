@@ -26,7 +26,7 @@ type BodyRedactFunc func(body string) string
 // DefaultRedactedBodyPlaceholder replaces a request/response body when body
 // logging is enabled but no [WithBodyRedactor] was configured. It keeps raw
 // bodies (which may carry credentials or PII) out of logs by default while
-// still signalling that body logging is active but unredacted.
+// still signaling that body logging is active but unredacted.
 const DefaultRedactedBodyPlaceholder = "[REDACTED: configure logger.WithBodyRedactor to log body content]"
 
 // redactAllBody is the safe default body redactor installed when body logging is
