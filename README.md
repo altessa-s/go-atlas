@@ -37,13 +37,22 @@ import "github.com/altessa-s/go-atlas/data/cache"
 
 | Package | Description |
 |---------|-------------|
+| [`auth/audit`](auth/audit/) | Authorization decision audit trail — durable, structured allow/deny events with pluggable sinks |
+| [`auth/denylist`](auth/denylist/) | Token revocation denylist (JWT ID or subject), permanent or TTL-bound, consulted by verifiers |
+| [`auth/jwt`](auth/jwt/) | Generic JWT signing and verification toolkit shared by the auth packages |
+| [`auth/mtls`](auth/mtls/) | Verified mTLS client certificate to authenticated principal, with pluggable validators |
+| [`auth/oauth2client`](auth/oauth2client/) | OAuth2 token acquisition: client credentials, refresh, auth code, RFC 8693 exchange |
 | [`auth/oidc`](auth/oidc/) | OIDC/JWT validation with JWKS auto-refresh, CEL rules, token revocation |
 | [`auth/opa`](auth/opa/) | Open Policy Agent with bundle hot-reloading |
+| [`auth/principal`](auth/principal/) | Canonical verified-identity type: subject, tenant, scopes, roles, raw claims |
+| [`auth/scope`](auth/scope/) | Deny-by-default scope authorization policy with gRPC and HTTP adapters |
 | [`auth/selfjwt`](auth/selfjwt/) | Self-issued JWT minting and verification with per-subject keys and rotation |
+| [`auth/spiffe`](auth/spiffe/) | SPIFFE ID parsing from X.509 certificates for workload identity |
 | [`auth/static`](auth/static/) | Static token / API-key validator for service-to-service auth |
+| [`config`](config/) | Configuration structs and validation for all go-atlas components |
 | [`config/loader`](config/loader/) | Multi-source config loading (YAML/TOML, env vars, secrets) with validation |
-| [`config/templates`](config/templates/) | Pre-built configuration structs for common components |
-| [`core`](core/) | Collections, errors, context, encoding, retry, scheduling, types (zero external deps) |
+| [`config/templates`](config/templates/) | Commented YAML configuration templates for the config structs |
+| [`core`](core/) | Collections, concurrency, errors, context, encoding, retry, WAL, scheduling, types (zero external deps) |
 | [`data/audit`](data/audit/) | Async audit-event dispatcher with pluggable storage |
 | [`data/cache`](data/cache/) | Multi-backend caching with singleflight, fallback, and TTL management |
 | [`data/filter`](data/filter/) | CEL expression parser with translators for MongoDB, RediSearch, and Lua |
@@ -56,6 +65,7 @@ import "github.com/altessa-s/go-atlas/data/cache"
 | [`data/orderby`](data/orderby/) | AIP-132 `order_by` DSL parser with translators for MongoDB, Meilisearch, RediSearch |
 | [`data/outbox`](data/outbox/) | Transactional outbox (MongoDB-backed) |
 | [`data/probfilter`](data/probfilter/) | Bloom and Cuckoo probabilistic filters |
+| [`data/saga`](data/saga/) | Orchestration-based saga engine: sequential steps, compensating rollbacks, crash recovery |
 | [`domain/behavior`](domain/behavior/) | Struct-tag `field_behavior` strip for Create / Update / Response payloads |
 | [`domain/converter`](domain/converter/) | Generic struct-to-struct conversion with codecs and lazy iterators |
 | [`domain/eventbus`](domain/eventbus/) | Synchronous, lock-free, transaction-safe in-process event bus for decoupling domains |
@@ -73,6 +83,7 @@ import "github.com/altessa-s/go-atlas/data/cache"
 | [`observability/slog`](observability/slog/) | slog extensions: nil-safe helpers, colorized and PII-masking handlers |
 | [`observability/tracing`](observability/tracing/) | Distributed tracing (OpenTelemetry, OTLP, console) with samplers |
 | [`plugins`](plugins/) | Dynamic `.so` plugin manager with signature verification and sandboxing |
+| [`security/hmacsign`](security/hmacsign/) | Webhook-style HMAC body signing and verification (Stripe/GitHub scheme) with key rotation |
 | [`security/secrets`](security/secrets/) | Generic secret manager with LRU cache, watch, and scheduler refresh |
 | [`security/tlsutils`](security/tlsutils/) | TLS helpers, OCSP stapling, Let's Encrypt (Certify), Vault-backed certs |
 | [`security/vault`](security/vault/) | HashiCorp Vault client (AppRole, token, userpass auth) |
