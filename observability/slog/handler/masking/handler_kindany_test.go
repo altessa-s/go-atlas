@@ -6,6 +6,7 @@ package masking
 
 import (
 	"log/slog"
+	"reflect"
 	"testing"
 	"time"
 
@@ -190,4 +191,126 @@ func TestHandler_KindAny_NilValueIsHarmless(t *testing.T) {
 	rec.AddAttrs(slog.Any("nope", any(nil)))
 
 	require.NoError(t, h.Handle(t.Context(), rec))
+}
+
+// TestHandler_KindAny_CleanTypeSkipsWalk pins the type-verdict fast path:
+// with a fields-only configuration, a type whose transitive field names can
+// never match a mask is passed through natively (not rebuilt as a group) —
+// the same rendering it would get from the no-masking fast path in Handle.
+func TestHandler_KindAny_CleanTypeSkipsWalk(t *testing.T) {
+	t.Parallel()
+	type clean struct {
+		RequestID string
+		Attempts  int
+	}
+	inner, store := newCaptureHandler()
+	h := NewHandler(inner,
+		WithField("Password", FullMask()),
+	)
+
+	payload := clean{RequestID: "r-1", Attempts: 3}
+	rec := slog.NewRecord(time.Now(), slog.LevelInfo, "msg", 0)
+	rec.AddAttrs(slog.Any("payload", payload))
+
+	require.NoError(t, h.Handle(t.Context(), rec))
+
+	got := store.attrs["payload"]
+	require.NotEqual(t, slog.KindGroup, got.Kind(),
+		"a type that cannot match any mask must render natively, not as a rebuilt group")
+	require.Equal(t, payload, got.Any())
+}
+
+// TestHandler_KindAny_PatternsDisableTypeSkip guards the soundness boundary:
+// regex patterns can match arbitrary group prefixes, so the static type
+// verdict must stay off and even a "clean" type must still be walked.
+func TestHandler_KindAny_PatternsDisableTypeSkip(t *testing.T) {
+	t.Parallel()
+	type clean struct {
+		RequestID string
+	}
+	inner, store := newCaptureHandler()
+	h := NewHandler(inner,
+		WithPattern(`(?i)request`, FullMask()),
+	)
+
+	rec := slog.NewRecord(time.Now(), slog.LevelInfo, "msg", 0)
+	rec.AddAttrs(slog.Any("payload", clean{RequestID: "r-1"}))
+
+	require.NoError(t, h.Handle(t.Context(), rec))
+
+	got := store.attrs["payload"]
+	require.Equal(t, slog.KindGroup, got.Kind(), "pattern configs must keep walking every type")
+	masked, ok := findMaskedLeaf(got, "RequestID")
+	require.True(t, ok)
+	require.Equal(t, "********", masked, "pattern must still match inside the walked type")
+}
+
+// TestHandler_TypeCanMatch unit-tests the static verdict directly, covering
+// the conservative cases the behavior tests cannot reach cheaply.
+func TestHandler_TypeCanMatch(t *testing.T) {
+	t.Parallel()
+
+	type inner struct {
+		Password string
+	}
+	type viaNesting struct {
+		Inner inner
+	}
+	type viaSlice struct {
+		Items []inner
+	}
+	type withMap struct {
+		Meta map[string]string
+	}
+	type withAny struct {
+		Payload any
+	}
+	type clean struct {
+		RequestID string
+		When      time.Time
+	}
+	type node struct {
+		Name string
+		Next *node
+	}
+	type cleanNode struct {
+		ID   string
+		Next *cleanNode
+	}
+	type dotted struct {
+		Password string
+	}
+
+	tests := []struct {
+		name  string
+		opts  []Option
+		typ   any
+		wants bool
+	}{
+		{"direct match", []Option{WithField("Password", FullMask())}, inner{}, true},
+		{"nested match", []Option{WithField("Password", FullMask())}, viaNesting{}, true},
+		{"slice element match", []Option{WithField("Password", FullMask())}, viaSlice{}, true},
+		{"string map is dynamic", []Option{WithField("Password", FullMask())}, withMap{}, true},
+		{"interface field is dynamic", []Option{WithField("Password", FullMask())}, withAny{}, true},
+		{"clean type", []Option{WithField("Password", FullMask())}, clean{}, false},
+		{"recursive type matches", []Option{WithField("Name", FullMask())}, node{}, true},
+		{"recursive type clean", []Option{WithField("Name", FullMask())}, cleanNode{}, false},
+		{"dotted key last segment", []Option{WithField("req.password", FullMask())}, dotted{}, true},
+		{"dotted key other segment", []Option{WithField("password.hash", FullMask())}, dotted{}, false},
+		{"case-insensitive default", []Option{WithField("PASSWORD", FullMask())}, inner{}, true},
+		{"case-sensitive mismatch", []Option{WithCaseSensitive(), WithField("password", FullMask())}, inner{}, false},
+		{"case-sensitive match", []Option{WithCaseSensitive(), WithField("Password", FullMask())}, inner{}, true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			inner, _ := newCaptureHandler()
+			h, ok := NewHandler(inner, tc.opts...).(*Handler)
+			require.True(t, ok)
+			require.Equal(t, tc.wants, h.typeCanMatch(reflect.TypeOf(tc.typ)))
+			// Second call exercises the memoized path.
+			require.Equal(t, tc.wants, h.typeCanMatch(reflect.TypeOf(tc.typ)))
+		})
+	}
 }
