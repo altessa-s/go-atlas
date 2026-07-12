@@ -39,16 +39,27 @@ func (c *counter) Add(delta float64) {
 }
 
 func (c *counter) WithLabels(labels Labels) Counter {
-	return &labeledCounter{
-		parent: c,
-		labels: labels,
+	return newLabeledCounter(c, labels)
+}
+
+// newLabeledCounter builds a labeled view and, when the adapter supports
+// [adapters.Binder], resolves the concrete child once so Inc/Add are direct
+// updates with no per-observation lookup.
+func newLabeledCounter(parent *counter, labels Labels) *labeledCounter {
+	l := &labeledCounter{parent: parent, labels: labels}
+	if b, ok := parent.adapter.(adapters.Binder); ok {
+		if h, ok := b.BindCounter(parent.name, labels); ok {
+			l.bound = h
+		}
 	}
+	return l
 }
 
 // labeledCounter is a counter with labels applied.
 type labeledCounter struct {
 	parent *counter
 	labels Labels
+	bound  adapters.BoundCounter // non-nil when the adapter pre-resolved the child
 }
 
 func (l *labeledCounter) Inc() {
@@ -59,12 +70,13 @@ func (l *labeledCounter) Add(delta float64) {
 	if delta < 0 {
 		return
 	}
+	if l.bound != nil {
+		l.bound.Add(delta)
+		return
+	}
 	l.parent.adapter.RecordCounter(l.parent.name, l.labels, delta)
 }
 
 func (l *labeledCounter) WithLabels(labels Labels) Counter {
-	return &labeledCounter{
-		parent: l.parent,
-		labels: MergeLabels(l.labels, labels),
-	}
+	return newLabeledCounter(l.parent, MergeLabels(l.labels, labels))
 }

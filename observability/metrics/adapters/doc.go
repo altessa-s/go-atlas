@@ -10,6 +10,11 @@
 // Use [MultiAdapter] to broadcast to multiple backends simultaneously.
 // For Prometheus specifically, see the prometheus sub-package.
 //
+// Backends that can pre-resolve a (metric, label set) pair into a direct
+// recording handle additionally implement the optional [Binder] capability,
+// which lets the facade skip the per-observation metric lookup and label
+// hashing on hot paths.
+//
 // Implementations must be safe for concurrent use.
 //
 // # Example

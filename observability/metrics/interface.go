@@ -69,7 +69,8 @@ type Counter interface {
 
 	// WithLabels returns a Counter with the specified labels applied.
 	// The returned Counter shares the same underlying metric but with
-	// the label values set.
+	// the label values set. The label set is captured at call time;
+	// bind once and reuse the returned handle on hot paths.
 	WithLabels(labels Labels) Counter
 }
 
@@ -94,6 +95,8 @@ type Gauge interface {
 	Sub(delta float64)
 
 	// WithLabels returns a Gauge with the specified labels applied.
+	// The label set is captured at call time; bind once and reuse the
+	// returned handle on hot paths.
 	WithLabels(labels Labels) Gauge
 }
 
@@ -105,6 +108,8 @@ type Histogram interface {
 	Observe(value float64)
 
 	// WithLabels returns a Histogram with the specified labels applied.
+	// The label set is captured at call time; bind once and reuse the
+	// returned handle on hot paths.
 	WithLabels(labels Labels) Histogram
 }
 
@@ -127,5 +132,7 @@ type Timer interface {
 	ObserveDuration(d time.Duration)
 
 	// WithLabels returns a Timer with the specified labels applied.
+	// The label set is captured at call time; bind once and reuse the
+	// returned handle on hot paths.
 	WithLabels(labels Labels) Timer
 }

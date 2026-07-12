@@ -138,6 +138,47 @@ func (a *Adapter) RecordHistogram(name string, labels map[string]string, value f
 	}
 }
 
+// BindCounter implements adapters.Binder: the Prometheus child is resolved
+// once via GetMetricWith so Add on the returned handle is a direct atomic
+// update with no per-observation vector lookup or label hashing.
+func (a *Adapter) BindCounter(name string, labels map[string]string) (adapters.BoundCounter, bool) {
+	vec, ok := a.counters.Load(name)
+	if !ok {
+		return nil, false
+	}
+	c, err := vec.(*prometheus.CounterVec).GetMetricWith(normalizeLabels(labels)) //nolint:errcheck // type guaranteed by Store
+	if err != nil {
+		return nil, false
+	}
+	return c, true
+}
+
+// BindGauge implements adapters.Binder.
+func (a *Adapter) BindGauge(name string, labels map[string]string) (adapters.BoundGauge, bool) {
+	vec, ok := a.gauges.Load(name)
+	if !ok {
+		return nil, false
+	}
+	g, err := vec.(*prometheus.GaugeVec).GetMetricWith(normalizeLabels(labels)) //nolint:errcheck // type guaranteed by Store
+	if err != nil {
+		return nil, false
+	}
+	return g, true
+}
+
+// BindHistogram implements adapters.Binder.
+func (a *Adapter) BindHistogram(name string, labels map[string]string) (adapters.BoundHistogram, bool) {
+	vec, ok := a.histos.Load(name)
+	if !ok {
+		return nil, false
+	}
+	o, err := vec.(*prometheus.HistogramVec).GetMetricWith(normalizeLabels(labels)) //nolint:errcheck // type guaranteed by Store
+	if err != nil {
+		return nil, false
+	}
+	return o, true
+}
+
 // emptyLabels is a pre-allocated empty label set, avoiding a heap allocation
 // on every unlabeled metric observation.
 var emptyLabels = prometheus.Labels{}
@@ -181,4 +222,5 @@ func (a *Adapter) Gatherer() prometheus.Gatherer {
 var (
 	_ adapters.Adapter     = (*Adapter)(nil)
 	_ adapters.HTTPHandler = (*Adapter)(nil)
+	_ adapters.Binder      = (*Adapter)(nil)
 )
