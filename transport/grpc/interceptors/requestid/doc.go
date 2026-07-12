@@ -15,9 +15,6 @@
 // ID is absent or not a valid UUID v4, the server interceptor returns
 // [ErrInvalidRequestId] as a gRPC [codes.InvalidArgument] status.
 //
-// Metadata maps used for ID propagation are recycled through a [sync.Pool]
-// bounded by [MaxMetadataPoolSize] to reduce allocations.
-//
 // Example:
 //
 //	gen := requestid.NewGenerator()
