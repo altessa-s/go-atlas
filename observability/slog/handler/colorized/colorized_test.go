@@ -159,26 +159,35 @@ func TestWithGroup_Identity(t *testing.T) {
 	require.Same(t, h, h.WithAttrs(nil))
 }
 
-// TestWithGroup_PrefixLagsOneClone pins the current group-prefix behavior.
-//
-// Suspected bug: Handler.clone builds lazyGroupPrefix from the parent's
-// groups BEFORE WithGroup appends the new name, so the freshly added group is
-// not part of the prefix until a subsequent WithAttrs/WithGroup clone happens.
-// slog.Handler semantics require record attributes to be qualified by all
-// open groups.
-func TestWithGroup_PrefixLagsOneClone(t *testing.T) {
+// TestWithGroup_PrefixAppliesToSubsequentAttrs verifies the slog.Handler
+// group contract: the group qualifies record attributes and attributes added
+// after WithGroup, while attributes added before the group are never
+// retroactively qualified.
+func TestWithGroup_PrefixAppliesToSubsequentAttrs(t *testing.T) {
 	var buf bytes.Buffer
 	base := slog.New(NewHandler(&buf, WithLevel(slog.LevelDebug)))
 
-	// Record attrs immediately after WithGroup: prefix is not applied.
+	// Record attrs are qualified starting from the very next record.
 	base.WithGroup("req").Info("m", "id", 7)
-	require.Contains(t, buf.String(), "id=7")
-	require.NotContains(t, buf.String(), "req.id")
+	require.Contains(t, buf.String(), "req.id=7")
 
-	// A later With() clone materializes the "req." prefix.
+	// Attrs added after the group are qualified.
 	buf.Reset()
 	base.WithGroup("req").With("id", 7).Info("m")
 	require.Contains(t, buf.String(), "req.id=7")
+
+	// Attrs added before the group are never retroactively qualified.
+	buf.Reset()
+	base.With("app", "atlas").WithGroup("req").Info("m", "id", 7)
+	out := buf.String()
+	require.Contains(t, out, "app=atlas")
+	require.NotContains(t, out, "req.app")
+	require.Contains(t, out, "req.id=7")
+
+	// Nested groups compose.
+	buf.Reset()
+	base.WithGroup("a").WithGroup("b").Info("m", "id", 7)
+	require.Contains(t, buf.String(), "a.b.id=7")
 }
 
 func TestWithAttrs_ReplaceAttr(t *testing.T) {
@@ -611,25 +620,58 @@ func TestFormatTime(t *testing.T) {
 	require.Equal(t, "2026-07-12", formatTime(fixed, "2006-01-02"))
 }
 
-// TestFormatTime_MillisecondCacheCollision pins the current caching behavior.
-//
-// Suspected bug: for time.RFC3339Nano the cache key uses millisecond
-// precision (UnixMilli), so two distinct times within the same millisecond
-// collide and the second call returns the first call's formatted string, even
-// though a nanosecond-precision format was requested.
-func TestFormatTime_MillisecondCacheCollision(t *testing.T) {
+// TestFormatTime_SubSecondPrecision verifies that sub-second formats are
+// cached at nanosecond granularity: two distinct instants within the same
+// millisecond must format independently.
+func TestFormatTime_SubSecondPrecision(t *testing.T) {
 	t.Parallel()
 
 	base := time.Date(2031, 3, 5, 7, 9, 11, 500_000_000, time.UTC)
 	later := base.Add(123456 * time.Nanosecond)
 	require.Equal(t, base.UnixMilli(), later.UnixMilli())
 
-	first := formatTime(base, time.RFC3339Nano)
-	require.Equal(t, base.Format(time.RFC3339Nano), first)
+	require.Equal(t, base.Format(time.RFC3339Nano), formatTime(base, time.RFC3339Nano))
+	require.Equal(t, later.Format(time.RFC3339Nano), formatTime(later, time.RFC3339Nano))
+}
 
-	second := formatTime(later, time.RFC3339Nano)
-	require.Equal(t, first, second, "pinned: cache collision returns the earlier formatting")
-	require.NotEqual(t, later.Format(time.RFC3339Nano), second)
+// TestFormatTime_LocationAware verifies that equal instants rendered in
+// different time zones do not collide in the cache.
+func TestFormatTime_LocationAware(t *testing.T) {
+	t.Parallel()
+
+	utc := time.Date(2032, 1, 2, 3, 4, 5, 0, time.UTC)
+	zoned := utc.In(time.FixedZone("UTC+3", 3*3600))
+	require.Equal(t, utc.Unix(), zoned.Unix())
+
+	require.Equal(t, utc.Format(time.RFC3339), formatTime(utc, time.RFC3339))
+	require.Equal(t, zoned.Format(time.RFC3339), formatTime(zoned, time.RFC3339))
+}
+
+func TestFormatHasSubSecond(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		format string
+		want   bool
+	}{
+		{name: "rfc3339nano", format: time.RFC3339Nano, want: true},
+		{name: "stamp milli", format: time.StampMilli, want: true},
+		{name: "custom micros", format: "15:04:05.000000", want: true},
+		{name: "comma fraction", format: "15:04:05,999", want: true},
+		{name: "rfc3339", format: time.RFC3339, want: false},
+		// Dots followed by further digits are date separators, not fractions.
+		{name: "dotted date", format: "2006.01.02", want: false},
+		{name: "empty", format: "", want: false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			require.Equal(t, tc.want, formatHasSubSecond(tc.format))
+		})
+	}
 }
 
 // Lazy evaluator tests.
