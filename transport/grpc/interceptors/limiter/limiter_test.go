@@ -1,4 +1,4 @@
-// Copyright 2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
@@ -9,10 +9,11 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc/metadata"
 
 	"github.com/altessa-s/go-atlas/data/limiters"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
+
+	"google.golang.org/grpc/metadata"
 )
 
 func fakeLimiter() limiters.Limiter {
