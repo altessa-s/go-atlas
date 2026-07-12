@@ -97,6 +97,9 @@ func (b *Base) InternEndpoint(endpoint string) string {
 
 // LogIgnored logs a debug message that the endpoint was ignored.
 func (b *Base) LogIgnored(ctx context.Context, endpoint string) {
+	if !b.logger.Enabled(ctx, slog.LevelDebug) {
+		return
+	}
 	slogx.BuildLogger(ctx, b.logger).LogAttrs(ctx, slog.LevelDebug, "ignored",
 		slog.String(b.componentKind, b.name),
 		slog.String(b.endpointKind, endpoint),
@@ -105,6 +108,9 @@ func (b *Base) LogIgnored(ctx context.Context, endpoint string) {
 
 // LogDebug logs a debug message with component context.
 func (b *Base) LogDebug(ctx context.Context, msg, endpoint string, attrs ...slog.Attr) {
+	if !b.logger.Enabled(ctx, slog.LevelDebug) {
+		return
+	}
 	allAttrs := make([]slog.Attr, 0, len(attrs)+2)
 	allAttrs = append(allAttrs, slog.String(b.componentKind, b.name), slog.String(b.endpointKind, endpoint))
 	allAttrs = append(allAttrs, attrs...)
@@ -113,6 +119,9 @@ func (b *Base) LogDebug(ctx context.Context, msg, endpoint string, attrs ...slog
 
 // LogWarn logs a warning message with component context.
 func (b *Base) LogWarn(ctx context.Context, msg, endpoint string, err error, attrs ...slog.Attr) {
+	if !b.logger.Enabled(ctx, slog.LevelWarn) {
+		return
+	}
 	allAttrs := make([]slog.Attr, 0, len(attrs)+3)
 	allAttrs = append(allAttrs, slog.String(b.componentKind, b.name), slog.String(b.endpointKind, endpoint))
 	if err != nil {
