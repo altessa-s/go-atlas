@@ -5,6 +5,7 @@
 package metrics
 
 import (
+	"sync"
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/text/strings"
@@ -16,41 +17,90 @@ import (
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
-// metricsRecorder provides common metrics recording functionality.
-type metricsRecorder struct {
-	requestsTotal   metrics.Counter
-	requestDuration metrics.Histogram
-	requestSize     metrics.Histogram
-	responseSize    metrics.Histogram
-	opts            *options
-	logPrefix       string
+// methodHandles caches the bound label handles for a single gRPC method so
+// the per-request path reuses them instead of building a label map and a
+// labeled wrapper on every observation. Cardinality is bounded by the
+// service's method set (times the gRPC status-code set for byStatus).
+type methodHandles struct {
+	method      string
+	inFlight    metrics.Gauge
+	msgSizeSent metrics.Histogram // nil unless stream+size metrics enabled
+	msgSizeRecv metrics.Histogram
+	byStatus    sync.Map // status string → *statusHandles
 }
 
-// record records metrics for a completed request.
-func (r *metricsRecorder) record(fullMethod string, startTime time.Time, req, resp any, err error) {
+// statusHandles caches the bound handles for one (method, status) pair.
+type statusHandles struct {
+	total      metrics.Counter
+	duration   metrics.Histogram
+	reqSize    metrics.Histogram // nil unless size metrics enabled
+	respSize   metrics.Histogram
+	streamSent metrics.Counter // nil unless stream metrics enabled
+	streamRecv metrics.Counter
+}
+
+// methodFor returns the cached handles for method, binding them on first use.
+func (i *interceptor) methodFor(method string) *methodHandles {
+	if v, ok := i.byMethod.Load(method); ok {
+		return v.(*methodHandles) //nolint:errcheck // only *methodHandles is stored
+	}
+	mh := &methodHandles{
+		method:   method,
+		inFlight: i.requestsInFlightByMethod.WithLabels(metrics.Labels{methodLabel: method}),
+	}
+	if i.streamMessageSize != nil {
+		mh.msgSizeSent = i.streamMessageSize.WithLabels(metrics.Labels{methodLabel: method, directionLabel: directionSent})
+		mh.msgSizeRecv = i.streamMessageSize.WithLabels(metrics.Labels{methodLabel: method, directionLabel: directionReceived})
+	}
+	v, _ := i.byMethod.LoadOrStore(method, mh)
+	return v.(*methodHandles) //nolint:errcheck // only *methodHandles is stored
+}
+
+// statusFor returns the cached handles for (method, status), binding on first use.
+func (i *interceptor) statusFor(mh *methodHandles, statusCode string) *statusHandles {
+	if v, ok := mh.byStatus.Load(statusCode); ok {
+		return v.(*statusHandles) //nolint:errcheck // only *statusHandles is stored
+	}
+	labels := metrics.Labels{methodLabel: mh.method, statusLabel: statusCode}
+	sh := &statusHandles{
+		total:    i.requestsTotal.WithLabels(labels),
+		duration: i.requestDuration.WithLabels(labels),
+	}
+	if i.requestSize != nil {
+		sh.reqSize = i.requestSize.WithLabels(labels)
+	}
+	if i.responseSize != nil {
+		sh.respSize = i.responseSize.WithLabels(labels)
+	}
+	if i.streamMessagesSent != nil {
+		sh.streamSent = i.streamMessagesSent.WithLabels(labels)
+	}
+	if i.streamMessagesReceived != nil {
+		sh.streamRecv = i.streamMessagesReceived.WithLabels(labels)
+	}
+	v, _ := mh.byStatus.LoadOrStore(statusCode, sh)
+	return v.(*statusHandles) //nolint:errcheck // only *statusHandles is stored
+}
+
+// recordMetrics records metrics for a completed request.
+func (i *interceptor) recordMetrics(mh *methodHandles, startTime time.Time, req, resp any, err error) {
 	duration := time.Since(startTime)
 	statusCode := getStatusCode(err)
 
-	internedMethod := strings.InternString(fullMethod)
-	internedStatus := strings.InternString(statusCode.String())
+	h := i.statusFor(mh, strings.InternString(statusCode.String()))
 
-	labels := metrics.Labels{
-		methodLabel: internedMethod,
-		statusLabel: internedStatus,
-	}
+	h.total.Inc()
+	h.duration.Observe(duration.Seconds())
 
-	r.requestsTotal.WithLabels(labels).Inc()
-	r.requestDuration.WithLabels(labels).Observe(duration.Seconds())
-
-	if r.opts.enableSizeMetrics && r.requestSize != nil && r.responseSize != nil {
+	if i.opts.enableSizeMetrics && h.reqSize != nil && h.respSize != nil {
 		if req != nil {
 			if size, ok := getMessageSize(req); ok {
-				r.requestSize.WithLabels(labels).Observe(float64(size))
+				h.reqSize.Observe(float64(size))
 			}
 		}
 		if resp != nil {
 			if size, ok := getMessageSize(resp); ok {
-				r.responseSize.WithLabels(labels).Observe(float64(size))
+				h.respSize.Observe(float64(size))
 			}
 		}
 	}

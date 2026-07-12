@@ -8,6 +8,7 @@ import (
 	"context"
 	"hash/fnv"
 	"math/rand"
+	"sync"
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/text/strings"
@@ -55,13 +56,14 @@ func (w *serverInterceptorWrapper) ServerUnaryInterceptor() stdGrpc.UnaryServerI
 			return handler(ctx, req)
 		}
 
+		mh := w.methodFor(method)
 		w.requestsInFlight.Inc()
-		w.requestsInFlightByMethod.WithLabels(metrics.Labels{methodLabel: meta.FullyMethodName}).Inc()
+		mh.inFlight.Inc()
 
 		defer func() {
 			w.requestsInFlight.Dec()
-			w.requestsInFlightByMethod.WithLabels(metrics.Labels{methodLabel: meta.FullyMethodName}).Dec()
-			w.recordMetrics(meta.FullyMethodName, meta.StartTime, req, resp, err)
+			mh.inFlight.Dec()
+			w.recordMetrics(mh, meta.StartTime, req, resp, err)
 		}()
 
 		return handler(ctx, req)
@@ -79,18 +81,20 @@ func (w *serverInterceptorWrapper) ServerStreamInterceptor() stdGrpc.StreamServe
 			return handler(srv, stream)
 		}
 
+		mh := w.methodFor(method)
 		w.requestsInFlight.Inc()
-		w.requestsInFlightByMethod.WithLabels(metrics.Labels{methodLabel: meta.FullyMethodName}).Inc()
+		mh.inFlight.Inc()
 
 		defer func() {
 			w.requestsInFlight.Dec()
-			w.requestsInFlightByMethod.WithLabels(metrics.Labels{methodLabel: meta.FullyMethodName}).Dec()
+			mh.inFlight.Dec()
 		}()
 
 		// Wrap the stream to track per-message metrics if streaming metrics are enabled
 		wrappedStream := &streamWrapper{
 			ServerStream: stream,
 			interceptor:  w.interceptor,
+			handles:      mh,
 			fullMethod:   meta.FullyMethodName,
 			statusCode:   codes.OK,
 		}
@@ -104,7 +108,7 @@ func (w *serverInterceptorWrapper) ServerStreamInterceptor() stdGrpc.StreamServe
 		wrappedStream.statusCode = getStatusCode(err)
 		wrappedStream.finalizeStreamMetrics()
 
-		w.recordMetrics(meta.FullyMethodName, meta.StartTime, nil, nil, err)
+		w.recordMetrics(mh, meta.StartTime, nil, nil, err)
 		return err
 	}
 }
@@ -131,6 +135,9 @@ type interceptor struct {
 	streamMessagesSent       metrics.Counter
 	streamMessagesReceived   metrics.Counter
 	streamMessageSize        metrics.Histogram
+	// byMethod caches bound label handles per method (see metrics_helper.go)
+	// so the request path never rebuilds label maps.
+	byMethod sync.Map
 }
 
 // streamWrapper wraps a grpc.ServerStream to intercept SendMsg and RecvMsg calls
@@ -138,6 +145,7 @@ type interceptor struct {
 type streamWrapper struct {
 	stdGrpc.ServerStream
 	interceptor         *interceptor
+	handles             *methodHandles
 	fullMethod          string
 	messagesSent        int64
 	messagesReceived    int64
@@ -261,12 +269,9 @@ func (s *streamWrapper) SendMsg(m any) error {
 		s.sampledMessagesSent++
 
 		// Record message size if both stream and size metrics are enabled
-		if s.interceptor.opts.enableSizeMetrics && s.interceptor.streamMessageSize != nil {
+		if s.interceptor.opts.enableSizeMetrics && s.handles.msgSizeSent != nil {
 			if size, ok := getMessageSize(m); ok {
-				s.interceptor.streamMessageSize.WithLabels(metrics.Labels{
-					methodLabel:    s.fullMethod,
-					directionLabel: directionSent,
-				}).Observe(float64(size))
+				s.handles.msgSizeSent.Observe(float64(size))
 			}
 		}
 	}
@@ -295,12 +300,9 @@ func (s *streamWrapper) RecvMsg(m any) error {
 		s.sampledMessagesRecv++
 
 		// Record message size if both stream and size metrics are enabled
-		if s.interceptor.opts.enableSizeMetrics && s.interceptor.streamMessageSize != nil {
+		if s.interceptor.opts.enableSizeMetrics && s.handles.msgSizeRecv != nil {
 			if size, ok := getMessageSize(m); ok {
-				s.interceptor.streamMessageSize.WithLabels(metrics.Labels{
-					methodLabel:    s.fullMethod,
-					directionLabel: directionReceived,
-				}).Observe(float64(size))
+				s.handles.msgSizeRecv.Observe(float64(size))
 			}
 		}
 	}
@@ -382,17 +384,11 @@ func (s *streamWrapper) finalizeStreamMetrics() {
 
 	// Only record metrics if the counters are initialized
 	if s.interceptor.streamMessagesSent != nil && scaledSent > 0 {
-		s.interceptor.streamMessagesSent.WithLabels(metrics.Labels{
-			methodLabel: s.fullMethod, // Already interned when stream was created
-			statusLabel: internedStatus,
-		}).Add(scaledSent)
+		s.interceptor.statusFor(s.handles, internedStatus).streamSent.Add(scaledSent)
 	}
 
 	if s.interceptor.streamMessagesReceived != nil && scaledReceived > 0 {
-		s.interceptor.streamMessagesReceived.WithLabels(metrics.Labels{
-			methodLabel: s.fullMethod, // Already interned when stream was created
-			statusLabel: internedStatus,
-		}).Add(scaledReceived)
+		s.interceptor.statusFor(s.handles, internedStatus).streamRecv.Add(scaledReceived)
 	}
 }
 
@@ -470,16 +466,4 @@ func (i *interceptor) initializeMetrics() {
 			})
 		}
 	}
-}
-
-func (i *interceptor) recordMetrics(fullMethod string, startTime time.Time, req, resp any, err error) {
-	recorder := &metricsRecorder{
-		requestsTotal:   i.requestsTotal,
-		requestDuration: i.requestDuration,
-		requestSize:     i.requestSize,
-		responseSize:    i.responseSize,
-		opts:            i.opts,
-		logPrefix:       "",
-	}
-	recorder.record(fullMethod, startTime, req, resp, err)
 }

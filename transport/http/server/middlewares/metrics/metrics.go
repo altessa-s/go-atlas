@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
@@ -42,6 +43,53 @@ type Middleware struct {
 	requestsInFlight metrics.Gauge
 	requestSize      metrics.Histogram
 	responseSize     metrics.Histogram
+	// byMethod caches bound label handles per (method, status) so the
+	// request path never rebuilds label maps. Cardinality is bounded by
+	// the HTTP method set times the status-code set.
+	byMethod sync.Map // method string → *methodEntry
+}
+
+// methodEntry holds the per-status handle cache for one HTTP method.
+type methodEntry struct {
+	method   string
+	byStatus sync.Map // status string → *requestHandles
+}
+
+// requestHandles caches the bound handles for one (method, status) pair.
+type requestHandles struct {
+	total    metrics.Counter
+	duration metrics.Histogram
+	reqSize  metrics.Histogram // nil unless size metrics enabled
+	respSize metrics.Histogram
+}
+
+// handlesFor returns the cached handles for (method, status), binding them
+// on first use.
+func (m *Middleware) handlesFor(method, statusCode string) *requestHandles {
+	var me *methodEntry
+	if v, ok := m.byMethod.Load(method); ok {
+		me = v.(*methodEntry) //nolint:errcheck // only *methodEntry is stored
+	} else {
+		v, _ := m.byMethod.LoadOrStore(method, &methodEntry{method: method})
+		me = v.(*methodEntry) //nolint:errcheck // only *methodEntry is stored
+	}
+
+	if v, ok := me.byStatus.Load(statusCode); ok {
+		return v.(*requestHandles) //nolint:errcheck // only *requestHandles is stored
+	}
+	labels := metrics.Labels{methodLabel: me.method, statusLabel: statusCode}
+	h := &requestHandles{
+		total:    m.requestsTotal.WithLabels(labels),
+		duration: m.requestDuration.WithLabels(labels),
+	}
+	if m.requestSize != nil {
+		h.reqSize = m.requestSize.WithLabels(labels)
+	}
+	if m.responseSize != nil {
+		h.respSize = m.responseSize.WithLabels(labels)
+	}
+	v, _ := me.byStatus.LoadOrStore(statusCode, h)
+	return v.(*requestHandles) //nolint:errcheck // only *requestHandles is stored
 }
 
 // Dependencies returns middlewares that prometheus requires to run before it.
@@ -165,21 +213,16 @@ func (m *Middleware) recordMetrics(r *http.Request, rec *recorder, startTime tim
 	duration := time.Since(startTime)
 	statusCode := statusString(rec.StatusCode())
 
-	internedMethod := corestrings.InternString(r.Method)
+	h := m.handlesFor(corestrings.InternString(r.Method), statusCode)
 
-	labels := metrics.Labels{
-		methodLabel: internedMethod,
-		statusLabel: statusCode,
-	}
-
-	m.requestsTotal.WithLabels(labels).Inc()
-	m.requestDuration.WithLabels(labels).Observe(duration.Seconds())
+	h.total.Inc()
+	h.duration.Observe(duration.Seconds())
 
 	if m.opts.enableSizeMetrics {
 		if r.ContentLength >= 0 {
-			m.requestSize.WithLabels(labels).Observe(float64(r.ContentLength))
+			h.reqSize.Observe(float64(r.ContentLength))
 		}
-		m.responseSize.WithLabels(labels).Observe(float64(rec.Size()))
+		h.respSize.Observe(float64(rec.Size()))
 	}
 
 	m.LogDebug(r.Context(), "recorded prometheus metrics", r.URL.Path,
