@@ -70,51 +70,62 @@ func processWithOptions[T any](
 		defer cancel()
 	}
 
-	var wg sync.WaitGroup
 	var once sync.Once
 	var firstErr error
-
-	// Semaphore to limit concurrency
-	sem := make(chan struct{}, concurrency)
 
 	// Mutex for OnSuccess/OnError callbacks
 	var cbMx sync.Mutex
 
-loop:
-	for _, item := range items {
+	handle := func(item T) {
+		if err := fn(gCtx, item); err != nil {
+			once.Do(func() {
+				firstErr = err
+				if cfg.stopOnError && cancel != nil {
+					cancel() // Stop other workers
+				}
+			})
+
+			if cfg.onError != nil {
+				cbMx.Lock()
+				cfg.onError(item, err)
+				cbMx.Unlock()
+			}
+		} else if cfg.onSuccess != nil {
+			cbMx.Lock()
+			cfg.onSuccess(item)
+			cbMx.Unlock()
+		}
+	}
+
+	// A fixed pool of workers consumes item indices from an unbuffered
+	// channel, so a batch spawns min(concurrency, len(items)) goroutines
+	// instead of one per item. The unbuffered channel keeps the dispatch
+	// gating identical to the former semaphore: an index handed over is an
+	// item being processed, and nothing is queued past a cancellation.
+	var wg sync.WaitGroup
+	indexes := make(chan int)
+	for range min(concurrency, len(items)) {
+		wg.Go(func() {
+			for idx := range indexes {
+				handle(items[idx])
+			}
+		})
+	}
+
+feed:
+	for i := range items {
 		// Check if context is already canceled
 		if gCtx.Err() != nil {
 			break
 		}
 
 		select {
-		case sem <- struct{}{}:
-			wg.Go(func() {
-				defer func() { <-sem }()
-
-				if err := fn(gCtx, item); err != nil {
-					once.Do(func() {
-						firstErr = err
-						if cfg.stopOnError && cancel != nil {
-							cancel() // Stop other workers
-						}
-					})
-
-					if cfg.onError != nil {
-						cbMx.Lock()
-						cfg.onError(item, err)
-						cbMx.Unlock()
-					}
-				} else if cfg.onSuccess != nil {
-					cbMx.Lock()
-					cfg.onSuccess(item)
-					cbMx.Unlock()
-				}
-			})
+		case indexes <- i:
 		case <-gCtx.Done():
-			break loop
+			break feed
 		}
 	}
+	close(indexes)
 
 	wg.Wait()
 	return firstErr

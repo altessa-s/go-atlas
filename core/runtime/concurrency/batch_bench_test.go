@@ -46,6 +46,29 @@ func BenchmarkProcessSmallParallel(b *testing.B) {
 	}
 }
 
+// BenchmarkProcessLargeBatch exercises the case the worker pool exists for:
+// item count far above the concurrency limit, where per-item goroutines
+// would dominate the cost.
+func BenchmarkProcessLargeBatch(b *testing.B) {
+	ctx := b.Context()
+	items := makeItems(10000)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = concurrency.Process(ctx, items, noopProcess, concurrency.WithConcurrency[int](8))
+	}
+}
+
+func BenchmarkProcessCollectLargeBatch(b *testing.B) {
+	ctx := b.Context()
+	items := makeItems(10000)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = concurrency.ProcessCollect(ctx, items, transformDouble, concurrency.WithConcurrency[int](8))
+	}
+}
+
 func BenchmarkProcessCollectSequential(b *testing.B) {
 	ctx := b.Context()
 	items := makeItems(8)
