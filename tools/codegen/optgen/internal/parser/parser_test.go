@@ -6,7 +6,6 @@ package parser_test
 
 import (
 	"go/ast"
-	goparser "go/parser"
 	"go/token"
 	"strings"
 	"testing"
@@ -16,6 +15,8 @@ import (
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/internal/parser"
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/model"
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/plugin"
+
+	goparser "go/parser"
 )
 
 // stubCheck is a minimal CheckPlugin registered so that optcheck validation is
