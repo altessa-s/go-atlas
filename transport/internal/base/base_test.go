@@ -229,6 +229,42 @@ func TestLogError_NilError(t *testing.T) {
 	require.False(t, ok, "error attribute should not be present when err is nil")
 }
 
+// levelHandler wraps captureHandler with a minimum-level gate so tests can
+// exercise the early-out in the Log* methods.
+type levelHandler struct {
+	*captureHandler
+	min slog.Level
+}
+
+func (h levelHandler) Enabled(_ context.Context, l slog.Level) bool { return l >= h.min }
+
+func TestLogMethods_BelowLevel_NotLogged(t *testing.T) {
+	c := &captureHandler{}
+	logger := slog.New(levelHandler{captureHandler: c, min: slog.LevelInfo})
+	b := New("test", "middleware", "path", logger)
+	ctx := t.Context()
+
+	b.LogIgnored(ctx, "/health")
+	b.LogDebug(ctx, "msg", "/api")
+	require.Empty(t, c.records, "debug records must be suppressed below the handler level")
+
+	b.LogWarn(ctx, "warn", "/api", nil)
+	require.Len(t, c.records, 1, "warn must still be logged when the handler level allows it")
+}
+
+func TestLogDebug_DisabledLevel_NoAllocs(t *testing.T) {
+	logger := slog.New(levelHandler{captureHandler: &captureHandler{}, min: slog.LevelInfo})
+	b := New("test", "middleware", "path", logger)
+	ctx := t.Context()
+	attrs := []slog.Attr{slog.String("k", "v")}
+
+	allocs := testing.AllocsPerRun(100, func() {
+		b.LogDebug(ctx, "msg", "/api", attrs...)
+		b.LogIgnored(ctx, "/api")
+	})
+	require.Zero(t, allocs, "disabled-level debug logging must not allocate")
+}
+
 func assertAttr(t *testing.T, rec logRecord, key, want string) {
 	t.Helper()
 	got, ok := rec.Attrs[key]
