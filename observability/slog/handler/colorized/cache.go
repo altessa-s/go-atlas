@@ -16,10 +16,14 @@ import (
 // CacheShards is the number of shards used by the time cache.
 const CacheShards = 16
 
-// timeCacheKey uniquely identifies a time format combination
+// timeCacheKey uniquely identifies a time format combination.
+// The instant is kept at nanosecond granularity for sub-second formats and
+// second granularity otherwise; the Location pointer disambiguates equal
+// instants rendered in different time zones.
 type timeCacheKey struct {
-	unix   int64  // Unix timestamp in seconds or milliseconds
-	format string // Time format string
+	unix   int64          // Unix timestamp: nanoseconds for sub-second formats, seconds otherwise
+	loc    *time.Location // Location identity; formatted output depends on the zone
+	format string         // Time format string
 }
 
 // colorKey uniquely identifies a color combination
@@ -73,19 +77,16 @@ func formatTimeOptimized(t time.Time, format string) string {
 		return ""
 	}
 
-	// Determine cache key based on format
-	var unix int64
-	switch format {
-	case time.RFC3339:
-		unix = t.Unix()
-	case time.RFC3339Nano:
-		unix = t.UnixMilli()
-	default:
-		unix = t.Unix()
+	// Sub-second formats change within a single second, so their cache key
+	// must be nanosecond-granular; coarser keys would serve a stale string
+	// for a different instant within the same bucket.
+	unix := t.Unix()
+	if formatHasSubSecond(format) {
+		unix = t.UnixNano()
 	}
 
 	// Try to get from cache
-	key := timeCacheKey{unix: unix, format: format}
+	key := timeCacheKey{unix: unix, loc: t.Location(), format: format}
 	if formatted, ok := globalTimeCache.get(key); ok {
 		return formatted
 	}
@@ -95,6 +96,32 @@ func formatTimeOptimized(t time.Time, format string) string {
 	globalTimeCache.put(key, formatted)
 
 	return formatted
+}
+
+// formatHasSubSecond reports whether the layout contains a fractional-second
+// directive: '.' or ',' followed by a run of '0's or '9's that is not
+// followed by another digit (mirrors the stdlib time layout grammar).
+func formatHasSubSecond(format string) bool {
+	if format == time.RFC3339Nano {
+		return true // fast path for the handler default
+	}
+	for i := 0; i+1 < len(format); i++ {
+		if format[i] != '.' && format[i] != ',' {
+			continue
+		}
+		ch := format[i+1]
+		if ch != '0' && ch != '9' {
+			continue
+		}
+		j := i + 1
+		for j < len(format) && format[j] == ch {
+			j++
+		}
+		if j >= len(format) || format[j] < '0' || format[j] > '9' {
+			return true
+		}
+	}
+	return false
 }
 
 // getColor is the optimized entry point for color retrieval

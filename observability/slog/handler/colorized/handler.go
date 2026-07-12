@@ -103,15 +103,24 @@ func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	// Clone handler
 	h2 := h.clone()
 
+	// Attributes are qualified with the groups open at the time they are
+	// added; formatRecord renders handler attributes without re-prefixing, so
+	// attributes added before a WithGroup are never retroactively qualified.
+	prefix := h2.lazyGroupPrefix.get()
+
 	// Process attributes through ReplaceAttr if configured
 	for _, attr := range attrs {
 		if h.opts.replaceAttr != nil {
 			attr = h.opts.replaceAttr(h2.groups, attr)
 		}
 		// Skip empty attributes
-		if !attr.Equal(slog.Attr{}) {
-			h2.attrs = append(h2.attrs, attr)
+		if attr.Equal(slog.Attr{}) {
+			continue
 		}
+		if prefix != "" {
+			attr.Key = prefix + attr.Key
+		}
+		h2.attrs = append(h2.attrs, attr)
 	}
 
 	return h2
@@ -125,7 +134,9 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 
 	h2 := h.clone()
 	h2.groups = append(h2.groups, name)
-	// Group prefix will be built lazily when needed
+	// Rebuild the lazy prefix from the updated groups so it takes effect for
+	// the very next record and for attributes added after this call.
+	h2.lazyGroupPrefix = newLazyGroupPrefix(h2.groups)
 
 	return h2
 }
@@ -141,7 +152,7 @@ func (h *Handler) clone() *Handler {
 		lazyColorMap:    h.lazyColorMap, // Share the lazy color map
 		minLevel:        h.minLevel,
 		groups:          slices.Clone(h.groups),
-		lazyGroupPrefix: newLazyGroupPrefix(h.groups), // Create new lazy prefix
+		lazyGroupPrefix: h.lazyGroupPrefix, // Groups are unchanged; WithGroup replaces it
 		attrs:           slices.Clone(h.attrs),
 	}
 }
@@ -182,22 +193,22 @@ func (h *Handler) formatRecord(buf *buffer, r slog.Record) {
 
 	// 7. Format all remaining attributes
 	if len(attrs) > 0 || lazySource != nil {
-		// Get group prefix lazily
-		groupPrefix := h.lazyGroupPrefix.get()
-
 		// Get color map lazily
 		colorMap := h.lazyColorMap.get()
 
-		// Format attributes
-		buf.formatAttributes(attrs, groupPrefix, colorMap)
+		// Attributes are already group-qualified (handler attributes at
+		// WithAttrs time, record attributes in collectAttributes), so no
+		// prefix is applied here.
+		buf.formatAttributes(attrs, "", colorMap)
 
-		// Add source attribute if needed
+		// Add source attribute if needed. Source is a record-level built-in
+		// and is never qualified by open groups.
 		if lazySource != nil {
 			if len(attrs) > 0 {
 				buf.writeBytes(spaceBytes)
 			}
 			sourceAttr := lazySource.get()
-			buf.formatAttribute(sourceAttr, groupPrefix, colorMap)
+			buf.formatAttribute(sourceAttr, "", colorMap)
 		}
 	}
 }
@@ -207,8 +218,11 @@ func (h *Handler) collectAttributes(r slog.Record) []slog.Attr {
 	// Pre-allocate with capacity
 	attrs := make([]slog.Attr, 0, len(h.attrs)+r.NumAttrs())
 
-	// Add handler attributes
+	// Add handler attributes (already qualified with their group prefix)
 	attrs = append(attrs, h.attrs...)
+
+	// Record attributes are qualified with the currently open groups.
+	prefix := h.lazyGroupPrefix.get()
 
 	// Add record attributes with ReplaceAttr processing
 	r.Attrs(func(a slog.Attr) bool {
@@ -216,6 +230,9 @@ func (h *Handler) collectAttributes(r slog.Record) []slog.Attr {
 			a = h.opts.replaceAttr(h.groups, a)
 		}
 		if !a.Equal(slog.Attr{}) {
+			if prefix != "" {
+				a.Key = prefix + a.Key
+			}
 			attrs = append(attrs, a)
 		}
 		return true
