@@ -43,10 +43,16 @@ var _ middlewares.Middleware = (*middleware)(nil)
 // middleware is the security headers middleware implementation.
 type middleware struct {
 	middlewares.BaseMiddleware
-	opts *options
 
-	// Pre-computed header values for performance
-	hstsValue string
+	// headers is the full set of configured header name/value pairs, computed
+	// once at construction so the per-request path is a single loop.
+	headers []headerValue
+}
+
+// headerValue is one precomputed response header.
+type headerValue struct {
+	name  string
+	value string
 }
 
 // Dependencies returns middlewares that securityheaders requires to run before it.
@@ -70,22 +76,15 @@ func (m *middleware) Dependencies() []string {
 func New(opt ...Option) *middleware {
 	opts := newOptions(opt...)
 
-	m := &middleware{
+	return &middleware{
 		BaseMiddleware: middlewares.NewBaseMiddlewareWithFilter(
 			middlewareName,
 			opts.ignorePaths,
 			opts.ignorePatterns,
 			opts.logger,
 		),
-		opts: opts,
+		headers: buildHeaders(opts),
 	}
-
-	// Pre-compute HSTS header value if enabled
-	if opts.hstsEnabled {
-		m.hstsValue = m.buildHSTSValue()
-	}
-
-	return m
 }
 
 // Middleware returns a middleware handler function.
@@ -119,71 +118,60 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 // setHeaders applies all configured security headers to the response.
 func (m *middleware) setHeaders(w http.ResponseWriter) {
 	h := w.Header()
-
-	// X-Content-Type-Options: nosniff
-	// Prevents MIME type sniffing attacks
-	if m.opts.contentTypeNoSniff {
-		h.Set(HeaderXContentTypeOptions, "nosniff")
-	}
-
-	// X-Frame-Options: DENY or SAMEORIGIN
-	// Prevents clickjacking attacks
-	if m.opts.frameOptions != "" {
-		h.Set(HeaderXFrameOptions, string(m.opts.frameOptions))
-	}
-
-	// Referrer-Policy
-	// Controls how much referrer information is sent
-	if m.opts.referrerPolicy != "" {
-		h.Set(HeaderReferrerPolicy, string(m.opts.referrerPolicy))
-	}
-
-	// X-XSS-Protection: 0
-	// Disables browser XSS filter (recommended as it can introduce vulnerabilities)
-	if m.opts.xssProtectionDisabled {
-		h.Set(HeaderXXSSProtection, "0")
-	}
-
-	// Strict-Transport-Security (HSTS)
-	// Enforces HTTPS connections
-	if m.opts.hstsEnabled && m.hstsValue != "" {
-		h.Set(HeaderStrictTransportSec, m.hstsValue)
-	}
-
-	// Content-Security-Policy
-	// Controls which resources can be loaded
-	if m.opts.contentSecurityPolicy != "" {
-		h.Set(HeaderContentSecurityPolicy, m.opts.contentSecurityPolicy)
-	}
-
-	// Permissions-Policy
-	// Controls which browser features can be used
-	if m.opts.permissionsPolicy != "" {
-		h.Set(HeaderPermissionsPolicy, m.opts.permissionsPolicy)
-	}
-
-	// Cross-Origin-Opener-Policy / -Embedder-Policy / -Resource-Policy.
-	// All opt-in (unset by default): they can break cross-window integrations and
-	// cross-origin subresources, so they are emitted only when configured.
-	if m.opts.crossOriginOpenerPolicy != "" {
-		h.Set(HeaderCrossOriginOpenerPol, string(m.opts.crossOriginOpenerPolicy))
-	}
-	if m.opts.crossOriginEmbedderPolicy != "" {
-		h.Set(HeaderCrossOriginEmbedderPol, string(m.opts.crossOriginEmbedderPolicy))
-	}
-	if m.opts.crossOriginResourcePolicy != "" {
-		h.Set(HeaderCrossOriginResourcePol, string(m.opts.crossOriginResourcePolicy))
+	for _, hv := range m.headers {
+		h.Set(hv.name, hv.value)
 	}
 }
 
+// buildHeaders computes the configured header name/value pairs once at
+// construction time.
+func buildHeaders(opts *options) []headerValue {
+	hv := make([]headerValue, 0, 10)
+
+	// X-Content-Type-Options: nosniff — prevents MIME type sniffing attacks.
+	hv = slices.AppendIf(hv, opts.contentTypeNoSniff,
+		headerValue{HeaderXContentTypeOptions, "nosniff"})
+	// X-Frame-Options: DENY or SAMEORIGIN — prevents clickjacking attacks.
+	hv = slices.AppendIf(hv, opts.frameOptions != "",
+		headerValue{HeaderXFrameOptions, string(opts.frameOptions)})
+	// Referrer-Policy — controls how much referrer information is sent.
+	hv = slices.AppendIf(hv, opts.referrerPolicy != "",
+		headerValue{HeaderReferrerPolicy, string(opts.referrerPolicy)})
+	// X-XSS-Protection: 0 — disables the browser XSS filter (recommended, as
+	// the filter can itself introduce vulnerabilities).
+	hv = slices.AppendIf(hv, opts.xssProtectionDisabled,
+		headerValue{HeaderXXSSProtection, "0"})
+	// Strict-Transport-Security (HSTS) — enforces HTTPS connections.
+	hv = slices.AppendIfFunc(hv, opts.hstsEnabled, func() []headerValue {
+		return []headerValue{{HeaderStrictTransportSec, buildHSTSValue(opts)}}
+	})
+	// Content-Security-Policy — controls which resources can be loaded.
+	hv = slices.AppendIf(hv, opts.contentSecurityPolicy != "",
+		headerValue{HeaderContentSecurityPolicy, opts.contentSecurityPolicy})
+	// Permissions-Policy — controls which browser features can be used.
+	hv = slices.AppendIf(hv, opts.permissionsPolicy != "",
+		headerValue{HeaderPermissionsPolicy, opts.permissionsPolicy})
+	// Cross-Origin-Opener-Policy / -Embedder-Policy / -Resource-Policy.
+	// All opt-in (unset by default): they can break cross-window integrations and
+	// cross-origin subresources, so they are emitted only when configured.
+	hv = slices.AppendIf(hv, opts.crossOriginOpenerPolicy != "",
+		headerValue{HeaderCrossOriginOpenerPol, string(opts.crossOriginOpenerPolicy)})
+	hv = slices.AppendIf(hv, opts.crossOriginEmbedderPolicy != "",
+		headerValue{HeaderCrossOriginEmbedderPol, string(opts.crossOriginEmbedderPolicy)})
+	hv = slices.AppendIf(hv, opts.crossOriginResourcePolicy != "",
+		headerValue{HeaderCrossOriginResourcePol, string(opts.crossOriginResourcePolicy)})
+
+	return hv
+}
+
 // buildHSTSValue constructs the Strict-Transport-Security header value.
-func (m *middleware) buildHSTSValue() string {
-	var parts []string
+func buildHSTSValue(opts *options) string {
+	parts := make([]string, 0, 3)
 
-	parts = append(parts, "max-age="+strconv.Itoa(m.opts.hstsMaxAge))
+	parts = append(parts, "max-age="+strconv.Itoa(opts.hstsMaxAge))
 
-	parts = slices.AppendIf(parts, m.opts.hstsIncludeSubDomains, "includeSubDomains")
-	parts = slices.AppendIf(parts, m.opts.hstsPreload, "preload")
+	parts = slices.AppendIf(parts, opts.hstsIncludeSubDomains, "includeSubDomains")
+	parts = slices.AppendIf(parts, opts.hstsPreload, "preload")
 
 	return strings.Join(parts, "; ")
 }
