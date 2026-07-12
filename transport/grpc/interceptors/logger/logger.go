@@ -54,11 +54,22 @@ func (f LoggerFunc) Log(ctx context.Context, msg string, grpcCode codes.Code, fi
 	f(ctx, msg, grpcCode, fields)
 }
 
+// LevelChecker is an optional [Logger] capability: it reports whether a call
+// completion with the given gRPC code would be emitted at all. When the
+// configured logger implements it, PostCall skips building the log fields
+// entirely for calls the sink would drop (e.g. an slog handler filtering
+// below the mapped level). [Slog] implements it; plain [LoggerFunc] values
+// do not and are always invoked.
+type LevelChecker interface {
+	Enabled(ctx context.Context, grpcCode codes.Code) bool
+}
+
 var _ driver.DrivenInterceptor = (*interceptor)(nil)
 var _ interceptors.Interceptor = (*interceptor)(nil)
 
 type interceptor struct {
 	logger        Logger
+	levelCheck    LevelChecker // non-nil when logger implements the optional capability
 	opts          *options
 	ignoreChecker endpointfilter.Filter
 	logCodes      []codes.Code
@@ -95,6 +106,7 @@ func ClientInterceptor(logger Logger, opt ...Option) interceptors.ClientIntercep
 }
 
 func (i *interceptor) init() {
+	i.levelCheck, _ = i.logger.(LevelChecker)
 	i.ignoreChecker = endpointfilter.NewOrNoop(
 		i.opts.ignoreMethods,
 		endpointfilter.WithIgnorePatterns(i.opts.ignorePatterns...),
@@ -200,6 +212,13 @@ func (ri *requestInterceptor) PostCall(ctx context.Context, resp any, err error)
 
 	// Use pre-computed set for O(1) lookup instead of O(n) slice search
 	if _, shouldLog := ri.logCodesSet[code]; !shouldLog {
+		return err
+	}
+
+	// Skip the field building entirely when the sink reports the mapped
+	// level as disabled — without this, a filtered-out record still paid
+	// the full attribute-formatting cost.
+	if ri.levelCheck != nil && !ri.levelCheck.Enabled(ctx, code) {
 		return err
 	}
 
