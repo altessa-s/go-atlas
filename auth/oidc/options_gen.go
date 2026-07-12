@@ -253,6 +253,7 @@ func defaultOptions() *options {
 	return &options{
 		activeTokensCacheKeyPrefix:  DefaultActiveTokensCacheKeyPrefix,
 		audienceFailureMode:         DefaultAudienceFailureMode,
+		discoveryValidationMode:     DefaultDiscoveryValidationMode,
 		jwksMaxStaleness:            DefaultJWKSMaxStaleness,
 		jwksFailureMode:             DefaultJWKSFailureMode,
 		jwksHTTPTimeout:             DefaultJWKSHTTPTimeout,
