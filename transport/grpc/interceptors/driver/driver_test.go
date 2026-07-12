@@ -60,11 +60,3 @@ func TestNoopDriver_PostCall_PassesThroughError(t *testing.T) {
 		require.ErrorIs(t, got, want)
 	})
 }
-
-func BenchmarkNoopDriver_PreCall(b *testing.B) {
-	d := NoopDriver()
-	ctx := b.Context()
-	for b.Loop() {
-		d.PreCall(ctx, nil) //nolint:errcheck
-	}
-}
