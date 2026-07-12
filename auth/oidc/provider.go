@@ -56,14 +56,26 @@ var (
 	ErrJWKSStale = errors.New("JWKS cache too stale to trust")
 )
 
+// maxDiscoveryResponseSize is the maximum bytes read from the OIDC discovery
+// endpoint. Discovery documents are a few KB in practice; anything larger
+// indicates a misbehaving or malicious IdP.
+const maxDiscoveryResponseSize = 1 << 20 // 1 MiB
+
+// maxDrainBytes bounds how much of an unread response body drainAndClose
+// consumes to keep the HTTP connection reusable. A body larger than this is
+// cheaper to abandon (closing the connection) than to stream to completion.
+const maxDrainBytes = 1 << 16 // 64 KiB
+
 // drainAndClose drains and closes an HTTP response body.
 // This ensures the connection can be reused by the HTTP client.
+// The drain is bounded by maxDrainBytes so an unbounded upstream body cannot
+// force the client to stream it to completion.
 func drainAndClose(resp *http.Response) {
 	if resp == nil || resp.Body == nil {
 		return
 	}
-	_, _ = io.Copy(io.Discard, resp.Body) //nolint:errcheck
-	_ = resp.Body.Close()                 //nolint:errcheck
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDrainBytes)) //nolint:errcheck
+	_ = resp.Body.Close()                                                //nolint:errcheck
 }
 
 type discoveryInfo struct {
@@ -654,9 +666,14 @@ func (p *Provider) getDiscoveryInfo(ctx context.Context) error {
 	}
 	defer drainAndClose(resp)
 
-	body, err := io.ReadAll(resp.Body)
+	// Security: cap the read — a malicious or misconfigured IdP must not be
+	// able to OOM the validator with a multi-GB discovery document.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxDiscoveryResponseSize+1))
 	if err != nil {
 		return coreerrs.Wrapf(ErrDiscovery, "%s", err)
+	}
+	if len(body) > maxDiscoveryResponseSize {
+		return coreerrs.Wrapf(ErrDiscovery, "discovery document exceeds %d bytes", maxDiscoveryResponseSize)
 	}
 
 	if resp.StatusCode != http.StatusOK {
