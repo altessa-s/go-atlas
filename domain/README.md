@@ -24,6 +24,6 @@ coordination. These packages operate on plain Go structs and protobuf messages w
 | `fieldtracker`                 | Detect changed fields between two struct instances    |
 | `normalizer`                   | Tag-based string normalization for struct fields      |
 | `normalizer/modifiers`         | Built-in and custom modifier functions                |
-| `proto/fieldbehavior`          | AIP-203 `field_behavior`-driven payload sanitisation  |
+| `proto/fieldbehavior`          | AIP-203 `field_behavior`-driven payload sanitization  |
 | `proto/fieldmask`              | Hierarchical field mask utilities for protobuf        |
 | `validation/iso7064`           | ISO 7064 MOD 11-10 check-digit validation            |

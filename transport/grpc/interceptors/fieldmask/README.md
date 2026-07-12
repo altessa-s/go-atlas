@@ -116,7 +116,7 @@ server := grpc.NewServer(grpc.UnaryInterceptor(
 ```
 
 `fieldmask` declares dependencies on `metadata` and `auth` — both must run earlier in the chain. Place `fieldbehavior` (and any payload
-sanitisation) before `fieldmask` so the mask sees the already-stripped request, and place `protovalidator` after `fieldmask` so the
+sanitization) before `fieldmask` so the mask sees the already-stripped request, and place `protovalidator` after `fieldmask` so the
 validator runs against the final mask-cleaned payload.
 
 ## Errors

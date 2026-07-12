@@ -123,7 +123,7 @@ func newCircuitBreakerClient(opts options, m *httpClientMetrics) *circuitBreaker
 	// Apply proxy override if configured. Clone the underlying transport
 	// before mutating its Proxy field so neither a *http.Transport supplied
 	// via WithTransport nor a *http.Client supplied via WithClient is
-	// modified in place. A nil Transport is normalised to
+	// modified in place. A nil Transport is normalized to
 	// http.DefaultTransport so callers passing &http.Client{} still see
 	// the proxy applied (otherwise net/http would fall back to
 	// http.DefaultTransport with http.ProxyFromEnvironment, silently

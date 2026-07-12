@@ -1,7 +1,7 @@
 # proto
 
 Protocol Buffers utilities for the Atlas framework domain layer. Field mask operations and `google.api.field_behavior`-driven payload
-sanitisation on protobuf messages, with well-known types handled transparently.
+sanitization on protobuf messages, with well-known types handled transparently.
 
 ## Subpackages
 

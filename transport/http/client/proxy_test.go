@@ -175,7 +175,7 @@ func TestWithProxy_NilTransportClient_AppliesResolver(t *testing.T) {
 	t.Parallel()
 
 	// A *http.Client with nil Transport is legal — net/http falls back to
-	// http.DefaultTransport at request time. Without nil-normalisation
+	// http.DefaultTransport at request time. Without nil-normalization
 	// the proxy block silently no-ops, and the request would slip through
 	// http.DefaultTransport.Proxy (== http.ProxyFromEnvironment), defeating
 	// WithoutProxy and WithProxy*.
@@ -190,7 +190,7 @@ func TestWithProxy_NilTransportClient_AppliesResolver(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	require.Equal(t, "example.invalid", lastHost.Load(), "proxy resolver was not consulted — nil Transport not normalised")
+	require.Equal(t, "example.invalid", lastHost.Load(), "proxy resolver was not consulted — nil Transport not normalized")
 }
 
 func TestWithProxy_NonTransportRoundTripper_NoOp(t *testing.T) {

@@ -60,7 +60,7 @@ type plainUnexported struct{ x int }
 // renderThroughMasking logs a single attribute through the masking handler into
 // a real slog text handler (WithDefaults mirrors the service wiring). Unlike the
 // capture handler, a real handler omits empty groups — which is exactly the slog
-// behaviour that makes a collapsed attribute disappear from the log — so this is
+// behavior that makes a collapsed attribute disappear from the log — so this is
 // what actually proves an attribute survives to the output.
 func renderThroughMasking(t *testing.T, attr slog.Attr) string {
 	t.Helper()

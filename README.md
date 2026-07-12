@@ -71,7 +71,7 @@ import "github.com/altessa-s/go-atlas/data/cache"
 | [`domain/eventbus`](domain/eventbus/) | Synchronous, lock-free, transaction-safe in-process event bus for decoupling domains |
 | [`domain/fieldtracker`](domain/fieldtracker/) | Struct field change tracking |
 | [`domain/normalizer`](domain/normalizer/) | Tag-driven data normalization with pluggable modifiers |
-| [`domain/proto`](domain/proto/) | Protobuf field mask and `field_behavior`-driven payload sanitisation |
+| [`domain/proto`](domain/proto/) | Protobuf field mask and `field_behavior`-driven payload sanitization |
 | [`domain/validation`](domain/validation/) | ISO 7064 MOD 11-10 check-digit computation and validation |
 | [`infrastructure/meilisearch`](infrastructure/meilisearch/) | Meilisearch client setup and lifecycle |
 | [`infrastructure/mongo`](infrastructure/mongo/) | MongoDB client setup and lifecycle |
