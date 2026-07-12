@@ -40,11 +40,13 @@ func (f Fields) AppendFields(fields Fields) Fields {
 	return append(f, fields...)
 }
 
-// Delete deletes a field from the fields.
+// Delete removes the first field with the given key. Like [slices.Delete], it
+// shifts elements within the receiver's backing array and zeroes the vacated
+// tail slot (so the removed value is not retained); use the returned slice.
 func (f Fields) Delete(key FieldKey) Fields {
 	for i := range f {
 		if f[i].Key == key {
-			return append(f[:i], f[i+1:]...)
+			return slices.Delete(f, i, i+1)
 		}
 	}
 	return f
