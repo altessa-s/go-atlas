@@ -27,6 +27,11 @@ import (
 
 const defaultPollInterval = 5 * time.Minute
 
+// maxObjectBytes caps how much of an S3 object is read into memory. The
+// provider only downloads PEM certificate/key material (a few KB); the cap
+// guards against a misconfigured key pointing at a huge object.
+const maxObjectBytes = 10 << 20 // 10 MiB
+
 // S3 represents an S3-based TLS provider with automatic certificate polling.
 // Use New to create a new instance.
 type S3 struct {
@@ -239,9 +244,12 @@ func (p *S3) downloadObject(ctx context.Context, bucket, key string) ([]byte, st
 	}
 	defer func() { _ = output.Body.Close() }()
 
-	data, err := io.ReadAll(output.Body)
+	data, err := io.ReadAll(io.LimitReader(output.Body, maxObjectBytes+1))
 	if err != nil {
 		return nil, "", err
+	}
+	if len(data) > maxObjectBytes {
+		return nil, "", fmt.Errorf("object %s/%s exceeds %d bytes", bucket, key, maxObjectBytes)
 	}
 
 	return data, aws.ToString(output.ETag), nil

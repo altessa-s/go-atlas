@@ -42,6 +42,11 @@ const (
 	// refreshBuffer is the time before nextUpdate when refresh is considered needed.
 	// OCSP responses are refreshed when less than this duration remains until expiration.
 	refreshBuffer = time.Hour
+	// maxOCSPResponseSize caps how many bytes are read from an OCSP responder
+	// (including after transparent gzip decompression) and from the stapler's
+	// own cache decompression path. DER-encoded OCSP responses are a few KB;
+	// 1 MiB is far above any legitimate response.
+	maxOCSPResponseSize = 1 << 20 // 1 MiB
 )
 
 // gzip pools for reduced allocations
@@ -240,9 +245,12 @@ func decompressData(data []byte) ([]byte, error) {
 	}
 	defer putGzipReader(reader)
 
-	decompressed, err := io.ReadAll(reader)
+	decompressed, err := io.ReadAll(io.LimitReader(reader, maxOCSPResponseSize+1))
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "decompress data")
+	}
+	if len(decompressed) > maxOCSPResponseSize {
+		return nil, fmt.Errorf("decompressed OCSP response exceeds %d bytes", maxOCSPResponseSize)
 	}
 
 	return decompressed, nil
@@ -457,9 +465,12 @@ func (s *Stapler) fetchOCSPResponse(ctx context.Context, cert *tls.Certificate, 
 				}
 			}
 
-			ocspResp, err = io.ReadAll(responseBody)
+			ocspResp, err = io.ReadAll(io.LimitReader(responseBody, maxOCSPResponseSize+1))
 			if err != nil {
 				return coreerrs.WrapOperation(err, "read OCSP response")
+			}
+			if len(ocspResp) > maxOCSPResponseSize {
+				return fmt.Errorf("OCSP response exceeds %d bytes", maxOCSPResponseSize)
 			}
 
 			parsedResp, err = ocsp.ParseResponse(ocspResp, issuerCert)
