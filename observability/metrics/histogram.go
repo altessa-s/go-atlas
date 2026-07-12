@@ -28,25 +28,37 @@ func (h *histogram) Observe(value float64) {
 }
 
 func (h *histogram) WithLabels(labels Labels) Histogram {
-	return &labeledHistogram{
-		parent: h,
-		labels: labels,
+	return newLabeledHistogram(h, labels)
+}
+
+// newLabeledHistogram builds a labeled view and, when the adapter supports
+// [adapters.Binder], resolves the concrete child once so Observe is a direct
+// update with no per-observation lookup.
+func newLabeledHistogram(parent *histogram, labels Labels) *labeledHistogram {
+	l := &labeledHistogram{parent: parent, labels: labels}
+	if b, ok := parent.adapter.(adapters.Binder); ok {
+		if h, ok := b.BindHistogram(parent.name, labels); ok {
+			l.bound = h
+		}
 	}
+	return l
 }
 
 // labeledHistogram is a histogram with labels applied.
 type labeledHistogram struct {
 	parent *histogram
 	labels Labels
+	bound  adapters.BoundHistogram // non-nil when the adapter pre-resolved the child
 }
 
 func (l *labeledHistogram) Observe(value float64) {
+	if l.bound != nil {
+		l.bound.Observe(value)
+		return
+	}
 	l.parent.adapter.RecordHistogram(l.parent.name, l.labels, value)
 }
 
 func (l *labeledHistogram) WithLabels(labels Labels) Histogram {
-	return &labeledHistogram{
-		parent: l.parent,
-		labels: MergeLabels(l.labels, labels),
-	}
+	return newLabeledHistogram(l.parent, MergeLabels(l.labels, labels))
 }

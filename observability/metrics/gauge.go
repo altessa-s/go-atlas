@@ -62,22 +62,34 @@ func (g *gauge) Sub(delta float64) {
 }
 
 func (g *gauge) WithLabels(labels Labels) Gauge {
-	return &labeledGauge{
-		parent: g,
-		labels: labels,
+	return newLabeledGauge(g, labels)
+}
+
+// newLabeledGauge builds a labeled view and, when the adapter supports
+// [adapters.Binder], resolves the concrete child once so Set/Add are direct
+// updates with no per-observation lookup. The local shadow value is kept so
+// Add/Inc/Dec semantics stay identical to the unbound path.
+func newLabeledGauge(parent *gauge, labels Labels) *labeledGauge {
+	l := &labeledGauge{parent: parent, labels: labels}
+	if b, ok := parent.adapter.(adapters.Binder); ok {
+		if h, ok := b.BindGauge(parent.name, labels); ok {
+			l.bound = h
+		}
 	}
+	return l
 }
 
 // labeledGauge is a gauge with labels applied.
 type labeledGauge struct {
 	parent *gauge
 	labels Labels
+	bound  adapters.BoundGauge // non-nil when the adapter pre-resolved the child
 	value  atomic.Uint64
 }
 
 func (l *labeledGauge) Set(value float64) {
 	l.value.Store(math.Float64bits(value))
-	l.parent.adapter.RecordGauge(l.parent.name, l.labels, value)
+	l.record(value)
 }
 
 func (l *labeledGauge) Inc() {
@@ -89,17 +101,21 @@ func (l *labeledGauge) Dec() {
 }
 
 func (l *labeledGauge) Add(delta float64) {
-	newValue := atomicAddFloat64(&l.value, delta)
-	l.parent.adapter.RecordGauge(l.parent.name, l.labels, newValue)
+	l.record(atomicAddFloat64(&l.value, delta))
 }
 
 func (l *labeledGauge) Sub(delta float64) {
 	l.Add(-delta)
 }
 
-func (l *labeledGauge) WithLabels(labels Labels) Gauge {
-	return &labeledGauge{
-		parent: l.parent,
-		labels: MergeLabels(l.labels, labels),
+func (l *labeledGauge) record(value float64) {
+	if l.bound != nil {
+		l.bound.Set(value)
+		return
 	}
+	l.parent.adapter.RecordGauge(l.parent.name, l.labels, value)
+}
+
+func (l *labeledGauge) WithLabels(labels Labels) Gauge {
+	return newLabeledGauge(l.parent, MergeLabels(l.labels, labels))
 }

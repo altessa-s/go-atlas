@@ -12,6 +12,8 @@ into a specific backend format (Prometheus, StatsD, OpenTelemetry, etc.). Use `M
 | Type           | Description                                                                                |
 |----------------|--------------------------------------------------------------------------------------------|
 | `Adapter`      | Interface: `Register`, `RecordCounter`, `RecordGauge`, `RecordHistogram`, `Flush`, `Close` |
+| `Binder`       | Optional capability: pre-resolves a (metric, label set) pair into a direct handle          |
+| `BoundCounter`, `BoundGauge`, `BoundHistogram` | Recording handles returned by `Binder`, one concrete label set each |
 | `MultiAdapter` | Broadcasts operations to multiple adapters simultaneously                                  |
 | `Desc`         | Metric descriptor passed during registration                                               |
 

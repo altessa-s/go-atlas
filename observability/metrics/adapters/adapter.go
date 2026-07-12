@@ -94,6 +94,41 @@ type HTTPHandler interface {
 	Handler() http.Handler
 }
 
+// BoundCounter is a counter handle pre-resolved to one concrete label set.
+type BoundCounter interface {
+	// Add increments the bound counter by delta.
+	Add(delta float64)
+}
+
+// BoundGauge is a gauge handle pre-resolved to one concrete label set.
+type BoundGauge interface {
+	// Set replaces the bound gauge value.
+	Set(value float64)
+}
+
+// BoundHistogram is a histogram handle pre-resolved to one concrete label set.
+type BoundHistogram interface {
+	// Observe records a value in the bound histogram.
+	Observe(value float64)
+}
+
+// Binder is an optional [Adapter] capability. Backends that can resolve a
+// (metric name, label set) pair into a direct recording handle implement it,
+// so the facade records through the handle without re-resolving the metric
+// and re-hashing the label map on every observation. A Bind call returning
+// false means the pair cannot be bound (unknown metric, invalid labels);
+// callers must fall back to the corresponding RecordX method.
+type Binder interface {
+	// BindCounter resolves a counter child for the given label set.
+	BindCounter(name string, labels map[string]string) (BoundCounter, bool)
+
+	// BindGauge resolves a gauge child for the given label set.
+	BindGauge(name string, labels map[string]string) (BoundGauge, bool)
+
+	// BindHistogram resolves a histogram child for the given label set.
+	BindHistogram(name string, labels map[string]string) (BoundHistogram, bool)
+}
+
 // MultiAdapter wraps multiple [Adapter] instances to broadcast metric events.
 // Not safe for concurrent modification after construction; concurrent
 // method calls are safe.
