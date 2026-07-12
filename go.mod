@@ -2,6 +2,8 @@ module github.com/altessa-s/go-atlas
 
 go 1.25.0
 
+toolchain go1.26.5
+
 require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.11-20260415201107-50325440f8f2.1
 	buf.build/go/protovalidate v1.2.0
