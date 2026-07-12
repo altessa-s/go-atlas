@@ -43,12 +43,3 @@ func TestDefaultValidator_ValidateToken_Error(t *testing.T) {
 	require.True(t, ok, "expected Unauthenticated, got %v", err)
 	require.Equal(t, codes.Unauthenticated, st.Code())
 }
-
-func BenchmarkDefaultValidator_ValidateToken(b *testing.B) {
-	p := &mockProvider{claims: map[string]any{"sub": "user1"}}
-	v := NewDefaultValidator(p)
-	ctx := b.Context()
-	for b.Loop() {
-		v.ValidateToken(ctx, "tok") //nolint:errcheck
-	}
-}
