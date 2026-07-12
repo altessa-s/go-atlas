@@ -104,10 +104,7 @@ func (tc *syncMapTypeCache) InvalidateType(t reflect.Type) {
 // Clear removes all cached type information.
 // This method clears the entire cache, useful for memory cleanup or testing.
 func (tc *syncMapTypeCache) Clear() {
-	tc.cache.Range(func(key, value any) bool {
-		tc.cache.Delete(key)
-		return true
-	})
+	tc.cache.Clear()
 }
 
 // buildTypeInfo creates a new TypeInfo for the given type
