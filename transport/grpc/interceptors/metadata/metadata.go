@@ -6,6 +6,7 @@ package metadata
 
 import (
 	"context"
+	"net"
 	"net/netip"
 	"strings"
 	"sync"
@@ -113,8 +114,17 @@ func NewCallMetadata[T callerConstraint](ctx context.Context, fullMethod string,
 
 	if !callMetadata.IsClient {
 		if peerIp, ok := peer.FromContext(ctx); ok {
-			if addrPort, err := netip.ParseAddrPort(peerIp.Addr.String()); err == nil {
-				callMetadata.ClientPerIP = addrPort.Addr()
+			// Common transports carry a concrete TCP/UDP address — take the
+			// netip form directly instead of round-tripping through a string.
+			switch a := peerIp.Addr.(type) {
+			case *net.TCPAddr:
+				callMetadata.ClientPerIP = a.AddrPort().Addr()
+			case *net.UDPAddr:
+				callMetadata.ClientPerIP = a.AddrPort().Addr()
+			default:
+				if addrPort, err := netip.ParseAddrPort(peerIp.Addr.String()); err == nil {
+					callMetadata.ClientPerIP = addrPort.Addr()
+				}
 			}
 		}
 	}

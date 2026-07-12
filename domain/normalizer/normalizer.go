@@ -271,9 +271,6 @@ func normalizeStructFields(v reflect.Value, parentPath string) error {
 			continue
 		}
 
-		// Build field path efficiently using optimized path builder
-		fieldPath := buildFieldPath(parentPath, fieldInfo.Name)
-
 		// Handle different tag values
 		switch fieldInfo.Tag {
 		case "-":
@@ -286,15 +283,18 @@ func normalizeStructFields(v reflect.Value, parentPath string) error {
 		case "":
 			// No tag, will be handled in recursive processing below
 		default:
-			// Apply tag-based modifiers using cached parsed modifiers
+			// Apply tag-based modifiers using cached parsed modifiers.
+			// The field path is built only when an error occurs, mirroring
+			// the lazy pattern of the array path above.
 			if err := applyTagModifiers(fieldValue, fieldInfo.ParsedModifiers); err != nil {
-				return coreerrs.WrapField(err, fieldPath)
+				return coreerrs.WrapField(err, buildFieldPath(parentPath, fieldInfo.Name))
 			}
 		}
 
-		// Recursively normalize nested structs
-		if err := normalizeValue(fieldValue, fieldPath); err != nil {
-			return err
+		// Recursively normalize nested structs; the path segment is attached
+		// on the way out only when an error surfaces.
+		if err := normalizeValue(fieldValue, ""); err != nil {
+			return coreerrs.WrapField(err, buildFieldPath(parentPath, fieldInfo.Name))
 		}
 	}
 

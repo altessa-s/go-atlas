@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"slices"
 	"strings"
 
@@ -182,30 +183,48 @@ func (l *RuleLimiter) handleIpBasedRequest(ctx context.Context) (*LimitInfo, err
 		return nil, ErrNoIPFoundOrInvalid
 	}
 
-	parsedIP := net.ParseIP(ip)
-	if parsedIP == nil {
-		if l.options.logger != nil {
-			l.options.logger.ErrorContext(ctx, "invalid client ip address", "ip", ip)
-		}
-		return nil, ErrNoIPFoundOrInvalid
+	settings, err := l.findRateLimitRuleByIp(ctx, ip)
+	if err != nil {
+		return nil, err
 	}
-
-	// Find matching rule for this IP
-	settings := l.findRateLimitRuleByIp(ctx, parsedIP)
-	key := "ip-" + ip
-	return l.applyRateLimit(ctx, key, settings)
+	return l.applyRateLimit(ctx, storageKeyForIP(ip), settings)
 }
 
-func (l *RuleLimiter) findRateLimitRuleByIp(ctx context.Context, ip net.IP) *RateLimitSettings {
-	ipStr := ip.String()
+// storageKeyForIP builds "ip-<addr>" with dots translated to underscores in
+// a single pass, matching the sanitization applyRateLimit performs.
+func storageKeyForIP(ip string) string {
+	b := make([]byte, 0, len(ip)+3)
+	b = append(b, "ip-"...)
+	for i := range len(ip) {
+		c := ip[i]
+		if c == '.' {
+			c = '_'
+		}
+		b = append(b, c)
+	}
+	return string(b)
+}
 
+// findRateLimitRuleByIp resolves the rule for the client IP. The LRU is
+// keyed by the caller's original string, so the hot path is a single cache
+// lookup with no parse or re-serialization; parsing happens only on a miss.
+func (l *RuleLimiter) findRateLimitRuleByIp(ctx context.Context, ipStr string) (*RateLimitSettings, error) {
 	// Check cache first
 	if cached, ok := l.ipCache.Get(ipStr); ok {
 		if l.options.logger != nil {
 			l.options.logger.DebugContext(ctx, "cache hit for IP", "ip", ipStr)
 		}
-		return cached
+		return cached, nil
 	}
+
+	addr, err := netip.ParseAddr(ipStr)
+	if err != nil {
+		if l.options.logger != nil {
+			l.options.logger.ErrorContext(ctx, "invalid client ip address", "ip", ipStr)
+		}
+		return nil, ErrNoIPFoundOrInvalid
+	}
+	ip := net.IP(addr.AsSlice())
 
 	rules := l.parsedRules
 
@@ -217,7 +236,7 @@ func (l *RuleLimiter) findRateLimitRuleByIp(ctx context.Context, ip net.IP) *Rat
 			if l.options.logger != nil {
 				l.options.logger.DebugContext(ctx, "exact IP match found", "ip", ipStr)
 			}
-			return rule.settings
+			return rule.settings, nil
 		}
 
 		if rule.ipNet != nil && rule.ipNet.Contains(ip) {
@@ -226,7 +245,7 @@ func (l *RuleLimiter) findRateLimitRuleByIp(ctx context.Context, ip net.IP) *Rat
 			if l.options.logger != nil {
 				l.options.logger.DebugContext(ctx, "cidr match found", "ip", ipStr, "cidr", rule.ipNet.String())
 			}
-			return rule.settings
+			return rule.settings, nil
 		}
 	}
 
@@ -234,7 +253,7 @@ func (l *RuleLimiter) findRateLimitRuleByIp(ctx context.Context, ip net.IP) *Rat
 		l.options.logger.DebugContext(ctx, "no specific rule found, applying default limit", "ip", ipStr)
 	}
 	l.ipCache.Put(ipStr, &l.config.Default)
-	return &l.config.Default
+	return &l.config.Default, nil
 }
 
 func (l *RuleLimiter) applyRateLimit(ctx context.Context, key string, settings *RateLimitSettings) (*LimitInfo, error) {
