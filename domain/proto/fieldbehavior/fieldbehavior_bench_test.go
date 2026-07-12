@@ -10,6 +10,7 @@ import (
 	"github.com/altessa-s/go-atlas/domain/proto/fieldbehavior"
 
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	testpb "github.com/altessa-s/go-atlas/proto/gen/fieldbehaviortest/v1"
 )
@@ -71,6 +72,19 @@ func BenchmarkStripCreateStrict(b *testing.B) {
 			b.Fatalf("clone produced unexpected type %T", r)
 		}
 		_ = fieldbehavior.StripCreate(r, fieldbehavior.WithStrict())
+	}
+}
+
+// BenchmarkStripResponseUnannotated measures the fast path: the message type
+// carries no relevant annotation anywhere, so the walk is skipped entirely.
+func BenchmarkStripResponseUnannotated(b *testing.B) {
+	msg := &fieldmaskpb.FieldMask{Paths: []string{"a", "b", "c"}}
+	b.ReportAllocs()
+
+	for b.Loop() {
+		if err := fieldbehavior.StripResponse(msg); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 

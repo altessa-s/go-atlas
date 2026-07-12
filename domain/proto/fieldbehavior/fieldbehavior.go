@@ -27,6 +27,10 @@ import (
 // *BehaviorViolationError listing every populated field that would have been
 // cleared. With strict disabled (the default), Strip mutates msg in place and
 // returns nil unless [WithMaxDepth] is exceeded ([ErrMaxDepthExceeded]).
+//
+// Message types whose descriptor tree carries no relevant annotation are
+// skipped without walking values, so [ErrMaxDepthExceeded] is only reported
+// for subtrees that could actually match.
 func Strip(msg proto.Message, opts ...Option) error {
 	if msg == nil {
 		return nil
@@ -41,11 +45,20 @@ func Strip(msg proto.Message, opts ...Option) error {
 		return nil
 	}
 
+	prf := msg.ProtoReflect()
+
+	// Fast path: if no field reachable from this message type carries a
+	// relevant behavior, the walk cannot clear or record anything. This is
+	// the common case for unannotated responses.
+	if !behavior.SubtreeHasAny(prf.Descriptor(), o.behaviors...) {
+		return nil
+	}
+
 	s := stripper{opts: o}
 
 	if o.strict {
 		var violations []BehaviorViolation
-		if err := s.walk(msg.ProtoReflect(), "", 0, &violations); err != nil {
+		if err := s.walk(prf, "", 0, &violations); err != nil {
 			return err
 		}
 
@@ -56,7 +69,7 @@ func Strip(msg proto.Message, opts ...Option) error {
 		return nil
 	}
 
-	return s.walk(msg.ProtoReflect(), "", 0, nil)
+	return s.walk(prf, "", 0, nil)
 }
 
 // StripCreate clears fields marked OUTPUT_ONLY or IDENTIFIER. Use it on the
@@ -151,6 +164,14 @@ func (s *stripper) recurse(
 	depth int,
 	violations *[]BehaviorViolation,
 ) error {
+	// Skip subtrees whose descriptor tree carries no relevant annotation:
+	// nothing below can match, so the walk (and Mutable materialization of
+	// nested messages) is unnecessary. Message kind covers singular,
+	// repeated, and map fields alike.
+	if fd.Kind() == protoreflect.MessageKind && !behavior.SubtreeHasAny(fd.Message(), s.opts.behaviors...) {
+		return nil
+	}
+
 	switch {
 	case fd.IsList():
 		if fd.Kind() != protoreflect.MessageKind {

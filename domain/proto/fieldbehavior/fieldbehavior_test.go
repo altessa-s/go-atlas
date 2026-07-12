@@ -16,6 +16,7 @@ import (
 	"github.com/altessa-s/go-atlas/domain/proto/fieldbehavior"
 
 	"google.golang.org/genproto/googleapis/api/annotations"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	testpb "github.com/altessa-s/go-atlas/proto/gen/fieldbehaviortest/v1"
 )
@@ -235,6 +236,22 @@ func TestWithMaxDepth_ExceededReturnsErr(t *testing.T) {
 	err := fieldbehavior.StripCreate(r, fieldbehavior.WithMaxDepth(0))
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, fieldbehavior.ErrMaxDepthExceeded))
+}
+
+// TestStripResponse_UnannotatedFastPath pins the no-annotation fast path: a
+// message type without relevant behaviors is left untouched without walking
+// its values, and the per-call cost stays at the options materialization
+// only.
+func TestStripResponse_UnannotatedFastPath(t *testing.T) {
+	msg := &fieldmaskpb.FieldMask{Paths: []string{"a", "b"}}
+
+	require.NoError(t, fieldbehavior.StripResponse(msg))
+	assert.Equal(t, []string{"a", "b"}, msg.GetPaths())
+
+	allocs := testing.AllocsPerRun(100, func() {
+		_ = fieldbehavior.StripResponse(msg)
+	})
+	assert.LessOrEqual(t, allocs, 4.0, "fast path must not walk the message")
 }
 
 func TestStrip_CustomBehaviorSet(t *testing.T) {

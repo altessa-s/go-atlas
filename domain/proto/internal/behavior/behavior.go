@@ -6,16 +6,35 @@ package behavior
 
 import (
 	"slices"
+	"sync"
 
 	"google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
+// fieldCache memoizes resolved field_behavior annotations per field
+// descriptor. Descriptors are process-lifetime singletons for compiled
+// protos, so cardinality is bounded by the schema and extension decoding
+// runs once per field instead of once per observation.
+var fieldCache sync.Map // protoreflect.FieldDescriptor → []annotations.FieldBehavior
+
 // Get returns every google.api.field_behavior value attached to fd. It returns
-// nil when the annotation is absent. The slice is owned by the caller and may
-// be modified freely.
+// nil when the annotation is absent. The slice is shared across callers and
+// must not be modified.
 func Get(fd protoreflect.FieldDescriptor) []annotations.FieldBehavior {
+	if v, ok := fieldCache.Load(fd); ok {
+		return v.([]annotations.FieldBehavior) //nolint:errcheck // type guaranteed by Store
+	}
+
+	behaviors := resolve(fd)
+	fieldCache.Store(fd, behaviors)
+
+	return behaviors
+}
+
+// resolve decodes the field_behavior extension from the descriptor options.
+func resolve(fd protoreflect.FieldDescriptor) []annotations.FieldBehavior {
 	opts := fd.Options()
 	if opts == nil {
 		return nil
