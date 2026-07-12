@@ -72,7 +72,10 @@ func getModifierChain() *modifierChain {
 // putModifierChain returns a modifierChain to the memory pool for reuse.
 func putModifierChain(chain *modifierChain) {
 	if chain != nil {
-		// Clear the entries slice but keep the underlying capacity
+		// Clear the entries (dropping references to modifier closures and
+		// param maps) before truncating so the pooled backing array does not
+		// pin them for the pool's lifetime, then keep the capacity.
+		clear(chain.Entries)
 		chain.Entries = chain.Entries[:0]
 		modifierChainPool.Put(chain)
 	}
