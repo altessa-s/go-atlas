@@ -66,8 +66,10 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 		rt.metrics = newHTTPClientMetrics(nil, "")
 	}
 
-	var bodyBytes []byte
-	if req.Body != nil {
+	// Body replay strategy: prefer the caller-provided GetBody (net/http sets
+	// it automatically for bytes/strings readers); buffer only when retries
+	// are possible and no replay source exists.
+	if req.Body != nil && req.GetBody == nil && rt.maxAttempts > 1 {
 		buf := coreio.GetBuffer()
 		_, err := buf.ReadFrom(req.Body)
 		_ = req.Body.Close()
@@ -75,8 +77,16 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 			coreio.PutBuffer(buf)
 			return nil, coreerrs.Wrapf(err, "failed to read request body for retry buffering")
 		}
-		bodyBytes = bytes.Clone(buf.Bytes())
+		bodyBytes := bytes.Clone(buf.Bytes())
 		coreio.PutBuffer(buf)
+
+		req.ContentLength = int64(len(bodyBytes))
+		req.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(bodyBytes)), nil
+		}
+		// The original body was consumed by buffering; install the replay
+		// copy for the first attempt.
+		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 	}
 
 	var (
@@ -92,9 +102,9 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	var retryAttempts int
 	perRequestOpts := append(make([]coreretry.Option, 0, len(rt.retryOpts)+2), rt.retryOpts...)
 	perRequestOpts = append(perRequestOpts,
-		coreretry.WithShouldRetry(func(err error) bool {
-			return rt.shouldRetry(err)
-		}),
+		// Method value instead of a wrapper closure: the predicate itself is
+		// static per round-tripper.
+		coreretry.WithShouldRetry(rt.shouldRetry),
 		coreretry.WithOnRetry(func(attempt int, err error, delay time.Duration) {
 			retryAttempts++
 			rt.metrics.retries.Inc()
@@ -113,6 +123,7 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 		}),
 	)
 
+	firstAttempt := true
 	retryErr := coreretry.Do(ctx, func(ctx context.Context) error {
 		// Close previous response body if present from a prior attempt.
 		if lastResp != nil {
@@ -120,14 +131,17 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 			lastResp = nil
 		}
 
-		// Replay buffered body.
-		if bodyBytes != nil {
-			req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-			req.ContentLength = int64(len(bodyBytes))
-			req.GetBody = func() (io.ReadCloser, error) {
-				return io.NopCloser(bytes.NewReader(bodyBytes)), nil
+		// Rewind the body for retry attempts; the first attempt uses the
+		// body installed above (or the caller's original one).
+		if !firstAttempt && req.GetBody != nil {
+			body, gbErr := req.GetBody()
+			if gbErr != nil {
+				lastErr = gbErr
+				return &NonRetryableError{Err: coreerrs.Wrapf(gbErr, "failed to rewind request body for retry")}
 			}
+			req.Body = body
 		}
+		firstAttempt = false
 
 		resp, err := rt.next.RoundTrip(req) //nolint:bodyclose // resp is stored in lastResp and either closed on next retry or returned to caller
 		lastResp = resp
