@@ -122,6 +122,7 @@ domain/proto/fieldmask      # Field mask operations
 domain/validation           # Domain validation
 domain/behavior             # Domain behaviors
 domain/eventbus             # Event bus abstractions
+domain/proto/fieldbehavior  # Field behavior annotations
 
 # Infrastructure
 infrastructure              # General infrastructure
