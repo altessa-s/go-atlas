@@ -23,6 +23,11 @@ import (
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
+// maxObjectBytes caps how much of a policy object is read into memory.
+// Rego policies and data documents are typically well under this; the cap
+// guards against a misconfigured bucket/prefix pointing at a huge object.
+const maxObjectBytes = 32 << 20 // 32 MiB
+
 // Source implements opa.PolicySource for S3-backed policies.
 // It lists and downloads .rego files from an S3 bucket/prefix.
 // Change detection is handled by the Manager.
@@ -225,9 +230,12 @@ func (s *Source) getObject(ctx context.Context, key string) ([]byte, error) {
 	}
 	defer func() { _ = output.Body.Close() }()
 
-	content, err := io.ReadAll(output.Body)
+	content, err := io.ReadAll(io.LimitReader(output.Body, maxObjectBytes+1))
 	if err != nil {
 		return nil, coreerrs.Wrapf(err, "read object body %s", key)
+	}
+	if len(content) > maxObjectBytes {
+		return nil, fmt.Errorf("object %s exceeds %d bytes", key, maxObjectBytes)
 	}
 
 	return content, nil
