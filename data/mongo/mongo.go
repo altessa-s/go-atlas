@@ -106,8 +106,27 @@ type Mongo struct {
 	// all calls to collectFieldsMetadata, making the cache actually effective.
 	structParser *Parser
 
+	// converterOpts is the converter option set fixed at construction,
+	// shared by every GetEntity/GetEntities call.
+	converterOpts []converter.Option
+
+	// converters caches shared converter instances per document model type,
+	// so the per-query path does not rebuild the option slice and converter.
+	converters sync.Map
+
 	// metrics provides Prometheus-compatible instrumentation for MongoDB operations.
 	metrics *mongoMetrics
+}
+
+// sharedConverter returns the memoized converter for document model type T,
+// building it on first use from the option set fixed at construction.
+func sharedConverter[T any](m *Mongo) *converter.Converter[T, any] {
+	t := reflect.TypeFor[T]()
+	if v, ok := m.converters.Load(t); ok {
+		return v.(*converter.Converter[T, any]) //nolint:errcheck // type guaranteed by Store
+	}
+	v, _ := m.converters.LoadOrStore(t, converter.NewShared[T, any](m.converterOpts...))
+	return v.(*converter.Converter[T, any]) //nolint:errcheck // type guaranteed by Store
 }
 
 // New creates a new MongoDB client instance using option functions.
@@ -149,6 +168,10 @@ func New(database string, opts ...Option) (*Mongo, error) {
 		),
 		singleFlight: &singleflight.Group{},
 		metrics:      newMongoMetrics(cfg.Collector),
+		converterOpts: append(
+			[]converter.Option{converter.WithHandleEmbeddedStructs(true)},
+			cfg.ConverterOptions...,
+		),
 	}
 
 	// Setup encryption if the KMS provider is configured and encryption is enabled
@@ -492,11 +515,7 @@ func GetEntity[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collectio
 		}
 
 		entityType := reflect.TypeFor[E]()
-		convOpts := append(
-			[]converter.Option{converter.WithHandleEmbeddedStructs(true)},
-			m.config.ConverterOptions...,
-		)
-		conv := converter.NewShared[T, any](convOpts...)
+		conv := sharedConverter[T](m)
 
 		var dst any
 		if entityType.Kind() == reflect.Pointer {
@@ -594,11 +613,7 @@ func GetEntities[T any, E any](ctx context.Context, m *Mongo, col *mongo.Collect
 		// Convert MongoDB documents to domain entities with pre-allocated slice
 		entityType := reflect.TypeFor[E]()
 		isPtr := entityType.Kind() == reflect.Pointer
-		convOpts := append(
-			[]converter.Option{converter.WithHandleEmbeddedStructs(true)},
-			m.config.ConverterOptions...,
-		)
-		conv := converter.NewShared[T, any](convOpts...)
+		conv := sharedConverter[T](m)
 		entities := make([]E, 0, len(models))
 
 		if isPtr {
