@@ -318,6 +318,23 @@ func TestManager_Quarantined_AfterClose(t *testing.T) {
 	assert.Equal(t, 0, count, "Quarantined() on closed manager yields nothing")
 }
 
+func TestReadAndHashFile_RejectsOversizedFile(t *testing.T) {
+	t.Parallel()
+
+	// A sparse file: Truncate sets the size without writing 512 MiB to disk.
+	path := filepath.Join(t.TempDir(), "big.so")
+	f, err := os.Create(path)
+	require.NoError(t, err)
+	require.NoError(t, f.Truncate(maxPluginFileBytes+1))
+	require.NoError(t, f.Close())
+
+	_, _, err = readAndHashFile(path)
+	require.Error(t, err)
+
+	_, _, err = readAndHashFileWithCache(path, newHashCache())
+	require.Error(t, err)
+}
+
 func TestManager_RecheckHashAfterOpen(t *testing.T) {
 	t.Parallel()
 
