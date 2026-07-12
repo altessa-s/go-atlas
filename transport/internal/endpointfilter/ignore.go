@@ -57,14 +57,15 @@ var emptyStruct = struct{}{}
 
 // Checker implements [Filter] by matching paths against an exact set
 // (case-insensitive) and a list of compiled regular expressions.
-// Positive results are cached in an LRU to amortize repeated lookups.
+// Both positive and negative verdicts are cached in an LRU, so the common
+// "not filtered" outcome does not rerun the regex list per request.
 //
 // Safe for concurrent use when the underlying LRU implementation is
 // thread-safe.
 type Checker struct {
 	ignorePaths    map[string]struct{}
 	ignorePatterns []*regexp.Regexp
-	cache          lru.Cacher[string, struct{}]
+	cache          lru.Cacher[string, bool]
 	options        *options
 }
 
@@ -86,7 +87,7 @@ func New(paths []string, opt ...Option) (*Checker, error) {
 	// Initialize cache if size > 0
 	if ic.options.cacheSize > 0 {
 		var err error
-		if ic.cache, err = lru.NewCache[string, struct{}](ic.options.cacheSize); err != nil {
+		if ic.cache, err = lru.NewCache[string, bool](ic.options.cacheSize); err != nil {
 			return nil, err
 		}
 	}
@@ -97,33 +98,38 @@ func New(paths []string, opt ...Option) (*Checker, error) {
 }
 
 // ShouldFilter reports whether path matches any exact path or compiled
-// pattern. The check order is: LRU cache, exact match, regex patterns.
-// Matched paths are added to the cache for subsequent calls.
+// pattern. Both verdicts are cached in the LRU, so the common "not
+// filtered" outcome is a single lookup instead of an interner pass, an
+// exact-map probe, and the full regex list per request.
 func (ic *Checker) ShouldFilter(path string) bool {
-	// Fast path: Check LRU cache if available
-	if ic.cache != nil && ic.cache.Has(path) {
-		return true
-	}
-
-	// Convert to lowercase once for all comparisons (intern the result)
-	pathLower := corestrings.InternLowerString(path)
-
-	// Check exact path match
-	if ic.ignorePaths != nil {
-		if _, ok := ic.ignorePaths[pathLower]; ok {
-			if ic.cache != nil {
-				ic.cache.Put(path, emptyStruct)
-			}
-			return true
+	// Fast path: return the cached verdict, positive or negative.
+	if ic.cache != nil {
+		if verdict, ok := ic.cache.Get(path); ok {
+			return verdict
 		}
 	}
 
-	// Check pattern matches
+	matched := ic.matches(path)
+
+	if ic.cache != nil {
+		ic.cache.Put(path, matched)
+	}
+
+	return matched
+}
+
+// matches runs the full check: exact path set (case-insensitive), then the
+// compiled patterns.
+func (ic *Checker) matches(path string) bool {
+	// Convert to lowercase once for all comparisons (intern the result)
+	pathLower := corestrings.InternLowerString(path)
+
+	if _, ok := ic.ignorePaths[pathLower]; ok {
+		return true
+	}
+
 	for _, rx := range ic.ignorePatterns {
 		if rx.MatchString(path) {
-			if ic.cache != nil {
-				ic.cache.Put(path, emptyStruct)
-			}
 			return true
 		}
 	}
