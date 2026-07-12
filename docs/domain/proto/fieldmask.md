@@ -63,7 +63,7 @@ chain := interceptors.NewChain(
 ```
 
 `fieldmask` declares dependencies on `metadata` and `auth` — both run earlier in the chain. Place it after `fieldbehavior` so the resource is already
-sanitised by the time `ApplyUpdateMask` reads it; place it before `protovalidator` so validation runs against the mask-cleaned payload.
+sanitized by the time `ApplyUpdateMask` reads it; place it before `protovalidator` so validation runs against the mask-cleaned payload.
 
 ---
 
@@ -88,7 +88,7 @@ writes to discard at the storage layer.
 ### Empty `update_mask` (AIP-134 fallback)
 
 AIP-134 specifies that a present-but-empty `update_mask` means "update every populated field on the resource". The interceptor is opt-in here:
-without `WithApplyEmptyUpdateMask()` an empty mask is a deliberate no-op (the historical behaviour). With the option on, the interceptor calls
+without `WithApplyEmptyUpdateMask()` an empty mask is a deliberate no-op (the historical behavior). With the option on, the interceptor calls
 `pbfieldmask.FromSetFields(resource)` to synthesise a mask covering every populated editable field and runs `ApplyUpdateMask` against it — so
 IMMUTABLE/IDENTIFIER fields the client populated still raise `BehaviorViolationError`, and OUTPUT_ONLY fields are stripped from the writeback
 mask. A missing `update_mask` field (extractor returns `ok=false`) is unaffected and stays a passthrough.

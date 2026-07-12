@@ -245,7 +245,7 @@ call `StripCreate` / `StripUpdate` / `StripResponse` directly. Hand-rolling a un
 hosted service and the canonical interceptor's classifier or chain hooks don't fit:
 
 ```go
-// stripInterceptor sanitises every Create/Update request body before the
+// stripInterceptor sanitizes every Create/Update request body before the
 // handler runs, and every response before it goes back to the wire.
 func stripInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
     switch m := req.(type) {

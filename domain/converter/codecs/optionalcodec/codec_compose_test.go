@@ -142,7 +142,7 @@ func TestCompose_ProtoToOptional_ZeroInnerBecomesNone(t *testing.T) {
 // through to the converter's terminal field-by-field copy, which produces a
 // non-nil but semantically empty *Timestamp (Seconds=0, Nanos=0) instead of
 // either the source instant or a clean failure. The test exists so that any
-// future change to the fallback behaviour (e.g. promoting the mismatch to a
+// future change to the fallback behavior (e.g. promoting the mismatch to a
 // panic, or leaving dst nil) shows up as a deliberate test update rather than
 // a silent regression.
 func TestCompose_WithoutDownstreamCodec_IsFootgun(t *testing.T) {

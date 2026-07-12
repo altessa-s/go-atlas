@@ -133,7 +133,7 @@ func TestFilter_LeafWildcard_OnRepeated(t *testing.T) {
 
 // TestFilter_Wildcard_OnMap covers the new explicit form: "labels.*"
 // applies the wildcard mask to every value in the map. Without the
-// wildcard, the existing per-key lookup behaviour is preserved.
+// wildcard, the existing per-key lookup behavior is preserved.
 func TestFilter_Wildcard_OnMap(t *testing.T) {
 	t.Parallel()
 

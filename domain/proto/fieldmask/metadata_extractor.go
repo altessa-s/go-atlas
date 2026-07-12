@@ -29,7 +29,7 @@ type MetadataExtractorOption func(*metadataExtractorOptions)
 
 // WithMetadataHeader overrides the gRPC metadata key the extractor reads.
 // Empty name is ignored and the default [DefaultMetadataReadMaskHeader] is
-// used. gRPC normalises metadata keys to lower-case on the wire, so the
+// used. gRPC normalizes metadata keys to lower-case on the wire, so the
 // lookup is effectively case-insensitive regardless of the value passed.
 func WithMetadataHeader(name string) MetadataExtractorOption {
 	return func(o *metadataExtractorOptions) {
