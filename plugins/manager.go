@@ -609,7 +609,7 @@ func (m *Manager) loadPlugin(ctx context.Context, filename string) error {
 	// quarantined and never registered — although the swapped file's init
 	// code has already run inside plugin.Open (Go cannot unload a plugin),
 	// none of its symbols are resolved or exposed to the host.
-	if err := m.recheckHashAfterOpen(filename, path, fileHash); err != nil {
+	if err = m.recheckHashAfterOpen(filename, path, fileHash); err != nil {
 		return err
 	}
 
