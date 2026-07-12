@@ -36,4 +36,16 @@
 // Membership: in, has()
 // String: contains(), startsWith(), endsWith(), matches()
 // Size: size()
+//
+// # Security
+//
+// matches() passes the user-supplied pattern through to MongoDB's $regex.
+// The pattern is validated host-side with Go's RE2 engine (compile check +
+// length cap), but MongoDB executes it with its own PCRE-family engine,
+// which — unlike RE2 — can backtrack catastrophically. A pathological
+// pattern within the length cap can therefore still burn CPU on the
+// database server (DB-side ReDoS). Expose matches() only to trusted
+// callers, or tighten the cap with [filter.WithMaxRegexLength]. The
+// contains(), startsWith(), and endsWith() operators escape their argument
+// with regexp.QuoteMeta and are not affected.
 package mongo
