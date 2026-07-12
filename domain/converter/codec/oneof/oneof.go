@@ -384,8 +384,32 @@ func tryOneofToStruct(_ string, src, dst reflect.Value, opts *options) bool {
 		return false
 	}
 
+	// The oneof arrives either as the interface field itself (the common
+	// case: the parent converter dispatches the field value verbatim) or as
+	// an already-unwrapped concrete wrapper. Unwrap the interface first —
+	// its type name (reflect exposes names of unexported types) is the
+	// reliable protoc signal; the wrapper's marker method is unexported and
+	// invisible to reflection.
+	viaOneofInterface := false
+	if srcValue.Kind() == reflect.Interface {
+		if !isOneofInterface(srcValue.Type()) {
+			return false
+		}
+		if srcValue.IsNil() {
+			return opts.ignoreNilFields
+		}
+		srcValue = reflect.Indirect(srcValue.Elem())
+		if !srcValue.IsValid() {
+			return false
+		}
+		viaOneofInterface = true
+	}
+
 	srcType := srcValue.Type()
-	if !isOneofWrapper(srcType) {
+	if srcType.Kind() != reflect.Struct {
+		return false
+	}
+	if !viaOneofInterface && !isOneofWrapper(srcType, opts) {
 		return false
 	}
 
@@ -446,17 +470,21 @@ func isOneofInterface(t reflect.Type) bool {
 }
 
 // isOneofWrapper checks if the given type is a protobuf oneof wrapper struct.
-// Oneof wrappers implement a marker interface method.
-func isOneofWrapper(t reflect.Type) bool {
+//
+// The protoc marker method ("isInvitation_Payload()") is unexported, and
+// reflect.Type.Method lists exported methods only — an exported method can
+// never start with the lowercase "is" prefix, so scanning the method set can
+// never identify a real generated wrapper. Detection therefore relies on the
+// wrapper registry: types registered via [WithWrapperRegistry] for the
+// struct→oneof direction are exactly the wrappers of the oneof→struct
+// direction.
+func isOneofWrapper(t reflect.Type, opts *options) bool {
 	if t.Kind() != reflect.Struct {
 		return false
 	}
 
-	// Check if type has a method that looks like a oneof marker
-	// Protobuf generates methods like "isInvitation_Payload()"
-	for i := range t.NumMethod() {
-		method := t.Method(i)
-		if strings.HasPrefix(method.Name, InterfacePrefix) && method.Type.NumIn() == 1 && method.Type.NumOut() == 0 {
+	for _, wrapperType := range opts.wrapperRegistry {
+		if t == wrapperType {
 			return true
 		}
 	}
