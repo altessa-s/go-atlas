@@ -46,6 +46,11 @@ func (p *attrPool) get() *[]slog.Attr {
 }
 
 func (p *attrPool) put(attrs *[]slog.Attr) {
+	// clear before truncating so the pooled backing array does not retain
+	// references to prior log values (the field payloads carry arbitrary
+	// `any`, potentially secret/PII, that would otherwise survive between
+	// borrows and pin memory for the pool's lifetime).
+	clear(*attrs)
 	*attrs = (*attrs)[:0]
 	p.pool.Put(attrs)
 }
