@@ -1,0 +1,20 @@
+# Requests limiter configuration.
+# Implements a token bucket algorithm to control the rate of incoming requests.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#requestsLimiter:
+#  # <int> Maximum number of requests allowed per period.
+#  # Represents the sustained request rate over the configured period.
+#  # Default value: 2500
+#  rate: 2500
+#
+#  # <duration> Time window for the rate limit.
+#  # The rate limit resets every period.
+#  # Default value: 24h
+#  period: 24h
+#
+#  # <int> Maximum number of requests that can be processed in a short burst
+#  # above the sustained rate. Allows handling traffic spikes.
+#  # Default value: 100
+#  burst: 100
