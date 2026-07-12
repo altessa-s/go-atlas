@@ -85,7 +85,7 @@ const (
 	COEPRequireCorp CrossOriginEmbedderPolicy = "require-corp"
 	// COEPCredentialless loads cross-origin subresources without credentials
 	// instead of blocking them — a softer alternative to require-corp.
-	COEPCredentialless CrossOriginEmbedderPolicy = "credentialless"
+	COEPCredentialless CrossOriginEmbedderPolicy = "credentialless" // #nosec G101 -- COEP header value, not a credential
 	// COEPUnsafeNone disables embedder policy (the browser default).
 	COEPUnsafeNone CrossOriginEmbedderPolicy = "unsafe-none"
 )
