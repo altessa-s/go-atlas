@@ -374,7 +374,7 @@ type options struct {
 			wantErr: true,
 		},
 		{
-			name: "bare key is treated as true even for required-value checks",
+			name: "bare key fails required-value check",
 			source: `
 package sample
 
@@ -382,7 +382,7 @@ type options struct {
 	field string ~opt:"Field" optcheck:"stubcheck"~
 }
 `,
-			checks: map[string]string{"stubcheck": "true"},
+			wantErr: true,
 		},
 	}
 
