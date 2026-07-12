@@ -8,7 +8,6 @@ import (
 	"cmp"
 	"container/list"
 	"context"
-	"errors"
 	"fmt"
 	"runtime"
 	"slices"
@@ -29,11 +28,6 @@ const (
 	// to avoid over-allocation when duplicates are expected to be common.
 	maxPreallocMap = 128
 )
-
-// errFiltered is a sentinel error used by [FilterParallel] to signal that an
-// element did not pass the predicate. Using a pre-allocated sentinel avoids a
-// heap allocation per rejected element.
-var errFiltered = errors.New("filtered")
 
 // Deduplicate returns a new slice containing only the unique elements of collection,
 // preserving the order of first occurrence. It is a convenience wrapper around
@@ -182,7 +176,7 @@ func ToStrings(collection []any) []string {
 // smaller than batchSize * NumCPU * 2, it falls back to the sequential [Filter] path.
 //
 // The predicate must be safe for concurrent invocation from multiple goroutines.
-// Element order in the result may not match the original order.
+// Element order in the result is preserved.
 // If collection is empty, nil is returned.
 func FilterParallel[T any](collection []T, predicate func(T) bool) []T {
 	if len(collection) == 0 {
@@ -196,24 +190,34 @@ func FilterParallel[T any](collection []T, predicate func(T) bool) []T {
 		return slices.Collect(Filter(collection, predicate))
 	}
 
-	// Parallel processing. The errFiltered sentinel is expected and indicates
-	// exclusion of an element; it is the only error the worker can return.
-	results, err := concurrency.ProcessCollect(context.Background(), collection, func(ctx context.Context, item T) (T, error) {
-		if predicate(item) {
-			return item, nil
+	// Chunked parallelism: each worker filters one contiguous sub-slice with a
+	// plain sequential loop, so the per-element cost is a single predicate call
+	// rather than a per-element task dispatch through the concurrency machinery.
+	// ProcessCollect returns chunk results in input order, preserving element
+	// order in the concatenated result.
+	chunkLen := (len(collection) + cores - 1) / cores
+	chunks := make([][]T, 0, cores)
+	for start := 0; start < len(collection); start += chunkLen {
+		chunks = append(chunks, collection[start:min(start+chunkLen, len(collection))])
+	}
+
+	parts, err := concurrency.ProcessCollect(context.Background(), chunks, func(_ context.Context, chunk []T) ([]T, error) {
+		var kept []T
+		for _, v := range chunk {
+			if predicate(v) {
+				kept = append(kept, v)
+			}
 		}
-		var zero T
-		return zero, errFiltered
+		return kept, nil
 	})
-	if err != nil && !errors.Is(err, errFiltered) {
-		// Unreachable by design: the predicate is bool-only and the worker returns
-		// only errFiltered, so any other error means a bug in ProcessCollect or this
-		// function. Panicking surfaces it immediately instead of silently returning
-		// a partially filtered result.
+	if err != nil {
+		// Unreachable by design: the worker never returns an error, so any error
+		// means a bug in ProcessCollect or this function. Panicking surfaces it
+		// immediately instead of silently returning a partially filtered result.
 		panic(fmt.Sprintf("slices.FilterParallel: unexpected error from ProcessCollect: %v", err))
 	}
 
-	return results
+	return slices.Concat(parts...)
 }
 
 // FilterFirst returns the first element of collection that satisfies predicate,
