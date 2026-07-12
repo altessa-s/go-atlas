@@ -43,6 +43,12 @@ const (
 	// MaxErrorResponseSize is the maximum bytes to read from error responses.
 	MaxErrorResponseSize = 2048
 
+	// maxIntrospectionResponseSize is the maximum bytes read from a successful
+	// introspection response, mirroring the userinfo cap. RFC 7662 responses
+	// are small JSON objects; anything larger indicates a misbehaving or
+	// malicious IdP.
+	maxIntrospectionResponseSize = 1 << 16 // 64 KiB
+
 	// RevocationItemTypeJTI identifies tokens by their JWT ID claim.
 	RevocationItemTypeJTI = "jti"
 
@@ -161,10 +167,16 @@ func (p *Provider) IntrospectToken(ctx context.Context, token string) (*Introspe
 	}
 
 	// Parse response using pooled buffer to avoid per-request allocation.
+	// Security: cap the read — a malicious or misconfigured IdP must not be
+	// able to OOM the validator with an unbounded response body.
 	buf := coreio.GetBuffer()
-	if _, err := buf.ReadFrom(resp.Body); err != nil {
+	if _, err := buf.ReadFrom(io.LimitReader(resp.Body, maxIntrospectionResponseSize+1)); err != nil {
 		coreio.PutBuffer(buf)
 		return nil, coreerrs.Wrapf(ErrIntrospection, "failed to read introspection response: %v", err)
+	}
+	if buf.Len() > maxIntrospectionResponseSize {
+		coreio.PutBuffer(buf)
+		return nil, coreerrs.Wrapf(ErrIntrospection, "introspection response exceeds %d bytes", maxIntrospectionResponseSize)
 	}
 
 	var introspectionResp IntrospectionResponse
