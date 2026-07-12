@@ -149,6 +149,15 @@ func regexEndsWith(s string) (string, error)   { return regexp.QuoteMeta(s) + "$
 // translator-configured length cap from [filter.WithMaxRegexLength],
 // falling back to [filter.DefaultMaxRegexLength] when the option was not
 // set.
+//
+// Security: validation compiles the pattern with Go's RE2 engine, which
+// cannot backtrack — but MongoDB evaluates $regex with its own PCRE-family
+// engine server-side, where a crafted pattern (e.g. nested quantifiers)
+// CAN exhibit catastrophic backtracking against matching documents. The
+// length cap bounds the blast radius but does not eliminate DB-side ReDoS.
+// Expose matches() only to trusted callers, or tighten the cap via
+// [filter.WithMaxRegexLength]; contains/startsWith/endsWith are safe
+// (QuoteMeta produces literal-only patterns).
 func (t *Translator) regexPassthrough(s string) (string, error) {
 	maxLen := t.config.MaxRegexLength()
 	if maxLen <= 0 {
