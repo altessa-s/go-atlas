@@ -3,7 +3,7 @@
 # Example: feat(data/mongo): add cursor pagination support
 
 # Root-level scopes
-root                        # Changes to go.mod, Makefile, CI/CD, project-wide configs
+deps                        # Dependency management
 
 # Authentication & Authorization
 auth                        # General auth changes
