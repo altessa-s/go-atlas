@@ -22,12 +22,17 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26"
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:
           version: v2.10.1
+          # Build the linter with the runner's Go instead of downloading the
+          # prebuilt binary: the module's `toolchain go1.26.5` puts go1.26-gated
+          # files into the build graph, and a linter compiled with an older Go
+          # fails typecheck on them ("file requires newer Go version").
+          install-mode: goinstall
 
   test:
     name: Test
@@ -41,7 +46,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26"
 
       - name: Run tests
         run: go test -race -shuffle=on -coverprofile=coverage.out ./...
@@ -71,7 +76,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26"
 
       - name: Run govulncheck
         run: |
@@ -96,7 +101,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.26"
 
       - name: Install gitleaks
         run: go install github.com/zricethezav/gitleaks/v8@v8.30.1
