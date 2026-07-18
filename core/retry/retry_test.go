@@ -220,3 +220,51 @@ func TestExponentialConfigPool(t *testing.T) {
 	require.NotNil(t, cfg)
 	retry.PutExponentialConfig(cfg)
 }
+
+func TestPolicy(t *testing.T) {
+	t.Run("ZeroOptionsSingleAttempt", func(t *testing.T) {
+		p := retry.NewPolicy()
+		calls := 0
+		wantErr := errors.New("fail")
+		err := p.Do(t.Context(), func(ctx context.Context) error {
+			calls++
+			return wantErr
+		})
+		require.ErrorIs(t, err, wantErr)
+		require.Equal(t, 1, calls)
+	})
+
+	t.Run("RetryThenSuccess", func(t *testing.T) {
+		p := retry.NewPolicy(
+			retry.WithMaxAttempts(3),
+			retry.WithNextDelay(func(int, error) time.Duration { return time.Nanosecond }),
+		)
+		calls := 0
+		err := p.Do(t.Context(), func(ctx context.Context) error {
+			calls++
+			if calls < 3 {
+				return errors.New("fail")
+			}
+			return nil
+		})
+		require.NoError(t, err)
+		require.Equal(t, 3, calls)
+	})
+
+	t.Run("ReusableAcrossCalls", func(t *testing.T) {
+		p := retry.NewPolicy(
+			retry.WithMaxAttempts(2),
+			retry.WithNextDelay(func(int, error) time.Duration { return time.Nanosecond }),
+		)
+		wantErr := errors.New("fail")
+		for range 2 {
+			calls := 0
+			err := p.Do(t.Context(), func(ctx context.Context) error {
+				calls++
+				return wantErr
+			})
+			require.ErrorIs(t, err, wantErr)
+			require.Equal(t, 3, calls, "each run must get the full attempt budget")
+		}
+	})
+}

@@ -47,4 +47,29 @@ func BenchmarkDo(b *testing.B) {
 			i++
 		}
 	})
+
+	// Prebuilt-policy variants of the Success/Retries cases: options are
+	// materialized once instead of on every call.
+	b.Run("PolicySuccess", func(b *testing.B) {
+		p := retry.NewPolicy()
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = p.Do(ctx, func(ctx context.Context) error {
+				return nil
+			})
+		}
+	})
+
+	b.Run("PolicyRetries", func(b *testing.B) {
+		p := retry.NewPolicy(
+			retry.WithMaxAttempts(10),
+			retry.WithNextDelay(func(int, error) time.Duration { return 0 }),
+		)
+		b.ReportAllocs()
+		for b.Loop() {
+			_ = p.Do(ctx, func(ctx context.Context) error {
+				return failErr
+			})
+		}
+	})
 }
