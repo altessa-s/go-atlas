@@ -70,5 +70,3 @@ deletion detection and periodic health checks as a fallback for missed events du
 | `DefaultMaxRecoveryAttempts`        | 3      | Maximum recovery attempts before giving up              |
 | `DefaultRecoveryBackoff`            | 5s     | Base backoff duration between recovery attempts         |
 | `DefaultStaleRecoveryTimeout`       | 20m    | Timeout for clearing stale recovery marks               |
-| `DefaultHealthCheckInterval`        | 5m     | Interval for periodic health checks                     |
-| `DefaultStaleRecoveryCheckInterval` | 1m     | Interval for checking stale recovery marks              |

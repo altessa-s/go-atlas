@@ -248,13 +248,6 @@ func (r *Registry) DisablePlugins(names ...string) {
 	}
 }
 
-// IsPluginDisabled checks if a plugin is disabled.
-func (r *Registry) IsPluginDisabled(p any) bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.isPluginDisabledLocked(p)
-}
-
 // FindPlugin finds the best plugin for a field.
 // Returns the first plugin that can handle the field (sorted by priority).
 // Skips disabled plugins.
@@ -413,13 +406,6 @@ func KnownPluginNames() []string {
 	return defaultRegistry.KnownPluginNames()
 }
 
-// KnownFieldPluginNames returns the type names of registered field plugins.
-func (r *Registry) KnownFieldPluginNames() []string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return sortedPluginNames(r.fieldPlugins)
-}
-
 // FieldPlugins returns registered field plugins with metadata, in selection order
 // (guards first, then descending priority).
 func (r *Registry) FieldPlugins() []FieldPluginInfo {
@@ -437,11 +423,6 @@ func (r *Registry) FieldPlugins() []FieldPluginInfo {
 		})
 	}
 	return out
-}
-
-// KnownFieldPluginNames returns the type names of field plugins in the global registry.
-func KnownFieldPluginNames() []string {
-	return defaultRegistry.KnownFieldPluginNames()
 }
 
 // FieldPlugins returns registered field plugins with metadata from the global registry.
@@ -479,14 +460,6 @@ func (r *Registry) RegisterModifierPlugin(p ModifierPlugin) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.modifierPlugins[key] = p
-}
-
-// FindModifierPlugin finds a modifier plugin by key.
-// Returns nil if no plugin is registered for the key.
-func (r *Registry) FindModifierPlugin(key string) ModifierPlugin {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.modifierPlugins[normalizeKey(key)]
 }
 
 // CollectModifiers gathers all [ModifierPlugin] instances that apply to field,
@@ -606,11 +579,6 @@ func BuildPipeline(ctx GenerationContext, field model.OptField, inputVar string)
 // CollectModifiers collects all applicable modifier plugins from the global registry.
 func CollectModifiers(field model.OptField) []ModifierPlugin {
 	return defaultRegistry.CollectModifiers(field)
-}
-
-// FindModifierPlugin finds a modifier plugin by key in the global registry.
-func FindModifierPlugin(key string) ModifierPlugin {
-	return defaultRegistry.FindModifierPlugin(key)
 }
 
 // ModifierPluginInfo is a display-oriented snapshot of a registered [ModifierPlugin],

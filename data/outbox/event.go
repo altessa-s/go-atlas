@@ -87,14 +87,6 @@ func (e *Event) setSkippedStatus() {
 	e.PublishedAt = time.Now().UTC()
 }
 
-// setExpiredStatus marks the event as expired, clears LastError,
-// and records PublishedAt for cleanup eligibility.
-func (e *Event) setExpiredStatus() {
-	e.Status = StatusExpired
-	e.LastError = nil
-	e.PublishedAt = time.Now().UTC()
-}
-
 // isReadyForRetry returns true if attempts are below maxAttempts.
 func (e *Event) isReadyForRetry(maxAttempts uint32) bool {
 	return e.Attempts < maxAttempts

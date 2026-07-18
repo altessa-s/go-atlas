@@ -10,8 +10,8 @@
 // SkipNextRun) as well as scheduler status queries and task history listing.
 //
 // List and ListHistory accept an optional CEL filter expression; the handler
-// attempts server-side filtering first and falls back to in-memory evaluation
-// when the storage backend does not support it.
+// passes it to the scheduler's paginated methods, which parse the filter and
+// push evaluation to the storage backend.
 //
 // Scheduler domain errors are translated to appropriate gRPC status codes
 // (NotFound, FailedPrecondition, InvalidArgument, Internal) by the internal

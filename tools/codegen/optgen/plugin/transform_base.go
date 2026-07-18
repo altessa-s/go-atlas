@@ -37,7 +37,7 @@ type TransformBase struct {
 }
 
 // TransformOption is a functional option for configuring a [TransformBase].
-// See [ForTypes], [WithPriority], [DefaultFor], and [DisabledBy].
+// See [ForTypes], [DefaultFor], and [DisabledBy].
 type TransformOption func(*TransformBase)
 
 // NewTransformBase creates a TransformBase with the given modifier key and
@@ -59,13 +59,6 @@ func NewTransformBase(key string, opts ...TransformOption) TransformBase {
 func ForTypes(types ...string) TransformOption {
 	return func(b *TransformBase) {
 		b.applicableTypes = types
-	}
-}
-
-// WithPriority sets the priority for the transform.
-func WithPriority(priority int) TransformOption {
-	return func(b *TransformBase) {
-		b.priority = priority
 	}
 }
 

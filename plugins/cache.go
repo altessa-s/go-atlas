@@ -90,14 +90,7 @@ func (c *hashCache) clear() {
 	c.mu.Unlock()
 }
 
-// remove deletes a specific entry from the cache.
-func (c *hashCache) remove(path string) {
-	c.mu.Lock()
-	delete(c.entries, path)
-	c.mu.Unlock()
-}
-
-// readAndHashFile reads a plugin file and computes its SHA-256 hash.
+// readAndHashFileWithCache reads a plugin file and computes its SHA-256 hash.
 // Uses caching to avoid redundant I/O when file hasn't changed.
 func readAndHashFileWithCache(path string, cache *hashCache) ([]byte, string, error) {
 	// Check cache first
@@ -143,23 +136,4 @@ func readAndHashFileWithCache(path string, cache *hashCache) ([]byte, string, er
 	}
 
 	return data, hashStr, nil
-}
-
-// readAndHashFile reads the file at path into memory and returns the raw
-// bytes together with the SHA256 hex digest. Returning the bytes avoids
-// a second read when signature verification needs the same data.
-//
-// The entire file is read at once; acceptable for .so files (typically
-// under 100 MB) at load time.
-//
-// Tests override this via the [Manager.readAndHashFileFn] field.
-func readAndHashFile(path string) ([]byte, string, error) {
-	if stat, err := os.Stat(path); err == nil && stat.Size() > maxPluginFileBytes {
-		return nil, "", fmt.Errorf("plugin file too large: %d bytes (max %d)", stat.Size(), maxPluginFileBytes)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, "", err
-	}
-	return data, hash.SHA256HexBytes(data), nil
 }

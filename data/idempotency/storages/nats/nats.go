@@ -44,9 +44,10 @@ func New(js jetstream.JetStream, opts ...Option) (*Storage, error) {
 	options := newOptions(opts...)
 
 	base, err := natsbase.NewBaseWithBucket(context.Background(), js, natskvlease.BucketConfig{
-		Bucket:  options.bucket,
-		TTL:     options.maxAge,
-		Storage: jetstream.FileStorage,
+		Bucket:   options.bucket,
+		TTL:      options.maxAge,
+		Storage:  jetstream.FileStorage,
+		Replicas: options.replicas,
 		// Enable per-key TTL so AttemptLockWithTTL can pass
 		// jetstream.KeyTTL(d) on Create. Marker retention matches the
 		// bucket TTL — we don't watch tombstones, so any non-zero value

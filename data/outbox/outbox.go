@@ -153,9 +153,6 @@ func (o *Outbox) Save(ctx context.Context, events ...Event) error {
 	return nil
 }
 
-// StopInternalProcesses is a no-op as all background tasks are managed externally.
-func (o *Outbox) StopInternalProcesses() {}
-
 // --- Internal Methods ---
 
 // dispatchEvent attempts to dispatch a single event with exponential backoff retry.

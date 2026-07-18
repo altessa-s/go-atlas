@@ -34,6 +34,10 @@ type BucketConfig struct {
 	// Compression enables compression for the bucket.
 	Compression bool
 
+	// Replicas is the number of replicas for the KeyValue bucket.
+	// Zero falls back to the NATS client default of 1.
+	Replicas int
+
 	// LimitMarkerTTL controls how long the bucket retains delete-tombstone
 	// markers when keys expire. Setting this to a positive value also
 	// enables per-key TTL via [jetstream.KeyTTL] when calling Create or
@@ -83,6 +87,7 @@ func (h *KVHelper) GetOrCreateBucket(ctx context.Context, cfg BucketConfig) (jet
 					TTL:            cfg.TTL,
 					Storage:        cfg.Storage,
 					Compression:    cfg.Compression,
+					Replicas:       cfg.Replicas,
 					LimitMarkerTTL: cfg.LimitMarkerTTL,
 				})
 			})

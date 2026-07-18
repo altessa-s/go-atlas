@@ -5,6 +5,7 @@
 package testhelpers
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -78,6 +79,37 @@ func ConnectJetStream(tb testing.TB, ns *server.Server) (*nats.Conn, jetstream.J
 	}
 
 	return nc, js
+}
+
+// JetStreamKVCapture is a [jetstream.JetStream] test double that records the
+// [jetstream.KeyValueConfig] passed to CreateOrUpdateKeyValue. KeyValue always
+// reports [jetstream.ErrBucketNotFound] so callers fall through to the bucket
+// creation path. All other JetStream methods panic via the embedded nil
+// interface. Useful for asserting bucket configuration (replicas, TTL, storage)
+// that a single-node test server cannot express.
+type JetStreamKVCapture struct {
+	jetstream.JetStream
+
+	// KVConfig is the config captured by the last CreateOrUpdateKeyValue call.
+	KVConfig jetstream.KeyValueConfig
+}
+
+// KeyValue always returns [jetstream.ErrBucketNotFound] to force bucket creation.
+func (c *JetStreamKVCapture) KeyValue(context.Context, string) (jetstream.KeyValue, error) {
+	return nil, jetstream.ErrBucketNotFound
+}
+
+// CreateOrUpdateKeyValue records cfg and returns an inert KeyValue whose
+// methods panic when called.
+func (c *JetStreamKVCapture) CreateOrUpdateKeyValue(_ context.Context, cfg jetstream.KeyValueConfig) (jetstream.KeyValue, error) {
+	c.KVConfig = cfg
+	return inertKeyValue{}, nil
+}
+
+// inertKeyValue is a non-nil [jetstream.KeyValue] whose methods panic via the
+// embedded nil interface. It exists only to satisfy post-creation nil checks.
+type inertKeyValue struct {
+	jetstream.KeyValue
 }
 
 // CreateNATSKV creates a NATS JetStream KeyValue bucket backed by in-memory storage.

@@ -53,14 +53,6 @@ func TestEvent_SetSkippedStatus(t *testing.T) {
 	require.False(t, e.PublishedAt.IsZero(), "PublishedAt is zero")
 }
 
-func TestEvent_SetExpiredStatus(t *testing.T) {
-	e := &Event{Status: StatusPending, LastError: testhelpers.StringPtr("previous error")}
-	e.setExpiredStatus()
-	require.Equal(t, StatusExpired, e.Status)
-	require.Nil(t, e.LastError)
-	require.False(t, e.PublishedAt.IsZero(), "PublishedAt should be set for cleanup eligibility")
-}
-
 func TestEvent_SetStatusMaxAttemptReached(t *testing.T) {
 	e := &Event{}
 	e.setStatusMaxAttemptReached()

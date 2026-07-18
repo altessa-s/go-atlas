@@ -24,10 +24,6 @@ type Node = filter.Node
 // It is used internally for timestamping [TaskState] mutations.
 func UnixNow() int64 { return time.Now().Unix() }
 
-// UnixMs converts a [time.Duration] to its integer millisecond representation.
-// It is a convenience helper for populating [TaskHistory.DurationMs].
-func UnixMs(d time.Duration) int64 { return d.Milliseconds() }
-
 // TaskStatus represents the lifecycle status of a scheduled task. The numeric
 // values are aligned with the proto enum scheduler.v1.TaskStatus so they can be
 // used directly in gRPC messages without conversion.

@@ -15,12 +15,8 @@ import (
 	stdSlices "slices"
 )
 
-const (
-	// DefaultPrefixesDelimiter separates multiple prefixes.
-	DefaultPrefixesDelimiter = ":"
-	// DefaultPrefixSeparator separates the prefix from the message.
-	DefaultPrefixSeparator = ">"
-)
+// DefaultPrefixesDelimiter separates multiple prefixes.
+const DefaultPrefixesDelimiter = ":"
 
 // Formatter transforms prefix values into a single formatted prefix value.
 type Formatter func([]slog.Value, string) *slog.Value
@@ -35,9 +31,6 @@ type options struct {
 
 	// prefixesDelimiter joins multiple prefixes. Default ":".
 	prefixesDelimiter string `optgen:"default=DefaultPrefixesDelimiter"`
-
-	// prefixSeparator separates prefix from message. Default ">".
-	prefixSeparator string `optgen:"default=DefaultPrefixSeparator"`
 }
 
 // prefixFormatter joins prefix values with delimiter, filtering empty values.

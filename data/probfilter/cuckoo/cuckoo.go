@@ -16,7 +16,6 @@ import (
 // It implements probfilter.DeletableFilter.
 type Filter struct {
 	storage storages.Storage
-	opts    *options
 }
 
 var (
@@ -31,10 +30,9 @@ var (
 //
 //	storage := memory.New(memory.WithCapacity(100000))
 //	filter := cuckoo.New(storage)
-func New(storage storages.Storage, opt ...Option) *Filter {
+func New(storage storages.Storage) *Filter {
 	return &Filter{
 		storage: storage,
-		opts:    newOptions(opt...),
 	}
 }
 

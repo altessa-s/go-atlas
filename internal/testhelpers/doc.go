@@ -16,7 +16,8 @@
 //   - Pointer helpers ([StringPtr], [IntPtr], [TimePtr]).
 //   - HTTP and I/O test doubles ([RoundTripFunc], [MockReadCloser]).
 //   - NATS/JetStream helpers for spinning up embedded servers ([StartNATSServer],
-//     [ConnectNATS], [ConnectJetStream], [CreateNATSKV]).
+//     [ConnectNATS], [ConnectJetStream], [CreateNATSKV]) and capturing bucket
+//     configuration ([JetStreamKVCapture]).
 //   - TLS and cryptographic utilities ([SelfSignedCert], [GenerateRSAKey],
 //     [WriteTempCertFiles]).
 //   - Polling helpers ([WaitFor]) and an audit helper ([NewTestAuditor]).

@@ -21,7 +21,6 @@ pluggable storage backends (memory, Redis). Includes a `Manager` for registering
 
 | Option           | Default   | Description                  |
 |------------------|-----------|------------------------------|
-| `WithLogger`     | discard   | Sets the structured logger   |
 | `WithCollector`  | nil       | Sets the metrics collector   |
 
 ## Errors

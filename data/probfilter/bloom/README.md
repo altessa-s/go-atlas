@@ -13,12 +13,6 @@ deletion. Use periodic rebuilds via `RebuildableFilter` when the underlying data
 |-----------|-----------------------------------------------------------------------------|
 | `Filter`  | Bloom filter — implements `Filter`, `RebuildableFilter`, and `StatsProvider` |
 
-## Options
-
-| Option       | Default   | Description                |
-|--------------|-----------|----------------------------|
-| `WithLogger` | discard   | Sets the structured logger |
-
 ## Subpackages
 
 | Package                        | Description                |

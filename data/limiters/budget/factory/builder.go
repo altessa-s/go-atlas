@@ -77,7 +77,6 @@ func (b *BudgetLimiterBuilder) Build() (*budget.Limiter, error) {
 // applyDefaults returns factory defaults as limiter options.
 func (b *BudgetLimiterBuilder) applyDefaults() []budget.Option {
 	return []budget.Option{
-		budget.WithLogger(b.Logger()),
 		budget.WithCollector(b.collector),
 	}
 }

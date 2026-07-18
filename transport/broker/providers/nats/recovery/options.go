@@ -15,10 +15,6 @@ import (
 
 // Default configuration values for recovery manager.
 const (
-	// DefaultHealthCheckInterval is the default interval for periodic health checks.
-	// Acts as fallback detection when advisory events are missed.
-	DefaultHealthCheckInterval = 5 * time.Minute
-
 	// DefaultMaxRecoveryAttempts is the default maximum number of recovery attempts.
 	DefaultMaxRecoveryAttempts = 3
 
@@ -29,9 +25,6 @@ const (
 	// DefaultStaleRecoveryTimeout is the default timeout after which a recovery mark is
 	// considered stale and will be cleared.
 	DefaultStaleRecoveryTimeout = 20 * time.Minute
-
-	// DefaultStaleRecoveryCheckInterval is the default interval for checking stale recovery marks.
-	DefaultStaleRecoveryCheckInterval = 1 * time.Minute
 )
 
 // RecoverySuccessCallback is invoked after a stream or consumer is successfully recovered.
@@ -80,9 +73,6 @@ func WithOnStaleRecoveryCleared(cb StaleRecoveryClearedCallback) Option {
 
 // options contains configuration fields for the recovery Manager.
 type options struct {
-	// healthCheckInterval defines how often the health monitor checks registered streams/consumers.
-	healthCheckInterval time.Duration `optgen:"default=DefaultHealthCheckInterval"`
-
 	// maxRecoveryAttempts defines the maximum number of recovery attempts before giving up.
 	maxRecoveryAttempts int `optgen:"default=DefaultMaxRecoveryAttempts" optval:"positive"`
 
@@ -91,9 +81,6 @@ type options struct {
 
 	// staleRecoveryTimeout defines how long a recovery mark can exist before being cleared.
 	staleRecoveryTimeout time.Duration `optgen:"default=DefaultStaleRecoveryTimeout"`
-
-	// staleRecoveryCheckInterval defines how often to check for stale recovery marks.
-	staleRecoveryCheckInterval time.Duration `optgen:"default=DefaultStaleRecoveryCheckInterval"`
 
 	// onRecoverySuccess is called when a stream or consumer is successfully recovered.
 	// Parameters: stream name, consumer name (empty for stream-only recovery).

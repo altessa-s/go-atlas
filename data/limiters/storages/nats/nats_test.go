@@ -39,6 +39,23 @@ func TestNew_NilJetStream(t *testing.T) {
 	require.Error(t, err, "New(nil) should return error")
 }
 
+// TestNew_ReplicasWiredToBucketConfig pins that WithReplicas reaches the
+// jetstream.KeyValueConfig used for bucket creation. A capture double is used
+// because a single-node test server cannot create buckets with replicas > 1.
+func TestNew_ReplicasWiredToBucketConfig(t *testing.T) {
+	t.Parallel()
+
+	capture := &testhelpers.JetStreamKVCapture{}
+
+	_, err := limitnats.New(capture,
+		limitnats.WithBucket("rate-limiter-replicas"),
+		limitnats.WithReplicas(3))
+	require.NoError(t, err)
+
+	require.Equal(t, "rate-limiter-replicas", capture.KVConfig.Bucket)
+	require.Equal(t, 3, capture.KVConfig.Replicas)
+}
+
 func TestProvider_Allow_UnderLimit(t *testing.T) {
 	provider := setupProvider(t)
 	ctx := t.Context()

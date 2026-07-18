@@ -36,7 +36,7 @@ limiter, err := factory.New(cfg.BudgetLimiter).
 
 | Method | Description |
 |--------|-------------|
-| `UseLogger` | Sets the logger for the builder and all created components |
+| `UseLogger` | Sets the logger for the builder |
 | `UseRedisClient` | Sets the Redis client for Redis storage backends |
 | `UseJetstream` | Sets the NATS JetStream context for NATS storage backends |
 | `UseScheduler` | Sets the scheduler for background cleanup task registration |

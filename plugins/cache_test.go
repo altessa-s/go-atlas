@@ -187,41 +187,6 @@ func TestHashCache_Clear(t *testing.T) {
 	}
 }
 
-func TestHashCache_Remove(t *testing.T) {
-	t.Parallel()
-
-	cache := newHashCache()
-	dir := t.TempDir()
-
-	// Add multiple entries
-	paths := make([]string, 3)
-	for i := 0; i < 3; i++ {
-		path := filepath.Join(dir, fmt.Sprintf("test%d.so", i))
-		paths[i] = path
-		require.NoError(t, os.WriteFile(path, []byte("data"), 0o644))
-		stat, err := os.Stat(path)
-		require.NoError(t, err)
-		cache.put(path, fmt.Sprintf("hash%d", i), stat)
-	}
-
-	// Remove middle entry
-	cache.remove(paths[1])
-
-	// First and last should still be cached
-	hash, ok := cache.get(paths[0])
-	require.True(t, ok)
-	require.Equal(t, "hash0", hash)
-
-	hash, ok = cache.get(paths[2])
-	require.True(t, ok)
-	require.Equal(t, "hash2", hash)
-
-	// Middle should be gone
-	hash, ok = cache.get(paths[1])
-	require.False(t, ok)
-	require.Empty(t, hash)
-}
-
 func TestReadAndHashFileWithCache(t *testing.T) {
 	t.Parallel()
 
