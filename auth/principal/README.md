@@ -49,6 +49,17 @@ p := principal.FromClaims(claims, principal.WithRolesClaim("groups"))
 if p.HasScope("files:read") { /* ... */ }
 ```
 
+Auth adapters that map claims on every request should build a `Mapper` once — the option set is materialized a single time
+instead of per call:
+
+```go
+var mapper = principal.NewMapper(principal.WithRolesClaim("groups"))
+
+p := mapper.FromClaims(claims)
+```
+
+The zero-value `Mapper` maps with the default claim names; a `Mapper` is immutable and safe for concurrent use.
+
 ## Wiring into the scope enforcer
 
 `scope.Scope` is a string alias, so the slices plug straight in:

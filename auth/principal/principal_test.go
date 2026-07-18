@@ -91,3 +91,35 @@ func TestFromClaimsCustomClaimNames(t *testing.T) {
 	require.Equal(t, "globex", p.Tenant)
 	require.Equal(t, []string{"ops", "sre"}, p.Roles)
 }
+
+func TestMapperCustomClaimNames(t *testing.T) {
+	t.Parallel()
+	m := principal.NewMapper(principal.WithTenantClaim("org"), principal.WithRolesClaim("groups"))
+
+	// A Mapper is reusable across claim sets with the configuration
+	// materialized once.
+	for _, tenant := range []string{"globex", "initech"} {
+		c := fakeClaims{
+			sub:    "bob",
+			strs:   map[string]string{"org": tenant},
+			slices: map[string][]string{"groups": {"ops"}},
+		}
+		p := m.FromClaims(c)
+		require.Equal(t, tenant, p.Tenant)
+		require.Equal(t, []string{"ops"}, p.Roles)
+	}
+}
+
+func TestMapperZeroValueUsesDefaults(t *testing.T) {
+	t.Parallel()
+	var m principal.Mapper
+	c := fakeClaims{
+		sub:    "alice",
+		strs:   map[string]string{"tenant": "acme"},
+		slices: map[string][]string{"roles": {"admin"}},
+	}
+	p := m.FromClaims(c)
+	require.Equal(t, "alice", p.Subject)
+	require.Equal(t, "acme", p.Tenant)
+	require.Equal(t, []string{"admin"}, p.Roles)
+}

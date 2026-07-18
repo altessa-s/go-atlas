@@ -104,8 +104,40 @@ type ClaimsSource interface {
 // configurable ([WithTenantClaim] / [WithRolesClaim], defaulting to "tenant" and
 // "roles"). The raw Claims map is left nil; set it on the result when a service
 // needs claims beyond the promoted fields.
+//
+// Hot call paths that map claims per request should build a [Mapper] once and
+// call [Mapper.FromClaims] instead, avoiding option processing on every call.
 func FromClaims(c ClaimsSource, opts ...Option) Principal {
-	o := newOptions(opts...)
+	return NewMapper(opts...).FromClaims(c)
+}
+
+// defaultMapperOptions backs zero-value Mappers so they map with the default
+// claim names instead of panicking.
+var defaultMapperOptions = newOptions()
+
+// Mapper is a claim→Principal mapping with its option set materialized once
+// via [NewMapper], for hot call paths that map claims per request. The zero
+// value maps with the default claim names. A Mapper is immutable and safe
+// for concurrent use.
+type Mapper struct {
+	o *options
+}
+
+// NewMapper materializes opts into a reusable [Mapper].
+func NewMapper(opts ...Option) Mapper {
+	if len(opts) == 0 {
+		return Mapper{o: defaultMapperOptions}
+	}
+	return Mapper{o: newOptions(opts...)}
+}
+
+// FromClaims maps a verified claim set with the pre-built configuration; the
+// semantics match the package-level [FromClaims].
+func (m Mapper) FromClaims(c ClaimsSource) Principal {
+	o := m.o
+	if o == nil {
+		o = defaultMapperOptions
+	}
 	tenant, _ := c.String(o.tenantClaim)
 	roles, _ := c.StringSlice(o.rolesClaim)
 	return Principal{
