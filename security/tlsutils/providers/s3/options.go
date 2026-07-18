@@ -44,7 +44,6 @@ type options struct {
 	pollInterval      time.Duration
 	reloadNotifyChan  chan struct{}
 	sseType           SSEType
-	sseKMSKeyID       string
 	sseCustomerKey    string
 	sseCustomerKeyMD5 string
 	s3Client          S3API `optgen:"notnil"`
