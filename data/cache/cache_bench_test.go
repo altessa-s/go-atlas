@@ -57,3 +57,20 @@ func BenchmarkGetWithFallback(b *testing.B) {
 		})
 	}
 }
+
+// BenchmarkGetWithFallbackT measures the typed hit path against the untyped
+// BenchmarkGetWithFallback above: same provider, same key, no per-call
+// reflection.
+func BenchmarkGetWithFallbackT(b *testing.B) {
+	p := &benchProvider{store: make(map[string][]byte)}
+	c := New(p)
+	ctx := b.Context()
+	_ = c.Save(ctx, "bench-key", "value")
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = GetWithFallbackT(ctx, c, "bench-key", func() (string, time.Duration, error) {
+			return "fallback", TTLUseDefault, nil
+		})
+	}
+}

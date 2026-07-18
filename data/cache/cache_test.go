@@ -214,6 +214,75 @@ func TestGetWithFallback_FallbackError(t *testing.T) {
 	require.ErrorIs(t, err, wantErr)
 }
 
+func TestGetWithFallbackT_CacheHit(t *testing.T) {
+	p := newMockProvider()
+	c := New(p)
+	ctx := t.Context()
+
+	_ = c.Save(ctx, "key1", "cached")
+
+	result, err := GetWithFallbackT(ctx, c, "key1", func() (string, time.Duration, error) {
+		t.Error("fallback should not be called on cache hit")
+		return "fallback", TTLUseDefault, nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, "cached", result)
+}
+
+func TestGetWithFallbackT_CacheMiss_FallbackHit(t *testing.T) {
+	p := newMockProvider()
+	c := New(p)
+	ctx := t.Context()
+
+	result, err := GetWithFallbackT(ctx, c, "key1", func() (string, time.Duration, error) {
+		return "from-fallback", TTLUseDefault, nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, "from-fallback", result)
+
+	// The fallback result must be persisted: the second call is a hit.
+	result, err = GetWithFallbackT(ctx, c, "key1", func() (string, time.Duration, error) {
+		t.Error("fallback should not be called once the value is cached")
+		return "", TTLUseDefault, nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, "from-fallback", result)
+}
+
+func TestGetWithFallbackT_FallbackError(t *testing.T) {
+	p := newMockProvider()
+	c := New(p)
+	ctx := t.Context()
+
+	wantErr := errors.New("db error")
+	_, err := GetWithFallbackT(ctx, c, "key1", func() (string, time.Duration, error) {
+		return "", TTLUseDefault, wantErr
+	})
+	require.ErrorIs(t, err, wantErr)
+}
+
+func TestGetWithFallbackT_PointerType(t *testing.T) {
+	p := newMockProvider()
+	c := New(p)
+	ctx := t.Context()
+
+	// Pointer-typed T must round-trip through fallback, serialization, and
+	// the cache-hit path.
+	type payload struct{ Name string }
+	got, err := GetWithFallbackT(ctx, c, "key1", func() (*payload, time.Duration, error) {
+		return &payload{Name: "acme"}, TTLUseDefault, nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, "acme", got.Name)
+
+	got, err = GetWithFallbackT(ctx, c, "key1", func() (*payload, time.Duration, error) {
+		t.Error("fallback should not be called on cache hit")
+		return nil, TTLUseDefault, nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, "acme", got.Name)
+}
+
 func TestGetWithFallback_Singleflight(t *testing.T) {
 	p := newMockProvider()
 	c := New(p)
