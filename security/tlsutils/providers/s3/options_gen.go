@@ -116,29 +116,6 @@ func WithSseCustomerKeyMD5[T interface{ string | *string }](v T) Option {
 	}
 }
 
-// WithSseKMSKeyID sets the sseKMSKeyID option.
-func WithSseKMSKeyID[T interface{ string | *string }](v T) Option {
-	return func(o *options) {
-		switch t := any(v).(type) {
-		case string:
-			vv := strings.TrimSpace(t)
-			if vv == "" {
-				return
-			}
-			o.sseKMSKeyID = vv
-		case *string:
-			if t == nil {
-				return
-			}
-			vv := strings.TrimSpace(*t)
-			if vv == "" {
-				return
-			}
-			o.sseKMSKeyID = vv
-		}
-	}
-}
-
 // WithSseType sets the sseType option.
 func WithSseType(v SSEType) Option {
 	return func(o *options) {

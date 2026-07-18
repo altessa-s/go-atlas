@@ -283,13 +283,13 @@ func (b *ProvidersBuilder) createS3Provider() (*tlss3.S3, error) {
 	if cfg.SSE != nil {
 		opts = append(opts, tlss3.WithSseType(tlss3.SSEType(cfg.SSE.Type)))
 		switch cfg.SSE.Type {
-		case config.SSETypeConfigKMS:
-			opts = append(opts, tlss3.WithSseKMSKeyID(cfg.SSE.KMSKeyID))
 		case config.SSETypeConfigC:
 			opts = append(opts, tlss3.WithSseCustomerKey(cfg.SSE.CustomerKey.Expose()))
 			opts = append(opts, tlss3.WithSseCustomerKeyMD5(cfg.SSE.CustomerKeyMD5))
-		case config.SSETypeConfigS3:
-			// SSE-S3 is transparent on read — no additional options needed.
+		case config.SSETypeConfigS3, config.SSETypeConfigKMS:
+			// SSE-S3 and SSE-KMS are transparent on read — S3 decrypts
+			// server-side (KMS needs kms:Decrypt on the reader's role),
+			// so no additional options are needed.
 		}
 	}
 

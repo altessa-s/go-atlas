@@ -54,12 +54,14 @@ type TlsProviderS3 struct {
 }
 
 // TlsProviderS3SSE configures server-side encryption for S3 certificate objects.
+//
+// Only SSE-C requires read-side parameters (the customer key must accompany
+// every GetObject). SSE-S3 and SSE-KMS objects are decrypted transparently by
+// S3 — for KMS the reader's IAM role needs kms:Decrypt on the bucket key, but
+// no key ID is sent on reads.
 type TlsProviderS3SSE struct {
 	// Type specifies the SSE encryption type: "s3", "kms", or "c".
 	Type SSETypeConfig `yaml:"type"`
-
-	// KMSKeyID is the AWS KMS key ARN or ID. Required when Type is "kms".
-	KMSKeyID string `yaml:"kmsKeyId"`
 
 	// CustomerKey is the customer-provided encryption key. Required when Type is "c".
 	CustomerKey Secret `yaml:"customerKey"`
@@ -84,7 +86,6 @@ func (c *TlsProviderS3) Validate() error {
 func (c *TlsProviderS3SSE) Validate() error {
 	return ValidateStruct(c,
 		validation.Field(&c.Type, validation.Required, ozzo_rules.OneOf(SSETypeConfigS3, SSETypeConfigKMS, SSETypeConfigC)),
-		validation.Field(&c.KMSKeyID, validation.Required.When(c.Type == SSETypeConfigKMS)),
 		validation.Field(&c.CustomerKey, validation.Required.When(c.Type == SSETypeConfigC)),
 		validation.Field(&c.CustomerKeyMD5, validation.Required.When(c.Type == SSETypeConfigC)),
 	)

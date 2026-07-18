@@ -128,16 +128,13 @@
 #    pollInterval: "5m"
 #
 #    # <object> Server-side encryption configuration for reading certificate objects.
-#    # SSE-S3 and SSE-KMS are transparent on read; SSE-C requires explicit parameters.
+#    # SSE-S3 and SSE-KMS are transparent on read (for KMS the reader's IAM role
+#    # needs kms:Decrypt on the bucket key); SSE-C requires explicit parameters.
 #    # Default value: not set (no encryption)
 #    sse:
 #      # <string> SSE encryption type: "s3", "kms", or "c".
 #      # Default value: not set (required when sse is configured)
 #      type: "kms"
-#
-#      # <string> AWS KMS key ARN or ID. Required when type is "kms".
-#      # Default value: not set
-#      kmsKeyId: "arn:aws:kms:us-east-1:123456789:key/abcd-1234"
 #
 #      # <string> Customer-provided encryption key. Required when type is "c".
 #      # Default value: not set
