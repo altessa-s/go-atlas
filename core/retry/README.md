@@ -17,6 +17,19 @@ zero `time.After` allocations per attempt, so it fits high-throughput retry loop
 | `WithNextDelay`      | Delay function `(attempt, err) -> Duration`; `<=0` stops |
 | `WithOnRetry`        | Optional callback after each failed attempt              |
 
+## Prebuilt policies
+
+`Do(ctx, fn, opts...)` materializes its options on every call. Hot call paths (e.g. a per-request HTTP attempt) should build a
+`Policy` once and reuse it — the options are processed a single time and each `Policy.Do` call is allocation-free:
+
+```go
+var policy = retry.NewPolicy(retry.WithMaxAttempts(3), retry.WithNextDelay(retry.Exponential(cfg)))
+
+err := policy.Do(ctx, attempt) // same semantics as retry.Do
+```
+
+A `Policy` is immutable after construction and safe for concurrent use.
+
 ## Exponential backoff
 
 `GetExponentialConfig` / `PutExponentialConfig` pool config structs for hot paths to avoid allocations in tight retry loops.

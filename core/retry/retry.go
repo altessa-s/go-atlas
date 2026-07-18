@@ -62,10 +62,32 @@ func PutExponentialConfig(config *ExponentialConfig) {
 // A nil ctx is silently replaced with [context.Background]. Without any
 // options the call behaves as a single attempt (no retries): pass
 // [WithMaxAttempts] and [WithNextDelay] to enable retrying.
-//
-//nolint:contextcheck // Do treats nil ctx as Background for convenience (callers should pass an inherited context).
 func Do(ctx context.Context, fn func(context.Context) error, opts ...Option) error {
-	cfg := newOptions(opts...)
+	return doWithOptions(ctx, fn, newOptions(opts...))
+}
+
+// Policy is a retry configuration materialized once via [NewPolicy], letting
+// hot call paths (e.g. a per-request HTTP attempt) reuse it across calls
+// without re-processing options on every invocation. A Policy is immutable
+// after construction and safe for concurrent use.
+type Policy struct {
+	cfg *options
+}
+
+// NewPolicy materializes opts into a reusable [Policy]. With no options the
+// policy behaves like [Do] without options: a single attempt, no retries.
+func NewPolicy(opts ...Option) *Policy {
+	return &Policy{cfg: newOptions(opts...)}
+}
+
+// Do runs fn under the pre-built policy with the same semantics as the
+// package-level [Do].
+func (p *Policy) Do(ctx context.Context, fn func(context.Context) error) error {
+	return doWithOptions(ctx, fn, p.cfg)
+}
+
+//nolint:contextcheck // nil ctx is replaced with Background for convenience (see Do docs).
+func doWithOptions(ctx context.Context, fn func(context.Context) error, cfg *options) error {
 	ctx = corecontext.OrBackground(ctx)
 
 	start := time.Now()
