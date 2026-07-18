@@ -5,17 +5,17 @@
 package metrics
 
 import (
-	"sync/atomic"
-
 	"github.com/altessa-s/go-atlas/observability/metrics/adapters"
 )
 
-// counter is the default implementation of Counter with atomic operations.
+// counter is the default implementation of Counter, delegating every
+// observation to the adapter. It keeps no shadow value: nothing reads it,
+// and a local CAS-loop float add per increment would only double-account
+// what the adapter already stores.
 type counter struct {
 	name       string
 	labelNames []string
 	adapter    adapters.Adapter
-	value      atomic.Uint64
 }
 
 func newCounter(name string, labelNames []string, adapter adapters.Adapter) *counter {
@@ -34,7 +34,6 @@ func (c *counter) Add(delta float64) {
 	if delta < 0 {
 		return // Counters can only increase
 	}
-	atomicAddFloat64(&c.value, delta)
 	c.adapter.RecordCounter(c.name, nil, delta)
 }
 

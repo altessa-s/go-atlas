@@ -25,6 +25,22 @@ func newPromCollector(tb testing.TB) metrics.Collector {
 	return metrics.New(metrics.WithAdapter(adapter), metrics.WithServiceName("bench"))
 }
 
+// BenchmarkCounterInc measures the unlabeled counter increment against the
+// real Prometheus adapter — the plain c.Inc() path services use for global
+// counters.
+func BenchmarkCounterInc(b *testing.B) {
+	c := newPromCollector(b)
+	ctr := c.MustCounter(metrics.MetricOpts{
+		Name: "events_total",
+		Help: "bench",
+	})
+
+	b.ReportAllocs()
+	for b.Loop() {
+		ctr.Inc()
+	}
+}
+
 func BenchmarkLabeledCounterInc(b *testing.B) {
 	c := newPromCollector(b)
 	ctr := c.MustCounter(metrics.MetricOpts{
