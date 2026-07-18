@@ -7,6 +7,19 @@ import "github.com/altessa-s/go-atlas/data/cache"
 Package `cache` provides a unified caching interface with multiple backends and serialization support. Features automatic fallback with singleflight
 deduplication (prevents cache stampede), configurable TTL, and pluggable serializers (JSON, MessagePack, Protobuf).
 
+## Typed reads
+
+`GetWithFallbackT[T]` is the typed variant of `Cache.GetWithFallback`: the destination is a value of `T`, so the `any`-based
+method's assignability panic-assert and reflection copy-out disappear, and the fallback signature is type-checked:
+
+```go
+user, err := cache.GetWithFallbackT(ctx, c, "user:123", func() (User, time.Duration, error) {
+    return db.GetUser(ctx, 123), cache.TTLUseDefault, nil
+})
+```
+
+Both variants share the same singleflight keyspace, so typed and untyped callers of one key collapse onto a single fallback.
+
 ## Options
 
 | Option             | Default | Description                                                      |

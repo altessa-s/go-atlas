@@ -7,6 +7,7 @@ package cache
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"time"
 
@@ -148,21 +149,102 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 	// callers from different tenants never collapse onto one another's result.
 	ek := c.effectiveKey(ctx, key)
 
+	data, found, err := c.lookupRaw(ctx, ek)
+	if err != nil {
+		return err
+	}
+	if found {
+		return c.serializer.Deserialize(data, value)
+	}
+
+	fv, err := c.runFallback(ctx, ek, fallback)
+	if err != nil {
+		return err
+	}
+
+	reflect.Indirect(reflect.ValueOf(value)).Set(reflect.Indirect(reflect.ValueOf(fv)))
+
+	return nil
+}
+
+// GetWithFallbackT is the typed variant of [Cache.GetWithFallback] for hot
+// call paths: the destination is a value of T, so the per-call reflection of
+// the any-based API (assignability assertion and copy-out) disappears. The
+// untyped method remains for heterogeneous call sites.
+//
+// Example:
+//
+//	user, err := cache.GetWithFallbackT(ctx, c, "user:123", func() (User, time.Duration, error) {
+//		return db.GetUser(123), cache.TTLUseDefault, nil
+//	})
+func GetWithFallbackT[T any](ctx context.Context, c *Cache, key string, fallback func() (T, time.Duration, error)) (T, error) {
+	var out T
+	panics.Must(!strings.IsEmpty(key), "key must be provided")
+	panics.MustNonNil(fallback, "fallback must be provided")
+
+	ctx, cancel := corecontext.WithDefault(ctx, defaultContextTimeout)
+	defer cancel()
+
+	ek := c.effectiveKey(ctx, key)
+
+	data, found, err := c.lookupRaw(ctx, ek)
+	if err != nil {
+		return out, err
+	}
+	if found {
+		if err = c.serializer.Deserialize(data, &out); err != nil {
+			return out, err
+		}
+		return out, nil
+	}
+
+	// The boxing wrapper is built only on the miss path; hits stay free of
+	// per-call closures.
+	fv, err := c.runFallback(ctx, ek, func() (any, time.Duration, error) {
+		return fallback()
+	})
+	if err != nil {
+		return out, err
+	}
+
+	// A concurrent untyped caller may have won the singleflight with a *T:
+	// accept both shapes, mirroring the reflect.Indirect copy-out of the
+	// untyped method.
+	if v, ok := fv.(T); ok {
+		return v, nil
+	}
+	if p, ok := fv.(*T); ok && p != nil {
+		return *p, nil
+	}
+	return out, fmt.Errorf("cache: singleflight value type %T does not match requested type %T", fv, out)
+}
+
+// lookupRaw performs the provider read with negative-sentinel handling and
+// hit/miss metrics. found=false with a nil error means a plain miss — the
+// caller should run the fallback path.
+func (c *Cache) lookupRaw(ctx context.Context, ek string) (data []byte, found bool, err error) {
 	val, err := c.provider.Get(ctx, ek)
 	if err == nil {
 		if isNegativeSentinel(val) {
 			c.metrics.negativeHits.Inc()
-			return ErrMissing
+			return nil, false, ErrMissing
 		}
 		c.metrics.hits.Inc()
-		return c.serializer.Deserialize(val, value)
-	} else if !errors.Is(err, ErrMissing) {
+		return val, true, nil
+	}
+	if !errors.Is(err, ErrMissing) {
 		c.metrics.errors.Inc()
-		return err
+		return nil, false, err
 	}
 
 	c.metrics.misses.Inc()
+	return nil, false, nil
+}
 
+// runFallback executes fallback under the concurrency semaphore and the
+// singleflight group, persisting the produced value (or the negative
+// sentinel) exactly as the lookup flow expects.
+func (c *Cache) runFallback(ctx context.Context, ek string, fallback Fallback) (any, error) {
 	// Bound the total number of in-flight fallbacks across all keys.
 	// singleflight only collapses requests for the SAME key — an
 	// attacker driving distinct keys can launch one fallback per key
@@ -170,9 +252,9 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 	// independent of key cardinality. Acquire honors ctx so callers see
 	// timeouts rather than indefinite waits.
 	if c.fallbackSem != nil {
-		if err = c.fallbackSem.Acquire(ctx, 1); err != nil {
+		if err := c.fallbackSem.Acquire(ctx, 1); err != nil {
 			c.metrics.errors.Inc()
-			return err
+			return nil, err
 		}
 		defer c.fallbackSem.Release(1)
 	}
@@ -221,14 +303,7 @@ func (c *Cache) GetWithFallback(ctx context.Context, key string, value any, fall
 
 		return val, nil
 	})
-
-	if err != nil {
-		return err
-	}
-
-	reflect.Indirect(reflect.ValueOf(value)).Set(reflect.Indirect(reflect.ValueOf(fv)))
-
-	return nil
+	return fv, err
 }
 
 // Save stores a value in the cache with the given key.
