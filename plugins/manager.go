@@ -92,7 +92,8 @@ type Manager struct {
 
 	// readAndHashFileFn abstracts file reading+hashing so tests can
 	// inject a stub without needing real .so files. Returns the raw
-	// file bytes and the SHA256 hex digest. Defaults to [readAndHashFile].
+	// file bytes and the SHA256 hex digest. Defaults to
+	// [readAndHashFileWithCache] backed by the manager's hash cache.
 	readAndHashFileFn func(string) ([]byte, string, error)
 
 	// metrics holds all metric collectors for observability.

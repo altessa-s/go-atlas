@@ -4,8 +4,6 @@
 package budget
 
 import (
-	"log/slog"
-
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
@@ -23,21 +21,9 @@ func WithCollector(v metrics.Collector) Option {
 	}
 }
 
-// WithLogger sets the logger option.
-func WithLogger(v *slog.Logger) Option {
-	return func(o *options) {
-		if v == nil {
-			return
-		}
-		o.logger = v
-	}
-}
-
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
-	return &options{
-		logger: slog.New(slog.DiscardHandler),
-	}
+	return &options{}
 }
 
 // newOptions creates a new options with the given options.

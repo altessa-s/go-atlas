@@ -18,9 +18,6 @@
 // It supports dependency ordering, deduplication, and clone/extend
 // operations.
 //
-// [MiddlewareError] carries an HTTP status code, user-facing message, and
-// machine-readable error code for structured error responses from middleware.
-//
 // # Middleware Identity
 //
 // Every middleware sub-package exports three identification helpers:

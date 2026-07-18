@@ -24,13 +24,8 @@ import (
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
 
-const (
-	// DefaultEnvDelimiter is the default delimiter for environment variable names.
-	DefaultEnvDelimiter = "_"
-
-	// DefaultEnvSectionDelimiter is the default delimiter for separating nested struct levels.
-	DefaultEnvSectionDelimiter = "__"
-)
+// DefaultEnvSectionDelimiter is the default delimiter for separating nested struct levels.
+const DefaultEnvSectionDelimiter = "__"
 
 const (
 	minEnvKeyParts = 2 // Minimum parts for nested structures

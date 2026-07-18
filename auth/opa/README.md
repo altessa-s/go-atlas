@@ -26,7 +26,7 @@ HTTP bundles) with hot-reloading capabilities. Modular design with pluggable pol
 |--------------------------|-----------|--------------------------------------------------------------|
 | `WithLogger`             | discard   | Structured logger (`*slog.Logger`)                           |
 | `WithDecisionLogging`    | false     | Attach unique `DecisionID` to every evaluation result        |
-| `WithWatchChannelSize`   | 10        | Buffer size for policy event watch channels                  |
+| `WithWatchChannelSize`   | 10        | Watch event buffer when `WatchOptions.BufferSize` is zero    |
 | `WithScheduler`          | nil       | Task registrar for periodic policy update cycles             |
 | `WithUpdateSchedule`     | --        | Cron expression and run-on-start flag for scheduled updates  |
 | `WithHealthCoordinator`  | nil       | Register manager with health coordinator                     |

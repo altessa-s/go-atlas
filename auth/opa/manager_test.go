@@ -163,6 +163,47 @@ allow if {
 	}
 }
 
+func TestManager_WatchChannelSize(t *testing.T) {
+	ctx := t.Context()
+
+	tmpDir := t.TempDir()
+
+	policyPath := filepath.Join(tmpDir, "policy.rego")
+	policyContent := `
+package test.authz
+import rego.v1
+allow if {
+    input.role == "admin"
+}
+`
+	require.NoError(t, os.WriteFile(policyPath, []byte(policyContent), 0644))
+
+	source, err := filesystem.New(tmpDir)
+	require.NoError(t, err)
+
+	manager, err := opa.NewManager(ctx, source, "data.test.authz.allow",
+		opa.WithWatchChannelSize(32),
+	)
+	require.NoError(t, err)
+	defer manager.Close()
+
+	t.Run("ManagerOptionUsedWhenUnset", func(t *testing.T) {
+		watchResult, err := manager.Watch(ctx, opa.WatchOptions{})
+		require.NoError(t, err)
+		defer watchResult.Stop()
+
+		assert.Equal(t, 32, cap(watchResult.Events))
+	})
+
+	t.Run("PerWatchBufferSizeWins", func(t *testing.T) {
+		watchResult, err := manager.Watch(ctx, opa.WatchOptions{BufferSize: 5})
+		require.NoError(t, err)
+		defer watchResult.Stop()
+
+		assert.Equal(t, 5, cap(watchResult.Events))
+	})
+}
+
 func TestManager_HealthCheck(t *testing.T) {
 	ctx := t.Context()
 

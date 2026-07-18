@@ -61,7 +61,6 @@ p := loader.New(backend,
     loader.WithPath("config.yaml"),
     loader.WithPathOnEnvKey("CONFIG_PATH", "config.yaml"),
     loader.WithEnvPrefix("APP"),
-    loader.WithEnvDelimiter("_"),
     loader.WithEnvSectionDelimiter("__"),
     loader.WithStructTag("yaml"),
     loader.WithSkipEnv(),
@@ -77,7 +76,6 @@ p := loader.New(backend,
 | `WithPath`                | --                   | Config file path. Supports `~` home directory expansion                                                                                           |
 | `WithPathOnEnvKey`        | --                   | Load path from env var with a fallback default path                                                                                               |
 | `WithEnvPrefix`           | `""`                 | Prefix for all environment variables (e.g. `APP_`)                                                                                                |
-| `WithEnvDelimiter`        | `"_"`                | Delimiter for compound env var names                                                                                                              |
 | `WithEnvSectionDelimiter` | `"__"`               | Delimiter for nested struct mapping in env vars                                                                                                   |
 | `WithStructTag`           | `"yaml"`             | Struct tag name for field mapping                                                                                                                 |
 | `WithSkipEnv`             | `false`              | Skip environment variable loading                                                                                                                 |

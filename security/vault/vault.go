@@ -77,29 +77,6 @@ func New(ctx context.Context, opts ...Option) (*Vault, error) {
 	return v, nil
 }
 
-// RunRenewal starts the authentication token renewal process in a background goroutine.
-// It blocks until the first token is obtained or an error/timeout occurs.
-//
-// Deprecated: use [Vault.RunRenewalWithContext] and pass the caller's
-// own context. RunRenewal uses [context.Background] which severs the
-// renewal lifecycle from the caller's lifetime — callers composed via
-// uber-fx / explicit shutdown can no longer signal the renewal goroutine
-// to stop. This shim is kept only for backwards source compatibility
-// and will be removed in a future major version.
-//
-// Example (preferred):
-//
-//	ctx, cancel := context.WithCancel(parentCtx)
-//	defer cancel()
-//	if err := client.RunRenewalWithContext(ctx); err != nil {
-//		log.Fatal(err)
-//	}
-//	defer client.StopRenewal()
-func (v *Vault) RunRenewal() (err error) {
-	//nolint:contextcheck // Deprecated convenience wrapper; see godoc.
-	return v.RunRenewalWithContext(context.Background())
-}
-
 // RunRenewalWithContext starts the authentication token renewal process in a background goroutine.
 // It blocks until the first token is obtained or an error/timeout occurs.
 func (v *Vault) RunRenewalWithContext(ctx context.Context) (err error) {

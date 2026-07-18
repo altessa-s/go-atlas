@@ -40,7 +40,6 @@ const (
 type options struct {
 	path                string
 	envPrefix           string
-	envDelimiter        string `optgen:"default=DefaultEnvDelimiter"`
 	envSectionDelimiter string `optgen:"default=DefaultEnvSectionDelimiter"`
 	structTag           string `optgen:"default=DefaultStructTagName"`
 	maxConfigBytes      int64  `optgen:"default=DefaultMaxConfigBytes"`

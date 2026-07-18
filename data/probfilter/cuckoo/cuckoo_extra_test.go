@@ -5,7 +5,6 @@
 package cuckoo_test
 
 import (
-	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -13,12 +12,6 @@ import (
 	"github.com/altessa-s/go-atlas/data/probfilter/cuckoo"
 	"github.com/altessa-s/go-atlas/data/probfilter/cuckoo/storages/memory"
 )
-
-func TestNew_WithLogger(t *testing.T) {
-	storage := memory.New(memory.WithCapacity(100))
-	f := cuckoo.New(storage, cuckoo.WithLogger(slog.Default()))
-	require.NotNil(t, f, "New(WithLogger) returned nil")
-}
 
 func TestFilter_Stats_Complete(t *testing.T) {
 	storage := memory.New(memory.WithCapacity(100))

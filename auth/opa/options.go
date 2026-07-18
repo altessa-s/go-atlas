@@ -27,7 +27,8 @@ type options struct {
 	logger *slog.Logger
 	// decisionLogging enables logging of all policy evaluation decisions.
 	decisionLogging bool
-	// watchChannelSize sets the buffer size for watch event channels.
+	// watchChannelSize sets the buffer size for watch event channels
+	// created by Watch when WatchOptions.BufferSize is zero.
 	// Defaults to 10.
 	watchChannelSize int `optgen:"default=DefaultWatchBufferSize"`
 	// pollInterval is the interval between polling the source for changes.

@@ -7,13 +7,10 @@ package budget
 //go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate
 
 import (
-	"log/slog"
-
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
 
 // options contains Limiter configuration.
 type options struct {
-	logger    *slog.Logger
 	collector metrics.Collector `optgen:"notnil"`
 }

@@ -20,7 +20,6 @@ consistent budget enforcement across multiple service replicas.
 
 | Option            | Default | Description                          |
 |-------------------|---------|--------------------------------------|
-| `WithLogger`      | discard | Structured logger                    |
 | `WithCollector`   | noop    | Prometheus metrics collector         |
 
 ## Subpackages

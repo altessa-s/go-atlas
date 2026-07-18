@@ -17,7 +17,6 @@ them to a final handler with topological ordering and deduplication. `Conditiona
 | `BaseMiddleware`        | Embeddable struct with path filtering, logging, and response-writer wrapping   |
 | `Chain`                 | Middleware collection with dependency ordering, deduplication, and clone/extend |
 | `ConditionalMiddleware` | Wraps a middleware with a runtime toggle for conditional activation             |
-| `MiddlewareError`       | Carries HTTP status code, user-facing message, and machine-readable error code |
 
 ## Middleware Identity
 

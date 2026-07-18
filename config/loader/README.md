@@ -43,7 +43,6 @@ default values, and secret expansion.
 | `WithPath`              | Path to config file or directory                 |
 | `WithPathOnEnvKey`      | Resolve path from env variable with fallback     |
 | `WithEnvPrefix`         | Prefix for environment variable lookup           |
-| `WithEnvDelimiter`      | Delimiter within env key parts (default `_`)     |
 | `WithEnvSectionDelimiter` | Nested struct delimiter (default `__`)         |
 | `WithStructTag`         | Struct tag name for field mapping (default `yaml`)|
 | `WithSkipEnv`           | Skip environment variable loading                |

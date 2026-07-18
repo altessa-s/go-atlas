@@ -13,12 +13,6 @@ deletion of individual items at the cost of slightly higher memory overhead.
 |-----------|--------------------------------------------------------------------------|
 | `Filter`  | Cuckoo filter — implements `Filter`, `DeletableFilter`, and `StatsProvider` |
 
-## Options
-
-| Option       | Default   | Description                |
-|--------------|-----------|----------------------------|
-| `WithLogger` | discard   | Sets the structured logger |
-
 ## Subpackages
 
 | Package                        | Description                |

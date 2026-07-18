@@ -12,29 +12,6 @@ import (
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
-// WithEnvDelimiter sets the envDelimiter option.
-func WithEnvDelimiter[T interface{ string | *string }](v T) Option {
-	return func(o *options) {
-		switch t := any(v).(type) {
-		case string:
-			vv := strings.TrimSpace(t)
-			if vv == "" {
-				return
-			}
-			o.envDelimiter = vv
-		case *string:
-			if t == nil {
-				return
-			}
-			vv := strings.TrimSpace(*t)
-			if vv == "" {
-				return
-			}
-			o.envDelimiter = vv
-		}
-	}
-}
-
 // WithEnvPrefix sets the envPrefix option.
 func WithEnvPrefix[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
@@ -158,7 +135,6 @@ func WithStructTag[T interface{ string | *string }](v T) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		envDelimiter:        DefaultEnvDelimiter,
 		envSectionDelimiter: DefaultEnvSectionDelimiter,
 		maxConfigBytes:      DefaultMaxConfigBytes,
 		structTag:           DefaultStructTagName,

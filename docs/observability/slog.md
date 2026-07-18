@@ -463,7 +463,6 @@ for text output and `JsonFormatter` (`api:server`) for JSON, so the tag flows na
 | `WithPrefix(key)`       | empty (required)       | Attribute key whose values become prefixes                    |
 | `WithPrefixFormatter(fn)` | `DefaultFormatter`   | Function turning `[]slog.Value` + delimiter into one value    |
 | `WithPrefixesDelimiter` | `":"`                  | Separator between multiple prefix values                      |
-| `WithPrefixSeparator`   | `">"`                  | Separator between the prefix block and the message            |
 
 ---
 

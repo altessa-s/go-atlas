@@ -6,7 +6,8 @@ import "github.com/altessa-s/go-atlas/transport/grpc/handlers/scheduler"
 
 Package `scheduler` implements the gRPC `SchedulerService` defined in `proto/scheduler/v1/scheduler.proto`. `Handler` delegates to a
 `sched.Scheduler` and exposes task lifecycle operations plus scheduler status queries and task history listing. `List` and `ListHistory`
-accept an optional CEL filter expression for server-side filtering with in-memory fallback. Scheduler domain errors are translated to
+accept an optional CEL filter expression that is parsed by the scheduler and evaluated by the storage backend. Scheduler domain errors are
+translated to
 appropriate gRPC status codes (`NotFound`, `FailedPrecondition`, `InvalidArgument`, `Internal`) by the internal `mapError` function.
 
 ## Key types

@@ -40,29 +40,6 @@ func WithPrefixFormatter(v Formatter) Option {
 	}
 }
 
-// WithPrefixSeparator sets the prefixSeparator option.
-func WithPrefixSeparator[T interface{ string | *string }](v T) Option {
-	return func(o *options) {
-		switch t := any(v).(type) {
-		case string:
-			vv := strings.TrimSpace(t)
-			if vv == "" {
-				return
-			}
-			o.prefixSeparator = vv
-		case *string:
-			if t == nil {
-				return
-			}
-			vv := strings.TrimSpace(*t)
-			if vv == "" {
-				return
-			}
-			o.prefixSeparator = vv
-		}
-	}
-}
-
 // WithPrefixesDelimiter sets the prefixesDelimiter option.
 func WithPrefixesDelimiter[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
@@ -90,7 +67,6 @@ func WithPrefixesDelimiter[T interface{ string | *string }](v T) Option {
 func defaultOptions() *options {
 	return &options{
 		prefixFormatter:   DefaultFormatter,
-		prefixSeparator:   DefaultPrefixSeparator,
 		prefixesDelimiter: DefaultPrefixesDelimiter,
 	}
 }

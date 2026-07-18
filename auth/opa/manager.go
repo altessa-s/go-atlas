@@ -323,10 +323,14 @@ func (m *Manager) broadcastError(err error) {
 
 // Watch creates a subscription to policy events.
 // Events are delivered when policies are updated or when errors occur.
+// When opts.BufferSize is zero, the manager-level WithWatchChannelSize
+// value is used as the event channel buffer size.
 func (m *Manager) Watch(ctx context.Context, opts WatchOptions) (*WatchResult, error) {
 	if m.closed.Load() {
 		return nil, ErrManagerClosed
 	}
+
+	opts.BufferSize = cmp.Or(opts.BufferSize, m.opts.watchChannelSize)
 
 	return m.watchManager.subscribe(opts), nil
 }

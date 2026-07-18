@@ -37,12 +37,6 @@ type StatsLogger struct {
 	logger *slog.Logger
 }
 
-// StatsLoggerOption is a deprecated alias for [Option] retained to
-// keep existing call sites compiling. New code should use [Option].
-//
-// Deprecated: use [Option].
-type StatsLoggerOption = Option
-
 // NewStatsLogger creates a new StatsLogger with the given options.
 // When no [WithLogger] option is supplied, [slog.Default] is used.
 func NewStatsLogger(opts ...Option) *StatsLogger {

@@ -36,6 +36,23 @@ func TestNew_NilJetStream(t *testing.T) {
 	require.Error(t, err)
 }
 
+// TestNew_ReplicasWiredToBucketConfig pins that WithReplicas reaches the
+// jetstream.KeyValueConfig used for bucket creation. A capture double is used
+// because a single-node test server cannot create buckets with replicas > 1.
+func TestNew_ReplicasWiredToBucketConfig(t *testing.T) {
+	t.Parallel()
+
+	capture := &testhelpers.JetStreamKVCapture{}
+
+	_, err := idempnats.New(capture,
+		idempnats.WithBucket("idempotency-replicas"),
+		idempnats.WithReplicas(3))
+	require.NoError(t, err)
+
+	require.Equal(t, "idempotency-replicas", capture.KVConfig.Bucket)
+	require.Equal(t, 3, capture.KVConfig.Replicas)
+}
+
 func TestStorage_AttemptLock_New(t *testing.T) {
 	storage := setupStorage(t)
 	ctx := t.Context()

@@ -62,9 +62,10 @@ func New(js jetstream.JetStream, opts ...Option) (*Provider, error) {
 	config := newOptions(opts...)
 
 	base, err := natsbase.NewBaseWithBucket(context.Background(), js, natskvlease.BucketConfig{
-		Bucket:  config.bucket,
-		TTL:     config.maxAge,
-		Storage: jetstream.FileStorage,
+		Bucket:   config.bucket,
+		TTL:      config.maxAge,
+		Storage:  jetstream.FileStorage,
+		Replicas: config.replicas,
 	}, nil)
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "create NATS KeyValue bucket")

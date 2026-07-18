@@ -9,15 +9,15 @@ Vault API client with support for AppRole, Token, and UserPass auth.
 
 ## Functions
 
-| Function / Method      | Description                               |
-|------------------------|-------------------------------------------|
-| `New`                  | Create Vault client with auth method      |
-| `DefaultConfig`        | Default Vault configuration               |
-| `RunRenewal`           | Start background token renewal            |
-| `StopRenewal`          | Stop renewal goroutine                    |
-| `Client`               | Access underlying `*api.Client`           |
-| `CheckConnection`      | Health check                              |
-| `WaitFirstRenew`       | Block until first token is obtained       |
+| Function / Method       | Description                               |
+|-------------------------|-------------------------------------------|
+| `New`                   | Create Vault client with auth method      |
+| `DefaultConfig`         | Default Vault configuration               |
+| `RunRenewalWithContext` | Start background token renewal            |
+| `StopRenewal`           | Stop renewal goroutine                    |
+| `Client`                | Access underlying `*api.Client`           |
+| `CheckConnection`       | Health check                              |
+| `WaitFirstRenew`        | Block until first token is obtained       |
 
 ## Subpackages
 

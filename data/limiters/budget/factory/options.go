@@ -15,7 +15,7 @@ import (
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
-// UseLogger sets the logger for the builder and all created components.
+// UseLogger sets the logger for the builder.
 func (b *BudgetLimiterBuilder) UseLogger(v *slog.Logger) *BudgetLimiterBuilder {
 	b.SetLogger(v)
 	return b

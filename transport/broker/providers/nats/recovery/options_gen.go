@@ -16,16 +16,6 @@ import (
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
-// WithHealthCheckInterval sets the healthCheckInterval option.
-func WithHealthCheckInterval(v time.Duration) Option {
-	return func(o *options) {
-		if v <= 0 {
-			return
-		}
-		o.healthCheckInterval = v
-	}
-}
-
 // WithHealthCheckSchedule sets the healthCheckSchedule option.
 func WithHealthCheckSchedule[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
@@ -89,16 +79,6 @@ func WithScheduler(v corescheduler.TaskRegistrar) Option {
 	}
 }
 
-// WithStaleRecoveryCheckInterval sets the staleRecoveryCheckInterval option.
-func WithStaleRecoveryCheckInterval(v time.Duration) Option {
-	return func(o *options) {
-		if v <= 0 {
-			return
-		}
-		o.staleRecoveryCheckInterval = v
-	}
-}
-
 // WithStaleRecoveryCleanupSchedule sets the staleRecoveryCleanupSchedule option.
 func WithStaleRecoveryCleanupSchedule[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
@@ -135,12 +115,10 @@ func WithStaleRecoveryTimeout(v time.Duration) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		healthCheckInterval:        DefaultHealthCheckInterval,
-		logger:                     slog.New(slog.DiscardHandler),
-		maxRecoveryAttempts:        DefaultMaxRecoveryAttempts,
-		recoveryBackoff:            DefaultRecoveryBackoff,
-		staleRecoveryCheckInterval: DefaultStaleRecoveryCheckInterval,
-		staleRecoveryTimeout:       DefaultStaleRecoveryTimeout,
+		logger:               slog.New(slog.DiscardHandler),
+		maxRecoveryAttempts:  DefaultMaxRecoveryAttempts,
+		recoveryBackoff:      DefaultRecoveryBackoff,
+		staleRecoveryTimeout: DefaultStaleRecoveryTimeout,
 	}
 }
 
