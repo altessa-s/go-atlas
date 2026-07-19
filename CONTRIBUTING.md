@@ -119,7 +119,7 @@ All `.go` files must include the copyright header. Run `make copyright` to add i
 | Target | Description |
 |--------|-------------|
 | `make fmt` | Format code and sort imports |
-| `make lint` | Run golangci-lint (34 linters) |
+| `make lint` | Run golangci-lint with the repo config (`.golangci.yml`) |
 | `make test` | Run all tests |
 | `make test-verbose` | Run tests with verbose output |
 | `make test-race` | Run tests with race detector |

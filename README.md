@@ -33,6 +33,10 @@ Import only the packages you need:
 import "github.com/altessa-s/go-atlas/data/cache"
 ```
 
+The root `go.mod` declares every integration go-atlas supports (OPA, AWS, GCP, Vault, NATS, Redis, and more), so all of them appear in a
+consumer's `go.sum`. Go's build graph is per-package: only the packages you actually import are compiled and linked into your binary. Heavy
+integrations live behind their own subpackages, so an unused subsystem costs you `go.sum` entries — never build time or binary size.
+
 ## Package Overview
 
 | Package | Description |
@@ -100,9 +104,11 @@ import "github.com/altessa-s/go-atlas/data/cache"
 
 | Tool | Description |
 |------|-------------|
-| [`cmd/optgen`](cmd/optgen/) | Code generator for the functional options pattern |
-| [`cmd/goconfig`](cmd/goconfig/) | Configuration struct code generator and format converter |
+| [`tools/codegen/optgen`](tools/codegen/optgen/) | Code generator for the functional options pattern |
+| [`tools/codegen/goconfig`](tools/codegen/goconfig/) | Configuration struct code generator and format converter |
 | [`cmd/plugin-sign`](cmd/plugin-sign/) | Sign and verify `.so` plugins with Ed25519 / ECDSA / RSA-PSS |
+
+[`cmd/optgen`](cmd/optgen/) and [`cmd/goconfig`](cmd/goconfig/) are equivalent installable wrappers around the `tools/codegen` packages.
 
 ## Documentation
 
@@ -135,7 +141,7 @@ cd go-atlas
 | Command | Description |
 |---------|-------------|
 | `make fmt` | Format code and sort imports |
-| `make lint` | Run golangci-lint (34 linters) |
+| `make lint` | Run golangci-lint with the repo config (`.golangci.yml`) |
 | `make test` | Run all tests |
 | `make test-all` | Tests with race detector, shuffle, and coverage |
 | `make bench` | Run all benchmarks |
