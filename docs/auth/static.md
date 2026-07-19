@@ -112,7 +112,7 @@ sequenceDiagram
 | `ratelimit.go` | `RateLimiter`, `KeyFunc`, `RateLimitedStore` decorator |
 | `metrics.go` | `Metrics` (validations, active tokens, latency) |
 | `errors.go` | Sentinel errors |
-| `options.go` / `options_gen.go` / `options_manual.go` | Functional options |
+| `options.go` / `options_gen.go` | Functional options |
 | `example_test.go` | Runnable examples |
 
 ## Quick Start

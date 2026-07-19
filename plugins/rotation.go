@@ -30,51 +30,6 @@ type MultiKeySignatureOptions struct {
 	PublicKeyPaths []string
 }
 
-// WithMultiKeySignature configures signature verification with multiple public
-// keys for key rotation support. During a key rotation period, both the old
-// and new keys can verify plugins, allowing for gradual rollout.
-//
-// Example:
-//
-//	mgr := plugins.NewManager(
-//	    plugins.WithMultiKeySignature(plugins.MultiKeySignatureOptions{
-//	        Mode: plugins.SignatureRequire,
-//	        PublicKeyPaths: []string{
-//	            "/etc/keys/new-public.pem",  // Try new key first
-//	            "/etc/keys/old-public.pem",  // Fall back to old key
-//	        },
-//	    }),
-//	)
-func WithMultiKeySignature(opts MultiKeySignatureOptions) Option {
-	return func(o *options) {
-		// Load all keys
-		var keys []crypto.PublicKey
-		var loadErr error
-
-		if len(opts.PublicKeys) > 0 {
-			keys = opts.PublicKeys
-		} else if len(opts.PublicKeyPaths) > 0 {
-			keys, loadErr = loadMultiplePublicKeys(opts)
-		}
-
-		if loadErr != nil {
-			o.signatureErr = loadErr
-			return
-		}
-
-		if len(keys) == 0 && opts.Mode != SignatureDisabled {
-			o.signatureErr = fmt.Errorf("%w: no public keys configured", ErrSignatureConfig)
-			return
-		}
-
-		// Store as multi-key state
-		o.signature = signatureState{
-			mode:    opts.Mode,
-			pubKeys: keys,
-		}
-	}
-}
-
 // loadMultiplePublicKeys loads public keys from multiple files.
 func loadMultiplePublicKeys(opts MultiKeySignatureOptions) ([]crypto.PublicKey, error) {
 	var keys []crypto.PublicKey

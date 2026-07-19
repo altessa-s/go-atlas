@@ -141,7 +141,7 @@ requests for an uncached subject cannot stampede the provider.
 | `clock.go` | `Clock` seam (system UTC in production, injectable in tests) |
 | `metrics.go` | `Metrics` (mint/verify counters, latency, cache hit/miss) |
 | `errors.go` | Sentinel errors |
-| `options.go` / `options_gen.go` / `options_manual.go` | Functional options |
+| `options.go` / `options_gen.go` | Functional options |
 
 ## Quick Start
 
