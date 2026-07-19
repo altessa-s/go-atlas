@@ -43,6 +43,14 @@ type Provider interface {
 }
 
 // Config holds provider configuration and notification channels.
+//
+// Config is a deliberate exception to the repo-wide rule against public
+// Config structs. It is not a user-facing tuning surface: the leadelect
+// core assembles it inside Leader.Start and hands it to Provider.Start,
+// so it acts as an SPI value carrier between the elector core and a
+// backend implementation. Converting it to functional options would
+// contort the Provider interface (Start's signature carries the value,
+// and the notification channels are owned by the core, not the caller).
 type Config struct {
 	// Key is the election group identifier.
 	Key string
