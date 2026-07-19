@@ -26,4 +26,14 @@
 // satisfies it directly) via [WithLeaderProvider], or a function via
 // [WithLeader] when integrating a custom coordinator. The two options
 // are mutually exclusive — the last call wins.
+//
+// # Security
+//
+// The handler performs NO authentication or authorization. It MUST be
+// registered behind an auth interceptor or on a server bound to a
+// non-public listener. Exposed publicly, it discloses service name,
+// version, build details, instance identifiers, leader identity, and
+// any metadata passed via [WithExtraMetadata] — reconnaissance data
+// that lets an attacker map service topology and target known-version
+// vulnerabilities.
 package serviceinfo

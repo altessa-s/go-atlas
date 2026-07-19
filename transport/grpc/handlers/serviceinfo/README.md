@@ -11,6 +11,13 @@ details, leader status, uptime, and arbitrary metadata. The static portion is
 built once in `New` from `core/runtime/appinfo` and protobuf-cloned on every
 request to keep callers isolated from each other.
 
+## Security
+
+The handler performs NO authentication or authorization. It MUST be registered behind an auth interceptor or on a server bound to a
+non-public listener. Exposed publicly, it discloses service name, version, build details, instance identifiers, leader identity, and
+any metadata passed via `WithExtraMetadata` — reconnaissance data that lets an attacker map service topology and target known-version
+vulnerabilities.
+
 ## Key types
 
 | Type / Interface | Description                                                                                |

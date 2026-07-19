@@ -10,6 +10,20 @@
 // is missing or invalid. The resolved ID is propagated through the
 // request context via [NewContext] / [FromContext].
 //
+// # Trust model
+//
+// A client-supplied value that passes strict UUID v4 validation (36
+// characters, hyphen positions, version and variant nibbles, hex digits
+// only) is trusted as-is: the transports echo it back to the client,
+// store it in the request context, and use it as a log correlation
+// field. A hostile client therefore chooses which UUID appears in logs
+// and can reuse one across requests to spoof correlation. Values that
+// fail validation are discarded and never propagate, so arbitrary
+// client bytes cannot reach logs through this path (no log injection).
+// There is no option to ignore a valid inbound value — services on
+// untrusted edges that need server-authoritative IDs must strip or
+// replace the header at the edge proxy.
+//
 // # Tracing fallback
 //
 // [FromContextOrTraceID] returns the request ID when available, otherwise
