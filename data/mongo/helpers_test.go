@@ -93,6 +93,37 @@ func TestParseSortStringStrict(t *testing.T) {
 	})
 }
 
+func TestBuildFilter(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		kv   []any
+		want bson.M
+	}{
+		{"no args", nil, bson.M{}},
+		{"single pair", []any{"status", "active"}, bson.M{"status": "active"}},
+		{"multiple pairs", []any{"status", "active", "age", 21}, bson.M{"status": "active", "age": 21}},
+		{"nil value kept", []any{"deleted_at", nil}, bson.M{"deleted_at": nil}},
+		{"duplicate key last wins", []any{"a", 1, "a", 2}, bson.M{"a": 2}},
+		// Odd trailing element has no value and is silently dropped.
+		{"odd trailing key dropped", []any{"a", 1, "b"}, bson.M{"a": 1}},
+		{"single key without value dropped", []any{"a"}, bson.M{}},
+		// Non-string keys fall back to fmt.Sprint instead of panicking.
+		{"non-string key stringified", []any{42, "v"}, bson.M{"42": "v"}},
+		{"nested operator value", []any{"age", bson.M{"$gte": 18}}, bson.M{"age": bson.M{"$gte": 18}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := BuildFilter(tt.kv...)
+			require.NotNil(t, got, "BuildFilter must always return a usable map")
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestNextPowerOfTwo(t *testing.T) {
 	tests := []struct {
 		n    int
