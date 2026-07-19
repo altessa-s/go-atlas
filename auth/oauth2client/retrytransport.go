@@ -5,6 +5,8 @@
 package oauth2client
 
 import (
+	"context"
+	"errors"
 	"io"
 	"net/http"
 	"time"
@@ -96,46 +98,81 @@ type retryTransport struct {
 	nextDelay retry.NextDelayFunc
 }
 
+// errRetryableStatus signals a retryable HTTP status (429 or 5xx) to the
+// [retry.Do] loop; the response itself travels in the RoundTrip closure.
+var errRetryableStatus = errors.New("oauth2client: retryable http status")
+
 // RoundTrip retries req on transient failures, replaying the body via GetBody.
+// The loop mechanics are delegated to [retry.Do]; the closure classifies the
+// outcome (any transport error, HTTP 429, or a 5xx response is retryable) and
+// carries the last response across attempts.
 func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// A body with no GetBody cannot be replayed safely — do a single attempt.
 	if t.attempts <= 0 || (req.Body != nil && req.GetBody == nil) {
 		return t.base.RoundTrip(req)
 	}
 
-	for attempt := 0; ; attempt++ {
+	var (
+		lastResp     *http.Response
+		replayErr    error
+		firstAttempt = true
+	)
+	retryErr := retry.Do(req.Context(), func(ctx context.Context) error {
 		attemptReq := req
-		if attempt > 0 {
-			attemptReq = req.Clone(req.Context())
+		if !firstAttempt {
+			attemptReq = req.Clone(ctx)
 			if req.GetBody != nil {
 				body, err := req.GetBody()
 				if err != nil {
-					return nil, err
+					replayErr = err
+					return err
 				}
 				attemptReq.Body = body
 			}
 		}
+		firstAttempt = false
 
-		resp, err := t.base.RoundTrip(attemptReq)
-		retryable := err != nil || (resp != nil &&
-			(resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500))
-		if !retryable || attempt >= t.attempts {
-			return resp, err
+		resp, err := t.base.RoundTrip(attemptReq) //nolint:bodyclose // resp is stored in lastResp and either drained on retry or returned to the caller
+		lastResp = resp
+		if err != nil {
+			return err
 		}
+		if resp != nil && (resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500) {
+			return errRetryableStatus
+		}
+		return nil
+	},
+		retry.WithMaxAttempts(t.attempts),
+		retry.WithShouldRetry(func(error) bool { return replayErr == nil }),
+		retry.WithNextDelay(func(attempt int, err error) time.Duration {
+			// Exhausted: surface the last response as is, without the trailing
+			// backoff sleep (and OnRetry drain) retry.Do would otherwise run
+			// after the final failed attempt.
+			if attempt >= t.attempts {
+				return 0
+			}
+			return t.nextDelay(attempt, err)
+		}),
+		retry.WithOnRetry(func(int, error, time.Duration) {
+			// Discard the retryable response before the backoff sleep.
+			if lastResp != nil {
+				_, _ = io.Copy(io.Discard, lastResp.Body)
+				_ = lastResp.Body.Close()
+				lastResp = nil
+			}
+		}),
+	)
 
-		// Discard the retryable response before the next attempt.
-		if resp != nil {
-			_, _ = io.Copy(io.Discard, resp.Body)
-			_ = resp.Body.Close()
-		}
-
-		delay := t.nextDelay(attempt, err)
-		timer := time.NewTimer(delay)
-		select {
-		case <-req.Context().Done():
-			timer.Stop()
-			return nil, req.Context().Err()
-		case <-timer.C:
-		}
+	switch {
+	case retryErr == nil, errors.Is(retryErr, errRetryableStatus):
+		// Success, a non-retryable status, or exhausted retries on a
+		// retryable status: return the last response unchanged.
+		return lastResp, nil
+	case replayErr != nil:
+		return nil, replayErr
+	default:
+		// A transport error on the last attempt, or context cancellation
+		// mid-backoff (the drained response was already cleared).
+		return lastResp, retryErr
 	}
 }

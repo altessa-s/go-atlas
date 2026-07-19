@@ -18,8 +18,13 @@
 //   - NATS/JetStream helpers for spinning up embedded servers ([StartNATSServer],
 //     [ConnectNATS], [ConnectJetStream], [CreateNATSKV]) and capturing bucket
 //     configuration ([JetStreamKVCapture]).
-//   - TLS and cryptographic utilities ([SelfSignedCert], [GenerateRSAKey],
-//     [WriteTempCertFiles]).
+//   - Redis bootstrap ([RedisClient]) that starts an in-process miniredis
+//     server and returns a connected go-redis client plus the server handle.
+//   - TLS and cryptographic utilities: an in-memory ECDSA test CA ([NewCA],
+//     [CA.SignLeaf] with [CertOption] values for SANs, EKUs, serials, and
+//     OCSP URLs), self-signed certificates ([SelfSignedCert]), key generation
+//     ([GenerateRSAKey], [GenerateECDSAKey], [GenerateEd25519Key]), and
+//     PEM-file plumbing ([WriteTempCertFiles]).
 //   - Polling helpers ([WaitFor]) and an audit helper ([NewTestAuditor]).
 //
 // All helpers that accept [testing.TB] register cleanup functions automatically,

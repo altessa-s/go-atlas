@@ -11,7 +11,7 @@ to tunnel through a corporate or egress proxy.
 
 | Layer        | Symbol                                                | Use when…                                                                  |
 |--------------|-------------------------------------------------------|----------------------------------------------------------------------------|
-| **High**     | `factory.New(cfg).Use*().Build()`                     | Your service already loads `HTTPProxy` from YAML/env                       |
+| **High**     | `factory.New(cfg).Use*().Build()`                     | Your service already loads `config.Proxy` from YAML/env                    |
 | **Middle**   | `proxydial.FromURL(u, opts...)`                       | Proxy comes from a `*url.URL` (env, runtime override, custom resolver)     |
 | **Low**      | `proxydial.HTTPConnect` / `proxydial.SOCKS5Dialer`    | One-shot persistent connection, custom retry policy, custom TLS handshake  |
 
@@ -55,7 +55,7 @@ client := &http.Client{Transport: tr}
 
 | Symbol                                    | Description                                                                                    |
 |-------------------------------------------|------------------------------------------------------------------------------------------------|
-| `factory.DialerBuilder`                   | High-level — fluent builder that folds an `HTTPProxy` config into a `DialContextFunc`          |
+| `factory.DialerBuilder`                   | High-level — fluent builder that folds a `config.Proxy` into a `DialContextFunc`               |
 | `FromURL`                                 | Middle-level — build a `DialContextFunc` from a parsed `*url.URL`                              |
 | `HTTPConnect`                             | Low-level — open TCP+TLS to the proxy and send a `CONNECT` for `addr`                          |
 | `SOCKS5Dialer`                            | Low-level — construct a SOCKS5 dialer for `proxyURL`                                           |

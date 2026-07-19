@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/observability/tracing/adapters"
 )
 
@@ -94,9 +95,7 @@ func (s *recordingSpan) SetStatus(code StatusCode, description string) {
 func (s *recordingSpan) SetAttributes(attrs ...Attribute) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.ended {
-		s.attributes = append(s.attributes, attrs...)
-	}
+	s.attributes = slices.AppendIf(s.attributes, !s.ended, attrs...)
 }
 
 // RecordError implements Span.
@@ -126,13 +125,11 @@ func (s *recordingSpan) RecordError(err error, opts ...EventOption) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if !s.ended {
-		s.events = append(s.events, adapters.SpanEvent{
-			Name:       "exception",
-			Timestamp:  timestamp,
-			Attributes: errorAttrs,
-		})
-	}
+	s.events = slices.AppendIf(s.events, !s.ended, adapters.SpanEvent{
+		Name:       "exception",
+		Timestamp:  timestamp,
+		Attributes: errorAttrs,
+	})
 }
 
 // AddEvent implements Span.
@@ -154,13 +151,11 @@ func (s *recordingSpan) AddEvent(name string, opts ...EventOption) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if !s.ended {
-		s.events = append(s.events, adapters.SpanEvent{
-			Name:       name,
-			Timestamp:  timestamp,
-			Attributes: eventAttrs,
-		})
-	}
+	s.events = slices.AppendIf(s.events, !s.ended, adapters.SpanEvent{
+		Name:       name,
+		Timestamp:  timestamp,
+		Attributes: eventAttrs,
+	})
 }
 
 // export sends the span data to adapters.

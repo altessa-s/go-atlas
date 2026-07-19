@@ -8,23 +8,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/saga"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	sagaerrs "github.com/altessa-s/go-atlas/data/saga/errs"
 	sagaredis "github.com/altessa-s/go-atlas/data/saga/storages/redis"
-	goredis "github.com/redis/go-redis/v9"
 )
 
 var baseTime = time.Unix(1_700_000_000, 0).UTC()
 
 func newStore(tb testing.TB) *sagaredis.Store {
 	tb.Helper()
-	mr := miniredis.RunT(tb)
-	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
-	tb.Cleanup(func() { _ = client.Close() })
+	client, _ := testhelpers.RedisClient(tb)
 	return sagaredis.New(client)
 }
 

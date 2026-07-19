@@ -221,9 +221,9 @@ func (b *LoggerBuilder) wrapWithMaskingHandler(handler slog.Handler, maskString 
 	opts := []masking.Option{}
 
 	// Add default masks if enabled explicitly or if SensitiveTags are present (backward compatibility)
-	if b.cfg.EnableDefaultMasks || len(b.cfg.SensitiveTags) > 0 || b.enableMasking {
-		opts = append(opts, masking.WithDefaults())
-	}
+	opts = slices.AppendIf(opts,
+		b.cfg.EnableDefaultMasks || len(b.cfg.SensitiveTags) > 0 || b.enableMasking,
+		masking.WithDefaults())
 
 	// Process mask rules from configuration
 	for _, rule := range b.cfg.MaskRules {
@@ -248,9 +248,7 @@ func (b *LoggerBuilder) wrapWithMaskingHandler(handler slog.Handler, maskString 
 	}
 
 	// Set default mask string if provided
-	if maskString != "" {
-		opts = append(opts, masking.WithDefaultMask(masking.FixedMask(maskString)))
-	}
+	opts = slices.AppendIf(opts, maskString != "", masking.WithDefaultMask(masking.FixedMask(maskString)))
 
 	return masking.NewHandler(handler, opts...)
 }

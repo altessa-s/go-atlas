@@ -10,6 +10,7 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
@@ -43,31 +44,23 @@ func (s *Stapler) registerSchedulerTask(opts *options) error {
 
 // RegisterRefreshAllSchedulerFunc returns a function for use by a scheduler and marks
 // refresh as scheduler-managed. After calling this method, direct calls to
-// RunRefreshAll will return ErrSchedulerManaged.
+// RunRefreshAll will return [corescheduler.ErrSchedulerManaged].
 func (s *Stapler) RegisterRefreshAllSchedulerFunc() func(context.Context) error {
-	s.schedulerRefreshAllRegistered.Store(true)
-	return s.runRefreshAllInternal
+	return s.refreshAllTask.SchedulerFunc(s.runRefreshAllInternal)
 }
 
 // RunRefreshAll refreshes all OCSP responses in the cache that need it.
 // This method is designed to be called manually for one-time refresh.
-// If the function is registered with a scheduler, this method returns ErrSchedulerManaged.
+// If the function is registered with a scheduler, this method returns
+// [corescheduler.ErrSchedulerManaged].
 func (s *Stapler) RunRefreshAll(ctx context.Context) error {
-	if s.schedulerRefreshAllRegistered.Load() {
-		return ErrSchedulerManaged
-	}
-	return s.runRefreshAllInternal(ctx)
+	return s.refreshAllTask.Run(ctx, s.runRefreshAllInternal)
 }
 
 // runRefreshAllInternal performs the actual refresh of all OCSP responses.
-// It is safe to call concurrently; if already running, returns immediately.
+// Callers must route through refreshAllTask so overlapping cycles collapse
+// into a single execution.
 func (s *Stapler) runRefreshAllInternal(ctx context.Context) error {
-	// Prevent concurrent execution
-	if !s.refreshAllRunning.CompareAndSwap(false, true) {
-		return nil // Already running, skip this cycle
-	}
-	defer s.refreshAllRunning.Store(false)
-
 	s.mu.RLock()
 	// Collect all entries to avoid holding the lock while fetching
 	type refreshItem struct {
@@ -75,17 +68,13 @@ func (s *Stapler) runRefreshAllInternal(ctx context.Context) error {
 	}
 	var items []refreshItem
 	for _, entry := range s.cache {
-		if entry.cert != nil {
-			items = append(items, refreshItem{cert: entry.cert})
-		}
+		items = slices.AppendIf(items, entry.cert != nil, refreshItem{cert: entry.cert})
 	}
 	s.mu.RUnlock()
 
 	var errs []error
 	for _, item := range items {
-		if err := s.RunRefreshCycle(ctx, item.cert); err != nil {
-			errs = append(errs, err)
-		}
+		errs = slices.AppendNonNil(errs, s.RunRefreshCycle(ctx, item.cert))
 	}
 
 	return errors.Join(errs...)

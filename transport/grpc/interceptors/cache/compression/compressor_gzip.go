@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
@@ -354,9 +355,7 @@ func (c *GzipCompressor) doDecompressStreaming(data []byte, expectedSize int) ([
 	// Read in chunks to avoid large intermediate allocations
 	for {
 		n, err := limited.Read(buf.Bytes()[:cap(buf.Bytes())])
-		if n > 0 {
-			result = append(result, buf.Bytes()[:n]...)
-		}
+		result = coreslices.AppendIf(result, n > 0, buf.Bytes()[:n]...)
 		if err == io.EOF {
 			break
 		}

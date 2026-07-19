@@ -6,8 +6,9 @@ package storages
 
 import (
 	"context"
-	"errors"
 	"time"
+
+	"github.com/altessa-s/go-atlas/data/limiters"
 )
 
 // LimitInfo contains information about the current rate limit state.
@@ -17,8 +18,10 @@ type LimitInfo struct {
 }
 
 // ErrLimitExceeded is returned by [Storage.Allow] when the request rate
-// exceeds the configured limit for the key.
-var ErrLimitExceeded = errors.New("rate limit exceeded")
+// exceeds the configured limit for the key. It is the public
+// [limiters.ErrLimitExceeded] sentinel by identity, so the two match
+// interchangeably with [errors.Is].
+var ErrLimitExceeded = limiters.ErrLimitExceeded
 
 // Storage defines the backend for rate limiting.
 // Implementations must be safe for concurrent use.

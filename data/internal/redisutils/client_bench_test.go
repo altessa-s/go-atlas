@@ -9,11 +9,11 @@ import (
 	"testing"
 
 	"github.com/altessa-s/go-atlas/data/internal/redisutils"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 func BenchmarkGetBytes(b *testing.B) {
-	client, mr := setupRedis(b)
-	defer mr.Close()
+	client, mr := testhelpers.RedisClient(b)
 	ctx := b.Context()
 	mr.Set("bench-key", "bench-value")
 	notFound := errors.New("not found")
@@ -24,8 +24,7 @@ func BenchmarkGetBytes(b *testing.B) {
 }
 
 func BenchmarkSetBytes(b *testing.B) {
-	client, mr := setupRedis(b)
-	defer mr.Close()
+	client, _ := testhelpers.RedisClient(b)
 	ctx := b.Context()
 	val := []byte("bench-value")
 
@@ -35,8 +34,7 @@ func BenchmarkSetBytes(b *testing.B) {
 }
 
 func BenchmarkDel(b *testing.B) {
-	client, mr := setupRedis(b)
-	defer mr.Close()
+	client, _ := testhelpers.RedisClient(b)
 	ctx := b.Context()
 
 	for b.Loop() {

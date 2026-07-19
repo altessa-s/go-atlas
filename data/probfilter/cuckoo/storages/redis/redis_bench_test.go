@@ -7,16 +7,13 @@ package redis_test
 import (
 	"testing"
 
-	"github.com/alicebob/miniredis/v2"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	cfredis "github.com/altessa-s/go-atlas/data/probfilter/cuckoo/storages/redis"
-	goredis "github.com/redis/go-redis/v9"
 )
 
 func BenchmarkNew(b *testing.B) {
-	mr := miniredis.RunT(b)
-	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
-	b.Cleanup(func() { client.Close() })
+	client, _ := testhelpers.RedisClient(b)
 
 	for b.Loop() {
 		_ = cfredis.New(client, "bench-filter")
@@ -24,9 +21,7 @@ func BenchmarkNew(b *testing.B) {
 }
 
 func BenchmarkStorage_Close(b *testing.B) {
-	mr := miniredis.RunT(b)
-	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
-	b.Cleanup(func() { client.Close() })
+	client, _ := testhelpers.RedisClient(b)
 
 	s := cfredis.New(client, "bench-filter")
 	ctx := b.Context()

@@ -8,6 +8,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/altessa-s/go-atlas/core/collections/slices"
+
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -171,12 +173,10 @@ func (r *Redis) validateConnectionURIConflicts() error {
 	}
 
 	var errs []error
-	if r.Username != "" {
-		errs = append(errs, errors.New("username must not be set when connectionUri is used"))
-	}
-	if !r.Password.IsEmpty() {
-		errs = append(errs, errors.New("password must not be set when connectionUri is used"))
-	}
+	errs = slices.AppendIf(errs, r.Username != "",
+		errors.New("username must not be set when connectionUri is used"))
+	errs = slices.AppendIf(errs, !r.Password.IsEmpty(),
+		errors.New("password must not be set when connectionUri is used"))
 
 	return errors.Join(errs...)
 }

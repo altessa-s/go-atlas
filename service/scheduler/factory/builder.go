@@ -12,6 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/altessa-s/go-atlas/config"
+	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/service/scheduler"
@@ -87,12 +88,8 @@ func (b *SchedulerBuilder) applyDefaults(opts []scheduler.Option) []scheduler.Op
 	var defaults []scheduler.Option
 	// Base.Logger() never returns nil
 	defaults = append(defaults, scheduler.WithLogger(b.Logger()))
-	if nilcheck.IsNotNil(b.leaderElector) {
-		defaults = append(defaults, scheduler.WithLeaderElector(b.leaderElector))
-	}
-	if b.readinessProbe != nil {
-		defaults = append(defaults, scheduler.WithReadinessProbe(b.readinessProbe))
-	}
+	defaults = slices.AppendIf(defaults, nilcheck.IsNotNil(b.leaderElector), scheduler.WithLeaderElector(b.leaderElector))
+	defaults = slices.AppendIf(defaults, b.readinessProbe != nil, scheduler.WithReadinessProbe(b.readinessProbe))
 	return append(defaults, opts...)
 }
 

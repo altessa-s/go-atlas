@@ -19,6 +19,7 @@ import (
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
 
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
@@ -192,9 +193,7 @@ func (m *Manager) Load(ctx context.Context) error {
 
 	var loadErrors []error
 	for _, file := range pluginFiles {
-		if err := m.loadPlugin(ctx, file); err != nil {
-			loadErrors = append(loadErrors, err)
-		}
+		loadErrors = coreslices.AppendNonNil(loadErrors, m.loadPlugin(ctx, file))
 	}
 
 	return errors.Join(loadErrors...)
@@ -240,9 +239,7 @@ func (m *Manager) Reload(ctx context.Context) error {
 		if _, exists := loadedPaths[file]; exists {
 			continue
 		}
-		if err := m.loadPlugin(ctx, file); err != nil {
-			loadErrors = append(loadErrors, err)
-		}
+		loadErrors = coreslices.AppendNonNil(loadErrors, m.loadPlugin(ctx, file))
 	}
 
 	return errors.Join(loadErrors...)
@@ -805,15 +802,9 @@ func (m *Manager) ensureSandbox() error {
 // runbook.
 func (m *Manager) warnPerThreadPrimitives(o SandboxOptions) {
 	var perThread []string
-	if o.NoNewPrivs {
-		perThread = append(perThread, "noNewPrivs")
-	}
-	if o.Capabilities.Enabled {
-		perThread = append(perThread, "capabilities")
-	}
-	if o.Landlock.Enabled {
-		perThread = append(perThread, "landlock")
-	}
+	perThread = coreslices.AppendIf(perThread, o.NoNewPrivs, "noNewPrivs")
+	perThread = coreslices.AppendIf(perThread, o.Capabilities.Enabled, "capabilities")
+	perThread = coreslices.AppendIf(perThread, o.Landlock.Enabled, "landlock")
 	if len(perThread) == 0 {
 		return
 	}
@@ -875,9 +866,7 @@ func (m *Manager) expandSandboxOptions(o SandboxOptions) SandboxOptions {
 	}
 
 	var extra []string
-	if o.Landlock.AllowPluginDir && m.opts.dir != "" {
-		extra = append(extra, m.opts.dir)
-	}
+	extra = coreslices.AppendIf(extra, o.Landlock.AllowPluginDir && m.opts.dir != "", m.opts.dir)
 	if o.Landlock.AllowSystemLibs {
 		var skipped []string
 		for _, p := range m.sandboxSystemLibPaths {

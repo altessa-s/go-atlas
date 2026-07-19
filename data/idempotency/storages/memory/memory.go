@@ -9,7 +9,6 @@ import (
 	"context"
 	"slices"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/altessa-s/go-atlas/data/idempotency/storages"
@@ -29,13 +28,11 @@ type entry struct {
 // It is safe for concurrent use. Use RunCleanup() to remove expired keys,
 // either manually or via scheduler.
 type Storage struct {
-	entries        map[string]*entry
-	mu             sync.RWMutex
-	options        *options
-	scheduler      corescheduler.TaskRegistrar
-	cleanupRunning atomic.Bool // Guards against concurrent RunCleanup calls.
-
-	schedulerCleanupRegistered atomic.Bool // Marks if RunCleanup is managed by scheduler.
+	entries     map[string]*entry
+	mu          sync.RWMutex
+	options     *options
+	scheduler   corescheduler.TaskRegistrar
+	cleanupTask corescheduler.ManagedTask // Guards RunCleanup and marks scheduler management.
 }
 
 var _ storages.Storage = (*Storage)(nil)

@@ -18,6 +18,7 @@ import (
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
 
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
 
@@ -174,13 +175,13 @@ func (wm *watchManager[T]) Watch(ctx context.Context, opts WatchOptions) (*Watch
 
 // setupFilters configures event filters for the watch instance
 func (wi *watchInstance[T]) setupFilters() {
-	if len(wi.opts.Keys) > 0 {
-		wi.filters = append(wi.filters, FilterByKeys[T](wi.opts.Keys...))
-	}
+	wi.filters = coreslices.AppendIfFunc(wi.filters, len(wi.opts.Keys) > 0, func() []WatchFilter[T] {
+		return []WatchFilter[T]{FilterByKeys[T](wi.opts.Keys...)}
+	})
 
-	if len(wi.opts.EventTypes) > 0 {
-		wi.filters = append(wi.filters, FilterByEventTypes[T](wi.opts.EventTypes...))
-	}
+	wi.filters = coreslices.AppendIfFunc(wi.filters, len(wi.opts.EventTypes) > 0, func() []WatchFilter[T] {
+		return []WatchFilter[T]{FilterByEventTypes[T](wi.opts.EventTypes...)}
+	})
 }
 
 // notifyChanges processes changes from Manager's updateValues() and generates events for all watchers.
@@ -348,23 +349,22 @@ func (wm *watchManager[T]) safeEventSend(instance *watchInstance[T], event Watch
 		return // Instance is already closed
 	}
 
-	defer func() {
-		if r := recover(); r != nil {
-			// Channel was closed during send, log and continue
-			wm.logger.DebugContext(instance.ctx, "channel closed during event send",
-				slog.String("watcher_id", instance.id),
-				slog.String("event_type", event.Type.String()),
-				slog.String("key", key))
-		}
-	}()
+	// Channel was closed during send, log and continue
+	logChannelClosed := func() {
+		wm.logger.DebugContext(instance.ctx, "channel closed during event send",
+			slog.String("watcher_id", instance.id),
+			slog.String("event_type", event.Type.String()),
+			slog.String("key", key))
+	}
 
 	switch instance.opts.BufferOverflowPolicy {
 	case OverflowPolicyBlock:
 		// Block until space is available or context is canceled
-		select {
-		case instance.events <- event:
-			// Event sent successfully
-		case <-instance.ctx.Done():
+		sent, chClosed := panics.TrySend(instance.ctx, instance.events, event)
+		switch {
+		case chClosed:
+			logChannelClosed()
+		case !sent:
 			wm.logger.DebugContext(instance.ctx, "context canceled while blocking on event send",
 				slog.String("watcher_id", instance.id),
 				slog.String("event_type", event.Type.String()),
@@ -373,46 +373,51 @@ func (wm *watchManager[T]) safeEventSend(instance *watchInstance[T], event Watch
 
 	case OverflowPolicyDropOldest:
 		// Try non-blocking send first
-		select {
-		case instance.events <- event:
-			return // Event sent successfully
-		default:
-			// Channel full - drop oldest and retry
+		sent, chClosed := panics.TrySendNonBlocking(instance.events, event)
+		if chClosed {
+			logChannelClosed()
+			return
 		}
+		if sent {
+			return // Event sent successfully
+		}
+		// Channel full - drop oldest and retry
 
 		// Drop oldest event(s) until we can send
 		for {
 			select {
 			case <-instance.events:
 				// Dropped oldest event, try to send again
-				select {
-				case instance.events <- event:
+				sent, chClosed = panics.TrySendNonBlocking(instance.events, event)
+				if chClosed {
+					logChannelClosed()
+					return
+				}
+				if sent {
 					wm.logger.DebugContext(instance.ctx, "dropped oldest event to make room",
 						slog.String("watcher_id", instance.id),
 						slog.String("event_type", event.Type.String()),
 						slog.String("key", key))
 					return
-				default:
-					// Still full (race condition), continue dropping
-					continue
 				}
+				// Still full (race condition), continue dropping
 			default:
 				// Channel is empty now but still can't send (shouldn't happen)
 				// Fall back to blocking send
-				select {
-				case instance.events <- event:
-					return
-				case <-instance.ctx.Done():
-					return
+				if _, chClosed = panics.TrySend(instance.ctx, instance.events, event); chClosed {
+					logChannelClosed()
 				}
+				return
 			}
 		}
 
 	default: // OverflowPolicyDropNewest (default)
-		select {
-		case instance.events <- event:
-			// Event sent successfully
-		default:
+		sent, chClosed := panics.TrySendNonBlocking(instance.events, event)
+		if chClosed {
+			logChannelClosed()
+			return
+		}
+		if !sent {
 			// Channel full, drop this (newest) event
 			wm.logger.DebugContext(instance.ctx, "event dropped (buffer full, policy: drop_newest)",
 				slog.String("watcher_id", instance.id),

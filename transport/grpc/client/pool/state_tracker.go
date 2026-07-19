@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 
 	"google.golang.org/grpc/connectivity"
+
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 )
 
 // stateChangeFn receives connectivity-state updates for one target.
@@ -76,9 +78,7 @@ func (t *stateTracker) enable() {
 	t.mu.RLock()
 	for target, conns := range t.perTarget {
 		for pc, entry := range conns {
-			if entry.cancel == nil {
-				backfill = append(backfill, pending{target, pc, entry})
-			}
+			backfill = coreslices.AppendIf(backfill, entry.cancel == nil, pending{target, pc, entry})
 		}
 	}
 	t.mu.RUnlock()

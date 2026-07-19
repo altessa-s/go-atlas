@@ -80,10 +80,10 @@ func (b *BrokerBuilder) CreateInProgressManager() (*inprogress.Manager, error) {
 
 	opts := make([]inprogress.Option, 0, 4)
 	opts = append(opts, inprogress.WithLogger(b.Logger()))
-	if b.scheduler != nil {
-		opts = append(opts, inprogress.WithScheduler(b.scheduler))
-		opts = append(opts, inprogress.WithTickSchedule(cfg.TickSchedule))
-	}
+	opts = slices.AppendIf(opts, b.scheduler != nil,
+		inprogress.WithScheduler(b.scheduler),
+		inprogress.WithTickSchedule(cfg.TickSchedule),
+	)
 
 	return inprogress.New(opts...), nil
 }
@@ -206,11 +206,11 @@ func (b *BrokerBuilder) CreateRecoveryManager(provider *natsprovider.Nats) (*rec
 	}
 
 	// Add scheduler and schedule options if scheduler is available
-	if b.scheduler != nil {
-		opts = append(opts, recovery.WithScheduler(b.scheduler))
-		opts = append(opts, recovery.WithHealthCheckSchedule(recoveryCfg.HealthCheckSchedule))
-		opts = append(opts, recovery.WithStaleRecoveryCleanupSchedule(recoveryCfg.StaleRecoveryCleanupSchedule))
-	}
+	opts = slices.AppendIf(opts, b.scheduler != nil,
+		recovery.WithScheduler(b.scheduler),
+		recovery.WithHealthCheckSchedule(recoveryCfg.HealthCheckSchedule),
+		recovery.WithStaleRecoveryCleanupSchedule(recoveryCfg.StaleRecoveryCleanupSchedule),
+	)
 
 	// Create recovery manager.
 	manager, err := recovery.New(provider, opts...)
@@ -241,18 +241,10 @@ func (b *BrokerBuilder) createOutboxWithStore(store outbox.Store, publisher outb
 	// Add scheduler and schedule options if scheduler is available
 	if b.scheduler != nil {
 		opts = append(opts, outbox.WithScheduler(b.scheduler))
-		if cfg.DispatchSchedule != "" {
-			opts = append(opts, outbox.WithDispatchSchedule(cfg.DispatchSchedule))
-		}
-		if cfg.UnlockSchedule != "" {
-			opts = append(opts, outbox.WithUnlockSchedule(cfg.UnlockSchedule))
-		}
-		if cfg.CleanupSchedule != "" {
-			opts = append(opts, outbox.WithCleanupSchedule(cfg.CleanupSchedule))
-		}
-		if cfg.ExpireSchedule != "" {
-			opts = append(opts, outbox.WithExpireSchedule(cfg.ExpireSchedule))
-		}
+		opts = slices.AppendIf(opts, cfg.DispatchSchedule != "", outbox.WithDispatchSchedule(cfg.DispatchSchedule))
+		opts = slices.AppendIf(opts, cfg.UnlockSchedule != "", outbox.WithUnlockSchedule(cfg.UnlockSchedule))
+		opts = slices.AppendIf(opts, cfg.CleanupSchedule != "", outbox.WithCleanupSchedule(cfg.CleanupSchedule))
+		opts = slices.AppendIf(opts, cfg.ExpireSchedule != "", outbox.WithExpireSchedule(cfg.ExpireSchedule))
 	}
 
 	return outbox.New(store, publisher, opts...), nil

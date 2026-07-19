@@ -8,29 +8,25 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
+
 	bfredis "github.com/altessa-s/go-atlas/data/probfilter/bloom/storages/redis"
-	goredis "github.com/redis/go-redis/v9"
 )
 
 // Note: Redis Bloom filter commands (BF.*) require RedisBloom module.
 // miniredis doesn't support these commands, so we test structural behavior only.
 
 func TestNew(t *testing.T) {
-	mr := miniredis.RunT(t)
-	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
-	t.Cleanup(func() { client.Close() })
+	client, _ := testhelpers.RedisClient(t)
 
 	s := bfredis.New(client, "test-bloom")
 	require.NotNil(t, s, "New() returned nil")
 }
 
 func TestNew_WithOptions(t *testing.T) {
-	mr := miniredis.RunT(t)
-	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
-	t.Cleanup(func() { client.Close() })
+	client, _ := testhelpers.RedisClient(t)
 
 	s := bfredis.New(client, "test-bloom",
 		bfredis.WithKeyPrefix("custom:"),
@@ -41,9 +37,7 @@ func TestNew_WithOptions(t *testing.T) {
 }
 
 func TestStorage_LastRebuild(t *testing.T) {
-	mr := miniredis.RunT(t)
-	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
-	t.Cleanup(func() { client.Close() })
+	client, _ := testhelpers.RedisClient(t)
 
 	s := bfredis.New(client, "test-bloom")
 	require.True(t, s.LastRebuild().IsZero(), "LastRebuild() should be zero initially")
@@ -54,9 +48,7 @@ func TestStorage_LastRebuild(t *testing.T) {
 }
 
 func TestStorage_Close(t *testing.T) {
-	mr := miniredis.RunT(t)
-	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
-	t.Cleanup(func() { client.Close() })
+	client, _ := testhelpers.RedisClient(t)
 
 	s := bfredis.New(client, "test-bloom")
 	require.NoError(t, s.Close(t.Context()))

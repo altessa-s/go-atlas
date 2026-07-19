@@ -38,31 +38,23 @@ func (m *Manager) registerTickTask(opts *options) error {
 
 // RegisterTickSchedulerFunc returns a function for use by a scheduler and marks
 // tick as scheduler-managed. After calling this method, direct calls to
-// RunTickCycle will return ErrSchedulerManaged.
+// RunTickCycle will return [corescheduler.ErrSchedulerManaged].
 func (m *Manager) RegisterTickSchedulerFunc() func(context.Context) error {
-	m.schedulerTickRegistered.Store(true)
-	return m.runTickCycleInternal
+	return m.tickTask.SchedulerFunc(m.runTickCycleInternal)
 }
 
 // RunTickCycle executes a single tick cycle for checking and sending InProgress heartbeats.
 // This method is designed to be called manually for one-time tick.
-// If the function is registered with a scheduler, this method returns ErrSchedulerManaged.
+// If the function is registered with a scheduler, this method returns
+// [corescheduler.ErrSchedulerManaged].
 func (m *Manager) RunTickCycle(ctx context.Context) error {
-	if m.schedulerTickRegistered.Load() {
-		return ErrSchedulerManaged
-	}
-	return m.runTickCycleInternal(ctx)
+	return m.tickTask.Run(ctx, m.runTickCycleInternal)
 }
 
 // runTickCycleInternal performs the actual tick cycle.
-// It is safe to call concurrently; if already running, returns immediately.
+// Callers must route through tickTask so overlapping cycles collapse
+// into a single execution.
 func (m *Manager) runTickCycleInternal(ctx context.Context) error {
-	// Prevent concurrent execution
-	if !m.tickRunning.CompareAndSwap(false, true) {
-		return nil // Already running, skip this cycle
-	}
-	defer m.tickRunning.Store(false)
-
 	// Check if context is already canceled
 	select {
 	case <-ctx.Done():

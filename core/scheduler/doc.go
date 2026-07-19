@@ -30,5 +30,26 @@
 //   - [TaskPriorityHigh] -- has reserved slots and preempts Normal/Low
 //   - [TaskPriorityCritical] -- bypasses concurrency limits entirely
 //
+// # Scheduler-Managed Cycles
+//
+// Subsystems that expose both a scheduler-registered task and a manual RunXxx
+// entry point embed a [ManagedTask] per cycle. It owns the single-flight
+// guard (overlapping executions collapse to a no-op) and the
+// scheduler-managed flag: once the cycle is handed to a scheduler via
+// [ManagedTask.SchedulerFunc], manual [ManagedTask.Run] calls return
+// [ErrSchedulerManaged]:
+//
+//	type Worker struct {
+//	    cycleTask scheduler.ManagedTask
+//	}
+//
+//	func (w *Worker) RegisterSchedulerFunc() func(context.Context) error {
+//	    return w.cycleTask.SchedulerFunc(w.runCycle)
+//	}
+//
+//	func (w *Worker) RunCycle(ctx context.Context) error {
+//	    return w.cycleTask.Run(ctx, w.runCycle)
+//	}
+//
 // All types in this package are safe for concurrent use.
 package scheduler

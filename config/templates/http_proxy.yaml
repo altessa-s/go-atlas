@@ -1,4 +1,6 @@
 # HTTP outbound proxy configuration for transport/http/client.
+# Loads into the shared config.Proxy struct (same schema as
+# grpc_proxy.yaml); materialized via Proxy.HTTPClientOptions().
 # When this section is omitted entirely, the client respects the standard
 # HTTP_PROXY / HTTPS_PROXY / NO_PROXY environment variables (the
 # http.ProxyFromEnvironment default).

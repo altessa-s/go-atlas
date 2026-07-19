@@ -5,6 +5,7 @@
 package oauth2client_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -45,42 +46,67 @@ func TestRetryTransportOnClientCredentials(t *testing.T) {
 	require.Equal(t, int32(3), hits.Load()) // 2 failures + 1 success
 }
 
-func TestRetryTransportGivesUpAndReturnsLastResponse(t *testing.T) {
+func TestRetryTransportStatusHandling(t *testing.T) {
 	t.Parallel()
-	var hits atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		hits.Add(1)
-		w.WriteHeader(http.StatusBadGateway)
-	}))
-	t.Cleanup(srv.Close)
+	tests := []struct {
+		name     string
+		status   int
+		attempts int
+		wantHits int32
+	}{
+		// The last response is surfaced after retries are exhausted: 1 + 2 retries.
+		{"gives up and returns last response", http.StatusBadGateway, 2, 3},
+		// 4xx is not retried.
+		{"no retry on client error", http.StatusBadRequest, 5, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var hits atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				hits.Add(1)
+				w.WriteHeader(tt.status)
+			}))
+			t.Cleanup(srv.Close)
 
-	client := &http.Client{Transport: oauth2client.RetryTransport(http.DefaultTransport,
-		oauth2client.WithTransportAttempts(2),
-		oauth2client.WithTransportBackoff(time.Millisecond, 5*time.Millisecond),
-	)}
-	resp, err := client.Get(srv.URL)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = resp.Body.Close() })
-	require.Equal(t, http.StatusBadGateway, resp.StatusCode) // last response surfaced
-	require.Equal(t, int32(3), hits.Load())                  // 1 + 2 retries
+			client := &http.Client{Transport: oauth2client.RetryTransport(http.DefaultTransport,
+				oauth2client.WithTransportAttempts(tt.attempts),
+				oauth2client.WithTransportBackoff(time.Millisecond, 5*time.Millisecond),
+			)}
+			resp, err := client.Get(srv.URL)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = resp.Body.Close() })
+			require.Equal(t, tt.status, resp.StatusCode)
+			require.Equal(t, tt.wantHits, hits.Load())
+		})
+	}
 }
 
-func TestRetryTransportNoRetryOnClientError(t *testing.T) {
+func TestRetryTransportContextCanceledDuringBackoff(t *testing.T) {
 	t.Parallel()
+	ctx, cancel := context.WithCancel(t.Context())
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		hits.Add(1)
-		w.WriteHeader(http.StatusBadRequest)
+		w.WriteHeader(http.StatusServiceUnavailable)
+		cancel() // abort while RoundTrip backs off before the retry
 	}))
 	t.Cleanup(srv.Close)
 
+	// A backoff far above the test deadline: only prompt cancellation passes.
 	client := &http.Client{Transport: oauth2client.RetryTransport(http.DefaultTransport,
-		oauth2client.WithTransportAttempts(5),
-		oauth2client.WithTransportBackoff(time.Millisecond, 5*time.Millisecond),
+		oauth2client.WithTransportAttempts(3),
+		oauth2client.WithTransportBackoff(time.Minute, time.Minute),
 	)}
-	resp, err := client.Get(srv.URL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL, http.NoBody)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = resp.Body.Close() })
-	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
-	require.Equal(t, int32(1), hits.Load()) // 4xx is not retried
+
+	start := time.Now()
+	resp, err := client.Do(req)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	require.ErrorIs(t, err, context.Canceled)
+	require.Less(t, time.Since(start), 30*time.Second) // aborted mid-backoff, not after it
+	require.Equal(t, int32(1), hits.Load())
 }

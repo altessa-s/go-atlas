@@ -100,18 +100,12 @@ func (b *ManagerBuilder) Build(ctx context.Context) (*plugins.Manager, error) {
 		plugins.WithHostVersion(appinfo.Version),
 	)
 
-	if b.cfg.Signature.Mode != "" {
-		opts = append(opts, plugins.WithSignature(
-			plugins.SignatureOptionsFromConfig(b.cfg.Signature.Mode, b.cfg.Signature.PublicKeyPath),
-		))
-	}
+	opts = coreslices.AppendIf(opts, b.cfg.Signature.Mode != "", plugins.WithSignature(
+		plugins.SignatureOptionsFromConfig(b.cfg.Signature.Mode, b.cfg.Signature.PublicKeyPath),
+	))
 
-	if len(b.cfg.Load) > 0 {
-		opts = append(opts, plugins.WithLoad(b.cfg.Load...))
-	}
-	if len(b.cfg.Disabled) > 0 {
-		opts = append(opts, plugins.WithDisabled(b.cfg.Disabled...))
-	}
+	opts = coreslices.AppendIf(opts, len(b.cfg.Load) > 0, plugins.WithLoad(b.cfg.Load...))
+	opts = coreslices.AppendIf(opts, len(b.cfg.Disabled) > 0, plugins.WithDisabled(b.cfg.Disabled...))
 
 	mgr := plugins.NewManager(opts...)
 

@@ -28,7 +28,7 @@ func FuzzBuild(f *testing.F) {
 		}
 
 		// Should not panic
-		Build[*fuzzItem](items, logger)
+		Build(items, logger)
 	})
 }
 

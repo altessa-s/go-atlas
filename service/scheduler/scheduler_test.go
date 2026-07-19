@@ -30,6 +30,48 @@ func mustNewMemory(tb testing.TB, maxHistoryPerTask int) *memory.Storage {
 	return s
 }
 
+// startScheduler builds a memory-backed scheduler with a fast tick plus the
+// given extra options, starts it, and stops it on test cleanup. Shared across
+// all scheduler_test.go files.
+func startScheduler(t *testing.T, opts ...scheduler.Option) (*scheduler.Scheduler, context.Context) {
+	t.Helper()
+
+	storage := mustNewMemory(t, 100)
+	opts = append([]scheduler.Option{scheduler.WithTickInterval(50 * time.Millisecond)}, opts...)
+	s := scheduler.New(storage, opts...)
+
+	ctx := t.Context()
+	require.NoError(t, s.Start(ctx))
+	t.Cleanup(func() {
+		// t.Context() is already canceled when cleanups run; detach so Stop
+		// keeps the one-second grace period the tests used with defer.
+		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+		defer cancel()
+		_ = s.Stop(stopCtx)
+	})
+
+	return s, ctx
+}
+
+// registerCountingTask registers a RunOnStart task with the given ID and
+// schedule that increments the returned counter on every execution.
+func registerCountingTask(t *testing.T, ctx context.Context, s *scheduler.Scheduler, id, schedule string) *atomic.Int32 {
+	t.Helper()
+
+	execCount := new(atomic.Int32)
+	require.NoError(t, s.Register(ctx, corescheduler.TaskConfig{
+		ID:         id,
+		Schedule:   schedule,
+		RunOnStart: true,
+		Func: func(_ context.Context) error {
+			execCount.Add(1)
+			return nil
+		},
+	}))
+
+	return execCount
+}
+
 func TestScheduler_RegisterAndRun(t *testing.T) {
 	storage := mustNewMemory(t, 100)
 	s := scheduler.New(storage, scheduler.WithTickInterval(50*time.Millisecond))

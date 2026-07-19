@@ -35,10 +35,6 @@ var (
 	// ErrWatchStartFailed indicates that starting the policy watch failed.
 	ErrWatchStartFailed = errors.New("watch start failed")
 
-	// ErrSchedulerManaged indicates that the function is managed by a scheduler
-	// and direct calls are not allowed.
-	ErrSchedulerManaged = errors.New("function is managed by scheduler, direct calls not allowed")
-
 	// ErrInvalidDataPath indicates that a data-path key supplied to
 	// loadBundleData was malformed (empty / not splittable).
 	ErrInvalidDataPath = errors.New("invalid data path")

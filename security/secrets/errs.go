@@ -183,8 +183,4 @@ var (
 	//		return manager.ShutdownWithTimeout(secrets.DefaultShutdownTimeout)
 	//	}
 	ErrInvalidShutdownTimeout = errors.New("invalid shutdown timeout duration")
-
-	// ErrSchedulerManaged indicates that the function is managed by a scheduler
-	// and direct calls are not allowed.
-	ErrSchedulerManaged = errors.New("function is managed by scheduler, direct calls not allowed")
 )

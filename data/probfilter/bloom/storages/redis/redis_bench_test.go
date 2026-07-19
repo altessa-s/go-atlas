@@ -8,16 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	bfredis "github.com/altessa-s/go-atlas/data/probfilter/bloom/storages/redis"
-	goredis "github.com/redis/go-redis/v9"
 )
 
 func BenchmarkStorage_SetLastRebuild(b *testing.B) {
-	mr := miniredis.RunT(b)
-	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
-	b.Cleanup(func() { client.Close() })
+	client, _ := testhelpers.RedisClient(b)
 
 	s := bfredis.New(client, "bench-bloom")
 	now := time.Now()
@@ -28,9 +25,7 @@ func BenchmarkStorage_SetLastRebuild(b *testing.B) {
 }
 
 func BenchmarkStorage_LastRebuild(b *testing.B) {
-	mr := miniredis.RunT(b)
-	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
-	b.Cleanup(func() { client.Close() })
+	client, _ := testhelpers.RedisClient(b)
 
 	s := bfredis.New(client, "bench-bloom")
 	s.SetLastRebuild(time.Now())

@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
 func TestNewOCSPStapler(t *testing.T) {
@@ -160,12 +162,12 @@ func TestRunRefreshAll_SchedulerManaged(t *testing.T) {
 	_ = s.RegisterRefreshAllSchedulerFunc()
 
 	err := s.RunRefreshAll(t.Context())
-	require.ErrorIs(t, err, ErrSchedulerManaged)
+	require.ErrorIs(t, err, corescheduler.ErrSchedulerManaged)
 }
 
 func TestRegisterRefreshAllSchedulerFunc(t *testing.T) {
 	s := NewOCSPStapler()
 	fn := s.RegisterRefreshAllSchedulerFunc()
 	require.NotNil(t, fn)
-	require.True(t, s.schedulerRefreshAllRegistered.Load())
+	require.True(t, s.refreshAllTask.Registered())
 }

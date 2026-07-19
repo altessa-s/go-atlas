@@ -7,16 +7,15 @@ package idempotency
 //go:generate go run github.com/altessa-s/go-atlas/cmd/optgen generate --type=options
 
 import (
-	"errors"
 	"log/slog"
 	"net/http"
 	"regexp"
-	"strings"
 
 	"github.com/altessa-s/go-atlas/data/idempotency"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares/defaults"
 	"github.com/altessa-s/go-atlas/transport/internal/fallback"
-	"github.com/altessa-s/go-atlas/transport/internal/validation"
+
+	internalidem "github.com/altessa-s/go-atlas/transport/internal/idempotency"
 )
 
 // Use defaults package for optgen code generation
@@ -24,11 +23,11 @@ var _ = defaults.IgnorePatterns
 
 const (
 	// DefaultIdempotencyKeyHeader is the default HTTP header name for the idempotency key.
-	DefaultIdempotencyKeyHeader = "Idempotency-Key"
+	DefaultIdempotencyKeyHeader = internalidem.DefaultKeyHeader
 	// DefaultIdempotencyKeyStatusHeader is the default header name for idempotency status.
-	DefaultIdempotencyKeyStatusHeader = "Idempotency-Key-Status"
+	DefaultIdempotencyKeyStatusHeader = internalidem.DefaultKeyStatusHeader
 	// DefaultIdempotencyKeyEntityIdHeader is the default header name for entity ID.
-	DefaultIdempotencyKeyEntityIdHeader = "Idempotency-Key-Entity-Id"
+	DefaultIdempotencyKeyEntityIdHeader = internalidem.DefaultKeyEntityIDHeader
 )
 
 // ErrorScenario identifies the reason for an idempotency error.
@@ -57,14 +56,11 @@ type KeyFormatValidator func(key string) error
 // [KeyFormatValidator]) when the idempotency key is not a valid lowercase
 // UUID v4. The middleware translates this into an [ErrorIDKInvalidFormat]
 // scenario and invokes the configured [ErrorHandler].
-var ErrInvalidFormat = errors.New("invalid idempotency key format")
+var ErrInvalidFormat = internalidem.ErrInvalidFormat
 
 // DefaultKeyValidator validates that the key is a valid lowercase UUID v4.
 func DefaultKeyValidator(key string) error {
-	if strings.ToLower(key) != key || !validation.IsValidUUIDv4(key) {
-		return ErrInvalidFormat
-	}
-	return nil
+	return internalidem.DefaultKeyValidator(key)
 }
 
 // options holds configuration for the idempotency middleware.

@@ -42,7 +42,7 @@ func BenchmarkBuild(b *testing.B) {
 	}
 
 	for b.Loop() {
-		Build[*benchDepItem](items, logger)
+		Build(items, logger)
 	}
 }
 

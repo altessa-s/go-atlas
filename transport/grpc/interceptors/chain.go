@@ -184,12 +184,8 @@ func buildServerOptions(list []any) []grpc.ServerOption {
 	streamInterceptors := slices.ToWithFilter(list, filterByType[serverStreamInterceptor], toServerStream)
 
 	opts := make([]grpc.ServerOption, 0, 2)
-	if len(unaryInterceptors) > 0 {
-		opts = append(opts, grpc.ChainUnaryInterceptor(unaryInterceptors...))
-	}
-	if len(streamInterceptors) > 0 {
-		opts = append(opts, grpc.ChainStreamInterceptor(streamInterceptors...))
-	}
+	opts = slices.AppendIf(opts, len(unaryInterceptors) > 0, grpc.ChainUnaryInterceptor(unaryInterceptors...))
+	opts = slices.AppendIf(opts, len(streamInterceptors) > 0, grpc.ChainStreamInterceptor(streamInterceptors...))
 
 	return opts
 }
@@ -200,12 +196,8 @@ func buildClientOptions(list []any) []grpc.DialOption {
 	streamInterceptors := slices.ToWithFilter(list, filterByType[clientStreamInterceptor], toClientStream)
 
 	opts := make([]grpc.DialOption, 0, 2)
-	if len(unaryInterceptors) > 0 {
-		opts = append(opts, grpc.WithChainUnaryInterceptor(unaryInterceptors...))
-	}
-	if len(streamInterceptors) > 0 {
-		opts = append(opts, grpc.WithChainStreamInterceptor(streamInterceptors...))
-	}
+	opts = slices.AppendIf(opts, len(unaryInterceptors) > 0, grpc.WithChainUnaryInterceptor(unaryInterceptors...))
+	opts = slices.AppendIf(opts, len(streamInterceptors) > 0, grpc.WithChainStreamInterceptor(streamInterceptors...))
 
 	return opts
 }
@@ -233,9 +225,8 @@ func (b *Chain) DependencyOrder() ([]string, error) {
 
 	names := make([]string, 0, len(sorted))
 	for _, item := range sorted {
-		if name := getInterceptorName(item); name != "" {
-			names = append(names, name)
-		}
+		name := getInterceptorName(item)
+		names = slices.AppendIf(names, name != "", name)
 	}
 	return names, nil
 }

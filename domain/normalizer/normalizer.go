@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"reflect"
 
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
@@ -166,9 +167,7 @@ func batchProcessArrayElements(v reflect.Value, cache *StructFieldCache, parentP
 	// Build a list of fields that actually need modifiers applied
 	var fieldsWithModifiers []int
 	for idx, fieldInfo := range cache.Fields {
-		if len(fieldInfo.ParsedModifiers) > 0 && fieldInfo.Tag != TagValueCustom {
-			fieldsWithModifiers = append(fieldsWithModifiers, idx)
-		}
+		fieldsWithModifiers = coreslices.AppendIf(fieldsWithModifiers, len(fieldInfo.ParsedModifiers) > 0 && fieldInfo.Tag != TagValueCustom, idx)
 	}
 
 	// Only build paths when errors occur (lazy path building)

@@ -10,7 +10,6 @@ import (
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/pem"
@@ -19,6 +18,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 func TestMultiKeySignature_SingleKey(t *testing.T) {
@@ -27,8 +28,7 @@ func TestMultiKeySignature_SingleKey(t *testing.T) {
 	dir := t.TempDir()
 
 	// Generate key
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	pub, priv := testhelpers.GenerateEd25519Key(t)
 
 	// Create and sign plugin
 	pluginPath := filepath.Join(dir, "test.so")
@@ -49,7 +49,7 @@ func TestMultiKeySignature_SingleKey(t *testing.T) {
 	)
 
 	// Should verify successfully
-	err = mgr.verifyPluginSignature("test.so", pluginPath, pluginData, "abc123")
+	err := mgr.verifyPluginSignature("test.so", pluginPath, pluginData, "abc123")
 	require.NoError(t, err)
 }
 
@@ -59,11 +59,9 @@ func TestMultiKeySignature_MultipleKeys_FirstMatches(t *testing.T) {
 	dir := t.TempDir()
 
 	// Generate two keys
-	pub1, priv1, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	pub1, priv1 := testhelpers.GenerateEd25519Key(t)
 
-	pub2, _, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	pub2, _ := testhelpers.GenerateEd25519Key(t)
 
 	// Create and sign plugin with first key
 	pluginPath := filepath.Join(dir, "test.so")
@@ -84,7 +82,7 @@ func TestMultiKeySignature_MultipleKeys_FirstMatches(t *testing.T) {
 	)
 
 	// Should verify successfully with first key
-	err = mgr.verifyPluginSignature("test.so", pluginPath, pluginData, "abc123")
+	err := mgr.verifyPluginSignature("test.so", pluginPath, pluginData, "abc123")
 	require.NoError(t, err)
 }
 
@@ -94,11 +92,9 @@ func TestMultiKeySignature_MultipleKeys_SecondMatches(t *testing.T) {
 	dir := t.TempDir()
 
 	// Generate two keys
-	pub1, _, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	pub1, _ := testhelpers.GenerateEd25519Key(t)
 
-	pub2, priv2, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	pub2, priv2 := testhelpers.GenerateEd25519Key(t)
 
 	// Create and sign plugin with second key
 	pluginPath := filepath.Join(dir, "test.so")
@@ -119,7 +115,7 @@ func TestMultiKeySignature_MultipleKeys_SecondMatches(t *testing.T) {
 	)
 
 	// Should verify successfully with second key
-	err = mgr.verifyPluginSignature("test.so", pluginPath, pluginData, "abc123")
+	err := mgr.verifyPluginSignature("test.so", pluginPath, pluginData, "abc123")
 	require.NoError(t, err)
 }
 
@@ -129,14 +125,11 @@ func TestMultiKeySignature_NoKeysMatch(t *testing.T) {
 	dir := t.TempDir()
 
 	// Generate three keys
-	pub1, _, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	pub1, _ := testhelpers.GenerateEd25519Key(t)
 
-	pub2, _, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	pub2, _ := testhelpers.GenerateEd25519Key(t)
 
-	_, priv3, err := ed25519.GenerateKey(rand.Reader) // Sign with different key
-	require.NoError(t, err)
+	_, priv3 := testhelpers.GenerateEd25519Key(t) // Sign with different key
 
 	// Create and sign plugin with third key (not in the list)
 	pluginPath := filepath.Join(dir, "test.so")
@@ -157,7 +150,7 @@ func TestMultiKeySignature_NoKeysMatch(t *testing.T) {
 	)
 
 	// Should fail verification
-	err = mgr.verifyPluginSignature("test.so", pluginPath, pluginData, "abc123")
+	err := mgr.verifyPluginSignature("test.so", pluginPath, pluginData, "abc123")
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrSignatureInvalid)
 }
@@ -168,15 +161,12 @@ func TestMultiKeySignature_MixedAlgorithms(t *testing.T) {
 	dir := t.TempDir()
 
 	// Generate keys with different algorithms
-	edPub, _, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	edPub, _ := testhelpers.GenerateEd25519Key(t)
 
-	ecPriv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
+	ecPriv := testhelpers.GenerateECDSAKey(t, elliptic.P256())
 	ecPub := &ecPriv.PublicKey
 
-	rsaPriv, err := rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(t, err)
+	rsaPriv := testhelpers.GenerateRSAKey(t, 2048)
 	rsaPub := &rsaPriv.PublicKey
 
 	// Create and sign plugin with ECDSA
@@ -209,11 +199,9 @@ func TestMultiKeySignature_LoadFromFiles(t *testing.T) {
 	dir := t.TempDir()
 
 	// Generate two keys and write to PEM files
-	pub1, priv1, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	pub1, priv1 := testhelpers.GenerateEd25519Key(t)
 
-	pub2, _, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	pub2, _ := testhelpers.GenerateEd25519Key(t)
 
 	// Write public keys to PEM files
 	key1Path := filepath.Join(dir, "key1.pem")
@@ -241,7 +229,7 @@ func TestMultiKeySignature_LoadFromFiles(t *testing.T) {
 	)
 
 	// Should verify successfully
-	err = mgr.verifyPluginSignature("test.so", pluginPath, pluginData, "abc123")
+	err := mgr.verifyPluginSignature("test.so", pluginPath, pluginData, "abc123")
 	require.NoError(t, err)
 }
 
@@ -251,8 +239,7 @@ func TestMultiKeySignature_PartialKeyLoadFailure(t *testing.T) {
 	dir := t.TempDir()
 
 	// Generate key and write to PEM file
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	pub, priv := testhelpers.GenerateEd25519Key(t)
 
 	validKeyPath := filepath.Join(dir, "valid.pem")
 	writePubKeyPEM(t, validKeyPath, pub)
@@ -280,7 +267,7 @@ func TestMultiKeySignature_PartialKeyLoadFailure(t *testing.T) {
 	)
 
 	// Should verify successfully with the valid key
-	err = mgr.verifyPluginSignature("test.so", pluginPath, pluginData, "abc123")
+	err := mgr.verifyPluginSignature("test.so", pluginPath, pluginData, "abc123")
 	require.NoError(t, err)
 }
 
@@ -330,11 +317,9 @@ func BenchmarkMultiKeyVerification_2Keys(b *testing.B) {
 	dir := b.TempDir()
 
 	// Generate two keys
-	pub1, _, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(b, err)
+	pub1, _ := testhelpers.GenerateEd25519Key(b)
 
-	pub2, priv2, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(b, err)
+	pub2, priv2 := testhelpers.GenerateEd25519Key(b)
 
 	// Create and sign plugin with second key
 	pluginPath := filepath.Join(dir, "bench.so")
@@ -358,9 +343,8 @@ func BenchmarkMultiKeyVerification_5Keys(b *testing.B) {
 	keys := make([]crypto.PublicKey, 5)
 	var priv ed25519.PrivateKey
 
-	for i := 0; i < 5; i++ {
-		pub, p, err := ed25519.GenerateKey(rand.Reader)
-		require.NoError(b, err)
+	for i := range 5 {
+		pub, p := testhelpers.GenerateEd25519Key(b)
 		keys[i] = pub
 		if i == 4 {
 			priv = p

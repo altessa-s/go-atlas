@@ -18,11 +18,12 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 func BenchmarkVerifySignature_Ed25519(b *testing.B) {
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(b, err)
+	pub, priv := testhelpers.GenerateEd25519Key(b)
 
 	data := make([]byte, 1<<20) // 1 MB
 	hash := sha256.Sum256(data)
@@ -38,8 +39,7 @@ func BenchmarkVerifySignature_Ed25519(b *testing.B) {
 }
 
 func BenchmarkVerifySignature_ECDSA(b *testing.B) {
-	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(b, err)
+	priv := testhelpers.GenerateECDSAKey(b, elliptic.P256())
 	pub := &priv.PublicKey
 
 	data := make([]byte, 1<<20) // 1MB plugin
@@ -57,8 +57,7 @@ func BenchmarkVerifySignature_ECDSA(b *testing.B) {
 }
 
 func BenchmarkVerifySignature_RSA(b *testing.B) {
-	priv, err := rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(b, err)
+	priv := testhelpers.GenerateRSAKey(b, 2048)
 	pub := &priv.PublicKey
 
 	data := make([]byte, 1<<20) // 1MB plugin
@@ -115,8 +114,7 @@ func benchmarkReadAndHashFile(b *testing.B, size int) {
 
 // Benchmark concurrent signature verification
 func BenchmarkVerifySignature_Concurrent(b *testing.B) {
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(b, err)
+	pub, priv := testhelpers.GenerateEd25519Key(b)
 
 	// Create multiple plugins with signatures
 	numPlugins := 10

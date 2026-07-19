@@ -22,6 +22,18 @@
 //	    panics.MustError(err)
 //	}
 //
+// # Guarded channel sends
+//
+// TrySend and TrySendNonBlocking send on a channel while recovering the
+// "send on closed channel" panic, reporting (sent, closed) instead of
+// crashing. Needing them is a channel-ownership smell — the sender should
+// own the close — but they contain the crash when that ownership is shared
+// or inverted.
+//
+//	if _, closed := panics.TrySendNonBlocking(ch, ev); closed {
+//	    log.Warn("subscriber channel closed during send")
+//	}
+//
 // # Configuration
 //
 //   - SetReallyPanic(bool): Configure whether panics re-propagate after handling (default: false).

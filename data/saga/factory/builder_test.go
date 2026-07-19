@@ -9,14 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/saga"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	sagafactory "github.com/altessa-s/go-atlas/data/saga/factory"
-	goredis "github.com/redis/go-redis/v9"
 )
 
 type order struct {
@@ -104,9 +103,7 @@ func TestBuildInvalidConfig(t *testing.T) {
 
 func TestBuildRedis(t *testing.T) {
 	t.Parallel()
-	mr := miniredis.RunT(t)
-	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
-	t.Cleanup(func() { _ = client.Close() })
+	client, _ := testhelpers.RedisClient(t)
 
 	cfg := config.DefaultSaga()
 	cfg.Storage = &config.SagaStorageConfig{

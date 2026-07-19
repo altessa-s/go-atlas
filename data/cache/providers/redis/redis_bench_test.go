@@ -8,20 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
-
 	"github.com/altessa-s/go-atlas/data/cache/providers/redis"
-
-	goredis "github.com/redis/go-redis/v9"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 func BenchmarkProvider_Save(b *testing.B) {
-	mr := miniredis.RunT(b)
-	defer mr.Close()
-
-	client := goredis.NewClient(&goredis.Options{
-		Addr: mr.Addr(),
-	})
+	client, _ := testhelpers.RedisClient(b)
 
 	provider := redis.New(client)
 	ctx := b.Context()
@@ -38,12 +30,7 @@ func BenchmarkProvider_Save(b *testing.B) {
 }
 
 func BenchmarkProvider_Get(b *testing.B) {
-	mr := miniredis.RunT(b)
-	defer mr.Close()
-
-	client := goredis.NewClient(&goredis.Options{
-		Addr: mr.Addr(),
-	})
+	client, _ := testhelpers.RedisClient(b)
 
 	provider := redis.New(client)
 	ctx := b.Context()

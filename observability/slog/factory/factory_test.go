@@ -30,9 +30,9 @@ func TestLoggerBuilder_ConfigurableOptions(t *testing.T) {
 	t.Run("Config Overrides Masking and Groups", func(t *testing.T) {
 		b := New(nil)
 
+		// Level and OutputFormat are omitted deliberately: this subtest never
+		// builds a logger from cfg — it only reads the masking/group fields.
 		cfg := &config.Logger{
-			Level:         config.LoggerLevelInfo,
-			OutputFormat:  config.LogFormatJSON,
 			SensitiveTags: []string{"password"},
 			MaskString:    "[REDACTED]",
 			AppGroupName:  "metadata",

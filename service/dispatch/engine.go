@@ -14,6 +14,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/core/io/wal"
 
+	coreretry "github.com/altessa-s/go-atlas/core/retry"
 	coretime "github.com/altessa-s/go-atlas/core/time"
 )
 
@@ -314,6 +315,14 @@ func (e *Engine[T]) storeBatch(items []T, offsets []wal.Offset) {
 		}
 	}
 
+	// Deterministic doubling (no jitter), same schedule as the historical
+	// `retryBackoff << attempt`.
+	const backoffFactor = 2
+	nextDelay := coreretry.Exponential(coreretry.ExponentialConfig{
+		BaseDelay: e.opts.retryBackoff,
+		Factor:    backoffFactor,
+	})
+
 	for attempt := range e.opts.retryAttempts + 1 {
 		err := e.sink.StoreBatch(ctx, items)
 		if err == nil {
@@ -322,7 +331,7 @@ func (e *Engine[T]) storeBatch(items []T, offsets []wal.Offset) {
 		}
 
 		if attempt < e.opts.retryAttempts {
-			backoff := e.opts.retryBackoff << attempt
+			backoff := nextDelay(attempt, err)
 			e.opts.logger.Warn("dispatch: sink store failed, retrying",
 				slog.Int("attempt", attempt+1),
 				slog.Int("items", len(items)),

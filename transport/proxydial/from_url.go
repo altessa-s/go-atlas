@@ -27,7 +27,7 @@ import (
 // [WithProxyTLSConfig]) to override defaults; options compose
 // left-to-right and a later one overrides an earlier one.
 //
-// For HTTPProxy-driven configuration prefer the
+// For config.Proxy-driven configuration prefer the
 // [github.com/altessa-s/go-atlas/transport/proxydial/factory] builder,
 // which folds Mode/Host/Port/Auth into the right URL before delegating
 // here.

@@ -71,31 +71,23 @@ func (p *Provider) Close() {
 
 // RegisterJWKSRefreshSchedulerFunc returns a function for use by a scheduler and marks
 // JWKS refresh as scheduler-managed. After calling this method, direct calls to
-// RefreshJWKS will return ErrSchedulerManaged.
+// RefreshJWKS will return [corescheduler.ErrSchedulerManaged].
 func (p *Provider) RegisterJWKSRefreshSchedulerFunc() func(context.Context) error {
-	p.schedulerJWKSRefreshRegistered.Store(true)
-	return p.refreshJWKSInternal
+	return p.jwksRefreshTask.SchedulerFunc(p.refreshJWKSInternal)
 }
 
 // RefreshJWKS manually triggers a refresh of the JWKS keys from the discovery endpoint.
 // This method is designed to be called manually for one-time refresh.
-// If the function is registered with a scheduler, this method returns ErrSchedulerManaged.
+// If the function is registered with a scheduler, this method returns
+// [corescheduler.ErrSchedulerManaged].
 func (p *Provider) RefreshJWKS(ctx context.Context) error {
-	if p.schedulerJWKSRefreshRegistered.Load() {
-		return ErrSchedulerManaged
-	}
-	return p.refreshJWKSInternal(ctx)
+	return p.jwksRefreshTask.Run(ctx, p.refreshJWKSInternal)
 }
 
 // refreshJWKSInternal performs the actual JWKS refresh.
-// It is safe to call concurrently; if already running, returns immediately.
+// Callers must route through jwksRefreshTask so overlapping cycles collapse
+// into a single execution.
 func (p *Provider) refreshJWKSInternal(ctx context.Context) error {
-	// Prevent concurrent execution
-	if !p.jwksRefreshRunning.CompareAndSwap(false, true) {
-		return nil // Already running, skip this cycle
-	}
-	defer p.jwksRefreshRunning.Store(false)
-
 	p.metrics.jwksRefreshes.Inc()
 	stop := p.metrics.jwksRefreshDuration.Start()
 	defer stop()

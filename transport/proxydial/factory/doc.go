@@ -3,7 +3,7 @@
 // the LICENSE file.
 
 // Package factory provides a fluent builder for materializing a
-// [github.com/altessa-s/go-atlas/config.HTTPProxy] into a
+// [github.com/altessa-s/go-atlas/config.Proxy] into a
 // [github.com/altessa-s/go-atlas/transport/proxydial.DialContextFunc]
 // suitable for any client that needs raw-TCP-through-proxy: SMTP
 // (go-mail's WithDialContextFunc), SOAP, gRPC's WithContextDialer,
@@ -22,12 +22,13 @@
 //	}
 //
 // A nil cfg, an empty Mode, or
-// [github.com/altessa-s/go-atlas/config.HTTPProxyModeNone] yields
+// [github.com/altessa-s/go-atlas/config.ProxyModeNone] yields
 // (nil, nil) — caller treats that as "use a direct dial" and skips
 // wiring a custom dialer entirely.
 //
 // HTTP and gRPC clients should keep using
-// [github.com/altessa-s/go-atlas/config.HTTPProxy.ClientOptions];
+// [github.com/altessa-s/go-atlas/config.Proxy.HTTPClientOptions] and
+// [github.com/altessa-s/go-atlas/config.Proxy.GrpcClientOptions];
 // this factory targets consumers that have no httpclient/grpcclient
 // in the picture.
 package factory

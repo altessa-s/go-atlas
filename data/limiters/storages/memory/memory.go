@@ -8,7 +8,6 @@ import (
 	"context"
 	"sort"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
@@ -33,13 +32,11 @@ type bucket struct {
 // Provider implements an in-memory rate limiting provider using sliding window algorithm.
 // Use RunCleanup() to remove expired buckets, either manually or via scheduler.
 type Provider struct {
-	buckets        map[string]*bucket
-	mu             sync.RWMutex
-	options        *options
-	scheduler      corescheduler.TaskRegistrar
-	cleanupRunning atomic.Bool // Guards against concurrent RunCleanup calls.
-
-	schedulerCleanupRegistered atomic.Bool // Marks if RunCleanup is managed by scheduler.
+	buckets     map[string]*bucket
+	mu          sync.RWMutex
+	options     *options
+	scheduler   corescheduler.TaskRegistrar
+	cleanupTask corescheduler.ManagedTask // Guards RunCleanup and marks scheduler management.
 }
 
 // New creates a new memory-based rate limiting provider.

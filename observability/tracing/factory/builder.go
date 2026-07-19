@@ -104,13 +104,11 @@ func (b *TracerBuilder) createOTLPAdapter(ctx context.Context) (adapters.Adapter
 	opts = slices.AppendIf(opts, cfg.Compression, otlp.WithCompression())
 	opts = slices.AppendIf(opts, len(cfg.Headers) > 0, otlp.WithHeaders(cfg.Headers))
 
-	proxyOpts, err := cfg.Proxy.ClientOptions()
+	proxyOpts, err := cfg.Proxy.GrpcClientOptions()
 	if err != nil {
 		return nil, b.WrapError(err, "failed to materialize OTLP proxy options")
 	}
-	if len(proxyOpts) > 0 {
-		opts = append(opts, otlp.WithGRPCClientOptions(proxyOpts...))
-	}
+	opts = slices.AppendIf(opts, len(proxyOpts) > 0, otlp.WithGRPCClientOptions(proxyOpts...))
 
 	return otlp.New(ctx, opts...)
 }

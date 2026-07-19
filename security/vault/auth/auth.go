@@ -6,16 +6,16 @@ package auth
 
 import (
 	"context"
-	"crypto/rand"
 	"fmt"
 	"log/slog"
-	"math/big"
 	"sync"
 	"time"
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	corectx "github.com/altessa-s/go-atlas/core/context"
+	coreretry "github.com/altessa-s/go-atlas/core/retry"
+	coretime "github.com/altessa-s/go-atlas/core/time"
 	vaultApi "github.com/hashicorp/vault/api"
 )
 
@@ -56,8 +56,7 @@ type Authenticator struct {
 	method       Method
 	metrics      *vaultAuthMetrics
 	logger       *slog.Logger
-	backoffBase  time.Duration
-	backoffMax   time.Duration
+	nextBackoff  coreretry.NextDelayFunc
 	authTimeout  time.Duration
 	watcher      *vaultApi.LifetimeWatcher
 	renewWg      sync.WaitGroup
@@ -85,9 +84,13 @@ func NewAuthenticator(cl *vaultApi.Client, method Method, opt ...Option) *Authen
 		method:       method,
 		metrics:      newVaultAuthMetrics(opts.collector),
 		logger:       opts.logger,
-		backoffBase:  opts.backoffBase,
-		backoffMax:   opts.backoffMax,
-		authTimeout:  opts.authTimeout,
+		nextBackoff: coreretry.Exponential(coreretry.ExponentialConfig{
+			BaseDelay: opts.backoffBase,
+			MaxDelay:  opts.backoffMax,
+			Factor:    1, // constant base: the auth loop tracks no attempt counter
+			Jitter:    1, // additive-uniform jitter in [0, base), capped at MaxDelay
+		}),
+		authTimeout: opts.authTimeout,
 	}
 }
 
@@ -154,20 +157,11 @@ func (a *Authenticator) Run(ctx context.Context) {
 	// when the context is done, whichever happens first.
 	backoffOrDone := func(ctx context.Context, backoff time.Duration) {
 		timer := time.NewTimer(backoff)
-		defer func() {
-			if !timer.Stop() {
-				select {
-				case <-timer.C:
-				default:
-				}
-			}
-		}()
+		defer coretime.TimerStopAndDrain(timer)
 
 		select {
 		case <-timer.C:
-			return
 		case <-ctx.Done():
-			return
 		}
 	}
 
@@ -312,21 +306,8 @@ func (a *Authenticator) runWatcher(ctx context.Context) {
 	}
 }
 
+// nextBackoffTime returns the delay before the next authentication attempt:
+// backoffBase plus uniform jitter in [0, backoffBase), capped at backoffMax.
 func (a *Authenticator) nextBackoffTime() time.Duration {
-	// Generate cryptographically secure random jitter between 0 and backoffBase
-	maxJitter := big.NewInt(int64(a.backoffBase))
-	jitter, err := rand.Int(rand.Reader, maxJitter)
-	if err != nil {
-		// Fallback to base backoff if random generation fails
-		return a.backoffBase
-	}
-
-	backoff := a.backoffBase + time.Duration(jitter.Int64())
-
-	// Cap at backoffMax to prevent unbounded growth
-	if backoff > a.backoffMax {
-		return a.backoffMax
-	}
-
-	return backoff
+	return a.nextBackoff(0, nil)
 }

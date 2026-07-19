@@ -112,7 +112,7 @@ func TestBuild(t *testing.T) {
 		{name: "b", deps: []string{"a"}},
 	}
 
-	sorted, err := Build[*testItem](items, discardLogger)
+	sorted, err := Build(items, discardLogger)
 	require.NoError(t, err)
 
 	names := make([]string, len(sorted))
@@ -146,7 +146,7 @@ func TestBuild_MissingDependency(t *testing.T) {
 		{name: "a", deps: []string{"missing"}},
 	}
 
-	sorted, err := Build[*testItem](items, discardLogger)
+	sorted, err := Build(items, discardLogger)
 	require.NoError(t, err)
 	require.Len(t, sorted, 1)
 }
@@ -167,7 +167,7 @@ func TestBuild_RequiredDependencyPresent(t *testing.T) {
 		{name: "limiter", reqDeps: []string{"realip"}},
 	}
 
-	sorted, err := Build[*requiredTestItem](items, discardLogger)
+	sorted, err := Build(items, discardLogger)
 	require.NoError(t, err)
 
 	require.Len(t, sorted, 2)
@@ -180,7 +180,7 @@ func TestBuild_RequiredDependencyMissing(t *testing.T) {
 		{name: "limiter", reqDeps: []string{"realip"}},
 	}
 
-	_, err := Build[*requiredTestItem](items, discardLogger)
+	_, err := Build(items, discardLogger)
 	require.Error(t, err)
 	require.True(t, strings.Contains(err.Error(), "requires dependency"))
 	require.True(t, strings.Contains(err.Error(), "realip"))
@@ -193,7 +193,7 @@ func TestBuild_MixedRequiredAndOptional(t *testing.T) {
 		{name: "audit", deps: []string{"metadata", "tracing"}, reqDeps: []string{"realip"}},
 	}
 
-	sorted, err := Build[*requiredTestItem](items, discardLogger)
+	sorted, err := Build(items, discardLogger)
 	require.NoError(t, err)
 
 	// realip and metadata must come before audit; tracing is optional and missing
@@ -219,7 +219,7 @@ func TestBuild_OverlappingRequiredAndOptional(t *testing.T) {
 		{name: "limiter", deps: []string{"realip"}, reqDeps: []string{"realip"}},
 	}
 
-	sorted, err := Build[*requiredTestItem](items, discardLogger)
+	sorted, err := Build(items, discardLogger)
 	require.NoError(t, err)
 	require.Len(t, sorted, 2)
 	require.Equal(t, "realip", sorted[0].Name())
@@ -261,6 +261,6 @@ func TestBuild_Cycle(t *testing.T) {
 		{name: "b", deps: []string{"a"}},
 	}
 
-	_, err := Build[*testItem](items, discardLogger)
+	_, err := Build(items, discardLogger)
 	require.Error(t, err)
 }

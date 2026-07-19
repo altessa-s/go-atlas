@@ -25,24 +25,19 @@ func (m *mockResolver) Resolve(_ context.Context, _ netip.Addr) (GeoInfo, error)
 	return m.geo, m.err
 }
 
-func TestEvaluate_AllowCountriesMode(t *testing.T) {
-	reg := NewRegistry(PolicyDeny)
-	reg.Register("/admin.AdminService/Delete", &AccessRule{
-		AllowCountries: []string{"US", "CA"},
-	})
+// evaluateCase is one Evaluate expectation checked by runEvaluateCases.
+type evaluateCase struct {
+	name     string
+	geo      GeoInfo
+	endpoint string
+	want     bool
+}
 
-	tests := []struct {
-		name     string
-		geo      GeoInfo
-		endpoint string
-		want     bool
-	}{
-		{"allowed country US", GeoInfo{CountryCode: "US"}, "/admin.AdminService/Delete", true},
-		{"allowed country CA", GeoInfo{CountryCode: "CA"}, "/admin.AdminService/Delete", true},
-		{"denied country RU", GeoInfo{CountryCode: "RU"}, "/admin.AdminService/Delete", false},
-		{"no rule, policy deny", GeoInfo{CountryCode: "US"}, "/other.Service/Method", false},
-	}
-	for _, tt := range tests {
+// runEvaluateCases asserts, per subtest, that evaluating the endpoint against
+// the registry for a resolver returning the case's geo yields the wanted verdict.
+func runEvaluateCases(t *testing.T, reg *Registry, cases []evaluateCase) {
+	t.Helper()
+	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			resolver := &mockResolver{geo: tt.geo}
 			got, err := reg.Evaluate(t.Context(), resolver, testIP, tt.endpoint)
@@ -52,31 +47,32 @@ func TestEvaluate_AllowCountriesMode(t *testing.T) {
 	}
 }
 
+func TestEvaluate_AllowCountriesMode(t *testing.T) {
+	reg := NewRegistry(PolicyDeny)
+	reg.Register("/admin.AdminService/Delete", &AccessRule{
+		AllowCountries: []string{"US", "CA"},
+	})
+
+	runEvaluateCases(t, reg, []evaluateCase{
+		{"allowed country US", GeoInfo{CountryCode: "US"}, "/admin.AdminService/Delete", true},
+		{"allowed country CA", GeoInfo{CountryCode: "CA"}, "/admin.AdminService/Delete", true},
+		{"denied country RU", GeoInfo{CountryCode: "RU"}, "/admin.AdminService/Delete", false},
+		{"no rule, policy deny", GeoInfo{CountryCode: "US"}, "/other.Service/Method", false},
+	})
+}
+
 func TestEvaluate_DenyCountriesMode(t *testing.T) {
 	reg := NewRegistry(PolicyAllow)
 	reg.Register("/api.Service/Action", &AccessRule{
 		DenyCountries: []string{"RU", "CN"},
 	})
 
-	tests := []struct {
-		name     string
-		geo      GeoInfo
-		endpoint string
-		want     bool
-	}{
+	runEvaluateCases(t, reg, []evaluateCase{
 		{"denied country RU", GeoInfo{CountryCode: "RU"}, "/api.Service/Action", false},
 		{"denied country CN", GeoInfo{CountryCode: "CN"}, "/api.Service/Action", false},
 		{"allowed country US", GeoInfo{CountryCode: "US"}, "/api.Service/Action", true},
 		{"no rule, policy allow", GeoInfo{CountryCode: "RU"}, "/other.Service/Method", true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			resolver := &mockResolver{geo: tt.geo}
-			got, err := reg.Evaluate(t.Context(), resolver, testIP, tt.endpoint)
-			require.NoError(t, err)
-			require.Equal(t, tt.want, got)
-		})
-	}
+	})
 }
 
 func TestEvaluate_AllowContinentsMode(t *testing.T) {

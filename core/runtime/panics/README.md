@@ -14,6 +14,16 @@ and is thread-safe — handlers can be registered and modified concurrently with
 | `Handle`           | Recover and run global + per-call handlers               |
 | `HandleWithOpts`   | Same with per-call options (e.g., override re-panic)     |
 
+## Guarded channel sends
+
+| Function             | Description                                                                |
+|----------------------|----------------------------------------------------------------------------|
+| `TrySend`            | Blocking send, canceled by `ctx`; recovers the send-on-closed panic        |
+| `TrySendNonBlocking` | Select-with-default send; recovers the send-on-closed panic                |
+
+Both report `(sent, closed bool)`. Needing them is a channel-ownership smell — the sender should own the close — but they contain the
+crash when that ownership is shared or inverted.
+
 ## Assertions
 
 | Function          | Panics when                                      |

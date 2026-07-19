@@ -9,24 +9,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/internal/redisutils"
-
-	goredis "github.com/redis/go-redis/v9"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
-func setupRedis(tb testing.TB) (*goredis.Client, *miniredis.Miniredis) {
-	tb.Helper()
-	mr := miniredis.RunT(tb)
-	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
-	return client, mr
-}
-
 func TestGetBytes_Hit(t *testing.T) {
-	client, mr := setupRedis(t)
-	defer mr.Close()
+	client, mr := testhelpers.RedisClient(t)
 	ctx := t.Context()
 
 	mr.Set("key1", "value1")
@@ -37,8 +27,7 @@ func TestGetBytes_Hit(t *testing.T) {
 }
 
 func TestGetBytes_Miss(t *testing.T) {
-	client, mr := setupRedis(t)
-	defer mr.Close()
+	client, _ := testhelpers.RedisClient(t)
 	ctx := t.Context()
 
 	notFoundErr := errors.New("not found")
@@ -47,8 +36,7 @@ func TestGetBytes_Miss(t *testing.T) {
 }
 
 func TestSetBytes(t *testing.T) {
-	client, mr := setupRedis(t)
-	defer mr.Close()
+	client, mr := testhelpers.RedisClient(t)
 	ctx := t.Context()
 
 	err := redisutils.SetBytes(ctx, client, "key1", []byte("val"), 0)
@@ -60,8 +48,7 @@ func TestSetBytes(t *testing.T) {
 }
 
 func TestSetBytes_WithTTL(t *testing.T) {
-	client, mr := setupRedis(t)
-	defer mr.Close()
+	client, mr := testhelpers.RedisClient(t)
 	ctx := t.Context()
 
 	err := redisutils.SetBytes(ctx, client, "key1", []byte("val"), 10*time.Second)
@@ -73,8 +60,7 @@ func TestSetBytes_WithTTL(t *testing.T) {
 }
 
 func TestDel(t *testing.T) {
-	client, mr := setupRedis(t)
-	defer mr.Close()
+	client, mr := testhelpers.RedisClient(t)
 	ctx := t.Context()
 
 	mr.Set("key1", "value1")
@@ -85,8 +71,7 @@ func TestDel(t *testing.T) {
 }
 
 func TestDel_NonExistent(t *testing.T) {
-	client, mr := setupRedis(t)
-	defer mr.Close()
+	client, _ := testhelpers.RedisClient(t)
 	ctx := t.Context()
 
 	err := redisutils.Del(ctx, client, "missing")

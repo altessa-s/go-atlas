@@ -70,7 +70,7 @@ type OIDC struct {
 	// discovery, JWKS refresh, introspection, userinfo, and URL-based
 	// revocation loaders. When omitted entirely, the standard
 	// HTTP_PROXY/HTTPS_PROXY/NO_PROXY environment variables apply.
-	Proxy *HTTPProxy `yaml:"proxy" default:"-"`
+	Proxy *Proxy `yaml:"proxy" default:"-"`
 }
 
 // DefaultOIDC returns an OIDC configuration with default values.

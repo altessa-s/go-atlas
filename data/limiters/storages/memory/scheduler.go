@@ -24,14 +24,11 @@ func (p *Provider) registerCleanupTask(schedule string) error {
 		return fmt.Errorf("cleanup schedule must be set")
 	}
 
-	// Mark as scheduler-managed
-	p.schedulerCleanupRegistered.Store(true)
-
 	ctx := context.Background()
 	taskCfg := corescheduler.TaskConfig{
 		ID:          "limiter-tokenbucket-memory-cleanup",
 		Description: "Cleanup expired rate limit buckets from memory storage",
-		Func:        func(ctx context.Context) error { p.runCleanupInternal(); return nil },
+		Func:        p.cleanupTask.SchedulerFunc(p.runCleanupCycle),
 		Schedule:    schedule,
 		Priority:    corescheduler.TaskPriorityNormal,
 	}
@@ -44,21 +41,15 @@ func (p *Provider) registerCleanupTask(schedule string) error {
 // If the function is registered with a scheduler, this method returns immediately.
 // Thread-safe: Safe for concurrent calls.
 func (p *Provider) RunCleanup() {
-	if p.schedulerCleanupRegistered.Load() {
-		return // Managed by scheduler, skip external call
-	}
-	p.runCleanupInternal()
+	_ = p.cleanupTask.Run(context.Background(), p.runCleanupCycle)
 }
 
-// runCleanupInternal performs the actual cleanup.
-// If cleanup is already running, this call returns immediately.
-func (p *Provider) runCleanupInternal() {
-	// Prevent concurrent execution
-	if !p.cleanupRunning.CompareAndSwap(false, true) {
-		return // Already running, skip this cycle
-	}
-	defer p.cleanupRunning.Store(false)
-
+// runCleanupCycle performs the actual cleanup, dropping buckets that have
+// been idle longer than the configured max idle time. Unlike the TTL-based
+// memory storages this sweep is idle-time-based and runs under a single
+// write lock. Callers must route through cleanupTask so overlapping cycles
+// collapse into a single execution.
+func (p *Provider) runCleanupCycle(context.Context) error {
 	now := time.Now()
 	cutoff := now.Add(-p.options.maxIdleTime)
 
@@ -70,4 +61,5 @@ func (p *Provider) runCleanupInternal() {
 			delete(p.buckets, key)
 		}
 	}
+	return nil
 }

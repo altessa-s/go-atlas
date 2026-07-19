@@ -9,14 +9,14 @@ import (
 
 	"github.com/alicebob/miniredis/v2"
 
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
+
 	idempredis "github.com/altessa-s/go-atlas/data/idempotency/storages/redis"
-	goredis "github.com/redis/go-redis/v9"
 )
 
 func benchSetup(b *testing.B) (*idempredis.Storage, *miniredis.Miniredis) {
 	b.Helper()
-	mr := miniredis.RunT(b)
-	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	client, mr := testhelpers.RedisClient(b)
 	return idempredis.New(client), mr
 }
 

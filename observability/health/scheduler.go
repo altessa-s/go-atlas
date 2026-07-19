@@ -8,6 +8,7 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 
 	corectx "github.com/altessa-s/go-atlas/core/context"
@@ -119,9 +120,7 @@ func (c *Coordinator) runHealthCheckCycleInternal(ctx context.Context) error {
 		// Collect watchers that need notification
 		var toNotify []*watcher
 		for w := range watchers {
-			if ServingStatus(w.lastStatus.Load()) != currentStatus {
-				toNotify = append(toNotify, w)
-			}
+			toNotify = slices.AppendIf(toNotify, ServingStatus(w.lastStatus.Load()) != currentStatus, w)
 		}
 		shard.mu.RUnlock()
 

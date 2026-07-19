@@ -253,7 +253,7 @@ type TracingOTLP struct {
 	// HTTP protocol use HTTPS_PROXY/HTTP_PROXY/NO_PROXY instead.
 	// When omitted entirely (with Protocol "grpc"), grpc-go honors
 	// the same env variables.
-	Proxy *GrpcProxy `yaml:"proxy" default:"-"`
+	Proxy *Proxy `yaml:"proxy" default:"-"`
 }
 
 // DefaultTracingOTLP returns a TracingOTLP with default values.

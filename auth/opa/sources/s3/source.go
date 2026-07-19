@@ -19,6 +19,7 @@ import (
 	"github.com/altessa-s/go-atlas/auth/opa"
 
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 )
@@ -199,14 +200,8 @@ func (s *Source) listObjects(ctx context.Context) ([]string, error) {
 			key := *obj.Key
 			ext := path.Ext(key)
 
-			if s.extensions.Contains(ext) {
-				keys = append(keys, key)
-				continue
-			}
-
-			if s.opts.includeData && ext == ".json" {
-				keys = append(keys, key)
-			}
+			keys = coreslices.AppendIf(keys,
+				s.extensions.Contains(ext) || (s.opts.includeData && ext == ".json"), key)
 		}
 
 		if output.IsTruncated == nil || !*output.IsTruncated {

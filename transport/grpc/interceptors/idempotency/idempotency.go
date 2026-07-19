@@ -23,6 +23,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	sharedmetadata "github.com/altessa-s/go-atlas/transport/grpc/interceptors/metadata"
+	internalidem "github.com/altessa-s/go-atlas/transport/internal/idempotency"
 	grpcmetadata "google.golang.org/grpc/metadata"
 	stdStrings "strings"
 )
@@ -307,5 +308,5 @@ func (ri *requestInterceptor) buildKey(method, key string) string {
 	if idx := stdStrings.LastIndex(method, "/"); idx > 0 {
 		method = method[:idx]
 	}
-	return "idk:" + method + ":" + key
+	return internalidem.BuildStorageKey(method, key)
 }

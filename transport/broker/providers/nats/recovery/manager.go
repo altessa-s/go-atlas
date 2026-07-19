@@ -49,12 +49,9 @@ type Manager struct {
 	onManualRecoveryNeeded func(stream string, event any)
 	onStaleRecoveryCleared func(stream string)
 
-	scheduler           corescheduler.TaskRegistrar
-	healthCheckRunning  atomic.Bool // Guards against concurrent RunHealthCheckCycle calls.
-	staleCleanupRunning atomic.Bool // Guards against concurrent RunStaleRecoveryCleanup calls.
-
-	schedulerHealthCheckRegistered  atomic.Bool // Marks if RunHealthCheckCycle is managed by scheduler.
-	schedulerStaleCleanupRegistered atomic.Bool // Marks if RunStaleRecoveryCleanup is managed by scheduler.
+	scheduler        corescheduler.TaskRegistrar
+	healthCheckTask  corescheduler.ManagedTask // Guards RunHealthCheckCycle and marks scheduler management.
+	staleCleanupTask corescheduler.ManagedTask // Guards RunStaleRecoveryCleanup and marks scheduler management.
 }
 
 // New creates a new Manager with the given NATS provider and options.

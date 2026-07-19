@@ -9,6 +9,7 @@ import (
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/internal/clientip"
+	"github.com/altessa-s/go-atlas/transport/internal/factoryconv"
 
 	bodylimitmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/bodylimit"
 	corsmw "github.com/altessa-s/go-atlas/transport/http/server/middlewares/cors"
@@ -119,22 +120,12 @@ func (b *ServerBuilder) WithCorsMiddleware() *ServerBuilder {
 		corsmw.WithOptionsSuccessStatus(c.OptionsSuccessStatus),
 	}
 
-	if len(c.AllowedMethods) > 0 {
-		configOpts = append(configOpts, corsmw.WithAllowedMethods(c.AllowedMethods...))
-	}
-	if len(c.AllowedHeaders) > 0 {
-		configOpts = append(configOpts, corsmw.WithAllowedHeaders(c.AllowedHeaders...))
-	}
-	if len(c.ExposedHeaders) > 0 {
-		configOpts = append(configOpts, corsmw.WithExposedHeaders(c.ExposedHeaders...))
-	}
-	if len(c.IgnorePaths) > 0 {
-		configOpts = append(configOpts, corsmw.WithIgnorePaths(c.IgnorePaths...))
-	}
-	if len(c.IgnorePatterns) > 0 {
-		patterns := compilePatterns(c.IgnorePatterns)
-		configOpts = append(configOpts, corsmw.WithIgnorePatterns(patterns...))
-	}
+	configOpts = slices.AppendIf(configOpts, len(c.AllowedMethods) > 0, corsmw.WithAllowedMethods(c.AllowedMethods...))
+	configOpts = slices.AppendIf(configOpts, len(c.AllowedHeaders) > 0, corsmw.WithAllowedHeaders(c.AllowedHeaders...))
+	configOpts = slices.AppendIf(configOpts, len(c.ExposedHeaders) > 0, corsmw.WithExposedHeaders(c.ExposedHeaders...))
+	configOpts = slices.AppendIf(configOpts, len(c.IgnorePaths) > 0, corsmw.WithIgnorePaths(c.IgnorePaths...))
+	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
+		corsmw.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
 
 	configOpts = slices.AppendIf(configOpts, c.AllowCredentials, corsmw.WithAllowCredentials())
 	configOpts = slices.AppendIf(configOpts, c.AllowPrivateNetwork, corsmw.WithAllowPrivateNetwork())
@@ -162,13 +153,12 @@ func (b *ServerBuilder) WithIdempotencyMiddleware() *ServerBuilder {
 		idempotencymw.WithIdempotencyKeyHeader(c.IdempotencyKeyHeader),
 		idempotencymw.WithIdempotencyKeyStatusHeader(c.IdempotencyKeyStatusHeader),
 		idempotencymw.WithIdempotencyKeyEntityIdHeader(c.IdempotencyKeyEntityIdHeader),
-		idempotencymw.WithFallbackBehavior(convertFallbackBehavior(c.FallbackBehavior)),
+		idempotencymw.WithFallbackBehavior(factoryconv.ConvertFallbackBehavior(c.FallbackBehavior)),
 		idempotencymw.WithIgnorePaths(c.IgnorePaths...),
 	}
 
-	if len(c.IgnorePatterns) > 0 {
-		configOpts = append(configOpts, idempotencymw.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
-	}
+	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
+		idempotencymw.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
 
 	configOpts = append(configOpts, idempotencymw.WithEnforceMandatory(c.EnforceMandatory))
 
@@ -184,7 +174,7 @@ func (b *ServerBuilder) WithIpAclMiddleware() *ServerBuilder {
 	}
 
 	c := cfg.IpAcl
-	registry, err := buildIpAclRegistry(c.DefaultPolicy, c.Rules, c.DefaultRule)
+	registry, err := factoryconv.BuildIpAclRegistry(c.DefaultPolicy, c.Rules, c.DefaultRule)
 	if err != nil {
 		b.errs = append(b.errs, b.WrapError(err, "failed to build IP ACL registry"))
 		return b
@@ -192,13 +182,12 @@ func (b *ServerBuilder) WithIpAclMiddleware() *ServerBuilder {
 
 	configOpts := []ipaclmw.Option{
 		ipaclmw.WithLogger(b.Logger()),
-		ipaclmw.WithFallbackBehavior(convertFallbackBehavior(c.FallbackBehavior)),
+		ipaclmw.WithFallbackBehavior(factoryconv.ConvertFallbackBehavior(c.FallbackBehavior)),
 		ipaclmw.WithIgnorePaths(c.IgnorePaths...),
 	}
 
-	if len(c.IgnorePatterns) > 0 {
-		configOpts = append(configOpts, ipaclmw.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
-	}
+	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
+		ipaclmw.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
 
 	b.configMW = append(b.configMW, ipaclmw.New(registry, configOpts...))
 	return b
@@ -217,7 +206,7 @@ func (b *ServerBuilder) WithGeoAclMiddleware() *ServerBuilder {
 	}
 
 	c := cfg.GeoAcl
-	registry, err := buildGeoAclRegistry(c.DefaultPolicy, c.Rules, c.DefaultRule)
+	registry, err := factoryconv.BuildGeoAclRegistry(c.DefaultPolicy, c.Rules, c.DefaultRule)
 	if err != nil {
 		b.errs = append(b.errs, b.WrapError(err, "failed to build GeoACL registry"))
 		return b
@@ -225,13 +214,12 @@ func (b *ServerBuilder) WithGeoAclMiddleware() *ServerBuilder {
 
 	configOpts := []geoaclmw.Option{
 		geoaclmw.WithLogger(b.Logger()),
-		geoaclmw.WithFallbackBehavior(convertFallbackBehavior(c.FallbackBehavior)),
+		geoaclmw.WithFallbackBehavior(factoryconv.ConvertFallbackBehavior(c.FallbackBehavior)),
 		geoaclmw.WithIgnorePaths(c.IgnorePaths...),
 	}
 
-	if len(c.IgnorePatterns) > 0 {
-		configOpts = append(configOpts, geoaclmw.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
-	}
+	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
+		geoaclmw.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
 
 	b.configMW = append(b.configMW, geoaclmw.New(b.geoResolver, registry, configOpts...))
 	return b
@@ -252,13 +240,12 @@ func (b *ServerBuilder) WithLimiterMiddleware() *ServerBuilder {
 	c := cfg.Limiter
 	configOpts := []limitermw.Option{
 		limitermw.WithLogger(b.Logger()),
-		limitermw.WithFallbackBehavior(convertFallbackBehavior(c.FallbackBehavior)),
+		limitermw.WithFallbackBehavior(factoryconv.ConvertFallbackBehavior(c.FallbackBehavior)),
 		limitermw.WithIgnorePaths(c.IgnorePaths...),
 	}
 
-	if len(c.IgnorePatterns) > 0 {
-		configOpts = append(configOpts, limitermw.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
-	}
+	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
+		limitermw.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
 
 	b.configMW = append(b.configMW, limitermw.New(b.limiter, configOpts...))
 	return b
@@ -280,9 +267,8 @@ func (b *ServerBuilder) WithLoggerMiddleware() *ServerBuilder {
 		loggermw.WithIgnoreMethods(c.IgnoreHttpMethods...),
 	}
 
-	if len(c.IgnorePatterns) > 0 {
-		configOpts = append(configOpts, loggermw.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
-	}
+	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
+		loggermw.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
 
 	configOpts = slices.AppendIf(configOpts, c.LogRequest, loggermw.WithLogRequest())
 	configOpts = slices.AppendIf(configOpts, c.LogResponse, loggermw.WithLogResponse())
@@ -306,16 +292,11 @@ func (b *ServerBuilder) WithMetricsMiddleware() *ServerBuilder {
 		metricsmw.WithIgnorePaths(c.IgnorePaths...),
 	}
 
-	if len(c.IgnorePatterns) > 0 {
-		configOpts = append(configOpts, metricsmw.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
-	}
+	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
+		metricsmw.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
 
-	if len(c.DurationBuckets) > 0 {
-		configOpts = append(configOpts, metricsmw.WithDurationBuckets(c.DurationBuckets))
-	}
-	if len(c.SizeBuckets) > 0 {
-		configOpts = append(configOpts, metricsmw.WithSizeBuckets(c.SizeBuckets))
-	}
+	configOpts = slices.AppendIf(configOpts, len(c.DurationBuckets) > 0, metricsmw.WithDurationBuckets(c.DurationBuckets))
+	configOpts = slices.AppendIf(configOpts, len(c.SizeBuckets) > 0, metricsmw.WithSizeBuckets(c.SizeBuckets))
 
 	configOpts = slices.AppendIf(configOpts, c.EnableSizeMetrics, metricsmw.WithEnableSizeMetrics())
 
@@ -342,10 +323,8 @@ func (b *ServerBuilder) WithTracingMiddleware() *ServerBuilder {
 	}
 
 	if len(c.IgnorePatterns) > 0 {
-		patterns := compilePatterns(c.IgnorePatterns)
-		if len(patterns) > 0 {
-			configOpts = append(configOpts, tracingmw.WithIgnorePatterns(patterns...))
-		}
+		patterns := factoryconv.CompilePatterns(c.IgnorePatterns)
+		configOpts = slices.AppendIf(configOpts, len(patterns) > 0, tracingmw.WithIgnorePatterns(patterns...))
 	}
 
 	b.configMW = append(b.configMW, tracingmw.New(b.tracer, configOpts...))
@@ -366,7 +345,7 @@ func (b *ServerBuilder) WithRealIPMiddleware() *ServerBuilder {
 	}
 
 	if len(c.TrustedProxies) > 0 {
-		proxies, err := parsePrefixes(c.TrustedProxies)
+		proxies, err := factoryconv.ParsePrefixes(c.TrustedProxies)
 		if err != nil {
 			b.errs = append(b.errs, b.WrapError(err, "failed to parse trusted proxies"))
 			return b
@@ -398,9 +377,8 @@ func (b *ServerBuilder) WithRecoveryMiddleware() *ServerBuilder {
 
 	configOpts = slices.AppendIf(configOpts, c.LogStack, recoverymw.WithLogStack())
 
-	if len(c.IgnorePatterns) > 0 {
-		configOpts = append(configOpts, recoverymw.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
-	}
+	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
+		recoverymw.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
 
 	b.configMW = append(b.configMW, recoverymw.New(b.Logger(), configOpts...))
 	return b
@@ -439,9 +417,8 @@ func (b *ServerBuilder) WithSecurityHeadersMiddleware() *ServerBuilder {
 		securityheadersmw.WithIgnorePaths(c.IgnorePaths...),
 	}
 
-	if len(c.IgnorePatterns) > 0 {
-		configOpts = append(configOpts, securityheadersmw.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
-	}
+	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
+		securityheadersmw.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
 
 	configOpts = slices.AppendIf(configOpts, c.HstsEnabled, securityheadersmw.WithHstsEnabled())
 	configOpts = slices.AppendIf(configOpts, c.HstsIncludeSubDomains, securityheadersmw.WithHstsIncludeSubDomains())

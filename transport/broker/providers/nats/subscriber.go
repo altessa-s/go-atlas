@@ -13,6 +13,7 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/core/runtime/appinfo"
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/observability/metrics"
@@ -205,9 +206,7 @@ func (ss *streamSubscriber) Subscribe(ctx context.Context, handler broker.Subscr
 		// Prepare message options, including the Acker and AckTimeout.
 		msgOpts := make([]msg.Option, 0, 2)
 		msgOpts = append(msgOpts, msg.WithAcker(&ackAdapter{msg: jsMsg}))
-		if ackWait > 0 {
-			msgOpts = append(msgOpts, msg.WithAckTimeout(ackWait))
-		}
+		msgOpts = slices.AppendIf(msgOpts, ackWait > 0, msg.WithAckTimeout(ackWait))
 
 		// Inline defers instead of IIFE to avoid closure allocation per message.
 		ss.handlersWg.Add(1)

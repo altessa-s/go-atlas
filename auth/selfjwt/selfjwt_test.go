@@ -7,11 +7,8 @@ package selfjwt_test
 import (
 	"context"
 	"crypto"
-	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/rsa"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/auth/selfjwt"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 const (
@@ -51,16 +49,13 @@ func genKeyPair(t testing.TB, alg selfjwt.Algorithm) keyPair {
 	t.Helper()
 	switch alg {
 	case selfjwt.AlgEdDSA:
-		pub, priv, err := ed25519.GenerateKey(rand.Reader)
-		require.NoError(t, err)
+		pub, priv := testhelpers.GenerateEd25519Key(t)
 		return keyPair{alg: alg, priv: priv, pub: pub}
 	case selfjwt.AlgES256:
-		k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		require.NoError(t, err)
+		k := testhelpers.GenerateECDSAKey(t, elliptic.P256())
 		return keyPair{alg: alg, priv: k, pub: &k.PublicKey}
 	case selfjwt.AlgRS256:
-		k, err := rsa.GenerateKey(rand.Reader, 2048)
-		require.NoError(t, err)
+		k := testhelpers.GenerateRSAKey(t, 2048)
 		return keyPair{alg: alg, priv: k, pub: &k.PublicKey}
 	default:
 		t.Fatalf("unsupported test algorithm %q", alg)

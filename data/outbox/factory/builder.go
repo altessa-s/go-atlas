@@ -103,18 +103,10 @@ func (b *OutboxBuilder) createOutboxWithStore(store outbox.Store, handler outbox
 			outbox.WithExpireTaskID(b.cfg.ExpireTaskID),
 			outbox.WithCleanupTaskID(b.cfg.CleanupTaskID),
 		)
-		if b.cfg.DispatchSchedule != "" {
-			opts = append(opts, outbox.WithDispatchSchedule(b.cfg.DispatchSchedule))
-		}
-		if b.cfg.UnlockSchedule != "" {
-			opts = append(opts, outbox.WithUnlockSchedule(b.cfg.UnlockSchedule))
-		}
-		if b.cfg.CleanupSchedule != "" {
-			opts = append(opts, outbox.WithCleanupSchedule(b.cfg.CleanupSchedule))
-		}
-		if b.cfg.ExpireSchedule != "" {
-			opts = append(opts, outbox.WithExpireSchedule(b.cfg.ExpireSchedule))
-		}
+		opts = slices.AppendIf(opts, b.cfg.DispatchSchedule != "", outbox.WithDispatchSchedule(b.cfg.DispatchSchedule))
+		opts = slices.AppendIf(opts, b.cfg.UnlockSchedule != "", outbox.WithUnlockSchedule(b.cfg.UnlockSchedule))
+		opts = slices.AppendIf(opts, b.cfg.CleanupSchedule != "", outbox.WithCleanupSchedule(b.cfg.CleanupSchedule))
+		opts = slices.AppendIf(opts, b.cfg.ExpireSchedule != "", outbox.WithExpireSchedule(b.cfg.ExpireSchedule))
 	}
 
 	return outbox.New(store, handler, opts...), nil

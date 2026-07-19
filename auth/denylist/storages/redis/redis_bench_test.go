@@ -7,17 +7,14 @@ package redis_test
 import (
 	"testing"
 
-	"github.com/alicebob/miniredis/v2"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	redisstore "github.com/altessa-s/go-atlas/auth/denylist/storages/redis"
-	goredis "github.com/redis/go-redis/v9"
 )
 
 func benchStore(b *testing.B) *redisstore.Store {
 	b.Helper()
-	mr := miniredis.RunT(b)
-	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
-	b.Cleanup(func() { _ = client.Close() })
+	client, _ := testhelpers.RedisClient(b)
 	return redisstore.New(client)
 }
 

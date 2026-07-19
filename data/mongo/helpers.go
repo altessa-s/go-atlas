@@ -16,6 +16,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corehash "github.com/altessa-s/go-atlas/core/encoding/hash"
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
@@ -253,11 +254,11 @@ const deduplicationKeyMarshalSentinel = "\x00bson-marshal-error\x00"
 // untrusted input. The list is intentionally narrow — perf-only hazards
 // like $regex stay allowed; only operators that grant attacker-controlled
 // code execution on the database are blocked.
-var dangerousFilterOperators = map[string]struct{}{
+var dangerousFilterOperators = coremaps.NewImmutableMap(map[string]struct{}{
 	"$where":       {}, // arbitrary JavaScript evaluated server-side
 	"$function":    {}, // user-defined JavaScript inside aggregations / $expr
 	"$accumulator": {}, // user-defined JavaScript accumulator
-}
+})
 
 // validateFilter walks a bson.M filter and reports
 // [ErrFilterContainsDangerousOperator] when any dangerous operator (see
@@ -272,7 +273,7 @@ var dangerousFilterOperators = map[string]struct{}{
 // negligible compared to the query itself.
 func validateFilter(filter bson.M) error {
 	for key, value := range filter {
-		if _, blocked := dangerousFilterOperators[key]; blocked {
+		if dangerousFilterOperators.Contains(key) {
 			return fmt.Errorf("%w: %s", ErrFilterContainsDangerousOperator, key)
 		}
 		if err := validateFilterValue(value); err != nil {
@@ -291,7 +292,7 @@ func validateFilterValue(v any) error {
 		return validateFilter(v)
 	case bson.D:
 		for _, e := range v {
-			if _, blocked := dangerousFilterOperators[e.Key]; blocked {
+			if dangerousFilterOperators.Contains(e.Key) {
 				return fmt.Errorf("%w: %s", ErrFilterContainsDangerousOperator, e.Key)
 			}
 			if err := validateFilterValue(e.Value); err != nil {

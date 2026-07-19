@@ -203,10 +203,8 @@ func (b *ServerBuilder) buildBaseOptions() ([]baseserver.Option, error) {
 	}
 
 	if b.tlsSet {
-		if b.tlsConfig != nil {
-			opts = append(opts, baseserver.WithTlsConfig(b.tlsConfig))
-		}
 		// tlsSet && tlsConfig == nil → WithoutTLS(), no TLS config added
+		opts = slices.AppendIf(opts, b.tlsConfig != nil, baseserver.WithTlsConfig(b.tlsConfig))
 	} else if b.cfg.TLS != nil {
 		tlsConfig, err := b.buildServerTlsConfig()
 		if err != nil {

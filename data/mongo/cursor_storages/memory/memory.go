@@ -7,7 +7,6 @@ package memory
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/altessa-s/go-atlas/data/mongo"
@@ -51,9 +50,7 @@ type Storage struct {
 	ttl             time.Duration
 	scheduler       corescheduler.TaskRegistrar
 	cleanupSchedule string
-	cleanupRunning  atomic.Bool // Guards against concurrent RunCleanup calls.
-
-	schedulerCleanupRegistered atomic.Bool // Marks if RunCleanup is managed by scheduler.
+	cleanupTask     corescheduler.ManagedTask // Guards RunCleanup and marks scheduler management.
 }
 
 // entry represents a stored cursor with expiration time.

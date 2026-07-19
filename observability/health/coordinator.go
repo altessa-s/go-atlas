@@ -438,7 +438,7 @@ func (c *Coordinator) ListStatuses(ctx context.Context) (map[string]ServingStatu
 		status  ServingStatus
 	}
 
-	resultsSlice, err := concurrency.ProcessCollect[string, result](ctx, services, func(ctx context.Context, svc string) (result, error) {
+	resultsSlice, err := concurrency.ProcessCollect(ctx, services, func(ctx context.Context, svc string) (result, error) {
 		checkCtx, cancel := corectx.ApplyTimeout(ctx, c.checkTimeout)
 		status := c.CheckServiceHealth(checkCtx, svc)
 		cancel()

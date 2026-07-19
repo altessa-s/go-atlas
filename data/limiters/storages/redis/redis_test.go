@@ -15,14 +15,12 @@ import (
 
 	"github.com/altessa-s/go-atlas/data/limiters/storages"
 	"github.com/altessa-s/go-atlas/data/limiters/storages/redis"
-
-	goredis "github.com/redis/go-redis/v9"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 func setupProvider(tb testing.TB) (*redis.Provider, *miniredis.Miniredis) {
 	tb.Helper()
-	mr := miniredis.RunT(tb)
-	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	client, mr := testhelpers.RedisClient(tb)
 	return redis.New(client), mr
 }
 
@@ -89,8 +87,7 @@ func TestProvider_Reset_NonExistent(t *testing.T) {
 }
 
 func TestProvider_WithKeyPrefix(t *testing.T) {
-	mr := miniredis.RunT(t)
-	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	client, _ := testhelpers.RedisClient(t)
 
 	p1 := redis.New(client, redis.WithKeyPrefix("prefix1:"))
 	p2 := redis.New(client, redis.WithKeyPrefix("prefix2:"))

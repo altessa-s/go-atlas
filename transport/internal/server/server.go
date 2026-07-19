@@ -18,6 +18,7 @@ import (
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/transport/internal/timeouts"
 
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 	coretime "github.com/altessa-s/go-atlas/core/time"
@@ -154,9 +155,7 @@ func (s *BaseServer) Start(protocol string, startFn StartFunc) error {
 		slog.String("addr", ln.Addr().String()),
 	}
 
-	if s.options.name != "" {
-		attrs = append(attrs, slog.String("name", s.options.name))
-	}
+	attrs = coreslices.AppendNonEmpty(attrs, "name", s.options.name)
 
 	s.Logger().Info("server starting", attrs...)
 

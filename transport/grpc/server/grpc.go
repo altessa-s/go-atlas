@@ -88,9 +88,9 @@ func New(opts ...Option) (*Server, error) {
 	}
 
 	// Add TLS credentials if configured
-	if srv.TLSConfig() != nil {
-		srv.grpcOptions = append(srv.grpcOptions, grpc.Creds(credentials.NewTLS(srv.TLSConfig())))
-	}
+	srv.grpcOptions = coreslices.AppendIfFunc(srv.grpcOptions, srv.TLSConfig() != nil, func() []grpc.ServerOption {
+		return []grpc.ServerOption{grpc.Creds(credentials.NewTLS(srv.TLSConfig()))}
+	})
 
 	return srv, nil
 }

@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
 type expirationStore struct {
@@ -107,7 +109,7 @@ func TestOutbox_RunExpireCycle_SchedulerManaged(t *testing.T) {
 	_ = ob.RegisterExpireSchedulerFunc()
 
 	err := ob.RunExpireCycle(t.Context())
-	require.ErrorIs(t, err, ErrSchedulerManaged)
+	require.ErrorIs(t, err, corescheduler.ErrSchedulerManaged)
 }
 
 func TestOutbox_RunExpireCycle_PropagatesStoreError(t *testing.T) {

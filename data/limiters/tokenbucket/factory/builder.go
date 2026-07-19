@@ -17,6 +17,7 @@ import (
 	"github.com/altessa-s/go-atlas/data/limiters/tokenbucket"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	memorystorage "github.com/altessa-s/go-atlas/data/limiters/storages/memory"
@@ -77,9 +78,7 @@ func (b *TokenBucketLimiterBuilder) Build() (*tokenbucket.RuleLimiter, error) {
 	opts := b.applyDefaults([]tokenbucket.Option{
 		tokenbucket.WithIPCacheSize(b.cfg.IpCacheSize),
 	})
-	if b.clientService != nil {
-		opts = append(opts, tokenbucket.WithClientService(b.clientService))
-	}
+	opts = coreslices.AppendIf(opts, b.clientService != nil, tokenbucket.WithClientService(b.clientService))
 
 	return tokenbucket.New(rateLimitConfig, storage, opts...)
 }

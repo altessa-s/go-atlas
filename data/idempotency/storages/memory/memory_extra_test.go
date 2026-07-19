@@ -75,10 +75,38 @@ func TestMemory_RunCleanup_NoTTL(t *testing.T) {
 
 func TestMemory_RunCleanup_SchedulerManaged(t *testing.T) {
 	s := New()
-	s.schedulerCleanupRegistered.Store(true)
+	s.cleanupTask.MarkRegistered()
 
 	// Should return immediately without cleaning
 	s.RunCleanup()
+}
+
+// TestMemory_RunCleanup_KeepsRefreshedEntry pins the cleanup predicate
+// against entries whose TTL was re-armed before the sweep: only entries
+// expired at sweep start may be removed. The refresh-between-phases race
+// itself (entry re-armed after the phase-1 collect must survive the phase-2
+// delete) is pinned deterministically in data/internal/memcleanup, which
+// this storage's cleanup delegates to.
+func TestMemory_RunCleanup_KeepsRefreshedEntry(t *testing.T) {
+	s := New(WithTtl(50 * time.Millisecond))
+	ctx := t.Context()
+
+	_, _, _, _ = s.AttemptLock(ctx, "stale", []byte("v1"))
+	_, _, token, _ := s.AttemptLock(ctx, "refreshed", []byte("v2"))
+
+	time.Sleep(100 * time.Millisecond)
+
+	// Re-arm the TTL of "refreshed" via the production path (Complete
+	// resets expiresAt), then sweep.
+	require.NoError(t, s.Complete(ctx, "refreshed", []byte("done"), token))
+	s.RunCleanup()
+
+	// "stale" was expired and must be gone; "refreshed" must survive.
+	ok, _, _, _ := s.AttemptLock(ctx, "stale", []byte("new"))
+	require.True(t, ok, "expired entry must be removed by cleanup")
+	ok, existing, _, _ := s.AttemptLock(ctx, "refreshed", []byte("new"))
+	require.False(t, ok, "refreshed entry must survive cleanup")
+	require.Equal(t, []byte("done"), existing)
 }
 
 // TestMemory_Complete_Expired verifies CAS semantics on expired keys:

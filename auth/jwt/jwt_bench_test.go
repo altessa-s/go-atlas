@@ -5,19 +5,15 @@
 package jwt_test
 
 import (
-	"crypto/ed25519"
-	"crypto/rand"
 	"testing"
 	"time"
 
 	"github.com/altessa-s/go-atlas/auth/jwt"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 func BenchmarkSign(b *testing.B) {
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		b.Fatal(err)
-	}
+	pub, priv := testhelpers.GenerateEd25519Key(b)
 	_ = pub
 	signer := jwt.NewSigner(jwt.WithIssuer("billing"))
 	key := jwt.SigningKey{KeyID: "ed", Algorithm: jwt.AlgEdDSA, Key: priv}
@@ -32,10 +28,7 @@ func BenchmarkSign(b *testing.B) {
 }
 
 func BenchmarkVerify(b *testing.B) {
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		b.Fatal(err)
-	}
+	pub, priv := testhelpers.GenerateEd25519Key(b)
 	signer := jwt.NewSigner(jwt.WithIssuer("billing"))
 	key := jwt.SigningKey{KeyID: "ed", Algorithm: jwt.AlgEdDSA, Key: priv}
 	claims := jwt.Claims{"sub": "tenant-1", "iss": "billing", "exp": time.Now().Add(time.Hour).Unix()}

@@ -8,12 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/altessa-s/go-atlas/data/cache/providers/redis"
-
-	goredis "github.com/redis/go-redis/v9"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 func FuzzProvider_SaveGet(f *testing.F) {
@@ -25,12 +23,7 @@ func FuzzProvider_SaveGet(f *testing.F) {
 	f.Add("unicode-key-🔑", []byte("unicode-value-📦"))
 
 	f.Fuzz(func(t *testing.T, key string, value []byte) {
-		mr := miniredis.RunT(t)
-		defer mr.Close()
-
-		client := goredis.NewClient(&goredis.Options{
-			Addr: mr.Addr(),
-		})
+		client, _ := testhelpers.RedisClient(t)
 
 		provider := redis.New(client)
 		ctx := t.Context()
