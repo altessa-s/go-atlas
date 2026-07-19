@@ -64,6 +64,31 @@ jobs:
           path: coverage.out
           retention-days: 7
 
+  cross-compile:
+    name: Cross-compile (${{ matrix.goos }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      matrix:
+        # linux is covered by the main build; guard the platform-gated
+        # code (plugins, core/runtime sandboxing, *_other.go fallbacks)
+        # against build-tag rot on the other supported targets.
+        goos: [darwin, windows]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+        run: go build ./...
+
   security:
     name: Security
     runs-on: ubuntu-latest
