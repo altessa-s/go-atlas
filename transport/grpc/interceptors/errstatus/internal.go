@@ -25,6 +25,12 @@ func errorTypeString(err error) string {
 
 // errorKey generates a cache key from error type and message.
 // This is used when caching all errors (not just sentinels).
+//
+// The returned key embeds err.Error() and is retained in the
+// interceptor's in-process LRU conversion cache. Retention is bounded
+// by the cache capacity ([WithCacheSize], default [DefaultCacheSize]),
+// and the strings never leave the process — cached entries are not
+// sent to clients.
 func errorKey(err error) string {
 	if err == nil {
 		return ""

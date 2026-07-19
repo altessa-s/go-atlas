@@ -13,6 +13,17 @@
 //
 // OPTIONS requests are always passed through without processing.
 //
+// # Trust model
+//
+// A client-supplied value that passes strict UUID v4 validation is
+// trusted as-is: it is echoed in the response header, stored in the
+// context, and used as a log correlation field, so a hostile client
+// chooses which UUID appears in logs and can reuse one across requests
+// to spoof correlation. Values that fail validation never propagate, so
+// arbitrary client bytes cannot reach logs through this header. There
+// is no option to ignore a valid inbound value — strip or replace the
+// header at the edge proxy when server-authoritative IDs are required.
+//
 // # Example
 //
 //	gen := requestid.NewGenerator(requestid.WithGenerateIfMissing())

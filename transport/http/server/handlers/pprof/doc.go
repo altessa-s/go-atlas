@@ -3,10 +3,18 @@
 // the LICENSE file.
 
 // Package pprof mounts Go's runtime/pprof debug handlers on a
-// [router.Router]. It is opt-in by design — pprof leaks runtime
-// internals (heap, goroutine, CPU profiles) and enables cheap
-// denial-of-service via expensive profile collection. Mount it only on
-// an internal admin port or behind authentication.
+// [router.Router]. It is opt-in by design; read the Security section
+// before mounting it.
+//
+// # Security
+//
+// [Mount] performs NO authentication or authorization. The endpoints it
+// registers MUST be placed behind an auth middleware or bound to a
+// non-public listener (localhost or an internal admin port). Exposed
+// publicly, they hand any caller heap and goroutine dumps and CPU
+// profiles — which can contain secrets held in process memory — and
+// enable cheap denial of service by triggering expensive profile
+// collection.
 //
 // # Usage
 //

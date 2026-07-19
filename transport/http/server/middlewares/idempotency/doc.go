@@ -16,6 +16,15 @@
 // The middleware supports configurable fallback behavior when storage is
 // unavailable: allow the request through, deny with 503, or fail with 500.
 //
+// # Security
+//
+// Debug-level logs include the client-supplied idempotency key verbatim —
+// including, in the invalid-format branch, raw values that failed
+// validation. Keys are caller-chosen and may embed user data. Run
+// production loggers at Info or above, or wrap the handler with the
+// masking handler from
+// [github.com/altessa-s/go-atlas/observability/slog/handler/masking].
+//
 // # Example
 //
 //	mw := idempotency.New(storage,

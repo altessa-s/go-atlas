@@ -15,6 +15,17 @@
 // ID is absent or not a valid UUID v4, the server interceptor returns
 // [ErrInvalidRequestId] as a gRPC [codes.InvalidArgument] status.
 //
+// # Trust model
+//
+// A client-supplied metadata value that passes strict UUID v4 validation
+// is trusted as-is: it is propagated, stored in the context, and used as
+// a log correlation field, so a hostile client chooses which UUID
+// appears in logs and can reuse one across requests to spoof
+// correlation. Values that fail validation never propagate, so arbitrary
+// client bytes cannot reach logs through this metadata key. There is no
+// option to ignore a valid inbound value — strip or replace the metadata
+// at the edge proxy when server-authoritative IDs are required.
+//
 // Example:
 //
 //	gen := requestid.NewGenerator()
