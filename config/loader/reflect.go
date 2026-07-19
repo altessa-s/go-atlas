@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
@@ -573,9 +574,7 @@ func fieldsList(structValue reflect.Value, structType reflect.Type, parent *fiel
 		}
 
 		// For non-inline fields, add to list
-		if !structField.Anonymous {
-			list = append(list, fld)
-		}
+		list = coreslices.AppendIf(list, !structField.Anonymous, fld)
 
 		if indirectType(structField.Type).Kind() == reflect.Struct {
 			pf := fld

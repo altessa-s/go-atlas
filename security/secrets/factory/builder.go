@@ -72,14 +72,13 @@ func (b *ManagerBuilder) Build(ctx context.Context) (*secrets.Manager[any], erro
 	managerOpts := b.buildManagerOptions()
 
 	// Add scheduler and update schedule options if scheduler is available
-	if b.scheduler != nil {
-		managerOpts = append(managerOpts, secrets.WithScheduler(b.scheduler))
-		managerOpts = append(managerOpts, secrets.WithUpdateSchedule(b.cfg.UpdateSchedule, b.cfg.RunOnStart))
-	}
+	managerOpts = slices.AppendIf(managerOpts, b.scheduler != nil,
+		secrets.WithScheduler(b.scheduler),
+		secrets.WithUpdateSchedule(b.cfg.UpdateSchedule, b.cfg.RunOnStart),
+	)
 
-	if b.healthCoordinator != nil {
-		managerOpts = append(managerOpts, secrets.WithHealthCoordinator(b.healthCoordinator))
-	}
+	managerOpts = slices.AppendIf(managerOpts, b.healthCoordinator != nil,
+		secrets.WithHealthCoordinator(b.healthCoordinator))
 
 	manager, err := secrets.New[any](provider, managerOpts...)
 	if err != nil {

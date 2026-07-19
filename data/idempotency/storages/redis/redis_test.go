@@ -14,20 +14,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/idempotency/storages"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	idempredis "github.com/altessa-s/go-atlas/data/idempotency/storages/redis"
-	goredis "github.com/redis/go-redis/v9"
 )
 
 // setupStorage creates a new Storage instance backed by miniredis for testing.
 func setupStorage(tb testing.TB) (*idempredis.Storage, *miniredis.Miniredis) {
 	tb.Helper()
 
-	mr := miniredis.RunT(tb)
-	client := goredis.NewClient(&goredis.Options{
-		Addr: mr.Addr(),
-	})
-
+	client, mr := testhelpers.RedisClient(tb)
 	storage := idempredis.New(client)
 	return storage, mr
 }
@@ -131,10 +127,7 @@ func TestStorage_EmptyKey(t *testing.T) {
 }
 
 func TestStorage_TTLExpiry(t *testing.T) {
-	mr := miniredis.RunT(t)
-	client := goredis.NewClient(&goredis.Options{
-		Addr: mr.Addr(),
-	})
+	client, mr := testhelpers.RedisClient(t)
 
 	// Create storage with short TTL
 	storage := idempredis.New(client, idempredis.WithTtl(1*time.Second))
@@ -159,10 +152,7 @@ func TestStorage_TTLExpiry(t *testing.T) {
 }
 
 func TestStorage_WithKeyPrefix(t *testing.T) {
-	mr := miniredis.RunT(t)
-	client := goredis.NewClient(&goredis.Options{
-		Addr: mr.Addr(),
-	})
+	client, _ := testhelpers.RedisClient(t)
 
 	storage1 := idempredis.New(client, idempredis.WithKeyPrefix("prefix1:"))
 	storage2 := idempredis.New(client, idempredis.WithKeyPrefix("prefix2:"))

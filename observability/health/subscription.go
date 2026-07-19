@@ -7,6 +7,8 @@ package health
 import (
 	"sync"
 	"sync/atomic"
+
+	"github.com/altessa-s/go-atlas/core/runtime/panics"
 )
 
 // Note: watcher uses atomic.Int32 for thread-safe closed flag management.
@@ -71,16 +73,8 @@ func (w *watcher) notify(status ServingStatus) {
 		return
 	}
 
-	defer func() {
-		if r := recover(); r != nil {
-			_ = r
-		}
-	}()
-
-	select {
-	case w.ch <- status:
-	default:
-	}
+	// Non-blocking send; a close racing with the send is silently absorbed.
+	_, _ = panics.TrySendNonBlocking(w.ch, status)
 }
 
 func (w *watcher) close() {

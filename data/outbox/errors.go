@@ -8,10 +8,6 @@ import "errors"
 
 // Sentinel errors for the outbox package.
 var (
-	// ErrSchedulerManaged indicates that the function is managed by a scheduler
-	// and direct calls are not allowed.
-	ErrSchedulerManaged = errors.New("function is managed by scheduler, direct calls not allowed")
-
 	// ErrTaskIDCollision is returned from registerTasks when two or more of
 	// the configured scheduler task IDs (dispatch / unlock / expire /
 	// cleanup) are equal. The underlying scheduler upserts by ID, so a

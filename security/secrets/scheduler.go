@@ -51,20 +51,17 @@ func (t *Manager[T]) registerUpdateTask(opts *options) error {
 
 // RegisterUpdateCycleSchedulerFunc returns a function for use by a scheduler and marks
 // update cycle as scheduler-managed. After calling this method, direct calls to
-// RunUpdateCycle will return ErrSchedulerManaged.
+// RunUpdateCycle will return [corescheduler.ErrSchedulerManaged].
 func (t *Manager[T]) RegisterUpdateCycleSchedulerFunc() func(context.Context) error {
-	t.schedulerUpdateCycleRegistered.Store(true)
-	return t.runUpdateCycleInternal
+	return t.updateCycleTask.SchedulerFunc(t.runUpdateCycleInternal)
 }
 
 // RunUpdateCycle executes a single cache synchronization cycle.
 // This method is designed to be called manually for one-time synchronization.
-// If the function is registered with a scheduler, this method returns ErrSchedulerManaged.
+// If the function is registered with a scheduler, this method returns
+// [corescheduler.ErrSchedulerManaged].
 func (t *Manager[T]) RunUpdateCycle(ctx context.Context) error {
-	if t.schedulerUpdateCycleRegistered.Load() {
-		return ErrSchedulerManaged
-	}
-	return t.runUpdateCycleInternal(ctx)
+	return t.updateCycleTask.Run(ctx, t.runUpdateCycleInternal)
 }
 
 // runUpdateCycleInternal executes the actual cache synchronization cycle.
@@ -75,16 +72,11 @@ func (t *Manager[T]) RunUpdateCycle(ctx context.Context) error {
 //
 // The operation includes retry logic with exponential backoff for storage failures.
 // Cache operations use the LRU eviction policy to maintain the configured size limit.
-// If a cycle is already running, this call returns immediately without error.
+// Callers must route through updateCycleTask so overlapping cycles collapse
+// into a single execution.
 //
 // Returns nil on success, or an error if the storage operation fails after retries.
 func (t *Manager[T]) runUpdateCycleInternal(ctx context.Context) error {
-	// Prevent concurrent execution
-	if !t.updateCycleRunning.CompareAndSwap(false, true) {
-		return nil // Already running, skip this cycle
-	}
-	defer t.updateCycleRunning.Store(false)
-
 	stop := t.metrics.updateCycleDuration.Start()
 	defer stop()
 

@@ -21,28 +21,8 @@ import (
 )
 
 func TestScheduler_Metrics_Noop(t *testing.T) {
-	storage := mustNewMemory(t, 100)
-	s := scheduler.New(storage, scheduler.WithTickInterval(50*time.Millisecond))
-
-	ctx := t.Context()
-	require.NoError(t, s.Start(ctx))
-	defer func() {
-		stopCtx, cancel := context.WithTimeout(ctx, time.Second)
-		defer cancel()
-		_ = s.Stop(stopCtx)
-	}()
-
-	var execCount atomic.Int32
-	err := s.Register(ctx, corescheduler.TaskConfig{
-		ID:         "noop-task",
-		Schedule:   "@every 1s",
-		RunOnStart: true,
-		Func: func(_ context.Context) error {
-			execCount.Add(1)
-			return nil
-		},
-	})
-	require.NoError(t, err)
+	s, ctx := startScheduler(t)
+	execCount := registerCountingTask(t, ctx, s, "noop-task", "@every 1s")
 
 	time.Sleep(200 * time.Millisecond)
 	assert.GreaterOrEqual(t, execCount.Load(), int32(1), "task should have executed at least once")

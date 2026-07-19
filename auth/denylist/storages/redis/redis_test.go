@@ -12,16 +12,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/probfilter"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	redisstore "github.com/altessa-s/go-atlas/auth/denylist/storages/redis"
-	goredis "github.com/redis/go-redis/v9"
 )
 
 func setupStore(tb testing.TB, opts ...redisstore.Option) (*redisstore.Store, *miniredis.Miniredis) {
 	tb.Helper()
-	mr := miniredis.RunT(tb)
-	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
-	tb.Cleanup(func() { _ = client.Close() })
+	client, mr := testhelpers.RedisClient(tb)
 	return redisstore.New(client, opts...), mr
 }
 

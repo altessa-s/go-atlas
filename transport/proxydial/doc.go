@@ -11,13 +11,13 @@
 //
 //   - [github.com/altessa-s/go-atlas/transport/proxydial/factory] —
 //     high-level: a fluent builder that turns a
-//     [github.com/altessa-s/go-atlas/config.HTTPProxy] into a
+//     [github.com/altessa-s/go-atlas/config.Proxy] into a
 //     [DialContextFunc]. The intended entry point for service code
-//     that already loads HTTPProxy from YAML/env.
+//     that already loads config.Proxy from YAML/env.
 //
 //   - [FromURL] — middle-level: build a [DialContextFunc] from a
 //     parsed *url.URL. Use when the proxy comes from somewhere other
-//     than HTTPProxy (env, runtime override, custom resolver).
+//     than config.Proxy (env, runtime override, custom resolver).
 //
 //   - [HTTPConnect] / [SOCKS5Dialer] — low-level escape hatches: open
 //     a single tunneled connection. Use when you control the

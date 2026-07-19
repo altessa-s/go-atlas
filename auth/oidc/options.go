@@ -152,7 +152,7 @@ var DefaultRequiredClaims = []string{"sub", "aud", "exp", "iat", "iss"}
 type options struct {
 	// httpClientOptions are forwarded to httpclient.New when the Provider
 	// builds its outbound HTTP client. The factory layer uses this to
-	// inject a proxy resolver materialized from config.HTTPProxy. Pass
+	// inject a proxy resolver materialized from config.Proxy. Pass
 	// httpclient.WithRetryMax(0) etc. here if the resilient defaults
 	// (retry, breaker, env-proxy) are not desirable for a particular
 	// deployment.

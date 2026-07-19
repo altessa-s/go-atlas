@@ -20,6 +20,9 @@ func TestClaims_Fields(t *testing.T) {
 		Scopes:            []string{"openid", "profile"},
 	}
 	require.Equal(t, "sub1", c.Subject)
+	require.Equal(t, "user1", c.PreferredUsername)
 	require.Equal(t, "a@b.com", c.Email)
+	require.Equal(t, "https://issuer", c.Issuer)
+	require.Equal(t, []string{"aud1"}, c.Audience)
 	require.Len(t, c.Scopes, 2)
 }

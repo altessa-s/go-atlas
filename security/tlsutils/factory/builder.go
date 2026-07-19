@@ -359,27 +359,20 @@ func (b *ProvidersBuilder) ensureOcspStaplerFromConfig() {
 		tlsocsp.WithFailureMode(tlsocsp.FailureMode(ocspCfg.FailureMode)),
 		tlsocsp.WithMaxCacheEntries(ocspCfg.MaxCacheEntries),
 	}
-	if ocspCfg.EnableCompression {
-		opts = append(opts, tlsocsp.WithCompression())
-	}
-	if ocspCfg.HTTPTimeout > 0 {
-		opts = append(opts, tlsocsp.WithHttpClient(&http.Client{Timeout: ocspCfg.HTTPTimeout}))
-	}
-	if b.Logger() != nil {
-		opts = append(opts, tlsocsp.WithLogger(b.Logger()))
-	}
+	opts = slices.AppendIf(opts, ocspCfg.EnableCompression, tlsocsp.WithCompression())
+	opts = slices.AppendIf(opts, ocspCfg.HTTPTimeout > 0,
+		tlsocsp.WithHttpClient(&http.Client{Timeout: ocspCfg.HTTPTimeout}))
+	opts = slices.AppendIfFunc(opts, b.Logger() != nil, func() []tlsocsp.Option {
+		return []tlsocsp.Option{tlsocsp.WithLogger(b.Logger())}
+	})
 
 	// Scheduler + refreshSchedule pair gates the periodic refresh:
 	// missing either one means the stapler still works, it just
 	// refreshes lazily on cache misses inside GetOCSPStaple. The OCSP
 	// option ignores empty refreshSchedule via its TrimSpace guard, so
 	// the AppendIf checks here mirror that for clarity.
-	if b.scheduler != nil {
-		opts = append(opts, tlsocsp.WithScheduler(b.scheduler))
-	}
-	if ocspCfg.RefreshSchedule != "" {
-		opts = append(opts, tlsocsp.WithRefreshSchedule(ocspCfg.RefreshSchedule))
-	}
+	opts = slices.AppendIf(opts, b.scheduler != nil, tlsocsp.WithScheduler(b.scheduler))
+	opts = slices.AppendIf(opts, ocspCfg.RefreshSchedule != "", tlsocsp.WithRefreshSchedule(ocspCfg.RefreshSchedule))
 
 	b.ocspStapler = tlsocsp.NewOCSPStapler(opts...)
 }

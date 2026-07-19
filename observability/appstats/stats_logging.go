@@ -9,6 +9,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/altessa-s/go-atlas/core/collections/slices"
+
 	corectx "github.com/altessa-s/go-atlas/core/context"
 )
 
@@ -115,19 +117,11 @@ func (s *StatsLogger) RunLogCycle(ctx context.Context) error {
 
 	// Add error information if present
 	var errorAttrs []any
-	if stats.Errors.CPUError != "" {
-		errorAttrs = append(errorAttrs, slog.String("cpu", stats.Errors.CPUError))
-	}
-	if stats.Errors.MemoryError != "" {
-		errorAttrs = append(errorAttrs, slog.String("memory", stats.Errors.MemoryError))
-	}
-	if stats.Errors.NetworkError != "" {
-		errorAttrs = append(errorAttrs, slog.String("network", stats.Errors.NetworkError))
-	}
+	errorAttrs = slices.AppendIf[any](errorAttrs, stats.Errors.CPUError != "", slog.String("cpu", stats.Errors.CPUError))
+	errorAttrs = slices.AppendIf[any](errorAttrs, stats.Errors.MemoryError != "", slog.String("memory", stats.Errors.MemoryError))
+	errorAttrs = slices.AppendIf[any](errorAttrs, stats.Errors.NetworkError != "", slog.String("network", stats.Errors.NetworkError))
 
-	if len(errorAttrs) > 0 {
-		logFields = append(logFields, slog.Group("errors", errorAttrs...))
-	}
+	logFields = slices.AppendIf(logFields, len(errorAttrs) > 0, slog.Group("errors", errorAttrs...))
 
 	// Log comprehensive application statistics
 	s.logger.LogAttrs(ctx, slog.LevelDebug, "statistics", logFields...)

@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-package factory
+package factoryconv
 
 import (
 	"fmt"
@@ -15,8 +15,9 @@ import (
 	"github.com/altessa-s/go-atlas/transport/internal/ipacl"
 )
 
-// compilePatterns compiles string patterns to regexp.
-func compilePatterns(patterns []string) []*regexp.Regexp {
+// CompilePatterns compiles string patterns to regexp.
+// Invalid patterns are silently skipped.
+func CompilePatterns(patterns []string) []*regexp.Regexp {
 	result := make([]*regexp.Regexp, 0, len(patterns))
 	for _, p := range patterns {
 		if re, err := regexp.Compile(p); err == nil {
@@ -26,20 +27,20 @@ func compilePatterns(patterns []string) []*regexp.Regexp {
 	return result
 }
 
-// parsePrefixes parses string IP/CIDR prefixes to netip.Prefix.
-var parsePrefixes = clientip.ParsePrefixes
+// ParsePrefixes parses string IP/CIDR prefixes to netip.Prefix.
+var ParsePrefixes = clientip.ParsePrefixes
 
-// convertFallbackBehavior converts config FallbackBehavior to internal fallback.Behavior.
-func convertFallbackBehavior(fb config.FallbackBehavior) fallback.Behavior {
+// ConvertFallbackBehavior converts config FallbackBehavior to internal fallback.Behavior.
+func ConvertFallbackBehavior(fb config.FallbackBehavior) fallback.Behavior {
 	return fallback.ParseBehavior(string(fb))
 }
 
-// buildIpAclRegistry builds an ipacl.Registry from configuration.
-func buildIpAclRegistry(defaultPolicy string, rules []config.IpAclRuleConfig, defaultRule *config.IpAclRuleConfig) (*ipacl.Registry, error) {
+// BuildIpAclRegistry builds an ipacl.Registry from configuration.
+func BuildIpAclRegistry(defaultPolicy string, rules []config.IpAclRuleConfig, defaultRule *config.IpAclRuleConfig) (*ipacl.Registry, error) {
 	registry := ipacl.NewRegistry(ipacl.ParsePolicy(defaultPolicy))
 
 	for _, r := range rules {
-		rule, err := convertIpAclRule(r)
+		rule, err := ConvertIpAclRule(r)
 		if err != nil {
 			return nil, err
 		}
@@ -58,7 +59,7 @@ func buildIpAclRegistry(defaultPolicy string, rules []config.IpAclRuleConfig, de
 	}
 
 	if defaultRule != nil {
-		rule, err := convertIpAclRule(*defaultRule)
+		rule, err := ConvertIpAclRule(*defaultRule)
 		if err != nil {
 			return nil, err
 		}
@@ -68,12 +69,12 @@ func buildIpAclRegistry(defaultPolicy string, rules []config.IpAclRuleConfig, de
 	return registry, nil
 }
 
-// convertIpAclRule converts a config rule to an ipacl.AccessRule.
-func convertIpAclRule(r config.IpAclRuleConfig) (*ipacl.AccessRule, error) {
+// ConvertIpAclRule converts a config rule to an ipacl.AccessRule.
+func ConvertIpAclRule(r config.IpAclRuleConfig) (*ipacl.AccessRule, error) {
 	rule := &ipacl.AccessRule{}
 
 	if len(r.Allowlist) > 0 {
-		prefixes, err := parsePrefixes(r.Allowlist)
+		prefixes, err := ParsePrefixes(r.Allowlist)
 		if err != nil {
 			return nil, fmt.Errorf("invalid allowlist: %w", err)
 		}
@@ -81,7 +82,7 @@ func convertIpAclRule(r config.IpAclRuleConfig) (*ipacl.AccessRule, error) {
 	}
 
 	if len(r.Denylist) > 0 {
-		prefixes, err := parsePrefixes(r.Denylist)
+		prefixes, err := ParsePrefixes(r.Denylist)
 		if err != nil {
 			return nil, fmt.Errorf("invalid denylist: %w", err)
 		}
@@ -91,12 +92,12 @@ func convertIpAclRule(r config.IpAclRuleConfig) (*ipacl.AccessRule, error) {
 	return rule, nil
 }
 
-// buildGeoAclRegistry builds a geoacl.Registry from configuration.
-func buildGeoAclRegistry(defaultPolicy string, rules []config.GeoAclRuleConfig, defaultRule *config.GeoAclRuleConfig) (*geoacl.Registry, error) {
+// BuildGeoAclRegistry builds a geoacl.Registry from configuration.
+func BuildGeoAclRegistry(defaultPolicy string, rules []config.GeoAclRuleConfig, defaultRule *config.GeoAclRuleConfig) (*geoacl.Registry, error) {
 	registry := geoacl.NewRegistry(geoacl.ParsePolicy(defaultPolicy))
 
 	for _, r := range rules {
-		rule := convertGeoAclRule(r)
+		rule := ConvertGeoAclRule(r)
 
 		for _, ep := range r.Endpoints {
 			registry.Register(ep, rule)
@@ -112,15 +113,15 @@ func buildGeoAclRegistry(defaultPolicy string, rules []config.GeoAclRuleConfig, 
 	}
 
 	if defaultRule != nil {
-		rule := convertGeoAclRule(*defaultRule)
+		rule := ConvertGeoAclRule(*defaultRule)
 		registry.SetDefault(rule)
 	}
 
 	return registry, nil
 }
 
-// convertGeoAclRule converts a config rule to a geoacl.AccessRule.
-func convertGeoAclRule(r config.GeoAclRuleConfig) *geoacl.AccessRule {
+// ConvertGeoAclRule converts a config rule to a geoacl.AccessRule.
+func ConvertGeoAclRule(r config.GeoAclRuleConfig) *geoacl.AccessRule {
 	return &geoacl.AccessRule{
 		AllowContinents: r.AllowContinents,
 		DenyContinents:  r.DenyContinents,

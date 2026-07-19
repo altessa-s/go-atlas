@@ -14,6 +14,7 @@ import (
 	"github.com/altessa-s/go-atlas/core/runtime/nonewprivs"
 	"github.com/altessa-s/go-atlas/core/runtime/rlimits"
 
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
@@ -83,9 +84,7 @@ func applySandbox(o SandboxOptions) error {
 		rlimits.WithMaxProcesses(o.MaxProcesses),
 		rlimits.WithMaxFileSizeBytes(o.MaxFileSizeBytes),
 	}
-	if o.DisableCoreDumps {
-		rlimitOpts = append(rlimitOpts, rlimits.WithDisableCoreDumps())
-	}
+	rlimitOpts = coreslices.AppendIf(rlimitOpts, o.DisableCoreDumps, rlimits.WithDisableCoreDumps())
 	if err := rlimits.Apply(rlimitOpts...); err != nil {
 		return wrapSandboxStepErr("rlimits.Apply", applied, err)
 	}
@@ -94,9 +93,7 @@ func applySandbox(o SandboxOptions) error {
 	if err := applyCapabilities(o.Capabilities); err != nil {
 		return wrapSandboxStepErr("capabilities", applied, err)
 	}
-	if o.Capabilities.Enabled {
-		applied = append(applied, "capabilities")
-	}
+	applied = coreslices.AppendIf(applied, o.Capabilities.Enabled, "capabilities")
 
 	// Landlock is the final and irreversible step. It must run AFTER
 	// PR_SET_NO_NEW_PRIVS because landlock_restrict_self requires either

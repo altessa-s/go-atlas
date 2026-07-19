@@ -10,6 +10,8 @@ import (
 
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/http/server/responder"
+
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 )
 
 // ErrBodyTooLarge is returned by the body limit middleware (created via [New] or
@@ -68,12 +70,12 @@ func WithRequireContentLength() Option {
 // have a body but practically never do, and the strict pre-check would
 // otherwise reject perfectly benign GET requests when paired with
 // WithRequireContentLength.
-var bodyMethods = map[string]struct{}{
+var bodyMethods = coremaps.NewImmutableMap(map[string]struct{}{
 	http.MethodPost:   {},
 	http.MethodPut:    {},
 	http.MethodPatch:  {},
 	http.MethodDelete: {},
-}
+})
 
 // Dependencies returns middlewares that bodylimit requires to run before it.
 // Bodylimit has no dependencies.
@@ -102,7 +104,7 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 			// body lets the attacker hold the connection until
 			// ReadTimeout — turning the size cap into a soft bound.
 			if m.requireContentLength && r.ContentLength < 0 {
-				if _, isBody := bodyMethods[r.Method]; isBody {
+				if bodyMethods.Contains(r.Method) {
 					_ = responder.WriteError(w, r, ErrLengthRequired, http.StatusLengthRequired) //nolint:errcheck // Best effort
 					return
 				}

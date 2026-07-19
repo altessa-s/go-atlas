@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 
+	"github.com/altessa-s/go-atlas/core/types/ptr"
 	"github.com/altessa-s/go-atlas/domain/behavior"
 
 	mongo "github.com/altessa-s/go-atlas/domain/behavior/translators/mongo"
@@ -36,8 +37,6 @@ type user struct {
 	Aliases    []address         `bson:"aliases"`
 	Labels     map[string]string `bson:"labels"`
 }
-
-func ptr[T any](v T) *T { return &v }
 
 // insert builds an insert document through the behavior engine (no WithKinds, so
 // nothing is stripped).
@@ -120,8 +119,8 @@ func TestInsertTranslatorOmitemptyAndEmptyCollections(t *testing.T) {
 func TestInsertTranslatorOmitemptyPresentPointer(t *testing.T) {
 	t.Parallel()
 
-	got := insert(t, &user{Name: "Cy", Nick: ptr("cy")})
-	require.Equal(t, ptr("cy"), got["nick"])
+	got := insert(t, &user{Name: "Cy", Nick: ptr.Wrap("cy")})
+	require.Equal(t, ptr.Wrap("cy"), got["nick"])
 }
 
 func TestInsertTranslatorOmitemptyZeroValues(t *testing.T) {
@@ -140,8 +139,8 @@ func TestInsertTranslatorOmitemptyZeroValues(t *testing.T) {
 	require.Empty(t, got)
 
 	// A non-nil pointer is not zero, even when it points at a zero value.
-	got = insert(t, &doc{Count: 1, Nick: ptr("")})
-	require.Equal(t, bson.M{"count": 1, "nick": ptr("")}, got)
+	got = insert(t, &doc{Count: 1, Nick: ptr.Wrap("")})
+	require.Equal(t, bson.M{"count": 1, "nick": ptr.Wrap("")}, got)
 }
 
 func TestInsertTranslatorByteSliceIsOpaque(t *testing.T) {

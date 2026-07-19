@@ -8,16 +8,15 @@ package idempotency
 
 import (
 	"context"
-	"errors"
 	"regexp"
-	"strings"
 
 	"github.com/altessa-s/go-atlas/data/idempotency"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/defaults"
 	"github.com/altessa-s/go-atlas/transport/internal/fallback"
-	"github.com/altessa-s/go-atlas/transport/internal/validation"
 
 	"google.golang.org/grpc/status"
+
+	internalidem "github.com/altessa-s/go-atlas/transport/internal/idempotency"
 )
 
 // Use defaults package for optgen code generation
@@ -26,11 +25,11 @@ var _ = defaults.IgnorePatterns
 const (
 	// DefaultIdempotencyKeyHeader is the default header name for idempotency key.
 	// Per ADR-26-01-12-002, the header name is "Idempotency-Key".
-	DefaultIdempotencyKeyHeader = "Idempotency-Key"
+	DefaultIdempotencyKeyHeader = internalidem.DefaultKeyHeader
 	// DefaultIdempotencyKeyStatusMetadata is the default metadata key for idempotency status.
-	DefaultIdempotencyKeyStatusMetadata = "Idempotency-Key-Status"
+	DefaultIdempotencyKeyStatusMetadata = internalidem.DefaultKeyStatusHeader
 	// DefaultIdempotencyKeyEntityIdMetadata is the default metadata key for entity ID.
-	DefaultIdempotencyKeyEntityIdMetadata = "Idempotency-Key-Entity-Id"
+	DefaultIdempotencyKeyEntityIdMetadata = internalidem.DefaultKeyEntityIDHeader
 )
 
 // ErrorScenario identifies the reason for an idempotency error.
@@ -61,14 +60,11 @@ const (
 type KeyFormatValidator func(key string) error
 
 // ErrInvalidFormat is returned when the idempotency key format is invalid.
-var ErrInvalidFormat = errors.New("invalid idempotency key format")
+var ErrInvalidFormat = internalidem.ErrInvalidFormat
 
 // DefaultKeyValidator validates that the key is a valid lowercase UUID v4.
 func DefaultKeyValidator(key string) error {
-	if strings.ToLower(key) != key || !validation.IsValidUUIDv4(key) {
-		return ErrInvalidFormat
-	}
-	return nil
+	return internalidem.DefaultKeyValidator(key)
 }
 
 // options holds configuration for the idempotency interceptor.

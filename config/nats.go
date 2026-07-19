@@ -8,6 +8,8 @@ import (
 	"errors"
 	"time"
 
+	"github.com/altessa-s/go-atlas/core/collections/slices"
+
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -177,18 +179,14 @@ func (n *Nats) validateConnectionURIConflicts() error {
 	}
 
 	var errs []error
-	if n.Username != "" {
-		errs = append(errs, errors.New("username must not be set when connectionUri is used"))
-	}
-	if !n.Password.IsEmpty() {
-		errs = append(errs, errors.New("password must not be set when connectionUri is used"))
-	}
-	if !n.Token.IsEmpty() {
-		errs = append(errs, errors.New("token must not be set when connectionUri is used"))
-	}
-	if !n.NkeySeed.IsEmpty() {
-		errs = append(errs, errors.New("nkeySeed must not be set when connectionUri is used"))
-	}
+	errs = slices.AppendIf(errs, n.Username != "",
+		errors.New("username must not be set when connectionUri is used"))
+	errs = slices.AppendIf(errs, !n.Password.IsEmpty(),
+		errors.New("password must not be set when connectionUri is used"))
+	errs = slices.AppendIf(errs, !n.Token.IsEmpty(),
+		errors.New("token must not be set when connectionUri is used"))
+	errs = slices.AppendIf(errs, !n.NkeySeed.IsEmpty(),
+		errors.New("nkeySeed must not be set when connectionUri is used"))
 
 	return errors.Join(errs...)
 }

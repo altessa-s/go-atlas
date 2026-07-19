@@ -47,10 +47,4 @@ var (
 	// ErrInvalidConsumerConfig is returned by [Manager.Subscribe] and
 	// [Registry.RegisterSubscription] when the consumer name is empty.
 	ErrInvalidConsumerConfig = errors.New("invalid consumer configuration")
-
-	// ErrSchedulerManaged is returned by [Manager.RunHealthCheckCycle] and
-	// [Manager.RunStaleRecoveryCleanup] when the function has been registered
-	// with a scheduler via [Manager.RegisterHealthCheckSchedulerFunc] or
-	// [Manager.RegisterStaleCleanupSchedulerFunc].
-	ErrSchedulerManaged = errors.New("function is managed by scheduler, direct calls not allowed")
 )

@@ -316,18 +316,16 @@ func (c *Client) dialOptions() ([]grpc.DialOption, error) {
 		grpcOptions = append(grpcOptions, grpc.WithTransportCredentials(credentials.NewTLS(c.options.tlsConfig)))
 	}
 
-	if c.options.appName != "" {
-		grpcOptions = append(grpcOptions, grpc.WithUserAgent(c.options.appName))
-	}
+	grpcOptions = coreslices.AppendIf(grpcOptions, c.options.appName != "", grpc.WithUserAgent(c.options.appName))
 
 	// Apply proxy override. nil proxy means "no override" — grpc-go's
 	// default HTTPS_PROXY env lookup applies. extraDialOptions still
 	// runs after this so callers can layer their own
 	// grpc.WithContextDialer to override us. Resolver errors surface at
 	// first dial via the installed ContextDialer.
-	if c.options.proxy != nil {
-		grpcOptions = append(grpcOptions, grpc.WithContextDialer(proxyDialer(c.options.proxy, c.options.proxyTLSConfig)))
-	}
+	grpcOptions = coreslices.AppendIfFunc(grpcOptions, c.options.proxy != nil, func() []grpc.DialOption {
+		return []grpc.DialOption{grpc.WithContextDialer(proxyDialer(c.options.proxy, c.options.proxyTLSConfig))}
+	})
 
 	grpcOptions = append(grpcOptions, c.options.extraDialOptions...)
 

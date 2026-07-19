@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/config/internal/validators"
+	"github.com/altessa-s/go-atlas/core/collections/slices"
 
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -208,9 +209,8 @@ func (m *Mongodb) validateConnectionURIConflicts() error {
 	}
 
 	var errs []error
-	if m.Credentials != nil {
-		errs = append(errs, errors.New("credentials must not be set when connectionUri is used"))
-	}
+	errs = slices.AppendIf(errs, m.Credentials != nil,
+		errors.New("credentials must not be set when connectionUri is used"))
 
 	return errors.Join(errs...)
 }

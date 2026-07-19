@@ -53,8 +53,8 @@ provider, err := factory.New(cfg.OIDC).
 
 ## Proxy wiring
 
-`Build(ctx)` materializes `cfg.Proxy` (a [`config.HTTPProxy`](../../../config/http_proxy.go))
-into `httpclient.Option` values via `cfg.Proxy.ClientOptions()` and forwards
+`Build(ctx)` materializes `cfg.Proxy` (a [`config.Proxy`](../../../config/proxy.go))
+into `httpclient.Option` values via `cfg.Proxy.HTTPClientOptions()` and forwards
 them through `oidc.WithHTTPClientOptions(...)`. A nil/empty `Proxy` block
 keeps the default `HTTP_PROXY`/`HTTPS_PROXY`/`NO_PROXY` env passthrough.
 See the [Proxy guide](../../../docs/proxy.md) for YAML modes and operator

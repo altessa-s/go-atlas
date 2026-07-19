@@ -322,20 +322,20 @@ components that depend on them.
 Wrap external calls (HTTP, gRPC, database reconnects) in `retry.Do` with exponential backoff and jitter. Always provide `ShouldRetry` to skip retries on
 permanent failures (e.g. not-found, validation errors, authentication failures).
 
-### Prevent concurrent execution with `atomic.Bool` guards
+### Prevent concurrent execution with single-flight guards
 
-Use `CompareAndSwap` to ensure only one goroutine executes a periodic cycle at a time. This is lighter than a mutex when the goal is to skip
-overlapping invocations rather than queue them:
+Use an `atomic.Bool` with `CompareAndSwap` to ensure only one goroutine executes a periodic cycle at a time. This is lighter than a mutex when the
+goal is to skip overlapping invocations rather than queue them. For scheduler-driven cycles, do not hand-roll the guard — embed
+`scheduler.ManagedTask` from `core/scheduler`, which owns both the single-flight guard and the scheduler-managed flag:
 
 ```go
-if !o.dispatchRunning.CompareAndSwap(false, true) {
-    return nil // previous cycle still running, skip
+if err := o.dispatchTask.TryRun(ctx, o.runDispatchCycle); err != nil {
+    return err // fn error; overlapping calls return nil without running
 }
-defer o.dispatchRunning.Store(false)
 ```
 
-This pattern is used throughout the codebase for scheduler cycles: outbox dispatch, health checks, secret rotation, OPA policy updates, and cursor
-cleanup.
+This helper is used throughout the codebase for scheduler cycles: outbox dispatch, broker health checks, secret rotation, OPA policy updates, and
+cursor cleanup.
 
 ### Use `context.WithoutCancel` for cleanup operations
 

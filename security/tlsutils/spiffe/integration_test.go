@@ -6,13 +6,8 @@ package spiffe_test
 
 import (
 	"crypto"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"io"
-	"math/big"
 	"net"
 	"net/http"
 	"net/url"
@@ -25,6 +20,7 @@ import (
 	"github.com/spiffe/go-spiffe/v2/svid/x509svid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/security/tlsutils/spiffe"
 )
 
@@ -43,46 +39,19 @@ func (s *staticSource) GetX509BundleForTrustDomain(spiffeid.TrustDomain) (*x509b
 
 func (s *staticSource) Close() error { return nil }
 
-func makeCA(t *testing.T) (*x509.Certificate, crypto.Signer) {
-	t.Helper()
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-	tmpl := &x509.Certificate{
-		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "test-ca"},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(time.Hour),
-		IsCA:                  true,
-		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
-		BasicConstraintsValid: true,
-	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, key.Public(), key)
-	require.NoError(t, err)
-	ca, err := x509.ParseCertificate(der)
-	require.NoError(t, err)
-	return ca, key
-}
-
-func makeSVID(t *testing.T, ca *x509.Certificate, caKey crypto.Signer, idStr string) *x509svid.SVID {
+// makeSVID mints a CA-signed SVID whose sole URI SAN is the given SPIFFE ID.
+func makeSVID(t *testing.T, ca *testhelpers.CA, idStr string) *x509svid.SVID {
 	t.Helper()
 	id := spiffeid.RequireFromString(idStr)
 	uri, err := url.Parse(id.String())
 	require.NoError(t, err)
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-	tmpl := &x509.Certificate{
-		SerialNumber: big.NewInt(2),
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(time.Hour),
-		KeyUsage:     x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
-		URIs:         []*url.URL{uri},
-	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca, key.Public(), caKey)
-	require.NoError(t, err)
-	leaf, err := x509.ParseCertificate(der)
-	require.NoError(t, err)
-	return &x509svid.SVID{ID: id, Certificates: []*x509.Certificate{leaf}, PrivateKey: key}
+	cert := ca.SignLeaf(t,
+		testhelpers.WithURIs(uri),
+		testhelpers.WithExtKeyUsage(x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth),
+	)
+	signer, ok := cert.PrivateKey.(crypto.Signer)
+	require.True(t, ok)
+	return &x509svid.SVID{ID: id, Certificates: []*x509.Certificate{cert.Leaf}, PrivateKey: signer}
 }
 
 // startServer runs an mTLS HTTP server with the given provider on a random port
@@ -107,16 +76,16 @@ func startServer(t *testing.T, provider *spiffe.Provider) string {
 func TestMTLSHandshake(t *testing.T) {
 	t.Parallel()
 	td := spiffeid.RequireTrustDomainFromString("example.org")
-	ca, caKey := makeCA(t)
-	bundle := x509bundle.FromX509Authorities(td, []*x509.Certificate{ca})
+	ca := testhelpers.NewCA(t)
+	bundle := x509bundle.FromX509Authorities(td, []*x509.Certificate{ca.Cert})
 
 	server, err := spiffe.NewProvider(
-		&staticSource{makeSVID(t, ca, caKey, "spiffe://example.org/server"), bundle},
+		&staticSource{makeSVID(t, ca, "spiffe://example.org/server"), bundle},
 		tlsconfig.AuthorizeMemberOf(td),
 	)
 	require.NoError(t, err)
 	client, err := spiffe.NewProvider(
-		&staticSource{makeSVID(t, ca, caKey, "spiffe://example.org/client"), bundle},
+		&staticSource{makeSVID(t, ca, "spiffe://example.org/client"), bundle},
 		tlsconfig.AuthorizeMemberOf(td),
 	)
 	require.NoError(t, err)
@@ -138,17 +107,17 @@ func TestMTLSHandshake(t *testing.T) {
 func TestMTLSHandshakeRejectsUnauthorizedPeer(t *testing.T) {
 	t.Parallel()
 	td := spiffeid.RequireTrustDomainFromString("example.org")
-	ca, caKey := makeCA(t)
-	bundle := x509bundle.FromX509Authorities(td, []*x509.Certificate{ca})
+	ca := testhelpers.NewCA(t)
+	bundle := x509bundle.FromX509Authorities(td, []*x509.Certificate{ca.Cert})
 
 	// Server only authorizes a specific ID the client does not have.
 	server, err := spiffe.NewProvider(
-		&staticSource{makeSVID(t, ca, caKey, "spiffe://example.org/server"), bundle},
+		&staticSource{makeSVID(t, ca, "spiffe://example.org/server"), bundle},
 		tlsconfig.AuthorizeID(spiffeid.RequireFromString("spiffe://example.org/allowed")),
 	)
 	require.NoError(t, err)
 	client, err := spiffe.NewProvider(
-		&staticSource{makeSVID(t, ca, caKey, "spiffe://example.org/client"), bundle},
+		&staticSource{makeSVID(t, ca, "spiffe://example.org/client"), bundle},
 		tlsconfig.AuthorizeMemberOf(td),
 	)
 	require.NoError(t, err)

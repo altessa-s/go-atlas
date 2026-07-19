@@ -77,7 +77,7 @@ type options struct {
 	// grpcClientOptions are extra options forwarded to the underlying
 	// transport/grpc/client when Protocol is gRPC. The factory layer uses
 	// this to inject a proxy resolver materialized from
-	// config.GrpcProxy.ClientOptions. Has no effect when Protocol is HTTP.
+	// config.Proxy.GrpcClientOptions. Has no effect when Protocol is HTTP.
 	grpcClientOptions []grpcclient.Option `opt:"GRPCClientOptions" optgen:"append"`
 }
 

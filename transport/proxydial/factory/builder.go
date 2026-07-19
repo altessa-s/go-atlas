@@ -20,11 +20,11 @@ import (
 )
 
 // DialerBuilder assembles a [proxydial.DialContextFunc] from a
-// [config.HTTPProxy] using a fluent API. Create instances with [New].
+// [config.Proxy] using a fluent API. Create instances with [New].
 // The builder is not safe for concurrent use.
 type DialerBuilder struct {
 	corefactory.Base
-	cfg *config.HTTPProxy
+	cfg *config.Proxy
 
 	// Dependencies
 	dialer         *net.Dialer
@@ -37,7 +37,7 @@ type DialerBuilder struct {
 // time — this matches the "proxy is opt-in" contract used elsewhere
 // in the SDK and lets callers wire the builder unconditionally
 // without first checking whether the YAML block was present.
-func New(cfg *config.HTTPProxy) *DialerBuilder {
+func New(cfg *config.Proxy) *DialerBuilder {
 	return &DialerBuilder{
 		Base: corefactory.NewBase(slog.New(slog.DiscardHandler)),
 		cfg:  cfg,
@@ -48,7 +48,7 @@ func New(cfg *config.HTTPProxy) *DialerBuilder {
 // [proxydial.DialContextFunc].
 //
 // Returns (nil, nil) when proxying is disabled (nil receiver, nil
-// cfg, empty Mode, or [config.HTTPProxyModeNone]). Caller treats
+// cfg, empty Mode, or [config.ProxyModeNone]). Caller treats
 // that as "use a direct dial" and skips wiring a custom dialer.
 func (b *DialerBuilder) Build() (proxydial.DialContextFunc, error) {
 	if b == nil || b.cfg == nil {
@@ -67,17 +67,17 @@ func (b *DialerBuilder) Build() (proxydial.DialContextFunc, error) {
 // Returns (nil, nil) for the passthrough modes.
 func (b *DialerBuilder) proxyURL() (*url.URL, error) {
 	switch b.cfg.Mode {
-	case "", config.HTTPProxyModeNone:
+	case "", config.ProxyModeNone:
 		return nil, nil //nolint:nilnil
 
-	case config.HTTPProxyModeURL:
+	case config.ProxyModeURL:
 		u, err := url.Parse(b.cfg.URL)
 		if err != nil {
-			return nil, fmt.Errorf("HTTPProxy: parse url: %w", err)
+			return nil, fmt.Errorf("config.Proxy: parse url: %w", err)
 		}
 		return u, nil
 
-	case config.HTTPProxyModeHost:
+	case config.ProxyModeHost:
 		return &url.URL{
 			Scheme: "http",
 			Host:   net.JoinHostPort(b.cfg.Host, strconv.Itoa(b.cfg.Port)),
@@ -85,7 +85,7 @@ func (b *DialerBuilder) proxyURL() (*url.URL, error) {
 		}, nil
 
 	default:
-		return nil, fmt.Errorf("HTTPProxy: unknown mode %q", b.cfg.Mode)
+		return nil, fmt.Errorf("config.Proxy: unknown mode %q", b.cfg.Mode)
 	}
 }
 
@@ -103,7 +103,7 @@ func (b *DialerBuilder) dialOptions() []proxydial.Option {
 // userinfo builds a *url.Userinfo from an Auth block, returning nil
 // for anonymous proxies. The plain-text password has to be exposed
 // here — the underlying URL needs it on the wire.
-func userinfo(a *config.HTTPProxyAuth) *url.Userinfo {
+func userinfo(a *config.ProxyAuth) *url.Userinfo {
 	if a == nil || a.Username == "" {
 		return nil
 	}

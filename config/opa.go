@@ -103,7 +103,7 @@ type OPAGitLab struct {
 	// retry behavior, use the programmatic gitlab.WithHTTPClientOptions
 	// channel — there is no YAML knob for retry (the source uses
 	// httpclient.New defaults).
-	Proxy *HTTPProxy `yaml:"proxy" default:"-"`
+	Proxy *Proxy `yaml:"proxy" default:"-"`
 }
 
 // Validate validates the OPAGitLab configuration.
@@ -156,7 +156,7 @@ type OPAS3 struct {
 	// environment variables. Setting this swaps the SDK's default
 	// HTTP client for go-atlas's resilient client wired with the
 	// supplied proxy resolver.
-	Proxy *HTTPProxy `yaml:"proxy" default:"-"`
+	Proxy *Proxy `yaml:"proxy" default:"-"`
 }
 
 // Validate validates the OPAS3 configuration.

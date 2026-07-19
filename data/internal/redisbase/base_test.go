@@ -11,14 +11,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/internal/redisbase"
-
-	goredis "github.com/redis/go-redis/v9"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 func setupBase(tb testing.TB, prefix string) (redisbase.Base, *miniredis.Miniredis) {
 	tb.Helper()
-	mr := miniredis.RunT(tb)
-	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	client, mr := testhelpers.RedisClient(tb)
 	return redisbase.NewBase(client, prefix), mr
 }
 

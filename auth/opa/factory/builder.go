@@ -134,7 +134,7 @@ func (b *ManagerBuilder) buildGitLabSource() (opa.PolicySource, error) {
 
 	opts = slices.AppendIf(opts, gl.Dir != "", gitlab.WithDir(gl.Dir))
 
-	proxyOpts, err := gl.Proxy.ClientOptions()
+	proxyOpts, err := gl.Proxy.HTTPClientOptions()
 	if err != nil {
 		return nil, b.WrapError(err, "failed to materialize gitlab proxy options")
 	}
@@ -210,32 +210,32 @@ func (b *ManagerBuilder) resolveS3Client(ctx context.Context, s3Cfg *config.OPAS
 
 	awsCfgOpts := []func(*awsconfig.LoadOptions) error{}
 
-	if s3Cfg.Region != "" {
-		awsCfgOpts = append(awsCfgOpts, awsconfig.WithRegion(s3Cfg.Region))
-	}
+	awsCfgOpts = slices.AppendIf[func(*awsconfig.LoadOptions) error](awsCfgOpts, s3Cfg.Region != "", awsconfig.WithRegion(s3Cfg.Region))
 
-	if s3Cfg.AccessKey.Expose() != "" && s3Cfg.SecretKey.Expose() != "" {
-		awsCfgOpts = append(awsCfgOpts, awsconfig.WithCredentialsProvider(
-			credentials.NewStaticCredentialsProvider(
-				s3Cfg.AccessKey.Expose(),
-				s3Cfg.SecretKey.Expose(),
-				"",
-			),
-		))
-	}
+	awsCfgOpts = slices.AppendIfFunc(awsCfgOpts,
+		s3Cfg.AccessKey.Expose() != "" && s3Cfg.SecretKey.Expose() != "",
+		func() []func(*awsconfig.LoadOptions) error {
+			return []func(*awsconfig.LoadOptions) error{awsconfig.WithCredentialsProvider(
+				credentials.NewStaticCredentialsProvider(
+					s3Cfg.AccessKey.Expose(),
+					s3Cfg.SecretKey.Expose(),
+					"",
+				),
+			)}
+		})
 
 	// Wire go-atlas's resilient HTTP client only when proxy is
 	// explicitly configured. Without an override the AWS SDK keeps its
 	// own HTTP client (which already honors HTTP_PROXY/HTTPS_PROXY/
 	// NO_PROXY env vars) and its own retry layer, avoiding double-retry
 	// with our breaker / retry middleware.
-	proxyOpts, err := s3Cfg.Proxy.ClientOptions()
+	proxyOpts, err := s3Cfg.Proxy.HTTPClientOptions()
 	if err != nil {
 		return nil, b.WrapError(err, "failed to materialize s3 proxy options")
 	}
-	if len(proxyOpts) > 0 {
-		awsCfgOpts = append(awsCfgOpts, awsconfig.WithHTTPClient(httpclient.New(proxyOpts...)))
-	}
+	awsCfgOpts = slices.AppendIfFunc(awsCfgOpts, len(proxyOpts) > 0, func() []func(*awsconfig.LoadOptions) error {
+		return []func(*awsconfig.LoadOptions) error{awsconfig.WithHTTPClient(httpclient.New(proxyOpts...))}
+	})
 
 	cfg, err := awsconfig.LoadDefaultConfig(ctx, awsCfgOpts...)
 	if err != nil {
@@ -243,17 +243,13 @@ func (b *ManagerBuilder) resolveS3Client(ctx context.Context, s3Cfg *config.OPAS
 	}
 
 	var s3Opts []func(*awss3.Options)
-	if s3Cfg.Endpoint != "" {
-		s3Opts = append(s3Opts, func(o *awss3.Options) {
-			o.BaseEndpoint = &s3Cfg.Endpoint
-		})
-	}
+	s3Opts = slices.AppendIf(s3Opts, s3Cfg.Endpoint != "", func(o *awss3.Options) {
+		o.BaseEndpoint = &s3Cfg.Endpoint
+	})
 
-	if s3Cfg.PathStyle {
-		s3Opts = append(s3Opts, func(o *awss3.Options) {
-			o.UsePathStyle = true
-		})
-	}
+	s3Opts = slices.AppendIf(s3Opts, s3Cfg.PathStyle, func(o *awss3.Options) {
+		o.UsePathStyle = true
+	})
 
 	return awss3.NewFromConfig(cfg, s3Opts...), nil
 }

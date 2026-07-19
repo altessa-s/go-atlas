@@ -4,15 +4,15 @@
 import "github.com/altessa-s/go-atlas/transport/proxydial/factory"
 ```
 
-Package `factory` provides a fluent builder that materializes a [`config.HTTPProxy`](../../../config/http_proxy.go)
+Package `factory` provides a fluent builder that materializes a [`config.Proxy`](../../../config/proxy.go)
 into a [`proxydial.DialContextFunc`](../proxydial.go), suitable for any
 client that needs raw-TCP-through-proxy: SMTP (go-mail's
 `WithDialContextFunc`), SOAP, gRPC's `WithContextDialer`, or any
 custom protocol that does not go through `net/http`.
 
-HTTP and gRPC clients should keep using `cfg.Proxy.ClientOptions()`;
-this factory targets consumers without an httpclient/grpcclient in
-the picture.
+HTTP and gRPC clients should keep using `cfg.Proxy.HTTPClientOptions()`
+/ `cfg.Proxy.GrpcClientOptions()`; this factory targets consumers
+without an httpclient/grpcclient in the picture.
 
 ## Quick start
 
@@ -29,7 +29,7 @@ if dial != nil {
 }
 ```
 
-A nil `cfg`, an empty `Mode`, or `config.HTTPProxyModeNone` yields
+A nil `cfg`, an empty `Mode`, or `config.ProxyModeNone` yields
 `(nil, nil)` — caller treats that as "use a direct dial" and skips
 wiring a custom dialer entirely.
 
@@ -39,7 +39,7 @@ wiring a custom dialer entirely.
 
 | Method     | Description                                                            |
 |------------|------------------------------------------------------------------------|
-| `New(cfg)` | Creates a `DialerBuilder` for the given `*config.HTTPProxy` (nil ok)   |
+| `New(cfg)` | Creates a `DialerBuilder` for the given `*config.Proxy` (nil ok)       |
 
 ### Dependencies
 

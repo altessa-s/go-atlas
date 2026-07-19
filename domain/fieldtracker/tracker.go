@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 )
 
 const (
@@ -620,9 +622,7 @@ func toSnakeCaseFast(s string) string {
 	// For longer strings, use heap allocation
 	result := make([]byte, 0, len(s)*2)
 	for i, r := range s {
-		if i > 0 && r >= 'A' && r <= 'Z' {
-			result = append(result, '_')
-		}
+		result = coreslices.AppendIf(result, i > 0 && r >= 'A' && r <= 'Z', '_')
 		if r >= 'A' && r <= 'Z' {
 			result = append(result, byte(r+asciiUpperToLower))
 		} else {

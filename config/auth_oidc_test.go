@@ -24,8 +24,8 @@ func TestOIDC_Validate_ValidProxy(t *testing.T) {
 
 	cfg := OIDC{
 		DiscoveryUrl: "https://example.com/.well-known/openid-configuration",
-		Proxy: &HTTPProxy{
-			Mode: HTTPProxyModeURL,
+		Proxy: &Proxy{
+			Mode: ProxyModeURL,
 			URL:  "http://proxy.corp:3128",
 		},
 	}
@@ -37,8 +37,8 @@ func TestOIDC_Validate_InvalidProxyPropagates(t *testing.T) {
 
 	cfg := OIDC{
 		DiscoveryUrl: "https://example.com/.well-known/openid-configuration",
-		Proxy: &HTTPProxy{
-			Mode: HTTPProxyModeURL,
+		Proxy: &Proxy{
+			Mode: ProxyModeURL,
 			// URL missing — Mode=url requires URL.
 		},
 	}

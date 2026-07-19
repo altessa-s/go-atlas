@@ -16,14 +16,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
+
 	coreerrors "github.com/altessa-s/go-atlas/core/errors"
 	coreretry "github.com/altessa-s/go-atlas/core/retry"
 )
-
-// roundTripFunc is a test helper that implements http.RoundTripper.
-type roundTripFunc func(*http.Request) (*http.Response, error)
-
-func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
 
 func newTestRetryOpts(maxAttempts int) []coreretry.Option {
 	return []coreretry.Option{
@@ -37,7 +34,7 @@ func newTestRetryOpts(maxAttempts int) []coreretry.Option {
 
 func TestRetryRoundTripper_Success(t *testing.T) {
 	rt := &retryRoundTripper{
-		next: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		next: testhelpers.RoundTripFunc(func(_ *http.Request) (*http.Response, error) {
 			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
 		}),
 		retryOpts:   newTestRetryOpts(3),
@@ -53,7 +50,7 @@ func TestRetryRoundTripper_Success(t *testing.T) {
 func TestRetryRoundTripper_RetryThenSuccess(t *testing.T) {
 	var calls atomic.Int32
 	rt := &retryRoundTripper{
-		next: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		next: testhelpers.RoundTripFunc(func(_ *http.Request) (*http.Response, error) {
 			n := calls.Add(1)
 			if n < 3 {
 				return nil, errors.New("transient")
@@ -74,7 +71,7 @@ func TestRetryRoundTripper_RetryThenSuccess(t *testing.T) {
 func TestRetryRoundTripper_Exhaustion(t *testing.T) {
 	var calls atomic.Int32
 	rt := &retryRoundTripper{
-		next: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		next: testhelpers.RoundTripFunc(func(_ *http.Request) (*http.Response, error) {
 			calls.Add(1)
 			return nil, errors.New("always fail")
 		}),
@@ -91,7 +88,7 @@ func TestRetryRoundTripper_Exhaustion(t *testing.T) {
 func TestRetryRoundTripper_NonRetryableStops(t *testing.T) {
 	var calls atomic.Int32
 	rt := &retryRoundTripper{
-		next: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		next: testhelpers.RoundTripFunc(func(_ *http.Request) (*http.Response, error) {
 			calls.Add(1)
 			return nil, &NonRetryableError{Err: errors.New("cert error")}
 		}),
@@ -109,7 +106,7 @@ func TestRetryRoundTripper_NonRetryableStops(t *testing.T) {
 func TestRetryRoundTripper_BodyReplay(t *testing.T) {
 	var bodies []string
 	rt := &retryRoundTripper{
-		next: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		next: testhelpers.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 			b, _ := io.ReadAll(req.Body)
 			bodies = append(bodies, string(b))
 			if len(bodies) < 3 {
@@ -134,7 +131,7 @@ func TestRetryRoundTripper_ContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	var calls atomic.Int32
 	rt := &retryRoundTripper{
-		next: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		next: testhelpers.RoundTripFunc(func(_ *http.Request) (*http.Response, error) {
 			if calls.Add(1) >= 1 {
 				cancel()
 			}
@@ -152,7 +149,7 @@ func TestRetryRoundTripper_ContextCancel(t *testing.T) {
 func TestRetryRoundTripper_RetryableStatus(t *testing.T) {
 	var calls atomic.Int32
 	rt := &retryRoundTripper{
-		next: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		next: testhelpers.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 			n := calls.Add(1)
 			if n < 3 {
 				return &http.Response{
@@ -175,7 +172,7 @@ func TestRetryRoundTripper_RetryableStatus(t *testing.T) {
 
 func TestRetryRoundTripper_UnexpectedStatus(t *testing.T) {
 	rt := &retryRoundTripper{
-		next: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		next: testhelpers.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 			return &http.Response{
 				StatusCode: http.StatusForbidden,
 				Body:       http.NoBody,
@@ -197,7 +194,7 @@ func TestRetryRoundTripper_UnexpectedStatus(t *testing.T) {
 func TestRetryRoundTripper_ErrorHandler(t *testing.T) {
 	handlerCalled := false
 	rt := &retryRoundTripper{
-		next: roundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		next: testhelpers.RoundTripFunc(func(_ *http.Request) (*http.Response, error) {
 			return nil, errors.New("always fail")
 		}),
 		retryOpts:   newTestRetryOpts(1),
@@ -216,7 +213,7 @@ func TestRetryRoundTripper_ErrorHandler(t *testing.T) {
 func TestRetryRoundTripper_RetryPolicyHandler(t *testing.T) {
 	var calls atomic.Int32
 	rt := &retryRoundTripper{
-		next: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		next: testhelpers.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 			calls.Add(1)
 			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Request: req}, nil
 		}),
@@ -241,7 +238,7 @@ func TestRetryRoundTripper_RetryPolicyHandler(t *testing.T) {
 func TestRetryRoundTripper_ZeroRetries(t *testing.T) {
 	var calls atomic.Int32
 	rt := &retryRoundTripper{
-		next: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		next: testhelpers.RoundTripFunc(func(req *http.Request) (*http.Response, error) {
 			calls.Add(1)
 			return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody, Request: req}, nil
 		}),

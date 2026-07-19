@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	convcodec "github.com/altessa-s/go-atlas/domain/converter/codec"
 	reflectutils "github.com/altessa-s/go-atlas/domain/converter/internal/reflect"
 )
@@ -780,9 +781,7 @@ func makeFieldName(n ...string) string {
 
 	strs := make([]string, 0, len(n))
 	for i := range len(n) {
-		if n[i] != "" {
-			strs = append(strs, n[i])
-		}
+		strs = coreslices.AppendIf(strs, n[i] != "", n[i])
 	}
 	return strings.Join(strs, ".")
 }

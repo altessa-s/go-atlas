@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/core/runtime/concurrency"
 	"github.com/altessa-s/go-atlas/security/secrets"
 	"github.com/altessa-s/go-atlas/security/secrets/internal/base"
@@ -385,9 +386,7 @@ func (s *Storage[T]) list(ctx context.Context) ([]*pb.Secret, error) {
 
 		// Apply filtering incrementally to avoid storing all secrets in memory
 		for _, secret := range resp.Secrets {
-			if s.isValidSecret(secret) {
-				filteredList = append(filteredList, secret)
-			}
+			filteredList = slices.AppendIf(filteredList, s.isValidSecret(secret), secret)
 		}
 
 		if resp.NextPageToken == "" {
@@ -436,10 +435,8 @@ func (s *Storage[T]) doSecrets(ctx context.Context, fn decoder[T]) ([]*secrets.V
 	opts := []concurrency.Option[*pb.Secret]{
 		concurrency.WithLimitFunc[*pb.Secret](s.opts.concurrencyLimitFunc),
 	}
-	if !s.opts.ignoreInvalidKeys {
-		opts = append(opts, concurrency.WithStopOnError[*pb.Secret]())
-	}
-	return concurrency.ProcessCollect[*pb.Secret, *secrets.Value[T]](ctx, list,
+	opts = slices.AppendIf(opts, !s.opts.ignoreInvalidKeys, concurrency.WithStopOnError[*pb.Secret]())
+	return concurrency.ProcessCollect(ctx, list,
 		func(ctx context.Context, secret *pb.Secret) (*secrets.Value[T], error) {
 			return s.version(ctx, secret, secret.CurrentVersion.Id, fn)
 		},

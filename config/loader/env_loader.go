@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
@@ -127,9 +128,7 @@ func (cf *Config) findArrayIndices(parts []string) []int {
 	positions := make([]int, 0)
 
 	for i := 1; i < len(parts); i++ {
-		if cf.isArrayIndex(parts[i]) {
-			positions = append(positions, i)
-		}
+		positions = coreslices.AppendIf(positions, cf.isArrayIndex(parts[i]), i)
 	}
 
 	return positions

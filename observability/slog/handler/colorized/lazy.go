@@ -14,6 +14,8 @@ import (
 	"sync/atomic"
 
 	"github.com/fatih/color"
+
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 )
 
 // lazySource defers source information computation until needed
@@ -110,9 +112,7 @@ func buildGroupPrefix(groups []string) string {
 	// Build prefix efficiently
 	b := make([]byte, 0, size+1)
 	for i, g := range groups {
-		if i > 0 {
-			b = append(b, '.')
-		}
+		b = coreslices.AppendIf(b, i > 0, '.')
 		b = append(b, g...)
 	}
 	b = append(b, '.')

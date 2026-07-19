@@ -12,6 +12,7 @@ import (
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/mongo/kms"
 
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	kmsaws "github.com/altessa-s/go-atlas/data/mongo/kms/aws"
 	kmsazure "github.com/altessa-s/go-atlas/data/mongo/kms/azure"
@@ -71,14 +72,8 @@ func (b *ProviderBuilder) createLocalProvider() (kms.Provider, error) {
 	}
 
 	var opts []kmslocal.Option
-
-	if !b.cfg.Local.MasterKey.IsEmpty() {
-		opts = append(opts, kmslocal.WithMasterKey(b.cfg.Local.MasterKey.Expose()))
-	}
-
-	if b.cfg.Local.MasterKeyFile != "" {
-		opts = append(opts, kmslocal.WithMasterKeyFile(b.cfg.Local.MasterKeyFile))
-	}
+	opts = coreslices.AppendIf(opts, !b.cfg.Local.MasterKey.IsEmpty(), kmslocal.WithMasterKey(b.cfg.Local.MasterKey.Expose()))
+	opts = coreslices.AppendIf(opts, b.cfg.Local.MasterKeyFile != "", kmslocal.WithMasterKeyFile(b.cfg.Local.MasterKeyFile))
 
 	return kmslocal.New(opts...)
 }
@@ -90,18 +85,9 @@ func (b *ProviderBuilder) createAWSProvider() (kms.Provider, error) {
 	}
 
 	var opts []kmsaws.Option
-
-	if cfg.Region != nil {
-		opts = append(opts, kmsaws.WithRegion(cfg.Region))
-	}
-
-	if cfg.Endpoint != nil {
-		opts = append(opts, kmsaws.WithEndpoint(cfg.Endpoint))
-	}
-
-	if b.tlsConfig != nil {
-		opts = append(opts, kmsaws.WithTLS(b.tlsConfig))
-	}
+	opts = coreslices.AppendIf(opts, cfg.Region != nil, kmsaws.WithRegion(cfg.Region))
+	opts = coreslices.AppendIf(opts, cfg.Endpoint != nil, kmsaws.WithEndpoint(cfg.Endpoint))
+	opts = coreslices.AppendIf(opts, b.tlsConfig != nil, kmsaws.WithTLS(b.tlsConfig))
 
 	return kmsaws.New(cfg.AccessKeyId, cfg.SecretAccessKey.Expose(), cfg.Key, opts...), nil
 }
@@ -113,18 +99,9 @@ func (b *ProviderBuilder) createAzureProvider() (kms.Provider, error) {
 	}
 
 	var opts []kmsazure.Option
-
-	if cfg.KeyVersion != nil {
-		opts = append(opts, kmsazure.WithKeyVersion(cfg.KeyVersion))
-	}
-
-	if cfg.KeyVaultEndpoint != nil {
-		opts = append(opts, kmsazure.WithKeyVaultEndpoint(cfg.KeyVaultEndpoint))
-	}
-
-	if b.tlsConfig != nil {
-		opts = append(opts, kmsazure.WithTLS(b.tlsConfig))
-	}
+	opts = coreslices.AppendIf(opts, cfg.KeyVersion != nil, kmsazure.WithKeyVersion(cfg.KeyVersion))
+	opts = coreslices.AppendIf(opts, cfg.KeyVaultEndpoint != nil, kmsazure.WithKeyVaultEndpoint(cfg.KeyVaultEndpoint))
+	opts = coreslices.AppendIf(opts, b.tlsConfig != nil, kmsazure.WithTLS(b.tlsConfig))
 
 	return kmsazure.New(cfg.ClientId, cfg.ClientSecret.Expose(), cfg.TenantId, cfg.KeyName, opts...), nil
 }
@@ -136,22 +113,10 @@ func (b *ProviderBuilder) createGCPProvider() (kms.Provider, error) {
 	}
 
 	var opts []kmsgcp.Option
-
-	if cfg.Endpoint != nil {
-		opts = append(opts, kmsgcp.WithEndpoint(cfg.Endpoint))
-	}
-
-	if cfg.AuthenticationEndpoint != nil {
-		opts = append(opts, kmsgcp.WithAuthenticationEndpoint(cfg.AuthenticationEndpoint))
-	}
-
-	if cfg.KeyVersion != nil {
-		opts = append(opts, kmsgcp.WithKeyVersion(cfg.KeyVersion))
-	}
-
-	if b.tlsConfig != nil {
-		opts = append(opts, kmsgcp.WithTLS(b.tlsConfig))
-	}
+	opts = coreslices.AppendIf(opts, cfg.Endpoint != nil, kmsgcp.WithEndpoint(cfg.Endpoint))
+	opts = coreslices.AppendIf(opts, cfg.AuthenticationEndpoint != nil, kmsgcp.WithAuthenticationEndpoint(cfg.AuthenticationEndpoint))
+	opts = coreslices.AppendIf(opts, cfg.KeyVersion != nil, kmsgcp.WithKeyVersion(cfg.KeyVersion))
+	opts = coreslices.AppendIf(opts, b.tlsConfig != nil, kmsgcp.WithTLS(b.tlsConfig))
 
 	return kmsgcp.New(
 		cfg.ProjectId, cfg.Email, cfg.PrivateKey.Expose(),

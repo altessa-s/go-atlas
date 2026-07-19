@@ -15,6 +15,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
+	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/core/types/ptr"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
@@ -356,9 +357,7 @@ func WithListCursorSubject(subject string) ListCursorOption {
 func WithListCursorStages(stages ...bson.D) ListCursorOption {
 	return func(opts *listCursorOptions) {
 		for _, stage := range stages {
-			if stage != nil {
-				opts.stages = append(opts.stages, stage)
-			}
+			opts.stages = slices.AppendNonNil[any](opts.stages, stage)
 		}
 	}
 }
@@ -388,9 +387,7 @@ func WithListCursorStages(stages ...bson.D) ListCursorOption {
 func WithListCursorDecorationStages(stages ...bson.D) ListCursorOption {
 	return func(opts *listCursorOptions) {
 		for _, stage := range stages {
-			if stage != nil {
-				opts.decorationStages = append(opts.decorationStages, stage)
-			}
+			opts.decorationStages = slices.AppendNonNil[any](opts.decorationStages, stage)
 		}
 	}
 }

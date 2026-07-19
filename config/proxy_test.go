@@ -18,23 +18,23 @@ import (
 	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
 
-func TestHTTPProxy_Validate_ValidCases(t *testing.T) {
+func TestProxy_Validate_ValidCases(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
 		name string
-		cfg  HTTPProxy
+		cfg  Proxy
 	}{
-		{"empty_passthrough", HTTPProxy{}},
-		{"none", HTTPProxy{Mode: HTTPProxyModeNone}},
-		{"url_http", HTTPProxy{Mode: HTTPProxyModeURL, URL: "http://proxy:3128"}},
-		{"url_https", HTTPProxy{Mode: HTTPProxyModeURL, URL: "https://proxy:3128"}},
-		{"url_socks5", HTTPProxy{Mode: HTTPProxyModeURL, URL: "socks5://proxy:1080"}},
-		{"url_socks5h", HTTPProxy{Mode: HTTPProxyModeURL, URL: "socks5h://proxy:1080"}},
-		{"host_no_auth", HTTPProxy{Mode: HTTPProxyModeHost, Host: "proxy", Port: 3128}},
-		{"host_with_auth", HTTPProxy{
-			Mode: HTTPProxyModeHost, Host: "proxy", Port: 3128,
-			Auth: &HTTPProxyAuth{Username: "svc", Password: "secret"},
+		{"empty_passthrough", Proxy{}},
+		{"none", Proxy{Mode: ProxyModeNone}},
+		{"url_http", Proxy{Mode: ProxyModeURL, URL: "http://proxy:3128"}},
+		{"url_https", Proxy{Mode: ProxyModeURL, URL: "https://proxy:3128"}},
+		{"url_socks5", Proxy{Mode: ProxyModeURL, URL: "socks5://proxy:1080"}},
+		{"url_socks5h", Proxy{Mode: ProxyModeURL, URL: "socks5h://proxy:1080"}},
+		{"host_no_auth", Proxy{Mode: ProxyModeHost, Host: "proxy", Port: 3128}},
+		{"host_with_auth", Proxy{
+			Mode: ProxyModeHost, Host: "proxy", Port: 3128,
+			Auth: &ProxyAuth{Username: "svc", Password: "secret"},
 		}},
 	}
 
@@ -46,29 +46,29 @@ func TestHTTPProxy_Validate_ValidCases(t *testing.T) {
 	}
 }
 
-func TestHTTPProxy_Validate_InvalidCases(t *testing.T) {
+func TestProxy_Validate_InvalidCases(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
 		name string
-		cfg  HTTPProxy
+		cfg  Proxy
 	}{
-		{"unknown_mode", HTTPProxy{Mode: "bogus"}},
-		{"env_mode_no_longer_valid", HTTPProxy{Mode: "env"}},
-		{"url_mode_missing_url", HTTPProxy{Mode: HTTPProxyModeURL}},
-		{"url_mode_invalid_url", HTTPProxy{Mode: HTTPProxyModeURL, URL: "::not-a-url"}},
-		{"url_mode_no_port", HTTPProxy{Mode: HTTPProxyModeURL, URL: "http://proxy.corp"}},
-		{"host_mode_missing_host", HTTPProxy{Mode: HTTPProxyModeHost, Port: 3128}},
-		{"host_mode_missing_port", HTTPProxy{Mode: HTTPProxyModeHost, Host: "proxy"}},
-		{"host_mode_port_zero", HTTPProxy{Mode: HTTPProxyModeHost, Host: "proxy", Port: 0}},
-		{"host_mode_port_negative", HTTPProxy{Mode: HTTPProxyModeHost, Host: "proxy", Port: -1}},
-		{"host_mode_port_too_large", HTTPProxy{Mode: HTTPProxyModeHost, Host: "proxy", Port: 70000}},
-		{"url_mode_with_host_field", HTTPProxy{Mode: HTTPProxyModeURL, URL: "http://p:1", Host: "x"}},
-		{"empty_mode_with_url_field", HTTPProxy{URL: "http://p:1"}},
-		{"none_mode_with_host_field", HTTPProxy{Mode: HTTPProxyModeNone, Host: "x"}},
-		{"host_mode_auth_without_username", HTTPProxy{
-			Mode: HTTPProxyModeHost, Host: "p", Port: 1,
-			Auth: &HTTPProxyAuth{Password: "x"},
+		{"unknown_mode", Proxy{Mode: "bogus"}},
+		{"env_mode_no_longer_valid", Proxy{Mode: "env"}},
+		{"url_mode_missing_url", Proxy{Mode: ProxyModeURL}},
+		{"url_mode_invalid_url", Proxy{Mode: ProxyModeURL, URL: "::not-a-url"}},
+		{"url_mode_no_port", Proxy{Mode: ProxyModeURL, URL: "http://proxy.corp"}},
+		{"host_mode_missing_host", Proxy{Mode: ProxyModeHost, Port: 3128}},
+		{"host_mode_missing_port", Proxy{Mode: ProxyModeHost, Host: "proxy"}},
+		{"host_mode_port_zero", Proxy{Mode: ProxyModeHost, Host: "proxy", Port: 0}},
+		{"host_mode_port_negative", Proxy{Mode: ProxyModeHost, Host: "proxy", Port: -1}},
+		{"host_mode_port_too_large", Proxy{Mode: ProxyModeHost, Host: "proxy", Port: 70000}},
+		{"url_mode_with_host_field", Proxy{Mode: ProxyModeURL, URL: "http://p:1", Host: "x"}},
+		{"empty_mode_with_url_field", Proxy{URL: "http://p:1"}},
+		{"none_mode_with_host_field", Proxy{Mode: ProxyModeNone, Host: "x"}},
+		{"host_mode_auth_without_username", Proxy{
+			Mode: ProxyModeHost, Host: "p", Port: 1,
+			Auth: &ProxyAuth{Password: "x"},
 		}},
 	}
 
@@ -80,57 +80,103 @@ func TestHTTPProxy_Validate_InvalidCases(t *testing.T) {
 	}
 }
 
-func TestHTTPProxy_Validate_NilReceiver(t *testing.T) {
+func TestProxy_Validate_NilReceiver(t *testing.T) {
 	t.Parallel()
-	var p *HTTPProxy
+	var p *Proxy
 	assert.NoError(t, p.Validate())
 }
 
-func TestHTTPProxy_ClientOptions_NilReceiver(t *testing.T) {
+func TestProxy_ClientOptions_NilReceiver(t *testing.T) {
 	t.Parallel()
-	var p *HTTPProxy
-	opts, err := p.ClientOptions()
+	var p *Proxy
+
+	httpOpts, err := p.HTTPClientOptions()
 	assert.NoError(t, err)
-	assert.Nil(t, opts)
+	assert.Nil(t, httpOpts)
+
+	grpcOpts, err := p.GrpcClientOptions()
+	assert.NoError(t, err)
+	assert.Nil(t, grpcOpts)
 }
 
-func TestHTTPProxy_ClientOptions_PassthroughReturnsNil(t *testing.T) {
+func TestProxy_ClientOptions_PassthroughReturnsNil(t *testing.T) {
 	t.Parallel()
 
 	// Empty Mode == "no override" — leave the underlying transport's
-	// env-based default in place.
-	cfg := HTTPProxy{}
-	opts, err := cfg.ClientOptions()
+	// env-based default in place (http.ProxyFromEnvironment for
+	// net/http, grpc-go's own HTTPS_PROXY lookup for gRPC).
+	cfg := Proxy{}
+
+	httpOpts, err := cfg.HTTPClientOptions()
 	assert.NoError(t, err)
-	assert.Nil(t, opts)
+	assert.Nil(t, httpOpts)
+
+	grpcOpts, err := cfg.GrpcClientOptions()
+	assert.NoError(t, err)
+	assert.Nil(t, grpcOpts)
 }
 
-func TestHTTPProxy_ClientOptions_UnknownMode(t *testing.T) {
+func TestProxy_ClientOptions_UnknownMode(t *testing.T) {
 	t.Parallel()
-	cfg := HTTPProxy{Mode: "bogus"}
-	opts, err := cfg.ClientOptions()
+	cfg := Proxy{Mode: "bogus"}
+
+	httpOpts, err := cfg.HTTPClientOptions()
 	assert.Error(t, err)
-	assert.Nil(t, opts)
+	assert.Nil(t, httpOpts)
+
+	grpcOpts, err := cfg.GrpcClientOptions()
+	assert.Error(t, err)
+	assert.Nil(t, grpcOpts)
 }
 
-func TestHTTPProxy_ClientOptions_URLParseError(t *testing.T) {
+func TestProxy_ClientOptions_URLParseError(t *testing.T) {
 	t.Parallel()
-	cfg := HTTPProxy{Mode: HTTPProxyModeURL, URL: "::bad"}
-	opts, err := cfg.ClientOptions()
+	cfg := Proxy{Mode: ProxyModeURL, URL: "::bad"}
+
+	httpOpts, err := cfg.HTTPClientOptions()
 	assert.Error(t, err)
-	assert.Nil(t, opts)
+	assert.Nil(t, httpOpts)
+
+	grpcOpts, err := cfg.GrpcClientOptions()
+	assert.Error(t, err)
+	assert.Nil(t, grpcOpts)
 }
 
-// TestHTTPProxy_ClientOptions_RoutesThroughProxy spins up an httptest
+func TestProxy_GrpcClientOptions_NonEnvReturnsOption(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		cfg  Proxy
+	}{
+		{"none", Proxy{Mode: ProxyModeNone}},
+		{"url", Proxy{Mode: ProxyModeURL, URL: "http://proxy:3128"}},
+		{"host_no_auth", Proxy{Mode: ProxyModeHost, Host: "proxy", Port: 3128}},
+		{"host_with_auth", Proxy{
+			Mode: ProxyModeHost, Host: "proxy", Port: 3128,
+			Auth: &ProxyAuth{Username: "svc", Password: "secret"},
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			opts, err := tc.cfg.GrpcClientOptions()
+			assert.NoError(t, err)
+			assert.Len(t, opts, 1)
+		})
+	}
+}
+
+// TestProxy_HTTPClientOptions_RoutesThroughProxy spins up an httptest
 // server in proxy role and checks that the materialized options actually
 // route requests through it for every non-trivial mode.
-func TestHTTPProxy_ClientOptions_RoutesThroughProxy(t *testing.T) {
+func TestProxy_HTTPClientOptions_RoutesThroughProxy(t *testing.T) {
 	t.Parallel()
 
 	t.Run("mode_url", func(t *testing.T) {
 		t.Parallel()
 		proxy, lastHost, _ := newProxyServer(t)
-		cfg := HTTPProxy{Mode: HTTPProxyModeURL, URL: proxy.URL}
+		cfg := Proxy{Mode: ProxyModeURL, URL: proxy.URL}
 		runProxiedGet(t, cfg)
 		assert.Equal(t, "example.invalid", lastHost.Load())
 	})
@@ -139,7 +185,7 @@ func TestHTTPProxy_ClientOptions_RoutesThroughProxy(t *testing.T) {
 		t.Parallel()
 		proxy, lastHost, lastAuth := newProxyServer(t)
 		host, port := splitProxyURL(t, proxy.URL)
-		cfg := HTTPProxy{Mode: HTTPProxyModeHost, Host: host, Port: port}
+		cfg := Proxy{Mode: ProxyModeHost, Host: host, Port: port}
 		runProxiedGet(t, cfg)
 		assert.Equal(t, "example.invalid", lastHost.Load())
 		assert.Empty(t, lastAuth.Load())
@@ -149,9 +195,9 @@ func TestHTTPProxy_ClientOptions_RoutesThroughProxy(t *testing.T) {
 		t.Parallel()
 		proxy, lastHost, lastAuth := newProxyServer(t)
 		host, port := splitProxyURL(t, proxy.URL)
-		cfg := HTTPProxy{
-			Mode: HTTPProxyModeHost, Host: host, Port: port,
-			Auth: &HTTPProxyAuth{Username: "svc", Password: "secret"},
+		cfg := Proxy{
+			Mode: ProxyModeHost, Host: host, Port: port,
+			Auth: &ProxyAuth{Username: "svc", Password: "secret"},
 		}
 		runProxiedGet(t, cfg)
 		assert.Equal(t, "example.invalid", lastHost.Load())
@@ -163,9 +209,9 @@ func TestHTTPProxy_ClientOptions_RoutesThroughProxy(t *testing.T) {
 		t.Parallel()
 		proxy, _, lastAuth := newProxyServer(t)
 		host, port := splitProxyURL(t, proxy.URL)
-		cfg := HTTPProxy{
-			Mode: HTTPProxyModeHost, Host: host, Port: port,
-			Auth: &HTTPProxyAuth{Username: "svc"},
+		cfg := Proxy{
+			Mode: ProxyModeHost, Host: host, Port: port,
+			Auth: &ProxyAuth{Username: "svc"},
 		}
 		runProxiedGet(t, cfg)
 		// "Basic c3ZjOg==" == base64("svc:")
@@ -183,8 +229,8 @@ func TestHTTPProxy_ClientOptions_RoutesThroughProxy(t *testing.T) {
 		}))
 		t.Cleanup(target.Close)
 
-		cfg := HTTPProxy{Mode: HTTPProxyModeNone}
-		opts, err := cfg.ClientOptions()
+		cfg := Proxy{Mode: ProxyModeNone}
+		opts, err := cfg.HTTPClientOptions()
 		require.NoError(t, err)
 		require.Len(t, opts, 1)
 
@@ -198,11 +244,11 @@ func TestHTTPProxy_ClientOptions_RoutesThroughProxy(t *testing.T) {
 	})
 }
 
-func TestHTTPProxy_PasswordRedaction(t *testing.T) {
+func TestProxy_PasswordRedaction(t *testing.T) {
 	t.Parallel()
 
 	password := "topsecret-do-not-leak"
-	auth := &HTTPProxyAuth{Username: "svc", Password: Secret(password)}
+	auth := &ProxyAuth{Username: "svc", Password: Secret(password)}
 
 	// Cover every common output sink: fmt %+v on the dereferenced struct
 	// (the pointer-print path shows an address, not the fields), and the
@@ -212,16 +258,47 @@ func TestHTTPProxy_PasswordRedaction(t *testing.T) {
 	assert.Contains(t, rendered, "<redacted>")
 }
 
-func TestDefaultHTTPProxy(t *testing.T) {
+func TestProxy_userinfo(t *testing.T) {
 	t.Parallel()
 
-	got := DefaultHTTPProxy()
+	cases := []struct {
+		name string
+		auth *ProxyAuth
+		want *url.Userinfo
+	}{
+		{"nil_auth", nil, nil},
+		{"empty_username", &ProxyAuth{}, nil},
+		{"username_only", &ProxyAuth{Username: "svc"}, url.User("svc")},
+		{"user_password", &ProxyAuth{Username: "svc", Password: "p"}, url.UserPassword("svc", "p")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := &Proxy{Auth: tc.auth}
+			got := p.userinfo()
+			if tc.want == nil {
+				assert.Nil(t, got)
+				return
+			}
+			assert.Equal(t, tc.want.String(), got.String())
+		})
+	}
+}
+
+func TestDefaultProxy(t *testing.T) {
+	t.Parallel()
+
+	got := DefaultProxy()
 	assert.Empty(t, string(got.Mode), "default Mode is the empty zero value (passthrough)")
 	assert.NoError(t, got.Validate())
 
-	opts, err := got.ClientOptions()
+	httpOpts, err := got.HTTPClientOptions()
 	assert.NoError(t, err)
-	assert.Nil(t, opts)
+	assert.Nil(t, httpOpts)
+
+	grpcOpts, err := got.GrpcClientOptions()
+	assert.NoError(t, err)
+	assert.Nil(t, grpcOpts)
 }
 
 // newProxyServer returns an httptest server that behaves like a forward
@@ -261,9 +338,9 @@ func splitProxyURL(t *testing.T, raw string) (string, int) {
 // GET to a non-resolvable host. If the proxy is wired correctly the
 // request reaches the proxy server (which always replies 204) and the
 // caller can inspect the captured proxy state via the returned values.
-func runProxiedGet(t *testing.T, cfg HTTPProxy) {
+func runProxiedGet(t *testing.T, cfg Proxy) {
 	t.Helper()
-	opts, err := cfg.ClientOptions()
+	opts, err := cfg.HTTPClientOptions()
 	require.NoError(t, err)
 
 	c := httpclient.New(append(opts, httpclient.WithRetryMax(0))...)

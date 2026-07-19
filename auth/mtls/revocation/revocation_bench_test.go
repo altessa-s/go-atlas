@@ -17,12 +17,12 @@ import (
 // BenchmarkCheckCached measures the steady-state hot path: a cache hit, with no
 // network round-trip (the responder is queried once to prime the cache).
 func BenchmarkCheckCached(b *testing.B) {
-	ca, caKey := makeCA(b)
+	ca := makeCA(b)
 	var hits atomic.Int32
-	srv := responder(b, ca, caKey, ocsp.Good, &hits)
-	leaf := makeLeaf(b, ca, caKey, 42, srv.URL)
+	srv := responder(b, ca, ocsp.Good, &hits)
+	leaf := makeLeaf(b, ca, 42, srv.URL)
 
-	c := revocation.New([]*x509.Certificate{ca})
+	c := revocation.New([]*x509.Certificate{ca.Cert})
 	if err := c.Check(leaf); err != nil { // prime cache
 		b.Fatal(err)
 	}

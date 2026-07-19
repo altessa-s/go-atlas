@@ -3,7 +3,8 @@
 // the LICENSE file.
 
 // Package mtlstest provides a self-signed certificate authority for
-// mutual-TLS integration tests across the transport layer. It mints matching
+// mutual-TLS integration tests across the transport layer. It is a thin
+// wrapper over the shared test CA in internal/testhelpers that mints matching
 // server and client leaf certificates (the latter carrying a SPIFFE URI SAN)
 // signed by one root, so a real handshake can be driven from both ends without
 // touching disk.

@@ -28,8 +28,8 @@ func TestOPAGitLab_Validate_ValidProxy(t *testing.T) {
 		Endpoint:  "https://gitlab.example.com",
 		Token:     "tok",
 		ProjectID: 42,
-		Proxy: &HTTPProxy{
-			Mode: HTTPProxyModeURL,
+		Proxy: &Proxy{
+			Mode: ProxyModeURL,
 			URL:  "http://proxy.corp:3128",
 		},
 	}
@@ -43,8 +43,8 @@ func TestOPAGitLab_Validate_InvalidProxyPropagates(t *testing.T) {
 		Endpoint:  "https://gitlab.example.com",
 		Token:     "tok",
 		ProjectID: 42,
-		Proxy: &HTTPProxy{
-			Mode: HTTPProxyModeURL,
+		Proxy: &Proxy{
+			Mode: ProxyModeURL,
 			// URL missing — Mode=url requires URL.
 		},
 	}
@@ -63,8 +63,8 @@ func TestOPAS3_Validate_ValidProxy(t *testing.T) {
 
 	cfg := OPAS3{
 		Bucket: "policies",
-		Proxy: &HTTPProxy{
-			Mode: HTTPProxyModeURL,
+		Proxy: &Proxy{
+			Mode: ProxyModeURL,
 			URL:  "http://proxy.corp:3128",
 		},
 	}
@@ -76,8 +76,8 @@ func TestOPAS3_Validate_InvalidProxyPropagates(t *testing.T) {
 
 	cfg := OPAS3{
 		Bucket: "policies",
-		Proxy: &HTTPProxy{
-			Mode: HTTPProxyModeURL,
+		Proxy: &Proxy{
+			Mode: ProxyModeURL,
 			// URL missing — Mode=url requires URL.
 		},
 	}

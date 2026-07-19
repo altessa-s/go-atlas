@@ -6,6 +6,7 @@ package testhelpers
 
 import (
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
@@ -40,6 +41,26 @@ func GenerateRSAKeyPEM(tb testing.TB, bits int) []byte {
 		tb.Fatalf("failed to marshal private key: %v", err)
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})
+}
+
+// GenerateECDSAKey generates an ECDSA private key on the given curve for testing.
+func GenerateECDSAKey(tb testing.TB, curve elliptic.Curve) *ecdsa.PrivateKey {
+	tb.Helper()
+	key, err := ecdsa.GenerateKey(curve, rand.Reader)
+	if err != nil {
+		tb.Fatalf("failed to generate ECDSA key: %v", err)
+	}
+	return key
+}
+
+// GenerateEd25519Key generates an Ed25519 key pair for testing.
+func GenerateEd25519Key(tb testing.TB) (ed25519.PublicKey, ed25519.PrivateKey) {
+	tb.Helper()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		tb.Fatalf("failed to generate Ed25519 key: %v", err)
+	}
+	return pub, priv
 }
 
 // SelfSignedCert generates a CA-signed leaf TLS certificate for testing with no

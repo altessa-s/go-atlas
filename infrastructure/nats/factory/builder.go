@@ -19,6 +19,7 @@ import (
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/observability/health"
 
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 )
 
@@ -190,9 +191,7 @@ func (b *ConnectionBuilder) NatsOptions() ([]nats.Option, error) {
 		nats.ErrorHandler(natsErrorHandler(logger)),
 	}
 
-	if b.tlsConfig != nil {
-		natsOptions = append(natsOptions, nats.Secure(b.tlsConfig))
-	}
+	natsOptions = coreslices.AppendIf(natsOptions, b.tlsConfig != nil, nats.Secure(b.tlsConfig))
 
 	if !b.cfg.UseConnectionURI() {
 		switch {

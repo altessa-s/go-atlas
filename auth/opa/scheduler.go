@@ -16,20 +16,17 @@ import (
 
 // RegisterSchedulerFunc returns a function for use by a scheduler and marks
 // this manager as scheduler-managed. After calling this method, direct calls
-// to RunUpdateCycle will return ErrSchedulerManaged.
+// to RunUpdateCycle will return [corescheduler.ErrSchedulerManaged].
 func (m *Manager) RegisterSchedulerFunc() func(context.Context) error {
-	m.schedulerRegistered.Store(true)
-	return m.runUpdateCycleInternal
+	return m.updateCycleTask.SchedulerFunc(m.runUpdateCycleInternal)
 }
 
 // RunUpdateCycle fetches the latest policies and reloads them if changed.
 // This method is designed to be called manually for one-time updates.
-// If the manager is registered with a scheduler, this method returns ErrSchedulerManaged.
+// If the manager is registered with a scheduler, this method returns
+// [corescheduler.ErrSchedulerManaged].
 func (m *Manager) RunUpdateCycle(ctx context.Context) error {
-	if m.schedulerRegistered.Load() {
-		return ErrSchedulerManaged
-	}
-	return m.runUpdateCycleInternal(ctx)
+	return m.updateCycleTask.Run(ctx, m.runUpdateCycleInternal)
 }
 
 // registerSchedulerTasks registers background tasks with the scheduler if configured.

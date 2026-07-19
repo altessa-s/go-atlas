@@ -22,6 +22,7 @@ import (
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/recovery"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/requestid"
 	"github.com/altessa-s/go-atlas/transport/internal/clientip"
+	"github.com/altessa-s/go-atlas/transport/internal/factoryconv"
 
 	geoaclinter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/geoacl"
 	ipaclinter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/ipacl"
@@ -110,9 +111,8 @@ func (b *ServerBuilder) WithLoggerInterceptor() *ServerBuilder {
 	configOpts = append(configOpts, logger.WithIgnoreMethods(c.IgnoreMethods...))
 	configOpts = append(configOpts, logger.WithLogGrpcResponseCodes(c.LogGrpcResponseCodes...))
 	configOpts = append(configOpts, logger.WithIgnoreGrpcResponseCodes(c.IgnoreGrpcResponseCodes...))
-	if len(c.IgnorePatterns) > 0 {
-		configOpts = append(configOpts, logger.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
-	}
+	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
+		logger.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
 
 	configOpts = slices.AppendIf(configOpts, c.EnableContextLogger, logger.WithContextLogger(b.Logger()))
 
@@ -138,16 +138,11 @@ func (b *ServerBuilder) WithMetricsInterceptor() *ServerBuilder {
 
 	configOpts = slices.AppendIf(configOpts, c.EnableSizeMetrics, metricsint.WithEnableSizeMetrics())
 	configOpts = slices.AppendIf(configOpts, c.EnableStreamMetrics, metricsint.WithEnableStreamMetrics())
-	if len(c.DurationBuckets) > 0 {
-		configOpts = append(configOpts, metricsint.WithDurationBuckets(c.DurationBuckets))
-	}
-	if len(c.SizeBuckets) > 0 {
-		configOpts = append(configOpts, metricsint.WithSizeBuckets(c.SizeBuckets))
-	}
+	configOpts = slices.AppendIf(configOpts, len(c.DurationBuckets) > 0, metricsint.WithDurationBuckets(c.DurationBuckets))
+	configOpts = slices.AppendIf(configOpts, len(c.SizeBuckets) > 0, metricsint.WithSizeBuckets(c.SizeBuckets))
 	configOpts = append(configOpts, metricsint.WithIgnoreMethods(c.IgnoreMethods...))
-	if len(c.IgnorePatterns) > 0 {
-		configOpts = append(configOpts, metricsint.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
-	}
+	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
+		metricsint.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
 
 	b.interceptors = append(b.interceptors, metricsint.ServerInterceptor(configOpts...))
 	return b
@@ -172,10 +167,8 @@ func (b *ServerBuilder) WithTracingInterceptor() *ServerBuilder {
 	}
 
 	if len(c.IgnorePatterns) > 0 {
-		patterns := compilePatterns(c.IgnorePatterns)
-		if len(patterns) > 0 {
-			configOpts = append(configOpts, tracinginter.WithIgnorePatterns(patterns...))
-		}
+		patterns := factoryconv.CompilePatterns(c.IgnorePatterns)
+		configOpts = slices.AppendIf(configOpts, len(patterns) > 0, tracinginter.WithIgnorePatterns(patterns...))
 	}
 
 	b.interceptors = append(b.interceptors, tracinginter.ServerInterceptor(tracer, configOpts...))
@@ -196,7 +189,7 @@ func (b *ServerBuilder) WithRealIPInterceptor() *ServerBuilder {
 	}
 
 	if len(c.TrustedProxies) > 0 {
-		proxies, err := parsePrefixes(c.TrustedProxies)
+		proxies, err := factoryconv.ParsePrefixes(c.TrustedProxies)
 		if err != nil {
 			b.errs = append(b.errs, b.WrapError(err, "failed to parse trusted proxies"))
 			return b
@@ -205,7 +198,7 @@ func (b *ServerBuilder) WithRealIPInterceptor() *ServerBuilder {
 	}
 
 	if len(c.TrustedPeers) > 0 {
-		peers, err := parsePrefixes(c.TrustedPeers)
+		peers, err := factoryconv.ParsePrefixes(c.TrustedPeers)
 		if err != nil {
 			b.errs = append(b.errs, b.WrapError(err, "failed to parse trusted peers"))
 			return b
@@ -240,9 +233,8 @@ func (b *ServerBuilder) WithRecoveryInterceptor() *ServerBuilder {
 	}
 
 	configOpts = append(configOpts, recovery.WithIgnoreMethods(c.IgnoreMethods...))
-	if len(c.IgnorePatterns) > 0 {
-		configOpts = append(configOpts, recovery.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
-	}
+	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
+		recovery.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
 
 	b.interceptors = append(b.interceptors, recovery.ServerInterceptor(configOpts...))
 	return b
@@ -272,7 +264,7 @@ func (b *ServerBuilder) WithIpAclInterceptor() *ServerBuilder {
 	}
 
 	c := cfg.IpAcl
-	registry, err := buildIpAclRegistry(c.DefaultPolicy, c.Rules, c.DefaultRule)
+	registry, err := factoryconv.BuildIpAclRegistry(c.DefaultPolicy, c.Rules, c.DefaultRule)
 	if err != nil {
 		b.errs = append(b.errs, b.WrapError(err, "failed to build IP ACL registry"))
 		return b
@@ -280,13 +272,12 @@ func (b *ServerBuilder) WithIpAclInterceptor() *ServerBuilder {
 
 	configOpts := []ipaclinter.Option{
 		ipaclinter.WithLogger(b.Logger()),
-		ipaclinter.WithFallbackBehavior(convertFallbackBehavior(c.FallbackBehavior)),
+		ipaclinter.WithFallbackBehavior(factoryconv.ConvertFallbackBehavior(c.FallbackBehavior)),
 	}
 
 	configOpts = append(configOpts, ipaclinter.WithIgnoreMethods(c.IgnoreMethods...))
-	if len(c.IgnorePatterns) > 0 {
-		configOpts = append(configOpts, ipaclinter.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
-	}
+	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
+		ipaclinter.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
 
 	b.interceptors = append(b.interceptors, ipaclinter.ServerInterceptor(registry, configOpts...))
 	return b
@@ -305,7 +296,7 @@ func (b *ServerBuilder) WithGeoAclInterceptor() *ServerBuilder {
 	}
 
 	c := cfg.GeoAcl
-	registry, err := buildGeoAclRegistry(c.DefaultPolicy, c.Rules, c.DefaultRule)
+	registry, err := factoryconv.BuildGeoAclRegistry(c.DefaultPolicy, c.Rules, c.DefaultRule)
 	if err != nil {
 		b.errs = append(b.errs, b.WrapError(err, "failed to build GeoACL registry"))
 		return b
@@ -313,13 +304,12 @@ func (b *ServerBuilder) WithGeoAclInterceptor() *ServerBuilder {
 
 	configOpts := []geoaclinter.Option{
 		geoaclinter.WithLogger(b.Logger()),
-		geoaclinter.WithFallbackBehavior(convertFallbackBehavior(c.FallbackBehavior)),
+		geoaclinter.WithFallbackBehavior(factoryconv.ConvertFallbackBehavior(c.FallbackBehavior)),
 	}
 
 	configOpts = append(configOpts, geoaclinter.WithIgnoreMethods(c.IgnoreMethods...))
-	if len(c.IgnorePatterns) > 0 {
-		configOpts = append(configOpts, geoaclinter.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
-	}
+	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
+		geoaclinter.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
 
 	b.interceptors = append(b.interceptors, geoaclinter.ServerInterceptor(b.geoResolver, registry, configOpts...))
 	return b
@@ -340,13 +330,12 @@ func (b *ServerBuilder) WithLimiterInterceptor() *ServerBuilder {
 	c := cfg.Limiter
 	configOpts := []limiter.Option{
 		limiter.WithLogger(b.Logger()),
-		limiter.WithFallbackBehavior(convertFallbackBehavior(c.FallbackBehavior)),
+		limiter.WithFallbackBehavior(factoryconv.ConvertFallbackBehavior(c.FallbackBehavior)),
 	}
 
 	configOpts = append(configOpts, limiter.WithIgnoreMethods(c.IgnoreMethods...))
-	if len(c.IgnorePatterns) > 0 {
-		configOpts = append(configOpts, limiter.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
-	}
+	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
+		limiter.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
 
 	b.interceptors = append(b.interceptors, limiter.ServerInterceptor(b.limiter, configOpts...))
 	return b
@@ -369,15 +358,14 @@ func (b *ServerBuilder) WithIdempotencyInterceptor() *ServerBuilder {
 		idempotency.WithIdempotencyKeyHeader(c.IdempotencyKeyHeader),
 		idempotency.WithIdempotencyKeyStatusMetadata(c.IdempotencyKeyStatusMetadata),
 		idempotency.WithIdempotencyKeyEntityIdMetadata(c.IdempotencyKeyEntityIdMetadata),
-		idempotency.WithFallbackBehavior(convertFallbackBehavior(c.FallbackBehavior)),
+		idempotency.WithFallbackBehavior(factoryconv.ConvertFallbackBehavior(c.FallbackBehavior)),
 		idempotency.WithIgnoreMethods(c.IgnoreMethods...),
 	}
 
 	configOpts = append(configOpts, idempotency.WithEnforceMandatory(c.EnforceMandatory))
 
-	if len(c.IgnorePatterns) > 0 {
-		configOpts = append(configOpts, idempotency.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
-	}
+	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
+		idempotency.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
 
 	b.interceptors = append(b.interceptors, idempotency.ServerInterceptor(b.idempotency, configOpts...))
 	return b
@@ -404,21 +392,11 @@ func (b *ServerBuilder) WithCacheInterceptor() *ServerBuilder {
 		cache.WithIgnoreMethods(c.IgnoreMethods...),
 	}
 
-	if len(c.KeyMetadata) > 0 {
-		opts = append(opts, cache.WithMetadataKeys(c.KeyMetadata...))
-	}
-
-	if b.cacheMetadataProcessor != nil {
-		opts = append(opts, cache.WithMetadataProcessor(b.cacheMetadataProcessor))
-	}
-
-	if len(b.cacheMethodConfigs) > 0 {
-		opts = append(opts, cache.WithMethodConfig(b.cacheMethodConfigs...))
-	}
-
-	if len(c.IgnorePatterns) > 0 {
-		opts = append(opts, cache.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
-	}
+	opts = slices.AppendIf(opts, len(c.KeyMetadata) > 0, cache.WithMetadataKeys(c.KeyMetadata...))
+	opts = slices.AppendIf(opts, b.cacheMetadataProcessor != nil, cache.WithMetadataProcessor(b.cacheMetadataProcessor))
+	opts = slices.AppendIf(opts, len(b.cacheMethodConfigs) > 0, cache.WithMethodConfig(b.cacheMethodConfigs...))
+	opts = slices.AppendIf(opts, len(c.IgnorePatterns) > 0,
+		cache.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
 
 	// Decision with separate TTLs
 	opts = append(opts, cache.WithCacheDecision(
@@ -448,13 +426,9 @@ func (b *ServerBuilder) WithAuthInterceptor() *ServerBuilder {
 		auth.WithIgnoreMethods(c.IgnoreMethods...),
 	}
 
-	if b.clientAuth != nil {
-		configOpts = append(configOpts, auth.WithClientAuth(b.clientAuth))
-	}
-
-	if len(c.IgnorePatterns) > 0 {
-		configOpts = append(configOpts, auth.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
-	}
+	configOpts = slices.AppendIf(configOpts, b.clientAuth != nil, auth.WithClientAuth(b.clientAuth))
+	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
+		auth.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
 
 	b.interceptors = append(b.interceptors, auth.ServerInterceptor(configOpts...))
 	return b
@@ -478,9 +452,8 @@ func (b *ServerBuilder) WithHealthInterceptor() *ServerBuilder {
 		health.WithIgnoreMethods(c.IgnoreMethods...),
 	}
 
-	if len(c.IgnorePatterns) > 0 {
-		configOpts = append(configOpts, health.WithIgnorePatterns(compilePatterns(c.IgnorePatterns)...))
-	}
+	configOpts = slices.AppendIf(configOpts, len(c.IgnorePatterns) > 0,
+		health.WithIgnorePatterns(factoryconv.CompilePatterns(c.IgnorePatterns)...))
 
 	b.interceptors = append(b.interceptors, health.ServerInterceptor(b.healthChecker, configOpts...))
 	return b
@@ -506,15 +479,11 @@ func (b *ServerBuilder) WithErrStatusInterceptor() *ServerBuilder {
 		errstatus.WithFinalizer(finalizer),
 	}
 
-	if c.CacheSize != nil {
-		opts = append(opts, errstatus.WithCacheSize(*c.CacheSize))
-	}
-	if c.CacheDisabled {
-		opts = append(opts, errstatus.WithCacheDisabled())
-	}
-	if c.CacheOnlySentinel {
-		opts = append(opts, errstatus.WithCacheOnlySentinel())
-	}
+	opts = slices.AppendIfFunc(opts, c.CacheSize != nil, func() []errstatus.Option {
+		return []errstatus.Option{errstatus.WithCacheSize(*c.CacheSize)}
+	})
+	opts = slices.AppendIf(opts, c.CacheDisabled, errstatus.WithCacheDisabled())
+	opts = slices.AppendIf(opts, c.CacheOnlySentinel, errstatus.WithCacheOnlySentinel())
 
 	b.interceptors = append(b.interceptors, errstatus.ServerInterceptor(opts...))
 	return b

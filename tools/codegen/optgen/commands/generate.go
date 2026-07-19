@@ -20,6 +20,7 @@ import (
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/internal/validator"
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/plugin"
 
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	optconfig "github.com/altessa-s/go-atlas/tools/codegen/optgen/config"
 	optparser "github.com/altessa-s/go-atlas/tools/codegen/optgen/internal/parser"
@@ -34,14 +35,14 @@ const (
 
 // allowedFormatters is the allowlist of permitted formatter commands.
 // Only these commands (or their full paths) are allowed to be executed.
-var allowedFormatters = map[string]bool{
+var allowedFormatters = coremaps.NewImmutableMap(map[string]bool{
 	"gofmt":     true,
 	"goimports": true,
 	"gofumpt":   true,
 	"golines":   true,
 	"crlfmt":    true,
 	"gci":       true,
-}
+})
 
 // GenerateCommand implements the "generate" subcommand.
 //
@@ -500,9 +501,9 @@ func validateFormatter(formatter string) (executable string, args []string, hasF
 	// Extract base name for allowlist check (handles full paths like /usr/bin/gofmt)
 	baseName := filepath.Base(executable)
 
-	if !allowedFormatters[baseName] {
-		allowed := make([]string, 0, len(allowedFormatters))
-		for name := range allowedFormatters {
+	if !allowedFormatters.Contains(baseName) {
+		allowed := make([]string, 0, allowedFormatters.Len())
+		for name := range allowedFormatters.Keys() {
 			allowed = append(allowed, name)
 		}
 		return "", nil, false, fmt.Errorf("formatter %q is not in the allowlist; allowed formatters: %s", baseName, strings.Join(allowed, ", "))

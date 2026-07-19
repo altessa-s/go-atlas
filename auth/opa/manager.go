@@ -22,6 +22,7 @@ import (
 
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
 // Manager manages OPA policies and provides thread-safe evaluation.
@@ -43,13 +44,12 @@ type Manager struct {
 	metrics      *opaMetrics
 	logger       *slog.Logger
 
-	mu                  sync.Mutex
-	watchCtx            context.Context
-	watchStop           context.CancelFunc
-	watching            bool
-	closed              atomic.Bool
-	updateCycleRunning  atomic.Bool // Guards against concurrent RunUpdateCycle calls.
-	schedulerRegistered atomic.Bool // Marks if RunUpdateCycle is managed by scheduler.
+	mu              sync.Mutex
+	watchCtx        context.Context
+	watchStop       context.CancelFunc
+	watching        bool
+	closed          atomic.Bool
+	updateCycleTask corescheduler.ManagedTask // Guards RunUpdateCycle and marks scheduler management.
 }
 
 // NewManager creates a new OPA Manager with the given source and query.
@@ -189,7 +189,7 @@ func (m *Manager) pollLoop() {
 		case <-m.watchCtx.Done():
 			return
 		case <-ticker.C:
-			if err := m.runUpdateCycleInternal(m.watchCtx); err != nil {
+			if err := m.updateCycleTask.TryRun(m.watchCtx, m.runUpdateCycleInternal); err != nil {
 				m.logger.Error("policy reload failed", slog.Any("error", err))
 			}
 		}
@@ -197,14 +197,9 @@ func (m *Manager) pollLoop() {
 }
 
 // runUpdateCycleInternal performs the actual update cycle.
-// It is safe to call concurrently; if already running, returns immediately.
+// Callers must route through updateCycleTask so overlapping cycles collapse
+// into a single execution.
 func (m *Manager) runUpdateCycleInternal(ctx context.Context) error {
-	// Prevent concurrent execution
-	if !m.updateCycleRunning.CompareAndSwap(false, true) {
-		return nil // Already running, skip this cycle
-	}
-	defer m.updateCycleRunning.Store(false)
-
 	if m.closed.Load() {
 		return nil
 	}

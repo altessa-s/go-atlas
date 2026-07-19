@@ -9,6 +9,8 @@ package hmacsign
 import (
 	"bytes"
 	"time"
+
+	"github.com/altessa-s/go-atlas/core/collections/slices"
 )
 
 // DefaultTolerance is the replay window applied to a timestamped scheme's
@@ -44,9 +46,7 @@ type options struct {
 func WithSecrets(secrets ...[]byte) Option {
 	return func(o *options) {
 		for _, s := range secrets {
-			if len(s) > 0 {
-				o.secrets = append(o.secrets, bytes.Clone(s))
-			}
+			o.secrets = slices.AppendIf(o.secrets, len(s) > 0, bytes.Clone(s))
 		}
 	}
 }

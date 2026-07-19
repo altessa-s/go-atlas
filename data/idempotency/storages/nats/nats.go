@@ -18,6 +18,7 @@ import (
 	"github.com/altessa-s/go-atlas/data/internal/natsbase"
 	"github.com/altessa-s/go-atlas/data/internal/natskvlease"
 
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
@@ -77,9 +78,7 @@ func (s *Storage) AttemptLockWithTTL(ctx context.Context, key string, val []byte
 	}
 
 	var createOpts []jetstream.KVCreateOpt
-	if lockTtl > 0 {
-		createOpts = append(createOpts, jetstream.KeyTTL(lockTtl))
-	}
+	createOpts = coreslices.AppendIf(createOpts, lockTtl > 0, jetstream.KeyTTL(lockTtl))
 
 	// Use Create to ensure we only set if key does not exist (atomic lock)
 	revision, err := s.KV().Create(ctx, key, val, createOpts...)

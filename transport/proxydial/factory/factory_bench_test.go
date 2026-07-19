@@ -11,14 +11,14 @@ import (
 )
 
 func BenchmarkDialerBuilder_New(b *testing.B) {
-	cfg := &config.HTTPProxy{Mode: config.HTTPProxyModeURL, URL: "https://proxy.example.com:8443"}
+	cfg := &config.Proxy{Mode: config.ProxyModeURL, URL: "https://proxy.example.com:8443"}
 	for b.Loop() {
 		New(cfg)
 	}
 }
 
 func BenchmarkDialerBuilder_Build_URL(b *testing.B) {
-	cfg := &config.HTTPProxy{Mode: config.HTTPProxyModeURL, URL: "https://proxy.example.com:8443"}
+	cfg := &config.Proxy{Mode: config.ProxyModeURL, URL: "https://proxy.example.com:8443"}
 	builder := New(cfg)
 	b.ResetTimer()
 	for b.Loop() {
@@ -27,11 +27,11 @@ func BenchmarkDialerBuilder_Build_URL(b *testing.B) {
 }
 
 func BenchmarkDialerBuilder_Build_Host(b *testing.B) {
-	cfg := &config.HTTPProxy{
-		Mode: config.HTTPProxyModeHost,
+	cfg := &config.Proxy{
+		Mode: config.ProxyModeHost,
 		Host: "proxy.example.com",
 		Port: 8443,
-		Auth: &config.HTTPProxyAuth{Username: "svc", Password: config.Secret("hunter2")},
+		Auth: &config.ProxyAuth{Username: "svc", Password: config.Secret("hunter2")},
 	}
 	builder := New(cfg)
 	b.ResetTimer()

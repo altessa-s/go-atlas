@@ -113,11 +113,9 @@ type Manager[T any] struct {
 	// concurrently, which would be a data race on the zeroed sensitive fields.
 	clearCacheMu sync.Mutex
 
-	// updateCycleRunning guards against concurrent RunUpdateCycle calls
-	updateCycleRunning atomic.Bool
-
-	// schedulerUpdateCycleRegistered marks if RunUpdateCycle is managed by scheduler
-	schedulerUpdateCycleRegistered atomic.Bool
+	// updateCycleTask guards RunUpdateCycle: single-flight execution plus
+	// the scheduler-managed flag set by RegisterUpdateCycleSchedulerFunc.
+	updateCycleTask corescheduler.ManagedTask
 }
 
 // getOrCreateCache returns the provided cache or creates a default standard cache.

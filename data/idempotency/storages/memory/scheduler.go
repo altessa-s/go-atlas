@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
+	"github.com/altessa-s/go-atlas/data/internal/memcleanup"
 
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
@@ -24,14 +25,11 @@ func (s *Storage) registerCleanupTask(schedule string) error {
 		return fmt.Errorf("cleanup schedule must be set")
 	}
 
-	// Mark as scheduler-managed
-	s.schedulerCleanupRegistered.Store(true)
-
 	ctx := context.Background()
 	taskCfg := corescheduler.TaskConfig{
 		ID:             "idempotency-memory-cleanup",
 		Description:    "Cleanup expired idempotency keys from memory storage",
-		Func:           func(ctx context.Context) error { s.runCleanupInternal(); return nil },
+		Func:           s.cleanupTask.SchedulerFunc(s.runCleanupCycle),
 		Schedule:       schedule,
 		Priority:       corescheduler.TaskPriorityNormal,
 		DisableHistory: true,
@@ -45,43 +43,22 @@ func (s *Storage) registerCleanupTask(schedule string) error {
 // If the function is registered with a scheduler, this method returns immediately.
 // Thread-safe: Safe for concurrent calls.
 func (s *Storage) RunCleanup() {
-	if s.schedulerCleanupRegistered.Load() {
-		return // Managed by scheduler, skip external call
-	}
-	s.runCleanupInternal()
+	_ = s.cleanupTask.Run(context.Background(), s.runCleanupCycle)
 }
 
-// runCleanupInternal performs the actual cleanup.
-// If cleanup is already running, this call returns immediately.
-func (s *Storage) runCleanupInternal() {
-	// Prevent concurrent execution
-	if !s.cleanupRunning.CompareAndSwap(false, true) {
-		return // Already running, skip this cycle
-	}
-	defer s.cleanupRunning.Store(false)
-
+// runCleanupCycle performs the actual two-phase cleanup sweep: expired keys
+// are collected under the read lock and deleted under the write lock with an
+// expiry re-check, so entries refreshed between the phases survive.
+// Callers must route through cleanupTask so overlapping cycles collapse
+// into a single execution.
+func (s *Storage) runCleanupCycle(context.Context) error {
 	if s.options.ttl <= 0 {
-		return // No TTL, nothing to clean
+		return nil // No TTL, nothing to clean
 	}
 
 	now := time.Now()
-	var keysToDelete []string
-
-	// Phase 1: Identify expired keys under read lock
-	s.mu.RLock()
-	for key, e := range s.entries {
-		if now.After(e.expiresAt) {
-			keysToDelete = append(keysToDelete, key)
-		}
-	}
-	s.mu.RUnlock()
-
-	// Phase 2: Delete in batch under write lock
-	if len(keysToDelete) > 0 {
-		s.mu.Lock()
-		for _, key := range keysToDelete {
-			delete(s.entries, key)
-		}
-		s.mu.Unlock()
-	}
+	memcleanup.Sweep(&s.mu, s.entries, func(e *entry) bool {
+		return now.After(e.expiresAt)
+	})
+	return nil
 }

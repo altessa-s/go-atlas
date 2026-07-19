@@ -328,17 +328,11 @@ func (p *Provider) safeChannelSend(ctx context.Context, ch chan<- struct{}, chan
 		return
 	}
 
-	defer func() {
-		if r := recover(); r != nil {
-			if p.opts.logger != nil {
-				p.opts.logger.WarnContext(ctx, "attempting to send on closed channel", slog.String("channel", channelName))
-			}
+	// Non-blocking send
+	if _, chClosed := panics.TrySendNonBlocking(ch, struct{}{}); chClosed {
+		if p.opts.logger != nil {
+			p.opts.logger.WarnContext(ctx, "attempting to send on closed channel", slog.String("channel", channelName))
 		}
-	}()
-
-	select {
-	case ch <- struct{}{}:
-	default: // Non-blocking send
 	}
 }
 

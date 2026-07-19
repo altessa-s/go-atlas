@@ -1,4 +1,6 @@
 # gRPC outbound proxy configuration for transport/grpc/client.
+# Loads into the shared config.Proxy struct (same schema as
+# http_proxy.yaml); materialized via Proxy.GrpcClientOptions().
 # When this section is omitted entirely, the client respects grpc-go's
 # default HTTPS_PROXY / HTTP_PROXY / NO_PROXY environment lookup.
 # All parameters are commented out by default (template mode).

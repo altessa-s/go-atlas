@@ -13,6 +13,7 @@ import (
 
 	"github.com/robfig/cron/v3"
 
+	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/data/filter"
 
@@ -203,12 +204,8 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	default:
 		logAttrs = append(logAttrs, slog.String("max_concurrent_tasks", "unlimited"))
 	}
-	if nilcheck.IsNotNil(s.leaderElector) {
-		logAttrs = append(logAttrs, slog.String("leader_election", "enabled"))
-	}
-	if s.readinessProbe != nil {
-		logAttrs = append(logAttrs, slog.String("readiness_probe", "enabled"))
-	}
+	logAttrs = slices.AppendIf[any](logAttrs, nilcheck.IsNotNil(s.leaderElector), slog.String("leader_election", "enabled"))
+	logAttrs = slices.AppendIf[any](logAttrs, s.readinessProbe != nil, slog.String("readiness_probe", "enabled"))
 	s.logger.InfoContext(ctx, "scheduler started", logAttrs...)
 
 	return nil

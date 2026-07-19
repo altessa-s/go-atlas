@@ -119,7 +119,7 @@ func (c *grpcClient) Start(ctx context.Context) error {
 
 	// Caller-supplied options come last so they win over the defaults
 	// set above. Used by the tracing factory to inject proxy resolvers
-	// materialized from config.GrpcProxy.
+	// materialized from config.Proxy.
 	opts = append(opts, c.extraClientOptions...)
 
 	// Create the gRPC client

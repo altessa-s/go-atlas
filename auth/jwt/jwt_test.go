@@ -6,10 +6,7 @@ package jwt_test
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/ed25519"
 	"crypto/elliptic"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -39,11 +36,9 @@ type keyset struct {
 func newKeysets(tb testing.TB) []keyset {
 	tb.Helper()
 
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(tb, err)
+	pub, priv := testhelpers.GenerateEd25519Key(tb)
 
-	ec, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(tb, err)
+	ec := testhelpers.GenerateECDSAKey(tb, elliptic.P256())
 
 	rsaKey := testhelpers.GenerateRSAKey(tb, 2048)
 

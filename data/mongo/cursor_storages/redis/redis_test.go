@@ -8,21 +8,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/mongo"
-	"github.com/altessa-s/go-atlas/data/mongo/internal/testhelpers"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	cursredis "github.com/altessa-s/go-atlas/data/mongo/cursor_storages/redis"
-	goredis "github.com/redis/go-redis/v9"
+	mongohelpers "github.com/altessa-s/go-atlas/data/mongo/internal/testhelpers"
 )
 
 func setupStorage(tb testing.TB) *cursredis.Storage {
 	tb.Helper()
-	mr := miniredis.RunT(tb)
-	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
-	tb.Cleanup(func() { client.Close() })
+	client, _ := testhelpers.RedisClient(tb)
 	return cursredis.New(client)
 }
 
@@ -34,7 +31,7 @@ func TestNew(t *testing.T) {
 func TestStorage_StoreLoad(t *testing.T) {
 	s := setupStorage(t)
 	ctx := t.Context()
-	meta := testhelpers.SampleCursorMetadata()
+	meta := mongohelpers.SampleCursorMetadata()
 
 	require.NoError(t, s.Store(ctx, "key1", meta))
 
@@ -54,7 +51,7 @@ func TestStorage_Delete(t *testing.T) {
 	s := setupStorage(t)
 	ctx := t.Context()
 
-	_ = s.Store(ctx, "key1", testhelpers.SampleCursorMetadata())
+	_ = s.Store(ctx, "key1", mongohelpers.SampleCursorMetadata())
 	require.NoError(t, s.Delete(ctx, "key1"))
 
 	_, err := s.Load(ctx, "key1")
@@ -70,11 +67,11 @@ func TestStorage_Overwrite(t *testing.T) {
 	s := setupStorage(t)
 	ctx := t.Context()
 
-	meta1 := testhelpers.SampleCursorMetadata()
+	meta1 := mongohelpers.SampleCursorMetadata()
 	meta1.CursorId = "aaa"
 	_ = s.Store(ctx, "key", meta1)
 
-	meta2 := testhelpers.SampleCursorMetadata()
+	meta2 := mongohelpers.SampleCursorMetadata()
 	meta2.CursorId = "bbb"
 	_ = s.Store(ctx, "key", meta2)
 
@@ -83,9 +80,7 @@ func TestStorage_Overwrite(t *testing.T) {
 }
 
 func TestStorage_WithCustomOptions(t *testing.T) {
-	mr := miniredis.RunT(t)
-	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
-	t.Cleanup(func() { client.Close() })
+	client, _ := testhelpers.RedisClient(t)
 
 	s := cursredis.New(client,
 		cursredis.WithTtl(30*time.Minute),
@@ -93,9 +88,9 @@ func TestStorage_WithCustomOptions(t *testing.T) {
 	)
 
 	ctx := t.Context()
-	_ = s.Store(ctx, "key1", testhelpers.SampleCursorMetadata())
+	_ = s.Store(ctx, "key1", mongohelpers.SampleCursorMetadata())
 
 	loaded, err := s.Load(ctx, "key1")
 	require.NoError(t, err)
-	require.Equal(t, testhelpers.SampleCursorMetadata().CursorId, loaded.CursorId)
+	require.Equal(t, mongohelpers.SampleCursorMetadata().CursorId, loaded.CursorId)
 }

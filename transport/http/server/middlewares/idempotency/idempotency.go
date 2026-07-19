@@ -15,6 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas/transport/internal/fallback"
 
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
+	internalidem "github.com/altessa-s/go-atlas/transport/internal/idempotency"
 )
 
 // HTTP status codes used by the middleware.
@@ -236,11 +237,11 @@ var errIdempotencyKeyInvalidFormat = http.ErrAbortHandler
 
 // buildKey constructs a storage key from HTTP method, path, and idempotency key.
 // Format idk:{service}:{idempotency_key}
-// For HTTP, service is represented as {method}:{path}.
+// For HTTP, service is represented as {method}:/{path}.
 // Example: idk:POST:/api/v1/users:550e8400-e29b-41d4-a716-446655440000
 func (m *middleware) buildKey(method, path, idempotencyKey string) string {
 	path = corestrings.InternString(strings.TrimPrefix(path, "/"))
-	return "idk:" + method + ":/" + path + ":" + idempotencyKey
+	return internalidem.BuildStorageKey(method+":/"+path, idempotencyKey)
 }
 
 // isSafeMethod reports whether the HTTP method is safe (idempotent by definition).

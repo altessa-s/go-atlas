@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/altessa-s/go-atlas/core/collections/slices"
+
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
@@ -32,15 +34,13 @@ type entry struct {
 //
 // All exported methods are safe for concurrent use.
 type Manager struct {
-	mu          sync.Mutex
-	entries     map[uint64]*entry
-	nextID      uint64
-	logger      *slog.Logger
-	metrics     *inprogressMetrics
-	scheduler   corescheduler.TaskRegistrar
-	tickRunning atomic.Bool // Guards against concurrent RunTickCycle calls.
-
-	schedulerTickRegistered atomic.Bool // Marks if RunTickCycle is managed by scheduler.
+	mu        sync.Mutex
+	entries   map[uint64]*entry
+	nextID    uint64
+	logger    *slog.Logger
+	metrics   *inprogressMetrics
+	scheduler corescheduler.TaskRegistrar
+	tickTask  corescheduler.ManagedTask // Guards RunTickCycle and marks scheduler management.
 }
 
 // New creates a new Manager with the given options.
@@ -119,9 +119,7 @@ func (m *Manager) tick() {
 	m.mu.Lock()
 	snapshot := make([]*entry, 0, len(m.entries))
 	for _, e := range m.entries {
-		if now.Sub(time.Unix(0, e.lastSent.Load())) >= e.interval {
-			snapshot = append(snapshot, e)
-		}
+		snapshot = slices.AppendIf(snapshot, now.Sub(time.Unix(0, e.lastSent.Load())) >= e.interval, e)
 	}
 	m.mu.Unlock()
 

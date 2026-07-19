@@ -19,6 +19,7 @@ import (
 
 	"google.golang.org/grpc/credentials"
 
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
@@ -66,9 +67,8 @@ func New(ctx context.Context, opts ...Option) (*Provider, error) {
 		return nil, ErrNoAuthorizer
 	}
 	var clientOpts []workloadapi.X509SourceOption
-	if o.socketPath != "" {
-		clientOpts = append(clientOpts, workloadapi.WithClientOptions(workloadapi.WithAddr(o.socketPath)))
-	}
+	clientOpts = coreslices.AppendIf[workloadapi.X509SourceOption](clientOpts, o.socketPath != "",
+		workloadapi.WithClientOptions(workloadapi.WithAddr(o.socketPath)))
 	src, err := workloadapi.NewX509Source(ctx, clientOpts...)
 	if err != nil {
 		return nil, coreerrs.Wrap(err, "spiffe: create X509 source")

@@ -295,7 +295,8 @@ manager, err := opa.NewManager(ctx, source, "data.authz.allow",
 ```
 
 `WithUpdateSchedule` takes the cron expression and a `runOnStart` flag, and only takes effect when a scheduler is wired. The registered
-task runs the same guarded update cycle as the poll loop. Calling the scheduler-managed entry point directly returns `ErrSchedulerManaged`.
+task runs the same guarded update cycle as the poll loop. Calling the scheduler-managed entry point directly returns
+`scheduler.ErrSchedulerManaged` from `core/scheduler`.
 
 ## Factory
 
@@ -349,8 +350,9 @@ than silently serving stale policy.
 | `ErrBundleFetchFailed` | Fetching the bundle from the source failed |
 | `ErrQueryPrepareFailed` | Compiling the Rego query against the loaded modules failed |
 | `ErrWatchStartFailed` | Starting the watch on the source failed |
-| `ErrSchedulerManaged` | A scheduler-managed entry point was called directly |
 | `ErrInvalidDataPath` | A bundle data key could not be parsed into an OPA store path |
+
+A scheduler-managed entry point called directly returns `scheduler.ErrSchedulerManaged` from `core/scheduler`.
 
 `ErrBundleFetchFailed` and `ErrQueryPrepareFailed` are joined with the underlying cause, so `errors.Is` matches the sentinel while the
 original error stays reachable through the chain.

@@ -6,11 +6,7 @@ package revocation_test
 
 import (
 	"crypto"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"io"
 	"math/big"
 	"net/http"
@@ -23,58 +19,36 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/auth/mtls/revocation"
+	"github.com/altessa-s/go-atlas/core/collections/slices"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	"golang.org/x/crypto/ocsp"
 
 	coremtls "github.com/altessa-s/go-atlas/auth/mtls"
 )
 
-func makeCA(t testing.TB) (*x509.Certificate, crypto.Signer) {
+// makeCA returns a shared in-memory test CA with a pinned subject key id;
+// leaves chain to it through their AuthorityKeyId.
+func makeCA(t testing.TB) *testhelpers.CA {
 	t.Helper()
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-	tmpl := &x509.Certificate{
-		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "test-ca"},
-		SubjectKeyId:          []byte{0x01, 0x02, 0x03},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(time.Hour),
-		IsCA:                  true,
-		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
-		BasicConstraintsValid: true,
-	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, key.Public(), key)
-	require.NoError(t, err)
-	ca, err := x509.ParseCertificate(der)
-	require.NoError(t, err)
-	return ca, key
+	return testhelpers.NewCA(t, testhelpers.WithSubjectKeyID([]byte{0x01, 0x02, 0x03}))
 }
 
-func makeLeaf(t testing.TB, ca *x509.Certificate, caKey crypto.Signer, serial int64, ocspURL string) *x509.Certificate {
+// makeLeaf mints a client-auth leaf with the given serial and optional OCSP
+// responder URL, signed by ca.
+func makeLeaf(t testing.TB, ca *testhelpers.CA, serial int64, ocspURL string) *x509.Certificate {
 	t.Helper()
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
-	tmpl := &x509.Certificate{
-		SerialNumber:   big.NewInt(serial),
-		Subject:        pkix.Name{CommonName: "client"},
-		AuthorityKeyId: ca.SubjectKeyId,
-		NotBefore:      time.Now().Add(-time.Hour),
-		NotAfter:       time.Now().Add(time.Hour),
-		KeyUsage:       x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:    []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	opts := []testhelpers.CertOption{
+		testhelpers.WithSerial(serial),
+		testhelpers.WithCommonName("client"),
+		testhelpers.WithExtKeyUsage(x509.ExtKeyUsageClientAuth),
 	}
-	if ocspURL != "" {
-		tmpl.OCSPServer = []string{ocspURL}
-	}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, ca, key.Public(), caKey)
-	require.NoError(t, err)
-	leaf, err := x509.ParseCertificate(der)
-	require.NoError(t, err)
-	return leaf
+	opts = slices.AppendIf(opts, ocspURL != "", testhelpers.WithOCSPServers(ocspURL))
+	return ca.SignLeaf(t, opts...).Leaf
 }
 
 // responder serves a signed OCSP response for any request, counting hits.
-func responder(t testing.TB, ca *x509.Certificate, caKey crypto.Signer, status int, hits *atomic.Int32) *httptest.Server {
+func responder(t testing.TB, ca *testhelpers.CA, status int, hits *atomic.Int32) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
@@ -91,7 +65,7 @@ func responder(t testing.TB, ca *x509.Certificate, caKey crypto.Signer, status i
 			NextUpdate:   time.Now().Add(time.Hour),
 			IssuerHash:   crypto.SHA256,
 		}
-		der, err := ocsp.CreateResponse(ca, ca, tmpl, caKey)
+		der, err := ocsp.CreateResponse(ca.Cert, ca.Cert, tmpl, ca.Key)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -105,12 +79,12 @@ func responder(t testing.TB, ca *x509.Certificate, caKey crypto.Signer, status i
 
 func TestCheckGoodIsCached(t *testing.T) {
 	t.Parallel()
-	ca, caKey := makeCA(t)
+	ca := makeCA(t)
 	var hits atomic.Int32
-	srv := responder(t, ca, caKey, ocsp.Good, &hits)
-	leaf := makeLeaf(t, ca, caKey, 42, srv.URL)
+	srv := responder(t, ca, ocsp.Good, &hits)
+	leaf := makeLeaf(t, ca, 42, srv.URL)
 
-	c := revocation.New([]*x509.Certificate{ca})
+	c := revocation.New([]*x509.Certificate{ca.Cert})
 	require.NoError(t, c.Check(leaf))
 	require.NoError(t, c.Check(leaf)) // served from cache
 	require.Equal(t, int32(1), hits.Load())
@@ -118,42 +92,42 @@ func TestCheckGoodIsCached(t *testing.T) {
 
 func TestCheckRevoked(t *testing.T) {
 	t.Parallel()
-	ca, caKey := makeCA(t)
+	ca := makeCA(t)
 	var hits atomic.Int32
-	srv := responder(t, ca, caKey, ocsp.Revoked, &hits)
-	leaf := makeLeaf(t, ca, caKey, 42, srv.URL)
+	srv := responder(t, ca, ocsp.Revoked, &hits)
+	leaf := makeLeaf(t, ca, 42, srv.URL)
 
-	err := revocation.New([]*x509.Certificate{ca}).Check(leaf)
+	err := revocation.New([]*x509.Certificate{ca.Cert}).Check(leaf)
 	require.ErrorIs(t, err, coremtls.ErrRevoked)
 }
 
 func TestUnreachableResponderFailMode(t *testing.T) {
 	t.Parallel()
-	ca, caKey := makeCA(t)
+	ca := makeCA(t)
 	// Port 1 refuses connections; one fast attempt keeps the test quick.
-	leaf := makeLeaf(t, ca, caKey, 42, "http://127.0.0.1:1")
+	leaf := makeLeaf(t, ca, 42, "http://127.0.0.1:1")
 	opts := []revocation.Option{revocation.WithMaxAttempts(1), revocation.WithTimeout(time.Second)}
 
-	require.NoError(t, revocation.New([]*x509.Certificate{ca}, opts...).Check(leaf))
-	require.Error(t, revocation.New([]*x509.Certificate{ca},
+	require.NoError(t, revocation.New([]*x509.Certificate{ca.Cert}, opts...).Check(leaf))
+	require.Error(t, revocation.New([]*x509.Certificate{ca.Cert},
 		append(opts, revocation.WithFailMode(revocation.FailClosed))...).Check(leaf))
 }
 
 func TestNoResponderURL(t *testing.T) {
 	t.Parallel()
-	ca, caKey := makeCA(t)
-	leaf := makeLeaf(t, ca, caKey, 42, "") // no OCSPServer
+	ca := makeCA(t)
+	leaf := makeLeaf(t, ca, 42, "") // no OCSPServer
 
-	require.NoError(t, revocation.New([]*x509.Certificate{ca}).Check(leaf))
+	require.NoError(t, revocation.New([]*x509.Certificate{ca.Cert}).Check(leaf))
 	require.ErrorIs(t,
-		revocation.New([]*x509.Certificate{ca}, revocation.WithFailMode(revocation.FailClosed)).Check(leaf),
+		revocation.New([]*x509.Certificate{ca.Cert}, revocation.WithFailMode(revocation.FailClosed)).Check(leaf),
 		revocation.ErrNoResponder)
 }
 
 func TestNoIssuer(t *testing.T) {
 	t.Parallel()
-	ca, caKey := makeCA(t)
-	leaf := makeLeaf(t, ca, caKey, 42, "http://example.invalid")
+	ca := makeCA(t)
+	leaf := makeLeaf(t, ca, 42, "http://example.invalid")
 
 	require.NoError(t, revocation.New(nil).Check(leaf))
 	require.ErrorIs(t,
@@ -163,13 +137,13 @@ func TestNoIssuer(t *testing.T) {
 
 func TestCacheBounded(t *testing.T) {
 	t.Parallel()
-	ca, caKey := makeCA(t)
+	ca := makeCA(t)
 	var hits atomic.Int32
-	srv := responder(t, ca, caKey, ocsp.Good, &hits)
-	leafA := makeLeaf(t, ca, caKey, 42, srv.URL)
-	leafB := makeLeaf(t, ca, caKey, 43, srv.URL)
+	srv := responder(t, ca, ocsp.Good, &hits)
+	leafA := makeLeaf(t, ca, 42, srv.URL)
+	leafB := makeLeaf(t, ca, 43, srv.URL)
 
-	c := revocation.New([]*x509.Certificate{ca}, revocation.WithMaxCacheEntries(1))
+	c := revocation.New([]*x509.Certificate{ca.Cert}, revocation.WithMaxCacheEntries(1))
 	require.NoError(t, c.Check(leafA)) // hit 1: caches A
 	require.NoError(t, c.Check(leafB)) // hit 2: caches B, evicts A (cap 1)
 	require.NoError(t, c.Check(leafA)) // hit 3: A was evicted → re-queries
@@ -189,14 +163,14 @@ func statusResponder(t testing.TB, code int, hits *atomic.Int32) *httptest.Serve
 
 func TestRetryClassification(t *testing.T) {
 	t.Parallel()
-	ca, caKey := makeCA(t)
+	ca := makeCA(t)
 
 	t.Run("5xx is retried", func(t *testing.T) {
 		t.Parallel()
 		var hits atomic.Int32
 		srv := statusResponder(t, http.StatusInternalServerError, &hits)
-		leaf := makeLeaf(t, ca, caKey, 42, srv.URL)
-		_ = revocation.New([]*x509.Certificate{ca}, revocation.WithMaxAttempts(3)).Check(leaf)
+		leaf := makeLeaf(t, ca, 42, srv.URL)
+		_ = revocation.New([]*x509.Certificate{ca.Cert}, revocation.WithMaxAttempts(3)).Check(leaf)
 		require.Greater(t, hits.Load(), int32(1)) // retried beyond the first attempt
 	})
 
@@ -204,15 +178,15 @@ func TestRetryClassification(t *testing.T) {
 		t.Parallel()
 		var hits atomic.Int32
 		srv := statusResponder(t, http.StatusBadRequest, &hits)
-		leaf := makeLeaf(t, ca, caKey, 43, srv.URL)
-		_ = revocation.New([]*x509.Certificate{ca}, revocation.WithMaxAttempts(3)).Check(leaf)
+		leaf := makeLeaf(t, ca, 43, srv.URL)
+		_ = revocation.New([]*x509.Certificate{ca.Cert}, revocation.WithMaxAttempts(3)).Check(leaf)
 		require.Equal(t, int32(1), hits.Load())
 	})
 }
 
 func TestSingleflightDedup(t *testing.T) {
 	t.Parallel()
-	ca, caKey := makeCA(t)
+	ca := makeCA(t)
 	var hits atomic.Int32
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -224,13 +198,13 @@ func TestSingleflightDedup(t *testing.T) {
 				serial = req.SerialNumber
 			}
 		}
-		der, err := ocsp.CreateResponse(ca, ca, ocsp.Response{
+		der, err := ocsp.CreateResponse(ca.Cert, ca.Cert, ocsp.Response{
 			Status:       ocsp.Good,
 			SerialNumber: serial,
 			ThisUpdate:   time.Now().Add(-time.Minute),
 			NextUpdate:   time.Now().Add(time.Hour),
 			IssuerHash:   crypto.SHA256,
-		}, caKey)
+		}, ca.Key)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -240,8 +214,8 @@ func TestSingleflightDedup(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	leaf := makeLeaf(t, ca, caKey, 42, srv.URL)
-	c := revocation.New([]*x509.Certificate{ca})
+	leaf := makeLeaf(t, ca, 42, srv.URL)
+	c := revocation.New([]*x509.Certificate{ca.Cert})
 
 	const n = 8
 	errs := make([]error, n)

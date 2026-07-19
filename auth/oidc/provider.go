@@ -40,7 +40,6 @@ var (
 	ErrIntrospection             = errors.New("introspection failed")
 	ErrTokenRevoked              = errors.New("token has been revoked")
 	ErrAudienceNotConfigured     = errors.New("no expected audience configured")
-	ErrSchedulerManaged          = errors.New("function is managed by scheduler, direct calls not allowed")
 	ErrLoaderClientNotConfigured = errors.New("revocation loader: HTTP client not configured")
 	// ErrFilterNotRebuildable is returned by [filterRevocationStorage.Sync]
 	// when the underlying filter does not implement [RebuildableFilter].
@@ -129,10 +128,8 @@ type Provider struct {
 	celCompiledRules []celPreCompiledValidationRule // Compiled CEL rules from verifierOptions.celRules
 
 	// Scheduler configuration
-	scheduler          corescheduler.TaskRegistrar
-	jwksRefreshRunning atomic.Bool // Guards against concurrent RefreshJWKS calls.
-
-	schedulerJWKSRefreshRegistered atomic.Bool // Marks if RefreshJWKS is managed by scheduler.
+	scheduler       corescheduler.TaskRegistrar
+	jwksRefreshTask corescheduler.ManagedTask // Guards RefreshJWKS and marks scheduler management.
 
 	// lastJWKSRefreshUnixNanos records when the locally cached JWKS was
 	// last fully refreshed by the provider. It is read by

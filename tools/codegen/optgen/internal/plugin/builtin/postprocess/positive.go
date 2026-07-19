@@ -7,6 +7,8 @@ package postprocess
 import (
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/model"
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/plugin"
+
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 )
 
 const positivePriority = 5
@@ -42,16 +44,16 @@ func (m *PositiveModifier) Key() string { return "positive" }
 func (m *PositiveModifier) Phase() plugin.Phase { return plugin.PhasePostProcess }
 
 // numericTypes lists types that support positive check.
-var numericTypes = map[string]bool{
+var numericTypes = coremaps.NewImmutableMap(map[string]bool{
 	"int": true, "int8": true, "int16": true, "int32": true, "int64": true,
 	"uint": true, "uint8": true, "uint16": true, "uint32": true, "uint64": true,
 	"float32": true, "float64": true,
 	"time.Duration": true,
-}
+})
 
 // CanHandle returns true for numeric types.
 func (m *PositiveModifier) CanHandle(field model.OptField) bool {
-	return numericTypes[field.Type]
+	return numericTypes.Contains(field.Type)
 }
 
 // Generate produces positive value validation code.

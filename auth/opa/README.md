@@ -60,7 +60,9 @@ manager, err := opa.NewManager(ctx, source, "data.authz.allow",
 | `ErrBundleFetchFailed`  | Fetching the policy bundle from the source failed      |
 | `ErrQueryPrepareFailed` | Compiling the Rego query against loaded modules failed |
 | `ErrWatchStartFailed`   | Starting the policy watch on the source failed         |
-| `ErrSchedulerManaged`   | Direct call to a function managed by the scheduler     |
+
+A direct call to a scheduler-managed entry point returns `scheduler.ErrSchedulerManaged` from
+[`core/scheduler`](../../core/scheduler/README.md).
 
 ## Subpackages
 

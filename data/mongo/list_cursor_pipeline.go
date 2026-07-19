@@ -305,9 +305,7 @@ func buildCountUnionStages(collectionName string, userFilter bson.M, includeTota
 
 	// Count sub-pipeline: independent query scoped to userFilter only.
 	countSubPipeline := bson.A{}
-	if len(userFilter) > 0 {
-		countSubPipeline = append(countSubPipeline, bson.M{"$match": userFilter})
-	}
+	countSubPipeline = slices.AppendIf[any](countSubPipeline, len(userFilter) > 0, bson.M{"$match": userFilter})
 	countSubPipeline = append(countSubPipeline,
 		bson.M{"$count": "total"},
 		bson.M{"$replaceRoot": bson.M{"newRoot": bson.M{

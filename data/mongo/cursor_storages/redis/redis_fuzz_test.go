@@ -8,21 +8,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis/v2"
-
 	"github.com/altessa-s/go-atlas/data/mongo"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	cursredis "github.com/altessa-s/go-atlas/data/mongo/cursor_storages/redis"
-	goredis "github.com/redis/go-redis/v9"
 )
 
 func FuzzStorage_StoreLoad(f *testing.F) {
 	f.Add("key1", "cursor1", "sort1")
 	f.Add("special-key", "c", "s")
 
-	mr := miniredis.RunT(f)
-	client := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
-	f.Cleanup(func() { client.Close() })
+	client, _ := testhelpers.RedisClient(f)
 	s := cursredis.New(client)
 	ctx := f.Context()
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/auth/denylist/negcache"
 	"github.com/altessa-s/go-atlas/config"
+	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
@@ -81,9 +82,9 @@ func (b *Builder) Build() (*negcache.Cache, error) {
 	}
 
 	var opts []negcache.Option
-	if b.metricsCollector != nil {
-		opts = append(opts, negcache.WithMetrics(negcache.NewMetrics(b.metricsCollector, b.metricsSubsystem)))
-	}
+	opts = slices.AppendIfFunc(opts, b.metricsCollector != nil, func() []negcache.Option {
+		return []negcache.Option{negcache.WithMetrics(negcache.NewMetrics(b.metricsCollector, b.metricsSubsystem))}
+	})
 
 	return negcache.New(filter, b.authoritative, opts...), nil
 }

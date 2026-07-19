@@ -8,6 +8,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 )
 
 // ErrNotInTransaction is returned by PublishTx when the bus reports no active
@@ -27,9 +29,7 @@ type TxProbe func(ctx context.Context) bool
 func AnyInTx(probes ...TxProbe) TxProbe {
 	nonNil := make([]TxProbe, 0, len(probes))
 	for _, p := range probes {
-		if p != nil {
-			nonNil = append(nonNil, p)
-		}
+		nonNil = coreslices.AppendNonNil(nonNil, p)
 	}
 	return func(ctx context.Context) bool {
 		for _, p := range nonNil {

@@ -22,6 +22,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 // writeSignatureFile writes raw sig bytes to path+".sig".
@@ -42,8 +44,7 @@ func marshalPublicKeyPEM(t *testing.T, pub crypto.PublicKey) []byte {
 
 func TestVerifySignature_Ed25519_OK(t *testing.T) {
 	t.Parallel()
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	pub, priv := testhelpers.GenerateEd25519Key(t)
 
 	data := []byte("plugin binary content")
 	hash := sha256.Sum256(data)
@@ -57,8 +58,7 @@ func TestVerifySignature_Ed25519_OK(t *testing.T) {
 
 func TestVerifySignature_Ed25519_Bad(t *testing.T) {
 	t.Parallel()
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	pub, priv := testhelpers.GenerateEd25519Key(t)
 
 	data := []byte("plugin binary content")
 	hash := sha256.Sum256(data)
@@ -75,8 +75,7 @@ func TestVerifySignature_Ed25519_Bad(t *testing.T) {
 
 func TestVerifySignature_ECDSA_OK(t *testing.T) {
 	t.Parallel()
-	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
+	priv := testhelpers.GenerateECDSAKey(t, elliptic.P256())
 
 	data := []byte("plugin binary content")
 	digest := sha256.Sum256(data)
@@ -91,8 +90,7 @@ func TestVerifySignature_ECDSA_OK(t *testing.T) {
 
 func TestVerifySignature_ECDSA_Bad(t *testing.T) {
 	t.Parallel()
-	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
+	priv := testhelpers.GenerateECDSAKey(t, elliptic.P256())
 
 	data := []byte("plugin binary content")
 	digest := sha256.Sum256(data)
@@ -110,8 +108,7 @@ func TestVerifySignature_ECDSA_Bad(t *testing.T) {
 
 func TestVerifySignature_RSA_OK(t *testing.T) {
 	t.Parallel()
-	priv, err := rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(t, err)
+	priv := testhelpers.GenerateRSAKey(t, 2048)
 
 	data := []byte("plugin binary content")
 	digest := sha256.Sum256(data)
@@ -126,8 +123,7 @@ func TestVerifySignature_RSA_OK(t *testing.T) {
 
 func TestVerifySignature_RSA_Bad(t *testing.T) {
 	t.Parallel()
-	priv, err := rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(t, err)
+	priv := testhelpers.GenerateRSAKey(t, 2048)
 
 	data := []byte("plugin binary content")
 	digest := sha256.Sum256(data)
@@ -145,10 +141,9 @@ func TestVerifySignature_RSA_Bad(t *testing.T) {
 
 func TestVerifySignature_MissingSigFile(t *testing.T) {
 	t.Parallel()
-	pub, _, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	pub, _ := testhelpers.GenerateEd25519Key(t)
 
-	err = verifySignature(pub, []byte("data"), "/nonexistent/test.so.sig")
+	err := verifySignature(pub, []byte("data"), "/nonexistent/test.so.sig")
 	assert.ErrorIs(t, err, os.ErrNotExist)
 }
 
@@ -169,8 +164,7 @@ func TestVerifySignature_UnsupportedKey(t *testing.T) {
 
 func TestParsePublicKeyPEM_Ed25519(t *testing.T) {
 	t.Parallel()
-	pub, _, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	pub, _ := testhelpers.GenerateEd25519Key(t)
 
 	pemData := marshalPublicKeyPEM(t, pub)
 	parsed, err := parsePublicKeyPEM(pemData)
@@ -180,8 +174,7 @@ func TestParsePublicKeyPEM_Ed25519(t *testing.T) {
 
 func TestParsePublicKeyPEM_ECDSA(t *testing.T) {
 	t.Parallel()
-	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	require.NoError(t, err)
+	priv := testhelpers.GenerateECDSAKey(t, elliptic.P256())
 
 	pemData := marshalPublicKeyPEM(t, &priv.PublicKey)
 	parsed, err := parsePublicKeyPEM(pemData)
@@ -191,8 +184,7 @@ func TestParsePublicKeyPEM_ECDSA(t *testing.T) {
 
 func TestParsePublicKeyPEM_RSA(t *testing.T) {
 	t.Parallel()
-	priv, err := rsa.GenerateKey(rand.Reader, 2048)
-	require.NoError(t, err)
+	priv := testhelpers.GenerateRSAKey(t, 2048)
 
 	pemData := marshalPublicKeyPEM(t, &priv.PublicKey)
 	parsed, err := parsePublicKeyPEM(pemData)
@@ -225,8 +217,7 @@ func TestManager_VerifyPluginSignature_Disabled(t *testing.T) {
 
 func TestManager_VerifyPluginSignature_RequireMissing(t *testing.T) {
 	t.Parallel()
-	pub, _, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	pub, _ := testhelpers.GenerateEd25519Key(t)
 
 	mgr := NewManager(WithSignature(SignatureOptions{
 		Mode:      SignatureRequire,
@@ -234,7 +225,7 @@ func TestManager_VerifyPluginSignature_RequireMissing(t *testing.T) {
 	}))
 	t.Cleanup(func() { _ = mgr.Close() })
 
-	err = mgr.verifyPluginSignature("test.so", "/nonexistent/test.so", []byte("data"), "abc")
+	err := mgr.verifyPluginSignature("test.so", "/nonexistent/test.so", []byte("data"), "abc")
 	assert.ErrorIs(t, err, ErrSignatureMissing)
 
 	// Should be quarantined.
@@ -246,8 +237,7 @@ func TestManager_VerifyPluginSignature_RequireMissing(t *testing.T) {
 
 func TestManager_VerifyPluginSignature_WarnMissing(t *testing.T) {
 	t.Parallel()
-	pub, _, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	pub, _ := testhelpers.GenerateEd25519Key(t)
 
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
@@ -261,7 +251,7 @@ func TestManager_VerifyPluginSignature_WarnMissing(t *testing.T) {
 	)
 	t.Cleanup(func() { _ = mgr.Close() })
 
-	err = mgr.verifyPluginSignature("test.so", "/nonexistent/test.so", []byte("data"), "abc")
+	err := mgr.verifyPluginSignature("test.so", "/nonexistent/test.so", []byte("data"), "abc")
 	assert.NoError(t, err)
 	assert.Contains(t, buf.String(), "missing")
 
@@ -274,8 +264,7 @@ func TestManager_VerifyPluginSignature_WarnMissing(t *testing.T) {
 
 func TestManager_VerifyPluginSignature_ValidSignature(t *testing.T) {
 	t.Parallel()
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	pub, priv := testhelpers.GenerateEd25519Key(t)
 
 	data := []byte("plugin binary")
 	hash := sha256.Sum256(data)
@@ -291,14 +280,13 @@ func TestManager_VerifyPluginSignature_ValidSignature(t *testing.T) {
 	}))
 	t.Cleanup(func() { _ = mgr.Close() })
 
-	err = mgr.verifyPluginSignature("good.so", soPath, data, "fakehash")
+	err := mgr.verifyPluginSignature("good.so", soPath, data, "fakehash")
 	assert.NoError(t, err)
 }
 
 func TestManager_VerifyPluginSignature_InvalidSignature(t *testing.T) {
 	t.Parallel()
-	pub, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	pub, priv := testhelpers.GenerateEd25519Key(t)
 
 	data := []byte("plugin binary")
 	hash := sha256.Sum256(data)
@@ -315,7 +303,7 @@ func TestManager_VerifyPluginSignature_InvalidSignature(t *testing.T) {
 	}))
 	t.Cleanup(func() { _ = mgr.Close() })
 
-	err = mgr.verifyPluginSignature("bad.so", soPath, data, "fakehash")
+	err := mgr.verifyPluginSignature("bad.so", soPath, data, "fakehash")
 	assert.ErrorIs(t, err, ErrSignatureInvalid)
 
 	// Quarantined.
@@ -356,8 +344,7 @@ func TestLoadPublicKey_Disabled(t *testing.T) {
 
 func TestLoadPublicKey_DirectKey(t *testing.T) {
 	t.Parallel()
-	pub, _, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	pub, _ := testhelpers.GenerateEd25519Key(t)
 
 	key, err := loadPublicKey(SignatureOptions{Mode: SignatureRequire, PublicKey: pub})
 	assert.NoError(t, err)
@@ -366,8 +353,7 @@ func TestLoadPublicKey_DirectKey(t *testing.T) {
 
 func TestLoadPublicKey_FromPEMFile(t *testing.T) {
 	t.Parallel()
-	pub, _, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	pub, _ := testhelpers.GenerateEd25519Key(t)
 
 	pemPath := filepath.Join(t.TempDir(), "key.pem")
 	require.NoError(t, os.WriteFile(pemPath, marshalPublicKeyPEM(t, pub), 0o644))

@@ -12,6 +12,8 @@ import (
 
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/runtime/capabilities"
+
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 )
 
 // SandboxOptions configures Linux process-hardening primitives applied lazily
@@ -208,24 +210,16 @@ func (o SandboxOptions) Validate() error {
 		return nil
 	}
 	var errs []error
-	if o.MemoryLimitBytes < 0 {
-		errs = append(errs, fmt.Errorf("MemoryLimitBytes=%d is negative", o.MemoryLimitBytes))
-	}
-	if o.MaxOpenFiles < 0 {
-		errs = append(errs, fmt.Errorf("MaxOpenFiles=%d is negative", o.MaxOpenFiles))
-	}
-	if o.MaxProcesses < 0 {
-		errs = append(errs, fmt.Errorf("MaxProcesses=%d is negative", o.MaxProcesses))
-	}
-	if o.MaxFileSizeBytes < 0 {
-		errs = append(errs, fmt.Errorf("MaxFileSizeBytes=%d is negative", o.MaxFileSizeBytes))
-	}
-	if err := o.Capabilities.Validate(); err != nil {
-		errs = append(errs, err)
-	}
-	if err := o.Landlock.Validate(); err != nil {
-		errs = append(errs, err)
-	}
+	errs = coreslices.AppendIf(errs, o.MemoryLimitBytes < 0,
+		fmt.Errorf("MemoryLimitBytes=%d is negative", o.MemoryLimitBytes))
+	errs = coreslices.AppendIf(errs, o.MaxOpenFiles < 0,
+		fmt.Errorf("MaxOpenFiles=%d is negative", o.MaxOpenFiles))
+	errs = coreslices.AppendIf(errs, o.MaxProcesses < 0,
+		fmt.Errorf("MaxProcesses=%d is negative", o.MaxProcesses))
+	errs = coreslices.AppendIf(errs, o.MaxFileSizeBytes < 0,
+		fmt.Errorf("MaxFileSizeBytes=%d is negative", o.MaxFileSizeBytes))
+	errs = coreslices.AppendNonNil(errs, o.Capabilities.Validate())
+	errs = coreslices.AppendNonNil(errs, o.Landlock.Validate())
 	if len(errs) == 0 {
 		return nil
 	}
@@ -242,14 +236,10 @@ func (o LandlockOptions) Validate() error {
 	}
 	var errs []error
 	for i, p := range o.ReadPaths {
-		if err := validateLandlockPath("Landlock.ReadPaths", i, p); err != nil {
-			errs = append(errs, err)
-		}
+		errs = coreslices.AppendNonNil(errs, validateLandlockPath("Landlock.ReadPaths", i, p))
 	}
 	for i, p := range o.ReadWritePaths {
-		if err := validateLandlockPath("Landlock.ReadWritePaths", i, p); err != nil {
-			errs = append(errs, err)
-		}
+		errs = coreslices.AppendNonNil(errs, validateLandlockPath("Landlock.ReadWritePaths", i, p))
 	}
 	if len(errs) == 0 {
 		return nil

@@ -7,6 +7,8 @@ package fieldmask
 import (
 	"context"
 
+	"github.com/altessa-s/go-atlas/core/collections/slices"
+
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
@@ -65,9 +67,7 @@ func newBuiltinExtractors(
 	metadataHeader string,
 ) (pbfieldmask.UpdateExtractorFunc, pbfieldmask.ReadExtractorFunc) {
 	var metaOpts []pbfieldmask.MetadataExtractorOption
-	if metadataHeader != "" {
-		metaOpts = append(metaOpts, pbfieldmask.WithMetadataHeader(metadataHeader))
-	}
+	metaOpts = slices.AppendIf(metaOpts, metadataHeader != "", pbfieldmask.WithMetadataHeader(metadataHeader))
 
 	read := pbfieldmask.ChainReadExtractors(
 		pbfieldmask.MetadataReadExtractor(metaOpts...),

@@ -54,31 +54,23 @@ func (m *Manager) registerTasks(opts *options) error {
 
 // RegisterHealthCheckSchedulerFunc returns a function for use by a scheduler and marks
 // health check as scheduler-managed. After calling this method, direct calls to
-// RunHealthCheckCycle will return ErrSchedulerManaged.
+// RunHealthCheckCycle will return [corescheduler.ErrSchedulerManaged].
 func (m *Manager) RegisterHealthCheckSchedulerFunc() func(context.Context) error {
-	m.schedulerHealthCheckRegistered.Store(true)
-	return m.runHealthCheckCycleInternal
+	return m.healthCheckTask.SchedulerFunc(m.runHealthCheckCycleInternal)
 }
 
 // RunHealthCheckCycle executes a single health check cycle.
 // This method is designed to be called manually for one-time health check.
-// If the function is registered with a scheduler, this method returns ErrSchedulerManaged.
+// If the function is registered with a scheduler, this method returns
+// [corescheduler.ErrSchedulerManaged].
 func (m *Manager) RunHealthCheckCycle(ctx context.Context) error {
-	if m.schedulerHealthCheckRegistered.Load() {
-		return ErrSchedulerManaged
-	}
-	return m.runHealthCheckCycleInternal(ctx)
+	return m.healthCheckTask.Run(ctx, m.runHealthCheckCycleInternal)
 }
 
 // runHealthCheckCycleInternal performs the actual health check cycle.
-// It is safe to call concurrently; if already running, returns immediately.
+// Callers must route through healthCheckTask so overlapping cycles collapse
+// into a single execution.
 func (m *Manager) runHealthCheckCycleInternal(ctx context.Context) error {
-	// Prevent concurrent execution
-	if !m.healthCheckRunning.CompareAndSwap(false, true) {
-		return nil // Already running, skip this cycle
-	}
-	defer m.healthCheckRunning.Store(false)
-
 	if m.closed.Load() {
 		return ErrManagerClosed
 	}
@@ -87,31 +79,23 @@ func (m *Manager) runHealthCheckCycleInternal(ctx context.Context) error {
 
 // RegisterStaleCleanupSchedulerFunc returns a function for use by a scheduler and marks
 // stale cleanup as scheduler-managed. After calling this method, direct calls to
-// RunStaleRecoveryCleanup will return ErrSchedulerManaged.
+// RunStaleRecoveryCleanup will return [corescheduler.ErrSchedulerManaged].
 func (m *Manager) RegisterStaleCleanupSchedulerFunc() func(context.Context) error {
-	m.schedulerStaleCleanupRegistered.Store(true)
-	return m.runStaleRecoveryCleanupInternal
+	return m.staleCleanupTask.SchedulerFunc(m.runStaleRecoveryCleanupInternal)
 }
 
 // RunStaleRecoveryCleanup executes a single stale recovery cleanup cycle.
 // This method is designed to be called manually for one-time cleanup.
-// If the function is registered with a scheduler, this method returns ErrSchedulerManaged.
+// If the function is registered with a scheduler, this method returns
+// [corescheduler.ErrSchedulerManaged].
 func (m *Manager) RunStaleRecoveryCleanup(ctx context.Context) error {
-	if m.schedulerStaleCleanupRegistered.Load() {
-		return ErrSchedulerManaged
-	}
-	return m.runStaleRecoveryCleanupInternal(ctx)
+	return m.staleCleanupTask.Run(ctx, m.runStaleRecoveryCleanupInternal)
 }
 
 // runStaleRecoveryCleanupInternal performs the actual stale recovery cleanup cycle.
-// It is safe to call concurrently; if already running, returns immediately.
+// Callers must route through staleCleanupTask so overlapping cycles collapse
+// into a single execution.
 func (m *Manager) runStaleRecoveryCleanupInternal(ctx context.Context) error {
-	// Prevent concurrent execution
-	if !m.staleCleanupRunning.CompareAndSwap(false, true) {
-		return nil // Already running, skip this cycle
-	}
-	defer m.staleCleanupRunning.Store(false)
-
 	if m.closed.Load() {
 		return ErrManagerClosed
 	}

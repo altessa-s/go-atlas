@@ -54,18 +54,14 @@ type Outbox struct {
 	metrics *outboxMetrics
 
 	// Internal state:
-	eventsInFlight  atomic.Int64 // Counts events currently being processed by handleEvents.
-	logger          *slog.Logger // Internal logger.
-	scheduler       corescheduler.TaskRegistrar
-	dispatchRunning atomic.Bool // Guards against concurrent RunDispatchCycle calls.
-	unlockRunning   atomic.Bool // Guards against concurrent RunUnlockCycle calls.
-	cleanupRunning  atomic.Bool // Guards against concurrent RunCleanupCycle calls.
+	eventsInFlight atomic.Int64 // Counts events currently being processed by handleEvents.
+	logger         *slog.Logger // Internal logger.
+	scheduler      corescheduler.TaskRegistrar
 
-	schedulerDispatchRegistered atomic.Bool // Marks if RunDispatchCycle is managed by scheduler.
-	schedulerUnlockRegistered   atomic.Bool // Marks if RunUnlockCycle is managed by scheduler.
-	schedulerCleanupRegistered  atomic.Bool // Marks if RunCleanupCycle is managed by scheduler.
-	schedulerExpireRegistered   atomic.Bool // Marks if RunExpireCycle is managed by scheduler.
-	expireRunning               atomic.Bool // Guards against concurrent RunExpireCycle calls.
+	dispatchTask corescheduler.ManagedTask // Guards RunDispatchCycle and marks scheduler management.
+	unlockTask   corescheduler.ManagedTask // Guards RunUnlockCycle and marks scheduler management.
+	cleanupTask  corescheduler.ManagedTask // Guards RunCleanupCycle and marks scheduler management.
+	expireTask   corescheduler.ManagedTask // Guards RunExpireCycle and marks scheduler management.
 
 	retryMaxAttempts uint32
 	eventsBatchSize  uint32
@@ -262,9 +258,7 @@ func (o *Outbox) compactEventsByKey(events []Event) (toPublish, toSkip []Event) 
 	// Direct range avoids intermediate slices from Collect/Map/Filter.
 	for _, group := range grouped {
 		toPublish = append(toPublish, group[len(group)-1])
-		if len(group) > 1 {
-			toSkip = append(toSkip, group[:len(group)-1]...)
-		}
+		toSkip = coreslices.AppendIf(toSkip, len(group) > 1, group[:len(group)-1]...)
 	}
 
 	return toPublish, toSkip

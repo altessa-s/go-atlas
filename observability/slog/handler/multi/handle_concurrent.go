@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/core/runtime/concurrency"
 )
 
@@ -17,9 +18,7 @@ import (
 func handleConcurrent(ctx context.Context, r slog.Record, handlers []slog.Handler) error {
 	enabled := make([]slog.Handler, 0, len(handlers))
 	for _, child := range handlers {
-		if child.Enabled(ctx, r.Level) {
-			enabled = append(enabled, child)
-		}
+		enabled = slices.AppendIf(enabled, child.Enabled(ctx, r.Level), child)
 	}
 	if len(enabled) == 0 {
 		return nil
@@ -30,7 +29,7 @@ func handleConcurrent(ctx context.Context, r slog.Record, handlers []slog.Handle
 		return child.Handle(ctx, r)
 	},
 		concurrency.WithConcurrency[slog.Handler](len(enabled)),
-		concurrency.WithOnError[slog.Handler](func(_ slog.Handler, err error) {
+		concurrency.WithOnError(func(_ slog.Handler, err error) {
 			errs = append(errs, err) // safe: OnError called under mutex in Process
 		}),
 	)

@@ -54,9 +54,9 @@ func NewMessageWithMeta(topic string, data []byte, metadata Meta, opt ...Option)
 	// Ensure created time exists, but allow callers to override it by providing MetaKeyMessageCreatedTime.
 	meta := make([]MetaData, 0, len(metadata)+1)
 	meta = append(meta, metadata...)
-	if !hasMetaKeyWithNonEmptyValue(meta, MetaKeyMessageCreatedTime) {
-		meta = append(meta, MetaData{Key: MetaKeyMessageCreatedTime, Value: time.Now().UTC().Format(MessageCreatedTimeFormat)})
-	}
+	meta = slices.AppendIfFunc(meta, !hasMetaKeyWithNonEmptyValue(meta, MetaKeyMessageCreatedTime), func() []MetaData {
+		return []MetaData{{Key: MetaKeyMessageCreatedTime, Value: time.Now().UTC().Format(MessageCreatedTimeFormat)}}
+	})
 
 	m := &Message{
 		Topic:      topic,

@@ -267,9 +267,11 @@ func (l *RuleLimiter) applyRateLimit(ctx context.Context, key string, settings *
 	}
 
 	if err != nil {
+		// storages.ErrLimitExceeded is the public sentinel by identity, so the
+		// storage error already satisfies errors.Is(err, ErrLimitExceeded).
 		if errors.Is(err, storages.ErrLimitExceeded) {
 			l.metrics.requestsRejected.Inc()
-			return tl, ErrLimitExceeded
+			return tl, err
 		}
 		l.metrics.limitCheckErrors.Inc()
 		if l.options.logger != nil {

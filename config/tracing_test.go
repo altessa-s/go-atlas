@@ -26,8 +26,8 @@ func TestTracingOTLP_Validate_ValidProxy(t *testing.T) {
 	cfg := TracingOTLP{
 		Endpoint: "localhost:4317",
 		Protocol: OTLPProtocolGRPC,
-		Proxy: &GrpcProxy{
-			Mode: GrpcProxyModeURL,
+		Proxy: &Proxy{
+			Mode: ProxyModeURL,
 			URL:  "http://proxy.corp:3128",
 		},
 	}
@@ -40,8 +40,8 @@ func TestTracingOTLP_Validate_InvalidProxyPropagates(t *testing.T) {
 	cfg := TracingOTLP{
 		Endpoint: "localhost:4317",
 		Protocol: OTLPProtocolGRPC,
-		Proxy: &GrpcProxy{
-			Mode: GrpcProxyModeURL,
+		Proxy: &Proxy{
+			Mode: ProxyModeURL,
 			// URL missing — Mode=url requires URL.
 		},
 	}
@@ -59,11 +59,11 @@ func TestTracingOTLP_Validate_RejectsProxyWithHTTPProtocol(t *testing.T) {
 	// explicit "no proxy" intent.
 	cases := []struct {
 		name string
-		mode GrpcProxyMode
+		mode ProxyMode
 	}{
-		{"mode_none", GrpcProxyModeNone},
-		{"mode_url", GrpcProxyModeURL},
-		{"mode_host", GrpcProxyModeHost},
+		{"mode_none", ProxyModeNone},
+		{"mode_url", ProxyModeURL},
+		{"mode_host", ProxyModeHost},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -71,7 +71,7 @@ func TestTracingOTLP_Validate_RejectsProxyWithHTTPProtocol(t *testing.T) {
 			cfg := TracingOTLP{
 				Endpoint: "localhost:4318",
 				Protocol: OTLPProtocolHTTP,
-				Proxy:    &GrpcProxy{Mode: tc.mode},
+				Proxy:    &Proxy{Mode: tc.mode},
 			}
 			assert.Error(t, cfg.Validate())
 		})

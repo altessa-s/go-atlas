@@ -69,9 +69,9 @@ func (b *ProviderBuilder) buildProviderOptions(ctx context.Context) ([]oidc.Opti
 	opts := make([]oidc.Option, 0, estimatedOptionsCount)
 	opts = append(opts, oidc.WithLogger(b.Logger()))
 
-	if cfg.IsJWKSConfigured() {
-		opts = append(opts, oidc.WithJwksHTTPTimeout(cfg.JWKS.HTTPTimeout))
-	}
+	opts = slices.AppendIfFunc(opts, cfg.IsJWKSConfigured(), func() []oidc.Option {
+		return []oidc.Option{oidc.WithJwksHTTPTimeout(cfg.JWKS.HTTPTimeout)}
+	})
 
 	if cfg.IsValidationConfigured() {
 		valOpts, err := validationOptionsFromConfig(cfg.Validation, cfg.ClockSkew)
@@ -87,12 +87,13 @@ func (b *ProviderBuilder) buildProviderOptions(ctx context.Context) ([]oidc.Opti
 	}
 	opts = append(opts, presetOpts...)
 
-	if cfg.IsCacheConfigured() && cfg.Cache.Enabled && b.tokenCache != nil {
-		opts = append(opts, oidc.WithTokenCache(b.tokenCache),
+	opts = slices.AppendIfFunc(opts, cfg.IsCacheConfigured() && cfg.Cache.Enabled && b.tokenCache != nil, func() []oidc.Option {
+		return []oidc.Option{
+			oidc.WithTokenCache(b.tokenCache),
 			oidc.WithTokensCacheKeyPrefix(cfg.Cache.TokensKeyPrefix),
 			oidc.WithRevokedTokensCacheKeyPrefix(cfg.Cache.RevokedTokensKeyPrefix),
-		)
-	}
+		}
+	})
 
 	opts = slices.AppendIfFunc(opts, cfg.IsIntrospectionEnabled(), func() []oidc.Option {
 		introspectionOpts := []oidc.Option{
@@ -107,13 +108,11 @@ func (b *ProviderBuilder) buildProviderOptions(ctx context.Context) ([]oidc.Opti
 	}
 	opts = append(opts, revOpts...)
 
-	proxyOpts, err := cfg.Proxy.ClientOptions()
+	proxyOpts, err := cfg.Proxy.HTTPClientOptions()
 	if err != nil {
 		return nil, b.WrapError(err, "failed to materialize oidc proxy options")
 	}
-	if len(proxyOpts) > 0 {
-		opts = append(opts, oidc.WithHTTPClientOptions(proxyOpts...))
-	}
+	opts = slices.AppendIf(opts, len(proxyOpts) > 0, oidc.WithHTTPClientOptions(proxyOpts...))
 
 	opts = append(opts, b.buildSchedulerOptions()...)
 
@@ -218,15 +217,19 @@ func (b *ProviderBuilder) buildSchedulerOptions() []oidc.Option {
 	cfg := b.cfg
 	opts := []oidc.Option{oidc.WithScheduler(b.scheduler)}
 
-	if cfg.IsJWKSConfigured() && cfg.JWKS.RefreshEnabled && cfg.JWKS.RefreshSchedule != "" {
-		opts = append(opts, oidc.WithJWKSRefreshSchedule(cfg.JWKS.RefreshSchedule))
-	}
+	opts = slices.AppendIfFunc(opts,
+		cfg.IsJWKSConfigured() && cfg.JWKS.RefreshEnabled && cfg.JWKS.RefreshSchedule != "",
+		func() []oidc.Option {
+			return []oidc.Option{oidc.WithJWKSRefreshSchedule(cfg.JWKS.RefreshSchedule)}
+		})
 
-	if cfg.IsRevocationConfigured() && cfg.Revocation.Enabled &&
-		cfg.Revocation.SyncEnabled && cfg.Revocation.SyncSchedule != "" &&
-		(b.revocationStorage != nil || b.redisClient != nil) {
-		opts = append(opts, oidc.WithRevocationSyncSchedule(cfg.Revocation.SyncSchedule))
-	}
+	opts = slices.AppendIfFunc(opts,
+		cfg.IsRevocationConfigured() && cfg.Revocation.Enabled &&
+			cfg.Revocation.SyncEnabled && cfg.Revocation.SyncSchedule != "" &&
+			(b.revocationStorage != nil || b.redisClient != nil),
+		func() []oidc.Option {
+			return []oidc.Option{oidc.WithRevocationSyncSchedule(cfg.Revocation.SyncSchedule)}
+		})
 
 	return opts
 }

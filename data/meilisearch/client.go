@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	msdk "github.com/meilisearch/meilisearch-go"
 )
@@ -44,9 +45,7 @@ func New(ctx context.Context, host string, opts ...Option) (*Client, error) {
 	}
 
 	sdkOpts := []msdk.Option{msdk.WithCustomClient(httpClient)}
-	if o.apiKey != "" {
-		sdkOpts = append(sdkOpts, msdk.WithAPIKey(o.apiKey))
-	}
+	sdkOpts = coreslices.AppendIf(sdkOpts, o.apiKey != "", msdk.WithAPIKey(o.apiKey))
 
 	sdk := msdk.New(host, sdkOpts...)
 

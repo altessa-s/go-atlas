@@ -205,39 +205,34 @@ func (b *ServerBuilder) buildGrpcOptions() []grpc.ServerOption {
 	cfg := b.cfg
 	opts := make([]grpc.ServerOption, 0, 8)
 
-	if cfg.ConnectionTimeout != nil {
-		opts = append(opts, grpc.ConnectionTimeout(*cfg.ConnectionTimeout))
-	}
+	opts = slices.AppendIfFunc(opts, cfg.ConnectionTimeout != nil, func() []grpc.ServerOption {
+		return []grpc.ServerOption{grpc.ConnectionTimeout(*cfg.ConnectionTimeout)}
+	})
+	opts = slices.AppendIfFunc(opts, cfg.MaxConcurrentStreams != nil, func() []grpc.ServerOption {
+		return []grpc.ServerOption{grpc.MaxConcurrentStreams(*cfg.MaxConcurrentStreams)}
+	})
+	opts = slices.AppendIfFunc(opts, cfg.MaxSendMsgSize != nil, func() []grpc.ServerOption {
+		return []grpc.ServerOption{grpc.MaxSendMsgSize(*cfg.MaxSendMsgSize)}
+	})
+	opts = slices.AppendIfFunc(opts, cfg.MaxRecvMsgSize != nil, func() []grpc.ServerOption {
+		return []grpc.ServerOption{grpc.MaxRecvMsgSize(*cfg.MaxRecvMsgSize)}
+	})
+	opts = slices.AppendIfFunc(opts, cfg.WriteBufferSize != nil, func() []grpc.ServerOption {
+		return []grpc.ServerOption{grpc.WriteBufferSize(*cfg.WriteBufferSize)}
+	})
+	opts = slices.AppendIfFunc(opts, cfg.ReadBufferSize != nil, func() []grpc.ServerOption {
+		return []grpc.ServerOption{grpc.ReadBufferSize(*cfg.ReadBufferSize)}
+	})
 
-	if cfg.MaxConcurrentStreams != nil {
-		opts = append(opts, grpc.MaxConcurrentStreams(*cfg.MaxConcurrentStreams))
-	}
-
-	if cfg.MaxSendMsgSize != nil {
-		opts = append(opts, grpc.MaxSendMsgSize(*cfg.MaxSendMsgSize))
-	}
-
-	if cfg.MaxRecvMsgSize != nil {
-		opts = append(opts, grpc.MaxRecvMsgSize(*cfg.MaxRecvMsgSize))
-	}
-
-	if cfg.WriteBufferSize != nil {
-		opts = append(opts, grpc.WriteBufferSize(*cfg.WriteBufferSize))
-	}
-
-	if cfg.ReadBufferSize != nil {
-		opts = append(opts, grpc.ReadBufferSize(*cfg.ReadBufferSize))
-	}
-
-	if cfg.KeepAlive != nil {
-		opts = append(opts, grpc.KeepaliveParams(keepalive.ServerParameters{
+	opts = slices.AppendIfFunc(opts, cfg.KeepAlive != nil, func() []grpc.ServerOption {
+		return []grpc.ServerOption{grpc.KeepaliveParams(keepalive.ServerParameters{
 			MaxConnectionIdle:     cfg.KeepAlive.MaxConnectionIdle,
 			MaxConnectionAge:      cfg.KeepAlive.MaxConnectionAge,
 			MaxConnectionAgeGrace: cfg.KeepAlive.MaxConnectionAgeGrace,
 			Time:                  cfg.KeepAlive.Time,
 			Timeout:               cfg.KeepAlive.Timeout,
-		}))
-	}
+		})}
+	})
 
 	// Always install an enforcement policy — see the package-level
 	// constants for the rationale. Without this, configs that leave

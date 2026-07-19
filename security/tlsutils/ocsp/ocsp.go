@@ -115,17 +115,16 @@ var _ tlsutils.OCSPStapler = (*Stapler)(nil)
 //
 // Expired cache entries are cleaned up lazily during GetOCSPStaple calls.
 type Stapler struct {
-	mu                sync.RWMutex
-	cache             map[string]*ocspCacheEntry
-	httpClient        *http.Client
-	retryPolicy       RetryPolicy
-	logger            *slog.Logger
-	cleanupCounter    atomic.Uint64 // atomic counter for lazy cleanup
-	scheduler         corescheduler.TaskRegistrar
-	refreshAllRunning atomic.Bool // Guards against concurrent RunRefreshAll calls.
+	mu             sync.RWMutex
+	cache          map[string]*ocspCacheEntry
+	httpClient     *http.Client
+	retryPolicy    RetryPolicy
+	logger         *slog.Logger
+	cleanupCounter atomic.Uint64 // atomic counter for lazy cleanup
+	scheduler      corescheduler.TaskRegistrar
+	refreshAllTask corescheduler.ManagedTask // Guards RunRefreshAll and marks scheduler management.
 
-	schedulerRefreshAllRegistered atomic.Bool // Marks if RunRefreshAll is managed by scheduler.
-	enableCompression             bool
+	enableCompression bool
 	// failureMode controls handshake behavior when GetOCSPStaple cannot
 	// produce a valid response — see [FailureMode] for the rationale.
 	failureMode FailureMode

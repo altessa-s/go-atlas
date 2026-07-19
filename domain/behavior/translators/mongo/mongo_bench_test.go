@@ -10,6 +10,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 
+	"github.com/altessa-s/go-atlas/core/types/ptr"
 	"github.com/altessa-s/go-atlas/domain/behavior"
 
 	mongo "github.com/altessa-s/go-atlas/domain/behavior/translators/mongo"
@@ -19,7 +20,7 @@ func benchUser() *user {
 	return &user{
 		ID:         "u1",
 		Name:       "Ann",
-		Nick:       ptr("a"),
+		Nick:       ptr.Wrap("a"),
 		Active:     true,
 		Tags:       []string{"a", "b", "c"},
 		Blob:       []byte{0x01, 0x02, 0x03},

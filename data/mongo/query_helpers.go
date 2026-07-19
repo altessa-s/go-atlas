@@ -11,6 +11,8 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+
+	"github.com/altessa-s/go-atlas/core/collections/slices"
 )
 
 // getFilterFields extracts field names from a MongoDB filter for logging purposes.
@@ -40,9 +42,7 @@ func getFilterFields(filter bson.M) []string {
 	fields := make([]string, 0, len(filter))
 	for field := range filter {
 		// Skip MongoDB operators that start with $
-		if !strings.HasPrefix(field, "$") {
-			fields = append(fields, field)
-		}
+		fields = slices.AppendIf(fields, !strings.HasPrefix(field, "$"), field)
 	}
 
 	return fields

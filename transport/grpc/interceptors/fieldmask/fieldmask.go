@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
@@ -100,12 +101,8 @@ func ServerInterceptor(opt ...Option) interceptors.ServerInterceptor {
 	opts := newOptions(opt...)
 
 	var extractOpts []pbfieldmask.ExtractOption
-	if opts.maskFieldName != "" {
-		extractOpts = append(extractOpts, pbfieldmask.WithMaskField(opts.maskFieldName))
-	}
-	if opts.resourceFieldName != "" {
-		extractOpts = append(extractOpts, pbfieldmask.WithResourceField(opts.resourceFieldName))
-	}
+	extractOpts = slices.AppendIf(extractOpts, opts.maskFieldName != "", pbfieldmask.WithMaskField(opts.maskFieldName))
+	extractOpts = slices.AppendIf(extractOpts, opts.resourceFieldName != "", pbfieldmask.WithResourceField(opts.resourceFieldName))
 
 	builtinUpdate, builtinRead := newBuiltinExtractors(extractOpts, opts.metadataReadMaskHeader)
 

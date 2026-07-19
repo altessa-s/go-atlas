@@ -17,6 +17,7 @@ import (
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/mongo"
 
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	memorystorage "github.com/altessa-s/go-atlas/data/mongo/cursor_storages/memory"
@@ -87,9 +88,9 @@ func (b *CursorStorageBuilder) createMemoryStorage() *memorystorage.Storage {
 	opts := []memorystorage.Option{
 		memorystorage.WithScheduler(b.scheduler),
 	}
-	if b.cfg.Memory != nil && b.cfg.Memory.CleanupSchedule != "" {
-		opts = append(opts, memorystorage.WithCleanupSchedule(b.cfg.Memory.CleanupSchedule))
-	}
+	opts = coreslices.AppendIfFunc(opts, b.cfg.Memory != nil && b.cfg.Memory.CleanupSchedule != "", func() []memorystorage.Option {
+		return []memorystorage.Option{memorystorage.WithCleanupSchedule(b.cfg.Memory.CleanupSchedule)}
+	})
 	return memorystorage.New(b.ttl, opts...)
 }
 

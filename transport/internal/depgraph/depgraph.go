@@ -10,6 +10,7 @@ import (
 	"maps"
 	"slices"
 
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
@@ -106,9 +107,7 @@ func (g *Graph[T]) TopologicalSort() ([]T, error) {
 	// Find all nodes with no incoming edges
 	queue := make([]string, 0, len(g.nodes))
 	for name := range g.nodes {
-		if g.inDegree[name] == 0 {
-			queue = append(queue, name)
-		}
+		queue = coreslices.AppendIf(queue, g.inDegree[name] == 0, name)
 	}
 
 	// Sort initial queue by insertion order for stability
@@ -132,9 +131,7 @@ func (g *Graph[T]) TopologicalSort() ([]T, error) {
 
 		for _, dep := range dependents {
 			inDegree[dep]--
-			if inDegree[dep] == 0 {
-				newZero = append(newZero, dep)
-			}
+			newZero = coreslices.AppendIf(newZero, inDegree[dep] == 0, dep)
 		}
 
 		// Merge new zero-degree nodes and re-sort entire queue by insertion
@@ -153,9 +150,7 @@ func (g *Graph[T]) TopologicalSort() ([]T, error) {
 		// Find nodes in cycle for error message
 		var cycleNodes []string
 		for name := range g.nodes {
-			if inDegree[name] > 0 {
-				cycleNodes = append(cycleNodes, name)
-			}
+			cycleNodes = coreslices.AppendIf(cycleNodes, inDegree[name] > 0, name)
 		}
 		return nil, fmt.Errorf("circular dependency detected involving: %v", cycleNodes)
 	}

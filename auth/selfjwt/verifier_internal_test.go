@@ -6,11 +6,12 @@ package selfjwt
 
 import (
 	"context"
-	"crypto/ed25519"
 	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 // countingProvider counts VerificationKey calls so a test can observe how often
@@ -44,8 +45,7 @@ func (p *countingProvider) callCount() int {
 // singleflight wiring against data races and result-type assertion panics.
 func TestPublicKeyConcurrentMissesAreConsistent(t *testing.T) {
 	t.Parallel()
-	pub, _, err := ed25519.GenerateKey(nil)
-	require.NoError(t, err)
+	pub, _ := testhelpers.GenerateEd25519Key(t)
 
 	p := &countingProvider{vk: VerificationKey{Algorithm: AlgEdDSA, Key: pub}}
 	v := NewVerifier(p)

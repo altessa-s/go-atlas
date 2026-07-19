@@ -18,29 +18,8 @@ import (
 )
 
 func TestScheduler_NoReadinessProbe_DispatchesImmediately(t *testing.T) {
-	storage := mustNewMemory(t, 100)
-	s := scheduler.New(storage, scheduler.WithTickInterval(50*time.Millisecond))
-
-	ctx := t.Context()
-	require.NoError(t, s.Start(ctx))
-	defer func() {
-		stopCtx, cancel := context.WithTimeout(ctx, time.Second)
-		defer cancel()
-		_ = s.Stop(stopCtx)
-	}()
-
-	var execCount atomic.Int32
-
-	err := s.Register(ctx, corescheduler.TaskConfig{
-		ID:         "no-probe-task",
-		Schedule:   "@every 1s",
-		RunOnStart: true,
-		Func: func(_ context.Context) error {
-			execCount.Add(1)
-			return nil
-		},
-	})
-	require.NoError(t, err)
+	s, ctx := startScheduler(t)
+	execCount := registerCountingTask(t, ctx, s, "no-probe-task", "@every 1s")
 
 	// Wait for at least one execution
 	time.Sleep(300 * time.Millisecond)
@@ -82,35 +61,12 @@ func TestScheduler_ReadinessProbe_False_SkipsTick(t *testing.T) {
 }
 
 func TestScheduler_ReadinessProbe_FalseToTrue_Transition(t *testing.T) {
-	storage := mustNewMemory(t, 100)
-
 	var ready atomic.Bool
 
-	s := scheduler.New(storage,
-		scheduler.WithTickInterval(50*time.Millisecond),
+	s, ctx := startScheduler(t,
 		scheduler.WithReadinessProbe(func() bool { return ready.Load() }),
 	)
-
-	ctx := t.Context()
-	require.NoError(t, s.Start(ctx))
-	defer func() {
-		stopCtx, cancel := context.WithTimeout(ctx, time.Second)
-		defer cancel()
-		_ = s.Stop(stopCtx)
-	}()
-
-	var execCount atomic.Int32
-
-	err := s.Register(ctx, corescheduler.TaskConfig{
-		ID:         "transition-task",
-		Schedule:   "@every 1s",
-		RunOnStart: true,
-		Func: func(_ context.Context) error {
-			execCount.Add(1)
-			return nil
-		},
-	})
-	require.NoError(t, err)
+	execCount := registerCountingTask(t, ctx, s, "transition-task", "@every 1s")
 
 	// Probe returns false — no executions
 	time.Sleep(300 * time.Millisecond)
@@ -151,35 +107,12 @@ func TestScheduler_TriggerTask_NotReady_ReturnsErrNotReady(t *testing.T) {
 }
 
 func TestScheduler_ReadinessProbe_RunOnStart_FiresAfterReady(t *testing.T) {
-	storage := mustNewMemory(t, 100)
-
 	var ready atomic.Bool
 
-	s := scheduler.New(storage,
-		scheduler.WithTickInterval(50*time.Millisecond),
+	s, ctx := startScheduler(t,
 		scheduler.WithReadinessProbe(func() bool { return ready.Load() }),
 	)
-
-	ctx := t.Context()
-	require.NoError(t, s.Start(ctx))
-	defer func() {
-		stopCtx, cancel := context.WithTimeout(ctx, time.Second)
-		defer cancel()
-		_ = s.Stop(stopCtx)
-	}()
-
-	var execCount atomic.Int32
-
-	err := s.Register(ctx, corescheduler.TaskConfig{
-		ID:         "run-on-start-task",
-		Schedule:   "@every 1h",
-		RunOnStart: true,
-		Func: func(_ context.Context) error {
-			execCount.Add(1)
-			return nil
-		},
-	})
-	require.NoError(t, err)
+	execCount := registerCountingTask(t, ctx, s, "run-on-start-task", "@every 1h")
 
 	// Not ready — should not fire RunOnStart
 	time.Sleep(300 * time.Millisecond)

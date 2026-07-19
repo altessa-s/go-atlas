@@ -13,46 +13,27 @@ import (
 
 	"github.com/altessa-s/go-atlas/data/cache/providers"
 	"github.com/altessa-s/go-atlas/data/cache/providers/redis"
-
-	goredis "github.com/redis/go-redis/v9"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 // setupProvider creates a Provider with a miniredis instance for testing.
 func setupProvider(t *testing.T) (*redis.Provider, *miniredis.Miniredis) {
 	t.Helper()
 
-	mr := miniredis.RunT(t)
-	t.Cleanup(func() {
-		mr.Close()
-	})
-
-	client := goredis.NewClient(&goredis.Options{
-		Addr: mr.Addr(),
-	})
-
+	client, mr := testhelpers.RedisClient(t)
 	provider := redis.New(client)
 	return provider, mr
 }
 
 func TestNew(t *testing.T) {
-	mr := miniredis.RunT(t)
-	defer mr.Close()
-
-	client := goredis.NewClient(&goredis.Options{
-		Addr: mr.Addr(),
-	})
+	client, _ := testhelpers.RedisClient(t)
 
 	provider := redis.New(client)
 	require.NotNil(t, provider)
 }
 
 func TestNew_WithPrefix(t *testing.T) {
-	mr := miniredis.RunT(t)
-	defer mr.Close()
-
-	client := goredis.NewClient(&goredis.Options{
-		Addr: mr.Addr(),
-	})
+	client, _ := testhelpers.RedisClient(t)
 
 	provider := redis.New(client, redis.WithPrefix("test:"))
 	require.NotNil(t, provider)
@@ -168,12 +149,7 @@ func TestProvider_SaveWithTTL(t *testing.T) {
 }
 
 func TestProvider_WithPrefix_Isolation(t *testing.T) {
-	mr := miniredis.RunT(t)
-	defer mr.Close()
-
-	client := goredis.NewClient(&goredis.Options{
-		Addr: mr.Addr(),
-	})
+	client, _ := testhelpers.RedisClient(t)
 
 	provider1 := redis.New(client, redis.WithPrefix("prefix1:"))
 	provider2 := redis.New(client, redis.WithPrefix("prefix2:"))
