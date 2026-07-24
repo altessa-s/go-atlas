@@ -17,6 +17,13 @@ caching, observability, authentication, secret management, configuration, and do
 Every major component is defined by an interface, implementations are injected via functional options, and unset dependencies default to safe
 no-ops. Import only what you need — there is no framework bootstrap or global state.
 
+> **History.** go-atlas started in 2022 as an internal company project and ran in production for several years before it was extracted and
+> open-sourced on GitHub. As a result, the public git history begins at the point of import rather than at the project's actual inception.
+
+
+> **On AI tooling.** Yes, we use AI assistants on this project — deliberately and with purpose. Every change is reviewed, tested, and held to the
+> same standards as hand-written code. AI accelerates well-understood work; it does not replace design decisions or engineering judgment.
+
 ## Requirements
 
 - **Go 1.25+**
