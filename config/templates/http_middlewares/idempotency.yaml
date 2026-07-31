@@ -38,3 +38,14 @@
 #  # <bool> Require idempotency key for all non-ignored requests.
 #  # Default value: false
 #  enforceMandatory: false
+#
+#  # <string> How the client-supplied idempotency key reaches debug-level logs.
+#  # Keys are caller-chosen and may embed user data, and the invalid-format
+#  # branch logs values that failed validation.
+#  #   hashed - log a truncated SHA-256 digest as "key_hash"
+#  #   full   - log the raw key as "key" (development only)
+#  #   off    - omit the key from log records
+#  # Unrecognized values fall back to hashed.
+#  # Supported values: hashed, full, off
+#  # Default value: hashed
+#  keyLogMode: hashed

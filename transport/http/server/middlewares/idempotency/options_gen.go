@@ -146,6 +146,13 @@ func WithKeyFormatValidator(v KeyFormatValidator) Option {
 	}
 }
 
+// WithKeyLogMode sets the keyLogMode option.
+func WithKeyLogMode(v KeyLogMode) Option {
+	return func(o *options) {
+		o.keyLogMode = v
+	}
+}
+
 // WithLogger sets the logger option.
 func WithLogger(v *slog.Logger) Option {
 	return func(o *options) {
@@ -166,6 +173,7 @@ func defaultOptions() *options {
 		idempotencyKeyStatusHeader:   DefaultIdempotencyKeyStatusHeader,
 		ignorePatterns:               defaults.IgnorePatterns,
 		keyFormatValidator:           DefaultKeyValidator,
+		keyLogMode:                   DefaultKeyLogMode,
 		logger:                       slog.New(slog.DiscardHandler),
 	}
 }

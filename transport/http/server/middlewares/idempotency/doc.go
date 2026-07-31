@@ -18,11 +18,14 @@
 //
 // # Security
 //
-// Debug-level logs include the client-supplied idempotency key verbatim —
-// including, in the invalid-format branch, raw values that failed
-// validation. Keys are caller-chosen and may embed user data. Run
-// production loggers at Info or above, or wrap the handler with the
-// masking handler from
+// Keys are caller-chosen and may embed user data, and the invalid-format
+// branch sees values that failed validation. [WithKeyLogMode] controls how the
+// key reaches debug-level logs: [KeyLogHashed] (the default) logs a truncated
+// SHA-256 digest as "key_hash", [KeyLogFull] logs the raw key as "key", and
+// [KeyLogOff] omits it. Hashing is log hygiene rather than a privacy
+// guarantee — a key from a small or guessable set can be recovered by hashing
+// candidates. For end-to-end redaction, run production loggers at Info or
+// above, or wrap the handler with the masking handler from
 // [github.com/altessa-s/go-atlas/observability/slog/handler/masking].
 //
 // # Example

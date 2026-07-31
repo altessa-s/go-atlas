@@ -9,6 +9,32 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
+// IdempotencyKeyLogMode controls how the client-supplied idempotency key is
+// rendered in the middleware's debug-level log records.
+type IdempotencyKeyLogMode string
+
+const (
+	// IdempotencyKeyLogModeHashed logs a truncated SHA-256 digest of the key
+	// instead of the key itself. This is the default.
+	IdempotencyKeyLogModeHashed IdempotencyKeyLogMode = "hashed"
+
+	// IdempotencyKeyLogModeFull logs the key verbatim. Keys are caller-chosen
+	// and may embed user data; intended for development only.
+	IdempotencyKeyLogModeFull IdempotencyKeyLogMode = "full"
+
+	// IdempotencyKeyLogModeOff omits the key from log records entirely.
+	IdempotencyKeyLogModeOff IdempotencyKeyLogMode = "off"
+)
+
+// AllIdempotencyKeyLogModes returns all valid IdempotencyKeyLogMode values.
+func AllIdempotencyKeyLogModes() []IdempotencyKeyLogMode {
+	return []IdempotencyKeyLogMode{
+		IdempotencyKeyLogModeHashed,
+		IdempotencyKeyLogModeFull,
+		IdempotencyKeyLogModeOff,
+	}
+}
+
 // HttpInterIdempotencyConfig defines the configuration for HTTP idempotency middleware.
 type HttpInterIdempotencyConfig struct {
 	// BaseHttpMiddlewareConfig provides standard enable and filtering fields.
@@ -32,6 +58,12 @@ type HttpInterIdempotencyConfig struct {
 
 	// EnforceMandatory, when true, requires all requests (not ignored) to have an idempotency key.
 	EnforceMandatory bool `yaml:"enforceMandatory" default:"false"`
+
+	// KeyLogMode controls how the client-supplied idempotency key reaches
+	// debug-level logs. Keys are caller-chosen and may embed user data, so
+	// this defaults to "hashed" — a truncated SHA-256 digest that keeps
+	// records correlated without carrying the raw value.
+	KeyLogMode IdempotencyKeyLogMode `yaml:"keyLogMode" default:"hashed"`
 }
 
 // Validate performs validation of the HttpInterIdempotencyConfig.
@@ -43,6 +75,8 @@ func (c *HttpInterIdempotencyConfig) Validate() error {
 			validation.Field(&c.IdempotencyKeyEntityIdHeader, validation.Required),
 			validation.Field(&c.FallbackBehavior, validation.Required,
 				ozzo_rules.OneOf(FallbackBehaviorAllow, FallbackBehaviorDeny, FallbackBehaviorError)),
+			validation.Field(&c.KeyLogMode, validation.Required,
+				ozzo_rules.OneOf(AllIdempotencyKeyLogModes()...)),
 		)
 	})
 }
@@ -58,6 +92,7 @@ func DefaultHttpInterIdempotencyConfig() HttpInterIdempotencyConfig {
 		IdempotencyKeyEntityIdHeader: "Idempotency-Key-Entity-Id",
 		FallbackBehavior:             FallbackBehaviorDeny,
 		EnforceMandatory:             false,
+		KeyLogMode:                   IdempotencyKeyLogModeHashed,
 	}
 }
 
