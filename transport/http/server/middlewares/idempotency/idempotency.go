@@ -5,6 +5,7 @@
 package idempotency
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas/transport/http/server/middlewares"
 	"github.com/altessa-s/go-atlas/transport/internal/fallback"
 
+	corehash "github.com/altessa-s/go-atlas/core/encoding/hash"
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 	internalidem "github.com/altessa-s/go-atlas/transport/internal/idempotency"
 )
@@ -171,8 +173,7 @@ func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (s
 
 	if err := m.opts.keyFormatValidator(idempotencyKey); err != nil {
 		m.LogDebug(ctx, "invalid idempotency key format", path,
-			slog.String("method", r.Method),
-			slog.String("key", idempotencyKey))
+			m.keyLogAttrs(ctx, r.Method, idempotencyKey)...)
 		m.opts.errorHandler(w, r, ErrorIDKInvalidFormat, nil)
 		return "", nil, errIdempotencyKeyInvalidFormat
 	}
@@ -180,8 +181,7 @@ func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (s
 	storageKey := m.buildKey(r.Method, path, idempotencyKey)
 
 	m.LogDebug(ctx, "checking idempotency key", path,
-		slog.String("method", r.Method),
-		slog.String("key", idempotencyKey))
+		m.keyLogAttrs(ctx, r.Method, idempotencyKey)...)
 
 	// Try to acquire lock
 	locked, state, err := m.i.AttemptLock(ctx, storageKey)
@@ -196,8 +196,7 @@ func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (s
 
 		if state.Status == idempotency.StatusInProgress {
 			m.LogDebug(ctx, "idempotency key in progress", path,
-				slog.String("method", r.Method),
-				slog.String("key", idempotencyKey))
+				m.keyLogAttrs(ctx, r.Method, idempotencyKey)...)
 
 			w.Header().Set(m.opts.idempotencyKeyStatusHeader, "in_progress")
 			m.opts.errorHandler(w, r, ErrorIDKInProgress, state)
@@ -206,8 +205,7 @@ func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (s
 
 		if state.Status == idempotency.StatusSuccess {
 			m.LogDebug(ctx, "idempotency key already used", path,
-				slog.String("method", r.Method),
-				slog.String("key", idempotencyKey))
+				m.keyLogAttrs(ctx, r.Method, idempotencyKey)...)
 
 			w.Header().Set(m.opts.idempotencyKeyStatusHeader, "success")
 			if strVal, ok := state.Data.(string); ok && strVal != "" {
@@ -219,11 +217,47 @@ func (m *middleware) checkIdempotency(w http.ResponseWriter, r *http.Request) (s
 	}
 
 	m.LogDebug(ctx, "idempotency key registered", path,
-		slog.String("method", r.Method),
-		slog.String("key", idempotencyKey))
+		m.keyLogAttrs(ctx, r.Method, idempotencyKey)...)
 
 	// Return the *State so Handler can pass its CAS token to Complete.
 	return storageKey, state, nil
+}
+
+// keyLogHashLength is the number of hex characters of the SHA-256 digest kept
+// when rendering an idempotency key under [KeyLogHashed]. 64 bits is enough to
+// correlate records for the same key without carrying the full digest.
+const keyLogHashLength = 16
+
+// keyLogAttrs builds the debug-log attributes for a request, rendering the
+// client-supplied idempotency key according to the configured [KeyLogMode].
+// An unset or unrecognized mode renders as [KeyLogHashed].
+//
+// It returns nil when debug logging is disabled, so the digest is not computed
+// on the request path of a production logger running at Info or above.
+//
+// Hashing is log hygiene, not a privacy guarantee: a key drawn from a small or
+// guessable set can still be recovered by hashing candidates. It keeps raw
+// caller-controlled bytes — which under [ErrorIDKInvalidFormat] have not
+// passed any validation — out of the log.
+func (m *middleware) keyLogAttrs(ctx context.Context, method, key string) []slog.Attr {
+	if !m.Logger().Enabled(ctx, slog.LevelDebug) {
+		return nil
+	}
+
+	switch m.opts.keyLogMode {
+	case KeyLogFull:
+		return []slog.Attr{slog.String("method", method), slog.String("key", key)}
+	case KeyLogOff:
+		return []slog.Attr{slog.String("method", method)}
+	default:
+		return []slog.Attr{slog.String("method", method), slog.String("key_hash", hashKeyForLog(key))}
+	}
+}
+
+// hashKeyForLog returns the truncated SHA-256 hex digest of key used by
+// [KeyLogHashed].
+func hashKeyForLog(key string) string {
+	return corehash.SHA256HexString(key)[:keyLogHashLength]
 }
 
 // errKeyNotUnique is an internal error indicating the key already exists.

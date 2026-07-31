@@ -162,6 +162,11 @@ func (b *ServerBuilder) WithIdempotencyMiddleware() *ServerBuilder {
 
 	configOpts = append(configOpts, idempotencymw.WithEnforceMandatory(c.EnforceMandatory))
 
+	// ParseKeyLogMode falls back to hashed, so an unrecognized configured value
+	// keeps raw keys out of the log rather than exposing them.
+	configOpts = append(configOpts,
+		idempotencymw.WithKeyLogMode(idempotencymw.ParseKeyLogMode(string(c.KeyLogMode))))
+
 	b.configMW = append(b.configMW, idempotencymw.New(b.idempotency, configOpts...))
 	return b
 }

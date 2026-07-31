@@ -30,6 +30,58 @@ const (
 	DefaultIdempotencyKeyEntityIdHeader = internalidem.DefaultKeyEntityIDHeader
 )
 
+// DefaultKeyLogMode is the key rendering mode used when [WithKeyLogMode] is
+// not set. It is [KeyLogHashed] so that a raw client-supplied key never
+// reaches the log by default.
+const DefaultKeyLogMode = KeyLogHashed
+
+// KeyLogMode controls how the client-supplied idempotency key is rendered in
+// the middleware's debug-level log records. The zero value is an empty string
+// and is not valid; use [ParseKeyLogMode] or one of the named constants.
+type KeyLogMode string
+
+const (
+	// KeyLogHashed logs a truncated SHA-256 digest of the key under the
+	// "key_hash" attribute instead of the key itself. Records for the same
+	// key still correlate, but the raw value stays out of the log.
+	KeyLogHashed KeyLogMode = "hashed"
+
+	// KeyLogFull logs the key verbatim under the "key" attribute. Intended for
+	// development; keys are caller-chosen and may embed user data, and the
+	// invalid-format branch logs values that failed validation unmodified.
+	KeyLogFull KeyLogMode = "full"
+
+	// KeyLogOff omits the key attribute entirely. Records still carry the
+	// request path and method, but duplicate requests can no longer be
+	// correlated by key from the log alone.
+	KeyLogOff KeyLogMode = "off"
+)
+
+// String returns the string representation of the KeyLogMode.
+func (m KeyLogMode) String() string {
+	return string(m)
+}
+
+// IsValid reports whether the KeyLogMode holds one of the named values.
+func (m KeyLogMode) IsValid() bool {
+	switch m {
+	case KeyLogHashed, KeyLogFull, KeyLogOff:
+		return true
+	default:
+		return false
+	}
+}
+
+// ParseKeyLogMode converts a raw string (e.g. from configuration) to a
+// [KeyLogMode]. Unrecognized values return [KeyLogHashed] so that
+// misconfiguration keeps raw keys out of the log rather than exposing them.
+func ParseKeyLogMode(s string) KeyLogMode {
+	if mode := KeyLogMode(s); mode.IsValid() {
+		return mode
+	}
+	return KeyLogHashed
+}
+
 // ErrorScenario identifies the reason for an idempotency error.
 // Values of this type are passed to the configured [ErrorHandler] so it
 // can produce an appropriate HTTP response for each scenario.
@@ -74,6 +126,7 @@ type options struct {
 	fallbackBehavior             fallback.Behavior  `optgen:"default=fallback.Deny"`
 	enforceMandatory             bool               `optgen:"default=false" optval:"param"`
 	keyFormatValidator           KeyFormatValidator `optgen:"default=DefaultKeyValidator"`
+	keyLogMode                   KeyLogMode         `optgen:"default=DefaultKeyLogMode"`
 	entityIdExtractor            EntityIdExtractor
 	errorHandler                 ErrorHandler
 }
