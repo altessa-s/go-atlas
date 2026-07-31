@@ -27,6 +27,19 @@ Package `secrets` provides centralized secret management with automatic caching,
 - Distributed locking for write operations
 - Graceful shutdown with secure memory clearing
 
+## Security
+
+Secret material never reaches the log. Debug-level records from the `Manager` carry the secret's **key** — the lookup identifier validated
+against `[a-zA-Z0-9_.-]+`, not the value behind it — so cache miss, fetch, save and delete records for one secret can be correlated.
+
+The payload itself is protected on two levels: `Value.Value` and `Value.EncodedValue` carry `json:"-"`, so an accidental `json.Marshal`
+emits metadata only, and `Value.LogValue` implements `slog.LogValuer` to report the same metadata when a `Value` reaches a logger. slog
+resolves a `LogValuer` atomically, so the secret fields cannot leak through field expansion either.
+
+Key names are internal identifiers, but a naming scheme can itself disclose infrastructure layout. When that matters, run production
+loggers at Info or above, or wrap the handler with
+[`observability/slog/handler/masking`](../../observability/slog/handler/masking/README.md).
+
 ## Subpackages
 
 | Package                                | Description                           |
