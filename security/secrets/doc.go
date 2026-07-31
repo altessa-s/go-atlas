@@ -159,6 +159,25 @@
 //   - Graceful degradation during outages
 //   - Detailed error context and logging
 //
+// # Security:
+//
+// Secret material never reaches the log. Debug-level records from the Manager
+// carry the secret's key — the lookup identifier validated against
+// [a-zA-Z0-9_.-]+, not the value behind it — so cache miss, fetch, save and
+// delete records for one secret can be correlated.
+//
+// The payload itself is protected on two levels. Value.Value and
+// Value.EncodedValue carry json:"-", so an accidental json.Marshal of a
+// [Value] emits metadata only. [Value.LogValue] implements [slog.LogValuer]
+// and reports the same metadata, so a Value passed to a logger is redacted;
+// slog resolves a LogValuer atomically, which means the secret fields cannot
+// leak through field expansion either.
+//
+// Key names are internal identifiers, but a naming scheme can itself disclose
+// infrastructure layout. When that matters, run production loggers at Info or
+// above, or wrap the handler with the masking handler from
+// [github.com/altessa-s/go-atlas/observability/slog/handler/masking].
+//
 // # Thread Safety:
 //
 // All operations are thread-safe and designed for concurrent use:
