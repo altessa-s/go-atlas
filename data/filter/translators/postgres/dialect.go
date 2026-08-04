@@ -46,37 +46,26 @@ func (dialect) Placeholder(n int) string { return "$" + strconv.Itoa(n) }
 // column if you need to filter on their size.
 func (dialect) SizeExpr(col string) string { return "length(" + col + ")" }
 
-// StringPredicate maps the string predicates onto PostgreSQL built-ins.
+// stringPredicates maps the string predicates onto PostgreSQL built-ins.
 //
 // contains and startsWith take the needle as a plain string — no LIKE
 // pattern to escape, so a `%` or `_` in the operand stays literal.
 // starts_with() requires PostgreSQL 11 or newer.
 //
 // endsWith has no built-in and compiles to a suffix comparison, which
-// needs the operand twice — once to size the suffix, once to compare it.
-// value is therefore called twice and binds two arguments.
-func (dialect) StringPredicate(op filter.Operator, col, needle string, value sqlbase.ValueFunc) (string, error) {
-	arg, err := value(needle)
-	if err != nil {
-		return "", err
-	}
+// needs the operand twice — once to size the suffix, once to compare
+// against it. Hence EndsWithBindsTwice.
+var stringPredicates = sqlbase.StringPredicates{
+	Contains:           "strpos(%[1]s, %[2]s) > 0",
+	StartsWith:         "starts_with(%[1]s, %[2]s)",
+	EndsWith:           "right(%[1]s, length(%[2]s)) = %[3]s",
+	Matches:            "%[1]s ~ %[2]s",
+	EndsWithBindsTwice: true,
+}
 
-	switch op {
-	case filter.OpContains:
-		return "strpos(" + col + ", " + arg + ") > 0", nil
-	case filter.OpStartsWith:
-		return "starts_with(" + col + ", " + arg + ")", nil
-	case filter.OpEndsWith:
-		second, err := value(needle)
-		if err != nil {
-			return "", err
-		}
-		return "right(" + col + ", length(" + arg + ")) = " + second, nil
-	case filter.OpMatches:
-		return col + " ~ " + arg, nil
-	default:
-		return "", coreerrs.Wrapf(filter.ErrUnsupportedOperation, "string predicate %v", op)
-	}
+// StringPredicate renders one of the four string predicates.
+func (dialect) StringPredicate(op filter.Operator, col, needle string, value sqlbase.ValueFunc) (string, error) {
+	return sqlbase.RenderStringPredicate(op, col, needle, value, stringPredicates)
 }
 
 // FormatLiteral renders a Go value as PostgreSQL SQL text.
