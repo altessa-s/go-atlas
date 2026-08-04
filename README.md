@@ -66,7 +66,7 @@ integrations live behind their own subpackages, so an unused subsystem costs you
 | [`core`](core/) | Collections, concurrency, errors, context, encoding, retry, WAL, scheduling, types (zero external deps) |
 | [`data/audit`](data/audit/) | Async audit-event dispatcher with pluggable storage |
 | [`data/cache`](data/cache/) | Multi-backend caching with singleflight, fallback, and TTL management |
-| [`data/filter`](data/filter/) | CEL expression parser with translators for MongoDB, RediSearch, and Lua |
+| [`data/filter`](data/filter/) | CEL expression parser with translators for MongoDB, ClickHouse, MariaDB, PostgreSQL, Meilisearch, RediSearch, and Lua |
 | [`data/idempotency`](data/idempotency/) | Idempotency key management (Redis, NATS, memory) |
 | [`data/leadelect`](data/leadelect/) | Leader election (NATS KV-based) |
 | [`data/limiters`](data/limiters/) | Token-bucket rate limiting (Redis, NATS, memory) |
