@@ -148,15 +148,7 @@ func (t *Translator) VisitCall(n *filter.CallNode) (any, error) {
 
 // VisitList converts a list to a slice of values.
 func (t *Translator) VisitList(n *filter.ListNode) (any, error) {
-	result := make([]any, 0, len(n.Elements))
-	for _, elem := range n.Elements {
-		val, err := elem.Accept(t)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, val)
-	}
-	return result, nil
+	return filter.VisitElements(t, n)
 }
 
 // fieldRef builds a Lua table access expression from a dotted field name.
@@ -373,19 +365,19 @@ func (t *Translator) translateContains(target filter.Node, args []filter.Node) (
 
 // translateStartsWith handles field.startsWith("pre").
 func (t *Translator) translateStartsWith(target filter.Node, args []filter.Node) (string, error) {
-	field, err := t.getFieldName(target)
-	if err != nil {
-		return "", err
-	}
-	s, err := t.getStringArg(args)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf(`(string.sub(%s, 1, %d) == %s)`, t.fieldRef(field), len(s), `"`+escapeLuaString(s)+`"`), nil
+	return t.translateAffix(target, args, `(string.sub(%s, 1, %d) == %s)`)
 }
 
 // translateEndsWith handles field.endsWith("suf").
 func (t *Translator) translateEndsWith(target filter.Node, args []filter.Node) (string, error) {
+	return t.translateAffix(target, args, `(string.sub(%s, -%d) == %s)`)
+}
+
+// translateAffix renders a prefix or suffix comparison. Both slice the
+// field to the needle's length and compare; only the string.sub bounds
+// differ, which format carries as a template over (field reference,
+// needle length, quoted needle).
+func (t *Translator) translateAffix(target filter.Node, args []filter.Node, format string) (string, error) {
 	field, err := t.getFieldName(target)
 	if err != nil {
 		return "", err
@@ -394,7 +386,7 @@ func (t *Translator) translateEndsWith(target filter.Node, args []filter.Node) (
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf(`(string.sub(%s, -%d) == %s)`, t.fieldRef(field), len(s), `"`+escapeLuaString(s)+`"`), nil
+	return fmt.Sprintf(format, t.fieldRef(field), len(s), `"`+escapeLuaString(s)+`"`), nil
 }
 
 // sizeMarker is a type used to pass field names through the visitor for size() calls.

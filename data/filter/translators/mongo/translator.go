@@ -153,15 +153,7 @@ func (t *Translator) VisitCall(n *filter.CallNode) (any, error) {
 
 // VisitList converts a list to a slice of values.
 func (t *Translator) VisitList(n *filter.ListNode) (any, error) {
-	result := make([]any, 0, len(n.Elements))
-	for _, elem := range n.Elements {
-		val, err := elem.Accept(t)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, val)
-	}
-	return result, nil
+	return filter.VisitElements(t, n)
 }
 
 // regexTransform transforms a string argument into a regex pattern.
