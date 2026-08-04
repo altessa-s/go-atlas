@@ -39,28 +39,21 @@ func (dialect) Placeholder(int) string { return "?" }
 // Array columns.
 func (dialect) SizeExpr(col string) string { return "length(" + col + ")" }
 
-// StringPredicate maps the string predicates onto native ClickHouse
+// stringPredicates maps the string predicates onto native ClickHouse
 // functions. All four take the needle as a plain string, so nothing
 // needs pattern escaping — unlike a LIKE-based rendering, a `%` or `_`
-// in the operand stays literal.
-func (dialect) StringPredicate(op filter.Operator, col, needle string, value sqlbase.ValueFunc) (string, error) {
-	arg, err := value(needle)
-	if err != nil {
-		return "", err
-	}
+// in the operand stays literal. ClickHouse has endsWith(), so the
+// operand is bound once.
+var stringPredicates = sqlbase.StringPredicates{
+	Contains:   "position(%[1]s, %[2]s) > 0",
+	StartsWith: "startsWith(%[1]s, %[2]s)",
+	EndsWith:   "endsWith(%[1]s, %[2]s)",
+	Matches:    "match(%[1]s, %[2]s)",
+}
 
-	switch op {
-	case filter.OpContains:
-		return "position(" + col + ", " + arg + ") > 0", nil
-	case filter.OpStartsWith:
-		return "startsWith(" + col + ", " + arg + ")", nil
-	case filter.OpEndsWith:
-		return "endsWith(" + col + ", " + arg + ")", nil
-	case filter.OpMatches:
-		return "match(" + col + ", " + arg + ")", nil
-	default:
-		return "", coreerrs.Wrapf(filter.ErrUnsupportedOperation, "string predicate %v", op)
-	}
+// StringPredicate renders one of the four string predicates.
+func (dialect) StringPredicate(op filter.Operator, col, needle string, value sqlbase.ValueFunc) (string, error) {
+	return sqlbase.RenderStringPredicate(op, col, needle, value, stringPredicates)
 }
 
 // FormatLiteral renders a Go value as ClickHouse SQL text.

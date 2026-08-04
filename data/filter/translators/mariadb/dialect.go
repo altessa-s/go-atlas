@@ -38,39 +38,29 @@ func (dialect) Placeholder(int) string { return "?" }
 // than the bytes LENGTH would report on a multi-byte charset.
 func (dialect) SizeExpr(col string) string { return "CHAR_LENGTH(" + col + ")" }
 
-// StringPredicate maps the string predicates onto MariaDB built-ins.
+// stringPredicates maps the string predicates onto MariaDB built-ins.
 //
 // contains and startsWith both go through LOCATE, which takes the needle
 // as a plain string — no LIKE pattern to escape, so a `%` or `_` in the
-// operand stays literal. startsWith is LOCATE = 1 rather than a separate
-// function because MariaDB has none; the two are equivalent, including
-// for an empty needle, where LOCATE returns 1.
+// operand stays literal. LOCATE takes the needle first, which is why the
+// templates index their verbs. startsWith is LOCATE = 1 rather than a
+// separate function because MariaDB has none; the two are equivalent,
+// including for an empty needle, where LOCATE returns 1.
 //
 // endsWith has no built-in either and compiles to a suffix comparison,
 // which needs the operand twice — once to size the suffix, once to
-// compare it. value is therefore called twice and binds two arguments.
-func (dialect) StringPredicate(op filter.Operator, col, needle string, value sqlbase.ValueFunc) (string, error) {
-	arg, err := value(needle)
-	if err != nil {
-		return "", err
-	}
+// compare against it. Hence EndsWithBindsTwice.
+var stringPredicates = sqlbase.StringPredicates{
+	Contains:           "LOCATE(%[2]s, %[1]s) > 0",
+	StartsWith:         "LOCATE(%[2]s, %[1]s) = 1",
+	EndsWith:           "RIGHT(%[1]s, CHAR_LENGTH(%[2]s)) = %[3]s",
+	Matches:            "%[1]s REGEXP %[2]s",
+	EndsWithBindsTwice: true,
+}
 
-	switch op {
-	case filter.OpContains:
-		return "LOCATE(" + arg + ", " + col + ") > 0", nil
-	case filter.OpStartsWith:
-		return "LOCATE(" + arg + ", " + col + ") = 1", nil
-	case filter.OpEndsWith:
-		second, err := value(needle)
-		if err != nil {
-			return "", err
-		}
-		return "RIGHT(" + col + ", CHAR_LENGTH(" + arg + ")) = " + second, nil
-	case filter.OpMatches:
-		return col + " REGEXP " + arg, nil
-	default:
-		return "", coreerrs.Wrapf(filter.ErrUnsupportedOperation, "string predicate %v", op)
-	}
+// StringPredicate renders one of the four string predicates.
+func (dialect) StringPredicate(op filter.Operator, col, needle string, value sqlbase.ValueFunc) (string, error) {
+	return sqlbase.RenderStringPredicate(op, col, needle, value, stringPredicates)
 }
 
 // FormatLiteral renders a Go value as MariaDB SQL text.
