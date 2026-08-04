@@ -731,3 +731,83 @@ func TestTranslator_EnumValues(t *testing.T) {
 		}
 	})
 }
+
+// TestTranslator_BareIdentifier pins the boolean-test rendering of a bare
+// identifier. translateNot has always handled the negated form; without
+// its counterpart, `active` failed with ErrInvalidExpression while
+// `!active` worked — an asymmetry, not a design choice.
+func TestTranslator_BareIdentifier(t *testing.T) {
+	tests := []struct {
+		name string
+		expr string
+		want bson.M
+	}{
+		{
+			"at the root",
+			`active`,
+			bson.M{"active": true},
+		},
+		{
+			"negated at the root",
+			`!active`,
+			bson.M{"active": bson.M{"$ne": true}},
+		},
+		{
+			"as a conjunct",
+			`active && verified`,
+			bson.M{"$and": bson.A{
+				bson.M{"active": true},
+				bson.M{"verified": true},
+			}},
+		},
+		{
+			"mixed with a comparison",
+			`active && age > 18`,
+			bson.M{"$and": bson.A{
+				bson.M{"active": true},
+				bson.M{"age": bson.M{"$gt": int64(18)}},
+			}},
+		},
+		{
+			"as a disjunct",
+			`active || verified`,
+			bson.M{"$or": bson.A{
+				bson.M{"active": true},
+				bson.M{"verified": true},
+			}},
+		},
+	}
+
+	trans := mustTranslator(t)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			node := testhelpers.MustParseFilter(t, tt.expr)
+			got, err := trans.Translate(node)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestTranslator_BareIdentifierRespectsPolicy guards that the new path
+// goes through the allow-list and field mapping like every other field
+// reference, rather than short-circuiting them.
+func TestTranslator_BareIdentifierRespectsPolicy(t *testing.T) {
+	t.Run("mapping applies", func(t *testing.T) {
+		trans := mustTranslator(t, filter.WithFieldMapping(map[string]string{"isActive": "is_active"}))
+		node := testhelpers.MustParseFilter(t, `isActive`)
+
+		got, err := trans.Translate(node)
+		require.NoError(t, err)
+		require.Equal(t, bson.M{"is_active": true}, got)
+	})
+
+	t.Run("allow-list applies", func(t *testing.T) {
+		trans := mustTranslator(t, filter.WithAllowedFields("name"))
+		node := testhelpers.MustParseFilter(t, `active`)
+
+		_, err := trans.Translate(node)
+		require.ErrorIs(t, err, filter.ErrFieldNotAllowed)
+	})
+}
