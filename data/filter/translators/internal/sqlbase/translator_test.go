@@ -168,3 +168,43 @@ func TestNew_UntrustedInputRequiresAllowlist(t *testing.T) {
 	_, err := sqlbase.New(failing{}, filter.WithUntrustedInput())
 	require.ErrorIs(t, err, filter.ErrAllowlistRequired)
 }
+
+// TestVisitList is the direct exercise of the one Visitor method the
+// walker does not reach through Translate on its own. It is public
+// surface — the dialect translators embed the walker and therefore
+// satisfy filter.Visitor — so a caller can invoke it, and an
+// implementation nothing tests is one nothing guarantees.
+func TestVisitList(t *testing.T) {
+	t.Parallel()
+
+	trans := mustTranslator(t, failing{})
+
+	t.Run("returns the element values in order", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := trans.VisitList(&filter.ListNode{Elements: []filter.Node{
+			&filter.LiteralNode{Value: int64(1)},
+			&filter.LiteralNode{Value: "two"},
+			&filter.LiteralNode{Value: nil},
+		}})
+		require.NoError(t, err)
+		require.Equal(t, []any{int64(1), "two", nil}, got)
+	})
+
+	t.Run("empty list", func(t *testing.T) {
+		t.Parallel()
+
+		got, err := trans.VisitList(&filter.ListNode{})
+		require.NoError(t, err)
+		require.Empty(t, got)
+	})
+
+	t.Run("propagates an element failure", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := trans.VisitList(&filter.ListNode{Elements: []filter.Node{
+			&filter.LiteralNode{Value: struct{}{}},
+		}})
+		require.ErrorIs(t, err, filter.ErrUnsupportedType)
+	})
+}

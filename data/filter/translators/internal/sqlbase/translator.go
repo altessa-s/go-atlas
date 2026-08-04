@@ -283,12 +283,23 @@ func (t *Translator) translateIn(left, right filter.Node) (string, error) {
 		return MatchNone, nil
 	}
 
-	rendered := make([]string, 0, len(list.Elements))
-	for _, elem := range list.Elements {
-		value, err := elem.Accept(t)
-		if err != nil {
-			return "", err
-		}
+	// Routed through VisitList rather than walking the elements here so
+	// that the Visitor method is the single implementation. It is public
+	// surface — the walker is embedded in the dialect translators, which
+	// therefore satisfy filter.Visitor — and an implementation nothing
+	// calls is one nothing tests either.
+	values, err := t.VisitList(list)
+	if err != nil {
+		return "", err
+	}
+
+	elements, ok := values.([]any)
+	if !ok {
+		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected list elements, got %T", values)
+	}
+
+	rendered := make([]string, 0, len(elements))
+	for _, value := range elements {
 		sql, err := t.value(value)
 		if err != nil {
 			return "", err
