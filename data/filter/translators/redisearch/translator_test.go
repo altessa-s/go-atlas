@@ -421,3 +421,120 @@ func TestNewTranslator_UntrustedInput_EmptyAllowlist(t *testing.T) {
 	)
 	require.ErrorIs(t, err, filter.ErrAllowlistRequired)
 }
+
+// TestTranslator_BareIdentifier pins the boolean-test rendering of a bare
+// identifier. translateNot has always handled the negated form; without
+// its counterpart a bare identifier reached the server as a free-text
+// term, matching whatever the TEXT fields happened to contain rather
+// than failing.
+func TestTranslator_BareIdentifier(t *testing.T) {
+	schema := map[string]FieldType{
+		"active":   FieldTypeTag,
+		"verified": FieldTypeTag,
+		"age":      FieldTypeNumeric,
+	}
+
+	tests := []struct {
+		name string
+		expr string
+		want string
+	}{
+		{"at the root", `active`, `@active:{true}`},
+		{"negated at the root", `!active`, `-@active:{true}`},
+		{"as a conjunct", `active && verified`, `(@active:{true} @verified:{true})`},
+		{"mixed with a comparison", `active && age > 18`, `(@active:{true} @age:[(18 +inf])`},
+		{"as a disjunct", `active || verified`, `(@active:{true})|(@verified:{true})`},
+	}
+
+	trans := mustTranslator(t, schema)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			node := testhelpers.MustParseFilter(t, tt.expr)
+			got, err := trans.Translate(node)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestTranslator_InFollowsFieldSchema pins the membership syntax per
+// schema type. The tag form is not universal: `@role:{2|3}` against a
+// NUMERIC field matched nothing at all — silently, which is worse than
+// failing — and against a TEXT field it is a syntax error.
+func TestTranslator_InFollowsFieldSchema(t *testing.T) {
+	schema := map[string]FieldType{
+		"status": FieldTypeTag,
+		"role":   FieldTypeNumeric,
+		"price":  FieldTypeNumeric,
+		"name":   FieldTypeText,
+	}
+
+	tests := []struct {
+		name string
+		expr string
+		want string
+	}{
+		{
+			"tag field keeps the tag set",
+			`status in ["active", "pending"]`,
+			`@status:{active|pending}`,
+		},
+		{
+			"numeric field becomes a union of exact ranges",
+			`role in [2, 3]`,
+			`(@role:[2 2]|@role:[3 3])`,
+		},
+		{
+			"numeric field with floats",
+			`price in [10.5, 20]`,
+			`(@price:[10.5 10.5]|@price:[20 20])`,
+		},
+		{
+			"text field becomes a term union",
+			`name in ["Alice", "Bob"]`,
+			`@name:(Alice|Bob)`,
+		},
+		{
+			"single numeric element",
+			`role in [1]`,
+			`(@role:[1 1])`,
+		},
+	}
+
+	trans := mustTranslator(t, schema)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			node := testhelpers.MustParseFilter(t, tt.expr)
+			got, err := trans.Translate(node)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestTranslator_BareIdentifierRespectsPolicy guards that the new path
+// goes through the allow-list and field mapping like every other field
+// reference.
+func TestTranslator_BareIdentifierRespectsPolicy(t *testing.T) {
+	schema := map[string]FieldType{"is_active": FieldTypeTag}
+
+	t.Run("mapping applies", func(t *testing.T) {
+		trans := mustTranslator(t, schema,
+			filter.WithFieldMapping(map[string]string{"isActive": "is_active"}))
+		node := testhelpers.MustParseFilter(t, `isActive`)
+
+		got, err := trans.Translate(node)
+		require.NoError(t, err)
+		require.Equal(t, `@is_active:{true}`, got)
+	})
+
+	t.Run("allow-list applies", func(t *testing.T) {
+		trans := mustTranslator(t, schema, filter.WithAllowedFields("name"))
+		node := testhelpers.MustParseFilter(t, `active`)
+
+		_, err := trans.Translate(node)
+		require.ErrorIs(t, err, filter.ErrFieldNotAllowed)
+	})
+}
