@@ -37,6 +37,25 @@ func NewTranslator(opts ...filter.TranslatorOption) (*Translator, error) {
 // Translate converts a filter AST node to a MongoDB bson.M filter.
 func (t *Translator) Translate(node filter.Node) (bson.M, error) {
 	t.depth = 0
+	return t.acceptPredicate(node)
+}
+
+// acceptPredicate visits a node expected to produce a filter document.
+//
+// A bare identifier is treated as a boolean field test ({field: true}),
+// matching the CEL semantics of using a field directly as a condition.
+// The negated form has always been handled in translateNot; this is its
+// counterpart, so `active` and `!active` are now symmetric wherever a
+// predicate is expected — at the root and on either side of && / ||.
+func (t *Translator) acceptPredicate(node filter.Node) (bson.M, error) {
+	if ident, ok := node.(*filter.IdentNode); ok {
+		field, err := t.getFieldName(ident)
+		if err != nil {
+			return nil, err
+		}
+		return bson.M{field: true}, nil
+	}
+
 	result, err := node.Accept(t)
 	if err != nil {
 		return nil, err
@@ -267,22 +286,14 @@ func (t *Translator) buildSizeExprFilter(field string, op filter.Operator, value
 
 // translateLogical handles && and || operators.
 func (t *Translator) translateLogical(mongoOp string, left, right filter.Node) (bson.M, error) {
-	leftFilter, err := left.Accept(t)
+	leftM, err := t.acceptPredicate(left)
 	if err != nil {
 		return nil, err
-	}
-	leftM, ok := leftFilter.(bson.M)
-	if !ok {
-		return nil, coreerrs.Wrapf(filter.ErrInvalidExpression, "expected bson.M for logical operand, got %T", leftFilter)
 	}
 
-	rightFilter, err := right.Accept(t)
+	rightM, err := t.acceptPredicate(right)
 	if err != nil {
 		return nil, err
-	}
-	rightM, ok := rightFilter.(bson.M)
-	if !ok {
-		return nil, coreerrs.Wrapf(filter.ErrInvalidExpression, "expected bson.M for logical operand, got %T", rightFilter)
 	}
 
 	return bson.M{mongoOp: bson.A{leftM, rightM}}, nil

@@ -37,6 +37,10 @@
 // String: contains(), startsWith(), endsWith(), matches()
 // Size: size()
 //
+// A bare identifier used as a condition becomes a boolean field test — `active` translates to
+// {active: true}, `!active` to {active: {$ne: true}} — at the root of an expression and on either side
+// of $and / $or alike.
+//
 // # Security
 //
 // matches() passes the user-supplied pattern through to MongoDB's $regex.

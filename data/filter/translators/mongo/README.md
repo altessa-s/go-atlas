@@ -7,6 +7,9 @@ import "github.com/altessa-s/go-atlas/data/filter/translators/mongo"
 Package `mongo` translates filter AST nodes into MongoDB `bson.M` query documents. Supports all comparison, logical, membership, and string
 operations.
 
+A bare identifier used as a condition becomes a boolean field test — `active` translates to `{active: true}`, `!active` to
+`{active: {$ne: true}}` — at the root of an expression and on either side of `$and` / `$or` alike.
+
 ## Security
 
 `matches()` passes the user-supplied pattern through to MongoDB's `$regex`. Host-side validation compiles it with Go's RE2 engine (which
