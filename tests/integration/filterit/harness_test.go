@@ -112,6 +112,29 @@ func runRejections(t *testing.T, b backend) {
 	}
 }
 
+// scannableRows is the intersection of the three SQL drivers' result
+// types — clickhouse-go's driver.Rows, database/sql's *sql.Rows and
+// pgx's pgx.Rows. They differ in how they are closed, which is why each
+// adapter still does that itself, but the scan loop is identical.
+type scannableRows interface {
+	Next() bool
+	Scan(dest ...any) error
+	Err() error
+}
+
+// collectIDs drains a result set of single-column id rows.
+func collectIDs(rows scannableRows) ([]int64, error) {
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 // normalize sorts a result set and collapses empty to nil so that a
 // backend returning []int64{} compares equal to one returning nil.
 func normalize(ids []int64) []int64 {

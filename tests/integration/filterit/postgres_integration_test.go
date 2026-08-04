@@ -101,15 +101,10 @@ func (b *postgresBackend) search(tb testing.TB, expr string) ([]int64, error) {
 	}
 	defer rows.Close()
 
-	var ids []int64
-	for rows.Next() {
-		var id int64
-		if err = rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	if err = rows.Err(); err != nil {
+	// pgx defers the server's verdict to rows.Err, so a clause the
+	// server refuses surfaces here rather than from Query above.
+	ids, err := collectIDs(rows)
+	if err != nil {
 		return nil, fmt.Errorf("postgres rejected %q: %w", where, err)
 	}
 	return ids, nil
