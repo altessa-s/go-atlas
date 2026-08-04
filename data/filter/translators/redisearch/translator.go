@@ -78,19 +78,38 @@ func (t *Translator) Translate(node filter.Node) (string, error) {
 		return "*", nil
 	}
 	t.depth = 0
-	result, err := node.Accept(t)
+	s, err := t.acceptPredicate(node)
 	if err != nil {
 		return "", err
-	}
-
-	s, ok := result.(string)
-	if !ok {
-		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected string, got %T", result)
 	}
 	if s == "" {
 		return "*", nil
 	}
 	return s, nil
+}
+
+// acceptPredicate visits a node expected to produce a query fragment.
+//
+// A bare identifier is treated as a boolean TAG test (`@field:{true}`),
+// matching the CEL semantics of using a field directly as a condition.
+// The negated form has always been handled in translateNot; this is its
+// counterpart, so `active` and `!active` are now symmetric. Without it a
+// bare identifier reached the server as a free-text term and silently
+// matched whatever the TEXT fields happened to contain.
+//
+// The TAG form is hardcoded rather than resolved through the schema, for
+// the same reason translateNot hardcodes it: a boolean is only ever
+// indexed as a TAG, and a NUMERIC or TEXT rendering of `true` would not
+// mean anything.
+func (t *Translator) acceptPredicate(node filter.Node) (string, error) {
+	if ident, ok := node.(*filter.IdentNode); ok {
+		field, err := t.getFieldName(ident)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("@%s:{true}", field), nil
+	}
+	return t.getQueryString(node)
 }
 
 // VisitLiteral converts a literal value to its string representation.
@@ -266,11 +285,11 @@ func (t *Translator) buildTextComparison(field string, op filter.Operator, value
 
 // translateLogicalAnd handles the && operator. RediSearch uses space for AND.
 func (t *Translator) translateLogicalAnd(left, right filter.Node) (string, error) {
-	l, err := t.getQueryString(left)
+	l, err := t.acceptPredicate(left)
 	if err != nil {
 		return "", err
 	}
-	r, err := t.getQueryString(right)
+	r, err := t.acceptPredicate(right)
 	if err != nil {
 		return "", err
 	}
@@ -279,11 +298,11 @@ func (t *Translator) translateLogicalAnd(left, right filter.Node) (string, error
 
 // translateLogicalOr handles the || operator. RediSearch uses | for OR.
 func (t *Translator) translateLogicalOr(left, right filter.Node) (string, error) {
-	l, err := t.getQueryString(left)
+	l, err := t.acceptPredicate(left)
 	if err != nil {
 		return "", err
 	}
-	r, err := t.getQueryString(right)
+	r, err := t.acceptPredicate(right)
 	if err != nil {
 		return "", err
 	}
@@ -332,12 +351,40 @@ func (t *Translator) translateIn(left, right filter.Node) (string, error) {
 		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "in operator requires a list, got %T", values)
 	}
 
-	escaped := make([]string, 0, len(valuesSlice))
-	for _, v := range valuesSlice {
-		escaped = append(escaped, t.escapeTagValue(fmt.Sprintf("%v", v)))
-	}
+	return t.buildIn(field, valuesSlice, t.fieldType(field))
+}
 
-	return fmt.Sprintf("@%s:{%s}", field, strings.Join(escaped, "|")), nil
+// buildIn renders a membership test in the syntax the field's schema
+// type calls for.
+//
+// The TAG form is not universal: `@role:{2|3}` against a NUMERIC field
+// matches nothing at all — silently, which is worse than failing — and
+// against a TEXT field it is a syntax error. Each type gets the shape it
+// actually understands: a union of degenerate ranges for NUMERIC, a tag
+// set for TAG, a term union for TEXT.
+func (t *Translator) buildIn(field string, values []any, ft FieldType) (string, error) {
+	rendered := make([]string, 0, len(values))
+
+	switch ft {
+	case FieldTypeNumeric:
+		for _, v := range values {
+			n := t.formatNumericValue(v)
+			rendered = append(rendered, fmt.Sprintf("@%s:[%s %s]", field, n, n))
+		}
+		return "(" + strings.Join(rendered, "|") + ")", nil
+	case FieldTypeTag:
+		for _, v := range values {
+			rendered = append(rendered, t.escapeTagValue(fmt.Sprintf("%v", v)))
+		}
+		return fmt.Sprintf("@%s:{%s}", field, strings.Join(rendered, "|")), nil
+	case FieldTypeText:
+		for _, v := range values {
+			rendered = append(rendered, fmt.Sprintf("%v", v))
+		}
+		return fmt.Sprintf("@%s:(%s)", field, strings.Join(rendered, "|")), nil
+	default:
+		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "unknown field type for %q", field)
+	}
 }
 
 // translateContains handles field.contains("sub") for TEXT fields → @field:*sub*.
