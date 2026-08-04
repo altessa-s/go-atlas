@@ -53,7 +53,7 @@ var tagEscaper = strings.NewReplacer(
 type Translator struct {
 	config *filter.TranslatorContext
 	schema map[string]FieldType
-	depth  int
+	depth  filter.DepthGuard
 }
 
 // NewTranslator creates a new RediSearch translator with the given
@@ -68,7 +68,7 @@ func NewTranslator(schema map[string]FieldType, opts ...filter.TranslatorOption)
 	if err != nil {
 		return nil, err
 	}
-	return &Translator{config: ctx, schema: schema}, nil
+	return &Translator{config: ctx, schema: schema, depth: filter.NewDepthGuard(ctx.MaxDepth())}, nil
 }
 
 // Translate converts a filter AST node to a RediSearch query string.
@@ -77,7 +77,7 @@ func (t *Translator) Translate(node filter.Node) (string, error) {
 	if node == nil {
 		return "*", nil
 	}
-	t.depth = 0
+	t.depth.Reset()
 	s, err := t.acceptPredicate(node)
 	if err != nil {
 		return "", err
@@ -128,11 +128,10 @@ func (t *Translator) VisitIdent(n *filter.IdentNode) (any, error) {
 
 // VisitBinaryOp converts a binary operation to a RediSearch query fragment.
 func (t *Translator) VisitBinaryOp(n *filter.BinaryOpNode) (any, error) {
-	if err := t.checkDepth(); err != nil {
+	if err := t.depth.Enter(); err != nil {
 		return nil, err
 	}
-	t.depth++
-	defer func() { t.depth-- }()
+	defer t.depth.Leave()
 
 	switch n.Op {
 	case filter.OpAnd:
@@ -148,11 +147,10 @@ func (t *Translator) VisitBinaryOp(n *filter.BinaryOpNode) (any, error) {
 
 // VisitUnaryOp converts a unary operation to a RediSearch query fragment.
 func (t *Translator) VisitUnaryOp(n *filter.UnaryOpNode) (any, error) {
-	if err := t.checkDepth(); err != nil {
+	if err := t.depth.Enter(); err != nil {
 		return nil, err
 	}
-	t.depth++
-	defer func() { t.depth-- }()
+	defer t.depth.Leave()
 
 	if n.Op == filter.OpNot {
 		return t.translateNot(n.Operand)
@@ -162,11 +160,10 @@ func (t *Translator) VisitUnaryOp(n *filter.UnaryOpNode) (any, error) {
 
 // VisitCall converts a function call to a RediSearch query fragment.
 func (t *Translator) VisitCall(n *filter.CallNode) (any, error) {
-	if err := t.checkDepth(); err != nil {
+	if err := t.depth.Enter(); err != nil {
 		return nil, err
 	}
-	t.depth++
-	defer func() { t.depth-- }()
+	defer t.depth.Leave()
 
 	switch n.Op {
 	case filter.OpContains:
@@ -513,14 +510,6 @@ func (t *Translator) escapeTagValue(s string) string {
 // Useful for building raw RediSearch queries outside the translator.
 func EscapeTag(s string) string {
 	return tagEscaper.Replace(s)
-}
-
-// checkDepth verifies we haven't exceeded maximum nesting depth.
-func (t *Translator) checkDepth() error {
-	if t.depth >= t.config.MaxDepth() {
-		return coreerrs.Wrapf(filter.ErrMaxDepthExceeded, "depth %d exceeds maximum %d", t.depth, t.config.MaxDepth())
-	}
-	return nil
 }
 
 // Ensure Translator implements filter.Visitor

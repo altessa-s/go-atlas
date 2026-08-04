@@ -18,7 +18,7 @@ import (
 // Translator converts filter AST nodes to MongoDB bson.M filters.
 type Translator struct {
 	config *filter.TranslatorContext
-	depth  int
+	depth  filter.DepthGuard
 }
 
 // NewTranslator creates a new MongoDB translator with the given options.
@@ -31,7 +31,7 @@ func NewTranslator(opts ...filter.TranslatorOption) (*Translator, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Translator{config: ctx}, nil
+	return &Translator{config: ctx, depth: filter.NewDepthGuard(ctx.MaxDepth())}, nil
 }
 
 // Translate converts a filter AST node to a MongoDB bson.M filter.
@@ -45,7 +45,7 @@ func (t *Translator) Translate(node filter.Node) (bson.M, error) {
 		return bson.M{}, nil
 	}
 
-	t.depth = 0
+	t.depth.Reset()
 	return t.acceptPredicate(node)
 }
 
@@ -93,11 +93,10 @@ func (t *Translator) VisitIdent(n *filter.IdentNode) (any, error) {
 
 // VisitBinaryOp converts a binary operation to a MongoDB filter.
 func (t *Translator) VisitBinaryOp(n *filter.BinaryOpNode) (any, error) {
-	if err := t.checkDepth(); err != nil {
+	if err := t.depth.Enter(); err != nil {
 		return nil, err
 	}
-	t.depth++
-	defer func() { t.depth-- }()
+	defer t.depth.Leave()
 
 	switch n.Op {
 	case filter.OpAnd:
@@ -113,11 +112,10 @@ func (t *Translator) VisitBinaryOp(n *filter.BinaryOpNode) (any, error) {
 
 // VisitUnaryOp converts a unary operation to a MongoDB filter.
 func (t *Translator) VisitUnaryOp(n *filter.UnaryOpNode) (any, error) {
-	if err := t.checkDepth(); err != nil {
+	if err := t.depth.Enter(); err != nil {
 		return nil, err
 	}
-	t.depth++
-	defer func() { t.depth-- }()
+	defer t.depth.Leave()
 
 	if n.Op == filter.OpNot {
 		return t.translateNot(n.Operand)
@@ -127,11 +125,10 @@ func (t *Translator) VisitUnaryOp(n *filter.UnaryOpNode) (any, error) {
 
 // VisitCall converts a function call to a MongoDB filter.
 func (t *Translator) VisitCall(n *filter.CallNode) (any, error) {
-	if err := t.checkDepth(); err != nil {
+	if err := t.depth.Enter(); err != nil {
 		return nil, err
 	}
-	t.depth++
-	defer func() { t.depth-- }()
+	defer t.depth.Leave()
 
 	switch n.Op {
 	case filter.OpContains:
@@ -429,14 +426,6 @@ func (t *Translator) getFieldName(node filter.Node) (string, error) {
 		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected field name, got %T", result)
 	}
 	return field, nil
-}
-
-// checkDepth verifies we haven't exceeded maximum nesting depth.
-func (t *Translator) checkDepth() error {
-	if t.depth >= t.config.MaxDepth() {
-		return coreerrs.Wrapf(filter.ErrMaxDepthExceeded, "depth %d exceeds maximum %d", t.depth, t.config.MaxDepth())
-	}
-	return nil
 }
 
 // convertValue converts Go values to MongoDB-compatible values.

@@ -17,7 +17,7 @@ import (
 // Translator converts filter AST nodes to Meilisearch filter expressions.
 type Translator struct {
 	config *filter.TranslatorContext
-	depth  int
+	depth  filter.DepthGuard
 }
 
 // NewTranslator creates a new Meilisearch translator with the given
@@ -30,7 +30,7 @@ func NewTranslator(opts ...filter.TranslatorOption) (*Translator, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Translator{config: ctx}, nil
+	return &Translator{config: ctx, depth: filter.NewDepthGuard(ctx.MaxDepth())}, nil
 }
 
 // Translate converts a filter AST node to a Meilisearch filter expression.
@@ -48,7 +48,7 @@ func (t *Translator) Translate(node filter.Node) (string, error) {
 		return "", nil
 	}
 
-	t.depth = 0
+	t.depth.Reset()
 	return t.acceptString(node)
 }
 
@@ -73,11 +73,10 @@ func (t *Translator) VisitIdent(n *filter.IdentNode) (any, error) {
 
 // VisitBinaryOp converts a binary operation to a Meilisearch filter.
 func (t *Translator) VisitBinaryOp(n *filter.BinaryOpNode) (any, error) {
-	if err := t.checkDepth(); err != nil {
+	if err := t.depth.Enter(); err != nil {
 		return nil, err
 	}
-	t.depth++
-	defer func() { t.depth-- }()
+	defer t.depth.Leave()
 
 	switch n.Op {
 	case filter.OpAnd:
@@ -93,11 +92,10 @@ func (t *Translator) VisitBinaryOp(n *filter.BinaryOpNode) (any, error) {
 
 // VisitUnaryOp converts a unary operation to a Meilisearch filter.
 func (t *Translator) VisitUnaryOp(n *filter.UnaryOpNode) (any, error) {
-	if err := t.checkDepth(); err != nil {
+	if err := t.depth.Enter(); err != nil {
 		return nil, err
 	}
-	t.depth++
-	defer func() { t.depth-- }()
+	defer t.depth.Leave()
 
 	if n.Op == filter.OpNot {
 		return t.translateNot(n.Operand)
@@ -107,11 +105,10 @@ func (t *Translator) VisitUnaryOp(n *filter.UnaryOpNode) (any, error) {
 
 // VisitCall converts a function call to a Meilisearch filter.
 func (t *Translator) VisitCall(n *filter.CallNode) (any, error) {
-	if err := t.checkDepth(); err != nil {
+	if err := t.depth.Enter(); err != nil {
 		return nil, err
 	}
-	t.depth++
-	defer func() { t.depth-- }()
+	defer t.depth.Leave()
 
 	switch n.Op {
 	case filter.OpContains:
@@ -331,14 +328,6 @@ func (t *Translator) acceptString(node filter.Node) (string, error) {
 		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected filter clause, got %T", result)
 	}
 	return s, nil
-}
-
-// checkDepth verifies we haven't exceeded maximum nesting depth.
-func (t *Translator) checkDepth() error {
-	if t.depth >= t.config.MaxDepth() {
-		return coreerrs.Wrapf(filter.ErrMaxDepthExceeded, "depth %d exceeds maximum %d", t.depth, t.config.MaxDepth())
-	}
-	return nil
 }
 
 // formatLiteral renders a Go value as a Meilisearch filter literal.
