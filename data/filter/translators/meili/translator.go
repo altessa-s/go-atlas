@@ -39,7 +39,15 @@ func NewTranslator(opts ...filter.TranslatorOption) (*Translator, error) {
 // an expression becomes a boolean test (`field = true`), the same as one
 // appearing inside && or ||. Visiting the node directly would emit the
 // bare attribute name, which Meilisearch rejects as a missing operator.
+// A nil node translates to the empty filter, which Meilisearch reads as
+// no filtering at all. Returning that rather than dereferencing the nil
+// lets a caller pass an absent filter straight through — the same
+// contract the SQL and RediSearch translators offer.
 func (t *Translator) Translate(node filter.Node) (string, error) {
+	if node == nil {
+		return "", nil
+	}
+
 	t.depth = 0
 	return t.acceptString(node)
 }

@@ -811,3 +811,14 @@ func TestTranslator_BareIdentifierRespectsPolicy(t *testing.T) {
 		require.ErrorIs(t, err, filter.ErrFieldNotAllowed)
 	})
 }
+
+// TestTranslator_NilNodeMatchesAll pins the contract a caller with an
+// optional filter depends on: an absent AST is a filter that selects
+// everything, not a nil dereference.
+func TestTranslator_NilNodeMatchesAll(t *testing.T) {
+	trans := mustTranslator(t)
+
+	got, err := trans.Translate(nil)
+	require.NoError(t, err)
+	require.Equal(t, bson.M{}, got)
+}

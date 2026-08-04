@@ -557,3 +557,14 @@ func TestTranslator_NullComposesUnderNegation(t *testing.T) {
 		`(NOT ((deletedAt IS NULL OR deletedAt NOT EXISTS))) AND (status = "x")`,
 		got)
 }
+
+// TestTranslator_NilNodeMatchesAll pins the contract a caller with an
+// optional filter depends on: an absent AST is the empty filter, which
+// Meilisearch reads as no filtering, not a nil dereference.
+func TestTranslator_NilNodeMatchesAll(t *testing.T) {
+	trans := mustTranslator(t)
+
+	got, err := trans.Translate(nil)
+	require.NoError(t, err)
+	require.Empty(t, got)
+}
