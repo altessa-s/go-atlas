@@ -37,7 +37,7 @@ type Translator struct {
 	config  *filter.TranslatorContext
 	dialect Dialect
 	args    []any
-	depth   int
+	depth   filter.DepthGuard
 	inline  bool
 }
 
@@ -51,7 +51,7 @@ func New(dialect Dialect, opts ...filter.TranslatorOption) (*Translator, error) 
 	if err != nil {
 		return nil, err
 	}
-	return &Translator{config: ctx, dialect: dialect}, nil
+	return &Translator{config: ctx, dialect: dialect, depth: filter.NewDepthGuard(ctx.MaxDepth())}, nil
 }
 
 // Translate converts a filter AST node to a parameterized WHERE clause.
@@ -88,7 +88,7 @@ func (t *Translator) TranslateInline(node filter.Node) (string, error) {
 
 // run resets the per-call state and walks the AST in the requested mode.
 func (t *Translator) run(node filter.Node, inline bool) (string, error) {
-	t.depth = 0
+	t.depth.Reset()
 	t.inline = inline
 	t.args = nil
 
@@ -121,11 +121,10 @@ func (t *Translator) VisitIdent(n *filter.IdentNode) (any, error) {
 
 // VisitBinaryOp converts a binary operation to a SQL clause.
 func (t *Translator) VisitBinaryOp(n *filter.BinaryOpNode) (any, error) {
-	if err := t.checkDepth(); err != nil {
+	if err := t.depth.Enter(); err != nil {
 		return nil, err
 	}
-	t.depth++
-	defer func() { t.depth-- }()
+	defer t.depth.Leave()
 
 	switch n.Op {
 	case filter.OpAnd:
@@ -141,11 +140,10 @@ func (t *Translator) VisitBinaryOp(n *filter.BinaryOpNode) (any, error) {
 
 // VisitUnaryOp converts a unary operation to a SQL clause.
 func (t *Translator) VisitUnaryOp(n *filter.UnaryOpNode) (any, error) {
-	if err := t.checkDepth(); err != nil {
+	if err := t.depth.Enter(); err != nil {
 		return nil, err
 	}
-	t.depth++
-	defer func() { t.depth-- }()
+	defer t.depth.Leave()
 
 	if n.Op == filter.OpNot {
 		inner, err := t.acceptPredicate(n.Operand)
@@ -159,11 +157,10 @@ func (t *Translator) VisitUnaryOp(n *filter.UnaryOpNode) (any, error) {
 
 // VisitCall converts a function call to a SQL clause.
 func (t *Translator) VisitCall(n *filter.CallNode) (any, error) {
-	if err := t.checkDepth(); err != nil {
+	if err := t.depth.Enter(); err != nil {
 		return nil, err
 	}
-	t.depth++
-	defer func() { t.depth-- }()
+	defer t.depth.Leave()
 
 	switch n.Op {
 	case filter.OpContains, filter.OpStartsWith, filter.OpEndsWith, filter.OpMatches:
@@ -459,14 +456,6 @@ func (t *Translator) validateRegex(pattern string) error {
 		maxLen = filter.DefaultMaxRegexLength
 	}
 	return filter.ValidateRegex(pattern, maxLen)
-}
-
-// checkDepth verifies we haven't exceeded maximum nesting depth.
-func (t *Translator) checkDepth() error {
-	if t.depth >= t.config.MaxDepth() {
-		return coreerrs.Wrapf(filter.ErrMaxDepthExceeded, "depth %d exceeds maximum %d", t.depth, t.config.MaxDepth())
-	}
-	return nil
 }
 
 // comparisonOperator maps a filter operator to its SQL spelling. All six
