@@ -108,15 +108,7 @@ func (b *mariadbBackend) search(tb testing.TB, expr string) ([]int64, error) {
 	}
 	defer func() { _ = rows.Close() }()
 
-	var ids []int64
-	for rows.Next() {
-		var id int64
-		if err = rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	return ids, rows.Err()
+	return collectIDs(rows)
 }
 
 func (b *mariadbBackend) translate(tb testing.TB, expr string, opts ...filter.TranslatorOption) error {
