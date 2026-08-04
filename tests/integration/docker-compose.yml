@@ -1,0 +1,97 @@
+# Backends for the data/filter integration suite.
+#
+# Ports are deliberately non-default so the suite never collides with a
+# database already running on the developer's machine. The env defaults
+# baked into the tests point here, so `make test-integration` needs no
+# further configuration.
+#
+#   docker compose -f tests/integration/docker-compose.yml up -d
+#   make test-integration
+#   docker compose -f tests/integration/docker-compose.yml down -v
+
+name: go-atlas-filter-it
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    ports:
+      - "19001:9000"
+    environment:
+      # The stock image restricts `default` to loopback *inside* the
+      # container, so a host connection is refused with a misleading
+      # "password is incorrect". A dedicated user avoids that entirely.
+      CLICKHOUSE_USER: atlas
+      CLICKHOUSE_PASSWORD: atlas
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--user", "atlas", "--password", "atlas", "--query", "SELECT 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  mariadb:
+    image: mariadb:11
+    ports:
+      - "13306:3306"
+    environment:
+      MARIADB_ROOT_PASSWORD: atlas
+      MARIADB_DATABASE: atlas
+      MARIADB_USER: atlas
+      MARIADB_PASSWORD: atlas
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  postgres:
+    image: postgres:16
+    ports:
+      - "15432:5432"
+    environment:
+      POSTGRES_USER: atlas
+      POSTGRES_PASSWORD: atlas
+      POSTGRES_DB: atlas
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U atlas -d atlas"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "27019:27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.11
+    ports:
+      - "17700:7700"
+    environment:
+      MEILI_MASTER_KEY: atlas-master-key
+      MEILI_NO_ANALYTICS: "true"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:7700/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # RediSearch lives in Redis Stack, not in the plain redis image.
+  redis:
+    image: redis/redis-stack-server:7.4.0-v1
+    ports:
+      - "16379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 30

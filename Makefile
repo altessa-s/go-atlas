@@ -128,6 +128,18 @@ test-all: ## Run tests with race detector, shuffle, and coverage
 	@go tool cover -func=coverage.out | tail -1
 	@rm -f coverage.out
 
+.PHONY: test-integration
+test-integration: ## Run the integration suite against live backends (see tests/integration/README.md)
+	@go test -C tests/integration -race -count=1 ./...
+
+.PHONY: integration-up
+integration-up: ## Start the backends the integration suite runs against
+	@docker compose -f tests/integration/docker-compose.yml up -d --wait
+
+.PHONY: integration-down
+integration-down: ## Stop the integration backends and drop their volumes
+	@docker compose -f tests/integration/docker-compose.yml down -v
+
 .PHONY: dupl
 dupl: ## Run dupl (ignoring generated files)
 	@cd devtools && go install github.com/mibk/dupl
