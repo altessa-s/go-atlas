@@ -97,7 +97,9 @@ Package: `data/filter`
 |---------------------------------|-----------|------------------|---------------------------------------|
 | `filter_parse_duration_seconds` | Histogram | --               | CEL expression parse duration         |
 | `filter_parse_errors_total`     | Counter   | --               | CEL expression parse failures         |
-| `filter_translations_total`     | Counter   | `target_backend` | Filter translations performed         |
+
+Only the parser is instrumented. The translators live in independent subpackages that are deliberately not given the collector, so there is no
+per-backend translation counter.
 
 ---
 
