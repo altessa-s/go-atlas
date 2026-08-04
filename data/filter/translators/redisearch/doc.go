@@ -39,8 +39,17 @@
 //
 // Comparison: ==, !=, <, >, <=, >= (NUMERIC fields use range syntax, TAG fields use tag syntax)
 // Logical: &&, ||, !
-// Membership: in (TAG fields only)
+// Membership: in (rendered per field type — see below)
 // String: contains(), startsWith() (TEXT fields only)
+//
+// The schema is not advisory. A field's type decides the shape of every query built against it, and
+// `in` follows it too: a union of exact ranges for NUMERIC, a tag set for TAG, a term union for TEXT.
+// A tag set against a NUMERIC field would match nothing at all — silently, which is worse than failing.
+//
+// A bare identifier used as a condition becomes a boolean TAG test — `active` translates to
+// @active:{true}, `!active` to -@active:{true} — at the root of an expression and on either side of a
+// logical operator. The TAG form is fixed rather than resolved through the schema: a boolean is only
+// ever indexed as a TAG.
 //
 // # Unsupported Operations
 //
