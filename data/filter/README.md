@@ -30,6 +30,27 @@ via the visitor pattern. Includes security features: field allowlists, depth lim
 | `CallNode`       | Function/method calls                                   |
 | `ListNode`       | List literals                                           |
 | `Visitor`        | Interface for traversing and translating AST            |
+| `VisitElements`  | Accepts every element of a `ListNode` — the whole of what `VisitList` has to do |
+| `DepthGuard`     | Bounds a visitor's recursion; `Enter` / `Leave` / `Reset` |
+
+`VisitElements` and `DepthGuard` exist because every translator in this repository needed them verbatim. A filter arrives from outside the
+process, so its nesting is an input like any other: unbounded, a few kilobytes of parentheses become a stack overflow. Take the limit from
+`TranslatorContext.MaxDepth`, hold the guard as a field, and pair each `Enter` with a deferred `Leave`:
+
+```go
+type Translator struct {
+    config *filter.TranslatorContext
+    depth  filter.DepthGuard
+}
+
+func (t *Translator) VisitBinaryOp(n *filter.BinaryOpNode) (any, error) {
+    if err := t.depth.Enter(); err != nil {
+        return nil, err
+    }
+    defer t.depth.Leave()
+    // ... dispatch on n.Op
+}
+```
 
 ## Parser options
 
