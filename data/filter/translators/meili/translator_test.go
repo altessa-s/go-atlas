@@ -277,14 +277,21 @@ func TestTranslator_Timestamp(t *testing.T) {
 	}
 }
 
+// TestTranslator_NullValue pins both halves of the null question.
+//
+// Meilisearch splits what CEL's null conflates: an attribute can be
+// absent from a document, or present and null. IS NULL alone answers
+// only the second, so a filter built from it would miss every document
+// that omits the attribute — and its negation would match all of them,
+// which is exactly how a soft-delete filter leaks deleted documents.
 func TestTranslator_NullValue(t *testing.T) {
 	tests := []struct {
 		name string
 		expr string
 		want string
 	}{
-		{"is null", `deleted_at == null`, `deleted_at IS NULL`},
-		{"is not null", `deleted_at != null`, `deleted_at IS NOT NULL`},
+		{"is null", `deleted_at == null`, `(deleted_at IS NULL OR deleted_at NOT EXISTS)`},
+		{"is not null", `deleted_at != null`, `(deleted_at EXISTS AND deleted_at IS NOT NULL)`},
 	}
 
 	trans := mustTranslator(t)
@@ -485,4 +492,79 @@ func TestQuoteString(t *testing.T) {
 			require.Equal(t, tt.want, quoteString(tt.in))
 		})
 	}
+}
+
+// TestTranslator_BareIdentifierAtRoot pins the boolean-test rendering of
+// a bare identifier used as a whole expression. acceptString has always
+// handled it inside && and ||; at the root Translate visited the node
+// directly and emitted the bare attribute name, which Meilisearch
+// rejects as a missing operator.
+func TestTranslator_BareIdentifierAtRoot(t *testing.T) {
+	tests := []struct {
+		name string
+		expr string
+		want string
+	}{
+		{"at the root", `active`, `active = true`},
+		{"negated at the root", `!active`, `NOT (active = true)`},
+		{"as a conjunct", `active && verified`, `(active = true) AND (verified = true)`},
+	}
+
+	trans := mustTranslator(t)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			node := testhelpers.MustParseFilter(t, tt.expr)
+			got, err := trans.Translate(node)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestTranslator_BareIdentifierRespectsPolicy guards that the root path
+// goes through the allow-list and field mapping like every other field
+// reference.
+func TestTranslator_BareIdentifierRespectsPolicy(t *testing.T) {
+	t.Run("mapping applies", func(t *testing.T) {
+		trans := mustTranslator(t, filter.WithFieldMapping(map[string]string{"isActive": "is_active"}))
+		node := testhelpers.MustParseFilter(t, `isActive`)
+
+		got, err := trans.Translate(node)
+		require.NoError(t, err)
+		require.Equal(t, `is_active = true`, got)
+	})
+
+	t.Run("allow-list applies", func(t *testing.T) {
+		trans := mustTranslator(t, filter.WithAllowedFields("name"))
+		node := testhelpers.MustParseFilter(t, `active`)
+
+		_, err := trans.Translate(node)
+		require.ErrorIs(t, err, filter.ErrFieldNotAllowed)
+	})
+}
+
+// TestTranslator_NullComposesUnderNegation checks that the parenthesized
+// null forms survive being wrapped, which is what makes them safe to
+// compose rather than a string that only works standalone.
+func TestTranslator_NullComposesUnderNegation(t *testing.T) {
+	trans := mustTranslator(t)
+	node := testhelpers.MustParseFilter(t, `!(deletedAt == null) && status == "x"`)
+
+	got, err := trans.Translate(node)
+	require.NoError(t, err)
+	require.Equal(t,
+		`(NOT ((deletedAt IS NULL OR deletedAt NOT EXISTS))) AND (status = "x")`,
+		got)
+}
+
+// TestTranslator_NilNodeMatchesAll pins the contract a caller with an
+// optional filter depends on: an absent AST is the empty filter, which
+// Meilisearch reads as no filtering, not a nil dereference.
+func TestTranslator_NilNodeMatchesAll(t *testing.T) {
+	trans := mustTranslator(t)
+
+	got, err := trans.Translate(nil)
+	require.NoError(t, err)
+	require.Empty(t, got)
 }

@@ -18,7 +18,7 @@ import (
 // Translator converts filter AST nodes to MongoDB bson.M filters.
 type Translator struct {
 	config *filter.TranslatorContext
-	depth  int
+	depth  filter.DepthGuard
 }
 
 // NewTranslator creates a new MongoDB translator with the given options.
@@ -31,12 +31,40 @@ func NewTranslator(opts ...filter.TranslatorOption) (*Translator, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Translator{config: ctx}, nil
+	return &Translator{config: ctx, depth: filter.NewDepthGuard(ctx.MaxDepth())}, nil
 }
 
 // Translate converts a filter AST node to a MongoDB bson.M filter.
+//
+// A nil node translates to an empty filter document, which MongoDB reads
+// as match-all. Returning that rather than dereferencing the nil lets a
+// caller pass an absent filter straight through — the same contract the
+// SQL and RediSearch translators offer.
 func (t *Translator) Translate(node filter.Node) (bson.M, error) {
-	t.depth = 0
+	if node == nil {
+		return bson.M{}, nil
+	}
+
+	t.depth.Reset()
+	return t.acceptPredicate(node)
+}
+
+// acceptPredicate visits a node expected to produce a filter document.
+//
+// A bare identifier is treated as a boolean field test ({field: true}),
+// matching the CEL semantics of using a field directly as a condition.
+// The negated form has always been handled in translateNot; this is its
+// counterpart, so `active` and `!active` are now symmetric wherever a
+// predicate is expected — at the root and on either side of && / ||.
+func (t *Translator) acceptPredicate(node filter.Node) (bson.M, error) {
+	if ident, ok := node.(*filter.IdentNode); ok {
+		field, err := t.getFieldName(ident)
+		if err != nil {
+			return nil, err
+		}
+		return bson.M{field: true}, nil
+	}
+
 	result, err := node.Accept(t)
 	if err != nil {
 		return nil, err
@@ -65,11 +93,10 @@ func (t *Translator) VisitIdent(n *filter.IdentNode) (any, error) {
 
 // VisitBinaryOp converts a binary operation to a MongoDB filter.
 func (t *Translator) VisitBinaryOp(n *filter.BinaryOpNode) (any, error) {
-	if err := t.checkDepth(); err != nil {
+	if err := t.depth.Enter(); err != nil {
 		return nil, err
 	}
-	t.depth++
-	defer func() { t.depth-- }()
+	defer t.depth.Leave()
 
 	switch n.Op {
 	case filter.OpAnd:
@@ -85,11 +112,10 @@ func (t *Translator) VisitBinaryOp(n *filter.BinaryOpNode) (any, error) {
 
 // VisitUnaryOp converts a unary operation to a MongoDB filter.
 func (t *Translator) VisitUnaryOp(n *filter.UnaryOpNode) (any, error) {
-	if err := t.checkDepth(); err != nil {
+	if err := t.depth.Enter(); err != nil {
 		return nil, err
 	}
-	t.depth++
-	defer func() { t.depth-- }()
+	defer t.depth.Leave()
 
 	if n.Op == filter.OpNot {
 		return t.translateNot(n.Operand)
@@ -99,11 +125,10 @@ func (t *Translator) VisitUnaryOp(n *filter.UnaryOpNode) (any, error) {
 
 // VisitCall converts a function call to a MongoDB filter.
 func (t *Translator) VisitCall(n *filter.CallNode) (any, error) {
-	if err := t.checkDepth(); err != nil {
+	if err := t.depth.Enter(); err != nil {
 		return nil, err
 	}
-	t.depth++
-	defer func() { t.depth-- }()
+	defer t.depth.Leave()
 
 	switch n.Op {
 	case filter.OpContains:
@@ -125,15 +150,7 @@ func (t *Translator) VisitCall(n *filter.CallNode) (any, error) {
 
 // VisitList converts a list to a slice of values.
 func (t *Translator) VisitList(n *filter.ListNode) (any, error) {
-	result := make([]any, 0, len(n.Elements))
-	for _, elem := range n.Elements {
-		val, err := elem.Accept(t)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, val)
-	}
-	return result, nil
+	return filter.VisitElements(t, n)
 }
 
 // regexTransform transforms a string argument into a regex pattern.
@@ -267,22 +284,14 @@ func (t *Translator) buildSizeExprFilter(field string, op filter.Operator, value
 
 // translateLogical handles && and || operators.
 func (t *Translator) translateLogical(mongoOp string, left, right filter.Node) (bson.M, error) {
-	leftFilter, err := left.Accept(t)
+	leftM, err := t.acceptPredicate(left)
 	if err != nil {
 		return nil, err
-	}
-	leftM, ok := leftFilter.(bson.M)
-	if !ok {
-		return nil, coreerrs.Wrapf(filter.ErrInvalidExpression, "expected bson.M for logical operand, got %T", leftFilter)
 	}
 
-	rightFilter, err := right.Accept(t)
+	rightM, err := t.acceptPredicate(right)
 	if err != nil {
 		return nil, err
-	}
-	rightM, ok := rightFilter.(bson.M)
-	if !ok {
-		return nil, coreerrs.Wrapf(filter.ErrInvalidExpression, "expected bson.M for logical operand, got %T", rightFilter)
 	}
 
 	return bson.M{mongoOp: bson.A{leftM, rightM}}, nil
@@ -417,14 +426,6 @@ func (t *Translator) getFieldName(node filter.Node) (string, error) {
 		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected field name, got %T", result)
 	}
 	return field, nil
-}
-
-// checkDepth verifies we haven't exceeded maximum nesting depth.
-func (t *Translator) checkDepth() error {
-	if t.depth >= t.config.MaxDepth() {
-		return coreerrs.Wrapf(filter.ErrMaxDepthExceeded, "depth %d exceeds maximum %d", t.depth, t.config.MaxDepth())
-	}
-	return nil
 }
 
 // convertValue converts Go values to MongoDB-compatible values.

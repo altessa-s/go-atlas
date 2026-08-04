@@ -17,7 +17,7 @@ import (
 // Translator converts filter AST nodes to Meilisearch filter expressions.
 type Translator struct {
 	config *filter.TranslatorContext
-	depth  int
+	depth  filter.DepthGuard
 }
 
 // NewTranslator creates a new Meilisearch translator with the given
@@ -30,22 +30,26 @@ func NewTranslator(opts ...filter.TranslatorOption) (*Translator, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Translator{config: ctx}, nil
+	return &Translator{config: ctx, depth: filter.NewDepthGuard(ctx.MaxDepth())}, nil
 }
 
 // Translate converts a filter AST node to a Meilisearch filter expression.
+//
+// It goes through acceptString so that a bare identifier at the root of
+// an expression becomes a boolean test (`field = true`), the same as one
+// appearing inside && or ||. Visiting the node directly would emit the
+// bare attribute name, which Meilisearch rejects as a missing operator.
+// A nil node translates to the empty filter, which Meilisearch reads as
+// no filtering at all. Returning that rather than dereferencing the nil
+// lets a caller pass an absent filter straight through — the same
+// contract the SQL and RediSearch translators offer.
 func (t *Translator) Translate(node filter.Node) (string, error) {
-	t.depth = 0
-	result, err := node.Accept(t)
-	if err != nil {
-		return "", err
+	if node == nil {
+		return "", nil
 	}
 
-	s, ok := result.(string)
-	if !ok {
-		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected filter expression, got %T", result)
-	}
-	return s, nil
+	t.depth.Reset()
+	return t.acceptString(node)
 }
 
 // VisitLiteral converts a literal value to its Meilisearch representation.
@@ -69,11 +73,10 @@ func (t *Translator) VisitIdent(n *filter.IdentNode) (any, error) {
 
 // VisitBinaryOp converts a binary operation to a Meilisearch filter.
 func (t *Translator) VisitBinaryOp(n *filter.BinaryOpNode) (any, error) {
-	if err := t.checkDepth(); err != nil {
+	if err := t.depth.Enter(); err != nil {
 		return nil, err
 	}
-	t.depth++
-	defer func() { t.depth-- }()
+	defer t.depth.Leave()
 
 	switch n.Op {
 	case filter.OpAnd:
@@ -89,11 +92,10 @@ func (t *Translator) VisitBinaryOp(n *filter.BinaryOpNode) (any, error) {
 
 // VisitUnaryOp converts a unary operation to a Meilisearch filter.
 func (t *Translator) VisitUnaryOp(n *filter.UnaryOpNode) (any, error) {
-	if err := t.checkDepth(); err != nil {
+	if err := t.depth.Enter(); err != nil {
 		return nil, err
 	}
-	t.depth++
-	defer func() { t.depth-- }()
+	defer t.depth.Leave()
 
 	if n.Op == filter.OpNot {
 		return t.translateNot(n.Operand)
@@ -103,11 +105,10 @@ func (t *Translator) VisitUnaryOp(n *filter.UnaryOpNode) (any, error) {
 
 // VisitCall converts a function call to a Meilisearch filter.
 func (t *Translator) VisitCall(n *filter.CallNode) (any, error) {
-	if err := t.checkDepth(); err != nil {
+	if err := t.depth.Enter(); err != nil {
 		return nil, err
 	}
-	t.depth++
-	defer func() { t.depth-- }()
+	defer t.depth.Leave()
 
 	switch n.Op {
 	case filter.OpContains:
@@ -123,15 +124,7 @@ func (t *Translator) VisitCall(n *filter.CallNode) (any, error) {
 
 // VisitList converts a list to a slice of values.
 func (t *Translator) VisitList(n *filter.ListNode) (any, error) {
-	result := make([]any, 0, len(n.Elements))
-	for _, elem := range n.Elements {
-		val, err := elem.Accept(t)
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, val)
-	}
-	return result, nil
+	return filter.VisitElements(t, n)
 }
 
 // translateComparison handles comparison operators.
@@ -160,11 +153,19 @@ func (t *Translator) translateComparison(op filter.Operator, left, right filter.
 // buildComparisonFilter creates a Meilisearch comparison filter.
 func (t *Translator) buildComparisonFilter(field string, op filter.Operator, value any) (string, error) {
 	if value == nil {
+		// CEL's null is one question — "this field has no value" — and
+		// Meilisearch splits it into two: the attribute may be absent
+		// from the document, or present and null. IS NULL alone answers
+		// only the second, so `deletedAt == null` would miss every
+		// document that simply omits the attribute, and `!= null` would
+		// match all of them. The second is the dangerous half: it is the
+		// shape of a soft-delete filter, and it would return the deleted
+		// documents too. Both halves are covered explicitly.
 		switch op {
 		case filter.OpEqual:
-			return field + " IS NULL", nil
+			return "(" + field + " IS NULL OR " + field + " NOT EXISTS)", nil
 		case filter.OpNotEqual:
-			return field + " IS NOT NULL", nil
+			return "(" + field + " EXISTS AND " + field + " IS NOT NULL)", nil
 		default:
 			return "", coreerrs.Wrapf(filter.ErrUnsupportedOperation, "comparison %v with null", op)
 		}
@@ -327,14 +328,6 @@ func (t *Translator) acceptString(node filter.Node) (string, error) {
 		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected filter clause, got %T", result)
 	}
 	return s, nil
-}
-
-// checkDepth verifies we haven't exceeded maximum nesting depth.
-func (t *Translator) checkDepth() error {
-	if t.depth >= t.config.MaxDepth() {
-		return coreerrs.Wrapf(filter.ErrMaxDepthExceeded, "depth %d exceeds maximum %d", t.depth, t.config.MaxDepth())
-	}
-	return nil
 }
 
 // formatLiteral renders a Go value as a Meilisearch filter literal.

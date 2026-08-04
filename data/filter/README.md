@@ -30,6 +30,27 @@ via the visitor pattern. Includes security features: field allowlists, depth lim
 | `CallNode`       | Function/method calls                                   |
 | `ListNode`       | List literals                                           |
 | `Visitor`        | Interface for traversing and translating AST            |
+| `VisitElements`  | Accepts every element of a `ListNode` — the whole of what `VisitList` has to do |
+| `DepthGuard`     | Bounds a visitor's recursion; `Enter` / `Leave` / `Reset` |
+
+`VisitElements` and `DepthGuard` exist because every translator in this repository needed them verbatim. A filter arrives from outside the
+process, so its nesting is an input like any other: unbounded, a few kilobytes of parentheses become a stack overflow. Take the limit from
+`TranslatorContext.MaxDepth`, hold the guard as a field, and pair each `Enter` with a deferred `Leave`:
+
+```go
+type Translator struct {
+    config *filter.TranslatorContext
+    depth  filter.DepthGuard
+}
+
+func (t *Translator) VisitBinaryOp(n *filter.BinaryOpNode) (any, error) {
+    if err := t.depth.Enter(); err != nil {
+        return nil, err
+    }
+    defer t.depth.Leave()
+    // ... dispatch on n.Op
+}
+```
 
 ## Parser options
 
@@ -60,7 +81,9 @@ These options also apply to `NewEvaluator`. `WithMaxRegexLength` and
 `WithMaxOperations` are the evaluator's primary DoS guards.
 
 Every translator constructor (`mongo.NewTranslator`,
-`meili.NewTranslator`, `redisearch.NewTranslator`, `lua.NewTranslator`)
+`clickhouse.NewTranslator`, `mariadb.NewTranslator`,
+`postgres.NewTranslator`, `meili.NewTranslator`,
+`redisearch.NewTranslator`, `lua.NewTranslator`)
 and `NewEvaluator` return `(*T, error)`. The error is
 `ErrAllowlistRequired` when `WithUntrustedInput` is set without a
 non-empty `WithAllowedFields`; misconfiguration therefore surfaces at
@@ -204,6 +227,29 @@ test isolation.
 | Package                                            | Output                       | Constructor                                                                              |
 |----------------------------------------------------|------------------------------|------------------------------------------------------------------------------------------|
 | [translators/mongo](./translators/mongo)           | `bson.M`                     | `NewTranslator(opts ...filter.TranslatorOption) (*Translator, error)`                    |
+| [translators/clickhouse](./translators/clickhouse) | ClickHouse SQL `WHERE` clause | `NewTranslator(opts ...filter.TranslatorOption) (*Translator, error)`                   |
+| [translators/mariadb](./translators/mariadb)       | MariaDB / MySQL `WHERE` clause | `NewTranslator(opts ...filter.TranslatorOption) (*Translator, error)`                  |
+| [translators/postgres](./translators/postgres)     | PostgreSQL `WHERE` clause    | `NewTranslator(opts ...filter.TranslatorOption) (*Translator, error)`                    |
 | [translators/meili](./translators/meili)           | Meilisearch filter string    | `NewTranslator(opts ...filter.TranslatorOption) (*Translator, error)`                    |
 | [translators/redisearch](./translators/redisearch) | RediSearch query string      | `NewTranslator(schema map[string]FieldType, opts ...filter.TranslatorOption) (*Translator, error)` |
 | [translators/lua](./translators/lua)               | Lua boolean expression       | `NewTranslator(tableVar string, opts ...filter.TranslatorOption) (*Translator, error)`   |
+
+### SQL translators
+
+`clickhouse`, `mariadb` and `postgres` share one AST walk and differ only in a `Dialect` — see
+[`translators/internal/sqlbase`](./translators/internal/sqlbase). Their `Translate` returns three values,
+`(where string, args []any, err error)`: literals leave the SQL text entirely and come back as bind arguments aligned with their placeholders,
+so a clause built from request data cannot alter the shape of the query. PostgreSQL numbers its placeholders (`$1`, `$2`, …); the other two use
+positional `?`.
+
+```go
+where, args, err := trans.Translate(ast)
+rows, err := conn.Query(ctx, "SELECT * FROM events WHERE "+where, args...)
+```
+
+`TranslateInline` renders the same clause with literals in place, for the cases a placeholder cannot serve — view definitions, generated DDL,
+logs. A `nil` AST translates to `1 = 1` in both modes, so the concatenation above needs no special case.
+
+Dialect differences worth knowing before choosing a filter surface: MariaDB's default collations make every string predicate
+case-insensitive, PostgreSQL requires a real `boolean` column for a bare-identifier condition, and only ClickHouse reads a dotted CEL name as a
+single (Nested) column rather than a qualified `"table"."column"`. Each package README covers its own.

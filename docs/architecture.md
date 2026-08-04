@@ -66,6 +66,8 @@ go-atlas/
 ├── service/               # Service-level components
 │   ├── id/                # ID generation (UUID, ULID)
 │   └── scheduler/         # Task scheduler (cron, priority, storage)
+├── tests/                 # Separate module: integration suite against live backends
+│   └── integration/       # docker-compose stack + shared cross-backend corpus
 ├── tools/                 # Code generation and dev tools
 │   └── codegen/           # Code generators (optgen, goconfig)
 └── transport/             # Communication layer
