@@ -38,6 +38,18 @@
 // Membership: in, has()
 // String: contains(), startsWith()
 //
+// A bare identifier used as a condition becomes a boolean test — `active` translates to `active = true`
+// — at the root of an expression and on either side of AND / OR alike.
+//
+// # Null
+//
+// Meilisearch splits a question CEL's null treats as one: EXISTS asks whether the attribute is present,
+// IS NULL asks whether it is present AND null. A filter built from IS NULL alone would miss every
+// document that omits the attribute, and its negation would match all of them — which is how a
+// soft-delete filter comes to return the deleted documents. Both halves are covered explicitly:
+// `field == null` becomes (field IS NULL OR field NOT EXISTS), `field != null` becomes
+// (field EXISTS AND field IS NOT NULL).
+//
 // # Timestamps
 //
 // timestamp(...) literals are emitted as Unix seconds — Meilisearch filters
