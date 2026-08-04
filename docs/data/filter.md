@@ -5,9 +5,9 @@ import "github.com/altessa-s/go-atlas/data/filter"
 ```
 
 A CEL-based filter engine: parse a Common Expression Language string into an intermediate AST, then either evaluate it in-memory against a
-`map[string]any` or translate it to a database query (`bson.M` for MongoDB, RediSearch syntax, Lua boolean for Redis `EVAL`, or a Meilisearch filter
-expression). One CEL expression — multiple back ends. Custom CEL functions let you expose semantic shortcuts (`createdAfter("2024-01-01")`) without
-leaking storage field names into the API.
+`map[string]any` or translate it to a database query — `bson.M` for MongoDB, a `WHERE` clause for ClickHouse, MariaDB or PostgreSQL, RediSearch
+syntax, a Lua boolean for Redis `EVAL`, or a Meilisearch filter expression. One CEL expression — multiple back ends. Custom CEL functions let you
+expose semantic shortcuts (`createdAfter("2024-01-01")`) without leaking storage field names into the API.
 
 ---
 
@@ -16,6 +16,7 @@ leaking storage field names into the API.
 | Scenario | Use |
 |---|---|
 | Accept a user-defined query string and run it against MongoDB | `Parser` + `translators/mongo.NewTranslator` |
+| The same against ClickHouse, MariaDB/MySQL or PostgreSQL | `translators/clickhouse`, `translators/mariadb`, `translators/postgres` |
 | In-memory predicate over decoded data (config gating, in-process search) | `Parser` + `Evaluator` |
 | Server-side filter on plain Redis keys via `EVAL` | `translators/lua` |
 | Server-side filter on a RediSearch index | `translators/redisearch` |
@@ -37,9 +38,26 @@ if err != nil { return err }
 ast, err := parser.Parse(ctx, `name == "John" && age >= 18`)
 if err != nil { return err }
 
-trans := mongo.NewTranslator()
+trans, err := mongo.NewTranslator()
+if err != nil { return err }
+
 bsonFilter, err := trans.Translate(ast)
 // → {"$and":[{"name":"John"},{"age":{"$gte":18}}]}
+```
+
+### Parser → SQL
+
+The SQL translators return the clause and its bind arguments separately, so no literal from the filter ever enters the query text:
+
+```go
+trans, err := postgres.NewTranslator()
+if err != nil { return err }
+
+where, args, err := trans.Translate(ast)
+// where → ("name" = $1) AND ("age" >= $2)
+// args  → []any{"John", int64(18)}
+
+rows, err := conn.Query(ctx, `SELECT * FROM users WHERE `+where, args...)
 ```
 
 ### Parser → in-memory evaluator
@@ -48,7 +66,9 @@ bsonFilter, err := trans.Translate(ast)
 parser, _ := filter.NewParser()
 ast, _ := parser.Parse(ctx, `status == "active" && size(tags) > 0`)
 
-eval := filter.NewEvaluator()
+eval, err := filter.NewEvaluator()
+if err != nil { return err }
+
 ok, err := eval.Evaluate(ast, map[string]any{
     "status": "active",
     "tags":   []any{"vip"},
@@ -59,11 +79,12 @@ ok, err := eval.Evaluate(ast, map[string]any{
 ### Untrusted input (HTTP query parameter)
 
 ```go
-trans := mongo.NewTranslator(
+trans, err := mongo.NewTranslator(
     filter.WithUntrustedInput(),
     filter.WithAllowedFields("name", "status", "createdAt"),
     filter.WithMaxDepth(10),
 )
+if err != nil { return err }
 ```
 
 `WithUntrustedInput` makes the allowlist mandatory — without `WithAllowedFields` the translator refuses to run, instead of letting a hostile
@@ -237,16 +258,42 @@ global registry must use `ResetGlobalCustomFunctions()` (e.g. via `t.Cleanup`) a
 | Package | Output | Use when |
 |---|---|---|
 | `translators/mongo` | `bson.M` | MongoDB collection scan or aggregation `$match` |
+| `translators/clickhouse` | SQL `WHERE` clause + args | ClickHouse |
+| `translators/mariadb` | SQL `WHERE` clause + args | MariaDB or MySQL |
+| `translators/postgres` | SQL `WHERE` clause + args | PostgreSQL |
 | `translators/redisearch` | RediSearch query string | Server-side filter on a Redis hash with the RediSearch module |
 | `translators/lua` | Lua boolean expression | Filter plain Redis keys via `EVAL` |
 | `translators/meili` | Meilisearch filter string | Server-side filter on a Meilisearch index |
 
-All translators implement `filter.Visitor` and accept the same `TranslatorOption` set (allowlist, field mapping, depth limit, untrusted-input
-guard, strict mode).
+All translators implement `filter.Visitor` and accept the same `TranslatorOption` set (allowlist, field mapping, field types, enum values, depth
+limit, untrusted-input guard). Every constructor returns `(*Translator, error)` — the error is `ErrAllowlistRequired` when `WithUntrustedInput`
+was set without an allowlist, so the misconfiguration surfaces at startup rather than on the first request.
+
+### SQL
+
+The three SQL translators share one AST walk and differ only in a dialect — identifier quoting, bind-marker spelling, string predicates, inline
+literal rendering. Their `Translate` returns three values, `(where string, args []any, err error)`; `TranslateInline` renders the same clause with
+literals in place, for view definitions and generated DDL. PostgreSQL numbers its placeholders (`$1`, `$2`, …), the other two use positional `?`.
+A `nil` AST translates to `1 = 1`, so `"... WHERE " + where` needs no special case.
+
+Three dialect differences are worth knowing before designing a filter surface: MariaDB's default collations make every string comparison
+case-insensitive, PostgreSQL requires a real `boolean` column for a bare-identifier condition, and only ClickHouse reads a dotted CEL name as one
+(Nested) column instead of a qualified `"table"."column"`.
+
+### Search back ends
 
 `translators/meili` rejects `endsWith`, `matches` (regex), and `size()` with `ErrUnsupportedOperation` — Meilisearch's filter grammar has no
 counterparts. `timestamp(...)` literals are emitted as Unix seconds: store the corresponding fields as numeric epoch seconds and add them to
-the index's `filterableAttributes`; sub-second precision is dropped.
+the index's `filterableAttributes`; sub-second precision is dropped. `contains()` and `startsWith()` need Meilisearch's `containsFilter`
+experimental feature enabled on the server.
+
+Meilisearch also splits a question CEL's `null` treats as one — an attribute can be absent, or present and null — so `field == null` compiles to
+`(field IS NULL OR field NOT EXISTS)` and `field != null` to `(field EXISTS AND field IS NOT NULL)`. A bare `IS NOT NULL` would match documents
+that never had the attribute, which is how a soft-delete filter comes to return deleted rows.
+
+`translators/redisearch` needs a `map[string]FieldType` schema, keyed by the column name **after** field mapping. It is not advisory: a field's
+type decides the shape of every query built against it, so a schema that disagrees with the actual `FT.CREATE` produces queries that are silently
+wrong rather than rejected.
 
 ---
 
@@ -261,8 +308,9 @@ the index's `filterableAttributes`; sub-second precision is dropped.
 | `WithMaxRegexLength` | 1024 bytes | Pattern length passed to `matches()` |
 | `WithAllowedFields` | (none) | Whitelist of queryable field names |
 | `WithAllowedFunctions` | (none) | Whitelist of callable function names (built-in and custom). Operators and `has()` always allowed |
-| `WithUntrustedInput` | off | Marks input as user-supplied; refuses to run without an allowlist |
-| `WithStrictMode` | off | Fail (vs. ignore) on unsupported operations |
+| `WithFieldTypes` | (none) | Declared kind per field; a literal of another type is rejected with `ErrFieldTypeMismatch` |
+| `WithEnumValues` | (none) | Allowed integer set per enum field; a value outside it is rejected with `ErrEnumValueNotAllowed` |
+| `WithUntrustedInput` | off | Marks input as user-supplied; refuses to construct without an allowlist |
 
 Length limits and depth caps belong on the translator/evaluator config (`TranslatorOption`); cache size and expression length live on the parser
 config (`ParserOption`). Don't try to stretch defaults — if you genuinely need 50-deep filters, the model is wrong.
@@ -299,6 +347,8 @@ The mapping applies after custom-function expansion, so the chain
 | `ErrUnsupportedType` | Literal type not representable in the target backend |
 | `ErrFieldNotAllowed` | Field outside `WithAllowedFields` |
 | `ErrFunctionNotAllowed` | Function outside `WithAllowedFunctions` (built-in or custom) |
+| `ErrFieldTypeMismatch` | Literal type does not match the kind declared via `WithFieldTypes` |
+| `ErrEnumValueNotAllowed` | Integer literal outside the set declared via `WithEnumValues` |
 | `ErrAllowlistRequired` | `WithUntrustedInput` set without `WithAllowedFields` |
 | `ErrMaxDepthExceeded` | AST nesting above `WithMaxDepth` |
 | `ErrMaxOperationsExceeded` | Visits above `WithMaxOperations` |
@@ -316,20 +366,21 @@ Subsystem `filter`:
 |---|---|---|
 | `filter_parse_duration_seconds` | histogram | Parse latency (cache hit ≈ 0) |
 | `filter_parse_errors_total` | counter | Parse failures (any cause) |
-| `filter_translations_total{target_backend}` | counter | Translations performed, labeled by backend (`mongo`, `redisearch`, `lua`, `meili`) |
 
-Pass a collector via `WithParserCollector(c)`. Translators do not emit translations themselves yet — wire `translations_total{target_backend=...}`
-in your call site if you need per-backend visibility. Regex pattern cache stats are exposed in code via
-`filter.RegexCacheStatsSnapshot()` for ad-hoc inspection; they are not Prometheus-exported.
+Pass a collector via `WithParserCollector(c)`. **Only the parser is instrumented.** Translators live in independent subpackages and are
+deliberately not given the collector, so there is no per-backend translation counter to scrape — count translations at your call site if you need
+that visibility. Regex pattern cache stats are exposed in code via `filter.RegexCacheStatsSnapshot()` for ad-hoc inspection; they are not
+Prometheus-exported.
 
 ---
 
 ## Failure modes
 
 **`ErrUnsupportedOperation` from a translator at runtime.** Not every operator/function is implementable in every backend (Lua doesn't do
-regex; RediSearch doesn't do `size()` over arbitrary types; Meilisearch has no `endsWith`, `matches`, or `size()`). Either narrow the
-queryable set with `WithAllowedFields` and document the API contract, or enable `WithStrictMode(true)` and surface the failure to the API
-layer up front.
+regex; RediSearch has no `endsWith`, `matches`, `size()` or `has()`; Meilisearch has no `endsWith`, `matches`, or `size()`; no translator does
+`substring()`). There is no lenient mode to fall back on — an operation the backend cannot express is an error, not a silently dropped clause.
+Narrow the queryable surface with `WithAllowedFunctions`, and translate the expression once at request-validation time so the failure reaches the
+API layer before you have started building a response.
 
 **Cache-poisoning by deep input.** `WithMaxExpressionLength` is the first line of defense — long expressions never enter the LRU cache. Keep
 the limit conservative for untrusted callers (under 1 KiB is plenty for typical filters).
@@ -360,3 +411,5 @@ not run global-registry tests in parallel with each other.
 
 - [`docs/configuration.md`](../configuration.md) — overall YAML format
 - [`docs/metrics.md`](../metrics.md) — full metrics reference for the repository
+- [`tests/integration/README.md`](../../tests/integration/README.md) — the cross-backend corpus every translator is run against, and the
+  divergences it pins
