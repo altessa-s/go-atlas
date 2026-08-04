@@ -241,6 +241,10 @@ transport/internal/server   # Shared server code
 transport/internal/validation # Request validation
 transport/proxydial         # Proxy dialing support
 
+# Testing
+tests                       # Integration suite (separate module)
+tests/integration           # Cross-backend integration tests
+
 # Documentation & Development
 docs                        # Documentation
 devtools                    # Development tool dependencies
