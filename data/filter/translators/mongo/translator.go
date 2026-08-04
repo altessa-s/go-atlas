@@ -35,7 +35,16 @@ func NewTranslator(opts ...filter.TranslatorOption) (*Translator, error) {
 }
 
 // Translate converts a filter AST node to a MongoDB bson.M filter.
+//
+// A nil node translates to an empty filter document, which MongoDB reads
+// as match-all. Returning that rather than dereferencing the nil lets a
+// caller pass an absent filter straight through — the same contract the
+// SQL and RediSearch translators offer.
 func (t *Translator) Translate(node filter.Node) (bson.M, error) {
+	if node == nil {
+		return bson.M{}, nil
+	}
+
 	t.depth = 0
 	return t.acceptPredicate(node)
 }
