@@ -256,6 +256,15 @@ func (b *ManagerBuilder) resolveS3Client(ctx context.Context, s3Cfg *config.OPAS
 
 // buildManager creates the OPA Manager from source and config.
 func (b *ManagerBuilder) buildManager(ctx context.Context, source opa.PolicySource) (*opa.Manager, error) {
+	manager, err := opa.NewManager(ctx, source, b.cfg.Query, b.managerOptions()...)
+	if err != nil {
+		return nil, b.WrapError(err, "failed to create manager")
+	}
+	return manager, nil
+}
+
+// managerOptions maps the configuration onto [opa.Option] values.
+func (b *ManagerBuilder) managerOptions() []opa.Option {
 	cfg := b.cfg
 
 	managerOpts := []opa.Option{
@@ -271,9 +280,12 @@ func (b *ManagerBuilder) buildManager(ctx context.Context, source opa.PolicySour
 		opa.WithUpdateSchedule(cfg.UpdateSchedule, cfg.RunOnStart),
 	)
 
-	manager, err := opa.NewManager(ctx, source, cfg.Query, managerOpts...)
-	if err != nil {
-		return nil, b.WrapError(err, "failed to create manager")
-	}
-	return manager, nil
+	// A zero size or TTL is passed through as-is: opa.WithDecisionCache reads
+	// both as "use the package default", which is what the config documents.
+	managerOpts = slices.AppendIfFunc(managerOpts, cfg.Cache != nil && cfg.Cache.Enabled,
+		func() []opa.Option {
+			return []opa.Option{opa.WithDecisionCache(cfg.Cache.MaxSize, cfg.Cache.TTL)}
+		})
+
+	return managerOpts
 }

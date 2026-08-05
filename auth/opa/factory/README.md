@@ -39,6 +39,21 @@ manager, err := factory.New(cfg.OPA).
 |--------|-------------|
 | `Build` | Assembles and returns the OPA manager |
 
+## Decision cache
+
+`opa.cache` maps onto [`opa.WithDecisionCache`](../README.md#decision-cache):
+
+| Config                 | Effect                                                        |
+|------------------------|---------------------------------------------------------------|
+| section absent         | Caching off                                                   |
+| `enabled: false`       | Caching off                                                   |
+| `enabled: true`        | Decisions memoized per policy revision, expiring after `ttl`  |
+| `ttl` unset or `0`     | Falls back to `opa.DefaultDecisionCacheTTL` (5m)              |
+| `maxSize` unset or `0` | Falls back to `opa.DefaultDecisionCacheSize` (10000 entries)  |
+
+`maxSize` is a memory ceiling, not a correctness knob: the cache is an LRU, so a value too small only evicts sooner and lowers the hit rate. Size it
+against the number of distinct inputs seen in one `ttl` window rather than against request volume.
+
 ## Proxy wiring
 
 For network-backed policy sources, `Build(ctx)` materializes the per-source

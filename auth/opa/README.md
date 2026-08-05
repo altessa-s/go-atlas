@@ -31,6 +31,31 @@ HTTP bundles) with hot-reloading capabilities. Modular design with pluggable pol
 | `WithUpdateSchedule`     | --        | Cron expression and run-on-start flag for scheduled updates  |
 | `WithHealthCoordinator`  | nil       | Register manager with health coordinator                     |
 | `WithAuditRecorder`      | nil       | Record every evaluation decision through an `*audit.Recorder` |
+| `WithDecisionCache`      | off       | Memoize evaluations by (policy revision, input) for a TTL    |
+
+## Decision cache
+
+`WithDecisionCache(size, ttl)` short-circuits the Rego evaluation for a repeated input. It is off by default; the config equivalent is
+`opa.cache.enabled` / `opa.cache.ttl` / `opa.cache.maxSize`. A non-positive size or TTL falls back to `DefaultDecisionCacheSize` (10000 entries) and
+`DefaultDecisionCacheTTL` (5m).
+
+Everything downstream of the decision still happens on a hit — the result is counted in `evaluations_total` and passed to the audit recorder. A
+decision that is served but never recorded is a hole in the audit trail, not an optimization.
+
+Three properties make it safe to leave on:
+
+- **Revision-keyed.** Entries are keyed by policy revision as well as input, so a bundle reload makes every prior decision *unreachable* rather than
+  merely stale. A reload that lands while an evaluation is in flight prevents that result from being cached at all.
+- **Fresh `DecisionID` per hit.** A `DecisionID` identifies one decision; replaying a cached one under its original ID would make distinct decisions
+  indistinguishable in the audit log.
+- **Independent copies.** `Result` has exported mutable fields, so each hit is handed its own copy — a caller enriching one result cannot corrupt the
+  cached decision or any concurrent evaluation.
+
+Keys are the SHA-256 of the revision and the JSON-encoded input; the input itself is never retained, since it typically carries the whole request.
+Keying on JSON costs no generality, because OPA marshals the input to JSON to evaluate it in the first place.
+
+Whether it pays off depends on policy complexity. On an Apple M4 Pro, a single-predicate policy evaluates in ~5.4 µs uncached against ~0.7 µs for a
+cache hit; a realistic multi-field input raises the hit to ~1.8 µs, dominated by the encode-and-hash.
 
 ## Auditing
 

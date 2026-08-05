@@ -260,6 +260,13 @@ func (m *Manager) reload(ctx context.Context) error {
 	// Atomically update the prepared query
 	m.preparedEval.Store(&pq)
 	m.revision.Store(&bundle.Revision)
+
+	// Decisions are keyed by revision, so the old ones are already unreachable;
+	// purging only stops them from occupying the cache until they age out.
+	if m.opts.decisionCache != nil {
+		m.opts.decisionCache.purge()
+	}
+
 	m.moduleCount.Store(int32(min(bundle.ModuleCount(), 1<<31-1))) //#nosec G115 -- capped at MaxInt32
 	m.store = store
 	now := time.Now()
@@ -354,9 +361,24 @@ type regoEvaluator struct {
 }
 
 // Evaluate evaluates the policy with the given input.
+//
+// When a decision cache is configured (see [WithDecisionCache]), a repeated
+// input under the same policy revision skips the Rego evaluation. Everything
+// downstream of the decision still happens: the result is counted in the
+// evaluation metrics and passed to the audit recorder, because a decision that
+// is served but never recorded is a hole in the audit trail.
 func (e *regoEvaluator) Evaluate(ctx context.Context, input any) (*Result, error) {
 	stop := e.manager.metrics.evaluationDuration.Start()
 	defer stop()
+
+	// Read the revision before evaluating so the result is keyed to the bundle
+	// it was actually computed from, not to one a concurrent reload installed
+	// in the meantime.
+	revision := e.manager.Revision()
+
+	if r, ok := e.cached(revision, input); ok {
+		return e.finishEvaluation(ctx, r)
+	}
 
 	pq := e.manager.preparedEval.Load()
 	if pq == nil {
@@ -371,6 +393,15 @@ func (e *regoEvaluator) Evaluate(ctx context.Context, input any) (*Result, error
 	}
 
 	r := e.resolveResult(results)
+	e.store(revision, input, r)
+
+	return e.finishEvaluation(ctx, r)
+}
+
+// finishEvaluation counts the decision and hands it to the audit recorder. It
+// runs for cache hits and misses alike, so caching cannot silently thin out the
+// metrics or the audit trail.
+func (e *regoEvaluator) finishEvaluation(ctx context.Context, r *Result) (*Result, error) {
 	e.manager.metrics.evaluations.WithLabels(metrics.Labels{"result": allowDenyLabel(r.Allow)}).Inc()
 
 	if err := e.recordDecision(ctx, r); err != nil {
@@ -378,6 +409,43 @@ func (e *regoEvaluator) Evaluate(ctx context.Context, input any) (*Result, error
 	}
 
 	return r, nil
+}
+
+// cached looks the decision up, returning a copy with its own DecisionID.
+func (e *regoEvaluator) cached(revision string, input any) (*Result, bool) {
+	cache := e.manager.opts.decisionCache
+	if cache == nil {
+		return nil, false
+	}
+
+	r, ok := cache.get(revision, input)
+	if !ok {
+		e.manager.metrics.decisionCacheLookups.WithLabels(metrics.Labels{"result": "miss"}).Inc()
+		return nil, false
+	}
+
+	// A DecisionID identifies one authorization decision; replaying a cached
+	// one under its original ID would make distinct decisions indistinguishable
+	// in the audit log.
+	if e.manager.opts.decisionLogging {
+		r.DecisionID = uuid.NewString()
+	}
+
+	e.manager.metrics.decisionCacheLookups.WithLabels(metrics.Labels{"result": "hit"}).Inc()
+
+	return r, true
+}
+
+// store caches the decision, unless a reload landed while it was being computed
+// — in that case the result belongs to a bundle that is no longer current and
+// caching it under either revision would be wrong.
+func (e *regoEvaluator) store(revision string, input any, r *Result) {
+	cache := e.manager.opts.decisionCache
+	if cache == nil || e.manager.Revision() != revision {
+		return
+	}
+
+	cache.put(revision, input, r)
 }
 
 // resolveResult maps an OPA result set onto a [Result], handling the boolean,
