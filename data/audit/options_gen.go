@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
+
+	coreruntime "github.com/altessa-s/go-atlas/core/runtime"
 )
 
 // Option is a functional option for configuring options.
@@ -57,6 +59,16 @@ func WithMetricsSubsystem[T interface{ string | *string }](v T) Option {
 func WithServiceInfo(v ServiceInfo) Option {
 	return func(o *options) {
 		o.serviceInfo = v
+	}
+}
+
+// WithShutdownHooks sets the shutdownHooks option.
+func WithShutdownHooks(v *coreruntime.HookGroup) Option {
+	return func(o *options) {
+		if v == nil {
+			return
+		}
+		o.shutdownHooks = v
 	}
 }
 

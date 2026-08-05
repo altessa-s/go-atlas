@@ -38,9 +38,26 @@ request latency.
 | `WithLogger`            | discard   | Structured logger (`*slog.Logger`)                |
 | `WithCollector`         | noop      | Prometheus metrics collector                      |
 | `WithMetricsSubsystem`  | `"audit"` | Override the metrics subsystem name               |
+| `WithShutdownHooks`     | process   | Scope `Start` registers its shutdown into         |
 
 Dispatch-level options (buffer, batch, workers, retries, WAL) are configured
 on the `dispatch.Engine` — see [service/dispatch](../../service/dispatch).
+
+### Shutdown scope
+
+By default `Start` registers the auditor's shutdown in the process-wide registry (`core/runtime.OnShutdown`), which runs once for the whole program —
+an auditor registered there cannot be stopped on its own. Pass a
+[`runtime.HookGroup`](../../core/runtime) when the auditor's lifetime is shorter than the process's, e.g. when a factory owns it and the caller may
+tear the subsystem down and rebuild it:
+
+```go
+var hooks runtime.HookGroup
+
+a, _ := audit.New(engine, audit.WithShutdownHooks(&hooks))
+_ = a.Start()
+...
+_ = hooks.Shutdown(ctx) // stops this auditor, leaves the process running
+```
 
 ## Usage
 

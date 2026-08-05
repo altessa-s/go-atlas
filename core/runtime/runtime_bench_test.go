@@ -11,14 +11,40 @@ import (
 )
 
 func BenchmarkOnShutdown(b *testing.B) {
-	shutdownMu.Lock()
-	shutdownHooks = nil
-	shutdownOnce = sync.Once{}
-	shutdownMu.Unlock()
+	processHooks.mu.Lock()
+	processHooks.hooks = nil
+	processHooks.once = sync.Once{}
+	processHooks.mu.Unlock()
 
 	noop := func(_ context.Context) error { return nil }
 	for b.Loop() {
 		OnShutdown(noop)
+	}
+}
+
+func BenchmarkHookGroupOnShutdown(b *testing.B) {
+	var group HookGroup
+
+	noop := func(_ context.Context) error { return nil }
+	for b.Loop() {
+		group.OnShutdown(noop)
+	}
+}
+
+// A group's Shutdown runs at most once, so the benchmark measures a full
+// register-and-tear-down cycle rather than repeated Shutdown calls, which
+// would be no-ops after the first.
+func BenchmarkHookGroupLifecycle(b *testing.B) {
+	noop := func(_ context.Context) error { return nil }
+	ctx := b.Context()
+
+	for b.Loop() {
+		var group HookGroup
+		for range 16 {
+			group.OnShutdown(noop)
+		}
+
+		_ = group.Shutdown(ctx)
 	}
 }
 

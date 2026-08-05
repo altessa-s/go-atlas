@@ -54,14 +54,22 @@ func New(dispatcher Dispatcher, opts ...Option) (*Auditor, error) {
 }
 
 // Start marks the auditor as active and registers a shutdown hook so the
-// auditor stops accepting events on process termination. The underlying
-// [Dispatcher] must already be started by the caller.
+// auditor stops accepting events on termination. The underlying [Dispatcher]
+// must already be started by the caller.
+//
+// The hook goes into the process-wide registry by default, which runs once for
+// the whole program — pass [WithShutdownHooks] to register into a scope that
+// can be shut down on its own.
 func (a *Auditor) Start() error {
 	if !a.started.CompareAndSwap(false, true) {
 		return ErrAuditorAlreadyStarted
 	}
 
-	runtime.OnShutdown(a.Shutdown)
+	if a.opts.shutdownHooks != nil {
+		a.opts.shutdownHooks.OnShutdown(a.Shutdown)
+	} else {
+		runtime.OnShutdown(a.Shutdown)
+	}
 
 	a.opts.logger.Info("auditor started")
 
