@@ -75,6 +75,30 @@ res, err := mongo.ListCursor[User](ctx, coll,
 
 Binding is opt-in: a cursor minted without a subject stays replayable by any caller, so existing callers are unaffected.
 
+## Migrations
+
+`Connect` applies all pending `mongo-migrate` migrations before returning. The underlying library reads the current schema version and writes the new
+one with nothing in between, so two replicas starting together would both read version N and both run migration N+1. Migration bodies are arbitrary
+code rather than idempotent DDL, so running one twice is not generally safe.
+
+The package therefore takes a database-wide lock around the migration run. It is a single document in a **separate** collection —
+`migrations_lock`, never `migrations`, because `mongo-migrate` derives the schema version from the greatest `_id` in its own collection and would
+decode a lock document there as version 0.
+
+| Constant                    | Default            | Description                                              |
+|-----------------------------|--------------------|----------------------------------------------------------|
+| `MigrationLockCollectionName` | `migrations_lock`  | Collection holding the mutex document                    |
+| `MigrationLockWaitTimeout`  | `30s`              | How long a replica waits for a peer to finish migrating  |
+| `MigrationTimeout`          | `30s`              | Budget for the migrations themselves, and the lock lease |
+
+Waiters block rather than skip: once the holder finishes, the next waiter acquires the lock, re-reads the version, and finds nothing left to apply.
+The lease is compared against the server clock (`$$NOW`), so replicas with drifted clocks cannot steal a live lock. The lease equals
+`MigrationTimeout`, which is also the cap on the holder's work context — a holder cannot still be running after its lease lapses.
+
+This is a TTL lock, not a fencing one: it bounds the damage from a crashed holder, but the `mongo-migrate` API offers no place to carry a fencing
+token. For deployments that want concurrency gone as a class, run migrations from a dedicated deploy step (init container, Job) and keep the lock as
+the backstop.
+
 ## Subpackages
 
 | Package                                              | Description                   |

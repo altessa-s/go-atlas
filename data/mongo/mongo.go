@@ -277,7 +277,9 @@ func (m *Mongo) Connect(ctx context.Context) (err error) {
 		}
 	}
 
-	migrationCtx, migrationCtxCancel := corecontext.WithMaxTimeout(ctx, MigrationTimeout)
+	// The budget covers both phases: waiting for a peer replica to finish
+	// migrating, then migrating. withMigrationLock caps each phase separately.
+	migrationCtx, migrationCtxCancel := corecontext.WithMaxTimeout(ctx, MigrationLockWaitTimeout+MigrationTimeout)
 	defer migrationCtxCancel()
 
 	err = m.migrate(migrationCtx)
