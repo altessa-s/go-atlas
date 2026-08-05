@@ -163,8 +163,14 @@ func (nc *NatsConsumer) Validate() error {
 		validation.Field(&nc.MaxDeliver, validation.Min(-1).Error("must be -1 (unlimited) or greater")),
 		validation.Field(&nc.BackOff, validation.By(validateBackOff)),
 		validation.Field(&nc.ReplayPolicy, ozzo_rules.OneOf(ReplayPolicyInstant, ReplayPolicyOriginal)),
-		validation.Field(&nc.MaxAckPending, validation.Min(1).Error("must be greater than 0")),
-		validation.Field(&nc.MaxWaiting, validation.Min(1).Error("must be greater than 0")),
+		// Required is paired with Min because ozzo-validation skips every
+		// rule but Required for a zero value — Min(1) alone accepts 0.
+		validation.Field(&nc.MaxAckPending,
+			validation.Required.Error("must be greater than 0"),
+			validation.Min(1).Error("must be greater than 0")),
+		validation.Field(&nc.MaxWaiting,
+			validation.Required.Error("must be greater than 0"),
+			validation.Min(1).Error("must be greater than 0")),
 		validation.Field(&nc.InactiveThreshold, ozzo_rules.DurationOrZero()),
 	)
 }

@@ -72,7 +72,10 @@ func DefaultNatsRecovery() NatsRecovery {
 func (c NatsRecovery) Validate() error {
 	return ValidateStructIfEnabled(c.Enabled, &c,
 		validation.Field(&c.HealthCheckSchedule, validation.Required),
+		// Required is paired with Min because ozzo-validation skips every
+		// rule but Required for a zero value — Min(1) alone accepts 0.
 		validation.Field(&c.MaxRecoveryAttempts,
+			validation.Required.Error("must be at least 1"),
 			validation.Min(1).Error("must be at least 1"),
 			validation.Max(maxRecoveryAttempts).Error("must be at most 100")),
 		validation.Field(&c.RecoveryBackoff, ozzo_rules.Duration()),

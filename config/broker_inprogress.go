@@ -70,7 +70,9 @@ func (c InProgress) Validate() error {
 	return ValidateStructIfEnabled(c.Enabled, &c,
 		validation.Field(&c.TickSchedule, validation.Required),
 		validation.Field(&c.DefaultHeartbeatInterval, ozzo_rules.Duration(), validation.Min(time.Duration(1))),
-		validation.Field(&c.MaxEntries, validation.Min(1), validation.Max(maxInProgressMaxEntries)),
+		// Required is paired with Min because ozzo-validation skips every
+		// rule but Required for a zero value — Min(1) alone accepts 0.
+		validation.Field(&c.MaxEntries, validation.Required, validation.Min(1), validation.Max(maxInProgressMaxEntries)),
 		validation.Field(&c.Metrics),
 	)
 }
