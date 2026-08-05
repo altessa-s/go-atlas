@@ -49,3 +49,15 @@ manager, err := factory.New(cfg.Secrets).
 | Method       | Description                                                              |
 |--------------|--------------------------------------------------------------------------|
 | `Build(ctx)` | Assembles and returns the `*secrets.Manager[any]`                        |
+
+## Cache
+
+`secrets.cache` selects the value cache; `ShardCount` picks the implementation.
+
+| `maxSize` | `shardCount` | Result                                                                |
+|-----------|--------------|-----------------------------------------------------------------------|
+| `0`       | any          | No override — the `Manager` builds its own default (1000-entry LRU)   |
+| `> 0`     | `0`          | One standard LRU of `maxSize` entries                                 |
+| `> 0`     | `> 0`        | Sharded LRU, `maxSize` total, trading memory for less lock contention |
+
+A `shardCount` that is not a power of two is corrected by the LRU to the optimal count rather than rejected.
