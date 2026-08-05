@@ -175,7 +175,7 @@ func (b *Builder) httpClientOption() oauth2client.Option {
 	if b.httpClient == nil {
 		return nil
 	}
-	return oauth2client.WithHttpClient(b.httpClient)
+	return oauth2client.WithHTTPClient(b.httpClient)
 }
 
 // clientAuthOption returns the client-authenticator option. A programmatically

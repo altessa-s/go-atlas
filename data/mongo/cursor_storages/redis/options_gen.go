@@ -34,8 +34,8 @@ func WithKeyPrefix[T interface{ string | *string }](v T) Option {
 	}
 }
 
-// WithTtl sets the ttl option.
-func WithTtl(v time.Duration) Option {
+// WithTTL sets the ttl option.
+func WithTTL(v time.Duration) Option {
 	return func(o *options) {
 		if v <= 0 {
 			return

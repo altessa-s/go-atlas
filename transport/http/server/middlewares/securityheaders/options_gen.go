@@ -167,8 +167,8 @@ func WithReferrerPolicy(v ReferrerPolicy) Option {
 	}
 }
 
-// WithXssProtectionDisabled enables the xssProtectionDisabled option.
-func WithXssProtectionDisabled() Option {
+// WithXSSProtectionDisabled enables the xssProtectionDisabled option.
+func WithXSSProtectionDisabled() Option {
 	return func(o *options) {
 		o.xssProtectionDisabled = true
 	}

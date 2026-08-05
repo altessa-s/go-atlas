@@ -68,7 +68,7 @@ ok, state, err := keeper.AttemptLockWithOpts(ctx, key, idempotency.AttemptLockOp
 
 | Field             | Zero-value behavior                                                  |
 |-------------------|----------------------------------------------------------------------|
-| `LockTTL`         | Use the backend's configured TTL (`WithTtl` / `WithMaxAge` / YAML).  |
+| `LockTTL`         | Use the backend's configured TTL (`WithTTL` / `WithMaxAge` / YAML).  |
 | `MaxLockDuration` | Use the Keeper's configured value (`WithMaxLockDuration`, default 5m). |
 
 Useful when different keys legitimately need different lock lifetimes

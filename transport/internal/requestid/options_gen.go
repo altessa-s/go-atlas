@@ -40,8 +40,8 @@ func WithHeaderName[T interface{ string | *string }](v T) Option {
 	}
 }
 
-// WithUuidGenerator sets the uuidGenerator option.
-func WithUuidGenerator(v UUIDGenerator) Option {
+// WithUUIDGenerator sets the uuidGenerator option.
+func WithUUIDGenerator(v UUIDGenerator) Option {
 	return func(o *options) {
 		o.uuidGenerator = v
 	}

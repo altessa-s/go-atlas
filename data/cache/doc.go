@@ -17,7 +17,7 @@
 // # Usage
 //
 //	provider := redis.New(redisClient, redis.WithPrefix("myapp:"))
-//	c := cache.New(provider, cache.WithTtl(10*time.Minute))
+//	c := cache.New(provider, cache.WithTTL(10*time.Minute))
 //
 //	// Save and Get
 //	err := c.Save(ctx, "user:123", userData)

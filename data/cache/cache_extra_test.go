@@ -20,17 +20,17 @@ func TestWithSerializer(t *testing.T) {
 }
 
 func TestWithTtl(t *testing.T) {
-	c := New(newMockProvider(), WithTtl(5*time.Minute))
+	c := New(newMockProvider(), WithTTL(5*time.Minute))
 	require.NotNil(t, c)
 }
 
 func TestWithTtl_ZeroIgnored(t *testing.T) {
-	opts := newOptions(WithTtl(0))
+	opts := newOptions(WithTTL(0))
 	require.Equal(t, DefaultTTL, opts.ttl, "zero TTL should be ignored")
 }
 
 func TestWithTtl_NegativeIgnored(t *testing.T) {
-	opts := newOptions(WithTtl(-1 * time.Second))
+	opts := newOptions(WithTTL(-1 * time.Second))
 	require.Equal(t, DefaultTTL, opts.ttl, "negative TTL should be ignored")
 }
 
@@ -42,7 +42,7 @@ func TestDefaultOptions(t *testing.T) {
 
 func TestSave_WithCustomTTL(t *testing.T) {
 	p := newMockProvider()
-	c := New(p, WithTtl(10*time.Minute))
+	c := New(p, WithTTL(10*time.Minute))
 
 	err := c.Save(t.Context(), "k", "v", 5*time.Minute)
 	require.NoError(t, err)

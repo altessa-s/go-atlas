@@ -65,7 +65,7 @@ func (b *LeaderBuilder) Build(ctx context.Context) (*leadelect.Leader, error) {
 	}
 
 	return leadelect.New(provider, b.key, b.nodeId,
-		leadelect.WithTtl(b.cfg.Ttl),
+		leadelect.WithTTL(b.cfg.Ttl),
 		leadelect.WithCollector(b.collector),
 	), nil
 }

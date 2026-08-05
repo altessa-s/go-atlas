@@ -173,7 +173,7 @@ func TestIntegration_New_CreatesIndexes(t *testing.T) {
 func TestIntegration_New_TTLIndex(t *testing.T) {
 	t.Parallel()
 
-	_, db := newIT(t, auditmongo.WithTtl(24*time.Hour))
+	_, db := newIT(t, auditmongo.WithTTL(24*time.Hour))
 	indexes := listIndexes(t, db.Collection(auditmongo.DefaultCollectionName))
 
 	require.Len(t, indexes, 6)

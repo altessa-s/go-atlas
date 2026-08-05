@@ -46,7 +46,7 @@
 // [Exchanger.TokenSource]). [Revoker] revokes an acquired token at the IdP
 // revocation endpoint (RFC 7009), the symmetric counterpart to acquisition.
 // Only [Exchanger] retries by itself; wrap the transport with [RetryTransport]
-// and inject it via [WithHttpClient] to retry the x/oauth2-backed grants.
+// and inject it via [WithHTTPClient] to retry the x/oauth2-backed grants.
 //
 // # Secrets
 //

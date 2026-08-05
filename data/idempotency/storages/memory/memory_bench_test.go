@@ -40,7 +40,7 @@ func BenchmarkStorage_AttemptLock_Contention(b *testing.B) {
 }
 
 func BenchmarkStorage_RunCleanup(b *testing.B) {
-	s := New(WithTtl(1))
+	s := New(WithTTL(1))
 	ctx := b.Context()
 	for i := range 1000 {
 		s.AttemptLock(ctx, fmt.Sprintf("key-%d", i), []byte("val"))

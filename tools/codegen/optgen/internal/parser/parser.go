@@ -9,24 +9,13 @@ import (
 	"maps"
 	"slices"
 	"strings"
-	"unicode"
 
+	"github.com/altessa-s/go-atlas/tools/codegen/optgen/internal/naming"
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/model"
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/plugin"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
-
-// capitalizeFirst returns the string with its first letter capitalized.
-// Used to derive option names from field names (e.g., "envPrefix" -> "EnvPrefix").
-func capitalizeFirst(s string) string {
-	if s == "" {
-		return s
-	}
-	r := []rune(s)
-	r[0] = unicode.ToUpper(r[0])
-	return string(r)
-}
 
 // derivePackageName extracts the package name from an import path.
 // Handles special cases:
@@ -252,9 +241,11 @@ func buildOptField(field *ast.Field, ctx fieldProcessingContext) (model.OptField
 		fieldName = field.Names[0].Name
 	}
 
-	// If optName is empty, derive from field name (capitalize first letter)
+	// If optName is empty, derive from field name. An explicit `opt` tag wins,
+	// so a field whose initialism the table gets wrong can still be spelled by
+	// hand.
 	if optName == "" && fieldName != "" {
-		optName = capitalizeFirst(fieldName)
+		optName = naming.OptionName(fieldName)
 	}
 
 	parsed, err := parseFieldTags(ctx.tagStr)

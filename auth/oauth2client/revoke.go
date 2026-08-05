@@ -39,7 +39,7 @@ type Revoker struct {
 // NewRevoker builds a [Revoker] for the IdP revocation endpoint at
 // revocationURL. clientID and clientSecret authenticate this client (pass "" for
 // both when a [WithClientAuth] assertion or a public client is used). The
-// [WithAuthStyle], [WithClientAuth], and [WithHttpClient] options apply.
+// [WithAuthStyle], [WithClientAuth], and [WithHTTPClient] options apply.
 func NewRevoker(revocationURL, clientID, clientSecret string, opts ...Option) *Revoker {
 	o := newOptions(opts...)
 	return &Revoker{

@@ -55,7 +55,7 @@ Because every helper yields an `oauth2.TokenSource`, the result flows straight i
 | `WithScopes(s…)`                           | all                                           | Requested scopes; trimmed and de-duplicated.                          |
 | `WithAuthStyle(style)`                     | `ClientCredentials`, `Refresh`, `Exchanger`   | Present credentials in the header or the body. Default: auto-detect.  |
 | `WithEndpointParams(v)`                    | `ClientCredentials`, `Exchanger`              | Extra non-standard token params (e.g. Auth0 `audience`).              |
-| `WithHttpClient(c)`                        | all                                           | Custom client for timeouts, mTLS, or tracing round-trippers.          |
+| `WithHTTPClient(c)`                        | all                                           | Custom client for timeouts, mTLS, or tracing round-trippers.          |
 | `WithClientAuth(a)`                        | `ClientCredentials`, `Exchanger`              | Authenticate with a signed JWT assertion (RFC 7523), superseding the secret. |
 | `WithEarlyExpiry(d)`                       | `ClientCredentials`, `Exchanger.TokenSource`  | Refresh `d` before `exp` (clock-skew margin). 0 = x/oauth2 default (~10s). |
 | `WithRetryAttempts(n)`                     | `Exchanger`                                   | Retries after the first attempt on transport errors, 429, 5xx. 0 disables. |
@@ -144,7 +144,7 @@ Tune the assertion with `WithAssertionLifetime` and `WithAssertionAudience`.
   `ClientCredentials` and `Exchanger.TokenSource`). `Refresh`/`AuthCode` keep x/oauth2's default window — overriding it there would drop
   refresh-token rotation.
 - **Retry.** Only `Exchanger` retries on its own (`WithRetryAttempts`). To add retries to the x/oauth2-backed grants, wrap the transport
-  with `RetryTransport` and inject it via `WithHttpClient`; it retries transport errors, 429, and 5xx on replayable requests, surfacing the
+  with `RetryTransport` and inject it via `WithHTTPClient`; it retries transport errors, 429, and 5xx on replayable requests, surfacing the
   last response on exhaustion.
 - **Revocation.** `NewRevoker(revocationURL, id, secret).Revoke(ctx, token, WithTokenTypeHint(…))` revokes an acquired token at the IdP
   (RFC 7009), reusing the same client auth. Per the RFC the endpoint answers `200` even for an unknown token, so a nil error means "not (or
@@ -152,7 +152,7 @@ Tune the assertion with `WithAssertionLifetime` and `WithAssertionAudience`.
 
 ```go
 client := &http.Client{Transport: oauth2client.RetryTransport(http.DefaultTransport)}
-src := oauth2client.ClientCredentials(ctx, tokenURL, id, secret, oauth2client.WithHttpClient(client))
+src := oauth2client.ClientCredentials(ctx, tokenURL, id, secret, oauth2client.WithHTTPClient(client))
 ```
 
 Two RFC edge cases are preserved verbatim: a response without `expires_in` yields a never-expiring token (a self-refreshing source won't

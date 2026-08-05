@@ -82,20 +82,20 @@ func WithName[T interface{ string | *string }](v T) Option {
 	}
 }
 
-// WithTimeouts sets the timeouts option.
-func WithTimeouts(v timeouts.Config) Option {
-	return func(o *options) {
-		o.timeouts = v
-	}
-}
-
-// WithTlsConfig sets the tlsConfig option.
-func WithTlsConfig(v *tls.Config) Option {
+// WithTLSConfig sets the tlsConfig option.
+func WithTLSConfig(v *tls.Config) Option {
 	return func(o *options) {
 		if v == nil {
 			return
 		}
 		o.tlsConfig = v
+	}
+}
+
+// WithTimeouts sets the timeouts option.
+func WithTimeouts(v timeouts.Config) Option {
+	return func(o *options) {
+		o.timeouts = v
 	}
 }
 

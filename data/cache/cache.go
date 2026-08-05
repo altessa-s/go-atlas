@@ -64,7 +64,7 @@ type Cache struct {
 //
 // Example:
 //
-//	c := cache.New(redisProvider, cache.WithTtl(10*time.Minute))
+//	c := cache.New(redisProvider, cache.WithTTL(10*time.Minute))
 func New(p Provider, opts ...Option) *Cache {
 	panics.MustNonNil(p, "provider must be provided")
 

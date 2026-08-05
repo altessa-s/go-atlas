@@ -83,7 +83,7 @@ func TestStorage_WithCustomOptions(t *testing.T) {
 	client, _ := testhelpers.RedisClient(t)
 
 	s := cursredis.New(client,
-		cursredis.WithTtl(30*time.Minute),
+		cursredis.WithTTL(30*time.Minute),
 		cursredis.WithKeyPrefix("custom:"),
 	)
 

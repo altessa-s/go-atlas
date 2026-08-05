@@ -343,7 +343,7 @@ func TestDeleteMany_NoKeysPanics(t *testing.T) {
 
 func TestGetWithFallback_NegativeCaching_Disabled(t *testing.T) {
 	p := newMockProvider()
-	c := New(p) // no WithNegativeTtl
+	c := New(p) // no WithNegativeTTL
 	ctx := t.Context()
 
 	calls := 0
@@ -368,7 +368,7 @@ func TestGetWithFallback_NegativeCaching_Disabled(t *testing.T) {
 
 func TestGetWithFallback_NegativeCaching_StoresSentinel(t *testing.T) {
 	p := newMockProvider()
-	c := New(p, WithNegativeTtl(30*time.Second))
+	c := New(p, WithNegativeTTL(30*time.Second))
 	ctx := t.Context()
 
 	var result string
@@ -387,7 +387,7 @@ func TestGetWithFallback_NegativeCaching_StoresSentinel(t *testing.T) {
 
 func TestGetWithFallback_NegativeCaching_ReturnsMissing(t *testing.T) {
 	p := newMockProvider()
-	c := New(p, WithNegativeTtl(30*time.Second))
+	c := New(p, WithNegativeTTL(30*time.Second))
 	ctx := t.Context()
 
 	calls := 0
@@ -408,7 +408,7 @@ func TestGetWithFallback_NegativeCaching_ReturnsMissing(t *testing.T) {
 
 func TestGet_NegativeEntry_ReturnsMissing(t *testing.T) {
 	p := newMockProvider()
-	c := New(p, WithNegativeTtl(30*time.Second))
+	c := New(p, WithNegativeTTL(30*time.Second))
 	ctx := t.Context()
 
 	// Manually store a negative sentinel.
@@ -421,7 +421,7 @@ func TestGet_NegativeEntry_ReturnsMissing(t *testing.T) {
 
 func TestExists_NegativeEntry_ReturnsFalse(t *testing.T) {
 	p := newMockProvider()
-	c := New(p, WithNegativeTtl(30*time.Second))
+	c := New(p, WithNegativeTTL(30*time.Second))
 	ctx := t.Context()
 
 	// Manually store a negative sentinel.
@@ -434,7 +434,7 @@ func TestExists_NegativeEntry_ReturnsFalse(t *testing.T) {
 
 func TestDelete_ClearsNegativeEntry(t *testing.T) {
 	p := newMockProvider()
-	c := New(p, WithNegativeTtl(30*time.Second))
+	c := New(p, WithNegativeTTL(30*time.Second))
 	ctx := t.Context()
 
 	calls := 0
@@ -457,7 +457,7 @@ func TestDelete_ClearsNegativeEntry(t *testing.T) {
 
 func TestSave_OverwritesNegativeEntry(t *testing.T) {
 	p := newMockProvider()
-	c := New(p, WithNegativeTtl(30*time.Second))
+	c := New(p, WithNegativeTTL(30*time.Second))
 	ctx := t.Context()
 
 	// Store a negative sentinel.
@@ -481,7 +481,7 @@ func TestSave_OverwritesNegativeEntry(t *testing.T) {
 // repeated attacker-driven miss to stampede the downstream.
 func TestGetWithFallback_ErrMissingWritesNegativeCache(t *testing.T) {
 	p := newMockProvider()
-	c := New(p, WithNegativeTtl(30*time.Second))
+	c := New(p, WithNegativeTTL(30*time.Second))
 	ctx := t.Context()
 
 	calls := 0
@@ -513,7 +513,7 @@ func TestGetWithFallback_ErrMissingWritesNegativeCache(t *testing.T) {
 // caller without persisting a misleading "not found" sentinel.
 func TestGetWithFallback_TransientErrorDoesNotPoisonNegativeCache(t *testing.T) {
 	p := newMockProvider()
-	c := New(p, WithNegativeTtl(30*time.Second))
+	c := New(p, WithNegativeTTL(30*time.Second))
 	ctx := t.Context()
 
 	transient := errors.New("downstream temporarily unavailable")

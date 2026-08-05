@@ -91,8 +91,8 @@ func WithEmail[T interface{ string | *string }](v T) Option {
 	}
 }
 
-// WithHttpShutdownTimeout sets the httpShutdownTimeout option.
-func WithHttpShutdownTimeout(v time.Duration) Option {
+// WithHTTPShutdownTimeout sets the httpShutdownTimeout option.
+func WithHTTPShutdownTimeout(v time.Duration) Option {
 	return func(o *options) error {
 		if v <= 0 {
 			return nil

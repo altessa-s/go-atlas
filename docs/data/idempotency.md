@@ -29,7 +29,7 @@ CAS guard — a stale holder cannot overwrite a fresh one. Three pluggable backe
 ### Memory (tests, single-process)
 
 ```go
-storage := memorystorage.New(memorystorage.WithTtl(time.Hour))
+storage := memorystorage.New(memorystorage.WithTTL(time.Hour))
 keeper := idempotency.New(storage)
 
 ok, state, err := keeper.AttemptLock(ctx, "request-id-42")
@@ -57,7 +57,7 @@ client := redis.NewClient(&redis.Options{Addr: redisAddr})
 defer client.Close()
 
 storage := redisstorage.New(client,
-    redisstorage.WithTtl(time.Hour),
+    redisstorage.WithTTL(time.Hour),
     redisstorage.WithKeyPrefix("myapp:idem:"),
 )
 keeper := idempotency.New(storage)
@@ -164,7 +164,7 @@ ok, state, err := keeper.AttemptLockWithOpts(ctx, key, idempotency.AttemptLockOp
 
 | Field             | Resolution order (first match wins)                                |
 |-------------------|--------------------------------------------------------------------|
-| `LockTTL`         | per-call value > backend `WithTtl` / `WithMaxAge` > 24h hard default |
+| `LockTTL`         | per-call value > backend `WithTTL` / `WithMaxAge` > 24h hard default |
 | `MaxLockDuration` | per-call value > Keeper `WithMaxLockDuration` > `DefaultMaxLockDuration` (5m) |
 
 Useful when different keys within one Keeper need different lifetimes — short-lived OTP tokens vs long-running webhook processing — or when a

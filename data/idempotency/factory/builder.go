@@ -109,7 +109,7 @@ func (b *KeeperBuilder) createMemoryStorage() (*memorystorage.Storage, error) {
 		return nil, fmt.Errorf("configuration is required")
 	}
 
-	return memorystorage.New(memorystorage.WithTtl(b.cfg.TTL),
+	return memorystorage.New(memorystorage.WithTTL(b.cfg.TTL),
 		memorystorage.WithCleanupSchedule(b.cfg.Storage.Memory.CleanupSchedule),
 		memorystorage.WithScheduler(b.scheduler),
 	), nil
@@ -122,7 +122,7 @@ func (b *KeeperBuilder) createRedisStorage() (*redisstorage.Storage, error) {
 	}
 
 	return redisstorage.New(b.redisClient,
-		redisstorage.WithTtl(b.cfg.TTL),
+		redisstorage.WithTTL(b.cfg.TTL),
 		redisstorage.WithKeyPrefix(b.cfg.Storage.Redis.KeysPrefix),
 	), nil
 }

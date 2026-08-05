@@ -24,7 +24,7 @@ Both variants share the same singleflight keyspace, so typed and untyped callers
 
 | Option             | Default | Description                                                      |
 |--------------------|---------|------------------------------------------------------------------|
-| `WithTtl`          | 1h      | Default time-to-live for cache items                             |
+| `WithTTL`          | 1h      | Default time-to-live for cache items                             |
 | `WithSerializer`   | JSON    | Serialization format                                             |
 | `WithKeyNamespace` | none    | Per-context namespace for tenant/subject isolation (see below)   |
 

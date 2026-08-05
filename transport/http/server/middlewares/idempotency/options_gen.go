@@ -23,8 +23,8 @@ func WithEnforceMandatory(v bool) Option {
 	}
 }
 
-// WithEntityIdExtractor sets the entityIdExtractor option.
-func WithEntityIdExtractor(v EntityIdExtractor) Option {
+// WithEntityIDExtractor sets the entityIdExtractor option.
+func WithEntityIDExtractor(v EntityIdExtractor) Option {
 	return func(o *options) {
 		o.entityIdExtractor = v
 	}
@@ -44,8 +44,8 @@ func WithFallbackBehavior(v fallback.Behavior) Option {
 	}
 }
 
-// WithIdempotencyKeyEntityIdHeader sets the idempotencyKeyEntityIdHeader option.
-func WithIdempotencyKeyEntityIdHeader[T interface{ string | *string }](v T) Option {
+// WithIdempotencyKeyEntityIDHeader sets the idempotencyKeyEntityIdHeader option.
+func WithIdempotencyKeyEntityIDHeader[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
 		switch t := any(v).(type) {
 		case string:

@@ -102,7 +102,7 @@ func (b *CursorStorageBuilder) createRedisStorage() (*redisstorage.Storage, erro
 
 	opts := []redisstorage.Option{
 		redisstorage.WithKeyPrefix(b.cfg.Redis.KeysPrefix),
-		redisstorage.WithTtl(b.ttl),
+		redisstorage.WithTTL(b.ttl),
 	}
 
 	return redisstorage.New(b.redisClient, opts...), nil

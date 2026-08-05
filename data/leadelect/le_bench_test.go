@@ -38,7 +38,7 @@ func BenchmarkLeader_StartStop(b *testing.B) {
 	_ = providers.Config{} // ensure import
 
 	for b.Loop() {
-		le := leadelect.New(prov, "bench", "n1", leadelect.WithTtl(time.Second))
+		le := leadelect.New(prov, "bench", "n1", leadelect.WithTTL(time.Second))
 		_ = le.Start(ctx)
 		_ = le.Stop(ctx)
 	}

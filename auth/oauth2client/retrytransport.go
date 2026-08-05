@@ -26,13 +26,13 @@ const (
 
 // RetryTransport wraps base so requests are retried on transient failures — a
 // transport error, HTTP 429, or a 5xx response — with exponential backoff.
-// Inject the returned round-tripper via [WithHttpClient] to add retries to the
+// Inject the returned round-tripper via [WithHTTPClient] to add retries to the
 // x/oauth2-backed grants ([ClientCredentials], [Refresh], [AuthCode],
 // [DeviceFlow]), which, unlike [Exchanger], do not retry on their own:
 //
 //	client := &http.Client{Transport: oauth2client.RetryTransport(http.DefaultTransport)}
 //	src := oauth2client.ClientCredentials(ctx, tokenURL, id, secret,
-//	    oauth2client.WithHttpClient(client))
+//	    oauth2client.WithHTTPClient(client))
 //
 // A nil base uses [http.DefaultTransport]. Only requests whose body can be
 // replayed (GetBody set, as x/oauth2's form posts are) are retried; others get a

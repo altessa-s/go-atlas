@@ -14,7 +14,7 @@ network-backed counterpart to the in-memory `coremtls.RevocationList`.
 | Option                  | Description                                                                                   |
 |-------------------------|-----------------------------------------------------------------------------------------------|
 | `WithFailMode(m)`       | `FailOpen` (default) accepts on an indeterminate result; `FailClosed` rejects it.             |
-| `WithHttpClient(c)`     | HTTP client for the OCSP POST.                                                                 |
+| `WithHTTPClient(c)`     | HTTP client for the OCSP POST.                                                                 |
 | `WithTimeout(d)`        | Bounds a single check across all attempts (default 5s).                                        |
 | `WithMaxAttempts(n)`    | OCSP attempts with exponential backoff (default 3).                                            |
 | `WithMaxTTL(d)`         | Caps how long a status is cached, regardless of NextUpdate (default 1h).                       |
