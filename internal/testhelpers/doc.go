@@ -25,6 +25,9 @@
 //     OCSP URLs), self-signed certificates ([SelfSignedCert]), key generation
 //     ([GenerateRSAKey], [GenerateECDSAKey], [GenerateEd25519Key]), and
 //     PEM-file plumbing ([WriteTempCertFiles]).
+//   - A scheduler double ([MockTaskRegistrar]) that records registered
+//     [core/scheduler.TaskConfig] values instead of running them, so a test can
+//     assert the task ID and schedule a component derived from configuration.
 //   - Polling helpers ([WaitFor]) and an audit helper ([NewTestAuditor]).
 //
 // All helpers that accept [testing.TB] register cleanup functions automatically,
