@@ -36,7 +36,9 @@ type WAL struct {
 func (w *WAL) Validate() error {
 	return ValidateStructIfEnabled(w.Enabled, w,
 		validation.Field(&w.Dir, validation.Required),
-		validation.Field(&w.MaxSegmentBytes, validation.Min(int64(1))),
-		validation.Field(&w.MaxBytes, validation.Min(int64(1))),
+		// Required is paired with Min because ozzo-validation skips every
+		// rule but Required for a zero value — Min(1) alone accepts 0.
+		validation.Field(&w.MaxSegmentBytes, validation.Required, validation.Min(int64(1))),
+		validation.Field(&w.MaxBytes, validation.Required, validation.Min(int64(1))),
 	)
 }

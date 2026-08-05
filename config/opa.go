@@ -32,6 +32,12 @@ const (
 	// DefaultOPACacheTTL is the default cache TTL for authorization decisions.
 	DefaultOPACacheTTL = 5 * time.Minute
 
+	// DefaultOPACacheMaxSize is the default entry cap for the decision cache.
+	// It mirrors opa.DefaultDecisionCacheSize, which applies when this is left
+	// at zero; the value is restated here rather than imported so that config
+	// stays independent of the packages it configures.
+	DefaultOPACacheMaxSize = 10000
+
 	// DefaultOPADecisionLogging is the default decision logging setting.
 	DefaultOPADecisionLogging = false
 
@@ -55,6 +61,12 @@ type OPACache struct {
 	// TTL is the time-to-live for cached decisions.
 	// Defaults to 5 minutes.
 	TTL time.Duration `yaml:"ttl" default:"5m"`
+
+	// MaxSize is the maximum number of cached decisions. The cache is an LRU,
+	// so this is the memory ceiling rather than a correctness knob: a smaller
+	// value evicts sooner and lowers the hit rate.
+	// 0 means use the default (10000).
+	MaxSize int `yaml:"maxSize" default:"10000"`
 }
 
 // DefaultOPACache returns an OPACache configuration with default values.
@@ -62,6 +74,7 @@ func DefaultOPACache() OPACache {
 	return OPACache{
 		Enabled: false,
 		TTL:     DefaultOPACacheTTL,
+		MaxSize: DefaultOPACacheMaxSize,
 	}
 }
 
@@ -73,6 +86,10 @@ func (c *OPACache) Validate() error {
 	return ValidateStruct(c,
 		validation.Field(&c.TTL,
 			validation.When(c.Enabled, ozzo_rules.Duration())),
+		// No Required: zero is a meaningful value here ("use the default"),
+		// unlike the Min-guarded fields where it is a silent misconfiguration.
+		// Min(0) still rejects a negative cap.
+		validation.Field(&c.MaxSize, validation.Min(0)),
 	)
 }
 

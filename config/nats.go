@@ -165,7 +165,11 @@ func (n *Nats) Validate() error {
 		validation.Field(&n.ReconnectWait, ozzo_rules.Duration()),
 		validation.Field(&n.PingInterval, ozzo_rules.Duration()),
 		validation.Field(&n.MaxReconnect, validation.Min(0).Error("must be greater or equal 0")),
-		validation.Field(&n.MaxPingsOut, validation.Min(1).Error("must be greater than 1")),
+		// Required is paired with Min because ozzo-validation skips every
+		// rule but Required for a zero value — Min(1) alone accepts 0.
+		validation.Field(&n.MaxPingsOut,
+			validation.Required.Error("must be greater than 1"),
+			validation.Min(1).Error("must be greater than 1")),
 		validation.Field(&n.Consumers, validation.NilOrNotEmpty),
 		validation.Field(&n.Recovery, validation.NilOrNotEmpty),
 	)

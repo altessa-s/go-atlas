@@ -249,13 +249,15 @@ func (s *Saga) Validate() error {
 		validation.Field(&s.Storage, validation.Required),
 		validation.Field(&s.StepTimeout, validation.When(s.StepTimeout != 0, ozzo_rules.Duration())),
 		validation.Field(&s.SagaTimeout, validation.When(s.SagaTimeout != 0, ozzo_rules.Duration())),
-		validation.Field(&s.MaxStepAttempts, validation.Min(1)),
+		// Required is paired with Min because ozzo-validation skips every
+		// rule but Required for a zero value — Min(1) alone accepts 0.
+		validation.Field(&s.MaxStepAttempts, validation.Required, validation.Min(1)),
 		validation.Field(&s.StepRetryBaseDelay, validation.When(s.StepRetryBaseDelay != 0, ozzo_rules.Duration())),
 		validation.Field(&s.StepRetryMaxDelay, validation.When(s.StepRetryMaxDelay != 0, ozzo_rules.Duration())),
-		validation.Field(&s.MaxCompensationAttempts, validation.Min(1)),
+		validation.Field(&s.MaxCompensationAttempts, validation.Required, validation.Min(1)),
 		validation.Field(&s.StepConcurrency, validation.Min(0)),
 		validation.Field(&s.RecoverySchedule, validation.Required),
-		validation.Field(&s.RecoveryBatchSize, validation.Min(1)),
+		validation.Field(&s.RecoveryBatchSize, validation.Required, validation.Min(1)),
 		validation.Field(&s.RecoveryTaskID, validation.Required),
 	)
 }

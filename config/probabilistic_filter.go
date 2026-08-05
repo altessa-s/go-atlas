@@ -97,7 +97,9 @@ func DefaultProbabilisticFilterBloomDefaults() ProbabilisticFilterBloomDefaults 
 func (c *ProbabilisticFilterBloomDefaults) Validate() error {
 	return ValidateStruct(c,
 		validation.Field(&c.Storage, ozzo_rules.OneOf(probabilisticFilterStorageAllowedTypesAny...)),
-		validation.Field(&c.FalsePositiveRate, validation.Min(minFalsePositiveRate), validation.Max(maxFalsePositiveRate)),
+		// Required is paired with Min because ozzo-validation skips every
+		// rule but Required for a zero value — Min alone accepts 0.
+		validation.Field(&c.FalsePositiveRate, validation.Required, validation.Min(minFalsePositiveRate), validation.Max(maxFalsePositiveRate)),
 	)
 }
 
@@ -132,8 +134,10 @@ func (c *ProbabilisticFilterCuckooDefaults) Validate() error {
 	return ValidateStruct(c,
 		validation.Field(&c.Storage, ozzo_rules.OneOf(probabilisticFilterStorageAllowedTypesAny...)),
 		validation.Field(&c.FingerprintSize, validation.In(fingerprintSize8, fingerprintSize12, fingerprintSize16)),
-		validation.Field(&c.CapacityMultiplier, validation.Min(minCapacityMultiplier), validation.Max(maxCapacityMultiplier)),
-		validation.Field(&c.MaxCapacity, validation.Min(minMaxCapacity)),
+		// Required is paired with Min because ozzo-validation skips every
+		// rule but Required for a zero value — Min alone accepts 0.
+		validation.Field(&c.CapacityMultiplier, validation.Required, validation.Min(minCapacityMultiplier), validation.Max(maxCapacityMultiplier)),
+		validation.Field(&c.MaxCapacity, validation.Required, validation.Min(minMaxCapacity)),
 	)
 }
 
@@ -190,8 +194,12 @@ func (c *ProbabilisticFilterBloomConfig) Validate() error {
 	return ValidateStruct(c,
 		validation.Field(&c.Storage, validation.When(c.Storage != nil, ozzo_rules.OneOf(probabilisticFilterStorageAllowedTypesAny...))),
 		validation.Field(&c.ExpectedItems, validation.Required, validation.Min(1)),
+		// Required is paired with Min because ozzo-validation skips every rule
+		// but Required for a zero value — an explicit `falsePositiveRate: 0`
+		// is a non-nil pointer to zero, which Min alone accepts.
 		validation.Field(&c.FalsePositiveRate,
-			validation.When(c.FalsePositiveRate != nil, validation.Min(minFalsePositiveRate), validation.Max(maxFalsePositiveRate))),
+			validation.When(c.FalsePositiveRate != nil,
+				validation.Required, validation.Min(minFalsePositiveRate), validation.Max(maxFalsePositiveRate))),
 		validation.Field(&c.Redis,
 			validation.When(c.Storage != nil && *c.Storage == ProbabilisticFilterStorageTypeRedis, validation.NilOrNotEmpty)),
 	)
@@ -225,10 +233,14 @@ func (c *ProbabilisticFilterCuckooConfig) Validate() error {
 		validation.Field(&c.Capacity, validation.Required, validation.Min(1)),
 		validation.Field(&c.FingerprintSize,
 			validation.When(c.FingerprintSize != nil, validation.In(fingerprintSize8, fingerprintSize12, fingerprintSize16))),
+		// Required is paired with Min because ozzo-validation skips every rule
+		// but Required for a zero value — an explicit `capacityMultiplier: 0`
+		// is a non-nil pointer to zero, which Min alone accepts.
 		validation.Field(&c.CapacityMultiplier,
-			validation.When(c.CapacityMultiplier != nil, validation.Min(minCapacityMultiplier), validation.Max(maxCapacityMultiplier))),
+			validation.When(c.CapacityMultiplier != nil,
+				validation.Required, validation.Min(minCapacityMultiplier), validation.Max(maxCapacityMultiplier))),
 		validation.Field(&c.MaxCapacity,
-			validation.When(c.MaxCapacity != nil, validation.Min(minMaxCapacity))),
+			validation.When(c.MaxCapacity != nil, validation.Required, validation.Min(minMaxCapacity))),
 		validation.Field(&c.Redis,
 			validation.When(c.Storage != nil && *c.Storage == ProbabilisticFilterStorageTypeRedis, validation.NilOrNotEmpty)),
 	)

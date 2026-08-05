@@ -109,8 +109,10 @@ func (h *Health) Validate() error {
 		validation.Field(&h.MaxConcurrentHealthChecks, validation.Required, validation.Min(1)),
 		validation.Field(&h.StatusCacheTTL, ozzo_rules.DurationOrZero()),
 		validation.Field(&h.CheckTimeout, ozzo_rules.Duration(), validation.Min(time.Millisecond)),
-		validation.Field(&h.AdaptiveBufferThreshold, validation.Min(1)),
-		validation.Field(&h.AdaptiveBufferMultiplier, validation.Min(1)),
-		validation.Field(&h.MaxAdaptiveBuffer, validation.Min(1)),
+		// Required is paired with Min because ozzo-validation skips every
+		// rule but Required for a zero value — Min(1) alone accepts 0.
+		validation.Field(&h.AdaptiveBufferThreshold, validation.Required, validation.Min(1)),
+		validation.Field(&h.AdaptiveBufferMultiplier, validation.Required, validation.Min(1)),
+		validation.Field(&h.MaxAdaptiveBuffer, validation.Required, validation.Min(1)),
 	)
 }

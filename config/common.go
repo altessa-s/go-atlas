@@ -70,7 +70,9 @@ type StorageNATSConfig struct {
 func (c *StorageNATSConfig) Validate() error {
 	return ValidateStruct(c,
 		validation.Field(&c.Bucket),
-		validation.Field(&c.Replicas, validation.Min(1), validation.Max(MaxNATSReplicas)),
+		// Required is paired with Min because ozzo-validation skips every
+		// rule but Required for a zero value — Min(1) alone accepts 0.
+		validation.Field(&c.Replicas, validation.Required, validation.Min(1), validation.Max(MaxNATSReplicas)),
 	)
 }
 

@@ -26,7 +26,7 @@ func TestStorageNATSConfig_Validate(t *testing.T) {
 		{
 			name:      "ZeroReplicas",
 			cfg:       config.StorageNATSConfig{Replicas: 0},
-			wantValid: true, // zero value is skipped by ozzo-validation (no Required rule)
+			wantValid: false, // Required is what rejects it — Min(1) alone skips the zero value
 		},
 		{
 			name:      "TooManyReplicas",

@@ -6,6 +6,7 @@ package config
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -82,4 +83,63 @@ func TestOPAS3_Validate_InvalidProxyPropagates(t *testing.T) {
 		},
 	}
 	assert.Error(t, cfg.Validate())
+}
+
+func TestOPACache_Validate_MaxSize(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		cache   OPACache
+		wantErr bool
+	}{
+		{
+			// Zero is a meaningful value ("use the default"), unlike the
+			// Min-guarded fields where it is a silent misconfiguration.
+			name:  "zero means default",
+			cache: OPACache{Enabled: true, TTL: time.Minute, MaxSize: 0},
+		},
+		{
+			name:  "positive cap",
+			cache: OPACache{Enabled: true, TTL: time.Minute, MaxSize: 500},
+		},
+		{
+			name:    "negative cap",
+			cache:   OPACache{Enabled: true, TTL: time.Minute, MaxSize: -1},
+			wantErr: true,
+		},
+		{
+			// The cap is inert while caching is off, but a negative value is
+			// still a typo worth reporting.
+			name:    "negative cap while disabled",
+			cache:   OPACache{Enabled: false, MaxSize: -1},
+			wantErr: true,
+		},
+		{
+			name:  "defaults validate",
+			cache: DefaultOPACache(),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := tc.cache.Validate()
+			if tc.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
+}
+
+func TestDefaultOPACache(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultOPACache()
+	assert.False(t, cfg.Enabled, "caching is opt-in")
+	assert.Equal(t, DefaultOPACacheTTL, cfg.TTL)
+	assert.Equal(t, DefaultOPACacheMaxSize, cfg.MaxSize)
 }

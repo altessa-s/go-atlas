@@ -7,6 +7,7 @@ package config
 import (
 	"time"
 
+	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -100,11 +101,14 @@ type Outbox struct {
 // Validate performs validation of the Outbox configuration.
 func (c Outbox) Validate() error {
 	return ValidateStructIfEnabled(c.Enabled, &c,
-		validation.Field(&c.FetchTimeout, validation.Min(time.Millisecond)),
-		validation.Field(&c.HandleTimeout, validation.Min(time.Millisecond)),
-		validation.Field(&c.UpdateTimeout, validation.Min(time.Millisecond)),
-		validation.Field(&c.MessagesBatchSize, validation.Min(uint32(1)), validation.Max(uint32(maxOutboxMessagesBatchSize))),
-		validation.Field(&c.RetryMaxAttempts, validation.Min(uint32(1)), validation.Max(uint32(maxOutboxRetryMaxAttempts))),
+		// Required (for the durations: ozzo_rules.Duration) is paired with Min
+		// because ozzo-validation skips every rule but Required for a zero
+		// value — Min alone accepts 0.
+		validation.Field(&c.FetchTimeout, ozzo_rules.Duration(), validation.Min(time.Millisecond)),
+		validation.Field(&c.HandleTimeout, ozzo_rules.Duration(), validation.Min(time.Millisecond)),
+		validation.Field(&c.UpdateTimeout, ozzo_rules.Duration(), validation.Min(time.Millisecond)),
+		validation.Field(&c.MessagesBatchSize, validation.Required, validation.Min(uint32(1)), validation.Max(uint32(maxOutboxMessagesBatchSize))),
+		validation.Field(&c.RetryMaxAttempts, validation.Required, validation.Min(uint32(1)), validation.Max(uint32(maxOutboxRetryMaxAttempts))),
 		validation.Field(&c.DispatchTaskID, validation.Required),
 		validation.Field(&c.UnlockTaskID, validation.Required),
 		validation.Field(&c.ExpireTaskID, validation.Required),

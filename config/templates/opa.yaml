@@ -118,20 +118,25 @@
 #  # When configured, caches policy evaluation results to improve performance.
 #  cache:
 #    # <bool> Enable caching of authorization decisions.
-#    # When enabled, caches policy evaluation results.
-#    # Cache key is computed from input data hash.
+#    # When enabled, a repeated input skips the Rego evaluation.
+#    # The cache key is the policy revision plus a hash of the input.
 #    # Benefits:
 #    #   - Reduced latency for repeated authorization checks
 #    #   - Lower CPU usage for complex policies
 #    # Considerations:
-#    #   - May cache stale decisions if policies change
-#    #   - Use watchBundle for automatic cache invalidation
+#    #   - A policy reload invalidates every cached decision, so a stale
+#    #     decision can only outlive a policy change by as long as the
+#    #     reload itself takes (see watchBundle / updateSchedule).
+#    #   - Cached decisions are still counted in metrics and passed to the
+#    #     audit recorder, so caching does not thin out the audit trail.
 #    # Default value: false
 #    enabled: false
 #
 #    # <duration> Time-to-live for cached authorization decisions.
 #    # Determines how long a cached decision remains valid.
 #    # After TTL expires, the decision is re-evaluated.
+#    # The TTL starts at insertion and is not extended by reads, so a hot
+#    # entry still refreshes on schedule.
 #    # Only applies when enabled is true.
 #    # Format: duration string (e.g., "5m", "1h", "30s")
 #    # Recommended values:
@@ -140,6 +145,17 @@
 #    #   - 30m+ for rarely changing policies
 #    # Default value: 5m
 #    ttl: 5m
+#
+#    # <int> Maximum number of cached decisions.
+#    # The cache is an LRU, so this is the memory ceiling rather than a
+#    # correctness knob: a smaller value evicts sooner and lowers the hit
+#    # rate, it never serves a wrong answer.
+#    # Size it against the number of distinct inputs the service sees in
+#    # one TTL window, not against request volume.
+#    # Only applies when enabled is true.
+#    # 0 means use the default.
+#    # Default value: 10000
+#    maxSize: 10000
 #
 #  # <bool> Enable automatic policy bundle reloading.
 #  # When enabled, the Manager polls the source at pollInterval for changes.
