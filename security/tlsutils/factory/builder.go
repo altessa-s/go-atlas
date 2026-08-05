@@ -204,7 +204,7 @@ func (b *ProvidersBuilder) createVaultProvider() (*tlsvault.Vault, error) {
 	}
 
 	opts = slices.AppendIf(opts, len(cfg.SubjectAlternativeNames) > 0, tlsvault.WithSubjectAlternativeNames(cfg.SubjectAlternativeNames...))
-	opts = slices.AppendIf(opts, len(cfg.IPSubjectAlternativeNames) > 0, tlsvault.WithIpSubjectAlternativeNames(cfg.IPSubjectAlternativeNames...))
+	opts = slices.AppendIf(opts, len(cfg.IPSubjectAlternativeNames) > 0, tlsvault.WithIPSubjectAlternativeNames(cfg.IPSubjectAlternativeNames...))
 
 	opts = append(opts, b.vaultProviderOpts()...)
 
@@ -361,7 +361,7 @@ func (b *ProvidersBuilder) ensureOcspStaplerFromConfig() {
 	}
 	opts = slices.AppendIf(opts, ocspCfg.EnableCompression, tlsocsp.WithCompression())
 	opts = slices.AppendIf(opts, ocspCfg.HTTPTimeout > 0,
-		tlsocsp.WithHttpClient(&http.Client{Timeout: ocspCfg.HTTPTimeout}))
+		tlsocsp.WithHTTPClient(&http.Client{Timeout: ocspCfg.HTTPTimeout}))
 	opts = slices.AppendIfFunc(opts, b.Logger() != nil, func() []tlsocsp.Option {
 		return []tlsocsp.Option{tlsocsp.WithLogger(b.Logger())}
 	})

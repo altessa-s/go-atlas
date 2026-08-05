@@ -32,7 +32,7 @@ has no x/oauth2 equivalent and is implemented here as a spec-compliant client.
 | `WithScopes(...string)`      | all                                 | Requested scopes; trimmed and de-duplicated. `AuthCode` reads them too. |
 | `WithAuthStyle(oauth2.AuthStyle)` | `ClientCredentials`, `Refresh`, `Exchanger` | Present credentials in the header or the body. Default: auto-detect. |
 | `WithEndpointParams(url.Values)`  | `ClientCredentials`, `Exchanger` | Extra non-standard token params (e.g. Auth0 `audience`).           |
-| `WithHttpClient(*http.Client)`    | all                             | Custom client for timeouts, mTLS, or tracing round-trippers.           |
+| `WithHTTPClient(*http.Client)`    | all                             | Custom client for timeouts, mTLS, or tracing round-trippers.           |
 | `WithRetryAttempts(int)`          | `Exchanger`                     | Retries after the first attempt on transport errors, 429, and 5xx. 0 (default) disables. |
 | `WithRetryBaseDelay` / `WithRetryMaxDelay` | `Exchanger`            | Bound the exponential backoff between token-exchange retries.           |
 | `WithMetrics(*Metrics)`           | all                             | Record fetch counts, latency, and retries. Build with `NewMetrics`.    |
@@ -111,11 +111,11 @@ Tune the assertion with `WithAssertionLifetime` and `WithAssertionAudience`. Via
 
 **Retrying the native grants** — only `Exchanger` retries on its own. To add retries to the x/oauth2-backed grants
 (`ClientCredentials`, `Refresh`, `AuthCode`, `DeviceFlow`), wrap the transport with `RetryTransport` and inject it via
-`WithHttpClient`; it retries transport errors, 429, and 5xx (only replayable requests; the last response is surfaced on exhaustion):
+`WithHTTPClient`; it retries transport errors, 429, and 5xx (only replayable requests; the last response is surfaced on exhaustion):
 
 ```go
 client := &http.Client{Transport: oauth2client.RetryTransport(http.DefaultTransport)}
-src := oauth2client.ClientCredentials(ctx, tokenURL, id, secret, oauth2client.WithHttpClient(client))
+src := oauth2client.ClientCredentials(ctx, tokenURL, id, secret, oauth2client.WithHTTPClient(client))
 ```
 
 Two RFC edge cases are preserved verbatim (see `parseTokenResponse` godoc): a response without `expires_in` yields a never-expiring

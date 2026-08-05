@@ -114,7 +114,7 @@ func (b *Builder[T]) buildStore() (saga.Store, error) {
 		}
 		return redisstore.New(b.redisClient,
 			redisstore.WithKeyPrefix(storage.Redis.KeysPrefix),
-			redisstore.WithTtl(storage.Redis.TTL),
+			redisstore.WithTTL(storage.Redis.TTL),
 		), nil
 	default:
 		return nil, fmt.Errorf("unsupported saga storage type %q", storage.Type)

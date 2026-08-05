@@ -35,19 +35,19 @@ func TestGenerator_Extract(t *testing.T) {
 		},
 		{
 			"invalid_uuid_generates_new",
-			[]Option{WithUuidGenerator(func() string { return "generated-id" })},
+			[]Option{WithUUIDGenerator(func() string { return "generated-id" })},
 			&mockHeaderGetter{headers: map[string]string{DefaultHTTPHeaderName: "invalid"}},
 			"generated-id",
 		},
 		{
 			"missing_header_generates_new",
-			[]Option{WithUuidGenerator(func() string { return "generated-id" })},
+			[]Option{WithUUIDGenerator(func() string { return "generated-id" })},
 			&mockHeaderGetter{headers: map[string]string{}},
 			"generated-id",
 		},
 		{
 			"nil_headers_generates_new",
-			[]Option{WithUuidGenerator(func() string { return "generated-id" })},
+			[]Option{WithUUIDGenerator(func() string { return "generated-id" })},
 			nil,
 			"generated-id",
 		},
@@ -55,7 +55,7 @@ func TestGenerator_Extract(t *testing.T) {
 			"custom_header_name",
 			[]Option{
 				WithHeaderName("X-Custom-ID"),
-				WithUuidGenerator(func() string { return "gen" }),
+				WithUUIDGenerator(func() string { return "gen" }),
 			},
 			&mockHeaderGetter{headers: map[string]string{"X-Custom-ID": validUUID}},
 			validUUID,

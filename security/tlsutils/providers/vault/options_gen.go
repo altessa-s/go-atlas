@@ -67,8 +67,8 @@ func WithCommonName[T interface{ string | *string }](v T) Option {
 	}
 }
 
-// WithIpSubjectAlternativeNames sets the ipSubjectAlternativeNames option.
-func WithIpSubjectAlternativeNames(v ...string) Option {
+// WithIPSubjectAlternativeNames sets the ipSubjectAlternativeNames option.
+func WithIPSubjectAlternativeNames(v ...string) Option {
 	return func(o *options) error {
 		if len(v) == 0 {
 			return nil

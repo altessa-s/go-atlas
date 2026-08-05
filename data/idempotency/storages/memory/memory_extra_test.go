@@ -50,7 +50,7 @@ func TestMemory_Delete_EmptyKey(t *testing.T) {
 }
 
 func TestMemory_RunCleanup(t *testing.T) {
-	s := New(WithTtl(10 * time.Millisecond))
+	s := New(WithTTL(10 * time.Millisecond))
 	ctx := t.Context()
 
 	_, _, _, _ = s.AttemptLock(ctx, "k1", []byte("v1"))
@@ -68,7 +68,7 @@ func TestMemory_RunCleanup(t *testing.T) {
 }
 
 func TestMemory_RunCleanup_NoTTL(t *testing.T) {
-	s := New(WithTtl(0))
+	s := New(WithTTL(0))
 	// Should not panic
 	s.RunCleanup()
 }
@@ -88,7 +88,7 @@ func TestMemory_RunCleanup_SchedulerManaged(t *testing.T) {
 // delete) is pinned deterministically in data/internal/memcleanup, which
 // this storage's cleanup delegates to.
 func TestMemory_RunCleanup_KeepsRefreshedEntry(t *testing.T) {
-	s := New(WithTtl(50 * time.Millisecond))
+	s := New(WithTTL(50 * time.Millisecond))
 	ctx := t.Context()
 
 	_, _, _, _ = s.AttemptLock(ctx, "stale", []byte("v1"))
@@ -113,7 +113,7 @@ func TestMemory_RunCleanup_KeepsRefreshedEntry(t *testing.T) {
 // once the entry's TTL fires, Complete with the original lockToken
 // fails with ErrLockStolen rather than upserting silently.
 func TestMemory_Complete_Expired(t *testing.T) {
-	s := New(WithTtl(10 * time.Millisecond))
+	s := New(WithTTL(10 * time.Millisecond))
 	ctx := t.Context()
 
 	_, _, lockToken, _ := s.AttemptLock(ctx, "k1", []byte("v1"))

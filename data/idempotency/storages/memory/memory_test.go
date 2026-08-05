@@ -64,7 +64,7 @@ func TestMemory_Delete(t *testing.T) {
 }
 
 func TestMemory_TTLExpiry(t *testing.T) {
-	s := New(WithTtl(10 * time.Millisecond))
+	s := New(WithTTL(10 * time.Millisecond))
 	ctx := t.Context()
 
 	_, _, _, _ = s.AttemptLock(ctx, "key1", []byte("val"))
@@ -105,7 +105,7 @@ func TestMemory_Concurrent(t *testing.T) {
 // TTL on AttemptLock: a short lockTtl wins over the long default,
 // and the entry is cleaned up by RunCleanup after expiry.
 func TestMemory_AttemptLockWithTTL_OverridesDefault(t *testing.T) {
-	s := New(WithTtl(time.Hour)) // long default
+	s := New(WithTTL(time.Hour)) // long default
 	ctx := t.Context()
 
 	ok, _, _, err := s.AttemptLockWithTTL(ctx, "k", []byte("lock"), 10*time.Millisecond)

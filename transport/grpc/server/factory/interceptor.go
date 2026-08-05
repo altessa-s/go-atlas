@@ -357,7 +357,7 @@ func (b *ServerBuilder) WithIdempotencyInterceptor() *ServerBuilder {
 	configOpts := []idempotency.Option{
 		idempotency.WithIdempotencyKeyHeader(c.IdempotencyKeyHeader),
 		idempotency.WithIdempotencyKeyStatusMetadata(c.IdempotencyKeyStatusMetadata),
-		idempotency.WithIdempotencyKeyEntityIdMetadata(c.IdempotencyKeyEntityIdMetadata),
+		idempotency.WithIdempotencyKeyEntityIDMetadata(c.IdempotencyKeyEntityIdMetadata),
 		idempotency.WithFallbackBehavior(factoryconv.ConvertFallbackBehavior(c.FallbackBehavior)),
 		idempotency.WithIgnoreMethods(c.IgnoreMethods...),
 	}

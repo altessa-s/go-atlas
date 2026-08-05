@@ -8,10 +8,36 @@ constructors, and validation code with an extensible plugin system.
 
 | Tag        | Purpose                                                                          |
 |------------|----------------------------------------------------------------------------------|
-| `opt`      | Option name for the `WithXxx` function; use `-` to skip generation               |
+| `opt`      | Option name for the `WithXxx` function; use `-` to skip generation. Omit it to derive the name from the field (see [Option naming](#option-naming)) |
 | `optgen`   | Generator directives: `default=...`, `append`, `notnil`, `manual`, `boolFlag`    |
 | `optval`   | Value modifiers applied in order: `trimspaces`, `lower`, `upper`, `dedup`        |
 | `optcheck` | Validation rules: `required`, `nonzero`, `minlen=N`, `maxlen=N`, `oneof=[a,b,c]`|
+
+## Option naming
+
+Without an `opt` tag the option name is derived from the field name, with every word that is a known initialism upper-cased — Go style requires an
+initialism to keep a consistent case throughout an identifier:
+
+| Field           | Generated                |
+|-----------------|--------------------------|
+| `ttl`           | `WithTTL`                |
+| `httpClient`    | `WithHTTPClient`         |
+| `entityId`      | `WithEntityIDExtractor`* |
+| `maxIdleTime`   | `WithMaxIdleTime`        |
+| `grpcOptions`   | `WithGrpcOptions`        |
+
+<sub>* for a field named `entityIdExtractor`.</sub>
+
+The table is golint's `commonInitialisms` plus `DB`. `gRPC` is deliberately absent: the repo spells it `Grpc` throughout (`config.Grpc`,
+`DefaultGrpc`), and a lone `WithGRPCOptions` would be less consistent, not more. To override a spelling the table gets wrong, name the option
+explicitly — the `opt` tag always wins:
+
+```go
+type options struct {
+    ttl time.Duration                // -> WithTTL
+    uid string        `opt:"Uid"`    // -> WithUid
+}
+```
 
 ## CLI commands
 
@@ -34,4 +60,5 @@ CLI flags always take precedence over config-file values. Per-package overrides 
 | [commands](./commands)   | Cobra-based CLI with `generate`, `list-plugins`, and `version`        |
 | [config](./config)       | Loads and merges `.optgen.yaml` configuration with per-package overrides|
 | [model](./model)         | Public data structures (`OptField`, `GenericInfo`) shared across parser|
+| `internal/naming`        | Derives option names from field names, with initialism handling       |
 | [plugin](./plugin)       | Public extension API: `FieldPlugin`, `TransformPlugin`, `Registry`    |

@@ -136,7 +136,7 @@ type options struct {
 // passing the request, the response Content-Type, and the captured body bytes.
 // If the function returns a non-empty string, it is stored alongside the
 // idempotency key and returned in the [DefaultIdempotencyKeyEntityIdHeader]
-// header on duplicate requests. Configure with [WithEntityIdExtractor].
+// header on duplicate requests. Configure with [WithEntityIDExtractor].
 type EntityIdExtractor func(r *http.Request, contentType string, body []byte) string
 
 // ErrorHandler writes an HTTP response for idempotency-related errors.

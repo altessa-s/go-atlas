@@ -11,8 +11,8 @@ import (
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
-// WithHttpClient sets the httpClient option.
-func WithHttpClient(v *http.Client) Option {
+// WithHTTPClient sets the httpClient option.
+func WithHTTPClient(v *http.Client) Option {
 	return func(o *options) {
 		if v == nil {
 			return

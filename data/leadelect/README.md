@@ -33,7 +33,7 @@ le := leadelect.New(provider, key, nodeID, opts...)
 
 | Option               | Default | Description                        |
 |----------------------|---------|------------------------------------|
-| `WithTtl`            | 10s     | Lease duration before leadership expires |
+| `WithTTL`            | 10s     | Lease duration before leadership expires |
 | `WithHandlerTimeout` | 3s      | Timeout for callback execution     |
 | `WithCollector`      | no-op   | Metrics collector                  |
 

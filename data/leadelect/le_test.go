@@ -50,7 +50,7 @@ func (m *mockProvider) IsRunning() bool                            { return m.is
 func TestNew(t *testing.T) {
 	prov := &mockProvider{nodeID: "node1"}
 
-	le := leadelect.New(prov, "election", "node1", leadelect.WithTtl(10*time.Second))
+	le := leadelect.New(prov, "election", "node1", leadelect.WithTTL(10*time.Second))
 	require.NotNil(t, le)
 }
 
@@ -94,7 +94,7 @@ func TestLeader_IsRunning_BeforeStart(t *testing.T) {
 
 func TestLeader_Start_SetsRunning(t *testing.T) {
 	prov := &mockProvider{}
-	le := leadelect.New(prov, "test", "n1", leadelect.WithTtl(time.Second))
+	le := leadelect.New(prov, "test", "n1", leadelect.WithTTL(time.Second))
 	ctx := t.Context()
 
 	err := le.Start(ctx)
@@ -106,7 +106,7 @@ func TestLeader_Start_SetsRunning(t *testing.T) {
 
 func TestLeader_Stop_ClearsRunning(t *testing.T) {
 	prov := &mockProvider{}
-	le := leadelect.New(prov, "test", "n1", leadelect.WithTtl(time.Second))
+	le := leadelect.New(prov, "test", "n1", leadelect.WithTTL(time.Second))
 	ctx := t.Context()
 
 	_ = le.Start(ctx)
@@ -134,7 +134,7 @@ func TestLeader_Start_Idempotent(t *testing.T) {
 			return nil
 		},
 	}
-	le := leadelect.New(prov, "test", "n1", leadelect.WithTtl(time.Second))
+	le := leadelect.New(prov, "test", "n1", leadelect.WithTTL(time.Second))
 	ctx := t.Context()
 
 	_ = le.Start(ctx)

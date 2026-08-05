@@ -76,7 +76,7 @@ func TestLeader_RegisterOnBecomesLeader_Called(t *testing.T) {
 	}
 
 	le := leadelect.New(prov, "test", "node-1",
-		leadelect.WithTtl(time.Second),
+		leadelect.WithTTL(time.Second),
 		leadelect.WithHandlerTimeout(2*time.Second),
 	)
 

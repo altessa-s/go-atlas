@@ -28,7 +28,7 @@ func RecommendedOptions() []Option {
 		WithFrameOptions(FrameOptionsDeny),
 		WithReferrerPolicy(ReferrerPolicyStrictOriginWhenCrossOrigin),
 		WithContentTypeNoSniff(),
-		WithXssProtectionDisabled(),
+		WithXSSProtectionDisabled(),
 		WithPermissionsPolicy(RecommendedPermissionsPolicy),
 	}
 }

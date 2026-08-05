@@ -9,6 +9,6 @@
 //
 //	conn, _ := nats.Connect("nats://localhost:4222")
 //	provider, _ := nats.New(ctx, conn, nats.WithLogger(logger))
-//	le := leadelect.New(provider, "my-service-leader", "instance-1", leadelect.WithTtl(30*time.Second))
+//	le := leadelect.New(provider, "my-service-leader", "instance-1", leadelect.WithTTL(30*time.Second))
 //	le.Start(ctx)
 package nats

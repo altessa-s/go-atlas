@@ -63,13 +63,13 @@ func TestMiddleware_PermissionsPolicy(t *testing.T) {
 
 func TestMiddleware_XssProtectionDisabled(t *testing.T) {
 	handler := Middleware(
-		WithXssProtectionDisabled(),
+		WithXSSProtectionDisabled(),
 	)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
 
-	// WithXssProtectionDisabled sets the header to "0" (disables browser XSS filter)
+	// WithXSSProtectionDisabled sets the header to "0" (disables browser XSS filter)
 	// rather than removing the header entirely
 	got := rec.Header().Get(HeaderXXSSProtection)
 	_ = got // just ensure the option is applied without panic

@@ -22,11 +22,11 @@ from gRPC metadata (default header: `Idempotency-Key`). Uses the driven intercep
 |-----------------------------------|----------------------------|---------------------------------------------|
 | `WithIdempotencyKeyHeader`        | `Idempotency-Key`          | Metadata header name for the key            |
 | `WithIdempotencyKeyStatusMetadata`| `Idempotency-Key-Status`   | Response metadata key for status            |
-| `WithIdempotencyKeyEntityIdMetadata`| `Idempotency-Key-Entity-Id`| Response metadata key for entity ID        |
+| `WithIdempotencyKeyEntityIDMetadata`| `Idempotency-Key-Entity-Id`| Response metadata key for entity ID        |
 | `WithFallbackBehavior`            | Deny                       | Behavior on storage failure (Allow/Deny/Error) |
 | `WithEnforceMandatory`            | false                      | When true, require idempotency key on all requests |
 | `WithKeyFormatValidator`          | UUID v4                    | Custom key format validation function        |
-| `WithEntityIdExtractor`           | nil                        | Extract entity ID from response              |
+| `WithEntityIDExtractor`           | nil                        | Extract entity ID from response              |
 | `WithExposeEntityID`              | false (off)                | Echo the stored entity ID to duplicate callers (see below) |
 | `WithStatusCreator`               | default messages           | Custom error status creation function        |
 

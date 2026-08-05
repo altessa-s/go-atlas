@@ -17,7 +17,7 @@ func FuzzGenerator_Extract(f *testing.F) {
 	f.Add("not-even-close")
 
 	f.Fuzz(func(t *testing.T, headerValue string) {
-		gen := NewGenerator(WithUuidGenerator(func() string { return "fallback" }))
+		gen := NewGenerator(WithUUIDGenerator(func() string { return "fallback" }))
 		headers := &fuzzHeaderGetter{value: headerValue}
 		result := gen.Extract(headers)
 		assert.NotEqual(t, "", result)

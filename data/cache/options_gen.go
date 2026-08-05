@@ -62,8 +62,8 @@ func WithName[T interface{ string | *string }](v T) Option {
 	}
 }
 
-// WithNegativeTtl sets the negativeTtl option.
-func WithNegativeTtl(v time.Duration) Option {
+// WithNegativeTTL sets the negativeTtl option.
+func WithNegativeTTL(v time.Duration) Option {
 	return func(o *options) {
 		if v <= 0 {
 			return
@@ -79,8 +79,8 @@ func WithSerializer(v serializer.Serializer) Option {
 	}
 }
 
-// WithTtl sets the ttl option.
-func WithTtl(v time.Duration) Option {
+// WithTTL sets the ttl option.
+func WithTTL(v time.Duration) Option {
 	return func(o *options) {
 		if v <= 0 {
 			return

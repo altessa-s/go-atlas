@@ -148,17 +148,17 @@ func TestOptions(t *testing.T) {
 		},
 		{
 			name: "ttl positive",
-			opts: []Option{WithTtl(24 * time.Hour)},
+			opts: []Option{WithTTL(24 * time.Hour)},
 			want: options{collectionName: DefaultCollectionName, indexTimeout: DefaultIndexTimeout, ttl: 24 * time.Hour},
 		},
 		{
 			name: "ttl zero ignored",
-			opts: []Option{WithTtl(0)},
+			opts: []Option{WithTTL(0)},
 			want: options{collectionName: DefaultCollectionName, indexTimeout: DefaultIndexTimeout},
 		},
 		{
 			name: "ttl negative ignored",
-			opts: []Option{WithTtl(-time.Hour)},
+			opts: []Option{WithTTL(-time.Hour)},
 			want: options{collectionName: DefaultCollectionName, indexTimeout: DefaultIndexTimeout},
 		},
 	}

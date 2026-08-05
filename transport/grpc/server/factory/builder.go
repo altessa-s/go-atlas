@@ -113,7 +113,7 @@ func (b *ServerBuilder) Build() (*grpcserver.Server, error) {
 		if err != nil {
 			return nil, err
 		}
-		baseOpts = append(baseOpts, baseserver.WithTlsConfig(tlsConfig))
+		baseOpts = append(baseOpts, baseserver.WithTLSConfig(tlsConfig))
 	}
 
 	opts = append(opts, grpcserver.WithBaseOptions(baseOpts...))

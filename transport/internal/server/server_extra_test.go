@@ -20,7 +20,7 @@ func TestWithLogger(t *testing.T) {
 
 func TestWithTlsConfig(t *testing.T) {
 	cfg := &tls.Config{MinVersion: tls.VersionTLS13}
-	s := NewBaseServer(WithAddress(":0"), WithTlsConfig(cfg))
+	s := NewBaseServer(WithAddress(":0"), WithTLSConfig(cfg))
 	require.False(t, s.TLSConfig() != cfg, "TLSConfig() does not match provided config")
 	require.True(t, s.HasTLS(), "HasTLS() should be true")
 }
@@ -38,7 +38,7 @@ func TestTLSConfig_Nil(t *testing.T) {
 
 func TestProtocol_WithTLS(t *testing.T) {
 	cfg := &tls.Config{MinVersion: tls.VersionTLS13}
-	s := NewBaseServer(WithAddress(":0"), WithTlsConfig(cfg))
+	s := NewBaseServer(WithAddress(":0"), WithTLSConfig(cfg))
 	got := s.Protocol("http")
 	require.Equal(t, "http+tls", got)
 }

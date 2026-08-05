@@ -130,7 +130,7 @@ func TestStorage_TTLExpiry(t *testing.T) {
 	client, mr := testhelpers.RedisClient(t)
 
 	// Create storage with short TTL
-	storage := idempredis.New(client, idempredis.WithTtl(1*time.Second))
+	storage := idempredis.New(client, idempredis.WithTTL(1*time.Second))
 	ctx := t.Context()
 
 	key := "test-key"

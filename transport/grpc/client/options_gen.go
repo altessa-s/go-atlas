@@ -159,8 +159,8 @@ func WithQueryTimeout(v time.Duration) Option {
 	}
 }
 
-// WithTlsConfig sets the tlsConfig option.
-func WithTlsConfig(v *tls.Config) Option {
+// WithTLSConfig sets the tlsConfig option.
+func WithTLSConfig(v *tls.Config) Option {
 	return func(o *options) {
 		if v == nil {
 			return

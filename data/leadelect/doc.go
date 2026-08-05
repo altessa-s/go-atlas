@@ -16,7 +16,7 @@
 // # Usage
 //
 //	provider, _ := nats.New(ctx, conn, nats.WithBucket("leaders"))
-//	le := leadelect.New(provider, "my-service", "node-1", leadelect.WithTtl(30*time.Second))
+//	le := leadelect.New(provider, "my-service", "node-1", leadelect.WithTTL(30*time.Second))
 //	le.RegisterOnBecomesLeader(func(ctx context.Context, _ leadelect.LeaderElector) {
 //	    log.Println("Acquired leadership, starting background tasks...")
 //	})

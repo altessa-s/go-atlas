@@ -152,7 +152,7 @@ func (b *ServerBuilder) WithIdempotencyMiddleware() *ServerBuilder {
 		idempotencymw.WithLogger(b.Logger()),
 		idempotencymw.WithIdempotencyKeyHeader(c.IdempotencyKeyHeader),
 		idempotencymw.WithIdempotencyKeyStatusHeader(c.IdempotencyKeyStatusHeader),
-		idempotencymw.WithIdempotencyKeyEntityIdHeader(c.IdempotencyKeyEntityIdHeader),
+		idempotencymw.WithIdempotencyKeyEntityIDHeader(c.IdempotencyKeyEntityIdHeader),
 		idempotencymw.WithFallbackBehavior(factoryconv.ConvertFallbackBehavior(c.FallbackBehavior)),
 		idempotencymw.WithIgnorePaths(c.IgnorePaths...),
 	}
@@ -429,7 +429,7 @@ func (b *ServerBuilder) WithSecurityHeadersMiddleware() *ServerBuilder {
 	configOpts = slices.AppendIf(configOpts, c.HstsIncludeSubDomains, securityheadersmw.WithHstsIncludeSubDomains())
 	configOpts = slices.AppendIf(configOpts, c.HstsPreload, securityheadersmw.WithHstsPreload())
 	configOpts = slices.AppendIf(configOpts, c.ContentTypeNoSniff, securityheadersmw.WithContentTypeNoSniff())
-	configOpts = slices.AppendIf(configOpts, c.XssProtectionDisabled, securityheadersmw.WithXssProtectionDisabled())
+	configOpts = slices.AppendIf(configOpts, c.XssProtectionDisabled, securityheadersmw.WithXSSProtectionDisabled())
 
 	b.configMW = append(b.configMW, securityheadersmw.New(configOpts...))
 	return b
