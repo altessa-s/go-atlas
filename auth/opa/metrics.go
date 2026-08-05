@@ -17,11 +17,12 @@ const DefaultMetricsSubsystem = "auth_opa"
 // When no [metrics.Collector] is provided, [metrics.Noop] is used and
 // all methods become zero-cost no-ops.
 type opaMetrics struct {
-	policyReloads      metrics.Counter
-	reloadDuration     metrics.Timer
-	evaluations        metrics.Counter
-	evaluationDuration metrics.Timer
-	modulesLoaded      metrics.Gauge
+	policyReloads        metrics.Counter
+	reloadDuration       metrics.Timer
+	evaluations          metrics.Counter
+	evaluationDuration   metrics.Timer
+	modulesLoaded        metrics.Gauge
+	decisionCacheLookups metrics.Counter
 }
 
 func newOpaMetrics(c metrics.Collector) *opaMetrics {
@@ -57,6 +58,14 @@ func newOpaMetrics(c metrics.Collector) *opaMetrics {
 		modulesLoaded: scoped.MustGauge(metrics.MetricOpts{
 			Name: "modules_loaded",
 			Help: "Number of policy modules currently loaded.",
+		}),
+		// Separate from evaluations_total, whose "result" label describes the
+		// decision (allow/deny); conflating the two would make neither
+		// answerable on its own.
+		decisionCacheLookups: scoped.MustCounter(metrics.MetricOpts{
+			Name:       "decision_cache_lookups_total",
+			Help:       "Total number of decision cache lookups, by outcome.",
+			LabelNames: []string{"result"},
 		}),
 	}
 }
