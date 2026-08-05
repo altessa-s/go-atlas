@@ -18,10 +18,10 @@ import (
 // deliberately lives in the test file; production code must not call it.
 func resetShutdownStateForTest(t *testing.T) {
 	t.Helper()
-	shutdownMu.Lock()
-	shutdownHooks = nil
-	shutdownOnce = sync.Once{}
-	shutdownMu.Unlock()
+	processHooks.mu.Lock()
+	processHooks.hooks = nil
+	processHooks.once = sync.Once{}
+	processHooks.mu.Unlock()
 }
 
 func TestOnShutdownRegistersHook(t *testing.T) {

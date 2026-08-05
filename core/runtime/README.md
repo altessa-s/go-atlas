@@ -4,7 +4,8 @@
 import "github.com/altessa-s/go-atlas/core/runtime"
 ```
 
-Package `runtime` provides low-level runtime utilities: GC cleanup hooks, finalizer management, and a global shutdown hook registry.
+Package `runtime` provides low-level runtime utilities: GC cleanup hooks, finalizer management, and shutdown hook registries — one process-wide, plus
+scoped groups for components that outlive neither.
 
 ## Functions
 
@@ -12,8 +13,43 @@ Package `runtime` provides low-level runtime utilities: GC cleanup hooks, finali
 |--------------------|-----------------------------------------------------------------|
 | `AddCleanup`       | Attach a GC cleanup callback to an object (`runtime.AddCleanup` wrapper) |
 | `ClearFinalizer`   | Remove a finalizer previously set via `runtime.SetFinalizer`    |
-| `OnShutdown`       | Register a shutdown hook (LIFO order)                           |
-| `RunShutdownHooks` | Execute all registered hooks exactly once; errors are joined    |
+| `OnShutdown`       | Register a process-wide shutdown hook (LIFO order)              |
+| `RunShutdownHooks` | Execute all process-wide hooks exactly once; errors are joined  |
+
+## Key types
+
+| Type        | Description                                                                       |
+|-------------|-----------------------------------------------------------------------------------|
+| `HookGroup` | An independently runnable set of shutdown hooks; zero value ready, safe concurrent |
+
+## Shutdown scopes
+
+`OnShutdown` / `RunShutdownHooks` register into one implicit group whose lifetime is the **process**: it runs at most once, and a component that
+registered there cannot be stopped on its own. That is right for a resource that lives as long as the program, and wrong for a background component
+owned by a factory, a test, or a subsystem that is torn down and rebuilt — those need a scope of their own.
+
+`HookGroup` is that scope. It has the same semantics inside its own boundary — LIFO, at most once, errors joined, a failing hook does not stop the
+rest — but each group runs independently:
+
+```go
+type Subsystem struct {
+    hooks runtime.HookGroup // zero value is ready to use
+}
+
+func (s *Subsystem) Start() error {
+    s.hooks.OnShutdown(s.engine.Stop)
+    s.hooks.OnShutdown(s.storage.Close)
+    return nil
+}
+
+// Stop tears down only this subsystem; the process keeps running.
+func (s *Subsystem) Stop(ctx context.Context) error {
+    return s.hooks.Shutdown(ctx) // storage.Close, then engine.Stop
+}
+```
+
+Hooks registered while `Shutdown` is running are not executed: the set is snapshotted up front, so a self-registering hook cannot extend the sequence
+it is part of.
 
 ## Subpackages
 

@@ -14,6 +14,8 @@ import (
 	"github.com/altessa-s/go-atlas/data/audit"
 	"github.com/altessa-s/go-atlas/data/audit/storages/memory"
 	"github.com/altessa-s/go-atlas/service/dispatch"
+
+	coreruntime "github.com/altessa-s/go-atlas/core/runtime"
 )
 
 // newTestEngine creates a dispatch.Engine backed by the given store with
@@ -253,4 +255,39 @@ func TestAuditor_Context(t *testing.T) {
 	assert.Equal(t, a, got)
 
 	assert.Nil(t, audit.FromContext(t.Context()))
+}
+
+// Without WithShutdownHooks the auditor registers into the process-wide
+// registry, which runs once for the whole program — so a factory-owned auditor
+// could not be stopped on its own. With a group, Shutdown on that group stops
+// it and nothing else.
+func TestAuditor_ShutdownHooksScope(t *testing.T) {
+	t.Parallel()
+
+	store := memory.New()
+	eng := newTestEngine(t, store)
+	require.NoError(t, eng.Start())
+	defer eng.Shutdown(t.Context()) //nolint:errcheck // test cleanup
+
+	var hooks coreruntime.HookGroup
+
+	a, err := audit.New(eng, audit.WithShutdownHooks(&hooks))
+	require.NoError(t, err)
+	require.NoError(t, a.Start())
+
+	require.True(t, a.Emit(&audit.Event{
+		Type:   audit.EventTypeBusinessEvent,
+		Action: audit.ActionCreate,
+		Actor:  audit.Actor{Type: audit.ActorTypeUser, ID: "user-scope"},
+		Result: audit.Result{Status: audit.ResultStatusSuccess},
+	}), "auditor must accept events while started")
+
+	require.NoError(t, hooks.Shutdown(t.Context()))
+
+	assert.False(t, a.Emit(&audit.Event{
+		Type:   audit.EventTypeBusinessEvent,
+		Action: audit.ActionCreate,
+		Actor:  audit.Actor{Type: audit.ActorTypeUser, ID: "user-scope"},
+		Result: audit.Result{Status: audit.ResultStatusSuccess},
+	}), "the group's Shutdown must have stopped the auditor")
 }
