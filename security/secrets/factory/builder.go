@@ -69,7 +69,10 @@ func (b *ManagerBuilder) Build(ctx context.Context) (*secrets.Manager[any], erro
 	}
 
 	// Build manager options from config
-	managerOpts := b.buildManagerOptions()
+	managerOpts, err := b.buildManagerOptions()
+	if err != nil {
+		return nil, err
+	}
 
 	// Add scheduler and update schedule options if scheduler is available
 	managerOpts = slices.AppendIf(managerOpts, b.scheduler != nil,
@@ -151,8 +154,8 @@ func (b *ManagerBuilder) createProvider(ctx context.Context) (secrets.Provider[a
 }
 
 // buildManagerOptions builds manager options from configuration.
-func (b *ManagerBuilder) buildManagerOptions() []secrets.Option {
-	return []secrets.Option{
+func (b *ManagerBuilder) buildManagerOptions() ([]secrets.Option, error) {
+	opts := []secrets.Option{
 		secrets.WithLogger(b.Logger()),
 		secrets.WithMaxRetries(b.cfg.Retry.MaxAttempts),
 		secrets.WithExponentialConfig(retry.ExponentialConfig{
@@ -162,4 +165,52 @@ func (b *ManagerBuilder) buildManagerOptions() []secrets.Option {
 			Jitter:    b.cfg.Retry.Jitter,
 		}),
 	}
+
+	return slices.AppendNonNilErr(opts, func() (secrets.Option, error) {
+		cache, err := createCache(b.cfg.Cache)
+		if err != nil || cache == nil {
+			return nil, err
+		}
+
+		return secrets.WithCache[any](cache), nil
+	})
+}
+
+// valueCache is the cache type a [secrets.Manager] of type any expects.
+//
+// The instantiation matters: [secrets.WithCache] accepts the cache as an `any`
+// and the Manager silently falls back to its own default when the type
+// assertion fails, so a mismatch here would look like a working cache that is
+// never consulted.
+type valueCache = secrets.Cache[string, *secrets.Value[any]]
+
+// createCache builds the value cache described by cfg, or nil to leave the
+// choice to the Manager.
+//
+// ShardCount selects the implementation: zero means one standard LRU, anything
+// higher means a sharded one, which trades memory for reduced lock contention.
+// MaxSize zero means the Manager's own default, so returning nil and letting it
+// build its own cache is the faithful mapping — not a cache of size zero, which
+// the LRU rejects outright.
+func createCache(cfg config.SecretsCache) (valueCache, error) {
+	if cfg.MaxSize <= 0 {
+		return nil, nil //nolint:nilnil // no override; the Manager builds its default cache
+	}
+
+	if cfg.ShardCount <= 0 {
+		cache, err := secrets.NewStandardCache[string, *secrets.Value[any]](cfg.MaxSize)
+		if err != nil {
+			return nil, coreerrs.WrapOperation(err, "create secrets cache")
+		}
+
+		return cache, nil
+	}
+
+	cache, err := secrets.NewShardedCache[string, *secrets.Value[any]](
+		cfg.MaxSize, secrets.WithShardCount(cfg.ShardCount))
+	if err != nil {
+		return nil, coreerrs.WrapOperation(err, "create sharded secrets cache")
+	}
+
+	return cache, nil
 }
