@@ -5,7 +5,6 @@
 package saga_test
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -14,8 +13,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/data/saga"
 	"github.com/altessa-s/go-atlas/data/saga/storages/memory"
-
-	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 // twoStepDef builds a two-step saga (both compensatable) used by the recovery
@@ -137,21 +135,9 @@ func TestRecoveryLeaderElector(t *testing.T) {
 	}
 }
 
-// fakeRegistrar is a no-op [corescheduler.TaskRegistrar] that records calls.
-type fakeRegistrar struct {
-	registered int
-	lastID     string
-}
-
-func (f *fakeRegistrar) Register(_ context.Context, cfg corescheduler.TaskConfig) error {
-	f.registered++
-	f.lastID = cfg.ID
-	return nil
-}
-
 func TestRunRecoveryCycleSchedulerManaged(t *testing.T) {
 	t.Parallel()
-	reg := &fakeRegistrar{}
+	reg := &testhelpers.MockTaskRegistrar{}
 
 	orch := saga.New(memory.New(), twoStepDef(&recorder{}),
 		saga.WithScheduler(reg),
@@ -159,8 +145,9 @@ func TestRunRecoveryCycleSchedulerManaged(t *testing.T) {
 		saga.WithRecoveryTaskID("saga-recovery-test"),
 	)
 
-	require.Equal(t, 1, reg.registered)
-	require.Equal(t, "saga-recovery-test", reg.lastID)
+	require.Equal(t, 1, reg.Count())
+	_, ok := reg.Task("saga-recovery-test")
+	require.True(t, ok)
 
 	err := orch.RunRecoveryCycle(t.Context())
 	require.ErrorIs(t, err, saga.ErrSchedulerManaged)
