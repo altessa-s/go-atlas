@@ -25,27 +25,33 @@ const (
 //
 // The migration process:
 //   - Sets the database and migration collection
+//   - Acquires the database-wide migration lock, waiting for any peer that
+//     holds it (see [Mongo.withMigrationLock] for why this is required)
 //   - Runs all available migrations with UP direction
 //   - If any migration fails, attempts to rollback all migrations
 //   - Logs warnings for rollback failures but returns the original error
+//   - Releases the lock
 //
 // Parameters:
 //   - ctx: Context for controlling migration timeout and cancellation
 //
 // Returns:
-//   - error: Error if migrations fail or if rollback is needed
+//   - error: Error if the lock cannot be acquired, migrations fail, or if
+//     rollback is needed
 func (m *Mongo) migrate(ctx context.Context) error {
 	migrate.SetDatabase(m.client.Database(m.DatabaseName()))
 	migrate.SetMigrationsCollection(MigrationCollectionName)
 
-	if err := migrate.Up(ctx, migrate.AllAvailable); err != nil {
-		if rollbackErr := migrate.Down(ctx, migrate.AllAvailable); rollbackErr != nil {
-			if m.config.Logger != nil {
-				m.config.Logger.Warn("failed to rollback migrations", slog.Any("error", err), "rollback_error", rollbackErr)
+	return m.withMigrationLock(ctx, func(ctx context.Context) error {
+		if err := migrate.Up(ctx, migrate.AllAvailable); err != nil {
+			if rollbackErr := migrate.Down(ctx, migrate.AllAvailable); rollbackErr != nil {
+				if m.config.Logger != nil {
+					m.config.Logger.Warn("failed to rollback migrations", slog.Any("error", err), "rollback_error", rollbackErr)
+				}
 			}
+			return err
 		}
-		return err
-	}
 
-	return nil
+		return nil
+	})
 }
