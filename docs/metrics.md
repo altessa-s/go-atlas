@@ -260,6 +260,7 @@ Package: `auth/opa`
 | `auth_opa_evaluations_total`              | Counter   | `result` | Policy evaluations              |
 | `auth_opa_evaluation_duration_seconds`    | Histogram | --       | Policy evaluation duration      |
 | `auth_opa_modules_loaded`                 | Gauge     | --       | Policy modules currently loaded |
+| `auth_opa_decision_cache_lookups_total`   | Counter   | `result` | Decision cache lookups (`hit`/`miss`); emitted only when the decision cache is enabled |
 
 ---
 
