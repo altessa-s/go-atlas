@@ -416,6 +416,17 @@ func (t *Translator) acceptPredicate(node filter.Node) (string, error) {
 		return col + " = " + lit, nil
 	}
 
+	// A literal is a value, never a predicate, and it has to be turned away
+	// before the walk rather than after it. VisitLiteral returns the value
+	// itself, so a string literal comes back as a Go string — which is
+	// indistinguishable, by the type assertion below, from a rendered clause.
+	// The expression `"1=1 OR ..."` would therefore have been emitted into the
+	// WHERE clause verbatim, unquoted and unbound, defeating both the
+	// allow-list and the placeholders.
+	if lit, ok := node.(*filter.LiteralNode); ok {
+		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected filter clause, got literal %T", lit.Value)
+	}
+
 	result, err := node.Accept(t)
 	if err != nil {
 		return "", err

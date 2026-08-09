@@ -26,7 +26,7 @@ const (
 	FieldTypeText
 )
 
-// tagEscaper replaces RediSearch special characters in TAG values.
+// tagEscaper replaces the RediSearch special characters in a query value.
 var tagEscaper = strings.NewReplacer(
 	`,`, `\,`,
 	`.`, `\.`,
@@ -109,6 +109,15 @@ func (t *Translator) acceptPredicate(node filter.Node) (string, error) {
 		}
 		return fmt.Sprintf("@%s:{true}", field), nil
 	}
+
+	// A literal is a value, never a predicate. VisitLiteral formats the value
+	// on its own, so a bare string literal would be handed to RediSearch as a
+	// query fragment — free-text terms, field selectors and all — instead of
+	// being compared against a field the allow-list vetted.
+	if lit, ok := node.(*filter.LiteralNode); ok {
+		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected filter clause, got literal %T", lit.Value)
+	}
+
 	return t.getQueryString(node)
 }
 
@@ -246,7 +255,7 @@ func (t *Translator) buildNumericComparison(field string, op filter.Operator, va
 
 // buildTagComparison creates a RediSearch TAG expression.
 func (t *Translator) buildTagComparison(field string, op filter.Operator, value any) (string, error) {
-	v := t.escapeTagValue(fmt.Sprintf("%v", value))
+	v := t.escapeQueryValue(fmt.Sprintf("%v", value))
 
 	switch op {
 	case filter.OpEqual:
@@ -260,7 +269,7 @@ func (t *Translator) buildTagComparison(field string, op filter.Operator, value 
 
 // buildTextComparison creates a RediSearch TEXT expression (== only for exact match via TAG fallback).
 func (t *Translator) buildTextComparison(field string, op filter.Operator, value any) (string, error) {
-	v := fmt.Sprintf("%v", value)
+	v := t.escapeQueryValue(fmt.Sprintf("%v", value))
 
 	switch op {
 	case filter.OpEqual:
@@ -374,12 +383,12 @@ func (t *Translator) buildIn(field string, values []any, ft FieldType) (string, 
 		return "(" + strings.Join(rendered, "|") + ")", nil
 	case FieldTypeTag:
 		for _, v := range values {
-			rendered = append(rendered, t.escapeTagValue(fmt.Sprintf("%v", v)))
+			rendered = append(rendered, t.escapeQueryValue(fmt.Sprintf("%v", v)))
 		}
 		return fmt.Sprintf("@%s:{%s}", field, strings.Join(rendered, "|")), nil
 	case FieldTypeText:
 		for _, v := range values {
-			rendered = append(rendered, fmt.Sprintf("%v", v))
+			rendered = append(rendered, t.escapeQueryValue(fmt.Sprintf("%v", v)))
 		}
 		return fmt.Sprintf("@%s:(%s)", field, strings.Join(rendered, "|")), nil
 	default:
@@ -427,7 +436,7 @@ func (t *Translator) translateTextSearch(
 		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "%s argument must be a string", name)
 	}
 
-	return fmt.Sprintf(format, field, s), nil
+	return fmt.Sprintf(format, field, t.escapeQueryValue(s)), nil
 }
 
 // getFieldName extracts the field name from a node.
@@ -444,6 +453,14 @@ func (t *Translator) getQueryString(node filter.Node) (string, error) {
 // two callers differ only in what they were expecting, which is what
 // want names in the error.
 func (t *Translator) acceptString(node filter.Node, want string) (string, error) {
+	// A call can reach here with no target at all — `contains()` parses into a
+	// CallNode whose Target is nil — and accepting a nil Node panics. That
+	// makes a filter expression a client controls able to crash the process, so
+	// the absent node is reported as the malformed expression it is.
+	if node == nil {
+		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "missing %s", want)
+	}
+
 	result, err := node.Accept(t)
 	if err != nil {
 		return "", err
@@ -501,8 +518,15 @@ func (t *Translator) formatNumericValue(value any) string {
 	}
 }
 
-// escapeTagValue escapes RediSearch special characters in TAG values.
-func (t *Translator) escapeTagValue(s string) string {
+// escapeQueryValue escapes the RediSearch special characters in a
+// caller-supplied value, for TAG and TEXT alike.
+//
+// TEXT values were interpolated raw until a fuzz target showed what that
+// allows: RediSearch has no quoting to hide inside, so a value carrying
+// `) | (@other:...` closed its own group and opened a clause against another
+// field. Escaping a space turns a multi-word value into one term rather than an
+// implicit AND of two, which is the fail-closed reading of a caller's literal.
+func (t *Translator) escapeQueryValue(s string) string {
 	return tagEscaper.Replace(s)
 }
 
