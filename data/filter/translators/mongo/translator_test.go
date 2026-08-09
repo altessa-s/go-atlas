@@ -822,3 +822,34 @@ func TestTranslator_NilNodeMatchesAll(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, bson.M{}, got)
 }
+
+// TestTranslator_SizeOutsideComparison is a regression for a marker leak a fuzz
+// target found: `tags.size()` used as a whole filter translated to
+// {"__size_field__": "tags"} — the translator's own internal marker, sent to
+// MongoDB as a field name. It matched nothing and reported no error, so a
+// caller saw an empty result set rather than a rejected expression. The SQL
+// translator has always turned the same expression away.
+func TestTranslator_SizeOutsideComparison(t *testing.T) {
+	t.Parallel()
+
+	parser, err := filter.NewParser(filter.WithParserNoCache())
+	require.NoError(t, err)
+
+	translator, err := NewTranslator(filter.WithAllowedFields("tags"))
+	require.NoError(t, err)
+
+	node, err := parser.Parse(t.Context(), "tags.size()")
+	require.NoError(t, err, "the parser accepts this; the translator is what must refuse it")
+
+	doc, err := translator.Translate(node)
+	require.ErrorIs(t, err, filter.ErrUnsupportedOperation)
+	require.Empty(t, doc, "a rejected expression must not also produce a query")
+
+	// The comparison form remains valid — this is the shape the marker exists for.
+	node, err = parser.Parse(t.Context(), "tags.size() > 2")
+	require.NoError(t, err)
+	doc, err = translator.Translate(node)
+	require.NoError(t, err)
+	require.NotContains(t, bsonToJSON(doc), sizeFieldMarker,
+		"the internal marker must never survive into a query")
+}
