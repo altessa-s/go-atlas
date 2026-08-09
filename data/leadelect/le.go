@@ -22,6 +22,14 @@ import (
 	natsio "github.com/nats-io/nats.go"
 )
 
+// transitionBuffer is the per-channel buffer for leadership transition
+// notifications. A leadership change is an edge: if the dispatch goroutine is
+// busy running a previous callback at the instant the provider publishes the
+// next transition, an unbuffered channel would silently swallow it — losing a
+// "leadership lost" edge is how a node keeps acting as leader after it is not.
+// The buffer decouples the provider's send from the dispatcher's readiness.
+const transitionBuffer = 8
+
 // Leader manages distributed leader election with configurable callbacks.
 // It wraps a provider and notifies registered callbacks on leadership changes.
 type Leader struct {
@@ -38,8 +46,16 @@ type Leader struct {
 	onBecomesLeader []Callback
 
 	handlerTimeout time.Duration
-	handlersWg     sync.WaitGroup
-	isRunning      atomic.Bool
+
+	// lifecycleMu serializes Start and Stop so dispatchCancel is never read
+	// before the Start that wrote it. A lock-free CAS on isRunning cannot
+	// order that write against Stop's read: Stop's CAS only proves Start's CAS
+	// already ran, not that Start finished publishing the cancel func.
+	lifecycleMu    sync.Mutex
+	dispatchCancel context.CancelFunc
+	dispatchWg     sync.WaitGroup
+
+	isRunning atomic.Bool
 }
 
 // New creates a new Leader for the given election key and node identifier.
@@ -80,12 +96,29 @@ func NewWithNats(ctx context.Context, conn *natsio.Conn, key, nodeID string, opt
 }
 
 // Stop gracefully stops the leader election and waits for running callbacks.
+// Once it returns, no callback is executing and the dispatch goroutine has
+// exited. The context bounds the provider's own shutdown (lease resignation).
 func (le *Leader) Stop(ctx context.Context) error {
+	le.lifecycleMu.Lock()
+	defer le.lifecycleMu.Unlock()
+
 	if !le.isRunning.CompareAndSwap(true, false) {
 		return nil
 	}
+
+	// Stop the provider first, while the dispatch goroutine is still receiving:
+	// that is what lets the provider's final "stopped" notification land.
 	err := le.provider.Stop(ctx)
-	le.handlersWg.Wait()
+
+	// Then stop the dispatch loop and join it. Callbacks run synchronously
+	// inside that goroutine, so joining it — rather than a separate wait group
+	// registered after the channel receive — is what makes the "waits for
+	// running callbacks" contract actually hold.
+	le.dispatchCancel()
+	le.dispatchWg.Wait()
+	le.dispatchCancel = nil
+
+	le.metrics.isLeader.Set(0)
 
 	return err
 }
@@ -129,15 +162,18 @@ func (le *Leader) RegisterOnBecomesLeader(handler Callback) {
 //
 //	err := le.Start(ctx)
 func (le *Leader) Start(ctx context.Context) error {
-	if !le.isRunning.CompareAndSwap(false, true) {
+	le.lifecycleMu.Lock()
+	defer le.lifecycleMu.Unlock()
+
+	if le.isRunning.Load() {
 		return nil
 	}
 
 	ctx = corecontext.OrBackground(ctx)
 
-	lostCh := make(chan struct{})
-	becomeCh := make(chan struct{})
-	stopCh := make(chan struct{})
+	lostCh := make(chan struct{}, transitionBuffer)
+	becomeCh := make(chan struct{}, transitionBuffer)
+	stopCh := make(chan struct{}, 1)
 
 	provCfg := providers.Config{
 		Key:      le.key,
@@ -148,64 +184,68 @@ func (le *Leader) Start(ctx context.Context) error {
 		StopCh:   stopCh,
 	}
 
-	go func() {
+	// The dispatch loop runs on its own cancelable context so Stop can end it
+	// deterministically. Relying on the provider's StopCh alone leaked the
+	// goroutine: that notification is best-effort and the caller's context may
+	// outlive the election by an arbitrary amount.
+	dispatchCtx, cancel := context.WithCancel(ctx)
+
+	le.dispatchWg.Go(func() {
 		// Repo rule: every spawned goroutine ships with panics.Handle so
 		// a panic inside a user callback (becomeLeader / lostLeader) does
 		// not crash the process.
-		defer panics.Handle(ctx)
+		defer panics.Handle(dispatchCtx)
+		le.dispatch(dispatchCtx, becomeCh, lostCh, stopCh)
+	})
 
-		// NOTE: We intentionally do NOT close channels here.
-		// The provider sends to these channels from another goroutine.
-		// Closing them here would cause "send on closed channel" panic
-		// if the provider tries to send after this goroutine exits.
-		// Channels will be garbage collected when no longer referenced.
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case _, ok := <-stopCh:
-				if !ok {
-					return
-				}
-				// Provider signaled stop
-				return
-			case _, ok := <-becomeCh:
-				if !ok {
-					return
-				}
-				le.metrics.transitions.WithLabels(metrics.Labels{"type": "became_leader"}).Inc()
-				le.metrics.isLeader.Set(1)
-				le.becomeMu.RLock()
-				cbs := le.onBecomesLeader
-				le.becomeMu.RUnlock()
-				le.runCallback(ctx, cbs...)
-			case _, ok := <-lostCh:
-				if !ok {
-					return
-				}
-				le.metrics.transitions.WithLabels(metrics.Labels{"type": "lost_leader"}).Inc()
-				le.metrics.isLeader.Set(0)
-				le.lostMu.RLock()
-				cbs := le.onLeaderLost
-				le.lostMu.RUnlock()
-				le.runCallback(ctx, cbs...)
-			}
+	if err := le.provider.Start(ctx, provCfg); err != nil {
+		cancel()
+		le.dispatchWg.Wait()
+		return err
+	}
+
+	le.dispatchCancel = cancel
+	le.isRunning.Store(true)
+
+	return nil
+}
+
+// dispatch consumes leadership transitions and runs the registered callbacks.
+// Callbacks execute synchronously here, so the goroutine's lifetime is exactly
+// the window in which a callback may be running — which is what Stop joins on.
+//
+// NOTE: the transition channels are intentionally never closed. The provider
+// sends to them from another goroutine, so closing them here would risk a
+// "send on closed channel" panic. They are garbage collected once unreferenced.
+func (le *Leader) dispatch(ctx context.Context, becomeCh, lostCh, stopCh <-chan struct{}) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-stopCh:
+			return
+		case <-becomeCh:
+			le.metrics.transitions.WithLabels(metrics.Labels{"type": "became_leader"}).Inc()
+			le.metrics.isLeader.Set(1)
+			le.becomeMu.RLock()
+			cbs := le.onBecomesLeader
+			le.becomeMu.RUnlock()
+			le.runCallback(ctx, cbs...)
+		case <-lostCh:
+			le.metrics.transitions.WithLabels(metrics.Labels{"type": "lost_leader"}).Inc()
+			le.metrics.isLeader.Set(0)
+			le.lostMu.RLock()
+			cbs := le.onLeaderLost
+			le.lostMu.RUnlock()
+			le.runCallback(ctx, cbs...)
 		}
-	}()
-
-	return le.provider.Start(ctx, provCfg)
+	}
 }
 
 func (le *Leader) runCallback(ctx context.Context, fn ...Callback) {
-	if fn == nil {
+	if len(fn) == 0 {
 		return
 	}
-
-	// Register the whole batch with the wait group synchronously, before Process
-	// spawns any goroutine, so Stop's Wait cannot observe a zero counter while a
-	// callback goroutine is still being launched.
-	le.handlersWg.Add(1)
-	defer le.handlersWg.Done()
 
 	stop := le.metrics.callbackDuration.Start()
 	defer stop()

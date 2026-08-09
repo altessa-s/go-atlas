@@ -1,4 +1,4 @@
-# Backends for the data/filter integration suite.
+# Backends for the go-atlas integration suite.
 #
 # Ports are deliberately non-default so the suite never collides with a
 # database already running on the developer's machine. The env defaults
@@ -9,7 +9,7 @@
 #   make test-integration
 #   docker compose -f tests/integration/docker-compose.yml down -v
 
-name: go-atlas-filter-it
+name: go-atlas-it
 
 services:
   clickhouse:
@@ -81,6 +81,20 @@ services:
       MEILI_NO_ANALYTICS: "true"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:7700/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  # Leader election needs JetStream, which is off by default. The store is
+  # kept in the container's own filesystem: the suite drops and recreates
+  # its buckets per run, so nothing needs to survive `down -v`.
+  nats:
+    image: nats:2.11-alpine
+    command: ["-js", "-sd", "/data", "-m", "8222"]
+    ports:
+      - "14222:4222"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
       interval: 5s
       timeout: 5s
       retries: 30

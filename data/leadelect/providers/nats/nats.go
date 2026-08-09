@@ -7,7 +7,9 @@ package nats
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,6 +24,22 @@ import (
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	lerrs "github.com/altessa-s/go-atlas/data/leadelect/errs"
+)
+
+const (
+	// minTTL is the shortest election TTL Start accepts. Below a second the
+	// renewal interval collapses to a few hundred milliseconds, which is
+	// shorter than the round trip a renewal itself needs.
+	minTTL = time.Second
+
+	// defaultResignTimeout bounds the lease-resignation call made on the way
+	// out of the camping loop when Stop's context carries no deadline of its
+	// own. It exists so shutdown cannot hang on an unreachable broker.
+	defaultResignTimeout = 2 * time.Second
+
+	// notificationSendTimeout bounds a single notification delivery during the
+	// shutdown drain, when the election context is already canceled.
+	notificationSendTimeout = time.Second
 )
 
 type notificationEventType int
@@ -69,6 +87,12 @@ type Provider struct {
 
 	stopCtxCancel context.CancelFunc
 	wg            sync.WaitGroup
+
+	// stopDeadline carries the shutdown budget from Stop's context to the
+	// camping goroutine's resign call, which runs on a context of its own
+	// because the election context is already canceled by then. Stored as a
+	// bare deadline rather than a context so no context lives in the struct.
+	stopDeadline atomic.Pointer[time.Time]
 
 	kv    jetstream.KeyValue
 	kvOps *natskvlease.KVOps
@@ -196,15 +220,19 @@ func (p *Provider) markRenewed(token uint64) {
 
 // LeaderId returns the current leader's ID, or empty string if none.
 func (p *Provider) LeaderId(ctx context.Context) (string, error) {
-	if !p.isRunning.Load() {
+	// Load the config once and nil-check it: Start publishes it just after
+	// claiming isRunning, so a caller racing that window would otherwise
+	// dereference nil.
+	cfg := p.providerConfig.Load()
+	if !p.isRunning.Load() || cfg == nil {
 		return "", lerrs.ErrProviderStopped
 	}
 
 	if p.isLeader.Load() {
-		return p.providerConfig.Load().NodeId, nil
+		return cfg.NodeId, nil
 	}
 
-	entry, err := p.kvOps.Get(ctx, p.providerConfig.Load().Key)
+	entry, err := p.kvOps.Get(ctx, cfg.Key)
 	if err != nil {
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
 			return "", nil // No leader currently holds the key
@@ -215,9 +243,13 @@ func (p *Provider) LeaderId(ctx context.Context) (string, error) {
 	return string(entry.Value()), nil
 }
 
-// NodeId returns this node's unique identifier.
+// NodeId returns this node's unique identifier, or an empty string before
+// Start has published a configuration.
 func (p *Provider) NodeId() string {
-	return p.providerConfig.Load().NodeId
+	if cfg := p.providerConfig.Load(); cfg != nil {
+		return cfg.NodeId
+	}
+	return ""
 }
 
 // IsRunning returns true if the election process is active.
@@ -228,10 +260,10 @@ func (p *Provider) IsRunning() bool {
 // Start begins the leader election process with the given configuration.
 // Returns immediately; leadership status is updated asynchronously.
 func (p *Provider) Start(ctx context.Context, cfg providers.Config) error {
-	if !p.isRunning.CompareAndSwap(false, true) {
-		return errors.New("provider already running")
-	}
-
+	// Validate before claiming the running state. Claiming first left a
+	// rejected Start with isRunning=true and a nil providerConfig: the
+	// provider was then permanently unstartable and NodeId panicked on the
+	// nil dereference.
 	if cfg.Key == "" {
 		return errors.New("key cannot be empty")
 	}
@@ -240,8 +272,12 @@ func (p *Provider) Start(ctx context.Context, cfg providers.Config) error {
 		return errors.New("node ID cannot be empty")
 	}
 
-	if cfg.TTL < time.Second {
-		return errors.New("TTL must be greater than zero")
+	if cfg.TTL < minTTL {
+		return fmt.Errorf("TTL must be at least %v, got %v", minTTL, cfg.TTL)
+	}
+
+	if !p.isRunning.CompareAndSwap(false, true) {
+		return errors.New("provider already running")
 	}
 
 	p.providerConfig.Store(&cfg)
@@ -274,13 +310,30 @@ func (p *Provider) Start(ctx context.Context, cfg providers.Config) error {
 }
 
 // Stop stops the election and resigns from leadership if held.
-func (p *Provider) Stop(_ context.Context) error {
+//
+// The context bounds the shutdown: its deadline, or [defaultResignTimeout]
+// when it has none, caps the lease-resignation call that the camping goroutine
+// performs on its way out.
+func (p *Provider) Stop(ctx context.Context) error {
 	if !p.isRunning.CompareAndSwap(true, false) {
 		return errors.New("provider already stopped")
 	}
 
+	// Publish the caller's shutdown budget for camping's resign. Only the
+	// deadline is stored, not the context itself — a context must not be
+	// parked in a struct, and the deadline is all the resign path needs.
+	if deadline, ok := ctx.Deadline(); ok {
+		p.stopDeadline.Store(&deadline)
+	}
+
 	p.stop()
 	p.wg.Wait()
+
+	// The camping goroutine has exited, so leadership is definitively gone.
+	// Reflect that in the gauge; otherwise a stopped provider keeps reporting
+	// is_leader=1 forever and dashboards show two leaders.
+	p.isLeader.Store(false)
+	p.metrics.isLeader.Set(0)
 
 	// Close notification channel and wait for handler to finish. The
 	// close is gated by sync.Once so a second Stop (or a Stop racing
@@ -297,50 +350,81 @@ func (p *Provider) Stop(_ context.Context) error {
 }
 
 // notificationHandler processes notification events in a separate goroutine
-// to avoid race conditions with channel operations
+// to avoid race conditions with channel operations.
+//
+// It terminates only when notificationCh is closed, never on ctx cancellation.
+// Selecting on ctx.Done() alongside the queue meant that on shutdown — when
+// both are ready — the handler could return before draining, so the final
+// "stopped" event was routinely lost. Stop closes the channel only after the
+// camping goroutine has finished, so no send can race the close.
 func (p *Provider) notificationHandler(ctx context.Context) {
-	for {
-		select {
-		case event, ok := <-p.notificationCh:
-			if !ok {
-				return // Channel closed, shutdown
-			}
-
-			// Process the event safely
-			switch event.eventType {
-			case eventBecameLeader:
-				p.safeChannelSend(ctx, event.becameCh, "BecameCh")
-			case eventLostLeader:
-				p.safeChannelSend(ctx, event.lostCh, "LostCh")
-			case eventStopped:
-				p.safeChannelSend(ctx, event.stopCh, "StopCh")
-			}
-
-		case <-ctx.Done():
-			return
+	for event := range p.notificationCh {
+		switch event.eventType {
+		case eventBecameLeader:
+			p.safeChannelSend(ctx, event.becameCh, "BecameCh")
+		case eventLostLeader:
+			p.safeChannelSend(ctx, event.lostCh, "LostCh")
+		case eventStopped:
+			p.safeChannelSend(ctx, event.stopCh, "StopCh")
 		}
 	}
 }
 
-// safeChannelSend safely sends to a channel with panic recovery
+// safeChannelSend delivers a notification, recovering the "send on closed
+// channel" panic.
+//
+// The send blocks (bounded by ctx) rather than using select-with-default: a
+// leadership transition is an edge, and a non-blocking send dropped it whenever
+// the consumer was not parked in its select at that exact instant — which is
+// precisely the case while the consumer is running the previous transition's
+// callback. Losing a "leadership lost" edge that way leaves the application
+// acting as leader after it no longer is.
 func (p *Provider) safeChannelSend(ctx context.Context, ch chan<- struct{}, channelName string) {
 	if ch == nil {
 		return
 	}
 
-	// Non-blocking send
-	if _, chClosed := panics.TrySendNonBlocking(ch, struct{}{}); chClosed {
-		if p.opts.logger != nil {
-			p.opts.logger.WarnContext(ctx, "attempting to send on closed channel", slog.String("channel", channelName))
-		}
+	// The shutdown drain runs with an already-canceled context. Give it a
+	// small independent budget so the final "stopped" event still lands,
+	// without reintroducing an unbounded wait on a consumer that has left.
+	if ctx.Err() != nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), notificationSendTimeout)
+		defer cancel()
 	}
+
+	sent, chClosed := panics.TrySend(ctx, ch, struct{}{})
+	if p.opts.logger == nil {
+		return
+	}
+	switch {
+	case chClosed:
+		p.opts.logger.WarnContext(ctx, "attempting to send on closed channel", slog.String("channel", channelName))
+	case !sent:
+		p.opts.logger.WarnContext(ctx, "dropped leadership notification: consumer not reading",
+			slog.String("channel", channelName))
+	}
+}
+
+// renewIntervalFor derives the renewal tick from the effective lease lifetime
+// and the configured ratio. The ratio is clamped into (0, 1]: a zero or
+// negative one yields a non-positive interval, and time.NewTicker panics on
+// that — a panic the camping goroutine's recover would swallow, leaving an
+// elector that reports itself running while never electing anyone. A ratio
+// above 1 would schedule the first renewal after the lease has already
+// expired, which is never what a caller means.
+func renewIntervalFor(ttl time.Duration, ratio float64) time.Duration {
+	if ratio <= 0 || ratio > 1 || math.IsNaN(ratio) {
+		ratio = DefaultRenewRatio
+	}
+
+	return time.Duration(float64(min(ttl, DefaultBucketKeysTTL)) * ratio)
 }
 
 // camping is the main loop for leader election.
 func (p *Provider) camping(ctx context.Context) {
 	config := p.providerConfig.Load()
-	renewInterval := min(config.TTL, DefaultBucketKeysTTL)
-	renewInterval = time.Duration(float64(renewInterval) * p.opts.renewRatio)
+	renewInterval := renewIntervalFor(config.TTL, p.opts.renewRatio)
 
 	// Capture channels at the start to avoid race conditions with channel closure
 	becameCh := config.BecameCh
@@ -441,7 +525,16 @@ func (p *Provider) camping(ctx context.Context) {
 			iterStop()
 			logger.DebugContext(ctx, "camping: context canceled, resigning from leadership")
 
-			_ = p.resign(context.Background()) //nolint:errcheck,contextcheck
+			// The election context is canceled, so resign needs a fresh one —
+			// but never an unbounded context.Background(): against an
+			// unreachable broker that call blocks for the NATS driver's own
+			// timeout (~5s) and blows through the caller's shutdown budget.
+			resignCtx, cancelResign := p.resignContext()
+			//nolint:contextcheck // deliberately independent of the canceled election context
+			if resignErr := p.resign(resignCtx); resignErr != nil {
+				logger.ErrorContext(ctx, "camping: failed to resign leadership", slog.Any("error", resignErr))
+			}
+			cancelResign()
 
 			p.queueNotification(ctx, eventStopped, nil, nil, stopCh)
 			return
@@ -590,4 +683,18 @@ func (p *Provider) renew(ctx context.Context) (bool, uint64, error) {
 
 func (p *Provider) stop() {
 	p.stopCtxCancel()
+}
+
+// resignContext builds the bounded context used to release the lease while
+// shutting down. The deadline is the earlier of the budget Stop published from
+// its own context and [defaultResignTimeout], so a caller that asks for a
+// tighter shutdown gets one and a caller that asks for nothing still gets a
+// bound.
+func (p *Provider) resignContext() (context.Context, context.CancelFunc) {
+	deadline := time.Now().Add(defaultResignTimeout)
+	if stopBy := p.stopDeadline.Load(); stopBy != nil && stopBy.Before(deadline) {
+		deadline = *stopBy
+	}
+
+	return context.WithDeadline(context.Background(), deadline)
 }

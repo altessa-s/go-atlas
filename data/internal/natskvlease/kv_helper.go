@@ -78,40 +78,88 @@ func (h *KVHelper) GetOrCreateBucket(ctx context.Context, cfg BucketConfig) (jet
 		return h.js.KeyValue(ctx, cfg.Bucket)
 	})
 
+	switch {
+	case err == nil:
+		// The bucket predates this call; make sure its key TTL matches ours.
+		return h.reconcileTTL(ctx, kv, cfg)
+
+	case !errors.Is(err, jetstream.ErrBucketNotFound):
+		h.logger.ErrorContext(ctx, "failed to get KeyValue bucket",
+			slog.String("bucket", cfg.Bucket),
+			slog.Any("error", err))
+		return nil, err
+	}
+
+	kv, err = Retry(ctx, func() (jetstream.KeyValue, error) {
+		return h.js.CreateOrUpdateKeyValue(ctx, h.keyValueConfig(cfg))
+	})
 	if err != nil {
-		// If the bucket does not exist, create it
-		if errors.Is(err, jetstream.ErrBucketNotFound) {
-			kv, err = Retry(ctx, func() (jetstream.KeyValue, error) {
-				return h.js.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{
-					Bucket:         cfg.Bucket,
-					TTL:            cfg.TTL,
-					Storage:        cfg.Storage,
-					Compression:    cfg.Compression,
-					Replicas:       cfg.Replicas,
-					LimitMarkerTTL: cfg.LimitMarkerTTL,
-				})
-			})
-			if err != nil {
-				h.logger.ErrorContext(ctx, "failed to create KeyValue bucket",
-					slog.String("bucket", cfg.Bucket),
-					slog.Any("error", err))
-				return nil, err
-			}
-			h.logger.DebugContext(ctx, "created KeyValue bucket", slog.String("bucket", cfg.Bucket))
-		} else {
-			h.logger.ErrorContext(ctx, "failed to get KeyValue bucket",
-				slog.String("bucket", cfg.Bucket),
-				slog.Any("error", err))
-			return nil, err
-		}
+		h.logger.ErrorContext(ctx, "failed to create KeyValue bucket",
+			slog.String("bucket", cfg.Bucket),
+			slog.Any("error", err))
+		return nil, err
 	}
 
 	// Defensive check
-	if kv == nil && err == nil {
+	if kv == nil {
 		return nil, errors.New("failed to create or get KeyValue bucket: unexpected nil result")
 	}
 
+	h.logger.DebugContext(ctx, "created KeyValue bucket", slog.String("bucket", cfg.Bucket))
+
 	return kv, nil
+}
+
+// keyValueConfig projects a BucketConfig onto the driver's bucket config.
+func (h *KVHelper) keyValueConfig(cfg BucketConfig) jetstream.KeyValueConfig {
+	return jetstream.KeyValueConfig{
+		Bucket:         cfg.Bucket,
+		TTL:            cfg.TTL,
+		Storage:        cfg.Storage,
+		Compression:    cfg.Compression,
+		Replicas:       cfg.Replicas,
+		LimitMarkerTTL: cfg.LimitMarkerTTL,
+	}
+}
+
+// reconcileTTL brings a pre-existing bucket's key TTL in line with cfg.
+//
+// Every caller of this helper uses the bucket for leases, where the TTL is not
+// a preference but the expiry mechanism: it is what releases the key when the
+// holder dies without resigning. Adopting an existing bucket's TTL unchecked
+// meant a bucket created earlier without one (an older release, an operator,
+// a differently-configured component) silently produced leases that never
+// expire — a lock without a TTL, which hangs the election until someone
+// intervenes by hand.
+func (h *KVHelper) reconcileTTL(ctx context.Context, kv jetstream.KeyValue, cfg BucketConfig) (jetstream.KeyValue, error) {
+	status, err := Retry(ctx, func() (jetstream.KeyValueStatus, error) {
+		return kv.Status(ctx)
+	})
+	if err != nil {
+		h.logger.ErrorContext(ctx, "failed to read KeyValue bucket status",
+			slog.String("bucket", cfg.Bucket), slog.Any("error", err))
+		return nil, err
+	}
+
+	if status.TTL() == cfg.TTL {
+		return kv, nil
+	}
+
+	h.logger.WarnContext(ctx, "KeyValue bucket TTL differs from the configured lease TTL, updating",
+		slog.String("bucket", cfg.Bucket),
+		slog.Duration("existing_ttl", status.TTL()),
+		slog.Duration("configured_ttl", cfg.TTL))
+
+	updated, err := Retry(ctx, func() (jetstream.KeyValue, error) {
+		return h.js.CreateOrUpdateKeyValue(ctx, h.keyValueConfig(cfg))
+	})
+	if err != nil {
+		h.logger.ErrorContext(ctx, "failed to update KeyValue bucket TTL",
+			slog.String("bucket", cfg.Bucket), slog.Any("error", err))
+		return nil, err
+	}
+
+	return updated, nil
 }
 
 // KVOps provides common KeyValue CRUD operations with retry logic.
