@@ -63,6 +63,32 @@ func (h *Handler) GetServiceInfo(
 	return &serviceinfov1.GetServiceInfoResponse{ServiceInfo: h.Snapshot(ctx)}, nil
 }
 
+// leaderState resolves leadership for one snapshot.
+//
+// A provider that implements [leaderStater] answers both questions in a single
+// call that receives ctx, so the request's deadline and cancellation reach it.
+// Otherwise the plain two-method path is used: IsLeader has no context by
+// design, which is correct for implementations that read leadership locally.
+//
+// An empty leaderID means "unknown" and leaves the fallback to the caller.
+func (h *Handler) leaderState(ctx context.Context) (isLeader bool, leaderID string) {
+	if stater, ok := h.leaderProvider.(leaderStater); ok {
+		return stater.LeaderState(ctx)
+	}
+
+	isLeader = h.leaderProvider.IsLeader()
+	if isLeader {
+		// The leader is this node; asking who leads would only echo it back.
+		return true, ""
+	}
+
+	if id, err := h.leaderProvider.LeaderId(ctx); err == nil {
+		leaderID = id
+	}
+
+	return false, leaderID
+}
+
 // Snapshot returns the cached static info plus dynamic per-request fields.
 // The returned pointer is safe to mutate by the caller; each call
 // produces a fresh deep copy via [proto.Clone].
@@ -71,12 +97,10 @@ func (h *Handler) Snapshot(ctx context.Context) *serviceinfov1.ServiceInfo {
 	panics.Must(ok, "proto.Clone returned an unexpected concrete type")
 
 	if h.leaderProvider != nil {
-		out.Leader = h.leaderProvider.IsLeader()
-		leaderID := h.serviceID
-		if !out.Leader {
-			if id, err := h.leaderProvider.LeaderId(ctx); err == nil && id != "" {
-				leaderID = id
-			}
+		isLeader, leaderID := h.leaderState(ctx)
+		out.Leader = isLeader
+		if leaderID == "" {
+			leaderID = h.serviceID
 		}
 		if leaderID != "" {
 			out.LeaderId = ptr.Wrap(leaderID)
