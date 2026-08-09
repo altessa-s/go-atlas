@@ -60,6 +60,15 @@ func (t *Translator) Translate(node filter.Node) (string, error) {
 		return luaTrue, nil
 	}
 	t.depth.Reset()
+
+	// A literal is a value, never a predicate. The Lua renderer quotes it, so
+	// this is not an injection the way it is for the query-text backends — but
+	// a bare literal still produces a filter that tests a constant, which is
+	// never what the caller meant, and the sibling translators all reject it.
+	if lit, ok := node.(*filter.LiteralNode); ok {
+		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected filter clause, got literal %T", lit.Value)
+	}
+
 	result, err := node.Accept(t)
 	if err != nil {
 		return "", err
@@ -212,6 +221,14 @@ func escapeLuaString(s string) string {
 
 // getFieldName extracts the field name from a node via Accept.
 func (t *Translator) getFieldName(node filter.Node) (string, error) {
+	// A call can reach here with no target at all — `contains()` parses into a
+	// CallNode whose Target is nil — and accepting a nil Node panics. That
+	// makes a filter expression a client controls able to crash the process, so
+	// the absent target is reported as the malformed expression it is.
+	if node == nil {
+		return "", coreerrs.Wrap(filter.ErrInvalidExpression, "missing field reference")
+	}
+
 	result, err := node.Accept(t)
 	if err != nil {
 		return "", err

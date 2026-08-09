@@ -297,6 +297,14 @@ func (t *Translator) translateExists(target filter.Node) (string, error) {
 
 // getFieldName extracts the field name from a node.
 func (t *Translator) getFieldName(node filter.Node) (string, error) {
+	// A call can reach here with no target at all — `contains()` parses into a
+	// CallNode whose Target is nil — and accepting a nil Node panics. That
+	// makes a filter expression a client controls able to crash the process, so
+	// the absent target is reported as the malformed expression it is.
+	if node == nil {
+		return "", coreerrs.Wrap(filter.ErrInvalidExpression, "missing field reference")
+	}
+
 	result, err := node.Accept(t)
 	if err != nil {
 		return "", err
@@ -317,6 +325,15 @@ func (t *Translator) acceptString(node filter.Node) (string, error) {
 			return "", err
 		}
 		return field + " = true", nil
+	}
+
+	// A literal is a value, never a predicate. VisitLiteral returns the value
+	// itself, so a string literal comes back as a Go string — which the type
+	// assertion below cannot tell apart from a rendered clause, and the
+	// expression `"x OR y"` would reach Meilisearch as filter syntax rather
+	// than as data.
+	if lit, ok := node.(*filter.LiteralNode); ok {
+		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected filter clause, got literal %T", lit.Value)
 	}
 
 	result, err := node.Accept(t)

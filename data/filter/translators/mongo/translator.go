@@ -15,6 +15,11 @@ import (
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
+// sizeFieldMarker is the internal key translateSize wraps a field in so the
+// enclosing comparison can recognize a length expression. It never reaches a
+// query: acceptPredicate rejects a document that still carries it.
+const sizeFieldMarker = "__size_field__"
+
 // Translator converts filter AST nodes to MongoDB bson.M filters.
 type Translator struct {
 	config *filter.TranslatorContext
@@ -73,6 +78,17 @@ func (t *Translator) acceptPredicate(node filter.Node) (bson.M, error) {
 	m, ok := result.(bson.M)
 	if !ok {
 		return nil, coreerrs.Wrapf(filter.ErrInvalidExpression, "expected bson.M, got %T", result)
+	}
+	// A length expression is an integer, not a predicate: on its own there is
+	// nothing for the query to test. translateSize signals one by wrapping the
+	// field in an internal marker for the enclosing comparison to unwrap, so
+	// reaching the root with that marker still in place means no comparison
+	// ever claimed it — and returning the document would send the marker key
+	// itself to MongoDB as a field name, matching nothing and reporting no
+	// error. Rejecting here matches the SQL translator, which turns the same
+	// expression away with "size() outside a comparison".
+	if _, isSizeMarker := m[sizeFieldMarker]; isSizeMarker {
+		return nil, coreerrs.Wrap(filter.ErrUnsupportedOperation, "size() outside a comparison")
 	}
 	return m, nil
 }
@@ -388,7 +404,7 @@ func (t *Translator) translateSize(target filter.Node) (bson.M, error) {
 	}
 
 	// Return a special marker for parent binary op to handle
-	return bson.M{"__size_field__": field}, nil
+	return bson.M{sizeFieldMarker: field}, nil
 }
 
 // translateHas handles the has() function.
@@ -414,7 +430,7 @@ func (t *Translator) getFieldName(node filter.Node) (string, error) {
 
 	// Handle size marker
 	if m, ok := result.(bson.M); ok {
-		if field, exists := m["__size_field__"]; exists {
+		if field, exists := m[sizeFieldMarker]; exists {
 			if s, ok := field.(string); ok {
 				return s, nil
 			}
