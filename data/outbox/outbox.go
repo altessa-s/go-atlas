@@ -30,6 +30,12 @@ const (
 	// DefaultDispatchRetryMaxDelay is the maximum delay between retry attempts.
 	// Exponential backoff will not exceed this value.
 	DefaultDispatchRetryMaxDelay = 3 * time.Second
+
+	// DefaultDispatchRetryJitter randomizes each retry delay by up to this
+	// fraction of itself. Every instance runs a poller against the same
+	// broker, so without jitter their retries stay in phase and land as waves
+	// on a dependency that is already struggling.
+	DefaultDispatchRetryJitter = 0.2
 )
 
 // Outbox implements the transactional outbox pattern for reliable event delivery.
@@ -185,6 +191,7 @@ func (o *Outbox) dispatchEvent(ctx context.Context, event Event) error {
 		coreretry.WithNextDelay(coreretry.Exponential(coreretry.ExponentialConfig{
 			BaseDelay: DefaultDispatchRetryBaseDelay,
 			MaxDelay:  DefaultDispatchRetryMaxDelay,
+			Jitter:    DefaultDispatchRetryJitter,
 		})),
 		coreretry.WithOnRetry(func(_ int, err error, nextDelay time.Duration) {
 			o.metrics.dispatchRetries.Inc()
