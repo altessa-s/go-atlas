@@ -34,10 +34,11 @@ const (
 //	src := oauth2client.ClientCredentials(ctx, tokenURL, id, secret,
 //	    oauth2client.WithHTTPClient(client))
 //
-// A nil base uses [http.DefaultTransport]. Only requests whose body can be
-// replayed (GetBody set, as x/oauth2's form posts are) are retried; others get a
-// single attempt. On exhausted retries the last response is returned unchanged,
-// so the caller still observes the real status and body. 4xx other than 429 are
+// A nil base uses [http.DefaultTransport]. Only requests that can be sent twice
+// are retried — one with no body, one carrying [http.NoBody], or one whose
+// GetBody is set (as x/oauth2's form posts are); anything else gets a single
+// attempt. On exhausted retries the last response is returned unchanged, so the
+// caller still observes the real status and body. 4xx other than 429 are
 // returned immediately.
 func RetryTransport(base http.RoundTripper, opts ...RetryTransportOption) http.RoundTripper {
 	if base == nil {
@@ -106,13 +107,26 @@ type retryTransport struct {
 // [retry.Do] loop; the response itself travels in the RoundTrip closure.
 var errRetryableStatus = errors.New("oauth2client: retryable http status")
 
+// replayable reports whether req can be sent more than once.
+//
+// A request with no body, or one carrying [http.NoBody], is trivially
+// replayable: there is nothing to re-read. The [http.NoBody] case has to be
+// named explicitly because [http.NewRequest] leaves GetBody nil for it — the
+// body is already empty, so it sees no reason to synthesize a getter — and a
+// "GetBody != nil" test alone therefore reads the most idiomatic way of saying
+// "this request has no body" as "this body cannot be replayed", silently
+// costing every such request its retries.
+func replayable(req *http.Request) bool {
+	return req.Body == nil || req.Body == http.NoBody || req.GetBody != nil
+}
+
 // RoundTrip retries req on transient failures, replaying the body via GetBody.
 // The loop mechanics are delegated to [retry.Do]; the closure classifies the
 // outcome (any transport error, HTTP 429, or a 5xx response is retryable) and
 // carries the last response across attempts.
 func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	// A body with no GetBody cannot be replayed safely — do a single attempt.
-	if t.attempts <= 0 || (req.Body != nil && req.GetBody == nil) {
+	// A body that cannot be replayed gets a single attempt.
+	if t.attempts <= 0 || !replayable(req) {
 		return t.base.RoundTrip(req)
 	}
 
