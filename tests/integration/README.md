@@ -7,7 +7,8 @@ tests/integration/
 ├── go.mod                 # separate module — see below
 ├── docker-compose.yml     # the backends the suite runs against
 ├── filterit/              # data/filter: shared corpus + one adapter per backend
-└── leadelectit/           # data/leadelect: multi-node election against a live broker
+├── leadelectit/           # data/leadelect: multi-node election against a live broker
+└── dlockit/               # data/locks/dlock: contended locking against a live broker
 ```
 
 ## Why a separate module
@@ -118,6 +119,33 @@ trusting the recording to have caught every term.
 renew. The bucket's key TTL — fixed by the provider, not derived from the election TTL — is what releases the key when a holder dies without
 resigning. A failover after an abrupt loss is therefore bounded by the latter, which is why `FailoverAfterAbruptLoss` takes about ten seconds while
 `HandoverOnGracefulStop` takes milliseconds.
+
+## dlockit — contended locking against a live broker
+
+A lock that is never contested is indistinguishable from no lock at all. These scenarios put several holders on one key through a real broker and
+check that their critical sections never coincide.
+
+| Scenario                                  | Asserts                                                                                    |
+|-------------------------------------------|--------------------------------------------------------------------------------------------|
+| `ContendersNeverOverlap`                  | Six holders, three rounds each, holding across several renewals: peak concurrency stays one |
+| `SynchronizeSerializesACounter`           | A read-modify-write from five processes loses no updates                                    |
+| `HeldLockRefusesOthers`                   | A second acquisition is refused, and refused immediately                                    |
+| `SurvivesLongerThanTheAcquireTimeout`     | The acquire timeout bounds waiting, not holding                                             |
+| `AbandonedLockExpires`                    | A holder that dies without releasing still frees the key, via server-side expiry            |
+| `FencingTokenAdvancesAcrossHolders`       | Each successive holder sees a strictly higher token                                         |
+| `ReleaseLeavesNoKey`                      | A released lock is gone at once — the next contender does not wait out the TTL              |
+| `Bucket_KeyTTLFollowsTheLockTTL`          | The bucket's key TTL is the configured lock TTL, not a constant                             |
+
+**The recording proves overlap, unlike sampling.** `Critical` is not a poller: every holder reports the instant it entered and the instant it left,
+so an overlap of any duration is caught rather than merely likely to be caught. Timestamps come from one process and one clock, which is what makes
+comparing them sound.
+
+**Acquisition fails fast.** The NATS provider makes a single attempt and returns `ErrLockNotHeld` when the key is taken; it does not wait for the
+holder to finish. Scenarios that need to be serialized rather than rejected loop over `Synchronize` themselves.
+
+**The context scopes the lock, not the call.** Cancel it and the lease stops being renewed and is released, so it must not end before the work the
+lock guards. The acquisition attempt is bounded separately, by the provider's `WithAcquireTimeout` — folding that bound into the same context would
+release the lock the moment it elapsed.
 
 ## Adding a backend
 

@@ -13,10 +13,13 @@ import (
 // Locker defines the interface for distributed locking mechanisms.
 // Implementations should provide thread-safe methods for acquiring and managing locks.
 type Locker interface {
-	// Lock acquires a distributed lock with the provided key.
-	// It blocks until the lock is acquired or the context is canceled.
-	// Returns an error if the lock cannot be acquired or the context is canceled.
-	// The context is used to manage the lock's lifecycle and should be canceled to release the lock.
+	// Lock makes a single attempt to acquire a distributed lock for key.
+	// It does not wait for a current holder: when the key is taken the
+	// attempt fails immediately, so callers that need to be serialized
+	// rather than rejected must retry.
+	//
+	// The context scopes the lock's lifetime — canceling it releases the
+	// lock — so it must not end before the work the lock guards.
 	Lock(ctx context.Context, key string) (providers.Lock, error)
 
 	// Synchronize acquires a distributed lock for the specified key and

@@ -37,7 +37,7 @@ type lock struct {
 	metadata *lockMetadata
 }
 
-func newLock(cfg *config, kvOps *natskvlease.KVOps, logger *slog.Logger) *lock {
+func newLock(cfg *config, kvOps *natskvlease.KVOps, logger *slog.Logger, renewRatio float64) *lock {
 	metadata := &lockMetadata{
 		OwnerId:     uuid.NewString(),
 		AcquiredAt:  time.Now(),
@@ -56,7 +56,7 @@ func newLock(cfg *config, kvOps *natskvlease.KVOps, logger *slog.Logger) *lock {
 	l.lease = natskvlease.NewLease(kvOps.KV(), natskvlease.LeaseConfig{
 		Key:        cfg.Key,
 		TTL:        cfg.TTL,
-		RenewRatio: DefaultRenewRatio,
+		RenewRatio: renewRatio,
 		Value:      metadataBytes,
 		IsOwner: func(value []byte) bool {
 			var m lockMetadata
@@ -131,6 +131,9 @@ func (l *lock) GetLockInfo(ctx context.Context) (*providers.LockInfo, error) {
 	}, nil
 }
 
-func (l *lock) run(ctx context.Context, _ time.Duration) (bool, error) {
-	return l.lease.RunCamping(ctx)
+// run acquires the lock and leaves the lease renewing in the background.
+// ctx scopes the lock; acquireTimeout bounds only the attempt — see
+// [natskvlease.Lease.RunCamping].
+func (l *lock) run(ctx context.Context, acquireTimeout time.Duration) (bool, error) {
+	return l.lease.RunCamping(ctx, acquireTimeout)
 }

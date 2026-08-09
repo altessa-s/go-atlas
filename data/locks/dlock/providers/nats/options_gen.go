@@ -12,6 +12,16 @@ import (
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
+// WithAcquireTimeout sets the acquireTimeout option.
+func WithAcquireTimeout(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.acquireTimeout = v
+	}
+}
+
 // WithBucket sets the bucket option.
 func WithBucket[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
@@ -65,10 +75,11 @@ func WithTTL(v time.Duration) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		bucket:     defaultBucket(),
-		logger:     slog.New(slog.DiscardHandler),
-		renewRatio: DefaultRenewRatio,
-		ttl:        DefaultBucketKeysTTL,
+		acquireTimeout: DefaultOperationsTimeout,
+		bucket:         defaultBucket(),
+		logger:         slog.New(slog.DiscardHandler),
+		renewRatio:     DefaultRenewRatio,
+		ttl:            DefaultBucketKeysTTL,
 	}
 }
 

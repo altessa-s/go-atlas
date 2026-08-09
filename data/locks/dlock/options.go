@@ -8,25 +8,26 @@ package dlock
 
 import (
 	"log/slog"
-	"time"
 
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
-
-// DefaultLockAcquireTimeout is the default timeout for lock acquisition operations.
-// This prevents indefinite blocking in scenarios where locks cannot be acquired.
-const DefaultLockAcquireTimeout = 30 * time.Second
 
 // DefaultHealthServiceName is the name under which DLock registers itself
 // with the health coordinator when no override is supplied.
 const DefaultHealthServiceName = "dlock"
 
 // options contains DLock configuration.
+//
+// There is deliberately no acquire timeout here. Acquisition is a single
+// attempt that fails fast, and the only way DLock could bound it would be
+// through the context it passes to the provider — the same context that scopes
+// the lock's lifetime, so the bound would release the lock the moment it
+// elapsed. The provider owns that bound instead; see the NATS provider's
+// WithAcquireTimeout.
 type options struct {
-	logger             *slog.Logger
-	lockAcquireTimeout time.Duration     `optgen:"default=DefaultLockAcquireTimeout"`
-	collector          metrics.Collector `optgen:"notnil"`
+	logger    *slog.Logger
+	collector metrics.Collector `optgen:"notnil"`
 	// healthCoordinator registers DLock with a health coordinator on
 	// construction. Disabled when nil.
 	healthCoordinator *health.Coordinator

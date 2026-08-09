@@ -6,7 +6,6 @@ package dlock
 import (
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/observability/health"
@@ -59,16 +58,6 @@ func WithHealthServiceName[T interface{ string | *string }](v T) Option {
 	}
 }
 
-// WithLockAcquireTimeout sets the lockAcquireTimeout option.
-func WithLockAcquireTimeout(v time.Duration) Option {
-	return func(o *options) {
-		if v <= 0 {
-			return
-		}
-		o.lockAcquireTimeout = v
-	}
-}
-
 // WithLogger sets the logger option.
 func WithLogger(v *slog.Logger) Option {
 	return func(o *options) {
@@ -82,9 +71,8 @@ func WithLogger(v *slog.Logger) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		healthServiceName:  DefaultHealthServiceName,
-		lockAcquireTimeout: DefaultLockAcquireTimeout,
-		logger:             slog.New(slog.DiscardHandler),
+		healthServiceName: DefaultHealthServiceName,
+		logger:            slog.New(slog.DiscardHandler),
 	}
 }
 

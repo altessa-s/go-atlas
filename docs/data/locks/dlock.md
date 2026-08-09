@@ -101,16 +101,22 @@ waiting that whole time.
 
 ## TTL, renew, fencing
 
-The NATS provider stores the lease in a KV bucket with a TTL and renews it in the background every `TTL × RenewRatio` seconds (default
-`0.75 × 10s = 7.5s`). If the process dies or loses connectivity, the next renew fails, the key expires after the TTL, and another instance
-takes it.
+The NATS provider stores the lease in a KV bucket whose key TTL is the configured lock TTL, and renews it in the background every
+`TTL × RenewRatio` seconds (default `⅓ × 10s ≈ 3.3s`). If the process dies or loses connectivity, the next renew fails, the key expires after the
+TTL, and another instance takes it.
+
+The ratio decides how many renewal attempts fall inside one TTL — `floor(1/ratio)` — which is the budget for surviving a transient failure without
+dropping the lock. At the former `0.75` there was exactly one, so a single dropped round trip cost the lock.
 
 `GetLockInfo` exposes a `FencingToken`, a monotonically increasing revision from NATS KV. If you do an out-of-band side effect tied to lock
 ownership (writing to another database, publishing to a queue), have the receiver check that the fencing token is at least as large as the last
 one it saw. Without that check, an old owner reconnecting after a pause longer than the TTL can flood the system with stale operations.
 
-`WithLockAcquireTimeout(d)` caps the time spent **acquiring** the lock, not how long you hold it. Default is 30 seconds. On expiry you get a
-`coreerrs.IsContextDeadlineExceeded`-compatible error wrapped as `failed to acquire lock within timeout 30s`.
+The provider's `WithAcquireTimeout(d)` caps the **acquisition attempt** — the round trips it takes to try the key once — and nothing else. Default
+is 5 seconds. It deliberately lives on the provider rather than on `DLock`: the only lever `DLock` has is the context it passes down, and that
+context scopes the lock's lifetime, so an acquisition deadline folded into it would release the lock the moment it elapsed, mid critical section.
+
+That is also why the context you hand to `Lock` or `Synchronize` must outlive the work: canceling it releases the lock.
 
 ---
 
@@ -171,8 +177,8 @@ node takes the lock, crashes, the TTL releases the key, and another node release
 
 ## Failure modes
 
-**`failed to acquire lock within timeout 30s`.** Someone holds the lock longer than `TTL × RenewRatio`, or NATS connectivity is dropping. Raise
-`WithLockAcquireTimeout` or break the work into smaller chunks.
+**`errs.ErrLockNotHeld` from `Lock`.** Someone else holds the key. Acquisition does not wait, so this is the normal answer under contention — retry
+with backoff if you need a turn rather than a rejection.
 
 **`errs.ErrLockNotHeld` from `GetLockInfo`.** The key doesn't exist or expired. Treat it as "the lock is free"; it's not an error.
 
