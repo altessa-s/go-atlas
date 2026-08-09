@@ -259,7 +259,26 @@ func (c *Cache) runFallback(ctx context.Context, ek string, fallback Fallback) (
 		defer c.fallbackSem.Release(1)
 	}
 
-	fv, err, _ := c.group.Do(ek, func() (any, error) {
+	ch := c.group.DoChan(ek, func() (any, error) {
+		// The shared write runs on a context detached from whoever happened to
+		// win the group. On the winner's context, that caller's cancellation
+		// would fail the fetch for everyone waiting behind it — including
+		// callers whose own contexts are still perfectly alive. Values are
+		// kept; only cancellation is dropped, and a deadline of our own stops
+		// a wedged downstream from pinning the group forever.
+		//
+		// It is built here rather than outside the closure so its lifetime
+		// belongs to the shared work: DoChan runs this in its own goroutine,
+		// which outlives a caller that leaves early, and it may not run it at
+		// all when another caller already holds the group.
+		//
+		// This cannot reach into the caller-supplied fallback itself:
+		// [Fallback] takes no context, so whatever that closure captured is
+		// what it uses. A fallback that does I/O should be given a context of
+		// its own rather than the request's.
+		sharedCtx, cancelShared := context.WithTimeout(context.WithoutCancel(ctx), defaultContextTimeout)
+		defer cancelShared()
+
 		stop := c.metrics.fallbackDuration.Start()
 		val, ttl, fErr := fallback()
 		stop()
@@ -271,7 +290,7 @@ func (c *Cache) runFallback(ctx context.Context, ek string, fallback Fallback) (
 			// skipped the negative write and every subsequent miss
 			// re-ran the fallback.
 			if errors.Is(fErr, ErrMissing) && c.negativeTtl > 0 {
-				if sErr := c.provider.Save(ctx, ek, negativeSentinel, c.negativeTtl); sErr != nil {
+				if sErr := c.provider.Save(sharedCtx, ek, negativeSentinel, c.negativeTtl); sErr != nil {
 					c.metrics.errors.Inc()
 				}
 			}
@@ -280,7 +299,7 @@ func (c *Cache) runFallback(ctx context.Context, ek string, fallback Fallback) (
 
 		if vv := reflect.ValueOf(val); vv.Kind() == reflect.Pointer && vv.IsNil() {
 			if c.negativeTtl > 0 {
-				if sErr := c.provider.Save(ctx, ek, negativeSentinel, c.negativeTtl); sErr != nil {
+				if sErr := c.provider.Save(sharedCtx, ek, negativeSentinel, c.negativeTtl); sErr != nil {
 					c.metrics.errors.Inc()
 				}
 			}
@@ -297,13 +316,22 @@ func (c *Cache) runFallback(ctx context.Context, ek string, fallback Fallback) (
 			cacheTtl = ttl
 		}
 
-		if fErr = c.provider.Save(ctx, ek, cacheData, cacheTtl); fErr != nil {
+		if fErr = c.provider.Save(sharedCtx, ek, cacheData, cacheTtl); fErr != nil {
 			return nil, fErr
 		}
 
 		return val, nil
 	})
-	return fv, err
+
+	// Each caller waits on its own context. Without this, a caller whose
+	// request was canceled would still be pinned until the shared fetch
+	// finished.
+	select {
+	case res := <-ch:
+		return res.Val, res.Err
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // Save stores a value in the cache with the given key.
