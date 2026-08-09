@@ -6,7 +6,6 @@ package nats
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"sync"
@@ -49,20 +48,19 @@ func (lt *lockTracker) Delete(key string) {
 	lt.mu.Unlock()
 }
 
-func (lt *lockTracker) Range(fn func(key string, lock *lock) bool) {
-	lt.mu.RLock()
-	// Copy map to avoid holding lock during iteration
-	locks := make(map[string]*lock, len(lt.locks))
-	for k, v := range lt.locks {
-		locks[k] = v
-	}
-	lt.mu.RUnlock()
+// Drain removes every tracked lock and returns them.
+//
+// Taking the whole set in one swap keeps the shutdown release loop off the
+// mutex while it does network I/O, and leaves nothing behind for a second
+// caller to release twice.
+func (lt *lockTracker) Drain() map[string]*lock {
+	lt.mu.Lock()
+	defer lt.mu.Unlock()
 
-	for k, v := range locks {
-		if !fn(k, v) {
-			break
-		}
-	}
+	locks := lt.locks
+	lt.locks = make(map[string]*lock)
+
+	return locks
 }
 
 // Locker implements the provider.Locker interface and the providers.Provider interface using NATS Key Value.
@@ -180,36 +178,7 @@ func (l *Locker) Lock(ctx context.Context, key string) (providers.Lock, error) {
 // GetLockInfo retrieves metadata about the lock identified by key.
 // Returns [errs.ErrLockNotHeld] if the key has no active lock.
 func (l *Locker) GetLockInfo(ctx context.Context, key string) (*providers.LockInfo, error) {
-	entry, err := l.kvOps.Get(ctx, key)
-	if err != nil {
-		if errors.Is(err, jetstream.ErrKeyNotFound) {
-			return nil, errs.ErrLockNotHeld
-		}
-		return nil, err
-	}
-
-	// Check if entry or its value is nil (defensive check for tombstones)
-	if entry == nil || entry.Value() == nil {
-		return nil, errs.ErrLockNotHeld
-	}
-
-	var metadata lockMetadata
-	if err := json.Unmarshal(entry.Value(), &metadata); err != nil {
-		return nil, err
-	}
-
-	now := time.Now()
-	isStale := now.Sub(metadata.LastRenewed) > time.Duration(metadata.TTL)
-
-	return &providers.LockInfo{
-		Key:          key,
-		Owner:        metadata.OwnerId,
-		AcquiredAt:   metadata.AcquiredAt,
-		LastRenewed:  metadata.LastRenewed,
-		TTL:          time.Duration(metadata.TTL),
-		IsStale:      isStale,
-		FencingToken: entry.Revision(),
-	}, nil
+	return readLockInfo(ctx, l.kvOps, key)
 }
 
 // Close closes the provider and releases all resources.
@@ -224,24 +193,16 @@ func (l *Locker) Close(ctx context.Context) error {
 		l.opts.logger.InfoContext(ctx, "closing NATS dlock provider")
 	}
 
-	// Release all active locks
-	var releaseErrors []error
-	l.activeLocks.Range(func(key string, lock *lock) bool {
+	// Release all active locks. Each gets its own budget so one unreachable
+	// key cannot consume the whole shutdown.
+	for key, lk := range l.activeLocks.Drain() {
 		releaseCtx, cancel := corectx.ApplyTimeout(ctx, DefaultOperationsTimeout)
-		if err := lock.Release(releaseCtx); err != nil {
-			releaseErrors = append(releaseErrors, coreerrs.Wrapf(err, "failed to release lock %s", key))
-		}
+		err := lk.Release(releaseCtx)
 		cancel()
-		l.activeLocks.Delete(key)
-		return true
-	})
 
-	// Log any release errors
-	if len(releaseErrors) > 0 {
-		for _, err := range releaseErrors {
-			if l.opts.logger != nil {
-				l.opts.logger.ErrorContext(ctx, "error during provider close", slog.Any("error", err))
-			}
+		if err != nil && l.opts.logger != nil {
+			l.opts.logger.ErrorContext(ctx, "error during provider close",
+				slog.Any("error", coreerrs.Wrapf(err, "failed to release lock %s", key)))
 		}
 	}
 

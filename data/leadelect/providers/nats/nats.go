@@ -585,35 +585,65 @@ func (p *Provider) queueNotification(ctx context.Context, eventType notification
 func (p *Provider) acquire(ctx context.Context) (bool, uint64, error) {
 	config := p.providerConfig.Load()
 
-	// Attempt to create the key - this works only if the key doesn't exist.
-	_, err := p.kvOps.Create(ctx, config.Key, []byte(config.NodeId))
-	if err != nil && !errors.Is(err, jetstream.ErrKeyExists) {
-		p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "acquire", "result": "failure"}).Inc()
+	// Create succeeds only while the key is absent, so winning it outright is
+	// the whole acquisition — and its revision is already the fencing token.
+	//
+	// This used to re-read and rewrite the key afterwards, which cost two extra
+	// round trips and a revision per election, and could report the acquisition
+	// as failed when only that redundant rewrite failed — leaving the node
+	// holding the key while believing it had lost.
+	rev, err := p.kvOps.Create(ctx, config.Key, []byte(config.NodeId))
+	if err == nil {
+		p.recordLease("acquire", nil)
+
+		return true, rev, nil
+	}
+	if !errors.Is(err, jetstream.ErrKeyExists) {
+		p.recordLease("acquire", err)
+
 		return false, 0, err
 	}
 
-	entry, getErr := p.kvOps.Get(ctx, config.Key)
-	if getErr == nil && string(entry.Value()) == config.NodeId {
-		// We are the current leader, so we can update the key to renew the lease.
-		rev, updateErr := p.kvOps.Update(ctx, config.Key, []byte(config.NodeId), entry.Revision())
-		if updateErr == nil {
-			p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "acquire", "result": "success"}).Inc()
-		} else {
-			p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "acquire", "result": "failure"}).Inc()
+	// The key is taken. It is either still ours from a previous term — in which
+	// case renewing it keeps the term alive — or another node's, and we lose.
+	entry, err := p.kvOps.Get(ctx, config.Key)
+	if err != nil {
+		if errors.Is(err, jetstream.ErrKeyNotFound) {
+			// It expired between the two calls. The key watcher fires on that
+			// expiry and drives another attempt, so there is nothing to do here
+			// but report the miss.
+			p.recordLease("acquire", err)
+
+			return false, 0, nil
 		}
-		return updateErr == nil, rev, updateErr
-	} else if errors.Is(getErr, jetstream.ErrKeyNotFound) {
-		rev, createErr := p.kvOps.Create(ctx, config.Key, []byte(config.NodeId))
-		if createErr == nil {
-			p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "acquire", "result": "success"}).Inc()
-		} else {
-			p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "acquire", "result": "failure"}).Inc()
-		}
-		return createErr == nil, rev, createErr
+		p.recordLease("acquire", err)
+
+		return false, 0, err
 	}
 
-	p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "acquire", "result": "failure"}).Inc()
-	return false, 0, getErr
+	if string(entry.Value()) != config.NodeId {
+		p.recordLease("acquire", errKeyHeldByOther)
+
+		return false, 0, nil
+	}
+
+	rev, err = p.kvOps.Update(ctx, config.Key, []byte(config.NodeId), entry.Revision())
+	p.recordLease("acquire", err)
+
+	return err == nil, rev, err
+}
+
+// errKeyHeldByOther marks a lost election for metric classification only; it is
+// never returned to a caller, because losing is an outcome rather than a fault.
+var errKeyHeldByOther = errors.New("election key held by another node")
+
+// recordLease counts one lease operation, classifying it by whether it failed.
+func (p *Provider) recordLease(op string, err error) {
+	result := "success"
+	if err != nil {
+		result = "failure"
+	}
+	p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": op, "result": result}).Inc()
 }
 
 // resign gives up leadership by deleting the key if this node is the current leader.
@@ -626,10 +656,10 @@ func (p *Provider) resign(ctx context.Context) error {
 	if err != nil {
 		if errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, nats.ErrBucketNotFound) ||
 			errors.Is(err, nats.ErrNoStreamResponse) {
-			p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "resign", "result": "success"}).Inc()
+			p.recordLease("resign", nil)
 			return nil
 		}
-		p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "resign", "result": "failure"}).Inc()
+		p.recordLease("resign", err)
 		return err
 	}
 
@@ -637,15 +667,15 @@ func (p *Provider) resign(ctx context.Context) error {
 	if string(entry.Value()) == config.NodeId {
 		if err := p.kvOps.DeleteWithRevision(ctx, config.Key, entry.Revision()); err != nil {
 			if errors.Is(err, jetstream.ErrKeyNotFound) {
-				p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "resign", "result": "success"}).Inc()
+				p.recordLease("resign", nil)
 				return nil
 			}
-			p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "resign", "result": "failure"}).Inc()
+			p.recordLease("resign", err)
 			return err
 		}
 	}
 
-	p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "resign", "result": "success"}).Inc()
+	p.recordLease("resign", nil)
 	return nil
 }
 
@@ -657,23 +687,21 @@ func (p *Provider) renew(ctx context.Context) (bool, uint64, error) {
 
 	entry, err := p.kvOps.Get(ctx, config.Key)
 	if err != nil {
-		p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "renew", "result": "failure"}).Inc()
+		p.recordLease("renew", err)
 		return false, 0, err
 	}
 
 	// Check if we are still the owner before renewing
 	if entry == nil || string(entry.Value()) != config.NodeId {
-		p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "renew", "result": "failure"}).Inc()
+		p.recordLease("renew", errKeyHeldByOther)
+
 		return false, 0, nil
 	}
 
 	// Update the key with the same value, which resets the TTL.
 	rev, err := p.kvOps.Update(ctx, config.Key, []byte(config.NodeId), entry.Revision())
-	if err == nil {
-		p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "renew", "result": "success"}).Inc()
-	} else {
-		p.metrics.leaseOperations.WithLabels(metrics.Labels{"op": "renew", "result": "failure"}).Inc()
-	}
+	p.recordLease("renew", err)
+
 	return err == nil, rev, err
 }
 

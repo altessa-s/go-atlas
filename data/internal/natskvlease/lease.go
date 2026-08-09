@@ -151,7 +151,7 @@ func (l *Lease) Acquire(ctx context.Context) (bool, error) {
 	if err == nil {
 		l.isHeld.Store(true)
 		l.metrics.leaseHeld.Set(1)
-		l.metrics.operations.WithLabels(metrics.Labels{"op": "acquire", "result": "success"}).Inc()
+		l.record("acquire", nil)
 		if l.config.Callbacks.OnAcquired != nil {
 			l.config.Callbacks.OnAcquired()
 		}
@@ -163,7 +163,8 @@ func (l *Lease) Acquire(ctx context.Context) (bool, error) {
 		return l.tryTakeoverStale(ctx)
 	}
 
-	l.metrics.operations.WithLabels(metrics.Labels{"op": "acquire", "result": "failure"}).Inc()
+	l.record("acquire", err)
+
 	return false, err
 }
 
@@ -199,52 +200,62 @@ func (l *Lease) tryTakeoverStale(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
+// record counts one lease operation, classifying it by whether it failed.
+func (l *Lease) record(op string, err error) {
+	result := "success"
+	if err != nil {
+		result = "failure"
+	}
+	l.metrics.operations.WithLabels(metrics.Labels{"op": op, "result": result}).Inc()
+}
+
+// lost marks the lease as no longer held and reports it as a failed renewal.
+// Every way of discovering the loss — the key gone, a tombstone, another owner,
+// a revision that moved on — leaves the same state behind.
+func (l *Lease) lost() (bool, error) {
+	l.isHeld.Store(false)
+	l.metrics.leaseHeld.Set(0)
+	l.record("renew", ErrLeaseNotHeld)
+
+	return false, ErrLeaseNotHeld
+}
+
 // Renew attempts to renew the lease.
 // Returns true if successfully renewed, false if lease was lost.
 func (l *Lease) Renew(ctx context.Context) (bool, error) {
 	entry, err := l.ops.Get(ctx, l.config.Key)
 	if err != nil {
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
-			l.isHeld.Store(false)
-			l.metrics.leaseHeld.Set(0)
-			l.metrics.operations.WithLabels(metrics.Labels{"op": "renew", "result": "failure"}).Inc()
-			return false, ErrLeaseNotHeld
+			return l.lost()
 		}
-		l.metrics.operations.WithLabels(metrics.Labels{"op": "renew", "result": "failure"}).Inc()
+		l.record("renew", err)
+
 		return false, err
 	}
 
-	// Check if entry is valid
+	// A nil entry or a tombstone reads as the key being gone.
 	if entry == nil || entry.Value() == nil {
-		l.isHeld.Store(false)
-		l.metrics.leaseHeld.Set(0)
-		l.metrics.operations.WithLabels(metrics.Labels{"op": "renew", "result": "failure"}).Inc()
-		return false, ErrLeaseNotHeld
+		return l.lost()
 	}
 
-	// Check ownership
+	// Someone else took the key over.
 	if l.config.IsOwner != nil && !l.config.IsOwner(entry.Value()) {
-		l.isHeld.Store(false)
-		l.metrics.leaseHeld.Set(0)
-		l.metrics.operations.WithLabels(metrics.Labels{"op": "renew", "result": "failure"}).Inc()
-		return false, ErrLeaseNotHeld
+		return l.lost()
 	}
 
-	// Update with new value (potentially updated timestamp)
-	_, err = l.ops.Update(ctx, l.config.Key, l.currentValue(), entry.Revision())
-	if err != nil {
+	// Rewrite the key at the revision we just read, which resets its TTL. The
+	// revision makes this a compare-and-set: a mismatch means the key moved on
+	// without us, so the lease is gone rather than merely unwritable.
+	if _, err = l.ops.Update(ctx, l.config.Key, l.currentValue(), entry.Revision()); err != nil {
 		if errors.Is(err, jetstream.ErrKeyExists) {
-			// Revision mismatch - someone else modified
-			l.isHeld.Store(false)
-			l.metrics.leaseHeld.Set(0)
-			l.metrics.operations.WithLabels(metrics.Labels{"op": "renew", "result": "failure"}).Inc()
-			return false, ErrLeaseNotHeld
+			return l.lost()
 		}
-		l.metrics.operations.WithLabels(metrics.Labels{"op": "renew", "result": "failure"}).Inc()
+		l.record("renew", err)
+
 		return false, err
 	}
 
-	l.metrics.operations.WithLabels(metrics.Labels{"op": "renew", "result": "success"}).Inc()
+	l.record("renew", nil)
 
 	if l.config.Callbacks.OnRenewed != nil {
 		l.config.Callbacks.OnRenewed()
@@ -273,7 +284,8 @@ func (l *Lease) Release(ctx context.Context) error {
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
 			return l.released()
 		}
-		l.metrics.operations.WithLabels(metrics.Labels{"op": "release", "result": "failure"}).Inc()
+		l.record("release", err)
+
 		return err
 	}
 
@@ -286,7 +298,8 @@ func (l *Lease) Release(ctx context.Context) error {
 	// Deleting it would be releasing a lock we no longer own.
 	if l.config.IsOwner != nil && !l.config.IsOwner(entry.Value()) {
 		l.logger.WarnContext(ctx, "lease was taken over before release; leaving the current holder's key alone")
-		l.metrics.operations.WithLabels(metrics.Labels{"op": "release", "result": "success"}).Inc()
+		l.record("release", nil)
+
 		return nil
 	}
 
@@ -297,7 +310,8 @@ func (l *Lease) Release(ctx context.Context) error {
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
 			return l.released()
 		}
-		l.metrics.operations.WithLabels(metrics.Labels{"op": "release", "result": "failure"}).Inc()
+		l.record("release", err)
+
 		return err
 	}
 
@@ -309,7 +323,7 @@ func (l *Lease) released() error {
 	if l.config.Callbacks.OnReleased != nil {
 		l.config.Callbacks.OnReleased()
 	}
-	l.metrics.operations.WithLabels(metrics.Labels{"op": "release", "result": "success"}).Inc()
+	l.record("release", nil)
 
 	return nil
 }

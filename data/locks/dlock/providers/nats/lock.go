@@ -93,9 +93,12 @@ func (l *lock) IsLocked() bool {
 	return l.isLocked.Load()
 }
 
-// GetLockInfo returns information about the current state of the lock.
-func (l *lock) GetLockInfo(ctx context.Context) (*providers.LockInfo, error) {
-	entry, err := l.lease.GetOps().Get(ctx, l.config.Key)
+// readLockInfo reads key through ops and renders it as a [providers.LockInfo].
+//
+// Both the provider-level and the per-lock accessor answer the same question
+// about the same key, and differ only in which KV handle they already have.
+func readLockInfo(ctx context.Context, ops *natskvlease.KVOps, key string) (*providers.LockInfo, error) {
+	entry, err := ops.Get(ctx, key)
 	if err != nil {
 		if errors.Is(err, jetstream.ErrKeyNotFound) {
 			return nil, errs.ErrLockNotHeld
@@ -103,7 +106,7 @@ func (l *lock) GetLockInfo(ctx context.Context) (*providers.LockInfo, error) {
 		return nil, err
 	}
 
-	// Check if entry or its value is nil (defensive check for tombstones)
+	// A nil entry or a tombstone reads as the key being gone.
 	if entry == nil || entry.Value() == nil {
 		return nil, errs.ErrLockNotHeld
 	}
@@ -113,22 +116,24 @@ func (l *lock) GetLockInfo(ctx context.Context) (*providers.LockInfo, error) {
 		return nil, err
 	}
 
-	// Best-effort staleness hint — see [providers.LockInfo.IsStale] for
-	// the caveats. The subtraction below is wall-clock-based and may
-	// disagree between nodes; safety-critical decisions belong to the
-	// FencingToken / KV TTL path, never to this flag.
-	now := time.Now()
-	isStale := now.Sub(metadata.LastRenewed) > time.Duration(metadata.TTL)
-
 	return &providers.LockInfo{
-		Key:          l.config.Key,
-		Owner:        metadata.OwnerId,
-		AcquiredAt:   metadata.AcquiredAt,
-		LastRenewed:  metadata.LastRenewed,
-		TTL:          time.Duration(metadata.TTL),
-		IsStale:      isStale,
+		Key:         key,
+		Owner:       metadata.OwnerId,
+		AcquiredAt:  metadata.AcquiredAt,
+		LastRenewed: metadata.LastRenewed,
+		TTL:         time.Duration(metadata.TTL),
+		// Best-effort staleness hint — see [providers.LockInfo.IsStale] for the
+		// caveats. The subtraction is wall-clock-based and may disagree between
+		// nodes; safety-critical decisions belong to the FencingToken / KV TTL
+		// path, never to this flag.
+		IsStale:      time.Since(metadata.LastRenewed) > time.Duration(metadata.TTL),
 		FencingToken: entry.Revision(),
 	}, nil
+}
+
+// GetLockInfo returns information about the current state of the lock.
+func (l *lock) GetLockInfo(ctx context.Context) (*providers.LockInfo, error) {
+	return readLockInfo(ctx, l.lease.GetOps(), l.config.Key)
 }
 
 // run acquires the lock and leaves the lease renewing in the background.
