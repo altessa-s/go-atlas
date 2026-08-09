@@ -89,7 +89,16 @@ func TestRetryTransportContextCanceledDuringBackoff(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		hits.Add(1)
 		w.WriteHeader(http.StatusServiceUnavailable)
-		cancel() // abort while RoundTrip backs off before the retry
+
+		// Abort while RoundTrip backs off before the retry.
+		//
+		// Waiting for the cancellation to land before returning is what makes
+		// this deterministic: otherwise the client can observe the whole
+		// response and move on while this goroutine has not reached cancel()
+		// yet, and the retry loop then proceeds as if nothing was canceled.
+		// ctx is the one cancel() closes, so the receive returns immediately.
+		cancel()
+		<-ctx.Done()
 	}))
 	t.Cleanup(srv.Close)
 

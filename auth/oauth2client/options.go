@@ -34,6 +34,13 @@ const (
 
 	// DefaultRetryMaxDelay caps the exponential backoff between retries.
 	DefaultRetryMaxDelay = 5 * time.Second
+
+	// DefaultRetryJitter randomizes each backoff delay by up to this fraction
+	// of itself. A token endpoint is a single dependency shared by every
+	// instance of every service that talks to it, so an outage synchronizes
+	// their retries; without jitter the endpoint is hit by waves at exactly
+	// the moments it is trying to recover.
+	DefaultRetryJitter = 0.2
 )
 
 // options carries the tunables shared by every grant helper. All fields are

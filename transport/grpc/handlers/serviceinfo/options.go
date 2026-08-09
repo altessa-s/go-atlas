@@ -26,6 +26,24 @@ type LeaderProvider interface {
 	LeaderId(ctx context.Context) (string, error)
 }
 
+// leaderStater is the context-aware shape of [LeaderProvider]: it answers
+// both leadership questions in a single call that receives the caller's
+// context.
+//
+// It is deliberately separate from LeaderProvider, and unexported, so existing
+// implementations stay source-compatible — the same reasoning as
+// providers.Prober in data/locks/dlock. [Handler.Snapshot] type-asserts for it
+// and falls back to the two-method path when it is absent.
+//
+// It exists because LeaderProvider.IsLeader takes no context. For an
+// implementation whose leadership check is a local read — *leadelect.Leader is
+// one, it reads an atomic — that is exactly right. For one that has to ask the
+// network, a context-free signature leaves no way to pass the request's
+// deadline or cancellation, so the call outlives the client that asked for it.
+type leaderStater interface {
+	LeaderState(ctx context.Context) (isLeader bool, leaderID string)
+}
+
 // LeaderFunc is the function shape accepted by [WithLeader] for callers
 // that don't have a [LeaderProvider]-shaped object. It is invoked once
 // per snapshot — keep it cheap. Returning a non-nil error from the
@@ -47,14 +65,24 @@ func WithLeader(fn LeaderFunc) Option {
 	}
 }
 
-// leaderFnAdapter satisfies [LeaderProvider] by invoking the wrapped
-// function on every call. Note that [Handler.Snapshot] calls IsLeader and
-// then LeaderId, which means fn is invoked twice per request. The default
-// LeaderProvider call site is not on a hot path, so this is acceptable.
+// leaderFnAdapter satisfies [LeaderProvider] and [leaderStater] by invoking
+// the wrapped function.
+//
+// [Handler.Snapshot] goes through LeaderState, so fn is called once per
+// snapshot and receives the request's context — which is what LeaderFunc's
+// signature promises. The two-method path below remains for any other caller
+// that holds this adapter as a plain LeaderProvider.
 type leaderFnAdapter struct {
 	fn LeaderFunc
 }
 
+func (a leaderFnAdapter) LeaderState(ctx context.Context) (bool, string) {
+	return a.fn(ctx)
+}
+
+// IsLeader satisfies [LeaderProvider], whose signature carries no context.
+// Prefer LeaderState, which does; this exists so the adapter still fits the
+// plain interface.
 func (a leaderFnAdapter) IsLeader() bool {
 	isLeader, _ := a.fn(context.Background())
 	return isLeader

@@ -52,9 +52,13 @@ func RetryTransport(base http.RoundTripper, opts ...RetryTransportOption) http.R
 		o(&cfg)
 	}
 	return &retryTransport{
-		base:      base,
-		attempts:  cfg.attempts,
-		nextDelay: retry.Exponential(retry.ExponentialConfig{BaseDelay: cfg.baseDelay, MaxDelay: cfg.maxDelay}),
+		base:     base,
+		attempts: cfg.attempts,
+		nextDelay: retry.Exponential(retry.ExponentialConfig{
+			BaseDelay: cfg.baseDelay,
+			MaxDelay:  cfg.maxDelay,
+			Jitter:    DefaultRetryJitter,
+		}),
 	}
 }
 
