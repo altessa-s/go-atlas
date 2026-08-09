@@ -42,10 +42,10 @@ func MigrateTimestampsToDate(ctx context.Context, collection *mongo.Collection) 
 	// null, so $gt:[null,0] is false and the field is removed via $$REMOVE.
 	secondsToDate := func(field string) bson.M {
 		path := "$" + field
-		return bson.M{"$cond": bson.A{
+		return bson.M{opCond: bson.A{
 			bson.M{"$gt": bson.A{path, 0}},
 			bson.M{"$toDate": bson.M{"$multiply": bson.A{path, millisPerSecond}}},
-			"$$REMOVE",
+			opRemove,
 		}}
 	}
 
@@ -75,6 +75,12 @@ func MigrateTimestampsToDate(ctx context.Context, collection *mongo.Collection) 
 // layout so an older store build can read the collection. It exists so a
 // deployment can roll back the BSON Date migration.
 //
+// It also drops the fields a legacy build has no notion of — the fencing token
+// and the retry deadline. Leaving them behind would be harmless to that build,
+// which never reads them, but they would then be stale on a roll forward: an
+// event could carry a lock token no dispatcher holds, and its own writes would
+// be fenced out until the sweeper cleared it.
+//
 // Like the forward migration it is idempotent (only documents whose created_at is
 // still a Date are touched) and it removes optional timestamps that are absent,
 // which the legacy decoder reads back as zero.
@@ -85,10 +91,10 @@ func RevertTimestampsToUnix(ctx context.Context, collection *mongo.Collection) (
 	// missing/non-date value (legacy decode reads an absent int64 as 0).
 	dateToSeconds := func(field string) bson.M {
 		path := "$" + field
-		return bson.M{"$cond": bson.A{
-			bson.M{"$eq": bson.A{bson.M{"$type": path}, "date"}},
+		return bson.M{opCond: bson.A{
+			bson.M{opEq: bson.A{bson.M{"$type": path}, "date"}},
 			bson.M{"$toLong": bson.M{"$divide": bson.A{bson.M{"$toLong": path}, millisPerSecond}}},
-			"$$REMOVE",
+			opRemove,
 		}}
 	}
 
@@ -99,6 +105,9 @@ func RevertTimestampsToUnix(ctx context.Context, collection *mongo.Collection) (
 		collectionFieldLastAttemptOn: dateToSeconds(collectionFieldLastAttemptOn),
 		collectionFieldLockedOn:      dateToSeconds(collectionFieldLockedOn),
 		collectionFieldExpiresAt:     dateToSeconds(collectionFieldExpiresAt),
+		// Concepts the legacy layout does not have.
+		collectionFieldLockToken:     opRemove,
+		collectionFieldNextAttemptAt: opRemove,
 	}}}}
 
 	filter := bson.M{collectionFieldCreatedAt: bson.M{"$type": "date"}}

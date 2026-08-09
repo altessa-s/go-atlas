@@ -8,7 +8,7 @@ import (
 	"cmp"
 	"context"
 	"log/slog"
-	"sync/atomic"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,23 +21,6 @@ import (
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
-// Default retry configuration for event dispatching.
-const (
-	// DefaultDispatchRetryBaseDelay is the initial delay between retry attempts.
-	// Uses exponential backoff starting from this base delay.
-	DefaultDispatchRetryBaseDelay = 500 * time.Millisecond
-
-	// DefaultDispatchRetryMaxDelay is the maximum delay between retry attempts.
-	// Exponential backoff will not exceed this value.
-	DefaultDispatchRetryMaxDelay = 3 * time.Second
-
-	// DefaultDispatchRetryJitter randomizes each retry delay by up to this
-	// fraction of itself. Every instance runs a poller against the same
-	// broker, so without jitter their retries stay in phase and land as waves
-	// on a dependency that is already struggling.
-	DefaultDispatchRetryJitter = 0.2
-)
-
 // Outbox implements the transactional outbox pattern for reliable event delivery.
 // It persists events to a Store before dispatching via a Handler.
 // Background goroutines handle dispatching, retries, and maintenance.
@@ -48,29 +31,30 @@ type Outbox struct {
 	// Configuration fields set via Options:
 	publishedEventsLifetime time.Duration
 	maxLockTime             time.Duration
-	retryInterval           time.Duration
 	fetchTimeout            time.Duration
 	handleTimeout           time.Duration
 	updateTimeout           time.Duration
 	compactionFilter        func(string) bool // Optional filter for selective compaction (nil = all keys).
 	baseCtx                 context.Context
-	shouldRetry             func(error) bool // Optional caller-provided retry predicate.
+	shouldRetry             func(error) bool        // Optional caller-provided retry predicate.
+	retryBackoff            coreretry.NextDelayFunc // Exponential backoff with jitter between attempts.
 
 	// Metrics
 	metrics *outboxMetrics
 
 	// Internal state:
-	eventsInFlight atomic.Int64 // Counts events currently being processed by handleEvents.
-	logger         *slog.Logger // Internal logger.
-	scheduler      corescheduler.TaskRegistrar
+	logger    *slog.Logger // Internal logger.
+	scheduler corescheduler.TaskRegistrar
 
 	dispatchTask corescheduler.ManagedTask // Guards RunDispatchCycle and marks scheduler management.
 	unlockTask   corescheduler.ManagedTask // Guards RunUnlockCycle and marks scheduler management.
 	cleanupTask  corescheduler.ManagedTask // Guards RunCleanupCycle and marks scheduler management.
 	expireTask   corescheduler.ManagedTask // Guards RunExpireCycle and marks scheduler management.
+	statsTask    corescheduler.ManagedTask // Guards RunStatsCycle and marks scheduler management.
 
 	retryMaxAttempts uint32
 	eventsBatchSize  uint32
+	maxPayloadBytes  int
 	compaction       bool          // When true, key compaction is enabled.
 	defaultEventTTL  time.Duration // Default TTL for events without explicit ExpiresAt.
 }
@@ -84,13 +68,27 @@ func New(store Store, handler Handler, opts ...Option) *Outbox {
 	cfg.baseCtx = cmp.Or(cfg.baseCtx, context.Background())
 	cfg.logger = cmp.Or(cfg.logger, slog.New(slog.DiscardHandler))
 
+	// A lock that expires while the cycle holding it is still publishing lets
+	// the unlock sweeper hand the same event to a second worker, so duplicate
+	// delivery stops being an edge case and becomes the steady state. Clamp
+	// rather than reject: a running service with a mildly wrong knob should
+	// keep working, loudly.
+	maxLockTime := cfg.maxLockTime
+	if maxLockTime <= cfg.handleTimeout {
+		maxLockTime = lockTimeHandleTimeoutRatio * cfg.handleTimeout
+		cfg.logger.Warn("outbox lock time must exceed the handle timeout; raising it to avoid duplicate dispatch",
+			slog.Duration("configured_max_lock_time", cfg.maxLockTime),
+			slog.Duration("handle_timeout", cfg.handleTimeout),
+			slog.Duration("effective_max_lock_time", maxLockTime),
+		)
+	}
+
 	o := &Outbox{
 		metrics:                 newOutboxMetrics(cfg.collector),
 		eventsBatchSize:         cfg.eventsBatchSize,
 		publishedEventsLifetime: cfg.publishedEventsLifetime,
-		retryInterval:           DefaultRetryInterval,
 		retryMaxAttempts:        cfg.retryMaxAttempts,
-		maxLockTime:             DefaultLockInterval,
+		maxLockTime:             maxLockTime,
 		fetchTimeout:            cfg.fetchTimeout,
 		handleTimeout:           cfg.handleTimeout,
 		updateTimeout:           cfg.updateTimeout,
@@ -103,6 +101,13 @@ func New(store Store, handler Handler, opts ...Option) *Outbox {
 		scheduler:               cfg.scheduler,
 		shouldRetry:             cfg.shouldRetry,
 		defaultEventTTL:         cfg.defaultEventTTL,
+		maxPayloadBytes:         cfg.maxPayloadBytes,
+		retryBackoff: coreretry.Exponential(coreretry.ExponentialConfig{
+			BaseDelay: cfg.retryBaseDelay,
+			MaxDelay:  cfg.retryMaxDelay,
+			Factor:    DefaultRetryFactor,
+			Jitter:    DefaultRetryJitter,
+		}),
 	}
 
 	// Register outbox tasks with scheduler if provided
@@ -115,15 +120,38 @@ func New(store Store, handler Handler, opts ...Option) *Outbox {
 }
 
 // Save persists events to the outbox store for later dispatching.
-// Should be called within the same transaction as the business logic for atomicity.
 // Events without an Id will be assigned a UUID automatically.
 //
-// Example:
+// Save MUST run inside the same store transaction as the business data it
+// describes — that atomicity is the entire point of the pattern. With the
+// MongoDB store that means passing the session context:
 //
-//	err := ob.Save(ctx, outbox.Event{Key: "events", Payload: payload})
+//	_, err := sess.WithTransaction(ctx, func(sessCtx context.Context) (any, error) {
+//	    if err := repo.CreateOrder(sessCtx, order); err != nil {
+//	        return nil, err
+//	    }
+//	    return nil, ob.Save(sessCtx, outbox.Event{Key: "billing.order.created", Payload: payload})
+//	})
+//
+// Passing a plain context instead reintroduces the dual-write gap the outbox
+// exists to close: the order can commit while the event is lost, or the
+// reverse.
+//
+// Events are validated before any store call, so a rejected batch leaves the
+// caller's transaction intact and abortable.
 func (o *Outbox) Save(ctx context.Context, events ...Event) error {
 	if len(events) == 0 {
 		return nil
+	}
+
+	for i := range events {
+		if events[i].Key == "" {
+			return coreerrs.Wrapf(ErrEmptyKey, "event at index %d", i)
+		}
+		if o.maxPayloadBytes > 0 && len(events[i].Payload) > o.maxPayloadBytes {
+			return coreerrs.Wrapf(ErrPayloadTooLarge, "event %q: %d bytes exceeds the %d byte limit; use a claim-check",
+				events[i].Key, len(events[i].Payload), o.maxPayloadBytes)
+		}
 	}
 
 	now := time.Now().UTC()
@@ -157,66 +185,51 @@ func (o *Outbox) Save(ctx context.Context, events ...Event) error {
 
 // --- Internal Methods ---
 
-// dispatchEvent attempts to dispatch a single event with exponential backoff retry.
-// Decrements eventsInFlight counter upon completion.
+// dispatchEvent makes exactly one delivery attempt for the event.
+//
+// Retrying is deliberately not done here. An in-process retry loop holds the
+// event's store lock for the whole loop, so the lock expires mid-flight and the
+// unlock sweeper hands the event to a second worker; it also multiplies the
+// attempt budget, because the outer state machine counts one attempt per cycle
+// while the inner loop burns several. Spacing between attempts is instead
+// expressed as [Event.RetryAfter] and enforced by the store, which keeps the
+// backoff durable across restarts and consistent across instances.
 func (o *Outbox) dispatchEvent(ctx context.Context, event Event) error {
-	// Decrement the in-flight counter when this function exits.
-	defer o.eventsInFlight.Add(-1)
-
 	o.metrics.eventsInFlight.Inc()
 	defer o.metrics.eventsInFlight.Dec()
 
-	err := coreretry.Do(ctx, func(ctx context.Context) error {
-		return o.handler(ctx, event)
-	},
-		// Bound the per-event retry loop by retryMaxAttempts. Previously
-		// this was -1 (retry until ctx cancellation), so a single poison
-		// message returning a "transient-looking" error would occupy a
-		// worker slot in concurrency.ProcessCollect indefinitely while
-		// every other event waited. Using the same attempt budget that
-		// the outbox state machine uses keeps the two layers aligned —
-		// once the per-event budget is exhausted, the event flows back
-		// to the store and gets picked up on a later cycle (subject to
-		// isReadyForRetry).
-		coreretry.WithMaxAttempts(int(o.retryMaxAttempts)),
-		coreretry.WithShouldRetry(func(err error) bool {
-			if coreerrs.IsContextCanceled(err) {
-				return false
-			}
-			if o.shouldRetry != nil {
-				return o.shouldRetry(err)
-			}
-			return true
-		}),
-		coreretry.WithNextDelay(coreretry.Exponential(coreretry.ExponentialConfig{
-			BaseDelay: DefaultDispatchRetryBaseDelay,
-			MaxDelay:  DefaultDispatchRetryMaxDelay,
-			Jitter:    DefaultDispatchRetryJitter,
-		})),
-		coreretry.WithOnRetry(func(_ int, err error, nextDelay time.Duration) {
-			o.metrics.dispatchRetries.Inc()
-			o.logger.WarnContext(ctx, "failed to dispatch event, retrying...",
-				slog.Any("error", err),
-				slog.String("event_id", event.Id),
-				slog.Duration("next_try_in", nextDelay),
-			)
-		}),
-	)
-	if err == nil {
-		o.metrics.eventsDispatched.Inc()
-		return nil
+	if err := o.handler(ctx, event); err != nil {
+		o.metrics.eventsDispatchFail.Inc()
+		return err
 	}
 
-	o.metrics.eventsDispatchFail.Inc()
-	if coreerrs.IsContextCanceled(err) {
-		return coreerrs.Wrap(err, "context canceled before next retry")
+	o.metrics.eventsDispatched.Inc()
+	return nil
+}
+
+// isRetryable classifies a dispatch failure as transient (retry later) or
+// permanent (dead-letter now). A canceled or timed-out context means our own
+// cycle was cut short — the broker never returned a verdict about the event —
+// so it always counts as transient, whatever the caller's predicate says.
+// Otherwise a broker outage would dead-letter perfectly good events.
+func (o *Outbox) isRetryable(err error) bool {
+	if coreerrs.IsContextCanceled(err) || coreerrs.IsContextDeadlineExceeded(err) {
+		return true
 	}
-	return err
+	if o.shouldRetry != nil {
+		return o.shouldRetry(err)
+	}
+	return true
 }
 
 // compactEventsByKey applies log compaction to keep only the latest event per key.
-// Events are assumed to be sorted by CreatedAt ascending (oldest first).
 // Returns two slices: events to dispatch (latest per key) and events to skip (older duplicates).
+//
+// The batch is sorted by CreatedAt ascending first. [Store] is required to
+// return it that way already, but compaction is the one place where a violated
+// ordering contract would be actively harmful rather than merely untidy — it
+// would dispatch a stale event and discard the current one, silently — so the
+// invariant is re-established here instead of assumed.
 //
 // If compactionFilter is set, only events matching the filter will be compacted.
 // Events not matching the filter are always dispatched (bypass compaction).
@@ -231,6 +244,10 @@ func (o *Outbox) compactEventsByKey(events []Event) (toPublish, toSkip []Event) 
 	if len(events) == 0 {
 		return nil, nil
 	}
+
+	// Stable so events sharing a CreatedAt keep their fetch order, making the
+	// choice of survivor deterministic rather than dependent on sort internals.
+	slices.SortStableFunc(events, func(a, b Event) int { return a.CreatedAt.Compare(b.CreatedAt) })
 
 	// If filter is set, separate events into compactable and non-compactable
 	var compactableEvents []Event
@@ -296,10 +313,14 @@ func (o *Outbox) handleEvents(ctx context.Context, events ...Event) {
 		events = toPublish
 	}
 
-	// Increment in-flight counter for the whole batch.
-	// Defer decrementing until all processing (including store update) is done.
-	o.eventsInFlight.Add(int64(len(events)))
-
+	// The transform never returns an error, and that is load-bearing:
+	// ProcessCollect drops the transformed value of any item whose function
+	// failed. Signaling a failed dispatch through the error return therefore
+	// discarded exactly the events whose new state mattered most — the failure
+	// was never written back, so attempts never grew, the error was never
+	// recorded, and no event could ever reach a terminal status. The outcome
+	// travels on the event's own status instead; per-event errors are logged
+	// where they happen.
 	processedEvents, err := concurrency.ProcessCollect(ctx, events, func(ctx context.Context, event Event) (Event, error) {
 		event.nextAttempt() // Increment attempts etc. on the copy
 
@@ -310,12 +331,34 @@ func (o *Outbox) handleEvents(ctx context.Context, events ...Event) {
 		// Attempt to dispatch the event using the context.
 		if err := o.dispatchEvent(ctx, event); err != nil {
 			event.setErrorStatus(err)
-			logger.ErrorContext(ctx, "failed to dispatch event", slog.Any("error", err))
-			if !event.isReadyForRetry(o.retryMaxAttempts) {
+
+			switch {
+			case !o.isRetryable(err):
+				// Repeating a permanent failure cannot fix it and would only
+				// delay the operator seeing it, so dead-letter immediately
+				// instead of spending the remaining attempt budget.
+				event.setRejectedStatus()
+				o.metrics.eventsRejected.Inc()
+				logger.ErrorContext(ctx, "event rejected as permanently undeliverable", slog.Any("error", err))
+
+			case !event.isReadyForRetry(o.retryMaxAttempts):
 				event.setStatusMaxAttemptReached()
 				o.metrics.maxRetriesExhausted.Inc()
+				logger.ErrorContext(ctx, "event dead-lettered after exhausting the retry budget", slog.Any("error", err))
+
+			default:
+				// Exponential backoff with jitter, keyed off the attempt
+				// count. It travels to the store as a duration so the
+				// deadline is anchored to the backend clock.
+				event.RetryAfter = o.retryBackoff(int(event.Attempts)-1, err)
+				o.metrics.dispatchRetries.Inc()
+				logger.WarnContext(ctx, "failed to dispatch event, scheduling retry",
+					slog.Any("error", err),
+					slog.Duration("next_try_in", event.RetryAfter),
+				)
 			}
-			return event, err
+
+			return event, nil
 		}
 
 		// Success
@@ -325,8 +368,11 @@ func (o *Outbox) handleEvents(ctx context.Context, events ...Event) {
 	})
 
 	if err != nil {
-		// Log the overall batch error if needed, although individual errors are logged above.
-		o.logger.WarnContext(ctx, "batch processing completed with some errors", slog.Any("error", err))
+		// Not a dispatch failure — the transform cannot fail. This is the
+		// batch being cut short (a canceled cycle), so some events were never
+		// attempted. They keep their lock and return to the queue when the
+		// unlock sweeper reclaims them.
+		o.logger.WarnContext(ctx, "batch processing stopped before every event was attempted", slog.Any("error", err))
 	}
 
 	// Combine processed and skipped events for store update.

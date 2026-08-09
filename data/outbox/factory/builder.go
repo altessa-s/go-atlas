@@ -102,11 +102,13 @@ func (b *OutboxBuilder) createOutboxWithStore(store outbox.Store, handler outbox
 			outbox.WithUnlockTaskID(b.cfg.UnlockTaskID),
 			outbox.WithExpireTaskID(b.cfg.ExpireTaskID),
 			outbox.WithCleanupTaskID(b.cfg.CleanupTaskID),
+			outbox.WithStatsTaskID(b.cfg.StatsTaskID),
 		)
 		opts = slices.AppendIf(opts, b.cfg.DispatchSchedule != "", outbox.WithDispatchSchedule(b.cfg.DispatchSchedule))
 		opts = slices.AppendIf(opts, b.cfg.UnlockSchedule != "", outbox.WithUnlockSchedule(b.cfg.UnlockSchedule))
 		opts = slices.AppendIf(opts, b.cfg.CleanupSchedule != "", outbox.WithCleanupSchedule(b.cfg.CleanupSchedule))
 		opts = slices.AppendIf(opts, b.cfg.ExpireSchedule != "", outbox.WithExpireSchedule(b.cfg.ExpireSchedule))
+		opts = slices.AppendIf(opts, b.cfg.StatsSchedule != "", outbox.WithStatsSchedule(b.cfg.StatsSchedule))
 	}
 
 	return outbox.New(store, handler, opts...), nil
@@ -121,6 +123,10 @@ func (b *OutboxBuilder) buildOutboxOptions() []outbox.Option {
 		outbox.WithUpdateTimeout(b.cfg.UpdateTimeout),
 		outbox.WithEventsBatchSize(b.cfg.MessagesBatchSize),
 		outbox.WithRetryMaxAttempts(b.cfg.RetryMaxAttempts),
+		outbox.WithRetryBaseDelay(b.cfg.RetryBaseDelay),
+		outbox.WithRetryMaxDelay(b.cfg.RetryMaxDelay),
+		outbox.WithMaxLockTime(b.cfg.MaxLockTime),
+		outbox.WithMaxPayloadBytes(b.cfg.MaxPayloadBytes),
 		outbox.WithPublishedEventsLifetime(b.cfg.PublishedEventsLifetime),
 		outbox.WithDefaultEventTTL(b.cfg.DefaultEventTTL),
 	}

@@ -27,6 +27,12 @@ const (
 	StatusFailed Status = "failed"
 	// StatusMaxAttemptReached indicates maximum retry attempts exceeded.
 	StatusMaxAttemptReached Status = "max-attempt-reached"
+	// StatusRejected indicates the dispatch failed with an error that the
+	// configured retry predicate classified as permanent (a malformed payload,
+	// an unknown subject). Such an event is never retried: repeating it cannot
+	// fix it, so it is dead-lettered immediately instead of burning the whole
+	// attempt budget first.
+	StatusRejected Status = "rejected"
 	// StatusSkipped indicates that the event was intentionally not dispatched
 	// because it was superseded by a newer event or excluded by processing rules.
 	StatusSkipped Status = "skipped"
@@ -48,6 +54,19 @@ type Event struct {
 	Attempts      uint32    // Number of dispatch attempts made.
 	LastAttemptOn time.Time // Timestamp of most recent attempt.
 	LockedOn      time.Time // When locked for processing; zero if unlocked.
+
+	// RetryAfter is the backoff delay the [Outbox] computed for the next
+	// attempt of a failed event. It is a duration, never an absolute
+	// instant, so the [Store] can anchor it to its own backend clock and
+	// stay clock-skew safe. Zero means "eligible immediately".
+	RetryAfter time.Duration
+
+	// LockToken is the fencing token the [Store] assigned when it locked the
+	// event for this dispatch cycle. [Store.UpdateEvents] must apply a write
+	// only while the stored token still matches, so a worker that lost its
+	// lock to the unlock sweeper cannot overwrite the state of the worker
+	// that picked the event up afterwards.
+	LockToken string
 }
 
 // nextAttempt increments attempts counter and updates LastAttemptOn timestamp.
@@ -70,12 +89,24 @@ func (e *Event) setErrorStatus(err error) {
 func (e *Event) setSentStatus() {
 	e.Status = StatusSent
 	e.LastError = nil
+	e.RetryAfter = 0
 	e.PublishedAt = time.Now().UTC()
 }
 
-// setStatusMaxAttemptReached sets status to StatusMaxAttemptReached.
+// setStatusMaxAttemptReached sets status to StatusMaxAttemptReached and clears
+// the pending backoff — a dead-lettered event is not scheduled for another try.
 func (e *Event) setStatusMaxAttemptReached() {
 	e.Status = StatusMaxAttemptReached
+	e.RetryAfter = 0
+}
+
+// setRejectedStatus marks the event as permanently undeliverable. Like
+// [Event.setStatusMaxAttemptReached] it is terminal, so no backoff is
+// scheduled. The failure itself is recorded by [Event.setErrorStatus], which
+// every failure path runs first.
+func (e *Event) setRejectedStatus() {
+	e.Status = StatusRejected
+	e.RetryAfter = 0
 }
 
 // setSkippedStatus updates the event's state when it is intentionally not dispatched.
@@ -84,6 +115,7 @@ func (e *Event) setStatusMaxAttemptReached() {
 func (e *Event) setSkippedStatus() {
 	e.Status = StatusSkipped
 	e.LastError = nil
+	e.RetryAfter = 0
 	e.PublishedAt = time.Now().UTC()
 }
 

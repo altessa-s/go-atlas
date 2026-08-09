@@ -16,7 +16,7 @@ type deadlineCapturingStore struct {
 	deadlineCh chan time.Duration
 }
 
-func (s *deadlineCapturingStore) FetchUnprocessedEvents(ctx context.Context, _ uint32, _ time.Duration) ([]Event, error) {
+func (s *deadlineCapturingStore) FetchUnprocessedEvents(ctx context.Context, _ uint32) ([]Event, error) {
 	if dl, ok := ctx.Deadline(); ok {
 		// Report remaining time until deadline at the moment of the call.
 		select {
@@ -36,6 +36,7 @@ func (s *deadlineCapturingStore) UpdateEvents(context.Context, ...Event) error  
 func (s *deadlineCapturingStore) ExpireEvents(context.Context) (int64, error) {
 	return 0, nil
 }
+func (s *deadlineCapturingStore) Stats(context.Context) (Stats, error) { return Stats{}, nil }
 
 func TestOutbox_WithFetchTimeout_AppliesDeadlineToFetch(t *testing.T) {
 	const (

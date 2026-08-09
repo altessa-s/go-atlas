@@ -213,7 +213,7 @@ func TestIntegration_FetchUnprocessedEvents_LocksWithServerClock(t *testing.T) {
 		outbox.Event{Id: "p1", Key: "k", Status: outbox.StatusPending, CreatedAt: now},
 	))
 
-	events, err := store.FetchUnprocessedEvents(ctx, 10, time.Minute)
+	events, err := store.FetchUnprocessedEvents(ctx, 10)
 	if err != nil {
 		// FetchUnprocessedEvents wraps Find+lock in a transaction, which a
 		// standalone mongod rejects; skip rather than fail there.
@@ -221,10 +221,69 @@ func TestIntegration_FetchUnprocessedEvents_LocksWithServerClock(t *testing.T) {
 	}
 	require.Len(t, events, 1)
 	require.Equal(t, outbox.StatusInProgress, events[0].Status)
+	require.NotEmpty(t, events[0].LockToken, "a locked event must carry its fencing token")
 
 	// The lock timestamp was written by the server ($$NOW) as a Date.
 	var locked dateDoc
 	require.NoError(t, coll.FindOne(ctx, bson.M{"_id": "p1"}).Decode(&locked))
 	require.Equal(t, string(outbox.StatusInProgress), locked.Status)
 	require.NotNil(t, locked.LockedOn)
+}
+
+// A dispatcher that lost its lease must not be able to write its result: the
+// unlock sweeper already handed the event to someone else, and a late write
+// would erase that worker's outcome.
+func TestIntegration_UpdateEvents_FencesStaleLockToken(t *testing.T) {
+	t.Parallel()
+	store, coll := newIT(t)
+	ctx := t.Context()
+
+	now := time.Now().UTC()
+	require.NoError(t, store.SaveEvents(ctx,
+		outbox.Event{Id: "fenced", Key: "k", Status: outbox.StatusPending, CreatedAt: now},
+	))
+
+	events, err := store.FetchUnprocessedEvents(ctx, 10)
+	if err != nil {
+		t.Skipf("FetchUnprocessedEvents requires a replica set: %v", err)
+	}
+	require.Len(t, events, 1)
+
+	stale := events[0]
+	stale.LockToken = "token-from-a-previous-lease"
+	stale.Status = outbox.StatusSent
+	require.NoError(t, store.UpdateEvents(ctx, stale))
+
+	var doc dateDoc
+	require.NoError(t, coll.FindOne(ctx, bson.M{"_id": "fenced"}).Decode(&doc))
+	require.Equal(t, string(outbox.StatusInProgress), doc.Status,
+		"a write carrying a stale lock token must not be applied")
+
+	// The live token still works.
+	current := events[0]
+	current.Status = outbox.StatusSent
+	require.NoError(t, store.UpdateEvents(ctx, current))
+	require.NoError(t, coll.FindOne(ctx, bson.M{"_id": "fenced"}).Decode(&doc))
+	require.Equal(t, string(outbox.StatusSent), doc.Status)
+}
+
+func TestIntegration_Stats_CountsBacklogAndDeadLetters(t *testing.T) {
+	t.Parallel()
+	store, _ := newIT(t)
+	ctx := t.Context()
+
+	now := time.Now().UTC()
+	require.NoError(t, store.SaveEvents(ctx,
+		outbox.Event{Id: "s1", Key: "k", Status: outbox.StatusPending, CreatedAt: now.Add(-time.Hour)},
+		outbox.Event{Id: "s2", Key: "k", Status: outbox.StatusFailed, CreatedAt: now},
+		outbox.Event{Id: "s3", Key: "k", Status: outbox.StatusMaxAttemptReached, CreatedAt: now},
+		outbox.Event{Id: "s4", Key: "k", Status: outbox.StatusRejected, CreatedAt: now},
+		outbox.Event{Id: "s5", Key: "k", Status: outbox.StatusSent, CreatedAt: now},
+	))
+
+	stats, err := store.Stats(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), stats.Pending)
+	require.Equal(t, int64(2), stats.DeadLettered)
+	require.Positive(t, stats.OldestPendingAge, "the hour-old pending event must show up as lag")
 }

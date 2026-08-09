@@ -216,6 +216,26 @@ func WithLogger(v *slog.Logger) Option {
 	}
 }
 
+// WithMaxLockTime sets the maxLockTime option.
+func WithMaxLockTime(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.maxLockTime = v
+	}
+}
+
+// WithRetryBaseDelay sets the retryBaseDelay option.
+func WithRetryBaseDelay(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.retryBaseDelay = v
+	}
+}
+
 // WithRetryMaxAttempts sets the retryMaxAttempts option.
 func WithRetryMaxAttempts(v uint32) Option {
 	return func(o *options) {
@@ -226,6 +246,16 @@ func WithRetryMaxAttempts(v uint32) Option {
 	}
 }
 
+// WithRetryMaxDelay sets the retryMaxDelay option.
+func WithRetryMaxDelay(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.retryMaxDelay = v
+	}
+}
+
 // WithScheduler sets the scheduler option.
 func WithScheduler(v corescheduler.TaskRegistrar) Option {
 	return func(o *options) {
@@ -233,6 +263,52 @@ func WithScheduler(v corescheduler.TaskRegistrar) Option {
 			return
 		}
 		o.scheduler = v
+	}
+}
+
+// WithStatsSchedule sets the statsSchedule option.
+func WithStatsSchedule[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.statsSchedule = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.statsSchedule = vv
+		}
+	}
+}
+
+// WithStatsTaskID sets the statsTaskID option.
+func WithStatsTaskID[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.statsTaskID = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.statsTaskID = vv
+		}
 	}
 }
 
@@ -302,8 +378,13 @@ func defaultOptions() *options {
 		fetchTimeout:            DefaultFetchTimeout,
 		handleTimeout:           DefaultHandleTimeout,
 		logger:                  slog.New(slog.DiscardHandler),
+		maxLockTime:             DefaultLockInterval,
+		maxPayloadBytes:         DefaultMaxPayloadBytes,
 		publishedEventsLifetime: DefaultPublishedEventsLifetime,
+		retryBaseDelay:          DefaultRetryBaseDelay,
 		retryMaxAttempts:        DefaultRetryMaxAttempts,
+		retryMaxDelay:           DefaultRetryMaxDelay,
+		statsTaskID:             DefaultStatsTaskID,
 		unlockTaskID:            DefaultUnlockTaskID,
 		updateTimeout:           DefaultUpdateTimeout,
 	}

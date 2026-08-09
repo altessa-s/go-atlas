@@ -268,18 +268,46 @@ Package: `auth/opa`
 
 Package: `data/outbox`
 
-| Name                                     | Type      | Labels | Description                               |
-|------------------------------------------|-----------|--------|-------------------------------------------|
-| `outbox_events_dispatched_total`         | Counter   | --     | Events successfully dispatched            |
-| `outbox_events_dispatch_errors_total`    | Counter   | --     | Event dispatch failures after all retries |
-| `outbox_events_saved_total`              | Counter   | --     | Events persisted to the outbox store      |
-| `outbox_events_skipped_total`            | Counter   | --     | Events skipped due to key compaction      |
-| `outbox_events_in_flight`                | Gauge     | --     | Events currently being dispatched         |
-| `outbox_dispatch_retries_total`          | Counter   | --     | Event dispatch retry attempts             |
-| `outbox_max_retries_exhausted_total`     | Counter   | --     | Events hitting the retry limit            |
-| `outbox_dispatch_cycle_duration_seconds` | Histogram | --     | Dispatch cycle duration                   |
-| `outbox_unlock_cycle_duration_seconds`   | Histogram | --     | Unlock cycle duration                     |
-| `outbox_cleanup_cycle_duration_seconds`  | Histogram | --     | Cleanup cycle duration                    |
+| Name                                            | Type      | Labels | Description                                        |
+|-------------------------------------------------|-----------|--------|----------------------------------------------------|
+| `outbox_events_dispatched_total`                | Counter   | --     | Events successfully dispatched                     |
+| `outbox_events_dispatch_attempts_failed_total`  | Counter   | --     | Failed delivery attempts                           |
+| `outbox_events_saved_total`                     | Counter   | --     | Events persisted to the outbox store               |
+| `outbox_events_skipped_total`                   | Counter   | --     | Events skipped due to key compaction               |
+| `outbox_events_rejected_total`                  | Counter   | --     | Events dead-lettered as permanently undeliverable  |
+| `outbox_events_expired_total`                   | Counter   | --     | Events that expired before dispatch                |
+| `outbox_events_retries_scheduled_total`         | Counter   | --     | Failures rescheduled for a later attempt           |
+| `outbox_max_retries_exhausted_total`            | Counter   | --     | Events hitting the retry limit                     |
+| `outbox_events_in_flight`                       | Gauge     | --     | Events currently being dispatched                  |
+| `outbox_events_pending`                         | Gauge     | --     | Backlog depth: events awaiting dispatch            |
+| `outbox_events_in_progress`                     | Gauge     | --     | Events currently locked by a dispatcher            |
+| `outbox_events_dead_lettered`                   | Gauge     | --     | Dead-letter depth: exhausted plus rejected events  |
+| `outbox_events_oldest_pending_age_seconds`      | Gauge     | --     | Dispatch lag: age of the oldest undispatched event |
+| `outbox_dispatch_cycle_duration_seconds`        | Histogram | --     | Dispatch cycle duration                            |
+| `outbox_unlock_cycle_duration_seconds`          | Histogram | --     | Unlock cycle duration                              |
+| `outbox_cleanup_cycle_duration_seconds`         | Histogram | --     | Cleanup cycle duration                             |
+| `outbox_expire_cycle_duration_seconds`          | Histogram | --     | Expire cycle duration                              |
+| `outbox_stats_cycle_duration_seconds`           | Histogram | --     | Stats cycle duration                               |
+
+**Alert on the gauges, not the counters.** A stalled outbox and an idle one produce identical counter rates — zero — and differ only in
+`outbox_events_pending` and `outbox_events_oldest_pending_age_seconds`. `outbox_events_dead_lettered` never decreases on its own: those events
+are retained deliberately for inspection, so a non-zero value means an operator still has to look. Populating all four requires the stats task
+to be scheduled (`statsSchedule`).
+
+**Renamed.** Two names no longer matched what they measured once the in-process retry loop was removed, and the backlog gauges did not share the
+`outbox_events_` prefix of the rest of the package. Update dashboards and alert rules accordingly:
+
+| Old                                     | New                                            |
+|-----------------------------------------|------------------------------------------------|
+| `outbox_events_dispatch_errors_total`   | `outbox_events_dispatch_attempts_failed_total` |
+| `outbox_dispatch_retries_total`         | `outbox_events_retries_scheduled_total`        |
+| `outbox_pending_events`                 | `outbox_events_pending`                        |
+| `outbox_in_progress_events`             | `outbox_events_in_progress`                    |
+| `outbox_dead_lettered_events`           | `outbox_events_dead_lettered`                  |
+| `outbox_oldest_pending_event_age_seconds` | `outbox_events_oldest_pending_age_seconds`   |
+
+`outbox_events_dispatch_attempts_failed_total` also counts differently: it used to increment once per event after all retries were spent, and now
+increments once per failed attempt.
 
 ---
 

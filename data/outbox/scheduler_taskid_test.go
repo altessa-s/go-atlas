@@ -57,6 +57,81 @@ func TestDefaultTaskIDs_MatchLegacyHardcodedValues(t *testing.T) {
 	require.Equal(t, "outbox-unlock", DefaultUnlockTaskID)
 	require.Equal(t, "outbox-expire", DefaultExpireTaskID)
 	require.Equal(t, "outbox-cleanup", DefaultCleanupTaskID)
+	require.Equal(t, "outbox-stats", DefaultStatsTaskID)
+}
+
+// failingRegistrar rejects every registration, standing in for an invalid cron
+// expression or an ID the scheduler refuses.
+type failingRegistrar struct{ err error }
+
+func (r *failingRegistrar) Register(context.Context, corescheduler.TaskConfig) error { return r.err }
+
+// A rejected registration must leave the manual entry point usable. Marking a
+// cycle scheduler-managed before Register succeeds would strand it: nothing
+// drives it automatically, and RunDispatchCycle answers ErrSchedulerManaged.
+// New only logs the registration failure, so the outbox would silently stop
+// delivering with no way to run a cycle by hand.
+func TestRegisterTasks_FailedRegistrationKeepsManualRunUsable(t *testing.T) {
+	t.Parallel()
+
+	ob := New(&recordingStore{}, noopHandler,
+		WithScheduler(&failingRegistrar{err: errors.New("invalid cron expression")}),
+		WithDispatchSchedule("@every 1s"),
+		WithUnlockSchedule("@every 11s"),
+		WithStatsSchedule("@every 30s"),
+	)
+
+	require.NoError(t, ob.RunDispatchCycle(t.Context()))
+	require.NoError(t, ob.RunUnlockCycle(t.Context()))
+	require.NoError(t, ob.RunStatsCycle(t.Context()))
+}
+
+// The mirror image: once registration succeeds, the scheduler owns the cycle
+// and manual invocation must be refused so the two cannot overlap.
+func TestRegisterTasks_SuccessfulRegistrationBlocksManualRun(t *testing.T) {
+	t.Parallel()
+
+	ob := New(&recordingStore{}, noopHandler,
+		WithScheduler(&capturingRegistrar{}),
+		WithDispatchSchedule("@every 1s"),
+		WithStatsSchedule("@every 30s"),
+	)
+
+	require.ErrorIs(t, ob.RunDispatchCycle(t.Context()), corescheduler.ErrSchedulerManaged)
+	require.ErrorIs(t, ob.RunStatsCycle(t.Context()), corescheduler.ErrSchedulerManaged)
+	// Never scheduled — no schedule was configured — so it stays manual.
+	require.NoError(t, ob.RunUnlockCycle(t.Context()))
+}
+
+// Each registered cycle must be driven by its own guarded body. A table-driven
+// registration loop is easy to get wrong by capturing one iteration variable
+// for every task, which would point every entry at the same cycle.
+func TestRegisterTasks_EachTaskRunsItsOwnCycle(t *testing.T) {
+	t.Parallel()
+
+	reg := &capturingRegistrar{}
+	store := &statsStore{stats: Stats{Pending: 1}}
+	ob := New(store, noopHandler,
+		WithScheduler(reg),
+		WithDispatchSchedule("@every 1s"),
+		WithUnlockSchedule("@every 11s"),
+		WithStatsSchedule("@every 30s"),
+	)
+	_ = ob
+
+	reg.mu.Lock()
+	registered := append([]corescheduler.TaskConfig(nil), reg.registered...)
+	reg.mu.Unlock()
+	require.Len(t, registered, 3)
+
+	for _, cfg := range registered {
+		require.NotNil(t, cfg.Func, "task %q must carry a body", cfg.ID)
+		require.NoError(t, cfg.Func(t.Context()), "task %q must be runnable", cfg.ID)
+	}
+
+	require.Positive(t, store.fetched.Load(), "the dispatch task must drive the dispatch cycle")
+	require.Positive(t, store.unlocked.Load(), "the unlock task must drive the unlock cycle")
+	require.Positive(t, store.statsCalls.Load(), "the stats task must drive the stats cycle")
 }
 
 // TestRegisterTasks_OverridesPropagateToScheduler proves the end-to-end
@@ -117,6 +192,7 @@ func TestValidateTaskIDs_RejectsCollision(t *testing.T) {
 		unlockTaskID:   "shared",
 		expireTaskID:   DefaultExpireTaskID,
 		cleanupTaskID:  DefaultCleanupTaskID,
+		statsTaskID:    DefaultStatsTaskID,
 	}
 	err := validateTaskIDs(opts)
 	require.Error(t, err)
@@ -140,6 +216,7 @@ func TestValidateTaskIDs_RejectsEmpty(t *testing.T) {
 		unlockTaskID:   DefaultUnlockTaskID,
 		expireTaskID:   DefaultExpireTaskID,
 		cleanupTaskID:  DefaultCleanupTaskID,
+		statsTaskID:    DefaultStatsTaskID,
 	}
 	err := validateTaskIDs(opts)
 	require.Error(t, err)
@@ -147,8 +224,8 @@ func TestValidateTaskIDs_RejectsEmpty(t *testing.T) {
 }
 
 // TestValidateTaskIDs_DefaultsAreDistinct is a cheap sanity check:
-// the four DefaultXxxTaskID constants must never accidentally
-// collide. A copy-paste edit that aliased two of them (e.g. setting
+// the DefaultXxxTaskID constants must never accidentally collide. A
+// copy-paste edit that aliased two of them (e.g. setting
 // DefaultUnlockTaskID = "outbox-dispatch") would only show up at
 // runtime as a registerTasks failure on the second Outbox to start
 // up. Catching it here makes the breakage visible at unit-test time.
@@ -160,7 +237,8 @@ func TestValidateTaskIDs_DefaultsAreDistinct(t *testing.T) {
 		unlockTaskID:   DefaultUnlockTaskID,
 		expireTaskID:   DefaultExpireTaskID,
 		cleanupTaskID:  DefaultCleanupTaskID,
+		statsTaskID:    DefaultStatsTaskID,
 	}
 	require.NoError(t, validateTaskIDs(opts),
-		"the four Default*TaskID constants must be distinct out of the box")
+		"every Default*TaskID constant must be distinct out of the box")
 }

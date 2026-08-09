@@ -28,7 +28,12 @@ func (*mongoBackend) name() filterit.Backend { return filterit.Mongo }
 func (b *mongoBackend) setup(tb testing.TB) {
 	tb.Helper()
 
-	uri := envOr("MONGO_URI", "mongodb://127.0.0.1:27019")
+	// directConnection is required: the compose service is a single-node
+	// replica set (the outbox suite needs transactions), and it advertises the
+	// address it sees inside its own container. A driver doing topology
+	// discovery from the host would follow that advertisement to a port nothing
+	// listens on and time out in server selection.
+	uri := envOr("MONGO_URI", "mongodb://127.0.0.1:27019/?directConnection=true")
 	client, err := mongo.Connect(mongoopts.Client().ApplyURI(uri))
 	if err != nil {
 		tb.Skipf("mongodb not available: %v", err)

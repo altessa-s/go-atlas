@@ -15,7 +15,30 @@ import (
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
+// scheduledTask describes one outbox cycle's scheduler registration.
+type scheduledTask struct {
+	name        string                     // Used in the error message only.
+	id          string                     // Scheduler task ID.
+	description string                     // Human-facing description.
+	schedule    string                     // Cron expression; empty disables registration.
+	enabled     bool                       // Extra precondition beyond a non-empty schedule.
+	task        *corescheduler.ManagedTask // Single-flight guard for this cycle.
+	run         corescheduler.TaskFunc     // The cycle body.
+
+	// managed exempts the task from the scheduler's pause/disable operations.
+	// Cleanup is the only cycle an operator can safely stop at runtime — the
+	// others would silently halt delivery — so it is the only managed one.
+	managed bool
+}
+
 // registerTasks registers outbox tasks with the scheduler if configured.
+//
+// A cycle is flagged scheduler-managed only after its registration succeeds.
+// Marking it up front (as [corescheduler.ManagedTask.SchedulerFunc] does) would
+// mean a rejected registration — an invalid cron expression, say — leaves the
+// cycle both unscheduled and unusable by hand, because RunXxxCycle would keep
+// returning [corescheduler.ErrSchedulerManaged]. New only logs a registration
+// failure, so that combination would silently disable the cycle outright.
 func (o *Outbox) registerTasks(opts *options) error {
 	if nilcheck.IsNil(o.scheduler) {
 		return nil
@@ -27,72 +50,76 @@ func (o *Outbox) registerTasks(opts *options) error {
 
 	ctx := context.Background()
 
-	// Register dispatch task
-	if opts.dispatchSchedule != "" {
-		taskCfg := corescheduler.TaskConfig{
-			ID:             opts.dispatchTaskID,
-			Description:    "Dispatch unprocessed events from outbox",
-			Func:           o.RegisterDispatchSchedulerFunc(),
-			Schedule:       opts.dispatchSchedule,
-			Priority:       corescheduler.TaskPriorityNormal,
-			Unmanaged:      true,
-			DisableHistory: true,
-		}
-		if err := o.scheduler.Register(ctx, taskCfg); err != nil {
-			return coreerrs.WrapOperation(err, "register dispatch task")
-		}
+	tasks := [...]scheduledTask{
+		{
+			name:        "dispatch",
+			id:          opts.dispatchTaskID,
+			description: "Dispatch unprocessed events from outbox",
+			schedule:    opts.dispatchSchedule,
+			enabled:     true,
+			task:        &o.dispatchTask,
+			run:         o.runDispatchCycleInternal,
+		},
+		{
+			name:        "unlock",
+			id:          opts.unlockTaskID,
+			description: "Unlock stuck events in outbox",
+			schedule:    opts.unlockSchedule,
+			enabled:     true,
+			task:        &o.unlockTask,
+			run:         o.runUnlockCycleInternal,
+		},
+		{
+			name:        "expire",
+			id:          opts.expireTaskID,
+			description: "Mark expired events in outbox",
+			schedule:    opts.expireSchedule,
+			enabled:     opts.defaultEventTTL > 0,
+			task:        &o.expireTask,
+			run:         o.runExpireCycleInternal,
+		},
+		{
+			name:        "stats",
+			id:          opts.statsTaskID,
+			description: "Refresh outbox backlog and dead-letter gauges",
+			schedule:    opts.statsSchedule,
+			enabled:     true,
+			task:        &o.statsTask,
+			run:         o.runStatsCycleInternal,
+		},
+		{
+			name:        "cleanup",
+			id:          opts.cleanupTaskID,
+			description: "Cleanup old published events from outbox",
+			schedule:    opts.cleanupSchedule,
+			enabled:     opts.publishedEventsLifetime > 0,
+			task:        &o.cleanupTask,
+			run:         o.runCleanupCycleInternal,
+			managed:     true,
+		},
 	}
 
-	// Register unlock task
-	if opts.unlockSchedule != "" {
-		taskCfg := corescheduler.TaskConfig{
-			ID:             opts.unlockTaskID,
-			Description:    "Unlock stuck events in outbox",
-			Func:           o.RegisterUnlockSchedulerFunc(),
-			Schedule:       opts.unlockSchedule,
-			Priority:       corescheduler.TaskPriorityNormal,
-			Unmanaged:      true,
-			DisableHistory: true,
+	for _, t := range tasks {
+		if t.schedule == "" || !t.enabled {
+			continue
 		}
-		if err := o.scheduler.Register(ctx, taskCfg); err != nil {
-			return coreerrs.WrapOperation(err, "register unlock task")
-		}
-	}
 
-	// Register expire task if event expiration is configured
-	if opts.expireSchedule != "" && opts.defaultEventTTL > 0 {
 		taskCfg := corescheduler.TaskConfig{
-			ID:          opts.expireTaskID,
-			Description: "Mark expired events in outbox",
-			Func: func(ctx context.Context) error {
-				return o.expireTask.TryRun(ctx, o.runExpireCycleInternal)
-			},
-			Schedule:       opts.expireSchedule,
+			ID:          t.id,
+			Description: t.description,
+			// TryRun rather than Run: the scheduler is the registered driver,
+			// so it must not be turned away by the scheduler-managed check it
+			// is itself the reason for.
+			Func:           func(ctx context.Context) error { return t.task.TryRun(ctx, t.run) },
+			Schedule:       t.schedule,
 			Priority:       corescheduler.TaskPriorityNormal,
-			Unmanaged:      true,
+			Unmanaged:      !t.managed,
 			DisableHistory: true,
 		}
 		if err := o.scheduler.Register(ctx, taskCfg); err != nil {
-			return coreerrs.WrapOperation(err, "register expire task")
+			return coreerrs.WrapOperationWithContext(err, "register outbox scheduler task", t.name)
 		}
-		// Mark scheduler-managed only after successful registration so a
-		// failed registration keeps manual RunExpireCycle usable.
-		o.expireTask.MarkRegistered()
-	}
-
-	// Register cleanup task if published events lifetime is set
-	if opts.cleanupSchedule != "" && opts.publishedEventsLifetime > 0 {
-		taskCfg := corescheduler.TaskConfig{
-			ID:             opts.cleanupTaskID,
-			Description:    "Cleanup old published events from outbox",
-			Func:           o.RegisterCleanupSchedulerFunc(),
-			Schedule:       opts.cleanupSchedule,
-			Priority:       corescheduler.TaskPriorityNormal,
-			DisableHistory: true,
-		}
-		if err := o.scheduler.Register(ctx, taskCfg); err != nil {
-			return coreerrs.WrapOperation(err, "register cleanup task")
-		}
+		t.task.MarkRegistered()
 	}
 
 	return nil
@@ -140,7 +167,7 @@ func (o *Outbox) runDispatchCycleInternal(ctx context.Context) error {
 	defer stop()
 
 	fetchCtx, cancelFetch := corectx.ApplyTimeout(cycleCtx, o.fetchTimeout)
-	events, err := o.store.FetchUnprocessedEvents(fetchCtx, o.eventsBatchSize, o.retryInterval)
+	events, err := o.store.FetchUnprocessedEvents(fetchCtx, o.eventsBatchSize)
 	cancelFetch()
 
 	if err != nil {
@@ -220,11 +247,11 @@ func (o *Outbox) RunExpireCycle(ctx context.Context) error {
 }
 
 // validateTaskIDs rejects configurations in which two or more of the
-// scheduler task IDs (dispatch / unlock / expire / cleanup) collide.
+// scheduler task IDs (dispatch / unlock / expire / cleanup / stats) collide.
 // The underlying scheduler upserts by ID, so a collision would silently
 // overwrite the first task's Func pointer with the second's instead of
 // running both — we'd rather fail loudly at startup than ship a partially
-// scheduled outbox. Checks all four IDs unconditionally (even when some
+// scheduled outbox. Checks all IDs unconditionally (even when some
 // schedules are empty, so the next operator who flips the schedule on
 // inherits a working set of IDs).
 func validateTaskIDs(opts *options) error {
@@ -235,6 +262,7 @@ func validateTaskIDs(opts *options) error {
 		{"unlockTaskID", opts.unlockTaskID},
 		{"expireTaskID", opts.expireTaskID},
 		{"cleanupTaskID", opts.cleanupTaskID},
+		{"statsTaskID", opts.statsTaskID},
 	}
 	seen := make(map[string]string, len(ids))
 	for _, id := range ids {
@@ -251,6 +279,47 @@ func validateTaskIDs(opts *options) error {
 		}
 		seen[id.value] = id.name
 	}
+	return nil
+}
+
+// RegisterStatsSchedulerFunc returns a function for use by a scheduler and marks
+// stats as scheduler-managed. After calling this method, direct calls to
+// RunStatsCycle will return [corescheduler.ErrSchedulerManaged].
+func (o *Outbox) RegisterStatsSchedulerFunc() func(context.Context) error {
+	return o.statsTask.SchedulerFunc(o.runStatsCycleInternal)
+}
+
+// RunStatsCycle refreshes the backlog gauges from a single [Store.Stats] read.
+// This method is designed to be called manually for one-time collection.
+// If the function is registered with a scheduler, this method returns
+// [corescheduler.ErrSchedulerManaged].
+func (o *Outbox) RunStatsCycle(ctx context.Context) error {
+	return o.statsTask.Run(ctx, o.runStatsCycleInternal)
+}
+
+// runStatsCycleInternal publishes the backlog snapshot as gauges so queue depth,
+// dead-letter depth, and dispatch lag are alertable. Callers must route through
+// statsTask so overlapping cycles collapse into a single execution.
+func (o *Outbox) runStatsCycleInternal(ctx context.Context) error {
+	stop := o.metrics.statsDuration.Start()
+	defer stop()
+
+	stats, err := o.store.Stats(ctx)
+	if err != nil {
+		return coreerrs.WrapOperation(err, "collect outbox stats")
+	}
+
+	o.metrics.pendingEvents.Set(float64(stats.Pending))
+	o.metrics.inProgressEvents.Set(float64(stats.InProgress))
+	o.metrics.deadLetteredEvents.Set(float64(stats.DeadLettered))
+	o.metrics.oldestPendingAge.Set(stats.OldestPendingAge.Seconds())
+
+	if stats.DeadLettered > 0 {
+		o.logger.WarnContext(ctx, "outbox holds dead-lettered events awaiting operator action",
+			slog.Int64("dead_lettered", stats.DeadLettered),
+		)
+	}
+
 	return nil
 }
 

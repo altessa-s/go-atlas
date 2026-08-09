@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/data/outbox"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
@@ -83,6 +84,52 @@ func WithRetryMaxAttempts(v uint32) Option {
 	}
 }
 
+// WithRetryBaseDelay sets the backoff before the second publish attempt.
+// Subsequent attempts back off exponentially with jitter.
+func WithRetryBaseDelay(v time.Duration) Option {
+	return func(o *adapterOptions) {
+		o.genericOpts = append(o.genericOpts, outbox.WithRetryBaseDelay(v))
+	}
+}
+
+// WithRetryMaxDelay caps the backoff between publish attempts.
+func WithRetryMaxDelay(v time.Duration) Option {
+	return func(o *adapterOptions) {
+		o.genericOpts = append(o.genericOpts, outbox.WithRetryMaxDelay(v))
+	}
+}
+
+// WithMaxLockTime sets how long a message may stay locked by a dispatcher before
+// the unlock cycle reclaims it. It must exceed the handle timeout — a lock that
+// expires mid-publish lets a second dispatcher pick the same message up, which
+// makes duplicate delivery routine rather than exceptional. See
+// [outbox.WithMaxLockTime].
+func WithMaxLockTime(v time.Duration) Option {
+	return func(o *adapterOptions) {
+		o.genericOpts = append(o.genericOpts, outbox.WithMaxLockTime(v))
+	}
+}
+
+// WithMaxPayloadBytes caps the accepted message size, rejecting larger ones at
+// Publish time with [outbox.ErrPayloadTooLarge] rather than deep in the store
+// driver. The limit applies to the stored envelope (data plus metadata), which
+// is slightly larger than the caller's payload. Pass 0 to disable the check.
+func WithMaxPayloadBytes(n int) Option {
+	return func(o *adapterOptions) {
+		o.genericOpts = append(o.genericOpts, outbox.WithMaxPayloadBytes(n))
+	}
+}
+
+// WithCollector sets the metrics collector for the outbox instrumentation —
+// dispatch counters plus the backlog, dead-letter, and lag gauges. Without one
+// the outbox records nothing, so a stalled outbox is indistinguishable from an
+// idle one. See [outbox.WithCollector] and docs/metrics.md.
+func WithCollector(c metrics.Collector) Option {
+	return func(o *adapterOptions) {
+		o.genericOpts = append(o.genericOpts, outbox.WithCollector(c))
+	}
+}
+
 // WithPublishedEventsLifetime sets how long successfully published messages are retained
 // in the store before the cleanup cycle deletes them.
 func WithPublishedEventsLifetime(t time.Duration) Option {
@@ -153,5 +200,54 @@ func WithDefaultEventTTL(d time.Duration) Option {
 func WithExpireSchedule[T interface{ string | *string }](v T) Option {
 	return func(o *adapterOptions) {
 		o.genericOpts = append(o.genericOpts, outbox.WithExpireSchedule(v))
+	}
+}
+
+// WithStatsSchedule sets the cron schedule for the stats cycle that refreshes
+// the backlog, dead-letter, and lag gauges. Leaving it unset leaves those gauges
+// at zero, which reads exactly like a healthy idle outbox.
+func WithStatsSchedule[T interface{ string | *string }](v T) Option {
+	return func(o *adapterOptions) {
+		o.genericOpts = append(o.genericOpts, outbox.WithStatsSchedule(v))
+	}
+}
+
+// Scheduler task IDs. Override them when more than one outbox shares a
+// scheduler: the registrar upserts by ID, so two instances on the defaults
+// would silently overwrite each other's task functions. Collisions across the
+// five IDs are rejected at startup with [outbox.ErrTaskIDCollision].
+
+// WithDispatchTaskID overrides the scheduler task ID of the dispatch cycle.
+func WithDispatchTaskID[T interface{ string | *string }](v T) Option {
+	return func(o *adapterOptions) {
+		o.genericOpts = append(o.genericOpts, outbox.WithDispatchTaskID(v))
+	}
+}
+
+// WithUnlockTaskID overrides the scheduler task ID of the unlock cycle.
+func WithUnlockTaskID[T interface{ string | *string }](v T) Option {
+	return func(o *adapterOptions) {
+		o.genericOpts = append(o.genericOpts, outbox.WithUnlockTaskID(v))
+	}
+}
+
+// WithExpireTaskID overrides the scheduler task ID of the expire cycle.
+func WithExpireTaskID[T interface{ string | *string }](v T) Option {
+	return func(o *adapterOptions) {
+		o.genericOpts = append(o.genericOpts, outbox.WithExpireTaskID(v))
+	}
+}
+
+// WithCleanupTaskID overrides the scheduler task ID of the cleanup cycle.
+func WithCleanupTaskID[T interface{ string | *string }](v T) Option {
+	return func(o *adapterOptions) {
+		o.genericOpts = append(o.genericOpts, outbox.WithCleanupTaskID(v))
+	}
+}
+
+// WithStatsTaskID overrides the scheduler task ID of the stats cycle.
+func WithStatsTaskID[T interface{ string | *string }](v T) Option {
+	return func(o *adapterOptions) {
+		o.genericOpts = append(o.genericOpts, outbox.WithStatsTaskID(v))
 	}
 }

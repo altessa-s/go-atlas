@@ -8,7 +8,8 @@ tests/integration/
 ├── docker-compose.yml     # the backends the suite runs against
 ├── filterit/              # data/filter: shared corpus + one adapter per backend
 ├── leadelectit/           # data/leadelect: multi-node election against a live broker
-└── dlockit/               # data/locks/dlock: contended locking against a live broker
+├── dlockit/               # data/locks/dlock: contended locking against a live broker
+└── outboxit/              # data/outbox: transactional delivery against a live MongoDB
 ```
 
 ## Why a separate module
@@ -35,13 +36,22 @@ when its server is unreachable, so `make test-integration` is green on a machine
 | ClickHouse    | `127.0.0.1:19001`         | `CLICKHOUSE_ADDR`, `CLICKHOUSE_DB`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD` |
 | MariaDB       | `127.0.0.1:13306`         | `MARIADB_DSN`                              |
 | PostgreSQL    | `127.0.0.1:15432`         | `POSTGRES_DSN`                             |
-| MongoDB       | `127.0.0.1:27019`         | `MONGO_URI`                                |
+| MongoDB       | `127.0.0.1:27019` (replica set `rs0`) | `MONGO_URI`                    |
 | Meilisearch   | `http://127.0.0.1:17700`  | `MEILI_URL`, `MEILI_KEY`                   |
 | RediSearch    | `127.0.0.1:16379`         | `REDIS_ADDR`                               |
 | NATS          | `nats://127.0.0.1:14222`  | `NATS_URL`                                 |
 
 Each test creates its own throwaway table, database or index, named with a timestamp suffix, and drops it on cleanup — two runs against the same
 server never collide.
+
+### MongoDB runs as a replica set
+
+The compose service starts `mongod --replSet rs0` and initiates the set from its own healthcheck, because `data/outbox` fetches and locks a batch
+inside a transaction and transactions do not exist on a standalone mongod. The service is only reported healthy once it has a primary.
+
+Connect with **`directConnection=true`** — the default `MONGO_URI` already does. A single-node set advertises the address it sees inside its own
+container (`127.0.0.1:27017`), which is not the published one, so a driver doing topology discovery from the host follows that advertisement to a
+port nothing listens on and stalls until server selection times out.
 
 ## filterit — the data/filter corpus
 
@@ -146,6 +156,51 @@ holder to finish. Scenarios that need to be serialized rather than rejected loop
 **The context scopes the lock, not the call.** Cancel it and the lease stops being renewed and is released, so it must not end before the work the
 lock guards. The acquisition attempt is bounded separately, by the provider's `WithAcquireTimeout` — folding that bound into the same context would
 release the lock the moment it elapsed.
+
+## outboxit — transactional delivery against a live MongoDB
+
+The unit tests for `data/outbox` run against in-memory stores and assert on the state the outbox *decided* to write. Whether that state survives a
+real store is a different question: the batch fetch takes its lock inside a transaction, every deadline is evaluated against the server clock, and
+writes are fenced by a lock token. None of those mechanisms exists until a real MongoDB is on the other side.
+
+| Scenario                                          | Asserts                                                                                     |
+|---------------------------------------------------|---------------------------------------------------------------------------------------------|
+| `Dispatch_DeliversSavedEvent`                     | The baseline: saved, delivered, marked sent, lease released                                  |
+| `Dispatch_CommittedTransactionPublishesExactlyOnce` | Business write and event commit together, and the event is published once                  |
+| `Dispatch_AbortedTransactionPublishesNothing`     | A rolled-back write leaves no event — the dual-write gap the pattern exists to close         |
+| `Dispatch_RejectedSaveLeavesTheTransactionCommittable` | Validation runs before any store write, so a rejected batch does not force an abort      |
+| `Dispatch_CompactionPublishesOnlyTheLatestPerKey` | Superseded events are recorded as skipped, not silently dropped                              |
+| `Dispatch_SelectsOldestEventsFirstAcrossBatches`  | Each cycle selects the oldest waiting events, the ordering compaction depends on              |
+| `Retry_FailedAttemptIsPersisted`                  | A failed attempt reaches the store: attempt counted, error readable, backoff stamped         |
+| `Retry_BackoffWithholdsTheEventUntilItElapses`    | The retry deadline is enforced by the server and survives a restart                          |
+| `Retry_DeadLettersWhenTheBudgetRunsOut`           | One attempt per cycle, then terminal — and never picked up again                             |
+| `Retry_PermanentFailureIsRejectedWithoutRetrying` | A permanent error costs one attempt, not the whole budget                                    |
+| `Retry_SucceedsOnceTheDestinationRecovers`        | The retry reuses the event ID, so a broker can deduplicate it                                 |
+| `Concurrency_EachEventIsDeliveredOnce`            | Four dispatchers over 60 events: no event handed to two handlers                             |
+| `Concurrency_ReclaimedLeaseCannotOverwriteTheNewerResult` | A revoked lease cannot resurrect an event another worker already delivered           |
+| `Concurrency_SweeperLeavesLiveLeasesAlone`        | An in-flight delivery is not reclaimed, so duplicates stay exceptional                       |
+| `Concurrency_OverlappingCyclesOnOneInstanceCollapse` | A cycle firing while another is in flight is a no-op                                       |
+| `Lifecycle_ExpiredEventsAreNeverDispatched`       | A deadline that has passed suppresses delivery and is recorded                               |
+| `Lifecycle_CleanupKeepsDeadLetteredEvents`        | Retention sweeps successes and keeps what an operator still has to look at                   |
+| `Lifecycle_StatsReportBacklogDeadLettersAndLag`   | The gauges alerting depends on, computed against the server clock                            |
+
+**The recorder proves duplicates, it does not sample for them.** `Recorder` captures every handler invocation with its event ID, so a duplicate is
+two entries naming the same event rather than a count that came out high. `Duplicates()` names them and `Timeline()` prints the whole recording
+into the failure message.
+
+**Cycles are driven explicitly, never by a scheduler.** A scenario that asserts "nothing was delivered yet" cannot share a store with a background
+poller that might deliver it at any moment.
+
+**Three bugs this found.** All were invisible to the unit tests, which inspect the event the outbox built rather than the document that was stored:
+
+| Bug                                                                                                     | Guard                                                    |
+|---------------------------------------------------------------------------------------------------------|----------------------------------------------------------|
+| A failed dispatch was never written back — the concurrent batch helper drops the result of any item whose function returned an error, so attempts never grew and no event could reach a terminal status | `Retry_FailedAttemptIsPersisted`                         |
+| A dispatcher whose lock had been reclaimed could overwrite the result of the worker that took the event over | `Concurrency_ReclaimedLeaseCannotOverwriteTheNewerResult` |
+| Retention compared a server-clock deadline against a **client-stamped** `published_at`, so a host whose clock ran ahead of the database kept events past their window — and one running behind deleted them early | `Lifecycle_CleanupKeepsDeadLetteredEvents`               |
+
+The third surfaced only because the Docker VM's clock sat ~40 ms behind the host's. That is the ordinary condition on a developer machine, and a
+badly synced production host is off by far more; the store now stamps `published_at` with `$$NOW`, the same clock the sweep compares against.
 
 ## Adding a backend
 
