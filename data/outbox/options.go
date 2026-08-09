@@ -25,17 +25,25 @@ const (
 	// Values below this threshold are ignored to prevent accidental data loss.
 	MinPublishedEventsLifetime = time.Minute
 
-	// DefaultLockInterval is the maximum lock time before an event is considered stuck (10 seconds).
-	DefaultLockInterval = 10 * time.Second
+	// DefaultLockInterval is the maximum lock time before an event is considered
+	// stuck. It MUST exceed DefaultHandleTimeout: a lock that expires while the
+	// dispatch cycle that holds it is still publishing lets the unlock sweeper
+	// hand the event to a second worker, turning duplicate delivery from a
+	// failure mode into the steady state. New enforces the same relation for
+	// caller-supplied values.
+	DefaultLockInterval = lockTimeHandleTimeoutRatio * DefaultHandleTimeout
+
+	// lockTimeHandleTimeoutRatio is the headroom the lock keeps over the
+	// dispatch cycle it protects: enough that a cycle running to its full
+	// timeout still finishes inside its lease, without pinning an event for
+	// so long that a genuinely dead worker stalls it.
+	lockTimeHandleTimeoutRatio = 2
 
 	// DefaultEventsBatchSize is the default events fetched per batch (200).
 	DefaultEventsBatchSize = 200
 
 	// DefaultRetryMaxAttempts is the default maximum dispatch attempts (10).
 	DefaultRetryMaxAttempts = 10
-
-	// DefaultRetryInterval is the internal retry interval (5 seconds).
-	DefaultRetryInterval = 5 * time.Second
 
 	// DefaultFetchTimeout is the default Store.FetchUnprocessedEvents timeout (5 seconds).
 	DefaultFetchTimeout = 5 * time.Second
@@ -45,6 +53,12 @@ const (
 
 	// DefaultUpdateTimeout is the default Store.UpdateEvents timeout (5 seconds).
 	DefaultUpdateTimeout = 5 * time.Second
+
+	// DefaultMaxPayloadBytes caps Event.Payload at 1 MiB. Larger messages belong
+	// behind a claim-check — an object-store reference in the payload — rather
+	// than in the outbox and the broker, both of which have hard document and
+	// message size limits. Pass 0 to WithMaxPayloadBytes to disable the check.
+	DefaultMaxPayloadBytes = 1 << 20
 
 	// DefaultDispatchTaskID is the scheduler task ID for the dispatch cycle.
 	DefaultDispatchTaskID = "outbox-dispatch"
@@ -57,6 +71,30 @@ const (
 
 	// DefaultCleanupTaskID is the scheduler task ID for the cleanup cycle.
 	DefaultCleanupTaskID = "outbox-cleanup"
+
+	// DefaultStatsTaskID is the scheduler task ID for the stats cycle.
+	DefaultStatsTaskID = "outbox-stats"
+)
+
+// Retry backoff defaults for events that failed to dispatch.
+//
+// The delay is computed per event from its attempt count and handed to the
+// Store as a duration, which anchors it to the backend clock. A flat retry
+// interval would keep hammering an already failing dependency at a constant
+// rate; without jitter, every event that failed in the same cycle would come
+// back due at the same instant and arrive as a wave.
+const (
+	// DefaultRetryBaseDelay is the backoff before the second attempt.
+	DefaultRetryBaseDelay = time.Second
+
+	// DefaultRetryMaxDelay caps the backoff between attempts.
+	DefaultRetryMaxDelay = 5 * time.Minute
+
+	// DefaultRetryFactor is the exponential multiplier applied per attempt.
+	DefaultRetryFactor = 1.5
+
+	// DefaultRetryJitter randomizes each backoff by up to this fraction of itself.
+	DefaultRetryJitter = 0.2
 )
 
 // options contains configuration fields for Outbox that can be set via Option functions.
@@ -67,8 +105,14 @@ type options struct {
 	updateTimeout time.Duration `optval:"positive" optgen:"default=DefaultUpdateTimeout"`
 
 	// Batch and retry settings
-	eventsBatchSize  uint32 `optval:"positive" optgen:"default=DefaultEventsBatchSize"`
-	retryMaxAttempts uint32 `optval:"positive" optgen:"default=DefaultRetryMaxAttempts"`
+	eventsBatchSize  uint32        `optval:"positive" optgen:"default=DefaultEventsBatchSize"`
+	retryMaxAttempts uint32        `optval:"positive" optgen:"default=DefaultRetryMaxAttempts"`
+	retryBaseDelay   time.Duration `optval:"positive" optgen:"default=DefaultRetryBaseDelay"`
+	retryMaxDelay    time.Duration `optval:"positive" optgen:"default=DefaultRetryMaxDelay"`
+
+	// maxLockTime bounds how long an event may stay locked before the unlock
+	// sweeper reclaims it. Must exceed handleTimeout — see DefaultLockInterval.
+	maxLockTime time.Duration `optval:"positive" optgen:"default=DefaultLockInterval"`
 
 	// Logger
 	logger *slog.Logger
@@ -89,6 +133,7 @@ type options struct {
 	unlockSchedule   string
 	cleanupSchedule  string
 	expireSchedule   string
+	statsSchedule    string
 
 	// Scheduler task IDs — overridable so multiple Outbox instances can coexist
 	// in a single scheduler without ID collisions. The generated WithXxx
@@ -101,6 +146,7 @@ type options struct {
 	unlockTaskID   string `optgen:"default=DefaultUnlockTaskID"`
 	expireTaskID   string `optgen:"default=DefaultExpireTaskID"`
 	cleanupTaskID  string `optgen:"default=DefaultCleanupTaskID"`
+	statsTaskID    string `optgen:"default=DefaultStatsTaskID"`
 
 	// ShouldRetry determines whether a failed dispatch should be retried.
 	// Return true to retry, false to stop retrying. If nil, all errors
@@ -110,6 +156,10 @@ type options struct {
 	// Default TTL applied to events at save time when ExpiresAt is not set.
 	// 0 means disabled (no expiration). Minimum 1s.
 	defaultEventTTL time.Duration `opt:"-"`
+
+	// Maximum accepted Event.Payload size in bytes; 0 disables the check.
+	// Handled manually because 0 is a meaningful value, not a "keep default".
+	maxPayloadBytes int `opt:"-" optgen:"default=DefaultMaxPayloadBytes"`
 
 	// Metrics collector for outbox instrumentation.
 	collector metrics.Collector `optgen:"notnil"`
@@ -166,16 +216,35 @@ func WithCompactionFilter(fn func(string) bool) Option {
 	}
 }
 
-// WithShouldRetry sets a function that determines whether a failed dispatch should be retried.
-// Return true to retry, false to stop retrying immediately.
+// WithShouldRetry sets the predicate that separates transient failures from
+// permanent ones. Return true to retry, false to dead-letter the event
+// immediately with [StatusRejected].
 //
-// This is useful for transport-specific non-retryable errors. For example, a NATS adapter
-// might use this to stop retrying on nats.ErrConnectionClosed.
+// Use it for errors that another attempt cannot fix — a payload the transport
+// refuses to encode, an unknown subject, a 4xx from the destination. A timeout
+// or a dropped connection is transient and should return true.
 //
-// If not set, all errors except context.Canceled are retried.
+// If not set, every error is treated as transient and retried until the
+// attempt budget set by [WithRetryMaxAttempts] runs out.
 func WithShouldRetry(fn func(error) bool) Option {
 	return func(o *options) {
 		o.shouldRetry = fn
+	}
+}
+
+// WithMaxPayloadBytes caps the accepted size of [Event.Payload]. Save rejects
+// larger events with [ErrPayloadTooLarge] instead of letting them fail deep in
+// the store driver — inside the caller's business transaction, where the error
+// is far more expensive. Pass 0 to disable the check.
+//
+// Defaults to [DefaultMaxPayloadBytes]. Payloads approaching the limit should
+// use a claim-check: put the blob in object storage and publish a reference.
+func WithMaxPayloadBytes(n int) Option {
+	return func(o *options) {
+		if n < 0 {
+			return
+		}
+		o.maxPayloadBytes = n
 	}
 }
 

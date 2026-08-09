@@ -265,10 +265,16 @@ func validOutbox() Outbox {
 		UnlockSchedule:    "@every 11s",
 		MessagesBatchSize: defaultOutboxMessagesBatchSize,
 		RetryMaxAttempts:  defaultOutboxRetryMaxAttempts,
+		RetryBaseDelay:    defaultOutboxRetryBaseDelay,
+		RetryMaxDelay:     defaultOutboxRetryMaxDelay,
+		MaxLockTime:       defaultOutboxMaxLockTime,
+		MaxPayloadBytes:   defaultOutboxMaxPayloadBytes,
 		ExpireSchedule:    "@every 11s",
+		StatsSchedule:     "@every 30s",
 		DispatchTaskID:    "outbox-dispatch",
 		UnlockTaskID:      "outbox-unlock",
 		ExpireTaskID:      "outbox-expire",
 		CleanupTaskID:     "outbox-cleanup",
+		StatsTaskID:       "outbox-stats",
 	}
 }

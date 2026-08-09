@@ -25,4 +25,14 @@ type event struct {
 	Metadata      map[string]string `bson:"metadata,omitempty"`        // Kept for DB compat; not mapped to outbox.Event.
 	LockedOn      *time.Time        `bson:"locked_on,omitempty"`       // Lock timestamp; nil when unlocked.
 	ExpiresAt     *time.Time        `bson:"expires_at,omitempty"`      // Expiration timestamp; nil means no expiration.
+
+	// LockToken fences updates: a dispatcher may only write back state while
+	// this still holds the value it read, so a worker whose lock the sweeper
+	// revoked cannot clobber the worker that took the event over.
+	LockToken string `bson:"lock_token,omitempty"`
+
+	// NextAttemptAt is when a failed event becomes eligible again, stamped
+	// server-side as $$NOW plus the outbox-computed backoff. Absent for events
+	// that were never attempted — those are eligible immediately.
+	NextAttemptAt *time.Time `bson:"next_attempt_at,omitempty"`
 }

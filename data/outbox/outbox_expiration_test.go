@@ -23,7 +23,7 @@ type expirationStore struct {
 	expireErr    error
 }
 
-func (s *expirationStore) FetchUnprocessedEvents(context.Context, uint32, time.Duration) ([]Event, error) {
+func (s *expirationStore) FetchUnprocessedEvents(context.Context, uint32) ([]Event, error) {
 	return nil, nil
 }
 func (s *expirationStore) DeleteProcessedEvents(context.Context, time.Duration) error { return nil }
@@ -37,6 +37,7 @@ func (s *expirationStore) ExpireEvents(_ context.Context) (int64, error) {
 	s.expireCalls.Add(1)
 	return s.expireResult, s.expireErr
 }
+func (s *expirationStore) Stats(context.Context) (Stats, error) { return Stats{}, nil }
 
 func TestOutbox_Save_AppliesDefaultTTL(t *testing.T) {
 	store := &expirationStore{}

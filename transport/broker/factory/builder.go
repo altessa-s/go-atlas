@@ -238,13 +238,24 @@ func (b *BrokerBuilder) createOutboxWithStore(store outbox.Store, publisher outb
 
 	opts := b.buildOutboxOptions()
 
-	// Add scheduler and schedule options if scheduler is available
+	// Add scheduler and schedule options if scheduler is available.
+	// Task IDs go on unconditionally, not gated by their schedules: the runtime
+	// collision check inspects all five, so keeping them in lockstep with the
+	// YAML means flipping a schedule on later inherits the operator's overrides.
 	if b.scheduler != nil {
-		opts = append(opts, outbox.WithScheduler(b.scheduler))
+		opts = append(opts,
+			outbox.WithScheduler(b.scheduler),
+			outbox.WithDispatchTaskID(cfg.DispatchTaskID),
+			outbox.WithUnlockTaskID(cfg.UnlockTaskID),
+			outbox.WithExpireTaskID(cfg.ExpireTaskID),
+			outbox.WithCleanupTaskID(cfg.CleanupTaskID),
+			outbox.WithStatsTaskID(cfg.StatsTaskID),
+		)
 		opts = slices.AppendIf(opts, cfg.DispatchSchedule != "", outbox.WithDispatchSchedule(cfg.DispatchSchedule))
 		opts = slices.AppendIf(opts, cfg.UnlockSchedule != "", outbox.WithUnlockSchedule(cfg.UnlockSchedule))
 		opts = slices.AppendIf(opts, cfg.CleanupSchedule != "", outbox.WithCleanupSchedule(cfg.CleanupSchedule))
 		opts = slices.AppendIf(opts, cfg.ExpireSchedule != "", outbox.WithExpireSchedule(cfg.ExpireSchedule))
+		opts = slices.AppendIf(opts, cfg.StatsSchedule != "", outbox.WithStatsSchedule(cfg.StatsSchedule))
 	}
 
 	return outbox.New(store, publisher, opts...), nil
@@ -260,6 +271,10 @@ func (b *BrokerBuilder) buildOutboxOptions() []outbox.Option {
 		outbox.WithUpdateTimeout(cfg.UpdateTimeout),
 		outbox.WithMessagesBatchSize(cfg.MessagesBatchSize),
 		outbox.WithRetryMaxAttempts(cfg.RetryMaxAttempts),
+		outbox.WithRetryBaseDelay(cfg.RetryBaseDelay),
+		outbox.WithRetryMaxDelay(cfg.RetryMaxDelay),
+		outbox.WithMaxLockTime(cfg.MaxLockTime),
+		outbox.WithMaxPayloadBytes(cfg.MaxPayloadBytes),
 		outbox.WithPublishedEventsLifetime(cfg.PublishedEventsLifetime),
 		outbox.WithDefaultEventTTL(cfg.DefaultEventTTL),
 	}

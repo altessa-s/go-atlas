@@ -21,6 +21,11 @@ const (
 	defaultOutboxRetryMaxAttempts        = 10
 	defaultOutboxPublishedEventsLifetime = -1
 	defaultOutboxTopicCompaction         = false
+	defaultOutboxRetryBaseDelay          = time.Second
+	defaultOutboxRetryMaxDelay           = 5 * time.Minute
+	// Must stay above defaultOutboxHandleTimeout — see Outbox.MaxLockTime.
+	defaultOutboxMaxLockTime     = 2 * defaultOutboxHandleTimeout
+	defaultOutboxMaxPayloadBytes = 1 << 20
 
 	// maxOutboxMessagesBatchSize is the maximum allowed batch size.
 	maxOutboxMessagesBatchSize = 10000
@@ -70,6 +75,29 @@ type Outbox struct {
 	// Defaults to 10.
 	RetryMaxAttempts uint32 `yaml:"retryMaxAttempts" default:"10"`
 
+	// RetryBaseDelay is the backoff before the second publish attempt.
+	// Subsequent attempts back off exponentially with jitter. Defaults to 1s.
+	RetryBaseDelay time.Duration `yaml:"retryBaseDelay" default:"1s"`
+
+	// RetryMaxDelay caps the backoff between publish attempts. Defaults to 5m.
+	RetryMaxDelay time.Duration `yaml:"retryMaxDelay" default:"5m"`
+
+	// MaxLockTime is how long an event may stay locked by a dispatcher before
+	// the unlock task reclaims it. It MUST exceed HandleTimeout — a lock that
+	// expires mid-publish lets a second worker pick the same event up, making
+	// duplicate delivery routine. Values at or below HandleTimeout are raised
+	// at runtime with a warning. Defaults to 40s (2x the default HandleTimeout).
+	MaxLockTime time.Duration `yaml:"maxLockTime" default:"40s"`
+
+	// MaxPayloadBytes caps the accepted event payload size; 0 disables the
+	// check. Larger messages belong behind a claim-check. Defaults to 1 MiB.
+	MaxPayloadBytes int `yaml:"maxPayloadBytes" default:"1048576"`
+
+	// StatsSchedule defines the cron schedule for the stats task that refreshes
+	// the backlog, dead-letter, and lag gauges. Alerting on those gauges is what
+	// keeps a stalled outbox from looking like an idle one.
+	StatsSchedule string `yaml:"statsSchedule" default:"@every 30s"`
+
 	// PublishedEventsLifetime defines how long published events are retained.
 	// -1 means indefinite. Defaults to -1.
 	PublishedEventsLifetime time.Duration `yaml:"publishedEventsLifetime" default:"-1"`
@@ -96,6 +124,7 @@ type Outbox struct {
 	UnlockTaskID   string `yaml:"unlockTaskID" default:"outbox-unlock"`
 	ExpireTaskID   string `yaml:"expireTaskID" default:"outbox-expire"`
 	CleanupTaskID  string `yaml:"cleanupTaskID" default:"outbox-cleanup"`
+	StatsTaskID    string `yaml:"statsTaskID" default:"outbox-stats"`
 }
 
 // Validate performs validation of the Outbox configuration.
@@ -109,9 +138,14 @@ func (c Outbox) Validate() error {
 		validation.Field(&c.UpdateTimeout, ozzo_rules.Duration(), validation.Min(time.Millisecond)),
 		validation.Field(&c.MessagesBatchSize, validation.Required, validation.Min(uint32(1)), validation.Max(uint32(maxOutboxMessagesBatchSize))),
 		validation.Field(&c.RetryMaxAttempts, validation.Required, validation.Min(uint32(1)), validation.Max(uint32(maxOutboxRetryMaxAttempts))),
+		validation.Field(&c.RetryBaseDelay, ozzo_rules.Duration(), validation.Min(time.Millisecond)),
+		validation.Field(&c.RetryMaxDelay, ozzo_rules.Duration(), validation.Min(time.Millisecond)),
+		validation.Field(&c.MaxLockTime, ozzo_rules.Duration(), validation.Min(time.Millisecond)),
+		validation.Field(&c.MaxPayloadBytes, validation.Min(0)),
 		validation.Field(&c.DispatchTaskID, validation.Required),
 		validation.Field(&c.UnlockTaskID, validation.Required),
 		validation.Field(&c.ExpireTaskID, validation.Required),
 		validation.Field(&c.CleanupTaskID, validation.Required),
+		validation.Field(&c.StatsTaskID, validation.Required),
 	)
 }

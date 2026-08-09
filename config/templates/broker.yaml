@@ -79,6 +79,15 @@
 #    # Default value: 5s
 #    updateTimeout: "5s"
 #
+#    # <duration> How long an event may stay locked by a dispatcher before the
+#    # unlock task reclaims it. MUST exceed handleTimeout: a lock that expires
+#    # while the cycle holding it is still publishing lets a second dispatcher
+#    # claim the same event, which makes duplicate delivery the steady state
+#    # rather than an edge case. A smaller value is raised at startup with a
+#    # warning.
+#    # Default value: 40s (2x the default handleTimeout)
+#    maxLockTime: "40s"
+#
 #    # <string> Cron schedule for the cleanup task.
 #    # Supports standard cron format with seconds: "sec min hour day month weekday"
 #    # Example: "0 */10 * * * *" (every 10 minutes)
@@ -91,26 +100,67 @@
 #    # Default value: not set
 #    unlockSchedule:
 #
+#    # <string> Cron schedule for the expire task, which marks pending and
+#    # failed events past their ExpiresAt as expired. Only registered when
+#    # defaultEventTTL is set.
+#    # Example: "*/11 * * * * *" (every 11 seconds)
+#    # Default value: not set
+#    expireSchedule:
+#
+#    # <string> Cron schedule for the stats task, which refreshes the backlog,
+#    # dead-letter, and lag gauges (outbox_events_pending,
+#    # outbox_events_dead_lettered, outbox_events_oldest_pending_age_seconds).
+#    # Leave it unset and those gauges stay at zero — which reads exactly like a
+#    # healthy idle outbox, so a stalled one raises no alert.
+#    # Example: "@every 30s"
+#    # Default value: not set
+#    statsSchedule:
+#
 #    # <uint32> Number of events fetched per batch.
 #    # Must be between 1 and 10000.
 #    # Default value: 200
 #    messagesBatchSize: 200
 #
-#    # <uint32> Maximum number of retry attempts for failed publishes.
-#    # Doubles as the per-dispatch-cycle budget: a single event cannot
-#    # spin the dispatch loop forever — once this many attempts fail in
-#    # one cycle, the failure escalates to the outbox state machine and
-#    # the event is picked up again on the next cycle subject to
-#    # isReadyForRetry. Without this bound a permanently-cancelled
-#    # context would starve every other event behind the failing one.
+#    # <uint32> Maximum number of publish attempts per event. Each dispatch
+#    # cycle spends exactly one attempt; spacing between them comes from the
+#    # backoff below. Once the budget runs out the event is dead-lettered as
+#    # "max-attempt-reached" and retained for inspection rather than retried
+#    # forever.
 #    # Must be between 1 and 100.
 #    # Default value: 10
 #    retryMaxAttempts: 10
 #
-#    # <duration> How long published events are retained before cleanup.
-#    # -1 means indefinite retention.
+#    # <duration> Backoff before the second publish attempt. Later attempts back
+#    # off exponentially with jitter, and the deadline is stored per event and
+#    # evaluated against the database clock — so it survives a restart and is
+#    # not affected by a skewed application clock.
+#    # Default value: 1s
+#    retryBaseDelay: "1s"
+#
+#    # <duration> Upper bound on the backoff between publish attempts.
+#    # Default value: 5m
+#    retryMaxDelay: "5m"
+#
+#    # <int> Maximum accepted payload size in bytes. Larger messages are
+#    # rejected at publish time with ErrPayloadTooLarge, inside the caller's
+#    # transaction, instead of failing later in the store driver. Messages
+#    # approaching the limit belong behind a claim-check: put the blob in object
+#    # storage and publish a reference. 0 disables the check.
+#    # Default value: 1048576 (1 MiB)
+#    maxPayloadBytes: 1048576
+#
+#    # <duration> How long processed events are retained before cleanup.
+#    # -1 means indefinite retention. Dead-lettered events (max-attempt-reached,
+#    # rejected) are never swept: they are the dead-letter queue and stay until
+#    # an operator acts on them.
 #    # Default value: -1
 #    publishedEventsLifetime: "-1"
+#
+#    # <duration> Default time-to-live applied to events without an explicit
+#    # ExpiresAt. An expired event is never published. Values below 1s are
+#    # ignored. 0 disables expiration.
+#    # Default value: 0
+#    defaultEventTTL: 0
 #
 #    # <bool> Enable log compaction behavior for all topics.
 #    # If true, only the latest event for each topic in a batch will be published.
@@ -121,7 +171,7 @@
 #    # Outbox instances against the SAME scheduler — the scheduler upserts
 #    # by ID, so two instances both registering "outbox-dispatch" would
 #    # silently overwrite each other's dispatch Func pointer. Collisions
-#    # across the four IDs are rejected at startup with
+#    # across the five IDs are rejected at startup with
 #    # outbox.ErrTaskIDCollision, so a typo that aliases two of them is
 #    # surfaced before the scheduler ever spins.
 #    # Default value: outbox-dispatch
@@ -132,3 +182,5 @@
 #    expireTaskID: outbox-expire
 #    # Default value: outbox-cleanup
 #    cleanupTaskID: outbox-cleanup
+#    # Default value: outbox-stats
+#    statsTaskID: outbox-stats

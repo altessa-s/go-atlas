@@ -15,11 +15,11 @@ import (
 
 // eventsIndexes defines MongoDB indexes for outbox events collection performance.
 var eventsIndexes = []mongo.IndexModel{ //nolint:gochecknoglobals
-	// Index for fetching unprocessed events (StatusPending or StatusFailed with retry logic),
-	// and sorting by creation time to process older events first.
+	// Index for fetching unprocessed events (StatusPending or StatusFailed whose
+	// backoff has elapsed), and sorting by creation time to process older events first.
 	{Keys: bson.D{
 		{Key: collectionFieldStatus, Value: 1},        // Primary filter: by status
-		{Key: collectionFieldLastAttemptOn, Value: 1}, // Secondary for StatusFailed with retry delay
+		{Key: collectionFieldNextAttemptAt, Value: 1}, // Secondary for StatusFailed with retry backoff
 		{Key: collectionFieldCreatedAt, Value: 1},     // Sort order
 	}},
 

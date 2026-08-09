@@ -19,7 +19,7 @@ import (
 // plus Save normalization (UUID assignment, status defaults, metrics).
 type nopStore struct{}
 
-func (nopStore) FetchUnprocessedEvents(context.Context, uint32, time.Duration) ([]outbox.Event, error) {
+func (nopStore) FetchUnprocessedEvents(context.Context, uint32) ([]outbox.Event, error) {
 	return nil, nil
 }
 func (nopStore) DeleteProcessedEvents(context.Context, time.Duration) error { return nil }
@@ -27,6 +27,7 @@ func (nopStore) UnlockStuckEvents(context.Context, time.Duration) error     { re
 func (nopStore) SaveEvents(context.Context, ...outbox.Event) error          { return nil }
 func (nopStore) UpdateEvents(context.Context, ...outbox.Event) error        { return nil }
 func (nopStore) ExpireEvents(context.Context) (int64, error)                { return 0, nil }
+func (nopStore) Stats(context.Context) (outbox.Stats, error)                { return outbox.Stats{}, nil }
 
 // nopPublisher satisfies outbox.Publisher; Publish/PublishBatch never call it.
 type nopPublisher struct{}

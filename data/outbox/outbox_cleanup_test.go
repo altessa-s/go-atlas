@@ -17,7 +17,7 @@ type cleanupCallStore struct {
 	deleteCalls atomic.Int64
 }
 
-func (s *cleanupCallStore) FetchUnprocessedEvents(ctx context.Context, batchSize uint32, retryAfter time.Duration) ([]Event, error) {
+func (s *cleanupCallStore) FetchUnprocessedEvents(ctx context.Context, batchSize uint32) ([]Event, error) {
 	return nil, nil
 }
 func (s *cleanupCallStore) DeleteProcessedEvents(ctx context.Context, olderThan time.Duration) error {
@@ -32,6 +32,7 @@ func (s *cleanupCallStore) UpdateEvents(ctx context.Context, events ...Event) er
 func (s *cleanupCallStore) ExpireEvents(ctx context.Context) (int64, error) {
 	return 0, nil
 }
+func (s *cleanupCallStore) Stats(ctx context.Context) (Stats, error) { return Stats{}, nil }
 
 func noopHandler(_ context.Context, _ Event) error { return nil }
 
