@@ -20,6 +20,19 @@ user, err := cache.GetWithFallbackT(ctx, c, "user:123", func() (User, time.Durat
 
 Both variants share the same singleflight keyspace, so typed and untyped callers of one key collapse onto a single fallback.
 
+### Contexts and the collapsed group
+
+Collapsing concurrent callers onto one fallback means one of them wins the group and the rest wait behind it. Two things follow, and the cache
+handles both:
+
+- **A waiter leaves on its own context.** Cancel a caller's request and it stops waiting, even though the shared fetch is still running for the
+  others.
+- **The winner's cancellation does not poison the waiters.** The shared write runs on a context detached from whichever caller happened to win, so
+  that caller going away does not fail the fetch for everyone queued behind it.
+
+What the cache cannot reach is the fallback you supply: `Fallback` takes no context, so the closure uses whatever it captured. **Give a fallback that
+does I/O a context of its own rather than the request's** — otherwise the winner's cancellation still aborts the work every waiter is relying on.
+
 ## Options
 
 | Option             | Default | Description                                                      |
