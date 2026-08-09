@@ -51,7 +51,12 @@ func (id ID) String() string {
 
 // ParseID parses a SPIFFE ID of the form "spiffe://trust-domain/path". It
 // enforces the structural rules of the SPIFFE ID spec: the "spiffe" scheme, a
-// non-empty trust domain, and no userinfo, port, query, or fragment.
+// non-empty trust domain, no userinfo, port, query, or fragment, and no
+// percent-encoding.
+//
+// An accepted ID always round-trips: parsing [ID.String] yields the same ID.
+// That is what lets a policy store one representation and compare peers against
+// it — two spellings of one workload would otherwise silently stop matching.
 func ParseID(raw string) (ID, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -63,8 +68,20 @@ func ParseID(raw string) (ID, error) {
 	if u.Host == "" {
 		return ID{}, fmt.Errorf("%w: missing trust domain", ErrInvalidID)
 	}
-	if u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Port() != "" {
+	// Port() reports "" for an authority that ends in a bare colon ("spiffe://:"
+	// or "spiffe://example.org:"), so it alone would let the colon through into
+	// the trust domain — where it compares unequal to the same domain without
+	// it, and an authorization rule matches nothing while looking correct.
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Port() != "" || strings.Contains(u.Host, ":") {
 		return ID{}, fmt.Errorf("%w: must not contain userinfo, port, query, or fragment", ErrInvalidID)
+	}
+	// u.Path is percent-decoded, so an encoded path renders back out as raw
+	// bytes that are no longer a parsable URL — "%00" becomes a control
+	// character, "%2e%2e" becomes "..". The SPIFFE spec forbids percent-encoding
+	// outright; rejecting it here is what keeps String round-trippable and
+	// keeps one workload from having two spellings.
+	if u.EscapedPath() != u.Path {
+		return ID{}, fmt.Errorf("%w: percent-encoding is not permitted in the path", ErrInvalidID)
 	}
 	return ID{TrustDomain: strings.ToLower(u.Host), Path: u.Path}, nil
 }
