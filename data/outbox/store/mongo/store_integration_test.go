@@ -287,3 +287,79 @@ func TestIntegration_Stats_CountsBacklogAndDeadLetters(t *testing.T) {
 	require.Equal(t, int64(2), stats.DeadLettered)
 	require.Positive(t, stats.OldestPendingAge, "the hour-old pending event must show up as lag")
 }
+
+func TestIntegration_SupportsChangeStreams(t *testing.T) {
+	t.Parallel()
+	store, _ := newIT(t)
+
+	supported, err := store.SupportsChangeStreams(t.Context())
+	require.NoError(t, err)
+	t.Logf("change streams supported by this deployment: %v", supported)
+}
+
+// The watcher exists to turn a save into a wake-up without waiting for the next
+// poll tick, so the test asserts exactly that: insert after the stream is open,
+// and expect a notification.
+func TestIntegration_Watch_NotifiesOnInsert(t *testing.T) {
+	t.Parallel()
+	store, _ := newIT(t)
+
+	supported, err := store.SupportsChangeStreams(t.Context())
+	require.NoError(t, err)
+	if !supported {
+		t.Skip("deployment is not a replica set or sharded cluster; change streams unavailable")
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	notified := make(chan struct{}, 16)
+	watchDone := make(chan error, 1)
+	go func() {
+		watchDone <- store.Watch(ctx, func() {
+			select {
+			case notified <- struct{}{}:
+			default:
+			}
+		})
+	}()
+
+	// The stream is opened asynchronously; keep saving until it is listening so
+	// the test does not race the handshake.
+	saved := 0
+	deadline := time.After(20 * time.Second)
+	for {
+		saved++
+		require.NoError(t, store.SaveEvents(ctx, outbox.Event{
+			Id:        "w" + strconv.Itoa(saved),
+			Key:       "orders.created",
+			Status:    outbox.StatusPending,
+			CreatedAt: time.Now().UTC(),
+		}))
+
+		select {
+		case <-notified:
+			cancel()
+			require.NoError(t, <-watchDone, "cancellation must be a clean shutdown")
+			return
+		case <-deadline:
+			t.Fatalf("change stream never reported an insert after %d saves", saved)
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+}
+
+// A standalone mongod has no oplog, so the capability is reported rather than
+// retried: the caller keeps polling and the watcher stays out of the way.
+func TestIntegration_Watch_UnsupportedDeployment(t *testing.T) {
+	t.Parallel()
+	store, _ := newIT(t)
+
+	supported, err := store.SupportsChangeStreams(t.Context())
+	require.NoError(t, err)
+	if supported {
+		t.Skip("deployment supports change streams; nothing to assert here")
+	}
+
+	require.ErrorIs(t, store.Watch(t.Context(), func() {}), outbox.ErrWatchUnsupported)
+}

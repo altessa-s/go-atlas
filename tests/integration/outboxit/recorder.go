@@ -78,6 +78,16 @@ func (r *Recorder) Handler() outbox.Handler {
 	}
 }
 
+// Reset discards the recording, keeping the installed verdict function. The
+// watch scenarios need it: proving that a change stream is live requires saving
+// probe events until one comes back through the handler, and those probes would
+// otherwise be indistinguishable from the deliveries under test.
+func (r *Recorder) Reset() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.deliveries = nil
+}
+
 // Deliveries returns the recording, oldest first.
 func (r *Recorder) Deliveries() []Delivery {
 	r.mu.Lock()

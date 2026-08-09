@@ -63,6 +63,11 @@
 #
 #    # <string> Cron schedule for the dispatcher.
 #    # Supports standard cron format with seconds: "sec min hour day month weekday"
+#    # This interval is the delivery latency of a saved event, and it stays
+#    # mandatory even when the application runs a change-stream watcher
+#    # (outbox.Outbox.Watch): a notification only ever reports that an event was
+#    # saved. Retry backoffs expiring and the unlock task freeing a stuck lease
+#    # are time-driven, produce no change event, and are picked up here only.
 #    # Example: "*/2 * * * * *" (every 2 seconds)
 #    # Default value: not set
 #    dispatchSchedule:

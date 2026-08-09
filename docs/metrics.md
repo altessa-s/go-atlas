@@ -278,6 +278,7 @@ Package: `data/outbox`
 | `outbox_events_expired_total`                   | Counter   | --     | Events that expired before dispatch                |
 | `outbox_events_retries_scheduled_total`         | Counter   | --     | Failures rescheduled for a later attempt           |
 | `outbox_max_retries_exhausted_total`            | Counter   | --     | Events hitting the retry limit                     |
+| `outbox_watch_notifications_total`              | Counter   | --     | Change notifications pushed to `Outbox.Watch`      |
 | `outbox_events_in_flight`                       | Gauge     | --     | Events currently being dispatched                  |
 | `outbox_events_pending`                         | Gauge     | --     | Backlog depth: events awaiting dispatch            |
 | `outbox_events_in_progress`                     | Gauge     | --     | Events currently locked by a dispatcher            |
@@ -293,6 +294,10 @@ Package: `data/outbox`
 `outbox_events_pending` and `outbox_events_oldest_pending_age_seconds`. `outbox_events_dead_lettered` never decreases on its own: those events
 are retained deliberately for inspection, so a non-zero value means an operator still has to look. Populating all four requires the stats task
 to be scheduled (`statsSchedule`).
+
+`outbox_watch_notifications_total` only moves when a watcher is running (`Outbox.Watch` against a store that supports change notifications). A
+flat line while `outbox_events_saved_total` climbs means the watcher died or was never started and dispatch quietly fell back to the poll
+interval — correct, but at the latency the schedule dictates.
 
 **Renamed.** Two names no longer matched what they measured once the in-process retry loop was removed, and the backlog gauges did not share the
 `outbox_events_` prefix of the rest of the package. Update dashboards and alert rules accordingly:

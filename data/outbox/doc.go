@@ -36,6 +36,15 @@
 // and a failed event is rescheduled behind events created after it. Do not rely on the
 // order in which the Handler is called, even for a single Key.
 //
+// # Dispatch latency
+//
+// Dispatch normally runs on a schedule, so a saved event waits up to one poll interval.
+// A store that implements [Watcher] can shorten that: [Outbox.Watch] blocks on store
+// notifications and runs a cycle the moment events land. It is an optimization layered
+// on the poll cycle, never a replacement — retries becoming due and stuck leases being
+// reclaimed are time-driven and produce no notification. The MongoDB store implements it
+// with a change stream, and reports [ErrWatchUnsupported] on a standalone mongod.
+//
 // # Retries and dead-lettering
 //
 // Each dispatch cycle spends exactly one attempt per event. A failure is classified by the

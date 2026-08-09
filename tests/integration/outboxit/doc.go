@@ -11,7 +11,7 @@
 // the caller's, and writes are fenced by a lock token. None of those mechanisms
 // exists until a real MongoDB is on the other side.
 //
-// Three properties in particular only appear here:
+// Four properties in particular only appear here:
 //
 //   - Atomicity. Save shares the caller's transaction, so an aborted business
 //     write must leave no event behind and a committed one must leave exactly
@@ -25,6 +25,11 @@
 //   - Durable backoff. A failed event becomes eligible again only after its
 //     backoff has elapsed on the server's clock, and a dead-lettered one is
 //     retained rather than swept up with the successfully published events.
+//
+//   - Change-stream notifications. Outbox.Watch dispatches without any poll
+//     cycle at all, and only at commit — an uncommitted insert is invisible to
+//     the stream, which is what makes it safe to drive delivery from. Neither
+//     the notification nor its commit boundary exists without an oplog.
 //
 // A replica set is required — transactions do not exist on a standalone mongod.
 // Tests skip rather than fail when none is reachable, so a machine without the

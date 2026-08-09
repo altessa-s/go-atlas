@@ -25,4 +25,14 @@ var (
 	// failure inside the caller's transaction boundary, where it can still be
 	// handled, instead of surfacing later as a store or broker error.
 	ErrPayloadTooLarge = errors.New("outbox event payload exceeds the configured limit")
+
+	// ErrWatchUnsupported is returned from [Outbox.Watch] when the store cannot
+	// push notifications — either it does not implement [Watcher] at all, or
+	// the deployment behind it lacks the capability (a standalone mongod has no
+	// oplog, so it cannot serve change streams).
+	//
+	// It is a capability report, not a failure: dispatch keeps working on the
+	// scheduled poll cycle, only without the latency shortcut. Callers should
+	// log it and move on rather than treat it as a startup error.
+	ErrWatchUnsupported = errors.New("outbox store does not support change notifications")
 )

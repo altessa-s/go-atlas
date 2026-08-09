@@ -26,6 +26,12 @@ type outboxMetrics struct {
 	eventsExpired       metrics.Counter
 	expireDuration      metrics.Timer
 
+	// watchNotifications counts the wake-ups the store pushed to
+	// [Outbox.Watch]. A flat line while events_saved_total keeps climbing means
+	// the watcher died or was never started, and dispatch quietly fell back to
+	// the poll interval.
+	watchNotifications metrics.Counter
+
 	// Backlog gauges, refreshed by the stats cycle. Counters alone report the
 	// rate of failures but not the size of the pile they leave behind: an
 	// outbox that stopped draining and an outbox with nothing to do both emit
@@ -100,6 +106,10 @@ func newOutboxMetrics(c metrics.Collector) *outboxMetrics {
 				Name: "expire_cycle_duration_seconds",
 				Help: "Duration of a single expire cycle in seconds.",
 			},
+		}),
+		watchNotifications: scoped.MustCounter(metrics.MetricOpts{
+			Name: "watch_notifications_total",
+			Help: "Total number of change notifications the store pushed to the watcher.",
 		}),
 		eventsRejected: scoped.MustCounter(metrics.MetricOpts{
 			Name: "events_rejected_total",
