@@ -160,6 +160,7 @@ func (e *Exchanger) exchange(ctx context.Context, req ExchangeRequest) (*oauth2.
 		retry.WithNextDelay(retry.Exponential(retry.ExponentialConfig{
 			BaseDelay: e.retryBaseDelay,
 			MaxDelay:  e.retryMaxDelay,
+			Jitter:    DefaultRetryJitter,
 		})),
 		retry.WithShouldRetry(func(err error) bool {
 			var ee *exchangeError
