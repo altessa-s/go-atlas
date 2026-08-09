@@ -158,6 +158,15 @@ func (o *Outbox) RunDispatchCycle(ctx context.Context) error {
 // Callers must route through dispatchTask so overlapping cycles collapse
 // into a single execution.
 func (o *Outbox) runDispatchCycleInternal(ctx context.Context) error {
+	_, err := o.dispatchOnce(ctx)
+	return err
+}
+
+// dispatchOnce is runDispatchCycleInternal plus the size of the batch it
+// fetched. The count is what tells a notification-driven caller whether the
+// store still holds more than one batch of work — see [Outbox.Watch]; the
+// scheduled cycle ignores it and comes back on its own tick.
+func (o *Outbox) dispatchOnce(ctx context.Context) (int, error) {
 	// Create a context for this processing cycle, derived from the main context
 	// to allow cancellation propagation, but use WithoutCancel for the operation itself
 	// to let it attempt completion, bounded by specific timeouts.
@@ -172,13 +181,13 @@ func (o *Outbox) runDispatchCycleInternal(ctx context.Context) error {
 
 	if err != nil {
 		if coreerrs.IsContextCanceled(err) {
-			return nil
+			return 0, nil
 		}
-		return coreerrs.WrapOperation(err, "fetch unprocessed events")
+		return 0, coreerrs.WrapOperation(err, "fetch unprocessed events")
 	}
 
 	if len(events) == 0 {
-		return nil // No events fetched
+		return 0, nil // No events fetched
 	}
 
 	o.logger.DebugContext(ctx, "fetched unprocessed events", slog.Int("count", len(events)))
@@ -188,7 +197,7 @@ func (o *Outbox) runDispatchCycleInternal(ctx context.Context) error {
 	defer handleCtxCancel()
 
 	o.handleEvents(handleCtx, events...)
-	return nil
+	return len(events), nil
 }
 
 // RunUnlockCycle executes a single cycle to unlock stuck events in the store.

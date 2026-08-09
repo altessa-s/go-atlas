@@ -28,6 +28,27 @@ A failed event carries `next_attempt_at`, computed server-side as `$$NOW` plus t
 crosses the process boundary, so the deadline stays anchored to the database clock. `FetchUnprocessedEvents` treats an absent `next_attempt_at` as
 "eligible now", which is also how documents written before this field existed behave — no backfill is required.
 
+## Change streams
+
+`Store` implements the optional `outbox.Watcher` interface with a change stream over the outbox collection, so `Outbox.Watch` dispatches a saved
+event immediately instead of waiting for the next poll tick. Inserts made inside a transaction surface when that transaction commits — exactly
+when the event became real.
+
+Change streams are built on the oplog, so they need a replica set (a single-node one counts) or a sharded cluster. `SupportsChangeStreams`
+probes the topology with `hello` (falling back to `isMaster` on servers older than 4.4.2) and `Watch` returns `outbox.ErrWatchUnsupported`
+without opening a stream when the deployment is a standalone `mongod`.
+
+| Aspect                | Behavior                                                                                          |
+|-----------------------|---------------------------------------------------------------------------------------------------|
+| Matched operations    | `insert` only — retries and lock expiry are time-driven and produce no change event                |
+| Payload               | Projected down to `_id` (the resume token); an insert event would otherwise carry the full payload |
+| Transient failures    | Resumed by the driver from its own resume token                                                     |
+| Terminal failures     | Reopened from the last resume token after exponential backoff with jitter (1s → 30s)                |
+| Resume token expired  | Stream restarted from now, plus one synthetic notification — the gap is unrecoverable from a stream |
+| Collection dropped    | Token discarded; the stream reopens from now                                                        |
+
+The watcher is a latency optimization layered on the dispatch cycle, not a replacement for it. See [../..](../..#change-notifications).
+
 ## Fields
 
 | Field             | Purpose                                                        |

@@ -17,6 +17,7 @@ Transport-agnostic: the `Handler` callback determines delivery method (message b
 | `Status`         | Lifecycle — see the status table below                   |
 | `Handler`        | Callback that dispatches events                          |
 | `Store`          | Persistence interface for event storage                  |
+| `Watcher`        | Optional `Store` capability: push notifications on save  |
 | `Stats`          | Backlog snapshot: queue depth, dead-letter depth, lag    |
 
 ## Statuses
@@ -110,6 +111,32 @@ and `outbox_events_oldest_pending_age_seconds`. Counters alone cannot distinguis
 Each cycle can be registered with a scheduler (`WithScheduler` plus the matching `With*Schedule`), after which the manual `Run*` method returns
 `corescheduler.ErrSchedulerManaged`. Task IDs are overridable and must be distinct — collisions are rejected at startup with
 `ErrTaskIDCollision`.
+
+## Change notifications
+
+A saved event otherwise waits up to one dispatch interval. When the store implements the optional `Watcher` interface, `Outbox.Watch` blocks on
+its notifications and runs a dispatch cycle as soon as events land — the MongoDB store implements it with a change stream over the outbox
+collection, so an event becomes visible the instant its transaction commits:
+
+```go
+go func() {
+    switch err := ob.Watch(ctx); {
+    case err == nil, errors.Is(err, outbox.ErrWatchUnsupported):
+        // Nothing to do: dispatch continues on the scheduled poll cycle.
+    default:
+        logger.Error("outbox watcher stopped", slog.Any("error", err))
+    }
+}()
+```
+
+**Keep the dispatch schedule configured.** A notification means "something arrived", never "this event is due": a retry backoff elapsing and the
+unlock cycle freeing a stuck lease are time-driven and produce no notification at all, and a notification arriving while a cycle is already
+running is dropped rather than queued. `Watch` shortens the common case; the poll cycle remains the guarantee. A cycle that comes back with a
+full batch re-arms itself, so a bulk insert drains without waiting for the next tick.
+
+`ErrWatchUnsupported` is a capability report, not a failure — it is what a store without the interface, or a standalone mongod with no oplog,
+returns. `outbox_watch_notifications_total` going flat while `outbox_events_saved_total` climbs means the watcher died and dispatch silently
+fell back to the poll interval.
 
 ## Server-clock leases
 

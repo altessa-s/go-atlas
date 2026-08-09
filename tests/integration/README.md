@@ -183,13 +183,23 @@ writes are fenced by a lock token. None of those mechanisms exists until a real 
 | `Lifecycle_ExpiredEventsAreNeverDispatched`       | A deadline that has passed suppresses delivery and is recorded                               |
 | `Lifecycle_CleanupKeepsDeadLetteredEvents`        | Retention sweeps successes and keeps what an operator still has to look at                   |
 | `Lifecycle_StatsReportBacklogDeadLettersAndLag`   | The gauges alerting depends on, computed against the server clock                            |
+| `Watch_SupportsChangeStreamsOnAReplicaSet`        | The capability probe reads a real `hello` reply the way it expects to                        |
+| `Watch_DeliversWithoutAPollCycle`                 | A change stream alone carries a saved event to its handler — no schedule, no manual cycle    |
+| `Watch_DeliversNothingUntilTheTransactionCommits` | The stream reports an insert at commit, so a notification can never publish an aborted write |
+| `Watch_DrainsBacklogLargerThanOneBatch`           | A full batch re-arms the drain; the remainder does not wait for the next tick                |
+| `Watch_CoexistsWithPollingDispatchers`            | A watcher and a poller racing one collection still deliver each event once                   |
 
 **The recorder proves duplicates, it does not sample for them.** `Recorder` captures every handler invocation with its event ID, so a duplicate is
 two entries naming the same event rather than a count that came out high. `Duplicates()` names them and `Timeline()` prints the whole recording
 into the failure message.
 
 **Cycles are driven explicitly, never by a scheduler.** A scenario that asserts "nothing was delivered yet" cannot share a store with a background
-poller that might deliver it at any moment.
+poller that might deliver it at any moment. The `Watch_*` scenarios are the deliberate exception: their whole point is that no cycle is scheduled
+and delivery happens anyway.
+
+**A watcher must be proven live before it is used.** `Outbox.Watch` opens its change stream asynchronously, and a change stream only reports
+inserts that happen after it is listening — so a test that saved once and waited would hang whenever the save won that race. `awaitWatcher` saves
+probe events until one comes back through the handler, then clears the recording; the driver offers no "stream ready" signal to wait on instead.
 
 **Three bugs this found.** All were invisible to the unit tests, which inspect the event the outbox built rather than the document that was stored:
 
