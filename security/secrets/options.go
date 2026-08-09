@@ -28,6 +28,12 @@ const (
 	DefaultMaxDelay = time.Minute
 	// DefaultMultiplier is the default exponential backoff multiplier.
 	DefaultMultiplier = 2.0
+	// DefaultJitter randomizes each backoff delay by up to this fraction of
+	// itself. Secret refresh runs on the same schedule in every instance, so
+	// an unavailable secret store would otherwise be retried by all of them in
+	// lockstep. The factory already sets a configured jitter; this is the
+	// default for callers that build the manager directly.
+	DefaultJitter = 0.2
 	// DefaultMaxCacheSize is the default maximum number of cached entries.
 	DefaultMaxCacheSize = 1000
 )
@@ -85,6 +91,7 @@ func defaultExponentialConfig() retry.ExponentialConfig {
 		BaseDelay: DefaultBaseDelay,
 		MaxDelay:  DefaultMaxDelay,
 		Factor:    DefaultMultiplier,
+		Jitter:    DefaultJitter,
 	}
 }
 
