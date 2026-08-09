@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -406,19 +405,16 @@ func (p *Provider) safeChannelSend(ctx context.Context, ch chan<- struct{}, chan
 	}
 }
 
-// renewIntervalFor derives the renewal tick from the effective lease lifetime
-// and the configured ratio. The ratio is clamped into (0, 1]: a zero or
-// negative one yields a non-positive interval, and time.NewTicker panics on
-// that — a panic the camping goroutine's recover would swallow, leaving an
-// elector that reports itself running while never electing anyone. A ratio
-// above 1 would schedule the first renewal after the lease has already
-// expired, which is never what a caller means.
+// renewIntervalFor derives the renewal tick from the election TTL and the
+// configured ratio.
+//
+// The lifetime is clamped to the bucket's key TTL first: an election TTL larger
+// than that would schedule renewals past the point the server has already aged
+// the key out. The ratio clamp — and the reason a non-positive interval must
+// never reach time.NewTicker — belongs to every lease, and lives in
+// [natskvlease.RenewInterval].
 func renewIntervalFor(ttl time.Duration, ratio float64) time.Duration {
-	if ratio <= 0 || ratio > 1 || math.IsNaN(ratio) {
-		ratio = DefaultRenewRatio
-	}
-
-	return time.Duration(float64(min(ttl, DefaultBucketKeysTTL)) * ratio)
+	return natskvlease.RenewInterval(min(ttl, DefaultBucketKeysTTL), ratio)
 }
 
 // camping is the main loop for leader election.
