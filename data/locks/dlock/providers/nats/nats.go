@@ -117,11 +117,15 @@ func New(ctx context.Context, client *nats.Conn, opts ...Option) (*Locker, error
 		return nil, jsErr
 	}
 
-	// Use common KV helper for bucket creation
+	// The bucket's key TTL is what reaps a lock whose holder died without
+	// releasing it, so it has to be the lock TTL. Pinning it to a constant
+	// while the lock TTL came from options meant a longer WithTTL produced a
+	// lock the server aged out early — the renewal was scheduled off the
+	// configured TTL and the key was gone before it ever fired.
 	kvHelper := natskvlease.NewKVHelper(l.js, l.opts.logger)
 	l.kv, err = kvHelper.GetOrCreateBucket(ctx, natskvlease.BucketConfig{
 		Bucket:      l.opts.bucket,
-		TTL:         DefaultBucketKeysTTL,
+		TTL:         l.opts.ttl,
 		Storage:     jetstream.MemoryStorage,
 		Compression: true,
 	})
@@ -134,20 +138,25 @@ func New(ctx context.Context, client *nats.Conn, opts ...Option) (*Locker, error
 	return l, nil
 }
 
-// Lock acquires a distributed lock for the given key.
-// It returns [errs.ErrLockNotHeld] if the lock could not be acquired.
-// The returned [providers.Lock] must be released when no longer needed.
+// Lock makes a single attempt to acquire the lock for key.
+//
+// It does not wait for a current holder: when the key is taken the attempt
+// returns [errs.ErrLockNotHeld] straight away. Callers that need to be
+// serialized rather than rejected must retry.
+//
+// ctx scopes the lock. Cancel it and the lease stops being renewed and is
+// released, so a lock must not be handed a context that ends before the work
+// it guards. The acquisition attempt itself is bounded separately, by
+// [WithAcquireTimeout]. The returned [providers.Lock] should still be released
+// explicitly when the work is done.
 func (l *Locker) Lock(ctx context.Context, key string) (providers.Lock, error) {
 	// Check if provider is closed
 	if l.closed.Load() {
 		return nil, errors.New("provider is closed")
 	}
 
-	renewInterval := l.opts.ttl
-	renewInterval = time.Duration(float64(renewInterval) * l.opts.renewRatio)
-
-	lk := newLock(&config{Key: key, TTL: l.opts.ttl, Value: uuid.NewString()}, l.kvOps, l.opts.logger)
-	ok, err := lk.run(ctx, renewInterval)
+	lk := newLock(&config{Key: key, TTL: l.opts.ttl, Value: uuid.NewString()}, l.kvOps, l.opts.logger, l.opts.renewRatio)
+	ok, err := lk.run(ctx, l.opts.acquireTimeout)
 	if err != nil {
 		if l.opts.logger != nil {
 			l.opts.logger.ErrorContext(ctx, "failed to acquire lock", slog.Any("error", err), slog.String("key", key))

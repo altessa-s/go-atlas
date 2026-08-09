@@ -11,11 +11,19 @@ JetStream, no-op) with automatic resource management and context-aware operation
 
 | Option                   | Default   | Description                                                      |
 |--------------------------|-----------|------------------------------------------------------------------|
-| `WithLockAcquireTimeout` | 30s       | Timeout for lock acquisition                                     |
 | `WithLogger`             | discard   | Structured logger                                                |
 | `WithCollector`          | noop      | Prometheus metrics collector                                     |
 | `WithHealthCoordinator`  | unset     | Auto-register with `health.Coordinator` on construction          |
 | `WithHealthServiceName`  | `"dlock"` | Override service name when several DLock instances share a coord |
+
+## Acquisition and lifetime
+
+`Lock` makes a **single attempt**. When the key is held it returns `errs.ErrLockNotHeld` straight away rather than waiting for the holder, so
+callers that need to be serialized rather than rejected must retry themselves.
+
+The context passed to `Lock` (and to `Synchronize`) **scopes the lock**: cancel it and the lease stops being renewed and is released. Never hand a
+lock a context that ends before the work it guards. The acquisition attempt is bounded separately, by the NATS provider's `WithAcquireTimeout`,
+because a bound folded into the same context would release the lock the moment it elapsed.
 
 ## Metrics
 

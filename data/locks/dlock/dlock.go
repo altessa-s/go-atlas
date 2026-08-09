@@ -9,7 +9,6 @@ import (
 	"errors"
 	"log/slog"
 	"sync"
-	"time"
 
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
@@ -17,7 +16,6 @@ import (
 	"github.com/altessa-s/go-atlas/data/locks/dlock/providers/nats"
 	"github.com/altessa-s/go-atlas/data/locks/dlock/providers/noop"
 
-	corectx "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	natsio "github.com/nats-io/nats.go"
 )
@@ -25,10 +23,9 @@ import (
 // DLock provides distributed locking with configurable providers.
 // It is safe for concurrent use.
 type DLock struct {
-	provider           providers.Provider
-	logger             *slog.Logger
-	lockAcquireTimeout time.Duration
-	metrics            *dlockMetrics
+	provider providers.Provider
+	logger   *slog.Logger
+	metrics  *dlockMetrics
 }
 
 // New creates a new DLock with the specified provider.
@@ -40,10 +37,9 @@ func New(provider providers.Provider, opts ...Option) *DLock {
 	cfg := newOptions(opts...)
 
 	l := &DLock{
-		provider:           provider,
-		logger:             cfg.logger,
-		lockAcquireTimeout: cfg.lockAcquireTimeout,
-		metrics:            newDlockMetrics(cfg.collector),
+		provider: provider,
+		logger:   cfg.logger,
+		metrics:  newDlockMetrics(cfg.collector),
 	}
 
 	if cfg.healthCoordinator != nil {
@@ -92,19 +88,15 @@ func (l *DLock) Synchronize(ctx context.Context, key string, fn func(ctx context
 		return errors.New("key cannot be empty")
 	}
 
-	// Apply timeout protection if configured to prevent indefinite blocking
-	lockCtx, lockCancel := corectx.ApplyTimeout(ctx, l.lockAcquireTimeout)
-	defer lockCancel()
-
-	// Acquire lock with timeout protection to prevent deadlock scenarios
+	// The caller's context is handed to the provider unchanged: it scopes the
+	// lock, and wrapping it in an acquisition deadline here would release the
+	// lock the moment that deadline passed — while fn was still running. The
+	// provider bounds its own acquisition attempt.
 	stop := l.metrics.acquireDuration.Start()
-	lk, err := l.provider.Lock(lockCtx, key)
+	lk, err := l.provider.Lock(ctx, key)
 	stop()
 	if err != nil {
 		l.metrics.locksFailed.Inc()
-		if coreerrs.IsContextDeadlineExceeded(err) {
-			return coreerrs.Wrapf(err, "failed to acquire lock within timeout %v", l.lockAcquireTimeout)
-		}
 		return err
 	}
 	l.metrics.locksAcquired.Inc()
@@ -149,7 +141,15 @@ func (l *DLock) GetLockInfo(ctx context.Context, key string) (*providers.LockInf
 	return l.provider.GetLockInfo(ctx, key)
 }
 
-// Lock acquires a distributed lock. Blocks until acquired or context canceled.
+// Lock makes a single attempt to acquire a distributed lock.
+//
+// It does not wait for a current holder: when the key is taken, the provider
+// returns its "not held" error straight away. Callers that need to be
+// serialized rather than rejected must retry.
+//
+// ctx scopes the lock, not just the call. Canceling it stops the lease being
+// renewed and releases the lock, so do not pass a context that ends before the
+// work the lock guards.
 //
 // Example:
 //

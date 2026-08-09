@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -89,12 +88,24 @@ func TestDLock_Close(t *testing.T) {
 	require.NoError(t, dl.Close(t.Context()))
 }
 
-func TestDLock_WithLockAcquireTimeout(t *testing.T) {
-	dl := dlock.NewWithNoop(dlock.WithLockAcquireTimeout(5 * time.Second))
+func TestDLock_Synchronize_PassesTheCallersContext(t *testing.T) {
+	dl := dlock.NewWithNoop()
 	ctx := t.Context()
 
-	err := dl.Synchronize(ctx, "key", func(ctx context.Context) error {
+	var seen context.Context
+	err := dl.Synchronize(ctx, "key", func(inner context.Context) error {
+		seen = inner
 		return nil
 	})
 	require.NoError(t, err)
+
+	// Synchronize must not narrow the caller's context on the way in: the same
+	// context scopes the lock, and an acquisition deadline folded into it would
+	// release the lock while fn was still running.
+	deadline, hasDeadline := seen.Deadline()
+	ctxDeadline, ctxHasDeadline := ctx.Deadline()
+	require.Equal(t, ctxHasDeadline, hasDeadline, "Synchronize added a deadline of its own")
+	if ctxHasDeadline {
+		require.Equal(t, ctxDeadline, deadline)
+	}
 }
