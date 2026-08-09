@@ -53,7 +53,20 @@ and an `Acker` for acknowledgment. Data is copied on construction to ensure owne
 | Constant                    | Description                                                              |
 |-----------------------------|--------------------------------------------------------------------------|
 | `NoAckTimeout`              | Sentinel duration indicating no acknowledgment timeout                   |
-| `MetaKeyDeduplicateId`      | Metadata key for deduplication ID                                        |
+| `MetaKeyDeduplicateId`      | Metadata key for deduplication ID (see [Deduplication](#deduplication))  |
 | `MetaKeyMessageId`          | Metadata key for unique message identifier                               |
 | `MetaKeyMessageCreatedTime` | Metadata key for message creation timestamp                              |
 | `MessageCreatedTimeFormat`  | Time format (RFC 3339) used for the creation timestamp                   |
+
+## Deduplication
+
+Setting `MetaKeyDeduplicateId` on a message makes the NATS provider publish it with that value as `Nats-Msg-Id`, so JetStream drops a
+redelivery of the same identifier.
+
+**It reduces duplicates; it does not eliminate them.** The server only remembers an identifier for the length of the stream's duplicate
+window (`StreamConfig.Duplicates`, which the caller sets when creating the stream). A retry that arrives after that window is a fresh
+message to the server and is stored again — and a window wide enough to cover every conceivable retry costs memory on every stream.
+
+So treat it as an optimization, not a guarantee: the consumer still has to be safe to run twice. Make the operation naturally idempotent,
+or protect it with a unique key on the business identifier, or record processed identifiers (`data/idempotency`). Deduplication lowers how
+often a duplicate shows up; only idempotency makes one harmless.
