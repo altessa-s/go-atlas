@@ -66,6 +66,15 @@ var ErrCursorChecksumMismatch = errors.New("cursor checksum mismatch")
 //
 // IMPORTANT: CursorId MUST be a valid MongoDB ObjectID (24 hexadecimal characters).
 //
+// IMPORTANT: every field MUST hold valid UTF-8. The wire format is JSON, and
+// encoding/json substitutes U+FFFD for any byte sequence that is not — so a
+// field carrying raw bytes comes back from [ParseCursor] silently altered, and
+// the cursor then fails to decode on the request after next, far from the
+// assignment that caused it. Nothing in this package can produce such a value:
+// Sort and SortValue are base64, Checksum and FilterHash are hex, and
+// CursorIdField is a MongoDB field name. Callers that build a Cursor by hand
+// must keep to the same encodings.
+//
 // Example usage:
 //
 //	cursor := mongotools.NewCursor("507f1f77bcf86cd799439011") // ObjectID

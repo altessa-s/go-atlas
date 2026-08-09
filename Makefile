@@ -28,6 +28,14 @@ DUPL_IGNORE_REGEX ?= (_gen\.go|\.pb(\.[^/]*)?\.go|_grpc\.pb\.go|\.pb\.gw\.go)
 #          HTTP response writing, config path reads); provenance is the caller's job
 GOSEC_EXCLUDED_RULES ?= G104,G115,G117,G304,G702,G703,G704,G705
 
+# Fuzzing configuration
+# - FUZZTIME: per-target budget. `go test -fuzz` accepts exactly one target per
+#   package per invocation, so `make fuzz` walks them and this is the cost of a
+#   single target, not of the whole sweep.
+# - FUZZPKG: restricts the sweep, e.g. FUZZPKG=./core/io/wal
+FUZZTIME ?= 30s
+FUZZPKG ?= ./...
+
 .PHONY: all
 all: help
 
@@ -127,6 +135,33 @@ test-all: ## Run tests with race detector, shuffle, and coverage
 	@go test -race -shuffle=on -coverprofile=coverage.out ./...
 	@go tool cover -func=coverage.out | tail -1
 	@rm -f coverage.out
+
+.PHONY: fuzz-list
+fuzz-list: ## List every fuzz target (package and name)
+	@for pkg in $$(go list $(FUZZPKG)); do \
+	  for t in $$(go test -list '^Fuzz' $$pkg 2>/dev/null | grep '^Fuzz' || true); do \
+	    printf '%s\t%s\n' "$${pkg#github.com/altessa-s/go-atlas/}" "$$t"; \
+	  done; \
+	done
+
+.PHONY: fuzz-seed
+fuzz-seed: ## Run every fuzz target over its seed corpus only (no mutation, fast)
+	@go test -run '^Fuzz' $(FUZZPKG)
+
+.PHONY: fuzz
+fuzz: ## Fuzz every target for FUZZTIME each (FUZZTIME=30s FUZZPKG=./...)
+	@failed=""; \
+	for pkg in $$(go list $(FUZZPKG)); do \
+	  for t in $$(go test -list '^Fuzz' $$pkg 2>/dev/null | grep '^Fuzz' || true); do \
+	    printf '\033[36m==> %s %s (%s)\033[0m\n' "$${pkg#github.com/altessa-s/go-atlas/}" "$$t" "$(FUZZTIME)"; \
+	    go test -run '^$$' -fuzz "^$$t$$" -fuzztime $(FUZZTIME) $$pkg || failed="$$failed $${pkg#github.com/altessa-s/go-atlas/}:$$t"; \
+	  done; \
+	done; \
+	if [ -n "$$failed" ]; then \
+	  printf '\033[31mfailing fuzz targets:%s\033[0m\n' "$$failed"; \
+	  printf 'minimized reproducers were written to the package testdata/fuzz directories; commit them as regression seeds\n'; \
+	  exit 1; \
+	fi
 
 .PHONY: test-integration
 test-integration: ## Run the integration suite against live backends (see tests/integration/README.md)

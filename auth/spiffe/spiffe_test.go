@@ -37,6 +37,16 @@ func TestParseID(t *testing.T) {
 		{"with port", "spiffe://example.org:8443/x", spiffe.ID{}, true},
 		{"with query", "spiffe://example.org/x?a=b", spiffe.ID{}, true},
 		{"with fragment", "spiffe://example.org/x#f", spiffe.ID{}, true},
+		// url.URL.Port reports "" for an authority ending in a bare colon, so
+		// these used to arrive as trust domains ":" and "example.org:" — which
+		// compare unequal to the domain an authorization rule names.
+		{"bare colon authority", "spiffe://:", spiffe.ID{}, true},
+		{"empty port", "spiffe://example.org:", spiffe.ID{}, true},
+		// A percent-decoded path renders back out as raw bytes that no longer
+		// parse, so an accepted ID would not survive its own String.
+		{"percent-encoded control character", "spiffe://example.org/%00", spiffe.ID{}, true},
+		{"percent-encoded letter", "spiffe://example.org/%41", spiffe.ID{}, true},
+		{"percent-encoded dot segment", "spiffe://example.org/%2e%2e/other", spiffe.ID{}, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
