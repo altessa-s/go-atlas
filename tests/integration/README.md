@@ -5,8 +5,9 @@ Integration suite for `go-atlas`, kept in its own Go module.
 ```
 tests/integration/
 ├── go.mod                 # separate module — see below
-├── docker-compose.yml     # the six backends the suite runs against
-└── filterit/              # data/filter: shared corpus + one adapter per backend
+├── docker-compose.yml     # the backends the suite runs against
+├── filterit/              # data/filter: shared corpus + one adapter per backend
+└── leadelectit/           # data/leadelect: multi-node election against a live broker
 ```
 
 ## Why a separate module
@@ -36,6 +37,7 @@ when its server is unreachable, so `make test-integration` is green on a machine
 | MongoDB       | `127.0.0.1:27019`         | `MONGO_URI`                                |
 | Meilisearch   | `http://127.0.0.1:17700`  | `MEILI_URL`, `MEILI_KEY`                   |
 | RediSearch    | `127.0.0.1:16379`         | `REDIS_ADDR`                               |
+| NATS          | `nats://127.0.0.1:14222`  | `NATS_URL`                                 |
 
 Each test creates its own throwaway table, database or index, named with a timestamp suffix, and drops it on cleanup — two runs against the same
 server never collide.
@@ -89,6 +91,33 @@ RediSearch emitted it as a free-text term, so the query ran and matched whatever
 The third was the one worth finding. `deletedAt != null` is the shape of a soft-delete filter, and against Meilisearch it silently returned the
 deleted documents. `TestMeili_NullFilterSemantics` is its regression guard and still asserts what the bare `IS NOT NULL` would have returned, so
 the reason the paired form exists stays visible.
+
+## leadelectit — leader election against a live broker
+
+The unit tests for `data/leadelect` run against an embedded NATS server and assert on the pieces in isolation. Three properties only exist once
+several electors compete for one key through a real broker over real time, and those are what this package covers.
+
+| Scenario                                   | Asserts                                                                                       |
+|--------------------------------------------|-----------------------------------------------------------------------------------------------|
+| `SingleLeaderAmongPeers`                   | Five electors, many renewals: never two claims at once, and leadership does not drift          |
+| `FenceAdvancesWithRenewals`                | The fencing token moves with each renewal, so a replayed write is distinguishable from a fresh one |
+| `HandoverOnGracefulStop`                   | A resign releases the key immediately — the successor does not wait for expiry                  |
+| `FailoverAfterAbruptLoss`                  | A holder that dies without resigning still releases the lease, via server-side key expiry       |
+| `PartitionedLeaderSelfDemotes`             | A node cut off from the broker stops claiming leadership unprompted, and its token drops to `0` |
+| `CallbacksFireOnTransitions`               | The became-leader callback fires on the elected node, then on its successor                     |
+| `FenceMonotonicAcrossRepeatedFailovers`    | The token never stalls or moves backwards across a chain of handovers                           |
+| `Bucket_TTLReconciledOnAdoption`           | Adopting a bucket that predates the provider does not leave leases that never expire            |
+| `Bucket_KeyExpiresWithoutRenewal`          | The server ages out an unrenewed election key — the mechanism every failover above rests on     |
+
+**Sampling shows overlap, it cannot rule it out.** `Observer` polls every 25 ms, well under the 2 s lease. A round with two claimants proves mutual
+exclusion broke; a clean run is evidence it held, not proof — an overlap shorter than the interval goes unseen. Where a handover completes in tens
+of milliseconds the scenario holds each term briefly so the poller has something to record, and reads the fencing tokens directly rather than
+trusting the recording to have caught every term.
+
+**Two different durations govern failover.** The election TTL (`WithTTL`) bounds how long a node keeps believing it leads once it can no longer
+renew. The bucket's key TTL — fixed by the provider, not derived from the election TTL — is what releases the key when a holder dies without
+resigning. A failover after an abrupt loss is therefore bounded by the latter, which is why `FailoverAfterAbruptLoss` takes about ten seconds while
+`HandoverOnGracefulStop` takes milliseconds.
 
 ## Adding a backend
 

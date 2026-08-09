@@ -21,6 +21,18 @@ gap: it returns a monotonically non-decreasing token for the current leadership 
 `0` when this node is not a fresh leader. Thread the token into the conditional write of a downstream store — record the highest token accepted and
 reject any lower one — so a zombie leader's late write is rejected even if it still believes `IsLeader`.
 
+## Lifecycle
+
+`Start` spawns a dispatch goroutine that consumes leadership transitions and runs the registered callbacks synchronously, one transition at a time.
+
+`Stop` tears that down deterministically: it stops the provider first — so the provider's terminal notification still lands — then ends the dispatch
+goroutine and joins it. Once `Stop` returns, no callback is executing and none will start. A transition that `Stop` raced may be skipped; declining to
+begin new leadership work while shutting down is intended. The context given to `Stop` bounds the provider's own shutdown, including resignation of
+the lease.
+
+Transitions are buffered, so a leadership change raised while a previous callback is still running is queued rather than dropped — losing a
+"leadership lost" edge is how a node keeps acting as leader after it is not.
+
 ## Constructor
 
 ```go

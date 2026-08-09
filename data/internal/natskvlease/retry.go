@@ -18,12 +18,23 @@ const (
 
 	// DefaultMaxElapsedTime is the default maximum elapsed time for retries.
 	DefaultMaxElapsedTime = 2 * time.Second
+
+	// DefaultJitter is the default randomization applied to each backoff
+	// delay, as a fraction of that delay. Without it every node that hit the
+	// same transient NATS failure retries on the same schedule and the
+	// recovering server is hit by synchronized waves instead of a spread-out
+	// trickle.
+	DefaultJitter = 0.2
 )
 
 // RetryConfig holds configuration for retry operations.
 type RetryConfig struct {
 	MaxRetries     uint
 	MaxElapsedTime time.Duration
+
+	// Jitter is the maximum fraction of each computed delay added as
+	// randomization (0.0–1.0). Zero produces deterministic, lockstep retries.
+	Jitter float64
 }
 
 // DefaultRetryConfig returns the default retry configuration.
@@ -31,6 +42,7 @@ func DefaultRetryConfig() RetryConfig {
 	return RetryConfig{
 		MaxRetries:     DefaultMaxRetries,
 		MaxElapsedTime: DefaultMaxElapsedTime,
+		Jitter:         DefaultJitter,
 	}
 }
 
@@ -67,6 +79,7 @@ func RetryWithConfig[T any](ctx context.Context, fn func() (T, error), cfg Retry
 		coreretry.WithShouldRetry(isTransientError),
 		coreretry.WithNextDelay(coreretry.Exponential(coreretry.ExponentialConfig{
 			BaseDelay: baseDelay, // matches cenkalti/backoff default
+			Jitter:    cfg.Jitter,
 		})),
 	)
 
