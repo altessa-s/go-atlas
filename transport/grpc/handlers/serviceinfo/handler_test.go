@@ -152,6 +152,74 @@ func TestSnapshot_LeaderFunc(t *testing.T) {
 	require.NotNil(t, ctxSeen, "request context must reach the leader func")
 }
 
+type ctxProbeKey struct{}
+
+// TestSnapshot_LeaderFuncReceivesTheRequestContext pins that the caller's
+// context reaches the leader func on *both* branches.
+//
+// The leader branch used to call the func with context.Background(), so a
+// client that hung up left the call running with no deadline. It went unnoticed
+// because the follower branch overwrote the recorded context on its second
+// call, and context.Background() is not nil either — so a nil check passes
+// straight through the bug. Probing for a value the caller planted does not.
+func TestSnapshot_LeaderFuncReceivesTheRequestContext(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		isLeader bool
+	}{
+		{name: "leader", isLeader: true},
+		{name: "follower", isLeader: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var (
+				calls   int
+				sawFlag bool
+			)
+			h := serviceinfo.New(
+				serviceinfo.WithServiceID("node-a"),
+				serviceinfo.WithLeader(func(ctx context.Context) (bool, string) {
+					calls++
+					sawFlag = ctx.Value(ctxProbeKey{}) == "planted"
+					return tt.isLeader, "node-c"
+				}),
+			)
+
+			ctx := context.WithValue(t.Context(), ctxProbeKey{}, "planted")
+			h.Snapshot(ctx)
+
+			require.True(t, sawFlag, "the request context must reach the leader func")
+			require.Equal(t, 1, calls, "the leader func must be invoked once per snapshot")
+		})
+	}
+}
+
+// TestSnapshot_LeaderFuncObservesCancellation pins the consequence: once the
+// client is gone, the leader func can see it and stop rather than running on.
+func TestSnapshot_LeaderFuncObservesCancellation(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	var seenErr error
+	h := serviceinfo.New(
+		serviceinfo.WithServiceID("node-a"),
+		serviceinfo.WithLeader(func(c context.Context) (bool, string) {
+			seenErr = c.Err()
+			return true, ""
+		}),
+	)
+
+	h.Snapshot(ctx)
+	require.ErrorIs(t, seenErr, context.Canceled, "cancellation must be visible to the leader func")
+}
+
 func TestWithLeader_NilFnIsNoOp(t *testing.T) {
 	t.Parallel()
 
