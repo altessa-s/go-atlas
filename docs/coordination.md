@@ -45,11 +45,25 @@ effect leaves inconsistency. That is the deliberate single-process trade-off.
 ### `data/outbox` — reliable delivery out of a transaction
 
 The transactional-outbox pattern. The event is **persisted to a store in the same transaction as the state change**, then dispatched later by background
-workers (dispatch, retry, cleanup, stuck-event recovery). This is the crash-safe answer to the dual write: because the event is written atomically with
+cycles (dispatch, unlock, expire, cleanup, stats). This is the crash-safe answer to the dual write: because the event is written atomically with
 the state, it cannot be lost; because it is delivered out-of-band, the transaction never waits on the network. Delivery is **at-least-once**,
 transport-agnostic (the `Handler` decides how to deliver: broker, HTTP, gRPC). Lease and retention windows are evaluated against the **database
 server clock** (MongoDB `$$NOW`), not the worker's wall clock, so a clock-skewed worker can neither prematurely steal a locked event nor leak one;
 timestamps are stored as BSON `Date` (run `MigrateTimestampsToDate` once on a legacy collection).
+
+Four properties are worth knowing before you design against it:
+
+- **One attempt per cycle, with a durable backoff.** A failed event records its own retry deadline, computed with exponential backoff and jitter and
+  anchored to the database clock — so it survives a restart and cannot be pulled forward by an eager instance. Retrying in-process instead would hold
+  the event's lease for the whole loop and let the unlock cycle hand it to a second worker mid-flight.
+- **Two terminal failure states, and neither is cleaned up.** An event that exhausts `RetryMaxAttempts` becomes `max-attempt-reached`; one whose error
+  the `ShouldRetry` predicate calls permanent becomes `rejected` on the first attempt, because repeating a malformed payload cannot fix it. Together
+  they are the dead-letter queue: retention sweeps the successes and leaves these for an operator.
+- **Ordering is not preserved.** A batch is fetched oldest-first but dispatched concurrently, and a failed event is rescheduled behind events created
+  after it. Do not assume order, even within one key.
+- **The backlog is only visible if you schedule the stats cycle.** Counters cannot distinguish a stalled outbox from an idle one — both report zero.
+  `outbox_events_pending`, `outbox_events_dead_lettered`, and `outbox_events_oldest_pending_age_seconds` are what an alert can be written against; see
+  [metrics.md](metrics.md#outbox).
 
 ### `transport/broker` — asynchronous messaging between services
 
@@ -98,8 +112,12 @@ sequence, compensation, and crash recovery.
 - **`eventbus` is in-process only.** Do not use it to reach another process or service — it has no network and no durability. Use the broker for that.
 - **`uow` is not durability.** Its compensation handles an effect that fails *after* a successful commit; it does **not** survive a crash between commit
   and effect. When you need crash-safety, route through the outbox instead.
-- **At-least-once means idempotent consumers.** Both `data/outbox` and `transport/broker` can deliver a message more than once. Consumers must dedupe —
-  use [`data/idempotency`](../data/idempotency/README.md).
+- **At-least-once means idempotent consumers.** Both `data/outbox` and `transport/broker` can deliver a message more than once, so consumers must
+  dedupe — use [`data/idempotency`](../data/idempotency/README.md). Broker-side deduplication narrows the window but does not close it: the
+  `transport/broker/outbox` adapter sends the outbox event ID as `Nats-Msg-Id` so JetStream collapses a republished event within its duplicate
+  window, and a repeat that arrives after that window still reaches the consumer.
+- **A dead-letter queue nobody watches is data loss with extra steps.** Terminal failures are retained deliberately and never expire on their own.
+  Schedule the stats cycle and alert on `outbox_events_dead_lettered` and `outbox_events_oldest_pending_age_seconds`, or the retention is just storage.
 - **Don't reach for a saga for a single local transaction.** A saga is for multi-step, multi-transaction (often multi-service) workflows with
   compensation and recovery. One local transaction with `eventbus` / `uow` is simpler and atomic; a saga there is overkill.
 - **Keep the boundary honest.** In-process coordination (`eventbus` / `uow`) gives true atomicity within one transaction. Cross-process coordination

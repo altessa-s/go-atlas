@@ -26,8 +26,15 @@ results, err := concurrency.ProcessCollect(ctx, urls, func(ctx context.Context, 
 },
     concurrency.WithConcurrency[string](4),
 )
-// results[i] corresponds to urls[i]
+if err != nil {
+    // Some items failed: results holds only the ones that succeeded, so it is
+    // shorter than urls and results[i] no longer lines up with urls[i].
+}
+// On err == nil: len(results) == len(urls) and results[i] corresponds to urls[i].
 ```
+
+**A failed item contributes no result.** Order is preserved among the survivors, but the failures are dropped from the slice entirely — see
+[Error handling](#error-handling) for why that matters when the returned value carries state you intended to persist.
 
 When concurrency resolves to 1 (or the slice has a single element), both functions fall back to sequential execution in the caller's goroutine — no
 goroutine overhead.
@@ -39,6 +46,30 @@ goroutine overhead.
 - Without `WithStopOnError` — all items are processed; the first error is still returned.
 - `WithOnSuccess` / `WithOnError` callbacks are invoked under a mutex, so shared state
   mutation is safe without external synchronization.
+- **`ProcessCollect` returns results only for items that succeeded.** When any item's
+  function returns an error, the result slice is compacted to the completed items, so it
+  is shorter than the input and its indices no longer match.
+
+That last rule decides how you signal failure. A transform that returns `(value, error)` is telling `ProcessCollect` to *discard the value* — which is
+right for a fetch, where a failed item has no result worth keeping, and wrong whenever the returned value is the outcome you meant to act on.
+
+`data/outbox` learned this the hard way: its dispatch transform returned the event plus the dispatch error, so exactly the events whose new state
+mattered most — the failed ones — never reached the store. Attempts never grew, errors were never recorded, and no event could reach a terminal
+status. Every unit test passed, because they asserted on the event the code had built rather than on what was persisted.
+
+When the value must survive a failure, carry the outcome **in** the value and return a nil error:
+
+```go
+// The transform cannot fail; the verdict travels on the item itself.
+results, _ := concurrency.ProcessCollect(ctx, events, func(ctx context.Context, e Event) (Event, error) {
+    if err := dispatch(ctx, e); err != nil {
+        e.MarkFailed(err) // Recorded, and still collected.
+        return e, nil
+    }
+    e.MarkSent()
+    return e, nil
+})
+```
 
 ---
 
@@ -461,11 +492,10 @@ type Coordinator struct {
     activeWatchers    atomic.Int32 // gauge: current subscription count
     listCallsInFlight atomic.Int32 // gauge: in-progress list calls
 }
-
-type Outbox struct {
-    eventsInFlight atomic.Int64 // counter: events being dispatched
-}
 ```
+
+Keep such a field only while something reads it. An atomic that is faithfully incremented and decremented but never loaded is not instrumentation, it
+is cost with no signal — export the value as a metric or drop the field.
 
 Increment with `Add(1)`, decrement with `Add(-1)`, and read with `Load()`. For boolean flags that gate execution, see the `atomic.Bool` guard pattern
 above.
