@@ -311,14 +311,14 @@ func (e *Extractor) parseXForwardedForHeader(ctx context.Context, ips []string) 
 		return addr
 	}
 
-	// If all IPs are private or trusted, return the leftmost one (original client)
-	if len(ips) > 0 {
-		internedIP := corestrings.InternString(ips[0])
-		addr, err := netip.ParseAddr(internedIP)
-		if err == nil {
-			return addr
-		}
-	}
-
+	// Every entry was private or trusted, so the header names no client this
+	// extractor is willing to vouch for. Returning the leftmost one — as this
+	// used to — handed back a private address chosen entirely by the caller:
+	// the peer must be trusted for the header to be read at all, but its
+	// *contents* are whatever the client sent, and a client that can make
+	// Extract report 10.0.0.1 walks straight through an ipacl allowlist written
+	// for 10.0.0.0/8. Reporting nothing lets Extract apply its documented
+	// fallback and answer with the peer address, which is the connection's own
+	// rather than a claim.
 	return netip.Addr{}
 }
