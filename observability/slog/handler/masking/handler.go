@@ -32,6 +32,17 @@ import (
 // fmt.Sprint so masking failures cannot crash the logger.
 const maxMaskDescentDepth = 10
 
+// depthLimitPlaceholder stands in for a value the walker ran out of depth to
+// inspect.
+//
+// Emitting such a value unchanged is what turned the recursion guard into a
+// leak: a deep or self-referencing object graph reached the limit, the walker
+// reported "not rebuilt", and the caller passed the whole struct to the
+// underlying handler — which rendered every field it contained, including the
+// ones a rule would have masked one level up. Being unable to look inside a
+// value is precisely the reason not to print it.
+const depthLimitPlaceholder = "<masking: max depth exceeded>"
+
 // maxPathCacheEntries caps the per-handler memoization map for masked
 // field paths. Once the cap is reached the cache is atomically swapped
 // for a fresh empty map (epoch-style reset) so an attacker driving
@@ -392,6 +403,32 @@ func (h *Handler) walkAny(rv reflect.Value, groups []string, depth int) (slog.Va
 	}
 }
 
+// hasMaskableSubstructure reports whether rv could still contain a field a
+// masking rule would match — that is, whether walkAny would have descended into
+// it had depth allowed. It mirrors walkAny's dispatch deliberately: the two
+// must agree about what "walkable" means, or the depth cutoff would either
+// print a value it should have hidden or hide a scalar it should have printed.
+func hasMaskableSubstructure(rv reflect.Value) bool {
+	if !rv.IsValid() {
+		return false
+	}
+	for rv.Kind() == reflect.Pointer || rv.Kind() == reflect.Interface {
+		if rv.IsNil() {
+			return false
+		}
+		rv = rv.Elem()
+	}
+	if isAtomicType(rv.Type()) {
+		return false
+	}
+	switch rv.Kind() {
+	case reflect.Struct, reflect.Map, reflect.Slice, reflect.Array:
+		return true
+	default:
+		return false
+	}
+}
+
 // walkStruct walks the exported fields of a struct and rebuilds the
 // value as a slog group with masked fields where rules match.
 func (h *Handler) walkStruct(rv reflect.Value, groups []string, depth int) (slog.Value, bool) {
@@ -452,6 +489,12 @@ func (h *Handler) walkSlice(rv reflect.Value, groups []string, depth int) (slog.
 			attrs = append(attrs, slog.Attr{Key: key, Value: nested})
 			continue
 		}
+		// Same split as attrForField: an atomic element is safe to pass
+		// through, one the depth limit cut off is not.
+		if depth+1 >= maxMaskDescentDepth && hasMaskableSubstructure(elem) {
+			attrs = append(attrs, slog.String(key, depthLimitPlaceholder))
+			continue
+		}
 		// Atomic element — pass through as-is via slog.AnyValue.
 		attrs = append(attrs, slog.Attr{Key: key, Value: slog.AnyValue(elem.Interface())})
 	}
@@ -503,6 +546,12 @@ func (h *Handler) attrForField(name string, field reflect.Value, parentGroups []
 	childGroups := slices.Concat(parentGroups, []string{name})
 	if nested, ok := h.walkAny(field, childGroups, depth+1); ok {
 		return slog.Attr{Key: name, Value: nested}
+	}
+	// walkAny reports "not rebuilt" for two different reasons, and only one of
+	// them is safe to pass through: an atomic leaf has nothing maskable inside,
+	// while a value the depth limit cut off may have plenty.
+	if depth+1 >= maxMaskDescentDepth && hasMaskableSubstructure(field) {
+		return slog.String(name, depthLimitPlaceholder)
 	}
 	// Leaf: preserve the original value as-is so structured handlers
 	// (JSON, OTLP) render it natively.
