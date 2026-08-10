@@ -7,6 +7,7 @@ package masking_test
 import (
 	"bytes"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -84,4 +85,48 @@ func TestNewHandler_WithDefaults_Patterns(t *testing.T) {
 	logger.Info("test", "password", "mysecret", "email", "user@example.com")
 
 	require.NotContains(t, buf.String(), "mysecret", "password value should be masked")
+}
+
+// TestHandler_DepthLimitDoesNotLeak is a regression for a leak a fuzz target
+// found: at the descent limit the walker reported "not rebuilt", and the caller
+// passed the whole value to the underlying handler — which rendered every field
+// it contained, masked names included.
+//
+// A self-referencing struct reaches the limit immediately, but so does any
+// legitimately deep object graph; the guard against runaway recursion was
+// printing exactly what it was guarding.
+func TestHandler_DepthLimitDoesNotLeak(t *testing.T) {
+	t.Parallel()
+
+	type node struct {
+		User     string
+		Password string
+		Inner    *node
+	}
+
+	const secret = "s3cr3t-value-that-must-not-appear"
+
+	cyclic := &node{User: "svc", Password: secret}
+	cyclic.Inner = cyclic
+
+	var sb strings.Builder
+	inner := slog.NewTextHandler(&sb, &slog.HandlerOptions{
+		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
+			if a.Key == slog.TimeKey {
+				return slog.Attr{}
+			}
+			return a
+		},
+	})
+
+	logger := slog.New(masking.NewHandler(inner,
+		masking.WithDefaults(),
+		masking.WithMaskNestedFields(),
+		masking.WithField("password", masking.FullMask()),
+	))
+	logger.LogAttrs(t.Context(), slog.LevelInfo, "msg", slog.Any("account", cyclic))
+
+	out := sb.String()
+	require.NotContains(t, out, secret, "the masked value survived the depth cutoff:\n%s", out)
+	require.NotContains(t, out, "Password:", "a struct was rendered raw at the depth cutoff:\n%s", out)
 }

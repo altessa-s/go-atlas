@@ -5,32 +5,75 @@
 package secrets_test
 
 import (
+	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/config/loader/secrets"
 )
 
-func FuzzHasSecrets(f *testing.F) {
+// injected is what the mock manager returns for one key: a value that is itself
+// a placeholder. Expansion must not look at it again.
+const injected = "$__secret{other:key}"
+
+// FuzzExpansionIsNotRecursive is the secret-injection oracle.
+//
+// Placeholders are resolved in configuration text that a deploy tool assembles,
+// and the values come from a secrets backend. If a resolved value were scanned
+// for placeholders in turn, a secret whose *content* names another key would
+// pull that second secret into the configuration — an escalation driven by
+// whoever can write the first secret's value, not by whoever writes the config.
+//
+// The property is that a value the manager returned appears in the output
+// verbatim: expansion is one pass, not a fixpoint.
+func FuzzExpansionIsNotRecursive(f *testing.F) {
+	f.Add("$__secret{app:injector}")
+	f.Add("prefix $__secret{app:injector} suffix")
+	f.Add("$__secret{app:injector}$__secret{app:injector}")
+	f.Add("plain")
 	f.Add("")
-	f.Add("plain text")
-	f.Add("$__secret{ns:key}")
-	f.Add("$__secret{}")
-	f.Add("$__secret{no_colon}")
-	f.Add("$$__secret{ns:key}")
-	f.Add("$__secret{a:b}$__secret{c:d}")
+
+	mgr := newMockManager(map[string]string{
+		"app:injector": injected,
+		"other:key":    "SHOULD-NEVER-BE-REACHED",
+	})
+	expander := secrets.New(mgr)
 
 	f.Fuzz(func(t *testing.T, content string) {
-		_ = secrets.HasSecrets(content)
+		out, err := expander.Expand(t.Context(), content)
+		if err != nil {
+			return
+		}
+
+		require.NotContains(t, out, "SHOULD-NEVER-BE-REACHED",
+			"a secret's own value was expanded again, so its content chose the next lookup:\n%s", out)
+
+		// The resolved value is data, so it survives verbatim — including the
+		// braces that would have made it a placeholder had it been rescanned.
+		require.Equal(t, strings.Count(content, "$__secret{app:injector}"),
+			strings.Count(out, injected),
+			"a resolved value was altered or rescanned:\n%s", out)
 	})
 }
 
-func FuzzExpander_Expand(f *testing.F) {
-	f.Add("")
-	f.Add("plain")
+// FuzzExpandResolvesEveryPlaceholderItRecognizes pins the relationship between
+// the detector and the expander.
+//
+// HasSecrets is what a loader uses to decide whether expansion is needed at
+// all, so a string it reports as clean but the expander would have changed
+// means a placeholder ships to production unresolved — a literal
+// "$__secret{...}" in a connection string, failing at the far end with no
+// mention of secrets anywhere.
+func FuzzExpandResolvesEveryPlaceholderItRecognizes(f *testing.F) {
 	f.Add("$__secret{ns:key}")
-	f.Add("pre $__secret{a:b} post")
+	f.Add("$__secret{no_colon}")
+	f.Add("$$__secret{ns:key}")
 	f.Add("$__secret{a:b}$__secret{c:d}")
 	f.Add("${not_a_secret}")
+	f.Add("$__secret{:}")
+	f.Add("$__secret{a:}")
+	f.Add("")
 
 	mgr := newMockManager(map[string]string{
 		"ns:key": "value",
@@ -38,10 +81,20 @@ func FuzzExpander_Expand(f *testing.F) {
 		"c:d":    "val2",
 	})
 	expander := secrets.New(mgr)
-	ctx := f.Context()
 
 	f.Fuzz(func(t *testing.T, content string) {
-		// Should not panic
-		_, _ = expander.Expand(ctx, content)
+		out, err := expander.Expand(t.Context(), content)
+		if err != nil {
+			return
+		}
+
+		if !secrets.HasSecrets(content) {
+			require.Equal(t, content, out,
+				"the expander changed a string HasSecrets called clean: %q", content)
+			return
+		}
+
+		require.False(t, secrets.HasSecrets(out),
+			"expansion left a placeholder the detector still recognizes:\n%s", out)
 	})
 }
