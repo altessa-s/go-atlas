@@ -103,3 +103,23 @@ func TestValidateSecretKey(t *testing.T) {
 		})
 	}
 }
+
+// TestValidateSecretKey_RejectsDotKeys is a regression for a path traversal a
+// fuzz target found.
+//
+// The shared character set allows dots, so "." and ".." satisfied the regex.
+// The Vault provider addresses a secret as path.Join(secretPath, key), and
+// path.Join resolves both: a key of ".." reads out of the configured path into
+// its parent, and "." reads the container itself. Neither names a secret.
+func TestValidateSecretKey_RejectsDotKeys(t *testing.T) {
+	t.Parallel()
+
+	for _, key := range []string{".", ".."} {
+		require.ErrorIs(t, secrets.ValidateSecretKey(key), secrets.ErrInvalidKey,
+			"%q escapes the configured secret path when joined onto it", key)
+	}
+
+	// Dots remain legal inside an ordinary key.
+	require.NoError(t, secrets.ValidateSecretKey("app.db.password"))
+	require.NoError(t, secrets.ValidateSecretKey("a..b"))
+}

@@ -100,3 +100,38 @@ func TestExtractor_WithLogger(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, ext)
 }
+
+// TestExtractor_Extract_AllPrivateXFFFallsBackToPeer is a regression for a
+// spoofing gap a fuzz target found.
+//
+// When every X-Forwarded-For entry was private or trusted, the extractor
+// returned the leftmost one — an address the client chose. The peer has to be
+// trusted for the header to be read at all, but its contents are not, so a
+// request carrying "X-Forwarded-For: 10.0.0.1" was reported as coming from
+// 10.0.0.1, which an ipacl allowlist for 10.0.0.0/8 admits. Extract's own
+// contract already said what should happen: no public IP in any header means
+// the peer address.
+func TestExtractor_Extract_AllPrivateXFFFallsBackToPeer(t *testing.T) {
+	ext, err := NewExtractor(WithCacheDisabled())
+	require.NoError(t, err)
+
+	peerIP := netip.MustParseAddr("10.0.0.9")
+
+	for _, forwarded := range []string{
+		"10.0.0.1",
+		"192.168.1.1, 172.16.0.1",
+		"127.0.0.1",
+		"255.255.255.255",
+	} {
+		headers := &mockHeaders{data: map[string][]string{HeaderXForwardedFor: {forwarded}}}
+		require.Equal(t, peerIP, ext.Extract(t.Context(), peerIP, headers),
+			"a header of only private addresses spoke for the peer: %q", forwarded)
+	}
+
+	// A public entry among them is still the client, which is the case the
+	// rightmost-non-private walk exists for.
+	headers := &mockHeaders{data: map[string][]string{
+		HeaderXForwardedFor: {"10.0.0.1, 203.0.114.7, 10.0.0.2"},
+	}}
+	require.Equal(t, netip.MustParseAddr("203.0.114.7"), ext.Extract(t.Context(), peerIP, headers))
+}
