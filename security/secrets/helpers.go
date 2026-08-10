@@ -36,6 +36,7 @@ func CreateLockKey(provider, key string) string {
 //   - Have length between MinKeyLength and MaxKeyLength
 //   - Not be empty or whitespace-only
 //   - Contain only alphanumeric characters, underscores, hyphens, and dots
+//   - Not be "." or ".."
 //
 // Returns ErrInvalidKey if validation fails.
 func ValidateSecretKey(key string) error {
@@ -44,6 +45,16 @@ func ValidateSecretKey(key string) error {
 	}
 
 	if !secretKeyRegex.MatchString(key) {
+		return ErrInvalidKey
+	}
+
+	// The character set allows dots, so "." and ".." satisfy the regex — and
+	// providers that address a secret by path join the key onto a configured
+	// prefix. path.Join then resolves them: a key of ".." reads out of the
+	// configured path into its parent, and "." reads the container itself.
+	// Neither names a secret, so refusing them costs nothing and closes the
+	// only traversal the allowed characters can express.
+	if key == "." || key == ".." {
 		return ErrInvalidKey
 	}
 
