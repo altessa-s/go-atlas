@@ -29,6 +29,18 @@ func redisAddr() string {
 	return "localhost:6379"
 }
 
+// itSeq disambiguates fixtures created within the same clock tick.
+var itSeq atomic.Int64
+
+// itSuffix returns a suffix unique to one fixture. A timestamp alone is not
+// enough: every test here calls t.Parallel(), so they all resume at once and
+// UnixNano is not fine-grained enough to separate them. Two fixtures sharing a
+// key prefix read each other's tasks and delete them on cleanup, which shows up
+// as unrelated tests failing at random.
+func itSuffix() string {
+	return strconv.FormatInt(time.Now().UnixNano(), 10) + "_" + strconv.FormatInt(itSeq.Add(1), 10)
+}
+
 // newClaimIT connects to a live Redis and returns a Storage with a per-test key
 // prefix (all keys dropped on cleanup). It skips when Redis is unreachable or
 // lacks the RedisJSON module that the JSON-backed Storage requires.
@@ -51,7 +63,7 @@ func newClaimIT(t *testing.T) *redisstore.Storage {
 	}
 	_ = client.Del(context.Background(), probe)
 
-	prefix := "sched_claim_it_" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	prefix := "sched_claim_it_" + itSuffix()
 	t.Cleanup(func() {
 		keys, _ := client.Keys(context.Background(), prefix+":*").Result()
 		if len(keys) > 0 {
