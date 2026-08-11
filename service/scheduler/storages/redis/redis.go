@@ -374,7 +374,6 @@ func (s *Storage) Tasks(ctx context.Context) iter.Seq2[*scheduler.TaskState, err
 // Both fields are indexed as RediSearch numerics, so the predicate is evaluated
 // server-side and a tick transfers only the due documents instead of the whole
 // task index.
-//
 func (s *Storage) DueTasks(ctx context.Context, now int64) iter.Seq2[*scheduler.TaskState, error] {
 	return func(yield func(*scheduler.TaskState, error) bool) {
 		active := int(scheduler.TaskStatusActive)

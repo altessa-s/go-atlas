@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/orderby"
+
 	orderbymongo "github.com/altessa-s/go-atlas/data/orderby/translators/mongo"
 )
 

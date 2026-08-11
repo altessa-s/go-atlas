@@ -10,14 +10,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/filter"
-
 	"github.com/altessa-s/go-atlas/data/filter/translators/clickhouse"
 	"github.com/altessa-s/go-atlas/data/filter/translators/lua"
 	"github.com/altessa-s/go-atlas/data/filter/translators/mariadb"
 	"github.com/altessa-s/go-atlas/data/filter/translators/meili"
-	filtermongo "github.com/altessa-s/go-atlas/data/filter/translators/mongo"
 	"github.com/altessa-s/go-atlas/data/filter/translators/postgres"
 	"github.com/altessa-s/go-atlas/data/filter/translators/redisearch"
+
+	filtermongo "github.com/altessa-s/go-atlas/data/filter/translators/mongo"
 )
 
 // TestTranslators_BareLiteralIsNotAPredicate is a cross-backend regression for
