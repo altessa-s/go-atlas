@@ -77,6 +77,16 @@ func WithStaleTaskTimeout(v time.Duration) Option {
 	}
 }
 
+// WithStorageTimeout sets the storageTimeout option.
+func WithStorageTimeout(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.storageTimeout = v
+	}
+}
+
 // WithTickInterval sets the tickInterval option.
 func WithTickInterval(v time.Duration) Option {
 	return func(o *options) {
@@ -96,6 +106,7 @@ func defaultOptions() *options {
 		maxConcurrentTasks:        DefaultMaxConcurrentTasks,
 		reservedHighPrioritySlots: DefaultReservedHighPrioritySlots,
 		staleTaskTimeout:          DefaultStaleTaskTimeout,
+		storageTimeout:            DefaultStorageTimeout,
 		tickInterval:              DefaultTickInterval,
 	}
 }

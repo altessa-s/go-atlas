@@ -500,8 +500,10 @@ func buildHistoryPageResult(entries []*TaskHistory, limit int64, filterExpr stri
 //
 // Returns [ErrTaskNotRegistered] if the task ID is not in the in-memory map,
 // [ErrTaskNotFound] if the task state does not exist in [Storage],
-// [ErrTaskCompleted] if the task is a completed one-shot, or
-// [ErrTaskDisabled] if the task's status is [TaskStatusDisabled].
+// [ErrTaskCompleted] if the task is a completed one-shot,
+// [ErrTaskDisabled] if the task's status is [TaskStatusDisabled], or
+// [ErrTaskAlreadyDispatched] if a dispatch for this task is already queued or
+// running.
 func (s *Scheduler) TriggerTask(ctx context.Context, id string) error {
 	if !s.IsReady() {
 		return ErrNotReady
@@ -532,8 +534,14 @@ func (s *Scheduler) TriggerTask(ctx context.Context, id string) error {
 		return ErrTaskDisabled
 	}
 
-	// Execute in background
+	// Execute in background. A manual trigger takes the same single dispatch
+	// slot as a scheduled one, so it cannot stack a second waiter onto a task
+	// that is already queued or running.
+	if !task.claim() {
+		return ErrTaskAlreadyDispatched
+	}
 	s.wg.Go(func() {
+		defer task.release()
 		s.runTaskWithSemaphore(task, state)
 	})
 
