@@ -102,6 +102,13 @@ func WithRetryBackoff[T any](v time.Duration) Option[T] {
 	}
 }
 
+// WithRetryJitter sets the retryJitter option.
+func WithRetryJitter[T any](v float64) Option[T] {
+	return func(o *options[T]) {
+		o.retryJitter = v
+	}
+}
+
 // WithWorkers sets the workers option.
 func WithWorkers[T any](v int) Option[T] {
 	return func(o *options[T]) {
@@ -122,6 +129,7 @@ func defaultOptions[T any]() *options[T] {
 		metricsSubsystem: DefaultMetricsSubsystem,
 		retryAttempts:    DefaultRetryAttempts,
 		retryBackoff:     DefaultRetryBackoff,
+		retryJitter:      DefaultRetryJitter,
 		workers:          DefaultWorkers,
 	}
 }

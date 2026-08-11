@@ -45,7 +45,15 @@ type Engine[T any] struct {
 	shutdownCtx    context.Context
 	shutdownCancel context.CancelFunc
 
+	// started guards Start against a second call. It is set before the WAL is
+	// opened, so it says "Start has begun", not "the engine is usable".
 	started atomic.Bool
+	// ready is stored at the end of a successful Start and is what Submit
+	// gates on. Publishing it last gives Submit a happens-before edge to the
+	// WAL handle — gating on started instead would let a concurrent Submit
+	// observe a nil log and silently bypass durability — and it enforces the
+	// documented ordering that WAL replay is queued before any new item.
+	ready   atomic.Bool
 	closed  atomic.Bool
 	dropped atomic.Int64
 
@@ -68,14 +76,19 @@ func NewEngine[T any](sink Sink[T], opts ...Option[T]) (*Engine[T], error) {
 		return nil, ErrCodecRequired
 	}
 
-	return &Engine[T]{
+	e := &Engine[T]{
 		opts:      o,
 		sink:      sink,
 		codec:     o.codec,
 		metrics:   newEngineMetrics(o.collector, o.metricsSubsystem),
 		submitted: make(chan envelope[T], o.bufferSize),
 		done:      make(chan struct{}),
-	}, nil
+	}
+	// Established here rather than in Start so that Shutdown is always safe to
+	// call, including on an engine that was never started.
+	e.shutdownCtx, e.shutdownCancel = context.WithCancel(context.Background())
+
+	return e, nil
 }
 
 // Start opens the WAL (if configured), replays any unflushed records by
@@ -85,7 +98,6 @@ func (e *Engine[T]) Start() error {
 	if !e.started.CompareAndSwap(false, true) {
 		return ErrAlreadyStarted
 	}
-	e.shutdownCtx, e.shutdownCancel = context.WithCancel(context.Background())
 
 	if e.opts.walEnabled {
 		w, recovered, err := wal.Open(e.opts.walDir, e.opts.walOpts...)
@@ -104,6 +116,8 @@ func (e *Engine[T]) Start() error {
 			e.opts.logger.Info("dispatch: replaying WAL records",
 				slog.Int("count", len(recovered)))
 		}
+		defer e.ready.Store(true)
+
 		for _, r := range recovered {
 			item, decErr := e.codec.Decode(r.Payload)
 			if decErr != nil {
@@ -126,6 +140,7 @@ func (e *Engine[T]) Start() error {
 	for range e.opts.workers {
 		e.wg.Go(e.worker)
 	}
+	e.ready.Store(true)
 	return nil
 }
 
@@ -135,7 +150,7 @@ func (e *Engine[T]) Start() error {
 // if the buffer is full and back-pressure is disabled, or if the engine
 // is not running.
 func (e *Engine[T]) Submit(item T) bool {
-	if !e.started.Load() || e.closed.Load() {
+	if !e.ready.Load() || e.closed.Load() {
 		return false
 	}
 
@@ -157,7 +172,6 @@ func (e *Engine[T]) Submit(item T) bool {
 				slog.Any("error", err))
 			return e.dropItem(item)
 		}
-		e.metrics.walBytes.Set(float64(e.log.Stats().TotalBytes))
 	}
 
 	env := envelope[T]{item: item, offset: off}
@@ -251,6 +265,7 @@ func (e *Engine[T]) worker() {
 			return
 		}
 		e.storeBatch(batch, offsets)
+		e.observeWALSize()
 		batch = batch[:0]
 		offsets = offsets[:0]
 	}
@@ -294,6 +309,18 @@ func (e *Engine[T]) worker() {
 	}
 }
 
+// observeWALSize refreshes the WAL size gauge. It runs once per flushed batch
+// rather than once per Submit: Stats takes the same mutex as Append, so
+// sampling it inline doubled the WAL lock acquisitions on the hot path — at
+// the default batch size that is a hundredfold reduction in contention for a
+// gauge nobody reads at per-item resolution.
+func (e *Engine[T]) observeWALSize() {
+	if e.log == nil {
+		return
+	}
+	e.metrics.walBytes.Set(float64(e.log.Stats().TotalBytes))
+}
+
 // storeBatch pushes items to the sink with retry. The caller (a worker
 // goroutine) blocks synchronously until this returns, so items/offsets are
 // not mutated by anyone else during the call and no defensive copy is needed.
@@ -315,12 +342,13 @@ func (e *Engine[T]) storeBatch(items []T, offsets []wal.Offset) {
 		}
 	}
 
-	// Deterministic doubling (no jitter), same schedule as the historical
-	// `retryBackoff << attempt`.
+	// Doubling, spread by jitter so that concurrent workers failing against the
+	// same sink do not retry in lockstep. See [WithRetryJitter].
 	const backoffFactor = 2
 	nextDelay := coreretry.Exponential(coreretry.ExponentialConfig{
 		BaseDelay: e.opts.retryBackoff,
 		Factor:    backoffFactor,
+		Jitter:    e.opts.retryJitter,
 	})
 
 	for attempt := range e.opts.retryAttempts + 1 {
