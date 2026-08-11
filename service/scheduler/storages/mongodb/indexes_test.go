@@ -81,6 +81,18 @@ func TestIndexKeys(t *testing.T) {
 	}
 }
 
+// TestNoExplicitIDIndex guards the removal of the restated _id index. MongoDB
+// maintains a unique one automatically and rejects any attempt to declare it
+// again, so its presence did not merely waste a slot — CreateMany returned an
+// error and EnsureIndexes failed on every single call, which no unit test
+// noticed because none of them ran it against a server.
+func TestNoExplicitIDIndex(t *testing.T) {
+	t.Parallel()
+
+	require.NotContains(t, indexKeys(t, taskIndexModels()), "_id",
+		"MongoDB rejects a restated _id index; EnsureIndexes fails outright if one is declared")
+}
+
 // TestHistoryIndexCoversSorts asserts the history index leads with the exact
 // prefix both History and HistoryPaginated sort by, so neither degrades into
 // an in-memory sort.
