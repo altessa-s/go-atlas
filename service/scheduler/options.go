@@ -35,17 +35,31 @@ const (
 	// DefaultCleanupInterval is the default interval between periodic history
 	// cleanup runs. See [WithCleanupInterval].
 	DefaultCleanupInterval = 1 * time.Hour
+	// DefaultStorageTimeout is the default per-operation deadline applied to
+	// every [Storage] call the scheduler makes on its own behalf.
+	// See [WithStorageTimeout].
+	DefaultStorageTimeout = 10 * time.Second
 	// maxStaleRecoveryInterval caps the stale recovery ticker interval.
 	maxStaleRecoveryInterval = 5 * time.Minute
 )
 
 type options struct {
-	tickInterval              time.Duration `optgen:"default=DefaultTickInterval"`
-	historyRetention          time.Duration `optgen:"default=DefaultHistoryRetention"`
-	staleTaskTimeout          time.Duration `optgen:"default=DefaultStaleTaskTimeout"`
-	cleanupInterval           time.Duration `optgen:"default=DefaultCleanupInterval"`
-	maxConcurrentTasks        int           `optgen:"default=DefaultMaxConcurrentTasks"`
-	reservedHighPrioritySlots int           `optgen:"default=DefaultReservedHighPrioritySlots"`
+	tickInterval     time.Duration `optgen:"default=DefaultTickInterval"`
+	historyRetention time.Duration `optgen:"default=DefaultHistoryRetention"`
+	staleTaskTimeout time.Duration `optgen:"default=DefaultStaleTaskTimeout"`
+	cleanupInterval  time.Duration `optgen:"default=DefaultCleanupInterval"`
+
+	// storageTimeout bounds every [Storage] call the scheduler issues from its
+	// own goroutines — the tick loop, history cleanup, stale recovery, and the
+	// bookkeeping writes that follow a task run. Those calls use the
+	// scheduler's lifecycle context, which carries no deadline, so without this
+	// cap a wedged backend stalls the single main loop indefinitely. Calls made
+	// on a caller-supplied context (Register, PauseTask, TasksPaginated, …)
+	// keep that caller's deadline instead.
+	storageTimeout time.Duration `optgen:"default=DefaultStorageTimeout"`
+
+	maxConcurrentTasks        int `optgen:"default=DefaultMaxConcurrentTasks"`
+	reservedHighPrioritySlots int `optgen:"default=DefaultReservedHighPrioritySlots"`
 	logger                    *slog.Logger
 	leaderElector             LeaderElector                    `optgen:"notnil" optval:"nil"`
 	concurrencyLimitFunc      concurrency.ConcurrencyLimitFunc `opt:"-"`
