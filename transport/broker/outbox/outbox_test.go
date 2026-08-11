@@ -14,11 +14,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	dataoutbox "github.com/altessa-s/go-atlas/data/outbox"
 	"github.com/altessa-s/go-atlas/transport/broker/msg"
 	"github.com/altessa-s/go-atlas/transport/broker/outbox"
 
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
+	dataoutbox "github.com/altessa-s/go-atlas/data/outbox"
 )
 
 // oneShotStore serves a single prepared batch and records what the outbox wrote
