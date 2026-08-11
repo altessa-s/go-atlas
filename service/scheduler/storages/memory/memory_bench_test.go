@@ -22,6 +22,7 @@ func BenchmarkStorage_UpsertTask(b *testing.B) {
 		},
 	}
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
 		_ = s.UpsertTask(ctx, state)
@@ -39,6 +40,7 @@ func BenchmarkStorage_GetTask(b *testing.B) {
 		},
 	})
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
 		_, _ = s.GetTask(ctx, "bench")
@@ -49,6 +51,7 @@ func BenchmarkStorage_AddHistory(b *testing.B) {
 	s := mustNew(b, 10000)
 	ctx := b.Context()
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
 		_ = s.AddHistory(ctx, &scheduler.TaskHistory{
@@ -73,6 +76,7 @@ func BenchmarkStorage_Tasks(b *testing.B) {
 		})
 	}
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
 		for range s.Tasks(ctx) {
@@ -91,6 +95,7 @@ func BenchmarkStorage_History(b *testing.B) {
 		})
 	}
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
 		for range s.History(ctx, "task-1") {
@@ -110,6 +115,7 @@ func BenchmarkStorage_CleanupHistory(b *testing.B) {
 		})
 	}
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
 		_ = s.CleanupHistory(ctx, 24*time.Hour)
