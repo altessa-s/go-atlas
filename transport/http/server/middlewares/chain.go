@@ -149,6 +149,11 @@ func (c *Chain) ThenFunc(fn func(http.ResponseWriter, *http.Request)) http.Handl
 // Ordered returns a new chain with middlewares sorted by canonical order
 // using [OrderMiddlewares]. The original chain is not modified.
 //
+// Every middleware in the chain must report a distinct name: ordering is keyed
+// by name, so a repeat returns [depgraph.ErrDuplicateName] rather than dropping
+// one of the two from the chain. Use [Chain.OrderedWithDedupe] when discarding
+// the later occurrence is the intent.
+//
 // Example:
 //
 //	// Even if added out of order, they execute in canonical order
@@ -167,10 +172,14 @@ func (c *Chain) Ordered() (*Chain, error) {
 	return &Chain{list: orderedList, nameIndex: nameIndex}, nil
 }
 
-// OrderedWithDedupe returns a new chain with middlewares sorted by canonical
-// order (using [OrderMiddlewaresWithDedupe]) and duplicates removed (keeping
-// the first occurrence). The original chain is not modified.
-// Returns an error if a circular dependency is detected.
+// OrderedWithDedupe removes middlewares repeating an earlier name, keeping the
+// first occurrence, then returns a new chain with the remainder sorted by
+// canonical order (using [OrderMiddlewaresWithDedupe]). The original chain is
+// not modified.
+//
+// Returns an error if a required dependency is missing or a circular dependency
+// is detected. Unlike [Chain.Ordered] a repeated name is not an error here, it
+// is the case this variant exists for.
 func (c *Chain) OrderedWithDedupe() (*Chain, error) {
 	orderedList, err := OrderMiddlewaresWithDedupe(c.list)
 	if err != nil {

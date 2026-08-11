@@ -66,6 +66,35 @@ func getInterceptorName(item any) string {
 	return ""
 }
 
+// dedupeByName returns items with every repeated interceptor name removed,
+// keeping the first occurrence and the original order. Items that report no
+// name are never treated as duplicates of one another — there is nothing to
+// compare them by.
+//
+// It runs before [depgraph.Build], not after. Build refuses a repeated name
+// rather than choosing between the two, so discarding one has to be the
+// caller's deliberate act; a pass that ran afterwards could only confirm a
+// discard the graph had already made on its own.
+func dedupeByName(items []any) []any {
+	if len(items) < 2 { //nolint:mnd // a list shorter than two cannot repeat.
+		return items
+	}
+
+	seen := make(map[string]struct{}, len(items))
+	out := make([]any, 0, len(items))
+	for _, item := range items {
+		name := getInterceptorName(item)
+		if name != "" {
+			if _, dup := seen[name]; dup {
+				continue
+			}
+			seen[name] = struct{}{}
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
 // orderByDependencies sorts interceptors using dependency-based topological sort.
 // Returns an error if a circular dependency is detected.
 func orderByDependencies(items []any, logger *slog.Logger) ([]any, error) {

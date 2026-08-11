@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/transport/internal/depgraph"
 )
 
 func TestNewChain(t *testing.T) {
@@ -111,4 +113,58 @@ func TestChain_Then_NilHandler(t *testing.T) {
 	c := NewChain()
 	handler := c.Then(nil)
 	require.NotNil(t, handler)
+}
+
+// TestOrdering_DuplicateNamesAreRejectedOrDeduped pins the distinction the two
+// ordering entry points are named for.
+//
+// They used to be identical: ordering is keyed by name, so the graph collapsed
+// a repeat on its own and the "WithDedupe" pass that ran afterwards could never
+// remove anything. A caller who deliberately chose the plain variant to keep
+// both middlewares got one anyway, with nothing to say so.
+//
+// Now the plain variant refuses the repeat and the dedupe variant discards it
+// on purpose — which is the only way a discard can be the caller's decision
+// rather than the graph's silence.
+func TestOrdering_DuplicateNamesAreRejectedOrDeduped(t *testing.T) {
+	t.Parallel()
+
+	first := Func("limiter", func(next http.Handler) http.Handler { return next })
+	second := Func("limiter", func(next http.Handler) http.Handler { return next })
+	logger := Func("logger", func(next http.Handler) http.Handler { return next })
+
+	list := []Middleware{first, logger, second}
+
+	t.Run("plain ordering refuses", func(t *testing.T) {
+		t.Parallel()
+
+		ordered, err := OrderMiddlewares(list)
+		require.ErrorIs(t, err, depgraph.ErrDuplicateName)
+		require.Nil(t, ordered, "a rejected list must not also produce an ordering")
+	})
+
+	t.Run("dedupe variant keeps the first", func(t *testing.T) {
+		t.Parallel()
+
+		ordered, err := OrderMiddlewaresWithDedupe(list)
+		require.NoError(t, err)
+		require.Len(t, ordered, 2)
+
+		names := make([]string, 0, len(ordered))
+		for _, m := range ordered {
+			names = append(names, m.Name())
+		}
+		require.ElementsMatch(t, []string{"limiter", "logger"}, names)
+	})
+
+	t.Run("chain methods agree with the functions", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := NewChain(list...).Ordered()
+		require.ErrorIs(t, err, depgraph.ErrDuplicateName)
+
+		deduped, err := NewChain(list...).OrderedWithDedupe()
+		require.NoError(t, err)
+		require.Equal(t, 2, deduped.Len())
+	})
 }
