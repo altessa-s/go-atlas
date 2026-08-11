@@ -129,12 +129,25 @@ All `.go` files must include the copyright header. Run `make copyright` to add i
 | `make test-coverage-func` | Per-package coverage breakdown |
 | `make bench` | Run all benchmarks |
 | `make bench-count` | Run benchmarks for benchstat |
+| `make fuzz-list` | List every fuzz target |
+| `make fuzz-seed` | Run fuzz targets over their seed corpus only (no mutation) |
+| `make fuzz` | Fuzz every target for `FUZZTIME` each (`FUZZTIME=30s FUZZPKG=./...`) |
 | `make dupl` | Find code duplication |
 | `make dupl-check` | Fail on code duplication |
 | `make copyright` | Add copyright headers |
 | `make generate` | Run go generate |
 | `make tidy` | Run go mod tidy |
 | `make security-scan` | Run govulncheck and gosec |
+
+## Fuzzing
+
+`go test ./...` already executes every fuzz target over its `f.Add` seeds, so seeds act as ordinary regression cases and a PR needs nothing extra.
+Mutation is separate: `make fuzz` walks each target for `FUZZTIME` (`go test -fuzz` accepts one target per package per invocation), and the `Fuzz`
+workflow does the same nightly with a larger budget, restoring the generated corpus between runs so coverage compounds.
+
+Write a fuzz target when the input is attacker-controlled or there is a property worth stating — a round trip, an allowlist that must hold, an
+invariant the code documents. "Does not panic" is the floor, not the goal: a target with no assertion passes for the wrong reasons. When a run
+fails, Go writes the minimized reproducer to the package's `testdata/fuzz/<Target>/`; commit it, so the case is pinned forever in the seed corpus.
 
 ## Pull Request Process
 
