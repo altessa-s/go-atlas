@@ -72,7 +72,7 @@ func New(db *mongo.Database, opts ...Option) *Storage {
 // safe and has no side effects beyond the initial index creation.
 //
 // The following indexes are created:
-//   - tasks: unique on _id, compound (status, next_run_at), descending priority
+//   - tasks: compound (status, next_run_at), descending priority
 //   - history: compound (task_id, started_at desc, _id desc), ascending ended_at
 //
 // Every key must match a bson tag in [taskDocument] / [historyDocument] — an
@@ -102,11 +102,11 @@ func (s *Storage) EnsureIndexes(ctx context.Context) error {
 // Every key must correspond to a bson tag on [taskDocument]; TestIndexKeys
 // enforces that.
 func taskIndexModels() []mongo.IndexModel {
+	// No _id index is declared. MongoDB maintains a unique one automatically and
+	// rejects any attempt to restate it — "the field 'unique' is not valid for
+	// an _id index specification" — which made EnsureIndexes fail outright on
+	// every call, taking down startup for anyone who checked its error.
 	return []mongo.IndexModel{
-		{
-			Keys:    bson.D{{Key: "_id", Value: 1}},
-			Options: mongoOptions.Index().SetUnique(true),
-		},
 		{
 			Keys: bson.D{{Key: "status", Value: 1}, {Key: "next_run_at", Value: 1}},
 		},
