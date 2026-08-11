@@ -177,27 +177,18 @@ func OrderServerInterceptors(interceptors ...ServerInterceptor) ([]ServerInterce
 		items[i] = ic
 	}
 
-	// Order by dependencies
-	sorted, err := orderByDependencies(items, nil)
+	// Deduplicate first, then order. This entry point accepts a list that may
+	// legitimately repeat an interceptor, so the discard is deliberate here —
+	// which is exactly why it cannot be left to the graph, whose contract is to
+	// refuse a repeated name rather than silently keep one of the two.
+	sorted, err := orderByDependencies(dedupeByName(items), nil)
 	if err != nil {
 		return nil, err
 	}
 
-	// Convert back and remove duplicates
-	seen := make(map[string]struct{})
 	result := make([]ServerInterceptor, 0, len(sorted))
 	for _, item := range sorted {
 		if ic, ok := item.(ServerInterceptor); ok {
-			name := ""
-			if named, ok := item.(Interceptor); ok {
-				name = named.Name()
-			}
-			if name != "" {
-				if _, exists := seen[name]; exists {
-					continue
-				}
-				seen[name] = struct{}{}
-			}
 			result = append(result, ic)
 		}
 	}

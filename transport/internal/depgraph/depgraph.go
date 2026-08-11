@@ -5,13 +5,41 @@
 package depgraph
 
 import (
-	"fmt"
+	"errors"
 	"log/slog"
 	"maps"
 	"slices"
 
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+)
+
+// Sentinel errors returned by [Build] and [Graph.TopologicalSort]. They are
+// matchable with errors.Is so a caller can tell a misconfiguration it can fix
+// (a duplicate or a missing dependency) from one it cannot (a cycle).
+var (
+	// ErrEmptyName is returned by [Build] when an item reports no name. The
+	// graph is keyed by name: an unnamed item cannot be depended upon, cannot
+	// be told apart from another unnamed one, and would be dropped rather than
+	// ordered. Refusing it names the misconfiguration at startup instead of
+	// leaving a silently shorter chain.
+	ErrEmptyName = errors.New("depgraph: item has no name")
+
+	// ErrDuplicateName is returned by [Build] when two items report the same
+	// name. A graph keyed by name cannot order them: an edge declaring
+	// "after limiter" names one node, and with two of them the declaration has
+	// no meaning. Deduplicate deliberately before ordering if that is the
+	// intent — silently keeping one and discarding the other would drop an
+	// item the caller registered.
+	ErrDuplicateName = errors.New("depgraph: duplicate item name")
+
+	// ErrMissingDependency is returned by [Build] when an item declares a
+	// required dependency that is not among the items.
+	ErrMissingDependency = errors.New("depgraph: required dependency not registered")
+
+	// ErrCyclicDependency is returned when the declared dependencies cannot be
+	// ordered because they form a cycle.
+	ErrCyclicDependency = errors.New("depgraph: circular dependency")
 )
 
 // Namer is implemented by graph items that can identify themselves by a
@@ -72,12 +100,48 @@ func New[T Namer](logger *slog.Logger) *Graph[T] {
 
 // AddNode registers an item under the given name. Duplicate names are
 // silently ignored, keeping the first registration.
+//
+// This is the low-level primitive; [Build] rejects duplicates with
+// [ErrDuplicateName] rather than letting one silently win, because a caller
+// that assembled a list does not expect ordering it to shorten the list.
 func (g *Graph[T]) AddNode(name string, item T) {
 	if _, exists := g.nodes[name]; !exists {
 		g.order[name] = len(g.nodes)
 		g.nodes[name] = item
 		g.inDegree[name] = 0
 	}
+}
+
+// Dedupe returns items with every repeated name removed, keeping the first
+// occurrence and the original order. Unnamed items are left alone: there is
+// nothing to compare them by, and collapsing them would discard distinct items
+// silently — the failure this whole contract exists to prevent. [Build] refuses
+// them outright, so Dedupe must not swallow the evidence first.
+//
+// [Build] refuses a repeated name rather than choosing between the two, so a
+// caller whose input may legitimately contain one — a list assembled from
+// several sources, or a default prepended to a user-supplied set — runs it
+// through Dedupe first. Doing so before Build rather than after is what makes
+// the discard deliberate: afterwards, the graph has already dropped the
+// duplicate and a second pass can only confirm what it cannot see.
+func Dedupe[T Namer](items []T) []T {
+	if len(items) < 2 { //nolint:mnd // a list shorter than two cannot repeat.
+		return items
+	}
+
+	seen := make(map[string]struct{}, len(items))
+	out := make([]T, 0, len(items))
+	for _, item := range items {
+		name := item.Name()
+		if name != "" {
+			if _, dup := seen[name]; dup {
+				continue
+			}
+			seen[name] = struct{}{}
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 // HasNode checks if a node exists in the graph.
@@ -152,7 +216,7 @@ func (g *Graph[T]) TopologicalSort() ([]T, error) {
 		for name := range g.nodes {
 			cycleNodes = coreslices.AppendIf(cycleNodes, inDegree[name] > 0, name)
 		}
-		return nil, fmt.Errorf("circular dependency detected involving: %v", cycleNodes)
+		return nil, coreerrs.Wrapf(ErrCyclicDependency, "involving: %v", cycleNodes)
 	}
 
 	return result, nil
@@ -165,8 +229,14 @@ func (g *Graph[T]) TopologicalSort() ([]T, error) {
 // skipped (logged at Debug level). Required dependencies that are missing
 // cause an immediate error.
 //
-// Returns an error when a required dependency is missing or a circular
-// dependency is detected.
+// Every item must report a non-empty, distinct name: ordering is keyed by name,
+// so an unnamed item cannot be placed and two items sharing one name cannot
+// both be.
+//
+// Returns [ErrEmptyName] when an item has no name, [ErrDuplicateName] when two
+// items share one, [ErrMissingDependency]
+// when a required dependency is absent, and [ErrCyclicDependency] when the
+// declared dependencies form a cycle.
 func Build[T Namer](items []T, logger *slog.Logger) ([]T, error) {
 	if len(items) == 0 {
 		return items, nil
@@ -174,9 +244,20 @@ func Build[T Namer](items []T, logger *slog.Logger) ([]T, error) {
 
 	graph := New[T](logger)
 
-	// First pass: add all nodes
-	for _, item := range items {
+	// First pass: add all nodes.
+	//
+	// A repeated name is refused rather than collapsed. The graph is keyed by
+	// name, so a second item under an existing one would simply not be added,
+	// and the sorted result would come back shorter than the input — an item
+	// the caller registered, silently absent from the chain it was ordering.
+	for i, item := range items {
 		name := item.Name()
+		if name == "" {
+			return nil, coreerrs.Wrapf(ErrEmptyName, "item at index %d", i)
+		}
+		if graph.HasNode(name) {
+			return nil, coreerrs.Wrapf(ErrDuplicateName, "%q is registered more than once", name)
+		}
 		graph.AddNode(name, item)
 	}
 
@@ -191,7 +272,8 @@ func Build[T Namer](items []T, logger *slog.Logger) ([]T, error) {
 		if reqDeclarer, ok := any(item).(RequiredDependencyDeclarer); ok {
 			for _, dep := range reqDeclarer.RequiredDependencies() {
 				if !graph.HasNode(dep) {
-					return nil, fmt.Errorf("item %q requires dependency %q which is not registered", name, dep)
+					return nil, coreerrs.Wrapf(ErrMissingDependency,
+						"item %q requires dependency %q which is not registered", name, dep)
 				}
 				graph.AddEdge(dep, name)
 				if added == nil {

@@ -264,3 +264,93 @@ func TestBuild_Cycle(t *testing.T) {
 	_, err := Build(items, discardLogger)
 	require.Error(t, err)
 }
+
+// TestBuild_RejectsDuplicateNames pins that ordering refuses a repeated name
+// instead of collapsing it.
+//
+// The graph is keyed by name, so a second item under an existing one was simply
+// not added and the sorted result came back shorter than the input — an item the
+// caller registered, silently missing from the chain it was ordering. For a
+// gRPC interceptor chain that meant a control that never ran, with nothing in
+// the response to say so.
+//
+// A dependency declaring "after limiter" also has no meaning when two limiters
+// exist, so refusing is the only answer the model supports.
+func TestBuild_RejectsDuplicateNames(t *testing.T) {
+	items := []*testItem{
+		{name: "logger"},
+		{name: "limiter"},
+		{name: "limiter"},
+	}
+
+	sorted, err := Build(items, discardLogger)
+	require.ErrorIs(t, err, ErrDuplicateName)
+	require.Contains(t, err.Error(), "limiter")
+	require.Nil(t, sorted, "a rejected graph must not also produce an ordering")
+}
+
+// TestDedupe_KeepsTheFirstOccurrence pins the deliberate escape hatch: a caller
+// whose list may legitimately repeat runs Dedupe before Build.
+func TestDedupe_KeepsTheFirstOccurrence(t *testing.T) {
+	first := &testItem{name: "limiter"}
+	second := &testItem{name: "limiter"}
+
+	items := []*testItem{first, {name: "logger"}, second}
+	deduped := Dedupe(items)
+
+	require.Len(t, deduped, 2)
+	require.Same(t, first, deduped[0], "Dedupe must keep the first occurrence")
+	require.Equal(t, "logger", deduped[1].Name(), "Dedupe must preserve the original order")
+
+	sorted, err := Build(deduped, discardLogger)
+	require.NoError(t, err, "a deduplicated list must be orderable")
+	require.Len(t, sorted, 2)
+}
+
+// TestDedupe_ShortInputsAreReturnedAsIs pins that the helper does not allocate
+// or reorder when there is nothing to remove.
+func TestDedupe_ShortInputsAreReturnedAsIs(t *testing.T) {
+	require.Nil(t, Dedupe[*testItem](nil))
+
+	single := []*testItem{{name: "only"}}
+	require.Equal(t, single, Dedupe(single))
+}
+
+// TestBuild_RejectsUnnamedItems pins that an item without a name is refused
+// rather than quietly losing its place.
+//
+// The graph is keyed by name, so an unnamed item cannot be depended upon and
+// cannot be told apart from a second unnamed one — AddNode would file both
+// under "" and keep one. Before this contract the second simply vanished from
+// the ordered result; naming the misconfiguration at startup is the only
+// outcome that neither drops it nor pretends it was ordered.
+func TestBuild_RejectsUnnamedItems(t *testing.T) {
+	sorted, err := Build([]*testItem{{name: "logger"}, {name: ""}}, discardLogger)
+	require.ErrorIs(t, err, ErrEmptyName)
+	require.Contains(t, err.Error(), "index 1", "the error must locate the offending item")
+	require.Nil(t, sorted, "a rejected graph must not also produce an ordering")
+}
+
+// TestDedupe_LeavesUnnamedItemsAlone pins that deduplication does not collapse
+// what it cannot compare.
+//
+// Two unnamed items are not duplicates of each other — there is no name to
+// match on. Treating them as such would discard a distinct item silently,
+// which is exactly the failure Build now refuses; Dedupe must not swallow the
+// evidence before Build ever sees it.
+func TestDedupe_LeavesUnnamedItemsAlone(t *testing.T) {
+	items := []*testItem{{name: ""}, {name: "logger"}, {name: ""}, {name: "logger"}}
+
+	deduped := Dedupe(items)
+	require.Len(t, deduped, 3, "only the repeated name may be removed")
+
+	names := make([]string, 0, len(deduped))
+	for _, item := range deduped {
+		names = append(names, item.Name())
+	}
+	require.Equal(t, []string{"", "logger", ""}, names)
+
+	// And the result still fails Build, because unnamed items remain unorderable.
+	_, err := Build(deduped, discardLogger)
+	require.ErrorIs(t, err, ErrEmptyName)
+}
