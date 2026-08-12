@@ -19,8 +19,18 @@ CEL filter evaluation translated to BSON queries for efficient paginated listing
 
 Created by `EnsureIndexes`:
 
-- **tasks**: unique `_id`, compound `(status, next_run)` for due-task queries, descending `priority`
-- **history**: compound `(task_id, start_time desc)` for per-task listing, TTL on `end_time`
+- **tasks**: unique `_id`, compound `(status, next_run_at)` for due-task queries, descending `priority`
+- **history**: compound `(task_id, started_at desc, _id desc)` matching the sort of both `History` and `HistoryPaginated`, ascending `ended_at` for
+  `CleanupHistory`
+
+Every index key must name a field that `taskDocument` / `historyDocument` actually persists — MongoDB accepts an index on an absent field and then
+never uses it. `TestIndexKeys` pins the two together.
+
+History retention runs through `CleanupHistory`, not a TTL index: `EndedAt` is a Unix timestamp stored as `int64`, and MongoDB TTL indexes only expire
+documents whose indexed field holds a BSON date.
+
+Deployments created before this was corrected still carry inert indexes on the nonexistent fields `next_run`, `start_time`, and `end_time`; drop them
+manually.
 
 ## Atomic run claim
 

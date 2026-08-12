@@ -33,6 +33,18 @@ func mongoURI() string {
 // newClaimIT connects to a live MongoDB, skipping when none is reachable. Each
 // call gets its own throwaway database (dropped on cleanup) and a Storage bound
 // to it.
+// itSeq disambiguates fixtures created within the same clock tick.
+var itSeq atomic.Int64
+
+// itSuffix returns a suffix unique to one fixture. A timestamp alone is not
+// enough: every test here calls t.Parallel(), so they all resume at once and
+// UnixNano is not fine-grained enough to separate them. Two fixtures sharing a
+// database name read each other's tasks and drop the database on cleanup, which
+// shows up as unrelated tests failing at random.
+func itSuffix() string {
+	return strconv.FormatInt(time.Now().UnixNano(), 10) + "_" + strconv.FormatInt(itSeq.Add(1), 10)
+}
+
 func newClaimIT(t *testing.T) *mongodb.Storage {
 	t.Helper()
 
@@ -45,7 +57,7 @@ func newClaimIT(t *testing.T) *mongodb.Storage {
 		t.Skipf("mongodb not reachable at %s: %v", mongoURI(), err)
 	}
 
-	dbName := "sched_claim_it_" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	dbName := "sched_claim_it_" + itSuffix()
 	db := client.Database(dbName)
 	t.Cleanup(func() {
 		_ = db.Drop(context.Background())

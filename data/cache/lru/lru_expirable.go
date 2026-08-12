@@ -6,7 +6,6 @@ package lru
 
 import (
 	"context"
-	"fmt"
 	"iter"
 	"time"
 
@@ -99,35 +98,7 @@ func (c *ExpirableCache[K, V]) GetOrCompute(ctx context.Context, key K, fn func(
 	if v, ok := c.Get(key); ok {
 		return v, nil
 	}
-
-	keyStr := formatKey(key)
-	val, err, _ := c.group.Do(keyStr, func() (any, error) {
-		// Re-check inside singleflight: the winner may have just filled it.
-		if v, ok := c.Get(key); ok {
-			return v, nil
-		}
-
-		v, err := fn(ctx)
-		if err != nil {
-			return nil, err
-		}
-
-		c.Put(key, v)
-		return v, nil
-	})
-
-	if err != nil {
-		var zero V
-		return zero, err
-	}
-
-	result, ok := val.(V)
-	if !ok {
-		var zero V
-		return zero, fmt.Errorf("cache type assertion failed: got %T, expected %T", val, zero)
-	}
-
-	return result, nil
+	return computeOnce(ctx, &c.group, c.Get, c.Put, key, fn)
 }
 
 var (

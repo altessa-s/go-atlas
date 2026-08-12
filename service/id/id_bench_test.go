@@ -11,6 +11,7 @@ import (
 
 func BenchmarkStatic_ID(b *testing.B) {
 	p := NewStatic("bench-id-12345")
+	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
 		_ = p.ID()
@@ -27,6 +28,7 @@ func BenchmarkFile_ID(b *testing.B) {
 	// Trigger initialization
 	_ = p.ID()
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
 		_ = p.ID()
@@ -34,6 +36,7 @@ func BenchmarkFile_ID(b *testing.B) {
 }
 
 func BenchmarkNewStatic(b *testing.B) {
+	b.ReportAllocs()
 	for b.Loop() {
 		_ = NewStatic("some-id")
 	}
@@ -41,6 +44,7 @@ func BenchmarkNewStatic(b *testing.B) {
 
 func BenchmarkNewWithProvider(b *testing.B) {
 	p := NewStatic("bench-id")
+	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
 		_, _ = NewWithProvider(p)

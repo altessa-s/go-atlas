@@ -72,42 +72,67 @@ func New(db *mongo.Database, opts ...Option) *Storage {
 // safe and has no side effects beyond the initial index creation.
 //
 // The following indexes are created:
-//   - tasks: unique on _id, compound (status, next_run), descending priority
-//   - history: compound (task_id, start_time desc), TTL on end_time
+//   - tasks: compound (status, next_run_at), descending priority
+//   - history: compound (task_id, started_at desc, _id desc), ascending ended_at
+//
+// Every key must match a bson tag in [taskDocument] / [historyDocument] — an
+// index on a field name that no document carries is silently accepted by
+// MongoDB and then never used.
+//
+// History retention is driven by [Storage.CleanupHistory], not by a TTL index:
+// EndedAt is a Unix timestamp stored as int64, and MongoDB TTL indexes only
+// expire documents whose indexed field holds a BSON date. The ascending
+// ended_at index exists so that cleanup's range delete is served by an index.
 //
 // Returns an error if any index creation fails.
+//
+// Deployments created before this was corrected still carry the earlier
+// indexes on the nonexistent fields next_run, start_time, and end_time. They
+// are inert but consume write amplification; drop them manually.
 func (s *Storage) EnsureIndexes(ctx context.Context) error {
-	// Tasks collection indexes
-	taskIndexes := []mongo.IndexModel{
+	if _, err := s.tasks.Indexes().CreateMany(ctx, taskIndexModels()); err != nil {
+		return err
+	}
+
+	_, err := s.history.Indexes().CreateMany(ctx, historyIndexModels())
+	return err
+}
+
+// taskIndexModels returns the indexes maintained on the tasks collection.
+// Every key must correspond to a bson tag on [taskDocument]; TestIndexKeys
+// enforces that.
+func taskIndexModels() []mongo.IndexModel {
+	// No _id index is declared. MongoDB maintains a unique one automatically and
+	// rejects any attempt to restate it — "the field 'unique' is not valid for
+	// an _id index specification" — which made EnsureIndexes fail outright on
+	// every call, taking down startup for anyone who checked its error.
+	return []mongo.IndexModel{
 		{
-			Keys:    bson.D{{Key: "_id", Value: 1}},
-			Options: mongoOptions.Index().SetUnique(true),
-		},
-		{
-			Keys: bson.D{{Key: "status", Value: 1}, {Key: "next_run", Value: 1}},
+			Keys: bson.D{{Key: "status", Value: 1}, {Key: "next_run_at", Value: 1}},
 		},
 		{
 			Keys: bson.D{{Key: "priority", Value: -1}},
 		},
 	}
+}
 
-	if _, err := s.tasks.Indexes().CreateMany(ctx, taskIndexes); err != nil {
-		return err
-	}
-
-	// History collection indexes
-	historyIndexes := []mongo.IndexModel{
+// historyIndexModels returns the indexes maintained on the history collection.
+// The compound key mirrors the sort used by both [Storage.History] and
+// [Storage.HistoryPaginated] so each is served by this index; the ascending
+// ended_at index serves [Storage.CleanupHistory]'s range delete.
+func historyIndexModels() []mongo.IndexModel {
+	return []mongo.IndexModel{
 		{
-			Keys: bson.D{{Key: "task_id", Value: 1}, {Key: "start_time", Value: -1}},
+			Keys: bson.D{
+				{Key: "task_id", Value: 1},
+				{Key: "started_at", Value: -1},
+				{Key: "_id", Value: -1},
+			},
 		},
 		{
-			Keys:    bson.D{{Key: "end_time", Value: 1}},
-			Options: mongoOptions.Index().SetExpireAfterSeconds(0), // TTL index placeholder
+			Keys: bson.D{{Key: "ended_at", Value: 1}},
 		},
 	}
-
-	_, err := s.history.Indexes().CreateMany(ctx, historyIndexes)
-	return err
 }
 
 // GetTask retrieves the [scheduler.TaskState] for the given task ID.
@@ -207,6 +232,43 @@ func (s *Storage) Tasks(ctx context.Context) iter.Seq2[*scheduler.TaskState, err
 	}
 }
 
+// DueTasks returns an iterator over the task documents eligible for dispatch at
+// now: status active and next_run_at at or before now, sorted by ID ascending.
+// The predicate is served by the compound (status, next_run_at) index created
+// in [Storage.EnsureIndexes], so a tick costs a range scan over the due tasks
+// rather than a full collection fetch. The cursor lifecycle matches
+// [Storage.Tasks].
+func (s *Storage) DueTasks(ctx context.Context, now int64) iter.Seq2[*scheduler.TaskState, error] {
+	return func(yield func(*scheduler.TaskState, error) bool) {
+		query := bson.M{
+			"status":      int32(scheduler.TaskStatusActive),
+			"next_run_at": bson.M{"$lte": now},
+		}
+		findOpts := mongoOptions.Find().SetSort(bson.D{{Key: "_id", Value: 1}})
+		cursor, err := s.tasks.Find(ctx, query, findOpts)
+		if err != nil {
+			yield(nil, err)
+			return
+		}
+		defer func() { _ = cursor.Close(ctx) }()
+
+		for cursor.Next(ctx) {
+			var doc taskDocument
+			if err := cursor.Decode(&doc); err != nil {
+				yield(nil, err)
+				return
+			}
+			if !yield(doc.toTaskState(), nil) {
+				return
+			}
+		}
+
+		if err := cursor.Err(); err != nil {
+			yield(nil, err)
+		}
+	}
+}
+
 // AddHistory inserts a [scheduler.TaskHistory] document into the history
 // collection. Each call creates a new document; duplicates are not checked.
 func (s *Storage) AddHistory(ctx context.Context, history *scheduler.TaskHistory) error {
@@ -216,12 +278,16 @@ func (s *Storage) AddHistory(ctx context.Context, history *scheduler.TaskHistory
 }
 
 // History returns an iterator over [scheduler.TaskHistory] entries for the given
-// task ID, ordered by start time descending (most recent first). The cursor
-// lifecycle follows the same semantics as [Storage.Tasks]: it is closed on
-// exhaustion or early break, and errors are yielded inline.
+// task ID, ordered by StartedAt descending (most recent first) with _id
+// descending as tie-breaker — the same total order [Storage.HistoryPaginated]
+// produces. The cursor lifecycle follows the same semantics as [Storage.Tasks]:
+// it is closed on exhaustion or early break, and errors are yielded inline.
 func (s *Storage) History(ctx context.Context, id string) iter.Seq2[*scheduler.TaskHistory, error] {
 	return func(yield func(*scheduler.TaskHistory, error) bool) {
-		findOpts := mongoOptions.Find().SetSort(bson.D{{Key: "start_time", Value: -1}})
+		findOpts := mongoOptions.Find().SetSort(bson.D{
+			{Key: "started_at", Value: -1},
+			{Key: "_id", Value: -1},
+		})
 		cursor, err := s.history.Find(ctx, bson.M{"task_id": id}, findOpts)
 		if err != nil {
 			yield(nil, err)

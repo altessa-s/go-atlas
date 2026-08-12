@@ -108,11 +108,28 @@ func (sc *Cache[K, V]) GetOrCompute(ctx context.Context, key K, fn func(ctx cont
 	if v, ok := sc.Get(key); ok {
 		return v, nil
 	}
+	return computeOnce(ctx, &sc.group, sc.Get, sc.Put, key, fn)
+}
 
-	keyStr := formatKey(key)
-	val, err, _ := sc.group.Do(keyStr, func() (any, error) {
-		// Re-check cache inside singleflight
-		if v, ok := sc.Get(key); ok {
+// computeOnce is the miss path shared by [Cache.GetOrCompute] and
+// [ExpirableCache.GetOrCompute]: deduplicate concurrent computations for key
+// through group, re-check the cache inside the flight in case the winner has
+// already filled it, then store and return the result.
+//
+// The hit path deliberately stays in the callers. Passing get and put as method
+// values allocates a closure apiece, which is free to do once a call is already
+// committed to computing a value, and wasteful on every cache hit — the case
+// this type exists to make cheap.
+func computeOnce[K comparable, V any](
+	ctx context.Context,
+	group *singleflight.Group,
+	get func(K) (V, bool),
+	put func(K, V) bool,
+	key K,
+	fn func(ctx context.Context) (V, error),
+) (V, error) {
+	val, err, _ := group.Do(formatKey(key), func() (any, error) {
+		if v, ok := get(key); ok {
 			return v, nil
 		}
 
@@ -121,7 +138,7 @@ func (sc *Cache[K, V]) GetOrCompute(ctx context.Context, key K, fn func(ctx cont
 			return nil, err
 		}
 
-		sc.Put(key, v)
+		put(key, v)
 		return v, nil
 	})
 

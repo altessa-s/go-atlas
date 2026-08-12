@@ -38,6 +38,12 @@ var ErrTaskDisabled = errors.New("task is disabled")
 // [TaskStatusCompleted], which indicates a one-shot task that has already executed.
 var ErrTaskCompleted = errors.New("task is completed")
 
+// ErrTaskAlreadyDispatched is returned by [Scheduler.TriggerTask] when the task
+// already has a dispatch queued or running. Each task holds at most one
+// dispatch slot, so the trigger is rejected rather than queued behind the
+// in-flight run; retry once the current run finishes.
+var ErrTaskAlreadyDispatched = errors.New("task already dispatched")
+
 // ErrNotReady is returned by [Scheduler.TriggerTask] when a [WithReadinessProbe]
 // is configured and it returns false, indicating that subsystems are not yet ready.
 var ErrNotReady = errors.New("subsystems not ready")

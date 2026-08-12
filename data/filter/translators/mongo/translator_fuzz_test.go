@@ -13,6 +13,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/altessa-s/go-atlas/data/filter"
+
 	filtermongo "github.com/altessa-s/go-atlas/data/filter/translators/mongo"
 )
 

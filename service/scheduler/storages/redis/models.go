@@ -73,8 +73,15 @@ func newTaskData(state *scheduler.TaskState) *taskData {
 }
 
 // toTaskState converts a taskData to a TaskState.
+//
+// WithHandleEmbeddedStructs(false) is required, not cosmetic: TaskState keeps
+// Status, NextRunAt, Priority and the rest of the summary in an embedded
+// TaskSummary, and without this the flat document fields never reach it. The
+// write direction has no such problem, so the damage was silent — every task
+// read back from Redis carried a zero Status, which is neither active nor
+// running and therefore invisible to both dispatch and stale recovery.
 func (d *taskData) toTaskState() *scheduler.TaskState {
-	return converter.Convert(d, &scheduler.TaskState{})
+	return converter.Convert(d, &scheduler.TaskState{}, converter.WithHandleEmbeddedStructs(false))
 }
 
 // historyData represents a task execution history entry stored in Redis as JSON.

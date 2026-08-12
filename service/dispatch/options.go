@@ -28,6 +28,11 @@ const (
 	DefaultRetryAttempts = 3
 	// DefaultRetryBackoff is the base duration for exponential backoff.
 	DefaultRetryBackoff = 100 * time.Millisecond
+	// DefaultRetryJitter is the fraction of each computed backoff added as
+	// randomized jitter. Without it every worker that fails against the same
+	// sink retries on the same schedule, so a shared outage turns into
+	// synchronized bursts against a dependency that is trying to recover.
+	DefaultRetryJitter = 0.2
 	// DefaultMetricsSubsystem is the metrics subsystem name when none is set.
 	// Kept as "async" so that dashboards and alerts built against earlier
 	// versions of this package (previously located at core/buf/async)
@@ -50,6 +55,7 @@ type options[T any] struct {
 	workers          int            `optgen:"default=DefaultWorkers"       optval:"positive"`
 	retryAttempts    int            `optgen:"default=DefaultRetryAttempts" optval:"positive=allow_zero"`
 	retryBackoff     time.Duration  `optgen:"default=DefaultRetryBackoff"`
+	retryJitter      float64        `optgen:"default=DefaultRetryJitter"`
 	backPressure     bool           //
 	onDrop           DropHandler[T] //
 	logger           *slog.Logger   `optgen:"default=defaultLogger()"`

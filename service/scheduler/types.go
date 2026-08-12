@@ -192,6 +192,12 @@ type Storage interface {
 	// so leadership becomes a throughput optimization, not a correctness
 	// dependency. Implementations return (false, nil) when no document matched
 	// (already claimed, advanced, or no longer active).
+	//
+	// Persisting runID as [TaskState.LastRunID] is part of the contract, not a
+	// convenience: once the task body returns, the scheduler re-reads the state
+	// and writes its result only while LastRunID still names its own run. That
+	// check is what stops a run whose task was reclaimed mid-flight (by stale
+	// recovery plus a competing claim) from marking the live run finished.
 	ClaimRun(ctx context.Context, id string, expectedNextRunAt, runStartedAt int64, runID string) (bool, error)
 
 	// DeleteTask removes a task and its associated state from storage.
@@ -202,6 +208,24 @@ type Storage interface {
 	// order is implementation-defined. Errors encountered mid-iteration are
 	// yielded as the second element.
 	Tasks(ctx context.Context) iter.Seq2[*TaskState, error]
+
+	// DueTasks returns an iterator over the task states eligible for dispatch
+	// at the instant now (a Unix timestamp in seconds): exactly those with
+	// Status == [TaskStatusActive] and NextRunAt <= now, ordered by ID
+	// ascending. Errors encountered mid-iteration are yielded as the second
+	// element.
+	//
+	// The scheduler calls this on every tick, so the predicate MUST be pushed
+	// down to the backend rather than evaluated by filtering the output of
+	// Tasks. A tick that fetches the whole collection and discards most of it
+	// scales with the number of tasks ever registered instead of the number
+	// actually due, once per tick interval, forever.
+	//
+	// Returning too much is not a correctness hazard on the status axis:
+	// ClaimRun's compare-and-swap re-checks status == active, so a paused task
+	// that slips through is rejected at claim time. The NextRunAt bound has no
+	// such backstop — an implementation that ignores it makes tasks fire early.
+	DueTasks(ctx context.Context, now int64) iter.Seq2[*TaskState, error]
 
 	// AddHistory records a completed task execution as a [TaskHistory] entry.
 	AddHistory(ctx context.Context, history *TaskHistory) error
