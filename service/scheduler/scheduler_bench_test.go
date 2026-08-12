@@ -16,6 +16,7 @@ import (
 
 func BenchmarkScheduler_New(b *testing.B) {
 	storage := mustNewMemory(b, 100)
+	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
 		_ = scheduler.New(storage, scheduler.WithTickInterval(time.Second))
@@ -35,6 +36,7 @@ func BenchmarkScheduler_Register(b *testing.B) {
 		_ = s.Stop(stopCtx)
 	}()
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
 		_ = s.Register(ctx, corescheduler.TaskConfig{
@@ -56,6 +58,7 @@ func BenchmarkMemoryStorage_UpsertTask(b *testing.B) {
 		},
 	}
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
 		_ = storage.UpsertTask(ctx, state)
@@ -73,6 +76,7 @@ func BenchmarkMemoryStorage_GetTask(b *testing.B) {
 		},
 	})
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
 		_, _ = storage.GetTask(ctx, "bench")
@@ -83,6 +87,7 @@ func BenchmarkMemoryStorage_AddHistory(b *testing.B) {
 	storage := mustNewMemory(b, 1000)
 	ctx := b.Context()
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
 		_ = storage.AddHistory(ctx, &scheduler.TaskHistory{
@@ -108,6 +113,7 @@ func BenchmarkMemoryStorage_Tasks(b *testing.B) {
 		})
 	}
 
+	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
 		for range storage.Tasks(ctx) {
@@ -123,6 +129,7 @@ func BenchmarkTaskStatus_String(b *testing.B) {
 		scheduler.TaskStatusRunning,
 		scheduler.TaskStatusUnspecified,
 	}
+	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
 		for _, s := range statuses {

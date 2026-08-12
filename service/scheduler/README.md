@@ -35,6 +35,7 @@ cursor-based paginated listing with CEL filter push-down.
 | `WithHistoryRetention`          | 7 days    | How long to keep history entries before cleanup               |
 | `WithCleanupInterval`           | 1h        | Interval between history cleanup runs                         |
 | `WithStaleTaskTimeout`          | 30min     | Timeout before recovering tasks stuck in Running state        |
+| `WithStorageTimeout`            | 10s       | Per-operation deadline for scheduler-owned storage calls      |
 | `WithLeaderElector`             | nil       | Distributed leader elector -- only the leader dispatches      |
 | `WithLogger`                    | discard   | Structured logger for scheduler lifecycle and error events    |
 | `WithEnvironment`               | --        | Preset concurrency profile for a named environment            |
@@ -51,6 +52,8 @@ cursor-based paginated listing with CEL filter push-down.
 | `ErrTaskDisabled`      | TriggerTask -- cannot trigger manual execution of a disabled task    |
 | `ErrTaskCompleted`     | Pause, Resume, Enable, TriggerTask -- one-shot task already finished |
 | `ErrScheduleConflict`  | Register -- both RunAt and Schedule were provided simultaneously     |
+| `ErrTaskAlreadyDispatched` | TriggerTask -- a dispatch for this task is already queued or running |
+| `ErrNotReady`          | TriggerTask -- the configured readiness probe returned false         |
 
 ## Single execution
 

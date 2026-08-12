@@ -173,6 +173,36 @@ func (m *Storage) Tasks(_ context.Context) iter.Seq2[*scheduler.TaskState, error
 	}
 }
 
+// DueTasks returns an [iter.Seq2] iterator that yields the [scheduler.TaskState]
+// values eligible for dispatch at now — status active and NextRunAt at or
+// before now — sorted lexicographically by ID. Each yielded value is a deep
+// copy. The predicate is applied while the read lock is held, so unlike
+// [Storage.Tasks] the caller never sees, or pays to clone, the tasks it would
+// immediately discard.
+func (m *Storage) DueTasks(_ context.Context, now int64) iter.Seq2[*scheduler.TaskState, error] {
+	return func(yield func(*scheduler.TaskState, error) bool) {
+		m.mu.RLock()
+		defer m.mu.RUnlock()
+
+		states := make([]*scheduler.TaskState, 0, len(m.tasks))
+		for _, state := range m.tasks {
+			if state.Status != scheduler.TaskStatusActive || state.NextRunAt > now {
+				continue
+			}
+			states = append(states, cloneTaskState(state))
+		}
+		slices.SortFunc(states, func(a, b *scheduler.TaskState) int {
+			return cmp.Compare(a.ID, b.ID)
+		})
+
+		for _, state := range states {
+			if !yield(state, nil) {
+				return
+			}
+		}
+	}
+}
+
 // AddHistory appends a [scheduler.TaskHistory] entry for the task identified by
 // history.TaskID. A shallow copy of the struct is stored. If the per-task
 // history limit (set via [New]) is exceeded, the oldest entry is evicted.

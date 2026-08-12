@@ -33,8 +33,10 @@ const (
 	taskIndexSuffix    = "tasks"
 	historyIndexSuffix = "history"
 
-	// ftSearchLimit is the maximum number of results for FT.SEARCH queries.
-	ftSearchLimit = 10000
+	// searchPageSize is how many documents each FT.SEARCH round-trip fetches.
+	// Reads walk every matching document a page at a time via searchAll rather
+	// than issuing one capped request.
+	searchPageSize = 1000
 )
 
 // Storage provides a Redis-backed implementation of the [scheduler.Storage],
@@ -193,6 +195,55 @@ func (s *Storage) historyIndexName() string {
 	return s.key(idxKeyPrefix, historyIndexSuffix)
 }
 
+// searchAll walks every document matching query, one page at a time, calling
+// fn for each. Return false from fn to stop early.
+//
+// FT.SEARCH answers a single page per call and reports the full match count in
+// Total. Issuing one request with a large LIMIT and consuming whatever comes
+// back silently discards every match past that ceiling — for the task index
+// that means tasks that simply stop being scheduled once the collection grows,
+// with no error anywhere to explain it.
+//
+// Paging by offset is not a snapshot: documents written or deleted mid-walk can
+// shift later pages, so a concurrent writer may cause an entry to be seen twice
+// or missed. Every caller here either tolerates that (schedule reads converge on
+// the next tick) or deletes what it collects afterwards rather than during.
+func (s *Storage) searchAll(
+	ctx context.Context,
+	index, query string,
+	sortBy []redis.FTSearchSortBy,
+	noContent bool,
+	fn func(redis.Document) (bool, error),
+) error {
+	for offset := 0; ; offset += searchPageSize {
+		result, err := s.client.FTSearchWithArgs(ctx, index, query,
+			&redis.FTSearchOptions{
+				NoContent:   noContent,
+				LimitOffset: offset,
+				Limit:       searchPageSize,
+				SortBy:      sortBy,
+			},
+		).Result()
+		if err != nil {
+			return err
+		}
+
+		for _, doc := range result.Docs {
+			cont, fnErr := fn(doc)
+			if fnErr != nil {
+				return fnErr
+			}
+			if !cont {
+				return nil
+			}
+		}
+
+		if len(result.Docs) < searchPageSize || offset+len(result.Docs) >= result.Total {
+			return nil
+		}
+	}
+}
+
 // GetTask retrieves the state of a specific task by its unique identifier.
 // If the task does not exist in Redis, it returns (nil, nil).
 // Any Redis communication error is returned wrapped with the task ID.
@@ -303,29 +354,42 @@ func (s *Storage) DeleteTask(ctx context.Context, id string) error {
 // deserialization error, it yields (nil, err) and stops.
 func (s *Storage) Tasks(ctx context.Context) iter.Seq2[*scheduler.TaskState, error] {
 	return func(yield func(*scheduler.TaskState, error) bool) {
-		result, err := s.client.FTSearchWithArgs(ctx, s.taskIndexName(), "*",
-			&redis.FTSearchOptions{
-				NoContent: false,
-				Limit:     ftSearchLimit,
-				SortBy: []redis.FTSearchSortBy{
-					{FieldName: "id", Asc: true},
-				},
-			},
-		).Result()
+		sortBy := []redis.FTSearchSortBy{{FieldName: "id", Asc: true}}
+		err := s.searchAll(ctx, s.taskIndexName(), "*", sortBy, false,
+			func(doc redis.Document) (bool, error) {
+				td, parseErr := parseDocJSON[taskData](doc)
+				if parseErr != nil {
+					return false, coreerrs.WrapOperation(parseErr, "parse task document")
+				}
+				return yield(td.toTaskState(), nil), nil
+			})
 		if err != nil {
 			yield(nil, coreerrs.WrapOperation(err, "search tasks"))
-			return
 		}
+	}
+}
 
-		for _, doc := range result.Docs {
-			td, err := parseDocJSON[taskData](doc)
-			if err != nil {
-				yield(nil, coreerrs.WrapOperation(err, "parse task document"))
-				return
-			}
-			if !yield(td.toTaskState(), nil) {
-				return
-			}
+// DueTasks returns an iterator over the task states eligible for dispatch at
+// now: status active and nextRunAt at or before now, sorted by ID ascending.
+// Both fields are indexed as RediSearch numerics, so the predicate is evaluated
+// server-side and a tick transfers only the due documents instead of the whole
+// task index.
+func (s *Storage) DueTasks(ctx context.Context, now int64) iter.Seq2[*scheduler.TaskState, error] {
+	return func(yield func(*scheduler.TaskState, error) bool) {
+		active := int(scheduler.TaskStatusActive)
+		query := fmt.Sprintf("@status:[%d %d] @nextRunAt:[-inf %d]", active, active, now)
+
+		sortBy := []redis.FTSearchSortBy{{FieldName: "id", Asc: true}}
+		err := s.searchAll(ctx, s.taskIndexName(), query, sortBy, false,
+			func(doc redis.Document) (bool, error) {
+				td, parseErr := parseDocJSON[taskData](doc)
+				if parseErr != nil {
+					return false, coreerrs.WrapOperation(parseErr, "parse task document")
+				}
+				return yield(td.toTaskState(), nil), nil
+			})
+		if err != nil {
+			yield(nil, coreerrs.WrapOperation(err, "search due tasks"))
 		}
 	}
 }
@@ -355,32 +419,51 @@ func (s *Storage) AddHistory(ctx context.Context, history *scheduler.TaskHistory
 	return nil
 }
 
-// trimHistory removes oldest history entries beyond the max limit.
+// trimHistory removes the oldest history entries beyond the configured maximum.
+//
+// This runs on every AddHistory, so it is deliberately shaped to transfer only
+// the overflow rather than the task's whole history. The first search asks for
+// no documents at all — FT.SEARCH still reports the full match count — and the
+// second fetches exactly the oldest (Total - max) keys, ascending. The earlier
+// form pulled and sorted up to ten thousand documents on every single run of
+// every single task just to discard all but the tail.
 func (s *Storage) trimHistory(ctx context.Context, taskID string) {
 	if ctx.Err() != nil {
 		return
 	}
 
-	escapedID := redisearch.EscapeTag(taskID)
-	query := fmt.Sprintf("@taskId:{%s}", escapedID)
+	query := fmt.Sprintf("@taskId:{%s}", redisearch.EscapeTag(taskID))
 
-	result, err := s.client.FTSearchWithArgs(ctx, s.historyIndexName(), query,
-		&redis.FTSearchOptions{
-			NoContent: true,
-			Limit:     ftSearchLimit,
-			SortBy: []redis.FTSearchSortBy{
-				{FieldName: "startedAt", Asc: false}, // most recent first
-			},
-		},
+	// Count only: LIMIT 0 0 returns Total without any document payload.
+	counted, err := s.client.FTSearchWithArgs(ctx, s.historyIndexName(), query,
+		&redis.FTSearchOptions{NoContent: true, LimitOffset: 0, Limit: 0},
 	).Result()
-	if err != nil || result.Total <= s.opts.maxHistoryPerTask {
+	if err != nil {
 		return
 	}
 
-	// Delete entries beyond the limit
+	overflow := counted.Total - s.opts.maxHistoryPerTask
+	if overflow <= 0 {
+		return
+	}
+
+	oldest, err := s.client.FTSearchWithArgs(ctx, s.historyIndexName(), query,
+		&redis.FTSearchOptions{
+			NoContent:   true,
+			LimitOffset: 0,
+			Limit:       overflow,
+			SortBy: []redis.FTSearchSortBy{
+				{FieldName: "startedAt", Asc: true}, // oldest first
+			},
+		},
+	).Result()
+	if err != nil {
+		return
+	}
+
 	pipe := s.client.Pipeline()
-	for i := s.opts.maxHistoryPerTask; i < result.Total && i < len(result.Docs); i++ {
-		pipe.Del(ctx, result.Docs[i].ID)
+	for _, doc := range oldest.Docs {
+		pipe.Del(ctx, doc.ID)
 	}
 	_, _ = pipe.Exec(ctx) //nolint:errcheck // best-effort trim
 }
@@ -394,31 +477,17 @@ func (s *Storage) History(ctx context.Context, id string) iter.Seq2[*scheduler.T
 		escapedID := redisearch.EscapeTag(id)
 		query := fmt.Sprintf("@taskId:{%s}", escapedID)
 
-		result, err := s.client.FTSearchWithArgs(ctx, s.historyIndexName(), query,
-			&redis.FTSearchOptions{
-				NoContent: false,
-				Limit:     ftSearchLimit,
-				SortBy: []redis.FTSearchSortBy{
-					{FieldName: "startedAt", Asc: false},
-				},
-			},
-		).Result()
-		if err != nil {
-			if !errors.Is(err, redis.Nil) {
-				yield(nil, coreerrs.WrapOperation(err, "search history"))
-			}
-			return
-		}
-
-		for _, doc := range result.Docs {
-			hd, err := parseDocJSON[historyData](doc)
-			if err != nil {
-				yield(nil, coreerrs.WrapOperation(err, "parse history document"))
-				return
-			}
-			if !yield(hd.toTaskHistory(), nil) {
-				return
-			}
+		sortBy := []redis.FTSearchSortBy{{FieldName: "startedAt", Asc: false}}
+		err := s.searchAll(ctx, s.historyIndexName(), query, sortBy, false,
+			func(doc redis.Document) (bool, error) {
+				hd, parseErr := parseDocJSON[historyData](doc)
+				if parseErr != nil {
+					return false, coreerrs.WrapOperation(parseErr, "parse history document")
+				}
+				return yield(hd.toTaskHistory(), nil), nil
+			})
+		if err != nil && !errors.Is(err, redis.Nil) {
+			yield(nil, coreerrs.WrapOperation(err, "search history"))
 		}
 	}
 }
@@ -431,23 +500,25 @@ func (s *Storage) CleanupHistory(ctx context.Context, retention time.Duration) e
 	cutoff := time.Now().Add(-retention).Unix()
 
 	query := fmt.Sprintf("@endedAt:[-inf %d]", cutoff)
-	result, err := s.client.FTSearchWithArgs(ctx, s.historyIndexName(), query,
-		&redis.FTSearchOptions{
-			NoContent: true,
-			Limit:     ftSearchLimit,
-		},
-	).Result()
-	if err != nil {
+
+	// Collect first, delete after: deleting mid-walk would shift the offsets
+	// the pagination is stepping through and leave expired entries behind.
+	var keys []string
+	if err := s.searchAll(ctx, s.historyIndexName(), query, nil, true,
+		func(doc redis.Document) (bool, error) {
+			keys = append(keys, doc.ID)
+			return true, nil
+		}); err != nil {
 		return coreerrs.WrapOperation(err, "search expired history")
 	}
 
-	if len(result.Docs) == 0 {
+	if len(keys) == 0 {
 		return nil
 	}
 
 	pipe := s.client.Pipeline()
-	for _, doc := range result.Docs {
-		pipe.Del(ctx, doc.ID)
+	for _, key := range keys {
+		pipe.Del(ctx, key)
 	}
 
 	if _, err := pipe.Exec(ctx); err != nil {
@@ -462,12 +533,12 @@ func (s *Storage) findHistoryKeys(ctx context.Context, taskID string) ([]string,
 	escapedID := redisearch.EscapeTag(taskID)
 	query := fmt.Sprintf("@taskId:{%s}", escapedID)
 
-	result, err := s.client.FTSearchWithArgs(ctx, s.historyIndexName(), query,
-		&redis.FTSearchOptions{
-			NoContent: true,
-			Limit:     ftSearchLimit,
-		},
-	).Result()
+	var keys []string
+	err := s.searchAll(ctx, s.historyIndexName(), query, nil, true,
+		func(doc redis.Document) (bool, error) {
+			keys = append(keys, doc.ID)
+			return true, nil
+		})
 	if err != nil {
 		// If index doesn't exist yet, fall back gracefully
 		if strings.Contains(err.Error(), "no such index") {
@@ -476,10 +547,6 @@ func (s *Storage) findHistoryKeys(ctx context.Context, taskID string) ([]string,
 		return nil, err
 	}
 
-	keys := make([]string, 0, len(result.Docs))
-	for _, doc := range result.Docs {
-		keys = append(keys, doc.ID)
-	}
 	return keys, nil
 }
 
@@ -532,38 +599,28 @@ func (s *Storage) TasksPaginated(ctx context.Context, pg scheduler.Pagination, f
 		query = translated
 	}
 
-	result, err := s.client.FTSearchWithArgs(ctx, s.taskIndexName(), query,
-		&redis.FTSearchOptions{
-			NoContent: false,
-			Limit:     ftSearchLimit,
-			SortBy: []redis.FTSearchSortBy{
-				{FieldName: "id", Asc: true},
-			},
-		},
-	).Result()
-	if err != nil {
-		return nil, coreerrs.WrapOperation(err, "search tasks paginated")
-	}
-
 	var results []*scheduler.TaskState
 	pastCursor := pg.AfterID == ""
 
-	for _, doc := range result.Docs {
-		td, err := parseDocJSON[taskData](doc)
-		if err != nil {
-			return nil, coreerrs.WrapOperation(err, "parse task document")
-		}
-		state := td.toTaskState()
-		if !pastCursor {
-			if state.ID == pg.AfterID {
-				pastCursor = true
+	sortBy := []redis.FTSearchSortBy{{FieldName: "id", Asc: true}}
+	err := s.searchAll(ctx, s.taskIndexName(), query, sortBy, false,
+		func(doc redis.Document) (bool, error) {
+			td, parseErr := parseDocJSON[taskData](doc)
+			if parseErr != nil {
+				return false, coreerrs.WrapOperation(parseErr, "parse task document")
 			}
-			continue
-		}
-		results = append(results, state)
-		if int64(len(results)) > pg.Limit {
-			break
-		}
+			state := td.toTaskState()
+			if !pastCursor {
+				if state.ID == pg.AfterID {
+					pastCursor = true
+				}
+				return true, nil
+			}
+			results = append(results, state)
+			return int64(len(results)) <= pg.Limit, nil
+		})
+	if err != nil {
+		return nil, coreerrs.WrapOperation(err, "search tasks paginated")
 	}
 
 	return results, nil
@@ -592,40 +649,30 @@ func (s *Storage) HistoryPaginated(ctx context.Context, taskID string, pg schedu
 		}
 	}
 
-	result, err := s.client.FTSearchWithArgs(ctx, s.historyIndexName(), query,
-		&redis.FTSearchOptions{
-			NoContent: false,
-			Limit:     ftSearchLimit,
-			SortBy: []redis.FTSearchSortBy{
-				{FieldName: "startedAt", Asc: false},
-			},
-		},
-	).Result()
-	if err != nil {
-		return nil, coreerrs.WrapOperation(err, "search history paginated")
-	}
-
 	var results []*scheduler.TaskHistory
 	pastCursor := pg.AfterID == ""
 
-	for _, doc := range result.Docs {
-		hd, err := parseDocJSON[historyData](doc)
-		if err != nil {
-			return nil, coreerrs.WrapOperation(err, "parse history document")
-		}
-		entry := hd.toTaskHistory()
-		if !pastCursor {
-			if entry.StartedAt < pg.AfterStartedAt || (entry.StartedAt == pg.AfterStartedAt && entry.ID < pg.AfterID) {
-				pastCursor = true
+	sortBy := []redis.FTSearchSortBy{{FieldName: "startedAt", Asc: false}}
+	err := s.searchAll(ctx, s.historyIndexName(), query, sortBy, false,
+		func(doc redis.Document) (bool, error) {
+			hd, parseErr := parseDocJSON[historyData](doc)
+			if parseErr != nil {
+				return false, coreerrs.WrapOperation(parseErr, "parse history document")
 			}
+			entry := hd.toTaskHistory()
 			if !pastCursor {
-				continue
+				if entry.StartedAt < pg.AfterStartedAt || (entry.StartedAt == pg.AfterStartedAt && entry.ID < pg.AfterID) {
+					pastCursor = true
+				}
+				if !pastCursor {
+					return true, nil
+				}
 			}
-		}
-		results = append(results, entry)
-		if int64(len(results)) > pg.Limit {
-			break
-		}
+			results = append(results, entry)
+			return int64(len(results)) <= pg.Limit, nil
+		})
+	if err != nil {
+		return nil, coreerrs.WrapOperation(err, "search history paginated")
 	}
 
 	return results, nil

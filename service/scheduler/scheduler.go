@@ -92,9 +92,29 @@ type Scheduler struct {
 
 // registeredTask holds the runtime state of a registered task.
 type registeredTask struct {
-	config  corescheduler.TaskConfig
+	config corescheduler.TaskConfig
+
+	// dispatched is true from the moment a dispatch goroutine is spawned until
+	// that goroutine returns. It covers the queued-but-not-yet-started window
+	// that running does not: in static semaphore mode a dispatched goroutine
+	// blocks on the semaphore before reaching executeTask, so without this flag
+	// every subsequent tick would spawn another goroutine for the same task and
+	// the blocked set would grow without bound.
+	dispatched atomic.Bool
+
+	// running is true only while the task function is actually executing. It is
+	// read by recoverStaleTasks to distinguish a task executing in this process
+	// from one left behind by a crashed instance.
 	running atomic.Bool
 }
+
+// claim reserves the single in-flight dispatch slot for the task. It returns
+// false when a dispatch is already queued or running, in which case the caller
+// must not spawn a goroutine.
+func (t *registeredTask) claim() bool { return t.dispatched.CompareAndSwap(false, true) }
+
+// release frees the dispatch slot reserved by claim.
+func (t *registeredTask) release() { t.dispatched.Store(false) }
 
 // pendingTask holds task info for priority sorting.
 type pendingTask struct {
