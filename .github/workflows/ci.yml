@@ -63,6 +63,38 @@ jobs:
           path: coverage.out
           retention-days: 7
 
+  integration:
+    name: Integration
+    runs-on: ubuntu-latest
+    # The suite skips every backend it cannot reach, so a broken compose stack
+    # would otherwise show up as a green run with no coverage. Failing the job
+    # on a startup error is what keeps the skips honest.
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Start backends
+        run: make integration-up
+
+      - name: Run integration suite
+        run: make test-integration
+
+      - name: Dump backend logs
+        if: failure()
+        run: docker compose -f tests/integration/docker-compose.yml logs --tail=200
+
+      - name: Stop backends
+        if: always()
+        run: make integration-down
+
   cross-compile:
     name: Cross-compile (${{ matrix.goos }})
     runs-on: ubuntu-latest
