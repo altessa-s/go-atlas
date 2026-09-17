@@ -28,10 +28,11 @@ type ProviderBuilder struct {
 	errs []error
 
 	// Dependencies (set via Use*).
-	scheduler         corescheduler.TaskRegistrar
-	redisClient       redis.UniversalClient
-	tokenCache        oidc.Cacher
-	revocationStorage oidc.RevocationStorage
+	scheduler               corescheduler.TaskRegistrar
+	redisClient             redis.UniversalClient
+	tokenCache              oidc.Cacher
+	revocationStorage       oidc.RevocationStorage
+	revocationAuthoritative oidc.Authoritative
 }
 
 // New creates a new [ProviderBuilder] for the given OIDC config.
@@ -205,7 +206,13 @@ func (b *ProviderBuilder) buildRevocationStorage(cfg *config.OIDCRevocation) (oi
 		}
 	}
 
-	return oidc.NewFilterRevocationStorage(filter, loader), nil
+	// The confirmer is a builder dependency rather than a config field: the
+	// filter is populated from cfg.Source (a file or URL list), so only the
+	// assembling code knows whether an exact store holds that same set.
+	// Confirming against an unrelated store would silently stop revoking.
+	// Without one the storage runs in lossy mode — see
+	// [oidc.NewFilterRevocationStorage].
+	return oidc.NewFilterRevocationStorage(filter, loader, b.revocationAuthoritative), nil
 }
 
 // buildSchedulerOptions builds scheduler-related options if a scheduler is available.

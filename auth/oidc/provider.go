@@ -209,7 +209,7 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 
 	// Initialize revocation storage if not provided but filter/loader are available
 	if p.revocationStorage == nil && p.revocationFilter != nil {
-		p.revocationStorage = NewFilterRevocationStorage(p.revocationFilter, p.revocationLoader)
+		p.revocationStorage = NewFilterRevocationStorage(p.revocationFilter, p.revocationLoader, o.revocationAuthoritative)
 	} else if p.revocationStorage == nil && p.revocationLoader != nil && p.revocationFilter == nil {
 		// Warn if loader is provided without filter - loader will be ignored
 		p.logger.Warn("revocation loader provided without revocation filter, loader will be ignored")

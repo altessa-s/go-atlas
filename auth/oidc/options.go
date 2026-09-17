@@ -176,9 +176,10 @@ type options struct {
 	presets                     map[string]*ValidationPreset `opt:"-"`
 	presetRules                 []PresetRule
 	revocationStorage           RevocationStorage
-	revocationItemType          string     `optgen:"default=DefaultRevocationItemType"`
-	revocationFilter            Filter     `optgen:"notnil"`
-	revocationLoader            DataLoader `optgen:"notnil"`
+	revocationItemType          string        `optgen:"default=DefaultRevocationItemType"`
+	revocationFilter            Filter        `optgen:"notnil"`
+	revocationLoader            DataLoader    `optgen:"notnil"`
+	revocationAuthoritative     Authoritative `optgen:"notnil"`
 
 	// Health check configuration
 	healthCoordinator *health.Coordinator

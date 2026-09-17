@@ -32,26 +32,68 @@ type RevocationStorage interface {
 	Sync(ctx context.Context) error
 }
 
-// filterRevocationStorage is a RevocationStorage implementation using probabilistic filters.
-type filterRevocationStorage struct {
-	filter Filter
-	loader DataLoader
+// Authoritative is the exact revocation store a probabilistic filter fronts. It
+// is consulted only when the filter cannot rule an item out, so a filter hit is
+// confirmed against the exact answer instead of being trusted on its own.
+//
+// Following the project convention the dependency is declared here, on the
+// consumer side, so any exact store can be injected.
+type Authoritative interface {
+	// IsRevoked reports, authoritatively, whether item is revoked.
+	IsRevoked(ctx context.Context, item string) (bool, error)
 }
 
-// NewFilterRevocationStorage creates a new revocation storage using a probabilistic filter.
-func NewFilterRevocationStorage(filter Filter, loader DataLoader) RevocationStorage {
+// filterRevocationStorage is a RevocationStorage implementation using probabilistic filters.
+type filterRevocationStorage struct {
+	filter        Filter
+	loader        DataLoader
+	authoritative Authoritative
+}
+
+// NewFilterRevocationStorage creates a new revocation storage using a
+// probabilistic filter, optionally confirmed by an exact store.
+//
+// A probabilistic filter has no false negatives but does have false positives
+// (the Bloom default is 1%, see config.ProbabilisticFilterBloomDefaults). It can
+// therefore prove an item is NOT revoked, but never that it IS. When
+// authoritative is non-nil every filter hit is confirmed against it, so a false
+// positive costs one exact lookup and nothing else.
+//
+// Passing a nil authoritative selects the lossy mode: an unconfirmed filter hit
+// is reported as revoked. That preserves the security invariant — a revoked item
+// is never allowed — but rejects roughly falsePositiveRate of valid items. Wire
+// an authoritative store for any deployment where that is not acceptable.
+func NewFilterRevocationStorage(filter Filter, loader DataLoader, authoritative Authoritative) RevocationStorage {
 	return &filterRevocationStorage{
-		filter: filter,
-		loader: loader,
+		filter:        filter,
+		loader:        loader,
+		authoritative: authoritative,
 	}
 }
 
-// IsRevoked implements RevocationStorage.
+// IsRevoked implements RevocationStorage. A definite filter miss is exact and
+// answered locally; a hit is confirmed against the authoritative store when one
+// is configured, and otherwise reported as revoked — see
+// [NewFilterRevocationStorage] for the trade-off.
 func (s *filterRevocationStorage) IsRevoked(ctx context.Context, item string) (bool, error) {
 	if s.filter == nil {
 		return false, nil
 	}
-	return s.filter.MightExist(ctx, item)
+
+	might, err := s.filter.MightExist(ctx, item)
+	if err != nil {
+		return false, err
+	}
+	if !might {
+		// A probabilistic filter has no false negatives, so a definite miss
+		// is already the exact answer.
+		return false, nil
+	}
+	if s.authoritative == nil {
+		return true, nil
+	}
+
+	return s.authoritative.IsRevoked(ctx, item)
 }
 
 // MarkRevoked implements RevocationStorage.
