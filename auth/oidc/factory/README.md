@@ -44,6 +44,7 @@ provider, err := factory.New(cfg.OIDC).
 | `UseTokenCache` | Sets the cache for validated token caching |
 | `UseRedisClient` | Sets the Redis client for revocation filter storage |
 | `UseRevocationStorage` | Sets a custom revocation storage, bypassing auto-creation |
+| `UseRevocationAuthoritative` | Sets the exact store that confirms probabilistic filter hits |
 
 ### Terminal
 

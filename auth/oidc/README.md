@@ -14,6 +14,7 @@ validation, token introspection (RFC 7662), validation presets with matchers (na
 | `Provider`             | Core OIDC provider: discovery, JWKS, validation, introspection, userinfo  |
 | `Cacher`               | Token cache interface for avoiding redundant validation                   |
 | `RevocationStorage`    | Interface for checking and managing revoked tokens, JTIs, or KIDs         |
+| `Authoritative`        | Exact revocation store consulted to confirm probabilistic filter hits     |
 | `ValidationPreset`     | Named, reusable set of validation options with pre-compiled CEL rules     |
 | `PresetRule`            | Rule for automatic preset selection based on token claims                 |
 | `PresetMatcherFunc`    | Function that tests if token claims match a selection rule                |
@@ -32,11 +33,31 @@ validation, token introspection (RFC 7662), validation presets with matchers (na
 | `WithPresetRules`               | --                 | Rules for automatic preset selection by claims         |
 | `WithIntrospection`             | disabled           | Enable RFC 7662 introspection with client credentials  |
 | `WithRevocationStorage`         | nil                | Storage backend for token revocation checks            |
+| `WithRevocationAuthoritative`   | nil                | Exact store confirming filter hits (see Revocation accuracy) |
 | `WithScheduler`                 | nil                | Task registrar for background JWKS refresh             |
 | `WithJWKSRefreshSchedule`       | --                 | Cron expression for periodic JWKS key rotation         |
 | `WithRevocationSyncSchedule`    | --                 | Cron expression for revocation list synchronization    |
 | `WithServiceConfigPath`         | --                 | Path to JSON service configuration file                |
 | `WithLogger`                    | discard            | Structured logger (`*slog.Logger`)                     |
+
+## Revocation accuracy
+
+Filter-backed revocation storage (`NewFilterRevocationStorage`) is built on a probabilistic filter from
+[`data/probfilter`](../../data/probfilter/). Such a filter has no false negatives but does have false positives — the Bloom default is
+1% (`config.ProbabilisticFilterBloomDefaults.FalsePositiveRate`). It can therefore prove an item is **not** revoked, never that it **is**.
+
+Pass an `Authoritative` store via `WithRevocationAuthoritative` to confirm every filter hit against the exact answer. A false positive
+then costs one extra lookup and nothing else:
+
+	storage := oidc.NewFilterRevocationStorage(filter, loader, exactStore)
+
+Without a confirmer the storage runs in lossy mode: an unconfirmed filter hit is reported as revoked. The security invariant still
+holds — a revoked item is never allowed — but roughly `falsePositiveRate` of valid tokens are rejected with `ErrTokenRevoked`. Both the
+pre-verification check (`checkTokenRevocation`, full-token item type) and the post-verification one (`checkTokenRevocationVerified`,
+`jti`/`kid`) go through this path.
+
+The confirmer MUST hold the same revocation set the filter is built from. Confirming against an unrelated store turns every hit into
+"not revoked" and silently disables revocation — which is why it is an explicit dependency rather than something derived from config.
 
 ## Outbound HTTP
 

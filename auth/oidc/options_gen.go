@@ -112,6 +112,16 @@ func WithPresetRules(v ...PresetRule) Option {
 	}
 }
 
+// WithRevocationAuthoritative sets the revocationAuthoritative option.
+func WithRevocationAuthoritative(v Authoritative) Option {
+	return func(o *options) {
+		if nilcheck.IsNil(v) {
+			return
+		}
+		o.revocationAuthoritative = v
+	}
+}
+
 // WithRevocationFilter sets the revocationFilter option.
 func WithRevocationFilter(v Filter) Option {
 	return func(o *options) {
