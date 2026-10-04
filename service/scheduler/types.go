@@ -195,10 +195,15 @@ type Storage interface {
 	//
 	// Persisting runID as [TaskState.LastRunID] is part of the contract, not a
 	// convenience: once the task body returns, the scheduler re-reads the state
-	// and writes its result only while LastRunID still names its own run. That
+	// and writes its result only while LastRunID still names its own run. The atomic FinishRun
 	// check is what stops a run whose task was reclaimed mid-flight (by stale
 	// recovery plus a competing claim) from marking the live run finished.
 	ClaimRun(ctx context.Context, id string, expectedNextRunAt, runStartedAt int64, runID string) (bool, error)
+
+	// FinishRun atomically records an execution result only while runID still owns
+	// an unfinished run. It returns false for missing, reclaimed or finished runs.
+	// Preserve concurrent configuration, pause/disable and metadata changes.
+	FinishRun(ctx context.Context, id, runID string, result RunResult) (bool, error)
 
 	// DeleteTask removes a task and its associated state from storage.
 	// Deleting a non-existent task should be a no-op (no error).
@@ -269,4 +274,15 @@ func generateID() string {
 	s := hex.EncodeToString(bp[:])
 	idBufPool.Put(bp)
 	return s
+}
+
+// RunResult contains the execution fields committed by Storage.FinishRun.
+// Schedule identifies the schedule used to compute NextRunAt; a backend must
+// preserve a concurrently changed schedule and its next occurrence.
+type RunResult struct {
+	StartedAt int64
+	EndedAt   int64
+	NextRunAt int64
+	Schedule  string
+	Success   bool
 }

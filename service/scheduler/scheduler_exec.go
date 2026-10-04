@@ -581,41 +581,25 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 		return
 	}
 
-	// Apply execution results to fresh state, preserving concurrent modifications
-	if freshState.OneShot {
-		// One-shot task: mark as completed, no next run
-		if freshState.Status == TaskStatusRunning {
-			freshState.Status = TaskStatusCompleted
-		}
-		freshState.NextRunAt = 0
-	} else {
-		// Only set to Active if the task wasn't paused/disabled during execution
-		if freshState.Status == TaskStatusRunning {
-			freshState.Status = TaskStatusActive
-		}
-		freshState.NextRunAt = s.calculateNextRun(recCtx, startTime, freshState).Unix()
+	nextRunAt := int64(0)
+	if !freshState.OneShot {
+		nextRunAt = s.calculateNextRun(recCtx, startTime, freshState).Unix()
 	}
-	freshState.LastRunAt = startTime.Unix()
-	freshState.LastRunID = runID
-	freshState.RunStartedAt = 0 // Clear: task is no longer running
-	freshState.UpdatedAt = endTime.Unix()
-
-	if success {
-		freshState.Failures = 0
-	} else {
-		freshState.Failures++
+	if !success {
 		s.metrics.taskErrors.WithLabels(metrics.Labels{"task_id": state.ID}).Inc()
-		s.logger.ErrorContext(recCtx, "task execution failed",
-			slog.String("task_id", state.ID),
-			slog.String("run_id", runID),
-			slog.Duration("duration", duration),
-			slog.Any("error", execErr))
+		s.logger.ErrorContext(recCtx, "task execution failed", slog.String("task_id", state.ID), slog.Any("error", execErr))
 	}
-
-	if err := s.storage.UpsertTask(recCtx, freshState); err != nil {
-		s.logger.ErrorContext(recCtx, "failed to update task state",
-			slog.String("task_id", state.ID),
-			slog.Any("error", err))
+	finished, err := s.storage.FinishRun(recCtx, state.ID, runID, RunResult{
+		StartedAt: startTime.Unix(), EndedAt: endTime.Unix(), NextRunAt: nextRunAt,
+		Schedule: freshState.Schedule, Success: success,
+	})
+	if err != nil {
+		s.logger.ErrorContext(recCtx, "failed to finish task run", slog.String("task_id", state.ID), slog.Any("error", err))
+		return
+	}
+	if !finished {
+		s.logger.WarnContext(recCtx, "task run no longer owned, discarding result", slog.String("task_id", state.ID), slog.String("run_id", runID))
+		return
 	}
 
 	s.logger.DebugContext(ctx, "task execution completed",
