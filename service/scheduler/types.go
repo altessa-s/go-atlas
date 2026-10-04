@@ -205,6 +205,14 @@ type Storage interface {
 	// Preserve concurrent configuration, pause/disable and metadata changes.
 	FinishRun(ctx context.Context, id, runID string, result RunResult) (bool, error)
 
+	// ReplaceTaskIf atomically replaces the state of task state.ID only while
+	// the stored document still matches expect. It returns false when the task
+	// is missing or any fenced field changed since the caller read it. Missing
+	// LastRunID / RunStartedAt / NextRunAt fields compare equal to their zero
+	// values. A GetTask check followed by UpsertTask does not satisfy this
+	// contract.
+	ReplaceTaskIf(ctx context.Context, state *TaskState, expect TaskFence) (bool, error)
+
 	// DeleteTask removes a task and its associated state from storage.
 	// Deleting a non-existent task should be a no-op (no error).
 	DeleteTask(ctx context.Context, id string) error
@@ -274,6 +282,25 @@ func generateID() string {
 	s := hex.EncodeToString(bp[:])
 	idBufPool.Put(bp)
 	return s
+}
+
+// TaskFence is the compare-and-swap precondition of Storage.ReplaceTaskIf: the
+// run-ownership fields a writer observed when it read the task.
+type TaskFence struct {
+	Status       TaskStatus
+	NextRunAt    int64
+	LastRunID    string
+	RunStartedAt int64
+}
+
+// FenceOf returns the [TaskFence] describing state as currently read.
+func FenceOf(state *TaskState) TaskFence {
+	return TaskFence{
+		Status:       state.Status,
+		NextRunAt:    state.NextRunAt,
+		LastRunID:    state.LastRunID,
+		RunStartedAt: state.RunStartedAt,
+	}
 }
 
 // RunResult contains the execution fields committed by Storage.FinishRun.

@@ -19,3 +19,10 @@ func TestFinishRun(t *testing.T) {
 	require.NoError(t, err)
 	storagetest.FinishRun(t, store)
 }
+
+func TestReplaceTaskIf(t *testing.T) {
+	t.Parallel()
+	store, err := memory.New(10)
+	require.NoError(t, err)
+	storagetest.ReplaceTaskIf(t, store)
+}

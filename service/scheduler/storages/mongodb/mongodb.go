@@ -162,6 +162,34 @@ func (s *Storage) UpsertTask(ctx context.Context, state *scheduler.TaskState) er
 	return err
 }
 
+// ReplaceTaskIf replaces the document via a single conditional ReplaceOne whose
+// filter carries the fence, so the compare and the write are atomic. Fields
+// stored with omitempty match their zero value when absent.
+func (s *Storage) ReplaceTaskIf(ctx context.Context, state *scheduler.TaskState, expect scheduler.TaskFence) (bool, error) {
+	filter := bson.M{
+		"_id":            state.ID,
+		"status":         int32(expect.Status),
+		"next_run_at":    zeroOrMissing(expect.NextRunAt),
+		"last_run_id":    zeroOrMissing(expect.LastRunID),
+		"run_started_at": zeroOrMissing(expect.RunStartedAt),
+	}
+	res, err := s.tasks.ReplaceOne(ctx, filter, newTaskDocument(state))
+	if err != nil {
+		return false, err
+	}
+	return res.MatchedCount == 1, nil
+}
+
+// zeroOrMissing builds a filter value that also matches an absent field when v
+// is the zero value, mirroring the omitempty encoding of the task document.
+func zeroOrMissing[T comparable](v T) any {
+	var zero T
+	if v == zero {
+		return bson.M{"$in": bson.A{zero, nil}}
+	}
+	return v
+}
+
 // ClaimRun atomically transitions the task from active→running for the
 // occurrence scheduled at expectedNextRunAt via a single conditional UpdateOne.
 // The filter matches status==active (and next_run_at==expectedNextRunAt when

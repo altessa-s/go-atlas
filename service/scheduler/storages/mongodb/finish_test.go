@@ -15,3 +15,9 @@ func TestFinishRun(t *testing.T) {
 	store := newClaimIT(t)
 	storagetest.FinishRun(t, store)
 }
+
+func TestReplaceTaskIf(t *testing.T) {
+	t.Parallel()
+	store := newClaimIT(t)
+	storagetest.ReplaceTaskIf(t, store)
+}
