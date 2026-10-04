@@ -132,3 +132,21 @@ func (m *MockIdempotencyStorage) Delete(_ context.Context, key string) error {
 	delete(m.entries, key)
 	return nil
 }
+
+// Release removes key only if the caller still owns its value.
+func (m *MockIdempotencyStorage) Release(_ context.Context, key string, lockToken []byte) error {
+	if key == "" {
+		return storages.ErrEmptyKey
+	}
+	if len(lockToken) == 0 {
+		return storages.ErrMissingLockState
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	current, ok := m.entries[key]
+	if !ok || !bytes.Equal(current, lockToken) {
+		return storages.ErrLockStolen
+	}
+	delete(m.entries, key)
+	return nil
+}
