@@ -136,6 +136,17 @@ integrations live behind their own subpackages, so an unused subsystem costs you
 | [Field Behavior](docs/domain/proto/fieldbehavior.md) | Strip `google.api.field_behavior` fields (OUTPUT_ONLY / IDENTIFIER / IMMUTABLE / INPUT_ONLY) from Create / Update / Response payloads |
 | [Event Bus](docs/domain/eventbus.md) | In-process event bus: delivery & transaction semantics, the `uow` post-commit compensation companion, pluggable database backends |
 
+### Engineering guides
+
+Opinionated engineering guidance for services built on the toolkit: general practice plus the team's default choices.
+
+| Guide | Description |
+|-------|-------------|
+| [Concurrency and Consistency Patterns](docs/guides/concurrency-patterns.md) | In-process concurrency, database-level locking, distributed coordination, outbox/idempotency/saga, overload protection |
+| [Message Brokers and Queues](docs/guides/message-brokers.md) | Choosing a broker, delivery semantics and ordering, NATS/Kafka/RabbitMQ and alternatives, reliability patterns |
+| [Observability](docs/guides/observability.md) | Correlation, metrics, logs, tracing, alerting and SLOs, dashboards, probes, new-service checklist |
+| [Performance and Profiling](docs/guides/performance-profiling.md) | Latency metrics, pprof, execution traces, benchmarks, GC tuning, PGO, load testing, investigation checklist |
+
 Full API documentation is available at [pkg.go.dev](https://pkg.go.dev/github.com/altessa-s/go-atlas).
 
 ## Development
