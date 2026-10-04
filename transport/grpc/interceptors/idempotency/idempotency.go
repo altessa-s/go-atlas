@@ -209,8 +209,8 @@ func (ri *requestInterceptor) PostCall(ctx context.Context, res any, err error) 
 	}
 
 	if err != nil {
-		// On error, delete the key
-		_ = ri.i.Delete(ctx, ri.lockedKey) //nolint:errcheck // Best-effort cleanup
+		// Release only the lock owned by this failed request.
+		_ = ri.i.Release(ctx, ri.lockedKey, ri.lockedState) //nolint:errcheck // Best-effort cleanup
 		return err
 	}
 

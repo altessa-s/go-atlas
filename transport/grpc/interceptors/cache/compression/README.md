@@ -5,7 +5,7 @@ import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/cache/compress
 ```
 
 Package `compression` provides high-performance gzip compression for cache operations. Features 4-tier buffer pooling (small/medium/large via
-`sync.Pool`), zero-copy for small payloads, streaming for large payloads, and zip bomb protection with configurable compression ratio limits.
+`sync.Pool`), zero-copy for small payloads, streaming for large payloads, and zip bomb protection with fixed compression ratio limits.
 
 ## Key types
 
@@ -32,3 +32,8 @@ Package `compression` provides high-performance gzip compression for cache opera
 | `DefaultMinSize` | 1 KB  | Minimum payload size to trigger compression  |
 | `DefaultMaxSize` | 0     | Maximum size (0 = no limit)                  |
 | `DefaultLevel`   | 6     | Default gzip compression level               |
+
+## Round-trip guarantees
+
+When gzip would exceed the decoder's compression-ratio limit, `Compress` stores the payload with an uncompressed header. Highly repetitive inputs
+therefore round-trip without relaxing zip-bomb protection for compressed entries.
