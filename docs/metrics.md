@@ -34,6 +34,13 @@ Package: `transport/broker`
 | `broker_message_processing_duration_seconds` | Histogram | `subject` | Message handler execution duration |
 | `broker_message_processing_errors_total`     | Counter   | `subject` | Message handler failures           |
 
+On subscriber metrics, `subject` is the subscription subject (which may contain wildcards), not the concrete subject of each message, so
+cardinality stays bounded by the number of subscriptions. `broker_message_processing_errors_total` counts messages the handler rejected with
+`Nak` / `Term` or that made the handler panic, once per delivery.
+
+On publisher metrics, `subject` is the published subject; at most `DefaultSubjectLabelLimit` (256, configurable with
+`broker.WithSubjectLabelLimit`) distinct subjects get their own series, and further subjects are counted under `_other`.
+
 ---
 
 ## broker_inprogress

@@ -409,3 +409,22 @@ func TestSubscriber_DelegatesToProvider(t *testing.T) {
 	require.Same(t, sub, got)
 	require.Same(t, provider, factoryArg)
 }
+
+func TestPublish_Metrics_SubjectLabelLimit(t *testing.T) {
+	t.Parallel()
+
+	tc := testhelpers.NewTestCollector()
+	b := broker.New(&recordingProvider{}, broker.WithCollector(tc), broker.WithSubjectLabelLimit(2))
+
+	for _, topic := range []string{"tenant.a", "tenant.b", "tenant.c", "tenant.d", "tenant.a"} {
+		require.NoError(t, b.Publish(t.Context(), msg.Message{Topic: topic}))
+	}
+
+	get := func(subject string) float64 {
+		return testhelpers.GetCounterValue(t, tc, "test_broker_messages_published_total", "subject", subject)
+	}
+	require.Equal(t, float64(2), get("tenant.a"))
+	require.Equal(t, float64(1), get("tenant.b"))
+	require.Equal(t, float64(2), get(broker.OtherSubjectLabel))
+	require.Zero(t, get("tenant.c"))
+}

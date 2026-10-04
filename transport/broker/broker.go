@@ -51,7 +51,7 @@ func New(provider Provider, opt ...Option) *Broker {
 		logger:           cfg.logger,
 		outbox:           outbox,
 		publishConverter: cfg.publishConverter,
-		metrics:          newBrokerMetrics(cfg.collector),
+		metrics:          newBrokerMetrics(cfg.collector, cfg.subjectLabelLimit),
 	}
 }
 

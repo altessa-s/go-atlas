@@ -32,11 +32,12 @@ systems and implements the Transactional Outbox pattern for exactly-once deliver
 
 ## Options
 
-| Option                | Description                                                                   |
-|-----------------------|-------------------------------------------------------------------------------|
-| `WithLogger`          | Set the `*slog.Logger` for the broker (default: discard)                      |
-| `WithOutbox`          | Set a custom `Outboxer` for reliable delivery (default: direct publish)       |
-| `WithPublishConverter`| Set the `PublishConverter` function for `PublishAny`                           |
+| Option                  | Description                                                                                          |
+|-------------------------|------------------------------------------------------------------------------------------------------|
+| `WithLogger`            | Set the `*slog.Logger` for the broker (default: discard)                                             |
+| `WithOutbox`            | Set a custom `Outboxer` for reliable delivery (default: direct publish)                              |
+| `WithPublishConverter`  | Set the `PublishConverter` function for `PublishAny`                                                 |
+| `WithSubjectLabelLimit` | Max distinct `subject` label values on publish metrics; extra subjects go to `_other` (default: 256) |
 
 ## Errors
 
