@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/BurntSushi/toml"
 
@@ -35,12 +36,28 @@ func (b *Backend) DecodeKeys(reader io.Reader) (backend.KeyNode, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &keyNode{md: &md, value: root}, nil
+	return &keyNode{doc: &document{md: md}, value: root}, nil
 }
 
-// keyNode is a value of a TOML document.
+// document is a decoded TOML document. Its metadata keeps decoder state that
+// every PrimitiveDecode mutates, so the nodes of one document decode one at
+// a time.
+type document struct {
+	mu sync.Mutex
+	md toml.MetaData
+}
+
+// decode decodes value into out under the document lock.
+func (d *document) decode(value toml.Primitive, out any) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.md.PrimitiveDecode(value, out) == nil
+}
+
+// keyNode is a value of a TOML document. Its methods are safe for concurrent
+// use.
 type keyNode struct {
-	md    *toml.MetaData
+	doc   *document
 	value toml.Primitive
 }
 
@@ -54,10 +71,10 @@ func (k *keyNode) Fields(t reflect.Type) (map[int]backend.KeyNode, bool) {
 	}
 	sh := shadowOf(t)
 	v := reflect.New(sh.typ)
-	if err := k.md.PrimitiveDecode(k.value, v.Interface()); err != nil {
+	if !k.doc.decode(k.value, v.Interface()) {
 		return nil, false
 	}
-	return sh.collect(v.Elem(), k.md), true
+	return sh.collect(v.Elem(), k.doc), true
 }
 
 // Entries binds a table to map type t.
@@ -66,14 +83,14 @@ func (k *keyNode) Entries(t reflect.Type) (map[any]backend.KeyNode, bool) {
 		return nil, false
 	}
 	m := reflect.New(reflect.MapOf(t.Key(), primitiveType))
-	if err := k.md.PrimitiveDecode(k.value, m.Interface()); err != nil {
+	if !k.doc.decode(k.value, m.Interface()) {
 		return nil, false
 	}
 
 	out := make(map[any]backend.KeyNode, m.Elem().Len())
 	for it := m.Elem().MapRange(); it.Next(); {
 		p, _ := it.Value().Interface().(toml.Primitive)
-		out[it.Key().Interface()] = &keyNode{md: k.md, value: p}
+		out[it.Key().Interface()] = &keyNode{doc: k.doc, value: p}
 	}
 	return out, true
 }
@@ -84,13 +101,13 @@ func (k *keyNode) Elems(t reflect.Type) ([]backend.KeyNode, bool) {
 		return nil, false
 	}
 	var s []toml.Primitive
-	if err := k.md.PrimitiveDecode(k.value, &s); err != nil {
+	if !k.doc.decode(k.value, &s) {
 		return nil, false
 	}
 
 	out := make([]backend.KeyNode, len(s))
 	for i, p := range s {
-		out[i] = &keyNode{md: k.md, value: p}
+		out[i] = &keyNode{doc: k.doc, value: p}
 	}
 	return out, true
 }
@@ -114,21 +131,22 @@ type shadow struct {
 // shadowField maps a field of the shadow type to the destination field.
 type shadowField struct {
 	index    int     // field index in the destination struct
+	shadow   int     // field index in the shadow struct
 	embedded *shadow // the flattened anonymous struct, or nil for a value
 }
 
 // collect returns the destination fields the decoded shadow value v sets.
-func (s *shadow) collect(v reflect.Value, md *toml.MetaData) map[int]backend.KeyNode {
+func (s *shadow) collect(v reflect.Value, doc *document) map[int]backend.KeyNode {
 	out := make(map[int]backend.KeyNode, len(s.fields))
-	for j, f := range s.fields {
-		fv := v.Field(j)
+	for _, f := range s.fields {
+		fv := v.Field(f.shadow)
 		if f.embedded != nil {
-			out[f.index] = &fieldsNode{fields: f.embedded.collect(fv, md)}
+			out[f.index] = &fieldsNode{fields: f.embedded.collect(fv, doc)}
 			continue
 		}
 		if !fv.IsZero() {
 			p, _ := fv.Interface().(toml.Primitive)
-			out[f.index] = &keyNode{md: md, value: p}
+			out[f.index] = &keyNode{doc: doc, value: p}
 		}
 	}
 	return out
@@ -151,8 +169,8 @@ func shadowOf(t reflect.Type) *shadow {
 // buildShadow mirrors the field selection of BurntSushi/toml's typeFields:
 // unexported fields other than embedded structs are skipped, "-" excludes a
 // field, and an anonymous struct (or pointer to one) without a tag name is
-// flattened. Names and tag names are kept, so the decoder applies its own
-// exact-then-case-insensitive matching and embedding dominance rules.
+// flattened. Names and complete toml tags are kept, so the decoder applies its
+// own exact-then-case-insensitive matching and embedding dominance rules.
 func buildShadow(t reflect.Type, visiting map[reflect.Type]bool) *shadow {
 	if s, ok := shadowCache.Load(t); ok {
 		sh, _ := s.(*shadow)
@@ -161,8 +179,22 @@ func buildShadow(t reflect.Type, visiting map[reflect.Type]bool) *shadow {
 	visiting[t] = true
 	defer delete(visiting, t)
 
+	// Every field name of t, to keep a renamed embedded field unique.
+	names := make(map[string]bool, t.NumField())
+	for i := range t.NumField() {
+		names[t.Field(i).Name] = true
+	}
+
+	// The decoder tells embedded structs apart by type; a marker field the
+	// decoder skips keeps the shadows of distinct types distinct even when
+	// their fields are alike.
 	sh := &shadow{}
-	sfs := make([]reflect.StructField, 0, t.NumField())
+	sfs := make([]reflect.StructField, 0, t.NumField()+1)
+	sfs = append(sfs, reflect.StructField{
+		Name: uniqueName("ShadowOf_"+strconv.Itoa(typeID(t)), names),
+		Type: reflect.TypeFor[struct{}](),
+		Tag:  `toml:"-"`,
+	})
 	for i := range t.NumField() {
 		sf := t.Field(i)
 		tag := sf.Tag.Get("toml")
@@ -181,11 +213,11 @@ func buildShadow(t reflect.Type, visiting map[reflect.Type]bool) *shadow {
 			}
 			inner := buildShadow(ft, visiting)
 			sfs = append(sfs, reflect.StructField{
-				Name:      "Embedded_" + strconv.Itoa(i),
+				Name:      embeddedName(sf, names),
 				Type:      inner.typ,
 				Anonymous: true,
 			})
-			sh.fields = append(sh.fields, shadowField{index: i, embedded: inner})
+			sh.fields = append(sh.fields, shadowField{index: i, shadow: len(sfs) - 1, embedded: inner})
 			continue
 		}
 		if !sf.IsExported() {
@@ -193,14 +225,50 @@ func buildShadow(t reflect.Type, visiting map[reflect.Type]bool) *shadow {
 		}
 
 		f := reflect.StructField{Name: sf.Name, Type: primitiveType}
-		if name != "" {
-			f.Tag = reflect.StructTag(`toml:` + strconv.Quote(name))
+		if tag != "" {
+			f.Tag = reflect.StructTag(`toml:` + strconv.Quote(tag))
 		}
 		sfs = append(sfs, f)
-		sh.fields = append(sh.fields, shadowField{index: i})
+		sh.fields = append(sh.fields, shadowField{index: i, shadow: len(sfs) - 1})
 	}
 	sh.typ = reflect.StructOf(sfs)
 	return sh
+}
+
+// embeddedName names the shadow of an embedded field: its own name when
+// exported, otherwise an exported name no other field of the struct uses. The
+// decoder ignores the name of a flattened field.
+func embeddedName(sf reflect.StructField, names map[string]bool) string {
+	if sf.IsExported() {
+		return sf.Name
+	}
+	return uniqueName("Embedded_"+sf.Name, names)
+}
+
+// uniqueName returns name, extended until no field in names uses it, and
+// reserves it.
+func uniqueName(name string, names map[string]bool) string {
+	for names[name] {
+		name += "_"
+	}
+	names[name] = true
+	return name
+}
+
+var (
+	typeIDs    sync.Map // map[reflect.Type]int
+	typeIDNext atomic.Int64
+)
+
+// typeID returns a number identifying struct type t for the process lifetime.
+func typeID(t reflect.Type) int {
+	if id, ok := typeIDs.Load(t); ok {
+		n, _ := id.(int)
+		return n
+	}
+	id, _ := typeIDs.LoadOrStore(t, int(typeIDNext.Add(1)))
+	n, _ := id.(int)
+	return n
 }
 
 // fieldsNode holds the fields of an anonymous struct the decoder flattens into

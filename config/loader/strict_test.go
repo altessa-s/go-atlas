@@ -144,8 +144,8 @@ type strictAnonymousOuter struct {
 }
 
 func TestStrict_FieldAssignmentFailure(t *testing.T) {
-	// This test verifies that initializeStruct returns error on assignment failures
-	// when strict mode is enabled. The anonymous field mechanism handles this.
+	// A nil embedded pointer struct is allocated in strict mode; any assignment
+	// failure must surface as ErrFieldAssignment.
 	cfg := &strictAnonymousOuter{}
 	l := loader.New(nil, loader.WithStrict())
 

@@ -315,11 +315,7 @@ func (fn *fieldNavigator) processField(
 
 	// Handle last part or continue navigation
 	if partIndex == len(fn.pathParts)-1 {
-		if err := fn.cf.setFieldValue(fieldValue, fn.value); err != nil {
-			return true, err
-		}
-		fn.cf.markEnv(*steps)
-		return true, nil
+		return true, fn.cf.setFieldValue(fieldValue, fn.value, *steps)
 	}
 
 	*currentValue = fieldValue
@@ -346,11 +342,7 @@ func (fn *fieldNavigator) handleIndexedSlice(
 	*steps = withStep(*steps, pathStep{kind: elemStep, index: arrayIndex})
 
 	if partIndex == len(fn.pathParts)-1 {
-		if err := set(fieldValue.Index(arrayIndex), fn.value, false, true, fn.cf.options.strict); err != nil {
-			return true, err
-		}
-		fn.cf.markEnv(*steps)
-		return true, nil
+		return true, fn.cf.setFieldValue(fieldValue.Index(arrayIndex), fn.value, *steps)
 	}
 
 	*currentValue = fieldValue.Index(arrayIndex)
@@ -394,7 +386,7 @@ func (fn *fieldNavigator) handleMapWithPrimitiveValue(
 
 	mapKeyValue := reflect.ValueOf(mapKey)
 	newValue := reflect.New(mapValueType).Elem()
-	if err := set(newValue, fn.value, false, true, fn.cf.options.strict); err != nil {
+	if _, err := set(newValue, fn.value, false, true, fn.cf.options.strict); err != nil {
 		return err
 	}
 	fieldValue.SetMapIndex(mapKeyValue, newValue)
@@ -462,11 +454,7 @@ func (fn *fieldNavigator) handlePrimitiveSlice(fieldValue reflect.Value, index, 
 		return nil
 	}
 
-	if err := set(fieldValue.Index(index), fn.value, false, true, fn.cf.options.strict); err != nil {
-		return err
-	}
-	fn.cf.markEnv(steps)
-	return nil
+	return fn.cf.setFieldValue(fieldValue.Index(index), fn.value, steps)
 }
 
 // handleStructSlice handles slices with struct elements. steps locates the
@@ -510,7 +498,7 @@ func (cf *Config) setNestedFieldValue(fld *field, pathParts []string, value stri
 			if i == len(pathParts)-1 {
 				// This is the final key, set the map value
 				newValue := reflect.New(mapValueType).Elem()
-				if err := set(newValue, value, false, true, cf.options.strict); err != nil {
+				if _, err := set(newValue, value, false, true, cf.options.strict); err != nil {
 					return err
 				}
 				currentValue.SetMapIndex(mapKeyValue, newValue)
@@ -565,10 +553,7 @@ func (cf *Config) setNestedFieldValue(fld *field, pathParts []string, value stri
 		if i == len(pathParts)-1 {
 			// This is the final field, set its value
 			if fieldValue.CanSet() {
-				if err := cf.setFieldValue(fieldValue, value); err != nil {
-					return err
-				}
-				cf.markEnv(steps)
+				return cf.setFieldValue(fieldValue, value, steps)
 			}
 		} else {
 			// Continue navigation

@@ -27,20 +27,17 @@ func (cf *Config) loadEnvs() error {
 	var err error
 
 	// Use envsWithSecrets to support secret expansion in environment variables.
-	// The result is cached for the rest of the load so re-applying explicit
-	// values does not resolve secrets again.
-	envs := cf.envCache
-	if envs == nil {
-		ctx, cancel := cf.options.getSecretsContext()
-		envs, err = envsWithSecrets(ctx, cf.options.secretsManager, cf.options.strict)
-		cancel()
-		if err != nil {
-			return coreerrs.WrapOperation(err, "expand secrets in environment variables")
-		}
-		cf.envCache = envs
+	ctx, cancel := cf.options.getSecretsContext()
+	envs, err := envsWithSecrets(ctx, cf.options.secretsManager, cf.options.strict)
+	cancel()
+	if err != nil {
+		return coreerrs.WrapOperation(err, "expand secrets in environment variables")
 	}
 
-	// First, handle regular field mappings
+	// First, handle regular field mappings. A field under a nil pointer
+	// struct is reached by allocating the structs along its path, only when
+	// the environment sets it.
+	root := reflect.ValueOf(cf.conf).Elem()
 	cf.fields.each(func(fld *field) bool {
 		envName := cf.envFieldName(fld)
 		if envName == "" {
@@ -48,15 +45,14 @@ func (cf *Config) loadEnvs() error {
 		}
 
 		if val, ok := envs[envName]; ok {
-			if err = fld.setValue(val, envTagName, cf.options.strict); err != nil {
-				return false
+			value := fld.value
+			if !value.IsValid() {
+				value = fieldByIndexAlloc(root, fld.index)
 			}
-			if fld.value.IsValid() {
-				cf.markEnv(fld.pathSteps())
-			}
+			err = cf.setFieldValue(value, val, fld.pathSteps())
 		}
 
-		return true
+		return err == nil
 	})
 
 	if err != nil {
@@ -76,19 +72,19 @@ func (cf *Config) loadEnvs() error {
 	return nil
 }
 
-// discoverEnv records which values the environment sets, before any default
-// is applied, by loading the environment into a scratch zero configuration of
-// the same type: the steps recorded there locate the same values in the real
-// one. Defaults then skip those values, so a default tag can neither override
-// an explicit false, 0 or "" from the environment nor fail in strict mode on
-// an undefined ${VAR} the value does not need.
-func (cf *Config) discoverEnv() error {
-	conf, list := cf.conf, cf.fields
-	defer func() { cf.conf, cf.fields = conf, list }()
-
-	cf.conf = reflect.New(indirectType(reflect.TypeOf(conf))).Interface()
-	cf.fields = structFields(cf.conf)
-	return cf.loadEnvs()
+// fieldByIndexAlloc returns the field at the struct index path from v,
+// allocating nil pointer structs along the way.
+func fieldByIndexAlloc(v reflect.Value, index []int) reflect.Value {
+	for _, i := range index {
+		for v.Kind() == reflect.Pointer {
+			if v.IsNil() {
+				v.Set(reflect.New(v.Type().Elem()))
+			}
+			v = v.Elem()
+		}
+		v = v.Field(i)
+	}
+	return v
 }
 
 // markEnv records that the environment set the value at steps.
@@ -408,10 +404,9 @@ func (cf *Config) setPrimitiveSliceElements(arrayField *field, elements map[stri
 	steps := arrayField.pathSteps()
 	for index, value := range indexedValues {
 		elementValue := arrayField.value.Index(index)
-		if err := set(elementValue, value, false, true, cf.options.strict); err != nil {
+		if err := cf.setFieldValue(elementValue, value, withStep(steps, pathStep{kind: elemStep, index: index})); err != nil {
 			return err
 		}
-		cf.markEnv(withStep(steps, pathStep{kind: elemStep, index: index}))
 	}
 
 	return nil
@@ -552,8 +547,19 @@ func (cf *Config) ensureSliceSizeForValue(sliceValue reflect.Value, minSize int)
 }
 
 // setFieldValue sets a reflect.Value from a string value.
-func (cf *Config) setFieldValue(fieldValue reflect.Value, value string) error {
-	return set(fieldValue, value, false, true, cf.options.strict)
+// It records the value as set by the environment only when it was actually
+// assigned: an empty value leaves numbers, bools, slices and maps untouched,
+// so their defaults still apply. steps locates fieldValue from the
+// configuration root.
+func (cf *Config) setFieldValue(fieldValue reflect.Value, value string, steps []pathStep) error {
+	assigned, err := set(fieldValue, value, false, true, cf.options.strict)
+	if err != nil {
+		return err
+	}
+	if assigned {
+		cf.markEnv(steps)
+	}
+	return nil
 }
 
 // loadNestedEnvs handles nested structures using the section delimiter.
