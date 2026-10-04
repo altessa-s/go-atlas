@@ -15,7 +15,7 @@ go-atlas is a modular Go toolkit for distributed services. Each package is usabl
 caching, observability, authentication, secret management, configuration, and domain utilities.
 
 Every major component is defined by an interface, implementations are injected via functional options, and unset dependencies default to safe
-no-ops. Import only what you need — there is no framework bootstrap or global state.
+no-ops. Import the packages you need; applications own construction and lifecycle. See the [architecture](docs/architecture.md) for dependency and state ownership contracts.
 
 > **History.** go-atlas started in 2022 as an internal company project and ran in production for several years before it was extracted and
 > open-sourced on GitHub. As a result, the public git history begins at the point of import rather than at the project's actual inception.
@@ -63,7 +63,7 @@ integrations live behind their own subpackages, so an unused subsystem costs you
 | [`config`](config/) | Configuration structs and validation for all go-atlas components |
 | [`config/loader`](config/loader/) | Multi-source config loading (YAML/TOML, env vars, secrets) with validation |
 | [`config/templates`](config/templates/) | Commented YAML configuration templates for the config structs |
-| [`core`](core/) | Collections, concurrency, errors, context, encoding, retry, WAL, scheduling, types (zero external deps) |
+| [`core`](core/) | Collections, concurrency, errors, context, encoding, retry, WAL, scheduling, types (stdlib-first; narrow platform and semaphore dependencies) |
 | [`data/audit`](data/audit/) | Async audit-event dispatcher with pluggable storage |
 | [`data/cache`](data/cache/) | Multi-backend caching with singleflight, fallback, and TTL management |
 | [`data/filter`](data/filter/) | CEL expression parser with translators for MongoDB, ClickHouse, MariaDB, PostgreSQL, Meilisearch, RediSearch, and Lua |
