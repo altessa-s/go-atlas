@@ -125,6 +125,11 @@ func (cf *Config) fillEnvCollection(fv reflect.Value, value string, p *presence)
 	if p == nil || p.set || !p.envGrown || fv.Kind() != reflect.Slice && fv.Kind() != reflect.Map {
 		return nil
 	}
+	if fv.Kind() == reflect.Slice && !hasEnvHole(fv, p) {
+		// Nothing to fill: don't substitute (and in strict mode fail on) a
+		// default that is never applied.
+		return nil
+	}
 
 	value, err := cf.substituteDefault(value)
 	if err != nil {
@@ -155,6 +160,21 @@ func (cf *Config) fillEnvCollection(fv reflect.Value, value string, p *presence)
 		}
 	}
 	return nil
+}
+
+// hasEnvHole reports whether an environment-grown slice has an element the
+// default tag could fill: it was created from nothing, or an element past its
+// pre-environment length is still unset and zero.
+func hasEnvHole(fv reflect.Value, p *presence) bool {
+	if p.envBase == 0 {
+		return true
+	}
+	for i := p.envBase; i < fv.Len(); i++ {
+		if p.elem(i) == nil && fv.Index(i).IsZero() {
+			return true
+		}
+	}
+	return false
 }
 
 // substituteDefault expands ${VAR} references in a default tag value.

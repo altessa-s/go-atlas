@@ -47,12 +47,15 @@ passed to `Load`, a file or `Default()` are never overwritten.
 
 Compared with earlier releases:
 
-- The environment is applied before `Default()`, so `Default()` sees environment values; it runs once per struct instead of twice.
+- The environment is applied before `Default()`, so `Default()` sees environment values; it runs once per eligible struct (the root, pointer structs and
+  collection elements, not plain value-struct fields) instead of twice.
 - An explicit `false`, `0` or `""` from a file or the environment now wins over a `default` tag; an empty environment variable is not an
   explicit value for a bool, number, duration, slice or map.
 - Omitted, untagged pointer structs are allocated and defaulted at any depth, including inside map and slice elements; tag such a field
   `default:"-"` to keep it `nil`. A pointer struct a file sets to `null` also stays `nil` inside collection elements.
 - A `default` tag is only substituted when it is applied, so in strict mode an undefined `${VAR}` in an unused default no longer fails.
+- Backends implementing `backend.KeyDecoder` must return a `backend.KeyNode`; see the
+  [migration note](backend/README.md#migrating-a-keydecoder-breaking-change).
 
 ## Interfaces
 

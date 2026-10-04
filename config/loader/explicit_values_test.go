@@ -293,3 +293,18 @@ func TestLoad_CyclicAliasIsError(t *testing.T) {
 	_, err := loader.New(nil, loader.WithPath(path)).Load(&keysConfig{})
 	require.ErrorIs(t, err, loader.ErrDecode)
 }
+
+type strictHostsConfig struct {
+	Hosts []string `yaml:"hosts" env:"STRICT_HOSTS" default:"${STRICT_HOSTS_UNDEFINED_DEFAULT}"`
+}
+
+// A collection default that has no hole to fill is not substituted, so an
+// undefined ${VAR} in it does not fail strict mode.
+func TestLoad_StrictUnusedCollectionDefault(t *testing.T) {
+	t.Setenv("STRICT_HOSTS__1", "replica:6379")
+
+	cfg := &strictHostsConfig{Hosts: []string{"redis.internal:6379"}}
+	_, err := loader.New(nil, loader.WithStrict()).Load(cfg)
+	require.NoError(t, err)
+	require.Equal(t, []string{"redis.internal:6379", "replica:6379"}, cfg.Hosts)
+}
