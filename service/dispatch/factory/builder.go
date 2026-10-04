@@ -88,6 +88,8 @@ func (b *EngineBuilder[T]) buildEngine() (*dispatch.Engine[T], error) {
 		dispatch.WithBufferSize[T](cfg.BufferSize),
 		dispatch.WithBatchSize[T](cfg.BatchSize),
 		dispatch.WithWorkers[T](cfg.Workers),
+		dispatch.WithStoreTimeout[T](cfg.StoreTimeout),
+		dispatch.WithRetryMaxBackoff[T](cfg.RetryMaxBackoff),
 		dispatch.WithRetryAttempts[T](cfg.RetryAttempts),
 		dispatch.WithLogger[T](b.Logger()),
 	}

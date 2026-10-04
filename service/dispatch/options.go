@@ -28,6 +28,10 @@ const (
 	DefaultRetryAttempts = 3
 	// DefaultRetryBackoff is the base duration for exponential backoff.
 	DefaultRetryBackoff = 100 * time.Millisecond
+	// DefaultRetryMaxBackoff caps retry waits during a durable sink outage.
+	DefaultRetryMaxBackoff = 30 * time.Second
+	// DefaultStoreTimeout bounds each sink call.
+	DefaultStoreTimeout = 30 * time.Second
 	// DefaultRetryJitter is the fraction of each computed backoff added as
 	// randomized jitter. Without it every worker that fails against the same
 	// sink retries on the same schedule, so a shared outage turns into
@@ -55,6 +59,8 @@ type options[T any] struct {
 	workers          int            `optgen:"default=DefaultWorkers"       optval:"positive"`
 	retryAttempts    int            `optgen:"default=DefaultRetryAttempts" optval:"positive=allow_zero"`
 	retryBackoff     time.Duration  `optgen:"default=DefaultRetryBackoff"`
+	retryMaxBackoff  time.Duration  `optgen:"default=DefaultRetryMaxBackoff" optval:"positive"`
+	storeTimeout     time.Duration  `optgen:"default=DefaultStoreTimeout" optval:"positive"`
 	retryJitter      float64        `optgen:"default=DefaultRetryJitter"`
 	backPressure     bool           //
 	onDrop           DropHandler[T] //

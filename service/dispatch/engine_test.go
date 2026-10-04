@@ -9,7 +9,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -100,7 +99,7 @@ func newRunningEngine(
 	require.NoError(tb, err)
 	require.NoError(tb, eng.Start())
 	tb.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(tb.Context()), 2*time.Second)
 		defer cancel()
 		_ = eng.Shutdown(ctx)
 	})
@@ -206,14 +205,7 @@ func TestEngine_WithWAL_RoundTripAndCleanup(t *testing.T) {
 
 	// All segments should be removed since every record was acked.
 	matches, _ := filepath.Glob(filepath.Join(dir, "*.wal"))
-	if len(matches) != 0 {
-		for _, m := range matches {
-			if fi, _ := os.Stat(m); fi != nil {
-				t.Logf("leftover %s size=%d", m, fi.Size())
-			}
-		}
-		t.Fatalf("expected wal dir empty after acks, found: %v", matches)
-	}
+	require.Empty(t, matches)
 }
 
 // blockSink stalls StoreBatch on its channel so the WAL accumulates
@@ -255,9 +247,12 @@ func TestEngine_WAL_CrashRecovery(t *testing.T) {
 		}
 		// Force fsync to make sure records are durable.
 		require.NoError(t, eng.WAL().Sync())
-		// Simulate crash: do NOT call Shutdown, just close the WAL to
-		// release the fd for the test process. Recovery is what matters.
-		require.NoError(t, eng.WAL().Close())
+		// A timed-out drain retains the journal and stops the blocked callback.
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+		defer cancel()
+		err = eng.Shutdown(ctx)
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.ErrorIs(t, err, dispatch.ErrBacklog)
 	}
 
 	// Phase 2: open a fresh engine in the same dir and verify all records replay.
@@ -423,7 +418,7 @@ func TestEngine_BackPressure_BlocksUntilDrain(t *testing.T) {
 
 	select {
 	case <-done:
-		t.Fatal("Submit returned before the sink was released")
+		require.FailNow(t, "Submit returned before the sink was released")
 	case <-time.After(50 * time.Millisecond):
 		// expected: still blocked in the send on a full buffer.
 	}
@@ -434,7 +429,7 @@ func TestEngine_BackPressure_BlocksUntilDrain(t *testing.T) {
 	case ok := <-done:
 		require.True(t, ok, "BackPressure Submit must return true once the buffer drains")
 	case <-time.After(time.Second):
-		t.Fatal("Submit never unblocked after sink release")
+		require.FailNow(t, "Submit never unblocked after sink release")
 	}
 }
 

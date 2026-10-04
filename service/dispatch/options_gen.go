@@ -109,6 +109,26 @@ func WithRetryJitter[T any](v float64) Option[T] {
 	}
 }
 
+// WithRetryMaxBackoff sets the retryMaxBackoff option.
+func WithRetryMaxBackoff[T any](v time.Duration) Option[T] {
+	return func(o *options[T]) {
+		if v <= 0 {
+			return
+		}
+		o.retryMaxBackoff = v
+	}
+}
+
+// WithStoreTimeout sets the storeTimeout option.
+func WithStoreTimeout[T any](v time.Duration) Option[T] {
+	return func(o *options[T]) {
+		if v <= 0 {
+			return
+		}
+		o.storeTimeout = v
+	}
+}
+
 // WithWorkers sets the workers option.
 func WithWorkers[T any](v int) Option[T] {
 	return func(o *options[T]) {
@@ -130,6 +150,8 @@ func defaultOptions[T any]() *options[T] {
 		retryAttempts:    DefaultRetryAttempts,
 		retryBackoff:     DefaultRetryBackoff,
 		retryJitter:      DefaultRetryJitter,
+		retryMaxBackoff:  DefaultRetryMaxBackoff,
+		storeTimeout:     DefaultStoreTimeout,
 		workers:          DefaultWorkers,
 	}
 }
