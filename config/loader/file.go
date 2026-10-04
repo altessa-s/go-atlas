@@ -39,9 +39,9 @@ type file struct {
 	path      string
 	sum       string
 	isSymlink bool
-	// keys is the generic decode of the last loaded content: the set of keys
-	// the file wrote, used to keep explicit values over default tags.
-	keys map[string]any
+	// keys is the root value of the last loaded content, from which the
+	// loader learns the values the file wrote explicitly.
+	keys backend.KeyNode
 }
 
 // loadAndDecode loads the file and decodes it into the provided interface.
@@ -125,22 +125,25 @@ func (cf *Config) loadAndDecode(f *file, out any) (err error) {
 	}
 
 	// Decode the same content generically to record which keys were set.
-	var keys map[string]any
-	if kd, ok := f.decoder.(backend.KeyDecoder); ok {
-		keys, err = kd.DecodeKeys(strings.NewReader(substitutedContent))
-	} else {
-		err = f.decoder.Decode(strings.NewReader(substitutedContent), &keys)
-	}
-	if err != nil {
-		err = fmt.Errorf("%w: %s: %w", ErrDecode, f.name, err)
-		return
-	}
-	f.keys, _ = normalizePresence(keys).(map[string]any)
-
 	// Create a reader from the substituted content
 	substitutedReader := strings.NewReader(substitutedContent)
 
 	err = f.decoder.Decode(substitutedReader, out)
+	if err != nil {
+		err = fmt.Errorf("%w: %s: %w", ErrDecode, f.name, err)
+		return
+	}
+
+	// Record which keys the file set. This runs only after the typed decode
+	// accepted the document, so the decoder's own limits (alias cycles,
+	// excessive aliasing) have already rejected hostile input.
+	if kd, ok := f.decoder.(backend.KeyDecoder); ok {
+		f.keys, err = kd.DecodeKeys(strings.NewReader(substitutedContent))
+	} else {
+		var generic map[string]any
+		err = f.decoder.Decode(strings.NewReader(substitutedContent), &generic)
+		f.keys = genericNode{value: generic, tag: cf.backend.StructTagName()}
+	}
 	if err != nil {
 		err = fmt.Errorf("%w: %s: %w", ErrDecode, f.name, err)
 		return

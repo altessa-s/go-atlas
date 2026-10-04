@@ -6,6 +6,7 @@ package backend
 
 import (
 	"io"
+	"reflect"
 )
 
 // Decoder is the interface that should be implemented by a backend to decode the data from the reader.
@@ -36,10 +37,37 @@ type Preprocessor interface {
 	Preprocess(content, currentDir, rootDir string) (string, error)
 }
 
-// KeyDecoder is implemented by a backend that can report the keys a document
-// sets, spelled as in the source. The loader uses it to tell explicit values
-// from omitted ones; mappings are map[string]any, sequences []any, and any
-// other present value is non-nil or nil for an explicit null.
+// KeyDecoder is implemented by a backend that can report which values a
+// document sets. The loader uses it to tell an explicit false, 0 or "" from an
+// omitted key, so default tags apply only to the latter.
 type KeyDecoder interface {
-	DecodeKeys(reader io.Reader) (map[string]any, error)
+	// DecodeKeys parses the document and returns its root value; an empty
+	// document is a null value.
+	DecodeKeys(reader io.Reader) (KeyNode, error)
+}
+
+// KeyNode is a value of a parsed document. Its children are bound to
+// destination types on demand, exactly the way the backend's Decode binds them:
+// struct fields by the backend's key, embedding and case rules; map keys
+// decoded into the map's key type; sequence elements by the position they
+// take in the decoded slice.
+type KeyNode interface {
+	// IsNull reports whether the value is an explicit null.
+	IsNull() bool
+
+	// Fields binds the value to struct type t and returns the values of the
+	// fields it sets, keyed by field index in t. An anonymous or inline field
+	// whose fields the backend flattens into t maps to a node whose Fields
+	// returns them. It returns false when the value does not bind to t
+	// field by field, e.g. when t decodes itself through an unmarshaler.
+	Fields(t reflect.Type) (map[int]KeyNode, bool)
+
+	// Entries binds the value to map type t and returns its entries keyed by
+	// the decoded key (a value of t's key type), or false when it does not
+	// bind to t.
+	Entries(t reflect.Type) (map[any]KeyNode, bool)
+
+	// Elems binds the value to slice or array type t and returns its elements
+	// in decoded order, or false when it does not bind to t.
+	Elems(t reflect.Type) ([]KeyNode, bool)
 }

@@ -64,6 +64,20 @@ type field struct {
 	parentMap   *reflect.Value // Parent map if this field is from a map
 	mapKey      *reflect.Value // Key in parent map if this field is from a map
 	parentValue *reflect.Value // Parent struct value (for updating map entries)
+	// index is the struct index path of the field from the configuration
+	// root, through anonymous fields, which the field list flattens.
+	index []int
+	// steps locates a field found dynamically, possibly inside map entries or
+	// slice elements; nil for the field list, where index locates it.
+	steps []pathStep
+}
+
+// pathSteps returns the steps from the configuration root to the field.
+func (f *field) pathSteps() []pathStep {
+	if f.steps != nil {
+		return f.steps
+	}
+	return indexSteps(nil, f.index)
 }
 
 // isStructPtr checks if the field is a pointer to a struct.
@@ -306,28 +320,11 @@ func setBool(fieldValue reflect.Value, defaultValue string, isDefaultValue, repl
 }
 
 // setSlice parses and sets a slice value from a comma-separated string.
-// It handles special cases like byte slices and nested struct defaults.
+// It handles special cases like byte slices. Struct elements get their
+// defaults from the element pass (applyDefaultsToMaps), which knows which of
+// their fields were set explicitly.
 func setSlice(fieldValue reflect.Value, defaultValue string, isDefaultValue, replaceDefaultValue, strict bool) error {
 	if defaultValue == "" {
-		if indirectType(fieldValue.Type().Elem()).Kind() == reflect.Struct {
-			for i := range fieldValue.Len() {
-				e := fieldValue.Index(i)
-				eInterface := e.Interface()
-
-				structFields(eInterface).each(func(f *field) bool {
-					if !f.isStructPtr() {
-						if err := f.setDefaultValue(defaultValueTagName, strict); err != nil {
-							return false
-						}
-					}
-					return true
-				})
-
-				if df, ok := eInterface.(Defaulter); ok {
-					df.Default()
-				}
-			}
-		}
 		return nil
 	}
 
@@ -530,12 +527,14 @@ func (fs fields) All() iter.Seq[*field] {
 func structFields(s any) fields {
 	structValue := reflect.ValueOf(s)
 	structType := reflect.TypeOf(s)
-	return fieldsList(structValue, structType, nil)
+	return fieldsList(structValue, structType, nil, nil)
 }
 
 // fieldsList recursively builds a list of fields from a struct type.
 // It handles nested structs and anonymous fields, maintaining parent-child relationships.
-func fieldsList(structValue reflect.Value, structType reflect.Type, parent *field) fields {
+// index is the struct index path of structType from the configuration root;
+// anonymous fields are part of it even though they are not parents.
+func fieldsList(structValue reflect.Value, structType reflect.Type, parent *field, index []int) fields {
 	structValue = indirectValue(structValue)
 	structType = indirectType(structType)
 
@@ -561,6 +560,7 @@ func fieldsList(structValue reflect.Value, structType reflect.Type, parent *fiel
 			field:    structField,
 			value:    structFieldValue,
 			parent:   parent,
+			index:    append(index[:len(index):len(index)], indx),
 			tags: map[string]string{
 				defaultValueTagName:  structField.Tag.Get(defaultValueTagName),
 				envTagName:           structField.Tag.Get(envTagName),
@@ -591,7 +591,7 @@ func fieldsList(structValue reflect.Value, structType reflect.Type, parent *fiel
 				}
 			}
 
-			fld.child = fieldsList(structFieldValue, structField.Type, pf)
+			fld.child = fieldsList(structFieldValue, structField.Type, pf, fld.index)
 			list = append(list, fld.child...)
 
 			continue

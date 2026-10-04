@@ -51,6 +51,9 @@ func (cf *Config) loadEnvs() error {
 			if err = fld.setValue(val, envTagName, cf.options.strict); err != nil {
 				return false
 			}
+			if fld.value.IsValid() {
+				cf.markEnv(fld.pathSteps())
+			}
 		}
 
 		return true
@@ -71,6 +74,29 @@ func (cf *Config) loadEnvs() error {
 	}
 
 	return nil
+}
+
+// discoverEnv records which values the environment sets, before any default
+// is applied, by loading the environment into a scratch zero configuration of
+// the same type: the steps recorded there locate the same values in the real
+// one. Defaults then skip those values, so a default tag can neither override
+// an explicit false, 0 or "" from the environment nor fail in strict mode on
+// an undefined ${VAR} the value does not need.
+func (cf *Config) discoverEnv() error {
+	conf, list := cf.conf, cf.fields
+	defer func() { cf.conf, cf.fields = conf, list }()
+
+	cf.conf = reflect.New(indirectType(reflect.TypeOf(conf))).Interface()
+	cf.fields = structFields(cf.conf)
+	return cf.loadEnvs()
+}
+
+// markEnv records that the environment set the value at steps.
+func (cf *Config) markEnv(steps []pathStep) {
+	if cf.present == nil {
+		cf.present = &presence{}
+	}
+	cf.present.mark(steps)
 }
 
 // loadArrayEnvs handles array element environment variables using configured delimiter.
@@ -379,11 +405,13 @@ func (cf *Config) setPrimitiveSliceElements(arrayField *field, elements map[stri
 	}
 
 	// Set values for each element
+	steps := arrayField.pathSteps()
 	for index, value := range indexedValues {
 		elementValue := arrayField.value.Index(index)
 		if err := set(elementValue, value, false, true, cf.options.strict); err != nil {
 			return err
 		}
+		cf.markEnv(withStep(steps, pathStep{kind: elemStep, index: index}))
 	}
 
 	return nil
@@ -429,9 +457,11 @@ func (cf *Config) setStructSliceElements(arrayField *field, elements map[string]
 	}
 
 	// Set values for each element
+	steps := arrayField.pathSteps()
 	for index, fieldValues := range indexedElements {
 		elementValue := arrayField.value.Index(index)
-		if err := cf.setStructFields(elementValue, fieldValues); err != nil {
+		elementSteps := withStep(steps, pathStep{kind: elemStep, index: index})
+		if err := cf.setStructFields(elementValue, fieldValues, elementSteps); err != nil {
 			return err
 		}
 	}
@@ -464,8 +494,9 @@ func (cf *Config) ensureSliceSize(arrayField *field, minSize int) error {
 }
 
 // setStructFields sets fields of a struct based on a map of field names to values.
-// Supports nested field paths using configured delimiter.
-func (cf *Config) setStructFields(structValue reflect.Value, fieldValues map[string]string) error {
+// Supports nested field paths using configured delimiter. steps locates
+// structValue from the configuration root.
+func (cf *Config) setStructFields(structValue reflect.Value, fieldValues map[string]string, steps []pathStep) error {
 	if structValue.Kind() == reflect.Pointer {
 		if structValue.IsNil() {
 			structValue.Set(reflect.New(structValue.Type().Elem()))
@@ -480,7 +511,7 @@ func (cf *Config) setStructFields(structValue reflect.Value, fieldValues map[str
 	delimiter := cf.options.envSectionDelimiter
 	for fieldPath, value := range fieldValues {
 		parts := strings.Split(fieldPath, delimiter)
-		if err := cf.setNestedStructField(structValue, parts, value); err != nil {
+		if err := cf.setNestedStructField(structValue, parts, value, steps); err != nil {
 			return err
 		}
 	}
@@ -585,7 +616,7 @@ func (cf *Config) setNestedFieldFromEnv(envKey, envValue string) error {
 	}
 
 	// Navigate to the nested field and set its value
-	return cf.setNestedFieldValue(rootField, parts[1:], envValue)
+	return cf.setNestedFieldValue(rootField, parts[1:], envValue, rootField.pathSteps())
 }
 
 // findRootFieldByName finds a root-level field in the config struct by name.
@@ -631,6 +662,7 @@ func (cf *Config) findRootFieldByName(fieldName string) *field {
 				value:    fieldValue,
 				field:    structField,
 				tags:     tags,
+				index:    []int{i},
 			}
 		}
 	}

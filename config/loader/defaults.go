@@ -5,66 +5,117 @@
 package loader
 
 import (
-	"fmt"
 	"reflect"
+	"slices"
 
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 )
 
 // loadDefaultValues parses and sets default values for configuration fields.
 // It processes both struct tags and Defaulter interface implementations. A
-// field whose key is present in a configuration file keeps the file value even
-// when it is false, 0 or "".
+// field a configuration file or the environment set keeps its value even when
+// it is false, 0 or "".
 func (cf *Config) loadDefaultValues() (err error) {
 	if !cf.options.skipDefaults {
-		if df, ok := cf.conf.(Defaulter); ok {
-			df.Default()
-		}
+		cf.callDefaulter(reflect.ValueOf(cf.conf).Elem(), cf.present)
 	}
 
 	cf.fields = structFields(cf.conf)
 	for f := range cf.fields.All() {
-		if !cf.options.skipDefaults && !f.isStructPtr() && !cf.setInFile(f) {
+		p := cf.present.at(f.index)
+		if !cf.options.skipDefaults && !f.isStructPtr() && !p.isSet() {
 			if err = f.setDefaultValue(defaultValueTagName, cf.options.strict); err != nil {
 				return err
 			}
 		}
 
 		if !cf.options.skipDefaults && f.isStructPtr() && nilcheck.IsNotNilValue(f.value) {
-			if df, ok := f.value.Interface().(Defaulter); ok {
-				df.Default()
-			}
+			cf.callDefaulter(f.value.Elem(), p)
 		}
 	}
 
 	return
 }
 
-// setInFile reports whether a configuration file set the key of f. Inline
-// ancestors contribute no key of their own.
-func (cf *Config) setInFile(f *field) bool {
-	tagName := cf.backend.StructTagName()
+// callDefaulter runs Default on struct v when it implements Defaulter, keeping
+// the values the files and the environment set: Default may fill or derive
+// the other fields but never overrides an explicit value. p is the presence of
+// v.
+func (cf *Config) callDefaulter(v reflect.Value, p *presence) {
+	if !v.CanAddr() {
+		return
+	}
+	d, ok := v.Addr().Interface().(Defaulter)
+	if !ok {
+		return
+	}
 
-	var keys []string
-	for cur := f; cur != nil; cur = cur.parent {
-		if isInline(cur.field, tagName) {
+	explicit := collectExplicit(v, p, nil, nil)
+	d.Default()
+	for _, e := range explicit {
+		e.restore(v)
+	}
+}
+
+// explicitValue is a copy of an explicitly set value of a struct, located by
+// its field index path.
+type explicitValue struct {
+	value reflect.Value
+	path  []int
+}
+
+// collectExplicit copies the explicitly set values of struct v. It descends
+// into nested structs whose fields are known, so Default can still fill their
+// other fields, and copies any other value — scalars, maps and slices, an
+// explicit null pointer — whole.
+func collectExplicit(v reflect.Value, p *presence, path []int, out []explicitValue) []explicitValue {
+	if p == nil {
+		return out
+	}
+	for i, c := range p.fields {
+		if c == nil {
 			continue
 		}
-		key := fileKey(cur.field, tagName)
-		if key == "" {
-			return false
+		fv := v.Field(i)
+		if !fv.CanSet() {
+			continue
 		}
-		keys = append(keys, key)
-	}
+		fieldPath := append(slices.Clip(path), i)
 
-	p := cf.present
-	for i := len(keys) - 1; i >= 0; i-- {
-		var ok bool
-		if p, ok = p.field(keys[i]); !ok {
-			return false
+		if c.fields != nil && !c.null {
+			sv := fv
+			for sv.Kind() == reflect.Pointer && !sv.IsNil() {
+				sv = sv.Elem()
+			}
+			if sv.Kind() == reflect.Struct {
+				out = collectExplicit(sv, c, fieldPath, out)
+				continue
+			}
+		}
+
+		if c.set || len(c.entries) > 0 || len(c.elems) > 0 {
+			cp := reflect.New(fv.Type()).Elem()
+			cp.Set(fv)
+			out = append(out, explicitValue{value: cp, path: fieldPath})
 		}
 	}
-	return true
+	return out
+}
+
+// restore writes the copied value back into root, allocating pointer structs
+// along the path that Default reset.
+func (e explicitValue) restore(root reflect.Value) {
+	v := root
+	for _, i := range e.path {
+		for v.Kind() == reflect.Pointer {
+			if v.IsNil() {
+				v.Set(reflect.New(v.Type().Elem()))
+			}
+			v = v.Elem()
+		}
+		v = v.Field(i)
+	}
+	v.Set(e.value)
 }
 
 // applyDefaultsToMaps applies default values to struct elements of maps and
@@ -79,140 +130,127 @@ func (cf *Config) applyDefaultsToMaps(value any) error {
 		v = v.Elem()
 	}
 
-	return cf.applyDefaultsToValue(v, cf.present, false)
+	return cf.applyDefaultsToStructFields(v, cf.present)
 }
 
-// applyDefaultsToValue recursively applies defaults to a reflect.Value. p is
-// the file presence node for v; inElement reports whether v lies inside a map
-// or slice element, where the field list does not apply defaults itself.
-func (cf *Config) applyDefaultsToValue(v reflect.Value, p presence, inElement bool) error {
-	if !v.IsValid() || !v.CanInterface() {
-		return nil
-	}
-
-	switch v.Kind() {
-	case reflect.Struct:
-		if inElement {
-			return cf.applyDefaultsToStruct(v, p)
-		}
-		return cf.applyDefaultsToStructFields(v, p)
-	case reflect.Map:
-		return cf.applyDefaultsToMap(v, p)
-	case reflect.Slice, reflect.Array:
-		return cf.applyDefaultsToSlice(v, p)
-	case reflect.Pointer:
-		if v.IsNil() {
-			return nil
-		}
-		return cf.applyDefaultsToValue(v.Elem(), p, inElement)
-	default:
-		return nil
-	}
-}
-
-// fieldPresence returns the presence node of struct field sf under p and
-// whether the field's key was set; inline fields share the parent's node.
-func (cf *Config) fieldPresence(sf reflect.StructField, p presence) (presence, bool) {
-	tagName := cf.backend.StructTagName()
-	if isInline(sf, tagName) {
-		return p, false
-	}
-	key := fileKey(sf, tagName)
-	if key == "" {
-		return presence{fold: p.fold}, false
-	}
-	return p.field(key)
-}
-
-// applyDefaultsToStructFields recurses into the fields of a struct whose own
-// defaults are applied by the field list.
-func (cf *Config) applyDefaultsToStructFields(v reflect.Value, p presence) error {
+// applyDefaultsToStructFields walks the fields of a struct whose own defaults
+// the field list applies, looking for collections whose elements it does not
+// reach.
+func (cf *Config) applyDefaultsToStructFields(v reflect.Value, p *presence) error {
 	for i := range v.NumField() {
 		field := v.Field(i)
 		if !field.CanSet() {
 			continue
 		}
-		fp, _ := cf.fieldPresence(v.Type().Field(i), p)
-		if err := cf.applyDefaultsToValue(field, fp, false); err != nil {
+		fp := p.field(i)
+
+		for field.Kind() == reflect.Pointer && !field.IsNil() {
+			field = field.Elem()
+		}
+		var err error
+		switch field.Kind() {
+		case reflect.Struct:
+			err = cf.applyDefaultsToStructFields(field, fp)
+		case reflect.Map, reflect.Slice, reflect.Array:
+			err = cf.applyDefaultsToCollection(field, fp)
+		default:
+		}
+		if err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// applyDefaultsToMap applies defaults to struct values inside a map.
-func (cf *Config) applyDefaultsToMap(v reflect.Value, p presence) error {
-	if v.IsNil() {
-		return nil
-	}
-
-	valueType := v.Type().Elem()
-	if !cf.isStructValueType(valueType) {
-		return nil
-	}
-
-	for _, mapKey := range cf.collectMapKeys(v) {
-		ep := p.entry(fmt.Sprint(mapKey.Interface()))
-		if err := cf.processMapEntry(v, valueType, mapKey, v.MapIndex(mapKey), ep); err != nil {
-			return err
+// applyDefaultsToCollection applies defaults to the struct elements of a map,
+// slice or array, recursing into nested collections.
+func (cf *Config) applyDefaultsToCollection(v reflect.Value, p *presence) error {
+	switch v.Kind() {
+	case reflect.Map:
+		return cf.applyDefaultsToMap(v, p)
+	case reflect.Slice, reflect.Array:
+		for i := range v.Len() {
+			if err := cf.applyDefaultsToElement(v.Index(i), p.elem(i)); err != nil {
+				return err
+			}
 		}
-	}
-	return nil
-}
-
-// isStructValueType checks if a type is a struct or pointer to struct.
-func (cf *Config) isStructValueType(valueType reflect.Type) bool {
-	return valueType.Kind() == reflect.Struct ||
-		(valueType.Kind() == reflect.Pointer && valueType.Elem().Kind() == reflect.Struct)
-}
-
-// collectMapKeys collects all keys from a map.
-func (cf *Config) collectMapKeys(v reflect.Value) []reflect.Value {
-	keys := make([]reflect.Value, 0, v.Len())
-	iter := v.MapRange()
-	for iter.Next() {
-		keys = append(keys, iter.Key())
-	}
-	return keys
-}
-
-// processMapEntry processes a single map entry.
-func (cf *Config) processMapEntry(v reflect.Value, valueType reflect.Type, mapKey, mapValue reflect.Value, p presence) error {
-	switch mapValue.Kind() {
-	case reflect.Pointer:
-		if mapValue.IsNil() || mapValue.Elem().Kind() != reflect.Struct {
-			return nil
-		}
-		return cf.applyDefaultsToStruct(mapValue.Elem(), p)
-	case reflect.Struct:
-		// Map values are not addressable: default a copy and store it back.
-		newValue := reflect.New(valueType).Elem()
-		newValue.Set(mapValue)
-		if err := cf.applyDefaultsToStruct(newValue, p); err != nil {
-			return err
-		}
-		v.SetMapIndex(mapKey, newValue)
 		return nil
 	default:
 		return nil
 	}
 }
 
-// applyDefaultsToSlice applies defaults to all elements in a slice or array.
-func (cf *Config) applyDefaultsToSlice(v reflect.Value, p presence) error {
-	for i := range v.Len() {
-		if err := cf.applyDefaultsToValue(v.Index(i), p.index(i), true); err != nil {
+// applyDefaultsToElement applies defaults to an addressable map or slice
+// element.
+func (cf *Config) applyDefaultsToElement(v reflect.Value, p *presence) error {
+	for v.Kind() == reflect.Pointer {
+		if v.IsNil() {
+			return nil
+		}
+		v = v.Elem()
+	}
+	switch v.Kind() {
+	case reflect.Struct:
+		return cf.applyDefaultsToStruct(v, p, true)
+	case reflect.Map, reflect.Slice, reflect.Array:
+		return cf.applyDefaultsToCollection(v, p)
+	default:
+		return nil
+	}
+}
+
+// applyDefaultsToMap applies defaults to the values of a map. Values are not
+// addressable, so each one is defaulted as a copy and stored back.
+func (cf *Config) applyDefaultsToMap(v reflect.Value, p *presence) error {
+	if v.IsNil() {
+		return nil
+	}
+	valueType := v.Type().Elem()
+	if !hasStructElements(valueType) {
+		return nil
+	}
+
+	iter := v.MapRange()
+	for iter.Next() {
+		key := iter.Key()
+		value := reflect.New(valueType).Elem()
+		value.Set(iter.Value())
+		if err := cf.applyDefaultsToElement(value, p.entry(key)); err != nil {
 			return err
 		}
+		v.SetMapIndex(key, value)
 	}
 	return nil
 }
 
-// applyDefaultsToStruct applies default tags to the fields of a map or slice
-// element and its nested structs, skipping fields the file set explicitly.
-func (cf *Config) applyDefaultsToStruct(structValue reflect.Value, p presence) error {
-	structType := structValue.Type()
+// hasStructElements reports whether values of type t are, or hold through
+// pointers and nested collections, structs that may need defaults.
+func hasStructElements(t reflect.Type) bool {
+	for {
+		switch t.Kind() {
+		case reflect.Struct:
+			return true
+		case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Map:
+			t = t.Elem()
+		default:
+			return false
+		}
+	}
+}
 
+// applyDefaultsToStruct applies defaults to a struct inside a map or slice
+// element, which the field list does not reach. Like the field list does for
+// the configuration and its nested pointer structs, it first runs Default when
+// withDefaulter is set — for the element itself and pointer structs, not for
+// struct values — then applies default tags to the zero fields nothing set
+// explicitly, and allocates nil pointer structs unless they are tagged
+// default:"-" or a file set them to null.
+func (cf *Config) applyDefaultsToStruct(structValue reflect.Value, p *presence, withDefaulter bool) error {
+	if withDefaulter {
+		cf.callDefaulter(structValue, p)
+	}
+
+	structType := structValue.Type()
 	for i := range structType.NumField() {
 		field := structType.Field(i)
 		fieldValue := structValue.Field(i)
@@ -220,33 +258,94 @@ func (cf *Config) applyDefaultsToStruct(structValue reflect.Value, p presence) e
 			continue
 		}
 
-		fp, explicit := cf.fieldPresence(field, p)
-
-		// On a pointer to a struct "-" is the loader's do-not-allocate
-		// sentinel, not a value; leave such fields nil like the field list
-		// does. On scalars it is an ordinary default.
+		fp := p.field(i)
 		defaultTag := field.Tag.Get(defaultValueTagName)
-		sentinel := defaultTag == "-" && field.Type.Kind() == reflect.Pointer && field.Type.Elem().Kind() == reflect.Struct
-		if defaultTag != "" && !sentinel && !explicit && fieldValue.IsZero() {
-			if cf.options.strict {
-				var subErr error
-				if defaultTag, subErr = substituteEnvVariablesStrict(defaultTag); subErr != nil {
-					return subErr
-				}
-			} else {
-				defaultTag = substituteEnvVariables(defaultTag)
-			}
 
-			// isDefaultValue=false bypasses the zero check already done above.
-			if err := set(fieldValue, defaultTag, false, true, cf.options.strict); err != nil {
+		if isStructPointer(field.Type) {
+			// On a pointer to a struct "-" is the do-not-allocate sentinel,
+			// not a value.
+			if fieldValue.IsNil() && defaultTag != "-" && !fp.isNull() && allocatedByFieldList(field.Type.Elem(), nil) {
+				fieldValue.Set(reflect.New(field.Type.Elem()))
+			}
+			if !fieldValue.IsNil() {
+				if err := cf.applyDefaultsToStruct(fieldValue.Elem(), fp, true); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+
+		if defaultTag != "" && !fp.isSet() && fieldValue.IsZero() {
+			if err := cf.setElementDefault(fieldValue, defaultTag); err != nil {
 				return err
 			}
 		}
 
-		if err := cf.applyDefaultsToValue(fieldValue, fp, true); err != nil {
+		var err error
+		switch fieldValue.Kind() {
+		case reflect.Struct:
+			err = cf.applyDefaultsToStruct(fieldValue, fp, false)
+		case reflect.Map, reflect.Slice, reflect.Array:
+			err = cf.applyDefaultsToCollection(fieldValue, fp)
+		default:
+		}
+		if err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+// setElementDefault substitutes environment variables in a default tag and
+// assigns it to an element field.
+func (cf *Config) setElementDefault(fieldValue reflect.Value, defaultTag string) error {
+	if cf.options.strict {
+		var err error
+		if defaultTag, err = substituteEnvVariablesStrict(defaultTag); err != nil {
+			return err
+		}
+	} else {
+		defaultTag = substituteEnvVariables(defaultTag)
+	}
+
+	// isDefaultValue=false bypasses the zero check the caller already did.
+	return set(fieldValue, defaultTag, false, true, cf.options.strict)
+}
+
+// allocatedByFieldList reports whether the field list allocates a nil pointer
+// to struct type t when applying defaults: it does when t, or a struct t
+// embeds, has an exported field other than a pointer to a struct, since
+// defaulting that field initializes its parent. A struct without such fields,
+// like time.Time, stays nil.
+func allocatedByFieldList(t reflect.Type, visiting map[reflect.Type]bool) bool {
+	if visiting[t] {
+		return false
+	}
+	if visiting == nil {
+		visiting = map[reflect.Type]bool{}
+	}
+	visiting[t] = true
+
+	for i := range t.NumField() {
+		sf := t.Field(i)
+		if sf.PkgPath != "" {
+			continue
+		}
+		if et := derefType(sf.Type); sf.Anonymous && et.Kind() == reflect.Struct {
+			if allocatedByFieldList(et, visiting) {
+				return true
+			}
+			continue
+		}
+		if !isStructPointer(sf.Type) {
+			return true
+		}
+	}
+	return false
+}
+
+// isStructPointer reports whether t is a pointer to a struct.
+func isStructPointer(t reflect.Type) bool {
+	return t.Kind() == reflect.Pointer && t.Elem().Kind() == reflect.Struct
 }

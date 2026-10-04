@@ -20,14 +20,25 @@ default values, and secret expansion.
 
 ## Loading order
 
-1. Read configuration file(s) from the specified path (file or directory)
-2. Apply `default` struct tags to fields whose key is absent from the files — an explicit `false`, `0` or `""` in a file is kept
-3. Override with environment variables (camelCase converted to SCREAMING_SNAKE_CASE)
-4. Re-apply defaults to newly created nested structs, then to struct elements of maps and slices (also skipping keys the files set)
-5. Re-apply the environment, so an explicit `false`, `0` or `""` from the environment also wins over a `default` tag
-6. Expand `$__secret{ns:key}` placeholders via the secrets manager
-7. Run `Validate()` if the struct implements `loader.Validator`
-8. Run `Normalize()` if the struct implements `loader.Normalizer`
+1. Read configuration file(s) from the specified path (file or directory), recording which values each file sets
+2. Record which values the environment sets, by loading it into a scratch copy of the configuration
+3. Run `Default()` and apply `default` struct tags, skipping every value a file or the environment set — an explicit `false`, `0` or `""`
+   is kept, and in strict mode an undefined `${VAR}` in a tag fails only for a field that needs the default
+4. Override with environment variables (camelCase converted to SCREAMING_SNAKE_CASE)
+5. Re-apply defaults to newly created nested structs, then to struct elements of maps and slices: `Default()` first, then `default` tags;
+   a nil pointer struct is allocated unless it is tagged `default:"-"` or a file set it to `null`
+6. Re-apply the environment
+7. Expand `$__secret{ns:key}` placeholders via the secrets manager
+8. Run `Validate()` if the struct implements `loader.Validator`
+9. Run `Normalize()` if the struct implements `loader.Normalizer`
+
+Which values a file sets is decided the way the backend binds them: map keys are decoded into the map's key type (YAML `0x10` is `16`
+in a `map[int]T` but stays `"0x10"` in a `map[string]T`), YAML `<<` merges follow yaml.v3's precedence, anonymous structs follow each
+backend's embedding rules (YAML flattens only `,inline`; TOML flattens embedded structs without a tag name), and TOML keys match field
+names exactly before case-insensitively. A later file overlays an earlier one the same way the decoder does: map entries are replaced
+whole, struct fields merge one by one.
+
+`Default()` may fill or derive any field, but values a file or the environment set explicitly are restored after it runs.
 
 ## Interfaces
 

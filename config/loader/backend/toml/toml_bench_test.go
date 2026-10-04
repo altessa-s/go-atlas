@@ -5,6 +5,7 @@
 package toml_test
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -61,5 +62,41 @@ name = "second"
 		if err := backend.Decode(reader, &cfg); err != nil {
 			b.Fatalf("Decode failed: %v", err)
 		}
+	}
+}
+
+func BenchmarkBackend_DecodeKeys(b *testing.B) {
+	type item struct {
+		Name   string `toml:"name"`
+		Weight int    `toml:"weight"`
+	}
+	type config struct {
+		Name  string          `toml:"name"`
+		Items []item          `toml:"items"`
+		ByID  map[string]item `toml:"byID"`
+	}
+	content := `name = "svc"
+
+[[items]]
+name = "a"
+weight = 0
+
+[[items]]
+name = "b"
+
+[byID.a]
+weight = 1
+`
+	t := reflect.TypeFor[config]()
+	backend := &toml.Backend{}
+
+	for b.Loop() {
+		root, err := backend.DecodeKeys(strings.NewReader(content))
+		if err != nil {
+			b.Fatalf("DecodeKeys error: %v", err)
+		}
+		fs, _ := root.Fields(t)
+		_, _ = fs[1].Elems(t.Field(1).Type)
+		_, _ = fs[2].Entries(t.Field(2).Type)
 	}
 }
