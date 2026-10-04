@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/transport/broker/outbox"
 ```
 
-Package `outbox` provides a broker-specific adapter for the generic transactional outbox pattern. Wraps `data/outbox` with
-`msg.Message` conversion and NATS-specific retry logic, implementing the `broker.Outboxer` interface.
+Package `outbox` provides a broker-specific adapter for the generic transactional outbox pattern. Wraps `data/outbox` with `msg.Message` conversion and
+NATS-specific retry logic, implementing the `broker.Outboxer` interface.
 
 ## Key types
 
@@ -21,16 +21,15 @@ Package `outbox` provides a broker-specific adapter for the generic transactiona
 
 ## Deduplication
 
-Outbox delivery is at-least-once, so the broker needs a stable identity to collapse repeats. On publish this adapter sets the
-`deduplicate_id` metadata key to the outbox `Event.Id` — assigned once at save time and unchanged across every retry — which the NATS
-provider forwards as `Nats-Msg-Id`. A caller-supplied `deduplicate_id` always wins: it is usually derived from the business entity, which
-dedupes across producers and not only across one event's own retries.
+Outbox delivery is at-least-once, so the broker needs a stable identity to collapse repeats. On publish this adapter sets the `deduplicate_id` metadata
+key to the outbox `Event.Id` — assigned once at save time and unchanged across every retry — which the NATS provider forwards as `Nats-Msg-Id`. A
+caller-supplied `deduplicate_id` always wins: it is usually derived from the business entity, which dedupes across producers and not only across one
+event's own retries.
 
 ## Error classification
 
-A stored payload this adapter cannot decode is wrapped in `ErrUndeliverable`, and the retry predicate reports it as permanent so the event
-goes straight to `rejected` instead of consuming its whole retry budget. `nats.ErrConnectionClosed` and every other error stay transient and
-are retried with backoff.
+A stored payload this adapter cannot decode is wrapped in `ErrUndeliverable`, and the retry predicate reports it as permanent so the event goes straight
+to `rejected` instead of consuming its whole retry budget. `nats.ErrConnectionClosed` and every other error stay transient and are retried with backoff.
 
 ## Methods
 
@@ -71,3 +70,9 @@ are retried with backoff.
 `WithMaxLockTime` must exceed `WithHandleTimeout`; a smaller value is raised at construction with a warning. Without `WithStatsSchedule` and
 `WithCollector` the backlog, dead-letter, and lag gauges stay at zero, which is indistinguishable from a healthy idle outbox — see
 [docs/metrics.md](../../../docs/metrics.md#outbox).
+
+## Scheduler registration
+
+The adapter inherits `RegisterTasks(ctx)` from `data/outbox`. Its constructor does not install schedules; call this method after configuring
+`WithScheduler` and handle errors. Partial registration gates callbacks until a retry on the same instance succeeds. [Factory](../factory) constructors
+register automatically and retain the outbox alongside any registration error.

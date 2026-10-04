@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/transport/broker/factory"
 ```
 
-Package `factory` provides a fluent builder for creating a `broker.Broker` and related components from configuration.
-`BrokerBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
+Package `factory` provides a fluent builder for creating a `broker.Broker` and related components from configuration. `BrokerBuilder` uses deferred
+error accumulation — errors from any step are collected and returned at `Build()` time.
 
 ## Quick Start
 
@@ -54,3 +54,9 @@ broker, err := b.Build(provider)
 | Type | Description |
 |------|-------------|
 | `NatsProviderWithRecovery` | Bundles a `*natsprovider.Nats` provider with its optional `*recovery.Manager`; call `Close()` to stop the recovery manager |
+
+## Outbox startup
+
+Outbox builders call `RegisterTasks` before returning. A scheduler registration failure returns both a non-nil outbox and an error. Retain that instance
+to retry `RegisterTasks(ctx)`; callbacks already installed remain inactive until all configured tasks are registered. Do not start serving traffic while
+registration is incomplete.
