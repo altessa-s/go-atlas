@@ -25,8 +25,9 @@ type TlsProviderLetsEncrypt struct {
 	RenewBefore time.Duration `yaml:"renewBefore" default:"30m"`
 	// StartInternalServer enables automatic Http server for ACME challenge handling
 	StartInternalServer bool `yaml:"startInternalServer"`
-	// ListenAddress specifies the address for the internal ACME challenge server
-	ListenAddress *string `yaml:"listenAddress" default:"0.0.0.0:8080"`
+	// ListenAddress specifies the address for the internal ACME challenge server.
+	// Unset by default.
+	ListenAddress *string `yaml:"listenAddress"`
 }
 
 // Validate checks that the Let's Encrypt provider configuration is valid.
