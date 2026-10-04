@@ -70,17 +70,21 @@ type Record struct {
 type Stats struct {
 	TotalBytes int64
 	Segments   int
+	// Pending is the number of records not yet acknowledged in this process.
+	Pending int64
 }
 
 // segmentRef tracks a single segment file and its outstanding (unacked) record count.
 type segmentRef struct {
-	id      uint64
-	path    string
-	file    *os.File // nil for sealed segments
-	size    int64
-	records int64 // total records ever appended to this segment
-	unacked int64 // records not yet acked by consumer
-	sealed  bool
+	id              uint64
+	path            string
+	file            *os.File // nil for sealed segments
+	size            int64
+	records         int64 // total records ever appended to this segment
+	unacked         int64 // records not yet acked by consumer
+	sealed          bool
+	acked           map[int64]struct{}
+	pendingPosition int64
 }
 
 // WAL is a segmented append-only log providing crash-safe durability for
@@ -440,16 +444,12 @@ func (w *WAL) Ack(offset Offset) {
 	defer w.mu.Unlock()
 
 	if w.active != nil && w.active.id == offset.SegmentID {
-		if w.active.unacked > 0 {
-			w.active.unacked--
-		}
+		w.active.ack(offset.Position)
 		return
 	}
 	for i, s := range w.sealed {
 		if s.id == offset.SegmentID {
-			if s.unacked > 0 {
-				s.unacked--
-			}
+			s.ack(offset.Position)
 			if s.unacked <= 0 {
 				_ = os.Remove(s.path)
 				w.totalSz.Add(-s.size)
@@ -596,7 +596,11 @@ func (w *WAL) Stats() Stats {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	s := Stats{TotalBytes: w.totalSz.Load()}
+	for _, seg := range w.sealed {
+		s.Pending += seg.unacked
+	}
 	if w.active != nil {
+		s.Pending += w.active.unacked
 		s.Segments = 1 + len(w.sealed)
 	} else {
 		s.Segments = len(w.sealed)
