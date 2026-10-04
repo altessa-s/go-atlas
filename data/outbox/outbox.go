@@ -9,6 +9,8 @@ import (
 	"context"
 	"log/slog"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -43,8 +45,11 @@ type Outbox struct {
 	metrics *outboxMetrics
 
 	// Internal state:
-	logger    *slog.Logger // Internal logger.
-	scheduler corescheduler.TaskRegistrar
+	logger             *slog.Logger // Internal logger.
+	scheduler          corescheduler.TaskRegistrar
+	registrationMu     sync.Mutex
+	registrationOpts   *options
+	registrationsReady atomic.Bool
 
 	dispatchTask corescheduler.ManagedTask // Guards RunDispatchCycle and marks scheduler management.
 	unlockTask   corescheduler.ManagedTask // Guards RunUnlockCycle and marks scheduler management.
@@ -99,6 +104,7 @@ func New(store Store, handler Handler, opts ...Option) *Outbox {
 		compaction:              cfg.compaction,
 		compactionFilter:        cfg.compactionFilter,
 		scheduler:               cfg.scheduler,
+		registrationOpts:        cfg,
 		shouldRetry:             cfg.shouldRetry,
 		defaultEventTTL:         cfg.defaultEventTTL,
 		maxPayloadBytes:         cfg.maxPayloadBytes,
@@ -108,12 +114,6 @@ func New(store Store, handler Handler, opts ...Option) *Outbox {
 			Factor:    DefaultRetryFactor,
 			Jitter:    DefaultRetryJitter,
 		}),
-	}
-
-	// Register outbox tasks with scheduler if provided
-	if err := o.registerTasks(cfg); err != nil {
-		// Log error but don't fail creation - task registration is optional
-		cfg.logger.Warn("failed to register outbox tasks", slog.Any("error", err))
 	}
 
 	return o

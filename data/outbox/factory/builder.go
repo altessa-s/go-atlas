@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 
@@ -111,7 +112,11 @@ func (b *OutboxBuilder) createOutboxWithStore(store outbox.Store, handler outbox
 		opts = slices.AppendIf(opts, b.cfg.StatsSchedule != "", outbox.WithStatsSchedule(b.cfg.StatsSchedule))
 	}
 
-	return outbox.New(store, handler, opts...), nil
+	ob := outbox.New(store, handler, opts...)
+	if err := ob.RegisterTasks(context.Background()); err != nil {
+		return ob, b.WrapError(err, "register outbox tasks")
+	}
+	return ob, nil
 }
 
 // buildOutboxOptions builds outbox options from configuration.
