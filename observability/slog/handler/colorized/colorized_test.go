@@ -272,8 +272,13 @@ func TestHandle_Concurrent(t *testing.T) {
 }
 
 // TestHandle_ColorizedOutput is serial: it mutates the process-global
-// color.NoColor.
+// color.NoColor, the environment and the cached color instances.
 func TestHandle_ColorizedOutput(t *testing.T) {
+	// color.New remembers NO_COLOR per instance, including colors cached at init.
+	t.Setenv("NO_COLOR", "")
+	oldCache := globalColorCache
+	globalColorCache = &colorCacheAdapter{newColorCache()}
+	t.Cleanup(func() { globalColorCache = oldCache })
 	old := color.NoColor
 	color.NoColor = false
 	t.Cleanup(func() { color.NoColor = old })
