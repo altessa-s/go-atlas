@@ -154,7 +154,7 @@ scheduler:
       historyCollection: scheduler_history
     redis:
       keyPrefix: scheduler
-      historyTtl: 0
+      historyTtl: "0s"
       maxHistoryPerTask: 1000
 ```
 
@@ -566,7 +566,7 @@ storage:
   type: redis
   redis:
     keyPrefix: scheduler         # Default: scheduler
-    historyTtl: 0                # Default: 0 (disabled)
+    historyTtl: "0s"             # Default: 0s (disabled)
     maxHistoryPerTask: 1000      # Default: 1000
 ```
 

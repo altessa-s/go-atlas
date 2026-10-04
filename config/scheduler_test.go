@@ -1,0 +1,79 @@
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Use of this source code is governed by license that can be found in
+// the LICENSE file.
+
+package config_test
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/config"
+	"github.com/altessa-s/go-atlas/config/loader"
+)
+
+// HistoryTTL used to carry `default:"-"`, which the loader parses as a
+// duration and rejects, so any config with a storage.redis section failed to
+// load. Zero now means "no expiry".
+func TestSchedulerStorageRedisConfig_HistoryTTLLoads(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		yaml      string
+		wantRedis bool
+		wantTTL   time.Duration
+	}{
+		{
+			name:      "RedisSectionOmitted",
+			yaml:      "scheduler:\n  storage:\n    type: memory\n",
+			wantRedis: false,
+		},
+		{
+			name:      "HistoryTTLOmitted",
+			yaml:      "scheduler:\n  storage:\n    type: redis\n    redis:\n      keyPrefix: jobs\n",
+			wantRedis: true,
+			wantTTL:   0,
+		},
+		{
+			name:      "HistoryTTLZero",
+			yaml:      "scheduler:\n  storage:\n    type: redis\n    redis:\n      historyTtl: \"0s\"\n",
+			wantRedis: true,
+			wantTTL:   0,
+		},
+		{
+			name:      "HistoryTTLPositive",
+			yaml:      "scheduler:\n  storage:\n    type: redis\n    redis:\n      historyTtl: \"1h\"\n",
+			wantRedis: true,
+			wantTTL:   time.Hour,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			require.NoError(t, os.WriteFile(path, []byte(tc.yaml), 0o600))
+
+			type wrapper struct {
+				Scheduler config.Scheduler `yaml:"scheduler"`
+			}
+			cfg := &wrapper{}
+			_, err := loader.New(nil, loader.WithPath(path), loader.WithSkipEnv()).Load(cfg)
+			require.NoError(t, err)
+
+			require.NotNil(t, cfg.Scheduler.Storage)
+			if !tc.wantRedis {
+				require.Nil(t, cfg.Scheduler.Storage.Redis)
+				return
+			}
+			require.NotNil(t, cfg.Scheduler.Storage.Redis)
+			require.Equal(t, tc.wantTTL, cfg.Scheduler.Storage.Redis.HistoryTTL)
+		})
+	}
+}

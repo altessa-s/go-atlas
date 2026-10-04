@@ -102,7 +102,7 @@ type SchedulerStorageRedisConfig struct {
 	// HistoryTTL is the TTL for history entries in Redis.
 	// Set to 0 to disable TTL (history cleaned by CleanupHistory only).
 	// Defaults to 0 (disabled).
-	HistoryTTL time.Duration `yaml:"historyTtl" default:"-"`
+	HistoryTTL time.Duration `yaml:"historyTtl"`
 
 	// MaxHistoryPerTask is the maximum number of history entries kept per task.
 	// Defaults to 1000 if not specified.
