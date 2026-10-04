@@ -74,7 +74,6 @@ func newPoolHealth(p *ConnectionPool) *poolHealth {
 // configured, registers the aggregate service. Per-target services are
 // registered lazily as new targets first appear via [onConnAttached].
 func (h *poolHealth) register() {
-	h.pool.tracker.onTargetStateChange = h.onTargetStateChange
 	if h.coordinator == nil {
 		return
 	}

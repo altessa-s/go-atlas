@@ -36,6 +36,7 @@ type stateTracker struct {
 	wg           sync.WaitGroup
 	enabled      atomic.Bool
 
+	closed    bool
 	mu        sync.RWMutex
 	perTarget map[string]map[*pooledConnection]*trackedEntry
 
@@ -139,7 +140,10 @@ func (t *stateTracker) detach(target string, pc *pooledConnection) {
 // shutdown cancels every watcher and waits for them to exit. Safe to call
 // multiple times.
 func (t *stateTracker) shutdown() {
+	t.mu.Lock()
+	t.closed = true
 	t.parentCancel()
+	t.mu.Unlock()
 	t.wg.Wait()
 }
 
@@ -150,15 +154,14 @@ func (t *stateTracker) spawnWatcher(target string, pc *pooledConnection, entry *
 	ctx, cancel := context.WithCancel(t.parentCtx)
 	t.mu.Lock()
 	targetMap, ok := t.perTarget[target]
-	if !ok || targetMap[pc] != entry || entry.cancel != nil {
+	if t.closed || !ok || targetMap[pc] != entry || entry.cancel != nil {
 		t.mu.Unlock()
 		cancel()
 		return
 	}
 	entry.cancel = cancel
-	t.mu.Unlock()
-
 	t.wg.Add(1)
+	t.mu.Unlock()
 	go t.watch(ctx, target, pc, entry)
 }
 
