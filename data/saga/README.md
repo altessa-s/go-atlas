@@ -5,9 +5,9 @@ import "github.com/altessa-s/go-atlas/data/saga"
 ```
 
 Package `saga` runs inter-service distributed transactions with the orchestration-based saga pattern: a sequence of local steps, each with an optional
-compensating action. When a step fails, the already-completed steps are rolled back in reverse order, so the overall operation leaves no partial effects.
-The orchestrator is generic over the saga's shared data type `T` and persists a checkpoint to a pluggable [`Store`](./store.go) after every stage, so an
-instance survives a crash and can be resumed or automatically rolled back.
+compensating action. When a step fails, the already-completed steps are rolled back in reverse order, so the overall operation leaves no partial
+effects. The orchestrator is generic over the saga's shared data type `T` and persists a checkpoint to a pluggable [`Store`](./store.go) after every
+stage, so an instance survives a crash and can be resumed or automatically rolled back.
 
 ## Model
 
@@ -66,8 +66,8 @@ inst, err := orch.Start(ctx, order.ID, order)
 // err != nil ⇒ inst.Status is StatusCompensated (rolled back) or StatusFailed.
 ```
 
-Step actions and compensations must be **idempotent**: on interruption a step may run again when the instance is resumed. Steps inside a parallel group run
-concurrently and share `*T`, so they must not write overlapping fields.
+Step actions and compensations must be **idempotent**: on interruption a step may run again when the instance is resumed. Steps inside a parallel group
+run concurrently and share `*T`, so they must not write overlapping fields.
 
 ## Subpackages
 
@@ -79,3 +79,9 @@ concurrently and share `*T`, so they must not write overlapping fields.
 | [storages/mongo](./storages/mongo)     | Durable `Store` backend on a MongoDB collection.               |
 | [storages/nats](./storages/nats)       | Durable `Store` backend on NATS JetStream KeyValue.            |
 | [storages/redis](./storages/redis)     | Durable `Store` backend on Redis (hash + sorted-set index).    |
+
+## Timeout composition
+
+Execution, recovery, step and store timeouts are maximum budgets. Each nested operation gets the earlier of its caller's deadline and its own configured
+deadline; an existing longer parent deadline never disables the local limit. This also applies to compensation and recovery persistence. Callbacks must
+cooperate with context cancellation.

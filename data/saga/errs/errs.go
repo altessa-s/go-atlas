@@ -9,6 +9,8 @@ import (
 )
 
 var (
+	// ErrInstanceBusy means another invocation holds the execution lease.
+	ErrInstanceBusy = errors.New("saga: instance is executing")
 	// ErrInstanceNotFound is returned by Store.Get and Store.Update when no
 	// saga instance exists for the requested ID.
 	ErrInstanceNotFound = errors.New("saga: instance not found")

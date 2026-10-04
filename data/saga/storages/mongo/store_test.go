@@ -55,11 +55,14 @@ func TestDocumentRoundTrip(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC().Truncate(time.Second)
 	inst := &saga.Instance{
-		ID:         "order-1",
-		Definition: "place-order",
-		Status:     saga.StatusCompensating,
-		Stage:      2,
-		Data:       []byte(`{"n":1}`),
+		ID:           "order-1",
+		Definition:   "place-order",
+		Status:       saga.StatusCompensating,
+		Stage:        2,
+		PendingSteps: []int{0, 2},
+		LeaseOwner:   "owner",
+		LeaseUntil:   now.Add(123456789 * time.Nanosecond),
+		Data:         []byte(`{"n":1}`),
 		Steps: []saga.StepRecord{
 			{Name: "reserve", Stage: 0, Status: saga.StepCompleted, Attempts: 1, StartedAt: now, FinishedAt: now},
 			{Name: "charge", Stage: 1, Status: saga.StepFailed, Attempts: 3, Error: "declined"},
@@ -85,7 +88,7 @@ func TestDocumentZeroDeadlineMapsToUnset(t *testing.T) {
 
 func TestInstanceIndexesCoverStatusDeadline(t *testing.T) {
 	t.Parallel()
-	require.Len(t, instanceIndexes, 1)
+	require.Len(t, instanceIndexes, 2)
 
 	keys, ok := instanceIndexes[0].Keys.(bson.D)
 	require.True(t, ok)

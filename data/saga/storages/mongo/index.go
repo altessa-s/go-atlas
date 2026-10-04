@@ -22,6 +22,7 @@ var instanceIndexes = []mongo.IndexModel{ //nolint:gochecknoglobals
 		{Key: collectionFieldStatus, Value: 1},
 		{Key: collectionFieldDeadline, Value: 1},
 	}},
+	{Keys: bson.D{{Key: collectionFieldStatus, Value: 1}, {Key: "lease_until", Value: 1}}},
 }
 
 // createIndexes creates the required MongoDB indexes on the instances collection.

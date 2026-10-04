@@ -160,3 +160,27 @@ func TestOrchestratorOverNATS(t *testing.T) {
 		require.Equal(t, saga.StatusCompensated, stored.Status)
 	})
 }
+
+func TestLeaseExcludesExpiredDeadline(t *testing.T) {
+	t.Parallel()
+	store := newStore(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	inst := &saga.Instance{ID: "lease", Definition: "test", Status: saga.StatusRunning, Deadline: now.Add(-time.Minute), LeaseOwner: "owner", LeaseUntil: now.Add(time.Minute), PendingSteps: []int{0, 1}}
+	require.NoError(t, store.Create(t.Context(), inst))
+	got, err := store.Get(t.Context(), inst.ID)
+	require.NoError(t, err)
+	require.Equal(t, inst.PendingSteps, got.PendingSteps)
+	require.Equal(t, inst.LeaseUntil, got.LeaseUntil)
+	records, err := store.FetchRecoverable(t.Context(), now, 10)
+	require.NoError(t, err)
+	require.Empty(t, records)
+	records, err = store.FetchRecoverable(t.Context(), now.Add(2*time.Minute), 10)
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+	inst.Deadline = time.Time{}
+	inst.LeaseUntil = now.Add(-time.Second)
+	require.NoError(t, store.Update(t.Context(), inst))
+	records, err = store.FetchRecoverable(t.Context(), now, 10)
+	require.NoError(t, err)
+	require.Len(t, records, 1)
+}

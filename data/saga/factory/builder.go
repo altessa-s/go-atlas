@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 
@@ -85,7 +86,11 @@ func (b *Builder[T]) Build() (*saga.Orchestrator[T], error) {
 		return nil, err
 	}
 
-	return saga.New(store, b.def, b.orchestratorOptions()...), nil
+	o := saga.New(store, b.def, b.orchestratorOptions()...)
+	if err := o.RegisterRecovery(context.Background()); err != nil {
+		return nil, fmt.Errorf("register saga recovery: %w", err)
+	}
+	return o, nil
 }
 
 // buildStore constructs the [saga.Store] named by the storage type, validating
@@ -135,6 +140,10 @@ func (b *Builder[T]) orchestratorOptions() []saga.Option {
 		saga.WithOnDeadLetter(b.onDeadLetter),
 		saga.WithShouldRetry(b.shouldRetry),
 		saga.WithStepTimeout(cfg.StepTimeout),
+		saga.WithExecutionTimeout(cfg.ExecutionTimeout),
+		saga.WithLeaseGrace(cfg.LeaseGrace),
+		saga.WithStoreTimeout(cfg.StoreTimeout),
+		saga.WithRecoveryTimeout(cfg.RecoveryTimeout),
 		saga.WithSagaTimeout(cfg.SagaTimeout),
 		saga.WithMaxStepAttempts(cfg.MaxStepAttempts),
 		saga.WithStepRetryBaseDelay(cfg.StepRetryBaseDelay),

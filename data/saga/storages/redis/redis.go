@@ -207,7 +207,9 @@ func (s *Store) FetchRecoverable(ctx context.Context, now time.Time, limit int) 
 		if dErr != nil {
 			return nil, dErr
 		}
-		out = append(out, inst)
+		if inst.Recoverable(now) {
+			out = append(out, inst)
+		}
 	}
 
 	if len(stale) > 0 {
@@ -249,6 +251,8 @@ func recoverScore(inst *saga.Instance) (score float64, indexed bool) {
 	switch {
 	case inst.Status.IsTerminal():
 		return 0, false
+	case inst.LeaseOwner != "":
+		return float64(inst.LeaseUntil.Unix()) + 1, true
 	case inst.Status == saga.StatusCompensating:
 		return 0, true
 	case inst.Status == saga.StatusRunning && !inst.Deadline.IsZero():

@@ -123,6 +123,9 @@ func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 	update := bson.D{{Key: "$set", Value: bson.D{
 		{Key: collectionFieldStatus, Value: doc.Status},
 		{Key: "stage", Value: doc.Stage},
+		{Key: "pending_steps", Value: doc.PendingSteps},
+		{Key: "lease_owner", Value: doc.LeaseOwner},
+		{Key: "lease_until", Value: doc.LeaseUntil},
 		{Key: "data", Value: doc.Data},
 		{Key: "steps", Value: doc.Steps},
 		{Key: "updated_at", Value: doc.UpdatedAt},
@@ -156,14 +159,20 @@ func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 // FetchRecoverable returns up to limit non-terminal instances that are
 // mid-compensation or past their deadline. A non-positive limit means no cap.
 func (s *Store) FetchRecoverable(ctx context.Context, now time.Time, limit int) ([]*saga.Instance, error) {
-	filter := bson.D{{Key: "$or", Value: bson.A{
-		bson.D{{Key: collectionFieldStatus, Value: string(saga.StatusCompensating)}},
-		bson.D{
-			{Key: collectionFieldStatus, Value: string(saga.StatusRunning)},
-			{Key: collectionFieldDeadline, Value: bson.D{{Key: "$gt", Value: int64(0)}, {Key: "$lte", Value: now.Unix()}}},
+	filter := bson.M{
+		collectionFieldStatus: bson.M{"$in": bson.A{string(saga.StatusRunning), string(saga.StatusCompensating)}},
+		"$and": bson.A{
+			bson.M{"$or": bson.A{
+				bson.M{collectionFieldStatus: string(saga.StatusCompensating)},
+				bson.M{"lease_owner": bson.M{"$exists": true, "$ne": ""}},
+				bson.M{collectionFieldDeadline: bson.M{"$gt": int64(0), "$lte": now.Unix()}},
+			}},
+			bson.M{"$or": bson.A{
+				bson.M{"lease_until": bson.M{"$exists": false}},
+				bson.M{"lease_until": bson.M{"$lte": now.UnixNano()}},
+			}},
 		},
-	}}}
-
+	}
 	findOpts := mongoOptions.Find()
 	if limit > 0 {
 		findOpts.SetLimit(int64(limit))

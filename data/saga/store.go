@@ -99,6 +99,11 @@ type Instance struct {
 	// Compensating it is the exclusive upper bound of stages still to be
 	// compensated (compensation walks Stage-1 down to 0).
 	Stage int `json:"stage"`
+	// PendingSteps identifies actions in Stage that may require compensation.
+	// The intent is persisted before execution. After a partial failure it
+	// contains successful actions; after interruption it may include actions
+	// whose outcome is unknown. Compensations must tolerate an absent effect.
+	PendingSteps []int `json:"pending_steps,omitempty"`
 	// Data is the serialized saga payload (type T). Backends never interpret it.
 	Data []byte `json:"data,omitempty"`
 	// Steps is the append-only execution history (observability only).
@@ -109,6 +114,11 @@ type Instance struct {
 	// Deadline, when non-zero, is the wall-clock time after which a still-Running
 	// instance is eligible for automatic rollback by the recovery loop.
 	Deadline time.Time `json:"deadline,omitzero"`
+	// LeaseOwner identifies the Start/Resume invocation holding execution.
+	LeaseOwner string `json:"lease_owner,omitempty"`
+	// LeaseUntil excludes other executors, even if Deadline has elapsed.
+	// All stores must preserve its full precision.
+	LeaseUntil time.Time `json:"lease_until,omitzero"`
 	// Version is the optimistic-concurrency token. Store.Update must reject a
 	// write whose Version no longer matches the persisted value and increment
 	// it on success.
@@ -126,6 +136,7 @@ func (i *Instance) Clone() *Instance {
 	out := *i
 	out.Data = slices.Clone(i.Data)
 	out.Steps = slices.Clone(i.Steps)
+	out.PendingSteps = slices.Clone(i.PendingSteps)
 	return &out
 }
 
@@ -154,9 +165,9 @@ type Store interface {
 	Update(ctx context.Context, inst *Instance) error
 
 	// FetchRecoverable returns up to limit non-terminal instances that are
-	// candidates for recovery: those whose Deadline is non-zero and at or
-	// before now, plus any left mid-compensation. The recovery loop resumes or
-	// rolls them back. Order is unspecified.
+	// candidates for recovery: expired execution leases, expired deadlines, or
+	// interrupted compensation. Active leases exclude all candidates. See
+	// Instance.Recoverable. The recovery loop rechecks ownership with CAS.
 	//
 	// Durable backends (mongo, redis) persist the deadline as Unix seconds and
 	// so compare it at one-second granularity; the in-memory backend uses full
@@ -167,4 +178,13 @@ type Store interface {
 	// Delete removes a (typically terminal) instance for retention. Deleting a
 	// missing instance is not an error.
 	Delete(ctx context.Context, id string) error
+}
+
+// Recoverable reports whether an instance is eligible for a recovery scan.
+// An active execution lease always wins over a saga deadline.
+func (i *Instance) Recoverable(now time.Time) bool {
+	if i.Status.IsTerminal() || i.LeaseUntil.After(now) {
+		return false
+	}
+	return i.Status == StatusCompensating || i.LeaseOwner != "" || (!i.Deadline.IsZero() && !now.Before(i.Deadline))
 }

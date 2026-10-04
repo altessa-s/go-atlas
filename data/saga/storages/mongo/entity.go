@@ -27,17 +27,20 @@ type stepRecord struct {
 // Instance-level timestamps use Unix seconds; deadline is 0 when unset (which
 // excludes the instance from the deadline branch of the recovery scan).
 type instance struct {
-	Id         string       `bson:"_id"`
-	Definition string       `bson:"definition"`
-	Status     string       `bson:"status"`
-	Stage      int          `bson:"stage"`
-	Data       []byte       `bson:"data,omitempty"`
-	Steps      []stepRecord `bson:"steps,omitempty"`
-	CreatedAt  int64        `bson:"created_at"`
-	UpdatedAt  int64        `bson:"updated_at"`
-	Deadline   int64        `bson:"deadline,omitempty"`
-	Version    int64        `bson:"version"`
-	LastError  string       `bson:"last_error,omitempty"`
+	PendingSteps []int        `bson:"pending_steps,omitempty"`
+	LeaseOwner   string       `bson:"lease_owner,omitempty"`
+	LeaseUntil   int64        `bson:"lease_until,omitempty"`
+	Id           string       `bson:"_id"`
+	Definition   string       `bson:"definition"`
+	Status       string       `bson:"status"`
+	Stage        int          `bson:"stage"`
+	Data         []byte       `bson:"data,omitempty"`
+	Steps        []stepRecord `bson:"steps,omitempty"`
+	CreatedAt    int64        `bson:"created_at"`
+	UpdatedAt    int64        `bson:"updated_at"`
+	Deadline     int64        `bson:"deadline,omitempty"`
+	Version      int64        `bson:"version"`
+	LastError    string       `bson:"last_error,omitempty"`
 }
 
 // toUnix converts a time to Unix seconds, mapping the zero time to 0.
@@ -59,16 +62,19 @@ func fromUnix(sec int64) time.Time {
 // toDocument converts a public [saga.Instance] into its MongoDB document.
 func toDocument(inst *saga.Instance) instance {
 	doc := instance{
-		Id:         inst.ID,
-		Definition: inst.Definition,
-		Status:     string(inst.Status),
-		Stage:      inst.Stage,
-		Data:       inst.Data,
-		CreatedAt:  toUnix(inst.CreatedAt),
-		UpdatedAt:  toUnix(inst.UpdatedAt),
-		Deadline:   toUnix(inst.Deadline),
-		Version:    inst.Version,
-		LastError:  inst.LastError,
+		Id:           inst.ID,
+		PendingSteps: inst.PendingSteps,
+		LeaseOwner:   inst.LeaseOwner,
+		LeaseUntil:   toUnixNano(inst.LeaseUntil),
+		Definition:   inst.Definition,
+		Status:       string(inst.Status),
+		Stage:        inst.Stage,
+		Data:         inst.Data,
+		CreatedAt:    toUnix(inst.CreatedAt),
+		UpdatedAt:    toUnix(inst.UpdatedAt),
+		Deadline:     toUnix(inst.Deadline),
+		Version:      inst.Version,
+		LastError:    inst.LastError,
 	}
 	if len(inst.Steps) > 0 {
 		doc.Steps = make([]stepRecord, len(inst.Steps))
@@ -90,16 +96,19 @@ func toDocument(inst *saga.Instance) instance {
 // fromDocument converts a MongoDB document into a public [saga.Instance].
 func fromDocument(doc *instance) *saga.Instance {
 	inst := &saga.Instance{
-		ID:         doc.Id,
-		Definition: doc.Definition,
-		Status:     saga.Status(doc.Status),
-		Stage:      doc.Stage,
-		Data:       doc.Data,
-		CreatedAt:  fromUnix(doc.CreatedAt),
-		UpdatedAt:  fromUnix(doc.UpdatedAt),
-		Deadline:   fromUnix(doc.Deadline),
-		Version:    doc.Version,
-		LastError:  doc.LastError,
+		ID:           doc.Id,
+		PendingSteps: doc.PendingSteps,
+		LeaseOwner:   doc.LeaseOwner,
+		LeaseUntil:   fromUnixNano(doc.LeaseUntil),
+		Definition:   doc.Definition,
+		Status:       saga.Status(doc.Status),
+		Stage:        doc.Stage,
+		Data:         doc.Data,
+		CreatedAt:    fromUnix(doc.CreatedAt),
+		UpdatedAt:    fromUnix(doc.UpdatedAt),
+		Deadline:     fromUnix(doc.Deadline),
+		Version:      doc.Version,
+		LastError:    doc.LastError,
 	}
 	if len(doc.Steps) > 0 {
 		inst.Steps = make([]saga.StepRecord, len(doc.Steps))
@@ -116,4 +125,17 @@ func fromDocument(doc *instance) *saga.Instance {
 		}
 	}
 	return inst
+}
+
+func toUnixNano(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.UnixNano()
+}
+func fromUnixNano(n int64) time.Time {
+	if n == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, n).UTC()
 }

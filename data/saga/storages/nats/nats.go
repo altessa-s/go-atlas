@@ -158,11 +158,7 @@ func (s *Store) FetchRecoverable(ctx context.Context, now time.Time, limit int) 
 		if err != nil {
 			return nil, err
 		}
-		if inst.Status.IsTerminal() {
-			continue
-		}
-		timedOut := !inst.Deadline.IsZero() && !now.Before(inst.Deadline)
-		if inst.Status != saga.StatusCompensating && !timedOut {
+		if !inst.Recoverable(now) {
 			continue
 		}
 

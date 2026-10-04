@@ -8,6 +8,7 @@ import (
 	"context"
 	"os"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -29,6 +30,8 @@ func mongoURI() string {
 	return "mongodb://localhost:27017"
 }
 
+var integrationSequence atomic.Uint64
+
 // newIntegrationStore connects to a live MongoDB, skipping the test when none is
 // reachable. Each call gets its own throwaway database, dropped on cleanup.
 func newIntegrationStore(t *testing.T) *mongostore.Store {
@@ -38,17 +41,18 @@ func newIntegrationStore(t *testing.T) *mongostore.Store {
 	if err != nil {
 		t.Skipf("mongodb not available: %v", err)
 	}
-	// Cleanups run after t.Context() is canceled, so they use a fresh context.
-	if err := client.Ping(context.Background(), nil); err != nil {
-		_ = client.Disconnect(context.Background())
+	if err := client.Ping(t.Context(), nil); err != nil {
+		_ = client.Disconnect(context.WithoutCancel(t.Context()))
 		t.Skipf("mongodb not reachable at %s: %v", mongoURI(), err)
 	}
 
-	dbName := "saga_it_" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	dbName := "saga_it_" + strconv.FormatInt(time.Now().UnixNano(), 10) + "_" + strconv.FormatUint(integrationSequence.Add(1), 10)
 	db := client.Database(dbName)
 	t.Cleanup(func() {
-		_ = db.Drop(context.Background())
-		_ = client.Disconnect(context.Background())
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
+		defer cancel()
+		_ = db.Drop(ctx)
+		_ = client.Disconnect(ctx)
 	})
 
 	// A reachable server may still reject us (auth, permissions): treat store
@@ -153,6 +157,19 @@ func TestIntegrationFetchRecoverable(t *testing.T) {
 	require.NoError(t, s.Create(ctx, itInstance("healthy", saga.StatusRunning, future)))
 	require.NoError(t, s.Create(ctx, itInstance("done", saga.StatusCompleted, time.Time{})))
 
+	active := itInstance("active-lease", saga.StatusCompensating, past)
+	active.LeaseOwner, active.LeaseUntil = "owner", future
+	require.NoError(t, s.Create(ctx, active))
+	abandoned := itInstance("abandoned", saga.StatusRunning, future)
+	abandoned.LeaseOwner, abandoned.LeaseUntil = "owner", past
+	require.NoError(t, s.Create(ctx, abandoned))
+	zeroLease := itInstance("zero-lease", saga.StatusRunning, time.Time{})
+	zeroLease.LeaseOwner = "owner"
+	require.NoError(t, s.Create(ctx, zeroLease))
+	finished := itInstance("finished-lease", saga.StatusCompleted, past)
+	finished.LeaseOwner, finished.LeaseUntil = "owner", past
+	require.NoError(t, s.Create(ctx, finished))
+
 	got, err := s.FetchRecoverable(ctx, now, 0)
 	require.NoError(t, err)
 
@@ -164,4 +181,8 @@ func TestIntegrationFetchRecoverable(t *testing.T) {
 	require.Contains(t, ids, "timed-out")
 	require.NotContains(t, ids, "healthy")
 	require.NotContains(t, ids, "done")
+	require.NotContains(t, ids, "active-lease")
+	require.NotContains(t, ids, "finished-lease")
+	require.Contains(t, ids, "abandoned")
+	require.Contains(t, ids, "zero-lease")
 }
