@@ -191,3 +191,56 @@ func TestLoad_ExplicitZeroTOML(t *testing.T) {
 	require.Equal(t, 10, cfg.Items[0].Weight)
 	require.Zero(t, cfg.Items[1].Weight)
 }
+
+type sentinelItem struct {
+	Name string          `yaml:"name"`
+	Opt  *explicitNested `yaml:"opt" default:"-"`
+}
+
+type reviewConfig struct {
+	Enabled bool                    `yaml:"enabled" default:"true"`
+	List    []sentinelItem          `yaml:"list"`
+	ByName  map[string]explicitItem `yaml:"byName"`
+	Items   []explicitItem          `yaml:"items"`
+}
+
+func loadReview(t *testing.T, opts []loader.Option, files ...string) *reviewConfig {
+	t.Helper()
+	dir := t.TempDir()
+	for i, content := range files {
+		require.NoError(t, os.WriteFile(filepath.Join(dir, string(rune('a'+i))+".yaml"), []byte(content), 0o600))
+	}
+	cfg := &reviewConfig{}
+	_, err := loader.New(nil, append([]loader.Option{loader.WithPath(dir)}, opts...)...).Load(cfg)
+	require.NoError(t, err)
+	return cfg
+}
+
+// default:"-" on an element's optional pointer struct must not allocate it.
+func TestLoad_ElementSentinelPointerStaysNil(t *testing.T) {
+	cfg := loadReview(t, nil, "list:\n  - name: a\n")
+	require.Nil(t, cfg.List[0].Opt)
+}
+
+// WithSkipDefaults also skips defaults for map and slice elements.
+func TestLoad_SkipDefaultsCoversElements(t *testing.T) {
+	cfg := loadReview(t, []loader.Option{loader.WithSkipDefaults()}, "items:\n  - name: a\nbyName:\n  b:\n    name: b\n")
+	require.Zero(t, cfg.Items[0].Weight)
+	require.Zero(t, cfg.ByName["b"].Weight)
+	require.False(t, cfg.Enabled)
+}
+
+// A later file that rewrites a map entry replaces it, so keys only the
+// earlier file set no longer suppress defaults.
+func TestLoad_LaterFileReplacesMapEntryPresence(t *testing.T) {
+	cfg := loadReview(t, nil, "byName:\n  a:\n    weight: 0\n", "byName:\n  a:\n    name: b\n")
+	require.Equal(t, "b", cfg.ByName["a"].Name)
+	require.Equal(t, 10, cfg.ByName["a"].Weight)
+}
+
+// YAML binds keys exactly: a differently cased key is ignored by the decoder
+// and must not count as explicitly set.
+func TestLoad_YAMLKeyCaseMustMatch(t *testing.T) {
+	cfg := loadReview(t, nil, "ENABLED: false\n")
+	require.True(t, cfg.Enabled)
+}

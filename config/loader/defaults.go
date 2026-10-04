@@ -60,7 +60,7 @@ func (cf *Config) setInFile(f *field) bool {
 	p := cf.present
 	for i := len(keys) - 1; i >= 0; i-- {
 		var ok bool
-		if p, ok = p.child(keys[i]); !ok {
+		if p, ok = p.field(keys[i]); !ok {
 			return false
 		}
 	}
@@ -70,6 +70,10 @@ func (cf *Config) setInFile(f *field) bool {
 // applyDefaultsToMaps applies default values to struct elements of maps and
 // slices, which the field list does not reach.
 func (cf *Config) applyDefaultsToMaps(value any) error {
+	if cf.options.skipDefaults {
+		return nil
+	}
+
 	v := reflect.ValueOf(value)
 	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
@@ -115,9 +119,9 @@ func (cf *Config) fieldPresence(sf reflect.StructField, p presence) (presence, b
 	}
 	key := fileKey(sf, tagName)
 	if key == "" {
-		return presence{}, false
+		return presence{fold: p.fold}, false
 	}
-	return p.child(key)
+	return p.field(key)
 }
 
 // applyDefaultsToStructFields recurses into the fields of a struct whose own
@@ -148,7 +152,7 @@ func (cf *Config) applyDefaultsToMap(v reflect.Value, p presence) error {
 	}
 
 	for _, mapKey := range cf.collectMapKeys(v) {
-		ep, _ := p.child(fmt.Sprint(mapKey.Interface()))
+		ep := p.entry(fmt.Sprint(mapKey.Interface()))
 		if err := cf.processMapEntry(v, valueType, mapKey, v.MapIndex(mapKey), ep); err != nil {
 			return err
 		}
@@ -218,8 +222,10 @@ func (cf *Config) applyDefaultsToStruct(structValue reflect.Value, p presence) e
 
 		fp, explicit := cf.fieldPresence(field, p)
 
+		// "-" is the loader's do-not-allocate sentinel for optional pointer
+		// structs, not a value; leave such fields nil like the field list does.
 		defaultTag := field.Tag.Get(defaultValueTagName)
-		if defaultTag != "" && !explicit && fieldValue.IsZero() {
+		if defaultTag != "" && defaultTag != "-" && !explicit && fieldValue.IsZero() {
 			if cf.options.strict {
 				var subErr error
 				if defaultTag, subErr = substituteEnvVariablesStrict(defaultTag); subErr != nil {

@@ -125,11 +125,12 @@ func (cf *Config) loadAndDecode(f *file, out any) (err error) {
 	}
 
 	// Decode the same content generically to record which keys were set.
-	f.keys = nil
-	if err = f.decoder.Decode(strings.NewReader(substitutedContent), &f.keys); err != nil {
+	var keys map[string]any
+	if err = f.decoder.Decode(strings.NewReader(substitutedContent), &keys); err != nil {
 		err = fmt.Errorf("%w: %s: %w", ErrDecode, f.name, err)
 		return
 	}
+	f.keys, _ = normalizePresence(keys).(map[string]any)
 
 	// Create a reader from the substituted content
 	substitutedReader := strings.NewReader(substitutedContent)

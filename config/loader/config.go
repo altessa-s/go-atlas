@@ -160,7 +160,7 @@ func (cf *Config) load() error {
 	var err error
 
 	cf.envCache = nil
-	cf.present = presence{}
+	cf.present = presence{fold: cf.foldKeys()}
 	defer func() {
 		cf.envCache = nil
 		cf.present = presence{}
@@ -177,7 +177,7 @@ func (cf *Config) load() error {
 			if err != nil {
 				return err
 			}
-			cf.present.node = mergePresence(cf.present.node, f.keys)
+			cf.present.node = cf.mergePresence(cf.present.node, f.keys, cf.confType)
 		}
 	}
 
