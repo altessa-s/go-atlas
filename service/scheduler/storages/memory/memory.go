@@ -109,6 +109,19 @@ func (m *Storage) UpsertTask(_ context.Context, state *scheduler.TaskState) erro
 	return nil
 }
 
+// ReplaceTaskIf replaces the stored state only while it still matches expect.
+func (m *Storage) ReplaceTaskIf(_ context.Context, state *scheduler.TaskState, expect scheduler.TaskFence) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	cur, ok := m.tasks[state.ID]
+	if !ok || scheduler.FenceOf(cur) != expect {
+		return false, nil
+	}
+	m.tasks[state.ID] = cloneTaskState(state)
+	return true, nil
+}
+
 // ClaimRun atomically transitions the task from active→running for the
 // occurrence scheduled at expectedNextRunAt. Because all access is serialized by
 // the storage mutex, the read-check-write is a single critical section, so two

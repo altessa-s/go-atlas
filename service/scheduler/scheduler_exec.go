@@ -209,6 +209,7 @@ func (s *Scheduler) applySkip(now time.Time, id string) {
 		// State changed concurrently or the read failed: leave it alone.
 		return
 	}
+	fence := FenceOf(freshState)
 
 	freshState.SkipNextRun = false
 	if freshState.OneShot {
@@ -220,10 +221,15 @@ func (s *Scheduler) applySkip(now time.Time, id string) {
 	}
 	freshState.UpdatedAt = now.Unix()
 
-	if err := s.storage.UpsertTask(ctx, freshState); err != nil {
+	replaced, err := s.storage.ReplaceTaskIf(ctx, freshState, fence)
+	if err != nil {
 		s.logger.ErrorContext(ctx, "failed to update skipped task",
 			slog.String("task_id", id),
 			slog.Any("error", err))
+	}
+	if !replaced {
+		// A concurrent claim, pause or schedule change won; it owns the state.
+		return
 	}
 	s.metrics.tasksSkipped.WithLabels(metrics.Labels{"task_id": id}).Inc()
 	s.logger.InfoContext(ctx, "task run skipped", slog.String("task_id", id))
@@ -667,7 +673,7 @@ func (s *Scheduler) recoverStaleTasks(ctx context.Context, startup bool) {
 		return
 	}
 
-	staleIDs := make([]string, 0)
+	stale := make([]*TaskState, 0)
 
 	for _, state := range allStates {
 		if state.Status != TaskStatusRunning {
@@ -701,19 +707,21 @@ func (s *Scheduler) recoverStaleTasks(ctx context.Context, startup bool) {
 			}
 		}
 
-		staleIDs = append(staleIDs, state.ID)
+		stale = append(stale, state)
 	}
 
 	// Now reset each stale task outside the iterator
-	for _, id := range staleIDs {
-		s.resetStaleTask(ctx, id, now, startup)
+	for _, state := range stale {
+		s.resetStaleTask(ctx, state.ID, FenceOf(state), now, startup)
 	}
 }
 
 // resetStaleTask returns a single task stuck in [TaskStatusRunning] to
-// [TaskStatusActive]. The state is re-read under its own storage deadline
-// because it may have changed since the collection pass.
-func (s *Scheduler) resetStaleTask(ctx context.Context, id string, now time.Time, startup bool) {
+// [TaskStatusActive]. The state is re-read under its own storage deadline and
+// written with [Storage.ReplaceTaskIf] fenced on the run observed as stale, so
+// a run that finished or was re-claimed since the collection pass is never
+// overwritten.
+func (s *Scheduler) resetStaleTask(ctx context.Context, id string, stale TaskFence, now time.Time, startup bool) {
 	opCtx, cancel := s.storageCtx(ctx)
 	defer cancel()
 
@@ -725,8 +733,8 @@ func (s *Scheduler) resetStaleTask(ctx context.Context, id string, now time.Time
 		return
 	}
 
-	// Re-check status in case it changed during iteration
-	if state.Status != TaskStatusRunning {
+	// The run observed as stale has finished or been replaced by a new claim.
+	if FenceOf(state) != stale {
 		return
 	}
 
@@ -746,10 +754,14 @@ func (s *Scheduler) resetStaleTask(ctx context.Context, id string, now time.Time
 	}
 	state.UpdatedAt = now.Unix()
 
-	if err := s.storage.UpsertTask(opCtx, state); err != nil {
+	replaced, err := s.storage.ReplaceTaskIf(opCtx, state, stale)
+	if err != nil {
 		s.logger.ErrorContext(opCtx, "failed to reset stale task",
 			slog.String("task_id", id),
 			slog.Any("error", err))
+		return
+	}
+	if !replaced {
 		return
 	}
 

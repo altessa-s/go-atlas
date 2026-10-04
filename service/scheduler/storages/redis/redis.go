@@ -277,6 +277,52 @@ func (s *Storage) UpsertTask(ctx context.Context, state *scheduler.TaskState) er
 	return nil
 }
 
+// replaceTaskIfScript replaces a task JSON document only while its fence fields
+// still match. KEYS[1] is the task key; ARGV = [status, nextRunAt, runStartedAt,
+// lastRunID, document]. Absent omitempty fields read as their zero values.
+// Returns 1 when the document was replaced, 0 otherwise.
+const replaceTaskIfScript = `
+if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
+local function num(path)
+  local v = redis.call('JSON.GET', KEYS[1], path)
+  if (not v) or v == '[]' then return 0 end
+  return tonumber(string.match(v, '(-?%d+)'))
+end
+if num('$.status') ~= tonumber(ARGV[1]) then return 0 end
+if num('$.next_run_at') ~= tonumber(ARGV[2]) then return 0 end
+if num('$.run_started_at') ~= tonumber(ARGV[3]) then return 0 end
+local id = ''
+local v = redis.call('JSON.GET', KEYS[1], '$.last_run_id')
+if v and v ~= '[]' then id = cjson.decode(v)[1] end
+if id ~= ARGV[4] then return 0 end
+redis.call('JSON.SET', KEYS[1], '$', ARGV[5])
+return 1
+`
+
+// ReplaceTaskIf replaces the task document via replaceTaskIfScript, so the fence
+// comparison and the write execute atomically on the server.
+func (s *Storage) ReplaceTaskIf(ctx context.Context, state *scheduler.TaskState, expect scheduler.TaskFence) (bool, error) {
+	doc, err := json.Marshal(newTaskData(state))
+	if err != nil {
+		return false, coreerrs.Wrapf(err, "failed to marshal task %q", state.ID)
+	}
+	res, err := s.client.Eval(ctx, replaceTaskIfScript, []string{s.taskKey(state.ID)},
+		int(expect.Status),
+		expect.NextRunAt,
+		expect.RunStartedAt,
+		expect.LastRunID,
+		string(doc),
+	).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return false, nil
+		}
+		return false, coreerrs.Wrapf(err, "failed to replace task %q", state.ID)
+	}
+	n, _ := res.(int64)
+	return n == 1, nil
+}
+
 // claimRunScript atomically transitions a task JSON document from active→running
 // for a specific occurrence. It runs entirely server-side under Redis's single-
 // threaded execution, so the read-check-write is atomic: KEYS[1] is the task key;

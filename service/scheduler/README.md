@@ -76,3 +76,10 @@ believe they are leader during an election split-brain, exactly one claim wins a
 repeated finishes return `false` without writing. Finalization updates execution fields without replacing task configuration, preserves concurrent
 pause/disable decisions, and advances the next occurrence only if the schedule still matches. Custom storage implementations must implement this
 operation atomically; a `GetTask` check followed by `UpsertTask` does not satisfy the contract.
+
+## Fenced replacement
+
+`Storage.ReplaceTaskIf(ctx, state, expect)` replaces a task only while its `Status`, `NextRunAt`, `LastRunID` and `RunStartedAt` still equal the
+`TaskFence` the caller read (`scheduler.FenceOf`). Stale-task recovery and `SkipNextRun` handling write through it, so a run that finished or was
+re-claimed after the scheduler read the task is never overwritten. Absent fields compare equal to their zero values. Like `FinishRun`, custom storage
+implementations must perform the comparison and the write atomically.
