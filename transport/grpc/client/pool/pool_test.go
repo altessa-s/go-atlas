@@ -16,6 +16,7 @@ import (
 )
 
 func TestNew_Defaults(t *testing.T) {
+	t.Parallel()
 	p := New()
 	require.NotNil(t, p, "New() returned nil")
 	require.Equal(t, DefaultPoolSize, p.opts.size)
@@ -25,6 +26,7 @@ func TestNew_Defaults(t *testing.T) {
 }
 
 func TestNew_WithOptions(t *testing.T) {
+	t.Parallel()
 	p := New(
 		WithSize(5),
 		WithMaxIdleTime(10*time.Minute),
@@ -36,26 +38,31 @@ func TestNew_WithOptions(t *testing.T) {
 }
 
 func TestWithSize_Zero(t *testing.T) {
+	t.Parallel()
 	p := New(WithSize(0))
-	require.Equal(t, 0, p.opts.size)
+	require.Equal(t, 1, p.opts.size)
 }
 
 func TestWithMaxIdleTime_Negative(t *testing.T) {
+	t.Parallel()
 	p := New(WithMaxIdleTime(-1))
 	require.Equal(t, DefaultMaxIdleTime, p.opts.maxIdleTime)
 }
 
 func TestWithCleanupInterval_Negative(t *testing.T) {
+	t.Parallel()
 	p := New(WithCleanupInterval(-1))
 	require.Equal(t, DefaultCleanupInterval, p.opts.cleanupInterval)
 }
 
 func TestWithConnectTimeout_Negative(t *testing.T) {
+	t.Parallel()
 	p := New(WithConnectTimeout(-1))
 	require.Equal(t, DefaultConnectTimeout, p.opts.connectTimeout)
 }
 
 func TestStartAndStop(t *testing.T) {
+	t.Parallel()
 	p := New(WithCleanupInterval(50 * time.Millisecond))
 	ctx := t.Context()
 
@@ -65,6 +72,7 @@ func TestStartAndStop(t *testing.T) {
 }
 
 func TestStart_AfterStopped(t *testing.T) {
+	t.Parallel()
 	p := New()
 	ctx := t.Context()
 
@@ -77,6 +85,7 @@ func TestStart_AfterStopped(t *testing.T) {
 }
 
 func TestGetConnection_AfterStopped(t *testing.T) {
+	t.Parallel()
 	p := New()
 	ctx := t.Context()
 	stop, _ := p.Start(ctx)
@@ -87,12 +96,14 @@ func TestGetConnection_AfterStopped(t *testing.T) {
 }
 
 func TestReturnConnection_Nil(t *testing.T) {
+	t.Parallel()
 	p := New()
 	// Should not panic
 	p.ReturnConnection(nil)
 }
 
 func TestGetConnection_WithClientFactory(t *testing.T) {
+	t.Parallel()
 	factoryCalled := false
 	factory := func(ctx context.Context, target string) (*grpc.ClientConn, error) {
 		factoryCalled = true
@@ -113,6 +124,7 @@ func TestGetConnection_WithClientFactory(t *testing.T) {
 }
 
 func TestGetConnection_DefaultFactory(t *testing.T) {
+	t.Parallel()
 	p := New(WithCleanupInterval(50 * time.Millisecond))
 	ctx := t.Context()
 
@@ -126,6 +138,7 @@ func TestGetConnection_DefaultFactory(t *testing.T) {
 }
 
 func TestReturnAndReuse(t *testing.T) {
+	t.Parallel()
 	p := New(WithClientFactory(func(ctx context.Context, target string) (*grpc.ClientConn, error) {
 		return grpc.NewClient(target, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}), WithCleanupInterval(50*time.Millisecond))
@@ -146,6 +159,7 @@ func TestReturnAndReuse(t *testing.T) {
 }
 
 func TestContextCancellation_StopsPool(t *testing.T) {
+	t.Parallel()
 	p := New(WithCleanupInterval(50 * time.Millisecond))
 	ctx, cancel := context.WithCancel(t.Context())
 
@@ -158,6 +172,7 @@ func TestContextCancellation_StopsPool(t *testing.T) {
 }
 
 func TestDefaultConstants(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		got  time.Duration
@@ -168,6 +183,7 @@ func TestDefaultConstants(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			require.False(t, tt.got <= 0, "%s = %v", tt.name, tt.got)
 		})
 	}

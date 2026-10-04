@@ -5,15 +5,15 @@ import "github.com/altessa-s/go-atlas/transport/grpc/client/pool"
 ```
 
 Package `pool` provides gRPC client connection pooling with automatic cleanup and health monitoring. Each target address gets its own sub-pool of
-connections bounded by the configured size. A background goroutine periodically evicts idle and unhealthy connections based on configurable
-thresholds. Callers must return every connection obtained via `GetConnection` by calling `ReturnConnection`.
+connections bounded by the configured size. A background goroutine periodically evicts idle and unhealthy connections based on configurable thresholds.
+Callers must return every connection obtained via `GetConnection` by calling `ReturnConnection`.
 
 ## Key types
 
 | Type / Interface | Description                                                                                 |
 |------------------|---------------------------------------------------------------------------------------------|
 | `ConnectionPool` | Manages per-target connection pools with background cleanup; created via `New`               |
-| `ClientFactory`  | Optional hook for custom connection creation; defaults to insecure dialer when not set       |
+| `ClientFactory`  | Optional hook for custom connection creation; defaults to TLS 1.2+ when not set       |
 
 ## Options
 
@@ -36,6 +36,7 @@ thresholds. Callers must return every connection obtained via `GetConnection` by
 | Method                          | Description                                                                       |
 |---------------------------------|-----------------------------------------------------------------------------------|
 | `Start(ctx)`                    | Starts background cleanup; returns a stop function that drains and closes        |
+| `Bind(target, factory)` | Creates an isolated connection-policy binding sharing the target capacity |
 | `GetConnection(ctx, target)`    | Borrows or dials a conn for target                                                |
 | `ReturnConnection(conn)`        | Returns a conn to the pool; unhealthy conns are closed                            |
 | `SubscribeTarget(target, cb)`   | Push notifications for state changes; first call enables the state tracker      |
@@ -44,8 +45,7 @@ thresholds. Callers must return every connection obtained via `GetConnection` by
 
 ## Health
 
-When configured with `WithHealthCoordinator`, the pool aggregates the worst
-per-target status into the registered service. The default
+When configured with `WithHealthCoordinator`, the pool aggregates the worst per-target status into the registered service. The default
 `connectivity.State` → `ServingStatus` mapping:
 
 | `connectivity.State` | `ServingStatus` |
@@ -54,13 +54,10 @@ per-target status into the registered service. The default
 | `TransientFailure`   | `Degraded`     |
 | `Shutdown`           | `NotServing`   |
 
-Coordinator subscribers receive an immediate push on every per-conn state
-change. The watcher goroutine calls `NotifyStatusChange` synchronously —
-gRPC does not hold any mutex while `WaitForStateChange` returns, so no
-async indirection is required.
+Coordinator subscribers receive an immediate push on every per-conn state change. The watcher goroutine calls `NotifyStatusChange` synchronously — gRPC
+does not hold any mutex while `WaitForStateChange` returns, so no async indirection is required.
 
-The state-tracking infrastructure is also exposed via `SubscribeTarget` and
-`StateForTarget` so the gRPC client can observe pool state in pool mode
+The state-tracking infrastructure is also exposed via `SubscribeTarget` and `StateForTarget` so the gRPC client can observe pool state in pool mode
 without configuring a coordinator on the pool itself.
 
 ## Errors
@@ -68,3 +65,16 @@ without configuring a coordinator on the pool itself.
 | Error                    | Description                                                              |
 |--------------------------|--------------------------------------------------------------------------|
 | `ErrConnectionPoolClosed`| Returned by `GetConnection` and `Start` after the pool has been stopped  |
+
+## Capacity and shutdown
+
+`WithSize` caps the total of borrowed, idle and currently creating connections per target; values below one are normalized to one. At capacity,
+`GetConnection` waits until a connection or capacity becomes available, or until its context is canceled. A `Binding` reuses only its own connections;
+an idle connection from another binding may be evicted to free capacity.
+
+The default factory uses TLS with a minimum version of TLS 1.2. Plaintext requires an explicit factory with insecure credentials, or
+`client.WithInsecure` on a bound client. `Start` may be called once; a second call returns `ErrAlreadyStarted`.
+
+Stop cancels in-flight factory contexts, waits for factories to return, closes all connections and rejects new borrows. A factory completing after
+shutdown begins has its returned connection closed instead of published. Custom factories must honor cancellation; stop cannot force an uncooperative
+factory to return.

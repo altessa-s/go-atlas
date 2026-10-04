@@ -4,9 +4,9 @@
 import "github.com/altessa-s/go-atlas/transport/grpc/client"
 ```
 
-Package `client` provides a generic gRPC client with connection management, retry, health checking, and error handling. It is designed as a
-foundation for building service-specific gRPC clients with consistent behavior for connection pooling, automatic retry with exponential backoff,
-structured logging, and rich error parsing with field-level validation details.
+Package `client` provides a generic gRPC client with connection management, retry, health checking, and error handling. It is designed as a foundation
+for building service-specific gRPC clients with consistent behavior for connection pooling, automatic retry with exponential backoff, structured
+logging, and rich error parsing with field-level validation details.
 
 ## Key types
 
@@ -28,7 +28,7 @@ structured logging, and rich error parsing with field-level validation details.
 | `WithAppName`         | --        | Application name sent in the gRPC User-Agent header                          |
 | `WithRetry`           | disabled  | Enables retry with default config (5 attempts, 1s-10s exponential backoff)   |
 | `WithRetryConfig`     | --        | Enables retry with a custom `RetryConfig`                                    |
-| `WithConnectionPool`  | nil       | Enables pool mode backed by a `pool.ConnectionPool`                          |
+| `WithPool`  | nil       | Enables pool mode backed by a `pool.ConnectionPool`                          |
 | `WithDialOptions`     | --        | Appends custom `grpc.DialOption` values (auth credentials, call options)     |
 | `WithProxy`           | env       | Route via `http://host:port` with optional `*url.Userinfo`                    |
 | `WithProxyURL`        | env       | Route via any proxy URL (`http`, `https`, `socks5`, `socks5h`)               |
@@ -44,10 +44,8 @@ structured logging, and rich error parsing with field-level validation details.
 
 ## Health
 
-Pass `WithHealthCoordinator(coord)` to register the client with
-`observability/health`. The aggregate checker (default service name
-`grpc_client`) reflects the [`grpc.ClientConn`](https://pkg.go.dev/google.golang.org/grpc#ClientConn)
-connectivity state through `DefaultStateMapper`:
+Pass `WithHealthCoordinator(coord)` to register the client with `observability/health`. The aggregate checker (default service name `grpc_client`)
+reflects the [`grpc.ClientConn`](https://pkg.go.dev/google.golang.org/grpc#ClientConn) connectivity state through `DefaultStateMapper`:
 
 | `connectivity.State` | `ServingStatus` |
 |----------------------|-----------------|
@@ -55,14 +53,11 @@ connectivity state through `DefaultStateMapper`:
 | `TransientFailure`   | `Degraded`     |
 | `Shutdown`           | `NotServing`   |
 
-In **single-connection mode** the client owns a watcher goroutine that calls
-`grpc.ClientConn.WaitForStateChange` and pushes a status to the coordinator
+In **single-connection mode** the client owns a watcher goroutine that calls `grpc.ClientConn.WaitForStateChange` and pushes a status to the coordinator
 on every transition.
 
-In **pool mode** the client subscribes to the pool's state tracker via
-`pool.ConnectionPool.SubscribeTarget`. To monitor the pool itself across
-multiple targets and clients, configure `pool.WithHealthCoordinator` on the
-pool — the two integrations are independent.
+In **pool mode** the client subscribes to the pool's state tracker via `pool.ConnectionPool.SubscribeTarget`. To monitor the pool itself across multiple
+targets and clients, configure `pool.WithHealthCoordinator` on the pool — the two integrations are independent.
 
 ```go
 coord := health.New()
@@ -78,3 +73,9 @@ c, err := client.New(ctx, "service.example.com:443",
 | Package                    | Description                                                          |
 |----------------------------|----------------------------------------------------------------------|
 | [pool](./pool)             | gRPC client connection pooling with automatic cleanup and monitoring |
+
+## Pool policy
+
+`WithPool(p)` applies the same TLS, proxy, retry, interceptor and custom dial options as single-connection mode. Each client binds its own connection
+factory to the pool; connections are reused only within that binding. Bindings for the same address share the pool's capacity limit. Client policy takes
+precedence over the pool's default factory. Return borrowed connections with `ReturnConnection`; the pool's stop function owns their shutdown.

@@ -19,7 +19,8 @@ import (
 
 // ClientFactory creates a new gRPC client connection for the given target address.
 // The context carries the connection timeout configured via [WithConnectTimeout].
-// When no ClientFactory is set, the pool dials with [insecure.NewCredentials].
+// Pool shutdown cancels the context and waits for the factory to return.
+// Factories must honor cancellation. The default factory uses TLS 1.2 or newer.
 type ClientFactory func(ctx context.Context, target string) (*grpc.ClientConn, error)
 
 // Default values for connection pool options.
@@ -39,7 +40,7 @@ const (
 
 // options holds configuration for the connection pool.
 type options struct {
-	// size sets the number of connections in the pool.
+	// size caps active, idle, and in-progress connections per target in total.
 	size int `optgen:"default=DefaultPoolSize,min=1"`
 	// maxIdleTime sets the maximum idle time before a connection is closed.
 	maxIdleTime time.Duration `optgen:"default=DefaultMaxIdleTime,min=1s"`

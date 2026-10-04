@@ -6,6 +6,8 @@ package pool
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -16,7 +18,7 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/credentials"
 
 	corecontext "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
@@ -43,12 +45,18 @@ const (
 //
 // All exported methods are safe for concurrent use.
 type ConnectionPool struct {
-	opts      *options
-	logger    *slog.Logger
-	metrics   *poolMetrics
-	pools     sync.Map // map[string]*targetPool
-	connOwner sync.Map // map[*grpc.ClientConn]*targetPool — O(1) lookup for ReturnConnection
-	stopped   atomic.Bool
+	opts        *options
+	logger      *slog.Logger
+	metrics     *poolMetrics
+	pools       sync.Map // map[string]*targetPool
+	connOwner   sync.Map // map[*grpc.ClientConn]*targetPool — O(1) lookup for ReturnConnection
+	stopped     atomic.Bool
+	lifecycleMu sync.Mutex
+	started     bool
+	stopOnce    sync.Once
+	done        chan struct{}
+	ctx         context.Context
+	cancel      context.CancelFunc
 
 	// tracker observes per-conn connectivity state and powers
 	// [SubscribeTarget], [StateForTarget], and the optional health helper.
@@ -63,13 +71,17 @@ type ConnectionPool struct {
 
 // targetPool manages connections for a specific target address.
 type targetPool struct {
-	pool        *ConnectionPool // back-reference for conn ownership tracking
-	target      string
-	opts        *options
-	logger      *slog.Logger
-	connections chan *pooledConnection
-	active      sync.Map // map[*grpc.ClientConn]*pooledConnection
-	closed      atomic.Bool
+	pool    *ConnectionPool
+	target  string
+	opts    *options
+	logger  *slog.Logger
+	mu      sync.Mutex
+	active  map[*grpc.ClientConn]*pooledConnection
+	idle    []*pooledConnection
+	changed chan struct{}
+	closed  bool
+	dialing int
+	creates sync.WaitGroup
 }
 
 // pooledConnection wraps a gRPC client connection with pool metadata.
@@ -79,6 +91,7 @@ type pooledConnection struct {
 	created  time.Time
 	lastUsed atomic.Int64 // Unix nanoseconds
 	inUse    atomic.Bool
+	binding  *Binding
 }
 
 // New creates a new connection pool with the specified options.
@@ -86,24 +99,25 @@ type pooledConnection struct {
 //
 // Example:
 //
-//	p := pool.New(pool.WithPoolSize(20))
+//	p := pool.New(pool.WithSize(20))
 //	stop, _ := p.Start(ctx)
 //	defer stop()
 //	conn, _ := p.GetConnection(ctx, "localhost:8080")
 //	defer p.ReturnConnection(conn)
 func New(opts ...Option) *ConnectionPool {
 	options := newOptions(opts...)
+	options.size = max(1, options.size)
 	cp := &ConnectionPool{
 		opts:    options,
 		logger:  options.logger,
 		metrics: newPoolMetrics(options.collector, options.metricsSubsystem),
 		tracker: newStateTracker(),
+		done:    make(chan struct{}),
 	}
-	// poolHealth wires its onTargetStateChange callback into the tracker
-	// during register() (called from Start). Until then the tracker has no
-	// callback consumer and any external SubscribeTarget caller fans out
-	// independently.
+	// Install the callback once before concurrent tracker use.
+	cp.ctx, cp.cancel = context.WithCancel(context.Background())
 	cp.health = newPoolHealth(cp)
+	cp.tracker.onTargetStateChange = cp.health.onTargetStateChange
 	return cp
 }
 
@@ -127,87 +141,95 @@ func New(opts ...Option) *ConnectionPool {
 //	}
 //	defer stop()
 func (cp *ConnectionPool) Start(ctx context.Context) (func(), error) {
+	cp.lifecycleMu.Lock()
+	defer cp.lifecycleMu.Unlock()
 	if cp.stopped.Load() {
 		return nil, ErrConnectionPoolClosed
 	}
-
-	cp.logger.InfoContext(ctx, "connection pool started",
-		"pool_size", cp.opts.size,
-		"max_idle_time", cp.opts.maxIdleTime,
-		"cleanup_interval", cp.opts.cleanupInterval)
-
-	// Register the optional aggregate health checker. Per-target services
-	// are registered lazily as targets first appear via onConnAttached.
-	//nolint:contextcheck // tracker watchers run on the pool-owned parent ctx, not Start's ctx
-	cp.health.register()
-
-	stopCh := make(chan struct{})
-	done := make(chan struct{})
-	var stopOnce sync.Once
-
+	if cp.started {
+		return nil, ErrAlreadyStarted
+	}
+	cp.started = true
+	cp.health.register() //nolint:contextcheck // Watchers use the tracker-owned lifetime.
+	loopDone := make(chan struct{})
+	// This goroutine owns the periodic cleanup lifecycle, not finite fan-out.
 	go func() {
-		defer close(done)
-
+		defer close(loopDone)
 		ticker := time.NewTicker(cp.opts.cleanupInterval)
 		defer ticker.Stop()
-
 		for {
 			select {
 			case <-ctx.Done():
-				cp.tracker.shutdown()
-				cp.closeAllPools(ctx)
+				cp.shutdown()
 				return
-			case <-stopCh:
-				cp.tracker.shutdown()
-				cp.closeAllPools(ctx)
+			case <-cp.ctx.Done():
 				return
 			case <-ticker.C:
-				cp.cleanup() //nolint:contextcheck // background cleanup uses internal context
+				cp.cleanup() //nolint:contextcheck // Periodic cleanup is pool-owned, not a request operation.
 			}
 		}
 	}()
+	return func() { cp.shutdown(); <-loopDone }, nil
+}
 
-	stop := func() {
-		stopOnce.Do(func() {
-			cp.stopped.Store(true)
-			close(stopCh)
+func (cp *ConnectionPool) shutdown() {
+	cp.stopOnce.Do(func() {
+		cp.lifecycleMu.Lock()
+		cp.stopped.Store(true)
+		cp.cancel()
+		cp.lifecycleMu.Unlock()
+		cp.pools.Range(func(_, value any) bool {
+			tp, _ := value.(*targetPool) //nolint:errcheck // Only targetPool values are stored.
+			tp.close()
+			return true
 		})
-		<-done
-	}
-
-	return stop, nil
-}
-
-// closeAllPools closes all target pools and their connections.
-func (cp *ConnectionPool) closeAllPools(ctx context.Context) {
-	cp.stopped.Store(true)
-	cp.logger.InfoContext(ctx, "shutting down connection pool")
-
-	cp.pools.Range(func(key, value any) bool {
-		tPool, ok := value.(*targetPool)
-		if ok {
-			tPool.close(ctx)
-		}
-		return true
+		cp.tracker.shutdown()
+		close(cp.done)
 	})
-
-	cp.logger.InfoContext(ctx, "connection pool shutdown complete")
+	<-cp.done
 }
 
-// GetConnection retrieves a healthy connection for target from the pool.
-// If no idle connection is available, a new one is created via the configured
-// [ClientFactory] (or the default insecure dialer).
-//
-// The caller must call [ConnectionPool.ReturnConnection] when done; failing to do so
-// leaks the connection. Returns [ErrConnectionPoolClosed] after shutdown.
+// GetConnection borrows a connection using the pool's default factory. At the
+// per-target limit it waits for a return or for ctx cancellation. The default
+// factory uses TLS; plaintext requires an explicit WithClientFactory.
 func (cp *ConnectionPool) GetConnection(ctx context.Context, target string) (*grpc.ClientConn, error) {
+	return cp.getConnection(ctx, target, nil)
+}
+
+func (cp *ConnectionPool) getConnection(ctx context.Context, target string, binding *Binding) (*grpc.ClientConn, error) {
+	tp, err := cp.getOrCreateTargetPool(target)
+	if err != nil {
+		return nil, err
+	}
+	return tp.getConnection(ctx, binding)
+}
+
+// Binding owns a connection policy for one caller and target. Connections never
+// cross bindings, but all bindings share the pool's per-target capacity limit.
+// The pool owns shutdown; return borrowed connections through ReturnConnection.
+type Binding struct {
+	pool    *ConnectionPool
+	target  string
+	factory ClientFactory
+}
+
+// Bind isolates a caller's factory from all other policies for the same target.
+// The factory must honor cancellation and return a fresh connection on success.
+func (cp *ConnectionPool) Bind(target string, factory ClientFactory) (*Binding, error) {
+	if factory == nil {
+		return nil, ErrFactoryRequired
+	}
+	cp.lifecycleMu.Lock()
+	defer cp.lifecycleMu.Unlock()
 	if cp.stopped.Load() {
 		return nil, ErrConnectionPoolClosed
 	}
+	return &Binding{pool: cp, target: target, factory: factory}, nil
+}
 
-	// Get or create target pool
-	tPool := cp.getOrCreateTargetPool(target) //nolint:contextcheck // pool creation is context-independent
-	return tPool.getConnection(ctx)
+// GetConnection borrows a connection using this binding's policy.
+func (b *Binding) GetConnection(ctx context.Context) (*grpc.ClientConn, error) {
+	return b.pool.getConnection(ctx, b.target, b)
 }
 
 // SubscribeTarget delivers per-conn [connectivity.State] updates for the
@@ -256,35 +278,20 @@ func (cp *ConnectionPool) ReturnConnection(conn *grpc.ClientConn) {
 }
 
 // getOrCreateTargetPool retrieves or creates a target pool for the specified address.
-func (cp *ConnectionPool) getOrCreateTargetPool(target string) *targetPool {
-	// Try to get existing pool first
+func (cp *ConnectionPool) getOrCreateTargetPool(target string) (*targetPool, error) {
+	cp.lifecycleMu.Lock()
+	defer cp.lifecycleMu.Unlock()
+	if cp.stopped.Load() {
+		return nil, ErrConnectionPoolClosed
+	}
 	if existing, ok := cp.pools.Load(target); ok {
-		if existingPool, poolOK := existing.(*targetPool); poolOK {
-			return existingPool
-		}
+		tp, _ := existing.(*targetPool) //nolint:errcheck // Only targetPool values are stored.
+		return tp, nil
 	}
-
-	// Create new target pool
-	tPool := &targetPool{
-		pool:        cp,
-		target:      target,
-		opts:        cp.opts,
-		logger:      cp.logger.With("target", target),
-		connections: make(chan *pooledConnection, cp.opts.size),
-	}
-
-	// Try to store the new pool
-	if existing, loaded := cp.pools.LoadOrStore(target, tPool); loaded {
-		// Another goroutine created the pool first
-		if existingPool, ok := existing.(*targetPool); ok {
-			return existingPool
-		}
-		// Fallback to creating new pool if type assertion fails
-	}
-
-	//nolint:contextcheck // lazy initialization without request context
-	tPool.logger.InfoContext(context.Background(), "created target pool", "pool_size", cp.opts.size)
-	return tPool
+	tp := &targetPool{pool: cp, target: target, opts: cp.opts,
+		logger: cp.logger.With("target", target), active: make(map[*grpc.ClientConn]*pooledConnection), changed: make(chan struct{})}
+	cp.pools.Store(target, tp)
+	return tp, nil
 }
 
 // cleanup performs cleanup of idle connections across all target pools.
@@ -305,249 +312,206 @@ func (cp *ConnectionPool) cleanup() {
 
 	if cleanedTotal > 0 {
 		cp.metrics.cleanupRemoved.Add(float64(cleanedTotal))
-		cp.metrics.connectionsIdle.Sub(float64(cleanedTotal))
 		//nolint:contextcheck // background cleanup goroutine has no request context
 		cp.logger.DebugContext(context.Background(), "cleaned up idle connections", "count", cleanedTotal)
 	}
 }
 
-// getConnection retrieves a connection from the target pool.
-func (tp *targetPool) getConnection(ctx context.Context) (*grpc.ClientConn, error) {
-	if tp.closed.Load() {
-		return nil, ErrConnectionPoolClosed
-	}
+// notifyLocked wakes all borrowers to re-check capacity and matching idle conns.
+func (tp *targetPool) notifyLocked() {
+	close(tp.changed)
+	tp.changed = make(chan struct{})
+}
 
-	m := tp.pool.metrics
-
-	// Try to get an existing connection
-	select {
-	case pc := <-tp.connections:
-		// Check if connection is still healthy
-		if tp.isHealthy(pc) {
+func (tp *targetPool) getConnection(ctx context.Context, binding *Binding) (*grpc.ClientConn, error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		tp.mu.Lock()
+		if tp.closed || tp.pool.stopped.Load() {
+			tp.mu.Unlock()
+			return nil, ErrConnectionPoolClosed
+		}
+		for i := len(tp.idle) - 1; i >= 0; i-- {
+			pc := tp.idle[i]
+			if !tp.isHealthy(pc) {
+				tp.idle = append(tp.idle[:i], tp.idle[i+1:]...)
+				tp.closeConnectionLocked(pc, closeReasonUnhealthy)
+				continue
+			}
+			if pc.binding != binding {
+				continue
+			}
+			tp.idle = append(tp.idle[:i], tp.idle[i+1:]...)
 			pc.inUse.Store(true)
 			pc.lastUsed.Store(time.Now().UnixNano())
-			m.connectionsReused.WithLabels(metrics.Labels{"target": tp.target}).Inc()
-			m.connectionsInUse.Inc()
-			m.connectionsIdle.Dec()
+			tp.pool.metrics.connectionsReused.WithLabels(metrics.Labels{"target": tp.target}).Inc()
+			tp.pool.metrics.connectionsIdle.Dec()
+			tp.pool.metrics.connectionsInUse.Inc()
+			tp.mu.Unlock()
 			return pc.conn, nil
 		}
-		// Connection is unhealthy, close it and try to create a new one
-		tp.closeConnection(pc, closeReasonUnhealthy)
-	default:
-		// No connections available, try to create a new one
+		// Evict an idle connection with a different policy rather than letting it
+		// occupy the last slot forever. Borrowed connections are never evicted.
+		if len(tp.active)+tp.dialing >= tp.opts.size && len(tp.idle) > 0 {
+			pc := tp.idle[len(tp.idle)-1]
+			tp.idle = tp.idle[:len(tp.idle)-1]
+			tp.closeConnectionLocked(pc, closeReasonPoolFull)
+		}
+		if len(tp.active)+tp.dialing < tp.opts.size {
+			tp.dialing++
+			tp.creates.Add(1) // close sets closed under this mutex before waiting.
+			tp.mu.Unlock()
+			return tp.createConnection(ctx, binding)
+		}
+		changed := tp.changed
+		tp.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-tp.pool.ctx.Done():
+			return nil, ErrConnectionPoolClosed
+		case <-changed:
+		}
 	}
-
-	// Create new connection
-	return tp.createConnection(ctx)
 }
 
-// returnConnection returns a connection to the target pool.
-func (tp *targetPool) returnConnection(conn *grpc.ClientConn) bool {
-	if conn == nil {
-		return false
+func (tp *targetPool) returnConnection(conn *grpc.ClientConn) {
+	tp.mu.Lock()
+	defer tp.mu.Unlock()
+	pc, ok := tp.active[conn]
+	if !ok || !pc.inUse.Load() {
+		return
 	}
-
-	m := tp.pool.metrics
-
-	// Find this connection in active connections
-	if value, ok := tp.active.Load(conn); ok {
-		pc, pcOK := value.(*pooledConnection)
-		if !pcOK {
-			return false
-		}
-		if tp.closed.Load() {
-			tp.closeConnection(pc, closeReasonShutdown)
-			return true
-		}
-		pc.inUse.Store(false)
-		pc.lastUsed.Store(time.Now().UnixNano())
-		m.connectionsInUse.Dec()
-
-		// Return to pool if there's space and connection is healthy
-		if tp.isHealthy(pc) {
-			select {
-			case tp.connections <- pc:
-				m.connectionsIdle.Inc()
-				return true
-			default:
-				// Pool is full, close the connection
-				tp.closeConnection(pc, closeReasonPoolFull)
-				return true
-			}
-		} else {
-			// Connection is unhealthy, close it
-			tp.closeConnection(pc, closeReasonUnhealthy)
-			return true
-		}
+	if tp.closed || tp.pool.stopped.Load() {
+		tp.closeConnectionLocked(pc, closeReasonShutdown)
+		return
 	}
-
-	return false
+	if !tp.isHealthy(pc) {
+		tp.closeConnectionLocked(pc, closeReasonUnhealthy)
+		return
+	}
+	pc.inUse.Store(false)
+	pc.lastUsed.Store(time.Now().UnixNano())
+	tp.pool.metrics.connectionsInUse.Dec()
+	tp.pool.metrics.connectionsIdle.Inc()
+	tp.idle = append(tp.idle, pc)
+	tp.notifyLocked()
 }
 
-// createConnection establishes a new connection to the target.
-func (tp *targetPool) createConnection(ctx context.Context) (*grpc.ClientConn, error) {
-	tp.logger.DebugContext(ctx, "establishing new connection")
-
-	m := tp.pool.metrics
-	stop := m.connectDuration.WithLabels(metrics.Labels{"target": tp.target}).Start()
-
-	// Apply connect timeout if not already set in context
-	ctx, cancel := corecontext.ApplyTimeout(ctx, tp.opts.connectTimeout)
+func (tp *targetPool) createConnection(ctx context.Context, binding *Binding) (*grpc.ClientConn, error) {
+	defer tp.creates.Done()
+	ctx, cancel := corecontext.WithMaxTimeout(ctx, tp.opts.connectTimeout)
 	defer cancel()
-
-	// Use custom client factory if provided, otherwise use default
+	stopCancel := context.AfterFunc(tp.pool.ctx, cancel) //nolint:contextcheck // Cancel on either caller or pool shutdown.
+	defer stopCancel()
+	factory := tp.opts.clientFactory
+	if binding != nil {
+		factory = binding.factory
+	}
+	stop := tp.pool.metrics.connectDuration.WithLabels(metrics.Labels{"target": tp.target}).Start()
 	var conn *grpc.ClientConn
 	var err error
-
-	if tp.opts.clientFactory != nil {
-		conn, err = tp.opts.clientFactory(ctx, tp.target)
+	if factory != nil {
+		conn, err = factory(ctx, tp.target)
 	} else {
-		// Default: create connection with insecure credentials
-		conn, err = grpc.NewClient(tp.target,
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-		)
+		conn, err = grpc.NewClient(tp.target, grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12})))
 	}
-
 	stop()
-
+	tp.mu.Lock()
+	defer tp.mu.Unlock()
+	tp.dialing--
+	tp.notifyLocked()
+	if tp.closed || tp.pool.stopped.Load() {
+		err = ErrConnectionPoolClosed
+	} else if ctx.Err() != nil {
+		err = ctx.Err()
+	}
+	if err == nil && conn == nil {
+		err = errors.New("client factory returned nil connection")
+	}
 	if err != nil {
-		tp.logger.ErrorContext(ctx, "failed to create connection", "error", err)
-		m.connectionErrors.WithLabels(metrics.Labels{"target": tp.target}).Inc()
+		if conn != nil {
+			_ = conn.Close()
+		}
+		tp.pool.metrics.connectionErrors.WithLabels(metrics.Labels{"target": tp.target}).Inc()
 		return nil, coreerrs.Wrapf(err, "failed to connect to %s", tp.target)
 	}
-
-	pc := &pooledConnection{
-		conn:    conn,
-		target:  tp.target,
-		created: time.Now(),
-	}
+	pc := &pooledConnection{conn: conn, target: tp.target, created: time.Now(), binding: binding}
 	pc.inUse.Store(true)
 	pc.lastUsed.Store(time.Now().UnixNano())
-
-	// Register in active connections
-	tp.active.Store(conn, pc)
-
-	// Register conn→targetPool mapping for O(1) ReturnConnection
-	if tp.pool != nil {
-		tp.pool.connOwner.Store(conn, tp)
-		// Track connectivity state for health/subscriptions before
-		// surfacing the conn to callers. Lazy per-target health
-		// registration runs after the tracker has the entry.
-		//nolint:contextcheck // watcher lifecycle is pool-scoped, not request-scoped
-		tp.pool.tracker.attach(tp.target, pc)
-		tp.pool.health.onConnAttached(tp.target)
-	}
-
-	m.connectionsCreated.WithLabels(metrics.Labels{"target": tp.target}).Inc()
-	m.connectionsActive.Inc()
-	m.connectionsInUse.Inc()
-
-	tp.logger.DebugContext(ctx, "established new connection")
+	tp.active[conn] = pc
+	tp.pool.connOwner.Store(conn, tp)
+	tp.pool.tracker.attach(tp.target, pc) //nolint:contextcheck // Watchers outlive the borrowing request.
+	tp.pool.health.onConnAttached(tp.target)
+	tp.pool.metrics.connectionsCreated.WithLabels(metrics.Labels{"target": tp.target}).Inc()
+	tp.pool.metrics.connectionsActive.Inc()
+	tp.pool.metrics.connectionsInUse.Inc()
 	return conn, nil
 }
 
-// isHealthy checks if a pooled connection is healthy and usable.
 func (tp *targetPool) isHealthy(pc *pooledConnection) bool {
 	if pc == nil || pc.conn == nil {
 		return false
 	}
-
 	state := pc.conn.GetState()
 	return state == connectivity.Ready || state == connectivity.Idle
 }
 
-// closeConnection closes a pooled connection and removes it from tracking.
-func (tp *targetPool) closeConnection(pc *pooledConnection, reason closeReason) {
-	if pc == nil || pc.conn == nil {
+// closeConnectionLocked removes accounting exactly once. The caller removes
+// pc from idle first; holding mu makes publication and closure mutually exclusive.
+func (tp *targetPool) closeConnectionLocked(pc *pooledConnection, reason closeReason) {
+	if _, ok := tp.active[pc.conn]; !ok {
 		return
 	}
-
-	tp.active.Delete(pc.conn)
-
-	// Remove conn→targetPool mapping
-	if tp.pool != nil {
-		// Detach the watcher (if any) and unregister the per-target
-		// health service before closing the conn so a final
-		// state-change does not race with conn.Close.
-		tp.pool.tracker.detach(tp.target, pc)
-		tp.pool.health.onConnDetached(tp.target)
-		tp.pool.connOwner.Delete(pc.conn)
-
-		m := tp.pool.metrics
-		m.connectionsClosed.WithLabels(metrics.Labels{"target": tp.target, "reason": string(reason)}).Inc()
-		m.connectionsActive.Dec()
+	delete(tp.active, pc.conn)
+	tp.pool.connOwner.Delete(pc.conn)
+	tp.pool.tracker.detach(tp.target, pc)
+	tp.pool.health.onConnDetached(tp.target)
+	m := tp.pool.metrics
+	m.connectionsClosed.WithLabels(metrics.Labels{"target": tp.target, "reason": string(reason)}).Inc()
+	m.connectionsActive.Dec()
+	if pc.inUse.Load() {
+		m.connectionsInUse.Dec()
+	} else {
+		m.connectionsIdle.Dec()
 	}
-
-	_ = pc.conn.Close() // #nosec G104 -- error ignored in cleanup path
+	_ = pc.conn.Close()
+	tp.notifyLocked()
 }
 
-// cleanup removes idle connections from the target pool.
 func (tp *targetPool) cleanup() int {
-	if tp.closed.Load() {
+	tp.mu.Lock()
+	defer tp.mu.Unlock()
+	if tp.closed {
 		return 0
 	}
-
 	cleaned := 0
-	now := time.Now()
-	cutoff := now.Add(-tp.opts.maxIdleTime).UnixNano()
-
-	// Check connections in the pool (bounded to current queue size)
-	toCheck := len(tp.connections)
-	for range toCheck {
-		select {
-		case pc := <-tp.connections:
-			lastUsed := pc.lastUsed.Load()
-			if lastUsed < cutoff || !tp.isHealthy(pc) {
-				reason := closeReasonIdle
-				if !tp.isHealthy(pc) {
-					reason = closeReasonUnhealthy
-				}
-				tp.closeConnection(pc, reason)
-				cleaned++
-			} else {
-				// Connection is still fresh, put it back
-				select {
-				case tp.connections <- pc:
-				default:
-					// Pool is full, close this connection
-					tp.closeConnection(pc, closeReasonPoolFull)
-					cleaned++
-				}
+	cutoff := time.Now().Add(-tp.opts.maxIdleTime).UnixNano()
+	for i := len(tp.idle) - 1; i >= 0; i-- {
+		pc := tp.idle[i]
+		if pc.lastUsed.Load() < cutoff || !tp.isHealthy(pc) {
+			tp.idle = append(tp.idle[:i], tp.idle[i+1:]...)
+			reason := closeReasonIdle
+			if !tp.isHealthy(pc) {
+				reason = closeReasonUnhealthy
 			}
-		default:
-			return cleaned // No more connections to check
+			tp.closeConnectionLocked(pc, reason)
+			cleaned++
 		}
 	}
 	return cleaned
 }
 
-// close shuts down the target pool and closes all connections.
-func (tp *targetPool) close(ctx context.Context) {
-	if !tp.closed.CompareAndSwap(false, true) {
-		return
+func (tp *targetPool) close() {
+	tp.mu.Lock()
+	tp.closed = true
+	tp.idle = nil
+	for _, pc := range tp.active {
+		tp.closeConnectionLocked(pc, closeReasonShutdown)
 	}
-
-	tp.logger.InfoContext(ctx, "closing target pool")
-
-	// Close all connections in the pool
-	for {
-		select {
-		case pc := <-tp.connections:
-			tp.closeConnection(pc, closeReasonShutdown)
-		default:
-			goto closeActive
-		}
-	}
-
-closeActive:
-	// Close all active connections
-	tp.active.Range(func(key, value any) bool {
-		pc, ok := value.(*pooledConnection)
-		if ok {
-			tp.closeConnection(pc, closeReasonShutdown)
-		}
-		return true
-	})
-
-	tp.logger.InfoContext(ctx, "target pool closed")
+	tp.notifyLocked()
+	tp.mu.Unlock()
+	tp.creates.Wait()
 }

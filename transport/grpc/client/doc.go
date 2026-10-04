@@ -58,7 +58,7 @@
 // For high-throughput scenarios, use connection pooling:
 //
 //	p := pool.New(
-//		pool.WithPoolSize(20),
+//		pool.WithSize(20),
 //		pool.WithMaxIdleTime(time.Hour),
 //		pool.WithLogger(logger),
 //	)
@@ -66,7 +66,7 @@
 //	defer stop()
 //
 //	c, err := client.New(ctx, "service.example.com:443",
-//		client.WithConnectionPool(p),
+//		client.WithPool(p),
 //		client.WithRetry(),
 //		client.WithLogger(logger),
 //	)

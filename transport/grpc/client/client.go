@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/time/timeformat"
+	"github.com/altessa-s/go-atlas/transport/grpc/client/pool"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
@@ -36,7 +37,7 @@ import (
 // behavior for connection pooling, automatic retry, logging, and error handling.
 //
 // Create a Client with [New]. In single-connection mode (default), the client holds
-// one persistent [grpc.ClientConn]. In pool mode (when [WithConnectionPool] is used),
+// one persistent [grpc.ClientConn]. In pool mode (when [WithPool] is used),
 // connections are obtained from a [pool.ConnectionPool] and must be returned via
 // [Client.ReturnConnection].
 //
@@ -57,21 +58,22 @@ import (
 // With connection pool (recommended for high-throughput):
 //
 //	p := pool.New(
-//		pool.WithPoolSize(20),
+//		pool.WithSize(20),
 //		pool.WithMaxIdleTime(time.Hour),
 //	)
 //	stop, _ := p.Start(ctx)
 //	defer stop()
 //
 //	c, err := client.New(ctx, "localhost:8080",
-//		client.WithConnectionPool(p),
+//		client.WithPool(p),
 //		client.WithRetry(),
 //	)
 type Client struct {
 	address string
 	options options
 
-	conn *grpc.ClientConn // Used when pool is nil (single connection mode)
+	binding *pool.Binding
+	conn    *grpc.ClientConn // Used when pool is nil (single connection mode)
 
 	// health is the optional [observability/health] integration. nil when
 	// no coordinator is configured.
@@ -81,7 +83,7 @@ type Client struct {
 // New creates a new gRPC client connected to address.
 //
 // In single-connection mode (the default), a persistent connection is established
-// immediately. In pool mode (when [WithConnectionPool] is provided), no connection
+// immediately. In pool mode (when [WithPool] is provided), no connection
 // is created until [Client.GetConnection] is called.
 //
 // The returned client must be closed with [Client.Close] when no longer needed
@@ -100,22 +102,29 @@ func New(ctx context.Context, address string, opts ...Option) (*Client, error) {
 }
 
 // connect establishes the connection to the gRPC server.
-// If pool is configured, this method does nothing as connections are managed by the pool.
+// In pool mode it binds the complete dial policy to the pool; connections are created lazily.
 // Otherwise, it creates a single persistent connection.
 func (c *Client) connect(ctx context.Context) error {
+	dialOpts, err := c.dialOptions() //nolint:contextcheck // Builds static policy; matcher validation uses no request context.
+	if err != nil {
+		return coreerrs.WrapOperation(err, "build dial options")
+	}
+
 	if c.options.pool != nil {
+		c.binding, err = c.options.pool.Bind(c.address, func(_ context.Context, target string) (*grpc.ClientConn, error) {
+			return grpc.NewClient(target, dialOpts...)
+		})
+		if err != nil {
+			return coreerrs.WrapOperation(err, "bind connection policy")
+		}
 		c.options.logger.InfoContext(ctx, "using connection pool mode", "address", c.address)
 		c.health = newClientHealth(c)
-		if err := c.health.attach(ctx); err != nil {
-			return coreerrs.WrapOperation(err, "attach health")
+		if attachErr := c.health.attach(ctx); attachErr != nil {
+			return coreerrs.WrapOperation(attachErr, "attach health")
 		}
 		return nil
 	}
 
-	dialOpts, err := c.dialOptions() //nolint:contextcheck // dialOptions builds static config, no context needed
-	if err != nil {
-		return coreerrs.WrapOperation(err, "build dial options")
-	}
 	conn, err := grpc.NewClient(c.address, dialOpts...)
 	if err != nil {
 		return coreerrs.Wrapf(err, "failed to connect to %s", c.address)
@@ -149,7 +158,7 @@ func (c *Client) Close(_ context.Context) error {
 // When using single connection mode, calling ReturnConnection is a no-op.
 func (c *Client) GetConnection(ctx context.Context) (*grpc.ClientConn, error) {
 	if c.options.pool != nil {
-		return c.options.pool.GetConnection(ctx, c.address)
+		return c.binding.GetConnection(ctx)
 	}
 	return c.conn, nil
 }

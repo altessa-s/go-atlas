@@ -7,6 +7,10 @@ package pool
 import "errors"
 
 var (
+	// ErrAlreadyStarted rejects a second cleanup lifecycle.
+	ErrAlreadyStarted = errors.New("connection pool already started")
+	// ErrFactoryRequired rejects a binding without a policy.
+	ErrFactoryRequired = errors.New("connection factory required")
 	// ErrConnectionPoolClosed is returned by [ConnectionPool.GetConnection] and
 	// [ConnectionPool.Start] after the pool has been stopped.
 	ErrConnectionPoolClosed = errors.New("connection pool is closed")
