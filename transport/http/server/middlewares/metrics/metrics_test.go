@@ -96,3 +96,21 @@ func TestMiddleware_SameSubsystemReusesMetrics(t *testing.T) {
 		_ = New(WithCollector(tc))
 	})
 }
+
+func TestMiddleware_UnknownMethodsShareOneSeries(t *testing.T) {
+	t.Parallel()
+	m := New(WithCollector(testhelpers.NewTestCollector()))
+	handler := m.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	for _, method := range []string{"X0001", "X0002", "PROPFIND", http.MethodGet} {
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(method, "/test", nil))
+	}
+
+	var methods []string
+	m.byMethod.Range(func(k, _ any) bool {
+		methods = append(methods, k.(string))
+		return true
+	})
+	require.ElementsMatch(t, []string{methodOther, http.MethodGet}, methods)
+}
