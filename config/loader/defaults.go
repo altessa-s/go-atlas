@@ -222,10 +222,12 @@ func (cf *Config) applyDefaultsToStruct(structValue reflect.Value, p presence) e
 
 		fp, explicit := cf.fieldPresence(field, p)
 
-		// "-" is the loader's do-not-allocate sentinel for optional pointer
-		// structs, not a value; leave such fields nil like the field list does.
+		// On a pointer to a struct "-" is the loader's do-not-allocate
+		// sentinel, not a value; leave such fields nil like the field list
+		// does. On scalars it is an ordinary default.
 		defaultTag := field.Tag.Get(defaultValueTagName)
-		if defaultTag != "" && defaultTag != "-" && !explicit && fieldValue.IsZero() {
+		sentinel := defaultTag == "-" && field.Type.Kind() == reflect.Pointer && field.Type.Elem().Kind() == reflect.Struct
+		if defaultTag != "" && !sentinel && !explicit && fieldValue.IsZero() {
 			if cf.options.strict {
 				var subErr error
 				if defaultTag, subErr = substituteEnvVariablesStrict(defaultTag); subErr != nil {

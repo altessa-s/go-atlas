@@ -126,7 +126,12 @@ func (cf *Config) loadAndDecode(f *file, out any) (err error) {
 
 	// Decode the same content generically to record which keys were set.
 	var keys map[string]any
-	if err = f.decoder.Decode(strings.NewReader(substitutedContent), &keys); err != nil {
+	if kd, ok := f.decoder.(backend.KeyDecoder); ok {
+		keys, err = kd.DecodeKeys(strings.NewReader(substitutedContent))
+	} else {
+		err = f.decoder.Decode(strings.NewReader(substitutedContent), &keys)
+	}
+	if err != nil {
 		err = fmt.Errorf("%w: %s: %w", ErrDecode, f.name, err)
 		return
 	}

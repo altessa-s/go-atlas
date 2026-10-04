@@ -244,3 +244,44 @@ func TestLoad_YAMLKeyCaseMustMatch(t *testing.T) {
 	cfg := loadReview(t, nil, "ENABLED: false\n")
 	require.True(t, cfg.Enabled)
 }
+
+type hyphenItem struct {
+	Label string `yaml:"label" default:"-"`
+}
+
+type keysConfig struct {
+	Hyphens []hyphenItem            `yaml:"hyphens"`
+	ByName  map[string]explicitItem `yaml:"byName"`
+	Items   []explicitItem          `yaml:"items"`
+}
+
+func loadKeys(t *testing.T, content string) *keysConfig {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	cfg := &keysConfig{}
+	_, err := loader.New(nil, loader.WithPath(path)).Load(cfg)
+	require.NoError(t, err)
+	return cfg
+}
+
+// On a scalar, default:"-" is an ordinary value, not the pointer sentinel.
+func TestLoad_ElementScalarHyphenDefault(t *testing.T) {
+	cfg := loadKeys(t, "hyphens:\n  - {}\n")
+	require.Equal(t, "-", cfg.Hyphens[0].Label)
+}
+
+// Map keys keep their source spelling: "0x10" must not be recorded as "16".
+func TestLoad_MapKeySpellingPreserved(t *testing.T) {
+	cfg := loadKeys(t, "byName:\n  0x10:\n    weight: 0\n")
+	require.Contains(t, cfg.ByName, "0x10")
+	require.Zero(t, cfg.ByName["0x10"].Weight)
+}
+
+// Keys supplied through anchors and "<<" merges count as explicitly set.
+func TestLoad_MergeKeysCountAsExplicit(t *testing.T) {
+	cfg := loadKeys(t, "base: &base\n  weight: 0\nitems:\n  - <<: *base\n    name: a\n")
+	require.Equal(t, "a", cfg.Items[0].Name)
+	require.Zero(t, cfg.Items[0].Weight)
+	require.True(t, cfg.Items[0].Enabled)
+}

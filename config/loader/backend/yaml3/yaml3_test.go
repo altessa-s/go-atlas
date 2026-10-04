@@ -76,3 +76,39 @@ func TestBackend_Decode(t *testing.T) {
 		})
 	}
 }
+
+func TestBackend_DecodeKeys(t *testing.T) {
+	t.Parallel()
+
+	keys, err := (&yaml3.Backend{}).DecodeKeys(strings.NewReader(`
+base: &base
+  a: 1
+m:
+  0x10: false
+  yes: ""
+  nil: null
+merged:
+  <<: *base
+  b: 2
+list:
+  - x: 0
+`))
+	require.NoError(t, err)
+
+	m := keys["m"].(map[string]any)
+	require.Contains(t, m, "0x10")
+	require.Contains(t, m, "yes")
+	require.Contains(t, m, "nil")
+	require.Nil(t, m["nil"])
+
+	merged := keys["merged"].(map[string]any)
+	require.Contains(t, merged, "a")
+	require.Contains(t, merged, "b")
+
+	list := keys["list"].([]any)
+	require.Contains(t, list[0].(map[string]any), "x")
+
+	empty, err := (&yaml3.Backend{}).DecodeKeys(strings.NewReader(""))
+	require.NoError(t, err)
+	require.Empty(t, empty)
+}
