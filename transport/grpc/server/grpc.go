@@ -211,8 +211,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 			_ = s.Listener().Close()
 		}
 
+		// ch is intentionally never closed: on timeout we return while the
+		// goroutine may still be inside GracefulStop, and its later send
+		// would panic on a closed channel. The buffer of one keeps that
+		// send non-blocking; GC reclaims the channel.
 		ch := make(chan struct{}, 1)
-		defer close(ch)
 
 		go func(ch chan<- struct{}) {
 			s.grpc.GracefulStop()
