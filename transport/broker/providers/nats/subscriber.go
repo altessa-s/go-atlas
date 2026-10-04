@@ -23,6 +23,12 @@ import (
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
+// EphemeralInactiveThreshold is how long the server keeps an ephemeral
+// consumer after its subscriber stops pulling. An active Consume keeps the
+// consumer alive, so this only bounds how long abandoned consumers (crashed
+// or unsubscribed instances) linger on the server.
+const EphemeralInactiveThreshold = 5 * time.Minute
+
 // streamSubscriber implements broker.Subscriber for NATS JetStream.
 type streamSubscriber struct {
 	consumerConfig *jetstream.ConsumerConfig
@@ -174,9 +180,13 @@ func (ss *streamSubscriber) Subscribe(ctx context.Context, handler broker.Subscr
 			return coreerrs.Wrapf(err, "failed to get consumer '%s' on stream '%s'", ss.consumerName, streamName)
 		}
 	} else {
+		// FilterSubject scopes the consumer to the handler's subject: without
+		// it the consumer reads the whole stream, so a subscription to
+		// orders.*.created would also receive every other orders.> message.
 		consumer, err = stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
-			DeliverPolicy:     jetstream.DeliverLastPolicy,
-			InactiveThreshold: time.Hour * 24, //nolint:mnd
+			FilterSubject:     handler.Topic(),
+			DeliverPolicy:     jetstream.DeliverNewPolicy, // only messages published after Subscribe
+			InactiveThreshold: EphemeralInactiveThreshold,
 			Description:       fmt.Sprintf("Ephemeral consumer for service '%s'", appinfo.Name),
 		})
 		if err != nil {
@@ -187,6 +197,15 @@ func (ss *streamSubscriber) Subscribe(ctx context.Context, handler broker.Subscr
 	// Start consuming messages. This is an asynchronous operation that invokes the callback for each message.
 	// Cache consumer config outside the hot loop — AckWait is static per consumer.
 	ackWait := consumer.CachedInfo().Config.AckWait
+
+	// Label by the subscription subject, not the per-message subject: a
+	// wildcard subscription (orders.*.created) would otherwise mint one series
+	// per concrete subject (e.g. per tenant). Handles are bound once here.
+	subjectLabels := metrics.Labels{"subject": handler.Topic()}
+	received := ss.metrics.messagesReceived.WithLabels(subjectLabels)
+	duration := ss.metrics.processingDuration.WithLabels(subjectLabels)
+	failures := ss.metrics.processingErrors.WithLabels(subjectLabels)
+	onPanic := func(context.Context, any) { failures.Inc() }
 
 	consumeContext, err := consumer.Consume(func(jsMsg jetstream.Msg) {
 		// Fused filter+transform: single pass over headers, no intermediate map.
@@ -205,19 +224,24 @@ func (ss *streamSubscriber) Subscribe(ctx context.Context, handler broker.Subscr
 
 		// Prepare message options, including the Acker and AckTimeout.
 		msgOpts := make([]msg.Option, 0, 2)
-		msgOpts = append(msgOpts, msg.WithAcker(&ackAdapter{msg: jsMsg}))
+		acker := &ackAdapter{msg: jsMsg}
+		msgOpts = append(msgOpts, msg.WithAcker(acker))
 		msgOpts = slices.AppendIf(msgOpts, ackWait > 0, msg.WithAckTimeout(ackWait))
 
 		// Inline defers instead of IIFE to avoid closure allocation per message.
 		ss.handlersWg.Add(1)
 		defer ss.handlersWg.Done()
-		defer panics.Handle(handlerCtx)
+		// A panicking handler counts as a processing failure; the post-handler
+		// check below is skipped in that case, so each message counts once.
+		defer panics.Handle(handlerCtx, onPanic)
 
-		subjectLabels := metrics.Labels{"subject": jsMsg.Subject()}
-		ss.metrics.messagesReceived.WithLabels(subjectLabels).Inc()
-		stopTimer := ss.metrics.processingDuration.WithLabels(subjectLabels).Start()
+		received.Inc()
+		stopTimer := duration.Start()
 		handler.Handle(handlerCtx, msg.NewMessageWithMeta(jsMsg.Subject(), jsMsg.Data(), metaData, msgOpts...))
 		stopTimer()
+		if acker.failed.Load() {
+			failures.Inc()
+		}
 	}, ss.opts...)
 	if err != nil {
 		return coreerrs.Wrapf(err, "failed to start consuming from consumer on stream '%s'", streamName)
