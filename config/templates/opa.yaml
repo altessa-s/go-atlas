@@ -185,7 +185,6 @@
 #  # <bool> Determines whether to run an update cycle when the manager starts.
 #  # When true, immediately loads policies on startup before processing requests.
 #  # When false, policies are loaded lazily on first use or according to schedule.
-#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  runOnStart: true
 #

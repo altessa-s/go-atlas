@@ -47,7 +47,7 @@
 #  zlibCompressionLevel: -1
 #
 #  # <duration> Timeout for creating connections to the server.
-#  # An explicit "0s" is replaced by the default by the config loader.
+#  # "0s" means no timeout will be used.
 #  # Default value: 30s
 #  connectTimeout: "30s"
 #
@@ -68,13 +68,11 @@
 #
 #  # <bool> Whether supported read operations should be retried on errors.
 #  # Requires server version >= 3.6.
-#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  retryReads: true
 #
 #  # <bool> Whether supported write operations should be retried on errors.
 #  # Requires server version >= 3.6 and replica set or sharded cluster.
-#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  retryWrites: true
 #

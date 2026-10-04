@@ -24,6 +24,5 @@
 #  headerName: X-Request-ID
 #
 #  # <bool> Generate a request ID if none is provided.
-#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  generateIfMissing: true

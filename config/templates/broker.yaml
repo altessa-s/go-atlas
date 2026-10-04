@@ -20,7 +20,6 @@
 #  inProgress:
 #    # <bool> Enable InProgress manager.
 #    # When false, manager is not created and handlers work without heartbeats.
-#    # The config loader replaces an explicit false with this default (true).
 #    # Default value: true
 #    enabled: true
 #
@@ -47,7 +46,6 @@
 #    # <object> Metrics configuration.
 #    metrics:
 #      # <bool> Enable metrics collection.
-#      # The config loader replaces an explicit false with this default (true).
 #      # Default value: true
 #      enabled: true
 #
@@ -60,7 +58,6 @@
 #  outbox:
 #    # <bool> Enable Outbox.
 #    # When false, outbox is not created and messages are published directly.
-#    # The config loader replaces an explicit false with this default (true).
 #    # Default value: true
 #    enabled: true
 #
@@ -152,8 +149,7 @@
 #    # rejected at publish time with ErrPayloadTooLarge, inside the caller's
 #    # transaction, instead of failing later in the store driver. Messages
 #    # approaching the limit belong behind a claim-check: put the blob in object
-#    # storage and publish a reference. An explicit 0 is replaced by the default
-#    # by the config loader.
+#    # storage and publish a reference. 0 disables the check.
 #    # Default value: 1048576 (1 MiB)
 #    maxPayloadBytes: 1048576
 #

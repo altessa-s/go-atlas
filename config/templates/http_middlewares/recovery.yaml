@@ -20,6 +20,5 @@
 #    - "^/health\\..*"
 #
 #  # <bool> Log the stack trace when a panic occurs.
-#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  logStack: true

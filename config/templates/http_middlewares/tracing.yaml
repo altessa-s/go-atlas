@@ -28,7 +28,6 @@
 #  # <bool> Record HTTP headers as span attributes.
 #  # Sensitive headers are redacted based on the redactedHeaders list.
 #  # The built-in HTTP server factory does not currently apply this setting.
-#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  recordHeaders: true
 #
@@ -47,12 +46,10 @@
 #  # <bool> Propagate trace context from incoming requests.
 #  # When true, parent spans from incoming requests are linked to server spans.
 #  # The built-in HTTP server factory does not currently apply this setting.
-#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  propagateContext: true
 #
 #  # <bool> Record client IP as span attribute.
 #  # The built-in HTTP server factory does not currently apply this setting.
-#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  recordClientIP: true

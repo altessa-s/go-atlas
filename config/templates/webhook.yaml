@@ -20,6 +20,6 @@
 #  additionalSecrets: []
 #
 #  # <duration> Replay window for a timestamped scheme (Stripe).
-#  # An explicit zero is replaced by the default by the config loader.
+#  # Zero disables the timestamp check.
 #  # Default value: 5m
 #  tolerance: "5m"

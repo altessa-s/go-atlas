@@ -14,7 +14,6 @@
 #
 #  # <bool> Re-validate the certificate validity window on every call
 #  # (long-lived connections that outlive their certificate).
-#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  checkExpiry: true
 #

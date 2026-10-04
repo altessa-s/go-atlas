@@ -38,6 +38,5 @@
 #  # streaming clients. Set explicitly to false on endpoints that
 #  # accept streaming uploads without Content-Length (some media
 #  # ingest pipelines, server-sent file proxies).
-#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  requireContentLength: true

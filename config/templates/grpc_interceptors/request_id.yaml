@@ -24,6 +24,5 @@
 #
 #  # <bool> Generate a request ID if none is provided.
 #  # Creates new ID when client doesn't provide one.
-#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  generateIfMissing: true

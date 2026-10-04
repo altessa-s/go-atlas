@@ -39,7 +39,6 @@
 #  # Configures JWKS refresh behavior and HTTP timeouts.
 #  jwks:
 #    # <bool> Enables proactive JWKS refresh via an external scheduler.
-#    # The config loader replaces an explicit false with this default (true).
 #    # Default value: true
 #    refreshEnabled: true
 #
@@ -312,7 +311,6 @@
 #
 #    # <bool> Enables periodic synchronization of the revocation storage.
 #    # NOTE: Must be managed via an external scheduler.
-#    # The config loader replaces an explicit false with this default (true).
 #    # Default value: true
 #    syncEnabled: true
 #

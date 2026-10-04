@@ -24,8 +24,7 @@
 #    strategy: static
 #
 #    # <int> Maximum number of tasks that can run concurrently.
-#    # Used with the "static" strategy. An explicit 0 is replaced by the
-#    # default by the config loader.
+#    # Zero means unlimited. Used with the "static" strategy.
 #    # Default value: 5
 #    maxTasks: 5
 #

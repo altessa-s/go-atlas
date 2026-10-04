@@ -47,7 +47,6 @@
 #    - X-Real-IP
 #
 #  # <int> Size of the IP validation cache.
-#  # Caches IP validation results to improve performance. An explicit 0 is
-#  # replaced by the default by the config loader.
+#  # Caches IP validation results to improve performance. 0 disables the cache.
 #  # Default value: 1000
 #  cacheSize: 1000

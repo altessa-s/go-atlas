@@ -113,7 +113,6 @@
 #    # <bool> Set PR_SET_NO_NEW_PRIVS so the process and any binary it later
 #    # execs cannot gain privileges via SUID/SGID. Recommended; has no
 #    # downside on a non-setuid host.
-#    # The config loader replaces an explicit false with this default (true).
 #    # Default value: true
 #    noNewPrivs: true
 #

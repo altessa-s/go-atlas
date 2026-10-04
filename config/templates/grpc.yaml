@@ -57,8 +57,7 @@
 #  # Controls connection lifecycle and keep-alive behavior.
 #  keepAlive:
 #    # <duration> Duration after which idle connections are closed.
-#    # An explicit "0s" is replaced by the default by the config loader, so the
-#    # idle timeout cannot be disabled through the loader.
+#    # "0s" means no idle timeout (connections never closed due to idleness).
 #    # Default value: 15m
 #    maxConnectionIdle: "15m"
 #

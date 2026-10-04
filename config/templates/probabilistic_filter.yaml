@@ -32,7 +32,6 @@
 #      # <bool> Rebuild filter on service startup.
 #      # When true, filter is populated from data source at start.
 #      # The built-in probfilter factory does not currently read this value.
-#      # The config loader replaces an explicit false with this default (true).
 #      # Default value: true
 #      rebuildOnStart: true
 #
