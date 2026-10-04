@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 
@@ -258,7 +259,11 @@ func (b *BrokerBuilder) createOutboxWithStore(store outbox.Store, publisher outb
 		opts = slices.AppendIf(opts, cfg.StatsSchedule != "", outbox.WithStatsSchedule(cfg.StatsSchedule))
 	}
 
-	return outbox.New(store, publisher, opts...), nil
+	ob := outbox.New(store, publisher, opts...)
+	if err := ob.RegisterTasks(context.Background()); err != nil {
+		return ob, b.WrapError(err, "register outbox tasks")
+	}
+	return ob, nil
 }
 
 // buildOutboxOptions builds outbox options from the builder's broker configuration.

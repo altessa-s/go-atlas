@@ -212,7 +212,7 @@ func TestOptions_SchedulesReachTheOutbox(t *testing.T) {
 	t.Parallel()
 
 	reg := &capturingRegistrar{}
-	outbox.New(&oneShotStore{}, &capturingPublisher{},
+	ob := outbox.New(&oneShotStore{}, &capturingPublisher{},
 		outbox.WithScheduler(reg),
 		outbox.WithDispatchSchedule("@every 2s"),
 		outbox.WithUnlockSchedule("@every 11s"),
@@ -221,6 +221,7 @@ func TestOptions_SchedulesReachTheOutbox(t *testing.T) {
 		outbox.WithStatsTaskID("svc-a-stats"),
 	)
 
+	require.NoError(t, ob.RegisterTasks(t.Context()))
 	ids := reg.ids()
 	require.Contains(t, ids, "svc-a-dispatch", "the dispatch task ID override must reach the scheduler")
 	require.Contains(t, ids, "svc-a-stats", "the stats cycle must be registered, under its override")
