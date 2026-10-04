@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
@@ -427,4 +428,23 @@ func TestPublish_Metrics_SubjectLabelLimit(t *testing.T) {
 	require.Equal(t, float64(1), get("tenant.b"))
 	require.Equal(t, float64(2), get(broker.OtherSubjectLabel))
 	require.Zero(t, get("tenant.c"))
+}
+
+func TestPublish_Metrics_SubjectLabelLimit_ConcurrentFirstPublish(t *testing.T) {
+	t.Parallel()
+
+	tc := testhelpers.NewTestCollector()
+	b := broker.New(&recordingProvider{}, broker.WithCollector(tc), broker.WithSubjectLabelLimit(1))
+
+	const n = 32
+	var wg sync.WaitGroup
+	for range n {
+		wg.Go(func() {
+			assert.NoError(t, b.Publish(t.Context(), msg.Message{Topic: "orders"}))
+		})
+	}
+	wg.Wait()
+
+	require.Equal(t, float64(n), testhelpers.GetCounterValue(t, tc, "test_broker_messages_published_total", "subject", "orders"))
+	require.Zero(t, testhelpers.GetCounterValue(t, tc, "test_broker_messages_published_total", "subject", broker.OtherSubjectLabel))
 }

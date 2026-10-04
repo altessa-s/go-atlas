@@ -6,7 +6,6 @@ package broker
 
 import (
 	"sync"
-	"sync/atomic"
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
@@ -26,7 +25,8 @@ type brokerMetrics struct {
 	published  sync.Map // string → metrics.Counter
 	errors     sync.Map // string → metrics.Counter
 	labels     sync.Map // subject → struct{}: subjects admitted as label values
-	labelCount atomic.Int64
+	admitMu    sync.Mutex
+	labelCount int64 // guarded by admitMu
 	labelLimit int64
 }
 
@@ -35,18 +35,22 @@ type brokerMetrics struct {
 const OtherSubjectLabel = "_other"
 
 // subjectLabel returns subject while the label budget allows, else
-// OtherSubjectLabel. Admission is first come, first served and permanent.
+// OtherSubjectLabel. Admission is first come, first served and permanent; the
+// slow path is serialized so concurrent first publishes of one subject agree.
 func (m *brokerMetrics) subjectLabel(subject string) string {
 	if _, ok := m.labels.Load(subject); ok {
 		return subject
 	}
-	if m.labelCount.Add(1) > m.labelLimit {
-		m.labelCount.Add(-1)
+	m.admitMu.Lock()
+	defer m.admitMu.Unlock()
+	if _, ok := m.labels.Load(subject); ok {
+		return subject
+	}
+	if m.labelCount >= m.labelLimit {
 		return OtherSubjectLabel
 	}
-	if _, loaded := m.labels.LoadOrStore(subject, struct{}{}); loaded {
-		m.labelCount.Add(-1)
-	}
+	m.labelCount++
+	m.labels.Store(subject, struct{}{})
 	return subject
 }
 
