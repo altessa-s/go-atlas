@@ -9,8 +9,6 @@ import (
 	"net/url"
 
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
-	grpcclient "github.com/altessa-s/go-atlas/transport/grpc/client"
-	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 	ozzo_rules "github.com/altessa-s/ozzo-rules"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
@@ -62,23 +60,9 @@ var proxyAllowedSchemes = coremaps.NewImmutableMap(map[string]struct{}{
 	"http": {}, "https": {}, "socks5": {}, "socks5h": {},
 })
 
-// Proxy is the YAML-driven outbound proxy configuration shared by
-// transport/http/client and transport/grpc/client. The same struct
-// loads under both the http: and grpc: YAML nodes; translate it into
-// client options via HTTPClientOptions or GrpcClientOptions:
-//
-//	opts, err := cfg.Proxy.HTTPClientOptions()
-//	if err != nil {
-//	    return nil, err
-//	}
-//	opts = append(opts, httpclient.WithLogger(logger))
-//	client := httpclient.New(opts...)
-//
-// A nil receiver — or an empty Mode — produces no options, leaving the
-// client on its env-based proxy default. Note that the two transports
-// resolve that default differently: net/http honors HTTP_PROXY /
-// HTTPS_PROXY / NO_PROXY via http.ProxyFromEnvironment, while grpc-go
-// performs its own HTTPS_PROXY / HTTP_PROXY / NO_PROXY lookup.
+// Proxy is the shared outbound proxy configuration. It contains schema and
+// validation only; transport/proxydial/factory converts it into client options.
+// Empty Mode retains the client's environment-based proxy defaults.
 type Proxy struct {
 	// Mode selects which fields below are consulted; see ProxyMode
 	// constants. Leave empty (the zero value) to keep the underlying
@@ -111,9 +95,7 @@ type ProxyAuth struct {
 	Password Secret `yaml:"password"`
 }
 
-// DefaultProxy returns the zero-value Proxy. Materializing it via
-// HTTPClientOptions or GrpcClientOptions produces no options, leaving
-// each client on its env-based proxy default.
+// DefaultProxy returns the zero-value, environment-based proxy configuration.
 func DefaultProxy() Proxy {
 	return Proxy{}
 }
@@ -201,76 +183,6 @@ func (p *Proxy) validateExclusion() error {
 		}
 	}
 	return nil
-}
-
-// HTTPClientOptions materializes the proxy configuration into a slice
-// of transport/http/client options ready to be passed to httpclient.New.
-//
-// A nil receiver or empty Mode returns (nil, nil) so the client keeps
-// the http.ProxyFromEnvironment default (HTTP_PROXY / HTTPS_PROXY /
-// NO_PROXY).
-//
-// An invalid URL in Mode url surfaces as an error here rather than at
-// request time.
-func (p *Proxy) HTTPClientOptions() ([]httpclient.Option, error) {
-	return proxyClientOptions(p,
-		httpclient.WithoutProxy, httpclient.WithProxyURL, httpclient.WithProxy)
-}
-
-// GrpcClientOptions materializes the proxy configuration into a slice
-// of transport/grpc/client options ready to be passed to grpcclient.New.
-//
-// A nil receiver or empty Mode returns (nil, nil) so the client keeps
-// grpc-go's own HTTPS_PROXY / HTTP_PROXY / NO_PROXY env default.
-//
-// An invalid URL in Mode url surfaces as an error here rather than at
-// dial time.
-func (p *Proxy) GrpcClientOptions() ([]grpcclient.Option, error) {
-	return proxyClientOptions(p,
-		grpcclient.WithoutProxy, grpcclient.WithProxyURL, grpcclient.WithProxy)
-}
-
-// proxyClientOptions folds the Mode switch shared by HTTPClientOptions
-// and GrpcClientOptions over the transport-specific option
-// constructors.
-func proxyClientOptions[O any](
-	p *Proxy,
-	withoutProxy func() O,
-	withProxyURL func(*url.URL) O,
-	withProxy func(string, int, *url.Userinfo) O,
-) ([]O, error) {
-	if p == nil {
-		return nil, nil
-	}
-	switch p.Mode {
-	case "":
-		return nil, nil
-	case ProxyModeNone:
-		return []O{withoutProxy()}, nil
-	case ProxyModeURL:
-		u, err := url.Parse(p.URL)
-		if err != nil {
-			return nil, fmt.Errorf("Proxy: parse url: %w", err)
-		}
-		return []O{withProxyURL(u)}, nil
-	case ProxyModeHost:
-		return []O{withProxy(p.Host, p.Port, p.userinfo())}, nil
-	default:
-		return nil, fmt.Errorf("Proxy: unknown mode %q", p.Mode)
-	}
-}
-
-// userinfo builds a *url.Userinfo from the Auth block, returning nil
-// for anonymous proxies. Password is exposed (it has to be — the
-// underlying URL needs the plain text) only here.
-func (p *Proxy) userinfo() *url.Userinfo {
-	if p.Auth == nil || p.Auth.Username == "" {
-		return nil
-	}
-	if p.Auth.Password.IsEmpty() {
-		return url.User(p.Auth.Username)
-	}
-	return url.UserPassword(p.Auth.Username, p.Auth.Password.Expose())
 }
 
 // Validate enforces that the credentials block, when present, names a

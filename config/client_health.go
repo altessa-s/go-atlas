@@ -7,10 +7,6 @@ package config
 import (
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/collections/slices"
-
-	grpcclient "github.com/altessa-s/go-atlas/transport/grpc/client"
-	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -71,7 +67,7 @@ type HealthClient struct {
 //
 //	httpClient := httpclient.New(append(
 //	    []httpclient.Option{httpclient.WithHealthCoordinator(coord)},
-//	    health.Options()...,
+//	    factory.HealthOptions(health)...,
 //	)...)
 type HTTPHealthClient struct {
 	HealthClient `yaml:",inline"`
@@ -116,7 +112,7 @@ type HTTPHealthClient struct {
 //
 //	grpcClient, _ := grpcclient.New(ctx, target, append(
 //	    []grpcclient.Option{grpcclient.WithHealthCoordinator(coord)},
-//	    health.Options()...,
+//	    factory.HealthOptions(health)...,
 //	)...)
 type GRPCHealthClient struct {
 	HealthClient `yaml:",inline"`
@@ -198,78 +194,4 @@ func (h *GRPCHealthClient) Validate() error {
 				HealthClientStateMapperLenient,
 			)),
 	)
-}
-
-// Options returns HTTP client options for health monitoring.
-// The returned options should be used together with WithHealthCoordinator.
-//
-// Returns nil if h is nil, allowing optional health configuration.
-//
-// Example:
-//
-//	client := httpclient.New(append(
-//	    []httpclient.Option{
-//	        httpclient.WithHealthCoordinator(coord),
-//	        httpclient.WithLogger(logger),
-//	    },
-//	    cfg.HTTPHealth.Options()...,
-//	)...)
-func (h *HTTPHealthClient) Options() []httpclient.Option {
-	if h == nil {
-		return nil
-	}
-
-	var opts []httpclient.Option
-
-	opts = slices.AppendIf(opts, h.ServiceName != "",
-		httpclient.WithHealthServiceName(h.ServiceName))
-
-	opts = slices.AppendIf(opts, h.RetryWindow > 0,
-		httpclient.WithHealthRetryWindow(h.RetryWindow))
-
-	opts = slices.AppendIf(opts, h.RetryThreshold > 0,
-		httpclient.WithHealthRetryThreshold(h.RetryThreshold))
-
-	opts = slices.AppendIf(opts, h.RetryMinSamples > 0,
-		httpclient.WithHealthRetryMinSamples(h.RetryMinSamples))
-
-	opts = slices.AppendIf(opts, h.RetryBuckets > 0,
-		httpclient.WithHealthRetryBuckets(h.RetryBuckets))
-
-	opts = slices.AppendIf(opts, h.PerHost,
-		httpclient.WithPerHostHealthChecks())
-
-	return opts
-}
-
-// Options returns gRPC client options for health monitoring.
-// The returned options should be used together with WithHealthCoordinator.
-//
-// Returns nil if h is nil, allowing optional health configuration.
-//
-// Example:
-//
-//	client, err := grpcclient.New(ctx, target, append(
-//	    []grpcclient.Option{
-//	        grpcclient.WithHealthCoordinator(coord),
-//	        grpcclient.WithLogger(logger),
-//	    },
-//	    cfg.GRPCHealth.Options()...,
-//	)...)
-func (h *GRPCHealthClient) Options() []grpcclient.Option {
-	if h == nil {
-		return nil
-	}
-
-	var opts []grpcclient.Option
-
-	opts = slices.AppendIf(opts, h.ServiceName != "",
-		grpcclient.WithHealthServiceName(h.ServiceName))
-
-	// Note: StateMapper requires a function, not a string.
-	// The actual mapper implementation would need to be provided
-	// by the caller or through a factory method.
-	// For now, we only set the service name.
-
-	return opts
 }
