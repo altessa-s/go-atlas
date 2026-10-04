@@ -14,5 +14,6 @@ Package `toml` provides a TOML backend for the configuration loader. It uses
 | Struct tag      | `toml`             |
 | File extensions | `.toml`, `.tml`    |
 | Preprocessor    | No                 |
+| Key decoder     | Yes                |
 
 The zero value of `Backend` is ready to use.

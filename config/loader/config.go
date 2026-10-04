@@ -88,9 +88,9 @@ type Config struct {
 	// envCache holds the resolved environment for the duration of one load
 	// so explicit values can be re-applied without re-resolving secrets.
 	envCache map[string]string
-	// present holds the keys set by the configuration files of the current
-	// load; default tags are not applied to them.
-	present presence
+	// present records the values the configuration files and the environment
+	// set during the current load; defaults are not applied to them.
+	present *presence
 }
 
 // New creates a new Config instance with the specified backend and options.
@@ -160,10 +160,10 @@ func (cf *Config) load() error {
 	var err error
 
 	cf.envCache = nil
-	cf.present = presence{fold: cf.foldKeys()}
+	cf.present = nil
 	defer func() {
 		cf.envCache = nil
-		cf.present = presence{}
+		cf.present = nil
 	}()
 
 	// load configuration from file(s).
@@ -172,13 +172,24 @@ func (cf *Config) load() error {
 			return err
 		}
 
+		// The decoder writes a file into the struct, not the pointer, so a
+		// null document leaves it as it is.
+		rootType := indirectType(cf.confType)
 		for f := range cf.files.All() {
 			err = cf.loadAndDecode(f, cf.conf)
 			if err != nil {
 				return err
 			}
-			cf.present.node = cf.mergePresence(cf.present.node, f.keys, cf.confType)
+			cf.present = mergePresence(cf.present, bindPresence(rootType, f.keys), rootType, cf.reusesSlices())
 		}
+	}
+	if cf.present == nil {
+		cf.present = &presence{}
+	}
+
+	// Record what the environment sets before any default is applied.
+	if err = cf.discoverEnv(); err != nil {
+		return fmt.Errorf("%w: %w", ErrBindEnv, err)
 	}
 
 	cf.fields = structFields(cf.conf)
@@ -204,9 +215,8 @@ func (cf *Config) load() error {
 		return fmt.Errorf("%w: %w", ErrBindDefaults, err)
 	}
 
-	// Default passes skip keys the files set, but cannot tell an explicit
-	// false/0/"" from the environment apart from an unset value. Re-apply the
-	// environment last so it wins over the tag defaults.
+	// Re-apply the environment last so it also wins inside map and slice
+	// elements whose values a Default() method rewrote.
 	cf.fields = structFields(cf.conf)
 	if err = cf.loadEnvs(); err != nil {
 		return fmt.Errorf("%w: %w", ErrBindEnv, err)
@@ -240,6 +250,13 @@ func (cf *Config) load() error {
 	}
 
 	return nil
+}
+
+// reusesSlices reports whether the backend decodes a later file into an
+// existing slice element by element when it is long enough, as
+// BurntSushi/toml does, instead of replacing it.
+func (cf *Config) reusesSlices() bool {
+	return cf.backend.StructTagName() == "toml"
 }
 
 // expandSecrets walks through the configuration struct using reflection

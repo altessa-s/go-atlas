@@ -285,3 +285,11 @@ func TestLoad_MergeKeysCountAsExplicit(t *testing.T) {
 	require.Zero(t, cfg.Items[0].Weight)
 	require.True(t, cfg.Items[0].Enabled)
 }
+
+// A cyclic alias is rejected as a decode error instead of crashing the loader.
+func TestLoad_CyclicAliasIsError(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("items: &x [*x]\n"), 0o600))
+	_, err := loader.New(nil, loader.WithPath(path)).Load(&keysConfig{})
+	require.ErrorIs(t, err, loader.ErrDecode)
+}
