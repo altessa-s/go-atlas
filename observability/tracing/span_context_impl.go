@@ -44,6 +44,7 @@ type spanContextImpl struct {
 	spanID     [8]byte
 	traceFlags TraceFlags
 	remote     bool
+	traceState string
 }
 
 // newSpanContextImpl creates a new SpanContext.
@@ -61,6 +62,9 @@ func newSpanContextImpl(parent SpanContext) *spanContextImpl {
 		// Parse parent trace ID
 		sc.traceID = parseTraceID(parent.TraceID())
 		sc.remote = false
+		if state, ok := parent.(interface{ TraceState() string }); ok {
+			sc.traceState = state.TraceState()
+		}
 	} else {
 		// Generate new trace ID
 		rng.read(sc.traceID[:])
@@ -68,6 +72,9 @@ func newSpanContextImpl(parent SpanContext) *spanContextImpl {
 
 	return sc
 }
+
+// TraceState returns the inherited or sampler-updated vendor trace state.
+func (sc *spanContextImpl) TraceState() string { return sc.traceState }
 
 // NewRemoteSpanContext creates a SpanContext from remote context data.
 // Used by propagators to create contexts from incoming requests.
