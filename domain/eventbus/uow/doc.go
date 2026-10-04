@@ -34,8 +34,13 @@
 // [Effect.Apply] runs on the caller's context, so it honors cancellation — the
 // caller has walked away. [Effect.Compensate] runs on a
 // [context.WithoutCancel] copy, so an undo is never skipped because the caller's
-// context was canceled. An effect with a nil Compensate is best-effort /
+// context was canceled. WithCompensationTimeout bounds the complete pass
+// (default 30s); callbacks must honor this deadline. An effect with a nil Compensate is best-effort /
 // irreversible and is skipped during compensation.
+//
+// # Usage
+//
+//	runner := uow.New(committer, logger, uow.WithCompensationTimeout(time.Minute))
 //
 // # Durability caveat
 //

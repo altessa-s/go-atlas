@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	slogx "github.com/altessa-s/go-atlas/observability/slog"
@@ -49,17 +50,18 @@ type ctxKey struct{}
 // Runner executes a transactional body and applies its registered post-commit
 // effects, compensating on failure.
 type Runner struct {
-	committer Committer
-	logger    *slog.Logger
+	committer           Committer
+	logger              *slog.Logger
+	compensationTimeout time.Duration
 }
 
 // New returns a Runner that commits through committer. A nil logger falls back
 // to [slog.Default]; the returned Runner tags its logs with the uow module.
-func New(committer Committer, logger *slog.Logger) *Runner {
+func New(committer Committer, logger *slog.Logger, opts ...Option) *Runner {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return &Runner{committer: committer, logger: logger.With(slogx.Module("pkg:uow"))}
+	return &Runner{committer: committer, logger: logger.With(slogx.Module("pkg:uow")), compensationTimeout: newOptions(opts...).compensationTimeout}
 }
 
 // Run executes body inside a transaction. On a successful commit it applies the
@@ -104,9 +106,13 @@ func (r *Runner) apply(ctx context.Context, effects []Effect) error {
 // skipping nil Compensate funcs and logging (an orphaned external state is
 // serious) and aggregating any compensation failures.
 func (r *Runner) compensate(ctx context.Context, applied []Effect) error {
-	compCtx := context.WithoutCancel(ctx)
+	compCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.compensationTimeout)
+	defer cancel()
 	var errs error
 	for i := len(applied) - 1; i >= 0; i-- {
+		if err := compCtx.Err(); err != nil {
+			return errors.Join(errs, err)
+		}
 		e := applied[i]
 		if e.Compensate == nil {
 			continue
