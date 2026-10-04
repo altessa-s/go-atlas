@@ -24,9 +24,11 @@ default values, and secret expansion.
 2. Apply `default` struct tags to empty fields
 3. Override with environment variables (camelCase converted to SCREAMING_SNAKE_CASE)
 4. Re-apply defaults to newly created nested structs
-5. Expand `$__secret{ns:key}` placeholders via the secrets manager
-6. Run `Validate()` if the struct implements `loader.Validator`
-7. Run `Normalize()` if the struct implements `loader.Normalizer`
+5. Re-apply the explicit file and environment values, so an explicit `false`, `0` or `""` wins over a non-zero `default` tag; then apply
+   defaults to struct values inside maps
+6. Expand `$__secret{ns:key}` placeholders via the secrets manager
+7. Run `Validate()` if the struct implements `loader.Validator`
+8. Run `Normalize()` if the struct implements `loader.Normalizer`
 
 ## Interfaces
 

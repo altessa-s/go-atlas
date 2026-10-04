@@ -39,6 +39,17 @@ type file struct {
 	path      string
 	sum       string
 	isSymlink bool
+	// content is the preprocessed, env-substituted input of the last decode,
+	// kept so a load can decode it again without re-reading the file.
+	content string
+}
+
+// decodeCached decodes the content captured by the last loadAndDecode into out.
+func (f *file) decodeCached(out any) error {
+	if err := f.decoder.Decode(strings.NewReader(f.content), out); err != nil {
+		return fmt.Errorf("%w: %s: %w", ErrDecode, f.name, err)
+	}
+	return nil
 }
 
 // loadAndDecode loads the file and decodes it into the provided interface.
@@ -120,6 +131,8 @@ func (cf *Config) loadAndDecode(f *file, out any) (err error) {
 	if strings.TrimSpace(substitutedContent) == "" || isEmptyOrCommentsOnly(substitutedContent) {
 		substitutedContent = "{}\n"
 	}
+
+	f.content = substitutedContent
 
 	// Create a reader from the substituted content
 	substitutedReader := strings.NewReader(substitutedContent)
