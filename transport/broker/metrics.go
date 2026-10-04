@@ -6,6 +6,7 @@ package broker
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
 )
@@ -20,14 +21,39 @@ type brokerMetrics struct {
 
 	// published and errors cache label-bound counters per subject so the
 	// per-publish path does not rebuild the label map on every message.
-	// Cardinality is bounded by the set of subjects the service publishes to.
-	published sync.Map // string → metrics.Counter
-	errors    sync.Map // string → metrics.Counter
+	// At most labelLimit distinct subjects get their own series; the rest
+	// share OtherSubjectLabel.
+	published  sync.Map // string → metrics.Counter
+	errors     sync.Map // string → metrics.Counter
+	labels     sync.Map // subject → struct{}: subjects admitted as label values
+	labelCount atomic.Int64
+	labelLimit int64
+}
+
+// OtherSubjectLabel is the subject label value shared by publish metrics once
+// the subject label limit is reached.
+const OtherSubjectLabel = "_other"
+
+// subjectLabel returns subject while the label budget allows, else
+// OtherSubjectLabel. Admission is first come, first served and permanent.
+func (m *brokerMetrics) subjectLabel(subject string) string {
+	if _, ok := m.labels.Load(subject); ok {
+		return subject
+	}
+	if m.labelCount.Add(1) > m.labelLimit {
+		m.labelCount.Add(-1)
+		return OtherSubjectLabel
+	}
+	if _, loaded := m.labels.LoadOrStore(subject, struct{}{}); loaded {
+		m.labelCount.Add(-1)
+	}
+	return subject
 }
 
 // publishedFor returns the messagesPublished counter bound to the subject,
 // binding the label set on first use.
 func (m *brokerMetrics) publishedFor(subject string) metrics.Counter {
+	subject = m.subjectLabel(subject)
 	if v, ok := m.published.Load(subject); ok {
 		return v.(metrics.Counter) //nolint:errcheck
 	}
@@ -38,6 +64,7 @@ func (m *brokerMetrics) publishedFor(subject string) metrics.Counter {
 // errorsFor returns the publishErrors counter bound to the subject,
 // binding the label set on first use.
 func (m *brokerMetrics) errorsFor(subject string) metrics.Counter {
+	subject = m.subjectLabel(subject)
 	if v, ok := m.errors.Load(subject); ok {
 		return v.(metrics.Counter) //nolint:errcheck
 	}
@@ -45,7 +72,7 @@ func (m *brokerMetrics) errorsFor(subject string) metrics.Counter {
 	return v.(metrics.Counter) //nolint:errcheck
 }
 
-func newBrokerMetrics(c metrics.Collector) *brokerMetrics {
+func newBrokerMetrics(c metrics.Collector, labelLimit int) *brokerMetrics {
 	if c == nil {
 		c = metrics.Noop()
 	}
@@ -53,6 +80,7 @@ func newBrokerMetrics(c metrics.Collector) *brokerMetrics {
 	scoped := c.WithSubsystem("broker")
 
 	return &brokerMetrics{
+		labelLimit: int64(labelLimit),
 		messagesPublished: scoped.MustCounter(metrics.MetricOpts{
 			Name:       "messages_published_total",
 			Help:       "Total number of messages successfully published.",

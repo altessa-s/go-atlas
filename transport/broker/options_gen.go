@@ -50,10 +50,18 @@ func WithPublishConverter(v PublishConverter) Option {
 	}
 }
 
+// WithSubjectLabelLimit sets the subjectLabelLimit option.
+func WithSubjectLabelLimit(v int) Option {
+	return func(o *options) {
+		o.subjectLabelLimit = v
+	}
+}
+
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		logger: slog.New(slog.DiscardHandler),
+		logger:            slog.New(slog.DiscardHandler),
+		subjectLabelLimit: DefaultSubjectLabelLimit,
 	}
 }
 
