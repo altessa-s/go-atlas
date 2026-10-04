@@ -32,31 +32,19 @@ the zero value of `Optional[T]` is a valid `None`.
 | `OrDefault(def T) T`                       | Contained value if `Some`, otherwise `def`                           |
 | `OrElse(fn) T`                             | Contained value if `Some`, otherwise `fn()` (only invoked on `None`) |
 | `IsZero() bool`                            | `true` when `None`; lets `bson:",omitempty"` strip `None` fields     |
-| `MarshalBSONValue() (byte, []byte, error)` | Some → underlying BSON value; None → BSON `null`                     |
-| `UnmarshalBSONValue(byte, []byte) error`   | BSON `null` → None; otherwise decode into `T` and store as Some      |
+| `MarshalBSONValue() (byte, []byte, error)` | Rejects unconfigured BSON with `ErrBSONCodecRequired`                     |
+| `UnmarshalBSONValue(byte, []byte) error`   | Rejects unconfigured BSON without changing the value      |
 | `MarshalJSON() ([]byte, error)`            | Some → `json.Marshal(v)`; None → `null`                              |
 | `UnmarshalJSON([]byte) error`              | JSON `null` → None; otherwise decode into `T` and store as Some      |
 
 ## Serialization
 
-`Optional[T]` implements `bson.ValueMarshaler` / `bson.ValueUnmarshaler` and `json.Marshaler` / `json.Unmarshaler`, so it works out of the box with
-the `go.mongodb.org/mongo-driver/v2` driver and `encoding/json`. `Some(v)` is encoded as `v`, `None` as `null`. Combined with `IsZero`, the
-`bson:",omitempty"` tag omits `None` fields entirely from the on-the-wire document.
+JSON support is built in: `Some(v)` encodes as `v`, `None` as `null`. Use `json:",omitzero"` to omit None fields with Go 1.25+. Present zero values
+remain present.
 
-`Some(zeroT)` is preserved through a round-trip — it does not collapse to `None` — letting callers distinguish "absent" from "present but zero".
-Standard `encoding/json` does not consult `IsZero`, so a `None` field marshals as `null`; use `*Optional[T]` when JSON field omission matters.
-
-```go
-type Doc struct {
-    DeletedAt optional.Optional[time.Time] `bson:"deleted_at,omitempty" json:"deleted_at"`
-}
-
-raw, _ := bson.Marshal(Doc{DeletedAt: optional.None[time.Time]()})
-// raw does not contain "deleted_at" at all.
-```
-
-Because the marshaller methods must live on the type, this is the only `core/*` package with a non-stdlib dependency
-(`go.mongodb.org/mongo-driver/v2/bson`). The trade-off is intentional: it makes `Optional` a first-class Mongo field type.
+BSON uses [`data/mongo/bsoncodec.NewRegistry`](../../../data/mongo/bsoncodec/README.md). Set the registry on Mongo client options or standalone BSON
+encoders and decoders. Without it, present Optional fields return `ErrBSONCodecRequired`; this prevents silent serialization as empty documents. None
+with `bson:",omitempty"` is omitted, and `Some(nil)` decodes as None because both encode as BSON null. Core consumers do not import the Mongo driver.
 
 ## When to use
 

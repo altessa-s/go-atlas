@@ -43,15 +43,14 @@
 // # Serialization
 //
 // RedactedString implements json.Marshaler / json.Unmarshaler,
-// yaml.Marshaler / yaml.Unmarshaler, encoding.TextMarshaler /
+// the YAML marshaler / callback unmarshaler, encoding.TextMarshaler /
 // encoding.TextUnmarshaler and bson.ValueMarshaler /
 // bson.ValueUnmarshaler. Marshal always emits the placeholder
 // "<redacted>"; Unmarshal stores the incoming string verbatim into
 // the underlying value. IsZero returns true for the empty string,
 // letting `bson:",omitempty"` strip empty fields entirely.
 //
-// Because the BSON marshallers live on the type, this package depends
-// on go.mongodb.org/mongo-driver/v2/bson — matching the precedent
-// established by core/types/optional. The trade-off is intentional:
-// it makes RedactedString a first-class Mongo field type.
+// This package has no external production dependencies. The fixed BSON string
+// redaction hook uses only the standard library and works without a custom
+// registry. YAML decoding uses the callback interface supported by yaml.v3.
 package redacted

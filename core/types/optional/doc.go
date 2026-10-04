@@ -45,21 +45,13 @@
 //
 // # Serialization
 //
-// Optional implements bson.ValueMarshaler/bson.ValueUnmarshaler and
-// json.Marshaler/json.Unmarshaler. Some(v) is encoded as the underlying
-// value v; None is encoded as BSON null / JSON null. The IsZero method
-// makes `bson:",omitempty"` strip None fields entirely on the wire.
+// JSON support is built in: Some(v) encodes as v, None as null. Use the
+// json:",omitzero" field tag to omit None with Go 1.25+.
 //
-// Some(zero(T)) is preserved through round-trip (it does not collapse
-// to None), letting callers distinguish "absent" from "present but
-// zero" — which is the main reason to reach for Optional in the first
-// place. Standard encoding/json does not consult IsZero, so JSON
-// Marshal of a None field always emits null; use *Optional[T] when JSON
-// field omission matters.
-//
-// Because the BSON marshallers live on the type, this package depends
-// on go.mongodb.org/mongo-driver/v2/bson — the only external dependency
-// in core/*. The trade-off is intentional: making Optional usable as
-// a first-class Mongo field type cannot be achieved from a sibling
-// package.
+// BSON support is provided by data/mongo/bsoncodec.NewRegistry. Configure the
+// Mongo client or standalone encoder/decoder with that registry. Unconfigured
+// BSON calls fail with ErrBSONCodecRequired instead of losing private fields.
+// None encodes as BSON null (or is omitted with omitempty); Some(zero) preserves
+// its presence. Some(nil) is indistinguishable from None on the BSON wire.
+// This package has no external production dependencies.
 package optional
