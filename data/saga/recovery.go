@@ -12,6 +12,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 
+	corecontext "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	sagaerrs "github.com/altessa-s/go-atlas/data/saga/errs"
@@ -21,24 +22,30 @@ import (
 // recovery cycle has been registered with a scheduler (via WithScheduler +
 // WithRecoverySchedule). In that case the scheduler owns the cadence and direct
 // invocation is rejected to avoid two concurrent cycles.
-var ErrSchedulerManaged = errors.New("saga: recovery cycle is managed by the scheduler")
+var ErrSchedulerManaged = corescheduler.ErrSchedulerManaged
 
-// registerRecoveryTask registers the recovery cycle with the configured
-// scheduler. It marks the cycle scheduler-managed so direct
-// [Orchestrator.RunRecoveryCycle] calls are rejected.
-func (o *Orchestrator[T]) registerRecoveryTask() error {
-	if nilcheck.IsNil(o.scheduler) {
+// RegisterRecovery installs the configured recovery task. It may be retried
+// after failure; manual recovery remains available until registration succeeds.
+func (o *Orchestrator[T]) RegisterRecovery(ctx context.Context) error {
+	o.registrationMu.Lock()
+	defer o.registrationMu.Unlock()
+	if o.recoveryTask.Registered() || nilcheck.IsNil(o.scheduler) || o.recoverySchedule == "" {
 		return nil
 	}
-	o.schedulerRecoveryRegistered.Store(true)
-	return o.scheduler.Register(o.baseCtx, corescheduler.TaskConfig{
+	ctx, cancel := corecontext.WithMaxTimeout(ctx, o.storeTimeout)
+	defer cancel()
+	if err := o.scheduler.Register(ctx, corescheduler.TaskConfig{
 		ID:             o.recoveryTaskID,
 		Description:    "Resume or roll back stalled and timed-out saga instances",
-		Func:           o.runRecoveryCycleInternal,
+		Func:           func(ctx context.Context) error { return o.recoveryTask.TryRun(ctx, o.runRecoveryCycleInternal) },
 		Schedule:       o.recoverySchedule,
 		Priority:       corescheduler.TaskPriorityNormal,
 		DisableHistory: true,
-	})
+	}); err != nil {
+		return err
+	}
+	o.recoveryTask.MarkRegistered()
+	return nil
 }
 
 // RunRecoveryCycle performs a single recovery pass: it fetches recoverable
@@ -48,10 +55,7 @@ func (o *Orchestrator[T]) registerRecoveryTask() error {
 // immediately. When the cycle is scheduler-managed it returns
 // [ErrSchedulerManaged].
 func (o *Orchestrator[T]) RunRecoveryCycle(ctx context.Context) error {
-	if o.schedulerRecoveryRegistered.Load() {
-		return ErrSchedulerManaged
-	}
-	return o.runRecoveryCycleInternal(ctx)
+	return o.recoveryTask.Run(ctx, o.runRecoveryCycleInternal)
 }
 
 // runRecoveryCycleInternal is the unguarded recovery pass used both by the
@@ -60,35 +64,31 @@ func (o *Orchestrator[T]) runRecoveryCycleInternal(ctx context.Context) error {
 	if !nilcheck.IsNil(o.leaderElector) && !o.leaderElector.IsLeader() {
 		return nil // Not the leader; another node runs the recovery cycle.
 	}
-	if !o.recoveryRunning.CompareAndSwap(false, true) {
-		return nil // Already running; skip this cycle.
-	}
-	defer o.recoveryRunning.Store(false)
-
 	o.metrics.recoveryCycles.Inc()
 
-	// Detach from the cycle's cancellation so a single pass can finish its
-	// per-instance work, bounded by step/saga timeouts rather than the tick.
-	cycleCtx := context.WithoutCancel(ctx)
+	cycleCtx, cancel := corecontext.WithMaxTimeout(ctx, o.recoveryTimeout)
+	defer cancel()
 	now := time.Now().UTC()
 
 	insts, err := o.store.FetchRecoverable(cycleCtx, now, o.recoveryBatchSize)
 	if err != nil {
-		if coreerrs.IsContextCanceled(err) {
-			return nil
-		}
 		return coreerrs.WrapOperation(err, "fetch recoverable saga instances")
 	}
 	if len(insts) == 0 {
 		return nil
 	}
 
+	var failures []error
 	for _, inst := range insts {
+		if err := cycleCtx.Err(); err != nil {
+			return err
+		}
 		if inst.Definition != o.def.name {
 			continue // Belongs to another saga type sharing the store.
 		}
 		o.metrics.recovered.Inc()
 		if err := o.recoverInstance(cycleCtx, inst, now); err != nil {
+			failures = append(failures, err)
 			o.logger.WarnContext(ctx, "saga: recovery failed for instance",
 				slog.String("id", inst.ID),
 				slog.String("status", string(inst.Status)),
@@ -96,29 +96,27 @@ func (o *Orchestrator[T]) runRecoveryCycleInternal(ctx context.Context) error {
 			)
 		}
 	}
-	return nil
+	return errors.Join(append(failures, cycleCtx.Err())...)
 }
 
-// recoverInstance handles one recoverable instance: a Running instance past its
-// deadline is flipped to Compensating (auto-rollback) before being driven;
-// every other non-terminal instance is simply resumed. Version conflicts are
-// benign — another coordinator owns the instance — and are ignored.
-func (o *Orchestrator[T]) recoverInstance(ctx context.Context, inst *Instance, now time.Time) error {
-	if inst.Status == StatusRunning && !inst.Deadline.IsZero() && !now.Before(inst.Deadline) {
-		inst.Status = StatusCompensating
-		inst.LastError = "saga: deadline exceeded; auto-rolled back by recovery"
-		inst.UpdatedAt = now
-		if err := o.store.Update(ctx, inst); err != nil {
-			if errors.Is(err, sagaerrs.ErrVersionConflict) {
-				return nil
-			}
-			return coreerrs.WrapOperation(err, "mark instance for rollback")
+// recoverInstance reloads and acquires execution before considering rollback.
+func (o *Orchestrator[T]) recoverInstance(ctx context.Context, candidate *Instance, _ time.Time) error {
+	inst, err := o.store.Get(ctx, candidate.ID)
+	if err != nil {
+		return err
+	}
+	if inst.Status.IsTerminal() || inst.Definition != o.def.name {
+		return nil
+	}
+	var data T
+	if len(inst.Data) > 0 {
+		if decodeErr := o.serializer.Deserialize(inst.Data, &data); decodeErr != nil {
+			return decodeErr
 		}
 	}
-
-	_, err := o.Resume(ctx, inst.ID)
+	_, err = o.execute(ctx, inst, &data, true)
 	switch {
-	case err == nil, errors.Is(err, sagaerrs.ErrAlreadyTerminal), errors.Is(err, sagaerrs.ErrVersionConflict):
+	case err == nil, errors.Is(err, sagaerrs.ErrAlreadyTerminal), errors.Is(err, sagaerrs.ErrVersionConflict), errors.Is(err, sagaerrs.ErrInstanceBusy):
 		return nil
 	default:
 		return err

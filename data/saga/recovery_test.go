@@ -145,6 +145,7 @@ func TestRunRecoveryCycleSchedulerManaged(t *testing.T) {
 		saga.WithRecoveryTaskID("saga-recovery-test"),
 	)
 
+	require.NoError(t, orch.RegisterRecovery(t.Context()))
 	require.Equal(t, 1, reg.Count())
 	_, ok := reg.Task("saga-recovery-test")
 	require.True(t, ok)

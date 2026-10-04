@@ -40,6 +40,14 @@ const (
 	DefaultRecoveryBatchSize = 100
 	// DefaultRecoveryTaskID is the scheduler task ID for the recovery cycle.
 	DefaultRecoveryTaskID = "saga-recovery"
+	// DefaultExecutionTimeout bounds one Start or Resume ownership period.
+	DefaultExecutionTimeout = 5 * time.Minute
+	// DefaultLeaseGrace allows canceled operations to finish before lease takeover.
+	DefaultLeaseGrace = 30 * time.Second
+	// DefaultStoreTimeout bounds each persistence operation.
+	DefaultStoreTimeout = 10 * time.Second
+	// DefaultRecoveryTimeout bounds an entire recovery pass.
+	DefaultRecoveryTimeout = 5 * time.Minute
 )
 
 // DeadLetterFunc is invoked when a saga reaches the terminal [StatusFailed]
@@ -62,6 +70,10 @@ type options struct {
 	stepRetryMaxDelay       time.Duration `optgen:"default=DefaultStepRetryMaxDelay"`
 	maxCompensationAttempts int           `optgen:"default=DefaultMaxCompensationAttempts"`
 	stepConcurrency         int           // 0 → core/runtime/concurrency default (IO-bound)
+	executionTimeout        time.Duration `optgen:"default=DefaultExecutionTimeout" optval:"positive"`
+	leaseGrace              time.Duration `optgen:"default=DefaultLeaseGrace" optval:"positive"`
+	storeTimeout            time.Duration `optgen:"default=DefaultStoreTimeout" optval:"positive"`
+	recoveryTimeout         time.Duration `optgen:"default=DefaultRecoveryTimeout" optval:"positive"`
 
 	recoverySchedule  string `optgen:"default=DefaultRecoverySchedule"`
 	recoveryBatchSize int    `optgen:"default=DefaultRecoveryBatchSize"`

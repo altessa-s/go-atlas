@@ -39,6 +39,16 @@ func WithContext(v context.Context) Option {
 	}
 }
 
+// WithExecutionTimeout sets the executionTimeout option.
+func WithExecutionTimeout(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.executionTimeout = v
+	}
+}
+
 // WithLeaderElector sets the leaderElector option.
 func WithLeaderElector(v LeaderElector) Option {
 	return func(o *options) {
@@ -46,6 +56,16 @@ func WithLeaderElector(v LeaderElector) Option {
 			return
 		}
 		o.leaderElector = v
+	}
+}
+
+// WithLeaseGrace sets the leaseGrace option.
+func WithLeaseGrace(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.leaseGrace = v
 	}
 }
 
@@ -126,6 +146,16 @@ func WithRecoveryTaskID[T interface{ string | *string }](v T) Option {
 	}
 }
 
+// WithRecoveryTimeout sets the recoveryTimeout option.
+func WithRecoveryTimeout(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.recoveryTimeout = v
+	}
+}
+
 // WithSagaTimeout sets the sagaTimeout option.
 func WithSagaTimeout(v time.Duration) Option {
 	return func(o *options) {
@@ -193,19 +223,33 @@ func WithStepTimeout(v time.Duration) Option {
 	}
 }
 
+// WithStoreTimeout sets the storeTimeout option.
+func WithStoreTimeout(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.storeTimeout = v
+	}
+}
+
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
+		executionTimeout:        DefaultExecutionTimeout,
+		leaseGrace:              DefaultLeaseGrace,
 		logger:                  slog.New(slog.DiscardHandler),
 		maxCompensationAttempts: DefaultMaxCompensationAttempts,
 		maxStepAttempts:         DefaultMaxStepAttempts,
 		recoveryBatchSize:       DefaultRecoveryBatchSize,
 		recoverySchedule:        DefaultRecoverySchedule,
 		recoveryTaskID:          DefaultRecoveryTaskID,
+		recoveryTimeout:         DefaultRecoveryTimeout,
 		serializer:              &serializer.JSON{},
 		stepRetryBaseDelay:      DefaultStepRetryBaseDelay,
 		stepRetryMaxDelay:       DefaultStepRetryMaxDelay,
 		stepTimeout:             DefaultStepTimeout,
+		storeTimeout:            DefaultStoreTimeout,
 	}
 }
 

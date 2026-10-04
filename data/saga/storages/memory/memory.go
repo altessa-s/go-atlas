@@ -88,13 +88,10 @@ func (s *Store) FetchRecoverable(_ context.Context, now time.Time, limit int) ([
 
 	var out []*saga.Instance
 	for _, inst := range s.instances {
-		if inst.Status.IsTerminal() {
+		if !inst.Recoverable(now) {
 			continue
 		}
-		timedOut := !inst.Deadline.IsZero() && !now.Before(inst.Deadline)
-		if inst.Status != saga.StatusCompensating && !timedOut {
-			continue
-		}
+
 		out = append(out, inst.Clone())
 		if limit > 0 && len(out) >= limit {
 			break
