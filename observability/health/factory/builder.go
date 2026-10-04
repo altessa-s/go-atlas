@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"time"
@@ -70,7 +71,12 @@ func (b *CoordinatorBuilder) Build() (*health.Coordinator, error) {
 			}
 		})
 
-	return health.New(opts...), nil
+	coordinator := health.New(opts...)
+	if err := coordinator.RegisterHealthChecks(context.Background()); err != nil {
+		coordinator.Close()
+		return nil, b.WrapError(err, "register health checks")
+	}
+	return coordinator, nil
 }
 
 // checkSchedule renders a polling interval as the scheduler's "@every"

@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/observability/health/factory"
 ```
 
-Package `factory` provides a fluent builder for creating health coordinators from configuration.
-`CoordinatorBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
+Package `factory` provides a fluent builder for creating health coordinators from configuration. `CoordinatorBuilder` uses deferred error accumulation —
+errors from any step are collected and returned at `Build()` time.
 
 ## Quick Start
 
@@ -39,8 +39,11 @@ coordinator, err := factory.New(cfg.Health).
 
 ## Check cycle
 
-The check cycle is what re-evaluates watched services and notifies their watchers; watchers themselves are push-based and never poll. It runs only
-when a scheduler is supplied — `health.healthCheckInterval` alone has no effect, because there is nothing to drive it.
+The check cycle is what re-evaluates watched services and notifies their watchers; watchers themselves are push-based and never poll. It runs only when
+a scheduler is supplied — `health.healthCheckInterval` alone has no effect, because there is nothing to drive it.
 
 The config expresses the cadence as a duration while the coordinator takes a cron-style expression, so the builder renders it as the scheduler's
 `@every` descriptor: `healthCheckInterval: 5s` registers the `health-check` task with schedule `@every 5s`. A zero interval registers no task.
+
+`Build` calls `RegisterHealthChecks` before returning. If registration fails, it closes the coordinator and returns the error; it does not return a
+silently unmonitored instance.
