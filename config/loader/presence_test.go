@@ -561,3 +561,53 @@ func TestLoad_DefaultTagFillsEnvCollections(t *testing.T) {
 	require.Equal(t, []string{"a", "c"}, cfg.EnvIndexHosts)
 	require.Equal(t, map[string]string{"k": "v", "x": "y"}, cfg.EnvIndexLabels)
 }
+
+type preloadedConfig struct {
+	PreHosts  []string          `yaml:"preHosts" default:"localhost:6379"`
+	PreLabels map[string]string `yaml:"preLabels" default:"k:v"`
+}
+
+// Indexed environment overrides extend a slice or map passed to Load without
+// the default tag overwriting or adding to its existing entries.
+func TestLoad_EnvIndexKeepsPreloadedEntries(t *testing.T) {
+	t.Setenv("PRE_HOSTS__1", "replica:6379")
+	t.Setenv("PRE_LABELS__x", "y")
+
+	cfg := &preloadedConfig{
+		PreHosts:  []string{"redis.internal:6379"},
+		PreLabels: map[string]string{"team": "core"},
+	}
+	_, err := loader.New(nil).Load(cfg)
+	require.NoError(t, err)
+
+	t.Run("slice", func(t *testing.T) {
+		require.Equal(t, []string{"redis.internal:6379", "replica:6379"}, cfg.PreHosts)
+	})
+	t.Run("map", func(t *testing.T) {
+		require.Equal(t, map[string]string{"team": "core", "x": "y"}, cfg.PreLabels)
+	})
+}
+
+type hookHostsConfig struct {
+	HookHosts []string `yaml:"hookHosts" default:"a,b"`
+}
+
+// Default fills the empty hosts.
+func (c *hookHostsConfig) Default() {
+	for i, h := range c.HookHosts {
+		if h == "" {
+			c.HookHosts[i] = "hook"
+		}
+	}
+}
+
+// A default tag does not overwrite an entry Default() supplied in a slice the
+// environment grew.
+func TestLoad_EnvIndexKeepsDefaulterEntries(t *testing.T) {
+	t.Setenv("HOOK_HOSTS__1", "c")
+
+	cfg := &hookHostsConfig{}
+	_, err := loader.New(nil).Load(cfg)
+	require.NoError(t, err)
+	require.Equal(t, []string{"hook", "c"}, cfg.HookHosts)
+}

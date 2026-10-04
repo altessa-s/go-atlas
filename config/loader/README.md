@@ -39,8 +39,20 @@ whole, struct fields merge one by one, and TOML refills a slice's backing array 
 
 `Default()` may fill or derive any field. Afterwards every value a file or the environment set explicitly is restored from an
 independent copy taken before it ran, while the values around it — other fields of an element, other map entries — keep what
-`Default()` set. A `default` tag on a slice or map the environment filled entry by entry adds the entries the environment did not set.
+`Default()` set. When indexed environment variables grow a slice or create a map, a `default` tag fills only the holes the environment
+left — elements it added but did not set and that are still zero, or keys missing from a map it created; existing entries from the value
+passed to `Load`, a file or `Default()` are never overwritten.
 
+## Behavior changes
+
+Compared with earlier releases:
+
+- The environment is applied before `Default()`, so `Default()` sees environment values; it runs once per struct instead of twice.
+- An explicit `false`, `0` or `""` from a file or the environment now wins over a `default` tag; an empty environment variable is not an
+  explicit value for a bool, number, duration, slice or map.
+- Omitted, untagged pointer structs are allocated and defaulted at any depth, including inside map and slice elements; tag such a field
+  `default:"-"` to keep it `nil`. A pointer struct a file sets to `null` also stays `nil` inside collection elements.
+- A `default` tag is only substituted when it is applied, so in strict mode an undefined `${VAR}` in an unused default no longer fails.
 
 ## Interfaces
 

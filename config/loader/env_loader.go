@@ -87,6 +87,21 @@ func fieldByIndexAlloc(v reflect.Value, index []int) reflect.Value {
 	return v
 }
 
+// noteEnvGrowth records, before the environment grows the slice v at steps
+// to n elements or creates the nil map v there, how many entries it held, so
+// default tags fill only the entries the environment added.
+func (cf *Config) noteEnvGrowth(v reflect.Value, n int, steps []pathStep) {
+	switch {
+	case v.Kind() == reflect.Slice && v.Len() < n,
+		v.Kind() == reflect.Map && v.IsNil():
+		if cf.present == nil {
+			cf.present = &presence{}
+		}
+		cf.present.markGrown(steps, v.Len())
+	default:
+	}
+}
+
 // markEnv records that the environment set the value at steps.
 func (cf *Config) markEnv(steps []pathStep) {
 	if cf.present == nil {
@@ -467,6 +482,8 @@ func (cf *Config) setStructSliceElements(arrayField *field, elements map[string]
 // ensureSliceSize ensures that a field's slice has at least the specified size.
 // It delegates to ensureSliceSizeForValue and handles map updates if needed.
 func (cf *Config) ensureSliceSize(arrayField *field, minSize int) error {
+	cf.noteEnvGrowth(arrayField.value, minSize, arrayField.pathSteps())
+
 	// Use the base function to resize the slice
 	if err := cf.ensureSliceSizeForValue(arrayField.value, minSize); err != nil {
 		return err

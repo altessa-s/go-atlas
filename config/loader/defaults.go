@@ -92,8 +92,8 @@ func allocatesPointer(sf reflect.StructField, tag string, p *presence, path []re
 }
 
 // applyTag assigns a default tag value to a field nothing set explicitly.
-// The tag applies to a zero value; a slice or map the environment created
-// entry by entry instead gets the tag's entries the environment did not set.
+// The tag applies to a zero value; a slice or map the environment grew entry
+// by entry instead gets the tag's entries in the holes the environment left.
 func (cf *Config) applyTag(fv reflect.Value, value string, p *presence) error {
 	if !needsDefault(fv) {
 		return cf.fillEnvCollection(fv, value, p)
@@ -115,10 +115,14 @@ func needsDefault(fv reflect.Value) bool {
 	return fv.IsZero()
 }
 
-// fillEnvCollection adds the entries of a default tag to a slice or map that
-// only the environment populated, keeping the entries it set.
+// fillEnvCollection adds the entries of a default tag to the holes of a slice
+// or map the environment grew: slice elements it added without setting them
+// that are still zero, and keys missing from a map it created. Entries that
+// existed before — from the value passed to Load, a file or Default() — are
+// never overwritten. A slice the environment created from nothing takes the
+// tag's length.
 func (cf *Config) fillEnvCollection(fv reflect.Value, value string, p *presence) error {
-	if p == nil || p.set || fv.Kind() != reflect.Slice && fv.Kind() != reflect.Map {
+	if p == nil || p.set || !p.envGrown || fv.Kind() != reflect.Slice && fv.Kind() != reflect.Map {
 		return nil
 	}
 
@@ -140,13 +144,13 @@ func (cf *Config) fillEnvCollection(fv reflect.Value, value string, p *presence)
 		return nil
 	}
 
-	if n := defaults.Len(); n > fv.Len() {
+	if n := defaults.Len(); p.envBase == 0 && n > fv.Len() {
 		grown := reflect.MakeSlice(fv.Type(), n, n)
 		reflect.Copy(grown, fv)
 		fv.Set(grown)
 	}
-	for i := range defaults.Len() {
-		if p.elem(i) == nil {
+	for i := p.envBase; i < min(defaults.Len(), fv.Len()); i++ {
+		if p.elem(i) == nil && fv.Index(i).IsZero() {
 			fv.Index(i).Set(defaults.Index(i))
 		}
 	}
