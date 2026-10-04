@@ -38,6 +38,12 @@ type Dispatch struct {
 	// RetryBackoff is the base duration for exponential backoff.
 	RetryBackoff time.Duration `yaml:"retryBackoff" default:"100ms"`
 
+	// RetryMaxBackoff caps the delay during a durable sink outage.
+	RetryMaxBackoff time.Duration `yaml:"retryMaxBackoff" default:"30s"`
+
+	// StoreTimeout bounds each sink call.
+	StoreTimeout time.Duration `yaml:"storeTimeout" default:"30s"`
+
 	// BackPressure enables back-pressure mode where Submit blocks when
 	// the buffer is full instead of dropping items.
 	BackPressure bool `yaml:"backPressure"`

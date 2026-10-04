@@ -18,6 +18,7 @@ import (
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	probfilterfactory "github.com/altessa-s/go-atlas/data/probfilter/factory"
+	proxyfactory "github.com/altessa-s/go-atlas/transport/proxydial/factory"
 )
 
 // ProviderBuilder assembles an [oidc.Provider] from configuration and
@@ -109,7 +110,7 @@ func (b *ProviderBuilder) buildProviderOptions(ctx context.Context) ([]oidc.Opti
 	}
 	opts = append(opts, revOpts...)
 
-	proxyOpts, err := cfg.Proxy.HTTPClientOptions()
+	proxyOpts, err := proxyfactory.HTTPClientOptions(cfg.Proxy)
 	if err != nil {
 		return nil, b.WrapError(err, "failed to materialize oidc proxy options")
 	}

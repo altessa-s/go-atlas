@@ -8,15 +8,14 @@ import (
 	"fmt"
 	"net/netip"
 
-	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
 // HTTPClientSSRF is the YAML-driven SSRF (Server-Side Request Forgery)
 // egress policy for transport/http/client. Translate it into client options
-// via ClientOptions and pass them to httpclient.New:
+// via transport/http/client/factory.SSRFOptions and pass them to httpclient.New:
 //
-//	opts, err := cfg.SSRF.ClientOptions()
+//	opts, err := factory.SSRFOptions(cfg.SSRF)
 //	if err != nil {
 //	    return err
 //	}
@@ -68,37 +67,4 @@ func validateCIDRPrefix(value any) error {
 		return fmt.Errorf("must be a valid CIDR prefix (e.g. 10.0.0.0/8): %w", err)
 	}
 	return nil
-}
-
-// ClientOptions materializes the SSRF policy into a slice of
-// transport/http/client options ready to be passed to httpclient.New.
-//
-// Because httpclient.New enables SSRF protection by default, a nil receiver or
-// an enabled policy with no AllowedCIDRs returns (nil, nil) — the client keeps
-// its protected default. A Disabled policy returns httpclient.WithoutSSRFProtection.
-// An enabled policy with AllowedCIDRs returns httpclient.WithSSRFAllowedCIDRs.
-// An unparseable CIDR surfaces as an error here rather than at request time.
-func (s *HTTPClientSSRF) ClientOptions() ([]httpclient.Option, error) {
-	if s == nil {
-		return nil, nil
-	}
-
-	if s.Disabled {
-		return []httpclient.Option{httpclient.WithoutSSRFProtection()}, nil
-	}
-
-	if len(s.AllowedCIDRs) == 0 {
-		return nil, nil
-	}
-
-	prefixes := make([]netip.Prefix, 0, len(s.AllowedCIDRs))
-	for _, cidr := range s.AllowedCIDRs {
-		prefix, err := netip.ParsePrefix(cidr)
-		if err != nil {
-			return nil, fmt.Errorf("HTTPClientSSRF: parse allowed CIDR %q: %w", cidr, err)
-		}
-		prefixes = append(prefixes, prefix)
-	}
-
-	return []httpclient.Option{httpclient.WithSSRFAllowedCIDRs(prefixes...)}, nil
 }

@@ -14,6 +14,10 @@ import (
 // Default values for Saga configuration. They mirror the orchestrator option
 // defaults in data/saga so YAML and code stay in sync.
 const (
+	defaultSagaExecutionTimeout        = 5 * time.Minute
+	defaultSagaLeaseGrace              = 30 * time.Second
+	defaultSagaStoreTimeout            = 10 * time.Second
+	defaultSagaRecoveryTimeout         = 5 * time.Minute
 	defaultSagaStepTimeout             = 30 * time.Second
 	defaultSagaSagaTimeout             = 0 // disabled: no per-instance deadline
 	defaultSagaMaxStepAttempts         = 3
@@ -195,6 +199,14 @@ type Saga struct {
 
 	// StepTimeout bounds a single step action or compensation invocation.
 	StepTimeout time.Duration `yaml:"step_timeout" default:"30s"`
+	// ExecutionTimeout bounds one Start/Resume ownership interval.
+	ExecutionTimeout time.Duration `yaml:"execution_timeout" default:"5m"`
+	// LeaseGrace covers cancellation and clock skew after execution expiry.
+	LeaseGrace time.Duration `yaml:"lease_grace" default:"30s"`
+	// StoreTimeout bounds each persistence or scheduler registration operation.
+	StoreTimeout time.Duration `yaml:"store_timeout" default:"10s"`
+	// RecoveryTimeout bounds a complete recovery cycle.
+	RecoveryTimeout time.Duration `yaml:"recovery_timeout" default:"5m"`
 	// SagaTimeout is the per-instance deadline enabling auto-rollback by the
 	// recovery cycle. Zero disables it.
 	SagaTimeout time.Duration `yaml:"saga_timeout" default:"0s"`
@@ -221,6 +233,10 @@ type Saga struct {
 func DefaultSaga() Saga {
 	return Saga{
 		Storage:                 DefaultSagaStorage(),
+		ExecutionTimeout:        defaultSagaExecutionTimeout,
+		LeaseGrace:              defaultSagaLeaseGrace,
+		StoreTimeout:            defaultSagaStoreTimeout,
+		RecoveryTimeout:         defaultSagaRecoveryTimeout,
 		StepTimeout:             defaultSagaStepTimeout,
 		SagaTimeout:             defaultSagaSagaTimeout,
 		MaxStepAttempts:         defaultSagaMaxStepAttempts,
@@ -247,6 +263,10 @@ func (s *Saga) Normalize() {
 func (s *Saga) Validate() error {
 	return ValidateStruct(s,
 		validation.Field(&s.Storage, validation.Required),
+		validation.Field(&s.ExecutionTimeout, validation.When(s.ExecutionTimeout != 0, ozzo_rules.Duration())),
+		validation.Field(&s.LeaseGrace, validation.When(s.LeaseGrace != 0, ozzo_rules.Duration())),
+		validation.Field(&s.StoreTimeout, validation.When(s.StoreTimeout != 0, ozzo_rules.Duration())),
+		validation.Field(&s.RecoveryTimeout, validation.When(s.RecoveryTimeout != 0, ozzo_rules.Duration())),
 		validation.Field(&s.StepTimeout, validation.When(s.StepTimeout != 0, ozzo_rules.Duration())),
 		validation.Field(&s.SagaTimeout, validation.When(s.SagaTimeout != 0, ozzo_rules.Duration())),
 		// Required is paired with Min because ozzo-validation skips every

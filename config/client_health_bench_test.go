@@ -50,37 +50,6 @@ func BenchmarkGRPCHealthClientValidate(b *testing.B) {
 	}
 }
 
-func BenchmarkHTTPHealthClientOptions(b *testing.B) {
-	h := HTTPHealthClient{
-		HealthClient: HealthClient{
-			ServiceName: "benchmark-service",
-		},
-		RetryWindow:     60 * time.Second,
-		RetryThreshold:  0.2,
-		RetryMinSamples: 10,
-		RetryBuckets:    60,
-		PerHost:         true,
-	}
-
-	for b.Loop() {
-		_ = h.Options()
-	}
-}
-
-func BenchmarkGRPCHealthClientOptions(b *testing.B) {
-	h := GRPCHealthClient{
-		HealthClient: HealthClient{
-			ServiceName: "benchmark-grpc-service",
-		},
-		StateMapper: HealthClientStateMapperStrict,
-		PerTarget:   true,
-	}
-
-	for b.Loop() {
-		_ = h.Options()
-	}
-}
-
 func BenchmarkDefaultHealthClient(b *testing.B) {
 	for b.Loop() {
 		h := DefaultHealthClient()
