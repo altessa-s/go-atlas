@@ -37,4 +37,8 @@ regexes = [
     # NATS nkey seed from the official nats.io documentation examples,
     # used in config validation tests.
     '''SUACSSL3UAHUDXKFSNVUZRF5UHPMWZ6BFDTJ7M6USDXIEDNPPQYYYCU3VY''',
+    # Unsigned JWT fuzz seed in auth/jwt and auth/selfjwt fuzz tests:
+    # header {"alg":"none"}, payload {"sub":"admin"}, no signature. The tests
+    # assert the verifier rejects it.
+    '''eyJhbGciOiJub25lIn0\.eyJzdWIiOiJhZG1pbiJ9''',
 ]
