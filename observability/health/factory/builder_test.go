@@ -5,6 +5,7 @@
 package factory_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -115,4 +116,15 @@ func TestBuild_StillMapsCoordinatorTunables(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, coordinator)
 	require.Equal(t, 1, registrar.Count())
+}
+
+func TestBuild_ReturnsRegistrationError(t *testing.T) {
+	t.Parallel()
+	cfg := config.DefaultHealth()
+	cfg.HealthCheckInterval = time.Second
+	boom := errors.New("registrar unavailable")
+	registrar := &testhelpers.MockTaskRegistrar{Err: boom}
+	coordinator, err := factory.New(&cfg).UseScheduler(registrar).Build()
+	require.ErrorIs(t, err, boom)
+	require.Nil(t, coordinator)
 }

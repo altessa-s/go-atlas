@@ -16,18 +16,25 @@ import (
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
-// registerSchedulerTask registers the health check task with the scheduler if configured.
-func (c *Coordinator) registerSchedulerTask(opts *options) error {
-	if nilcheck.IsNil(c.scheduler) || opts.checkSchedule == "" {
+// RegisterHealthChecks installs the configured periodic check. Failures leave
+// manual checks available; callers may retry. New does not register tasks.
+func (c *Coordinator) RegisterHealthChecks(ctx context.Context) error {
+	c.registrationMu.Lock()
+	defer c.registrationMu.Unlock()
+	if c.schedulerHealthCheckRegistered.Load() {
+		return nil
+	}
+	if nilcheck.IsNil(c.scheduler) || c.checkSchedule == "" {
 		return nil
 	}
 
-	ctx := context.Background()
+	ctx, cancel := corectx.WithMaxTimeout(ctx, DefaultCheckTimeout)
+	defer cancel()
 	taskCfg := corescheduler.TaskConfig{
 		ID:             "health-check",
 		Description:    "Periodic health check cycle for all watched services",
-		Func:           c.RegisterHealthCheckSchedulerFunc(),
-		Schedule:       opts.checkSchedule,
+		Func:           c.runHealthCheckCycleInternal,
+		Schedule:       c.checkSchedule,
 		Priority:       corescheduler.TaskPriorityNormal,
 		RunOnStart:     true,
 		Unmanaged:      true,
@@ -38,8 +45,9 @@ func (c *Coordinator) registerSchedulerTask(opts *options) error {
 		return coreerrs.WrapOperation(err, "register health check task")
 	}
 
+	c.schedulerHealthCheckRegistered.Store(true)
 	c.logger.Debug("registered health check task",
-		slog.String("schedule", opts.checkSchedule))
+		slog.String("schedule", c.checkSchedule))
 
 	return nil
 }

@@ -22,7 +22,8 @@
 //   - Unified Monitoring: single registry for all system health checks.
 //   - Transport Independence: status results can be exposed via HTTP, gRPC, or CLI.
 //   - Reactive Subscriptions: [Coordinator.Subscribe] delivers [ServingStatus] changes.
-//   - Scheduler Integration: [WithScheduler] and [WithCheckSchedule] automate polling.
+//   - Scheduler Integration: [WithScheduler] and [WithCheckSchedule] configure polling;
+//     [Coordinator.RegisterHealthChecks] installs it and reports registration errors.
 //   - Concurrency Safe: all methods on [Coordinator] are safe for concurrent use.
 //
 // # Usage

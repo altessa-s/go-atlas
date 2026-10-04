@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/observability/health"
 ```
 
-Package `health` provides transport-agnostic health check coordination and monitoring. The central type is `Coordinator`, which manages
-a registry of named services, caches status results, and delivers changes to subscribers via sharded channels.
+Package `health` provides transport-agnostic health check coordination and monitoring. The central type is `Coordinator`, which manages a registry of
+named services, caches status results, and delivers changes to subscribers via sharded channels.
 
 ## Key types
 
@@ -30,3 +30,17 @@ a registry of named services, caches status results, and delivers changes to sub
 | Package              | Description                                            |
 |----------------------|--------------------------------------------------------|
 | [factory](./factory) | Configuration-based `Coordinator` creation             |
+
+## Scheduler registration
+
+`New` has no scheduling side effects. With `WithScheduler` and `WithCheckSchedule` configured, call `RegisterHealthChecks(ctx)` and handle its error
+before starting the service. Only successful registration disables manual `RunHealthCheckCycle`; a failure can be retried on the same coordinator.
+Repeated successful registration is a no-op. The factory performs this registration and returns an error if it fails.
+
+```go
+coordinator := health.New(health.WithScheduler(sched), health.WithCheckSchedule("@every 5s"))
+defer coordinator.Close()
+if err := coordinator.RegisterHealthChecks(ctx); err != nil {
+    return err
+}
+```

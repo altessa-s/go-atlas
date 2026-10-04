@@ -107,6 +107,10 @@ type Metrics interface {
 //	    health.WithLogger(logger),
 //	)
 //
+//	if err := coordinator.RegisterHealthChecks(ctx); err != nil {
+//	    return err
+//	}
+//
 // Or register RunHealthCheckCycle manually with service/scheduler:
 //
 //	sched.Register(ctx, corescheduler.TaskConfig{
@@ -133,8 +137,10 @@ type Coordinator struct {
 
 	statusCache sync.Map // map[string]*cachedStatus
 
-	logger    *slog.Logger
-	scheduler corescheduler.TaskRegistrar
+	logger         *slog.Logger
+	scheduler      corescheduler.TaskRegistrar
+	checkSchedule  string
+	registrationMu sync.Mutex
 
 	metrics *healthMetrics
 
@@ -161,7 +167,8 @@ var (
 	_ Metrics  = (*Coordinator)(nil)
 )
 
-// New creates a new Coordinator with the given options.
+// New creates a new Coordinator with the given options. It does not register
+// scheduled work; call RegisterHealthChecks and handle its error explicitly.
 //
 // For periodic health checks, use WithScheduler and WithCheckSchedule options:
 //
@@ -186,16 +193,12 @@ func New(opts ...Option) *Coordinator {
 		maxAdaptiveBuffer:         o.maxAdaptiveBuffer,
 		logger:                    o.logger,
 		scheduler:                 o.scheduler,
+		checkSchedule:             o.checkSchedule,
 	}
 
 	c.watcherShards = make([]watcherShard, c.numShards)
 	for i := range c.watcherShards {
 		c.watcherShards[i].watchers = make(map[string]map[*watcher]struct{})
-	}
-
-	// Register health check task with scheduler if configured
-	if err := c.registerSchedulerTask(o); err != nil {
-		c.logger.Warn("failed to register health check task", slog.Any("error", err))
 	}
 
 	return c
