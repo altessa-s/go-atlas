@@ -1,177 +1,96 @@
 # Architecture
 
-Package structure, layering, and design principles of go-atlas.
+go-atlas is a toolkit composed of Go packages in one root module. Applications own construction, startup and shutdown; individual packages can be used
+without a framework bootstrap. The integration suite is a separate module under `tests/integration`.
 
----
+## Dependency boundaries
 
-## Package structure
+Dependencies are governed at the Go package level. Top-level directories describe capabilities, not strictly ordered layers: factories and concrete
+adapters intentionally connect capabilities. Go rejects actual import cycles; a cycle in an aggregated directory diagram is not an import cycle.
 
-```
-go-atlas/
-├── auth/                  # Authentication & authorization
-│   ├── oidc/              # OpenID Connect (JWT validation, JWKS)
-│   ├── opa/               # Open Policy Agent integration
-│   └── scope/             # Scope-based authorization policy (transport-neutral)
-├── config/                # Configuration management
-│   ├── loader/            # Multi-source config loading (YAML, TOML, env)
-│   └── templates/         # Configuration templates (30+ YAML presets)
-├── core/                  # Foundational utilities (stdlib only, zero external deps)
-│   ├── collections/       # Generic collection utilities
-│   ├── context/           # Context helpers
-│   ├── encoding/          # Encoding utilities
-│   ├── errors/            # Error types and wrapping
-│   ├── factory/           # Generic factory pattern
-│   ├── io/                # I/O utilities
-│   ├── net/               # Network utilities
-│   ├── runtime/           # Runtime helpers (concurrency strategies)
-│   ├── scheduler/         # Task scheduling interfaces
-│   ├── text/              # String and text utilities (interning)
-│   ├── time/              # Time utilities
-│   └── types/             # Common type definitions
-├── data/                  # Data access & patterns
-│   ├── audit/             # Audit logging
-│   ├── cache/             # Multi-backend caching (Redis, FreeCache, LRU)
-│   ├── filter/            # Query filtering (CEL expressions)
-│   ├── idempotency/       # Idempotency key management
-│   ├── leadelect/         # Leader election
-│   ├── limiters/          # Rate limiting (token bucket, budget)
-│   ├── locks/             # Distributed locking
-│   ├── mongo/             # MongoDB repository patterns
-│   ├── outbox/            # Transactional outbox
-│   ├── probfilter/        # Probabilistic filters (Bloom, Cuckoo)
-│   └── uniq/              # Uniqueness constraints
-├── domain/                # Domain logic helpers
-│   ├── behavior/          # field_behavior strip (create/update/response)
-│   ├── converter/         # Struct-to-struct conversion
-│   ├── eventbus/          # Synchronous in-process event bus (transaction-safe)
-│   ├── fieldtracker/      # Field change tracking
-│   ├── normalizer/        # Data normalization
-│   ├── proto/             # Protobuf utilities (field masks)
-│   └── validation/        # Validation utilities (ISO 7064)
-├── infrastructure/        # External system connectors
-│   ├── mongo/             # MongoDB client setup
-│   ├── nats/              # NATS connection management
-│   └── redis/             # Redis client setup
-├── observability/         # Observability stack
-│   ├── appstats/          # Application statistics
-│   ├── health/            # Health checks
-│   ├── metrics/           # Metrics collection (Prometheus)
-│   ├── slog/              # Structured logging (slog)
-│   └── tracing/           # Distributed tracing (OpenTelemetry)
-├── proto/                 # Protobuf definitions and generated code
-├── security/              # Security utilities
-│   ├── secrets/           # Secret management (Vault, GCP, Lockbox, memory)
-│   ├── tlsutils/          # TLS certificate helpers
-│   └── vault/             # HashiCorp Vault integration
-├── service/               # Service-level components
-│   ├── id/                # ID generation (UUID, ULID)
-│   └── scheduler/         # Task scheduler (cron, priority, storage)
-├── tests/                 # Separate module: integration suite against live backends
-│   └── integration/       # docker-compose stack + shared cross-backend corpus
-├── tools/                 # Code generation and dev tools
-│   └── codegen/           # Code generators (optgen, goconfig)
-└── transport/             # Communication layer
-    ├── broker/            # Message broker (NATS JetStream)
-    ├── grpc/              # gRPC server, interceptors, factory
-    │   └── client/        # gRPC client with retry, pooling, proxy support
-    ├── http/              # HTTP server, router, middleware, codec
-    │   └── client/        # HTTP client with retry, breaker, proxy, SSRF protection
-    └── internal/
-        └── proxydial/     # Shared HTTP CONNECT/SOCKS5 dialer for both clients
+| Package role | Allowed dependencies and responsibility |
+|--------------|-----------------------------------------|
+| `core/*` | Standard library and other `core/*` packages. Narrow exceptions below. |
+| Root `config` | Schemas, defaults and validation; `core/*`, config internals and validation libraries. No runtime clients or component constructors. |
+| `config/loader/*` | Configuration sources and secret resolution; may use `security/secrets`, never transport clients directly. |
+| `domain/*` | Domain helpers, `core/*` and observability interfaces. Backend translators remain separate subpackages. |
+| `data/*` | Data contracts and implementations; storage providers depend on consumer-defined contracts. |
+| `infrastructure/*` | Connection construction and lifecycle for external systems. |
+| `observability/tracing`, `observability/metrics` | Backend-neutral contracts and dispatch to the `adapters` interface package; no concrete adapter or transport import. |
+| `*/adapters/*`, `*/storages/*`, `*/providers/*` | Concrete integration dependencies and the contracts they implement. |
+| `*/factory` | Composition from `config` and injected dependencies; may import concrete adapters, clients and providers. |
+| `transport/*`, `auth/*`, `security/*`, `service/*` | Runtime capabilities assembled from interfaces, core helpers and required integrations. |
+
+`core/io/spoolbudget` uses `golang.org/x/sync/semaphore`. Linux capability, landlock, nonewprivs, rlimits and seccomp implementations use
+`golang.org/x/sys/unix`. These are explicit package-scoped exceptions. Universal value types (`optional`, `redacted`) have no external production
+imports; database codecs belong in `data/mongo/bsoncodec`.
+
+`make check-architecture` parses production imports on every platform and enforces the core, config, domain and base-observability boundaries above. The
+same check runs in CI. Test dependencies and the separate integration module are excluded. Other composition rules require ordinary code review; the
+check does not claim to enforce a complete layer ordering.
+
+```mermaid
+flowchart TD
+    App[Application composition] --> Factories[factory packages]
+    Factories --> Config[config schemas]
+    Factories --> Components[component contracts]
+    Factories --> Adapters[concrete providers and adapters]
+    Adapters --> Components
+    Components --> Core[core utilities]
+    Config --> Core
+    Adapters --> Drivers[external drivers]
 ```
 
----
+## Configuration and adapters
 
-## Layering
+Package constructors accept required dependencies as positional arguments and generated functional options for tunables. Configuration structs are
+schemas in `config`; runtime packages do not expose another mutable public Config as an alternative to options. Factories validate schemas and
+materialize options. Nil optional telemetry dependencies use no-ops; required storage, codecs and credentials remain required.
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                      Application                         │
-├──────────────────────────────────────────────────────────┤
-│  transport/       │  auth/       │  service/             │
-│  (HTTP, gRPC,     │  (OIDC,      │  (ID gen,             │
-│   broker)         │   OPA)       │   scheduling)         │
-├──────────────────────────────────────────────────────────┤
-│  data/            │  config/     │  observability/       │
-│  (cache, mongo,   │  (loader,    │  (metrics, tracing,   │
-│   outbox, ...)    │   templates) │   logging, health)    │
-├──────────────────────────────────────────────────────────┤
-│  domain/          │  security/   │  infrastructure/      │
-│  (converter,      │  (secrets,   │  (mongo, redis,       │
-│   normalizer)     │   vault)     │   nats clients)       │
-├──────────────────────────────────────────────────────────┤
-│                        core/                             │
-│  (collections, errors, types, context, encoding, ...)    │
-└──────────────────────────────────────────────────────────┘
-```
+Outbound proxy mapping lives in `transport/proxydial/factory`: `HTTPClientOptions(cfg.Proxy)` and `GRPCClientOptions(cfg.Proxy)`. Client health and HTTP
+SSRF mapping live in `transport/http/client/factory` and `transport/grpc/client/factory`. See the [proxy guide](proxy.md).
 
-Higher layers depend on lower layers. Lateral dependencies within the same layer are allowed. Circular dependencies between top-level packages are
-prohibited.
+BSON encoding of `optional.Optional[T]` uses `data/mongo/bsoncodec.NewRegistry()`. `data/mongo` installs this registry for clients it constructs unless
+an explicit registry overrides it. Supplied clients and standalone BSON encoders/decoders must be configured by their owners. An unconfigured codec
+fails explicitly instead of silently serializing private fields. RedactedString retains a fixed BSON string redaction hook without importing the driver,
+so redaction works with the default registry too.
 
-### Outbound transport
+## Lifecycle and state ownership
 
-The HTTP and gRPC client packages (`transport/http/client`, `transport/grpc/client`) share a common dialer at `transport/proxydial`. Every consumer
-that makes outbound calls (OIDC, OPA GitLab/S3 sources, OTLP gRPC exporter) materializes the shared `config.Proxy` into option slices via
-`HTTPClientOptions()` / `GrpcClientOptions()` and forwards them to the relevant client. See the [Proxy guide](proxy.md) for the YAML schema, modes,
-and wiring patterns.
+Instances own their clients, queues and worker lifecycles unless a constructor explicitly accepts an externally owned dependency. Background tasks must
+expose errors at registration/startup and have a bounded stop path. Callbacks and drivers must honor their contexts; Go cannot forcibly stop a callback
+that ignores cancellation.
 
----
+The toolkit contains opt-in process-wide facilities: shutdown hooks, panic handlers and signal dispatch, plus synchronized implementation caches. There
+is no blanket guarantee of zero global state or zero initialization. Prefer scoped `core/runtime.HookGroup` and instance-owned dependencies when
+components must be stopped or tested independently. Package-specific thread-safety contracts take precedence over general descriptions.
 
-## Design principles
+## Delivery and recovery contracts
 
-### Interface-driven
+| Component | Contract |
+|-----------|----------|
+| `data/saga` | CAS acquires a bounded execution lease before callbacks. Stage intent and successful members of a failed parallel stage are persisted. Recovery excludes active leases. |
+| Saga callbacks | Must be idempotent and cancellation-aware. Use `ExecutionFromContext` for stable step keys and increasing fencing tokens; external systems must enforce fencing when needed. |
+| Idempotency | Completion and failed-request release compare the original ownership token atomically. Unconditional deletion is administrative only. |
+| Scheduler | Atomic claim and `FinishRun` fence ownership at both transitions; stale completion cannot overwrite a newer run or task configuration. |
+| Health/outbox startup | Constructors do not register tasks. Explicit registration reports errors; factories perform it before returning. Partial outbox registration gates callbacks until retry succeeds. |
+| gRPC pool | Client bindings preserve the complete dial policy. Per-target capacity includes borrowed, idle and in-flight creations; stop cancels and joins factories before completing. |
+| Saga recovery | `RegisterRecovery(ctx)` reports scheduler failures. Manual recovery remains available until registration succeeds. Recovery, execution, step and persistence budgets are maximum deadlines and preserve any earlier caller deadline. |
+| `service/dispatch` with WAL | Logged admission and asynchronous at-least-once delivery. Workers continue retries during an outage; shutdown reports retained backlog. |
+| `service/dispatch` without WAL | Volatile admission, finite retries, no crash recovery. |
+| `domain/eventbus/uow` | In-process post-commit effects. Compensation detaches caller cancellation but has a configurable overall deadline. No crash durability. |
+| Tracing | Extract, Start and Inject share one context representation. Unsampled spans retain valid propagation context; RecordOnly spans are not exported. |
 
-Every major component is defined by an interface. Implementations are injected, making components testable and swappable. Storage backends, secret
-providers, cache providers, and observability adapters all follow this pattern.
+A saga cannot atomically commit an external effect and its checkpoint. Recovery may repeat actions and compensate uncertain persisted intents; handlers
+must tolerate absent or already-undone effects. A lease prevents cooperative executors from overlapping. Remote fencing or idempotency is still required
+when an old process can resume after its lease expires. See [saga](data/saga.md) and the [migration decision](adr/2026-09-25-recovery-boundaries.md).
 
-### Factory pattern
+WAL admission is a page-cache append, not an immediate fsync acknowledgement. Crash durability starts after a successful sync; OS scheduling and I/O
+failures can extend the configured sync cadence. Shutdown returns delivery and journal failures rather than promising an unconditional full drain. See
+[dispatch](../service/dispatch/README.md) and [WAL](../core/io/wal/README.md).
 
-Components support both programmatic construction (`New()` + functional options) and configuration-driven creation (`factory.New(cfg).Build()`), so
-the same package works as a library or an app-level component. Factory subdirectories appear in 20+ packages and follow a consistent fluent builder
-API with deferred error accumulation.
+## Repository map and conventions
 
-### Optional dependencies
-
-External dependencies (tracing, metrics, logging) are accepted through functional options and default to no-op implementations. Packages work without
-configuration.
-
-### Adapter pattern
-
-Observability (tracing, metrics), infrastructure (secrets, cache providers), and data access (filter translators, storage backends) use the adapter
-pattern: components depend on abstract interfaces, adapters translate to specific backends.
-
-| Domain          | Adapters                                                     |
-|-----------------|--------------------------------------------------------------|
-| Cache           | Redis, FreeCache, LRU, Noop                                  |
-| Filter          | Lua, MongoDB (BSON), RediSearch                              |
-| Idempotency     | Memory, NATS, Redis                                          |
-| Leader election | NATS                                                         |
-| Rate limiting   | Memory, NATS, Redis                                          |
-| Metrics         | Prometheus                                                   |
-| Tracing         | OpenTelemetry                                                |
-| Secrets         | Vault, GCP Secret Manager, Yandex Cloud Lockbox, Memory      |
-| OPA sources     | Embed, Filesystem, GitLab, S3                                |
-
-### No global state
-
-All state is held in structs. No `init()` functions, no package-level variables holding mutable state. Concurrent usage is safe and testing is
-deterministic.
-
-### Minimal public API
-
-Only export what users need. Internal packages (`internal/`) hide implementation details. Generated code (`*_gen.go`, `*.pb.go`) is clearly separated.
-
----
-
-## Dependency rules
-
-| Package           | May depend on                                                                  |
-|-------------------|--------------------------------------------------------------------------------|
-| `core/`           | Standard library only (zero external deps)                                     |
-| `domain/`         | `core/`, `proto/`, `observability/`, `data/cache/lru` (field mask caching)     |
-| `data/`           | `core/`, external libraries                                                    |
-| `infrastructure/` | `core/`, `config/`, external client libraries                                  |
-| `observability/`  | `core/`, adapter libraries (Prometheus, OpenTelemetry)                         |
-| `transport/`      | `core/`, `observability/`, `config/`, `data/`, `security/`, protocol libraries |
-
-Circular dependencies between top-level packages are not allowed.
+[AGENTS.md](../AGENTS.md) is the package map and contribution convention reference. Generated options are produced by optgen from private options
+structs. Public packages include godoc, README and behavior tests; benchmarks cover hot paths. Internal packages follow the documented exemptions. This
+document is authoritative for architecture; `.ai-factory/ARCHITECTURE.md` links here instead of duplicating dependency rules.
