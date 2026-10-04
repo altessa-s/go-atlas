@@ -208,12 +208,28 @@ func statusString(code int) string {
 	return strconv.Itoa(code)
 }
 
+// methodOther is the label value for request methods outside the standard set.
+const methodOther = "OTHER"
+
+// boundedMethod maps r.Method to a bounded label value. net/http accepts any
+// token as a method, so an unauthenticated client could otherwise mint a new
+// metric series per request.
+func boundedMethod(method string) string {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch,
+		http.MethodDelete, http.MethodConnect, http.MethodOptions, http.MethodTrace:
+		return method
+	default:
+		return methodOther
+	}
+}
+
 // recordMetrics records all metrics for a completed request.
 func (m *Middleware) recordMetrics(r *http.Request, rec *recorder, startTime time.Time) {
 	duration := time.Since(startTime)
 	statusCode := statusString(rec.StatusCode())
 
-	h := m.handlesFor(corestrings.InternString(r.Method), statusCode)
+	h := m.handlesFor(boundedMethod(r.Method), statusCode)
 
 	h.total.Inc()
 	h.duration.Observe(duration.Seconds())
