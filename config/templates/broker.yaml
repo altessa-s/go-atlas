@@ -20,6 +20,7 @@
 #  inProgress:
 #    # <bool> Enable InProgress manager.
 #    # When false, manager is not created and handlers work without heartbeats.
+#    # The config loader replaces an explicit false with this default (true).
 #    # Default value: true
 #    enabled: true
 #
@@ -29,7 +30,7 @@
 #    #   - "*/1 * * * * *" - every second (default)
 #    #   - "*/5 * * * * *" - every 5 seconds
 #    #   - "0 * * * * *" - every minute
-#    # Default value: "*/1 * * * * *"
+#    # Default value: */1 * * * * *
 #    tickSchedule: "*/1 * * * * *"
 #
 #    # <duration> Default interval for InProgress calls when not specified in Register().
@@ -46,11 +47,12 @@
 #    # <object> Metrics configuration.
 #    metrics:
 #      # <bool> Enable metrics collection.
+#      # The config loader replaces an explicit false with this default (true).
 #      # Default value: true
 #      enabled: true
 #
 #      # <string> Metric name prefix.
-#      # Default value: "inprogress"
+#      # Default value: inprogress
 #      prefix: "inprogress"
 #
 #  # <object> Outbox configuration for reliable message delivery.
@@ -58,6 +60,7 @@
 #  outbox:
 #    # <bool> Enable Outbox.
 #    # When false, outbox is not created and messages are published directly.
+#    # The config loader replaces an explicit false with this default (true).
 #    # Default value: true
 #    enabled: true
 #
@@ -69,8 +72,8 @@
 #    # saved. Retry backoffs expiring and the unlock task freeing a stuck lease
 #    # are time-driven, produce no change event, and are picked up here only.
 #    # Example: "*/2 * * * * *" (every 2 seconds)
-#    # Default value: not set
-#    dispatchSchedule:
+#    # Default value: @every 2s
+#    dispatchSchedule: "@every 2s"
 #
 #    # <duration> Timeout for fetching unprocessed events from storage.
 #    # Default value: 5s
@@ -96,30 +99,29 @@
 #    # <string> Cron schedule for the cleanup task.
 #    # Supports standard cron format with seconds: "sec min hour day month weekday"
 #    # Example: "0 */10 * * * *" (every 10 minutes)
-#    # Default value: not set
-#    cleanupSchedule:
+#    # Default value: @every 10m
+#    cleanupSchedule: "@every 10m"
 #
 #    # <string> Cron schedule for the unlocker task.
 #    # Supports standard cron format with seconds: "sec min hour day month weekday"
 #    # Example: "*/11 * * * * *" (every 11 seconds)
-#    # Default value: not set
-#    unlockSchedule:
+#    # Default value: @every 11s
+#    unlockSchedule: "@every 11s"
 #
 #    # <string> Cron schedule for the expire task, which marks pending and
 #    # failed events past their ExpiresAt as expired. Only registered when
 #    # defaultEventTTL is set.
 #    # Example: "*/11 * * * * *" (every 11 seconds)
-#    # Default value: not set
-#    expireSchedule:
+#    # Default value: @every 11s
+#    expireSchedule: "@every 11s"
 #
 #    # <string> Cron schedule for the stats task, which refreshes the backlog,
 #    # dead-letter, and lag gauges (outbox_events_pending,
 #    # outbox_events_dead_lettered, outbox_events_oldest_pending_age_seconds).
-#    # Leave it unset and those gauges stay at zero — which reads exactly like a
+#    # Without this task those gauges stay at zero — which reads exactly like a
 #    # healthy idle outbox, so a stalled one raises no alert.
-#    # Example: "@every 30s"
-#    # Default value: not set
-#    statsSchedule:
+#    # Default value: @every 30s
+#    statsSchedule: "@every 30s"
 #
 #    # <uint32> Number of events fetched per batch.
 #    # Must be between 1 and 10000.
@@ -150,42 +152,55 @@
 #    # rejected at publish time with ErrPayloadTooLarge, inside the caller's
 #    # transaction, instead of failing later in the store driver. Messages
 #    # approaching the limit belong behind a claim-check: put the blob in object
-#    # storage and publish a reference. 0 disables the check.
+#    # storage and publish a reference. An explicit 0 is replaced by the default
+#    # by the config loader.
 #    # Default value: 1048576 (1 MiB)
 #    maxPayloadBytes: 1048576
 #
 #    # <duration> How long processed events are retained before cleanup.
-#    # -1 means indefinite retention. Dead-lettered events (max-attempt-reached,
+#    # The default "-1ns" is a sentinel meaning indefinite retention (cleanup
+#    # disabled); values below one minute are ignored by the outbox and keep
+#    # that retention in place. Dead-lettered events (max-attempt-reached,
 #    # rejected) are never swept: they are the dead-letter queue and stay until
 #    # an operator acts on them.
-#    # Default value: -1
-#    publishedEventsLifetime: "-1"
+#    # Default value: -1ns
+#    publishedEventsLifetime: "-1ns"
 #
 #    # <duration> Default time-to-live applied to events without an explicit
 #    # ExpiresAt. An expired event is never published. Values below 1s are
 #    # ignored. 0 disables expiration.
-#    # Default value: 0
-#    defaultEventTTL: 0
+#    # Default value: 0s
+#    defaultEventTTL: "0s"
 #
 #    # <bool> Enable log compaction behavior for all topics.
 #    # If true, only the latest event for each topic in a batch will be published.
 #    # Default value: false
 #    topicCompaction: false
 #
-#    # Scheduler task IDs. Override the defaults only when running multiple
-#    # Outbox instances against the SAME scheduler — the scheduler upserts
-#    # by ID, so two instances both registering "outbox-dispatch" would
-#    # silently overwrite each other's dispatch Func pointer. Collisions
-#    # across the five IDs are rejected at startup with
+#    # Scheduler task IDs (the five keys below). Override the defaults only when
+#    # running multiple Outbox instances against the SAME scheduler — the
+#    # scheduler upserts by ID, so two instances both registering
+#    # "outbox-dispatch" would silently overwrite each other's dispatch Func
+#    # pointer. Collisions across the five IDs are rejected at startup with
 #    # outbox.ErrTaskIDCollision, so a typo that aliases two of them is
 #    # surfaced before the scheduler ever spins.
+#    #
+#    # <string> Scheduler task ID of the dispatcher.
 #    # Default value: outbox-dispatch
 #    dispatchTaskID: outbox-dispatch
+#
+#    # <string> Scheduler task ID of the unlock task.
 #    # Default value: outbox-unlock
 #    unlockTaskID: outbox-unlock
+#
+#    # <string> Scheduler task ID of the expire task.
 #    # Default value: outbox-expire
 #    expireTaskID: outbox-expire
+#
+#    # <string> Scheduler task ID of the cleanup task.
 #    # Default value: outbox-cleanup
 #    cleanupTaskID: outbox-cleanup
+#
+#    # <string> Scheduler task ID of the stats task.
 #    # Default value: outbox-stats
 #    statsTaskID: outbox-stats

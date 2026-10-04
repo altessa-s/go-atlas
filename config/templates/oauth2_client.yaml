@@ -24,7 +24,7 @@
 #  # Default value: not set
 #  clientSecret: "env:OAUTH2_CLIENT_SECRET"
 #
-#  # <list> OAuth2 scopes requested from the IdP.
+#  # <list[string]> OAuth2 scopes requested from the IdP.
 #  # Default value: not set
 #  scopes:
 #    - "orders:read"
@@ -35,7 +35,7 @@
 #  # Default value: auto
 #  authStyle: auto
 #
-#  # <map> Extra, non-standard token-request parameters (e.g. Auth0 "audience").
+#  # <map[string]string> Extra, non-standard token-request parameters (e.g. Auth0 "audience").
 #  # Default value: not set
 #  endpointParams:
 #    audience: "https://api.example.com"
@@ -43,28 +43,35 @@
 #  # <duration> Refresh tokens this long before their exp (clock-skew margin).
 #  # Zero uses the x/oauth2 default (~10s). Applies to client_credentials and exchange.
 #  # Default value: not set
-#  earlyExpiry: 30s
+#  earlyExpiry: "30s"
 #
 #  # <object> JWT-assertion client authentication (RFC 7523), superseding
 #  # clientSecret/authStyle. Omitted uses the plain secret.
 #  clientAuth:
-#    # <string> "private_key_jwt" (signed assertion) or "client_secret_jwt" (HMAC).
+#    # <string> Client authentication method.
+#    # Supported values: private_key_jwt (signed assertion), client_secret_jwt (HMAC over clientSecret)
+#    # Default value: not set (required when clientAuth is configured)
 #    method: private_key_jwt
 #
 #    # <string> PEM signing key for private_key_jwt (supports file:/env:/vault: refs).
+#    # Default value: not set
 #    privateKey: "file:/etc/keys/oauth2-client.pem"
 #
-#    # <string> kid header matching the public key registered with the IdP.
+#    # <string> kid header matching the public key registered with the IdP (private_key_jwt).
+#    # Default value: not set
 #    keyId: "key-1"
 #
-#    # <string> Asymmetric JWA for private_key_jwt (RS256|ES256|EdDSA|PS256|...).
+#    # <string> Asymmetric JWA for private_key_jwt.
+#    # Supported values: EdDSA, ES256, ES384, ES512, RS256, RS384, RS512, PS256, PS384, PS512
 #    # Default value: RS256
 #    algorithm: RS256
 #
-#    # <duration> Assertion validity window. Default value: 5m
-#    assertionLifetime: 5m
+#    # <duration> Assertion validity window.
+#    # Default value: not set (the oauth2client package falls back to 5m)
+#    assertionLifetime: "5m"
 #
-#    # <string> Override the assertion aud claim. Default: the token endpoint.
+#    # <string> Override the assertion aud claim.
+#    # Default value: not set (the token endpoint is used)
 #    assertionAudience: ""
 #
 #  # <object> Retry of token exchanges with exponential backoff.
@@ -76,8 +83,8 @@
 #
 #    # <duration> Backoff before the first retry.
 #    # Default value: 200ms
-#    baseDelay: 200ms
+#    baseDelay: "200ms"
 #
 #    # <duration> Cap on the exponential backoff between retries.
 #    # Default value: 5s
-#    maxDelay: 5s
+#    maxDelay: "5s"

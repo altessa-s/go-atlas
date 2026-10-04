@@ -13,7 +13,7 @@
 #  # Compensates for small time differences between servers.
 #  # Recommended value: 30s-60s for production.
 #  # Default value: 30s
-#  clockSkew: 30s
+#  clockSkew: "30s"
 #
 #  # <object> Token caching configuration.
 #  # Controls caching behavior for validated and revoked tokens.
@@ -26,19 +26,20 @@
 #    # <string> Cache key prefix for validated tokens.
 #    # Allows namespacing cache keys to avoid collisions when multiple applications
 #    # or provider instances share the same cache backend.
-#    # Default value: "tokens:"
+#    # Default value: tokens:
 #    tokensKeyPrefix: "tokens:"
 #
 #    # <string> Cache key prefix for revoked tokens.
 #    # Allows namespacing cache keys to avoid collisions when multiple applications
 #    # or provider instances share the same cache backend.
-#    # Default value: "revoked-tokens:"
+#    # Default value: revoked-tokens:
 #    revokedTokensKeyPrefix: "revoked-tokens:"
 #
 #  # <object> JWKS-specific settings for key management.
 #  # Configures JWKS refresh behavior and HTTP timeouts.
 #  jwks:
 #    # <bool> Enables proactive JWKS refresh via an external scheduler.
+#    # The config loader replaces an explicit false with this default (true).
 #    # Default value: true
 #    refreshEnabled: true
 #
@@ -46,13 +47,13 @@
 #    # Proactively updates keys before cache expiration.
 #    # Supports standard cron format with seconds: "sec min hour day month weekday"
 #    # Example: "0 0 * * * *" (every hour)
-#    # Default value: "0 0 * * * *"
+#    # Default value: 0 0 * * * *
 #    refreshSchedule: "0 0 * * * *"
 #
 #    # <duration> Timeout for JWKS HTTP requests.
 #    # Applies to both initial JWKS fetch and subsequent refresh operations.
 #    # Default value: 30s
-#    httpTimeout: 30s
+#    httpTimeout: "30s"
 #
 #  # <object> Shared OAuth2 client credentials for server-to-server operations.
 #  # Used by introspection (RFC 7662) and other client credentials flows.
@@ -94,7 +95,7 @@
 #    # Rejects tokens with exp - iat > maxTokenLifetime.
 #    # Protection against tokens with excessively long validity period.
 #    # Default value: not set (no limitation)
-#    maxTokenLifetime: 1h
+#    maxTokenLifetime: "1h"
 #
 #    # <object> CEL expression for custom token validation logic.
 #    # Provides flexible validation beyond standard claim checks.
@@ -113,7 +114,7 @@
 #      #   - 'claims.exp - claims.iat <= duration("24h").getSeconds()'  // Max lifetime check
 #      #   - 'has(claims.email) && claims.email_verified == true'       // Email verification
 #      #
-#      # Default value: '' (no custom validation)
+#      # Default value: not set (no custom validation)
 #      expression: ''
 #
 #      # <string> Name for this validation rule (optional).
@@ -131,32 +132,32 @@
 #      # To override defaults, specify your own list (empty list disables requirement).
 #      required: ["sub", "aud", "exp", "iat", "iss"]
 #
-#      # <map[string,string]> Map of expected values for specific claims.
+#      # <map[string]string> Map of expected values for specific claims.
 #      # Token must contain specified claims with exactly matching values.
 #      # Useful for validating domain-specific attributes.
 #      # Values must be strings. For complex validation use CEL expressions.
-#      # Default value: {} (no expected values)
+#      # Default value: not set (no expected values)
 #      expected: {}
 #
 #      # <list[string]> Claims that should be ignored during validation.
 #      # Used to disable validation of certain claims.
-#      # Default value: [] (no claims ignored)
+#      # Default value: not set (no claims ignored)
 #      ignored: []
 #
 #      # <list[string]> Expected audience claim in the token.
 #      # Token must contain at least one of the specified audiences.
-#      # Default value: [] (no audience validation)
+#      # Default value: not set (no audience validation)
 #      audience: []
 #
 #      # <list[string]> List of allowed client_id for service-to-service calls.
 #      # Tokens from other clients will be rejected.
 #      # Leave empty to allow all authenticated services.
-#      # Default value: [] (all allowed)
+#      # Default value: not set (all allowed)
 #      allowedClientIds: []
 #
 #      # <list[string]> List of required scopes for service tokens.
 #      # Token must contain at least one of the specified scopes.
-#      # Default value: [] (no scope validation)
+#      # Default value: not set (no scope validation)
 #      requiredScopes: []
 #
 #      # <bool> Require 'azp' (authorized party) claim presence.
@@ -166,7 +167,7 @@
 #
 #      # <list[string]> List of allowed 'azp' claim values.
 #      # Used in conjunction with requireAuthorizedParty.
-#      # Default value: []
+#      # Default value: not set
 #      allowedAuthorizedParties: []
 #
 #      # <bool> Allow tokens without 'sub' claim for service accounts.
@@ -188,9 +189,10 @@
 #    # <list[object]> List of named validation presets.
 #    # Each preset defines a complete set of validation rules that can be applied to tokens.
 #    # Presets are selected dynamically using selector rules or programmatically by name.
-#    # Default value: []
+#    # Default value: not set
 #    list:
-#      # Example preset for Google OAuth tokens
+#      # <string> Unique preset name, referenced by selectors (example: a preset for Google OAuth tokens).
+#      # Default value: not set
 #      - name: google
 #
 #        # <string> Expected issuer (iss claim) for this preset.
@@ -199,7 +201,7 @@
 #
 #        # <duration> Maximum token lifetime for this preset.
 #        # Default value: not set (no limitation)
-#        maxTokenLifetime: 1h
+#        maxTokenLifetime: "1h"
 #
 #        # <object> CEL expression for custom token validation logic.
 #        # Provides flexible validation beyond standard claim checks.
@@ -218,7 +220,7 @@
 #          #   - 'claims.exp - claims.iat <= duration("24h").getSeconds()'  // Max lifetime check
 #          #   - 'has(claims.email) && claims.email_verified == true'       // Email verification
 #          #
-#          # Default value: '' (no custom validation)
+#          # Default value: not set (no custom validation)
 #          expression: ''
 #
 #          # <string> Name for this validation rule (optional).
@@ -234,27 +236,27 @@
 #          # To override defaults, specify your own list (empty list disables requirement).
 #          required: ["sub", "aud", "exp", "iat", "iss"]
 #
-#          # <map[string,string]> Expected claim values for this preset.
+#          # <map[string]string> Expected claim values for this preset.
 #          # Token must contain specified claims with exactly matching values.
 #          # Values must be strings. For complex validation use CEL expressions.
-#          # Default value: {} (no expected values)
+#          # Default value: not set (no expected values)
 #          expected: {}
 #
 #          # <list[string]> Claims to ignore for this preset.
-#          # Default value: [] (no claims ignored)
+#          # Default value: not set (no claims ignored)
 #          ignored: []
 #
 #          # <list[string]> Expected audience values for this preset.
 #          # Token must contain at least one of the specified audiences.
-#          # Default value: [] (no audience validation)
+#          # Default value: not set (no audience validation)
 #          audience: []
 #
 #          # <list[string]> Allowed client IDs for this preset.
-#          # Default value: []
+#          # Default value: not set
 #          allowedClientIds: []
 #
 #          # <list[string]> Required scopes for this preset.
-#          # Default value: []
+#          # Default value: not set
 #          requiredScopes: []
 #
 #          # <bool> Require authorized party claim for this preset.
@@ -262,7 +264,7 @@
 #          requireAuthorizedParty: false
 #
 #          # <list[string]> Allowed authorized parties for this preset.
-#          # Default value: []
+#          # Default value: not set
 #          allowedAuthorizedParties: []
 #
 #          # <bool> Allow missing subject claim for this preset.
@@ -273,7 +275,7 @@
 #    # Rules are evaluated in priority order (highest priority first) to dynamically choose
 #    # validation presets based on token claims. The first matching rule determines which preset to use.
 #    # This enables advanced scenarios like multi-tenant applications or federated authentication.
-#    # Default value: []
+#    # Default value: not set
 #    selectors:
 #      # Example selector for Google OAuth tokens
 #      - # <string> CEL expression that evaluates to true/false to select this preset.
@@ -287,7 +289,7 @@
 #        #   - 'claims.azp in ["client-1", "client-2"]'      // Select by authorized party
 #        #   - 'claims.tenant_id == "my-tenant-id"'          // Select by tenant
 #        #
-#        # Default value: '' (empty expression matches nothing)
+#        # Default value: not set (empty expression matches nothing)
 #        expression: 'claims.iss.contains("accounts.google.com")'
 #
 #        # <int> Priority for rule evaluation (higher priority = evaluated first).
@@ -310,30 +312,88 @@
 #
 #    # <bool> Enables periodic synchronization of the revocation storage.
 #    # NOTE: Must be managed via an external scheduler.
+#    # The config loader replaces an explicit false with this default (true).
 #    # Default value: true
 #    syncEnabled: true
 #
 #    # <string> Cron schedule for periodic revocation synchronization.
 #    # Supports standard cron format with seconds: "sec min hour day month weekday"
 #    # Example: "0 0 * * * *" (every hour)
-#    # Default value: "0 0 * * * *"
+#    # Default value: 0 0 * * * *
 #    syncSchedule: "0 0 * * * *"
 #
 #    # <string> Specifies what items are being revoked: "token", "jti", or "kid".
 #    # Supported values: token, jti, kid
-#    # Default value: "token"
+#    # Default value: token
 #    itemType: "token"
 #
 #    # <object> Probabilistic filter configuration for efficient revocation checks.
 #    filter:
-#      # <string> Type of filter: "bloom" or "cuckoo".
+#      # <string> Type of probabilistic filter to use.
 #      # Supported values: bloom, cuckoo
-#      # Default value: "bloom"
-#      type: "bloom"
-#      # <object> Bloom filter specific settings.
+#      # Default value: bloom
+#      type: bloom
+#
+#      # <object> Bloom filter settings. Required when type is bloom.
 #      bloom:
-#        # <int64> Expected number of revoked items.
+#        # <string> Storage backend for the filter.
+#        # Supported values: memory, redis
+#        # Default value: not set (falls back to memory, from config.DefaultProbabilisticFilterDefaults)
+#        storage: memory
+#
+#        # <int64> Expected number of elements the filter is sized for.
+#        # Required for a Bloom filter.
+#        # Default value: not set
 #        expectedItems: 1000000
+#
+#        # <float64> Target false-positive rate (0.01 = 1%).
+#        # Default value: not set (falls back to 0.01, from config.DefaultProbabilisticFilterDefaults)
+#        falsePositiveRate: 0.001
+#
+#        # <string> Cron schedule for periodic filter rebuild.
+#        # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
+#        rebuildCron: "0 0 */2 * * *"
+#
+#        # <bool> Rebuild the filter on service startup.
+#        # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
+#        rebuildOnStart: false
+#
+#        # <object> Redis-specific settings. Used when storage is redis.
+#        redis:
+#          # <string> Prefix for all filter keys.
+#          # Default value: not set
+#          keysPrefix: "myservice:oidc-revocation"
+#
+#      # <object> Cuckoo filter settings. Required when type is cuckoo; an alternative to bloom.
+#      cuckoo:
+#        # <string> Storage backend for the filter.
+#        # Supported values: memory, redis
+#        # Default value: not set (falls back to memory, from config.DefaultProbabilisticFilterDefaults)
+#        storage: memory
+#
+#        # <int64> Initial capacity of the filter.
+#        # Required for a Cuckoo filter.
+#        # Default value: not set
+#        capacity: 500000
+#
+#        # <int> Fingerprint size in bits.
+#        # Supported values: 8, 12, 16
+#        # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
+#        fingerprintSize: 12
+#
+#        # <float64> Capacity multiplier for auto-rebuild on overflow (1.1–10.0).
+#        # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
+#        capacityMultiplier: 2.0
+#
+#        # <int64> Maximum capacity limit.
+#        # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
+#        maxCapacity: 100000000
+#
+#        # <object> Redis-specific settings. Used when storage is redis.
+#        redis:
+#          # <string> Prefix for all filter keys.
+#          # Default value: not set
+#          keysPrefix: "myservice:oidc-revocation"
 #
 #    # <object> Configuration for fetching the revocation list from external sources.
 #    source:
@@ -346,8 +406,6 @@
 #
 #  # <object> Outbound HTTP proxy for ALL OIDC API requests:
 #  # discovery, JWKS refresh, introspection, userinfo, and the URL-based
-#  # revocation loader. Uncomment the !include line below AND the desired
-#  # fields in http_proxy.yaml itself to enable. When the include stays
-#  # commented the standard HTTP_PROXY/HTTPS_PROXY/NO_PROXY env variables
-#  # apply.
+#  # revocation loader. When unset the standard HTTP_PROXY/HTTPS_PROXY/NO_PROXY
+#  # env variables apply. See http_proxy.yaml for the full field list.
 #  !include http_proxy.yaml

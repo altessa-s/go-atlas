@@ -22,7 +22,7 @@
 #  # <duration> Maximum time from connection establishment to full request body read.
 #  # Protects against slow client attacks.
 #  # Default value: 300s
-#  readTimeout: 300s
+#  readTimeout: "300s"
 #
 #  # <duration> Caps the header-read phase independently of readTimeout.
 #  # Primary Slowloris defense: bounds the header phase to a short window
@@ -31,17 +31,17 @@
 #  # against tolerance for transient network jitter; the default is the
 #  # smallest value that survives normal congested-internet handshakes.
 #  # Default value: 10s
-#  readHeaderTimeout: 10s
+#  readHeaderTimeout: "10s"
 #
 #  # <duration> Maximum time from end of request headers to response write completion.
 #  # For HTTPS, this is total time from connection establishment to response completion.
 #  # Default value: 300s
-#  writeTimeout: 300s
+#  writeTimeout: "300s"
 #
 #  # <duration> Maximum idle time before disconnecting an inactive connection.
 #  # Helps manage server resources by closing idle connections.
 #  # Default value: 600s
-#  idleTimeout: 600s
+#  idleTimeout: "600s"
 #
 #  # <bool> Enables logging of HTTP requests.
 #  # When enabled, logs all incoming HTTP requests for debugging and monitoring.
@@ -70,30 +70,27 @@
 #      # Controls how long browsers should remember to use HTTPS.
 #      # Minimum value: 1h.
 #      # Default value: 8760h (1 year)
-#      maxAge: 8760h
+#      maxAge: "8760h"
 #
 #  # <object> Middlewares configuration for HTTP server pipeline.
-#  # Configures the complete middleware chain: bodyLimit, cors, idempotency, limiter,
-#  # logger, prometheus, realIp, recovery, requestId, securityHeaders, and tracing.
+#  # Configures the complete middleware chain: realIp, requestId, recovery, tracing, logger, metrics, cors, securityHeaders, bodyLimit, ipAcl, geoAcl, limiter, and idempotency.
 #  # Each middleware provides specific functionality and can be enabled/disabled independently.
 #  #
 #  # Middleware execution order and purposes:
-#  # 1. recovery: Panic handling and service resilience
-#  # 2. realIp: Client IP extraction from proxy headers
-#  # 3. requestId: Request correlation and distributed tracing
+#  # 1. realIp: Client IP extraction from proxy headers
+#  # 2. requestId: Request correlation and distributed tracing
+#  # 3. recovery: Panic handling and service resilience
 #  # 4. tracing: Distributed tracing with OpenTelemetry
 #  # 5. logger: Request/response logging for observability
-#  # 6. prometheus: Metrics collection for monitoring
+#  # 6. metrics: Metrics collection for monitoring
 #  # 7. cors: Cross-Origin Resource Sharing support
 #  # 8. securityHeaders: Security-related HTTP headers
 #  # 9. bodyLimit: Request payload size limiting
-#  # 10. limiter: Rate limiting and abuse prevention
-#  # 11. idempotency: Duplicate request prevention
+#  # 10. ipAcl: IP-based access control
+#  # 11. geoAcl: Geographic access control
+#  # 12. limiter: Rate limiting and abuse prevention
+#  # 13. idempotency: Duplicate request prevention
 #  middlewares:
-#    # Panic handling and service resilience.
-#    # See http/recovery.yaml template for full configuration options.
-#    !include http/recovery.yaml
-#
 #    # Client IP extraction from proxy headers.
 #    # See http_middlewares/real_ip.yaml template for full configuration options.
 #    !include http_middlewares/real_ip.yaml
@@ -101,6 +98,10 @@
 #    # Request correlation and distributed tracing.
 #    # See http_middlewares/request_id.yaml template for full configuration options.
 #    !include http_middlewares/request_id.yaml
+#
+#    # Panic handling and service resilience.
+#    # See http_middlewares/recovery.yaml template for full configuration options.
+#    !include http_middlewares/recovery.yaml
 #
 #    # Distributed tracing with OpenTelemetry.
 #    # See http_middlewares/tracing.yaml template for full configuration options.
@@ -125,6 +126,14 @@
 #    # Request payload size limiting.
 #    # See http_middlewares/body_limit.yaml template for full configuration options.
 #    !include http_middlewares/body_limit.yaml
+#
+#    # IP-based access control.
+#    # See http_middlewares/ip_acl.yaml template for full configuration options.
+#    !include http_middlewares/ip_acl.yaml
+#
+#    # Geographic access control.
+#    # See http_middlewares/geo_acl.yaml template for full configuration options.
+#    !include http_middlewares/geo_acl.yaml
 #
 #    # Rate limiting and abuse prevention.
 #    # See http_middlewares/limiter.yaml template for full configuration options.

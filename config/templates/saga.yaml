@@ -29,7 +29,7 @@
 #      # outlive any saga's running time; zero is widened to a 30-day backstop by
 #      # the store.
 #      # Default value: 720h (30 days)
-#      max_age: 720h
+#      max_age: "720h"
 #
 #    # <object> MongoDB storage configuration (data/saga/storages/mongo).
 #    # Used when type is set to 'mongo'.
@@ -42,21 +42,37 @@
 #    # Used when type is set to 'redis'.
 #    redis:
 #      # <string> Prefix prepended to every Redis key.
-#      # Default value: "saga:"
+#      # Default value: saga:
 #      keys_prefix: "saga:"
 #
 #      # <duration> Per-key expiry applied on every write; zero persists forever.
-#      # Default value: 0 (persist)
-#      ttl: 0s
+#      # Default value: 0s (persist)
+#      ttl: "0s"
 #
 #  # <duration> Per-step timeout for a single action or compensation invocation.
 #  # Default value: 30s
-#  step_timeout: 30s
+#  step_timeout: "30s"
+#
+#  # <duration> Upper bound for one Start/Resume ownership interval.
+#  # Default value: 5m
+#  execution_timeout: "5m"
+#
+#  # <duration> Grace period covering cancellation and clock skew after execution expiry.
+#  # Default value: 30s
+#  lease_grace: "30s"
+#
+#  # <duration> Timeout for each persistence or scheduler registration operation.
+#  # Default value: 10s
+#  store_timeout: "10s"
+#
+#  # <duration> Upper bound for a complete recovery cycle.
+#  # Default value: 5m
+#  recovery_timeout: "5m"
 #
 #  # <duration> Per-instance deadline enabling auto-rollback by the recovery cycle.
 #  # Zero disables it.
 #  # Default value: 0s (disabled)
-#  saga_timeout: 0s
+#  saga_timeout: "0s"
 #
 #  # <int> Total attempts (including the first) for a forward step action.
 #  # Default value: 3
@@ -64,23 +80,23 @@
 #
 #  # <duration> First exponential-backoff delay between step retries.
 #  # Default value: 100ms
-#  step_retry_base_delay: 100ms
+#  step_retry_base_delay: "100ms"
 #
 #  # <duration> Cap on the step-retry backoff.
 #  # Default value: 5s
-#  step_retry_max_delay: 5s
+#  step_retry_max_delay: "5s"
 #
 #  # <int> Total attempts for a single compensation before the saga fails.
 #  # Default value: 5
 #  max_compensation_attempts: 5
 #
 #  # <int> Fan-out limit for parallel-group steps (0 = core IO-bound default).
-#  # Default value: 0
+#  # Default value: 0 (core IO-bound default)
 #  step_concurrency: 0
 #
 #  # <string> Cron expression for the background recovery cycle.
 #  # Supports descriptor format (e.g. "@every 1m") or standard cron.
-#  # Default value: "@every 1m"
+#  # Default value: @every 1m
 #  recovery_schedule: "@every 1m"
 #
 #  # <int> Maximum instances processed per recovery cycle.
@@ -88,5 +104,5 @@
 #  recovery_batch_size: 100
 #
 #  # <string> Scheduler task ID for the background recovery cycle.
-#  # Default value: "saga-recovery"
+#  # Default value: saga-recovery
 #  recovery_task_id: "saga-recovery"

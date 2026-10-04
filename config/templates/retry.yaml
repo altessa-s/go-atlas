@@ -5,7 +5,8 @@
 
 #retry:
 #  # <int> Maximum number of retry attempts after the initial call.
-#  # 0 means no retries (call once). -1 means unlimited retries.
+#  # -1 means unlimited retries. An explicit 0 is replaced by the default by the
+#  # config loader, so "call once" cannot be expressed through the loader.
 #  # Default value: 3
 #  maxAttempts: 3
 #
@@ -29,5 +30,5 @@
 #  jitter: 0
 #
 #  # <duration> Maximum total wall-clock time for all attempts. 0 = no limit.
-#  # Default value: 0
+#  # Default value: 0s
 #  maxElapsedTime: "0"

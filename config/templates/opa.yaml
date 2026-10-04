@@ -17,81 +17,80 @@
 #  # Default value: not set (required for filesystem source)
 #  bundlePath: ./policies
 #
+#  # The gitlab and s3 sections below are alternatives selected by source; configure only the one in use.
+#  #
 #  # <object> GitLab-specific configuration for loading policies from a GitLab repository.
 #  # Required when source is "gitlab".
-#  # gitlab:
-#  #   # <string> GitLab instance URL.
-#  #   # Required when source is "gitlab".
-#  #   # Default value: not set (required)
-#  #   endpoint: https://gitlab.example.com
-#  #
-#  #   # <string> GitLab API access token.
-#  #   # Required when source is "gitlab".
-#  #   # Recommended: use a project access token with read_api scope.
-#  #   # Default value: not set (required)
-#  #   token: glpat-xxxxxxxxxxxxxxxxxxxx
-#  #
-#  #   # <int> GitLab project ID.
-#  #   # Required when source is "gitlab".
-#  #   # Default value: not set (required)
-#  #   projectID: 42
-#  #
-#  #   # <string> Git ref (branch, tag, or commit SHA) to read policies from.
-#  #   # Default value: main
-#  #   ref: main
-#  #
-#  #   # <string> Directory path within the repository containing policy files.
-#  #   # Default value: "" (repository root)
-#  #   dir: policies/opa
-#  #
-#  #   # <object> Outbound HTTP proxy for GitLab API requests.
-#  #   # Uncomment the !include line below AND the desired fields in
-#  #   # http_proxy.yaml itself to enable. When the include stays
-#  #   # commented the standard HTTP_PROXY/HTTPS_PROXY/NO_PROXY env
-#  #   # variables apply.
-#  #   !include http_proxy.yaml
+#  gitlab:
+#    # <string> GitLab instance URL.
+#    # Required when source is "gitlab".
+#    # Default value: not set (required)
+#    endpoint: https://gitlab.example.com
+#
+#    # <string> GitLab API access token.
+#    # Required when source is "gitlab".
+#    # Recommended: use a project access token with read_api scope.
+#    # Default value: not set (required)
+#    token: glpat-xxxxxxxxxxxxxxxxxxxx
+#
+#    # <int> GitLab project ID.
+#    # Required when source is "gitlab".
+#    # Default value: not set (required)
+#    projectID: 42
+#
+#    # <string> Git ref (branch, tag, or commit SHA) to read policies from.
+#    # Default value: main
+#    ref: main
+#
+#    # <string> Directory path within the repository containing policy files.
+#    # Default value: not set (repository root)
+#    dir: policies/opa
+#
+#    # <object> Outbound HTTP proxy for GitLab API requests.
+#    # When unset the standard HTTP_PROXY/HTTPS_PROXY/NO_PROXY env variables apply.
+#    # See http_proxy.yaml for the full field list.
+#    !include http_proxy.yaml
 #
 #  # <object> S3-specific configuration for loading policies from an S3-compatible bucket.
 #  # Required when source is "s3".
-#  # s3:
-#  #   # <string> S3 bucket name containing policy files.
-#  #   # Required when source is "s3".
-#  #   # Default value: not set (required)
-#  #   bucket: my-policies-bucket
-#  #
-#  #   # <string> Object key prefix (directory-like path) within the bucket.
-#  #   # Default value: "" (bucket root)
-#  #   prefix: policies/opa
-#  #
-#  #   # <string> AWS region for the S3 bucket.
-#  #   # Default value: not set
-#  #   region: us-east-1
-#  #
-#  #   # <string> S3-compatible endpoint URL (e.g., for MinIO).
-#  #   # Optional; defaults to the standard AWS S3 endpoint.
-#  #   # Default value: not set
-#  #   endpoint: https://s3.example.com
-#  #
-#  #   # <string> AWS access key ID.
-#  #   # Optional; defaults to environment/instance credentials.
-#  #   # Default value: not set
-#  #   accessKey:
-#  #
-#  #   # <string> AWS secret access key.
-#  #   # Optional; defaults to environment/instance credentials.
-#  #   # Default value: not set
-#  #   secretKey:
-#  #
-#  #   # <bool> Enable path-style addressing (required for MinIO and some S3-compatible stores).
-#  #   # Default value: false
-#  #   pathStyle: false
-#  #
-#  #   # <object> Outbound HTTP proxy for S3 API requests.
-#  #   # Uncomment the !include line below AND the desired fields in
-#  #   # http_proxy.yaml itself to enable. When the include stays
-#  #   # commented the AWS SDK's default transport applies (which
-#  #   # already honors HTTP_PROXY / HTTPS_PROXY / NO_PROXY env vars).
-#  #   !include http_proxy.yaml
+#  s3:
+#    # <string> S3 bucket name containing policy files.
+#    # Required when source is "s3".
+#    # Default value: not set (required)
+#    bucket: my-policies-bucket
+#
+#    # <string> Object key prefix (directory-like path) within the bucket.
+#    # Default value: not set (bucket root)
+#    prefix: policies/opa
+#
+#    # <string> AWS region for the S3 bucket.
+#    # Default value: not set
+#    region: us-east-1
+#
+#    # <string> S3-compatible endpoint URL (e.g., for MinIO).
+#    # Optional; defaults to the standard AWS S3 endpoint.
+#    # Default value: not set
+#    endpoint: https://s3.example.com
+#
+#    # <string> AWS access key ID.
+#    # Optional; defaults to environment/instance credentials.
+#    # Default value: not set
+#    accessKey:
+#
+#    # <string> AWS secret access key.
+#    # Optional; defaults to environment/instance credentials.
+#    # Default value: not set
+#    secretKey:
+#
+#    # <bool> Enable path-style addressing (required for MinIO and some S3-compatible stores).
+#    # Default value: false
+#    pathStyle: false
+#
+#    # <object> Outbound HTTP proxy for S3 API requests.
+#    # When unset the AWS SDK's default transport applies (which already
+#    # honors HTTP_PROXY / HTTPS_PROXY / NO_PROXY env vars).
+#    # See http_proxy.yaml for the full field list.
+#    !include http_proxy.yaml
 #
 #  # <string> Rego query to evaluate for authorization decisions.
 #  # The query determines what policy rule to evaluate.
@@ -144,7 +143,7 @@
 #    #   - 5m-15m for stable policies
 #    #   - 30m+ for rarely changing policies
 #    # Default value: 5m
-#    ttl: 5m
+#    ttl: "5m"
 #
 #    # <int> Maximum number of cached decisions.
 #    # The cache is an LRU, so this is the memory ceiling rather than a
@@ -172,7 +171,7 @@
 #  # Only applies when watchBundle is true.
 #  # Format: duration string (e.g., "30s", "1m", "5m")
 #  # Default value: 30s
-#  pollInterval: 30s
+#  pollInterval: "30s"
 #
 #  # <string> Optional cron schedule for periodic policy updates.
 #  # If set, policies are reloaded according to this schedule regardless of file changes.
@@ -180,12 +179,13 @@
 #  # Format: cron expression with seconds (e.g., "*/5 * * * * *" for every 5 seconds)
 #  # or descriptor format (e.g., "@every 1m" for every minute).
 #  # When empty, only watchBundle (if enabled) triggers reloads.
-#  # Default value: "" (disabled)
+#  # Default value: not set (disabled)
 #  updateSchedule: ""
 #
 #  # <bool> Determines whether to run an update cycle when the manager starts.
 #  # When true, immediately loads policies on startup before processing requests.
 #  # When false, policies are loaded lazily on first use or according to schedule.
+#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  runOnStart: true
 #

@@ -7,7 +7,7 @@
 #  # <duration> Specifies how often a watcher polls health status.
 #  # Determines the freshness of health updates for active subscriptions.
 #  # Default value: 5s
-#  healthCheckInterval: 5s
+#  healthCheckInterval: "5s"
 #
 #  # <int> Specifies the base buffer size for status update channels.
 #  # Controls how many status changes can be queued before blocking.
@@ -16,7 +16,7 @@
 #
 #  # <int> Maximum concurrent subscriptions allowed per service.
 #  # Limits resource usage by preventing excessive number of watchers.
-#  # Value 0 means unlimited.
+#  # An explicit 0 is replaced by the default by the config loader.
 #  # Default value: 1000
 #  maxWatchersPerService: 1000
 #
@@ -33,14 +33,14 @@
 #  # <duration> Specifies how long to cache health check results.
 #  # Reduces frequency of actual check execution by reusing recent results.
 #  # Default value: 500ms
-#  statusCacheTTL: 500ms
+#  statusCacheTTL: "500ms"
 #
 #  # <duration> Specifies the maximum time to wait for a single health check.
 #  # Prevents hung check logic from blocking the coordinator indefinitely.
 #  # Default value: 2s
-#  checkTimeout: 2s
+#  checkTimeout: "2s"
 #
-#  # <int> The threshold of active watchers to trigger adaptive buffering.
+#  # <int32> The threshold of active watchers to trigger adaptive buffering.
 #  # Increases buffer sizes automatically when system is under high subscription load.
 #  # Default value: 100
 #  adaptiveBufferThreshold: 100

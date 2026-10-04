@@ -1,6 +1,8 @@
 # IP access control configuration for endpoint-level allowlisting and denylisting.
 # Restricts access to specific gRPC methods based on client IP addresses.
 # Requires the realip interceptor to be enabled for proper client IP extraction.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
 
 #ipAcl:
 #  # <bool> Enable IP access control.
@@ -29,27 +31,45 @@
 #  # Default value: deny
 #  fallbackBehavior: deny
 #
-#  # Default rule applied when no endpoint-specific rule matches.
-#  # Useful for setting baseline access across all endpoints.
+#  # <object> Default rule applied when no endpoint-specific rule matches.
+#  # Useful for setting baseline access across all endpoints. Its endpoints and patterns are ignored.
 #  defaultRule:
+#    # <list[string]> CIDR ranges or IP addresses that are allowed.
+#    # Default value: not set
 #    allowlist:
 #      - "10.0.0.0/8"
 #      - "192.168.0.0/16"
 #
-#  # <list> Per-endpoint or per-pattern access control rules.
+#    # <list[string]> CIDR ranges or IP addresses that are denied (checked before allowlist).
+#    # Default value: not set
+#    denylist:
+#      - "10.99.0.0/16"
+#
+#  # <list[object]> Per-endpoint or per-pattern access control rules.
 #  # Each rule can target specific endpoints by name or regex patterns.
 #  # Within a rule: denylist is checked first (deny wins), then allowlist,
 #  # then the defaultPolicy applies.
+#  # Default value: not set
 #  rules:
+#    # <list[string]> Exact endpoints the rule applies to.
+#    # Default value: not set
 #    - endpoints:
 #        - "/admin.AdminService/DeleteUser"
 #        - "/admin.AdminService/UpdatePermissions"
+#      # <list[string]> Regex patterns of endpoints the rule applies to.
+#      # Default value: not set
+#      patterns:
+#        - "^/internal\\..*"
+#      # <list[string]> CIDR ranges or IP addresses that are allowed.
+#      # Default value: not set
 #      allowlist:
 #        - "10.1.1.0/24"
+#      # <list[string]> CIDR ranges or IP addresses that are denied (checked before allowlist).
+#      # Default value: not set
+#      denylist:
+#        - "10.99.0.0/16"
 #
 #    - patterns:
 #        - "^/internal\\..*"
 #      allowlist:
 #        - "10.0.0.0/8"
-#      denylist:
-#        - "10.99.0.0/16"

@@ -5,16 +5,16 @@
 
 #grpcHealthClient:
 #  # <string> Service name registered with the health coordinator.
-#  # This name appears in health status reports and metrics.
-#  # REQUIRED field - must be set.
+#  # This name appears in health status reports and metrics. Required.
+#  # Default value: not set (required)
 #  serviceName: "user-service"
 #
 #  # <string> Mapping strategy from gRPC connection state to health status.
-#  # Available options:
-#  #   - "default": Standard mapping from connectivity.State to ServingStatus
-#  #   - "strict": Any non-READY state maps to NOT_SERVING
-#  #   - "lenient": CONNECTING/IDLE map to SERVING, only TRANSIENT_FAILURE/SHUTDOWN to NOT_SERVING
-#  # Default value: "default"
+#  # Supported values:
+#  #   - default: standard mapping from connectivity.State to ServingStatus
+#  #   - strict: any non-READY state maps to NOT_SERVING
+#  #   - lenient: CONNECTING/IDLE map to SERVING, only TRANSIENT_FAILURE/SHUTDOWN to NOT_SERVING
+#  # Default value: default
 #  stateMapper: "default"
 #
 #  # <bool> Enable per-target health checks for connection pools.
@@ -22,24 +22,7 @@
 #  # Default value: false
 #  perTarget: false
 #
-# Example configurations:
-#
-# Basic configuration:
-# grpcHealthClient:
-#   serviceName: "user-service"
-#
-# Strict health checking:
-# grpcHealthClient:
-#   serviceName: "critical-service"
-#   stateMapper: "strict"
-#
-# Connection pool with per-target monitoring:
-# grpcHealthClient:
-#   serviceName: "distributed-service"
-#   stateMapper: "default"
-#   perTarget: true
-#
-# Lenient health checking for resilient services:
-# grpcHealthClient:
-#   serviceName: "background-worker"
-#   stateMapper: "lenient"
+#  # Examples:
+#  #   strict checking for a critical dependency: stateMapper: "strict"
+#  #   a connection pool monitored per target: perTarget: true
+#  #   a resilient background worker: stateMapper: "lenient"

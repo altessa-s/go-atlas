@@ -38,7 +38,7 @@
 #    # <duration> How early certificates should be renewed before expiration.
 #    # Ensures certificates are renewed with sufficient time buffer.
 #    # Default value: 30m
-#    renewBefore: 30m
+#    renewBefore: "30m"
 #
 #    # <list[string]> Additional DNS Subject Alternative Names.
 #    # Extra domain names for the certificate.
@@ -66,16 +66,18 @@
 #    # <duration> How early certificates should be renewed before expiration.
 #    # Let's Encrypt certificates are valid for 90 days.
 #    # Default value: 30m
-#    renewBefore: 30m
+#    renewBefore: "30m"
 #
 #    # <bool> Whether to start internal server for ACME HTTP challenge.
-#    # Required for HTTP-01 challenge validation.
+#    # Intended for HTTP-01 challenge validation. Note: the built-in TLS provider
+#    # factory does not currently consume startInternalServer or listenAddress.
 #    # Default value: false
 #    startInternalServer: false
 #
 #    # <string> Address for the internal ACME challenge server.
-#    # Only used if startInternalServer is true.
-#    # Default value: 0.0.0.0:8080
+#    # Validated only when startInternalServer is true. Unset by default; the
+#    # built-in TLS provider factory does not currently consume it.
+#    # Default value: not set
 #    listenAddress: "0.0.0.0:8080"
 #
 #  # <object> S3-based TLS certificate provider configuration.
@@ -174,12 +176,13 @@
 #    # <bool> Enable gzip compression of cached OCSP responses.
 #    # Cache entries are typically 1-2 KiB; compression cuts that by
 #    # 50-70 % at negligible CPU cost.
+#    # The config loader replaces an explicit false with this default (true).
 #    # Default value: true
 #    enableCompression: true
 #
 #    # <int> Maximum number of OCSP responses kept in the in-memory
-#    # cache. Set to 0 to disable the cap (legacy unbounded behavior —
-#    # only safe when the certificate population is small and known).
+#    # cache. An explicit 0 is replaced by the default by the config
+#    # loader, so the cap cannot be disabled through the loader.
 #    # The default is generous enough for typical mTLS server workloads
 #    # (a few hundred client certs) without letting an adversarial mTLS
 #    # client population grow the map between lazy-cleanup ticks.
@@ -199,4 +202,4 @@
 #    # multiplies this through every fresh connection that misses the
 #    # cache, so keep it tight.
 #    # Default value: 10s
-#    httpTimeout: 10s
+#    httpTimeout: "10s"

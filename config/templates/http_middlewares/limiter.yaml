@@ -1,18 +1,20 @@
 # Rate limiter configuration for traffic control and abuse prevention.
 # Limits the number of requests a client can make in a given time.
 # Protects services from being overwhelmed by excessive traffic.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
 
 #limiter:
 #  # <bool> Enable rate limiting.
 #  # Default value: false
 #  enabled: false
 #
-#  # <list[string]> List of exact URL paths to skip processing for.
+#  # <list[string]> List of exact URL paths to skip rate limiting for.
 #  # Default value: not set
 #  ignorePaths:
 #    - "/health"
 #
-#  # <list[string]> List of regex patterns for URL paths to skip processing.
+#  # <list[string]> List of regex patterns for URL paths to skip rate limiting.
 #  # Default value: not set
 #  ignorePatterns:
 #    - "^/health\\..*"

@@ -1,6 +1,8 @@
 # Real IP configuration for extracting client IP addresses from proxy headers.
 # Extracts real client IP addresses from proxy headers like X-Forwarded-For.
 # Essential for services behind load balancers or reverse proxies.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
 
 #realIp:
 #  # <bool> Enable real IP extraction.
@@ -39,14 +41,13 @@
 #    - "::1"
 #
 #  # <list[string]> List of headers to check for real IP (in order of preference).
-#  # If empty, uses default headers: X-Forwarded-For, X-Real-IP, X-Client-IP, CF-Connecting-IP, Fastly-Client-Ip, True-Client-Ip.
-#  # Custom header priority order for IP extraction.
-#  # Default value: not set (uses built-in defaults)
+#  # Default value: not set (falls back to X-Forwarded-For, X-Real-IP, X-Client-IP, CF-Connecting-IP, Fastly-Client-Ip, True-Client-Ip)
 #  headers:
 #    - X-Forwarded-For
 #    - X-Real-IP
 #
-#  # <int> Size of the IP validation cache (0 to disable).
-#  # Caches IP validation results to improve performance.
+#  # <int> Size of the IP validation cache.
+#  # Caches IP validation results to improve performance. An explicit 0 is
+#  # replaced by the default by the config loader.
 #  # Default value: 1000
 #  cacheSize: 1000

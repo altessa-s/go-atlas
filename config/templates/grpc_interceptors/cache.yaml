@@ -1,6 +1,8 @@
 # Cache configuration for response caching interceptor.
 # Controls TTL, compression, and header behavior for cached responses.
 # Caches successful responses to improve performance and reduce backend load.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
 
 #cache:
 #  # <bool> Enable response caching.
@@ -23,15 +25,16 @@
 #  # <duration> Default TTL for successful responses.
 #  # How long successful responses are cached.
 #  # Default value: 24h
-#  successTTL: 24h
+#  successTTL: "24h"
 #
 #  # <duration> Default TTL for error responses.
 #  # How long error responses are cached.
 #  # Default value: 1h
-#  errorTTL: 1h
+#  errorTTL: "1h"
 #
 #  # <bool> Controls whether cache hit/miss headers are added to responses.
 #  # Adds debugging headers to indicate cache status.
+#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  enableCacheHeaders: true
 #

@@ -4,6 +4,8 @@
 # (RFC1918, loopback, link-local), after DNS resolution and before the TCP
 # connection, defeating DNS-rebinding as well as direct private-IP requests.
 # Omitting this section entirely leaves protection on.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
 
 #ssrf:
 #  # <bool> Turn SSRF protection OFF. Omit or set false to keep protection
@@ -13,7 +15,7 @@
 #  # Default value: false (protection enabled)
 #  disabled: false
 #
-#  # <list<string>> CIDR prefixes exempted from SSRF blocking, for known
+#  # <list[string]>> CIDR prefixes exempted from SSRF blocking, for known
 #  # internal service-to-service targets on private networks. Ignored when
 #  # disabled is true.
 #  # Default value: not set (no exemptions)

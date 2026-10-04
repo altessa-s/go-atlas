@@ -1,6 +1,8 @@
 # Request ID configuration for request tracing and correlation.
 # Generates and propagates unique request identifiers for distributed tracing.
 # Essential for tracking requests across microservice boundaries.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
 
 #requestId:
 #  # <bool> Enable request ID generation.
@@ -22,5 +24,6 @@
 #
 #  # <bool> Generate a request ID if none is provided.
 #  # Creates new ID when client doesn't provide one.
+#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  generateIfMissing: true

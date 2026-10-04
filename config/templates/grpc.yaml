@@ -57,29 +57,30 @@
 #  # Controls connection lifecycle and keep-alive behavior.
 #  keepAlive:
 #    # <duration> Duration after which idle connections are closed.
-#    # 0s means no idle timeout (connections never closed due to idleness).
+#    # An explicit "0s" is replaced by the default by the config loader, so the
+#    # idle timeout cannot be disabled through the loader.
 #    # Default value: 15m
-#    maxConnectionIdle: 15m
+#    maxConnectionIdle: "15m"
 #
 #    # <duration> Maximum duration a connection may exist before being closed.
 #    # A random jitter of +/-10% is added to spread connection storms.
 #    # Default value: 30m
-#    maxConnectionAge: 30m
+#    maxConnectionAge: "30m"
 #
 #    # <duration> Grace period after maxConnectionAge before forceful closure.
 #    # Additional time allowed for graceful connection termination.
 #    # Default value: 5s
-#    maxConnectionAgeGrace: 5s
+#    maxConnectionAgeGrace: "5s"
 #
 #    # <duration> Interval for keepalive pings when no activity is detected.
 #    # Minimum value enforced by gRPC is 1s.
 #    # Default value: 30s
-#    time: 30s
+#    time: "30s"
 #
 #    # <duration> Timeout waiting for keepalive ping response.
 #    # Time to wait for ping acknowledgment before closing connection.
 #    # Default value: 10s
-#    timeout: 10s
+#    timeout: "10s"
 #
 #    # <object> Enforcement policy for keep-alive pings.
 #    enforcementPolicy:
@@ -91,7 +92,7 @@
 #      # requires it, and never raise it past the expected client cadence
 #      # (the stdlib's 5m fallback is permissive in disguise).
 #      # Default value: 30s
-#      minTime: 30s
+#      minTime: "30s"
 #
 #      # <bool> Permit keep-alive pings even when there are no active streams.
 #      # Leave false unless the workload needs long-lived idle connections
@@ -129,8 +130,7 @@
 #        - /path/to/ca-cert.pem
 #
 #  # <object> Interceptors configuration for gRPC middleware pipeline.
-#  # Configures the complete interceptor chain: cache, realIp, requestId, recovery, logger,
-#  # idempotency, auth, health, limiter, prometheus, and tracing.
+#  # Configures the complete interceptor chain: errStatus, realIp, requestId, recovery, tracing, logger, metrics, ipAcl, geoAcl, limiter, idempotency, cache, auth, and health.
 #  # Each interceptor provides specific functionality and can be enabled/disabled independently.
 #  #
 #  # Interceptor execution order and purposes:
@@ -138,24 +138,22 @@
 #  # 2. realIp: Client IP extraction from proxy headers
 #  # 3. requestId: Request correlation and distributed tracing
 #  # 4. recovery: Panic handling and service resilience
-#  # 5. tracing: Distributed tracing
+#  # 5. tracing: Distributed tracing with OpenTelemetry
 #  # 6. logger: Request/response logging for observability
-#  # 7. prometheus: Metrics collection
-#  # 8. limiter: Rate limiting and abuse prevention
-#  # 9. idempotency: Duplicate request prevention
-#  # 10. cache: Response caching for performance optimization
-#  # 11. auth: Authentication and authorization
-#  # 12. health: Health check gating
+#  # 7. metrics: Metrics collection for monitoring
+#  # 8. ipAcl: IP-based access control
+#  # 9. geoAcl: Geographic access control
+#  # 10. limiter: Rate limiting and abuse prevention
+#  # 11. idempotency: Duplicate request prevention
+#  # 12. cache: Response caching for performance optimization
+#  # 13. auth: Authentication and authorization
+#  # 14. health: Health check gating
 #  interceptors:
 #    # Error-to-gRPC-status conversion and enrichment.
 #    # See grpc_interceptors/errstatus.yaml template for full configuration options.
 #    !include grpc_interceptors/errstatus.yaml
 #
-#    # Response caching for performance optimization.
-#    # See grpc_interceptors/cache.yaml template for full configuration options.
-#    !include grpc_interceptors/cache.yaml
-#
-#    # Real IP extraction from proxy headers.
+#    # Client IP extraction from proxy headers.
 #    # See grpc_interceptors/real_ip.yaml template for full configuration options.
 #    !include grpc_interceptors/real_ip.yaml
 #
@@ -167,17 +165,37 @@
 #    # See grpc_interceptors/recovery.yaml template for full configuration options.
 #    !include grpc_interceptors/recovery.yaml
 #
+#    # Distributed tracing with OpenTelemetry.
+#    # See grpc_interceptors/tracing.yaml template for full configuration options.
+#    !include grpc_interceptors/tracing.yaml
+#
 #    # Request/response logging for observability.
 #    # See grpc_interceptors/logger.yaml template for full configuration options.
 #    !include grpc_interceptors/logger.yaml
 #
-#    # Metrics collection for monitoring and observability.
+#    # Metrics collection for monitoring.
 #    # See grpc_interceptors/metrics.yaml template for full configuration options.
 #    !include grpc_interceptors/metrics.yaml
+#
+#    # IP-based access control.
+#    # See grpc_interceptors/ip_acl.yaml template for full configuration options.
+#    !include grpc_interceptors/ip_acl.yaml
+#
+#    # Geographic access control.
+#    # See grpc_interceptors/geo_acl.yaml template for full configuration options.
+#    !include grpc_interceptors/geo_acl.yaml
+#
+#    # Rate limiting and abuse prevention.
+#    # See grpc_interceptors/limiter.yaml template for full configuration options.
+#    !include grpc_interceptors/limiter.yaml
 #
 #    # Duplicate request prevention.
 #    # See grpc_interceptors/idempotency.yaml template for full configuration options.
 #    !include grpc_interceptors/idempotency.yaml
+#
+#    # Response caching for performance optimization.
+#    # See grpc_interceptors/cache.yaml template for full configuration options.
+#    !include grpc_interceptors/cache.yaml
 #
 #    # Authentication and authorization.
 #    # See grpc_interceptors/auth.yaml template for full configuration options.
@@ -186,11 +204,3 @@
 #    # Health check gating.
 #    # See grpc_interceptors/health.yaml template for full configuration options.
 #    !include grpc_interceptors/health.yaml
-#
-#    # Rate limiting and abuse prevention.
-#    # See grpc_interceptors/limiter.yaml template for full configuration options.
-#    !include grpc_interceptors/limiter.yaml
-#
-#    # Distributed tracing.
-#    # See grpc_interceptors/tracing.yaml template for full configuration options.
-#    !include grpc_interceptors/tracing.yaml

@@ -5,8 +5,8 @@
 
 #httpHealthClient:
 #  # <string> Service name registered with the health coordinator.
-#  # This name appears in health status reports and metrics.
-#  # REQUIRED field - must be set.
+#  # This name appears in health status reports and metrics. Required.
+#  # Default value: not set (required)
 #  serviceName: "external-api"
 #
 #  # <duration> Sliding window duration for calculating retry rates.
@@ -35,12 +35,6 @@
 #  # Default value: false
 #  perHost: false
 #
-# Example configuration:
-#
-# httpHealthClient:
-#   serviceName: "payment-gateway"
-#   retryWindow: "30s"
-#   retryThreshold: 0.15
-#   retryMinSamples: 5
-#   retryBuckets: 30
-#   perHost: true
+#  # Example: aggressive monitoring for a payment gateway —
+#  #   serviceName: "payment-gateway", retryWindow: "30s", retryThreshold: 0.1,
+#  #   retryMinSamples: 20, retryBuckets: 30, perHost: true

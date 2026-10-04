@@ -2,6 +2,8 @@
 # Collects request counts, durations, and optionally message sizes and
 # streaming metrics. Wires into the metrics.Collector configured at
 # service init time via ServerBuilder.UseCollector.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
 
 #metrics:
 #  # <bool> Enable metrics collection.
@@ -9,7 +11,7 @@
 #  # Default value: false
 #  enabled: false
 #
-#  # <list[string]> List of gRPC methods to exclude from metrics collection.
+#  # <list[string]> List of gRPC methods to skip metrics collection for.
 #  # Methods should be specified in the format "/service.Service/Method".
 #  # Useful for excluding health checks or other high-frequency endpoints.
 #  # Default value: not set
@@ -17,7 +19,7 @@
 #    - "/grpc.health.v1.Health/Check"
 #    - "/api.MetricsService/GetMetrics"
 #
-#  # <list[string]> List of regex patterns for methods to exclude from metrics.
+#  # <list[string]> List of regex patterns for methods to skip metrics collection.
 #  # Pattern-based rules for metrics bypass.
 #  # Default value: not set
 #  ignorePatterns:
@@ -72,7 +74,8 @@
 #
 #  # <float64> Sampling rate for streaming message metrics (0.0 to 1.0).
 #  # Only effective when enableStreamMetrics is true. Used to reduce overhead in high-throughput scenarios.
-#  # 1.0 = no sampling (record all messages), 0.1 = record 10% of messages, 0.0 = disable streaming metrics.
+#  # 1.0 = no sampling (record all messages), 0.1 = record 10% of messages. An explicit 0.0
+#  # is replaced by the default by the config loader; use enableStreamMetrics: false instead.
 #  # When sampling is enabled, recorded metrics are scaled to maintain accurate totals.
 #  # Default value: 1.0
 #  streamSamplingRate: 1.0

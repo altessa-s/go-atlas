@@ -3,6 +3,8 @@
 # (continent, country, region) resolved from the client IP address.
 # Requires the realip interceptor to be enabled for proper client IP extraction.
 # Requires a GeoResolver to be configured in the server builder.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
 
 #geoAcl:
 #  # <bool> Enable geographic access control.
@@ -31,22 +33,67 @@
 #  # Default value: deny
 #  fallbackBehavior: deny
 #
-#  # Default rule applied when no endpoint-specific rule matches.
-#  # Useful for setting baseline geographic access across all endpoints.
+#  # <object> Default rule applied when no endpoint-specific rule matches.
+#  # Useful for setting baseline geographic access across all endpoints. Its endpoints and patterns are ignored.
 #  defaultRule:
+#    # <list[string]> Continent codes that are allowed (e.g. EU, NA).
+#    # Default value: not set
 #    allowContinents:
 #      - "EU"
 #      - "NA"
 #
-#  # <list> Per-endpoint or per-pattern geographic access control rules.
+#    # <list[string]> Continent codes that are denied.
+#    # Default value: not set
+#    denyContinents: []
+#
+#    # <list[string]> ISO 3166-1 alpha-2 country codes that are allowed.
+#    # Default value: not set
+#    allowCountries: []
+#
+#    # <list[string]> ISO 3166-1 alpha-2 country codes that are denied.
+#    # Default value: not set
+#    denyCountries: []
+#
+#    # <list[string]> ISO 3166-2 region codes that are allowed (e.g. US-CA).
+#    # Default value: not set
+#    allowRegions: []
+#
+#    # <list[string]> ISO 3166-2 region codes that are denied (e.g. US-TX).
+#    # Default value: not set
+#    denyRegions: []
+#
+#  # <list[object]> Per-endpoint or per-pattern geographic access control rules.
 #  # Each rule can target specific endpoints by name or regex patterns.
 #  # Within a rule: deny checks run first (region > country > continent),
 #  # then allow checks (region > country > continent), then defaultPolicy applies.
+#  # Default value: not set
 #  rules:
+#    # <list[string]> Exact endpoints the rule applies to.
+#    # Default value: not set
 #    - endpoints:
 #        - "/admin.AdminService/DeleteUser"
+#      # <list[string]> Regex patterns of endpoints the rule applies to.
+#      # Default value: not set
+#      patterns: []
+#      # <list[string]> Continent codes that are allowed.
+#      # Default value: not set
+#      allowContinents: []
+#      # <list[string]> Continent codes that are denied.
+#      # Default value: not set
+#      denyContinents: []
+#      # <list[string]> ISO 3166-1 alpha-2 country codes that are allowed.
+#      # Default value: not set
 #      allowCountries:
 #        - "US"
+#      # <list[string]> ISO 3166-1 alpha-2 country codes that are denied.
+#      # Default value: not set
+#      denyCountries: []
+#      # <list[string]> ISO 3166-2 region codes that are allowed.
+#      # Default value: not set
+#      allowRegions:
+#        - "US-CA"
+#      # <list[string]> ISO 3166-2 region codes that are denied.
+#      # Default value: not set
 #      denyRegions:
 #        - "US-TX"
 #

@@ -1,7 +1,10 @@
 # TLS client configuration template.
 # Common TLS settings for client connections (NATS, Vault, MongoDB, etc.).
 # This file is included via !include directive in other configuration templates.
-# tls:
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#tls:
 #  # <string> Path to client TLS/SSL certificate file (.pem format).
 #  # Required for client certificate authentication.
 #  # Default value: not set

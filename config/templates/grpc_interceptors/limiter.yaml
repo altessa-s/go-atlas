@@ -1,6 +1,8 @@
 # Rate limiter configuration for traffic control and abuse prevention.
 # Implements per-client rate limiting to prevent service overload and abuse.
 # Essential for protecting APIs from DDoS attacks and ensuring fair usage.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
 
 #limiter:
 #  # <bool> Enable rate limiting.

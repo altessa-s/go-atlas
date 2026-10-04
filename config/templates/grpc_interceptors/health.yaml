@@ -1,6 +1,8 @@
 # Health check interceptor configuration.
 # When enabled, every incoming RPC is preceded by a health check;
 # if the service is unhealthy the call is rejected with Unavailable status.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
 
 #health:
 #  # <bool> Enable health check interceptor.
