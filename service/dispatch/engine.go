@@ -7,6 +7,7 @@ package dispatch
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/core/io/wal"
 
+	corecontext "github.com/altessa-s/go-atlas/core/context"
 	coreretry "github.com/altessa-s/go-atlas/core/retry"
 	coretime "github.com/altessa-s/go-atlas/core/time"
 )
@@ -57,7 +59,14 @@ type Engine[T any] struct {
 	closed  atomic.Bool
 	dropped atomic.Int64
 
-	wg sync.WaitGroup
+	lifecycleMu sync.Mutex
+	submitMu    sync.RWMutex
+	drainDone   chan struct{}
+	wake        chan struct{}
+	claimMu     sync.Mutex
+	inFlight    map[wal.Offset]struct{}
+	lastError   atomic.Pointer[error]
+	wg          sync.WaitGroup
 }
 
 type envelope[T any] struct {
@@ -83,6 +92,9 @@ func NewEngine[T any](sink Sink[T], opts ...Option[T]) (*Engine[T], error) {
 		metrics:   newEngineMetrics(o.collector, o.metricsSubsystem),
 		submitted: make(chan envelope[T], o.bufferSize),
 		done:      make(chan struct{}),
+		drainDone: make(chan struct{}),
+		wake:      make(chan struct{}, o.workers),
+		inFlight:  make(map[wal.Offset]struct{}),
 	}
 	// Established here rather than in Start so that Shutdown is always safe to
 	// call, including on an engine that was never started.
@@ -95,158 +107,169 @@ func NewEngine[T any](sink Sink[T], opts ...Option[T]) (*Engine[T], error) {
 // pushing them through the worker queue, and launches the worker goroutines.
 // It is an error to call Start more than once.
 func (e *Engine[T]) Start() error {
+	e.lifecycleMu.Lock()
+	defer e.lifecycleMu.Unlock()
+	if e.closed.Load() {
+		return ErrEngineClosed
+	}
 	if !e.started.CompareAndSwap(false, true) {
 		return ErrAlreadyStarted
 	}
-
 	if e.opts.walEnabled {
 		w, recovered, err := wal.Open(e.opts.walDir, e.opts.walOpts...)
 		if err != nil {
 			return err
 		}
 		e.log = w
-
-		// Start workers first so the channel can drain while we replay.
-		for range e.opts.workers {
+		for _, record := range recovered {
+			if _, err := e.codec.Decode(record.Payload); err != nil {
+				return errors.Join(fmt.Errorf("%w: %w", ErrReplayDecode, err), w.Close())
+			}
+		}
+		e.metrics.replayCount.Add(float64(len(recovered)))
+	}
+	for range e.opts.workers {
+		// Long-lived batching workers have queue/drain semantics; Process is
+		// intended for finite slices and does not provide this lifecycle.
+		if e.log != nil {
+			e.wg.Go(e.durableWorker)
+		} else {
 			e.wg.Go(e.worker)
 		}
-
-		if len(recovered) > 0 {
-			e.metrics.replayCount.Add(float64(len(recovered)))
-			e.opts.logger.Info("dispatch: replaying WAL records",
-				slog.Int("count", len(recovered)))
-		}
-		defer e.ready.Store(true)
-
-		for _, r := range recovered {
-			item, decErr := e.codec.Decode(r.Payload)
-			if decErr != nil {
-				e.opts.logger.Error("dispatch: decode replay record failed",
-					slog.Any("error", decErr))
-				e.log.Ack(r.Offset)
-				continue
-			}
-			// Block-fill: replay must complete before normal Submit, but
-			// workers are draining concurrently so this won't deadlock.
-			select {
-			case e.submitted <- envelope[T]{item: item, offset: r.Offset}:
-			case <-e.done:
-				return nil
-			}
-		}
-		return nil
-	}
-
-	for range e.opts.workers {
-		e.wg.Go(e.worker)
 	}
 	e.ready.Store(true)
 	return nil
 }
 
-// Submit enqueues item for asynchronous delivery to Sink. The hot path is
-// non-blocking: it serializes (only with WAL), appends to the WAL page
-// cache (only with WAL), and sends on a buffered channel. It returns false
-// if the buffer is full and back-pressure is disabled, or if the engine
-// is not running.
-func (e *Engine[T]) Submit(item T) bool {
-	if !e.ready.Load() || e.closed.Load() {
-		return false
-	}
+// Submission describes what accepted an item; neither value means sink delivery.
+// Logged records reach stable storage on the WAL's fsync cadence.
+type Submission uint8
 
-	var off wal.Offset
+const (
+	// Rejected means the item was not accepted.
+	Rejected Submission = iota
+	// Queued means the item is in volatile memory only.
+	Queued
+	// Logged means the item was appended to the WAL for asynchronous delivery.
+	Logged
+)
+
+var (
+	// ErrQueueFull means the volatile queue has no capacity.
+	ErrQueueFull = errors.New("dispatch: queue full")
+	// ErrBacklog means Shutdown left accepted records undelivered.
+	ErrBacklog = errors.New("dispatch: undelivered backlog")
+	// ErrReplayDecode means replay cannot decode a retained WAL record.
+	ErrReplayDecode = errors.New("dispatch: replay decode failed")
+)
+
+// Submit is the fire-and-forget producer interface. It reports acceptance by
+// either memory or the WAL. Use Enqueue when the acceptance tier or rejection
+// error matters. With WAL, a full memory queue never rejects a logged record.
+func (e *Engine[T]) Submit(item T) bool {
+	_, err := e.Enqueue(item)
+	return err == nil
+}
+
+// Enqueue accepts an item and reports its storage tier. It is non-blocking on
+// sink I/O; WithBackPressure may block volatile queue admission. WAL admission
+// is bounded by the WAL byte budget, not by the volatile queue capacity.
+func (e *Engine[T]) Enqueue(item T) (Submission, error) {
+	if !e.ready.Load() || e.closed.Load() {
+		return Rejected, ErrEngineClosed
+	}
+	e.submitMu.RLock()
+	defer e.submitMu.RUnlock()
+	if e.closed.Load() {
+		return Rejected, ErrEngineClosed
+	}
 	if e.log != nil {
 		payload, err := e.codec.Encode(item)
 		if err != nil {
 			e.metrics.encodeErrors.Inc()
-			e.opts.logger.Error("dispatch: encode failed", slog.Any("error", err))
-			// Encode failure is a drop: the item never reaches the WAL or
-			// the channel, so surface it through the same counter and
-			// OnDrop callback as a full-buffer drop.
-			return e.dropItem(item)
+			e.dropItem(item)
+			return Rejected, err
 		}
-		off, err = e.log.Append(payload)
-		if err != nil {
+		if _, err := e.log.Append(payload); err != nil {
 			e.metrics.walErrors.Inc()
-			e.opts.logger.Warn("dispatch: WAL append failed",
-				slog.Any("error", err))
-			return e.dropItem(item)
+			e.dropItem(item)
+			return Rejected, err
 		}
+		e.metrics.enqueued.Inc()
+		e.notifyWorker()
+		return Logged, nil
 	}
-
-	env := envelope[T]{item: item, offset: off}
+	env := envelope[T]{item: item}
 	if e.opts.backPressure {
 		select {
 		case e.submitted <- env:
 			e.metrics.enqueued.Inc()
-			return true
+			return Queued, nil
 		case <-e.done:
-			return false
+			return Rejected, ErrEngineClosed
 		}
 	}
 	select {
 	case e.submitted <- env:
 		e.metrics.enqueued.Inc()
-		return true
+		return Queued, nil
 	default:
-		// In-memory drop. The WAL record (if any) remains on disk and
-		// will be replayed on next start.
-		return e.dropItem(item)
+		e.dropItem(item)
+		return Rejected, ErrQueueFull
 	}
 }
 
-func (e *Engine[T]) dropItem(item T) bool {
+func (e *Engine[T]) dropItem(item T) {
 	e.dropped.Add(1)
 	e.metrics.dropped.Inc()
 	if e.opts.onDrop != nil {
 		e.opts.onDrop(item)
 	}
-	return false
 }
 
-// Dropped returns the total number of items dropped at submit time due to
-// a full buffer. It does not include WAL append errors.
+// Dropped counts rejected items, including encoding and WAL admission failures.
 func (e *Engine[T]) Dropped() int64 { return e.dropped.Load() }
 
-// WAL returns the underlying WAL handle, or nil when WAL is disabled.
-// Intended for metrics scrapes and crash-recovery diagnostics.
+// WAL returns the journal for diagnostics. Callers must not mutate or close it
+// while the engine is running; Engine owns its lifecycle and acknowledgements.
 func (e *Engine[T]) WAL() *wal.WAL { return e.log }
 
-// Shutdown drains pending items and waits for workers to finish, bounded
-// by ctx. Sealed-but-unacked WAL segments remain on disk for replay on the
-// next Start. Calling Shutdown more than once is a no-op and returns nil.
-//
-// The returned error aggregates (via [errors.Join]) the ctx cancellation
-// reason — if the deadline expired before workers drained — and any error
-// from closing the WAL. A durability primitive must not silently drop
-// either signal: the caller needs both to decide whether to retry or
-// escalate.
+// Shutdown closes admission, drains accepted items, and closes the WAL. It
+// returns ErrBacklog when durable records remain, joined with deadline, sink,
+// and journal errors. Callbacks must honor their contexts. Repeated calls are
+// no-ops; the first call owns the drain.
 func (e *Engine[T]) Shutdown(ctx context.Context) error {
+	e.lifecycleMu.Lock()
 	if !e.closed.CompareAndSwap(false, true) {
+		e.lifecycleMu.Unlock()
 		return nil
 	}
 	close(e.done)
-
+	// Closing admission wakes blocked producers before waiting for their locks.
+	e.submitMu.Lock()
+	close(e.drainDone)
+	e.submitMu.Unlock()
+	e.lifecycleMu.Unlock()
 	finished := make(chan struct{})
-	go func() {
-		e.wg.Wait()
-		close(finished)
-	}()
-
+	go func() { e.wg.Wait(); close(finished) }()
 	var errs []error
 	select {
 	case <-finished:
 	case <-ctx.Done():
 		e.shutdownCancel()
-		<-finished
 		errs = append(errs, ctx.Err())
 	}
 	e.shutdownCancel()
-
 	if e.log != nil {
+		if pending := e.log.Stats().Pending; pending > 0 {
+			errs = append(errs, fmt.Errorf("%w: %d records", ErrBacklog, pending))
+		}
 		if err := e.log.Close(); err != nil {
 			errs = append(errs, err)
 		}
+	}
+	if err := e.lastError.Load(); err != nil {
+		errs = append(errs, *err)
 	}
 	return errors.Join(errs...)
 }
@@ -264,7 +287,9 @@ func (e *Engine[T]) worker() {
 		if len(batch) == 0 {
 			return
 		}
-		e.storeBatch(batch, offsets)
+		if err := e.storeBatch(batch, offsets); err != nil {
+			e.lastError.Store(&err)
+		}
 		e.observeWALSize()
 		batch = batch[:0]
 		offsets = offsets[:0]
@@ -286,7 +311,7 @@ func (e *Engine[T]) worker() {
 		case <-ticker.C:
 			flush()
 
-		case <-e.done:
+		case <-e.drainDone:
 			// Drain remaining items synchronously.
 			for {
 				select {
@@ -321,82 +346,44 @@ func (e *Engine[T]) observeWALSize() {
 	e.metrics.walBytes.Set(float64(e.log.Stats().TotalBytes))
 }
 
-// storeBatch pushes items to the sink with retry. The caller (a worker
-// goroutine) blocks synchronously until this returns, so items/offsets are
-// not mutated by anyone else during the call and no defensive copy is needed.
-func (e *Engine[T]) storeBatch(items []T, offsets []wal.Offset) {
+// storeBatch retries durable records until delivery or shutdown. RetryAttempts
+// bounds a volatile batch; durable batches continue in capped backoff rounds.
+func (e *Engine[T]) storeBatch(items []T, offsets []wal.Offset) error {
 	stop := e.metrics.flushDuration.Start()
 	defer stop()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	ctxStop := context.AfterFunc(e.shutdownCtx, cancel)
-	defer ctxStop()
-	defer cancel()
-
-	ack := func() {
-		if e.log == nil {
-			return
-		}
-		for _, off := range offsets {
-			e.log.Ack(off)
-		}
-	}
-
-	// Doubling, spread by jitter so that concurrent workers failing against the
-	// same sink do not retry in lockstep. See [WithRetryJitter].
 	const backoffFactor = 2
 	nextDelay := coreretry.Exponential(coreretry.ExponentialConfig{
-		BaseDelay: e.opts.retryBackoff,
-		Factor:    backoffFactor,
-		Jitter:    e.opts.retryJitter,
+		BaseDelay: e.opts.retryBackoff, MaxDelay: e.opts.retryMaxBackoff,
+		Factor: backoffFactor, Jitter: e.opts.retryJitter,
 	})
-
-	for attempt := range e.opts.retryAttempts + 1 {
+	for attempt := 0; ; attempt++ {
+		ctx, cancel := corecontext.ApplyTimeout(e.shutdownCtx, e.opts.storeTimeout)
 		err := e.sink.StoreBatch(ctx, items)
+		cancel()
 		if err == nil {
-			ack()
-			return
-		}
-
-		if attempt < e.opts.retryAttempts {
-			backoff := nextDelay(attempt, err)
-			e.opts.logger.Warn("dispatch: sink store failed, retrying",
-				slog.Int("attempt", attempt+1),
-				slog.Int("items", len(items)),
-				slog.Duration("backoff", backoff),
-				slog.Any("error", err))
-
-			timer := time.NewTimer(backoff)
-			select {
-			case <-timer.C:
-			case <-e.done:
-				coretime.TimerStopAndDrain(timer)
-				// Last-ditch flush on shutdown: if the sink recovers
-				// between the retry sleep starting and the shutdown
-				// signal, drain into it so we don't leave durable WAL
-				// records that could have been delivered cleanly. If
-				// the final attempt fails, leave the records for the
-				// next Start to replay and surface the error through
-				// metrics + logger — never silently drop it.
-				if storeErr := e.sink.StoreBatch(ctx, items); storeErr == nil {
-					ack()
-				} else {
-					e.metrics.sinkErrors.Add(float64(len(items)))
-					e.opts.logger.Error("dispatch: final shutdown store failed",
-						slog.Int("items", len(items)),
-						slog.Any("error", storeErr))
+			if e.log != nil {
+				for _, off := range offsets {
+					e.log.Ack(off)
 				}
-				return
 			}
-			continue
+			return nil
 		}
-
-		// Terminal failure after retryAttempts+1 tries. Count every item
-		// as failed — not just the batch — so metric consumers can reason
-		// about loss rate at the same granularity as `enqueued`.
 		e.metrics.sinkErrors.Add(float64(len(items)))
-		e.opts.logger.Error("dispatch: sink store failed after retries",
-			slog.Int("items", len(items)),
-			slog.Any("error", err))
+		if e.shutdownCtx.Err() != nil || ((e.log == nil || e.closed.Load()) && attempt >= e.opts.retryAttempts) {
+			return err
+		}
+		e.opts.logger.Warn("dispatch: retrying sink batch", slog.Any("error", err), slog.Int("items", len(items)))
+		// Saturate the exponent; MaxDelay bounds long outages without overflow.
+		const maxBackoffExponent = 30
+		backoff := nextDelay(min(attempt, maxBackoffExponent), err)
+		if backoff <= 0 {
+			backoff = DefaultRetryBackoff
+		}
+		timer := time.NewTimer(backoff)
+		select {
+		case <-timer.C:
+		case <-e.done:
+			coretime.TimerStopAndDrain(timer)
+		}
 	}
 }
