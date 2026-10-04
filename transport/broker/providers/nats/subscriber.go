@@ -205,7 +205,7 @@ func (ss *streamSubscriber) Subscribe(ctx context.Context, handler broker.Subscr
 	received := ss.metrics.messagesReceived.WithLabels(subjectLabels)
 	duration := ss.metrics.processingDuration.WithLabels(subjectLabels)
 	failures := ss.metrics.processingErrors.WithLabels(subjectLabels)
-	onPanic := func(context.Context, any) { failures.Inc() }
+	onFail := failures.Inc
 
 	consumeContext, err := consumer.Consume(func(jsMsg jetstream.Msg) {
 		// Fused filter+transform: single pass over headers, no intermediate map.
@@ -224,24 +224,21 @@ func (ss *streamSubscriber) Subscribe(ctx context.Context, handler broker.Subscr
 
 		// Prepare message options, including the Acker and AckTimeout.
 		msgOpts := make([]msg.Option, 0, 2)
-		acker := &ackAdapter{msg: jsMsg}
+		acker := &ackAdapter{msg: jsMsg, onFail: onFail}
 		msgOpts = append(msgOpts, msg.WithAcker(acker))
 		msgOpts = slices.AppendIf(msgOpts, ackWait > 0, msg.WithAckTimeout(ackWait))
 
 		// Inline defers instead of IIFE to avoid closure allocation per message.
 		ss.handlersWg.Add(1)
 		defer ss.handlersWg.Done()
-		// A panicking handler counts as a processing failure; the post-handler
-		// check below is skipped in that case, so each message counts once.
-		defer panics.Handle(handlerCtx, onPanic)
+		// A panicking handler counts as a processing failure; markFailed
+		// dedupes it against a Nak/Term issued before the panic.
+		defer panics.Handle(handlerCtx, func(context.Context, any) { acker.markFailed() })
 
 		received.Inc()
 		stopTimer := duration.Start()
 		handler.Handle(handlerCtx, msg.NewMessageWithMeta(jsMsg.Subject(), jsMsg.Data(), metaData, msgOpts...))
 		stopTimer()
-		if acker.failed.Load() {
-			failures.Inc()
-		}
 	}, ss.opts...)
 	if err != nil {
 		return coreerrs.Wrapf(err, "failed to start consuming from consumer on stream '%s'", streamName)

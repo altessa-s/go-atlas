@@ -29,8 +29,8 @@ func (h funcHandler) Topic() string                              { return h.topi
 
 // TestSubscriber_Metrics covers subscriber metric labels and failure counting
 // against an embedded JetStream server: a wildcard subscription is labeled by
-// its subscription subject, and Nak, Term and handler panics each count as one
-// processing error.
+// its subscription subject, and Nak, Term (also when issued asynchronously after
+// the handler returned) and handler panics each count as one processing error.
 func TestSubscriber_Metrics(t *testing.T) {
 	t.Parallel()
 
@@ -46,6 +46,14 @@ func TestSubscriber_Metrics(t *testing.T) {
 	const topic = "orders.*.created"
 	done := make(chan struct{}, 8)
 	handler := funcHandler{topic: topic, handle: func(_ context.Context, m *msg.Message) {
+		if string(m.Data) == "async-nak" {
+			// Rejected by a worker after the handler has returned.
+			go func() {
+				_ = m.Nak(time.Hour)
+				done <- struct{}{}
+			}()
+			return
+		}
 		defer func() { done <- struct{}{} }()
 		switch string(m.Data) {
 		case "nak":
@@ -73,6 +81,7 @@ func TestSubscriber_Metrics(t *testing.T) {
 		"orders.t3.created": "nak",
 		"orders.t4.created": "term",
 		"orders.t5.created": "panic",
+		"orders.t6.created": "async-nak",
 	}
 	for subject, payload := range payloads {
 		_, err := js.Publish(t.Context(), subject, []byte(payload))
@@ -91,7 +100,7 @@ func TestSubscriber_Metrics(t *testing.T) {
 	}
 	// The panic counter increments in a deferred recovery after done is sent.
 	require.Eventually(t, func() bool {
-		return counter("test_broker_message_processing_errors_total", topic) == 3
+		return counter("test_broker_message_processing_errors_total", topic) == 4
 	}, 5*time.Second, 10*time.Millisecond)
 	require.Equal(t, float64(len(payloads)), counter("test_broker_messages_received_total", topic))
 	require.Zero(t, counter("test_broker_messages_received_total", "orders.t1.created"))

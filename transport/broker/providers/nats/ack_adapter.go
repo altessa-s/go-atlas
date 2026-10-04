@@ -17,12 +17,20 @@ import (
 )
 
 // ackAdapter implements msg.Acker for NATS JetStream message acknowledgment.
-// failed records that the handler rejected the message (Nak or Term); the
-// subscriber reads it after the handler returns to count processing errors.
-// A rejection issued asynchronously after the handler returned is not counted.
+// onFail, when set, is invoked at most once per delivery the first time the
+// message is rejected (Nak or Term) or markFailed is called, including when a
+// rejection happens asynchronously after the handler returned.
 type ackAdapter struct {
 	msg    jetstream.Msg
+	onFail func()
 	failed atomic.Bool
+}
+
+// markFailed records a processing failure for this delivery exactly once.
+func (aa *ackAdapter) markFailed() {
+	if aa.failed.CompareAndSwap(false, true) && aa.onFail != nil {
+		aa.onFail()
+	}
 }
 
 func (aa *ackAdapter) wrapAckError(action string, err error) error {
@@ -41,7 +49,7 @@ func (aa *ackAdapter) Ack() error {
 // Nak sends a negative acknowledgment for redelivery with optional delay.
 // Treats ErrMsgAlreadyAckd as success.
 func (aa *ackAdapter) Nak(delay ...time.Duration) error {
-	aa.failed.Store(true)
+	aa.markFailed()
 	var err error
 	if len(delay) > 0 && delay[0] > 0 {
 		err = aa.msg.NakWithDelay(delay[0])
@@ -66,7 +74,7 @@ func (aa *ackAdapter) NakWithBackOff(backOff msg.BackOffFunc) error {
 // Term sends a terminal acknowledgment to prevent redelivery.
 // Optional reason can be provided. Treats ErrMsgAlreadyAckd as success.
 func (aa *ackAdapter) Term(reason ...string) error {
-	aa.failed.Store(true)
+	aa.markFailed()
 	var err error
 	if len(reason) > 0 && reason[0] != "" {
 		err = aa.msg.TermWithReason(reason[0])
