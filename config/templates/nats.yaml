@@ -47,7 +47,7 @@
 #  # <duration> Connection timeout for initial NATS server connection.
 #  # Maximum time to wait when establishing connection to server.
 #  # Default value: 5s
-#  connectTimeout: 5s
+#  connectTimeout: "5s"
 #
 #  # <int> Maximum number of reconnection attempts.
 #  # Set to 0 for unlimited reconnection attempts.
@@ -58,12 +58,12 @@
 #  # <duration> Wait time between reconnection attempts.
 #  # Delay between consecutive reconnection attempts.
 #  # Default value: 10s
-#  reconnectWait: 10s
+#  reconnectWait: "10s"
 #
 #  # <duration> Interval for sending ping commands to the server.
 #  # Keepalive mechanism to detect connection health.
 #  # Default value: 10s
-#  pingInterval: 10s
+#  pingInterval: "10s"
 #
 #  # <int> Maximum number of unanswered pings before connection is considered lost.
 #  # Connection is closed if this many pings go unanswered.
@@ -74,19 +74,22 @@
 #  # Enables encrypted communication with NATS server.
 #  !include tls-client.yaml
 #
-#  # <map[string,object]> JetStream consumer configurations.
+#  # <map[string]object> JetStream consumer configurations.
 #  # Define multiple consumers with different settings for message consumption.
-#  # Each consumer is keyed by its durable name.
+#  # Each consumer is keyed by its name.
+#  # Default value: not set
 #  consumers:
 #    # Example consumer for processing events with explicit acknowledgement
 #    event-processor:
 #      # <string> Optional description of what this consumer does.
+#      # Default value: not set
 #      description: "Processes domain events with explicit acknowledgement"
 #
 #      # <string> Durable name for the consumer.
-#      # If not specified, the map key (e.g., "event-processor") is used as the durable name.
 #      # Durable consumers maintain their state across restarts and reconnections.
-#      # Default value: map key name
+#      # Note: infrastructure/nats/factory.ConsumerConfig passes this value through
+#      # as-is; it does not substitute the map key when it is empty.
+#      # Default value: not set
 #      durableName:
 #
 #      # <string> Delivery policy: all, last, new, by_start_sequence, by_start_time.
@@ -118,7 +121,7 @@
 #      # <duration> Time to wait for acknowledgement before redelivering the message.
 #      # Only applies when ackPolicy is not "none".
 #      # Default value: 30s
-#      ackWait: 30s
+#      ackWait: "30s"
 #
 #      # <int> Maximum delivery attempts for a message.
 #      # After this many attempts, the message is considered permanently failed.
@@ -171,14 +174,14 @@
 #      # <duration> Duration of inactivity before consumer is automatically removed.
 #      # Set to 0 to disable automatic removal (consumer persists indefinitely).
 #      # Default value: 0s (disabled)
-#      inactiveThreshold: 0s
+#      inactiveThreshold: "0s"
 #
 #    # Example consumer for real-time notifications (process new messages only)
 #    notification-handler:
 #      description: "Handles real-time notifications"
 #      deliverPolicy: new
 #      ackPolicy: explicit
-#      ackWait: 10s
+#      ackWait: "10s"
 #      maxDeliver: 5
 #      # Aggressive backoff for critical notifications
 #      backOff:
@@ -196,7 +199,7 @@
 #      deliverPolicy: by_start_sequence
 #      optStartSeq: 1000
 #      ackPolicy: explicit
-#      ackWait: 60s
+#      ackWait: "60s"
 #      replayPolicy: original
 #
 #    # Example consumer with explicit durable name (different from map key)
@@ -230,6 +233,7 @@
 #  recovery:
 #    # <bool> Enables or disables automatic recovery.
 #    # When enabled, deleted streams and consumers are automatically recreated.
+#    # The config loader replaces an explicit false with this default (true).
 #    # Default value: true
 #    enabled: true
 #
@@ -237,7 +241,7 @@
 #    # Acts as fallback detection when advisory events are missed (e.g., during reconnection).
 #    # Supports standard cron format with seconds: "sec min hour day month weekday"
 #    # (e.g., "0 */5 * * * *") or descriptor format (e.g., "@every 5m").
-#    # Default value: "@every 5m"
+#    # Default value: @every 5m
 #    healthCheckSchedule: "@every 5m"
 #
 #    # <int> Maximum number of recovery attempts before giving up.
@@ -250,17 +254,17 @@
 #    # Actual backoff is calculated as: backoff * attemptNumber (linear backoff).
 #    # Example: with 5s backoff, attempts occur at 5s, 10s, 15s intervals.
 #    # Default value: 5s
-#    recoveryBackoff: 5s
+#    recoveryBackoff: "5s"
 #
 #    # <duration> Timeout for stale recovery marks.
 #    # Recovery marks older than this duration are cleared to prevent permanent blocking
 #    # due to crashes or bugs during recovery.
 #    # Default value: 20m
-#    staleRecoveryTimeout: 20m
+#    staleRecoveryTimeout: "20m"
 #
 #    # <string> Cron schedule for stale recovery cleanup.
 #    # How often the system checks for and clears stale recovery marks.
 #    # Supports standard cron format with seconds: "sec min hour day month weekday"
 #    # (e.g., "0 * * * * *") or descriptor format (e.g., "@every 1m").
-#    # Default value: "@every 1m"
+#    # Default value: @every 1m
 #    staleRecoveryCleanupSchedule: "@every 1m"

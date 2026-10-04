@@ -1,18 +1,20 @@
 # CORS configuration for handling cross-origin requests.
 # Configures which origins, methods, and headers are allowed.
 # Essential for web applications that need to accept requests from different domains.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
 
 #cors:
 #  # <bool> Enable CORS support.
 #  # Default value: false
 #  enabled: false
 #
-#  # <list[string]> List of exact URL paths to skip processing for.
+#  # <list[string]> List of exact URL paths to skip CORS handling for.
 #  # Default value: not set
 #  ignorePaths:
 #    - "/health"
 #
-#  # <list[string]> List of regex patterns for URL paths to skip processing.
+#  # <list[string]> List of regex patterns for URL paths to skip CORS handling.
 #  # Default value: not set
 #  ignorePatterns:
 #    - "^/health\\..*"

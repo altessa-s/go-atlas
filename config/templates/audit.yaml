@@ -6,6 +6,7 @@
 #audit:
 #  # <bool> Enable auditing.
 #  # When false, the factory returns nil and no auditor is created.
+#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  enabled: true
 #
@@ -25,15 +26,15 @@
 #
 #      # <duration> Timeout for index creation operations.
 #      # Default value: 30s
-#      indexTimeout: 30s
+#      indexTimeout: "30s"
 #
 #      # <duration> Time-to-live for audit events. Zero means no expiration.
-#      # Default value: 0 (disabled)
-#      ttl: 0
+#      # Default value: 0s (disabled)
+#      ttl: "0s"
 #
 #  # <duration> Maximum time to wait during graceful shutdown.
 #  # Default value: 30s
-#  shutdownTimeout: 30s
+#  shutdownTimeout: "30s"
 #
 #  # <object> Async dispatch engine configuration.
 #  # See dispatch.yaml for full configuration options.

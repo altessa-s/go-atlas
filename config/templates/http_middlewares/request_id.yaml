@@ -1,18 +1,20 @@
 # Request ID configuration for request correlation and distributed tracing.
 # Ensures every request has a unique identifier for tracing across services.
 # Fundamental for debugging and observability in distributed systems.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
 
 #requestId:
 #  # <bool> Enable request ID generation and propagation.
 #  # Default value: false
 #  enabled: false
 #
-#  # <list[string]> List of exact URL paths to skip processing for.
+#  # <list[string]> List of exact URL paths to skip request ID generation for.
 #  # Default value: not set
 #  ignorePaths:
 #    - "/health"
 #
-#  # <list[string]> List of regex patterns for URL paths to skip processing.
+#  # <list[string]> List of regex patterns for URL paths to skip request ID generation.
 #  # Default value: not set
 #  ignorePatterns:
 #    - "^/health\\..*"
@@ -22,5 +24,6 @@
 #  headerName: X-Request-ID
 #
 #  # <bool> Generate a request ID if none is provided.
+#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  generateIfMissing: true

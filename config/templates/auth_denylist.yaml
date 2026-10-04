@@ -1,36 +1,95 @@
-# Token-revocation denylist — a negative cache in front of a distributed
-# authoritative store. The negative filter is built by
-# auth/denylist/negcache/factory.NewBuilder and the authoritative store by
-# auth/denylist/storages/redis.New; the Redis client and callbacks are wired in
-# code.
-denylist:
-  # Turn the denylist on. When false the component is skipped and the remaining
-  # fields are not required. Defaults to false.
-  enabled: false
-  # Redis key prefix for the authoritative revocation store
-  # (auth/denylist/storages/redis.WithKeyPrefix). Required when enabled.
-  # Defaults to "denylist:revoked:".
-  key_prefix: "denylist:revoked:"
-  # How often the negative filter is rebuilt from the authoritative store.
-  # Zero (omitted) disables periodic rebuilds. Format: duration string
-  # (e.g., "5m", "1h", "30s"). Optional.
-  rebuild_interval: 5m
-  # Prometheus metrics subsystem override for the negative cache. Empty falls
-  # back to the package default. Optional.
-  metrics_subsystem: ""
-  # Negative-filter configuration passed to
-  # auth/denylist/negcache/factory.NewBuilder.
-  filter:
-    # <string> Type of probabilistic filter to use.
-    # Supported values: bloom, cuckoo
-    # Default value: bloom
-    type: bloom
-    bloom:
-      # <int64> Expected number of revoked tokens the filter is sized for.
-      # Required for Bloom filter.
-      expectedItems: 1000000
-      # Override defaults if needed:
-      # storage: redis
-      # falsePositiveRate: 0.001
-      # rebuildCron: "0 0 */2 * * *"
-      # rebuildOnStart: false
+# Token-revocation denylist configuration.
+# A negative cache in front of a distributed authoritative store. The negative filter is built by
+# auth/denylist/negcache/factory.NewBuilder and the authoritative store by auth/denylist/storages/redis.New;
+# the Redis client and callbacks are wired in code.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#denylist:
+#  # <bool> Turn the denylist on.
+#  # When false the component is skipped and the remaining fields are not required.
+#  # Default value: false
+#  enabled: false
+#
+#  # <string> Redis key prefix for the authoritative revocation store
+#  # (auth/denylist/storages/redis.WithKeyPrefix). Required when enabled.
+#  # Default value: denylist:revoked:
+#  key_prefix: "denylist:revoked:"
+#
+#  # <duration> How often the negative filter is rebuilt from the authoritative store.
+#  # Zero (omitted) disables periodic rebuilds.
+#  # Default value: not set
+#  rebuild_interval: "5m"
+#
+#  # <string> Prometheus metrics subsystem override for the negative cache.
+#  # Default value: not set (negcache falls back to auth_denylist_negcache)
+#  metrics_subsystem: ""
+#
+#  # <object> Negative-filter configuration passed to auth/denylist/negcache/factory.NewBuilder.
+#  # Optional values left unset fall back to the probabilistic-filter defaults the caller passes to the builder.
+#  filter:
+#    # <string> Type of probabilistic filter to use.
+#    # Supported values: bloom, cuckoo
+#    # Default value: bloom
+#    type: bloom
+#
+#    # <object> Bloom filter settings. Required when type is bloom.
+#    bloom:
+#      # <string> Storage backend for the filter.
+#      # Supported values: memory, redis
+#      # Default value: not set (falls back to the builder defaults' bloom.storage, then memory)
+#      storage: memory
+#
+#      # <int64> Expected number of elements the filter is sized for.
+#      # Required for a Bloom filter.
+#      # Default value: not set
+#      expectedItems: 1000000
+#
+#      # <float64> Target false-positive rate (0.01 = 1%).
+#      # Default value: not set (falls back to the builder defaults' bloom.falsePositiveRate, then 0.01)
+#      falsePositiveRate: 0.001
+#
+#      # <string> Cron schedule for periodic filter rebuild.
+#      # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
+#      rebuildCron: "0 0 */2 * * *"
+#
+#      # <bool> Rebuild the filter on service startup.
+#      # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
+#      rebuildOnStart: false
+#
+#      # <object> Redis-specific settings. Used when storage is redis.
+#      redis:
+#        # <string> Prefix for all filter keys.
+#        # Default value: not set
+#        keysPrefix: "myservice:denylist"
+#
+#    # <object> Cuckoo filter settings. Required when type is cuckoo; an alternative to bloom.
+#    cuckoo:
+#      # <string> Storage backend for the filter.
+#      # Supported values: memory, redis
+#      # Default value: not set (falls back to the builder defaults' cuckoo.storage, then memory)
+#      storage: memory
+#
+#      # <int64> Initial capacity of the filter.
+#      # Required for a Cuckoo filter.
+#      # Default value: not set
+#      capacity: 500000
+#
+#      # <int> Fingerprint size in bits.
+#      # Supported values: 8, 12, 16
+#      # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
+#      fingerprintSize: 12
+#
+#      # <float64> Capacity multiplier for auto-rebuild on overflow (1.1–10.0).
+#      # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
+#      capacityMultiplier: 2.0
+#
+#      # <int64> Maximum capacity limit.
+#      # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
+#      maxCapacity: 100000000
+#
+#      # <object> Redis-specific settings. Used when storage is redis.
+#      redis:
+#        # <string> Prefix for all filter keys.
+#        # Default value: not set
+#        keysPrefix: "myservice:denylist"

@@ -2,12 +2,26 @@
 # Converts application errors to gRPC status errors and enriches error
 # responses with ErrorInfo (reason code, domain) and RequestInfo (request ID).
 # Runs first in the chain so all downstream errors are properly converted.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
 
 #errStatus:
 #  # <bool> Enable error status conversion.
 #  # When enabled, converts Go errors to gRPC status errors with metadata.
 #  # Default value: false
 #  enabled: false
+#
+#  # <list[string]> List of gRPC methods to skip error status conversion for.
+#  # The built-in gRPC server factory does not currently apply this list to errStatus.
+#  # Default value: not set
+#  ignoreMethods:
+#    - "/grpc.health.v1.Health/Check"
+#
+#  # <list[string]> List of regex patterns for methods to skip error status conversion.
+#  # The built-in gRPC server factory does not currently apply this list to errStatus.
+#  # Default value: not set
+#  ignorePatterns:
+#    - "^(?i)/grpc.health.*"
 #
 #  # <string> Logical domain namespace for error reason codes.
 #  # Populates errdetails.ErrorInfo.Domain in gRPC error responses.
@@ -18,7 +32,7 @@
 #  # <int> Maximum number of entries in the error conversion cache.
 #  # Caches error-to-status mappings for high-throughput paths.
 #  # Set to 0 to disable caching.
-#  # Default value: 1000
+#  # Default value: not set (the errstatus interceptor falls back to 1000)
 #  cacheSize: 1000
 #
 #  # <bool> Completely disable error conversion caching.

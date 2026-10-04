@@ -1,21 +1,30 @@
-# Scope authorization registry — declarative action-key→required-scope table.
-# Consumed by auth/scope/factory.New(&cfg).Build(); the matcher and authorizer
-# stay in code, since they depend on the caller's principal type.
-scope:
-  # Each rule registers every key in `keys` as requiring `scope`.
-  # An action key must appear in at most one rule.
-  rules:
-    # Read access.
-    - scope: "files:read"
-      keys:
-        - "/files.v1.Files/Read"
-        - "/files.v1.Files/List"
-    # Write access.
-    - scope: "files:write"
-      keys:
-        - "/files.v1.Files/Write"
-        - "/files.v1.Files/Delete"
-    # Public endpoints — empty scope, always allowed once authenticated.
-    - scope: ""
-      keys:
-        - "/health.v1.Health/Check"
+# Scope authorization registry configuration.
+# A declarative action-key to required-scope table consumed by auth/scope/factory.New(&cfg).Build(); the matcher and
+# authorizer stay in code, since they depend on the caller's principal type.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#scope:
+#  # <list[object]> Scope rules.
+#  # Each rule registers every key in `keys` as requiring `scope`.
+#  # An action key must appear in at most one rule.
+#  # Default value: not set
+#  rules:
+#    # <string> Scope required for the listed keys.
+#    # An empty scope marks public endpoints, always allowed once authenticated.
+#    # Default value: not set
+#    - scope: "files:read"
+#      # <list[string]> Action keys (for gRPC, full method names) guarded by this scope.
+#      # Default value: not set
+#      keys:
+#        - "/files.v1.Files/Read"
+#        - "/files.v1.Files/List"
+#
+#    - scope: "files:write"
+#      keys:
+#        - "/files.v1.Files/Write"
+#        - "/files.v1.Files/Delete"
+#
+#    - scope: ""
+#      keys:
+#        - "/health.v1.Health/Check"

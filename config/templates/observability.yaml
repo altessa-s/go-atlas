@@ -71,7 +71,8 @@
 #
 #      # <float64> Sampling ratio for trace_id_ratio and parent_based samplers.
 #      # Must be between 0.0 and 1.0.
-#      # 1.0 = sample all, 0.0 = sample none, 0.1 = sample 10%.
+#      # 1.0 = sample all, 0.1 = sample 10%. An explicit 0.0 is replaced by the default
+#      # by the config loader; use the always_off sampler to sample nothing.
 #      # Default value: 1.0
 #      ratio: 1.0
 #
@@ -95,29 +96,31 @@
 #        # Default value: false
 #        insecure: false
 #
-#        # <map[string,string]> Custom headers to send with requests.
+#        # <map[string]string> Custom headers to send with requests.
 #        # Useful for authentication (e.g., API keys).
 #        # Default value: not set
 #        headers:
 #
 #        # <bool> Enables gzip compression.
+#        # The config loader replaces an explicit false with this default (true).
 #        # Default value: true
 #        compression: true
 #
 #        # <object> Outbound proxy for the OTLP exporter (gRPC protocol only).
-#        # Uncomment the !include line below AND the desired fields in
-#        # grpc_proxy.yaml itself to enable. When the include stays
-#        # commented grpc-go honors HTTPS_PROXY/HTTP_PROXY/NO_PROXY env
+#        # When unset grpc-go honors HTTPS_PROXY/HTTP_PROXY/NO_PROXY env
 #        # variables. Has no effect when protocol is "http".
+#        # See grpc_proxy.yaml for the full field list.
 #        !include grpc_proxy.yaml
 #
 #      # <object> Console adapter configuration.
 #      # Only used when type is "console".
 #      console:
 #        # <bool> Enables indented JSON output.
+#        # The config loader replaces an explicit false with this default (true).
 #        # Default value: true
 #        prettyPrint: true
 #
 #        # <bool> Includes timestamps in output.
+#        # The config loader replaces an explicit false with this default (true).
 #        # Default value: true
 #        timestamps: true

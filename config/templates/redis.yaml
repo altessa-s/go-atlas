@@ -36,12 +36,12 @@
 #  # <duration> Timeout for establishing Redis connection.
 #  # Maximum time to wait when connecting to Redis server.
 #  # Default value: 5s
-#  connectTimeout: 5s
+#  connectTimeout: "5s"
 #
 #  # <duration> Timeout for socket read/write operations.
 #  # Maximum time for individual Redis command execution.
 #  # Default value: 5s
-#  socketTimeout: 5s
+#  socketTimeout: "5s"
 #
 #  # <int> Maximum number of socket connections in the pool.
 #  # Controls the size of the connection pool for Redis operations.
@@ -56,12 +56,12 @@
 #  # <duration> Maximum age for connections before closure.
 #  # Connections older than this are closed and recreated.
 #  # Default value: 0s (connections don't age out)
-#  maxConnectionAge: 0s
+#  maxConnectionAge: "0s"
 #
 #  # <duration> Timeout after which idle connections are closed.
 #  # Should be less than Redis server timeout configuration.
 #  # Default value: 5s
-#  idleTimeout: 5s
+#  idleTimeout: "5s"
 #
 #  # <int> Maximum number of retries for failed commands.
 #  # Used for network errors or Redis cluster redirects.

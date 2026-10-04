@@ -7,7 +7,7 @@
 #  # <string> Specifies the provider for leader election coordination.
 #  # Controls which distributed coordination system is used for leader election among service instances.
 #  # Supported values: nats
-#  # Default value: not set (required)
+#  # Default value: nats
 #  provider: nats
 #
 #  # <duration> Time-to-live for leader election locks.
@@ -15,4 +15,4 @@
 #  # Non-leader nodes will wait this duration to elect a new leader if the current leader fails to renew its lease.
 #  # Lower values provide faster failover but increase coordination overhead.
 #  # Default value: 10s
-#  ttl: 10s
+#  ttl: "10s"

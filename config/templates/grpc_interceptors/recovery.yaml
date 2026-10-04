@@ -1,6 +1,8 @@
 # Recovery configuration for panic handling and service resilience.
 # Catches panics in gRPC handlers and converts them to proper error responses.
 # Critical for preventing service crashes and maintaining system stability.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
 
 #recovery:
 #  # <bool> Enable panic recovery.

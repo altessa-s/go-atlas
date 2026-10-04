@@ -7,12 +7,12 @@
 #  # <duration> Interval for the scheduler loop to check for tasks.
 #  # How often the scheduler checks for pending tasks to execute.
 #  # Default value: 1s
-#  tickInterval: 1s
+#  tickInterval: "1s"
 #
 #  # <duration> Duration to keep task history before cleanup.
 #  # How long task execution history is retained.
 #  # Default value: 168h (7 days)
-#  historyRetention: 168h
+#  historyRetention: "168h"
 #
 #  # <object> Concurrency configuration for the scheduler.
 #  # Controls how the scheduler determines the number of concurrent tasks.
@@ -24,9 +24,10 @@
 #    strategy: static
 #
 #    # <int> Maximum number of tasks that can run concurrently.
-#    # Zero means unlimited. Used with the "static" strategy.
-#    # Default value: 0 (unlimited)
-#    maxTasks: 0
+#    # Used with the "static" strategy. An explicit 0 is replaced by the
+#    # default by the config loader.
+#    # Default value: 5
+#    maxTasks: 5
 #
 #    # <int> Number of concurrency slots reserved for high priority tasks.
 #    # These slots cannot be used by normal/low priority tasks.
@@ -44,27 +45,40 @@
 #    # Required when strategy is "memory-aware".
 #    memoryAware:
 #      # <uint64> Memory threshold (MB) below which concurrency is set to 1.
+#      # Required when strategy is "memory-aware".
+#      # Default value: not set
 #      lowMemoryMB: 256
+#
 #      # <uint64> Memory threshold (MB) below which concurrency is conservative.
+#      # Required when strategy is "memory-aware".
+#      # Default value: not set
 #      mediumMemoryMB: 512
+#
 #      # <uint64> Memory threshold (MB) above which concurrency is aggressive.
+#      # Required when strategy is "memory-aware".
+#      # Default value: not set
 #      highMemoryMB: 1024
 #
 #    # <object> Adaptive concurrency configuration.
 #    # Required when strategy is "adaptive".
 #    adaptive:
 #      # <uint64> Available-memory threshold (MB) below which concurrency drops to 25%.
+#      # Default value: not set
 #      memoryLowThresholdMB: 256
+#
 #      # <uint64> Available-memory threshold (MB) below which concurrency drops to 50%.
+#      # Default value: not set
 #      memoryMediumThresholdMB: 512
+#
 #      # <float64> System load above which concurrency is scaled down.
+#      # Default value: not set
 #      highLoadThreshold: 0.8
 #
 #  # <duration> Timeout after which a task stuck in Running status is considered stale.
 #  # Stale tasks are automatically reset to Active on startup and periodically.
 #  # Handles recovery from process crashes where tasks were left in Running state.
 #  # Default value: 30m
-#  staleTaskTimeout: 30m
+#  staleTaskTimeout: "30m"
 #
 #  # <object> Storage backend configuration for the scheduler.
 #  # Supports multiple storage backends with provider-specific settings.
@@ -101,8 +115,8 @@
 #
 #      # <duration> TTL for history entries in Redis.
 #      # Set to 0 to disable TTL (history cleaned by CleanupHistory only).
-#      # Default value: 0 (disabled)
-#      historyTtl: 0
+#      # Default value: 0s (disabled)
+#      historyTtl: "0s"
 #
 #      # <int> Maximum number of history entries kept per task.
 #      # Limits history storage per individual task.

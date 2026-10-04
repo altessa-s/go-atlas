@@ -1,35 +1,42 @@
 # Tracing configuration for distributed tracing with OpenTelemetry.
 # Controls distributed tracing for HTTP requests using OpenTelemetry.
 # Provides end-to-end visibility into request flows across service boundaries.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
 
 #tracing:
 #  # <bool> Enable distributed tracing.
 #  # Default value: false
 #  enabled: false
 #
-#  # <list[string]> List of exact URL paths to skip processing for.
+#  # <list[string]> List of exact URL paths to skip tracing for.
 #  # Default value: not set
 #  ignorePaths:
 #    - "/health"
 #
-#  # <list[string]> List of regex patterns for URL paths to skip processing.
+#  # <list[string]> List of regex patterns for URL paths to skip tracing.
 #  # Default value: not set
 #  ignorePatterns:
 #    - "^/health\\..*"
 #
 #  # <bool> Record request/response bodies in traces.
 #  # Warning: This can significantly increase trace size and may expose sensitive data.
+#  # The built-in HTTP server factory does not currently apply this setting.
 #  # Default value: false
 #  recordBody: false
 #
 #  # <bool> Record HTTP headers as span attributes.
-#  # Sensitive headers are automatically redacted based on redactedHeaders list.
+#  # Sensitive headers are redacted based on the redactedHeaders list.
+#  # The built-in HTTP server factory does not currently apply this setting.
+#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  recordHeaders: true
 #
 #  # <list[string]> List of header names to redact from traces.
-#  # Values are replaced with "[REDACTED]".
-#  # Default value: ["Authorization", "Cookie", "Set-Cookie", "X-API-Key", "X-Auth-Token"]
+#  # Values are replaced with "[REDACTED]". config.DefaultHttpInterTracingConfig() lists Authorization, Cookie,
+#  # Set-Cookie, X-API-Key and X-Auth-Token; the config loader leaves the list empty.
+#  # The built-in HTTP server factory does not currently apply this setting.
+#  # Default value: not set
 #  redactedHeaders:
 #    - "Authorization"
 #    - "Cookie"
@@ -39,9 +46,13 @@
 #
 #  # <bool> Propagate trace context from incoming requests.
 #  # When true, parent spans from incoming requests are linked to server spans.
+#  # The built-in HTTP server factory does not currently apply this setting.
+#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  propagateContext: true
 #
 #  # <bool> Record client IP as span attribute.
+#  # The built-in HTTP server factory does not currently apply this setting.
+#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  recordClientIP: true

@@ -12,7 +12,7 @@
 #  # <duration> Time window for the rate limit.
 #  # The rate limit resets every period.
 #  # Default value: 24h
-#  period: 24h
+#  period: "24h"
 #
 #  # <int> Maximum number of requests that can be processed in a short burst
 #  # above the sustained rate. Allows handling traffic spikes.

@@ -16,7 +16,7 @@
 #  # Default value: stdout
 #  output: stdout
 #
-#  # <map[string,string]> Global tags that are added to all log entries.
+#  # <map[string]string> Global tags that are added to all log entries.
 #  # Key-value pairs that provide additional context to every log message.
 #  # Default value: not set
 #  tags:
@@ -72,21 +72,20 @@
 #
 #  # <string> The string used for masking sensitive fields.
 #  # Default value: ****
-#  maskString: ****
+#  maskString: "****"
 #
 #  # <string> The group name for application metadata.
 #  # Default value: app
 #  appGroupName: app
 #
-#  # <map[string,string]> Per-subsystem log level overrides.
+#  # <map[string]string> Per-subsystem log level overrides.
 #  # Keys are subsystem names matching the "subsystem" attribute.
 #  # Values are log levels: error, warning, info, debug, none.
 #  # Subsystems not listed here use the top-level 'level' setting.
 #  # Default value: not set
 #  subsystems:
-#    # Example:
-#    # http: debug
-#    # grpc: warning
+#    http: debug
+#    grpc: warning
 #
 #  # <list[object]> Custom masking rules for specific fields.
 #  # Each rule specifies a field/pattern and the mask function to apply.
@@ -94,48 +93,31 @@
 #  # partial, fixed, pattern, hash, cached_partial
 #  # Default value: not set
 #  maskRules:
-#    # Mask email addresses with specialized email masking
-#    # - field: email
-#    #   type: email
-#    
-#    # Mask URLs preserving only filename
-#    # - field: url
-#    #   type: url
-#    
-#    # Mask S3/cloud storage URLs with operation ID extraction
-#    # - field: s3_url
-#    #   type: s3_url
-#    
-#    # Partial masking - show first 4 and last 2 characters
-#    # - field: account_id
-#    #   type: partial
-#    #   params:
-#    #     showFirst: 4
-#    #     showLast: 2
-#    #     maskChar: "X"
-#    
-#    # Fixed replacement string
-#    # - field: sensitive_data
-#    #   type: fixed
-#    #   params:
-#    #     value: "[REDACTED]"
-#    
-#    # Pattern-based field matching with smart masking
-#    # - pattern: ".*_token$"
-#    #   type: smart
-#    
-#    # Replace all digits with asterisks
-#    # - pattern: ".*_id$"
-#    #   type: pattern
-#    #   params:
-#    #     pattern: "\\d"
-#    #     replacement: "*"
-#    
-#    # Hash-based masking with prefix
-#    # - field: user_id
-#    #   type: hash
-#    #   params:
-#    #     prefix: "user:"
+#    # <string> Exact field name the rule applies to. Set either field or pattern.
+#    # Default value: not set
+#    - field: account_id
+#      # <string> Mask function to apply (see the list above).
+#      # Default value: not set
+#      type: partial
+#      # <map[string]any> Mask-function parameters (e.g. showFirst, showLast, maskChar for partial;
+#      # value for fixed; pattern, replacement for pattern; prefix for hash).
+#      # Default value: not set
+#      params:
+#        showFirst: 4
+#        showLast: 2
+#        maskChar: "X"
+#
+#    # <string> Regex matched against field names, an alternative to field.
+#    # Default value: not set
+#    - pattern: ".*_token$"
+#      type: smart
+#
+#    # More examples:
+#    #   field: email, type: email — specialized email masking
+#    #   field: url, type: url — keep only the file name
+#    #   field: sensitive_data, type: fixed, params: {value: "[REDACTED]"}
+#    #   pattern: ".*_id$", type: pattern, params: {pattern: "\\d", replacement: "*"}
+#    #   field: user_id, type: hash, params: {prefix: "user:"}
 #
 #  # <bool> Enable standard masking for common sensitive fields.
 #  # Automatically masks: password, token, secret, api_key, authorization,

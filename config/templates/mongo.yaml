@@ -47,32 +47,34 @@
 #  zlibCompressionLevel: -1
 #
 #  # <duration> Timeout for creating connections to the server.
-#  # 0 means no timeout will be used.
+#  # An explicit "0s" is replaced by the default by the config loader.
 #  # Default value: 30s
-#  connectTimeout: 30s
+#  connectTimeout: "30s"
 #
-#  # <int> Minimum number of connections in the connection pool.
+#  # <uint64> Minimum number of connections in the connection pool.
 #  # Pool is maintained in background to ensure minimum size.
 #  # Default value: 0
 #  minPoolSize: 0
 #
-#  # <int> Maximum number of connections in the connection pool.
+#  # <uint64> Maximum number of connections in the connection pool.
 #  # Requests block if this maximum is reached.
 #  # Default value: 100
 #  maxPoolSize: 100
 #
 #  # <duration> Maximum time a connection remains idle before removal.
 #  # 0 means connections can remain idle indefinitely.
-#  # Default value: 0
-#  maxIdleTimeout: 0
+#  # Default value: 0s
+#  maxIdleTimeout: "0s"
 #
 #  # <bool> Whether supported read operations should be retried on errors.
 #  # Requires server version >= 3.6.
+#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  retryReads: true
 #
 #  # <bool> Whether supported write operations should be retried on errors.
 #  # Requires server version >= 3.6 and replica set or sharded cluster.
+#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  retryWrites: true
 #
@@ -113,37 +115,8 @@
 #
 #  # <object> TLS/SSL configuration options.
 #  # Enables encrypted communication with MongoDB.
-#  tls:
-#    # <string> Path to client TLS/SSL certificate file (.pem).
-#    # Required for client certificate authentication.
-#    # Default value: not set
-#    certificate:
-#
-#    # <string> Path to client TLS/SSL private key file (.pem).
-#    # Used with client certificate for authentication.
-#    # Default value: not set
-#    privateKey:
-#
-#    # <string> Password to decrypt the private key.
-#    # Required if private key is encrypted.
-#    # Default value: not set
-#    privateKeyPassword:
-#
-#    # <list[string]> Paths to CA certificate bundle files.
-#    # Defaults to system bundle if not specified.
-#    # Default value: not set
-#    caCerts:
-#      - /path/to/ca.pem
-#
-#    # <string> Server name for TLS certificate validation.
-#    # Must match the server certificate's subject name.
-#    # Default value: not set
-#    serverName:
-#
-#    # <bool> Disables various certificate validations.
-#    # Using this option is highly discouraged for security reasons.
-#    # Default value: false
-#    skipVerifyServerName: false
+#  # See tls-client.yaml for the full field list.
+#  !include tls-client.yaml
 #
 #  # <object> Client-side field level encryption options.
 #  # Provides automatic encryption/decryption of sensitive fields.
@@ -169,9 +142,13 @@
 #      # <string> KMS provider type.
 #      # Determines which key management service to use.
 #      # Supported values: local, amazon, azure, google
-#      # Default value: local
+#      # Required when encryption is configured.
+#      # Default value: not set
 #      provider: local
 #
+#      # The provider sections below (local, amazon, azure, google) are alternatives;
+#      # configure the one matching provider.
+#      #
 #      # <object> Local KMS provider configuration.
 #      # Uses local key storage for encryption keys.
 #      local:

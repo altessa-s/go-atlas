@@ -1,6 +1,8 @@
 # Authentication configuration for access control and security.
 # Validates authentication tokens and enforces access policies.
 # Critical for protecting private APIs and sensitive operations.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
 
 #auth:
 #  # <bool> Enable authentication.

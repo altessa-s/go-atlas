@@ -1,25 +1,48 @@
-# Mutual-TLS authentication validators — the certificate-validation policy
-# consumed by auth/mtls/factory.New(&cfg).Options(). The identity function and
-# audit recorder are wired in code; the TLS credentials that require and verify
-# the client certificate are configured on the server via security/tlsutils.
-mtls:
-  # Pin the accepted SPIFFE trust domains. Empty accepts any trust domain.
-  trustDomains:
-    - "example.org"
-  # Re-validate the certificate validity window on every call (long-lived
-  # connections that outlive their certificate). Defaults to true.
-  checkExpiry: true
-  # Clock-skew tolerance for the expiry re-check. Defaults to 30s.
-  expiryLeeway: 30s
-  # Classic-PKI pins (for identity in the DN rather than a SPIFFE URI). Each is
-  # empty by default — the check is skipped unless set.
-  # Accepted certificate Subject CommonNames.
-  allowedSubjectCNs: []
-  # Accepted issuer (CA) CommonNames — narrows chain trust to specific issuers.
-  allowedIssuerCNs: []
-  # Accepted issuing-CA Authority Key IDs, hex-encoded — the most robust CA pin.
-  issuerKeyIDs: []
-  # Accepted DNS Subject Alternative Names (wildcard SANs honored).
-  allowedDNSNames: []
-  # Required extended key usages: clientAuth, serverAuth, any.
-  requiredEKUs: []
+# Mutual-TLS authentication validators configuration.
+# The certificate-validation policy consumed by auth/mtls/factory.New(&cfg).Options(). The identity function and
+# audit recorder are wired in code; the TLS credentials that require and verify the client certificate are configured
+# on the server via security/tlsutils.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
+
+#mtls:
+#  # <list[string]> Pin the accepted SPIFFE trust domains.
+#  # Empty accepts any trust domain.
+#  # Default value: not set
+#  trustDomains:
+#    - "example.org"
+#
+#  # <bool> Re-validate the certificate validity window on every call
+#  # (long-lived connections that outlive their certificate).
+#  # The config loader replaces an explicit false with this default (true).
+#  # Default value: true
+#  checkExpiry: true
+#
+#  # <duration> Clock-skew tolerance for the expiry re-check.
+#  # Default value: 30s
+#  expiryLeeway: "30s"
+#
+#  # <list[string]> Accepted certificate Subject CommonNames (classic-PKI pin for identity in the DN).
+#  # The check is skipped unless set.
+#  # Default value: not set
+#  allowedSubjectCNs: []
+#
+#  # <list[string]> Accepted issuer (CA) CommonNames — narrows chain trust to specific issuers.
+#  # The check is skipped unless set.
+#  # Default value: not set
+#  allowedIssuerCNs: []
+#
+#  # <list[string]> Accepted issuing-CA Authority Key IDs, hex-encoded — the most robust CA pin.
+#  # The check is skipped unless set.
+#  # Default value: not set
+#  issuerKeyIDs: []
+#
+#  # <list[string]> Accepted DNS Subject Alternative Names (wildcard SANs honored).
+#  # The check is skipped unless set.
+#  # Default value: not set
+#  allowedDNSNames: []
+#
+#  # <list[string]> Required extended key usages.
+#  # Supported values: clientAuth, serverAuth, any
+#  # Default value: not set
+#  requiredEKUs: []

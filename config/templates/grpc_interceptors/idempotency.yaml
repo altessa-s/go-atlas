@@ -1,6 +1,8 @@
 # Idempotency configuration for duplicate request prevention.
 # Tracks idempotency keys to ensure duplicate requests return cached responses.
 # Essential for financial operations and critical business transactions.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
 
 #idempotency:
 #  # <bool> Enable idempotency checking.
@@ -14,14 +16,13 @@
 #  ignoreMethods:
 #    - "/api.UserService/GetPublicData"
 #
-#  # <list[string]> List of regex patterns for methods to skip idempotency.
+#  # <list[string]> List of regex patterns for methods to skip idempotency checking.
 #  # Pattern-based rules for idempotency bypass.
 #  # Default value: not set
 #  ignorePatterns:
 #    - "^(?i)/api.readonly.*"
 #
-#  # <string> Header name for idempotency key.
-#  # HTTP header name containing the idempotency key.
+#  # <string> Metadata key (header) carrying the idempotency key.
 #  # Default value: idempotency-key
 #  idempotencyKeyHeader: idempotency-key
 #

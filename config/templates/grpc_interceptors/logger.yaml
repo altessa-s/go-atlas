@@ -1,6 +1,8 @@
 # Logger configuration for request/response logging interceptor.
 # Logs incoming requests and outgoing responses with configurable detail levels.
 # Essential for debugging, monitoring, and audit trails in production systems.
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
 
 #logger:
 #  # <bool> Enable request/response logging.
@@ -27,15 +29,14 @@
 #  # Default value: rfc3339
 #  timeFormat: rfc3339
 #
-#  # <bool> Log request payloads.
-#  # Set to true to include request content in logs for debugging purposes.
+#  # <bool> Log request payloads (CAUTION: may include sensitive data).
 #  # Default value: false
 #  logRequest: false
 #
-#  # <bool> Log response payloads.
-#  # Set to true to include response content in logs for debugging purposes.
-#  # Default value: true
-#  logResponse: true
+#  # <bool> Log response payloads (CAUTION: may include sensitive data).
+#  # The config loader leaves this false; config.DefaultGrpcInterLoggerConfig() sets it to true.
+#  # Default value: false
+#  logResponse: false
 #
 #  # <bool> Enable context-aware logger injection.
 #  # When enabled, handlers can retrieve the logger from the request context.

@@ -1,16 +1,20 @@
 # SPIFFE Workload API source configuration.
-#
-# Drives security/tlsutils/spiffe/factory.New: where the service fetches its own
-# rotating X.509-SVID (the Workload API endpoint) and which peers the derived
-# authorizer trusts. At least one of allowedTrustDomains / allowedIDs is
+# Drives security/tlsutils/spiffe/factory.New: where the service fetches its own rotating X.509-SVID (the Workload API
+# endpoint) and which peers the derived authorizer trusts. At least one of allowedTrustDomains / allowedIDs is
 # required — the source is fail-closed and will not trust every peer.
-spiffe:
-  # Workload API endpoint. Empty falls back to the SPIFFE_ENDPOINT_SOCKET env var.
-  socketPath: "unix:///run/spire/agent/api.sock"
+# All parameters are commented out by default (template mode).
+# Uncomment and configure as needed for your environment.
 
-  # SPIFFE trust domains whose members are accepted as peers.
-  allowedTrustDomains:
-    - "example.org"
-
-  # Exact SPIFFE IDs accepted as peers, in addition to allowedTrustDomains.
-  allowedIDs: []
+#spiffe:
+#  # <string> Workload API endpoint.
+#  # Default value: not set (falls back to the SPIFFE_ENDPOINT_SOCKET environment variable)
+#  socketPath: "unix:///run/spire/agent/api.sock"
+#
+#  # <list[string]> SPIFFE trust domains whose members are accepted as peers.
+#  # Default value: not set
+#  allowedTrustDomains:
+#    - "example.org"
+#
+#  # <list[string]> Exact SPIFFE IDs accepted as peers, in addition to allowedTrustDomains.
+#  # Default value: not set
+#  allowedIDs: []

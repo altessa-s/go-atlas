@@ -1,17 +1,14 @@
 # Client health monitoring configuration.
-# Configure health tracking for external HTTP and gRPC service clients.
+# Configures health tracking for external HTTP (httpHealthClient) and gRPC (grpcHealthClient) service clients;
+# both sections can be used in the same application. See health_client_http.yaml and health_client_grpc.yaml for
+# the per-transport templates.
 # All parameters are commented out by default (template mode).
-# Uncomment and configure the appropriate section for your client type.
-
-# ==============================================================================
-# HTTP CLIENT HEALTH MONITORING
-# ==============================================================================
-# Tracks HTTP client health based on retry rates and circuit breaker state.
+# Uncomment and configure as needed for your environment.
 
 #httpHealthClient:
 #  # <string> Service name registered with the health coordinator.
-#  # This name appears in health status reports and metrics.
-#  # REQUIRED field - must be set.
+#  # This name appears in health status reports and metrics. Required.
+#  # Default value: not set (required)
 #  serviceName: "external-api"
 #
 #  # <duration> Sliding window duration for calculating retry rates.
@@ -39,56 +36,31 @@
 #  # Only applies to clients with explicit per-host circuit breaker settings.
 #  # Default value: false
 #  perHost: false
-
-# ==============================================================================
-# GRPC CLIENT HEALTH MONITORING
-# ==============================================================================
-# Tracks gRPC client health based on connection state.
+#
+#  # Example: aggressive monitoring for a payment gateway —
+#  #   serviceName: "payment-gateway", retryWindow: "30s", retryThreshold: 0.1,
+#  #   retryMinSamples: 20, retryBuckets: 30, perHost: true
 
 #grpcHealthClient:
 #  # <string> Service name registered with the health coordinator.
-#  # This name appears in health status reports and metrics.
-#  # REQUIRED field - must be set.
+#  # This name appears in health status reports and metrics. Required.
+#  # Default value: not set (required)
 #  serviceName: "user-service"
 #
 #  # <string> Mapping strategy from gRPC connection state to health status.
-#  # Available options:
-#  #   - "default": Standard mapping from connectivity.State to ServingStatus
-#  #   - "strict": Any non-READY state maps to NOT_SERVING
-#  #   - "lenient": CONNECTING/IDLE map to SERVING, only TRANSIENT_FAILURE/SHUTDOWN to NOT_SERVING
-#  # Default value: "default"
+#  # Supported values:
+#  #   - default: standard mapping from connectivity.State to ServingStatus
+#  #   - strict: any non-READY state maps to NOT_SERVING
+#  #   - lenient: CONNECTING/IDLE map to SERVING, only TRANSIENT_FAILURE/SHUTDOWN to NOT_SERVING
+#  # Default value: default
 #  stateMapper: "default"
 #
 #  # <bool> Enable per-target health checks for connection pools.
 #  # When true, registers separate health checkers for each target address.
 #  # Default value: false
 #  perTarget: false
-
-# ==============================================================================
-# USAGE EXAMPLES
-# ==============================================================================
-
-# Example 1: HTTP client with aggressive health monitoring
-# httpHealthClient:
-#   serviceName: "payment-gateway"
-#   retryWindow: "30s"          # Shorter window for faster detection
-#   retryThreshold: 0.1          # Lower threshold (10% retry rate)
-#   retryMinSamples: 20          # Higher sample requirement
-#   retryBuckets: 30
-#   perHost: true                # Monitor each host separately
-
-# Example 2: gRPC client with strict health requirements
-# grpcHealthClient:
-#   serviceName: "auth-service"
-#   stateMapper: "strict"        # Any non-READY state is unhealthy
-#   perTarget: false             # Single health status for all targets
-
-# Example 3: Both HTTP and gRPC clients in the same application
-# httpHealthClient:
-#   serviceName: "external-api"
-#   retryWindow: "60s"
-#   retryThreshold: 0.2
 #
-# grpcHealthClient:
-#   serviceName: "internal-service"
-#   stateMapper: "default"
+#  # Examples:
+#  #   strict checking for a critical dependency: stateMapper: "strict"
+#  #   a connection pool monitored per target: perTarget: true
+#  #   a resilient background worker: stateMapper: "lenient"

@@ -16,26 +16,29 @@
 #  # <object> Rate limiting rules configuration.
 #  # Defines default and target-specific rate limits.
 #  rules:
-#    # Default rate limit settings applied when no specific rule matches.
-#    # This is a required field containing default rate limits.
+#    # <object> Default rate limit settings applied when no specific rule matches.
 #    default:
 #      # <int64> Maximum number of requests allowed within the period.
 #      # Must be a positive integer greater than 0.
 #      # Default value: 1000
 #      limit: 1000
+#
 #      # <duration> The time window for the limit.
-#      # Must be a valid duration string parseable by time.ParseDuration.
 #      # Default value: 1h
 #      period: "1h"
 #
-#    # List of specific rate limit rules for different IPs or subnets.
+#    # <list[object]> Specific rate limit rules for different IPs or subnets.
 #    # Rules are evaluated in order; the first matching rule is applied.
+#    # Default value: not set
 #    targets:
-#      # Example rule for a specific high-traffic IP address.
+#      # <string> IP address or CIDR subnet the rule applies to (example: a high-traffic IP).
+#      # Default value: not set
 #      - target: "192.168.1.100"
 #        # <int64> Maximum number of requests allowed within the period.
+#        # Default value: not set
 #        limit: 5000
 #        # <duration> The time window for the limit.
+#        # Default value: not set
 #        period: "1h"
 #
 #      # Example rule for an internal subnet with higher limits.

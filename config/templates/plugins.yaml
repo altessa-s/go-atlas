@@ -32,7 +32,7 @@
 #  # are loaded. Takes priority over `disabled` — when both are configured,
 #  # `disabled` is ignored.
 #  # Use this mode for production where every plugin must be explicit.
-#  # Default value: [] (load all .so files)
+#  # Default value: not set (load all .so files)
 #  load:
 #    - auth-jwt.so
 #    - audit-mongo.so
@@ -42,7 +42,7 @@
 #  # except those listed here.
 #  # Use this mode for development or when shipping a "load by default"
 #  # set with a few opt-out plugins.
-#  # Default value: [] (load every discovered .so)
+#  # Default value: not set (load every discovered .so)
 #  disabled:
 #    - experimental-tracer.so
 #
@@ -53,7 +53,7 @@
 #  # Format: duration string (e.g., "5s", "1m", "500ms").
 #  # Must be > 1ms.
 #  # Default value: 5s
-#  initTimeout: 5s
+#  initTimeout: "5s"
 #
 #  # <bool> Enable a filesystem watcher on the plugin directory.
 #  # When true, new .so files dropped into `dir` at runtime are loaded
@@ -70,7 +70,25 @@
 #  # Format: duration string (e.g., "200ms", "1s").
 #  # Must be > 1ms.
 #  # Default value: 200ms
-#  watchDebounce: 200ms
+#  watchDebounce: "200ms"
+#
+#  # <object> Optional plugin signature verification.
+#  # When enabled, each .so must have a .so.sig companion file containing a
+#  # detached signature verified against the configured public key before any
+#  # plugin code is executed.
+#  signature:
+#    # <string> Verification mode.
+#    #   - require / enforce: reject plugins without a valid .sig file
+#    #   - warn: log a warning but allow unsigned plugins
+#    #   - empty (omitted): disable verification entirely
+#    # Supported values: require, enforce, warn
+#    # Default value: not set
+#    mode: require
+#
+#    # <string> Filesystem path to a PEM-encoded public key (PKIX/SPKI "PUBLIC KEY" block).
+#    # Required when mode is set. Accepts Ed25519, ECDSA P-256, and RSA keys.
+#    # Default value: not set
+#    publicKeyPath: /etc/myservice/plugins.pub
 #
 #  # <object> Linux process-hardening primitives applied lazily on the first
 #  # Manager.Load call. Read every line below before enabling.
@@ -95,6 +113,7 @@
 #    # <bool> Set PR_SET_NO_NEW_PRIVS so the process and any binary it later
 #    # execs cannot gain privileges via SUID/SGID. Recommended; has no
 #    # downside on a non-setuid host.
+#    # The config loader replaces an explicit false with this default (true).
 #    # Default value: true
 #    noNewPrivs: true
 #
@@ -141,10 +160,11 @@
 #    #
 #    #   - Requires the parent sandbox.enabled = true.
 #    capabilities:
-#      # <bool> Turn Linux capability dropping on. Default: false.
+#      # <bool> Turn Linux capability dropping on.
+#      # Default value: false
 #      enabled: false
 #
-#      # <[]string> Capability names to preserve in the effective,
+#      # <list[string]> Capability names to preserve in the effective,
 #      # permitted, and bounding sets. Each entry must match a canonical
 #      # CAP_* name (case-insensitive). Unknown names fail config load.
 #      #
@@ -155,6 +175,7 @@
 #      #
 #      # The inheritable and ambient sets are always cleared; plugin
 #      # hosts never need to propagate capabilities across execve.
+#      # Default value: not set
 #      keep: []
 #
 #    # <object> Linux Landlock filesystem allowlist (kernel >= 5.13).
@@ -181,7 +202,8 @@
 #    # See docs/plugins.md for the minimum-viable allowlist on common
 #    # Linux distros (glibc x86_64, glibc arm64, musl-Alpine).
 #    landlock:
-#      # <bool> Turn Landlock on. Default: false.
+#      # <bool> Turn Landlock on.
+#      # Default value: false
 #      enabled: false
 #
 #      # <bool> Auto-add the configured plugin directory (plugins.dir) to
@@ -189,7 +211,7 @@
 #      # directory in the allowlist, dlopen fails immediately. Left off by
 #      # default to preserve the strict-allowlist contract; typical
 #      # deployments should set this to true.
-#      # Default: false
+#      # Default value: false
 #      allowPluginDir: true
 #
 #      # <bool> Auto-add the standard system library directories (/lib,
@@ -197,13 +219,14 @@
 #      # on RHEL, Debian, Ubuntu, Fedora, Alpine, and most other mainstream
 #      # distros. NOT suitable for NixOS (libs under /nix/store), chroot
 #      # jails, or custom library prefixes — use explicit readPaths there.
-#      # Default: false
+#      # Default value: false
 #      allowSystemLibs: true
 #
 #      # <list[string]> Additional paths granted read+execute (and traversal
 #      # for directories). Merged with the auto-added entries from
 #      # allowPluginDir and allowSystemLibs. Every entry must be an
 #      # absolute path. Use this for read-only config and data directories.
+#      # Default value: not set
 #      readPaths:
 #        - /etc/myservice
 #
@@ -211,6 +234,7 @@
 #      # log directories, runtime data directories, and anywhere the host
 #      # or its plugins need to mutate files. Every entry must be an
 #      # absolute path.
+#      # Default value: not set
 #      readWritePaths:
 #        - /var/lib/myservice
 #        - /var/log/myservice
