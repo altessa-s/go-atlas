@@ -44,11 +44,11 @@ func itSuffix() string {
 // newClaimIT connects to a live Redis and returns a Storage with a per-test key
 // prefix (all keys dropped on cleanup). It skips when Redis is unreachable or
 // lacks the RedisJSON module that the JSON-backed Storage requires.
-func newClaimIT(t *testing.T) *redisstore.Storage {
+func newClaimIT(t testing.TB) *redisstore.Storage {
 	t.Helper()
 
 	client := goredis.NewClient(&goredis.Options{Addr: redisAddr()})
-	if err := client.Ping(context.Background()).Err(); err != nil {
+	if err := client.Ping(t.Context()).Err(); err != nil {
 		_ = client.Close()
 		t.Skipf("redis not reachable at %s: %v", redisAddr(), err)
 	}
@@ -56,18 +56,20 @@ func newClaimIT(t *testing.T) *redisstore.Storage {
 	// Capability probe: the Storage is built on RedisJSON (JSON.SET/JSON.GET).
 	// A bare Redis without the module cannot run these tests.
 	probe := "sched_claim_it_probe:" + strconv.FormatInt(time.Now().UnixNano(), 10)
-	if err := client.JSONSet(context.Background(), probe, "$", `{"ok":1}`).Err(); err != nil {
-		_ = client.Del(context.Background(), probe)
+	if err := client.JSONSet(t.Context(), probe, "$", `{"ok":1}`).Err(); err != nil {
+		_ = client.Del(t.Context(), probe)
 		_ = client.Close()
 		t.Skipf("redis lacks the RedisJSON module (need Redis Stack): %v", err)
 	}
-	_ = client.Del(context.Background(), probe)
+	_ = client.Del(t.Context(), probe)
 
 	prefix := "sched_claim_it_" + itSuffix()
 	t.Cleanup(func() {
-		keys, _ := client.Keys(context.Background(), prefix+":*").Result()
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
+		defer cancel()
+		keys, _ := client.Keys(ctx, prefix+":*").Result()
 		if len(keys) > 0 {
-			_ = client.Del(context.Background(), keys...)
+			_ = client.Del(ctx, keys...)
 		}
 		_ = client.Close()
 	})

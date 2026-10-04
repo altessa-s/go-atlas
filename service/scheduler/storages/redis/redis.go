@@ -680,3 +680,43 @@ func (s *Storage) HistoryPaginated(ctx context.Context, taskID string, pg schedu
 
 // Compile-time interface check
 var _ scheduler.Storage = (*Storage)(nil)
+
+const finishRunScript = `
+local raw = redis.call('JSON.GET', KEYS[1], '$')
+if not raw then return 0 end
+local docs = cjson.decode(raw)
+local s = docs[1]
+if not s or ARGV[1] == '' or s.last_run_id ~= ARGV[1] or not s.run_started_at or s.run_started_at == 0 then return 0 end
+local status = s.status
+if status == tonumber(ARGV[7]) then
+ if s.one_shot then status = tonumber(ARGV[9]) else status = tonumber(ARGV[8]) end
+end
+local nextRun = s.next_run_at or 0
+if s.one_shot then nextRun = 0
+elseif s.schedule == ARGV[5] then nextRun = tonumber(ARGV[4]) end
+local failures = 0
+if ARGV[6] ~= '1' then failures = (s.failures or 0) + 1 end
+redis.call('JSON.SET', KEYS[1], '$.status', tostring(status))
+redis.call('JSON.SET', KEYS[1], '$.next_run_at', tostring(nextRun))
+redis.call('JSON.SET', KEYS[1], '$.last_run_at', ARGV[2])
+redis.call('JSON.SET', KEYS[1], '$.updated_at', ARGV[3])
+redis.call('JSON.SET', KEYS[1], '$.run_started_at', '0')
+redis.call('JSON.SET', KEYS[1], '$.failures', tostring(failures))
+return 1
+`
+
+// FinishRun commits result in one atomic script, preserving configuration and
+// rejecting executions that have been reclaimed or already finished.
+func (s *Storage) FinishRun(ctx context.Context, id, runID string, result scheduler.RunResult) (bool, error) {
+	success := 0
+	if result.Success {
+		success = 1
+	}
+	n, err := s.client.Eval(ctx, finishRunScript, []string{s.taskKey(id)},
+		runID, result.StartedAt, result.EndedAt, result.NextRunAt, result.Schedule, success,
+		int(scheduler.TaskStatusRunning), int(scheduler.TaskStatusActive), int(scheduler.TaskStatusCompleted)).Int64()
+	if err != nil {
+		return false, coreerrs.WrapOperation(err, "finish task run")
+	}
+	return n == 1, nil
+}

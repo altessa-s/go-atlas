@@ -439,3 +439,34 @@ func taskHistoryToFilterMap(h *scheduler.TaskHistory) map[string]any {
 
 // Compile-time interface check
 var _ scheduler.Storage = (*Storage)(nil)
+
+// FinishRun commits result only while runID still owns an unfinished execution.
+func (m *Storage) FinishRun(_ context.Context, id, runID string, result scheduler.RunResult) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	state, ok := m.tasks[id]
+	if !ok || runID == "" || state.LastRunID != runID || state.RunStartedAt == 0 {
+		return false, nil
+	}
+	if state.Status == scheduler.TaskStatusRunning {
+		if state.OneShot {
+			state.Status = scheduler.TaskStatusCompleted
+		} else {
+			state.Status = scheduler.TaskStatusActive
+		}
+	}
+	if state.OneShot {
+		state.NextRunAt = 0
+	} else if state.Schedule == result.Schedule {
+		state.NextRunAt = result.NextRunAt
+	}
+	state.LastRunAt = result.StartedAt
+	state.RunStartedAt = 0
+	state.UpdatedAt = result.EndedAt
+	if result.Success {
+		state.Failures = 0
+	} else {
+		state.Failures++
+	}
+	return true, nil
+}

@@ -423,3 +423,32 @@ func (s *Storage) HistoryPaginated(ctx context.Context, taskID string, pg schedu
 
 // Compile-time interface check
 var _ scheduler.Storage = (*Storage)(nil)
+
+// FinishRun conditionally updates execution fields on the current document.
+// The server evaluates ownership and concurrent status/configuration together.
+func (s *Storage) FinishRun(ctx context.Context, id, runID string, result scheduler.RunResult) (bool, error) {
+	if runID == "" {
+		return false, nil
+	}
+	oneShot := bson.M{"$ifNull": bson.A{"$one_shot", false}}
+	var failures any = 0
+	if !result.Success {
+		failures = bson.M{"$add": bson.A{bson.M{"$ifNull": bson.A{"$failures", 0}}, 1}}
+	}
+	update := mongo.Pipeline{bson.D{{Key: "$set", Value: bson.M{
+		"status": bson.M{"$cond": bson.A{
+			bson.M{"$eq": bson.A{"$status", scheduler.TaskStatusRunning}},
+			bson.M{"$cond": bson.A{oneShot, scheduler.TaskStatusCompleted, scheduler.TaskStatusActive}}, "$status",
+		}},
+		"next_run_at": bson.M{"$cond": bson.A{oneShot, 0,
+			bson.M{"$cond": bson.A{bson.M{"$eq": bson.A{"$schedule", bson.M{"$literal": result.Schedule}}}, result.NextRunAt, "$next_run_at"}},
+		}},
+		"last_run_at": result.StartedAt, "updated_at": result.EndedAt,
+		"run_started_at": 0, "failures": failures,
+	}}}}
+	res, err := s.tasks.UpdateOne(ctx, bson.M{"_id": id, "last_run_id": runID, "run_started_at": bson.M{"$gt": 0}}, update)
+	if err != nil {
+		return false, err
+	}
+	return res.MatchedCount == 1, nil
+}

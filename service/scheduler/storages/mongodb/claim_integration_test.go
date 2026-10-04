@@ -45,23 +45,25 @@ func itSuffix() string {
 	return strconv.FormatInt(time.Now().UnixNano(), 10) + "_" + strconv.FormatInt(itSeq.Add(1), 10)
 }
 
-func newClaimIT(t *testing.T) *mongodb.Storage {
+func newClaimIT(t testing.TB) *mongodb.Storage {
 	t.Helper()
 
 	client, err := mongo.Connect(mongoOptions.Client().ApplyURI(mongoURI()))
 	if err != nil {
 		t.Skipf("mongodb not available: %v", err)
 	}
-	if err := client.Ping(context.Background(), nil); err != nil {
-		_ = client.Disconnect(context.Background())
+	if err := client.Ping(t.Context(), nil); err != nil {
+		_ = client.Disconnect(t.Context())
 		t.Skipf("mongodb not reachable at %s: %v", mongoURI(), err)
 	}
 
 	dbName := "sched_claim_it_" + itSuffix()
 	db := client.Database(dbName)
 	t.Cleanup(func() {
-		_ = db.Drop(context.Background())
-		_ = client.Disconnect(context.Background())
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 5*time.Second)
+		defer cancel()
+		_ = db.Drop(ctx)
+		_ = client.Disconnect(ctx)
 	})
 
 	s := mongodb.New(db)
@@ -70,10 +72,10 @@ func newClaimIT(t *testing.T) *mongodb.Storage {
 	// these tests issue do not. Skip (rather than fail) when the server rejects
 	// commands — e.g. an auth-required mongod with no credentials in the URI.
 	probe := &scheduler.TaskState{TaskSummary: scheduler.TaskSummary{ID: "__probe__", Status: scheduler.TaskStatusActive}}
-	if err := s.UpsertTask(context.Background(), probe); err != nil {
+	if err := s.UpsertTask(t.Context(), probe); err != nil {
 		t.Skipf("mongodb not usable for writes (need an unauthenticated server or credentials in MONGO_URI): %v", err)
 	}
-	if err := s.DeleteTask(context.Background(), "__probe__"); err != nil {
+	if err := s.DeleteTask(t.Context(), "__probe__"); err != nil {
 		t.Skipf("mongodb not usable for writes: %v", err)
 	}
 

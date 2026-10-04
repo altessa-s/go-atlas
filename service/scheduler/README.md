@@ -4,11 +4,10 @@
 import "github.com/altessa-s/go-atlas/service/scheduler"
 ```
 
-Package `scheduler` provides a persistent task scheduler with cron-based scheduling, priority dispatch,
-and pluggable storage backends. Tasks are registered with functions, executed on schedule, and their
-state is durably persisted so that incomplete executions are recovered after a crash. Supports static
-and dynamic concurrency limits, distributed leader election, one-shot and recurring tasks, and
-cursor-based paginated listing with CEL filter push-down.
+Package `scheduler` provides a persistent task scheduler with cron-based scheduling, priority dispatch, and pluggable storage backends. Tasks are
+registered with functions, executed on schedule, and their state is durably persisted so that incomplete executions are recovered after a crash.
+Supports static and dynamic concurrency limits, distributed leader election, one-shot and recurring tasks, and cursor-based paginated listing with CEL
+filter push-down.
 
 ## Key types
 
@@ -58,8 +57,8 @@ cursor-based paginated listing with CEL filter push-down.
 ## Single execution
 
 In a multi-node deployment a `WithLeaderElector` keeps one instance dispatching, but leadership is only a throughput optimization. Each run is claimed
-through `Storage.ClaimRun` — a single atomic compare-and-swap (`active → running`, fenced on the occurrence's `next_run_at`) — so even if two
-instances believe they are leader during an election split-brain, exactly one claim wins and a task function runs at most once per occurrence. See
+through `Storage.ClaimRun` — a single atomic compare-and-swap (`active → running`, fenced on the occurrence's `next_run_at`) — so even if two instances
+believe they are leader during an election split-brain, exactly one claim wins and a task function runs at most once per occurrence. See
 [docs/service/scheduler.md](../../docs/service/scheduler.md#single-execution-is-enforced-at-the-storage-layer).
 
 ## Subpackages
@@ -70,3 +69,10 @@ instances believe they are leader during an election split-brain, exactly one cl
 | [storages/memory](./storages/memory)   | In-memory backend for dev/test with deep-copy semantics         |
 | [storages/mongodb](./storages/mongodb) | MongoDB-backed persistent storage with indexed queries          |
 | [storages/redis](./storages/redis)     | Redis (RedisJSON + RediSearch) persistent storage               |
+
+## Atomic finalization
+
+`Storage.FinishRun(ctx, id, runID, result)` atomically commits execution results only while that run still owns an unfinished execution. Stale and
+repeated finishes return `false` without writing. Finalization updates execution fields without replacing task configuration, preserves concurrent
+pause/disable decisions, and advances the next occurrence only if the schedule still matches. Custom storage implementations must implement this
+operation atomically; a `GetTask` check followed by `UpsertTask` does not satisfy the contract.
