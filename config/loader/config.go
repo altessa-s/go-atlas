@@ -88,6 +88,9 @@ type Config struct {
 	// envCache holds the resolved environment for the duration of one load
 	// so explicit values can be re-applied without re-resolving secrets.
 	envCache map[string]string
+	// present holds the keys set by the configuration files of the current
+	// load; default tags are not applied to them.
+	present presence
 }
 
 // New creates a new Config instance with the specified backend and options.
@@ -125,15 +128,15 @@ func (cf *Config) Load(conf any) (any, error) {
 		return nil, err
 	}
 
+	cf.smx.Lock()
+	defer cf.smx.Unlock()
+
 	cf.confType = reflect.TypeOf(conf)
 	cf.conf = conf
 
 	if reflect.ValueOf(conf).IsNil() {
 		cf.conf = reflect.New(indirectType(reflect.TypeOf(conf))).Interface()
 	}
-
-	cf.smx.Lock()
-	defer cf.smx.Unlock()
 
 	if err := cf.load(); err != nil {
 		return nil, err
@@ -151,31 +154,17 @@ func (cf *Config) Config() any {
 	return cf.conf
 }
 
-// reapplyExplicitValues decodes the cached file contents again and re-applies
-// the environment, restoring explicit values that a default-tag pass replaced.
-func (cf *Config) reapplyExplicitValues() error {
-	if cf.options.path != "" {
-		for f := range cf.files.All() {
-			if err := f.decodeCached(cf.conf); err != nil {
-				return err
-			}
-		}
-	}
-
-	cf.fields = structFields(cf.conf)
-	if err := cf.loadEnvs(); err != nil {
-		return fmt.Errorf("%w: %w", ErrBindEnv, err)
-	}
-	return nil
-}
-
 // load performs the actual configuration loading process.
 // It reads from files, applies defaults, loads environment variables, and runs validation.
 func (cf *Config) load() error {
 	var err error
 
 	cf.envCache = nil
-	defer func() { cf.envCache = nil }()
+	cf.present = presence{}
+	defer func() {
+		cf.envCache = nil
+		cf.present = presence{}
+	}()
 
 	// load configuration from file(s).
 	if cf.options.path != "" {
@@ -188,6 +177,7 @@ func (cf *Config) load() error {
 			if err != nil {
 				return err
 			}
+			cf.present.node = mergePresence(cf.present.node, f.keys)
 		}
 	}
 
@@ -209,16 +199,17 @@ func (cf *Config) load() error {
 		return fmt.Errorf("%w: %w", ErrBindDefaults, err)
 	}
 
-	// Default tags fill every zero value, which cannot be told apart from an
-	// explicit false/0/"" in a file or the environment. Re-apply the explicit
-	// sources so they win over the tag defaults.
-	if err = cf.reapplyExplicitValues(); err != nil {
-		return err
-	}
-
-	// Apply default values to structs inside maps
+	// Apply default values to struct elements of maps and slices
 	if err = cf.applyDefaultsToMaps(cf.conf); err != nil {
 		return fmt.Errorf("%w: %w", ErrBindDefaults, err)
+	}
+
+	// Default passes skip keys the files set, but cannot tell an explicit
+	// false/0/"" from the environment apart from an unset value. Re-apply the
+	// environment last so it wins over the tag defaults.
+	cf.fields = structFields(cf.conf)
+	if err = cf.loadEnvs(); err != nil {
+		return fmt.Errorf("%w: %w", ErrBindEnv, err)
 	}
 
 	// Expand secrets in all string fields using reflection

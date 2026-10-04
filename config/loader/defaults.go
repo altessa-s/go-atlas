@@ -5,13 +5,16 @@
 package loader
 
 import (
+	"fmt"
 	"reflect"
 
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 )
 
 // loadDefaultValues parses and sets default values for configuration fields.
-// It processes both struct tags and Defaulter interface implementations.
+// It processes both struct tags and Defaulter interface implementations. A
+// field whose key is present in a configuration file keeps the file value even
+// when it is false, 0 or "".
 func (cf *Config) loadDefaultValues() (err error) {
 	if !cf.options.skipDefaults {
 		if df, ok := cf.conf.(Defaulter); ok {
@@ -21,7 +24,7 @@ func (cf *Config) loadDefaultValues() (err error) {
 
 	cf.fields = structFields(cf.conf)
 	for f := range cf.fields.All() {
-		if !cf.options.skipDefaults && !f.isStructPtr() {
+		if !cf.options.skipDefaults && !f.isStructPtr() && !cf.setInFile(f) {
 			if err = f.setDefaultValue(defaultValueTagName, cf.options.strict); err != nil {
 				return err
 			}
@@ -37,68 +40,120 @@ func (cf *Config) loadDefaultValues() (err error) {
 	return
 }
 
-// applyDefaultsToMaps applies default values to structs inside maps recursively.
+// setInFile reports whether a configuration file set the key of f. Inline
+// ancestors contribute no key of their own.
+func (cf *Config) setInFile(f *field) bool {
+	tagName := cf.backend.StructTagName()
+
+	var keys []string
+	for cur := f; cur != nil; cur = cur.parent {
+		if isInline(cur.field, tagName) {
+			continue
+		}
+		key := fileKey(cur.field, tagName)
+		if key == "" {
+			return false
+		}
+		keys = append(keys, key)
+	}
+
+	p := cf.present
+	for i := len(keys) - 1; i >= 0; i-- {
+		var ok bool
+		if p, ok = p.child(keys[i]); !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// applyDefaultsToMaps applies default values to struct elements of maps and
+// slices, which the field list does not reach.
 func (cf *Config) applyDefaultsToMaps(value any) error {
 	v := reflect.ValueOf(value)
 	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 
-	return cf.applyDefaultsToValue(v)
+	return cf.applyDefaultsToValue(v, cf.present, false)
 }
 
-// applyDefaultsToValue recursively applies defaults to a reflect.Value.
-// Dispatches to type-specific handlers for better code organization.
-func (cf *Config) applyDefaultsToValue(v reflect.Value) error {
+// applyDefaultsToValue recursively applies defaults to a reflect.Value. p is
+// the file presence node for v; inElement reports whether v lies inside a map
+// or slice element, where the field list does not apply defaults itself.
+func (cf *Config) applyDefaultsToValue(v reflect.Value, p presence, inElement bool) error {
 	if !v.IsValid() || !v.CanInterface() {
 		return nil
 	}
 
 	switch v.Kind() {
 	case reflect.Struct:
-		return cf.applyDefaultsToStructFields(v)
+		if inElement {
+			return cf.applyDefaultsToStruct(v, p)
+		}
+		return cf.applyDefaultsToStructFields(v, p)
 	case reflect.Map:
-		return cf.applyDefaultsToMap(v)
+		return cf.applyDefaultsToMap(v, p)
 	case reflect.Slice, reflect.Array:
-		return cf.applyDefaultsToSlice(v)
+		return cf.applyDefaultsToSlice(v, p)
 	case reflect.Pointer:
-		return cf.applyDefaultsToPointer(v)
+		if v.IsNil() {
+			return nil
+		}
+		return cf.applyDefaultsToValue(v.Elem(), p, inElement)
 	default:
 		return nil
 	}
 }
 
-// applyDefaultsToStructFields applies defaults to all fields in a struct.
-func (cf *Config) applyDefaultsToStructFields(v reflect.Value) error {
+// fieldPresence returns the presence node of struct field sf under p and
+// whether the field's key was set; inline fields share the parent's node.
+func (cf *Config) fieldPresence(sf reflect.StructField, p presence) (presence, bool) {
+	tagName := cf.backend.StructTagName()
+	if isInline(sf, tagName) {
+		return p, false
+	}
+	key := fileKey(sf, tagName)
+	if key == "" {
+		return presence{}, false
+	}
+	return p.child(key)
+}
+
+// applyDefaultsToStructFields recurses into the fields of a struct whose own
+// defaults are applied by the field list.
+func (cf *Config) applyDefaultsToStructFields(v reflect.Value, p presence) error {
 	for i := range v.NumField() {
 		field := v.Field(i)
-		if field.CanSet() {
-			if err := cf.applyDefaultsToValue(field); err != nil {
-				return err
-			}
+		if !field.CanSet() {
+			continue
+		}
+		fp, _ := cf.fieldPresence(v.Type().Field(i), p)
+		if err := cf.applyDefaultsToValue(field, fp, false); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
 // applyDefaultsToMap applies defaults to struct values inside a map.
-func (cf *Config) applyDefaultsToMap(v reflect.Value) error {
+func (cf *Config) applyDefaultsToMap(v reflect.Value, p presence) error {
 	if v.IsNil() {
 		return nil
 	}
 
 	valueType := v.Type().Elem()
-
-	// Only process maps with struct values
 	if !cf.isStructValueType(valueType) {
 		return nil
 	}
 
-	// Collect all keys first (we can't modify map while iterating)
-	keys := cf.collectMapKeys(v)
-
-	// Process each map entry
-	return cf.processMapEntries(v, valueType, keys)
+	for _, mapKey := range cf.collectMapKeys(v) {
+		ep, _ := p.child(fmt.Sprint(mapKey.Interface()))
+		if err := cf.processMapEntry(v, valueType, mapKey, v.MapIndex(mapKey), ep); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // isStructValueType checks if a type is a struct or pointer to struct.
@@ -109,7 +164,7 @@ func (cf *Config) isStructValueType(valueType reflect.Type) bool {
 
 // collectMapKeys collects all keys from a map.
 func (cf *Config) collectMapKeys(v reflect.Value) []reflect.Value {
-	keys := make([]reflect.Value, 0)
+	keys := make([]reflect.Value, 0, v.Len())
 	iter := v.MapRange()
 	for iter.Next() {
 		keys = append(keys, iter.Key())
@@ -117,127 +172,70 @@ func (cf *Config) collectMapKeys(v reflect.Value) []reflect.Value {
 	return keys
 }
 
-// processMapEntries processes all entries in a map.
-func (cf *Config) processMapEntries(v reflect.Value, valueType reflect.Type, keys []reflect.Value) error {
-	for _, mapKey := range keys {
-		mapValue := v.MapIndex(mapKey)
-
-		if err := cf.processMapEntry(v, valueType, mapKey, mapValue); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // processMapEntry processes a single map entry.
-func (cf *Config) processMapEntry(v reflect.Value, valueType reflect.Type, mapKey, mapValue reflect.Value) error {
+func (cf *Config) processMapEntry(v reflect.Value, valueType reflect.Type, mapKey, mapValue reflect.Value, p presence) error {
 	switch mapValue.Kind() {
 	case reflect.Pointer:
-		return cf.processPointerMapValue(mapValue)
+		if mapValue.IsNil() || mapValue.Elem().Kind() != reflect.Struct {
+			return nil
+		}
+		return cf.applyDefaultsToStruct(mapValue.Elem(), p)
 	case reflect.Struct:
-		return cf.processStructMapValue(v, valueType, mapKey, mapValue)
+		// Map values are not addressable: default a copy and store it back.
+		newValue := reflect.New(valueType).Elem()
+		newValue.Set(mapValue)
+		if err := cf.applyDefaultsToStruct(newValue, p); err != nil {
+			return err
+		}
+		v.SetMapIndex(mapKey, newValue)
+		return nil
 	default:
 		return nil
 	}
 }
 
-// processPointerMapValue processes a pointer value in a map.
-func (cf *Config) processPointerMapValue(mapValue reflect.Value) error {
-	if mapValue.IsNil() {
-		return nil
-	}
-
-	actualValue := mapValue.Elem()
-	if actualValue.Kind() == reflect.Struct {
-		return cf.applyDefaultsToStruct(actualValue)
-	}
-	return nil
-}
-
-// processStructMapValue processes a struct value in a map.
-// Creates a modifiable copy since map values are not addressable.
-func (cf *Config) processStructMapValue(v reflect.Value, valueType reflect.Type, mapKey, mapValue reflect.Value) error {
-	// Create a modifiable copy
-	newValue := reflect.New(valueType).Elem()
-	newValue.Set(mapValue)
-
-	// Apply defaults to the copy
-	if err := cf.applyDefaultsToStruct(newValue); err != nil {
-		return err
-	}
-
-	// Set the modified copy back to the map
-	v.SetMapIndex(mapKey, newValue)
-	return nil
-}
-
 // applyDefaultsToSlice applies defaults to all elements in a slice or array.
-func (cf *Config) applyDefaultsToSlice(v reflect.Value) error {
+func (cf *Config) applyDefaultsToSlice(v reflect.Value, p presence) error {
 	for i := range v.Len() {
-		elem := v.Index(i)
-		if err := cf.applyDefaultsToValue(elem); err != nil {
+		if err := cf.applyDefaultsToValue(v.Index(i), p.index(i), true); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// applyDefaultsToPointer applies defaults to the value pointed to by a pointer.
-func (cf *Config) applyDefaultsToPointer(v reflect.Value) error {
-	if !v.IsNil() {
-		return cf.applyDefaultsToValue(v.Elem())
-	}
-	return nil
-}
-
-// applyDefaultsToStruct applies default values to a struct's fields.
-func (cf *Config) applyDefaultsToStruct(structValue reflect.Value) error {
+// applyDefaultsToStruct applies default tags to the fields of a map or slice
+// element and its nested structs, skipping fields the file set explicitly.
+func (cf *Config) applyDefaultsToStruct(structValue reflect.Value, p presence) error {
 	structType := structValue.Type()
 
 	for i := range structType.NumField() {
 		field := structType.Field(i)
 		fieldValue := structValue.Field(i)
-
-		// Skip unexported fields
 		if !fieldValue.CanSet() {
 			continue
 		}
 
-		// Get default tag
+		fp, explicit := cf.fieldPresence(field, p)
+
 		defaultTag := field.Tag.Get(defaultValueTagName)
-		if defaultTag == "" {
-			// No default tag, but recurse into the field
-			if err := cf.applyDefaultsToValue(fieldValue); err != nil {
+		if defaultTag != "" && !explicit && fieldValue.IsZero() {
+			if cf.options.strict {
+				var subErr error
+				if defaultTag, subErr = substituteEnvVariablesStrict(defaultTag); subErr != nil {
+					return subErr
+				}
+			} else {
+				defaultTag = substituteEnvVariables(defaultTag)
+			}
+
+			// isDefaultValue=false bypasses the zero check already done above.
+			if err := set(fieldValue, defaultTag, false, true, cf.options.strict); err != nil {
 				return err
 			}
-			continue
 		}
 
-		// Check if field is zero value
-		if !fieldValue.IsZero() {
-			// Field already has a value, skip setting default
-			continue
-		}
-
-		// Apply environment variable substitution
-		if cf.options.strict {
-			var subErr error
-			defaultTag, subErr = substituteEnvVariablesStrict(defaultTag)
-			if subErr != nil {
-				return subErr
-			}
-		} else {
-			defaultTag = substituteEnvVariables(defaultTag)
-		}
-
-		// Set the default value
-		// Use isDefaultValue=false to bypass conditional logic since we already checked IsZero
-		if err := set(fieldValue, defaultTag, false, true, cf.options.strict); err != nil {
-			return err
-		}
-
-		// Recurse into the field after setting defaults
-		if err := cf.applyDefaultsToValue(fieldValue); err != nil {
+		if err := cf.applyDefaultsToValue(fieldValue, fp, true); err != nil {
 			return err
 		}
 	}

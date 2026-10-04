@@ -21,11 +21,10 @@ default values, and secret expansion.
 ## Loading order
 
 1. Read configuration file(s) from the specified path (file or directory)
-2. Apply `default` struct tags to empty fields
+2. Apply `default` struct tags to fields whose key is absent from the files — an explicit `false`, `0` or `""` in a file is kept
 3. Override with environment variables (camelCase converted to SCREAMING_SNAKE_CASE)
-4. Re-apply defaults to newly created nested structs
-5. Re-apply the explicit file and environment values, so an explicit `false`, `0` or `""` wins over a non-zero `default` tag; then apply
-   defaults to struct values inside maps
+4. Re-apply defaults to newly created nested structs, then to struct elements of maps and slices (also skipping keys the files set)
+5. Re-apply the environment, so an explicit `false`, `0` or `""` from the environment also wins over a `default` tag
 6. Expand `$__secret{ns:key}` placeholders via the secrets manager
 7. Run `Validate()` if the struct implements `loader.Validator`
 8. Run `Normalize()` if the struct implements `loader.Normalizer`
