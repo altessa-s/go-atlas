@@ -16,7 +16,7 @@
 #
 #  # <int> Maximum concurrent subscriptions allowed per service.
 #  # Limits resource usage by preventing excessive number of watchers.
-#  # Value 0 means unlimited.
+#  # Must be positive; values <= 0 are ignored and the default limit applies.
 #  # Default value: 1000
 #  maxWatchersPerService: 1000
 #
