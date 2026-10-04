@@ -5,11 +5,14 @@
 package redacted
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
+)
 
-	"go.mongodb.org/mongo-driver/v2/bson"
-	"gopkg.in/yaml.v3"
+const (
+	bsonStringType byte = 0x02
+	bsonNullType   byte = 0x0a
 )
 
 // MarshalJSON implements json.Marshaler, emitting the placeholder as a
@@ -39,12 +42,11 @@ func (s RedactedString) MarshalYAML() (any, error) {
 	return placeholder, nil
 }
 
-// UnmarshalYAML implements yaml.Unmarshaler. It expects a scalar
-// string node and stores its value verbatim into the underlying
-// RedactedString.
-func (s *RedactedString) UnmarshalYAML(node *yaml.Node) error {
+// UnmarshalYAML uses the callback unmarshaler supported by yaml.v3.
+// Keeping the signature structural avoids a YAML dependency in this type.
+func (s *RedactedString) UnmarshalYAML(unmarshal func(any) error) error {
 	var v string
-	if err := node.Decode(&v); err != nil {
+	if err := unmarshal(&v); err != nil {
 		return fmt.Errorf("redacted: unmarshal yaml: %w", err)
 	}
 	*s = RedactedString(v)
@@ -72,11 +74,13 @@ func (s *RedactedString) UnmarshalText(data []byte) error {
 // tagged `bson:"field,omitempty"` is omitted entirely when the
 // RedactedString is empty.
 func (s RedactedString) MarshalBSONValue() (byte, []byte, error) {
-	typ, data, err := bson.MarshalValue(placeholder)
-	if err != nil {
-		return 0, nil, fmt.Errorf("redacted: marshal bson: %w", err)
-	}
-	return byte(typ), data, nil
+	// BSON string: little-endian length (including NUL), UTF-8 bytes, NUL.
+	// This fixed redaction encoding must work even without a custom registry.
+	const headerSize = 4
+	data := make([]byte, headerSize+len(placeholder)+1)
+	binary.LittleEndian.PutUint32(data, uint32(len(placeholder)+1))
+	copy(data[headerSize:], placeholder)
+	return bsonStringType, data, nil
 }
 
 // UnmarshalBSONValue implements bson.ValueUnmarshaler. It expects a
@@ -84,14 +88,15 @@ func (s RedactedString) MarshalBSONValue() (byte, []byte, error) {
 // null clears the value to the empty string. Other BSON types are
 // rejected.
 func (s *RedactedString) UnmarshalBSONValue(typ byte, data []byte) error {
-	if bson.Type(typ) == bson.TypeNull {
+	if typ == bsonNullType {
 		*s = ""
 		return nil
 	}
-	var v string
-	if err := bson.UnmarshalValue(bson.Type(typ), data, &v); err != nil {
-		return fmt.Errorf("redacted: unmarshal bson: %w", err)
+	const headerSize = 4
+	if typ != bsonStringType || len(data) < headerSize+1 ||
+		uint64(binary.LittleEndian.Uint32(data)) != uint64(len(data)-headerSize) || data[len(data)-1] != 0 {
+		return fmt.Errorf("redacted: invalid BSON string")
 	}
-	*s = RedactedString(v)
+	*s = RedactedString(data[headerSize : len(data)-1])
 	return nil
 }

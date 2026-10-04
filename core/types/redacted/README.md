@@ -25,7 +25,7 @@ assign string values into it via reflection — the explicit `Unmarshal*` method
 | `MarshalJSON() ([]byte, error)`            | `"<redacted>"` (JSON string)                                                      |
 | `UnmarshalJSON([]byte) error`              | Accepts any JSON string, stores it verbatim into the underlying value             |
 | `MarshalYAML() (any, error)`               | `"<redacted>"` scalar (yaml.v3)                                                   |
-| `UnmarshalYAML(*yaml.Node) error`          | Decodes a scalar string into the underlying value                                 |
+| `UnmarshalYAML(func(any) error) error`          | Decodes a scalar string into the underlying value                                 |
 | `MarshalText() ([]byte, error)`            | `[]byte("<redacted>")`                                                            |
 | `UnmarshalText([]byte) error`              | Stores incoming bytes verbatim                                                    |
 | `MarshalBSONValue() (byte, []byte, error)` | BSON string `<redacted>`                                                          |
@@ -33,14 +33,14 @@ assign string values into it via reflection — the explicit `Unmarshal*` method
 
 ## Serialization
 
-`RedactedString` implements `json.Marshaler` / `json.Unmarshaler`, `yaml.Marshaler` / `yaml.Unmarshaler` (`gopkg.in/yaml.v3`),
+`RedactedString` implements `json.Marshaler` / `json.Unmarshaler`, the YAML marshaler / callback unmarshaler (`gopkg.in/yaml.v3`),
 `encoding.TextMarshaler` / `encoding.TextUnmarshaler`, and `bson.ValueMarshaler` / `bson.ValueUnmarshaler`
 (`go.mongodb.org/mongo-driver/v2`). `Marshal` always emits the placeholder `<redacted>`; `Unmarshal` stores the incoming string verbatim, so a value
 loaded from YAML/JSON/BSON is exposed by `Expose()` but re-serializing the same struct redacts it again. `IsZero` returning `true` for the empty
 string makes `bson:",omitempty"` strip empty fields entirely from the on-the-wire document.
 
-Because the BSON marshallers must live on the type, this package depends on `go.mongodb.org/mongo-driver/v2/bson` — the same trade-off made by
-[`core/types/optional`](../optional/README.md).
+This package has no external production imports. Its fixed BSON redaction encoding uses stdlib and works without a custom registry. YAML decoding
+uses the callback interface supported by yaml.v3.
 
 ## Usage
 

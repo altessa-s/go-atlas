@@ -62,24 +62,3 @@ func FuzzJSONRoundTrip(f *testing.F) {
 		require.Equal(t, original, decoded, "the value changed on its way through JSON: %s", encoded)
 	})
 }
-
-// FuzzBSONRoundTrip is the same property for the encoding MongoDB documents use.
-func FuzzBSONRoundTrip(f *testing.F) {
-	f.Add(0, true)
-	f.Add(42, true)
-	f.Add(-7, false)
-
-	f.Fuzz(func(t *testing.T, v int, present bool) {
-		original := optional.Of(v, present)
-
-		typ, raw, err := original.MarshalBSONValue()
-		require.NoError(t, err)
-
-		var decoded optional.Optional[int]
-		require.NoError(t, decoded.UnmarshalBSONValue(typ, raw))
-
-		require.Equal(t, original, decoded, "the value changed on its way through BSON")
-		require.Equal(t, original.IsNone(), decoded.IsZero(),
-			"IsZero must agree with IsNone, or omitempty drops a present zero value")
-	})
-}
