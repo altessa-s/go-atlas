@@ -19,6 +19,7 @@ type StorageFunc struct {
 	AttemptLockWithTTLFunc func(ctx context.Context, key string, val []byte, lockTtl time.Duration) (bool, []byte, []byte, error)
 	CompleteFunc           func(ctx context.Context, key string, val []byte, lockToken []byte) error
 	StealFunc              func(ctx context.Context, key string, expectedVal, newVal []byte) ([]byte, error)
+	ReleaseFunc            func(ctx context.Context, key string, lockToken []byte) error
 	DeleteFunc             func(ctx context.Context, key string) error
 }
 
@@ -49,4 +50,9 @@ func (f StorageFunc) Steal(ctx context.Context, key string, expectedVal, newVal 
 // Delete implements the Storage interface.
 func (f StorageFunc) Delete(ctx context.Context, key string) error {
 	return f.DeleteFunc(ctx, key)
+}
+
+// Release implements the Storage interface.
+func (f StorageFunc) Release(ctx context.Context, key string, lockToken []byte) error {
+	return f.ReleaseFunc(ctx, key, lockToken)
 }

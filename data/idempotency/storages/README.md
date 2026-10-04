@@ -4,24 +4,20 @@
 import "github.com/altessa-s/go-atlas/data/idempotency/storages"
 ```
 
-Package `storages` defines the `Storage` interface for idempotency key persistence. Implementations live in subpackages and are injected into
-the top-level `idempotency.Keeper` to supply the underlying storage backend.
+Package `storages` defines the `Storage` interface for idempotency key persistence. Implementations live in subpackages and are injected into the
+top-level `idempotency.Keeper` to supply the underlying storage backend.
 
 ## Key types
 
 | Type / Interface | Description                                                    |
 |------------------|----------------------------------------------------------------|
-| `Storage`        | Interface: AttemptLock, AttemptLockWithTTL, Complete, Steal, Delete |
+| `Storage`        | Interface: AttemptLock, AttemptLockWithTTL, Complete, Steal, Release, Delete |
 | `Status`         | Key state: `StatusInProgress`, `StatusSuccess`                 |
 | `State`          | Holds the current status and optional response data for a key  |
 
-`Steal` is a low-level CAS-replace primitive used by Keeper's
-orphan-lock reclaim path: when a collision-time check spots an
-abandoned InProgress entry older than the configured threshold,
-Keeper builds a fresh wire and atomically swaps it in via
-`Steal(ctx, key, expectedVal, newVal)`. Backends implement it on top
-of their existing CAS mechanism (mutex+`bytes.Equal` for memory, Lua
-GET-compare-SET for Redis, `kv.Update(... revision)` for NATS).
+`Steal` is a low-level CAS-replace primitive used by Keeper's orphan-lock reclaim path: when a collision-time check spots an abandoned InProgress entry
+older than the configured threshold, Keeper builds a fresh wire and atomically swaps it in via `Steal(ctx, key, expectedVal, newVal)`. Backends
+implement it on top of their existing CAS mechanism (mutex+`bytes.Equal` for memory, Lua GET-compare-SET for Redis, `kv.Update(... revision)` for NATS).
 
 ## Subpackages
 
@@ -30,3 +26,9 @@ GET-compare-SET for Redis, `kv.Update(... revision)` for NATS).
 | [memory](./memory)     | In-memory backend with TTL         |
 | [nats](./nats)         | NATS JetStream storage             |
 | [redis](./redis)       | Distributed Redis storage          |
+
+## Release contract
+
+Implementations must atomically compare the ownership token and remove the matching entry in `Release(ctx, key, lockToken)`. A read followed by
+unconditional `Delete` is insufficient. Memory uses its mutex, Redis uses compare-and-delete Lua, and NATS uses `kv.Delete` with
+`jetstream.LastRevision`. Missing tokens fail with `ErrMissingLockState`; a missing or replaced entry fails with `ErrLockStolen`.

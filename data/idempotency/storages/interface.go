@@ -92,6 +92,11 @@ type Storage interface {
 	// payload and calls Steal to take ownership.
 	Steal(ctx context.Context, key string, expectedVal, newVal []byte) ([]byte, error)
 
-	// Delete removes the key from storage (e.g. on failure).
+	// Release atomically deletes key only if lockToken still owns it.
+	// Missing or replaced keys return ErrLockStolen; nil tokens return ErrMissingLockState.
+	Release(ctx context.Context, key string, lockToken []byte) error
+
+	// Delete unconditionally removes a key for administrative use.
+	// Request error cleanup must use Release instead.
 	Delete(ctx context.Context, key string) error
 }

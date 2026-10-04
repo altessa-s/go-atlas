@@ -223,3 +223,27 @@ func (s *Storage) Delete(ctx context.Context, key string) error {
 
 	return nil
 }
+
+// Release deletes key only while lockToken names its current revision.
+func (s *Storage) Release(ctx context.Context, key string, lockToken []byte) error {
+	if key == "" {
+		return storages.ErrEmptyKey
+	}
+	if len(lockToken) == 0 {
+		return storages.ErrMissingLockState
+	}
+	revision, err := decodeRevisionToken(lockToken)
+	if err != nil {
+		return err
+	}
+	if revision == 0 {
+		return storages.ErrLockStolen
+	}
+	if err := s.KV().Delete(ctx, key, jetstream.LastRevision(revision)); err != nil {
+		if errors.Is(err, jetstream.ErrKeyExists) || errors.Is(err, jetstream.ErrKeyNotFound) || errors.Is(err, jetstream.ErrKeyDeleted) {
+			return storages.ErrLockStolen
+		}
+		return coreerrs.WrapOperation(err, "release idempotency key in NATS")
+	}
+	return nil
+}

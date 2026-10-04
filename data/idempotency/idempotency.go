@@ -104,7 +104,10 @@ type Idempotency interface {
 	// is nil.
 	Complete(ctx context.Context, key string, data any, lockState *storages.State) error
 
-	// Delete removes the key from storage (e.g. on failure).
+	// Release removes a failed request only while lockState still owns the key.
+	Release(ctx context.Context, key string, lockState *storages.State) error
+
+	// Delete unconditionally removes a key for administrative use.
 	Delete(ctx context.Context, key string) error
 }
 
@@ -302,13 +305,30 @@ func (i *Keeper) Complete(ctx context.Context, key string, data any, lockState *
 	return nil
 }
 
-// Delete removes the key from storage (e.g. on failure). An empty key
+// Delete unconditionally removes a key for administrative use. An empty key
 // returns [ErrEmptyKey].
 func (i *Keeper) Delete(ctx context.Context, key string) error {
 	if key == "" {
 		return ErrEmptyKey
 	}
 	if err := i.storage.Delete(ctx, i.effectiveKey(ctx, key)); err != nil {
+		i.metrics.errors.Inc()
+		return err
+	}
+	i.metrics.deletions.Inc()
+	return nil
+}
+
+// Release removes a failed request's lock without affecting a newer owner or
+// a completed result. Pass the state returned by AttemptLock.
+func (i *Keeper) Release(ctx context.Context, key string, lockState *storages.State) error {
+	if key == "" {
+		return ErrEmptyKey
+	}
+	if len(lockState.LockToken()) == 0 {
+		return ErrMissingLockState
+	}
+	if err := i.storage.Release(ctx, i.effectiveKey(ctx, key), lockState.LockToken()); err != nil {
 		i.metrics.errors.Inc()
 		return err
 	}

@@ -191,3 +191,21 @@ func (s *Storage) Delete(_ context.Context, key string) error {
 func (s *Storage) Close() error {
 	return nil
 }
+
+// Release atomically removes key only while lockToken owns its unexpired entry.
+func (s *Storage) Release(_ context.Context, key string, lockToken []byte) error {
+	if key == "" {
+		return storages.ErrEmptyKey
+	}
+	if len(lockToken) == 0 {
+		return storages.ErrMissingLockState
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, ok := s.entries[key]
+	if !ok || !bytes.Equal(e.value, lockToken) || (!e.expiresAt.IsZero() && !time.Now().Before(e.expiresAt)) {
+		return storages.ErrLockStolen
+	}
+	delete(s.entries, key)
+	return nil
+}

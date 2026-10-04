@@ -3,14 +3,25 @@
 // the LICENSE file.
 
 // Package idempotency provides duplicate request detection using idempotency keys.
-// Supports multiple storage backends (memory, Redis, NATS) for distributed systems.
+// It supports memory, Redis, and NATS storage backends.
 //
-// Example:
+// # Ownership
 //
-//	storage := memory.New(memory.WithTTL(time.Hour))
-//	keeper := idempotency.New(storage)
-//	isDuplicate, err := keeper.Check(ctx, "request-123")
-//	if isDuplicate {
-//	    // Return cached response
+// AttemptLock returns a State with an opaque ownership token. Pass that State to
+// Complete on success or Release on failure. Both reject a stale owner's token.
+// Delete is unconditional administrative invalidation, not request cleanup.
+//
+// # Usage
+//
+//	keeper := idempotency.New(memory.New())
+//	locked, state, err := keeper.AttemptLock(ctx, "request-123")
+//	if err != nil || !locked {
+//	    return err
 //	}
+//	result, err := doWork(ctx)
+//	if err != nil {
+//	    _ = keeper.Release(ctx, "request-123", state)
+//	    return err
+//	}
+//	return keeper.Complete(ctx, "request-123", result, state)
 package idempotency
