@@ -23,7 +23,7 @@ Applying after the commit means a driver-retried transaction never duplicates an
 | Symbol | Description |
 |--------|-------------|
 | `Runner` | Executes a transactional body and applies/compensates its post-commit effects |
-| `New(committer Committer, logger *slog.Logger) *Runner` | Constructs a Runner; nil logger falls back to `slog.Default` |
+| `New(committer Committer, logger *slog.Logger, opts ...Option) *Runner` | Constructs a Runner; nil logger falls back to `slog.Default` |
 | `Committer` | `WithTransaction(ctx, fn)`; satisfied by `data/mongo.Mongo` |
 | `Effect` | `Label`, `Apply` (post-commit), `Compensate` (nil = best-effort / irreversible) |
 | `OnCommit(ctx, Effect) error` | Registers an effect from within a `Run` body; `ErrNoUnitOfWork` if none active |
@@ -31,7 +31,13 @@ Applying after the commit means a driver-retried transaction never duplicates an
 ## Cancellation
 
 `Effect.Apply` runs on the caller's context (honors cancellation). `Effect.Compensate` runs on a `context.WithoutCancel` copy, so an
-undo is never skipped because the caller's context was canceled.
+caller cancellation does not skip the undo. The entire compensation pass has a deadline (default 30s); callbacks must honor it.
+
+## Options
+
+| Option | Default | Effect |
+|--------|---------|--------|
+| `WithCompensationTimeout` | 30s | Overall compensation budget, independent of the original caller deadline |
 
 ## Usage
 

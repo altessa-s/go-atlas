@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -203,4 +204,16 @@ func TestRun_CompensationRunsOnCanceledContext(t *testing.T) {
 	})
 	require.ErrorIs(t, err, context.Canceled)
 	require.Equal(t, []string{"apply:a", "comp:a"}, rec.events)
+}
+
+func TestCompensationDeadline(t *testing.T) {
+	t.Parallel()
+	failure := errors.New("apply failed")
+	r := uow.New(&fakeCommitter{}, nil, uow.WithCompensationTimeout(10*time.Millisecond))
+	err := r.Run(t.Context(), func(ctx context.Context) error {
+		require.NoError(t, uow.OnCommit(ctx, uow.Effect{Label: "first", Apply: func(context.Context) error { return nil }, Compensate: func(ctx context.Context) error { <-ctx.Done(); return ctx.Err() }}))
+		return uow.OnCommit(ctx, uow.Effect{Label: "second", Apply: func(context.Context) error { return failure }})
+	})
+	require.ErrorIs(t, err, failure)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
