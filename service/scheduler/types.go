@@ -110,6 +110,10 @@ type TaskState struct {
 	Meta         map[string]string `json:"meta,omitempty"`
 	CreatedAt    int64             `json:"created_at"`
 	UpdatedAt    int64             `json:"updated_at"`
+	// Revision is incremented atomically by the storage on every write
+	// (UpsertTask, ClaimRun, FinishRun, ReplaceTaskIf). Values set by callers
+	// are ignored; it lets ReplaceTaskIf detect any concurrent change.
+	Revision int64 `json:"revision,omitempty"`
 }
 
 // TaskHistory represents a record of a single task execution, including timing
@@ -177,7 +181,10 @@ type Storage interface {
 	GetTask(ctx context.Context, id string) (*TaskState, error)
 
 	// UpsertTask creates or replaces the state of a task. The implementation
-	// must treat [TaskState.ID] as the primary key.
+	// must treat [TaskState.ID] as the primary key and atomically set the
+	// stored [TaskState.Revision] to the previous revision plus one (one for a
+	// new task), ignoring the caller's value. ClaimRun and FinishRun must
+	// increment the revision in the same atomic write as well.
 	UpsertTask(ctx context.Context, state *TaskState) error
 
 	// ClaimRun atomically transitions task id from active→running for the
@@ -206,11 +213,11 @@ type Storage interface {
 	FinishRun(ctx context.Context, id, runID string, result RunResult) (bool, error)
 
 	// ReplaceTaskIf atomically replaces the state of task state.ID only while
-	// the stored document still matches expect. It returns false when the task
-	// is missing or any fenced field changed since the caller read it. Missing
-	// LastRunID / RunStartedAt / NextRunAt fields compare equal to their zero
-	// values. A GetTask check followed by UpsertTask does not satisfy this
-	// contract.
+	// the stored document still matches expect, storing expect.Revision+1 as the
+	// new revision. It returns false when the task is missing or any fenced
+	// field, including the revision, changed since the caller read it. Missing
+	// fields compare equal to their zero values. A GetTask check followed by
+	// UpsertTask does not satisfy this contract.
 	ReplaceTaskIf(ctx context.Context, state *TaskState, expect TaskFence) (bool, error)
 
 	// DeleteTask removes a task and its associated state from storage.
@@ -285,12 +292,13 @@ func generateID() string {
 }
 
 // TaskFence is the compare-and-swap precondition of Storage.ReplaceTaskIf: the
-// run-ownership fields a writer observed when it read the task.
+// run-ownership fields and revision a writer observed when it read the task.
 type TaskFence struct {
 	Status       TaskStatus
 	NextRunAt    int64
 	LastRunID    string
 	RunStartedAt int64
+	Revision     int64
 }
 
 // FenceOf returns the [TaskFence] describing state as currently read.
@@ -300,6 +308,7 @@ func FenceOf(state *TaskState) TaskFence {
 		NextRunAt:    state.NextRunAt,
 		LastRunID:    state.LastRunID,
 		RunStartedAt: state.RunStartedAt,
+		Revision:     state.Revision,
 	}
 }
 

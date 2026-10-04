@@ -103,8 +103,13 @@ func (m *Storage) UpsertTask(_ context.Context, state *scheduler.TaskState) erro
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Store a clone
-	m.tasks[state.ID] = cloneTaskState(state)
+	// Store a clone with the next revision.
+	next := cloneTaskState(state)
+	next.Revision = 1
+	if cur, ok := m.tasks[state.ID]; ok {
+		next.Revision = cur.Revision + 1
+	}
+	m.tasks[state.ID] = next
 
 	return nil
 }
@@ -118,7 +123,9 @@ func (m *Storage) ReplaceTaskIf(_ context.Context, state *scheduler.TaskState, e
 	if !ok || scheduler.FenceOf(cur) != expect {
 		return false, nil
 	}
-	m.tasks[state.ID] = cloneTaskState(state)
+	next := cloneTaskState(state)
+	next.Revision = cur.Revision + 1
+	m.tasks[state.ID] = next
 	return true, nil
 }
 
@@ -142,6 +149,7 @@ func (m *Storage) ClaimRun(_ context.Context, id string, expectedNextRunAt, runS
 	state.RunStartedAt = runStartedAt
 	state.LastRunID = runID
 	state.UpdatedAt = runStartedAt
+	state.Revision++
 	return true, nil
 }
 
@@ -481,5 +489,6 @@ func (m *Storage) FinishRun(_ context.Context, id, runID string, result schedule
 	} else {
 		state.Failures++
 	}
+	state.Revision++
 	return true, nil
 }

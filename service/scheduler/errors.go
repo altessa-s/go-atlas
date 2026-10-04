@@ -51,3 +51,10 @@ var ErrNotReady = errors.New("subsystems not ready")
 // ErrScheduleConflict is returned by [Scheduler.Register] when the provided
 // [core/scheduler.TaskConfig] sets both RunAt and Schedule, which are mutually exclusive.
 var ErrScheduleConflict = errors.New("RunAt and Schedule are mutually exclusive")
+
+// ErrConcurrentUpdate is returned by the task management methods
+// ([Scheduler.Register], [Scheduler.PauseTask], [Scheduler.ResumeTask],
+// [Scheduler.DisableTask], [Scheduler.EnableTask], [Scheduler.SkipNextRun])
+// when concurrent writes kept invalidating the read-modify-write for
+// [MaxUpdateAttempts] attempts. Retrying the call is safe.
+var ErrConcurrentUpdate = errors.New("task was modified concurrently")

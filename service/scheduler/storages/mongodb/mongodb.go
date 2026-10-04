@@ -153,14 +153,23 @@ func (s *Storage) GetTask(ctx context.Context, id string) (*scheduler.TaskState,
 
 // UpsertTask inserts a new [scheduler.TaskState] or replaces an existing one
 // identified by state.ID. The entire document is replaced on update; partial
-// field updates are not supported.
+// field updates are not supported. The replacement runs as an update pipeline
+// so the stored revision is incremented atomically with the write; $literal
+// keeps "$"-prefixed string values from being read as field paths.
 func (s *Storage) UpsertTask(ctx context.Context, state *scheduler.TaskState) error {
 	doc := newTaskDocument(state)
-	replaceOpts := mongoOptions.Replace().SetUpsert(true)
+	doc.Revision = 0
+	update := mongo.Pipeline{bson.D{{Key: "$replaceWith", Value: bson.M{"$mergeObjects": bson.A{
+		bson.M{"$literal": doc},
+		bson.M{"revision": nextRevision},
+	}}}}}
 
-	_, err := s.tasks.ReplaceOne(ctx, bson.M{"_id": doc.ID}, doc, replaceOpts)
+	_, err := s.tasks.UpdateOne(ctx, bson.M{"_id": doc.ID}, update, mongoOptions.UpdateOne().SetUpsert(true))
 	return err
 }
+
+// nextRevision is the aggregation expression for the stored revision plus one.
+var nextRevision = bson.M{"$add": bson.A{bson.M{"$ifNull": bson.A{"$revision", 0}}, 1}}
 
 // ReplaceTaskIf replaces the document via a single conditional ReplaceOne whose
 // filter carries the fence, so the compare and the write are atomic. Fields
@@ -172,8 +181,11 @@ func (s *Storage) ReplaceTaskIf(ctx context.Context, state *scheduler.TaskState,
 		"next_run_at":    zeroOrMissing(expect.NextRunAt),
 		"last_run_id":    zeroOrMissing(expect.LastRunID),
 		"run_started_at": zeroOrMissing(expect.RunStartedAt),
+		"revision":       zeroOrMissing(expect.Revision),
 	}
-	res, err := s.tasks.ReplaceOne(ctx, filter, newTaskDocument(state))
+	doc := newTaskDocument(state)
+	doc.Revision = expect.Revision + 1
+	res, err := s.tasks.ReplaceOne(ctx, filter, doc)
 	if err != nil {
 		return false, err
 	}
@@ -200,12 +212,15 @@ func (s *Storage) ClaimRun(ctx context.Context, id string, expectedNextRunAt, ru
 	if expectedNextRunAt != 0 {
 		filter["next_run_at"] = expectedNextRunAt
 	}
-	update := bson.M{"$set": bson.M{
-		"status":         int32(scheduler.TaskStatusRunning),
-		"run_started_at": runStartedAt,
-		"last_run_id":    runID,
-		"updated_at":     runStartedAt,
-	}}
+	update := bson.M{
+		"$set": bson.M{
+			"status":         int32(scheduler.TaskStatusRunning),
+			"run_started_at": runStartedAt,
+			"last_run_id":    runID,
+			"updated_at":     runStartedAt,
+		},
+		"$inc": bson.M{"revision": 1},
+	}
 	res, err := s.tasks.UpdateOne(ctx, filter, update)
 	if err != nil {
 		return false, err
@@ -473,6 +488,7 @@ func (s *Storage) FinishRun(ctx context.Context, id, runID string, result schedu
 		}},
 		"last_run_at": result.StartedAt, "updated_at": result.EndedAt,
 		"run_started_at": 0, "failures": failures,
+		"revision": nextRevision,
 	}}}}
 	res, err := s.tasks.UpdateOne(ctx, bson.M{"_id": id, "last_run_id": runID, "run_started_at": bson.M{"$gt": 0}}, update)
 	if err != nil {

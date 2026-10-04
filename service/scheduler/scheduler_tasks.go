@@ -104,17 +104,31 @@ func (s *Scheduler) Register(ctx context.Context, cfg corescheduler.TaskConfig) 
 		UpdatedAt: nowUnix,
 	}
 
-	// Check if task already exists
-	existing, err := s.storage.GetTask(ctx, cfg.ID)
-	if err != nil {
-		return coreerrs.WrapOperation(err, "check existing task")
-	}
+	// Merge with any existing state and write it fenced on that state, so a
+	// concurrent claim, finish or management change is never overwritten.
+	base := state
+	saved := false
+	for range MaxUpdateAttempts {
+		existing, err := s.storage.GetTask(ctx, cfg.ID)
+		if err != nil {
+			return coreerrs.WrapOperation(err, "check existing task")
+		}
 
-	if existing != nil {
+		if existing == nil {
+			if err = s.storage.UpsertTask(ctx, base); err != nil {
+				return coreerrs.WrapOperation(err, "save task state")
+			}
+			saved = true
+			break
+		}
+
+		next := *base
+		state = &next
 		// Preserve certain fields from existing state
 		state.CreatedAt = existing.CreatedAt
 		state.LastRunAt = existing.LastRunAt
 		state.LastRunID = existing.LastRunID
+		state.RunStartedAt = existing.RunStartedAt // keeps an in-flight run finishable
 		state.Failures = existing.Failures
 		if isOneShot {
 			// One-shot: always use computed nextRun
@@ -135,10 +149,21 @@ func (s *Scheduler) Register(ctx context.Context, cfg corescheduler.TaskConfig) 
 			state.Status = existing.Status
 		}
 		// Description is always updated from config (allows changing description without recreating task)
-	}
 
-	if err := s.storage.UpsertTask(ctx, state); err != nil {
-		return coreerrs.WrapOperation(err, "save task state")
+		replaced, err := s.storage.ReplaceTaskIf(ctx, state, FenceOf(existing))
+		if err != nil {
+			return coreerrs.WrapOperation(err, "save task state")
+		}
+		if replaced {
+			saved = true
+			break
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
+	if !saved {
+		return ErrConcurrentUpdate
 	}
 
 	s.tasks[cfg.ID] = &registeredTask{
@@ -186,6 +211,43 @@ func (s *Scheduler) Unregister(ctx context.Context, id string) error {
 	return nil
 }
 
+// MaxUpdateAttempts bounds the optimistic read-modify-write loop of the task
+// management methods before they give up with [ErrConcurrentUpdate].
+const MaxUpdateAttempts = 10
+
+// updateTask applies mutate to the current state of task id and writes the
+// result with [Storage.ReplaceTaskIf] fenced on the state it read, re-reading
+// and retrying when a concurrent write wins. An error from mutate aborts
+// without writing.
+func (s *Scheduler) updateTask(ctx context.Context, id string, mutate func(*TaskState) error) error {
+	for range MaxUpdateAttempts {
+		state, err := s.storage.GetTask(ctx, id)
+		if err != nil {
+			return err
+		}
+		if state == nil {
+			return ErrTaskNotFound
+		}
+
+		fence := FenceOf(state)
+		if err = mutate(state); err != nil {
+			return err
+		}
+
+		replaced, err := s.storage.ReplaceTaskIf(ctx, state, fence)
+		if err != nil {
+			return err
+		}
+		if replaced {
+			return nil
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+	}
+	return ErrConcurrentUpdate
+}
+
 // PauseTask transitions a task to [TaskStatusPaused], preventing future
 // executions until [Scheduler.ResumeTask] is called. A currently running
 // execution will complete normally.
@@ -194,27 +256,20 @@ func (s *Scheduler) Unregister(ctx context.Context, id string) error {
 // [ErrTaskCompleted] if the task is a completed one-shot, or
 // [ErrTaskUnmanaged] if the task has its Unmanaged flag set.
 func (s *Scheduler) PauseTask(ctx context.Context, id string) error {
-	state, err := s.storage.GetTask(ctx, id)
-	if err != nil {
-		return err
-	}
+	return s.updateTask(ctx, id, func(state *TaskState) error {
+		if state.Status == TaskStatusCompleted {
+			return ErrTaskCompleted
+		}
 
-	if state == nil {
-		return ErrTaskNotFound
-	}
+		if state.Unmanaged {
+			return ErrTaskUnmanaged
+		}
 
-	if state.Status == TaskStatusCompleted {
-		return ErrTaskCompleted
-	}
+		state.Status = TaskStatusPaused
+		state.UpdatedAt = UnixNow()
 
-	if state.Unmanaged {
-		return ErrTaskUnmanaged
-	}
-
-	state.Status = TaskStatusPaused
-	state.UpdatedAt = UnixNow()
-
-	return s.storage.UpsertTask(ctx, state)
+		return nil
+	})
 }
 
 // ResumeTask transitions a [TaskStatusPaused] task back to [TaskStatusActive]
@@ -225,36 +280,29 @@ func (s *Scheduler) PauseTask(ctx context.Context, id string) error {
 // [ErrTaskCompleted] if the task is a completed one-shot, or [ErrTaskNotPaused]
 // if the task's current status is not [TaskStatusPaused].
 func (s *Scheduler) ResumeTask(ctx context.Context, id string) error {
-	state, err := s.storage.GetTask(ctx, id)
-	if err != nil {
-		return err
-	}
-
-	if state == nil {
-		return ErrTaskNotFound
-	}
-
-	if state.Status == TaskStatusCompleted {
-		return ErrTaskCompleted
-	}
-
-	if state.Status != TaskStatusPaused {
-		return ErrTaskNotPaused
-	}
-
-	now := time.Now()
-	state.Status = TaskStatusActive
-	if state.OneShot {
-		// One-shot: keep existing NextRunAt or set to now if already past
-		if state.NextRunAt < now.Unix() {
-			state.NextRunAt = now.Unix()
+	return s.updateTask(ctx, id, func(state *TaskState) error {
+		if state.Status == TaskStatusCompleted {
+			return ErrTaskCompleted
 		}
-	} else {
-		state.NextRunAt = s.calculateNextRun(ctx, now, state).Unix()
-	}
-	state.UpdatedAt = now.Unix()
 
-	return s.storage.UpsertTask(ctx, state)
+		if state.Status != TaskStatusPaused {
+			return ErrTaskNotPaused
+		}
+
+		now := time.Now()
+		state.Status = TaskStatusActive
+		if state.OneShot {
+			// One-shot: keep existing NextRunAt or set to now if already past
+			if state.NextRunAt < now.Unix() {
+				state.NextRunAt = now.Unix()
+			}
+		} else {
+			state.NextRunAt = s.calculateNextRun(ctx, now, state).Unix()
+		}
+		state.UpdatedAt = now.Unix()
+
+		return nil
+	})
 }
 
 // DisableTask transitions a task to [TaskStatusDisabled], preventing both
@@ -265,23 +313,16 @@ func (s *Scheduler) ResumeTask(ctx context.Context, id string) error {
 // Returns [ErrTaskNotFound] if no task with the given ID exists in storage,
 // or [ErrTaskUnmanaged] if the task has its Unmanaged flag set.
 func (s *Scheduler) DisableTask(ctx context.Context, id string) error {
-	state, err := s.storage.GetTask(ctx, id)
-	if err != nil {
-		return err
-	}
+	return s.updateTask(ctx, id, func(state *TaskState) error {
+		if state.Unmanaged {
+			return ErrTaskUnmanaged
+		}
 
-	if state == nil {
-		return ErrTaskNotFound
-	}
+		state.Status = TaskStatusDisabled
+		state.UpdatedAt = UnixNow()
 
-	if state.Unmanaged {
-		return ErrTaskUnmanaged
-	}
-
-	state.Status = TaskStatusDisabled
-	state.UpdatedAt = UnixNow()
-
-	return s.storage.UpsertTask(ctx, state)
+		return nil
+	})
 }
 
 // EnableTask transitions a [TaskStatusDisabled] task back to [TaskStatusActive]
@@ -292,36 +333,29 @@ func (s *Scheduler) DisableTask(ctx context.Context, id string) error {
 // [ErrTaskCompleted] if the task is a completed one-shot, or
 // [ErrTaskNotDisabled] if the task's current status is not [TaskStatusDisabled].
 func (s *Scheduler) EnableTask(ctx context.Context, id string) error {
-	state, err := s.storage.GetTask(ctx, id)
-	if err != nil {
-		return err
-	}
-
-	if state == nil {
-		return ErrTaskNotFound
-	}
-
-	if state.Status == TaskStatusCompleted {
-		return ErrTaskCompleted
-	}
-
-	if state.Status != TaskStatusDisabled {
-		return ErrTaskNotDisabled
-	}
-
-	now := time.Now()
-	state.Status = TaskStatusActive
-	if state.OneShot {
-		// One-shot: keep existing NextRunAt or set to now if already past
-		if state.NextRunAt < now.Unix() {
-			state.NextRunAt = now.Unix()
+	return s.updateTask(ctx, id, func(state *TaskState) error {
+		if state.Status == TaskStatusCompleted {
+			return ErrTaskCompleted
 		}
-	} else {
-		state.NextRunAt = s.calculateNextRun(ctx, now, state).Unix()
-	}
-	state.UpdatedAt = now.Unix()
 
-	return s.storage.UpsertTask(ctx, state)
+		if state.Status != TaskStatusDisabled {
+			return ErrTaskNotDisabled
+		}
+
+		now := time.Now()
+		state.Status = TaskStatusActive
+		if state.OneShot {
+			// One-shot: keep existing NextRunAt or set to now if already past
+			if state.NextRunAt < now.Unix() {
+				state.NextRunAt = now.Unix()
+			}
+		} else {
+			state.NextRunAt = s.calculateNextRun(ctx, now, state).Unix()
+		}
+		state.UpdatedAt = now.Unix()
+
+		return nil
+	})
 }
 
 // SkipNextRun marks the next scheduled execution of a task to be skipped. When
@@ -332,19 +366,12 @@ func (s *Scheduler) EnableTask(ctx context.Context, id string) error {
 //
 // Returns [ErrTaskNotFound] if no task with the given ID exists in storage.
 func (s *Scheduler) SkipNextRun(ctx context.Context, id string) error {
-	state, err := s.storage.GetTask(ctx, id)
-	if err != nil {
-		return err
-	}
+	return s.updateTask(ctx, id, func(state *TaskState) error {
+		state.SkipNextRun = true
+		state.UpdatedAt = UnixNow()
 
-	if state == nil {
-		return ErrTaskNotFound
-	}
-
-	state.SkipNextRun = true
-	state.UpdatedAt = UnixNow()
-
-	return s.storage.UpsertTask(ctx, state)
+		return nil
+	})
 }
 
 // GetTaskState retrieves the current persistent state of a task from [Storage].

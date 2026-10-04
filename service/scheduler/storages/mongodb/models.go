@@ -44,6 +44,7 @@ type taskDocument struct {
 	Meta           map[string]string `bson:"meta,omitempty"`
 	CreatedAt      int64             `bson:"created_at"`
 	UpdatedAt      int64             `bson:"updated_at"`
+	Revision       int64             `bson:"revision,omitempty"`
 }
 
 // newTaskDocument creates a new taskDocument from a TaskState.
