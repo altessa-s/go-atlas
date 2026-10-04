@@ -213,3 +213,26 @@ func (s *Storage) Delete(ctx context.Context, key string) error {
 
 	return nil
 }
+
+var releaseCASScript = redis.NewScript(`
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+return redis.call('DEL', KEYS[1])
+`)
+
+// Release atomically removes key only while lockToken owns its entry.
+func (s *Storage) Release(ctx context.Context, key string, lockToken []byte) error {
+	if key == "" {
+		return storages.ErrEmptyKey
+	}
+	if len(lockToken) == 0 {
+		return storages.ErrMissingLockState
+	}
+	result, err := releaseCASScript.Run(ctx, s.Client(), []string{s.Key(key)}, lockToken).Int64()
+	if err != nil {
+		return coreerrs.WrapOperation(err, "release idempotency key in Redis")
+	}
+	if result != 1 {
+		return storages.ErrLockStolen
+	}
+	return nil
+}

@@ -13,8 +13,8 @@ The idempotency key is global unless you scope it. Two tenants that submit the *
 guesses another tenant's key can be served that tenant's completed response (`Complete` stores the response `Data`, and a subsequent `AttemptLock`
 returns it). In a multi-tenant service this is a cross-tenant data leak.
 
-**Contract:** scope keys to the tenant/subject. Either prefix every key you pass, or configure `WithKeyNamespace` so the `Keeper` prefixes every
-storage operation (`AttemptLock`, `Steal`, `Complete`, `Delete`) automatically:
+**Contract:** scope keys to the tenant/subject. Either prefix every key you pass, or configure `WithKeyNamespace` so the `Keeper` prefixes every storage
+operation (`AttemptLock`, `Steal`, `Complete`, `Release`, `Delete`) automatically:
 
 ```go
 k := idempotency.New(storage,
@@ -29,9 +29,9 @@ Returning `""` leaves keys unchanged, so existing single-tenant callers are unaf
 
 ## Stolen-lock detection
 
-`AttemptLock` returns a `*State` carrying an opaque CAS token. `Complete` requires that same `*State` back; if the lock has been taken over
-by another holder between `AttemptLock` and `Complete` (typically because the lock TTL fired during processing), Complete returns
-`ErrLockStolen` instead of silently overwriting the new holder's result.
+`AttemptLock` returns a `*State` carrying an opaque CAS token. `Complete` requires that same `*State` back; if the lock has been taken over by another
+holder between `AttemptLock` and `Complete` (typically because the lock TTL fired during processing), Complete returns `ErrLockStolen` instead of
+silently overwriting the new holder's result.
 
 Backend-specific CAS primitives:
 
@@ -47,9 +47,11 @@ Pass the `*State` from AttemptLock straight back to Complete:
 ok, state, err := keeper.AttemptLock(ctx, key)
 if err != nil { return err }
 if !ok { /* in-progress or completed; consult state */ return nil }
-defer keeper.Delete(ctx, key)  // on failure
 result, err := doWork(ctx)
-if err != nil { return err }
+if err != nil {
+    _ = keeper.Release(ctx, key, state) // release only our own lock
+    return err
+}
 return keeper.Complete(ctx, key, result, state)  // state carries the CAS token
 ```
 
@@ -71,14 +73,11 @@ ok, state, err := keeper.AttemptLockWithOpts(ctx, key, idempotency.AttemptLockOp
 | `LockTTL`         | Use the backend's configured TTL (`WithTTL` / `WithMaxAge` / YAML).  |
 | `MaxLockDuration` | Use the Keeper's configured value (`WithMaxLockDuration`, default 5m). |
 
-Useful when different keys legitimately need different lock lifetimes
-within one Keeper instance — e.g. short-lived OTP tokens vs longer
-broker-driven webhook processing.
+Useful when different keys legitimately need different lock lifetimes within one Keeper instance — e.g. short-lived OTP tokens vs longer broker-driven
+webhook processing.
 
-Result TTL (how long the cached success state lives) is configured at
-the backend level. If you need per-call result-TTL control, file an
-issue with the use case — the dual-TTL API was tried and removed
-because no in-tree caller exercised it.
+Result TTL (how long the cached success state lives) is configured at the backend level. If you need per-call result-TTL control, file an issue with the
+use case — the dual-TTL API was tried and removed because no in-tree caller exercised it.
 
 ## Startup warning when MaxLockDuration is unset
 
@@ -106,12 +105,9 @@ Either form silences the warning. Factory users set `idempotency.maxLockDuration
 
 ## Orphan-lock reclaim
 
-When a holder crashes between `AttemptLock` and `Complete`/`Delete`,
-the InProgress entry sits in storage until the bucket TTL fires
-(default 24h). To unblock retries sooner, every InProgress wire embeds
-a `LockedAt` timestamp. On collision, if the existing entry is older
-than the resolved `MaxLockDuration`, `AttemptLock` issues a CAS-steal
-via the storage layer and the new holder gets a fresh lock token.
+When a holder crashes between `AttemptLock` and `Complete`/`Release`, the InProgress entry sits in storage until the bucket TTL fires (default 24h). To
+unblock retries sooner, every InProgress wire embeds a `LockedAt` timestamp. On collision, if the existing entry is older than the resolved
+`MaxLockDuration`, `AttemptLock` issues a CAS-steal via the storage layer and the new holder gets a fresh lock token.
 
 | Behavior                          | Setting                                       |
 |-----------------------------------|-----------------------------------------------|
@@ -120,9 +116,8 @@ via the storage layer and the new holder gets a fresh lock token.
 | Override per-call                 | `AttemptLockOpts{MaxLockDuration: 30*time.Second}`. |
 | Disable reclaim                   | Set the Keeper field to 0 — collisions surface as in-progress. |
 
-The crashed holder's stale `Complete` then surfaces `ErrLockStolen`
-because its CAS token is no longer current. Callers see this as the
-normal "we lost the race" path and skip writing.
+The crashed holder's stale `Complete` then surfaces `ErrLockStolen` because its CAS token is no longer current. Callers see this as the normal "we lost
+the race" path and skip writing.
 
 ## Options
 
@@ -140,3 +135,9 @@ normal "we lost the race" path and skip writing.
 | [storages/memory](./storages/memory)     | In-memory backend with TTL           |
 | [storages/redis](./storages/redis)       | Distributed Redis storage            |
 | [storages/nats](./storages/nats)         | NATS JetStream storage               |
+
+## Ownership-safe release
+
+`Release(ctx, key, state)` requires the token returned by `AttemptLock`, just like `Complete`. A missing token returns `ErrMissingLockState`; an
+expired, completed or replaced lock returns `ErrLockStolen`. HTTP and gRPC adapters use `Release` when a handler fails. `Delete` unconditionally removes
+a key and is reserved for administrative invalidation, never request cleanup.
