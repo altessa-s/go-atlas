@@ -65,6 +65,7 @@ type taskData struct {
 	Meta           map[string]string `json:"meta,omitempty"`
 	CreatedAt      int64             `json:"created_at"`
 	UpdatedAt      int64             `json:"updated_at"`
+	Revision       int64             `json:"revision,omitempty"`
 }
 
 // newTaskData creates a new taskData from a TaskState.

@@ -14,7 +14,7 @@ filter push-down.
 | Type / Interface | Description                                                                    |
 |------------------|--------------------------------------------------------------------------------|
 | `Scheduler`      | Core scheduler: register tasks, dispatch on tick, pause/resume/disable         |
-| `Storage`        | Persistence interface (10 methods) implemented by every backend                |
+| `Storage`        | Persistence interface (13 methods) implemented by every backend                |
 | `TaskState`      | Full persistent state of a task including schedule, priority, timestamps       |
 | `TaskSummary`    | Lightweight read-only view returned by listing endpoints                       |
 | `TaskHistory`    | Record of a single execution: start/end time, success flag, error, run ID     |
@@ -53,6 +53,7 @@ filter push-down.
 | `ErrScheduleConflict`  | Register -- both RunAt and Schedule were provided simultaneously     |
 | `ErrTaskAlreadyDispatched` | TriggerTask -- a dispatch for this task is already queued or running |
 | `ErrNotReady`          | TriggerTask -- the configured readiness probe returned false         |
+| `ErrConcurrentUpdate`  | Register and management methods -- concurrent writes won `MaxUpdateAttempts` times; retry |
 
 ## Single execution
 
@@ -79,7 +80,9 @@ operation atomically; a `GetTask` check followed by `UpsertTask` does not satisf
 
 ## Fenced replacement
 
-`Storage.ReplaceTaskIf(ctx, state, expect)` replaces a task only while its `Status`, `NextRunAt`, `LastRunID` and `RunStartedAt` still equal the
-`TaskFence` the caller read (`scheduler.FenceOf`). Stale-task recovery and `SkipNextRun` handling write through it, so a run that finished or was
+`Storage.ReplaceTaskIf(ctx, state, expect)` replaces a task only while its `Status`, `NextRunAt`, `LastRunID`, `RunStartedAt` and `Revision`
+still equal the `TaskFence` the caller read (`scheduler.FenceOf`). Every storage write — `UpsertTask`, `ClaimRun`, `FinishRun`, `ReplaceTaskIf` —
+increments `TaskState.Revision` atomically and ignores the caller's value, so any concurrent change, including one that leaves the run fields
+untouched (metadata, `SkipNextRun`), fails the fence. Stale-task recovery and `SkipNextRun` handling write through it, so a run that finished or was
 re-claimed after the scheduler read the task is never overwritten. Absent fields compare equal to their zero values. Like `FinishRun`, custom storage
 implementations must perform the comparison and the write atomically.

@@ -264,13 +264,39 @@ func (s *Storage) GetTask(ctx context.Context, id string) (*scheduler.TaskState,
 	return td.toTaskState(), nil
 }
 
+// revisionLua reads the stored revision of KEYS[1] (0 when absent).
+const revisionLua = `
+local function revision()
+  local v = redis.call('JSON.GET', KEYS[1], '$.revision')
+  if (not v) or v == '[]' then return 0 end
+  return tonumber(string.match(v, '(-?%d+)'))
+end
+`
+
+// upsertTaskScript replaces the task document and stores the previous revision
+// plus one in the same atomic script. KEYS[1] is the task key; ARGV[1] is the
+// JSON document.
+const upsertTaskScript = revisionLua + `
+local rev = 0
+if redis.call('EXISTS', KEYS[1]) == 1 then rev = revision() end
+redis.call('JSON.SET', KEYS[1], '$', ARGV[1])
+redis.call('JSON.SET', KEYS[1], '$.revision', tostring(rev + 1))
+return 1
+`
+
 // UpsertTask creates or replaces the full task state document in Redis.
 // The task is stored as a JSON document under the key {prefix}:task:{id}
-// and is automatically indexed by RediSearch for query operations.
+// and is automatically indexed by RediSearch for query operations. The
+// revision is incremented atomically by upsertTaskScript.
 func (s *Storage) UpsertTask(ctx context.Context, state *scheduler.TaskState) error {
 	td := newTaskData(state)
+	td.Revision = 0
+	doc, err := json.Marshal(td)
+	if err != nil {
+		return coreerrs.Wrapf(err, "failed to marshal task %q", state.ID)
+	}
 
-	if err := s.client.JSONSet(ctx, s.taskKey(state.ID), "$", td).Err(); err != nil {
+	if err := s.client.Eval(ctx, upsertTaskScript, []string{s.taskKey(state.ID)}, string(doc)).Err(); err != nil {
 		return coreerrs.Wrapf(err, "failed to save task %q", state.ID)
 	}
 
@@ -279,7 +305,8 @@ func (s *Storage) UpsertTask(ctx context.Context, state *scheduler.TaskState) er
 
 // replaceTaskIfScript replaces a task JSON document only while its fence fields
 // still match. KEYS[1] is the task key; ARGV = [status, nextRunAt, runStartedAt,
-// lastRunID, document]. Absent omitempty fields read as their zero values.
+// lastRunID, document, revision]. Absent omitempty fields read as their zero
+// values. The document already carries revision+1.
 // Returns 1 when the document was replaced, 0 otherwise.
 const replaceTaskIfScript = `
 if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
@@ -291,6 +318,7 @@ end
 if num('$.status') ~= tonumber(ARGV[1]) then return 0 end
 if num('$.next_run_at') ~= tonumber(ARGV[2]) then return 0 end
 if num('$.run_started_at') ~= tonumber(ARGV[3]) then return 0 end
+if num('$.revision') ~= tonumber(ARGV[6]) then return 0 end
 local id = ''
 local v = redis.call('JSON.GET', KEYS[1], '$.last_run_id')
 if v and v ~= '[]' then id = cjson.decode(v)[1] end
@@ -302,7 +330,9 @@ return 1
 // ReplaceTaskIf replaces the task document via replaceTaskIfScript, so the fence
 // comparison and the write execute atomically on the server.
 func (s *Storage) ReplaceTaskIf(ctx context.Context, state *scheduler.TaskState, expect scheduler.TaskFence) (bool, error) {
-	doc, err := json.Marshal(newTaskData(state))
+	td := newTaskData(state)
+	td.Revision = expect.Revision + 1
+	doc, err := json.Marshal(td)
 	if err != nil {
 		return false, coreerrs.Wrapf(err, "failed to marshal task %q", state.ID)
 	}
@@ -312,6 +342,7 @@ func (s *Storage) ReplaceTaskIf(ctx context.Context, state *scheduler.TaskState,
 		expect.RunStartedAt,
 		expect.LastRunID,
 		string(doc),
+		expect.Revision,
 	).Result()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
@@ -328,7 +359,7 @@ func (s *Storage) ReplaceTaskIf(ctx context.Context, state *scheduler.TaskState,
 // threaded execution, so the read-check-write is atomic: KEYS[1] is the task key;
 // ARGV = [activeStatus, expectedNextRunAt, runningStatus, runStartedAt, jsonRunID].
 // Returns 1 when this caller claimed the run, 0 otherwise.
-const claimRunScript = `
+const claimRunScript = revisionLua + `
 local s = redis.call('JSON.GET', KEYS[1], '$.status')
 if (not s) or s == '[]' then return 0 end
 if tonumber(string.match(s, '(-?%d+)')) ~= tonumber(ARGV[1]) then return 0 end
@@ -342,6 +373,7 @@ redis.call('JSON.SET', KEYS[1], '$.status', ARGV[3])
 redis.call('JSON.SET', KEYS[1], '$.run_started_at', ARGV[4])
 redis.call('JSON.SET', KEYS[1], '$.updated_at', ARGV[4])
 redis.call('JSON.SET', KEYS[1], '$.last_run_id', ARGV[5])
+redis.call('JSON.SET', KEYS[1], '$.revision', tostring(revision() + 1))
 return 1
 `
 
@@ -748,6 +780,7 @@ redis.call('JSON.SET', KEYS[1], '$.last_run_at', ARGV[2])
 redis.call('JSON.SET', KEYS[1], '$.updated_at', ARGV[3])
 redis.call('JSON.SET', KEYS[1], '$.run_started_at', '0')
 redis.call('JSON.SET', KEYS[1], '$.failures', tostring(failures))
+redis.call('JSON.SET', KEYS[1], '$.revision', tostring((s.revision or 0) + 1))
 return 1
 `
 

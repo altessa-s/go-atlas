@@ -143,7 +143,7 @@ func (s *Scheduler) tick() {
 		}
 
 		if state.SkipNextRun {
-			s.applySkip(now, state.ID)
+			s.applySkip(now, state.ID, FenceOf(state))
 			continue
 		}
 
@@ -199,17 +199,18 @@ func (s *Scheduler) fetchDueStates(now int64, capacity int) ([]*TaskState, error
 // applySkip consumes the SkipNextRun flag of a due task, advancing it to its
 // following occurrence without invoking the task function. One-shot tasks are
 // transitioned to [TaskStatusCompleted] instead. The state is re-read first so
-// a concurrent Pause or schedule change is not overwritten.
-func (s *Scheduler) applySkip(now time.Time, id string) {
+// a concurrent Pause or schedule change is not overwritten, and the write is
+// fenced on due, the state observed by the due scan: a task paused or claimed
+// in between is left alone.
+func (s *Scheduler) applySkip(now time.Time, id string, due TaskFence) {
 	ctx, cancel := s.storageCtx(s.stopCtx)
 	defer cancel()
 
 	freshState, err := s.storage.GetTask(ctx, id)
-	if err != nil || freshState == nil || !freshState.SkipNextRun {
+	if err != nil || freshState == nil || !freshState.SkipNextRun || FenceOf(freshState) != due {
 		// State changed concurrently or the read failed: leave it alone.
 		return
 	}
-	fence := FenceOf(freshState)
 
 	freshState.SkipNextRun = false
 	if freshState.OneShot {
@@ -221,7 +222,7 @@ func (s *Scheduler) applySkip(now time.Time, id string) {
 	}
 	freshState.UpdatedAt = now.Unix()
 
-	replaced, err := s.storage.ReplaceTaskIf(ctx, freshState, fence)
+	replaced, err := s.storage.ReplaceTaskIf(ctx, freshState, due)
 	if err != nil {
 		s.logger.ErrorContext(ctx, "failed to update skipped task",
 			slog.String("task_id", id),
