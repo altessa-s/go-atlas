@@ -15,6 +15,20 @@ import (
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
+// canStoreCompressed applies both the space-saving and decoder ratio constraints.
+// Highly repetitive legitimate data is stored raw instead of producing an entry
+// that our own decompressor would reject as suspicious.
+func canStoreCompressed(originalSize, compressedSize int) bool {
+	if compressedSize <= 0 || compressedSize+headerSize >= originalSize {
+		return false
+	}
+	limit := maxCompressionRatio
+	if compressedSize < suspiciousPayloadThreshold {
+		limit = maxSuspiciousCompressionRatio
+	}
+	return float64(originalSize)/float64(compressedSize) <= float64(limit)
+}
+
 // compressSmall handles compression of small payloads without context checking
 func (c *GzipCompressor) compressSmall(data []byte) ([]byte, error) {
 	// Check payload size limits
@@ -35,9 +49,8 @@ func (c *GzipCompressor) compressSmall(data []byte) ([]byte, error) {
 	}
 
 	// Check if compression actually reduced size (with header overhead consideration)
-	headerOverhead := headerSize
-	if len(compressed)+headerOverhead >= len(data) {
-		// Return original data with uncompressed encoding if compression didn't help
+	if !canStoreCompressed(len(data), len(compressed)) {
+		// Keep a representation the decoder accepts, including its ratio limits.
 		return encodeUncompressedData(data)
 	}
 
@@ -400,8 +413,8 @@ func (c *GzipCompressor) compressLargePayload(ctx context.Context, data []byte) 
 
 	// Check if compression was effective
 	compressedSize := buf.Len()
-	if compressedSize >= len(data)-headerSize {
-		// Compression not effective, return uncompressed
+	if !canStoreCompressed(len(data), compressedSize) {
+		// Preserve round-trip behavior without weakening decompression limits.
 		return encodeUncompressedData(data)
 	}
 
