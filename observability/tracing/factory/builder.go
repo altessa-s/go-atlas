@@ -17,6 +17,7 @@ import (
 	"github.com/altessa-s/go-atlas/observability/tracing/sampler"
 
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
+	proxyfactory "github.com/altessa-s/go-atlas/transport/proxydial/factory"
 )
 
 // TracerBuilder assembles a [tracing.Tracer] from configuration
@@ -104,7 +105,7 @@ func (b *TracerBuilder) createOTLPAdapter(ctx context.Context) (adapters.Adapter
 	opts = slices.AppendIf(opts, cfg.Compression, otlp.WithCompression())
 	opts = slices.AppendIf(opts, len(cfg.Headers) > 0, otlp.WithHeaders(cfg.Headers))
 
-	proxyOpts, err := cfg.Proxy.GrpcClientOptions()
+	proxyOpts, err := proxyfactory.GRPCClientOptions(cfg.Proxy)
 	if err != nil {
 		return nil, b.WrapError(err, "failed to materialize OTLP proxy options")
 	}

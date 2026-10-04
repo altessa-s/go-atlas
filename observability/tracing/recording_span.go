@@ -52,8 +52,10 @@ func (s *recordingSpan) End(opts ...SpanEndOption) {
 		s.endTime = cfg.Timestamp()
 	}
 
-	// Export the span
-	s.export()
+	// RecordOnly spans remain available locally but must not be exported.
+	if s.spanContext.IsSampled() {
+		s.export()
+	}
 }
 
 // SpanContext implements Span.

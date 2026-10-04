@@ -37,6 +37,9 @@ func New(opts ...Option) Tracer {
 	if cfg.adapter == nil {
 		return Noop()
 	}
+	if cfg.sampler == nil {
+		cfg.sampler = sampler.NewParentBased(sampler.AlwaysOn())
+	}
 
 	return &tracer{
 		serviceName:    cfg.serviceName,
@@ -161,8 +164,14 @@ func (r *recorder) Start(ctx context.Context, spanName string, opts ...SpanStart
 	})
 
 	if !shouldSample.Decision.IsSampled() {
-		// Return non-recording span
-		return ContextWithSpan(ctx, noopSpan{}), noopSpan{}
+		spanCtx.traceFlags = 0
+	}
+	if shouldSample.Tracestate != "" {
+		spanCtx.traceState = shouldSample.Tracestate
+	}
+	if !shouldSample.Decision.IsRecording() {
+		span := nonRecordingSpan{spanContext: spanCtx}
+		return ContextWithSpan(ctx, span), span
 	}
 
 	// Create recording span

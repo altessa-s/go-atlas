@@ -57,8 +57,9 @@ func (tc *TraceContext) Inject(ctx context.Context, carrier TextMapCarrier) {
 	traceparent := supportedVersion + "-" + sc.TraceID() + "-" + sc.SpanID() + "-" + flags
 	carrier.Set(traceparentHeader, traceparent)
 
-	// Inject tracestate if present (from span context implementation)
-	// For now, we don't have tracestate in our SpanContext interface
+	if state, ok := sc.(interface{ TraceState() string }); ok && state.TraceState() != "" {
+		carrier.Set(tracestateHeader, state.TraceState())
+	}
 }
 
 // Extract implements TextMapPropagator.
@@ -80,7 +81,7 @@ func (tc *TraceContext) Extract(ctx context.Context, carrier TextMapCarrier) con
 	}
 
 	// Create a remote span context and store in context
-	return contextWithRemoteSpanContext(ctx, sc)
+	return tracing.ContextWithSpanContext(ctx, &RemoteSpanContext{data: sc})
 }
 
 // Fields implements TextMapPropagator.
@@ -143,19 +144,11 @@ func parseTraceParent(header string) (spanContextData, bool) {
 	}, true
 }
 
-// remoteSpanContextKey is the context key for remote span context.
-type remoteSpanContextKey struct{}
-
-// contextWithRemoteSpanContext stores remote span context in context.
-func contextWithRemoteSpanContext(ctx context.Context, sc spanContextData) context.Context {
-	return context.WithValue(ctx, remoteSpanContextKey{}, sc)
-}
-
 // RemoteSpanContextFromContext retrieves remote span context from context.
 // Returns nil if not present.
 func RemoteSpanContextFromContext(ctx context.Context) *RemoteSpanContext {
-	if sc, ok := ctx.Value(remoteSpanContextKey{}).(spanContextData); ok {
-		return &RemoteSpanContext{data: sc}
+	if sc, ok := tracing.SpanContextFromContext(ctx).(*RemoteSpanContext); ok {
+		return sc
 	}
 	return nil
 }

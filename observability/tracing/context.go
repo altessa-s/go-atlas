@@ -42,6 +42,19 @@ func ContextWithSpan(ctx context.Context, span Span) context.Context {
 	return context.WithValue(ctx, spanKey, span)
 }
 
+// ContextWithSpanContext installs a non-recording span carrying sc. Propagators
+// use it to make remote parents visible to recorders and outbound injection.
+func ContextWithSpanContext(ctx context.Context, sc SpanContext) context.Context {
+	return ContextWithSpan(ctx, nonRecordingSpan{spanContext: sc})
+}
+
+type nonRecordingSpan struct {
+	noopSpan
+	spanContext SpanContext
+}
+
+func (s nonRecordingSpan) SpanContext() SpanContext { return s.spanContext }
+
 // SpanContextFromContext returns the SpanContext from the span in ctx.
 // If no span is stored, it returns an invalid SpanContext.
 //
