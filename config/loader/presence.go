@@ -86,12 +86,23 @@ func (cf *Config) mergePresence(dst, src any, t reflect.Type) any {
 // fieldTypeForKey resolves the type of the struct field a file key binds to,
 // descending into inline fields.
 func (cf *Config) fieldTypeForKey(t reflect.Type, key string) (reflect.Type, bool) {
-	tagName, fold := cf.backend.StructTagName(), cf.foldKeys()
+	if ft, ok := cf.matchFieldKey(t, key, false); ok {
+		return ft, true
+	}
+	if cf.foldKeys() {
+		return cf.matchFieldKey(t, key, true)
+	}
+	return nil, false
+}
+
+// matchFieldKey finds the field bound to key, exactly or case-insensitively.
+func (cf *Config) matchFieldKey(t reflect.Type, key string, fold bool) (reflect.Type, bool) {
+	tagName := cf.backend.StructTagName()
 	for i := range t.NumField() {
 		sf := t.Field(i)
 		if isInline(sf, tagName) {
 			if it := indirectType(sf.Type); it.Kind() == reflect.Struct {
-				if ft, ok := cf.fieldTypeForKey(it, key); ok {
+				if ft, ok := cf.matchFieldKey(it, key, fold); ok {
 					return ft, true
 				}
 			}
@@ -157,17 +168,19 @@ func (p presence) index(i int) presence {
 
 // fileKey returns the configuration-file key of a struct field for the given
 // struct tag, or "" when the field is excluded from files ("-"). An untagged
-// field binds to its lowercased name, as the YAML decoder does; the TOML
-// decoder matches it case-insensitively anyway.
+// field binds to its lowercased name in YAML; TOML keeps the Go name and
+// matches exactly before falling back to a case-insensitive match.
 func fileKey(sf reflect.StructField, tagName string) string {
 	name, _, _ := strings.Cut(sf.Tag.Get(tagName), ",")
-	switch name {
-	case "-":
+	switch {
+	case name == "-":
 		return ""
-	case "":
-		return strings.ToLower(sf.Name)
-	default:
+	case name != "":
 		return name
+	case tagName == "toml":
+		return sf.Name
+	default:
+		return strings.ToLower(sf.Name)
 	}
 }
 

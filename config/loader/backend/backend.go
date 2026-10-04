@@ -35,3 +35,11 @@ type Preprocessor interface {
 	// rootDir is the root directory for security checks.
 	Preprocess(content, currentDir, rootDir string) (string, error)
 }
+
+// KeyDecoder is implemented by a backend that can report the keys a document
+// sets, spelled as in the source. The loader uses it to tell explicit values
+// from omitted ones; mappings are map[string]any, sequences []any, and any
+// other present value is non-nil or nil for an explicit null.
+type KeyDecoder interface {
+	DecodeKeys(reader io.Reader) (map[string]any, error)
+}
