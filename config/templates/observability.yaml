@@ -71,7 +71,8 @@
 #
 #      # <float64> Sampling ratio for trace_id_ratio and parent_based samplers.
 #      # Must be between 0.0 and 1.0.
-#      # 1.0 = sample all, 0.0 = sample none, 0.1 = sample 10%.
+#      # 1.0 = sample all, 0.1 = sample 10%, 0.0 = sample no new root traces (parent_based
+#      # still samples children of sampled parents; use always_off to sample nothing).
 #      # Default value: 1.0
 #      ratio: 1.0
 #
