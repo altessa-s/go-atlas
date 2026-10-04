@@ -27,6 +27,11 @@ type presence struct {
 	// retains from an earlier, longer file: a decoder that reuses slices fills
 	// them in place when a later file grows the slice again within capacity.
 	spare []*presence
+	// envBase is the length a slice or map had before the environment grew it
+	// or created it; valid when envGrown is set.
+	envBase int
+	// envGrown reports that the environment grew the slice or created the map.
+	envGrown bool
 	// set reports that a file key or an environment variable wrote the value.
 	set bool
 	// null reports that the file wrote an explicit null.
@@ -237,13 +242,30 @@ func withStep(base []pathStep, step pathStep) []pathStep {
 // the way exist from then on, so an explicit null from a file no longer holds
 // for them.
 func (p *presence) mark(steps []pathStep) {
+	p.reach(steps).set = true
+}
+
+// markGrown records that the environment grew the slice or created the map
+// at steps, which held length entries before. Only the entries the
+// environment added are holes a default tag may fill.
+func (p *presence) markGrown(steps []pathStep, length int) {
+	c := p.reach(steps)
+	if !c.envGrown {
+		c.envGrown = true
+		c.envBase = length
+	}
+}
+
+// reach returns the presence at steps, creating it and every presence along
+// the way, which exist from then on.
+func (p *presence) reach(steps []pathStep) *presence {
 	cur := p
 	for _, s := range steps {
 		cur.null = false
 		cur = cur.child(s)
 	}
 	cur.null = false
-	cur.set = true
+	return cur
 }
 
 // child returns the presence s selects, creating it when absent.

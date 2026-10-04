@@ -70,6 +70,7 @@ func (cf *Config) findFieldByPath(fieldPath string) *field {
 		if currentValue.Kind() == reflect.Map {
 			// Initialize map if nil
 			if currentValue.IsNil() && currentValue.CanSet() {
+				cf.noteEnvGrowth(currentValue, 0, steps)
 				currentValue.Set(reflect.MakeMap(currentValue.Type()))
 			}
 
@@ -336,6 +337,7 @@ func (fn *fieldNavigator) handleIndexedSlice(
 		return true, nil // Skip if not a numeric index
 	}
 
+	fn.cf.noteEnvGrowth(fieldValue, arrayIndex+1, *steps)
 	if err := fn.cf.ensureSliceSizeForValue(fieldValue, arrayIndex+1); err != nil {
 		return true, err
 	}
@@ -352,6 +354,7 @@ func (fn *fieldNavigator) handleIndexedSlice(
 // handleMapField handles map field navigation. steps locates the map.
 func (fn *fieldNavigator) handleMapField(fieldValue reflect.Value, partIndex int, steps []pathStep) error {
 	if fieldValue.IsNil() {
+		fn.cf.noteEnvGrowth(fieldValue, 0, steps)
 		fieldValue.Set(reflect.MakeMap(fieldValue.Type()))
 	}
 
@@ -429,6 +432,7 @@ func (fn *fieldNavigator) handleSliceWithNumericIndex(fieldValue reflect.Value, 
 		return errNotNumericIndex
 	}
 
+	fn.cf.noteEnvGrowth(fieldValue, index+1, steps)
 	elemSteps := withStep(steps, pathStep{kind: elemStep, index: index})
 	elementType := fieldValue.Type().Elem()
 	if fn.isSliceElementPrimitive(elementType) {
@@ -485,6 +489,7 @@ func (cf *Config) setNestedFieldValue(fld *field, pathParts []string, value stri
 		if currentValue.Kind() == reflect.Map {
 			// Initialize map if nil
 			if currentValue.IsNil() {
+				cf.noteEnvGrowth(currentValue, 0, steps)
 				currentValue.Set(reflect.MakeMap(currentValue.Type()))
 			}
 
