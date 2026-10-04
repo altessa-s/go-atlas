@@ -6,6 +6,7 @@ package outbox
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
@@ -31,15 +32,18 @@ type scheduledTask struct {
 	managed bool
 }
 
-// registerTasks registers outbox tasks with the scheduler if configured.
-//
-// A cycle is flagged scheduler-managed only after its registration succeeds.
-// Marking it up front (as [corescheduler.ManagedTask.SchedulerFunc] does) would
-// mean a rejected registration — an invalid cron expression, say — leaves the
-// cycle both unscheduled and unusable by hand, because RunXxxCycle would keep
-// returning [corescheduler.ErrSchedulerManaged]. New only logs a registration
-// failure, so that combination would silently disable the cycle outright.
-func (o *Outbox) registerTasks(opts *options) error {
+// ErrRegistrationIncomplete prevents partially registered schedules from driving
+// delivery before RegisterTasks has installed every configured task.
+var ErrRegistrationIncomplete = errors.New("outbox scheduler registration incomplete")
+
+// RegisterTasks installs configured schedules. New has no scheduler side effects.
+// On partial failure, installed callbacks remain inactive until a retry succeeds;
+// a retry skips already registered tasks. The caller retains this instance.
+func (o *Outbox) RegisterTasks(ctx context.Context) error {
+	o.registrationMu.Lock()
+	defer o.registrationMu.Unlock()
+	opts := o.registrationOpts
+
 	if nilcheck.IsNil(o.scheduler) {
 		return nil
 	}
@@ -48,7 +52,8 @@ func (o *Outbox) registerTasks(opts *options) error {
 		return err
 	}
 
-	ctx := context.Background()
+	ctx, cancel := corectx.WithMaxTimeout(ctx, DefaultUpdateTimeout)
+	defer cancel()
 
 	tasks := [...]scheduledTask{
 		{
@@ -100,7 +105,7 @@ func (o *Outbox) registerTasks(opts *options) error {
 	}
 
 	for _, t := range tasks {
-		if t.schedule == "" || !t.enabled {
+		if t.schedule == "" || !t.enabled || t.task.Registered() {
 			continue
 		}
 
@@ -110,7 +115,12 @@ func (o *Outbox) registerTasks(opts *options) error {
 			// TryRun rather than Run: the scheduler is the registered driver,
 			// so it must not be turned away by the scheduler-managed check it
 			// is itself the reason for.
-			Func:           func(ctx context.Context) error { return t.task.TryRun(ctx, t.run) },
+			Func: func(ctx context.Context) error {
+				if !o.registrationsReady.Load() {
+					return ErrRegistrationIncomplete
+				}
+				return t.task.TryRun(ctx, t.run)
+			},
 			Schedule:       t.schedule,
 			Priority:       corescheduler.TaskPriorityNormal,
 			Unmanaged:      !t.managed,
@@ -122,6 +132,7 @@ func (o *Outbox) registerTasks(opts *options) error {
 		t.task.MarkRegistered()
 	}
 
+	o.registrationsReady.Store(true)
 	return nil
 }
 

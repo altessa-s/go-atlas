@@ -4,9 +4,9 @@
 import "github.com/altessa-s/go-atlas/data/outbox"
 ```
 
-Package `outbox` implements the Transactional Outbox pattern for at-least-once event delivery. Events are persisted to a `Store` before being
-dispatched via a `Handler`, with background cycles for dispatch, retry, expiration, cleanup, stuck-event recovery, and backlog measurement.
-Transport-agnostic: the `Handler` callback determines delivery method (message broker, HTTP, gRPC, etc.).
+Package `outbox` implements the Transactional Outbox pattern for at-least-once event delivery. Events are persisted to a `Store` before being dispatched
+via a `Handler`, with background cycles for dispatch, retry, expiration, cleanup, stuck-event recovery, and backlog measurement. Transport-agnostic: the
+`Handler` callback determines delivery method (message broker, HTTP, gRPC, etc.).
 
 ## Key types
 
@@ -56,9 +56,8 @@ Transport-agnostic: the `Handler` callback determines delivery method (message b
 | `WithCollector`               | no-op      | Metrics collector                                            |
 | `WithLogger`                  | discard    | Structured logger                                            |
 
-`maxLockTime` must exceed `handleTimeout`; a smaller value is raised at construction with a warning. A lock that expires while its dispatch
-cycle is still publishing lets the unlock cycle hand the event to a second worker, which makes duplicate delivery the steady state rather than
-an edge case.
+`maxLockTime` must exceed `handleTimeout`; a smaller value is raised at construction with a warning. A lock that expires while its dispatch cycle is
+still publishing lets the unlock cycle hand the event to a second worker, which makes duplicate delivery the steady state rather than an edge case.
 
 ## Usage inside a transaction
 
@@ -73,29 +72,29 @@ _, err := sess.WithTransaction(ctx, func(sessCtx context.Context) (any, error) {
 })
 ```
 
-The whole batch is validated before anything is written, so a rejected `Save` (`ErrEmptyKey`, `ErrPayloadTooLarge`) leaves the caller's
-transaction clean and abortable.
+The whole batch is validated before anything is written, so a rejected `Save` (`ErrEmptyKey`, `ErrPayloadTooLarge`) leaves the caller's transaction
+clean and abortable.
 
 ## Delivery semantics
 
-At-least-once. Duplicates are expected — a handler can publish successfully and then fail before its status is written back — so consumers must
-be idempotent. Where the transport supports deduplication, key it off `Event.Id`: it is assigned once at save time and never changes across
-retries. The `transport/broker/outbox` adapter does this automatically.
+At-least-once. Duplicates are expected — a handler can publish successfully and then fail before its status is written back — so consumers must be
+idempotent. Where the transport supports deduplication, key it off `Event.Id`: it is assigned once at save time and never changes across retries. The
+`transport/broker/outbox` adapter does this automatically.
 
-**Ordering is not preserved.** Batches are fetched oldest-first but dispatched concurrently, and a failed event is rescheduled behind events
-created after it. Do not assume ordering, even within a single `Key`.
+**Ordering is not preserved.** Batches are fetched oldest-first but dispatched concurrently, and a failed event is rescheduled behind events created
+after it. Do not assume ordering, even within a single `Key`.
 
 ## Retries and dead-lettering
 
-Each cycle spends exactly one attempt per event; spacing comes from an exponential backoff with jitter that the store anchors to its own clock.
-Errors are classified by `WithShouldRetry`: transient ones are rescheduled, permanent ones (a malformed payload, an unrejectable subject) go
-straight to `rejected` rather than burning the whole budget first. Context cancellation and timeouts always count as transient, so a broker
-outage cannot dead-letter healthy events.
+Each cycle spends exactly one attempt per event; spacing comes from an exponential backoff with jitter that the store anchors to its own clock. Errors
+are classified by `WithShouldRetry`: transient ones are rescheduled, permanent ones (a malformed payload, an unrejectable subject) go straight to
+`rejected` rather than burning the whole budget first. Context cancellation and timeouts always count as transient, so a broker outage cannot
+dead-letter healthy events.
 
 ## Observability
 
-Schedule the stats cycle (`WithStatsSchedule`) and alert on the gauges it publishes — `outbox_events_pending`, `outbox_events_dead_lettered`,
-and `outbox_events_oldest_pending_age_seconds`. Counters alone cannot distinguish a stalled outbox from an idle one: both report zero. See
+Schedule the stats cycle (`WithStatsSchedule`) and alert on the gauges it publishes — `outbox_events_pending`, `outbox_events_dead_lettered`, and
+`outbox_events_oldest_pending_age_seconds`. Counters alone cannot distinguish a stalled outbox from an idle one: both report zero. See
 [docs/metrics.md](../../docs/metrics.md#outbox), which also lists the metrics renamed in this change.
 
 ## Cycles
@@ -108,15 +107,15 @@ and `outbox_events_oldest_pending_age_seconds`. Counters alone cannot distinguis
 | cleanup    | `RunCleanupCycle`   | Delete processed events older than the retention window      |
 | stats      | `RunStatsCycle`     | Refresh the backlog, dead-letter, and lag gauges             |
 
-Each cycle can be registered with a scheduler (`WithScheduler` plus the matching `With*Schedule`), after which the manual `Run*` method returns
-`corescheduler.ErrSchedulerManaged`. Task IDs are overridable and must be distinct — collisions are rejected at startup with
+Configure cycles with `WithScheduler` and the matching `With*Schedule`, then call `RegisterTasks(ctx)`. After successful registration the manual `Run*`
+method returns `corescheduler.ErrSchedulerManaged`. Task IDs are overridable and must be distinct — collisions are rejected by `RegisterTasks` with
 `ErrTaskIDCollision`.
 
 ## Change notifications
 
-A saved event otherwise waits up to one dispatch interval. When the store implements the optional `Watcher` interface, `Outbox.Watch` blocks on
-its notifications and runs a dispatch cycle as soon as events land — the MongoDB store implements it with a change stream over the outbox
-collection, so an event becomes visible the instant its transaction commits:
+A saved event otherwise waits up to one dispatch interval. When the store implements the optional `Watcher` interface, `Outbox.Watch` blocks on its
+notifications and runs a dispatch cycle as soon as events land — the MongoDB store implements it with a change stream over the outbox collection, so an
+event becomes visible the instant its transaction commits:
 
 ```go
 go func() {
@@ -129,22 +128,22 @@ go func() {
 }()
 ```
 
-**Keep the dispatch schedule configured.** A notification means "something arrived", never "this event is due": a retry backoff elapsing and the
-unlock cycle freeing a stuck lease are time-driven and produce no notification at all, and a notification arriving while a cycle is already
-running is dropped rather than queued. `Watch` shortens the common case; the poll cycle remains the guarantee. A cycle that comes back with a
-full batch re-arms itself, so a bulk insert drains without waiting for the next tick.
+**Keep the dispatch schedule configured.** A notification means "something arrived", never "this event is due": a retry backoff elapsing and the unlock
+cycle freeing a stuck lease are time-driven and produce no notification at all, and a notification arriving while a cycle is already running is dropped
+rather than queued. `Watch` shortens the common case; the poll cycle remains the guarantee. A cycle that comes back with a full batch re-arms itself, so
+a bulk insert drains without waiting for the next tick.
 
-`ErrWatchUnsupported` is a capability report, not a failure — it is what a store without the interface, or a standalone mongod with no oplog,
-returns. `outbox_watch_notifications_total` going flat while `outbox_events_saved_total` climbs means the watcher died and dispatch silently
-fell back to the poll interval.
+`ErrWatchUnsupported` is a capability report, not a failure — it is what a store without the interface, or a standalone mongod with no oplog, returns.
+`outbox_watch_notifications_total` going flat while `outbox_events_saved_total` climbs means the watcher died and dispatch silently fell back to the
+poll interval.
 
 ## Server-clock leases
 
 The retry, lock-expiry, and retention windows passed to the `Store` are **durations**, not absolute timestamps: `Event.RetryAfter`,
-`UnlockStuckEvents(lockExpiry)`, `DeleteProcessedEvents(olderThan)`, and `ExpireEvents`. The store evaluates them against its own database
-server clock, so a worker whose wall clock is skewed cannot prematurely unlock another worker's in-flight event or leak a stuck one. Writes are
-additionally fenced by `Event.LockToken`, so a dispatcher that lost its lease cannot overwrite the result of the worker that took over. See
-[store/mongo](./store/mongo) for the MongoDB `$$NOW` implementation and the one-time BSON `Date` migration.
+`UnlockStuckEvents(lockExpiry)`, `DeleteProcessedEvents(olderThan)`, and `ExpireEvents`. The store evaluates them against its own database server clock,
+so a worker whose wall clock is skewed cannot prematurely unlock another worker's in-flight event or leak a stuck one. Writes are additionally fenced by
+`Event.LockToken`, so a dispatcher that lost its lease cannot overwrite the result of the worker that took over. See [store/mongo](./store/mongo) for
+the MongoDB `$$NOW` implementation and the one-time BSON `Date` migration.
 
 ## Subpackages
 
@@ -152,3 +151,12 @@ additionally fenced by `Event.LockToken`, so a dispatcher that lost its lease ca
 |----------------------------------|--------------------------------------|
 | [factory](./factory)             | Configuration-based creation         |
 | [store/mongo](./store/mongo)     | MongoDB-backed event storage         |
+
+## Registration failures
+
+`New` does not register schedules. Call `RegisterTasks(ctx)` explicitly and handle errors before serving traffic. If only some tasks were registered,
+their callbacks return `ErrRegistrationIncomplete` until registration completes. Retry on the same outbox: successful registrations are retained and
+only missing tasks are retried. Unregistered cycles remain callable manually. Repeated successful registration is a no-op.
+
+Factories perform registration automatically. On a registration error they return both the outbox and the error, so the caller can retain that instance
+and retry `RegisterTasks(ctx)`. Treat this as a failed startup until the retry succeeds.

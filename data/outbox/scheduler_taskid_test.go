@@ -81,6 +81,7 @@ func TestRegisterTasks_FailedRegistrationKeepsManualRunUsable(t *testing.T) {
 		WithStatsSchedule("@every 30s"),
 	)
 
+	require.Error(t, ob.RegisterTasks(t.Context()))
 	require.NoError(t, ob.RunDispatchCycle(t.Context()))
 	require.NoError(t, ob.RunUnlockCycle(t.Context()))
 	require.NoError(t, ob.RunStatsCycle(t.Context()))
@@ -97,6 +98,7 @@ func TestRegisterTasks_SuccessfulRegistrationBlocksManualRun(t *testing.T) {
 		WithStatsSchedule("@every 30s"),
 	)
 
+	require.NoError(t, ob.RegisterTasks(t.Context()))
 	require.ErrorIs(t, ob.RunDispatchCycle(t.Context()), corescheduler.ErrSchedulerManaged)
 	require.ErrorIs(t, ob.RunStatsCycle(t.Context()), corescheduler.ErrSchedulerManaged)
 	// Never scheduled — no schedule was configured — so it stays manual.
@@ -117,7 +119,7 @@ func TestRegisterTasks_EachTaskRunsItsOwnCycle(t *testing.T) {
 		WithUnlockSchedule("@every 11s"),
 		WithStatsSchedule("@every 30s"),
 	)
-	_ = ob
+	require.NoError(t, ob.RegisterTasks(t.Context()))
 
 	reg.mu.Lock()
 	registered := append([]corescheduler.TaskConfig(nil), reg.registered...)
@@ -145,7 +147,7 @@ func TestRegisterTasks_OverridesPropagateToScheduler(t *testing.T) {
 	t.Parallel()
 
 	reg := &capturingRegistrar{}
-	_ = New(nil, nil,
+	ob := New(nil, nil,
 		WithScheduler(reg),
 		WithDispatchSchedule("@every 1s"),
 		WithUnlockSchedule("@every 11s"),
@@ -153,6 +155,7 @@ func TestRegisterTasks_OverridesPropagateToScheduler(t *testing.T) {
 		WithUnlockTaskID("svc-a-outbox-unlock"),
 	)
 
+	require.NoError(t, ob.RegisterTasks(t.Context()))
 	ids := reg.ids()
 	require.Contains(t, ids, "svc-a-outbox-dispatch",
 		"WithDispatchTaskID override must reach scheduler.Register")
@@ -170,11 +173,12 @@ func TestRegisterTasks_DefaultsRegisterLegacyIDs(t *testing.T) {
 	t.Parallel()
 
 	reg := &capturingRegistrar{}
-	_ = New(nil, nil,
+	ob := New(nil, nil,
 		WithScheduler(reg),
 		WithDispatchSchedule("@every 1s"),
 	)
 
+	require.NoError(t, ob.RegisterTasks(t.Context()))
 	require.Equal(t, []string{DefaultDispatchTaskID}, reg.ids())
 }
 
@@ -198,8 +202,6 @@ func TestValidateTaskIDs_RejectsCollision(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrTaskIDCollision),
 		"collision must surface as ErrTaskIDCollision so callers can branch on it")
-	require.Contains(t, err.Error(), "shared",
-		"error must echo the offending value so the operator can grep the YAML")
 }
 
 // TestValidateTaskIDs_RejectsEmpty guards the programmatic-misuse

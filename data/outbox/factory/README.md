@@ -4,8 +4,8 @@
 import "github.com/altessa-s/go-atlas/data/outbox/factory"
 ```
 
-Package `factory` provides a fluent builder for creating an `outbox.Outbox` from configuration.
-`OutboxBuilder` uses deferred error accumulation — errors from any step are collected and returned at build time.
+Package `factory` provides a fluent builder for creating an `outbox.Outbox` from configuration. `OutboxBuilder` uses deferred error accumulation —
+errors from any step are collected and returned at build time.
 
 ## Quick Start
 
@@ -37,3 +37,9 @@ outbox, err := factory.New(cfg.Outbox).
 |--------|-------------|
 | `BuildWithMongoDB(db, handler)` | Creates a MongoDB-backed outbox using a `*mongo.Database` |
 | `BuildWithMongoCollection(col, handler)` | Creates a MongoDB-backed outbox using an existing `*mongo.Collection` |
+
+## Outbox startup
+
+Outbox builders call `RegisterTasks` before returning. A scheduler registration failure returns both a non-nil outbox and an error. Retain that instance
+to retry `RegisterTasks(ctx)`; callbacks already installed remain inactive until all configured tasks are registered. Do not start serving traffic while
+registration is incomplete.
