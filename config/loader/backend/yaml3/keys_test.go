@@ -7,6 +7,7 @@ package yaml3_test
 import (
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -190,4 +191,24 @@ func TestBackend_DecodeKeys_Empty(t *testing.T) {
 
 	require.True(t, decodeKeys(t, "").IsNull())
 	require.False(t, decodeKeys(t, "a: 1\n").IsNull())
+}
+
+// Nodes of one document may be bound concurrently.
+func TestBackend_DecodeKeys_Concurrent(t *testing.T) {
+	t.Parallel()
+
+	root := decodeKeys(t, "base: &b {weight: 0}\nbyName:\n  a: *b\nitems:\n  - <<: *b\n")
+	fs := fields(t, root, keysConfigType)
+	byName := fs[fieldIndex(t, keysConfigType, "ByName")]
+	items := fs[fieldIndex(t, keysConfigType, "Items")]
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			_, _ = root.Fields(keysConfigType)
+			_, _ = byName.Entries(reflect.TypeFor[map[string]keysItem]())
+			_, _ = items.Elems(reflect.TypeFor[[]keysItem]())
+		})
+	}
+	wg.Wait()
 }

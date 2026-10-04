@@ -85,9 +85,6 @@ type Config struct {
 	fields    fields
 	allowExts map[string]struct{}
 	smx       sync.RWMutex
-	// envCache holds the resolved environment for the duration of one load
-	// so explicit values can be re-applied without re-resolving secrets.
-	envCache map[string]string
 	// present records the values the configuration files and the environment
 	// set during the current load; defaults are not applied to them.
 	present *presence
@@ -159,10 +156,8 @@ func (cf *Config) Config() any {
 func (cf *Config) load() error {
 	var err error
 
-	cf.envCache = nil
 	cf.present = nil
 	defer func() {
-		cf.envCache = nil
 		cf.present = nil
 	}()
 
@@ -187,40 +182,17 @@ func (cf *Config) load() error {
 		cf.present = &presence{}
 	}
 
-	// Record what the environment sets before any default is applied.
-	if err = cf.discoverEnv(); err != nil {
-		return fmt.Errorf("%w: %w", ErrBindEnv, err)
-	}
-
-	cf.fields = structFields(cf.conf)
-
-	if err = cf.loadDefaultValues(); err != nil {
-		return fmt.Errorf("%w: %w", ErrBindDefaults, err)
-	}
-
-	if err = cf.loadEnvs(); err != nil {
-		return fmt.Errorf("%w: %w", ErrBindEnv, err)
-	}
-
-	// Re-apply default values to newly created structs from environment variables
-	// This ensures that nested pointer structs created by setNestedFieldValue
-	// receive their default values
-	cf.fields = structFields(cf.conf)
-	if err = cf.loadDefaultValues(); err != nil {
-		return fmt.Errorf("%w: %w", ErrBindDefaults, err)
-	}
-
-	// Apply default values to struct elements of maps and slices
-	if err = cf.applyDefaultsToMaps(cf.conf); err != nil {
-		return fmt.Errorf("%w: %w", ErrBindDefaults, err)
-	}
-
-	// Re-apply the environment last so it also wins inside map and slice
-	// elements whose values a Default() method rewrote.
+	// Apply the environment, recording what it sets, then the defaults, which
+	// skip every value a file or the environment set.
 	cf.fields = structFields(cf.conf)
 	if err = cf.loadEnvs(); err != nil {
 		return fmt.Errorf("%w: %w", ErrBindEnv, err)
 	}
+
+	if err = cf.applyDefaults(); err != nil {
+		return fmt.Errorf("%w: %w", ErrBindDefaults, err)
+	}
+	cf.fields = structFields(cf.conf)
 
 	// Expand secrets in all string fields using reflection
 	if cf.options.secretsManager != nil {

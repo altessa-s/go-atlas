@@ -21,24 +21,26 @@ default values, and secret expansion.
 ## Loading order
 
 1. Read configuration file(s) from the specified path (file or directory), recording which values each file sets
-2. Record which values the environment sets, by loading it into a scratch copy of the configuration
-3. Run `Default()` and apply `default` struct tags, skipping every value a file or the environment set — an explicit `false`, `0` or `""`
-   is kept, and in strict mode an undefined `${VAR}` in a tag fails only for a field that needs the default
-4. Override with environment variables (camelCase converted to SCREAMING_SNAKE_CASE)
-5. Re-apply defaults to newly created nested structs, then to struct elements of maps and slices: `Default()` first, then `default` tags;
-   a nil pointer struct is allocated unless it is tagged `default:"-"` or a file set it to `null`
-6. Re-apply the environment
-7. Expand `$__secret{ns:key}` placeholders via the secrets manager
-8. Run `Validate()` if the struct implements `loader.Validator`
-9. Run `Normalize()` if the struct implements `loader.Normalizer`
+2. Override with environment variables (camelCase converted to SCREAMING_SNAKE_CASE), recording which values they assign — an empty
+   variable assigns nothing to a bool, number, duration, slice or map, so its default still applies
+3. Apply defaults in one pass over the configuration, its nested structs and the struct elements of maps and slices: `Default()` first,
+   then `default` tags for the zero values nothing set explicitly; a nil pointer struct is allocated when it has a field to default,
+   unless it is tagged `default:"-"` or a file set it to `null`. In strict mode an undefined `${VAR}` in a tag fails only for a field
+   that needs the default
+4. Expand `$__secret{ns:key}` placeholders via the secrets manager
+5. Run `Validate()` if the struct implements `loader.Validator`
+6. Run `Normalize()` if the struct implements `loader.Normalizer`
 
 Which values a file sets is decided the way the backend binds them: map keys are decoded into the map's key type (YAML `0x10` is `16`
 in a `map[int]T` but stays `"0x10"` in a `map[string]T`), YAML `<<` merges follow yaml.v3's precedence, anonymous structs follow each
 backend's embedding rules (YAML flattens only `,inline`; TOML flattens embedded structs without a tag name), and TOML keys match field
 names exactly before case-insensitively. A later file overlays an earlier one the same way the decoder does: map entries are replaced
-whole, struct fields merge one by one.
+whole, struct fields merge one by one, and TOML refills a slice's backing array in place.
 
-`Default()` may fill or derive any field, but values a file or the environment set explicitly are restored after it runs.
+`Default()` may fill or derive any field. Afterwards every value a file or the environment set explicitly is restored from an
+independent copy taken before it ran, while the values around it — other fields of an element, other map entries — keep what
+`Default()` set. A `default` tag on a slice or map the environment filled entry by entry adds the entries the environment did not set.
+
 
 ## Interfaces
 

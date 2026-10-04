@@ -25,6 +25,25 @@ apply only to the latter. A `KeyNode` binds struct fields, map keys and sequence
 both built-in backends implement it by decoding into shadow types typed after the destination. Without it the loader falls back to
 a generic decode matched by tag or field name.
 
+## Migrating a `KeyDecoder` (breaking change)
+
+`KeyDecoder.DecodeKeys` used to return `map[string]any` keyed by source spelling. It now returns a `KeyNode`, so map keys, merges and
+embedding are bound against the destination type exactly as the backend decodes them. A backend that still implements the old
+signature no longer satisfies `KeyDecoder`; without a compile-time assertion the loader silently falls back to the generic decode.
+Implement the new methods, and assert the interface so the compiler catches a mismatch:
+
+```go
+func (b *Backend) DecodeKeys(r io.Reader) (backend.KeyNode, error) {
+	// Parse r and return its root value; an empty document is a null value.
+}
+
+var _ backend.KeyDecoder = (*Backend)(nil)
+```
+
+A `KeyNode` returns, per call, the children it binds to the given type: `Fields` keyed by field index (an embedded struct the backend
+flattens maps to a node holding its fields), `Entries` keyed by the decoded map key, `Elems` in decoded order. Both built-in
+`KeyNode` implementations are safe for concurrent use.
+
 ## Built-in backends
 
 | Package  | Format | Extensions      | Tag    |

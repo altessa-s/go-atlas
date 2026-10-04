@@ -23,9 +23,10 @@ type presence struct {
 	fields  map[int]*presence
 	entries map[any]*presence
 	elems   []*presence
-	// capacity is the length of the slice allocated for the elements, which a
-	// decoder that reuses slices fills in place when a later file is shorter.
-	capacity int
+	// spare holds the elements past the slice's length that its backing array
+	// retains from an earlier, longer file: a decoder that reuses slices fills
+	// them in place when a later file grows the slice again within capacity.
+	spare []*presence
 	// set reports that a file key or an environment variable wrote the value.
 	set bool
 	// null reports that the file wrote an explicit null.
@@ -62,14 +63,6 @@ func (p *presence) elem(i int) *presence {
 	return p.elems[i]
 }
 
-// at returns the presence of the field at the struct index path.
-func (p *presence) at(path []int) *presence {
-	for _, i := range path {
-		p = p.field(i)
-	}
-	return p
-}
-
 // bindPresence binds a decoded document value to type t.
 func bindPresence(t reflect.Type, n backend.KeyNode) *presence {
 	if n == nil {
@@ -103,7 +96,6 @@ func bindPresence(t reflect.Type, n backend.KeyNode) *presence {
 			for i, c := range es {
 				p.elems[i] = bindPresence(t.Elem(), c)
 			}
-			p.capacity = len(es)
 		}
 	default:
 	}
@@ -114,9 +106,10 @@ func bindPresence(t reflect.Type, n backend.KeyNode) *presence {
 // decoder writes the later file over the configuration of type t: struct
 // fields merge one by one, a map entry is replaced wholesale, a slice is
 // replaced unless reuseSlices — BurntSushi/toml fills an existing slice with
-// enough capacity element by element — and a null resets pointers, maps,
-// slices and interfaces but leaves other values, and existing map entries, as
-// they were.
+// enough capacity element by element, its backing array keeping elements past
+// a shorter length — and a null resets pointers, maps, slices and interfaces
+// but leaves other values as they were, including an existing map entry of
+// such a type.
 func mergePresence(dst, src *presence, t reflect.Type, reuseSlices bool) *presence {
 	switch {
 	case src == nil:
@@ -133,7 +126,7 @@ func mergePresence(dst, src *presence, t reflect.Type, reuseSlices bool) *presen
 	}
 
 	t = derefType(t)
-	out := &presence{set: true, capacity: src.capacity}
+	out := &presence{set: true}
 	switch t.Kind() {
 	case reflect.Struct:
 		if src.fields == nil {
@@ -154,21 +147,24 @@ func mergePresence(dst, src *presence, t reflect.Type, reuseSlices bool) *presen
 		if out.entries == nil {
 			out.entries = make(map[any]*presence, len(src.entries))
 		}
+		keepOnNull := !nullable(t.Elem().Kind())
 		for k, c := range src.entries {
-			if _, ok := out.entries[k]; ok && c.isNull() {
-				continue // a null does not override an existing entry
+			if _, ok := out.entries[k]; ok && keepOnNull && c.isNull() {
+				continue // a null does not override an existing entry it cannot hold
 			}
 			out.entries[k] = c
 		}
 	case reflect.Slice:
-		if !reuseSlices || src.elems == nil || len(src.elems) > dst.capacity {
+		backing := append(slices.Clip(dst.elems), dst.spare...)
+		if !reuseSlices || src.elems == nil || len(src.elems) > len(backing) {
 			return src
 		}
-		out.capacity = dst.capacity
-		out.elems = make([]*presence, len(src.elems))
+		n := len(src.elems)
+		out.elems = make([]*presence, n)
 		for i, c := range src.elems {
-			out.elems[i] = mergePresence(dst.elem(i), c, t.Elem(), reuseSlices)
+			out.elems[i] = mergePresence(backing[i], c, t.Elem(), reuseSlices)
 		}
+		out.spare = backing[n:]
 	case reflect.Array:
 		// Arrays are written in place: elements past the later sequence keep
 		// their values.

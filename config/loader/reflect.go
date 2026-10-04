@@ -95,137 +95,52 @@ func (f *field) isStructPtr() bool {
 	return ft.Kind() == reflect.Struct
 }
 
-// initializeStruct initializes the parent struct if it's nil and creates child field references.
-// It processes anonymous fields and updates child field values accordingly.
-// When strict is true, returns an error if anonymous field assignment fails.
-func (f *field) initializeStruct(tag string, strict bool) error {
-	if f.parent == nil || !f.parent.isStructPtr() {
-		return nil
+// defaultTagValue returns the value of a default tag without its skip_zero
+// option.
+func defaultTagValue(value string) string {
+	vs := strings.Split(value, ",")
+	if len(vs) > 1 && vs[len(vs)-1] == skipZeroTag {
+		return strings.Join(vs[:len(vs)-1], "")
 	}
-
-	v := ""
-	if vs := strings.Split(f.parent.tags[tag], ","); len(vs) > 0 {
-		v = vs[0]
-	}
-
-	if f.parent.value.IsNil() && v != "-" {
-		vl := reflect.New(indirect(f.parent.value.Type()))
-		f.parent.value.Set(vl)
-		for indx := range indirectValue(vl).NumField() {
-			fl := indirectType(vl.Type()).Field(indx)
-
-			if fl.Anonymous {
-				// Safe type initialization for inline fields
-				fieldVal := indirectValue(vl).Field(indx)
-				newVal := reflect.New(indirect(fl.Type))
-
-				// Check type compatibility before setting
-				if safeSetValue(fieldVal, newVal) != nil {
-					// If direct assignment fails, try to handle common type mismatches
-					switch {
-					case fieldVal.Kind() == reflect.Interface && newVal.Type().Implements(fieldVal.Type()):
-						fieldVal.Set(newVal.Elem())
-					case strict:
-						return fmt.Errorf("%w: cannot assign %s to %s", ErrFieldAssignment, newVal.Type(), fieldVal.Type())
-					default:
-						continue
-					}
-				}
-			}
-		}
-
-		for _, cf := range f.parent.child {
-			if !cf.value.IsValid() {
-				// For inline fields, we need to navigate through the structure
-				// to find the actual field, not just use FieldByName
-				parentValue := indirectValue(vl)
-				if fieldValue := findFieldInValue(parentValue, cf.name); fieldValue.IsValid() {
-					cf.value = fieldValue
-				}
-			}
-		}
-	}
-
-	return nil
-}
-
-// setDefaultValue sets the default value for the field from struct tags.
-// It supports the skip_zero option to control when zero values should be replaced.
-// When strict is true, returns an error if environment variable substitution references undefined variables.
-func (f *field) setDefaultValue(tag string, strict bool) (err error) {
-	if err = f.initializeStruct(tag, strict); err != nil {
-		return err
-	}
-
-	replaceZeroValue := true
-
-	if f.value.IsValid() {
-		value := f.tags[tag]
-		vs := strings.Split(value, ",")
-
-		if len(vs) > 1 && vs[len(vs)-1] == skipZeroTag {
-			replaceZeroValue = true
-			value = strings.Join(vs[:len(vs)-1], "")
-		}
-
-		// Apply environment variable substitution to default values
-		if strict {
-			value, err = substituteEnvVariablesStrict(value)
-			if err != nil {
-				return err
-			}
-		} else {
-			value = substituteEnvVariables(value)
-		}
-
-		err = set(f.value, value, true, replaceZeroValue, strict)
-	}
-
-	return
-}
-
-// setValue sets the field value from a string, typically from environment variables.
-// When strict is true, returns an error for unsupported types or assignment failures.
-func (f *field) setValue(v, tag string, strict bool) (err error) {
-	if err = f.initializeStruct(tag, strict); err != nil {
-		return err
-	}
-
-	if f.value.IsValid() {
-		err = set(f.value, v, false, true, strict)
-	}
-
-	return
+	return value
 }
 
 // preparePointerField prepares a pointer field for value assignment.
-// It dereferences nested pointers and initializes nil pointers if needed.
-func preparePointerField(fieldValue reflect.Value, isDefaultValue bool) reflect.Value {
+// It dereferences nested pointers and initializes nil pointers if needed,
+// reporting whether it allocated one.
+func preparePointerField(fieldValue reflect.Value, isDefaultValue bool) (reflect.Value, bool) {
+	allocated := false
 	for fieldValue.Type().Kind() == reflect.Pointer {
 		if fieldValue.IsNil() {
 			if isDefaultValue {
-				return reflect.Value{} // Return invalid value to signal skip
+				return reflect.Value{}, false // Return invalid value to signal skip
 			}
 			fieldValue.Set(reflect.New(fieldValue.Type().Elem()))
+			allocated = true
 		}
 		fieldValue = fieldValue.Elem()
 	}
-	return fieldValue
+	return fieldValue, allocated
 }
 
-// set assigns a string value to a reflect.Value based on the value's type.
+// set assigns a string value to a reflect.Value based on the value's type and
+// reports whether it assigned anything.
 // It handles all supported types including numbers, booleans, strings, slices, and maps.
 // Uses a single switch instead of nested switches for better performance and maintainability.
 // When strict is true, returns an error for unsupported field types instead of silently skipping.
-func set(fieldValue reflect.Value, defaultValue string, isDefaultValue, replaceDefaultValue, strict bool) error {
+func set(fieldValue reflect.Value, defaultValue string, isDefaultValue, replaceDefaultValue, strict bool) (bool, error) {
 	// Prepare pointer fields
-	preparedValue := preparePointerField(fieldValue, isDefaultValue)
+	preparedValue, allocated := preparePointerField(fieldValue, isDefaultValue)
 	if !preparedValue.IsValid() {
-		return nil // Skip invalid values (happens for nil pointers with default values)
+		return false, nil // Skip invalid values (happens for nil pointers with default values)
 	}
 
-	fieldValue = preparedValue
+	assigned, err := setPrepared(preparedValue, defaultValue, isDefaultValue, replaceDefaultValue, strict)
+	return assigned || allocated, err
+}
 
+// setPrepared dispatches a non-pointer value to its type-specific setter.
+func setPrepared(fieldValue reflect.Value, defaultValue string, isDefaultValue, replaceDefaultValue, strict bool) (bool, error) {
 	// Direct dispatch to type-specific handlers without nested switches
 	switch fieldValue.Kind() {
 	// Integer types - all handled by setIntValue
@@ -241,95 +156,81 @@ func set(fieldValue reflect.Value, defaultValue string, isDefaultValue, replaceD
 	case reflect.Bool:
 		return setBool(fieldValue, defaultValue, isDefaultValue, replaceDefaultValue)
 	case reflect.String:
-		return setString(fieldValue, defaultValue, isDefaultValue, replaceDefaultValue)
+		return setString(fieldValue, defaultValue, isDefaultValue, replaceDefaultValue), nil
 	case reflect.Interface:
-		return setInterface(fieldValue, defaultValue)
+		return setInterface(fieldValue, defaultValue), nil
 	case reflect.Slice:
 		return setSlice(fieldValue, defaultValue, isDefaultValue, replaceDefaultValue, strict)
 	case reflect.Map:
 		return setMap(fieldValue, defaultValue, isDefaultValue, replaceDefaultValue, strict)
 	case reflect.Struct:
 		// Structs are handled by recursive field processing, not by set()
-		return nil
+		return false, nil
 	default:
 		if strict {
-			return fmt.Errorf("%w: kind %s", ErrUnsupportedFieldType, fieldValue.Kind())
+			return false, fmt.Errorf("%w: kind %s", ErrUnsupportedFieldType, fieldValue.Kind())
 		}
-		return nil
+		return false, nil
 	}
 }
 
-// setInterface sets an any value to a reflect.Value.
-// It safely handles different interface types and only sets values for empty interfaces.
-func setInterface(fieldValue reflect.Value, defaultValue string) error {
+// setInterface sets an any value to a reflect.Value and reports whether it
+// assigned it. It safely handles different interface types and only sets
+// values for empty interfaces.
+func setInterface(fieldValue reflect.Value, defaultValue string) bool {
+	// Skip empty values, and non-empty interfaces: an arbitrary value cannot
+	// be assigned to them safely.
+	if defaultValue == "" || fieldValue.Type().NumMethod() != 0 {
+		return false
+	}
+
+	// This is any - safe to assign string or []byte
+	fieldValue.Set(reflect.ValueOf([]byte(defaultValue)))
+	return true
+}
+
+// setString sets a string value to a reflect.Value and reports whether it
+// assigned it. It respects the replaceDefaultValue flag when dealing with
+// default values.
+func setString(fieldValue reflect.Value, defaultValue string, isDefaultValue, replaceDefaultValue bool) bool {
+	if isDefaultValue && (fieldValue.Len() != 0 || !replaceDefaultValue) {
+		return false
+	}
+	fieldValue.SetString(defaultValue)
+	return true
+}
+
+// setBool parses and sets a boolean value from a string and reports whether
+// it assigned it. It returns an error if the string cannot be parsed as a
+// boolean.
+func setBool(fieldValue reflect.Value, defaultValue string, isDefaultValue, replaceDefaultValue bool) (bool, error) {
 	if defaultValue == "" {
-		return nil // Skip empty values for interfaces
-	}
-
-	// Only handle any (empty interface) types
-	interfaceType := fieldValue.Type()
-	if interfaceType.NumMethod() == 0 {
-		// This is any - safe to assign string or []byte
-		if defaultValue != "" {
-			fieldValue.Set(reflect.ValueOf([]byte(defaultValue)))
-		}
-		return nil
-	}
-
-	// For other interfaces, we can't safely assign arbitrary values
-	// Skip setting values for non-empty interfaces
-	return nil
-}
-
-// setString sets a string value to a reflect.Value.
-// It respects the replaceDefaultValue flag when dealing with default values.
-func setString(fieldValue reflect.Value, defaultValue string, isDefaultValue, replaceDefaultValue bool) error {
-	if !isDefaultValue {
-		fieldValue.SetString(defaultValue)
-		return nil
-	}
-
-	if fieldValue.Len() == 0 && replaceDefaultValue {
-		fieldValue.SetString(defaultValue)
-	}
-	return nil
-}
-
-// setBool parses and sets a boolean value from a string.
-// It returns an error if the string cannot be parsed as a boolean.
-func setBool(fieldValue reflect.Value, defaultValue string, isDefaultValue, replaceDefaultValue bool) error {
-	if defaultValue == "" {
-		return nil
+		return false, nil
 	}
 
 	boolValue, err := strconv.ParseBool(defaultValue)
 	if err != nil {
-		return wrapError(ErrBoolParseFailure, "a boolean value expected, got %q", defaultValue, err)
+		return false, wrapError(ErrBoolParseFailure, "a boolean value expected, got %q", defaultValue, err)
 	}
 
-	if !isDefaultValue {
-		fieldValue.SetBool(boolValue)
-		return nil
+	if isDefaultValue && (fieldValue.Bool() || !replaceDefaultValue) {
+		return false, nil
 	}
-
-	if !fieldValue.Bool() && replaceDefaultValue {
-		fieldValue.SetBool(boolValue)
-	}
-
-	return nil
+	fieldValue.SetBool(boolValue)
+	return true, nil
 }
 
-// setSlice parses and sets a slice value from a comma-separated string.
-// It handles special cases like byte slices. Struct elements get their
-// defaults from the element pass (applyDefaultsToMaps), which knows which of
-// their fields were set explicitly.
-func setSlice(fieldValue reflect.Value, defaultValue string, isDefaultValue, replaceDefaultValue, strict bool) error {
+// setSlice parses and sets a slice value from a comma-separated string and
+// reports whether it assigned it. It handles special cases like byte slices.
+// Struct elements get their defaults from the default pass, which knows which
+// of their fields were set explicitly.
+func setSlice(fieldValue reflect.Value, defaultValue string, isDefaultValue, replaceDefaultValue, strict bool) (bool, error) {
 	if defaultValue == "" {
-		return nil
+		return false, nil
 	}
 
 	if isDefaultValue && !fieldValue.IsNil() {
-		return nil
+		return false, nil
 	}
 
 	if fieldValue.Type().Elem().Kind() == reflect.Uint8 {
@@ -337,7 +238,7 @@ func setSlice(fieldValue reflect.Value, defaultValue string, isDefaultValue, rep
 
 		fieldValue.Set(value)
 
-		return nil
+		return true, nil
 	}
 
 	// Remove surrounding brackets if present: [value1,value2] -> value1,value2
@@ -356,25 +257,26 @@ func setSlice(fieldValue reflect.Value, defaultValue string, isDefaultValue, rep
 		if len(trimmedVal) >= 2 && trimmedVal[0] == '"' && trimmedVal[len(trimmedVal)-1] == '"' {
 			trimmedVal = trimmedVal[1 : len(trimmedVal)-1]
 		}
-		if err := set(slice.Index(i), trimmedVal, isDefaultValue, replaceDefaultValue, strict); err != nil {
-			return wrapError(ErrSliceItemInvalid, "incorrect slice item %q", val, err)
+		if _, err := set(slice.Index(i), trimmedVal, isDefaultValue, replaceDefaultValue, strict); err != nil {
+			return false, wrapError(ErrSliceItemInvalid, "incorrect slice item %q", val, err)
 		}
 	}
 
 	fieldValue.Set(slice)
 
-	return nil
+	return true, nil
 }
 
-// setMap parses and sets a map value from a comma-separated string of key:value pairs.
+// setMap parses and sets a map value from a comma-separated string of key:value pairs
+// and reports whether it assigned it.
 // Each pair is separated by commas and keys/values are separated by colons.
-func setMap(fieldValue reflect.Value, defaultValue string, isDefaultValue, replaceDefaultValue, strict bool) error {
+func setMap(fieldValue reflect.Value, defaultValue string, isDefaultValue, replaceDefaultValue, strict bool) (bool, error) {
 	if defaultValue == "" {
-		return nil
+		return false, nil
 	}
 
 	if isDefaultValue && !fieldValue.IsNil() {
-		return nil
+		return false, nil
 	}
 
 	vals := strings.Split(defaultValue, commaSeparator)
@@ -383,21 +285,21 @@ func setMap(fieldValue reflect.Value, defaultValue string, isDefaultValue, repla
 	for _, val := range vals {
 		entry := strings.SplitN(val, mapSeparator, mapKeyValuePair)
 		if len(entry) != mapKeyValuePair {
-			return wrapError(ErrMapItemInvalid, "incorrect map item: %s", val, nil)
+			return false, wrapError(ErrMapItemInvalid, "incorrect map item: %s", val, nil)
 		}
 
 		mKey := strings.TrimSpace(entry[0])
 		mKeyValue := reflect.New(fieldValue.Type().Key()).Elem()
 
-		if err := set(mKeyValue, mKey, isDefaultValue, replaceDefaultValue, strict); err != nil {
-			return wrapError(ErrMapKeyInvalid, "incorrect map key %q", mKey, err)
+		if _, err := set(mKeyValue, mKey, isDefaultValue, replaceDefaultValue, strict); err != nil {
+			return false, wrapError(ErrMapKeyInvalid, "incorrect map key %q", mKey, err)
 		}
 
 		mVal := strings.TrimSpace(entry[1])
 		mValValue := reflect.New(fieldValue.Type().Elem()).Elem()
 
-		if err := set(mValValue, mVal, isDefaultValue, replaceDefaultValue, strict); err != nil {
-			return wrapError(ErrMapValueInvalid, "incorrect map value %q", mVal, err)
+		if _, err := set(mValValue, mVal, isDefaultValue, replaceDefaultValue, strict); err != nil {
+			return false, wrapError(ErrMapValueInvalid, "incorrect map value %q", mVal, err)
 		}
 
 		reflectMap.SetMapIndex(mKeyValue, mValValue)
@@ -405,7 +307,7 @@ func setMap(fieldValue reflect.Value, defaultValue string, isDefaultValue, repla
 
 	fieldValue.Set(reflectMap)
 
-	return nil
+	return true, nil
 }
 
 // parseDuration parses a string as either a time.Duration or a plain integer.
@@ -447,55 +349,61 @@ func parseStringInt(fv reflect.Value) (val int64) {
 	return
 }
 
-// setIntValue parses and sets signed integer values, including time.Duration support.
-func setIntValue(fieldValue reflect.Value, defaultValue string, isDefaultValue, replaceDefaultValue bool) error {
+// setIntValue parses and sets signed integer values, including time.Duration
+// support, and reports whether it assigned the value.
+func setIntValue(fieldValue reflect.Value, defaultValue string, isDefaultValue, replaceDefaultValue bool) (bool, error) {
 	if defaultValue == "" {
-		return nil
+		return false, nil
 	}
 
 	defaultIntValue, err := parseDuration(reflect.Indirect(fieldValue), defaultValue)
 	if err != nil {
-		return wrapError(ErrNumericParse, "failed to parse %q", defaultValue, err)
+		return false, wrapError(ErrNumericParse, "failed to parse %q", defaultValue, err)
 	}
 
-	if !isDefaultValue || (parseStringInt(reflect.Indirect(fieldValue)) == 0 && replaceDefaultValue) {
-		fieldValue.SetInt(defaultIntValue)
+	if isDefaultValue && (parseStringInt(reflect.Indirect(fieldValue)) != 0 || !replaceDefaultValue) {
+		return false, nil
 	}
-	return nil
+	fieldValue.SetInt(defaultIntValue)
+	return true, nil
 }
 
-// setUintValue parses and sets unsigned integer values.
-func setUintValue(fieldValue reflect.Value, defaultValue string, isDefaultValue, replaceDefaultValue bool) error {
+// setUintValue parses and sets unsigned integer values and reports whether it
+// assigned the value.
+func setUintValue(fieldValue reflect.Value, defaultValue string, isDefaultValue, replaceDefaultValue bool) (bool, error) {
 	if defaultValue == "" {
-		return nil
+		return false, nil
 	}
 
 	uintNumber, err := strconv.ParseUint(defaultValue, decimalBase, fieldValue.Type().Bits())
 	if err != nil {
-		return wrapError(ErrUintParse, "failed to parse %q", defaultValue, err)
+		return false, wrapError(ErrUintParse, "failed to parse %q", defaultValue, err)
 	}
 
-	if !isDefaultValue || (fieldValue.Uint() == 0 && replaceDefaultValue) {
-		fieldValue.SetUint(uintNumber)
+	if isDefaultValue && (fieldValue.Uint() != 0 || !replaceDefaultValue) {
+		return false, nil
 	}
-	return nil
+	fieldValue.SetUint(uintNumber)
+	return true, nil
 }
 
-// setFloatValue parses and sets floating-point values.
-func setFloatValue(fieldValue reflect.Value, defaultValue string, isDefaultValue, replaceDefaultValue bool) error {
+// setFloatValue parses and sets floating-point values and reports whether it
+// assigned the value.
+func setFloatValue(fieldValue reflect.Value, defaultValue string, isDefaultValue, replaceDefaultValue bool) (bool, error) {
 	if defaultValue == "" {
-		return nil
+		return false, nil
 	}
 
 	floatNumber, err := strconv.ParseFloat(defaultValue, fieldValue.Type().Bits())
 	if err != nil {
-		return wrapError(ErrFloatParse, "failed to parse %q", defaultValue, err)
+		return false, wrapError(ErrFloatParse, "failed to parse %q", defaultValue, err)
 	}
 
-	if !isDefaultValue || (math.Float64bits(fieldValue.Float()) == 0 && replaceDefaultValue) {
-		fieldValue.SetFloat(floatNumber)
+	if isDefaultValue && (math.Float64bits(fieldValue.Float()) != 0 || !replaceDefaultValue) {
+		return false, nil
 	}
-	return nil
+	fieldValue.SetFloat(floatNumber)
+	return true, nil
 }
 
 // fields represents a collection of struct fields.
@@ -601,16 +509,6 @@ func fieldsList(structValue reflect.Value, structType reflect.Type, parent *fiel
 	return list
 }
 
-// indirect returns the underlying type, dereferencing pointers.
-// It accepts both reflect.Type and any other type.
-func indirect(s any) reflect.Type {
-	if t, ok := s.(reflect.Type); ok {
-		return indirectType(t)
-	}
-	v := reflect.TypeOf(s)
-	return indirectType(v)
-}
-
 // indirectType dereferences a reflect.Type if it's a pointer.
 func indirectType(t reflect.Type) reflect.Type {
 	if t.Kind() == reflect.Pointer {
@@ -637,112 +535,4 @@ func makeFieldName(name string, parent *field) string {
 	}
 
 	return parent.fullName + "." + name
-}
-
-// findFieldInValue recursively searches for a field by name in a struct value,
-// including fields in inline/anonymous structs.
-func findFieldInValue(structValue reflect.Value, fieldName string) reflect.Value {
-	structType := structValue.Type()
-
-	// First, try direct field lookup
-	for i := range structType.NumField() {
-		field := structType.Field(i)
-
-		if field.Anonymous {
-			// Skip anonymous fields in first pass
-			continue
-		}
-
-		if field.Name == fieldName {
-			return structValue.Field(i)
-		}
-	}
-
-	// Second pass: search in anonymous/inline fields
-	for i := range structType.NumField() {
-		field := structType.Field(i)
-
-		if !field.Anonymous {
-			continue
-		}
-
-		fieldValue := structValue.Field(i)
-		if fieldValue.Kind() == reflect.Pointer {
-			if fieldValue.IsNil() {
-				// Initialize the pointer if nil
-				fieldValue.Set(reflect.New(fieldValue.Type().Elem()))
-			}
-			fieldValue = fieldValue.Elem()
-		}
-
-		if fieldValue.Kind() == reflect.Struct {
-			// Recursively search in the inline struct
-			if found := findFieldInValue(fieldValue, fieldName); found.IsValid() {
-				return found
-			}
-		}
-	}
-
-	return reflect.Value{}
-}
-
-// safeSetValue safely sets a value to a field, checking type compatibility first.
-// It handles common type mismatches and returns an error if assignment is not possible.
-func safeSetValue(fieldValue, newValue reflect.Value) error {
-	if !fieldValue.CanSet() {
-		return fmt.Errorf("field cannot be set")
-	}
-
-	fieldType := fieldValue.Type()
-	newType := newValue.Type()
-
-	// Direct type match - safe to assign
-	if fieldType == newType {
-		fieldValue.Set(newValue)
-		return nil
-	}
-
-	// Handle pointer to value assignment
-	if fieldType == newType.Elem() && newValue.Kind() == reflect.Pointer {
-		if newValue.IsNil() {
-			return fmt.Errorf("cannot assign nil pointer")
-		}
-		fieldValue.Set(newValue.Elem())
-		return nil
-	}
-
-	// Handle value to pointer assignment
-	if newType == fieldType.Elem() && fieldValue.Kind() == reflect.Pointer {
-		if fieldValue.IsNil() {
-			fieldValue.Set(reflect.New(fieldType.Elem()))
-		}
-		fieldValue.Elem().Set(newValue)
-		return nil
-	}
-
-	// Handle interface assignments
-	if fieldValue.Kind() == reflect.Interface {
-		if newType.Implements(fieldType) {
-			fieldValue.Set(newValue)
-			return nil
-		}
-		// Try with pointer receiver
-		if reflect.PointerTo(newType).Implements(fieldType) {
-			fieldValue.Set(newValue.Addr())
-			return nil
-		}
-	}
-
-	// Handle assignability and convertibility
-	if newType.AssignableTo(fieldType) {
-		fieldValue.Set(newValue)
-		return nil
-	}
-
-	if newType.ConvertibleTo(fieldType) {
-		fieldValue.Set(newValue.Convert(fieldType))
-		return nil
-	}
-
-	return fmt.Errorf("cannot assign %s to %s", newType, fieldType)
 }

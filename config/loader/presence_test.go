@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -357,4 +358,206 @@ func TestLoad_TOMLSliceReuseKeepsEarlierExplicitValues(t *testing.T) {
 	require.Len(t, cfg.Items, 1)
 	require.Equal(t, "b", cfg.Items[0].Name)
 	require.Zero(t, cfg.Items[0].Weight)
+}
+
+type mutatingItem struct {
+	Name   string `yaml:"name"`
+	Weight int    `yaml:"weight"`
+}
+
+type mutatingConfig struct {
+	Count  *int                    `yaml:"count"`
+	Items  []mutatingItem          `yaml:"items"`
+	ByName map[string]mutatingItem `yaml:"byName"`
+}
+
+// Default mutates values the file set explicitly through shared pointers,
+// slices and maps.
+func (c *mutatingConfig) Default() {
+	if c.Count != nil {
+		*c.Count = 10
+	}
+	if len(c.Items) > 0 {
+		c.Items[0].Weight = 10
+	}
+	if c.ByName != nil {
+		c.ByName["a"] = mutatingItem{Name: "replacement", Weight: 10}
+	}
+}
+
+// Explicit values survive a Default() that mutates them in place: the values
+// restored afterwards are independent copies.
+func TestLoad_DefaulterInPlaceMutation(t *testing.T) {
+	t.Parallel()
+
+	cfg := &mutatingConfig{}
+	require.NoError(t, loadFiles(t, nil, cfg, map[string]string{
+		"a.yaml": "count: 0\nitems:\n  - weight: 0\nbyName:\n  a:\n    weight: 0\n",
+	}))
+
+	t.Run("pointer", func(t *testing.T) {
+		require.Zero(t, *cfg.Count)
+	})
+	t.Run("slice element", func(t *testing.T) {
+		require.Zero(t, cfg.Items[0].Weight)
+	})
+	t.Run("map entry", func(t *testing.T) {
+		require.Zero(t, cfg.ByName["a"].Weight)
+		require.Equal(t, "replacement", cfg.ByName["a"].Name, "a field the file omitted keeps Default's value")
+	})
+}
+
+type replacingConfig struct {
+	Items  []mutatingItem    `yaml:"items"`
+	Labels map[string]string `yaml:"labels"`
+}
+
+// Default replaces whole collections.
+func (c *replacingConfig) Default() {
+	c.Items = []mutatingItem{{Name: "default", Weight: 10}}
+	c.Labels = map[string]string{"team": "core"}
+}
+
+// Only explicit descendants are restored after Default(): an element field the
+// file omitted keeps Default's value, and a map entry set by the environment
+// joins the map Default built.
+func TestLoad_DefaulterReplacedCollections(t *testing.T) {
+	t.Setenv("REPLACING_LABELS__env", "x")
+
+	cfg := &replacingConfig{}
+	require.NoError(t, loadFiles(t, nil, cfg, map[string]string{"a.yaml": "items:\n  - weight: 0\n"},
+		loader.WithEnvPrefix("REPLACING_")))
+
+	t.Run("slice", func(t *testing.T) {
+		require.Len(t, cfg.Items, 1)
+		require.Zero(t, cfg.Items[0].Weight)
+		require.Equal(t, "default", cfg.Items[0].Name)
+	})
+	t.Run("map", func(t *testing.T) {
+		require.Equal(t, map[string]string{"team": "core", "env": "x"}, cfg.Labels)
+	})
+}
+
+type emptyEnvConfig struct {
+	Enabled bool              `yaml:"enabled" env:"EMPTY_ENV_ENABLED" default:"true"`
+	Limit   int               `yaml:"limit" env:"EMPTY_ENV_LIMIT" default:"5"`
+	Ratio   float64           `yaml:"ratio" env:"EMPTY_ENV_RATIO" default:"0.5"`
+	Timeout time.Duration     `yaml:"timeout" env:"EMPTY_ENV_TIMEOUT" default:"15m"`
+	Hosts   []string          `yaml:"hosts" env:"EMPTY_ENV_HOSTS" default:"a,b"`
+	Labels  map[string]string `yaml:"labels" env:"EMPTY_ENV_LABELS" default:"k:v"`
+}
+
+// An empty environment variable leaves a bool, number, duration, slice or map
+// unassigned, so it does not count as an explicit value and the default still
+// applies.
+func TestLoad_EmptyEnvKeepsDefaults(t *testing.T) {
+	for _, name := range []string{"ENABLED", "LIMIT", "RATIO", "TIMEOUT", "HOSTS", "LABELS"} {
+		t.Setenv("EMPTY_ENV_"+name, "")
+	}
+
+	cfg := &emptyEnvConfig{}
+	_, err := loader.New(nil).Load(cfg)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name string
+		got  any
+		want any
+	}{
+		{"bool", cfg.Enabled, true},
+		{"int", cfg.Limit, 5},
+		{"float", cfg.Ratio, 0.5},
+		{"duration", cfg.Timeout, 15 * time.Minute},
+		{"slice", cfg.Hosts, []string{"a", "b"}},
+		{"map", cfg.Labels, map[string]string{"k": "v"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, tc.got)
+		})
+	}
+}
+
+type nullEntryConfig struct {
+	NullByName map[string]*explicitItem `yaml:"nullByName"`
+}
+
+// A null map entry replaces an earlier file's entry of pointer type, so its
+// explicit values no longer suppress defaults once the entry is recreated.
+func TestLoad_NullMapEntryReplacesPresence(t *testing.T) {
+	t.Setenv("NULL_BY_NAME__a__NAME", "x")
+
+	cfg := &nullEntryConfig{}
+	require.NoError(t, loadFiles(t, nil, cfg, map[string]string{
+		"a.yaml": "nullByName:\n  a: {weight: 0}\n",
+		"b.yaml": "nullByName:\n  a: null\n",
+	}))
+	require.Equal(t, "x", cfg.NullByName["a"].Name)
+	require.Equal(t, 10, cfg.NullByName["a"].Weight)
+}
+
+// BurntSushi/toml keeps a shrunk slice's backing array, so an element that
+// comes back within capacity keeps an earlier file's explicit values.
+func TestLoad_TOMLSliceShrinkThenGrow(t *testing.T) {
+	t.Parallel()
+
+	cfg := &tomlFoldConfig{}
+	require.NoError(t, loadFiles(t, &toml.Backend{}, cfg, map[string]string{
+		"a.toml": "[[items]]\nname = \"a\"\n\n[[items]]\nweight = 0\n",
+		"b.toml": "[[items]]\nname = \"b\"\n",
+		"c.toml": "[[items]]\nname = \"c\"\n\n[[items]]\nname = \"d\"\n",
+	}))
+	require.Len(t, cfg.Items, 2)
+	require.Equal(t, "d", cfg.Items[1].Name)
+	require.Zero(t, cfg.Items[1].Weight)
+}
+
+type TOMLEmbedded struct {
+	Port int `toml:"port" default:"80"`
+}
+
+type tomlShadowNameConfig struct {
+	TOMLEmbedded
+	Embedded_0 int `toml:"e" default:"5"` //nolint:revive,staticcheck // collides with a synthetic shadow name
+}
+
+// TOML presence handles a field named like a synthetic shadow field.
+func TestLoad_TOMLShadowFieldNames(t *testing.T) {
+	t.Parallel()
+
+	cfg := &tomlShadowNameConfig{}
+	require.NoError(t, loadFiles(t, &toml.Backend{}, cfg, map[string]string{"a.toml": "port = 0\ne = 0\n"}))
+	require.Zero(t, cfg.Port)
+	require.Zero(t, cfg.Embedded_0)
+}
+
+type tomlDashConfig struct {
+	Dash int `toml:"-,omitempty" default:"5"`
+}
+
+// TOML presence keeps the complete tag: "-,omitempty" is the literal key "-".
+func TestLoad_TOMLDashKeyTag(t *testing.T) {
+	t.Parallel()
+
+	cfg := &tomlDashConfig{}
+	require.NoError(t, loadFiles(t, &toml.Backend{}, cfg, map[string]string{"a.toml": "\"-\" = 0\n"}))
+	require.Zero(t, cfg.Dash)
+}
+
+type envIndexConfig struct {
+	EnvIndexHosts  []string          `yaml:"envIndexHosts" default:"a,b"`
+	EnvIndexLabels map[string]string `yaml:"envIndexLabels" default:"k:v"`
+}
+
+// A default tag still provides the entries of a slice or map the environment
+// populated entry by entry; the environment's entries win.
+func TestLoad_DefaultTagFillsEnvCollections(t *testing.T) {
+	t.Setenv("ENV_INDEX_HOSTS__1", "c")
+	t.Setenv("ENV_INDEX_LABELS__x", "y")
+
+	cfg := &envIndexConfig{}
+	_, err := loader.New(nil).Load(cfg)
+	require.NoError(t, err)
+	require.Equal(t, []string{"a", "c"}, cfg.EnvIndexHosts)
+	require.Equal(t, map[string]string{"k": "v", "x": "y"}, cfg.EnvIndexLabels)
 }
