@@ -85,6 +85,9 @@ type Config struct {
 	fields    fields
 	allowExts map[string]struct{}
 	smx       sync.RWMutex
+	// envCache holds the resolved environment for the duration of one load
+	// so explicit values can be re-applied without re-resolving secrets.
+	envCache map[string]string
 }
 
 // New creates a new Config instance with the specified backend and options.
@@ -148,10 +151,31 @@ func (cf *Config) Config() any {
 	return cf.conf
 }
 
+// reapplyExplicitValues decodes the cached file contents again and re-applies
+// the environment, restoring explicit values that a default-tag pass replaced.
+func (cf *Config) reapplyExplicitValues() error {
+	if cf.options.path != "" {
+		for f := range cf.files.All() {
+			if err := f.decodeCached(cf.conf); err != nil {
+				return err
+			}
+		}
+	}
+
+	cf.fields = structFields(cf.conf)
+	if err := cf.loadEnvs(); err != nil {
+		return fmt.Errorf("%w: %w", ErrBindEnv, err)
+	}
+	return nil
+}
+
 // load performs the actual configuration loading process.
 // It reads from files, applies defaults, loads environment variables, and runs validation.
 func (cf *Config) load() error {
 	var err error
+
+	cf.envCache = nil
+	defer func() { cf.envCache = nil }()
 
 	// load configuration from file(s).
 	if cf.options.path != "" {
@@ -183,6 +207,13 @@ func (cf *Config) load() error {
 	cf.fields = structFields(cf.conf)
 	if err = cf.loadDefaultValues(); err != nil {
 		return fmt.Errorf("%w: %w", ErrBindDefaults, err)
+	}
+
+	// Default tags fill every zero value, which cannot be told apart from an
+	// explicit false/0/"" in a file or the environment. Re-apply the explicit
+	// sources so they win over the tag defaults.
+	if err = cf.reapplyExplicitValues(); err != nil {
+		return err
 	}
 
 	// Apply default values to structs inside maps

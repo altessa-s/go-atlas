@@ -26,12 +26,18 @@ func (cf *Config) loadEnvs() error {
 
 	var err error
 
-	// Use envsWithSecrets to support secret expansion in environment variables
-	ctx, cancel := cf.options.getSecretsContext()
-	envs, err := envsWithSecrets(ctx, cf.options.secretsManager, cf.options.strict)
-	cancel()
-	if err != nil {
-		return coreerrs.WrapOperation(err, "expand secrets in environment variables")
+	// Use envsWithSecrets to support secret expansion in environment variables.
+	// The result is cached for the rest of the load so re-applying explicit
+	// values does not resolve secrets again.
+	envs := cf.envCache
+	if envs == nil {
+		ctx, cancel := cf.options.getSecretsContext()
+		envs, err = envsWithSecrets(ctx, cf.options.secretsManager, cf.options.strict)
+		cancel()
+		if err != nil {
+			return coreerrs.WrapOperation(err, "expand secrets in environment variables")
+		}
+		cf.envCache = envs
 	}
 
 	// First, handle regular field mappings
