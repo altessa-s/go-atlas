@@ -26,7 +26,7 @@ no-ops. Import the packages you need; applications own construction and lifecycl
 
 ## Requirements
 
-- **Go 1.25+**
+- **Go 1.26+**
 
 ## Installation
 
