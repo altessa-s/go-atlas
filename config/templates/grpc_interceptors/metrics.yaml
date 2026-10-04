@@ -74,8 +74,7 @@
 #
 #  # <float64> Sampling rate for streaming message metrics (0.0 to 1.0).
 #  # Only effective when enableStreamMetrics is true. Used to reduce overhead in high-throughput scenarios.
-#  # 1.0 = no sampling (record all messages), 0.1 = record 10% of messages. An explicit 0.0
-#  # is replaced by the default by the config loader; use enableStreamMetrics: false instead.
+#  # 1.0 = no sampling (record all messages), 0.1 = record 10% of messages, 0.0 = disable streaming metrics.
 #  # When sampling is enabled, recorded metrics are scaled to maintain accurate totals.
 #  # Default value: 1.0
 #  streamSamplingRate: 1.0

@@ -6,7 +6,6 @@
 #audit:
 #  # <bool> Enable auditing.
 #  # When false, the factory returns nil and no auditor is created.
-#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  enabled: true
 #

@@ -44,7 +44,6 @@
 #  hstsMaxAge: 31536000
 #
 #  # <bool> Include subdomains in HSTS policy.
-#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  hstsIncludeSubDomains: true
 #
@@ -53,11 +52,9 @@
 #  hstsPreload: false
 #
 #  # <bool> Set X-Content-Type-Options: nosniff.
-#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  contentTypeNoSniff: true
 #
 #  # <bool> Set X-XSS-Protection: 0 to disable browser XSS filter.
-#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  xssProtectionDisabled: true

@@ -233,7 +233,6 @@
 #  recovery:
 #    # <bool> Enables or disables automatic recovery.
 #    # When enabled, deleted streams and consumers are automatically recreated.
-#    # The config loader replaces an explicit false with this default (true).
 #    # Default value: true
 #    enabled: true
 #

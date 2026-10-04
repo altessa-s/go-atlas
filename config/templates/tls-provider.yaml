@@ -176,13 +176,11 @@
 #    # <bool> Enable gzip compression of cached OCSP responses.
 #    # Cache entries are typically 1-2 KiB; compression cuts that by
 #    # 50-70 % at negligible CPU cost.
-#    # The config loader replaces an explicit false with this default (true).
 #    # Default value: true
 #    enableCompression: true
 #
 #    # <int> Maximum number of OCSP responses kept in the in-memory
-#    # cache. An explicit 0 is replaced by the default by the config
-#    # loader, so the cap cannot be disabled through the loader.
+#    # cache.
 #    # The default is generous enough for typical mTLS server workloads
 #    # (a few hundred client certs) without letting an adversarial mTLS
 #    # client population grow the map between lazy-cleanup ticks.

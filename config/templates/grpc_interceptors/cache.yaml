@@ -34,7 +34,6 @@
 #
 #  # <bool> Controls whether cache hit/miss headers are added to responses.
 #  # Adds debugging headers to indicate cache status.
-#  # The config loader replaces an explicit false with this default (true).
 #  # Default value: true
 #  enableCacheHeaders: true
 #
