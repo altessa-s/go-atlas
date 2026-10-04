@@ -4,7 +4,7 @@ Thank you for your interest in contributing to go-atlas! This guide will help yo
 
 ## Prerequisites
 
-- **Go 1.25+** — [download](https://go.dev/dl/)
+- **Go 1.26+** — [download](https://go.dev/dl/)
 - **Make** — for running project targets
 - **Git** — for version control
 
