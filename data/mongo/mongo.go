@@ -21,6 +21,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
+	"github.com/altessa-s/go-atlas/data/mongo/bsoncodec"
 	"github.com/altessa-s/go-atlas/data/mongo/kms"
 	"github.com/altessa-s/go-atlas/domain/converter"
 
@@ -229,7 +230,7 @@ func (m *Mongo) Connect(ctx context.Context) (err error) {
 	if m.config.Client != nil {
 		m.client = m.config.Client
 	} else {
-		opts := cmp.Or(m.config.ClientOptions, mongoOptions.Client())
+		opts := mongoOptions.MergeClientOptions(mongoOptions.Client().SetRegistry(bsoncodec.NewRegistry()), m.config.ClientOptions)
 
 		m.client, err = mongo.Connect(opts)
 		if err != nil {
