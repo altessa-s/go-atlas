@@ -264,3 +264,7 @@ security-scan: ## Security checks - run vulnerability and security scanners
 # Absolutely awesome: http://marmelab.com/blog/2016/02/29/auto-documented-makefile.html
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
+
+.PHONY: check-architecture
+check-architecture: ## Check production package boundaries on every platform
+	go test ./internal/architecture
