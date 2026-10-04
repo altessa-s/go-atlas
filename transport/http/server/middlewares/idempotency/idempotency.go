@@ -138,8 +138,8 @@ func (m *middleware) Handler(next http.Handler) http.Handler {
 				// overwriting the new holder's state.
 				_ = m.i.Complete(r.Context(), storageKey, data, lockState) //nolint:errcheck
 			} else {
-				// On error, delete the key
-				_ = m.i.Delete(r.Context(), storageKey) //nolint:errcheck // Best-effort cleanup, main operation already failed
+				// Release only the lock owned by this failed request.
+				_ = m.i.Release(r.Context(), storageKey, lockState) //nolint:errcheck // Best-effort cleanup, main operation already failed
 			}
 		}
 	})
