@@ -7,6 +7,7 @@ package config_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,6 +75,46 @@ func TestSchedulerStorageRedisConfig_HistoryTTLLoads(t *testing.T) {
 			}
 			require.NotNil(t, cfg.Scheduler.Storage.Redis)
 			require.Equal(t, tc.wantTTL, cfg.Scheduler.Storage.Redis.HistoryTTL)
+		})
+	}
+}
+
+func TestScheduler_InstanceID(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		yaml    string
+		want    string
+		wantErr bool
+	}{
+		{name: "Omitted", yaml: "scheduler:\n  tickInterval: 1s\n"},
+		{name: "Set", yaml: "scheduler:\n  instanceId: pod-0\n", want: "pod-0"},
+		{
+			name:    "TooLong",
+			yaml:    "scheduler:\n  instanceId: " + strings.Repeat("x", config.MaxSchedulerInstanceIDLength+1) + "\n",
+			wantErr: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			require.NoError(t, os.WriteFile(path, []byte(tc.yaml), 0o600))
+
+			type wrapper struct {
+				Scheduler config.Scheduler `yaml:"scheduler"`
+			}
+			cfg := &wrapper{}
+			_, err := loader.New(nil, loader.WithPath(path), loader.WithSkipEnv()).Load(cfg)
+			require.NoError(t, err)
+
+			if tc.wantErr {
+				require.Error(t, cfg.Scheduler.Validate())
+				return
+			}
+			require.Equal(t, tc.want, cfg.Scheduler.InstanceID)
+			require.NoError(t, cfg.Scheduler.Validate())
 		})
 	}
 }

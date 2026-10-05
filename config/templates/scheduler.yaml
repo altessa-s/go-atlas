@@ -73,11 +73,18 @@
 #      # Default value: not set
 #      highLoadThreshold: 0.8
 #
-#  # <duration> Timeout after which a task stuck in Running status is considered stale.
-#  # Stale tasks are automatically reset to Active on startup and periodically.
-#  # Handles recovery from process crashes where tasks were left in Running state.
+#  # <duration> Lease of a task run (minimum 5s), renewed every third of it while the run executes.
+#  # A run whose lease has expired (its instance crashed or lost the storage) is reset to Active
+#  # on startup and periodically; runs of live instances are never reset.
 #  # Default value: 30m
 #  staleTaskTimeout: "30m"
+#
+#  # <string> Identifier of this scheduler instance, stamped on every task run it executes.
+#  # Must be unique among the instances sharing one storage. A stable value (e.g. the pod name)
+#  # lets a restarted instance recover its own interrupted runs immediately instead of waiting
+#  # for their leases (staleTaskTimeout) to expire. Maximum length: 128.
+#  # Default value: not set (a random ID per process)
+#  instanceId: "scheduler-0"
 #
 #  # <object> Storage backend configuration for the scheduler.
 #  # Supports multiple storage backends with provider-specific settings.
