@@ -49,6 +49,17 @@ func AllFallbackBehaviors() []FallbackBehavior {
 	}
 }
 
+// KVStorageType selects where a NATS JetStream KeyValue bucket keeps its data.
+type KVStorageType string
+
+const (
+	// KVStorageMemory keeps the bucket in memory: fast, lost when the
+	// JetStream servers holding it stop.
+	KVStorageMemory KVStorageType = "memory"
+	// KVStorageFile keeps the bucket on disk, surviving server restarts.
+	KVStorageFile KVStorageType = "file"
+)
+
 // StorageNATSConfig defines common NATS-specific configuration for storage backends.
 // Contains settings for NATS KeyValue bucket creation and replication strategy.
 //
@@ -63,6 +74,17 @@ type StorageNATSConfig struct {
 	// Replicas defines the number of replicas for NATS KeyValue storage.
 	// Higher values provide better availability but increase storage overhead.
 	Replicas int `yaml:"replicas" default:"3"`
+
+	// MigrateBucketTTL updates a pre-existing bucket whose key TTL differs
+	// from the feature's TTL instead of failing with ErrBucketTTLMismatch.
+	// Off by default: the bucket's key TTL expires every key in it, including
+	// keys of other processes sharing the bucket.
+	MigrateBucketTTL bool `yaml:"migrateBucketTTL"`
+
+	// StrictBucketStorage fails with ErrBucketStorageMismatch when the bucket
+	// already exists with another storage type, instead of using it as is
+	// with a warning.
+	StrictBucketStorage bool `yaml:"strictBucketStorage"`
 }
 
 // Validate performs validation of the NATS storage configuration.

@@ -59,6 +59,13 @@ func WithLogger(v *slog.Logger) Option {
 	}
 }
 
+// WithMigrateBucketTTL enables the migrateBucketTTL option.
+func WithMigrateBucketTTL() Option {
+	return func(o *options) {
+		o.migrateBucketTTL = true
+	}
+}
+
 // WithRenewRatio sets the renewRatio option.
 func WithRenewRatio(v float64) Option {
 	return func(o *options) {
@@ -70,6 +77,13 @@ func WithRenewRatio(v float64) Option {
 func WithStorage(v jetstream.StorageType) Option {
 	return func(o *options) {
 		o.storage = v
+	}
+}
+
+// WithStrictBucketStorage enables the strictBucketStorage option.
+func WithStrictBucketStorage() Option {
+	return func(o *options) {
+		o.strictBucketStorage = true
 	}
 }
 

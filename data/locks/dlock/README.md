@@ -25,6 +25,9 @@ The context passed to `Lock` (and to `Synchronize`) **scopes the lock**: cancel 
 lock a context that ends before the work it guards. The acquisition attempt is bounded separately, by the NATS provider's `WithAcquireTimeout`,
 because a bound folded into the same context would release the lock the moment it elapsed.
 
+A failed renewal is retried for as long as the lease can still be valid; the lock is lost only when that window closes or the key is gone or owned
+by someone else. See [docs/data/locks/dlock.md](../../../docs/data/locks/dlock.md#ttl-renew-fencing).
+
 ## Metrics
 
 Subsystem `dlock`:

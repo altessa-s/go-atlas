@@ -20,6 +20,7 @@ import (
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
+	natskvlease "github.com/altessa-s/go-atlas/data/internal/natskvlease"
 	memorystorage "github.com/altessa-s/go-atlas/data/mongo/cursor_storages/memory"
 	natsstorage "github.com/altessa-s/go-atlas/data/mongo/cursor_storages/nats"
 	redisstorage "github.com/altessa-s/go-atlas/data/mongo/cursor_storages/redis"
@@ -29,6 +30,16 @@ const (
 	// DefaultBucket is the default NATS KeyValue bucket name for cursor storage.
 	DefaultBucket = "cursor"
 )
+
+// ErrBucketTTLMismatch is returned by Build for NATS storage when the bucket
+// already exists with a key TTL other than the builder's and migrateBucketTTL
+// is not set. The bucket is left untouched.
+var ErrBucketTTLMismatch = natskvlease.ErrBucketTTLMismatch
+
+// ErrBucketStorageMismatch is returned by Build for NATS storage when the
+// bucket already exists with another storage type and strictBucketStorage is
+// set. The bucket is left untouched.
+var ErrBucketStorageMismatch = natskvlease.ErrBucketStorageMismatch
 
 // CursorStorageBuilder assembles a [mongo.CursorStorage] step by step using a fluent API.
 // Create instances with [New]. Errors are accumulated and reported at [CursorStorageBuilder.Build] time.
@@ -109,20 +120,25 @@ func (b *CursorStorageBuilder) createRedisStorage() (*redisstorage.Storage, erro
 }
 
 // createNatsStorage creates a NATS cursor storage from configuration.
-// This method creates the KeyValue bucket with the specified TTL.
+//
+// The bucket is created with the builder's TTL (zero: cursors never expire) or,
+// when it exists, checked against it like every other NATS KV backend: a
+// different key TTL fails with [natskvlease.ErrBucketTTLMismatch] unless
+// migrateBucketTTL is set, and a different storage type is used as is with a
+// warning unless strictBucketStorage is set.
 func (b *CursorStorageBuilder) createNatsStorage(ctx context.Context) (*natsstorage.Storage, error) {
 	if b.cfg.Nats == nil {
 		return nil, fmt.Errorf("configuration is required")
 	}
 
-	bucket := cmp.Or(b.cfg.Nats.Bucket, DefaultBucket)
-	replicas := cmp.Or(b.cfg.Nats.Replicas, 1)
-
-	kv, err := b.jetstream.CreateOrUpdateKeyValue(ctx, jetstream.KeyValueConfig{
-		Bucket:   bucket,
-		TTL:      b.ttl,
-		Storage:  jetstream.FileStorage,
-		Replicas: replicas,
+	kv, err := natskvlease.NewKVHelper(b.jetstream, b.Logger()).GetOrCreateBucket(ctx, natskvlease.BucketConfig{
+		Bucket:        cmp.Or(b.cfg.Nats.Bucket, DefaultBucket),
+		TTL:           b.ttl,
+		NoTTL:         b.ttl == 0,
+		Storage:       jetstream.FileStorage,
+		Replicas:      cmp.Or(b.cfg.Nats.Replicas, 1),
+		MigrateTTL:    b.cfg.Nats.MigrateBucketTTL,
+		StrictStorage: b.cfg.Nats.StrictBucketStorage,
 	})
 	if err != nil {
 		return nil, b.WrapError(err, "failed to create NATS KeyValue bucket")

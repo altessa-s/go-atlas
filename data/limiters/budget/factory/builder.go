@@ -16,6 +16,7 @@ import (
 	"github.com/altessa-s/go-atlas/data/limiters/storages"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	memorystorage "github.com/altessa-s/go-atlas/data/limiters/storages/memory"
@@ -132,8 +133,12 @@ func (b *BudgetLimiterBuilder) createNatsStorage() (*natsstorage.Provider, error
 		return nil, fmt.Errorf("nats storage configuration is required")
 	}
 
-	return natsstorage.New(b.jetstream,
+	opts := []natsstorage.Option{
 		natsstorage.WithBucket(b.cfg.Storage.Nats.Bucket),
 		natsstorage.WithReplicas(b.cfg.Storage.Nats.Replicas),
-	)
+	}
+	opts = coreslices.AppendIf(opts, b.cfg.Storage.Nats.MigrateBucketTTL, natsstorage.WithMigrateBucketTTL())
+	opts = coreslices.AppendIf(opts, b.cfg.Storage.Nats.StrictBucketStorage, natsstorage.WithStrictBucketStorage())
+
+	return natsstorage.New(b.jetstream, opts...)
 }

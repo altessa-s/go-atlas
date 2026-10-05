@@ -16,3 +16,24 @@
 #  # Lower values provide faster failover but increase coordination overhead.
 #  # Default value: 10s
 #  ttl: "10s"
+#
+#  # <string> Storage type of a bucket the provider creates.
+#  # memory: a restart forces a clean re-election; file keeps the Fence() sequence across restarts.
+#  # An existing bucket keeps its storage type (see the provider README for migrating it).
+#  # Supported values: memory, file
+#  # Default value: memory
+#  storage: memory
+#
+#  # <bool> Update an existing election bucket whose key TTL differs from the provider's.
+#  # When false, such a bucket is left untouched and the elector fails to build with
+#  # ErrBucketTTLMismatch: the bucket's key TTL expires the election keys of every
+#  # process sharing the bucket.
+#  # Default value: false
+#  migrateBucketTTL: false
+#
+#  # <bool> Fail when the bucket already exists with another storage type.
+#  # When false, such a bucket is used as is and a warning is logged on every start;
+#  # the server cannot convert a bucket's storage type (see the backend's README for
+#  # the storage migration).
+#  # Default value: false
+#  strictBucketStorage: false

@@ -45,6 +45,20 @@ err = dl.Synchronize(ctx, "rebuild-cache", func(ctx context.Context) error {
 })
 ```
 
+`NewWithNats` sets only the bucket. To pass other provider options (`WithTTL`, `WithMigrateBucketTTL`, …), build the provider from
+`data/locks/dlock/providers/nats` (imported as `natsprovider` here) and wrap it, as `dlock/factory` does:
+
+```go
+prov, err := natsprovider.New(ctx, nc,
+    natsprovider.WithBucket("myapp-locks"),
+    natsprovider.WithTTL(30*time.Second),
+)
+if err != nil {
+    return err
+}
+dl := dlock.New(prov, dlock.WithLogger(logger))
+```
+
 `Synchronize` handles the full lifecycle: acquire → run → release, with double-release protection and panic recovery inside `fn`. If `fn` panics,
 the lock is still released and the panic is logged via `WithLogger`.
 
@@ -79,6 +93,8 @@ distributionLock:
   provider: nats
   nats:
     bucket: myapp-locks
+    storage: memory           # or file: keep the bucket and the fencing-token sequence across a server restart
+    migrateBucketTTL: false   # true updates an existing bucket whose key TTL differs (see "TTL, renew, fencing")
 ```
 
 The factory picks a provider from `cfg.Provider`. Only `nats` is wired today; new providers go through extending the `DistributionLockProvider`
@@ -107,9 +123,23 @@ The NATS provider stores the lease in a KV bucket whose key TTL is the configure
 `TTL × RenewRatio` seconds (default `⅓ × 10s ≈ 3.3s`). If the process dies or loses connectivity, the next renew fails, the key expires after the
 TTL, and another instance takes it.
 
-The ratio sets the renewal cadence only. Renewal is not retried: the first failed renew stops the background loop (and reports the lock as lost
-unless the context was canceled), even if connectivity recovers before the TTL runs out. A smaller ratio therefore shortens the time between
-renewals but does not let the lock survive a transient failure.
+A failed renew is retried with exponential backoff for as long as the lease can still be valid: until the start of the last successful write plus
+the TTL, less a safety margin of 10% of the TTL that absorbs clock drift and scheduling delay. Each attempt is bounded by that deadline, so a
+request that is never answered cannot keep the holder believing it owns an expired lock. The lock is reported lost — and stops renewing — when
+the window closes, or at once when the failure is definitive: the key is gone, another owner holds it, its revision moved on, or the NATS connection
+was closed. The ratio therefore decides how much of the TTL is left for retries: at the default `⅓` a renewal that starts failing still has about
+two thirds of the TTL to recover. Ratios above `0.8` are clamped to `0.8` so a renewal always starts before the deadline.
+
+The window is computed from the provider's configured TTL, which is also the bucket's key TTL, so every provider sharing a bucket must use the same
+`WithTTL`. `New` enforces it: when the bucket already exists with a different key TTL it returns `nats.ErrBucketTTLMismatch` and leaves the bucket
+alone, rather than rewriting it and silently shortening or stretching the locks of the providers already using it. Pass `WithMigrateBucketTTL()` to
+change the TTL of an existing bucket deliberately — once every provider sharing it is configured with the new TTL. A lock built from YAML through
+`dlock/factory` takes the same switch as `distributionLock.nats.migrateBucketTTL: true`.
+
+The bucket is memory-backed unless the provider is built with `WithStorage(jetstream.FileStorage)`. The server cannot change an existing bucket's
+storage type, so the provider's `MigrateBucketStorage` recreates the bucket instead, while every user is stopped. Its first revision is set just
+above the old bucket's last one, so fencing tokens keep growing across the move. The provider README has the procedure; what all NATS KV backends
+share is in [NATS KeyValue bucket storage migration](../nats-kv-storage-migration.md).
 
 `GetLockInfo` exposes a `FencingToken`, a monotonically increasing revision from NATS KV. If you do an out-of-band side effect tied to lock
 ownership (writing to another database, publishing to a queue), have the receiver check that the fencing token is at least as large as the last

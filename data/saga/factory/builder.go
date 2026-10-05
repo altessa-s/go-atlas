@@ -16,6 +16,7 @@ import (
 	"github.com/altessa-s/go-atlas/data/saga"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	memorystore "github.com/altessa-s/go-atlas/data/saga/storages/memory"
@@ -104,10 +105,13 @@ func (b *Builder[T]) buildStore() (saga.Store, error) {
 		if err := b.RequireDependency(b.js, "NATS JetStream"); err != nil {
 			return nil, err
 		}
-		return natsstore.New(b.js,
+		opts := []natsstore.Option{
 			natsstore.WithBucket(storage.Nats.Bucket),
 			natsstore.WithBucketTTL(storage.Nats.MaxAge),
-		)
+		}
+		opts = coreslices.AppendIf(opts, storage.Nats.MigrateBucketTTL, natsstore.WithMigrateBucketTTL())
+		opts = coreslices.AppendIf(opts, storage.Nats.StrictBucketStorage, natsstore.WithStrictBucketStorage())
+		return natsstore.New(b.js, opts...)
 	case config.SagaStorageTypeMongo:
 		if err := b.RequireDependency(b.mongoDB, "MongoDB database"); err != nil {
 			return nil, err

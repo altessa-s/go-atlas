@@ -119,7 +119,7 @@ several electors compete for one key through a real broker over real time, and t
 | `PartitionedLeaderSelfDemotes`             | A node cut off from the broker stops claiming leadership unprompted, and its token drops to `0` |
 | `CallbacksFireOnTransitions`               | The became-leader callback fires on the elected node, then on its successor                     |
 | `FenceMonotonicAcrossRepeatedFailovers`    | The token never stalls or moves backwards across a chain of handovers                           |
-| `Bucket_TTLReconciledOnAdoption`           | Adopting a bucket that predates the provider does not leave leases that never expire            |
+| `Bucket_TTLReconciledOnAdoption`           | A pre-existing bucket without a TTL is refused, and migrated only with `WithMigrateBucketTTL`   |
 | `Bucket_KeyExpiresWithoutRenewal`          | The server ages out an unrenewed election key — the mechanism every failover above rests on     |
 
 **Sampling shows overlap, it cannot rule it out.** `Observer` polls every 25 ms, well under the 2 s lease. A round with two claimants proves mutual

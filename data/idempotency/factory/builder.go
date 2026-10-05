@@ -133,9 +133,13 @@ func (b *KeeperBuilder) createNatsStorage() (*natsstorage.Storage, error) {
 		return nil, fmt.Errorf("configuration is required")
 	}
 
-	return natsstorage.New(b.jetstream,
+	opts := []natsstorage.Option{
 		natsstorage.WithMaxAge(b.cfg.TTL),
 		natsstorage.WithBucket(b.cfg.Storage.Nats.Bucket),
 		natsstorage.WithReplicas(b.cfg.Storage.Nats.Replicas),
-	)
+	}
+	opts = coreslices.AppendIf(opts, b.cfg.Storage.Nats.MigrateBucketTTL, natsstorage.WithMigrateBucketTTL())
+	opts = coreslices.AppendIf(opts, b.cfg.Storage.Nats.StrictBucketStorage, natsstorage.WithStrictBucketStorage())
+
+	return natsstorage.New(b.jetstream, opts...)
 }

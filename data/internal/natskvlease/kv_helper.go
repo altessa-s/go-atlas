@@ -7,6 +7,7 @@ package natskvlease
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -18,18 +19,44 @@ const (
 	DefaultBucketTTL = 10 * time.Second
 )
 
+// ErrBucketTTLMismatch reports that a KeyValue bucket already exists with a
+// key TTL other than the one requested. The bucket is left untouched: its TTL
+// is what expires every key in it, including keys written by other processes
+// configured with that TTL, so changing it from here would silently shorten or
+// stretch their lifetimes. Align the configuration, migrate the bucket
+// explicitly (see [BucketConfig.MigrateTTL]), or use another bucket.
+var ErrBucketTTLMismatch = errors.New("KeyValue bucket key TTL differs from the configured TTL")
+
+// ErrBucketStorageMismatch reports that a KeyValue bucket already exists with a
+// storage type other than the one requested while [BucketConfig.StrictStorage]
+// is set. The bucket is left untouched: the server cannot convert a bucket's
+// storage type.
+var ErrBucketStorageMismatch = errors.New("KeyValue bucket storage type differs from the configured storage")
+
 // BucketConfig holds configuration for creating a KeyValue bucket.
 type BucketConfig struct {
 	// Bucket is the name of the KeyValue bucket.
 	Bucket string
 
 	// TTL is the time-to-live for keys in the bucket.
-	// If zero, DefaultBucketTTL is used.
+	// If zero, DefaultBucketTTL is used unless NoTTL is set.
 	TTL time.Duration
 
-	// Storage is the storage type (Memory or File).
-	// Defaults to MemoryStorage.
+	// NoTTL creates a bucket whose keys never expire; TTL is ignored. It
+	// exists because a zero TTL means DefaultBucketTTL.
+	NoTTL bool
+
+	// Storage is the storage type of a bucket created by GetOrCreateBucket.
+	// The zero value is [jetstream.FileStorage], the JetStream default, so
+	// callers wanting memory storage must ask for [jetstream.MemoryStorage]
+	// explicitly. An existing bucket keeps its storage type: the server
+	// cannot convert it, so a mismatch is logged and the bucket adopted unless
+	// StrictStorage is set.
 	Storage jetstream.StorageType
+
+	// StrictStorage rejects a pre-existing bucket whose storage type differs
+	// from Storage with [ErrBucketStorageMismatch] instead of adopting it.
+	StrictStorage bool
 
 	// Compression enables compression for the bucket.
 	Compression bool
@@ -44,12 +71,25 @@ type BucketConfig struct {
 	// Put. Zero leaves per-key TTL disabled, which is backward-compatible
 	// with existing buckets and NATS server versions older than 2.11.
 	LimitMarkerTTL time.Duration
+
+	// MigrateTTL updates a pre-existing bucket whose key TTL differs from TTL
+	// to TTL. When false, such a bucket is rejected with
+	// [ErrBucketTTLMismatch] and left as it is.
+	MigrateTTL bool
 }
 
 // KVHelper provides common KeyValue operations for NATS JetStream.
 type KVHelper struct {
 	js     jetstream.JetStream
 	logger *slog.Logger
+
+	// failpoint, now and leaseTTL are test seams for the storage migration:
+	// failpoint can fail a named step, now replaces the clock, leaseTTL sets
+	// the TTL of a lease store the migration creates. All are zero in
+	// production.
+	failpoint func(step string) error
+	now       func() time.Time
+	leaseTTL  time.Duration
 }
 
 // NewKVHelper creates a new KVHelper instance.
@@ -66,11 +106,19 @@ func NewKVHelper(js jetstream.JetStream, logger *slog.Logger) *KVHelper {
 // GetOrCreateBucket retrieves an existing bucket or creates a new one.
 // It uses retry logic to handle transient network errors.
 func (h *KVHelper) GetOrCreateBucket(ctx context.Context, cfg BucketConfig) (jetstream.KeyValue, error) {
-	if cfg.TTL == 0 {
-		cfg.TTL = DefaultBucketTTL
-	}
-	if cfg.Storage == 0 {
-		cfg.Storage = jetstream.MemoryStorage
+	cfg = cfg.normalized()
+
+	// A bucket in the middle of a storage migration must not be used: it may
+	// be sealed, missing, or not yet restored.
+	if _, err := Retry(ctx, func() (jetstream.Stream, error) {
+		return h.js.Stream(ctx, markerStreamName(cfg.Bucket))
+	}); err == nil {
+		return nil, fmt.Errorf("%w: bucket %q; finish it with MigrateBucketStorage and Resume",
+			ErrBucketMigrationInProgress, cfg.Bucket)
+	} else if !errors.Is(err, jetstream.ErrStreamNotFound) {
+		h.logger.ErrorContext(ctx, "failed to check for a KeyValue bucket migration",
+			slog.String("bucket", cfg.Bucket), slog.Any("error", err))
+		return nil, err
 	}
 
 	// Try to get existing bucket
@@ -80,8 +128,8 @@ func (h *KVHelper) GetOrCreateBucket(ctx context.Context, cfg BucketConfig) (jet
 
 	switch {
 	case err == nil:
-		// The bucket predates this call; make sure its key TTL matches ours.
-		return h.reconcileTTL(ctx, kv, cfg)
+		// The bucket predates this call; check it against our config.
+		return h.reconcile(ctx, kv, cfg)
 
 	case !errors.Is(err, jetstream.ErrBucketNotFound):
 		h.logger.ErrorContext(ctx, "failed to get KeyValue bucket",
@@ -90,9 +138,20 @@ func (h *KVHelper) GetOrCreateBucket(ctx context.Context, cfg BucketConfig) (jet
 		return nil, err
 	}
 
+	// Create only: an update here would rewrite a bucket another process
+	// created between the lookup above and this call. If one did, adopt it
+	// through the same TTL check as any pre-existing bucket.
 	kv, err = Retry(ctx, func() (jetstream.KeyValue, error) {
-		return h.js.CreateOrUpdateKeyValue(ctx, h.keyValueConfig(cfg))
+		return h.js.CreateKeyValue(ctx, h.keyValueConfig(cfg))
 	})
+	if errors.Is(err, jetstream.ErrBucketExists) {
+		kv, err = Retry(ctx, func() (jetstream.KeyValue, error) {
+			return h.js.KeyValue(ctx, cfg.Bucket)
+		})
+		if err == nil {
+			return h.reconcile(ctx, kv, cfg)
+		}
+	}
 	if err != nil {
 		h.logger.ErrorContext(ctx, "failed to create KeyValue bucket",
 			slog.String("bucket", cfg.Bucket),
@@ -110,6 +169,18 @@ func (h *KVHelper) GetOrCreateBucket(ctx context.Context, cfg BucketConfig) (jet
 	return kv, nil
 }
 
+// normalized resolves the TTL defaults: NoTTL forces a zero (never expiring)
+// TTL, and an unset TTL becomes DefaultBucketTTL.
+func (cfg BucketConfig) normalized() BucketConfig {
+	switch {
+	case cfg.NoTTL:
+		cfg.TTL = 0
+	case cfg.TTL == 0:
+		cfg.TTL = DefaultBucketTTL
+	}
+	return cfg
+}
+
 // keyValueConfig projects a BucketConfig onto the driver's bucket config.
 func (h *KVHelper) keyValueConfig(cfg BucketConfig) jetstream.KeyValueConfig {
 	return jetstream.KeyValueConfig{
@@ -122,16 +193,26 @@ func (h *KVHelper) keyValueConfig(cfg BucketConfig) jetstream.KeyValueConfig {
 	}
 }
 
-// reconcileTTL brings a pre-existing bucket's key TTL in line with cfg.
+// reconcile checks a pre-existing bucket against cfg.
 //
-// Every caller of this helper uses the bucket for leases, where the TTL is not
-// a preference but the expiry mechanism: it is what releases the key when the
-// holder dies without resigning. Adopting an existing bucket's TTL unchecked
-// meant a bucket created earlier without one (an older release, an operator,
-// a differently-configured component) silently produced leases that never
-// expire — a lock without a TTL, which hangs the election until someone
-// intervenes by hand.
-func (h *KVHelper) reconcileTTL(ctx context.Context, kv jetstream.KeyValue, cfg BucketConfig) (jetstream.KeyValue, error) {
+// A different storage type is adopted with a warning rather than rejected,
+// unless cfg.StrictStorage asks for [ErrBucketStorageMismatch].
+// The server cannot convert a bucket's storage, it does not change what other
+// processes sharing the bucket rely on (only durability across server
+// restarts), and earlier releases created memory buckets whatever storage was
+// requested, so rejecting it would break every such deployment on upgrade.
+// The existing storage is also kept when the TTL is migrated below, since an
+// update asking for another storage type is refused by the server.
+//
+// The key TTL is not a preference but the expiry mechanism of every key in the
+// bucket — for a lease, what releases the key when its holder dies. A bucket
+// shared by processes configured with different TTLs therefore cannot be right
+// for all of them, and rewriting it to whichever process started last silently
+// changes the lifetime of everyone else's keys. A mismatch is rejected with
+// [ErrBucketTTLMismatch] unless cfg.MigrateTTL asks for the bucket to be
+// updated — e.g. to adopt a bucket created without a TTL, whose keys would
+// otherwise never expire.
+func (h *KVHelper) reconcile(ctx context.Context, kv jetstream.KeyValue, cfg BucketConfig) (jetstream.KeyValue, error) {
 	status, err := Retry(ctx, func() (jetstream.KeyValueStatus, error) {
 		return kv.Status(ctx)
 	})
@@ -141,11 +222,29 @@ func (h *KVHelper) reconcileTTL(ctx context.Context, kv jetstream.KeyValue, cfg 
 		return nil, err
 	}
 
+	if existing := status.Config().Storage; existing != cfg.Storage {
+		if cfg.StrictStorage {
+			return nil, fmt.Errorf("%w: bucket %q has storage %s, configured %s",
+				ErrBucketStorageMismatch, cfg.Bucket, existing, cfg.Storage)
+		}
+		h.logger.WarnContext(ctx, "KeyValue bucket storage differs from the configured storage, using the existing bucket as is; "+
+			"recreate the bucket to change it (see the backend's README)",
+			slog.String("bucket", cfg.Bucket),
+			slog.String("existing_storage", existing.String()),
+			slog.String("configured_storage", cfg.Storage.String()))
+		cfg.Storage = existing
+	}
+
 	if status.TTL() == cfg.TTL {
 		return kv, nil
 	}
 
-	h.logger.WarnContext(ctx, "KeyValue bucket TTL differs from the configured lease TTL, updating",
+	if !cfg.MigrateTTL {
+		return nil, fmt.Errorf("%w: bucket %q has key TTL %s, configured %s",
+			ErrBucketTTLMismatch, cfg.Bucket, status.TTL(), cfg.TTL)
+	}
+
+	h.logger.WarnContext(ctx, "KeyValue bucket TTL differs from the configured TTL, migrating",
 		slog.String("bucket", cfg.Bucket),
 		slog.Duration("existing_ttl", status.TTL()),
 		slog.Duration("configured_ttl", cfg.TTL))
