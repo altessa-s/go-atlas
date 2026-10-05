@@ -5,7 +5,7 @@ import "github.com/altessa-s/go-atlas/observability/slog/factory"
 ```
 
 Package `factory` provides a fluent builder for creating structured loggers from configuration.
-`LoggerBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
+`LoggerBuilder` reports configuration errors (a nil config, invalid `maskRules` entries) from `Build()`, before building anything.
 
 ## Quick Start
 
@@ -41,6 +41,6 @@ After `Build`, the builder retains its level variable and can be used for runtim
 
 | Method | Description |
 |--------|-------------|
-| `Build` | Assembles and returns the `*slog.Logger` |
+| `Build` | Assembles and returns the `*slog.Logger`; fails on a nil config or any invalid `maskRules` entry |
 | `SetLevel(level)` | Changes the logging level at runtime after `Build` |
 | `GetLevel()` | Returns the current logging level |

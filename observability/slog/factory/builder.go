@@ -7,9 +7,11 @@ package factory
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"regexp"
 	"time"
 
 	"github.com/mattn/go-isatty"
@@ -25,19 +27,17 @@ import (
 	"github.com/altessa-s/go-atlas/observability/slog/handler/masking"
 	"github.com/altessa-s/go-atlas/observability/slog/handler/prefixed"
 
-	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	slogx "github.com/altessa-s/go-atlas/observability/slog"
 )
 
-// LoggerBuilder assembles a [slog.Logger] from configuration using a fluent API
-// with deferred error accumulation.
+// LoggerBuilder assembles a [slog.Logger] from configuration using a fluent API.
+// Configuration errors are reported by [LoggerBuilder.Build].
 //
 // After [LoggerBuilder.Build], the builder retains a reference to the [slog.LevelVar]
 // and can be used for runtime level changes via [LoggerBuilder.SetLevel] and
 // [LoggerBuilder.GetLevel].
 type LoggerBuilder struct {
-	cfg  *config.Logger
-	errs []error
+	cfg *config.Logger
 
 	// Configuration (set via With*).
 	prefixKey     string
@@ -61,14 +61,23 @@ func New(cfg *config.Logger) *LoggerBuilder {
 }
 
 // Build assembles and returns the logger.
+//
+// It returns an error for a nil config and for any invalid entry in
+// [config.Logger.MaskRules] (missing type, neither field nor pattern, an
+// unknown mask type or bad params, an invalid pattern regex) — whatever the
+// configured level, including [config.LoggerLevelNone]. Errors are reported
+// before any side effect: no logger is returned and the level variable is
+// left untouched. Build does not call [config.Logger.Validate].
 func (b *LoggerBuilder) Build() (*slog.Logger, error) {
-	if err := corefactory.JoinErrors(b.errs); err != nil {
-		return nil, err
-	}
-
 	if b.cfg == nil {
 		return nil, fmt.Errorf("configuration is required")
 	}
+
+	maskRuleOpts, err := b.resolveMaskRules()
+	if err != nil {
+		return nil, err
+	}
+
 	if b.cfg.Level == config.LoggerLevelNone {
 		return slog.New(slog.DiscardHandler), nil
 	}
@@ -89,7 +98,7 @@ func (b *LoggerBuilder) Build() (*slog.Logger, error) {
 	// - EnableMasking is set programmatically
 	if b.cfg.EnableDefaultMasks || len(b.cfg.MaskRules) > 0 ||
 		len(b.cfg.SensitiveTags) > 0 || b.enableMasking {
-		handler = b.wrapWithMaskingHandler(handler, maskString)
+		handler = b.wrapWithMaskingHandler(handler, maskString, maskRuleOpts)
 	}
 
 	if b.cfg.Buffer.Enabled {
@@ -216,8 +225,47 @@ func (b *LoggerBuilder) wrapWithPrefixedHandler(handler slog.Handler) slog.Handl
 	)
 }
 
-// wrapWithMaskingHandler adds masking to the handler chain.
-func (b *LoggerBuilder) wrapWithMaskingHandler(handler slog.Handler, maskString string) slog.Handler {
+// resolveMaskRules turns [config.Logger.MaskRules] into masking options,
+// returning the joined errors of every invalid rule.
+func (b *LoggerBuilder) resolveMaskRules() ([]masking.Option, error) {
+	var (
+		opts []masking.Option
+		errs []error
+	)
+	for i, rule := range b.cfg.MaskRules {
+		maskOpt, err := maskRuleOption(rule)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("invalid mask rule %d (%s): %w",
+				i, cmp.Or(rule.Field, rule.Pattern), err))
+			continue
+		}
+		opts = append(opts, maskOpt)
+	}
+	return opts, errors.Join(errs...)
+}
+
+// maskRuleOption validates a single mask rule and converts it to a masking
+// option. A field takes precedence over a pattern when both are set.
+func maskRuleOption(rule config.LoggerMaskRule) (masking.Option, error) {
+	if err := rule.Validate(); err != nil {
+		return nil, err
+	}
+	maskFunc, err := masking.CreateMask(rule.Type, rule.Params)
+	if err != nil {
+		return nil, err
+	}
+	if rule.Field != "" {
+		return masking.WithField(rule.Field, maskFunc), nil
+	}
+	if _, err := regexp.Compile(rule.Pattern); err != nil {
+		return nil, fmt.Errorf("invalid pattern: %w", err)
+	}
+	return masking.WithPattern(rule.Pattern, maskFunc), nil
+}
+
+// wrapWithMaskingHandler adds masking to the handler chain. ruleOpts are the
+// options resolved from the configured mask rules by [LoggerBuilder.resolveMaskRules].
+func (b *LoggerBuilder) wrapWithMaskingHandler(handler slog.Handler, maskString string, ruleOpts []masking.Option) slog.Handler {
 	opts := []masking.Option{}
 
 	// Add default masks if enabled explicitly or if SensitiveTags are present (backward compatibility)
@@ -225,22 +273,8 @@ func (b *LoggerBuilder) wrapWithMaskingHandler(handler slog.Handler, maskString 
 		b.cfg.EnableDefaultMasks || len(b.cfg.SensitiveTags) > 0 || b.enableMasking,
 		masking.WithDefaults())
 
-	// Process mask rules from configuration
-	for _, rule := range b.cfg.MaskRules {
-		maskFunc, err := masking.CreateMask(rule.Type, rule.Params)
-		if err != nil {
-			// Log error but continue - don't fail the entire logger creation
-			b.errs = append(b.errs, fmt.Errorf("invalid mask rule for %s: %w",
-				cmp.Or(rule.Field, rule.Pattern), err))
-			continue
-		}
-
-		if rule.Field != "" {
-			opts = append(opts, masking.WithField(rule.Field, maskFunc))
-		} else if rule.Pattern != "" {
-			opts = append(opts, masking.WithPattern(rule.Pattern, maskFunc))
-		}
-	}
+	// Mask rules from configuration override the defaults above.
+	opts = append(opts, ruleOpts...)
 
 	// Backward compatibility with sensitiveTags - add them as additional field masks
 	for _, tag := range b.cfg.SensitiveTags {
