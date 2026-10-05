@@ -390,6 +390,15 @@ func (p *Provider) ValidateToken(ctx context.Context, token string) (map[string]
 
 // ValidateTokenWithOptions validates a JWT with custom validation options.
 func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, opt ...ValidationOption) (map[string]any, error) {
+	return p.observeValidation(func() (map[string]any, error) {
+		return p.validateTokenWithOptions(ctx, token, opt...)
+	})
+}
+
+// observeValidation records one validation attempt — the attempt counter,
+// the duration and, on failure, the error counter — around validate. Every
+// public ValidateToken* entry point goes through it exactly once.
+func (p *Provider) observeValidation(validate func() (map[string]any, error)) (map[string]any, error) {
 	issuer := ""
 	if p.discoveryInfo != nil {
 		issuer = p.discoveryInfo.Issuer
@@ -399,18 +408,28 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 	stop := p.metrics.validationDuration.Start()
 	defer stop()
 
-	// Reject empty tokens immediately
-	if token == "" {
+	claims, err := validate()
+	if err != nil {
 		p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
-		return nil, coreerrs.Wrap(ErrTokenInvalid, "token is empty")
 	}
+	return claims, err
+}
 
-	// Refuse to validate against a stale key set when the operator has
-	// opted in via WithJWKSMaxStaleness — see [Provider.checkJWKSStaleness]
-	// for the per-mode behavior. Runs first so cached signature
-	// verifications do not bypass the staleness budget.
-	if err := p.checkJWKSStaleness(ctx); err != nil {
-		p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
+// checkValidatable rejects an empty token and, per [WithJWKSMaxStaleness], a
+// stale key set. It runs before any (cached) signature verification so cached
+// verifications do not bypass the staleness budget.
+func (p *Provider) checkValidatable(ctx context.Context, token string) error {
+	if token == "" {
+		return coreerrs.Wrap(ErrTokenInvalid, "token is empty")
+	}
+	// See [Provider.checkJWKSStaleness] for the per-mode behavior.
+	return p.checkJWKSStaleness(ctx)
+}
+
+// validateTokenWithOptions is the uninstrumented body of
+// [Provider.ValidateTokenWithOptions].
+func (p *Provider) validateTokenWithOptions(ctx context.Context, token string, opt ...ValidationOption) (map[string]any, error) {
+	if err := p.checkValidatable(ctx, token); err != nil {
 		return nil, err
 	}
 
@@ -418,109 +437,133 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 	if len(opt) == 0 && p.verifierOptions == nil && len(p.opts.presetRules) == 0 {
 		claims, header, err := p.parseAndValidateToken(ctx, token, p.defaultPolicy)
 		if err != nil {
-			p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 			return nil, err
 		}
 		if err := p.checkTokenRevocationVerified(ctx, token, claims, header); err != nil {
-			p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 			return nil, err
 		}
 		return claims, nil
 	}
 
-	// If no options provided and preset selection rules are configured,
-	// try automatic preset selection
+	// No per-call options and preset selection rules configured: select the
+	// preset from the signature-verified claims and validate those claims
+	// with it, or with the default options when no registered preset applies.
+	// The signature is verified once either way.
 	if len(opt) == 0 && len(p.opts.presetRules) > 0 {
-		claims, selected, err := p.validateAutoSelectedPreset(ctx, token)
+		claims, header, preset, err := p.verifyAndSelectPreset(ctx, token)
 		if err != nil {
-			p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 			return nil, err
 		}
-		if selected {
-			return claims, nil
+		policy, scope := p.defaultPolicy, ""
+		if preset != nil {
+			policy, scope = preset.policy, fmt.Sprintf(" by preset '%s'", preset.name)
 		}
-		// No preset matched or preset not found - fall through to default validation
+		if err := p.validateVerified(ctx, token, claims, header, policy, scope); err != nil {
+			return nil, err
+		}
+		return claims, nil
 	}
 
-	// Fast path: without per-call overrides reuse the pre-compiled default
-	// policy; otherwise compile the per-call options.
+	// Without per-call overrides reuse the pre-compiled default policy;
+	// otherwise compile the per-call options.
 	policy := p.defaultPolicy
 	if len(opt) > 0 {
 		ops := cloneVerifierOptions(p.verifierOptions)
 		applyValidationOptions(ops, opt...)
 		ops.buildIgnoredSet()
-		compiledCELRules, celErr := compileVerifierCELRules(ops)
-		if celErr != nil {
-			p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
-			return nil, celErr
+		compiledCELRules, err := compileVerifierCELRules(ops)
+		if err != nil {
+			return nil, err
 		}
 		policy = p.newValidationPolicy(ops, compiledCELRules)
 	}
 
 	claims, header, err := p.parseAndValidateToken(ctx, token, policy)
 	if err != nil {
-		p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 		p.logger.ErrorContext(ctx, "failed to validate token", slog.Any("error", err))
 		return nil, err
 	}
 
 	if err := p.checkTokenRevocationVerified(ctx, token, claims, header); err != nil {
-		p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 		return nil, err
 	}
 
 	return claims, nil
 }
 
-// validateAutoSelectedPreset validates token with the preset chosen by the
-// preset selection rules. selected is false (with a nil error) when no rule
-// matched or the matched preset is not registered; the caller then applies
-// the default validation.
-func (p *Provider) validateAutoSelectedPreset(ctx context.Context, token string) (claims map[string]any, selected bool, err error) {
-	// Step 1: Verify signature FIRST for security (without claim validation).
-	// The preset is only known after inspecting the claims, so the signature
-	// is verified against the built-in algorithm set here; the selected
-	// preset's algorithm restriction is enforced in Step 3 below.
-	verified, header, err := p.verifyTokenSignature(ctx, token, p.builtinPolicy)
+// verifyAndSelectPreset verifies token's signature against the built-in
+// algorithm set — the preset is only known after inspecting the claims — and
+// selects the preset for the verified claims. preset is nil when no rule
+// matches or the matched preset is not registered.
+//
+// The selection rules see a deep copy of the claims, so a matcher that
+// modifies its argument cannot change the claims that are validated,
+// checked for revocation and returned.
+func (p *Provider) verifyAndSelectPreset(ctx context.Context, token string) (jwt.MapClaims, map[string]any, *ValidationPreset, error) {
+	claims, header, err := p.verifyTokenSignature(ctx, token, p.builtinPolicy)
 	if err != nil {
 		p.logger.ErrorContext(ctx, "signature verification failed", slog.Any("error", err))
-		return nil, false, coreerrs.Wrapf(ErrTokenInvalid, "signature verification failed: %v", err)
+		return nil, nil, nil, coreerrs.Wrapf(ErrTokenInvalid, "signature verification failed: %v", err)
 	}
 
-	// Step 2: Select preset based on verified claims
-	presetName := p.selectPresetForClaims(verified)
+	presetName := p.selectPresetForClaims(cloneClaims(claims))
 	if presetName == "" {
-		return nil, false, nil
+		return claims, header, nil, nil
 	}
-
-	// Step 3: If preset matched, use its pre-compiled policy
 	preset := p.getPreset(presetName)
 	if preset == nil {
-		// Preset rule matched but preset not registered - log warning
 		p.logger.WarnContext(ctx, "preset rule matched but preset not found, using default validation",
 			"preset_name", presetName)
-		return nil, false, nil
 	}
-	if preset.policy == nil {
-		return nil, false, nil
-	}
+	return claims, header, preset, nil
+}
 
-	// Enforce the selected preset's algorithm restriction: the signature was
-	// verified against the built-in (wide) set in Step 1, so a token whose
-	// signing algorithm the preset does not allow must be rejected here.
+// validateVerified validates signature-verified claims against policy: the
+// policy's signing-algorithm allow-list on the verified header (the signature
+// was verified against the built-in set), the claim policy, then revocation.
+// scope qualifies the algorithm error (e.g. " by preset 'x'").
+func (p *Provider) validateVerified(
+	ctx context.Context,
+	token string,
+	claims jwt.MapClaims,
+	header map[string]any,
+	policy *validationPolicy,
+	scope string,
+) error {
 	alg, _ := header["alg"].(string)
-	if !algorithmAllowed(preset.policy.ops, alg) {
-		return nil, true, coreerrs.Wrapf(ErrTokenInvalid, "signing algorithm %q not allowed by preset '%s'", alg, presetName)
+	if !algorithmAllowed(policy.ops, alg) {
+		return coreerrs.Wrapf(ErrTokenInvalid, "signing algorithm %q not allowed%s", alg, scope)
 	}
-
-	if err := p.applyPolicy(verified, preset.policy); err != nil {
+	if err := p.applyPolicy(claims, policy); err != nil {
 		p.logger.ErrorContext(ctx, "failed to validate token", slog.Any("error", err))
-		return nil, true, err
+		return err
 	}
-	if err := p.checkTokenRevocationVerified(ctx, token, verified, header); err != nil {
-		return nil, true, err
+	return p.checkTokenRevocationVerified(ctx, token, claims, header)
+}
+
+// cloneClaims deep-copies a claim set: nested objects and arrays are copied,
+// scalar values (immutable in decoded JSON) are shared.
+func cloneClaims(claims map[string]any) map[string]any {
+	out := make(map[string]any, len(claims))
+	for k, v := range claims {
+		out[k] = cloneClaimValue(v)
 	}
-	return verified, true, nil
+	return out
+}
+
+func cloneClaimValue(v any) any {
+	switch tv := v.(type) {
+	case map[string]any:
+		return cloneClaims(tv)
+	case []any:
+		out := make([]any, len(tv))
+		for i, e := range tv {
+			out[i] = cloneClaimValue(e)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 // checkIntrospection asks the IdP (RFC 7662) whether a signature-verified
