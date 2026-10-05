@@ -5,17 +5,18 @@ import "github.com/altessa-s/go-atlas/core/runtime/nonewprivs"
 ```
 
 A one-line wrapper around `prctl(PR_SET_NO_NEW_PRIVS)`. Once set, the
-calling process and every binary it subsequently execs cannot gain
-privileges via SUID/SGID — the kernel silently drops the ambient
-escalation. The bit is irreversible for the lifetime of the process.
+calling OS thread, every thread it later clones, and every binary they exec
+cannot gain privileges via SUID/SGID — the kernel silently drops the ambient
+escalation. Peer threads are unaffected; see [Caveats](#caveats) for a
+process-wide setup. The bit is irreversible for the lifetime of the thread.
 
 ## API
 
 | Symbol | Purpose |
 |---|---|
-| `Set()` | Installs the `NO_NEW_PRIVS` bit; **irreversible** for the process |
+| `Set()` | Installs the `NO_NEW_PRIVS` bit on the calling thread; **irreversible** for that thread |
 | `Enabled()` | Reports whether the bit is currently set |
-| `ErrUnsupported` | Platform doesn't support the prctl (non-Linux or Linux < 3.5) |
+| `ErrUnsupported` | Platform doesn't support the prctl (non-Linux; on Linux < 3.5 the prctl fails with `EINVAL` → `ErrFailed`) |
 | `ErrFailed` | The prctl syscall failed (sentinel wrapping the underlying errno via `%w`) |
 
 ## Quick start
@@ -33,8 +34,9 @@ func main() {
     if err := nonewprivs.Set(); err != nil {
         log.Fatalf("nonewprivs: %v", err)
     }
-    // From this point onward, no binary this process execs can gain
-    // privileges via SUID/SGID.
+    // From this point onward, no binary exec'd from the calling thread (or
+    // a thread it later clones) can gain privileges via SUID/SGID. Peer
+    // threads are not covered; see Caveats for process-wide options.
     run()
 }
 ```

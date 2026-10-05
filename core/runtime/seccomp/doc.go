@@ -68,8 +68,8 @@
 //	  userfaultfd, perf_event_open, bpf
 //
 // A blocked syscall returns EPERM to the caller. An architecture
-// mismatch (e.g. an x32 syscall on an amd64 kernel) kills the
-// process outright, because syscall numbers differ across arches and
+// mismatch (e.g. an i386 syscall issued via int 0x80 on an amd64
+// kernel) kills the process outright, because syscall numbers differ across arches and
 // a filter that trusts the wrong numbering is worse than no filter.
 //
 // # Threat model
