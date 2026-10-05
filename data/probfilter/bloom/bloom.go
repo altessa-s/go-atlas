@@ -6,7 +6,6 @@ package bloom
 
 import (
 	"context"
-	"errors"
 	"iter"
 	"time"
 
@@ -18,9 +17,8 @@ import (
 // Filter is a Bloom filter facade that wraps a storage backend.
 // It implements probfilter.RebuildableFilter and probfilter.ObservableFilter.
 type Filter struct {
-	storage  storages.Storage
-	coord    facade.Coordinator
-	observer facade.ObserverSlot
+	storage storages.Storage
+	base    *facade.Base
 }
 
 var (
@@ -40,6 +38,7 @@ var (
 func New(storage storages.Storage) *Filter {
 	return &Filter{
 		storage: storage,
+		base:    facade.NewBase(storage),
 	}
 }
 
@@ -47,61 +46,30 @@ func New(storage storages.Storage) *Filter {
 // error wrapping [probfilter.ErrCommitIndeterminate] while the filter is
 // fenced after an unresolved rebuild commit (see [Filter.Rebuild]).
 func (f *Filter) MightExist(ctx context.Context, value string) (bool, error) {
-	return f.observer.Lookup(func() (bool, error) {
-		for {
-			if err := f.coord.Fence(ctx); err != nil {
-				return false, err
-			}
-			found, err := f.storage.MightExist(ctx, value)
-			if !f.coord.Fenced() {
-				return found, err
-			}
-			// A fence was published while the lookup ran: re-check it.
-		}
-	})
+	return f.base.MightExist(ctx, value)
 }
 
 // Add inserts a value into the filter.
 func (f *Filter) Add(ctx context.Context, value string) error {
-	err := f.coord.Add(ctx, value, func() error {
-		return f.storage.Add(ctx, value)
-	})
-	if err == nil {
-		f.observer.Added(1)
-	}
-	return err
+	return f.base.Add(ctx, value)
 }
 
 // AddBatch inserts multiple values into the filter.
 func (f *Filter) AddBatch(ctx context.Context, values iter.Seq[string]) error {
-	n := 0
-	err := f.coord.AddBatch(ctx, values, func(values iter.Seq[string]) error {
-		return f.storage.AddBatch(ctx, func(yield func(string) bool) {
-			for v := range values {
-				n++
-				if !yield(v) {
-					return
-				}
-			}
-		})
-	})
-	if err == nil {
-		f.observer.Added(n)
-	}
-	return err
+	return f.base.AddBatch(ctx, values)
 }
 
 // Done returns a channel that is closed when the filter is closed, so the
 // owner of a rebuild schedule (such as the probfilter factory's local cron)
 // can release it.
 func (f *Filter) Done() <-chan struct{} {
-	return f.coord.Done()
+	return f.base.Done()
 }
 
 // SetObserver installs o to receive lookup, add and rebuild outcomes; nil
 // removes the current observer. [probfilter.Manager.Register] calls it.
 func (f *Filter) SetObserver(o probfilter.Observer) {
-	f.observer.Set(o)
+	f.base.SetObserver(o)
 }
 
 // Stats returns current filter statistics.
@@ -116,7 +84,7 @@ func (f *Filter) Stats(ctx context.Context) (*probfilter.FilterStats, error) {
 // running [Filter.Rebuild] and waits for it to return; afterwards Rebuild
 // returns [probfilter.ErrFilterClosed], so no rebuild commits after Close.
 func (f *Filter) Close(ctx context.Context) error {
-	return errors.Join(f.coord.Close(ctx), f.storage.Close(ctx))
+	return f.base.Close(ctx)
 }
 
 // Rebuild recreates the filter from scratch using the provided data loader.
@@ -146,13 +114,8 @@ func (f *Filter) Close(ctx context.Context) error {
 // wrapping [probfilter.ErrRebuildInProgress], and one that lost its lease
 // returns [probfilter.ErrRebuildSuperseded] without publishing.
 func (f *Filter) Rebuild(ctx context.Context, loader probfilter.DataLoader) error {
-	return f.observer.Rebuild(func() error {
-		err := f.coord.RebuildOrdered(ctx, loader, f.beginRebuild)
-		if err != nil {
-			return err
-		}
+	return f.base.Rebuild(ctx, loader, f.beginRebuild, func() {
 		f.storage.SetLastRebuild(time.Now())
-		return nil
 	})
 }
 
@@ -162,17 +125,13 @@ func (f *Filter) Rebuild(ctx context.Context, loader probfilter.DataLoader) erro
 func (f *Filter) beginRebuild(ctx context.Context) (facade.StageFunc, func(context.Context) error, error) {
 	exclusive, ok := f.storage.(storages.ExclusiveRebuilder)
 	if !ok {
-		return func(ctx context.Context, expectedItems int64) (facade.Staging, error) {
-			return f.storage.Stage(ctx, expectedItems)
-		}, nil, nil
+		return facade.StageWith(f.storage.Stage), nil, nil
 	}
 	lease, err := exclusive.BeginRebuild(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
-	return func(ctx context.Context, expectedItems int64) (facade.Staging, error) {
-		return lease.Stage(ctx, expectedItems)
-	}, lease.Release, nil
+	return facade.StageWith(lease.Stage), lease.Release, nil
 }
 
 // LastRebuild returns the time of the last successful rebuild.
