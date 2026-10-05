@@ -393,6 +393,16 @@ func Cases() []Case {
 				RediSearch: "no length function in the query syntax",
 			},
 		},
+		{
+			Name: "size of a string, function form",
+			Expr: `size(name) > 3`,
+			Want: []int64{1, 3, 4, 5},
+			Skip: map[Backend]string{
+				Mongo:      "$size applies to arrays, not to string length",
+				Meili:      "no length function in the filter grammar",
+				RediSearch: "no length function in the query syntax",
+			},
+		},
 
 		// -- Timestamps ----------------------------------------------
 		{

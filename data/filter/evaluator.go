@@ -205,6 +205,13 @@ func (e *Evaluator) VisitCall(n *CallNode) (any, error) {
 	}
 	defer done()
 
+	// Every supported call operates on a target. A hand-built node, a node
+	// returned by a custom function, or a target-less call such as
+	// `contains("x")` must fail as malformed rather than dereference nil.
+	if n.Target == nil {
+		return nil, coreerrs.Wrapf(ErrInvalidExpression, "%v call without a target", n.Op)
+	}
+
 	switch n.Op {
 	case OpContains:
 		return e.evalStringFunc(n, strings.Contains)

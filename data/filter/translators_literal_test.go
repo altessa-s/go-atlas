@@ -104,6 +104,37 @@ func TestTranslators_CallWithoutTargetIsRejected(t *testing.T) {
 	}
 }
 
+// TestTranslators_SizeCallFormsAgree pins that `size(name)` and `name.size()`
+// get the same answer from every backend. The global form used to leave the
+// operand in Args with a nil Target, which only the SQL translators unpacked:
+// MongoDB and Lua rejected it, and the Evaluator panicked.
+func TestTranslators_SizeCallFormsAgree(t *testing.T) {
+	t.Parallel()
+
+	parser, err := filter.NewParser(filter.WithParserNoCache())
+	require.NoError(t, err)
+
+	method, err := parser.Parse(t.Context(), `name.size() > 3`)
+	require.NoError(t, err)
+	global, err := parser.Parse(t.Context(), `size(name) > 3`)
+	require.NoError(t, err)
+
+	for backendName, translate := range translatorBackends() {
+		t.Run(backendName, func(t *testing.T) {
+			t.Parallel()
+
+			methodErr := translate(t, method)
+			globalErr := translate(t, global)
+			if methodErr == nil {
+				require.NoError(t, globalErr)
+				return
+			}
+			require.Error(t, globalErr)
+			require.Equal(t, methodErr.Error(), globalErr.Error())
+		})
+	}
+}
+
 // translatorBackends is every filter backend, reduced to "translate this node,
 // report the error". Sharing one table across the cross-backend regressions is
 // what keeps a newly added backend from being covered by none of them.

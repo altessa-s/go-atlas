@@ -363,8 +363,9 @@ func (t *Translator) operandSQL(node filter.Node) (string, error) {
 	return "", coreerrs.Wrapf(filter.ErrUnsupportedOperation, "%T as a comparison operand", node)
 }
 
-// sizeSQL renders a size() call through the dialect. Both call forms the
-// parser produces — `field.size()` and `size(field)` — are accepted.
+// sizeSQL renders a size() call through the dialect. The parser always puts
+// the operand in Target; a hand-built node carrying it as the single
+// argument is accepted too.
 func (t *Translator) sizeSQL(n *filter.CallNode) (string, error) {
 	target := n.Target
 	if target == nil && len(n.Args) == 1 {
