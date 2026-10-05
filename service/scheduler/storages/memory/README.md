@@ -15,6 +15,10 @@ ideal for tests, local development, and single-instance deployments where durabl
 - In-memory CEL filter evaluation for `TasksPaginated` and `HistoryPaginated` via the `filter` visitor
 - Binary search cursor seek for efficient cursor-based pagination without scanning the entire dataset
 
+## Atomic run operations
+
+`ClaimRun`, `CreateTask`, `RenewRun` and `FinishRun` each check and write under the storage mutex, so every one of them is atomic.
+
 ## Atomic run finalization
 
 `FinishRun` uses a mutex-protected update to compare `last_run_id` and the unfinished-run marker before updating execution fields. It rejects stale or

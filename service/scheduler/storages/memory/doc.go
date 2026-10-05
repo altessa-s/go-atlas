@@ -17,6 +17,9 @@
 //
 // Example:
 //
-//	storage := memory.New(100)
+//	storage, err := memory.New(100)
+//	if err != nil {
+//	    return err
+//	}
 //	sched := scheduler.New(storage)
 package memory
