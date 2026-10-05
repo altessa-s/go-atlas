@@ -279,8 +279,16 @@ func (s *Store) scanEvent(rows *sql.Rows) (outbox.Event, error) {
 		ev.LastError = &msg
 	}
 	var err error
-	for i, dst := range [...]*time.Time{&ev.CreatedAt, &ev.PublishedAt, &ev.LastAttemptOn, &ev.ExpiresAt} {
-		if *dst, err = d.timeValue(&ts[i]); err != nil {
+	for _, f := range [...]struct {
+		dst *time.Time
+		src *timeScan
+	}{
+		{&ev.CreatedAt, &ts[0]},
+		{&ev.PublishedAt, &ts[1]},
+		{&ev.LastAttemptOn, &ts[2]},
+		{&ev.ExpiresAt, &ts[3]},
+	} {
+		if *f.dst, err = d.timeValue(f.src); err != nil {
 			return outbox.Event{}, coreerrs.WrapOperation(err, "parse outbox event timestamp")
 		}
 	}
