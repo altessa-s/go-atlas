@@ -65,8 +65,10 @@ func (d *Denylist) Revoke(key string) {
 }
 
 // RevokeUntil denies key until expiry, after which it is forgotten. Pass the
-// token's own expiration so the entry is retained no longer than necessary. An
-// expiry at or before now is a no-op — the token is already invalid on its own.
+// token's expiration plus the largest clock-skew leeway any verifier applies
+// (auth/jwt.DefaultLeeway unless configured otherwise): verifiers still accept
+// the token until exp + leeway, so an entry that ends at exp re-admits it in
+// that window. An expiry at or before now is a no-op.
 func (d *Denylist) RevokeUntil(key string, expiry time.Time) {
 	if !expiry.After(d.now()) {
 		return

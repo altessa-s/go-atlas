@@ -107,8 +107,16 @@ false positives only cost an extra authoritative lookup and never admit a revoke
 ```go
 import "github.com/altessa-s/go-atlas/auth/denylist/negcache"
 
-filter, _ := probfilterfactory.NewFilter("denylist", cfg, &defaults).Build()
+filter, err := probfilterfactory.NewFilter("denylist", cfg, &defaults).Build()
+if err != nil {
+    return err
+}
 cache := negcache.New(filter, store) // store implements Authoritative
+
+// Populate the filter before serving any read from it (see Correctness and Staleness).
+if err := cache.Rebuild(ctx, store); err != nil {
+    return err
+}
 
 revoked, err := cache.IsRevoked(ctx, jti) // hot path: skips the network on a definite miss
 ```
@@ -130,6 +138,10 @@ with a loader that reports no count (the Redis store), keys are collected first 
 lands between collection and reset is lost. Until the implementation swaps filters atomically, coordinate both sides: route checks to the
 authoritative store while a rebuild runs and after a failed one, and serialize local revocations (the store write plus `cache.Add`) against
 the whole rebuild — or record revocations made during the rebuild and replay them with `Add` before switching reads back to the cache.
+
+That advice covers a process-local filter. A filter in shared storage (Redis Bloom keyed by prefix + filter name) is reset and repopulated for
+every instance using that key at once, so the coordination must span every reader, writer and rebuilder of the key — startup rebuilds
+included — or each instance must use its own filter key.
 
 ## Observability
 
