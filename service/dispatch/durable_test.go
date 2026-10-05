@@ -6,12 +6,14 @@ package dispatch_test
 
 import (
 	"context"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/core/io/wal"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/service/dispatch"
-	"github.com/stretchr/testify/require"
-	"testing"
-	"time"
 )
 
 func TestDurableRetriesBeyondVolatileBudget(t *testing.T) {

@@ -5,10 +5,11 @@
 package factory_test
 
 import (
-	"github.com/altessa-s/go-atlas/config"
-	"github.com/altessa-s/go-atlas/transport/http/client/factory"
 	"testing"
 	"time"
+
+	"github.com/altessa-s/go-atlas/config"
+	"github.com/altessa-s/go-atlas/transport/http/client/factory"
 )
 
 func BenchmarkHTTPHealthClientOptions(b *testing.B) {

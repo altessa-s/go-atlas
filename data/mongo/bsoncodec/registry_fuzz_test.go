@@ -5,10 +5,12 @@
 package bsoncodec_test
 
 import (
-	"github.com/altessa-s/go-atlas/core/types/optional"
+	"testing"
+
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
-	"testing"
+
+	"github.com/altessa-s/go-atlas/core/types/optional"
 )
 
 // FuzzBSONRoundTrip is the same property for the encoding MongoDB documents use.

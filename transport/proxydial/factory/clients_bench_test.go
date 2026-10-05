@@ -5,9 +5,10 @@
 package factory_test
 
 import (
+	"testing"
+
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/transport/proxydial/factory"
-	"testing"
 )
 
 func BenchmarkProxy_HTTPClientOptions_Passthrough(b *testing.B) {

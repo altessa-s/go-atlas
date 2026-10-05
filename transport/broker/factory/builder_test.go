@@ -17,12 +17,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/config"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/transport/broker/msg"
 
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	dataoutbox "github.com/altessa-s/go-atlas/data/outbox"
 	outboxsql "github.com/altessa-s/go-atlas/data/outbox/store/sqldb"
-	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 // capturingRegistrar records the scheduler tasks the builder registers.
