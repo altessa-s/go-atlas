@@ -6,6 +6,7 @@ package factory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -180,12 +181,24 @@ func (b *ProviderBuilder) buildRevocationOptions() ([]oidc.Option, error) {
 }
 
 // buildRevocationStorage creates a filter-based revocation storage from config.
+//
+// The provider owns the filter's rebuilds: it syncs the storage (a filter
+// rebuild from cfg.Source) once in oidc.NewProvider and then on
+// cfg.SyncSchedule on its own cron. The probfilter factory therefore gets no
+// data loader and defaults with Bloom rebuilds disabled, and a per-filter
+// bloom.rebuildCron or bloom.rebuildOnStart: true — a second rebuild schedule
+// for the same filter — is rejected.
 func (b *ProviderBuilder) buildRevocationStorage(cfg *config.OIDCRevocation) (oidc.RevocationStorage, error) {
 	if err := b.RequireDependency(b.redisClient, "redis client"); err != nil {
 		return nil, err
 	}
+	if err := rejectFilterRebuildSettings(cfg.Filter); err != nil {
+		return nil, b.WrapError(err, "invalid revocation filter configuration")
+	}
 
 	pfDefaults := config.DefaultProbabilisticFilterDefaults()
+	pfDefaults.Bloom.RebuildOnStart = false
+	pfDefaults.Bloom.RebuildCron = ""
 	filter, err := probfilterfactory.NewFilter(revocationFilterName(b.cfg), cfg.Filter, &pfDefaults).
 		UseLogger(b.Logger()).
 		UseRedisClient(b.redisClient).
@@ -214,6 +227,25 @@ func (b *ProviderBuilder) buildRevocationStorage(cfg *config.OIDCRevocation) (oi
 	// Without one the storage runs in lossy mode — see
 	// [oidc.NewFilterRevocationStorage].
 	return oidc.NewFilterRevocationStorage(filter, loader, b.revocationAuthoritative), nil
+}
+
+// errFilterRebuildSettings rejects probfilter rebuild settings on the
+// revocation filter, whose rebuilds the provider owns.
+var errFilterRebuildSettings = errors.New("revocation.filter.bloom.rebuildCron and rebuildOnStart are not supported: " +
+	"the provider rebuilds the revocation filter from revocation.source at startup and on revocation.syncSchedule")
+
+// rejectFilterRebuildSettings fails when filter asks for rebuilds of its own:
+// a non-empty bloom.rebuildCron or bloom.rebuildOnStart: true. Settings that
+// disable them agree with the provider's ownership and are accepted.
+func rejectFilterRebuildSettings(filter *config.ProbabilisticFilterConfig) error {
+	if filter == nil || filter.Bloom == nil {
+		return nil
+	}
+	bloom := filter.Bloom
+	if (bloom.RebuildCron != nil && *bloom.RebuildCron != "") || (bloom.RebuildOnStart != nil && *bloom.RebuildOnStart) {
+		return errFilterRebuildSettings
+	}
+	return nil
 }
 
 // revocationFilterName names the revocation filter (and so its Redis key)

@@ -27,7 +27,10 @@ const (
 	// DefaultRevocationInitialSyncWait bounds how long NewProvider keeps
 	// retrying its initial revocation sync while a shared filter is being
 	// rebuilt by another replica (or this rebuild lost its lease) before the
-	// configured fail mode applies.
+	// configured fail mode applies. Every replica completes one sync of its
+	// own and the rebuild lease serializes them, so when N replicas start at
+	// once the last one waits about (N-1) × the rebuild duration: keep the
+	// wait above that, or limit how many replicas start together.
 	DefaultRevocationInitialSyncWait = 2 * time.Minute
 
 	// DefaultJWKSMaxStaleness is the default maximum age allowed for the
