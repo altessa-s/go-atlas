@@ -21,3 +21,33 @@ func TestReplaceTaskIf(t *testing.T) {
 	store := newClaimIT(t)
 	storagetest.ReplaceTaskIf(t, store)
 }
+
+func TestCreateTask(t *testing.T) {
+	t.Parallel()
+	store := newClaimIT(t)
+	storagetest.CreateTask(t, store)
+}
+
+func TestRenewRun(t *testing.T) {
+	t.Parallel()
+	store := newClaimIT(t)
+	storagetest.RenewRun(t, store)
+}
+
+func TestClaimRunRequiresFinishedRun(t *testing.T) {
+	t.Parallel()
+	store := newClaimIT(t)
+	storagetest.ClaimRunRequiresFinishedRun(t, store)
+}
+
+func TestClaimRunFencesOccurrence(t *testing.T) {
+	t.Parallel()
+	store := newClaimIT(t)
+	storagetest.ClaimRunFencesOccurrence(t, store)
+}
+
+func TestRunIDRoundTrip(t *testing.T) {
+	t.Parallel()
+	store := newClaimIT(t)
+	storagetest.RunIDRoundTrip(t, store)
+}

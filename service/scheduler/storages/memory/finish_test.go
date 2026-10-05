@@ -26,3 +26,38 @@ func TestReplaceTaskIf(t *testing.T) {
 	require.NoError(t, err)
 	storagetest.ReplaceTaskIf(t, store)
 }
+
+func TestCreateTask(t *testing.T) {
+	t.Parallel()
+	store, err := memory.New(10)
+	require.NoError(t, err)
+	storagetest.CreateTask(t, store)
+}
+
+func TestRenewRun(t *testing.T) {
+	t.Parallel()
+	store, err := memory.New(10)
+	require.NoError(t, err)
+	storagetest.RenewRun(t, store)
+}
+
+func TestClaimRunRequiresFinishedRun(t *testing.T) {
+	t.Parallel()
+	store, err := memory.New(10)
+	require.NoError(t, err)
+	storagetest.ClaimRunRequiresFinishedRun(t, store)
+}
+
+func TestClaimRunFencesOccurrence(t *testing.T) {
+	t.Parallel()
+	store, err := memory.New(10)
+	require.NoError(t, err)
+	storagetest.ClaimRunFencesOccurrence(t, store)
+}
+
+func TestRunIDRoundTrip(t *testing.T) {
+	t.Parallel()
+	store, err := memory.New(10)
+	require.NoError(t, err)
+	storagetest.RunIDRoundTrip(t, store)
+}

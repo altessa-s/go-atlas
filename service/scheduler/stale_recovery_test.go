@@ -39,7 +39,7 @@ func (s *takeoverOnRecoveryRead) GetTask(ctx context.Context, id string) (*sched
 		}); err != nil {
 			return
 		}
-		_, err = s.Storage.ClaimRun(ctx, id, state.NextRunAt, time.Now().Unix(), "new-owner")
+		_, err = s.Storage.ClaimRun(ctx, id, scheduler.RunClaim{NextRunAt: state.NextRunAt, StartedAt: time.Now().Unix(), RunID: "new-owner"})
 	})
 	if err != nil {
 		return nil, err

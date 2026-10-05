@@ -105,13 +105,26 @@ const (
 // implementations that use JSON encoding.
 type TaskState struct {
 	TaskSummary
-	LastRunID    string            `json:"last_run_id,omitempty"`
-	RunStartedAt int64             `json:"run_started_at,omitempty"`
-	Meta         map[string]string `json:"meta,omitempty"`
-	CreatedAt    int64             `json:"created_at"`
-	UpdatedAt    int64             `json:"updated_at"`
+	LastRunID    string `json:"last_run_id,omitempty"`
+	RunStartedAt int64  `json:"run_started_at,omitempty"`
+	// RunLeaseUntil is the Unix second until which the instance executing the
+	// unfinished run (RunStartedAt != 0) vouches for it. [Storage.ClaimRun]
+	// sets it with the claim and the owner renews it through [Storage.RenewRun]
+	// while the run is in flight; stale recovery on any instance leaves the run
+	// alone until it has passed. Zero means the run was claimed by a release
+	// without leases, for which recovery falls back to RunStartedAt plus its
+	// own stale timeout.
+	RunLeaseUntil int64 `json:"run_lease_until,omitempty"`
+	// RunAt is the occurrence a one-shot task was registered for, as Unix
+	// seconds before any clamping to the registration time; always positive for
+	// one-shot tasks registered by this release and zero for periodic tasks. [Scheduler.Register] compares it to decide whether re-registering
+	// a completed one-shot task schedules a new run.
+	RunAt     int64             `json:"run_at,omitempty"`
+	Meta      map[string]string `json:"meta,omitempty"`
+	CreatedAt int64             `json:"created_at"`
+	UpdatedAt int64             `json:"updated_at"`
 	// Revision is incremented atomically by the storage on every write
-	// (UpsertTask, ClaimRun, FinishRun, ReplaceTaskIf). Values set by callers
+	// (UpsertTask, CreateTask, ClaimRun, RenewRun, FinishRun, ReplaceTaskIf). Values set by callers
 	// are ignored; it lets ReplaceTaskIf detect any concurrent change.
 	Revision int64 `json:"revision,omitempty"`
 }
@@ -187,13 +200,26 @@ type Storage interface {
 	// increment the revision in the same atomic write as well.
 	UpsertTask(ctx context.Context, state *TaskState) error
 
+	// CreateTask atomically inserts state only when no task with
+	// [TaskState.ID] exists, storing a revision of one regardless of the
+	// caller's value. It returns false, leaving the stored task untouched, when
+	// the task already exists. [Scheduler.Register] relies on it so that two
+	// instances registering the same new task cannot overwrite a state the other
+	// has already claimed; a GetTask check followed by UpsertTask does not
+	// satisfy this contract.
+	CreateTask(ctx context.Context, state *TaskState) (bool, error)
+
 	// ClaimRun atomically transitions task id from active→running for the
-	// occurrence scheduled at expectedNextRunAt, stamping RunStartedAt and
-	// LastRunID. It returns true iff THIS caller won the claim.
+	// occurrence described by claim, stamping RunStartedAt = claim.StartedAt,
+	// LastRunID = claim.RunID and RunLeaseUntil = claim.LeaseUntil. It returns
+	// true iff THIS caller won the claim.
 	//
 	// The write MUST be a single atomic conditional update (CAS): match on
-	// status==active and, when expectedNextRunAt is non-zero, additionally on
-	// nextRunAt==expectedNextRunAt (the occurrence fence). This makes duplicate
+	// status==active, on RunStartedAt==0 (no unfinished run, even one whose
+	// task was paused and resumed meanwhile) and, when claim.NextRunAt is
+	// non-zero, additionally on NextRunAt==claim.NextRunAt and
+	// RunAt==claim.RunAt (the occurrence fence; absent fields are zero). This
+	// makes duplicate
 	// execution impossible even when two schedulers dispatch the same occurrence
 	// concurrently — for example during a leader-election split-brain window —
 	// so leadership becomes a throughput optimization, not a correctness
@@ -205,12 +231,25 @@ type Storage interface {
 	// and writes its result only while LastRunID still names its own run. The atomic FinishRun
 	// check is what stops a run whose task was reclaimed mid-flight (by stale
 	// recovery plus a competing claim) from marking the live run finished.
-	ClaimRun(ctx context.Context, id string, expectedNextRunAt, runStartedAt int64, runID string) (bool, error)
+	ClaimRun(ctx context.Context, id string, claim RunClaim) (bool, error)
 
 	// FinishRun atomically records an execution result only while runID still owns
 	// an unfinished run. It returns false for missing, reclaimed or finished runs.
-	// Preserve concurrent configuration, pause/disable and metadata changes.
+	// Preserve concurrent configuration, pause/disable and metadata changes of a
+	// periodic task. A one-shot task whose stored RunAt equals result.RunAt
+	// becomes [TaskStatusCompleted] with NextRunAt zero whatever its status,
+	// since its single execution has happened — a pause and resume during the
+	// run must not leave it due again. See [RunResult] for a one-shot task
+	// re-registered for another occurrence meanwhile.
 	FinishRun(ctx context.Context, id, runID string, result RunResult) (bool, error)
+
+	// RenewRun atomically sets [TaskState.RunLeaseUntil] to leaseUntil and
+	// increments the revision only while runID still owns an unfinished run —
+	// the same predicate as FinishRun: LastRunID == runID and RunStartedAt != 0.
+	// It returns false, writing nothing, otherwise. The scheduler calls it
+	// periodically for every run it executes so that stale recovery on other
+	// instances can tell a long run from an abandoned one.
+	RenewRun(ctx context.Context, id, runID string, leaseUntil int64) (bool, error)
 
 	// ReplaceTaskIf atomically replaces the state of task state.ID only while
 	// the stored document still matches expect, storing expect.Revision+1 as the
@@ -312,13 +351,35 @@ func FenceOf(state *TaskState) TaskFence {
 	}
 }
 
+// RunClaim describes the run Storage.ClaimRun starts and the occurrence it
+// fences on.
+type RunClaim struct {
+	// NextRunAt and RunAt identify the occurrence the caller observed as due.
+	// The claim succeeds only while both are still stored; a zero NextRunAt
+	// disables the occurrence fence.
+	NextRunAt int64
+	RunAt     int64
+	// StartedAt, RunID and LeaseUntil are stored as RunStartedAt, LastRunID
+	// and RunLeaseUntil, so the run owns a lease from the moment it exists.
+	StartedAt  int64
+	RunID      string
+	LeaseUntil int64
+}
+
 // RunResult contains the execution fields committed by Storage.FinishRun.
 // Schedule identifies the schedule used to compute NextRunAt; a backend must
 // preserve a concurrently changed schedule and its next occurrence.
+//
+// RunAt identifies the one-shot occurrence the run executed (the claimed
+// state's [TaskState.RunAt]; zero for periodic runs). A backend completes a
+// one-shot task only while its stored RunAt still equals it: a task
+// re-registered for a different occurrence while the run executed keeps that
+// new occurrence (status back to active if still running, NextRunAt kept).
 type RunResult struct {
 	StartedAt int64
 	EndedAt   int64
 	NextRunAt int64
+	RunAt     int64
 	Schedule  string
 	Success   bool
 }

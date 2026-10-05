@@ -5,6 +5,7 @@ package scheduler
 
 import (
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
@@ -30,6 +31,29 @@ func WithHistoryRetention(v time.Duration) Option {
 			return
 		}
 		o.historyRetention = v
+	}
+}
+
+// WithInstanceID sets the instanceID option.
+func WithInstanceID[T interface{ string | *string }](v T) Option {
+	return func(o *options) {
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return
+			}
+			o.instanceID = vv
+		case *string:
+			if t == nil {
+				return
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return
+			}
+			o.instanceID = vv
+		}
 	}
 }
 

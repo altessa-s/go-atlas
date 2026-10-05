@@ -34,7 +34,7 @@ var ErrTaskNotDisabled = errors.New("task is not disabled")
 var ErrTaskDisabled = errors.New("task is disabled")
 
 // ErrTaskCompleted is returned by [Scheduler.PauseTask], [Scheduler.ResumeTask],
-// [Scheduler.EnableTask], and [Scheduler.TriggerTask] when the target task has
+// [Scheduler.DisableTask], [Scheduler.EnableTask], and [Scheduler.TriggerTask] when the target task has
 // [TaskStatusCompleted], which indicates a one-shot task that has already executed.
 var ErrTaskCompleted = errors.New("task is completed")
 
