@@ -7,6 +7,7 @@ package strings
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // ToScreamingSnakeCase converts a CamelCase, PascalCase, or mixed-case string
@@ -78,14 +79,39 @@ func ToSnakeCase(s string) string {
 	return strings.ToLower(ToScreamingSnakeCase(s))
 }
 
-// ToCamelCase converts a snake_case, SCREAMING_SNAKE_CASE, or space-delimited
-// string to camelCase. The first letter is lowercased; each letter following an
-// underscore or space is uppercased, and the delimiter itself is removed. Runs
-// of uppercase letters within the original input are preserved as-is.
-// Returns the empty string for empty input.
+// ToCamelCase converts a snake_case or space-delimited string to camelCase.
+// The first letter is lowercased; each letter following an underscore or
+// Unicode whitespace is uppercased, and the delimiter itself is removed. All
+// other letters keep their original case, so runs of uppercase letters are
+// preserved ("SCREAMING_SNAKE" becomes "sCREAMINGSNAKE"); use
+// [ScreamingSnakeToCamelCase] for upper-case input. Returns the empty string
+// for empty input.
+//
+// For purely ASCII input a fast byte-level scan is used; otherwise the input
+// is processed rune by rune. Invalid UTF-8 bytes are copied through unchanged.
 func ToCamelCase(s string) string {
+	return toCamelCase(s, false)
+}
+
+// ScreamingSnakeToCamelCase converts a SCREAMING_SNAKE_CASE string to
+// camelCase: every word is lowercased and each word after the first starts
+// with an uppercase letter, so "HELLO_WORLD" becomes "helloWorld" and
+// "REAL_IP" becomes "realIp". Delimiters are the same as for [ToCamelCase]
+// (underscores and Unicode whitespace). Returns the empty string for empty
+// input.
+func ScreamingSnakeToCamelCase(s string) string {
+	return toCamelCase(s, true)
+}
+
+// toCamelCase implements [ToCamelCase] and [ScreamingSnakeToCamelCase]. When
+// lowerRest is true, letters that do not start a word are lowercased;
+// otherwise they are copied as-is.
+func toCamelCase(s string, lowerRest bool) string {
 	if s == "" {
 		return ""
+	}
+	if !isASCII(s) {
+		return toCamelCaseUnicode(s, lowerRest)
 	}
 
 	var b strings.Builder
@@ -93,38 +119,73 @@ func ToCamelCase(s string) string {
 
 	upperNext := false
 	first := true
-
 	for i := range len(s) {
-		r := rune(s[i])
-		if r == '_' || unicode.IsSpace(r) {
+		c := s[i]
+		if c == '_' || IsASCIISpace(c) {
 			upperNext = true
 			continue
 		}
-
-		if first {
-			b.WriteRune(unicode.ToLower(r))
-			first = false
-			upperNext = false
-			continue
+		switch {
+		case first:
+			c = asciiToLower(c)
+		case upperNext:
+			c = asciiToUpper(c)
+		case lowerRest:
+			c = asciiToLower(c)
 		}
-
-		if upperNext {
-			b.WriteRune(unicode.ToUpper(r))
-			upperNext = false
-		} else {
-			// If we were already in upper (acronym), keep it?
-			// Standard camelCase: "TestPDF" -> "testPDF" (if acronym preserved) or "testPdf"
-			// Our previous implementation preserved acronyms.
-			b.WriteRune(r)
-		}
+		first, upperNext = false, false
+		b.WriteByte(c)
 	}
 
 	return b.String()
 }
 
-// ScreamingSnakeToCamelCase converts a SCREAMING_SNAKE_CASE string to
-// camelCase. It delegates directly to [ToCamelCase], which already handles
-// underscore-delimited input.
-func ScreamingSnakeToCamelCase(s string) string {
-	return ToCamelCase(s)
+func toCamelCaseUnicode(s string, lowerRest bool) string {
+	var b strings.Builder
+	b.Grow(len(s))
+
+	upperNext := false
+	first := true
+	for i := 0; i < len(s); {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		raw := s[i : i+size]
+		i += size
+
+		if r == '_' || unicode.IsSpace(r) {
+			upperNext = true
+			continue
+		}
+		if r == utf8.RuneError && size == 1 {
+			// Invalid UTF-8: keep the byte as-is instead of writing U+FFFD.
+			first, upperNext = false, false
+			b.WriteString(raw)
+			continue
+		}
+		switch {
+		case first:
+			r = unicode.ToLower(r)
+		case upperNext:
+			r = unicode.ToUpper(r)
+		case lowerRest:
+			r = unicode.ToLower(r)
+		}
+		first, upperNext = false, false
+		b.WriteRune(r)
+	}
+
+	return b.String()
+}
+
+func asciiToLower(c byte) byte {
+	if 'A' <= c && c <= 'Z' {
+		return c + 'a' - 'A'
+	}
+	return c
+}
+
+func asciiToUpper(c byte) byte {
+	if 'a' <= c && c <= 'z' {
+		return c - ('a' - 'A')
+	}
+	return c
 }

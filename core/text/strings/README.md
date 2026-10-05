@@ -25,6 +25,7 @@ utility functions are pure, allocation-aware, and safe for concurrent use from m
 | `ToSnakeCase`                       | `"HelloWorld"` -> `"hello_world"`      |
 | `ToCamelCase`                       | `"hello_world"` -> `"helloWorld"`      |
 | `ToScreamingSnakeCase`              | `"HelloWorld"` -> `"HELLO_WORLD"`      |
+| `ScreamingSnakeToCamelCase`         | `"HELLO_WORLD"` -> `"helloWorld"`      |
 | `IsLowercase` / `IsUppercase`       | Check letter case (Unicode-aware)      |
 | `IsTrimmed`                         | True if no leading/trailing whitespace |
 | `TrimPrefixFast` / `TrimSuffixFast` | Zero-allocation prefix/suffix removal  |
@@ -37,7 +38,7 @@ Configurable via `JoinOptions`, `SplitOptions`, and `ContainsOptions` structs. A
 |------------|--------------------------------------------------------------|
 | `Join`     | Concatenate with separator, prefix/suffix, skip-empty        |
 | `Split`    | Split with case sensitivity, max splits, trim, skip-empty    |
-| `SplitSeq` | Lazy `iter.Seq` variant of `Split` (zero intermediate alloc) |
+| `SplitSeq` | Lazy `iter.Seq` variant of `Split` (same parts, no slice)    |
 | `Contains` | Search with case, whole-word, and count options              |
 
 ## Concatenation
@@ -71,7 +72,8 @@ to 64 bytes, and returns instances to a pool to reduce allocations in high-throu
 
 ## Interner
 
-Lock-free, LRU-evicting string deduplication. Two-tier cache: hot (atomic slots) + cold (`sync.Map`). Reduces memory for repeated string values.
+Lock-free string deduplication with LFU eviction (LRU tie-break). Two-tier cache: hot (atomic slots) + cold (`sync.Map`). Reduces memory for
+repeated string values.
 
 | Function / Method             | Description                 |
 |-------------------------------|-----------------------------|

@@ -60,6 +60,41 @@ func BenchmarkSplit(b *testing.B) {
 	})
 }
 
+func BenchmarkSplitCaseInsensitive(b *testing.B) {
+	cases := []struct {
+		name string
+		s    string
+		sep  string
+	}{
+		{"ASCII", "alphaSEPbetasepgammaSePdelta", "sep"},
+		{"Unicode", "alphaİbetaİgammaİdelta", "İ"},
+	}
+	for _, tc := range cases {
+		opts := corestrings.SplitOptions{Separator: tc.sep}
+		b.Run("Split/"+tc.name, func(b *testing.B) {
+			for b.Loop() {
+				corestrings.Split(tc.s, opts)
+			}
+		})
+		b.Run("SplitSeq/"+tc.name, func(b *testing.B) {
+			for b.Loop() {
+				for range corestrings.SplitSeq(tc.s, opts) {
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkSplitSeq(b *testing.B) {
+	s := "a,b,c,,d"
+	opts := corestrings.SplitOptions{Separator: ",", SkipEmpty: true, CaseSensitive: true}
+
+	for b.Loop() {
+		for range corestrings.SplitSeq(s, opts) {
+		}
+	}
+}
+
 func BenchmarkUnsafe(b *testing.B) {
 	s := "hello world big string"
 
