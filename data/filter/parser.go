@@ -277,7 +277,7 @@ func (p *Parser) convertCall(c *exprpb.Expr_Call) (Node, error) {
 
 	// Size function
 	case "size":
-		return p.convertMethodCall(OpSize, c.Target, c.Args)
+		return p.convertSize(c)
 
 	// Has macro
 	case operators.Has:
@@ -390,6 +390,21 @@ func (p *Parser) convertUnaryOp(op Operator, args []*exprpb.Expr) (Node, error) 
 	}
 
 	return &UnaryOpNode{Op: op, Operand: operand}, nil
+}
+
+// convertSize converts both CEL spellings of size — `field.size()` and the
+// global `size(field)` — into the same node, with the measured operand as
+// Target and no arguments. Translators and the Evaluator therefore see one
+// shape regardless of how the expression was written.
+func (p *Parser) convertSize(c *exprpb.Expr_Call) (Node, error) {
+	switch {
+	case c.Target != nil && len(c.Args) == 0:
+		return p.convertMethodCall(OpSize, c.Target, nil)
+	case c.Target == nil && len(c.Args) == 1:
+		return p.convertMethodCall(OpSize, c.Args[0], nil)
+	default:
+		return nil, coreerrs.Wrap(ErrInvalidExpression, "size() requires exactly one operand: field.size() or size(field)")
+	}
 }
 
 // convertMethodCall creates a CallNode for method-style calls.

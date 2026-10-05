@@ -320,17 +320,21 @@ func TestTranslator_SizeFunction(t *testing.T) {
 }
 
 func TestTranslator_SizeFunctionValidation(t *testing.T) {
+	// The global spelling size(f) translates exactly like f.size().
 	tests := []struct {
-		name string
-		expr string
+		name   string
+		global string
+		method string
 	}{
 		{
-			name: "function form greater than",
-			expr: `size(tags) > 0`,
+			name:   "function form greater than",
+			global: `size(tags) > 0`,
+			method: `tags.size() > 0`,
 		},
 		{
-			name: "function form equal",
-			expr: `size(tags) == 3`,
+			name:   "function form equal",
+			global: `size(tags) == 3`,
+			method: `tags.size() == 3`,
 		},
 	}
 
@@ -338,9 +342,11 @@ func TestTranslator_SizeFunctionValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			node := testhelpers.MustParseFilter(t, tt.expr)
-			_, err := trans.Translate(node)
-			require.ErrorIs(t, err, filter.ErrInvalidExpression)
+			want, err := trans.Translate(testhelpers.MustParseFilter(t, tt.method))
+			require.NoError(t, err)
+			got, err := trans.Translate(testhelpers.MustParseFilter(t, tt.global))
+			require.NoError(t, err)
+			require.Equal(t, bsonToJSON(want), bsonToJSON(got))
 		})
 	}
 }
