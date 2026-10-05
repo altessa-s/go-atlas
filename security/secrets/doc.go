@@ -153,6 +153,8 @@
 //     or re-inserts them
 //   - With a negative filter shared through Redis, a rebuild skipped because
 //     another node holds the rebuild lease is logged at debug level only
+//   - Known behavior: a successful listing without any secret leaves the
+//     cache as it is, so a transiently empty listing cannot wipe it
 //   - Full control over update scheduling and lifecycle
 //
 // # Error Handling:
@@ -182,6 +184,15 @@
 // infrastructure layout. When that matters, run production loggers at Info or
 // above, or wrap the handler with the masking handler from
 // [github.com/altessa-s/go-atlas/observability/slog/handler/masking].
+//
+// # Value Ownership:
+//
+// The Manager caches and returns its own deep copies of what a provider
+// returns and gives Provider.Save its own copy of the payload, so Clear —
+// on eviction, Delete, ClearCache or shutdown — never zeroes memory a
+// provider keeps or shares. Watch event values (WatchEvent.Value and
+// PreviousValue) are copies owned by the receiver, which should Clear them
+// when done; the Manager never reads or clears them after sending.
 //
 // # Thread Safety:
 //

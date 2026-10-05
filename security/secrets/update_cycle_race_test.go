@@ -311,10 +311,11 @@ func (f *keySpyFilter) Rebuild(ctx context.Context, loader probfilter.DataLoader
 }
 
 // TestManager_UpdateCycle_DeleteAfterSnapshotMemoryProvider deletes a cached
-// key after the listing with the memory provider, which returns the very
-// instance the cache holds, so the Delete clears the listed value too. The
-// cycle must neither cache it (under its key or an empty one), nor hand an
-// empty key to the filter rebuild, nor report it to watchers.
+// key after the listing with the memory provider, which keeps the instances
+// it lists. The Delete clears only the Manager's own copy, never the listed
+// instance; the cycle must neither re-insert the key (under its key or an
+// empty one), nor hand an empty key to the filter rebuild, nor report one to
+// watchers. The listed key may still reach the filter (a false positive).
 func TestManager_UpdateCycle_DeleteAfterSnapshotMemoryProvider(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -352,8 +353,13 @@ func TestManager_UpdateCycle_DeleteAfterSnapshotMemoryProvider(t *testing.T) {
 	require.Equal(t, 1, mgr.CacheSize())
 
 	filter.mu.Lock()
-	require.Equal(t, []string{"key-b"}, filter.keys, "the rebuild must only see captured, uncleared keys")
+	require.Contains(t, filter.keys, "key-b")
+	require.NotContains(t, filter.keys, "", "the rebuild must not see an empty key")
 	filter.mu.Unlock()
+
+	listed, err := inner.Value(ctx, "key-b")
+	require.NoError(t, err)
+	require.Equal(t, "2", listed.Value, "the provider's instance is never cleared by the Manager")
 
 	for {
 		select {
@@ -368,7 +374,7 @@ func TestManager_UpdateCycle_DeleteAfterSnapshotMemoryProvider(t *testing.T) {
 
 // TestManager_UpdateCycle_ConcurrentDeleteClearCache runs update cycles
 // against concurrent Save, Delete and ClearCache calls over the memory
-// provider, which shares value instances with the cache. Run with -race.
+// provider, which keeps the instances it returns. Run with -race.
 func TestManager_UpdateCycle_ConcurrentDeleteClearCache(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -401,14 +407,8 @@ func TestManager_UpdateCycle_ConcurrentDeleteClearCache(t *testing.T) {
 	})
 	wg.Wait()
 
-	// ClearCache may have zeroed values the memory provider still holds (it
-	// shares them with the cache), and a racing Save may have cached such a
-	// cleared value; reset both sides before checking that a final cycle
-	// caches every key.
-	mgr.ClearCache(ctx)
-	for _, key := range keys {
-		require.NoError(t, inner.Save(ctx, key, "v"))
-	}
+	// The Manager clears only its own copies, so the provider still holds
+	// every key intact and a final cycle caches them all.
 	require.NoError(t, mgr.RunUpdateCycle(ctx))
 	for _, key := range keys {
 		v, err := mgr.Value(ctx, key, false)
@@ -418,8 +418,9 @@ func TestManager_UpdateCycle_ConcurrentDeleteClearCache(t *testing.T) {
 }
 
 // TestManager_UpdateCycle_SharedProviderTwoManagers runs two managers over
-// one memory provider concurrently; the cycle's bookkeeping is per manager,
-// so nothing is written into the shared value instances. Run with -race.
+// one memory provider concurrently, including Delete and ClearCache: each
+// manager caches and clears only its own copies, so neither touches the
+// provider's instances or the other manager's values. Run with -race.
 func TestManager_UpdateCycle_SharedProviderTwoManagers(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -443,6 +444,9 @@ func TestManager_UpdateCycle_SharedProviderTwoManagers(t *testing.T) {
 			for i := range iterations {
 				_ = mgr.Save(ctx, "key-a", "1")
 				_, _ = mgr.Value(ctx, "key-b", i%2 == 0)
+				_ = mgr.Delete(ctx, "key-c")
+				_ = mgr.Save(ctx, "key-c", "3")
+				mgr.ClearCache(ctx)
 			}
 		})
 	}
@@ -450,8 +454,10 @@ func TestManager_UpdateCycle_SharedProviderTwoManagers(t *testing.T) {
 
 	for _, mgr := range []*secrets.Manager[string]{mgrA, mgrB} {
 		require.NoError(t, mgr.RunUpdateCycle(ctx))
-		v, err := mgr.Value(ctx, "key-a", false)
-		require.NoError(t, err)
-		require.Equal(t, "1", v.Value)
+		for key, want := range map[string]string{"key-a": "1", "key-b": "2", "key-c": "3"} {
+			v, err := mgr.Value(ctx, key, false)
+			require.NoError(t, err)
+			require.Equal(t, want, v.Value)
+		}
 	}
 }

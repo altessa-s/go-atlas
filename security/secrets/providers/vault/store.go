@@ -127,7 +127,7 @@ func (s *Storage[T]) List(ctx context.Context) ([]*secrets.Value[T], error) {
 	ctx = corecontext.OrBackground(ctx)
 
 	// Use singleflight to prevent thundering herd for List operations
-	sfKey := s.CreateKey("vault", s.opts.mountPath, s.opts.secretPath)
+	sfKey := s.listFlightKey()
 	return base.DoTyped(&s.SingleflightGroup, sfKey, func() ([]*secrets.Value[T], error) {
 		return s.doList(ctx)
 	})
@@ -218,7 +218,7 @@ func (s *Storage[T]) Value(ctx context.Context, key string) (*secrets.Value[T], 
 	}
 
 	// Use singleflight to prevent thundering herd for the same secret
-	sfKey := s.CreateKey("vault:secret", s.opts.mountPath, s.opts.secretPath, encodedKey)
+	sfKey := s.valueFlightKey(encodedKey)
 	return base.DoTyped(&s.SingleflightGroup, sfKey, func() (*secrets.Value[T], error) {
 		return s.value(ctx, encodedKey)
 	})
@@ -263,13 +263,11 @@ func (s *Storage[T]) value(ctx context.Context, key string) (*secrets.Value[T], 
 		return nil, base.ValueDecodingError(err)
 	}
 
-	return &secrets.Value[T]{
-		EncodedKey:   key,
-		Key:          decodedKey,
-		Value:        value,
-		EncodedValue: []byte(data),
-		Version:      strconv.Itoa(secret.VersionMetadata.Version),
-	}, nil
+	// NewValue registers the standard cleanup; []byte(data) is a buffer of
+	// its own, independent of the decoder input.
+	v := secrets.NewValue(decodedKey, value, []byte(data), strconv.Itoa(secret.VersionMetadata.Version))
+	v.EncodedKey = key
+	return v, nil
 }
 
 // path constructs the full path to a secret in Vault.
@@ -368,7 +366,11 @@ func (s *Storage[T]) Delete(ctx context.Context, key string) error {
 	}
 
 	return base.WithLock(ctx, s.opts.locker, s.Name(), encodedKey, func(ctx context.Context) error {
-		return s.delete(ctx, encodedKey)
+		if err := s.delete(ctx, encodedKey); err != nil {
+			return err
+		}
+		s.forgetReads(encodedKey)
+		return nil
 	})
 }
 
@@ -432,7 +434,11 @@ func (s *Storage[T]) Save(ctx context.Context, key string, value T) error {
 	}
 
 	return base.WithLock(ctx, s.opts.locker, s.Name(), encodedKey, func(ctx context.Context) error {
-		return s.save(ctx, encodedKey, value)
+		if err := s.save(ctx, encodedKey, value); err != nil {
+			return err
+		}
+		s.forgetReads(encodedKey)
+		return nil
 	})
 }
 
@@ -566,4 +572,22 @@ func (s *Storage[T]) CheckConnection(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// valueFlightKey is the singleflight key of a Value read of encodedKey.
+func (s *Storage[T]) valueFlightKey(encodedKey string) string {
+	return s.CreateKey("vault:secret", s.opts.mountPath, s.opts.secretPath, encodedKey)
+}
+
+// listFlightKey is the singleflight key of a List read.
+func (s *Storage[T]) listFlightKey() string {
+	return s.CreateKey("vault", s.opts.mountPath, s.opts.secretPath)
+}
+
+// forgetReads detaches in-flight Value and List reads that may predate a
+// completed Save or Delete of encodedKey, so a read started after the write
+// returns cannot join them and observe the old state.
+func (s *Storage[T]) forgetReads(encodedKey string) {
+	s.Forget(s.valueFlightKey(encodedKey))
+	s.Forget(s.listFlightKey())
 }

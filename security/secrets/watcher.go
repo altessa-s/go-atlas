@@ -88,10 +88,13 @@ type WatchEvent[T any] struct {
 	// Key is the secret key that changed
 	Key string
 
-	// Value is the new secret value (nil for delete events)
+	// Value is the new secret value (nil for delete events). It is a copy
+	// owned by the receiver: the Manager never reads or clears it after
+	// sending, so the receiver should call Clear when done with it.
 	Value *Value[T]
 
-	// PreviousValue is the previous secret value (nil for create events)
+	// PreviousValue is the previous secret value (nil for create events),
+	// a receiver-owned copy like Value.
 	PreviousValue *Value[T]
 
 	// OccurredTime is when the event occurred

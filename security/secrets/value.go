@@ -5,8 +5,10 @@
 package secrets
 
 import (
+	"bytes"
 	"log/slog"
 	"reflect"
+	"strings"
 	"unsafe"
 
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
@@ -205,6 +207,10 @@ type cleanupData struct {
 //
 // Note: Finalizers are not guaranteed to run, so explicit Clear() calls
 // are still recommended for maximum security.
+//
+// encodedValue is zeroed in place by Clear and by the cleanup, so it must not
+// be memory the decoded value still references (e.g. a decoder input a custom
+// decoder retains): providers pass their own copy of such a buffer.
 func NewValue[T any](key string, value T, encodedValue []byte, version string) *Value[T] {
 	v := &Value[T]{
 		Key:          key,
@@ -214,8 +220,9 @@ func NewValue[T any](key string, value T, encodedValue []byte, version string) *
 	}
 
 	// If T is a string, initialize SecureString for better memory management
+	// (reflection also covers defined string types such as `type Secret string`).
 	if reflect.TypeFor[T]().Kind() == reflect.String {
-		v.ss = corestrings.NewSecureString(any(value).(string)) //nolint:errcheck // type checked above
+		v.ss = corestrings.NewSecureString(reflect.ValueOf(&value).Elem().String())
 	}
 
 	// Prepare independent cleanup data to avoid capturing 'v' in the cleanup argument
@@ -244,6 +251,33 @@ func NewValue[T any](key string, value T, encodedValue []byte, version string) *
 	}, data)
 
 	return v
+}
+
+// clone returns a deep copy of v that shares no memory Clear writes to: the
+// encoded bytes and, for string and byte-slice payloads, the payload memory
+// are copied. Other payload kinds are copied by assignment, since Clear only
+// resets the field of its own Value for them. The copy has its own
+// SecureString and cleanup, so clearing either Value never affects the other.
+func (v *Value[T]) clone() *Value[T] {
+	if v == nil {
+		return nil
+	}
+	c := NewValue(v.Key, cloneSecret(v.Value), bytes.Clone(v.EncodedValue), v.Version)
+	c.EncodedKey = v.EncodedKey
+	return c
+}
+
+// cloneSecret copies the memory of a payload that Value.Clear zeroes in
+// place: strings and byte slices (including defined types of those kinds).
+func cloneSecret[T any](value T) T {
+	rv := reflect.ValueOf(&value).Elem()
+	switch {
+	case rv.Kind() == reflect.String:
+		rv.SetString(strings.Clone(rv.String()))
+	case rv.Kind() == reflect.Slice && rv.Type().Elem().Kind() == reflect.Uint8 && !rv.IsNil():
+		rv.SetBytes(bytes.Clone(rv.Bytes()))
+	}
+	return value
 }
 
 // valueSlicePool is a shared pool for reusing Value slice buffers to reduce allocations.
