@@ -22,6 +22,10 @@ import (
 // trailing +00 is the offset, always UTC here.
 const dateTimeLayout = "2006-01-02 15:04:05.000000-07"
 
+// endsWithOperands is how often the EndsWith template renders its operand:
+// the suffix size and the comparison.
+const endsWithOperands = 2
+
 // dialect implements [sqlbase.Dialect] for PostgreSQL.
 type dialect struct{}
 
@@ -54,13 +58,13 @@ func (dialect) SizeExpr(col string) string { return "length(" + col + ")" }
 //
 // endsWith has no built-in and compiles to a suffix comparison, which
 // needs the operand twice — once to size the suffix, once to compare
-// against it. Hence EndsWithBindsTwice.
+// against it. Hence endsWithOperands.
 var stringPredicates = sqlbase.StringPredicates{
-	Contains:           "strpos(%[1]s, %[2]s) > 0",
-	StartsWith:         "starts_with(%[1]s, %[2]s)",
-	EndsWith:           "right(%[1]s, length(%[2]s)) = %[3]s",
-	Matches:            "%[1]s ~ %[2]s",
-	EndsWithBindsTwice: true,
+	Contains:      "strpos(%[1]s, %[2]s) > 0",
+	StartsWith:    "starts_with(%[1]s, %[2]s)",
+	EndsWith:      "right(%[1]s, length(%[2]s)) = %[3]s",
+	Matches:       "%[1]s ~ %[2]s",
+	EndsWithBinds: endsWithOperands,
 }
 
 // StringPredicate renders one of the four string predicates.

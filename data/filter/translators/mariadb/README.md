@@ -45,30 +45,32 @@ rows, err := db.QueryContext(ctx, "SELECT * FROM events WHERE "+where, args...)
 
 ## Operation mapping
 
-| CEL                          | MariaDB                                 |
-|------------------------------|-----------------------------------------|
-| `==` `!=` `<` `>` `<=` `>=`  | `=` `!=` `<` `>` `<=` `>=`              |
-| `&&` `\|\|` `!`              | `AND` `OR` `NOT`                        |
-| `field`                      | `` `field` = TRUE ``                    |
-| `field in [a, b]`            | `` `field` IN (?, ?) ``                 |
-| `field in []`                | `1 = 0`                                 |
-| `field == null`              | `` `field` IS NULL ``                   |
-| `field != null`              | `` `field` IS NOT NULL ``               |
-| `has(field)`                 | `` `field` IS NOT NULL ``               |
-| `field.contains(s)`          | `` LOCATE(?, `field`) > 0 ``            |
-| `field.startsWith(s)`        | `` LOCATE(?, `field`) = 1 ``            |
-| `field.endsWith(s)`          | `` RIGHT(`field`, CHAR_LENGTH(?)) = ? `` |
-| `field.matches(re)`          | `` `field` REGEXP ? ``                  |
-| `field.size()` / `size(f)`   | `` CHAR_LENGTH(`field`) ``              |
-| `substring()`                | `filter.ErrUnsupportedOperation`        |
+| CEL                         | MariaDB                                                                               |
+|-----------------------------|---------------------------------------------------------------------------------------|
+| `==` `!=` `<` `>` `<=` `>=` | `=` `!=` `<` `>` `<=` `>=`                                                            |
+| `&&` `\|\|` `!`             | `AND` `OR` `NOT`                                                                      |
+| `field`                     | `` `field` = TRUE ``                                                                  |
+| `field in [a, b]`           | `` `field` IN (?, ?) ``                                                               |
+| `field in []`               | `1 = 0`                                                                               |
+| `field == null`             | `` `field` IS NULL ``                                                                 |
+| `field != null`             | `` `field` IS NOT NULL ``                                                             |
+| `has(field)`                | `` `field` IS NOT NULL ``                                                             |
+| `field.contains(s)`         | `` LOCATE(?, `field`) > 0 ``                                                          |
+| `field.startsWith(s)`       | `` LOCATE(?, `field`) = 1 ``                                                          |
+| `field.endsWith(s)`         | `` (CHAR_LENGTH(`field`) >= CHAR_LENGTH(?) AND RIGHT(`field`, CHAR_LENGTH(?)) = ?) `` |
+| `field.matches(re)`         | `` `field` REGEXP ? ``                                                                |
+| `field.size()` / `size(f)`  | `` CHAR_LENGTH(`field`) ``                                                            |
+| `substring()`               | `filter.ErrUnsupportedOperation`                                                      |
 
 `contains` and `startsWith` go through `LOCATE`, which takes the needle as a plain string — there is no LIKE pattern, so a `%` or `_` in the
 operand stays literal. `startsWith` is `LOCATE = 1` because MariaDB has no dedicated function; the two are equivalent, including for an empty
 needle. `size()` is rejected outside a comparison: `CHAR_LENGTH` is an integer expression, and on its own there is no predicate for `WHERE` to
 test.
 
-**`endsWith` binds its operand twice.** MariaDB has no `endsWith`, so the needle both sizes the suffix and is compared to it. One CEL argument
-consumes two placeholders — `args` reflects that, and any clause following it is numbered accordingly.
+**`endsWith` binds its operand three times.** MariaDB has no `endsWith`, so the needle guards the length, sizes the suffix and is compared to
+it. One CEL argument consumes three placeholders — `args` reflects that, and any clause following it is numbered accordingly. The length guard
+is what keeps the predicate exact under a PAD SPACE collation: without it a column shorter than the needle comes back whole from `RIGHT` and is
+padded with spaces before the comparison, so `"a".endsWith("a ")` would be true.
 
 ## Column names
 
@@ -85,6 +87,12 @@ String comparison follows the column's collation, and MariaDB's defaults (`utf8m
 string predicate here inherits that: `contains`, `startsWith`, `endsWith`, `REGEXP` and plain equality all match case-insensitively unless the
 column or the connection says otherwise. This is a real semantic difference from the ClickHouse and PostgreSQL translators, which are
 case-sensitive. Use an explicit `_bin` or `_cs` collation where the distinction matters.
+
+Most MariaDB and MySQL collations — `utf8mb4_bin` included — are **PAD SPACE**: strings compare as if the shorter one were padded with spaces.
+Comparisons and membership inherit that, so under such a collation `name == "a "` matches `a`, and `!=`, `<`, `<=`, `>`, `>=` and `in` likewise
+ignore trailing spaces. The string predicates do not: `contains` and `startsWith` (`LOCATE`) and `size()` (`CHAR_LENGTH`) see every character,
+and `endsWith` is length-guarded, so `a` does not end with `a `. Use a NO PAD collation (`_nopad_`, `utf8mb4_0900_*`) where trailing spaces in
+comparisons matter.
 
 ## Null semantics
 

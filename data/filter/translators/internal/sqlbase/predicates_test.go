@@ -34,11 +34,21 @@ var oneBind = sqlbase.StringPredicates{
 // twoBinds is the shape of a dialect that compiles endsWith to a suffix
 // comparison and therefore repeats the operand.
 var twoBinds = sqlbase.StringPredicates{
-	Contains:           "LOCATE(%[2]s, %[1]s) > 0",
-	StartsWith:         "LOCATE(%[2]s, %[1]s) = 1",
-	EndsWith:           "RIGHT(%[1]s, CHAR_LENGTH(%[2]s)) = %[3]s",
-	Matches:            "%[1]s REGEXP %[2]s",
-	EndsWithBindsTwice: true,
+	Contains:      "LOCATE(%[2]s, %[1]s) > 0",
+	StartsWith:    "LOCATE(%[2]s, %[1]s) = 1",
+	EndsWith:      "right(%[1]s, length(%[2]s)) = %[3]s",
+	Matches:       "%[1]s REGEXP %[2]s",
+	EndsWithBinds: 2,
+}
+
+// threeBinds is the shape of a dialect whose suffix comparison also
+// guards the length, repeating the operand a third time.
+var threeBinds = sqlbase.StringPredicates{
+	Contains:      "LOCATE(%[2]s, %[1]s) > 0",
+	StartsWith:    "LOCATE(%[2]s, %[1]s) = 1",
+	EndsWith:      "(CHAR_LENGTH(%[1]s) >= CHAR_LENGTH(%[2]s) AND RIGHT(%[1]s, CHAR_LENGTH(%[3]s)) = %[4]s)",
+	Matches:       "%[1]s REGEXP %[2]s",
+	EndsWithBinds: 3,
 }
 
 func TestRenderStringPredicate(t *testing.T) {
@@ -55,7 +65,8 @@ func TestRenderStringPredicate(t *testing.T) {
 		{"startsWith", oneBind, filter.OpStartsWith, "startsWith(`c`, ?)"},
 		{"matches as an operator", twoBinds, filter.OpMatches, "`c` REGEXP ?"},
 		{"endsWith, native", oneBind, filter.OpEndsWith, "endsWith(`c`, ?)"},
-		{"endsWith, compiled", twoBinds, filter.OpEndsWith, "RIGHT(`c`, CHAR_LENGTH(?)) = ?"},
+		{"endsWith, compiled", twoBinds, filter.OpEndsWith, "right(`c`, length(?)) = ?"},
+		{"endsWith, length-guarded", threeBinds, filter.OpEndsWith, "(CHAR_LENGTH(`c`) >= CHAR_LENGTH(?) AND RIGHT(`c`, CHAR_LENGTH(?)) = ?)"},
 	}
 
 	for _, tt := range tests {
@@ -71,8 +82,8 @@ func TestRenderStringPredicate(t *testing.T) {
 }
 
 // TestRenderStringPredicate_BindCount is the assertion the whole
-// EndsWithBindsTwice flag exists for. A template that renders the
-// operand twice must bind it twice: one bind short and every argument
+// EndsWithBinds count exists for. A template that renders the operand
+// n times must bind it n times: one bind short and every argument
 // after it shifts, which under PostgreSQL's numbered placeholders
 // corrupts the query silently rather than failing.
 func TestRenderStringPredicate_BindCount(t *testing.T) {
@@ -89,6 +100,7 @@ func TestRenderStringPredicate_BindCount(t *testing.T) {
 		{"matches binds once", twoBinds, filter.OpMatches, []string{"x"}},
 		{"native endsWith binds once", oneBind, filter.OpEndsWith, []string{"x"}},
 		{"compiled endsWith binds twice", twoBinds, filter.OpEndsWith, []string{"x", "x"}},
+		{"length-guarded endsWith binds three times", threeBinds, filter.OpEndsWith, []string{"x", "x", "x"}},
 	}
 
 	for _, tt := range tests {
@@ -111,21 +123,23 @@ func TestRenderStringPredicate_RejectsOtherOperators(t *testing.T) {
 	require.ErrorIs(t, err, filter.ErrUnsupportedOperation)
 }
 
-// TestRenderStringPredicate_PropagatesValueError covers the second bind
-// failing after the first succeeded — the path only the two-bind shape
-// reaches.
+// TestRenderStringPredicate_PropagatesValueError covers a repeated bind
+// failing after the earlier ones succeeded — the path only the
+// multi-bind shapes reach.
 func TestRenderStringPredicate_PropagatesValueError(t *testing.T) {
 	t.Parallel()
 
-	calls := 0
-	value := func(any) (string, error) {
-		calls++
-		if calls == 2 {
-			return "", errDialect
+	for _, failAt := range []int{2, 3} {
+		calls := 0
+		value := func(any) (string, error) {
+			calls++
+			if calls == failAt {
+				return "", errDialect
+			}
+			return "?", nil
 		}
-		return "?", nil
-	}
 
-	_, err := sqlbase.RenderStringPredicate(filter.OpEndsWith, "`c`", "x", value, twoBinds)
-	require.ErrorIs(t, err, errDialect)
+		_, err := sqlbase.RenderStringPredicate(filter.OpEndsWith, "`c`", "x", value, threeBinds)
+		require.ErrorIs(t, err, errDialect, "bind %d", failAt)
+	}
 }

@@ -23,6 +23,26 @@ A bare identifier used as a condition becomes a boolean field test — `active` 
 The string test is guarded by `$type`, so `$strLenCP` never sees another type; a value that is neither an array nor a string has no size and
 matches no ordering comparison.
 
+## Fields omitted when zero
+
+A document encoded with `omitempty` lacks a field whose value is zero, and a plain MongoDB query tells the two apart: `{description: ""}` misses
+a document without `description`, while `{description: {$ne: ""}}` selects it. Declare such fields with `filter.WithZeroWhenAbsent` — a kind per
+CEL field name — and every predicate over them matches a document lacking the field exactly when it matches one storing the zero value:
+
+| Expression          | Translation                                                          |
+|---------------------|----------------------------------------------------------------------|
+| `description == ""` | `{$or: [{description: ""}, {description: {$exists: false}}]}`        |
+| `description != ""` | `{$and: [{description: {$ne: ""}}, {description: {$exists: true}}]}` |
+| `retries < 3`       | `{$or: [{retries: {$lt: 3}}, {retries: {$exists: false}}]}`          |
+
+The decision follows MongoDB's own semantics on the stored zero — comparisons match only within a type class, so `description == 0` does not
+select an absent description and `description != 0` does; timestamps compare at the millisecond precision of a BSON date; `null` never equals a
+zero. It covers comparisons, `in`, `size()`, the string predicates and `matches()`; `has()` on a declared field always holds. Each predicate is
+exact on its own, so negation and `&&` / `||` nesting compose. A `size()` comparison over a declared field must compare with a number —
+anything else is rejected with `filter.ErrInvalidExpression`. Undeclared fields translate as before. String comparisons are judged byte-wise, as
+under MongoDB's default simple collation; a query or collection with a locale collation (which may, for example, ignore whitespace or case) can
+match a stored `""` where the translator's decision for an absent field differs, so use the option with the simple collation.
+
 ## Security
 
 `matches()` passes the user-supplied pattern through to MongoDB's `$regex`. Host-side validation compiles it with Go's RE2 engine (which

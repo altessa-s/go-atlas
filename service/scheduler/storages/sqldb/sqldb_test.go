@@ -449,7 +449,7 @@ func TestMySQLFilteredQueryReadsTextViews(t *testing.T) {
 		", CONVERT(schedule USING utf8mb4) COLLATE utf8mb4_bin AS text_schedule FROM `app`.`tasks`) AS f WHERE (")
 	require.Contains(t, c.Query, "`text_description`")
 	require.True(t, strings.HasSuffix(c.Query, ") AND id > ? ORDER BY id LIMIT ?"), c.Query)
-	require.Equal(t, []any{"é", "é", int64(1), "k", int64(6)}, c.Args)
+	require.Equal(t, []any{"é", "é", "é", int64(1), "k", int64(6)}, c.Args)
 
 	node, err = parser.Parse(t.Context(), `error.matches("^x") && runId == "r"`)
 	require.NoError(t, err)

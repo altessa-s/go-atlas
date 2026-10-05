@@ -83,17 +83,19 @@ func (k FieldKind) String() string {
 // public [TranslatorContext] type alias and the read methods defined on
 // *translatorOptions below.
 //
-// allowedFields, fieldMapping, fieldTypes, and enumValues are stored as
-// [coremaps.ImmutableMap] — they are built once by [WithAllowedFields]
-// / [WithFieldMapping] / [WithFieldTypes] / [WithEnumValues] and only read
-// afterwards, which is precisely the build-once-read-many shape AGENTS.md
-// mandates ImmutableMap for. All four setters are hand-written because optgen
+// allowedFields, fieldMapping, fieldTypes, enumValues and zeroWhenAbsent are
+// stored as [coremaps.ImmutableMap] — they are built once by
+// [WithAllowedFields] / [WithFieldMapping] / [WithFieldTypes] /
+// [WithEnumValues] / [WithZeroWhenAbsent] and only read afterwards, which is
+// precisely the build-once-read-many shape AGENTS.md mandates ImmutableMap
+// for. All five setters are hand-written because optgen
 // cannot express the variadic / map-to-ImmutableMap conversions.
 type translatorOptions struct {
 	allowedFields  *coremaps.ImmutableMap[string, struct{}]                                `opt:"-"`
 	fieldMapping   *coremaps.ImmutableMap[string, string]                                  `opt:"-"`
 	fieldTypes     *coremaps.ImmutableMap[string, FieldKind]                               `opt:"-"`
 	enumValues     *coremaps.ImmutableMap[string, *coremaps.ImmutableMap[int64, struct{}]] `opt:"-"`
+	zeroWhenAbsent *coremaps.ImmutableMap[string, FieldKind]                               `opt:"-"`
 	maxDepth       int                                                                     `optgen:"default=DefaultMaxDepth" optval:"positive"`
 	maxRegexLength int                                                                     `optgen:"default=DefaultMaxRegexLength" optval:"positive"`
 	maxOperations  int                                                                     `optgen:"default=DefaultMaxOperations" optval:"positive"`
@@ -219,6 +221,42 @@ func WithEnumValues(values map[string][]int64) TranslatorOption {
 	}
 }
 
+// WithZeroWhenAbsent declares fields whose absence from a stored document
+// encodes the field's zero value — the shape a struct encoded with
+// `omitempty` produces. Keys are CEL-side field names, the same as
+// [WithAllowedFields]; the declared kind fixes the zero value: 0 for
+// [FieldKindInt] and [FieldKindFloat], "" for [FieldKindString], false
+// for [FieldKindBool], an empty value for [FieldKindBytes] and the zero
+// time for [FieldKindTimestamp]. An entry of [FieldKindUnspecified]
+// declares nothing.
+//
+// The MongoDB translator honors it: every predicate over a declared field
+// matches a document lacking the field exactly when it matches one storing
+// the zero value, so `description == ""` also selects documents without a
+// description and `description != ""` no longer does. The SQL translators
+// ignore it — a row always carries every column — as do the search
+// translators and the in-memory evaluator. The MongoDB translator judges
+// string comparisons byte-wise, as MongoDB's default simple collation does;
+// a locale collation on the query or collection is not taken into account.
+//
+// Example:
+//
+//	trans, err := mongo.NewTranslator(filter.WithZeroWhenAbsent(map[string]filter.FieldKind{
+//	    "description": filter.FieldKindString,
+//	    "retries":     filter.FieldKindInt,
+//	}))
+func WithZeroWhenAbsent(fields map[string]FieldKind) TranslatorOption {
+	return func(o *translatorOptions) {
+		declared := make(map[string]FieldKind, len(fields))
+		for field, kind := range fields {
+			if kind != FieldKindUnspecified {
+				declared[field] = kind
+			}
+		}
+		o.zeroWhenAbsent = coremaps.NewImmutableMap(declared)
+	}
+}
+
 // ApplyFieldMapping applies the field mapping to a field name. Returns
 // the mapped name if found, otherwise returns the original name.
 func (o *translatorOptions) ApplyFieldMapping(field string) string {
@@ -248,6 +286,16 @@ func (o *translatorOptions) FieldKind(field string) FieldKind {
 	}
 	kind, _ := o.fieldTypes.Get(field)
 	return kind
+}
+
+// ZeroWhenAbsent returns the kind declared for a CEL-side field name by
+// [WithZeroWhenAbsent], or (FieldKindUnspecified, false) when an absent
+// value of the field carries no meaning.
+func (o *translatorOptions) ZeroWhenAbsent(field string) (FieldKind, bool) {
+	if o.zeroWhenAbsent == nil {
+		return FieldKindUnspecified, false
+	}
+	return o.zeroWhenAbsent.Get(field)
 }
 
 // EnumValues returns the declared allowed-value set for a CEL-side field

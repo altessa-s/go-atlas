@@ -280,7 +280,8 @@ literals in place, for view definitions and generated DDL. PostgreSQL numbers it
 A `nil` AST translates to `1 = 1`, so `"... WHERE " + where` needs no special case.
 
 Three dialect differences are worth knowing before designing a filter surface: MariaDB's default collations make every string comparison
-case-insensitive, PostgreSQL requires a real `boolean` column for a bare-identifier condition, and only ClickHouse reads a dotted CEL name as one
+case-insensitive (and, being PAD SPACE, make `==`, `!=`, `<`, `<=`, `>`, `>=` and `in` ignore trailing spaces; `contains`, `startsWith`,
+`endsWith` and `size()` stay exact), PostgreSQL requires a real `boolean` column for a bare-identifier condition, and only ClickHouse reads a dotted CEL name as one
 (Nested) column instead of a qualified `"table"."column"`.
 
 ### Search back ends
@@ -313,6 +314,7 @@ wrong rather than rejected.
 | `WithAllowedFunctions` | (none) | Whitelist of callable function names (built-in and custom). Operators and `has()` always allowed |
 | `WithFieldTypes` | (none) | Declared kind per field; a literal of another type is rejected with `ErrFieldTypeMismatch` |
 | `WithEnumValues` | (none) | Allowed integer set per enum field; a value outside it is rejected with `ErrEnumValueNotAllowed` |
+| `WithZeroWhenAbsent` | (none) | Kind per field whose absence from a document stands for its zero value (an `omitempty` encoding); the MongoDB translator makes every predicate match an absent field exactly as it matches the stored zero — other translators ignore it |
 | `WithUntrustedInput` | off | Marks input as user-supplied; refuses to construct without an allowlist |
 
 Length limits and depth caps belong on the translator/evaluator config (`TranslatorOption`); cache size and expression length live on the parser

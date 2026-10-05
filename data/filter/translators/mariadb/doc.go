@@ -41,15 +41,16 @@
 //	Existence:  has(), field == null            → IS NOT NULL, IS NULL
 //	String:     contains()                      → LOCATE(?, col) > 0
 //	            startsWith()                    → LOCATE(?, col) = 1
-//	            endsWith()                      → RIGHT(col, CHAR_LENGTH(?)) = ?
+//	            endsWith()                      → (CHAR_LENGTH(col) >= CHAR_LENGTH(?) AND RIGHT(col, CHAR_LENGTH(?)) = ?)
 //	            matches()                       → col REGEXP ?
 //	Size:       size()                          → CHAR_LENGTH(col), inside a comparison only
 //
 // substring() is rejected, as it is by every other translator. size() used on its own — outside a
 // comparison — is rejected too: CHAR_LENGTH is an integer expression, and there is no predicate to test.
 //
-// MariaDB has no endsWith function, so that predicate compiles to a suffix comparison and binds its
-// operand twice. One CEL argument therefore consumes two placeholders; the argument slice reflects that.
+// MariaDB has no endsWith function, so that predicate compiles to a length-guarded suffix comparison and
+// binds its operand three times. One CEL argument therefore consumes three placeholders; the argument slice
+// reflects that.
 //
 // # Column Names
 //
@@ -67,6 +68,13 @@
 // endsWith, REGEXP and plain equality all match case-insensitively unless the column or the connection
 // says otherwise. This is a real semantic difference from the ClickHouse and PostgreSQL translators,
 // which are case-sensitive. Use an explicit _bin or _cs collation where the distinction matters.
+//
+// Most MariaDB and MySQL collations — utf8mb4_bin included — are PAD SPACE: they compare strings as if the
+// shorter one were padded with spaces. Comparisons and membership inherit that, so under such a collation
+// `name == "a "` matches "a", and `<`, `<=`, `>`, `>=`, `!=` and `in` likewise ignore trailing spaces. The
+// string predicates do not: contains and startsWith (LOCATE) and size() (CHAR_LENGTH) see every character,
+// and endsWith guards its suffix comparison with a length check, so "a" does not end with "a ". Use a NO PAD
+// collation (`_nopad_`, utf8mb4_0900_*) where trailing spaces in comparisons matter.
 //
 // # Null Semantics
 //
