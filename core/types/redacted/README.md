@@ -8,8 +8,9 @@ Package `redacted` provides `RedactedString`, a named `string` type for credenti
 fixed placeholder `<redacted>` in every standard output context — `fmt`, `log/slog`, `encoding/json`, `gopkg.in/yaml.v3`, `encoding.TextMarshaler`,
 and `go.mongodb.org/mongo-driver/v2/bson`. The plain text is reachable only through the explicit `Expose` accessor.
 
-`RedactedString` keeps `reflect.Kind == reflect.String`, so the repo configuration loader, `yaml.v3` scalar decoding, and the Mongo v2 driver all
-assign string values into it via reflection — the explicit `Unmarshal*` methods exist for symmetry and for interface-dispatched code paths.
+`RedactedString` keeps `reflect.Kind == reflect.String`. Decoders that honor the unmarshal interfaces call its methods — `yaml.v3` invokes
+`UnmarshalYAML`, the Mongo v2 driver `UnmarshalBSONValue`, `encoding/json` `UnmarshalJSON` — while code that sets fields purely through
+reflection bypasses them, which is safe because the underlying kind is `string`.
 
 ## Methods
 
@@ -23,7 +24,7 @@ assign string values into it via reflection — the explicit `Unmarshal*` method
 | `IsZero() bool`                            | Same as `IsEmpty`; lets `bson:",omitempty"` strip empty fields                    |
 | `SecureString() *strings.SecureString`     | Convert to a pooled, memory-zeroing `SecureString` — caller owns `Clear()`        |
 | `MarshalJSON() ([]byte, error)`            | `"<redacted>"` (JSON string)                                                      |
-| `UnmarshalJSON([]byte) error`              | Accepts any JSON string, stores it verbatim into the underlying value             |
+| `UnmarshalJSON([]byte) error`              | Stores a JSON string verbatim; JSON `null` clears the value; other types rejected |
 | `MarshalYAML() (any, error)`               | `"<redacted>"` scalar (yaml.v3)                                                   |
 | `UnmarshalYAML(func(any) error) error`          | Decodes a scalar string into the underlying value                                 |
 | `MarshalText() ([]byte, error)`            | `[]byte("<redacted>")`                                                            |
@@ -55,7 +56,7 @@ slog.Info("connecting", "cfg", cfg)
 // level=INFO msg=connecting cfg.uri=<redacted>
 
 raw, _ := json.Marshal(cfg)
-// raw == {"uri":"<redacted>"}
+// raw == {"uri":"\u003credacted\u003e"} (encoding/json HTML-escapes < and >)
 
 conn := cfg.URI.Expose() // intentional, plain text
 client, _ := mongo.Connect(options.Client().ApplyURI(conn))
