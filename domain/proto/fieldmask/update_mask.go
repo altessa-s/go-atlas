@@ -174,7 +174,7 @@ func (msk FieldMask) validateFieldBehaviors(
 	prf := msg.ProtoReflect()
 	fields := prf.Descriptor().Fields()
 
-	// Iterate in sorted order so BehaviorViolationError.Violations is deterministic
+	// Iterate in sorted order so UpdateMaskBehaviorError.Violations is deterministic
 	// across runs — Violations is rendered into google.rpc.BadRequest by the gRPC
 	// interceptor and stable order matters for client diagnostics and tests.
 	for _, fieldName := range slices.Sorted(maps.Keys(msk)) {
