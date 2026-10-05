@@ -11,6 +11,11 @@
 // [WithHistoryCollection]. Call [Storage.EnsureIndexes] once at startup to
 // create indexes for optimal query performance.
 //
+// Documents omit zero-valued fields. Filters in TasksPaginated and
+// HistoryPaginated still see them as their zero values — `description == ""`
+// selects a task stored without a description — because the omitted fields
+// are declared to the MongoDB translator with [filter.WithZeroWhenAbsent].
+//
 // All operations are safe for concurrent use.
 //
 // Example:

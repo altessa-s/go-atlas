@@ -46,6 +46,13 @@ same active occurrence. The rules themselves are defined once, in the godoc of `
 CEL filter expressions are translated to BSON queries via the `mongotranslator` package and evaluated server-side by MongoDB, avoiding full-collection
 scans for filtered paginated listing.
 
+Documents omit zero-valued fields (`omitempty`: `description`, `lastRunAt`, `nextRunAt`, `skipNextRun`, `disableHistory`, `unmanaged`,
+`oneShot`; history `error`). The translator is told so through `filter.WithZeroWhenAbsent` — derived from the document structs' tags — and
+matches an absent field exactly as its zero value: `description == ""`, `oneShot == false`, `nextRunAt == 0` and `description.size() == 0`
+select tasks stored without those fields, `description != ""` does not, and documents that store the zeros explicitly behave the same. No data
+migration is needed. This assumes the collections use MongoDB's default simple collation, as the ones this storage creates do; a collection
+created with a locale collation may compare a stored `""` differently from how the translator judges an absent `description`.
+
 ## Atomic run finalization
 
 `FinishRun` uses a conditional update pipeline to compare `last_run_id` and the unfinished-run marker before updating execution fields. It rejects stale

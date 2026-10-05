@@ -221,6 +221,71 @@ func Pagination(t *testing.T, store scheduler.Storage) {
 	require.Equal(t, []string{"h3", "h1"}, sliceIDs(page, historyID))
 }
 
+// ZeroValueFilters verifies that filters see a zero-valued field as that zero
+// value however the backend stores it — MongoDB omits zero fields from the
+// document — and that endsWith is exact about trailing spaces. The supplied
+// store must be empty and isolated per invocation.
+//
+//nolint:mnd // Fixed timestamps describe the storage contract.
+func ZeroValueFilters(t *testing.T, store scheduler.Storage) {
+	t.Helper()
+	ctx := t.Context()
+	for _, s := range []scheduler.TaskSummary{
+		{ID: "z"},
+		{ID: "n", Description: "job", OneShot: true, NextRunAt: 7, LastRunAt: 3, SkipNextRun: true},
+		{ID: "m", Description: "job ", NextRunAt: 10},
+	} {
+		s.Status = scheduler.TaskStatusActive
+		require.NoError(t, store.UpsertTask(ctx, &scheduler.TaskState{TaskSummary: s}))
+	}
+	for _, tc := range []struct {
+		expr string
+		want []string
+	}{
+		{`description == ""`, []string{"z"}},
+		{`description != ""`, []string{"m", "n"}},
+		{`!(description == "")`, []string{"m", "n"}},
+		{`description.size() == 0`, []string{"z"}},
+		{`description.size() != 0`, []string{"m", "n"}},
+		{`description.size() < 1`, []string{"z"}},
+		{`description.startsWith("")`, []string{"m", "n", "z"}},
+		{`description.matches("^$")`, []string{"z"}},
+		{`description.endsWith("job ")`, []string{"m"}},
+		{`oneShot == false`, []string{"m", "z"}},
+		{`oneShot != true`, []string{"m", "z"}},
+		{`!oneShot`, []string{"m", "z"}},
+		{`oneShot == true || nextRunAt == 0`, []string{"n", "z"}},
+		{`nextRunAt == 0`, []string{"z"}},
+		{`nextRunAt != 0`, []string{"m", "n"}},
+		{`nextRunAt < 5`, []string{"z"}},
+		{`nextRunAt in [0, 7]`, []string{"n", "z"}},
+		{`!(nextRunAt in [0])`, []string{"m", "n"}},
+		{`skipNextRun == false && lastRunAt == 0`, []string{"m", "z"}},
+	} {
+		page, err := store.TasksPaginated(ctx, scheduler.Pagination{Limit: 100}, mustParse(t, tc.expr))
+		require.NoError(t, err, tc.expr)
+		require.Equal(t, tc.want, sliceIDs(page, taskID), tc.expr)
+	}
+
+	for _, h := range []scheduler.TaskHistory{{ID: "h0", StartedAt: 10}, {ID: "h1", StartedAt: 20, Error: "boom"}} {
+		h.TaskID, h.EndedAt = "z", h.StartedAt+1
+		require.NoError(t, store.AddHistory(ctx, &h))
+	}
+	for _, tc := range []struct {
+		expr string
+		want []string
+	}{
+		{`error == ""`, []string{"h0"}},
+		{`error != ""`, []string{"h1"}},
+		{`error.size() == 0`, []string{"h0"}},
+	} {
+		page, err := store.HistoryPaginated(ctx, "z", scheduler.HistoryPagination{Pagination: scheduler.Pagination{Limit: 100}},
+			mustParse(t, tc.expr))
+		require.NoError(t, err, tc.expr)
+		require.Equal(t, tc.want, sliceIDs(page, historyID), tc.expr)
+	}
+}
+
 // History verifies History ordering, CleanupHistory retention and that
 // DeleteTask removes a task's history. The supplied store must be empty and
 // isolated per invocation.
