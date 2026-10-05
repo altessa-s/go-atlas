@@ -9,4 +9,12 @@
 //	logger, err := factory.New(cfg.Logger).
 //	    WithEnableMasking().
 //	    Build()
+//
+// # Prefix key
+//
+// The prefixed and colorized handlers use [ModuleKey], which equals
+// slogx.ModuleKey ("subsystem"): a logger created with
+// logger.With(slogx.Module("auth")) shows "[auth]" as its prefix tag and is
+// matched against config.Logger.Subsystems. The default used to be "module";
+// call [LoggerBuilder.WithPrefixKey]("module") to keep that behavior.
 package factory

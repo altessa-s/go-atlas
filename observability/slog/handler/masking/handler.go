@@ -7,6 +7,7 @@ package masking
 import (
 	"context"
 	"encoding"
+	"errors"
 	"fmt"
 	"log/slog"
 	"reflect"
@@ -53,7 +54,7 @@ const depthLimitPlaceholder = "<masking: max depth exceeded>"
 const maxPathCacheEntries = 4096
 
 // Handler wraps a [slog.Handler] to mask sensitive fields based on configuration.
-// Field matching is case-insensitive. Safe for concurrent use.
+// Field matching is case-insensitive unless [WithCaseSensitive] is set. Safe for concurrent use.
 type Handler struct {
 	base.Base
 	opts            *options
@@ -83,18 +84,53 @@ type compiledPattern struct {
 	mask MaskFunc
 }
 
+// ErrInvalidPattern reports a [WithPattern] rule whose pattern is empty or is
+// not a valid regular expression. [New] wraps it once per invalid rule.
+var ErrInvalidPattern = errors.New("masking: invalid field pattern")
+
 // NewHandler creates a masking handler wrapping inner. Panics if inner is nil.
+//
+// A [WithPattern] rule whose pattern is empty or does not compile can never
+// match, so NewHandler skips it. Use [New] to have such rules reported as an
+// error instead — always when the patterns come from configuration.
 //
 // Example:
 //
 //	h := masking.NewHandler(slog.NewJSONHandler(os.Stdout, nil), masking.WithDefaults())
 //	logger := slog.New(h)
 func NewHandler(inner slog.Handler, opts ...Option) slog.Handler {
+	// Invalid patterns are skipped by contract; New reports them.
+	h, _ := newHandler(inner, opts...)
+	return h
+}
+
+// New is [NewHandler] with pattern validation: it returns an error wrapping
+// [ErrInvalidPattern] for every [WithPattern] rule whose pattern is empty or
+// does not compile, joined with [errors.Join], and no handler. Panics if
+// inner is nil.
+func New(inner slog.Handler, opts ...Option) (*Handler, error) {
+	h, err := newHandler(inner, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return h, nil
+}
+
+// newHandler builds the handler, skipping invalid patterns and returning
+// their joined errors alongside it.
+func newHandler(inner slog.Handler, opts ...Option) (*Handler, error) {
 	o := newOptions(opts...)
 
-	// Ensure we have a default mask
+	// Ensure we have a default mask, and apply it to every rule registered
+	// without one — a field the caller asked to mask must not leak because
+	// its MaskFunc was nil.
 	if o.defaultMask == nil {
 		o.defaultMask = FullMask()
+	}
+	for k, v := range o.fields {
+		if v == nil {
+			o.fields[k] = o.defaultMask
+		}
 	}
 
 	h := &Handler{
@@ -105,34 +141,43 @@ func NewHandler(inner slog.Handler, opts ...Option) slog.Handler {
 	// allocate a fresh one and swap it in atomically.
 	h.pathCache.Store(&sync.Map{})
 
-	// Pre-compute lowercase fields for case-insensitive matching
+	// Pre-compute lowercase fields for case-insensitive matching. Keys are
+	// folded in registration order so that, among keys differing only by
+	// case, the last registration wins deterministically.
 	if !o.caseSensitive {
 		tmp := make(map[string]MaskFunc, len(o.fields))
-		for k, v := range o.fields {
-			tmp[corestrings.InternLowerString(k)] = v
+		for _, k := range o.fieldOrder {
+			tmp[corestrings.InternLowerString(k)] = o.fields[k]
 		}
 		h.lowercaseFields = coremaps.NewImmutableMap(tmp)
 	}
 
 	// Check if we have patterns
+	var patternErrs []error
 	if len(o.patterns) > 0 {
 		h.patterns = make([]compiledPattern, 0, len(o.patterns))
 		for _, p := range o.patterns {
-			if p.Pattern == "" || p.Mask == nil {
+			if p.Pattern == "" {
+				patternErrs = append(patternErrs, fmt.Errorf("%w: empty pattern", ErrInvalidPattern))
 				continue
 			}
 			re, err := regexp.Compile(p.Pattern)
 			if err != nil {
+				patternErrs = append(patternErrs, fmt.Errorf("%w %q: %w", ErrInvalidPattern, p.Pattern, err))
 				continue
 			}
-			h.patterns = append(h.patterns, compiledPattern{re: re, mask: p.Mask})
+			mask := p.Mask
+			if mask == nil {
+				mask = o.defaultMask
+			}
+			h.patterns = append(h.patterns, compiledPattern{re: re, mask: mask})
 		}
 	}
 	h.hasPatterns = len(h.patterns) > 0
 	h.typeSkip = !h.hasPatterns
 	h.typeVerdicts = &sync.Map{}
 
-	return h
+	return h, errors.Join(patternErrs...)
 }
 
 // Enabled reports whether the inner handler handles records at this level.
