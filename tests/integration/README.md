@@ -105,6 +105,14 @@ The third was the one worth finding. `deletedAt != null` is the shape of a soft-
 deleted documents. `TestMeili_NullFilterSemantics` is its regression guard and still asserts what the bare `IS NOT NULL` would have returned, so
 the reason the paired form exists stays visible.
 
+Three more came from running the scheduler storage contracts against live backends. RediSearch rendered `startsWith`/`contains` in TEXT
+syntax whatever the field type, so on a TAG field they matched nothing; they now take the tag form (`@status:{ar*}`), pinned by the "startsWith
+on a keyword field" case. RediSearch also rendered `a || b` as `(a)|(b)` without grouping the union, and since an intersection binds tighter,
+`x && (a || b)` ran as `(x a)|(b)`; the union is now grouped whole, pinned by the "or grouped inside and" and "negated conjunction containing or"
+cases (the stale RediSearch skip on "not" went with it — a negated range works). MongoDB translated `size()` to the array-only `$size`, so a
+string never matched; a string is now measured in code points with `$strLenCP`, the Mongo skips on the string-size cases are gone, and
+`TestMongo_SizeSemantics` pins every field shape (absent, null, arrays, strings, other values).
+
 ## leadelectit — leader election against a live broker
 
 The unit tests for `data/leadelect` run against an embedded NATS server and assert on the pieces in isolation. Three properties only exist once
@@ -226,10 +234,10 @@ badly synced production host is off by far more; the store now stamps `published
 
 ## schedulerit — the scheduler against live storages
 
-Every scenario (dispatch round trip, at-most-once across instances, crash recovery, leadership gating, failure recording) runs against each
-storage: MongoDB, Redis Stack, PostgreSQL, MariaDB and MySQL. The SQL backends additionally run the storage contract suite from
-[`service/scheduler/storagetest`](../../service/scheduler/storagetest) — each contract over its own throwaway tables — plus the SQL-only
-semantics: non-ASCII `endsWith`/`size()` and history errors larger than 64 KB.
+Every scenario (dispatch round trip, at-most-once across instances, crash recovery, leadership gating, failure recording) and the storage contract
+suite from [`service/scheduler/storagetest`](../../service/scheduler/storagetest) — each contract over its own throwaway storage — run against each
+storage: MongoDB, Redis Stack, PostgreSQL, MariaDB and MySQL. The SQL backends additionally run the SQL-only semantics: non-ASCII
+`endsWith`/`size()` and history errors larger than 64 KB.
 
 The MySQL service starts with `latin1` as its default character set on purpose: the SQL storage declares its own `utf8mb4` NO PAD collations, and
 the suite proves it never inherits the database defaults.

@@ -468,7 +468,7 @@ The scheduler persists task state and execution history to a pluggable `Storage`
 |--------------------|------------------------|----------------------------------|--------------------------------|----------------------------------------------|
 | Persistence        | No (process lifetime)  | Yes                              | Yes                            | Yes                                          |
 | Multi-node support | No                     | Yes                              | Yes                            | Yes                                          |
-| Filter push-down   | Client-side            | Server-side (BSON)               | Server-side (RediSearch)       | Server-side (SQL `WHERE`)                    |
+| Filter push-down   | Client-side            | Server-side (BSON)               | Numeric ranges; rest on client | Server-side (SQL `WHERE`)                    |
 | Index management   | N/A                    | `EnsureIndexes`                  | `EnsureIndexes`                | `EnsureSchema`                               |
 | Best for           | Dev, test, single-node | Production with existing MongoDB | Production with existing Redis | Production with PostgreSQL, MySQL or MariaDB |
 
@@ -639,7 +639,10 @@ Created by `EnsureIndexes` (idempotent).
 
 **Characteristics:**
 - Thread-safe via `redis.UniversalClient`
-- Filter expressions translated to RediSearch query syntax for server-side evaluation
+- Filter expressions are evaluated on the client with the memory backend's evaluator: RediSearch folds case on TAG fields, tokenizes TEXT fields
+  and has no `endsWith`/`matches`/`size()`, so it cannot evaluate CEL exactly. Comparisons of `status`, `priority` and `failures` (history:
+  `startedAt`, `endedAt`, `durationMs`) are also pushed down as numeric ranges to narrow the scan
+- History lookups match the task ID exactly (the `taskId` TAG query folds case; entries of a task whose ID differs only by case are skipped)
 - `FT.SEARCH` results are fetched in pages of 1,000 until every match is read — no fixed result cap
 - `DeleteTask` removes the task key and all history keys in a single pipeline
 - History trimming on `AddHistory` is best-effort — concurrent writers may temporarily exceed the cap
@@ -679,8 +682,8 @@ storage:
   ownership rules fence it) that sets the revision; the row lock arbitrates concurrent schedulers
 - String columns compare exactly (no trailing-space padding, no case folding): PostgreSQL IDs use `COLLATE "C"`, MySQL/MariaDB columns a NO PAD
   binary `utf8mb4` collation chosen per engine — the schema never inherits database defaults
-- Filter expressions are translated to SQL by the `data/filter` PostgreSQL and MariaDB translators; `size()` counts characters, unlike the memory
-  backend's byte count
+- Filter expressions are translated to SQL by the `data/filter` PostgreSQL and MariaDB translators; `size()` counts characters, as on every
+  backend
 - `DeleteTask` removes the task and its history in one transaction
 - `EnsureSchema` is idempotent; the factory never runs DDL — with the factory, call it on a `sqldb.New` storage built from the same handle,
   dialect and table names (or migrate) before starting the scheduler
@@ -805,7 +808,8 @@ for entry, err := range sched.History(ctx, "my-task") {
 ### Paginated queries with filters
 
 `TasksPaginated` and `HistoryPaginated` accept a filter expression and cursor-based pagination. Filters are pushed down to the storage layer for
-server-side evaluation (MongoDB, Redis, SQL) or evaluated client-side (memory).
+server-side evaluation (MongoDB, SQL), evaluated client-side (memory), or both — numeric ranges on the server, the whole expression on the client
+(Redis).
 
 ```go
 page := scheduler.PageRequest{Limit: 50}
