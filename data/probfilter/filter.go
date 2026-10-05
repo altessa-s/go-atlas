@@ -6,9 +6,31 @@ package probfilter
 
 import (
 	"context"
+	"errors"
 	"iter"
 	"time"
 )
+
+// ErrFilterClosed is returned by [RebuildableFilter.Rebuild] once the filter
+// has been closed, so scheduled rebuilds of a discarded filter become no-ops.
+var ErrFilterClosed = errors.New("filter closed")
+
+// ErrRebuildInProgress is wrapped by a Rebuild error when another process is
+// rebuilding the same shared filter right now; nothing was loaded. That
+// rebuild publishes a fresh snapshot, so there is nothing to retry.
+var ErrRebuildInProgress = errors.New("filter rebuild in progress elsewhere")
+
+// ErrRebuildSuperseded is wrapped by a Rebuild error when the rebuild lost its
+// right to publish — its rebuild lease of a shared filter expired (for
+// example because the process stalled) and another rebuild took over — so its
+// possibly outdated snapshot was discarded; the previous contents stay.
+var ErrRebuildSuperseded = errors.New("filter rebuild superseded")
+
+// ErrCommitIndeterminate is wrapped by a Rebuild error when the rebuilt
+// contents may or may not have replaced the previous ones — for example a
+// Redis commit whose reply was lost and whose outcome could not be checked.
+// Either the previous or the rebuilt contents are then in place.
+var ErrCommitIndeterminate = errors.New("rebuild commit outcome unknown")
 
 // Filter defines the core interface for probabilistic filters.
 // Implementations must be safe for concurrent use.
@@ -44,15 +66,48 @@ type DeletableFilter interface {
 }
 
 // RebuildableFilter extends Filter with rebuild capability.
-// Implemented by filters that require periodic rebuilds (e.g., Bloom filters).
+// Implemented by filters that are periodically repopulated from their source
+// of truth (Bloom and Cuckoo filters).
 type RebuildableFilter interface {
 	Filter
 
 	// Rebuild recreates the filter from scratch using the provided data loader.
 	// This is typically used to remove deleted items from Bloom filters.
+	//
+	// Implementations must rebuild atomically: the previous contents stay
+	// visible to lookups until the rebuilt contents replace them in one step,
+	// a failed or canceled rebuild leaves them unchanged, and values added
+	// through the filter while the rebuild runs are present afterwards. The
+	// one exception is an error wrapping [ErrCommitIndeterminate]: then either
+	// the previous or the rebuilt contents are in place.
 	Rebuild(ctx context.Context, loader DataLoader) error
 
 	// LastRebuild returns the time of the last successful rebuild.
 	// Returns zero time if the filter has never been rebuilt.
 	LastRebuild() time.Time
+}
+
+// Observer receives operation outcomes from an [ObservableFilter].
+// Implementations must be safe for concurrent use and cheap: ObserveLookup
+// runs on the lookup hot path.
+type Observer interface {
+	// ObserveLookup reports one MightExist call: its answer, its error, and
+	// how long it took.
+	ObserveLookup(found bool, err error, elapsed time.Duration)
+
+	// ObserveAdd reports n values successfully added by Add or AddBatch.
+	ObserveAdd(n int)
+
+	// ObserveRebuild reports one Rebuild call: how long it took and its error.
+	ObserveRebuild(elapsed time.Duration, err error)
+}
+
+// ObservableFilter is a Filter that reports its operations to an [Observer].
+// [Manager.Register] attaches an observer that records the probfilter metrics
+// when the Manager has a metrics collector.
+type ObservableFilter interface {
+	Filter
+
+	// SetObserver installs o; nil removes the current observer.
+	SetObserver(o Observer)
 }

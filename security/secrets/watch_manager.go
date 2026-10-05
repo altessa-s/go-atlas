@@ -184,8 +184,17 @@ func (wi *watchInstance[T]) setupFilters() {
 	})
 }
 
+// hasWatchers reports whether any watcher is registered.
+func (wm *watchManager[T]) hasWatchers() bool {
+	wm.mu.RLock()
+	defer wm.mu.RUnlock()
+	return len(wm.watchers) > 0
+}
+
 // notifyChanges processes changes from Manager's updateValues() and generates events for all watchers.
 // The updateCtx parameter is the context from the update operation, used for cancellation coordination.
+// currentList holds copies owned by the watch manager (nothing else references them); they become the
+// watchers' snapshots, and every dispatched event carries its own further copy owned by the receiver.
 func (wm *watchManager[T]) notifyChanges(updateCtx context.Context, currentList []*Value[T]) {
 	// Fast path check with lock
 	wm.mu.RLock()
@@ -301,8 +310,12 @@ func (wm *watchManager[T]) generateChangeEvents(updateCtx context.Context, insta
 			continue
 		}
 
-		// Dispatch event if it passes filters
+		// Dispatch event if it passes filters, with copies the receiver owns
 		if wm.shouldDispatchEvent(instance, event) {
+			event.Value = currentValue.clone()
+			if event.Type == EventTypeUpdated {
+				event.PreviousValue = previousValue.clone()
+			}
 			wm.safeEventSend(instance, event, key)
 		}
 	}
@@ -324,6 +337,7 @@ func (wm *watchManager[T]) generateChangeEvents(updateCtx context.Context, insta
 			}
 
 			if wm.shouldDispatchEvent(instance, event) {
+				event.PreviousValue = previous[key].clone()
 				wm.safeEventSend(instance, event, key)
 			}
 		}

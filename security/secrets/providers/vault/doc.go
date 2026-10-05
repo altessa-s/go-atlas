@@ -56,6 +56,7 @@
 //		log.Printf("Failed to get secret: %v", err)
 //		return
 //	}
+//	defer value.Clear() // the returned copy is the caller's
 //	fmt.Printf("Secret version: %s\n", value.Version)
 //
 // Required Vault Capabilities:

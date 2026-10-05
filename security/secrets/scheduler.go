@@ -6,6 +6,7 @@ package secrets
 
 import (
 	"context"
+	"errors"
 	"iter"
 	"log/slog"
 	"time"
@@ -17,7 +18,6 @@ import (
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	coreretry "github.com/altessa-s/go-atlas/core/retry"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
-	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 	slogx "github.com/altessa-s/go-atlas/observability/slog"
 )
 
@@ -70,6 +70,20 @@ func (t *Manager[T]) RunUpdateCycle(ctx context.Context) error {
 //   - Updates existing secrets if version has changed
 //   - Removes cached secrets that no longer exist in storage
 //
+// Keys the Manager cached or deleted after the cycle began (Save, a forced
+// Value fetch, WarmCache, Delete) are left alone: the storage snapshot may
+// predate those writes, so the cycle neither evicts and clears, overwrites,
+// nor re-inserts them; the next cycle reconciles them. A bounded cache may
+// still drop such an entry by capacity when the cycle inserts another key,
+// as any insertion can; that never clears the value.
+//
+// A successful listing without any secret leaves the cache as it is: cached
+// secrets are neither evicted nor cleared until a non-empty listing
+// reconciles them, so a transiently empty listing cannot wipe the cache.
+//
+// Cached values and the values passed to watchers are Manager-owned copies;
+// the instances the provider returned are never cached or cleared.
+//
 // The operation includes retry logic with exponential backoff for storage failures.
 // Cache operations use the LRU eviction policy to maintain the configured size limit.
 // Callers must route through updateCycleTask so overlapping cycles collapse
@@ -80,47 +94,19 @@ func (t *Manager[T]) runUpdateCycleInternal(ctx context.Context) error {
 	stop := t.metrics.updateCycleDuration.Start()
 	defer stop()
 
-	var list []*Value[T]
-
 	// Apply timeout to the context if not already set
 	ctx, cancel := corecontext.ApplyTimeout(ctx, DefaultOperationsTimeout)
 	defer cancel()
 
-	// Retry logic for List operation.
-	err := coreretry.Do(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = t.secretStorage.List(ctx)
-		return err
-	},
-		coreretry.WithMaxAttempts(t.opts.maxRetries),
-		coreretry.WithNextDelay(coreretry.Exponential(t.opts.exponentialConfig)),
-	)
+	// Track cache writes from before the storage is listed until the cycle ends.
+	t.beginCycle()
+	defer t.endCycle()
 
+	list, err := t.listAndRebuildNegativeFilter(ctx)
 	if err != nil {
 		t.opts.logger.ErrorContext(ctx, "failed to list secrets from storage", slogx.Error(err))
 		t.metrics.updateCycleErrors.Inc()
 		return err
-	}
-
-	// Rebuild negative filter if configured
-	if t.negativeFilter != nil {
-		if rebuilder, ok := t.negativeFilter.(interface {
-			Rebuild(context.Context, probfilter.DataLoader) error
-		}); ok {
-			loader := probfilter.NewDataLoader(func() iter.Seq[string] {
-				return func(yield func(string) bool) {
-					for _, v := range list {
-						if !yield(v.Key) {
-							return
-						}
-					}
-				}
-			}, probfilter.WithCount(int64(len(list))))
-
-			if err := rebuilder.Rebuild(ctx, loader); err != nil {
-				t.opts.logger.ErrorContext(ctx, "failed to rebuild negative filter", slog.Any("error", err))
-			}
-		}
 	}
 
 	if len(list) == 0 {
@@ -132,49 +118,181 @@ func (t *Manager[T]) runUpdateCycleInternal(ctx context.Context) error {
 	newKeys := keySetPool.GetWithCapacity(len(list))
 	defer keySetPool.Put(newKeys)
 
-	for _, val := range list {
-		(*newKeys)[val.Key] = struct{}{}
+	for _, v := range list {
+		(*newKeys)[v.Key] = struct{}{}
 	}
 
-	// Find deleted keys by checking current cache contents
-	// Use string slice pool to avoid allocations
-	cacheKeysSlice := corestrings.GetStringSliceWithCapacity(t.cache.Len())
-	defer corestrings.PutStringSlice(cacheKeysSlice)
-
-	deletedCount := 0
-	for key, value := range t.cache.All() {
-		*cacheKeysSlice = append(*cacheKeysSlice, key)
-		if _, exists := (*newKeys)[key]; !exists {
-			// Securely clear the value before removing from cache
-			value.Clear()
-			t.cache.Remove(key)
-			deletedCount++
+	// Watchers get their own copies, so notification never reads an
+	// instance the cache or the provider holds.
+	notify := t.watchManager != nil && t.watchManager.hasWatchers()
+	var current []*Value[T]
+	if notify {
+		current = make([]*Value[T], 0, len(list))
+		for _, v := range list {
+			current = append(current, v.clone())
 		}
+	}
+	deletedCount, updatedCount := 0, 0
+
+	t.cacheMu.Lock()
+	// Find deleted keys by checking current cache contents
+	for key, value := range t.cache.All() {
+		if _, exists := (*newKeys)[key]; exists || t.isDirtyLocked(key) {
+			continue
+		}
+		// Securely clear the value before removing from cache
+		value.Clear()
+		t.cache.Remove(key)
+		deletedCount++
 	}
 
 	// Process new/updated values
-	updatedCount := 0
-	for _, val := range list {
-		existing, exists := t.cache.Get(val.Key)
-		if !exists || existing.Version != val.Version {
-			t.cache.Put(val.Key, val) // Cache handles eviction automatically
+	for _, v := range list {
+		if t.isDirtyLocked(v.Key) {
+			continue
+		}
+		existing, exists := t.cache.Get(v.Key)
+		if !exists || existing.Version != v.Version {
+			// Cache a Manager-owned copy; the provider may keep or share
+			// the listed instance. Cache handles eviction automatically.
+			t.cache.Put(v.Key, v.clone())
 			updatedCount++
 		}
 	}
+	cacheSize := t.cache.Len()
+	t.cacheMu.Unlock()
 
 	t.lastUpdateTime.Store(time.Now())
-	t.metrics.cacheSize.Set(float64(t.cache.Len()))
+	t.metrics.cacheSize.Set(float64(cacheSize))
 
 	t.opts.logger.DebugContext(ctx, "values updated",
 		slog.Int("secrets_count", len(list)),
 		slog.Int("updated_count", updatedCount),
 		slog.Int("deleted_count", deletedCount),
-		slog.Int("cache_size", t.cache.Len()))
+		slog.Int("cache_size", cacheSize))
 
 	// Notify watch manager about changes
-	if t.watchManager != nil {
-		t.watchManager.notifyChanges(ctx, list)
+	if notify {
+		t.watchManager.notifyChanges(ctx, current)
 	}
 
 	return nil
+}
+
+// beginCycle starts tracking the keys the Manager caches or deletes while an
+// update cycle runs.
+func (t *Manager[T]) beginCycle() {
+	t.cacheMu.Lock()
+	defer t.cacheMu.Unlock()
+	t.cycleDirty = make(map[string]struct{})
+}
+
+// endCycle stops tracking cache writes for the update cycle.
+func (t *Manager[T]) endCycle() {
+	t.cacheMu.Lock()
+	defer t.cacheMu.Unlock()
+	t.cycleDirty = nil
+}
+
+// isDirtyLocked reports whether key was cached or deleted since the running
+// update cycle began. The caller holds cacheMu.
+func (t *Manager[T]) isDirtyLocked(key string) bool {
+	_, dirty := t.cycleDirty[key]
+	return dirty
+}
+
+// listSnapshot lists all secrets from storage (with retries), dropping nil
+// values and values without a key. The listed instances belong to the
+// provider: the Manager only reads and copies them, never caches or clears
+// them.
+func (t *Manager[T]) listSnapshot(ctx context.Context) ([]*Value[T], error) {
+	list, err := t.listWithRetry(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// A new slice: the provider may share the one it returned.
+	listed := make([]*Value[T], 0, len(list))
+	for _, v := range list {
+		if v != nil && v.Key != "" {
+			listed = append(listed, v)
+		}
+	}
+	return listed, nil
+}
+
+// listAndRebuildNegativeFilter lists all secrets from storage (with retries)
+// and, when the negative filter is rebuildable, rebuilds it from that list.
+//
+// The list is taken inside the rebuild's data loader, i.e. after the filter
+// started journaling concurrent adds: a Save that persists a key after the
+// snapshot adds it to the filter while the rebuild journals it, so the
+// rebuilt filter cannot lose it. A rebuild failure is logged; a list failure
+// is returned.
+func (t *Manager[T]) listAndRebuildNegativeFilter(ctx context.Context) ([]*Value[T], error) {
+	rebuilder, ok := t.negativeFilter.(probfilter.RebuildableFilter)
+	if t.negativeFilter == nil || !ok {
+		return t.listSnapshot(ctx)
+	}
+
+	var (
+		list    []*Value[T]
+		listErr error
+		listed  bool
+	)
+	loader := probfilter.DataLoaderFunc(func(ctx context.Context) iter.Seq2[string, error] {
+		return func(yield func(string, error) bool) {
+			list, listErr = t.listSnapshot(ctx)
+			listed = true
+			if listErr != nil {
+				yield("", listErr)
+				return
+			}
+			for _, v := range list {
+				if !yield(v.Key, nil) {
+					return
+				}
+			}
+		}
+	})
+
+	rebuildErr := rebuilder.Rebuild(ctx, loader)
+	switch {
+	case !listed:
+		// The rebuild ended before loading (e.g. a closed filter, or a
+		// shared filter another process is rebuilding).
+		if rebuildErr != nil {
+			t.logRebuildError(ctx, rebuildErr)
+		}
+		return t.listSnapshot(ctx)
+	case listErr != nil:
+		return nil, listErr
+	case rebuildErr != nil:
+		t.logRebuildError(ctx, rebuildErr)
+	}
+	return list, nil
+}
+
+// logRebuildError logs a failed negative-filter rebuild. A rebuild skipped
+// because another process holds the shared filter's rebuild lease is
+// expected on every node but one and is logged at debug level only.
+func (t *Manager[T]) logRebuildError(ctx context.Context, err error) {
+	if errors.Is(err, probfilter.ErrRebuildInProgress) {
+		t.opts.logger.DebugContext(ctx, "negative filter rebuild skipped: rebuild in progress elsewhere", slog.Any("error", err))
+		return
+	}
+	t.opts.logger.ErrorContext(ctx, "failed to rebuild negative filter", slog.Any("error", err))
+}
+
+// listWithRetry lists all secrets from storage with exponential backoff.
+func (t *Manager[T]) listWithRetry(ctx context.Context) ([]*Value[T], error) {
+	var list []*Value[T]
+	err := coreretry.Do(ctx, func(ctx context.Context) error {
+		var err error
+		list, err = t.secretStorage.List(ctx)
+		return err
+	},
+		coreretry.WithMaxAttempts(t.opts.maxRetries),
+		coreretry.WithNextDelay(coreretry.Exponential(t.opts.exponentialConfig)),
+	)
+	return list, err
 }

@@ -262,7 +262,7 @@ func (s *Storage[T]) Value(ctx context.Context, key string) (*secrets.Value[T], 
 	}
 
 	// Use singleflight to prevent thundering herd for the same secret
-	sfKey := s.CreateKey("lockbox", "secret", s.folderId, encodedKey)
+	sfKey := s.valueFlightKey(encodedKey)
 	return base.DoTyped(&s.SingleflightGroup, sfKey, func() (*secrets.Value[T], error) {
 		return s.doValue(ctx, encodedKey)
 	})
@@ -412,7 +412,7 @@ func (s *Storage[T]) list(ctx context.Context) ([]*pb.Secret, error) {
 // Returns a slice of decoded secrets or an error if the operation fails.
 func (s *Storage[T]) secrets(ctx context.Context, fn decoder[T]) ([]*secrets.Value[T], error) {
 	// Create a unique key for singleflight based on folder ID
-	sfKey := s.CreateKey("lockbox", s.folderId)
+	sfKey := s.listFlightKey()
 
 	// Use singleflight to prevent multiple concurrent executions
 	return base.DoTyped(&s.SingleflightGroup, sfKey, func() ([]*secrets.Value[T], error) {
@@ -536,13 +536,11 @@ func (s *Storage[T]) decodeValue(key string, p *pb.Payload) (*secrets.Value[T], 
 		return nil, base.ValueDecodingError(err)
 	}
 
-	return &secrets.Value[T]{
-		EncodedKey:   key,
-		Key:          decodedKey,
-		Version:      p.VersionId,
-		Value:        value,
-		EncodedValue: []byte(data),
-	}, nil
+	// NewValue registers the standard cleanup; []byte(data) is a buffer of
+	// its own, independent of the decoder input.
+	v := secrets.NewValue(decodedKey, value, []byte(data), p.VersionId)
+	v.EncodedKey = key
+	return v, nil
 }
 
 // Delete removes a secret from Yandex Cloud Lockbox permanently.
@@ -570,7 +568,11 @@ func (s *Storage[T]) Delete(ctx context.Context, key string) error {
 	}
 
 	return base.WithLock(ctx, s.opts.locker, s.Name(), encodedKey, func(ctx context.Context) error {
-		return s.delete(ctx, encodedKey)
+		if err := s.delete(ctx, encodedKey); err != nil {
+			return err
+		}
+		s.forgetReads(encodedKey)
+		return nil
 	})
 }
 
@@ -630,7 +632,11 @@ func (s *Storage[T]) Save(ctx context.Context, key string, value T) error {
 	}
 
 	return base.WithLock(ctx, s.opts.locker, s.Name(), encodedKey, func(ctx context.Context) error {
-		return s.save(ctx, encodedKey, value)
+		if err := s.save(ctx, encodedKey, value); err != nil {
+			return err
+		}
+		s.forgetReads(encodedKey)
+		return nil
 	})
 }
 
@@ -857,4 +863,22 @@ func (s *Storage[T]) Shutdown() {
 	// Note: gRPC connections are typically managed by the gRPC library
 	// and will be cleaned up automatically. If we need explicit connection
 	// management in the future, it can be added here.
+}
+
+// valueFlightKey is the singleflight key of a Value read of encodedKey.
+func (s *Storage[T]) valueFlightKey(encodedKey string) string {
+	return s.CreateKey("lockbox", "secret", s.folderId, encodedKey)
+}
+
+// listFlightKey is the singleflight key of a List read.
+func (s *Storage[T]) listFlightKey() string {
+	return s.CreateKey("lockbox", s.folderId)
+}
+
+// forgetReads detaches in-flight Value and List reads that may predate a
+// completed Save or Delete of encodedKey, so a read started after the write
+// returns cannot join them and observe the old state.
+func (s *Storage[T]) forgetReads(encodedKey string) {
+	s.Forget(s.valueFlightKey(encodedKey))
+	s.Forget(s.listFlightKey())
 }

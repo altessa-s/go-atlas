@@ -27,8 +27,11 @@ var testCommands = redisfilter.Commands{
 	Exists:   "T.EXISTS",
 	Add:      "T.ADD",
 	AddBatch: "T.MADD",
-	Reserve:  "T.RESERVE",
-	Info:     "T.INFO",
+	// Staging batches: T.INSERT NOCREATE ITEMS, failing on a missing filter.
+	StagingAddBatch:    "T.INSERT",
+	StagingBatchTokens: []string{"NOCREATE", "ITEMS"},
+	Reserve:            "T.RESERVE",
+	Info:               "T.INFO",
 }
 
 // fakeModule records the T.* commands the Core sends and emulates the
@@ -41,6 +44,9 @@ type fakeModule struct {
 	reserveCalls [][]string
 	addCalls     [][]string
 	batchCalls   [][]string
+	insertCalls  [][]string
+	// batchReply, when set, is written as the reply of batch commands.
+	batchReply func(c *server.Peer, items int)
 }
 
 func (f *fakeModule) register(tb testing.TB, mr *miniredis.Miniredis, cmds redisfilter.Commands) {
@@ -73,8 +79,26 @@ func (f *fakeModule) register(tb testing.TB, mr *miniredis.Miniredis, cmds redis
 			return
 		}
 		f.batchCalls = append(f.batchCalls, slices.Clone(args))
+		if f.batchReply != nil {
+			f.batchReply(c, len(args)-1)
+			return
+		}
 		c.WriteInt(1)
 	}))
+
+	if cmds.StagingAddBatch != "" {
+		// NOCREATE semantics: a missing filter is an error, never created.
+		require.NoError(tb, srv.Register(cmds.StagingAddBatch, func(c *server.Peer, _ string, args []string) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if !f.created {
+				c.WriteError("ERR not found")
+				return
+			}
+			f.insertCalls = append(f.insertCalls, slices.Clone(args))
+			c.WriteInt(1)
+		}))
+	}
 
 	require.NoError(tb, srv.Register(cmds.Reserve, func(c *server.Peer, _ string, args []string) {
 		f.mu.Lock()
@@ -95,6 +119,7 @@ type moduleState struct {
 	reserveCalls [][]string
 	addCalls     [][]string
 	batchCalls   [][]string
+	insertCalls  [][]string
 }
 
 func (f *fakeModule) snapshot() moduleState {
@@ -105,6 +130,7 @@ func (f *fakeModule) snapshot() moduleState {
 		reserveCalls: slices.Clone(f.reserveCalls),
 		addCalls:     slices.Clone(f.addCalls),
 		batchCalls:   slices.Clone(f.batchCalls),
+		insertCalls:  slices.Clone(f.insertCalls),
 	}
 }
 
@@ -178,7 +204,9 @@ func TestCore_Add_EnsuresFilterOnNotExist(t *testing.T) {
 func TestCore_Add_ErrorWrapped(t *testing.T) {
 	t.Parallel()
 
-	_, client := newTestClient(t)
+	mr, client := newTestClient(t)
+	require.NoError(t, mr.Server().Register(testCommands.Reserve, func(c *server.Peer, _ string, _ []string) { c.WriteOK() }))
+	require.NoError(t, mr.Server().Register(testCommands.Add, func(c *server.Peer, _ string, _ []string) { c.WriteError("ERR boom") }))
 	core := redisfilter.New(client, "t:f", testCommands)
 
 	err := core.Add(t.Context(), "value")
@@ -387,6 +415,16 @@ func TestInfoFields(t *testing.T) {
 			name:   "non-string keys skipped",
 			result: []any{int64(1), int64(2), "Size", int64(20)},
 			want:   map[string]any{"Size": int64(20)},
+		},
+		{
+			name:   "RESP3 map",
+			result: map[any]any{"Capacity": int64(10), "Size": int64(20), int64(1): int64(2)},
+			want:   map[string]any{"Capacity": int64(10), "Size": int64(20)},
+		},
+		{
+			name:   "string-keyed map",
+			result: map[string]any{"Capacity": int64(10)},
+			want:   map[string]any{"Capacity": int64(10)},
 		},
 		{
 			name:   "non-slice reply",

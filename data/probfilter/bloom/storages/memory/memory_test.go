@@ -5,6 +5,8 @@
 package memory_test
 
 import (
+	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -57,26 +59,75 @@ func TestStorage_AddBatch(t *testing.T) {
 	}
 }
 
-func TestStorage_Reset(t *testing.T) {
+func TestStorage_Stage_CommitReplacesContents(t *testing.T) {
+	t.Parallel()
 	storage := memory.New(memory.WithExpectedItems(1000))
 	ctx := t.Context()
 
-	err := storage.Add(ctx, "item1")
+	require.NoError(t, storage.Add(ctx, "old"))
+
+	st, err := storage.Stage(ctx, 100)
+	require.NoError(t, err)
+	require.NoError(t, st.AddBatch(ctx, slices.Values([]string{"new"})))
+
+	// The live filter is untouched until Commit.
+	exists, err := storage.MightExist(ctx, "old")
+	require.NoError(t, err)
+	require.True(t, exists, "live contents must stay visible while staging")
+	exists, err = storage.MightExist(ctx, "new")
+	require.NoError(t, err)
+	require.False(t, exists, "staged contents must not be visible before Commit")
+
+	require.NoError(t, st.Commit(ctx))
+
+	exists, err = storage.MightExist(ctx, "new")
+	require.NoError(t, err)
+	require.True(t, exists)
+	exists, err = storage.MightExist(ctx, "old")
+	require.NoError(t, err)
+	require.False(t, exists, "Commit must replace the live contents")
+
+	stats, err := storage.Stats(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), stats.ItemCount)
+}
+
+func TestStorage_Stage_AbortKeepsContents(t *testing.T) {
+	t.Parallel()
+	storage := memory.New(memory.WithExpectedItems(1000))
+	ctx := t.Context()
+
+	require.NoError(t, storage.Add(ctx, "old"))
+
+	st, err := storage.Stage(ctx, 0)
+	require.NoError(t, err)
+	require.NoError(t, st.AddBatch(ctx, slices.Values([]string{"new"})))
+	require.NoError(t, st.Abort(ctx))
+
+	exists, err := storage.MightExist(ctx, "old")
+	require.NoError(t, err)
+	require.True(t, exists)
+	exists, err = storage.MightExist(ctx, "new")
+	require.NoError(t, err)
+	require.False(t, exists)
+}
+
+func TestStorage_Stage_CommitCanceledContext(t *testing.T) {
+	t.Parallel()
+	storage := memory.New(memory.WithExpectedItems(1000))
+	ctx := t.Context()
+
+	require.NoError(t, storage.Add(ctx, "old"))
+	st, err := storage.Stage(ctx, 10)
 	require.NoError(t, err)
 
-	err = storage.Add(ctx, "item2")
-	require.NoError(t, err)
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	require.ErrorIs(t, st.Commit(canceled), context.Canceled)
 
-	err = storage.Reset(ctx, 1000)
+	exists, err := storage.MightExist(ctx, "old")
 	require.NoError(t, err)
-
-	exists, err := storage.MightExist(ctx, "item1")
-	require.NoError(t, err)
-	require.False(t, exists, "Expected 'item1' to not exist after reset")
-
-	exists, err = storage.MightExist(ctx, "item2")
-	require.NoError(t, err)
-	require.False(t, exists, "Expected 'item2' to not exist after reset")
+	require.True(t, exists, "a canceled Commit must not swap")
 }
 
 func TestStorage_Stats(t *testing.T) {

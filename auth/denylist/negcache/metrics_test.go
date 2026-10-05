@@ -19,7 +19,7 @@ const lookupsMetric = "test_auth_denylist_negcache_lookups_total"
 func TestMetrics_RecordsLookupPaths(t *testing.T) {
 	t.Parallel()
 	tc := testhelpers.NewTestCollector()
-	c := negcache.New(newFakeFilter(), newFakeAuth("revoked"), negcache.WithMetrics(negcache.NewMetrics(tc, "")))
+	c, _ := newPopulatedCache(t, newFakeAuth("revoked"), negcache.WithMetrics(negcache.NewMetrics(tc, "")))
 
 	// fast_negative: filter miss, no authoritative call.
 	got, err := c.IsRevoked(t.Context(), "fresh")
@@ -46,9 +46,8 @@ func TestMetrics_RecordsLookupPaths(t *testing.T) {
 func TestMetrics_RecordsFilterErrorState(t *testing.T) {
 	t.Parallel()
 	tc := testhelpers.NewTestCollector()
-	filter := newFakeFilter()
+	c, filter := newPopulatedCache(t, newFakeAuth("jti"), negcache.WithMetrics(negcache.NewMetrics(tc, "")))
 	filter.mightErr = errors.New("filter down")
-	c := negcache.New(filter, newFakeAuth("jti"), negcache.WithMetrics(negcache.NewMetrics(tc, "")))
 
 	got, err := c.IsRevoked(t.Context(), "jti") // filter error → confirm via authoritative store.
 	require.NoError(t, err)
@@ -64,4 +63,20 @@ func TestMetrics_NilIsNoOp(t *testing.T) {
 	got, err := c.IsRevoked(t.Context(), "x")
 	require.NoError(t, err)
 	require.False(t, got)
+}
+
+func TestMetrics_RecordsUnpopulatedState(t *testing.T) {
+	t.Parallel()
+	tc := testhelpers.NewTestCollector()
+	c := negcache.New(newFakeRebuildable(), newFakeAuth("jti"), negcache.WithMetrics(negcache.NewMetrics(tc, "")))
+
+	got, err := c.IsRevoked(t.Context(), "jti")
+	require.NoError(t, err)
+	require.True(t, got)
+	got, err = c.IsRevoked(t.Context(), "other")
+	require.NoError(t, err)
+	require.False(t, got)
+
+	require.Equal(t, 1.0, testhelpers.GetCounterValue(t, tc, lookupsMetric, "result", "authoritative_hit", "filter", "unpopulated"))
+	require.Equal(t, 1.0, testhelpers.GetCounterValue(t, tc, lookupsMetric, "result", "authoritative_miss", "filter", "unpopulated"))
 }

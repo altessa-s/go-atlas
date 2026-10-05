@@ -5,6 +5,7 @@
 package secrets
 
 import (
+	"bytes"
 	"log/slog"
 	"reflect"
 	"unsafe"
@@ -205,6 +206,10 @@ type cleanupData struct {
 //
 // Note: Finalizers are not guaranteed to run, so explicit Clear() calls
 // are still recommended for maximum security.
+//
+// encodedValue is zeroed in place by Clear and by the cleanup, so it must not
+// be memory the decoded value still references (e.g. a decoder input a custom
+// decoder retains): providers pass their own copy of such a buffer.
 func NewValue[T any](key string, value T, encodedValue []byte, version string) *Value[T] {
 	v := &Value[T]{
 		Key:          key,
@@ -214,8 +219,11 @@ func NewValue[T any](key string, value T, encodedValue []byte, version string) *
 	}
 
 	// If T is a string, initialize SecureString for better memory management
+	// (reflection also covers defined string types such as `type Secret string`).
 	if reflect.TypeFor[T]().Kind() == reflect.String {
-		v.ss = corestrings.NewSecureString(any(value).(string)) //nolint:errcheck // type checked above
+		// Read v.Value, already on the heap: taking value's address would
+		// move it there too.
+		v.ss = corestrings.NewSecureString(reflect.ValueOf(&v.Value).Elem().String())
 	}
 
 	// Prepare independent cleanup data to avoid capturing 'v' in the cleanup argument
@@ -244,6 +252,19 @@ func NewValue[T any](key string, value T, encodedValue []byte, version string) *
 	}, data)
 
 	return v
+}
+
+// clone returns a deep copy of v: the payload is copied with cloneSecret
+// (see its limits) and the encoded bytes are copied, and the copy has its
+// own SecureString and cleanup, so modifying or clearing either Value never
+// affects the other.
+func (v *Value[T]) clone() *Value[T] {
+	if v == nil {
+		return nil
+	}
+	c := NewValue(v.Key, cloneSecret(v.Value), bytes.Clone(v.EncodedValue), v.Version)
+	c.EncodedKey = v.EncodedKey
+	return c
 }
 
 // valueSlicePool is a shared pool for reusing Value slice buffers to reduce allocations.

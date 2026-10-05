@@ -5,6 +5,7 @@
 package gcp
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -150,13 +151,7 @@ func (s *Storage[T]) List(ctx context.Context) ([]*secrets.Value[T], error) {
 			return tmp, base.ValueDecodingError(err)
 		}
 
-		return &secrets.Value[T]{
-			Key:          decodedKey,
-			EncodedKey:   pathData[1],
-			Value:        value,
-			EncodedValue: r.Payload.Data,
-			Version:      pathData[2],
-		}, nil
+		return newValue(decodedKey, pathData[1], value, r.Payload.Data, pathData[2]), nil
 	}
 
 	list, err := s.secrets(ctx, valueDecode)
@@ -240,13 +235,7 @@ func (s *Storage[T]) Values(ctx context.Context) iter.Seq2[*secrets.Value[T], er
 				continue
 			}
 
-			secretValue := &secrets.Value[T]{
-				Key:          decodedKey,
-				EncodedKey:   pathData[1],
-				Value:        value,
-				EncodedValue: data.Payload.Data,
-				Version:      pathData[2],
-			}
+			secretValue := newValue(decodedKey, pathData[1], value, data.Payload.Data, pathData[2])
 
 			if !yield(secretValue, nil) {
 				return
@@ -280,7 +269,7 @@ func (s *Storage[T]) Value(ctx context.Context, key string) (*secrets.Value[T], 
 	}
 
 	// Use singleflight to prevent thundering herd for the same secret
-	sfKey := s.CreateKey("gcp:secret", s.projectId, encodedKey)
+	sfKey := s.valueFlightKey(encodedKey)
 	return base.DoTyped(&s.SingleflightGroup, sfKey, func() (*secrets.Value[T], error) {
 		return s.doValue(ctx, key, encodedKey)
 	})
@@ -307,13 +296,7 @@ func (s *Storage[T]) doValue(ctx context.Context, key, encodedKey string) (*secr
 		return nil, base.ValueDecodingError(err)
 	}
 
-	return &secrets.Value[T]{
-		Key:          key,
-		EncodedKey:   encodedKey,
-		Value:        value,
-		EncodedValue: result.Payload.Data,
-		Version:      pathData[2],
-	}, nil
+	return newValue(key, encodedKey, value, result.Payload.Data, pathData[2]), nil
 }
 
 // Delete removes a secret from GCP Secret Manager permanently.
@@ -342,7 +325,11 @@ func (s *Storage[T]) Delete(ctx context.Context, key string) error {
 	}
 
 	return base.WithLock(ctx, s.opts.locker, s.Name(), encodedKey, func(ctx context.Context) error {
-		return s.delete(ctx, encodedKey)
+		if err := s.delete(ctx, encodedKey); err != nil {
+			return err
+		}
+		s.forgetReads(encodedKey)
+		return nil
 	})
 }
 
@@ -376,7 +363,11 @@ func (s *Storage[T]) Save(ctx context.Context, key string, value T) error {
 	}
 
 	return base.WithLock(ctx, s.opts.locker, s.Name(), encodedKey, func(ctx context.Context) error {
-		return s.save(ctx, encodedKey, value)
+		if err := s.save(ctx, encodedKey, value); err != nil {
+			return err
+		}
+		s.forgetReads(encodedKey)
+		return nil
 	})
 }
 
@@ -488,7 +479,7 @@ func (s *Storage[T]) delete(ctx context.Context, encodedKey string) error {
 // Returns a slice of decoded secrets or an error if the operation fails.
 func (s *Storage[T]) secrets(ctx context.Context, fn func(d *pb.AccessSecretVersionResponse) (*secrets.Value[T], error)) ([]*secrets.Value[T], error) {
 	// Create a unique key for singleflight based on labels and project
-	sfKey := s.createSingleflightKey()
+	sfKey := s.listFlightKey()
 
 	// Use singleflight to prevent multiple concurrent executions
 	return base.DoTyped(&s.SingleflightGroup, sfKey, func() ([]*secrets.Value[T], error) {
@@ -713,15 +704,6 @@ func buildGCPFilter(labels map[string]string) string {
 	return builder.String()
 }
 
-// createSingleflightKey creates a unique key for singleflight based on project and labels
-// This ensures that different configurations don't interfere with each other
-func (s *Storage[T]) createSingleflightKey() string {
-	if len(s.opts.labels) > 0 {
-		return s.CreateKey("gcp", s.projectId, "labels", buildGCPFilter(s.opts.labels))
-	}
-	return s.CreateKey("gcp", s.projectId)
-}
-
 // CheckConnection verifies connectivity to GCP Secret Manager.
 // This method implements the ProviderHealthChecker interface and performs
 // a lightweight operation to verify that the GCP client is functioning properly.
@@ -754,4 +736,35 @@ func (s *Storage[T]) CheckConnection(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// newValue builds a secret value with the standard cleanup. The encoded
+// value is a copy of payload: payload was also given to the value decoder,
+// and a custom decoder may return a value that still references it, which
+// must not be zeroed when the encoded value is cleared.
+func newValue[T any](key, encodedKey string, value T, payload []byte, version string) *secrets.Value[T] {
+	v := secrets.NewValue(key, value, bytes.Clone(payload), version)
+	v.EncodedKey = encodedKey
+	return v
+}
+
+// valueFlightKey is the singleflight key of a Value read of encodedKey.
+func (s *Storage[T]) valueFlightKey(encodedKey string) string {
+	return s.CreateKey("gcp:secret", s.projectId, encodedKey)
+}
+
+// listFlightKey is the singleflight key of a List read. It is fixed per
+// Storage: the singleflight group belongs to this Storage, whose labels never
+// change, and a fixed key lets forgetReads always address the flight a List
+// joined (a key built from the label map would depend on map iteration order).
+func (s *Storage[T]) listFlightKey() string {
+	return s.CreateKey("gcp", s.projectId, "list")
+}
+
+// forgetReads detaches in-flight Value and List reads that may predate a
+// completed Save or Delete of encodedKey, so a read started after the write
+// returns cannot join them and observe the old state.
+func (s *Storage[T]) forgetReads(encodedKey string) {
+	s.Forget(s.valueFlightKey(encodedKey))
+	s.Forget(s.listFlightKey())
 }

@@ -76,18 +76,52 @@ func (s *Storage) AddBatch(_ context.Context, values iter.Seq[string]) error {
 	return nil
 }
 
-// Reset clears the filter and prepares it for rebuild.
-func (s *Storage) Reset(_ context.Context, expectedItems int64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
+// Stage creates an empty replacement filter sized for expectedItems (the
+// configured size when expectedItems <= 0). The live filter is untouched
+// until [storages.Staging.Commit].
+func (s *Storage) Stage(_ context.Context, expectedItems int64) (storages.Staging, error) {
 	if expectedItems <= 0 {
 		expectedItems = s.opts.expectedItems
 	}
 
-	//nolint:gosec // G115: expectedItems is validated positive above
-	s.filter = bloom.NewWithEstimates(uint(expectedItems), s.opts.falsePositiveRate)
-	s.itemCount = 0
+	return &staging{
+		live: s,
+		//nolint:gosec // G115: expectedItems is validated positive above
+		filter: bloom.NewWithEstimates(uint(expectedItems), s.opts.falsePositiveRate),
+	}, nil
+}
+
+// staging is a replacement filter built off to the side of the live one.
+type staging struct {
+	live      *Storage
+	filter    *bloom.BloomFilter
+	itemCount int64
+}
+
+// AddBatch inserts values into the replacement filter.
+func (st *staging) AddBatch(_ context.Context, values iter.Seq[string]) error {
+	for v := range values {
+		st.filter.AddString(v)
+		st.itemCount++
+	}
+	return nil
+}
+
+// Commit swaps the replacement filter in under the storage lock.
+func (st *staging) Commit(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	st.live.mu.Lock()
+	defer st.live.mu.Unlock()
+	st.live.filter = st.filter
+	st.live.itemCount = st.itemCount
+	return nil
+}
+
+// Abort discards the replacement filter.
+func (st *staging) Abort(_ context.Context) error {
+	st.filter = nil
 	return nil
 }
 

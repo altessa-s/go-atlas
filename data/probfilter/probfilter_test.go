@@ -103,8 +103,11 @@ func TestCuckooFilter_AddBatch(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok, "expected delete to return true")
 
-	exists, _ := filter.MightExist(ctx, "x")
-	require.False(t, exists, "expected value x to not exist after delete")
+	// "x" itself may still match through a colliding fingerprint of y or z,
+	// so check the deletion through the item count instead.
+	stats, err := filter.Stats(ctx)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), stats.ItemCount, "expected one fingerprint removed")
 }
 
 type mockLoader struct {
