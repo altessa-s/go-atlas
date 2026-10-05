@@ -114,9 +114,10 @@ type Manager[T any] struct {
 	// the update cycle's reconciliation, so the cycle decides and acts on a
 	// key atomically with respect to a concurrent Save, fetch or Delete. It
 	// also keeps two Value.Clear() calls on one entry (graceful and forced
-	// shutdown, Delete, eviction) from racing on the zeroed fields. Cache
-	// hits do not take it.
-	cacheMu sync.Mutex
+	// shutdown, Delete, eviction) from racing on the zeroed fields. A cache
+	// hit of Value copies the entry under the read lock, so the copy never
+	// overlaps a Clear; ValueShared does not take it.
+	cacheMu sync.RWMutex
 
 	// cycleDirty holds the keys the Manager cached or deleted since the
 	// running update cycle began; the cycle leaves them alone, since its
@@ -359,11 +360,14 @@ func (t *Manager[T]) updateValueWithRetry(ctx context.Context, key string) (*Val
 		return nil, err
 	}
 
-	// Cache and return a Manager-owned copy: the provider may keep or share
-	// the instance it returned, and the Manager clears cached values.
-	val = val.clone()
+	// Cache a Manager-owned copy: the provider may keep or share the
+	// instance it returned, and the Manager clears cached values. A second
+	// copy is returned as the template shared by the concurrent callers of
+	// this fetch: it is never cached nor cleared by the Manager, so it may
+	// be copied (Value) or read (ValueShared) without the cache lock.
+	template := val.clone()
 
-	if t.cachePutUnlessSaved(key, val, ver, versionBefore) {
+	if t.cachePutUnlessSaved(key, val.clone(), ver, versionBefore) {
 		t.opts.logger.DebugContext(ctx, "value updated", slog.String("key", key))
 	} else {
 		// Save raced this fetch. The cached value is already fresh —
@@ -374,7 +378,7 @@ func (t *Manager[T]) updateValueWithRetry(ctx context.Context, key string) (*Val
 			slog.String("key", key))
 	}
 
-	return val, nil
+	return template, nil
 }
 
 // Value retrieves a secret value from the cache with optional storage fallback.
@@ -408,15 +412,41 @@ func (t *Manager[T]) updateValueWithRetry(ctx context.Context, key string) (*Val
 // This method is thread-safe and may modify cache state concurrently.
 // Multiple goroutines can safely call this method simultaneously.
 //
+// Ownership:
+// The returned Value is a deep copy owned by the caller (see the clone limits
+// in the package documentation): the caller may modify it and should Clear it
+// when done; neither affects the cache or other callers, and the Manager never
+// clears it. Hot paths that cannot afford a copy per call may use
+// [Manager.ValueShared] under its stricter contract.
+//
 // Returns the secret Value[T] containing the data and metadata, or an error
 // if the key doesn't exist or retrieval fails. Specific errors include
 // ErrNotFound for missing keys and provider-specific errors for storage failures.
 func (t *Manager[T]) Value(ctx context.Context, key string, force bool) (*Value[T], error) {
+	return t.lookup(ctx, key, force, true)
+}
+
+// ValueShared is [Manager.Value] without the copy: it returns the Manager's
+// own instance, with the same force semantics, for hot paths that cannot
+// afford a copy per call.
+//
+// The returned Value is shared and read-only: it must not be modified or
+// cleared, and must not be retained. The Manager may clear it at any time —
+// on eviction (cache capacity or an update cycle), Delete, ClearCache or
+// shutdown — so a read that overlaps such a clear sees zeroed fields and is a
+// data race. Use it only where the value is read immediately and the key is
+// not concurrently deleted, evicted or cleared (for example a cache sized for
+// all keys, without ClearCache while in use); otherwise use Value.
+func (t *Manager[T]) ValueShared(ctx context.Context, key string, force bool) (*Value[T], error) {
+	return t.lookup(ctx, key, force, false)
+}
+
+// lookup implements Value (copy) and ValueShared (no copy).
+func (t *Manager[T]) lookup(ctx context.Context, key string, force, copied bool) (*Value[T], error) {
 	var tmp *Value[T]
 
 	// First, try to get from cache
-	value, ok := t.cache.Get(key)
-	if ok {
+	if value, ok := t.cacheGet(key, copied); ok {
 		// Cache hit - return immediately
 		t.metrics.cacheHits.Inc()
 		return value, nil
@@ -455,7 +485,29 @@ func (t *Manager[T]) Value(ctx context.Context, key string, force bool) (*Value[
 		return tmp, err
 	}
 
-	return result.(*Value[T]), nil //nolint:errcheck // type is guaranteed by updateValueWithRetry
+	// The template is shared by the callers of this fetch and never cleared
+	// by the Manager.
+	template := result.(*Value[T]) //nolint:errcheck // type is guaranteed by updateValueWithRetry
+	if copied {
+		return template.clone(), nil
+	}
+	return template, nil
+}
+
+// cacheGet returns the cached value of key: a copy taken under the cache
+// read lock when copied is set (so it never overlaps a Manager Clear), the
+// cached instance itself otherwise.
+func (t *Manager[T]) cacheGet(key string, copied bool) (*Value[T], bool) {
+	if !copied {
+		return t.cache.Get(key)
+	}
+	t.cacheMu.RLock()
+	defer t.cacheMu.RUnlock()
+	value, ok := t.cache.Get(key)
+	if !ok {
+		return nil, false
+	}
+	return value.clone(), true
 }
 
 // ClearCache securely clears all cached secret values.

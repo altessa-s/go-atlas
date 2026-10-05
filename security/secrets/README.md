@@ -43,11 +43,23 @@ rebuild failure, including `probfilter.ErrRebuildSuperseded`, is logged as an er
 
 ## Value ownership
 
-The `Manager` caches and returns its own deep copies of what a provider hands out (payload and encoded bytes), and gives `Provider.Save`
-its own copy of the payload. `Clear` — on eviction, `Delete`, `ClearCache` or shutdown — therefore only ever zeroes Manager-owned memory,
-never a provider's: `providers/memory` keeps the values it returns, and the remote providers share results between concurrent callers.
-Copies isolate everything `Clear` zeroes in place (string and byte-slice payloads, encoded bytes); other payload kinds are copied by
-assignment, as `Clear` only resets the field for them.
+The `Manager` caches its own deep copies of what a provider hands out (payload and encoded bytes), and gives `Provider.Save` its own copy
+of the payload. `Clear` — on eviction, `Delete`, `ClearCache` or shutdown — therefore only ever zeroes Manager-owned memory, never a
+provider's: `providers/memory` keeps the values it returns, and the remote providers share results between concurrent callers.
+
+| Accessor                       | Returns                                | Caller may modify / `Clear`  | Use when                       |
+|--------------------------------|----------------------------------------|------------------------------|--------------------------------|
+| `Value(ctx, key, force)`       | a deep copy owned by the caller        | yes — and should `Clear` it  | by default                     |
+| `ValueShared(ctx, key, force)` | the `Manager`'s own instance, no copy  | no — read-only, never kept   | hot paths, read immediately    |
+
+`ValueShared` saves the copy at a price: the `Manager` may clear its instance at any time — on eviction (capacity or update cycle),
+`Delete`, `ClearCache` or shutdown — and a read that overlaps such a clear sees zeroed fields and is a data race. Use it only for keys that
+are not concurrently deleted, evicted or cleared (for example a cache sized for all keys, without `ClearCache` while in use).
+
+Copies are deep. A payload type with a `Clone() T` method controls its own copy; otherwise strings, slices, arrays, maps (keys and values),
+pointers, interfaces and exported struct fields are copied by reflection, keeping identical references and cycles shared within the copy.
+Overlapping slice views, interior pointers, unexported fields, channels and funcs are not reproduced by reflection — such payload types
+should implement `Clone() T`.
 
 Watch events carry their own copies too: `WatchEvent.Value` and `PreviousValue` belong to the receiver, which should `Clear` them when
 done. The `Manager` never reads or clears them after sending, and clearing them affects neither the cache nor other watchers.

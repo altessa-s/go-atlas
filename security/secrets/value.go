@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"log/slog"
 	"reflect"
-	"strings"
 	"unsafe"
 
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
@@ -253,11 +252,10 @@ func NewValue[T any](key string, value T, encodedValue []byte, version string) *
 	return v
 }
 
-// clone returns a deep copy of v that shares no memory Clear writes to: the
-// encoded bytes and, for string and byte-slice payloads, the payload memory
-// are copied. Other payload kinds are copied by assignment, since Clear only
-// resets the field of its own Value for them. The copy has its own
-// SecureString and cleanup, so clearing either Value never affects the other.
+// clone returns a deep copy of v: the payload is copied with cloneSecret
+// (see its limits) and the encoded bytes are copied, and the copy has its
+// own SecureString and cleanup, so modifying or clearing either Value never
+// affects the other.
 func (v *Value[T]) clone() *Value[T] {
 	if v == nil {
 		return nil
@@ -265,19 +263,6 @@ func (v *Value[T]) clone() *Value[T] {
 	c := NewValue(v.Key, cloneSecret(v.Value), bytes.Clone(v.EncodedValue), v.Version)
 	c.EncodedKey = v.EncodedKey
 	return c
-}
-
-// cloneSecret copies the memory of a payload that Value.Clear zeroes in
-// place: strings and byte slices (including defined types of those kinds).
-func cloneSecret[T any](value T) T {
-	rv := reflect.ValueOf(&value).Elem()
-	switch {
-	case rv.Kind() == reflect.String:
-		rv.SetString(strings.Clone(rv.String()))
-	case rv.Kind() == reflect.Slice && rv.Type().Elem().Kind() == reflect.Uint8 && !rv.IsNil():
-		rv.SetBytes(bytes.Clone(rv.Bytes()))
-	}
-	return value
 }
 
 // valueSlicePool is a shared pool for reusing Value slice buffers to reduce allocations.
