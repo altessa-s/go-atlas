@@ -55,6 +55,18 @@ func BenchmarkManager_ValueForce(b *testing.B) {
 	}
 }
 
+// BenchmarkManager_Save measures a Save of one key, including the readback
+// that caches the saved value.
+func BenchmarkManager_Save(b *testing.B) {
+	mgr := newBenchManager(b)
+	ctx := b.Context()
+	for b.Loop() {
+		if err := mgr.Save(ctx, "key-a", "a-secret-payload"); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
 // BenchmarkManager_ValueShared measures a zero-copy cache hit.
 func BenchmarkManager_ValueShared(b *testing.B) {
 	mgr := newBenchManager(b)
