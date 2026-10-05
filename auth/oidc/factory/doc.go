@@ -10,7 +10,6 @@
 //
 //	provider, err := factory.New(cfg.OIDC).
 //	    UseLogger(logger).
-//	    UseScheduler(scheduler).
 //	    UseTokenCache(tokenCache).
 //	    UseRedisClient(redisClient).
 //	    Build(ctx)

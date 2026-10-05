@@ -45,6 +45,7 @@ type testIdP struct {
 	introspections atomic.Int32
 	revokedStatus  atomic.Int32
 	jwksStatus     atomic.Int32
+	jwksRequests   atomic.Int32
 	mu             sync.Mutex
 	revoked        []string
 }
@@ -70,6 +71,7 @@ func newTestIdP(t testing.TB) *testIdP {
 		})
 	})
 	mux.HandleFunc("/jwks", func(w http.ResponseWriter, _ *http.Request) {
+		idp.jwksRequests.Add(1)
 		if status := int(idp.jwksStatus.Load()); status != http.StatusOK {
 			w.WriteHeader(status)
 			return
@@ -693,11 +695,10 @@ func TestRefreshJWKS_NoopAfterClose(t *testing.T) {
 
 	idp := newTestIdP(t)
 	p := idp.newProvider(t)
-	refresh := p.RegisterJWKSRefreshSchedulerFunc() // e.g. registered with an external scheduler
-	require.NoError(t, refresh(t.Context()))
+	require.NoError(t, p.RefreshJWKS(t.Context()))
 
 	p.Close()
-	require.ErrorIs(t, refresh(t.Context()), context.Canceled)
+	require.ErrorIs(t, p.RefreshJWKS(t.Context()), context.Canceled)
 }
 
 // A key rotated between the signature check and the cache write must not be

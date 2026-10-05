@@ -10,8 +10,6 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/altessa-s/go-atlas/auth/oidc"
-
-	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
 // UseLogger sets the logger for the builder and all created components.
@@ -23,13 +21,6 @@ func (b *ProviderBuilder) UseLogger(v *slog.Logger) *ProviderBuilder {
 // UseDefaultLogger sets the logger to [slog.Default].
 func (b *ProviderBuilder) UseDefaultLogger() *ProviderBuilder {
 	return b.UseLogger(slog.Default())
-}
-
-// UseScheduler sets the task registrar used for background JWKS refresh
-// and revocation sync tasks.
-func (b *ProviderBuilder) UseScheduler(v corescheduler.TaskRegistrar) *ProviderBuilder {
-	b.scheduler = v
-	return b
 }
 
 // UseTokenCache sets the cache used for validated token caching.
