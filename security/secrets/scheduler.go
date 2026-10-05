@@ -77,6 +77,13 @@ func (t *Manager[T]) RunUpdateCycle(ctx context.Context) error {
 // still drop such an entry by capacity when the cycle inserts another key,
 // as any insertion can; that never clears the value.
 //
+// A successful listing without any secret leaves the cache as it is: cached
+// secrets are neither evicted nor cleared until a non-empty listing
+// reconciles them, so a transiently empty listing cannot wipe the cache.
+//
+// Cached values and the values passed to watchers are Manager-owned copies;
+// the instances the provider returned are never cached or cleared.
+//
 // The operation includes retry logic with exponential backoff for storage failures.
 // Cache operations use the LRU eviction policy to maintain the configured size limit.
 // Callers must route through updateCycleTask so overlapping cycles collapse
@@ -115,7 +122,13 @@ func (t *Manager[T]) runUpdateCycleInternal(ctx context.Context) error {
 		(*newKeys)[lv.key] = struct{}{}
 	}
 
-	current := make([]*Value[T], 0, len(list))
+	// Watchers get their own copies, taken under cacheMu, so notification
+	// never reads an instance the cache or the provider holds.
+	notify := t.watchManager != nil && t.watchManager.hasWatchers()
+	var current []*Value[T]
+	if notify {
+		current = make([]*Value[T], 0, len(list))
+	}
 	deletedCount, updatedCount := 0, 0
 
 	t.cacheMu.Lock()
@@ -133,17 +146,21 @@ func (t *Manager[T]) runUpdateCycleInternal(ctx context.Context) error {
 	// Process new/updated values
 	for _, lv := range list {
 		if lv.value.Key == "" {
-			// Cleared since it was listed (a provider may share the cached
+			// Cleared since it was listed (by whoever owns the provider's
 			// instance): never cache or report it.
 			continue
 		}
-		current = append(current, lv.value)
+		if notify {
+			current = append(current, lv.value.clone())
+		}
 		if t.isDirtyLocked(lv.key) {
 			continue
 		}
 		existing, exists := t.cache.Get(lv.key)
 		if !exists || existing.Version != lv.value.Version {
-			t.cache.Put(lv.key, lv.value) // Cache handles eviction automatically
+			// Cache a Manager-owned copy; the provider may keep or share
+			// the listed instance. Cache handles eviction automatically.
+			t.cache.Put(lv.key, lv.value.clone())
 			updatedCount++
 		}
 	}
@@ -160,7 +177,7 @@ func (t *Manager[T]) runUpdateCycleInternal(ctx context.Context) error {
 		slog.Int("cache_size", cacheSize))
 
 	// Notify watch manager about changes
-	if t.watchManager != nil {
+	if notify {
 		t.watchManager.notifyChanges(ctx, current)
 	}
 
@@ -168,8 +185,9 @@ func (t *Manager[T]) runUpdateCycleInternal(ctx context.Context) error {
 }
 
 // listedValue is a secret listed by an update cycle. Its key is read once,
-// under cacheMu, when the list is captured, so a later Clear of a value the
-// provider shares with the cache cannot change it.
+// under cacheMu, when the list is captured, so a later Clear of the listed
+// instance by whoever owns it cannot change it. The instance itself is only
+// read and copied, never cached or cleared by the Manager.
 type listedValue[T any] struct {
 	key   string
 	value *Value[T]
