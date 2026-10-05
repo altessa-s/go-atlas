@@ -162,18 +162,36 @@ func (f *Filter) Close(ctx context.Context) error {
 // discarded, fences the filter like [bloom.Filter.Rebuild] does.
 //
 // The replacement has room for the loaded count plus 25% headroom, and never
-// less than the configured capacity. Concurrent rebuilds are serialized.
+// less than the configured capacity. Concurrent rebuilds are serialized; for
+// a shared Redis filter across processes too, like [bloom.Filter.Rebuild].
 func (f *Filter) Rebuild(ctx context.Context, loader probfilter.DataLoader) error {
 	return f.observer.Rebuild(func() error {
-		err := f.coord.Rebuild(ctx, loader, func(ctx context.Context, expectedItems int64) (facade.Staging, error) {
-			return f.storage.Stage(ctx, expectedItems)
-		})
+		err := f.coord.RebuildOrdered(ctx, loader, f.beginRebuild)
 		if err != nil {
 			return err
 		}
 		f.lastRebuild.Store(time.Now().UnixNano())
 		return nil
 	})
+}
+
+// beginRebuild starts a rebuild before the loader runs: a shared storage
+// ([storages.ExclusiveRebuilder]) first acquires its rebuild lease, so
+// rebuilds by several processes are serialized; other storages stage directly.
+func (f *Filter) beginRebuild(ctx context.Context) (facade.StageFunc, func(context.Context) error, error) {
+	exclusive, ok := f.storage.(storages.ExclusiveRebuilder)
+	if !ok {
+		return func(ctx context.Context, expectedItems int64) (facade.Staging, error) {
+			return f.storage.Stage(ctx, expectedItems)
+		}, nil, nil
+	}
+	lease, err := exclusive.BeginRebuild(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	return func(ctx context.Context, expectedItems int64) (facade.Staging, error) {
+		return lease.Stage(ctx, expectedItems)
+	}, lease.Release, nil
 }
 
 // LastRebuild returns the time of the last successful rebuild, or the zero
