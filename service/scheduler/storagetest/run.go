@@ -26,6 +26,7 @@ var contracts = []struct {
 	{"OwnedRunAnyNonZeroStart", OwnedRunAnyNonZeroStart},
 	{"ClaimRun", ClaimRun},
 	{"DueTasks", DueTasks},
+	{"DueTasksZeroNextRun", DueTasksZeroNextRun},
 	{"Identity", Identity},
 	{"Pagination", Pagination},
 	{"ZeroValueFilters", ZeroValueFilters},

@@ -302,6 +302,13 @@ type Storage interface {
 	// ascending. Errors encountered mid-iteration are yielded as the second
 	// element.
 	//
+	// Absent fields are zero, so an active task stored without NextRunAt or
+	// with zero is due at every now >= 0, on every backend. Having no
+	// occurrence to fence on, it is claimed with a zero [RunClaim.NextRunAt]:
+	// status and RunStartedAt alone serialize the claim — a dispatch that read
+	// the zero before another instance's run finished can still claim it once
+	// more — and the finished run stores a real NextRunAt.
+	//
 	// The scheduler calls this on every tick, so the predicate MUST be pushed
 	// down to the backend rather than evaluated by filtering the output of
 	// Tasks. A tick that fetches the whole collection and discards most of it
