@@ -47,6 +47,11 @@ var historyFieldSchema = coremaps.NewImmutableMap(map[string]redisearch.FieldTyp
 })
 
 // taskData represents a task state stored in Redis as JSON.
+//
+// NextRunAt is written even when zero: RediSearch leaves a missing NUMERIC
+// field out of the index, so an omitted zero would hide a due task from
+// DueTasks. Documents written before carry no next_run_at; EnsureIndexes
+// backfills them.
 type taskData struct {
 	ID             string            `json:"id"`
 	Description    string            `json:"description,omitempty"`
@@ -54,7 +59,7 @@ type taskData struct {
 	Priority       int32             `json:"priority"`
 	Schedule       string            `json:"schedule"`
 	LastRunAt      int64             `json:"last_run_at,omitempty"`
-	NextRunAt      int64             `json:"next_run_at,omitempty"`
+	NextRunAt      int64             `json:"next_run_at"`
 	LastRunID      string            `json:"last_run_id,omitempty"`
 	RunStartedAt   int64             `json:"run_started_at,omitempty"`
 	RunLeaseUntil  int64             `json:"run_lease_until,omitempty"`
