@@ -642,6 +642,39 @@ func TestParseMessageTTL(t *testing.T) {
 	}
 }
 
+// TestCopiedTTLHeader pins that a source entry's Nats-TTL survives the trip
+// through the marker header with the value nats-server would apply.
+func TestCopiedTTLHeader(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		raw    string
+		header string
+		want   time.Duration
+	}{
+		{raw: "", header: "", want: 0},
+		{raw: "00", header: "", want: 0},
+		{raw: "never", header: msgTTLNever, want: -1},
+		{raw: "NEVER", header: msgTTLNever, want: -1},
+		{raw: "30", header: "30", want: 30 * time.Second},
+		{raw: "30s", header: "30", want: 30 * time.Second},
+		{raw: "1m30s", header: "90", want: 90 * time.Second},
+	} {
+		header, err := copiedTTLHeader(tc.raw)
+		require.NoError(t, err, tc.raw)
+		require.Equal(t, tc.header, header, tc.raw)
+		got, err := parseCopiedTTL(header)
+		require.NoError(t, err, tc.raw)
+		require.Equal(t, tc.want, got, tc.raw)
+	}
+	for _, raw := range []string{"500ms", "-1", "x"} {
+		_, err := copiedTTLHeader(raw)
+		require.Error(t, err, raw)
+	}
+	_, err := parseCopiedTTL("x")
+	require.Error(t, err)
+}
+
 func TestRestoreLifetime(t *testing.T) {
 	t.Parallel()
 

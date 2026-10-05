@@ -426,21 +426,7 @@ func (h *KVHelper) runMigration(ctx context.Context, st *migrationState) error {
 				err = h.restoreEntries(ctx, st)
 			}
 		case phaseRestored:
-			// The marker is the last record of the revision floor: keep it
-			// unless the replacement is verifiably in place.
-			info, ierr := h.streamInfo(ctx, kvStreamName(st.target.Bucket))
-			if ierr != nil {
-				return ierr
-			}
-			if cerr := h.checkReplacement(st, info); cerr != nil {
-				return cerr
-			}
-			if derr := h.deleteStream(ctx, markerStreamName(st.target.Bucket)); derr != nil {
-				return derr
-			}
-			h.logger.InfoContext(ctx, "KeyValue bucket storage migration finished",
-				slog.String("bucket", st.target.Bucket), slog.String("migration_id", st.id))
-			return nil
+			return h.finishMigration(ctx, st)
 		default:
 			return fmt.Errorf("%w: bucket %q: unknown migration phase %q", ErrBucketMigrationConflict, st.target.Bucket, st.phase)
 		}
@@ -451,6 +437,25 @@ func (h *KVHelper) runMigration(ctx context.Context, st *migrationState) error {
 			return err
 		}
 	}
+}
+
+// finishMigration deletes the marker once the replacement is verifiably in
+// place. The marker is the last record of the revision floor, so it is kept
+// otherwise.
+func (h *KVHelper) finishMigration(ctx context.Context, st *migrationState) error {
+	info, err := h.streamInfo(ctx, kvStreamName(st.target.Bucket))
+	if err != nil {
+		return err
+	}
+	if err := h.checkReplacement(st, info); err != nil {
+		return err
+	}
+	if err := h.deleteStream(ctx, markerStreamName(st.target.Bucket)); err != nil {
+		return err
+	}
+	h.logger.InfoContext(ctx, "KeyValue bucket storage migration finished",
+		slog.String("bucket", st.target.Bucket), slog.String("migration_id", st.id))
+	return nil
 }
 
 // sealSource makes the source read-only and records its last revision.
@@ -550,17 +555,12 @@ func (h *KVHelper) copySource(ctx context.Context, st *migrationState) (int, err
 		out := nats.NewMsg(markerSubjectPrefix(bucket) + key)
 		out.Data = msg.Data
 		out.Header.Set(headerTime, strconv.FormatInt(msg.Time.UnixNano(), 10))
-		if raw := msg.Header.Get(msgTTLHeader); raw != "" {
-			ttl, err := parseMessageTTL(raw)
-			if err != nil {
-				return copied, fmt.Errorf("key %q: %w", key, err)
-			}
-			switch {
-			case ttl < 0:
-				out.Header.Set(headerMsgTTL, msgTTLNever)
-			case ttl > 0:
-				out.Header.Set(headerMsgTTL, strconv.FormatInt(int64(ttl/time.Second), 10))
-			}
+		ttlHeader, err := copiedTTLHeader(msg.Header.Get(msgTTLHeader))
+		if err != nil {
+			return copied, fmt.Errorf("key %q: %w", key, err)
+		}
+		if ttlHeader != "" {
+			out.Header.Set(headerMsgTTL, ttlHeader)
 		}
 		if _, err := h.js.PublishMsg(ctx, out); err != nil {
 			return copied, fmt.Errorf("copy key %q: %w", key, err)
@@ -590,6 +590,42 @@ func parseMessageTTL(raw string) (time.Duration, error) {
 	secs, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil || secs < 0 {
 		return 0, fmt.Errorf("invalid per-message TTL %q", raw)
+	}
+	return time.Duration(secs) * time.Second, nil
+}
+
+// copiedTTLHeader encodes a source entry's Nats-TTL header as the marker's
+// Kv-Migrate-Msg-TTL header: "" for no TTL of its own, "never", or whole
+// seconds.
+func copiedTTLHeader(raw string) (string, error) {
+	if raw == "" {
+		return "", nil
+	}
+	ttl, err := parseMessageTTL(raw)
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case ttl < 0:
+		return msgTTLNever, nil
+	case ttl > 0:
+		return strconv.FormatInt(int64(ttl/time.Second), 10), nil
+	}
+	return "", nil
+}
+
+// parseCopiedTTL decodes a Kv-Migrate-Msg-TTL header written by
+// copiedTTLHeader: 0 for none, -1 for never, the TTL otherwise.
+func parseCopiedTTL(raw string) (time.Duration, error) {
+	switch raw {
+	case "":
+		return 0, nil
+	case msgTTLNever:
+		return -1, nil
+	}
+	secs, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0, err
 	}
 	return time.Duration(secs) * time.Second, nil
 }
@@ -731,17 +767,9 @@ func (h *KVHelper) restoreEntry(ctx context.Context, st *migrationState, key str
 	}
 	written := time.Unix(0, ts)
 
-	var msgTTL time.Duration // 0: none, -1: never
-	switch raw := msg.Header.Get(headerMsgTTL); raw {
-	case "":
-	case msgTTLNever:
-		msgTTL = -1
-	default:
-		secs, err := strconv.ParseInt(raw, 10, 64)
-		if err != nil {
-			return fmt.Errorf("migration marker entry %q: bad %s header: %w", key, headerMsgTTL, err)
-		}
-		msgTTL = time.Duration(secs) * time.Second
+	msgTTL, err := parseCopiedTTL(msg.Header.Get(headerMsgTTL))
+	if err != nil {
+		return fmt.Errorf("migration marker entry %q: bad %s header: %w", key, headerMsgTTL, err)
 	}
 	perKey := msgTTL != 0 && st.target.LimitMarkerTTL > 0
 
