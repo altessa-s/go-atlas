@@ -97,7 +97,7 @@
 //		if err != nil {
 //			log.Fatalf("Failed to retrieve secret: %v", err)
 //		}
-//		defer secret.Clear()
+//		defer secret.Clear() // Value returns a copy owned by the caller
 //
 //		fmt.Printf("Secret retrieved (version: %s)\n", secret.Version)
 //	}
@@ -148,6 +148,13 @@
 //   - Retry logic with exponential backoff for failed requests
 //   - Graceful handling of temporary network issues
 //   - Atomic cache updates to maintain consistency
+//   - Keys cached or deleted while a cycle runs (Save, fetches, Delete) are
+//     left for the next cycle, so a stale listing never evicts, overwrites
+//     or re-inserts them
+//   - With a negative filter shared through Redis, a rebuild skipped because
+//     another node holds the rebuild lease is logged at debug level only
+//   - Known behavior: a successful listing without any secret leaves the
+//     cache as it is, so a transiently empty listing cannot wipe it
 //   - Full control over update scheduling and lifecycle
 //
 // # Error Handling:
@@ -177,6 +184,32 @@
 // infrastructure layout. When that matters, run production loggers at Info or
 // above, or wrap the handler with the masking handler from
 // [github.com/altessa-s/go-atlas/observability/slog/handler/masking].
+//
+// # Value Ownership:
+//
+// The Manager caches its own deep copies of what a provider returns and gives
+// Provider.Save its own copy of the payload, so Clear — on eviction, Delete,
+// ClearCache or shutdown — never zeroes memory a provider keeps or shares.
+//
+// [Manager.Value] returns a deep copy owned by the caller, on a cache hit as
+// on a fetch: the caller may modify it and should Clear it when done, which
+// affects neither the cache nor other callers. [Manager.ValueShared] returns
+// the Manager's own instance without copying, for hot paths only: it is
+// read-only, must not be retained, and may be cleared by the Manager at any
+// time (eviction, Delete, ClearCache, shutdown), so read it immediately and
+// only for keys that are not concurrently deleted, evicted or cleared.
+//
+// Copies are deep: a payload type with a Clone() T method controls its own
+// copy; otherwise strings, slices, arrays, maps (keys and values), pointers,
+// interfaces and exported struct fields are copied by reflection, keeping
+// identical references (and cycles) shared within the copy. Overlapping
+// slice views, interior pointers, unexported fields, channels and funcs are
+// not reproduced by reflection — such payload types should implement
+// Clone() T.
+//
+// Watch event values (WatchEvent.Value and PreviousValue) are copies owned
+// by the receiver, which should Clear them when done; the Manager never reads
+// or clears them after sending.
 //
 // # Thread Safety:
 //

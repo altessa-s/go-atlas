@@ -42,6 +42,7 @@ type Manager interface {
 	// Value retrieves a secret value by key.
 	// When force is true, it will fetch from storage on cache miss.
 	// When force is false, it returns ErrNotFound on cache miss.
+	// The returned value is owned by the caller, which clears it after use.
 	Value(ctx context.Context, key string, force bool) (*secrets.Value[string], error)
 }
 
@@ -183,6 +184,9 @@ func (e *Expander) Expand(ctx context.Context, content string) (string, error) {
 
 // getSecretValue retrieves a secret value from the manager.
 // Returns the secret value or an error if retrieval fails.
+//
+// The Value the manager returns is caller-owned: its payload is copied into
+// the result and the Value is cleared, so the secret is not left behind in it.
 func (e *Expander) getSecretValue(ctx context.Context, key string) (string, error) {
 	value, err := e.manager.Value(ctx, key, true)
 	if err != nil {
@@ -191,8 +195,9 @@ func (e *Expander) getSecretValue(ctx context.Context, key string) (string, erro
 		}
 		return "", err
 	}
+	defer value.Clear()
 
-	return value.Value, nil
+	return strings.Clone(value.Value), nil
 }
 
 // HasSecrets checks if the content contains any secret placeholders.

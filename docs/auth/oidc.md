@@ -668,9 +668,8 @@ guide](../proxy.md) for full mode semantics, TLS-to-proxy options, and operator 
 
 ### Revocation
 
-Token/key revocation checking using probabilistic filters (Bloom or Cuckoo). Populating the filter from `source` through `Sync` requires a
-**Bloom** filter: Cuckoo does not implement `Rebuild`, so every sync fails with `ErrFilterNotRebuildable` and a Cuckoo filter stays empty
-unless the application populates it itself.
+Token/key revocation checking using probabilistic filters (Bloom or Cuckoo). Both filter types implement `Rebuild`, so either can be populated from
+`source` through `Sync`.
 
 ```yaml
 oidc:
@@ -1271,10 +1270,9 @@ provider, err := oidc.NewProvider(ctx, discoveryURL,
 )
 ```
 
-`WithRevocationAuthoritative` only confirms filter **hits**; it does not protect against keys missing from the filter. A later `Sync`
-rebuilds the Bloom filter non-atomically (reset, then re-add), so revoked tokens can pass while it runs or after it fails midway — the same
-hazard documented for [`denylist/negcache`](denylist.md#correctness-and-staleness). Where that window is unacceptable, use an exact custom
-storage (`WithRevocationStorage`) until atomic rebuilding exists.
+`WithRevocationAuthoritative` only confirms filter **hits**; it does not protect against keys missing from the filter. A later `Sync` rebuilds the
+filter atomically (see [probfilter rebuild guarantees](../data/probfilter.md#rebuild-guarantees)): lookups keep the previous contents while it runs and
+after it fails.
 
 Revocation checks **fail open**, independently of the introspection `fail_open` setting: when `RevocationStorage.IsRevoked` returns an
 error, the provider logs it, increments `auth_oidc_revocation_check_errors_total`, and accepts the token. (With introspection enabled and

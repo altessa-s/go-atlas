@@ -166,3 +166,25 @@ func TestStorageName(t *testing.T) {
 	s := &Storage[string]{}
 	require.Equal(t, "gcp", s.Name())
 }
+
+// retainingPayload is a decoded value that keeps referencing the decoder
+// input, as a custom ValueDecoder may return.
+type retainingPayload struct {
+	Data []byte
+}
+
+// TestNewValue_EncodedValueIndependentOfPayload checks that clearing a
+// value's encoded bytes (what Clear and the GC cleanup do) cannot zero a
+// decoded payload that still references the response bytes.
+func TestNewValue_EncodedValueIndependentOfPayload(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte("secret-data")
+	v := newValue("key", "encoded-key", retainingPayload{Data: raw}, raw, "1")
+	payload := v.Value
+	require.Equal(t, "encoded-key", v.EncodedKey)
+	require.Equal(t, raw, v.EncodedValue)
+
+	v.Clear()
+	require.Equal(t, "secret-data", string(payload.Data))
+}

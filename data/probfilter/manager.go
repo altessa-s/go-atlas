@@ -5,6 +5,7 @@
 package probfilter
 
 import (
+	"context"
 	"errors"
 	"io"
 	"iter"
@@ -23,11 +24,21 @@ var ErrFilterAlreadyExists = errors.New("filter already exists")
 
 // Manager provides a facade for managing multiple named probabilistic filters.
 // It is safe for concurrent use.
+//
+// When created with [WithCollector], the Manager records the probfilter
+// metrics for every registered filter that implements [ObservableFilter]
+// (the Bloom and Cuckoo facades do), labeled with the registration name.
 type Manager struct {
 	filters map[string]Filter
 	mu      sync.RWMutex
 	opts    *options
 	metrics *probfilterMetrics
+}
+
+// contextCloser is implemented by filters whose Close takes a context, such
+// as the Bloom and Cuckoo facades.
+type contextCloser interface {
+	Close(ctx context.Context) error
 }
 
 // NewManager creates a new Manager for managing multiple filters.
@@ -48,6 +59,9 @@ func NewManager(opt ...Option) *Manager {
 
 // Register adds a named filter to the manager.
 // Returns ErrFilterAlreadyExists if a filter with the same name is already registered.
+// When the Manager has a metrics collector and filter implements
+// [ObservableFilter], Register attaches an observer recording its operations
+// under name; a filter registered in several places reports to the last one.
 func (m *Manager) Register(name string, filter Filter) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -57,6 +71,9 @@ func (m *Manager) Register(name string, filter Filter) error {
 	}
 
 	m.filters[name] = filter
+	if of, ok := filter.(ObservableFilter); ok && m.opts.collector != nil {
+		of.SetObserver(m.metrics.observer(name))
+	}
 	return nil
 }
 
@@ -79,11 +96,15 @@ func (m *Manager) MustGet(name string) Filter {
 	return panics.MustResult(m.Get(name))
 }
 
-// Unregister removes a filter from the manager.
+// Unregister removes a filter from the manager and detaches the metrics
+// observer attached by [Manager.Register].
 // The filter is not closed; the caller is responsible for closing it.
 func (m *Manager) Unregister(name string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if filter, ok := m.filters[name]; ok {
+		detachObserver(m.opts, filter)
+	}
 	delete(m.filters, name)
 }
 
@@ -115,21 +136,41 @@ func (m *Manager) Filters() iter.Seq2[string, Filter] {
 	}
 }
 
-// Close closes all registered filters that implement io.Closer and clears the manager.
+// Close closes all registered filters that implement io.Closer or expose
+// Close(context.Context) error (the Bloom and Cuckoo facades), and clears the
+// manager.
+//
+// The filters are detached under the lock and closed after releasing it:
+// closing a filter waits for its running rebuild, whose loader may itself
+// read the Manager.
 func (m *Manager) Close() error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	filters := m.filters
+	m.filters = make(map[string]Filter)
+	m.mu.Unlock()
 
 	var errs []error
-	for name, filter := range m.filters {
-		if closer, ok := filter.(io.Closer); ok {
-			if err := closer.Close(); err != nil {
-				errs = append(errs, coreerrs.Wrap(err, name))
-			}
+	for name, filter := range filters {
+		detachObserver(m.opts, filter)
+
+		var err error
+		switch closer := filter.(type) {
+		case io.Closer:
+			err = closer.Close()
+		case contextCloser:
+			err = closer.Close(context.Background())
+		}
+		if err != nil {
+			errs = append(errs, coreerrs.Wrap(err, name))
 		}
 	}
 
-	m.filters = make(map[string]Filter)
-
 	return errors.Join(errs...)
+}
+
+// detachObserver removes the observer Register attached to filter.
+func detachObserver(opts *options, filter Filter) {
+	if of, ok := filter.(ObservableFilter); ok && opts.collector != nil {
+		of.SetObserver(nil)
+	}
 }

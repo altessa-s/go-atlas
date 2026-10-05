@@ -40,6 +40,7 @@
 //	if err != nil {
 //		log.Fatal(err)
 //	}
+//	defer dbUrl.Clear() // the returned copy is the caller's
 //	fmt.Printf("Database URL: %s\n", dbUrl.Value)
 //
 //	// List all available secrets

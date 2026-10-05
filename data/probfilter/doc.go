@@ -9,7 +9,14 @@
 // for periodic rebuilds when the underlying dataset changes.
 //
 // Cuckoo filters support deletion but have slightly higher memory overhead. Use
-// [DeletableFilter] when individual key removal is required.
+// [DeletableFilter] when individual key removal is required. They are rebuildable too.
+//
+// Rebuilds are atomic: lookups keep seeing the previous contents until the
+// rebuilt contents replace them in one step, a failed or canceled rebuild
+// leaves them unchanged, and values added during the rebuild are kept.
+//
+// A [Manager] created with [WithCollector] records lookup, add, and rebuild
+// metrics for every registered [ObservableFilter].
 //
 // Example with Bloom filter:
 //

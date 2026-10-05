@@ -98,20 +98,38 @@ type Manager[T any] struct {
 	// preventing cache stampede when multiple goroutines miss the cache simultaneously.
 	fetchGroup singleflight.Group
 
-	// saveVersions tracks a per-key Save generation counter so the
-	// cache-update inside updateValueWithRetry can detect a concurrent
-	// [Manager.Save] and skip writing a stale fetch result over the
-	// fresh value. Without this, a Save that lands while an in-flight
-	// fetch is still talking to the storage would have its cache.Put
-	// overwritten by the fetch's older value — the canonical race
-	// flagged in the audit. Keyed by the secret key; the value is the
-	// generation counter incremented by every successful Save.
-	saveVersions sync.Map // map[string]*atomic.Int64
+	// keys tracks a per-key Save/Delete generation counter so the cache
+	// writes of fetches and Save readbacks can detect a concurrent
+	// [Manager.Save] or [Manager.Delete] and skip writing a stale read
+	// over the fresh value or the deletion. Without this, a Save that
+	// lands while an in-flight fetch is still talking to the storage would
+	// have its cache.Put overwritten by the fetch's older value — the
+	// canonical race flagged in the audit. Each entry also holds the key's
+	// mutation lock, which serializes Save and Delete of one key end to end.
+	//
+	// Entries are reference-counted (see acquireKey): an entry exists only
+	// while a Save, Delete or fetch of its key uses it, so the map stays
+	// bounded by the operations in flight. A generation only matters to the
+	// readers holding a reference across it, so recreating an entry from
+	// zero after it was dropped cannot hide a mutation from any of them.
+	// Guarded by keysMu.
+	keys   map[string]*keyState
+	keysMu sync.Mutex
 
-	// clearCacheMu serializes ClearCache so a graceful-shutdown call and the
-	// force-shutdown timeout path cannot run Value.Clear() on the same entry
-	// concurrently, which would be a data race on the zeroed sensitive fields.
-	clearCacheMu sync.Mutex
+	// cacheMu serializes the Manager's cache writes, deletes and clears with
+	// the update cycle's reconciliation, so the cycle decides and acts on a
+	// key atomically with respect to a concurrent Save, fetch or Delete. It
+	// also keeps two Value.Clear() calls on one entry (graceful and forced
+	// shutdown, Delete, eviction) from racing on the zeroed fields. A cache
+	// hit of Value copies the entry under the read lock, so the copy never
+	// overlaps a Clear; ValueShared does not take it.
+	cacheMu sync.RWMutex
+
+	// cycleDirty holds the keys the Manager cached or deleted since the
+	// running update cycle began; the cycle leaves them alone, since its
+	// storage snapshot may predate those writes. It is non-nil only while a
+	// cycle runs. Guarded by cacheMu.
+	cycleDirty map[string]struct{}
 
 	// updateCycleTask guards RunUpdateCycle: single-flight execution plus
 	// the scheduler-managed flag set by RegisterUpdateCycleSchedulerFunc.
@@ -203,25 +221,43 @@ func New[T any](secretStorage Provider[T], opt ...Option) (*Manager[T], error) {
 //
 // Returns nil on success, even if the key was not present in the cache.
 func (t *Manager[T]) Delete(ctx context.Context, key string) error {
-	// Get previous value from cache for watch notification
+	// Serialize with Save of the same key, so storage, cache and negative
+	// filter end up in the order the mutations ran.
+	st := t.acquireKey(key)
+	defer t.releaseKey(key, st)
+	if err := st.lock(ctx); err != nil {
+		return err
+	}
+	defer st.unlock()
+
 	err := t.secretStorage.Delete(ctx, key)
 	if err != nil {
 		t.opts.logger.ErrorContext(ctx, "failed to delete value from storage", slog.String("key", key), slogx.Error(err))
 		return err
 	}
 
-	// Determine if we had a value to clear
-	previousValue, hadValue := t.cache.Get(key)
+	t.cacheMu.Lock()
+	// A running update cycle must not re-insert the key from its snapshot,
+	// nor may a fetch or Save readback that read it before this delete.
+	t.markDirtyLocked(key)
+	st.gen.Add(1)
 
 	// If we have a cached value, securely clear it after successful deletion
-	if hadValue {
+	if previousValue, hadValue := t.cache.Get(key); hadValue {
 		previousValue.Clear()
 	}
 
 	t.cache.Remove(key)
+	t.cacheMu.Unlock()
+	// A fetch started after this Delete must not join one that read before it.
+	t.fetchGroup.Forget(key)
 
-	// Update negative filter if deletable
-	if t.negativeFilter != nil {
+	// Update negative filter if deletable. A filter that is also rebuilt by the
+	// update cycle is left alone: a delayed fingerprint delete could land on a
+	// rebuilt filter that no longer holds the key and remove a colliding live
+	// key instead. The next rebuild drops the key; until then it is only a
+	// false positive that falls through to storage.
+	if t.negativeFilter != nil && !isRebuildable(t.negativeFilter) {
 		if deletable, ok := t.negativeFilter.(probfilter.DeletableFilter); ok {
 			if _, err := deletable.Delete(ctx, key); err != nil {
 				t.opts.logger.WarnContext(ctx, "failed to delete key from negative filter",
@@ -233,15 +269,86 @@ func (t *Manager[T]) Delete(ctx context.Context, key string) error {
 	return nil
 }
 
-// saveVersion returns the (lazily-allocated) per-key Save generation
-// counter used to detect Save races inside updateValueWithRetry.
-func (t *Manager[T]) saveVersion(key string) *atomic.Int64 {
-	if v, ok := t.saveVersions.Load(key); ok {
-		return v.(*atomic.Int64) //nolint:errcheck // type is fixed at the only Store() site
+// keyState holds a key's Save/Delete generation and mutation lock.
+type keyState struct {
+	// sem is the mutation lock serializing Save and Delete of the key: a
+	// one-slot semaphore, so a waiter can give up when its context ends.
+	sem chan struct{}
+	// gen is incremented by every successful Save and Delete of the key.
+	gen atomic.Int64
+	// refs counts the operations using the entry. Guarded by
+	// Manager.keysMu.
+	refs int
+}
+
+// lock acquires the key's mutation lock, or returns the context's error if
+// ctx ends first.
+func (s *keyState) lock(ctx context.Context) error {
+	select {
+	case s.sem <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
-	fresh := new(atomic.Int64)
-	actual, _ := t.saveVersions.LoadOrStore(key, fresh)
-	return actual.(*atomic.Int64) //nolint:errcheck // same — value type is invariant
+}
+
+// unlock releases the key's mutation lock.
+func (s *keyState) unlock() {
+	<-s.sem
+}
+
+// acquireKey returns the state of key, creating it if needed, and takes a
+// reference to it. The caller holds the reference from before its first use
+// of the state (taking the lock, or snapshotting the generation) until after
+// its last, and drops it with releaseKey.
+func (t *Manager[T]) acquireKey(key string) *keyState {
+	t.keysMu.Lock()
+	defer t.keysMu.Unlock()
+	st, ok := t.keys[key]
+	if !ok {
+		if t.keys == nil {
+			t.keys = make(map[string]*keyState)
+		}
+		st = &keyState{sem: make(chan struct{}, 1)}
+		t.keys[key] = st
+	}
+	st.refs++
+	return st
+}
+
+// releaseKey drops a reference taken by acquireKey, and the state of key
+// with the last one.
+func (t *Manager[T]) releaseKey(key string, st *keyState) {
+	t.keysMu.Lock()
+	defer t.keysMu.Unlock()
+	st.refs--
+	if st.refs == 0 {
+		delete(t.keys, key)
+	}
+}
+
+// cachePutUnlessSaved caches val under key unless a Save or Delete of key
+// happened since the read began (ver moved past versionBefore). The check
+// and the write happen under cacheMu, so a Save cannot publish its value, nor
+// a Delete remove the key, between them and then be overwritten by the older
+// read. Reports whether val was cached.
+func (t *Manager[T]) cachePutUnlessSaved(key string, val *Value[T], ver *atomic.Int64, versionBefore int64) bool {
+	t.cacheMu.Lock()
+	defer t.cacheMu.Unlock()
+	if ver.Load() != versionBefore {
+		return false
+	}
+	t.markDirtyLocked(key)
+	t.cache.Put(key, val)
+	return true
+}
+
+// markDirtyLocked records a cache write or delete of key for the running
+// update cycle, if any. The caller holds cacheMu.
+func (t *Manager[T]) markDirtyLocked(key string) {
+	if t.cycleDirty != nil {
+		t.cycleDirty[key] = struct{}{}
+	}
 }
 
 // updateValueWithRetry retrieves a secret value from storage with retry logic.
@@ -258,8 +365,11 @@ func (t *Manager[T]) updateValueWithRetry(ctx context.Context, key string) (*Val
 	// Snapshot the Save generation BEFORE the fetch. If a Save lands
 	// while the storage round-trip is in flight, the generation will
 	// differ when we come back and we must NOT publish our stale fetch
-	// result over the fresh value Save just put in the cache.
-	ver := t.saveVersion(key)
+	// result over the fresh value Save just put in the cache. The reference
+	// keeps the generation alive until the cache write below.
+	st := t.acquireKey(key)
+	defer t.releaseKey(key, st)
+	ver := &st.gen
 	versionBefore := ver.Load()
 
 	var val *Value[T]
@@ -277,8 +387,15 @@ func (t *Manager[T]) updateValueWithRetry(ctx context.Context, key string) (*Val
 		return nil, err
 	}
 
-	if ver.Load() == versionBefore {
-		t.cache.Put(key, val)
+	// Cache a Manager-owned copy: the provider may keep or share the
+	// instance it returned, and the Manager clears cached values. A second
+	// copy is returned as the template shared by the concurrent callers of
+	// this fetch: it is never cached nor cleared by the Manager, so it may
+	// be copied (Value) or read (ValueShared) without the cache lock, or
+	// handed over as is when the fetch has a single caller.
+	template := val.clone()
+
+	if t.cachePutUnlessSaved(key, val.clone(), ver, versionBefore) {
 		t.opts.logger.DebugContext(ctx, "value updated", slog.String("key", key))
 	} else {
 		// Save raced this fetch. The cached value is already fresh —
@@ -289,7 +406,7 @@ func (t *Manager[T]) updateValueWithRetry(ctx context.Context, key string) (*Val
 			slog.String("key", key))
 	}
 
-	return val, nil
+	return template, nil
 }
 
 // Value retrieves a secret value from the cache with optional storage fallback.
@@ -323,15 +440,41 @@ func (t *Manager[T]) updateValueWithRetry(ctx context.Context, key string) (*Val
 // This method is thread-safe and may modify cache state concurrently.
 // Multiple goroutines can safely call this method simultaneously.
 //
+// Ownership:
+// The returned Value is a deep copy owned by the caller (see the clone limits
+// in the package documentation): the caller may modify it and should Clear it
+// when done; neither affects the cache or other callers, and the Manager never
+// clears it. Hot paths that cannot afford a copy per call may use
+// [Manager.ValueShared] under its stricter contract.
+//
 // Returns the secret Value[T] containing the data and metadata, or an error
 // if the key doesn't exist or retrieval fails. Specific errors include
 // ErrNotFound for missing keys and provider-specific errors for storage failures.
 func (t *Manager[T]) Value(ctx context.Context, key string, force bool) (*Value[T], error) {
+	return t.lookup(ctx, key, force, true)
+}
+
+// ValueShared is [Manager.Value] without the copy: it returns the Manager's
+// own instance, with the same force semantics, for hot paths that cannot
+// afford a copy per call.
+//
+// The returned Value is shared and read-only: it must not be modified or
+// cleared, and must not be retained. The Manager may clear it at any time —
+// on eviction (cache capacity or an update cycle), Delete, ClearCache or
+// shutdown — so a read that overlaps such a clear sees zeroed fields and is a
+// data race. Use it only where the value is read immediately and the key is
+// not concurrently deleted, evicted or cleared (for example a cache sized for
+// all keys, without ClearCache while in use); otherwise use Value.
+func (t *Manager[T]) ValueShared(ctx context.Context, key string, force bool) (*Value[T], error) {
+	return t.lookup(ctx, key, force, false)
+}
+
+// lookup implements Value (copy) and ValueShared (no copy).
+func (t *Manager[T]) lookup(ctx context.Context, key string, force, copied bool) (*Value[T], error) {
 	var tmp *Value[T]
 
 	// First, try to get from cache
-	value, ok := t.cache.Get(key)
-	if ok {
+	if value, ok := t.cacheGet(key, copied); ok {
 		// Cache hit - return immediately
 		t.metrics.cacheHits.Inc()
 		return value, nil
@@ -363,14 +506,37 @@ func (t *Manager[T]) Value(ctx context.Context, key string, force bool) (*Value[
 	t.opts.logger.DebugContext(ctx, "cache miss, force=true, fetching from storage",
 		slog.String("key", key))
 
-	result, err, _ := t.fetchGroup.Do(key, func() (any, error) {
+	result, err, shared := t.fetchGroup.Do(key, func() (any, error) {
 		return t.updateValueWithRetry(ctx, key)
 	})
 	if err != nil {
 		return tmp, err
 	}
 
-	return result.(*Value[T]), nil //nolint:errcheck // type is guaranteed by updateValueWithRetry
+	// The template is never cleared by the Manager. When the fetch was not
+	// shared, this caller holds the only reference to it, so it is already a
+	// caller-owned copy.
+	template := result.(*Value[T]) //nolint:errcheck // type is guaranteed by updateValueWithRetry
+	if copied && shared {
+		return template.clone(), nil
+	}
+	return template, nil
+}
+
+// cacheGet returns the cached value of key: a copy taken under the cache
+// read lock when copied is set (so it never overlaps a Manager Clear), the
+// cached instance itself otherwise.
+func (t *Manager[T]) cacheGet(key string, copied bool) (*Value[T], bool) {
+	if !copied {
+		return t.cache.Get(key)
+	}
+	t.cacheMu.RLock()
+	defer t.cacheMu.RUnlock()
+	value, ok := t.cache.Get(key)
+	if !ok {
+		return nil, false
+	}
+	return value.clone(), true
 }
 
 // ClearCache securely clears all cached secret values.
@@ -380,8 +546,8 @@ func (t *Manager[T]) Value(ctx context.Context, key string, force bool) (*Value[
 //
 // This operation is thread-safe but will block other cache operations during execution.
 func (t *Manager[T]) ClearCache(ctx context.Context) {
-	t.clearCacheMu.Lock()
-	defer t.clearCacheMu.Unlock()
+	t.cacheMu.Lock()
+	defer t.cacheMu.Unlock()
 
 	var clearedCount int
 	for key, value := range t.cache.All() {
@@ -625,6 +791,18 @@ func (t *Manager[T]) Save(ctx context.Context, key string, value T) error {
 //
 // Returns an error if the save operation fails after all retry attempts.
 func (t *Manager[T]) saveWithRetry(ctx context.Context, key string, value T) error {
+	// Serialize with Save and Delete of the same key, so storage, cache and
+	// negative filter end up in the order the mutations ran.
+	st := t.acquireKey(key)
+	defer t.releaseKey(key, st)
+	if err := st.lock(ctx); err != nil {
+		return err
+	}
+	defer st.unlock()
+
+	// The provider may keep the saved payload, so it gets its own copy: a
+	// caller-held or cached value cleared later must not zero it.
+	value = cloneSecret(value)
 	err := coreretry.Do(ctx, func(ctx context.Context) error {
 		return t.secretStorage.Save(ctx, key, value)
 	},
@@ -640,8 +818,21 @@ func (t *Manager[T]) saveWithRetry(ctx context.Context, key string, value T) err
 	// in-flight updateValueWithRetry that started before us will now
 	// observe a different generation when it returns and skip its
 	// cache.Put — preventing the fresh value we are about to publish
-	// from being silently overwritten by a stale fetch result.
-	t.saveVersion(key).Add(1)
+	// from being silently overwritten by a stale fetch result. Our own
+	// readback is published only while the generation is still ours, so
+	// a later Save or Delete of the key is not overwritten either.
+	// Under cacheMu, also mark the key dirty for a running update cycle and
+	// drop the cached previous value, so neither a stale listing nor a cache
+	// hit can serve it when the readback below fails or is skipped: the next
+	// fetch then reads the saved value.
+	ver := &st.gen
+	t.cacheMu.Lock()
+	gen := ver.Add(1)
+	t.markDirtyLocked(key)
+	t.cache.Remove(key)
+	t.cacheMu.Unlock()
+	// A fetch started after this Save must not join one that read before it.
+	t.fetchGroup.Forget(key)
 
 	// Update negative filter
 	if t.negativeFilter != nil {
@@ -661,7 +852,10 @@ func (t *Manager[T]) saveWithRetry(ctx context.Context, key string, value T) err
 		return nil
 	}
 
-	t.cache.Put(key, val)
+	if !t.cachePutUnlessSaved(key, val.clone(), ver, gen) {
+		t.opts.logger.DebugContext(ctx, "skipping cache write — key changed again since this save", slog.String("key", key))
+		return nil
+	}
 	t.opts.logger.DebugContext(ctx, "value saved and cached", slog.String("key", key))
 
 	return nil
@@ -720,6 +914,11 @@ func (t *Manager[T]) WarmCache(ctx context.Context, keys []string) error {
 //
 // Watch operations are thread-safe and multiple watchers can operate concurrently.
 // Each watcher maintains its own event channel and filter configuration.
+//
+// Event values (WatchEvent.Value and PreviousValue) are copies owned by the
+// receiver: the Manager never reads or clears them after sending, and
+// clearing them does not affect the cache or other watchers. Call Clear on
+// them when done.
 //
 // Parameters:
 //   - ctx: context for the watch operation, supports cancellation and timeouts
@@ -786,4 +985,11 @@ func (t *Manager[T]) WatchKeys(ctx context.Context, keys ...string) (*WatchResul
 // Returns a WatchResult for the specified key, or an error if the watch cannot be started.
 func (t *Manager[T]) WatchKey(ctx context.Context, key string) (*WatchResult[T], error) {
 	return t.WatchKeys(ctx, key)
+}
+
+// isRebuildable reports whether the negative filter is rebuilt by the update
+// cycle.
+func isRebuildable(f Filter) bool {
+	_, ok := f.(probfilter.RebuildableFilter)
+	return ok
 }

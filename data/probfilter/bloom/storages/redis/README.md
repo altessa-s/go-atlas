@@ -14,3 +14,7 @@ instances. Requires the [RedisBloom](https://redis.io/docs/latest/develop/data-t
 | `WithExpectedItems`     | `100000`   | Expected number of items in the filter |
 | `WithFalsePositiveRate` | `0.01`     | Target false-positive probability      |
 | `WithKeyPrefix`         | `"bloom:"` | Redis key prefix for the filter        |
+
+Rebuilds of the shared filter are serialized across processes by a rebuild lease (`BeginRebuild`): a concurrent rebuild fails with
+`probfilter.ErrRebuildInProgress` before reading its source, and a rebuild that lost its lease cannot publish
+(`probfilter.ErrRebuildSuperseded`), so an older snapshot never overwrites a newer one.
