@@ -296,8 +296,8 @@ opts = slices.AppendIf(opts, len(proxyOpts) > 0, oidc.WithHTTPClientOptions(prox
 
 The Provider's HTTP client is shared with a revocation loader passed via `oidc.WithRevocationLoader` that implements
 `httpclient.HTTPClientSetter`, so discovery, JWKS refresh, introspection, userinfo, and URL-based revocation use the same connection pool and
-proxy. The YAML factory path does not get this injection yet (its URL loader ends up without a client) — see the
-[OIDC revocation limitation](auth/oidc.md#revocation).
+proxy. The same client also reaches a loader wrapped in a ready-made storage (`WithRevocationStorage`), which is how the YAML factory wires a
+`revocation.source.url` — see [OIDC revocation](auth/oidc.md#revocation).
 
 ### OPA — GitLab source
 

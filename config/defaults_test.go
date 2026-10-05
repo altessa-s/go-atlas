@@ -6,6 +6,7 @@ package config
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -30,7 +31,7 @@ func TestDefaultHttp(t *testing.T) {
 
 func TestDefaultOIDC(t *testing.T) {
 	cfg := DefaultOIDC()
-	require.NotZero(t, cfg.ClockSkew)
+	require.Equal(t, 30*time.Second, cfg.ClockSkew, "must match the documented clockSkew default")
 }
 
 func TestDefaultRedis(t *testing.T) {

@@ -77,6 +77,9 @@ type IntrospectionResponse struct {
 
 // IntrospectToken performs RFC 7662 token introspection to check if a token is active.
 // Requires introspection to be configured via WithIntrospection. Results are cached.
+// The local revocation storage is not consulted here: token validation checks
+// it separately (a local hit always rejects), and a local miss never stands in
+// for the IdP's answer.
 //
 // Example:
 //
@@ -91,29 +94,9 @@ func (p *Provider) IntrospectToken(ctx context.Context, token string) (*Introspe
 		return nil, coreerrs.Wrap(ErrIntrospection, "introspection client credentials not configured")
 	}
 
-	// Pre-introspection revocation storage probe. We only short-circuit
-	// when the storage is keyed on the full token — extracting jti/kid from
-	// an unverified JWT to query the filter would let an attacker pick a
-	// key that the filter is guaranteed to miss (probabilistic filters
-	// never produce false negatives for added items, but they always say
-	// "not present" for keys that were never added). For jti/kid item
-	// types the probe is skipped and the request always reaches the IdP,
-	// which is the authoritative source.
-	if p.revocationStorage != nil &&
-		p.opts.revocationItemType != RevocationItemTypeJTI &&
-		p.opts.revocationItemType != RevocationItemTypeKID {
-		isRevoked, err := p.revocationStorage.IsRevoked(ctx, token)
-		if err == nil && !isRevoked {
-			// Storage (e.g. Bloom filter) says definitely NOT revoked.
-			p.logger.DebugContext(ctx, "token not found in revocation storage, skipping introspection",
-				"item_type", p.opts.revocationItemType)
-			return &IntrospectionResponse{Active: true}, nil
-		}
-	}
-
 	// Check cache for revoked token first
 	if p.tokenCache != nil {
-		cacheKey := tokenCacheKey(p.opts.revokedTokensCacheKeyPrefix, token)
+		cacheKey := p.introspectionCacheKey(p.opts.revokedTokensCacheKeyPrefix, token)
 		var cachedRevoked bool
 		if err := p.tokenCache.Get(ctx, cacheKey, &cachedRevoked); err == nil && cachedRevoked {
 			p.logger.DebugContext(ctx, "token found in revoked cache")
@@ -123,7 +106,7 @@ func (p *Provider) IntrospectToken(ctx context.Context, token string) (*Introspe
 
 	// Check short-lived cache for previously confirmed active tokens
 	if p.tokenCache != nil {
-		cacheKey := tokenCacheKey(p.opts.activeTokensCacheKeyPrefix, token)
+		cacheKey := p.introspectionCacheKey(p.opts.activeTokensCacheKeyPrefix, token)
 		var cachedResponse IntrospectionResponse
 		if err := p.tokenCache.Get(ctx, cacheKey, &cachedResponse); err == nil {
 			p.logger.DebugContext(ctx, "token found in active cache")
@@ -190,7 +173,7 @@ func (p *Provider) IntrospectToken(ctx context.Context, token string) (*Introspe
 		if !introspectionResp.Active {
 			ttl := boundedIntrospectionTTL(&introspectionResp, RevokedTokenCacheDuration)
 			if ttl > 0 {
-				cacheKey := tokenCacheKey(p.opts.revokedTokensCacheKeyPrefix, token)
+				cacheKey := p.introspectionCacheKey(p.opts.revokedTokensCacheKeyPrefix, token)
 				_ = p.tokenCache.Save(ctx, cacheKey, true, ttl) //nolint:errcheck
 
 				p.logger.DebugContext(ctx, "caching revoked token",
@@ -226,7 +209,7 @@ func (p *Provider) IntrospectToken(ctx context.Context, token string) (*Introspe
 		} else {
 			ttl := boundedIntrospectionTTL(&introspectionResp, ActiveTokenCacheDuration)
 			if ttl > 0 {
-				cacheKey := tokenCacheKey(p.opts.activeTokensCacheKeyPrefix, token)
+				cacheKey := p.introspectionCacheKey(p.opts.activeTokensCacheKeyPrefix, token)
 				_ = p.tokenCache.Save(ctx, cacheKey, introspectionResp, ttl) //nolint:errcheck
 
 				p.logger.DebugContext(ctx, "caching active token",

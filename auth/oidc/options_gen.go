@@ -122,6 +122,13 @@ func WithRevocationAuthoritative(v Authoritative) Option {
 	}
 }
 
+// WithRevocationFailOpen enables the revocationFailOpen option.
+func WithRevocationFailOpen() Option {
+	return func(o *options) {
+		o.revocationFailOpen = true
+	}
+}
+
 // WithRevocationFilter sets the revocationFilter option.
 func WithRevocationFilter(v Filter) Option {
 	return func(o *options) {

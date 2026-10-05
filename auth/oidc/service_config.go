@@ -338,6 +338,11 @@ func (c *ServiceConfig) ToProviderOptions() ([]Option, error) {
 func (v *ValidationRulesConfig) ToValidationOptions() ([]ValidationOption, error) {
 	var opts []ValidationOption
 
+	// All CEL rules (generated and custom) go into one WithValidationCelRules
+	// call at the end: the option replaces earlier rules, so separate calls
+	// would let the custom rules drop the generated ones.
+	var celRules []CELValidationRule
+
 	// Leeway
 	if v.Leeway != "" {
 		duration, err := time.ParseDuration(v.Leeway)
@@ -430,10 +435,10 @@ func (v *ValidationRulesConfig) ToValidationOptions() ([]ValidationOption, error
 				strings.Join(scopeChecks, ", "),
 			)
 
-			opts = append(opts, WithValidationCelRules(CELValidationRule{
+			celRules = append(celRules, CELValidationRule{
 				Name:       "any-of-scopes",
 				Expression: celExpr,
-			}))
+			})
 		}
 	}
 
@@ -457,21 +462,16 @@ func (v *ValidationRulesConfig) ToValidationOptions() ([]ValidationOption, error
 	}
 
 	// CEL rules
-	if len(v.CELRules) > 0 {
-		var celRules []CELValidationRule
+	for i := range v.CELRules {
+		ruleDef := &v.CELRules[i]
 
-		for i := range v.CELRules {
-			ruleDef := &v.CELRules[i]
-
-			celRules = append(celRules, CELValidationRule{
-				Name:       ruleDef.Name,
-				Expression: ruleDef.Expression,
-				Message:    ruleDef.Message,
-			})
-		}
-
-		opts = append(opts, WithValidationCelRules(celRules...))
+		celRules = append(celRules, CELValidationRule{
+			Name:       ruleDef.Name,
+			Expression: ruleDef.Expression,
+			Message:    ruleDef.Message,
+		})
 	}
+	opts = slices.AppendIf(opts, len(celRules) > 0, WithValidationCelRules(celRules...))
 
 	return opts, nil
 }

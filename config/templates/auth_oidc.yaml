@@ -325,6 +325,12 @@
 #    # Default value: token
 #    itemType: "token"
 #
+#    # <bool> Fail-open: accept a token when the revocation storage cannot answer,
+#    # and start the provider when the initial revocation sync fails.
+#    # Default false is fail-closed: such a token is rejected and startup fails.
+#    # Default value: false
+#    failOpen: false
+#
 #    # <object> Probabilistic filter configuration for efficient revocation checks.
 #    filter:
 #      # <string> Type of probabilistic filter to use.

@@ -15,7 +15,7 @@ import (
 
 // Default values for OIDC configuration.
 const (
-	defaultOIDCClockSkew              = 10 * time.Second
+	defaultOIDCClockSkew              = 30 * time.Second
 	defaultOIDCCacheTokensKeyPrefix   = "tokens:"
 	defaultOIDCCacheRevokedKeyPrefix  = "revoked-tokens:"
 	defaultOIDCJwksRefreshEnabled     = true
@@ -465,6 +465,12 @@ type OIDCRevocation struct {
 
 	// Source contains configuration for fetching the revocation list
 	Source *OIDCRevocationSource `yaml:"source"`
+
+	// FailOpen accepts a token when the revocation storage cannot answer and
+	// lets the provider start when the initial revocation sync fails. The
+	// default (false) is fail-closed: such a token is rejected and provider
+	// construction fails.
+	FailOpen bool `yaml:"failOpen" default:"false"`
 }
 
 // DefaultOIDCRevocation returns an OIDCRevocation configuration with default values.

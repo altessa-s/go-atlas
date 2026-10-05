@@ -82,6 +82,10 @@ func TestNewProvider_InjectsClientIntoURLRevocationLoader(t *testing.T) {
 		WithHTTPClientOptions(httpclient.WithRetryMax(0)),
 		WithRevocationLoader(loader),
 		WithRevocationFilter(noopFilter{}),
+		// The stub filter cannot rebuild and the loader URL is unreachable,
+		// so the initial revocation sync fails; tolerate it to reach the
+		// injection assertion.
+		WithRevocationFailOpen(),
 		// httptest serves plain-HTTP on loopback; disable discovery endpoint
 		// pinning for the stub IdP.
 		WithDiscoveryValidationMode(DiscoveryValidationModeDisabled),

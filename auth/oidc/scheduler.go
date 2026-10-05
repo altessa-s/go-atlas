@@ -48,7 +48,7 @@ func (p *Provider) registerSchedulerTasks(o *options) error {
 		taskCfg := corescheduler.TaskConfig{
 			ID:          "oidc-revocation-sync",
 			Description: "Synchronize OIDC token revocation list",
-			Func:        p.revocationStorage.Sync,
+			Func:        p.unlessClosed(p.revocationStorage.Sync),
 			Schedule:    o.revocationSyncSchedule,
 			Priority:    corescheduler.TaskPriorityNormal,
 		}
@@ -63,10 +63,25 @@ func (p *Provider) registerSchedulerTasks(o *options) error {
 	return nil
 }
 
-// Close releases resources held by the Provider, including canceling
-// the background context used by JWKS storage.
+// Close releases resources held by the Provider: it cancels the background
+// context used by JWKS storage, which also turns the provider's scheduled
+// tasks into no-ops, and closes the HTTP client's idle connections.
 func (p *Provider) Close() {
 	p.cancelBackgroundCtx()
+	p.client.CloseIdleConnections()
+}
+
+// unlessClosed wraps a scheduled task so it stops doing work once the
+// provider is closed (the JWKS refresh guards itself in refreshJWKSInternal) — including a provider whose construction failed after
+// the task was registered, since [corescheduler.TaskRegistrar] offers no way
+// to unregister it.
+func (p *Provider) unlessClosed(task corescheduler.TaskFunc) corescheduler.TaskFunc {
+	return func(ctx context.Context) error {
+		if err := p.backgroundCtx.Err(); err != nil {
+			return coreerrs.Wrap(err, "oidc provider closed")
+		}
+		return task(ctx)
+	}
 }
 
 // RegisterJWKSRefreshSchedulerFunc returns a function for use by a scheduler and marks
@@ -88,6 +103,12 @@ func (p *Provider) RefreshJWKS(ctx context.Context) error {
 // Callers must route through jwksRefreshTask so overlapping cycles collapse
 // into a single execution.
 func (p *Provider) refreshJWKSInternal(ctx context.Context) error {
+	// A closed provider does no work — this covers RefreshJWKS, the task
+	// registered by NewProvider and callbacks obtained through
+	// RegisterJWKSRefreshSchedulerFunc and registered elsewhere.
+	if err := p.backgroundCtx.Err(); err != nil {
+		return coreerrs.Wrap(err, "oidc provider closed")
+	}
 	p.metrics.jwksRefreshes.Inc()
 	stop := p.metrics.jwksRefreshDuration.Start()
 	defer stop()

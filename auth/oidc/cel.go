@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
+	"github.com/google/cel-go/ext"
 
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/data/cache/lru"
@@ -23,6 +24,9 @@ import (
 var getCELEnvironment = sync.OnceValues(func() (*cel.Env, error) {
 	return cel.NewEnv(
 		cel.Variable("claims", cel.MapType(cel.StringType, cel.DynType)),
+		// String helpers (split, join, lowerAscii, …) — required by the
+		// generated scopes.any_of rule and available to user rules.
+		ext.Strings(),
 	)
 })
 
@@ -150,7 +154,9 @@ func (p *Provider) validateCELRules() error {
 		return err
 	}
 	p.celCompiledRules = compiled
-	p.verifierOptions.celRules = nil // Clear source rules after compilation
+	// The source rules stay on p.verifierOptions: per-call options clone the
+	// defaults, so clearing them here would silently drop the default CEL
+	// policy from every ValidateTokenWithOptions call that passes options.
 	return nil
 }
 
@@ -188,15 +194,22 @@ func compileCELRules(rules []CELValidationRule) ([]celPreCompiledValidationRule,
 			return nil, coreerrs.Wrapf(ErrInvalidCEL, "cel_rules[%q].expression is required", rule.Name)
 		}
 
-		// Compile CEL expression
-		program, err := compileCELExpression(rule.Expression)
-		if err != nil {
-			return nil, coreerrs.Wrapf(ErrInvalidCEL, "cel_rules[%q]: %v", rule.Name, err)
+		// Compile CEL expression, reusing a cached program: per-call options
+		// recompile the default rules on every call.
+		cache := getCELCache()
+		var program cel.Program
+		if cache != nil {
+			program, _ = cache.Get(rule.Expression)
 		}
-
-		// Prime cache to avoid cold-start compilation
-		if cache := getCELCache(); cache != nil {
-			cache.Put(rule.Expression, program)
+		if program == nil {
+			var err error
+			program, err = compileCELExpression(rule.Expression)
+			if err != nil {
+				return nil, coreerrs.Wrapf(ErrInvalidCEL, "cel_rules[%q]: %v", rule.Name, err)
+			}
+			if cache != nil {
+				cache.Put(rule.Expression, program)
+			}
 		}
 
 		// Capture program in local variable to avoid closure capture bug
