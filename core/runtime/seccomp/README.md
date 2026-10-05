@@ -57,8 +57,8 @@ called and which a legitimate plugin host has no reason to invoke:
 | Exotic escalation vectors | `userfaultfd`, `perf_event_open`, `bpf` |
 
 A blocked syscall returns `EPERM` to the caller. An architecture
-mismatch (e.g. an x32 syscall on an amd64 kernel) kills the process
-outright, because syscall numbers differ across arches and a filter
+mismatch (e.g. an i386 syscall issued via `int 0x80` on an amd64 kernel)
+kills the process outright, because syscall numbers differ across arches and a filter
 that trusts the wrong numbering is worse than no filter at all.
 
 ## Why no allowlist

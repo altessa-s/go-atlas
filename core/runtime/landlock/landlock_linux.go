@@ -249,9 +249,10 @@ func addPathRule(rulesetFd int, path string, accessMask uint64) error {
 }
 
 // restrictSelf wraps landlock_restrict_self(2). It commits the ruleset to
-// the calling process and every descendant. After this call returns
+// the calling thread and every task it later clones (threads and child
+// processes); peer threads are unaffected. After this call returns
 // successfully there is no way to relax the restriction for the lifetime
-// of the process.
+// of the calling thread.
 func restrictSelf(rulesetFd int) error {
 	_, _, errno := unix.Syscall(
 		unix.SYS_LANDLOCK_RESTRICT_SELF,
