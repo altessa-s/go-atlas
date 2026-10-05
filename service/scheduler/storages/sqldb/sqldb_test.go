@@ -21,6 +21,12 @@ import (
 
 var errBoom = errors.New("boom")
 
+var (
+	indexNameRE     = regexp.MustCompile(`INDEX IF NOT EXISTS "([^"]+)"`)
+	numberedParamRE = regexp.MustCompile(`\$\d+`)
+	setAssignmentRE = regexp.MustCompile(`(?:^|, )(\w+) = `)
+)
+
 func TestNewValidation(t *testing.T) {
 	t.Parallel()
 	db, _ := testhelpers.NewFakeSQL(t, nil)
@@ -90,7 +96,7 @@ func TestEnsureSchemaIndexNamesFitIdentifierLimit(t *testing.T) {
 
 	names := map[string]bool{}
 	for _, c := range fake.Calls() {
-		for _, m := range regexp.MustCompile(`INDEX IF NOT EXISTS "([^"]+)"`).FindAllStringSubmatch(c.Query, -1) {
+		for _, m := range indexNameRE.FindAllStringSubmatch(c.Query, -1) {
 			require.LessOrEqual(t, len(m[1]), 63, m[1])
 			names[m[1]] = true
 		}
@@ -118,7 +124,7 @@ func TestPlaceholderStyle(t *testing.T) {
 			for _, c := range fake.Calls() {
 				if d == sqldb.DialectPostgres {
 					require.NotContains(t, c.Query, "?", c.Query)
-					require.Len(t, regexp.MustCompile(`\$\d+`).FindAllString(c.Query, -1), len(c.Args), c.Query)
+					require.Len(t, numberedParamRE.FindAllString(c.Query, -1), len(c.Args), c.Query)
 				} else {
 					require.NotRegexp(t, `\$\d`, c.Query)
 					require.Equal(t, strings.Count(c.Query, "?"), len(c.Args), c.Query)
@@ -302,7 +308,7 @@ func TestMySQLFinishRunAssignmentOrder(t *testing.T) {
 	// assignment may read a column assigned before it.
 	q := fake.Calls()[0].Query
 	set := q[strings.Index(q, " SET ")+5 : strings.Index(q, " WHERE ")]
-	starts := regexp.MustCompile(`(?:^|, )(\w+) = `).FindAllStringSubmatchIndex(set, -1)
+	starts := setAssignmentRE.FindAllStringSubmatchIndex(set, -1)
 	var assigned []string
 	for k, m := range starts {
 		end := len(set)
