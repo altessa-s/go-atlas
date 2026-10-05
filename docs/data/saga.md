@@ -326,7 +326,7 @@ if err := orch.RunRecoveryCycle(ctx); err != nil {
 | `memory` | [`storages/memory`](../../data/saga/storages/memory)       | no      | in-struct counter    | map scan                                       | Single node, tests, reference implementation.  |
 | `mongo`  | [`storages/mongo`](../../data/saga/storages/mongo)         | yes     | document `version`   | `(status, deadline)` compound index            | Query-capable; one document per instance.      |
 | `redis`  | [`storages/redis`](../../data/saga/storages/redis)         | yes     | hash field, Lua CAS  | sorted set scored by recover-eligibility time  | No auto-delete without a TTL — see retention.  |
-| `nats`   | [`storages/nats`](../../data/saga/storages/nats)           | yes     | KV revision          | full bucket scan                               | Bucket carries a long backstop TTL by default. |
+| `nats`   | [`storages/nats`](../../data/saga/storages/nats)           | yes     | KV revision          | full bucket scan                               | Bucket carries a long backstop TTL by default. File-backed; see its README for buckets created as memory by earlier releases. |
 
 All backends return the same sentinel errors from [`errs`](../../data/saga/errs) (`ErrInstanceNotFound`, `ErrInstanceExists`,
 `ErrVersionConflict`, …); match them with `errors.Is`.

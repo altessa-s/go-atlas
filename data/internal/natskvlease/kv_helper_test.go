@@ -125,3 +125,62 @@ func TestGetOrCreateBucket_ConcurrentCreation(t *testing.T) {
 		})
 	}
 }
+
+// TestGetOrCreateBucket_Storage pins that a new bucket gets the requested
+// storage type. FileStorage is the zero value of jetstream.StorageType and was
+// once mistaken for "unset" and turned into MemoryStorage.
+func TestGetOrCreateBucket_Storage(t *testing.T) {
+	t.Parallel()
+
+	for _, storage := range []jetstream.StorageType{jetstream.FileStorage, jetstream.MemoryStorage} {
+		t.Run(storage.String(), func(t *testing.T) {
+			t.Parallel()
+
+			ns := testhelpers.StartNATSServer(t)
+			_, js := testhelpers.ConnectJetStream(t, ns)
+
+			_, err := natskvlease.NewKVHelper(js, nil).GetOrCreateBucket(t.Context(), natskvlease.BucketConfig{
+				Bucket:  "fresh",
+				TTL:     time.Minute,
+				Storage: storage,
+			})
+			require.NoError(t, err)
+			require.Equal(t, storage, testhelpers.KVBucketStorage(t, js, "fresh"))
+		})
+	}
+}
+
+// TestGetOrCreateBucket_ExistingBucketStorage pins that an existing bucket
+// with another storage type is adopted as is — the server cannot convert it —
+// and that a TTL migration keeps its storage instead of failing on it.
+func TestGetOrCreateBucket_ExistingBucketStorage(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name    string
+		ttl     time.Duration
+		migrate bool
+	}{
+		{name: "same TTL", ttl: time.Minute},
+		{name: "TTL migration", ttl: 2 * time.Minute, migrate: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ns := testhelpers.StartNATSServer(t)
+			_, js := testhelpers.ConnectJetStream(t, ns)
+			testhelpers.CreateNATSKV(t, js, "legacy", time.Minute) // memory storage
+
+			got, err := natskvlease.NewKVHelper(js, nil).GetOrCreateBucket(t.Context(), natskvlease.BucketConfig{
+				Bucket:     "legacy",
+				TTL:        tc.ttl,
+				Storage:    jetstream.FileStorage,
+				MigrateTTL: tc.migrate,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, got)
+			require.Equal(t, jetstream.MemoryStorage, testhelpers.KVBucketStorage(t, js, "legacy"), "the existing storage must be kept")
+			require.Equal(t, tc.ttl, testhelpers.KVBucketTTL(t, js, "legacy"))
+		})
+	}
+}

@@ -21,6 +21,11 @@ without external dependencies beyond NATS.
 Memory storage keeps the lease ephemeral (lost on a JetStream restart, forcing a clean re-election) and avoids disk I/O on the renew hot path. Choose
 `WithStorage(jetstream.FileStorage)` when the bucket — and the monotonic fencing revision behind `Fence()` — must survive a full server bounce.
 
+Releases before this fix created a memory bucket even when `WithStorage(jetstream.FileStorage)` was set, and the YAML factory does not expose
+storage at all. The server cannot change a bucket's storage type, so `New` adopts an existing bucket with another storage type as is and logs a
+warning. Converting it means deleting the bucket (`nats kv del <bucket>`) while no instance runs and letting the next `New` recreate it. That
+resets the KV revisions behind `Fence()`, so do it only when no downstream store keeps fencing tokens. Otherwise keep the adopted bucket.
+
 ## Lease renewal
 
 Renewals tick every `min(electionTTL, bucketKeyTTL) × renewRatio`. The ratio therefore decides how many renewal attempts fall inside one lease
