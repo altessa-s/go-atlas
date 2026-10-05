@@ -69,14 +69,20 @@ func TestRegisterDoesNotOverwriteTaskCreatedConcurrently(t *testing.T) {
 	require.Equal(t, int64(100), got.NextRunAt, "the claimed occurrence must not be replaced by a fresh one")
 }
 
-// seedRun stores a task whose run runID is unfinished.
+// seedRun stores a task whose run runID is unfinished. A non-zero leaseUntil
+// is bound to runID, as ClaimRun and RenewRun store it.
 func seedRun(t *testing.T, mem *memory.Storage, status scheduler.TaskStatus, runID string, startedAt, leaseUntil int64) {
 	t.Helper()
+	var leaseID string
+	if leaseUntil != 0 {
+		leaseID = runID
+	}
 	require.NoError(t, mem.UpsertTask(t.Context(), &scheduler.TaskState{
 		TaskSummary:   scheduler.TaskSummary{ID: "task", Status: status, Schedule: "@every 1h", NextRunAt: startedAt},
 		LastRunID:     runID,
 		RunStartedAt:  startedAt,
 		RunLeaseUntil: leaseUntil,
+		RunLeaseID:    leaseID,
 		UpdatedAt:     startedAt,
 	}))
 }
@@ -399,6 +405,7 @@ func TestRecoveryKeepsReRegisteredOccurrence(t *testing.T) {
 		LastRunID:     "node-b/run",
 		RunStartedAt:  now - 60,
 		RunLeaseUntil: now - 30,
+		RunLeaseID:    "node-b/run",
 	}))
 
 	startForRecovery(t, mem)

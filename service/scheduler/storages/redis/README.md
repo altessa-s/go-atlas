@@ -26,8 +26,9 @@ The Redis server must have the **RedisJSON** and **RediSearch** modules loaded.
 among concurrent schedulers exactly one claim returns `1` and wins the run; the rest get `0` and skip. This prevents concurrent claims of the same
 active occurrence. The rules themselves are defined once, in the godoc of `scheduler.Storage` ("Run ownership").
 
-`CreateTask` (store only when the key does not exist) and `RenewRun` (set `run_lease_until` while `last_run_id` and an unfinished `run_started_at`
-still match) are Lua scripts as well, so each check and write is atomic.
+`CreateTask` (store only when the key does not exist) and `RenewRun` (set `run_lease_until` and `run_lease_id` while `last_run_id` and an unfinished
+`run_started_at` still match) are Lua scripts as well, so each check and write is atomic. Every script runs through `redis.Script`: `EVALSHA` by digest,
+falling back to `EVAL` when the server answers `NOSCRIPT` (after a restart or `SCRIPT FLUSH`), so the script body is not sent on every call.
 
 ## Filter support
 

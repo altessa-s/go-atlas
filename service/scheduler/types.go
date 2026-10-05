@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"iter"
 	"sync"
 	"time"
@@ -111,11 +112,17 @@ type TaskState struct {
 	// unfinished run (RunStartedAt != 0) vouches for it. [Storage.ClaimRun]
 	// sets it with the claim and the owner renews it through [Storage.RenewRun]
 	// while the run is in flight; stale recovery on any instance leaves the run
-	// alone until it has passed. It is meaningful only while RunStartedAt != 0
-	// (the bundled [Storage.FinishRun] implementations currently leave the last
-	// value in place). Zero on an unfinished run means it was claimed by a release without leases, for which recovery
-	// falls back to RunStartedAt plus its own stale timeout.
+	// alone until it has passed. [Storage.FinishRun] and stale recovery clear
+	// it. A lease counts only while RunLeaseID names the unfinished run: zero,
+	// or a lease bound to another run, means the run was claimed by a release
+	// without leases, for which recovery falls back to RunStartedAt plus its
+	// own stale timeout.
 	RunLeaseUntil int64 `json:"run_lease_until,omitempty"`
+	// RunLeaseID is the run ID RunLeaseUntil was written for, stored by
+	// [Storage.ClaimRun] and [Storage.RenewRun] together with the lease. A
+	// release without leases rewrites LastRunID but not the lease, so an
+	// inherited lease no longer matches LastRunID and is not trusted.
+	RunLeaseID string `json:"run_lease_id,omitempty"`
 	// RunAt is the occurrence a one-shot task was registered for, as Unix
 	// seconds before any clamping to the registration time; always positive for
 	// one-shot tasks registered by this release and zero for periodic tasks.
@@ -200,10 +207,9 @@ var HistoryFilterFields = []string{
 //     is unfinished, even one whose task was paused and resumed meanwhile)
 //     and, when [RunClaim.NextRunAt] is non-zero, the stored NextRunAt and
 //     RunAt equal the claim's (the occurrence fence). Absent fields are zero.
+//   - Valid claim: ClaimRun first checks [RunClaim.Validate] and returns its
+//     error, wrapping [ErrInvalidRunClaim], without writing.
 //   - Owned: runID is non-empty, LastRunID == runID and RunStartedAt != 0.
-//     The scheduler only stores a positive Unix second in RunStartedAt; the
-//     MongoDB backend matches run_started_at > 0, which agrees for every value
-//     the scheduler writes.
 //   - Finish transition: a one-shot task whose stored RunAt equals
 //     [RunResult.RunAt] has executed its occurrence and becomes
 //     [TaskStatusCompleted] with NextRunAt zero, whatever its status.
@@ -212,9 +218,8 @@ var HistoryFilterFields = []string{
 //     Schedule still equals [RunResult.Schedule] takes [RunResult.NextRunAt];
 //     any other task keeps its NextRunAt. RunStartedAt becomes zero, LastRunAt
 //     and UpdatedAt take [RunResult.StartedAt] and [RunResult.EndedAt],
-//     Failures resets on success and increments on failure, and configuration
-//     and metadata are preserved. RunLeaseUntil carries no meaning once
-//     RunStartedAt is zero; the bundled backends currently leave it in place.
+//     Failures resets on success and increments on failure, RunLeaseUntil and
+//     RunLeaseID are cleared, and configuration and metadata are preserved.
 //
 // Every write, including a renewal, increments [TaskState.Revision].
 type Storage interface {
@@ -241,7 +246,8 @@ type Storage interface {
 	// ClaimRun atomically transitions task id from active→running while it is
 	// claimable (see Run ownership above), stamping Status = running,
 	// RunStartedAt = claim.StartedAt, LastRunID = claim.RunID,
-	// RunLeaseUntil = claim.LeaseUntil and UpdatedAt = claim.StartedAt. It
+	// RunLeaseUntil = claim.LeaseUntil, RunLeaseID = claim.RunID and
+	// UpdatedAt = claim.StartedAt. It
 	// returns true iff THIS caller won the claim.
 	//
 	// The write MUST be a single atomic conditional update (CAS). This makes
@@ -266,8 +272,9 @@ type Storage interface {
 	FinishRun(ctx context.Context, id, runID string, result RunResult) (bool, error)
 
 	// RenewRun atomically sets [TaskState.RunLeaseUntil] to leaseUntil and
-	// increments the revision only while runID owns the task's unfinished run
-	// (see Run ownership above). It returns false, writing nothing, otherwise. The scheduler calls it
+	// [TaskState.RunLeaseID] to runID, and increments the revision, only while
+	// runID owns the task's unfinished run (see Run ownership above). It
+	// returns false, writing nothing, otherwise. The scheduler calls it
 	// periodically for every run it executes so that stale recovery on other
 	// instances can tell a long run from an abandoned one.
 	RenewRun(ctx context.Context, id, runID string, leaseUntil int64) (bool, error)
@@ -381,10 +388,26 @@ type RunClaim struct {
 	NextRunAt int64
 	RunAt     int64
 	// StartedAt, RunID and LeaseUntil are stored as RunStartedAt, LastRunID
-	// and RunLeaseUntil, so the run owns a lease from the moment it exists.
+	// (and RunLeaseID) and RunLeaseUntil, so the run owns a lease from the
+	// moment it exists.
 	StartedAt  int64
 	RunID      string
 	LeaseUntil int64
+}
+
+// Validate reports whether c describes a run that can be owned: StartedAt
+// must be positive (zero means "no unfinished run"), RunID non-empty and
+// LeaseUntil not negative. The error wraps [ErrInvalidRunClaim].
+func (c RunClaim) Validate() error {
+	switch {
+	case c.StartedAt <= 0:
+		return fmt.Errorf("%w: StartedAt %d is not positive", ErrInvalidRunClaim, c.StartedAt)
+	case c.RunID == "":
+		return fmt.Errorf("%w: empty RunID", ErrInvalidRunClaim)
+	case c.LeaseUntil < 0:
+		return fmt.Errorf("%w: LeaseUntil %d is negative", ErrInvalidRunClaim, c.LeaseUntil)
+	}
+	return nil
 }
 
 // RunResult contains the execution fields committed by [Storage.FinishRun]

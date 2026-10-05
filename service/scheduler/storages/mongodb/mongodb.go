@@ -223,6 +223,9 @@ func zeroOrMissing[T comparable](v T) any {
 // next_run_at and run_at, so MongoDB's atomic document update guarantees that
 // at most one concurrent caller flips the document and thus wins the claim.
 func (s *Storage) ClaimRun(ctx context.Context, id string, claim scheduler.RunClaim) (bool, error) {
+	if err := claim.Validate(); err != nil {
+		return false, err
+	}
 	filter := bson.M{
 		"_id":            id,
 		"status":         int32(scheduler.TaskStatusActive),
@@ -238,6 +241,7 @@ func (s *Storage) ClaimRun(ctx context.Context, id string, claim scheduler.RunCl
 			"run_started_at":  claim.StartedAt,
 			"last_run_id":     claim.RunID,
 			"run_lease_until": claim.LeaseUntil,
+			"run_lease_id":    claim.RunID,
 			"updated_at":      claim.StartedAt,
 		},
 		"$inc": bson.M{"revision": 1},
@@ -490,10 +494,9 @@ var _ scheduler.Storage = (*Storage)(nil)
 
 // ownedRunFilter matches task id while runID owns its unfinished run, the
 // ownership predicate of [scheduler.Storage.RenewRun] and
-// [scheduler.Storage.FinishRun]. The scheduler always stores a positive
-// run_started_at, for which "> 0" and the contract's "!= 0" agree.
+// [scheduler.Storage.FinishRun]: run_started_at present and non-zero.
 func ownedRunFilter(id, runID string) bson.M {
-	return bson.M{"_id": id, "last_run_id": runID, "run_started_at": bson.M{"$gt": 0}}
+	return bson.M{"_id": id, "last_run_id": runID, "run_started_at": bson.M{"$nin": bson.A{0, nil}}}
 }
 
 // FinishRun applies the finish transition of [scheduler.Storage.FinishRun] as
@@ -528,7 +531,7 @@ func (s *Storage) FinishRun(ctx context.Context, id, runID string, result schedu
 			}},
 		}},
 		"last_run_at": result.StartedAt, "updated_at": result.EndedAt,
-		"run_started_at": 0, "failures": failures,
+		"run_started_at": 0, "run_lease_until": 0, "run_lease_id": "", "failures": failures,
 		"revision": nextRevision,
 	}}}}
 	res, err := s.tasks.UpdateOne(ctx, ownedRunFilter(id, runID), update)
@@ -545,7 +548,7 @@ func (s *Storage) RenewRun(ctx context.Context, id, runID string, leaseUntil int
 		return false, nil
 	}
 	res, err := s.tasks.UpdateOne(ctx, ownedRunFilter(id, runID),
-		bson.M{"$set": bson.M{"run_lease_until": leaseUntil}, "$inc": bson.M{"revision": 1}},
+		bson.M{"$set": bson.M{"run_lease_until": leaseUntil, "run_lease_id": runID}, "$inc": bson.M{"revision": 1}},
 	)
 	if err != nil {
 		return false, err

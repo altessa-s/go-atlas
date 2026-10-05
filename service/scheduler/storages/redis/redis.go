@@ -295,7 +295,7 @@ func (s *Storage) UpsertTask(ctx context.Context, state *scheduler.TaskState) er
 		return coreerrs.Wrapf(err, "failed to marshal task %q", state.ID)
 	}
 
-	if err := s.client.Eval(ctx, upsertTaskScript, []string{s.taskKey(state.ID)}, string(doc)).Err(); err != nil {
+	if err := upsertTask.Run(ctx, s.client, []string{s.taskKey(state.ID)}, string(doc)).Err(); err != nil {
 		return coreerrs.Wrapf(err, "failed to save task %q", state.ID)
 	}
 
@@ -320,7 +320,7 @@ func (s *Storage) CreateTask(ctx context.Context, state *scheduler.TaskState) (b
 	if err != nil {
 		return false, coreerrs.Wrapf(err, "failed to marshal task %q", state.ID)
 	}
-	n, err := s.client.Eval(ctx, createTaskScript, []string{s.taskKey(state.ID)}, string(doc)).Int64()
+	n, err := createTask.Run(ctx, s.client, []string{s.taskKey(state.ID)}, string(doc)).Int64()
 	if err != nil {
 		return false, coreerrs.Wrapf(err, "failed to create task %q", state.ID)
 	}
@@ -360,7 +360,7 @@ func (s *Storage) ReplaceTaskIf(ctx context.Context, state *scheduler.TaskState,
 	if err != nil {
 		return false, coreerrs.Wrapf(err, "failed to marshal task %q", state.ID)
 	}
-	res, err := s.client.Eval(ctx, replaceTaskIfScript, []string{s.taskKey(state.ID)},
+	res, err := replaceTaskIf.Run(ctx, s.client, []string{s.taskKey(state.ID)},
 		int(expect.Status),
 		expect.NextRunAt,
 		expect.RunStartedAt,
@@ -382,7 +382,8 @@ func (s *Storage) ReplaceTaskIf(ctx context.Context, state *scheduler.TaskState,
 // for a specific occurrence. It runs entirely server-side under Redis's single-
 // threaded execution, so the read-check-write is atomic: KEYS[1] is the task key;
 // ARGV = [activeStatus, expectedNextRunAt, runningStatus, runStartedAt, jsonRunID,
-// expectedRunAt, leaseUntil]; run_at is fenced together with next_run_at.
+// expectedRunAt, leaseUntil]; run_at is fenced together with next_run_at, and
+// jsonRunID is stored as both last_run_id and run_lease_id.
 // A task whose previous run is unfinished (run_started_at non-zero) is not
 // claimable. Returns 1 when this caller claimed the run, 0 otherwise.
 const claimRunScript = revisionLua + `
@@ -406,21 +407,25 @@ redis.call('JSON.SET', KEYS[1], '$.run_started_at', ARGV[4])
 redis.call('JSON.SET', KEYS[1], '$.updated_at', ARGV[4])
 redis.call('JSON.SET', KEYS[1], '$.last_run_id', ARGV[5])
 redis.call('JSON.SET', KEYS[1], '$.run_lease_until', ARGV[7])
+redis.call('JSON.SET', KEYS[1], '$.run_lease_id', ARGV[5])
 redis.call('JSON.SET', KEYS[1], '$.revision', tostring(revision() + 1))
 return 1
 `
 
 // ClaimRun applies the claim rule of [scheduler.Storage.ClaimRun] by executing
-// claimRunScript via EVAL. Redis runs the script atomically, so concurrent
+// claimRunScript. Redis runs the script atomically, so concurrent
 // callers cannot both claim one occurrence.
 func (s *Storage) ClaimRun(ctx context.Context, id string, claim scheduler.RunClaim) (bool, error) {
+	if err := claim.Validate(); err != nil {
+		return false, err
+	}
 	// JSON.SET takes a JSON value: the run ID must be JSON-encoded, not quoted
 	// as a Go literal, or instance IDs with control characters break the write.
 	runID, err := json.Marshal(claim.RunID)
 	if err != nil {
 		return false, coreerrs.WrapOperation(err, "encode run id")
 	}
-	res, err := s.client.Eval(ctx, claimRunScript, []string{s.taskKey(id)},
+	res, err := claimRun.Run(ctx, s.client, []string{s.taskKey(id)},
 		int(scheduler.TaskStatusActive),
 		claim.NextRunAt,
 		int(scheduler.TaskStatusRunning),
@@ -800,6 +805,18 @@ func (s *Storage) HistoryPaginated(ctx context.Context, taskID string, pg schedu
 // Compile-time interface check
 var _ scheduler.Storage = (*Storage)(nil)
 
+// The Lua scripts run through [redis.Script]: EVALSHA by digest, falling back
+// to EVAL (which also loads the script) when the server answers NOSCRIPT, so
+// the script body is not resent on every call.
+var (
+	upsertTask    = redis.NewScript(upsertTaskScript)
+	createTask    = redis.NewScript(createTaskScript)
+	replaceTaskIf = redis.NewScript(replaceTaskIfScript)
+	claimRun      = redis.NewScript(claimRunScript)
+	finishRun     = redis.NewScript(finishRunScript)
+	renewRun      = redis.NewScript(renewRunScript)
+)
+
 // ownedRunLua is the script prefix shared by finishRunScript and
 // renewRunScript. It decodes the task document of KEYS[1] into s and ends the
 // script with 0 unless ARGV[1] owns its unfinished run — the ownership
@@ -830,6 +847,8 @@ redis.call('JSON.SET', KEYS[1], '$.next_run_at', tostring(nextRun))
 redis.call('JSON.SET', KEYS[1], '$.last_run_at', ARGV[2])
 redis.call('JSON.SET', KEYS[1], '$.updated_at', ARGV[3])
 redis.call('JSON.SET', KEYS[1], '$.run_started_at', '0')
+redis.call('JSON.SET', KEYS[1], '$.run_lease_until', '0')
+redis.call('JSON.SET', KEYS[1], '$.run_lease_id', '""')
 redis.call('JSON.SET', KEYS[1], '$.failures', tostring(failures))
 redis.call('JSON.SET', KEYS[1], '$.revision', tostring((s.revision or 0) + 1))
 return 1
@@ -842,7 +861,7 @@ func (s *Storage) FinishRun(ctx context.Context, id, runID string, result schedu
 	if result.Success {
 		success = 1
 	}
-	n, err := s.client.Eval(ctx, finishRunScript, []string{s.taskKey(id)},
+	n, err := finishRun.Run(ctx, s.client, []string{s.taskKey(id)},
 		runID, result.StartedAt, result.EndedAt, result.NextRunAt, result.Schedule, success,
 		int(scheduler.TaskStatusRunning), int(scheduler.TaskStatusActive), int(scheduler.TaskStatusCompleted), result.RunAt).Int64()
 	if err != nil {
@@ -851,10 +870,12 @@ func (s *Storage) FinishRun(ctx context.Context, id, runID string, result schedu
 	return n == 1, nil
 }
 
-// renewRunScript sets run_lease_until and bumps the revision only while
-// ARGV[1] still owns an unfinished run. ARGV = [runID, leaseUntil].
+// renewRunScript sets run_lease_until and run_lease_id and bumps the revision
+// only while ARGV[1] still owns an unfinished run. ARGV = [runID, leaseUntil,
+// jsonRunID].
 const renewRunScript = ownedRunLua + `
 redis.call('JSON.SET', KEYS[1], '$.run_lease_until', ARGV[2])
+redis.call('JSON.SET', KEYS[1], '$.run_lease_id', ARGV[3])
 redis.call('JSON.SET', KEYS[1], '$.revision', tostring((s.revision or 0) + 1))
 return 1
 `
@@ -862,7 +883,11 @@ return 1
 // RenewRun extends the lease of the unfinished run runID in one atomic script,
 // renewRunScript; see [scheduler.Storage.RenewRun].
 func (s *Storage) RenewRun(ctx context.Context, id, runID string, leaseUntil int64) (bool, error) {
-	n, err := s.client.Eval(ctx, renewRunScript, []string{s.taskKey(id)}, runID, leaseUntil).Int64()
+	leaseID, err := json.Marshal(runID)
+	if err != nil {
+		return false, coreerrs.WrapOperation(err, "encode run id")
+	}
+	n, err := renewRun.Run(ctx, s.client, []string{s.taskKey(id)}, runID, leaseUntil, string(leaseID)).Int64()
 	if err != nil {
 		return false, coreerrs.WrapOperation(err, "renew task run")
 	}

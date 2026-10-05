@@ -37,6 +37,7 @@ type taskDocument struct {
 	LastRunID      string            `bson:"last_run_id,omitempty"`
 	RunStartedAt   int64             `bson:"run_started_at,omitempty"`
 	RunLeaseUntil  int64             `bson:"run_lease_until,omitempty"`
+	RunLeaseID     string            `bson:"run_lease_id,omitempty"`
 	RunAt          int64             `bson:"run_at,omitempty"`
 	Failures       int32             `bson:"failures"`
 	SkipNextRun    bool              `bson:"skip_next_run,omitempty"`
