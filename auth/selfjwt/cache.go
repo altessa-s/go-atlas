@@ -24,7 +24,7 @@ type cacheEntry struct {
 // keyCache caches resolved verification keys by (subject, kid) with a TTL so
 // the verifier avoids a key-provider lookup on every request. It is safe for
 // concurrent use. An expired entry is treated as a miss on read but is removed
-// from the map only when a capacity-bound put triggers eviction; a hard
+// from the map only when a capacity-bound insert triggers eviction; a hard
 // maxEntries cap then bounds memory so a churn of short-lived subjects (one-off
 // principals, rotated-away kids) cannot grow the map without limit. A
 // non-positive maxEntries disables the cap, leaving the cache unbounded.
@@ -69,25 +69,15 @@ func (c *keyCache) generation() uint64 {
 	return c.gen
 }
 
-// put stores key for (subject, kid), expiring one TTL from now. When the cache
-// is at its size cap it first drops expired entries and, if that frees nothing,
-// evicts arbitrary entries until a slot is free, keeping the map bounded.
-func (c *keyCache) put(subject, kid string, key VerificationKey) {
+// putIfGeneration stores key for (subject, kid), expiring one TTL from now, but
+// only when no invalidation has happened since gen was read: a result resolved
+// under an older generation may carry a key retired by that invalidation, so it
+// is dropped instead of cached. When the cache is at its size cap it first
+// drops expired entries and, if that frees nothing, evicts arbitrary entries
+// until a slot is free, keeping the map bounded.
+func (c *keyCache) putIfGeneration(subject, kid string, key VerificationKey, gen uint64) {
 	// A non-positive TTL disables caching: every lookup hits the KeyProvider, so
 	// there is nothing to store (get would treat any entry as already expired).
-	if c.ttl <= 0 {
-		return
-	}
-	now := c.clock.Now()
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.putLocked(subject, kid, key, now)
-}
-
-// putIfGeneration stores key like put, but only when no invalidation has
-// happened since gen was read: a result resolved under an older generation may
-// carry a key retired by that invalidation, so it is dropped instead of cached.
-func (c *keyCache) putIfGeneration(subject, kid string, key VerificationKey, gen uint64) {
 	if c.ttl <= 0 {
 		return
 	}
@@ -97,12 +87,6 @@ func (c *keyCache) putIfGeneration(subject, kid string, key VerificationKey, gen
 	if c.gen != gen {
 		return
 	}
-	c.putLocked(subject, kid, key, now)
-}
-
-// putLocked inserts the entry, evicting first when the cache is at its size
-// cap. The caller must hold c.mu.
-func (c *keyCache) putLocked(subject, kid string, key VerificationKey, now time.Time) {
 	if c.maxEntries > 0 && len(c.items) >= c.maxEntries {
 		c.evictLocked(now)
 	}
