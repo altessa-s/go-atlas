@@ -143,14 +143,16 @@ The retry, lock-expiry, and retention windows passed to the `Store` are **durati
 `UnlockStuckEvents(lockExpiry)`, `DeleteProcessedEvents(olderThan)`, and `ExpireEvents`. The store evaluates them against its own database server clock,
 so a worker whose wall clock is skewed cannot prematurely unlock another worker's in-flight event or leak a stuck one. Writes are additionally fenced by
 `Event.LockToken`, so a dispatcher that lost its lease cannot overwrite the result of the worker that took over. See [store/mongo](./store/mongo) for
-the MongoDB `$$NOW` implementation and the one-time BSON `Date` migration.
+the MongoDB `$$NOW` implementation and the one-time BSON `Date` migration, and [store/sqldb](./store/sqldb) for the SQL `now()` / `UTC_TIMESTAMP(6)`
+implementation.
 
 ## Subpackages
 
-| Package                          | Description                          |
-|----------------------------------|--------------------------------------|
-| [factory](./factory)             | Configuration-based creation         |
-| [store/mongo](./store/mongo)     | MongoDB-backed event storage         |
+| Package                      | Description                                                 |
+|------------------------------|-------------------------------------------------------------|
+| [factory](./factory)         | Configuration-based creation                                |
+| [store/mongo](./store/mongo) | MongoDB-backed event storage                                |
+| [store/sqldb](./store/sqldb) | PostgreSQL / MySQL / MariaDB storage through `database/sql` |
 
 ## Registration failures
 

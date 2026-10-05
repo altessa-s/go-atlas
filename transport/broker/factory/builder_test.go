@@ -20,6 +20,8 @@ import (
 
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	dataoutbox "github.com/altessa-s/go-atlas/data/outbox"
+	outboxsql "github.com/altessa-s/go-atlas/data/outbox/store/sqldb"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 // capturingRegistrar records the scheduler tasks the builder registers.
@@ -146,4 +148,17 @@ func TestCreateOutbox_RequiresAPublisher(t *testing.T) {
 
 	_, err := New(outboxConfig()).createOutboxWithStore(nopStore{}, nil)
 	require.Error(t, err)
+}
+
+func TestCreateOutboxWithSQLDB(t *testing.T) {
+	t.Parallel()
+
+	_, err := New(outboxConfig()).CreateOutboxWithSQLDB(nil, outboxsql.DialectPostgres, nopPublisher{})
+	require.ErrorContains(t, err, "SQL database")
+
+	db, fake := testhelpers.NewFakeSQL(t, nil)
+	ob, err := New(outboxConfig()).CreateOutboxWithSQLDB(db, outboxsql.DialectPostgres, nopPublisher{})
+	require.NoError(t, err)
+	require.NotNil(t, ob)
+	require.NotEmpty(t, fake.Calls(), "the events table is created on build")
 }

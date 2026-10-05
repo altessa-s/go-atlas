@@ -4,6 +4,7 @@ Outbox store implementations. Each subpackage provides a persistence backend for
 
 ## Subpackages
 
-| Package            | Description                          |
-|--------------------|--------------------------------------|
-| [mongo](./mongo)   | MongoDB-backed event storage         |
+| Package          | Description                                                 |
+|------------------|-------------------------------------------------------------|
+| [mongo](./mongo) | MongoDB-backed event storage                                |
+| [sqldb](./sqldb) | PostgreSQL / MySQL / MariaDB storage through `database/sql` |

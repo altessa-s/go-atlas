@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/altessa-s/go-atlas/data/outbox"
 )
@@ -20,21 +19,22 @@ import (
 func TestDispatch_DeliversSavedEvent(t *testing.T) {
 	t.Parallel()
 
-	f := newFixture(t)
-	ob := f.newOutbox(t)
+	forEachBackend(t, func(t *testing.T, f *fixture) {
+		ob := f.newOutbox(t)
 
-	saved := f.save(t, ob, event("billing.invoice.paid", `{"invoice":1}`))
+		saved := f.save(t, ob, event("billing.invoice.paid", `{"invoice":1}`))
 
-	require.NoError(t, ob.RunDispatchCycle(t.Context()))
+		require.NoError(t, ob.RunDispatchCycle(t.Context()))
 
-	require.Equal(t, []string{`{"invoice":1}`}, f.recorder.Payloads(), f.recorder.Timeline())
+		require.Equal(t, []string{`{"invoice":1}`}, f.recorder.Payloads(), f.recorder.Timeline())
 
-	doc := f.load(t, saved[0].Id)
-	require.Equal(t, string(outbox.StatusSent), doc.Status)
-	require.Equal(t, uint32(1), doc.Attempts)
-	require.NotNil(t, doc.PublishedAt)
-	require.Nil(t, doc.LastError)
-	require.Empty(t, doc.LockToken, "a completed event must not keep its lease")
+		doc := f.load(t, saved[0].Id)
+		require.Equal(t, string(outbox.StatusSent), doc.Status)
+		require.Equal(t, uint32(1), doc.Attempts)
+		require.NotNil(t, doc.PublishedAt)
+		require.Nil(t, doc.LastError)
+		require.Empty(t, doc.LockToken, "a completed event must not keep its lease")
+	})
 }
 
 // The property the whole pattern exists for: business data and its event commit
@@ -43,21 +43,22 @@ func TestDispatch_DeliversSavedEvent(t *testing.T) {
 func TestDispatch_CommittedTransactionPublishesExactlyOnce(t *testing.T) {
 	t.Parallel()
 
-	f := newFixture(t)
-	ob := f.newOutbox(t)
+	forEachBackend(t, func(t *testing.T, f *fixture) {
+		ob := f.newOutbox(t)
 
-	f.inTransaction(t, func(sessCtx context.Context) error {
-		if _, err := f.orders.InsertOne(sessCtx, bson.M{"_id": "order-1", "total": 42}); err != nil {
-			return err
-		}
-		return ob.Save(sessCtx, event("billing.order.created", `{"order":"order-1"}`))
+		f.inTransaction(t, func(sessCtx context.Context) error {
+			if err := f.insertOrder(sessCtx, "order-1", 42); err != nil {
+				return err
+			}
+			return ob.Save(sessCtx, event("billing.order.created", `{"order":"order-1"}`))
+		})
+
+		require.Equal(t, int64(1), f.countOrders(t))
+		require.Equal(t, int64(1), f.countEvents(t))
+
+		require.NoError(t, ob.RunDispatchCycle(t.Context()))
+		require.Equal(t, []string{`{"order":"order-1"}`}, f.recorder.Payloads())
 	})
-
-	require.Equal(t, int64(1), f.countOrders(t))
-	require.Equal(t, int64(1), f.countEvents(t))
-
-	require.NoError(t, ob.RunDispatchCycle(t.Context()))
-	require.Equal(t, []string{`{"order":"order-1"}`}, f.recorder.Payloads())
 }
 
 // The other half of the same property, and the failure mode that makes a naive
@@ -66,31 +67,28 @@ func TestDispatch_CommittedTransactionPublishesExactlyOnce(t *testing.T) {
 func TestDispatch_AbortedTransactionPublishesNothing(t *testing.T) {
 	t.Parallel()
 
-	f := newFixture(t)
-	ob := f.newOutbox(t)
+	forEachBackend(t, func(t *testing.T, f *fixture) {
+		ob := f.newOutbox(t)
 
-	rollback := errors.New("business rule rejected the order")
+		rollback := errors.New("business rule rejected the order")
 
-	sess, err := f.client.StartSession()
-	require.NoError(t, err)
-	defer sess.EndSession(t.Context())
+		err := f.tryTransaction(t, func(txCtx context.Context) error {
+			if insErr := f.insertOrder(txCtx, "order-2", 7); insErr != nil {
+				return insErr
+			}
+			if saveErr := ob.Save(txCtx, event("billing.order.created", `{"order":"order-2"}`)); saveErr != nil {
+				return saveErr
+			}
+			return rollback // Abort after both writes.
+		})
+		require.ErrorIs(t, err, rollback)
 
-	_, err = sess.WithTransaction(t.Context(), func(sessCtx context.Context) (any, error) {
-		if _, insErr := f.orders.InsertOne(sessCtx, bson.M{"_id": "order-2", "total": 7}); insErr != nil {
-			return nil, insErr
-		}
-		if saveErr := ob.Save(sessCtx, event("billing.order.created", `{"order":"order-2"}`)); saveErr != nil {
-			return nil, saveErr
-		}
-		return nil, rollback // Abort after both writes.
+		require.Zero(t, f.countOrders(t), "the aborted business write must be gone")
+		require.Zero(t, f.countEvents(t), "the event must roll back with it")
+
+		require.NoError(t, ob.RunDispatchCycle(t.Context()))
+		require.Zero(t, f.recorder.Count(), "nothing was committed, so nothing may be published")
 	})
-	require.ErrorIs(t, err, rollback)
-
-	require.Zero(t, f.countOrders(t), "the aborted business write must be gone")
-	require.Zero(t, f.countEvents(t), "the event must roll back with it")
-
-	require.NoError(t, ob.RunDispatchCycle(t.Context()))
-	require.Zero(t, f.recorder.Count(), "nothing was committed, so nothing may be published")
 }
 
 // Save validates the whole batch before it writes anything, so a rejected event
@@ -99,25 +97,26 @@ func TestDispatch_AbortedTransactionPublishesNothing(t *testing.T) {
 func TestDispatch_RejectedSaveLeavesTheTransactionCommittable(t *testing.T) {
 	t.Parallel()
 
-	f := newFixture(t)
-	ob := f.newOutbox(t)
+	forEachBackend(t, func(t *testing.T, f *fixture) {
+		ob := f.newOutbox(t)
 
-	var saveErr error
-	f.inTransaction(t, func(sessCtx context.Context) error {
-		if _, err := f.orders.InsertOne(sessCtx, bson.M{"_id": "order-3", "total": 1}); err != nil {
-			return err
-		}
-		// The second event is invalid; neither may reach the store.
-		saveErr = ob.Save(sessCtx,
-			event("billing.order.created", `{"order":"order-3"}`),
-			event("", `{"order":"order-3"}`),
-		)
-		return nil // Commit anyway — the point is that we still can.
+		var saveErr error
+		f.inTransaction(t, func(sessCtx context.Context) error {
+			if err := f.insertOrder(sessCtx, "order-3", 1); err != nil {
+				return err
+			}
+			// The second event is invalid; neither may reach the store.
+			saveErr = ob.Save(sessCtx,
+				event("billing.order.created", `{"order":"order-3"}`),
+				event("", `{"order":"order-3"}`),
+			)
+			return nil // Commit anyway — the point is that we still can.
+		})
+
+		require.ErrorIs(t, saveErr, outbox.ErrEmptyKey)
+		require.Equal(t, int64(1), f.countOrders(t), "the valid business write must survive")
+		require.Zero(t, f.countEvents(t), "a rejected batch must write no event at all")
 	})
-
-	require.ErrorIs(t, saveErr, outbox.ErrEmptyKey)
-	require.Equal(t, int64(1), f.countOrders(t), "the valid business write must survive")
-	require.Zero(t, f.countEvents(t), "a rejected batch must write no event at all")
 }
 
 // Compaction collapses a burst of updates for one entity down to the newest
@@ -126,27 +125,28 @@ func TestDispatch_RejectedSaveLeavesTheTransactionCommittable(t *testing.T) {
 func TestDispatch_CompactionPublishesOnlyTheLatestPerKey(t *testing.T) {
 	t.Parallel()
 
-	f := newFixture(t)
-	ob := f.newOutbox(t, outbox.WithCompaction())
+	forEachBackend(t, func(t *testing.T, f *fixture) {
+		ob := f.newOutbox(t, outbox.WithCompaction())
 
-	saved := f.save(t, ob,
-		event("orders.42", `{"state":"pending"}`),
-		event("orders.42", `{"state":"processing"}`),
-		event("orders.42", `{"state":"completed"}`),
-		event("orders.99", `{"state":"pending"}`),
-	)
+		saved := f.save(t, ob,
+			event("orders.42", `{"state":"pending"}`),
+			event("orders.42", `{"state":"processing"}`),
+			event("orders.42", `{"state":"completed"}`),
+			event("orders.99", `{"state":"pending"}`),
+		)
 
-	require.NoError(t, ob.RunDispatchCycle(t.Context()))
+		require.NoError(t, ob.RunDispatchCycle(t.Context()))
 
-	require.ElementsMatch(t,
-		[]string{`{"state":"completed"}`, `{"state":"pending"}`},
-		f.recorder.Payloads(),
-		f.recorder.Timeline())
+		require.ElementsMatch(t,
+			[]string{`{"state":"completed"}`, `{"state":"pending"}`},
+			f.recorder.Payloads(),
+			f.recorder.Timeline())
 
-	require.Equal(t, string(outbox.StatusSkipped), f.load(t, saved[0].Id).Status)
-	require.Equal(t, string(outbox.StatusSkipped), f.load(t, saved[1].Id).Status)
-	require.Equal(t, string(outbox.StatusSent), f.load(t, saved[2].Id).Status)
-	require.Equal(t, string(outbox.StatusSent), f.load(t, saved[3].Id).Status)
+		require.Equal(t, string(outbox.StatusSkipped), f.load(t, saved[0].Id).Status)
+		require.Equal(t, string(outbox.StatusSkipped), f.load(t, saved[1].Id).Status)
+		require.Equal(t, string(outbox.StatusSent), f.load(t, saved[2].Id).Status)
+		require.Equal(t, string(outbox.StatusSent), f.load(t, saved[3].Id).Status)
+	})
 }
 
 // A batch larger than the configured size is drained across cycles, and each
@@ -159,21 +159,22 @@ func TestDispatch_CompactionPublishesOnlyTheLatestPerKey(t *testing.T) {
 func TestDispatch_SelectsOldestEventsFirstAcrossBatches(t *testing.T) {
 	t.Parallel()
 
-	f := newFixture(t)
-	ob := f.newOutbox(t, outbox.WithEventsBatchSize(2))
+	forEachBackend(t, func(t *testing.T, f *fixture) {
+		ob := f.newOutbox(t, outbox.WithEventsBatchSize(2))
 
-	f.save(t, ob,
-		event("k.1", "first"),
-		event("k.2", "second"),
-		event("k.3", "third"),
-		event("k.4", "fourth"),
-	)
+		f.save(t, ob,
+			event("k.1", "first"),
+			event("k.2", "second"),
+			event("k.3", "third"),
+			event("k.4", "fourth"),
+		)
 
-	require.NoError(t, ob.RunDispatchCycle(t.Context()))
-	require.ElementsMatch(t, []string{"first", "second"}, f.recorder.Payloads(),
-		"the first cycle must take the two oldest events:\n%s", f.recorder.Timeline())
+		require.NoError(t, ob.RunDispatchCycle(t.Context()))
+		require.ElementsMatch(t, []string{"first", "second"}, f.recorder.Payloads(),
+			"the first cycle must take the two oldest events:\n%s", f.recorder.Timeline())
 
-	require.NoError(t, ob.RunDispatchCycle(t.Context()))
-	require.ElementsMatch(t, []string{"first", "second", "third", "fourth"}, f.recorder.Payloads(),
-		"the second cycle must take the remaining two:\n%s", f.recorder.Timeline())
+		require.NoError(t, ob.RunDispatchCycle(t.Context()))
+		require.ElementsMatch(t, []string{"first", "second", "third", "fourth"}, f.recorder.Payloads(),
+			"the second cycle must take the remaining two:\n%s", f.recorder.Timeline())
+	})
 }

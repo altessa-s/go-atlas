@@ -35,6 +35,7 @@ when its server is unreachable, so `make test-integration` is green on a machine
 |---------------|---------------------------|--------------------------------------------|
 | ClickHouse    | `127.0.0.1:19001`         | `CLICKHOUSE_ADDR`, `CLICKHOUSE_DB`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD` |
 | MariaDB       | `127.0.0.1:13306`         | `MARIADB_DSN`                              |
+| MySQL         | `127.0.0.1:13307`         | `MYSQL_DSN`                                |
 | PostgreSQL    | `127.0.0.1:15432`         | `POSTGRES_DSN`                             |
 | MongoDB       | `127.0.0.1:27019` (replica set `rs0`) | `MONGO_URI`                    |
 | Meilisearch   | `http://127.0.0.1:17700`  | `MEILI_URL`, `MEILI_KEY`                   |
@@ -163,6 +164,11 @@ The unit tests for `data/outbox` run against in-memory stores and assert on the 
 real store is a different question: the batch fetch takes its lock inside a transaction, every deadline is evaluated against the server clock, and
 writes are fenced by a lock token. None of those mechanisms exists until a real MongoDB is on the other side.
 
+The `Dispatch_*`, `Retry_*`, `Concurrency_*`, `Lifecycle_*` and `Store_*` scenarios run on every outbox store — MongoDB and the SQL store on
+PostgreSQL, MariaDB and MySQL — each in its own subtest over its own tables (`forEachBackend`). The MySQL DSN deliberately sets `loc=Asia/Tokyo`
+with `parseTime=true`: the SQL store must not let the driver shift an instant. The `Watch_*` and `Dedup_*` scenarios are MongoDB-only (change
+streams; NATS de-duplication through the broker adapter).
+
 | Scenario                                          | Asserts                                                                                     |
 |---------------------------------------------------|---------------------------------------------------------------------------------------------|
 | `Dispatch_DeliversSavedEvent`                     | The baseline: saved, delivered, marked sent, lease released                                  |
@@ -183,6 +189,11 @@ writes are fenced by a lock token. None of those mechanisms exists until a real 
 | `Lifecycle_ExpiredEventsAreNeverDispatched`       | A deadline that has passed suppresses delivery and is recorded                               |
 | `Lifecycle_CleanupKeepsDeadLetteredEvents`        | Retention sweeps successes and keeps what an operator still has to look at                   |
 | `Lifecycle_StatsReportBacklogDeadLettersAndLag`   | The gauges alerting depends on, computed against the server clock                            |
+| `Store_PayloadsRoundTrip`                         | `nil`, empty and binary payloads come back exactly as saved                                  |
+| `Store_LargeKeysAndErrors`                        | Keys and handler errors over 64 KB persist; a huge error does not roll back a sibling result  |
+| `Store_ErrorsWithNULPersist`                      | A handler error containing NUL persists without rolling back a sibling result                 |
+| `Store_InstantsAreNotShifted`                     | Client instants round-trip unshifted under any driver time zone; backlog age on the server clock |
+| `Store_SQLWatchIsUnsupported`                     | A SQL store reports `ErrWatchUnsupported`; dispatch stays on the poll schedule               |
 | `Watch_SupportsChangeStreamsOnAReplicaSet`        | The capability probe reads a real `hello` reply the way it expects to                        |
 | `Watch_DeliversWithoutAPollCycle`                 | A change stream alone carries a saved event to its handler — no schedule, no manual cycle    |
 | `Watch_DeliversNothingUntilTheTransactionCommits` | The stream reports an insert at commit, so a notification can never publish an aborted write |

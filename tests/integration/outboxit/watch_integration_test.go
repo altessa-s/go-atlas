@@ -35,7 +35,7 @@ const (
 func (f *fixture) requireChangeStreams(tb testing.TB) {
 	tb.Helper()
 
-	supported, err := f.store.SupportsChangeStreams(tb.Context())
+	supported, err := f.mongoStore.SupportsChangeStreams(tb.Context())
 	require.NoError(tb, err)
 
 	if !supported {
@@ -276,7 +276,7 @@ func TestWatch_SupportsChangeStreamsOnAReplicaSet(t *testing.T) {
 
 	f := newFixture(t)
 
-	supported, err := f.store.SupportsChangeStreams(t.Context())
+	supported, err := f.mongoStore.SupportsChangeStreams(t.Context())
 	require.NoError(t, err)
 	require.True(t, supported,
 		"the fixture runs transactions, so it is a replica set — change streams must be reported as available")
