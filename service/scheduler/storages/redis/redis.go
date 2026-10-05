@@ -410,9 +410,9 @@ redis.call('JSON.SET', KEYS[1], '$.revision', tostring(revision() + 1))
 return 1
 `
 
-// ClaimRun atomically transitions the task from active→running for the occurrence
-// described by claim by executing claimRunScript via EVAL. Redis runs the script
-// atomically, so concurrent callers cannot both claim one occurrence.
+// ClaimRun applies the claim rule of [scheduler.Storage.ClaimRun] by executing
+// claimRunScript via EVAL. Redis runs the script atomically, so concurrent
+// callers cannot both claim one occurrence.
 func (s *Storage) ClaimRun(ctx context.Context, id string, claim scheduler.RunClaim) (bool, error) {
 	// JSON.SET takes a JSON value: the run ID must be JSON-encoded, not quoted
 	// as a Go literal, or instance IDs with control characters break the write.
@@ -800,12 +800,23 @@ func (s *Storage) HistoryPaginated(ctx context.Context, taskID string, pg schedu
 // Compile-time interface check
 var _ scheduler.Storage = (*Storage)(nil)
 
-const finishRunScript = `
+// ownedRunLua is the script prefix shared by finishRunScript and
+// renewRunScript. It decodes the task document of KEYS[1] into s and ends the
+// script with 0 unless ARGV[1] owns its unfinished run — the ownership
+// predicate of [scheduler.Storage.RenewRun] and [scheduler.Storage.FinishRun].
+const ownedRunLua = `
 local raw = redis.call('JSON.GET', KEYS[1], '$')
 if not raw then return 0 end
-local docs = cjson.decode(raw)
-local s = docs[1]
+local s = cjson.decode(raw)[1]
 if not s or ARGV[1] == '' or s.last_run_id ~= ARGV[1] or not s.run_started_at or s.run_started_at == 0 then return 0 end
+`
+
+// finishRunScript applies the finish transition of [scheduler.Storage.FinishRun]
+// to KEYS[1] while ARGV[1] owns its unfinished run. ARGV = [runID, startedAt,
+// endedAt, nextRunAt, schedule, success ("1" or "0"), runningStatus,
+// activeStatus, completedStatus, runAt]. Returns 1 when the result was
+// recorded, 0 otherwise.
+const finishRunScript = ownedRunLua + `
 local status = s.status
 local executed = s.one_shot and (s.run_at or 0) == tonumber(ARGV[10])
 local nextRun = s.next_run_at or 0
@@ -824,8 +835,8 @@ redis.call('JSON.SET', KEYS[1], '$.revision', tostring((s.revision or 0) + 1))
 return 1
 `
 
-// FinishRun commits result in one atomic script, preserving configuration and
-// rejecting executions that have been reclaimed or already finished.
+// FinishRun applies the finish transition of [scheduler.Storage.FinishRun] in
+// one atomic script, finishRunScript.
 func (s *Storage) FinishRun(ctx context.Context, id, runID string, result scheduler.RunResult) (bool, error) {
 	success := 0
 	if result.Success {
@@ -842,17 +853,14 @@ func (s *Storage) FinishRun(ctx context.Context, id, runID string, result schedu
 
 // renewRunScript sets run_lease_until and bumps the revision only while
 // ARGV[1] still owns an unfinished run. ARGV = [runID, leaseUntil].
-const renewRunScript = `
-local raw = redis.call('JSON.GET', KEYS[1], '$')
-if not raw then return 0 end
-local s = cjson.decode(raw)[1]
-if not s or ARGV[1] == '' or s.last_run_id ~= ARGV[1] or not s.run_started_at or s.run_started_at == 0 then return 0 end
+const renewRunScript = ownedRunLua + `
 redis.call('JSON.SET', KEYS[1], '$.run_lease_until', ARGV[2])
 redis.call('JSON.SET', KEYS[1], '$.revision', tostring((s.revision or 0) + 1))
 return 1
 `
 
-// RenewRun extends the lease of the unfinished run runID in one atomic script.
+// RenewRun extends the lease of the unfinished run runID in one atomic script,
+// renewRunScript; see [scheduler.Storage.RenewRun].
 func (s *Storage) RenewRun(ctx context.Context, id, runID string, leaseUntil int64) (bool, error) {
 	n, err := s.client.Eval(ctx, renewRunScript, []string{s.taskKey(id)}, runID, leaseUntil).Int64()
 	if err != nil {

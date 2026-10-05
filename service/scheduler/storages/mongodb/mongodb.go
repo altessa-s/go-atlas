@@ -217,12 +217,11 @@ func zeroOrMissing[T comparable](v T) any {
 	return v
 }
 
-// ClaimRun atomically transitions the task from active→running for the
-// occurrence described by claim via a single conditional UpdateOne. The filter
-// matches status==active, an absent or zero run_started_at (no unfinished run)
-// and, when claim.NextRunAt is non-zero, next_run_at and run_at, so MongoDB's
-// atomic document update guarantees that at most one concurrent caller flips
-// the document and thus wins the claim.
+// ClaimRun applies the claim rule of [scheduler.Storage.ClaimRun] via a single
+// conditional UpdateOne. The filter matches status==active, an absent or zero
+// run_started_at (no unfinished run) and, when claim.NextRunAt is non-zero,
+// next_run_at and run_at, so MongoDB's atomic document update guarantees that
+// at most one concurrent caller flips the document and thus wins the claim.
 func (s *Storage) ClaimRun(ctx context.Context, id string, claim scheduler.RunClaim) (bool, error) {
 	filter := bson.M{
 		"_id":            id,
@@ -489,19 +488,28 @@ func (s *Storage) HistoryPaginated(ctx context.Context, taskID string, pg schedu
 // Compile-time interface check
 var _ scheduler.Storage = (*Storage)(nil)
 
-// FinishRun conditionally updates execution fields on the current document.
-// The server evaluates ownership and concurrent status/configuration together.
+// ownedRunFilter matches task id while runID owns its unfinished run, the
+// ownership predicate of [scheduler.Storage.RenewRun] and
+// [scheduler.Storage.FinishRun]. The scheduler always stores a positive
+// run_started_at, for which "> 0" and the contract's "!= 0" agree.
+func ownedRunFilter(id, runID string) bson.M {
+	return bson.M{"_id": id, "last_run_id": runID, "run_started_at": bson.M{"$gt": 0}}
+}
+
+// FinishRun applies the finish transition of [scheduler.Storage.FinishRun] as
+// a single conditional pipeline update, so the server evaluates ownership and
+// the concurrent status and configuration together.
 func (s *Storage) FinishRun(ctx context.Context, id, runID string, result scheduler.RunResult) (bool, error) {
 	if runID == "" {
 		return false, nil
 	}
+	oneShot := bson.M{"$ifNull": bson.A{"$one_shot", false}}
 	// executed: a one-shot task still registered for the occurrence this run
 	// executed (re-registration may have moved it to another RunAt meanwhile).
 	executed := bson.M{"$and": bson.A{
-		bson.M{"$ifNull": bson.A{"$one_shot", false}},
+		oneShot,
 		bson.M{"$eq": bson.A{bson.M{"$ifNull": bson.A{"$run_at", 0}}, result.RunAt}},
 	}}
-	oneShot := bson.M{"$ifNull": bson.A{"$one_shot", false}}
 	var failures any = 0
 	if !result.Success {
 		failures = bson.M{"$add": bson.A{bson.M{"$ifNull": bson.A{"$failures", 0}}, 1}}
@@ -523,7 +531,7 @@ func (s *Storage) FinishRun(ctx context.Context, id, runID string, result schedu
 		"run_started_at": 0, "failures": failures,
 		"revision": nextRevision,
 	}}}}
-	res, err := s.tasks.UpdateOne(ctx, bson.M{"_id": id, "last_run_id": runID, "run_started_at": bson.M{"$gt": 0}}, update)
+	res, err := s.tasks.UpdateOne(ctx, ownedRunFilter(id, runID), update)
 	if err != nil {
 		return false, err
 	}
@@ -531,13 +539,12 @@ func (s *Storage) FinishRun(ctx context.Context, id, runID string, result schedu
 }
 
 // RenewRun extends the lease of the unfinished run runID via a single
-// conditional UpdateOne carrying the FinishRun ownership predicate.
+// conditional UpdateOne; see [scheduler.Storage.RenewRun].
 func (s *Storage) RenewRun(ctx context.Context, id, runID string, leaseUntil int64) (bool, error) {
 	if runID == "" {
 		return false, nil
 	}
-	res, err := s.tasks.UpdateOne(ctx,
-		bson.M{"_id": id, "last_run_id": runID, "run_started_at": bson.M{"$gt": 0}},
+	res, err := s.tasks.UpdateOne(ctx, ownedRunFilter(id, runID),
 		bson.M{"$set": bson.M{"run_lease_until": leaseUntil}, "$inc": bson.M{"revision": 1}},
 	)
 	if err != nil {

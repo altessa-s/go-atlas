@@ -145,11 +145,10 @@ func (m *Storage) ReplaceTaskIf(_ context.Context, state *scheduler.TaskState, e
 	return true, nil
 }
 
-// ClaimRun atomically transitions the task from active→running for the
-// occurrence described by claim, provided no earlier run is still unfinished
-// (RunStartedAt == 0). Because all access is serialized by
-// the storage mutex, the read-check-write is a single critical section, so two
-// concurrent callers can never both claim the same occurrence.
+// ClaimRun applies the claim rule of [scheduler.Storage.ClaimRun]. Because all
+// access is serialized by the storage mutex, the read-check-write is a single
+// critical section, so two concurrent callers can never both claim the same
+// occurrence.
 func (m *Storage) ClaimRun(_ context.Context, id string, claim scheduler.RunClaim) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -479,12 +478,20 @@ func taskHistoryToFilterMap(h *scheduler.TaskHistory) map[string]any {
 // Compile-time interface check
 var _ scheduler.Storage = (*Storage)(nil)
 
-// FinishRun commits result only while runID still owns an unfinished execution.
+// ownsUnfinishedRun reports whether runID owns the unfinished run of state,
+// the ownership predicate of [scheduler.Storage.RenewRun] and
+// [scheduler.Storage.FinishRun]. state may be nil.
+func ownsUnfinishedRun(state *scheduler.TaskState, runID string) bool {
+	return state != nil && runID != "" && state.LastRunID == runID && state.RunStartedAt != 0
+}
+
+// FinishRun applies the finish transition of [scheduler.Storage.FinishRun]
+// under the storage mutex.
 func (m *Storage) FinishRun(_ context.Context, id, runID string, result scheduler.RunResult) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	state, ok := m.tasks[id]
-	if !ok || runID == "" || state.LastRunID != runID || state.RunStartedAt == 0 {
+	state := m.tasks[id]
+	if !ownsUnfinishedRun(state, runID) {
 		return false, nil
 	}
 	// A one-shot task still registered for the occurrence this run executed is
@@ -512,12 +519,13 @@ func (m *Storage) FinishRun(_ context.Context, id, runID string, result schedule
 	return true, nil
 }
 
-// RenewRun extends the lease of the unfinished run runID to leaseUntil.
+// RenewRun extends the lease of the unfinished run runID to leaseUntil under
+// the storage mutex; see [scheduler.Storage.RenewRun].
 func (m *Storage) RenewRun(_ context.Context, id, runID string, leaseUntil int64) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	state, ok := m.tasks[id]
-	if !ok || runID == "" || state.LastRunID != runID || state.RunStartedAt == 0 {
+	state := m.tasks[id]
+	if !ownsUnfinishedRun(state, runID) {
 		return false, nil
 	}
 	state.RunLeaseUntil = leaseUntil
