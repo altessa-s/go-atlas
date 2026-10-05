@@ -118,16 +118,19 @@ func (t *Manager[T]) runUpdateCycleInternal(ctx context.Context) error {
 	newKeys := keySetPool.GetWithCapacity(len(list))
 	defer keySetPool.Put(newKeys)
 
-	for _, lv := range list {
-		(*newKeys)[lv.key] = struct{}{}
+	for _, v := range list {
+		(*newKeys)[v.Key] = struct{}{}
 	}
 
-	// Watchers get their own copies, taken under cacheMu, so notification
-	// never reads an instance the cache or the provider holds.
+	// Watchers get their own copies, so notification never reads an
+	// instance the cache or the provider holds.
 	notify := t.watchManager != nil && t.watchManager.hasWatchers()
 	var current []*Value[T]
 	if notify {
 		current = make([]*Value[T], 0, len(list))
+		for _, v := range list {
+			current = append(current, v.clone())
+		}
 	}
 	deletedCount, updatedCount := 0, 0
 
@@ -144,23 +147,15 @@ func (t *Manager[T]) runUpdateCycleInternal(ctx context.Context) error {
 	}
 
 	// Process new/updated values
-	for _, lv := range list {
-		if lv.value.Key == "" {
-			// Cleared since it was listed (by whoever owns the provider's
-			// instance): never cache or report it.
+	for _, v := range list {
+		if t.isDirtyLocked(v.Key) {
 			continue
 		}
-		if notify {
-			current = append(current, lv.value.clone())
-		}
-		if t.isDirtyLocked(lv.key) {
-			continue
-		}
-		existing, exists := t.cache.Get(lv.key)
-		if !exists || existing.Version != lv.value.Version {
+		existing, exists := t.cache.Get(v.Key)
+		if !exists || existing.Version != v.Version {
 			// Cache a Manager-owned copy; the provider may keep or share
 			// the listed instance. Cache handles eviction automatically.
-			t.cache.Put(lv.key, lv.value.clone())
+			t.cache.Put(v.Key, v.clone())
 			updatedCount++
 		}
 	}
@@ -182,15 +177,6 @@ func (t *Manager[T]) runUpdateCycleInternal(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-// listedValue is a secret listed by an update cycle. Its key is read once,
-// under cacheMu, when the list is captured, so a later Clear of the listed
-// instance by whoever owns it cannot change it. The instance itself is only
-// read and copied, never cached or cleared by the Manager.
-type listedValue[T any] struct {
-	key   string
-	value *Value[T]
 }
 
 // beginCycle starts tracking the keys the Manager caches or deletes while an
@@ -215,22 +201,21 @@ func (t *Manager[T]) isDirtyLocked(key string) bool {
 	return dirty
 }
 
-// listSnapshot lists all secrets from storage (with retries) and captures
-// the listing under cacheMu, dropping values that were already cleared.
-func (t *Manager[T]) listSnapshot(ctx context.Context) ([]listedValue[T], error) {
+// listSnapshot lists all secrets from storage (with retries), dropping nil
+// values and values without a key. The listed instances belong to the
+// provider: the Manager only reads and copies them, never caches or clears
+// them.
+func (t *Manager[T]) listSnapshot(ctx context.Context) ([]*Value[T], error) {
 	list, err := t.listWithRetry(ctx)
 	if err != nil {
 		return nil, err
 	}
-
-	t.cacheMu.Lock()
-	defer t.cacheMu.Unlock()
-	listed := make([]listedValue[T], 0, len(list))
+	// A new slice: the provider may share the one it returned.
+	listed := make([]*Value[T], 0, len(list))
 	for _, v := range list {
-		if v == nil || v.Key == "" {
-			continue
+		if v != nil && v.Key != "" {
+			listed = append(listed, v)
 		}
-		listed = append(listed, listedValue[T]{key: v.Key, value: v})
 	}
 	return listed, nil
 }
@@ -243,14 +228,14 @@ func (t *Manager[T]) listSnapshot(ctx context.Context) ([]listedValue[T], error)
 // snapshot adds it to the filter while the rebuild journals it, so the
 // rebuilt filter cannot lose it. A rebuild failure is logged; a list failure
 // is returned.
-func (t *Manager[T]) listAndRebuildNegativeFilter(ctx context.Context) ([]listedValue[T], error) {
+func (t *Manager[T]) listAndRebuildNegativeFilter(ctx context.Context) ([]*Value[T], error) {
 	rebuilder, ok := t.negativeFilter.(probfilter.RebuildableFilter)
 	if t.negativeFilter == nil || !ok {
 		return t.listSnapshot(ctx)
 	}
 
 	var (
-		list    []listedValue[T]
+		list    []*Value[T]
 		listErr error
 		listed  bool
 	)
@@ -262,8 +247,8 @@ func (t *Manager[T]) listAndRebuildNegativeFilter(ctx context.Context) ([]listed
 				yield("", listErr)
 				return
 			}
-			for _, lv := range list {
-				if !yield(lv.key, nil) {
+			for _, v := range list {
+				if !yield(v.Key, nil) {
 					return
 				}
 			}
