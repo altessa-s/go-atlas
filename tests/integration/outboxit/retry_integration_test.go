@@ -73,7 +73,7 @@ func TestRetry_BackoffWithholdsTheEventUntilItElapses(t *testing.T) {
 		require.Eventually(t, func() bool {
 			require.NoError(t, restarted.RunDispatchCycle(t.Context()))
 			return f.recorder.Count() >= 2
-		}, settleWindow, samplingInterval, "the retry never became eligible:\n%s", f.recorder.Timeline())
+		}, settleWindow, samplingInterval, "the retry never became eligible:\n%s", f.recorder)
 
 		require.Equal(t, uint32(2), f.load(t, saved[0].Id).Attempts)
 	})
@@ -99,7 +99,7 @@ func TestRetry_DeadLettersWhenTheBudgetRunsOut(t *testing.T) {
 		require.Eventually(t, func() bool {
 			require.NoError(t, ob.RunDispatchCycle(t.Context()))
 			return f.load(t, saved[0].Id).Status == string(outbox.StatusMaxAttemptReached)
-		}, settleWindow, samplingInterval, "the event never exhausted its budget:\n%s", f.recorder.Timeline())
+		}, settleWindow, samplingInterval, "the event never exhausted its budget:\n%s", f.recorder)
 
 		doc := f.load(t, saved[0].Id)
 		require.Equal(t, uint32(2), doc.Attempts, "exactly the configured budget, no more")
@@ -169,7 +169,7 @@ func TestRetry_SucceedsOnceTheDestinationRecovers(t *testing.T) {
 		require.Eventually(t, func() bool {
 			require.NoError(t, ob.RunDispatchCycle(t.Context()))
 			return f.load(t, saved[0].Id).Status == string(outbox.StatusSent)
-		}, settleWindow, samplingInterval, "the event never went through:\n%s", f.recorder.Timeline())
+		}, settleWindow, samplingInterval, "the event never went through:\n%s", f.recorder)
 
 		doc := f.load(t, saved[0].Id)
 		require.Equal(t, uint32(2), doc.Attempts)
