@@ -20,7 +20,7 @@ var (
 	// Name is the application name, typically the binary or service name.
 	// It is set via linker flags during the build process:
 	//
-	//	go build -ldflags "-X 'appinfo.Name=MyApp'"
+	//	go build -ldflags "-X 'github.com/altessa-s/go-atlas/core/runtime/appinfo.Name=MyApp'"
 	//
 	// If not set at build time, it defaults to the last path component of
 	// the Go module path, or "unknown" if build info is unavailable.
@@ -30,13 +30,13 @@ var (
 	// and construct filesystem paths (e.g., /etc/<Project>/<Name>).
 	// It is set via linker flags during the build process:
 	//
-	//	go build -ldflags "-X 'appinfo.Project=MyProject'"
+	//	go build -ldflags "-X 'github.com/altessa-s/go-atlas/core/runtime/appinfo.Project=MyProject'"
 	Project = ""
 
 	// Version is the application's semantic version string (e.g., "1.2.3" or "1.0.0-beta.1").
 	// It defaults to "0.0.0" and is set via linker flags:
 	//
-	//	go build -ldflags "-X 'appinfo.Version=1.0.0'"
+	//	go build -ldflags "-X 'github.com/altessa-s/go-atlas/core/runtime/appinfo.Version=1.0.0'"
 	//
 	// The version is parsed at init time into a [SemanticVersion] accessible via [SemVersion].
 	Version = "0.0.0"
@@ -44,7 +44,7 @@ var (
 	// BuildTime is the timestamp when the binary was built, typically in RFC 3339 format.
 	// It is set via linker flags:
 	//
-	//	go build -ldflags "-X 'appinfo.BuildTime=2021-01-01T00:00:00Z'"
+	//	go build -ldflags "-X 'github.com/altessa-s/go-atlas/core/runtime/appinfo.BuildTime=2021-01-01T00:00:00Z'"
 	//
 	// If not set at build time, the value is populated from the vcs.time build setting.
 	BuildTime = ""
@@ -53,13 +53,13 @@ var (
 	// by [GetEnvVar]. Hyphens and dots are replaced with underscores at init time.
 	// It is set via linker flags:
 	//
-	//	go build -ldflags "-X 'appinfo.EnvPrefix=MYAPP'"
+	//	go build -ldflags "-X 'github.com/altessa-s/go-atlas/core/runtime/appinfo.EnvPrefix=MYAPP'"
 	EnvPrefix = ""
 
 	// Commit is the abbreviated (6 character), uppercase VCS revision hash.
 	// It is set via linker flags:
 	//
-	//	go build -ldflags "-X 'appinfo.Commit=abcdef123456'"
+	//	go build -ldflags "-X 'github.com/altessa-s/go-atlas/core/runtime/appinfo.Commit=abcdef123456'"
 	//
 	// If not set at build time, the value is derived from vcs.revision in
 	// the build info, truncated to 6 characters, and uppercased.
@@ -68,7 +68,7 @@ var (
 	// Branch is the VCS branch name from which the binary was built.
 	// It is set via linker flags:
 	//
-	//	go build -ldflags "-X 'appinfo.Branch=main'"
+	//	go build -ldflags "-X 'github.com/altessa-s/go-atlas/core/runtime/appinfo.Branch=main'"
 	Branch = ""
 
 	// StandaloneLabel is the human-readable label returned by [EnvLabel] when
@@ -221,9 +221,10 @@ func Deps() Dependencies {
 	return deps
 }
 
-// SemVersion returns a copy of the parsed [SemanticVersion] for the current [Version].
+// SemVersion returns a shallow copy of the parsed [SemanticVersion] for the current [Version].
 // If the version string could not be parsed, an empty SemanticVersion is returned.
-// The returned value is a copy, so callers may safely modify it.
+// The scalar fields may be modified freely, but Prerelease shares its backing array
+// with the package state; callers must not modify its elements.
 func SemVersion() *SemanticVersion {
 	if sver == nil {
 		return &SemanticVersion{}
@@ -266,7 +267,8 @@ func Info() string {
 }
 
 // BuildInfo returns a compact, single-line summary of the build toolchain
-// in the format "go=X.Y.Z, platform=os/arch, date=YYYY-MM-DD, tags=tag1,tag2".
+// in the format "go=X.Y.Z, platform=os/arch, date=<BuildTime>, tags=tag1,tag2".
+// The date field is [BuildTime] verbatim (typically RFC 3339), not reformatted.
 func BuildInfo() string {
 	return fmt.Sprintf("go=%s, platform=%s, date=%s, tags=%s", goVersion, goOS+"/"+goArch, BuildTime, buildTags)
 }

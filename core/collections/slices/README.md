@@ -67,6 +67,7 @@ Lazy `iter.Seq` iterators for zero-allocation pipelines. Use `slices.Collect()` 
 
 ## Performance
 
-- Slices with 32 or fewer elements use linear scan for deduplication (faster than map-based).
+- `Deduplicate` / `DeduplicateBy` use a map-based seen set with a fast path for consecutive duplicates, and return the input slice unchanged
+  (no result allocation) when it has no duplicates.
 - `MapParallel` / `FilterParallel` use goroutines for large datasets (50K+ elements).
 - `FilterFirst`, `Any`, `All`, `Reduce` are zero-allocation with early return.

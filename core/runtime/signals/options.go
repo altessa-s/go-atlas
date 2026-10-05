@@ -37,8 +37,8 @@ const (
 	// queue optimization is used instead of slice sorting.
 	LargeHandlerCountThreshold = 50
 
-	// SmallHandlerCountThreshold is the handler count at or below which a
-	// simple insertion sort is used (faster than counting sort for small N).
+	// SmallHandlerCountThreshold is exported but not consulted by the
+	// dispatcher: the insertion-sort cutoff is an internal constant (32).
 	SmallHandlerCountThreshold = 10
 
 	// ResponsiveTimeoutDuration is the grace period given to parallel handlers

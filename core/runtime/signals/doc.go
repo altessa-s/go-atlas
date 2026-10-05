@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package signals provides OS signal handling with priority-based execution and rate limiting.
+// Package signals provides OS signal handling with priority-based execution.
 // Supports graceful shutdown, context-aware handlers, and concurrent processing.
 //
 // Fully thread-safe. All operations (registration, start/stop, signal processing)
@@ -35,5 +35,4 @@
 //
 //   - Worker pool limits concurrent handler execution to prevent resource exhaustion.
 //   - Parallel mode executes independent handlers concurrently (up to 3x speedup).
-//   - Rate limiting uses token bucket algorithm with atomic operations.
 package signals

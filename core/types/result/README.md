@@ -23,7 +23,7 @@ The zero value of `Result[T]` is a valid `Ok` of the zero value of `T`. All cons
 | Method               | Description                                                          |
 |----------------------|----------------------------------------------------------------------|
 | `Get() (T, error)`   | Underlying pair; the bridge back to idiomatic Go control flow        |
-| `Value() T`          | Contained value (zero value of `T` if `Result` carries an error)     |
+| `Value() T`          | Contained value as-is; `Of(v, err)` keeps `v` even when `err != nil` |
 | `Err() error`        | Contained error, or `nil` if `Result` is `Ok`                        |
 | `IsOk() bool`        | Reports whether `Err()` is `nil`                                     |
 | `IsErr() bool`       | Reports whether `Err()` is non-nil                                   |
