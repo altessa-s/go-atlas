@@ -382,6 +382,18 @@ Package: `data/saga`
 | `saga_recovered_total`                | Counter   | --     | Stalled or timed-out instances picked up          |
 | `saga_stage_duration_seconds`         | Histogram | --     | Forward stage execution duration                  |
 
+Package: `data/saga/engines/jetstream`
+
+| Name                                  | Type      | Labels | Description                                       |
+|---------------------------------------|-----------|--------|---------------------------------------------------|
+| `saga_engine_submitted_total`         | Counter   | --     | Start commands published to JetStream             |
+| `saga_engine_consumed_total`          | Counter   | --     | Start commands received from JetStream            |
+| `saga_engine_acked_total`             | Counter   | --     | Commands acked after a terminal saga state        |
+| `saga_engine_naked_total`             | Counter   | --     | Commands returned for redelivery                  |
+| `saga_engine_terminated_total`        | Counter   | --     | Poison commands terminated without redelivery     |
+| `saga_engine_ack_errors_total`        | Counter   | --     | Failed Ack, Nak, Term or InProgress calls         |
+| `saga_engine_in_flight`               | Gauge     | --     | Sagas the engine is currently driving             |
+
 ---
 
 ## scheduler
