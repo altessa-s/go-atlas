@@ -223,7 +223,14 @@ func (t *Translator) translateComparison(op filter.Operator, left, right filter.
 		return nil, err
 	}
 
-	return t.buildComparisonFilter(field, op, value)
+	base, err := t.buildComparisonFilter(field, op, value)
+	if err != nil {
+		return nil, err
+	}
+	if kind, ok := t.zeroKind(left); ok {
+		return absentAs(field, zeroMatchesComparison(op, kind, value), base), nil
+	}
+	return base, nil
 }
 
 // buildComparisonFilter creates a MongoDB comparison filter.
@@ -267,6 +274,22 @@ func (t *Translator) translateSizeComparison(op filter.Operator, call *filter.Ca
 		return nil, err
 	}
 
+	kind, declared := t.zeroKind(call.Target)
+	if !declared {
+		return t.buildSizeFilter(field, op, value)
+	}
+	if err = sizeOperand(value); err != nil {
+		return nil, err
+	}
+	base, err := t.buildSizeFilter(field, op, value)
+	if err != nil {
+		return nil, err
+	}
+	return absentAs(field, zeroMatchesSize(op, kind, value), base), nil
+}
+
+// buildSizeFilter builds the size() comparison of field against value.
+func (t *Translator) buildSizeFilter(field string, op filter.Operator, value any) (bson.M, error) {
 	switch op {
 	case filter.OpEqual:
 		return bson.M{"$or": bson.A{
@@ -390,7 +413,11 @@ func (t *Translator) translateIn(left, right filter.Node) (bson.M, error) {
 		return nil, coreerrs.Wrapf(filter.ErrInvalidExpression, "in operator requires a list, got %T", values)
 	}
 
-	return bson.M{field: bson.M{"$in": valuesSlice}}, nil
+	base := bson.M{field: bson.M{"$in": valuesSlice}}
+	if kind, declared := t.zeroKind(left); declared {
+		return absentAs(field, zeroMatchesIn(kind, valuesSlice), base), nil
+	}
+	return base, nil
 }
 
 // translateRegexOp handles string functions like contains, startsWith, endsWith, matches.
@@ -419,7 +446,16 @@ func (t *Translator) translateRegexOp(target filter.Node, args []filter.Node, tr
 		return nil, err
 	}
 
-	return bson.M{field: bson.M{"$regex": regexPattern}}, nil
+	base := bson.M{field: bson.M{"$regex": regexPattern}}
+	kind, declared := t.zeroKind(target)
+	if !declared {
+		return base, nil
+	}
+	zeroMatches, err := zeroMatchesRegex(kind, regexPattern)
+	if err != nil {
+		return nil, err
+	}
+	return absentAs(field, zeroMatches, base), nil
 }
 
 // translateSize handles the size() function.
@@ -444,6 +480,11 @@ func (t *Translator) translateHas(target filter.Node) (bson.M, error) {
 		return nil, err
 	}
 
+	// A declared field is never truly missing — its absence stands for the
+	// zero value — so has() holds for every document.
+	if _, declared := t.zeroKind(target); declared {
+		return bson.M{}, nil
+	}
 	return bson.M{field: bson.M{"$exists": true}}, nil
 }
 

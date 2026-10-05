@@ -47,6 +47,23 @@
 // {active: true}, `!active` to {active: {$ne: true}} — at the root of an expression and on either side
 // of $and / $or alike.
 //
+// # Fields Omitted When Zero
+//
+// A document encoded with omitempty lacks a field whose value is zero, and a
+// plain query tells the two apart: {description: ""} misses a document
+// without description, while {description: {$ne: ""}} selects it. Fields
+// declared with [filter.WithZeroWhenAbsent] are translated so that every
+// predicate matches a document lacking the field exactly when it matches one
+// storing the zero value: the predicate is built as usual, then OR-ed with
+// {f: {$exists: false}} when the stored zero satisfies it and AND-ed with
+// {f: {$exists: true}} when it does not. The decision follows MongoDB's own
+// semantics on the stored zero (type-bracketed comparisons, millisecond
+// timestamps, null never equal to a zero), has() on a declared field always
+// holds, and a size() comparison over one must compare with a number.
+// String comparisons are judged byte-wise, as under MongoDB's default simple
+// collation; with a locale collation on the query or the collection, an
+// absent field may be judged differently from a stored "".
+//
 // # Security
 //
 // matches() passes the user-supplied pattern through to MongoDB's $regex.
