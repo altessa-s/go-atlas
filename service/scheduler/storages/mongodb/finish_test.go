@@ -7,7 +7,7 @@ package mongodb_test
 import (
 	"testing"
 
-	"github.com/altessa-s/go-atlas/service/scheduler/internal/storagetest"
+	"github.com/altessa-s/go-atlas/service/scheduler/storagetest"
 )
 
 func TestFinishRun(t *testing.T) {
