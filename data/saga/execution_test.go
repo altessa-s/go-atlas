@@ -151,3 +151,54 @@ func TestRecoveryIOHasBoundedContext(t *testing.T) {
 	cancel()
 	require.ErrorIs(t, o.RunRecoveryCycle(ctx), context.Canceled)
 }
+
+// terminalWriteFailStore fails the first Update that would persist the given
+// terminal status, simulating an outage on the final checkpoint.
+type terminalWriteFailStore struct {
+	saga.Store
+	status saga.Status
+	failed atomic.Bool
+}
+
+func (s *terminalWriteFailStore) Update(ctx context.Context, inst *saga.Instance) error {
+	if inst.Status == s.status && s.failed.CompareAndSwap(false, true) {
+		return errors.New("terminal write failed")
+	}
+	return s.Store.Update(ctx, inst)
+}
+
+func TestFailedTerminalWriteLeavesInstanceNonTerminal(t *testing.T) {
+	t.Parallel()
+	boom := errors.New("step failed")
+	for _, tc := range []struct {
+		name     string
+		terminal saga.Status
+		want     saga.Status
+		failStep error
+	}{
+		{"completed", saga.StatusCompleted, saga.StatusRunning, nil},
+		{"compensated", saga.StatusCompensated, saga.StatusCompensating, boom},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := &terminalWriteFailStore{Store: memory.New(), status: tc.terminal}
+			def := saga.NewDefinition[struct{}]("terminal").
+				Step("a", func(context.Context, *struct{}) error { return nil }).
+				Compensate(func(context.Context, *struct{}) error { return nil }).
+				Step("b", func(context.Context, *struct{}) error { return tc.failStep }).
+				Compensate(func(context.Context, *struct{}) error { return nil }).
+				MustBuild()
+			o := saga.New(store, def, saga.WithMaxStepAttempts(1))
+
+			inst, err := o.Start(t.Context(), "id", struct{}{})
+			require.Error(t, err)
+			require.Equal(t, tc.want, inst.Status, "an unpersisted terminal status must not be reported")
+			stored, err := store.Get(t.Context(), "id")
+			require.NoError(t, err)
+			require.Equal(t, tc.want, stored.Status)
+
+			inst, _ = o.Resume(t.Context(), "id")
+			require.Equal(t, tc.terminal, inst.Status)
+		})
+	}
+}
