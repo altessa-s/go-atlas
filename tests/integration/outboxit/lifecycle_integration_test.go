@@ -21,24 +21,25 @@ import (
 func TestLifecycle_ExpiredEventsAreNeverDispatched(t *testing.T) {
 	t.Parallel()
 
-	f := newFixture(t)
-	ob := f.newOutbox(t)
+	forEachBackend(t, func(t *testing.T, f *fixture) {
+		ob := f.newOutbox(t)
 
-	past := time.Now().UTC().Add(-time.Hour)
-	saved := f.save(t, ob, outbox.Event{
-		Key:       "billing.invoice.paid",
-		Payload:   []byte(`{"invoice":1}`),
-		ExpiresAt: past,
+		past := time.Now().UTC().Add(-time.Hour)
+		saved := f.save(t, ob, outbox.Event{
+			Key:       "billing.invoice.paid",
+			Payload:   []byte(`{"invoice":1}`),
+			ExpiresAt: past,
+		})
+
+		require.NoError(t, ob.RunDispatchCycle(t.Context()))
+		require.Zero(t, f.recorder.Count(), "an expired event must not be published:\n%s", f.recorder.Timeline())
+
+		require.NoError(t, ob.RunExpireCycle(t.Context()))
+
+		doc := f.load(t, saved[0].Id)
+		require.Equal(t, string(outbox.StatusExpired), doc.Status)
+		require.NotNil(t, doc.PublishedAt, "expiry must stamp a completion time so cleanup can age it out")
 	})
-
-	require.NoError(t, ob.RunDispatchCycle(t.Context()))
-	require.Zero(t, f.recorder.Count(), "an expired event must not be published:\n%s", f.recorder.Timeline())
-
-	require.NoError(t, ob.RunExpireCycle(t.Context()))
-
-	doc := f.load(t, saved[0].Id)
-	require.Equal(t, string(outbox.StatusExpired), doc.Status)
-	require.NotNil(t, doc.PublishedAt, "expiry must stamp a completion time so cleanup can age it out")
 }
 
 // An event whose deadline is still ahead is dispatched normally — the expiry
@@ -46,17 +47,18 @@ func TestLifecycle_ExpiredEventsAreNeverDispatched(t *testing.T) {
 func TestLifecycle_UnexpiredEventsAreDispatchedNormally(t *testing.T) {
 	t.Parallel()
 
-	f := newFixture(t)
-	ob := f.newOutbox(t)
+	forEachBackend(t, func(t *testing.T, f *fixture) {
+		ob := f.newOutbox(t)
 
-	saved := f.save(t, ob, outbox.Event{
-		Key:       "billing.invoice.paid",
-		Payload:   []byte(`{"invoice":1}`),
-		ExpiresAt: time.Now().UTC().Add(time.Hour),
+		saved := f.save(t, ob, outbox.Event{
+			Key:       "billing.invoice.paid",
+			Payload:   []byte(`{"invoice":1}`),
+			ExpiresAt: time.Now().UTC().Add(time.Hour),
+		})
+
+		require.NoError(t, ob.RunDispatchCycle(t.Context()))
+		require.Equal(t, string(outbox.StatusSent), f.load(t, saved[0].Id).Status)
 	})
-
-	require.NoError(t, ob.RunDispatchCycle(t.Context()))
-	require.Equal(t, string(outbox.StatusSent), f.load(t, saved[0].Id).Status)
 }
 
 // Retention sweeps the events that completed successfully and keeps the ones an
@@ -65,35 +67,35 @@ func TestLifecycle_UnexpiredEventsAreDispatchedNormally(t *testing.T) {
 func TestLifecycle_CleanupKeepsDeadLetteredEvents(t *testing.T) {
 	t.Parallel()
 
-	f := newFixture(t)
+	forEachBackend(t, func(t *testing.T, f *fixture) {
+		// One event goes through; the other exhausts a budget of one.
+		ob := f.newOutbox(t,
+			outbox.WithRetryMaxAttempts(1),
+			outbox.WithPublishedEventsLifetime(time.Minute),
+		)
 
-	// One event goes through; the other exhausts a budget of one.
-	ob := f.newOutbox(t,
-		outbox.WithRetryMaxAttempts(1),
-		outbox.WithPublishedEventsLifetime(time.Minute),
-	)
+		delivered := f.save(t, ob, event("billing.invoice.paid", `{"invoice":1}`))
+		require.NoError(t, ob.RunDispatchCycle(t.Context()))
+		require.Equal(t, string(outbox.StatusSent), f.load(t, delivered[0].Id).Status)
 
-	delivered := f.save(t, ob, event("billing.invoice.paid", `{"invoice":1}`))
-	require.NoError(t, ob.RunDispatchCycle(t.Context()))
-	require.Equal(t, string(outbox.StatusSent), f.load(t, delivered[0].Id).Status)
+		f.recorder.Respond(func(outboxit.Delivery) error { return errors.New("permanently broken destination") })
+		poisoned := f.save(t, ob, event("billing.invoice.failed", `{"invoice":2}`))
+		require.NoError(t, ob.RunDispatchCycle(t.Context()))
+		require.Equal(t, string(outbox.StatusMaxAttemptReached), f.load(t, poisoned[0].Id).Status)
 
-	f.recorder.Respond(func(outboxit.Delivery) error { return errors.New("permanently broken destination") })
-	poisoned := f.save(t, ob, event("billing.invoice.failed", `{"invoice":2}`))
-	require.NoError(t, ob.RunDispatchCycle(t.Context()))
-	require.Equal(t, string(outbox.StatusMaxAttemptReached), f.load(t, poisoned[0].Id).Status)
+		// Retention is a duration measured against the server clock on both sides —
+		// the deadline and the completion timestamp alike — so the sweep is driven
+		// by how old the events are and not by how far the caller's clock has
+		// drifted from the database's.
+		retention := 50 * time.Millisecond
+		time.Sleep(2 * retention)
+		require.NoError(t, f.store.DeleteProcessedEvents(t.Context(), retention))
 
-	// Retention is a duration measured against the server clock on both sides —
-	// the deadline and the completion timestamp alike — so the sweep is driven
-	// by how old the events are and not by how far the caller's clock has
-	// drifted from the database's.
-	retention := 50 * time.Millisecond
-	time.Sleep(2 * retention)
-	require.NoError(t, f.store.DeleteProcessedEvents(t.Context(), retention))
-
-	remaining := f.loadAll(t)
-	require.Len(t, remaining, 1, "the sent event must be swept and the dead letter kept")
-	require.Equal(t, poisoned[0].Id, remaining[0].ID)
-	require.Equal(t, string(outbox.StatusMaxAttemptReached), remaining[0].Status)
+		remaining := f.loadAll(t)
+		require.Len(t, remaining, 1, "the sent event must be swept and the dead letter kept")
+		require.Equal(t, poisoned[0].Id, remaining[0].ID)
+		require.Equal(t, string(outbox.StatusMaxAttemptReached), remaining[0].Status)
+	})
 }
 
 // Retention leaves events alone until they are actually old enough — a sweep
@@ -101,16 +103,17 @@ func TestLifecycle_CleanupKeepsDeadLetteredEvents(t *testing.T) {
 func TestLifecycle_CleanupRespectsTheRetentionWindow(t *testing.T) {
 	t.Parallel()
 
-	f := newFixture(t)
-	ob := f.newOutbox(t, outbox.WithPublishedEventsLifetime(time.Hour))
+	forEachBackend(t, func(t *testing.T, f *fixture) {
+		ob := f.newOutbox(t, outbox.WithPublishedEventsLifetime(time.Hour))
 
-	saved := f.save(t, ob, event("billing.invoice.paid", `{"invoice":1}`))
-	require.NoError(t, ob.RunDispatchCycle(t.Context()))
+		saved := f.save(t, ob, event("billing.invoice.paid", `{"invoice":1}`))
+		require.NoError(t, ob.RunDispatchCycle(t.Context()))
 
-	require.NoError(t, ob.RunCleanupCycle(t.Context()))
+		require.NoError(t, ob.RunCleanupCycle(t.Context()))
 
-	require.Equal(t, int64(1), f.countEvents(t), "a freshly sent event is not yet due for cleanup")
-	require.Equal(t, string(outbox.StatusSent), f.load(t, saved[0].Id).Status)
+		require.Equal(t, int64(1), f.countEvents(t), "a freshly sent event is not yet due for cleanup")
+		require.Equal(t, string(outbox.StatusSent), f.load(t, saved[0].Id).Status)
+	})
 }
 
 // The gauges an operator alerts on. Counters cannot tell a stalled outbox from
@@ -119,33 +122,34 @@ func TestLifecycle_CleanupRespectsTheRetentionWindow(t *testing.T) {
 func TestLifecycle_StatsReportBacklogDeadLettersAndLag(t *testing.T) {
 	t.Parallel()
 
-	f := newFixture(t)
-	ob := f.newOutbox(t, outbox.WithRetryMaxAttempts(1))
+	forEachBackend(t, func(t *testing.T, f *fixture) {
+		ob := f.newOutbox(t, outbox.WithRetryMaxAttempts(1))
 
-	// Dead-letter one event first. A dispatch cycle drains everything that is
-	// eligible, so the backlog has to be created after this one is terminal —
-	// otherwise it would be dead-lettered too and there would be no backlog
-	// left to measure.
-	f.recorder.Respond(func(outboxit.Delivery) error { return errors.New("permanently broken destination") })
-	poisoned := f.save(t, ob, event("orders.3", "c"))
-	require.NoError(t, ob.RunDispatchCycle(t.Context()))
-	require.Equal(t, string(outbox.StatusMaxAttemptReached), f.load(t, poisoned[0].Id).Status)
+		// Dead-letter one event first. A dispatch cycle drains everything that is
+		// eligible, so the backlog has to be created after this one is terminal —
+		// otherwise it would be dead-lettered too and there would be no backlog
+		// left to measure.
+		f.recorder.Respond(func(outboxit.Delivery) error { return errors.New("permanently broken destination") })
+		poisoned := f.save(t, ob, event("orders.3", "c"))
+		require.NoError(t, ob.RunDispatchCycle(t.Context()))
+		require.Equal(t, string(outbox.StatusMaxAttemptReached), f.load(t, poisoned[0].Id).Status)
 
-	// Two events that are never dispatched in this test: pure backlog. One is
-	// backdated so the lag is unambiguous.
-	backdated := time.Now().UTC().Add(-2 * time.Hour)
-	f.save(t, ob,
-		outbox.Event{Key: "orders.1", Payload: []byte("a"), CreatedAt: backdated},
-		outbox.Event{Key: "orders.2", Payload: []byte("b")},
-	)
+		// Two events that are never dispatched in this test: pure backlog. One is
+		// backdated so the lag is unambiguous.
+		backdated := time.Now().UTC().Add(-2 * time.Hour)
+		f.save(t, ob,
+			outbox.Event{Key: "orders.1", Payload: []byte("a"), CreatedAt: backdated},
+			outbox.Event{Key: "orders.2", Payload: []byte("b")},
+		)
 
-	stats, err := f.store.Stats(t.Context())
-	require.NoError(t, err)
-	require.Equal(t, int64(2), stats.Pending, "only the undispatched events count as backlog")
-	require.Equal(t, int64(1), stats.DeadLettered, "the dead letter must show up as depth, not just a counter tick")
-	require.Zero(t, stats.InProgress, "no event may be left locked once the cycle ends")
-	require.Greater(t, stats.OldestPendingAge, time.Hour,
-		"lag must be measured from the oldest waiting event")
+		stats, err := f.store.Stats(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, int64(2), stats.Pending, "only the undispatched events count as backlog")
+		require.Equal(t, int64(1), stats.DeadLettered, "the dead letter must show up as depth, not just a counter tick")
+		require.Zero(t, stats.InProgress, "no event may be left locked once the cycle ends")
+		require.Greater(t, stats.OldestPendingAge, time.Hour,
+			"lag must be measured from the oldest waiting event")
+	})
 }
 
 // An empty outbox reports zeros rather than failing — the gauges have to be
@@ -153,9 +157,9 @@ func TestLifecycle_StatsReportBacklogDeadLettersAndLag(t *testing.T) {
 func TestLifecycle_StatsOnAnEmptyOutbox(t *testing.T) {
 	t.Parallel()
 
-	f := newFixture(t)
-
-	stats, err := f.store.Stats(t.Context())
-	require.NoError(t, err)
-	require.Equal(t, outbox.Stats{}, stats)
+	forEachBackend(t, func(t *testing.T, f *fixture) {
+		stats, err := f.store.Stats(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, outbox.Stats{}, stats)
+	})
 }

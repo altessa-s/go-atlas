@@ -23,7 +23,8 @@
 // Save must run inside the same store transaction as the business data it describes.
 // That atomicity is the whole point: without it, the write can commit while the event
 // is lost, or the event can be published for a write that rolled back. With the MongoDB
-// store this means passing the session context into Save — see [Outbox.Save].
+// store this means passing the session context into Save — see [Outbox.Save]; with the
+// SQL store (store/sqldb), passing the transaction through sqldb.WithTx.
 //
 // # Delivery semantics
 //
