@@ -155,3 +155,12 @@ func (r *Recorder) Timeline() string {
 
 	return b.String()
 }
+
+// String renders the timeline, making the recorder a [fmt.Stringer].
+//
+// Pass the recorder itself, not Timeline(), as a failure-message argument to
+// an assertion that waits — require.Eventually and its kin. Arguments are
+// evaluated when the assertion is called, so Timeline() would report the
+// recording as it stood before the wait, while a Stringer is rendered only
+// when the failure is formatted and therefore shows what actually happened.
+func (r *Recorder) String() string { return r.Timeline() }

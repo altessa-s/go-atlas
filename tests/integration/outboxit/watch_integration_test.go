@@ -76,14 +76,38 @@ func (f *fixture) startWatcher(tb testing.TB, ob *outbox.Outbox) {
 // waited would therefore hang whenever the save won that race. Probing until one
 // comes back is the only signal the driver offers; there is no "stream ready"
 // callback to wait on.
+//
+// The first delivery proves the stream is live, but it does not end the probing:
+// on a loaded machine a probe can outlast probeInterval, so several may be in
+// flight by then, and the first one back need not be the last one handed over.
+// Clearing the recording at that point would let a straggler land after the
+// reset and pass for a delivery under test. The recording is therefore cleared
+// only once every probe saved has come back — none of them can be delivered
+// again afterwards, since nothing here reclaims a lease.
 func (f *fixture) awaitWatcher(tb testing.TB, ob *outbox.Outbox) {
 	tb.Helper()
 
+	var probes []string
+	allProbesDelivered := func() bool {
+		for _, id := range probes {
+			if f.recorder.CountOf(id) == 0 {
+				return false
+			}
+		}
+		return true
+	}
+
 	deadline := time.Now().Add(settleWindow)
 	for probe := 0; ; probe++ {
-		f.save(tb, ob, event("watch.probe", fmt.Sprintf(`{"probe":%d}`, probe)))
+		saved := f.save(tb, ob, event("watch.probe", fmt.Sprintf(`{"probe":%d}`, probe)))
+		probes = append(probes, saved[0].Id)
 
 		if settled(func() bool { return f.recorder.Count() > 0 }, probeInterval) {
+			// The stream is live, so every probe is now bound to come back:
+			// those saved before it opened are still pending for the cycle the
+			// live one triggered, and a full batch re-arms the drain.
+			require.Eventually(tb, allProbesDelivered, settleWindow, samplingInterval,
+				"the watcher picked up a probe but never drained the other %d:\n%s", len(probes)-1, f.recorder)
 			f.recorder.Reset()
 			return
 		}
@@ -92,6 +116,21 @@ func (f *fixture) awaitWatcher(tb testing.TB, ob *outbox.Outbox) {
 				"saved %d probes without a single notification-driven dispatch", probe+1)
 		}
 	}
+}
+
+// awaitSent waits for an event the watcher delivered to be recorded as sent.
+//
+// The recorder sees a delivery the moment the handler is called, but the
+// outcome reaches the store only after the whole batch has been handled, and it
+// is written by the watcher's goroutine rather than the test's. A status read as
+// soon as the expected delivery count is reached races that write; waiting for
+// it asserts the same outcome without the race.
+func (f *fixture) awaitSent(tb testing.TB, id string) {
+	tb.Helper()
+
+	require.Eventually(tb, func() bool {
+		return f.load(tb, id).Status == string(outbox.StatusSent)
+	}, settleWindow, samplingInterval, "event %s was delivered but never recorded as sent", id)
 }
 
 // settled reports whether cond became true within the given window.
@@ -129,12 +168,12 @@ func TestWatch_DeliversWithoutAPollCycle(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return f.recorder.Count() == 1
 	}, settleWindow, samplingInterval,
-		"the change stream never woke the dispatcher:\n%s", f.recorder.Timeline())
+		"the change stream never woke the dispatcher:\n%s", f.recorder)
 
 	require.Equal(t, []string{`{"invoice":1}`}, f.recorder.Payloads())
 
+	f.awaitSent(t, saved[0].Id)
 	doc := f.load(t, saved[0].Id)
-	require.Equal(t, string(outbox.StatusSent), doc.Status)
 	require.Equal(t, uint32(1), doc.Attempts)
 	require.Empty(t, doc.LockToken, "a completed event must not keep its lease")
 }
@@ -172,7 +211,7 @@ func TestWatch_DeliversNothingUntilTheTransactionCommits(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return f.recorder.Count() == 1
 	}, settleWindow, samplingInterval,
-		"the commit never produced a notification:\n%s", f.recorder.Timeline())
+		"the commit never produced a notification:\n%s", f.recorder)
 
 	require.Equal(t, []string{`{"order":"o-1"}`}, f.recorder.Payloads())
 }
@@ -206,13 +245,13 @@ func TestWatch_DrainsBacklogLargerThanOneBatch(t *testing.T) {
 		return f.recorder.Count() == events
 	}, settleWindow, samplingInterval,
 		"a backlog of %d events did not drain through a batch size of %d:\n%s",
-		events, batchSize, f.recorder.Timeline())
+		events, batchSize, f.recorder)
 
 	require.Empty(t, f.recorder.Duplicates(),
 		"re-arming the drain must not re-deliver an event:\n%s", f.recorder.Timeline())
 
 	for _, ev := range saved {
-		require.Equal(t, string(outbox.StatusSent), f.load(t, ev.Id).Status)
+		f.awaitSent(t, ev.Id)
 	}
 }
 
@@ -258,13 +297,13 @@ func TestWatch_CoexistsWithPollingDispatchers(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return f.recorder.Count() == events
 	}, settleWindow, samplingInterval,
-		"the two drivers together did not deliver every event:\n%s", f.recorder.Timeline())
+		"the two drivers together did not deliver every event:\n%s", f.recorder)
 
 	require.Empty(t, f.recorder.Duplicates(),
 		"a watcher and a poller must not hand the same event to two handlers:\n%s", f.recorder.Timeline())
 
 	for _, ev := range saved {
-		require.Equal(t, string(outbox.StatusSent), f.load(t, ev.Id).Status)
+		f.awaitSent(t, ev.Id)
 	}
 }
 
