@@ -220,8 +220,12 @@ func (t *Manager[T]) Delete(ctx context.Context, key string) error {
 
 	t.cache.Remove(key)
 
-	// Update negative filter if deletable
-	if t.negativeFilter != nil {
+	// Update negative filter if deletable. A filter that is also rebuilt by the
+	// update cycle is left alone: a delayed fingerprint delete could land on a
+	// rebuilt filter that no longer holds the key and remove a colliding live
+	// key instead. The next rebuild drops the key; until then it is only a
+	// false positive that falls through to storage.
+	if t.negativeFilter != nil && !isRebuildable(t.negativeFilter) {
 		if deletable, ok := t.negativeFilter.(probfilter.DeletableFilter); ok {
 			if _, err := deletable.Delete(ctx, key); err != nil {
 				t.opts.logger.WarnContext(ctx, "failed to delete key from negative filter",
@@ -786,4 +790,11 @@ func (t *Manager[T]) WatchKeys(ctx context.Context, keys ...string) (*WatchResul
 // Returns a WatchResult for the specified key, or an error if the watch cannot be started.
 func (t *Manager[T]) WatchKey(ctx context.Context, key string) (*WatchResult[T], error) {
 	return t.WatchKeys(ctx, key)
+}
+
+// isRebuildable reports whether the negative filter is rebuilt by the update
+// cycle.
+func isRebuildable(f Filter) bool {
+	_, ok := f.(probfilter.RebuildableFilter)
+	return ok
 }

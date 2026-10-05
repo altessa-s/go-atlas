@@ -80,47 +80,15 @@ func (t *Manager[T]) runUpdateCycleInternal(ctx context.Context) error {
 	stop := t.metrics.updateCycleDuration.Start()
 	defer stop()
 
-	var list []*Value[T]
-
 	// Apply timeout to the context if not already set
 	ctx, cancel := corecontext.ApplyTimeout(ctx, DefaultOperationsTimeout)
 	defer cancel()
 
-	// Retry logic for List operation.
-	err := coreretry.Do(ctx, func(ctx context.Context) error {
-		var err error
-		list, err = t.secretStorage.List(ctx)
-		return err
-	},
-		coreretry.WithMaxAttempts(t.opts.maxRetries),
-		coreretry.WithNextDelay(coreretry.Exponential(t.opts.exponentialConfig)),
-	)
-
+	list, err := t.listAndRebuildNegativeFilter(ctx)
 	if err != nil {
 		t.opts.logger.ErrorContext(ctx, "failed to list secrets from storage", slogx.Error(err))
 		t.metrics.updateCycleErrors.Inc()
 		return err
-	}
-
-	// Rebuild negative filter if configured
-	if t.negativeFilter != nil {
-		if rebuilder, ok := t.negativeFilter.(interface {
-			Rebuild(context.Context, probfilter.DataLoader) error
-		}); ok {
-			loader := probfilter.NewDataLoader(func() iter.Seq[string] {
-				return func(yield func(string) bool) {
-					for _, v := range list {
-						if !yield(v.Key) {
-							return
-						}
-					}
-				}
-			}, probfilter.WithCount(int64(len(list))))
-
-			if err := rebuilder.Rebuild(ctx, loader); err != nil {
-				t.opts.logger.ErrorContext(ctx, "failed to rebuild negative filter", slog.Any("error", err))
-			}
-		}
 	}
 
 	if len(list) == 0 {
@@ -177,4 +145,69 @@ func (t *Manager[T]) runUpdateCycleInternal(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// listAndRebuildNegativeFilter lists all secrets from storage (with retries)
+// and, when the negative filter is rebuildable, rebuilds it from that list.
+//
+// The list is taken inside the rebuild's data loader, i.e. after the filter
+// started journaling concurrent adds: a Save that persists a key after the
+// snapshot adds it to the filter while the rebuild journals it, so the
+// rebuilt filter cannot lose it. A rebuild failure is logged; a list failure
+// is returned.
+func (t *Manager[T]) listAndRebuildNegativeFilter(ctx context.Context) ([]*Value[T], error) {
+	rebuilder, ok := t.negativeFilter.(probfilter.RebuildableFilter)
+	if t.negativeFilter == nil || !ok {
+		return t.listWithRetry(ctx)
+	}
+
+	var (
+		list    []*Value[T]
+		listErr error
+		listed  bool
+	)
+	loader := probfilter.DataLoaderFunc(func(ctx context.Context) iter.Seq2[string, error] {
+		return func(yield func(string, error) bool) {
+			list, listErr = t.listWithRetry(ctx)
+			listed = true
+			if listErr != nil {
+				yield("", listErr)
+				return
+			}
+			for _, v := range list {
+				if !yield(v.Key, nil) {
+					return
+				}
+			}
+		}
+	})
+
+	rebuildErr := rebuilder.Rebuild(ctx, loader)
+	switch {
+	case !listed:
+		// The rebuild ended before loading (e.g. a closed filter).
+		if rebuildErr != nil {
+			t.opts.logger.ErrorContext(ctx, "failed to rebuild negative filter", slog.Any("error", rebuildErr))
+		}
+		return t.listWithRetry(ctx)
+	case listErr != nil:
+		return nil, listErr
+	case rebuildErr != nil:
+		t.opts.logger.ErrorContext(ctx, "failed to rebuild negative filter", slog.Any("error", rebuildErr))
+	}
+	return list, nil
+}
+
+// listWithRetry lists all secrets from storage with exponential backoff.
+func (t *Manager[T]) listWithRetry(ctx context.Context) ([]*Value[T], error) {
+	var list []*Value[T]
+	err := coreretry.Do(ctx, func(ctx context.Context) error {
+		var err error
+		list, err = t.secretStorage.List(ctx)
+		return err
+	},
+		coreretry.WithMaxAttempts(t.opts.maxRetries),
+		coreretry.WithNextDelay(coreretry.Exponential(t.opts.exponentialConfig)),
+	)
+	return list, err
 }
