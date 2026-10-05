@@ -563,20 +563,20 @@ oidc:
 **Rules:**
 - `presets.list` and `presets.selectors` must be configured together or both omitted.
 - When `ValidateToken` is called, selectors are evaluated by descending priority. The first match applies.
+- Selectors run on the signature-verified claims; when none matches (or the matched preset does not exist), the default validation reuses that
+  verification. Matchers receive a copy of the claims, so changes they make are never validated or returned.
 
 ### Cache
 
 Signature-verification caching. Requires a `Cacher` implementation (typically Redis-backed) injected via the factory builder.
 
-The cache stores only the claims and header of a token whose signature the provider verified — never a validation decision. Every hit
-still runs the complete requested policy (signing-algorithm allow-list, `exp`/`nbf`/`iat` with the configured leeway, issuer, audience,
-required claims, scopes, presets, per-call options, CEL rules) and the revocation checks, so one entry safely serves every preset and
-per-call option set. An entry lives until the token's `exp`; tokens without `exp`, or already past it, are never cached. Each entry records
-the fingerprint of the public key that verified it, and a hit counts only while the provider's current JWKS resolves the same key for the
-token's `kid`/`alg` — a key removed or replaced by a JWKS refresh (or absent from a freshly started provider's JWKS) forces full
-re-verification. Cache keys bind
-the provider's trust domain (discovery issuer and JWKS URL), so providers sharing a Redis namespace never reuse each other's signature
-verifications.
+The cache stores only the claims and header of a token whose signature the provider verified — never a validation decision. Every hit still runs the
+complete requested policy (signing-algorithm allow-list, `exp`/`nbf`/`iat` with the configured leeway, issuer, audience, required claims, scopes,
+presets, per-call options, CEL rules) and the revocation checks, so one entry safely serves every preset and per-call option set. An entry lives until
+the token's `exp`; tokens without `exp`, or already past it, are never cached. Each entry records the fingerprint of the public key that verified it,
+and a hit counts only while the provider's current JWKS resolves the same key for the token's `kid`/`alg` — a key removed or replaced by a JWKS refresh
+(or absent from a freshly started provider's JWKS) forces full re-verification. Cache keys bind the provider's trust domain (discovery issuer and JWKS
+URL), so providers sharing a Redis namespace never reuse each other's signature verifications.
 
 ```yaml
 oidc:
@@ -1401,6 +1401,11 @@ Returns `StatusServing` when the discovery document is valid and JWKS keys are l
 | `auth_oidc_revocation_check_errors_total` | Revocation check failures |
 
 Only `token_validations_total` and `validation_errors_total` carry the `issuer` label; the rest are unlabeled.
+
+Every `ValidateToken`, `ValidateTokenWithOptions` and `ValidateTokenWithPreset` call counts as one validation attempt with one duration sample
+(an unknown preset name counts as a failed attempt). Each validation verifies the signature at most once — also when preset selection rules
+are configured and none selects a registered preset — so, with a token cache configured, a validation that reaches signature verification
+records exactly one cache hit or miss; other validations (cache disabled, or rejected earlier) record neither.
 
 ## Scheduled Background Tasks
 
