@@ -144,9 +144,9 @@ func (s InternerStats) TotalLookups() uint64 {
 }
 
 // Interner provides lock-free, concurrency-safe string interning with
-// frequency-based eviction. Identical string values are deduplicated so that only one copy is
-// retained in memory, significantly reducing heap usage for workloads with
-// many repeated strings.
+// frequency-based eviction. Identical string values are deduplicated so that
+// only one copy is retained in memory, significantly reducing heap usage for
+// workloads with many repeated strings.
 //
 // The implementation uses a two-tier cache:
 //
@@ -158,10 +158,10 @@ func (s InternerStats) TotalLookups() uint64 {
 // cold-cache hit (counted across all strings): if the string looked up at that
 // moment has reached [HotCacheThreshold] accesses, it is promoted. An occupied
 // hot slot is taken over only when the new string has more than twice the
-// occupant's access count. When the total
-// number of interned strings exceeds the configured maximum, a background
-// goroutine evicts the least frequently accessed entries, breaking ties by
-// least recent access (see [EvictionBatchSize] and [EvictionRatio]).
+// occupant's access count. When the total number of interned strings exceeds
+// the configured maximum, a background goroutine evicts the least frequently
+// accessed entries, breaking ties by least recent access (see
+// [EvictionBatchSize] and [EvictionRatio]).
 //
 // Performance counters (hits, misses, evictions) are tracked atomically and
 // can be read via [Interner.Stats] without affecting throughput.
