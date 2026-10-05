@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -87,7 +88,7 @@ func newSQLFixture(tb testing.TB, spec sqlSpec) *fixture {
 
 	db, err := sql.Open(spec.driver, spec.dsn)
 	require.NoError(tb, err)
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(tb.Context(), 3*time.Second)
 	defer cancel()
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
@@ -121,7 +122,7 @@ func (b *sqlBackend) bind(query string) string {
 	for _, r := range query {
 		if r == '?' {
 			n++
-			out.WriteString("$" + string(rune('0'+n)))
+			out.WriteString("$" + strconv.Itoa(n))
 			continue
 		}
 		out.WriteRune(r)
