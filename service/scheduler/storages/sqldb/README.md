@@ -94,7 +94,9 @@ if err := storage.EnsureSchema(ctx); err != nil {
 s := scheduler.New(storage)
 ```
 
-With the factory, set `storage.type: sql` and inject the handle with `UseSQLDB(db)`; see [factory](../../factory).
+With the factory, set `storage.type: sql` and inject the handle with `UseSQLDB(db)`; see [factory](../../factory). The storage the factory builds
+is not exposed, so create the schema beforehand — `EnsureSchema` on a storage from `New` with the same handle, dialect and table names (it holds
+no other state), or your migrations.
 
 ## Testing
 

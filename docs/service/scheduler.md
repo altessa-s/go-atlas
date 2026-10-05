@@ -667,7 +667,8 @@ storage:
 - Filter expressions are translated to SQL by the `data/filter` PostgreSQL and MariaDB translators; `size()` counts characters, unlike the memory
   backend's byte count
 - `DeleteTask` removes the task and its history in one transaction
-- `EnsureSchema` is idempotent; the factory never runs DDL
+- `EnsureSchema` is idempotent; the factory never runs DDL — with the factory, call it on a `sqldb.New` storage built from the same handle,
+  dialect and table names (or migrate) before starting the scheduler
 
 See the package [README](../../service/scheduler/storages/sqldb/README.md) for the schema and dialect details.
 
