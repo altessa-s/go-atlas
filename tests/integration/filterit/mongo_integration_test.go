@@ -58,9 +58,15 @@ func (b *mongoBackend) setup(tb testing.TB) {
 
 func (b *mongoBackend) seed(tb testing.TB) {
 	tb.Helper()
+	b.insert(tb, filterit.Dataset())
+}
 
-	docs := make([]any, 0, len(filterit.Dataset()))
-	for _, row := range filterit.Dataset() {
+// insert stores rows in the backend's collection.
+func (b *mongoBackend) insert(tb testing.TB, rows []filterit.Row) {
+	tb.Helper()
+
+	docs := make([]any, 0, len(rows))
+	for _, row := range rows {
 		doc := bson.M{
 			"id":        row.ID,
 			"name":      row.Name,

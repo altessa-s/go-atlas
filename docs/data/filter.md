@@ -280,9 +280,10 @@ literals in place, for view definitions and generated DDL. PostgreSQL numbers it
 A `nil` AST translates to `1 = 1`, so `"... WHERE " + where` needs no special case.
 
 Three dialect differences are worth knowing before designing a filter surface: MariaDB's default collations make every string comparison
-case-insensitive (and, being PAD SPACE, make `==`, `!=`, `<`, `<=`, `>`, `>=` and `in` ignore trailing spaces; `contains`, `startsWith`,
-`endsWith` and `size()` stay exact), PostgreSQL requires a real `boolean` column for a bare-identifier condition, and only ClickHouse reads a dotted CEL name as one
-(Nested) column instead of a qualified `"table"."column"`.
+case-insensitive (and, being PAD SPACE, make `==`, `!=`, `<`, `<=`, `>`, `>=` and `in` ignore trailing spaces; `contains`, `startsWith`, `endsWith` and
+`size()` stay exact; a `$` in `matches()` is sent as `\z` because PCRE and ICU would also match it before a final newline), PostgreSQL requires a real
+`boolean` column for a bare-identifier condition, and only ClickHouse reads a dotted CEL name as one (Nested) column instead of a qualified
+`"table"."column"`.
 
 ### Search back ends
 

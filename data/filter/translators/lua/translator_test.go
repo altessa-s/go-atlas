@@ -215,6 +215,13 @@ func TestTranslator_StringFunctions(t *testing.T) {
 			expr: `field.endsWith("suf")`,
 			want: `(string.sub(d["field"], -3) == "suf")`,
 		},
+		{
+			// string.sub(s, -0) is the whole string, so an empty suffix
+			// gets a form that is true for every string.
+			name: "endsWith empty",
+			expr: `field.endsWith("")`,
+			want: `(string.sub(d["field"], 1, 0) == "")`,
+		},
 	}
 
 	trans := mustTranslator(t, "")

@@ -71,12 +71,18 @@ func (b *mariadbBackend) setup(tb testing.TB) {
 
 func (b *mariadbBackend) seed(tb testing.TB) {
 	tb.Helper()
+	b.insert(tb, filterit.Dataset())
+}
+
+// insert stores rows in the backend's table.
+func (b *mariadbBackend) insert(tb testing.TB, rows []filterit.Row) {
+	tb.Helper()
 
 	stmt, err := b.db.PrepareContext(tb.Context(), fmt.Sprintf(mariadbInsert, b.table))
 	require.NoError(tb, err)
 	defer func() { _ = stmt.Close() }()
 
-	for _, row := range filterit.Dataset() {
+	for _, row := range rows {
 		_, err = stmt.ExecContext(tb.Context(),
 			row.ID, row.Name, row.Age, row.Price, row.Active,
 			row.Status, row.Role, row.CreatedAt, row.DeletedAt)

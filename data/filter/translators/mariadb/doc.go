@@ -90,6 +90,11 @@
 // so a crafted pattern can be made expensive server-side. filter.WithMaxRegexLength bounds the blast
 // radius but does not eliminate it — expose matches() to trusted callers, or tighten the cap.
 //
+// The pattern is RE2, as CEL defines matches(). Outside multi-line mode RE2's `$` matches only at the
+// very end, while PCRE (MariaDB) and ICU (MySQL 8) also match it before a final newline, so every such
+// `$` is rewritten to `\z` before the pattern is sent; a `$` under (?m), an escaped `\$` and a `$` in a
+// character class are left alone.
+//
 // # Timestamps
 //
 // timestamp(...) literals bind as time.Time in the parameterized form and render as a UTC DATETIME

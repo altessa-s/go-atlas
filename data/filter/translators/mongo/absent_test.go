@@ -74,9 +74,9 @@ func TestTranslator_ZeroWhenAbsent(t *testing.T) {
 		{"contains empty", `name.contains("")`, `{"$or":[{"name":{"$regex":""}},{"name":{"$exists":false}}]}`},
 		{"contains other", `name.contains("a")`, `{"$and":[{"name":{"$regex":"a"}},{"name":{"$exists":true}}]}`},
 		{"startsWith empty", `name.startsWith("")`, `{"$or":[{"name":{"$regex":"^"}},{"name":{"$exists":false}}]}`},
-		{"endsWith other", `name.endsWith("a")`, `{"$and":[{"name":{"$regex":"a$"}},{"name":{"$exists":true}}]}`},
-		{"matches empty", `name.matches("^$")`, `{"$or":[{"name":{"$regex":"^$"}},{"name":{"$exists":false}}]}`},
-		{"matches non-empty", `name.matches("^.+$")`, `{"$and":[{"name":{"$regex":"^.+$"}},{"name":{"$exists":true}}]}`},
+		{"endsWith other", `name.endsWith("a")`, `{"$and":[{"name":{"$regex":"a\\z"}},{"name":{"$exists":true}}]}`},
+		{"matches empty", `name.matches("^$")`, `{"$or":[{"name":{"$regex":"^\\z"}},{"name":{"$exists":false}}]}`},
+		{"matches non-empty", `name.matches("^.+$")`, `{"$and":[{"name":{"$regex":"^.+\\z"}},{"name":{"$exists":true}}]}`},
 		{"regex on non-string", `age.contains("")`, `{"$and":[{"age":{"$regex":""}},{"age":{"$exists":true}}]}`},
 
 		// has() always holds; bare and negated identifiers are already exact.

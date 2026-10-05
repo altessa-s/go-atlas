@@ -189,7 +189,7 @@ func TestTranslator_StringFunctions(t *testing.T) {
 			"matches",
 			`name.matches("^Jo.*n$")`,
 			"`name` REGEXP ?",
-			[]any{"^Jo.*n$"},
+			[]any{`^Jo.*n\z`},
 		},
 	}
 
@@ -335,6 +335,8 @@ func TestTranslateInline(t *testing.T) {
 		{"contains", `name.contains("oh")`, "LOCATE('oh', `name`) > 0"},
 		{"endsWith", `name.endsWith("hn")`, "(CHAR_LENGTH(`name`) >= CHAR_LENGTH('hn') AND RIGHT(`name`, CHAR_LENGTH('hn')) = 'hn')"},
 		{"matches", `name.matches("^Jo")`, "`name` REGEXP '^Jo'"},
+		{"matches end of text", `name.matches("^Jo$")`, "`name` REGEXP '^Jo\\\\z'"},
+		{"matches multi-line", `name.matches("(?m)^Jo$")`, "`name` REGEXP '(?m)^Jo$'"},
 		{
 			"timestamp",
 			`createdAt > timestamp("2024-01-02T03:04:05.123Z")`,

@@ -72,11 +72,17 @@ func (b *clickhouseBackend) setup(tb testing.TB) {
 
 func (b *clickhouseBackend) seed(tb testing.TB) {
 	tb.Helper()
+	b.insert(tb, filterit.Dataset())
+}
+
+// insert stores rows in the backend's table.
+func (b *clickhouseBackend) insert(tb testing.TB, rows []filterit.Row) {
+	tb.Helper()
 
 	batch, err := b.conn.PrepareBatch(tb.Context(), "INSERT INTO "+b.table)
 	require.NoError(tb, err)
 
-	for _, row := range filterit.Dataset() {
+	for _, row := range rows {
 		require.NoError(tb, batch.Append(
 			row.ID, row.Name, row.Age, row.Price, row.Active,
 			row.Status, row.Role, row.CreatedAt, row.DeletedAt,

@@ -106,6 +106,11 @@ the comparison yields NULL rather than true. Write `col != "x" || col == null` w
 expensive server-side. `filter.WithMaxRegexLength` bounds the blast radius but does not eliminate it — expose `matches()` to trusted callers,
 or tighten the cap.
 
+The pattern is RE2, as CEL defines `matches()`, and one difference in anchors is corrected before it is sent: outside multi-line mode RE2's `$`
+matches only at the very end, while PCRE (MariaDB) and ICU (MySQL 8) also match it before a final newline. Every such `$` is rewritten to `\z`
+(`^Jo$` is sent as `^Jo\z`); a `$` under `(?m)`, an escaped `\$` and a `$` in a character class are left alone. In inline mode the `\z`
+backslash is doubled like any other, so the caveat under [Inline rendering](#inline-rendering) applies.
+
 ## Timestamps
 
 `timestamp(...)` literals bind as `time.Time` in the parameterized form and render as a UTC `DATETIME` literal at microsecond precision inline.

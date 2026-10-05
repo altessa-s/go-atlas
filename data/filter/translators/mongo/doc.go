@@ -64,6 +64,14 @@
 // collation; with a locale collation on the query or the collection, an
 // absent field may be judged differently from a stored "".
 //
+// # Anchors
+//
+// MongoDB evaluates $regex with PCRE, where `$` also matches just before a
+// final newline. endsWith() therefore anchors with `\z`, and every `$` of a
+// matches() pattern that RE2 reads as end of text is rewritten to `\z`, so
+// "abc\n" neither ends with "abc" nor matches "abc$" — as in CEL. startsWith()
+// keeps `^`, which without the m option matches only at the start.
+//
 // # Security
 //
 // matches() passes the user-supplied pattern through to MongoDB's $regex.

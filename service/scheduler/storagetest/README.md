@@ -26,6 +26,7 @@ rests on the atomic compare-and-swap writes, the run-ownership rules of the `Sto
 | `Identity`                    | IDs differing only by case or a trailing space are distinct; run ownership is case-sensitive; meta round-trips          |
 | `Pagination`                  | Byte-wise ID order across pages; filters, code-point `size()`; history order `StartedAt DESC, ID DESC`, compound cursor |
 | `ZeroValueFilters`            | Filters treat a zero-valued field as its zero value, however stored; `endsWith` is exact about trailing spaces          |
+| `StringAnchors`               | `endsWith` and a `$` in `matches()` anchor at the very end: `"job\n"` does not end with `"job"`                         |
 | `History`                     | History order, retention cleanup, and `DeleteTask` removing a task's history                                            |
 | `BenchmarkFinishRun`          | The conditional completion write with a fresh claim per iteration                                                       |
 

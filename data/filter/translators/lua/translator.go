@@ -382,8 +382,13 @@ func (t *Translator) translateStartsWith(target filter.Node, args []filter.Node)
 	return t.translateAffix(target, args, `(string.sub(%s, 1, %d) == %s)`)
 }
 
-// translateEndsWith handles field.endsWith("suf").
+// translateEndsWith handles field.endsWith("suf"). An empty suffix gets its
+// own form: string.sub(s, -0) is the whole string, not an empty tail, while
+// string.sub(s, 1, 0) is "" for any string.
 func (t *Translator) translateEndsWith(target filter.Node, args []filter.Node) (string, error) {
+	if s, err := t.getStringArg(args); err == nil && s == "" {
+		return t.translateAffix(target, args, `(string.sub(%s, 1, %d) == %s)`)
+	}
 	return t.translateAffix(target, args, `(string.sub(%s, -%d) == %s)`)
 }
 
