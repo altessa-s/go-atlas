@@ -17,8 +17,8 @@
 //   - HTTP and I/O test doubles ([RoundTripFunc], [MockReadCloser]).
 //   - NATS/JetStream helpers for spinning up embedded servers ([StartNATSServer],
 //     [ConnectNATS], [ConnectJetStream], [CreateNATSKV]), reading a bucket's
-//     key TTL and storage ([KVBucketTTL], [KVBucketStorage]) and capturing bucket configuration
-//     ([JetStreamKVCapture]).
+//     key TTL and storage ([KVBucketTTL], [KVBucketStorage]) and capturing
+//     bucket configuration ([JetStreamKVCapture]).
 //   - Redis bootstrap ([RedisClient]) that starts an in-process miniredis
 //     server and returns a connected go-redis client plus the server handle.
 //   - TLS and cryptographic utilities: an in-memory ECDSA test CA ([NewCA],
