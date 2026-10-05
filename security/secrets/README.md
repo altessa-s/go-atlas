@@ -64,6 +64,7 @@ should implement `Clone() T`.
 Watch events carry their own copies too: `WatchEvent.Value` and `PreviousValue` belong to the receiver, which should `Clear` them when
 done. The `Manager` never reads or clears them after sending, and clearing them affects neither the cache nor other watchers.
 
+## Security
 
 Secret material never reaches the log. Debug-level records from the `Manager` carry the secret's **key** — the lookup identifier validated
 against `[a-zA-Z0-9_.-]+`, not the value behind it — so cache miss, fetch, save and delete records for one secret can be correlated.
