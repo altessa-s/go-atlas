@@ -15,7 +15,7 @@ via the visitor pattern. Includes security features: field allowlists, depth lim
 | Logical    | `&&`, `\|\|`, `!`                                          |
 | Membership | `in`, `has()`                                              |
 | String     | `contains()`, `startsWith()`, `endsWith()`, `matches()`, `substring()`¹ |
-| Other      | `size()`, `timestamp()`                                    |
+| Other      | `size()` (`f.size()` or `size(f)`), `timestamp()`          |
 
 ¹ `substring()` is supported by the in-memory evaluator only; translators reject it with `ErrUnsupportedOperation`.
 

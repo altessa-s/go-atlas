@@ -100,7 +100,7 @@ client filter on `passwordHash > ""` to enumerate accounts.
 | Logical | `&&`, `\|\|`, `!` |
 | Membership | `in`, `has(field)` |
 | String | `field.contains(s)`, `field.startsWith(s)`, `field.endsWith(s)`, `field.matches(regex)` |
-| Other | `field.size()`, `timestamp("RFC3339 string")` |
+| Other | `field.size()` or `size(field)`, `timestamp("RFC3339 string")` |
 | Nested fields | dot notation: `address.city == "NYC"` |
 
 `timestamp()` is parsed at AST construction time and stored as `time.Time` in a `LiteralNode` — it is not deferred to the translator.
