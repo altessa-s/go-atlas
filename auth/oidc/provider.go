@@ -134,6 +134,18 @@ type Provider struct {
 	verifierOptions  *verifierOptions
 	celCompiledRules []celPreCompiledValidationRule // Compiled CEL rules from verifierOptions.celRules
 
+	// defaultPolicy compiles the default validation options (verifierOptions,
+	// or the built-in defaults when none are set); builtinPolicy compiles the
+	// built-in defaults, used to verify signatures before automatic preset
+	// selection. Both are built in NewProvider once discovery and the JWKS
+	// key resolver are known, and are the same object without default options.
+	defaultPolicy *validationPolicy
+	builtinPolicy *validationPolicy
+
+	// lastKeyFingerprint memoizes the fingerprint of the most recently
+	// fingerprinted signing key (see cachedKeyFingerprint).
+	lastKeyFingerprint atomic.Pointer[keyFingerprintMemo]
+
 	// jwksRefreshTask makes concurrent RefreshJWKS calls collapse into one.
 	jwksRefreshTask corescheduler.ManagedTask
 	// refreshCron runs the periodic JWKS refresh and revocation sync; nil
@@ -283,13 +295,14 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 	if err = p.compilePresets(); err != nil {
 		return nil, err
 	}
+	p.compileDefaultPolicies()
 
 	if err = p.initialRevocationSync(ctx); err != nil {
 		return nil, err
 	}
 
 	// Prepare the provider-owned refresh cron (JWKS refresh, revocation sync).
-	if jobs := p.refreshJobs(o); len(jobs) > 0 {
+	if jobs := p.refreshJobs(); len(jobs) > 0 {
 		if p.refreshCron, err = p.newRefreshCron(jobs); err != nil {
 			return nil, err
 		}
@@ -360,20 +373,6 @@ func (p *Provider) verifySignature(ctx context.Context, token string) (map[strin
 	return map[string]any(claims), nil
 }
 
-// parseTokenWithoutClaimsValidation parses a JWT and verifies its signature
-// without validating claims. Returns claims and the verified token header.
-func (p *Provider) parseTokenWithoutClaimsValidation(ctx context.Context, token string, ops *verifierOptions) (jwt.MapClaims, map[string]any, error) {
-	if ops == nil {
-		ops = defaultVerifierOptions()
-	}
-	v := authjwt.NewVerifier(p.keyResolver, p.jwtVerifyOptions(ops)...)
-	claims, hdr, err := v.VerifySignature(ctx, token)
-	if err != nil {
-		return nil, nil, err
-	}
-	return jwt.MapClaims(claims), headerToMap(hdr), nil
-}
-
 // algorithmAllowed reports whether alg is permitted by ops. An empty validMethods
 // set falls back to DefaultValidMethods, mirroring [Provider.jwtVerifyOptions].
 func algorithmAllowed(ops *verifierOptions, alg string) bool {
@@ -391,6 +390,15 @@ func (p *Provider) ValidateToken(ctx context.Context, token string) (map[string]
 
 // ValidateTokenWithOptions validates a JWT with custom validation options.
 func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, opt ...ValidationOption) (map[string]any, error) {
+	return p.observeValidation(func() (map[string]any, error) {
+		return p.validateTokenWithOptions(ctx, token, opt...)
+	})
+}
+
+// observeValidation records one validation attempt — the attempt counter,
+// the duration and, on failure, the error counter — around validate. Every
+// public ValidateToken* entry point goes through it exactly once.
+func (p *Provider) observeValidation(validate func() (map[string]any, error)) (map[string]any, error) {
 	issuer := ""
 	if p.discoveryInfo != nil {
 		issuer = p.discoveryInfo.Issuer
@@ -400,132 +408,162 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 	stop := p.metrics.validationDuration.Start()
 	defer stop()
 
-	// Reject empty tokens immediately
-	if token == "" {
+	claims, err := validate()
+	if err != nil {
 		p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
-		return nil, coreerrs.Wrap(ErrTokenInvalid, "token is empty")
 	}
+	return claims, err
+}
 
-	// Refuse to validate against a stale key set when the operator has
-	// opted in via WithJWKSMaxStaleness — see [Provider.checkJWKSStaleness]
-	// for the per-mode behavior. Runs first so cached signature
-	// verifications do not bypass the staleness budget.
-	if err := p.checkJWKSStaleness(ctx); err != nil {
-		p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
+// checkValidatable rejects an empty token and, per [WithJWKSMaxStaleness], a
+// stale key set. It runs before any (cached) signature verification so cached
+// verifications do not bypass the staleness budget.
+func (p *Provider) checkValidatable(ctx context.Context, token string) error {
+	if token == "" {
+		return coreerrs.Wrap(ErrTokenInvalid, "token is empty")
+	}
+	// See [Provider.checkJWKSStaleness] for the per-mode behavior.
+	return p.checkJWKSStaleness(ctx)
+}
+
+// validateTokenWithOptions is the uninstrumented body of
+// [Provider.ValidateTokenWithOptions].
+func (p *Provider) validateTokenWithOptions(ctx context.Context, token string, opt ...ValidationOption) (map[string]any, error) {
+	if err := p.checkValidatable(ctx, token); err != nil {
 		return nil, err
 	}
 
-	var presetClaims jwt.MapClaims
-	var presetHeader map[string]any
-	var presetVerifier *verifierOptions
-	var presetAuthVerifier *authjwt.Verifier
-	var presetCELRules []celPreCompiledValidationRule
-
 	// Fast path: no presets, no default options, and no overrides
 	if len(opt) == 0 && p.verifierOptions == nil && len(p.opts.presetRules) == 0 {
-		claims, header, err := p.parseAndValidateToken(ctx, token, defaultVerifierOptions(), nil)
+		claims, header, err := p.parseAndValidateToken(ctx, token, p.defaultPolicy)
 		if err != nil {
-			p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 			return nil, err
 		}
-		if err := p.finalizeValidatedToken(ctx, token, claims, header); err != nil {
-			p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
+		if err := p.checkTokenRevocationVerified(ctx, token, claims, header); err != nil {
 			return nil, err
 		}
 		return claims, nil
 	}
 
-	// If no options provided and preset selection rules are configured,
-	// try automatic preset selection
+	// No per-call options and preset selection rules configured: select the
+	// preset from the signature-verified claims and validate those claims
+	// with it, or with the default options when no registered preset applies.
+	// The signature is verified once either way.
 	if len(opt) == 0 && len(p.opts.presetRules) > 0 {
-		// Step 1: Verify signature FIRST for security (without claim validation).
-		// The preset is only known after inspecting the claims, so the signature
-		// is verified against the default algorithm set here; the selected
-		// preset's algorithm restriction is enforced in Step 3 below.
-		claimsForPreset, headerForPreset, err := p.verifyTokenSignature(ctx, token, nil)
+		claims, header, preset, err := p.verifyAndSelectPreset(ctx, token)
 		if err != nil {
-			p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
-			p.logger.ErrorContext(ctx, "signature verification failed", slog.Any("error", err))
-			return nil, coreerrs.Wrapf(ErrTokenInvalid, "signature verification failed: %v", err)
-		}
-
-		// Step 2: Select preset based on verified claims
-		presetName := p.selectPresetForClaims(claimsForPreset)
-
-		// Step 3: If preset matched, use pre-compiled verifier options
-		if presetName != "" {
-			preset := p.getPreset(presetName)
-			if preset != nil && preset.compiledVerifier != nil {
-				// Enforce the selected preset's algorithm restriction: the
-				// signature was verified against the default (wide) set in
-				// Step 1, so a token whose signing algorithm the preset does
-				// not allow must be rejected here.
-				alg, _ := headerForPreset["alg"].(string)
-				if !algorithmAllowed(preset.compiledVerifier, alg) {
-					p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
-					return nil, coreerrs.Wrapf(ErrTokenInvalid, "signing algorithm %q not allowed by preset '%s'", alg, presetName)
-				}
-				presetClaims = claimsForPreset
-				presetHeader = headerForPreset
-				presetVerifier = preset.compiledVerifier
-				presetAuthVerifier = preset.compiledAuthVerifier
-				presetCELRules = preset.compiledCELRules
-			} else if preset == nil {
-				// Preset rule matched but preset not registered - log warning
-				p.logger.WarnContext(ctx, "preset rule matched but preset not found, using default validation",
-					"preset_name", presetName)
-			}
-		}
-		// No preset matched or preset not found - fall through to default validation
-	}
-
-	if presetVerifier != nil {
-		if err := p.validateWithPresetClaims(presetClaims, presetAuthVerifier, presetVerifier, presetCELRules); err != nil {
-			p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
-			p.logger.ErrorContext(ctx, "failed to validate token", slog.Any("error", err))
 			return nil, err
 		}
-
-		if err := p.finalizeValidatedToken(ctx, token, presetClaims, presetHeader); err != nil {
-			p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
+		policy, scope := p.defaultPolicy, ""
+		if preset != nil {
+			policy, scope = preset.policy, fmt.Sprintf(" by preset '%s'", preset.name)
+		}
+		if err := p.validateVerified(ctx, token, claims, header, policy, scope); err != nil {
 			return nil, err
 		}
-		return presetClaims, nil
+		return claims, nil
 	}
 
-	// Apply function options.
-	// Fast path: when no per-call overrides, reuse pre-built options and CEL rules
-	// to avoid cloneVerifierOptions + compileVerifierCELRules allocations.
-	var ops *verifierOptions
-	var compiledCELRules []celPreCompiledValidationRule
-	if len(opt) == 0 && p.verifierOptions != nil {
-		ops = p.verifierOptions
-		compiledCELRules = p.celCompiledRules
-	} else {
-		ops = cloneVerifierOptions(p.verifierOptions)
+	// Without per-call overrides reuse the pre-compiled default policy;
+	// otherwise compile the per-call options.
+	policy := p.defaultPolicy
+	if len(opt) > 0 {
+		ops := cloneVerifierOptions(p.verifierOptions)
 		applyValidationOptions(ops, opt...)
 		ops.buildIgnoredSet()
-		var celErr error
-		compiledCELRules, celErr = compileVerifierCELRules(ops)
-		if celErr != nil {
-			p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
-			return nil, celErr
+		compiledCELRules, err := compileVerifierCELRules(ops)
+		if err != nil {
+			return nil, err
 		}
+		policy = p.newValidationPolicy(ops, compiledCELRules)
 	}
 
-	claims, header, err := p.parseAndValidateToken(ctx, token, ops, compiledCELRules)
+	claims, header, err := p.parseAndValidateToken(ctx, token, policy)
 	if err != nil {
-		p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 		p.logger.ErrorContext(ctx, "failed to validate token", slog.Any("error", err))
 		return nil, err
 	}
 
-	if err := p.finalizeValidatedToken(ctx, token, claims, header); err != nil {
-		p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
+	if err := p.checkTokenRevocationVerified(ctx, token, claims, header); err != nil {
 		return nil, err
 	}
 
 	return claims, nil
+}
+
+// verifyAndSelectPreset verifies token's signature against the built-in
+// algorithm set — the preset is only known after inspecting the claims — and
+// selects the preset for the verified claims. preset is nil when no rule
+// matches or the matched preset is not registered.
+//
+// The selection rules see a deep copy of the claims, so a matcher that
+// modifies its argument cannot change the claims that are validated,
+// checked for revocation and returned.
+func (p *Provider) verifyAndSelectPreset(ctx context.Context, token string) (jwt.MapClaims, map[string]any, *ValidationPreset, error) {
+	claims, header, err := p.verifyTokenSignature(ctx, token, p.builtinPolicy)
+	if err != nil {
+		p.logger.ErrorContext(ctx, "signature verification failed", slog.Any("error", err))
+		return nil, nil, nil, coreerrs.Wrapf(ErrTokenInvalid, "signature verification failed: %v", err)
+	}
+
+	presetName := p.selectPresetForClaims(cloneClaims(claims))
+	if presetName == "" {
+		return claims, header, nil, nil
+	}
+	preset := p.getPreset(presetName)
+	if preset == nil {
+		p.logger.WarnContext(ctx, "preset rule matched but preset not found, using default validation",
+			"preset_name", presetName)
+	}
+	return claims, header, preset, nil
+}
+
+// validateVerified validates signature-verified claims against policy: the
+// policy's signing-algorithm allow-list on the verified header (the signature
+// was verified against the built-in set), the claim policy, then revocation.
+// scope qualifies the algorithm error (e.g. " by preset 'x'").
+func (p *Provider) validateVerified(
+	ctx context.Context,
+	token string,
+	claims jwt.MapClaims,
+	header map[string]any,
+	policy *validationPolicy,
+	scope string,
+) error {
+	alg, _ := header["alg"].(string)
+	if !algorithmAllowed(policy.ops, alg) {
+		return coreerrs.Wrapf(ErrTokenInvalid, "signing algorithm %q not allowed%s", alg, scope)
+	}
+	if err := p.applyPolicy(claims, policy); err != nil {
+		p.logger.ErrorContext(ctx, "failed to validate token", slog.Any("error", err))
+		return err
+	}
+	return p.checkTokenRevocationVerified(ctx, token, claims, header)
+}
+
+// cloneClaims deep-copies a claim set: nested objects and arrays are copied,
+// scalar values (immutable in decoded JSON) are shared.
+func cloneClaims(claims map[string]any) map[string]any {
+	out := make(map[string]any, len(claims))
+	for k, v := range claims {
+		out[k] = cloneClaimValue(v)
+	}
+	return out
+}
+
+func cloneClaimValue(v any) any {
+	switch tv := v.(type) {
+	case map[string]any:
+		return cloneClaims(tv)
+	case []any:
+		out := make([]any, len(tv))
+		for i, e := range tv {
+			out[i] = cloneClaimValue(e)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 // checkIntrospection asks the IdP (RFC 7662) whether a signature-verified
@@ -561,8 +599,10 @@ func (p *Provider) checkIntrospection(ctx context.Context, token string) error {
 // introspection when enabled. A local hit always rejects — introspection
 // cannot overrule it — and a local miss never skips introspection.
 //
-// It must only be called with claims/header returned by a signature-verifying
-// path ([Provider.verifyTokenSignature]); passing unverified data would let an
+// Every validation path runs it after signature and claim verification, so
+// all paths share the same revocation boundary. It must only be called with
+// claims/header returned by a signature-verifying path
+// ([Provider.verifyTokenSignature]); passing unverified data would let an
 // attacker choose the jti/kid lookup key.
 func (p *Provider) checkTokenRevocationVerified(ctx context.Context, token string, claims jwt.MapClaims, header map[string]any) error {
 	if err := p.checkLocalRevocation(ctx, token, claims, header); err != nil {
@@ -676,15 +716,6 @@ func revocationItemFromVerifiedClaims(itemType string, claims jwt.MapClaims, hea
 		}
 	}
 	return token
-}
-
-// finalizeValidatedToken centralizes the work that must run after every
-// successful signature/claims verification path: the local revocation lookup
-// followed by introspection. Keeping it in one helper guarantees that any
-// future validation path inherits the same security boundary without ad-hoc
-// duplication.
-func (p *Provider) finalizeValidatedToken(ctx context.Context, token string, claims jwt.MapClaims, header map[string]any) error {
-	return p.checkTokenRevocationVerified(ctx, token, claims, header)
 }
 
 func (p *Provider) getDiscoveryInfo(ctx context.Context) error {
@@ -1298,53 +1329,18 @@ func (p *Provider) jwtVerifyOptions(ops *verifierOptions) []authjwt.Option {
 	return verifyOpts
 }
 
-// parseAndValidateToken parses and validates a JWT with the given options.
-// Returns the verified claims and token header.
-func (p *Provider) parseAndValidateToken(
-	ctx context.Context,
-	token string,
-	ops *verifierOptions,
-	compiledCELRules []celPreCompiledValidationRule,
-) (jwt.MapClaims, map[string]any, error) {
-	claims, header, err := p.verifyTokenSignature(ctx, token, ops)
+// parseAndValidateToken verifies token's signature (through the token cache)
+// and validates its claims against policy. Returns the verified claims and
+// token header.
+func (p *Provider) parseAndValidateToken(ctx context.Context, token string, policy *validationPolicy) (jwt.MapClaims, map[string]any, error) {
+	claims, header, err := p.verifyTokenSignature(ctx, token, policy)
 	if err != nil {
 		return nil, nil, coreerrs.Wrapf(ErrTokenInvalid, "%s", err)
 	}
-
-	if !ops.withoutClaimsValidation {
-		v := authjwt.NewVerifier(p.keyResolver, p.jwtVerifyOptions(ops)...)
-		if err := v.ValidateClaims(authjwt.Claims(claims)); err != nil {
-			return nil, nil, coreerrs.Wrapf(ErrTokenInvalid, "%s", err)
-		}
-	}
-
-	if err := p.validateClaims(claims, ops, compiledCELRules); err != nil {
+	if err := p.applyPolicy(claims, policy); err != nil {
 		return nil, nil, err
 	}
-
 	return claims, header, nil
-}
-
-func (p *Provider) validateWithPresetClaims(
-	claims map[string]any,
-	verifier *authjwt.Verifier,
-	ops *verifierOptions,
-	compiledCELRules []celPreCompiledValidationRule,
-) error {
-	if ops == nil || ops.withoutClaimsValidation {
-		return nil
-	}
-
-	// Reuse the preset's pre-built verifier; fall back to building one only if a
-	// caller passes none (e.g. a transient, non-preset option set).
-	if verifier == nil {
-		verifier = authjwt.NewVerifier(p.keyResolver, p.jwtVerifyOptions(ops)...)
-	}
-	if err := verifier.ValidateClaims(authjwt.Claims(claims)); err != nil {
-		return coreerrs.Wrapf(ErrTokenInvalid, "%s", err)
-	}
-
-	return p.validateClaims(claims, ops, compiledCELRules)
 }
 
 func cloneVerifierOptions(base *verifierOptions) *verifierOptions {
