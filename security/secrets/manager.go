@@ -223,7 +223,6 @@ func (t *Manager[T]) Delete(ctx context.Context, key string) error {
 	}
 	defer st.unlock()
 
-	// Get previous value from cache for watch notification
 	err := t.secretStorage.Delete(ctx, key)
 	if err != nil {
 		t.opts.logger.ErrorContext(ctx, "failed to delete value from storage", slog.String("key", key), slogx.Error(err))
@@ -364,7 +363,8 @@ func (t *Manager[T]) updateValueWithRetry(ctx context.Context, key string) (*Val
 	// instance it returned, and the Manager clears cached values. A second
 	// copy is returned as the template shared by the concurrent callers of
 	// this fetch: it is never cached nor cleared by the Manager, so it may
-	// be copied (Value) or read (ValueShared) without the cache lock.
+	// be copied (Value) or read (ValueShared) without the cache lock, or
+	// handed over as is when the fetch has a single caller.
 	template := val.clone()
 
 	if t.cachePutUnlessSaved(key, val.clone(), ver, versionBefore) {
@@ -478,17 +478,18 @@ func (t *Manager[T]) lookup(ctx context.Context, key string, force, copied bool)
 	t.opts.logger.DebugContext(ctx, "cache miss, force=true, fetching from storage",
 		slog.String("key", key))
 
-	result, err, _ := t.fetchGroup.Do(key, func() (any, error) {
+	result, err, shared := t.fetchGroup.Do(key, func() (any, error) {
 		return t.updateValueWithRetry(ctx, key)
 	})
 	if err != nil {
 		return tmp, err
 	}
 
-	// The template is shared by the callers of this fetch and never cleared
-	// by the Manager.
+	// The template is never cleared by the Manager. When the fetch was not
+	// shared, this caller holds the only reference to it, so it is already a
+	// caller-owned copy.
 	template := result.(*Value[T]) //nolint:errcheck // type is guaranteed by updateValueWithRetry
-	if copied {
+	if copied && shared {
 		return template.clone(), nil
 	}
 	return template, nil
