@@ -35,7 +35,7 @@
 //   - substring(start, [end]) - half-open [start, end) substring; 0-indexed (runes); evaluator only
 //
 // Other:
-//   - size() - array/string length; field.size() and size(field) are equivalent
+//   - size() - array length, or string length in Unicode code points; field.size() and size(field) are equivalent
 //   - timestamp() - parse RFC3339 timestamp
 //
 // # Basic Usage
@@ -147,7 +147,7 @@
 //
 // Size comparison:
 //
-//	tags.size() == 3 → {"tags": {"$size": 3}}
+//	tags.size() == 3 → {"$or": [{"tags": {"$size": 3}}, <string length of tags == 3>]}
 //
 // Nested fields:
 //

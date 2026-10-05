@@ -292,17 +292,17 @@ func TestTranslator_SizeFunction(t *testing.T) {
 		{
 			name: "size equal",
 			expr: `tags.size() == 3`,
-			want: `{"tags":{"$size":3}}`,
+			want: `{"$or":[{"tags":{"$size":3}},{"$expr":{"$eq":[{"$cond":[{"$eq":[{"$type":"$tags"},"string"]},{"$strLenCP":"$tags"},null]},3]}}]}`,
 		},
 		{
 			name: "size not equal",
 			expr: `tags.size() != 0`,
-			want: `{"tags":{"$not":{"$size":0}}}`,
+			want: `{"$and":[{"tags":{"$not":{"$size":0}}},{"$expr":{"$ne":[{"$cond":[{"$eq":[{"$type":"$tags"},"string"]},{"$strLenCP":"$tags"},null]},0]}}]}`,
 		},
 		{
 			name: "size greater than",
 			expr: `tags.size() > 0`,
-			want: `{"$expr":{"$gt":[{"$size":{"$ifNull":["$tags",[]]}},0]}}`,
+			want: `{"$expr":{"$and":[{"$ne":[{"$cond":[{"$isArray":{"$ifNull":["$tags",[]]}},{"$size":{"$ifNull":["$tags",[]]}},{"$cond":[{"$eq":[{"$type":"$tags"},"string"]},{"$strLenCP":"$tags"},null]}]},null]},{"$gt":[{"$cond":[{"$isArray":{"$ifNull":["$tags",[]]}},{"$size":{"$ifNull":["$tags",[]]}},{"$cond":[{"$eq":[{"$type":"$tags"},"string"]},{"$strLenCP":"$tags"},null]}]},0]}]}}`,
 		},
 	}
 

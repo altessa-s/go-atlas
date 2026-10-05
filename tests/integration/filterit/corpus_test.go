@@ -265,9 +265,6 @@ func Cases() []Case {
 			Name: "not",
 			Expr: `!(age > 30)`,
 			Want: []int64{1, 2, 5, 6},
-			Skip: map[Backend]string{
-				RediSearch: "negated numeric ranges are not expressible in the query syntax",
-			},
 		},
 		{
 			Name: "bare identifier is a boolean test",
@@ -278,6 +275,16 @@ func Cases() []Case {
 			Name: "negated bare identifier",
 			Expr: `!active`,
 			Want: []int64{2, 4, 6},
+		},
+		{
+			Name: "or grouped inside and",
+			Expr: `active == true && (role == 1 || role == 3)`,
+			Want: []int64{1, 3, 7},
+		},
+		{
+			Name: "negated conjunction containing or",
+			Expr: `!(active == true && (role == 1 || role == 3))`,
+			Want: []int64{2, 4, 5, 6},
 		},
 		{
 			Name: "nested groups",
@@ -361,6 +368,13 @@ func Cases() []Case {
 			},
 		},
 		{
+			// A keyword field: RediSearch indexes status as a TAG, whose
+			// prefix query keeps the wildcard inside the braces.
+			Name: "startsWith on a keyword field",
+			Expr: `status.startsWith("ar")`,
+			Want: []int64{4, 7},
+		},
+		{
 			Name: "endsWith",
 			Expr: `name.endsWith("e")`,
 			Want: []int64{1, 3, 4, 5, 6, 7},
@@ -388,7 +402,6 @@ func Cases() []Case {
 			Expr: `name.size() > 3`,
 			Want: []int64{1, 3, 4, 5},
 			Skip: map[Backend]string{
-				Mongo:      "$size applies to arrays, not to string length",
 				Meili:      "no length function in the filter grammar",
 				RediSearch: "no length function in the query syntax",
 			},
@@ -398,7 +411,6 @@ func Cases() []Case {
 			Expr: `size(name) > 3`,
 			Want: []int64{1, 3, 4, 5},
 			Skip: map[Backend]string{
-				Mongo:      "$size applies to arrays, not to string length",
 				Meili:      "no length function in the filter grammar",
 				RediSearch: "no length function in the query syntax",
 			},

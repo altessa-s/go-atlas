@@ -149,7 +149,14 @@ func TestTranslator_LogicalOperators(t *testing.T) {
 		{
 			name: "or",
 			expr: `status == 1 || status == 4`,
-			want: `(@status:[1 1])|(@status:[4 4])`,
+			want: `((@status:[1 1])|(@status:[4 4]))`,
+		},
+		{
+			// The union is grouped whole: RediSearch binds an intersection
+			// tighter than a union, so `x (a)|(b)` would read as `(x a)|(b)`.
+			name: "or inside and",
+			expr: `status == 2 && (priority == 1 || failures == 1)`,
+			want: `(@status:[2 2] ((@priority:[1 1])|(@failures:[1 1])))`,
 		},
 		{
 			name: "not simple ident",
@@ -220,6 +227,23 @@ func TestTranslator_StringFunctions(t *testing.T) {
 			name: "startsWith",
 			expr: `name.startsWith("pre")`,
 			want: `@name:pre*`,
+		},
+		{
+			// A TAG field takes the wildcard inside the braces; the TEXT
+			// form against it matched nothing.
+			name: "contains on a TAG field",
+			expr: `id.contains("sub")`,
+			want: `@id:{*sub*}`,
+		},
+		{
+			name: "startsWith on a TAG field",
+			expr: `id.startsWith("pre")`,
+			want: `@id:{pre*}`,
+		},
+		{
+			name: "startsWith on a TAG field escapes the needle",
+			expr: `id.startsWith("a b}")`,
+			want: `@id:{a\ b\}*}`,
 		},
 	}
 
@@ -443,7 +467,7 @@ func TestTranslator_BareIdentifier(t *testing.T) {
 		{"negated at the root", `!active`, `-@active:{true}`},
 		{"as a conjunct", `active && verified`, `(@active:{true} @verified:{true})`},
 		{"mixed with a comparison", `active && age > 18`, `(@active:{true} @age:[(18 +inf])`},
-		{"as a disjunct", `active || verified`, `(@active:{true})|(@verified:{true})`},
+		{"as a disjunct", `active || verified`, `((@active:{true})|(@verified:{true}))`},
 	}
 
 	trans := mustTranslator(t, schema)
