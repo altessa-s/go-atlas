@@ -38,6 +38,8 @@ With a collector, `Register` attaches an observer to every `ObservableFilter` an
 | `ErrFilterAlreadyExists` | Returned when a filter name is already in use                                             |
 | `ErrFilterClosed`        | Returned by `Rebuild` on a closed filter                                                  |
 | `ErrCommitIndeterminate` | Wrapped by `Rebuild` when a commit's outcome is unknown; old or new contents are in place |
+| `ErrRebuildInProgress`   | Wrapped by `Rebuild` when another process rebuilds the shared filter; nothing was loaded  |
+| `ErrRebuildSuperseded`   | Wrapped by `Rebuild` when the rebuild lost its lease; its snapshot was discarded          |
 
 ## Bloom vs Cuckoo
 

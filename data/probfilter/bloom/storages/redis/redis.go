@@ -28,7 +28,10 @@ type Storage struct {
 	lastRebuild time.Time
 }
 
-var _ storages.Storage = (*Storage)(nil)
+var (
+	_ storages.Storage            = (*Storage)(nil)
+	_ storages.ExclusiveRebuilder = (*Storage)(nil)
+)
 
 // New creates a new Redis Bloom filter Storage.
 // Requires Redis with RedisBloom module installed.
@@ -88,6 +91,39 @@ func (s *Storage) Stage(ctx context.Context, expectedItems int64) (storages.Stag
 		return nil, err
 	}
 	return st, nil
+}
+
+// BeginRebuild acquires the filter's rebuild lease (see
+// [storages.ExclusiveRebuilder]), so concurrent rebuilds of the shared filter
+// by several processes are serialized and a stale snapshot cannot overwrite a
+// newer one.
+func (s *Storage) BeginRebuild(ctx context.Context) (storages.RebuildLease, error) {
+	lease, err := s.core.BeginRebuild(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &rebuildLease{storage: s, lease: lease}, nil
+}
+
+// rebuildLease stages replacement filters under a held rebuild lease.
+type rebuildLease struct {
+	storage *Storage
+	lease   *redisfilter.Lease
+}
+
+func (l *rebuildLease) Stage(ctx context.Context, expectedItems int64) (storages.Staging, error) {
+	if expectedItems <= 0 {
+		expectedItems = l.storage.opts.expectedItems
+	}
+	st, err := l.lease.Stage(ctx, l.storage.opts.falsePositiveRate, expectedItems)
+	if err != nil {
+		return nil, err
+	}
+	return st, nil
+}
+
+func (l *rebuildLease) Release(ctx context.Context) error {
+	return l.lease.Release(ctx)
 }
 
 // Stats returns current filter statistics.

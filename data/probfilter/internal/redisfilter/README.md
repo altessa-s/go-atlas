@@ -59,6 +59,13 @@ after the one-minute server-time deadline of the request), so a delayed replay o
 commit that finds neither the staging key nor its marker is reported as `ErrCommitIndeterminate`, since a lost reply plus a lost marker
 looks the same.
 
+## Rebuild lease
+
+`Core.BeginRebuild` takes a ticket (`INCR`) and the filter's rebuild lease (`SET NX PX`, `LeaseTTL`) in one script before the rebuild reads
+its source, and renews it every `LeaseTTL/3` until `Lease.Release`. A held lease makes it fail with `probfilter.ErrRebuildInProgress`.
+Staging created through `Lease.Stage` commits only while the lease still holds its ticket and no newer ticket was published; the commit
+records its ticket before any promotion step. Otherwise `Commit` returns `probfilter.ErrRebuildSuperseded` without renaming anything.
+
 ## Helpers
 
 | Function     | Description                                                         |

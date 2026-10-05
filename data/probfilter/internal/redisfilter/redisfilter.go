@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 
@@ -80,7 +81,15 @@ type Core struct {
 	deadlinesKey string
 	// stagingsKey (hash) and stagingDeadlinesKey (sorted set) register created
 	// staging ids so a staging key is created at most once; see stageScript.
-	stagingsKey         string
+	stagingsKey string
+	// seqKey issues rebuild tickets, leaseKey holds the ticket of the rebuild
+	// lease, committedKey the ticket of the last publishing rebuild; see
+	// [Core.BeginRebuild] and commitScript.
+	seqKey       string
+	leaseKey     string
+	committedKey string
+	// leaseTTL is LeaseTTL; a field so tests can shorten it.
+	leaseTTL            time.Duration
 	stagingDeadlinesKey string
 	// keyErr is ErrReservedKey for a filter key in the reserved namespace.
 	keyErr error
@@ -128,6 +137,10 @@ func newCore(client redis.UniversalClient, filterKey string, cmds Commands, rese
 		deadlinesKey:        metaKey(filterKey, "delete-deadlines", ""),
 		stagingsKey:         metaKey(filterKey, "stagings", ""),
 		stagingDeadlinesKey: metaKey(filterKey, "staging-deadlines", ""),
+		seqKey:              metaKey(filterKey, "rebuild-seq", ""),
+		leaseKey:            metaKey(filterKey, "rebuild-lease", ""),
+		committedKey:        metaKey(filterKey, "rebuild-committed", ""),
+		leaseTTL:            LeaseTTL,
 		opExists:            "check existence in Redis " + cmds.Label + " filter",
 		opAdd:               "add to Redis " + cmds.Label + " filter",
 		opBatch:             "batch add to Redis " + cmds.Label + " filter",

@@ -33,6 +33,11 @@ type Staging interface {
 // StageFunc creates an empty [Staging] sized for expectedItems.
 type StageFunc func(ctx context.Context, expectedItems int64) (Staging, error)
 
+// BeginFunc starts a rebuild before its data source is read — for example by
+// acquiring a shared filter's rebuild lease — and returns the stage function
+// of the rebuild and a release function run when the rebuild ends.
+type BeginFunc func(ctx context.Context) (stage StageFunc, release func(context.Context) error, err error)
+
 // Coordinator makes a filter rebuild atomic with respect to concurrent adds.
 // Adds routed through [Coordinator.Add] and [Coordinator.AddBatch] while a
 // rebuild runs are journaled and replayed onto the replacement filter before
@@ -241,6 +246,15 @@ func isClosed(ch chan struct{}) bool {
 // [probfilter.ErrFilterClosed]; a rebuild interrupted by Close returns an
 // error wrapping it.
 func (c *Coordinator) Rebuild(ctx context.Context, loader probfilter.DataLoader, stage StageFunc) error {
+	return c.RebuildOrdered(ctx, loader, func(context.Context) (StageFunc, func(context.Context) error, error) {
+		return stage, nil, nil
+	})
+}
+
+// RebuildOrdered is [Coordinator.Rebuild] with a begin step: begin runs after
+// the rebuild was admitted and before the loader is consulted, and its
+// release function (if any) runs when the rebuild ends, whatever the outcome.
+func (c *Coordinator) RebuildOrdered(ctx context.Context, loader probfilter.DataLoader, begin BeginFunc) error {
 	c.rebuildMu.Lock()
 	defer c.rebuildMu.Unlock()
 
@@ -254,7 +268,7 @@ func (c *Coordinator) Rebuild(ctx context.Context, loader probfilter.DataLoader,
 		return err
 	}
 
-	err = c.rebuild(ctx, loader, stage)
+	err = c.rebuild(ctx, loader, begin)
 	if err != nil && c.isClosing() {
 		return errors.Join(probfilter.ErrFilterClosed, err)
 	}
@@ -290,7 +304,7 @@ func (c *Coordinator) isClosing() bool {
 }
 
 // rebuild runs one admitted rebuild. The caller holds rebuildMu.
-func (c *Coordinator) rebuild(ctx context.Context, loader probfilter.DataLoader, stage StageFunc) error {
+func (c *Coordinator) rebuild(ctx context.Context, loader probfilter.DataLoader, begin BeginFunc) error {
 	if err := ctx.Err(); err != nil {
 		return coreerrs.WrapOperation(err, "rebuild filter")
 	}
@@ -302,6 +316,15 @@ func (c *Coordinator) rebuild(ctx context.Context, loader probfilter.DataLoader,
 			c.setActive(false)
 		}
 	}()
+
+	stage, release, err := begin(ctx)
+	if err != nil {
+		return err
+	}
+	if release != nil {
+		// A release failure is harmless: a lease expires on its own.
+		defer func() { _ = release(context.WithoutCancel(ctx)) }()
+	}
 
 	st, err := c.load(ctx, loader, stage)
 	if err != nil {
