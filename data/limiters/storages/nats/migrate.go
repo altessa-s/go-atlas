@@ -35,6 +35,14 @@ var ErrMigrationUnsupportedContext = natskvlease.ErrMigrationUnsupportedContext
 // placement.
 var ErrMigrationUnsupportedBucket = natskvlease.ErrMigrationUnsupportedBucket
 
+// ErrBucketMigrationLocked is returned by MigrateBucketStorage while another
+// migration of the bucket holds its lease, or when this one lost its lease.
+var ErrBucketMigrationLocked = natskvlease.ErrBucketMigrationLocked
+
+// ErrMigrationLeaseStore is returned by MigrateBucketStorage when the lease
+// store bucket kvmigrate_leases exists but is not usable as one.
+var ErrMigrationLeaseStore = natskvlease.ErrMigrationLeaseStore
+
 // MigrateBucketStorage moves the existing bucket to the storage New asks for
 // (file), configured by the same opts as New, keeping its counters and keeping
 // revisions monotonic: the migrated bucket's first revision is above the old
@@ -42,9 +50,9 @@ var ErrMigrationUnsupportedBucket = natskvlease.ErrMigrationUnsupportedBucket
 // migration on; it carries its own request timestamps, so expired requests are
 // still ignored.
 //
-// Stop every process using the bucket first and run one migration at a time.
-// If a run fails, fix the cause, confirm it has exited and rerun with
-// MigrationOptions{Resume: true}; until the migration completes, New fails
+// Stop every process using the bucket first. A second migration of the bucket
+// fails with [ErrBucketMigrationLocked] while one runs. If a run fails, fix the
+// cause, confirm it has exited and rerun with MigrationOptions{Resume: true}; until the migration completes, New fails
 // with [ErrBucketMigrationInProgress]. A missing bucket, or one already on file
 // storage, is left alone. See the package README for the full procedure.
 func MigrateBucketStorage(ctx context.Context, js jetstream.JetStream, mopts MigrationOptions, opts ...Option) error {

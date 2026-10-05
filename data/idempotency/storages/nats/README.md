@@ -33,7 +33,10 @@ type, so `New` adopts an existing bucket with a different storage type as is and
 
 3. If it fails, fix the cause, confirm the run has exited, and rerun with `nats.MigrationOptions{Resume: true}`. Until the migration
    completes, `New` fails with `ErrBucketMigrationInProgress` (a `KVMIGRATE_<bucket>` stream marks it), and a run without `Resume` refuses to
-   continue it. Never run two migrations of one bucket at once.
+   continue it. A migrator holds a lease on the bucket (in the `kvmigrate_leases` bucket, renewed every 10s, expiring after 30s): a second
+   migration, fresh or resumed, fails with `ErrBucketMigrationLocked` while one runs or until a crashed one's lease expires, and a migrator
+   that lost its lease stops. The lease does not fence stream operations on the server, so still confirm a crashed run has exited before
+   resuming. The bucket names `kvmigrate_leases` and `kvmigrate_*` are reserved.
 4. Check that `nats kv info <bucket>` reports file storage and that the `KVMIGRATE_<bucket>` stream is gone.
 5. Start the processes.
 

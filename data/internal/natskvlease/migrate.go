@@ -121,6 +121,9 @@ type migrationState struct {
 	target        migrationTarget
 	targetStream  jetstream.StreamConfig
 	copied        int
+
+	// lease is this run's hold on the bucket; not persisted.
+	lease *migrationLease
 }
 
 // MigrateBucketStorage moves the existing bucket cfg.Bucket to the storage
@@ -144,7 +147,28 @@ func (h *KVHelper) MigrateBucketStorage(ctx context.Context, cfg BucketConfig, c
 	if err := h.checkMigrationContext(); err != nil {
 		return err
 	}
+	if isReservedBucket(cfg.Bucket) {
+		return fmt.Errorf("%w: bucket name %q is reserved for the migration itself", ErrMigrationUnsupportedBucket, cfg.Bucket)
+	}
 
+	lease, err := h.acquireLease(ctx, cfg.Bucket)
+	if err != nil {
+		return err
+	}
+	runCtx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	lease.startHeartbeat(runCtx, cancel)
+	defer lease.release(context.WithoutCancel(ctx))
+
+	err = h.migrateLeased(runCtx, cfg, copyEntries, opts, lease)
+	if cause := context.Cause(runCtx); cause != nil && errors.Is(cause, ErrBucketMigrationLocked) {
+		return cause
+	}
+	return err
+}
+
+// migrateLeased runs a migration while this migrator holds the bucket's lease.
+func (h *KVHelper) migrateLeased(ctx context.Context, cfg BucketConfig, copyEntries bool, opts MigrationOptions, lease *migrationLease) error {
 	cfg = cfg.normalized()
 	target := migrationTarget{
 		Bucket:         cfg.Bucket,
@@ -174,10 +198,11 @@ func (h *KVHelper) MigrateBucketStorage(ctx context.Context, cfg BucketConfig, c
 			return fmt.Errorf("%w: bucket %q: resumed with a configuration other than the interrupted migration's",
 				ErrBucketMigrationConflict, cfg.Bucket)
 		}
+		st.lease = lease
 		return h.runMigration(ctx, st)
 	}
 
-	st, err := h.prepareMigration(ctx, cfg, target)
+	st, err := h.prepareMigration(ctx, cfg, target, lease)
 	if err != nil || st == nil {
 		return err
 	}
@@ -196,7 +221,10 @@ func (h *KVHelper) checkMigrationContext() error {
 
 // prepareMigration validates a fresh migration and creates its marker. It
 // returns a nil state when there is nothing to migrate.
-func (h *KVHelper) prepareMigration(ctx context.Context, cfg BucketConfig, target migrationTarget) (*migrationState, error) {
+func (h *KVHelper) prepareMigration(ctx context.Context, cfg BucketConfig, target migrationTarget, lease *migrationLease) (*migrationState, error) {
+	if err := lease.renew(ctx); err != nil {
+		return nil, err
+	}
 	if err := h.cleanupTemplates(ctx, cfg.Bucket); err != nil {
 		return nil, err
 	}
@@ -227,6 +255,9 @@ func (h *KVHelper) prepareMigration(ctx context.Context, cfg BucketConfig, targe
 		return nil, err
 	}
 	templateBucket := migrationTemplatePrefix + id
+	if err = lease.renew(ctx); err != nil {
+		return nil, err
+	}
 	targetStream, err := h.templateStreamConfig(ctx, cfg, id, templateBucket)
 	if err != nil {
 		return nil, err
@@ -240,9 +271,13 @@ func (h *KVHelper) prepareMigration(ctx context.Context, cfg BucketConfig, targe
 		sourceCreated: src.Created.UnixNano(),
 		target:        target,
 		targetStream:  targetStream,
+		lease:         lease,
 	}
 	meta, err := st.metadata(cfg.Bucket, templateBucket)
 	if err != nil {
+		return nil, err
+	}
+	if err = lease.renew(ctx); err != nil {
 		return nil, err
 	}
 
@@ -321,6 +356,10 @@ func (h *KVHelper) cleanupTemplates(ctx context.Context, bucket string) error {
 // runMigration drives the migration from its recorded phase to the end.
 func (h *KVHelper) runMigration(ctx context.Context, st *migrationState) error {
 	for {
+		// Self-fence: stop before mutating anything once the lease is lost.
+		if err := st.lease.renew(ctx); err != nil {
+			return err
+		}
 		var err error
 		switch st.phase {
 		case phasePrepared:
@@ -439,7 +478,12 @@ func (h *KVHelper) copySource(ctx context.Context, st *migrationState) (int, err
 	slices.Sort(keys)
 
 	copied := 0
-	for _, key := range keys {
+	for i, key := range keys {
+		if i > 0 && i%leaseRenewEveryEntries == 0 {
+			if err := st.lease.renew(ctx); err != nil {
+				return copied, err
+			}
+		}
 		// Leader-served (direct gets are off on the sealed source). A key in
 		// the inventory that cannot be read is an error, not a skip.
 		msg, err := stream.GetLastMsgForSubject(ctx, kvSubjectPrefix(bucket)+key)
@@ -592,6 +636,11 @@ func (h *KVHelper) restoreEntries(ctx context.Context, st *migrationState) error
 	}
 	prefix := markerSubjectPrefix(st.target.Bucket)
 	for seq := mi.State.FirstSeq; seq <= mi.State.LastSeq && mi.State.Msgs > 0; seq++ {
+		if seq > mi.State.FirstSeq && (seq-mi.State.FirstSeq)%leaseRenewEveryEntries == 0 {
+			if err := st.lease.renew(ctx); err != nil {
+				return err
+			}
+		}
 		msg, err := marker.GetMsg(ctx, seq)
 		if errors.Is(err, jetstream.ErrMsgNotFound) {
 			continue

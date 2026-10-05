@@ -26,11 +26,11 @@ when `WithStorage(jetstream.FileStorage)` was set. The server cannot change a bu
 storage type as is and logs a warning. Pass `WithStrictBucketStorage()` (YAML: `leaderElector.strictBucketStorage: true`) to fail with
 `ErrBucketStorageMismatch` instead.
 
-To convert the bucket, stop every instance and run `MigrateBucketStorage(ctx, nc, nats.MigrationOptions{}, opts...)` once, with the production
-options including `WithStorage(jetstream.FileStorage)`. If it fails, fix the cause, confirm the run has exited and rerun with
-`MigrationOptions{Resume: true}`; until then `New` fails with `ErrBucketMigrationInProgress`. The bucket is recreated with its first revision
-just above the old bucket's last one, so `Fence()` keeps growing and fencing tokens kept downstream stay valid. The election key is not copied:
-with every instance stopped there is no leader, and the next start elects one.
+To convert the bucket, stop every instance and run `MigrateBucketStorage(ctx, nc, nats.MigrationOptions{}, opts...)` once, with the production options
+including `WithStorage(jetstream.FileStorage)`. If it fails, fix the cause, confirm the run has exited and rerun with `MigrationOptions{Resume: true}`;
+until then `New` fails with `ErrBucketMigrationInProgress`. A second migration fails with `ErrBucketMigrationLocked` while one holds the bucket's lease.
+The bucket is recreated with its first revision just above the old bucket's last one, so `Fence()` keeps growing and fencing tokens kept downstream stay
+valid. The election key is not copied: with every instance stopped there is no leader, and the next start elects one.
 
 ## Lease renewal
 

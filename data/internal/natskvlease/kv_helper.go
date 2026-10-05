@@ -83,11 +83,13 @@ type KVHelper struct {
 	js     jetstream.JetStream
 	logger *slog.Logger
 
-	// failpoint and now are test seams for the storage migration: failpoint
-	// can fail a named step, now replaces the clock. Both are nil in
+	// failpoint, now and leaseTTL are test seams for the storage migration:
+	// failpoint can fail a named step, now replaces the clock, leaseTTL sets
+	// the TTL of a lease store the migration creates. All are zero in
 	// production.
 	failpoint func(step string) error
 	now       func() time.Time
+	leaseTTL  time.Duration
 }
 
 // NewKVHelper creates a new KVHelper instance.
