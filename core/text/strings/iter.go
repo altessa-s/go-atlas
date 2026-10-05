@@ -10,13 +10,15 @@ import (
 )
 
 // SplitSeq returns an [iter.Seq] that lazily yields substrings of s according
-// to the supplied [SplitOptions]. It applies the same splitting semantics as
-// [Split] (separator, case sensitivity, trimming, empty-element skipping, and
-// max-split limiting) but avoids allocating an intermediate slice, making it
-// suitable for large inputs or when only a prefix of the results is needed.
+// to the supplied [SplitOptions]. It yields exactly the elements [Split]
+// returns (separator, case-insensitive matching rules, trimming,
+// empty-element skipping, and max-split limiting) but avoids allocating an
+// intermediate slice, making it suitable for large inputs or when only a
+// prefix of the results is needed.
 //
-// When opts.Separator is the empty string, each UTF-8 rune is yielded
-// individually. If the caller stops iterating early, no further work is done.
+// When opts.Separator is the empty string, s is split after each UTF-8
+// sequence, as [strings.Split] does. If the caller stops iterating early, no
+// further work is done.
 func SplitSeq(s string, opts SplitOptions) iter.Seq[string] {
 	return func(yield func(string) bool) {
 		if s == "" {
@@ -27,73 +29,20 @@ func SplitSeq(s string, opts SplitOptions) iter.Seq[string] {
 		}
 
 		separator := opts.Separator
-		maxSplits := opts.MaxSplits
-		numSplits := 0
+		if separator == "" {
+			splitRunes(s, opts.MaxSplits, func(part string) bool { return yieldPart(part, opts, yield) })
+			return
+		}
 
-		// Handle case-insensitive splitting
-		if !opts.CaseSensitive && separator != "" {
-			lowerS := strings.ToLower(s)
-			lowerSep := strings.ToLower(separator)
-			start := 0
-
-			for {
-				if maxSplits > 0 && numSplits >= maxSplits {
-					if !yieldPart(s[start:], opts, yield) {
-						return
-					}
-					return
-				}
-
-				idx := strings.Index(lowerS[start:], lowerSep)
-				if idx == -1 {
-					if !yieldPart(s[start:], opts, yield) {
-						return
-					}
-					return
-				}
-
-				actualIdx := start + idx
-				if !yieldPart(s[start:actualIdx], opts, yield) {
-					return
-				}
-				numSplits++
-				start = actualIdx + len(separator)
-			}
+		var sp splitter
+		if opts.CaseSensitive {
+			sp = exactSplitter(s, separator, opts.MaxSplits)
 		} else {
-			// Case-sensitive splitting
-			start := 0
-			for {
-				if maxSplits > 0 && numSplits >= maxSplits {
-					if !yieldPart(s[start:], opts, yield) {
-						return
-					}
-					return
-				}
-
-				if separator == "" {
-					// Split by rune if separator is empty
-					for _, r := range s[start:] {
-						if !yieldPart(string(r), opts, yield) {
-							return
-						}
-					}
-					return
-				}
-
-				idx := strings.Index(s[start:], separator)
-				if idx == -1 {
-					if !yieldPart(s[start:], opts, yield) {
-						return
-					}
-					return
-				}
-
-				actualIdx := start + idx
-				if !yieldPart(s[start:actualIdx], opts, yield) {
-					return
-				}
-				numSplits++
-				start = actualIdx + len(separator)
+			sp = caseInsensitiveSplitter(s, separator, opts.MaxSplits)
+		}
+		for part, ok := sp.next(); ok; part, ok = sp.next() {
+			if !yieldPart(part, opts, yield) {
+				return
 			}
 		}
 	}
