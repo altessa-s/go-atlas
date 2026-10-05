@@ -22,8 +22,12 @@ import (
 
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/probfilter"
+	"github.com/altessa-s/go-atlas/data/probfilter/bloom"
 	"github.com/altessa-s/go-atlas/data/probfilter/factory"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
+
+	bloomredis "github.com/altessa-s/go-atlas/data/probfilter/bloom/storages/redis"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 var errLoad = errors.New("load failed")
@@ -442,4 +446,82 @@ func TestFilterBuilder_CloseStopsLocalCronImmediately(t *testing.T) {
 	}
 	testhelpers.WaitFor(t, 5*time.Second, func() bool { return runtime.NumGoroutine() <= baseline+2 },
 		"local crons must stop when their filters close")
+}
+
+// leaseHoldingLoader signals when a rebuild starts streaming it and blocks the
+// stream until release is closed, keeping the rebuild lease held meanwhile.
+type leaseHoldingLoader struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (l *leaseHoldingLoader) StreamValues(context.Context) iter.Seq2[string, error] {
+	return func(yield func(string, error) bool) {
+		close(l.started)
+		<-l.release
+		yield("peer", nil)
+	}
+}
+
+func (l *leaseHoldingLoader) Count(context.Context) (int64, error) { return -1, nil }
+
+// holdRebuildLease starts a rebuild of the shared "users" filter by a peer
+// process that holds the rebuild lease until the test ends.
+func holdRebuildLease(t *testing.T, client goredis.UniversalClient) {
+	t.Helper()
+	peer := bloom.New(bloomredis.New(client, "users"))
+	loader := &leaseHoldingLoader{started: make(chan struct{}), release: make(chan struct{})}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = peer.Rebuild(context.Background(), loader) // miniredis cannot stage; the error is irrelevant
+	}()
+	<-loader.started
+	t.Cleanup(func() {
+		close(loader.release)
+		<-done
+	})
+}
+
+func TestFilterBuilder_RebuildOnStart_PeerRebuildingFailsBuild(t *testing.T) {
+	t.Parallel()
+	client, _ := testhelpers.RedisClient(t)
+	holdRebuildLease(t, client)
+	cfg := redisBloomCfg()
+	cfg.Bloom.RebuildOnStart = ptr(true)
+
+	_, err := factory.NewFilter("users", cfg, defaults()).
+		UseRedisClient(client).
+		UseDataLoader(loaderOf("a")).
+		Build()
+	require.ErrorIs(t, err, probfilter.ErrRebuildInProgress, "by default Build never returns an unpopulated filter")
+}
+
+func TestFilterBuilder_RebuildOnStart_TolerateRebuildInProgress(t *testing.T) {
+	t.Parallel()
+	client, _ := testhelpers.RedisClient(t)
+	holdRebuildLease(t, client)
+	cfg := redisBloomCfg()
+	cfg.Bloom.RebuildOnStart = ptr(true)
+	logger, logs := newLogger()
+
+	f, err := factory.NewFilter("users", cfg, defaults()).
+		UseLogger(logger).
+		UseRedisClient(client).
+		UseDataLoader(loaderOf("a")).
+		TolerateRebuildInProgress().
+		Build()
+	require.NoError(t, err)
+	require.True(t, f.(probfilter.RebuildableFilter).LastRebuild().IsZero())
+	require.Contains(t, logs.String(), "initial rebuild skipped")
+	require.NoError(t, f.(interface{ Close(context.Context) error }).Close(t.Context()))
+}
+
+func TestFilterBuilder_RebuildOnStart_TolerateKeepsOtherErrors(t *testing.T) {
+	t.Parallel()
+	_, err := factory.NewFilter("users", bloomCfg(), defaults()).
+		UseDataLoader(failingLoader()).
+		TolerateRebuildInProgress().
+		Build()
+	require.ErrorIs(t, err, errLoad)
 }

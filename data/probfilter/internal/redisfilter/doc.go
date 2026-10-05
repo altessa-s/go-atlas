@@ -16,12 +16,14 @@
 // A storage embeds or holds a [Core] configured with its command set:
 //
 //	core := redisfilter.New(client, "bloom:myfilter", redisfilter.Commands{
-//	    Label:    "Bloom",
-//	    Exists:   "BF.EXISTS",
-//	    Add:      "BF.ADD",
-//	    AddBatch: "BF.MADD",
-//	    Reserve:  "BF.RESERVE",
-//	    Info:     "BF.INFO",
+//	    Label:       "Bloom",
+//	    Exists:      "BF.EXISTS",
+//	    Add:         "BF.INSERT",
+//	    AddTokens:   []string{"NOCREATE", "ITEMS"},
+//	    AddBatch:    "BF.INSERT",
+//	    BatchTokens: []string{"NOCREATE", "ITEMS"},
+//	    Reserve:     "BF.RESERVE",
+//	    Info:        "BF.INFO",
 //	}, falsePositiveRate, expectedItems)
 //
 //	ok, err := core.MightExist(ctx, "value")

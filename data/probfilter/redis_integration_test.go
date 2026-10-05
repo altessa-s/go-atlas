@@ -21,6 +21,7 @@ import (
 	"github.com/altessa-s/go-atlas/data/probfilter"
 	"github.com/altessa-s/go-atlas/data/probfilter/bloom"
 	"github.com/altessa-s/go-atlas/data/probfilter/cuckoo"
+	"github.com/altessa-s/go-atlas/data/probfilter/internal/redisfilter"
 
 	bloomredis "github.com/altessa-s/go-atlas/data/probfilter/bloom/storages/redis"
 	cuckooredis "github.com/altessa-s/go-atlas/data/probfilter/cuckoo/storages/redis"
@@ -427,4 +428,87 @@ func requireMember(t *testing.T, f probfilter.Filter, v string) {
 	ok, err := f.MightExist(t.Context(), v)
 	require.NoError(t, err)
 	require.True(t, ok, "MightExist(%q)", v)
+}
+
+// TestRedisRebuildCommitted_Integration checks the shared rebuild state two
+// processes see through RedisBloom: false until one of them commits a
+// rebuild, true for both afterwards, and false again once the filter key was
+// deleted and recreated by a write.
+func TestRedisRebuildCommitted_Integration(t *testing.T) {
+	client, prefix := newRedisBloomIT(t, 3)
+	ctx := t.Context()
+
+	type filter interface {
+		probfilter.RebuildableFilter
+		probfilter.RebuildCommitReporter
+	}
+	filters := map[string]func() filter{
+		"bloom": func() filter {
+			return bloom.New(bloomredis.New(client, "bf", bloomredis.WithKeyPrefix(prefix), bloomredis.WithExpectedItems(1000)))
+		},
+		"cuckoo": func() filter {
+			return cuckoo.New(cuckooredis.New(client, "cf", cuckooredis.WithKeyPrefix(prefix), cuckooredis.WithCapacity(1000)))
+		},
+	}
+	committed := func(t *testing.T, f filter) bool {
+		t.Helper()
+		ok, err := f.RebuildCommitted(ctx)
+		require.NoError(t, err)
+		return ok
+	}
+
+	for name, mk := range filters {
+		t.Run(name, func(t *testing.T) {
+			a, b := mk(), mk()
+			require.NoError(t, b.Add(ctx, "added")) // reserves the filter; b's reservation latches
+			require.False(t, committed(t, a))
+			require.False(t, committed(t, b))
+
+			require.NoError(t, a.Rebuild(ctx, valuesLoader([]string{"x"}, -1)))
+			require.True(t, committed(t, a))
+			require.True(t, committed(t, b), "a rebuild committed by another process counts")
+			require.True(t, b.LastRebuild().IsZero(), "b never rebuilt itself")
+
+			liveKey := prefix + map[string]string{"bloom": "bf", "cuckoo": "cf"}[name]
+			require.NoError(t, client.Del(ctx, liveKey).Err())
+			require.False(t, committed(t, b))
+
+			require.NoError(t, b.Add(ctx, "after-delete"), "a missing filter is recreated by the write")
+			requireMember(t, b, "after-delete")
+			require.False(t, committed(t, a), "a recreated filter does not hold the committed rebuild")
+			require.NoError(t, b.AddBatch(ctx, slices.Values([]string{"y", "z"})))
+			requireMember(t, b, "z")
+
+			require.NoError(t, b.Rebuild(ctx, valuesLoader([]string{"x"}, -1)))
+			require.True(t, committed(t, a))
+		})
+	}
+}
+
+// TestRedisCuckoo_FullFilterRejectsWrites_Integration fills a non-growing
+// Redis Cuckoo filter: a write that does not fit must fail under both
+// protocols — CF.INSERT reports it as -1 under RESP2 and as false under
+// RESP3 — instead of silently dropping the value.
+func TestRedisCuckoo_FullFilterRejectsWrites_Integration(t *testing.T) {
+	for _, protocol := range []int{2, 3} {
+		t.Run(fmt.Sprintf("RESP%d", protocol), func(t *testing.T) {
+			client, prefix := newRedisBloomIT(t, protocol)
+			ctx := t.Context()
+			// A tiny, non-growing filter; the storage's own reserve finds it existing.
+			require.NoError(t, client.Do(ctx, "CF.RESERVE", prefix+"cf", 2, "BUCKETSIZE", 1, "EXPANSION", 0).Err())
+			f := cuckoo.New(cuckooredis.New(client, "cf", cuckooredis.WithKeyPrefix(prefix), cuckooredis.WithCapacity(100)))
+
+			var addErr error
+			for i := 0; i < 50 && addErr == nil; i++ {
+				addErr = f.Add(ctx, fmt.Sprintf("v-%d", i))
+			}
+			require.ErrorIs(t, addErr, redisfilter.ErrItemRejected, "a full filter must reject Add")
+
+			values := make([]string, 50)
+			for i := range values {
+				values[i] = fmt.Sprintf("w-%d", i)
+			}
+			require.ErrorIs(t, f.AddBatch(ctx, slices.Values(values)), redisfilter.ErrItemRejected, "a full filter must reject AddBatch")
+		})
+	}
 }
