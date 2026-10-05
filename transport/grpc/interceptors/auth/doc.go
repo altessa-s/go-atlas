@@ -22,7 +22,7 @@
 // Example:
 //
 //	interceptor := auth.ServerInterceptor(
-//	    auth.WithAuthFunc(authFunc),
+//	    auth.WithAuthFn(authFunc),
 //	    auth.WithIgnoreMethods("/grpc.health.v1.Health/Check"),
 //	)
 //	server := grpc.NewServer(grpc.UnaryInterceptor(interceptor.ServerUnaryInterceptor()))

@@ -41,7 +41,7 @@
 //	// Use with gRPC server
 //	server := grpc.NewServer(
 //	    grpc.UnaryInterceptor(auth.ServerUnaryInterceptor(
-//	        auth.WithAuthFunc(authFunc),
+//	        auth.WithAuthFn(authFunc),
 //	    )),
 //	)
 //
@@ -96,32 +96,22 @@
 // interceptor's ScopeClientAuth. Deny-by-default and the method→scope policy
 // live in the scope.Enforcer, not in the AuthFunc:
 //
-//	authFunc := auth.AuthFunc(func(ctx context.Context, req auth.Request) (any, error) {
-//	    tokenCreds, ok := req.TokenCredentials()
-//	    if !ok {
-//	        return nil, status.Error(codes.Unauthenticated, "invalid credentials")
-//	    }
-//	    claims, err := oidcValidator.ValidateToken(ctx, tokenCreds.Token.Expose())
-//	    if err != nil {
-//	        return nil, status.Error(codes.Unauthenticated, "token validation failed")
-//	    }
-//	    return claims, nil // *oidc.Claims becomes Credentials.Data
-//	})
+//	import "github.com/altessa-s/go-atlas/auth/scope"
 //
-//	    // Check scopes (deny by default for unregistered methods)
-//	    requiredScope, ok := registry.Scope(req.FullyMethodName)
-//	    if !ok {
-//	        return nil, status.Error(codes.PermissionDenied, "method not registered in scope registry")
-//	    }
-//	    if requiredScope != "" {
-//	        userScopes := claims.Scopes
-//	        if !hasScope(userScopes, requiredScope) {
-//	            return nil, status.Error(codes.PermissionDenied, "insufficient permissions")
-//	        }
-//	    }
+//	// Authentication: the verified *oidc.Claims become Credentials.Data.
+//	authFunc := oidc.AuthFunc(oidcValidator)
+//
+//	// Authorization: every method must be registered (unregistered methods
+//	// are denied); the empty scope marks a method as public.
+//	registry := scope.NewRegistry()
+//	registry.Register("/orders.v1.OrderService/GetOrder", "orders:read")
+//	registry.Register("/orders.v1.OrderService/Ping", "")
+//	registry.Freeze()
+//
+//	enf := scope.NewEnforcer(registry, scope.ScopeAuthorizer(oidc.ScopesOf, scope.Exact()))
 //
 //	interceptor := auth.ServerInterceptor(
-//	    auth.WithAuthFunc(authFunc),
+//	    auth.WithAuthFn(authFunc),
 //	    auth.WithClientAuth(auth.ScopeClientAuth(enf)),
 //	)
 //

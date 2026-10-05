@@ -118,7 +118,7 @@
 //
 //	server := grpc.NewServer(
 //	    grpc.UnaryInterceptor(auth.ServerUnaryInterceptor(
-//	        auth.WithAuthFunc(authFunc),
+//	        auth.WithAuthFn(authFunc),
 //	    )),
 //	)
 //
