@@ -162,8 +162,9 @@ func (b *SchedulerBuilder) createRedisStorage() (*redisstorage.Storage, error) {
 }
 
 // createSQLStorage creates a SQL storage backend. Like the MongoDB backend it
-// performs no I/O: call EnsureSchema on the storage, or apply the DDL through
-// migrations, before the scheduler starts.
+// performs no I/O: before the scheduler starts, call EnsureSchema on a sqldb
+// storage built with the same handle, dialect and tables, or apply the DDL
+// through migrations.
 func (b *SchedulerBuilder) createSQLStorage() (*sqlstorage.Storage, error) {
 	if b.cfg.Storage.SQL == nil {
 		return nil, fmt.Errorf("configuration is required")

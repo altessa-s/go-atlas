@@ -133,8 +133,10 @@
 #
 #    # <object> SQL database configuration for scheduler storage.
 #    # The *sql.DB is injected into the factory (UseSQLDB); the application
-#    # chooses and registers the driver. Call EnsureSchema on the storage (or
-#    # apply its DDL through migrations) before starting the scheduler.
+#    # chooses and registers the driver. The factory never runs DDL: before
+#    # starting the scheduler, call EnsureSchema on a sqldb storage built from
+#    # the same handle, dialect and table names, or apply its DDL through
+#    # migrations.
 #    # Required when type is set to 'sql'.
 #    sql:
 #      # <string> SQL dialect.
