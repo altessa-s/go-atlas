@@ -306,7 +306,7 @@ func TestEvaluator_SizeGlobalForm(t *testing.T) {
 	t.Parallel()
 
 	p := newTestParser(t)
-	data := map[string]any{"name": "hello", "tags": []any{"a", "b"}}
+	data := map[string]any{"name": "hello", "tags": []any{"a", "b"}, "city": "café"}
 
 	tests := []struct {
 		expr string
@@ -316,6 +316,7 @@ func TestEvaluator_SizeGlobalForm(t *testing.T) {
 		{`size(name) > 5`, false},
 		{`size(tags) == 2`, true},
 		{`size(tags) > 0 && name.size() == size(name)`, true},
+		{`city.size() == 4`, true}, // code points, not the 5 bytes of "café"
 	}
 	for _, tc := range tests {
 		t.Run(tc.expr, func(t *testing.T) {

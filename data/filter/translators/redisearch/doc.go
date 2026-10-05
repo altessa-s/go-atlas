@@ -40,7 +40,7 @@
 // Comparison: ==, !=, <, >, <=, >= (NUMERIC fields use range syntax, TAG fields use tag syntax)
 // Logical: &&, ||, !
 // Membership: in (rendered per field type — see below)
-// String: contains(), startsWith() (TEXT fields only)
+// String: contains(), startsWith() (TEXT form @f:*s* / @f:p* on TEXT fields, tag form @f:{*s*} / @f:{p*} on TAG fields)
 //
 // The schema is not advisory. A field's type decides the shape of every query built against it, and
 // `in` follows it too: a union of exact ranges for NUMERIC, a tag set for TAG, a term union for TEXT.

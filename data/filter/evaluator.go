@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"unicode/utf8"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
@@ -422,7 +423,8 @@ func (e *evaluation) evalHas(n *CallNode) (any, error) {
 	return fieldExists(e.data, mapped), nil
 }
 
-// evalSize returns the size of a string or slice.
+// evalSize returns the size of a string, in Unicode code points as CEL
+// defines it, or of a slice.
 func (e *evaluation) evalSize(n *CallNode) (any, error) {
 	target, err := n.Target.Accept(e)
 	if err != nil {
@@ -430,7 +432,7 @@ func (e *evaluation) evalSize(n *CallNode) (any, error) {
 	}
 	switch v := target.(type) {
 	case string:
-		return int64(len(v)), nil
+		return int64(utf8.RuneCountInString(v)), nil
 	case []any:
 		return int64(len(v)), nil
 	default:

@@ -291,12 +291,17 @@ func (t *Translator) translateLogicalAnd(left, right filter.Node) (string, error
 }
 
 // translateLogicalOr handles the || operator. RediSearch uses | for OR.
+//
+// The union is grouped as a whole, not only its operands: RediSearch binds
+// an intersection tighter than a union, so an unwrapped `(a)|(b)` placed next
+// to another clause — `x (a)|(b)` from `x && (a || b)` — parses as
+// `(x a)|(b)`.
 func (t *Translator) translateLogicalOr(left, right filter.Node) (string, error) {
 	l, r, err := t.logicalOperands(left, right)
 	if err != nil {
 		return "", err
 	}
-	return "(" + l + ")|(" + r + ")", nil
+	return "((" + l + ")|(" + r + "))", nil
 }
 
 // logicalOperands renders both sides of a logical operator.
@@ -396,26 +401,30 @@ func (t *Translator) buildIn(field string, values []any, ft FieldType) (string, 
 	}
 }
 
-// translateContains handles field.contains("sub") for TEXT fields → @field:*sub*.
+// translateContains handles field.contains("sub") → @field:*sub* on a TEXT
+// field, @field:{*sub*} on a TAG field.
 func (t *Translator) translateContains(target filter.Node, args []filter.Node) (string, error) {
-	return t.translateTextSearch(target, args, "contains", "@%s:*%s*")
+	return t.translateTextSearch(target, args, "contains", "@%s:*%s*", "@%s:{*%s*}")
 }
 
-// translateStartsWith handles field.startsWith("pre") for TEXT fields → @field:pre*.
+// translateStartsWith handles field.startsWith("pre") → @field:pre* on a TEXT
+// field, @field:{pre*} on a TAG field.
 func (t *Translator) translateStartsWith(target filter.Node, args []filter.Node) (string, error) {
-	return t.translateTextSearch(target, args, "startsWith", "@%s:%s*")
+	return t.translateTextSearch(target, args, "startsWith", "@%s:%s*", "@%s:{%s*}")
 }
 
-// translateTextSearch renders a single-argument TEXT search. The two
+// translateTextSearch renders a single-argument string search. The two
 // callers differ only in the wildcards they wrap the needle in, which
-// format carries as a template over (field, needle); name appears in the
-// error messages.
+// textFormat and tagFormat carry as templates over (field, needle); name
+// appears in the error messages.
 //
-// RediSearch matches these against the tokenized index, so both are
-// case-insensitive, and an infix query needs the field declared
+// The template follows the field's schema type: a TAG field needs the
+// wildcard inside the tag braces — the TEXT form against a TAG field matches
+// nothing at all. RediSearch matches both case-insensitively (a TAG field
+// unless declared CASESENSITIVE), and an infix query needs the field declared
 // WITHSUFFIXTRIE.
 func (t *Translator) translateTextSearch(
-	target filter.Node, args []filter.Node, name, format string,
+	target filter.Node, args []filter.Node, name, textFormat, tagFormat string,
 ) (string, error) {
 	field, err := t.getFieldName(target)
 	if err != nil {
@@ -436,6 +445,10 @@ func (t *Translator) translateTextSearch(
 		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "%s argument must be a string", name)
 	}
 
+	format := textFormat
+	if t.fieldType(field) == FieldTypeTag {
+		format = tagFormat
+	}
 	return fmt.Sprintf(format, field, t.escapeQueryValue(s)), nil
 }
 

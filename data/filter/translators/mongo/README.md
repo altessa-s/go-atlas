@@ -10,6 +10,19 @@ operations.
 A bare identifier used as a condition becomes a boolean field test — `active` translates to `{active: true}`, `!active` to
 `{active: {$ne: true}}` — at the root of an expression and on either side of `$and` / `$or` alike.
 
+## size()
+
+`size()` measures an array by its element count and a string by its code points (`$strLenCP`, as CEL defines it):
+
+| Expression       | Array (or absent/null)                                    | String                     |
+|------------------|-----------------------------------------------------------|----------------------------|
+| `f.size() == n`  | `{f: {$size: n}}` — an absent or null field never matches | code-point length `== n`   |
+| `f.size() != n`  | `{f: {$not: {$size: n}}}` — absent and null match         | code-point length `!= n`   |
+| `f.size() > n` … | `$size` of `$ifNull(f, [])` — absent and null count as 0  | code-point length compared |
+
+The string test is guarded by `$type`, so `$strLenCP` never sees another type; a value that is neither an array nor a string has no size and
+matches no ordering comparison.
+
 ## Security
 
 `matches()` passes the user-supplied pattern through to MongoDB's `$regex`. Host-side validation compiles it with Go's RE2 engine (which
