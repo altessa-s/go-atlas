@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/probfilter"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	goredis "github.com/redis/go-redis/v9"
 )
@@ -148,7 +149,9 @@ func TestLease_RenewalKeepsLeaseAlive(t *testing.T) {
 	lease, err := a.BeginRebuild(t.Context())
 	require.NoError(t, err)
 	mr.FastForward(250 * time.Millisecond)
-	time.Sleep(250 * time.Millisecond) // the renewer ticks every 100ms
+	// The renewer ticks every 100ms and restores the full TTL.
+	testhelpers.WaitFor(t, 5*time.Second, func() bool { return mr.TTL(a.leaseKey) > 50*time.Millisecond },
+		"the renewer never extended the lease")
 	mr.FastForward(250 * time.Millisecond)
 	require.True(t, mr.Exists(a.leaseKey), "a renewed lease outlives its first TTL")
 
