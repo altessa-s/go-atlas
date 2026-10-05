@@ -3,7 +3,27 @@
 All metrics are Prometheus-compatible and follow the naming convention `{serviceName}_{subsystem}_{name}`. The `serviceName` prefix is configured via
 `config.Metrics.ServiceName`.
 
-**28 subsystems, 160 metrics.**
+**38 subsystems, 220 metrics.**
+
+---
+
+## async
+
+Package: `service/dispatch`
+
+The subsystem defaults to `DefaultMetricsSubsystem` (`async`) and can be changed with `WithMetricsSubsystem` or the dispatch config.
+
+| Name                                 | Type      | Labels | Description                               |
+|--------------------------------------|-----------|--------|-------------------------------------------|
+| `async_items_enqueued_total`         | Counter   | --     | Items accepted into the dispatch buffer   |
+| `async_items_dropped_total`          | Counter   | --     | Items dropped (buffer full or shutdown)   |
+| `async_batch_flush_duration_seconds` | Histogram | --     | Batch flush duration                      |
+| `async_sink_errors_total`            | Counter   | --     | Batches the sink failed after all retries |
+| `async_wal_errors_total`             | Counter   | --     | WAL append/ack failures                   |
+| `async_encode_errors_total`          | Counter   | --     | Items the codec failed to encode          |
+| `async_workers_active`               | Gauge     | --     | Currently active dispatch workers         |
+| `async_wal_bytes`                    | Gauge     | --     | WAL size on disk                          |
+| `async_wal_replay_total`             | Counter   | --     | Items replayed from the WAL on start      |
 
 ---
 
@@ -11,13 +31,69 @@ All metrics are Prometheus-compatible and follow the naming convention `{service
 
 Package: `data/audit`
 
-| Name                                 | Type      | Labels | Description                                      |
-|--------------------------------------|-----------|--------|--------------------------------------------------|
-| `audit_events_emitted_total`         | Counter   | --     | Audit events successfully emitted                |
-| `audit_events_dropped_total`         | Counter   | --     | Audit events dropped due to a full buffer        |
-| `audit_batch_flush_duration_seconds` | Histogram | --     | Batch flush operation duration                   |
-| `audit_store_errors_total`           | Counter   | --     | Batch store failures after all retries           |
-| `audit_workers_active`               | Gauge     | --     | Currently active dispatch workers                |
+| Name                         | Type    | Labels | Description                               |
+|------------------------------|---------|--------|-------------------------------------------|
+| `audit_events_emitted_total` | Counter | --     | Audit events successfully emitted         |
+| `audit_events_dropped_total` | Counter | --     | Audit events dropped due to a full buffer |
+
+---
+
+## auth_denylist_mirror
+
+Package: `auth/denylist/mirror`
+
+| Name                                   | Type    | Labels   | Description                     |
+|----------------------------------------|---------|----------|---------------------------------|
+| `auth_denylist_mirror_refreshes_total` | Counter | `result` | Snapshot refreshes              |
+| `auth_denylist_mirror_snapshot_size`   | Gauge   | --       | Entries in the current snapshot |
+
+---
+
+## auth_denylist_negcache
+
+Package: `auth/denylist/negcache`
+
+| Name                                   | Type    | Labels             | Description            |
+|----------------------------------------|---------|--------------------|------------------------|
+| `auth_denylist_negcache_lookups_total` | Counter | `result`, `filter` | Negative-cache lookups |
+
+---
+
+## auth_oauth2client
+
+Package: `auth/oauth2client`
+
+| Name                                             | Type      | Labels            | Description          |
+|--------------------------------------------------|-----------|-------------------|----------------------|
+| `auth_oauth2client_token_fetches_total`          | Counter   | `grant`, `status` | Token fetches        |
+| `auth_oauth2client_token_fetch_duration_seconds` | Histogram | `grant`, `status` | Token fetch duration |
+| `auth_oauth2client_token_fetch_retries_total`    | Counter   | `grant`           | Token fetch retries  |
+
+---
+
+## auth_selfjwt
+
+Package: `auth/selfjwt`
+
+| Name                                                | Type      | Labels   | Description                    |
+|-----------------------------------------------------|-----------|----------|--------------------------------|
+| `auth_selfjwt_mints_total`                          | Counter   | `status` | Tokens minted                  |
+| `auth_selfjwt_verifications_total`                  | Counter   | `status` | Token verifications            |
+| `auth_selfjwt_mint_duration_seconds`                | Histogram | `status` | Mint duration                  |
+| `auth_selfjwt_verify_duration_seconds`              | Histogram | `status` | Verification duration          |
+| `auth_selfjwt_verification_key_cache_lookups_total` | Counter   | `result` | Verification-key cache lookups |
+
+---
+
+## auth_static
+
+Package: `auth/static`
+
+| Name                                      | Type      | Labels   | Description              |
+|-------------------------------------------|-----------|----------|--------------------------|
+| `auth_static_validations_total`           | Counter   | `status` | Token validations        |
+| `auth_static_tokens_active`               | Gauge     | --       | Configured active tokens |
+| `auth_static_validation_duration_seconds` | Histogram | --       | Validation duration      |
 
 ---
 
@@ -74,6 +150,7 @@ Package: `data/cache`
 |-----------------------------------|-----------|--------------|--------------------------------------|
 | `cache_hits_total`                | Counter   | `cache_name` | Cache hits                           |
 | `cache_misses_total`              | Counter   | `cache_name` | Cache misses                         |
+| `cache_negative_hits_total`       | Counter   | `cache_name` | Negative cache hits                  |
 | `cache_errors_total`              | Counter   | `cache_name` | Cache operation errors               |
 | `cache_write_duration_seconds`    | Histogram | --           | Cache write operation duration       |
 | `cache_fallback_duration_seconds` | Histogram | --           | Fallback function execution duration |
@@ -96,6 +173,18 @@ Package: `data/locks/dlock`
 
 ---
 
+## eventbus
+
+Package: `domain/eventbus`
+
+| Name                                | Type      | Labels            | Description                          |
+|-------------------------------------|-----------|-------------------|--------------------------------------|
+| `eventbus_publish_total`            | Counter   | `event`, `status` | Events published (via `NewObserved`) |
+| `eventbus_publish_duration_seconds` | Histogram | `event`           | Publish duration                     |
+| `eventbus_publish_no_handler_total` | Counter   | `event`           | Events published with no handler     |
+
+---
+
 ## filter
 
 Package: `data/filter`
@@ -110,23 +199,43 @@ per-backend translation counter.
 
 ---
 
+## grpc
+
+Package: `transport/grpc/interceptors/metrics`
+
+The subsystem defaults to `DefaultMetricsSubsystem` (`grpc`) and can be changed through the interceptor options or config.
+
+| Name                                         | Type      | Labels                | Description                                           |
+|----------------------------------------------|-----------|-----------------------|-------------------------------------------------------|
+| `grpc_server_requests_total`                 | Counter   | `method`, `status`    | Server requests                                       |
+| `grpc_server_request_duration_seconds`       | Histogram | `method`, `status`    | Server request duration                               |
+| `grpc_server_requests_in_flight`             | Gauge     | --                    | Requests in flight                                    |
+| `grpc_server_requests_in_flight_by_method`   | Gauge     | `method`              | Requests in flight per method                         |
+| `grpc_server_request_size_bytes`             | Histogram | `method`, `status`    | Request size (size metrics enabled)                   |
+| `grpc_server_response_size_bytes`            | Histogram | `method`, `status`    | Response size (size metrics enabled)                  |
+| `grpc_server_stream_messages_sent_total`     | Counter   | `method`, `status`    | Stream messages sent (stream metrics enabled)         |
+| `grpc_server_stream_messages_received_total` | Counter   | `method`, `status`    | Stream messages received (stream metrics enabled)     |
+| `grpc_server_stream_message_size_bytes`      | Histogram | `method`, `direction` | Stream message size (stream and size metrics enabled) |
+
+---
+
 ## grpc_connection_pool
 
 Package: `transport/grpc/client/pool`
 
-| Name                                               | Type      | Labels | Description                            |
-|----------------------------------------------------|-----------|--------|----------------------------------------|
-| `grpc_connection_pool_connections_created_total`   | Counter   | --     | Connections created                    |
-| `grpc_connection_pool_connections_closed_total`    | Counter   | --     | Connections closed                     |
-| `grpc_connection_pool_connections_reused_total`    | Counter   | --     | Connections reused from the pool       |
-| `grpc_connection_pool_connection_errors_total`     | Counter   | --     | Connection creation failures           |
-| `grpc_connection_pool_connections_active`          | Gauge     | --     | Currently active connections           |
-| `grpc_connection_pool_connections_in_use`          | Gauge     | --     | Connections currently in use           |
-| `grpc_connection_pool_connections_idle`            | Gauge     | --     | Idle connections available             |
-| `grpc_connection_pool_waiters`                     | Gauge     | --     | Goroutines waiting for a connection    |
-| `grpc_connection_pool_connect_duration_seconds`    | Histogram | --     | Connection establishment duration      |
-| `grpc_connection_pool_cleanup_duration_seconds`    | Histogram | --     | Cleanup cycle duration                 |
-| `grpc_connection_pool_cleanup_connections_removed` | Counter   | --     | Connections removed during cleanup     |
+| Name                                               | Type      | Labels             | Description                         |
+|----------------------------------------------------|-----------|--------------------|-------------------------------------|
+| `grpc_connection_pool_connections_created_total`   | Counter   | `target`           | Connections created                 |
+| `grpc_connection_pool_connections_closed_total`    | Counter   | `target`, `reason` | Connections closed                  |
+| `grpc_connection_pool_connections_reused_total`    | Counter   | `target`           | Connections reused from the pool    |
+| `grpc_connection_pool_connection_errors_total`     | Counter   | `target`           | Connection creation failures        |
+| `grpc_connection_pool_connections_active`          | Gauge     | --                 | Currently active connections        |
+| `grpc_connection_pool_connections_in_use`          | Gauge     | --                 | Connections currently in use        |
+| `grpc_connection_pool_connections_idle`            | Gauge     | --                 | Idle connections available          |
+| `grpc_connection_pool_waiters`                     | Gauge     | --                 | Goroutines waiting for a connection |
+| `grpc_connection_pool_connect_duration_seconds`    | Histogram | `target`           | Connection establishment duration   |
+| `grpc_connection_pool_cleanup_duration_seconds`    | Histogram | --                 | Cleanup cycle duration              |
+| `grpc_connection_pool_cleanup_connections_removed` | Counter   | --                 | Connections removed during cleanup  |
 
 ---
 
@@ -139,6 +248,22 @@ Package: `observability/health`
 | `health_check_cycle_duration_seconds` | Histogram | --     | Health check cycle duration        |
 | `health_status_changes_total`         | Counter   | --     | Health status changes detected     |
 | `health_checks_performed_total`       | Counter   | --     | Individual health checks performed |
+
+---
+
+## http
+
+Package: `transport/http/server/middlewares/metrics`
+
+The subsystem defaults to `DefaultMetricsSubsystem` (`http`) and can be changed through the middleware options or config.
+
+| Name                                   | Type      | Labels             | Description                          |
+|----------------------------------------|-----------|--------------------|--------------------------------------|
+| `http_server_requests_total`           | Counter   | `method`, `status` | Server requests                      |
+| `http_server_request_duration_seconds` | Histogram | `method`, `status` | Server request duration              |
+| `http_server_requests_in_flight`       | Gauge     | --                 | Requests in flight                   |
+| `http_server_request_size_bytes`       | Histogram | `method`, `status` | Request size (size metrics enabled)  |
+| `http_server_response_size_bytes`      | Histogram | `method`, `status` | Response size (size metrics enabled) |
 
 ---
 
@@ -204,14 +329,14 @@ Package: `data/leadelect`
 
 Package: `data/mongo`
 
-| Name                                 | Type      | Labels              | Description                        |
-|--------------------------------------|-----------|---------------------|------------------------------------|
-| `mongo_connect_duration_seconds`     | Histogram | --                  | MongoDB connect duration           |
-| `mongo_ping_retries_total`           | Counter   | --                  | MongoDB ping retry attempts        |
-| `mongo_transaction_duration_seconds` | Histogram | `collection`        | MongoDB transaction duration       |
-| `mongo_transaction_errors_total`     | Counter   | --                  | Failed MongoDB transactions        |
-| `mongo_operations_total`             | Counter   | `op`, `collection`  | MongoDB CRUD operations            |
-| `mongo_operation_duration_seconds`   | Histogram | `op`, `collection`  | MongoDB operation duration         |
+| Name                                 | Type      | Labels             | Description                  |
+|--------------------------------------|-----------|--------------------|------------------------------|
+| `mongo_connect_duration_seconds`     | Histogram | --                 | MongoDB connect duration     |
+| `mongo_ping_retries_total`           | Counter   | --                 | MongoDB ping retry attempts  |
+| `mongo_transaction_duration_seconds` | Histogram | --                 | MongoDB transaction duration |
+| `mongo_transaction_errors_total`     | Counter   | --                 | Failed MongoDB transactions  |
+| `mongo_operations_total`             | Counter   | `op`, `collection` | MongoDB CRUD operations      |
+| `mongo_operation_duration_seconds`   | Histogram | `op`, `collection` | MongoDB operation duration   |
 
 ---
 
@@ -219,10 +344,10 @@ Package: `data/mongo`
 
 Package: `data/internal/natskvlease`
 
-| Name                             | Type    | Labels | Description                                    |
-|----------------------------------|---------|--------|------------------------------------------------|
-| `nats_kv_lease_operations_total` | Counter | --     | Lease operations                               |
-| `nats_kv_lease_lease_held`       | Gauge   | --     | Lease held status (1=held, 0=not held)         |
+| Name                             | Type    | Labels         | Description                            |
+|----------------------------------|---------|----------------|----------------------------------------|
+| `nats_kv_lease_operations_total` | Counter | `op`, `result` | Lease operations                       |
+| `nats_kv_lease_lease_held`       | Gauge   | --             | Lease held status (1=held, 0=not held) |
 
 ---
 
@@ -230,11 +355,11 @@ Package: `data/internal/natskvlease`
 
 Package: `data/leadelect/providers/nats`
 
-| Name                                                      | Type      | Labels | Description                                     |
-|-----------------------------------------------------------|-----------|--------|-------------------------------------------------|
-| `nats_leader_election_lease_operations_total`             | Counter   | --     | Lease operations                                |
-| `nats_leader_election_is_leader`                          | Gauge     | --     | Current leader status (1=leader, 0=follower)    |
-| `nats_leader_election_camping_iteration_duration_seconds` | Histogram | --     | Camping loop iteration duration                 |
+| Name                                                      | Type      | Labels         | Description                                  |
+|-----------------------------------------------------------|-----------|----------------|----------------------------------------------|
+| `nats_leader_election_lease_operations_total`             | Counter   | `op`, `result` | Lease operations                             |
+| `nats_leader_election_is_leader`                          | Gauge     | --             | Current leader status (1=leader, 0=follower) |
+| `nats_leader_election_camping_iteration_duration_seconds` | Histogram | --             | Camping loop iteration duration              |
 
 ---
 
@@ -242,17 +367,18 @@ Package: `data/leadelect/providers/nats`
 
 Package: `auth/oidc`
 
-| Name                                      | Type      | Labels   | Description                     |
-|-------------------------------------------|-----------|----------|---------------------------------|
-| `auth_oidc_token_validations_total`       | Counter   | `issuer` | Token validation attempts       |
-| `auth_oidc_validation_errors_total`       | Counter   | `issuer` | Token validation errors         |
-| `auth_oidc_revocation_check_errors_total` | Counter   | --       | Token revocation check failures |
-| `auth_oidc_validation_duration_seconds`   | Histogram | --       | Token validation duration       |
-| `auth_oidc_cache_hits_total`              | Counter   | --       | Token cache hits                |
-| `auth_oidc_cache_misses_total`            | Counter   | --       | Token cache misses              |
-| `auth_oidc_jwks_refreshes_total`          | Counter   | --       | JWKS refresh operations         |
-| `auth_oidc_jwks_refresh_errors_total`     | Counter   | --       | Failed JWKS refresh operations  |
-| `auth_oidc_jwks_refresh_duration_seconds` | Histogram | --       | JWKS refresh duration           |
+| Name                                      | Type      | Labels   | Description                                                           |
+|-------------------------------------------|-----------|----------|-----------------------------------------------------------------------|
+| `auth_oidc_token_validations_total`       | Counter   | `issuer` | Token validation attempts                                             |
+| `auth_oidc_validation_errors_total`       | Counter   | `issuer` | Token validation errors                                               |
+| `auth_oidc_revocation_check_errors_total` | Counter   | --       | Token revocation check failures                                       |
+| `auth_oidc_validation_duration_seconds`   | Histogram | --       | Token validation duration                                             |
+| `auth_oidc_cache_hits_total`              | Counter   | --       | Token cache hits                                                      |
+| `auth_oidc_cache_misses_total`            | Counter   | --       | Token cache misses                                                    |
+| `auth_oidc_jwks_refreshes_total`          | Counter   | --       | JWKS refresh operations                                               |
+| `auth_oidc_jwks_refresh_errors_total`     | Counter   | --       | Failed JWKS refresh operations                                        |
+| `auth_oidc_jwks_refresh_duration_seconds` | Histogram | --       | JWKS refresh duration                                                 |
+| `auth_oidc_jwks_stale_rejections_total`   | Counter   | --       | Validations affected by an over-stale JWKS cache (enforced or warned) |
 
 ---
 
@@ -268,6 +394,17 @@ Package: `auth/opa`
 | `auth_opa_evaluation_duration_seconds`    | Histogram | --       | Policy evaluation duration      |
 | `auth_opa_modules_loaded`                 | Gauge     | --       | Policy modules currently loaded |
 | `auth_opa_decision_cache_lookups_total`   | Counter   | `result` | Decision cache lookups (`hit`/`miss`); emitted only when the decision cache is enabled |
+
+---
+
+## orderby
+
+Package: `data/orderby`
+
+| Name                             | Type      | Labels | Description             |
+|----------------------------------|-----------|--------|-------------------------|
+| `orderby_parse_duration_seconds` | Histogram | --     | order_by parse duration |
+| `orderby_parse_errors_total`     | Counter   | --     | order_by parse errors   |
 
 ---
 
@@ -443,26 +580,29 @@ Package: `security/vault/auth`
 
 ---
 
-## plugin
+## plugins
 
 Package: `plugins`
 
-| Name                                  | Type      | Labels                     | Description                                        |
-|---------------------------------------|-----------|----------------------------|---------------------------------------------------|
-| `plugin_signature_attempts_total`     | Counter   | --                        | Plugin signature verification attempts             |
-| `plugin_signature_successes_total`    | Counter   | --                        | Successful plugin signature verifications          |
-| `plugin_signature_failures_total`     | Counter   | `reason`                  | Failed plugin signature verifications              |
-| `plugin_signature_duration_seconds`   | Histogram | --                        | Plugin signature verification duration             |
-| `plugin_load_attempts_total`          | Counter   | --                        | Plugin loading attempts                            |
-| `plugin_load_successes_total`         | Counter   | --                        | Successful plugin loads                            |
-| `plugin_load_failures_total`          | Counter   | `reason`                  | Failed plugin loads                                |
-| `plugin_load_duration_seconds`        | Histogram | --                        | Plugin loading duration                            |
-| `plugin_quarantine_additions_total`   | Counter   | `reason`                  | Plugins added to quarantine                        |
-| `plugin_quarantine_removals_total`    | Counter   | --                        | Plugins removed from quarantine                    |
-| `plugin_quarantine_hits_total`        | Counter   | --                        | Quarantined plugin load attempts blocked           |
-| `plugin_init_attempts_total`          | Counter   | `plugin`                  | Plugin initialization attempts                     |
-| `plugin_init_successes_total`         | Counter   | `plugin`                  | Successful plugin initializations                  |
-| `plugin_init_failures_total`          | Counter   | `plugin`, `error`         | Failed plugin initializations                      |
-| `plugin_init_panics_total`            | Counter   | `plugin`                  | Plugin initialization panics                       |
-| `plugin_init_duration_seconds`        | Histogram | `plugin`                  | Plugin initialization duration                     |
-| `plugin_states`                       | Gauge     | `state`                   | Current plugin states (ready/failed/unloaded)      |
+| Name                                              | Type      | Labels | Description                                           |
+|---------------------------------------------------|-----------|--------|-------------------------------------------------------|
+| `plugins_signature_verification_attempts_total`   | Counter   | --     | Plugin signature verification attempts                |
+| `plugins_signature_verification_success_total`    | Counter   | --     | Successful plugin signature verifications             |
+| `plugins_signature_verification_failures_total`   | Counter   | --     | Failed plugin signature verifications                 |
+| `plugins_signature_verification_duration_seconds` | Histogram | --     | Plugin signature verification duration                |
+| `plugins_load_attempts_total`                     | Counter   | --     | Plugin load attempts                                  |
+| `plugins_load_success_total`                      | Counter   | --     | Successful plugin loads                               |
+| `plugins_load_failures_total`                     | Counter   | --     | Failed plugin loads                                   |
+| `plugins_load_duration_seconds`                   | Histogram | --     | Plugin load duration                                  |
+| `plugins_loaded_total`                            | Gauge     | --     | Currently loaded plugins (a gauge despite the suffix) |
+| `plugins_quarantine_added_total`                  | Counter   | --     | Plugins added to quarantine                           |
+| `plugins_quarantine_cleared_total`                | Counter   | --     | Plugins cleared from quarantine                       |
+| `plugins_quarantine_size`                         | Gauge     | --     | Currently quarantined plugins                         |
+| `plugins_ready`                                   | Gauge     | --     | Plugins in ready state                                |
+| `plugins_failed`                                  | Gauge     | --     | Plugins in failed state                               |
+| `plugins_registered`                              | Gauge     | --     | Registered plugins                                    |
+| `plugins_init_attempts_total`                     | Counter   | --     | Plugin Init calls                                     |
+| `plugins_init_success_total`                      | Counter   | --     | Successful plugin Init calls                          |
+| `plugins_init_failures_total`                     | Counter   | --     | Failed plugin Init calls                              |
+| `plugins_init_duration_seconds`                   | Histogram | --     | Plugin Init duration                                  |
+| `plugins_init_panics_total`                       | Counter   | --     | Panics during plugin Init                             |

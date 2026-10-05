@@ -67,7 +67,7 @@ When more flexible control is needed, use `golang.org/x/sync/semaphore` with wei
 
 > **In go-atlas.** Code inside this repository uses [`core/runtime/concurrency`](../../core/runtime/concurrency/README.md) instead of a hand-rolled
 > `errgroup` + semaphore: `Process` / `ProcessCollect` with `WithConcurrency`, `WithStopOnError`, or an adaptive `WithLimitFunc` give the same bounded,
-> cancel-on-error semantics. See `AGENTS.md`, section "Reuse core/*".
+> cancel-on-error semantics.
 
 ### singleflight
 

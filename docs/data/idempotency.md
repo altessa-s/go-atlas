@@ -89,7 +89,7 @@ import idempfactory "github.com/altessa-s/go-atlas/data/idempotency/factory"
 keeper, err := idempfactory.New(cfg.Idempotency).
     UseLogger(logger).
     UseRedisClient(redisClient).
-    UseJetStream(js).
+    UseJetstream(js).
     UseScheduler(scheduler).
     UseCollector(collector).
     Build()
@@ -275,11 +275,11 @@ Per-backend Steal mechanism:
 
 Tune via:
 
-| Setting                                 | Effect                                                       |
-|-----------------------------------------|--------------------------------------------------------------|
-| `WithMaxLockDuration(d)` (default `5m`) | Keeper-wide threshold for collision-time orphan-reclaim      |
-| `AttemptLockOpts{MaxLockDuration: d}`   | Per-call override (positive value wins over Keeper default)  |
-| Keeper field set to `0`                 | Disables reclaim entirely — all collisions surface as in-progress |
+| Setting                                 | Effect                                                                                        |
+|-----------------------------------------|-----------------------------------------------------------------------------------------------|
+| `WithMaxLockDuration(d)` (default `5m`) | Keeper-wide threshold for collision-time orphan-reclaim                                       |
+| `AttemptLockOpts{MaxLockDuration: d}`   | Per-call override (positive value wins over Keeper default)                                   |
+| `WithMaxLockDuration(d)` with `d <= 0`  | Ignored — `New` falls back to `5m`; reclaim cannot be disabled through the public API         |
 
 Reclaim only triggers on the *next* `AttemptLock` collision; there's no background sweeper. If no caller retries the key, the entry remains
 until the bucket TTL fires (which is the original failure mode without this feature).
@@ -324,7 +324,8 @@ Callers don't mutate `*State` themselves — write through `Complete(data, state
 `go-atlas` ships HTTP and gRPC interceptors that wrap a `Keeper`:
 
 - `transport/http/server/middlewares/idempotency` — reads the configured header (default `Idempotency-Key`), short-circuits with `409 Conflict`
-  for in-progress requests and `422 Unprocessable Entity` for already-used keys, captures the response body for replay.
+  for in-progress requests and `422 Unprocessable Entity` for already-used keys. It does not replay responses: the body is captured only when
+  an entity-ID extractor is configured, and the extracted ID becomes the `Complete` payload, echoed in a response header on later duplicates.
 - `transport/grpc/interceptors/idempotency` — same model with metadata-based key extraction and gRPC status codes. Ships a client-side
   counterpart in the same package: `DeriveKey(seed, call)` mints a deterministic UUID v4 anchored to the package namespace, `WithKey` /
   `WithDerivedKey` attach the key to the outgoing metadata, and `UnaryClientInterceptor` stamps a derived key on every call whose context

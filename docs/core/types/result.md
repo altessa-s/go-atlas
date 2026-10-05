@@ -80,7 +80,7 @@ Direct accessors for cases that want only one side of the pair:
 
 | Method         | Returns                                                                                                                               |
 |----------------|---------------------------------------------------------------------------------------------------------------------------------------|
-| `Value() T`    | The contained value as-is. Returns the zero value of `T` when the `Result` carries an error — use `Get` if you must distinguish a real `Ok(zero)` from a default-on-error. |
+| `Value() T`    | The contained value as-is, regardless of the error. `Err(e)` holds the zero value of `T`, but `Of(v, err)` keeps `v` even when `err` is non-nil — check `Err`/`IsOk` (or use `Get`) before trusting the value. |
 | `Err() error`  | The contained error, or `nil` if `Ok`.                                                                                                |
 | `IsOk() bool`  | `Err()` is `nil`.                                                                                                                     |
 | `IsErr() bool` | `Err()` is non-nil.                                                                                                                   |
@@ -94,7 +94,7 @@ Direct accessors for cases that want only one side of the pair:
 `OrDefault(def T) T` returns the contained value when `Ok`, otherwise `def`. Useful when the default is cheap (a constant or already-bound variable):
 
 ```go
-host := result.Of(os.LookupEnv("HOST")).OrDefault("localhost")
+port := result.Of(strconv.Atoi(os.Getenv("PORT"))).OrDefault(8080)
 ```
 
 ### OrElse
@@ -127,7 +127,7 @@ v := r.OrElse(func(err error) int {
   v := panics.MustResult(r.Get())
   ```
 
-  See [`core/runtime/panics`](../runtime/README.md).
+  See [`core/runtime/panics`](../runtime/concurrency.md#panic-recovery).
 - **Asynchronous fan-out with aggregated errors.** Prefer [`core/runtime/concurrency.ProcessCollect`](../runtime/concurrency.md) over a
   hand-rolled `chan Result[T]`.
 - **Functional pipelines (`Map`, `AndThen`, `Then`, …).** In Go they read as nested closures rather than terse pipelines, so plain
@@ -149,6 +149,6 @@ v := r.OrElse(func(err error) int {
 
 - [optional.md](optional.md) — sibling type for "value or absent" without an error channel.
 - [redacted.md](redacted.md) — sibling type for credential and sensitive-string fields that redact themselves in fmt, slog, JSON, YAML, and BSON.
-- [`core/runtime/panics`](../runtime/README.md) — `MustResult[T]` for panic-on-error semantics.
+- [`core/runtime/panics`](../runtime/concurrency.md#panic-recovery) — `MustResult[T]` for panic-on-error semantics.
 - [../runtime/concurrency.md](../runtime/concurrency.md) — `Process`/`ProcessCollect` for fan-out with aggregated errors.
 - `core/types/result/README.md` — package-level reference next to the source.

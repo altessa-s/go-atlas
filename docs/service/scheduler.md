@@ -13,16 +13,16 @@ concurrency control, and full observability.
 
 ## Overview
 
-| Capability              | Description                                                                   |
-|-------------------------|-------------------------------------------------------------------------------|
-| Cron scheduling         | Six-field cron expressions (with seconds) and descriptor syntax               |
-| One-shot tasks          | Execute once at a specific time                                               |
-| Priority dispatch       | Four priority levels with reserved high-priority concurrency slots            |
-| Crash recovery          | Automatic detection and recovery of tasks stuck in `Running` state            |
-| Concurrency strategies  | Static, environment-preset, memory-aware, adaptive, or custom function        |
-| Pluggable storage       | In-memory, MongoDB, or Redis backends with a unified `Storage` interface      |
-| Distributed scheduling  | Leader election for exactly-one execution across replicas                     |
-| Observability           | Prometheus metrics, structured logging, execution history with pagination     |
+| Capability             | Description                                                                                                |
+|------------------------|------------------------------------------------------------------------------------------------------------|
+| Cron scheduling        | Six-field cron expressions (with seconds) and descriptor syntax                                            |
+| One-shot tasks         | Execute once at a specific time                                                                            |
+| Priority dispatch      | Four priority levels with reserved high-priority concurrency slots                                         |
+| Crash recovery         | Automatic detection and recovery of tasks stuck in `Running` state                                         |
+| Concurrency strategies | Static, environment-preset, memory-aware, adaptive, or custom function                                     |
+| Pluggable storage      | In-memory, MongoDB, or Redis backends with a unified `Storage` interface                                   |
+| Distributed scheduling | Leader-coordinated dispatch + atomic claims ([caveats](#single-execution-what-the-storage-layer-enforces)) |
+| Observability          | Prometheus metrics, structured logging, execution history with pagination                                  |
 
 ## When to use
 
@@ -33,7 +33,7 @@ concurrency control, and full observability.
 | Session / token cleanup       | Recurring purge with execution history and stale-task recovery               |
 | Metric aggregation            | High-frequency tick interval with adaptive concurrency for I/O-bound work    |
 | Webhook retry / outbox drain  | Priority-based dispatch — retries at higher priority without blocking work   |
-| Distributed cron (multi-node) | Leader election for exactly-one execution across replicas                    |
+| Distributed cron (multi-node) | Leader-coordinated dispatch + atomic claims; effects must be idempotent      |
 
 > If your work is fire-and-forget with no persistence requirement, a plain `time.Ticker`
 > or goroutine is simpler. Reach for the scheduler when you need crash recovery, priority
@@ -61,13 +61,16 @@ import (
 func main() {
 	ctx := context.Background()
 
-	store := memory.New(1000)
+	store, err := memory.New(1000)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	sched := scheduler.New(store,
 		scheduler.WithLogger(slog.Default()),
 	)
 
-	err := sched.Register(ctx, corescheduler.TaskConfig{
+	err = sched.Register(ctx, corescheduler.TaskConfig{
 		ID:       "cleanup-expired-sessions",
 		Schedule: "@every 5m",
 		Func: func(ctx context.Context) error {
@@ -460,7 +463,10 @@ The scheduler persists task state and execution history to a pluggable `Storage`
 ```go
 import "github.com/altessa-s/go-atlas/service/scheduler/storages/memory"
 
-store := memory.New(1000)
+store, err := memory.New(1000)
+if err != nil {
+    return err
+}
 ```
 
 In-process storage for development, testing, and single-node deployments. All state is lost on restart.
@@ -507,12 +513,12 @@ storage:
 
 **Indexes** (created by `EnsureIndexes`, idempotent):
 
-| Collection | Index                            | Purpose                           |
-|------------|----------------------------------|-----------------------------------|
-| Tasks      | `(status ASC, next_run ASC)`     | Query due tasks efficiently       |
-| Tasks      | `priority DESC`                  | Priority-based dispatch ordering  |
-| History    | `(task_id ASC, start_time DESC)` | Per-task history listing          |
-| History    | TTL on `end_time`                | Automatic expiration              |
+| Collection | Index                                       | Purpose                                                  |
+|------------|---------------------------------------------|----------------------------------------------------------|
+| Tasks      | `(status ASC, next_run_at ASC)`             | Query due tasks efficiently                              |
+| Tasks      | `priority DESC`                             | Priority-based dispatch ordering                         |
+| History    | `(task_id ASC, started_at DESC, _id DESC)`  | Per-task history listing (`History`, `HistoryPaginated`) |
+| History    | `ended_at ASC`                              | Range delete in `CleanupHistory` (no TTL index)          |
 
 <details>
 <summary>Filter-to-BSON field mapping</summary>
@@ -620,7 +626,7 @@ Created by `EnsureIndexes` (idempotent).
 **Characteristics:**
 - Thread-safe via `redis.UniversalClient`
 - Filter expressions translated to RediSearch query syntax for server-side evaluation
-- `FT.SEARCH` results capped at 10,000 entries
+- `FT.SEARCH` results are fetched in pages of 1,000 until every match is read — no fixed result cap
 - `DeleteTask` removes the task key and all history keys in a single pipeline
 - History trimming on `AddHistory` is best-effort — concurrent writers may temporarily exceed the cap
 
@@ -643,19 +649,29 @@ if sched.IsLeader() {
 
 When no `WithLeaderElector` is provided, `IsLeader` always returns `true`.
 
-### Single execution is enforced at the storage layer
+### Single execution: what the storage layer enforces
 
 Leadership is a **throughput optimization, not a correctness dependency**. A leader-election lease can briefly overlap — a frozen or partitioned
-former leader may still believe `IsLeader()` while a new leader takes over — so two instances can dispatch the *same* occurrence at once. To make
-duplicate execution impossible regardless, the scheduler claims each run through `Storage.ClaimRun`, a single atomic compare-and-swap:
+former leader may still believe `IsLeader()` while a new leader takes over — so two instances can dispatch the *same* occurrence at once. To prevent
+competing claims regardless, the scheduler claims each run through `Storage.ClaimRun`, a single atomic compare-and-swap:
 
 - The write matches on `status == active` and, for the scheduled occurrence, `next_run_at == expectedNextRunAt` (the occurrence fence), flipping the
   task to `running` in one operation. Exactly one concurrent caller can match, so exactly one wins the claim; the loser skips the tick.
 - MongoDB implements it as one conditional `UpdateOne`; Redis as a single server-side `EVAL` (Lua) script; the memory backend under its mutex. All
   three are atomic read-check-write, so the guarantee holds even during a leader-election split-brain window.
 
-The result: even if `IsLeader()` is wrong for a moment, a task function still runs at most once per occurrence. See also the fencing token exposed by
-[`data/leadelect`](../data/leadelect/README.md) (`LeaderElector.Fence`), which a store can additionally use to reject a stale leader's writes.
+The result: even if `IsLeader()` is wrong for a moment, competing dispatchers cannot both claim an occurrence while its stored state is intact.
+One gap remains: initial `Register` writes the task with an unconditional `UpsertTask` when it finds none, so two instances registering the
+same new task concurrently can race — the later write replaces a state the other instance has already claimed, letting the occurrence run
+twice. Register tasks before starting dispatch on more than one instance, or from a single instance, until registration becomes
+insert-if-absent.
+
+Recovery is a second path. `Start` unconditionally runs startup recovery, which resets **every** task left `running` — without an age
+check — including one still executing on another instance (for example during a rolling restart); a one-shot task gets `next_run_at = now`
+and can be claimed again at once. The periodic stale-task recovery does the same for runs older than the stale timeout. Neither path is
+fenced against a live run, so task effects must be idempotent, or fenced externally (e.g. with the leader's fencing token), when
+duplicate execution is unacceptable. See also the fencing token exposed by
+[`data/leadelect`](../../data/leadelect/README.md) (`LeaderElector.Fence`), which a store can additionally use to reject a stale leader's writes.
 
 ---
 
@@ -820,7 +836,7 @@ All errors are exported as sentinel values. Use `errors.Is` to match.
 | Type             | Description                                                                    |
 |------------------|--------------------------------------------------------------------------------|
 | `Scheduler`      | Core scheduler: register, dispatch, pause/resume/disable, query                |
-| `Storage`        | Persistence interface (9 methods) implemented by every backend                 |
+| `Storage`        | Persistence interface (13 methods) implemented by every backend                |
 | `TaskState`      | Full persistent state: schedule, priority, timestamps, metadata                |
 | `TaskSummary`    | Lightweight read-only view for listing endpoints                               |
 | `TaskHistory`    | Single execution record: timing, success flag, error, run ID                   |

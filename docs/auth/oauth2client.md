@@ -168,16 +168,19 @@ refresh it), and `token_type: "N_A"` (RFC 8693) is not a bearer credential — d
 | `token_fetch_duration_seconds` | histogram | `grant`, `status` | Acquisition latency.                                 |
 | `token_fetch_retries_total`    | counter   | `grant`           | Retries after a transient token-exchange failure.    |
 
-`grant` is one of `client_credentials` / `refresh_token` / `authorization_code` / `token_exchange`. When the reuse cache serves an
-unexpired token, nothing is recorded. `WithLogger` logs failures and retries at warn level, never the token. Both default to off, keeping
+`grant` is one of `client_credentials` / `refresh_token` / `authorization_code` / `token_exchange` / `device_code`. When the reuse cache
+serves an unexpired token, nothing is recorded. `WithLogger` logs failures and retries at warn level, never the token. Both default to off, keeping
 the hot path allocation-free.
 
 ## Errors
 
 `ClientCredentials`, `Refresh`, and `AuthCode` surface the underlying x/oauth2 error unchanged (typically an `*oauth2.RetrieveError`,
-carrying the IdP status and body). `Exchanger` returns `ErrSubjectTokenRequired` for a missing subject token and wraps `ErrTokenExchange`
-for a transport failure, a non-2xx response, or an unparsable body — match both with `errors.Is`. Discovery-based constructors return
-`ErrNoTokenEndpoint` when the endpoint has not resolved.
+carrying the IdP status and body) — except `ClientCredentials` with `WithClientAuth`, whose hand-rolled request wraps `ErrTokenRequest` for a
+transport failure, a non-2xx response, or an unparsable body. `Exchanger` returns `ErrSubjectTokenRequired` for a missing subject token and
+wraps `ErrTokenExchange` for a transport failure, a non-2xx response, or an unparsable body — match both with `errors.Is`. `Revoker.Revoke`
+wraps `ErrRevocation`, `DeviceFlow` wraps `ErrDeviceAuth` (the `*oauth2.RetrieveError` stays reachable via `errors.As`), and a client
+authenticator that cannot build or sign its assertion wraps `ErrClientAssertion`. Discovery-based constructors return `ErrNoTokenEndpoint`
+when the endpoint has not resolved.
 
 ## API Reference
 
@@ -194,7 +197,7 @@ for a transport failure, a non-2xx response, or an unparsable body — match bot
 | `PrivateKeyJWT(id, key)` / `ClientSecretJWT(id, secret)` | RFC 7523 client authenticators for `WithClientAuth`.                       |
 | `Principal(subject, tok)`                           | Build an `auth/principal.Principal` from a fetched token (does not verify it).   |
 | `ExchangeRequest`                                   | One exchange: `SubjectToken` (required), actor token, `Audience`/`Resource`, `Scopes`. |
-| `ErrTokenExchange` / `ErrSubjectTokenRequired` / `ErrNoTokenEndpoint` | Sentinel errors matched with `errors.Is`.                      |
+| `ErrTokenExchange` / `ErrSubjectTokenRequired` / `ErrNoTokenEndpoint` / `ErrTokenRequest` / `ErrRevocation` / `ErrDeviceAuth` / `ErrClientAssertion` | Sentinel errors matched with `errors.Is`. |
 | `factory.New(cfg).Build(ctx)` / `.BuildExchanger(ctx)` | Build a source / `Exchanger` from `config.OAuth2Client`.                     |
 
 ## Design Notes

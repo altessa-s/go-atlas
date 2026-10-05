@@ -19,7 +19,8 @@ import "github.com/altessa-s/go-atlas/core/runtime/appinfo"
 | Linux process hardening: capabilities, seccomp, landlock, rlimits, no-new-privs | [security.md](security.md) |
 | OS signal handling with priority and worker pools | [signals.md](signals.md) |
 
-Stdlib only, zero external dependencies.
+Stdlib only, except the Linux hardening subpackages (`capabilities`, `landlock`, `nonewprivs`, `rlimits`, `seccomp`), which import
+`golang.org/x/sys/unix`.
 
 ---
 

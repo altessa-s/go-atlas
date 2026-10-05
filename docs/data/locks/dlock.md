@@ -93,9 +93,11 @@ enum in `config/dlock.go` and adding a branch to `factory/builder.go::Build`.
 | `Synchronize(ctx, key, fn)` | The critical section fits in one function. `dlock` owns the lifecycle |
 | `Lock(ctx, key)` → `(providers.Lock, error)` | The section spans several functions or modules |
 
-`Lock` returns a `providers.Lock` with only `Release(ctx)` and `GetLockInfo(ctx)`. The `defer lock.Release(ctx)` discipline is on you. If you
-forget, the lock eventually releases itself when the TTL expires (10 seconds by default for the NATS bucket), but every other instance is
-waiting that whole time.
+`Lock` returns a `providers.Lock` with only `Release(ctx)` and `GetLockInfo(ctx)`. The `defer lock.Release(ctx)` discipline is on you. The NATS
+provider keeps renewing the lease in the background for as long as the lock's context lives and the connection is healthy, so a forgotten
+`Release` under `context.Background()` can hold the lock indefinitely. The TTL (10 seconds by default for the NATS bucket) frees it only after
+renewal stops — the process dies, the connection drops, or the context passed to `Lock` is canceled. Always `Release`, or bound the lock's
+lifetime with a cancelable context.
 
 ---
 
@@ -105,8 +107,9 @@ The NATS provider stores the lease in a KV bucket whose key TTL is the configure
 `TTL × RenewRatio` seconds (default `⅓ × 10s ≈ 3.3s`). If the process dies or loses connectivity, the next renew fails, the key expires after the
 TTL, and another instance takes it.
 
-The ratio decides how many renewal attempts fall inside one TTL — `floor(1/ratio)` — which is the budget for surviving a transient failure without
-dropping the lock. At the former `0.75` there was exactly one, so a single dropped round trip cost the lock.
+The ratio sets the renewal cadence only. Renewal is not retried: the first failed renew stops the background loop (and reports the lock as lost
+unless the context was canceled), even if connectivity recovers before the TTL runs out. A smaller ratio therefore shortens the time between
+renewals but does not let the lock survive a transient failure.
 
 `GetLockInfo` exposes a `FencingToken`, a monotonically increasing revision from NATS KV. If you do an out-of-band side effect tied to lock
 ownership (writing to another database, publishing to a queue), have the receiver check that the fencing token is at least as large as the last
@@ -145,14 +148,20 @@ way and let you wire your own probe if you need one.
 Multiple `dlock` instances in one process with separate health reporting:
 
 ```go
-dlPayments := dlock.NewWithNats(ctx, nc, "payments-locks",
+dlPayments, err := dlock.NewWithNats(ctx, nc, "payments-locks",
     dlock.WithHealthCoordinator(coord),
     dlock.WithHealthServiceName("dlock-payments"),
 )
-dlInventory := dlock.NewWithNats(ctx, nc, "inventory-locks",
+if err != nil {
+    return err
+}
+dlInventory, err := dlock.NewWithNats(ctx, nc, "inventory-locks",
     dlock.WithHealthCoordinator(coord),
     dlock.WithHealthServiceName("dlock-inventory"),
 )
+if err != nil {
+    return err
+}
 ```
 
 ---
@@ -163,15 +172,18 @@ Subsystem `dlock` (see also [`docs/metrics.md`](../../metrics.md)):
 
 | Metric | Type | When it increments |
 |---|---|---|
-| `dlock_locks_acquired_total` | counter | Lock acquired |
-| `dlock_locks_released_total` | counter | Release succeeded |
-| `dlock_locks_failed_total` | counter | Lock acquisition returned an error |
-| `dlock_acquire_duration_seconds` | histogram | Time from `Lock` call to return (success or error) |
+| `dlock_locks_acquired_total` | counter | `Synchronize` acquired the lock |
+| `dlock_locks_released_total` | counter | `Synchronize` released the lock successfully |
+| `dlock_locks_failed_total` | counter | `Synchronize` lock acquisition returned an error |
+| `dlock_acquire_duration_seconds` | histogram | Time for `Synchronize` to acquire the lock (success or error) |
 | `dlock_synchronizations_total` | counter | `Synchronize` finished (including cases where `fn` returned an error) |
 
-Plot `acquired - released - in_flight` in a dashboard to surface leaks: locks that were taken but never released, usually from a panic outside
-`Synchronize` or a forgotten `defer Release`. Don't read a small surplus of `released` over `acquired` as a leak — that happens normally when one
-node takes the lock, crashes, the TTL releases the key, and another node releases its own lock cleanly later on.
+All metrics are recorded inside `Synchronize` only. `Lock` and the `providers.Lock` it returns record nothing, so locks taken through `Lock` —
+including one whose `defer Release` was forgotten — are invisible here; instrument that path at your call site if you need it.
+
+`acquired - released` counts outstanding `Synchronize` acquisitions: critical sections still running plus locks whose release failed. A
+long-running `fn` keeps the difference positive while healthy, and counters reset on process restart, so compare increases over the same window
+(`increase(acquired[5m]) - increase(released[5m])`) and add your own in-flight gauge before treating a persistent gap as a leak.
 
 ---
 

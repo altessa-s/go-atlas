@@ -154,8 +154,8 @@ between := func(args []filter.Node) (filter.Node, error) {
 
 Constraints:
 
-- Names cannot collide with built-ins (`contains`, `startsWith`, `endsWith`, `matches`, `size`, `has`, `timestamp`). Validation runs at
-  `NewParser` — misconfiguration fails fast.
+- Names cannot collide with built-ins (`contains`, `startsWith`, `endsWith`, `matches`, `size`, `has`, `timestamp`, `substring`). Validation
+  runs at `NewParser` — misconfiguration fails fast.
 - Handlers run on every parser cache miss; keep them cheap and side-effect free.
 - The parser does not bound the depth of trees a handler returns. `WithMaxDepth` enforces the cap during translator/evaluator traversal.
 - The expanded AST contains the **target** field (`createdAt`), so `WithFieldMapping` and `WithAllowedFields` operate on that name, not on
@@ -322,12 +322,13 @@ config (`ParserOption`). Don't try to stretch defaults — if you genuinely need
 Map CEL field names to storage column names without rewriting expressions:
 
 ```go
-trans := mongo.NewTranslator(
+trans, err := mongo.NewTranslator(
     filter.WithFieldMapping(map[string]string{
         "userName":  "user_name",
         "createdAt": "created_at",
     }),
 )
+if err != nil { return err }
 ```
 
 The mapping applies after custom-function expansion, so the chain
@@ -390,8 +391,8 @@ construction), (2) the function is invoked as a call (`createdAfter("...")`), no
 parser cache misses only — disable the cache with `WithParserNoCache` while debugging or invalidate by changing the expression text.
 
 **`ErrAllowlistRequired` in production but not staging.** The translator was built with `WithUntrustedInput()` somewhere (rightly), but no
-`WithAllowedFields` was wired through that environment's config. The error fires at the first untrusted query, not at startup — explicit
-allowlists per-environment beat shared defaults.
+`WithAllowedFields` was wired through that environment's config. The translator constructor returns the error, so it surfaces at process start
+rather than at the first query — explicit allowlists per-environment beat shared defaults.
 
 **Translator + custom function disagreement.** `WithFieldMapping` and `WithAllowedFields` operate on the **target** field name produced by
 the custom function, not on the virtual call name. If you whitelist `createdAfter` you'll get `ErrFieldNotAllowed` for `createdAt`.

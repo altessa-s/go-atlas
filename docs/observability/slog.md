@@ -40,7 +40,7 @@ Alias the root package as `slogx` so it doesn't collide with the standard librar
 | PII / credential masking         | `masking` handler — exact field names, regex patterns, nested-group descent, smart masks per type      |
 | Fan-out                          | `multi` handler — same record to several backends (file + stderr + remote); delegates to stdlib on 1.26+ |
 | Key prefixing                    | `prefixed` handler — pulls a configured key out of the record and formats it as `[tag]` or JSON-friendly |
-| YAML factory                     | `factory.LoggerBuilder` — assembles the full chain from `config.Logger` with deferred error accumulation |
+| YAML factory                     | `factory.LoggerBuilder` — assembles the full chain from `config.Logger`; invalid mask rules are skipped |
 
 ---
 
@@ -62,7 +62,7 @@ slog.Logger
 [leveled]            (cfg.Subsystems non-empty — per-subsystem level filter)
    │
    ▼
-[prefixed]           (always — pulls cfg.AppGroupName / module key into a tag)
+[prefixed]           (always — pulls the prefix key, default "module", into a tag)
    │
    ▼
 [colorized] | JSON   (cfg.OutputFormat: "text" → colorized, "json" → slog.JSONHandler)
@@ -121,10 +121,13 @@ func WithLogging(ctx context.Context, base *slog.Logger, requestID string) conte
 
 // Deeper layers (no plumbing needed):
 func handle(ctx context.Context) {
-    slogx.AppendField(ctx, "user_id", uid) // visible to every downstream FromContext
-    slogx.FromContextOrDefault(ctx).Info("handled")
+    slogx.AppendField(ctx, "user_id", uid) // lands in the field bag, not in the injected logger
+    slogx.BuildLogger(ctx, nil).Info("handled") // slog.Default() + re-read bag: request_id, user_id
 }
 ```
+
+`InjectLogger` snapshots the bag into the logger via `Logger.With` at call time, so a later `AppendField` is **not** visible to the logger that
+`FromContext` returns. It is visible to `FieldsFromContext` and to any logger built afterwards with `BuildLogger(ctx, base)`.
 
 `ContextWithLogger` is no-op when a logger is already in `ctx`. `FromContext` returns `nil` if absent; use `FromContextOrDefault` in code
 that always needs a logger.
@@ -196,7 +199,7 @@ The empty-attribute sentinel is silently dropped by `slog`, so you can pass thes
 | `FromContextOrDefault(ctx)`                   | Same as above, falls back to `slog.Default()`                                     |
 | `BuildLogger(ctx, base)`                      | `base.With(FieldsFromContext(ctx)...)` — used internally by interceptors          |
 | `InjectLogger(ctx, base)`                     | `ContextWithLogger(ctx, BuildLogger(ctx, base))` — one call for interceptors      |
-| `InjectFields(ctx, Fields)`                   | Reserve a mutable field bag in `ctx` (uses a `sync.Pool` for the wrapper)         |
+| `InjectFields(ctx, Fields)`                   | Reserve a mutable field bag in `ctx` (fresh wrapper per context, not pooled)      |
 | `AppendField(ctx, key, value)`                | Append one field to the bag; no-op if no bag was injected. Concurrent-safe       |
 | `AppendFields(ctx, Fields)`                   | Append multiple fields; no-op if no bag was injected. Concurrent-safe            |
 | `FieldsFromContext(ctx)`                      | Return a copy of the field bag (safe to mutate)                                   |
@@ -244,9 +247,10 @@ logger, err := slogfactory.New(&cfg.Logger).
     Build()
 ```
 
-The builder accumulates errors across `With*` calls and `Build` so mask-rule parse failures don't leave you with a half-initialized logger.
-After `Build` returns, `SetLevel` / `GetLevel` operate on the same `slog.LevelVar` the chain uses, giving you a runtime dial scoped to this
-logger.
+`Build` returns an error only for a nil config or errors recorded before it runs. Mask rules are resolved inside `Build`: a rule whose type
+or params don't resolve is skipped and the logger is still returned without an error, so check `maskRules` against the registry yourself.
+`SetLevel` / `GetLevel` operate on `slogx.GlobalLevel` unless `WithLevelVar` supplied an isolated `slog.LevelVar` — by default they move the
+level of every factory-built logger, not just this one.
 
 ### Builder methods
 
@@ -260,8 +264,8 @@ logger.
 | `WithAppVersion(s)`          | Override the `app.version` metadata attribute                                               |
 | `WithServiceId(s)`           | Set the `app.sid` metadata attribute                                                        |
 | `WithLevelVar(*slog.LevelVar)` | Use an isolated level var instead of `slogx.GlobalLevel`                                   |
-| `Build()` → `*slog.Logger`   | Assemble the chain; returns joined errors if any `With*` step recorded one                  |
-| `SetLevel(slog.Level)`       | Runtime level change after `Build`                                                          |
+| `Build()` → `*slog.Logger`   | Assemble the chain; errors on a nil config only — invalid mask rules are silently skipped   |
+| `SetLevel(slog.Level)`       | Runtime level change on `slogx.GlobalLevel` (or the `WithLevelVar` var)                     |
 | `GetLevel()`                 | Current level                                                                               |
 
 ### Custom output formats
@@ -292,7 +296,7 @@ logger:
   maskRules:                  # custom masks (see masking handler below)
     - field: ssn
       type: partial
-      params: { show_first: 0, show_last: 4 }
+      params: { showFirst: 0, showLast: 4 }
     - pattern: '(?i).*token.*'
       type: smart
   buffer:
@@ -304,7 +308,7 @@ logger:
     cache: warning
 ```
 
-The factory validates the block via `Logger.Validate` (ozzo-validation) before doing any work.
+The factory does not call `Logger.Validate` (ozzo-validation); call it yourself before `Build` if you need the block checked.
 
 ---
 
@@ -405,10 +409,10 @@ path and is reset atomically once it reaches 4096 entries, so dynamic group name
 |------------------------------|--------------------------------------------------------------------------------------------|
 | `WithField(name, MaskFunc)`  | Exact-match field; case-insensitive                                                         |
 | `WithPattern(regex, MaskFunc)` | Regex against the field path when nested masking is on, otherwise the bare key            |
-| `WithDefaults()`             | Curated set: `password`, `token`, `secret`, `api_key`, `authorization`, `credit_card`, `email`, `phone`, plus `(?i).*(password|secret|token|_key).*` patterns — also enables nested masking |
-| `WithDefaultMask(MaskFunc)`  | Fallback mask for the YAML `sensitiveTags` set; default is `FullMask`                       |
-| `WithMaskNestedFields(bool)` | Descend into nested groups; on by default via `WithDefaults`                                |
-| `WithCaseSensitive(bool)`    | Switch matching to case-sensitive (default is case-insensitive)                             |
+| `WithDefaults()`             | Curated set: `password`, `token`, `secret`, `api_key`, `authorization`, `credit_card`, `email`, `phone`, plus the patterns `(?i).*password.*`, `(?i).*secret.*`, `(?i).*token.*`, `(?i).*_key$` — also enables nested masking and **case-sensitive** matching |
+| `WithDefaultMask(MaskFunc)`  | Stored but currently unused by the handler — has no effect on masking output                |
+| `WithMaskNestedFields()`     | Descend into nested groups; also turned on by `WithDefaults`                                |
+| `WithCaseSensitive()`        | Switch matching to case-sensitive (default is case-insensitive; `WithDefaults` turns it on) |
 
 **Mask functions** (build your own `MaskFunc func(string) string` or use these built-ins):
 
@@ -428,7 +432,7 @@ path and is reset atomically once it reaches 4096 entries, so dynamic group name
 | `PatternMask(regex, MaskFunc)` | Apply `MaskFunc` only to substrings matching `regex` (e.g. credit-card-looking digits)  |
 
 **Registry.** YAML `maskRules` resolve through a process-wide registry. Built-in masks are pre-registered under names like `"smart"`,
-`"partial"`, `"full"`, `"fixed"`, `"email"`, `"phone"`, `"credit_card"`, `"url"`, `"s3url"`, `"hash"`. Plug in your own with
+`"partial"`, `"full"`, `"fixed"`, `"email"`, `"phone"`, `"credit_card"`, `"url"`, `"s3_url"`, `"hash"`. Plug in your own with
 `masking.Register("name", fn)` (no-arg) or `masking.RegisterFactory("name", factory)` (consumes the YAML `params:` map).
 
 ### `handler/multi`
@@ -469,7 +473,7 @@ for text output and `JsonFormatter` (`api:server`) for JSON, so the tag flows na
 ## Sequence diagram — full chain on a record
 
 ```
-logger.Info("login", "user_id", 42, slogx.Module("auth"))
+logger.Info("login", "user_id", 42, slogx.Module("auth"))   // writes subsystem="auth"
         │
         ▼
 [buffered] ── async unless level ≥ BypassLevel ──┐
@@ -484,7 +488,7 @@ logger.Info("login", "user_id", 42, slogx.Module("auth"))
 [leveled] ── consults subsystem="auth"; drops record if below configured "auth" level
         │
         ▼
-[prefixed] ── pulls module="auth", formats "[auth] login user_id=42"
+[prefixed] ── looks for the prefix key ("module" by default); subsystem="auth" is not it, so no tag is added
         │
         ▼
 [colorized] | JSON ── writes to os.Stdout / os.Stderr

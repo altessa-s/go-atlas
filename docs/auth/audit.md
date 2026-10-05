@@ -91,7 +91,7 @@ Both scope adapters take a non-breaking variadic `WithScopeAudit[P]`. After the 
 import grpcauth "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 
 interceptor := grpcauth.ServerInterceptor(
-    grpcauth.WithAuthFunc(authFunc),
+    grpcauth.WithAuthFn(authFunc),
     grpcauth.WithClientAuth(grpcauth.ScopeClientAuth(enf,
         grpcauth.WithScopeAudit(rec, func(p *Principal) string { return p.Subject }))),
 )
@@ -132,8 +132,8 @@ authFunc := grpcoidc.AuthFunc(validator,
 ### opa (core)
 
 OPA has no transport adapter, so auditing is a `Manager` option. Each `Evaluate` records a `Decision` (`Action` = the manager's query,
-`Reason` = the decision id or `deny`, `Attributes{"engine": "opa"}`). Under `FailureRequired`, a record error on an allowed evaluation
-fails the evaluation.
+`Reason` = the decision id or `deny` on denials, empty on grants; `Attributes{"engine": "opa"}` plus `"revision"` when the bundle revision is
+known). Under `FailureRequired`, a record error on an allowed evaluation fails the evaluation.
 
 ```go
 mgr, err := opa.NewManager(ctx, source, query, opa.WithAuditRecorder(rec))
