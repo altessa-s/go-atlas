@@ -163,14 +163,7 @@ func New(ctx context.Context, client *nats.Conn, opts ...Option) (*Provider, err
 
 	// Use common KV helper for bucket creation
 	kvHelper := natskvlease.NewKVHelper(p.js, p.opts.logger)
-	p.kv, err = kvHelper.GetOrCreateBucket(ctx, natskvlease.BucketConfig{
-		Bucket:        p.opts.bucket,
-		TTL:           DefaultBucketKeysTTL,
-		Storage:       p.opts.storage,
-		Compression:   true,
-		MigrateTTL:    p.opts.migrateBucketTTL,
-		StrictStorage: p.opts.strictBucketStorage,
-	})
+	p.kv, err = kvHelper.GetOrCreateBucket(ctx, bucketConfig(p.opts))
 	if err != nil {
 		return nil, err
 	}
@@ -178,6 +171,18 @@ func New(ctx context.Context, client *nats.Conn, opts ...Option) (*Provider, err
 	p.kvOps = natskvlease.NewKVOps(p.kv, p.opts.logger)
 
 	return p, nil
+}
+
+// bucketConfig is the bucket New creates and MigrateBucketStorage migrates to.
+func bucketConfig(o *options) natskvlease.BucketConfig {
+	return natskvlease.BucketConfig{
+		Bucket:        o.bucket,
+		TTL:           DefaultBucketKeysTTL,
+		Storage:       o.storage,
+		Compression:   true,
+		MigrateTTL:    o.migrateBucketTTL,
+		StrictStorage: o.strictBucketStorage,
+	}
 }
 
 // IsLeader returns true if this instance is the elected leader.

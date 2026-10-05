@@ -60,18 +60,23 @@ func New(js jetstream.JetStream, opts ...Option) (*Store, error) {
 
 	o := newOptions(opts...)
 
-	base, err := natsbase.NewBaseWithBucket(context.Background(), js, natskvlease.BucketConfig{
-		Bucket:        o.bucket,
-		TTL:           o.bucketTTL,
-		MigrateTTL:    o.migrateBucketTTL,
-		StrictStorage: o.strictBucketStorage,
-		Storage:       jetstream.FileStorage,
-	}, nil)
+	base, err := natsbase.NewBaseWithBucket(context.Background(), js, bucketConfig(o), nil)
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "create NATS KeyValue bucket")
 	}
 
 	return &Store{Base: base, opts: o}, nil
+}
+
+// bucketConfig is the bucket New creates and MigrateBucketStorage migrates to.
+func bucketConfig(o *options) natskvlease.BucketConfig {
+	return natskvlease.BucketConfig{
+		Bucket:        o.bucket,
+		TTL:           o.bucketTTL,
+		MigrateTTL:    o.migrateBucketTTL,
+		StrictStorage: o.strictBucketStorage,
+		Storage:       jetstream.FileStorage,
+	}
 }
 
 // Create stores a new instance, returning [sagaerrs.ErrInstanceExists] when the

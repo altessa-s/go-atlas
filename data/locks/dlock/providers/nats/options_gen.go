@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+
+	"github.com/nats-io/nats.go/jetstream"
 )
 
 // Option is a functional option for configuring options.
@@ -69,6 +71,13 @@ func WithRenewRatio(v float64) Option {
 	}
 }
 
+// WithStorage sets the storage option.
+func WithStorage(v jetstream.StorageType) Option {
+	return func(o *options) {
+		o.storage = v
+	}
+}
+
 // WithStrictBucketStorage enables the strictBucketStorage option.
 func WithStrictBucketStorage() Option {
 	return func(o *options) {
@@ -93,6 +102,7 @@ func defaultOptions() *options {
 		bucket:         defaultBucket(),
 		logger:         slog.New(slog.DiscardHandler),
 		renewRatio:     DefaultRenewRatio,
+		storage:        DefaultStorage,
 		ttl:            DefaultBucketKeysTTL,
 	}
 }
