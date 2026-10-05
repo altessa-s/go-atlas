@@ -6,8 +6,8 @@ Key concepts for working with concurrency using `core/runtime` and its subpackag
 
 ## Batch processing
 
-`concurrency.Process` and `concurrency.ProcessCollect` run a function over a slice with bounded concurrency. They use a channel-based semaphore
-internally and respect context cancellation.
+`concurrency.Process` and `concurrency.ProcessCollect` run a function over a slice with bounded concurrency. They use a fixed pool of worker
+goroutines fed by an index channel and respect context cancellation.
 
 ```go
 err := concurrency.Process(ctx, userIDs, func(ctx context.Context, id string) error {
@@ -75,13 +75,13 @@ results, _ := concurrency.ProcessCollect(ctx, events, func(ctx context.Context, 
 
 ## Concurrency limits
 
-The package provides several strategies for determining how many goroutines to run. All implement the `ConcurrencyLimitFunc` signature (`func() int`)
-and are evaluated each time a limit decision is needed.
+The package provides several strategies for determining how many goroutines to run. The adaptive strategies return a `ConcurrencyLimitFunc`
+(`func() int`) that is evaluated each time a limit decision is needed; `ConcurrencyForEnvironment` returns a plain `int`.
 
 ### Fixed by environment
 
 ```go
-concurrency.ConcurrencyForEnvironment(concurrency.EnvironmentIOBound) // NumCPU * 2
+n := concurrency.ConcurrencyForEnvironment(concurrency.EnvironmentIOBound) // int: NumCPU * 2
 ```
 
 | Environment | Workers |
@@ -94,7 +94,8 @@ concurrency.ConcurrencyForEnvironment(concurrency.EnvironmentIOBound) // NumCPU 
 
 ### Memory-aware
 
-Reads `runtime.MemStats` (cached with 1s TTL to avoid stop-the-world pauses) and scales concurrency by available memory:
+Reads `runtime.MemStats` (cached with 1s TTL to avoid stop-the-world pauses) and scales concurrency by available memory, computed as
+`MemStats.Sys - MemStats.Alloc` (memory obtained from the OS but not currently allocated to heap objects — not host free memory):
 
 ```go
 limitFn := concurrency.MemoryAwareConcurrency(
@@ -152,23 +153,23 @@ concurrency.Process(ctx, items, fn,
 avoid allocations.
 
 ```go
-err := retry.Do(ctx, retry.Config{
-    MaxAttempts: 3,                    // attempts 0..3 (4 total calls)
-    NextDelay:   retry.Exponential(retry.ExponentialConfig{
+err := retry.Do(ctx, func(ctx context.Context) error {
+    return callExternalAPI(ctx)
+},
+    retry.WithMaxAttempts(3), // attempts 0..3 (4 total calls)
+    retry.WithNextDelay(retry.Exponential(retry.ExponentialConfig{
         BaseDelay: 500 * time.Millisecond,
         MaxDelay:  10 * time.Second,
         Factor:    1.5,
         Jitter:    0.2,
-    }),
-    ShouldRetry: func(err error) bool {
+    })),
+    retry.WithShouldRetry(func(err error) bool {
         return !errors.Is(err, ErrNotFound) // don't retry on not-found
-    },
-    OnRetry: func(attempt int, err error, delay time.Duration) {
+    }),
+    retry.WithOnRetry(func(attempt int, err error, delay time.Duration) {
         logger.Warn("retrying", slog.Int("attempt", attempt), slog.Any("error", err))
-    },
-}, func(ctx context.Context) error {
-    return callExternalAPI(ctx)
-})
+    }),
+)
 ```
 
 ### Stop conditions
@@ -176,10 +177,10 @@ err := retry.Do(ctx, retry.Config{
 `Do` returns when any of these occurs:
 - `fn` returns nil (success)
 - Context is canceled (`ctx.Err()`)
-- `MaxAttempts` exhausted
-- `MaxElapsedTime` exceeded
-- `ShouldRetry` returns false
-- `NextDelay` is nil or returns <= 0
+- `WithMaxAttempts` limit exhausted
+- `WithMaxElapsedTime` exceeded
+- the `WithShouldRetry` filter returns false
+- the `WithNextDelay` function is nil or returns <= 0
 
 ### ExponentialConfig pooling
 
@@ -262,7 +263,7 @@ Errors from individual hooks do not prevent subsequent hooks from running — al
 
 ## Signal handling
 
-`signals.Signal` provides OS signal handling with priority-based execution, worker pools, and rate limiting.
+`signals.Signal` provides OS signal handling with priority-based execution and worker pools.
 
 ```go
 handler := signals.New(
@@ -282,7 +283,7 @@ handler.AddHandler(func(_ context.Context, sig os.Signal) error {
 }, syscall.SIGTERM, syscall.SIGINT)
 
 handler.Start()
-handler.Wait()
+// Shutdown is initiated by the caller, not by the signal itself — see signals.md "Integration with shutdown hooks".
 ```
 
 ### Priority levels
@@ -418,8 +419,8 @@ Mongo client.
 
 ### Reuse timers in loops with `coretime.TimerStopAndDrain`
 
-Avoid `time.After` in loops — each call allocates a new timer that is not garbage collected until it fires. Instead, create one `time.Timer` and
-reset it each iteration. Before calling `Reset`, drain the channel to prevent stale events:
+Avoid `time.After` in loops — since Go 1.23 unreferenced timers are garbage collected before they fire, but each call still allocates a new timer.
+Instead, create one `time.Timer` and reset it each iteration. Before calling `Reset`, drain the channel to prevent stale events:
 
 ```go
 timer := time.NewTimer(interval)

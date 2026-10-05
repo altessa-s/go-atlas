@@ -6,13 +6,14 @@ import "github.com/altessa-s/go-atlas/core/runtime/landlock"
 
 A minimal, dependency-free Go wrapper around the Linux Landlock LSM
 unprivileged filesystem sandbox (kernel 5.13+). Once `Apply` returns, the
-calling process is confined to a strict filesystem allowlist for the rest
-of its lifetime — even code reached via `dlopen` or spawned as a child
-inherits the restrictions.
+calling OS thread is confined to a strict filesystem allowlist for the rest
+of its lifetime, and every thread or child process it later clones inherits
+the restrictions. Peer threads are not restricted — see
+[Caveats](#caveats).
 
 Landlock requires **no root, no capabilities, no setuid**. Any unprivileged
-process can restrict itself; `Apply` automatically sets the
-`PR_SET_NO_NEW_PRIVS` prerequisite as its first step (internally delegated
+task can restrict itself; `Apply` automatically sets the
+`PR_SET_NO_NEW_PRIVS` prerequisite once Landlock support is confirmed (internally delegated
 to [`core/runtime/nonewprivs`](../nonewprivs/README.md)), so callers do
 not need to invoke `prctl` themselves.
 
@@ -20,7 +21,7 @@ not need to invoke `prctl` themselves.
 
 | Symbol | Purpose |
 |---|---|
-| `Apply(opts ...Option)` | Installs the ruleset; **irreversible** for the process |
+| `Apply(opts ...Option)` | Installs the ruleset; **irreversible** for the calling thread |
 | `WithReadPaths(...)` | Appends read+execute paths to the ruleset |
 | `WithReadWritePaths(...)` | Appends read+execute+write+truncate paths |
 | `Supported()` | `true` when the kernel supports Landlock v1+ |
@@ -47,11 +48,11 @@ import (
 )
 
 func main() {
-    // Apply sets PR_SET_NO_NEW_PRIVS automatically as its first step, then
-    // installs the ruleset. On failure the process stays unrestricted (the
-    // NO_NEW_PRIVS bit, if successfully set, remains in effect); on success
-    // every subsequent filesystem access outside the allowlist returns
-    // EACCES.
+    // Apply probes Landlock support, sets PR_SET_NO_NEW_PRIVS on the
+    // calling thread, then installs the ruleset. On failure the thread stays
+    // unrestricted (the NO_NEW_PRIVS bit, if successfully set, remains in
+    // effect); on success every filesystem access outside the allowlist from
+    // that thread (and tasks it later clones) returns EACCES.
     // The canonical glibc-host allowlist used by both the package
     // doc.go and ExampleApply. Adapt /etc/myservice and the
     // /var/{lib,log}/myservice entries to your host's directory layout.
@@ -72,8 +73,8 @@ func main() {
         log.Fatalf("landlock: %v", err)
     }
 
-    // From this point onward the process can only read, execute, or
-    // write the listed paths.
+    // From this point onward the calling thread (not its peer threads)
+    // can only read, execute, or write the listed paths.
     run()
 }
 ```
@@ -187,12 +188,13 @@ working on RHEL 9 and similarly-aged hosts.
 
 ## Testing
 
-Because `Apply` is irreversible and process-wide, a unit test that
-actually calls it would restrict every subsequent test in the same binary
-(and many would fail). The test suite therefore only exercises the
-validation layer (`validateOptions`) and the option accumulation behavior.
-For real syscall coverage, run your integration tests in a dedicated
-subprocess or container.
+Because `Apply` is irreversible, a test that calls it in-process would restrict its OS thread (and every thread later cloned from it) for the
+rest of the test binary, so subsequent tests scheduled there would fail. In-process tests therefore only exercise the validation layer
+(`validateOptions`) and the option accumulation behavior. Real syscall coverage lives in `landlock_subprocess_linux_test.go`, which runs each
+`Apply` call in a re-executed child process via `exectest.RunInSubprocess`: `TestApply_RestrictsAccessInSubprocess` checks allowed and denied
+reads on Landlock-capable kernels, and `TestApply_UnsupportedKernelDoesNotSetNNPInSubprocess` checks the `ErrUnsupported` path on kernels
+without Landlock. Each test exits early (and passes) when the host kernel does not match its branch. Keep any additional syscall tests
+isolated the same way, in a subprocess or container.
 
 ## Hardening sequence
 

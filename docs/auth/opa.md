@@ -113,8 +113,8 @@ revision equals the loaded one is a no-op, so a quiet source costs only the fetc
 
 | File | Responsibility |
 |------|----------------|
-| `manager.go` | `Manager`, initial load, atomic reload, poll loop, `regoEvaluator` |
-| `evaluator.go` | `Evaluator`, `Result`, denial parsing |
+| `manager.go` | `Manager`, initial load, atomic reload, poll loop, `regoEvaluator`, denial parsing |
+| `evaluator.go` | `Evaluator`, `Result` |
 | `source.go` | `PolicySource` interface |
 | `bundle.go` | `PolicyBundle`, revision hashing, iterators |
 | `event.go` | `PolicyEvent`, `EventType`, `WatchOptions`, `WatchResult`, overflow policy |
@@ -163,7 +163,7 @@ empty query, or a policy set that fails to compile surfaces immediately rather t
 | Source | Import | Backend | Notes |
 |--------|--------|---------|-------|
 | Embed | `sources/embed` | `fs.FS` compiled into the binary | Immutable; revision is fixed at build time |
-| Filesystem | `sources/filesystem` | Local directory | Watches via `fsnotify`; reloads on change |
+| Filesystem | `sources/filesystem` | Local directory | No `fsnotify`; changes are detected by the `Manager` poll loop or scheduler |
 | GitLab | `sources/gitlab` | Repository via GitLab API | Network-backed; supports resilient HTTP client |
 | S3 | `sources/s3` | S3-compatible object store | Network-backed; AWS SDK transport, optional proxy |
 
@@ -232,9 +232,8 @@ type Result struct {
 func (r *Result) HasDenialCode(code string) bool
 ```
 
-When decision logging is off, the allow and deny results are pre-allocated singletons, so the common path allocates nothing. Enabling
-`WithDecisionLogging` stamps a unique `DecisionID` (UUID) on every result for audit correlation, at the cost of one allocation per
-evaluation.
+Every evaluation returns a freshly allocated `Result` (no shared singletons), so a caller may enrich it without affecting concurrent
+evaluations. Enabling `WithDecisionLogging` additionally stamps a unique per-evaluation `DecisionID` (UUID) for audit correlation.
 
 ## Hot Reload and Change Detection
 
@@ -327,9 +326,13 @@ Options are functional, applied to `NewManager`:
 | `WithScheduler` | nil | `TaskRegistrar` for scheduler-driven update cycles |
 | `WithUpdateSchedule` | — | Cron expression + run-on-start flag (requires `WithScheduler`) |
 | `WithHealthCoordinator` | nil | Register the manager with a `health.Coordinator` |
+| `WithPollInterval` | 30s (`DefaultPollInterval`) | Interval between source polls when watching |
+| `WithCollector` | `metrics.Noop()` | Metrics collector |
+| `WithAuditRecorder` | nil | `*audit.Recorder` recording every evaluation decision; nil disables auditing |
+| `WithDecisionCache(size, ttl)` | off | Memoize decisions per (revision, input); bounded by `size` entries and `ttl` |
 
 The poll interval defaults to `DefaultPollInterval` (30s). `WithDecisionLogging` is the one option with a runtime cost worth weighing: it
-trades a per-evaluation allocation for traceable decision IDs.
+adds a UUID generation per evaluation for traceable decision IDs.
 
 ## Health
 
@@ -359,15 +362,16 @@ original error stays reachable through the chain.
 
 ## Metrics
 
-Metrics are published under the `opa` subsystem. With no collector, `metrics.Noop()` is used and every write is a zero-cost no-op.
+Metrics are published under the `auth_opa` subsystem. With no collector, `metrics.Noop()` is used and every write is a zero-cost no-op.
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `opa_policy_reloads_total` | Counter | `result` | Reload outcomes (`success`, `unchanged`, `fetch_error`, `prepare_error`) |
-| `opa_policy_reload_duration_seconds` | Histogram | — | Reload duration |
-| `opa_evaluations_total` | Counter | `result` | Evaluation outcomes (`allow`, `deny`, `error`) |
-| `opa_evaluation_duration_seconds` | Histogram | — | Evaluation duration |
-| `opa_modules_loaded` | Gauge | — | Modules in the currently loaded bundle |
+| `auth_opa_policy_reloads_total` | Counter | `result` | Reload outcomes (`success`, `unchanged`, `fetch_error`, `prepare_error`) |
+| `auth_opa_policy_reload_duration_seconds` | Histogram | — | Reload duration |
+| `auth_opa_evaluations_total` | Counter | `result` | Evaluation outcomes (`allow`, `deny`, `error`) |
+| `auth_opa_evaluation_duration_seconds` | Histogram | — | Evaluation duration |
+| `auth_opa_modules_loaded` | Gauge | — | Modules in the currently loaded bundle |
+| `auth_opa_decision_cache_lookups_total` | Counter | `result` | Decision cache lookups (`hit`, `miss`); only with `WithDecisionCache` |
 
 ## Thread Safety
 

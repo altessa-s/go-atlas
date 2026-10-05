@@ -57,9 +57,9 @@ func (r Result[T]) Get() (T, error) {
 	return r.value, r.err
 }
 
-// Value returns the contained value as-is. When the Result carries
-// an error the zero value of T is returned. Use Get when the caller
-// must distinguish a real Ok from a default-on-error.
+// Value returns the contained value as-is, regardless of the error.
+// [Err] stores the zero value of T, but [Of] keeps v even when err is
+// non-nil, so check [Result.IsOk] (or use Get) before trusting the value.
 func (r Result[T]) Value() T {
 	return r.value
 }

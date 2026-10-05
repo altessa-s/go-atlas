@@ -54,9 +54,11 @@
 // concurrent reads without synchronization or defensive copies.
 //
 // Compared to a standard Go map, ImmutableMap uses less memory per key (~1.5–2×
-// savings at scale) and produces lower GC pressure because its three flat slices
-// contain no internal pointers for the collector to chase. Lookup speed is
-// comparable to the standard map on Go 1.24+ (which also uses Swiss tables).
+// savings at scale) and can produce lower GC pressure: when K and V are
+// pointer-free its three flat slices contain no pointers for the collector to
+// scan. Keys or values that hold pointers (e.g. string) are still scanned
+// linearly. Lookup speed is comparable to the standard map on Go 1.24+ (which
+// also uses Swiss tables).
 //
 //	src := map[string]int{"a": 1, "b": 2, "c": 3}
 //	m := maps.NewImmutableMap(src)

@@ -165,7 +165,8 @@ Fields can carry several behaviors at once (`REQUIRED + IMMUTABLE` is the canoni
 `REQUIRED` nor `IMMUTABLE` is in `DefaultCreateBehaviors`.
 
 When recording a violation under `WithStrict`, the reported `Behavior` is the **first** match against the configured set — useful for tagging the
-violation but not authoritative; call `Get(fd)` from `domain/proto/internal/behavior` (unexported) or read the descriptor yourself if you need every value.
+violation but not authoritative; read the descriptor's `google.api.field_behavior` extension yourself if you need every value (the module's own
+`Get(fd)` helper lives in the internal `domain/proto/internal/behavior` package and cannot be imported from outside the module).
 
 ### What is **not** traversed
 
@@ -228,16 +229,19 @@ import (
     "github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldbehavior"
 )
 
-server := grpc.NewServer(grpc.UnaryInterceptor(
-    interceptors.Chain(
-        // ... metadata, auth, ...
-        fieldbehavior.ServerInterceptor(
-            fieldbehavior.WithMethodKind("/x.v1.X/ImportResource", fieldbehavior.KindCreate),
-            fieldbehavior.WithMethodKind("/x.v1.X/RotateKey",      fieldbehavior.KindSkip),
-        ),
-        // ... protovalidator (run after fieldbehavior), handler ...
+chain := interceptors.NewChain(
+    // ... auth, ...
+    fieldbehavior.ServerInterceptor(
+        fieldbehavior.WithMethodKind("/x.v1.X/ImportResource", fieldbehavior.KindCreate),
+        fieldbehavior.WithMethodKind("/x.v1.X/RotateKey",      fieldbehavior.KindSkip),
     ),
-))
+    // ... protovalidator (run after fieldbehavior) ...
+)
+srvOpts, err := chain.ServerOptions()
+if err != nil {
+    return err
+}
+server := grpc.NewServer(srvOpts...)
 ```
 
 If you prefer to keep the strip logic inside a handler — for example to short-circuit on a strict-mode violation before any business logic runs —

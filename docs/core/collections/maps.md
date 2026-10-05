@@ -180,8 +180,8 @@ size := m.Len()
 |---------------------------|-----------------------------|--------------------------------------------------------------------|
 | Concurrent reads          | Safe only with `sync.RWMutex` or under build-once-publish discipline | Always safe, no lock                       |
 | Memory overhead at scale  | Pointer-heavy bucket layout | Three flat slices; ~1.5–2× lower memory at >10K entries            |
-| GC scan cost              | Walks every bucket pointer  | Three slice headers; constant pointer count regardless of size     |
-| Allocation count          | Grows with rehashing        | Exactly 3 heap allocations regardless of size                      |
+| GC scan cost              | Walks every bucket pointer  | `keys`/`vals` not scanned when `K` and `V` are pointer-free        |
+| Allocation count          | Grows with rehashing        | Exactly 4 heap allocations regardless of size                      |
 | Lookup speed              | Comparable                  | Comparable on Go 1.24+ (also Swiss-table internally)               |
 | Mutation                  | Yes                         | None — `Set`/`Delete` do not exist                                 |
 
@@ -235,14 +235,15 @@ Iteration order is hash-dependent and not guaranteed.
   predictable probe sequences.
 - **`hash/maphash` per-instance seed** — randomizes the layout so adjacent maps don't share collision patterns.
 
-The data is laid out as three contiguous slices (`ctrl`, `keys`, `vals`), which the GC scans as plain arrays. There are no overflow chains or
-per-bucket pointers, so the scan time is O(1) regardless of population.
+The data is laid out as three contiguous slices (`ctrl`, `keys`, `vals`) with no overflow chains or per-bucket pointers. When `K` and `V` are
+pointer-free, the GC does not scan the backing arrays at all, so scan cost is O(1) regardless of population; when they contain pointers (e.g.
+`string`, `*T`), the GC still walks every slot of `keys` / `vals`.
 
 ### Freeze pattern
 
 When a type has a mutable registration phase followed by a long read-only phase, store both a `map` (writes) and an `*ImmutableMap` (reads). Add a
 `Freeze()` method that builds the `ImmutableMap` and nils the mutable map. `Register` after `Freeze` should panic. The reference implementation lives
-in `transport/grpc/interceptors/auth.ScopeRegistry`.
+in `auth/scope.Registry`.
 
 ---
 
@@ -252,7 +253,7 @@ in `transport/grpc/interceptors/auth.ScopeRegistry`.
 the referenced value via `runtime.AddCleanup` — no periodic sweeps, no background goroutines, no manual eviction policy.
 
 ```go
-cache := coremaps.NewWeakMap[string, *Session]()
+cache := coremaps.NewWeakMap[string, Session]() // values are stored as *Session
 
 cache.Set("session-123", session)
 
@@ -345,7 +346,7 @@ func handle(req *Request) {
 
 ```go
 // Good — single allocation at the end.
-out := slices.Collect(coremaps.Filter(m, isHot))
+out := maps.Collect(coremaps.Filter(m, isHot))
 
 // Worse — intermediate map.
 out := coremaps.FilterMap(m, isHot)
@@ -393,7 +394,8 @@ The bare name collides with stdlib `maps`; the project-wide alias is `coremaps`.
 - `FromFlatMap` walks each key with `strings.IndexByte` and reuses the substring view, so there's no `strings.Split` allocation per key.
 - `ImmutableMap.Get` is allocation-free: the SWAR `matchByte` runs in a few cycles and short-circuits on the first empty slot in the probe sequence
   (early termination because the table is build-once: there are no tombstones).
-- `ImmutableMap` has exactly 3 heap allocations regardless of size (`ctrl`, `keys`, `vals` slices), versus the runtime map's growing bucket array.
+- `ImmutableMap` has exactly 4 heap allocations regardless of size (the struct plus the `ctrl`, `keys`, `vals` slices), versus the runtime map's
+  growing bucket array.
 - `WeakMap.Range` snapshots under a write lock so user code in `f` cannot deadlock against further `Set` / `Delete` calls.
 - `Pool.Put` clears the map before re-pooling, so `Get` is `O(1)` instead of paying the clear cost on the consumer side.
 

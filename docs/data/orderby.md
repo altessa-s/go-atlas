@@ -303,8 +303,8 @@ slice allocation per call (Key fields are value types, no inner slices).
 
 ## Caching
 
-The parser keeps an LRU of `Spec` values keyed by the raw input string. Both successful parses and parse errors are cached, so repeated
-malformed input does not re-pay the validation cost. Default capacity is 1000; disable with `WithParserNoCache()` (typical for tests, never for
+The parser keeps an LRU of `Spec` values keyed by the raw input string. Only successful parses are cached; parse errors are not, so repeated
+malformed input re-pays the validation cost on every call. Default capacity is 1000; disable with `WithParserNoCache()` (typical for tests, never for
 production).
 
 `parseDuration` Prometheus histogram covers both hits and misses — the operator-relevant latency. Cache hits show up as the fast P50/P90; misses
@@ -332,5 +332,5 @@ sit in the long tail. A growing tail with a healthy hit rate signals a workload 
 ## See also
 
 - [Package README](../../data/orderby/README.md) — Go-doc-style quick reference.
-- [Filter (`filter`)](filter.md) — sibling package for the AIP-160 filter DSL with the same security model.
+- [Filter (`filter`)](filter.md) — sibling package for the CEL filter DSL with the same security model.
 - [AIP-132](https://google.aip.dev/132) — Google's API Improvement Proposal for ordering and pagination.

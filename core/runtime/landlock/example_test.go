@@ -31,7 +31,7 @@ func ExampleApply() {
 	)
 	switch {
 	case err == nil:
-		// Filesystem ruleset is now in force for the process.
+		// Filesystem ruleset is now in force for the calling thread.
 	case errors.Is(err, landlock.ErrUnsupported):
 		log.Print("landlock: kernel does not support Landlock; continuing unsandboxed")
 	case errors.Is(err, landlock.ErrInvalidOption):

@@ -6,10 +6,12 @@
 // sandbox syscalls (landlock_create_ruleset, landlock_add_rule, and
 // landlock_restrict_self) added in kernel 5.13.
 //
-// Landlock lets a process unilaterally restrict its own filesystem access
+// Landlock lets a task unilaterally restrict its own filesystem access
 // to a strict allowlist without requiring CAP_SYS_ADMIN or root. Once
 // [Apply] returns successfully, the restrictions are irreversible for the
-// lifetime of the process — there is no in-process undo.
+// calling OS thread and every task it later clones — there is no
+// in-process undo. Peer threads that already exist are not restricted;
+// see [Apply] for the per-thread scope.
 //
 // # Quick start
 //
@@ -35,17 +37,18 @@
 // directory layout.
 //
 // After [Apply] returns nil, any read, execute, or write outside the
-// configured allowlist returns EACCES — even for the current goroutine's
-// own descendants.
+// configured allowlist from the restricted thread returns EACCES — and so
+// does any thread or child process it later clones.
 //
 // # Implicit PR_SET_NO_NEW_PRIVS
 //
-// landlock_restrict_self(2) requires the calling process to either hold
-// CAP_SYS_ADMIN or have PR_SET_NO_NEW_PRIVS set. [Apply] sets the
-// NO_NEW_PRIVS bit unconditionally as the very first step, so callers do
-// not need to call prctl themselves. Like Landlock itself, NO_NEW_PRIVS is
-// irreversible for the lifetime of the process — invoking [Apply] commits
-// the process to both restrictions. If you need to preserve SUID-exec
+// landlock_restrict_self(2) requires the calling thread to either hold
+// CAP_SYS_ADMIN or have PR_SET_NO_NEW_PRIVS set. Once a side-effect-free
+// probe confirms Landlock support, [Apply] sets the NO_NEW_PRIVS bit
+// unconditionally before building the ruleset, so callers do not need to
+// call prctl themselves. Like Landlock itself, NO_NEW_PRIVS is
+// irreversible for the lifetime of the calling thread — invoking [Apply]
+// commits that thread to both restrictions. If you need to preserve SUID-exec
 // capability after Landlock (a CAP_SYS_ADMIN scenario), call the kernel
 // syscalls directly via [golang.org/x/sys/unix] instead of this package.
 //
@@ -67,9 +70,11 @@
 //   - Linux 5.13+ only. On older kernels [Apply] returns [ErrUnsupported];
 //     on non-Linux platforms every exported function returns
 //     [ErrUnsupported] or its zero value equivalent.
-//   - Process-wide and irreversible. The restrictions apply to every
-//     goroutine and every child process for the rest of the host's
-//     lifetime. There is no "unsandbox" syscall.
+//   - Per-thread and irreversible. The restrictions apply to the calling
+//     OS thread and every thread or child process it later clones, not to
+//     peer threads the Go runtime already created, so goroutines scheduled
+//     there are unrestricted. There is no "unsandbox" syscall. For a
+//     process-wide domain, apply Landlock before the Go binary starts.
 //   - Strict allowlist. Nothing is auto-added; the operator must list the
 //     plugin/loader directories, libc, shared libraries, host data
 //     directories, and every other path the process legitimately needs.

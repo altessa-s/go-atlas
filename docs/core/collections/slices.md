@@ -7,7 +7,8 @@ Complements the standard library `slices` package with patterns that recur throu
 import coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 ```
 
-All pure functions return new slices without modifying inputs. Nil inputs are treated as empty and never panic. Closures passed as predicates or
+Pure functions return new slices without modifying inputs; the exception is `Delete`, which removes the element in place (via `slices.Delete`)
+and returns the shortened input slice. Nil inputs are treated as empty and never panic. Closures passed as predicates or
 transforms are never copied, so feel free to capture state. `Pool` is safe for concurrent use; `FilterParallel` and `MapParallel` invoke the predicate
 from multiple goroutines.
 
@@ -103,7 +104,7 @@ passes, matching the `FilterMap` convention from the maps package.
 |------------------|-------------------------------------------------------------------|
 | `FilterFirst`    | First element matching the predicate; zero-allocation, early-exit |
 | `FilterLast`     | Last element matching the predicate; zero-allocation, early-exit  |
-| `FilterParallel` | Concurrent filter for large inputs (order may not be preserved)   |
+| `FilterParallel` | Concurrent filter for large inputs; preserves input order         |
 | `Filter` (iter)  | Lazy `iter.Seq` filter — see [Iterators](#iterators)              |
 
 ```go
@@ -115,8 +116,8 @@ lastEven, _ := coreslices.FilterLast(nums, func(n int) bool { return n%2 == 0 })
 ### `FilterParallel` characteristics
 
 - Below `32 * NumCPU * 2` elements (e.g., ~512 on an 8-core machine) it falls back to the sequential lazy `Filter` — no goroutine overhead.
-- Above that threshold it dispatches to `core/runtime/concurrency.ProcessCollect`, returning items in input order with respect to dispatch but with a
-  sentinel `errFiltered` for rejected entries (filtered out before return).
+- Above that threshold it splits the input into `NumCPU` contiguous chunks, filters each chunk sequentially via
+  `core/runtime/concurrency.ProcessCollect`, and concatenates the chunk results in input order — element order is preserved.
 - The predicate must be safe for concurrent invocation.
 
 ---
@@ -346,7 +347,7 @@ for _, it := range items {
 The threshold (`32 * NumCPU * 2` elements, e.g. ~512 on 8 cores) is set so the goroutine setup cost is amortized over enough work to pay back. Below
 that, sequential wins. Don't second-guess the threshold without a benchmark.
 
-The predicate / transformation must be safe for concurrent invocation. `MapParallel` preserves input order; `FilterParallel` does not necessarily.
+The predicate / transformation must be safe for concurrent invocation. Both `MapParallel` and `FilterParallel` preserve input order.
 
 ### Use the `Append*` helpers in factory chains
 
@@ -392,11 +393,10 @@ The bare name collides with stdlib `slices`; the project-wide alias is `coreslic
 - `Deduplicate` / `DeduplicateBy` are copy-on-write — no allocation when the input is already unique. Map pre-allocation is bounded at 128 to avoid
   over-allocation when duplicates are common.
 - A consecutive-duplicate fast path skips the map lookup when adjacent elements share a key, which is common in sorted inputs.
-- For tiny slices (≤32 elements) a linear scan with a slice-of-seen-keys is roughly 25× faster than a map; the package's lookup helpers internally
-  pick the right path.
 - `FilterFirst`, `FilterLast`, `Any`, `All`, `Reduce` are zero-allocation and short-circuit on first match / first failure.
 - `MapParallel` chunks the work statically over `NumCPU` goroutines via `sync.WaitGroup.Go` (Go 1.25+); no semaphore overhead.
-- `FilterParallel` delegates to `core/runtime/concurrency.ProcessCollect`, which respects context cancellation and uses a channel-based semaphore.
+- `FilterParallel` delegates per-chunk work to `core/runtime/concurrency.ProcessCollect` (a fixed worker pool fed by an index channel) with
+  `context.Background()`, so it is not cancellable.
 - `GroupBy` pre-sizes the internal map at `len * 0.75` (rounded up to a minimum of 16) so the typical fill never triggers a rehash.
 - `ToAny` / `To` / `MapParallel` allocate the output slice exactly once, sized to the input length.
 - `Pool.Put` clears the slice with the built-in `clear` (Go 1.21+) so pooled buffers do not pin old element values past their useful lifetime.

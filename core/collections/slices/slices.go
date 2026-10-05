@@ -439,7 +439,8 @@ func All[T any](collection []T, predicate func(T) bool) bool {
 // each key wins.
 //
 // As an optimization, if no duplicates are found the original slice is returned
-// without allocation. Consecutive duplicates are detected via a fast path that avoids
+// without allocating a result slice (the internal seen map is still allocated
+// for inputs of two or more elements). Consecutive duplicates are detected via a fast path that avoids
 // a map lookup. If collection is empty, nil is returned.
 //
 // Example:

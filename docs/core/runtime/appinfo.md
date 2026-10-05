@@ -23,17 +23,17 @@ The `appinfo` package exposes application metadata populated at build time via `
 
 ## Metadata variables
 
-Set via linker flags during build:
+Set via linker flags during build. `-X` requires the full import path of the package:
 
 ```
 go build -ldflags "\
-  -X 'appinfo.Name=myservice' \
-  -X 'appinfo.Project=myplatform' \
-  -X 'appinfo.Version=1.2.3' \
-  -X 'appinfo.BuildTime=2026-01-15T10:00:00Z' \
-  -X 'appinfo.EnvPrefix=MYAPP' \
-  -X 'appinfo.Commit=abc123' \
-  -X 'appinfo.Branch=main'"
+  -X 'github.com/altessa-s/go-atlas/core/runtime/appinfo.Name=myservice' \
+  -X 'github.com/altessa-s/go-atlas/core/runtime/appinfo.Project=myplatform' \
+  -X 'github.com/altessa-s/go-atlas/core/runtime/appinfo.Version=1.2.3' \
+  -X 'github.com/altessa-s/go-atlas/core/runtime/appinfo.BuildTime=2026-01-15T10:00:00Z' \
+  -X 'github.com/altessa-s/go-atlas/core/runtime/appinfo.EnvPrefix=MYAPP' \
+  -X 'github.com/altessa-s/go-atlas/core/runtime/appinfo.Commit=abc123' \
+  -X 'github.com/altessa-s/go-atlas/core/runtime/appinfo.Branch=main'"
 ```
 
 | Variable | Default | Description |
@@ -69,7 +69,8 @@ type SemanticVersion struct {
 }
 ```
 
-`SemVersion()` returns a copy (safe to modify):
+`SemVersion()` returns a shallow copy: the scalar fields are safe to modify, but `Prerelease` shares its backing array with the package-level value,
+so clone it (`slices.Clone`) before mutating:
 
 ```go
 sv := appinfo.SemVersion()
@@ -103,7 +104,7 @@ Functions that return information about the build toolchain and target:
 | Function | Returns |
 |----------|---------|
 | `Info()` | `"version=X.Y.Z, revision=ABCDEF, env_prefix=PREFIX"` |
-| `BuildInfo()` | `"go=X.Y.Z, platform=os/arch, date=YYYY-MM-DD, tags=tag1,tag2"` |
+| `BuildInfo()` | `"go=X.Y.Z, platform=os/arch, date=<BuildTime>, tags=tag1,tag2"` (`date` is the raw `BuildTime` value) |
 | `AppVersion()` | Multi-line version banner (for `--version` CLI flags and startup banners) |
 | `BuildGoVersion()` | Go toolchain version (e.g. `"go1.24.0"`) |
 | `BuildPlatform()` | `"GOOS/GOARCH"` (e.g. `"linux/amd64"`) |
@@ -159,7 +160,7 @@ modifying environment variables.
 
 | Function | Description |
 |----------|-------------|
-| `HomeDir()` | Cross-platform home directory (`HOME`, `USERPROFILE`, `HOMEDRIVE`+`HOMEPATH`) |
+| `HomeDir()` | Cross-platform home directory; checks `USERPROFILE`, then `HOMEDRIVE`+`HOMEPATH`, then `HOME` |
 | `ExpandPath(path)` | Replaces leading `~` with `HomeDir()` |
 
 ### Well-known constants

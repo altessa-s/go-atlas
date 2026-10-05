@@ -45,7 +45,8 @@
 //
 // # Performance
 //
-//   - Small slice optimization: Slices ≤32 elements use linear scan for deduplication (25x faster than map-based).
+//   - Deduplication: Deduplicate/DeduplicateBy use a map-based seen set with a fast path for consecutive duplicates,
+//     and return the input slice unchanged (no result allocation) when it has no duplicates.
 //   - Parallel processing: MapParallel uses goroutines for large datasets (2x speedup for 50K+ elements).
 //   - Zero allocations: FilterFirst, Any, All, Reduce have zero allocations with early return.
 //   - Capacity optimization: Pre-allocates with optimal capacity to reduce reallocations.

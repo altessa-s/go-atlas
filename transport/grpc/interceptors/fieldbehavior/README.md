@@ -41,16 +41,19 @@ import (
     "github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldbehavior"
 )
 
-server := grpc.NewServer(grpc.UnaryInterceptor(
-    interceptors.Chain(
-        // ... metadata, auth, ...
-        fieldbehavior.ServerInterceptor(
-            fieldbehavior.WithMethodKind("/x.v1.X/ImportResource", fieldbehavior.KindCreate),
-            fieldbehavior.WithMethodKind("/x.v1.X/RotateKey",      fieldbehavior.KindSkip),
-        ),
-        // ... protovalidator, handler ...
+chain := interceptors.NewChain(
+    // ... metadata, auth, ...
+    fieldbehavior.ServerInterceptor(
+        fieldbehavior.WithMethodKind("/x.v1.X/ImportResource", fieldbehavior.KindCreate),
+        fieldbehavior.WithMethodKind("/x.v1.X/RotateKey",      fieldbehavior.KindSkip),
     ),
-))
+    // ... protovalidator, handler ...
+)
+srvOpts, err := chain.ServerOptions()
+if err != nil {
+    return err
+}
+server := grpc.NewServer(srvOpts...)
 ```
 
 `fieldbehavior` declares dependencies on `metadata` and `auth` — both must run earlier in the chain. Place `protovalidator` after

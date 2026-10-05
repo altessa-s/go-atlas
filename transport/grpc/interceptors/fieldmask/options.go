@@ -216,7 +216,7 @@ func WithMetadataReadMaskHeader(name string) Option {
 // resource sub-message is present, the interceptor synthesizes a mask via
 // [pbfieldmask.FromSetFields] over the resource and applies it normally.
 // The synthesized mask is then validated like an explicit one — IMMUTABLE
-// and IDENTIFIER fields raise BehaviorViolationError, OUTPUT_ONLY fields
+// and IDENTIFIER fields raise UpdateMaskBehaviorError, OUTPUT_ONLY fields
 // are stripped before the cleaned mask is written back.
 //
 // By default an explicit empty update_mask updates nothing: ApplyUpdateMask

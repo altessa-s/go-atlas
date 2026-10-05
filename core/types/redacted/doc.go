@@ -11,13 +11,12 @@
 //
 // # Why a named string
 //
-// RedactedString keeps reflect.Kind == reflect.String. The repo's
-// configuration loader, gopkg.in/yaml.v3 scalar decoding, and the
-// Mongo v2 BSON driver all assign string values into such fields via
-// reflection without invoking UnmarshalJSON / UnmarshalYAML /
-// UnmarshalBSONValue. Explicit Unmarshal* methods are nonetheless
-// provided so the round-trip contract is symmetric and visible to
-// readers: Marshal emits <redacted>; Unmarshal restores the plain
+// RedactedString keeps reflect.Kind == reflect.String. Decoders that
+// honor the unmarshal interfaces call its methods: gopkg.in/yaml.v3
+// invokes UnmarshalYAML, the Mongo v2 BSON driver UnmarshalBSONValue,
+// and encoding/json UnmarshalJSON. Code that sets fields purely through
+// reflection bypasses them, which is safe because the underlying kind
+// is string. Marshal emits <redacted>; Unmarshal restores the plain
 // underlying value.
 //
 // # Usage

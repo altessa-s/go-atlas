@@ -158,7 +158,7 @@ kernel silently drops the ambient escalation. The bit is irreversible per thread
 |-------------------|----------|------------------------------------------------------|
 | `Set()`           | function | Install `PR_SET_NO_NEW_PRIVS` on the calling thread  |
 | `Enabled()`       | function | Report whether the bit is currently set              |
-| `ErrUnsupported`  | sentinel | Non-Linux, or Linux < 3.5                            |
+| `ErrUnsupported`  | sentinel | Non-Linux platforms (Linux errors wrap `ErrFailed`)  |
 | `ErrFailed`       | sentinel | Wraps the underlying `prctl(2)` errno                |
 
 ```go
@@ -324,15 +324,15 @@ For syscall-level filtering beyond this fixed denylist, configure seccomp at the
 |---------------------------|-----------------------------------------------------------|
 | Filesystem manipulation   | `mount`, `umount2`, `pivot_root`, `chroot`, `swapon`, `swapoff` |
 | Kernel module loading     | `init_module`, `finit_module`, `delete_module`            |
-| Kernel reload             | `kexec_file_load`                                         |
+| Kernel reload             | `kexec_load`, `kexec_file_load`                           |
 | System control            | `reboot`                                                  |
 | Debugging / inspection    | `ptrace`, `process_vm_readv`, `process_vm_writev`         |
 | Namespace manipulation    | `unshare`, `setns`                                        |
 | Keyring                   | `keyctl`, `add_key`, `request_key`                        |
 | Exotic escalation vectors | `userfaultfd`, `perf_event_open`, `bpf`                   |
 
-A blocked syscall returns `EPERM`. An architecture mismatch (e.g. an x32 syscall on an amd64 kernel) kills the process outright, because syscall numbers
-differ across arches and a filter that trusts the wrong numbering is worse than no filter.
+A blocked syscall returns `EPERM`. An architecture mismatch (e.g. an i386 syscall via `int 0x80` on an amd64 kernel) kills the process outright, because
+syscall numbers differ across arches and a filter that trusts the wrong numbering is worse than no filter.
 
 ```go
 err := seccomp.BlockDangerousSyscalls()
@@ -365,8 +365,9 @@ case errors.Is(err, seccomp.ErrFailed):
 import "github.com/altessa-s/go-atlas/core/runtime/landlock"
 ```
 
-Wraps the unprivileged Linux Landlock LSM filesystem sandbox. Restricts the calling process to a strict allowlist of paths without `CAP_SYS_ADMIN` or
-root. Restrictions are irreversible per process lifetime.
+Wraps the unprivileged Linux Landlock LSM filesystem sandbox. Restricts the calling OS thread (and any threads or child processes it
+creates afterwards) to a strict allowlist of paths without `CAP_SYS_ADMIN` or root; other already-running threads of the Go runtime are not
+restricted. Restrictions are irreversible for the thread's lifetime.
 
 | Symbol                              | Kind     | Purpose                                       |
 |-------------------------------------|----------|-----------------------------------------------|

@@ -24,8 +24,8 @@ func (s RedactedString) MarshalJSON() ([]byte, error) {
 // UnmarshalJSON implements json.Unmarshaler. It accepts any JSON
 // string and stores it verbatim into the underlying value, so config
 // loaders and Mongo decoders that route through json.Unmarshal restore
-// the plain text. A non-string JSON value (object, array, number,
-// null, bool) is rejected.
+// the plain text. JSON null clears the value; any other non-string
+// JSON value (object, array, number, bool) is rejected.
 func (s *RedactedString) UnmarshalJSON(data []byte) error {
 	var v string
 	if err := json.Unmarshal(data, &v); err != nil {

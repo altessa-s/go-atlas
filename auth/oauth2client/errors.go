@@ -6,10 +6,12 @@ package oauth2client
 
 import "errors"
 
-// Sentinel errors returned by [Exchanger]. Errors from [ClientCredentials],
-// [Refresh], and [AuthCode] surface the underlying x/oauth2 error unchanged
-// (typically an [*oauth2.RetrieveError]) so callers can inspect the IdP's
-// status code and body directly.
+// Sentinel errors returned by [Exchanger] and the other helpers. Errors from
+// [ClientCredentials], [Refresh], and [AuthCode] surface the underlying
+// x/oauth2 error unchanged (typically an [*oauth2.RetrieveError]) so callers
+// can inspect the IdP's status code and body directly — except
+// [ClientCredentials] with a [ClientAuthenticator], which wraps
+// [ErrTokenRequest] or [ErrTokenExchange] (see [ErrTokenRequest]).
 var (
 	// ErrTokenExchange wraps a failed RFC 8693 token exchange: a transport
 	// error, a non-2xx response from the token endpoint, or an unparsable body.
@@ -26,7 +28,9 @@ var (
 
 	// ErrTokenRequest wraps a failed hand-rolled token request (the
 	// client_credentials fetch used when a [ClientAuthenticator] is configured):
-	// a transport error, a non-2xx response, or an unparsable body.
+	// a transport error or a non-2xx response. An unparsable body, or one
+	// without access_token, from that request wraps [ErrTokenExchange] instead,
+	// because the response parser is shared with [Exchanger].
 	ErrTokenRequest = errors.New("auth/oauth2client: token request failed")
 
 	// ErrRevocation wraps a failed token revocation ([Revoker.Revoke]): a missing

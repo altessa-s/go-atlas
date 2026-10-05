@@ -8,9 +8,10 @@ underlying plain text is reachable only through the explicit `Expose` accessor.
 import "github.com/altessa-s/go-atlas/core/types/redacted"
 ```
 
-`RedactedString` keeps `reflect.Kind == reflect.String`. The repo configuration loader, `yaml.v3` scalar decoding, and the Mongo v2 BSON driver
-populate it through reflection without invoking any `Unmarshal*` method — the explicit `Unmarshal*` methods exist for symmetry and for interface-
-dispatched code paths.
+`RedactedString` keeps `reflect.Kind == reflect.String`. Decoders that honor the unmarshal interfaces call its methods: `gopkg.in/yaml.v3` invokes
+`UnmarshalYAML` (the callback form), the Mongo v2 BSON driver invokes `UnmarshalBSONValue`, and `encoding/json` invokes `UnmarshalJSON`. Code that
+populates fields purely through reflection (e.g. setting a `reflect.String` value directly) bypasses them, which is safe because the underlying kind
+is `string`.
 
 > **Not a secure-memory primitive.** `RedactedString` is a cheap log/marshal guard. For credentials that must be zeroed from memory after use,
 > reach for [`core/text/strings.SecureString`](../text/strings.md) directly — or call `RedactedString.SecureString()` for a one-shot bridge.
@@ -87,16 +88,16 @@ useSecret(ss)
 (`go.mongodb.org/mongo-driver/v2`). `Marshal` always emits the placeholder `<redacted>`; `Unmarshal` stores the incoming string verbatim — so a
 value loaded from YAML/JSON/BSON is exposed by `Expose()` but re-serializing the same struct redacts it again.
 
-| Direction       | `RedactedString("secret")`  | Empty (`""`)                 | Notes                                                                       |
-|-----------------|-----------------------------|------------------------------|-----------------------------------------------------------------------------|
-| JSON marshal    | `"<redacted>"`              | `"<redacted>"`               | `encoding/json` HTML-escapes `<` and `>` to `<` / `>` on the wire |
-| JSON unmarshal  | `RedactedString("secret")`  | `RedactedString("")`         | Non-string JSON values (object, number, bool, null) are rejected            |
-| YAML marshal    | `<redacted>\n`              | `<redacted>\n`               | `gopkg.in/yaml.v3`                                                          |
-| YAML unmarshal  | `RedactedString("secret")`  | `RedactedString("")`         | Scalar string only; sequence/mapping nodes are rejected                     |
-| Text marshal    | `[]byte("<redacted>")`      | `[]byte("<redacted>")`       | Used by `url.Values`, `http.Header`, log/slog text fallback                 |
-| Text unmarshal  | `RedactedString("secret")`  | `RedactedString("")`         | Stores incoming bytes verbatim                                              |
-| BSON marshal    | BSON string `<redacted>`    | omitted (with `omitempty`)   | `IsZero` returning `true` for `""` triggers `bson:",omitempty"`             |
-| BSON unmarshal  | `RedactedString("secret")`  | `RedactedString("")`         | BSON string only; other BSON types are rejected                             |
+| Direction      | `RedactedString("secret")` | Empty (`""`)               | Notes                                                                     |
+|----------------|----------------------------|----------------------------|---------------------------------------------------------------------------|
+| JSON marshal   | `"\u003credacted\u003e"`   | `"\u003credacted\u003e"`   | `encoding/json` HTML-escapes `<` / `>` as `\u003c` / `\u003e` on the wire |
+| JSON unmarshal | `RedactedString("secret")` | `RedactedString("")`       | JSON `null` is accepted and clears the value; object/number/bool rejected |
+| YAML marshal   | `<redacted>\n`             | `<redacted>\n`             | `gopkg.in/yaml.v3`                                                        |
+| YAML unmarshal | `RedactedString("secret")` | `RedactedString("")`       | Scalar string only; sequence/mapping nodes are rejected                   |
+| Text marshal   | `[]byte("<redacted>")`     | `[]byte("<redacted>")`     | Used by `url.Values`, `http.Header`, log/slog text fallback               |
+| Text unmarshal | `RedactedString("secret")` | `RedactedString("")`       | Stores incoming bytes verbatim                                            |
+| BSON marshal   | BSON string `<redacted>`   | omitted (with `omitempty`) | `IsZero` returning `true` for `""` triggers `bson:",omitempty"`           |
+| BSON unmarshal | `RedactedString("secret")` | `RedactedString("")`       | BSON string; BSON null clears to `""`; other BSON types are rejected      |
 
 ```go
 type Database struct {
@@ -110,12 +111,11 @@ var loaded Database
 _ = yaml.Unmarshal([]byte(`uri: mongodb://user:pass@host/db`), &loaded)
 loaded.URI.Expose()                // "mongodb://user:pass@host/db"
 
-out, _ := json.Marshal(loaded)     // {"uri":"<redacted>","Password":"<redacted>"}
+out, _ := json.Marshal(loaded)     // {"uri":"\u003credacted\u003e","Password":"\u003credacted\u003e"}
 ```
 
-Because the BSON marshallers must live on the type, `core/types/redacted` depends on `go.mongodb.org/mongo-driver/v2/bson` — the same trade-off
-made by [`core/types/optional`](optional.md). The benefit is that `RedactedString` is a first-class Mongo field type without forcing a wrapper at
-every call site.
+`core/types/redacted` has no Mongo driver dependency: the BSON methods hand-encode the BSON string (and accept BSON null) using only the standard
+library, so `RedactedString` works as a Mongo field type with the default registry and without a wrapper at every call site.
 
 ---
 
@@ -144,9 +144,9 @@ every call site.
   `0 allocs/op` (measured at ~1.6 ns/op on Apple M4 Pro).
 - **`MarshalText` allocates once** (~16 B) to return the placeholder as a fresh `[]byte` — `encoding.TextMarshaler`'s contract forbids returning
   a shared backing array.
-- **`MarshalJSON` allocates once** (~24 B) for the quoted JSON literal; nothing in the hot path constructs a `json.Encoder`.
-- **`MarshalBSONValue` / `UnmarshalBSONValue`** delegate to `bson.MarshalValue` / `bson.UnmarshalValue` — allocation cost is bounded by the BSON
-  driver, not by this package.
+- **`MarshalJSON` allocates twice** (40 B/op, 2 allocs/op measured on Apple M4 Pro) because it calls `json.Marshal` on the placeholder.
+- **`MarshalBSONValue` / `UnmarshalBSONValue`** hand-encode / decode the BSON string with `encoding/binary`; `MarshalBSONValue` allocates one
+  small buffer for the encoded value, and `UnmarshalBSONValue` copies the payload into the string.
 
 ---
 

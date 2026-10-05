@@ -11,8 +11,9 @@ import "errors"
 // applicable) via multi-wrap, so callers can additionally use
 // [errors.As] to recover the raw kernel error.
 var (
-	// ErrUnsupported is returned when the running platform does not
-	// support PR_SET_NO_NEW_PRIVS (non-Linux platforms, or Linux < 3.5).
+	// ErrUnsupported is returned on non-Linux platforms, which do not
+	// support PR_SET_NO_NEW_PRIVS. On Linux older than 3.5 the prctl
+	// fails with EINVAL and is reported as [ErrFailed] instead.
 	ErrUnsupported = errors.New("nonewprivs: platform does not support PR_SET_NO_NEW_PRIVS")
 
 	// ErrFailed wraps any error from the underlying prctl(2) syscall.

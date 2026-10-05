@@ -93,7 +93,7 @@ if err := enf.Enforce(p, "/files.v1.Files/Write"); err != nil {
 import grpcauth "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 
 interceptor := grpcauth.ServerInterceptor(
-    grpcauth.WithAuthFunc(authFunc),                 // returns *Principal as Credentials.Data
+    grpcauth.WithAuthFn(authFunc),                   // returns *Principal as Credentials.Data
     grpcauth.WithClientAuth(grpcauth.ScopeClientAuth(enf)),
 )
 ```
@@ -194,7 +194,7 @@ scope:
 | `RoleScopesOf(rolesOf, rs)`           | Adapt a `rolesOf func(P) []string` into the `scopesOf` that `ScopeAuthorizer` expects.         |
 | `RoleAuthorizer(rolesOf, rs, m)`      | Convenience for `ScopeAuthorizer(RoleScopesOf(rolesOf, rs), m)` — roles stay caller-side.       |
 | `AnyOf(authorizers…)`                 | Compose authorizers with OR — granted if any is (empty denies). E.g. scope **or** superuser.    |
-| `AllOf(authorizers…)`                 | Compose authorizers with AND — granted only if all are (empty grants). E.g. scope **and** gate. |
+| `AllOf(authorizers…)`                 | Compose authorizers with AND — granted only if all are (empty denies). E.g. scope **and** gate. |
 | `NewEnforcer(reg, authorize)`         | Enforcer backed by `reg`, delegating the satisfy decision to `authorize`.                      |
 | `Enforcer.Enforce(p, key)`            | `nil` if allowed, else `ErrAccessDenied`.                                                      |
 | `grpcauth.ScopeClientAuth(enf)`       | gRPC `ClientAuth` adapter (key = full method, principal = `Credentials.Data`).                 |
