@@ -11,7 +11,8 @@ Package `storages` defines the `Storage` interface for Cuckoo filter backends. I
 
 | Type / Interface | Description                                                         |
 |------------------|---------------------------------------------------------------------|
-| `Storage`        | Interface: MightExist, Add, AddBatch, Delete, Close                 |
+| `Storage`        | Interface: MightExist, Add, AddBatch, Delete, Stage, Close          |
+| `Staging`        | Replacement filter of a rebuild: AddBatch, Commit (atomic swap), Abort |
 | `StatsProvider`  | Optional interface for backends that expose filter statistics        |
 
 ## Subpackages

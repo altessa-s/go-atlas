@@ -4,7 +4,8 @@
 
 // Package bloom provides a Bloom filter implementation for probabilistic existence checks.
 // Bloom filters are space-efficient but do not support deletion. Use periodic rebuilds
-// when the underlying dataset changes.
+// when the underlying dataset changes; [Filter.Rebuild] replaces the contents
+// atomically and keeps values added while it runs.
 //
 // Example:
 //

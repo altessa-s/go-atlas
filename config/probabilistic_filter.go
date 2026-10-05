@@ -76,10 +76,13 @@ type ProbabilisticFilterBloomDefaults struct {
 	// FalsePositiveRate is the target false positive rate (0.01 = 1%).
 	FalsePositiveRate float64 `yaml:"falsePositiveRate" default:"0.01"`
 
-	// RebuildCron is the cron expression for periodic filter rebuild.
+	// RebuildCron is the cron expression for periodic filter rebuild. The
+	// probfilter factory schedules it only when both a data loader and a
+	// scheduler are injected; an empty value disables periodic rebuilds.
 	RebuildCron string `yaml:"rebuildCron" default:"0 0 * * * *"`
 
-	// RebuildOnStart enables rebuilding filter on service startup.
+	// RebuildOnStart enables rebuilding filter on service startup. The
+	// probfilter factory honors it only when a data loader is injected.
 	RebuildOnStart bool `yaml:"rebuildOnStart" default:"true"`
 }
 
@@ -110,12 +113,21 @@ type ProbabilisticFilterCuckooDefaults struct {
 	Storage ProbabilisticFilterStorageType `yaml:"storage" default:"memory"`
 
 	// FingerprintSize is the fingerprint size in bits (8, 12, or 16).
+	//
+	// Deprecated: ignored. Both storage backends use fixed 8-bit fingerprints
+	// (the in-memory filter and RedisBloom CF.* in Redis). The field is
+	// still validated so existing configurations keep loading.
 	FingerprintSize int `yaml:"fingerprintSize" default:"12"`
 
-	// CapacityMultiplier is the multiplier for auto-rebuild on overflow.
+	// CapacityMultiplier is the growth factor applied when the filter fills
+	// up. Only the Redis storage honors it, as the RedisBloom EXPANSION
+	// argument (rounded up to an integer); the memory storage cannot grow.
 	CapacityMultiplier float64 `yaml:"capacityMultiplier" default:"2.0"`
 
 	// MaxCapacity is the maximum capacity limit.
+	//
+	// Deprecated: ignored. Neither storage backend can bound filter growth.
+	// The field is still validated so existing configurations keep loading.
 	MaxCapacity int64 `yaml:"maxCapacity" default:"100000000"`
 }
 
@@ -214,12 +226,17 @@ type ProbabilisticFilterCuckooConfig struct {
 	Capacity int64 `yaml:"capacity"`
 
 	// FingerprintSize is the fingerprint size in bits.
+	//
+	// Deprecated: ignored; see [ProbabilisticFilterCuckooDefaults.FingerprintSize].
 	FingerprintSize *int `yaml:"fingerprintSize"`
 
-	// CapacityMultiplier is the multiplier for auto-rebuild on overflow.
+	// CapacityMultiplier is the growth factor applied when the filter fills
+	// up; Redis storage only, see [ProbabilisticFilterCuckooDefaults.CapacityMultiplier].
 	CapacityMultiplier *float64 `yaml:"capacityMultiplier"`
 
 	// MaxCapacity is the maximum capacity limit.
+	//
+	// Deprecated: ignored; see [ProbabilisticFilterCuckooDefaults.MaxCapacity].
 	MaxCapacity *int64 `yaml:"maxCapacity"`
 
 	// Redis defines Redis-specific configuration.

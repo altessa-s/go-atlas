@@ -24,4 +24,19 @@
 //	    log.Fatal(err)
 //	}
 //	defer mgr.Close()
+//
+// # Rebuilds
+//
+// Bloom rebuild settings need a data source: with [FilterBuilder.UseDataLoader]
+// (or [ManagerBuilder.UseDataLoader]) rebuildOnStart rebuilds the filter
+// inside Build, and rebuildCron rebuilds it periodically — with a
+// process-local cron for an in-memory filter, and through the scheduler
+// ([FilterBuilder.UseScheduler]) for a shared Redis filter. Without a loader
+// both settings are inert.
+//
+// # Cuckoo settings
+//
+// capacityMultiplier maps to the RedisBloom EXPANSION argument and has no
+// in-memory equivalent; fingerprintSize and maxCapacity are deprecated and
+// ignored, since no backend supports them.
 package factory
