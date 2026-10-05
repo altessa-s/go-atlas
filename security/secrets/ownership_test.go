@@ -119,9 +119,10 @@ func TestManager_ValueForceReturnsManagerOwnedCopy(t *testing.T) {
 	require.Equal(t, orig.Version, got.Version)
 	require.Equal(t, orig.Value, got.Value)
 
-	cached, err := mgr.Value(ctx, "key-a", false)
+	again, err := mgr.Value(ctx, "key-a", false)
 	require.NoError(t, err)
-	require.Same(t, got, cached)
+	require.NotSame(t, got, again, "every Value call returns its own copy")
+	require.Equal(t, got.Value, again.Value)
 }
 
 // secretString is a defined string payload type.

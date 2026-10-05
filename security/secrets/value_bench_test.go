@@ -12,3 +12,10 @@ func BenchmarkValueClone(b *testing.B) {
 		_ = v.clone()
 	}
 }
+
+func BenchmarkValueClone_Map(b *testing.B) {
+	v := NewValue("key", map[string]string{"user": "u", "password": "p", "host": "h"}, nil, "v1")
+	for b.Loop() {
+		_ = v.clone()
+	}
+}

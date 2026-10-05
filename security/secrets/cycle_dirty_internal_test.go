@@ -161,7 +161,9 @@ func TestManager_FetchDoesNotOverwriteSaveBetweenCheckAndWrite(t *testing.T) {
 	mgr.cacheMu.Lock()
 	done := make(chan error, 1)
 	go func() {
-		_, err := mgr.Value(ctx, "k", true)
+		// ValueShared: its cache lookup does not take cacheMu, so the fetch
+		// runs up to its cache write.
+		_, err := mgr.ValueShared(ctx, "k", true)
 		done <- err
 	}()
 	<-provider.returned
@@ -467,4 +469,42 @@ func TestManager_SaveWithFailedReadbackDropsOldValue(t *testing.T) {
 	got, err := mgr.Value(ctx, "k", true)
 	require.NoError(t, err)
 	require.Equal(t, "v2", got.Value)
+}
+
+// clonerProvider serves a privateCloner payload behind any.
+type clonerProvider struct{ dirtyTestProvider }
+
+func (p *clonerProvider) Value(_ context.Context, key string) (*Value[any], error) {
+	return NewValue[any](key, privateCloner{secret: []byte("s")}, nil, "1"), nil
+}
+
+func (p *clonerProvider) List(context.Context) ([]*Value[any], error) { return nil, nil }
+
+func (p *clonerProvider) Values(context.Context) iter.Seq2[*Value[any], error] {
+	return func(func(*Value[any], error) bool) {}
+}
+
+func (p *clonerProvider) Save(context.Context, string, any) error { return nil }
+
+// TestManager_AnyPayloadWithPrivateCloner checks that a Manager[any] payload
+// with private state and its own Clone method is isolated between callers.
+func TestManager_AnyPayloadWithPrivateCloner(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	mgr, err := New[any](&clonerProvider{})
+	require.NoError(t, err)
+
+	fetched, err := mgr.Value(ctx, "k", true)
+	require.NoError(t, err)
+	fetched.Value.(privateCloner).set('X')
+
+	hit, err := mgr.Value(ctx, "k", false)
+	require.NoError(t, err)
+	require.Equal(t, "s", string(hit.Value.(privateCloner).secret))
+	hit.Value.(privateCloner).set('Y')
+
+	cached, err := mgr.ValueShared(ctx, "k", false)
+	require.NoError(t, err)
+	require.Equal(t, "s", string(cached.Value.(privateCloner).secret))
 }

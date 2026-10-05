@@ -7,6 +7,8 @@ package secrets_test
 import (
 	"context"
 	"errors"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -16,10 +18,13 @@ import (
 	secsecrets "github.com/altessa-s/go-atlas/security/secrets"
 )
 
-// mockManager implements secrets.Manager for testing.
+// mockManager implements secrets.Manager for testing. Like the real Manager
+// it returns a caller-owned value per call, and records what it returned.
 type mockManager struct {
-	values map[string]string
-	err    error
+	values   map[string]string
+	err      error
+	mu       sync.Mutex
+	returned []*secsecrets.Value[string]
 }
 
 func (m *mockManager) Value(_ context.Context, key string, _ bool) (*secsecrets.Value[string], error) {
@@ -30,7 +35,11 @@ func (m *mockManager) Value(_ context.Context, key string, _ bool) (*secsecrets.
 	if !ok {
 		return nil, secsecrets.ErrNotFound
 	}
-	return &secsecrets.Value[string]{Key: key, Value: v}, nil
+	value := secsecrets.NewValue(key, strings.Clone(v), nil, "")
+	m.mu.Lock()
+	m.returned = append(m.returned, value)
+	m.mu.Unlock()
+	return value, nil
 }
 
 func newMockManager(vals map[string]string) *mockManager {
@@ -285,4 +294,24 @@ func TestExpander_Expand_FailClosed_MultipleSecrets(t *testing.T) {
 	// First secret resolves but second one doesn't — should fail on the first failure
 	_, err := expander.Expand(t.Context(), "$__secret{app:password} $__secret{app:missing}")
 	require.Error(t, err)
+}
+
+// TestExpand_ClearsReturnedValues checks that the expander clears the
+// caller-owned values it gets from the manager, without losing the expanded
+// output.
+func TestExpand_ClearsReturnedValues(t *testing.T) {
+	t.Parallel()
+
+	mgr := newMockManager(map[string]string{"app:user": "alice", "app:pass": "s3cret"})
+	got, err := secrets.ExpandString(t.Context(), "u=$__secret{app:user} p=$__secret{app:pass}", mgr)
+	require.NoError(t, err)
+	require.Equal(t, "u=alice p=s3cret", got)
+
+	mgr.mu.Lock()
+	defer mgr.mu.Unlock()
+	require.Len(t, mgr.returned, 2)
+	for _, v := range mgr.returned {
+		require.Empty(t, v.Value, "the expander must clear the value it received")
+		require.Empty(t, v.Key)
+	}
 }

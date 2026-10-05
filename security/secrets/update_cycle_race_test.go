@@ -121,7 +121,7 @@ func TestManager_UpdateCycle_KeepsValueSavedAfterSnapshot(t *testing.T) {
 			var saved *secrets.Value[string]
 			provider.afterList = func() {
 				require.NoError(t, mgr.Save(ctx, "saved-during-cycle", "new"))
-				v, valueErr := mgr.Value(ctx, "saved-during-cycle", false)
+				v, valueErr := mgr.ValueShared(ctx, "saved-during-cycle", false)
 				require.NoError(t, valueErr)
 				saved = v
 			}
@@ -177,7 +177,7 @@ func TestManager_UpdateCycle_StillEvictsDeletedKeys(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, mgr.RunUpdateCycle(ctx))
 
-	cached, err := mgr.Value(ctx, "gone", false)
+	cached, err := mgr.ValueShared(ctx, "gone", false)
 	require.NoError(t, err)
 
 	require.NoError(t, inner.Delete(ctx, "gone"))
