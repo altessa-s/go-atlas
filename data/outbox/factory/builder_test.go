@@ -44,8 +44,42 @@ func TestBuildWithSQLDB(t *testing.T) {
 	_, err = New(cfg).BuildWithSQLDB(db, "oracle", nil)
 	require.ErrorIs(t, err, outboxsql.ErrUnsupportedDialect)
 
-	ob, err := New(cfg).BuildWithSQLDB(db, outboxsql.DialectMySQL, func(context.Context, outbox.Event) error { return nil })
+	handler := func(context.Context, outbox.Event) error { return nil }
+	ob, err := New(cfg).BuildWithSQLDB(db, outboxsql.DialectMySQL, handler)
 	require.NoError(t, err)
 	require.NotNil(t, ob)
-	require.NotEmpty(t, fake.Calls(), "the events table is created on build")
+	require.Empty(t, fake.Calls(), "without ensureSchema the build performs no I/O")
+}
+
+func TestBuildWithSQLDBEnsureSchema(t *testing.T) {
+	t.Parallel()
+	handler := func(context.Context, outbox.Event) error { return nil }
+
+	t.Run("creates_schema", func(t *testing.T) {
+		t.Parallel()
+		db, fake := testhelpers.NewFakeSQL(t, nil)
+		ob, err := New(&config.Outbox{Enabled: true, EnsureSchema: true}).BuildWithSQLDB(db, outboxsql.DialectPostgres, handler)
+		require.NoError(t, err)
+		require.NotNil(t, ob)
+		calls := fake.Calls()
+		require.Len(t, calls, 5, "advisory lock, table, three indexes")
+		require.Contains(t, calls[1].Query, "CREATE TABLE IF NOT EXISTS")
+	})
+
+	t.Run("disabled_outbox_runs_no_ddl", func(t *testing.T) {
+		t.Parallel()
+		db, fake := testhelpers.NewFakeSQL(t, nil)
+		ob, err := New(&config.Outbox{EnsureSchema: true}).BuildWithSQLDB(db, outboxsql.DialectPostgres, handler)
+		require.NoError(t, err)
+		require.Nil(t, ob)
+		require.Empty(t, fake.Calls())
+	})
+
+	t.Run("propagates_failure", func(t *testing.T) {
+		t.Parallel()
+		boom := errors.New("ddl denied")
+		db, _ := testhelpers.NewFakeSQL(t, func(string, []any) testhelpers.FakeSQLReply { return testhelpers.FakeSQLReply{Err: boom} })
+		_, err := New(&config.Outbox{Enabled: true, EnsureSchema: true}).BuildWithSQLDB(db, outboxsql.DialectMySQL, handler)
+		require.ErrorIs(t, err, boom)
+	})
 }

@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/nats-io/nats.go"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -127,8 +128,10 @@ func (b *BrokerBuilder) CreateOutboxWithMongoCollection(
 
 // CreateOutboxWithSQLDB creates a SQL-backed outbox (PostgreSQL, MySQL or
 // MariaDB, selected by dialect) for reliable message delivery using the
-// builder's broker configuration. The events table is created if it does not
-// exist; Save must run on the business transaction via outboxsql.WithTx.
+// builder's broker configuration. With the outbox config's EnsureSchema set,
+// the events table is created if it does not exist; otherwise it must already
+// exist (the store's EnsureSchema or migrations). Save must run on the
+// business transaction via outboxsql.WithTx.
 func (b *BrokerBuilder) CreateOutboxWithSQLDB(
 	db *sql.DB, dialect outboxsql.Dialect, publisher outbox.Publisher,
 ) (*outbox.Outbox, error) {
@@ -140,9 +143,21 @@ func (b *BrokerBuilder) CreateOutboxWithSQLDB(
 	if err != nil {
 		return nil, b.WrapError(err, "failed to create outbox store")
 	}
+	if b.cfg != nil && b.cfg.Outbox.Enabled && b.cfg.Outbox.EnsureSchema {
+		ctx, cancel := context.WithTimeout(context.Background(), ensureSchemaTimeout)
+		defer cancel()
+		if err := store.EnsureSchema(ctx); err != nil {
+			return nil, b.WrapError(err, "ensure outbox schema")
+		}
+	}
 
 	return b.createOutboxWithStore(store, publisher)
 }
+
+// ensureSchemaTimeout bounds the schema creation CreateOutboxWithSQLDB runs
+// when the config asks for it, so a lock wait cannot stall startup
+// indefinitely.
+const ensureSchemaTimeout = 30 * time.Second
 
 // NatsProviderWithRecovery bundles a [natsprovider.Nats] provider with its
 // optional [recovery.Manager]. Call [NatsProviderWithRecovery.Close] when the

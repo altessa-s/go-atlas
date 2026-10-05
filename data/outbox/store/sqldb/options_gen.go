@@ -4,35 +4,11 @@
 package sqldb
 
 import (
-	"context"
 	"strings"
-	"time"
-
-	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 )
 
 // Option is a functional option for configuring options.
 type Option func(o *options)
-
-// WithContext sets the ctx option.
-func WithContext(v context.Context) Option {
-	return func(o *options) {
-		if nilcheck.IsNil(v) {
-			return
-		}
-		o.ctx = v
-	}
-}
-
-// WithSchemaCreateTimeout sets the schemaTimeout option.
-func WithSchemaCreateTimeout(v time.Duration) Option {
-	return func(o *options) {
-		if v <= 0 {
-			return
-		}
-		o.schemaTimeout = v
-	}
-}
 
 // WithTableName sets the tableName option.
 func WithTableName[T interface{ string | *string }](v T) Option {
@@ -60,8 +36,7 @@ func WithTableName[T interface{ string | *string }](v T) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		schemaTimeout: DefaultSchemaCreateTimeout,
-		tableName:     DefaultTableName,
+		tableName: DefaultTableName,
 	}
 }
 
