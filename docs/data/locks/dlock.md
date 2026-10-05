@@ -45,6 +45,20 @@ err = dl.Synchronize(ctx, "rebuild-cache", func(ctx context.Context) error {
 })
 ```
 
+`NewWithNats` sets only the bucket. To pass other provider options (`WithTTL`, `WithMigrateBucketTTL`, …), build the provider from
+`data/locks/dlock/providers/nats` (imported as `natsprovider` here) and wrap it, as `dlock/factory` does:
+
+```go
+prov, err := natsprovider.New(ctx, nc,
+    natsprovider.WithBucket("myapp-locks"),
+    natsprovider.WithTTL(30*time.Second),
+)
+if err != nil {
+    return err
+}
+dl := dlock.New(prov, dlock.WithLogger(logger))
+```
+
 `Synchronize` handles the full lifecycle: acquire → run → release, with double-release protection and panic recovery inside `fn`. If `fn` panics,
 the lock is still released and the panic is logged via `WithLogger`.
 

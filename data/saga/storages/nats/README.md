@@ -38,3 +38,33 @@ store, err := natsstore.New(js, natsstore.WithBucket("saga"))
 orch := saga.New(store, def, saga.WithSagaTimeout(5*time.Minute))
 inst, err := orch.Start(ctx, id, data)
 ```
+
+## Bucket storage
+
+New buckets are file-backed. Releases before this fix asked for file storage but created a memory bucket, which is lost when the JetStream
+servers holding it stop. Replicated memory buckets survive rolling restarts, so they do not convert by themselves. The server cannot change a
+bucket's storage type, so `New` adopts an existing bucket with a different storage type as is and logs a warning on every start.
+
+Moving to file storage recreates the bucket, which resets its KV revisions, and an instance's `Version` (`Execution.Fence`) is its entry
+revision. If an external system keeps the highest fence it has accepted, do not migrate: keep the adopted bucket until a fencing-safe migration
+exists. Otherwise pick one of the two procedures below.
+
+**Discard.** Use it only when no instance is `running` or `compensating`, no `failed` instance is awaiting manual intervention, and you accept
+losing the terminal records. Once its record is gone, `Start` with the same ID runs a new instance, so a completed saga could be replayed.
+1. Stop every process using the bucket.
+2. Delete the bucket with `nats kv del <bucket>`.
+3. Start the processes again. The first `New` creates a file bucket.
+4. Check that `nats kv info <bucket>` reports file storage and that the warning is gone.
+
+**Preserve.** Use it in every other case.
+1. Stop every process using the bucket. Keep them stopped until the last step.
+2. Copy every key to a temporary bucket.
+3. Delete the bucket with `nats kv del <bucket>`.
+4. Run a one-off program that calls `New` with the production options. It creates the file bucket.
+5. Copy the keys back.
+6. Verify the key count, the file storage and a sample of instances.
+7. Delete the temporary bucket.
+8. Resume the processes.
+
+A copy resets each key's age, so every instance starts a fresh backstop TTL (`WithBucketTTL`). This is harmless because active instances reset
+the TTL on every checkpoint anyway.

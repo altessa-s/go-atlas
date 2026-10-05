@@ -138,6 +138,17 @@ func CreateNATSKV(tb testing.TB, js jetstream.JetStream, bucket string, ttl time
 // KVBucketTTL returns the key TTL of the existing NATS KeyValue bucket.
 func KVBucketTTL(tb testing.TB, js jetstream.JetStream, bucket string) time.Duration {
 	tb.Helper()
+	return kvBucketStatus(tb, js, bucket).TTL()
+}
+
+// KVBucketStorage returns the storage type of the existing NATS KeyValue bucket.
+func KVBucketStorage(tb testing.TB, js jetstream.JetStream, bucket string) jetstream.StorageType {
+	tb.Helper()
+	return kvBucketStatus(tb, js, bucket).Config().Storage
+}
+
+func kvBucketStatus(tb testing.TB, js jetstream.JetStream, bucket string) jetstream.KeyValueStatus {
+	tb.Helper()
 
 	kv, err := js.KeyValue(tb.Context(), bucket)
 	if err != nil {
@@ -147,5 +158,5 @@ func KVBucketTTL(tb testing.TB, js jetstream.JetStream, bucket string) time.Dura
 	if err != nil {
 		tb.Fatalf("failed to read NATS KV bucket %q status: %v", bucket, err)
 	}
-	return status.TTL()
+	return status
 }
