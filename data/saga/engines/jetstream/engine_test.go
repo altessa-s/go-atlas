@@ -21,6 +21,7 @@ import (
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	sagajs "github.com/altessa-s/go-atlas/data/saga/engines/jetstream"
+	sagaerrs "github.com/altessa-s/go-atlas/data/saga/errs"
 	natsstore "github.com/altessa-s/go-atlas/data/saga/storages/nats"
 )
 
@@ -87,7 +88,7 @@ func run(t *testing.T, engine *sagajs.Engine[order]) (stop func() error) {
 func waitStatus(t *testing.T, store saga.Store, id string, want saga.Status) {
 	t.Helper()
 	testhelpers.WaitFor(t, waitTimeout, func() bool {
-		inst, err := store.Get(context.Background(), id)
+		inst, err := store.Get(t.Context(), id)
 		return err == nil && inst.Status == want
 	}, "saga "+id+" did not reach "+string(want))
 }
@@ -157,27 +158,40 @@ func TestSubmitRejectsEmptyID(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
 	engine := newEngine(t, e, e.store, definition("place", ok))
-	require.Error(t, engine.Submit(t.Context(), "", order{}))
+	require.ErrorIs(t, engine.Submit(t.Context(), "", order{}), sagaerrs.ErrEmptyID)
 }
 
-// terminalFailStore fails the first write of a terminal status, so the saga
-// is interrupted after its last step committed.
-type terminalFailStore struct {
+// failOnceStore fails the first Update whose instance matches, simulating a
+// one-off store outage at a chosen checkpoint.
+type failOnceStore struct {
 	saga.Store
+	match  func(*saga.Instance) bool
 	failed atomic.Bool
 }
 
-func (s *terminalFailStore) Update(ctx context.Context, inst *saga.Instance) error {
-	if inst.Status.IsTerminal() && s.failed.CompareAndSwap(false, true) {
+func (s *failOnceStore) Update(ctx context.Context, inst *saga.Instance) error {
+	if s.match(inst) && s.failed.CompareAndSwap(false, true) {
 		return errors.New("store outage")
 	}
 	return s.Store.Update(ctx, inst)
 }
 
+// failTerminalOnce fails the first write of a terminal status, so the saga is
+// interrupted after its last step committed.
+func failTerminalOnce(store saga.Store) *failOnceStore {
+	return &failOnceStore{Store: store, match: func(inst *saga.Instance) bool { return inst.Status.IsTerminal() }}
+}
+
+// failFirstUpdate fails the very first Update (the lease acquisition), so the
+// first delivery is interrupted before any step runs.
+func failFirstUpdate(store saga.Store) *failOnceStore {
+	return &failOnceStore{Store: store, match: func(*saga.Instance) bool { return true }}
+}
+
 func TestInterruptedExecutionIsRedelivered(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
-	store := &terminalFailStore{Store: e.store}
+	store := failTerminalOnce(e.store)
 	tc := testhelpers.NewTestCollector()
 	engine := newEngine(t, e, store, definition("place", ok), sagajs.WithCollector(tc))
 	stop := run(t, engine)
@@ -399,8 +413,8 @@ func TestConnectionCloseStopsRun(t *testing.T) {
 	var block atomic.Bool
 	block.Store(true)
 	entered := make(chan struct{}, 1)
-	// One slot, held by a blocked execution; the second command is buffered
-	// and its callback blocks waiting for the slot.
+	// One slot, held by a blocked execution: Run waits for a free slot and the
+	// second command stays on the server.
 	engine := newEngine(t, e, e.store, definition("place", blockingStep(&block, entered)), sagajs.WithConcurrency(1))
 	require.NoError(t, engine.Submit(t.Context(), "o1", order{}))
 	require.NoError(t, engine.Submit(t.Context(), "o2", order{}))
@@ -408,7 +422,7 @@ func TestConnectionCloseStopsRun(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- engine.Run(t.Context()) }()
 	<-entered
-	time.Sleep(100 * time.Millisecond) // let the second callback block on the slot
+	time.Sleep(100 * time.Millisecond) // let Run block waiting for the slot
 	e.close()
 
 	select {
@@ -639,20 +653,6 @@ func TestConsumerPullLimitsAreHonored(t *testing.T) {
 	}
 }
 
-// firstUpdateFailStore fails the very first Update (the lease acquisition), so
-// the first delivery is interrupted before any step runs.
-type firstUpdateFailStore struct {
-	saga.Store
-	failed atomic.Bool
-}
-
-func (s *firstUpdateFailStore) Update(ctx context.Context, inst *saga.Instance) error {
-	if s.failed.CompareAndSwap(false, true) {
-		return errors.New("store outage")
-	}
-	return s.Store.Update(ctx, inst)
-}
-
 func TestShortBackOffRedeliveryIsKeptAlive(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
@@ -662,7 +662,7 @@ func TestShortBackOffRedeliveryIsKeptAlive(t *testing.T) {
 	precreate(t, e.js, jetstream.ConsumerConfig{BackOff: []time.Duration{30 * time.Second, 300 * time.Millisecond}, MaxDeliver: 10})
 	var calls atomic.Int32
 	tc := testhelpers.NewTestCollector()
-	store := &firstUpdateFailStore{Store: e.store}
+	store := failFirstUpdate(e.store)
 	engine := newEngine(t, e, store, definition("place", slowStep(&calls, time.Second)), sagajs.WithCollector(tc), sagajs.WithConcurrency(2))
 	stop := run(t, engine)
 	defer func() { require.NoError(t, stop()) }()
@@ -771,7 +771,7 @@ func TestInterruptedExecutionResumesOnNATSKV(t *testing.T) {
 	e := newEnv(t)
 	kv, err := natsstore.New(e.js, natsstore.WithBucket("saga_resume"))
 	require.NoError(t, err)
-	store := &terminalFailStore{Store: kv}
+	store := failTerminalOnce(kv)
 	engine := newEngine(t, e, store, definition("place", ok))
 	stop := run(t, engine)
 	defer func() { require.NoError(t, stop()) }()
@@ -864,7 +864,7 @@ func TestLiteralEnvelopeIsAccepted(t *testing.T) {
 func TestInterruptedCompensationIsRedelivered(t *testing.T) {
 	t.Parallel()
 	e := newEnv(t)
-	store := &terminalFailStore{Store: e.store}
+	store := failTerminalOnce(e.store)
 	engine := newEngine(t, e, store, definition("place", func(context.Context, *order) error { return errStep }))
 	stop := run(t, engine)
 	defer func() { require.NoError(t, stop()) }()
