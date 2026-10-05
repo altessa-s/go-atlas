@@ -108,10 +108,19 @@ type Manager[T any] struct {
 	// generation counter incremented by every successful Save.
 	saveVersions sync.Map // map[string]*atomic.Int64
 
-	// clearCacheMu serializes ClearCache so a graceful-shutdown call and the
-	// force-shutdown timeout path cannot run Value.Clear() on the same entry
-	// concurrently, which would be a data race on the zeroed sensitive fields.
-	clearCacheMu sync.Mutex
+	// cacheMu serializes the Manager's cache writes, deletes and clears with
+	// the update cycle's reconciliation, so the cycle decides and acts on a
+	// key atomically with respect to a concurrent Save, fetch or Delete. It
+	// also keeps two Value.Clear() calls on one entry (graceful and forced
+	// shutdown, Delete, eviction) from racing on the zeroed fields. Cache
+	// hits do not take it.
+	cacheMu sync.Mutex
+
+	// cycleDirty holds the keys the Manager cached or deleted since the
+	// running update cycle began; the cycle leaves them alone, since its
+	// storage snapshot may predate those writes. It is non-nil only while a
+	// cycle runs. Guarded by cacheMu.
+	cycleDirty map[string]struct{}
 
 	// updateCycleTask guards RunUpdateCycle: single-flight execution plus
 	// the scheduler-managed flag set by RegisterUpdateCycleSchedulerFunc.
@@ -210,15 +219,17 @@ func (t *Manager[T]) Delete(ctx context.Context, key string) error {
 		return err
 	}
 
-	// Determine if we had a value to clear
-	previousValue, hadValue := t.cache.Get(key)
+	t.cacheMu.Lock()
+	// A running update cycle must not re-insert the key from its snapshot.
+	t.markDirtyLocked(key)
 
 	// If we have a cached value, securely clear it after successful deletion
-	if hadValue {
+	if previousValue, hadValue := t.cache.Get(key); hadValue {
 		previousValue.Clear()
 	}
 
 	t.cache.Remove(key)
+	t.cacheMu.Unlock()
 
 	// Update negative filter if deletable. A filter that is also rebuilt by the
 	// update cycle is left alone: a delayed fingerprint delete could land on a
@@ -246,6 +257,23 @@ func (t *Manager[T]) saveVersion(key string) *atomic.Int64 {
 	fresh := new(atomic.Int64)
 	actual, _ := t.saveVersions.LoadOrStore(key, fresh)
 	return actual.(*atomic.Int64) //nolint:errcheck // same — value type is invariant
+}
+
+// cachePut caches val under key and marks the key dirty for a running
+// update cycle.
+func (t *Manager[T]) cachePut(key string, val *Value[T]) {
+	t.cacheMu.Lock()
+	defer t.cacheMu.Unlock()
+	t.markDirtyLocked(key)
+	t.cache.Put(key, val)
+}
+
+// markDirtyLocked records a cache write or delete of key for the running
+// update cycle, if any. The caller holds cacheMu.
+func (t *Manager[T]) markDirtyLocked(key string) {
+	if t.cycleDirty != nil {
+		t.cycleDirty[key] = struct{}{}
+	}
 }
 
 // updateValueWithRetry retrieves a secret value from storage with retry logic.
@@ -282,7 +310,7 @@ func (t *Manager[T]) updateValueWithRetry(ctx context.Context, key string) (*Val
 	}
 
 	if ver.Load() == versionBefore {
-		t.cache.Put(key, val)
+		t.cachePut(key, val)
 		t.opts.logger.DebugContext(ctx, "value updated", slog.String("key", key))
 	} else {
 		// Save raced this fetch. The cached value is already fresh —
@@ -384,8 +412,8 @@ func (t *Manager[T]) Value(ctx context.Context, key string, force bool) (*Value[
 //
 // This operation is thread-safe but will block other cache operations during execution.
 func (t *Manager[T]) ClearCache(ctx context.Context) {
-	t.clearCacheMu.Lock()
-	defer t.clearCacheMu.Unlock()
+	t.cacheMu.Lock()
+	defer t.cacheMu.Unlock()
 
 	var clearedCount int
 	for key, value := range t.cache.All() {
@@ -665,7 +693,7 @@ func (t *Manager[T]) saveWithRetry(ctx context.Context, key string, value T) err
 		return nil
 	}
 
-	t.cache.Put(key, val)
+	t.cachePut(key, val)
 	t.opts.logger.DebugContext(ctx, "value saved and cached", slog.String("key", key))
 
 	return nil
