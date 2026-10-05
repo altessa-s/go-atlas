@@ -291,14 +291,15 @@ func (e *Engine[T]) Submit(ctx context.Context, id string, data T) error {
 //
 // Commands are fetched only into free execution slots, so a fetched command
 // always starts at once and is kept alive by heartbeats. If consumption ends
-// while ctx is still live, Run cancels and joins in-flight work and returns an
-// error wrapping [ErrConsumeStopped]; the caller may call Run again. A closed
-// connection is noticed immediately. A deleted consumer is noticed by a pending
-// fetch or by the existence check after an empty fetch; Run then cancels and
-// joins in-flight executions like on any unexpected stop, leaving their
-// instances non-terminal for a redelivery or the recovery cycle to resume.
-// While every slot is busy no fetch is pending, so the deletion is noticed
-// only once a slot frees.
+// while ctx is still live, Run returns an error wrapping [ErrConsumeStopped];
+// the caller may call Run again. A closed connection is noticed immediately
+// and, like the end of ctx, cancels and joins in-flight executions at once.
+// A deleted consumer or stream is noticed by a pending fetch, or by the
+// existence check after an empty fetch (while every slot is busy, only once a
+// slot frees). Run then stops fetching but lets in-flight executions finish
+// and persist their outcome before it returns; their acknowledgements are
+// unconfirmed and have no effect, since the consumer is gone. That wait is
+// still cut short by the end of ctx or a closed connection.
 func (e *Engine[T]) Run(ctx context.Context) error {
 	if !e.running.CompareAndSwap(false, true) {
 		return ErrAlreadyRunning
@@ -333,8 +334,16 @@ func (e *Engine[T]) Run(ctx context.Context) error {
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, e.concurrency)
 	err := e.consume(execCtx, sem, &wg)
-	cancel()
+	// A vanished consumer is no reason to abort sagas that are running fine:
+	// let them finish. Anything else (shutdown, closed connection, a request
+	// the server rejects) cancels them now.
+	if isConsumerGone(err) {
+		e.logger.Warn("saga engine: consumer gone; finishing in-flight executions", slog.Any("error", err))
+	} else {
+		cancel()
+	}
 	wg.Wait()
+	cancel()
 	if connLost.Load() {
 		return errors.Join(ErrConsumeStopped, nats.ErrConnectionClosed)
 	}
@@ -554,6 +563,14 @@ func isTerminalConsumeError(err error) bool {
 		errors.Is(err, nats.ErrConnectionClosed) ||
 		errors.Is(err, jetstream.ErrConsumerDeleted) ||
 		errors.Is(err, jetstream.ErrConsumerNotFound)
+}
+
+// isConsumerGone reports errors meaning the consumer or its stream no longer
+// exists.
+func isConsumerGone(err error) bool {
+	return errors.Is(err, jetstream.ErrConsumerDeleted) ||
+		errors.Is(err, jetstream.ErrConsumerNotFound) ||
+		errors.Is(err, jetstream.ErrStreamNotFound)
 }
 
 // validToken reports whether s is one literal NATS subject token.

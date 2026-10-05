@@ -7,6 +7,7 @@ package jetstream_test
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -729,6 +730,108 @@ func TestConsumerDeletionWhileSaturatedStopsRun(t *testing.T) {
 		t.Fatal("Run did not return after the consumer was deleted")
 	}
 	waitStatus(t, e.store, "o1", saga.StatusCompleted)
+}
+
+// drainHandler is a slog handler that closes draining when the engine logs
+// that it noticed the consumer is gone and is finishing in-flight executions.
+type drainHandler struct {
+	once     *sync.Once
+	draining chan struct{}
+}
+
+func (drainHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h drainHandler) Handle(_ context.Context, r slog.Record) error {
+	if r.Message == "saga engine: consumer gone; finishing in-flight executions" {
+		h.once.Do(func() { close(h.draining) })
+	}
+	return nil
+}
+
+func (h drainHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h drainHandler) WithGroup(string) slog.Handler      { return h }
+
+// deletionFixture runs an engine with two slots, one saga blocked mid-step and
+// the free slot keeping a pull request outstanding, then deletes the consumer.
+// draining closes once Run has noticed the deletion.
+type deletionFixture struct {
+	e        *env
+	release  chan struct{}
+	draining chan struct{}
+	canceled atomic.Bool
+	cancel   context.CancelFunc
+	done     chan error
+}
+
+func startDeletionFixture(t *testing.T) *deletionFixture {
+	t.Helper()
+	f := &deletionFixture{e: newEnv(t), release: make(chan struct{}), draining: make(chan struct{}), done: make(chan error, 1)}
+	entered := make(chan struct{}, 1)
+	step := func(ctx context.Context, _ *order) error {
+		entered <- struct{}{}
+		select {
+		case <-f.release:
+			return nil
+		case <-ctx.Done():
+			f.canceled.Store(true)
+			return ctx.Err()
+		}
+	}
+	logger := slog.New(drainHandler{once: &sync.Once{}, draining: f.draining})
+	engine := newEngine(t, f.e, f.e.store, definition("place", step), sagajs.WithConcurrency(2), sagajs.WithLogger(logger))
+	ctx, cancel := context.WithCancel(t.Context())
+	f.cancel = cancel
+	go func() { f.done <- engine.Run(ctx) }()
+	require.NoError(t, engine.Submit(t.Context(), "o1", order{}))
+	<-entered
+
+	s, err := f.e.js.Stream(t.Context(), sagajs.DefaultStream)
+	require.NoError(t, err)
+	require.NoError(t, s.DeleteConsumer(t.Context(), "saga-place"))
+	select {
+	case <-f.draining:
+	case <-time.After(waitTimeout):
+		t.Fatal("Run did not notice the consumer deletion")
+	}
+	return f
+}
+
+func (f *deletionFixture) wait(t *testing.T) error {
+	t.Helper()
+	select {
+	case err := <-f.done:
+		return err
+	case <-time.After(waitTimeout):
+		t.Fatal("Run did not return")
+		return nil
+	}
+}
+
+func TestConsumerDeletionDrainsRunningExecutions(t *testing.T) {
+	t.Parallel()
+	f := startDeletionFixture(t)
+	require.Never(t, func() bool { return f.canceled.Load() || len(f.done) > 0 }, 300*time.Millisecond, 10*time.Millisecond,
+		"the deletion must neither cancel the running saga nor end Run before it finishes")
+	close(f.release)
+
+	err := f.wait(t)
+	require.ErrorIs(t, err, sagajs.ErrConsumeStopped)
+	require.True(t, errors.Is(err, jetstream.ErrConsumerDeleted) || errors.Is(err, jetstream.ErrConsumerNotFound), "cause: %v", err)
+	inst, err := f.e.store.Get(t.Context(), "o1")
+	require.NoError(t, err)
+	require.Equal(t, saga.StatusCompleted, inst.Status, "Run returns only after the saga persisted its outcome")
+}
+
+func TestConsumerDeletionDrainIsBoundedByContext(t *testing.T) {
+	t.Parallel()
+	f := startDeletionFixture(t)
+	f.cancel()
+
+	require.ErrorIs(t, f.wait(t), sagajs.ErrConsumeStopped, "consumption had already stopped before the cancellation")
+	require.True(t, f.canceled.Load(), "canceling the context must cancel the draining saga")
+	inst, err := f.e.store.Get(t.Context(), "o1")
+	require.NoError(t, err)
+	require.False(t, inst.Status.IsTerminal())
 }
 
 func TestInvalidUTF8IDIsRejected(t *testing.T) {
