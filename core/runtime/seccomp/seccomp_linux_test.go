@@ -28,9 +28,12 @@ func x32Insns() int {
 
 // TestBuildFilter_Length verifies the instruction count matches the
 // documented formula: len(dangerousSyscalls) + 6 + X instructions
-// (arch LD, arch JEQ, syscall LD, optional x32 JGE, N JEQs,
+// (arch LD, arch JEQ, syscall LD, the X-instruction x32 guard on
+// amd64 — JGE x32 bit, JGT and JGE for the legacy range — N JEQs,
 // RET ALLOW, RET DENY, RET KILL).
 func TestBuildFilter_Length(t *testing.T) {
+	t.Parallel()
+
 	prog := buildFilter()
 	require.Len(t, prog, len(dangerousSyscalls)+6+x32Insns())
 }
@@ -41,6 +44,8 @@ func TestBuildFilter_Length(t *testing.T) {
 // it's wrong, the syscall numbers in the denylist are compared
 // against numbers from a different arch, which is silently broken.
 func TestBuildFilter_ArchPrologue(t *testing.T) {
+	t.Parallel()
+
 	prog := buildFilter()
 
 	// pos 0: LD [arch offset]
@@ -58,6 +63,8 @@ func TestBuildFilter_ArchPrologue(t *testing.T) {
 // seccomp_data.nr is at position 2, immediately after the arch
 // prologue, and before the JEQ chain.
 func TestBuildFilter_SyscallNrLoad(t *testing.T) {
+	t.Parallel()
+
 	prog := buildFilter()
 	require.Equal(t, uint16(unix.BPF_LD|unix.BPF_W|unix.BPF_ABS), prog[2].Code, "prog[2].Code")
 	require.Equal(t, uint32(seccompDataNrOffset), prog[2].K, "prog[2].K")
@@ -67,6 +74,8 @@ func TestBuildFilter_SyscallNrLoad(t *testing.T) {
 // instructions right after LD [nr] must kill x32SyscallBit numbers and
 // the legacy 512–547 range; on arm64 the JEQ chain must start there.
 func TestBuildFilter_X32Check(t *testing.T) {
+	t.Parallel()
+
 	prog := buildFilter()
 	n := len(dangerousSyscalls)
 	inst := prog[3]
@@ -104,6 +113,8 @@ func TestBuildFilter_X32Check(t *testing.T) {
 // against dangerousSyscalls[i] and jumps to DENY on match. The jt
 // offset must be `N - i` so that (3+X+i) + 1 + jt = N+4+X = DENY.
 func TestBuildFilter_JEQChain(t *testing.T) {
+	t.Parallel()
+
 	prog := buildFilter()
 	n := len(dangerousSyscalls)
 	x := x32Insns()
@@ -126,8 +137,11 @@ func TestBuildFilter_JEQChain(t *testing.T) {
 // TestBuildFilter_ReturnInstructions verifies the three RET
 // instructions at the tail of the program. Order matters: RET ALLOW
 // must be the fallthrough target, RET ERRNO(EPERM) must be the DENY
-// target, and RET KILL_PROCESS must be the arch-mismatch target.
+// target, and RET KILL_PROCESS must be the arch-mismatch and x32
+// target.
 func TestBuildFilter_ReturnInstructions(t *testing.T) {
+	t.Parallel()
+
 	prog := buildFilter()
 	n := len(dangerousSyscalls) + x32Insns()
 
@@ -143,6 +157,7 @@ func TestBuildFilter_ReturnInstructions(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
 			inst := prog[c.pos]
 			require.Equal(t, uint16(unix.BPF_RET|unix.BPF_K), inst.Code, "prog[%d].Code", c.pos)
 			require.Equal(t, c.want, inst.K, "prog[%d].K", c.pos)
@@ -155,6 +170,8 @@ func TestBuildFilter_ReturnInstructions(t *testing.T) {
 // instruction, not at DENY or ALLOW. This is the safety fuse that
 // protects against syscall-number confusion on multiarch kernels.
 func TestBuildFilter_ArchMismatchLandsOnKill(t *testing.T) {
+	t.Parallel()
+
 	prog := buildFilter()
 	n := len(dangerousSyscalls)
 
@@ -164,7 +181,7 @@ func TestBuildFilter_ArchMismatchLandsOnKill(t *testing.T) {
 	wantTarget := n + 5 + x32Insns()
 	require.Equal(t, wantTarget, target, "arch mismatch target (KILL)")
 
-	// And KILL at position N+5 must actually be RET KILL_PROCESS.
+	// And KILL at position N+5+X must actually be RET KILL_PROCESS.
 	require.Equal(t, retKill, prog[wantTarget].K, "KILL position K")
 }
 
