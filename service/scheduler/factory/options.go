@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"database/sql"
 	"log/slog"
 
 	"github.com/redis/go-redis/v9"
@@ -40,6 +41,13 @@ func (b *SchedulerBuilder) UseMongoDb(v *mongo.Database) *SchedulerBuilder {
 // UseRedisClient sets the Redis client for Redis storage backends.
 func (b *SchedulerBuilder) UseRedisClient(v redis.UniversalClient) *SchedulerBuilder {
 	b.redisClient = v
+	return b
+}
+
+// UseSQLDB sets the database handle for SQL storage backends. The caller owns
+// it and chooses the driver matching the configured dialect.
+func (b *SchedulerBuilder) UseSQLDB(v *sql.DB) *SchedulerBuilder {
+	b.sqlDB = v
 	return b
 }
 

@@ -9,7 +9,8 @@ tests/integration/
 ├── filterit/              # data/filter: shared corpus + one adapter per backend
 ├── leadelectit/           # data/leadelect: multi-node election against a live broker
 ├── dlockit/               # data/locks/dlock: contended locking against a live broker
-└── outboxit/              # data/outbox: transactional delivery against a live MongoDB
+├── outboxit/              # data/outbox: transactional delivery against a live MongoDB
+└── schedulerit/           # service/scheduler: end-to-end scenarios + storage contracts on Mongo, Redis and SQL
 ```
 
 ## Why a separate module
@@ -222,6 +223,16 @@ probe events until one comes back through the handler, then clears the recording
 
 The third surfaced only because the Docker VM's clock sat ~40 ms behind the host's. That is the ordinary condition on a developer machine, and a
 badly synced production host is off by far more; the store now stamps `published_at` with `$$NOW`, the same clock the sweep compares against.
+
+## schedulerit — the scheduler against live storages
+
+Every scenario (dispatch round trip, at-most-once across instances, crash recovery, leadership gating, failure recording) runs against each
+storage: MongoDB, Redis Stack, PostgreSQL, MariaDB and MySQL. The SQL backends additionally run the storage contract suite from
+[`service/scheduler/storagetest`](../../service/scheduler/storagetest) — each contract over its own throwaway tables — plus the SQL-only
+semantics: non-ASCII `endsWith`/`size()` and history errors larger than 64 KB.
+
+The MySQL service starts with `latin1` as its default character set on purpose: the SQL storage declares its own `utf8mb4` NO PAD collations, and
+the suite proves it never inherits the database defaults.
 
 ## Adding a backend
 

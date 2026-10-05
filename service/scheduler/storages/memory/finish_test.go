@@ -9,8 +9,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/altessa-s/go-atlas/service/scheduler/internal/storagetest"
 	"github.com/altessa-s/go-atlas/service/scheduler/storages/memory"
+	"github.com/altessa-s/go-atlas/service/scheduler/storagetest"
 )
 
 func TestFinishRun(t *testing.T) {

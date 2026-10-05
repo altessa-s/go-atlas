@@ -3,7 +3,8 @@
 // the LICENSE file.
 
 // Package schedulerit exercises service/scheduler end to end against live
-// MongoDB and Redis.
+// MongoDB, Redis, PostgreSQL, MariaDB and MySQL. Besides the scenarios below,
+// every backend runs the storage contract suite from service/scheduler/storagetest.
 //
 // The unit tests for service/scheduler run against the in-memory storage, which
 // serializes every operation behind one mutex and ignores the context it is
