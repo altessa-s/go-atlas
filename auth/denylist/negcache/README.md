@@ -15,6 +15,7 @@ read-path accelerator when that exact store lives across the network.
 
 | Filter result | Action |
 |---------------|--------|
+| not yet populated (no successful rebuild) | consult the `Authoritative` store — an empty filter proves nothing |
 | definitely absent | return `false` locally (fast path) |
 | possibly present | consult the `Authoritative` store for the exact answer |
 | filter error | consult the `Authoritative` store (fail toward exactness) |
@@ -37,16 +38,18 @@ one, because the authoritative store makes the final call.
 | `New(filter, authoritative)` | Construct a cache over a filter and exact store. |
 | `Cache.IsRevoked(ctx, key)` | Lookup: fast-path a definite miss, else defer to the authoritative store. |
 | `Cache.Add(ctx, key)` | Record a locally revoked key in the filter (keeps the superset invariant between rebuilds). |
-| `Cache.Rebuild(ctx, loader)` | Repopulate the filter from the authoritative full key stream; requires a `probfilter.RebuildableFilter`. |
+| `Cache.Rebuild(ctx, loader)` | Repopulate the filter from the authoritative full key stream (atomic); the first success marks the cache populated. Requires a `probfilter.RebuildableFilter` (Bloom or Cuckoo). |
 | `FromChecker(checker)` | Adapt a synchronous [`denylist.Checker`](../README.md) to `Authoritative`, so any Checker (in-process or distributed) can be the exact tier. |
 | `WithMetrics(m)` | Option enabling lookup telemetry via a `*Metrics` (see [Metrics](#metrics)). |
 | `NewMetrics(collector, subsystem)` | Build a `*Metrics` over an [`observability/metrics`](../../../observability/metrics) collector; a nil collector or `*Metrics` is a no-op. |
 
 ## Invariant & staleness
 
-The cache is correct only while the filter contains **every** key the authoritative store considers revoked. Maintain it with `Add` on
-local revocations and a scheduled `Rebuild` from the authoritative source. Between rebuilds a key revoked on another node is fast-pathed as
-not-revoked until the next rebuild — the same propagation window any locally cached revocation set has. Size the rebuild cadence to your
+The cache is correct only while the filter contains **every** key the authoritative store considers revoked. Until the first successful `Rebuild`
+(through the cache, or one the filter reports via `LastRebuild`) the cache answers every lookup from the authoritative store. Rebuilds are atomic:
+lookups use the previous contents while one runs, a failed rebuild keeps them, and `Add` calls made during a rebuild are kept. Maintain the invariant
+with `Add` on local revocations and a scheduled `Rebuild` from the authoritative source. Between rebuilds a key revoked on another node is fast-pathed
+as not-revoked until the next rebuild — the same propagation window any locally cached revocation set has. Size the rebuild cadence to your
 revocation-propagation SLA.
 
 ## Metrics
@@ -56,7 +59,7 @@ Pass `WithMetrics(NewMetrics(collector, ""))` to record one counter, `lookups_to
 | Label | Values |
 |-------|--------|
 | `result` | `fast_negative` (answered locally), `authoritative_hit`, `authoritative_miss`, `authoritative_error` |
-| `filter` | `ok`, `error` (the negative filter errored and the lookup fell back) |
+| `filter` | `ok`, `error` (the negative filter errored and the lookup fell back), `unpopulated` (no successful rebuild yet; filter not consulted) |
 
 The hit rate is `fast_negative / total` — the share of lookups that skipped the authoritative round trip. A rising `filter=error` share flags a
 degraded filter. Metrics are optional: a nil collector or `*Metrics` makes every recording a zero-cost no-op.

@@ -113,9 +113,10 @@ cache := negcache.New(filter, store) // store implements Authoritative
 revoked, err := cache.IsRevoked(ctx, jti) // hot path: skips the network on a definite miss
 ```
 
-Populate the filter with a successful `cache.Rebuild(ctx, store)` **before** serving any `IsRevoked` from the cache — an empty filter
-fast-paths every key, revoked ones included. Then feed it with `cache.Add(ctx, key)` on local revocations and a scheduled `Rebuild`.
-`negcache.FromChecker(checker)` adapts a synchronous `denylist.Checker` to `Authoritative` when the exact tier is itself a `Checker`.
+Until the filter is populated by a successful rebuild — `cache.Rebuild(ctx, store)`, or a rebuild the filter reports through `LastRebuild` — the cache
+does not trust the empty filter and answers every `IsRevoked` from the authoritative store. Then feed it with `cache.Add(ctx, key)` on local revocations
+and a scheduled `Rebuild`. `negcache.FromChecker(checker)` adapts a synchronous `denylist.Checker` to `Authoritative` when the exact tier is itself a
+`Checker`.
 
 ## Correctness and Staleness
 
@@ -124,12 +125,11 @@ invariant two ways: `Add` on each local revocation, and a scheduled `Rebuild` fr
 on another node is fast-pathed as not-revoked until the next rebuild — the same propagation window any locally cached revocation set has.
 Size the rebuild cadence to your revocation-propagation SLA.
 
-`Rebuild` is not atomic: the Bloom filter resets its storage and then re-adds keys one by one, so while it runs (and after it fails midway)
-the filter is missing keys and `IsRevoked` can fast-path a revoked token. A successful `Rebuild` alone does not restore the invariant either:
-with a loader that reports no count (the Redis store), keys are collected first and the filter is reset afterwards, so a `cache.Add` that
-lands between collection and reset is lost. Until the implementation swaps filters atomically, coordinate both sides: route checks to the
-authoritative store while a rebuild runs and after a failed one, and serialize local revocations (the store write plus `cache.Add`) against
-the whole rebuild — or record revocations made during the rebuild and replay them with `Add` before switching reads back to the cache.
+`Rebuild` is atomic: the replacement filter is built off to the side while lookups keep using the previous contents, and it takes over in one step. A
+failed or canceled rebuild leaves the previous contents (and the populated state) in place, and every `cache.Add` made through the same filter while a
+rebuild runs is replayed onto the replacement, so no local revocation is lost. With a filter shared through Redis, `Add`s made by **other** processes
+during the rebuild window are not replayed; they reappear at the next rebuild, like any revocation made on another node. Before the first successful
+rebuild the cache defers every lookup to the authoritative store.
 
 ## Observability
 
@@ -138,7 +138,7 @@ the whole rebuild — or record revocations made during the rebuild and replay t
 | Label    | Values                                                                                          |
 |----------|-------------------------------------------------------------------------------------------------|
 | `result` | `fast_negative` (answered locally), `authoritative_hit`, `authoritative_miss`, `authoritative_error` |
-| `filter` | `ok`, `error` (the filter errored and the lookup fell back to the authoritative store)           |
+| `filter` | `ok`, `error` (the filter errored and the lookup fell back), `unpopulated` (no successful rebuild yet; filter not consulted) |
 
 The hit rate is `fast_negative / total` — the share of lookups that skipped the round trip; a rising `filter=error` share flags a degraded
 filter. A nil collector or `*Metrics` makes every recording a zero-cost no-op. The core `denylist` and the Redis store expose no metrics of
