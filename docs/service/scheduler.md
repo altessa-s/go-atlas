@@ -558,7 +558,8 @@ Fields not listed (`description`, `status`, `priority`, `schedule`, `failures`, 
 
 **Characteristics:**
 - Thread-safe via mongo-driver connection pool
-- Filter expressions translated to BSON for server-side evaluation
+- Filter expressions translated to BSON for server-side evaluation; fields omitted when zero (`description`, `nextRunAt`, `oneShot`, …) are
+  matched as their zero values, so `description == ""` or `oneShot == false` agree with the other backends
 - History pagination uses a compound cursor (`startedAt`, `_id`) for stable ordering
 - `DeleteTask` removes both the task document and all associated history entries
 
