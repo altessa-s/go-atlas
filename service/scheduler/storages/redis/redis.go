@@ -93,13 +93,19 @@ func New(client redis.UniversalClient, opts ...Option) *Storage {
 }
 
 // EnsureIndexes creates the RediSearch indexes required by [Storage] for
-// task and history queries. It is idempotent: if the indexes already exist,
-// no action is taken. Call this method once during application startup
+// task and history queries. It is idempotent: indexes that already exist are
+// left as they are. Call this method once during application startup
 // before invoking any query methods ([Storage.Tasks], [Storage.TasksPaginated],
 // [Storage.History], [Storage.HistoryPaginated], or [Storage.CleanupHistory]).
 //
 // Returns an error if the index creation command fails for a reason other
 // than the index already existing.
+//
+// EnsureIndexes also migrates task documents stored without next_run_at —
+// written before the field was always stored, or by an older binary — by
+// setting it to zero, so DueTasks can find them (see backfillNextRunAt). Run
+// it again after a rolling upgrade to cover documents older instances wrote
+// meanwhile.
 func (s *Storage) EnsureIndexes(ctx context.Context) error {
 	if err := s.ensureTaskIndex(ctx); err != nil {
 		return coreerrs.WrapOperation(err, "ensure task index")
@@ -107,7 +113,100 @@ func (s *Storage) EnsureIndexes(ctx context.Context) error {
 	if err := s.ensureHistoryIndex(ctx); err != nil {
 		return coreerrs.WrapOperation(err, "ensure history index")
 	}
+	if err := s.backfillNextRunAt(ctx); err != nil {
+		return coreerrs.WrapOperation(err, "backfill task next_run_at")
+	}
 	return nil
+}
+
+// indexPollInterval is how often backfillNextRunAt re-checks an index that is
+// still indexing existing documents.
+const indexPollInterval = 50 * time.Millisecond
+
+// missingNextRunQuery matches task documents without an indexed numeric
+// next_run_at.
+const missingNextRunQuery = "-@nextRunAt:[-inf +inf]"
+
+// backfillNextRunAtScript sets $.next_run_at to 0 on KEYS[1] while the key
+// exists and the field is absent or null. Returns 1 when it wrote, 0
+// otherwise.
+const backfillNextRunAtScript = `
+if redis.call('EXISTS', KEYS[1]) == 0 then return 0 end
+local t = redis.call('JSON.TYPE', KEYS[1], '$.next_run_at')
+if #t == 0 or t[1] == 'null' then
+  redis.call('JSON.SET', KEYS[1], '$.next_run_at', '0')
+  return 1
+end
+return 0
+`
+
+// errBackfillStalled reports a backfill round that changed nothing and saw
+// the same matches as the round before, so another round cannot progress.
+var errBackfillStalled = errors.New("next_run_at backfill made no progress")
+
+// backfillNextRunAt stores next_run_at = 0 on every task document that lacks
+// it. RediSearch does not index a missing NUMERIC field, so such a document —
+// a task whose NextRunAt is zero, written while the field was omitted when
+// zero — never matched the DueTasks range although it is due.
+//
+// A freshly created index indexes existing keys in the background, so the
+// search waits for that first. The walk then always re-reads the first page of
+// the remaining matches instead of paging by offset: every document it handles
+// leaves the match set — migrated, deleted, or rewritten by another writer
+// with a numeric next_run_at or with a value RediSearch refuses to index — so a
+// match is never skipped because earlier ones disappeared. A round that
+// writes nothing and sees the same page as the round before ends the walk with
+// errBackfillStalled instead of looping. The revision is not incremented: an
+// absent next_run_at and a zero one are the same state, which every fence
+// already compares equal.
+func (s *Storage) backfillNextRunAt(ctx context.Context) error {
+	idx := s.taskIndexName()
+	for {
+		info, err := s.client.FTInfo(ctx, idx).Result()
+		if err != nil {
+			return err
+		}
+		if info.Indexing == 0 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(indexPollInterval):
+		}
+	}
+
+	byID := []redis.FTSearchSortBy{{FieldName: "id", Asc: true}}
+	var idle []string // the page of the previous round, when it wrote nothing
+	for {
+		page, err := s.client.FTSearchWithArgs(ctx, idx, missingNextRunQuery, &redis.FTSearchOptions{
+			NoContent: true, LimitOffset: 0, Limit: searchPageSize, SortBy: byID,
+		}).Result()
+		if err != nil {
+			return err
+		}
+		if len(page.Docs) == 0 {
+			return nil
+		}
+		ids := make([]string, 0, len(page.Docs))
+		wrote := false
+		for _, doc := range page.Docs {
+			ids = append(ids, doc.ID)
+			n, err := backfillNextRun.Run(ctx, s.client, []string{doc.ID}).Int64()
+			if err != nil {
+				return coreerrs.Wrapf(err, "backfill %q", doc.ID)
+			}
+			wrote = wrote || n == 1
+		}
+		switch {
+		case wrote:
+			idle = nil
+		case slices.Equal(ids, idle):
+			return errBackfillStalled
+		default:
+			idle = ids
+		}
+	}
 }
 
 func (s *Storage) ensureTaskIndex(ctx context.Context) error {
@@ -503,7 +602,9 @@ func (s *Storage) Tasks(ctx context.Context) iter.Seq2[*scheduler.TaskState, err
 // now: status active and nextRunAt at or before now, sorted by ID ascending.
 // Both fields are indexed as RediSearch numerics, so the predicate is evaluated
 // server-side and a tick transfers only the due documents instead of the whole
-// task index.
+// task index. A zero NextRunAt is due too: it is stored explicitly, and
+// [Storage.EnsureIndexes] backfills documents written without it, because the
+// range never matches a field RediSearch did not index.
 func (s *Storage) DueTasks(ctx context.Context, now int64) iter.Seq2[*scheduler.TaskState, error] {
 	return func(yield func(*scheduler.TaskState, error) bool) {
 		active := int(scheduler.TaskStatusActive)
@@ -850,12 +951,13 @@ var _ scheduler.Storage = (*Storage)(nil)
 // to EVAL (which also loads the script) when the server answers NOSCRIPT, so
 // the script body is not resent on every call.
 var (
-	upsertTask    = redis.NewScript(upsertTaskScript)
-	createTask    = redis.NewScript(createTaskScript)
-	replaceTaskIf = redis.NewScript(replaceTaskIfScript)
-	claimRun      = redis.NewScript(claimRunScript)
-	finishRun     = redis.NewScript(finishRunScript)
-	renewRun      = redis.NewScript(renewRunScript)
+	upsertTask      = redis.NewScript(upsertTaskScript)
+	createTask      = redis.NewScript(createTaskScript)
+	replaceTaskIf   = redis.NewScript(replaceTaskIfScript)
+	claimRun        = redis.NewScript(claimRunScript)
+	finishRun       = redis.NewScript(finishRunScript)
+	renewRun        = redis.NewScript(renewRunScript)
+	backfillNextRun = redis.NewScript(backfillNextRunAtScript)
 )
 
 // ownedRunLua is the script prefix shared by finishRunScript and

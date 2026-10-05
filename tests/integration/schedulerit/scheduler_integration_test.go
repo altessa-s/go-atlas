@@ -242,3 +242,47 @@ func TestFailedRunIsRecorded(t *testing.T) {
 		})
 	}
 }
+
+// TestZeroNextRunRunsOnce covers an active task stored with a zero NextRunAt —
+// written through the Storage API or left by older data — that is then
+// registered with the same schedule, which keeps the stored NextRunAt. It is
+// due (0 <= now), so it must be claimed and run, and the finished run must
+// store a real next occurrence instead of leaving it due on every tick.
+//
+// MongoDB and Redis store a zero NextRunAt as an absent field, which their due
+// queries used to miss: the task silently never ran there, while it ran on
+// the other backends.
+func TestZeroNextRunRunsOnce(t *testing.T) {
+	t.Parallel()
+
+	for _, b := range backends() {
+		t.Run(b.name, func(t *testing.T) {
+			t.Parallel()
+
+			storage := b.storage(t)
+			ctx := t.Context()
+
+			const taskID = "zero-next-run"
+			require.NoError(t, storage.UpsertTask(ctx, &scheduler.TaskState{TaskSummary: scheduler.TaskSummary{
+				ID: taskID, Status: scheduler.TaskStatusActive, Schedule: "@every 1h",
+			}}))
+
+			s := startScheduler(t, storage)
+			var runs atomic.Int32
+			task := countingTask(taskID, &runs)
+			task.RunOnStart = false
+			require.NoError(t, s.Register(ctx, task))
+
+			require.Eventually(t, func() bool { return runs.Load() >= 1 },
+				settleWindow, samplingInterval, "an active task with a zero NextRunAt never ran")
+			require.Never(t, func() bool { return runs.Load() > 1 },
+				quietWindow, samplingInterval, "the task ran again: its finished run left it due")
+
+			st, err := storage.GetTask(ctx, taskID)
+			require.NoError(t, err)
+			require.Equal(t, scheduler.TaskStatusActive, st.Status)
+			require.Zero(t, st.RunStartedAt)
+			require.Greater(t, st.NextRunAt, time.Now().Unix(), "the finished run must schedule the next occurrence")
+		})
+	}
+}
