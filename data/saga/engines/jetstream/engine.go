@@ -24,6 +24,7 @@ import (
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/core/types/nilcheck"
 	"github.com/altessa-s/go-atlas/data/saga"
+	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	coreretry "github.com/altessa-s/go-atlas/core/retry"
@@ -100,9 +101,10 @@ type Engine[T any] struct {
 
 	// fetchRetryDelay paces fetches after a transient fetch error.
 	fetchRetryDelay time.Duration
-	// maxBatch and fetchWindow honor the consumer's pull-request limits
-	// (MaxRequestBatch, MaxRequestExpires); maxBatch 0 means unlimited.
-	maxBatch    int
+	// fetchBatch and fetchWindow honor the consumer's pull-request limits
+	// (MaxRequestBatch, MaxRequestExpires); fetchBatch never exceeds
+	// concurrency.
+	fetchBatch  int
 	fetchWindow time.Duration
 
 	serializer serializer.Serializer
@@ -246,7 +248,10 @@ func (e *Engine[T]) adoptLimits(cfg jetstream.ConsumerConfig) {
 		}
 	}
 	e.heartbeat = max(deadline/heartbeatDivisor, minHeartbeat)
-	e.maxBatch = cfg.MaxRequestBatch
+	e.fetchBatch = e.concurrency
+	if cfg.MaxRequestBatch > 0 {
+		e.fetchBatch = min(e.fetchBatch, cfg.MaxRequestBatch)
+	}
 	e.fetchWindow = fetchWait
 	if cfg.MaxRequestExpires > 0 {
 		e.fetchWindow = min(fetchWait, cfg.MaxRequestExpires)
@@ -288,9 +293,12 @@ func (e *Engine[T]) Submit(ctx context.Context, id string, data T) error {
 // always starts at once and is kept alive by heartbeats. If consumption ends
 // while ctx is still live, Run cancels and joins in-flight work and returns an
 // error wrapping [ErrConsumeStopped]; the caller may call Run again. A closed
-// connection is noticed immediately. A deleted consumer is noticed on the next
-// fetch: executions already running are not aborted because the queue went
-// away — they finish and persist their outcome, and only their acks fail.
+// connection is noticed immediately. A deleted consumer is noticed by a pending
+// fetch or by the existence check after an empty fetch; Run then cancels and
+// joins in-flight executions like on any unexpected stop, leaving their
+// instances non-terminal for a redelivery or the recovery cycle to resume.
+// While every slot is busy no fetch is pending, so the deletion is noticed
+// only once a slot frees.
 func (e *Engine[T]) Run(ctx context.Context) error {
 	if !e.running.CompareAndSwap(false, true) {
 		return ErrAlreadyRunning
@@ -344,11 +352,7 @@ func (e *Engine[T]) consume(ctx context.Context, sem chan struct{}, wg *sync.Wai
 		case <-ctx.Done():
 			return nil
 		}
-		limit := e.concurrency
-		if e.maxBatch > 0 {
-			limit = min(limit, e.maxBatch)
-		}
-		reserved := 1 + reserveFree(sem, limit-1)
+		reserved := 1 + reserveFree(sem, e.fetchBatch-1)
 
 		started, err := e.fetch(ctx, reserved, sem, wg)
 		for range reserved - started {
@@ -441,8 +445,7 @@ func (e *Engine[T]) execute(ctx context.Context, msg jetstream.Msg) {
 	// too; the command comes back after the usual redelivery delay.
 	defer panics.HandleWithOpts(ctx, noRepanic, func(_ context.Context, r any) {
 		e.logger.Error("saga engine: execution panicked", slog.String("subject", msg.Subject()), slog.Any("panic", r))
-		delay := e.redeliveryDelay(msg)
-		e.settle(msg, func() error { return msg.NakWithDelay(delay) }, "nak")
+		e.nak(msg, e.redeliveryDelay(msg))
 	})
 	// Heartbeats cover decoding too: a slow serializer must not let the
 	// command be redelivered to another engine meanwhile.
@@ -452,7 +455,7 @@ func (e *Engine[T]) execute(ctx context.Context, msg jetstream.Msg) {
 	cmd, err := decodeCommand(msg.Data())
 	if err != nil {
 		e.logger.Error("saga engine: terminating undecodable command", slog.String("subject", msg.Subject()), slog.Any("error", err))
-		e.settle(msg, msg.Term, "term")
+		e.settle(msg, msg.Term, e.metrics.terminated, "term")
 		return
 	}
 	// Always decode, even zero bytes: the serializer decides what an empty
@@ -460,7 +463,7 @@ func (e *Engine[T]) execute(ctx context.Context, msg jetstream.Msg) {
 	var data T
 	if decodeErr := e.serializer.Deserialize(cmd.Data, &data); decodeErr != nil {
 		e.logger.Error("saga engine: terminating command with undecodable data", slog.String("id", cmd.ID), slog.Any("error", decodeErr))
-		e.settle(msg, msg.Term, "term")
+		e.settle(msg, msg.Term, e.metrics.terminated, "term")
 		return
 	}
 
@@ -470,43 +473,41 @@ func (e *Engine[T]) execute(ctx context.Context, msg jetstream.Msg) {
 	inst, err := e.orch.Start(ctx, cmd.ID, data)
 	switch {
 	case inst != nil && inst.Status.IsTerminal():
-		e.settle(msg, msg.Ack, "ack")
+		e.settle(msg, msg.Ack, e.metrics.acked, "ack")
 	case errors.Is(err, sagaerrs.ErrDefinitionNotFound), errors.Is(err, jetstream.ErrInvalidKey):
 		// The ID belongs to another definition, or the NATS KV store cannot
 		// hold it as a key: retrying can never succeed.
 		e.logger.Error("saga engine: terminating command the store cannot run", slog.String("id", cmd.ID), slog.Any("error", err))
-		e.settle(msg, msg.Term, "term")
+		e.settle(msg, msg.Term, e.metrics.terminated, "term")
 	case ctx.Err() != nil:
 		// Shutdown: hand the command to another engine, but only once this
 		// engine's abandoned pull request has expired on the server; an
 		// immediate Nak could be redelivered into that dead request and sit
 		// there until AckWait.
-		e.settle(msg, func() error { return msg.NakWithDelay(e.fetchWindow) }, "nak")
+		e.nak(msg, e.fetchWindow)
 	default:
 		delay := e.redeliveryDelay(msg)
 		e.logger.Warn("saga engine: execution interrupted; redelivering",
 			slog.String("id", cmd.ID), slog.Duration("delay", delay), slog.Any("error", err))
-		e.settle(msg, func() error { return msg.NakWithDelay(delay) }, "nak")
+		e.nak(msg, delay)
 	}
 }
 
-// settle applies one acknowledgement and records its outcome. A failed
-// acknowledgement only delays the command: the server redelivers it after
-// AckWait.
-func (e *Engine[T]) settle(msg jetstream.Msg, ack func() error, kind string) {
+// settle applies one acknowledgement and counts it in done on success. A
+// failed acknowledgement only delays the command: the server redelivers it
+// after AckWait.
+func (e *Engine[T]) settle(msg jetstream.Msg, ack func() error, done metrics.Counter, kind string) {
 	if err := ack(); err != nil {
 		e.metrics.ackErrors.Inc()
 		e.logger.Warn("saga engine: acknowledgement failed", slog.String("kind", kind), slog.String("subject", msg.Subject()), slog.Any("error", err))
 		return
 	}
-	switch kind {
-	case "ack":
-		e.metrics.acked.Inc()
-	case "nak":
-		e.metrics.naked.Inc()
-	case "term":
-		e.metrics.terminated.Inc()
-	}
+	done.Inc()
+}
+
+// nak returns msg for redelivery after delay.
+func (e *Engine[T]) nak(msg jetstream.Msg, delay time.Duration) {
+	e.settle(msg, func() error { return msg.NakWithDelay(delay) }, e.metrics.naked, "nak")
 }
 
 // keepAlive sends in-progress heartbeats until the returned stop is called, so
