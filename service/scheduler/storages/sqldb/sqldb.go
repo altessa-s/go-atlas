@@ -119,28 +119,26 @@ func (s *Storage) buildStatements() statements {
 	t, h, b := s.tasksTable, s.historyTable, s.dialect.bind
 	values := "?" + strings.Repeat(", ?", strings.Count(taskColumns, ",")-1) + ", 1"
 
+	// assign renders "c = <value of c>" for every mutable column, joined.
+	mutable := mutableTaskColumns()
+	assign := func(value func(col string) string) string {
+		set := make([]string, len(mutable))
+		for i, c := range mutable {
+			set[i] = c + " = " + value(c)
+		}
+		return strings.Join(set, ", ")
+	}
+
 	var upsert string
 	switch s.dialect.name {
 	case DialectPostgres:
-		set := make([]string, 0, 16) //nolint:mnd // one per mutable column
-		for _, c := range mutableTaskColumns() {
-			set = append(set, c+" = EXCLUDED."+c)
-		}
 		upsert = "INSERT INTO " + t + " AS cur (" + taskColumns + ") VALUES (" + values + ") ON CONFLICT (id) DO UPDATE SET " +
-			strings.Join(set, ", ") + ", revision = cur.revision + 1"
+			assign(func(c string) string { return "EXCLUDED." + c }) + ", revision = cur.revision + 1"
 	case DialectMySQL:
-		set := make([]string, 0, 16) //nolint:mnd // one per mutable column
-		for _, c := range mutableTaskColumns() {
-			set = append(set, c+" = VALUES("+c+")")
-		}
 		upsert = "INSERT INTO " + t + " (" + taskColumns + ") VALUES (" + values + ") ON DUPLICATE KEY UPDATE " +
-			strings.Join(set, ", ") + ", revision = revision + 1"
+			assign(func(c string) string { return "VALUES(" + c + ")" }) + ", revision = revision + 1"
 	}
-
-	replaceSet := make([]string, 0, 16) //nolint:mnd // one per mutable column
-	for _, c := range mutableTaskColumns() {
-		replaceSet = append(replaceSet, c+" = ?")
-	}
+	replaceSet := assign(func(string) string { return "?" })
 
 	// Status constants are inlined in FinishRun: a bare parameter as a CASE
 	// result has no type PostgreSQL can infer.
@@ -152,7 +150,7 @@ func (s *Storage) buildStatements() statements {
 	return statements{
 		getTask:    b("SELECT "+taskColumns+" FROM "+t+" WHERE id = ?", 1),
 		upsertTask: b(upsert, 1),
-		replaceTask: b("UPDATE "+t+" SET "+strings.Join(replaceSet, ", ")+", revision = ?"+
+		replaceTask: b("UPDATE "+t+" SET "+replaceSet+", revision = ?"+
 			" WHERE id = ? AND status = ? AND next_run_at = ? AND last_run_id = ? AND run_started_at = ? AND revision = ?", 1),
 		claim:    b("UPDATE "+t+claimSet+" AND next_run_at = ?", 1),
 		claimAny: b("UPDATE "+t+claimSet, 1),
@@ -399,8 +397,8 @@ func checkTask(state *scheduler.TaskState) error {
 // characters.
 func checkLength(limit int, values ...string) error {
 	for _, v := range values {
-		if utf8.RuneCountInString(v) > limit {
-			return fmt.Errorf("%w: %d characters, limit %d", ErrValueTooLong, utf8.RuneCountInString(v), limit)
+		if n := utf8.RuneCountInString(v); n > limit {
+			return fmt.Errorf("%w: %d characters, limit %d", ErrValueTooLong, n, limit)
 		}
 	}
 	return nil
