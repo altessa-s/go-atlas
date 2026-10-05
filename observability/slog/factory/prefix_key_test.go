@@ -10,8 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/config"
-	slogx "github.com/altessa-s/go-atlas/observability/slog"
 	"github.com/altessa-s/go-atlas/observability/slog/factory"
+
+	slogx "github.com/altessa-s/go-atlas/observability/slog"
 )
 
 func TestModuleKey_MatchesSlogx(t *testing.T) {
