@@ -17,7 +17,6 @@ import (
 
 	corehash "github.com/altessa-s/go-atlas/core/encoding/hash"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
-	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	probfilterfactory "github.com/altessa-s/go-atlas/data/probfilter/factory"
 	proxyfactory "github.com/altessa-s/go-atlas/transport/proxydial/factory"
 )
@@ -30,7 +29,6 @@ type ProviderBuilder struct {
 	errs []error
 
 	// Dependencies (set via Use*).
-	scheduler               corescheduler.TaskRegistrar
 	redisClient             redis.UniversalClient
 	tokenCache              oidc.Cacher
 	revocationStorage       oidc.RevocationStorage
@@ -117,7 +115,7 @@ func (b *ProviderBuilder) buildProviderOptions(ctx context.Context) ([]oidc.Opti
 	}
 	opts = slices.AppendIf(opts, len(proxyOpts) > 0, oidc.WithHTTPClientOptions(proxyOpts...))
 
-	opts = append(opts, b.buildSchedulerOptions()...)
+	opts = append(opts, b.buildRefreshOptions()...)
 
 	return opts, nil
 }
@@ -231,14 +229,11 @@ func revocationFilterName(cfg *config.OIDC) string {
 	return corehash.SHA256HexWithPrefix("oidc-revocation-", domain)[:len("oidc-revocation-")+16]
 }
 
-// buildSchedulerOptions builds scheduler-related options if a scheduler is available.
-func (b *ProviderBuilder) buildSchedulerOptions() []oidc.Option {
-	if b.scheduler == nil {
-		return nil
-	}
-
+// buildRefreshOptions maps the JWKS refresh and revocation sync schedules
+// onto the provider's own, process-local refresh cron.
+func (b *ProviderBuilder) buildRefreshOptions() []oidc.Option {
 	cfg := b.cfg
-	opts := []oidc.Option{oidc.WithScheduler(b.scheduler)}
+	var opts []oidc.Option
 
 	opts = slices.AppendIfFunc(opts,
 		cfg.IsJWKSConfigured() && cfg.JWKS.RefreshEnabled && cfg.JWKS.RefreshSchedule != "",

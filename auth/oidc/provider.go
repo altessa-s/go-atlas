@@ -22,13 +22,16 @@ import (
 	"github.com/MicahParks/jwkset"
 	"github.com/MicahParks/keyfunc/v3"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/robfig/cron/v3"
 
+	"github.com/altessa-s/go-atlas/data/probfilter"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	authjwt "github.com/altessa-s/go-atlas/auth/jwt"
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corectx "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreretry "github.com/altessa-s/go-atlas/core/retry"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
@@ -131,9 +134,11 @@ type Provider struct {
 	verifierOptions  *verifierOptions
 	celCompiledRules []celPreCompiledValidationRule // Compiled CEL rules from verifierOptions.celRules
 
-	// Scheduler configuration
-	scheduler       corescheduler.TaskRegistrar
-	jwksRefreshTask corescheduler.ManagedTask // Guards RefreshJWKS and marks scheduler management.
+	// jwksRefreshTask makes concurrent RefreshJWKS calls collapse into one.
+	jwksRefreshTask corescheduler.ManagedTask
+	// refreshCron runs the periodic JWKS refresh and revocation sync; nil
+	// when no schedule is configured.
+	refreshCron *cron.Cron
 
 	// lastJWKSRefreshUnixNanos records when the locally cached JWKS was
 	// last fully refreshed by the provider. It is read by
@@ -204,7 +209,6 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 		revocationFilter:  o.revocationFilter,
 		revocationLoader:  o.revocationLoader,
 		verifierOptions:   o.verifierOptions,
-		scheduler:         o.scheduler,
 		metrics:           newOIDCMetrics(o.collector),
 	}
 
@@ -250,8 +254,8 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 
 	// Every failure from here on must release what construction acquired:
 	// the background context (JWKS storage, keyfunc) and the HTTP client's
-	// idle connections. Tasks already handed to the scheduler cannot be
-	// unregistered; they observe the canceled context and no-op.
+	// idle connections. The refresh cron is started only once construction
+	// has succeeded, so a failed construction never leaves it running.
 	constructed := false
 	defer func() {
 		if !constructed {
@@ -284,9 +288,11 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 		return nil, err
 	}
 
-	// Register background tasks with scheduler if provided
-	if err = p.registerSchedulerTasks(o); err != nil { //nolint:contextcheck // registration uses background context internally
-		return nil, coreerrs.WrapOperation(err, "register scheduler tasks")
+	// Prepare the provider-owned refresh cron (JWKS refresh, revocation sync).
+	if jobs := p.refreshJobs(o); len(jobs) > 0 {
+		if p.refreshCron, err = p.newRefreshCron(jobs); err != nil {
+			return nil, err
+		}
 	}
 
 	// Register with health coordinator if provided
@@ -295,6 +301,9 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 	}
 
 	constructed = true
+	if p.refreshCron != nil {
+		p.refreshCron.Start()
+	}
 	return p, nil
 }
 
@@ -595,6 +604,14 @@ func (p *Provider) checkLocalRevocation(ctx context.Context, token string, claim
 	return nil
 }
 
+// Backoff bounds for retrying the initial revocation sync while a shared
+// filter is busy (see initialRevocationSync).
+const (
+	initialSyncRetryBaseDelay = 250 * time.Millisecond
+	initialSyncRetryMaxDelay  = 5 * time.Second
+	initialSyncRetryJitter    = 0.2
+)
+
 // initialRevocationSync populates the revocation storage once at
 // construction so the provider never serves with an empty filter while
 // waiting for the first scheduled sync. Failure follows the revocation fail
@@ -603,9 +620,36 @@ func (p *Provider) initialRevocationSync(ctx context.Context) error {
 	if p.revocationStorage == nil {
 		return nil
 	}
-	err := p.revocationStorage.Sync(ctx)
+	// Only a sync this provider completed itself proves the filter holds the
+	// current source. While another replica rebuilds the shared filter
+	// (ErrRebuildInProgress) or this rebuild lost its lease
+	// (ErrRebuildSuperseded) the sync is retried with backoff, bounded by
+	// WithRevocationInitialSyncWait; a peer that publishes releases the lease
+	// and the retry then rebuilds and publishes again, and a peer that fails
+	// or vanishes is replaced by the retry. Any other error, or running out of
+	// time, is a failed initial sync.
+	// The budget bounds only the waiting between attempts: each attempt gets
+	// the caller's context, so a long rebuild of our own is never cut off.
+	waitCtx, cancel := context.WithTimeout(ctx, p.opts.revocationInitialSyncWait)
+	defer cancel()
+	var lastErr error
+	err := coreretry.Do(waitCtx, func(context.Context) error {
+		lastErr = p.revocationStorage.Sync(ctx)
+		return lastErr
+	},
+		coreretry.WithMaxAttempts(-1),
+		coreretry.WithShouldRetry(func(err error) bool {
+			return errors.Is(err, probfilter.ErrRebuildInProgress) || errors.Is(err, probfilter.ErrRebuildSuperseded)
+		}),
+		coreretry.WithNextDelay(coreretry.Exponential(coreretry.ExponentialConfig{
+			BaseDelay: initialSyncRetryBaseDelay, MaxDelay: initialSyncRetryMaxDelay, Jitter: initialSyncRetryJitter,
+		})),
+	)
 	if err == nil {
 		return nil
+	}
+	if lastErr != nil && !errors.Is(err, lastErr) {
+		err = errors.Join(lastErr, err) // budget exhausted while the filter stayed busy
 	}
 	p.metrics.revocationCheckErrors.Inc()
 	if p.opts.revocationFailOpen {
@@ -802,7 +846,7 @@ func (p *Provider) initializeJWKS() error {
 	}
 
 	// Create JWKS storage from HTTP endpoint. Internal refresh interval is NOT set
-	// to allow external management via RefreshJWKS and a scheduler.
+	// to allow management via RefreshJWKS and the provider's refresh cron.
 	storage, err := jwkset.NewStorageFromHTTP(p.discoveryInfo.JwksURL, storageOptions)
 	if err != nil {
 		return coreerrs.WrapOperation(err, "initialize JWKS storage")

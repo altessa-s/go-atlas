@@ -263,8 +263,7 @@ func (c *Coordinator) RegisterService(name string, checker Checker)
 ## What's provided
 
 - A core `Provider`: discovery, JWKS validation, claims and CEL-based rules, presets, revocation, introspection.
-- A YAML-driven builder that constructs the `Provider` from the `auth.oidc` config block and wires logger, scheduler, token cache, and revocation
-  backend.
+- A YAML-driven builder that constructs the `Provider` from the `auth.oidc` config block and wires logger, token cache, and revocation backend.
 - A gRPC adapter (`AuthFunc` + `Claims` struct) and a default validator for use with gRPC interceptors.
 
 ## Quick Start
@@ -274,7 +273,6 @@ func (c *Coordinator) RegisterService(name string, checker Checker)
 ```go
 provider, err := oidcfactory.New(cfg.Auth.OIDC).
     UseLogger(logger).
-    UseScheduler(scheduler).
     UseTokenCache(redisCache).
     Build(ctx)
 if err != nil {
@@ -612,11 +610,12 @@ oidc:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `refreshEnabled` | `bool` | `true` | Enable proactive JWKS refresh via scheduler |
+| `refreshEnabled` | `bool` | `true` | Enable proactive JWKS refresh on the provider's own process-local cron |
 | `refreshSchedule` | `string` | `"0 0 * * * *"` | Cron expression (6-field with seconds) |
 | `httpTimeout` | `duration` | `30s` | HTTP timeout for JWKS endpoint requests |
 
-Without a scheduler, JWKS keys are loaded once at construction; refresh them with `provider.RefreshJWKS(ctx)`.
+Each provider runs the refresh on its own process-local cron, so every replica keeps its own key set fresh. With `refreshEnabled: false`
+(or no schedule) JWKS keys are loaded once at construction; refresh them with `provider.RefreshJWKS(ctx)`.
 
 #### Staleness check (Go-only)
 
@@ -700,7 +699,7 @@ oidc:
 Whenever the `revocation` block is present — even with `enabled: false` — `filter` and `source` are both required (validation fails
 otherwise); set either `source.url` or `source.file`.
 
-The provider syncs the filter from `source` once while it is constructed, then on `syncSchedule` when a scheduler is injected. A
+The provider syncs the filter from `source` once while it is constructed, then on `syncSchedule` on its own process-local cron. A
 `source.url` is fetched through the provider's shared HTTP client (proxy, retry, connection pool). With `failOpen: false` (the default) a
 failed initial sync fails provider construction, and a storage error during validation rejects the token with `ErrRevocationCheck`;
 `failOpen: true` logs both, increments `auth_oidc_revocation_check_errors_total`, and continues.
@@ -1057,7 +1056,6 @@ if err != nil {
 ```go
 provider, err := oidcfactory.New(cfg.Auth.OIDC).
     UseLogger(logger).
-    UseScheduler(scheduler).       // for JWKS refresh + revocation sync
     UseTokenCache(redisCache).     // for token validation caching
     UseRedisClient(redisClient).   // for revocation filter (auto-created)
     Build(ctx)
@@ -1067,7 +1065,6 @@ provider, err := oidcfactory.New(cfg.Auth.OIDC).
 |--------|----------|-------------|
 | `UseLogger(*slog.Logger)` | No | Sets structured logger. Default: discard |
 | `UseDefaultLogger()` | No | Uses `slog.Default()` |
-| `UseScheduler(TaskRegistrar)` | No | Enables scheduled JWKS refresh and revocation sync |
 | `UseTokenCache(Cacher)` | No | Enables token validation caching (requires `cache.enabled: true` in config) |
 | `UseRedisClient(redis.UniversalClient)` | No | Required when revocation is enabled (creates probabilistic filter automatically) |
 | `UseRevocationStorage(RevocationStorage)` | No | Custom revocation storage (bypasses auto-creation from config) |
@@ -1084,7 +1081,7 @@ All `Use*` methods return `*ProviderBuilder` for chaining. Errors accumulate and
 | `cache` | `WithTokenCache` + key prefixes | `cache.enabled` + cache injected |
 | `clientCredentials` + `introspection` | `WithIntrospection` | `introspection.enabled` + `clientCredentials` configured |
 | `revocation` | `WithRevocationStorage` + `WithRevocationItemType` (+ `WithRevocationFailOpen` when `failOpen`) | `revocation.enabled` |
-| scheduler | `WithScheduler` + schedules | scheduler injected + relevant config |
+| `jwks.refreshSchedule`, `revocation.syncSchedule` | `WithJWKSRefreshSchedule`, `WithRevocationSyncSchedule` | `refreshEnabled` / `syncEnabled` (sync also needs a revocation storage) |
 
 ### Combined: YAML + Service Config
 
@@ -1255,10 +1252,18 @@ result to `WithRevocationStorage` when you need the storage outside the provider
 
 `NewProvider` syncs the storage once before returning (`RevocationStorage.Sync`), so the provider never serves with an empty filter; the
 loader receives the provider's shared HTTP client, also when the storage was built with `NewFilterRevocationStorage` and passed via
-`WithRevocationStorage`. Later syncs run only when both a scheduler (`WithScheduler`) and a sync schedule (`WithRevocationSyncSchedule`)
-are supplied. A failed initial sync fails construction with `ErrRevocationCheck` unless `WithRevocationFailOpen()` is set, in which case it
-is logged and counted and the provider starts with whatever the storage holds. A custom filter that does not implement `Rebuild`
-combined with a loader therefore fails construction (`ErrFilterNotRebuildable`) instead of running with a filter that never fills.
+`WithRevocationStorage`. Later syncs run on the provider's own cron when a sync schedule (`WithRevocationSyncSchedule`) is set. A failed
+initial sync fails construction with `ErrRevocationCheck` unless `WithRevocationFailOpen()` is set, in which case it is logged and counted
+and the provider starts with whatever the storage holds. A custom filter that does not implement `Rebuild` combined with a loader
+therefore fails construction (`ErrFilterNotRebuildable`) instead of running with a filter that never fills.
+
+For a filter shared through Redis, replicas serialize their rebuilds with a lease (see
+[probfilter rebuild guarantees](../data/probfilter.md#rebuild-guarantees)). The initial sync counts as done only when this provider
+completes a sync itself: while another replica rebuilds (`probfilter.ErrRebuildInProgress`) or this rebuild lost its lease before
+publishing (`probfilter.ErrRebuildSuperseded`), `NewProvider` retries with backoff for up to `WithRevocationInitialSyncWait` (default 2m)
+before the fail mode applies — a peer that publishes releases the lease, and a peer that fails or vanishes is replaced by the retry. A
+scheduled sync that finds a peer rebuilding is skipped silently (that rebuild publishes a fresh snapshot); a superseded scheduled sync is
+logged and counted in `auth_oidc_revocation_check_errors_total`, while the filter keeps its previous contents.
 
 `WithRevocationAuthoritative` only confirms filter **hits**; it does not protect against keys missing from the filter. Every `Sync` — the one
 at construction and every scheduled one — rebuilds the filter atomically (see
@@ -1390,15 +1395,17 @@ Only `token_validations_total` and `validation_errors_total` carry the `issuer` 
 
 ## Scheduled Background Tasks
 
-When a scheduler is provided, the provider registers automatic tasks:
+Each provider runs its periodic work on its own process-local cron (six-field cron expressions with seconds, or descriptors such as
+`@every 5m`), so every replica refreshes its own JWKS cache and revocation filter and two providers in one process never interfere:
 
 ```go
-oidc.WithScheduler(scheduler),
 oidc.WithJWKSRefreshSchedule("0 */5 * * * *"),       // every 5 min
 oidc.WithRevocationSyncSchedule("*/30 * * * * *"),    // every 30s
 ```
 
-Without a scheduler, the keys are loaded once at construction; call `provider.RefreshJWKS(ctx)` to refresh them.
+Overlapping ticks of a job are skipped, an invalid expression fails `NewProvider`, failures are logged and counted
+(`auth_oidc_jwks_refresh_errors_total`, `auth_oidc_revocation_check_errors_total`), and `Close` stops the cron and waits for a running
+job. Without a JWKS schedule, the keys are loaded once at construction; call `provider.RefreshJWKS(ctx)` to refresh them.
 
 ---
 

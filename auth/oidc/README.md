@@ -35,9 +35,9 @@ validation, token introspection (RFC 7662), validation presets with matchers (na
 | `WithRevocationStorage`         | nil                | Storage backend for token revocation checks            |
 | `WithRevocationAuthoritative`   | nil                | Exact store confirming filter hits (see Revocation accuracy) |
 | `WithRevocationFailOpen`        | fail-closed        | Accept tokens on storage errors and start on a failed initial sync |
-| `WithScheduler`                 | nil                | Task registrar for background JWKS refresh             |
-| `WithJWKSRefreshSchedule`       | --                 | Cron expression for periodic JWKS key rotation         |
-| `WithRevocationSyncSchedule`    | --                 | Cron expression for revocation list synchronization    |
+| `WithRevocationInitialSyncWait` | 2m                 | How long the initial sync retries while a shared filter is busy |
+| `WithJWKSRefreshSchedule`       | --                 | Local cron schedule for JWKS refresh                   |
+| `WithRevocationSyncSchedule`    | --                 | Local cron schedule for revocation sync                |
 | `WithServiceConfigPath`         | --                 | Path to JSON service configuration file                |
 | `WithLogger`                    | discard            | Structured logger (`*slog.Logger`)                     |
 

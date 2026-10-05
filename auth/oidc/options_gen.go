@@ -12,7 +12,6 @@ import (
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
-	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
 
@@ -139,6 +138,16 @@ func WithRevocationFilter(v Filter) Option {
 	}
 }
 
+// WithRevocationInitialSyncWait sets the revocationInitialSyncWait option.
+func WithRevocationInitialSyncWait(v time.Duration) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.revocationInitialSyncWait = v
+	}
+}
+
 // WithRevocationItemType sets the revocationItemType option.
 func WithRevocationItemType[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
@@ -199,16 +208,6 @@ func WithRevokedTokensCacheKeyPrefix[T interface{ string | *string }](v T) Optio
 			}
 			o.revokedTokensCacheKeyPrefix = vv
 		}
-	}
-}
-
-// WithScheduler sets the scheduler option.
-func WithScheduler(v corescheduler.TaskRegistrar) Option {
-	return func(o *options) {
-		if nilcheck.IsNil(v) {
-			return
-		}
-		o.scheduler = v
 	}
 }
 
@@ -275,6 +274,7 @@ func defaultOptions() *options {
 		jwksFailureMode:             DefaultJWKSFailureMode,
 		jwksHTTPTimeout:             DefaultJWKSHTTPTimeout,
 		logger:                      slog.New(slog.DiscardHandler),
+		revocationInitialSyncWait:   DefaultRevocationInitialSyncWait,
 		revocationItemType:          DefaultRevocationItemType,
 		revokedTokensCacheKeyPrefix: DefaultRevokedTokensCacheKeyPrefix,
 		tokensCacheKeyPrefix:        DefaultTokensCacheKeyPrefix,

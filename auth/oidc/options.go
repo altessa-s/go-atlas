@@ -14,7 +14,6 @@ import (
 	"github.com/altessa-s/go-atlas/observability/health"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
-	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
 
@@ -24,6 +23,12 @@ const (
 
 	// DefaultRevocationItemType is the default type of items stored in revocation storage.
 	DefaultRevocationItemType = "token"
+
+	// DefaultRevocationInitialSyncWait bounds how long NewProvider keeps
+	// retrying its initial revocation sync while a shared filter is being
+	// rebuilt by another replica (or this rebuild lost its lease) before the
+	// configured fail mode applies.
+	DefaultRevocationInitialSyncWait = 2 * time.Minute
 
 	// DefaultJWKSMaxStaleness is the default maximum age allowed for the
 	// locally cached JWKS before validation reacts per the configured
@@ -185,16 +190,18 @@ type options struct {
 	// revocation sync fails. The default (false) is fail-closed: such a token
 	// is rejected with ErrRevocationCheck and construction fails.
 	revocationFailOpen bool
+	// revocationInitialSyncWait bounds the initial-sync retries — see
+	// DefaultRevocationInitialSyncWait.
+	revocationInitialSyncWait time.Duration `optgen:"default=DefaultRevocationInitialSyncWait"`
 
 	// Health check configuration
 	healthCoordinator *health.Coordinator
 
-	// Scheduler configuration
-	scheduler              corescheduler.TaskRegistrar `optgen:"notnil"`
-	jwksRefreshEnabled     bool                        `opt:"-"`
-	jwksRefreshSchedule    string                      `opt:"-"`
-	revocationSyncEnabled  bool                        `opt:"-"`
-	revocationSyncSchedule string                      `opt:"-"`
+	// Provider-local refresh cron configuration
+	jwksRefreshEnabled     bool   `opt:"-"`
+	jwksRefreshSchedule    string `opt:"-"`
+	revocationSyncEnabled  bool   `opt:"-"`
+	revocationSyncSchedule string `opt:"-"`
 
 	// Metrics collector for Prometheus-compatible instrumentation.
 	collector metrics.Collector `optgen:"notnil"`
@@ -256,9 +263,10 @@ func WithPresets(presets ...*ValidationPreset) Option {
 	}
 }
 
-// WithJWKSRefreshSchedule configures JWKS refresh task for scheduler.
-// This task will be registered if scheduler is provided via WithScheduler.
-// The schedule parameter should be a cron expression (e.g., "0 */30 * * * *" for every 30 minutes).
+// WithJWKSRefreshSchedule refreshes the JWKS keys on the provider's own,
+// process-local cron. The schedule is a six-field cron expression with seconds
+// (e.g. "0 */30 * * * *" for every 30 minutes) or a descriptor such as
+// "@every 30m"; an invalid expression fails [NewProvider].
 func WithJWKSRefreshSchedule(schedule string) Option {
 	return func(o *options) {
 		o.jwksRefreshEnabled = true
@@ -310,9 +318,12 @@ func WithDiscoveryValidationMode(mode DiscoveryValidationMode) Option {
 	}
 }
 
-// WithRevocationSyncSchedule configures revocation sync task for scheduler.
-// This task will be registered if scheduler is provided via WithScheduler.
-// The schedule parameter should be a cron expression (e.g., "0 */5 * * * *" for every 5 minutes).
+// WithRevocationSyncSchedule syncs the revocation storage
+// ([RevocationStorage.Sync]) on the provider's own, process-local cron, on top
+// of the sync NewProvider runs at construction. The schedule is a six-field
+// cron expression with seconds (e.g. "0 */5 * * * *" for every 5 minutes) or
+// a descriptor such as "@every 5m"; an invalid expression fails [NewProvider].
+// It has no effect without a revocation storage.
 func WithRevocationSyncSchedule(schedule string) Option {
 	return func(o *options) {
 		o.revocationSyncEnabled = true

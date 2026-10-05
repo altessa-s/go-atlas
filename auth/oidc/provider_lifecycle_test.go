@@ -7,132 +7,133 @@ package oidc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"runtime"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/data/probfilter"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
-
-	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
-// recordingScheduler keeps every registered task and fails registration of
-// the task whose ID equals failID.
-type recordingScheduler struct {
-	failID string
-	mu     sync.Mutex
-	tasks  map[string]corescheduler.TaskFunc
-}
+// refreshEvery is the shortest interval robfig/cron supports.
+const refreshEvery = "@every 1s"
 
-var errRegister = errors.New("register failed")
-
-func (s *recordingScheduler) Register(_ context.Context, cfg corescheduler.TaskConfig) error {
-	if cfg.ID == s.failID {
-		return errRegister
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.tasks == nil {
-		s.tasks = map[string]corescheduler.TaskFunc{}
-	}
-	s.tasks[cfg.ID] = cfg.Func
-	return nil
-}
-
-func (s *recordingScheduler) task(id string) corescheduler.TaskFunc {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.tasks[id]
-}
-
-// syncStorage is a RevocationStorage whose Sync returns err and counts calls.
+// syncStorage is a RevocationStorage whose Sync returns err (or, when script
+// is set, script[i] for the i-th call, repeating the last entry) and counts
+// calls.
 type syncStorage struct {
-	err   error
-	syncs atomic.Int32
+	err    error
+	script []error
+	syncs  atomic.Int32
 }
 
 func (s *syncStorage) IsRevoked(context.Context, string) (bool, error)          { return false, nil }
 func (s *syncStorage) MarkRevoked(context.Context, string, time.Duration) error { return nil }
 func (s *syncStorage) Sync(context.Context) error {
-	s.syncs.Add(1)
+	n := int(s.syncs.Add(1))
+	if len(s.script) > 0 {
+		return s.script[min(n, len(s.script))-1]
+	}
 	return s.err
 }
 
-// A scheduler registration failure after an earlier task was registered must
-// leave that task inert: construction failed, so the provider is closed and
-// the orphaned task must not keep refreshing JWKS against it.
-func TestNewProvider_FailedSchedulerRegistrationClosesProvider(t *testing.T) {
+func TestNewProvider_InvalidRefreshScheduleFails(t *testing.T) {
 	t.Parallel()
 
 	idp := newTestIdP(t)
-	sched := &recordingScheduler{failID: "oidc-revocation-sync"}
-	storage := &syncStorage{}
 
-	_, err := idp.tryNewProvider(t,
-		WithScheduler(sched),
-		WithJWKSRefreshSchedule("0 */30 * * * *"),
-		WithRevocationStorage(storage),
-		WithRevocationSyncSchedule("0 */5 * * * *"),
-	)
-	require.ErrorIs(t, err, errRegister)
+	_, err := idp.tryNewProvider(t, WithJWKSRefreshSchedule("not a cron"))
+	require.ErrorContains(t, err, "invalid jwks-refresh schedule")
 
-	jwksTask := sched.task("oidc-jwks-refresh")
-	require.NotNil(t, jwksTask, "precondition: the JWKS task was registered before the failure")
-
-	err = jwksTask(t.Context())
-	require.ErrorIs(t, err, context.Canceled, "the background context of a failed provider must be canceled")
+	_, err = idp.tryNewProvider(t, WithRevocationStorage(&syncStorage{}), WithRevocationSyncSchedule("61 * * * * *"))
+	require.ErrorContains(t, err, "invalid revocation-sync schedule")
 }
 
-// Scheduled tasks of a closed provider no-op.
-func TestProvider_CloseDisarmsScheduledTasks(t *testing.T) {
+// Each provider owns its cron: two providers in one process both keep
+// refreshing (no shared task IDs that could replace each other).
+func TestRefreshCron_TwoProvidersRefreshIndependently(t *testing.T) {
+	t.Parallel()
+
+	idpA, idpB := newTestIdP(t), newTestIdP(t)
+	storageA, storageB := &syncStorage{}, &syncStorage{}
+	idpA.newProvider(t, WithJWKSRefreshSchedule(refreshEvery),
+		WithRevocationStorage(storageA), WithRevocationSyncSchedule(refreshEvery))
+	idpB.newProvider(t, WithJWKSRefreshSchedule(refreshEvery),
+		WithRevocationStorage(storageB), WithRevocationSyncSchedule(refreshEvery))
+
+	testhelpers.WaitFor(t, 5*time.Second, func() bool {
+		// Construction fetched each JWKS and synced each storage once.
+		return idpA.jwksRequests.Load() >= 2 && idpB.jwksRequests.Load() >= 2 &&
+			storageA.syncs.Load() >= 2 && storageB.syncs.Load() >= 2
+	}, "both providers must run their own JWKS refresh and revocation sync")
+}
+
+// A revocation added to the source after startup reaches the filter through
+// the provider's cron, without any external scheduler.
+func TestRefreshCron_RevocationSyncPicksUpSourceChange(t *testing.T) {
 	t.Parallel()
 
 	idp := newTestIdP(t)
-	sched := &recordingScheduler{}
-	storage := &syncStorage{}
-
-	p, err := idp.tryNewProvider(t,
-		WithScheduler(sched),
-		WithRevocationStorage(storage),
-		WithRevocationSyncSchedule("0 */5 * * * *"),
+	raw := idp.sign(t, idp.claims(nil))
+	p := idp.newProvider(t,
+		WithRevocationFilter(newRebuildableFilter()),
+		WithRevocationLoader(&URLRevocationLoader{URL: idp.srv.URL + "/revoked"}),
+		WithRevocationSyncSchedule(refreshEvery),
 	)
-	require.NoError(t, err)
-	syncTask := sched.task("oidc-revocation-sync")
-	require.NotNil(t, syncTask)
 
-	require.NoError(t, syncTask(t.Context()))
-	require.EqualValues(t, 2, storage.syncs.Load(), "initial sync plus one scheduled run")
+	_, err := p.ValidateToken(t.Context(), raw)
+	require.NoError(t, err)
+
+	idp.setRevoked(raw)
+	testhelpers.WaitFor(t, 5*time.Second, func() bool {
+		_, err := p.ValidateToken(t.Context(), raw)
+		return errors.Is(err, ErrTokenRevoked)
+	}, "the scheduled sync must pick up the new revocation")
+}
+
+func TestProvider_CloseStopsRefreshCron(t *testing.T) {
+	t.Parallel()
+
+	idp := newTestIdP(t)
+	p := idp.newProvider(t, WithJWKSRefreshSchedule(refreshEvery))
+	testhelpers.WaitFor(t, 5*time.Second, func() bool { return idp.jwksRequests.Load() >= 2 },
+		"precondition: the cron refreshes the JWKS")
 
 	p.Close()
-	require.ErrorIs(t, syncTask(t.Context()), context.Canceled)
-	require.EqualValues(t, 2, storage.syncs.Load(), "a closed provider must not sync")
+	after := idp.jwksRequests.Load()
+	time.Sleep(2500 * time.Millisecond) // more than two cron periods
+	require.Equal(t, after, idp.jwksRequests.Load(), "a closed provider's cron must not refresh")
 }
 
-// TestNewProvider_FailedConstructionDoesNotLeakGoroutines is deliberately
-// serial: it compares the process-wide goroutine count, which parallel tests
-// would perturb (parallel tests only start once all serial tests finished).
-func TestNewProvider_FailedConstructionDoesNotLeakGoroutines(t *testing.T) {
+// TestProvider_NoGoroutineLeaks is deliberately serial: it compares the
+// process-wide goroutine count, which parallel tests would perturb (parallel
+// tests only start once all serial tests finished).
+func TestProvider_NoGoroutineLeaks(t *testing.T) {
 	idp := newTestIdP(t)
 
 	tests := []struct {
-		name string
-		opts func() []Option
+		name    string
+		opts    func() []Option
+		wantErr bool
 	}{
-		{name: "initial revocation sync fails", opts: func() []Option {
-			return []Option{WithRevocationStorage(&syncStorage{err: errors.New("sync failed")})}
-		}},
-		{name: "scheduler registration fails", opts: func() []Option {
+		{name: "closed provider with refresh cron", opts: func() []Option {
 			return []Option{
-				WithScheduler(&recordingScheduler{failID: "oidc-jwks-refresh"}),
-				WithJWKSRefreshSchedule("0 */30 * * * *"),
+				WithJWKSRefreshSchedule(refreshEvery),
+				WithRevocationStorage(&syncStorage{}), WithRevocationSyncSchedule(refreshEvery),
 			}
 		}},
-		{name: "JWKS initialization fails", opts: func() []Option {
+		{name: "initial revocation sync fails", wantErr: true, opts: func() []Option {
+			return []Option{WithRevocationStorage(&syncStorage{err: errors.New("sync failed")})}
+		}},
+		{name: "invalid refresh schedule", wantErr: true, opts: func() []Option {
+			return []Option{WithJWKSRefreshSchedule("not a cron")}
+		}},
+		{name: "JWKS initialization fails", wantErr: true, opts: func() []Option {
 			idp.jwksStatus.Store(http.StatusInternalServerError)
 			return nil
 		}},
@@ -142,14 +143,98 @@ func TestNewProvider_FailedConstructionDoesNotLeakGoroutines(t *testing.T) {
 			t.Cleanup(func() { idp.jwksStatus.Store(http.StatusOK) })
 			baseline := runtime.NumGoroutine()
 
-			for range 5 {
-				_, err := idp.tryNewProvider(t, tc.opts()...)
-				require.Error(t, err)
+			for range 3 {
+				p, err := idp.tryNewProvider(t, tc.opts()...)
+				if tc.wantErr {
+					require.Error(t, err)
+					continue
+				}
+				require.NoError(t, err)
+				p.Close()
 			}
 
 			testhelpers.WaitFor(t, 2*time.Second, func() bool {
 				return runtime.NumGoroutine() <= baseline
-			}, "failed NewProvider calls leaked goroutines")
+			}, "providers leaked goroutines")
 		})
 	}
+}
+
+const revocationErrorsMetric = "test_auth_oidc_revocation_check_errors_total"
+
+// The initial sync only counts as done when this provider completed a sync
+// itself: a busy shared filter (peer rebuilding, or this rebuild superseded)
+// is retried, and only running out of time applies the fail mode.
+func TestInitialRevocationSync_RetriesWhileSharedFilterBusy(t *testing.T) {
+	t.Parallel()
+
+	inProgress := fmt.Errorf("acquire lease: %w", probfilter.ErrRebuildInProgress)
+	superseded := fmt.Errorf("commit: %w", probfilter.ErrRebuildSuperseded)
+
+	tests := []struct {
+		name      string
+		script    []error
+		failOpen  bool
+		wantErr   error
+		wantSyncs int32
+	}{
+		{name: "peer publishes then own sync succeeds", script: []error{inProgress, inProgress, nil}, wantSyncs: 3},
+		{name: "lease lost without successor then retry succeeds", script: []error{superseded, nil}, wantSyncs: 2},
+		{name: "peer never finishes: fail-closed", script: []error{inProgress}, wantErr: probfilter.ErrRebuildInProgress},
+		{name: "peer never finishes: fail-open starts", script: []error{inProgress}, failOpen: true},
+		{name: "other errors are not retried", script: []error{errors.New("source down"), nil}, wantErr: ErrRevocationCheck, wantSyncs: 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			idp := newTestIdP(t)
+			collector := testhelpers.NewTestCollector()
+			storage := &syncStorage{script: tc.script}
+			opts := []Option{
+				WithCollector(collector), WithRevocationStorage(storage),
+				WithRevocationInitialSyncWait(time.Second),
+			}
+			if tc.failOpen {
+				opts = append(opts, WithRevocationFailOpen())
+			}
+
+			_, err := idp.tryNewProvider(t, opts...)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, ErrRevocationCheck)
+				require.ErrorIs(t, err, tc.wantErr)
+			} else {
+				require.NoError(t, err)
+			}
+			if tc.wantSyncs > 0 {
+				require.Equal(t, tc.wantSyncs, storage.syncs.Load())
+			}
+			var wantCount float64
+			if tc.wantErr != nil || tc.failOpen {
+				wantCount = 1
+			}
+			require.Equal(t, wantCount, testhelpers.GetCounterValue(t, collector, revocationErrorsMetric))
+		})
+	}
+}
+
+// A scheduled sync that finds a peer rebuilding the shared filter is skipped
+// silently; a superseded one is a counted failure.
+func TestScheduledRevocationSync_SharedFilterOutcomes(t *testing.T) {
+	t.Parallel()
+
+	idp := newTestIdP(t)
+	collector := testhelpers.NewTestCollector()
+	storage := &syncStorage{script: []error{
+		nil, // construction
+		fmt.Errorf("acquire lease: %w", probfilter.ErrRebuildInProgress),
+		fmt.Errorf("commit: %w", probfilter.ErrRebuildSuperseded),
+	}}
+	p := idp.newProvider(t, WithCollector(collector), WithRevocationStorage(storage))
+
+	require.NoError(t, p.scheduledRevocationSync(t.Context()))
+	require.Zero(t, testhelpers.GetCounterValue(t, collector, revocationErrorsMetric))
+
+	require.ErrorIs(t, p.scheduledRevocationSync(t.Context()), probfilter.ErrRebuildSuperseded)
+	require.Equal(t, 1.0, testhelpers.GetCounterValue(t, collector, revocationErrorsMetric))
 }

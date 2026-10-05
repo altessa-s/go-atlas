@@ -107,7 +107,7 @@ when configuration is loaded from YAML/env through `config/loader`.
 | Package   | Primary constructor                                                               | Notes                                                                                                                   |
 |-----------|-----------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------|
 | `jwt`     | `NewSigner(opts…) *Signer` / `NewVerifier(resolver KeyResolver, opts…) *Verifier` | Mandatory `KeyResolver` is positional.                                                                                  |
-| `oidc`    | `NewProvider(ctx, discoveryURL, opt…) (*Provider, error)`                         | Loads JWKS once; refreshes only with `WithScheduler` + `WithJWKSRefreshSchedule` (or call `RefreshJWKS`); leeway `30s`. |
+| `oidc`    | `NewProvider(ctx, discoveryURL, opt…) (*Provider, error)`                         | Loads JWKS once; refreshes on its own cron with `WithJWKSRefreshSchedule` (or call `RefreshJWKS`); leeway `30s`.        |
 | `selfjwt` | `New(src KeyProvider, opts…) (*Minter, *Verifier)`                                | Returns a matched minter/verifier pair; `NewMinter`/`NewVerifier` for either alone.                                     |
 | `static`  | `NewInMemoryStore(opt…) *InMemoryStore`                                           | Wrap with `NewRateLimitedStore(store, limiter, keyFn)` to gate attempts.                                                |
 | `scope`   | `NewRegistry()` → `Register`/`Freeze`, then `NewEnforcer(reg, authorize)`         | `authorize` is the sole principal seam; registry is build-once / read-many.                                             |
@@ -220,9 +220,8 @@ A direct, transport-free validation is just `store.Validate(ctx, token) (any, er
 
 ### OIDC token validation
 
-`Provider` discovers the issuer's metadata and JWKS at construction; it keeps the keys fresh only when given both a scheduler (`WithScheduler`) and a
-refresh schedule (`WithJWKSRefreshSchedule`) —
-otherwise call `provider.RefreshJWKS(ctx)` periodically yourself. `ValidateToken` returns the verified claims.
+`Provider` discovers the issuer's metadata and JWKS at construction; it keeps the keys fresh on its own process-local cron when given a refresh
+schedule (`WithJWKSRefreshSchedule`) — otherwise call `provider.RefreshJWKS(ctx)` periodically yourself. `ValidateToken` returns the verified claims.
 
 ```go
 import "github.com/altessa-s/go-atlas/auth/oidc"

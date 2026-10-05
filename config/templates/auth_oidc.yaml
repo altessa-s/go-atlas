@@ -38,7 +38,7 @@
 #  # <object> JWKS-specific settings for key management.
 #  # Configures JWKS refresh behavior and HTTP timeouts.
 #  jwks:
-#    # <bool> Enables proactive JWKS refresh via an external scheduler.
+#    # <bool> Enables proactive JWKS refresh on the provider's own process-local cron.
 #    # Default value: true
 #    refreshEnabled: true
 #
@@ -309,8 +309,8 @@
 #    # Default value: false
 #    enabled: false
 #
-#    # <bool> Enables periodic synchronization of the revocation storage.
-#    # NOTE: Must be managed via an external scheduler.
+#    # <bool> Enables periodic synchronization of the revocation storage
+#    # on the provider's own process-local cron (every replica syncs).
 #    # Default value: true
 #    syncEnabled: true
 #

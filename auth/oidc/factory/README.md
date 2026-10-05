@@ -12,7 +12,6 @@ Package `factory` provides a fluent builder for creating OIDC providers from con
 ```go
 provider, err := factory.New(cfg.OIDC).
     UseLogger(logger).
-    UseScheduler(scheduler).
     UseTokenCache(tokenCache).
     UseRedisClient(redisClient).
     Build(ctx)
@@ -40,11 +39,13 @@ provider, err := factory.New(cfg.OIDC).
 | Method | Description |
 |--------|-------------|
 | `UseLogger` | Sets the logger for the builder and all created components |
-| `UseScheduler` | Sets the task registrar for background JWKS refresh and revocation sync |
 | `UseTokenCache` | Sets the cache for validated token caching |
 | `UseRedisClient` | Sets the Redis client for revocation filter storage |
 | `UseRevocationStorage` | Sets a custom revocation storage, bypassing auto-creation |
 | `UseRevocationAuthoritative` | Sets the exact store that confirms probabilistic filter hits |
+
+JWKS refresh (`jwks.refreshSchedule`) and revocation sync (`revocation.syncSchedule`) run on the provider's own process-local cron, on
+every replica; the builder needs no scheduler.
 
 ### Terminal
 

@@ -305,7 +305,8 @@ func (cc *OIDCClientCredentials) Validate() error {
 // OIDCJwks represents OIDCJwks-specific configuration.
 // It controls the refresh behavior for JSON Web Key Sets used in token signature verification.
 type OIDCJwks struct {
-	// RefreshEnabled enables proactive JWKS refresh via an external scheduler.
+	// RefreshEnabled enables proactive JWKS refresh on the provider's own
+	// process-local cron.
 	RefreshEnabled bool `yaml:"refreshEnabled" default:"true"`
 
 	// RefreshSchedule is the cron expression for periodic JWKS refresh.
@@ -451,7 +452,7 @@ type OIDCRevocation struct {
 	Enabled bool `yaml:"enabled" default:"false"`
 
 	// SyncEnabled enables periodic synchronization of the revocation storage
-	// via an external scheduler.
+	// on the provider's own process-local cron.
 	SyncEnabled bool `yaml:"syncEnabled" default:"true"`
 
 	// SyncSchedule is the cron expression for periodic revocation synchronization.
