@@ -104,6 +104,17 @@ type lookupResult struct {
 	err error
 }
 
+// asyncPublicKey runs v.publicKey in its own goroutine and delivers the result
+// on the returned channel, which is buffered so the goroutine never blocks.
+func asyncPublicKey(ctx context.Context, v *Verifier, subject, kid string) <-chan lookupResult {
+	ch := make(chan lookupResult, 1)
+	go func() {
+		vk, err := v.publicKey(ctx, subject, kid)
+		ch <- lookupResult{vk: vk, err: err}
+	}()
+	return ch
+}
+
 // TestInvalidationFencesInFlightLookup asserts that an invalidation fences a
 // provider lookup already in flight: a verification that starts after the
 // invalidation does not join the stale flight, and the stale flight does not
@@ -137,14 +148,7 @@ func TestInvalidationFencesInFlightLookup(t *testing.T) {
 			t.Cleanup(release)
 			v := NewVerifier(p, WithCacheTTL(tc.ttl))
 
-			lookup := func() <-chan lookupResult {
-				ch := make(chan lookupResult, 1)
-				go func() {
-					vk, err := v.publicKey(t.Context(), "svc", "k1")
-					ch <- lookupResult{vk: vk, err: err}
-				}()
-				return ch
-			}
+			lookup := func() <-chan lookupResult { return asyncPublicKey(t.Context(), v, "svc", "k1") }
 
 			stale := lookup()
 			<-p.entered // the stale lookup has read the provider before retirement
@@ -255,18 +259,10 @@ func TestPublicKeyFlightKeyIsInjective(t *testing.T) {
 	t.Cleanup(release)
 	v := NewVerifier(p)
 
-	first := make(chan lookupResult, 1)
-	go func() {
-		vk, err := v.publicKey(t.Context(), pairA[0], pairA[1])
-		first <- lookupResult{vk: vk, err: err}
-	}()
+	first := asyncPublicKey(t.Context(), v, pairA[0], pairA[1])
 	<-p.entered
 
-	second := make(chan lookupResult, 1)
-	go func() {
-		vk, err := v.publicKey(t.Context(), pairB[0], pairB[1])
-		second <- lookupResult{vk: vk, err: err}
-	}()
+	second := asyncPublicKey(t.Context(), v, pairB[0], pairB[1])
 	select {
 	case r := <-second:
 		require.NoError(t, r.err)
