@@ -25,6 +25,10 @@ const (
 	// recovering server is hit by synchronized waves instead of a spread-out
 	// trickle.
 	DefaultJitter = 0.2
+
+	// retryBaseDelay is the first backoff delay, matching the
+	// cenkalti/backoff default.
+	retryBaseDelay = 500 * time.Millisecond
 )
 
 // RetryConfig holds configuration for retry operations.
@@ -68,7 +72,6 @@ func RetryWithConfig[T any](ctx context.Context, fn func() (T, error), cfg Retry
 		maxAttempts = int(cfg.MaxRetries) - 1 //nolint:gosec // G115: MaxRetries is bounded by config validation
 	}
 
-	const baseDelay = 500 * time.Millisecond
 	err := coreretry.Do(ctx, func(context.Context) error {
 		res, err := fn()
 		last = res
@@ -78,7 +81,7 @@ func RetryWithConfig[T any](ctx context.Context, fn func() (T, error), cfg Retry
 		coreretry.WithMaxElapsedTime(cfg.MaxElapsedTime),
 		coreretry.WithShouldRetry(isTransientError),
 		coreretry.WithNextDelay(coreretry.Exponential(coreretry.ExponentialConfig{
-			BaseDelay: baseDelay, // matches cenkalti/backoff default
+			BaseDelay: retryBaseDelay,
 			Jitter:    cfg.Jitter,
 		})),
 	)
