@@ -20,6 +20,16 @@ func WithCapacity(v int64) Option {
 	}
 }
 
+// WithExpansion sets the expansion option.
+func WithExpansion(v int64) Option {
+	return func(o *options) {
+		if v < 0 {
+			return
+		}
+		o.expansion = v
+	}
+}
+
 // WithKeyPrefix sets the keyPrefix option.
 func WithKeyPrefix[T interface{ string | *string }](v T) Option {
 	return func(o *options) {
@@ -47,6 +57,7 @@ func WithKeyPrefix[T interface{ string | *string }](v T) Option {
 func defaultOptions() *options {
 	return &options{
 		capacity:  DefaultCapacity,
+		expansion: DefaultExpansion,
 		keyPrefix: DefaultKeyPrefix,
 	}
 }

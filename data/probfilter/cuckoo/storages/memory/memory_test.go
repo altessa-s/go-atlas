@@ -5,6 +5,9 @@
 package memory_test
 
 import (
+	"context"
+	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -104,4 +107,107 @@ func TestStorage_Close(t *testing.T) {
 
 	err := storage.Close(ctx)
 	require.NoError(t, err)
+}
+
+func TestStorage_Stage_CommitReplacesContents(t *testing.T) {
+	t.Parallel()
+	storage := memory.New(memory.WithCapacity(64))
+	ctx := t.Context()
+
+	require.NoError(t, storage.Add(ctx, "old"))
+
+	// More items than the configured capacity: the replacement is sized for them.
+	values := make([]string, 500)
+	for i := range values {
+		values[i] = fmt.Sprintf("v-%d", i)
+	}
+	st, err := storage.Stage(ctx, int64(len(values)))
+	require.NoError(t, err)
+	require.NoError(t, st.AddBatch(ctx, slices.Values(values)))
+
+	exists, err := storage.MightExist(ctx, "old")
+	require.NoError(t, err)
+	require.True(t, exists, "live contents must stay visible while staging")
+
+	require.NoError(t, st.Commit(ctx))
+
+	for _, v := range values {
+		exists, err := storage.MightExist(ctx, v)
+		require.NoError(t, err)
+		require.True(t, exists, "MightExist(%q) after Commit", v)
+	}
+	stats, err := storage.Stats(ctx)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, stats.Capacity, int64(len(values)))
+	require.Equal(t, int64(len(values)), stats.ItemCount)
+}
+
+func TestStorage_Stage_AbortKeepsContents(t *testing.T) {
+	t.Parallel()
+	storage := memory.New(memory.WithCapacity(64))
+	ctx := t.Context()
+
+	require.NoError(t, storage.Add(ctx, "old"))
+	// Fingerprints are seeded per filter, so pick a probe the live filter
+	// verifiably does not report before staging it.
+	probe := absentProbe(t, storage)
+	st, err := storage.Stage(ctx, 1)
+	require.NoError(t, err)
+	require.NoError(t, st.AddBatch(ctx, slices.Values([]string{probe})))
+	require.NoError(t, st.Abort(ctx))
+
+	exists, err := storage.MightExist(ctx, "old")
+	require.NoError(t, err)
+	require.True(t, exists)
+	exists, err = storage.MightExist(ctx, probe)
+	require.NoError(t, err)
+	require.False(t, exists, "an aborted replacement must not change the live filter")
+}
+
+func TestStorage_Stage_FullReplacement(t *testing.T) {
+	t.Parallel()
+	storage := memory.New(memory.WithCapacity(4))
+	ctx := t.Context()
+
+	// Staged for 1 item, fed far more: the replacement fills up.
+	st, err := storage.Stage(ctx, 1)
+	require.NoError(t, err)
+	values := make([]string, 1000)
+	for i := range values {
+		values[i] = fmt.Sprintf("v-%d", i)
+	}
+	require.ErrorIs(t, st.AddBatch(ctx, slices.Values(values)), memory.ErrFilterFull)
+}
+
+func TestStorage_Stage_CommitCanceledContext(t *testing.T) {
+	t.Parallel()
+	storage := memory.New(memory.WithCapacity(64))
+	ctx := t.Context()
+
+	require.NoError(t, storage.Add(ctx, "old"))
+	st, err := storage.Stage(ctx, 1)
+	require.NoError(t, err)
+
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	require.ErrorIs(t, st.Commit(canceled), context.Canceled)
+
+	exists, err := storage.MightExist(ctx, "old")
+	require.NoError(t, err)
+	require.True(t, exists, "a canceled Commit must not swap")
+}
+
+// absentProbe returns a value the storage currently reports as absent.
+func absentProbe(t *testing.T, s *memory.Storage) string {
+	t.Helper()
+	for i := range 1000 {
+		v := fmt.Sprintf("probe-%d", i)
+		ok, err := s.MightExist(t.Context(), v)
+		require.NoError(t, err)
+		if !ok {
+			return v
+		}
+	}
+	t.Fatal("no absent probe found")
+	return ""
 }

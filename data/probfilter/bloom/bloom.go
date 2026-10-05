@@ -6,24 +6,27 @@ package bloom
 
 import (
 	"context"
+	"errors"
 	"iter"
 	"time"
 
 	"github.com/altessa-s/go-atlas/data/probfilter"
 	"github.com/altessa-s/go-atlas/data/probfilter/bloom/storages"
-
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	"github.com/altessa-s/go-atlas/data/probfilter/internal/facade"
 )
 
 // Filter is a Bloom filter facade that wraps a storage backend.
-// It implements probfilter.RebuildableFilter.
+// It implements probfilter.RebuildableFilter and probfilter.ObservableFilter.
 type Filter struct {
-	storage storages.Storage
+	storage  storages.Storage
+	coord    facade.Coordinator
+	observer facade.ObserverSlot
 }
 
 var (
 	_ probfilter.Filter            = (*Filter)(nil)
 	_ probfilter.RebuildableFilter = (*Filter)(nil)
+	_ probfilter.ObservableFilter  = (*Filter)(nil)
 	_ probfilter.StatsProvider     = (*Filter)(nil)
 )
 
@@ -39,19 +42,65 @@ func New(storage storages.Storage) *Filter {
 	}
 }
 
-// MightExist checks if a value might exist in the filter.
+// MightExist checks if a value might exist in the filter. It fails with an
+// error wrapping [probfilter.ErrCommitIndeterminate] while the filter is
+// fenced after an unresolved rebuild commit (see [Filter.Rebuild]).
 func (f *Filter) MightExist(ctx context.Context, value string) (bool, error) {
-	return f.storage.MightExist(ctx, value)
+	return f.observer.Lookup(func() (bool, error) {
+		for {
+			if err := f.coord.Fence(ctx); err != nil {
+				return false, err
+			}
+			found, err := f.storage.MightExist(ctx, value)
+			if !f.coord.Fenced() {
+				return found, err
+			}
+			// A fence was published while the lookup ran: re-check it.
+		}
+	})
 }
 
 // Add inserts a value into the filter.
 func (f *Filter) Add(ctx context.Context, value string) error {
-	return f.storage.Add(ctx, value)
+	err := f.coord.Add(ctx, value, func() error {
+		return f.storage.Add(ctx, value)
+	})
+	if err == nil {
+		f.observer.Added(1)
+	}
+	return err
 }
 
 // AddBatch inserts multiple values into the filter.
 func (f *Filter) AddBatch(ctx context.Context, values iter.Seq[string]) error {
-	return f.storage.AddBatch(ctx, values)
+	n := 0
+	err := f.coord.AddBatch(ctx, values, func(values iter.Seq[string]) error {
+		return f.storage.AddBatch(ctx, func(yield func(string) bool) {
+			for v := range values {
+				n++
+				if !yield(v) {
+					return
+				}
+			}
+		})
+	})
+	if err == nil {
+		f.observer.Added(n)
+	}
+	return err
+}
+
+// Done returns a channel that is closed when the filter is closed, so the
+// owner of a rebuild schedule (such as the probfilter factory's local cron)
+// can release it.
+func (f *Filter) Done() <-chan struct{} {
+	return f.coord.Done()
+}
+
+// SetObserver installs o to receive lookup, add and rebuild outcomes; nil
+// removes the current observer. [probfilter.Manager.Register] calls it.
+func (f *Filter) SetObserver(o probfilter.Observer) {
+	f.observer.Set(o)
 }
 
 // Stats returns current filter statistics.
@@ -62,59 +111,46 @@ func (f *Filter) Stats(ctx context.Context) (*probfilter.FilterStats, error) {
 	return &probfilter.FilterStats{}, nil
 }
 
-// Close releases resources associated with the filter.
+// Close releases resources associated with the filter. It interrupts a
+// running [Filter.Rebuild] and waits for it to return; afterwards Rebuild
+// returns [probfilter.ErrFilterClosed], so no rebuild commits after Close.
 func (f *Filter) Close(ctx context.Context) error {
-	return f.storage.Close(ctx)
+	return errors.Join(f.coord.Close(ctx), f.storage.Close(ctx))
 }
 
 // Rebuild recreates the filter from scratch using the provided data loader.
+//
+// The rebuild is atomic: the replacement is populated off to the side (a
+// fresh in-process filter, or a staging key renamed onto the live key for
+// Redis) while lookups keep seeing the previous contents, and it replaces them
+// in one step. A failed or canceled rebuild leaves the previous contents and
+// [Filter.LastRebuild] unchanged. Values added through this filter while the
+// rebuild runs are journaled and replayed onto the replacement, so they are
+// present afterwards; while a rebuild runs, adds are serialized. Writes made
+// to a shared Redis filter by other processes during the rebuild are not
+// journaled and are lost when the replacement is committed.
+//
+// A Redis commit whose outcome cannot be established returns an error wrapping
+// [probfilter.ErrCommitIndeterminate]: either contents may be live. If the
+// replacement then cannot be discarded either, a delayed promotion could
+// still swap it in, so the filter is fenced — lookups and writes fail with
+// ErrCommitIndeterminate — until discarding it succeeds (retried on every
+// call).
+//
+// When loader.Count reports a positive count, the replacement is sized for it
+// and values are streamed into it; otherwise values are collected in memory
+// first. Concurrent rebuilds of one filter are serialized.
 func (f *Filter) Rebuild(ctx context.Context, loader probfilter.DataLoader) error {
-	// Try to get count from loader first
-	count, err := loader.Count(ctx)
-
-	// If count is available and valid, use optimized path with Reset + StreamValues
-	if err == nil && count > 0 {
-		if err := f.storage.Reset(ctx, count); err != nil {
-			return coreerrs.WrapOperation(err, "reset filter")
+	return f.observer.Rebuild(func() error {
+		err := f.coord.Rebuild(ctx, loader, func(ctx context.Context, expectedItems int64) (facade.Staging, error) {
+			return f.storage.Stage(ctx, expectedItems)
+		})
+		if err != nil {
+			return err
 		}
-
-		for value, err := range loader.StreamValues(ctx) {
-			if err != nil {
-				return coreerrs.WrapOperation(err, "load value during rebuild")
-			}
-			if err := f.storage.Add(ctx, value); err != nil {
-				return coreerrs.WrapOperation(err, "add value during rebuild")
-			}
-		}
-
 		f.storage.SetLastRebuild(time.Now())
 		return nil
-	}
-
-	// Fallback: count not available, collect all values first to avoid iterator exhaustion.
-	// Many iterators (e.g., database cursors) can only be iterated once.
-	values := make([]string, 0)
-	for value, err := range loader.StreamValues(ctx) {
-		if err != nil {
-			return coreerrs.WrapOperation(err, "load value during rebuild")
-		}
-		values = append(values, value)
-	}
-
-	// Reset filter with actual count
-	if err := f.storage.Reset(ctx, int64(len(values))); err != nil {
-		return coreerrs.WrapOperation(err, "reset filter")
-	}
-
-	// Add collected values
-	for _, value := range values {
-		if err := f.storage.Add(ctx, value); err != nil {
-			return coreerrs.WrapOperation(err, "add value during rebuild")
-		}
-	}
-
-	f.storage.SetLastRebuild(time.Now())
-	return nil
+	})
 }
 
 // LastRebuild returns the time of the last successful rebuild.

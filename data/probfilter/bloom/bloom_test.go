@@ -16,6 +16,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/data/probfilter"
 	"github.com/altessa-s/go-atlas/data/probfilter/bloom"
+	"github.com/altessa-s/go-atlas/data/probfilter/bloom/storages"
 	"github.com/altessa-s/go-atlas/data/probfilter/bloom/storages/memory"
 )
 
@@ -166,9 +167,8 @@ func (m *minimalStorage) AddBatch(_ context.Context, values iter.Seq[string]) er
 	}
 	return nil
 }
-func (m *minimalStorage) Reset(_ context.Context, _ int64) error {
-	m.data = make(map[string]bool)
-	return nil
+func (m *minimalStorage) Stage(_ context.Context, _ int64) (storages.Staging, error) {
+	return nil, errors.New("not supported")
 }
 func (m *minimalStorage) LastRebuild() time.Time        { return time.Time{} }
 func (m *minimalStorage) SetLastRebuild(_ time.Time)    {}

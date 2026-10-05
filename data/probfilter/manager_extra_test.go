@@ -149,3 +149,29 @@ func TestManager_Close_Empty(t *testing.T) {
 	mgr := probfilter.NewManager()
 	require.NoError(t, mgr.Close())
 }
+
+// ctxClosingFilter exposes Close(context.Context) like the Bloom and Cuckoo
+// facades.
+type ctxClosingFilter struct {
+	mockFilterNoClose
+	closed bool
+}
+
+type mockFilterNoClose struct{}
+
+func (mockFilterNoClose) MightExist(context.Context, string) (bool, error) { return false, nil }
+func (mockFilterNoClose) Add(context.Context, string) error                { return nil }
+func (mockFilterNoClose) AddBatch(context.Context, iter.Seq[string]) error { return nil }
+
+func (f *ctxClosingFilter) Close(context.Context) error {
+	f.closed = true
+	return nil
+}
+
+func TestManager_Close_ContextCloser(t *testing.T) {
+	mgr := probfilter.NewManager()
+	f := &ctxClosingFilter{}
+	require.NoError(t, mgr.Register("f", f))
+	require.NoError(t, mgr.Close())
+	require.True(t, f.closed, "Close must close filters exposing Close(context.Context)")
+}

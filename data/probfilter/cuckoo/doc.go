@@ -4,6 +4,8 @@
 
 // Package cuckoo provides a Cuckoo filter implementation for probabilistic existence checks.
 // Unlike Bloom filters, Cuckoo filters support deletion of individual items.
+// [Filter.Rebuild] repopulates the filter from its source atomically; deletes
+// made while it runs are not replayed onto the rebuilt contents.
 //
 // Example:
 //

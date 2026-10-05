@@ -466,7 +466,7 @@ Package: `data/probfilter`
 
 | Name                                  | Type      | Labels                  | Description                          |
 |---------------------------------------|-----------|-------------------------|--------------------------------------|
-| `probfilter_lookups_total`            | Counter   | `filter_name`, `result` | Probabilistic filter lookups         |
+| `probfilter_lookups_total`            | Counter   | `filter_name`, `result` | Probabilistic filter lookups (`result`: `positive`, `negative`, `error`) |
 | `probfilter_adds_total`               | Counter   | `filter_name`           | Items added to probabilistic filters |
 | `probfilter_lookup_duration_seconds`  | Histogram | `filter_name`           | Filter lookup duration               |
 | `probfilter_rebuild_duration_seconds` | Histogram | --                      | Filter rebuild duration              |

@@ -49,8 +49,11 @@ func New(client redis.UniversalClient, filterName string, opt ...Option) *Storag
 			Exists:   "BF.EXISTS",
 			Add:      "BF.ADD",
 			AddBatch: "BF.MADD",
-			Reserve:  "BF.RESERVE",
-			Info:     "BF.INFO",
+			// Staging batches must not recreate a vanished staging key.
+			StagingAddBatch:    "BF.INSERT",
+			StagingBatchTokens: []string{"NOCREATE", "ITEMS"},
+			Reserve:            "BF.RESERVE",
+			Info:               "BF.INFO",
 		}, opts.falsePositiveRate, opts.expectedItems),
 		opts: opts,
 	}
@@ -71,19 +74,20 @@ func (s *Storage) AddBatch(ctx context.Context, values iter.Seq[string]) error {
 	return s.core.AddBatch(ctx, values)
 }
 
-// Reset clears the filter and prepares it for rebuild.
-func (s *Storage) Reset(ctx context.Context, expectedItems int64) error {
-	// Delete existing filter
-	if err := s.core.DeleteFilter(ctx); err != nil {
-		return err
-	}
-
-	// Create new filter with specified capacity
+// Stage reserves an empty replacement filter sized for expectedItems (the
+// configured size when expectedItems <= 0) under a private staging key in the
+// live key's cluster hash slot. Committing renames it onto the live key in one
+// atomic step; until then the live filter is untouched.
+func (s *Storage) Stage(ctx context.Context, expectedItems int64) (storages.Staging, error) {
 	if expectedItems <= 0 {
 		expectedItems = s.opts.expectedItems
 	}
 
-	return s.core.Reserve(ctx, s.opts.falsePositiveRate, expectedItems)
+	st, err := s.core.Stage(ctx, s.opts.falsePositiveRate, expectedItems)
+	if err != nil {
+		return nil, err
+	}
+	return st, nil
 }
 
 // Stats returns current filter statistics.
@@ -99,13 +103,13 @@ func (s *Storage) Stats(ctx context.Context) (*stats.FilterStats, error) {
 			ItemCount:         0,
 			FillRatio:         0,
 			FalsePositiveRate: s.opts.falsePositiveRate,
-			LastRebuild:       s.lastRebuild,
+			LastRebuild:       s.LastRebuild(),
 			StorageType:       "redis",
 		}, nil
 	}
 
 	fs := parseBloomInfo(result)
-	fs.LastRebuild = s.lastRebuild
+	fs.LastRebuild = s.LastRebuild()
 	fs.StorageType = "redis"
 	fs.FalsePositiveRate = s.opts.falsePositiveRate
 

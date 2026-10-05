@@ -53,6 +53,8 @@ manager, err := factory.NewManager(cfg.ProbabilisticFilter).
 |--------|-------------|
 | `UseLogger` | Sets the logger for the builder and all created components |
 | `UseRedisClient` | Sets the Redis client for Redis-backed filter storages |
+| `UseDataLoader` | Sets the source a Bloom filter is rebuilt from; required for `rebuildOnStart` / `rebuildCron` |
+| `UseScheduler` | Sets the `core/scheduler.TaskRegistrar` that runs `rebuildCron` rebuilds of Redis filters (in-memory filters use a local cron) |
 
 ### Terminal
 
@@ -76,9 +78,24 @@ manager, err := factory.NewManager(cfg.ProbabilisticFilter).
 |--------|-------------|
 | `UseLogger` | Sets the logger for the manager builder and all created components |
 | `UseRedisClient` | Sets the Redis client for Redis-backed filter storages |
+| `UseDataLoader(name, loader)` | Sets the rebuild source of the filter `name` (see `FilterBuilder.UseDataLoader`) |
+| `UseScheduler` | Sets the scheduler for `rebuildCron` rebuilds of every filter |
+| `UseCollector` | Sets the metrics collector of the built `probfilter.Manager` |
 
 ### Terminal
 
 | Method | Description |
 |--------|-------------|
 | `Build` | Assembles and returns the probabilistic filter manager with all configured filters |
+
+---
+
+## Configuration semantics
+
+| Setting | Effect |
+|---------|--------|
+| `bloom.rebuildOnStart` | With a data loader: rebuilt synchronously inside `Build` (failure closes the filter and fails `Build`). Inert without a loader. |
+| `bloom.rebuildCron` | With a data loader: an in-memory filter is rebuilt by a process-local cron; a Redis filter is registered as task `probfilter-rebuild-<name>` with the scheduler (logged as ignored without one). Empty disables it; an invalid cron fails `Build`. Once the filter is closed, both stop rebuilding. |
+| `cuckoo.capacityMultiplier` | Redis storage: RedisBloom `EXPANSION` (rounded up). Memory storage cannot grow; a per-filter value is logged as ignored. |
+| `cuckoo.fingerprintSize` | **Deprecated**, ignored — both backends use 8-bit fingerprints. A per-filter value other than 8 is logged. |
+| `cuckoo.maxCapacity` | **Deprecated**, ignored — no backend can bound growth. A per-filter value is logged. |
