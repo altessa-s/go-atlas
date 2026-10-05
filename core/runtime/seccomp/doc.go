@@ -72,6 +72,13 @@
 // process outright, because syscall numbers differ across arches and
 // a filter that trusts the wrong numbering is worse than no filter.
 //
+// On amd64 the filter also kills the process for any x32 ABI syscall:
+// a syscall number with __X32_SYSCALL_BIT set, or one in the x32-only
+// range 512–547 that kernels before 5.4 accepted without the bit. x32
+// syscalls report the same AUDIT_ARCH_X86_64 as native ones, so the
+// arch check alone would let them slip past the denylist on kernels
+// built with x32 support.
+//
 // # Threat model
 //
 // This package restricts the ambient syscall set visible to the
