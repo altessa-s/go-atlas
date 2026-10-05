@@ -5,8 +5,8 @@
 package storagetest
 
 import (
-	"context"
 	"fmt"
+	"iter"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -89,8 +89,8 @@ func DueTasks(t *testing.T, store scheduler.Storage) {
 	} {
 		require.NoError(t, store.UpsertTask(ctx, &scheduler.TaskState{TaskSummary: s}))
 	}
-	require.Equal(t, []string{"due_a", "due_c"}, taskIDs(t, store.DueTasks(ctx, 200)))
-	require.ElementsMatch(t, []string{"due_a", "due_b", "due_c", "due_d", "due_e"}, taskIDs(t, store.Tasks(ctx)))
+	require.Equal(t, []string{"due_a", "due_c"}, seqIDs(t, store.DueTasks(ctx, 200), taskID))
+	require.ElementsMatch(t, []string{"due_a", "due_b", "due_c", "due_d", "due_e"}, seqIDs(t, store.Tasks(ctx), taskID))
 }
 
 // Identity verifies that task IDs and run-ownership fences compare exactly:
@@ -115,13 +115,13 @@ func Identity(t *testing.T, store scheduler.Storage) {
 		require.Equal(t, id, got.ID)
 		require.Equal(t, fmt.Sprint(i), got.Description)
 		require.Equal(t, map[string]string{"emoji": "🚀", "k": "$revision"}, got.Meta)
-		require.Len(t, historyIDs(t, store.History(ctx, id)), 1)
+		require.Len(t, seqIDs(t, store.History(ctx, id), historyID), 1)
 	}
 	require.NoError(t, store.DeleteTask(ctx, "task "))
 	got, err := store.GetTask(ctx, "task")
 	require.NoError(t, err)
 	require.NotNil(t, got, "deleting 'task ' must not delete 'task'")
-	require.Len(t, historyIDs(t, store.History(ctx, "task")), 1)
+	require.Len(t, seqIDs(t, store.History(ctx, "task"), historyID), 1)
 
 	require.NoError(t, store.UpsertTask(ctx, &scheduler.TaskState{TaskSummary: scheduler.TaskSummary{
 		ID: "owned", Status: scheduler.TaskStatusRunning,
@@ -178,7 +178,7 @@ func Pagination(t *testing.T, store scheduler.Storage) {
 	} {
 		page, err := store.TasksPaginated(ctx, scheduler.Pagination{Limit: 100}, mustParse(t, tc.expr))
 		require.NoError(t, err, tc.expr)
-		require.Equal(t, slices.Sorted(slices.Values(tc.want)), stateIDs(page), tc.expr)
+		require.Equal(t, slices.Sorted(slices.Values(tc.want)), sliceIDs(page, taskID), tc.expr)
 	}
 
 	// History: ties on StartedAt are broken by ID descending.
@@ -210,7 +210,7 @@ func Pagination(t *testing.T, store scheduler.Storage) {
 	page, err := store.HistoryPaginated(ctx, "a", scheduler.HistoryPagination{Pagination: scheduler.Pagination{Limit: 100}},
 		mustParse(t, `success && startedAt >= 10`))
 	require.NoError(t, err)
-	require.Equal(t, []string{"h3", "h1"}, historyPageIDs(page))
+	require.Equal(t, []string{"h3", "h1"}, sliceIDs(page, historyID))
 }
 
 // History verifies History ordering, CleanupHistory retention and that
@@ -228,16 +228,16 @@ func History(t *testing.T, store scheduler.Storage) {
 			ID: fmt.Sprint("e", i), TaskID: "hist", StartedAt: now - age - 1, EndedAt: now - age, Success: true,
 		}))
 	}
-	require.Equal(t, []string{"e1", "e2", "e0"}, historyIDs(t, store.History(ctx, "hist")))
+	require.Equal(t, []string{"e1", "e2", "e0"}, seqIDs(t, store.History(ctx, "hist"), historyID))
 
 	require.NoError(t, store.CleanupHistory(ctx, 90*time.Minute))
-	require.Equal(t, []string{"e1", "e2"}, historyIDs(t, store.History(ctx, "hist")))
+	require.Equal(t, []string{"e1", "e2"}, seqIDs(t, store.History(ctx, "hist"), historyID))
 
 	require.NoError(t, store.DeleteTask(ctx, "hist"))
 	got, err := store.GetTask(ctx, "hist")
 	require.NoError(t, err)
 	require.Nil(t, got)
-	require.Empty(t, historyIDs(t, store.History(ctx, "hist")))
+	require.Empty(t, seqIDs(t, store.History(ctx, "hist"), historyID))
 	require.NoError(t, store.DeleteTask(ctx, "hist"), "deleting a missing task is not an error")
 }
 
@@ -245,43 +245,29 @@ func mustParse(t *testing.T, expr string) filter.Node {
 	t.Helper()
 	parser, err := filter.NewParser()
 	require.NoError(t, err)
-	node, err := parser.Parse(context.Background(), expr)
+	node, err := parser.Parse(t.Context(), expr)
 	require.NoError(t, err, expr)
 	return node
 }
 
-func taskIDs(t *testing.T, seq func(func(*scheduler.TaskState, error) bool)) []string {
+func taskID(s *scheduler.TaskState) string      { return s.ID }
+func historyID(h *scheduler.TaskHistory) string { return h.ID }
+
+// seqIDs drains seq, failing on any yielded error, and returns the IDs.
+func seqIDs[T any](t *testing.T, seq iter.Seq2[*T, error], id func(*T) string) []string {
 	t.Helper()
 	var ids []string
-	for s, err := range seq {
+	for v, err := range seq {
 		require.NoError(t, err)
-		ids = append(ids, s.ID)
+		ids = append(ids, id(v))
 	}
 	return ids
 }
 
-func historyIDs(t *testing.T, seq func(func(*scheduler.TaskHistory, error) bool)) []string {
-	t.Helper()
-	var ids []string
-	for h, err := range seq {
-		require.NoError(t, err)
-		ids = append(ids, h.ID)
-	}
-	return ids
-}
-
-func stateIDs(states []*scheduler.TaskState) []string {
-	ids := make([]string, 0, len(states))
-	for _, s := range states {
-		ids = append(ids, s.ID)
-	}
-	return ids
-}
-
-func historyPageIDs(hist []*scheduler.TaskHistory) []string {
-	ids := make([]string, 0, len(hist))
-	for _, h := range hist {
-		ids = append(ids, h.ID)
+func sliceIDs[T any](items []*T, id func(*T) string) []string {
+	ids := make([]string, 0, len(items))
+	for _, v := range items {
+		ids = append(ids, id(v))
 	}
 	return ids
 }

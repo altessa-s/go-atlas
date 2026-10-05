@@ -40,7 +40,7 @@ func sqlStorage(driver, dsn string, dialect sqldb.Dialect) func(tb testing.TB) s
 		tb.Helper()
 		db, err := sql.Open(driver, dsn)
 		require.NoError(tb, err)
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		ctx, cancel := context.WithTimeout(tb.Context(), 3*time.Second)
 		defer cancel()
 		if err := db.PingContext(ctx); err != nil {
 			_ = db.Close()
@@ -95,7 +95,7 @@ func TestStorageContract(t *testing.T) {
 		"history":         storagetest.History,
 	}
 	for _, b := range backends() {
-		if !strings.Contains("postgres mariadb mysql", b.name) {
+		if !b.sql {
 			continue // Mongo and Redis keep their own suites in the root module.
 		}
 		t.Run(b.name, func(t *testing.T) {
@@ -117,7 +117,7 @@ func TestStorageContract(t *testing.T) {
 func TestSQLFilterSemantics(t *testing.T) {
 	t.Parallel()
 	for _, b := range backends() {
-		if !strings.Contains("postgres mariadb mysql", b.name) {
+		if !b.sql {
 			continue
 		}
 		t.Run(b.name, func(t *testing.T) {

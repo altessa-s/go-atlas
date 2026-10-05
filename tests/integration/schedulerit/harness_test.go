@@ -104,15 +104,18 @@ func namespace(tb testing.TB) string {
 type backend struct {
 	name    string
 	storage func(tb testing.TB) scheduler.Storage
+	// sql marks the database/sql backends, which also run the storage
+	// contract suite and the SQL-only checks.
+	sql bool
 }
 
 func backends() []backend {
 	return []backend{
 		{name: "mongodb", storage: newMongoStorage},
 		{name: "redis", storage: newRedisStorage},
-		{name: "postgres", storage: sqlStorage("pgx", envOr("POSTGRES_DSN", "postgres://atlas:atlas@127.0.0.1:15432/atlas?sslmode=disable"), sqldb.DialectPostgres)},
-		{name: "mariadb", storage: sqlStorage("mysql", envOr("MARIADB_DSN", "atlas:atlas@tcp(127.0.0.1:13306)/atlas"), sqldb.DialectMySQL)},
-		{name: "mysql", storage: sqlStorage("mysql", envOr("MYSQL_DSN", "atlas:atlas@tcp(127.0.0.1:13307)/atlas"), sqldb.DialectMySQL)},
+		{name: "postgres", storage: sqlStorage("pgx", envOr("POSTGRES_DSN", "postgres://atlas:atlas@127.0.0.1:15432/atlas?sslmode=disable"), sqldb.DialectPostgres), sql: true},
+		{name: "mariadb", storage: sqlStorage("mysql", envOr("MARIADB_DSN", "atlas:atlas@tcp(127.0.0.1:13306)/atlas"), sqldb.DialectMySQL), sql: true},
+		{name: "mysql", storage: sqlStorage("mysql", envOr("MYSQL_DSN", "atlas:atlas@tcp(127.0.0.1:13307)/atlas"), sqldb.DialectMySQL), sql: true},
 	}
 }
 
