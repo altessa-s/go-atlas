@@ -22,8 +22,10 @@ var (
 )
 
 // EnsureSchema creates the tasks and history tables and their indexes if they
-// do not exist. It is idempotent; call it once at startup (or apply the same
-// DDL through your migration tool).
+// do not exist, and adds the run-lease and occurrence columns (run_lease_until,
+// run_lease_id, run_at) to a tasks table created by an earlier release. It is
+// idempotent and safe to run concurrently from several instances; call it once
+// at startup (or apply the same DDL through your migration tool).
 //
 // On MySQL/MariaDB every string column gets an explicit utf8mb4 character set
 // and a NO PAD binary collation (utf8mb4_0900_bin on MySQL, utf8mb4_nopad_bin
@@ -32,13 +34,16 @@ var (
 // server is probed once to pick the collation; older servers are rejected
 // with [ErrUnsupportedVersion].
 func (s *Storage) EnsureSchema(ctx context.Context) error {
-	var ddl []string
+	var (
+		ddl       []string
+		collation string
+	)
 	switch s.dialect.name {
 	case DialectPostgres:
 		ddl = s.postgresSchema()
 	case DialectMySQL:
-		collation, err := s.mysqlCollation(ctx)
-		if err != nil {
+		var err error
+		if collation, err = s.mysqlCollation(ctx); err != nil {
 			return err
 		}
 		ddl = s.mysqlSchema(collation)
@@ -48,7 +53,81 @@ func (s *Storage) EnsureSchema(ctx context.Context) error {
 			return coreerrs.WrapOperation(err, "create scheduler schema")
 		}
 	}
+	if s.dialect.name == DialectMySQL {
+		return s.mysqlAddColumns(ctx, collation)
+	}
 	return nil
+}
+
+// addedColumn is a tasks column introduced after the first release of the
+// schema; EnsureSchema adds it to an existing table.
+type addedColumn struct {
+	name     string
+	postgres string // type and constraints on PostgreSQL
+	mysql    string // type and constraints on MySQL; %s is the string collation clause
+}
+
+// addedColumns lists the tasks columns EnsureSchema adds to an existing table,
+// in the order they are added. Each matches its CREATE TABLE definition.
+var addedColumns = []addedColumn{
+	{"run_lease_until", "BIGINT NOT NULL DEFAULT 0", "BIGINT NOT NULL DEFAULT 0"},
+	{"run_lease_id", "TEXT NOT NULL DEFAULT ''", "VARCHAR(255) %s NOT NULL DEFAULT ''"},
+	{"run_at", "BIGINT NOT NULL DEFAULT 0", "BIGINT NOT NULL DEFAULT 0"},
+}
+
+// mysqlAddColumns adds the columns of addedColumns missing from the tasks
+// table. MySQL has no ADD COLUMN IF NOT EXISTS (MariaDB does, MySQL 8 does
+// not), so the columns are read from information_schema first; an ALTER that
+// fails because a concurrent EnsureSchema added the column meanwhile is
+// tolerated by checking again.
+func (s *Storage) mysqlAddColumns(ctx context.Context, collation string) error {
+	existing, err := s.mysqlTaskColumns(ctx)
+	if err != nil {
+		return err
+	}
+	for _, c := range addedColumns {
+		if existing[c.name] {
+			continue
+		}
+		def := c.mysql
+		if strings.Contains(def, "%s") {
+			def = fmt.Sprintf(def, "CHARACTER SET utf8mb4 COLLATE "+collation)
+		}
+		if _, err := s.db.ExecContext(ctx, "ALTER TABLE "+s.tasksTable+" ADD COLUMN "+c.name+" "+def); err != nil {
+			if now, checkErr := s.mysqlTaskColumns(ctx); checkErr == nil && now[c.name] {
+				continue
+			}
+			return coreerrs.WrapOperation(err, "upgrade scheduler schema")
+		}
+	}
+	return nil
+}
+
+// mysqlTaskColumns returns the column names of the tasks table, looked up in
+// its schema qualifier or, when unqualified, the connection's database.
+func (s *Storage) mysqlTaskColumns(ctx context.Context) (map[string]bool, error) {
+	const query = "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = COALESCE(?, DATABASE()) AND TABLE_NAME = ?"
+	var schema any // NULL selects the connection's database
+	if s.tasksSchema != "" {
+		schema = s.tasksSchema
+	}
+	rows, err := s.db.QueryContext(ctx, query, schema, s.tasksName)
+	if err != nil {
+		return nil, coreerrs.WrapOperation(err, "read scheduler schema")
+	}
+	defer func() { _ = rows.Close() }()
+	cols := make(map[string]bool)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, coreerrs.WrapOperation(err, "read scheduler schema")
+		}
+		cols[strings.ToLower(name)] = true
+	}
+	if err := rows.Err(); err != nil {
+		return nil, coreerrs.WrapOperation(err, "read scheduler schema")
+	}
+	return cols, nil
 }
 
 func (s *Storage) postgresSchema() []string {
@@ -64,6 +143,9 @@ func (s *Storage) postgresSchema() []string {
   next_run_at     BIGINT  NOT NULL DEFAULT 0,
   last_run_id     TEXT    NOT NULL DEFAULT '',
   run_started_at  BIGINT  NOT NULL DEFAULT 0,
+  run_lease_until BIGINT  NOT NULL DEFAULT 0,
+  run_lease_id    TEXT    NOT NULL DEFAULT '',
+  run_at          BIGINT  NOT NULL DEFAULT 0,
   failures        INTEGER NOT NULL DEFAULT 0,
   skip_next_run   BOOLEAN NOT NULL DEFAULT FALSE,
   disable_history BOOLEAN NOT NULL DEFAULT FALSE,
@@ -75,6 +157,7 @@ func (s *Storage) postgresSchema() []string {
   revision        BIGINT  NOT NULL DEFAULT 0
 )`,
 		`CREATE INDEX IF NOT EXISTS ` + s.indexName(s.tasksName, "due") + ` ON ` + tasks + ` (status, next_run_at)`,
+		s.postgresAddColumns(),
 		`CREATE TABLE IF NOT EXISTS ` + history + ` (
   id          VARCHAR(255) COLLATE "C" PRIMARY KEY,
   task_id     VARCHAR(255) COLLATE "C" NOT NULL,
@@ -90,6 +173,17 @@ func (s *Storage) postgresSchema() []string {
 	}
 }
 
+// postgresAddColumns renders one ALTER TABLE adding every column of
+// addedColumns that the tasks table lacks; ADD COLUMN IF NOT EXISTS makes it a
+// no-op on a current table, and ALTER TABLE's lock serializes concurrent runs.
+func (s *Storage) postgresAddColumns() string {
+	adds := make([]string, len(addedColumns))
+	for i, c := range addedColumns {
+		adds[i] = "ADD COLUMN IF NOT EXISTS " + c.name + " " + c.postgres
+	}
+	return "ALTER TABLE " + s.tasksTable + " " + strings.Join(adds, ", ")
+}
+
 func (s *Storage) mysqlSchema(collation string) []string {
 	text := func(typ string) string { return typ + " CHARACTER SET utf8mb4 COLLATE " + collation }
 	return []string{
@@ -103,6 +197,9 @@ func (s *Storage) mysqlSchema(collation string) []string {
   next_run_at     BIGINT  NOT NULL DEFAULT 0,
   last_run_id     ` + text("VARCHAR(255)") + ` NOT NULL DEFAULT '',
   run_started_at  BIGINT  NOT NULL DEFAULT 0,
+  run_lease_until BIGINT  NOT NULL DEFAULT 0,
+  run_lease_id    ` + text("VARCHAR(255)") + ` NOT NULL DEFAULT '',
+  run_at          BIGINT  NOT NULL DEFAULT 0,
   failures        INT     NOT NULL DEFAULT 0,
   skip_next_run   BOOLEAN NOT NULL DEFAULT FALSE,
   disable_history BOOLEAN NOT NULL DEFAULT FALSE,

@@ -675,8 +675,8 @@ storage:
 ```
 
 **Characteristics:**
-- `UpsertTask`, `ClaimRun`, `FinishRun` and `ReplaceTaskIf` are each a single conditional statement that bumps the revision; the row lock arbitrates
-  concurrent schedulers
+- `UpsertTask`, `CreateTask`, `ClaimRun`, `RenewRun`, `FinishRun` and `ReplaceTaskIf` are each a single statement (conditional where the run
+  ownership rules fence it) that sets the revision; the row lock arbitrates concurrent schedulers
 - String columns compare exactly (no trailing-space padding, no case folding): PostgreSQL IDs use `COLLATE "C"`, MySQL/MariaDB columns a NO PAD
   binary `utf8mb4` collation chosen per engine — the schema never inherits database defaults
 - Filter expressions are translated to SQL by the `data/filter` PostgreSQL and MariaDB translators; `size()` counts characters, unlike the memory
@@ -684,6 +684,8 @@ storage:
 - `DeleteTask` removes the task and its history in one transaction
 - `EnsureSchema` is idempotent; the factory never runs DDL — with the factory, call it on a `sqldb.New` storage built from the same handle,
   dialect and table names (or migrate) before starting the scheduler
+- `EnsureSchema` also adds the run-lease and occurrence columns (`run_lease_until`, `run_lease_id`, `run_at`) to a tasks table created by an
+  earlier release; run it (or add them through your migrations) before upgrading the scheduler
 
 See the package [README](../../service/scheduler/storages/sqldb/README.md) for the schema and dialect details.
 
@@ -714,8 +716,9 @@ competing claims regardless, the scheduler claims each run through `Storage.Clai
 
 - The write matches on `status == active` and, for the scheduled occurrence, `next_run_at == expectedNextRunAt` (the occurrence fence), flipping the
   task to `running` in one operation. Exactly one concurrent caller can match, so exactly one wins the claim; the loser skips the tick.
-- MongoDB implements it as one conditional `UpdateOne`; Redis as a single server-side `EVAL` (Lua) script; the memory backend under its mutex. All
-  three are atomic read-check-write, so the guarantee holds even during a leader-election split-brain window.
+- MongoDB implements it as one conditional `UpdateOne`; Redis as a single server-side `EVAL` (Lua) script; the SQL backend as one conditional
+  `UPDATE`; the memory backend under its mutex. All four are atomic read-check-write, so the guarantee holds even during a leader-election
+  split-brain window.
 
 The result: even if `IsLeader()` is wrong for a moment, competing dispatchers cannot both claim an occurrence. A one-shot task's `run_at` is fenced
 along with `next_run_at`, so a dispatch that observed one registered occurrence cannot claim another. The claim also requires that no earlier run of the
@@ -802,7 +805,7 @@ for entry, err := range sched.History(ctx, "my-task") {
 ### Paginated queries with filters
 
 `TasksPaginated` and `HistoryPaginated` accept a filter expression and cursor-based pagination. Filters are pushed down to the storage layer for
-server-side evaluation (MongoDB, Redis) or evaluated client-side (memory).
+server-side evaluation (MongoDB, Redis, SQL) or evaluated client-side (memory).
 
 ```go
 page := scheduler.PageRequest{Limit: 50}
