@@ -22,3 +22,7 @@ key atomically. The staging key carries a TTL, so a process that crashes mid-reb
 `Delete` is bound to the filter generation it observed: every rebuild commit attempt advances the filter's generation counter, and a delete request
 delayed past a rebuild does nothing instead of removing a colliding member of the rebuilt filter; `Delete` then returns an error ("filter replaced
 during delete") and the caller may retry against the new filter.
+
+Rebuilds of the shared filter are serialized across processes by a rebuild lease (`BeginRebuild`): a concurrent rebuild fails with
+`probfilter.ErrRebuildInProgress` before reading its source, and a rebuild that lost its lease cannot publish
+(`probfilter.ErrRebuildSuperseded`), so an older snapshot never overwrites a newer one.

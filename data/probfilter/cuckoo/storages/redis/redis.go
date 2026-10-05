@@ -32,7 +32,10 @@ type Storage struct {
 	opts *options
 }
 
-var _ storages.Storage = (*Storage)(nil)
+var (
+	_ storages.Storage            = (*Storage)(nil)
+	_ storages.ExclusiveRebuilder = (*Storage)(nil)
+)
 
 // New creates a new Redis Cuckoo filter Storage.
 // Requires Redis with RedisBloom module installed.
@@ -111,15 +114,50 @@ func (s *Storage) Delete(ctx context.Context, value string) (bool, error) {
 // staging key in the live key's cluster hash slot. Committing renames it onto
 // the live key in one atomic step; until then the live filter is untouched.
 func (s *Storage) Stage(ctx context.Context, expectedItems int64) (storages.Staging, error) {
-	capacity := s.opts.capacity
-	if expectedItems > 0 {
-		capacity = max(capacity, expectedItems+expectedItems/stageHeadroomDivisor)
-	}
-	st, err := s.core.Stage(ctx, s.reserveArgs(capacity)...)
+	st, err := s.core.Stage(ctx, s.reserveArgs(s.stagingCapacity(expectedItems))...)
 	if err != nil {
 		return nil, err
 	}
 	return st, nil
+}
+
+// BeginRebuild acquires the filter's rebuild lease (see
+// [storages.ExclusiveRebuilder]), so concurrent rebuilds of the shared filter
+// by several processes are serialized and a stale snapshot cannot overwrite a
+// newer one.
+func (s *Storage) BeginRebuild(ctx context.Context) (storages.RebuildLease, error) {
+	lease, err := s.core.BeginRebuild(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &rebuildLease{storage: s, lease: lease}, nil
+}
+
+// rebuildLease stages replacement filters under a held rebuild lease.
+type rebuildLease struct {
+	storage *Storage
+	lease   *redisfilter.Lease
+}
+
+func (l *rebuildLease) Stage(ctx context.Context, expectedItems int64) (storages.Staging, error) {
+	st, err := l.lease.Stage(ctx, l.storage.reserveArgs(l.storage.stagingCapacity(expectedItems))...)
+	if err != nil {
+		return nil, err
+	}
+	return st, nil
+}
+
+func (l *rebuildLease) Release(ctx context.Context) error {
+	return l.lease.Release(ctx)
+}
+
+// stagingCapacity returns the capacity of a replacement filter for
+// expectedItems: 25% headroom, never less than the configured capacity.
+func (s *Storage) stagingCapacity(expectedItems int64) int64 {
+	if expectedItems > 0 {
+		return max(s.opts.capacity, expectedItems+expectedItems/stageHeadroomDivisor)
+	}
+	return s.opts.capacity
 }
 
 // stageHeadroomDivisor sizes a rebuilt filter with 1/stageHeadroomDivisor

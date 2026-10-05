@@ -286,6 +286,10 @@ pointer swap, or `RENAME`).
 - Rebuilds of one filter are serialized. `Close` interrupts a running rebuild and waits for it; afterwards `Rebuild` returns `ErrFilterClosed`, so no
   rebuild commits after `Close` returns.
 - Writes made to a shared Redis filter by **other processes** during the rebuild are not journaled and are lost when the replacement is committed.
+- Rebuilds of a shared Redis filter are serialized across processes by a rebuild lease (`LeaseTTL`, 30 s, renewed while the rebuild runs),
+  taken before the data source is read. A rebuild that finds the lease held returns `ErrRebuildInProgress` without reading its source (the
+  holder publishes a fresh snapshot). Only the current holder can publish: a rebuild that lost its lease (for example a stalled process)
+  returns `ErrRebuildSuperseded` and its possibly outdated snapshot is discarded, so an older snapshot never overwrites a newer one.
 - Staging keys are reserved together with a TTL (`StagingTTL`, one hour, refreshed after every staging batch) in one Lua script and are never recreated
   once gone (staging batches use `NOCREATE`), so a process that crashes mid-rebuild cannot leak one; a staging key that vanishes during a slow rebuild
   fails that rebuild. The commit is one Lua script (`RENAME`, `PERSIST`, commit marker).
@@ -382,10 +386,12 @@ never added can still remove a colliding member's fingerprint, so only delete va
 
 ### Errors
 
-| Error                    | Package                  | Condition                                                |
-|--------------------------|--------------------------|----------------------------------------------------------|
-| `ErrFilterNotFound`      | `probfilter`             | `Manager.Get` with an unregistered name                  |
-| `ErrFilterAlreadyExists` | `probfilter`             | `Manager.Register` with a duplicate name                 |
-| `ErrFilterClosed`        | `probfilter`             | `Rebuild` on a closed filter                             |
-| `ErrCommitIndeterminate` | `probfilter`             | Wrapped when a Redis rebuild commit's outcome is unknown |
-| `ErrFilterFull`          | `cuckoo/storages/memory` | Cuckoo filter capacity exhausted                         |
+| Error                    | Package                  | Condition                                                            |
+|--------------------------|--------------------------|----------------------------------------------------------------------|
+| `ErrFilterNotFound`      | `probfilter`             | `Manager.Get` with an unregistered name                              |
+| `ErrFilterAlreadyExists` | `probfilter`             | `Manager.Register` with a duplicate name                             |
+| `ErrFilterClosed`        | `probfilter`             | `Rebuild` on a closed filter                                         |
+| `ErrCommitIndeterminate` | `probfilter`             | Wrapped when a Redis rebuild commit's outcome is unknown             |
+| `ErrRebuildInProgress`   | `probfilter`             | Wrapped when another process is rebuilding the shared Redis filter   |
+| `ErrRebuildSuperseded`   | `probfilter`             | Wrapped when a rebuild lost its lease and its snapshot was discarded |
+| `ErrFilterFull`          | `cuckoo/storages/memory` | Cuckoo filter capacity exhausted                                     |

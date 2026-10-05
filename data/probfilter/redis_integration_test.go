@@ -313,3 +313,118 @@ func TestRedisCuckoo_DeleteGeneration_Integration(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 }
+
+// pausingLoader yields values; before yielding it signals started and waits
+// for resume.
+type pausingLoader struct {
+	values  []string
+	started chan struct{}
+	resume  chan struct{}
+}
+
+func (l *pausingLoader) Count(context.Context) (int64, error) { return -1, nil }
+
+func (l *pausingLoader) StreamValues(context.Context) iter.Seq2[string, error] {
+	return func(yield func(string, error) bool) {
+		close(l.started)
+		<-l.resume
+		for _, v := range l.values {
+			if !yield(v, nil) {
+				return
+			}
+		}
+	}
+}
+
+// TestRedisConcurrentRebuilds_Integration runs two "processes" (two filter
+// instances over one Redis key) rebuilding concurrently (OIDC-016):
+//
+//   - while A rebuilds, B's rebuild is refused and B's source is never read;
+//   - when A stalls until its lease is lost, B rebuilds and publishes a newer
+//     snapshot, and A's later commit is rejected: B's contents stay live.
+func TestRedisConcurrentRebuilds_Integration(t *testing.T) {
+	client, prefix := newRedisBloomIT(t, 3)
+	ctx := t.Context()
+
+	type pair struct{ a, b probfilter.RebuildableFilter }
+	filters := map[string]func() pair{
+		"bloom": func() pair {
+			mk := func() probfilter.RebuildableFilter {
+				return bloom.New(bloomredis.New(client, "bf", bloomredis.WithKeyPrefix(prefix), bloomredis.WithExpectedItems(1000)))
+			}
+			return pair{mk(), mk()}
+		},
+		"cuckoo": func() pair {
+			mk := func() probfilter.RebuildableFilter {
+				return cuckoo.New(cuckooredis.New(client, "cf", cuckooredis.WithKeyPrefix(prefix), cuckooredis.WithCapacity(1000)))
+			}
+			return pair{mk(), mk()}
+		},
+	}
+
+	for name, mk := range filters {
+		t.Run(name, func(t *testing.T) {
+			p := mk()
+			leaseKey := func() string {
+				keys, err := client.Keys(ctx, "*"+prefix+"*:rebuild-lease:*").Result()
+				require.NoError(t, err)
+				require.Len(t, keys, 1)
+				return keys[0]
+			}
+
+			// 1. B is refused while A holds the lease.
+			loaderA := &pausingLoader{values: []string{"a-1"}, started: make(chan struct{}), resume: make(chan struct{})}
+			doneA := make(chan error, 1)
+			go func() { doneA <- p.a.Rebuild(ctx, loaderA) }()
+			<-loaderA.started
+
+			var bRead atomic.Bool
+			loaderB := probfilter.DataLoaderFunc(func(context.Context) iter.Seq2[string, error] {
+				bRead.Store(true)
+				return func(yield func(string, error) bool) { yield("b-1", nil) }
+			})
+			require.ErrorIs(t, p.b.Rebuild(ctx, loaderB), probfilter.ErrRebuildInProgress)
+			require.False(t, bRead.Load(), "a refused rebuild must not read its source")
+
+			close(loaderA.resume)
+			require.NoError(t, <-doneA)
+			requireMember(t, p.a, "a-1")
+
+			// 2. A loads an older snapshot and stalls until its lease is lost;
+			// B publishes a newer one; A's commit must be rejected.
+			older := make([]string, 20)
+			for i := range older {
+				older[i] = fmt.Sprintf("older-%d", i)
+			}
+			loaderA = &pausingLoader{values: older, started: make(chan struct{}), resume: make(chan struct{})}
+			go func() { doneA <- p.a.Rebuild(ctx, loaderA) }()
+			<-loaderA.started
+			require.NoError(t, client.Del(ctx, leaseKey()).Err()) // A's lease expired
+
+			require.NoError(t, p.b.Rebuild(ctx, valuesLoader([]string{"newer"}, -1)))
+			close(loaderA.resume)
+			require.ErrorIs(t, <-doneA, probfilter.ErrRebuildSuperseded)
+
+			requireMember(t, p.b, "newer")
+			present := 0
+			for _, v := range older {
+				ok, err := p.b.MightExist(ctx, v)
+				require.NoError(t, err)
+				if ok {
+					present++
+				}
+			}
+			// A few may match as false positives; a published stale snapshot
+			// would make all of them match.
+			require.Less(t, present, 5, "the stale snapshot must not overwrite the newer one")
+			require.Empty(t, stagingKeys(t, client, prefix), "the superseded staging key is removed")
+		})
+	}
+}
+
+func requireMember(t *testing.T, f probfilter.Filter, v string) {
+	t.Helper()
+	ok, err := f.MightExist(t.Context(), v)
+	require.NoError(t, err)
+	require.True(t, ok, "MightExist(%q)", v)
+}

@@ -15,6 +15,17 @@ import (
 // has been closed, so scheduled rebuilds of a discarded filter become no-ops.
 var ErrFilterClosed = errors.New("filter closed")
 
+// ErrRebuildInProgress is wrapped by a Rebuild error when another process is
+// rebuilding the same shared filter right now; nothing was loaded. That
+// rebuild publishes a fresh snapshot, so there is nothing to retry.
+var ErrRebuildInProgress = errors.New("filter rebuild in progress elsewhere")
+
+// ErrRebuildSuperseded is wrapped by a Rebuild error when the rebuild lost its
+// right to publish — its rebuild lease of a shared filter expired (for
+// example because the process stalled) and another rebuild took over — so its
+// possibly outdated snapshot was discarded; the previous contents stay.
+var ErrRebuildSuperseded = errors.New("filter rebuild superseded")
+
 // ErrCommitIndeterminate is wrapped by a Rebuild error when the rebuilt
 // contents may or may not have replaced the previous ones — for example a
 // Redis commit whose reply was lost and whose outcome could not be checked.

@@ -9,11 +9,12 @@ Package `storages` defines the `Storage` interface for Bloom filter backends. Im
 
 ## Key types
 
-| Type / Interface | Description                                                         |
-|------------------|---------------------------------------------------------------------|
-| `Storage`        | Interface: MightExist, Add, AddBatch, Stage, LastRebuild, Close     |
-| `Staging`        | Replacement filter of a rebuild: AddBatch, Commit (atomic swap), Abort |
-| `StatsProvider`  | Optional interface for backends that expose filter statistics        |
+| Type / Interface     | Description                                                                                 |
+|----------------------|---------------------------------------------------------------------------------------------|
+| `Storage`            | Interface: MightExist, Add, AddBatch, Stage, LastRebuild, Close                             |
+| `Staging`            | Replacement filter of a rebuild: AddBatch, Commit (atomic swap), Abort                      |
+| `ExclusiveRebuilder` | Optional: shared storages serialize rebuilds with a lease (`BeginRebuild` → `RebuildLease`) |
+| `StatsProvider`      | Optional interface for backends that expose filter statistics                               |
 
 ## Subpackages
 
