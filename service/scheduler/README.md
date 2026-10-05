@@ -73,7 +73,8 @@ Run IDs name the executing instance (`<instance-id>/<random>`). `Storage.ClaimRu
 on both `NextRunAt` and `RunAt`; the owner then calls `Storage.RenewRun(ctx, id, runID, leaseUntil)` every third of the lease (`WithStaleTaskTimeout`,
 at least 5s); it sets `TaskState.RunLeaseUntil` and increments the revision only while `runID` still owns an unfinished run (`LastRunID == runID`,
 `RunStartedAt != 0`). `Storage.CreateTask` inserts a task with revision one only when its ID is absent and otherwise reports `false` without writing.
-Custom storage implementations must perform both operations, and the `RunStartedAt == 0` condition of `ClaimRun`, atomically.
+Custom storage implementations must perform both operations, and the `RunStartedAt == 0` condition of `ClaimRun`, atomically. The claim, ownership
+and finish rules shared by `ClaimRun`, `RenewRun` and `FinishRun` are defined once, in the "Run ownership" section of the `Storage` godoc.
 
 ## Subpackages
 
