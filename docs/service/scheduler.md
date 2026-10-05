@@ -162,9 +162,10 @@ scheduler:
       historyTtl: "0s"
       maxHistoryPerTask: 1000
     sql:
-      dialect: postgres               # postgres | mysql (MySQL 8.0.17+, MariaDB 10.6+)
+      dialect: postgres               # postgres | mysql (MySQL 8.0+, MariaDB 10.6+)
       tasksTable: scheduler_tasks
       historyTable: scheduler_history
+      ensureSchema: false             # true: the factory runs EnsureSchema while building
 ```
 
 ### Scheduler
@@ -662,7 +663,7 @@ if err := store.EnsureSchema(ctx); err != nil { // or apply the DDL via migratio
 }
 ```
 
-Persistent storage on PostgreSQL 12+ (`DialectPostgres`) or MySQL 8.0.17+ / MariaDB 10.6+ (`DialectMySQL`) through `database/sql`. The application
+Persistent storage on PostgreSQL 12+ (`DialectPostgres`) or MySQL 8.0+ / MariaDB 10.6+ (`DialectMySQL`) through `database/sql`. The application
 owns the `*sql.DB` and chooses the driver.
 
 ```yaml
@@ -672,18 +673,21 @@ storage:
     dialect: postgres                # Default: postgres
     tasksTable: scheduler_tasks      # Default: scheduler_tasks
     historyTable: scheduler_history  # Default: scheduler_history
+    ensureSchema: false              # Default: false — run EnsureSchema during Build
 ```
 
 **Characteristics:**
 - `UpsertTask`, `CreateTask`, `ClaimRun`, `RenewRun`, `FinishRun` and `ReplaceTaskIf` are each a single statement (conditional where the run
   ownership rules fence it) that sets the revision; the row lock arbitrates concurrent schedulers
-- String columns compare exactly (no trailing-space padding, no case folding): PostgreSQL IDs use `COLLATE "C"`, MySQL/MariaDB columns a NO PAD
-  binary `utf8mb4` collation chosen per engine — the schema never inherits database defaults
+- String columns compare exactly (no trailing-space padding, no case folding): PostgreSQL IDs use `COLLATE "C"`, MySQL/MariaDB string columns are
+  binary types (`VARBINARY`, `MEDIUMBLOB`, `LONGBLOB`) — no server version probe, and the schema never inherits database defaults. Tables created
+  by the previous release (`utf8mb4` with a NO PAD binary collation) are exact too and keep working unchanged
 - Filter expressions are translated to SQL by the `data/filter` PostgreSQL and MariaDB translators; `size()` counts characters, unlike the memory
-  backend's byte count
+  backend's byte count. On MySQL/MariaDB string fields are filtered through a `utf8mb4_bin` text view, which is `PAD SPACE`: filter comparisons
+  and `endsWith()` ignore trailing spaces there (lookups and run-ownership fences stay exact)
 - `DeleteTask` removes the task and its history in one transaction
-- `EnsureSchema` is idempotent; the factory never runs DDL — with the factory, call it on a `sqldb.New` storage built from the same handle,
-  dialect and table names (or migrate) before starting the scheduler
+- `EnsureSchema` is idempotent; the factory runs it only with `ensureSchema: true` — otherwise call it on a `sqldb.New` storage built from the
+  same handle, dialect and table names (or migrate) before starting the scheduler
 - `EnsureSchema` also adds the run-lease and occurrence columns (`run_lease_until`, `run_lease_id`, `run_at`) to a tasks table created by an
   earlier release; run it (or add them through your migrations) before upgrading the scheduler
 

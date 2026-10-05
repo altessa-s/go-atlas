@@ -88,7 +88,7 @@ const (
 const (
 	// SchedulerSQLDialectPostgres targets PostgreSQL 12+.
 	SchedulerSQLDialectPostgres = "postgres"
-	// SchedulerSQLDialectMySQL targets MySQL 8.0.17+ and MariaDB 10.6+.
+	// SchedulerSQLDialectMySQL targets MySQL 8.0+ and MariaDB 10.6+.
 	SchedulerSQLDialectMySQL = "mysql"
 )
 
@@ -153,7 +153,7 @@ func DefaultSchedulerStorageMemoryConfig() SchedulerStorageMemoryConfig {
 // storage (service/scheduler/storages/sqldb). The *sql.DB itself is injected
 // into the factory; the caller chooses and registers the driver.
 type SchedulerStorageSQLConfig struct {
-	// Dialect selects the SQL flavor: "postgres" or "mysql" (MySQL 8.0.17+ and
+	// Dialect selects the SQL flavor: "postgres" or "mysql" (MySQL 8.0+ and
 	// MariaDB 10.6+). Defaults to "postgres" if not specified.
 	Dialect string `yaml:"dialect" default:"postgres"`
 
@@ -164,6 +164,12 @@ type SchedulerStorageSQLConfig struct {
 	// HistoryTable is the table name for task history, optionally schema-qualified.
 	// Defaults to "scheduler_history" if not specified.
 	HistoryTable string `yaml:"historyTable" default:"scheduler_history"`
+
+	// EnsureSchema makes the factory create the tables and indexes (and upgrade
+	// a tasks table from an earlier release) while building the scheduler, by
+	// calling the storage's idempotent EnsureSchema. Leave it false when the
+	// schema is applied through migrations. Defaults to false.
+	EnsureSchema bool `yaml:"ensureSchema" default:"false"`
 }
 
 // DefaultSchedulerStorageSQLConfig returns a SchedulerStorageSQLConfig with default values.
