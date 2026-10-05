@@ -563,6 +563,8 @@ oidc:
 **Rules:**
 - `presets.list` and `presets.selectors` must be configured together or both omitted.
 - When `ValidateToken` is called, selectors are evaluated by descending priority. The first match applies.
+- Selectors run on the signature-verified claims; when none matches (or the matched preset does not exist), the default validation reuses that
+  verification. Matchers receive a copy of the claims, so changes they make are never validated or returned.
 
 ### Cache
 
@@ -1399,6 +1401,11 @@ Returns `StatusServing` when the discovery document is valid and JWKS keys are l
 | `auth_oidc_revocation_check_errors_total` | Revocation check failures |
 
 Only `token_validations_total` and `validation_errors_total` carry the `issuer` label; the rest are unlabeled.
+
+Every `ValidateToken`, `ValidateTokenWithOptions` and `ValidateTokenWithPreset` call counts as one validation attempt with one duration sample
+(an unknown preset name counts as a failed attempt). Each validation verifies the signature at most once — also when preset selection rules
+are configured and none selects a registered preset — so, with a token cache configured, a validation that reaches signature verification
+records exactly one cache hit or miss; other validations (cache disabled, or rejected earlier) record neither.
 
 ## Scheduled Background Tasks
 
