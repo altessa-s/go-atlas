@@ -5,7 +5,8 @@ import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 ```
 
 Package `auth` provides gRPC interceptors for token-based authentication and scope-based authorization. ServerInterceptor validates tokens via a
-pluggable `Auth` function, ClientInterceptor injects tokens into outgoing metadata. ScopeRegistry maps gRPC methods to required OAuth scopes.
+pluggable `Auth` function, ClientInterceptor injects tokens into outgoing metadata. `ScopeClientAuth` enforces the method→scope policy held in
+an [`auth/scope.Registry`](../../../../auth/scope/README.md) through an `auth/scope.Enforcer`.
 
 ## Key types
 
@@ -16,7 +17,7 @@ pluggable `Auth` function, ClientInterceptor injects tokens into outgoing metada
 | `ClientAuth`      | Interface for additional client-level authentication after initial auth       |
 | `TokenExtractor`  | Interface for extracting tokens from context (default: Bearer from metadata) |
 | `TokenProvider`   | Interface for providing tokens in outgoing client requests                    |
-| `ScopeRegistry`   | Maps gRPC method names to required authorization scopes (O(1) lookup)        |
+| `ScopeClientAuth` | `ClientAuth` adapter that enforces an `auth/scope.Enforcer`                   |
 | `Credentials`     | Authenticated credentials with headers and custom data                       |
 | `Request`         | Authentication request with method, token, and metadata                      |
 
