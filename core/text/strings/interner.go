@@ -17,36 +17,39 @@ import (
 
 const (
 	// DefaultMaxSize is the default maximum number of interned strings that an
-	// [Interner] holds before LRU eviction is triggered. Used by [NewInterner]
+	// [Interner] holds before eviction is triggered. Used by [NewInterner]
 	// when the caller supplies a non-positive maxSize and by [GlobalInterner]
 	// for the singleton instance.
 	DefaultMaxSize = 8192
 
-	// EvictionBatchSize is the upper bound on the number of entries removed in a
-	// single background eviction pass. The actual count may be larger when the
-	// interner is significantly over capacity (see [EvictionRatio]).
+	// EvictionBatchSize caps the proportional part of a single background
+	// eviction pass (see [EvictionRatio]). A pass still removes more entries
+	// when that is needed to bring the interner back under its maximum size.
 	EvictionBatchSize = 512
 
-	// EvictionRatio determines the minimum fraction of the cache to evict
-	// (1/EvictionRatio). A value of 4 means at least 25 % of entries are
-	// considered for removal, reducing the frequency of eviction runs.
+	// EvictionRatio determines the fraction of the cache evicted per pass
+	// (1/EvictionRatio). A value of 4 means up to 25 % of entries are removed,
+	// capped by [EvictionBatchSize] but never fewer than needed to get back
+	// under the maximum size, reducing the frequency of eviction runs.
 	EvictionRatio = 4
 )
 
 // coarseTimestamp caches time.Now().Unix() to avoid a syscall on every intern hit.
-// It is refreshed every PromotionCheckInterval accesses (~50 operations).
+// It is refreshed only on every PromotionCheckInterval-th cold-cache hit of an
+// [Interner] (hot-cache hits and misses never refresh it), so it can lag behind
+// the wall clock while an interner sees few cold-cache hits.
 var coarseTimestamp atomic.Int64
 
 func init() {
 	coarseTimestamp.Store(time.Now().Unix())
 }
 
-// coarseNowUnix returns the cached Unix timestamp. Callers accept ~50-operation staleness.
+// coarseNowUnix returns the cached Unix timestamp. Callers accept its staleness.
 func coarseNowUnix() int64 {
 	return coarseTimestamp.Load()
 }
 
-// evictionCandidate holds data for a single eviction candidate during LRU sweep.
+// evictionCandidate holds data for a single eviction candidate during an eviction sweep.
 type evictionCandidate struct {
 	key         string
 	accessCount int64
@@ -61,7 +64,8 @@ var evictionCandidatesPool = sync.Pool{
 	},
 }
 
-// internEntry represents an interned string with access tracking for LRU eviction.
+// internEntry represents an interned string with access tracking for eviction
+// (least frequently used first, least recently used on ties).
 // It uses unique.Handle for efficient underlying storage and comparison.
 type internEntry struct {
 	handle      unique.Handle[string]
@@ -104,7 +108,7 @@ type InternerStats struct {
 	// Misses is the number of lookups that required creating a new entry.
 	Misses uint64
 
-	// Evictions is the total number of entries removed by background LRU eviction.
+	// Evictions is the total number of entries removed by background eviction.
 	Evictions uint64
 
 	// CurrentSize is the number of entries currently in the cold cache.
@@ -139,10 +143,10 @@ func (s InternerStats) TotalLookups() uint64 {
 	return s.HotHits + s.ColdHits + s.Misses
 }
 
-// Interner provides lock-free, concurrency-safe string interning with LRU
-// eviction. Identical string values are deduplicated so that only one copy is
-// retained in memory, significantly reducing heap usage for workloads with
-// many repeated strings.
+// Interner provides lock-free, concurrency-safe string interning with
+// frequency-based eviction. Identical string values are deduplicated so that
+// only one copy is retained in memory, significantly reducing heap usage for
+// workloads with many repeated strings.
 //
 // The implementation uses a two-tier cache:
 //
@@ -150,10 +154,14 @@ func (s InternerStats) TotalLookups() uint64 {
 //     frequently accessed strings, providing wait-free reads.
 //   - A cold cache backed by [sync.Map] for general-purpose interning.
 //
-// Strings that exceed [HotCacheThreshold] accesses are automatically promoted
-// to the hot cache. When the total number of interned strings exceeds the
-// configured maximum, a background goroutine evicts the least-recently-used
-// entries (see [EvictionBatchSize] and [EvictionRatio]).
+// Promotion to the hot cache is evaluated on every [PromotionCheckInterval]-th
+// cold-cache hit (counted across all strings): if the string looked up at that
+// moment has reached [HotCacheThreshold] accesses, it is promoted. An occupied
+// hot slot is taken over only when the new string has more than twice the
+// occupant's access count. When the total number of interned strings exceeds
+// the configured maximum, a background goroutine evicts the least frequently
+// accessed entries, breaking ties by least recent access (see
+// [EvictionBatchSize] and [EvictionRatio]).
 //
 // Performance counters (hits, misses, evictions) are tracked atomically and
 // can be read via [Interner.Stats] without affecting throughput.
@@ -214,7 +222,7 @@ func ResetGlobalInterner() {
 }
 
 // NewInterner creates a new [Interner] that holds up to maxSize interned
-// strings before triggering background LRU eviction. If maxSize is less than
+// strings before triggering background eviction. If maxSize is less than
 // or equal to zero, [DefaultMaxSize] is used instead.
 func NewInterner(maxSize int) *Interner {
 	if maxSize <= 0 {
@@ -322,7 +330,8 @@ func (si *Interner) triggerBackgroundEviction() {
 	}
 }
 
-// evictInBackground performs LRU eviction in a separate goroutine.
+// evictInBackground evicts the least frequently accessed entries (least
+// recently accessed first on ties) in a separate goroutine.
 func (si *Interner) evictInBackground() {
 	defer si.evicting.Store(0)
 
@@ -331,7 +340,8 @@ func (si *Interner) evictInBackground() {
 		return // Size may have been reduced by another eviction
 	}
 
-	// Determine how many entries to evict (at least 25% to reduce frequent evictions)
+	// Determine how many entries to evict: up to 25% (capped by EvictionBatchSize)
+	// to reduce frequent evictions, but at least enough to get back under maxSize.
 	evictCount := max(int64(1), min(int64(EvictionBatchSize), currentSize/EvictionRatio))
 	if currentSize > si.maxSize {
 		// Evict more aggressively if over capacity
@@ -359,7 +369,7 @@ func (si *Interner) evictInBackground() {
 	}
 
 	// Sort candidates by access count (ascending), then by last access (ascending)
-	// This gives us LRU eviction with frequency consideration
+	// This gives LFU eviction with LRU tie-breaking
 	slices.SortFunc(candidates, func(a, b evictionCandidate) int {
 		if c := cmp.Compare(a.accessCount, b.accessCount); c != 0 {
 			return c
@@ -432,7 +442,7 @@ func (si *Interner) Size() int64 {
 }
 
 // MaxSize returns the maximum number of strings the [Interner] will hold
-// before background LRU eviction is triggered.
+// before background eviction is triggered.
 func (si *Interner) MaxSize() int64 {
 	return si.maxSize
 }

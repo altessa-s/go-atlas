@@ -70,14 +70,14 @@ Pre-instantiated converters avoid type parameters at call sites:
 | `ToSnakeCase(s)` | `"HelloWorld"` → `"hello_world"` |
 | `ToScreamingSnakeCase(s)` | `"HelloWorld"` → `"HELLO_WORLD"` |
 | `ToCamelCase(s)` | `"hello_world"` → `"helloWorld"` |
-| `ScreamingSnakeToCamelCase(s)` | `"HELLO_WORLD"` → `"hELLOWORLD"` (see note) |
+| `ScreamingSnakeToCamelCase(s)` | `"HELLO_WORLD"` → `"helloWorld"` |
 
-> **Note:** `ScreamingSnakeToCamelCase` currently delegates to `ToCamelCase`, which lowercases only the first letter and preserves the case of every
-> other non-delimiter letter, so `"HELLO_WORLD"` yields `"hELLOWORLD"`, not `"helloWorld"`. Lowercase the input first
-> (with the standard library's `strings.ToLower`) if you need conventional camelCase.
+`ToCamelCase` lowercases only the first letter and keeps the case of every other letter that does not start a word, so `"SCREAMING_SNAKE"` yields
+`"sCREAMINGSNAKE"`; `ScreamingSnakeToCamelCase` also lowercases the rest of each word (`"REAL_IP"` → `"realIp"`). Both treat underscores and Unicode
+whitespace as word delimiters.
 
-`ToSnakeCase` and `ToScreamingSnakeCase` use an ASCII fast path with a Unicode (rune-based) fallback for non-ASCII input. `ToCamelCase` and
-`ScreamingSnakeToCamelCase` are ASCII-only: they process the input byte by byte, so non-ASCII characters are not case-converted correctly.
+All four functions use an ASCII fast path with a Unicode (rune-based) fallback for non-ASCII input. The camelCase functions copy invalid UTF-8
+bytes through unchanged.
 
 ### Case checks
 
@@ -107,13 +107,14 @@ parts := strings.Split("a,,b", strings.SplitOptions{
 // ["a", "b"]
 ```
 
-Case-insensitive splitting uses an optimized path when byte lengths are preserved, falling back to a cached regex for Unicode special casing (bounded
-at 256 entries).
+Case-insensitive splitting matches the separator under Unicode simple case folding (the rule used by `strings.EqualFold`), so `"ſ"` matches `"s"`,
+the Kelvin sign matches `"k"`, and `"Σ"`, `"σ"`, `"ς"` match each other. Pure ASCII input and separator use a fast lowercase scan; anything else
+uses a cached case-insensitive regex (bounded at 256 entries). A separator that is not valid UTF-8 is matched exactly.
 
 ### SplitSeq (lazy iterator)
 
-`SplitSeq` returns an `iter.Seq[string]` with the same semantics as `Split` but avoids allocating an intermediate slice. Suitable for large inputs or
-early termination:
+`SplitSeq` returns an `iter.Seq[string]` that yields exactly the parts `Split` returns but avoids allocating an intermediate slice. Suitable for large
+inputs or early termination:
 
 ```go
 for part := range strings.SplitSeq(largeCSV, strings.SplitOptions{Separator: ","}) {
@@ -122,10 +123,6 @@ for part := range strings.SplitSeq(largeCSV, strings.SplitOptions{Separator: ","
     }
 }
 ```
-
-Case-insensitive `SplitSeq` lowercases the input and separator and reuses the resulting indexes on the original string; unlike `Split`, it has no
-regex fallback for Unicode special casing. If lowercasing changes the byte length (e.g. `"İ"`), the split positions are wrong — use `Split` for
-case-insensitive splitting of non-ASCII input.
 
 ### Join
 
@@ -204,9 +201,9 @@ The `Interner` deduplicates identical strings so only one copy is retained in me
    (wait-free reads).
 2. Cold cache: `sync.Map` for general interning with `unique.Handle` storage.
 
-Promotion is checked on every 50th cold-cache hit (counted across all strings): if the string being looked up at that moment has at least 5 accesses,
-it is promoted to the hot cache. Background eviction runs when the interner exceeds capacity; it removes the least frequently accessed entries
-first (LFU), breaking ties by least recent access (LRU).
+Promotion is checked on every 50th cold-cache hit (counted across all strings): if the string being looked up at that moment has at least 5 accesses, it
+is promoted to the hot cache (an occupied slot is taken over only by a string with more than twice the occupant's access count). Background eviction
+runs when the interner exceeds capacity; it removes the least frequently accessed entries first (LFU), breaking ties by least recent access (LRU).
 
 ### Global interner
 
