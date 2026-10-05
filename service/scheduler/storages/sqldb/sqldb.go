@@ -25,8 +25,8 @@ import (
 )
 
 // taskColumns is the column list of the tasks table in scan order.
-const taskColumns = "id, description, status, priority, schedule, last_run_at, next_run_at, last_run_id, run_started_at, failures, " +
-	"skip_next_run, disable_history, unmanaged, one_shot, meta, created_at, updated_at, revision"
+const taskColumns = "id, description, status, priority, schedule, last_run_at, next_run_at, last_run_id, run_started_at, " +
+	"run_lease_until, run_lease_id, run_at, failures, skip_next_run, disable_history, unmanaged, one_shot, meta, created_at, updated_at, revision"
 
 // historyColumns is the column list of the history table in scan order.
 const historyColumns = "id, task_id, run_id, error, started_at, ended_at, duration_ms, success"
@@ -48,24 +48,26 @@ var historyFieldMapping = coremaps.NewImmutableMap(map[string]string{
 // driver; the storage only needs the matching [Dialect].
 //
 // Every write that the contract requires to be atomic — revision increments,
-// ClaimRun, FinishRun, ReplaceTaskIf — is a single conditional statement, so
-// the database row lock serializes concurrent writers. Methods are safe for
-// concurrent use.
+// CreateTask, ClaimRun, RenewRun, FinishRun, ReplaceTaskIf — is a single
+// statement, conditional where the contract fences it, so the database row lock
+// serializes concurrent writers. Methods are safe for concurrent use.
 type Storage struct {
 	db      *sql.DB
 	dialect dialect
 
 	tasksTable, historyTable string // quoted
 	tasksName, historyName   string // unqualified, for index names
+	tasksSchema              string // schema qualifier of the tasks table, if any
 
 	stmts statements
 }
 
 // statements are the fixed queries, rendered once for the dialect.
 type statements struct {
-	getTask, upsertTask, replaceTask, claim, claimAny, finish string
-	deleteHistory, deleteTask, tasks, dueTasks                string
-	addHistory, history, cleanupHistory                       string
+	getTask, upsertTask, createTask, replaceTask string
+	claim, claimAny, renew, finish               string
+	deleteHistory, deleteTask, tasks, dueTasks   string
+	addHistory, history, cleanupHistory          string
 }
 
 var _ scheduler.Storage = (*Storage)(nil)
@@ -103,6 +105,9 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Storage, error) {
 		return nil, err
 	}
 	s.tasksName = unqualified(o.tasksTable)
+	if i := strings.LastIndexByte(o.tasksTable, '.'); i >= 0 {
+		s.tasksSchema = o.tasksTable[:i]
+	}
 	s.historyName = unqualified(o.historyTable)
 	s.stmts = s.buildStatements()
 	return s, nil
@@ -129,14 +134,21 @@ func (s *Storage) buildStatements() statements {
 		return strings.Join(set, ", ")
 	}
 
-	var upsert string
+	insert := "INSERT INTO " + t + " (" + taskColumns + ") VALUES (" + values + ")"
+	var upsert, create string
 	switch s.dialect.name {
 	case DialectPostgres:
 		upsert = "INSERT INTO " + t + " AS cur (" + taskColumns + ") VALUES (" + values + ") ON CONFLICT (id) DO UPDATE SET " +
 			assign(func(c string) string { return "EXCLUDED." + c }) + ", revision = cur.revision + 1"
+		create = insert + " ON CONFLICT (id) DO NOTHING"
 	case DialectMySQL:
-		upsert = "INSERT INTO " + t + " (" + taskColumns + ") VALUES (" + values + ") ON DUPLICATE KEY UPDATE " +
+		upsert = insert + " ON DUPLICATE KEY UPDATE " +
 			assign(func(c string) string { return "VALUES(" + c + ")" }) + ", revision = revision + 1"
+		// MySQL has no portable insert-if-absent whose affected-rows count is
+		// unambiguous under every client flag (INSERT IGNORE also downgrades
+		// other errors); CreateTask runs a plain INSERT and resolves a failure by
+		// checking whether the row exists.
+		create = insert
 	}
 	replaceSet := assign(func(string) string { return "?" })
 
@@ -146,24 +158,34 @@ func (s *Storage) buildStatements() statements {
 	completed := strconv.Itoa(int(scheduler.TaskStatusCompleted))
 	active := strconv.Itoa(int(scheduler.TaskStatusActive))
 
-	const claimSet = " SET status = ?, run_started_at = ?, last_run_id = ?, updated_at = ?, revision = revision + 1 WHERE id = ? AND status = ?"
+	// claimSet stamps the run and its first lease. The claimable predicate:
+	// active and no unfinished run (run_started_at = 0), optionally fenced on
+	// the occurrence (next_run_at and run_at).
+	const claimSet = " SET status = ?, run_started_at = ?, last_run_id = ?, run_lease_until = ?, run_lease_id = ?, updated_at = ?," +
+		" revision = revision + 1 WHERE id = ? AND status = ? AND run_started_at = 0"
+	// owned is the ownership predicate shared by RenewRun and FinishRun.
+	const owned = " WHERE id = ? AND last_run_id = ? AND run_started_at <> 0"
+	// executed: a one-shot task still registered for the occurrence the run
+	// executed (re-registration may have moved it to another run_at meanwhile).
+	const executed = "(one_shot AND run_at = ?)"
 	return statements{
 		getTask:    b("SELECT "+taskColumns+" FROM "+t+" WHERE id = ?", 1),
 		upsertTask: b(upsert, 1),
+		createTask: b(create, 1),
 		replaceTask: b("UPDATE "+t+" SET "+replaceSet+", revision = ?"+
 			" WHERE id = ? AND status = ? AND next_run_at = ? AND last_run_id = ? AND run_started_at = ? AND revision = ?", 1),
-		claim:    b("UPDATE "+t+claimSet+" AND next_run_at = ?", 1),
+		claim:    b("UPDATE "+t+claimSet+" AND next_run_at = ? AND run_at = ?", 1),
 		claimAny: b("UPDATE "+t+claimSet, 1),
+		renew:    b("UPDATE "+t+" SET run_lease_until = ?, run_lease_id = ?, revision = revision + 1"+owned, 1),
 		// MySQL applies SET assignments left to right and later ones see the
 		// new values. No expression here reads a column assigned before it, so
 		// both dialects evaluate every expression against the old row.
 		finish: b("UPDATE "+t+" SET"+
-			" next_run_at = CASE WHEN one_shot THEN 0 WHEN schedule = ? THEN ? ELSE next_run_at END,"+
-			" status = CASE WHEN status = "+running+" THEN (CASE WHEN one_shot THEN "+completed+" ELSE "+active+" END) ELSE status END,"+
-			" last_run_at = ?, updated_at = ?, run_started_at = 0,"+
+			" next_run_at = CASE WHEN "+executed+" THEN 0 WHEN one_shot THEN next_run_at WHEN schedule = ? THEN ? ELSE next_run_at END,"+
+			" status = CASE WHEN "+executed+" THEN "+completed+" WHEN status = "+running+" THEN "+active+" ELSE status END,"+
+			" last_run_at = ?, updated_at = ?, run_started_at = 0, run_lease_until = 0, run_lease_id = '',"+
 			" failures = CASE WHEN ? THEN 0 ELSE failures + 1 END,"+
-			" revision = revision + 1"+
-			" WHERE id = ? AND last_run_id = ? AND run_started_at > 0", 1),
+			" revision = revision + 1"+owned, 1),
 		deleteHistory:  b("DELETE FROM "+h+" WHERE task_id = ?", 1),
 		deleteTask:     b("DELETE FROM "+t+" WHERE id = ?", 1),
 		tasks:          "SELECT " + taskColumns + " FROM " + t + " ORDER BY id",
@@ -225,28 +247,73 @@ func (s *Storage) ReplaceTaskIf(ctx context.Context, state *scheduler.TaskState,
 	return s.affected(ctx, "replace scheduler task", s.stmts.replaceTask, args...)
 }
 
-// ClaimRun transitions the task from active to running for the occurrence at
-// expectedNextRunAt (any occurrence when zero) in one conditional UPDATE; the
-// caller won iff a row was updated.
-func (s *Storage) ClaimRun(ctx context.Context, id string, expectedNextRunAt, runStartedAt int64, runID string) (bool, error) {
-	if err := checkLength(MaxIDLength, runID); err != nil {
+// CreateTask inserts the task with revision one only when no task with its ID
+// exists. On PostgreSQL the insert is ON CONFLICT DO NOTHING; on MySQL a
+// failed INSERT is reported as (false, nil) when the task exists — a duplicate
+// key — and as the error otherwise.
+func (s *Storage) CreateTask(ctx context.Context, state *scheduler.TaskState) (bool, error) {
+	if err := checkTask(state); err != nil {
 		return false, err
 	}
-	args := []any{int32(scheduler.TaskStatusRunning), runStartedAt, runID, runStartedAt, id, int32(scheduler.TaskStatusActive)}
-	if expectedNextRunAt == 0 {
-		return s.affected(ctx, "claim scheduler task", s.stmts.claimAny, args...)
+	args, err := taskArgs(state)
+	if err != nil {
+		return false, err
 	}
-	return s.affected(ctx, "claim scheduler task", s.stmts.claim, append(args, expectedNextRunAt)...)
+	res, err := s.db.ExecContext(ctx, s.stmts.createTask, append([]any{state.ID}, args...)...)
+	if err != nil {
+		if s.dialect.name == DialectMySQL {
+			if existing, getErr := s.GetTask(ctx, state.ID); getErr == nil && existing != nil {
+				return false, nil
+			}
+		}
+		return false, coreerrs.WrapOperation(err, "create scheduler task")
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, coreerrs.WrapOperation(err, "create scheduler task")
+	}
+	return n == 1, nil
 }
 
-// FinishRun records a run result only while runID still owns an unfinished
-// run, preserving concurrent pause/disable, schedule and metadata changes.
+// ClaimRun transitions the task from active to running while it is claimable —
+// no unfinished run and, when claim.NextRunAt is non-zero, the claimed
+// occurrence (next_run_at and run_at) still stored — in one conditional
+// UPDATE that also stores the run's first lease; the caller won iff a row was
+// updated.
+func (s *Storage) ClaimRun(ctx context.Context, id string, claim scheduler.RunClaim) (bool, error) {
+	if err := claim.Validate(); err != nil {
+		return false, err
+	}
+	if err := checkLength(MaxIDLength, claim.RunID); err != nil {
+		return false, err
+	}
+	args := []any{int32(scheduler.TaskStatusRunning), claim.StartedAt, claim.RunID, claim.LeaseUntil, claim.RunID, claim.StartedAt,
+		id, int32(scheduler.TaskStatusActive)}
+	if claim.NextRunAt == 0 {
+		return s.affected(ctx, "claim scheduler task", s.stmts.claimAny, args...)
+	}
+	return s.affected(ctx, "claim scheduler task", s.stmts.claim, append(args, claim.NextRunAt, claim.RunAt)...)
+}
+
+// RenewRun extends the lease of the unfinished run runID and binds it to the
+// run, in one conditional UPDATE.
+func (s *Storage) RenewRun(ctx context.Context, id, runID string, leaseUntil int64) (bool, error) {
+	if runID == "" {
+		return false, nil
+	}
+	return s.affected(ctx, "renew scheduler run", s.stmts.renew, leaseUntil, runID, id, runID)
+}
+
+// FinishRun applies the finish transition only while runID still owns an
+// unfinished run, preserving concurrent pause/disable, schedule and metadata
+// changes and clearing the run's lease.
 func (s *Storage) FinishRun(ctx context.Context, id, runID string, result scheduler.RunResult) (bool, error) {
 	if runID == "" {
 		return false, nil
 	}
 	return s.affected(ctx, "finish scheduler run", s.stmts.finish,
-		result.Schedule, result.NextRunAt,
+		result.RunAt, result.Schedule, result.NextRunAt,
+		result.RunAt,
 		result.StartedAt, result.EndedAt,
 		result.Success,
 		id, runID,
@@ -387,7 +454,7 @@ func (s *Storage) filterClause(f filter.Node, fields []string, mapping *coremaps
 
 // checkTask rejects a task whose ID-like fields exceed their columns.
 func checkTask(state *scheduler.TaskState) error {
-	if err := checkLength(MaxIDLength, state.ID, state.LastRunID); err != nil {
+	if err := checkLength(MaxIDLength, state.ID, state.LastRunID, state.RunLeaseID); err != nil {
 		return err
 	}
 	return checkLength(MaxScheduleLength, state.Schedule)
@@ -415,7 +482,8 @@ func taskArgs(state *scheduler.TaskState) ([]any, error) {
 	}
 	return []any{
 		state.Description, int32(state.Status), int32(state.Priority), state.Schedule,
-		state.LastRunAt, state.NextRunAt, state.LastRunID, state.RunStartedAt, state.Failures,
+		state.LastRunAt, state.NextRunAt, state.LastRunID, state.RunStartedAt,
+		state.RunLeaseUntil, state.RunLeaseID, state.RunAt, state.Failures,
 		state.SkipNextRun, state.DisableHistory, state.Unmanaged, state.OneShot,
 		string(meta), state.CreatedAt, state.UpdatedAt,
 	}, nil
@@ -433,8 +501,8 @@ func scanTask(r rowScanner) (*scheduler.TaskState, error) {
 		meta             string
 	)
 	if err := r.Scan(&t.ID, &t.Description, &status, &priority, &t.Schedule, &t.LastRunAt, &t.NextRunAt, &t.LastRunID,
-		&t.RunStartedAt, &t.Failures, &t.SkipNextRun, &t.DisableHistory, &t.Unmanaged, &t.OneShot, &meta,
-		&t.CreatedAt, &t.UpdatedAt, &t.Revision); err != nil {
+		&t.RunStartedAt, &t.RunLeaseUntil, &t.RunLeaseID, &t.RunAt, &t.Failures, &t.SkipNextRun, &t.DisableHistory,
+		&t.Unmanaged, &t.OneShot, &meta, &t.CreatedAt, &t.UpdatedAt, &t.Revision); err != nil {
 		return nil, err
 	}
 	t.Status = scheduler.TaskStatus(status)

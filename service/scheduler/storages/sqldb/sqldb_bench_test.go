@@ -51,7 +51,7 @@ func BenchmarkClaimRun(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := store.ClaimRun(b.Context(), "task", 100, 100, "run"); err != nil {
+		if _, err := store.ClaimRun(b.Context(), "task", scheduler.RunClaim{NextRunAt: 100, StartedAt: 100, RunID: "run"}); err != nil {
 			b.Fatal(err)
 		}
 	}

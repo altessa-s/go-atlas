@@ -12,7 +12,9 @@
 //
 // Task states and execution history live in two tables, defaulting to
 // [DefaultTasksTable] and [DefaultHistoryTable]. Call [Storage.EnsureSchema]
-// once at startup, or apply the same DDL through a migration tool. Every string
+// once at startup, or apply the same DDL through a migration tool; it also adds
+// the run-lease and occurrence columns to a tasks table created by an earlier
+// release, safely from several instances at once. Every string
 // column compares exactly: IDs that differ only by case or trailing spaces are
 // distinct rows, and run ownership is case-sensitive. On MySQL/MariaDB the
 // schema declares utf8mb4 with a NO PAD binary collation per engine, so it never
@@ -20,10 +22,11 @@
 //
 // # Atomicity
 //
-// UpsertTask, ClaimRun, FinishRun and ReplaceTaskIf are each one conditional
-// statement that also increments the revision, so the database row lock
-// serializes concurrent schedulers. DeleteTask removes a task and its history in
-// one transaction.
+// UpsertTask, CreateTask, ClaimRun, RenewRun, FinishRun and ReplaceTaskIf are
+// each one statement, conditional where the run-ownership rules of
+// [scheduler.Storage] fence it, that also sets the revision, so the database
+// row lock serializes concurrent schedulers. DeleteTask removes a task and its
+// history in one transaction.
 //
 // # Filters
 //

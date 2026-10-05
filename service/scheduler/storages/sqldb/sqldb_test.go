@@ -77,10 +77,14 @@ func TestEnsureSchemaPicksEngineCollation(t *testing.T) {
 			}
 			require.NoError(t, err)
 			calls := fake.Calls()
-			require.Len(t, calls, 3) // version probe + two tables
-			for _, c := range calls[1:] {
-				require.Contains(t, c.Query, "COLLATE "+tc.want)
+			// Version probe, two tables, the column probe and one ALTER per
+			// added column (the fake reports none).
+			require.Len(t, calls, 7)
+			for _, c := range calls {
 				require.NotContains(t, c.Query, "utf8mb4_bin ", "PAD SPACE collations must never be used")
+			}
+			for _, i := range []int{1, 2, 5} { // both tables and run_lease_id
+				require.Contains(t, calls[i].Query, "COLLATE "+tc.want)
 			}
 		})
 	}
@@ -114,7 +118,13 @@ func TestPlaceholderStyle(t *testing.T) {
 			require.NoError(t, err)
 			ctx := t.Context()
 			require.NoError(t, store.UpsertTask(ctx, &scheduler.TaskState{TaskSummary: scheduler.TaskSummary{ID: "a"}}))
-			_, err = store.ClaimRun(ctx, "a", 1, 2, "r")
+			_, err = store.CreateTask(ctx, &scheduler.TaskState{TaskSummary: scheduler.TaskSummary{ID: "a"}})
+			require.NoError(t, err)
+			_, err = store.ClaimRun(ctx, "a", scheduler.RunClaim{NextRunAt: 1, RunAt: 1, StartedAt: 2, RunID: "r"})
+			require.NoError(t, err)
+			_, err = store.ClaimRun(ctx, "a", scheduler.RunClaim{StartedAt: 2, RunID: "r"})
+			require.NoError(t, err)
+			_, err = store.RenewRun(ctx, "a", "r", 3)
 			require.NoError(t, err)
 			_, err = store.FinishRun(ctx, "a", "r", scheduler.RunResult{})
 			require.NoError(t, err)
@@ -179,7 +189,13 @@ func TestResultMapping(t *testing.T) {
 
 	for _, n := range []int64{0, 1} {
 		affected = n
-		ok, err := store.ClaimRun(ctx, "a", 0, 1, "r")
+		ok, err := store.ClaimRun(ctx, "a", scheduler.RunClaim{StartedAt: 1, RunID: "r"})
+		require.NoError(t, err)
+		require.Equal(t, n == 1, ok)
+		ok, err = store.RenewRun(ctx, "a", "r", 2)
+		require.NoError(t, err)
+		require.Equal(t, n == 1, ok)
+		ok, err = store.CreateTask(ctx, &scheduler.TaskState{TaskSummary: scheduler.TaskSummary{ID: "a"}})
 		require.NoError(t, err)
 		require.Equal(t, n == 1, ok)
 	}
@@ -188,7 +204,100 @@ func TestResultMapping(t *testing.T) {
 	ok, err := store.FinishRun(ctx, "a", "", scheduler.RunResult{})
 	require.NoError(t, err)
 	require.False(t, ok)
-	require.Len(t, fake.Calls(), before, "an empty run ID must not reach the database")
+	ok, err = store.RenewRun(ctx, "a", "", 1)
+	require.NoError(t, err)
+	require.False(t, ok)
+	ok, err = store.ClaimRun(ctx, "a", scheduler.RunClaim{StartedAt: 0, RunID: "r"})
+	require.ErrorIs(t, err, scheduler.ErrInvalidRunClaim)
+	require.False(t, ok)
+	require.Len(t, fake.Calls(), before, "an empty run ID or invalid claim must not reach the database")
+}
+
+// TestMySQLCreateTaskResolvesInsertFailure pins how the MySQL dialect, which
+// runs a plain INSERT, tells a duplicate key from another failure: by whether
+// the task exists afterwards.
+func TestMySQLCreateTaskResolvesInsertFailure(t *testing.T) {
+	t.Parallel()
+	row := []driver.Value{"a", "", int64(1), int64(0), "", int64(0), int64(0), "", int64(0), int64(0), "", int64(0), int64(0),
+		false, false, false, false, "{}", int64(0), int64(0), int64(1)}
+	for _, tc := range []struct {
+		name   string
+		exists bool
+	}{{"duplicate", true}, {"other_error", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			db, _ := testhelpers.NewFakeSQL(t, func(q string, _ []any) testhelpers.FakeSQLReply {
+				switch {
+				case strings.HasPrefix(q, "INSERT"):
+					return testhelpers.FakeSQLReply{Err: errBoom}
+				case tc.exists:
+					return testhelpers.FakeSQLReply{Columns: taskCols(), Rows: [][]driver.Value{row}}
+				default:
+					return testhelpers.FakeSQLReply{Columns: taskCols()}
+				}
+			})
+			store, err := sqldb.New(db, sqldb.DialectMySQL)
+			require.NoError(t, err)
+			created, err := store.CreateTask(t.Context(), &scheduler.TaskState{TaskSummary: scheduler.TaskSummary{ID: "a"}})
+			require.False(t, created)
+			if tc.exists {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, errBoom)
+		})
+	}
+}
+
+// TestEnsureSchemaUpgradesExistingTables pins the column upgrade of a tasks
+// table created by an earlier release: PostgreSQL adds the columns with ADD
+// COLUMN IF NOT EXISTS; MySQL probes information_schema (in the table's schema
+// qualifier) and adds only the missing columns.
+func TestEnsureSchemaUpgradesExistingTables(t *testing.T) {
+	t.Parallel()
+	t.Run("postgres", func(t *testing.T) {
+		t.Parallel()
+		db, fake := testhelpers.NewFakeSQL(t, nil)
+		store, err := sqldb.New(db, sqldb.DialectPostgres)
+		require.NoError(t, err)
+		require.NoError(t, store.EnsureSchema(t.Context()))
+		var alters []string
+		for _, c := range fake.Calls() {
+			if strings.HasPrefix(c.Query, "ALTER TABLE") {
+				alters = append(alters, c.Query)
+			}
+		}
+		require.Equal(t, []string{`ALTER TABLE "scheduler_tasks" ADD COLUMN IF NOT EXISTS run_lease_until BIGINT NOT NULL DEFAULT 0, ` +
+			`ADD COLUMN IF NOT EXISTS run_lease_id TEXT NOT NULL DEFAULT '', ADD COLUMN IF NOT EXISTS run_at BIGINT NOT NULL DEFAULT 0`}, alters)
+	})
+	t.Run("mysql", func(t *testing.T) {
+		t.Parallel()
+		db, fake := testhelpers.NewFakeSQL(t, func(q string, _ []any) testhelpers.FakeSQLReply {
+			switch {
+			case q == "SELECT VERSION()":
+				return testhelpers.FakeSQLReply{Columns: []string{"v"}, Rows: [][]driver.Value{{"8.4.2"}}}
+			case strings.Contains(q, "information_schema"):
+				return testhelpers.FakeSQLReply{Columns: []string{"COLUMN_NAME"}, Rows: [][]driver.Value{{"id"}, {"RUN_LEASE_UNTIL"}}}
+			}
+			return testhelpers.FakeSQLReply{}
+		})
+		store, err := sqldb.New(db, sqldb.DialectMySQL, sqldb.WithTasksTable("app.sched_tasks"))
+		require.NoError(t, err)
+		require.NoError(t, store.EnsureSchema(t.Context()))
+		var alters []string
+		for _, c := range fake.Calls() {
+			if strings.Contains(c.Query, "information_schema") {
+				require.Equal(t, []any{"app", "sched_tasks"}, c.Args)
+			}
+			if strings.HasPrefix(c.Query, "ALTER TABLE") {
+				alters = append(alters, c.Query)
+			}
+		}
+		require.Equal(t, []string{
+			"ALTER TABLE `app`.`sched_tasks` ADD COLUMN run_lease_id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL DEFAULT ''",
+			"ALTER TABLE `app`.`sched_tasks` ADD COLUMN run_at BIGINT NOT NULL DEFAULT 0",
+		}, alters)
+	})
 }
 
 func TestWriteErrorsAreWrapped(t *testing.T) {
@@ -196,7 +305,7 @@ func TestWriteErrorsAreWrapped(t *testing.T) {
 	db, _ := testhelpers.NewFakeSQL(t, func(string, []any) testhelpers.FakeSQLReply { return testhelpers.FakeSQLReply{Err: errBoom} })
 	store, err := sqldb.New(db, sqldb.DialectPostgres)
 	require.NoError(t, err)
-	_, err = store.ClaimRun(t.Context(), "a", 0, 1, "r")
+	_, err = store.ClaimRun(t.Context(), "a", scheduler.RunClaim{StartedAt: 1, RunID: "r"})
 	require.ErrorIs(t, err, errBoom)
 	for _, err := range store.Tasks(t.Context()) {
 		require.ErrorIs(t, err, errBoom)
@@ -205,7 +314,7 @@ func TestWriteErrorsAreWrapped(t *testing.T) {
 
 func TestIteratorClosesRowsOnBreak(t *testing.T) {
 	t.Parallel()
-	row := []driver.Value{"a", "", int64(1), int64(0), "", int64(0), int64(0), "", int64(0), int64(0),
+	row := []driver.Value{"a", "", int64(1), int64(0), "", int64(0), int64(0), "", int64(0), int64(0), "", int64(0), int64(0),
 		false, false, false, false, `{"k":"v"}`, int64(0), int64(0), int64(1)}
 	db, fake := testhelpers.NewFakeSQL(t, func(string, []any) testhelpers.FakeSQLReply {
 		return testhelpers.FakeSQLReply{Columns: taskCols(), Rows: [][]driver.Value{row, row, row}}
@@ -222,8 +331,8 @@ func TestIteratorClosesRowsOnBreak(t *testing.T) {
 }
 
 func taskCols() []string {
-	return strings.Split("id,description,status,priority,schedule,last_run_at,next_run_at,last_run_id,run_started_at,failures,"+
-		"skip_next_run,disable_history,unmanaged,one_shot,meta,created_at,updated_at,revision", ",")
+	return strings.Split("id,description,status,priority,schedule,last_run_at,next_run_at,last_run_id,run_started_at,run_lease_until,"+
+		"run_lease_id,run_at,failures,skip_next_run,disable_history,unmanaged,one_shot,meta,created_at,updated_at,revision", ",")
 }
 
 func TestOverlongValuesAreRejected(t *testing.T) {
@@ -245,8 +354,12 @@ func TestOverlongValuesAreRejected(t *testing.T) {
 	require.ErrorIs(t, err, sqldb.ErrValueTooLong)
 	require.ErrorIs(t, store.AddHistory(ctx, &scheduler.TaskHistory{ID: "h", TaskID: limit + " "}), sqldb.ErrValueTooLong)
 	require.ErrorIs(t, store.AddHistory(ctx, &scheduler.TaskHistory{ID: limit + "x", TaskID: "t"}), sqldb.ErrValueTooLong)
-	_, err = store.ClaimRun(ctx, "t", 0, 1, limit+"x")
+	_, err = store.ClaimRun(ctx, "t", scheduler.RunClaim{StartedAt: 1, RunID: limit + "x"})
 	require.ErrorIs(t, err, sqldb.ErrValueTooLong)
+	_, err = store.CreateTask(ctx, over)
+	require.ErrorIs(t, err, sqldb.ErrValueTooLong)
+	require.ErrorIs(t, store.UpsertTask(ctx, &scheduler.TaskState{TaskSummary: scheduler.TaskSummary{ID: "t"}, RunLeaseID: limit + "x"}),
+		sqldb.ErrValueTooLong)
 	long := &scheduler.TaskState{TaskSummary: scheduler.TaskSummary{ID: "t", Schedule: strings.Repeat("*", sqldb.MaxScheduleLength+1)}}
 	require.ErrorIs(t, store.UpsertTask(ctx, long), sqldb.ErrValueTooLong)
 	require.Len(t, fake.Calls(), writes, "rejected writes must not reach the database")
