@@ -27,6 +27,17 @@ Package `secrets` provides centralized secret management with automatic caching,
 - Distributed locking for write operations
 - Graceful shutdown with secure memory clearing
 
+## Update cycle
+
+`RunUpdateCycle` lists the storage, evicts (and clears) cached secrets missing from the listing, and caches new or changed versions. Keys
+the `Manager` cached or deleted after the cycle began — `Save`, a forced `Value` fetch, `WarmCache`, `Delete` — are left alone, because the
+listing may predate those writes: the cycle neither evicts, overwrites nor re-inserts them, and the next cycle reconciles them. A bounded
+cache can still drop such an entry by capacity when the cycle inserts another key, as any insertion can; that never clears the value.
+
+With a rebuildable negative filter the cycle also rebuilds the filter from the listing. When the filter is shared through Redis, only one
+node rebuilds at a time: the others get `probfilter.ErrRebuildInProgress`, log it at debug level and still refresh their cache. Any other
+rebuild failure, including `probfilter.ErrRebuildSuperseded`, is logged as an error; none fails the cycle.
+
 ## Security
 
 Secret material never reaches the log. Debug-level records from the `Manager` carry the secret's **key** — the lookup identifier validated

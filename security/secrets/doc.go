@@ -148,6 +148,11 @@
 //   - Retry logic with exponential backoff for failed requests
 //   - Graceful handling of temporary network issues
 //   - Atomic cache updates to maintain consistency
+//   - Keys cached or deleted while a cycle runs (Save, fetches, Delete) are
+//     left for the next cycle, so a stale listing never evicts, overwrites
+//     or re-inserts them
+//   - With a negative filter shared through Redis, a rebuild skipped because
+//     another node holds the rebuild lease is logged at debug level only
 //   - Full control over update scheduling and lifecycle
 //
 // # Error Handling:
