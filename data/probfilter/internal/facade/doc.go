@@ -3,7 +3,8 @@
 // the LICENSE file.
 
 // Package facade provides the plumbing shared by the Bloom and Cuckoo filter
-// facades: atomic rebuild coordination and operation observation.
+// facades: atomic rebuild coordination and operation observation, combined in
+// [Base], which implements the operations both facades forward to.
 //
 // # Rebuild
 //
@@ -14,7 +15,7 @@
 // and leaves the live filter untouched:
 //
 //	var coord facade.Coordinator
-//	err := coord.Add(value, func() error { return storage.Add(ctx, value) })
+//	err := coord.Add(ctx, value, func() error { return storage.Add(ctx, value) })
 //	err = coord.Rebuild(ctx, loader, func(ctx context.Context, n int64) (facade.Staging, error) {
 //	    return storage.Stage(ctx, n)
 //	})

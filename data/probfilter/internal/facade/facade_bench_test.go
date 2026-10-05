@@ -19,6 +19,13 @@ func BenchmarkCoordinator_Add(b *testing.B) {
 	}
 }
 
+func BenchmarkBase_MightExist(b *testing.B) {
+	base := facade.NewBase(newMemStore())
+	for b.Loop() {
+		_, _ = base.MightExist(b.Context(), "value")
+	}
+}
+
 func BenchmarkObserverSlot_Lookup(b *testing.B) {
 	lookup := func() (bool, error) { return true, nil }
 
