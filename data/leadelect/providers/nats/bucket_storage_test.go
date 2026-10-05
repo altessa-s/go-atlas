@@ -39,3 +39,18 @@ func TestProvider_New_BucketStorage(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, jetstream.MemoryStorage, testhelpers.KVBucketStorage(t, js, "default"), "the existing storage must be kept")
 }
+
+// TestProvider_New_StrictBucketStorage pins that WithStrictBucketStorage
+// rejects a bucket with another storage type instead of adopting it.
+func TestProvider_New_StrictBucketStorage(t *testing.T) {
+	t.Parallel()
+
+	ns := testhelpers.StartNATSServer(t)
+	nc, js := testhelpers.ConnectJetStream(t, ns)
+	testhelpers.CreateNATSKV(t, js, "memory-bucket", lenats.DefaultBucketKeysTTL)
+
+	_, err := lenats.New(t.Context(), nc, lenats.WithBucket("memory-bucket"), lenats.WithStorage(jetstream.FileStorage),
+		lenats.WithStrictBucketStorage())
+	require.ErrorIs(t, err, lenats.ErrBucketStorageMismatch)
+	require.Equal(t, jetstream.MemoryStorage, testhelpers.KVBucketStorage(t, js, "memory-bucket"))
+}

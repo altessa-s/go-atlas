@@ -16,7 +16,7 @@ import (
 )
 
 // bucketTTLMigrationConfig gathers every config section that exposes the NATS
-// bucket-TTL migration flag.
+// bucket flags.
 type bucketTTLMigrationConfig struct {
 	DistributionLock config.DistributionLock `yaml:"distributionLock"`
 	LeaderElector    config.LeaderElector    `yaml:"leaderElector"`
@@ -24,9 +24,9 @@ type bucketTTLMigrationConfig struct {
 	Saga             config.Saga             `yaml:"saga"`
 }
 
-// TestMigrateBucketTTL_LoadsFromYAML pins the YAML keys of the NATS
-// bucket-TTL migration flag (their casing follows each section) and that the
-// flag stays off unless set.
+// TestMigrateBucketTTL_LoadsFromYAML pins the YAML keys of the NATS bucket
+// flags — TTL migration and strict storage — (their casing follows each
+// section) and that the flags stay off unless set.
 func TestMigrateBucketTTL_LoadsFromYAML(t *testing.T) {
 	t.Parallel()
 
@@ -35,19 +35,23 @@ distributionLock:
   provider: nats
   nats:
     migrateBucketTTL: true
+    strictBucketStorage: true
 leaderElector:
   provider: nats
   migrateBucketTTL: true
+  strictBucketStorage: true
 idempotency:
   storage:
     type: nats
     nats:
       migrateBucketTTL: true
+      strictBucketStorage: true
 saga:
   storage:
     type: nats
     nats:
       migrate_bucket_ttl: true
+      strict_bucket_storage: true
 `
 	const defaultYAML = `
 distributionLock:
@@ -89,6 +93,11 @@ saga:
 			require.Equal(t, tc.want, cfg.LeaderElector.MigrateBucketTTL, "leaderElector.migrateBucketTTL")
 			require.Equal(t, tc.want, cfg.Idempotency.Storage.Nats.MigrateBucketTTL, "idempotency.storage.nats.migrateBucketTTL")
 			require.Equal(t, tc.want, cfg.Saga.Storage.Nats.MigrateBucketTTL, "saga.storage.nats.migrate_bucket_ttl")
+
+			require.Equal(t, tc.want, cfg.DistributionLock.Nats.StrictBucketStorage, "distributionLock.nats.strictBucketStorage")
+			require.Equal(t, tc.want, cfg.LeaderElector.StrictBucketStorage, "leaderElector.strictBucketStorage")
+			require.Equal(t, tc.want, cfg.Idempotency.Storage.Nats.StrictBucketStorage, "idempotency.storage.nats.strictBucketStorage")
+			require.Equal(t, tc.want, cfg.Saga.Storage.Nats.StrictBucketStorage, "saga.storage.nats.strict_bucket_storage")
 		})
 	}
 }

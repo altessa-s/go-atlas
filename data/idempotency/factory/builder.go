@@ -139,6 +139,7 @@ func (b *KeeperBuilder) createNatsStorage() (*natsstorage.Storage, error) {
 		natsstorage.WithReplicas(b.cfg.Storage.Nats.Replicas),
 	}
 	opts = coreslices.AppendIf(opts, b.cfg.Storage.Nats.MigrateBucketTTL, natsstorage.WithMigrateBucketTTL())
+	opts = coreslices.AppendIf(opts, b.cfg.Storage.Nats.StrictBucketStorage, natsstorage.WithStrictBucketStorage())
 
 	return natsstorage.New(b.jetstream, opts...)
 }

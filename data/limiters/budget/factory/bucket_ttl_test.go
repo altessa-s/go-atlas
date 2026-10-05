@@ -50,3 +50,30 @@ func TestBuild_NatsMigrateBucketTTL(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, limitnats.DefaultMaxAge, testhelpers.KVBucketTTL(t, js, bucket), "migrateBucketTTL must update the bucket")
 }
+
+// TestBuild_NatsStrictBucketStorage pins that storage.nats.strictBucketStorage
+// reaches the NATS storage: a bucket with another storage type is rejected
+// instead of being adopted.
+func TestBuild_NatsStrictBucketStorage(t *testing.T) {
+	t.Parallel()
+
+	ns := testhelpers.StartNATSServer(t)
+	_, js := testhelpers.ConnectJetStream(t, ns)
+
+	const bucket = "factory-budget-strict"
+	testhelpers.CreateNATSKV(t, js, bucket, limitnats.DefaultMaxAge) // memory storage
+
+	cfg := func(strict bool) *config.BudgetLimiter {
+		storage := &config.CacheStorageConfig{
+			Type: config.CacheStorageTypeNats,
+			Nats: &config.StorageNATSConfig{Bucket: bucket, Replicas: 1, StrictBucketStorage: strict},
+		}
+		return &config.BudgetLimiter{Limit: 1000, Period: time.Hour, Storage: storage}
+	}
+
+	_, err := factory.New(cfg(true)).UseJetstream(js).Build()
+	require.ErrorIs(t, err, limitnats.ErrBucketStorageMismatch)
+
+	_, err = factory.New(cfg(false)).UseJetstream(js).Build()
+	require.NoError(t, err, "without the flag the bucket is adopted")
+}

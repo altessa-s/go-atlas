@@ -53,3 +53,13 @@ storage, err := factory.New(cfg.CursorStorage).
 | Method | Description |
 |--------|-------------|
 | `Build(ctx)` | Assembles and returns the cursor storage |
+
+## NATS bucket
+
+The NATS backend creates its KeyValue bucket (`storage.nats.bucket`, default `cursor`) as file storage with the `WithTTL` key TTL. Without
+`WithTTL` the TTL is zero and cursors never expire. An existing bucket is checked like in every other NATS KV backend:
+
+- a different key TTL fails with `ErrBucketTTLMismatch` and leaves the bucket untouched, unless `storage.nats.migrateBucketTTL: true`. Before
+  this change the factory silently rewrote the TTL of a shared bucket.
+- a different storage type is used as is with a warning, unless `storage.nats.strictBucketStorage: true` makes it fail with
+  `ErrBucketStorageMismatch`.

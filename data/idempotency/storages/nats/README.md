@@ -17,9 +17,10 @@ factory the switch is `storage.nats.migrateBucketTTL: true`. Migration applies t
 
 ## Bucket storage
 
-New buckets are file-backed. Releases before this fix asked for file storage but created a memory bucket, which is lost when the JetStream
-servers holding it stop. Replicated memory buckets survive rolling restarts, so they do not convert by themselves. The server cannot change a
-bucket's storage type, so `New` adopts an existing bucket with a different storage type as is and logs a warning on every start.
+New buckets are file-backed. Releases before this fix asked for file storage but created a memory bucket, which is lost when the JetStream servers
+holding it stop. Replicated memory buckets survive rolling restarts, so they do not convert by themselves. The server cannot change a bucket's storage
+type, so `New` adopts an existing bucket with a different storage type as is and logs a warning on every start. Pass `WithStrictBucketStorage()` (YAML:
+`storage.nats.strictBucketStorage: true` through the idempotency factory) to fail with `ErrBucketStorageMismatch` instead.
 
 To move to file storage, use the discard procedure:
 1. Stop every process using the bucket.

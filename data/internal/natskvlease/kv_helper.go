@@ -27,21 +27,36 @@ const (
 // explicitly (see [BucketConfig.MigrateTTL]), or use another bucket.
 var ErrBucketTTLMismatch = errors.New("KeyValue bucket key TTL differs from the configured TTL")
 
+// ErrBucketStorageMismatch reports that a KeyValue bucket already exists with a
+// storage type other than the one requested while [BucketConfig.StrictStorage]
+// is set. The bucket is left untouched: the server cannot convert a bucket's
+// storage type.
+var ErrBucketStorageMismatch = errors.New("KeyValue bucket storage type differs from the configured storage")
+
 // BucketConfig holds configuration for creating a KeyValue bucket.
 type BucketConfig struct {
 	// Bucket is the name of the KeyValue bucket.
 	Bucket string
 
 	// TTL is the time-to-live for keys in the bucket.
-	// If zero, DefaultBucketTTL is used.
+	// If zero, DefaultBucketTTL is used unless NoTTL is set.
 	TTL time.Duration
+
+	// NoTTL creates a bucket whose keys never expire; TTL is ignored. It
+	// exists because a zero TTL means DefaultBucketTTL.
+	NoTTL bool
 
 	// Storage is the storage type of a bucket created by GetOrCreateBucket.
 	// The zero value is [jetstream.FileStorage], the JetStream default, so
 	// callers wanting memory storage must ask for [jetstream.MemoryStorage]
 	// explicitly. An existing bucket keeps its storage type: the server
-	// cannot convert it, so a mismatch is logged and the bucket adopted.
+	// cannot convert it, so a mismatch is logged and the bucket adopted unless
+	// StrictStorage is set.
 	Storage jetstream.StorageType
+
+	// StrictStorage rejects a pre-existing bucket whose storage type differs
+	// from Storage with [ErrBucketStorageMismatch] instead of adopting it.
+	StrictStorage bool
 
 	// Compression enables compression for the bucket.
 	Compression bool
@@ -83,9 +98,7 @@ func NewKVHelper(js jetstream.JetStream, logger *slog.Logger) *KVHelper {
 // GetOrCreateBucket retrieves an existing bucket or creates a new one.
 // It uses retry logic to handle transient network errors.
 func (h *KVHelper) GetOrCreateBucket(ctx context.Context, cfg BucketConfig) (jetstream.KeyValue, error) {
-	if cfg.TTL == 0 {
-		cfg.TTL = DefaultBucketTTL
-	}
+	cfg = cfg.normalized()
 
 	// Try to get existing bucket
 	kv, err := Retry(ctx, func() (jetstream.KeyValue, error) {
@@ -135,6 +148,18 @@ func (h *KVHelper) GetOrCreateBucket(ctx context.Context, cfg BucketConfig) (jet
 	return kv, nil
 }
 
+// normalized resolves the TTL defaults: NoTTL forces a zero (never expiring)
+// TTL, and an unset TTL becomes DefaultBucketTTL.
+func (cfg BucketConfig) normalized() BucketConfig {
+	switch {
+	case cfg.NoTTL:
+		cfg.TTL = 0
+	case cfg.TTL == 0:
+		cfg.TTL = DefaultBucketTTL
+	}
+	return cfg
+}
+
 // keyValueConfig projects a BucketConfig onto the driver's bucket config.
 func (h *KVHelper) keyValueConfig(cfg BucketConfig) jetstream.KeyValueConfig {
 	return jetstream.KeyValueConfig{
@@ -149,7 +174,8 @@ func (h *KVHelper) keyValueConfig(cfg BucketConfig) jetstream.KeyValueConfig {
 
 // reconcile checks a pre-existing bucket against cfg.
 //
-// A different storage type is adopted with a warning rather than rejected.
+// A different storage type is adopted with a warning rather than rejected,
+// unless cfg.StrictStorage asks for [ErrBucketStorageMismatch].
 // The server cannot convert a bucket's storage, it does not change what other
 // processes sharing the bucket rely on (only durability across server
 // restarts), and earlier releases created memory buckets whatever storage was
@@ -176,6 +202,10 @@ func (h *KVHelper) reconcile(ctx context.Context, kv jetstream.KeyValue, cfg Buc
 	}
 
 	if existing := status.Config().Storage; existing != cfg.Storage {
+		if cfg.StrictStorage {
+			return nil, fmt.Errorf("%w: bucket %q has storage %s, configured %s",
+				ErrBucketStorageMismatch, cfg.Bucket, existing, cfg.Storage)
+		}
 		h.logger.WarnContext(ctx, "KeyValue bucket storage differs from the configured storage, using the existing bucket as is; "+
 			"recreate the bucket to change it (see the backend's README)",
 			slog.String("bucket", cfg.Bucket),

@@ -184,3 +184,52 @@ func TestGetOrCreateBucket_ExistingBucketStorage(t *testing.T) {
 		})
 	}
 }
+
+// TestGetOrCreateBucket_StrictStorage pins that StrictStorage turns the storage
+// adoption into ErrBucketStorageMismatch and leaves the bucket untouched.
+func TestGetOrCreateBucket_StrictStorage(t *testing.T) {
+	t.Parallel()
+
+	ns := testhelpers.StartNATSServer(t)
+	_, js := testhelpers.ConnectJetStream(t, ns)
+	testhelpers.CreateNATSKV(t, js, "legacy", time.Minute) // memory storage
+
+	got, err := natskvlease.NewKVHelper(js, nil).GetOrCreateBucket(t.Context(), natskvlease.BucketConfig{
+		Bucket:        "legacy",
+		TTL:           time.Minute,
+		Storage:       jetstream.FileStorage,
+		StrictStorage: true,
+	})
+	require.ErrorIs(t, err, natskvlease.ErrBucketStorageMismatch)
+	require.Nil(t, got)
+	require.Equal(t, jetstream.MemoryStorage, testhelpers.KVBucketStorage(t, js, "legacy"))
+
+	_, err = natskvlease.NewKVHelper(js, nil).GetOrCreateBucket(t.Context(), natskvlease.BucketConfig{
+		Bucket:        "legacy",
+		TTL:           time.Minute,
+		Storage:       jetstream.MemoryStorage,
+		StrictStorage: true,
+	})
+	require.NoError(t, err, "a matching storage type passes the strict check")
+}
+
+// TestGetOrCreateBucket_NoTTL pins that NoTTL creates a bucket whose keys never
+// expire, where a zero TTL alone means DefaultBucketTTL.
+func TestGetOrCreateBucket_NoTTL(t *testing.T) {
+	t.Parallel()
+
+	ns := testhelpers.StartNATSServer(t)
+	_, js := testhelpers.ConnectJetStream(t, ns)
+	helper := natskvlease.NewKVHelper(js, nil)
+
+	_, err := helper.GetOrCreateBucket(t.Context(), natskvlease.BucketConfig{Bucket: "forever", NoTTL: true})
+	require.NoError(t, err)
+	require.Zero(t, testhelpers.KVBucketTTL(t, js, "forever"))
+
+	_, err = helper.GetOrCreateBucket(t.Context(), natskvlease.BucketConfig{Bucket: "defaulted"})
+	require.NoError(t, err)
+	require.Equal(t, natskvlease.DefaultBucketTTL, testhelpers.KVBucketTTL(t, js, "defaulted"))
+
+	_, err = helper.GetOrCreateBucket(t.Context(), natskvlease.BucketConfig{Bucket: "forever", NoTTL: true})
+	require.NoError(t, err, "an existing bucket without TTL matches NoTTL")
+}

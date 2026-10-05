@@ -30,6 +30,11 @@ import (
 // The bucket is left untouched.
 var ErrBucketTTLMismatch = natskvlease.ErrBucketTTLMismatch
 
+// ErrBucketStorageMismatch is returned by New when the bucket already exists
+// with another storage type and [WithStrictBucketStorage] is set. The bucket is
+// left untouched.
+var ErrBucketStorageMismatch = natskvlease.ErrBucketStorageMismatch
+
 const (
 	// minTTL is the shortest election TTL Start accepts. Below a second the
 	// renewal interval collapses to a few hundred milliseconds, which is
@@ -159,11 +164,12 @@ func New(ctx context.Context, client *nats.Conn, opts ...Option) (*Provider, err
 	// Use common KV helper for bucket creation
 	kvHelper := natskvlease.NewKVHelper(p.js, p.opts.logger)
 	p.kv, err = kvHelper.GetOrCreateBucket(ctx, natskvlease.BucketConfig{
-		Bucket:      p.opts.bucket,
-		TTL:         DefaultBucketKeysTTL,
-		Storage:     p.opts.storage,
-		Compression: true,
-		MigrateTTL:  p.opts.migrateBucketTTL,
+		Bucket:        p.opts.bucket,
+		TTL:           DefaultBucketKeysTTL,
+		Storage:       p.opts.storage,
+		Compression:   true,
+		MigrateTTL:    p.opts.migrateBucketTTL,
+		StrictStorage: p.opts.strictBucketStorage,
 	})
 	if err != nil {
 		return nil, err

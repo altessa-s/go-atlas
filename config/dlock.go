@@ -35,6 +35,11 @@ type DistributionLockNats struct {
 	// default: the bucket's key TTL expires every lock in it, including locks
 	// of other processes sharing the bucket.
 	MigrateBucketTTL bool `yaml:"migrateBucketTTL"`
+
+	// StrictBucketStorage fails with ErrBucketStorageMismatch when the bucket
+	// already exists with another storage type, instead of using it as is
+	// with a warning.
+	StrictBucketStorage bool `yaml:"strictBucketStorage"`
 }
 
 // DistributionLock defines the configuration for distributed locking.

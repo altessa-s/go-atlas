@@ -17,4 +17,5 @@ configuration, use another bucket, or pass `WithMigrateBucketTTL()` to update th
 ## Bucket storage
 
 Lock buckets are memory-backed: a lock lives no longer than its TTL, so there is nothing to keep across a server restart. An existing bucket with
-another storage type is adopted as is, with a warning, because the server cannot change a bucket's storage type.
+another storage type is adopted as is, with a warning, because the server cannot change a bucket's storage type. Pass
+`WithStrictBucketStorage()` (YAML: `distributionLock.nats.strictBucketStorage: true`) to fail with `ErrBucketStorageMismatch` instead.

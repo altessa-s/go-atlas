@@ -22,3 +22,10 @@
 #    # only once every process sharing the bucket uses the same lock TTL.
 #    # Default value: false
 #    migrateBucketTTL: false
+#
+#    # <bool> Fail when the bucket already exists with another storage type.
+#    # When false, such a bucket is used as is and a warning is logged on every start;
+#    # the server cannot convert a bucket's storage type (see the backend's README for
+#    # the storage migration).
+#    # Default value: false
+#    strictBucketStorage: false

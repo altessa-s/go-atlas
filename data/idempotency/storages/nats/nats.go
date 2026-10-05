@@ -27,6 +27,11 @@ import (
 // The bucket is left untouched.
 var ErrBucketTTLMismatch = natskvlease.ErrBucketTTLMismatch
 
+// ErrBucketStorageMismatch is returned by New when the bucket already exists
+// with another storage type and [WithStrictBucketStorage] is set. The bucket is
+// left untouched.
+var ErrBucketStorageMismatch = natskvlease.ErrBucketStorageMismatch
+
 // Storage is a NATS JetStream KeyValue-backed idempotency key store.
 // TTL is handled at the bucket level via MaxAge configuration.
 type Storage struct {
@@ -62,6 +67,7 @@ func New(js jetstream.JetStream, opts ...Option) (*Storage, error) {
 		// requirement.
 		LimitMarkerTTL: options.maxAge,
 		MigrateTTL:     options.migrateBucketTTL,
+		StrictStorage:  options.strictBucketStorage,
 	}, nil)
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "create NATS KeyValue bucket")

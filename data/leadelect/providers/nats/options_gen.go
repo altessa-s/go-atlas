@@ -80,6 +80,13 @@ func WithStorage(v jetstream.StorageType) Option {
 	}
 }
 
+// WithStrictBucketStorage enables the strictBucketStorage option.
+func WithStrictBucketStorage() Option {
+	return func(o *options) {
+		o.strictBucketStorage = true
+	}
+}
+
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{

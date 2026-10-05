@@ -67,10 +67,13 @@ type StorageNATSConfig struct {
 	// MigrateBucketTTL updates a pre-existing bucket whose key TTL differs
 	// from the feature's TTL instead of failing with ErrBucketTTLMismatch.
 	// Off by default: the bucket's key TTL expires every key in it, including
-	// keys of other processes sharing the bucket. Honored by the backends that
-	// adopt an existing bucket (idempotency and the rate limiters); the
-	// MongoDB cursor-storage factory does not consult it.
+	// keys of other processes sharing the bucket.
 	MigrateBucketTTL bool `yaml:"migrateBucketTTL"`
+
+	// StrictBucketStorage fails with ErrBucketStorageMismatch when the bucket
+	// already exists with another storage type, instead of using it as is
+	// with a warning.
+	StrictBucketStorage bool `yaml:"strictBucketStorage"`
 }
 
 // Validate performs validation of the NATS storage configuration.

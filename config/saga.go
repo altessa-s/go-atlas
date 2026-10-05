@@ -74,6 +74,10 @@ type SagaNatsStorageConfig struct {
 	// default: the bucket's key TTL expires every instance in it, including
 	// those of other processes sharing the bucket.
 	MigrateBucketTTL bool `yaml:"migrate_bucket_ttl"`
+	// StrictBucketStorage fails with ErrBucketStorageMismatch when the bucket
+	// already exists with another storage type, instead of using it as is
+	// with a warning.
+	StrictBucketStorage bool `yaml:"strict_bucket_storage"`
 }
 
 // Validate performs validation of the NATS saga storage configuration.

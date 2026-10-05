@@ -76,6 +76,7 @@ func (b *DLockBuilder) createNatsDLock(ctx context.Context) (*dlock.DLock, error
 	// options; the error wrapping matches it.
 	provOpts := []natsprovider.Option{natsprovider.WithBucket(b.cfg.Nats.Bucket)}
 	provOpts = coreslices.AppendIf(provOpts, b.cfg.Nats.MigrateBucketTTL, natsprovider.WithMigrateBucketTTL())
+	provOpts = coreslices.AppendIf(provOpts, b.cfg.Nats.StrictBucketStorage, natsprovider.WithStrictBucketStorage())
 
 	prov, err := natsprovider.New(ctx, b.natsConn, provOpts...)
 	if err != nil {
