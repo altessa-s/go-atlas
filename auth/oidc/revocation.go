@@ -32,8 +32,8 @@ type RevocationStorage interface {
 	MarkRevoked(ctx context.Context, item string, ttl time.Duration) error
 
 	// Sync performs a synchronization of revoked items from an external source.
-	// NewProvider calls it once at construction; scheduled syncs reuse it.
-	// This method is compatible with service/scheduler.TaskFunc.
+	// NewProvider calls it once at construction; the provider's refresh cron
+	// calls it on WithRevocationSyncSchedule.
 	Sync(ctx context.Context) error
 }
 
