@@ -5,15 +5,18 @@
 package factory_test
 
 import (
-	"github.com/altessa-s/go-atlas/config"
-	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
-	"github.com/altessa-s/go-atlas/transport/proxydial/factory"
-	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"sync/atomic"
 	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/config"
+	"github.com/altessa-s/go-atlas/transport/proxydial/factory"
+
+	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
 
 func TestProxy_ClientOptions_NilReceiver(t *testing.T) {

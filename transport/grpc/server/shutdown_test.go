@@ -12,12 +12,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	grpcserver "github.com/altessa-s/go-atlas/transport/grpc/server"
-	baseserver "github.com/altessa-s/go-atlas/transport/internal/server"
-
-	stdGrpc "google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/emptypb"
+
+	grpcserver "github.com/altessa-s/go-atlas/transport/grpc/server"
+	baseserver "github.com/altessa-s/go-atlas/transport/internal/server"
+	stdGrpc "google.golang.org/grpc"
 )
 
 // blockingStreamHandler registers a bidi stream that blocks until the

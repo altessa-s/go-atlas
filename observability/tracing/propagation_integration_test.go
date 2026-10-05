@@ -6,12 +6,14 @@ package tracing_test
 
 import (
 	"context"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/observability/tracing/adapters"
 	"github.com/altessa-s/go-atlas/observability/tracing/propagation"
 	"github.com/altessa-s/go-atlas/observability/tracing/sampler"
-	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 func TestExtractStartPreservesRemoteParent(t *testing.T) {

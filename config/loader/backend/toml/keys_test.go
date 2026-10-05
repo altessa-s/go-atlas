@@ -10,11 +10,12 @@ import (
 	"sync"
 	"testing"
 
-	burntsushi "github.com/BurntSushi/toml"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/config/loader/backend"
 	"github.com/altessa-s/go-atlas/config/loader/backend/toml"
+
+	burntsushi "github.com/BurntSushi/toml"
 )
 
 type KeysFlat struct {

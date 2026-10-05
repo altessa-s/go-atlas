@@ -5,9 +5,11 @@
 package wal_test
 
 import (
-	"github.com/altessa-s/go-atlas/core/io/wal"
-	"github.com/stretchr/testify/require"
 	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/core/io/wal"
 )
 
 func BenchmarkReadPending(b *testing.B) {

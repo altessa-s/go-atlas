@@ -5,11 +5,13 @@
 package factory_test
 
 import (
-	"github.com/altessa-s/go-atlas/config"
-	"github.com/altessa-s/go-atlas/transport/http/client/factory"
-	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/altessa-s/go-atlas/config"
+	"github.com/altessa-s/go-atlas/transport/http/client/factory"
 )
 
 func TestHTTPHealthClientOptions(t *testing.T) {

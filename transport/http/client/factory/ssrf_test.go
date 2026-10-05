@@ -5,10 +5,12 @@
 package factory_test
 
 import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/transport/http/client/factory"
-	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 func TestHTTPClientSSRF_ClientOptions(t *testing.T) {

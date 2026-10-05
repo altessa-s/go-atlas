@@ -5,8 +5,9 @@
 package config_test
 
 import (
-	"github.com/altessa-s/go-atlas/config"
 	"testing"
+
+	"github.com/altessa-s/go-atlas/config"
 )
 
 func BenchmarkProxyValidate(b *testing.B) {

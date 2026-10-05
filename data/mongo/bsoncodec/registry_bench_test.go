@@ -6,11 +6,13 @@ package bsoncodec_test
 
 import (
 	"bytes"
-	"github.com/altessa-s/go-atlas/core/types/optional"
-	"github.com/altessa-s/go-atlas/data/mongo/bsoncodec"
+	"testing"
+
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
-	"testing"
+
+	"github.com/altessa-s/go-atlas/core/types/optional"
+	"github.com/altessa-s/go-atlas/data/mongo/bsoncodec"
 )
 
 func BenchmarkOptionalEncode(b *testing.B) {

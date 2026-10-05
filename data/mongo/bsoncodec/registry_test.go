@@ -6,14 +6,16 @@ package bsoncodec_test
 
 import (
 	"bytes"
-	"github.com/altessa-s/go-atlas/core/types/optional"
-	"github.com/altessa-s/go-atlas/core/types/redacted"
-	"github.com/altessa-s/go-atlas/data/mongo/bsoncodec"
-	"github.com/stretchr/testify/require"
-	"go.mongodb.org/mongo-driver/v2/bson"
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/v2/bson"
+
+	"github.com/altessa-s/go-atlas/core/types/optional"
+	"github.com/altessa-s/go-atlas/core/types/redacted"
+	"github.com/altessa-s/go-atlas/data/mongo/bsoncodec"
 )
 
 func marshal(v any) ([]byte, error) {

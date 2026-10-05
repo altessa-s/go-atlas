@@ -5,8 +5,9 @@
 package optional_test
 
 import (
-	"github.com/stretchr/testify/require"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/core/types/optional"
 )
