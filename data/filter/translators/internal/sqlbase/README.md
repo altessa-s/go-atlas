@@ -28,7 +28,7 @@ handling and the comparison operators. That part lives here; the four difference
 | `Translator`                                                      | The shared walker; implements `filter.Visitor`                               |
 | `New(dialect, opts ...filter.TranslatorOption) (*Translator, error)` | Constructor; validates the untrusted-input/allowlist pairing                |
 | `Dialect`                                                         | The five per-backend rendering hooks                                         |
-| `ValueFunc`                                                       | Renders a value in the active mode; handed to the dialect so it can bind twice |
+| `ValueFunc`                                                       | Renders a value in the active mode; handed to the dialect so it can bind more than once |
 | `MatchAll` / `MatchNone`                                          | `1 = 1` / `1 = 0`                                                            |
 
 ## Adding a dialect
@@ -70,6 +70,7 @@ quoted name ClickHouse needs, where `address.city` is one Nested column rather t
 ## The `ValueFunc` hook
 
 `Dialect.StringPredicate` receives the needle raw plus a `ValueFunc`, rather than a pre-rendered argument, because `endsWith` has no native
-form in MariaDB or PostgreSQL. It compiles to `right(col, length(x)) = x`, where the operand appears twice and must be bound twice. Calling
+form in MariaDB or PostgreSQL. It compiles to `right(col, length(x)) = x`, where the operand appears twice and must be bound twice — three times
+in MariaDB, which also guards the length so PAD SPACE collations stay exact (`StringPredicates.EndsWithBinds` declares the count). Calling
 `value` once per occurrence keeps the argument slice aligned with the emitted text — which matters most for PostgreSQL, where the placeholders
 are numbered.

@@ -47,6 +47,14 @@ func itSuffix() string {
 
 func newClaimIT(t testing.TB) *mongodb.Storage {
 	t.Helper()
+	s, _ := newClaimITDB(t)
+	return s
+}
+
+// newClaimITDB is [newClaimIT] that also returns the database, for tests
+// that write raw documents.
+func newClaimITDB(t testing.TB) (*mongodb.Storage, *mongo.Database) {
+	t.Helper()
 
 	client, err := mongo.Connect(mongoOptions.Client().ApplyURI(mongoURI()))
 	if err != nil {
@@ -79,7 +87,7 @@ func newClaimIT(t testing.TB) *mongodb.Storage {
 		t.Skipf("mongodb not usable for writes: %v", err)
 	}
 
-	return s
+	return s, db
 }
 
 // seedActive inserts an active task due at nextRunAt.

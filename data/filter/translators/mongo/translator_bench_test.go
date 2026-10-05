@@ -41,3 +41,17 @@ func BenchmarkTranslate_FieldMapping(b *testing.B) {
 		_, _ = trans.Translate(node)
 	}
 }
+
+func BenchmarkTranslate_ZeroWhenAbsent(b *testing.B) {
+	node := testhelpers.MustParseFilter(b,
+		`description == "" && !oneShot && nextRunAt < 100 && description.matches("^a")`)
+	trans := mustTranslator(b, filter.WithZeroWhenAbsent(map[string]filter.FieldKind{
+		"description": filter.FieldKindString,
+		"oneShot":     filter.FieldKindBool,
+		"nextRunAt":   filter.FieldKindInt,
+	}))
+
+	for b.Loop() {
+		_, _ = trans.Translate(node)
+	}
+}

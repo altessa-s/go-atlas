@@ -28,6 +28,7 @@ var contracts = []struct {
 	{"DueTasks", DueTasks},
 	{"Identity", Identity},
 	{"Pagination", Pagination},
+	{"ZeroValueFilters", ZeroValueFilters},
 	{"History", History},
 }
 

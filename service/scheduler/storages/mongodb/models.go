@@ -5,6 +5,11 @@
 package mongodb
 
 import (
+	"reflect"
+	"slices"
+	"strings"
+
+	"github.com/altessa-s/go-atlas/data/filter"
 	"github.com/altessa-s/go-atlas/domain/converter"
 	"github.com/altessa-s/go-atlas/service/scheduler"
 
@@ -24,6 +29,58 @@ var historyFieldMapping = coremaps.NewImmutableMap(map[string]string{
 	"id": "_id", "taskId": "task_id", "runId": "run_id",
 	"startedAt": "started_at", "endedAt": "ended_at", "durationMs": "duration_ms",
 })
+
+// taskZeroFields and historyZeroFields declare the fields a document omits
+// when they hold their zero value (the omitempty bson tags below), keyed by
+// CEL name, for [filter.WithZeroWhenAbsent]: a filter such as
+// `description == ""` must select a task stored without a description, as
+// every other backend does. They are derived from the document structs so a
+// field that becomes omitempty cannot be left out.
+var (
+	taskZeroFields    = omittedZeroFields(reflect.TypeFor[taskDocument](), taskFieldMapping)
+	historyZeroFields = omittedZeroFields(reflect.TypeFor[historyDocument](), historyFieldMapping)
+)
+
+// omittedZeroFields returns the omitempty fields of doc whose Go type has a
+// filter kind, keyed by CEL name — the inverse of mapping, or the bson name
+// itself where mapping has no entry.
+func omittedZeroFields(doc reflect.Type, mapping *coremaps.ImmutableMap[string, string]) *coremaps.ImmutableMap[string, filter.FieldKind] {
+	celNames := make(map[string]string, mapping.Len())
+	for cel, bsonName := range mapping.All() {
+		celNames[bsonName] = cel
+	}
+	fields := make(map[string]filter.FieldKind)
+	for i := range doc.NumField() {
+		f := doc.Field(i)
+		name, opts, _ := strings.Cut(f.Tag.Get("bson"), ",")
+		if !slices.Contains(strings.Split(opts, ","), "omitempty") {
+			continue
+		}
+		kind := goFieldKind(f.Type.Kind())
+		if kind == filter.FieldKindUnspecified {
+			continue
+		}
+		if cel, ok := celNames[name]; ok {
+			name = cel
+		}
+		fields[name] = kind
+	}
+	return coremaps.NewImmutableMap(fields)
+}
+
+// goFieldKind maps the Go kinds the documents use onto filter kinds.
+func goFieldKind(k reflect.Kind) filter.FieldKind {
+	switch k {
+	case reflect.String:
+		return filter.FieldKindString
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return filter.FieldKindInt
+	case reflect.Bool:
+		return filter.FieldKindBool
+	default:
+		return filter.FieldKindUnspecified
+	}
+}
 
 // taskDocument represents a task state stored in MongoDB.
 type taskDocument struct {
