@@ -7,16 +7,25 @@ package sqldb
 import (
 	"context"
 
-	corecontext "github.com/altessa-s/go-atlas/core/context"
+	"github.com/altessa-s/go-atlas/internal/sqldialect"
+
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
-// createSchema creates the events table and its indexes if they do not exist,
-// bounded by the schema timeout. It is idempotent, like the MongoDB store's
-// index creation.
-func (s *Store) createSchema(base context.Context) error {
-	ctx, cancel := corecontext.ApplyTimeout(base, s.schemaTimeout)
-	defer cancel()
+// EnsureSchema creates the events table and its indexes if they do not exist.
+// It is idempotent and safe to run concurrently from several instances; call
+// it once at startup, or apply the same DDL through your migration tool —
+// [New] performs no I/O. ctx bounds the DDL.
+//
+// On PostgreSQL the DDL runs in one transaction under an advisory lock on the
+// table name, so instances creating the same absent table at once take turns
+// instead of colliding in the catalog. MySQL serializes concurrent CREATE
+// TABLE IF NOT EXISTS itself.
+func (s *Store) EnsureSchema(ctx context.Context) error {
+	if s.dialect.name == DialectPostgres {
+		return coreerrs.WrapOperationWithContext(sqldialect.ExecPostgresDDL(ctx, s.db, []string{s.name}, s.schema()),
+			"create outbox schema", "table "+s.table)
+	}
 	for _, stmt := range s.schema() {
 		if _, err := s.db.ExecContext(ctx, stmt); err != nil {
 			return coreerrs.WrapOperationWithContext(err, "create outbox schema", "table "+s.table)
@@ -45,9 +54,9 @@ func (s *Store) schema() []string {
   published_at    TIMESTAMPTZ  NULL,
   expires_at      TIMESTAMPTZ  NULL
 )`,
-			`CREATE INDEX IF NOT EXISTS ` + d.indexName(s.name, "fetch") + ` ON ` + t + ` (status, created_at, seq)`,
-			`CREATE INDEX IF NOT EXISTS ` + d.indexName(s.name, "locked") + ` ON ` + t + ` (status, locked_on)`,
-			`CREATE INDEX IF NOT EXISTS ` + d.indexName(s.name, "published") + ` ON ` + t + ` (status, published_at)`,
+			`CREATE INDEX IF NOT EXISTS ` + d.IndexName(s.name, "fetch") + ` ON ` + t + ` (status, created_at, seq)`,
+			`CREATE INDEX IF NOT EXISTS ` + d.IndexName(s.name, "locked") + ` ON ` + t + ` (status, locked_on)`,
+			`CREATE INDEX IF NOT EXISTS ` + d.IndexName(s.name, "published") + ` ON ` + t + ` (status, published_at)`,
 		}
 	}
 	// topic and error are arbitrary Go strings — a handler error may contain
@@ -76,9 +85,9 @@ func (s *Store) schema() []string {
   next_attempt_at DATETIME(6)    NULL,
   published_at    DATETIME(6)    NULL,
   expires_at      DATETIME(6)    NULL,
-  INDEX ` + d.indexName(s.name, "fetch") + ` (status, created_at, seq),
-  INDEX ` + d.indexName(s.name, "locked") + ` (status, locked_on),
-  INDEX ` + d.indexName(s.name, "published") + ` (status, published_at)
+  INDEX ` + d.IndexName(s.name, "fetch") + ` (status, created_at, seq),
+  INDEX ` + d.IndexName(s.name, "locked") + ` (status, locked_on),
+  INDEX ` + d.IndexName(s.name, "published") + ` (status, published_at)
 ) ENGINE=InnoDB`,
 	}
 }

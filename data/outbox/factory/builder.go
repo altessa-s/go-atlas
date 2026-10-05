@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
@@ -83,8 +84,10 @@ func (b *OutboxBuilder) BuildWithMongoCollection(col *mongo.Collection, handler 
 
 // BuildWithSQLDB creates a SQL-backed outbox (PostgreSQL, MySQL or MariaDB,
 // selected by dialect) for reliable event delivery. The database handle and
-// handler are required; the events table is created if it does not exist.
-// Save must run on the business transaction: pass outboxsql.WithTx(ctx, tx).
+// handler are required. With the config's EnsureSchema set, the events table
+// is created if it does not exist; otherwise it must already exist (the
+// store's EnsureSchema or migrations). Save must run on the business
+// transaction: pass outboxsql.WithTx(ctx, tx).
 func (b *OutboxBuilder) BuildWithSQLDB(db *sql.DB, dialect outboxsql.Dialect, handler outbox.Handler) (*outbox.Outbox, error) {
 	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
@@ -98,9 +101,20 @@ func (b *OutboxBuilder) BuildWithSQLDB(db *sql.DB, dialect outboxsql.Dialect, ha
 	if err != nil {
 		return nil, b.WrapError(err, "failed to create outbox store")
 	}
+	if b.cfg != nil && b.cfg.Enabled && b.cfg.EnsureSchema {
+		ctx, cancel := context.WithTimeout(context.Background(), ensureSchemaTimeout)
+		defer cancel()
+		if err := store.EnsureSchema(ctx); err != nil {
+			return nil, b.WrapError(err, "ensure outbox schema")
+		}
+	}
 
 	return b.createOutboxWithStore(store, handler)
 }
+
+// ensureSchemaTimeout bounds the schema creation BuildWithSQLDB runs when the
+// config asks for it, so a lock wait cannot stall startup indefinitely.
+const ensureSchemaTimeout = 30 * time.Second
 
 // createOutboxWithStore creates an outbox with the given store (shared logic).
 func (b *OutboxBuilder) createOutboxWithStore(store outbox.Store, handler outbox.Handler) (*outbox.Outbox, error) {

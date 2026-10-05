@@ -36,17 +36,6 @@ func newStore(t *testing.T, d sqldb.Dialect, respond func(string, []any) testhel
 	return store, db, fake
 }
 
-// statements drops the schema DDL New issued, leaving the calls under test.
-func statements(fake *testhelpers.FakeSQL) []testhelpers.FakeSQLCall {
-	var out []testhelpers.FakeSQLCall
-	for _, c := range fake.Calls() {
-		if !strings.HasPrefix(c.Query, "CREATE") {
-			out = append(out, c)
-		}
-	}
-	return out
-}
-
 func pending(id string) outbox.Event {
 	return outbox.Event{Id: id, Key: "orders.created", Status: outbox.StatusPending, CreatedAt: time.Now()}
 }
@@ -67,22 +56,52 @@ func TestNewValidation(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestNewCreatesSchema(t *testing.T) {
+func TestNewDoesNoIO(t *testing.T) {
 	t.Parallel()
-	for d, want := range map[sqldb.Dialect]int{sqldb.DialectPostgres: 4, sqldb.DialectMySQL: 1} {
-		t.Run(string(d), func(t *testing.T) {
+	for _, d := range []sqldb.Dialect{sqldb.DialectPostgres, sqldb.DialectMySQL} {
+		_, _, fake := newStore(t, d, ok)
+		require.Empty(t, fake.Calls(), d)
+	}
+}
+
+func TestEnsureSchema(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		dialect sqldb.Dialect
+		indexes int
+		locked  bool // PostgreSQL: one transaction under an advisory lock
+	}{
+		{sqldb.DialectPostgres, 3, true},
+		{sqldb.DialectMySQL, 0, false},
+	} {
+		t.Run(string(tc.dialect), func(t *testing.T) {
 			t.Parallel()
-			_, _, fake := newStore(t, d, ok)
+			store, _, fake := newStore(t, tc.dialect, ok)
+			require.NoError(t, store.EnsureSchema(t.Context()))
 			calls := fake.Calls()
-			require.Len(t, calls, want)
+			if tc.locked {
+				require.Equal(t, "SELECT pg_advisory_xact_lock($1)", calls[0].Query)
+				calls = calls[1:]
+				require.Equal(t, 1, fake.Commits())
+			}
+			require.Len(t, calls, 1+tc.indexes)
 			require.Contains(t, calls[0].Query, "CREATE TABLE IF NOT EXISTS")
 			require.Regexp(t, `payload\s+\w+\s+NULL`, calls[0].Query, "nil payloads are valid")
+			for _, c := range calls {
+				require.Equal(t, tc.locked, c.InTx, c.Query)
+			}
+			for _, c := range calls[1:] {
+				require.Contains(t, c.Query, "CREATE INDEX IF NOT EXISTS")
+			}
+
+			n := len(fake.Calls())
+			require.NoError(t, store.EnsureSchema(t.Context()), "the DDL is idempotent")
+			require.Equal(t, fake.Calls()[:n], fake.Calls()[n:], "a second run issues the same statements")
 		})
 	}
 
-	db, _ := testhelpers.NewFakeSQL(t, func(string, []any) testhelpers.FakeSQLReply { return testhelpers.FakeSQLReply{Err: errBoom} })
-	_, err := sqldb.New(db, sqldb.DialectPostgres)
-	require.ErrorIs(t, err, errBoom)
+	store, _, _ := newStore(t, sqldb.DialectPostgres, func(string, []any) testhelpers.FakeSQLReply { return testhelpers.FakeSQLReply{Err: errBoom} })
+	require.ErrorIs(t, store.EnsureSchema(t.Context()), errBoom)
 }
 
 func TestSaveEventsTransactions(t *testing.T) {
@@ -91,13 +110,13 @@ func TestSaveEventsTransactions(t *testing.T) {
 	ctx := t.Context()
 
 	require.NoError(t, store.SaveEvents(ctx, pending("e1")))
-	require.False(t, statements(fake)[0].InTx, "a single INSERT needs no transaction of its own")
+	require.False(t, fake.Calls()[0].InTx, "a single INSERT needs no transaction of its own")
 
 	tx, err := db.BeginTx(ctx, nil)
 	require.NoError(t, err)
 	require.NoError(t, store.SaveEvents(sqldb.WithTx(ctx, tx), pending("e2")))
 	require.NoError(t, tx.Commit())
-	calls := statements(fake)
+	calls := fake.Calls()
 	require.True(t, calls[len(calls)-1].InTx, "SaveEvents must run on the caller's transaction")
 
 	// More rows than one INSERT holds: still all-or-nothing.
@@ -107,7 +126,7 @@ func TestSaveEventsTransactions(t *testing.T) {
 	}
 	commits := fake.Commits()
 	require.NoError(t, store.SaveEvents(ctx, big...))
-	calls = statements(fake)
+	calls = fake.Calls()
 	require.True(t, calls[len(calls)-1].InTx)
 	require.True(t, calls[len(calls)-2].InTx)
 	require.Equal(t, commits+1, fake.Commits())
@@ -131,7 +150,7 @@ func TestPlaceholdersAndMySQLTimeBinding(t *testing.T) {
 			failed.Status, failed.LockToken, failed.RetryAfter = outbox.StatusFailed, "tok", time.Second
 			require.NoError(t, store.UpdateEvents(ctx, failed))
 
-			for _, c := range statements(fake) {
+			for _, c := range fake.Calls() {
 				if d == sqldb.DialectPostgres {
 					require.NotContains(t, c.Query, "?", c.Query)
 					require.Len(t, numberedParamRE.FindAllString(c.Query, -1), len(c.Args), c.Query)
@@ -178,7 +197,7 @@ func TestFetchLocksInOneTransaction(t *testing.T) {
 	require.NotEmpty(t, events[0].LockToken)
 	require.Equal(t, events[0].LockToken, events[1].LockToken)
 
-	calls := statements(fake)
+	calls := fake.Calls()
 	require.Len(t, calls, 2)
 	require.Contains(t, calls[0].Query, "FOR UPDATE SKIP LOCKED")
 	require.Contains(t, calls[0].Query, "ORDER BY created_at, seq")
@@ -198,7 +217,7 @@ func TestFetchEmptyBatchLocksNothing(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, events)
 	require.NotNil(t, events)
-	require.Len(t, statements(fake), 1)
+	require.Len(t, fake.Calls(), 1)
 }
 
 func TestUpdateEventsFencesOnLockToken(t *testing.T) {
@@ -209,7 +228,7 @@ func TestUpdateEventsFencesOnLockToken(t *testing.T) {
 	failed := outbox.Event{Id: "b", Status: outbox.StatusFailed, Attempts: 3, LockToken: "t1", LastError: &msg, RetryAfter: 1500 * time.Millisecond}
 	require.NoError(t, store.UpdateEvents(t.Context(), sent, failed))
 
-	calls := statements(fake)
+	calls := fake.Calls()
 	require.Len(t, calls, 2)
 	for _, c := range calls {
 		require.True(t, c.InTx)
@@ -261,7 +280,7 @@ func TestFetchLocksLargeBatchesInChunks(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, events, 2500)
 	var locks []testhelpers.FakeSQLCall
-	for _, c := range statements(fake) {
+	for _, c := range fake.Calls() {
 		if strings.HasPrefix(c.Query, "UPDATE") {
 			locks = append(locks, c)
 		}

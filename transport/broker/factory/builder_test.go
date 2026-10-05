@@ -9,6 +9,7 @@ package factory
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -160,5 +161,43 @@ func TestCreateOutboxWithSQLDB(t *testing.T) {
 	ob, err := New(outboxConfig()).CreateOutboxWithSQLDB(db, outboxsql.DialectPostgres, nopPublisher{})
 	require.NoError(t, err)
 	require.NotNil(t, ob)
-	require.NotEmpty(t, fake.Calls(), "the events table is created on build")
+	require.Empty(t, fake.Calls(), "without ensureSchema the build performs no I/O")
+}
+
+func TestCreateOutboxWithSQLDBEnsureSchema(t *testing.T) {
+	t.Parallel()
+
+	t.Run("creates_schema", func(t *testing.T) {
+		t.Parallel()
+		cfg := outboxConfig()
+		cfg.Outbox.EnsureSchema = true
+		db, fake := testhelpers.NewFakeSQL(t, nil)
+		ob, err := New(cfg).CreateOutboxWithSQLDB(db, outboxsql.DialectMySQL, nopPublisher{})
+		require.NoError(t, err)
+		require.NotNil(t, ob)
+		calls := fake.Calls()
+		require.Len(t, calls, 1)
+		require.Contains(t, calls[0].Query, "CREATE TABLE IF NOT EXISTS")
+	})
+
+	t.Run("disabled_outbox_runs_no_ddl", func(t *testing.T) {
+		t.Parallel()
+		cfg := outboxConfig()
+		cfg.Outbox.Enabled, cfg.Outbox.EnsureSchema = false, true
+		db, fake := testhelpers.NewFakeSQL(t, nil)
+		ob, err := New(cfg).CreateOutboxWithSQLDB(db, outboxsql.DialectMySQL, nopPublisher{})
+		require.NoError(t, err)
+		require.Nil(t, ob)
+		require.Empty(t, fake.Calls())
+	})
+
+	t.Run("propagates_failure", func(t *testing.T) {
+		t.Parallel()
+		cfg := outboxConfig()
+		cfg.Outbox.EnsureSchema = true
+		boom := errors.New("ddl denied")
+		db, _ := testhelpers.NewFakeSQL(t, func(string, []any) testhelpers.FakeSQLReply { return testhelpers.FakeSQLReply{Err: boom} })
+		_, err := New(cfg).CreateOutboxWithSQLDB(db, outboxsql.DialectPostgres, nopPublisher{})
+		require.ErrorIs(t, err, boom)
+	})
 }

@@ -5,9 +5,11 @@
 package factory
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -162,19 +164,33 @@ func (b *SchedulerBuilder) createRedisStorage() (*redisstorage.Storage, error) {
 	return redisstorage.New(b.redisClient, opts...), nil
 }
 
-// createSQLStorage creates a SQL storage backend. Like the MongoDB backend it
-// performs no I/O: before the scheduler starts, call EnsureSchema on a sqldb
-// storage built with the same handle, dialect and tables, or apply the DDL
-// through migrations.
+// ensureSchemaTimeout bounds the schema creation the factory runs when the
+// config asks for it, so a lock wait cannot stall startup indefinitely.
+const ensureSchemaTimeout = 30 * time.Second
+
+// createSQLStorage creates a SQL storage backend. With ensureSchema set it
+// creates or upgrades the schema through the storage's EnsureSchema; otherwise,
+// like the MongoDB backend, it performs no I/O and the schema is expected to
+// exist — created by EnsureSchema on a sqldb storage with the same handle,
+// dialect and tables, or applied through migrations.
 func (b *SchedulerBuilder) createSQLStorage() (*sqlstorage.Storage, error) {
 	if b.cfg.Storage.SQL == nil {
 		return nil, fmt.Errorf("configuration is required")
 	}
 
-	return sqlstorage.New(b.sqlDB, sqlstorage.Dialect(b.cfg.Storage.SQL.Dialect),
+	storage, err := sqlstorage.New(b.sqlDB, sqlstorage.Dialect(b.cfg.Storage.SQL.Dialect),
 		sqlstorage.WithTasksTable(b.cfg.Storage.SQL.TasksTable),
 		sqlstorage.WithHistoryTable(b.cfg.Storage.SQL.HistoryTable),
 	)
+	if err != nil || !b.cfg.Storage.SQL.EnsureSchema {
+		return storage, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), ensureSchemaTimeout)
+	defer cancel()
+	if err := storage.EnsureSchema(ctx); err != nil {
+		return nil, b.WrapError(err, "ensure scheduler schema")
+	}
+	return storage, nil
 }
 
 // concurrencyOptions maps the concurrency config strategy to scheduler options.

@@ -45,48 +45,32 @@ func TestNewValidation(t *testing.T) {
 	require.NoError(t, err, "63 characters is the limit, not over it")
 }
 
-func TestEnsureSchemaPicksEngineCollation(t *testing.T) {
+// TestEnsureSchemaMySQLBinaryTypes pins that the MySQL schema declares every
+// string column as a binary type and probes nothing but the tasks columns: no
+// character set, no collation, no server version.
+func TestEnsureSchemaMySQLBinaryTypes(t *testing.T) {
 	t.Parallel()
-	for _, tc := range []struct {
-		version string
-		want    string
-		err     error
-	}{
-		{"8.4.2", "utf8mb4_0900_bin", nil},
-		{"8.0.17-log", "utf8mb4_0900_bin", nil},
-		{"8.0.16", "", sqldb.ErrUnsupportedVersion},
-		{"11.4.2-MariaDB-ubu2404", "utf8mb4_nopad_bin", nil},
-		{"10.6.0-MariaDB", "utf8mb4_nopad_bin", nil},
-		{"10.5.9-MariaDB", "", sqldb.ErrUnsupportedVersion},
-	} {
-		t.Run(tc.version, func(t *testing.T) {
-			t.Parallel()
-			db, fake := testhelpers.NewFakeSQL(t, func(q string, _ []any) testhelpers.FakeSQLReply {
-				if q == "SELECT VERSION()" {
-					return testhelpers.FakeSQLReply{Columns: []string{"v"}, Rows: [][]driver.Value{{tc.version}}}
-				}
-				return testhelpers.FakeSQLReply{}
-			})
-			store, err := sqldb.New(db, sqldb.DialectMySQL)
-			require.NoError(t, err)
+	db, fake := testhelpers.NewFakeSQL(t, nil)
+	store, err := sqldb.New(db, sqldb.DialectMySQL)
+	require.NoError(t, err)
+	require.NoError(t, store.EnsureSchema(t.Context()))
 
-			err = store.EnsureSchema(t.Context())
-			if tc.err != nil {
-				require.ErrorIs(t, err, tc.err)
-				return
-			}
-			require.NoError(t, err)
-			calls := fake.Calls()
-			// Version probe, two tables, the column probe and one ALTER per
-			// added column (the fake reports none).
-			require.Len(t, calls, 7)
-			for _, c := range calls {
-				require.NotContains(t, c.Query, "utf8mb4_bin ", "PAD SPACE collations must never be used")
-			}
-			for _, i := range []int{1, 2, 5} { // both tables and run_lease_id
-				require.Contains(t, calls[i].Query, "COLLATE "+tc.want)
-			}
-		})
+	calls := fake.Calls()
+	// Two tables, the column probe and one ALTER per added column (the fake
+	// reports none).
+	require.Len(t, calls, 6)
+	for _, c := range calls {
+		require.NotContains(t, c.Query, "VERSION()")
+		require.NotContains(t, c.Query, "COLLATE")
+		require.NotContains(t, c.Query, "CHARACTER SET")
+		require.NotRegexp(t, `\b(VARCHAR|TEXT|MEDIUMTEXT|LONGTEXT)\b`, c.Query)
+	}
+	for _, want := range []string{"id              VARBINARY(1020)", "schedule        VARBINARY(4096)", "description     MEDIUMBLOB",
+		"meta            MEDIUMBLOB", "run_lease_id    VARBINARY(1020)", "last_run_id     VARBINARY(1020)"} {
+		require.Contains(t, calls[0].Query, want)
+	}
+	for _, want := range []string{"id          VARBINARY(1020)", "task_id     VARBINARY(1020)", "run_id      VARBINARY(1020)", "error       LONGBLOB"} {
+		require.Contains(t, calls[1].Query, want)
 	}
 }
 
@@ -274,8 +258,6 @@ func TestEnsureSchemaUpgradesExistingTables(t *testing.T) {
 		t.Parallel()
 		db, fake := testhelpers.NewFakeSQL(t, func(q string, _ []any) testhelpers.FakeSQLReply {
 			switch {
-			case q == "SELECT VERSION()":
-				return testhelpers.FakeSQLReply{Columns: []string{"v"}, Rows: [][]driver.Value{{"8.4.2"}}}
 			case strings.Contains(q, "information_schema"):
 				return testhelpers.FakeSQLReply{Columns: []string{"COLUMN_NAME"}, Rows: [][]driver.Value{{"id"}, {"RUN_LEASE_UNTIL"}}}
 			}
@@ -294,7 +276,7 @@ func TestEnsureSchemaUpgradesExistingTables(t *testing.T) {
 			}
 		}
 		require.Equal(t, []string{
-			"ALTER TABLE `app`.`sched_tasks` ADD COLUMN run_lease_id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL DEFAULT ''",
+			"ALTER TABLE `app`.`sched_tasks` ADD COLUMN run_lease_id VARBINARY(1020) NOT NULL DEFAULT ''",
 			"ALTER TABLE `app`.`sched_tasks` ADD COLUMN run_at BIGINT NOT NULL DEFAULT 0",
 		}, alters)
 	})
@@ -375,11 +357,17 @@ func TestEveryFilterFieldMapsToAColumn(t *testing.T) {
 		"disableHistory": "disable_history", "oneShot": "one_shot", "taskId": "task_id", "runId": "run_id",
 		"startedAt": "started_at", "endedAt": "ended_at", "durationMs": "duration_ms",
 	}
-	column := func(field string) string {
-		if c, ok := columns[field]; ok {
-			return c
+	// On MySQL the string fields read the text views of the derived table.
+	textFields := map[string]bool{"id": true, "description": true, "schedule": true, "taskId": true, "runId": true, "error": true}
+	column := func(d sqldb.Dialect, field string) string {
+		c, ok := columns[field]
+		if !ok {
+			c = field
 		}
-		return field
+		if d == sqldb.DialectMySQL && textFields[field] {
+			return "text_" + c
+		}
+		return c
 	}
 	parser, err := filter.NewParser()
 	require.NoError(t, err)
@@ -395,7 +383,7 @@ func TestEveryFilterFieldMapsToAColumn(t *testing.T) {
 				_, err = store.TasksPaginated(t.Context(), scheduler.Pagination{Limit: 1}, node)
 				require.NoError(t, err, field)
 				calls := fake.Calls()
-				require.Regexp(t, `[`+"`"+`"]`+column(field)+`[`+"`"+`"] IS NOT NULL`, calls[len(calls)-1].Query, field)
+				require.Regexp(t, `[`+"`"+`"]`+column(d, field)+`[`+"`"+`"] IS NOT NULL`, calls[len(calls)-1].Query, field)
 			}
 			for _, field := range scheduler.HistoryFilterFields {
 				node, err := parser.Parse(t.Context(), field+" != null")
@@ -403,7 +391,7 @@ func TestEveryFilterFieldMapsToAColumn(t *testing.T) {
 				_, err = store.HistoryPaginated(t.Context(), "t", scheduler.HistoryPagination{Pagination: scheduler.Pagination{Limit: 1}}, node)
 				require.NoError(t, err, field)
 				calls := fake.Calls()
-				require.Regexp(t, `[`+"`"+`"]`+column(field)+`[`+"`"+`"] IS NOT NULL`, calls[len(calls)-1].Query, field)
+				require.Regexp(t, `[`+"`"+`"]`+column(d, field)+`[`+"`"+`"] IS NOT NULL`, calls[len(calls)-1].Query, field)
 			}
 		})
 	}
@@ -436,4 +424,78 @@ func TestMySQLFinishRunAssignmentOrder(t *testing.T) {
 	}
 	require.Contains(t, assigned, "status")
 	require.Contains(t, assigned, "next_run_at")
+}
+
+// TestMySQLFilteredQueryReadsTextViews pins the shape of a filtered MySQL page
+// query: the filter reads the utf8mb4 views of the derived table while the
+// cursor, the task_id predicate and the ordering stay on the raw columns, and
+// the arguments follow the placeholders in textual order.
+func TestMySQLFilteredQueryReadsTextViews(t *testing.T) {
+	t.Parallel()
+	db, fake := testhelpers.NewFakeSQL(t, func(string, []any) testhelpers.FakeSQLReply { return testhelpers.FakeSQLReply{Columns: taskCols()} })
+	store, err := sqldb.New(db, sqldb.DialectMySQL, sqldb.WithTasksTable("app.tasks"), sqldb.WithHistoryTable("hist"))
+	require.NoError(t, err)
+	parser, err := filter.NewParser()
+	require.NoError(t, err)
+
+	node, err := parser.Parse(t.Context(), `description.endsWith("é") && status == 1`)
+	require.NoError(t, err)
+	_, err = store.TasksPaginated(t.Context(), scheduler.Pagination{AfterID: "k", Limit: 5}, node)
+	require.NoError(t, err)
+	c := fake.Calls()[0]
+	require.Contains(t, c.Query, " FROM (SELECT "+strings.Join(taskCols(), ", ")+
+		", CONVERT(id USING utf8mb4) COLLATE utf8mb4_bin AS text_id"+
+		", CONVERT(description USING utf8mb4) COLLATE utf8mb4_bin AS text_description"+
+		", CONVERT(schedule USING utf8mb4) COLLATE utf8mb4_bin AS text_schedule FROM `app`.`tasks`) AS f WHERE (")
+	require.Contains(t, c.Query, "`text_description`")
+	require.True(t, strings.HasSuffix(c.Query, ") AND id > ? ORDER BY id LIMIT ?"), c.Query)
+	require.Equal(t, []any{"é", "é", int64(1), "k", int64(6)}, c.Args)
+
+	node, err = parser.Parse(t.Context(), `error.matches("^x") && runId == "r"`)
+	require.NoError(t, err)
+	_, err = store.HistoryPaginated(t.Context(), "task", scheduler.HistoryPagination{
+		Pagination: scheduler.Pagination{AfterID: "h", Limit: 5}, AfterStartedAt: 9,
+	}, node)
+	require.NoError(t, err)
+	c = fake.Calls()[1]
+	require.Contains(t, c.Query, " FROM (SELECT id, task_id, run_id, error, started_at, ended_at, duration_ms, success"+
+		", CONVERT(id USING utf8mb4) COLLATE utf8mb4_bin AS text_id"+
+		", CONVERT(task_id USING utf8mb4) COLLATE utf8mb4_bin AS text_task_id"+
+		", CONVERT(run_id USING utf8mb4) COLLATE utf8mb4_bin AS text_run_id"+
+		", CONVERT(error USING utf8mb4) COLLATE utf8mb4_bin AS text_error FROM `hist`) AS f WHERE (")
+	require.Contains(t, c.Query, "`text_error` REGEXP ?")
+	require.True(t, strings.HasSuffix(c.Query,
+		") AND task_id = ? AND (started_at < ? OR (started_at = ? AND id < ?)) ORDER BY started_at DESC, id DESC LIMIT ?"), c.Query)
+	require.Equal(t, []any{"^x", "r", "task", int64(9), int64(9), "h", int64(6)}, c.Args)
+
+	// Without a filter the query reads the table itself.
+	_, err = store.TasksPaginated(t.Context(), scheduler.Pagination{Limit: 5}, nil)
+	require.NoError(t, err)
+	require.Equal(t, "SELECT "+strings.Join(taskCols(), ", ")+" FROM `app`.`tasks` WHERE 1 = 1 ORDER BY id LIMIT ?", fake.Calls()[2].Query)
+}
+
+// TestPostgresSchemaLocksHistoryFirst pins the PostgreSQL DDL order: it runs
+// in one transaction under advisory locks, and its table locks must follow
+// DeleteTask's order (history, then tasks) so the two cannot deadlock.
+func TestPostgresSchemaLocksHistoryFirst(t *testing.T) {
+	t.Parallel()
+	db, fake := testhelpers.NewFakeSQL(t, nil)
+	store, err := sqldb.New(db, sqldb.DialectPostgres)
+	require.NoError(t, err)
+	require.NoError(t, store.EnsureSchema(t.Context()))
+
+	calls := fake.Calls()
+	require.Equal(t, 1, fake.Commits())
+	lastHistory, firstTasks := -1, len(calls)
+	for i, c := range calls {
+		require.True(t, c.InTx, c.Query)
+		switch {
+		case strings.Contains(c.Query, `"scheduler_history"`):
+			lastHistory = i
+		case strings.Contains(c.Query, `"scheduler_tasks"`):
+			firstTasks = min(firstTasks, i)
+		}
+	}
+	require.Equal(t, "SELECT pg_advisory_xact_lock($1)", calls[0].Query)
+	require.Less(t, lastHistory, firstTasks, "every history statement precedes every tasks statement")
 }
