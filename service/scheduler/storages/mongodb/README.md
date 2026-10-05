@@ -33,9 +33,13 @@ manually.
 
 ## Atomic run claim
 
-`ClaimRun` transitions a task `active → running` for a specific occurrence with a single conditional `UpdateOne` (matched on `_id`, `status`, and — when
-fenced — `next_run_at`). MongoDB applies the document update atomically, so among concurrent schedulers exactly one match succeeds and exactly one
-claims the run; the rest see `ModifiedCount == 0` and skip. This prevents concurrent claims of the same active occurrence.
+`ClaimRun` transitions a task `active → running` for a specific occurrence with a single conditional `UpdateOne` (matched on `_id`, `status`, a zero or
+absent `run_started_at`, and — when fenced — `next_run_at` and `run_at`). MongoDB applies the document update atomically, so among concurrent
+schedulers exactly one match succeeds and exactly one claims the run; the rest see `ModifiedCount == 0` and skip. This prevents concurrent claims of the
+same active occurrence. The rules themselves are defined once, in the godoc of `scheduler.Storage` ("Run ownership").
+
+`CreateTask` is an `InsertOne` whose duplicate-key error on `_id` reports an existing task, and `RenewRun` is a conditional `UpdateOne` on `_id`,
+`last_run_id` and a positive `run_started_at` that sets `run_lease_until` and increments `revision`.
 
 ## Filter support
 

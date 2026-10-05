@@ -21,7 +21,7 @@ concurrency control, and full observability.
 | Crash recovery         | Automatic detection and recovery of tasks stuck in `Running` state                                         |
 | Concurrency strategies | Static, environment-preset, memory-aware, adaptive, or custom function                                     |
 | Pluggable storage      | In-memory, MongoDB, Redis, or SQL backends with a unified `Storage` interface                              |
-| Distributed scheduling | Leader-coordinated dispatch + atomic claims ([caveats](#single-execution-what-the-storage-layer-enforces)) |
+| Distributed scheduling | Leader-coordinated dispatch + atomic claims ([details](#single-execution-what-the-storage-layer-enforces)) |
 | Observability          | Prometheus metrics, structured logging, execution history with pagination                                  |
 
 ## When to use
@@ -134,6 +134,7 @@ scheduler:
   tickInterval: 1s
   historyRetention: 168h
   staleTaskTimeout: 30m
+  instanceId: scheduler-0             # Optional. Unique per instance; default: random per process
 
   concurrency:
     strategy: static                  # static | environment | memory-aware | adaptive
@@ -172,7 +173,8 @@ scheduler:
 |--------------------|------------|---------|---------------------------------------------------------------------------|
 | `tickInterval`     | `duration` | `1s`    | Main loop evaluation interval. Lower = more precise, more CPU. Min: `1ms` |
 | `historyRetention` | `duration` | `168h`  | How long execution history is retained before cleanup                     |
-| `staleTaskTimeout` | `duration` | `30m`   | Duration after which a `Running` task is considered stale and recovered   |
+| `staleTaskTimeout` | `duration` | `30m`   | Run lease (min `5s`); runs whose lease expired are recovered              |
+| `instanceId`       | `string`   | random  | Owner ID stamped on runs; unique per instance sharing a storage (max 128) |
 
 ### Concurrency
 
@@ -245,7 +247,7 @@ Supported cron descriptors: `@every <duration>`, `@hourly`, `@daily`, `@weekly`,
 | `ID` | `string` | yes | -- | Unique task identifier |
 | `Func` | `func(ctx context.Context) error` | yes | -- | Function invoked on each execution |
 | `Schedule` | `string` | one of Schedule/RunAt | -- | Cron expression or descriptor for recurring execution |
-| `RunAt` | `time.Time` | one of Schedule/RunAt | -- | Specific time for one-shot execution |
+| `RunAt` | `time.Time` | one of Schedule/RunAt | -- | Specific time for one-shot execution; must be after the Unix epoch |
 | `Description` | `string` | no | `""` | Human-readable summary for listing endpoints |
 | `Priority` | `TaskPriority` | no | `Normal` | Dispatch priority for concurrency slot allocation |
 | `Timeout` | `time.Duration` | no | `0` (none) | Maximum execution duration. Context is canceled on expiry |
@@ -258,6 +260,13 @@ Supported cron descriptors: `@every <duration>`, `@hourly`, `@daily`, `@weekly`,
 
 Calling `Register` with an existing task ID **merges** the configuration: schedule, priority, and description are updated; execution state (`LastRunAt`,
 `Failures`) is preserved. This lets you update a task's schedule without losing state.
+
+A one-shot task is completed once its single run finishes — even if it was paused, disabled or resumed while that run executed — and a
+completed one-shot task stays completed when it is re-registered with the same `RunAt` (compared at second precision). Every instance and every
+restart can therefore register the same one-shot task safely. Only a different `RunAt` resets it to `Active` and schedules a new run; for a task
+completed before the scheduler persisted `RunAt`, only a `RunAt` later than its last run's start does. A one-shot task re-registered for a different
+`RunAt` while a run executes is not completed by that run: it returns to `Active` with the new occurrence still scheduled. `PauseTask`,
+`ResumeTask`, `DisableTask` and `EnableTask` reject a completed task with `ErrTaskCompleted`.
 
 ### Lifecycle
 
@@ -280,7 +289,7 @@ Calling `Register` with an existing task ID **merges** the configuration: schedu
 | `Paused`    | `2`   | Suspended via `PauseTask`. Resume with `ResumeTask`. In-flight execution completes normally   |
 | `Disabled`  | `3`   | Fully deactivated. Cannot be triggered manually or by schedule. Re-activate with `EnableTask` |
 | `Running`   | `4`   | Currently executing                                                                           |
-| `Completed` | `5`   | One-shot task finished. Re-register to reset                                                  |
+| `Completed` | `5`   | One-shot task finished. Re-register with a different `RunAt` to run it again                  |
 
 ### Management operations
 
@@ -708,18 +717,44 @@ competing claims regardless, the scheduler claims each run through `Storage.Clai
 - MongoDB implements it as one conditional `UpdateOne`; Redis as a single server-side `EVAL` (Lua) script; the memory backend under its mutex. All
   three are atomic read-check-write, so the guarantee holds even during a leader-election split-brain window.
 
-The result: even if `IsLeader()` is wrong for a moment, competing dispatchers cannot both claim an occurrence while its stored state is intact.
-One gap remains: initial `Register` writes the task with an unconditional `UpsertTask` when it finds none, so two instances registering the
-same new task concurrently can race — the later write replaces a state the other instance has already claimed, letting the occurrence run
-twice. Register tasks before starting dispatch on more than one instance, or from a single instance, until registration becomes
-insert-if-absent.
+The result: even if `IsLeader()` is wrong for a moment, competing dispatchers cannot both claim an occurrence. A one-shot task's `run_at` is fenced
+along with `next_run_at`, so a dispatch that observed one registered occurrence cannot claim another. The claim also requires that no earlier run of the
+task is unfinished (`run_started_at == 0`), so pausing and resuming — or disabling and enabling — a task while its run is in flight does not let a
+second instance start the next occurrence before the first run has recorded its result.
 
-Recovery is a second path. `Start` unconditionally runs startup recovery, which resets **every** task left `running` — without an age
-check — including one still executing on another instance (for example during a rolling restart); a one-shot task gets `next_run_at = now`
-and can be claimed again at once. The periodic stale-task recovery does the same for runs older than the stale timeout. Neither path is
-fenced against a live run, so task effects must be idempotent, or fenced externally (e.g. with the leader's fencing token), when
-duplicate execution is unacceptable. See also the fencing token exposed by
-[`data/leadelect`](../../data/leadelect/README.md) (`LeaderElector.Fence`), which a store can additionally use to reject a stale leader's writes.
+Registration cannot undo a claim either. `Register` creates a new task with `Storage.CreateTask`, an atomic insert-if-absent; an instance that
+loses the creation race re-reads the task and merges its configuration with a fenced `ReplaceTaskIf`, preserving the run another instance may
+already have claimed.
+
+#### Run ownership and stale recovery
+
+Every run ID names the instance that executes it (`<instance-id>/<random>`, see `WithInstanceID`), and every run carries a lease. `ClaimRun` stores the
+first `run_lease_until = start + lease` atomically with the claim; then, every third of the lease, the owner calls `Storage.RenewRun`, which moves it to
+`now + lease` while the run is still its own. Each renewal is issued a third of a lease after the previous lease write, leaving two thirds of a lease
+for it to land; a claim that itself took a third of a lease or more renews and confirms ownership — with a renewal answered within a third of a lease —
+before the task body starts, and the body does not start if the run was taken over meanwhile. The lease is `WithStaleTaskTimeout`, floored at five
+seconds because leases are stored in whole seconds. Stale recovery — at startup and periodically — resets a run only when it is:
+
+- owned by this instance and no longer executing here (a restart with a stable `WithInstanceID`, or a run whose result write failed), or
+- owned by anyone else and its lease has expired: the current time is past the persisted `run_lease_until`. Expiry is judged against the owner's
+  persisted value, so instances configured with different timeouts agree. A lease counts only while it is bound to the run: `ClaimRun` and
+  `RenewRun` store the run ID in `run_lease_id` with the lease, and `FinishRun` and recovery clear both. A run claimed by a release without
+  leases has no lease of its own — `run_lease_until` zero, or an earlier run's lease still bound to that run — and falls back to its start plus
+  the local lease. A lease stored without `run_lease_id` (written by a lease-aware build that did not bind leases yet) may belong to this run or an
+  earlier one, so the later of both deadlines applies.
+
+An instance runs a task only for the occurrence it registered: a one-shot task whose stored `RunAt` (or kind) differs from the local registration —
+re-registered locally or elsewhere — is skipped rather than run with a stale function. Under these rules a run that is still executing on a live
+instance is never reset, however long it takes, and a one-shot task is not re-executed while its first run is alive. Recovery of a task that management
+paused, disabled or resumed during the run clears the run and keeps that status. With the default random instance ID, a crashed instance's runs are
+recovered once their lease expires rather than immediately; give each instance a stable, unique `WithInstanceID` (for example the pod name) to recover
+its own runs at once after a restart.
+
+What remains: the lease relies on the owner being able to reach the storage and on roughly synchronized clocks. An owner that cannot renew for
+longer than its lease (a partition, a stalled process) can be recovered while it still executes, so task effects that must not repeat should
+still be idempotent or fenced externally, e.g. with the fencing token exposed by [`data/leadelect`](../../data/leadelect/README.md)
+(`LeaderElector.Fence`). Instances running a release without run leases recover every `running` task at startup and do not renew leases; upgrade
+all instances sharing a storage.
 
 ---
 
@@ -870,10 +905,11 @@ All errors are exported as sentinel values. Use `errors.Is` to match.
 | `ErrTaskNotPaused` | `ResumeTask` | Task status is not `Paused` |
 | `ErrTaskNotDisabled` | `EnableTask` | Task status is not `Disabled` |
 | `ErrTaskDisabled` | `TriggerTask` | Task status is `Disabled` |
-| `ErrTaskCompleted` | `PauseTask`, `ResumeTask`, `EnableTask`, `TriggerTask` | One-shot task already executed |
+| `ErrTaskCompleted` | `PauseTask`, `ResumeTask`, `DisableTask`, `EnableTask`, `TriggerTask` | One-shot task already executed |
 | `ErrNotReady` | `TriggerTask` | Readiness probe returned `false` |
 | `ErrScheduleConflict` | `Register` | Both `RunAt` and `Schedule` provided |
 | `ErrInvalidCursor` | `TasksPaginated`, `HistoryPaginated` | Cursor malformed or filter changed since issue |
+| `ErrInvalidRunClaim` | `Storage.ClaimRun` | Claim with a non-positive start, an empty run ID or a negative lease (`RunClaim.Validate`) |
 
 ---
 
@@ -884,7 +920,7 @@ All errors are exported as sentinel values. Use `errors.Is` to match.
 | Type             | Description                                                                    |
 |------------------|--------------------------------------------------------------------------------|
 | `Scheduler`      | Core scheduler: register, dispatch, pause/resume/disable, query                |
-| `Storage`        | Persistence interface (13 methods) implemented by every backend                |
+| `Storage`        | Persistence interface (15 methods) implemented by every backend                |
 | `TaskState`      | Full persistent state: schedule, priority, timestamps, metadata                |
 | `TaskSummary`    | Lightweight read-only view for listing endpoints                               |
 | `TaskHistory`    | Single execution record: timing, success flag, error, run ID                   |
@@ -904,7 +940,8 @@ All errors are exported as sentinel values. Use `errors.Is` to match.
 | `WithReservedHighPrioritySlots` | `2`             | Slots reserved for `High` and `Critical` priority tasks         |
 | `WithHistoryRetention`          | `168h`          | Execution history retention before cleanup                      |
 | `WithCleanupInterval`           | `1h`            | Interval between history cleanup runs                           |
-| `WithStaleTaskTimeout`          | `30m`           | Timeout before recovering tasks stuck in `Running`              |
+| `WithStaleTaskTimeout`          | `30m`           | Run lease (min `5s`); runs whose lease expired are recovered    |
+| `WithInstanceID`                | random          | Owner ID stamped on runs; unique per live instance              |
 | `WithLeaderElector`             | `nil`           | Distributed leader elector -- only the leader dispatches        |
 | `WithReadinessProbe`            | `nil`           | Pre-dispatch readiness check -- skips tick when `false`         |
 | `WithLogger`                    | discard         | Structured logger for lifecycle and error events                |

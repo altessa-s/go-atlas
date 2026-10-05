@@ -8,7 +8,10 @@
 //
 // Example with static concurrency:
 //
-//	storage := memory.New(100)
+//	storage, err := memory.New(100)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
 //	s := scheduler.New(storage,
 //	    scheduler.WithTickInterval(time.Second),
 //	    scheduler.WithMaxConcurrentTasks(10),
@@ -19,7 +22,7 @@
 //	}
 //	defer s.Stop(ctx)
 //
-//	err := s.Register(ctx, corescheduler.TaskConfig{
+//	err = s.Register(ctx, corescheduler.TaskConfig{
 //	    ID:         "my-task",
 //	    Schedule:   "@every 5m",
 //	    Priority:   corescheduler.TaskPriorityHigh,

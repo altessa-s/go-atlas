@@ -122,7 +122,7 @@ func ReplaceTaskIf(t *testing.T, store scheduler.Storage) {
 		require.NoError(t, store.UpsertTask(t.Context(), state))
 		require.Equal(t, int64(2), rev())
 
-		ok, err := store.ClaimRun(t.Context(), state.ID, 300, 100, "owner")
+		ok, err := store.ClaimRun(t.Context(), state.ID, scheduler.RunClaim{NextRunAt: 300, StartedAt: 100, RunID: "owner"})
 		require.NoError(t, err)
 		require.True(t, ok)
 		require.Equal(t, int64(3), rev())

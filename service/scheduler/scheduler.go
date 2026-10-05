@@ -88,6 +88,11 @@ type Scheduler struct {
 
 	// metrics holds Prometheus metrics for the scheduler.
 	metrics *schedulerMetrics
+
+	// liveRuns holds the IDs of the runs this instance is executing right now,
+	// from just before ClaimRun until executeTask returns. Stale recovery uses
+	// it to tell a live run of this instance from one it abandoned.
+	liveRuns sync.Map // map[string]struct{}
 }
 
 // registeredTask holds the runtime state of a registered task.
@@ -112,6 +117,19 @@ type registeredTask struct {
 // false when a dispatch is already queued or running, in which case the caller
 // must not spawn a goroutine.
 func (t *registeredTask) claim() bool { return t.dispatched.CompareAndSwap(false, true) }
+
+// matches reports whether state is the occurrence this registration was made
+// for: the same kind of task and, for a one-shot task, the same RunAt. Another
+// registration — a concurrent local re-registration, or another instance's —
+// may have moved the persisted task to a different occurrence; running this
+// registration's function for it would execute the wrong configuration.
+func (t *registeredTask) matches(state *TaskState) bool {
+	oneShot := !t.config.RunAt.IsZero()
+	if oneShot != state.OneShot {
+		return false
+	}
+	return !oneShot || t.config.RunAt.Unix() == state.RunAt
+}
 
 // release frees the dispatch slot reserved by claim.
 func (t *registeredTask) release() { t.dispatched.Store(false) }
@@ -139,6 +157,9 @@ type pendingTask struct {
 //	}
 func New(storage Storage, opts ...Option) *Scheduler {
 	o := newOptions(opts...)
+	if o.instanceID == "" {
+		o.instanceID = generateID()
+	}
 
 	fp, _ := filter.NewParser() //nolint:errcheck // parser init never fails with no options
 
@@ -182,8 +203,10 @@ func New(storage Storage, opts ...Option) *Scheduler {
 }
 
 // Start begins the scheduler's main loop. It loads existing task states from
-// storage, recovers any tasks left in [TaskStatusRunning] from a previous crash,
-// and starts the tick, cleanup, and stale-recovery goroutines.
+// storage, recovers runs left unfinished by a previous crash — those owned by
+// this instance ID ([WithInstanceID]) that are not executing, and those whose
+// lease has expired — and starts the tick, cleanup, and stale-recovery
+// goroutines. Runs still held by other live instances are left alone.
 //
 // Start must be called exactly once. Calling Start on an already-running
 // scheduler returns an error. The provided context is used only for the initial
