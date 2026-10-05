@@ -16,10 +16,11 @@ configuration, use another bucket, or pass `WithMigrateBucketTTL()` to update th
 
 ## Bucket storage
 
-Lock buckets are memory-backed by default (`WithStorage`, `DefaultStorage`): a lock lives no longer than its TTL, so there is nothing to keep across
-a server restart. Pass `WithStorage(jetstream.FileStorage)` to keep the bucket, and with it the fencing-token sequence, across a full server bounce.
-An existing bucket with another storage type is adopted as is, with a warning, because the server cannot change a bucket's storage type. Pass
-`WithStrictBucketStorage()` (YAML: `distributionLock.nats.strictBucketStorage: true`) to fail with `ErrBucketStorageMismatch` instead.
+Lock buckets are memory-backed by default (`WithStorage`, `DefaultStorage`): a lock lives no longer than its TTL, so there is nothing to keep across a
+server restart. Pass `WithStorage(jetstream.FileStorage)` (YAML: `distributionLock.nats.storage: file`) to keep the bucket, and with it the
+fencing-token sequence, across a full server bounce. An existing bucket with another storage type is adopted as is, with a warning, because the server
+cannot change a bucket's storage type. Pass `WithStrictBucketStorage()` (YAML: `distributionLock.nats.strictBucketStorage: true`) to fail with
+`ErrBucketStorageMismatch` instead.
 
 ### Moving a bucket to another storage type
 

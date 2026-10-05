@@ -10,6 +10,7 @@ import (
 	"log/slog"
 
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/locks/dlock"
@@ -74,7 +75,10 @@ func (b *DLockBuilder) createNatsDLock(ctx context.Context) (*dlock.DLock, error
 
 	// Built here rather than through dlock.NewWithNats, which takes no provider
 	// options; the error wrapping matches it.
-	provOpts := []natsprovider.Option{natsprovider.WithBucket(b.cfg.Nats.Bucket)}
+	provOpts := []natsprovider.Option{
+		natsprovider.WithBucket(b.cfg.Nats.Bucket),
+		natsprovider.WithStorage(bucketStorage(b.cfg.Nats.Storage)),
+	}
 	provOpts = coreslices.AppendIf(provOpts, b.cfg.Nats.MigrateBucketTTL, natsprovider.WithMigrateBucketTTL())
 	provOpts = coreslices.AppendIf(provOpts, b.cfg.Nats.StrictBucketStorage, natsprovider.WithStrictBucketStorage())
 
@@ -94,4 +98,13 @@ func (b *DLockBuilder) applyDefaults() []dlock.Option {
 	opts = coreslices.AppendIf(opts, b.healthServiceName != "",
 		dlock.WithHealthServiceName(b.healthServiceName))
 	return opts
+}
+
+// bucketStorage maps the configured bucket storage onto JetStream's: file is
+// file storage, anything else — including unset — the memory default.
+func bucketStorage(v config.KVStorageType) jetstream.StorageType {
+	if v == config.KVStorageFile {
+		return jetstream.FileStorage
+	}
+	return jetstream.MemoryStorage
 }

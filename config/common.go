@@ -49,6 +49,17 @@ func AllFallbackBehaviors() []FallbackBehavior {
 	}
 }
 
+// KVStorageType selects where a NATS JetStream KeyValue bucket keeps its data.
+type KVStorageType string
+
+const (
+	// KVStorageMemory keeps the bucket in memory: fast, lost when the
+	// JetStream servers holding it stop.
+	KVStorageMemory KVStorageType = "memory"
+	// KVStorageFile keeps the bucket on disk, surviving server restarts.
+	KVStorageFile KVStorageType = "file"
+)
+
 // StorageNATSConfig defines common NATS-specific configuration for storage backends.
 // Contains settings for NATS KeyValue bucket creation and replication strategy.
 //

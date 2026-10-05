@@ -89,3 +89,30 @@ func TestBuild_StrictBucketStorage(t *testing.T) {
 	_, err = factory.New(cfg(false)).UseNatsConn(nc).Build(t.Context())
 	require.NoError(t, err, "without the flag the bucket is adopted")
 }
+
+// TestBuild_Storage pins that storage selects the storage type of the election
+// bucket the provider creates, memory by default.
+func TestBuild_Storage(t *testing.T) {
+	t.Parallel()
+
+	for name, storage := range map[string]config.KVStorageType{"default": "", "file": config.KVStorageFile} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ns := testhelpers.StartNATSServer(t)
+			nc, js := testhelpers.ConnectJetStream(t, ns)
+
+			_, err := factory.New(&config.LeaderElector{
+				Provider: config.LeaderElectorProviderNats,
+				Ttl:      10 * time.Second,
+				Storage:  storage,
+			}).UseNatsConn(nc).Build(t.Context())
+			require.NoError(t, err)
+
+			want := jetstream.MemoryStorage
+			if storage == config.KVStorageFile {
+				want = jetstream.FileStorage
+			}
+			require.Equal(t, want, testhelpers.KVBucketStorage(t, js, lenats.DefaultBucket))
+		})
+	}
+}

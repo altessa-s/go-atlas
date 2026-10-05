@@ -93,6 +93,7 @@ distributionLock:
   provider: nats
   nats:
     bucket: myapp-locks
+    storage: memory           # or file: keep the bucket and the fencing-token sequence across a server restart
     migrateBucketTTL: false   # true updates an existing bucket whose key TTL differs (see "TTL, renew, fencing")
 ```
 

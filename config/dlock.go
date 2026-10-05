@@ -30,6 +30,12 @@ type DistributionLockNats struct {
 	// Defaults to "dlock" if not specified.
 	Bucket string `yaml:"bucket" default:"dlock"`
 
+	// Storage is the storage type of a bucket the provider creates: memory
+	// (the default — a lock lives no longer than its TTL) or file, which keeps
+	// the bucket and its fencing-token sequence across a server restart. An
+	// existing bucket keeps its storage type.
+	Storage KVStorageType `yaml:"storage" default:"memory"`
+
 	// MigrateBucketTTL updates a pre-existing bucket whose key TTL differs
 	// from the lock TTL instead of failing with ErrBucketTTLMismatch. Off by
 	// default: the bucket's key TTL expires every lock in it, including locks
@@ -64,8 +70,16 @@ type DistributionLock struct {
 // DefaultDistributionLockNats returns a DistributionLockNats configuration with default values.
 func DefaultDistributionLockNats() DistributionLockNats {
 	return DistributionLockNats{
-		Bucket: defaultDistributionLockNatsBucket,
+		Bucket:  defaultDistributionLockNatsBucket,
+		Storage: KVStorageMemory,
 	}
+}
+
+// Validate performs validation of the NATS distributed lock configuration.
+func (n *DistributionLockNats) Validate() error {
+	return ValidateStruct(n,
+		validation.Field(&n.Storage, validation.In(KVStorageMemory, KVStorageFile)),
+	)
 }
 
 // DefaultDistributionLock returns a DistributionLock configuration with default values.

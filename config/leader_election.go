@@ -38,6 +38,11 @@ type LeaderElector struct {
 	Provider LeaderElectorProvider `yaml:"provider" default:"nats"`
 	// Ttl defines the time-to-live for leader election locks
 	Ttl time.Duration `yaml:"ttl" default:"10s"`
+	// Storage is the storage type of an election bucket the provider creates:
+	// memory (the default — the lease is lost on a server restart, forcing a
+	// clean re-election) or file, which keeps the bucket and the Fence()
+	// sequence across a server restart. An existing bucket keeps its storage.
+	Storage KVStorageType `yaml:"storage" default:"memory"`
 	// MigrateBucketTTL updates a pre-existing election bucket whose key TTL
 	// differs from the provider's instead of failing with
 	// ErrBucketTTLMismatch. Off by default: the bucket's key TTL expires the
@@ -53,7 +58,8 @@ type LeaderElector struct {
 // Note: Provider is left as zero value since it is a required field.
 func DefaultLeaderElector() LeaderElector {
 	return LeaderElector{
-		Ttl: defaultLeaderElectorTTL,
+		Ttl:     defaultLeaderElectorTTL,
+		Storage: KVStorageMemory,
 	}
 }
 
@@ -63,5 +69,6 @@ func (le *LeaderElector) Validate() error {
 	return ValidateStruct(le,
 		validation.Field(&le.Provider, validation.Required, ozzo_rules.OneOf(LeaderElectorProviderNats)),
 		validation.Field(&le.Ttl, ozzo_rules.Duration(), validation.Min(time.Second)),
+		validation.Field(&le.Storage, validation.In(KVStorageMemory, KVStorageFile)),
 	)
 }

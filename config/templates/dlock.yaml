@@ -15,6 +15,13 @@
 #    # Default value: dlock
 #    bucket: dlock
 #
+#    # <string> Storage type of a bucket the provider creates.
+#    # memory: a lock lives no longer than its TTL; file keeps the fencing-token sequence across restarts.
+#    # An existing bucket keeps its storage type (see the provider README for migrating it).
+#    # Supported values: memory, file
+#    # Default value: memory
+#    storage: memory
+#
 #    # <bool> Update an existing bucket whose key TTL differs from the lock TTL.
 #    # When false, a bucket with a different key TTL is left untouched and the lock
 #    # fails to build with ErrBucketTTLMismatch: the bucket's key TTL expires every
