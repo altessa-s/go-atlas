@@ -12,6 +12,11 @@
 //   - KeyValue bucket creation and management
 //   - Lease-based resource management with camping loops that retry a failed
 //     renewal for as long as the lease may still be valid
+//   - Storage migration of an existing bucket (KVHelper.MigrateBucketStorage):
+//     the bucket is sealed, copied into a marker stream and recreated on the
+//     target storage with its first revision above the old last one, so
+//     revision-based fencing tokens stay monotonic; the marker makes an
+//     interrupted migration detectable and resumable
 //
 // The package is designed as an internal utility and should not be imported
 // by external packages directly.

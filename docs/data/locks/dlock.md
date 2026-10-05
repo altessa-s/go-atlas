@@ -135,6 +135,10 @@ alone, rather than rewriting it and silently shortening or stretching the locks 
 change the TTL of an existing bucket deliberately — once every provider sharing it is configured with the new TTL. A lock built from YAML through
 `dlock/factory` takes the same switch as `distributionLock.nats.migrateBucketTTL: true`.
 
+The bucket is memory-backed unless the provider is built with `WithStorage(jetstream.FileStorage)`. The server cannot change an existing bucket's
+storage type, so the provider's `MigrateBucketStorage` recreates the bucket instead, while every user is stopped. Its first revision is set just
+above the old bucket's last one, so fencing tokens keep growing across the move. The provider README has the procedure.
+
 `GetLockInfo` exposes a `FencingToken`, a monotonically increasing revision from NATS KV. If you do an out-of-band side effect tied to lock
 ownership (writing to another database, publishing to a queue), have the receiver check that the fencing token is at least as large as the last
 one it saw. Without that check, an old owner reconnecting after a pause longer than the TTL can flood the system with stale operations.

@@ -100,6 +100,12 @@ func (c *JetStreamKVCapture) KeyValue(context.Context, string) (jetstream.KeyVal
 	return nil, jetstream.ErrBucketNotFound
 }
 
+// Stream always returns [jetstream.ErrStreamNotFound]: no stream, such as a
+// bucket's storage-migration marker, exists.
+func (c *JetStreamKVCapture) Stream(context.Context, string) (jetstream.Stream, error) {
+	return nil, jetstream.ErrStreamNotFound
+}
+
 // CreateKeyValue records cfg and returns an inert KeyValue whose methods panic
 // when called.
 func (c *JetStreamKVCapture) CreateKeyValue(_ context.Context, cfg jetstream.KeyValueConfig) (jetstream.KeyValue, error) {

@@ -71,14 +71,7 @@ func New(js jetstream.JetStream, opts ...Option) (*Provider, error) {
 
 	config := newOptions(opts...)
 
-	base, err := natsbase.NewBaseWithBucket(context.Background(), js, natskvlease.BucketConfig{
-		Bucket:        config.bucket,
-		TTL:           config.maxAge,
-		Storage:       jetstream.FileStorage,
-		Replicas:      config.replicas,
-		MigrateTTL:    config.migrateBucketTTL,
-		StrictStorage: config.strictBucketStorage,
-	}, nil)
+	base, err := natsbase.NewBaseWithBucket(context.Background(), js, bucketConfig(config), nil)
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "create NATS KeyValue bucket")
 	}
@@ -87,6 +80,18 @@ func New(js jetstream.JetStream, opts ...Option) (*Provider, error) {
 		Base:    base,
 		options: config,
 	}, nil
+}
+
+// bucketConfig is the bucket New creates and MigrateBucketStorage migrates to.
+func bucketConfig(o *options) natskvlease.BucketConfig {
+	return natskvlease.BucketConfig{
+		Bucket:        o.bucket,
+		TTL:           o.maxAge,
+		Storage:       jetstream.FileStorage,
+		Replicas:      o.replicas,
+		MigrateTTL:    o.migrateBucketTTL,
+		StrictStorage: o.strictBucketStorage,
+	}
 }
 
 // maxAllowCASAttempts caps the number of retries the read-modify-write loop

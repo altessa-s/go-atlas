@@ -82,6 +82,12 @@ type BucketConfig struct {
 type KVHelper struct {
 	js     jetstream.JetStream
 	logger *slog.Logger
+
+	// failpoint and now are test seams for the storage migration: failpoint
+	// can fail a named step, now replaces the clock. Both are nil in
+	// production.
+	failpoint func(step string) error
+	now       func() time.Time
 }
 
 // NewKVHelper creates a new KVHelper instance.
@@ -99,6 +105,19 @@ func NewKVHelper(js jetstream.JetStream, logger *slog.Logger) *KVHelper {
 // It uses retry logic to handle transient network errors.
 func (h *KVHelper) GetOrCreateBucket(ctx context.Context, cfg BucketConfig) (jetstream.KeyValue, error) {
 	cfg = cfg.normalized()
+
+	// A bucket in the middle of a storage migration must not be used: it may
+	// be sealed, missing, or not yet restored.
+	if _, err := Retry(ctx, func() (jetstream.Stream, error) {
+		return h.js.Stream(ctx, markerStreamName(cfg.Bucket))
+	}); err == nil {
+		return nil, fmt.Errorf("%w: bucket %q; finish it with MigrateBucketStorage and Resume",
+			ErrBucketMigrationInProgress, cfg.Bucket)
+	} else if !errors.Is(err, jetstream.ErrStreamNotFound) {
+		h.logger.ErrorContext(ctx, "failed to check for a KeyValue bucket migration",
+			slog.String("bucket", cfg.Bucket), slog.Any("error", err))
+		return nil, err
+	}
 
 	// Try to get existing bucket
 	kv, err := Retry(ctx, func() (jetstream.KeyValue, error) {

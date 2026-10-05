@@ -20,10 +20,31 @@ holding it stop. Replicated memory buckets survive rolling restarts, so they do 
 type, so `New` adopts an existing bucket with a different storage type as is and logs a warning on every start. Pass `WithStrictBucketStorage()` (YAML:
 `storage.nats.strictBucketStorage: true` through the limiter factories) to fail with `ErrBucketStorageMismatch` instead.
 
-To move to file storage:
-1. Stop every process using the bucket.
-2. Delete the bucket with `nats kv del <bucket>`.
-3. Start the processes again. The first `New` creates a file bucket.
-4. Check that `nats kv info <bucket>` reports file storage and that the warning is gone.
+### Moving a bucket to file storage
 
-The rate-limit counters start from zero after the move.
+1. Stop every process using the bucket.
+2. Run a one-off program with the same options as production:
+
+   ```go
+   err := nats.MigrateBucketStorage(ctx, js, nats.MigrationOptions{}, opts...)
+   ```
+
+3. If it fails, fix the cause, confirm the run has exited, and rerun with `nats.MigrationOptions{Resume: true}`. Until the migration
+   completes, `New` fails with `ErrBucketMigrationInProgress` (a `KVMIGRATE_<bucket>` stream marks it), and a run without `Resume` refuses to
+   continue it. Never run two migrations of one bucket at once.
+4. Check that `nats kv info <bucket>` reports file storage and that the `KVMIGRATE_<bucket>` stream is gone.
+5. Start the processes.
+
+The migration seals the bucket, copies its live entries into the marker stream, recreates the bucket with its first revision just above the
+old bucket's last one, and restores the entries. Revisions therefore keep growing across the migration. It rejects a JetStream context with a
+domain or API prefix (`ErrMigrationUnsupportedContext`) and a bucket with a mirror, sources, republishing, a subject transform or a placement
+(`ErrMigrationUnsupportedBucket`). A bucket key TTL other than the configured one fails with `ErrBucketTTLMismatch` unless `WithMigrateBucketTTL()`
+is passed too, which changes both at once.
+
+Counters keep their consumed budget. A counter lives the bucket TTL from the migration on; it carries its own request timestamps, so requests
+older than the window are still ignored.
+
+Remaining lifetimes are computed from the server's message timestamps and the migrator's clock, so run the migration on a host whose clock is
+synchronized with the NATS servers. A migrator clock ahead of the servers drops entries that still had that much lifetime left, and one behind
+keeps entries that much longer. Transport delay between reading the clock and the server storing an entry adds the same kind of error, in the
+order of a round trip.

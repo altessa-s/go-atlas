@@ -23,11 +23,13 @@ Memory storage keeps the lease ephemeral (lost on a JetStream restart, forcing a
 
 Releases before this fix created a memory bucket even when `WithStorage(jetstream.FileStorage)` was set, and the YAML factory does not expose
 storage at all. The server cannot change a bucket's storage type, so `New` adopts an existing bucket with another storage type as is and logs a
-warning. Converting it means deleting the bucket (`nats kv del <bucket>`) while no instance runs and letting the next `New` recreate it. That
-resets the KV revisions behind `Fence()`, so do it only when no downstream store keeps fencing tokens. Otherwise keep the adopted bucket.
+warning. Pass `WithStrictBucketStorage()` (YAML: `leaderElector.strictBucketStorage: true`) to fail with `ErrBucketStorageMismatch` instead.
 
-Pass `WithStrictBucketStorage()` (YAML: `leaderElector.strictBucketStorage: true`) to fail with `ErrBucketStorageMismatch` instead of adopting
-a bucket with another storage type.
+To convert the bucket, stop every instance and run `MigrateBucketStorage(ctx, nc, nats.MigrationOptions{}, opts...)` once, with the production
+options including `WithStorage(jetstream.FileStorage)`. If it fails, fix the cause, confirm the run has exited and rerun with
+`MigrationOptions{Resume: true}`; until then `New` fails with `ErrBucketMigrationInProgress`. The bucket is recreated with its first revision
+just above the old bucket's last one, so `Fence()` keeps growing and fencing tokens kept downstream stay valid. The election key is not copied:
+with every instance stopped there is no leader, and the next start elects one.
 
 ## Lease renewal
 

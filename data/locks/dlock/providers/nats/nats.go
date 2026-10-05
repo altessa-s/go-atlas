@@ -131,14 +131,7 @@ func New(ctx context.Context, client *nats.Conn, opts ...Option) (*Locker, error
 	// lock the server aged out early — the renewal was scheduled off the
 	// configured TTL and the key was gone before it ever fired.
 	kvHelper := natskvlease.NewKVHelper(l.js, l.opts.logger)
-	l.kv, err = kvHelper.GetOrCreateBucket(ctx, natskvlease.BucketConfig{
-		Bucket:        l.opts.bucket,
-		TTL:           l.opts.ttl,
-		Storage:       jetstream.MemoryStorage,
-		Compression:   true,
-		MigrateTTL:    l.opts.migrateBucketTTL,
-		StrictStorage: l.opts.strictBucketStorage,
-	})
+	l.kv, err = kvHelper.GetOrCreateBucket(ctx, bucketConfig(l.opts))
 	if err != nil {
 		return nil, err
 	}
@@ -146,6 +139,18 @@ func New(ctx context.Context, client *nats.Conn, opts ...Option) (*Locker, error
 	l.kvOps = natskvlease.NewKVOps(l.kv, l.opts.logger)
 
 	return l, nil
+}
+
+// bucketConfig is the bucket New creates and MigrateBucketStorage migrates to.
+func bucketConfig(o *options) natskvlease.BucketConfig {
+	return natskvlease.BucketConfig{
+		Bucket:        o.bucket,
+		TTL:           o.ttl,
+		Storage:       o.storage,
+		Compression:   true,
+		MigrateTTL:    o.migrateBucketTTL,
+		StrictStorage: o.strictBucketStorage,
+	}
 }
 
 // Lock makes a single attempt to acquire the lock for key.
