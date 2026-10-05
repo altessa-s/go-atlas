@@ -7,7 +7,7 @@ package memory_test
 import (
 	"testing"
 
-	"github.com/altessa-s/go-atlas/service/scheduler/internal/storagetest"
+	"github.com/altessa-s/go-atlas/service/scheduler/storagetest"
 )
 
 func BenchmarkFinishRun(b *testing.B) {

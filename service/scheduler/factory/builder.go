@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"database/sql"
 	"fmt"
 	"log/slog"
 
@@ -21,6 +22,7 @@ import (
 	memorystorage "github.com/altessa-s/go-atlas/service/scheduler/storages/memory"
 	mongostorage "github.com/altessa-s/go-atlas/service/scheduler/storages/mongodb"
 	redisstorage "github.com/altessa-s/go-atlas/service/scheduler/storages/redis"
+	sqlstorage "github.com/altessa-s/go-atlas/service/scheduler/storages/sqldb"
 )
 
 // SchedulerBuilder assembles a [scheduler.Scheduler] step by step using a fluent API.
@@ -37,6 +39,7 @@ type SchedulerBuilder struct {
 	readinessProbe func() bool
 	mongoDb        *mongo.Database
 	redisClient    redis.UniversalClient
+	sqlDB          *sql.DB
 }
 
 // New creates a new [SchedulerBuilder] for the given scheduler config.
@@ -113,6 +116,11 @@ func (b *SchedulerBuilder) createStorageFromConfig() (scheduler.Storage, error) 
 			return nil, err
 		}
 		return b.createRedisStorage()
+	case config.SchedulerStorageTypeSQL:
+		if err := b.RequireDependency(b.sqlDB, "sql database"); err != nil {
+			return nil, err
+		}
+		return b.createSQLStorage()
 	default:
 		return nil, b.Errorf("unsupported storage type: %s", b.cfg.Storage.Type)
 	}
@@ -151,6 +159,21 @@ func (b *SchedulerBuilder) createRedisStorage() (*redisstorage.Storage, error) {
 	opts = append(opts, redisstorage.WithMaxHistoryPerTask(b.cfg.Storage.Redis.MaxHistoryPerTask))
 
 	return redisstorage.New(b.redisClient, opts...), nil
+}
+
+// createSQLStorage creates a SQL storage backend. Like the MongoDB backend it
+// performs no I/O: before the scheduler starts, call EnsureSchema on a sqldb
+// storage built with the same handle, dialect and tables, or apply the DDL
+// through migrations.
+func (b *SchedulerBuilder) createSQLStorage() (*sqlstorage.Storage, error) {
+	if b.cfg.Storage.SQL == nil {
+		return nil, fmt.Errorf("configuration is required")
+	}
+
+	return sqlstorage.New(b.sqlDB, sqlstorage.Dialect(b.cfg.Storage.SQL.Dialect),
+		sqlstorage.WithTasksTable(b.cfg.Storage.SQL.TasksTable),
+		sqlstorage.WithHistoryTable(b.cfg.Storage.SQL.HistoryTable),
+	)
 }
 
 // concurrencyOptions maps the concurrency config strategy to scheduler options.
