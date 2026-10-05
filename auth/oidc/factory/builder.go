@@ -15,6 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 
+	corehash "github.com/altessa-s/go-atlas/core/encoding/hash"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	probfilterfactory "github.com/altessa-s/go-atlas/data/probfilter/factory"
@@ -104,7 +105,7 @@ func (b *ProviderBuilder) buildProviderOptions(ctx context.Context) ([]oidc.Opti
 		return slices.AppendIf(introspectionOpts, cfg.Introspection.FailOpen, oidc.WithIntrospectionFailOpen())
 	})
 
-	revOpts, err := b.buildRevocationOptions()
+	revOpts, err := b.buildRevocationOptions() //nolint:contextcheck // probfilter owns the context of its background rebuild job
 	if err != nil {
 		return nil, err
 	}
@@ -173,10 +174,11 @@ func (b *ProviderBuilder) buildRevocationOptions() ([]oidc.Option, error) {
 		return nil, nil
 	}
 
-	return []oidc.Option{
+	opts := []oidc.Option{
 		oidc.WithRevocationStorage(storage),
 		oidc.WithRevocationItemType(cfg.Revocation.ItemType),
-	}, nil
+	}
+	return slices.AppendIf(opts, cfg.Revocation.FailOpen, oidc.WithRevocationFailOpen()), nil
 }
 
 // buildRevocationStorage creates a filter-based revocation storage from config.
@@ -186,7 +188,7 @@ func (b *ProviderBuilder) buildRevocationStorage(cfg *config.OIDCRevocation) (oi
 	}
 
 	pfDefaults := config.DefaultProbabilisticFilterDefaults()
-	filter, err := probfilterfactory.NewFilter("oidc-revocation", cfg.Filter, &pfDefaults).
+	filter, err := probfilterfactory.NewFilter(revocationFilterName(b.cfg), cfg.Filter, &pfDefaults).
 		UseLogger(b.Logger()).
 		UseRedisClient(b.redisClient).
 		Build()
@@ -201,8 +203,8 @@ func (b *ProviderBuilder) buildRevocationStorage(cfg *config.OIDCRevocation) (oi
 		} else if cfg.Source.URL != "" {
 			// Client is intentionally left nil — oidc.NewProvider injects
 			// the shared HTTP client (built via httpclient.New + WithHTTPClientOptions)
-			// so revocation refresh reuses the same pool, retry policy
-			// and proxy resolver as discovery/JWKS/userinfo.
+			// through the storage's SetHTTPClient, so revocation refresh reuses
+			// the same pool, retry policy and proxy resolver as discovery/JWKS/userinfo.
 			loader = &oidc.URLRevocationLoader{URL: cfg.Source.URL}
 		}
 	}
@@ -214,6 +216,19 @@ func (b *ProviderBuilder) buildRevocationStorage(cfg *config.OIDCRevocation) (oi
 	// Without one the storage runs in lossy mode — see
 	// [oidc.NewFilterRevocationStorage].
 	return oidc.NewFilterRevocationStorage(filter, loader, b.revocationAuthoritative), nil
+}
+
+// revocationFilterName names the revocation filter (and so its Redis key)
+// after the provider's revocation domain — discovery URL, item type and
+// source — so independent providers sharing Redis never sync over each
+// other's revocation sets.
+func revocationFilterName(cfg *config.OIDC) string {
+	var source string
+	if cfg.Revocation.Source != nil {
+		source = cfg.Revocation.Source.URL + "\x00" + cfg.Revocation.Source.File
+	}
+	domain := cfg.DiscoveryUrl + "\x00" + cfg.Revocation.ItemType + "\x00" + source
+	return corehash.SHA256HexWithPrefix("oidc-revocation-", domain)[:len("oidc-revocation-")+16]
 }
 
 // buildSchedulerOptions builds scheduler-related options if a scheduler is available.

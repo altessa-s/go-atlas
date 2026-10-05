@@ -25,9 +25,14 @@ type RevocationStorage interface {
 
 	// MarkRevoked marks an item as revoked with an optional TTL.
 	// This is typically called after a successful remote introspection that returns 'active: false'.
+	// It is an optimization, not a durable record: a later Sync may drop items
+	// its source does not contain, so the source must hold every revocation
+	// that has to survive (the provider itself only marks items the IdP keeps
+	// reporting as inactive).
 	MarkRevoked(ctx context.Context, item string, ttl time.Duration) error
 
 	// Sync performs a synchronization of revoked items from an external source.
+	// NewProvider calls it once at construction; scheduled syncs reuse it.
 	// This method is compatible with service/scheduler.TaskFunc.
 	Sync(ctx context.Context) error
 }
@@ -102,6 +107,21 @@ func (s *filterRevocationStorage) MarkRevoked(ctx context.Context, item string, 
 		return nil
 	}
 	return s.filter.Add(ctx, item)
+}
+
+// Compile-time guarantee that the filter storage forwards the provider's
+// shared HTTP client to its loader (see [filterRevocationStorage.SetHTTPClient]).
+var _ httpclient.HTTPClientSetter = (*filterRevocationStorage)(nil)
+
+// SetHTTPClient implements [httpclient.HTTPClientSetter] by forwarding the
+// client to the loader when the loader accepts one (e.g. [URLRevocationLoader]).
+// The loader keeps its own preserve-vs-overwrite policy. This lets
+// [NewProvider] inject its shared client into a storage that was assembled
+// outside the provider and passed via [WithRevocationStorage].
+func (s *filterRevocationStorage) SetHTTPClient(c *http.Client) {
+	if setter, ok := s.loader.(httpclient.HTTPClientSetter); ok {
+		setter.SetHTTPClient(c)
+	}
 }
 
 // Sync implements RevocationStorage.

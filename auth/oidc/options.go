@@ -180,6 +180,11 @@ type options struct {
 	revocationFilter            Filter        `optgen:"notnil"`
 	revocationLoader            DataLoader    `optgen:"notnil"`
 	revocationAuthoritative     Authoritative `optgen:"notnil"`
+	// revocationFailOpen accepts a token when the revocation storage cannot
+	// answer (IsRevoked error) and lets NewProvider start when the initial
+	// revocation sync fails. The default (false) is fail-closed: such a token
+	// is rejected with ErrRevocationCheck and construction fails.
+	revocationFailOpen bool
 
 	// Health check configuration
 	healthCoordinator *health.Coordinator

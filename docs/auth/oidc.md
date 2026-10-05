@@ -152,27 +152,28 @@ sequenceDiagram
 
     Client->>Provider: ValidateToken(token)
 
-    opt Revocation Check
-        Provider->>RevocationStorage: IsRevoked(token)
-        RevocationStorage-->>Provider: bool
-    end
-
-    opt Cache Enabled
-        Provider->>Cacher: Get(tokenKey)
-        alt Cache Hit
-            Cacher-->>Provider: cached claims
-            Provider-->>Client: claims
+    alt Cache Enabled and Hit
+        Provider->>Cacher: Get(signatureKey)
+        Cacher-->>Provider: signature-verified claims + header
+    else Cache Miss or Disabled
+        Provider->>IDP: GetKey(kid) via JWKS
+        IDP-->>Provider: public key
+        Provider->>Provider: Verify signature
+        opt Cache Enabled and exp in the future
+            Provider->>Cacher: Save(signatureKey, claims + header, ttl until exp)
         end
     end
 
-    Provider->>IDP: GetKey(kid) via JWKS
-    IDP-->>Provider: public key
-    Provider->>Provider: Verify signature
-    Provider->>Provider: Validate claims
-    Provider->>Provider: CEL rules (optional)
+    Provider->>Provider: Validate claims (exp/nbf/iss/aud, scopes, CEL rules)
 
-    opt Cache Enabled
-        Provider->>Cacher: Save(tokenKey, claims, ttl)
+    opt Revocation Storage
+        Provider->>RevocationStorage: IsRevoked(token | jti | kid)
+        RevocationStorage-->>Provider: bool
+    end
+
+    opt Introspection Enabled
+        Provider->>IDP: POST introspection (cached)
+        IDP-->>Provider: active
     end
 
     Provider-->>Client: claims
@@ -226,7 +227,7 @@ classDiagram
     RevocationStorage ..> DataLoader : uses
 ```
 
-**Cacher** — caches validated tokens to avoid repeated validation.
+**Cacher** — caches signature verifications to avoid repeated cryptographic work; the claim policy and revocation still run on every hit.
 
 ```go
 type Cacher interface {
@@ -435,12 +436,9 @@ The behavior also exists on the Go API: `oidc.WithIntrospectionFailOpen()` sits 
 retries on the HTTP client (both honored via `oidc.proxy` and the shared `httpclient`) so that transient hiccups don't translate to user-visible 401s.
 Cache hits never go to the network — fail-closed only affects requests that actually reach the endpoint.
 
-> **Full-token storage short-circuit.** When revocation storage is configured with `itemType: token` (the default), introspection first
-> asks that storage and treats a "not revoked" answer as an active token without contacting the IdP. A token revoked at the IdP but missing
-> from the local filter (stale or empty) therefore passes even with `fail_open: false`. When IdP introspection must stay authoritative, omit
-> full-token revocation storage, or use a correctly populated `jti`/`kid` storage, which does not take this shortcut.
-> Conversely, a storage **hit** does not reject either: it falls through to the IdP, whose `active` answer wins — see
-> [Token Revocation (Go)](#token-revocation-go).
+When local revocation storage is configured as well, it is consulted first for every item type: a storage **hit** rejects the token
+without contacting the IdP, and a storage miss never stands in for the IdP — introspection still runs. See
+[Token Revocation (Go)](#token-revocation-go).
 
 ### Token Validation
 
@@ -570,18 +568,17 @@ oidc:
 
 ### Cache
 
-Token validation result caching. Requires a `Cacher` implementation (typically Redis-backed) injected via the factory builder.
+Signature-verification caching. Requires a `Cacher` implementation (typically Redis-backed) injected via the factory builder.
 
-> **Policy bypass.** The cache key is the prefix plus the token, independent of the validation policy, and a cache hit returns the cached
-> claims **before** the requested rules run. A token first validated under a permissive policy is therefore accepted later by a stricter
-> preset even if it lacks the required scopes or audience; providers sharing a cache namespace share the bypass. Disable token caching when
-> the validation policy varies within a provider (presets, per-call options), and give providers with different policies separate
-> `tokensKeyPrefix` namespaces.
-
-> **Expiry bypass.** Independently of policy, a validly signed token presented after `exp` but within the clock-skew leeway (30 s by
-> default) is cached with a TTL of 0, which the cache treats as "no expiration"; later hits return it without any time check, so the
-> expired token is accepted indefinitely. Separate namespaces do not help. Until this is fixed, keep token caching disabled, or wrap the
-> `Cacher` in an adapter that refuses non-positive TTLs.
+The cache stores only the claims and header of a token whose signature the provider verified — never a validation decision. Every hit
+still runs the complete requested policy (signing-algorithm allow-list, `exp`/`nbf`/`iat` with the configured leeway, issuer, audience,
+required claims, scopes, presets, per-call options, CEL rules) and the revocation checks, so one entry safely serves every preset and
+per-call option set. An entry lives until the token's `exp`; tokens without `exp`, or already past it, are never cached. Each entry records
+the fingerprint of the public key that verified it, and a hit counts only while the provider's current JWKS resolves the same key for the
+token's `kid`/`alg` — a key removed or replaced by a JWKS refresh (or absent from a freshly started provider's JWKS) forces full
+re-verification. Cache keys bind
+the provider's trust domain (discovery issuer and JWKS URL), so providers sharing a Redis namespace never reuse each other's signature
+verifications.
 
 ```yaml
 oidc:
@@ -597,7 +594,9 @@ oidc:
 | `tokensKeyPrefix` | `string` | `"tokens:"` | Cache key prefix for validated tokens |
 | `revokedTokensKeyPrefix` | `string` | `"revoked-tokens:"` | Cache key prefix for revoked tokens |
 
-Cache keys are SHA-256 hashes of the raw token, prefixed with the configured prefix.
+Cache keys are SHA-256 hashes of a versioned string, prefixed with the configured prefix. Validated-token keys bind the issuer, JWKS URL and
+raw token; introspection keys bind the issuer, introspection endpoint, introspection client ID and raw token, so providers sharing a cache
+never reuse each other's introspection answers.
 
 ### JWKS
 
@@ -693,6 +692,7 @@ oidc:
 | `syncEnabled` | `bool` | `true` | Enable periodic sync of revocation data |
 | `syncSchedule` | `string` | `"0 0 * * * *"` | Cron expression for sync |
 | `itemType` | `string` | `"token"` | What to check: `"token"` (full JWT), `"jti"` (claim), or `"kid"` (key ID) |
+| `failOpen` | `bool` | `false` | Accept tokens when the storage cannot answer and start when the initial sync fails. Default `false` is fail-closed |
 | `filter` | `object` | — | Probabilistic filter configuration (`type`, `bloom` or `cuckoo`) |
 | `source.url` | `string` | — | URL to fetch revocation list from |
 | `source.file` | `string` | — | Local file path for revocation list |
@@ -700,27 +700,30 @@ oidc:
 Whenever the `revocation` block is present — even with `enabled: false` — `filter` and `source` are both required (validation fails
 otherwise); set either `source.url` or `source.file`.
 
-> **Known limitation.** With `source.url` the factory builds the URL loader without an HTTP client and hands it to the provider inside a
-> ready-made revocation storage, so the provider's shared client is never injected and every sync fails with
-> `ErrLoaderClientNotConfigured` — the filter stays empty and revoked tokens are admitted. Until this is fixed, use `source.file` (with a Bloom filter), or wire
-> revocation in Go with an explicit `URLRevocationLoader{URL: …, Client: …}` (see [Token Revocation (Go)](#token-revocation-go)).
+The provider syncs the filter from `source` once while it is constructed, then on `syncSchedule` when a scheduler is injected. A
+`source.url` is fetched through the provider's shared HTTP client (proxy, retry, connection pool). With `failOpen: false` (the default) a
+failed initial sync fails provider construction, and a storage error during validation rejects the token with `ErrRevocationCheck`;
+`failOpen: true` logs both, increments `auth_oidc_revocation_check_errors_total`, and continues.
+
+The factory names the filter `oidc-revocation-<hash>`, where the hash covers `discoveryUrl`, `itemType` and `source`; with Redis storage the
+key is that name under the configured `keysPrefix`. Replicas of one provider share the filter; providers with a different issuer, item type
+or source never overwrite each other's revocation set. (Earlier releases used the fixed name `oidc-revocation`; the new key is populated by
+the startup sync and the old one can be deleted.)
 
 #### Signature-verification ordering
 
-Local revocation lookups follow a two-phase rule so an attacker cannot poison the check with forged claims:
+All revocation checks run **after** the token's signature and claims have been verified, so forged claims can neither choose the lookup key
+nor trigger IdP traffic:
 
-| `itemType` | When the lookup runs | Why |
-|------------|---------------------|-----|
-| `token` | **Before** signature verification | The full encoded JWT is opaque — using it as the lookup key never trusts attacker-controlled data |
-| `jti` | **After** signature verification | The `jti` claim only becomes trustworthy once the signature is checked |
-| `kid` | **After** signature verification | The `kid` header is forgeable until the signature pins it to a known key |
+| Check | Key | Order |
+|-------|-----|-------|
+| Local storage, `itemType: token` | the full encoded JWT | after verification |
+| Local storage, `itemType: jti` | the verified `jti` claim | after verification |
+| Local storage, `itemType: kid` | the verified `kid` header | after verification |
+| Introspection (when enabled) | the full encoded JWT | after verification and the local storage check |
 
-Introspection is different: when enabled it runs in the pre-verification revocation check, before the token is parsed or its signature
-verified, so any non-empty token — garbage included — that misses the introspection cache triggers a POST to the IdP. This ordering does
-not protect the IdP from unauthenticated request volume; rate-limit upstream if that matters. Exception: with full-token revocation storage
-(`itemType: token`, the default) a storage answer of "not revoked" short-circuits introspection before the cache or the IdP is consulted —
-see the note under fail-closed mode. Only the local lookups keyed on `jti` or
-`kid` are deferred until signature verification.
+Garbage or foreign-signed tokens are rejected before any IdP request. A local storage hit always rejects; a local miss never skips
+introspection.
 
 ---
 
@@ -841,12 +844,12 @@ All duration fields accept Go duration syntax:
 | Field | Logic | Description |
 |-------|-------|-------------|
 | `required` | OR | At least one of these scopes must be present |
-| `any_of` | OR | At least one must be present — **currently unusable**, see below |
+| `any_of` | OR | At least one must be present (space-delimited string or list `scope` claim) |
 | `all_of` | OR | Merged into `required`, so it has the same any-one-of semantics (not AND) |
 
 `required` and `all_of` are concatenated into a single list checked with **any-one-of** semantics: the token passes when it carries at least
-one of the listed scopes. `any_of` is compiled into a CEL rule that calls `split()`, which the CEL environment does not provide (no strings
-extension), so a config with `any_of` currently fails at provider construction — use `required` for OR semantics instead.
+one of the listed scopes. `any_of` is compiled into a CEL rule built on the CEL strings extension (`split`), which the provider's CEL
+environment enables — so `split`, `join`, `lowerAscii` and the other strings-extension functions are available to custom rules too.
 
 ### Token Lifetime
 
@@ -1080,7 +1083,7 @@ All `Use*` methods return `*ProviderBuilder` for chaining. Errors accumulate and
 | `presets` | `WithPresets` + `WithPresetRules` | `presets` configured |
 | `cache` | `WithTokenCache` + key prefixes | `cache.enabled` + cache injected |
 | `clientCredentials` + `introspection` | `WithIntrospection` | `introspection.enabled` + `clientCredentials` configured |
-| `revocation` | `WithRevocationStorage` + `WithRevocationItemType` | `revocation.enabled` |
+| `revocation` | `WithRevocationStorage` + `WithRevocationItemType` (+ `WithRevocationFailOpen` when `failOpen`) | `revocation.enabled` |
 | scheduler | `WithScheduler` + schedules | scheduler injected + relevant config |
 
 ### Combined: YAML + Service Config
@@ -1250,40 +1253,31 @@ oidc.WithRevocationSyncSchedule("*/30 * * * * *"), // sync every 30s
 `NewProvider` assembles `oidc.NewFilterRevocationStorage(filter, loader, authoritative)` from these options; call it directly and pass the
 result to `WithRevocationStorage` when you need the storage outside the provider.
 
-The filter starts empty and `NewProvider` never syncs it: periodic sync is registered only when both a scheduler (`WithScheduler`) and a sync
-schedule (`WithRevocationSyncSchedule`) are supplied,
-and its first run waits for the schedule. Until the filter is populated a miss answers "not revoked" without consulting anything, so build
-the storage yourself and require one successful `Sync` before serving:
+`NewProvider` syncs the storage once before returning (`RevocationStorage.Sync`), so the provider never serves with an empty filter; the
+loader receives the provider's shared HTTP client, also when the storage was built with `NewFilterRevocationStorage` and passed via
+`WithRevocationStorage`. Later syncs run only when both a scheduler (`WithScheduler`) and a sync schedule (`WithRevocationSyncSchedule`)
+are supplied. A failed initial sync fails construction with `ErrRevocationCheck` unless `WithRevocationFailOpen()` is set, in which case it
+is logged and counted and the provider starts with whatever the storage holds. A custom filter that does not implement `Rebuild`
+combined with a loader therefore fails construction (`ErrFilterNotRebuildable`) instead of running with a filter that never fills.
 
-```go
-storage := oidc.NewFilterRevocationStorage(filter,
-    &oidc.URLRevocationLoader{URL: "https://auth.example.com/revoked-tokens", Client: httpClient},
-    exactStore, // or nil for lossy mode
-)
-if err := storage.Sync(ctx); err != nil {
-    return err // do not serve with an empty filter
-}
-provider, err := oidc.NewProvider(ctx, discoveryURL,
-    oidc.WithRevocationStorage(storage),
-    oidc.WithScheduler(sched),
-    oidc.WithRevocationSyncSchedule("*/30 * * * * *"), // without it the filter is never re-synced
-)
-```
+`WithRevocationAuthoritative` only confirms filter **hits**; it does not protect against keys missing from the filter. Every `Sync` — the one
+at construction and every scheduled one — rebuilds the filter atomically (see
+[probfilter rebuild guarantees](../data/probfilter.md#rebuild-guarantees)): lookups keep the previous contents while it runs and after it
+fails, so starting a replica never empties a filter other replicas share.
 
-`WithRevocationAuthoritative` only confirms filter **hits**; it does not protect against keys missing from the filter. A later `Sync` rebuilds the
-filter atomically (see [probfilter rebuild guarantees](../data/probfilter.md#rebuild-guarantees)): lookups keep the previous contents while it runs and
-after it fails.
+Revocation checks are **fail-closed** by default, independently of the introspection `fail_open` setting: when `RevocationStorage.IsRevoked`
+returns an error, the provider logs it, increments `auth_oidc_revocation_check_errors_total`, and rejects the token with
+`ErrRevocationCheck`. `WithRevocationFailOpen()` (YAML `revocation.failOpen: true`) accepts the token instead.
 
-Revocation checks **fail open**, independently of the introspection `fail_open` setting: when `RevocationStorage.IsRevoked` returns an
-error, the provider logs it, increments `auth_oidc_revocation_check_errors_total`, and accepts the token. (With introspection enabled and
-full-token storage, a storage error instead falls through to the IdP.)
+The local storage is checked after signature verification for every item type, before introspection: a hit always rejects, even when the
+IdP would report the token active, and a miss never replaces the IdP's answer when introspection is enabled.
 
-With introspection enabled, full-token storage (`itemType: token`) is **advisory**: a hit does not reject the token — it falls through to
-the introspection cache or the IdP, and an `active` answer is accepted, while the post-verification storage check is skipped for this item
-type. A token explicitly revoked in a healthy local store therefore still passes if the IdP considers it active. When both local and IdP
-revocations must be enforced, use `jti`/`kid` storage or a separate mandatory check in the application. An exact store therefore still
-admits revoked tokens during a backend outage. For strict enforcement, add a fail-closed check in the application (or a storage adapter
-whose callers reject on uncertainty) and alert on that counter.
+The revocation **source** is the durable record. Items the provider adds itself (`MarkRevoked` after an introspection answer of
+`active: false`) are a cache: a later sync may drop them — with a Redis filter shared by replicas, any replica's rebuild replaces the shared
+filter with its snapshot of the source. With fail-closed introspection (the default) that never admits such a token, because a local miss
+still reaches the introspection cache or the IdP and an unreachable IdP rejects. With `fail_open: true`, a dropped entry plus a missing
+introspection cache entry plus an IdP outage admits the still-unexpired token — the documented fail-open trade-off. Revocations that must
+hold under every failure mode belong in the source.
 
 **With custom storage:**
 

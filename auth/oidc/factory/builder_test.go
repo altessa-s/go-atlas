@@ -11,12 +11,17 @@ package factory
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 
+	"github.com/altessa-s/go-atlas/auth/oidc"
 	"github.com/altessa-s/go-atlas/config"
 )
 
@@ -162,3 +167,80 @@ func (stubStorage) MarkRevoked(context.Context, string, time.Duration) error {
 	return nil
 }
 func (stubStorage) Sync(context.Context) error { return nil }
+
+// The failOpen config flag must map to oidc.WithRevocationFailOpen.
+func TestProviderBuilder_BuildRevocationOptions_FailOpen(t *testing.T) {
+	t.Parallel()
+
+	cfg := memoryFilterRevocation()
+	cfg.FailOpen = true
+	b := New(&config.OIDC{Revocation: cfg}).UseRevocationStorage(stubStorage{})
+
+	opts, err := b.buildRevocationOptions()
+	require.NoError(t, err)
+	require.Len(t, opts, 3)
+}
+
+// A YAML-configured URL source must reach the revocation list through the
+// provider's shared HTTP client: NewProvider performs the initial sync, which
+// fails (and, fail-closed, aborts construction) if the loader has no client.
+func TestProviderBuilder_URLSourceSyncsThroughProviderClient(t *testing.T) {
+	t.Parallel()
+
+	var listHits atomic.Int32
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/revoked":
+			listHits.Add(1)
+			_, _ = w.Write([]byte("revoked-token\n"))
+		case "/jwks":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"keys":[]}`))
+		default:
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"issuer":%q,"jwks_uri":%q,"id_token_signing_alg_values_supported":["RS256"]}`,
+				srv.URL, srv.URL+"/jwks")
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	rev := memoryFilterRevocation()
+	rev.Source = &config.OIDCRevocationSource{URL: srv.URL + "/revoked"}
+	b := New(&config.OIDC{DiscoveryUrl: srv.URL, Revocation: rev}).UseRedisClient(offlineRedisClient(t))
+
+	opts, err := b.buildProviderOptions(t.Context())
+	require.NoError(t, err)
+	// httptest serves plain HTTP on loopback.
+	opts = append(opts, oidc.WithDiscoveryValidationMode(oidc.DiscoveryValidationModeDisabled))
+
+	p, err := oidc.NewProvider(t.Context(), srv.URL, opts...)
+	require.NoError(t, err)
+	t.Cleanup(p.Close)
+	require.EqualValues(t, 1, listHits.Load(), "the initial sync must fetch the revocation list")
+}
+
+// Providers with different revocation domains must not share a filter (and
+// so a Redis key); the same domain must map to the same filter across
+// replicas.
+func TestRevocationFilterName_BoundToRevocationDomain(t *testing.T) {
+	t.Parallel()
+
+	newCfg := func(discovery, itemType, url string) *config.OIDC {
+		rev := memoryFilterRevocation()
+		rev.ItemType = itemType
+		rev.Source = &config.OIDCRevocationSource{URL: url}
+		return &config.OIDC{DiscoveryUrl: discovery, Revocation: rev}
+	}
+	base := revocationFilterName(newCfg("https://a.example", "token", "https://a.example/revoked"))
+
+	require.Equal(t, base, revocationFilterName(newCfg("https://a.example", "token", "https://a.example/revoked")))
+	require.Regexp(t, `^oidc-revocation-[0-9a-f]{16}$`, base)
+	for name, cfg := range map[string]*config.OIDC{
+		"issuer":    newCfg("https://b.example", "token", "https://a.example/revoked"),
+		"item type": newCfg("https://a.example", "jti", "https://a.example/revoked"),
+		"source":    newCfg("https://a.example", "token", "https://a.example/other"),
+	} {
+		require.NotEqual(t, base, revocationFilterName(cfg), name)
+	}
+}
