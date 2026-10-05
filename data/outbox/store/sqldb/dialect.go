@@ -183,23 +183,32 @@ func (d dialect) timeCol(col string) string {
 	return "DATE_FORMAT(" + col + ", '%Y-%m-%d %H:%i:%s.%f')"
 }
 
-// timeDest returns a scan destination for a [dialect.timeCol] column and a
-// function converting it to a time (zero for NULL).
-func (d dialect) timeDest() (any, func() (time.Time, error)) {
+// timeScan holds one [dialect.timeCol] column while a row is scanned: the
+// native value on PostgreSQL, the DATE_FORMAT string on MySQL.
+type timeScan struct {
+	t sql.NullTime
+	s sql.NullString
+}
+
+// timeDest returns the scan destination for a [dialect.timeCol] column.
+func (d dialect) timeDest(v *timeScan) any {
 	if d.name == DialectPostgres {
-		var v sql.NullTime
-		return &v, func() (time.Time, error) {
-			if !v.Valid {
-				return time.Time{}, nil
-			}
-			return v.Time.UTC(), nil
-		}
+		return &v.t
 	}
-	var v sql.NullString
-	return &v, func() (time.Time, error) {
-		if !v.Valid {
+	return &v.s
+}
+
+// timeValue converts a column scanned through [dialect.timeDest] to a time
+// (zero for NULL).
+func (d dialect) timeValue(v *timeScan) (time.Time, error) {
+	if d.name == DialectPostgres {
+		if !v.t.Valid {
 			return time.Time{}, nil
 		}
-		return time.ParseInLocation(mysqlTimeLayout, v.String, time.UTC)
+		return v.t.Time.UTC(), nil
 	}
+	if !v.s.Valid {
+		return time.Time{}, nil
+	}
+	return time.ParseInLocation(mysqlTimeLayout, v.s.String, time.UTC)
 }

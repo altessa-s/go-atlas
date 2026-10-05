@@ -192,10 +192,10 @@ func (s *Store) insert(ctx context.Context, ex execer, events []outbox.Event) er
 
 // FetchUnprocessedEvents locks and returns up to batchSize events that are
 // ready to dispatch — pending ones, plus failed ones whose backoff elapsed —
-// oldest first, events saved together in insertion order. The rows are selected FOR UPDATE SKIP LOCKED and marked
-// in-progress in one transaction, so concurrent dispatchers take disjoint
-// batches without blocking each other. Every returned event carries the lock
-// token this call minted.
+// oldest first, events saved together in insertion order. The rows are
+// selected FOR UPDATE SKIP LOCKED and marked in-progress in one transaction,
+// so concurrent dispatchers take disjoint batches without blocking each other.
+// Every returned event carries the lock token this call minted.
 func (s *Store) FetchUnprocessedEvents(ctx context.Context, batchSize uint32) ([]outbox.Event, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
@@ -265,11 +265,10 @@ func (s *Store) scanEvent(rows *sql.Rows) (outbox.Event, error) {
 		attempts int64
 		lastErr  []byte
 	)
-	created, createdAt := s.dialect.timeDest()
-	published, publishedAt := s.dialect.timeDest()
-	attempted, lastAttemptOn := s.dialect.timeDest()
-	expires, expiresAt := s.dialect.timeDest()
-	if err := rows.Scan(&id, &topic, &ev.Payload, &attempts, &lastErr, created, published, attempted, expires); err != nil {
+	var ts [4]timeScan // created_at, published_at, last_attempt_on, expires_at
+	d := s.dialect
+	if err := rows.Scan(&id, &topic, &ev.Payload, &attempts, &lastErr,
+		d.timeDest(&ts[0]), d.timeDest(&ts[1]), d.timeDest(&ts[2]), d.timeDest(&ts[3])); err != nil {
 		return outbox.Event{}, coreerrs.WrapOperation(err, "scan outbox event")
 	}
 	ev.Id, ev.Key = string(id), string(topic)
@@ -279,11 +278,8 @@ func (s *Store) scanEvent(rows *sql.Rows) (outbox.Event, error) {
 		ev.LastError = &msg
 	}
 	var err error
-	for _, f := range []struct {
-		dst  *time.Time
-		conv func() (time.Time, error)
-	}{{&ev.CreatedAt, createdAt}, {&ev.PublishedAt, publishedAt}, {&ev.LastAttemptOn, lastAttemptOn}, {&ev.ExpiresAt, expiresAt}} {
-		if *f.dst, err = f.conv(); err != nil {
+	for i, dst := range [...]*time.Time{&ev.CreatedAt, &ev.PublishedAt, &ev.LastAttemptOn, &ev.ExpiresAt} {
+		if *dst, err = d.timeValue(&ts[i]); err != nil {
 			return outbox.Event{}, coreerrs.WrapOperation(err, "parse outbox event timestamp")
 		}
 	}
