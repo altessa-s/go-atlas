@@ -498,6 +498,8 @@ type slowClaim struct {
 	takeOver    bool
 	slowRenewal bool
 	renewals    atomic.Int32
+	// claimed is set once the delayed ClaimRun response has been returned.
+	claimed atomic.Bool
 }
 
 func (s *slowClaim) takeOverRun(ctx context.Context, id string) error {
@@ -533,6 +535,7 @@ func (s *slowClaim) ClaimRun(ctx context.Context, id string, claim scheduler.Run
 		}
 	}
 	time.Sleep(s.delay)
+	s.claimed.Store(true)
 	return true, nil
 }
 
@@ -561,13 +564,17 @@ func TestSlowClaimConfirmsOwnershipBeforeRunning(t *testing.T) {
 			// A one-second stale timeout gives the five-second minimum lease.
 			s := startForRecovery(t, store, scheduler.WithTickInterval(20*time.Millisecond), scheduler.WithStaleTaskTimeout(time.Second))
 			var runs atomic.Int32
-			start := time.Now()
 			require.NoError(t, s.Register(t.Context(), corescheduler.TaskConfig{
 				ID: "task", Schedule: "@every 1h", RunOnStart: true,
 				Func: func(context.Context) error { runs.Add(1); return nil },
 			}))
 
-			require.Eventually(t, func() bool { return time.Since(start) > 5*time.Second }, 6*time.Second, 50*time.Millisecond)
+			// Once the claim response is back, the ownership confirmation and the
+			// body (if any) run in the dispatch goroutine, which Stop waits for.
+			require.Eventually(t, store.claimed.Load, 5*time.Second, 10*time.Millisecond)
+			stopCtx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 10*time.Second)
+			defer cancel()
+			require.NoError(t, s.Stop(stopCtx))
 			require.Equal(t, tc.wantRuns, runs.Load())
 			if tc.wantRuns > 0 {
 				got, err := mem.GetTask(t.Context(), "task")

@@ -4,7 +4,13 @@
 
 // Package storagetest checks scheduler storage contracts across backends.
 //
+// [Run] executes every contract as a subtest on a fresh store per contract;
+// each contract is also exported on its own (FinishRun, RenewRun, ...).
+//
 // # Usage
 //
-//	storagetest.FinishRun(t, store)
+//	func TestStorageContract(t *testing.T) {
+//		t.Parallel()
+//		storagetest.Run(t, func(tb testing.TB) scheduler.Storage { return newStore(tb) })
+//	}
 package storagetest
