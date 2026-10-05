@@ -21,10 +21,10 @@ The Redis server must have the **RedisJSON** and **RediSearch** modules loaded.
 
 ## Atomic run claim
 
-`ClaimRun` transitions a task `active → running` for a specific occurrence with a single server-side Lua `EVAL` script (read status, `run_started_at`
-and `next_run_at`, check the fence, then `JSON.SET` the new state). Redis runs the script atomically under its single-threaded execution, so among
-concurrent schedulers exactly one claim returns `1` and wins the run; the rest get `0` and skip. This prevents concurrent claims of the same active
-occurrence.
+`ClaimRun` transitions a task `active → running` for a specific occurrence with a single server-side Lua `EVAL` script (read status, `run_started_at`,
+`next_run_at` and `run_at`, check the fence, then `JSON.SET` the new state). Redis runs the script atomically under its single-threaded execution, so
+among concurrent schedulers exactly one claim returns `1` and wins the run; the rest get `0` and skip. This prevents concurrent claims of the same
+active occurrence. The rules themselves are defined once, in the godoc of `scheduler.Storage` ("Run ownership").
 
 `CreateTask` (store only when the key does not exist) and `RenewRun` (set `run_lease_until` while `last_run_id` and an unfinished `run_started_at`
 still match) are Lua scripts as well, so each check and write is atomic.
