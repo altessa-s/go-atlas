@@ -24,6 +24,8 @@ import (
 
 var errBoom = errors.New("boom")
 
+var numberedParamRE = regexp.MustCompile(`\$\d+`)
+
 func ok(string, []any) testhelpers.FakeSQLReply { return testhelpers.FakeSQLReply{Affected: 1} }
 
 func newStore(t *testing.T, d sqldb.Dialect, respond func(string, []any) testhelpers.FakeSQLReply) (*sqldb.Store, *sql.DB, *testhelpers.FakeSQL) {
@@ -132,7 +134,7 @@ func TestPlaceholdersAndMySQLTimeBinding(t *testing.T) {
 			for _, c := range statements(fake) {
 				if d == sqldb.DialectPostgres {
 					require.NotContains(t, c.Query, "?", c.Query)
-					require.Len(t, regexp.MustCompile(`\$\d+`).FindAllString(c.Query, -1), len(c.Args), c.Query)
+					require.Len(t, numberedParamRE.FindAllString(c.Query, -1), len(c.Args), c.Query)
 					continue
 				}
 				require.Equal(t, strings.Count(c.Query, "?"), len(c.Args), c.Query)
