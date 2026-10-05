@@ -168,6 +168,21 @@ func (s *Storage) UpsertTask(ctx context.Context, state *scheduler.TaskState) er
 	return err
 }
 
+// CreateTask inserts the task document with revision one. The _id primary key
+// makes the insert atomic insert-if-absent: a duplicate-key error means the
+// task already exists and is reported as (false, nil).
+func (s *Storage) CreateTask(ctx context.Context, state *scheduler.TaskState) (bool, error) {
+	doc := newTaskDocument(state)
+	doc.Revision = 1
+	if _, err := s.tasks.InsertOne(ctx, doc); err != nil {
+		if mongo.IsDuplicateKeyError(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
 // nextRevision is the aggregation expression for the stored revision plus one.
 var nextRevision = bson.M{"$add": bson.A{bson.M{"$ifNull": bson.A{"$revision", 0}}, 1}}
 
@@ -203,21 +218,28 @@ func zeroOrMissing[T comparable](v T) any {
 }
 
 // ClaimRun atomically transitions the task from active→running for the
-// occurrence scheduled at expectedNextRunAt via a single conditional UpdateOne.
-// The filter matches status==active (and next_run_at==expectedNextRunAt when
-// non-zero), so MongoDB's atomic document update guarantees that at most one
-// concurrent caller flips the document and thus wins the claim.
-func (s *Storage) ClaimRun(ctx context.Context, id string, expectedNextRunAt, runStartedAt int64, runID string) (bool, error) {
-	filter := bson.M{"_id": id, "status": int32(scheduler.TaskStatusActive)}
-	if expectedNextRunAt != 0 {
-		filter["next_run_at"] = expectedNextRunAt
+// occurrence described by claim via a single conditional UpdateOne. The filter
+// matches status==active, an absent or zero run_started_at (no unfinished run)
+// and, when claim.NextRunAt is non-zero, next_run_at and run_at, so MongoDB's
+// atomic document update guarantees that at most one concurrent caller flips
+// the document and thus wins the claim.
+func (s *Storage) ClaimRun(ctx context.Context, id string, claim scheduler.RunClaim) (bool, error) {
+	filter := bson.M{
+		"_id":            id,
+		"status":         int32(scheduler.TaskStatusActive),
+		"run_started_at": zeroOrMissing(int64(0)),
+	}
+	if claim.NextRunAt != 0 {
+		filter["next_run_at"] = claim.NextRunAt
+		filter["run_at"] = zeroOrMissing(claim.RunAt)
 	}
 	update := bson.M{
 		"$set": bson.M{
-			"status":         int32(scheduler.TaskStatusRunning),
-			"run_started_at": runStartedAt,
-			"last_run_id":    runID,
-			"updated_at":     runStartedAt,
+			"status":          int32(scheduler.TaskStatusRunning),
+			"run_started_at":  claim.StartedAt,
+			"last_run_id":     claim.RunID,
+			"run_lease_until": claim.LeaseUntil,
+			"updated_at":      claim.StartedAt,
 		},
 		"$inc": bson.M{"revision": 1},
 	}
@@ -473,24 +495,51 @@ func (s *Storage) FinishRun(ctx context.Context, id, runID string, result schedu
 	if runID == "" {
 		return false, nil
 	}
+	// executed: a one-shot task still registered for the occurrence this run
+	// executed (re-registration may have moved it to another RunAt meanwhile).
+	executed := bson.M{"$and": bson.A{
+		bson.M{"$ifNull": bson.A{"$one_shot", false}},
+		bson.M{"$eq": bson.A{bson.M{"$ifNull": bson.A{"$run_at", 0}}, result.RunAt}},
+	}}
 	oneShot := bson.M{"$ifNull": bson.A{"$one_shot", false}}
 	var failures any = 0
 	if !result.Success {
 		failures = bson.M{"$add": bson.A{bson.M{"$ifNull": bson.A{"$failures", 0}}, 1}}
 	}
 	update := mongo.Pipeline{bson.D{{Key: "$set", Value: bson.M{
-		"status": bson.M{"$cond": bson.A{
-			bson.M{"$eq": bson.A{"$status", scheduler.TaskStatusRunning}},
-			bson.M{"$cond": bson.A{oneShot, scheduler.TaskStatusCompleted, scheduler.TaskStatusActive}}, "$status",
+		// A finished one-shot occurrence is terminal whatever the status; otherwise
+		// a running task returns to active unless management changed its status.
+		"status": bson.M{"$cond": bson.A{executed, scheduler.TaskStatusCompleted,
+			bson.M{"$cond": bson.A{
+				bson.M{"$eq": bson.A{"$status", scheduler.TaskStatusRunning}}, scheduler.TaskStatusActive, "$status",
+			}},
 		}},
-		"next_run_at": bson.M{"$cond": bson.A{oneShot, 0,
-			bson.M{"$cond": bson.A{bson.M{"$eq": bson.A{"$schedule", bson.M{"$literal": result.Schedule}}}, result.NextRunAt, "$next_run_at"}},
+		"next_run_at": bson.M{"$cond": bson.A{executed, 0,
+			bson.M{"$cond": bson.A{oneShot, "$next_run_at",
+				bson.M{"$cond": bson.A{bson.M{"$eq": bson.A{"$schedule", bson.M{"$literal": result.Schedule}}}, result.NextRunAt, "$next_run_at"}},
+			}},
 		}},
 		"last_run_at": result.StartedAt, "updated_at": result.EndedAt,
 		"run_started_at": 0, "failures": failures,
 		"revision": nextRevision,
 	}}}}
 	res, err := s.tasks.UpdateOne(ctx, bson.M{"_id": id, "last_run_id": runID, "run_started_at": bson.M{"$gt": 0}}, update)
+	if err != nil {
+		return false, err
+	}
+	return res.MatchedCount == 1, nil
+}
+
+// RenewRun extends the lease of the unfinished run runID via a single
+// conditional UpdateOne carrying the FinishRun ownership predicate.
+func (s *Storage) RenewRun(ctx context.Context, id, runID string, leaseUntil int64) (bool, error) {
+	if runID == "" {
+		return false, nil
+	}
+	res, err := s.tasks.UpdateOne(ctx,
+		bson.M{"_id": id, "last_run_id": runID, "run_started_at": bson.M{"$gt": 0}},
+		bson.M{"$set": bson.M{"run_lease_until": leaseUntil}, "$inc": bson.M{"revision": 1}},
+	)
 	if err != nil {
 		return false, err
 	}

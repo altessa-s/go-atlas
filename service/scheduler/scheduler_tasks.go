@@ -24,12 +24,17 @@ import (
 // Failures, etc.) are preserved.
 //
 // cfg must have a non-empty ID and a non-nil Func. Exactly one of Schedule or
-// RunAt must be set; providing both returns [ErrScheduleConflict]. Schedule
+// RunAt must be set; providing both returns [ErrScheduleConflict]. RunAt must
+// be after the Unix epoch. Schedule
 // strings are validated against the cron parser on registration. If Priority is
 // unset, it defaults to [TaskPriorityNormal].
 //
-// Re-registering a [TaskStatusCompleted] one-shot task resets it to
-// [TaskStatusActive], allowing it to run again.
+// Re-registering a [TaskStatusCompleted] one-shot task with the RunAt it
+// completed for keeps it completed, so every instance or restart that registers
+// the same one-shot task does not run it again. Only a different RunAt resets
+// it to [TaskStatusActive] and schedules a new run. Tasks completed before
+// RunAt was persisted count as registered for their last run's start time: a
+// RunAt after it schedules a new run, an earlier or equal one does not.
 func (s *Scheduler) Register(ctx context.Context, cfg corescheduler.TaskConfig) error {
 	if cfg.ID == "" {
 		return errors.New("task ID cannot be empty")
@@ -47,6 +52,12 @@ func (s *Scheduler) Register(ctx context.Context, cfg corescheduler.TaskConfig) 
 
 	if isOneShot && cfg.Schedule != "" {
 		return ErrScheduleConflict
+	}
+
+	// A one-shot occurrence is identified by its RunAt in Unix seconds, and
+	// zero stands for "periodic"; an epoch or earlier RunAt would be ambiguous.
+	if isOneShot && cfg.RunAt.Unix() <= 0 {
+		return errors.New("task RunAt must be after the Unix epoch")
 	}
 
 	if !isOneShot && cfg.Schedule == "" {
@@ -84,6 +95,10 @@ func (s *Scheduler) Register(ctx context.Context, cfg corescheduler.TaskConfig) 
 	}
 
 	nowUnix := now.Unix()
+	var runAt int64
+	if isOneShot {
+		runAt = cfg.RunAt.Unix()
+	}
 
 	// Create or update storage state
 	state := &TaskState{
@@ -99,6 +114,7 @@ func (s *Scheduler) Register(ctx context.Context, cfg corescheduler.TaskConfig) 
 			OneShot:        isOneShot,
 			Failures:       0,
 		},
+		RunAt:     runAt,
 		Meta:      cfg.Meta,
 		CreatedAt: nowUnix,
 		UpdatedAt: nowUnix,
@@ -115,11 +131,21 @@ func (s *Scheduler) Register(ctx context.Context, cfg corescheduler.TaskConfig) 
 		}
 
 		if existing == nil {
-			if err = s.storage.UpsertTask(ctx, base); err != nil {
+			// Insert-if-absent: another instance may create (and claim) the
+			// task between the read above and this write. Losing that race
+			// falls through to the fenced merge on the next iteration.
+			var created bool
+			if created, err = s.storage.CreateTask(ctx, base); err != nil {
 				return coreerrs.WrapOperation(err, "save task state")
 			}
-			saved = true
-			break
+			if created {
+				saved = true
+				break
+			}
+			if err = ctx.Err(); err != nil {
+				return err
+			}
+			continue
 		}
 
 		next := *base
@@ -128,7 +154,8 @@ func (s *Scheduler) Register(ctx context.Context, cfg corescheduler.TaskConfig) 
 		state.CreatedAt = existing.CreatedAt
 		state.LastRunAt = existing.LastRunAt
 		state.LastRunID = existing.LastRunID
-		state.RunStartedAt = existing.RunStartedAt // keeps an in-flight run finishable
+		state.RunStartedAt = existing.RunStartedAt   // keeps an in-flight run finishable
+		state.RunLeaseUntil = existing.RunLeaseUntil // keeps an in-flight run's lease
 		state.Failures = existing.Failures
 		if isOneShot {
 			// One-shot: always use computed nextRun
@@ -141,10 +168,15 @@ func (s *Scheduler) Register(ctx context.Context, cfg corescheduler.TaskConfig) 
 				state.NextRunAt = existing.NextRunAt
 			}
 		}
-		// Re-registering a completed task resets it to active
-		if existing.Status == TaskStatusCompleted {
+		switch {
+		case existing.Status == TaskStatusCompleted && isOneShot && existing.OneShot && completedFor(existing, runAt):
+			// Same occurrence as the one already executed: stay completed.
+			state.Status = TaskStatusCompleted
+			state.NextRunAt = existing.NextRunAt
+		case existing.Status == TaskStatusCompleted:
+			// A new occurrence (or a changed kind of task) runs again.
 			state.Status = TaskStatusActive
-		} else if existing.Status != TaskStatusActive {
+		case existing.Status != TaskStatusActive:
 			// Preserve status if not active
 			state.Status = existing.Status
 		}
@@ -183,6 +215,17 @@ func (s *Scheduler) Register(ctx context.Context, cfg corescheduler.TaskConfig) 
 	s.logger.InfoContext(ctx, "task registered", logAttrs...)
 
 	return nil
+}
+
+// completedFor reports whether the completed one-shot task existing already
+// executed the occurrence registered for runAt (Unix seconds).
+func completedFor(existing *TaskState, runAt int64) bool {
+	if existing.RunAt != 0 {
+		return existing.RunAt == runAt
+	}
+	// Completed before RunAt was persisted: the run that completed it started
+	// at LastRunAt, at or after the occurrence it executed.
+	return existing.LastRunAt != 0 && runAt <= existing.LastRunAt
 }
 
 // Unregister removes a task from both the in-memory dispatch map and the
@@ -308,12 +351,19 @@ func (s *Scheduler) ResumeTask(ctx context.Context, id string) error {
 // DisableTask transitions a task to [TaskStatusDisabled], preventing both
 // scheduled and manual execution (via [Scheduler.TriggerTask]). Use
 // [Scheduler.EnableTask] to re-activate. Unlike [Scheduler.PauseTask],
-// disabling is allowed regardless of the current status.
+// disabling is allowed in any status except [TaskStatusCompleted]: a completed
+// one-shot task is terminal, and disabling then enabling it must not run it
+// again.
 //
 // Returns [ErrTaskNotFound] if no task with the given ID exists in storage,
-// or [ErrTaskUnmanaged] if the task has its Unmanaged flag set.
+// [ErrTaskCompleted] if the task is a completed one-shot, or
+// [ErrTaskUnmanaged] if the task has its Unmanaged flag set.
 func (s *Scheduler) DisableTask(ctx context.Context, id string) error {
 	return s.updateTask(ctx, id, func(state *TaskState) error {
+		if state.Status == TaskStatusCompleted {
+			return ErrTaskCompleted
+		}
+
 		if state.Unmanaged {
 			return ErrTaskUnmanaged
 		}

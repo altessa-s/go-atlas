@@ -121,3 +121,40 @@ func BenchmarkStorage_CleanupHistory(b *testing.B) {
 		_ = s.CleanupHistory(ctx, 24*time.Hour)
 	}
 }
+
+func BenchmarkStorage_CreateTask(b *testing.B) {
+	s := mustNew(b, 100)
+	ctx := b.Context()
+	state := &scheduler.TaskState{
+		TaskSummary: scheduler.TaskSummary{
+			ID:       "bench",
+			Status:   scheduler.TaskStatusActive,
+			Schedule: "@every 1h",
+		},
+	}
+	_, _ = s.CreateTask(ctx, state)
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = s.CreateTask(ctx, state) // existing task: the common re-registration path
+	}
+}
+
+func BenchmarkStorage_RenewRun(b *testing.B) {
+	s := mustNew(b, 100)
+	ctx := b.Context()
+	_ = s.UpsertTask(ctx, &scheduler.TaskState{
+		TaskSummary: scheduler.TaskSummary{
+			ID:       "bench",
+			Status:   scheduler.TaskStatusRunning,
+			Schedule: "@every 1h",
+		},
+		LastRunID:    "owner/run",
+		RunStartedAt: time.Now().Unix(),
+	})
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = s.RenewRun(ctx, "bench", "owner/run", time.Now().Unix())
+	}
+}
