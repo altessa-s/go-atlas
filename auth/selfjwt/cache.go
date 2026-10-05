@@ -24,16 +24,25 @@ type cacheEntry struct {
 // keyCache caches resolved verification keys by (subject, kid) with a TTL so
 // the verifier avoids a key-provider lookup on every request. It is safe for
 // concurrent use. An expired entry is treated as a miss on read but is removed
-// from the map only when a capacity-bound put triggers eviction; a hard
+// from the map only when a capacity-bound insert triggers eviction; a hard
 // maxEntries cap then bounds memory so a churn of short-lived subjects (one-off
 // principals, rotated-away kids) cannot grow the map without limit. A
 // non-positive maxEntries disables the cap, leaving the cache unbounded.
+//
+// Every invalidation advances a cache-wide generation. A lookup records the
+// generation before consulting the key provider and stores its result through
+// putIfGeneration, so a lookup that overlapped an invalidation can never
+// re-populate the cache with a key read before that invalidation. The
+// generation is cache-wide rather than per subject so it needs no unbounded
+// per-subject bookkeeping; the cost is that an overlapping lookup for an
+// unrelated subject skips one cache populate.
 type keyCache struct {
 	ttl        time.Duration
 	maxEntries int
 	clock      Clock
 	mu         sync.RWMutex
 	items      map[cacheKey]cacheEntry
+	gen        uint64
 }
 
 // newKeyCache builds an empty key cache with the given TTL, size cap, and clock.
@@ -52,10 +61,21 @@ func (c *keyCache) get(subject, kid string) (VerificationKey, bool) {
 	return e.key, true
 }
 
-// put stores key for (subject, kid), expiring one TTL from now. When the cache
-// is at its size cap it first drops expired entries and, if that frees nothing,
-// evicts arbitrary entries until a slot is free, keeping the map bounded.
-func (c *keyCache) put(subject, kid string, key VerificationKey) {
+// generation returns the current invalidation generation. A lookup reads it
+// before consulting the key provider and hands it to putIfGeneration.
+func (c *keyCache) generation() uint64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.gen
+}
+
+// putIfGeneration stores key for (subject, kid), expiring one TTL from now, but
+// only when no invalidation has happened since gen was read: a result resolved
+// under an older generation may carry a key retired by that invalidation, so it
+// is dropped instead of cached. When the cache is at its size cap it first
+// drops expired entries and, if that frees nothing, evicts arbitrary entries
+// until a slot is free, keeping the map bounded.
+func (c *keyCache) putIfGeneration(subject, kid string, key VerificationKey, gen uint64) {
 	// A non-positive TTL disables caching: every lookup hits the KeyProvider, so
 	// there is nothing to store (get would treat any entry as already expired).
 	if c.ttl <= 0 {
@@ -64,6 +84,9 @@ func (c *keyCache) put(subject, kid string, key VerificationKey) {
 	now := c.clock.Now()
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.gen != gen {
+		return
+	}
 	if c.maxEntries > 0 && len(c.items) >= c.maxEntries {
 		c.evictLocked(now)
 	}
@@ -87,25 +110,24 @@ func (c *keyCache) evictLocked(now time.Time) {
 	}
 }
 
-// deleteKey removes the cached entry for (subject, kid). It is a no-op when no
-// entry is present.
+// deleteKey removes the cached entry for (subject, kid) and advances the
+// invalidation generation, fencing lookups already in flight.
 func (c *keyCache) deleteKey(subject, kid string) {
 	c.mu.Lock()
+	c.gen++
 	delete(c.items, cacheKey{subject: subject, kid: kid})
 	c.mu.Unlock()
 }
 
-// deleteSubject removes every cached entry for subject regardless of kid,
-// returning the number of entries dropped.
-func (c *keyCache) deleteSubject(subject string) int {
+// deleteSubject removes every cached entry for subject regardless of kid and
+// advances the invalidation generation, fencing lookups already in flight.
+func (c *keyCache) deleteSubject(subject string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	n := 0
+	c.gen++
 	for k := range c.items {
 		if k.subject == subject {
 			delete(c.items, k)
-			n++
 		}
 	}
-	return n
 }

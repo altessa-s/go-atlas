@@ -54,6 +54,7 @@ Verification is fail-closed:
 - The cache bounds the rotation-to-rejection window: an already-cached `kid` keeps verifying for up to `WithCacheTTL` after rotation,
   because a cache hit skips the `KeyProvider` (so its `ErrKeyRotated` is not seen). To revoke immediately, call `Verifier.InvalidateKey`
   (or `InvalidateSubject`) on rotation, or set a short `WithCacheTTL` (`0` disables caching for strict, no-lag verification).
+  Invalidation also fences lookups in flight: they cannot re-cache a retired key, and later verifications do not share them.
 
 ## Usage
 

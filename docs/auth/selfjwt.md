@@ -211,10 +211,10 @@ key by that `kid`, a caller invalidates a subject's outstanding tokens by issuin
 4. Each `Verifier` caches resolved keys for `WithCacheTTL` (default 5 minutes), so a retired `kid` keeps verifying from cache until its entry
    expires. Call `InvalidateKey(subject, kid)` (or `InvalidateSubject(subject)` when the old `kid` is unknown) on **every** verifier
    instance — propagate the rotation event across processes yourself — to drop it early; `WithCacheTTL(0)` stops retaining entries at all.
-   Neither fences lookups already in flight: concurrent misses for the same `(subject, kid)` share one provider lookup (even with a zero
-   TTL), so a lookup that read the old key before retirement can still hand it to verifications that started afterwards, and with a non-zero
-   TTL re-cache it with a fresh TTL. For a strict retirement boundary, coordinate at the application level — pause verifications for the
-   subject, let in-flight ones drain, retire the key, invalidate, then resume.
+   Invalidation also fences provider lookups already in flight: a lookup that read the old key before retirement cannot re-cache it, and
+   verifications that start after the call never share that lookup — they consult the provider afresh (this holds with a zero TTL too).
+   Only verifications that began before the call may still complete with the old key. Retire the key in the provider **before**
+   invalidating, so the fresh lookups see it gone.
 
 Issuing a new key stops new tokens under the old `kid`; retiring the old key rejects existing ones after the cache window or explicit
 invalidation. A short overlap window plus a short `MaxTokenLifetime` keeps that window small without a revocation list.
@@ -323,6 +323,11 @@ request. The cache is safe for concurrent use. An expired entry reads as a miss;
 `put` triggers eviction. A hard `WithCacheMaxEntries` cap bounds memory so a churn of short-lived subjects or rotated-away `kid`s cannot
 grow the map without bound. Eviction first drops every expired entry and, if that frees nothing, removes entries in map-iteration order
 until a slot is free. A non-positive cap leaves the cache unbounded.
+
+`InvalidateKey` and `InvalidateSubject` advance a cache-wide invalidation generation. A lookup records the generation before consulting the provider,
+uses it in its `singleflight` key, and caches its result only if no invalidation happened meanwhile — so an invalidation fences lookups already in
+flight. The generation is cache-wide rather than per subject to keep the bookkeeping bounded; an invalidation therefore also makes an overlapping lookup
+for an unrelated subject skip one cache populate.
 
 ## Errors
 
