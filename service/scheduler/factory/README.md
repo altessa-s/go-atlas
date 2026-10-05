@@ -45,7 +45,7 @@ per-process random ID).
 | `UseLeaderElector` | Sets the leader elector for distributed scheduling |
 | `UseMongoDb` | Sets the MongoDB database for MongoDB storage backends |
 | `UseRedisClient` | Sets the Redis client for Redis storage backends |
-| `UseSQLDB` | Sets the `*sql.DB` handle for SQL storage backends (create the schema first: `EnsureSchema` on a `sqldb.New` storage with the same handle, dialect and tables, or migrations) |
+| `UseSQLDB` | Sets the `*sql.DB` handle for SQL storage backends (set `storage.sql.ensureSchema: true` to create the schema during `Build`; otherwise create it first: `EnsureSchema` on a `sqldb.New` storage with the same handle, dialect and tables, or migrations) |
 
 ### Terminal
 

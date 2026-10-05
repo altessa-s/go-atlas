@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/altessa-s/go-atlas/data/filter"
+	"github.com/altessa-s/go-atlas/internal/sqldialect"
 	"github.com/altessa-s/go-atlas/service/scheduler"
 
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
@@ -60,6 +61,8 @@ type Storage struct {
 	tasksSchema              string // schema qualifier of the tasks table, if any
 
 	stmts statements
+
+	taskFilter, historyFilter filterSource
 }
 
 // statements are the fixed queries, rendered once for the dialect.
@@ -98,30 +101,22 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Storage, error) {
 	o := newOptions(opts...)
 
 	s := &Storage{db: db, dialect: dl}
-	if s.tasksTable, err = dl.table(o.tasksTable); err != nil {
+	if s.tasksTable, err = dl.Table(o.tasksTable); err != nil {
 		return nil, err
 	}
-	if s.historyTable, err = dl.table(o.historyTable); err != nil {
+	if s.historyTable, err = dl.Table(o.historyTable); err != nil {
 		return nil, err
 	}
-	s.tasksName = unqualified(o.tasksTable)
-	if i := strings.LastIndexByte(o.tasksTable, '.'); i >= 0 {
-		s.tasksSchema = o.tasksTable[:i]
-	}
-	s.historyName = unqualified(o.historyTable)
+	s.tasksName = sqldialect.Unqualified(o.tasksTable)
+	s.tasksSchema = sqldialect.Qualifier(o.tasksTable)
+	s.historyName = sqldialect.Unqualified(o.historyTable)
 	s.stmts = s.buildStatements()
+	s.taskFilter, s.historyFilter = s.filterSources()
 	return s, nil
 }
 
-func unqualified(name string) string {
-	if i := strings.LastIndexByte(name, '.'); i >= 0 {
-		return name[i+1:]
-	}
-	return name
-}
-
 func (s *Storage) buildStatements() statements {
-	t, h, b := s.tasksTable, s.historyTable, s.dialect.bind
+	t, h, b := s.tasksTable, s.historyTable, s.dialect.Bind
 	values := "?" + strings.Repeat(", ?", strings.Count(taskColumns, ",")-1) + ", 1"
 
 	// assign renders "c = <value of c>" for every mutable column, joined.
@@ -395,7 +390,7 @@ func (s *Storage) CleanupHistory(ctx context.Context, retention time.Duration) e
 // pg.AfterID, ordered by ID. A non-nil f is translated to a parameterized SQL
 // predicate and evaluated by the database.
 func (s *Storage) TasksPaginated(ctx context.Context, pg scheduler.Pagination, f filter.Node) ([]*scheduler.TaskState, error) {
-	where, args, err := s.filterClause(f, scheduler.TaskFilterFields, taskFieldMapping)
+	from, where, args, err := s.filterClause(f, scheduler.TaskFilterFields, s.tasksTable, s.taskFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -405,8 +400,8 @@ func (s *Storage) TasksPaginated(ctx context.Context, pg scheduler.Pagination, f
 		own = " AND id > ?"
 		args = append(args, pg.AfterID)
 	}
-	query := "SELECT " + taskColumns + " FROM " + s.tasksTable + " WHERE " + where +
-		s.dialect.bind(own+" ORDER BY id LIMIT ?", next)
+	query := "SELECT " + taskColumns + " FROM " + from + " WHERE " + where +
+		s.dialect.Bind(own+" ORDER BY id LIMIT ?", next)
 	return collect(queryIter(ctx, s.db, query, append(args, pg.Limit+1), scanTask))
 }
 
@@ -414,7 +409,7 @@ func (s *Storage) TasksPaginated(ctx context.Context, pg scheduler.Pagination, f
 // cursor, ordered by StartedAt descending and ID descending. A non-nil f is
 // evaluated by the database.
 func (s *Storage) HistoryPaginated(ctx context.Context, taskID string, pg scheduler.HistoryPagination, f filter.Node) ([]*scheduler.TaskHistory, error) {
-	where, args, err := s.filterClause(f, scheduler.HistoryFilterFields, historyFieldMapping)
+	from, where, args, err := s.filterClause(f, scheduler.HistoryFilterFields, s.historyTable, s.historyFilter)
 	if err != nil {
 		return nil, err
 	}
@@ -425,31 +420,77 @@ func (s *Storage) HistoryPaginated(ctx context.Context, taskID string, pg schedu
 		own += " AND (started_at < ? OR (started_at = ? AND id < ?))"
 		args = append(args, pg.AfterStartedAt, pg.AfterStartedAt, pg.AfterID)
 	}
-	query := "SELECT " + historyColumns + " FROM " + s.historyTable + " WHERE " + where +
-		s.dialect.bind(own+" ORDER BY started_at DESC, id DESC LIMIT ?", next)
+	query := "SELECT " + historyColumns + " FROM " + from + " WHERE " + where +
+		s.dialect.Bind(own+" ORDER BY started_at DESC, id DESC LIMIT ?", next)
 	return collect(queryIter(ctx, s.db, query, append(args, pg.Limit+1), scanHistory))
 }
 
 // filterClause renders f as a parenthesized predicate whose placeholders start
-// at 1, so the caller's own predicates follow it textually and numerically. A
-// nil filter yields an always-true predicate. Translators are not safe for
+// at 1, so the caller's own predicates follow it textually and numerically,
+// and returns the relation to read from: table when f is nil (the predicate is
+// then always true), src.from otherwise. Translators are not safe for
 // concurrent use, so one is built per call.
-func (s *Storage) filterClause(f filter.Node, fields []string, mapping *coremaps.ImmutableMap[string, string]) (string, []any, error) {
+func (s *Storage) filterClause(f filter.Node, fields []string, table string, src filterSource) (string, string, []any, error) {
 	if f == nil {
-		return "1 = 1", nil, nil
+		return table, "1 = 1", nil, nil
 	}
 	trans, err := s.dialect.newTranslator(
 		filter.WithAllowedFields(fields...),
-		filter.WithFieldMapping(maps.Collect(mapping.All())),
+		filter.WithFieldMapping(maps.Collect(src.mapping.All())),
 	)
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
 	where, args, err := trans.Translate(f)
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, err
 	}
-	return "(" + where + ")", args, nil
+	return src.from, "(" + where + ")", args, nil
+}
+
+// filterSource is the relation a filtered page query reads from and the
+// mapping of CEL field names onto its columns.
+type filterSource struct {
+	from    string
+	mapping *coremaps.ImmutableMap[string, string]
+}
+
+// filterSources returns the filter relations of the tasks and history tables.
+//
+// On PostgreSQL they are the tables themselves. On MySQL/MariaDB the string
+// columns are binary types, on which the MariaDB translator's CHAR_LENGTH and
+// RIGHT count bytes rather than characters, and MySQL rejects REGEXP outright.
+// A filtered query therefore reads from a derived table that adds a utf8mb4
+// text view of every filterable string column (text_<column>, case-sensitive
+// utf8mb4_bin), and the CEL string fields map onto those views. Pagination,
+// ordering and the task_id predicate stay on the raw columns, so the engines
+// merge the derived table into the outer query and keep using the indexes.
+// utf8mb4_bin is PAD SPACE — the only binary utf8mb4 collation common to every
+// supported server — so filter comparisons on these fields ignore trailing
+// spaces; the storage's own lookups and fences compare the raw columns exactly.
+func (s *Storage) filterSources() (tasks, history filterSource) {
+	if s.dialect.name != DialectMySQL {
+		return filterSource{from: s.tasksTable, mapping: taskFieldMapping},
+			filterSource{from: s.historyTable, mapping: historyFieldMapping}
+	}
+	return textView(s.tasksTable, taskColumns, taskFieldMapping, [][2]string{{"id", "id"}, {"description", "description"}, {"schedule", "schedule"}}),
+		textView(s.historyTable, historyColumns, historyFieldMapping, [][2]string{{"id", "id"}, {"taskId", "task_id"}, {"runId", "run_id"}, {"error", "error"}})
+}
+
+// textView builds a MySQL derived table over table that selects columns plus a
+// text view of each string column in text, given as (CEL field, column) pairs,
+// and maps those fields onto the views.
+func textView(table, columns string, base *coremaps.ImmutableMap[string, string], text [][2]string) filterSource {
+	mapping := maps.Collect(base.All())
+	var b strings.Builder
+	b.WriteString("(SELECT " + columns)
+	for _, fc := range text {
+		alias := "text_" + fc[1]
+		b.WriteString(", CONVERT(" + fc[1] + " USING utf8mb4) COLLATE utf8mb4_bin AS " + alias)
+		mapping[fc[0]] = alias
+	}
+	b.WriteString(" FROM " + table + ") AS f")
+	return filterSource{from: b.String(), mapping: coremaps.NewImmutableMap(mapping)}
 }
 
 // checkTask rejects a task whose ID-like fields exceed their columns.
