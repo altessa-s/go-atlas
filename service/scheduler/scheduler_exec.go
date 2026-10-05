@@ -517,8 +517,8 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 	// The claim — not leadership — is the correctness boundary: even if two
 	// scheduler instances dispatch the same occurrence (e.g. during a
 	// leader-election split-brain window), the CAS in ClaimRun lets exactly one
-	// win, so the task body runs at most once per occurrence. state.NextRunAt is
-	// the occurrence fence. A lost claim (already running, advanced, or no longer
+	// win, so the task body runs at most once per occurrence. state.NextRunAt and
+	// state.RunAt fence the occurrence. A lost claim (already running, advanced, or no longer
 	// active) is a clean no-op for this caller.
 	//
 	// The run is registered as live before the claim can make it visible, so
@@ -733,9 +733,8 @@ func leaseSeconds(lease time.Duration) int64 {
 // synchronously before returning, and owned reports whether that confirmed the
 // run is still this instance's: a slow claim response may arrive after the
 // lease expired and another instance reclaimed the task, in which case the
-// caller must not run the task body. Only a renewal answered within a third of
-// a lease counts as confirmation; slower ones are retried a bounded number of
-// times.
+// caller must not run the task body. [confirmRunOwnership] decides what counts
+// as confirmation.
 //
 // Renewals outlive cancellation of ctx for the same reason the result
 // bookkeeping does: a run still finishing during Stop must not look abandoned
@@ -746,33 +745,12 @@ func (s *Scheduler) startRunHeartbeat(ctx context.Context, id, runID string, lea
 	interval := lease / 3 //nolint:mnd // renew three times per lease
 	leaseSec := leaseSeconds(lease)
 	hbCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	renew := func() (time.Time, bool, error) { return s.renewRunLease(hbCtx, id, runID, leaseSec) }
 
-	renew := func() (time.Time, bool, error) {
-		opCtx, opCancel := s.storageCtx(hbCtx)
-		defer opCancel()
-		now := time.Now()
-		renewed, err := s.storage.RenewRun(opCtx, id, runID, now.Unix()+leaseSec)
-		if err != nil && hbCtx.Err() == nil {
-			s.metrics.storageErrors.WithLabels(metrics.Labels{"op": "renew_run"}).Inc()
-			s.logger.ErrorContext(hbCtx, "failed to renew task run lease",
-				slog.String("task_id", id),
-				slog.String("run_id", runID),
-				slog.Any("error", err))
-		}
-		return now, renewed, err
-	}
-
-	// A slow claim leaves too little of its lease: confirm ownership with a
-	// renewal whose response is itself fresh — one that arrives within a third
-	// of a lease of being issued still leaves two thirds of the new lease. A
-	// late response proves nothing about the present, so it is retried.
-	for attempt := 0; time.Since(leaseBase) >= interval; attempt++ {
-		base, renewed, err := renew()
-		if err != nil || !renewed || (attempt == maxOwnershipConfirmations-1 && time.Since(base) >= interval) {
-			cancel()
-			return func() {}, false
-		}
-		leaseBase = base
+	leaseBase, owned = confirmRunOwnership(renew, leaseBase, interval)
+	if !owned {
+		cancel()
+		return func() {}, false
 	}
 
 	var wg sync.WaitGroup
@@ -812,9 +790,51 @@ func (s *Scheduler) startRunHeartbeat(ctx context.Context, id, runID string, lea
 	}, true
 }
 
+// renewRunLease issues one [Storage.RenewRun] for run runID of task id, moving
+// its lease to leaseSec seconds from now. It returns the instant the renewal
+// was issued — the base of the new lease — and whether the run was still
+// owned. Failures are counted and logged unless ctx has been canceled.
+func (s *Scheduler) renewRunLease(ctx context.Context, id, runID string, leaseSec int64) (issued time.Time, renewed bool, err error) {
+	opCtx, opCancel := s.storageCtx(ctx)
+	defer opCancel()
+	issued = time.Now()
+	renewed, err = s.storage.RenewRun(opCtx, id, runID, issued.Unix()+leaseSec)
+	if err != nil && ctx.Err() == nil {
+		s.metrics.storageErrors.WithLabels(metrics.Labels{"op": "renew_run"}).Inc()
+		s.logger.ErrorContext(ctx, "failed to renew task run lease",
+			slog.String("task_id", id),
+			slog.String("run_id", runID),
+			slog.Any("error", err))
+	}
+	return issued, renewed, err
+}
+
 // maxOwnershipConfirmations bounds the synchronous renewals a slow claim may
 // take to confirm, with a timely response, that its run is still owned.
 const maxOwnershipConfirmations = 3
+
+// confirmRunOwnership is the slow-claim check of [Scheduler.startRunHeartbeat].
+// While a third of a lease (interval) or more has passed since leaseBase, the
+// stored lease is too short to start the task body on: it renews, and accepts
+// only a renewal whose response is itself fresh — one that arrives within
+// interval of being issued still leaves two thirds of the new lease. A late
+// response proves nothing about the present, so it is retried, up to
+// maxOwnershipConfirmations attempts. It returns the base of the latest lease
+// write and whether ownership is confirmed; a failed or rejected renewal means
+// it is not.
+func confirmRunOwnership(renew func() (time.Time, bool, error), leaseBase time.Time, interval time.Duration) (time.Time, bool) {
+	for attempt := 0; time.Since(leaseBase) >= interval; attempt++ {
+		base, renewed, err := renew()
+		if err != nil || !renewed {
+			return leaseBase, false
+		}
+		if attempt == maxOwnershipConfirmations-1 && time.Since(base) >= interval {
+			return leaseBase, false
+		}
+		leaseBase = base
+	}
+	return leaseBase, true
+}
 
 // runAbandoned reports whether state carries an unfinished run that stale
 // recovery may reset at now (Unix seconds). A run of this instance is abandoned
@@ -831,13 +851,13 @@ func (s *Scheduler) runAbandoned(state *TaskState, now, leaseSec int64) bool {
 		_, live := s.liveRuns.Load(state.LastRunID)
 		return !live
 	}
+	if state.RunLeaseUntil != 0 {
+		return now > state.RunLeaseUntil
+	}
 	since := state.RunStartedAt
 	if since == 0 {
 		// States persisted before RunStartedAt was introduced.
 		since = state.UpdatedAt
-	}
-	if state.RunLeaseUntil != 0 {
-		return now > state.RunLeaseUntil
 	}
 	return now > since+leaseSec
 }
