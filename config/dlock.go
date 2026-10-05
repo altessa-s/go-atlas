@@ -29,6 +29,12 @@ type DistributionLockNats struct {
 	// where distributed locks will be stored.
 	// Defaults to "dlock" if not specified.
 	Bucket string `yaml:"bucket" default:"dlock"`
+
+	// MigrateBucketTTL updates a pre-existing bucket whose key TTL differs
+	// from the lock TTL instead of failing with ErrBucketTTLMismatch. Off by
+	// default: the bucket's key TTL expires every lock in it, including locks
+	// of other processes sharing the bucket.
+	MigrateBucketTTL bool `yaml:"migrateBucketTTL"`
 }
 
 // DistributionLock defines the configuration for distributed locking.

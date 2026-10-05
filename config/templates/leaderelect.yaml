@@ -16,3 +16,10 @@
 #  # Lower values provide faster failover but increase coordination overhead.
 #  # Default value: 10s
 #  ttl: "10s"
+#
+#  # <bool> Update an existing election bucket whose key TTL differs from the provider's.
+#  # When false, such a bucket is left untouched and the elector fails to build with
+#  # ErrBucketTTLMismatch: the bucket's key TTL expires the election keys of every
+#  # process sharing the bucket.
+#  # Default value: false
+#  migrateBucketTTL: false

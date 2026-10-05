@@ -36,7 +36,8 @@ recover would swallow it and leave an elector that reports itself running while 
 The bucket's key TTL is the expiry mechanism behind the lease: it is what releases the election key when a holder dies without resigning. A
 pre-existing bucket with a different key TTL — or none, which would yield leases that never expire and hang the election until someone intervenes
 by hand — is therefore refused: `New` returns `ErrBucketTTLMismatch` and leaves the bucket untouched, since rewriting it would change the key
-lifetime of every process sharing it. Pass `WithMigrateBucketTTL()` to update such a bucket deliberately.
+lifetime of every process sharing it. Pass `WithMigrateBucketTTL()` to update such a bucket deliberately; through `leadelect/factory` the switch is
+`leaderElector.migrateBucketTTL: true`.
 
 ## Shutdown
 

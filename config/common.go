@@ -63,6 +63,14 @@ type StorageNATSConfig struct {
 	// Replicas defines the number of replicas for NATS KeyValue storage.
 	// Higher values provide better availability but increase storage overhead.
 	Replicas int `yaml:"replicas" default:"3"`
+
+	// MigrateBucketTTL updates a pre-existing bucket whose key TTL differs
+	// from the feature's TTL instead of failing with ErrBucketTTLMismatch.
+	// Off by default: the bucket's key TTL expires every key in it, including
+	// keys of other processes sharing the bucket. Honored by the backends that
+	// adopt an existing bucket (idempotency and the rate limiters); the
+	// MongoDB cursor-storage factory does not consult it.
+	MigrateBucketTTL bool `yaml:"migrateBucketTTL"`
 }
 
 // Validate performs validation of the NATS storage configuration.
