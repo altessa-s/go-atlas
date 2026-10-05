@@ -15,6 +15,13 @@
 // Call [Storage.EnsureIndexes] once during application startup to create the
 // required RediSearch indexes idempotently.
 //
+// # Zero next run
+//
+// next_run_at is stored even when zero: RediSearch does not index a missing
+// NUMERIC field, so an omitted zero would hide a due task from
+// [Storage.DueTasks]. [Storage.EnsureIndexes] backfills next_run_at = 0 into
+// task documents written without it, without changing their revision.
+//
 // # Key patterns
 //
 //   - Task state: {prefix}:task:{task_id}

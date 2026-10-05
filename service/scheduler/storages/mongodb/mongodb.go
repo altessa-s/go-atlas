@@ -302,15 +302,20 @@ func (s *Storage) Tasks(ctx context.Context) iter.Seq2[*scheduler.TaskState, err
 
 // DueTasks returns an iterator over the task documents eligible for dispatch at
 // now: status active and next_run_at at or before now, sorted by ID ascending.
-// The predicate is served by the compound (status, next_run_at) index created
-// in [Storage.EnsureIndexes], so a tick costs a range scan over the due tasks
-// rather than a full collection fetch. The cursor lifecycle matches
-// [Storage.Tasks].
+// A zero NextRunAt is stored as an absent field (omitempty), which a range
+// never matches, so for now >= 0 an absent next_run_at is matched as the zero
+// it stands for. Both branches are served by the compound (status,
+// next_run_at) index created in [Storage.EnsureIndexes] — an absent field is
+// indexed as null — so a tick costs a range scan over the due tasks rather
+// than a full collection fetch. The cursor lifecycle matches [Storage.Tasks].
 func (s *Storage) DueTasks(ctx context.Context, now int64) iter.Seq2[*scheduler.TaskState, error] {
 	return func(yield func(*scheduler.TaskState, error) bool) {
-		query := bson.M{
-			"status":      int32(scheduler.TaskStatusActive),
-			"next_run_at": bson.M{"$lte": now},
+		due := bson.M{"next_run_at": bson.M{"$lte": now}}
+		query := bson.M{"status": int32(scheduler.TaskStatusActive)}
+		if now >= 0 {
+			query["$or"] = bson.A{due, bson.M{"next_run_at": nil}}
+		} else {
+			query["next_run_at"] = due["next_run_at"]
 		}
 		findOpts := mongoOptions.Find().SetSort(bson.D{{Key: "_id", Value: 1}})
 		cursor, err := s.tasks.Find(ctx, query, findOpts)

@@ -561,6 +561,7 @@ Fields not listed (`description`, `status`, `priority`, `schedule`, `failures`, 
 - Filter expressions translated to BSON for server-side evaluation; fields omitted when zero (`description`, `nextRunAt`, `oneShot`, …) are
   matched as their zero values, so `description == ""` or `oneShot == false` agree with the other backends
 - History pagination uses a compound cursor (`startedAt`, `_id`) for stable ordering
+- `DueTasks` treats an absent `next_run_at` as zero, so an active task with a zero `NextRunAt` is due, as on the other backends
 - `DeleteTask` removes both the task document and all associated history entries
 
 ---
@@ -582,6 +583,9 @@ if err := store.EnsureIndexes(ctx); err != nil {
 ```
 
 Persistent storage backed by Redis. **Requires RedisJSON and RediSearch modules.**
+
+`next_run_at` is always stored, so RediSearch indexes a zero `NextRunAt` and `DueTasks` returns such an active task. `EnsureIndexes` migrates task
+documents written without the field (older versions omitted it at zero) by setting it to `0`; run it again after a rolling upgrade.
 
 ```yaml
 storage:
