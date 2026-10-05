@@ -6,6 +6,8 @@ package oidc
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
@@ -101,17 +103,18 @@ func (p *Provider) signatureCacheKey(token string) string {
 }
 
 // verifyTokenSignature returns the signature-verified claims and header of
-// token, enforcing the signing-algorithm allow-list of ops (nil means the
-// defaults). It serves a previous verification from the token cache when one
+// token, enforcing the signing-algorithm allow-list of policy. It serves a previous verification from the token cache when one
 // exists and otherwise verifies the signature against the JWKS, caching the
 // result until the token's exp. Tokens without exp, or already past it, are
 // never cached. Callers must still apply the claim policy to the result.
-func (p *Provider) verifyTokenSignature(ctx context.Context, token string, ops *verifierOptions) (jwt.MapClaims, map[string]any, error) {
-	if ops == nil {
-		ops = defaultVerifierOptions()
-	}
+func (p *Provider) verifyTokenSignature(ctx context.Context, token string, policy *validationPolicy) (jwt.MapClaims, map[string]any, error) {
+	ops := policy.ops
 	if p.tokenCache == nil {
-		return p.parseTokenWithoutClaimsValidation(ctx, token, ops)
+		verified, hdr, err := policy.signatureVerifier(p).VerifySignature(ctx, token)
+		if err != nil {
+			return nil, nil, err
+		}
+		return jwt.MapClaims(verified), headerToMap(hdr), nil
 	}
 
 	key := p.signatureCacheKey(token)
@@ -143,7 +146,7 @@ func (p *Provider) verifyTokenSignature(ctx context.Context, token string, ops *
 	}
 	claims, header := jwt.MapClaims(verified), headerToMap(hdr)
 	if ttl := getTokenExpirationTTL(claims); ttl > 0 {
-		if fp := keyFingerprint(usedKey); fp != "" {
+		if fp := p.cachedKeyFingerprint(usedKey); fp != "" {
 			entry := cachedToken{Claims: claims, Header: header, KeyFingerprint: fp}
 			_ = p.tokenCache.Save(ctx, key, entry, ttl) //nolint:errcheck // best-effort cache
 		}
@@ -161,7 +164,35 @@ func (p *Provider) currentKeyFingerprint(ctx context.Context, header map[string]
 	if err != nil {
 		return ""
 	}
-	return keyFingerprint(vk.Key)
+	return p.cachedKeyFingerprint(vk.Key)
+}
+
+// keyFingerprintMemo is one memoized key fingerprint.
+type keyFingerprintMemo struct {
+	key any
+	fp  string
+}
+
+// cachedKeyFingerprint returns keyFingerprint(key), memoizing the result for
+// the most recent pointer-typed key: the JWKS hands out the same key object
+// until a refresh replaces it, so a cache hit does not re-encode it. Only
+// pointer keys are memoized — comparing them is always safe and the memo keeps
+// the key alive, so its identity cannot be reused by another key; other key
+// types (e.g. ed25519.PublicKey, a slice) are computed every time.
+func (p *Provider) cachedKeyFingerprint(key any) string {
+	switch key.(type) {
+	case *rsa.PublicKey, *ecdsa.PublicKey:
+	default:
+		return keyFingerprint(key)
+	}
+	if m := p.lastKeyFingerprint.Load(); m != nil && m.key == key {
+		return m.fp
+	}
+	fp := keyFingerprint(key)
+	if fp != "" {
+		p.lastKeyFingerprint.Store(&keyFingerprintMemo{key: key, fp: fp})
+	}
+	return fp
 }
 
 // keyFingerprint returns the hex SHA-256 of key's PKIX encoding, or "" for a
