@@ -8,17 +8,14 @@ import (
 	"context"
 	"slices"
 
-	authjwt "github.com/altessa-s/go-atlas/auth/jwt"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // ValidationPreset represents a named, reusable set of validation options.
 type ValidationPreset struct {
-	name                 string
-	options              []ValidationOption
-	compiledVerifier     *verifierOptions               // Pre-compiled verifier options
-	compiledAuthVerifier *authjwt.Verifier              // Pre-built JWT verifier for compiledVerifier
-	compiledCELRules     []celPreCompiledValidationRule // Pre-compiled CEL rules
+	name    string
+	options []ValidationOption
+	policy  *validationPolicy // Compiled by the provider at construction
 }
 
 // NewValidationPreset creates a named validation preset with the given options.
@@ -83,15 +80,13 @@ func (p *Provider) compilePresets() error {
 		if err != nil {
 			return coreerrs.Wrapf(err, "preset %q", preset.name)
 		}
-		preset.compiledCELRules = compiledCEL
 
 		// Pre-build ignored claims set for the compiled verifier
 		ops.buildIgnoredSet()
 
-		// Store compiled verifier in preset, plus a pre-built JWT verifier so the
+		// Store the compiled policy, including a pre-built JWT verifier so the
 		// validation path does not allocate a fresh one per request.
-		preset.compiledVerifier = ops
-		preset.compiledAuthVerifier = authjwt.NewVerifier(p.keyResolver, p.jwtVerifyOptions(ops)...)
+		preset.policy = p.newValidationPolicy(ops, compiledCEL)
 	}
 	return nil
 }
@@ -171,7 +166,7 @@ func (p *Provider) ValidateTokenWithPreset(ctx context.Context, token string, pr
 	}
 
 	// Fast path: use pre-compiled verifier if no additional options
-	if len(opt) == 0 && preset.compiledVerifier != nil {
+	if len(opt) == 0 && preset.policy != nil {
 		return p.validateTokenWithPreset(ctx, token, preset)
 	}
 
@@ -198,17 +193,17 @@ func (p *Provider) validateTokenWithPreset(ctx context.Context, token string, pr
 	// algorithm restriction so the signature is not accepted under a wider set.
 	// A cached signature verification is reused, but the preset's full policy
 	// below always runs.
-	claims, header, err := p.verifyTokenSignature(ctx, token, preset.compiledVerifier)
+	claims, header, err := p.verifyTokenSignature(ctx, token, preset.policy)
 	if err != nil {
 		return nil, coreerrs.Wrapf(ErrTokenInvalid, "signature verification failed: %v", err)
 	}
 
-	// Validate with pre-compiled verifier
-	if err := p.validateWithPresetClaims(claims, preset.compiledAuthVerifier, preset.compiledVerifier, preset.compiledCELRules); err != nil {
+	// Validate with the pre-compiled policy
+	if err := p.applyPolicy(claims, preset.policy); err != nil {
 		return nil, err
 	}
 
-	if err := p.finalizeValidatedToken(ctx, token, claims, header); err != nil {
+	if err := p.checkTokenRevocationVerified(ctx, token, claims, header); err != nil {
 		return nil, err
 	}
 	return claims, nil

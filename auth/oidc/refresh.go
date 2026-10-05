@@ -35,7 +35,8 @@ type refreshJob struct {
 
 // refreshJobs lists the periodic jobs configured by
 // [WithJWKSRefreshSchedule] and [WithRevocationSyncSchedule].
-func (p *Provider) refreshJobs(o *options) []refreshJob {
+func (p *Provider) refreshJobs() []refreshJob {
+	o := p.opts
 	var jobs []refreshJob
 	if o.jwksRefreshEnabled && o.jwksRefreshSchedule != "" {
 		jobs = append(jobs, refreshJob{name: "jwks-refresh", schedule: o.jwksRefreshSchedule, run: p.scheduledJWKSRefresh})
