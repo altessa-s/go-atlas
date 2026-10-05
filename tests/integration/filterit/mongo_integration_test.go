@@ -135,3 +135,50 @@ func TestMongo(t *testing.T) {
 func TestMongo_Rejections(t *testing.T) {
 	runRejections(t, &mongoBackend{})
 }
+
+// TestMongo_SizeSemantics pins size() across every shape a field can take: an
+// array keeps the $size results it always had (absent and null fail ==, pass
+// !=, and count as 0 when ordered), a string is measured in code points, and
+// any other value has no size.
+func TestMongo_SizeSemantics(t *testing.T) {
+	t.Parallel()
+
+	b := &mongoBackend{}
+	b.setup(t)
+	coll := b.coll.Database().Collection("sizes")
+	_, err := coll.InsertMany(t.Context(), []any{
+		bson.M{"id": 1},
+		bson.M{"id": 2, "f": nil},
+		bson.M{"id": 3, "f": bson.A{}},
+		bson.M{"id": 4, "f": bson.A{"x"}},
+		bson.M{"id": 5, "f": ""},
+		bson.M{"id": 6, "f": "ab"},
+		bson.M{"id": 7, "f": "é"}, // one code point, two bytes
+		bson.M{"id": 8, "f": 5},
+	})
+	require.NoError(t, err)
+
+	tr, err := mongotrans.NewTranslator()
+	require.NoError(t, err)
+	for expr, want := range map[string][]int64{
+		`f.size() == 0`: {3, 5},
+		`f.size() == 1`: {4, 7},
+		`f.size() != 0`: {1, 2, 4, 6, 7, 8},
+		`f.size() > 0`:  {4, 6, 7},
+		`f.size() <= 1`: {1, 2, 3, 4, 5, 7},
+	} {
+		query, err := tr.Translate(parse(t, expr))
+		require.NoError(t, err, expr)
+		cursor, err := coll.Find(t.Context(), query, mongoopts.Find().SetSort(bson.D{{Key: "id", Value: 1}}))
+		require.NoError(t, err, expr)
+		var docs []struct {
+			ID int64 `bson:"id"`
+		}
+		require.NoError(t, cursor.All(t.Context(), &docs), expr)
+		got := make([]int64, 0, len(docs))
+		for _, d := range docs {
+			got = append(got, d.ID)
+		}
+		require.Equal(t, want, got, expr)
+	}
+}

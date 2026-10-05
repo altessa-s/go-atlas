@@ -15,6 +15,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/data/filter"
 	"github.com/altessa-s/go-atlas/service/scheduler"
+	"github.com/altessa-s/go-atlas/service/scheduler/storages/internal/filtermap"
 
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
@@ -359,7 +360,7 @@ func (m *Storage) TasksPaginated(_ context.Context, pg scheduler.Pagination, f f
 	// With filter: scan and collect matching items up to limit+1
 	var results []*scheduler.TaskState
 	for _, state := range states[startIdx:] {
-		match, err := m.taskEvaluator.Evaluate(f, taskStateToFilterMap(state))
+		match, err := m.taskEvaluator.Evaluate(f, filtermap.Task(state))
 		if err != nil {
 			return nil, err
 		}
@@ -431,7 +432,7 @@ func (m *Storage) HistoryPaginated(_ context.Context, taskID string, pg schedule
 	// With filter: scan and collect matching items up to limit+1
 	var results []*scheduler.TaskHistory
 	for _, h := range sorted[startIdx:] {
-		match, err := m.historyEvaluator.Evaluate(f, taskHistoryToFilterMap(h))
+		match, err := m.historyEvaluator.Evaluate(f, filtermap.History(h))
 		if err != nil {
 			return nil, err
 		}
@@ -444,39 +445,6 @@ func (m *Storage) HistoryPaginated(_ context.Context, taskID string, pg schedule
 		}
 	}
 	return results, nil
-}
-
-// taskStateToFilterMap converts a TaskState to a map for filter evaluation.
-// Field names use proto camelCase to match CEL expressions.
-func taskStateToFilterMap(s *scheduler.TaskState) map[string]any {
-	return map[string]any{
-		"id":             s.ID,
-		"description":    s.Description,
-		"status":         int64(s.Status),
-		"priority":       int64(s.Priority),
-		"schedule":       s.Schedule,
-		"lastRunAt":      s.LastRunAt,
-		"nextRunAt":      s.NextRunAt,
-		"skipNextRun":    s.SkipNextRun,
-		"disableHistory": s.DisableHistory,
-		"unmanaged":      s.Unmanaged,
-		"oneShot":        s.OneShot,
-		"failures":       int64(s.Failures),
-	}
-}
-
-// taskHistoryToFilterMap converts a TaskHistory to a map for filter evaluation.
-func taskHistoryToFilterMap(h *scheduler.TaskHistory) map[string]any {
-	return map[string]any{
-		"id":         h.ID,
-		"taskId":     h.TaskID,
-		"runId":      h.RunID,
-		"startedAt":  h.StartedAt,
-		"endedAt":    h.EndedAt,
-		"durationMs": h.DurationMs,
-		"success":    h.Success,
-		"error":      h.Error,
-	}
 }
 
 // Compile-time interface check

@@ -12,11 +12,13 @@ Package `redisearch` translates filter AST nodes into RediSearch query syntax fo
 type decides the shape of every query built against it, and a mismatch between this map and the actual `FT.CREATE` produces queries that are
 silently wrong rather than rejected.
 
-| Operation           | `FieldTypeNumeric`               | `FieldTypeTag`         | `FieldTypeText`     |
-|---------------------|----------------------------------|------------------------|---------------------|
-| `field == v`        | `@field:[v v]`                   | `@field:{v}`           | `@field:(v)`        |
-| `field in [a, b]`   | `(@field:[a a]\|@field:[b b])`   | `@field:{a\|b}`        | `@field:(a\|b)`     |
-| `field > v`         | `@field:[(v +inf]`               | rejected               | rejected            |
+| Operation             | `FieldTypeNumeric`             | `FieldTypeTag`  | `FieldTypeText` |
+|-----------------------|--------------------------------|-----------------|-----------------|
+| `field == v`          | `@field:[v v]`                 | `@field:{v}`    | `@field:(v)`    |
+| `field in [a, b]`     | `(@field:[a a]\|@field:[b b])` | `@field:{a\|b}` | `@field:(a\|b)` |
+| `field > v`           | `@field:[(v +inf]`             | rejected        | rejected        |
+| `field.startsWith(p)` | `@field:p*`                    | `@field:{p*}`   | `@field:p*`     |
+| `field.contains(s)`   | `@field:*s*`                   | `@field:{*s*}`  | `@field:*s*`    |
 
 ## Bare identifiers
 
@@ -28,4 +30,5 @@ only ever indexed as a TAG, and a NUMERIC or TEXT rendering of `true` would not 
 
 `endsWith()`, `matches()`, `size()` and `has()` have no counterpart in the query syntax and are rejected with
 `filter.ErrUnsupportedOperation`. Two further limits belong to RediSearch itself rather than to the translator: an infix `contains()` query needs
-the field declared `WITHSUFFIXTRIE`, and a prefix shorter than `MINPREFIX` (2 by default) is dropped, so `startsWith("A")` matches nothing.
+the field declared `WITHSUFFIXTRIE`, and a prefix shorter than `MINPREFIX` (2 by default) is dropped, so `startsWith("A")` matches nothing. Both
+predicates match case-insensitively — a TEXT field is tokenized case-folded, and a TAG field folds case unless declared `CASESENSITIVE`.

@@ -6,9 +6,10 @@ package mongo_test
 
 import (
 	"context"
+	"crypto/rand"
 	"iter"
 	"os"
-	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,15 +50,19 @@ func newIT(t *testing.T, opts ...auditmongo.Option) (*auditmongo.Storage, *mongo
 		t.Skipf("mongodb not available: %v", err)
 	}
 	if err := client.Ping(t.Context(), nil); err != nil {
-		_ = client.Disconnect(context.Background())
+		_ = client.Disconnect(t.Context())
 		t.Skipf("mongodb not reachable at %s: %v", mongoURI(), err)
 	}
 
-	dbName := "audit_it_" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	// A random name, not a timestamp: parallel tests (and packages) resume at
+	// the same instant, and two tests sharing a database see each other's
+	// events and drop it under each other.
+	dbName := "audit_it_" + strings.ToLower(rand.Text())
 	db := client.Database(dbName)
 	t.Cleanup(func() {
-		_ = db.Drop(context.Background())
-		_ = client.Disconnect(context.Background())
+		ctx := context.WithoutCancel(t.Context())
+		_ = db.Drop(ctx)
+		_ = client.Disconnect(ctx)
 	})
 
 	storage, err := auditmongo.New(db, opts...)

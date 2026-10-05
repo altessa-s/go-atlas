@@ -469,7 +469,7 @@ The scheduler persists task state and execution history to a pluggable `Storage`
 |--------------------|------------------------|----------------------------------|--------------------------------|----------------------------------------------|
 | Persistence        | No (process lifetime)  | Yes                              | Yes                            | Yes                                          |
 | Multi-node support | No                     | Yes                              | Yes                            | Yes                                          |
-| Filter push-down   | Client-side            | Server-side (BSON)               | Server-side (RediSearch)       | Server-side (SQL `WHERE`)                    |
+| Filter push-down   | Client-side            | Server-side (BSON)               | Numeric ranges; rest on client | Server-side (SQL `WHERE`)                    |
 | Index management   | N/A                    | `EnsureIndexes`                  | `EnsureIndexes`                | `EnsureSchema`                               |
 | Best for           | Dev, test, single-node | Production with existing MongoDB | Production with existing Redis | Production with PostgreSQL, MySQL or MariaDB |
 
@@ -640,7 +640,10 @@ Created by `EnsureIndexes` (idempotent).
 
 **Characteristics:**
 - Thread-safe via `redis.UniversalClient`
-- Filter expressions translated to RediSearch query syntax for server-side evaluation
+- Filter expressions are evaluated on the client with the memory backend's evaluator: RediSearch folds case on TAG fields, tokenizes TEXT fields
+  and has no `endsWith`/`matches`/`size()`, so it cannot evaluate CEL exactly. Comparisons of `status`, `priority` and `failures` (history:
+  `startedAt`, `endedAt`, `durationMs`) are also pushed down as numeric ranges to narrow the scan
+- History lookups match the task ID exactly (the `taskId` TAG query folds case; entries of a task whose ID differs only by case are skipped)
 - `FT.SEARCH` results are fetched in pages of 1,000 until every match is read — no fixed result cap
 - `DeleteTask` removes the task key and all history keys in a single pipeline
 - History trimming on `AddHistory` is best-effort — concurrent writers may temporarily exceed the cap
@@ -682,9 +685,9 @@ storage:
 - String columns compare exactly (no trailing-space padding, no case folding): PostgreSQL IDs use `COLLATE "C"`, MySQL/MariaDB string columns are
   binary types (`VARBINARY`, `MEDIUMBLOB`, `LONGBLOB`) — no server version probe, and the schema never inherits database defaults. Tables created
   by the previous release (`utf8mb4` with a NO PAD binary collation) are exact too and keep working unchanged
-- Filter expressions are translated to SQL by the `data/filter` PostgreSQL and MariaDB translators; `size()` counts characters, unlike the memory
-  backend's byte count. On MySQL/MariaDB string fields are filtered through a `utf8mb4_bin` text view, which is `PAD SPACE`: filter comparisons
-  and `endsWith()` ignore trailing spaces there (lookups and run-ownership fences stay exact)
+- Filter expressions are translated to SQL by the `data/filter` PostgreSQL and MariaDB translators; `size()` counts characters, as on every
+  backend. On MySQL/MariaDB string fields are filtered through a `utf8mb4_bin` text view, which is `PAD SPACE`: filter comparisons and
+  `endsWith()` ignore trailing spaces there (lookups and run-ownership fences stay exact)
 - `DeleteTask` removes the task and its history in one transaction
 - `EnsureSchema` is idempotent; the factory runs it only with `ensureSchema: true` — otherwise call it on a `sqldb.New` storage built from the
   same handle, dialect and table names (or migrate) before starting the scheduler
@@ -809,7 +812,8 @@ for entry, err := range sched.History(ctx, "my-task") {
 ### Paginated queries with filters
 
 `TasksPaginated` and `HistoryPaginated` accept a filter expression and cursor-based pagination. Filters are pushed down to the storage layer for
-server-side evaluation (MongoDB, Redis, SQL) or evaluated client-side (memory).
+server-side evaluation (MongoDB, SQL), evaluated client-side (memory), or both — numeric ranges on the server, the whole expression on the client
+(Redis).
 
 ```go
 page := scheduler.PageRequest{Limit: 50}

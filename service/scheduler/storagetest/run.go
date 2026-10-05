@@ -10,10 +10,7 @@ import (
 	"github.com/altessa-s/go-atlas/service/scheduler"
 )
 
-// contracts lists the storage contracts every bundled backend satisfies; [Run]
-// executes each. [Identity], [Pagination] and [History] are not listed: the
-// Redis and MongoDB backends do not satisfy them yet, so only the memory and
-// SQL backends run them, on their own.
+// contracts lists the storage contracts; [Run] executes each.
 var contracts = []struct {
 	name  string
 	check func(*testing.T, scheduler.Storage)
@@ -29,6 +26,9 @@ var contracts = []struct {
 	{"OwnedRunAnyNonZeroStart", OwnedRunAnyNonZeroStart},
 	{"ClaimRun", ClaimRun},
 	{"DueTasks", DueTasks},
+	{"Identity", Identity},
+	{"Pagination", Pagination},
+	{"History", History},
 }
 
 // Run executes every storage contract as a parallel subtest named after it, each
