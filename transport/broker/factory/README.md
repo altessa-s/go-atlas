@@ -46,6 +46,7 @@ broker, err := b.Build(provider)
 | `CreateInProgressManager()` | Creates an in-progress heartbeat manager from the builder's broker config; registers background tick task when a scheduler is set |
 | `CreateOutboxWithMongoDB(db, publisher)` | Creates a MongoDB-backed broker outbox using a `*mongo.Database` |
 | `CreateOutboxWithMongoCollection(col, publisher)` | Creates a MongoDB-backed broker outbox using an existing `*mongo.Collection` |
+| `CreateOutboxWithSQLDB(db, dialect, publisher)` | Creates a SQL-backed broker outbox (PostgreSQL, MySQL or MariaDB) using a `*sql.DB` |
 | `CreateNatsProviderWithRecovery(conn)` | Creates a NATS provider bundled with an optional recovery manager; returns `NatsProviderWithRecovery` |
 | `CreateRecoveryManager(provider)` | Creates a NATS JetStream recovery manager from the builder's broker config; returns `nil, nil` if recovery is disabled |
 
