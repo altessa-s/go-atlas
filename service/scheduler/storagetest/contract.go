@@ -131,8 +131,8 @@ func Identity(t *testing.T, store scheduler.Storage) {
 	require.False(t, ok, "run ownership must be case-sensitive")
 }
 
-// Pagination verifies TasksPaginated (ID order, AfterID cursor, filters) and
-// HistoryPaginated (StartedAt then ID descending, compound cursor, filters).
+// Pagination verifies TasksPaginated (ID order, AfterID cursor, filters, with
+// size() counting code points) and HistoryPaginated (StartedAt then ID descending, compound cursor, filters).
 // The supplied store must be empty and isolated per invocation.
 //
 //nolint:mnd // Fixed timestamps and sizes describe the storage contract.
@@ -180,6 +180,14 @@ func Pagination(t *testing.T, store scheduler.Storage) {
 		require.NoError(t, err, tc.expr)
 		require.Equal(t, slices.Sorted(slices.Values(tc.want)), sliceIDs(page, taskID), tc.expr)
 	}
+
+	// size() counts code points, not bytes: "café" is 4 long, not 5.
+	require.NoError(t, store.UpsertTask(ctx, &scheduler.TaskState{TaskSummary: scheduler.TaskSummary{
+		ID: "cafe", Status: scheduler.TaskStatusActive, Description: "café",
+	}}))
+	sized, sizeErr := store.TasksPaginated(ctx, scheduler.Pagination{Limit: 100}, mustParse(t, `description.size() == 4`))
+	require.NoError(t, sizeErr)
+	require.Equal(t, []string{"cafe"}, sliceIDs(sized, taskID))
 
 	// History: ties on StartedAt are broken by ID descending.
 	for _, h := range []scheduler.TaskHistory{

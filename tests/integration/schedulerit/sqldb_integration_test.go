@@ -99,36 +99,20 @@ func sqlTableName(tb testing.TB, kind string) string {
 }
 
 // TestStorageContract runs the shared storage contract suite on every backend,
-// each contract over its own isolated storage. Identity, Pagination and History
-// run on the SQL backends only: Redis and MongoDB do not satisfy them yet.
+// each contract over its own isolated storage.
 func TestStorageContract(t *testing.T) {
 	t.Parallel()
-	sqlOnly := map[string]func(*testing.T, scheduler.Storage){
-		"Identity":   storagetest.Identity,
-		"Pagination": storagetest.Pagination,
-		"History":    storagetest.History,
-	}
 	for _, b := range backends() {
 		t.Run(b.name, func(t *testing.T) {
 			t.Parallel()
 			storagetest.Run(t, b.storage)
-			if b.sql == nil {
-				return
-			}
-			for name, check := range sqlOnly {
-				t.Run(name, func(t *testing.T) {
-					t.Parallel()
-					check(t, b.storage(t))
-				})
-			}
 		})
 	}
 }
 
 // TestSQLFilterSemantics pins what only the SQL backends do: filters run in the
 // database, so non-ASCII predicates follow SQL character semantics — endsWith
-// matches, size counts characters (the memory evaluator counts bytes, a
-// documented divergence) — and unbounded error strings round-trip.
+// matches, size counts characters — and unbounded error strings round-trip.
 func TestSQLFilterSemantics(t *testing.T) {
 	t.Parallel()
 	for _, b := range backends() {

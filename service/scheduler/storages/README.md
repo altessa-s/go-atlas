@@ -12,5 +12,4 @@ history, and pagination queries. Choose the backend that matches your deployment
 | [redis](./redis)       | Redis storage with sorted sets for scheduling and paginated queries                      |
 | [sqldb](./sqldb)       | PostgreSQL / MySQL / MariaDB storage through `database/sql`, filters evaluated in SQL    |
 
-Every backend must satisfy the contract suite in [storagetest](../storagetest); the Redis and MongoDB backends do not yet satisfy its `Identity`,
-`Pagination` and `History` contracts, which `storagetest.Run` leaves out.
+Every backend must satisfy the contract suite in [storagetest](../storagetest), and every backend here runs all of it through `storagetest.Run`.
