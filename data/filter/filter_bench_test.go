@@ -89,3 +89,16 @@ func BenchmarkParseCustomFunction(b *testing.B) {
 		_, _ = p.Parse(b.Context(), `createdAfter("2024-01-01") && updatedAfter("2024-01-02")`)
 	}
 }
+
+func BenchmarkEvaluate_Parallel(b *testing.B) {
+	p, _ := filter.NewParser(filter.WithParserNoCache())
+	eval := mustEvaluator(b)
+	node, _ := p.Parse(b.Context(), `name == "Alice" && age >= 18 && status in ["active", "pending"]`)
+	data := map[string]any{"name": "Alice", "age": int64(30), "status": "active"}
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			_, _ = eval.Evaluate(node, data)
+		}
+	})
+}

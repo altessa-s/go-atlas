@@ -299,6 +299,70 @@ func TestEvaluator_Size(t *testing.T) {
 	require.True(t, got, "expected true")
 }
 
+// TestEvaluator_SizeGlobalForm is a regression for a nil dereference: the
+// global spelling `size(field)` panicked the Evaluator while `field.size()`
+// worked. Both spellings must now agree.
+func TestEvaluator_SizeGlobalForm(t *testing.T) {
+	t.Parallel()
+
+	p := newTestParser(t)
+	data := map[string]any{"name": "hello", "tags": []any{"a", "b"}}
+
+	tests := []struct {
+		expr string
+		want bool
+	}{
+		{`size(name) == 5`, true},
+		{`size(name) > 5`, false},
+		{`size(tags) == 2`, true},
+		{`size(tags) > 0 && name.size() == size(name)`, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.expr, func(t *testing.T) {
+			t.Parallel()
+
+			node, err := p.Parse(t.Context(), tc.expr)
+			require.NoError(t, err)
+			got, err := mustEvaluator(t).Evaluate(node, data)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// TestEvaluator_CallWithoutTarget pins that a target-less call — from the
+// parser (`contains("x")`) or built by hand — is rejected as malformed
+// instead of dereferencing a nil Target.
+func TestEvaluator_CallWithoutTarget(t *testing.T) {
+	t.Parallel()
+
+	p := newTestParser(t)
+	data := map[string]any{"name": "hello"}
+
+	for _, expr := range []string{`contains("x")`, `startsWith("x")`, `endsWith("x")`, `matches("x")`, `substring(1)`} {
+		t.Run(expr, func(t *testing.T) {
+			t.Parallel()
+
+			node, err := p.Parse(t.Context(), expr)
+			require.NoError(t, err)
+			_, err = mustEvaluator(t).Evaluate(node, data)
+			require.ErrorIs(t, err, filter.ErrInvalidExpression)
+		})
+	}
+
+	t.Run("hand-built size", func(t *testing.T) {
+		t.Parallel()
+
+		node := &filter.BinaryOpNode{
+			Op:    filter.OpEqual,
+			Left:  &filter.CallNode{Op: filter.OpSize, Args: []filter.Node{&filter.IdentNode{Name: "name"}}},
+			Right: &filter.LiteralNode{Value: int64(5)},
+		}
+		_, err := mustEvaluator(t).Evaluate(node, data)
+		require.ErrorIs(t, err, filter.ErrInvalidExpression)
+	})
+}
+
 func TestEvaluator_NilComparison(t *testing.T) {
 	p := newTestParser(t)
 	eval := mustEvaluator(t)
@@ -380,4 +444,44 @@ func TestEvaluator_MaxOperations(t *testing.T) {
 		require.Error(t, err, "expected error for exceeding max operations")
 		require.ErrorIs(t, err, filter.ErrMaxOperationsExceeded)
 	})
+}
+
+// TestEvaluator_ConcurrentUse shares one Evaluator across parallel subtests,
+// each evaluating with its own data. Evaluate used to store the data and the
+// depth/operation counters on the Evaluator itself, so concurrent calls raced
+// (caught by -race) and could read each other's data or trip each other's
+// limits. MaxOperations is set so a single call fits but two interleaved calls
+// sharing one counter would not.
+func TestEvaluator_ConcurrentUse(t *testing.T) {
+	t.Parallel()
+
+	p := newTestParser(t)
+	node, err := p.Parse(t.Context(), `name.size() == 5 && age >= 18 && status in ["active", "pending"]`)
+	require.NoError(t, err)
+
+	const opsPerCall = 14 // counted node visits for the expression above
+	shared := mustEvaluator(t, filter.WithMaxOperations(opsPerCall))
+
+	matching := map[string]any{"name": "Alice", "age": int64(30), "status": "active"}
+	nonMatching := map[string]any{"name": "Bob", "age": int64(10), "status": "closed"}
+
+	got, err := shared.Evaluate(node, matching)
+	require.NoError(t, err, "a single call must fit within the operation limit")
+	require.True(t, got)
+
+	for i := range 8 {
+		t.Run("worker", func(t *testing.T) {
+			t.Parallel()
+
+			data, want := matching, true
+			if i%2 == 1 {
+				data, want = nonMatching, false
+			}
+			for range 500 {
+				got, err := shared.Evaluate(node, data)
+				require.NoError(t, err)
+				require.Equal(t, want, got)
+			}
+		})
+	}
 }

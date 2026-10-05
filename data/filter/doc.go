@@ -35,7 +35,7 @@
 //   - substring(start, [end]) - half-open [start, end) substring; 0-indexed (runes); evaluator only
 //
 // Other:
-//   - size() - array/string length
+//   - size() - array/string length; field.size() and size(field) are equivalent
 //   - timestamp() - parse RFC3339 timestamp
 //
 // # Basic Usage
@@ -64,6 +64,13 @@
 //	    log.Fatal(err)
 //	}
 //	// Result: {"$and": [{"name": "John"}, {"age": {"$gte": 18}}]}
+//
+// # In-memory Evaluation
+//
+// [Evaluator] matches an AST against a map[string]any. It holds only its
+// configuration — each [Evaluator.Evaluate] call keeps its data and its
+// depth/operation counters to itself — so one Evaluator is safe for
+// concurrent use by multiple goroutines.
 //
 // # Security Features
 //

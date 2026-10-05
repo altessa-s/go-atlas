@@ -15,7 +15,7 @@ via the visitor pattern. Includes security features: field allowlists, depth lim
 | Logical    | `&&`, `\|\|`, `!`                                          |
 | Membership | `in`, `has()`                                              |
 | String     | `contains()`, `startsWith()`, `endsWith()`, `matches()`, `substring()`¹ |
-| Other      | `size()`, `timestamp()`                                    |
+| Other      | `size()` (`f.size()` or `size(f)`), `timestamp()`          |
 
 ¹ `substring()` is supported by the in-memory evaluator only; translators reject it with `ErrUnsupportedOperation`.
 
@@ -24,6 +24,7 @@ via the visitor pattern. Includes security features: field allowlists, depth lim
 | Type / Interface | Description                                             |
 |------------------|---------------------------------------------------------|
 | `Parser`         | CEL expression parser with LRU caching                  |
+| `Evaluator`      | In-memory evaluation of an AST against a `map[string]any`; safe for concurrent use |
 | `Node`           | AST node interface                                      |
 | `BinaryOpNode`   | Binary operations (comparisons, logical)                |
 | `UnaryOpNode`    | Unary operations (negation)                             |

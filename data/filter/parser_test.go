@@ -247,6 +247,37 @@ func TestParser_Parse_SizeFunction(t *testing.T) {
 	require.NotNil(t, call.Target, "call.Target is nil")
 }
 
+// TestParser_Parse_SizeCallForms pins that the global spelling `size(f)`
+// parses to the same node as the receiver spelling `f.size()`: the operand
+// in Target, no arguments. Every consumer relies on that single shape — the
+// Evaluator used to dereference the nil Target the global form left behind.
+func TestParser_Parse_SizeCallForms(t *testing.T) {
+	t.Parallel()
+
+	p, err := NewParser(WithParserNoCache())
+	require.NoError(t, err)
+
+	method, err := p.Parse(t.Context(), `tags.size() > 1`)
+	require.NoError(t, err)
+	global, err := p.Parse(t.Context(), `size(tags) > 1`)
+	require.NoError(t, err)
+	require.Equal(t, method, global)
+
+	call, ok := global.(*BinaryOpNode).Left.(*CallNode)
+	require.True(t, ok)
+	require.Equal(t, &IdentNode{Name: "tags"}, call.Target)
+	require.Empty(t, call.Args)
+
+	for _, expr := range []string{`size()`, `size(tags, name)`, `tags.size(name)`} {
+		t.Run(expr, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := p.Parse(t.Context(), expr)
+			require.ErrorIs(t, err, ErrInvalidExpression)
+		})
+	}
+}
+
 func TestParser_Parse_HasMacro(t *testing.T) {
 	p, _ := NewParser(WithParserNoCache())
 
