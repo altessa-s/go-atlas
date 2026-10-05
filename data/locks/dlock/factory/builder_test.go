@@ -90,3 +90,27 @@ func TestBuild_NatsStrictBucketStorage(t *testing.T) {
 	require.NoError(t, err, "without the flag the bucket is adopted")
 	require.NotNil(t, dl)
 }
+
+// TestBuild_NatsStorage pins that nats.storage selects the storage type of the
+// bucket the provider creates, memory by default.
+func TestBuild_NatsStorage(t *testing.T) {
+	t.Parallel()
+
+	ns := testhelpers.StartNATSServer(t)
+	nc, js := testhelpers.ConnectJetStream(t, ns)
+
+	for bucket, storage := range map[string]config.KVStorageType{"locks-default": "", "locks-memory": config.KVStorageMemory, "locks-file": config.KVStorageFile} {
+		dl, err := factory.New(&config.DistributionLock{
+			Provider: config.DistributionLockProviderNats,
+			Nats:     &config.DistributionLockNats{Bucket: bucket, Storage: storage},
+		}).UseNatsConn(nc).Build(t.Context())
+		require.NoError(t, err)
+		require.NotNil(t, dl)
+
+		want := jetstream.MemoryStorage
+		if storage == config.KVStorageFile {
+			want = jetstream.FileStorage
+		}
+		require.Equal(t, want, testhelpers.KVBucketStorage(t, js, bucket), bucket)
+	}
+}

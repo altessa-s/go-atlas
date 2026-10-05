@@ -21,9 +21,10 @@ without external dependencies beyond NATS.
 Memory storage keeps the lease ephemeral (lost on a JetStream restart, forcing a clean re-election) and avoids disk I/O on the renew hot path. Choose
 `WithStorage(jetstream.FileStorage)` when the bucket — and the monotonic fencing revision behind `Fence()` — must survive a full server bounce.
 
-Releases before this fix created a memory bucket even when `WithStorage(jetstream.FileStorage)` was set, and the YAML factory does not expose
-storage at all. The server cannot change a bucket's storage type, so `New` adopts an existing bucket with another storage type as is and logs a
-warning. Pass `WithStrictBucketStorage()` (YAML: `leaderElector.strictBucketStorage: true`) to fail with `ErrBucketStorageMismatch` instead.
+Through the YAML factory the storage is `leaderElector.storage: memory|file` (default `memory`). Releases before this fix created a memory bucket even
+when `WithStorage(jetstream.FileStorage)` was set. The server cannot change a bucket's storage type, so `New` adopts an existing bucket with another
+storage type as is and logs a warning. Pass `WithStrictBucketStorage()` (YAML: `leaderElector.strictBucketStorage: true`) to fail with
+`ErrBucketStorageMismatch` instead.
 
 To convert the bucket, stop every instance and run `MigrateBucketStorage(ctx, nc, nats.MigrationOptions{}, opts...)` once, with the production
 options including `WithStorage(jetstream.FileStorage)`. If it fails, fix the cause, confirm the run has exited and rerun with
