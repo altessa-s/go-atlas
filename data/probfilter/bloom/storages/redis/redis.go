@@ -51,17 +51,15 @@ func New(client redis.UniversalClient, filterName string, opt ...Option) *Storag
 		core: redisfilter.New(client, opts.keyPrefix+filterName, redisfilter.Commands{
 			Label:  "Bloom",
 			Exists: "BF.EXISTS",
-			// Live inserts never create a missing filter: it is recreated by
-			// the reserve path, which also clears the rebuild ready marker.
+			// Inserts never create a missing filter: a live filter is recreated
+			// by the reserve path, which also clears the rebuild ready marker,
+			// and a vanished staging key fails the rebuild.
 			Add:         "BF.INSERT",
 			AddTokens:   []string{"NOCREATE", "ITEMS"},
 			AddBatch:    "BF.INSERT",
 			BatchTokens: []string{"NOCREATE", "ITEMS"},
-			// Staging batches must not recreate a vanished staging key.
-			StagingAddBatch:    "BF.INSERT",
-			StagingBatchTokens: []string{"NOCREATE", "ITEMS"},
-			Reserve:            "BF.RESERVE",
-			Info:               "BF.INFO",
+			Reserve:     "BF.RESERVE",
+			Info:        "BF.INFO",
 		}, opts.falsePositiveRate, opts.expectedItems),
 		opts: opts,
 	}

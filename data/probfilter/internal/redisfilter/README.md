@@ -23,20 +23,18 @@ execution, error-wrapping, batching, and create-on-first-use behavior, parameter
 | `Add`          | Single insert; creates the filter on a "not exist"/"not found" error and retries once                                                                  |
 | `AddBatch`     | Chunked multi-insert (batches of ≤1000 command arguments); same create-and-retry behavior                                                              |
 | `EnsureFilter` | Reserve with the configured arguments; an already-existing filter is not an error. Creating a missing filter deletes the ready marker in the same script |
-| `Reserve`      | Reserve with explicit arguments; any failure is an error. Clears the ready marker like `EnsureFilter`                                                   |
 | `RebuildCommitted` | Whether the ready marker and the filter key exist: some process committed a rebuild and the key was not recreated since                          |
 | (first write)  | `Add`/`AddBatch` reserve the filter with the configured arguments once before the first write, so RedisBloom never creates it implicitly with defaults |
 | `Stage`        | Reserve a replacement filter under a unique staging key in the live key's hash slot                                                                    |
 | `DeleteFilter` | `DEL` of the filter key                                                                                                                                |
 | `Info`         | Raw `*.INFO` reply; reports `found=false` (not an error) when the filter does not exist yet                                                            |
-| `FilterKey`    | The fully prefixed Redis key                                                                                                                           |
 
 ## Staging
 
 `Staging` (from `Core.Stage`) is the replacement filter of an atomic rebuild. `Stage` reserves it and sets a TTL (`StagingTTL`) in one Lua script, so a
 staging key never exists without an expiry and a crashed rebuild cannot leak it. `AddBatch` uses the non-creating batch command
-(`Commands.StagingAddBatch`, e.g. `BF.INSERT … NOCREATE ITEMS`) and refreshes the TTL after every batch, so a staging key that vanished fails the
-rebuild instead of being recreated empty. `Commit` runs one Lua script that renames the staging key onto the live key, strips the TTL (`PERSIST`) and
+(`Commands.AddBatch`, e.g. `BF.INSERT … NOCREATE ITEMS`) and refreshes the TTL after every batch, so a staging key that vanished fails the rebuild
+instead of being recreated empty. `Commit` runs one Lua script that renames the staging key onto the live key, strips the TTL (`PERSIST`) and
 leaves a short-lived commit marker; if the reply is lost, the marker tells whether the commit happened, and an outcome that cannot be established is
 reported as `probfilter.ErrCommitIndeterminate`. `Abort` deletes the staging key. The commit also advances the live filter's generation counter (on
 every attempt); `Core.Delete` runs the delete command through a script that checks the generation it observed, so a delete delayed past a rebuild does

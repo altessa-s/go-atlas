@@ -52,19 +52,17 @@ func New(client redis.UniversalClient, filterName string, opt ...Option) *Storag
 	s.core = redisfilter.New(client, opts.keyPrefix+filterName, redisfilter.Commands{
 		Label:  "Cuckoo",
 		Exists: "CF.EXISTS",
-		// Live inserts never create a missing filter: it is recreated by the
-		// reserve path, which also clears the rebuild ready marker.
+		// Inserts never create a missing filter: a live filter is recreated
+		// by the reserve path, which also clears the rebuild ready marker,
+		// and a vanished staging key fails the rebuild.
 		Add:         "CF.INSERT",
 		AddTokens:   []string{"NOCREATE", "ITEMS"},
 		AddBatch:    "CF.INSERT",
 		BatchTokens: []string{"NOCREATE", "ITEMS"},
 		// CF.INSERT answers a full filter with false under RESP3.
 		FalseRejects: true,
-		// Staging batches must not recreate a vanished staging key.
-		StagingAddBatch:    "CF.INSERT",
-		StagingBatchTokens: []string{"NOCREATE", "ITEMS"},
-		Reserve:            "CF.RESERVE",
-		Info:               "CF.INFO",
+		Reserve:      "CF.RESERVE",
+		Info:         "CF.INFO",
 	}, s.reserveArgs(opts.capacity)...)
 	return s
 }
