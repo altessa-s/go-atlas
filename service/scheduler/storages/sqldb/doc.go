@@ -37,7 +37,8 @@
 // database. On MySQL/MariaDB the string fields are filtered through a
 // case-sensitive utf8mb4_bin text view of the binary columns, so size(),
 // endsWith() and matches() see characters; that collation is PAD SPACE, so
-// comparisons and endsWith() in a filter ignore trailing spaces there.
+// comparisons and in (not the string functions) in a filter ignore trailing
+// spaces there.
 //
 // # Usage
 //

@@ -206,31 +206,32 @@ func TestTranslator_StringFunctions(t *testing.T) {
 	}
 }
 
-// TestTranslator_EndsWithBindsNeedleTwice pins the one predicate whose
-// rendering consumes two bind slots for a single CEL operand — MariaDB
-// has no endsWith(), so the needle sizes the suffix and is then compared
-// to it.
-func TestTranslator_EndsWithBindsNeedleTwice(t *testing.T) {
+// TestTranslator_EndsWithBindsNeedleThreeTimes pins the one predicate
+// whose rendering consumes several bind slots for a single CEL operand —
+// MariaDB has no endsWith(), so the needle guards the length, sizes the
+// suffix and is then compared to it.
+func TestTranslator_EndsWithBindsNeedleThreeTimes(t *testing.T) {
 	trans := mustTranslator(t)
 	node := testhelpers.MustParseFilter(t, `name.endsWith("hn")`)
 
 	got, args, err := trans.Translate(node)
 	require.NoError(t, err)
-	require.Equal(t, "RIGHT(`name`, CHAR_LENGTH(?)) = ?", got)
-	require.Equal(t, []any{"hn", "hn"}, args)
+	require.Equal(t, "(CHAR_LENGTH(`name`) >= CHAR_LENGTH(?) AND RIGHT(`name`, CHAR_LENGTH(?)) = ?)", got)
+	require.Equal(t, []any{"hn", "hn", "hn"}, args)
 }
 
 // TestTranslator_EndsWithArgumentOrder guards the alignment of the extra
-// bind against its neighbours: a predicate that emits two placeholders
-// must not shift the arguments of whatever follows it.
+// binds against their neighbours: a predicate that emits three
+// placeholders must not shift the arguments of whatever follows it.
 func TestTranslator_EndsWithArgumentOrder(t *testing.T) {
 	trans := mustTranslator(t)
 	node := testhelpers.MustParseFilter(t, `age > 18 && name.endsWith("hn") && status == "x"`)
 
 	got, args, err := trans.Translate(node)
 	require.NoError(t, err)
-	require.Equal(t, "((`age` > ?) AND (RIGHT(`name`, CHAR_LENGTH(?)) = ?)) AND (`status` = ?)", got)
-	require.Equal(t, []any{int64(18), "hn", "hn", "x"}, args)
+	require.Equal(t,
+		"((`age` > ?) AND ((CHAR_LENGTH(`name`) >= CHAR_LENGTH(?) AND RIGHT(`name`, CHAR_LENGTH(?)) = ?))) AND (`status` = ?)", got)
+	require.Equal(t, []any{int64(18), "hn", "hn", "hn", "x"}, args)
 }
 
 func TestTranslator_Size(t *testing.T) {
@@ -332,7 +333,7 @@ func TestTranslateInline(t *testing.T) {
 		{"null", `deletedAt == null`, "`deletedAt` IS NULL"},
 		{"in list", `status in ["a", "b"]`, "`status` IN ('a', 'b')"},
 		{"contains", `name.contains("oh")`, "LOCATE('oh', `name`) > 0"},
-		{"endsWith", `name.endsWith("hn")`, "RIGHT(`name`, CHAR_LENGTH('hn')) = 'hn'"},
+		{"endsWith", `name.endsWith("hn")`, "(CHAR_LENGTH(`name`) >= CHAR_LENGTH('hn') AND RIGHT(`name`, CHAR_LENGTH('hn')) = 'hn')"},
 		{"matches", `name.matches("^Jo")`, "`name` REGEXP '^Jo'"},
 		{
 			"timestamp",

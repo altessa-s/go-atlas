@@ -234,9 +234,10 @@ func TestSQLSchemaUpgrade(t *testing.T) {
 
 // checkTrailingSpaceFilters pins the documented trailing-space behavior of
 // filters on string fields: exact on PostgreSQL; on MySQL/MariaDB the filter
-// reads a utf8mb4_bin (PAD SPACE) view, so comparisons and endsWith ignore
-// trailing spaces there, while the storage's own lookups stay exact. A future
-// NO PAD view or translator fix is meant to flip the MySQL expectations.
+// reads a utf8mb4_bin (PAD SPACE) view, so comparisons ignore trailing spaces
+// there, while endsWith (length-guarded by the translator) and the storage's
+// own lookups stay exact. A future NO PAD view is meant to flip the MySQL
+// comparison expectations.
 func checkTrailingSpaceFilters(t *testing.T, store scheduler.Storage, dialect sqldb.Dialect) {
 	t.Helper()
 	ctx := t.Context()
@@ -254,7 +255,7 @@ func checkTrailingSpaceFilters(t *testing.T, store scheduler.Storage, dialect sq
 	for expr, want := range map[string]int{
 		`id == "pad " && description == "a"`:        count(padded),
 		`id == "pad" && description == "a "`:        count(padded),
-		`id == "pad" && description.endsWith("a ")`: count(padded),
+		`id == "pad" && description.endsWith("a ")`: 0,
 		`id == "pad" && description.endsWith("A")`:  0,
 		`id == "pad" && description == "a"`:         1,
 	} {
@@ -264,7 +265,7 @@ func checkTrailingSpaceFilters(t *testing.T, store scheduler.Storage, dialect sq
 	}
 	for expr, want := range map[string]int{
 		`error == "e "`:                count(padded),
-		`runId.endsWith("r ")`:         count(padded),
+		`runId.endsWith("r ")`:         0,
 		`error == "E"`:                 0,
 		`runId == "r" && id == "padh"`: 1,
 	} {

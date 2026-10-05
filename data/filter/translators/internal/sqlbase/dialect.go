@@ -13,7 +13,8 @@ import "github.com/altessa-s/go-atlas/data/filter"
 // A [Dialect] receives one when rendering a string predicate so it can
 // bind the same operand more than once: `endsWith` has no native form in
 // MariaDB or PostgreSQL and compiles to `right(col, length(x)) = x`,
-// where x appears twice and must therefore be bound twice.
+// where x appears twice and must therefore be bound twice (three times in
+// MariaDB, which also guards the length).
 type ValueFunc func(v any) (string, error)
 
 // Dialect supplies the per-backend rendering decisions the shared walker

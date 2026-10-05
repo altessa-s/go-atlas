@@ -100,8 +100,9 @@ evaluator counts UTF-8 bytes — the results differ for non-ASCII text. `matches
 On MySQL/MariaDB a filtered query reads from a derived table that adds a `utf8mb4_bin` text view of every filterable string column (the binary
 columns would make `CHAR_LENGTH` and `RIGHT` count bytes, and MySQL rejects `REGEXP` on binary strings); pagination, ordering and the `task_id`
 predicate stay on the indexed raw columns. `utf8mb4_bin` is case-sensitive but `PAD SPACE` — the only binary utf8mb4 collation every supported
-server has — so in a filter `==`, `!=`, `<`, `in` and `endsWith()` ignore trailing spaces: `description == "a "` matches `a`, and so does
-`description.endsWith("a ")`. This affects filters only; lookups, run-ownership fences and cursors compare the raw columns exactly.
+server has — so in a filter `==`, `!=`, `<`, `<=`, `>`, `>=` and `in` ignore trailing spaces: `description == "a "` matches `a`. `contains()`,
+`startsWith()`, `endsWith()` and `size()` stay exact (`description.endsWith("a ")` does not match `a`). This affects filters only; lookups,
+run-ownership fences and cursors compare the raw columns exactly.
 
 ## Usage
 
