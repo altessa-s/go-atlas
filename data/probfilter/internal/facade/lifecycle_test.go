@@ -289,3 +289,67 @@ func TestCoordinator_DoneClosedByClose(t *testing.T) {
 	<-done
 	<-c.Done()
 }
+
+// orderLoader records whether begin already ran when it is consulted.
+type orderLoader struct {
+	began        *atomic.Bool
+	beganAtCount atomic.Bool
+}
+
+func (l *orderLoader) Count(context.Context) (int64, error) {
+	l.beganAtCount.Store(l.began.Load())
+	return 1, nil
+}
+
+func (l *orderLoader) StreamValues(context.Context) iter.Seq2[string, error] {
+	return func(yield func(string, error) bool) { yield("a", nil) }
+}
+
+func TestCoordinator_RebuildOrdered_BeginBeforeLoadReleaseAfter(t *testing.T) {
+	t.Parallel()
+	var c facade.Coordinator
+	var began, released atomic.Bool
+	st := &fakeStaging{}
+	loader := &orderLoader{began: &began}
+
+	err := c.RebuildOrdered(t.Context(), loader, func(context.Context) (facade.StageFunc, func(context.Context) error, error) {
+		began.Store(true)
+		return stageWith(st), func(context.Context) error {
+			require.True(t, st.committed, "release runs after the commit")
+			released.Store(true)
+			return nil
+		}, nil
+	})
+	require.NoError(t, err)
+	require.True(t, loader.beganAtCount.Load(), "begin runs before the loader is consulted")
+	require.True(t, released.Load())
+}
+
+func TestCoordinator_RebuildOrdered_BeginErrorLoadsNothing(t *testing.T) {
+	t.Parallel()
+	var c facade.Coordinator
+	var began atomic.Bool
+	loader := &orderLoader{began: &began}
+
+	err := c.RebuildOrdered(t.Context(), loader, func(context.Context) (facade.StageFunc, func(context.Context) error, error) {
+		return nil, nil, probfilter.ErrRebuildInProgress
+	})
+	require.ErrorIs(t, err, probfilter.ErrRebuildInProgress)
+	require.False(t, loader.beganAtCount.Load())
+	require.NoError(t, c.Add(t.Context(), "x", func() error { return nil }), "the coordinator stays usable")
+}
+
+func TestCoordinator_RebuildOrdered_ReleaseRunsOnFailure(t *testing.T) {
+	t.Parallel()
+	var c facade.Coordinator
+	var released atomic.Bool
+	st := &fakeStaging{commitErr: probfilter.ErrRebuildSuperseded}
+
+	err := c.RebuildOrdered(t.Context(), &hookLoader{values: []string{"a"}, count: 1, hookAt: -1},
+		func(context.Context) (facade.StageFunc, func(context.Context) error, error) {
+			return stageWith(st), func(context.Context) error { released.Store(true); return nil }, nil
+		})
+	require.ErrorIs(t, err, probfilter.ErrRebuildSuperseded)
+	require.True(t, st.aborted, "a superseded replacement is discarded")
+	require.True(t, released.Load())
+}

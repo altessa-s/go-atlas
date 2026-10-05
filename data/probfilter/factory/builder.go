@@ -179,8 +179,10 @@ func (b *FilterBuilder) wireBloomRebuild(filter *bloom.Filter) error {
 		Schedule:    spec,
 		Priority:    corescheduler.TaskPriorityNormal,
 		Func: func(ctx context.Context) error {
-			// A closed filter has been discarded; the task has nothing to do.
-			if err := filter.Rebuild(ctx, loader); err != nil && !errors.Is(err, probfilter.ErrFilterClosed) {
+			// A closed filter has been discarded, and a rebuild in progress on
+			// another node publishes a fresh snapshot: nothing to do then.
+			err := filter.Rebuild(ctx, loader)
+			if err != nil && !errors.Is(err, probfilter.ErrFilterClosed) && !errors.Is(err, probfilter.ErrRebuildInProgress) {
 				return err
 			}
 			return nil

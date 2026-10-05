@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"iter"
+	"strconv"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -92,14 +93,29 @@ const stageRequestWindow = time.Minute
 // that observed the generation of a failed attempt cannot match the one
 // under which a later attempt promotes. Advancing it before the rename means
 // a failure to advance it prevents the promotion.
+//
+// A staging filter created under a rebuild lease (ticket != 0) promotes only
+// while that lease still holds its ticket and no newer ticket was published:
+// a rebuild whose lease expired cannot overwrite the newer snapshot of the
+// rebuild that took over. Its ticket is recorded as the committed ticket
+// before any promotion step, so a partially failed attempt still fences
+// older tickets; same-ticket retries may resume.
 // KEYS[1] staging key; KEYS[2] live key; KEYS[3] marker key; KEYS[4]
-// generation key; ARGV[1] marker TTL ms.
-// Returns 1 when promoted (now or by an earlier run), 0 when nothing exists to promote.
+// generation key; KEYS[5] lease key; KEYS[6] committed-ticket key; ARGV[1]
+// marker TTL ms; ARGV[2] ticket ("0": no lease).
+// Returns 1 when promoted (now or by an earlier run), 0 when nothing exists to
+// promote, -1 when superseded.
 var commitScript = redis.NewScript(commitScriptSource)
 
 const commitScriptSource = `
 if redis.call('EXISTS', KEYS[1]) == 0 then
   return redis.call('EXISTS', KEYS[3])
+end
+if ARGV[2] ~= '0' then
+  if redis.call('GET', KEYS[5]) ~= ARGV[2] then return -1 end
+  local committed = tonumber(redis.call('GET', KEYS[6]) or '0')
+  if committed > tonumber(ARGV[2]) then return -1 end
+  redis.call('SET', KEYS[6], ARGV[2])
 end
 local gentype = redis.call('TYPE', KEYS[4]).ok
 if gentype ~= 'none' and gentype ~= 'string' then
@@ -119,6 +135,8 @@ type Staging struct {
 	live *Core
 	core *Core
 	id   string // random id shared by the staging and marker keys
+	// ticket is the rebuild lease ticket; 0 when staged without a lease.
+	ticket int64
 	// commit is the promotion script; a field so tests can inject failures.
 	commit *redis.Script
 }
@@ -193,11 +211,15 @@ func (s *Staging) Commit(ctx context.Context) error {
 
 	op := "promote Redis " + s.live.cmds.Label + " filter"
 	marker := s.markerKey()
-	keys := []string{s.core.filterKey, s.live.filterKey, marker, s.live.genKey}
-	n, err := s.commit.Run(ctx, s.core.client, keys, commitMarkerTTL.Milliseconds()).Int()
+	keys := []string{s.core.filterKey, s.live.filterKey, marker, s.live.genKey, s.live.leaseKey, s.live.committedKey}
+	n, err := s.commit.Run(ctx, s.core.client, keys, commitMarkerTTL.Milliseconds(), strconv.FormatInt(s.ticket, 10)).Int()
 	switch {
 	case err == nil && n == 1:
 		return nil
+	case err == nil && n < 0:
+		// Definite: the script renamed nothing, and the lease and committed
+		// ticket only move on, so no retry of this commit can promote later.
+		return coreerrs.WrapOperation(probfilter.ErrRebuildSuperseded, op)
 	case err == nil:
 		// Non-promotion cannot be established: a retried script may follow a
 		// promotion whose reply and marker were both lost.
