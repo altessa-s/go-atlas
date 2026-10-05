@@ -26,6 +26,11 @@ import (
 // The bucket is left untouched.
 var ErrBucketTTLMismatch = natskvlease.ErrBucketTTLMismatch
 
+// ErrBucketStorageMismatch is returned by New when the bucket already exists
+// with another storage type and [WithStrictBucketStorage] is set. The bucket is
+// left untouched.
+var ErrBucketStorageMismatch = natskvlease.ErrBucketStorageMismatch
+
 // Store is a durable [saga.Store] backed by a NATS JetStream KeyValue bucket.
 // Each saga instance is stored as a JSON document under its ID. The bucket's
 // monotonically increasing revision is used directly as the optimistic-
@@ -56,10 +61,11 @@ func New(js jetstream.JetStream, opts ...Option) (*Store, error) {
 	o := newOptions(opts...)
 
 	base, err := natsbase.NewBaseWithBucket(context.Background(), js, natskvlease.BucketConfig{
-		Bucket:     o.bucket,
-		TTL:        o.bucketTTL,
-		MigrateTTL: o.migrateBucketTTL,
-		Storage:    jetstream.FileStorage,
+		Bucket:        o.bucket,
+		TTL:           o.bucketTTL,
+		MigrateTTL:    o.migrateBucketTTL,
+		StrictStorage: o.strictBucketStorage,
+		Storage:       jetstream.FileStorage,
 	}, nil)
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "create NATS KeyValue bucket")

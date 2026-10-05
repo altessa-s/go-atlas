@@ -110,6 +110,7 @@ func (b *Builder[T]) buildStore() (saga.Store, error) {
 			natsstore.WithBucketTTL(storage.Nats.MaxAge),
 		}
 		opts = coreslices.AppendIf(opts, storage.Nats.MigrateBucketTTL, natsstore.WithMigrateBucketTTL())
+		opts = coreslices.AppendIf(opts, storage.Nats.StrictBucketStorage, natsstore.WithStrictBucketStorage())
 		return natsstore.New(b.js, opts...)
 	case config.SagaStorageTypeMongo:
 		if err := b.RequireDependency(b.mongoDB, "MongoDB database"); err != nil {

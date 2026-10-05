@@ -31,4 +31,9 @@ type options struct {
 	// [ErrBucketTTLMismatch]. Off by default: the bucket's TTL governs every
 	// key in it, including keys of other processes sharing the bucket.
 	migrateBucketTTL bool
+
+	// strictBucketStorage rejects a pre-existing bucket whose storage type
+	// differs from the one this backend asks for with
+	// [ErrBucketStorageMismatch] instead of adopting it with a warning.
+	strictBucketStorage bool
 }

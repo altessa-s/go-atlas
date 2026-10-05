@@ -41,9 +41,10 @@ inst, err := orch.Start(ctx, id, data)
 
 ## Bucket storage
 
-New buckets are file-backed. Releases before this fix asked for file storage but created a memory bucket, which is lost when the JetStream
-servers holding it stop. Replicated memory buckets survive rolling restarts, so they do not convert by themselves. The server cannot change a
-bucket's storage type, so `New` adopts an existing bucket with a different storage type as is and logs a warning on every start.
+New buckets are file-backed. Releases before this fix asked for file storage but created a memory bucket, which is lost when the JetStream servers
+holding it stop. Replicated memory buckets survive rolling restarts, so they do not convert by themselves. The server cannot change a bucket's storage
+type, so `New` adopts an existing bucket with a different storage type as is and logs a warning on every start. Pass `WithStrictBucketStorage()` (YAML:
+`storage.nats.strict_bucket_storage: true` through the saga factory) to fail with `ErrBucketStorageMismatch` instead.
 
 Moving to file storage recreates the bucket, which resets its KV revisions, and an instance's `Version` (`Execution.Fence`) is its entry
 revision. If an external system keeps the highest fence it has accepted, do not migrate: keep the adopted bucket until a fencing-safe migration

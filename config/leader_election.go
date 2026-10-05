@@ -43,6 +43,10 @@ type LeaderElector struct {
 	// ErrBucketTTLMismatch. Off by default: the bucket's key TTL expires the
 	// election keys of every process sharing the bucket.
 	MigrateBucketTTL bool `yaml:"migrateBucketTTL"`
+	// StrictBucketStorage fails with ErrBucketStorageMismatch when the
+	// election bucket already exists with another storage type, instead of
+	// using it as is with a warning.
+	StrictBucketStorage bool `yaml:"strictBucketStorage"`
 }
 
 // DefaultLeaderElector returns a LeaderElector configuration with default values.

@@ -69,6 +69,13 @@ func WithRenewRatio(v float64) Option {
 	}
 }
 
+// WithStrictBucketStorage enables the strictBucketStorage option.
+func WithStrictBucketStorage() Option {
+	return func(o *options) {
+		o.strictBucketStorage = true
+	}
+}
+
 // WithTTL sets the ttl option.
 func WithTTL(v time.Duration) Option {
 	return func(o *options) {

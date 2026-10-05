@@ -43,3 +43,22 @@ func TestNew_BucketStorage(t *testing.T) {
 	t.Cleanup(func() { _ = adopted.Close(context.Background()) })
 	require.Equal(t, jetstream.FileStorage, testhelpers.KVBucketStorage(t, js, "durable"), "the existing storage must be kept")
 }
+
+// TestNew_StrictBucketStorage pins that WithStrictBucketStorage rejects a
+// bucket with another storage type instead of adopting it.
+func TestNew_StrictBucketStorage(t *testing.T) {
+	t.Parallel()
+
+	ns := testhelpers.StartNATSServer(t)
+	nc, js := testhelpers.ConnectJetStream(t, ns)
+	_, err := js.CreateKeyValue(t.Context(), jetstream.KeyValueConfig{
+		Bucket:  "durable",
+		TTL:     locknats.DefaultBucketKeysTTL,
+		Storage: jetstream.FileStorage,
+	})
+	require.NoError(t, err)
+
+	_, err = locknats.New(t.Context(), nc, locknats.WithBucket("durable"), locknats.WithStrictBucketStorage())
+	require.ErrorIs(t, err, locknats.ErrBucketStorageMismatch)
+	require.Equal(t, jetstream.FileStorage, testhelpers.KVBucketStorage(t, js, "durable"))
+}

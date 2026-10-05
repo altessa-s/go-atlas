@@ -29,6 +29,11 @@ import (
 // The bucket is left untouched.
 var ErrBucketTTLMismatch = natskvlease.ErrBucketTTLMismatch
 
+// ErrBucketStorageMismatch is returned by New when the bucket already exists
+// with another storage type and [WithStrictBucketStorage] is set. The bucket is
+// left untouched.
+var ErrBucketStorageMismatch = natskvlease.ErrBucketStorageMismatch
+
 // lockTracker efficiently tracks active locks for cleanup
 type lockTracker struct {
 	mu    sync.RWMutex
@@ -127,11 +132,12 @@ func New(ctx context.Context, client *nats.Conn, opts ...Option) (*Locker, error
 	// configured TTL and the key was gone before it ever fired.
 	kvHelper := natskvlease.NewKVHelper(l.js, l.opts.logger)
 	l.kv, err = kvHelper.GetOrCreateBucket(ctx, natskvlease.BucketConfig{
-		Bucket:      l.opts.bucket,
-		TTL:         l.opts.ttl,
-		Storage:     jetstream.MemoryStorage,
-		Compression: true,
-		MigrateTTL:  l.opts.migrateBucketTTL,
+		Bucket:        l.opts.bucket,
+		TTL:           l.opts.ttl,
+		Storage:       jetstream.MemoryStorage,
+		Compression:   true,
+		MigrateTTL:    l.opts.migrateBucketTTL,
+		StrictStorage: l.opts.strictBucketStorage,
 	})
 	if err != nil {
 		return nil, err

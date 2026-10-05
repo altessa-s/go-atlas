@@ -55,3 +55,37 @@ func TestBuild_MigrateBucketTTL(t *testing.T) {
 	require.NotNil(t, leader)
 	require.Equal(t, lenats.DefaultBucketKeysTTL, testhelpers.KVBucketTTL(t, js, bucket), "migrateBucketTTL must update the bucket")
 }
+
+// TestBuild_StrictBucketStorage pins that strictBucketStorage reaches the NATS
+// provider: an election bucket with another storage type is rejected instead
+// of being adopted.
+func TestBuild_StrictBucketStorage(t *testing.T) {
+	t.Parallel()
+
+	ns := testhelpers.StartNATSServer(t)
+	nc := testhelpers.ConnectNATS(t, ns)
+	js, err := jetstream.New(nc)
+	require.NoError(t, err)
+
+	// The provider asks for memory storage; this bucket is file-backed.
+	_, err = js.CreateKeyValue(t.Context(), jetstream.KeyValueConfig{
+		Bucket:  lenats.DefaultBucket,
+		TTL:     lenats.DefaultBucketKeysTTL,
+		Storage: jetstream.FileStorage,
+	})
+	require.NoError(t, err)
+
+	cfg := func(strict bool) *config.LeaderElector {
+		return &config.LeaderElector{
+			Provider:            config.LeaderElectorProviderNats,
+			Ttl:                 10 * time.Second,
+			StrictBucketStorage: strict,
+		}
+	}
+
+	_, err = factory.New(cfg(true)).UseNatsConn(nc).Build(t.Context())
+	require.ErrorIs(t, err, lenats.ErrBucketStorageMismatch)
+
+	_, err = factory.New(cfg(false)).UseNatsConn(nc).Build(t.Context())
+	require.NoError(t, err, "without the flag the bucket is adopted")
+}

@@ -82,6 +82,7 @@ func (b *LeaderBuilder) createNatsProvider(ctx context.Context) (*natsprovider.P
 		natsprovider.WithCollector(b.collector),
 	}
 	opts = coreslices.AppendIf(opts, b.cfg.MigrateBucketTTL, natsprovider.WithMigrateBucketTTL())
+	opts = coreslices.AppendIf(opts, b.cfg.StrictBucketStorage, natsprovider.WithStrictBucketStorage())
 
 	provider, err := natsprovider.New(ctx, b.natsConn, opts...)
 	if err != nil {

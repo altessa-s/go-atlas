@@ -26,6 +26,9 @@ storage at all. The server cannot change a bucket's storage type, so `New` adopt
 warning. Converting it means deleting the bucket (`nats kv del <bucket>`) while no instance runs and letting the next `New` recreate it. That
 resets the KV revisions behind `Fence()`, so do it only when no downstream store keeps fencing tokens. Otherwise keep the adopted bucket.
 
+Pass `WithStrictBucketStorage()` (YAML: `leaderElector.strictBucketStorage: true`) to fail with `ErrBucketStorageMismatch` instead of adopting
+a bucket with another storage type.
+
 ## Lease renewal
 
 Renewals tick every `min(electionTTL, bucketKeyTTL) × renewRatio`. The ratio therefore decides how many renewal attempts fall inside one lease

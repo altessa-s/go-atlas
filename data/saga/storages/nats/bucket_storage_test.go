@@ -42,3 +42,17 @@ func TestNew_BucketStorage(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, jetstream.MemoryStorage, testhelpers.KVBucketStorage(t, js, "legacy"), "the existing storage must be kept")
 }
+
+// TestNew_StrictBucketStorage pins that WithStrictBucketStorage rejects a
+// bucket with another storage type instead of adopting it.
+func TestNew_StrictBucketStorage(t *testing.T) {
+	t.Parallel()
+
+	ns := testhelpers.StartNATSServer(t)
+	_, js := testhelpers.ConnectJetStream(t, ns)
+	testhelpers.CreateNATSKV(t, js, "legacy", time.Hour) // memory storage
+
+	_, err := natsstore.New(js, natsstore.WithBucket("legacy"), natsstore.WithBucketTTL(time.Hour), natsstore.WithStrictBucketStorage())
+	require.ErrorIs(t, err, natsstore.ErrBucketStorageMismatch)
+	require.Equal(t, jetstream.MemoryStorage, testhelpers.KVBucketStorage(t, js, "legacy"))
+}

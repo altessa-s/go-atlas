@@ -58,3 +58,35 @@ func TestBuild_NilNatsSection(t *testing.T) {
 	_, err := factory.New(&config.DistributionLock{Provider: config.DistributionLockProviderNats}).Build(t.Context())
 	require.Error(t, err)
 }
+
+// TestBuild_NatsStrictBucketStorage pins that nats.strictBucketStorage reaches
+// the NATS provider: a bucket with another storage type is rejected instead of
+// being adopted.
+func TestBuild_NatsStrictBucketStorage(t *testing.T) {
+	t.Parallel()
+
+	ns := testhelpers.StartNATSServer(t)
+	nc, js := testhelpers.ConnectJetStream(t, ns)
+
+	const bucket = "factory-dlock-strict"
+	_, err := js.CreateKeyValue(t.Context(), jetstream.KeyValueConfig{
+		Bucket:  bucket,
+		TTL:     locknats.DefaultBucketKeysTTL,
+		Storage: jetstream.FileStorage,
+	})
+	require.NoError(t, err)
+
+	cfg := func(strict bool) *config.DistributionLock {
+		return &config.DistributionLock{
+			Provider: config.DistributionLockProviderNats,
+			Nats:     &config.DistributionLockNats{Bucket: bucket, StrictBucketStorage: strict},
+		}
+	}
+
+	_, err = factory.New(cfg(true)).UseNatsConn(nc).Build(t.Context())
+	require.ErrorIs(t, err, locknats.ErrBucketStorageMismatch)
+
+	dl, err := factory.New(cfg(false)).UseNatsConn(nc).Build(t.Context())
+	require.NoError(t, err, "without the flag the bucket is adopted")
+	require.NotNil(t, dl)
+}

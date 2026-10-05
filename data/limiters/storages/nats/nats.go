@@ -28,6 +28,11 @@ import (
 // The bucket is left untouched.
 var ErrBucketTTLMismatch = natskvlease.ErrBucketTTLMismatch
 
+// ErrBucketStorageMismatch is returned by New when the bucket already exists
+// with another storage type and [WithStrictBucketStorage] is set. The bucket is
+// left untouched.
+var ErrBucketStorageMismatch = natskvlease.ErrBucketStorageMismatch
+
 // bucketData represents the rate limiting data stored in NATS KeyValue.
 type bucketData struct {
 	Requests []int64 `json:"requests"` // Unix timestamps in milliseconds
@@ -67,11 +72,12 @@ func New(js jetstream.JetStream, opts ...Option) (*Provider, error) {
 	config := newOptions(opts...)
 
 	base, err := natsbase.NewBaseWithBucket(context.Background(), js, natskvlease.BucketConfig{
-		Bucket:     config.bucket,
-		TTL:        config.maxAge,
-		Storage:    jetstream.FileStorage,
-		Replicas:   config.replicas,
-		MigrateTTL: config.migrateBucketTTL,
+		Bucket:        config.bucket,
+		TTL:           config.maxAge,
+		Storage:       jetstream.FileStorage,
+		Replicas:      config.replicas,
+		MigrateTTL:    config.migrateBucketTTL,
+		StrictStorage: config.strictBucketStorage,
 	}, nil)
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "create NATS KeyValue bucket")
