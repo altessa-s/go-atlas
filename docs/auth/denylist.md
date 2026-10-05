@@ -113,10 +113,19 @@ cache := negcache.New(filter, store) // store implements Authoritative
 revoked, err := cache.IsRevoked(ctx, jti) // hot path: skips the network on a definite miss
 ```
 
-Until the filter is populated by a successful rebuild — `cache.Rebuild(ctx, store)`, or a rebuild the filter reports through `LastRebuild` — the cache
-does not trust the empty filter and answers every `IsRevoked` from the authoritative store. Then feed it with `cache.Add(ctx, key)` on local revocations
-and a scheduled `Rebuild`. `negcache.FromChecker(checker)` adapts a synchronous `denylist.Checker` to `Authoritative` when the exact tier is itself a
-`Checker`.
+Until the filter is populated by a successful rebuild — `cache.Rebuild(ctx, store)`, a rebuild the filter reports through `LastRebuild`, or, for a
+filter shared through Redis, a rebuild committed by any node (`probfilter.RebuildCommitReporter`, checked at most once per
+`WithSharedRebuildCheckInterval` while unpopulated) — the cache does not trust the empty filter and answers every `IsRevoked` from the authoritative
+store. Then feed it with `cache.Add(ctx, key)` on local revocations and scheduled rebuilds. `negcache.FromChecker(checker)` adapts a synchronous
+`denylist.Checker` to `Authoritative` when the exact tier is itself a `Checker`. `cache.Close(ctx)` closes the filter the cache owns.
+
+The factory (`negcache/factory.NewBuilder`) schedules the rebuilds itself: the authoritative store, when it is a `probfilter.DataLoader` (`redis.Store`
+is), or a loader set with `UseDataLoader`, rebuilds the Bloom filter per `rebuildOnStart` (inside `Build`) and `rebuildCron` (a process-local cron for
+an in-memory filter, a task registered with the `UseScheduler` scheduler for a Redis filter). If another node is rebuilding the shared Redis filter
+during `Build`, `Build` still succeeds and the cache defers to the authoritative store until that rebuild is committed.
+`config.Denylist.RebuildInterval` (`rebuild_interval`) is for callers that run `cache.Rebuild` themselves; with a Bloom filter it requires
+`filter.bloom.rebuildCron: ""`, so one filter never gets two schedules. `redis.Store.StreamValues` is complete only on a single Redis server; with a
+Cluster or Ring client it fails with `ErrUnsupportedClient` — inject an exact loader with `UseDataLoader` there.
 
 ## Correctness and Staleness
 

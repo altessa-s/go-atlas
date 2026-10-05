@@ -3,6 +3,10 @@
 
 package negcache
 
+import (
+	"time"
+)
+
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
@@ -16,9 +20,21 @@ func WithMetrics(v *Metrics) Option {
 	}
 }
 
+// WithSharedRebuildCheckInterval sets the sharedRebuildCheckInterval option.
+func WithSharedRebuildCheckInterval(v time.Duration) Option {
+	return func(o *options) {
+		if v < 0 {
+			return
+		}
+		o.sharedRebuildCheckInterval = v
+	}
+}
+
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
-	return &options{}
+	return &options{
+		sharedRebuildCheckInterval: DefaultSharedRebuildCheckInterval,
+	}
 }
 
 // newOptions creates a new options with the given options.

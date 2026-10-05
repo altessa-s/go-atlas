@@ -37,9 +37,17 @@
 //     other nodes and reclaims a Bloom filter whose false-positive rate has
 //     grown.
 //
-// The cache counts as populated after its first successful Rebuild, or once
-// the filter reports a successful rebuild made elsewhere
-// ([github.com/altessa-s/go-atlas/data/probfilter.RebuildableFilter.LastRebuild]).
+// The cache counts as populated after its first successful Rebuild, once
+// the filter reports a successful rebuild made elsewhere in the process
+// ([github.com/altessa-s/go-atlas/data/probfilter.RebuildableFilter.LastRebuild],
+// for example a factory-scheduled rebuild), or — for a filter shared through
+// Redis — once the filter reports a rebuild committed by any process
+// ([github.com/altessa-s/go-atlas/data/probfilter.RebuildCommitReporter]).
+// The shared check costs a Redis round trip and runs at most once per
+// [WithSharedRebuildCheckInterval] (default [DefaultSharedRebuildCheckInterval])
+// while the cache is unpopulated; an error counts as not populated. So a
+// node whose own rebuilds are always refused because another node holds the
+// shared filter's rebuild lease still starts trusting the filter.
 // Rebuilds are atomic, so lookups use the previous contents while one runs, a
 // failed rebuild keeps them, and Add calls made during a rebuild are kept.
 // A filter that cannot be rebuilt is never populated, so every lookup goes to
@@ -50,14 +58,20 @@
 // the same propagation window any locally cached revocation set has; size the
 // rebuild cadence to the revocation-propagation SLA the deployment requires.
 //
+// [Cache.Close] closes the filter the cache owns, which also stops the
+// rebuilds a factory scheduled for it.
+//
 // # Usage
 //
-//	filter, _ := probfilterfactory.NewFilter("denylist", cfg, &defaults).Build(ctx)
+// The factory (auth/denylist/negcache/factory) builds the filter and lets
+// the authoritative store drive its rebuilds (rebuildOnStart, rebuildCron).
+// Assembled by hand:
+//
+//	filter, _ := probfilterfactory.NewFilter("denylist", cfg, &defaults).Build()
 //	cache := negcache.New(filter, redisDenylist) // redisDenylist is Authoritative
+//	defer cache.Close(ctx)
 //	// Consult on the hot path:
 //	revoked, err := cache.IsRevoked(ctx, jti)
 //	// Repopulate periodically from the authoritative store:
-//	_ = scheduler.Register("denylist-rebuild", func(ctx context.Context) error {
-//	    return cache.Rebuild(ctx, loader)
-//	})
+//	_ = cache.Rebuild(ctx, redisDenylist) // a probfilter.DataLoader
 package negcache
