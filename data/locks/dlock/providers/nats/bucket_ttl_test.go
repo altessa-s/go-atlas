@@ -39,11 +39,7 @@ func TestNew_BucketTTLMismatch(t *testing.T) {
 
 	js, err := jetstream.New(nc)
 	require.NoError(t, err)
-	kv, err := js.KeyValue(ctx, bucket)
-	require.NoError(t, err)
-	status, err := kv.Status(ctx)
-	require.NoError(t, err)
-	require.Equal(t, 10*time.Second, status.TTL(), "a rejected provider changed the shared bucket's TTL")
+	require.Equal(t, 10*time.Second, testhelpers.KVBucketTTL(t, js, bucket), "a rejected provider changed the shared bucket's TTL")
 
 	lk, err := first.Lock(ctx, "resource")
 	require.NoError(t, err, "the provider already using the bucket must be unaffected")
@@ -54,7 +50,5 @@ func TestNew_BucketTTLMismatch(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = migrated.Close(context.Background()) })
 
-	status, err = kv.Status(ctx)
-	require.NoError(t, err)
-	require.Equal(t, 2*time.Second, status.TTL(), "WithMigrateBucketTTL must update the bucket")
+	require.Equal(t, 2*time.Second, testhelpers.KVBucketTTL(t, js, bucket), "WithMigrateBucketTTL must update the bucket")
 }

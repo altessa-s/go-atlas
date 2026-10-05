@@ -146,21 +146,14 @@ func TestProvider_New_ExistingBucketTTL(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	kv, err := js.KeyValue(ctx, bucket)
-	require.NoError(t, err)
-
 	_, err = lenats.New(ctx, nc, lenats.WithBucket(bucket))
 	require.ErrorIs(t, err, lenats.ErrBucketTTLMismatch)
 
-	status, err := kv.Status(ctx)
-	require.NoError(t, err)
-	require.Zero(t, status.TTL(), "a rejected provider changed the bucket's TTL")
+	require.Zero(t, testhelpers.KVBucketTTL(t, js, bucket), "a rejected provider changed the bucket's TTL")
 
 	_, err = lenats.New(ctx, nc, lenats.WithBucket(bucket), lenats.WithMigrateBucketTTL())
 	require.NoError(t, err)
 
-	status, err = kv.Status(ctx)
-	require.NoError(t, err)
-	require.Equal(t, lenats.DefaultBucketKeysTTL, status.TTL(),
+	require.Equal(t, lenats.DefaultBucketKeysTTL, testhelpers.KVBucketTTL(t, js, bucket),
 		"WithMigrateBucketTTL must bring the bucket to the lease TTL, otherwise the lease never expires")
 }
