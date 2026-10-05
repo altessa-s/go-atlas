@@ -24,6 +24,7 @@ via the visitor pattern. Includes security features: field allowlists, depth lim
 | Type / Interface | Description                                             |
 |------------------|---------------------------------------------------------|
 | `Parser`         | CEL expression parser with LRU caching                  |
+| `Evaluator`      | In-memory evaluation of an AST against a `map[string]any`; safe for concurrent use |
 | `Node`           | AST node interface                                      |
 | `BinaryOpNode`   | Binary operations (comparisons, logical)                |
 | `UnaryOpNode`    | Unary operations (negation)                             |

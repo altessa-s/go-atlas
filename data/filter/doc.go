@@ -65,6 +65,13 @@
 //	}
 //	// Result: {"$and": [{"name": "John"}, {"age": {"$gte": 18}}]}
 //
+// # In-memory Evaluation
+//
+// [Evaluator] matches an AST against a map[string]any. It holds only its
+// configuration — each [Evaluator.Evaluate] call keeps its data and its
+// depth/operation counters to itself — so one Evaluator is safe for
+// concurrent use by multiple goroutines.
+//
 // # Security Features
 //
 // Field Allowlist - restrict which fields can be queried. Keys are the

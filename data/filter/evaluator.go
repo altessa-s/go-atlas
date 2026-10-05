@@ -98,12 +98,25 @@ func getCompiledRegex(pattern string) (*regexp.Regexp, error) {
 }
 
 // Evaluator evaluates a filter AST against an in-memory map.
+//
+// An Evaluator holds only its immutable configuration: every [Evaluator.Evaluate]
+// call walks the tree with its own per-call state (data, depth and operation
+// counters), so one Evaluator is safe for concurrent use by multiple goroutines.
 type Evaluator struct {
+	config *TranslatorContext
+}
+
+// evaluation is the per-call state of one [Evaluator.Evaluate] call. It is the
+// [Visitor] that walks the tree, so concurrent calls never share counters or data.
+type evaluation struct {
 	config *TranslatorContext
 	data   map[string]any
 	depth  int
 	ops    int
 }
+
+// evaluationPool recycles per-call state so Evaluate does not allocate it.
+var evaluationPool = sync.Pool{New: func() any { return new(evaluation) }}
 
 // NewEvaluator creates a new in-memory evaluator with the given
 // options. Returns [ErrAllowlistRequired] when [WithUntrustedInput] is
@@ -117,12 +130,14 @@ func NewEvaluator(opts ...TranslatorOption) (*Evaluator, error) {
 	return &Evaluator{config: ctx}, nil
 }
 
-// Evaluate returns true if data matches the filter node.
+// Evaluate returns true if data matches the filter node. It is safe to call
+// concurrently on a shared Evaluator.
 func (e *Evaluator) Evaluate(node Node, data map[string]any) (bool, error) {
-	e.data = data
-	e.depth = 0
-	e.ops = 0
-	result, err := node.Accept(e)
+	ev := evaluationPool.Get().(*evaluation) //nolint:errcheck // Type assertion from pool is safe by design
+	*ev = evaluation{config: e.config, data: data}
+	result, err := node.Accept(ev)
+	*ev = evaluation{} // drop the data reference before pooling
+	evaluationPool.Put(ev)
 	if err != nil {
 		return false, err
 	}
@@ -134,7 +149,7 @@ func (e *Evaluator) Evaluate(node Node, data map[string]any) (bool, error) {
 }
 
 // VisitLiteral returns the literal value.
-func (e *Evaluator) VisitLiteral(n *LiteralNode) (any, error) {
+func (e *evaluation) VisitLiteral(n *LiteralNode) (any, error) {
 	if err := e.checkOps(); err != nil {
 		return nil, err
 	}
@@ -142,7 +157,7 @@ func (e *Evaluator) VisitLiteral(n *LiteralNode) (any, error) {
 }
 
 // VisitIdent looks up the field in the data map, supporting dot notation.
-func (e *Evaluator) VisitIdent(n *IdentNode) (any, error) {
+func (e *evaluation) VisitIdent(n *IdentNode) (any, error) {
 	if err := e.checkOps(); err != nil {
 		return nil, err
 	}
@@ -155,12 +170,11 @@ func (e *Evaluator) VisitIdent(n *IdentNode) (any, error) {
 }
 
 // VisitBinaryOp evaluates binary operations.
-func (e *Evaluator) VisitBinaryOp(n *BinaryOpNode) (any, error) {
-	done, err := e.enterNode()
-	if err != nil {
+func (e *evaluation) VisitBinaryOp(n *BinaryOpNode) (any, error) {
+	if err := e.enterNode(); err != nil {
 		return nil, err
 	}
-	defer done()
+	defer e.leaveNode()
 
 	switch n.Op {
 	case OpAnd:
@@ -175,12 +189,11 @@ func (e *Evaluator) VisitBinaryOp(n *BinaryOpNode) (any, error) {
 }
 
 // VisitUnaryOp evaluates unary operations.
-func (e *Evaluator) VisitUnaryOp(n *UnaryOpNode) (any, error) {
-	done, err := e.enterNode()
-	if err != nil {
+func (e *evaluation) VisitUnaryOp(n *UnaryOpNode) (any, error) {
+	if err := e.enterNode(); err != nil {
 		return nil, err
 	}
-	defer done()
+	defer e.leaveNode()
 
 	if n.Op != OpNot {
 		return nil, coreerrs.Wrapf(ErrUnsupportedOperation, "unary operator %v", n.Op)
@@ -198,12 +211,11 @@ func (e *Evaluator) VisitUnaryOp(n *UnaryOpNode) (any, error) {
 }
 
 // VisitCall evaluates function calls.
-func (e *Evaluator) VisitCall(n *CallNode) (any, error) {
-	done, err := e.enterNode()
-	if err != nil {
+func (e *evaluation) VisitCall(n *CallNode) (any, error) {
+	if err := e.enterNode(); err != nil {
 		return nil, err
 	}
-	defer done()
+	defer e.leaveNode()
 
 	// Every supported call operates on a target. A hand-built node, a node
 	// returned by a custom function, or a target-less call such as
@@ -233,7 +245,7 @@ func (e *Evaluator) VisitCall(n *CallNode) (any, error) {
 }
 
 // VisitList evaluates a list literal.
-func (e *Evaluator) VisitList(n *ListNode) (any, error) {
+func (e *evaluation) VisitList(n *ListNode) (any, error) {
 	if err := e.checkOps(); err != nil {
 		return nil, err
 	}
@@ -249,12 +261,12 @@ func (e *Evaluator) VisitList(n *ListNode) (any, error) {
 }
 
 // evalLogicalAnd short-circuits on false.
-func (e *Evaluator) evalLogicalAnd(left, right Node) (any, error) {
+func (e *evaluation) evalLogicalAnd(left, right Node) (any, error) {
 	return e.evalLogical(left, right, "&&", false)
 }
 
 // evalLogicalOr short-circuits on true.
-func (e *Evaluator) evalLogicalOr(left, right Node) (any, error) {
+func (e *evaluation) evalLogicalOr(left, right Node) (any, error) {
 	return e.evalLogical(left, right, "||", true)
 }
 
@@ -262,7 +274,7 @@ func (e *Evaluator) evalLogicalOr(left, right Node) (any, error) {
 // left operand equals shortCircuit, that value is returned without evaluating
 // the right operand (false for &&, true for ||). opName labels the operator in
 // error messages.
-func (e *Evaluator) evalLogical(left, right Node, opName string, shortCircuit bool) (any, error) {
+func (e *evaluation) evalLogical(left, right Node, opName string, shortCircuit bool) (any, error) {
 	lb, err := e.evalBoolOperand(left, opName)
 	if err != nil {
 		return nil, err
@@ -279,7 +291,7 @@ func (e *Evaluator) evalLogical(left, right Node, opName string, shortCircuit bo
 
 // evalBoolOperand evaluates n and asserts the result is a bool. opName labels
 // the operator in the error message.
-func (e *Evaluator) evalBoolOperand(n Node, opName string) (bool, error) {
+func (e *evaluation) evalBoolOperand(n Node, opName string) (bool, error) {
 	v, err := n.Accept(e)
 	if err != nil {
 		return false, err
@@ -292,7 +304,7 @@ func (e *Evaluator) evalBoolOperand(n Node, opName string) (bool, error) {
 }
 
 // evalComparison evaluates comparison operators.
-func (e *Evaluator) evalComparison(op Operator, left, right Node) (any, error) {
+func (e *evaluation) evalComparison(op Operator, left, right Node) (any, error) {
 	if err := e.config.CheckComparison(left, right); err != nil {
 		return nil, err
 	}
@@ -311,7 +323,7 @@ func (e *Evaluator) evalComparison(op Operator, left, right Node) (any, error) {
 // check uses CheckLiteralKind directly because `in` has a fixed shape
 // (ident on the left, list on the right) — the symmetric
 // CheckComparison would also work but the asymmetry is intentional.
-func (e *Evaluator) evalIn(left, right Node) (any, error) {
+func (e *evaluation) evalIn(left, right Node) (any, error) {
 	if ident, ok := left.(*IdentNode); ok {
 		if err := e.config.CheckLiteralKind(ident.Name, right); err != nil {
 			return nil, err
@@ -342,7 +354,7 @@ func (e *Evaluator) evalIn(left, right Node) (any, error) {
 // non-string target yields handled=false with no error so the caller can return
 // false — matching the permissive semantics on non-string fields. label names
 // the function in error messages.
-func (e *Evaluator) stringCallArgs(n *CallNode, label string) (s, arg string, handled bool, err error) {
+func (e *evaluation) stringCallArgs(n *CallNode, label string) (s, arg string, handled bool, err error) {
 	target, err := n.Target.Accept(e)
 	if err != nil {
 		return "", "", false, err
@@ -366,7 +378,7 @@ func (e *Evaluator) stringCallArgs(n *CallNode, label string) (s, arg string, ha
 }
 
 // evalStringFunc evaluates contains/startsWith/endsWith.
-func (e *Evaluator) evalStringFunc(n *CallNode, fn func(string, string) bool) (any, error) {
+func (e *evaluation) evalStringFunc(n *CallNode, fn func(string, string) bool) (any, error) {
 	s, substr, handled, err := e.stringCallArgs(n, "string function")
 	if err != nil {
 		return nil, err
@@ -378,7 +390,7 @@ func (e *Evaluator) evalStringFunc(n *CallNode, fn func(string, string) bool) (a
 }
 
 // evalMatches evaluates regex matching.
-func (e *Evaluator) evalMatches(n *CallNode) (any, error) {
+func (e *evaluation) evalMatches(n *CallNode) (any, error) {
 	s, pattern, handled, err := e.stringCallArgs(n, "matches()")
 	if err != nil {
 		return nil, err
@@ -397,7 +409,7 @@ func (e *Evaluator) evalMatches(n *CallNode) (any, error) {
 }
 
 // evalHas checks if a field exists (non-nil) in the data.
-func (e *Evaluator) evalHas(n *CallNode) (any, error) {
+func (e *evaluation) evalHas(n *CallNode) (any, error) {
 	ident, ok := n.Target.(*IdentNode)
 	if !ok {
 		return nil, coreerrs.Wrap(ErrInvalidExpression, "has() requires an identifier")
@@ -411,7 +423,7 @@ func (e *Evaluator) evalHas(n *CallNode) (any, error) {
 }
 
 // evalSize returns the size of a string or slice.
-func (e *Evaluator) evalSize(n *CallNode) (any, error) {
+func (e *evaluation) evalSize(n *CallNode) (any, error) {
 	target, err := n.Target.Accept(e)
 	if err != nil {
 		return nil, err
@@ -435,7 +447,7 @@ func (e *Evaluator) evalSize(n *CallNode) (any, error) {
 // Indexing is over Unicode code points (runes), not bytes — same as
 // cel-go ext.Strings — so a 3-rune Cyrillic prefix is substring(0, 3)
 // regardless of the underlying UTF-8 byte length.
-func (e *Evaluator) evalSubstring(n *CallNode) (any, error) {
+func (e *evaluation) evalSubstring(n *CallNode) (any, error) {
 	const (
 		minSubstringArgs = 1
 		maxSubstringArgs = 2
@@ -476,7 +488,7 @@ func (e *Evaluator) evalSubstring(n *CallNode) (any, error) {
 
 // evalIntArg evaluates a Node and asserts the result is an int64. Used by
 // integer-arg functions like substring.
-func (e *Evaluator) evalIntArg(n Node) (int64, error) {
+func (e *evaluation) evalIntArg(n Node) (int64, error) {
 	v, err := n.Accept(e)
 	if err != nil {
 		return 0, err
@@ -619,27 +631,29 @@ func valuesEqual(a, b any) bool {
 
 // enterNode runs the per-node operation and depth guards shared by the
 // compound visitor methods (binary, unary, call). On success it increments the
-// recursion depth and returns a cleanup function the caller must defer to
-// restore it.
-func (e *Evaluator) enterNode() (func(), error) {
+// recursion depth; the caller must defer [evaluation.leaveNode] to restore it.
+func (e *evaluation) enterNode() error {
 	if err := e.checkOps(); err != nil {
-		return nil, err
+		return err
 	}
 	if err := e.checkDepth(); err != nil {
-		return nil, err
+		return err
 	}
 	e.depth++
-	return func() { e.depth-- }, nil
+	return nil
 }
 
-func (e *Evaluator) checkDepth() error {
+// leaveNode undoes the depth increment of a successful [evaluation.enterNode].
+func (e *evaluation) leaveNode() { e.depth-- }
+
+func (e *evaluation) checkDepth() error {
 	if e.depth >= e.config.MaxDepth() {
 		return coreerrs.Wrapf(ErrMaxDepthExceeded, "depth %d exceeds maximum %d", e.depth, e.config.MaxDepth())
 	}
 	return nil
 }
 
-func (e *Evaluator) checkOps() error {
+func (e *evaluation) checkOps() error {
 	e.ops++
 	if e.ops > e.config.MaxOperations() {
 		return coreerrs.Wrapf(ErrMaxOperationsExceeded, "operation count %d exceeds maximum %d", e.ops, e.config.MaxOperations())
@@ -661,5 +675,5 @@ func ValidateRegex(pattern string, maxLength int) error {
 	return nil
 }
 
-// Ensure Evaluator implements Visitor.
-var _ Visitor = (*Evaluator)(nil)
+// Ensure evaluation implements Visitor.
+var _ Visitor = (*evaluation)(nil)
