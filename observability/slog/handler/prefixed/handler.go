@@ -8,10 +8,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/observability/slog/handler/internal/base"
-
-	stdSlices "slices"
 )
 
 // Handler wraps a [slog.Handler] to extract and format prefixes from log records.
@@ -54,21 +51,24 @@ func (h *Handler) Enabled(ctx context.Context, level slog.Level) bool {
 
 // Handle extracts prefixes, formats them, and passes the record to the next handler.
 func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
-	// Treat h.prefixes as immutable. Only allocate when we need to add/merge prefixes.
+	// Treat h.prefixes as immutable. Only allocate when the record carries
+	// prefixes of its own that have to be merged and removed.
 	prefixes := h.prefixes
-	if r.NumAttrs() > 0 {
+	if h.recordHasPrefix(r) {
 		attrs := make([]slog.Attr, 0, r.NumAttrs())
 		r.Attrs(func(a slog.Attr) bool {
 			attrs = append(attrs, a)
 			return true
 		})
 
-		p, nattrs := h.extractPrefixes(attrs)
-		if len(p) > 0 {
-			r = slog.NewRecord(r.Time, r.Level, r.Message, r.PC)
-			r.AddAttrs(nattrs...)
-			prefixes = p
-		}
+		var nattrs []slog.Attr
+		prefixes, nattrs = h.extractPrefixes(attrs)
+		r = slog.NewRecord(r.Time, r.Level, r.Message, r.PC)
+		r.AddAttrs(nattrs...)
+	} else {
+		// r is a shallow copy of the caller's record: clone it so appending
+		// the prefix below never writes into storage the caller still shares.
+		r = r.Clone()
 	}
 
 	if attr, ok := h.prefixAttr(prefixes); ok {
@@ -120,24 +120,40 @@ func (h *Handler) prefixAttr(prefixes []slog.Value) (slog.Attr, bool) {
 	return slog.Attr{Key: h.opts.prefix, Value: *v}, true
 }
 
+// recordHasPrefix reports whether r carries at least one prefix attribute.
+func (h *Handler) recordHasPrefix(r slog.Record) bool {
+	found := false
+	r.Attrs(func(a slog.Attr) bool {
+		found = h.isPrefix(a)
+		return !found
+	})
+	return found
+}
+
 // extractPrefixes returns prefix values and remaining non-prefix attributes.
+// Without prefix attributes it returns h.prefixes and attrs unchanged.
 func (h *Handler) extractPrefixes(attrs []slog.Attr) ([]slog.Value, []slog.Attr) {
-	prefixes := h.prefixes
-
-	if pfx := stdSlices.Collect(slices.Filter(attrs, h.isPrefix)); len(pfx) > 0 {
-		prefixes = make([]slog.Value, 0, len(h.prefixes)+len(pfx))
-		prefixes = append(prefixes, h.prefixes...)
-
-		prefixes = append(prefixes, stdSlices.Collect(slices.Map(pfx, func(attr slog.Attr) slog.Value {
-			return attr.Value
-		}))...)
-
-		attrs = stdSlices.Collect(slices.Filter(attrs, func(attr slog.Attr) bool {
-			return !h.isPrefix(attr)
-		}))
+	n := 0
+	for _, a := range attrs {
+		if h.isPrefix(a) {
+			n++
+		}
+	}
+	if n == 0 {
+		return h.prefixes, attrs
 	}
 
-	return prefixes, attrs
+	prefixes := make([]slog.Value, 0, len(h.prefixes)+n)
+	prefixes = append(prefixes, h.prefixes...)
+	remaining := make([]slog.Attr, 0, len(attrs)-n)
+	for _, a := range attrs {
+		if h.isPrefix(a) {
+			prefixes = append(prefixes, a.Value)
+		} else {
+			remaining = append(remaining, a)
+		}
+	}
+	return prefixes, remaining
 }
 
 // isPrefix reports whether attr is a prefix value: a string under the prefix key.

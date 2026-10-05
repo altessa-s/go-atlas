@@ -8,8 +8,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"log/slog"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -18,20 +21,22 @@ import (
 
 const testKey = "module"
 
+// dropTime is a ReplaceAttr function that removes the top-level time attribute
+// so the output is deterministic.
+func dropTime(groups []string, a slog.Attr) slog.Attr {
+	if len(groups) == 0 && a.Key == slog.TimeKey {
+		return slog.Attr{}
+	}
+	return a
+}
+
 // newJSONLogger returns a logger whose prefixed handler writes JSON (with the
 // time attribute removed) to the returned buffer.
 func newJSONLogger(t *testing.T, opts ...prefixed.Option) (*slog.Logger, *bytes.Buffer) {
 	t.Helper()
 
 	var buf bytes.Buffer
-	inner := slog.NewJSONHandler(&buf, &slog.HandlerOptions{
-		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-			if len(groups) == 0 && a.Key == slog.TimeKey {
-				return slog.Attr{}
-			}
-			return a
-		},
-	})
+	inner := slog.NewJSONHandler(&buf, &slog.HandlerOptions{ReplaceAttr: dropTime})
 	opts = append([]prefixed.Option{
 		prefixed.WithPrefix(testKey),
 		prefixed.WithPrefixFormatter(prefixed.JsonFormatter),
@@ -180,14 +185,7 @@ func TestHandler_TextOutputWithGroups(t *testing.T) {
 	t.Parallel()
 
 	var buf bytes.Buffer
-	inner := slog.NewTextHandler(&buf, &slog.HandlerOptions{
-		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-			if len(groups) == 0 && a.Key == slog.TimeKey {
-				return slog.Attr{}
-			}
-			return a
-		},
-	})
+	inner := slog.NewTextHandler(&buf, &slog.HandlerOptions{ReplaceAttr: dropTime})
 	logger := slog.New(prefixed.NewHandler(inner, prefixed.WithPrefix(testKey)))
 
 	logger.With(testKey, "api").With(testKey, "server").WithGroup("req").Info("m", "id", 1)
@@ -222,4 +220,69 @@ func TestHandler_WithGroupEmptyNameReturnsReceiver(t *testing.T) {
 
 	h := prefixed.NewHandler(slog.DiscardHandler, prefixed.WithPrefix(testKey))
 	require.Same(t, h, h.WithGroup(""))
+}
+
+// overflowRecord returns a record with more attributes than slog.Record stores
+// inline, added one at a time so its overflow slice has spare capacity: a
+// handler that appends to a shallow copy of it writes into shared storage.
+func overflowRecord() slog.Record {
+	r := slog.NewRecord(time.Time{}, slog.LevelInfo, "m", 0)
+	for i := range 8 {
+		r.AddAttrs(slog.Int("a"+strconv.Itoa(i), i))
+	}
+	return r
+}
+
+// inheritedPrefixHandler returns a handler that carries a prefix from WithAttrs,
+// so records without prefixes of their own are passed on with the prefix appended.
+func inheritedPrefixHandler(inner slog.Handler) slog.Handler {
+	return prefixed.NewHandler(inner,
+		prefixed.WithPrefix(testKey),
+		prefixed.WithPrefixFormatter(prefixed.JsonFormatter),
+	).WithAttrs([]slog.Attr{slog.String(testKey, "api")})
+}
+
+// TestHandler_InheritedPrefixKeepsRecordIntact checks that appending an
+// inherited prefix never writes into the caller's record: handling the same
+// record again yields the same output, without slog's "!BUG" attribute.
+func TestHandler_InheritedPrefixKeepsRecordIntact(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	h := inheritedPrefixHandler(slog.NewJSONHandler(&buf, nil))
+	r := overflowRecord()
+
+	require.NoError(t, h.Handle(t.Context(), r))
+	first := buf.String()
+	buf.Reset()
+	require.NoError(t, h.Handle(t.Context(), r))
+
+	require.Equal(t, first, buf.String())
+	require.NotContains(t, first, "!BUG")
+	require.Contains(t, first, `"module":"api"`)
+	require.Equal(t, 8, r.NumAttrs())
+}
+
+// TestHandler_InheritedPrefixConcurrentHandle hands the same record to the
+// handler from several goroutines, as the multi handler does; under -race it
+// fails if the prefix is appended to storage shared between the calls.
+func TestHandler_InheritedPrefixConcurrentHandle(t *testing.T) {
+	t.Parallel()
+
+	h := inheritedPrefixHandler(slog.DiscardHandler)
+	r := overflowRecord()
+	ctx := t.Context()
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			for range 100 {
+				if err := h.Handle(ctx, r); err != nil {
+					t.Error(err)
+					return
+				}
+			}
+		})
+	}
+	wg.Wait()
 }
