@@ -52,8 +52,9 @@ rotates keys. `denylist` is the small explicit seam any of them can share.
 | Authoritative | `negcache.Authoritative` — `IsRevoked(ctx, key) (bool, error)` | The exact store a negative cache defers to.            |
 
 The core distinguishes two entry kinds: **permanent** (`Revoke`, cleared only by `Restore`) and **expiry-bounded** (`RevokeUntil`, forgotten
-after its expiry). The common case revokes a token only until its own `exp`, so the entry disappears exactly when the token would have been
-rejected on expiry anyway.
+after its expiry). The common case revokes a token until its own `exp` **plus the verifier's clock-skew leeway** (`auth/jwt.DefaultLeeway`,
+30 s; `selfjwt` forwards the same leeway), so the entry outlives the whole window in which a verifier still accepts the token. Revoking only
+until `exp` would re-admit a revoked token between `exp` and `exp + leeway`. A token with no bounded expiry needs a permanent `Revoke`.
 
 ## Bounding
 
@@ -69,7 +70,8 @@ growth is bounded by TTL expiry and the caller's use of permanent revocations, n
 import "github.com/altessa-s/go-atlas/auth/denylist"
 
 dl := denylist.New()
-dl.RevokeUntil(claims.ID(), claims.ExpiresAt()) // deny this token until it would expire anyway
+// Keep the entry past exp by the verifiers' leeway (and any extra clock difference between instances).
+dl.RevokeUntil(claims.ID(), claims.Expiry().Add(jwt.DefaultLeeway))
 
 if dl.IsRevoked(claims.ID()) {
     return ErrRevoked
@@ -89,7 +91,7 @@ exact tier and the source that rebuilds a cache's filter.
 import redisstore "github.com/altessa-s/go-atlas/auth/denylist/storages/redis"
 
 store := redisstore.New(client) // client is a redis.UniversalClient
-_ = store.RevokeUntil(ctx, "jti-123", time.Until(tokenExp))
+_ = store.RevokeUntil(ctx, "jti-123", time.Until(tokenExp)+jwt.DefaultLeeway) // outlive the verifiers' leeway
 
 revoked, err := store.IsRevoked(ctx, "jti-123")
 ```
@@ -105,13 +107,22 @@ false positives only cost an extra authoritative lookup and never admit a revoke
 ```go
 import "github.com/altessa-s/go-atlas/auth/denylist/negcache"
 
-filter, _ := probfilterfactory.NewFilter("denylist", cfg, &defaults).Build(ctx)
+filter, err := probfilterfactory.NewFilter("denylist", cfg, &defaults).Build()
+if err != nil {
+    return err
+}
 cache := negcache.New(filter, store) // store implements Authoritative
+
+// Populate the filter before serving any read from it (see Correctness and Staleness).
+if err := cache.Rebuild(ctx, store); err != nil {
+    return err
+}
 
 revoked, err := cache.IsRevoked(ctx, jti) // hot path: skips the network on a definite miss
 ```
 
-Feed the filter with `cache.Add(ctx, key)` on local revocations and a scheduled `cache.Rebuild(ctx, store)` from the authoritative stream.
+Populate the filter with a successful `cache.Rebuild(ctx, store)` **before** serving any `IsRevoked` from the cache — an empty filter
+fast-paths every key, revoked ones included. Then feed it with `cache.Add(ctx, key)` on local revocations and a scheduled `Rebuild`.
 `negcache.FromChecker(checker)` adapts a synchronous `denylist.Checker` to `Authoritative` when the exact tier is itself a `Checker`.
 
 ## Correctness and Staleness
@@ -120,6 +131,17 @@ The negative cache is correct only while the filter contains **every** key the a
 invariant two ways: `Add` on each local revocation, and a scheduled `Rebuild` from the authoritative source. Between rebuilds a key revoked
 on another node is fast-pathed as not-revoked until the next rebuild — the same propagation window any locally cached revocation set has.
 Size the rebuild cadence to your revocation-propagation SLA.
+
+`Rebuild` is not atomic: the Bloom filter resets its storage and then re-adds keys one by one, so while it runs (and after it fails midway)
+the filter is missing keys and `IsRevoked` can fast-path a revoked token. A successful `Rebuild` alone does not restore the invariant either:
+with a loader that reports no count (the Redis store), keys are collected first and the filter is reset afterwards, so a `cache.Add` that
+lands between collection and reset is lost. Until the implementation swaps filters atomically, coordinate both sides: route checks to the
+authoritative store while a rebuild runs and after a failed one, and serialize local revocations (the store write plus `cache.Add`) against
+the whole rebuild — or record revocations made during the rebuild and replay them with `Add` before switching reads back to the cache.
+
+That advice covers a process-local filter. A filter in shared storage (Redis Bloom keyed by prefix + filter name) is reset and repopulated for
+every instance using that key at once, so the coordination must span every reader, writer and rebuilder of the key — startup rebuilds
+included — or each instance must use its own filter key.
 
 ## Observability
 
@@ -161,7 +183,7 @@ their own.
 - **One seam, swappable backing.** The verifier depends only on `Checker` / `Authoritative`, so a deployment moves from in-memory to
   Redis-plus-cache without changing the verifier or the token package.
 - **Never un-revoke by eviction.** The core never drops a live entry to bound memory — that would silently re-admit a revoked token. Growth
-  is bounded by TTL, matching each token's own expiry.
+  is bounded by TTL, matching each token's own expiry plus the verifiers' leeway.
 - **Fail toward exactness.** A filter error in `negcache` defers to the authoritative store rather than fast-pathing, so a degraded filter
   costs latency, never correctness.
 

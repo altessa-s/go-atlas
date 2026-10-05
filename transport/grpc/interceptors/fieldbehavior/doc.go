@@ -31,8 +31,8 @@
 // # Strict mode
 //
 // The interceptor always runs in mutation mode. Strict mode (returning a
-// [fieldbehavior.BehaviorViolationError] instead of mutating) is not exposed
-// here because rejecting the wire payload at the interceptor layer is a
+// [github.com/altessa-s/go-atlas/domain/proto/fieldbehavior.BehaviorViolationError]
+// instead of mutating) is not exposed here because rejecting the wire payload at the interceptor layer is a
 // contract decision that belongs in the handler.
 //
 //	package fieldbehavior

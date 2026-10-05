@@ -40,14 +40,28 @@
 // the same propagation window any locally cached revocation set has; size the
 // rebuild cadence to the revocation-propagation SLA the deployment requires.
 //
+// Populate the filter with a successful [Cache.Rebuild] before serving any
+// [Cache.IsRevoked] from it: an empty filter fast-paths every key. Rebuild is
+// not atomic — while it runs, after it fails midway, and (with a loader that
+// reports no count) for an Add racing its reset, the filter misses keys. For a
+// process-local filter, route reads to the authoritative store during and
+// after a failed rebuild, and serialize local revocations (store write plus
+// Add) against the whole rebuild or replay them afterwards. A filter in shared
+// storage (Redis Bloom keyed by prefix and name) is reset for every instance
+// at once, so that coordination must span every reader, writer and rebuilder
+// of the key — or give each instance its own filter key.
+//
 // # Usage
 //
-//	filter, _ := probfilterfactory.NewFilter("denylist", cfg, &defaults).Build(ctx)
+//	filter, err := probfilterfactory.NewFilter("denylist", cfg, &defaults).Build()
+//	if err != nil {
+//	    return err
+//	}
 //	cache := negcache.New(filter, redisDenylist) // redisDenylist is Authoritative
+//	// Populate before serving reads; later rebuilds need the coordination above.
+//	if err := cache.Rebuild(ctx, loader); err != nil {
+//	    return err
+//	}
 //	// Consult on the hot path:
 //	revoked, err := cache.IsRevoked(ctx, jti)
-//	// Repopulate periodically from the authoritative store:
-//	_ = scheduler.Register("denylist-rebuild", func(ctx context.Context) error {
-//	    return cache.Rebuild(ctx, loader)
-//	})
 package negcache

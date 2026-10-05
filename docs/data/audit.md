@@ -4,8 +4,10 @@
 import "github.com/altessa-s/go-atlas/data/audit"
 ```
 
-Async audit trail for user actions. Events go through a buffered channel into a worker pool, get batched, and land in storage. The caller never
-blocks. If the process crashes mid-flight, an optional WAL recovers what was in the buffer.
+Async audit trail for user actions. Events go through a buffered channel into a worker pool, get batched, and land in storage. Sink delivery is
+always asynchronous, but admission is not always free: without a WAL, `Emit` is non-blocking unless `dispatch.backPressure` is enabled, in which
+case it waits for queue capacity; with a WAL, `Emit` encodes the event and appends it to disk synchronously. Both add to request latency. If the
+process crashes mid-flight, the optional WAL recovers what was in the buffer.
 
 ---
 
@@ -13,7 +15,7 @@ blocks. If the process crashes mid-flight, an optional WAL recovers what was in 
 
 | Feature                | How it works                                                     |
 |------------------------|------------------------------------------------------------------|
-| Async dispatch         | Buffered channel + worker pool, `Emit` returns immediately       |
+| Async dispatch         | Buffered channel + worker pool; `Emit` never waits on the sink   |
 | Batch writes           | Accumulates events, flushes on size or timer                     |
 | Retry                  | Exponential backoff per failed batch                             |
 | WAL                    | Write-ahead log on disk, replayed on restart                     |
@@ -113,9 +115,9 @@ import (
 )
 
 eng, _ := dispatchfactory.New[*audit.Event](&cfg.Audit.Dispatch).
-    UseSink(audit.StorageSink{Storage: store}).
-    UseCodec(audit.JSONCodec{}).
-    UseLogger(logger).
+    WithSink(audit.StorageSink{Storage: store}).
+    WithCodec(audit.JSONCodec{}).
+    WithLogger(logger).
     Build()
 eng.Start()
 
@@ -207,7 +209,7 @@ auditor.NewEvent(audit.EventTypeDataChange, audit.ActionUpdate).
 
 ## Context propagation
 
-Interceptors and middlewares store the auditor in context automatically. You can also do it manually:
+Interceptors and middlewares do not store the auditor in context; do it yourself when handlers need it:
 
 ```go
 ctx = audit.NewContext(ctx, auditor)
@@ -233,8 +235,8 @@ i := auditgrpc.ServerInterceptor(auditor,
 )
 ```
 
-Emits one `api.request` event per unary call. Includes method name, gRPC status code mapped to result status, duration, and request ID if present in
-context.
+Emits one `api.request` event per call (unary and streaming). Includes method name, gRPC status code mapped to result status, duration, and
+request ID if present in context.
 
 ## HTTP middleware
 
@@ -325,5 +327,5 @@ audit:
 - Core types: `Auditor` (the facade), `Event` (one record), `Storage` (the backend interface).
 - A YAML-driven builder that wires the auditor, dispatch engine, and storage from the `audit:` config block.
 - Storage backends: in-memory (tests, single node) and MongoDB (durable, indexable).
-- HTTP middleware and gRPC interceptor that emit one event per request, with payload/header redaction.
+- HTTP middleware and gRPC interceptor that emit one event per request, with path/method ignore filters and a pluggable actor extractor.
 - An async dispatch engine — buffer, batching, retries, optional WAL — that decouples request handling from storage I/O.

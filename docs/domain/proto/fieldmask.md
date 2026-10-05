@@ -90,7 +90,7 @@ writes to discard at the storage layer.
 AIP-134 specifies that a present-but-empty `update_mask` means "update every populated field on the resource". The interceptor is opt-in here:
 without `WithApplyEmptyUpdateMask()` an empty mask is a deliberate no-op (the historical behavior). With the option on, the interceptor calls
 `pbfieldmask.FromSetFields(resource)` to synthesise a mask covering every populated editable field and runs `ApplyUpdateMask` against it — so
-IMMUTABLE/IDENTIFIER fields the client populated still raise `BehaviorViolationError`, and OUTPUT_ONLY fields are stripped from the writeback
+IMMUTABLE/IDENTIFIER fields the client populated still raise `UpdateMaskBehaviorError`, and OUTPUT_ONLY fields are stripped from the writeback
 mask. A missing `update_mask` field (extractor returns `ok=false`) is unaffected and stays a passthrough.
 
 ---
@@ -130,7 +130,7 @@ saves a CPU pass and the response is already minimal).
 
 | Source                                            | gRPC status        | Detail attached                          |
 |---------------------------------------------------|--------------------|------------------------------------------|
-| `*fieldmask.BehaviorViolationError`               | `InvalidArgument`  | `google.rpc.BadRequest.FieldViolation`s  |
+| `*fieldmask.UpdateMaskBehaviorError`              | `InvalidArgument`  | `google.rpc.BadRequest.FieldViolation`s  |
 | `*fieldmask.ValidationError` (bad mask path)      | `InvalidArgument`  | --                                       |
 | Reflection miss (no `update_mask` / `read_mask`)  | --                 | silent passthrough, logged at Debug      |
 | Panic inside `ApplyUpdateMask` / `Filter`         | `Internal`         | logged at Error, request rejected        |

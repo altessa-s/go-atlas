@@ -182,7 +182,7 @@ The place to log is the top boundary: the HTTP handler, the gRPC interceptor, th
 status. Below it, only wrap with context and return (`fmt.Errorf("...: %w", err)` or the project's equivalent).
 
 > **In go-atlas.** Packages that already use [`core/errors`](../../core/errors) keep its conventions: wrap with `coreerrs.Wrap` / `Wrapf` rather than
-> switching to `fmt.Errorf`. See `AGENTS.md`, section "Go source changes".
+> switching to `fmt.Errorf`.
 
 ### What must never appear in logs
 

@@ -59,8 +59,10 @@ filter push-down.
 
 In a multi-node deployment a `WithLeaderElector` keeps one instance dispatching, but leadership is only a throughput optimization. Each run is claimed
 through `Storage.ClaimRun` — a single atomic compare-and-swap (`active → running`, fenced on the occurrence's `next_run_at`) — so even if two instances
-believe they are leader during an election split-brain, exactly one claim wins and a task function runs at most once per occurrence. See
-[docs/service/scheduler.md](../../docs/service/scheduler.md#single-execution-is-enforced-at-the-storage-layer).
+believe they are leader during an election split-brain, exactly one claim wins while the stored execution state is intact. Startup and stale-task
+recovery (which reset `running` tasks without fencing a live run) and concurrent initial registration can still let an occurrence run twice, so
+task effects must be idempotent or externally fenced. See
+[docs/service/scheduler.md](../../docs/service/scheduler.md#single-execution-what-the-storage-layer-enforces).
 
 ## Subpackages
 

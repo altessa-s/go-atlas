@@ -3,10 +3,11 @@
 // the LICENSE file.
 
 // Package nonewprivs installs the Linux PR_SET_NO_NEW_PRIVS bit on the
-// calling process. Once set, the process and every binary it subsequently
-// execs cannot gain privileges via SUID/SGID — the kernel silently drops
-// the ambient privilege escalation. The bit is irreversible for the
-// lifetime of the process.
+// calling OS thread. Once set, that thread, every thread it later clones,
+// and every binary they exec cannot gain privileges via SUID/SGID — the
+// kernel silently drops the ambient privilege escalation. Peer threads
+// are unaffected; see Caveats for how to get a process-wide bit. The bit
+// is irreversible for the lifetime of the thread.
 //
 // This package is a defense-in-depth primitive. It does NOT sandbox
 // filesystem access, network, memory, or any other resource — only the

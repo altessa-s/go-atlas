@@ -49,22 +49,18 @@ checkers ─────► │   health.Coordinator     │ ◄─── schedu
 ```
 
 Each `Checker` is owned by the consumer (database, broker, secret manager, plugin manager — packages such as `security/secrets`, `security/vault`,
-`auth/oidc`, `auth/opa`, `plugins`, `data/locks/dlock`, `transport/broker`, `transport/broker/inprogress`, `transport/broker/outbox` ship one) and
-registered into a shared `Coordinator`. The coordinator never blocks on a check longer than `WithCheckTimeout`; results live in a sharded cache, so
-probe handlers stay cheap under load.
+`auth/oidc`, `auth/opa`, `plugins`, `data/locks/dlock` ship one) and registered into a shared `Coordinator`. Each check runs with a
+`WithCheckTimeout` deadline on its context; the timeout is cooperative — the coordinator calls checkers synchronously, so a checker must honor
+cancellation and bound its own I/O. Results live in a sharded cache, so probe handlers stay cheap under load.
 
 In-tree subsystems that self-register when supplied a `*health.Coordinator` via their `WithHealthCoordinator` option:
 
 | Package                          | Default service name | What is probed                                                                       |
 |----------------------------------|----------------------|--------------------------------------------------------------------------------------|
 | `data/locks/dlock`               | `dlock`              | Lock provider connection (NATS / noop) via the `Prober` interface                    |
-| `transport/broker`               | `broker`             | NATS connection state and JetStream account info via `Prober`                        |
-| `transport/broker/inprogress`    | `broker_inprogress`  | Process-local readiness of the heartbeat manager                                     |
-| `transport/broker/outbox`        | `broker_outbox`      | Wrapper liveness — does not probe the wrapped store or the broker `Publisher`        |
 
-The default service-name strings double as the metrics-subsystem strings (`broker_inprogress`, `broker_outbox`), so Prometheus labels and gRPC service
-names stay symmetric. Override per-instance via the corresponding `WithHealthServiceName` option (or, in the broker factory, via
-`UseHealthServiceNameBroker` / `UseHealthServiceNameInProgress` / `UseHealthServiceNameOutbox`).
+The broker packages (`transport/broker`, `transport/broker/inprogress`, `transport/broker/outbox`) do not register a health checker today; wrap them
+in a `health.Func` yourself if you need them in the registry.
 
 ---
 
@@ -195,7 +191,8 @@ The context passed to `CheckHealth` carries the per-check timeout configured via
 | `StatusServiceUnknown`  | `SERVICE_UNKNOWN`| `SERVICE_UNKNOWN`             | 503; gRPC `Check` returns `codes.NotFound` |
 | `StatusDegraded`        | `DEGRADED`       | `UNKNOWN` (no proto mapping)  | 503                        |
 
-`String()` produces stable values you can put on the wire; the JSON body of `Healthz`/`Readyz`/`Detailed` uses these strings.
+`String()` produces stable values you can put on the wire; the `status` fields in the bodies of `Healthz`/`Readyz` (200 only) and `Detailed` use
+these strings — see [HTTP handlers](#http-handlers) for the exact response shapes.
 
 ---
 
@@ -211,12 +208,14 @@ func K8sReadyz(rw writer.ReadWriter) {
 }
 ```
 
-Both always return `{"status":"ok"}` with HTTP 200 regardless of any state. They exist for the simplest deployments where the only signal that
-matters is "the process is up and the listener is accepting".
+Both always write `Response{Status: "ok"}` with HTTP 200 regardless of any state (`{"data":{"status":"ok"}}` with the default
+`writer.NewDefault()` builder). They exist for the simplest deployments where the only signal that matters is "the process is up and the listener
+is accepting".
 
 > **Default wiring caveat.** `transport/http/server/factory` registers
 > `K8sHealtz` at `/internal/healthz` and `K8sReadyz` at `/internal/readyz`
-> for `WithBuiltinHandlers`. They will **not** flip to `NOT_SERVING` on
+> as built-in handlers (on by default; disable them with
+> `WithoutBuiltinHandlers()`). They will **not** flip to `NOT_SERVING` on
 > SIGTERM, on a checker failure, or on `coord.Close()` — they don't
 > know the coordinator exists. To get readiness that reflects state,
 > register `httphealth.Readyz(coord)` yourself (e.g. via
@@ -232,13 +231,14 @@ matters is "the process is up and the listener is accepting".
 | `Readyz(coord)`   | `CheckStatus(ctx, "")`; 200 only when **overall** is `SERVING`                                 |
 | `Detailed(coord)` | `ListStatuses(ctx)`; JSON map of every service; 503 if any service is not `SERVING`            |
 
-Response body shape:
+Every handler writes through the server's `writer.ReadWriter`, so the payload is passed to the writer's response `Builder`. The shapes below are
+the handler payloads; with the default `writer.NewDefault()` builder they arrive wrapped in its envelope as `{"data": …}`.
 
 ```json
-// Healthz / Readyz
+// Healthz / Readyz — 200 only
 {"status":"SERVING"}
 
-// Detailed
+// Detailed — sent with 200 or 503
 {
   "status": "NOT_SERVING",
   "services": {
@@ -247,6 +247,10 @@ Response body shape:
   }
 }
 ```
+
+On 503, `Healthz` and `Readyz` do **not** send the status JSON: they call `rw.WriteError(nil, http.StatusServiceUnavailable)`, so the body is
+whatever the response `Builder` produces for a nil error — an empty envelope (`{}`) with the default builder. Read the HTTP status code, not the
+body, to tell `NOT_SERVING` from `UNKNOWN`, `SERVICE_UNKNOWN`, or `DEGRADED`.
 
 ---
 
@@ -327,10 +331,15 @@ coord := health.New(
     health.WithCheckSchedule("*/5 * * * * *"),    // every 5 s
     health.WithLogger(logger),
 )
+if err := coord.RegisterHealthChecks(ctx); err != nil {
+    return err
+}
 ```
 
-The coordinator registers a single task (`id="health-check"`, `RunOnStart=true`, `Unmanaged=true`, `DisableHistory=true`) and after that direct calls to
-`RunHealthCheckCycle` return `ErrSchedulerManaged`. Use `RegisterHealthCheckSchedulerFunc` if you want to register the cycle with a scheduler manually.
+`New` does not register anything with the scheduler — call `RegisterHealthChecks(ctx)` once after construction (the factory's `Build` does this
+for you). It is a no-op unless both `WithScheduler` and `WithCheckSchedule` are set, and idempotent after the first success. It registers a single
+task (`id="health-check"`, `RunOnStart=true`, `Unmanaged=true`, `DisableHistory=true`) and after that direct calls to `RunHealthCheckCycle` return
+`ErrSchedulerManaged`. Use `RegisterHealthCheckSchedulerFunc` if you want to register the cycle with a scheduler manually.
 
 ### Manually
 
@@ -436,7 +445,7 @@ Runtime gauges (live values, not Prometheus metrics) come from `Coordinator.GetM
 | `ErrCoordinatorShutdown`    | `Subscribe` after `Close`                                            |
 | `ErrWatcherLimitExceeded`   | `Subscribe` when `MaxWatchersPerService` is reached                  |
 | `ErrSchedulerManaged`       | `RunHealthCheckCycle` after `RegisterHealthCheckSchedulerFunc`       |
-| `ErrServiceNotFound`        | Helpers in this package (callers; not the coordinator itself)        |
+| `ErrServiceNotFound`        | Reserved; not returned by this package                               |
 | `ErrCheckTimeout`           | Reserved for callers wrapping their own checker timeouts              |
 | `ErrInvalidServiceName`     | Reserved for callers validating registration input                   |
 | `ErrNilCheckFunc`           | Reserved for callers asserting `health.Func` is non-nil              |
@@ -463,16 +472,17 @@ health:
   maxAdaptiveBuffer:         100
 ```
 
-The factory in `observability/health/factory` maps every field above onto its `With*` counterpart. `healthCheckInterval`
-is informational — the coordinator itself does not poll on a fixed interval; either drive it via `WithScheduler` + `WithCheckSchedule` or call
+The factory in `observability/health/factory` maps every field above onto its `With*` counterpart. `healthCheckInterval` is used only when a
+scheduler is supplied via `UseScheduler`: the factory then passes `WithScheduler` + `WithCheckSchedule("@every <interval>")` and calls
+`RegisterHealthChecks` in `Build`. Without a scheduler (or with a zero interval) it has no effect — the coordinator itself does not poll, so call
 `RunHealthCheckCycle` from your own loop.
 
 ---
 
 ## What's provided
 
-- A coordinator with subscriptions, per-service `Checker` interface, and a four-state status model
-  (`Unknown` / `Serving` / `NotServing` / `ShuttingDown`).
+- A coordinator with subscriptions, per-service `Checker` interface, and a five-state status model
+  (`Unknown` / `Serving` / `NotServing` / `ServiceUnknown` / `Degraded`).
 - A YAML-driven builder that turns the config block above into a ready coordinator.
 - HTTP probe handlers — Kubernetes `livez` / `readyz`, plus richer endpoints that surface per-service status as JSON.
 - A gRPC handler that implements the standard `grpc_health_v1` service against the same coordinator.

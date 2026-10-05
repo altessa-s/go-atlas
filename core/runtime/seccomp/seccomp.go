@@ -28,8 +28,8 @@ var (
 
 // BlockDangerousSyscalls installs a seccomp-BPF filter that denies
 // a fixed list of syscalls a Go process never legitimately calls:
-// mount, kexec_file_load, init_module, reboot, ptrace, bpf,
-// userfaultfd, and ~15 others. See the package documentation for the
+// mount, kexec_load, kexec_file_load, init_module, reboot, ptrace,
+// bpf, userfaultfd, and ~15 others. See the package documentation for the
 // full list and the rationale for why this primitive is a fixed
 // denylist rather than a curated allowlist.
 //

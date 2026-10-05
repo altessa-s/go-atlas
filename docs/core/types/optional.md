@@ -56,7 +56,8 @@ a == b                        // true
 result carries the zero value of `T`:
 
 ```go
-opt := optional.Of(m[key])   // Some(v) if found, None otherwise
+v, ok := m[key]
+opt := optional.Of(v, ok) // Some(v) if found, None otherwise
 ```
 
 ### FromPtr
@@ -104,7 +105,8 @@ Direct accessors for code that wants only one side of the pair:
 `OrDefault(def T) T` returns the contained value when `Some`, otherwise `def`:
 
 ```go
-host := optional.Of(m["host"]).OrDefault("localhost")
+v, ok := m["host"]
+host := optional.Of(v, ok).OrDefault("localhost")
 ```
 
 ### OrElse
@@ -138,15 +140,18 @@ Note that `ToPtr` allocates: the returned pointer is the address of an internal 
 
 ## Serialization
 
-`Optional[T]` implements `bson.ValueMarshaler` / `bson.ValueUnmarshaler` and `json.Marshaler` / `json.Unmarshaler`, so it works out of the box
-with `go.mongodb.org/mongo-driver/v2` and `encoding/json`. `Some(v)` is encoded as the underlying `v`; `None` is encoded as BSON `null` or
-JSON `null`. `Some(zero T)` is preserved through a round-trip — it does not collapse to `None`.
+`Optional[T]` implements `json.Marshaler` / `json.Unmarshaler`, so it works out of the box with `encoding/json`. Its `MarshalBSONValue` /
+`UnmarshalBSONValue` hooks deliberately return `ErrBSONCodecRequired`: BSON support comes from the registry built by
+[`data/mongo/bsoncodec.NewRegistry()`](../../../data/mongo/bsoncodec/README.md), which must be set on the Mongo client options or on standalone BSON
+encoders/decoders. Without it, encoding a present `Optional` field fails instead of silently writing an empty document. With the JSON methods or the
+registry, `Some(v)` is encoded as the underlying `v` and `None` as `null`. `Some(zero T)` is preserved through a round-trip when its encoding is
+not null (`0`, `false`, `""`); a present value that encodes as null — e.g. `Some[*int](nil)` — collapses to `None`, in JSON and BSON alike.
 
 | Direction        | `Some(v)`           | `None`              | Notes                                                                                  |
 |------------------|---------------------|---------------------|----------------------------------------------------------------------------------------|
-| BSON marshal     | underlying BSON `v` | BSON `null`         | Combined with `IsZero`, `bson:",omitempty"` omits `None` fields entirely from the wire |
-| BSON unmarshal   | `Some(v)`           | `None`              | BSON `null` or an absent field both decode to `None`                                   |
-| JSON marshal     | `json.Marshal(v)`   | literal `null`      | `encoding/json` does not consult `IsZero`; a `None` field always emits `null`          |
+| BSON marshal     | underlying BSON `v` | BSON `null`         | Requires `bsoncodec.NewRegistry()`; with `IsZero`, `bson:",omitempty"` omits `None`    |
+| BSON unmarshal   | `Some(v)`           | `None`              | Requires `bsoncodec.NewRegistry()`; BSON `null` or an absent field decode to `None`    |
+| JSON marshal     | `json.Marshal(v)`   | literal `null`      | `json:",omitzero"` (Go 1.24+) consults `IsZero` and omits `None`; otherwise `null`     |
 | JSON unmarshal   | `Some(v)`           | `None`              | JSON `null` or an absent field both decode to `None`                                   |
 
 ```go
@@ -155,11 +160,10 @@ type Doc struct {
     Note      optional.Optional[string]    `bson:"note,omitempty"      json:"note"`
 }
 
-raw, _ := bson.Marshal(Doc{DeletedAt: optional.None[time.Time]()})
-// raw does not contain "deleted_at" at all (IsZero + omitempty).
+client, err := mongo.Connect(options.Client().ApplyURI(uri).SetRegistry(bsoncodec.NewRegistry()))
 
-raw, _ = bson.Marshal(Doc{Note: optional.Some("")})
-// raw DOES contain "note": "" — Some(zero) is not collapsed to None.
+// Inserting Doc{DeletedAt: optional.None[time.Time]()} omits "deleted_at" entirely (IsZero + omitempty).
+// Inserting Doc{Note: optional.Some("")} stores "note": "" — Some(zero) is not collapsed to None.
 ```
 
 When the matching Mongo model still uses `*T` (asymmetric `Optional ↔ *T` mapping), pair this with the codec from
@@ -174,9 +178,8 @@ m, err := mongo.New("mydb",
 )
 ```
 
-Because the marshaller methods must live on the type itself, `core/types/optional` is the only `core/*` package with a non-stdlib dependency
-(`go.mongodb.org/mongo-driver/v2/bson`). The trade-off is intentional: it makes `Optional` a first-class Mongo field type without forcing a
-wrapper type at every call site.
+`core/types/optional` itself has no non-stdlib dependency: the BSON codec lives in `data/mongo/bsoncodec`, so the value type is not coupled to the
+Mongo driver.
 
 ---
 
@@ -222,8 +225,8 @@ The canonical consumer is [`domain/converter/codecs/optionalcodec`](../../../dom
 
 ## Performance notes
 
-- **Zero-allocation construction.** Internally `Optional[T]` is `(value T, present bool)`, never `*T`. Benchmarks show `0 B/op` and
-  `0 allocs/op` on every method.
+- **Zero-allocation construction.** Internally `Optional[T]` is `(value T, present bool)`, never `*T`. Construction and the accessor methods
+  (`Some`, `None`, `Get`, `IsSome`, `OrDefault`, …) do not allocate; `ToPtr` and the JSON marshal/unmarshal methods can.
 - **Comparable when `T` is comparable.** `optional.Some(1) == optional.Some(1)` and `optional.None[int]() == optional.None[int]()`.
   `optional.Some(0) != optional.None[int]()` — exactly the property `*T` cannot give you without an extra heap object.
 - **Zero value is a valid `None`.** `var o Optional[int]` is `None`. Safe to embed in struct fields without an explicit constructor.

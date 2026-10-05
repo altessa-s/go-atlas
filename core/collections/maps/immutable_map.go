@@ -39,9 +39,14 @@ const (
 //   - Lower memory overhead — flat arrays at 87.5% load factor with no
 //     per-bucket pointers, overflow chains, or growth metadata.
 //   - Reduced GC pressure — three flat slices (ctrl, keys, vals) instead
-//     of the runtime map's pointer-heavy internal structure. For long-lived
-//     maps with millions of entries, this materially reduces GC scan time.
-//   - Predictable allocation — exactly 3 heap allocations regardless of size.
+//     of the runtime map's internal structure. When K and V are
+//     pointer-free the keys and vals arrays need no GC scanning at all,
+//     which materially reduces scan time for long-lived maps with millions
+//     of entries; when K or V contain pointers (e.g. string) the
+//     collector still scans those arrays linearly.
+//   - Predictable allocation — a fixed set of allocations at construction
+//     (the map struct plus the ctrl, keys, and vals backing arrays) with no
+//     growth or rehashing, regardless of size.
 //
 // Lookup performance is comparable to the standard Go map on Go 1.24+ (which
 // also uses Swiss tables with SIMD internally). ImmutableMap uses a pure-Go

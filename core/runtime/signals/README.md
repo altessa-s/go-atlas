@@ -4,7 +4,7 @@
 import "github.com/altessa-s/go-atlas/core/runtime/signals"
 ```
 
-Package `signals` provides OS signal handling with priority-based execution, rate limiting, and graceful shutdown. Fully thread-safe.
+Package `signals` provides OS signal handling with priority-based execution and graceful shutdown. Fully thread-safe.
 
 ## Options
 

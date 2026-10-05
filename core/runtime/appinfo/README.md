@@ -11,12 +11,12 @@ Values are set via `-ldflags` at build time and accessed through package-level v
 
 ```bash
 go build -ldflags "
-  -X 'appinfo.Name=MyApp'
-  -X 'appinfo.Version=1.2.3'
-  -X 'appinfo.Project=MyProject'
-  -X 'appinfo.Commit=abc123'
-  -X 'appinfo.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)'
-  -X 'appinfo.EnvPrefix=MYAPP'
+  -X 'github.com/altessa-s/go-atlas/core/runtime/appinfo.Name=MyApp'
+  -X 'github.com/altessa-s/go-atlas/core/runtime/appinfo.Version=1.2.3'
+  -X 'github.com/altessa-s/go-atlas/core/runtime/appinfo.Project=MyProject'
+  -X 'github.com/altessa-s/go-atlas/core/runtime/appinfo.Commit=abc123'
+  -X 'github.com/altessa-s/go-atlas/core/runtime/appinfo.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)'
+  -X 'github.com/altessa-s/go-atlas/core/runtime/appinfo.EnvPrefix=MYAPP'
 "
 ```
 
@@ -41,19 +41,19 @@ go build -ldflags "
 | `IsAlpha`            | Version is `0.0.0` or has `alpha` pre-release        |
 | `IsBeta`             | Has `beta` pre-release                               |
 | `IsReleaseCandidate` | Has `rc` pre-release                                 |
-| `SemVersion`         | Parsed `SemanticVersion` struct (copy)               |
+| `SemVersion`         | Parsed `SemanticVersion` struct (shallow copy)       |
 
 ## Build info
 
-| Function         | Description                                  |
-|------------------|----------------------------------------------|
-| `AppVersion`     | Multi-line version summary for `--version`   |
-| `Info`           | Compact one-liner: version, revision, prefix |
-| `BuildInfo`      | Compact one-liner: Go, platform, date, tags  |
-| `BuildGoVersion` | Go toolchain version                         |
-| `BuildPlatform`  | `GOOS/GOARCH`                                |
-| `BuildTags`      | Active build tags                            |
-| `Deps`           | Module dependencies                          |
+| Function         | Description                                       |
+|------------------|---------------------------------------------------|
+| `AppVersion`     | Multi-line version summary for `--version`        |
+| `Info`           | Compact one-liner: version, revision, prefix      |
+| `BuildInfo`      | Compact one-liner: Go, platform, build time, tags |
+| `BuildGoVersion` | Go toolchain version                              |
+| `BuildPlatform`  | `GOOS/GOARCH`                                     |
+| `BuildTags`      | Active build tags                                 |
+| `Deps`           | Module dependencies                               |
 
 ## Environment variables
 

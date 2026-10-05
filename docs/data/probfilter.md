@@ -21,7 +21,7 @@ go-atlas provides two filter types with pluggable storage backends (in-memory an
 | Rebuild from source   | Yes (`Rebuild`)     | No                              |
 | Memory footprint      | Lower               | Slightly higher                 |
 | Full condition        | No                  | Yes (`ErrFilterFull`)           |
-| False-positive tuning | `falsePositiveRate` | Fingerprint size (8/12/16 bits) |
+| False-positive tuning | `falsePositiveRate` | Not tunable (backend-fixed)     |
 
 Use **Bloom** when you only add items and can periodically rebuild. Use **Cuckoo** when you need to delete individual items.
 
@@ -131,6 +131,10 @@ probabilisticFilter:
 | `maxCapacity`        | `int64`   | `100000000` | Maximum allowed capacity                      |
 | `redis`              | `object`  | --          | Redis config (required when `storage: redis`) |
 
+> **Not yet wired.** `rebuildCron`, `rebuildOnStart`, `fingerprintSize`, `capacityMultiplier`, and `maxCapacity` are validated by the config
+> package but never read by the `factory` builders, so setting them has no effect today. Schedule rebuilds yourself (see
+> [Data loading and rebuild](#data-loading-and-rebuild)); Cuckoo fingerprint size is fixed by the storage backend.
+
 ---
 
 ## Factory builders
@@ -154,7 +158,6 @@ filter, err := factory.NewFilter("users", filterCfg, defaults).
 mgr, err := factory.NewManager(cfg.ProbabilisticFilter).
     UseLogger(logger).
     UseRedisClient(redisClient).
-    UseCollector(metricsCollector).
     Build()
 if err != nil {
     log.Fatal(err)
@@ -264,7 +267,8 @@ stats, err := sp.Stats(ctx)
 
 ## Metrics
 
-When a `metrics.Collector` is provided to the Manager, the following Prometheus metrics are recorded under the `probfilter` subsystem:
+When a `metrics.Collector` is provided to the Manager, the following Prometheus metrics are registered under the `probfilter` subsystem. **None
+of them is incremented or observed yet** — no filter or Manager code path records into them, so they stay at zero:
 
 | Metric                                | Type      | Labels                  | Description                    |
 |---------------------------------------|-----------|-------------------------|--------------------------------|
@@ -293,23 +297,23 @@ Redis implementations batch items into chunks of 1000 for `AddBatch` to avoid ov
 
 ## API reference
 
-### Interfaces
+### Interfaces and types
 
 | Interface           | Package              | Methods                                                                  |
 |---------------------|----------------------|--------------------------------------------------------------------------|
-| `Filter`            | `probfilter`         | `Add`, `AddBatch`, `MightExist`, `Close`                                 |
+| `Filter`            | `probfilter`         | `Add`, `AddBatch`, `MightExist`                                          |
 | `DeletableFilter`   | `probfilter`         | `Filter` + `Delete`                                                      |
 | `RebuildableFilter` | `probfilter`         | `Filter` + `Rebuild`, `LastRebuild`                                      |
 | `StatsProvider`     | `probfilter`         | `Stats`                                                                  |
 | `DataLoader`        | `probfilter`         | `StreamValues`, `Count`                                                  |
-| `Manager`           | `probfilter`         | `Register`, `Get`, `MustGet`, `Unregister`, `Names`, `Filters`, `Close`  |
+| `Manager` (struct)  | `probfilter`         | `Register`, `Get`, `MustGet`, `Unregister`, `Names`, `Filters`, `Close`  |
 
 ### Builders
 
-| Builder          | Package              | Methods                                                                |
-|------------------|----------------------|------------------------------------------------------------------------|
-| `FilterBuilder`  | `probfilter/factory` | `NewFilter` -> `UseLogger`, `UseRedisClient`, `Build`                  |
-| `ManagerBuilder` | `probfilter/factory` | `NewManager` -> `UseLogger`, `UseRedisClient`, `UseCollector`, `Build` |
+| Builder          | Package              | Methods                                                                    |
+|------------------|----------------------|----------------------------------------------------------------------------|
+| `FilterBuilder`  | `probfilter/factory` | `NewFilter` -> `UseLogger`, `UseRedisClient`, `Build`                      |
+| `ManagerBuilder` | `probfilter/factory` | `NewManager` -> `UseLogger`, `UseDefaultLogger`, `UseRedisClient`, `Build` |
 
 ### Errors
 

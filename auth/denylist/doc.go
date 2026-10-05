@@ -24,7 +24,8 @@
 // # Usage
 //
 //	dl := denylist.New()
-//	dl.RevokeUntil(claims.ID(), claims.ExpiresAt()) // deny this token until it expires anyway
+//	// Keep the entry past exp by the verifiers' leeway.
+//	dl.RevokeUntil(claims.ID(), claims.Expiry().Add(jwt.DefaultLeeway))
 //
 //	if dl.IsRevoked(claims.ID()) {
 //	    return ErrRevoked

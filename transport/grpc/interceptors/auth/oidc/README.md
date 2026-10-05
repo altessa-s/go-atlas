@@ -5,13 +5,14 @@ import "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth/oidc"
 ```
 
 Package `oidc` provides OIDC (OpenID Connect) token validation for the auth interceptor. Bridges the auth interceptor with OIDC providers via the
-`Validator` interface. Provides `AuthFunc` for integration with gRPC auth, structured `Claims` extraction, and ScopeRegistry compatibility.
+`Validator` interface. Provides `AuthFunc` for integration with gRPC auth, structured `Claims` extraction, and `ScopesOf` for building an
+[`auth/scope`](../../../../../auth/scope/README.md) authorizer over an `auth/scope.Registry`.
 
 ## Key types
 
 | Type / Interface | Description                                                                       |
 |------------------|-----------------------------------------------------------------------------------|
-| `Validator`      | Interface for OIDC token validation: `ValidateToken(ctx, token) (map, error)`     |
+| `Validator`      | Interface for OIDC token validation: `ValidateToken(ctx, token) (*Claims, error)` |
 | `AuthFunc`       | Creates an `auth.AuthFunc` from a Validator for gRPC auth interceptor integration |
 | `Claims`         | Structured OIDC claims: Subject, Email, Scopes, Issuer, Audience, and timestamps  |
 

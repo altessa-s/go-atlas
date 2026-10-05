@@ -104,15 +104,18 @@ import (
     "github.com/altessa-s/go-atlas/transport/grpc/interceptors/fieldmask"
 )
 
-server := grpc.NewServer(grpc.UnaryInterceptor(
-    interceptors.Chain(
-        // ... metadata, auth, fieldbehavior, ...
-        fieldmask.ServerInterceptor(
-            fieldmask.WithMethodKind("/x.v1.X/Archive", fieldmask.KindUpdate),
-        ),
-        // ... protovalidator, handler ...
+chain := interceptors.NewChain(
+    // ... metadata, auth, fieldbehavior, ...
+    fieldmask.ServerInterceptor(
+        fieldmask.WithMethodKind("/x.v1.X/Archive", fieldmask.KindUpdate),
     ),
-))
+    // ... protovalidator, handler ...
+)
+srvOpts, err := chain.ServerOptions()
+if err != nil {
+    return err
+}
+server := grpc.NewServer(srvOpts...)
 ```
 
 `fieldmask` declares dependencies on `metadata` and `auth` — both must run earlier in the chain. Place `fieldbehavior` (and any payload
@@ -123,7 +126,7 @@ validator runs against the final mask-cleaned payload.
 
 | Source                                            | gRPC status        | Detail attached                          |
 |---------------------------------------------------|--------------------|------------------------------------------|
-| `*fieldmask.BehaviorViolationError`               | `InvalidArgument`  | `google.rpc.BadRequest.FieldViolation`s  |
+| `*fieldmask.UpdateMaskBehaviorError`              | `InvalidArgument`  | `google.rpc.BadRequest.FieldViolation`s  |
 | `*fieldmask.ValidationError` (bad mask path)      | `InvalidArgument`  | --                                       |
 | Reflection miss (no `update_mask` / `read_mask`)  | --                 | silent passthrough, logged at Debug      |
 | Panic inside `ApplyUpdateMask` / `Filter`         | `Internal`         | logged at Error, request rejected        |

@@ -42,15 +42,14 @@ p.Load(cfg)
 
 The `Load()` method executes the following steps in order:
 
-| Step | Action                                         | Skip with            |
-|------|------------------------------------------------|----------------------|
-| 1    | Read and decode configuration files            | No path configured   |
-| 2    | Apply `default` struct tags                    | `WithSkipDefaults()` |
-| 3    | Load environment variables                     | `WithSkipEnv()`      |
-| 4    | Re-apply defaults to newly created structs     | `WithSkipDefaults()` |
-| 5    | Expand `$__secret{namespace:key}` placeholders | No secrets manager   |
-| 6    | Call `Validate()` if implemented               | --                   |
-| 7    | Call `Normalize()` if implemented              | --                   |
+| Step | Action                                                                            | Skip with            |
+|------|-----------------------------------------------------------------------------------|----------------------|
+| 1    | Read and decode configuration files                                               | No path configured   |
+| 2    | Load environment variables                                                        | `WithSkipEnv()`      |
+| 3    | Call `Default()` and apply `default` struct tags to fields nothing set (one pass) | `WithSkipDefaults()` |
+| 4    | Expand `$__secret{namespace:key}` placeholders                                    | No secrets manager   |
+| 5    | Call `Validate()` if implemented                                                  | --                   |
+| 6    | Call `Normalize()` if implemented                                                 | --                   |
 
 ---
 
@@ -60,7 +59,7 @@ The `Load()` method executes the following steps in order:
 p := loader.New(backend,
     loader.WithPath("config.yaml"),
     loader.WithPathOnEnvKey("CONFIG_PATH", "config.yaml"),
-    loader.WithEnvPrefix("APP"),
+    loader.WithEnvPrefix("APP_"),
     loader.WithEnvSectionDelimiter("__"),
     loader.WithStructTag("yaml"),
     loader.WithSkipEnv(),
@@ -90,12 +89,16 @@ p := loader.New(backend,
 
 ### Variable substitution
 
-Use `${VAR}` or `${VAR:default}` syntax in YAML/TOML files. Substitution happens at file read time, before parsing.
+Use `${VAR}` (or `$VAR`) syntax in YAML/TOML files. Substitution happens at file read time, before parsing. There is no inline default:
+an undefined variable expands to an empty string (to `ErrUndefinedEnvVar` in strict mode). A substituted key is still present in the file, so
+its `default` tag does **not** apply — `host: ${DB_HOST}` with `DB_HOST` unset yields an explicit null, not `localhost`. Reserve substitution
+for required variables (ideally with `WithStrict`); for optional overrides with a fallback, omit the key from the file and use `env` plus
+`default` struct tags.
 
 ```yaml
 database:
-  host: ${DB_HOST:localhost}
-  port: ${DB_PORT:5432}
+  host: ${DB_HOST}
+  port: ${DB_PORT}
 ```
 
 ### YAML include directive
@@ -155,11 +158,12 @@ Use the `default` struct tag:
 type Config struct {
     Host    string `yaml:"host" default:"localhost"`
     Port    int    `yaml:"port" default:"5432"`
-    Timeout string `yaml:"timeout" default:"${DEFAULT_TIMEOUT:30s}"`
+    Timeout string `yaml:"timeout" default:"${DEFAULT_TIMEOUT}"`
 }
 ```
 
-Defaults support environment variable substitution. The `skip_zero` modifier prevents overwriting non-zero values: `default:"value",skip_zero`.
+Defaults support environment variable substitution; an unset variable yields an empty value. Defaults are applied only to fields that are still
+zero and were not set explicitly by a file or the environment. A trailing `,skip_zero` (`default:"value,skip_zero"`) is accepted and ignored.
 
 ---
 
@@ -229,7 +233,7 @@ type Normalizer interface {
 }
 ```
 
-Called recursively on the root struct and all nested structs that implement the interface.
+Called on the root struct and on every non-nil nested pointer-to-struct field that implements the interface (struct values are not visited).
 
 ---
 
@@ -259,16 +263,16 @@ When enabled via `WithStrict()`, the loader returns errors instead of silently i
 
 The `config/templates` package provides 30+ pre-built YAML templates for common components:
 
-| Category       | Templates                                                                             |
-|----------------|---------------------------------------------------------------------------------------|
-| Transport      | `http.yaml`, `grpc.yaml`, `broker.yaml` + middleware/interceptor dirs                 |
-| Proxy          | `http_proxy.yaml`, `grpc_proxy.yaml` (reusable via `!include`)                         |
-| Data           | `mongo.yaml`, `redis.yaml`, `nats.yaml`, `cache_storage.yaml`                         |
-| Security       | `auth.yaml`, `auth_oidc.yaml`, `opa.yaml`, `vault.yaml`, `secrets.yaml`, `tls-*.yaml` |
-| Observability  | `observability.yaml`, `health.yaml`, `logger.yaml`, `pprof.yaml`                      |
-| Services       | `scheduler.yaml`, `probabilistic_filter.yaml`, `idempotency.yaml`                     |
-| Rate limiting  | `limiter_tokenbucket.yaml`, `limiter_budget.yaml`, `dlock.yaml`                       |
-| Infrastructure | `node.yaml`, `retry.yaml`, `s3.yaml`                                                  |
+| Category       | Templates                                                                               |
+|----------------|-----------------------------------------------------------------------------------------|
+| Transport      | `http.yaml`, `grpc.yaml`, `broker.yaml` + middleware/interceptor dirs                   |
+| Proxy          | `http_proxy.yaml`, `grpc_proxy.yaml` (reusable via `!include`)                          |
+| Data           | `mongo.yaml`, `redis.yaml`, `nats.yaml`, `cache_storage.yaml`                           |
+| Security       | `auth.yaml`, `auth_oidc.yaml`, `opa.yaml`, `vault.yaml`, `secrets.yaml`, `tls-*.yaml`   |
+| Observability  | `observability.yaml`, `health.yaml`, `logger.yaml` (pprof is configured in `http.yaml`) |
+| Services       | `scheduler.yaml`, `probabilistic_filter.yaml`, `idempotency.yaml`                       |
+| Rate limiting  | `limiter_tokenbucket.yaml`, `limiter_budget.yaml`, `dlock.yaml`                         |
+| Infrastructure | `node.yaml`, `retry.yaml`, `s3.yaml`                                                    |
 
 `http_proxy.yaml` and `grpc_proxy.yaml` are shared across consumers (OIDC, OPA GitLab/S3 sources, OTLP tracing) via the `!include` directive. See the
 [Proxy guide](proxy.md) for modes, wiring, and TLS-to-proxy semantics.

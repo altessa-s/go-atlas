@@ -132,15 +132,19 @@ token (a self-refreshing source won't refresh it), and `token_type: "N_A"` (RFC 
 | `token_fetch_duration_seconds`      | histogram | `grant`, `status`| Acquisition latency.                                |
 | `token_fetch_retries_total`         | counter   | `grant`          | Retries after a transient token-exchange failure.   |
 
-`grant` is one of `client_credentials` / `refresh_token` / `authorization_code` / `token_exchange`. A metrics-wrapped source records
-only genuine acquisitions — when the reuse cache serves an unexpired token, nothing is recorded. `WithLogger` logs fetch failures and
+`grant` is one of `client_credentials` / `refresh_token` / `authorization_code` / `token_exchange` / `device_code`. A metrics-wrapped source
+records only genuine acquisitions — when the reuse cache serves an unexpired token, nothing is recorded. `WithLogger` logs fetch failures and
 retry attempts at warn level (never the token itself). Both default to off, keeping the hot path allocation-free.
 
 ## Errors
 
-`ClientCredentials`, `Refresh`, and `AuthCode` surface the underlying x/oauth2 error unchanged (typically an
-`*oauth2.RetrieveError`, which carries the IdP status and body). `Exchanger` returns `ErrSubjectTokenRequired` for a missing subject
-token and wraps `ErrTokenExchange` for a transport failure, a non-2xx response, or an unparsable body — match both with `errors.Is`.
+`ClientCredentials`, `Refresh`, and `AuthCode` surface the underlying x/oauth2 error unchanged (typically an `*oauth2.RetrieveError`, which
+carries the IdP status and body) — except `ClientCredentials` with `WithClientAuth`, whose hand-rolled request wraps `ErrTokenRequest` for a
+transport failure or a non-2xx response; an unparsable body or one without `access_token` wraps `ErrTokenExchange` (shared response parser).
+`Exchanger` returns `ErrSubjectTokenRequired` for a missing subject token and wraps `ErrTokenExchange` for a transport failure, a non-2xx
+response, or an unparsable body — match both with `errors.Is`. `Revoker.Revoke` wraps `ErrRevocation`, `DeviceFlow` wraps `ErrDeviceAuth`,
+a client authenticator that cannot build or sign its assertion wraps `ErrClientAssertion`, and the discovery-based constructors return
+`ErrNoTokenEndpoint` when the endpoint has not resolved.
 
 ## See also
 

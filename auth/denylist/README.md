@@ -42,7 +42,8 @@ growth is bounded by TTL expiry and the caller's use of permanent revocations, n
 
 ```go
 dl := denylist.New()
-dl.RevokeUntil(claims.ID(), claims.ExpiresAt()) // deny this token until it expires anyway
+// Keep the entry past exp by the verifiers' leeway (and any extra clock difference between instances).
+dl.RevokeUntil(claims.ID(), claims.Expiry().Add(jwt.DefaultLeeway))
 
 if dl.IsRevoked(claims.ID()) {
     return ErrRevoked

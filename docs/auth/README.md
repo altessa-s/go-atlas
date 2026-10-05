@@ -104,15 +104,15 @@ when configuration is loaded from YAML/env through `config/loader`.
 
 ### Direct construction
 
-| Package    | Primary constructor                                                                 | Notes |
-|------------|-------------------------------------------------------------------------------------|-------|
-| `jwt`      | `NewSigner(opts…) *Signer` / `NewVerifier(resolver KeyResolver, opts…) *Verifier`   | Mandatory `KeyResolver` is positional. |
-| `oidc`     | `NewProvider(ctx, discoveryURL, opt…) (*Provider, error)`                           | Starts JWKS refresh; default validation leeway `30s`. |
-| `selfjwt`  | `New(src KeyProvider, opts…) (*Minter, *Verifier)`                                  | Returns a matched minter/verifier pair; `NewMinter`/`NewVerifier` for either alone. |
-| `static`   | `NewInMemoryStore(opt…) *InMemoryStore`                                             | Wrap with `NewRateLimitedStore(store, limiter, keyFn)` to gate attempts. |
-| `scope`    | `NewRegistry()` → `Register`/`Freeze`, then `NewEnforcer(reg, authorize)`           | `authorize` is the sole principal seam; registry is build-once / read-many. |
-| `opa`      | `NewManager(ctx, source, query, opts…) (*Manager, error)`                           | `source` is the policy source (hot-reloadable); `query` is the Rego entrypoint. |
-| `audit`    | `NewRecorder(sink, opt…) *Recorder`                                                 | Nil sink → no-op; wrap a `dataaudit.New(auditor)` sink for durability. |
+| Package   | Primary constructor                                                               | Notes                                                                                                                   |
+|-----------|-----------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------|
+| `jwt`     | `NewSigner(opts…) *Signer` / `NewVerifier(resolver KeyResolver, opts…) *Verifier` | Mandatory `KeyResolver` is positional.                                                                                  |
+| `oidc`    | `NewProvider(ctx, discoveryURL, opt…) (*Provider, error)`                         | Loads JWKS once; refreshes only with `WithScheduler` + `WithJWKSRefreshSchedule` (or call `RefreshJWKS`); leeway `30s`. |
+| `selfjwt` | `New(src KeyProvider, opts…) (*Minter, *Verifier)`                                | Returns a matched minter/verifier pair; `NewMinter`/`NewVerifier` for either alone.                                     |
+| `static`  | `NewInMemoryStore(opt…) *InMemoryStore`                                           | Wrap with `NewRateLimitedStore(store, limiter, keyFn)` to gate attempts.                                                |
+| `scope`   | `NewRegistry()` → `Register`/`Freeze`, then `NewEnforcer(reg, authorize)`         | `authorize` is the sole principal seam; registry is build-once / read-many.                                             |
+| `opa`     | `NewManager(ctx, source, query, opts…) (*Manager, error)`                         | `source` is the policy source (hot-reloadable); `query` is the Rego entrypoint.                                         |
+| `audit`   | `NewRecorder(sink, opt…) *Recorder`                                               | Nil sink → no-op; wrap a `dataaudit.New(auditor)` sink for durability.                                                  |
 
 ### Factory + config template
 
@@ -122,7 +122,7 @@ directly in code.
 | Package        | Factory entrypoint                       | Config struct (Go)                  | YAML template                       |
 |----------------|------------------------------------------|-------------------------------------|-------------------------------------|
 | `oidc`         | `oidc/factory.New(cfg *config.OIDC) *ProviderBuilder` | `config.OIDC` (`config/auth_oidc.go`)  | `config/templates/auth_oidc.yaml`  |
-| `opa`          | `opa/factory.New(cfg *config.OPA) *ManagerBuilder`    | `config.OPA` (`config/opa.go`)         | — (configured via `config.OPA`)    |
+| `opa`          | `opa/factory.New(cfg *config.OPA) *ManagerBuilder`    | `config.OPA` (`config/opa.go`)         | `config/templates/opa.yaml`        |
 | `scope`        | `scope/factory.New(cfg *config.ScopeRegistry) *RegistryBuilder` | `config.ScopeRegistry` (`config/auth_scope.go`) | `config/templates/auth_scope.yaml` |
 | `mtls`         | `mtls/factory.New(cfg *config.MTLS) *Builder` (returns `[]mtls.Option`) | `config.MTLS` (`config/auth_mtls.go`) | `config/templates/auth_mtls.yaml`  |
 | `oauth2client` | `oauth2client/factory.New(cfg *config.OAuth2Client) *Builder` (`Build` → `oauth2.TokenSource`, `BuildExchanger` → `*Exchanger`) | `config.OAuth2Client` (`config/oauth2_client.go`) | `config/templates/oauth2_client.yaml` |
@@ -201,10 +201,10 @@ store := static.NewInMemoryStore(static.WithInitialTokens(map[string]any{
 }))
 
 // Optional: gate validation attempts with a rate limiter.
-// store = static.NewRateLimitedStore(store, limiter, keyFn)
+// limited := static.NewRateLimitedStore(store, limiter, keyFn) // pass limited to AuthFunc
 
 authn := httpauth.Middleware(httpauth.WithAuthFunc(httpstatic.AuthFunc(store)))
-mux.Handle("GET /v1/things", authn(thingsHandler))
+mux.Handle("GET /v1/things", authn(http.HandlerFunc(thingsHandler)))
 
 // Inside the handler, recover the principal:
 func thingsHandler(w http.ResponseWriter, r *http.Request) {
@@ -213,12 +213,16 @@ func thingsHandler(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-A direct, transport-free validation is just `store.Validate(ctx, token) (any, error)`; the middleware wraps that and maps
-`static.ErrTokenInvalid` / `ErrTokenEmpty` / `ErrRateLimited` to `401` / `429`.
+A direct, transport-free validation is just `store.Validate(ctx, token) (any, error)`; the HTTP adapter wraps `static.ErrTokenInvalid` /
+`ErrTokenEmpty` / `ErrRateLimited` in `auth.ErrUnauthorized` (the cause stays reachable via `errors.Is`), and the default error handler answers
+`401` for all of them — return `429` for `ErrRateLimited` through `WithErrorHandler`. The gRPC adapter maps rate limiting to
+`codes.ResourceExhausted`.
 
 ### OIDC token validation
 
-`Provider` discovers the issuer's metadata and JWKS at construction and keeps the keys fresh. `ValidateToken` returns the verified claims.
+`Provider` discovers the issuer's metadata and JWKS at construction; it keeps the keys fresh only when given both a scheduler (`WithScheduler`) and a
+refresh schedule (`WithJWKSRefreshSchedule`) —
+otherwise call `provider.RefreshJWKS(ctx)` periodically yourself. `ValidateToken` returns the verified claims.
 
 ```go
 import "github.com/altessa-s/go-atlas/auth/oidc"
@@ -401,8 +405,8 @@ import (
 
 bundle := opa.NewPolicyBundle(map[string][]byte{
     "authz.rego": []byte(`package authz
-default allow = false
-allow { input.role == "admin" }`),
+default allow := false
+allow if input.role == "admin"`),
 })
 
 rec := audit.NewRecorder(sink, audit.WithPolicyMode(audit.PolicyAll))
@@ -475,8 +479,8 @@ Here `validator` is any `grpcoidc.Validator` (`ValidateToken(ctx, token) (*Claim
   and bake in no superuser/tenant/role fields — those live in the caller's `Authorizer`.
 - **Consumer-side seams** — extension points (`KeyResolver`, `Authorizer`, `Sink`, gRPC `Auth`/`ClientAuth`) are narrow interfaces defined for
   the consumer; transports adapt the same core.
-- **Factory-driven config** — `oidc` and `opa` build from `config.*` structs loaded by `config/loader`; everything else configures through
-  generated functional options.
+- **Factory-driven config** — `oidc`, `opa`, `scope`, `mtls`, `oauth2client`, and `denylist/negcache` build from `config.*` structs loaded by
+  `config/loader`; everything else configures through generated functional options.
 
 ## See Also
 

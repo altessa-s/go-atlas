@@ -41,11 +41,14 @@ behind a negative cache and the source that rebuilds the cache's filter.
 client := goredis.NewClient(&goredis.Options{Addr: addr})
 store := redisstore.New(client)
 
-// Revoke a token by its jti until its natural expiry.
-_ = store.RevokeUntil(ctx, "jti-123", time.Until(tokenExp))
+// Revoke a token by its jti until its expiry plus the verifiers' leeway.
+_ = store.RevokeUntil(ctx, "jti-123", time.Until(tokenExp)+jwt.DefaultLeeway)
 
 revoked, err := store.IsRevoked(ctx, "jti-123")
 
-// Feed a negative cache rebuild.
-_ = cache.Rebuild(ctx, store) // Store is a probfilter.DataLoader
+// Feed a negative cache rebuild (Store is a probfilter.DataLoader). Rebuild is not atomic: keep reads on the
+// store while it runs and after a failure — see docs/auth/denylist.md#correctness-and-staleness.
+if err := cache.Rebuild(ctx, store); err != nil {
+    return err // do not serve IsRevoked from the cache
+}
 ```
