@@ -262,8 +262,8 @@ lastRebuild := rebuildable.LastRebuild()
 ### Rebuild guarantees
 
 `Rebuild` is atomic. The replacement is populated off to the side — a fresh in-process filter, or for Redis a staging key
-`__probfilter__:{<tag>}:staging:…` in the live key's cluster slot — while lookups keep seeing the previous contents, and it replaces them in one step (a
-pointer swap, or `RENAME`).
+`__probfilter__:{<tag>}:staging:…` in the live key's cluster slot — while lookups keep seeing the previous contents, and it replaces them in one
+step (a pointer swap, or `RENAME`).
 
 - A failed or canceled rebuild (including a loader that stops early on cancellation) aborts the replacement; the previous contents and
   `LastRebuild` stay unchanged.
