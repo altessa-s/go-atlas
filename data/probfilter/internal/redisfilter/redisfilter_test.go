@@ -27,16 +27,13 @@ var testCommands = redisfilter.Commands{
 	Exists:   "T.EXISTS",
 	Add:      "T.ADD",
 	AddBatch: "T.MADD",
-	// Staging batches: T.INSERT NOCREATE ITEMS, failing on a missing filter.
-	StagingAddBatch:    "T.INSERT",
-	StagingBatchTokens: []string{"NOCREATE", "ITEMS"},
-	Reserve:            "T.RESERVE",
-	Info:               "T.INFO",
+	Reserve:  "T.RESERVE",
+	Info:     "T.INFO",
 }
 
 // fakeModule records the T.* commands the Core sends and emulates the
-// create-on-first-use behavior of RedisBloom: item commands fail with a
-// "not exist" error until the reserve command has been seen.
+// NOCREATE inserts of RedisBloom: item commands fail with a "not found" error
+// until the reserve command has been seen.
 type fakeModule struct {
 	mu           sync.Mutex
 	created      bool
@@ -44,7 +41,6 @@ type fakeModule struct {
 	reserveCalls [][]string
 	addCalls     [][]string
 	batchCalls   [][]string
-	insertCalls  [][]string
 	// batchReply, when set, is written as the reply of batch commands.
 	batchReply func(c *server.Peer, items int)
 }
@@ -86,20 +82,6 @@ func (f *fakeModule) register(tb testing.TB, mr *miniredis.Miniredis, cmds redis
 		c.WriteInt(1)
 	}))
 
-	if cmds.StagingAddBatch != "" {
-		// NOCREATE semantics: a missing filter is an error, never created.
-		require.NoError(tb, srv.Register(cmds.StagingAddBatch, func(c *server.Peer, _ string, args []string) {
-			f.mu.Lock()
-			defer f.mu.Unlock()
-			if !f.created {
-				c.WriteError("ERR not found")
-				return
-			}
-			f.insertCalls = append(f.insertCalls, slices.Clone(args))
-			c.WriteInt(1)
-		}))
-	}
-
 	require.NoError(tb, srv.Register(cmds.Reserve, func(c *server.Peer, _ string, args []string) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
@@ -119,7 +101,6 @@ type moduleState struct {
 	reserveCalls [][]string
 	addCalls     [][]string
 	batchCalls   [][]string
-	insertCalls  [][]string
 }
 
 func (f *fakeModule) snapshot() moduleState {
@@ -130,7 +111,6 @@ func (f *fakeModule) snapshot() moduleState {
 		reserveCalls: slices.Clone(f.reserveCalls),
 		addCalls:     slices.Clone(f.addCalls),
 		batchCalls:   slices.Clone(f.batchCalls),
-		insertCalls:  slices.Clone(f.insertCalls),
 	}
 }
 
@@ -139,14 +119,6 @@ func newTestClient(tb testing.TB) (*miniredis.Miniredis, goredis.UniversalClient
 
 	client, mr := testhelpers.RedisClient(tb)
 	return mr, client
-}
-
-func TestCore_FilterKey(t *testing.T) {
-	t.Parallel()
-
-	_, client := newTestClient(t)
-	core := redisfilter.New(client, "prefix:name", testCommands)
-	require.Equal(t, "prefix:name", core.FilterKey())
 }
 
 func TestCore_MightExist(t *testing.T) {
@@ -296,34 +268,6 @@ func TestCore_EnsureFilter_ErrorWrapped(t *testing.T) {
 
 	err := core.EnsureFilter(t.Context())
 	require.Error(t, err)
-	require.ErrorContains(t, err, "failed to create Redis Test filter")
-}
-
-func TestCore_Reserve_ExplicitArgs(t *testing.T) {
-	t.Parallel()
-
-	mr, client := newTestClient(t)
-	fake := &fakeModule{}
-	fake.register(t, mr, testCommands)
-
-	// Configured args must be ignored in favor of the explicit ones.
-	core := redisfilter.New(client, "t:f", testCommands, int64(100))
-
-	require.NoError(t, core.Reserve(t.Context(), 0.5, int64(9000)))
-	require.Equal(t, [][]string{{"t:f", "0.5", "9000"}}, fake.snapshot().reserveCalls)
-}
-
-func TestCore_Reserve_ExistingIsError(t *testing.T) {
-	t.Parallel()
-
-	mr, client := newTestClient(t)
-	fake := &fakeModule{created: true}
-	fake.register(t, mr, testCommands)
-
-	core := redisfilter.New(client, "t:f", testCommands)
-
-	err := core.Reserve(t.Context(), int64(100))
-	require.Error(t, err, "unlike EnsureFilter, Reserve must surface an exists error")
 	require.ErrorContains(t, err, "failed to create Redis Test filter")
 }
 

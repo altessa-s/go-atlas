@@ -159,9 +159,7 @@ func (c *Core) Stage(ctx context.Context, reserveArgs ...any) (*Staging, error) 
 	}
 	key := metaKey(c.filterKey, "staging", id)
 
-	cmds := c.cmds
-	cmds.AddBatch, cmds.BatchTokens = c.cmds.StagingAddBatch, c.cmds.StagingBatchTokens
-	staged := newCore(c.client, key, cmds, reserveArgs...)
+	staged := newCore(c.client, key, c.cmds, reserveArgs...)
 	staged.autoCreate = false
 	staged.afterBatch = func(ctx context.Context) error {
 		if expireErr := c.client.PExpire(ctx, key, StagingTTL).Err(); expireErr != nil {

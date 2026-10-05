@@ -44,7 +44,8 @@ type Commands struct {
 	Add       string
 	AddTokens []string
 	// AddBatch is the multi-item insert command, e.g. "BF.INSERT". Like Add
-	// it must not create a missing filter.
+	// it must not create a missing filter; a rebuild's staging filter uses it
+	// too, so a vanished staging key fails the rebuild.
 	AddBatch string
 	// BatchTokens are literal tokens placed between the filter key and the
 	// items of a batch command, e.g. "NOCREATE", "ITEMS".
@@ -53,11 +54,6 @@ type Commands struct {
 	// CF.INSERT answers a full filter with -1 under RESP2 but false under
 	// RESP3; BF.INSERT's false only means "already present".
 	FalseRejects bool
-	// StagingAddBatch and StagingBatchTokens form the batch insert used on a
-	// rebuild's staging filter; it must not create a missing filter, e.g.
-	// "BF.INSERT" with tokens "NOCREATE", "ITEMS".
-	StagingAddBatch    string
-	StagingBatchTokens []string
 	// Reserve is the filter-creation command, e.g. "BF.RESERVE".
 	Reserve string
 	// Info is the statistics command, e.g. "BF.INFO".
@@ -163,11 +159,6 @@ func newCore(client redis.UniversalClient, filterKey string, cmds Commands, rese
 	}
 }
 
-// FilterKey returns the fully prefixed Redis key of the filter.
-func (c *Core) FilterKey() string {
-	return c.filterKey
-}
-
 // MightExist checks if a value might exist in the filter.
 func (c *Core) MightExist(ctx context.Context, value string) (bool, error) {
 	if c.keyErr != nil {
@@ -188,32 +179,13 @@ func (c *Core) MightExist(ctx context.Context, value string) (bool, error) {
 // does not exist yet. The insert command itself never creates the filter, so
 // a missing filter is always recreated by [Core.EnsureFilter].
 func (c *Core) Add(ctx context.Context, value string) error {
-	if err := c.reserveOnce(ctx); err != nil {
-		return err
-	}
 	args := make([]any, 0, 3+len(c.cmds.AddTokens))
 	args = append(args, c.cmds.Add, c.filterKey)
 	for _, token := range c.cmds.AddTokens {
 		args = append(args, token)
 	}
 	args = append(args, value)
-	reply, err := c.client.Do(ctx, args...).Result()
-	if err != nil {
-		// Check if filter doesn't exist and create it
-		if c.autoCreate && notExist(err) {
-			if ensureErr := c.EnsureFilter(ctx); ensureErr != nil {
-				return ensureErr
-			}
-			reply, err = c.client.Do(ctx, args...).Result()
-		}
-		if err != nil {
-			return coreerrs.WrapOperation(err, c.opAdd)
-		}
-	}
-	if err := checkBatchReply(reply, c.cmds.FalseRejects); err != nil {
-		return coreerrs.WrapOperation(err, c.opAdd)
-	}
-	return nil
+	return c.insert(ctx, args, c.opAdd)
 }
 
 // AddBatch inserts multiple values into the filter, chunking them into
@@ -241,6 +213,20 @@ func (c *Core) AddBatch(ctx context.Context, values iter.Seq[string]) error {
 }
 
 func (c *Core) sendBatch(ctx context.Context, args []any) error {
+	if err := c.insert(ctx, args, c.opBatch); err != nil {
+		return err
+	}
+	if c.afterBatch != nil {
+		return c.afterBatch(ctx)
+	}
+	return nil
+}
+
+// insert runs the insert command args: it reserves the filter before the
+// first write, recreates a missing filter and retries once (unless
+// autoCreate is off), and fails on a per-item rejection; errors are wrapped
+// with op.
+func (c *Core) insert(ctx context.Context, args []any, op string) error {
 	if err := c.reserveOnce(ctx); err != nil {
 		return err
 	}
@@ -254,14 +240,11 @@ func (c *Core) sendBatch(ctx context.Context, args []any) error {
 			reply, err = c.client.Do(ctx, args...).Result()
 		}
 		if err != nil {
-			return coreerrs.WrapOperation(err, c.opBatch)
+			return coreerrs.WrapOperation(err, op)
 		}
 	}
 	if err := checkBatchReply(reply, c.cmds.FalseRejects); err != nil {
-		return coreerrs.WrapOperation(err, c.opBatch)
-	}
-	if c.afterBatch != nil {
-		return c.afterBatch(ctx)
+		return coreerrs.WrapOperation(err, op)
 	}
 	return nil
 }
@@ -325,32 +308,15 @@ for i = 2, #ARGV do args[#args + 1] = ARGV[i] end
 return redis.call(unpack(args))
 `)
 
-// reserve runs reserveScript with reserveArgs.
-func (c *Core) reserve(ctx context.Context, reserveArgs []any) error {
-	argv := append([]any{c.cmds.Reserve}, reserveArgs...)
-	return reserveScript.Run(ctx, c.client, []string{c.filterKey, c.readyKey}, argv...).Err()
-}
-
 // EnsureFilter creates the filter with the configured reserve arguments if
 // it doesn't exist. An already-existing filter is not an error.
 func (c *Core) EnsureFilter(ctx context.Context) error {
 	if c.keyErr != nil {
 		return c.keyErr
 	}
-	err := c.reserve(ctx, c.reserveArgs)
+	argv := append([]any{c.cmds.Reserve}, c.reserveArgs...)
+	err := reserveScript.Run(ctx, c.client, []string{c.filterKey, c.readyKey}, argv...).Err()
 	if err != nil && !strings.Contains(err.Error(), "exists") {
-		return coreerrs.WrapOperation(err, c.opCreate)
-	}
-	return nil
-}
-
-// Reserve creates the filter with explicit capacity arguments, overriding
-// the configured ones. Unlike [Core.EnsureFilter] any failure is an error.
-func (c *Core) Reserve(ctx context.Context, reserveArgs ...any) error {
-	if c.keyErr != nil {
-		return c.keyErr
-	}
-	if err := c.reserve(ctx, reserveArgs); err != nil {
 		return coreerrs.WrapOperation(err, c.opCreate)
 	}
 	return nil
