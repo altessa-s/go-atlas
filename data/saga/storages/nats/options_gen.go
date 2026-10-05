@@ -44,6 +44,13 @@ func WithBucketTTL(v time.Duration) Option {
 	}
 }
 
+// WithMigrateBucketTTL enables the migrateBucketTTL option.
+func WithMigrateBucketTTL() Option {
+	return func(o *options) {
+		o.migrateBucketTTL = true
+	}
+}
+
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{

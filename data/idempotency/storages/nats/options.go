@@ -23,6 +23,12 @@ type options struct {
 	bucket   string        `optgen:"default=defaultBucket()"`
 	maxAge   time.Duration `optgen:"default=DefaultMaxAge"`
 	replicas int           `optgen:"default=DefaultReplicas"`
+
+	// migrateBucketTTL updates a pre-existing bucket whose key TTL differs
+	// from the configured one instead of rejecting it with
+	// [ErrBucketTTLMismatch]. Off by default: the bucket's TTL governs every
+	// key in it, including keys of other processes sharing the bucket.
+	migrateBucketTTL bool
 }
 
 func defaultBucket() string {

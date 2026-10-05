@@ -44,6 +44,13 @@ func WithMaxAge(v time.Duration) Option {
 	}
 }
 
+// WithMigrateBucketTTL enables the migrateBucketTTL option.
+func WithMigrateBucketTTL() Option {
+	return func(o *options) {
+		o.migrateBucketTTL = true
+	}
+}
+
 // WithReplicas sets the replicas option.
 func WithReplicas(v int) Option {
 	return func(o *options) {

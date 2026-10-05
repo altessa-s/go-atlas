@@ -14,6 +14,7 @@ without external dependencies beyond NATS.
 | `WithBucket`     | `leadelect`              | KeyValue bucket name for the election key.                                               |
 | `WithRenewRatio` | `1/3`                    | Fraction of the lease lifetime at which the lease is renewed.                             |
 | `WithStorage`    | `jetstream.MemoryStorage`| JetStream storage backend for the bucket. Use `jetstream.FileStorage` to survive restarts.|
+| `WithMigrateBucketTTL` | off                | Update an existing bucket whose key TTL is not `DefaultBucketKeysTTL` instead of failing.  |
 | `WithCollector`  | no-op                    | Metrics collector.                                                                       |
 | `WithLogger`     | discard                  | Structured logger.                                                                       |
 
@@ -32,9 +33,10 @@ recover would swallow it and leave an elector that reports itself running while 
 
 ## Bucket TTL
 
-The bucket's key TTL is the expiry mechanism behind the lease: it is what releases the election key when a holder dies without resigning. The provider
-therefore reconciles the TTL of a bucket it adopts — a pre-existing bucket created without one would otherwise yield leases that never expire, hanging
-the election until someone intervenes by hand.
+The bucket's key TTL is the expiry mechanism behind the lease: it is what releases the election key when a holder dies without resigning. A
+pre-existing bucket with a different key TTL — or none, which would yield leases that never expire and hang the election until someone intervenes
+by hand — is therefore refused: `New` returns `ErrBucketTTLMismatch` and leaves the bucket untouched, since rewriting it would change the key
+lifetime of every process sharing it. Pass `WithMigrateBucketTTL()` to update such a bucket deliberately.
 
 ## Shutdown
 

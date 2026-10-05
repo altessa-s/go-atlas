@@ -55,6 +55,13 @@ func WithLogger(v *slog.Logger) Option {
 	}
 }
 
+// WithMigrateBucketTTL enables the migrateBucketTTL option.
+func WithMigrateBucketTTL() Option {
+	return func(o *options) {
+		o.migrateBucketTTL = true
+	}
+}
+
 // WithRenewRatio sets the renewRatio option.
 func WithRenewRatio(v float64) Option {
 	return func(o *options) {

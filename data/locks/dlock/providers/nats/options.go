@@ -39,6 +39,12 @@ type options struct {
 	// lifetime, and folding an acquisition deadline into it would release the
 	// lock the moment the deadline passed — mid critical section.
 	acquireTimeout time.Duration `optgen:"default=DefaultOperationsTimeout"`
+
+	// migrateBucketTTL updates a pre-existing bucket whose key TTL differs
+	// from the configured one instead of rejecting it with
+	// [ErrBucketTTLMismatch]. Off by default: the bucket's TTL governs every
+	// key in it, including keys of other processes sharing the bucket.
+	migrateBucketTTL bool
 }
 
 func defaultBucket() string {

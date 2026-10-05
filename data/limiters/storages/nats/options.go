@@ -36,6 +36,12 @@ type options struct {
 	// Higher replica counts provide better availability but increase storage overhead.
 	// Default is 1.
 	replicas int `optgen:"default=DefaultReplicas" optcheck:"nonempty"`
+
+	// migrateBucketTTL updates a pre-existing bucket whose key TTL differs
+	// from the configured one instead of rejecting it with
+	// [ErrBucketTTLMismatch]. Off by default: the bucket's TTL governs every
+	// key in it, including keys of other processes sharing the bucket.
+	migrateBucketTTL bool
 }
 
 func defaultBucket() string {
