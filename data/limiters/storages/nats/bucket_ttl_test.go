@@ -31,16 +31,10 @@ func TestNew_BucketTTLMismatch(t *testing.T) {
 	_, err = limitnats.New(js, limitnats.WithBucket(bucket), limitnats.WithMaxAge(2*time.Hour))
 	require.ErrorIs(t, err, limitnats.ErrBucketTTLMismatch)
 
-	kv, err := js.KeyValue(t.Context(), bucket)
-	require.NoError(t, err)
-	status, err := kv.Status(t.Context())
-	require.NoError(t, err)
-	require.Equal(t, time.Hour, status.TTL(), "a rejected New changed the shared bucket's TTL")
+	require.Equal(t, time.Hour, testhelpers.KVBucketTTL(t, js, bucket), "a rejected New changed the shared bucket's TTL")
 
 	_, err = limitnats.New(js, limitnats.WithBucket(bucket), limitnats.WithMaxAge(2*time.Hour), limitnats.WithMigrateBucketTTL())
 	require.NoError(t, err)
 
-	status, err = kv.Status(t.Context())
-	require.NoError(t, err)
-	require.Equal(t, 2*time.Hour, status.TTL(), "WithMigrateBucketTTL must update the bucket")
+	require.Equal(t, 2*time.Hour, testhelpers.KVBucketTTL(t, js, bucket), "WithMigrateBucketTTL must update the bucket")
 }

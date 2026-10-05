@@ -62,18 +62,12 @@ func TestNew_MigrateLegacyBucketEnablesPerKeyTTL(t *testing.T) {
 	// its TTLs: a storage-type change would be rejected by the server.
 	_, err := idempnats.New(js, idempnats.WithBucket("storage-probe"), idempnats.WithReplicas(1))
 	require.NoError(t, err)
-	probe, err := js.KeyValue(ctx, "storage-probe")
-	require.NoError(t, err)
-	probeStatus, err := probe.Status(ctx)
-	require.NoError(t, err)
-	bucketStatus, ok := probeStatus.(*jetstream.KeyValueBucketStatus)
-	require.True(t, ok)
 
 	const bucket = "legacy-idempotency"
 	kv, err := js.CreateKeyValue(ctx, jetstream.KeyValueConfig{
 		Bucket:   bucket,
 		TTL:      time.Hour,
-		Storage:  bucketStatus.StreamInfo().Config.Storage,
+		Storage:  testhelpers.KVBucketStorage(t, js, "storage-probe"),
 		Replicas: 1,
 	})
 	require.NoError(t, err)

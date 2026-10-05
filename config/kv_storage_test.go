@@ -20,11 +20,13 @@ type kvStorageConfig struct {
 	LeaderElector    config.LeaderElector    `yaml:"leaderElector"`
 }
 
-func loadKVStorage(t *testing.T, yaml string) *kvStorageConfig {
+// loadYAML loads yaml into a fresh T through the config loader, without
+// environment overrides.
+func loadYAML[T any](t *testing.T, yaml string) *T {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(yaml), 0o600))
-	cfg := &kvStorageConfig{}
+	cfg := new(T)
 	_, err := loader.New(nil, loader.WithPath(path), loader.WithSkipEnv()).Load(cfg)
 	require.NoError(t, err)
 	return cfg
@@ -35,11 +37,11 @@ func loadKVStorage(t *testing.T, yaml string) *kvStorageConfig {
 func TestKVStorage_LoadsFromYAML(t *testing.T) {
 	t.Parallel()
 
-	cfg := loadKVStorage(t, "distributionLock:\n  provider: nats\n  nats:\n    storage: file\nleaderElector:\n  provider: nats\n  storage: file\n")
+	cfg := loadYAML[kvStorageConfig](t, "distributionLock:\n  provider: nats\n  nats:\n    storage: file\nleaderElector:\n  provider: nats\n  storage: file\n")
 	require.Equal(t, config.KVStorageFile, cfg.DistributionLock.Nats.Storage)
 	require.Equal(t, config.KVStorageFile, cfg.LeaderElector.Storage)
 
-	cfg = loadKVStorage(t, "distributionLock:\n  provider: nats\n  nats: {}\nleaderElector:\n  provider: nats\n")
+	cfg = loadYAML[kvStorageConfig](t, "distributionLock:\n  provider: nats\n  nats: {}\nleaderElector:\n  provider: nats\n")
 	require.Equal(t, config.KVStorageMemory, cfg.DistributionLock.Nats.Storage)
 	require.Equal(t, config.KVStorageMemory, cfg.LeaderElector.Storage)
 	require.Equal(t, config.KVStorageMemory, config.DefaultDistributionLockNats().Storage)

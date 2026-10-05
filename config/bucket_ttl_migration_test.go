@@ -5,14 +5,11 @@
 package config_test
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/config"
-	"github.com/altessa-s/go-atlas/config/loader"
 )
 
 // bucketTTLMigrationConfig gathers every config section that exposes the NATS
@@ -82,12 +79,7 @@ saga:
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			path := filepath.Join(t.TempDir(), "config.yaml")
-			require.NoError(t, os.WriteFile(path, []byte(tc.yaml), 0o600))
-
-			cfg := &bucketTTLMigrationConfig{}
-			_, err := loader.New(nil, loader.WithPath(path), loader.WithSkipEnv()).Load(cfg)
-			require.NoError(t, err)
+			cfg := loadYAML[bucketTTLMigrationConfig](t, tc.yaml)
 
 			require.Equal(t, tc.want, cfg.DistributionLock.Nats.MigrateBucketTTL, "distributionLock.nats.migrateBucketTTL")
 			require.Equal(t, tc.want, cfg.LeaderElector.MigrateBucketTTL, "leaderElector.migrateBucketTTL")
