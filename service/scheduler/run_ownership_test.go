@@ -695,3 +695,29 @@ func TestMaximumStaleTimeoutLease(t *testing.T) {
 	startForRecovery(t, mem)
 	requireStillRunning(t, mem, st.LastRunID)
 }
+
+// TestZeroNextRunIsClaimedOnce checks that an active task stored with a zero
+// NextRunAt, kept by a registration with the same schedule, is due: it is
+// claimed without an occurrence fence, runs once, and its finished run stores
+// the next occurrence instead of leaving it due on every tick.
+func TestZeroNextRunIsClaimedOnce(t *testing.T) {
+	t.Parallel()
+	mem := mustNewMemory(t, 10)
+	require.NoError(t, mem.UpsertTask(t.Context(), &scheduler.TaskState{TaskSummary: scheduler.TaskSummary{
+		ID: "zero", Status: scheduler.TaskStatusActive, Schedule: "@every 1h",
+	}}))
+
+	var runs atomic.Int32
+	s := startForRecovery(t, mem, scheduler.WithTickInterval(20*time.Millisecond))
+	require.NoError(t, s.Register(t.Context(), corescheduler.TaskConfig{
+		ID: "zero", Schedule: "@every 1h", Func: func(context.Context) error { runs.Add(1); return nil },
+	}))
+
+	require.Eventually(t, func() bool { return runs.Load() == 1 }, 2*time.Second, 10*time.Millisecond,
+		"an active task with a zero NextRunAt never ran")
+	require.Never(t, func() bool { return runs.Load() > 1 }, 200*time.Millisecond, 10*time.Millisecond)
+	st, err := mem.GetTask(t.Context(), "zero")
+	require.NoError(t, err)
+	require.Equal(t, scheduler.TaskStatusActive, st.Status)
+	require.Greater(t, st.NextRunAt, time.Now().Unix())
+}

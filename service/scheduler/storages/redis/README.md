@@ -19,6 +19,16 @@ The Redis server must have the **RedisJSON** and **RediSearch** modules loaded.
 | `WithHistoryTTL`        | 0 (no expiry) | TTL applied to history entry keys for automatic expiration      |
 | `WithMaxHistoryPerTask` | 0 (unlimited) | Auto-trim oldest entries per task when the cap is exceeded      |
 
+## Zero next run
+
+`next_run_at` is stored even when zero: RediSearch does not index a missing NUMERIC field, so a document without it never matches the `DueTasks`
+range `@nextRunAt:[-inf now]`, and an active task with a zero `NextRunAt` — due on every other backend — would never run. Documents written before
+(when the field was omitted at zero) are migrated by `EnsureIndexes`: once the task index has finished indexing, it sets `next_run_at` to `0` on every
+task document that lacks it (or holds null), in a Lua script per key, without changing the revision (absent and zero are the same state to every
+fence). It re-reads the first page of remaining matches after each batch instead of paging by offset, so documents that other instances rewrite
+meanwhile cannot make it skip the rest. The backfill is idempotent and costs one search per call once nothing is left to migrate. During a rolling upgrade, instances still running an older
+version keep writing the field-less form; run `EnsureIndexes` again (any restart does) after the rollout to migrate those documents too.
+
 ## Atomic run claim
 
 `ClaimRun` transitions a task `active → running` for a specific occurrence with a single server-side Lua `EVAL` script (read status, `run_started_at`,

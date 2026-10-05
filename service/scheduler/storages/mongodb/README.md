@@ -31,6 +31,12 @@ documents whose indexed field holds a BSON date.
 Deployments created before this was corrected still carry inert indexes on the nonexistent fields `next_run`, `start_time`, and `end_time`; drop them
 manually.
 
+## Due tasks
+
+`DueTasks` matches `status == active` and `next_run_at <= now` or an absent `next_run_at`: a zero `NextRunAt` is stored as an absent field
+(`omitempty`), and an active task with a zero `NextRunAt` is due as on every other backend. Both branches use the `(status, next_run_at)` index, which
+stores an absent field as null. No data migration is needed.
+
 ## Atomic run claim
 
 `ClaimRun` transitions a task `active → running` for a specific occurrence with a single conditional `UpdateOne` (matched on `_id`, `status`, a zero or
