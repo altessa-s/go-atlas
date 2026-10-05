@@ -699,7 +699,9 @@ oidc:
 Whenever the `revocation` block is present — even with `enabled: false` — `filter` and `source` are both required (validation fails
 otherwise); set either `source.url` or `source.file`.
 
-The provider syncs the filter from `source` once while it is constructed, then on `syncSchedule` on its own process-local cron. A
+The provider owns the filter's rebuilds: the probfilter rebuild settings `filter.bloom.rebuildCron` and `filter.bloom.rebuildOnStart: true` would add
+a second schedule and are rejected by the factory (`rebuildCron: ""` and `rebuildOnStart: false` are accepted). The provider syncs the filter from
+`source` once while it is constructed, then on `syncSchedule` on its own process-local cron. A
 `source.url` is fetched through the provider's shared HTTP client (proxy, retry, connection pool). With `failOpen: false` (the default) a
 failed initial sync fails provider construction, and a storage error during validation rejects the token with `ErrRevocationCheck`;
 `failOpen: true` logs both, increments `auth_oidc_revocation_check_errors_total`, and continues.
@@ -1264,6 +1266,13 @@ publishing (`probfilter.ErrRebuildSuperseded`), `NewProvider` retries with backo
 before the fail mode applies — a peer that publishes releases the lease, and a peer that fails or vanishes is replaced by the retry. A
 scheduled sync that finds a peer rebuilding is skipped silently (that rebuild publishes a fresh snapshot); a superseded scheduled sync is
 logged and counted in `auth_oidc_revocation_check_errors_total`, while the filter keeps its previous contents.
+
+**Fleet start.** Every replica completes one sync of its own, and the lease serializes them: when N replicas start at once, the last one
+waits for roughly `(N − 1) × rebuild duration` (fetching `source` plus loading the filter) before its own sync can run. If that exceeds
+`WithRevocationInitialSyncWait`, the fail mode applies — fail-closed (the default) fails `NewProvider`, so the replica restarts and retries;
+fail-open starts it on whatever the shared filter holds. Size the wait above `(replicas − 1) × rebuild duration` with headroom, or roll out
+with limited surge (for example a Kubernetes `maxSurge` of a few pods) so that only a few replicas start at once. The wait is a code option
+(`oidc.WithRevocationInitialSyncWait`); the YAML factory uses the default of 2 minutes.
 
 `WithRevocationAuthoritative` only confirms filter **hits**; it does not protect against keys missing from the filter. Every `Sync` — the one
 at construction and every scheduled one — rebuilds the filter atomically (see

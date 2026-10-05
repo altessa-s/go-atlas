@@ -355,11 +355,14 @@
 #        falsePositiveRate: 0.001
 #
 #        # <string> Cron schedule for periodic filter rebuild.
-#        # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
-#        rebuildCron: "0 0 */2 * * *"
+#        # Not supported here: the provider rebuilds the filter from source at startup and on syncSchedule.
+#        # Only "" is accepted; any other value fails the build.
+#        # Default value: not set
+#        rebuildCron: ""
 #
 #        # <bool> Rebuild the filter on service startup.
-#        # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
+#        # Not supported here (see rebuildCron); only false is accepted.
+#        # Default value: not set
 #        rebuildOnStart: false
 #
 #        # <object> Redis-specific settings. Used when storage is redis.

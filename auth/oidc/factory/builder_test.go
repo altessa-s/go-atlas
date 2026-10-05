@@ -244,3 +244,36 @@ func TestRevocationFilterName_BoundToRevocationDomain(t *testing.T) {
 		require.NotEqual(t, base, revocationFilterName(cfg), name)
 	}
 }
+
+// The provider owns the revocation filter's rebuilds: per-filter rebuild
+// settings that would add a second schedule are rejected, settings that
+// disable them are accepted.
+func TestProviderBuilder_BuildRevocationStorage_FilterRebuildSettings(t *testing.T) {
+	t.Parallel()
+
+	for name, tc := range map[string]struct {
+		cron    *string
+		onStart *bool
+		wantErr bool
+	}{
+		"rebuildCron":            {cron: new("@every 1h"), wantErr: true},
+		"rebuildOnStart":         {onStart: new(true), wantErr: true},
+		"disabled explicitly":    {cron: new(""), onStart: new(false)},
+		"omitted (defaults off)": {},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			rev := memoryFilterRevocation()
+			rev.Filter.Bloom.RebuildCron = tc.cron
+			rev.Filter.Bloom.RebuildOnStart = tc.onStart
+			b := New(&config.OIDC{Revocation: rev}).UseRedisClient(offlineRedisClient(t))
+
+			_, err := b.buildRevocationStorage(rev)
+			if tc.wantErr {
+				require.ErrorIs(t, err, errFilterRebuildSettings)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}

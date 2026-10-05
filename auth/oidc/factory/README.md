@@ -45,7 +45,9 @@ provider, err := factory.New(cfg.OIDC).
 | `UseRevocationAuthoritative` | Sets the exact store that confirms probabilistic filter hits |
 
 JWKS refresh (`jwks.refreshSchedule`) and revocation sync (`revocation.syncSchedule`) run on the provider's own process-local cron, on
-every replica; the builder needs no scheduler.
+every replica; the builder needs no scheduler. The provider owns the revocation filter's rebuilds (the initial sync plus `syncSchedule`), so the
+filter is built without probfilter rebuild scheduling, and `revocation.filter.bloom.rebuildCron` or `rebuildOnStart: true` fails `Build` as a
+conflicting second schedule (`rebuildCron: ""` / `rebuildOnStart: false` are accepted).
 
 ### Terminal
 

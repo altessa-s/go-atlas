@@ -62,6 +62,10 @@ The confirmer MUST hold the same revocation set the filter is built from. Confir
 `NewProvider` syncs the storage once before returning. Storage errors, and a failed initial sync, are fail-closed (`ErrRevocationCheck`)
 unless `WithRevocationFailOpen` is set.
 
+Replicas sharing a Redis filter serialize their syncs with a rebuild lease, and each replica completes one sync of its own at startup. When N
+replicas start at once the last one waits about `(N − 1) × rebuild duration`; keep `WithRevocationInitialSyncWait` above that (with headroom) or
+roll out with limited surge, otherwise the fail mode applies (fail-closed: `NewProvider` fails and the replica restarts).
+
 ## Outbound HTTP
 
 Every outbound OIDC call (discovery, JWKS refresh, introspection, userinfo,
