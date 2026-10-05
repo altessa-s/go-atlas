@@ -98,17 +98,23 @@ type Manager[T any] struct {
 	// preventing cache stampede when multiple goroutines miss the cache simultaneously.
 	fetchGroup singleflight.Group
 
-	// saveVersions tracks a per-key Save/Delete generation counter so the
-	// cache writes of fetches and Save readbacks can detect a concurrent
+	// keys tracks a per-key Save/Delete generation counter so the cache
+	// writes of fetches and Save readbacks can detect a concurrent
 	// [Manager.Save] or [Manager.Delete] and skip writing a stale read
 	// over the fresh value or the deletion. Without this, a Save that
 	// lands while an in-flight fetch is still talking to the storage would
 	// have its cache.Put overwritten by the fetch's older value — the
-	// canonical race flagged in the audit. Keyed by the secret key; the
-	// value is the generation counter incremented by every successful
-	// Save and Delete. Each entry also holds the key's mutation lock, which
-	// serializes Save and Delete of one key end to end.
-	saveVersions sync.Map // map[string]*keyState
+	// canonical race flagged in the audit. Each entry also holds the key's
+	// mutation lock, which serializes Save and Delete of one key end to end.
+	//
+	// Entries are reference-counted (see acquireKey): an entry exists only
+	// while a Save, Delete or fetch of its key uses it, so the map stays
+	// bounded by the operations in flight. A generation only matters to the
+	// readers holding a reference across it, so recreating an entry from
+	// zero after it was dropped cannot hide a mutation from any of them.
+	// Guarded by keysMu.
+	keys   map[string]*keyState
+	keysMu sync.Mutex
 
 	// cacheMu serializes the Manager's cache writes, deletes and clears with
 	// the update cycle's reconciliation, so the cycle decides and acts on a
@@ -217,7 +223,8 @@ func New[T any](secretStorage Provider[T], opt ...Option) (*Manager[T], error) {
 func (t *Manager[T]) Delete(ctx context.Context, key string) error {
 	// Serialize with Save of the same key, so storage, cache and negative
 	// filter end up in the order the mutations ran.
-	st := t.keyState(key)
+	st := t.acquireKey(key)
+	defer t.releaseKey(key, st)
 	if err := st.lock(ctx); err != nil {
 		return err
 	}
@@ -269,6 +276,9 @@ type keyState struct {
 	sem chan struct{}
 	// gen is incremented by every successful Save and Delete of the key.
 	gen atomic.Int64
+	// refs counts the operations using the entry. Guarded by
+	// Manager.keysMu.
+	refs int
 }
 
 // lock acquires the key's mutation lock, or returns the context's error if
@@ -287,19 +297,34 @@ func (s *keyState) unlock() {
 	<-s.sem
 }
 
-// keyState returns the (lazily-allocated) state of key.
-func (t *Manager[T]) keyState(key string) *keyState {
-	if v, ok := t.saveVersions.Load(key); ok {
-		return v.(*keyState) //nolint:errcheck // type is fixed at the only Store() site
+// acquireKey returns the state of key, creating it if needed, and takes a
+// reference to it. The caller holds the reference from before its first use
+// of the state (taking the lock, or snapshotting the generation) until after
+// its last, and drops it with releaseKey.
+func (t *Manager[T]) acquireKey(key string) *keyState {
+	t.keysMu.Lock()
+	defer t.keysMu.Unlock()
+	st, ok := t.keys[key]
+	if !ok {
+		if t.keys == nil {
+			t.keys = make(map[string]*keyState)
+		}
+		st = &keyState{sem: make(chan struct{}, 1)}
+		t.keys[key] = st
 	}
-	actual, _ := t.saveVersions.LoadOrStore(key, &keyState{sem: make(chan struct{}, 1)})
-	return actual.(*keyState) //nolint:errcheck // same — value type is invariant
+	st.refs++
+	return st
 }
 
-// saveVersion returns the per-key Save/Delete generation counter used to
-// detect Save and Delete races with cache writes of earlier reads.
-func (t *Manager[T]) saveVersion(key string) *atomic.Int64 {
-	return &t.keyState(key).gen
+// releaseKey drops a reference taken by acquireKey, and the state of key
+// with the last one.
+func (t *Manager[T]) releaseKey(key string, st *keyState) {
+	t.keysMu.Lock()
+	defer t.keysMu.Unlock()
+	st.refs--
+	if st.refs == 0 {
+		delete(t.keys, key)
+	}
 }
 
 // cachePutUnlessSaved caches val under key unless a Save or Delete of key
@@ -340,8 +365,11 @@ func (t *Manager[T]) updateValueWithRetry(ctx context.Context, key string) (*Val
 	// Snapshot the Save generation BEFORE the fetch. If a Save lands
 	// while the storage round-trip is in flight, the generation will
 	// differ when we come back and we must NOT publish our stale fetch
-	// result over the fresh value Save just put in the cache.
-	ver := t.saveVersion(key)
+	// result over the fresh value Save just put in the cache. The reference
+	// keeps the generation alive until the cache write below.
+	st := t.acquireKey(key)
+	defer t.releaseKey(key, st)
+	ver := &st.gen
 	versionBefore := ver.Load()
 
 	var val *Value[T]
@@ -765,7 +793,8 @@ func (t *Manager[T]) Save(ctx context.Context, key string, value T) error {
 func (t *Manager[T]) saveWithRetry(ctx context.Context, key string, value T) error {
 	// Serialize with Save and Delete of the same key, so storage, cache and
 	// negative filter end up in the order the mutations ran.
-	st := t.keyState(key)
+	st := t.acquireKey(key)
+	defer t.releaseKey(key, st)
 	if err := st.lock(ctx); err != nil {
 		return err
 	}

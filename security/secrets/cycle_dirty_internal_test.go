@@ -169,7 +169,11 @@ func TestManager_FetchDoesNotOverwriteSaveBetweenCheckAndWrite(t *testing.T) {
 	<-provider.returned
 	// Let the fetch run up to the cache write, which waits for cacheMu.
 	time.Sleep(50 * time.Millisecond)
-	mgr.saveVersion("k").Add(1)
+	// The fetch holds its reference to the key's state, so this is the
+	// entry whose generation it snapshotted.
+	st := mgr.acquireKey("k")
+	st.gen.Add(1)
+	mgr.releaseKey("k", st)
 	mgr.cache.Put("k", NewValue("k", "new", nil, "new"))
 	mgr.cacheMu.Unlock()
 	require.NoError(t, <-done)
@@ -419,7 +423,8 @@ func TestManager_MutationLockHonorsContext(t *testing.T) {
 	mgr, err := New[string](provider)
 	require.NoError(t, err)
 
-	st := mgr.keyState("k")
+	st := mgr.acquireKey("k")
+	defer mgr.releaseKey("k", st)
 	require.NoError(t, st.lock(t.Context()))
 	defer st.unlock()
 
