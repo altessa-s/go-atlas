@@ -27,11 +27,12 @@ type Filter struct {
 }
 
 var (
-	_ probfilter.Filter            = (*Filter)(nil)
-	_ probfilter.DeletableFilter   = (*Filter)(nil)
-	_ probfilter.RebuildableFilter = (*Filter)(nil)
-	_ probfilter.ObservableFilter  = (*Filter)(nil)
-	_ probfilter.StatsProvider     = (*Filter)(nil)
+	_ probfilter.Filter                = (*Filter)(nil)
+	_ probfilter.DeletableFilter       = (*Filter)(nil)
+	_ probfilter.RebuildableFilter     = (*Filter)(nil)
+	_ probfilter.ObservableFilter      = (*Filter)(nil)
+	_ probfilter.StatsProvider         = (*Filter)(nil)
+	_ probfilter.RebuildCommitReporter = (*Filter)(nil)
 )
 
 // New creates a new Cuckoo filter with the specified storage backend.
@@ -201,4 +202,15 @@ func (f *Filter) LastRebuild() time.Time {
 		return time.Unix(0, ns)
 	}
 	return time.Time{}
+}
+
+// RebuildCommitted implements [probfilter.RebuildCommitReporter]. A shared
+// storage ([storages.RebuildCommitReporter], Redis) reports rebuilds
+// committed by any process; otherwise only a successful [Filter.Rebuild] of
+// this filter counts.
+func (f *Filter) RebuildCommitted(ctx context.Context) (bool, error) {
+	if reporter, ok := f.storage.(storages.RebuildCommitReporter); ok {
+		return reporter.RebuildCommitted(ctx)
+	}
+	return !f.LastRebuild().IsZero(), nil
 }

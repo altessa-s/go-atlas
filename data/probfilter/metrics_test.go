@@ -21,6 +21,7 @@ import (
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	bloommemory "github.com/altessa-s/go-atlas/data/probfilter/bloom/storages/memory"
+	bloomredis "github.com/altessa-s/go-atlas/data/probfilter/bloom/storages/redis"
 	cuckoomemory "github.com/altessa-s/go-atlas/data/probfilter/cuckoo/storages/memory"
 )
 
@@ -171,4 +172,63 @@ func TestManager_CloseWhileRebuildReadsManager(t *testing.T) {
 		t.Fatal("Manager.Close deadlocked with a rebuild reading the Manager")
 	}
 	require.ErrorIs(t, <-rebuilt, probfilter.ErrFilterClosed)
+}
+
+// TestManager_RebuildSkipIsNoError reports rebuild outcomes through the
+// Manager's observer: a rebuild skipped because another process rebuilds the
+// shared filter is neither timed nor counted as failed; a superseded or
+// otherwise failed rebuild is an error.
+func TestManager_RebuildSkipIsNoError(t *testing.T) {
+	t.Parallel()
+	tc := testhelpers.NewTestCollector()
+	mgr := probfilter.NewManager(probfilter.WithCollector(tc))
+	f := &observableMock{}
+	require.NoError(t, mgr.Register("shared", f))
+
+	f.observer.ObserveRebuild(time.Millisecond, fmt.Errorf("acquire lease: %w", probfilter.ErrRebuildInProgress))
+	require.Zero(t, testhelpers.GetCounterValue(t, tc, rebuildErrorsMetric))
+
+	f.observer.ObserveRebuild(time.Millisecond, nil)
+	f.observer.ObserveRebuild(time.Millisecond, fmt.Errorf("commit: %w", probfilter.ErrRebuildSuperseded))
+	f.observer.ObserveRebuild(time.Millisecond, errMetricsLoad)
+	require.Equal(t, 2.0, testhelpers.GetCounterValue(t, tc, rebuildErrorsMetric))
+	require.Equal(t, uint64(3), testhelpers.GetHistogramCount(t, tc, rebuildDurationMetric))
+}
+
+// TestFacade_RefusedSharedRebuildRecordsNoError drives a real refusal: a peer
+// holds the rebuild lease of a shared Redis filter (miniredis runs the lease
+// scripts), so this process's Rebuild is refused and must not count as failed.
+func TestFacade_RefusedSharedRebuildRecordsNoError(t *testing.T) {
+	t.Parallel()
+	client, _ := testhelpers.RedisClient(t)
+	ctx := t.Context()
+
+	started, release := make(chan struct{}), make(chan struct{})
+	peer := bloom.New(bloomredis.New(client, "shared"))
+	peerDone := make(chan struct{})
+	go func() {
+		defer close(peerDone)
+		_ = peer.Rebuild(context.Background(), probfilter.DataLoaderFunc(func(context.Context) iter.Seq2[string, error] {
+			return func(func(string, error) bool) {
+				close(started)
+				<-release
+			}
+		}))
+	}()
+	<-started
+	t.Cleanup(func() {
+		close(release)
+		<-peerDone
+	})
+
+	tc := testhelpers.NewTestCollector()
+	mgr := probfilter.NewManager(probfilter.WithCollector(tc))
+	f := bloom.New(bloomredis.New(client, "shared"))
+	require.NoError(t, mgr.Register("shared", f))
+
+	require.ErrorIs(t, f.Rebuild(ctx, probfilter.NewDataLoader(func() iter.Seq[string] {
+		return slices.Values([]string{"x"})
+	})), probfilter.ErrRebuildInProgress)
+	require.Zero(t, testhelpers.GetCounterValue(t, tc, rebuildErrorsMetric))
+	require.Zero(t, testhelpers.GetHistogramCount(t, tc, rebuildDurationMetric))
 }

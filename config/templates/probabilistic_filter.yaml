@@ -25,13 +25,14 @@
 #      # Schedule for rebuilding filter from data source.
 #      # Supports standard cron format with seconds: "sec min hour day month weekday"
 #      # (e.g., "0 0 * * * *") or descriptor format (e.g., "@every 1h").
-#      # The built-in probfilter factory does not currently read this value.
+#      # Applied by the probfilter factory to filters with a data loader (UseDataLoader): an in-memory filter
+#      # gets a process-local cron, a Redis filter a task on the scheduler (UseScheduler).
 #      # Default value: 0 0 * * * * (every hour)
 #      rebuildCron: "0 0 * * * *"
 #
 #      # <bool> Rebuild filter on service startup.
 #      # When true, filter is populated from data source at start.
-#      # The built-in probfilter factory does not currently read this value.
+#      # Applied by the probfilter factory to filters with a data loader: rebuilt inside Build.
 #      # Default value: true
 #      rebuildOnStart: true
 #
@@ -92,11 +93,13 @@
 #        falsePositiveRate: 0.001
 #
 #        # <string> Cron schedule for periodic filter rebuild.
-#        # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
+#        # Applied only with a data loader (UseDataLoader).
+#        # Default value: not set (falls back to probabilisticFilter.defaults.bloom.rebuildCron)
 #        rebuildCron: "0 0 */2 * * *"
 #
 #        # <bool> Rebuild the filter on service startup.
-#        # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
+#        # Applied only with a data loader (UseDataLoader).
+#        # Default value: not set (falls back to probabilisticFilter.defaults.bloom.rebuildOnStart)
 #        rebuildOnStart: false
 #
 #        # <object> Redis-specific settings. Used when storage is redis.

@@ -59,20 +59,23 @@ func TestCheckBatchReply(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		reply   any
-		wantErr bool
+		name         string
+		reply        any
+		falseRejects bool
+		wantErr      bool
 	}{
 		{name: "RESP2 ints", reply: []any{int64(1), int64(0)}},
 		{name: "RESP3 bools", reply: []any{true, false}},
 		{name: "full cuckoo item", reply: []any{int64(1), int64(-1)}, wantErr: true},
+		{name: "full cuckoo item RESP3", reply: []any{true, false}, falseRejects: true, wantErr: true},
+		{name: "cuckoo successes RESP3", reply: []any{true, true}, falseRejects: true},
 		{name: "error element", reply: []any{int64(1), errTest("ERR filter is full")}, wantErr: true},
 		{name: "non-array", reply: "OK"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			err := checkBatchReply(tc.reply)
+			err := checkBatchReply(tc.reply, tc.falseRejects)
 			if tc.wantErr {
 				require.ErrorIs(t, err, ErrItemRejected)
 				return
@@ -638,5 +641,5 @@ func TestStaging_Commit_ReplayAfterPartialAttemptAdvancesGeneration(t *testing.T
 }
 
 func commitKeys(st *Staging) []string {
-	return []string{st.core.filterKey, st.live.filterKey, st.markerKey(), st.live.genKey, st.live.leaseKey, st.live.committedKey}
+	return []string{st.core.filterKey, st.live.filterKey, st.markerKey(), st.live.genKey, st.live.leaseKey, st.live.committedKey, st.live.readyKey}
 }

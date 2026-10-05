@@ -32,7 +32,10 @@
 // inside Build, and rebuildCron rebuilds it periodically — with a
 // process-local cron for an in-memory filter, and through the scheduler
 // ([FilterBuilder.UseScheduler]) for a shared Redis filter. Without a loader
-// both settings are inert.
+// both settings are inert. A filter returned by Build after rebuildOnStart is
+// populated: an initial rebuild refused because another process is
+// rebuilding the shared filter fails Build, unless
+// [FilterBuilder.TolerateRebuildInProgress] opts into an unpopulated filter.
 //
 // # Cuckoo settings
 //

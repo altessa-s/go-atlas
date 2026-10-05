@@ -12,7 +12,7 @@ execution, error-wrapping, batching, and create-on-first-use behavior, parameter
 
 | Type       | Description                                                                                       |
 |------------|---------------------------------------------------------------------------------------------------|
-| `Commands` | RedisBloom command verbs of one filter type: `Label`, `Exists`, `Add`, `AddBatch`, `BatchTokens`, `Reserve`, `Info` |
+| `Commands` | RedisBloom command verbs of one filter type: `Label`, `Exists`, `Add`, `AddTokens`, `AddBatch`, `BatchTokens`, `Reserve`, `Info` (inserts must not create a missing filter, e.g. `BF.INSERT … NOCREATE ITEMS`); `FalseRejects` treats a RESP3 `false` item reply as rejected (`CF.INSERT` on a full filter) |
 | `Core`     | Executes the commands against one filter key; safe for concurrent use                              |
 
 ## Core methods
@@ -20,10 +20,11 @@ execution, error-wrapping, batching, and create-on-first-use behavior, parameter
 | Method         | Description                                                                                                                                            |
 |----------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `MightExist`   | Membership check via the exists command                                                                                                                |
-| `Add`          | Single insert; creates the filter on a "not exist" error and retries once                                                                              |
+| `Add`          | Single insert; creates the filter on a "not exist"/"not found" error and retries once                                                                  |
 | `AddBatch`     | Chunked multi-insert (batches of ≤1000 command arguments); same create-and-retry behavior                                                              |
-| `EnsureFilter` | Reserve with the configured arguments; an already-existing filter is not an error                                                                      |
-| `Reserve`      | Reserve with explicit arguments; any failure is an error                                                                                               |
+| `EnsureFilter` | Reserve with the configured arguments; an already-existing filter is not an error. Creating a missing filter deletes the ready marker in the same script |
+| `Reserve`      | Reserve with explicit arguments; any failure is an error. Clears the ready marker like `EnsureFilter`                                                   |
+| `RebuildCommitted` | Whether the ready marker and the filter key exist: some process committed a rebuild and the key was not recreated since                          |
 | (first write)  | `Add`/`AddBatch` reserve the filter with the configured arguments once before the first write, so RedisBloom never creates it implicitly with defaults |
 | `Stage`        | Reserve a replacement filter under a unique staging key in the live key's hash slot                                                                    |
 | `DeleteFilter` | `DEL` of the filter key                                                                                                                                |
@@ -39,9 +40,10 @@ rebuild instead of being recreated empty. `Commit` runs one Lua script that rena
 leaves a short-lived commit marker; if the reply is lost, the marker tells whether the commit happened, and an outcome that cannot be established is
 reported as `probfilter.ErrCommitIndeterminate`. `Abort` deletes the staging key. The commit also advances the live filter's generation counter (on
 every attempt); `Core.Delete` runs the delete command through a script that checks the generation it observed, so a delete delayed past a rebuild does
-nothing.
+nothing. As its last step, after the rename, the commit sets the filter's ready marker; every path of this package that creates the filter key
+deletes the marker in the same script, so `RebuildCommitted` is true only while the live key holds a committed rebuild's contents.
 
-All metadata — staging keys, commit markers, generation tokens, delete request records — lives in the reserved namespace
+All metadata — staging keys, commit markers, generation tokens, ready markers, delete request records — lives in the reserved namespace
 `__probfilter__:{<tag>}:<kind>:<hex(live key)>[:<id>]` (`MetaPrefix`). The tag is the live key's hash tag, the live key itself, or a numeric
 tag with the same CRC16 slot, so scripts can touch metadata and the live key in Redis Cluster; the hex-encoded live key keeps metadata of
 different filters apart. A filter key inside the reserved namespace is rejected (`ErrReservedKey`), so metadata can never overwrite a

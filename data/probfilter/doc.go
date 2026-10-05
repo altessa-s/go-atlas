@@ -13,10 +13,13 @@
 //
 // Rebuilds are atomic: lookups keep seeing the previous contents until the
 // rebuilt contents replace them in one step, a failed or canceled rebuild
-// leaves them unchanged, and values added during the rebuild are kept.
+// leaves them unchanged, and values added during the rebuild are kept. A
+// filter shared through Redis reports, via [RebuildCommitReporter], whether
+// any process committed a rebuild of it.
 //
 // A [Manager] created with [WithCollector] records lookup, add, and rebuild
-// metrics for every registered [ObservableFilter].
+// metrics for every registered [ObservableFilter]; a rebuild skipped because
+// another process rebuilds the shared filter is not counted as failed.
 //
 // Example with Bloom filter:
 //

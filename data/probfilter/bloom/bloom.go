@@ -24,10 +24,11 @@ type Filter struct {
 }
 
 var (
-	_ probfilter.Filter            = (*Filter)(nil)
-	_ probfilter.RebuildableFilter = (*Filter)(nil)
-	_ probfilter.ObservableFilter  = (*Filter)(nil)
-	_ probfilter.StatsProvider     = (*Filter)(nil)
+	_ probfilter.Filter                = (*Filter)(nil)
+	_ probfilter.RebuildableFilter     = (*Filter)(nil)
+	_ probfilter.ObservableFilter      = (*Filter)(nil)
+	_ probfilter.StatsProvider         = (*Filter)(nil)
+	_ probfilter.RebuildCommitReporter = (*Filter)(nil)
 )
 
 // New creates a new Bloom filter with the specified storage backend.
@@ -177,4 +178,15 @@ func (f *Filter) beginRebuild(ctx context.Context) (facade.StageFunc, func(conte
 // LastRebuild returns the time of the last successful rebuild.
 func (f *Filter) LastRebuild() time.Time {
 	return f.storage.LastRebuild()
+}
+
+// RebuildCommitted implements [probfilter.RebuildCommitReporter]. A shared
+// storage ([storages.RebuildCommitReporter], Redis) reports rebuilds
+// committed by any process; otherwise only a successful [Filter.Rebuild] of
+// this filter counts.
+func (f *Filter) RebuildCommitted(ctx context.Context) (bool, error) {
+	if reporter, ok := f.storage.(storages.RebuildCommitReporter); ok {
+		return reporter.RebuildCommitted(ctx)
+	}
+	return !f.LastRebuild().IsZero(), nil
 }

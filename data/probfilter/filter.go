@@ -87,6 +87,19 @@ type RebuildableFilter interface {
 	LastRebuild() time.Time
 }
 
+// RebuildCommitReporter is implemented by filters that can tell whether their
+// current contents come from a committed rebuild — including one committed by
+// another process sharing the filter (the Bloom and Cuckoo facades do).
+type RebuildCommitReporter interface {
+	// RebuildCommitted reports whether the filter holds the contents of a
+	// committed [RebuildableFilter.Rebuild] plus the values added since. For
+	// a filter shared through Redis it is true once any process committed a
+	// rebuild and the filter key has not been deleted or recreated since;
+	// for a process-local filter it is true after a successful Rebuild of
+	// this filter. An error means the state could not be established.
+	RebuildCommitted(ctx context.Context) (bool, error)
+}
+
 // Observer receives operation outcomes from an [ObservableFilter].
 // Implementations must be safe for concurrent use and cheap: ObserveLookup
 // runs on the lookup hot path.

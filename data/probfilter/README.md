@@ -15,6 +15,7 @@ pluggable storage backends (memory, Redis). Includes a `Manager` for registering
 | `DeletableFilter`   | Extends Filter with Delete (Cuckoo)                |
 | `RebuildableFilter` | Extends Filter with atomic Rebuild (Bloom, Cuckoo) |
 | `ObservableFilter`  | Extends Filter with SetObserver (Bloom, Cuckoo)    |
+| `RebuildCommitReporter` | Reports whether the contents come from a committed rebuild, also one committed by another process sharing a Redis filter (Bloom, Cuckoo) |
 | `Observer`          | Receives lookup, add, and rebuild outcomes         |
 | `StatsProvider`     | Provides filter statistics                         |
 | `Manager`           | Registry for named filter instances                |
@@ -27,8 +28,9 @@ pluggable storage backends (memory, Redis). Includes a `Manager` for registering
 
 With a collector, `Register` attaches an observer to every `ObservableFilter` and records `probfilter_lookups_total{filter_name,result}` (`result`:
 `positive`, `negative`, `error`), `probfilter_lookup_duration_seconds{filter_name}`, `probfilter_adds_total{filter_name}`,
-`probfilter_rebuild_duration_seconds`, and `probfilter_rebuild_errors_total`. `Unregister` and `Close` detach it. `Close` closes filters implementing
-`io.Closer` or `Close(context.Context) error`.
+`probfilter_rebuild_duration_seconds`, and `probfilter_rebuild_errors_total`. A rebuild refused because another process rebuilds the shared filter
+(`ErrRebuildInProgress`) is a skip and records neither; a superseded or otherwise failed rebuild counts as an error. `Unregister` and `Close` detach
+the observer. `Close` closes filters implementing `io.Closer` or `Close(context.Context) error`.
 
 ## Errors
 
@@ -48,6 +50,11 @@ With a collector, `Register` attaches an observer to every `ObservableFilter` an
 
 Rebuilds are atomic: lookups see the previous contents until the replacement takes over in one step, a failed or canceled rebuild leaves them unchanged,
 and values added through the filter during the rebuild are kept.
+
+A Redis filter is shared by every process using its key. `RebuildCommitted` tells any of them whether some process committed a rebuild of it: the
+commit sets a ready marker after its rename, and every probfilter path that creates the filter key deletes the marker in the same step (live inserts
+use the non-creating `BF.INSERT`/`CF.INSERT ... NOCREATE` form; a missing key is recreated through the reserve path). Delete the filter key
+together with its `__probfilter__:` metadata keys; a key recreated by another client is not detected.
 
 Choose Bloom when items are append-only or rebuilt in bulk. Choose Cuckoo when you need to remove individual items.
 
