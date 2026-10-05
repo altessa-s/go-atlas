@@ -38,13 +38,12 @@ type Validator interface {
 //
 // Usage example:
 //
-//	provider := oidctools.NewProvider(...)
-//	validator := oidc.NewDefaultValidator(provider)
-//	authFunc := oidc.AuthFunc(validator)
+//	// provider is a *github.com/altessa-s/go-atlas/auth/oidc.Provider.
+//	authFunc := oidc.AuthFunc(validator.NewDefaultValidator(provider))
 //
 //	// Use with gRPC server interceptor
 //	server := grpc.NewServer(
-//	    grpc.UnaryInterceptor(auth.UnaryServerInterceptor(authFunc)),
+//	    grpc.UnaryInterceptor(auth.ServerUnaryInterceptor(auth.WithAuthFn(authFunc))),
 //	)
 //
 // Returns an auth.Func that can be used with gRPC server interceptors.

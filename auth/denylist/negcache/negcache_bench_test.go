@@ -35,3 +35,16 @@ func BenchmarkIsRevoked_Hit(b *testing.B) {
 		_, _ = c.IsRevoked(ctx, "jti")
 	}
 }
+
+// BenchmarkIsRevoked_UnpopulatedShared measures an unpopulated cache over a
+// shared filter: every lookup goes to the authoritative store and the
+// shared-rebuild check is throttled to one per interval.
+func BenchmarkIsRevoked_UnpopulatedShared(b *testing.B) {
+	c := negcache.New(newSharedFilter(), newFakeAuth())
+	ctx := b.Context()
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = c.IsRevoked(ctx, "fresh")
+	}
+}

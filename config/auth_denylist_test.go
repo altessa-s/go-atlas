@@ -20,6 +20,12 @@ func validDenylistFilter() ProbabilisticFilterConfig {
 	}
 }
 
+func denylistFilterWithCron(cron *string) ProbabilisticFilterConfig {
+	f := validDenylistFilter()
+	f.Bloom.RebuildCron = cron
+	return f
+}
+
 func TestDenylist_Validate(t *testing.T) {
 	t.Parallel()
 
@@ -45,10 +51,52 @@ func TestDenylist_Validate(t *testing.T) {
 		{
 			name: "valid enabled config",
 			cfg: Denylist{
+				Enabled:   true,
+				KeyPrefix: "denylist:revoked:",
+				Filter:    validDenylistFilter(),
+			},
+			wantErr: false,
+		},
+		{
+			name: "rebuild interval with explicitly empty bloom cron",
+			cfg: Denylist{
+				Enabled:         true,
+				KeyPrefix:       "denylist:revoked:",
+				RebuildInterval: 5 * time.Minute,
+				Filter:          denylistFilterWithCron(new("")),
+			},
+			wantErr: false,
+		},
+		{
+			name: "rebuild interval with omitted bloom cron fails",
+			cfg: Denylist{
 				Enabled:         true,
 				KeyPrefix:       "denylist:revoked:",
 				RebuildInterval: 5 * time.Minute,
 				Filter:          validDenylistFilter(),
+			},
+			wantErr: true,
+		},
+		{
+			name: "rebuild interval with bloom cron fails",
+			cfg: Denylist{
+				Enabled:         true,
+				KeyPrefix:       "denylist:revoked:",
+				RebuildInterval: 5 * time.Minute,
+				Filter:          denylistFilterWithCron(new("@every 1h")),
+			},
+			wantErr: true,
+		},
+		{
+			name: "rebuild interval with cuckoo filter",
+			cfg: Denylist{
+				Enabled:         true,
+				KeyPrefix:       "denylist:revoked:",
+				RebuildInterval: 5 * time.Minute,
+				Filter: ProbabilisticFilterConfig{
+					Type:   ProbabilisticFilterTypeCuckoo,
+					Cuckoo: &ProbabilisticFilterCuckooConfig{Capacity: 1000},
+				},
 			},
 			wantErr: false,
 		},

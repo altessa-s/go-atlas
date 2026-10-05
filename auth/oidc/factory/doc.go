@@ -10,8 +10,13 @@
 //
 //	provider, err := factory.New(cfg.OIDC).
 //	    UseLogger(logger).
-//	    UseScheduler(scheduler).
 //	    UseTokenCache(tokenCache).
 //	    UseRedisClient(redisClient).
 //	    Build(ctx)
+//
+// The provider owns the revocation filter's rebuilds: it syncs the filter
+// from revocation.source once at construction and then on
+// revocation.syncSchedule. The filter is built without probfilter rebuild
+// scheduling, and a revocation.filter.bloom.rebuildCron or
+// rebuildOnStart: true is rejected by Build as a conflicting second schedule.
 package factory

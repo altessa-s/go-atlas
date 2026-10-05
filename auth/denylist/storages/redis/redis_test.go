@@ -15,6 +15,7 @@ import (
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	redisstore "github.com/altessa-s/go-atlas/auth/denylist/storages/redis"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 func setupStore(tb testing.TB, opts ...redisstore.Option) (*redisstore.Store, *miniredis.Miniredis) {
@@ -136,4 +137,55 @@ func TestStore_CountUnknown(t *testing.T) {
 	n, err := store.Count(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, int64(-1), n)
+}
+
+// TestStore_StreamValuesLiteralPrefix uses prefixes with Redis glob
+// metacharacters: every revoked key is streamed, and keys that merely match
+// the prefix as a pattern are not.
+func TestStore_StreamValuesLiteralPrefix(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct{ prefix, lookalike string }{
+		"brackets":  {prefix: "dl:[tenant]:", lookalike: "dl:t:x"},
+		"star":      {prefix: "dl:*:", lookalike: "dl:any:x"},
+		"question":  {prefix: "dl:?:", lookalike: "dl:a:x"},
+		"backslash": {prefix: `dl:\:`, lookalike: "dl::x"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			store, mr := setupStore(t, redisstore.WithKeyPrefix(tc.prefix))
+			ctx := t.Context()
+			require.NoError(t, store.Revoke(ctx, "a"))
+			require.NoError(t, store.Revoke(ctx, "b"))
+			require.NoError(t, mr.Set(tc.lookalike, "1"))
+
+			var got []string
+			for key, err := range store.StreamValues(ctx) {
+				require.NoError(t, err)
+				got = append(got, key)
+			}
+			require.ElementsMatch(t, []string{"a", "b"}, got)
+		})
+	}
+}
+
+func TestStore_StreamValuesRejectsClusterAndRing(t *testing.T) {
+	t.Parallel()
+	for name, client := range map[string]goredis.UniversalClient{
+		"cluster": goredis.NewClusterClient(&goredis.ClusterOptions{Addrs: []string{"127.0.0.1:1"}}),
+		"ring":    goredis.NewRing(&goredis.RingOptions{Addrs: map[string]string{"a": "127.0.0.1:1"}}),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			t.Cleanup(func() { _ = client.Close() })
+			store := redisstore.New(client)
+
+			var errs []error
+			for key, err := range store.StreamValues(t.Context()) {
+				require.Empty(t, key)
+				errs = append(errs, err)
+			}
+			require.Len(t, errs, 1)
+			require.ErrorIs(t, errs[0], redisstore.ErrUnsupportedClient)
+		})
+	}
 }

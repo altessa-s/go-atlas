@@ -6,6 +6,7 @@ package factory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -15,8 +16,8 @@ import (
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/collections/slices"
 
+	corehash "github.com/altessa-s/go-atlas/core/encoding/hash"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
-	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	probfilterfactory "github.com/altessa-s/go-atlas/data/probfilter/factory"
 	proxyfactory "github.com/altessa-s/go-atlas/transport/proxydial/factory"
 )
@@ -29,7 +30,6 @@ type ProviderBuilder struct {
 	errs []error
 
 	// Dependencies (set via Use*).
-	scheduler               corescheduler.TaskRegistrar
 	redisClient             redis.UniversalClient
 	tokenCache              oidc.Cacher
 	revocationStorage       oidc.RevocationStorage
@@ -104,7 +104,7 @@ func (b *ProviderBuilder) buildProviderOptions(ctx context.Context) ([]oidc.Opti
 		return slices.AppendIf(introspectionOpts, cfg.Introspection.FailOpen, oidc.WithIntrospectionFailOpen())
 	})
 
-	revOpts, err := b.buildRevocationOptions()
+	revOpts, err := b.buildRevocationOptions() //nolint:contextcheck // probfilter owns the context of its background rebuild job
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +116,7 @@ func (b *ProviderBuilder) buildProviderOptions(ctx context.Context) ([]oidc.Opti
 	}
 	opts = slices.AppendIf(opts, len(proxyOpts) > 0, oidc.WithHTTPClientOptions(proxyOpts...))
 
-	opts = append(opts, b.buildSchedulerOptions()...)
+	opts = append(opts, b.buildRefreshOptions()...)
 
 	return opts, nil
 }
@@ -173,20 +173,33 @@ func (b *ProviderBuilder) buildRevocationOptions() ([]oidc.Option, error) {
 		return nil, nil
 	}
 
-	return []oidc.Option{
+	opts := []oidc.Option{
 		oidc.WithRevocationStorage(storage),
 		oidc.WithRevocationItemType(cfg.Revocation.ItemType),
-	}, nil
+	}
+	return slices.AppendIf(opts, cfg.Revocation.FailOpen, oidc.WithRevocationFailOpen()), nil
 }
 
 // buildRevocationStorage creates a filter-based revocation storage from config.
+//
+// The provider owns the filter's rebuilds: it syncs the storage (a filter
+// rebuild from cfg.Source) once in oidc.NewProvider and then on
+// cfg.SyncSchedule on its own cron. The probfilter factory therefore gets no
+// data loader and defaults with Bloom rebuilds disabled, and a per-filter
+// bloom.rebuildCron or bloom.rebuildOnStart: true — a second rebuild schedule
+// for the same filter — is rejected.
 func (b *ProviderBuilder) buildRevocationStorage(cfg *config.OIDCRevocation) (oidc.RevocationStorage, error) {
 	if err := b.RequireDependency(b.redisClient, "redis client"); err != nil {
 		return nil, err
 	}
+	if err := rejectFilterRebuildSettings(cfg.Filter); err != nil {
+		return nil, b.WrapError(err, "invalid revocation filter configuration")
+	}
 
 	pfDefaults := config.DefaultProbabilisticFilterDefaults()
-	filter, err := probfilterfactory.NewFilter("oidc-revocation", cfg.Filter, &pfDefaults).
+	pfDefaults.Bloom.RebuildOnStart = false
+	pfDefaults.Bloom.RebuildCron = ""
+	filter, err := probfilterfactory.NewFilter(revocationFilterName(b.cfg), cfg.Filter, &pfDefaults).
 		UseLogger(b.Logger()).
 		UseRedisClient(b.redisClient).
 		Build()
@@ -201,8 +214,8 @@ func (b *ProviderBuilder) buildRevocationStorage(cfg *config.OIDCRevocation) (oi
 		} else if cfg.Source.URL != "" {
 			// Client is intentionally left nil — oidc.NewProvider injects
 			// the shared HTTP client (built via httpclient.New + WithHTTPClientOptions)
-			// so revocation refresh reuses the same pool, retry policy
-			// and proxy resolver as discovery/JWKS/userinfo.
+			// through the storage's SetHTTPClient, so revocation refresh reuses
+			// the same pool, retry policy and proxy resolver as discovery/JWKS/userinfo.
 			loader = &oidc.URLRevocationLoader{URL: cfg.Source.URL}
 		}
 	}
@@ -216,14 +229,43 @@ func (b *ProviderBuilder) buildRevocationStorage(cfg *config.OIDCRevocation) (oi
 	return oidc.NewFilterRevocationStorage(filter, loader, b.revocationAuthoritative), nil
 }
 
-// buildSchedulerOptions builds scheduler-related options if a scheduler is available.
-func (b *ProviderBuilder) buildSchedulerOptions() []oidc.Option {
-	if b.scheduler == nil {
+// errFilterRebuildSettings rejects probfilter rebuild settings on the
+// revocation filter, whose rebuilds the provider owns.
+var errFilterRebuildSettings = errors.New("revocation.filter.bloom.rebuildCron and rebuildOnStart are not supported: " +
+	"the provider rebuilds the revocation filter from revocation.source at startup and on revocation.syncSchedule")
+
+// rejectFilterRebuildSettings fails when filter asks for rebuilds of its own:
+// a non-empty bloom.rebuildCron or bloom.rebuildOnStart: true. Settings that
+// disable them agree with the provider's ownership and are accepted.
+func rejectFilterRebuildSettings(filter *config.ProbabilisticFilterConfig) error {
+	if filter == nil || filter.Bloom == nil {
 		return nil
 	}
+	bloom := filter.Bloom
+	if (bloom.RebuildCron != nil && *bloom.RebuildCron != "") || (bloom.RebuildOnStart != nil && *bloom.RebuildOnStart) {
+		return errFilterRebuildSettings
+	}
+	return nil
+}
 
+// revocationFilterName names the revocation filter (and so its Redis key)
+// after the provider's revocation domain — discovery URL, item type and
+// source — so independent providers sharing Redis never sync over each
+// other's revocation sets.
+func revocationFilterName(cfg *config.OIDC) string {
+	var source string
+	if cfg.Revocation.Source != nil {
+		source = cfg.Revocation.Source.URL + "\x00" + cfg.Revocation.Source.File
+	}
+	domain := cfg.DiscoveryUrl + "\x00" + cfg.Revocation.ItemType + "\x00" + source
+	return corehash.SHA256HexWithPrefix("oidc-revocation-", domain)[:len("oidc-revocation-")+16]
+}
+
+// buildRefreshOptions maps the JWKS refresh and revocation sync schedules
+// onto the provider's own, process-local refresh cron.
+func (b *ProviderBuilder) buildRefreshOptions() []oidc.Option {
 	cfg := b.cfg
-	opts := []oidc.Option{oidc.WithScheduler(b.scheduler)}
+	var opts []oidc.Option
 
 	opts = slices.AppendIfFunc(opts,
 		cfg.IsJWKSConfigured() && cfg.JWKS.RefreshEnabled && cfg.JWKS.RefreshSchedule != "",

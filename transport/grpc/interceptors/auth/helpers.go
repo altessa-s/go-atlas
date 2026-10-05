@@ -33,7 +33,7 @@ import (
 //	extractor := auth.ExtractBearerToken()
 //	interceptor := auth.ServerInterceptor(
 //	    auth.WithTokenExtractor(extractor),
-//	    auth.WithAuthFunc(authFunc),
+//	    auth.WithAuthFn(authFunc),
 //	)
 //
 // Security notes:

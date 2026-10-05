@@ -49,6 +49,20 @@ func (b *FilterBuilder) UseScheduler(v corescheduler.TaskRegistrar) *FilterBuild
 	return b
 }
 
+// TolerateRebuildInProgress lets Build succeed when the rebuildOnStart rebuild
+// of a shared (Redis) filter is refused because another process is rebuilding
+// it ([probfilter.ErrRebuildInProgress]): the filter is returned unpopulated
+// (LastRebuild zero) and receives the contents that process publishes. Enable
+// it only when the caller never trusts an unpopulated filter — as
+// negcache.Cache does, deferring to its authoritative store until
+// [probfilter.RebuildCommitReporter] reports a committed rebuild. By default
+// such a refusal fails Build, so a filter returned by Build after
+// rebuildOnStart is always populated.
+func (b *FilterBuilder) TolerateRebuildInProgress() *FilterBuilder {
+	b.tolerateInProgress = true
+	return b
+}
+
 // --- ManagerBuilder dependency methods ---
 
 // UseLogger sets the logger for the manager builder and all created components.

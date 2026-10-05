@@ -16,8 +16,9 @@
 #  # Default value: denylist:revoked:
 #  key_prefix: "denylist:revoked:"
 #
-#  # <duration> How often the negative filter is rebuilt from the authoritative store.
-#  # Zero (omitted) disables periodic rebuilds.
+#  # <duration> How often the caller rebuilds the negative filter from the authoritative store (Cache.Rebuild).
+#  # Zero (omitted) leaves periodic rebuilds to the negcache factory (filter.bloom.rebuildCron).
+#  # With a Bloom filter a non-zero value requires filter.bloom.rebuildCron: "".
 #  # Default value: not set
 #  rebuild_interval: "5m"
 #
@@ -49,13 +50,14 @@
 #      # Default value: not set (falls back to the builder defaults' bloom.falsePositiveRate, then 0.01)
 #      falsePositiveRate: 0.001
 #
-#      # <string> Cron schedule for periodic filter rebuild.
-#      # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
-#      rebuildCron: "0 0 */2 * * *"
+#      # <string> Cron schedule for periodic filter rebuild from the authoritative store, scheduled by the negcache factory.
+#      # Must be "" when rebuild_interval is set.
+#      # Default value: not set (falls back to the builder defaults' bloom.rebuildCron)
+#      rebuildCron: ""
 #
-#      # <bool> Rebuild the filter on service startup.
-#      # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
-#      rebuildOnStart: false
+#      # <bool> Rebuild the filter from the authoritative store inside the negcache factory's Build.
+#      # Default value: not set (falls back to the builder defaults' bloom.rebuildOnStart)
+#      rebuildOnStart: true
 #
 #      # <object> Redis-specific settings. Used when storage is redis.
 #      redis:

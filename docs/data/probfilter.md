@@ -134,7 +134,9 @@ How the `factory` builders apply these settings:
 
 - `rebuildOnStart` / `rebuildCron` need a data source, so they apply only when a loader is injected with `UseDataLoader`; without a loader
   both are inert. `rebuildOnStart` always rebuilds synchronously inside `Build` (a failure fails `Build`), so every new filter is populated
-  regardless of persisted schedule state. `rebuildCron` runs where the filter's contents live: an in-memory filter gets a process-local cron
+  regardless of persisted schedule state. A shared filter whose initial rebuild is refused because another process is rebuilding it
+  (`ErrRebuildInProgress`) also fails `Build`, unless the builder opted into `TolerateRebuildInProgress` (the negcache factory does: its cache never
+  trusts an unpopulated filter). `rebuildCron` runs where the filter's contents live: an in-memory filter gets a process-local cron
   (a shared, leader-dispatched scheduler would leave other nodes' filters stale); a Redis filter, shared by all nodes, is registered once as
   task `probfilter-rebuild-<name>` with the scheduler from `UseScheduler` (without one the cron is logged as ignored). Once the filter is
   closed, the task and the local cron do nothing.
@@ -260,8 +262,8 @@ lastRebuild := rebuildable.LastRebuild()
 ### Rebuild guarantees
 
 `Rebuild` is atomic. The replacement is populated off to the side — a fresh in-process filter, or for Redis a staging key
-`__probfilter__:{<tag>}:staging:…` in the live key's cluster slot — while lookups keep seeing the previous contents, and it replaces them in one step (a
-pointer swap, or `RENAME`).
+`__probfilter__:{<tag>}:staging:…` in the live key's cluster slot — while lookups keep seeing the previous contents, and it replaces them in one
+step (a pointer swap, or `RENAME`).
 
 - A failed or canceled rebuild (including a loader that stops early on cancellation) aborts the replacement; the previous contents and
   `LastRebuild` stay unchanged.
@@ -300,8 +302,15 @@ pointer swap, or `RENAME`).
   then deleted so a delayed promotion finds nothing to promote; if even that fails, the filter is fenced — lookups, writes and rebuilds fail with
   `ErrCommitIndeterminate`, and `Close` returns it — until deleting the staging key succeeds (retried on every call).
 - A batch whose reply reports a per-item failure (for example a full Redis Cuckoo staging filter) fails the rebuild.
-- A Redis filter is reserved with its configured parameters before its first write, so RedisBloom never creates it implicitly with default capacity,
-  error rate or expansion.
+- A Redis filter is reserved with its configured parameters before its first write, and live writes use the non-creating insert form
+  (`BF.INSERT`/`CF.INSERT ... NOCREATE ITEMS`), so RedisBloom never creates it implicitly with default capacity, error rate or expansion; a filter key
+  that disappeared is recreated through the reserve path.
+- `RebuildCommitted` (`probfilter.RebuildCommitReporter`) tells every process sharing a Redis filter whether some process committed a rebuild of it.
+  The commit script sets a ready marker (`__probfilter__:{<tag>}:ready:…`) as its last step, after the rename, and every probfilter path that creates
+  the filter key deletes the marker in the same script, so it exists only while the live key holds a committed rebuild's contents (plus later adds). A
+  deleted or evicted filter key reports false. A filter key recreated by a client other than probfilter (or an older release) is not detected:
+  delete the filter key together with its `__probfilter__:` metadata keys. The `auth/denylist/negcache` cache uses it to trust a shared filter
+  rebuilt by another node.
 - The Cuckoo replacement is sized for the loaded count plus 25% headroom, never below the configured capacity.
 
 ---
@@ -338,8 +347,11 @@ and `Close` detach it. Operations on a filter that is not registered with such a
 | `probfilter_lookups_total`            | Counter   | `filter_name`, `result` | Lookups; `result` is `positive`, `negative`, or `error` |
 | `probfilter_adds_total`               | Counter   | `filter_name`           | Items successfully added                                |
 | `probfilter_lookup_duration_seconds`  | Histogram | `filter_name`           | Lookup duration                                         |
-| `probfilter_rebuild_duration_seconds` | Histogram | --                      | Rebuild duration (all rebuilds)                         |
+| `probfilter_rebuild_duration_seconds` | Histogram | --                      | Rebuild duration (all rebuilds except skipped ones)     |
 | `probfilter_rebuild_errors_total`     | Counter   | --                      | Failed rebuild operations                               |
+
+A rebuild refused because another process is rebuilding the shared filter (`ErrRebuildInProgress`) is a skip: it records neither a duration nor
+an error. A superseded rebuild (`ErrRebuildSuperseded`) and every other failure count as errors.
 
 ---
 
@@ -372,6 +384,7 @@ never added can still remove a colliding member's fingerprint, so only delete va
 | `DeletableFilter`   | `probfilter` | `Filter` + `Delete`                                                     |
 | `RebuildableFilter` | `probfilter` | `Filter` + `Rebuild`, `LastRebuild`                                     |
 | `ObservableFilter`  | `probfilter` | `Filter` + `SetObserver`                                                |
+| `RebuildCommitReporter` | `probfilter` | `RebuildCommitted`                                                  |
 | `Observer`          | `probfilter` | `ObserveLookup`, `ObserveAdd`, `ObserveRebuild`                         |
 | `StatsProvider`     | `probfilter` | `Stats`                                                                 |
 | `DataLoader`        | `probfilter` | `StreamValues`, `Count`                                                 |
@@ -381,7 +394,7 @@ never added can still remove a colliding member's fingerprint, so only delete va
 
 | Builder          | Package              | Methods                                                                                                                     |
 |------------------|----------------------|-----------------------------------------------------------------------------------------------------------------------------|
-| `FilterBuilder`  | `probfilter/factory` | `NewFilter` -> `UseLogger`, `UseRedisClient`, `UseDataLoader`, `UseScheduler`, `Build`                                      |
+| `FilterBuilder`  | `probfilter/factory` | `NewFilter` -> `UseLogger`, `UseRedisClient`, `UseDataLoader`, `UseScheduler`, `TolerateRebuildInProgress`, `Build`         |
 | `ManagerBuilder` | `probfilter/factory` | `NewManager` -> `UseLogger`, `UseDefaultLogger`, `UseRedisClient`, `UseDataLoader`, `UseScheduler`, `UseCollector`, `Build` |
 
 ### Errors

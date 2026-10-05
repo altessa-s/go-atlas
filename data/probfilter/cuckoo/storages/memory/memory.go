@@ -73,8 +73,14 @@ func (s *Storage) Add(_ context.Context, value string) error {
 func (s *Storage) AddBatch(_ context.Context, values iter.Seq[string]) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return insertAll(s.filter, values)
+}
+
+// insertAll inserts values into f, stopping with [ErrFilterFull] at the
+// first value that does not fit.
+func insertAll(f *cuckooFilter, values iter.Seq[string]) error {
 	for v := range values {
-		if !s.filter.insert(v) {
+		if !f.insert(v) {
 			return ErrFilterFull
 		}
 	}
@@ -115,12 +121,7 @@ type staging struct {
 // AddBatch inserts values into the replacement filter. It returns
 // [ErrFilterFull] when the replacement cannot hold them.
 func (st *staging) AddBatch(_ context.Context, values iter.Seq[string]) error {
-	for v := range values {
-		if !st.filter.insert(v) {
-			return ErrFilterFull
-		}
-	}
-	return nil
+	return insertAll(st.filter, values)
 }
 
 // Commit swaps the replacement filter in under the storage lock.

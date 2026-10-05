@@ -340,9 +340,27 @@ func (c *circuitBreakerClient) standardClient() *http.Client {
 	}
 }
 
+// idleClosingRoundTripper pairs a wrapping round-tripper with the transport
+// it wraps so [http.Client.CloseIdleConnections] reaches the pooled transport.
+type idleClosingRoundTripper struct {
+	corehttp.RoundTripperFunc
+	next http.RoundTripper
+}
+
+// CloseIdleConnections forwards to the wrapped transport.
+func (rt idleClosingRoundTripper) CloseIdleConnections() { closeIdleConnections(rt.next) }
+
+// closeIdleConnections closes rt's idle connections when it supports it, the
+// same contract [http.Client.CloseIdleConnections] applies to its Transport.
+func closeIdleConnections(rt http.RoundTripper) {
+	if c, ok := rt.(interface{ CloseIdleConnections() }); ok {
+		c.CloseIdleConnections()
+	}
+}
+
 // newCircuitBreakerRoundTripper creates a new round tripper with host-specific circuit breaker support
-func (c *circuitBreakerClient) newCircuitBreakerRoundTripper(next http.RoundTripper) corehttp.RoundTripperFunc {
-	return func(req *http.Request) (*http.Response, error) {
+func (c *circuitBreakerClient) newCircuitBreakerRoundTripper(next http.RoundTripper) http.RoundTripper {
+	return idleClosingRoundTripper{next: next, RoundTripperFunc: func(req *http.Request) (*http.Response, error) {
 		// Get the appropriate circuit breaker for this host
 		breaker := c.getBreakerForHost(req.URL.Host)
 
@@ -369,5 +387,5 @@ func (c *circuitBreakerClient) newCircuitBreakerRoundTripper(next http.RoundTrip
 		}
 
 		return res, nil
-	}
+	}}
 }

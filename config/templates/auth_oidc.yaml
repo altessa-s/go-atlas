@@ -38,7 +38,7 @@
 #  # <object> JWKS-specific settings for key management.
 #  # Configures JWKS refresh behavior and HTTP timeouts.
 #  jwks:
-#    # <bool> Enables proactive JWKS refresh via an external scheduler.
+#    # <bool> Enables proactive JWKS refresh on the provider's own process-local cron.
 #    # Default value: true
 #    refreshEnabled: true
 #
@@ -309,8 +309,8 @@
 #    # Default value: false
 #    enabled: false
 #
-#    # <bool> Enables periodic synchronization of the revocation storage.
-#    # NOTE: Must be managed via an external scheduler.
+#    # <bool> Enables periodic synchronization of the revocation storage
+#    # on the provider's own process-local cron (every replica syncs).
 #    # Default value: true
 #    syncEnabled: true
 #
@@ -324,6 +324,12 @@
 #    # Supported values: token, jti, kid
 #    # Default value: token
 #    itemType: "token"
+#
+#    # <bool> Fail-open: accept a token when the revocation storage cannot answer,
+#    # and start the provider when the initial revocation sync fails.
+#    # Default false is fail-closed: such a token is rejected and startup fails.
+#    # Default value: false
+#    failOpen: false
 #
 #    # <object> Probabilistic filter configuration for efficient revocation checks.
 #    filter:
@@ -349,11 +355,14 @@
 #        falsePositiveRate: 0.001
 #
 #        # <string> Cron schedule for periodic filter rebuild.
-#        # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
-#        rebuildCron: "0 0 */2 * * *"
+#        # Not supported here: the provider rebuilds the filter from source at startup and on syncSchedule.
+#        # Only "" is accepted; any other value fails the build.
+#        # Default value: not set
+#        rebuildCron: ""
 #
 #        # <bool> Rebuild the filter on service startup.
-#        # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
+#        # Not supported here (see rebuildCron); only false is accepted.
+#        # Default value: not set
 #        rebuildOnStart: false
 #
 #        # <object> Redis-specific settings. Used when storage is redis.

@@ -22,13 +22,16 @@ import (
 	"github.com/MicahParks/jwkset"
 	"github.com/MicahParks/keyfunc/v3"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/robfig/cron/v3"
 
+	"github.com/altessa-s/go-atlas/data/probfilter"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	authjwt "github.com/altessa-s/go-atlas/auth/jwt"
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corectx "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreretry "github.com/altessa-s/go-atlas/core/retry"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	httpclient "github.com/altessa-s/go-atlas/transport/http/client"
 )
@@ -60,6 +63,10 @@ var (
 	// non-HTTPS or does not share the issuer's host. It signals a possible
 	// mix-up / SSRF attempt via a malicious or compromised discovery response.
 	ErrDiscoveryValidation = errors.New("discovery document failed issuer/endpoint validation")
+	// ErrRevocationCheck is returned when the revocation storage cannot answer
+	// (IsRevoked or the initial Sync fails) and the provider is fail-closed —
+	// the default unless [WithRevocationFailOpen] is set.
+	ErrRevocationCheck = errors.New("revocation check failed")
 )
 
 // maxDiscoveryResponseSize is the maximum bytes read from the OIDC discovery
@@ -127,9 +134,11 @@ type Provider struct {
 	verifierOptions  *verifierOptions
 	celCompiledRules []celPreCompiledValidationRule // Compiled CEL rules from verifierOptions.celRules
 
-	// Scheduler configuration
-	scheduler       corescheduler.TaskRegistrar
-	jwksRefreshTask corescheduler.ManagedTask // Guards RefreshJWKS and marks scheduler management.
+	// jwksRefreshTask makes concurrent RefreshJWKS calls collapse into one.
+	jwksRefreshTask corescheduler.ManagedTask
+	// refreshCron runs the periodic JWKS refresh and revocation sync; nil
+	// when no schedule is configured.
+	refreshCron *cron.Cron
 
 	// lastJWKSRefreshUnixNanos records when the locally cached JWKS was
 	// last fully refreshed by the provider. It is read by
@@ -146,6 +155,13 @@ type Provider struct {
 
 // NewProvider creates an OIDC provider from a discovery URL.
 // Call Close when done to release resources.
+//
+// When a revocation storage is configured (directly, or assembled from
+// [WithRevocationFilter] and [WithRevocationLoader]), NewProvider runs one
+// [RevocationStorage.Sync] before returning so the provider never serves with
+// an unpopulated revocation filter. A failed initial sync fails construction
+// with [ErrRevocationCheck] unless [WithRevocationFailOpen] is set, in which
+// case it is logged and the provider starts anyway.
 //
 // Example:
 //
@@ -193,7 +209,6 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 		revocationFilter:  o.revocationFilter,
 		revocationLoader:  o.revocationLoader,
 		verifierOptions:   o.verifierOptions,
-		scheduler:         o.scheduler,
 		metrics:           newOIDCMetrics(o.collector),
 	}
 
@@ -215,13 +230,15 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 		p.logger.Warn("revocation loader provided without revocation filter, loader will be ignored")
 	}
 
+	// A ready-made storage (e.g. the factory's filter storage wrapping a
+	// URLRevocationLoader) gets the shared client too, so its loader does
+	// not fail every sync with ErrLoaderClientNotConfigured.
+	if setter, ok := p.revocationStorage.(httpclient.HTTPClientSetter); ok {
+		setter.SetHTTPClient(client)
+	}
+
 	// Validate and process preset selection rules
 	p.validatePresetSelectionRules()
-
-	// Compile all presets (apply options and compile CEL rules)
-	if err := p.compilePresets(); err != nil {
-		return nil, err
-	}
 
 	// Validate and compile CEL rules in verifier options
 	if err := p.validateCELRules(); err != nil {
@@ -234,6 +251,17 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 	}
 
 	p.backgroundCtx, p.cancelBackgroundCtx = context.WithCancel(ctx)
+
+	// Every failure from here on must release what construction acquired:
+	// the background context (JWKS storage, keyfunc) and the HTTP client's
+	// idle connections. The refresh cron is started only once construction
+	// has succeeded, so a failed construction never leaves it running.
+	constructed := false
+	defer func() {
+		if !constructed {
+			p.Close()
+		}
+	}()
 
 	const discoveryTimeout = 5 * time.Second
 	discoveryCtx, cancelFunc := corectx.ApplyTimeout(p.backgroundCtx, discoveryTimeout)
@@ -249,9 +277,22 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 		return nil, err
 	}
 
-	// Register background tasks with scheduler if provided
-	if err = p.registerSchedulerTasks(o); err != nil { //nolint:contextcheck // registration uses background context internally
-		return nil, coreerrs.WrapOperation(err, "register scheduler tasks")
+	// Compile presets only now: preset verifiers bind the discovery issuer
+	// (fallback when a preset sets none) and the JWKS key resolver, both of
+	// which are known only after discovery.
+	if err = p.compilePresets(); err != nil {
+		return nil, err
+	}
+
+	if err = p.initialRevocationSync(ctx); err != nil {
+		return nil, err
+	}
+
+	// Prepare the provider-owned refresh cron (JWKS refresh, revocation sync).
+	if jobs := p.refreshJobs(o); len(jobs) > 0 {
+		if p.refreshCron, err = p.newRefreshCron(jobs); err != nil {
+			return nil, err
+		}
 	}
 
 	// Register with health coordinator if provided
@@ -259,6 +300,10 @@ func NewProvider(ctx context.Context, discoveryURL string, opt ...Option) (*Prov
 		o.healthCoordinator.RegisterService("oidc", p)
 	}
 
+	constructed = true
+	if p.refreshCron != nil {
+		p.refreshCron.Start()
+	}
 	return p, nil
 }
 
@@ -363,35 +408,11 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 
 	// Refuse to validate against a stale key set when the operator has
 	// opted in via WithJWKSMaxStaleness — see [Provider.checkJWKSStaleness]
-	// for the per-mode behavior. Runs first so cached claims and
-	// introspection short-circuits do not bypass the staleness budget.
+	// for the per-mode behavior. Runs first so cached signature
+	// verifications do not bypass the staleness budget.
 	if err := p.checkJWKSStaleness(ctx); err != nil {
 		p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 		return nil, err
-	}
-
-	if err := p.checkTokenRevocation(ctx, token); err != nil {
-		p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
-		return nil, err
-	}
-
-	// Try to get cached claims if caching is enabled (only after revocation check)
-	if p.tokenCache != nil {
-		cacheKey := tokenCacheKey(p.opts.tokensCacheKeyPrefix, token)
-		var claims map[string]any
-		if err := p.tokenCache.Get(ctx, cacheKey, &claims); err == nil {
-			p.metrics.cacheHits.Inc()
-			// Re-run the post-verification revocation check against cached
-			// claims so that a token revoked after caching is still rejected
-			// for the remainder of its TTL.
-			if err := p.checkTokenRevocationVerifiedCached(ctx, token, claims); err != nil {
-				p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
-				return nil, err
-			}
-			return claims, nil
-		}
-		p.metrics.cacheMisses.Inc()
-		// Cache miss or error - fall through to validation
 	}
 
 	var presetClaims jwt.MapClaims
@@ -421,7 +442,7 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 		// The preset is only known after inspecting the claims, so the signature
 		// is verified against the default algorithm set here; the selected
 		// preset's algorithm restriction is enforced in Step 3 below.
-		claimsForPreset, headerForPreset, err := p.parseTokenWithoutClaimsValidation(ctx, token, nil)
+		claimsForPreset, headerForPreset, err := p.verifyTokenSignature(ctx, token, nil)
 		if err != nil {
 			p.metrics.validationErrors.WithLabels(issuerLabels).Inc()
 			p.logger.ErrorContext(ctx, "signature verification failed", slog.Any("error", err))
@@ -507,61 +528,75 @@ func (p *Provider) ValidateTokenWithOptions(ctx context.Context, token string, o
 	return claims, nil
 }
 
-// checkTokenRevocation validates token revocation status using introspection or local storage.
-//
-// This is the pre-signature-verification check. Introspection always runs
-// (the IdP is the source of truth). For local revocation storage it runs
-// only when the storage is keyed on the full token — claims (jti) or header
-// (kid) extracted from an unverified JWT are attacker-controlled and must
-// not drive security-relevant lookups, so jti/kid checks are deferred to
-// [Provider.checkTokenRevocationVerified] which runs after signature
-// verification.
+// checkIntrospection asks the IdP (RFC 7662) whether a signature-verified
+// token is still active. It runs only after the token's signature and claims
+// were verified, so garbage or foreign-signed tokens never reach the IdP.
 //
 // Introspection errors are fatal by default: the token is rejected with
 // [ErrIntrospection] when the endpoint is unreachable ([WithIntrospection]).
 // Enable [WithIntrospectionFailOpen] to instead log the error and accept the
 // token on its signature alone.
-func (p *Provider) checkTokenRevocation(ctx context.Context, token string) error {
-	if p.opts.introspectionEnabled {
-		introspectionResp, err := p.IntrospectToken(ctx, token)
-		if err != nil {
-			p.metrics.revocationCheckErrors.Inc()
-			if p.opts.introspectionFailOpen {
-				p.logger.WarnContext(ctx, "token introspection failed, continuing with signature validation", slog.Any("error", err))
-				return nil
-			}
-			p.logger.WarnContext(ctx,
-				"token introspection failed, rejecting token",
-				slog.Any("error", err))
-			return coreerrs.Wrap(ErrIntrospection, "introspection endpoint unavailable")
+func (p *Provider) checkIntrospection(ctx context.Context, token string) error {
+	introspectionResp, err := p.IntrospectToken(ctx, token)
+	if err != nil {
+		p.metrics.revocationCheckErrors.Inc()
+		if p.opts.introspectionFailOpen {
+			p.logger.WarnContext(ctx, "token introspection failed, continuing with signature validation", slog.Any("error", err))
+			return nil
 		}
-		if !introspectionResp.Active {
-			return ErrTokenRevoked
-		}
-		return nil
+		p.logger.WarnContext(ctx,
+			"token introspection failed, rejecting token",
+			slog.Any("error", err))
+		return coreerrs.Wrap(ErrIntrospection, "introspection endpoint unavailable")
 	}
+	if !introspectionResp.Active {
+		return ErrTokenRevoked
+	}
+	return nil
+}
 
+// checkTokenRevocationVerified runs every revocation check for a token whose
+// signature has been verified: the local revocation storage first (keyed on
+// the full token, or on the verified jti claim / kid header), then RFC 7662
+// introspection when enabled. A local hit always rejects — introspection
+// cannot overrule it — and a local miss never skips introspection.
+//
+// It must only be called with claims/header returned by a signature-verifying
+// path ([Provider.verifyTokenSignature]); passing unverified data would let an
+// attacker choose the jti/kid lookup key.
+func (p *Provider) checkTokenRevocationVerified(ctx context.Context, token string, claims jwt.MapClaims, header map[string]any) error {
+	if err := p.checkLocalRevocation(ctx, token, claims, header); err != nil {
+		return err
+	}
+	if p.opts.introspectionEnabled {
+		return p.checkIntrospection(ctx, token)
+	}
+	return nil
+}
+
+// checkLocalRevocation consults the configured [RevocationStorage]. A storage
+// error rejects the token with [ErrRevocationCheck] unless
+// [WithRevocationFailOpen] is set; either way it is logged and counted.
+func (p *Provider) checkLocalRevocation(ctx context.Context, token string, claims jwt.MapClaims, header map[string]any) error {
 	if p.revocationStorage == nil {
 		return nil
 	}
 
-	// jti/kid lookups need verified claims/header — defer to
-	// checkTokenRevocationVerified called after signature verification.
-	if p.opts.revocationItemType == RevocationItemTypeJTI || p.opts.revocationItemType == RevocationItemTypeKID {
-		return nil
-	}
-
-	isRevoked, err := p.revocationStorage.IsRevoked(ctx, token)
+	item := revocationItemFromVerifiedClaims(p.opts.revocationItemType, claims, header, token)
+	isRevoked, err := p.revocationStorage.IsRevoked(ctx, item)
 	if err != nil {
-		// Fail-open, but never silently: a broken revocation store must be
-		// observable so an operator can react instead of trusting tokens blindly.
 		p.metrics.revocationCheckErrors.Inc()
-		p.logger.ErrorContext(ctx, "revocation storage check failed; allowing token (fail-open)",
+		if p.opts.revocationFailOpen {
+			p.logger.ErrorContext(ctx, "revocation storage check failed; allowing token (fail-open)",
+				"item_type", p.opts.revocationItemType, "error", err)
+			return nil
+		}
+		p.logger.ErrorContext(ctx, "revocation storage check failed; rejecting token (fail-closed)",
 			"item_type", p.opts.revocationItemType, "error", err)
-		return nil
+		return fmt.Errorf("%w: revocation storage: %w", ErrRevocationCheck, err)
 	}
 	if isRevoked {
-		p.logger.DebugContext(ctx, "token found in revocation storage",
+		p.logger.DebugContext(ctx, "item found in revocation storage",
 			"item_type", p.opts.revocationItemType)
 		return ErrTokenRevoked
 	}
@@ -569,61 +604,59 @@ func (p *Provider) checkTokenRevocation(ctx context.Context, token string) error
 	return nil
 }
 
-// checkTokenRevocationVerified runs the revocation lookup that depends on
-// signature-verified data (jti claim or kid header). It must only be called
-// after [Provider.parseAndValidateToken] or [Provider.parseTokenWithoutClaimsValidation]
-// has returned successfully — passing unverified claims/header would
-// reintroduce the bypass this method is designed to prevent.
-//
-// For full-token revocation storage this is a no-op: the pre-verification
-// check in [Provider.checkTokenRevocation] already covers that case.
-func (p *Provider) checkTokenRevocationVerified(ctx context.Context, token string, claims jwt.MapClaims, header map[string]any) error {
+// Backoff bounds for retrying the initial revocation sync while a shared
+// filter is busy (see initialRevocationSync).
+const (
+	initialSyncRetryBaseDelay = 250 * time.Millisecond
+	initialSyncRetryMaxDelay  = 5 * time.Second
+	initialSyncRetryJitter    = 0.2
+)
+
+// initialRevocationSync populates the revocation storage once at
+// construction so the provider never serves with an empty filter while
+// waiting for the first scheduled sync. Failure follows the revocation fail
+// mode: fail-closed (default) aborts construction, fail-open logs and goes on.
+func (p *Provider) initialRevocationSync(ctx context.Context) error {
 	if p.revocationStorage == nil {
 		return nil
 	}
-	if p.opts.revocationItemType != RevocationItemTypeJTI && p.opts.revocationItemType != RevocationItemTypeKID {
+	// Only a sync this provider completed itself proves the filter holds the
+	// current source. While another replica rebuilds the shared filter
+	// (ErrRebuildInProgress) or this rebuild lost its lease
+	// (ErrRebuildSuperseded) the sync is retried with backoff, bounded by
+	// WithRevocationInitialSyncWait; a peer that publishes releases the lease
+	// and the retry then rebuilds and publishes again, and a peer that fails
+	// or vanishes is replaced by the retry. Any other error, or running out of
+	// time, is a failed initial sync.
+	// The budget bounds only the waiting between attempts: each attempt gets
+	// the caller's context, so a long rebuild of our own is never cut off.
+	waitCtx, cancel := context.WithTimeout(ctx, p.opts.revocationInitialSyncWait)
+	defer cancel()
+	var lastErr error
+	err := coreretry.Do(waitCtx, func(context.Context) error {
+		lastErr = p.revocationStorage.Sync(ctx)
+		return lastErr
+	},
+		coreretry.WithMaxAttempts(-1),
+		coreretry.WithShouldRetry(func(err error) bool {
+			return errors.Is(err, probfilter.ErrRebuildInProgress) || errors.Is(err, probfilter.ErrRebuildSuperseded)
+		}),
+		coreretry.WithNextDelay(coreretry.Exponential(coreretry.ExponentialConfig{
+			BaseDelay: initialSyncRetryBaseDelay, MaxDelay: initialSyncRetryMaxDelay, Jitter: initialSyncRetryJitter,
+		})),
+	)
+	if err == nil {
 		return nil
 	}
-
-	item := revocationItemFromVerifiedClaims(p.opts.revocationItemType, claims, header, token)
-	isRevoked, err := p.revocationStorage.IsRevoked(ctx, item)
-	if err != nil {
-		// Fail-open, but never silently — see checkTokenRevocation.
-		p.metrics.revocationCheckErrors.Inc()
-		p.logger.ErrorContext(ctx, "revocation storage check failed; allowing token (fail-open)",
-			"item_type", p.opts.revocationItemType, "error", err)
+	if lastErr != nil && !errors.Is(err, lastErr) {
+		err = errors.Join(lastErr, err) // budget exhausted while the filter stayed busy
+	}
+	p.metrics.revocationCheckErrors.Inc()
+	if p.opts.revocationFailOpen {
+		p.logger.ErrorContext(ctx, "initial revocation sync failed; starting anyway (fail-open)", "error", err)
 		return nil
 	}
-	if isRevoked {
-		p.logger.DebugContext(ctx, "item found in revocation storage",
-			"item_type", p.opts.revocationItemType,
-			"item", item)
-		return ErrTokenRevoked
-	}
-
-	return nil
-}
-
-// checkTokenRevocationVerifiedCached runs the post-verification revocation
-// lookup against cached claims. The cache is keyed by the full token, so a
-// cache hit proves the same token was previously signature-verified — making
-// it safe to recover the JWT header via ParseUnverified solely to read the
-// kid for kid-type revocation lookups.
-func (p *Provider) checkTokenRevocationVerifiedCached(ctx context.Context, token string, claims map[string]any) error {
-	if p.revocationStorage == nil {
-		return nil
-	}
-	if p.opts.revocationItemType != RevocationItemTypeJTI && p.opts.revocationItemType != RevocationItemTypeKID {
-		return nil
-	}
-
-	var header map[string]any
-	if p.opts.revocationItemType == RevocationItemTypeKID {
-		if t, _, err := new(jwt.Parser).ParseUnverified(token, jwt.MapClaims{}); err == nil {
-			header = t.Header
-		}
-	}
-	return p.checkTokenRevocationVerified(ctx, token, jwt.MapClaims(claims), header)
+	return fmt.Errorf("%w: initial revocation sync: %w", ErrRevocationCheck, err)
 }
 
 // revocationItemFromVerifiedClaims extracts the revocation lookup key from
@@ -646,16 +679,12 @@ func revocationItemFromVerifiedClaims(itemType string, claims jwt.MapClaims, hea
 }
 
 // finalizeValidatedToken centralizes the work that must run after every
-// successful signature/claims verification path: the post-verification
-// revocation lookup followed by caching the validated claims. Keeping it
-// in one helper guarantees that any future validation path inherits the
-// same security boundary without ad-hoc duplication.
+// successful signature/claims verification path: the local revocation lookup
+// followed by introspection. Keeping it in one helper guarantees that any
+// future validation path inherits the same security boundary without ad-hoc
+// duplication.
 func (p *Provider) finalizeValidatedToken(ctx context.Context, token string, claims jwt.MapClaims, header map[string]any) error {
-	if err := p.checkTokenRevocationVerified(ctx, token, claims, header); err != nil {
-		return err
-	}
-	p.cacheValidatedClaims(ctx, token, claims)
-	return nil
+	return p.checkTokenRevocationVerified(ctx, token, claims, header)
 }
 
 func (p *Provider) getDiscoveryInfo(ctx context.Context) error {
@@ -817,7 +846,7 @@ func (p *Provider) initializeJWKS() error {
 	}
 
 	// Create JWKS storage from HTTP endpoint. Internal refresh interval is NOT set
-	// to allow external management via RefreshJWKS and a scheduler.
+	// to allow management via RefreshJWKS and the provider's refresh cron.
 	storage, err := jwkset.NewStorageFromHTTP(p.discoveryInfo.JwksURL, storageOptions)
 	if err != nil {
 		return coreerrs.WrapOperation(err, "initialize JWKS storage")
@@ -1277,28 +1306,23 @@ func (p *Provider) parseAndValidateToken(
 	ops *verifierOptions,
 	compiledCELRules []celPreCompiledValidationRule,
 ) (jwt.MapClaims, map[string]any, error) {
-	v := authjwt.NewVerifier(p.keyResolver, p.jwtVerifyOptions(ops)...)
-
-	var (
-		claims authjwt.Claims
-		hdr    authjwt.Header
-		err    error
-	)
-	if ops.withoutClaimsValidation {
-		claims, hdr, err = v.VerifySignature(ctx, token)
-	} else {
-		claims, hdr, err = v.VerifyWithHeader(ctx, token)
-	}
+	claims, header, err := p.verifyTokenSignature(ctx, token, ops)
 	if err != nil {
 		return nil, nil, coreerrs.Wrapf(ErrTokenInvalid, "%s", err)
 	}
 
-	mc := jwt.MapClaims(claims)
-	if err := p.validateClaims(mc, ops, compiledCELRules); err != nil {
+	if !ops.withoutClaimsValidation {
+		v := authjwt.NewVerifier(p.keyResolver, p.jwtVerifyOptions(ops)...)
+		if err := v.ValidateClaims(authjwt.Claims(claims)); err != nil {
+			return nil, nil, coreerrs.Wrapf(ErrTokenInvalid, "%s", err)
+		}
+	}
+
+	if err := p.validateClaims(claims, ops, compiledCELRules); err != nil {
 		return nil, nil, err
 	}
 
-	return mc, headerToMap(hdr), nil
+	return claims, header, nil
 }
 
 func (p *Provider) validateWithPresetClaims(
@@ -1321,17 +1345,6 @@ func (p *Provider) validateWithPresetClaims(
 	}
 
 	return p.validateClaims(claims, ops, compiledCELRules)
-}
-
-// cacheValidatedClaims saves claims to cache with TTL based on token expiration.
-func (p *Provider) cacheValidatedClaims(ctx context.Context, token string, claims map[string]any) {
-	if p.tokenCache == nil {
-		return
-	}
-
-	cacheKey := tokenCacheKey(p.opts.tokensCacheKeyPrefix, token)
-	ttl := getTokenExpirationTTL(claims)
-	_ = p.tokenCache.Save(ctx, cacheKey, claims, ttl) //nolint:errcheck
 }
 
 func cloneVerifierOptions(base *verifierOptions) *verifierOptions {
