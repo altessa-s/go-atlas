@@ -37,6 +37,20 @@
 #    # Default value: 3
 #    replicas: 3
 #
+#    # <bool> Update an existing bucket whose key TTL differs from the feature's TTL.
+#    # When false, such a bucket is left untouched and the feature fails to build with
+#    # ErrBucketTTLMismatch: the bucket's key TTL expires every key in it, including
+#    # keys of other processes sharing the bucket.
+#    # Default value: false
+#    migrateBucketTTL: false
+#
+#    # <bool> Fail when the bucket already exists with another storage type.
+#    # When false, such a bucket is used as is and a warning is logged on every start;
+#    # the server cannot convert a bucket's storage type (see the backend's README for
+#    # the storage migration).
+#    # Default value: false
+#    strictBucketStorage: false
+#
 #  # <object> Redis-specific configuration for storage.
 #  # Redis-specific settings for key storage.
 #  # Required when type is set to 'redis'.

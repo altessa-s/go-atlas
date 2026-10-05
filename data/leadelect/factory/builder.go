@@ -10,12 +10,14 @@ import (
 	"log/slog"
 
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/core/runtime/appinfo"
 	"github.com/altessa-s/go-atlas/data/leadelect"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	natsprovider "github.com/altessa-s/go-atlas/data/leadelect/providers/nats"
 )
@@ -79,7 +81,10 @@ func (b *LeaderBuilder) createNatsProvider(ctx context.Context) (*natsprovider.P
 	opts := []natsprovider.Option{
 		natsprovider.WithLogger(b.Logger()),
 		natsprovider.WithCollector(b.collector),
+		natsprovider.WithStorage(bucketStorage(b.cfg.Storage)),
 	}
+	opts = coreslices.AppendIf(opts, b.cfg.MigrateBucketTTL, natsprovider.WithMigrateBucketTTL())
+	opts = coreslices.AppendIf(opts, b.cfg.StrictBucketStorage, natsprovider.WithStrictBucketStorage())
 
 	provider, err := natsprovider.New(ctx, b.natsConn, opts...)
 	if err != nil {
@@ -87,4 +92,13 @@ func (b *LeaderBuilder) createNatsProvider(ctx context.Context) (*natsprovider.P
 	}
 
 	return provider, nil
+}
+
+// bucketStorage maps the configured bucket storage onto JetStream's: file is
+// file storage, anything else — including unset — the memory default.
+func bucketStorage(v config.KVStorageType) jetstream.StorageType {
+	if v == config.KVStorageFile {
+		return jetstream.FileStorage
+	}
+	return jetstream.MemoryStorage
 }

@@ -8,19 +8,21 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	corectx "github.com/altessa-s/go-atlas/core/context"
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
+	coreretry "github.com/altessa-s/go-atlas/core/retry"
 )
 
 // Common errors for lease operations.
@@ -42,7 +44,29 @@ const (
 	// lease. It is the usual choice for lease keepalives — etcd sessions and
 	// ZooKeeper heartbeats both renew at TTL/3.
 	DefaultRenewRatio = 1.0 / 3.0
+
+	// renewSafetyMarginRatio is the fraction of the lease lifetime the holder
+	// gives up before the lease could expire on the server. It absorbs clock
+	// rate drift between client and server and local scheduling delay, so the
+	// holder stops believing it owns the lease before the server can hand the
+	// key to someone else.
+	renewSafetyMarginRatio = 0.1
+
+	// minRenewRetryDelay is the shortest pause between renewal retries, and the
+	// shortest per-attempt timeout. Once less than twice this is left before
+	// the renewal deadline, the attempt in flight gets the rest of the window
+	// and no further retry is scheduled.
+	minRenewRetryDelay = 10 * time.Millisecond
+
+	// renewWindowShare splits the time left before the renewal deadline: each
+	// attempt, and each pause before the next one, gets 1/renewWindowShare of
+	// it, so a retry always still fits.
+	renewWindowShare = 2
 )
+
+// errRenewalDeadline reports that the lease could not be renewed before it may
+// have expired on the server.
+var errRenewalDeadline = errors.New("lease renewal deadline passed")
 
 // LeaseCallbacks defines callbacks for lease state changes.
 type LeaseCallbacks struct {
@@ -360,6 +384,10 @@ func (l *Lease) UpdateValue(val []byte) {
 //
 // The renewal also ends on [Lease.Release] or [Lease.StopCamping].
 func (l *Lease) RunCamping(ctx context.Context, acquireTimeout time.Duration) (bool, error) {
+	// Taken before the request is sent: the server writes the key, and starts
+	// its TTL, only after that, so the lease is valid at least until here + TTL.
+	acquiredAt := time.Now()
+
 	acquireCtx, cancelAcquire := corectx.ApplyTimeout(ctx, acquireTimeout)
 	acquired, err := l.Acquire(acquireCtx)
 	cancelAcquire()
@@ -383,7 +411,7 @@ func (l *Lease) RunCamping(ctx context.Context, acquireTimeout time.Duration) (b
 		// otherwise a panic in the renew loop (a callback that throws,
 		// a NATS-driver bug, etc.) takes the whole process down.
 		defer panics.Handle(campCtx)
-		l.campingLoop(campCtx)
+		l.campingLoop(campCtx, acquiredAt)
 	}()
 
 	return true, nil
@@ -418,37 +446,144 @@ func RenewInterval(ttl time.Duration, ratio float64) time.Duration {
 	return time.Duration(float64(ttl) * ratio)
 }
 
-// campingLoop maintains the lease by periodically renewing it.
-func (l *Lease) campingLoop(ctx context.Context) {
-	renewInterval := RenewInterval(l.config.TTL, l.config.RenewRatio)
-	ticker := time.NewTicker(renewInterval)
-	defer ticker.Stop()
+// safetyMargin is how long before the lease could expire the holder stops
+// trusting it.
+func (l *Lease) safetyMargin() time.Duration {
+	return time.Duration(float64(l.config.TTL) * renewSafetyMarginRatio)
+}
 
-	l.logger.DebugContext(ctx, "camping loop started", slog.Duration("renew_interval", renewInterval))
+// renewEvery is the camping loop's renewal cadence: [RenewInterval], clamped so
+// a renewal always starts at least one safety margin before the renewal
+// deadline. A ratio close to 1 would otherwise schedule the renewal at, or
+// past, the point the lease may already have expired.
+func (l *Lease) renewEvery() time.Duration {
+	return min(RenewInterval(l.config.TTL, l.config.RenewRatio), l.config.TTL-2*l.safetyMargin())
+}
+
+// renewRetryable reports whether a failed renewal is worth retrying while the
+// lease may still be valid. Losing the key — gone, taken over, or its revision
+// moved on — is definitive, and so is a connection its owner has closed.
+// Anything else, a timed-out attempt included, may clear up on its own.
+func renewRetryable(err error) bool {
+	return !errors.Is(err, ErrLeaseNotHeld) && !errors.Is(err, nats.ErrConnectionClosed)
+}
+
+// renewWithRetry renews a lease that is valid until validUntil, retrying
+// failures with backoff for as long as the lease may still be valid. It returns
+// the time the successful attempt started: the server rewrote the key after
+// that, so the renewed lease is valid at least until then plus the TTL.
+//
+// Every attempt is bounded: the whole retry runs under a deadline one safety
+// margin before validUntil, and each attempt gets half of the time left, so a
+// request that is never answered cannot use up the window that a fresh attempt
+// would need once the server recovers.
+func (l *Lease) renewWithRetry(ctx context.Context, validUntil time.Time, every time.Duration) (time.Time, error) {
+	deadline := validUntil.Add(-l.safetyMargin())
+	if time.Until(deadline) <= 0 {
+		return time.Time{}, errRenewalDeadline
+	}
+
+	renewCtx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+
+	// Half of what is left, so a retry always fits before the deadline. Zero
+	// once too little is left, which ends the retry loop.
+	halfLeft := func() time.Duration {
+		if left := time.Until(deadline) / renewWindowShare; left >= minRenewRetryDelay {
+			return left
+		}
+		return 0
+	}
+
+	backoff := coreretry.Exponential(coreretry.ExponentialConfig{
+		BaseDelay: min(retryBaseDelay, every),
+		MaxDelay:  every,
+		Jitter:    DefaultJitter,
+	})
+
+	var renewedAt time.Time
+
+	err := coreretry.Do(renewCtx, func(ctx context.Context) error {
+		// Too little left to split: the attempt gets all of it, bounded by
+		// the deadline of ctx.
+		attemptCtx, cancelAttempt := ctx, context.CancelFunc(func() {})
+		if left := halfLeft(); left > 0 {
+			attemptCtx, cancelAttempt = context.WithTimeout(ctx, left)
+		}
+		defer cancelAttempt()
+
+		start := time.Now()
+		if _, err := l.Renew(attemptCtx); err != nil {
+			return err
+		}
+		renewedAt = start
+
+		return nil
+	},
+		coreretry.WithMaxAttempts(-1),
+		coreretry.WithShouldRetry(renewRetryable),
+		coreretry.WithNextDelay(func(attempt int, err error) time.Duration {
+			if left := halfLeft(); left > 0 {
+				return min(backoff(attempt, err), left)
+			}
+			return 0
+		}),
+		coreretry.WithOnRetry(func(attempt int, err error, delay time.Duration) {
+			l.logger.WarnContext(ctx, "failed to renew lease, retrying",
+				slog.Int("attempt", attempt+1), slog.Duration("delay", delay), slog.Any("error", err))
+		}),
+	)
+	if err != nil && ctx.Err() == nil && renewCtx.Err() != nil {
+		err = fmt.Errorf("%w: %w", errRenewalDeadline, err)
+	}
+
+	return renewedAt, err
+}
+
+// campingLoop maintains the lease by periodically renewing it.
+//
+// A failed renewal is retried for as long as the lease may still be valid —
+// last successful write plus TTL, less a safety margin. The lease is reported
+// lost when that window closes, or at once when the failure is definitive.
+func (l *Lease) campingLoop(ctx context.Context, acquiredAt time.Time) {
+	every := l.renewEvery()
+	writtenAt := acquiredAt
+
+	timer := time.NewTimer(time.Until(writtenAt.Add(every)))
+	defer timer.Stop()
+
+	l.logger.DebugContext(ctx, "camping loop started", slog.Duration("renew_interval", every))
 	defer l.logger.DebugContext(ctx, "camping loop stopped")
 
 	for {
 		select {
-		case <-ticker.C:
-			renewed, err := l.Renew(ctx)
-			if err != nil {
-				if coreerrs.IsContextCanceled(err) {
-					return
-				}
-				l.logger.ErrorContext(ctx, "failed to renew lease", slog.Any("error", err))
-				if l.config.Callbacks.OnLost != nil {
-					l.config.Callbacks.OnLost()
-				}
-				return
+		case <-timer.C:
+			renewedAt, err := l.renewWithRetry(ctx, writtenAt.Add(l.config.TTL), every)
+			if err == nil {
+				writtenAt = renewedAt
+				timer.Reset(time.Until(writtenAt.Add(every)))
+				l.logger.DebugContext(ctx, "lease renewed")
+
+				continue
 			}
-			if !renewed {
-				l.logger.WarnContext(ctx, "lease lost during renewal")
-				if l.config.Callbacks.OnLost != nil {
-					l.config.Callbacks.OnLost()
-				}
-				return
+
+			// Canceled mid-renewal: the ctx.Done branch releases the lease.
+			if ctx.Err() != nil {
+				continue
 			}
-			l.logger.DebugContext(ctx, "lease renewed")
+
+			// Renew marks a definitive loss itself; a lease that ran out of time
+			// is just as gone.
+			if !errors.Is(err, ErrLeaseNotHeld) {
+				l.isHeld.Store(false)
+				l.metrics.leaseHeld.Set(0)
+			}
+			l.logger.WarnContext(ctx, "lease lost during renewal", slog.Any("error", err))
+			if l.config.Callbacks.OnLost != nil {
+				l.config.Callbacks.OnLost()
+			}
+
+			return
 
 		case <-ctx.Done():
 			l.logger.DebugContext(ctx, "context canceled, releasing lease")

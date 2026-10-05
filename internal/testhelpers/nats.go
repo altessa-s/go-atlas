@@ -82,21 +82,35 @@ func ConnectJetStream(tb testing.TB, ns *server.Server) (*nats.Conn, jetstream.J
 }
 
 // JetStreamKVCapture is a [jetstream.JetStream] test double that records the
-// [jetstream.KeyValueConfig] passed to CreateOrUpdateKeyValue. KeyValue always
-// reports [jetstream.ErrBucketNotFound] so callers fall through to the bucket
-// creation path. All other JetStream methods panic via the embedded nil
+// [jetstream.KeyValueConfig] passed to CreateKeyValue or
+// CreateOrUpdateKeyValue. KeyValue always reports [jetstream.ErrBucketNotFound]
+// so callers fall through to the bucket creation path. All other JetStream methods panic via the embedded nil
 // interface. Useful for asserting bucket configuration (replicas, TTL, storage)
 // that a single-node test server cannot express.
 type JetStreamKVCapture struct {
 	jetstream.JetStream
 
-	// KVConfig is the config captured by the last CreateOrUpdateKeyValue call.
+	// KVConfig is the config captured by the last CreateKeyValue or
+	// CreateOrUpdateKeyValue call.
 	KVConfig jetstream.KeyValueConfig
 }
 
 // KeyValue always returns [jetstream.ErrBucketNotFound] to force bucket creation.
 func (c *JetStreamKVCapture) KeyValue(context.Context, string) (jetstream.KeyValue, error) {
 	return nil, jetstream.ErrBucketNotFound
+}
+
+// Stream always returns [jetstream.ErrStreamNotFound]: no stream, such as a
+// bucket's storage-migration marker, exists.
+func (c *JetStreamKVCapture) Stream(context.Context, string) (jetstream.Stream, error) {
+	return nil, jetstream.ErrStreamNotFound
+}
+
+// CreateKeyValue records cfg and returns an inert KeyValue whose methods panic
+// when called.
+func (c *JetStreamKVCapture) CreateKeyValue(_ context.Context, cfg jetstream.KeyValueConfig) (jetstream.KeyValue, error) {
+	c.KVConfig = cfg
+	return inertKeyValue{}, nil
 }
 
 // CreateOrUpdateKeyValue records cfg and returns an inert KeyValue whose
@@ -125,4 +139,30 @@ func CreateNATSKV(tb testing.TB, js jetstream.JetStream, bucket string, ttl time
 		tb.Fatalf("failed to create NATS KV bucket %q: %v", bucket, err)
 	}
 	return kv
+}
+
+// KVBucketTTL returns the key TTL of the existing NATS KeyValue bucket.
+func KVBucketTTL(tb testing.TB, js jetstream.JetStream, bucket string) time.Duration {
+	tb.Helper()
+	return kvBucketStatus(tb, js, bucket).TTL()
+}
+
+// KVBucketStorage returns the storage type of the existing NATS KeyValue bucket.
+func KVBucketStorage(tb testing.TB, js jetstream.JetStream, bucket string) jetstream.StorageType {
+	tb.Helper()
+	return kvBucketStatus(tb, js, bucket).Config().Storage
+}
+
+func kvBucketStatus(tb testing.TB, js jetstream.JetStream, bucket string) jetstream.KeyValueStatus {
+	tb.Helper()
+
+	kv, err := js.KeyValue(tb.Context(), bucket)
+	if err != nil {
+		tb.Fatalf("failed to open NATS KV bucket %q: %v", bucket, err)
+	}
+	status, err := kv.Status(tb.Context())
+	if err != nil {
+		tb.Fatalf("failed to read NATS KV bucket %q status: %v", bucket, err)
+	}
+	return status
 }

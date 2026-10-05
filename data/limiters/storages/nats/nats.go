@@ -23,6 +23,16 @@ import (
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
+// ErrBucketTTLMismatch is returned by New when the bucket already exists with a
+// key TTL other than the configured one and [WithMigrateBucketTTL] is not set.
+// The bucket is left untouched.
+var ErrBucketTTLMismatch = natskvlease.ErrBucketTTLMismatch
+
+// ErrBucketStorageMismatch is returned by New when the bucket already exists
+// with another storage type and [WithStrictBucketStorage] is set. The bucket is
+// left untouched.
+var ErrBucketStorageMismatch = natskvlease.ErrBucketStorageMismatch
+
 // bucketData represents the rate limiting data stored in NATS KeyValue.
 type bucketData struct {
 	Requests []int64 `json:"requests"` // Unix timestamps in milliseconds
@@ -61,12 +71,7 @@ func New(js jetstream.JetStream, opts ...Option) (*Provider, error) {
 
 	config := newOptions(opts...)
 
-	base, err := natsbase.NewBaseWithBucket(context.Background(), js, natskvlease.BucketConfig{
-		Bucket:   config.bucket,
-		TTL:      config.maxAge,
-		Storage:  jetstream.FileStorage,
-		Replicas: config.replicas,
-	}, nil)
+	base, err := natsbase.NewBaseWithBucket(context.Background(), js, bucketConfig(config), nil)
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "create NATS KeyValue bucket")
 	}
@@ -75,6 +80,18 @@ func New(js jetstream.JetStream, opts ...Option) (*Provider, error) {
 		Base:    base,
 		options: config,
 	}, nil
+}
+
+// bucketConfig is the bucket New creates and MigrateBucketStorage migrates to.
+func bucketConfig(o *options) natskvlease.BucketConfig {
+	return natskvlease.BucketConfig{
+		Bucket:        o.bucket,
+		TTL:           o.maxAge,
+		Storage:       jetstream.FileStorage,
+		Replicas:      o.replicas,
+		MigrateTTL:    o.migrateBucketTTL,
+		StrictStorage: o.strictBucketStorage,
+	}
 }
 
 // maxAllowCASAttempts caps the number of retries the read-modify-write loop

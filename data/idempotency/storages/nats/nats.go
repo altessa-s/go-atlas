@@ -22,6 +22,16 @@ import (
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
+// ErrBucketTTLMismatch is returned by New when the bucket already exists with a
+// key TTL other than the configured one and [WithMigrateBucketTTL] is not set.
+// The bucket is left untouched.
+var ErrBucketTTLMismatch = natskvlease.ErrBucketTTLMismatch
+
+// ErrBucketStorageMismatch is returned by New when the bucket already exists
+// with another storage type and [WithStrictBucketStorage] is set. The bucket is
+// left untouched.
+var ErrBucketStorageMismatch = natskvlease.ErrBucketStorageMismatch
+
 // Storage is a NATS JetStream KeyValue-backed idempotency key store.
 // TTL is handled at the bucket level via MaxAge configuration.
 type Storage struct {
@@ -44,24 +54,31 @@ func New(js jetstream.JetStream, opts ...Option) (*Storage, error) {
 
 	options := newOptions(opts...)
 
-	base, err := natsbase.NewBaseWithBucket(context.Background(), js, natskvlease.BucketConfig{
-		Bucket:   options.bucket,
-		TTL:      options.maxAge,
+	base, err := natsbase.NewBaseWithBucket(context.Background(), js, bucketConfig(options), nil)
+	if err != nil {
+		return nil, coreerrs.WrapOperation(err, "create NATS KeyValue bucket")
+	}
+
+	return &Storage{Base: base, opts: options}, nil
+}
+
+// bucketConfig is the bucket New creates and MigrateBucketStorage migrates to.
+func bucketConfig(o *options) natskvlease.BucketConfig {
+	return natskvlease.BucketConfig{
+		Bucket:   o.bucket,
+		TTL:      o.maxAge,
 		Storage:  jetstream.FileStorage,
-		Replicas: options.replicas,
+		Replicas: o.replicas,
 		// Enable per-key TTL so AttemptLockWithTTL can pass
 		// jetstream.KeyTTL(d) on Create. Marker retention matches the
 		// bucket TTL — we don't watch tombstones, so any non-zero value
 		// is fine. Requires NATS server 2.11+; older servers fail
 		// bucket creation here, which is the right time to surface the
 		// requirement.
-		LimitMarkerTTL: options.maxAge,
-	}, nil)
-	if err != nil {
-		return nil, coreerrs.WrapOperation(err, "create NATS KeyValue bucket")
+		LimitMarkerTTL: o.maxAge,
+		MigrateTTL:     o.migrateBucketTTL,
+		StrictStorage:  o.strictBucketStorage,
 	}
-
-	return &Storage{Base: base, opts: options}, nil
 }
 
 // AttemptLock tries to acquire a lock for the given key using the

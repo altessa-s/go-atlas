@@ -9,16 +9,31 @@ without external dependencies beyond NATS.
 
 ## Options
 
-| Option           | Default                  | Description                                                                              |
-|------------------|--------------------------|------------------------------------------------------------------------------------------|
-| `WithBucket`     | `leadelect`              | KeyValue bucket name for the election key.                                               |
-| `WithRenewRatio` | `1/3`                    | Fraction of the lease lifetime at which the lease is renewed.                             |
-| `WithStorage`    | `jetstream.MemoryStorage`| JetStream storage backend for the bucket. Use `jetstream.FileStorage` to survive restarts.|
-| `WithCollector`  | no-op                    | Metrics collector.                                                                       |
-| `WithLogger`     | discard                  | Structured logger.                                                                       |
+| Option                    | Default                   | Description                                                                                         |
+|---------------------------|---------------------------|-----------------------------------------------------------------------------------------------------|
+| `WithBucket`              | `leadelect`               | KeyValue bucket name for the election key.                                                          |
+| `WithRenewRatio`          | `1/3`                     | Fraction of the lease lifetime at which the lease is renewed.                                       |
+| `WithStorage`             | `jetstream.MemoryStorage` | JetStream storage backend for the bucket. Use `jetstream.FileStorage` to survive restarts.          |
+| `WithMigrateBucketTTL`    | off                       | Update an existing bucket whose key TTL is not `DefaultBucketKeysTTL` instead of failing.           |
+| `WithStrictBucketStorage` | off                       | Fail with `ErrBucketStorageMismatch` on an existing bucket with another storage type.               |
+| `WithCollector`           | no-op                     | Metrics collector.                                                                                  |
+| `WithLogger`              | discard                   | Structured logger.                                                                                  |
 
 Memory storage keeps the lease ephemeral (lost on a JetStream restart, forcing a clean re-election) and avoids disk I/O on the renew hot path. Choose
 `WithStorage(jetstream.FileStorage)` when the bucket — and the monotonic fencing revision behind `Fence()` — must survive a full server bounce.
+
+Through the YAML factory the storage is `leaderElector.storage: memory|file` (default `memory`). Releases before this fix created a memory bucket even
+when `WithStorage(jetstream.FileStorage)` was set. The server cannot change a bucket's storage type, so `New` adopts an existing bucket with another
+storage type as is and logs a warning. Pass `WithStrictBucketStorage()` (YAML: `leaderElector.strictBucketStorage: true`) to fail with
+`ErrBucketStorageMismatch` instead.
+
+To convert the bucket, stop every instance and run `MigrateBucketStorage(ctx, nc, nats.MigrationOptions{}, opts...)` once, with the production options
+including `WithStorage(jetstream.FileStorage)`. If it fails, fix the cause, confirm the run has exited and rerun with `MigrationOptions{Resume: true}`;
+until then `New` fails with `ErrBucketMigrationInProgress`. A second migration fails with `ErrBucketMigrationLocked` while one holds the bucket's lease.
+The bucket is recreated with its first revision just above the old bucket's last one, so `Fence()` keeps growing and fencing tokens kept downstream stay
+valid. The election key is not copied: with every instance stopped there is no leader, and the next start elects one. The full procedure, the
+buckets the migration rejects and how a mirror bucket is re-synced are in
+[NATS KeyValue bucket storage migration](../../../../docs/data/nats-kv-storage-migration.md).
 
 ## Lease renewal
 
@@ -32,9 +47,11 @@ recover would swallow it and leave an elector that reports itself running while 
 
 ## Bucket TTL
 
-The bucket's key TTL is the expiry mechanism behind the lease: it is what releases the election key when a holder dies without resigning. The provider
-therefore reconciles the TTL of a bucket it adopts — a pre-existing bucket created without one would otherwise yield leases that never expire, hanging
-the election until someone intervenes by hand.
+The bucket's key TTL is the expiry mechanism behind the lease: it is what releases the election key when a holder dies without resigning. A
+pre-existing bucket with a different key TTL — or none, which would yield leases that never expire and hang the election until someone intervenes
+by hand — is therefore refused: `New` returns `ErrBucketTTLMismatch` and leaves the bucket untouched, since rewriting it would change the key
+lifetime of every process sharing it. Pass `WithMigrateBucketTTL()` to update such a bucket deliberately; through `leadelect/factory` the switch is
+`leaderElector.migrateBucketTTL: true`.
 
 ## Shutdown
 

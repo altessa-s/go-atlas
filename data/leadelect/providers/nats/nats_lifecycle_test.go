@@ -123,9 +123,12 @@ func TestProvider_Start_RejectedConfigLeavesProviderUsable(t *testing.T) {
 	require.NoError(t, prov.Stop(t.Context()))
 }
 
-// TestProvider_New_ReconcilesExistingBucketTTL pins that adopting a bucket that
-// predates the provider does not silently produce leases that never expire.
-func TestProvider_New_ReconcilesExistingBucketTTL(t *testing.T) {
+// TestProvider_New_ExistingBucketTTL pins how a bucket that predates the
+// provider with a different key TTL is handled. Adopting it unchanged would
+// produce leases that never expire (a bucket without a TTL) or expire at the
+// wrong time, and rewriting it silently would change the key lifetime of every
+// process sharing it — so it is rejected unless migration is asked for.
+func TestProvider_New_ExistingBucketTTL(t *testing.T) {
 	t.Parallel()
 
 	ns := testhelpers.StartNATSServer(t)
@@ -144,13 +147,13 @@ func TestProvider_New_ReconcilesExistingBucketTTL(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = lenats.New(ctx, nc, lenats.WithBucket(bucket))
+	require.ErrorIs(t, err, lenats.ErrBucketTTLMismatch)
+
+	require.Zero(t, testhelpers.KVBucketTTL(t, js, bucket), "a rejected provider changed the bucket's TTL")
+
+	_, err = lenats.New(ctx, nc, lenats.WithBucket(bucket), lenats.WithMigrateBucketTTL())
 	require.NoError(t, err)
 
-	kv, err := js.KeyValue(ctx, bucket)
-	require.NoError(t, err)
-	status, err := kv.Status(ctx)
-	require.NoError(t, err)
-
-	require.Equal(t, lenats.DefaultBucketKeysTTL, status.TTL(),
-		"an adopted bucket must be reconciled to the lease TTL, otherwise the lease never expires")
+	require.Equal(t, lenats.DefaultBucketKeysTTL, testhelpers.KVBucketTTL(t, js, bucket),
+		"WithMigrateBucketTTL must bring the bucket to the lease TTL, otherwise the lease never expires")
 }

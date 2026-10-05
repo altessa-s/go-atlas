@@ -79,7 +79,12 @@ keeper := idempotency.New(storage)
 ```
 
 NATS bucket auto-enables `LimitMarkerTTL`, so per-key TTL on `AttemptLockWithTTL` works. **Requires NATS server 2.11+** — older servers fail
-bucket creation with `ErrLimitMarkerTTLNotSupported` (visible at `New()`, not at runtime).
+bucket creation with `ErrLimitMarkerTTLNotSupported` (visible at `New()`, not at runtime). When the bucket already exists with a different key TTL,
+`New` returns `ErrBucketTTLMismatch` and leaves it untouched; pass `natsstorage.WithMigrateBucketTTL()` (YAML: `storage.nats.migrateBucketTTL: true`)
+to update it deliberately. Migration rewrites the whole bucket config, not only the key TTL: the limit-marker TTL follows the new `MaxAge` too, and a
+bucket created without one (before per-key TTL was enabled) gets per-key TTL turned on, which needs NATS server 2.11+. New buckets are file-backed.
+Earlier releases created memory buckets by mistake; such a bucket is adopted with a warning, and the storage README explains how to move it to
+file storage.
 
 ### Factory from YAML
 

@@ -10,13 +10,16 @@ import (
 	"log/slog"
 
 	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/data/locks/dlock"
 	"github.com/altessa-s/go-atlas/observability/health"
 
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
+	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
+	natsprovider "github.com/altessa-s/go-atlas/data/locks/dlock/providers/nats"
 )
 
 // DLockBuilder assembles a [dlock.DLock] step by step using a fluent API.
@@ -70,7 +73,21 @@ func (b *DLockBuilder) createNatsDLock(ctx context.Context) (*dlock.DLock, error
 		return nil, err
 	}
 
-	return dlock.NewWithNats(ctx, b.natsConn, b.cfg.Nats.Bucket, b.applyDefaults()...)
+	// Built here rather than through dlock.NewWithNats, which takes no provider
+	// options; the error wrapping matches it.
+	provOpts := []natsprovider.Option{
+		natsprovider.WithBucket(b.cfg.Nats.Bucket),
+		natsprovider.WithStorage(bucketStorage(b.cfg.Nats.Storage)),
+	}
+	provOpts = coreslices.AppendIf(provOpts, b.cfg.Nats.MigrateBucketTTL, natsprovider.WithMigrateBucketTTL())
+	provOpts = coreslices.AppendIf(provOpts, b.cfg.Nats.StrictBucketStorage, natsprovider.WithStrictBucketStorage())
+
+	prov, err := natsprovider.New(ctx, b.natsConn, provOpts...)
+	if err != nil {
+		return nil, coreerrs.Provider("nats distributed lock", err)
+	}
+
+	return dlock.New(prov, b.applyDefaults()...), nil
 }
 
 // applyDefaults returns builder default options.
@@ -81,4 +98,13 @@ func (b *DLockBuilder) applyDefaults() []dlock.Option {
 	opts = coreslices.AppendIf(opts, b.healthServiceName != "",
 		dlock.WithHealthServiceName(b.healthServiceName))
 	return opts
+}
+
+// bucketStorage maps the configured bucket storage onto JetStream's: file is
+// file storage, anything else — including unset — the memory default.
+func bucketStorage(v config.KVStorageType) jetstream.StorageType {
+	if v == config.KVStorageFile {
+		return jetstream.FileStorage
+	}
+	return jetstream.MemoryStorage
 }
