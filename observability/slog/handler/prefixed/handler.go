@@ -15,11 +15,14 @@ import (
 )
 
 // Handler wraps a [slog.Handler] to extract and format prefixes from log records.
-// Prefix values are identified by the configured key (default [slogx.ModuleKey])
-// and removed from the output attributes.
+// Prefix values are string attributes under the key set with [WithPrefix]; they are
+// removed from the output attributes and replaced by one formatted prefix attribute
+// per group level, at the level they were attached to.
 type Handler struct {
 	base.Base
-	opts     *options
+	opts *options
+	// prefixes holds the prefix values collected at the current group level
+	// that have not been passed to the inner handler yet.
 	prefixes []slog.Value
 }
 
@@ -68,11 +71,8 @@ func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
 		}
 	}
 
-	if len(prefixes) > 0 {
-		prefix := h.opts.prefixFormatter(prefixes, h.opts.prefixesDelimiter)
-		if prefix != nil {
-			r.AddAttrs(slog.Attr{Key: h.opts.prefix, Value: *prefix})
-		}
+	if attr, ok := h.prefixAttr(prefixes); ok {
+		r.AddAttrs(attr)
 	}
 
 	return h.Inner().Handle(ctx, r)
@@ -89,24 +89,42 @@ func (h *Handler) WithAttrs(attrs []slog.Attr) slog.Handler {
 }
 
 // WithGroup returns a new Handler with the given group name.
+//
+// Prefixes collected at the current level are passed to the inner handler as one
+// formatted attribute before the group is opened, so they stay at the level they
+// were attached to. The new group starts with no prefixes.
 func (h *Handler) WithGroup(name string) slog.Handler {
 	if name == "" {
 		return h
 	}
-	return &Handler{
-		Base:     h.WithGroupBase(name),
-		opts:     h.opts,
-		prefixes: h.prefixes,
+	b := h.Base
+	if attr, ok := h.prefixAttr(h.prefixes); ok {
+		b = h.WithAttrsBase([]slog.Attr{attr})
 	}
+	return &Handler{
+		Base: b.WithGroupBase(name),
+		opts: h.opts,
+	}
+}
+
+// prefixAttr formats prefixes into the prefix attribute. It reports false when
+// there are no prefixes or the formatter returns nil.
+func (h *Handler) prefixAttr(prefixes []slog.Value) (slog.Attr, bool) {
+	if len(prefixes) == 0 {
+		return slog.Attr{}, false
+	}
+	v := h.opts.prefixFormatter(prefixes, h.opts.prefixesDelimiter)
+	if v == nil {
+		return slog.Attr{}, false
+	}
+	return slog.Attr{Key: h.opts.prefix, Value: *v}, true
 }
 
 // extractPrefixes returns prefix values and remaining non-prefix attributes.
 func (h *Handler) extractPrefixes(attrs []slog.Attr) ([]slog.Value, []slog.Attr) {
 	prefixes := h.prefixes
 
-	if pfx := stdSlices.Collect(slices.Filter(attrs, func(attr slog.Attr) bool {
-		return attr.Key == h.opts.prefix && attr.Value.Kind() == slog.KindString
-	})); len(pfx) > 0 {
+	if pfx := stdSlices.Collect(slices.Filter(attrs, h.isPrefix)); len(pfx) > 0 {
 		prefixes = make([]slog.Value, 0, len(h.prefixes)+len(pfx))
 		prefixes = append(prefixes, h.prefixes...)
 
@@ -115,9 +133,15 @@ func (h *Handler) extractPrefixes(attrs []slog.Attr) ([]slog.Value, []slog.Attr)
 		}))...)
 
 		attrs = stdSlices.Collect(slices.Filter(attrs, func(attr slog.Attr) bool {
-			return attr.Key != h.opts.prefix
+			return !h.isPrefix(attr)
 		}))
 	}
 
 	return prefixes, attrs
+}
+
+// isPrefix reports whether attr is a prefix value: a string under the prefix key.
+// Other values under the key are left in place.
+func (h *Handler) isPrefix(attr slog.Attr) bool {
+	return attr.Key == h.opts.prefix && attr.Value.Kind() == slog.KindString
 }
