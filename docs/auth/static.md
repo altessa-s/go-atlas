@@ -188,12 +188,10 @@ not usable; always construct with `NewInMemoryStore`.
 
 ## Storage and Timing
 
-`InMemoryStore` keys tokens by their HMAC-SHA256 digest. The plaintext token is hashed at insertion time and the store's map holds only
-digests. One exception: the map passed to `WithInitialTokens` stays reachable for the store's lifetime (the options object that holds it is
-captured by the HMAC pool), so those plaintext tokens remain in memory even after `RemoveToken`. Prefer `AddToken` for secrets that must
-not linger. A lookup is a single map probe (no linear scan, no early-break loop), so timing depends on token length only, not on
-token position or membership. The HMAC instance is recycled through a `sync.Pool`, so a steady-state lookup allocates only the digest byte
-slice.
+`InMemoryStore` keys tokens by their HMAC-SHA256 digest. The plaintext token is hashed at insertion time and the store's map holds only digests; the map
+passed to `WithInitialTokens` is not retained after construction (only references the caller keeps to it stay live). A lookup is a single map probe (no
+linear scan, no early-break loop), so timing depends on token length only, not on token position or membership. The HMAC instance is recycled through a
+`sync.Pool`, so a steady-state lookup allocates only the digest byte slice.
 
 ## Stable Cross-Process Digests
 
