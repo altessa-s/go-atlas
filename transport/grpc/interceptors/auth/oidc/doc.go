@@ -17,20 +17,25 @@
 // Create an auth function that validates OIDC tokens:
 //
 //	import (
+//	    authoidc "github.com/altessa-s/go-atlas/auth/oidc"
 //	    "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth"
 //	    "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth/oidc"
 //	    "github.com/altessa-s/go-atlas/transport/grpc/interceptors/auth/oidc/validator"
-//	    "git.altessa-s.com/altessa/go-tools/v2/oidc/providers/keycloak"
 //	)
 //
-//	// Setup OIDC provider
-//	provider, err := keycloak.NewProvider(
-//	    keycloak.WithIssuerURL("https://auth.example.com/realms/myrealm"),
-//	    keycloak.WithClientID("my-service"),
+//	// Setup the OIDC provider (github.com/altessa-s/go-atlas/auth/oidc); it
+//	// satisfies validator.Provider.
+//	provider, err := authoidc.NewProvider(ctx,
+//	    "https://auth.example.com/realms/myrealm/.well-known/openid-configuration",
+//	    authoidc.WithDefaultValidationOptions(
+//	        authoidc.WithValidationIssuer("https://auth.example.com/realms/myrealm"),
+//	        authoidc.WithValidationAudience("my-service"),
+//	    ),
 //	)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
+//	defer provider.Close()
 //
 //	// Create validator
 //	oidcValidator := validator.NewDefaultValidator(provider)
