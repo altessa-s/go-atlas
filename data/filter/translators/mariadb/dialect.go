@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/altessa-s/go-atlas/data/filter"
+	"github.com/altessa-s/go-atlas/data/filter/internal/regexanchor"
 	"github.com/altessa-s/go-atlas/data/filter/translators/internal/sqlbase"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
@@ -69,7 +70,18 @@ var stringPredicates = sqlbase.StringPredicates{
 }
 
 // StringPredicate renders one of the four string predicates.
+//
+// A matches() pattern has its end-of-text `$` anchors rewritten to `\z`
+// first: MariaDB's PCRE and MySQL's ICU engines also match `$` before a
+// final newline, which the pattern's RE2 meaning does not allow.
 func (dialect) StringPredicate(op filter.Operator, col, needle string, value sqlbase.ValueFunc) (string, error) {
+	if op == filter.OpMatches {
+		anchored, err := regexanchor.EndOfText(needle)
+		if err != nil {
+			return "", err
+		}
+		needle = anchored
+	}
 	return sqlbase.RenderStringPredicate(op, col, needle, value, stringPredicates)
 }
 

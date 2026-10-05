@@ -209,12 +209,23 @@ func TestTranslator_StringFunctions(t *testing.T) {
 		{
 			name:     "endsWith",
 			expr:     `name.endsWith("n")`,
-			wantJSON: `{"name":{"$regex":"n$"}}`,
+			wantJSON: `{"name":{"$regex":"n\\z"}}`,
 		},
 		{
 			name:     "matches",
 			expr:     `name.matches("^[A-Z].*")`,
 			wantJSON: `{"name":{"$regex":"^[A-Z].*"}}`,
+		},
+		{
+			// PCRE's `$` also matches before a final newline; RE2's does not.
+			name:     "matches end of text",
+			expr:     `name.matches("^A.*e$")`,
+			wantJSON: `{"name":{"$regex":"^A.*e\\z"}}`,
+		},
+		{
+			name:     "matches multi-line keeps $",
+			expr:     `name.matches("(?m)^A$")`,
+			wantJSON: `{"name":{"$regex":"(?m)^A$"}}`,
 		},
 		{
 			name:     "contains special chars",

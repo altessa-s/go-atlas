@@ -43,6 +43,13 @@ anything else is rejected with `filter.ErrInvalidExpression`. Undeclared fields 
 under MongoDB's default simple collation; a query or collection with a locale collation (which may, for example, ignore whitespace or case) can
 match a stored `""` where the translator's decision for an absent field differs, so use the option with the simple collation.
 
+## Anchors
+
+MongoDB evaluates `$regex` with PCRE, where `$` also matches just before a final newline. `endsWith(s)` therefore anchors with `\z`, the
+absolute end, so `"abc\n"` does not end with `"abc"`; `startsWith(s)` keeps `^`, which without the `m` option matches only at the start. A
+`matches()` pattern is RE2, as CEL defines it: every `$` RE2 reads as end of text is rewritten to `\z` before the pattern is sent (`^A.*e$`
+becomes `^A.*e\z`), while a `$` under `(?m)`, an escaped `\$` and a `$` in a character class are left alone.
+
 ## Security
 
 `matches()` passes the user-supplied pattern through to MongoDB's `$regex`. Host-side validation compiles it with Go's RE2 engine (which

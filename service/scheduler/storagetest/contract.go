@@ -286,6 +286,35 @@ func ZeroValueFilters(t *testing.T, store scheduler.Storage) {
 	}
 }
 
+// StringAnchors verifies that endsWith and a `$` in matches() anchor at the
+// very end of the text, as CEL does: a description ending in a newline does
+// not end with what precedes it. The supplied store must be empty and
+// isolated per invocation.
+//
+//nolint:mnd // Fixed page size describes the storage contract.
+func StringAnchors(t *testing.T, store scheduler.Storage) {
+	t.Helper()
+	ctx := t.Context()
+	for id, description := range map[string]string{"nl": "job\n", "plain": "job", "inner": "x\njob"} {
+		require.NoError(t, store.UpsertTask(ctx, &scheduler.TaskState{TaskSummary: scheduler.TaskSummary{
+			ID: id, Status: scheduler.TaskStatusActive, Description: description,
+		}}))
+	}
+	for _, tc := range []struct {
+		expr string
+		want []string
+	}{
+		{`description.endsWith("job")`, []string{"inner", "plain"}},
+		{`description.matches("job$")`, []string{"inner", "plain"}},
+		{`description.matches("^job$")`, []string{"plain"}},
+		{`description.startsWith("job")`, []string{"nl", "plain"}},
+	} {
+		page, err := store.TasksPaginated(ctx, scheduler.Pagination{Limit: 100}, mustParse(t, tc.expr))
+		require.NoError(t, err, tc.expr)
+		require.Equal(t, tc.want, sliceIDs(page, taskID), tc.expr)
+	}
+}
+
 // History verifies History ordering, CleanupHistory retention and that
 // DeleteTask removes a task's history. The supplied store must be empty and
 // isolated per invocation.

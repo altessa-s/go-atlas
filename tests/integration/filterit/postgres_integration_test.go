@@ -68,8 +68,14 @@ func (b *postgresBackend) setup(tb testing.TB) {
 
 func (b *postgresBackend) seed(tb testing.TB) {
 	tb.Helper()
+	b.insert(tb, filterit.Dataset())
+}
 
-	for _, row := range filterit.Dataset() {
+// insert stores rows in the backend's table.
+func (b *postgresBackend) insert(tb testing.TB, rows []filterit.Row) {
+	tb.Helper()
+
+	for _, row := range rows {
 		_, err := b.conn.Exec(tb.Context(), fmt.Sprintf(postgresInsert, b.table),
 			row.ID, row.Name, row.Age, row.Price, row.Active,
 			row.Status, row.Role, row.CreatedAt, row.DeletedAt)

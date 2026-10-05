@@ -29,6 +29,7 @@ var contracts = []struct {
 	{"Identity", Identity},
 	{"Pagination", Pagination},
 	{"ZeroValueFilters", ZeroValueFilters},
+	{"StringAnchors", StringAnchors},
 	{"History", History},
 }
 

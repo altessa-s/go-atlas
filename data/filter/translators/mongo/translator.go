@@ -11,6 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/altessa-s/go-atlas/data/filter"
+	"github.com/altessa-s/go-atlas/data/filter/internal/regexanchor"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
@@ -173,15 +174,20 @@ func (t *Translator) VisitList(n *filter.ListNode) (any, error) {
 // Returns the pattern and an error if validation fails.
 type regexTransform func(string) (string, error)
 
+// The anchors are chosen for MongoDB's PCRE engine, which reads `$` as "the
+// end, or just before a final newline": endsWith uses `\z`, the absolute end,
+// so "abc\n" does not end with "abc". `^` needs no such care — without the m
+// option it matches only at the start.
 func regexContains(s string) (string, error)   { return regexp.QuoteMeta(s), nil }
 func regexStartsWith(s string) (string, error) { return "^" + regexp.QuoteMeta(s), nil }
-func regexEndsWith(s string) (string, error)   { return regexp.QuoteMeta(s) + "$", nil }
+func regexEndsWith(s string) (string, error)   { return regexp.QuoteMeta(s) + `\z`, nil }
 
 // regexPassthrough validates a user-provided regex pattern before passing
 // it to MongoDB. It delegates to [filter.ValidateRegex] using the
 // translator-configured length cap from [filter.WithMaxRegexLength],
 // falling back to [filter.DefaultMaxRegexLength] when the option was not
-// set.
+// set. Every `$` that RE2 reads as end of text is then rewritten to `\z`,
+// so PCRE does not also match it before a final newline.
 //
 // Security: validation compiles the pattern with Go's RE2 engine, which
 // cannot backtrack — but MongoDB evaluates $regex with its own PCRE-family
@@ -199,7 +205,7 @@ func (t *Translator) regexPassthrough(s string) (string, error) {
 	if err := filter.ValidateRegex(s, maxLen); err != nil {
 		return "", err
 	}
-	return s, nil
+	return regexanchor.EndOfText(s)
 }
 
 // translateComparison handles comparison operators.

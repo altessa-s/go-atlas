@@ -142,7 +142,7 @@
 //
 //	name.contains("oh")      → {"name": {"$regex": "oh"}}
 //	name.startsWith("J")     → {"name": {"$regex": "^J"}}
-//	name.endsWith("n")       → {"name": {"$regex": "n$"}}
+//	name.endsWith("n")       → {"name": {"$regex": "n\\z"}}
 //	name.matches("^[A-Z].*") → {"name": {"$regex": "^[A-Z].*"}}
 //
 // Size comparison:
