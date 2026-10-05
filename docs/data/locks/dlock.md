@@ -107,9 +107,12 @@ The NATS provider stores the lease in a KV bucket whose key TTL is the configure
 `TTL × RenewRatio` seconds (default `⅓ × 10s ≈ 3.3s`). If the process dies or loses connectivity, the next renew fails, the key expires after the
 TTL, and another instance takes it.
 
-The ratio sets the renewal cadence only. Renewal is not retried: the first failed renew stops the background loop (and reports the lock as lost
-unless the context was canceled), even if connectivity recovers before the TTL runs out. A smaller ratio therefore shortens the time between
-renewals but does not let the lock survive a transient failure.
+A failed renew is retried with exponential backoff for as long as the lease can still be valid: until the start of the last successful write plus
+the TTL, less a safety margin of 10% of the TTL that absorbs clock drift and scheduling delay. Each attempt is bounded by that deadline, so a
+request that is never answered cannot keep the holder believing it owns an expired lock. The lock is reported lost — and stops renewing — when
+the window closes, or at once when the failure is definitive: the key is gone, another owner holds it, its revision moved on, or the NATS connection
+was closed. The ratio therefore decides how much of the TTL is left for retries: at the default `⅓` a renewal that starts failing still has about
+two thirds of the TTL to recover. Ratios above `0.8` are clamped to `0.8` so a renewal always starts before the deadline.
 
 `GetLockInfo` exposes a `FencingToken`, a monotonically increasing revision from NATS KV. If you do an out-of-band side effect tied to lock
 ownership (writing to another database, publishing to a queue), have the receiver check that the fencing token is at least as large as the last

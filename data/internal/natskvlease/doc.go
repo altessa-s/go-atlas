@@ -10,7 +10,8 @@
 //
 //   - Retry logic with exponential backoff for transient network errors
 //   - KeyValue bucket creation and management
-//   - Lease-based resource management with camping loops
+//   - Lease-based resource management with camping loops that retry a failed
+//     renewal for as long as the lease may still be valid
 //
 // The package is designed as an internal utility and should not be imported
 // by external packages directly.
