@@ -10,6 +10,8 @@ import (
 	"log/slog"
 	"runtime"
 	"slices"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -139,6 +141,19 @@ func (s *Scheduler) tick() {
 		// downstream re-checks NextRunAt, so an implementation that got the
 		// bound wrong would fire tasks early and silently.
 		if now.Unix() < state.NextRunAt {
+			continue
+		}
+
+		// A state moved to another occurrence by a different registration is
+		// not this registration's to run; filtering it here keeps it from
+		// taking concurrency slots on every tick. executeTask re-checks.
+		if !task.matches(state) {
+			continue
+		}
+
+		// An earlier run is still unfinished — the task was paused and resumed
+		// while it ran — so ClaimRun would reject it; do not let it take a slot.
+		if state.RunStartedAt != 0 {
 			continue
 		}
 
@@ -468,6 +483,12 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 	}
 	defer task.running.Store(false)
 
+	if !task.matches(state) {
+		s.logger.DebugContext(ctx, "task state belongs to another registration, skipping execution",
+			slog.String("task_id", state.ID))
+		return
+	}
+
 	s.metrics.tasksRunning.Inc()
 	defer s.metrics.tasksRunning.Dec()
 
@@ -476,7 +497,7 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 	stopTimer := s.metrics.taskDuration.WithLabels(taskLabels).Start()
 	defer stopTimer()
 
-	runID := generateID()
+	runID := s.opts.instanceID + runIDSeparator + generateID()
 	startTime := time.Now()
 
 	// Record dispatch lag: delay between scheduled time and actual execution
@@ -496,11 +517,19 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 	// The claim — not leadership — is the correctness boundary: even if two
 	// scheduler instances dispatch the same occurrence (e.g. during a
 	// leader-election split-brain window), the CAS in ClaimRun lets exactly one
-	// win, so the task body runs at most once per occurrence. state.NextRunAt is
-	// the occurrence fence. A lost claim (already running, advanced, or no longer
+	// win, so the task body runs at most once per occurrence. state.NextRunAt and
+	// state.RunAt fence the occurrence. A lost claim (already running, advanced, or no longer
 	// active) is a clean no-op for this caller.
+	//
+	// The run is registered as live before the claim can make it visible, so
+	// stale recovery in this process never mistakes it for an abandoned run.
+	s.liveRuns.Store(runID, struct{}{})
+	defer s.liveRuns.Delete(runID)
 	claimCtx, claimCancel := s.storageCtx(ctx)
-	claimed, err := s.storage.ClaimRun(claimCtx, state.ID, state.NextRunAt, startTime.Unix(), runID)
+	claimed, err := s.storage.ClaimRun(claimCtx, state.ID, RunClaim{
+		NextRunAt: state.NextRunAt, RunAt: state.RunAt,
+		StartedAt: startTime.Unix(), RunID: runID, LeaseUntil: startTime.Unix() + leaseSeconds(s.runLease()),
+	})
 	claimCancel()
 	if err != nil {
 		s.metrics.storageErrors.WithLabels(metrics.Labels{"op": "claim_run"}).Inc()
@@ -514,6 +543,19 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 			slog.String("task_id", state.ID))
 		return
 	}
+	// The claim stored the run's first lease. Keep it alive until the result is
+	// recorded: deferred, so it covers the bookkeeping below and stops on every
+	// return path. A claim slow enough to need its lease renewed at once must
+	// confirm the run is still ours before the body starts.
+	stopHeartbeat, owned := s.startRunHeartbeat(ctx, state.ID, runID, startTime)
+	defer stopHeartbeat()
+	if !owned {
+		s.logger.WarnContext(ctx, "task run ownership not confirmed after a slow claim, skipping execution",
+			slog.String("task_id", state.ID),
+			slog.String("run_id", runID))
+		return
+	}
+
 	// Reflect the claimed transition locally for the remainder of execution.
 	state.Status = TaskStatusRunning
 	state.RunStartedAt = startTime.Unix()
@@ -598,7 +640,7 @@ func (s *Scheduler) executeTask(ctx context.Context, task *registeredTask, state
 	}
 	finished, err := s.storage.FinishRun(recCtx, state.ID, runID, RunResult{
 		StartedAt: startTime.Unix(), EndedAt: endTime.Unix(), NextRunAt: nextRunAt,
-		Schedule: freshState.Schedule, Success: success,
+		RunAt: state.RunAt, Schedule: freshState.Schedule, Success: success,
 	})
 	if err != nil {
 		s.logger.ErrorContext(recCtx, "failed to finish task run", slog.String("task_id", state.ID), slog.Any("error", err))
@@ -649,20 +691,207 @@ func (s *Scheduler) cleanup() {
 	}
 }
 
-// recoverStaleTasks resets tasks stuck in Running status back to Active.
-// On startup (startup=true), all Running tasks are reset unconditionally since
-// no goroutines are executing yet. During periodic recovery (startup=false),
-// only tasks that are not currently executing in this process and have exceeded
-// the stale task timeout are reset.
+// runIDSeparator separates the owning instance ID from the random part of a
+// run ID. The random part is hex, so the owner is everything before the last
+// separator.
+const runIDSeparator = "/"
+
+// runOwner returns the instance ID that created runID, or "" for a run ID
+// written before run IDs carried their owner.
+func runOwner(runID string) string {
+	i := strings.LastIndex(runID, runIDSeparator)
+	if i < 0 {
+		return ""
+	}
+	return runID[:i]
+}
+
+// runLease returns the lease this instance grants its own runs: the stale task
+// timeout, floored at [minRunLease].
+func (s *Scheduler) runLease() time.Duration {
+	return max(s.opts.staleTaskTimeout, minRunLease)
+}
+
+// leaseSeconds converts a lease to whole seconds, rounding up so a stored
+// lease never ends before the duration it stands for.
+func leaseSeconds(lease time.Duration) int64 {
+	sec := int64(lease / time.Second)
+	if lease%time.Second != 0 {
+		sec++ // without adding to lease, which overflows near the maximum duration
+	}
+	return sec
+}
+
+// startRunHeartbeat keeps the lease of run runID of task id alive until the
+// returned stop function is called; stop also waits for an in-flight renewal.
+// leaseBase is the instant the stored lease was computed from (ClaimRun stored
+// leaseBase + lease). Each renewal is issued a third of a lease after the
+// previous lease write, so it has two thirds of a lease to land before the
+// stored lease runs out.
 //
-// One-shot tasks are also recovered: their NextRunAt is set to now so they
-// re-execute on the next tick. This is intentional — a one-shot task found in
-// Running status after a crash never completed successfully, so it should be
-// retried. If this is undesirable for a particular task, callers should use
-// idempotency checks inside the task function.
+// When the claim itself took a third of a lease or more, the lease is renewed
+// synchronously before returning, and owned reports whether that confirmed the
+// run is still this instance's: a slow claim response may arrive after the
+// lease expired and another instance reclaimed the task, in which case the
+// caller must not run the task body. [confirmRunOwnership] decides what counts
+// as confirmation.
+//
+// Renewals outlive cancellation of ctx for the same reason the result
+// bookkeeping does: a run still finishing during Stop must not look abandoned
+// to other instances. Renewal ends early once the storage reports that the run
+// is no longer owned; a failed renewal is retried shortly after.
+func (s *Scheduler) startRunHeartbeat(ctx context.Context, id, runID string, leaseBase time.Time) (stop func(), owned bool) {
+	lease := s.runLease()
+	interval := lease / 3 //nolint:mnd // renew three times per lease
+	leaseSec := leaseSeconds(lease)
+	hbCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	renew := func() (time.Time, bool, error) { return s.renewRunLease(hbCtx, id, runID, leaseSec) }
+
+	leaseBase, owned = confirmRunOwnership(renew, time.Since, leaseBase, interval)
+	if !owned {
+		cancel()
+		return func() {}, false
+	}
+
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		timer := time.NewTimer(time.Until(leaseBase.Add(interval)))
+		defer timer.Stop()
+		for {
+			select {
+			case <-hbCtx.Done():
+				return
+			case <-timer.C:
+			}
+			base, renewed, err := renew()
+			switch {
+			case hbCtx.Err() != nil:
+				return
+			case err != nil:
+				timer.Reset(min(interval, time.Second)) // transient: retry soon
+			case !renewed:
+				// Expected when the run finished just before stop; a run that
+				// lost ownership while executing is reported when its result is
+				// discarded.
+				s.logger.DebugContext(hbCtx, "task run no longer owned, stopping lease renewal",
+					slog.String("task_id", id),
+					slog.String("run_id", runID))
+				return
+			default:
+				leaseBase = base
+				timer.Reset(time.Until(leaseBase.Add(interval)))
+			}
+		}
+	})
+
+	return func() {
+		cancel()
+		wg.Wait()
+	}, true
+}
+
+// renewRunLease issues one [Storage.RenewRun] for run runID of task id, moving
+// its lease to leaseSec seconds from now. It returns the instant the renewal
+// was issued — the base of the new lease — and whether the run was still
+// owned. Failures are counted and logged unless ctx has been canceled.
+func (s *Scheduler) renewRunLease(ctx context.Context, id, runID string, leaseSec int64) (issued time.Time, renewed bool, err error) {
+	opCtx, opCancel := s.storageCtx(ctx)
+	defer opCancel()
+	issued = time.Now()
+	renewed, err = s.storage.RenewRun(opCtx, id, runID, issued.Unix()+leaseSec)
+	if err != nil && ctx.Err() == nil {
+		s.metrics.storageErrors.WithLabels(metrics.Labels{"op": "renew_run"}).Inc()
+		s.logger.ErrorContext(ctx, "failed to renew task run lease",
+			slog.String("task_id", id),
+			slog.String("run_id", runID),
+			slog.Any("error", err))
+	}
+	return issued, renewed, err
+}
+
+// maxOwnershipConfirmations bounds the synchronous renewals a slow claim may
+// take to confirm, with a timely response, that its run is still owned.
+const maxOwnershipConfirmations = 3
+
+// confirmRunOwnership is the slow-claim check of [Scheduler.startRunHeartbeat].
+// While a third of a lease (interval) or more has passed since leaseBase, the
+// stored lease is too short to start the task body on: it renews, and accepts
+// only a renewal whose response is itself fresh — one that arrives within
+// interval of being issued still leaves two thirds of the new lease. A late
+// response proves nothing about the present, so it is retried. At most
+// maxOwnershipConfirmations renewals are issued, and the last one must be
+// fresh, so the check always ends. It returns the base of the latest lease
+// write and whether ownership is confirmed; a failed or rejected renewal means
+// it is not. since measures elapsed time (time.Since outside tests).
+func confirmRunOwnership(
+	renew func() (time.Time, bool, error), since func(time.Time) time.Duration, leaseBase time.Time, interval time.Duration,
+) (time.Time, bool) {
+	for attempt := 0; since(leaseBase) >= interval; attempt++ {
+		if attempt == maxOwnershipConfirmations {
+			return leaseBase, false
+		}
+		base, renewed, err := renew()
+		if err != nil || !renewed {
+			return leaseBase, false
+		}
+		if attempt >= maxOwnershipConfirmations-1 && since(base) >= interval {
+			return leaseBase, false
+		}
+		leaseBase = base
+	}
+	return leaseBase, true
+}
+
+// runAbandoned reports whether state carries an unfinished run that stale
+// recovery may reset at now (Unix seconds). A run of this instance is abandoned
+// as soon as it is no longer executing here. Any other run is abandoned only
+// once its lease has expired. A lease bound to the run (RunLeaseID ==
+// LastRunID), persisted by the owner with the claim and its renewals, is
+// authoritative, so instances with different stale timeouts agree. A run
+// without a lease of its own — claimed by a release without leases, which
+// leaves an earlier run's lease in place — falls back to its start plus this
+// instance's own lease. An unbound lease (RunLeaseID empty), written by a
+// lease-aware build that did not bind leases yet, may belong to this run or an
+// earlier one, so the later of both deadlines applies.
+func (s *Scheduler) runAbandoned(state *TaskState, now, leaseSec int64) bool {
+	if state.RunStartedAt == 0 && state.Status != TaskStatusRunning {
+		return false
+	}
+	if state.LastRunID != "" && runOwner(state.LastRunID) == s.opts.instanceID {
+		_, live := s.liveRuns.Load(state.LastRunID)
+		return !live
+	}
+	if state.RunLeaseUntil != 0 && state.RunLeaseID != "" && state.RunLeaseID == state.LastRunID {
+		return now > state.RunLeaseUntil
+	}
+	since := state.RunStartedAt
+	if since == 0 {
+		// States persisted before RunStartedAt was introduced.
+		since = state.UpdatedAt
+	}
+	deadline := since + leaseSec
+	if state.RunLeaseID == "" {
+		deadline = max(deadline, state.RunLeaseUntil)
+	}
+	return now > deadline
+}
+
+// recoverStaleTasks resets abandoned runs (see [Scheduler.runAbandoned]): those
+// of this instance that are no longer executing — after a restart with a stable
+// [WithInstanceID], or when recording a result failed — and those of any
+// instance whose lease has expired. Runs still held by a live instance are left
+// alone, at startup as well as periodically, so recovery cannot hand a live run
+// to a second executor. startup only selects the log message.
+//
+// One-shot tasks are also recovered: their NextRunAt is set to now — or kept,
+// when the task was re-registered for a later RunAt during the run — so they
+// re-execute on the next tick. This is intentional — a one-shot task whose run
+// was abandoned never completed successfully, so it should be retried. If this
+// is undesirable for a particular task, callers should use idempotency checks
+// inside the task function.
 func (s *Scheduler) recoverStaleTasks(ctx context.Context, startup bool) {
 	now := time.Now()
-	timeoutSec := int64(s.opts.staleTaskTimeout.Seconds())
+	leaseSec := leaseSeconds(s.runLease())
 
 	// States are materialized up front so the reset pass below never writes
 	// while the storage iterator is open (which would deadlock the memory
@@ -675,40 +904,10 @@ func (s *Scheduler) recoverStaleTasks(ctx context.Context, startup bool) {
 	}
 
 	stale := make([]*TaskState, 0)
-
 	for _, state := range allStates {
-		if state.Status != TaskStatusRunning {
-			continue
+		if s.runAbandoned(state, now.Unix(), leaseSec) {
+			stale = append(stale, state)
 		}
-
-		if !startup {
-			// Use RunStartedAt for accurate elapsed time since the task entered
-			// Running status. Fall back to UpdatedAt for backward compatibility
-			// with states persisted before RunStartedAt was introduced.
-			since := state.RunStartedAt
-			if since == 0 {
-				since = state.UpdatedAt
-			}
-			elapsed := now.Unix() - since
-
-			// Check if the task is currently executing in this process
-			s.mu.RLock()
-			task, registered := s.tasks[state.ID]
-			s.mu.RUnlock()
-
-			if registered && task.running.Load() {
-				// Task is actively running in this process — only recover if it
-				// exceeds the stale timeout (safety net for truly stuck goroutines)
-				if elapsed < timeoutSec {
-					continue
-				}
-			} else if elapsed < timeoutSec {
-				// Not running locally: check timeout
-				continue
-			}
-		}
-
-		stale = append(stale, state)
 	}
 
 	// Now reset each stale task outside the iterator
@@ -717,11 +916,13 @@ func (s *Scheduler) recoverStaleTasks(ctx context.Context, startup bool) {
 	}
 }
 
-// resetStaleTask returns a single task stuck in [TaskStatusRunning] to
-// [TaskStatusActive]. The state is re-read under its own storage deadline and
-// written with [Storage.ReplaceTaskIf] fenced on the run observed as stale, so
-// a run that finished or was re-claimed since the collection pass is never
-// overwritten.
+// resetStaleTask clears the abandoned run of a single task. The state is
+// re-read under its own storage deadline and written with
+// [Storage.ReplaceTaskIf] fenced on the run observed as stale — revision
+// included — so a run that finished, renewed its lease or was re-claimed since
+// the collection pass is never overwritten. A task still in
+// [TaskStatusRunning] returns to [TaskStatusActive]; one that management paused,
+// disabled or resumed during the run keeps that status and its next run time.
 func (s *Scheduler) resetStaleTask(ctx context.Context, id string, stale TaskFence, now time.Time, startup bool) {
 	opCtx, cancel := s.storageCtx(ctx)
 	defer cancel()
@@ -734,7 +935,7 @@ func (s *Scheduler) resetStaleTask(ctx context.Context, id string, stale TaskFen
 		return
 	}
 
-	// The run observed as stale has finished or been replaced by a new claim.
+	// The run observed as stale has finished, renewed or been replaced.
 	if FenceOf(state) != stale {
 		return
 	}
@@ -745,14 +946,20 @@ func (s *Scheduler) resetStaleTask(ctx context.Context, id string, stale TaskFen
 	}
 	staleDuration := time.Duration(now.Unix()-since) * time.Second
 
-	state.Status = TaskStatusActive
-	state.RunStartedAt = 0
-	state.Failures++
-	if !state.OneShot && state.Schedule != "" {
-		state.NextRunAt = s.calculateNextRun(opCtx, now, state).Unix()
-	} else if state.OneShot {
-		state.NextRunAt = now.Unix()
+	if state.Status == TaskStatusRunning {
+		state.Status = TaskStatusActive
+		if !state.OneShot && state.Schedule != "" {
+			state.NextRunAt = s.calculateNextRun(opCtx, now, state).Unix()
+		} else if state.OneShot {
+			// Retry the abandoned occurrence now — unless the task was
+			// re-registered for a later one during the run, which keeps its time.
+			state.NextRunAt = max(state.NextRunAt, now.Unix())
+		}
 	}
+	state.RunStartedAt = 0
+	state.RunLeaseUntil = 0
+	state.RunLeaseID = ""
+	state.Failures++
 	state.UpdatedAt = now.Unix()
 
 	replaced, err := s.storage.ReplaceTaskIf(opCtx, state, stale)

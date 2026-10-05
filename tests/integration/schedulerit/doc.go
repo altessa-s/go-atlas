@@ -37,6 +37,11 @@
 //     died must be reclaimed on the next start, which means the previous
 //     instance's state has to be durable in the first place.
 //
+//   - Run ownership. Two instances registering the same new task at once must
+//     not undo each other's claim, and a run outliving the stale-task timeout
+//     on one instance must survive the other instance's recovery because its
+//     owner keeps renewing the persisted lease.
+//
 //   - Leadership gating. A follower must dispatch nothing at all while a leader
 //     exists, and start dispatching once it takes over.
 //

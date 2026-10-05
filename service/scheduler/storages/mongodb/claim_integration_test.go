@@ -96,7 +96,7 @@ func TestIntegration_MongoClaimRun_SingleWinnerThenLost(t *testing.T) {
 	ctx := t.Context()
 	seedActive(t, s, "a", 100)
 
-	ok, err := s.ClaimRun(ctx, "a", 100, 1700000000, "run-1")
+	ok, err := s.ClaimRun(ctx, "a", scheduler.RunClaim{NextRunAt: 100, StartedAt: 1700000000, RunID: "run-1"})
 	require.NoError(t, err)
 	require.True(t, ok, "first claim must win")
 
@@ -107,7 +107,7 @@ func TestIntegration_MongoClaimRun_SingleWinnerThenLost(t *testing.T) {
 	require.Equal(t, "run-1", got.LastRunID)
 
 	// The occurrence is no longer active: a second claim loses.
-	ok, err = s.ClaimRun(ctx, "a", 100, 1700000001, "run-2")
+	ok, err = s.ClaimRun(ctx, "a", scheduler.RunClaim{NextRunAt: 100, StartedAt: 1700000001, RunID: "run-2"})
 	require.NoError(t, err)
 	require.False(t, ok, "second claim must lose")
 }
@@ -117,7 +117,7 @@ func TestIntegration_MongoClaimRun_FenceMismatch(t *testing.T) {
 	s := newClaimIT(t)
 	seedActive(t, s, "a", 100)
 
-	ok, err := s.ClaimRun(t.Context(), "a", 999, 1700000000, "run-1")
+	ok, err := s.ClaimRun(t.Context(), "a", scheduler.RunClaim{NextRunAt: 999, StartedAt: 1700000000, RunID: "run-1"})
 	require.NoError(t, err)
 	require.False(t, ok, "a mismatched occurrence fence must not be claimable")
 }
@@ -128,7 +128,7 @@ func TestIntegration_MongoClaimRun_ZeroFenceIgnoresNextRun(t *testing.T) {
 
 	ok, err := func() (bool, error) {
 		seedActive(t, s, "a", 100)
-		return s.ClaimRun(t.Context(), "a", 0, 1700000000, "run-1")
+		return s.ClaimRun(t.Context(), "a", scheduler.RunClaim{NextRunAt: 0, StartedAt: 1700000000, RunID: "run-1"})
 	}()
 	require.NoError(t, err)
 	require.True(t, ok, "expectedNextRunAt==0 claims any active occurrence")
@@ -141,7 +141,7 @@ func TestIntegration_MongoClaimRun_NotActive(t *testing.T) {
 		TaskSummary: scheduler.TaskSummary{ID: "a", Status: scheduler.TaskStatusPaused, NextRunAt: 100},
 	}))
 
-	ok, err := s.ClaimRun(t.Context(), "a", 100, 1700000000, "run-1")
+	ok, err := s.ClaimRun(t.Context(), "a", scheduler.RunClaim{NextRunAt: 100, StartedAt: 1700000000, RunID: "run-1"})
 	require.NoError(t, err)
 	require.False(t, ok, "a paused task must not be claimable")
 }
@@ -150,7 +150,7 @@ func TestIntegration_MongoClaimRun_MissingTask(t *testing.T) {
 	t.Parallel()
 	s := newClaimIT(t)
 
-	ok, err := s.ClaimRun(t.Context(), "nope", 100, 1700000000, "run-1")
+	ok, err := s.ClaimRun(t.Context(), "nope", scheduler.RunClaim{NextRunAt: 100, StartedAt: 1700000000, RunID: "run-1"})
 	require.NoError(t, err)
 	require.False(t, ok)
 }
@@ -171,7 +171,7 @@ func TestIntegration_MongoClaimRun_ExactlyOneConcurrentWinner(t *testing.T) {
 	for range racers {
 		wg.Go(func() {
 			<-start
-			ok, err := s.ClaimRun(ctx, "a", 100, 1700000000, "run")
+			ok, err := s.ClaimRun(ctx, "a", scheduler.RunClaim{NextRunAt: 100, StartedAt: 1700000000, RunID: "run"})
 			require.NoError(t, err)
 			if ok {
 				wins.Add(1)

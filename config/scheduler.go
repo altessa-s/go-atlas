@@ -28,6 +28,10 @@ const (
 	defaultSchedulerSQLHistoryTable           = "scheduler_history"
 )
 
+// MaxSchedulerInstanceIDLength bounds [Scheduler.InstanceID]. The ID prefixes
+// every run ID the scheduler persists, so it is kept short.
+const MaxSchedulerInstanceIDLength = 128
+
 // SchedulerConcurrency configures the concurrency behavior of the scheduler.
 // It embeds the base [Concurrency] and adds scheduler-specific fields.
 //
@@ -275,11 +279,19 @@ type Scheduler struct {
 	// Concurrency configures the concurrency behavior of the scheduler.
 	Concurrency SchedulerConcurrency `yaml:"concurrency"`
 
-	// StaleTaskTimeout is the duration after which a task stuck in Running status
-	// is considered stale and will be reset to Active. This handles recovery from
-	// process crashes where tasks were left in Running state.
+	// StaleTaskTimeout is the lease of a task run (at least 5 seconds), renewed
+	// every third of it while the run executes. A run whose lease has expired —
+	// its instance crashed or lost the storage — is reset to Active, which
+	// handles recovery from process crashes; runs of live instances are kept.
 	// Defaults to 30 minutes if not specified.
 	StaleTaskTimeout time.Duration `yaml:"staleTaskTimeout" default:"30m"`
+
+	// InstanceID identifies this scheduler instance as the owner of the task
+	// runs it executes. It must be unique among the instances sharing one
+	// storage. Empty (the default) means a random ID per process; a stable value
+	// such as the pod name lets a restarted instance recover its own interrupted
+	// runs immediately instead of waiting for their leases to expire.
+	InstanceID string `yaml:"instanceId"`
 
 	// Storage defines the storage backend configuration.
 	// If nil, defaults to in-memory storage.
@@ -305,6 +317,7 @@ func (c *Scheduler) Validate() error {
 		validation.Field(&c.HistoryRetention, ozzo_rules.Duration(), validation.Min(time.Second)),
 		validation.Field(&c.Concurrency),
 		validation.Field(&c.StaleTaskTimeout, ozzo_rules.Duration(), validation.Min(0)),
+		validation.Field(&c.InstanceID, validation.Length(0, MaxSchedulerInstanceIDLength)),
 		validation.Field(&c.Storage),
 	)
 }

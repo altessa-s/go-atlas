@@ -27,11 +27,14 @@ func (s *takeoverOnFinish) FinishRun(ctx context.Context, id, runID string, resu
 	if err != nil {
 		return false, err
 	}
+	// Stand in for stale recovery: it reactivates the task and clears the
+	// unfinished run, which ClaimRun requires before another claim.
 	state.Status = scheduler.TaskStatusActive
+	state.RunStartedAt = 0
 	if err = s.Storage.UpsertTask(ctx, state); err != nil {
 		return false, err
 	}
-	if _, err = s.Storage.ClaimRun(ctx, id, state.NextRunAt, time.Now().Unix(), "new-owner"); err != nil {
+	if _, err = s.Storage.ClaimRun(ctx, id, scheduler.RunClaim{NextRunAt: state.NextRunAt, StartedAt: time.Now().Unix(), RunID: "new-owner"}); err != nil {
 		return false, err
 	}
 	ok, err := s.Storage.FinishRun(ctx, id, runID, result)

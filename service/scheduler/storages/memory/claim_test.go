@@ -32,7 +32,7 @@ func TestClaimRun_SingleWinnerThenLost(t *testing.T) {
 	s, _ := activeTask(t, "a", 100)
 	ctx := t.Context()
 
-	ok, err := s.ClaimRun(ctx, "a", 100, 1700000000, "run-1")
+	ok, err := s.ClaimRun(ctx, "a", scheduler.RunClaim{NextRunAt: 100, StartedAt: 1700000000, RunID: "run-1"})
 	require.NoError(t, err)
 	require.True(t, ok, "first claim must win")
 
@@ -44,7 +44,7 @@ func TestClaimRun_SingleWinnerThenLost(t *testing.T) {
 	require.Equal(t, "run-1", got.LastRunID)
 
 	// A second claim for the same occurrence loses (no longer active).
-	ok, err = s.ClaimRun(ctx, "a", 100, 1700000001, "run-2")
+	ok, err = s.ClaimRun(ctx, "a", scheduler.RunClaim{NextRunAt: 100, StartedAt: 1700000001, RunID: "run-2"})
 	require.NoError(t, err)
 	require.False(t, ok, "second claim must lose")
 }
@@ -53,7 +53,7 @@ func TestClaimRun_FenceMismatch(t *testing.T) {
 	t.Parallel()
 	s, _ := activeTask(t, "a", 100)
 	// Wrong occurrence fence: the task is active but scheduled for a different instant.
-	ok, err := s.ClaimRun(t.Context(), "a", 999, 1700000000, "run-1")
+	ok, err := s.ClaimRun(t.Context(), "a", scheduler.RunClaim{NextRunAt: 999, StartedAt: 1700000000, RunID: "run-1"})
 	require.NoError(t, err)
 	require.False(t, ok)
 }
@@ -62,7 +62,7 @@ func TestClaimRun_ZeroFenceIgnoresNextRun(t *testing.T) {
 	t.Parallel()
 	s, _ := activeTask(t, "a", 100)
 	// expectedNextRunAt==0 means "don't fence on next_run"; an active task is claimed.
-	ok, err := s.ClaimRun(t.Context(), "a", 0, 1700000000, "run-1")
+	ok, err := s.ClaimRun(t.Context(), "a", scheduler.RunClaim{NextRunAt: 0, StartedAt: 1700000000, RunID: "run-1"})
 	require.NoError(t, err)
 	require.True(t, ok)
 }
@@ -73,7 +73,7 @@ func TestClaimRun_NotActive(t *testing.T) {
 	state.Status = scheduler.TaskStatusPaused
 	require.NoError(t, s.UpsertTask(t.Context(), state))
 
-	ok, err := s.ClaimRun(t.Context(), "a", 100, 1700000000, "run-1")
+	ok, err := s.ClaimRun(t.Context(), "a", scheduler.RunClaim{NextRunAt: 100, StartedAt: 1700000000, RunID: "run-1"})
 	require.NoError(t, err)
 	require.False(t, ok, "paused task must not be claimable")
 }
@@ -82,7 +82,7 @@ func TestClaimRun_MissingTask(t *testing.T) {
 	t.Parallel()
 	s, err := memory.New(100)
 	require.NoError(t, err)
-	ok, err := s.ClaimRun(t.Context(), "nope", 100, 1700000000, "run-1")
+	ok, err := s.ClaimRun(t.Context(), "nope", scheduler.RunClaim{NextRunAt: 100, StartedAt: 1700000000, RunID: "run-1"})
 	require.NoError(t, err)
 	require.False(t, ok)
 }
@@ -104,7 +104,7 @@ func TestClaimRun_ExactlyOneConcurrentWinner(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			<-start
-			ok, err := s.ClaimRun(ctx, "a", 100, 1700000000, "run")
+			ok, err := s.ClaimRun(ctx, "a", scheduler.RunClaim{NextRunAt: 100, StartedAt: 1700000000, RunID: "run"})
 			require.NoError(t, err)
 			if ok {
 				wins.Add(1)

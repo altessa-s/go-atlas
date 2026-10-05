@@ -72,12 +72,13 @@ func (b *SchedulerBuilder) Build() (*scheduler.Scheduler, error) {
 		return nil, err
 	}
 
-	configOpts := make([]scheduler.Option, 0, 5+len(concurrencyOpts)) //nolint:mnd
+	configOpts := make([]scheduler.Option, 0, 6+len(concurrencyOpts)) //nolint:mnd
 	configOpts = append(configOpts,
 		scheduler.WithTickInterval(b.cfg.TickInterval),
 		scheduler.WithHistoryRetention(b.cfg.HistoryRetention),
 		scheduler.WithReservedHighPrioritySlots(b.cfg.Concurrency.ReservedHighPrioritySlots),
 		scheduler.WithStaleTaskTimeout(b.cfg.StaleTaskTimeout),
+		scheduler.WithInstanceID(b.cfg.InstanceID),
 		scheduler.WithCollector(b.collector),
 	)
 	configOpts = append(configOpts, concurrencyOpts...)

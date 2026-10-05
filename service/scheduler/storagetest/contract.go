@@ -38,7 +38,7 @@ func ClaimRun(t *testing.T, store scheduler.Storage) {
 	var wg sync.WaitGroup
 	for i := range 16 {
 		wg.Go(func() {
-			ok, err := store.ClaimRun(ctx, "claim_race", 300, 100, fmt.Sprintf("run-%d", i))
+			ok, err := store.ClaimRun(ctx, "claim_race", scheduler.RunClaim{NextRunAt: 300, StartedAt: 100, RunID: fmt.Sprintf("run-%d", i)})
 			if err == nil && ok {
 				wins.Add(1)
 			}
@@ -52,21 +52,21 @@ func ClaimRun(t *testing.T, store scheduler.Storage) {
 	require.Equal(t, int64(100), got.RunStartedAt)
 
 	put("claim_stale", scheduler.TaskStatusActive)
-	ok, err := store.ClaimRun(ctx, "claim_stale", 299, 100, "run")
+	ok, err := store.ClaimRun(ctx, "claim_stale", scheduler.RunClaim{NextRunAt: 299, StartedAt: 100, RunID: "run"})
 	require.NoError(t, err)
 	require.False(t, ok, "a stale occurrence fence must lose")
 
 	put("claim_paused", scheduler.TaskStatusPaused)
-	ok, err = store.ClaimRun(ctx, "claim_paused", 300, 100, "run")
+	ok, err = store.ClaimRun(ctx, "claim_paused", scheduler.RunClaim{NextRunAt: 300, StartedAt: 100, RunID: "run"})
 	require.NoError(t, err)
 	require.False(t, ok, "a paused task must not be claimed")
 
 	put("claim_any", scheduler.TaskStatusActive)
-	ok, err = store.ClaimRun(ctx, "claim_any", 0, 100, "run")
+	ok, err = store.ClaimRun(ctx, "claim_any", scheduler.RunClaim{StartedAt: 100, RunID: "run"})
 	require.NoError(t, err)
 	require.True(t, ok, "a zero fence claims any occurrence")
 
-	ok, err = store.ClaimRun(ctx, "claim_missing", 0, 100, "run")
+	ok, err = store.ClaimRun(ctx, "claim_missing", scheduler.RunClaim{StartedAt: 100, RunID: "run"})
 	require.NoError(t, err)
 	require.False(t, ok)
 }

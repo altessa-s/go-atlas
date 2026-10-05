@@ -114,6 +114,22 @@ func (m *Storage) UpsertTask(_ context.Context, state *scheduler.TaskState) erro
 	return nil
 }
 
+// CreateTask stores a deep copy of state with revision one only when no task
+// with state.ID exists; otherwise it returns false and leaves the stored task
+// untouched.
+func (m *Storage) CreateTask(_ context.Context, state *scheduler.TaskState) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, ok := m.tasks[state.ID]; ok {
+		return false, nil
+	}
+	next := cloneTaskState(state)
+	next.Revision = 1
+	m.tasks[state.ID] = next
+	return true, nil
+}
+
 // ReplaceTaskIf replaces the stored state only while it still matches expect.
 func (m *Storage) ReplaceTaskIf(_ context.Context, state *scheduler.TaskState, expect scheduler.TaskFence) (bool, error) {
 	m.mu.Lock()
@@ -129,26 +145,31 @@ func (m *Storage) ReplaceTaskIf(_ context.Context, state *scheduler.TaskState, e
 	return true, nil
 }
 
-// ClaimRun atomically transitions the task from active→running for the
-// occurrence scheduled at expectedNextRunAt. Because all access is serialized by
-// the storage mutex, the read-check-write is a single critical section, so two
-// concurrent callers can never both claim the same occurrence.
-func (m *Storage) ClaimRun(_ context.Context, id string, expectedNextRunAt, runStartedAt int64, runID string) (bool, error) {
+// ClaimRun applies the claim rule of [scheduler.Storage.ClaimRun]. Because all
+// access is serialized by the storage mutex, the read-check-write is a single
+// critical section, so two concurrent callers can never both claim the same
+// occurrence.
+func (m *Storage) ClaimRun(_ context.Context, id string, claim scheduler.RunClaim) (bool, error) {
+	if err := claim.Validate(); err != nil {
+		return false, err
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	state, ok := m.tasks[id]
-	if !ok || state.Status != scheduler.TaskStatusActive {
+	if !ok || state.Status != scheduler.TaskStatusActive || state.RunStartedAt != 0 {
 		return false, nil
 	}
-	if expectedNextRunAt != 0 && state.NextRunAt != expectedNextRunAt {
+	if claim.NextRunAt != 0 && (state.NextRunAt != claim.NextRunAt || state.RunAt != claim.RunAt) {
 		return false, nil
 	}
 
 	state.Status = scheduler.TaskStatusRunning
-	state.RunStartedAt = runStartedAt
-	state.LastRunID = runID
-	state.UpdatedAt = runStartedAt
+	state.RunStartedAt = claim.StartedAt
+	state.LastRunID = claim.RunID
+	state.RunLeaseUntil = claim.LeaseUntil
+	state.RunLeaseID = claim.RunID
+	state.UpdatedAt = claim.StartedAt
 	state.Revision++
 	return true, nil
 }
@@ -461,34 +482,60 @@ func taskHistoryToFilterMap(h *scheduler.TaskHistory) map[string]any {
 // Compile-time interface check
 var _ scheduler.Storage = (*Storage)(nil)
 
-// FinishRun commits result only while runID still owns an unfinished execution.
+// ownsUnfinishedRun reports whether runID owns the unfinished run of state,
+// the ownership predicate of [scheduler.Storage.RenewRun] and
+// [scheduler.Storage.FinishRun]. state may be nil.
+func ownsUnfinishedRun(state *scheduler.TaskState, runID string) bool {
+	return state != nil && runID != "" && state.LastRunID == runID && state.RunStartedAt != 0
+}
+
+// FinishRun applies the finish transition of [scheduler.Storage.FinishRun]
+// under the storage mutex.
 func (m *Storage) FinishRun(_ context.Context, id, runID string, result scheduler.RunResult) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	state, ok := m.tasks[id]
-	if !ok || runID == "" || state.LastRunID != runID || state.RunStartedAt == 0 {
+	state := m.tasks[id]
+	if !ownsUnfinishedRun(state, runID) {
 		return false, nil
 	}
-	if state.Status == scheduler.TaskStatusRunning {
-		if state.OneShot {
-			state.Status = scheduler.TaskStatusCompleted
-		} else {
-			state.Status = scheduler.TaskStatusActive
-		}
-	}
-	if state.OneShot {
+	// A one-shot task still registered for the occurrence this run executed is
+	// terminal, even if it was paused, disabled or resumed while it ran.
+	executed := state.OneShot && state.RunAt == result.RunAt
+	switch {
+	case executed:
+		state.Status = scheduler.TaskStatusCompleted
 		state.NextRunAt = 0
-	} else if state.Schedule == result.Schedule {
+	case state.Status == scheduler.TaskStatusRunning:
+		state.Status = scheduler.TaskStatusActive
+	}
+	if !state.OneShot && state.Schedule == result.Schedule {
 		state.NextRunAt = result.NextRunAt
 	}
 	state.LastRunAt = result.StartedAt
 	state.RunStartedAt = 0
+	state.RunLeaseUntil = 0
+	state.RunLeaseID = ""
 	state.UpdatedAt = result.EndedAt
 	if result.Success {
 		state.Failures = 0
 	} else {
 		state.Failures++
 	}
+	state.Revision++
+	return true, nil
+}
+
+// RenewRun extends the lease of the unfinished run runID to leaseUntil under
+// the storage mutex; see [scheduler.Storage.RenewRun].
+func (m *Storage) RenewRun(_ context.Context, id, runID string, leaseUntil int64) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	state := m.tasks[id]
+	if !ownsUnfinishedRun(state, runID) {
+		return false, nil
+	}
+	state.RunLeaseUntil = leaseUntil
+	state.RunLeaseID = runID
 	state.Revision++
 	return true, nil
 }

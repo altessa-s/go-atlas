@@ -28,9 +28,11 @@ const (
 	// reserved exclusively for [TaskPriorityHigh] tasks. Normal and Low priority
 	// tasks cannot consume these slots. See [WithReservedHighPrioritySlots].
 	DefaultReservedHighPrioritySlots = 2
-	// DefaultStaleTaskTimeout is the default duration after which a task in
-	// [TaskStatusRunning] is considered stale and reset to [TaskStatusActive]
-	// during periodic recovery. See [WithStaleTaskTimeout].
+	// DefaultStaleTaskTimeout is the default lease of a task run. The instance
+	// executing a run renews its lease every third of this duration (at least
+	// [minRunLease]); a run whose lease has expired — its instance crashed or
+	// lost its storage — is reset to [TaskStatusActive] by stale recovery on any
+	// instance. See [WithStaleTaskTimeout].
 	DefaultStaleTaskTimeout = 30 * time.Minute
 	// DefaultCleanupInterval is the default interval between periodic history
 	// cleanup runs. See [WithCleanupInterval].
@@ -41,6 +43,11 @@ const (
 	DefaultStorageTimeout = 10 * time.Second
 	// maxStaleRecoveryInterval caps the stale recovery ticker interval.
 	maxStaleRecoveryInterval = 5 * time.Minute
+	// minRunLease is the shortest run lease an instance persists, whatever
+	// [WithStaleTaskTimeout] says. Leases are stored in whole seconds and renewed
+	// every third of their length, so the floor keeps renewal latency headroom
+	// above a second and bounds the heartbeat write rate.
+	minRunLease = 5 * time.Second
 )
 
 type options struct {
@@ -57,6 +64,14 @@ type options struct {
 	// on a caller-supplied context (Register, PauseTask, TasksPaginated, …)
 	// keep that caller's deadline instead.
 	storageTimeout time.Duration `optgen:"default=DefaultStorageTimeout"`
+
+	// instanceID identifies this scheduler as the owner of the runs it
+	// executes; it prefixes every run ID. It must be unique among the schedulers
+	// running concurrently against one storage. Empty (the default) means a
+	// random ID chosen by [New]. A stable value, such as a pod name, lets a
+	// restarted process recover its own interrupted runs at once instead of
+	// waiting for their leases to expire.
+	instanceID string
 
 	maxConcurrentTasks        int `optgen:"default=DefaultMaxConcurrentTasks"`
 	reservedHighPrioritySlots int `optgen:"default=DefaultReservedHighPrioritySlots"`
