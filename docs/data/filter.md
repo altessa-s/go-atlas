@@ -76,6 +76,9 @@ ok, err := eval.Evaluate(ast, map[string]any{
 // ok == true
 ```
 
+An `Evaluator` keeps only its configuration; each `Evaluate` call walks the tree with its own data and depth/operation counters, so one
+instance can be built at startup and shared by every goroutine.
+
 ### Untrusted input (HTTP query parameter)
 
 ```go

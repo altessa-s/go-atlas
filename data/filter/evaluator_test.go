@@ -445,3 +445,43 @@ func TestEvaluator_MaxOperations(t *testing.T) {
 		require.ErrorIs(t, err, filter.ErrMaxOperationsExceeded)
 	})
 }
+
+// TestEvaluator_ConcurrentUse shares one Evaluator across parallel subtests,
+// each evaluating with its own data. Evaluate used to store the data and the
+// depth/operation counters on the Evaluator itself, so concurrent calls raced
+// (caught by -race) and could read each other's data or trip each other's
+// limits. MaxOperations is set so a single call fits but two interleaved calls
+// sharing one counter would not.
+func TestEvaluator_ConcurrentUse(t *testing.T) {
+	t.Parallel()
+
+	p := newTestParser(t)
+	node, err := p.Parse(t.Context(), `name.size() == 5 && age >= 18 && status in ["active", "pending"]`)
+	require.NoError(t, err)
+
+	const opsPerCall = 14 // counted node visits for the expression above
+	shared := mustEvaluator(t, filter.WithMaxOperations(opsPerCall))
+
+	matching := map[string]any{"name": "Alice", "age": int64(30), "status": "active"}
+	nonMatching := map[string]any{"name": "Bob", "age": int64(10), "status": "closed"}
+
+	got, err := shared.Evaluate(node, matching)
+	require.NoError(t, err, "a single call must fit within the operation limit")
+	require.True(t, got)
+
+	for i := range 8 {
+		t.Run("worker", func(t *testing.T) {
+			t.Parallel()
+
+			data, want := matching, true
+			if i%2 == 1 {
+				data, want = nonMatching, false
+			}
+			for range 500 {
+				got, err := shared.Evaluate(node, data)
+				require.NoError(t, err)
+				require.Equal(t, want, got)
+			}
+		})
+	}
+}
