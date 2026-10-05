@@ -7,9 +7,13 @@ package static_test
 import (
 	"context"
 	"errors"
+	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
+	"unsafe"
+	"weak"
 
 	"github.com/stretchr/testify/require"
 
@@ -36,6 +40,41 @@ func TestNewInMemoryStore_InitialTokens(t *testing.T) {
 		"token2": userInfo{ID: "user2", Role: "viewer"},
 	}))
 	require.Equal(t, 2, s.TokenCount())
+}
+
+// newStoreWithSeededToken builds a store seeded through WithInitialTokens with a
+// heap-allocated plaintext token and returns a weak pointer to that token's
+// bytes. It is not inlined so no strong reference to the token or the seed map
+// survives in the caller's frame.
+//
+//go:noinline
+func newStoreWithSeededToken(token string) (*static.InMemoryStore, weak.Pointer[byte]) {
+	plain := strings.Clone(token)
+	wp := weak.Make(unsafe.StringData(plain))
+	s := static.NewInMemoryStore(static.WithInitialTokens(map[string]any{plain: userInfo{ID: "u1"}}))
+	return s, wp
+}
+
+// TestNewInMemoryStore_InitialTokensNotRetained asserts the store keeps only
+// token digests: once construction returns, neither the WithInitialTokens map
+// nor its plaintext keys stay reachable from the store.
+func TestNewInMemoryStore_InitialTokensNotRetained(t *testing.T) {
+	t.Parallel()
+	token := strings.Repeat("seeded-secret-", 8)
+	s, wp := newStoreWithSeededToken(token)
+
+	data, err := s.Validate(t.Context(), token)
+	require.NoError(t, err)
+	require.Equal(t, userInfo{ID: "u1"}, data)
+
+	for range 10 {
+		runtime.GC()
+		if wp.Value() == nil {
+			break
+		}
+	}
+	require.Nil(t, wp.Value(), "plaintext seed token is still reachable from the store")
+	runtime.KeepAlive(s)
 }
 
 func TestInMemoryStore_Validate(t *testing.T) {

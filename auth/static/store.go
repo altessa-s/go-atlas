@@ -53,12 +53,16 @@ func NewInMemoryStore(opt ...Option) *InMemoryStore {
 		o.hmacKey = randomKey(hmacKeySize)
 	}
 
+	// Capture only the key: the pool outlives construction, and capturing o
+	// would keep the WithInitialTokens map (plaintext tokens) reachable for
+	// the store's lifetime.
+	hmacKey := o.hmacKey
 	s := &InMemoryStore{
 		tokens:  make(map[string]any, len(o.initialTokens)),
 		metrics: o.metrics,
 		macPool: sync.Pool{
 			New: func() any {
-				return hmac.New(sha256.New, o.hmacKey)
+				return hmac.New(sha256.New, hmacKey)
 			},
 		},
 	}
