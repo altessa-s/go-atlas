@@ -40,7 +40,7 @@ Alias the root package as `slogx` so it doesn't collide with the standard librar
 | PII / credential masking         | `masking` handler — exact field names, regex patterns, nested-group descent, smart masks per type      |
 | Fan-out                          | `multi` handler — same record to several backends (file + stderr + remote); delegates to stdlib on 1.26+ |
 | Key prefixing                    | `prefixed` handler — pulls a configured key out of the record and formats it as `[tag]` or JSON-friendly |
-| YAML factory                     | `factory.LoggerBuilder` — assembles the full chain from `config.Logger`; invalid mask rules are skipped |
+| YAML factory                     | `factory.LoggerBuilder` — assembles the full chain from `config.Logger`; invalid mask rules fail `Build` |
 
 ---
 
@@ -247,8 +247,9 @@ logger, err := slogfactory.New(&cfg.Logger).
     Build()
 ```
 
-`Build` returns an error only for a nil config or errors recorded before it runs. Mask rules are resolved inside `Build`: a rule whose type
-or params don't resolve is skipped and the logger is still returned without an error, so check `maskRules` against the registry yourself.
+`Build` returns an error for a nil config and for any invalid `maskRules` entry — a missing `type`, neither `field` nor `pattern`, a type or
+params the registry can't resolve, or a `pattern` that isn't a valid regex — whatever the level, including `none`. Every invalid rule is
+reported (joined errors), and the check runs before any side effect: no logger is returned and the level variable is left untouched.
 `SetLevel` / `GetLevel` operate on `slogx.GlobalLevel` unless `WithLevelVar` supplied an isolated `slog.LevelVar` — by default they move the
 level of every factory-built logger, not just this one.
 
@@ -264,7 +265,7 @@ level of every factory-built logger, not just this one.
 | `WithAppVersion(s)`          | Override the `app.version` metadata attribute                                               |
 | `WithServiceId(s)`           | Set the `app.sid` metadata attribute                                                        |
 | `WithLevelVar(*slog.LevelVar)` | Use an isolated level var instead of `slogx.GlobalLevel`                                   |
-| `Build()` → `*slog.Logger`   | Assemble the chain; errors on a nil config only — invalid mask rules are silently skipped   |
+| `Build()` → `*slog.Logger`   | Assemble the chain; errors on a nil config or any invalid mask rule                         |
 | `SetLevel(slog.Level)`       | Runtime level change on `slogx.GlobalLevel` (or the `WithLevelVar` var)                     |
 | `GetLevel()`                 | Current level                                                                               |
 
@@ -308,7 +309,9 @@ logger:
     cache: warning
 ```
 
-The factory does not call `Logger.Validate` (ozzo-validation); call it yourself before `Build` if you need the block checked.
+The factory validates each `maskRules` entry but does not call `Logger.Validate` (ozzo-validation): `Validate` rejects an empty `output` or
+`buffer.bypassLevel`, which the factory deliberately defaults (stdout, `error`). Call it yourself before `Build` if you need the whole block
+checked.
 
 ---
 
@@ -401,18 +404,23 @@ h := masking.NewHandler(inner,
 )
 ```
 
-Replaces sensitive values before they reach `inner`. Supports exact field names, regex patterns, and reflection-based descent into
-`slog.KindAny` values (capped at depth 10 to stop on cyclic structs). A per-handler path memoization map caches resolved masks per field
-path and is reset atomically once it reaches 4096 entries, so dynamic group names (request IDs, tenant slugs) can't grow it unboundedly.
+Replaces sensitive values before they reach `inner`. `NewHandler` skips a `WithPattern` rule whose pattern is empty or doesn't compile;
+`masking.New(inner, opts...) (*masking.Handler, error)` reports each such rule instead (errors wrap `masking.ErrInvalidPattern`) — use it when patterns
+come from configuration. Supports exact field names, regex patterns, and reflection-based descent into `slog.KindAny` values (capped at depth 10 to stop
+on cyclic structs). A per-handler path memoization map caches resolved masks per field path and is reset atomically once it reaches 4096 entries, so
+dynamic group names (request IDs, tenant slugs) can't grow it unboundedly.
 
 | Option                       | Description                                                                                |
 |------------------------------|--------------------------------------------------------------------------------------------|
-| `WithField(name, MaskFunc)`  | Exact-match field; case-insensitive                                                         |
+| `WithField(name, MaskFunc)`  | Exact-match field; case-insensitive unless `WithCaseSensitive`; a nil mask uses the default mask |
 | `WithPattern(regex, MaskFunc)` | Regex against the field path when nested masking is on, otherwise the bare key            |
-| `WithDefaults()`             | Curated set: `password`, `token`, `secret`, `api_key`, `authorization`, `credit_card`, `email`, `phone`, plus the patterns `(?i).*password.*`, `(?i).*secret.*`, `(?i).*token.*`, `(?i).*_key$` — also enables nested masking and **case-sensitive** matching |
-| `WithDefaultMask(MaskFunc)`  | Stored but currently unused by the handler — has no effect on masking output                |
+| `WithDefaults()`             | Curated set: `password`, `token`, `secret`, `api_key`, `authorization`, `credit_card`, `email`, `phone`, plus the patterns `(?i).*password.*`, `(?i).*secret.*`, `(?i).*token.*`, `(?i).*_key$` — also enables nested masking; leaves case sensitivity unchanged |
+| `WithDefaultMask(MaskFunc)`  | Mask for rules registered with a nil `MaskFunc` (default `FullMask`); never masks unmatched fields |
 | `WithMaskNestedFields()`     | Descend into nested groups; also turned on by `WithDefaults`                                |
-| `WithCaseSensitive()`        | Switch matching to case-sensitive (default is case-insensitive; `WithDefaults` turns it on) |
+| `WithCaseSensitive()`        | Switch matching to case-sensitive (default is case-insensitive)                             |
+
+Field keys that differ only by case resolve to the last registration, so a `WithField` given after `WithDefaults` overrides the default for
+that field (the factory applies `WithDefaults`, then `maskRules`, then `sensitiveTags`).
 
 **Mask functions** (build your own `MaskFunc func(string) string` or use these built-ins):
 
@@ -503,6 +511,6 @@ record that `leveled` would drop never reaches the masking pass either.
 
 - A `slogx` core: nil-safe attribute helpers, context-stored loggers and fields, a runtime `LevelVar`, and `Shutdown` chain traversal.
 - Six independently importable `slog.Handler` middlewares — `buffered`, `colorized`, `leveled`, `masking`, `multi`, `prefixed`.
-- A YAML-driven factory that assembles the chain from `config.Logger`, accumulates option errors, and registers an `OnShutdown` hook for the buffer.
+- A YAML-driven factory that assembles the chain from `config.Logger`, rejects invalid mask rules, and registers an `OnShutdown` hook for the buffer.
 - A registry-driven masking layer with built-in masks for common PII shapes (email, phone, credit card, URLs, S3 paths) and a hook for custom
   factories that consume the YAML `params:` map.
