@@ -366,11 +366,11 @@ go func() { _ = engine.Run(ctx) }()
 err = engine.Submit(ctx, order.ID, order) // durable once this returns
 ```
 
-| Outcome of `Start`                                   | Command                     |
-|------------------------------------------------------|-----------------------------|
+| Outcome of `Start`                                   | Command                      |
+|------------------------------------------------------|------------------------------|
 | Terminal (completed, compensated, failed)            | acked — the outcome is final |
-| Interrupted (store error, instance busy, shutdown)    | redelivered with backoff    |
-| Undecodable, or the ID belongs to another definition | terminated                  |
+| Interrupted (store error, instance busy, shutdown)   | redelivered with backoff     |
+| Undecodable, or the ID belongs to another definition | terminated                   |
 
 Delivery is at-least-once; a redelivered command resumes the existing instance because the saga ID is the idempotency key. Keep the recovery
 cycle configured: it still owns deadline-driven rollback and instances started by direct `Start` calls. The engine never modifies an existing

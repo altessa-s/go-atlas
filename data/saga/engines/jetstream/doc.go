@@ -22,15 +22,21 @@
 //   - The saga reached a terminal state (completed, compensated, or failed and
 //     dead-lettered) → Ack. A business failure is a final outcome, not a
 //     delivery failure.
-//   - The execution was interrupted (store outage, the instance is busy, the
-//     engine shut down) → Nak with exponential backoff; the next delivery
-//     resumes the instance.
-//   - The command cannot be decoded or belongs to another definition → Term.
+//   - The execution was interrupted (store outage, the instance is busy) or
+//     panicked → Nak with exponential backoff; the next delivery resumes the
+//     instance.
+//   - The engine is shutting down → Nak delayed by one fetch window, so the
+//     stopped engine's abandoned pull request has expired first.
+//   - The command cannot be decoded, its ID is empty or not valid UTF-8, it
+//     belongs to another definition, or the store cannot hold its ID as a
+//     key → Term.
 //
 // Run fetches commands only into free execution slots, so a fetched command
-// starts at once. Running executions send in-progress heartbeats at a third of
-// the consumer's AckWait, so a saga longer than AckWait is not redelivered
-// meanwhile.
+// starts at once. Running executions send in-progress heartbeats every third of
+// the consumer's shortest delivery deadline (AckWait, or the smallest BackOff
+// entry), with the interval floored at 1ms, so a saga longer than that
+// deadline is not redelivered meanwhile. A deadline too short for the floor
+// cannot be kept alive; its redeliveries are harmless.
 //
 // # Provisioning
 //

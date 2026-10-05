@@ -66,9 +66,10 @@ process cannot change retention or ack timing for the others.
 - **Long sagas.** Running executions heartbeat with `InProgress` at a third of that deadline (at least 1ms).
 - **Shutdown.** Canceling `Run`'s context cancels in-flight executions, which leave their instances non-terminal; their commands are returned to the
   queue. A closed connection makes `Run` cancel and join in-flight work at once — whether it was waiting for a slot, fetching, or backing off — and
-  return `ErrConsumeStopped`. A deleted consumer is noticed on the next fetch (an empty fetch triggers an existence check, since a consumer deleted with
-  no request outstanding sends no notice): executions already running finish and persist their outcome (only their acks fail), then `Run` returns
-  `ErrConsumeStopped` joined with the cause.
+  return `ErrConsumeStopped`. A deleted consumer is noticed by a pending fetch, or by the existence check that follows an empty fetch (a consumer
+  deleted with no request outstanding sends no notice). `Run` then cancels and joins in-flight executions as on any unexpected stop — their
+  instances stay non-terminal for a redelivery or the recovery cycle to resume — and returns `ErrConsumeStopped` joined with the cause. While
+  every slot is busy no fetch is pending, so the deletion is noticed only once a slot frees.
 
 ## Errors
 
