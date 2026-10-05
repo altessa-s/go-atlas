@@ -51,7 +51,7 @@ func TestIsRevoked_SharedRebuildCommittedElsewhere(t *testing.T) {
 	auth := newFakeAuth("revoked")
 	filter := newSharedFilter()
 	require.NoError(t, filter.Add(t.Context(), "revoked"))
-	c := negcache.New(filter, auth, negcache.WithSharedRebuildCheckInterval(time.Nanosecond))
+	c := negcache.New(filter, auth, negcache.WithSharedRebuildCheckInterval(0))
 
 	// No process has committed a rebuild: every lookup is authoritative.
 	require.False(t, lookup(t, c, "fresh"))
@@ -59,7 +59,6 @@ func TestIsRevoked_SharedRebuildCommittedElsewhere(t *testing.T) {
 
 	// Another process committed a rebuild of the shared filter.
 	filter.committed.Store(true)
-	time.Sleep(time.Millisecond) // past the check interval
 	require.False(t, lookup(t, c, "fresh"))
 	require.Equal(t, int64(1), auth.calls.Load(), "a committed shared rebuild makes a miss trusted")
 	require.True(t, lookup(t, c, "revoked"), "a key in the filter is still confirmed")
