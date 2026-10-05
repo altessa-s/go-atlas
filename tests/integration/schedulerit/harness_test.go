@@ -21,6 +21,7 @@ import (
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	mongostore "github.com/altessa-s/go-atlas/service/scheduler/storages/mongodb"
 	redisstore "github.com/altessa-s/go-atlas/service/scheduler/storages/redis"
+	"github.com/altessa-s/go-atlas/service/scheduler/storages/sqldb"
 	goredis "github.com/redis/go-redis/v9"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
@@ -109,6 +110,9 @@ func backends() []backend {
 	return []backend{
 		{name: "mongodb", storage: newMongoStorage},
 		{name: "redis", storage: newRedisStorage},
+		{name: "postgres", storage: sqlStorage("pgx", envOr("POSTGRES_DSN", "postgres://atlas:atlas@127.0.0.1:15432/atlas?sslmode=disable"), sqldb.DialectPostgres)},
+		{name: "mariadb", storage: sqlStorage("mysql", envOr("MARIADB_DSN", "atlas:atlas@tcp(127.0.0.1:13306)/atlas"), sqldb.DialectMySQL)},
+		{name: "mysql", storage: sqlStorage("mysql", envOr("MYSQL_DSN", "atlas:atlas@tcp(127.0.0.1:13307)/atlas"), sqldb.DialectMySQL)},
 	}
 }
 

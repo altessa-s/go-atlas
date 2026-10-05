@@ -24,6 +24,7 @@ sched, err := factory.New(cfg.Scheduler).
 | `memory` | In-process (default) | — |
 | `mongodb` | MongoDB | `UseMongoDb` |
 | `redis` | Redis | `UseRedisClient` |
+| `sql` | PostgreSQL / MySQL / MariaDB (`storage.sql.dialect`) | `UseSQLDB` |
 
 ## Methods
 
@@ -41,6 +42,7 @@ sched, err := factory.New(cfg.Scheduler).
 | `UseLeaderElector` | Sets the leader elector for distributed scheduling |
 | `UseMongoDb` | Sets the MongoDB database for MongoDB storage backends |
 | `UseRedisClient` | Sets the Redis client for Redis storage backends |
+| `UseSQLDB` | Sets the `*sql.DB` handle for SQL storage backends (call `EnsureSchema` on the storage, or migrate, before start) |
 
 ### Terminal
 

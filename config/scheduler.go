@@ -23,6 +23,9 @@ const (
 	defaultSchedulerRedisKeyPrefix            = "scheduler"
 	defaultSchedulerRedisMaxHistoryPerTask    = 1000
 	defaultSchedulerMemoryMaxHistoryPerTask   = 1000
+	defaultSchedulerSQLDialect                = SchedulerSQLDialectPostgres
+	defaultSchedulerSQLTasksTable             = "scheduler_tasks"
+	defaultSchedulerSQLHistoryTable           = "scheduler_history"
 )
 
 // SchedulerConcurrency configures the concurrency behavior of the scheduler.
@@ -72,6 +75,17 @@ const (
 	SchedulerStorageTypeRedis SchedulerStorageType = "redis"
 	// SchedulerStorageTypeMemory represents in-memory storage backend.
 	SchedulerStorageTypeMemory SchedulerStorageType = "memory"
+	// SchedulerStorageTypeSQL represents a SQL database storage backend
+	// (PostgreSQL, MySQL or MariaDB) reached through database/sql.
+	SchedulerStorageTypeSQL SchedulerStorageType = "sql"
+)
+
+// SQL dialects accepted by [SchedulerStorageSQLConfig.Dialect].
+const (
+	// SchedulerSQLDialectPostgres targets PostgreSQL 12+.
+	SchedulerSQLDialectPostgres = "postgres"
+	// SchedulerSQLDialectMySQL targets MySQL 8.0.17+ and MariaDB 10.6+.
+	SchedulerSQLDialectMySQL = "mysql"
 )
 
 // SchedulerStorageMongoConfig contains MongoDB-specific settings for the scheduler storage.
@@ -131,10 +145,46 @@ func DefaultSchedulerStorageMemoryConfig() SchedulerStorageMemoryConfig {
 	}
 }
 
+// SchedulerStorageSQLConfig contains SQL-specific settings for the scheduler
+// storage (service/scheduler/storages/sqldb). The *sql.DB itself is injected
+// into the factory; the caller chooses and registers the driver.
+type SchedulerStorageSQLConfig struct {
+	// Dialect selects the SQL flavor: "postgres" or "mysql" (MySQL 8.0.17+ and
+	// MariaDB 10.6+). Defaults to "postgres" if not specified.
+	Dialect string `yaml:"dialect" default:"postgres"`
+
+	// TasksTable is the table name for task states, optionally schema-qualified.
+	// Defaults to "scheduler_tasks" if not specified.
+	TasksTable string `yaml:"tasksTable" default:"scheduler_tasks"`
+
+	// HistoryTable is the table name for task history, optionally schema-qualified.
+	// Defaults to "scheduler_history" if not specified.
+	HistoryTable string `yaml:"historyTable" default:"scheduler_history"`
+}
+
+// DefaultSchedulerStorageSQLConfig returns a SchedulerStorageSQLConfig with default values.
+func DefaultSchedulerStorageSQLConfig() SchedulerStorageSQLConfig {
+	return SchedulerStorageSQLConfig{
+		Dialect:      defaultSchedulerSQLDialect,
+		TasksTable:   defaultSchedulerSQLTasksTable,
+		HistoryTable: defaultSchedulerSQLHistoryTable,
+	}
+}
+
+// Validate performs validation of the SQL scheduler storage configuration.
+func (c *SchedulerStorageSQLConfig) Validate() error {
+	return ValidateStruct(c,
+		validation.Field(&c.Dialect, validation.Required, ozzo_rules.OneOf(SchedulerSQLDialectPostgres, SchedulerSQLDialectMySQL)),
+		validation.Field(&c.TasksTable, validation.Required),
+		validation.Field(&c.HistoryTable, validation.Required),
+	)
+}
+
 var schedulerStorageAllowedTypes = []SchedulerStorageType{
 	SchedulerStorageTypeMongodb,
 	SchedulerStorageTypeRedis,
 	SchedulerStorageTypeMemory,
+	SchedulerStorageTypeSQL,
 }
 
 // SchedulerStorageConfig configures the scheduler storage backend.
@@ -150,7 +200,7 @@ var schedulerStorageAllowedTypes = []SchedulerStorageType{
 //	}
 type SchedulerStorageConfig struct {
 	// Type defines the storage backend type.
-	// Must be one of: mongodb, redis, memory.
+	// Must be one of: mongodb, redis, memory, sql.
 	// Defaults to "memory" if not specified.
 	Type SchedulerStorageType `yaml:"type" default:"memory"`
 
@@ -165,6 +215,10 @@ type SchedulerStorageConfig struct {
 	// Memory defines in-memory storage configuration.
 	// Optional when Type is "memory", ignored otherwise.
 	Memory *SchedulerStorageMemoryConfig `yaml:"memory" default:"-"`
+
+	// SQL defines SQL database configuration.
+	// Required when Type is "sql", ignored otherwise.
+	SQL *SchedulerStorageSQLConfig `yaml:"sql" default:"-"`
 }
 
 func (c *SchedulerStorageConfig) storageCases() []storageCase[SchedulerStorageType] {
@@ -172,6 +226,7 @@ func (c *SchedulerStorageConfig) storageCases() []storageCase[SchedulerStorageTy
 		{when: SchedulerStorageTypeMongodb, field: &c.Mongodb},
 		{when: SchedulerStorageTypeRedis, field: &c.Redis},
 		{when: SchedulerStorageTypeMemory, field: &c.Memory},
+		{when: SchedulerStorageTypeSQL, field: &c.SQL},
 	}
 }
 
