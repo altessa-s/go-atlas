@@ -15,6 +15,8 @@ const (
 	bucketSize = 4
 	// maxKicks bounds the relocation walk of one insert.
 	maxKicks = 500
+	// candidateBuckets is the number of buckets a fingerprint may live in.
+	candidateBuckets = 2
 	// fingerprintShift selects the top byte of the 64-bit hash as fingerprint.
 	fingerprintShift = 56
 	// fingerprintValues is the number of non-zero fingerprint values.
@@ -101,11 +103,11 @@ func (f *cuckooFilter) insert(value string) bool {
 
 	f.kicks = f.kicks[:0]
 	i := i1
-	if rand.N(2) == 1 { //nolint:mnd // pick one of the two candidate buckets
+	if rand.N(candidateBuckets) == 1 { // #nosec G404 -- non-cryptographic eviction choice
 		i = i2
 	}
 	for range maxKicks {
-		slot := rand.IntN(bucketSize)
+		slot := rand.IntN(bucketSize) // #nosec G404 -- non-cryptographic eviction choice
 		victim := f.buckets[i][slot]
 		f.kicks = append(f.kicks, kick{bucket: i, slot: slot, prev: victim})
 		f.buckets[i][slot] = fp
