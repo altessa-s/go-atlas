@@ -5,13 +5,17 @@
 package factory
 
 import (
+	"context"
 	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/config"
+	"github.com/altessa-s/go-atlas/data/outbox"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
+
+	outboxsql "github.com/altessa-s/go-atlas/data/outbox/store/sqldb"
 )
 
 // Use the internal assembly boundary to test registration without a database.
@@ -27,4 +31,21 @@ func TestBuildPropagatesRegistrationFailureAndRetainsRetryableOutbox(t *testing.
 	require.NotNil(t, ob)
 	reg.Err = nil
 	require.NoError(t, ob.RegisterTasks(t.Context()))
+}
+
+func TestBuildWithSQLDB(t *testing.T) {
+	t.Parallel()
+	cfg := &config.Outbox{Enabled: true}
+
+	_, err := New(cfg).BuildWithSQLDB(nil, outboxsql.DialectPostgres, nil)
+	require.ErrorContains(t, err, "SQL database")
+
+	db, fake := testhelpers.NewFakeSQL(t, nil)
+	_, err = New(cfg).BuildWithSQLDB(db, "oracle", nil)
+	require.ErrorIs(t, err, outboxsql.ErrUnsupportedDialect)
+
+	ob, err := New(cfg).BuildWithSQLDB(db, outboxsql.DialectMySQL, func(context.Context, outbox.Event) error { return nil })
+	require.NoError(t, err)
+	require.NotNil(t, ob)
+	require.NotEmpty(t, fake.Calls(), "the events table is created on build")
 }

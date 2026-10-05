@@ -37,6 +37,7 @@ outbox, err := factory.New(cfg.Outbox).
 |--------|-------------|
 | `BuildWithMongoDB(db, handler)` | Creates a MongoDB-backed outbox using a `*mongo.Database` |
 | `BuildWithMongoCollection(col, handler)` | Creates a MongoDB-backed outbox using an existing `*mongo.Collection` |
+| `BuildWithSQLDB(db, dialect, handler)` | Creates a SQL-backed outbox (PostgreSQL, MySQL or MariaDB) using a `*sql.DB`; Save must run on the business transaction via `sqldb.WithTx` |
 
 ## Outbox startup
 

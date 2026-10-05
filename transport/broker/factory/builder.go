@@ -6,6 +6,7 @@ package factory
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 
@@ -22,6 +23,7 @@ import (
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 	outboxstore "github.com/altessa-s/go-atlas/data/outbox/store/mongo"
+	outboxsql "github.com/altessa-s/go-atlas/data/outbox/store/sqldb"
 	natsprovider "github.com/altessa-s/go-atlas/transport/broker/providers/nats"
 )
 
@@ -116,6 +118,25 @@ func (b *BrokerBuilder) CreateOutboxWithMongoCollection(
 	}
 
 	store, err := outboxstore.NewWithCollectionOptions(col)
+	if err != nil {
+		return nil, b.WrapError(err, "failed to create outbox store")
+	}
+
+	return b.createOutboxWithStore(store, publisher)
+}
+
+// CreateOutboxWithSQLDB creates a SQL-backed outbox (PostgreSQL, MySQL or
+// MariaDB, selected by dialect) for reliable message delivery using the
+// builder's broker configuration. The events table is created if it does not
+// exist; Save must run on the business transaction via outboxsql.WithTx.
+func (b *BrokerBuilder) CreateOutboxWithSQLDB(
+	db *sql.DB, dialect outboxsql.Dialect, publisher outbox.Publisher,
+) (*outbox.Outbox, error) {
+	if err := b.RequireDependency(db, "SQL database"); err != nil {
+		return nil, err
+	}
+
+	store, err := outboxsql.New(db, dialect)
 	if err != nil {
 		return nil, b.WrapError(err, "failed to create outbox store")
 	}

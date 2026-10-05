@@ -98,13 +98,21 @@ func databaseName(tb testing.TB) string {
 
 // fixture is one test's isolated world: its own database, an outbox store over
 // it, and the recorder standing in for the destination.
+//
+// The MongoDB handles are nil for a SQL fixture (see newSQLFixture); scenarios
+// that run on every backend use only the fixture's methods, store and
+// recorder.
 type fixture struct {
-	db       *mongo.Database
-	events   *mongo.Collection
-	orders   *mongo.Collection
-	store    *outboxstore.Store
+	store    outbox.Store
 	recorder *outboxit.Recorder
-	client   *mongo.Client
+
+	db         *mongo.Database
+	events     *mongo.Collection
+	orders     *mongo.Collection
+	mongoStore *outboxstore.Store
+	client     *mongo.Client
+
+	sql *sqlBackend // non-nil for a SQL fixture
 }
 
 // newFixture connects to MongoDB and gives the test a throwaway database,
@@ -144,12 +152,13 @@ func newFixture(tb testing.TB) *fixture {
 	require.NoError(tb, err)
 
 	f := &fixture{
-		db:       db,
-		events:   db.Collection(eventsCollection),
-		orders:   db.Collection(ordersCollection),
-		store:    store,
-		recorder: outboxit.NewRecorder(),
-		client:   client,
+		store:      store,
+		recorder:   outboxit.NewRecorder(),
+		db:         db,
+		events:     db.Collection(eventsCollection),
+		orders:     db.Collection(ordersCollection),
+		mongoStore: store,
+		client:     client,
 	}
 
 	f.requireTransactions(tb)
@@ -217,9 +226,21 @@ func (f *fixture) save(tb testing.TB, ob *outbox.Outbox, events ...outbox.Event)
 	return saved
 }
 
-// inTransaction runs fn inside a MongoDB transaction and requires it to commit.
-func (f *fixture) inTransaction(tb testing.TB, fn func(sessCtx context.Context) error) {
+// inTransaction runs fn inside a business transaction and requires it to commit.
+func (f *fixture) inTransaction(tb testing.TB, fn func(txCtx context.Context) error) {
 	tb.Helper()
+	require.NoError(tb, f.tryTransaction(tb, fn))
+}
+
+// tryTransaction runs fn inside a business transaction — a MongoDB session
+// transaction, or a SQL transaction passed to Save through its context — and
+// commits only when fn returns nil. It returns fn's error.
+func (f *fixture) tryTransaction(tb testing.TB, fn func(txCtx context.Context) error) error {
+	tb.Helper()
+
+	if f.sql != nil {
+		return f.sql.inTx(tb, fn)
+	}
 
 	sess, err := f.client.StartSession()
 	require.NoError(tb, err)
@@ -228,7 +249,16 @@ func (f *fixture) inTransaction(tb testing.TB, fn func(sessCtx context.Context) 
 	_, err = sess.WithTransaction(tb.Context(), func(sessCtx context.Context) (any, error) {
 		return nil, fn(sessCtx)
 	})
-	require.NoError(tb, err)
+	return err
+}
+
+// insertOrder writes the business row that shares a transaction with Save.
+func (f *fixture) insertOrder(txCtx context.Context, id string, total int) error {
+	if f.sql != nil {
+		return f.sql.insertOrder(txCtx, id, total)
+	}
+	_, err := f.orders.InsertOne(txCtx, bson.M{"_id": id, "total": total})
+	return err
 }
 
 // storedEvent is the persisted view of an event, decoded straight from the
@@ -251,6 +281,9 @@ type storedEvent struct {
 // load reads one event back from the collection.
 func (f *fixture) load(tb testing.TB, id string) storedEvent {
 	tb.Helper()
+	if f.sql != nil {
+		return f.sql.load(tb, id)
+	}
 
 	var doc storedEvent
 	require.NoError(tb, f.events.FindOne(tb.Context(), bson.M{"_id": id}).Decode(&doc))
@@ -261,6 +294,9 @@ func (f *fixture) load(tb testing.TB, id string) storedEvent {
 // loadAll reads every event back, oldest first.
 func (f *fixture) loadAll(tb testing.TB) []storedEvent {
 	tb.Helper()
+	if f.sql != nil {
+		return f.sql.loadAll(tb)
+	}
 
 	cursor, err := f.events.Find(tb.Context(), bson.M{},
 		mongoOptions.Find().SetSort(bson.M{"created_at": 1}))
@@ -275,6 +311,9 @@ func (f *fixture) loadAll(tb testing.TB) []storedEvent {
 // countEvents returns how many documents the outbox collection holds.
 func (f *fixture) countEvents(tb testing.TB) int64 {
 	tb.Helper()
+	if f.sql != nil {
+		return f.sql.count(tb, f.sql.events)
+	}
 
 	n, err := f.events.CountDocuments(tb.Context(), bson.M{})
 	require.NoError(tb, err)
@@ -285,6 +324,9 @@ func (f *fixture) countEvents(tb testing.TB) int64 {
 // countOrders returns how many business documents were committed.
 func (f *fixture) countOrders(tb testing.TB) int64 {
 	tb.Helper()
+	if f.sql != nil {
+		return f.sql.count(tb, f.sql.orders)
+	}
 
 	n, err := f.orders.CountDocuments(tb.Context(), bson.M{})
 	require.NoError(tb, err)

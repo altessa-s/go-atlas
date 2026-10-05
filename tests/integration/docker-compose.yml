@@ -48,6 +48,25 @@ services:
       timeout: 5s
       retries: 30
 
+  # MySQL proper, next to MariaDB: the SQL storages pick engine-specific
+  # collations, so both engines are exercised. The default character set is
+  # deliberately latin1 to prove the schemas never inherit database defaults.
+  mysql:
+    image: mysql:8.4
+    command: ["--character-set-server=latin1", "--collation-server=latin1_swedish_ci"]
+    ports:
+      - "13307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: atlas
+      MYSQL_DATABASE: atlas
+      MYSQL_USER: atlas
+      MYSQL_PASSWORD: atlas
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uatlas", "-patlas"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
   postgres:
     image: postgres:16
     ports:

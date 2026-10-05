@@ -2,7 +2,9 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package outboxit exercises data/outbox against a live MongoDB replica set.
+// Package outboxit exercises data/outbox against a live MongoDB replica set and,
+// for every scenario that does not depend on change streams, against the SQL
+// store on live PostgreSQL, MariaDB and MySQL servers.
 //
 // The unit tests for data/outbox run against in-memory stores and assert on the
 // state the outbox decided to write. What they cannot assert is whether that
@@ -31,7 +33,8 @@
 //     the stream, which is what makes it safe to drive delivery from. Neither
 //     the notification nor its commit boundary exists without an oplog.
 //
-// A replica set is required — transactions do not exist on a standalone mongod.
+// For MongoDB a replica set is required — transactions do not exist on a
+// standalone mongod.
 // Tests skip rather than fail when none is reachable, so a machine without the
 // compose stack still gets a green build. See tests/integration/README.md.
 package outboxit
