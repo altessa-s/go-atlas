@@ -25,12 +25,20 @@ handler.AddHandlerWithPriority(func(ctx context.Context, sig os.Signal) error {
     return flushMetrics(ctx)
 }, signals.PriorityHigh, syscall.SIGTERM)
 
+stop := make(chan struct{}, 1)
 handler.AddHandler(func(ctx context.Context, sig os.Signal) error {
+    select { // notify main and return; never call Shutdown from a handler
+    case stop <- struct{}{}:
+    default:
+    }
     return closeConnections(ctx)
 }, syscall.SIGTERM, syscall.SIGINT)
 
 handler.Start()
-handler.Wait() // blocks until shutdown completes
+<-stop
+if err := handler.Shutdown(ctx); err != nil { // waits for in-flight handlers, runs shutdown hooks
+    logger.Error("shutdown", slog.Any("error", err))
+}
 ```
 
 ---
@@ -68,8 +76,9 @@ ignored.
 handler.AddHandlerWithPriority(fn, signals.PriorityHighest, syscall.SIGTERM)
 ```
 
-Higher numeric priority executes first. In `SequentialMode`, a higher priority handler must complete before a lower priority one starts. In
-`ParallelMode`, priority determines startup order but not completion order.
+Higher numeric priority executes first. In `SequentialMode`, a higher priority handler must complete before a lower priority one starts — unless it
+has a handler timeout and exceeds it, in which case the next handler starts while the timed-out one may still be running. In `ParallelMode`,
+priority determines startup order but not completion order.
 
 ### Broadcast handlers
 
@@ -92,8 +101,7 @@ signals.New(
     AddHandlerWithPriority(criticalShutdown, signals.PriorityHighest, syscall.SIGTERM).
     AddHandler(cleanup, syscall.SIGTERM, syscall.SIGINT).
     AddBroadcastHandler(logSignal).
-    Start().
-    Wait()
+    Start()
 ```
 
 ---
@@ -118,8 +126,9 @@ Custom `Priority` values outside 1–100 are supported.
 
 ### `SequentialMode` (default)
 
-Handlers run one at a time in strict priority order within a single goroutine. Predictable ordering, suitable when handlers have dependencies on each
-other.
+Handlers run one at a time in strict priority order. Predictable ordering, suitable when handlers have dependencies on each other. A handler with a
+timeout runs in its own goroutine; if it exceeds the timeout, the loop moves on to the next handler while the timed-out handler may keep running
+(it should honor `ctx.Done()`).
 
 ### `ParallelMode`
 
@@ -161,8 +170,9 @@ When `handlerTimeout` is zero or negative, the handler receives the global conte
 
 ### Shutdown timeout
 
-`Shutdown(ctx)` applies `WithShutdownTimeout` as a deadline on the provided context (via `corecontext.ApplyTimeout`, so an existing tighter deadline is
-preserved). If in-flight handlers do not complete within this window, shutdown returns a wrapped context error.
+`Shutdown(ctx)` applies `WithShutdownTimeout` as a deadline on the provided context (via `corecontext.ApplyTimeout`: if the context already carries any
+deadline — tighter or looser — it is kept unchanged and the shutdown timeout is not applied). If in-flight handlers do not complete within this window,
+shutdown returns a wrapped context error.
 
 ---
 
@@ -212,7 +222,8 @@ the handler for chaining.
 handler.Wait()
 ```
 
-Blocks until the signal handler stops. Typically called in `main` after `Start` to keep the process alive.
+Blocks until the signal listener stops, which happens only after `Shutdown` (or `Stop`) is called. Use it to wait for a shutdown that another
+goroutine initiates; it does not initiate shutdown itself.
 
 ### Shutdown
 
@@ -230,7 +241,7 @@ Graceful shutdown sequence:
 3. Waits for all in-flight handlers to complete (or the deadline to expire).
 4. Runs `runtime.RunShutdownHooks(ctx)` — integrating with the global shutdown hook
    system (see [README.md](README.md)).
-5. Cancels the global handler context.
+5. Cancels the global handler context. If `RunShutdownHooks` returns an error, `Shutdown` returns it immediately and this step is skipped.
 
 If the context expires before handlers finish, shutdown hooks are still attempted on a best-effort basis with `context.Background()`.
 
@@ -242,8 +253,10 @@ Both `Shutdown` and `Stop` are idempotent — subsequent calls return nil.
 
 ## Integration with shutdown hooks
 
-`Signal.Shutdown` automatically calls `runtime.RunShutdownHooks` after all signal handlers complete. This means resources registered via
-`runtime.OnShutdown` are released as part of the shutdown sequence without additional wiring:
+`Signal.Shutdown` calls `runtime.RunShutdownHooks` after all in-flight signal handlers complete. Receiving an OS signal alone does not run the
+hooks — they run only when `Shutdown` (or `Stop`) is called. Don't call `Shutdown` synchronously from a signal handler (it waits for in-flight
+handlers, including the caller, until its timeout) and don't wait on `Wait` first (`Wait` returns only after `Shutdown` has stopped the
+listener). Instead, have the handler notify a coordinator — e.g. close a channel — and return; the coordinator then calls `Shutdown`:
 
 ```go
 // At startup:
@@ -251,10 +264,22 @@ runtime.OnShutdown(func(ctx context.Context) error {
     return db.Close()
 })
 
-// Signal handler triggers RunShutdownHooks automatically:
+// Shutdown (or Stop) runs RunShutdownHooks after in-flight handlers finish:
 handler := signals.New(signals.WithSignals(syscall.SIGTERM))
+stop := make(chan struct{}, 1)
+handler.AddHandler(func(ctx context.Context, sig os.Signal) error {
+    select {
+    case stop <- struct{}{}:
+    default:
+    }
+    return nil
+}, syscall.SIGTERM)
 handler.Start()
-handler.Wait()
+
+<-stop
+if err := handler.Shutdown(ctx); err != nil {
+    logger.Error("shutdown error", slog.Any("error", err))
+}
 ```
 
 See [README.md](README.md) for shutdown hook ordering and guarantees.
@@ -263,8 +288,9 @@ See [README.md](README.md) for shutdown hook ordering and guarantees.
 
 ## Performance
 
-- **Priority sorting** — for ≤10 handlers, insertion sort (O(n²) but fast for small N);
-  for 11–50 handlers, counting sort (O(n)); for >50 handlers, a bucket-based priority queue with O(1) insertion.
+- **Priority sorting** — for ≤32 handlers, insertion sort (O(n²) but fast for small N);
+  for 33–50 handlers, counting sort (O(n+k), falling back to insertion sort when priorities are too sparse); for >50 handlers, a bucket-based
+  priority queue with O(1) insertion.
 - **Zero-timeout fast path** — handlers without a timeout execute synchronously in the
   caller's goroutine with no extra goroutine or channel overhead.
 - **Worker pool** — channel-based semaphore prevents goroutine explosion under heavy
@@ -274,7 +300,7 @@ See [README.md](README.md) for shutdown hook ordering and guarantees.
 
 | Constant | Value | Purpose |
 |----------|-------|---------|
-| `SmallHandlerCountThreshold` | 10 | Below this, insertion sort is used |
+| `SmallHandlerCountThreshold` | 10 | Exported but currently unused by the dispatcher (the insertion-sort cutoff is an internal constant, 32) |
 | `LargeHandlerCountThreshold` | 50 | Above this, priority queue is used |
 | `HandlerSliceInitialCapacity` | 32 | Pre-allocated handler slice capacity |
 | `PriorityBucketCount` | 5 | Number of priority queue buckets |

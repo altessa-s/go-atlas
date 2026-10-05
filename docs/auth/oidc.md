@@ -197,23 +197,25 @@ classDiagram
 
     class TaskRegistrar {
         <<interface>>
-        +RegisterTask(name, schedule, fn) error
+        +Register(ctx, TaskConfig) error
     }
 
     class HealthCoordinator {
-        <<interface>>
-        +Register(name, checker) error
+        <<struct>>
+        +RegisterService(name, checker)
     }
 
     class Filter {
         <<interface>>
-        +Contains(item) bool
-        +Add(item) error
+        +MightExist(ctx, value) bool, error
+        +Add(ctx, value) error
+        +AddBatch(ctx, values) error
     }
 
     class DataLoader {
         <<interface>>
-        +Load(ctx) iter, error
+        +StreamValues(ctx) iter.Seq2~string, error~
+        +Count(ctx) int64, error
     }
 
     Provider ..> Cacher : uses
@@ -247,16 +249,14 @@ type RevocationStorage interface {
 
 ```go
 type TaskRegistrar interface {
-    RegisterTask(name string, schedule string, fn func(ctx context.Context) error) error
+    Register(ctx context.Context, cfg TaskConfig) error
 }
 ```
 
-**health.Coordinator** — registers health checks.
+**health.Coordinator** — registers health checks (a concrete `*health.Coordinator`, not an interface).
 
 ```go
-type Coordinator interface {
-    Register(name string, checker Checker) error
-}
+func (c *Coordinator) RegisterService(name string, checker Checker)
 ```
 
 ## What's provided
@@ -344,7 +344,9 @@ The two layers are complementary. YAML handles "how to connect" and "what infras
 └──────────────────────────────────────────────────────────────┘
 ```
 
-When both layers define validation/presets, the JSON service config **overrides** the YAML values.
+The YAML factory (`ProviderBuilder.Build`) never applies `WithServiceConfigPath`: the JSON overlay is wired only by passing
+`oidc.WithServiceConfigPath(path)` to `oidc.NewProvider` directly. When both layers define validation/presets, the JSON service config
+**overrides** the YAML values.
 
 ---
 
@@ -363,7 +365,7 @@ oidc:
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `discoveryUrl` | `string` | Yes | — | OIDC discovery endpoint URL |
-| `clockSkew` | `duration` | No | `10s` | Acceptable clock skew for time-based claims. Min: `1s`, max: `1m` |
+| `clockSkew` | `duration` | No | `30s` | Acceptable clock skew for time-based claims. Min: `1s`, max: `1m` |
 
 ### Client Credentials
 
@@ -413,7 +415,7 @@ validation at startup otherwise.
 #### Fail-closed (default) vs fail-open mode
 
 By default introspection is **fail-closed**: if the IdP is unreachable (network error, 5xx, parse failure) the provider logs a warning, increments
-`oidc_revocation_check_errors_total`, and rejects the token with `ErrIntrospection`. That keeps revocation enforced during IdP degradation.
+`auth_oidc_revocation_check_errors_total`, and rejects the token with `ErrIntrospection`. That keeps revocation enforced during IdP degradation.
 **Fail-open mode** (`fail_open: true`) flips this trade-off: any introspection failure is logged and the token is accepted on its signature alone.
 This keeps authentication available during IdP degradation but lets revoked tokens slip through until the endpoint is back — use it only when
 availability outweighs revocation guarantees.
@@ -432,6 +434,13 @@ The behavior also exists on the Go API: `oidc.WithIntrospectionFailOpen()` sits 
 **Operator guidance:** leave `fail_open` at its default (`false`) in production when introspection is enabled. Pair it with a generous IdP timeout and
 retries on the HTTP client (both honored via `oidc.proxy` and the shared `httpclient`) so that transient hiccups don't translate to user-visible 401s.
 Cache hits never go to the network — fail-closed only affects requests that actually reach the endpoint.
+
+> **Full-token storage short-circuit.** When revocation storage is configured with `itemType: token` (the default), introspection first
+> asks that storage and treats a "not revoked" answer as an active token without contacting the IdP. A token revoked at the IdP but missing
+> from the local filter (stale or empty) therefore passes even with `fail_open: false`. When IdP introspection must stay authoritative, omit
+> full-token revocation storage, or use a correctly populated `jti`/`kid` storage, which does not take this shortcut.
+> Conversely, a storage **hit** does not reject either: it falls through to the IdP, whose `active` answer wins — see
+> [Token Revocation (Go)](#token-revocation-go).
 
 ### Token Validation
 
@@ -482,7 +491,7 @@ oidc:
 | `ignored` | `[]string` | — | Claims to skip during validation |
 | `audience` | `[]string` | — | Expected `aud` claim values (token must contain at least one) |
 | `allowedClientIds` | `[]string` | — | Whitelist of `client_id` values. Empty = all allowed |
-| `requiredScopes` | `[]string` | — | Required OAuth2 scopes in the `scope` claim |
+| `requiredScopes` | `[]string` | — | OAuth2 scopes checked in the `scope` claim with any-one-of semantics (at least one must be present) |
 | `requireAuthorizedParty` | `bool` | `false` | Require the `azp` (authorized party) claim |
 | `allowedAuthorizedParties` | `[]string` | — | Whitelist of `azp` values. Required when `requireAuthorizedParty: true` |
 | `allowMissingSubject` | `bool` | `false` | Allow tokens without `sub` claim (for client credentials flow tokens) |
@@ -563,6 +572,17 @@ oidc:
 
 Token validation result caching. Requires a `Cacher` implementation (typically Redis-backed) injected via the factory builder.
 
+> **Policy bypass.** The cache key is the prefix plus the token, independent of the validation policy, and a cache hit returns the cached
+> claims **before** the requested rules run. A token first validated under a permissive policy is therefore accepted later by a stricter
+> preset even if it lacks the required scopes or audience; providers sharing a cache namespace share the bypass. Disable token caching when
+> the validation policy varies within a provider (presets, per-call options), and give providers with different policies separate
+> `tokensKeyPrefix` namespaces.
+
+> **Expiry bypass.** Independently of policy, a validly signed token presented after `exp` but within the clock-skew leeway (30 s by
+> default) is cached with a TTL of 0, which the cache treats as "no expiration"; later hits return it without any time check, so the
+> expired token is accepted indefinitely. Separate namespaces do not help. Until this is fixed, keep token caching disabled, or wrap the
+> `Cacher` in an adapter that refuses non-positive TTLs.
+
 ```yaml
 oidc:
   cache:
@@ -597,7 +617,7 @@ oidc:
 | `refreshSchedule` | `string` | `"0 0 * * * *"` | Cron expression (6-field with seconds) |
 | `httpTimeout` | `duration` | `30s` | HTTP timeout for JWKS endpoint requests |
 
-Without a scheduler, JWKS is refreshed automatically on cache miss.
+Without a scheduler, JWKS keys are loaded once at construction; refresh them with `provider.RefreshJWKS(ctx)`.
 
 #### Staleness check (Go-only)
 
@@ -648,7 +668,9 @@ guide](../proxy.md) for full mode semantics, TLS-to-proxy options, and operator 
 
 ### Revocation
 
-Token/key revocation checking using probabilistic filters (Bloom or Cuckoo).
+Token/key revocation checking using probabilistic filters (Bloom or Cuckoo). Populating the filter from `source` through `Sync` requires a
+**Bloom** filter: Cuckoo does not implement `Rebuild`, so every sync fails with `ErrFilterNotRebuildable` and a Cuckoo filter stays empty
+unless the application populates it itself.
 
 ```yaml
 oidc:
@@ -676,12 +698,17 @@ oidc:
 | `source.url` | `string` | — | URL to fetch revocation list from |
 | `source.file` | `string` | — | Local file path for revocation list |
 
-Either `source.url` or `source.file` is required when revocation is enabled.
+Whenever the `revocation` block is present — even with `enabled: false` — `filter` and `source` are both required (validation fails
+otherwise); set either `source.url` or `source.file`.
+
+> **Known limitation.** With `source.url` the factory builds the URL loader without an HTTP client and hands it to the provider inside a
+> ready-made revocation storage, so the provider's shared client is never injected and every sync fails with
+> `ErrLoaderClientNotConfigured` — the filter stays empty and revoked tokens are admitted. Until this is fixed, use `source.file` (with a Bloom filter), or wire
+> revocation in Go with an explicit `URLRevocationLoader{URL: …, Client: …}` (see [Token Revocation (Go)](#token-revocation-go)).
 
 #### Signature-verification ordering
 
-Revocation lookups follow a two-phase rule so an attacker cannot poison the check with forged claims or trigger work against the
-introspection endpoint with garbage JWTs:
+Local revocation lookups follow a two-phase rule so an attacker cannot poison the check with forged claims:
 
 | `itemType` | When the lookup runs | Why |
 |------------|---------------------|-----|
@@ -689,9 +716,12 @@ introspection endpoint with garbage JWTs:
 | `jti` | **After** signature verification | The `jti` claim only becomes trustworthy once the signature is checked |
 | `kid` | **After** signature verification | The `kid` header is forgeable until the signature pins it to a known key |
 
-Introspection still runs against the IdP because the IdP is the source of truth, but local probabilistic / storage lookups that key
-on `jti` or `kid` are deferred until parsing has succeeded. Operators do not need to change anything — the ordering is enforced
-inside the provider.
+Introspection is different: when enabled it runs in the pre-verification revocation check, before the token is parsed or its signature
+verified, so any non-empty token — garbage included — that misses the introspection cache triggers a POST to the IdP. This ordering does
+not protect the IdP from unauthenticated request volume; rate-limit upstream if that matters. Exception: with full-token revocation storage
+(`itemType: token`, the default) a storage answer of "not revoked" short-circuits introspection before the cache or the IdP is consulted —
+see the note under fail-closed mode. Only the local lookups keyed on `jti` or
+`kid` are deferred until signature verification.
 
 ---
 
@@ -770,7 +800,7 @@ Used in `default_validation` and in each preset's `validation` field.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `leeway` | `string` (duration) | `"0s"` | Clock skew tolerance for `exp`, `nbf`, `iat` |
+| `leeway` | `string` (duration) | `"30s"` (`oidc.DefaultLeeway`) | Clock skew tolerance for `exp`, `nbf`, `iat`; `"0s"` disables it |
 | `verify_expiration` | `bool` (tri-state) | omit | Tri-state: omit = jwt-go default (validate when present); `true` = require the `exp` claim AND validate it; `false` = **rejected at config-load time** with `ErrInvalidConfig` (the JWT library has no per-claim opt-out, so silently honoring `false` would mislead operators) |
 | `verify_not_before` | `bool` (tri-state) | omit | Same tri-state semantics as `verify_expiration` for the `nbf` claim |
 | `verify_issued_at` | `bool` | `false` | Verify `iat` claim |
@@ -804,19 +834,20 @@ All duration fields accept Go duration syntax:
 ```json
 {
   "scopes": {
-    "required": ["openid", "profile"],
-    "any_of": ["read", "write", "admin"]
+    "required": ["read", "write", "admin"]
   }
 }
 ```
 
 | Field | Logic | Description |
 |-------|-------|-------------|
-| `required` | AND | All these scopes must be present |
-| `any_of` | OR | At least one must be present |
-| `all_of` | AND | All must be present (alias for `required`) |
+| `required` | OR | At least one of these scopes must be present |
+| `any_of` | OR | At least one must be present — **currently unusable**, see below |
+| `all_of` | OR | Merged into `required`, so it has the same any-one-of semantics (not AND) |
 
-Combined: `required` AND `any_of` — e.g., `openid` AND (`read` OR `write` OR `admin`).
+`required` and `all_of` are concatenated into a single list checked with **any-one-of** semantics: the token passes when it carries at least
+one of the listed scopes. `any_of` is compiled into a CEL rule that calls `split()`, which the CEL environment does not provide (no strings
+extension), so a config with `any_of` currently fails at provider construction — use `required` for OR semantics instead.
 
 ### Token Lifetime
 
@@ -831,7 +862,7 @@ Combined: `required` AND `any_of` — e.g., `openid` AND (`read` OR `write` OR `
 
 | Field | Description |
 |-------|-------------|
-| `min` | Minimum `exp - iat` (protects against suspiciously short tokens) |
+| `min` | Accepted by the schema but **not enforced** — only `max` is applied |
 | `max` | Maximum `exp - iat` (security policy compliance) |
 
 ### CEL Rules
@@ -869,7 +900,6 @@ Multiple CEL rules per validation block. Each rule must return `bool`.
 | `string.endsWith(suffix)` | String ends with |
 | `string.startsWith(prefix)` | String starts with |
 | `string.contains(sub)` | String contains substring |
-| `string.split(sep)` | Split string |
 | `value in list` | Membership check |
 | `list.exists(v, cond)` | Any element satisfies condition |
 | `list.all(v, cond)` | All elements satisfy condition |
@@ -1202,14 +1232,60 @@ Three revocation item types are supported: `"token"` (full JWT), `"jti"` (claim)
 **With probabilistic filter:**
 
 ```go
-oidc.WithRevocationStorage(
-    oidc.NewFilterRevocationStorage(
-        probfilter.NewBloomFilter(1_000_000, 0.001),
-        oidc.URLRevocationLoader("https://auth.example.com/revoked-tokens"),
-    ),
-),
+import (
+    "github.com/altessa-s/go-atlas/data/probfilter/bloom"
+    "github.com/altessa-s/go-atlas/data/probfilter/bloom/storages/memory"
+)
+
+filter := bloom.New(memory.New(
+    memory.WithExpectedItems(1_000_000),
+    memory.WithFalsePositiveRate(0.001),
+))
+
+oidc.WithRevocationFilter(filter),
+oidc.WithRevocationLoader(&oidc.URLRevocationLoader{URL: "https://auth.example.com/revoked-tokens"}),
+oidc.WithRevocationAuthoritative(exactStore),       // optional: confirm filter hits; nil = lossy mode
 oidc.WithRevocationSyncSchedule("*/30 * * * * *"), // sync every 30s
 ```
+
+`NewProvider` assembles `oidc.NewFilterRevocationStorage(filter, loader, authoritative)` from these options; call it directly and pass the
+result to `WithRevocationStorage` when you need the storage outside the provider.
+
+The filter starts empty and `NewProvider` never syncs it: periodic sync is registered only when both a scheduler (`WithScheduler`) and a sync
+schedule (`WithRevocationSyncSchedule`) are supplied,
+and its first run waits for the schedule. Until the filter is populated a miss answers "not revoked" without consulting anything, so build
+the storage yourself and require one successful `Sync` before serving:
+
+```go
+storage := oidc.NewFilterRevocationStorage(filter,
+    &oidc.URLRevocationLoader{URL: "https://auth.example.com/revoked-tokens", Client: httpClient},
+    exactStore, // or nil for lossy mode
+)
+if err := storage.Sync(ctx); err != nil {
+    return err // do not serve with an empty filter
+}
+provider, err := oidc.NewProvider(ctx, discoveryURL,
+    oidc.WithRevocationStorage(storage),
+    oidc.WithScheduler(sched),
+    oidc.WithRevocationSyncSchedule("*/30 * * * * *"), // without it the filter is never re-synced
+)
+```
+
+`WithRevocationAuthoritative` only confirms filter **hits**; it does not protect against keys missing from the filter. A later `Sync`
+rebuilds the Bloom filter non-atomically (reset, then re-add), so revoked tokens can pass while it runs or after it fails midway — the same
+hazard documented for [`denylist/negcache`](denylist.md#correctness-and-staleness). Where that window is unacceptable, use an exact custom
+storage (`WithRevocationStorage`) until atomic rebuilding exists.
+
+Revocation checks **fail open**, independently of the introspection `fail_open` setting: when `RevocationStorage.IsRevoked` returns an
+error, the provider logs it, increments `auth_oidc_revocation_check_errors_total`, and accepts the token. (With introspection enabled and
+full-token storage, a storage error instead falls through to the IdP.)
+
+With introspection enabled, full-token storage (`itemType: token`) is **advisory**: a hit does not reject the token — it falls through to
+the introspection cache or the IdP, and an `active` answer is accepted, while the post-verification storage check is skipped for this item
+type. A token explicitly revoked in a healthy local store therefore still passes if the IdP considers it active. When both local and IdP
+revocations must be enforced, use `jti`/`kid` storage or a separate mandatory check in the application. An exact store therefore still
+admits revoked tokens during a backend outage. For strict enforcement, add a fail-closed check in the application (or a storage adapter
+whose callers reject on uncertainty) and alert on that counter.
 
 **With custom storage:**
 
@@ -1240,17 +1316,27 @@ authInterceptor := auth.ServerInterceptor(
 )
 ```
 
-After authentication, retrieve typed claims from context:
+After authentication, the verified `*oidcgrpc.Claims` is the `auth.Credentials.Data` handed to the `ClientAuth` stage; the interceptor does
+not store it in the context itself. Put it there from a `ClientAuth` (or authorize with `ScopeClientAuth`):
 
 ```go
+type claimsKey struct{}
+
+authInterceptor := auth.ServerInterceptor(
+    auth.WithAuthFn(oidcgrpc.AuthFunc(v)),
+    auth.WithClientAuth(auth.ClientAuthFunc(func(ctx context.Context, cred auth.Credentials) (context.Context, error) {
+        return context.WithValue(ctx, claimsKey{}, cred.Data.(*oidcgrpc.Claims)), nil
+    })),
+)
+
 func (s *Server) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.GetUserResponse, error) {
-    claims, ok := oidcgrpc.ClaimsFromContext(ctx)
+    claims, ok := ctx.Value(claimsKey{}).(*oidcgrpc.Claims)
     if !ok {
         return nil, status.Error(codes.Unauthenticated, "no claims")
     }
     userID := claims.Subject
     email  := claims.Email
-    scopes := claims.Scopes // sorted []string
+    scopes := claims.Scopes // original token order
     // ...
 }
 ```
@@ -1266,7 +1352,7 @@ type Claims struct {
     Email              string
     Issuer             string
     Audience           []string
-    Scopes             []string   // sorted
+    Scopes             []string   // original token order
     ExpiresAt          time.Time
     IssuedAt           time.Time
     NotBefore          time.Time
@@ -1277,7 +1363,7 @@ type Claims struct {
 }
 ```
 
-Retrieve from context via `oidcgrpc.ClaimsFromContext(ctx)`.
+It arrives as `auth.Credentials.Data` in the `ClientAuth` stage (see above); `oidcgrpc.ScopesOf(claims)` returns its scopes.
 
 ---
 
@@ -1297,16 +1383,18 @@ Returns `StatusServing` when the discovery document is valid and JWKS keys are l
 
 | Metric | Description |
 |--------|-------------|
-| `oidc_token_validations_total` | Total validation attempts |
-| `oidc_validation_errors_total` | Validation failures |
-| `oidc_validation_duration_seconds` | Validation latency histogram |
-| `oidc_cache_hits_total` | Token cache hits |
-| `oidc_cache_misses_total` | Token cache misses |
-| `oidc_jwks_refreshes_total` | JWKS refresh count |
-| `oidc_jwks_refresh_errors_total` | JWKS refresh failures |
-| `oidc_revocation_check_errors_total` | Revocation check failures |
+| `auth_oidc_token_validations_total` | Total validation attempts |
+| `auth_oidc_validation_errors_total` | Validation failures |
+| `auth_oidc_validation_duration_seconds` | Validation latency histogram |
+| `auth_oidc_cache_hits_total` | Token cache hits |
+| `auth_oidc_cache_misses_total` | Token cache misses |
+| `auth_oidc_jwks_refreshes_total` | JWKS refresh count |
+| `auth_oidc_jwks_refresh_errors_total` | JWKS refresh failures |
+| `auth_oidc_jwks_refresh_duration_seconds` | JWKS refresh latency histogram |
+| `auth_oidc_jwks_stale_rejections_total` | Validations affected by an over-stale JWKS cache (enforced or warned) |
+| `auth_oidc_revocation_check_errors_total` | Revocation check failures |
 
-All metrics are labeled with `issuer`.
+Only `token_validations_total` and `validation_errors_total` carry the `issuer` label; the rest are unlabeled.
 
 ## Scheduled Background Tasks
 
@@ -1318,7 +1406,7 @@ oidc.WithJWKSRefreshSchedule("0 */5 * * * *"),       // every 5 min
 oidc.WithRevocationSyncSchedule("*/30 * * * * *"),    // every 30s
 ```
 
-Without a scheduler, call `provider.RefreshJWKS(ctx)` manually or rely on automatic refresh on cache miss.
+Without a scheduler, the keys are loaded once at construction; call `provider.RefreshJWKS(ctx)` to refresh them.
 
 ---
 
@@ -1395,7 +1483,7 @@ oidc:
     "leeway": "10s",
     "audiences": ["https://api.company.com/users"],
     "required_claims": ["sub", "email"],
-    "scopes": { "any_of": ["read:users", "write:users"] }
+    "scopes": { "required": ["read:users", "write:users"] }
   }
 }
 ```
@@ -1631,7 +1719,7 @@ The `config.OIDC.Validate()` method runs automatically during app config loading
 | `presets.list` without `presets.selectors` (or vice versa) | `presets.list and presets.selectors must be configured together` |
 | Preset name violates pattern | `name: must be in a valid format` |
 | `requireAuthorizedParty: true` without `allowedAuthorizedParties` | `allowedAuthorizedParties: cannot be blank` |
-| Revocation enabled without `filter` or `source` | `filter: cannot be blank` |
+| `revocation` block present (even `enabled: false`) without `filter` or `source` | `filter: cannot be blank` |
 
 ### JSON Service Config Validation (at load time)
 
@@ -1644,5 +1732,5 @@ The `config.OIDC.Validate()` method runs automatically during app config loading
 | Duplicate preset names | preset name uniqueness error |
 | `preset_rules[].preset` references nonexistent preset | `preset rule references unknown preset '...'` |
 | CEL expression compilation failure | `invalid CEL expression in rule '...': ...` |
-| Preset name violates `^[a-z][a-z0-9-]*$` | pattern validation error |
+| Empty preset name | `presets[N].name is required` (the `^[a-z][a-z0-9-]*$` pattern is enforced only by the JSON schema, not at runtime) |
 

@@ -20,8 +20,8 @@ strings.IsEmpty[*string](nil) // true
 strings.IsEmptyOrWhitespace("  \t") // true — allocation-free, rune-based
 ```
 
-`IsEmpty` is generic over `~string | ~*string`. `IsEmptyOrWhitespace` avoids the `strings.TrimSpace` allocation by iterating runes directly; prefer
-it in hot paths.
+`IsEmpty` is generic over `~string | ~*string`. `IsEmptyOrWhitespace` iterates runes directly and returns on the first
+non-space rune, instead of trimming the whole string with `strings.TrimSpace` (which does not allocate, but always scans both ends).
 
 ### Trimming checks
 
@@ -70,9 +70,14 @@ Pre-instantiated converters avoid type parameters at call sites:
 | `ToSnakeCase(s)` | `"HelloWorld"` → `"hello_world"` |
 | `ToScreamingSnakeCase(s)` | `"HelloWorld"` → `"HELLO_WORLD"` |
 | `ToCamelCase(s)` | `"hello_world"` → `"helloWorld"` |
-| `ScreamingSnakeToCamelCase(s)` | `"HELLO_WORLD"` → `"helloWorld"` |
+| `ScreamingSnakeToCamelCase(s)` | `"HELLO_WORLD"` → `"hELLOWORLD"` (see note) |
 
-All transformers use an ASCII fast path with Unicode fallback for non-ASCII input.
+> **Note:** `ScreamingSnakeToCamelCase` currently delegates to `ToCamelCase`, which lowercases only the first letter and preserves the case of every
+> other non-delimiter letter, so `"HELLO_WORLD"` yields `"hELLOWORLD"`, not `"helloWorld"`. Lowercase the input first
+> (with the standard library's `strings.ToLower`) if you need conventional camelCase.
+
+`ToSnakeCase` and `ToScreamingSnakeCase` use an ASCII fast path with a Unicode (rune-based) fallback for non-ASCII input. `ToCamelCase` and
+`ScreamingSnakeToCamelCase` are ASCII-only: they process the input byte by byte, so non-ASCII characters are not case-converted correctly.
 
 ### Case checks
 
@@ -117,6 +122,10 @@ for part := range strings.SplitSeq(largeCSV, strings.SplitOptions{Separator: ","
     }
 }
 ```
+
+Case-insensitive `SplitSeq` lowercases the input and separator and reuses the resulting indexes on the original string; unlike `Split`, it has no
+regex fallback for Unicode special casing. If lowercasing changes the byte length (e.g. `"İ"`), the split positions are wrong — use `Split` for
+case-insensitive splitting of non-ASCII input.
 
 ### Join
 
@@ -182,8 +191,8 @@ Both use `unsafe.StringData`/`unsafe.SliceData` (Go 1.20+). The safety contract:
 
 ### Unsafe equality
 
-`StringEqualsUnsafe` compares data pointers first (O(1) for interned strings), then falls back to standard `==` or `strings.EqualFold` if lengths
-differ.
+`StringEqualsUnsafe` returns `false` immediately when lengths differ, then compares data pointers (O(1) for interned strings), then falls back to
+standard `==`. The comparison is always case-sensitive — there is no `strings.EqualFold` fallback.
 
 ---
 
@@ -195,7 +204,9 @@ The `Interner` deduplicates identical strings so only one copy is retained in me
    (wait-free reads).
 2. Cold cache: `sync.Map` for general interning with `unique.Handle` storage.
 
-Strings exceeding 5 accesses are promoted to the hot cache. Background LRU eviction runs when the interner exceeds capacity.
+Promotion is checked on every 50th cold-cache hit (counted across all strings): if the string being looked up at that moment has at least 5 accesses,
+it is promoted to the hot cache. Background eviction runs when the interner exceeds capacity; it removes the least frequently accessed entries
+first (LFU), breaking ties by least recent access (LRU).
 
 ### Global interner
 
@@ -244,7 +255,7 @@ fmt.Printf("size: %d/%d, evictions: %d\n",
 | `HotHits` | Lookups served from hot cache |
 | `ColdHits` | Lookups served from cold cache |
 | `Misses` | New entries created |
-| `Evictions` | Entries removed by LRU |
+| `Evictions` | Entries removed by background eviction |
 | `CurrentSize` / `MaxSize` | Current and max capacity |
 
 `ResetStats()` zeroes counters without clearing cached strings.
@@ -255,10 +266,10 @@ fmt.Printf("size: %d/%d, evictions: %d\n",
 |----------|---------|-------------|
 | `DefaultMaxSize` | 8192 | Global interner capacity |
 | `HotCacheSlots` | 32 | Atomic pointer slots in hot cache |
-| `HotCacheThreshold` | 5 | Access count to trigger hot promotion |
-| `PromotionCheckInterval` | 50 | Access count between promotion checks |
+| `HotCacheThreshold` | 5 | Minimum access count for hot promotion |
+| `PromotionCheckInterval` | 50 | Cold-cache hits (across all strings) between promotion checks |
 | `EvictionBatchSize` | 512 | Max entries per eviction pass |
-| `EvictionRatio` | 4 | At least 25% of cache evicted per pass |
+| `EvictionRatio` | 4 | Up to 25% of cache evicted per pass (`size/4`, capped by `EvictionBatchSize`) |
 
 ---
 
@@ -302,7 +313,7 @@ if stored.Equal(provided) {
 | `TimingSafeSubstringMatch(s, substr)` | Constant-time case-insensitive substring search |
 | `SubstringMatch(s, substr)` | Case-insensitive substring (NOT constant-time) |
 | `ZeroBytes(data)` | Overwrite byte slice with zeros |
-| `ZeroString(s)` | Best-effort zeroing of string backing memory (may panic for literals) |
+| `ZeroString(s)` | Best-effort zeroing of string backing memory (silent no-op for literals / read-only memory; never panics) |
 
 ---
 

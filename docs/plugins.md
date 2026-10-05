@@ -81,7 +81,7 @@ package main
 import (
     "runtime"
 
-    "github.com/altessa-s/go-atlas/core/plugins"
+    "github.com/altessa-s/go-atlas/plugins"
 )
 
 // Value form (recommended).
@@ -236,7 +236,7 @@ import (
     "log/slog"
     "os"
 
-    "github.com/altessa-s/go-atlas/core/plugins"
+    "github.com/altessa-s/go-atlas/plugins"
 )
 
 func main() {
@@ -303,7 +303,7 @@ plugins:
 
   # Signature verification (see Signature section below).
   signature:
-    mode: require           # "require" (default), "warn", or "disabled"
+    mode: require           # "require" (default) / "enforce", or "warn"
     publicKeyPath: ""       # PEM file with PKIX "PUBLIC KEY" block
 ```
 
@@ -329,7 +329,7 @@ The `factory` package builds the manager from `config.Plugins`, runs `Load`, and
 
 ```go
 import (
-    "github.com/altessa-s/go-atlas/core/plugins/factory"
+    "github.com/altessa-s/go-atlas/plugins/factory"
 )
 
 mgr, err := factory.NewManager(&cfg.Plugins).
@@ -348,7 +348,7 @@ defer mgr.Close()
 | `UseLogger(*slog.Logger)`                       | Injects the structured logger                                     |
 | `UseHealthCoordinator(*health.Coordinator)`     | Registers the manager as a `health.Checker` under the default name `"plugins"` |
 | `UseHealthServiceName(string)`                  | Overrides the health service name (no-op for empty input)         |
-| `Build(context.Context)`                        | Validates, runs `Load(ctx)`, and optionally `StartWatching(ctx)`. Auto-wires `WithHostVersion(appinfo.Version)` when the binary was stamped with a non-default version. |
+| `Build(context.Context)`                        | Rejects nil or disabled config, runs `Load(ctx)`, and optionally `StartWatching(ctx)`. Auto-wires `WithHostVersion(appinfo.Version)` when the binary was stamped with a non-default version. |
 
 > Pass the **application** context to `Build` when `cfg.Watch` is true. The watcher's
 > lifetime is bound to that context: when it is canceled, the watch goroutine exits.
@@ -368,7 +368,7 @@ defer mgr.Close()
 | `Quarantine(name)`                  | Blacklists a plugin by file hash; removes from registry                  |
 | `Close()`                           | Stops the watcher (if running) and clears the registry; idempotent       |
 | `StartWatching(ctx)` / `StopWatching()` / `IsWatching()` | See [Filesystem watcher](#filesystem-watcher) below |
-| `CheckHealth(ctx)`                  | `health.Checker` implementation: degraded when any plugin is `StateFailed` |
+| `CheckHealth(ctx)`                  | `health.Checker` implementation: degraded when any plugin is `StateFailed` or the last watcher reload failed |
 | `LastWatcherReloadErr()`            | Most recent watcher-driven `Reload` error, or nil                        |
 
 ### Discovery
@@ -455,8 +455,8 @@ Quarantined plugins produce `ErrPluginQuarantined`, matchable via `errors.Is`.
 ## Signature verification
 
 Verifies `.so` files against a detached `.so.sig` signature before `plugin.Open` runs any code. **Enabled by default (`SignatureRequire` mode) for
-security.** Each `.so` needs a companion `.sig` file signed with the configured public key. To disable signature verification (not recommended for
-production), explicitly set mode to `"disabled"`.
+security.** Each `.so` needs a companion `.sig` file signed with the configured public key. To disable signature verification (development only),
+use `plugins.WithSignatureDisabled()`; the YAML schema does not accept `disabled`.
 
 > **TOCTOU note.** `plugin.Open` re-reads the file from disk — it doesn't accept
 > pre-read bytes. An attacker with write access to the plugin directory could swap the
@@ -470,13 +470,13 @@ plugins:
   enabled: true
   dir: /opt/myservice/plugins
   signature:
-    mode: require          # "require" (default), "warn", or "disabled"
+    mode: require          # "require" (default) / "enforce", or "warn"
     publicKeyPath: /etc/myservice/plugin-signing-key.pub
 ```
 
 | Field           | Type     | Default     | Description                                     |
 |-----------------|----------|-------------|-------------------------------------------------|
-| `mode`          | `string` | `"require"` | `"require"` rejects unsigned, `"warn"` allows, `"disabled"` skips verification |
+| `mode`          | `string` | `"require"` | `"require"`/`"enforce"` rejects unsigned, `"warn"` allows unsigned |
 | `publicKeyPath` | `string` | `""`        | PEM file with PKIX "PUBLIC KEY" block            |
 
 ### Algorithms
@@ -495,8 +495,8 @@ All algorithms sign the SHA-256 digest of the `.so` file for consistency.
   quarantined. This is the secure default for production.
 - **`warn`**: missing `.sig` → warning log, plugin loads anyway. Invalid signature →
   still rejected and quarantined.
-- **`disabled`**: no verification. **SECURITY WARNING:** Only use in development or when explicitly required.
-  Must be explicitly set - absence of signature configuration defaults to `require` mode.
+- **`disabled`** (programmatic only, `plugins.WithSignatureDisabled()`): no verification. **SECURITY WARNING:** Only use in development or when
+  explicitly required. Absence of signature configuration defaults to `require` mode.
 
 ### Signing plugins
 
@@ -1270,7 +1270,7 @@ If you can't deploy A/B/C, leave the per-thread primitives off and use only `rli
 
 ## Errors
 
-Sentinel errors in `core/plugins/errors.go`, all matchable via `errors.Is`.
+Sentinel errors in `plugins/errors.go`, all matchable via `errors.Is`.
 
 | Error                       | Meaning                                                            |
 |-----------------------------|--------------------------------------------------------------------|
@@ -1313,25 +1313,28 @@ mgr := plugins.NewManager(
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `plugin_signature_attempts_total` | Counter | Total signature verification attempts |
-| `plugin_signature_success_total` | Counter | Successful signature verifications |
-| `plugin_signature_failures_total` | Counter | Failed signature verifications |
-| `plugin_signature_duration_seconds` | Histogram | Time spent verifying signatures |
-| `plugin_load_attempts_total` | Counter | Plugin load attempts |
-| `plugin_load_success_total` | Counter | Successful plugin loads |
-| `plugin_load_failures_total` | Counter | Failed plugin loads |
-| `plugin_load_duration_seconds` | Histogram | Time spent loading plugins |
-| `plugin_quarantine_additions_total` | Counter | Plugins added to quarantine |
-| `plugin_quarantine_removals_total` | Counter | Plugins removed from quarantine |
-| `plugin_quarantine_hits_total` | Counter | Quarantined plugins skipped |
-| `plugin_init_attempts_total` | Counter | Init function invocations |
-| `plugin_init_success_total` | Counter | Successful Init completions |
-| `plugin_init_failures_total` | Counter | Init failures (errors) |
-| `plugin_init_panics_total` | Counter | Init panics recovered |
-| `plugin_init_duration_seconds` | Histogram | Time spent in Init functions |
-| `plugin_state` | Gauge | Current plugin states (labels: `state`) |
+| `plugins_signature_verification_attempts_total` | Counter | Signature verification attempts |
+| `plugins_signature_verification_success_total` | Counter | Successful signature verifications |
+| `plugins_signature_verification_failures_total` | Counter | Failed signature verifications |
+| `plugins_signature_verification_duration_seconds` | Histogram | Time spent verifying signatures |
+| `plugins_load_attempts_total` | Counter | Plugin load attempts |
+| `plugins_load_success_total` | Counter | Successful plugin loads |
+| `plugins_load_failures_total` | Counter | Failed plugin loads |
+| `plugins_load_duration_seconds` | Histogram | Time spent loading plugins |
+| `plugins_loaded_total` | Gauge | Currently loaded plugins |
+| `plugins_quarantine_added_total` | Counter | Plugins added to quarantine |
+| `plugins_quarantine_cleared_total` | Counter | Plugins cleared from quarantine |
+| `plugins_quarantine_size` | Gauge | Currently quarantined plugins |
+| `plugins_ready` | Gauge | Plugins in ready state |
+| `plugins_failed` | Gauge | Plugins in failed state |
+| `plugins_registered` | Gauge | Registered plugins |
+| `plugins_init_attempts_total` | Counter | Init function invocations |
+| `plugins_init_success_total` | Counter | Successful Init completions |
+| `plugins_init_failures_total` | Counter | Init failures (errors) |
+| `plugins_init_duration_seconds` | Histogram | Time spent in Init functions |
+| `plugins_init_panics_total` | Counter | Init panics recovered |
 
-All metrics use the subsystem `plugin` by default.
+All metrics use the subsystem `plugins` (`plugins.DefaultMetricsSubsystem`).
 
 ---
 
@@ -1341,8 +1344,8 @@ All metrics use the subsystem `plugin` by default.
 
 | Status | When |
 |---|---|
-| `StatusServing` | No plugin is `StateFailed` (empty registry counts as serving). |
-| `StatusDegraded` | Some plugins failed, but at least one is still working. |
+| `StatusServing` | No plugin is `StateFailed` and no watcher reload error is pending (empty registry counts as serving). |
+| `StatusDegraded` | Some plugins failed but at least one is still working, or the last watcher-driven `Reload` failed. |
 | `StatusNotServing` | Manager closed, sandbox failed, or **every** plugin is `StateFailed`. |
 
 `StatusDegraded` matters for readiness probes — you don't want to kill a replica because one plugin broke. Most operators wire it to "still ready, but

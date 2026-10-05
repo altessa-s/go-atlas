@@ -108,7 +108,7 @@ sequenceDiagram
 
 | File | Responsibility |
 |------|----------------|
-| `store.go` | `TokenStore`, `InMemoryStore`, HMAC digesting, `Add`/`Remove`/`TokenCount` |
+| `store.go` | `TokenStore`, `InMemoryStore`, HMAC digesting, `AddToken`/`RemoveToken`/`TokenCount` |
 | `ratelimit.go` | `RateLimiter`, `KeyFunc`, `RateLimitedStore` decorator |
 | `metrics.go` | `Metrics` (validations, active tokens, latency) |
 | `errors.go` | Sentinel errors |
@@ -188,8 +188,10 @@ not usable; always construct with `NewInMemoryStore`.
 
 ## Storage and Timing
 
-`InMemoryStore` keys tokens by their HMAC-SHA256 digest. The plaintext token is hashed at insertion time and discarded; only digests are
-retained in memory. A lookup is a single map probe (no linear scan, no early-break loop), so timing depends on token length only, not on
+`InMemoryStore` keys tokens by their HMAC-SHA256 digest. The plaintext token is hashed at insertion time and the store's map holds only
+digests. One exception: the map passed to `WithInitialTokens` stays reachable for the store's lifetime (the options object that holds it is
+captured by the HMAC pool), so those plaintext tokens remain in memory even after `RemoveToken`. Prefer `AddToken` for secrets that must
+not linger. A lookup is a single map probe (no linear scan, no early-break loop), so timing depends on token length only, not on
 token position or membership. The HMAC instance is recycled through a `sync.Pool`, so a steady-state lookup allocates only the digest byte
 slice.
 
@@ -255,7 +257,8 @@ The key is never embedded in the returned error text, keeping client identifiers
 | `ErrTokenEmpty` | Token is the empty string |
 | `ErrRateLimited` | `RateLimitedStore` rejects a request via its `RateLimiter` |
 
-Compare with `errors.Is`, not `==`: the transport adapters wrap these with additional context while preserving the cause.
+Compare with `errors.Is`, not `==`: the HTTP adapter wraps these with additional context while preserving the cause. The gRPC adapter returns a
+fresh status error without the cause, so branch on `status.Code(err)` there.
 
 ## Metrics
 
@@ -273,7 +276,8 @@ empty subsystem falls back to `DefaultMetricsSubsystem` (`auth_static`).
 ## Transport Integration
 
 Both adapters re-export the `auth/static` types and options verbatim and add only an `AuthFunc` that maps this package's sentinels into the
-transport's error model. Configure the store with `auth/static`; the adapter wires it into the interceptor or middleware.
+transport's error model, plus the `AuthOption` type and `WithAudit` option for recording authentication decisions. Configure the store
+with `auth/static`; the adapter wires it into the interceptor or middleware.
 
 ### gRPC
 

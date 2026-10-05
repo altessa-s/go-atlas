@@ -147,8 +147,9 @@ flowchart LR
 
 - **Store** — the one required dependency. Pick a backend by deployment: `memory` for a single node or tests, `mongo`/`redis`/`nats` for
   durable multi-node setups. All four satisfy the same contract.
-- **Scheduler** — optional. When set with a recovery schedule, the orchestrator registers a background cycle that resumes stalled instances
-  and auto-rolls-back timed-out ones.
+- **Scheduler** — optional. With a recovery schedule it drives a background cycle that resumes stalled instances and auto-rolls-back
+  timed-out pre-pivot ones. The factory's `Build` registers that cycle; with `saga.New` call `orch.RegisterRecovery(ctx)` yourself and handle
+  its error — constructing the orchestrator registers nothing.
 - **LeaderElector** — optional. Gates the recovery cycle so only the elected leader scans the store. This is an optimization, not a
   correctness requirement: the store's optimistic concurrency already makes concurrent cycles safe.
 - **DeadLetterFunc** — optional. Fires with a clone of the instance when it reaches `FAILED`, so you can alert or enqueue for a human.
@@ -157,7 +158,8 @@ flowchart LR
 ## Crash recovery
 
 Two things can leave an instance non-terminal: a process crash mid-flight, or a step that overran its saga deadline. The recovery cycle
-handles both. It fetches recoverable instances — those past their deadline, or left mid-compensation — and drives each one.
+handles both. It fetches recoverable instances — those whose execution lease has expired, those past their deadline, or those left
+mid-compensation — and drives each one. An instance whose lease is still active is never fetched, even past its deadline.
 
 ```mermaid
 flowchart TD
@@ -165,7 +167,7 @@ flowchart TD
     Leader -- no --> Done[skip]
     Leader -- yes --> Fetch[FetchRecoverable now, batch]
     Fetch --> Loop{for each instance}
-    Loop --> DL{RUNNING and past deadline?}
+    Loop --> DL{RUNNING, past deadline and before pivot?}
     DL -- yes --> Flip[mark COMPENSATING auto-rollback]
     DL -- no --> Resume[Resume from checkpoint]
     Flip --> Resume
@@ -174,10 +176,16 @@ flowchart TD
 
 What this gives you:
 
-- **Idempotent steps are mandatory.** On resume, the interrupted stage runs again — the checkpoint advances only *after* a stage commits, so
-  a crash between "side effect done" and "checkpoint written" replays that step. Actions and compensations must tolerate re-execution.
+- **Idempotent steps are mandatory.** On forward resume, the interrupted stage runs again — the checkpoint advances only *after* a stage
+  commits, so a crash between "side effect done" and "checkpoint written" replays that step. Actions and compensations must tolerate
+  re-execution.
+- **Compensations may see pre-action data.** The steps of a stage are recorded as pending before their actions run. If recovery switches
+  the instance to compensation instead (deadline expired before the pivot), those pending compensations run with the last checkpointed
+  data, which lacks anything the interrupted action wrote. A compensation must therefore tolerate an absent or partial effect and locate it
+  by a key persisted beforehand (e.g. the saga or order ID), not by a value the action itself produced.
 - **Deadlines enable auto-rollback.** Set `WithSagaTimeout` to give each instance a wall-clock deadline. A `RUNNING` instance past its
-  deadline is flipped to `COMPENSATING` by recovery and rolled back.
+  deadline and still **before the pivot** is flipped to `COMPENSATING` by recovery and rolled back. At or beyond the pivot, recovery resumes
+  forward execution instead, so the instance can still complete after its deadline.
 - **Version conflicts are benign.** If two coordinators race, the loser's `Update` returns `ErrVersionConflict`; recovery treats that as "the
   other node owns this instance" and moves on.
 - **Granularity.** Durable backends (mongo, redis) store the deadline as Unix seconds, so recovery eligibility is evaluated at one-second
@@ -224,7 +232,9 @@ func reserveStock(ctx context.Context, o *Order) error {
 }
 
 func releaseStock(ctx context.Context, o *Order) error {
-    return inventory.Release(ctx, o.StockHold) // must be idempotent
+    // Compensations can run with data from before their action committed (see Crash recovery), so StockHold may be
+    // empty even though the reservation exists. Release by a stable key persisted before the step — here the order ID.
+    return inventory.ReleaseByOrder(ctx, o.ID) // must be idempotent and tolerate "nothing to release"
 }
 ```
 

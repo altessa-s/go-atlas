@@ -54,7 +54,7 @@ The package is transport-neutral and algorithm-agnostic. It hard-codes neither a
 | Token verifier | This service | This service |
 | Key discovery | Remote JWKS over the well-known endpoint | A local `KeyProvider` resolving keys per subject |
 | Key granularity | One key set for the issuer | One signing key **per subject**, rotated per subject |
-| Revocation | Revocation store / introspection | Key rotation (new `kid` invalidates old tokens) |
+| Revocation | Revocation store / introspection | Key rotation (new `kid` invalidates old tokens); optional per-`jti` check via `WithRevocation` |
 
 Use `oidc` to validate tokens minted elsewhere. Use `selfjwt` when the service issues its own short-lived, per-subject credentials
 (service-to-tenant API tokens, download URLs, capability tokens) and wants per-subject key rotation as the invalidation primitive.
@@ -207,9 +207,17 @@ key by that `kid`, a caller invalidates a subject's outstanding tokens by issuin
 2. Keep the **old** public key resolvable from `VerificationKey` for an overlap window so already-minted tokens keep verifying until they
    expire naturally.
 3. Once the overlap window passes the longest possible token lifetime, drop the old key. `VerificationKey` then returns `ErrKeyRotated`
-   for the old `kid`, and every lingering token is rejected.
+   for the old `kid` — but only on a cache miss.
+4. Each `Verifier` caches resolved keys for `WithCacheTTL` (default 5 minutes), so a retired `kid` keeps verifying from cache until its entry
+   expires. Call `InvalidateKey(subject, kid)` (or `InvalidateSubject(subject)` when the old `kid` is unknown) on **every** verifier
+   instance — propagate the rotation event across processes yourself — to drop it early; `WithCacheTTL(0)` stops retaining entries at all.
+   Neither fences lookups already in flight: concurrent misses for the same `(subject, kid)` share one provider lookup (even with a zero
+   TTL), so a lookup that read the old key before retirement can still hand it to verifications that started afterwards, and with a non-zero
+   TTL re-cache it with a fresh TTL. For a strict retirement boundary, coordinate at the application level — pause verifications for the
+   subject, let in-flight ones drain, retire the key, invalidate, then resume.
 
-A short overlap window plus a short `MaxTokenLifetime` gives prompt, hard invalidation without a revocation list.
+Issuing a new key stops new tokens under the old `kid`; retiring the old key rejects existing ones after the cache window or explicit
+invalidation. A short overlap window plus a short `MaxTokenLifetime` keeps that window small without a revocation list.
 
 ## Configuration
 
@@ -219,11 +227,12 @@ All tunables are functional options applied to both `NewMinter` and `NewVerifier
 |--------|---------|------------|-------------|
 | `WithIssuer` | `""` (`DefaultIssuer`) | mint + verify | The `iss` claim set on mint and required on verify (when non-empty) |
 | `WithMaxTokenLifetime` | 30 days | mint | Ceiling a requested TTL is clamped to; a non-positive TTL uses the maximum |
-| `WithClockSkew` | 30s | verify | Leeway applied to `exp` / `nbf` to tolerate clock drift between minter and verifier |
+| `WithLeeway` | 30s (`DefaultLeeway`) | verify | Leeway applied to `exp` / `nbf` to tolerate clock drift between minter and verifier |
 | `WithCacheTTL` | 5m | verify | How long a resolved verification key is cached before reload |
 | `WithCacheMaxEntries` | 10000 | verify | Hard cap on cached verification keys; non-positive disables the cap |
-| `WithAllowedAlgorithms` | `EdDSA, ES256, RS256` | verify | Replaces the asymmetric-only allow-list; an empty call is ignored |
+| `WithAllowedAlgorithms` | `EdDSA, ES256, RS256` | mint + verify | Replaces the asymmetric-only allow-list; an empty call is ignored |
 | `WithMetrics` | nil (no-op) | mint + verify | Attaches a `*Metrics` for counters and latency |
+| `WithRevocation` | nil (unchecked) | verify | `jwt.RevocationChecker` rejecting a verified token whose `jti` is revoked (`jwt.ErrTokenRevoked`) |
 | `WithClock` | system UTC | mint + verify | Injectable clock for deterministic tests |
 | `WithRand` | `crypto/rand` | mint | Injectable randomness for the `jti` |
 
@@ -250,8 +259,9 @@ type MintResult struct {
 }
 ```
 
-`Mint` returns `ErrSigningKeyInvalid` when the provider hands back signing material with an empty `KeyID`, and `ErrAlgorithmNotAllowed`
-when the signing key names an algorithm not registered with golang-jwt.
+`Mint` returns `ErrSubjectRequired` for an empty `Subject`, `ErrSigningKeyInvalid` when the provider hands back signing material with an
+empty `KeyID`, and `ErrAlgorithmNotAllowed` when the signing key names an algorithm outside the `WithAllowedAlgorithms` allow-list or not
+registered with golang-jwt.
 
 ### Verifier
 
@@ -324,6 +334,7 @@ until a slot is free. A non-positive cap leaves the cache unbounded.
 | `ErrKeyRotated` | Subject is known but the `kid` is not — rotated away (propagated unwrapped) |
 | `ErrAlgorithmNotAllowed` | Algorithm is unregistered, mismatched, or the resolved key names no algorithm |
 | `ErrSigningKeyInvalid` | `Minter` got signing material that cannot produce a verifiable token (e.g. empty key id) |
+| `ErrSubjectRequired` | `Minter` got a `MintRequest` with an empty `Subject` |
 
 Always compare with `errors.Is`. `ErrTokenExpired` and `ErrTokenInvalid` wrap the underlying golang-jwt error, so the original cause is
 available through the chain.
@@ -359,7 +370,8 @@ res, _ := minter.Mint(ctx, selfjwt.MintRequest{Subject: tenantID, Scopes: []stri
 ### Capability / download URLs
 
 Mint a token granting one capability (read one object) with a tight TTL, embed it in a signed URL, and verify it on the download path.
-Rotating the subject's key revokes every outstanding URL for that subject at once.
+Rotating the subject's key revokes every outstanding URL for that subject once the old key is retired and dropped from each verifier's cache
+(`InvalidateSubject`, or after `WithCacheTTL`).
 
 ### Internal service mesh, no external IdP
 
