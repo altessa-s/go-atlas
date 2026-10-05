@@ -24,10 +24,28 @@ import (
 // shared by assignment: payload types relying on those should implement
 // such a Clone method.
 func cloneSecret[T any](value T) T {
-	rv := reflect.ValueOf(&value).Elem()
-	out := reflect.New(rv.Type())
-	out.Elem().Set((&deepCopier{}).copy(rv))
-	return *out.Interface().(*T) //nolint:errcheck // out is a *T by construction
+	// Fast paths for the common payloads, with the same result as
+	// reflection. They overwrite value, this call's own copy of the argument.
+	switch p := any(&value).(type) {
+	case *string:
+		*p = strings.Clone(*p)
+		return value
+	case *[]byte:
+		if *p != nil {
+			*p = append(make([]byte, 0, len(*p)), *p...)
+		}
+		return value
+	}
+	return cloneReflect(value)
+}
+
+// cloneReflect is cloneSecret's reflection path. It is a separate function so
+// that taking value's address for reflection does not move cloneSecret's
+// argument to the heap on the fast paths.
+func cloneReflect[T any](value T) T {
+	var out T
+	reflect.ValueOf(&out).Elem().Set((&deepCopier{}).copy(reflect.ValueOf(&value).Elem()))
+	return out
 }
 
 // copyKey identifies a reference already copied: its unnamed type (so a

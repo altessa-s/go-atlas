@@ -40,6 +40,21 @@ func BenchmarkManager_Value(b *testing.B) {
 	}
 }
 
+// BenchmarkManager_ValueForce measures a forced fetch after a cache miss
+// (the cache is cleared every iteration), with a single caller.
+func BenchmarkManager_ValueForce(b *testing.B) {
+	mgr := newBenchManager(b)
+	ctx := b.Context()
+	for b.Loop() {
+		mgr.ClearCache(ctx)
+		v, err := mgr.Value(ctx, "key-a", true)
+		if err != nil {
+			b.Fatal(err)
+		}
+		v.Clear()
+	}
+}
+
 // BenchmarkManager_ValueShared measures a zero-copy cache hit.
 func BenchmarkManager_ValueShared(b *testing.B) {
 	mgr := newBenchManager(b)

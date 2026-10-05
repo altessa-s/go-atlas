@@ -221,7 +221,9 @@ func NewValue[T any](key string, value T, encodedValue []byte, version string) *
 	// If T is a string, initialize SecureString for better memory management
 	// (reflection also covers defined string types such as `type Secret string`).
 	if reflect.TypeFor[T]().Kind() == reflect.String {
-		v.ss = corestrings.NewSecureString(reflect.ValueOf(&value).Elem().String())
+		// Read v.Value, already on the heap: taking value's address would
+		// move it there too.
+		v.ss = corestrings.NewSecureString(reflect.ValueOf(&v.Value).Elem().String())
 	}
 
 	// Prepare independent cleanup data to avoid capturing 'v' in the cleanup argument

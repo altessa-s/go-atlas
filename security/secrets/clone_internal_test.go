@@ -6,6 +6,7 @@ package secrets
 
 import (
 	"testing"
+	"unsafe"
 
 	"github.com/stretchr/testify/require"
 )
@@ -156,6 +157,64 @@ func TestCloneSecret_MutationIsolation(t *testing.T) {
 		require.Nil(t, c.Any)
 	})
 }
+
+// TestCloneSecret_FastPaths checks that string and []byte payloads, copied
+// without reflection, give the reflection path's result.
+func TestCloneSecret_FastPaths(t *testing.T) {
+	t.Parallel()
+
+	t.Run("string", func(t *testing.T) {
+		t.Parallel()
+		orig := string([]byte("payload"))
+		c := cloneSecret(orig)
+		require.Equal(t, orig, c)
+		require.Equal(t, cloneReflect(orig), c)
+		require.NotSame(t, unsafe.StringData(orig), unsafe.StringData(c), "the copy has its own bytes")
+	})
+
+	t.Run("bytes", func(t *testing.T) {
+		t.Parallel()
+		tests := []struct {
+			name string
+			orig []byte
+		}{
+			{name: "nil", orig: nil},
+			{name: "empty", orig: []byte{}},
+			{name: "payload", orig: []byte("payload")},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+				c := cloneSecret(tc.orig)
+				want := cloneReflect(tc.orig)
+				require.Equal(t, want == nil, c == nil, "nil-ness matches the reflection path")
+				require.Equal(t, want, c)
+				require.Len(t, c, len(tc.orig))
+				if len(c) > 0 {
+					c[0] = 'X'
+					require.Equal(t, byte('p'), tc.orig[0], "mutating the copy leaves the original intact")
+				}
+			})
+		}
+	})
+
+	t.Run("other types take the reflection path", func(t *testing.T) {
+		t.Parallel()
+		var anyBytes any = []byte("raw")
+		c := cloneSecret(anyBytes)
+		c.([]byte)[0] = 'X'
+		require.Equal(t, "raw", string(anyBytes.([]byte)))
+
+		clonerBytes := cloneSecret(bytesCloner("raw"))
+		require.Equal(t, bytesCloner("cloned"), clonerBytes, "a defined []byte type's Clone method is used")
+		require.Equal(t, definedString("s"), cloneSecret(definedString("s")))
+	})
+}
+
+// bytesCloner is a defined []byte payload with its own Clone method.
+type bytesCloner []byte
+
+func (bytesCloner) Clone() bytesCloner { return bytesCloner("cloned") }
 
 // TestCloneSecret_CyclesAndAliases checks termination on cycles and that
 // only identical references stay shared within a copy.
