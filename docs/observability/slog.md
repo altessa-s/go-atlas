@@ -62,7 +62,7 @@ slog.Logger
 [leveled]            (cfg.Subsystems non-empty — per-subsystem level filter)
    │
    ▼
-[prefixed]           (always — pulls the prefix key, default "module", into a tag)
+[prefixed]           (always — pulls the prefix key, default "subsystem", into a tag)
    │
    ▼
 [colorized] | JSON   (cfg.OutputFormat: "text" → colorized, "json" → slog.JSONHandler)
@@ -188,7 +188,9 @@ The empty-attribute sentinel is silently dropped by `slog`, so you can pass thes
 | `slogx.ModuleM("auth", "cache")` | Variadic-friendly slice of attrs for multiple subsystems                              |
 
 `Module` pairs with the `leveled` handler: a logger built with `slog.With(slogx.Module("auth"))` is matched against the `subsystems:` block in
-`config.Logger` and filtered with a single integer comparison (no per-record attribute scan).
+`config.Logger` and filtered with a single integer comparison (no per-record attribute scan). Factory loggers also use `slogx.ModuleKey` as
+the prefix key, so the same attribute is rendered as the `[auth]` tag (`"subsystem":"auth"` in JSON); several module values at one group
+level are merged (`auth:cache`).
 
 ### Context integration
 
@@ -257,8 +259,8 @@ level of every factory-built logger, not just this one.
 
 | Method                       | Description                                                                                |
 |------------------------------|--------------------------------------------------------------------------------------------|
-| `New(cfg *config.Logger)`    | Construct a builder; defaults `prefixKey = "module"`, `appName` / `appVersion` from `appinfo` |
-| `WithPrefixKey(key)`         | Attribute key consumed by the `prefixed` handler (default `"module"`)                       |
+| `New(cfg *config.Logger)`    | Construct a builder; defaults `prefixKey = "subsystem"`, `appName` / `appVersion` from `appinfo` |
+| `WithPrefixKey(key)`         | Attribute key consumed by the `prefixed` handler (default `factory.ModuleKey` = `slogx.ModuleKey`, `"subsystem"`; pass `"module"` for the pre-alignment default) |
 | `WithPrefixColors(map)`      | Per-prefix ANSI color map for the colorized handler                                         |
 | `WithEnableMasking()`        | Force the advanced masking wrapper even when no rules / tags are configured                 |
 | `WithAppName(s)`             | Override the `app.name` metadata attribute                                                  |
@@ -467,8 +469,10 @@ h := prefixed.NewHandler(inner,
 )
 ```
 
-Pulls attributes named by `WithPrefix` out of the record and renders them as a leading tag. The factory uses `DefaultFormatter` (`[api:server]`)
-for text output and `JsonFormatter` (`api:server`) for JSON, so the tag flows naturally into either format.
+Pulls string attributes named by `WithPrefix` out of the record and renders them as a leading tag. The factory uses `DefaultFormatter`
+(`[api:server]`) for text output and `JsonFormatter` (`api:server`) for JSON, so the tag flows naturally into either format. A prefix stays at
+the group level it was attached to: `logger.With("module", "api").WithGroup("req")` keeps `module` at the root and only `req`'s own
+prefixes land inside `req`; prefixes are merged per level, not across levels. Non-string attributes under the key pass through untouched.
 
 | Option                  | Default                | Description                                                  |
 |-------------------------|------------------------|--------------------------------------------------------------|
@@ -496,7 +500,7 @@ logger.Info("login", "user_id", 42, slogx.Module("auth"))   // writes subsystem=
 [leveled] ── consults subsystem="auth"; drops record if below configured "auth" level
         │
         ▼
-[prefixed] ── looks for the prefix key ("module" by default); subsystem="auth" is not it, so no tag is added
+[prefixed] ── pulls the prefix key ("subsystem" by default) out of the attrs and appends the tag subsystem="[auth]"
         │
         ▼
 [colorized] | JSON ── writes to os.Stdout / os.Stderr

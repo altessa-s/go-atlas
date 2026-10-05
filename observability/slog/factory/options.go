@@ -9,14 +9,21 @@ import (
 	"strings"
 
 	_ "github.com/altessa-s/go-atlas/core/runtime/appinfo"
+
+	slogx "github.com/altessa-s/go-atlas/observability/slog"
 )
 
-// ModuleKey is the default attribute key for module prefixes.
-const ModuleKey = "module"
+// ModuleKey is the default attribute key for module prefixes. It equals
+// [slogx.ModuleKey], so attributes from [slogx.Module] are rendered as the
+// prefix tag and drive the per-subsystem levels with the same key.
+//
+// Before it was aligned with [slogx.ModuleKey] the default was "module"; use
+// [LoggerBuilder.WithPrefixKey]("module") to keep that behavior.
+const ModuleKey = slogx.ModuleKey
 
 // --- Configuration methods ---
 
-// WithPrefixKey sets the attribute key for prefix values.
+// WithPrefixKey sets the attribute key for prefix values. Default [ModuleKey].
 func (b *LoggerBuilder) WithPrefixKey(v string) *LoggerBuilder {
 	if v = strings.TrimSpace(v); v != "" {
 		b.prefixKey = v
