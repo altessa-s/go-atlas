@@ -14,8 +14,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/altessa-s/go-atlas/data/outbox"
+	"github.com/altessa-s/go-atlas/internal/sqldialect"
 
-	corecontext "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
@@ -36,12 +36,11 @@ const lockChunk = 1000
 // database/sql has no notification API, so dispatch runs on the poll schedule
 // and [outbox.Outbox.Watch] reports [outbox.ErrWatchUnsupported].
 type Store struct {
-	db            *sql.DB
-	dialect       dialect
-	table         string // quoted
-	name          string // unqualified, for index names
-	schemaTimeout time.Duration
-	stmts         statements
+	db      *sql.DB
+	dialect dialect
+	table   string // quoted
+	name    string // unqualified, for index names
+	stmts   statements
 }
 
 var _ outbox.Store = (*Store)(nil)
@@ -51,14 +50,20 @@ type statements struct {
 	fetch, unlock, deleteProcessed, update, expire, stats string
 }
 
-// New creates a Store over db and, like the MongoDB store creating its
-// indexes, creates the events table and indexes if they do not exist (bounded
-// by [WithSchemaCreateTimeout], under the [WithContext] base context).
+// New creates a Store over db for the given dialect. It performs no I/O; call
+// [Store.EnsureSchema] once at startup to create the events table, or apply
+// the equivalent DDL through a migration tool.
 //
 // Example:
 //
 //	db, _ := sql.Open("pgx", dsn)
 //	store, err := sqldb.New(db, sqldb.DialectPostgres, sqldb.WithTableName("events_outbox"))
+//	if err != nil {
+//		return err
+//	}
+//	if err := store.EnsureSchema(ctx); err != nil {
+//		return err
+//	}
 func New(db *sql.DB, d Dialect, opts ...Option) (*Store, error) {
 	if db == nil {
 		return nil, errors.New("sqldb: database is required")
@@ -68,22 +73,18 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Store, error) {
 		return nil, err
 	}
 	o := newOptions(opts...)
-	table, err := dl.table(o.tableName)
+	table, err := dl.Table(o.tableName)
 	if err != nil {
 		return nil, err
 	}
 
 	s := &Store{
-		db:            db,
-		dialect:       dl,
-		table:         table,
-		name:          o.tableName[strings.LastIndexByte(o.tableName, '.')+1:],
-		schemaTimeout: o.schemaTimeout,
+		db:      db,
+		dialect: dl,
+		table:   table,
+		name:    sqldialect.Unqualified(o.tableName),
 	}
 	s.stmts = s.buildStatements()
-	if err := s.createSchema(corecontext.OrBackground(o.ctx)); err != nil {
-		return nil, err
-	}
 	return s, nil
 }
 

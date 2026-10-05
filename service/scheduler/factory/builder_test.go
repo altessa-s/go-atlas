@@ -9,11 +9,13 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/config"
+	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/service/scheduler/factory"
 	"github.com/altessa-s/go-atlas/service/scheduler/storages/sqldb"
 )
@@ -55,6 +57,31 @@ func TestBuildSQLStorage(t *testing.T) {
 		t.Parallel()
 		_, err := factory.New(sqlConfig("oracle")).UseSQLDB(db).Build()
 		require.ErrorIs(t, err, sqldb.ErrUnsupportedDialect)
+	})
+
+	t.Run("ensure_schema", func(t *testing.T) {
+		t.Parallel()
+		cfg := sqlConfig(config.SchedulerSQLDialectPostgres)
+		cfg.Storage.SQL.EnsureSchema = true
+		fakeDB, fake := testhelpers.NewFakeSQL(t, nil)
+		s, err := factory.New(cfg).UseSQLDB(fakeDB).Build()
+		require.NoError(t, err)
+		require.NotNil(t, s)
+		var ddl int
+		for _, c := range fake.Calls() {
+			if strings.HasPrefix(c.Query, "CREATE TABLE IF NOT EXISTS") {
+				ddl++
+			}
+		}
+		require.Equal(t, 2, ddl, "both tables are created")
+	})
+
+	t.Run("ensure_schema_failure", func(t *testing.T) {
+		t.Parallel()
+		cfg := sqlConfig(config.SchedulerSQLDialectMySQL)
+		cfg.Storage.SQL.EnsureSchema = true
+		_, err := factory.New(cfg).UseSQLDB(db).Build()
+		require.ErrorContains(t, err, "not connected")
 	})
 
 	t.Run("requires_section", func(t *testing.T) {

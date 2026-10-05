@@ -7,6 +7,14 @@
 // 8.0+ / MariaDB 10.6+ ([DialectMySQL]). The caller owns the *sql.DB and
 // chooses the driver — the toolkit itself depends on no SQL driver.
 //
+// # Schema
+//
+// [New] performs no I/O. Call [Store.EnsureSchema] once at startup to create
+// the events table and its indexes if they do not exist — it is idempotent —
+// or apply the same DDL through a migration tool. On MySQL/MariaDB the string
+// columns are binary types, so storage and comparison never depend on the
+// database's default character set.
+//
 // # Transactions
 //
 // The outbox is only worth having if an event commits together with the
@@ -47,6 +55,9 @@
 //	db, _ := sql.Open("pgx", dsn)
 //	store, err := sqldb.New(db, sqldb.DialectPostgres)
 //	if err != nil {
+//		return err
+//	}
+//	if err := store.EnsureSchema(ctx); err != nil { // or apply the DDL via migrations
 //		return err
 //	}
 //	ob := outbox.New(store, handler, outbox.WithScheduler(sched))

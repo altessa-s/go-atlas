@@ -140,14 +140,14 @@
 #
 #    # <object> SQL database configuration for scheduler storage.
 #    # The *sql.DB is injected into the factory (UseSQLDB); the application
-#    # chooses and registers the driver. The factory never runs DDL: before
-#    # starting the scheduler, call EnsureSchema on a sqldb storage built from
-#    # the same handle, dialect and table names, or apply its DDL through
-#    # migrations.
+#    # chooses and registers the driver. The factory runs DDL only with
+#    # ensureSchema: true; otherwise create the schema before starting the
+#    # scheduler — EnsureSchema on a sqldb storage built from the same handle,
+#    # dialect and table names, or its DDL applied through migrations.
 #    # Required when type is set to 'sql'.
 #    sql:
 #      # <string> SQL dialect.
-#      # Supported values: postgres (PostgreSQL 12+), mysql (MySQL 8.0.17+ and MariaDB 10.6+)
+#      # Supported values: postgres (PostgreSQL 12+), mysql (MySQL 8.0+ and MariaDB 10.6+)
 #      # Default value: postgres
 #      dialect: postgres
 #
@@ -158,3 +158,10 @@
 #      # <string> Table name for task execution history, optionally schema-qualified.
 #      # Default value: scheduler_history
 #      historyTable: scheduler_history
+#
+#      # <bool> Create the tables and indexes (and upgrade a tasks table from
+#      # an earlier release) while building the scheduler, through the
+#      # storage's idempotent EnsureSchema. Leave false when migrations own
+#      # the schema.
+#      # Default value: false
+#      ensureSchema: false

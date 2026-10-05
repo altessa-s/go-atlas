@@ -6,13 +6,10 @@ package sqldb
 
 import (
 	"database/sql"
-	"errors"
 	"fmt"
-	"hash/fnv"
-	"regexp"
-	"strconv"
-	"strings"
 	"time"
+
+	"github.com/altessa-s/go-atlas/internal/sqldialect"
 )
 
 // Dialect selects the SQL flavor the store speaks.
@@ -30,20 +27,12 @@ const (
 var (
 	// ErrUnsupportedDialect is returned for a dialect other than
 	// [DialectPostgres] or [DialectMySQL].
-	ErrUnsupportedDialect = errors.New("sqldb: unsupported dialect")
+	ErrUnsupportedDialect = sqldialect.ErrUnsupportedDialect
 	// ErrInvalidTableName is returned when the table name is not a plain SQL
-	// identifier, optionally qualified by one schema name.
-	ErrInvalidTableName = errors.New("sqldb: invalid table name")
+	// identifier, optionally qualified by one schema name, or a part of it
+	// exceeds 63 characters.
+	ErrInvalidTableName = sqldialect.ErrInvalidTableName
 )
-
-// identifier matches a plain SQL identifier with an optional schema qualifier.
-// The table name is the only SQL fragment that cannot be bound as a parameter,
-// so it is restricted to this shape and then quoted.
-var identifier = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$`)
-
-// maxIdentLen is the shorter of PostgreSQL's (63) and MySQL's (64) identifier
-// limits; PostgreSQL silently truncates longer names, MySQL rejects them.
-const maxIdentLen = 63
 
 // mysqlTimeLayout renders a DATETIME(6) value. Timestamps cross the MySQL wire
 // as UTC strings in this layout, never as time.Time: go-sql-driver/mysql
@@ -54,10 +43,9 @@ const mysqlTimeLayout = "2006-01-02 15:04:05.000000"
 // dialect holds the per-flavor differences: placeholders, quoting, the database
 // clock, interval arithmetic, and how timestamps cross the wire.
 type dialect struct {
-	name     Dialect
-	quote    byte
-	numbered bool   // $1, $2 … instead of ?
-	now      string // the backend clock
+	sqldialect.Style
+	name Dialect
+	now  string // the backend clock
 }
 
 func dialectFor(d Dialect) (dialect, error) {
@@ -65,68 +53,18 @@ func dialectFor(d Dialect) (dialect, error) {
 	case DialectPostgres:
 		// now() is the transaction start time, so a fetch transaction compares
 		// and stamps against one instant — like MongoDB's $$NOW.
-		return dialect{name: d, quote: '"', numbered: true, now: "now()"}, nil
+		return dialect{Style: sqldialect.Postgres, name: d, now: "now()"}, nil
 	case DialectMySQL:
-		return dialect{name: d, quote: '`', now: "UTC_TIMESTAMP(6)"}, nil
+		return dialect{Style: sqldialect.MySQL, name: d, now: "UTC_TIMESTAMP(6)"}, nil
 	default:
 		return dialect{}, fmt.Errorf("%w: %q", ErrUnsupportedDialect, d)
 	}
 }
 
-// table validates and quotes a possibly schema-qualified table name. Each part
-// must fit the identifier limit: PostgreSQL would silently truncate a longer
-// one, so two distinct configured names could address the same table.
-func (d dialect) table(name string) (string, error) {
-	if !identifier.MatchString(name) {
-		return "", fmt.Errorf("%w: %q", ErrInvalidTableName, name)
-	}
-	parts := strings.Split(name, ".")
-	for i, p := range parts {
-		if len(p) > maxIdentLen {
-			return "", fmt.Errorf("%w: %q exceeds %d characters", ErrInvalidTableName, p, maxIdentLen)
-		}
-		parts[i] = d.ident(p)
-	}
-	return strings.Join(parts, "."), nil
-}
-
-func (d dialect) ident(name string) string {
-	return string(d.quote) + name + string(d.quote)
-}
-
-// indexName derives a quoted index name from the unqualified table name. A
-// name over maxIdentLen keeps a readable prefix and ends in a hash of the table
-// name, so truncation cannot make two tables' indexes collide.
-func (d dialect) indexName(table, suffix string) string {
-	name := table + "_" + suffix + "_idx"
-	if len(name) > maxIdentLen {
-		h := fnv.New32a()
-		_, _ = h.Write([]byte(table))
-		tail := fmt.Sprintf("_%08x_%s_idx", h.Sum32(), suffix)
-		name = table[:maxIdentLen-len(tail)] + tail
-	}
-	return d.ident(name)
-}
-
 // bind rewrites the ? placeholders of a statement written by this package into
-// the dialect's form. Statements authored here never contain ? in a literal.
+// the dialect's form, numbering from 1.
 func (d dialect) bind(query string) string {
-	if !d.numbered {
-		return query
-	}
-	var b strings.Builder
-	b.Grow(len(query) + 16) //nolint:mnd // room for multi-digit placeholders
-	n := 1
-	for i := range len(query) {
-		if query[i] == '?' {
-			b.WriteByte('$')
-			b.WriteString(strconv.Itoa(n))
-			n++
-			continue
-		}
-		b.WriteByte(query[i])
-	}
-	return b.String()
+	return d.Bind(query, 1)
 }
 
 // shifted renders the backend clock moved by a bound duration: "now - ?" or
