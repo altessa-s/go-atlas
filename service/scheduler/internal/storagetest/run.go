@@ -22,6 +22,8 @@ var contracts = []struct {
 	{"ClaimRunRequiresFinishedRun", ClaimRunRequiresFinishedRun},
 	{"ClaimRunFencesOccurrence", ClaimRunFencesOccurrence},
 	{"RunIDRoundTrip", RunIDRoundTrip},
+	{"ClaimRunRejectsInvalidClaim", ClaimRunRejectsInvalidClaim},
+	{"OwnedRunAnyNonZeroStart", OwnedRunAnyNonZeroStart},
 }
 
 // Run executes every storage contract as a parallel subtest named after it, each

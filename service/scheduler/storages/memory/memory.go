@@ -150,6 +150,9 @@ func (m *Storage) ReplaceTaskIf(_ context.Context, state *scheduler.TaskState, e
 // critical section, so two concurrent callers can never both claim the same
 // occurrence.
 func (m *Storage) ClaimRun(_ context.Context, id string, claim scheduler.RunClaim) (bool, error) {
+	if err := claim.Validate(); err != nil {
+		return false, err
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -165,6 +168,7 @@ func (m *Storage) ClaimRun(_ context.Context, id string, claim scheduler.RunClai
 	state.RunStartedAt = claim.StartedAt
 	state.LastRunID = claim.RunID
 	state.RunLeaseUntil = claim.LeaseUntil
+	state.RunLeaseID = claim.RunID
 	state.UpdatedAt = claim.StartedAt
 	state.Revision++
 	return true, nil
@@ -509,6 +513,8 @@ func (m *Storage) FinishRun(_ context.Context, id, runID string, result schedule
 	}
 	state.LastRunAt = result.StartedAt
 	state.RunStartedAt = 0
+	state.RunLeaseUntil = 0
+	state.RunLeaseID = ""
 	state.UpdatedAt = result.EndedAt
 	if result.Success {
 		state.Failures = 0
@@ -529,6 +535,7 @@ func (m *Storage) RenewRun(_ context.Context, id, runID string, leaseUntil int64
 		return false, nil
 	}
 	state.RunLeaseUntil = leaseUntil
+	state.RunLeaseID = runID
 	state.Revision++
 	return true, nil
 }

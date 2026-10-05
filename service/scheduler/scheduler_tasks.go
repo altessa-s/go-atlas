@@ -156,6 +156,7 @@ func (s *Scheduler) Register(ctx context.Context, cfg corescheduler.TaskConfig) 
 		state.LastRunID = existing.LastRunID
 		state.RunStartedAt = existing.RunStartedAt   // keeps an in-flight run finishable
 		state.RunLeaseUntil = existing.RunLeaseUntil // keeps an in-flight run's lease
+		state.RunLeaseID = existing.RunLeaseID
 		state.Failures = existing.Failures
 		if isOneShot {
 			// One-shot: always use computed nextRun

@@ -747,7 +747,7 @@ func (s *Scheduler) startRunHeartbeat(ctx context.Context, id, runID string, lea
 	hbCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	renew := func() (time.Time, bool, error) { return s.renewRunLease(hbCtx, id, runID, leaseSec) }
 
-	leaseBase, owned = confirmRunOwnership(renew, leaseBase, interval)
+	leaseBase, owned = confirmRunOwnership(renew, time.Since, leaseBase, interval)
 	if !owned {
 		cancel()
 		return func() {}, false
@@ -818,17 +818,23 @@ const maxOwnershipConfirmations = 3
 // stored lease is too short to start the task body on: it renews, and accepts
 // only a renewal whose response is itself fresh — one that arrives within
 // interval of being issued still leaves two thirds of the new lease. A late
-// response proves nothing about the present, so it is retried, up to
-// maxOwnershipConfirmations attempts. It returns the base of the latest lease
+// response proves nothing about the present, so it is retried. At most
+// maxOwnershipConfirmations renewals are issued, and the last one must be
+// fresh, so the check always ends. It returns the base of the latest lease
 // write and whether ownership is confirmed; a failed or rejected renewal means
-// it is not.
-func confirmRunOwnership(renew func() (time.Time, bool, error), leaseBase time.Time, interval time.Duration) (time.Time, bool) {
-	for attempt := 0; time.Since(leaseBase) >= interval; attempt++ {
+// it is not. since measures elapsed time (time.Since outside tests).
+func confirmRunOwnership(
+	renew func() (time.Time, bool, error), since func(time.Time) time.Duration, leaseBase time.Time, interval time.Duration,
+) (time.Time, bool) {
+	for attempt := 0; since(leaseBase) >= interval; attempt++ {
+		if attempt == maxOwnershipConfirmations {
+			return leaseBase, false
+		}
 		base, renewed, err := renew()
 		if err != nil || !renewed {
 			return leaseBase, false
 		}
-		if attempt == maxOwnershipConfirmations-1 && time.Since(base) >= interval {
+		if attempt >= maxOwnershipConfirmations-1 && since(base) >= interval {
 			return leaseBase, false
 		}
 		leaseBase = base
@@ -839,10 +845,14 @@ func confirmRunOwnership(renew func() (time.Time, bool, error), leaseBase time.T
 // runAbandoned reports whether state carries an unfinished run that stale
 // recovery may reset at now (Unix seconds). A run of this instance is abandoned
 // as soon as it is no longer executing here. Any other run is abandoned only
-// once its lease has expired. The lease the owner persisted with the claim and
-// its renewals is authoritative, so instances with different stale timeouts
-// agree; only a run without one — claimed by a release without leases — falls
-// back to its start plus this instance's own lease.
+// once its lease has expired. A lease bound to the run (RunLeaseID ==
+// LastRunID), persisted by the owner with the claim and its renewals, is
+// authoritative, so instances with different stale timeouts agree. A run
+// without a lease of its own — claimed by a release without leases, which
+// leaves an earlier run's lease in place — falls back to its start plus this
+// instance's own lease. An unbound lease (RunLeaseID empty), written by a
+// lease-aware build that did not bind leases yet, may belong to this run or an
+// earlier one, so the later of both deadlines applies.
 func (s *Scheduler) runAbandoned(state *TaskState, now, leaseSec int64) bool {
 	if state.RunStartedAt == 0 && state.Status != TaskStatusRunning {
 		return false
@@ -851,7 +861,7 @@ func (s *Scheduler) runAbandoned(state *TaskState, now, leaseSec int64) bool {
 		_, live := s.liveRuns.Load(state.LastRunID)
 		return !live
 	}
-	if state.RunLeaseUntil != 0 {
+	if state.RunLeaseUntil != 0 && state.RunLeaseID != "" && state.RunLeaseID == state.LastRunID {
 		return now > state.RunLeaseUntil
 	}
 	since := state.RunStartedAt
@@ -859,7 +869,11 @@ func (s *Scheduler) runAbandoned(state *TaskState, now, leaseSec int64) bool {
 		// States persisted before RunStartedAt was introduced.
 		since = state.UpdatedAt
 	}
-	return now > since+leaseSec
+	deadline := since + leaseSec
+	if state.RunLeaseID == "" {
+		deadline = max(deadline, state.RunLeaseUntil)
+	}
+	return now > deadline
 }
 
 // recoverStaleTasks resets abandoned runs (see [Scheduler.runAbandoned]): those
@@ -944,6 +958,7 @@ func (s *Scheduler) resetStaleTask(ctx context.Context, id string, stale TaskFen
 	}
 	state.RunStartedAt = 0
 	state.RunLeaseUntil = 0
+	state.RunLeaseID = ""
 	state.Failures++
 	state.UpdatedAt = now.Unix()
 

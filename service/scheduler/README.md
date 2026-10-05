@@ -55,6 +55,7 @@ filter push-down.
 | `ErrTaskAlreadyDispatched` | TriggerTask -- a dispatch for this task is already queued or running |
 | `ErrNotReady`          | TriggerTask -- the configured readiness probe returned false         |
 | `ErrConcurrentUpdate`  | Register and management methods -- concurrent writes won `MaxUpdateAttempts` times; retry |
+| `ErrInvalidRunClaim`   | Storage.ClaimRun -- non-positive start, empty run ID or negative lease (`RunClaim.Validate`) |
 
 ## Single execution
 
@@ -71,10 +72,12 @@ fencing. See
 
 Run IDs name the executing instance (`<instance-id>/<random>`). `Storage.ClaimRun(ctx, id, RunClaim)` stores the first lease with the claim and fences
 on both `NextRunAt` and `RunAt`; the owner then calls `Storage.RenewRun(ctx, id, runID, leaseUntil)` every third of the lease (`WithStaleTaskTimeout`,
-at least 5s); it sets `TaskState.RunLeaseUntil` and increments the revision only while `runID` still owns an unfinished run (`LastRunID == runID`,
-`RunStartedAt != 0`). `Storage.CreateTask` inserts a task with revision one only when its ID is absent and otherwise reports `false` without writing.
-Custom storage implementations must perform both operations, and the `RunStartedAt == 0` condition of `ClaimRun`, atomically. The claim, ownership
-and finish rules shared by `ClaimRun`, `RenewRun` and `FinishRun` are defined once, in the "Run ownership" section of the `Storage` godoc.
+at least 5s); it sets `TaskState.RunLeaseUntil` and binds it to the run (`TaskState.RunLeaseID = runID`), and increments the revision, only while
+`runID` still owns an unfinished run (`LastRunID == runID`, `RunStartedAt != 0`). `FinishRun` clears both lease fields, and stale recovery trusts a
+lease only while `RunLeaseID == LastRunID`. `ClaimRun` rejects a claim that could never be owned (`RunClaim.Validate`, `ErrInvalidRunClaim`).
+`Storage.CreateTask` inserts a task with revision one only when its ID is absent and otherwise reports `false` without writing. Custom storage
+implementations must perform both operations, and the `RunStartedAt == 0` condition of `ClaimRun`, atomically. The claim, ownership and finish rules
+shared by `ClaimRun`, `RenewRun` and `FinishRun` are defined once, in the "Run ownership" section of the `Storage` godoc.
 
 ## Subpackages
 

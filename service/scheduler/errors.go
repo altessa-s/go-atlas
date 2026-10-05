@@ -58,3 +58,7 @@ var ErrScheduleConflict = errors.New("RunAt and Schedule are mutually exclusive"
 // when concurrent writes kept invalidating the read-modify-write for
 // [MaxUpdateAttempts] attempts. Retrying the call is safe.
 var ErrConcurrentUpdate = errors.New("task was modified concurrently")
+
+// ErrInvalidRunClaim is returned by [Storage.ClaimRun] implementations, via
+// [RunClaim.Validate], for a claim whose run could never be owned afterwards.
+var ErrInvalidRunClaim = errors.New("invalid run claim")

@@ -100,6 +100,7 @@ func RenewRun(t *testing.T, store scheduler.Storage) {
 	got, err := store.GetTask(ctx, "renew")
 	require.NoError(t, err)
 	require.Equal(t, int64(500), got.RunLeaseUntil)
+	require.Equal(t, "owner/run", got.RunLeaseID, "a renewal binds the lease to the run")
 	require.Equal(t, before.Revision+1, got.Revision)
 	require.Equal(t, scheduler.TaskStatusRunning, got.Status)
 	require.Equal(t, int64(100), got.RunStartedAt)
@@ -123,7 +124,22 @@ func RenewRun(t *testing.T, store scheduler.Storage) {
 	require.False(t, ok, "a finished run must not be renewed")
 	got, err = store.GetTask(ctx, "renew")
 	require.NoError(t, err)
-	require.Equal(t, int64(500), got.RunLeaseUntil)
+	require.Zero(t, got.RunLeaseUntil, "finishing clears the lease")
+	require.Empty(t, got.RunLeaseID)
+
+	// A run whose stored lease is unbound or bound to another run — as left by
+	// a claim of a release without leases — is bound by its next renewal.
+	require.NoError(t, store.UpsertTask(ctx, &scheduler.TaskState{
+		TaskSummary: scheduler.TaskSummary{ID: "unbound", Status: scheduler.TaskStatusRunning, Schedule: "@every 1m"},
+		LastRunID:   "legacy/run", RunStartedAt: 100, RunLeaseUntil: 150, RunLeaseID: "earlier/run",
+	}))
+	ok, err = store.RenewRun(ctx, "unbound", "legacy/run", 700)
+	require.NoError(t, err)
+	require.True(t, ok)
+	got, err = store.GetTask(ctx, "unbound")
+	require.NoError(t, err)
+	require.Equal(t, int64(700), got.RunLeaseUntil)
+	require.Equal(t, "legacy/run", got.RunLeaseID)
 }
 
 // ClaimRunRequiresFinishedRun verifies that an active task whose previous run
@@ -181,6 +197,7 @@ func ClaimRunFencesOccurrence(t *testing.T, store scheduler.Storage) {
 	got, err := store.GetTask(ctx, "occurrence")
 	require.NoError(t, err)
 	require.Equal(t, int64(900), got.RunLeaseUntil, "the claim stores the first lease")
+	require.Equal(t, "a/run", got.RunLeaseID, "the claim binds the lease to its run")
 	require.Equal(t, "a/run", got.LastRunID)
 	require.Equal(t, int64(300), got.RunStartedAt)
 }
@@ -211,6 +228,61 @@ func RunIDRoundTrip(t *testing.T, store scheduler.Storage) {
 	require.NoError(t, err)
 	require.True(t, renewed)
 	finished, err := store.FinishRun(ctx, "run-id", runID,
+		scheduler.RunResult{StartedAt: 100, EndedAt: 110, NextRunAt: 360, Schedule: "@every 1m", Success: true})
+	require.NoError(t, err)
+	require.True(t, finished)
+}
+
+// ClaimRunRejectsInvalidClaim verifies that a claim whose run could never be
+// owned — a non-positive start or an empty run ID — fails with
+// [scheduler.ErrInvalidRunClaim] and writes nothing. The supplied store must be
+// isolated per invocation.
+//
+//nolint:mnd // Fixed timestamps describe the storage contract.
+func ClaimRunRejectsInvalidClaim(t *testing.T, store scheduler.Storage) {
+	t.Helper()
+	ctx := t.Context()
+	require.NoError(t, store.UpsertTask(ctx, &scheduler.TaskState{TaskSummary: scheduler.TaskSummary{
+		ID: "invalid", Status: scheduler.TaskStatusActive, Schedule: "@every 1m", NextRunAt: 300,
+	}}))
+	before, err := store.GetTask(ctx, "invalid")
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name  string
+		claim scheduler.RunClaim
+	}{
+		{"zero_start", scheduler.RunClaim{NextRunAt: 300, StartedAt: 0, RunID: "a/run"}},
+		{"negative_start", scheduler.RunClaim{NextRunAt: 300, StartedAt: -1, RunID: "a/run"}},
+		{"empty_run_id", scheduler.RunClaim{NextRunAt: 300, StartedAt: 100}},
+		{"negative_lease", scheduler.RunClaim{NextRunAt: 300, StartedAt: 100, RunID: "a/run", LeaseUntil: -1}},
+	} {
+		claimed, claimErr := store.ClaimRun(ctx, "invalid", tc.claim)
+		require.ErrorIs(t, claimErr, scheduler.ErrInvalidRunClaim, tc.name)
+		require.False(t, claimed, tc.name)
+	}
+	got, err := store.GetTask(ctx, "invalid")
+	require.NoError(t, err)
+	require.Equal(t, before, got, "a rejected claim must not write")
+}
+
+// OwnedRunAnyNonZeroStart verifies that ownership requires RunStartedAt != 0,
+// not a positive value: a run stored with a negative start (written through
+// UpsertTask) is renewable and finishable on every backend alike. The
+// supplied store must be isolated per invocation.
+//
+//nolint:mnd // Fixed timestamps describe the storage contract.
+func OwnedRunAnyNonZeroStart(t *testing.T, store scheduler.Storage) {
+	t.Helper()
+	ctx := t.Context()
+	require.NoError(t, store.UpsertTask(ctx, &scheduler.TaskState{
+		TaskSummary: scheduler.TaskSummary{ID: "negative", Status: scheduler.TaskStatusRunning, Schedule: "@every 1m"},
+		LastRunID:   "owner/run", RunStartedAt: -5,
+	}))
+	renewed, err := store.RenewRun(ctx, "negative", "owner/run", 500)
+	require.NoError(t, err)
+	require.True(t, renewed)
+	finished, err := store.FinishRun(ctx, "negative", "owner/run",
 		scheduler.RunResult{StartedAt: 100, EndedAt: 110, NextRunAt: 360, Schedule: "@every 1m", Success: true})
 	require.NoError(t, err)
 	require.True(t, finished)

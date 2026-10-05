@@ -689,8 +689,11 @@ seconds because leases are stored in whole seconds. Stale recovery — at startu
 
 - owned by this instance and no longer executing here (a restart with a stable `WithInstanceID`, or a run whose result write failed), or
 - owned by anyone else and its lease has expired: the current time is past the persisted `run_lease_until`. Expiry is judged against the owner's
-  persisted value, so instances configured with different timeouts agree; only a run claimed by a release without leases (`run_lease_until`
-  zero) falls back to its start plus the local lease.
+  persisted value, so instances configured with different timeouts agree. A lease counts only while it is bound to the run: `ClaimRun` and
+  `RenewRun` store the run ID in `run_lease_id` with the lease, and `FinishRun` and recovery clear both. A run claimed by a release without
+  leases has no lease of its own — `run_lease_until` zero, or an earlier run's lease still bound to that run — and falls back to its start plus
+  the local lease. A lease stored without `run_lease_id` (written by a lease-aware build that did not bind leases yet) may belong to this run or an
+  earlier one, so the later of both deadlines applies.
 
 An instance runs a task only for the occurrence it registered: a one-shot task whose stored `RunAt` (or kind) differs from the local registration —
 re-registered locally or elsewhere — is skipped rather than run with a stale function. Under these rules a run that is still executing on a live
@@ -858,6 +861,7 @@ All errors are exported as sentinel values. Use `errors.Is` to match.
 | `ErrNotReady` | `TriggerTask` | Readiness probe returned `false` |
 | `ErrScheduleConflict` | `Register` | Both `RunAt` and `Schedule` provided |
 | `ErrInvalidCursor` | `TasksPaginated`, `HistoryPaginated` | Cursor malformed or filter changed since issue |
+| `ErrInvalidRunClaim` | `Storage.ClaimRun` | Claim with a non-positive start, an empty run ID or a negative lease (`RunClaim.Validate`) |
 
 ---
 

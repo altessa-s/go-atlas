@@ -42,7 +42,7 @@ func FinishRun(t *testing.T, store scheduler.Storage) {
 			t.Parallel()
 			state := &scheduler.TaskState{TaskSummary: scheduler.TaskSummary{
 				ID: tc.name, Status: tc.status, Schedule: tc.schedule, NextRunAt: 300, Failures: 2, OneShot: tc.oneShot,
-			}, LastRunID: "owner", RunStartedAt: 100, Meta: map[string]string{"keep": "value"}}
+			}, LastRunID: "owner", RunStartedAt: 100, RunLeaseUntil: 400, RunLeaseID: "owner", Meta: map[string]string{"keep": "value"}}
 			require.NoError(t, store.UpsertTask(t.Context(), state))
 			ok, err := store.FinishRun(t.Context(), tc.name, "stale", result)
 			require.NoError(t, err)
@@ -57,6 +57,8 @@ func FinishRun(t *testing.T, store scheduler.Storage) {
 			require.Equal(t, tc.schedule, got.Schedule)
 			require.Equal(t, state.Meta, got.Meta)
 			require.Zero(t, got.RunStartedAt)
+			require.Zero(t, got.RunLeaseUntil, "a finished run's lease must not outlive it")
+			require.Empty(t, got.RunLeaseID)
 			require.Zero(t, got.Failures)
 			require.Equal(t, int64(100), got.LastRunAt)
 			ok, err = store.FinishRun(t.Context(), tc.name, "owner", result)
