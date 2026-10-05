@@ -28,6 +28,9 @@
 //   - A scheduler double ([MockTaskRegistrar]) that records registered
 //     [core/scheduler.TaskConfig] values instead of running them, so a test can
 //     assert the task ID and schedule a component derived from configuration.
+//   - A scripted database/sql driver ([NewFakeSQL], [FakeSQL]) that records
+//     every statement, its arguments and whether it ran in a transaction, so
+//     SQL-building code is testable without a server or a third-party driver.
 //   - Polling helpers ([WaitFor]) and an audit helper ([NewTestAuditor]).
 //
 // All helpers that accept [testing.TB] register cleanup functions automatically,
