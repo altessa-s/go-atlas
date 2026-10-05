@@ -5,8 +5,10 @@
 package strings_test
 
 import (
+	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
 
@@ -30,6 +32,37 @@ func FuzzSplit(f *testing.F) {
 			// Actually strings.Split roundtrip holds for simple cases.
 			// corestrings.Split aims to align with strings.Split when no extra opts used.
 			t.Logf("Split roundtrip mismatch: %q -> %q", s, rejoined)
+		}
+	})
+}
+
+// FuzzSplitSeqMatchesSplit checks that SplitSeq yields exactly the elements
+// Split returns for arbitrary input, separator, and options, and that
+// a valid separator never cuts a UTF-8 sequence of a valid input.
+func FuzzSplitSeqMatchesSplit(f *testing.F) {
+	f.Add("xİyİz", "İ", 0, uint8(0))
+	f.Add("İ,Ⱥ", ",", 0, uint8(0))
+	f.Add("\ufffdii", "\xffİİ", 0, uint8(0))
+	f.Add("aſbΣcσdς", "s", 2, uint8(0))
+	f.Add("a\xffé", "", 1, uint8(1))
+	f.Add(" a ,, b ", ",", -1, uint8(7))
+
+	f.Fuzz(func(t *testing.T, s, sep string, maxSplits int, flags uint8) {
+		opts := corestrings.SplitOptions{
+			Separator:     sep,
+			MaxSplits:     maxSplits,
+			CaseSensitive: flags&1 != 0,
+			TrimSpace:     flags&2 != 0,
+			SkipEmpty:     flags&4 != 0,
+		}
+		want := corestrings.Split(s, opts)
+		got := slices.Collect(corestrings.SplitSeq(s, opts))
+		require.Equal(t, want, got)
+
+		if utf8.ValidString(s) && utf8.ValidString(sep) {
+			for _, part := range want {
+				require.True(t, utf8.ValidString(part), "part %q of valid input %q is not valid UTF-8", part, s)
+			}
 		}
 	})
 }
