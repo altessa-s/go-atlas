@@ -11,7 +11,7 @@ JWT token validation with automatic JWKS rotation, claims validation, presets, i
   - [Component Relationships](#component-relationships)
   - [Token Validation Flow](#token-validation-flow)
   - [Interfaces](#interfaces)
-- [Package Map](#package-map)
+- [What's provided](#whats-provided)
 - [Quick Start](#quick-start)
 - [Configuration Layers](#configuration-layers)
 - [YAML Application Config](#yaml-application-config)
@@ -702,9 +702,9 @@ Whenever the `revocation` block is present — even with `enabled: false` — `f
 otherwise); set either `source.url` or `source.file`.
 
 > **Known limitation.** With `source.url` the factory builds the URL loader without an HTTP client and hands it to the provider inside a
-> ready-made revocation storage, so the provider's shared client is never injected and every sync fails with
-> `ErrLoaderClientNotConfigured` — the filter stays empty and revoked tokens are admitted. Until this is fixed, use `source.file` (with a Bloom filter), or wire
-> revocation in Go with an explicit `URLRevocationLoader{URL: …, Client: …}` (see [Token Revocation (Go)](#token-revocation-go)).
+> ready-made revocation storage, so the provider's shared client is never injected and every sync fails with `ErrLoaderClientNotConfigured`
+> — the filter stays empty and revoked tokens are admitted. Until this is fixed, use `source.file` (with a Bloom filter), or wire revocation
+> in Go with an explicit `URLRevocationLoader{URL: …, Client: …}` (see [Token Revocation (Go)](#token-revocation-go)).
 
 #### Signature-verification ordering
 
