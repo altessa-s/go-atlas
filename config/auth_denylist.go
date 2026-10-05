@@ -5,10 +5,17 @@
 package config
 
 import (
+	"errors"
 	"time"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
+
+// errDenylistTwoRebuildSchedules rejects a rebuild_interval combined with a
+// Bloom filter whose rebuildCron is not explicitly empty.
+var errDenylistTwoRebuildSchedules = errors.New("rebuild_interval schedules caller-driven rebuilds; " +
+	"set filter.bloom.rebuildCron to \"\" so the negcache factory does not schedule a second one " +
+	"(an omitted rebuildCron inherits the defaults' cron)")
 
 // DefaultDenylistKeyPrefix is the default Redis key prefix for the authoritative
 // token-revocation store built by auth/denylist/storages/redis.New.
@@ -26,7 +33,6 @@ const DefaultDenylistKeyPrefix = "denylist:revoked:"
 //	denylist:
 //	  enabled: true
 //	  key_prefix: "denylist:revoked:"
-//	  rebuild_interval: 5m
 //	  filter:
 //	    type: bloom
 //	    bloom:
@@ -41,8 +47,13 @@ type Denylist struct {
 	// Defaults to "denylist:revoked:".
 	KeyPrefix string `yaml:"key_prefix" default:"denylist:revoked:"`
 
-	// RebuildInterval is how often the negative filter is rebuilt from the
-	// authoritative store. Zero disables periodic rebuilds. Optional.
+	// RebuildInterval is how often the caller rebuilds the negative filter
+	// from the authoritative store through negcache.Cache.Rebuild. Zero (the
+	// default) leaves periodic rebuilds to the negcache factory, which
+	// schedules them from Filter.Bloom.RebuildCron (or the defaults' cron).
+	// With a Bloom filter a non-zero interval requires an explicitly empty
+	// Filter.Bloom.RebuildCron, so one filter never gets two schedules.
+	// Optional.
 	RebuildInterval time.Duration `yaml:"rebuild_interval,omitempty"`
 
 	// MetricsSubsystem overrides the Prometheus metrics subsystem for the
@@ -56,11 +67,20 @@ type Denylist struct {
 
 // Validate validates the denylist configuration. When Enabled is false it
 // returns nil. When enabled it requires KeyPrefix, a non-negative
-// RebuildInterval, and a valid Filter.
+// RebuildInterval (with a Bloom filter, a positive one only together with an
+// explicitly empty Filter.Bloom.RebuildCron), and a valid Filter.
 func (c *Denylist) Validate() error {
 	return ValidateStructIfEnabled(c.Enabled, c,
 		validation.Field(&c.KeyPrefix, validation.Required),
-		validation.Field(&c.RebuildInterval, validation.Min(time.Duration(0))),
+		validation.Field(&c.RebuildInterval, validation.Min(time.Duration(0)), validation.By(func(any) error {
+			if c.RebuildInterval <= 0 || c.Filter.Type != ProbabilisticFilterTypeBloom || c.Filter.Bloom == nil {
+				return nil
+			}
+			if cron := c.Filter.Bloom.RebuildCron; cron == nil || *cron != "" {
+				return errDenylistTwoRebuildSchedules
+			}
+			return nil
+		})),
 		// Filter.Validate has a pointer receiver, so ozzo's nested-struct
 		// check skips the value field — invoke it explicitly.
 		validation.Field(&c.Filter, validation.By(func(any) error { return c.Filter.Validate() })),

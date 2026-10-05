@@ -18,9 +18,26 @@ around them.
 cache, err := factory.NewBuilder("denylist", cfg.Filter, &defaults, redisDenylist).
     UseLogger(logger).
     UseRedisClient(redisClient). // only for a Redis-backed negative filter
+    UseScheduler(scheduler).     // runs rebuildCron of a Redis-backed filter
     UseMetrics(collector, "auth_denylist_negcache").
     Build()
+defer cache.Close(ctx) // stops the filter's scheduled rebuilds
 ```
+
+## Rebuilds
+
+The probfilter factory owns the negative filter's rebuilds, driven by the authoritative store: the loader is the one set with `UseDataLoader`, else
+the authoritative store itself when it implements `probfilter.DataLoader` (`auth/denylist/storages/redis.Store` does).
+
+| Setting | Effect with a loader |
+|---------|----------------------|
+| `bloom.rebuildOnStart` | Rebuilt inside `Build`; the cache is returned populated. A loader error fails `Build`. If another process is rebuilding a shared Redis filter at that moment, `Build` succeeds and the cache defers to the authoritative store until that rebuild is committed. |
+| `bloom.rebuildCron` | In-memory filter: process-local cron. Redis filter: task `probfilter-rebuild-<name>` registered with the `UseScheduler` scheduler (logged as ignored without one). |
+
+Without a loader both settings are inert. A Cuckoo filter has no rebuild settings; rebuild it with `cache.Rebuild`. `cache.Close` stops the
+scheduled rebuilds. Do not combine these settings with caller-driven rebuilds (`config.Denylist.RebuildInterval`): validation requires
+`filter.bloom.rebuildCron: ""` when `rebuild_interval` is set. `redis.Store` streams only from a single Redis server; with a Cluster or Ring client
+its stream fails with `ErrUnsupportedClient`, so inject an exact loader with `UseDataLoader` there.
 
 ## Constructor
 
@@ -36,13 +53,15 @@ cache, err := factory.NewBuilder("denylist", cfg.Filter, &defaults, redisDenylis
 | `filterCfg` (constructor arg) | yes | The probabilistic-filter configuration used to build the negative filter. |
 | `UseLogger` | no | Sets the logger for the builder and the filter it constructs. |
 | `UseRedisClient` | only for Redis-backed filters | Redis client passed through to the probfilter factory. In-memory filters need none. |
+| `UseDataLoader` | no | Rebuild source of the filter; overrides the default (the authoritative store, when it is a `probfilter.DataLoader`). |
+| `UseScheduler` | for `rebuildCron` of Redis-backed filters | `core/scheduler.TaskRegistrar` that runs the periodic rebuild task. |
 | `UseMetrics` | no | Enables lookup telemetry on the built cache using the given collector and subsystem. |
 
 ## Terminal
 
 | Method | Description |
 |--------|-------------|
-| `Build` | Validates the injected dependencies, builds the negative filter, and returns the assembled `*negcache.Cache`. |
+| `Build` | Validates the injected dependencies, builds the negative filter (running its `rebuildOnStart` rebuild), and returns the assembled `*negcache.Cache`. |
 
 ## See also
 

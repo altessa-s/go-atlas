@@ -23,7 +23,11 @@
 //
 // Store also implements [github.com/altessa-s/go-atlas/data/probfilter.DataLoader]
 // via [Store.StreamValues] and [Store.Count], so it can repopulate a negative
-// filter from the full set of revoked keys on rebuild.
+// filter from the full set of revoked keys on rebuild. The stream SCANs the
+// keys under the literal key prefix (glob metacharacters are escaped) and is
+// complete only on a single Redis server or a failover client's primary:
+// with a Cluster or Ring client it yields [ErrUnsupportedClient] instead of a
+// partial snapshot.
 //
 // # Semantics
 //

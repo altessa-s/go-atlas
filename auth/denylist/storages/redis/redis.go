@@ -6,6 +6,7 @@ package redis
 
 import (
 	"context"
+	"errors"
 	"iter"
 	"strings"
 	"time"
@@ -20,6 +21,17 @@ import (
 // revokedValue is the sentinel stored at a revocation key; only its presence
 // matters.
 const revokedValue = "1"
+
+// ErrUnsupportedClient is yielded by [Store.StreamValues] when the store's
+// client is a Redis Cluster or Ring client: SCAN cannot enumerate their keys
+// completely (a cluster scan reaches one node and misses keys of a slot being
+// migrated; a ring skips unavailable shards), and a partial stream would be
+// published as a complete revocation snapshot.
+var ErrUnsupportedClient = errors.New("redis client cannot enumerate all revocation keys")
+
+// globEscaper escapes the Redis glob metacharacters of a literal key prefix
+// for a SCAN MATCH pattern.
+var globEscaper = strings.NewReplacer(`\`, `\\`, `*`, `\*`, `?`, `\?`, `[`, `\[`, `]`, `\]`)
 
 // scanBatch is the COUNT hint passed to SCAN. It bounds how many keys Redis
 // examines per round trip during a stream; it is a hint, not a hard page size.
@@ -92,12 +104,23 @@ func (s *Store) Restore(ctx context.Context, key string) error {
 }
 
 // StreamValues implements [probfilter.DataLoader]. It SCANs every revocation key
-// under the store's prefix, strips the prefix, and yields each bare key. The
+// under the store's prefix (matched literally: glob metacharacters in the
+// prefix are escaped), strips the prefix, and yields each bare key. The
 // iterator stops early when ctx is canceled or the consumer stops pulling; on a
 // Redis or context error it yields a single ("", err) pair and returns.
+//
+// SCAN enumerates a single Redis server (or a failover client's primary)
+// completely. A Redis Cluster or Ring client yields [ErrUnsupportedClient]
+// instead of a partial stream; rebuild from an exact source of the revoked
+// set there.
 func (s *Store) StreamValues(ctx context.Context) iter.Seq2[string, error] {
 	return func(yield func(string, error) bool) {
-		match := s.opts.keyPrefix + "*"
+		switch s.client.(type) {
+		case *redis.ClusterClient, *redis.Ring:
+			yield("", coreerrs.Wrapf(ErrUnsupportedClient, "stream revoked keys over %T", s.client))
+			return
+		}
+		match := globEscaper.Replace(s.opts.keyPrefix) + "*"
 		var cursor uint64
 		for {
 			if err := ctx.Err(); err != nil {
@@ -110,7 +133,11 @@ func (s *Store) StreamValues(ctx context.Context) iter.Seq2[string, error] {
 				return
 			}
 			for _, k := range keys {
-				if !yield(strings.TrimPrefix(k, s.opts.keyPrefix), nil) {
+				key, ok := strings.CutPrefix(k, s.opts.keyPrefix)
+				if !ok {
+					continue
+				}
+				if !yield(key, nil) {
 					return
 				}
 			}

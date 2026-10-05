@@ -39,14 +39,18 @@ one, because the authoritative store makes the final call.
 | `Cache.IsRevoked(ctx, key)` | Lookup: fast-path a definite miss, else defer to the authoritative store. |
 | `Cache.Add(ctx, key)` | Record a locally revoked key in the filter (keeps the superset invariant between rebuilds). |
 | `Cache.Rebuild(ctx, loader)` | Repopulate the filter from the authoritative full key stream (atomic); the first success marks the cache populated. Requires a `probfilter.RebuildableFilter` (Bloom or Cuckoo). |
+| `Cache.Close(ctx)` | Close the owned filter (Bloom/Cuckoo facade or `io.Closer`); stops rebuilds a factory scheduled for it. |
 | `FromChecker(checker)` | Adapt a synchronous [`denylist.Checker`](../README.md) to `Authoritative`, so any Checker (in-process or distributed) can be the exact tier. |
 | `WithMetrics(m)` | Option enabling lookup telemetry via a `*Metrics` (see [Metrics](#metrics)). |
+| `WithSharedRebuildCheckInterval(d)` | How often, at most, an unpopulated cache asks a shared filter whether any process committed a rebuild (default `DefaultSharedRebuildCheckInterval`, 1s; `0` checks on every unpopulated lookup). |
 | `NewMetrics(collector, subsystem)` | Build a `*Metrics` over an [`observability/metrics`](../../../observability/metrics) collector; a nil collector or `*Metrics` is a no-op. |
 
 ## Invariant & staleness
 
 The cache is correct only while the filter contains **every** key the authoritative store considers revoked. Until the first successful `Rebuild`
-(through the cache, or one the filter reports via `LastRebuild`) the cache answers every lookup from the authoritative store. Rebuilds are atomic:
+(through the cache, one the filter reports via `LastRebuild`, or — for a filter shared through Redis — one committed by any process, reported via
+`probfilter.RebuildCommitReporter`) the cache answers every lookup from the authoritative store. The shared check costs a Redis round trip, runs at most
+once per `WithSharedRebuildCheckInterval` while unpopulated, and an error counts as unpopulated. Rebuilds are atomic:
 lookups use the previous contents while one runs, a failed rebuild keeps them, and `Add` calls made during a rebuild are kept. Maintain the invariant
 with `Add` on local revocations and a scheduled `Rebuild` from the authoritative source. Between rebuilds a key revoked on another node is fast-pathed
 as not-revoked until the next rebuild — the same propagation window any locally cached revocation set has. Size the rebuild cadence to your
@@ -66,15 +70,16 @@ degraded filter. Metrics are optional: a nil collector or `*Metrics` makes every
 
 ## Usage
 
+The [factory](factory/) builds the filter and lets the authoritative store drive its rebuilds (`rebuildOnStart`, `rebuildCron`). Assembled by hand:
+
 ```go
-filter, _ := probfilterfactory.NewFilter("denylist", cfg, &defaults).Build(ctx)
+filter, _ := probfilterfactory.NewFilter("denylist", cfg, &defaults).Build()
 cache := negcache.New(filter, redisDenylist) // redisDenylist implements Authoritative
+defer cache.Close(ctx)
 
-revoked, err := cache.IsRevoked(ctx, jti)     // hot path
+revoked, err := cache.IsRevoked(ctx, jti) // hot path
 
-_ = scheduler.Register("denylist-rebuild", func(ctx context.Context) error {
-    return cache.Rebuild(ctx, loader)          // periodic repopulation
-})
+_ = cache.Rebuild(ctx, redisDenylist) // periodic repopulation; the store is a probfilter.DataLoader
 ```
 
 See also: [`data/probfilter`](../../../data/probfilter), [`auth/denylist`](../README.md).
