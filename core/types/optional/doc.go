@@ -28,7 +28,8 @@
 //	}
 //
 //	// Bridge from the idiomatic (value, ok) tuple.
-//	opt := optional.Of(m[k])
+//	v, ok := m[k]
+//	opt := optional.Of(v, ok)
 //
 // # When NOT to use
 //

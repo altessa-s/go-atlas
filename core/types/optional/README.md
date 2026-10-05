@@ -75,7 +75,8 @@ if nick, ok := u.Nickname.Get(); ok {
 }
 
 // Bridge from a (value, ok) lookup.
-opt := optional.Of(m[k])
+v, ok := m[k]
+opt := optional.Of(v, ok)
 host := opt.OrDefault("localhost")
 
 // Convert from/to pointers.

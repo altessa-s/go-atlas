@@ -40,7 +40,8 @@ func None[T any]() Optional[T] {
 // Of converts an idiomatic (T, bool) pair into an Optional. It is
 // the canonical bridge from existing call sites:
 //
-//	opt := optional.Of(m[k])
+//	v, ok := m[k]
+//	opt := optional.Of(v, ok)
 //
 // When ok is false v is discarded and the resulting Optional carries
 // the zero value of T.
