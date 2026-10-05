@@ -38,6 +38,11 @@ type LeaderElector struct {
 	Provider LeaderElectorProvider `yaml:"provider" default:"nats"`
 	// Ttl defines the time-to-live for leader election locks
 	Ttl time.Duration `yaml:"ttl" default:"10s"`
+	// MigrateBucketTTL updates a pre-existing election bucket whose key TTL
+	// differs from the provider's instead of failing with
+	// ErrBucketTTLMismatch. Off by default: the bucket's key TTL expires the
+	// election keys of every process sharing the bucket.
+	MigrateBucketTTL bool `yaml:"migrateBucketTTL"`
 }
 
 // DefaultLeaderElector returns a LeaderElector configuration with default values.

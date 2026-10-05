@@ -79,6 +79,7 @@ distributionLock:
   provider: nats
   nats:
     bucket: myapp-locks
+    migrateBucketTTL: false   # true updates an existing bucket whose key TTL differs (see "TTL, renew, fencing")
 ```
 
 The factory picks a provider from `cfg.Provider`. Only `nats` is wired today; new providers go through extending the `DistributionLockProvider`
@@ -117,7 +118,8 @@ two thirds of the TTL to recover. Ratios above `0.8` are clamped to `0.8` so a r
 The window is computed from the provider's configured TTL, which is also the bucket's key TTL, so every provider sharing a bucket must use the same
 `WithTTL`. `New` enforces it: when the bucket already exists with a different key TTL it returns `nats.ErrBucketTTLMismatch` and leaves the bucket
 alone, rather than rewriting it and silently shortening or stretching the locks of the providers already using it. Pass `WithMigrateBucketTTL()` to
-change the TTL of an existing bucket deliberately — once every provider sharing it is configured with the new TTL.
+change the TTL of an existing bucket deliberately — once every provider sharing it is configured with the new TTL. A lock built from YAML through
+`dlock/factory` takes the same switch as `distributionLock.nats.migrateBucketTTL: true`.
 
 `GetLockInfo` exposes a `FencingToken`, a monotonically increasing revision from NATS KV. If you do an out-of-band side effect tied to lock
 ownership (writing to another database, publishing to a queue), have the receiver check that the fencing token is at least as large as the last

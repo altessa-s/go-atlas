@@ -16,6 +16,7 @@ import (
 	"github.com/altessa-s/go-atlas/data/leadelect"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
+	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	natsprovider "github.com/altessa-s/go-atlas/data/leadelect/providers/nats"
 )
@@ -80,6 +81,7 @@ func (b *LeaderBuilder) createNatsProvider(ctx context.Context) (*natsprovider.P
 		natsprovider.WithLogger(b.Logger()),
 		natsprovider.WithCollector(b.collector),
 	}
+	opts = coreslices.AppendIf(opts, b.cfg.MigrateBucketTTL, natsprovider.WithMigrateBucketTTL())
 
 	provider, err := natsprovider.New(ctx, b.natsConn, opts...)
 	if err != nil {

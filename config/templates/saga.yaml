@@ -31,6 +31,13 @@
 #      # Default value: 720h (30 days)
 #      max_age: "720h"
 #
+#      # <bool> Update an existing bucket whose key TTL differs from max_age.
+#      # When false, such a bucket is left untouched and the store fails to build
+#      # with ErrBucketTTLMismatch: the bucket's key TTL expires every instance in
+#      # it, including those of other processes sharing the bucket.
+#      # Default value: false
+#      migrate_bucket_ttl: false
+#
 #    # <object> MongoDB storage configuration (data/saga/storages/mongo).
 #    # Used when type is set to 'mongo'.
 #    mongo:

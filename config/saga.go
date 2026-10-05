@@ -69,6 +69,11 @@ type SagaNatsStorageConfig struct {
 	// MaxAge is the per-key expiry applied to the bucket. It must outlive any
 	// saga's running time; zero is widened to a 30-day backstop by the store.
 	MaxAge time.Duration `yaml:"max_age" default:"720h"`
+	// MigrateBucketTTL updates a pre-existing bucket whose key TTL differs
+	// from MaxAge instead of failing with ErrBucketTTLMismatch. Off by
+	// default: the bucket's key TTL expires every instance in it, including
+	// those of other processes sharing the bucket.
+	MigrateBucketTTL bool `yaml:"migrate_bucket_ttl"`
 }
 
 // Validate performs validation of the NATS saga storage configuration.
