@@ -58,3 +58,35 @@ func TestKeyCacheEnforcesMaxEntries(t *testing.T) {
 		require.LessOrEqual(t, n, max)
 	}
 }
+
+func TestKeyCachePutIfGenerationFencedByInvalidation(t *testing.T) {
+	t.Parallel()
+	vk := VerificationKey{Algorithm: AlgEdDSA}
+	tests := []struct {
+		name       string
+		invalidate func(c *keyCache)
+		stored     bool
+	}{
+		{name: "NoInvalidation", invalidate: func(*keyCache) {}, stored: true},
+		{name: "DeleteKey", invalidate: func(c *keyCache) { c.deleteKey("s", "k") }},
+		{name: "DeleteSubject", invalidate: func(c *keyCache) { c.deleteSubject("s") }},
+		// The generation is cache-wide: invalidating another subject also fences.
+		{name: "DeleteOtherSubject", invalidate: func(c *keyCache) { c.deleteSubject("other") }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			c := newKeyCache(time.Minute, 100, &stepClock{t: time.Unix(0, 0).UTC()})
+			gen := c.generation()
+			tc.invalidate(c)
+			c.putIfGeneration("s", "k", vk, gen)
+			_, ok := c.get("s", "k")
+			require.Equal(t, tc.stored, ok)
+
+			// A lookup that starts after the invalidation caches normally.
+			c.putIfGeneration("s", "k", vk, c.generation())
+			_, ok = c.get("s", "k")
+			require.True(t, ok)
+		})
+	}
+}

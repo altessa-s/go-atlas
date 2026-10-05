@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/altessa-s/go-atlas/auth/jwt"
@@ -135,9 +136,11 @@ func (v *Verifier) publicKey(ctx context.Context, subject, kid string) (Verifica
 	v.opts.metrics.recordCacheLookup(false)
 
 	// Collapse concurrent misses for the same (subject, kid) into a single
-	// provider lookup. The NUL separator keeps the flight key unambiguous
-	// across the subject/kid boundary.
-	res, err, _ := v.flight.Do(subject+"\x00"+kid, func() (any, error) {
+	// provider lookup. The flight key carries the invalidation generation read
+	// before the lookup, so a verification that starts after InvalidateKey /
+	// InvalidateSubject never joins a flight that may have read a retired key.
+	gen := v.cache.generation()
+	res, err, _ := v.flight.Do(flightKey(subject, kid, gen), func() (any, error) {
 		// Re-check the cache: a peer flight for this key may have populated it
 		// between our miss above and our entry into the singleflight group.
 		if vk, ok := v.cache.get(subject, kid); ok {
@@ -152,7 +155,8 @@ func (v *Verifier) publicKey(ctx context.Context, subject, kid string) (Verifica
 		if err != nil {
 			return VerificationKey{}, err
 		}
-		v.cache.put(subject, kid, vk)
+		// Dropped when an invalidation happened while the provider was consulted.
+		v.cache.putIfGeneration(subject, kid, vk, gen)
 		return vk, nil
 	})
 	if err != nil {
@@ -162,11 +166,28 @@ func (v *Verifier) publicKey(ctx context.Context, subject, kid string) (Verifica
 	return vk, nil
 }
 
+// flightKey encodes (subject, kid, gen) injectively: the length prefixes make
+// the subject/kid split unambiguous whatever bytes either contains, so two
+// distinct pairs can never share a flight and thus a resolved key.
+func flightKey(subject, kid string, gen uint64) string {
+	b := make([]byte, 0, len(subject)+len(kid)+3*20)
+	b = strconv.AppendInt(b, int64(len(subject)), 10)
+	b = append(b, ':')
+	b = append(b, subject...)
+	b = strconv.AppendInt(b, int64(len(kid)), 10)
+	b = append(b, ':')
+	b = append(b, kid...)
+	b = strconv.AppendUint(b, gen, 10)
+	return string(b)
+}
+
 // InvalidateKey drops the cached verification key for (subject, kid), so the
 // next verification of a token carrying that kid consults the [KeyProvider]
 // again. Use it on key rotation to close the [WithCacheTTL] window during which
-// a retired kid would otherwise keep verifying from cache. It is a no-op when
-// nothing is cached for the pair.
+// a retired kid would otherwise keep verifying from cache. It also fences key
+// lookups already in flight: their results are not cached, and verifications
+// that start after the call do not share them. Only verifications that began
+// before the call may still complete with the old key.
 func (v *Verifier) InvalidateKey(subject, kid string) {
 	v.cache.deleteKey(subject, kid)
 }
@@ -174,6 +195,7 @@ func (v *Verifier) InvalidateKey(subject, kid string) {
 // InvalidateSubject drops every cached verification key for subject, so the
 // next verification for that subject reloads from the [KeyProvider]. Use it
 // when a subject's keys rotate and the retired kid is not known to the caller.
+// It fences in-flight key lookups exactly like [Verifier.InvalidateKey].
 func (v *Verifier) InvalidateSubject(subject string) {
 	v.cache.deleteSubject(subject)
 }
