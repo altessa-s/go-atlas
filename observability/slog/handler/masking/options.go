@@ -24,13 +24,22 @@ type options struct {
 	// fields maps field names to their masking functions.
 	fields map[string]MaskFunc `optgen:"manual"`
 
+	// fieldOrder records every key [WithField] and [WithDefaults] set, in
+	// registration order. [NewHandler] folds keys that differ only by case in
+	// this order, so the last registration wins deterministically instead of
+	// depending on map iteration order.
+	fieldOrder []string `opt:"-"`
+
 	// patterns contains regex patterns for matching field names.
 	//
 	// Note: patterns are matched against the field path when maskNestedFields is enabled,
 	// otherwise against the field key only.
 	patterns []FieldPattern `optgen:"manual"`
 
-	// defaultMask is used when no specific mask is configured.
+	// defaultMask is applied to rules registered without a mask, i.e.
+	// [WithField] or [WithPattern] called with a nil [MaskFunc]. It does not
+	// mask fields that no rule matches. [NewHandler] falls back to
+	// [FullMask] when it is unset.
 	defaultMask MaskFunc
 
 	// maskNestedFields enables masking in nested groups.
@@ -40,39 +49,58 @@ type options struct {
 	caseSensitive bool
 }
 
-// WithField adds a field name to mask with the given MaskFunc.
+// WithField adds a field name to mask with the given MaskFunc. A nil mask
+// applies the handler's default mask (see [WithDefaultMask]).
 func WithField(name string, mask MaskFunc) Option {
 	return func(o *options) {
 		if o.fields == nil {
 			o.fields = make(map[string]MaskFunc)
 		}
 		o.fields[name] = mask
+		o.fieldOrder = append(o.fieldOrder, name)
 	}
 }
 
-// WithPattern adds a regex pattern for field name matching.
+// WithPattern adds a regex pattern for field name matching. A nil mask
+// applies the handler's default mask (see [WithDefaultMask]).
 func WithPattern(pattern string, mask MaskFunc) Option {
 	return func(o *options) {
 		o.patterns = append(o.patterns, FieldPattern{Pattern: pattern, Mask: mask})
 	}
 }
 
-// WithDefaults applies common sensitive field masks (password, token, secret, etc.).
-// This is equivalent to the previous DefaultOptions() behavior.
+// WithDefaults applies common sensitive field masks (password, token, secret, etc.)
+// and enables nested-field masking.
+//
+// It does not change case sensitivity: field matching stays case-insensitive
+// unless [WithCaseSensitive] is also given. It sets the default mask to
+// [SmartMask] only when no [WithDefaultMask] was applied before it.
+//
+// Keys that differ only by case resolve to the last registration, so a
+// [WithField] given after WithDefaults overrides the default for that field.
 func WithDefaults() Option {
 	return func(o *options) {
 		if o.fields == nil {
 			o.fields = make(map[string]MaskFunc)
 		}
 		// Common sensitive fields
-		o.fields["password"] = SmartMask()
-		o.fields["token"] = SmartMask()
-		o.fields["secret"] = SmartMask()
-		o.fields["api_key"] = SmartMask()
-		o.fields["authorization"] = SmartMask()
-		o.fields["credit_card"] = CreditCardMask()
-		o.fields["email"] = EmailMask()
-		o.fields["phone"] = PhoneMask()
+		defaults := []struct {
+			name string
+			mask MaskFunc
+		}{
+			{"password", SmartMask()},
+			{"token", SmartMask()},
+			{"secret", SmartMask()},
+			{"api_key", SmartMask()},
+			{"authorization", SmartMask()},
+			{"credit_card", CreditCardMask()},
+			{"email", EmailMask()},
+			{"phone", PhoneMask()},
+		}
+		for _, d := range defaults {
+			o.fields[d.name] = d.mask
+			o.fieldOrder = append(o.fieldOrder, d.name)
+		}
 
 		// Common patterns
 		o.patterns = append(o.patterns,
@@ -82,8 +110,9 @@ func WithDefaults() Option {
 			FieldPattern{Pattern: `(?i).*_key$`, Mask: SmartMask()},
 		)
 
-		o.defaultMask = SmartMask()
+		if o.defaultMask == nil {
+			o.defaultMask = SmartMask()
+		}
 		o.maskNestedFields = true
-		o.caseSensitive = true
 	}
 }

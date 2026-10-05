@@ -11,10 +11,11 @@ an inner handler. Supports full masks, fixed replacement strings, and per-field 
 
 | Function / Option  | Description                                       |
 |--------------------|---------------------------------------------------|
-| `NewHandler`       | Wrap an inner handler with masking rules           |
+| `NewHandler`       | Wrap an inner handler with masking rules; skips invalid patterns |
+| `New`              | Like `NewHandler`, but returns an error wrapping `ErrInvalidPattern` for each empty or non-compiling pattern |
 | `WithDefaults`     | Register masks for common sensitive field names    |
 | `WithField`        | Add a masking rule for a specific field            |
-| `WithDefaultMask`  | Set the fallback mask for unmatched fields         |
+| `WithDefaultMask`  | Mask for rules registered with a nil `MaskFunc`    |
 | `FullMask`         | Replace entire value with mask characters          |
 | `FixedMask`        | Replace value with a fixed string                  |
 | `URLMask`          | Mask sensitive parts of URLs (buckets, paths)      |
