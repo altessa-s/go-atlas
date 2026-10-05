@@ -333,6 +333,7 @@ func (o *Orchestrator[T]) runForward(ctx context.Context, inst *Instance, data *
 	inst.Status = StatusCompleted
 	inst.UpdatedAt = time.Now().UTC()
 	if err := o.store.Update(ctx, inst); err != nil {
+		inst.Status = StatusRunning
 		return err
 	}
 	o.metrics.completed.Inc()
@@ -383,6 +384,7 @@ func (o *Orchestrator[T]) compensate(ctx context.Context, inst *Instance, data *
 	inst.Status = StatusCompensated
 	inst.UpdatedAt = time.Now().UTC()
 	if err := o.store.Update(ctx, inst); err != nil {
+		inst.Status = StatusCompensating
 		return err
 	}
 	o.metrics.compensated.Inc()

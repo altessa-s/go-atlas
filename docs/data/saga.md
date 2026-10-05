@@ -143,6 +143,8 @@ flowchart LR
     Orch -->|gate to leader| Leader[LeaderElector]
     Orch -->|on FAILED| DLQ[DeadLetterFunc]
     Orch -->|counters / timers| Metrics[metrics.Collector]
+    Engine[JetStream engine] -->|Start per command| Orch
+    App -->|Submit| Engine
 ```
 
 - **Store** — the one required dependency. Pick a backend by deployment: `memory` for a single node or tests, `mongo`/`redis`/`nats` for
@@ -154,6 +156,9 @@ flowchart LR
   correctness requirement: the store's optimistic concurrency already makes concurrent cycles safe.
 - **DeadLetterFunc** — optional. Fires with a clone of the instance when it reaches `FAILED`, so you can alert or enqueue for a human.
 - **Collector** — optional Prometheus metrics. Defaults to a no-op.
+- **JetStream engine** — optional. [`engines/jetstream`](../../data/saga/engines/jetstream) puts a durable work queue in front of the
+  orchestrator: `Submit` publishes a start command, and `Run` on any node consumes it and calls `Start`. See
+  [Distributed execution with JetStream](#distributed-execution-with-jetstream).
 
 ## Crash recovery
 
@@ -330,6 +335,56 @@ if err := orch.RunRecoveryCycle(ctx); err != nil {
 
 All backends return the same sentinel errors from [`errs`](../../data/saga/errs) (`ErrInstanceNotFound`, `ErrInstanceExists`,
 `ErrVersionConflict`, …); match them with `errors.Is`.
+
+## Distributed execution with JetStream
+
+`Orchestrator.Start` runs a saga in the caller's goroutine. When the decision to start a saga must survive a crash of the caller, or execution
+should be spread over a pool of workers, put the [`engines/jetstream`](../../data/saga/engines/jetstream) engine in front of the orchestrator.
+Combined with the `nats` store this is an all-NATS deployment.
+
+```mermaid
+sequenceDiagram
+    participant C as Caller
+    participant E1 as Engine (node A)
+    participant JS as JetStream work queue
+    participant E2 as Engine (node B)
+    participant O as Orchestrator
+    C->>E1: Submit(id, data)
+    E1->>JS: publish saga.start.<definition> (Nats-Msg-Id)
+    JS-->>E2: deliver command (shared durable consumer)
+    E2->>O: Start(id, data)
+    loop while running
+        E2->>JS: InProgress heartbeat
+    end
+    O-->>E2: terminal instance
+    E2->>JS: Ack
+```
+
+```go
+store, _ := natsstore.New(js)
+orch := saga.New(store, def, saga.WithScheduler(sched))
+if err := orch.RegisterRecovery(ctx); err != nil {
+    return err
+}
+
+engine, err := sagajs.New(ctx, js, orch, sagajs.WithConcurrency(8))
+if err != nil {
+    return err
+}
+go func() { _ = engine.Run(ctx) }()
+
+err = engine.Submit(ctx, order.ID, order) // durable once this returns
+```
+
+| Outcome of `Start`                                   | Command                      |
+|------------------------------------------------------|------------------------------|
+| Terminal (completed, compensated, failed)            | acked — the outcome is final |
+| Interrupted (store error, instance busy, shutdown)   | redelivered with backoff     |
+| Undecodable, or the ID belongs to another definition | terminated                   |
+
+Delivery is at-least-once; a redelivered command resumes the existing instance because the saga ID is the idempotency key. Keep the recovery
+cycle configured: it still owns deadline-driven rollback and instances started by direct `Start` calls. The engine never modifies an existing
+stream or consumer, so per-process options for those resources only apply when the engine creates them.
 
 ## Compensation policy
 
