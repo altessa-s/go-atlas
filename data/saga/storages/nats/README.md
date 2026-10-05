@@ -66,9 +66,17 @@ type, so `New` adopts an existing bucket with a different storage type as is and
 
 The migration seals the bucket, copies its live entries into the marker stream, recreates the bucket with its first revision just above the
 old bucket's last one, and restores the entries. Revisions therefore keep growing across the migration. It rejects a JetStream context with a
-domain or API prefix (`ErrMigrationUnsupportedContext`) and a bucket with a mirror, sources, republishing, a subject transform or a placement
-(`ErrMigrationUnsupportedBucket`). A bucket key TTL other than the configured one fails with `ErrBucketTTLMismatch` unless `WithMigrateBucketTTL()`
-is passed too, which changes both at once.
+domain or API prefix (`ErrMigrationUnsupportedContext`) and a bucket with sources, republishing, a subject transform or a placement
+(`ErrMigrationUnsupportedBucket`). Recreating a sourced bucket would either replay old source values over newer local writes or lose
+source messages not yet copied, since the server does not expose how far each source was consumed. Republishing would announce every restored
+entry as a new change, and the others cannot be validated without a cluster.
+
+A **mirror** bucket is migrated by re-sync. It is recreated as the same mirror on the new storage, nothing is copied, and the new mirror catches
+up from its origin. It keeps the origin's revisions, so fencing stays monotonic. It holds what the origin still holds: entries the old mirror
+kept but the origin has aged out are gone. Check the mirror's lag (`nats stream info KV_<bucket>`) before starting its readers.
+
+A bucket key TTL other than the configured one fails with `ErrBucketTTLMismatch` unless `WithMigrateBucketTTL()` is passed too, which changes both at
+once.
 
 Every instance is kept, including terminal and `failed` ones. Its `Version` (`Execution.Fence`) is its new entry revision, so it stays above
 any version handed out before, and fencing tokens kept by external systems remain valid. An instance lives the backstop TTL (`WithBucketTTL`)

@@ -79,3 +79,42 @@ func TestMigrateBucketStorage_InProgress(t *testing.T) {
 	err = idempnats.MigrateBucketStorage(t.Context(), js, idempnats.MigrationOptions{}, idempnats.WithBucket("idem"))
 	require.ErrorIs(t, err, idempnats.ErrBucketMigrationInProgress)
 }
+
+// TestMigrateBucketStorage_Mirror migrates a mirror of an idempotency bucket
+// through the public wrapper with its normal options, which ask for per-key
+// TTL — something a mirror cannot have — and checks it is recreated as the
+// same mirror on file storage.
+func TestMigrateBucketStorage_Mirror(t *testing.T) {
+	t.Parallel()
+
+	ns := testhelpers.StartNATSServer(t)
+	_, js := testhelpers.ConnectJetStream(t, ns)
+	ctx := t.Context()
+
+	origin, err := idempnats.New(js, idempnats.WithBucket("origin"), idempnats.WithMaxAge(time.Hour), idempnats.WithReplicas(1))
+	require.NoError(t, err)
+	ok, _, token, err := origin.AttemptLock(ctx, "done", []byte("pending"))
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NoError(t, origin.Complete(ctx, "done", []byte("result"), token))
+
+	_, err = js.CreateKeyValue(ctx, jetstream.KeyValueConfig{
+		Bucket: "replica", TTL: time.Hour, Storage: jetstream.MemoryStorage, Mirror: &jetstream.StreamSource{Name: "origin"},
+	})
+	require.NoError(t, err)
+
+	err = idempnats.MigrateBucketStorage(ctx, js, idempnats.MigrationOptions{},
+		idempnats.WithBucket("replica"), idempnats.WithMaxAge(time.Hour), idempnats.WithReplicas(1))
+	require.NoError(t, err)
+
+	stream, err := js.Stream(ctx, "KV_replica")
+	require.NoError(t, err)
+	cfg := stream.CachedInfo().Config
+	require.Equal(t, jetstream.FileStorage, cfg.Storage)
+	require.NotNil(t, cfg.Mirror)
+	require.Equal(t, "KV_origin", cfg.Mirror.Name)
+	require.Eventually(t, func() bool {
+		msg, err := stream.GetLastMsgForSubject(ctx, "$KV.origin.done")
+		return err == nil && string(msg.Data) == "result"
+	}, 5*time.Second, 50*time.Millisecond, "the new mirror must re-sync from the origin")
+}

@@ -40,9 +40,10 @@ var ErrBucketMigrationConflict = errors.New("KeyValue bucket changed during stor
 // such a context would not route like its KeyValue API does.
 var ErrMigrationUnsupportedContext = errors.New("storage migration requires a JetStream context without domain or API prefix")
 
-// ErrMigrationUnsupportedBucket reports a bucket whose stream uses a mirror,
-// sources, republishing, a subject transform or a placement. The migrated
-// bucket would lose them, so such buckets are not migrated.
+// ErrMigrationUnsupportedBucket reports a bucket whose stream uses sources,
+// republishing, a subject transform or a placement, or a reserved bucket
+// name. Recreating a sourced bucket replays or loses source data, and the
+// others cannot be recreated safely; mirrors are supported.
 var ErrMigrationUnsupportedBucket = errors.New("storage migration supports only standalone KeyValue buckets")
 
 // MigrationOptions controls a storage migration run.
@@ -73,6 +74,10 @@ const (
 	metaTargetStream   = metaPrefix + "target_stream"
 	metaTemplateBucket = metaPrefix + "template_bucket"
 	metaCopied         = metaPrefix + "copied"
+	metaKind           = metaPrefix + "kind"
+
+	kindStandalone = "standalone"
+	kindMirror     = "mirror"
 
 	roleMarker      = "marker"
 	roleTemplate    = "template"
@@ -121,6 +126,7 @@ type migrationState struct {
 	target        migrationTarget
 	targetStream  jetstream.StreamConfig
 	copied        int
+	kind          string
 
 	// lease is this run's hold on the bucket; not persisted.
 	lease *migrationLease
@@ -239,8 +245,13 @@ func (h *KVHelper) prepareMigration(ctx context.Context, cfg BucketConfig, targe
 		return nil, fmt.Errorf("%w: bucket %q is sealed without a migration marker; its original TTL is unknown",
 			ErrBucketMigrationConflict, cfg.Bucket)
 	}
-	if scfg.Mirror != nil || len(scfg.Sources) > 0 || scfg.RePublish != nil || scfg.SubjectTransform != nil || scfg.Placement != nil {
-		return nil, fmt.Errorf("%w: bucket %q", ErrMigrationUnsupportedBucket, cfg.Bucket)
+	if len(scfg.Sources) > 0 || scfg.RePublish != nil || scfg.SubjectTransform != nil || scfg.Placement != nil {
+		return nil, fmt.Errorf("%w: bucket %q uses sources, republishing, a subject transform or a placement",
+			ErrMigrationUnsupportedBucket, cfg.Bucket)
+	}
+	kind := kindStandalone
+	if scfg.Mirror != nil {
+		kind = kindMirror
 	}
 	if scfg.MaxAge != cfg.TTL && !cfg.MigrateTTL {
 		return nil, fmt.Errorf("%w: bucket %q has key TTL %s, configured %s",
@@ -258,7 +269,7 @@ func (h *KVHelper) prepareMigration(ctx context.Context, cfg BucketConfig, targe
 	if err = lease.renew(ctx); err != nil {
 		return nil, err
 	}
-	targetStream, err := h.templateStreamConfig(ctx, cfg, id, templateBucket)
+	targetStream, err := h.templateStreamConfig(ctx, cfg, &scfg, id, templateBucket)
 	if err != nil {
 		return nil, err
 	}
@@ -271,6 +282,7 @@ func (h *KVHelper) prepareMigration(ctx context.Context, cfg BucketConfig, targe
 		sourceCreated: src.Created.UnixNano(),
 		target:        target,
 		targetStream:  targetStream,
+		kind:          kind,
 		lease:         lease,
 	}
 	meta, err := st.metadata(cfg.Bucket, templateBucket)
@@ -307,12 +319,21 @@ func (h *KVHelper) prepareMigration(ctx context.Context, cfg BucketConfig, targe
 // target bucket's stream configuration by creating an owned template bucket,
 // then deletes the template. It runs before the source is touched, so an
 // invalid target fails without consequences.
-func (h *KVHelper) templateStreamConfig(ctx context.Context, cfg BucketConfig, id, templateBucket string) (jetstream.StreamConfig, error) {
-	kvCfg := h.keyValueConfig(cfg)
-	kvCfg.Bucket = templateBucket
-	kvCfg.Metadata = map[string]string{metaID: id, metaRole: roleTemplate, metaBucket: cfg.Bucket}
+func (h *KVHelper) templateStreamConfig(
+	ctx context.Context, cfg BucketConfig, source *jetstream.StreamConfig, id, templateBucket string,
+) (jetstream.StreamConfig, error) {
+	meta := map[string]string{metaID: id, metaRole: roleTemplate, metaBucket: cfg.Bucket}
 
-	if _, err := h.js.CreateKeyValue(ctx, kvCfg); err != nil {
+	var err error
+	if source.Mirror != nil {
+		_, err = h.js.CreateStream(ctx, mirrorTemplateConfig(cfg, source, templateBucket, meta))
+	} else {
+		kvCfg := h.keyValueConfig(cfg)
+		kvCfg.Bucket = templateBucket
+		kvCfg.Metadata = meta
+		_, err = h.js.CreateKeyValue(ctx, kvCfg)
+	}
+	if err != nil {
 		return jetstream.StreamConfig{}, fmt.Errorf("validate target bucket configuration: %w", err)
 	}
 	info, err := h.streamInfo(ctx, kvStreamName(templateBucket))
@@ -326,6 +347,28 @@ func (h *KVHelper) templateStreamConfig(ctx context.Context, cfg BucketConfig, i
 		return jetstream.StreamConfig{}, err
 	}
 	return info.Config, nil
+}
+
+// mirrorTemplateConfig derives a mirror's target stream from the mirror
+// itself, so everything that makes it that mirror — the Mirror source,
+// MirrorDirect, history — is kept, and only what the migration targets
+// changes. Delete markers are left off: the server forbids them on mirrors,
+// whose entries expire as the origin's do.
+func mirrorTemplateConfig(cfg BucketConfig, source *jetstream.StreamConfig, templateBucket string, meta map[string]string) jetstream.StreamConfig {
+	c := *source
+	c.Name = kvStreamName(templateBucket)
+	c.Storage = cfg.Storage
+	c.MaxAge = cfg.TTL
+	c.Replicas = max(cfg.Replicas, 1)
+	c.Compression = jetstream.NoCompression
+	if cfg.Compression {
+		c.Compression = jetstream.S2Compression
+	}
+	c.Sealed = false
+	c.FirstSeq = 0
+	c.SubjectDeleteMarkerTTL = 0
+	c.Metadata = meta
+	return c
 }
 
 // cleanupTemplates deletes template buckets left by fresh migration runs of
@@ -363,7 +406,13 @@ func (h *KVHelper) runMigration(ctx context.Context, st *migrationState) error {
 		var err error
 		switch st.phase {
 		case phasePrepared:
-			err = h.sealSource(ctx, st)
+			if st.kind == kindMirror {
+				// A mirror takes no direct writes and is re-synced from its
+				// origin: nothing to seal or copy.
+				err = h.advance(ctx, st, phaseCopied)
+			} else {
+				err = h.sealSource(ctx, st)
+			}
 		case phaseSealed:
 			err = h.copyEntries(ctx, st)
 		case phaseCopied:
@@ -371,7 +420,11 @@ func (h *KVHelper) runMigration(ctx context.Context, st *migrationState) error {
 		case phaseSourceDeleted:
 			err = h.createReplacement(ctx, st)
 		case phaseReplacementCreated:
-			err = h.restoreEntries(ctx, st)
+			if st.kind == kindMirror {
+				err = h.advance(ctx, st, phaseRestored)
+			} else {
+				err = h.restoreEntries(ctx, st)
+			}
 		case phaseRestored:
 			// The marker is the last record of the revision floor: keep it
 			// unless the replacement is verifiably in place.
@@ -551,7 +604,7 @@ func (h *KVHelper) deleteSource(ctx context.Context, st *migrationState) error {
 	case info == nil:
 	case info.Config.Metadata[metaID] == st.id:
 		// Already replaced by this migration.
-	case info.Created.UnixNano() != st.sourceCreated || !info.Config.Sealed:
+	case info.Created.UnixNano() != st.sourceCreated || (st.kind != kindMirror && !info.Config.Sealed):
 		return fmt.Errorf("%w: bucket %q is not the sealed source of this migration", ErrBucketMigrationConflict, st.target.Bucket)
 	default:
 		if err := h.deleteStream(ctx, kvStreamName(st.target.Bucket)); err != nil {
@@ -573,8 +626,12 @@ func (h *KVHelper) createReplacement(ctx context.Context, st *migrationState) er
 	if info == nil {
 		cfg := st.targetStream
 		cfg.Name = name
-		cfg.Subjects = []string{kvSubjectPrefix(st.target.Bucket) + ">"}
-		cfg.FirstSeq = st.sourceLastSeq + 1
+		if st.kind != kindMirror {
+			cfg.Subjects = []string{kvSubjectPrefix(st.target.Bucket) + ">"}
+			cfg.FirstSeq = st.sourceLastSeq + 1
+		}
+		// A mirror keeps no subjects of its own and the origin's sequence
+		// numbers, so its revisions stay those of the origin.
 		meta := make(map[string]string, len(cfg.Metadata)+2)
 		for k, v := range cfg.Metadata {
 			if !strings.HasPrefix(k, metaPrefix) {
@@ -605,6 +662,9 @@ func (h *KVHelper) checkReplacement(st *migrationState, info *jetstream.StreamIn
 	}
 	if info.Config.Storage != st.target.Storage || info.Config.MaxAge != st.target.TTL {
 		return fmt.Errorf("%w: bucket %q replacement does not match the migration target", ErrBucketMigrationConflict, st.target.Bucket)
+	}
+	if st.kind == kindMirror {
+		return nil // revisions are the origin's
 	}
 	// The revision floor: every revision the replacement holds or hands out
 	// must be above the source's last one.
@@ -830,6 +890,7 @@ func (st *migrationState) metadata(bucket, templateBucket string) (map[string]st
 		metaTargetStream:   string(stream),
 		metaTemplateBucket: templateBucket,
 		metaCopied:         strconv.Itoa(st.copied),
+		metaKind:           st.kind,
 	}, nil
 }
 
@@ -837,7 +898,13 @@ func parseMigrationState(meta map[string]string) (*migrationState, error) {
 	bad := func(key string, err error) error {
 		return fmt.Errorf("%w: migration marker has a bad %s: %v", ErrBucketMigrationConflict, key, err)
 	}
-	st := &migrationState{id: meta[metaID], phase: meta[metaPhase]}
+	st := &migrationState{id: meta[metaID], phase: meta[metaPhase], kind: meta[metaKind]}
+	if st.kind == "" {
+		st.kind = kindStandalone // markers written before mirrors were supported
+	}
+	if st.kind != kindStandalone && st.kind != kindMirror {
+		return nil, fmt.Errorf("%w: migration marker has an unknown kind %q", ErrBucketMigrationConflict, st.kind)
+	}
 	if st.id == "" || meta[metaRole] != roleMarker {
 		return nil, fmt.Errorf("%w: stream is not a migration marker", ErrBucketMigrationConflict)
 	}

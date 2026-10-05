@@ -16,7 +16,9 @@
 //     the bucket is sealed, copied into a marker stream and recreated on the
 //     target storage with its first revision above the old last one, so
 //     revision-based fencing tokens stay monotonic; the marker makes an
-//     interrupted migration detectable and resumable
+//     interrupted migration detectable and resumable, a lease in the
+//     kvmigrate_leases bucket keeps a second migrator out, and a mirror is
+//     recreated as the same mirror and re-synced from its origin
 //
 // The package is designed as an internal utility and should not be imported
 // by external packages directly.
