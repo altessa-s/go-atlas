@@ -32,8 +32,16 @@ falling back to `EVAL` when the server answers `NOSCRIPT` (after a restart or `S
 
 ## Filter support
 
-CEL filter expressions are translated to RediSearch query syntax via the `redisearch` translator package and evaluated server-side, leveraging
-RediSearch full-text indexes for efficient filtered paginated listing.
+CEL filter expressions are evaluated on the client with the same `data/filter` evaluator as the memory backend, so a filter selects the same tasks
+on every backend. RediSearch cannot evaluate CEL exactly — TAG fields fold case, TEXT fields are tokenized, zero values left out of a document are
+absent from the index, and `endsWith`, `matches` and `size()` have no query form — so only the part it evaluates identically is pushed down through
+the `redisearch` translator to narrow the scan: comparisons and non-empty `in` lists over `status`, `priority` and `failures` (history: `startedAt`,
+`endedAt`, `durationMs`), joined by `&&`, `||` and `!`. `HistoryPaginated` also pushes its cursor down as a `startedAt` range and orders ties by
+ID on the client, since RediSearch sorts by one field only.
+
+History lookups (`History`, `HistoryPaginated`, `DeleteTask`, the per-task trim) query the `taskId` TAG, which folds case, and then compare each
+entry's task ID exactly, so tasks whose IDs differ only by case never see or remove each other's history. Once a task's candidate count passes the
+cap, the trim walks its candidates' task IDs instead of only the overflow keys.
 
 ## Atomic run finalization
 

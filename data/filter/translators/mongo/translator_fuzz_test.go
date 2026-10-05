@@ -30,6 +30,7 @@ var knownOperators = []string{
 	"$and", "$or", "$not", "$nor",
 	"$ne", "$gt", "$gte", "$lt", "$lte",
 	"$in", "$regex", "$exists", "$size", "$expr", "$ifNull",
+	"$cond", "$eq", "$type", "$strLenCP", "$isArray",
 }
 
 var filterSeeds = []string{

@@ -247,6 +247,11 @@ func (t *Translator) buildComparisonFilter(field string, op filter.Operator, val
 }
 
 // translateSizeComparison handles size() comparisons like tags.size() == 3.
+//
+// size() measures an array or a string. Arrays keep the $size forms, so an
+// absent or null field behaves as it always has; a string is measured in code
+// points with $strLenCP, as CEL defines size(). See stringLength for the
+// guard that keeps $strLenCP off non-string values.
 func (t *Translator) translateSizeComparison(op filter.Operator, call *filter.CallNode, right filter.Node) (bson.M, error) {
 	if call.Target == nil {
 		return nil, coreerrs.Wrap(filter.ErrInvalidExpression, "size() must be called as a method, e.g. field.size()")
@@ -264,9 +269,15 @@ func (t *Translator) translateSizeComparison(op filter.Operator, call *filter.Ca
 
 	switch op {
 	case filter.OpEqual:
-		return bson.M{field: bson.M{"$size": value}}, nil
+		return bson.M{"$or": bson.A{
+			bson.M{field: bson.M{"$size": value}},
+			bson.M{"$expr": bson.M{"$eq": bson.A{stringLength(field), value}}},
+		}}, nil
 	case filter.OpNotEqual:
-		return bson.M{field: bson.M{"$not": bson.M{"$size": value}}}, nil
+		return bson.M{"$and": bson.A{
+			bson.M{field: bson.M{"$not": bson.M{"$size": value}}},
+			bson.M{"$expr": bson.M{"$ne": bson.A{stringLength(field), value}}},
+		}}, nil
 	case filter.OpGT, filter.OpGTE, filter.OpLT, filter.OpLTE:
 		return t.buildSizeExprFilter(field, op, value)
 	default:
@@ -274,7 +285,22 @@ func (t *Translator) translateSizeComparison(op filter.Operator, call *filter.Ca
 	}
 }
 
-// buildSizeExprFilter builds a $expr filter for size comparisons.
+// stringLength is an aggregation expression for the code-point length of
+// field when it holds a string, and null otherwise. $cond evaluates only the
+// branch it takes, so $strLenCP — which fails the whole query on a non-string —
+// never sees anything else.
+func stringLength(field string) bson.M {
+	return bson.M{"$cond": bson.A{
+		bson.M{"$eq": bson.A{bson.M{"$type": "$" + field}, "string"}},
+		bson.M{"$strLenCP": "$" + field},
+		nil,
+	}}
+}
+
+// buildSizeExprFilter builds a $expr filter for size ordering comparisons. An
+// absent or null field counts as an empty array (length 0), an array by its
+// element count and a string by its code points; any other value has no size
+// and never matches.
 func (t *Translator) buildSizeExprFilter(field string, op filter.Operator, value any) (bson.M, error) {
 	opMap := map[filter.Operator]string{
 		filter.OpGT:  "$gt",
@@ -288,14 +314,18 @@ func (t *Translator) buildSizeExprFilter(field string, op filter.Operator, value
 		return nil, coreerrs.Wrapf(filter.ErrUnsupportedOperation, "size comparison with operator %v", op)
 	}
 
-	return bson.M{
-		"$expr": bson.M{
-			mongoOp: bson.A{
-				bson.M{"$size": bson.M{"$ifNull": bson.A{"$" + field, bson.A{}}}},
-				value,
-			},
-		},
-	}, nil
+	// The length is spelled out twice rather than bound with $let: a $let
+	// document carries plain keys (vars, in) that read like field references.
+	orEmpty := bson.M{"$ifNull": bson.A{"$" + field, bson.A{}}}
+	length := bson.M{"$cond": bson.A{
+		bson.M{"$isArray": orEmpty},
+		bson.M{"$size": orEmpty},
+		stringLength(field),
+	}}
+	return bson.M{"$expr": bson.M{"$and": bson.A{
+		bson.M{"$ne": bson.A{length, nil}},
+		bson.M{mongoOp: bson.A{length, value}},
+	}}}, nil
 }
 
 // translateLogical handles && and || operators.

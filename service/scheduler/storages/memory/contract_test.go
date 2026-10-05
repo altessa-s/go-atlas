@@ -14,14 +14,4 @@ import (
 func TestStorageContract(t *testing.T) {
 	t.Parallel()
 	storagetest.Run(t, func(tb testing.TB) scheduler.Storage { return mustNew(tb, 10) })
-	for name, check := range map[string]func(*testing.T, scheduler.Storage){
-		"Identity":   storagetest.Identity,
-		"Pagination": storagetest.Pagination,
-		"History":    storagetest.History,
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			check(t, mustNew(t, 10))
-		})
-	}
 }

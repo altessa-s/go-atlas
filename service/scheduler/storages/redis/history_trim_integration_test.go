@@ -30,18 +30,13 @@ func historyIDs(ctx context.Context, s *redisstore.Storage, taskID string) ([]st
 	return ids, nil
 }
 
-// TestIntegration_RedisHistoryTrimEnforcesCap checks that the rewritten trim
-// still bounds a task's history, i.e. that the count-then-fetch-overflow logic
-// computes an overflow at all.
+// TestIntegration_RedisHistoryTrimEnforcesCap checks that the trim bounds a
+// task's history at all.
 //
-// Scope, stated plainly: this does NOT verify which end gets dropped. The
-// rewrite flipped the sort from descending-then-skip to ascending-then-take,
-// and reversing it back leaves this test green — trimming runs inside
-// AddHistory while RediSearch is still indexing, so each trim acts on a stale
-// view and which specific entries survive is not deterministic from here.
-// Pinning the direction needs a fixture that lets the index settle and then
-// triggers exactly one trim against a known-complete set; until that exists,
-// treat the drop-oldest behavior as unverified.
+// Scope, stated plainly: this does NOT verify which end gets dropped —
+// trimming runs inside AddHistory while RediSearch may still be indexing, so
+// each trim can act on a stale view. TestIntegration_RedisHistoryTrimIsCaseSensitive
+// checks the kept entries on a fixture small enough to index synchronously.
 func TestIntegration_RedisHistoryTrimEnforcesCap(t *testing.T) {
 	t.Parallel()
 
@@ -76,4 +71,31 @@ func TestIntegration_RedisHistoryTrimEnforcesCap(t *testing.T) {
 	require.LessOrEqualf(t, len(ids), maxPerTask,
 		"history must be bounded by the configured cap, got %d entries", len(ids))
 	require.NotEmpty(t, ids, "trimming must not empty the history outright")
+}
+
+// TestIntegration_RedisHistoryTrimIsCaseSensitive checks that trimming one
+// task's history leaves another task's alone when the two IDs differ only by
+// case. The TAG query on taskId folds case, so the trim used to count both
+// tasks' entries against the cap and delete the oldest of either.
+func TestIntegration_RedisHistoryTrimIsCaseSensitive(t *testing.T) {
+	t.Parallel()
+
+	s := newDueIT(t, redisstore.WithMaxHistoryPerTask(2))
+	ctx := t.Context()
+
+	for i, h := range []struct {
+		id, task string
+	}{{"T1", "T"}, {"T2", "T"}, {"t1", "t"}, {"t2", "t"}, {"t3", "t"}} {
+		require.NoError(t, s.AddHistory(ctx, &scheduler.TaskHistory{
+			ID: h.id, TaskID: h.task, StartedAt: int64(i + 1), EndedAt: int64(i + 1), Success: true,
+		}))
+	}
+
+	ids, err := historyIDs(ctx, s, "T")
+	require.NoError(t, err)
+	require.Equal(t, []string{"T2", "T1"}, ids, "trimming t must not touch T")
+
+	ids, err = historyIDs(ctx, s, "t")
+	require.NoError(t, err)
+	require.Equal(t, []string{"t3", "t2"}, ids, "t keeps its newest entries up to the cap")
 }
