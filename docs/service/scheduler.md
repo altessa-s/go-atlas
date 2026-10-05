@@ -686,8 +686,9 @@ storage:
   binary types (`VARBINARY`, `MEDIUMBLOB`, `LONGBLOB`) — no server version probe, and the schema never inherits database defaults. Tables created
   by the previous release (`utf8mb4` with a NO PAD binary collation) are exact too and keep working unchanged
 - Filter expressions are translated to SQL by the `data/filter` PostgreSQL and MariaDB translators; `size()` counts characters, as on every
-  backend. On MySQL/MariaDB string fields are filtered through a `utf8mb4_bin` text view, which is `PAD SPACE`: filter comparisons and
-  `endsWith()` ignore trailing spaces there (lookups and run-ownership fences stay exact)
+  backend. On MySQL/MariaDB string fields are filtered through a `utf8mb4_bin` text view, which is `PAD SPACE`: filter comparisons and `in`
+  ignore trailing spaces there, while `contains()`, `startsWith()`, `endsWith()` and `size()` stay exact (lookups and run-ownership fences
+  stay exact too)
 - `DeleteTask` removes the task and its history in one transaction
 - `EnsureSchema` is idempotent; the factory runs it only with `ensureSchema: true` — otherwise call it on a `sqldb.New` storage built from the
   same handle, dialect and table names (or migrate) before starting the scheduler

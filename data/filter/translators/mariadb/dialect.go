@@ -21,6 +21,10 @@ import (
 // microsecond precision, the most DATETIME(6) can hold.
 const dateTimeLayout = "2006-01-02 15:04:05.000000"
 
+// endsWithOperands is how often the EndsWith template renders its operand:
+// the length guard, the suffix size and the comparison.
+const endsWithOperands = 3
+
 // dialect implements [sqlbase.Dialect] for MariaDB and MySQL.
 type dialect struct{}
 
@@ -47,15 +51,21 @@ func (dialect) SizeExpr(col string) string { return "CHAR_LENGTH(" + col + ")" }
 // separate function because MariaDB has none; the two are equivalent,
 // including for an empty needle, where LOCATE returns 1.
 //
-// endsWith has no built-in either and compiles to a suffix comparison,
-// which needs the operand twice — once to size the suffix, once to
-// compare against it. Hence EndsWithBindsTwice.
+// endsWith has no built-in either and compiles to a suffix comparison
+// guarded by a length check. The guard is what keeps it exact: when the
+// column is shorter than the needle, RIGHT returns the whole column, and a
+// PAD SPACE collation — the default for most MariaDB and MySQL collations,
+// utf8mb4_bin included — pads the shorter side with spaces before
+// comparing, so "a" would end with "a ". With the guard true, RIGHT
+// returns exactly as many characters as the needle has, and padding cannot
+// change the outcome. The operand appears three times — to guard, to size
+// the suffix, to compare against it. Hence endsWithOperands.
 var stringPredicates = sqlbase.StringPredicates{
-	Contains:           "LOCATE(%[2]s, %[1]s) > 0",
-	StartsWith:         "LOCATE(%[2]s, %[1]s) = 1",
-	EndsWith:           "RIGHT(%[1]s, CHAR_LENGTH(%[2]s)) = %[3]s",
-	Matches:            "%[1]s REGEXP %[2]s",
-	EndsWithBindsTwice: true,
+	Contains:      "LOCATE(%[2]s, %[1]s) > 0",
+	StartsWith:    "LOCATE(%[2]s, %[1]s) = 1",
+	EndsWith:      "(CHAR_LENGTH(%[1]s) >= CHAR_LENGTH(%[2]s) AND RIGHT(%[1]s, CHAR_LENGTH(%[3]s)) = %[4]s)",
+	Matches:       "%[1]s REGEXP %[2]s",
+	EndsWithBinds: endsWithOperands,
 }
 
 // StringPredicate renders one of the four string predicates.

@@ -178,6 +178,15 @@ func Cases() []Case {
 			},
 		},
 		{
+			Name: "equal string with a trailing space",
+			Expr: `name == "Eve "`,
+			Want: []int64{},
+			Differs: map[Backend][]int64{
+				MariaDB: {6}, // the default collation is PAD SPACE
+				Meili:   {6}, // filter values are normalized, trailing whitespace included
+			},
+		},
+		{
 			Name: "equal int",
 			Expr: `age == 30`,
 			Want: []int64{1},
@@ -378,6 +387,30 @@ func Cases() []Case {
 			Name: "endsWith",
 			Expr: `name.endsWith("e")`,
 			Want: []int64{1, 3, 4, 5, 6, 7},
+			Skip: map[Backend]string{
+				Meili:      "no suffix predicate in the filter grammar",
+				RediSearch: "no suffix predicate in the query syntax",
+			},
+		},
+		{
+			// The needle is longer than the value. MariaDB's suffix
+			// comparison is length-guarded; without the guard RIGHT returns
+			// the whole value and a PAD SPACE collation pads it to "Eve ".
+			Name: "endsWith is exact about trailing spaces",
+			Expr: `name.endsWith("Eve ")`,
+			Want: []int64{},
+			Skip: map[Backend]string{
+				Meili:      "no suffix predicate in the filter grammar",
+				RediSearch: "no suffix predicate in the query syntax",
+			},
+		},
+		{
+			Name: "endsWith is case sensitive",
+			Expr: `name.endsWith("ALICE")`,
+			Want: []int64{},
+			Differs: map[Backend][]int64{
+				MariaDB: {1, 5}, // _ci collation, as for equality
+			},
 			Skip: map[Backend]string{
 				Meili:      "no suffix predicate in the filter grammar",
 				RediSearch: "no suffix predicate in the query syntax",

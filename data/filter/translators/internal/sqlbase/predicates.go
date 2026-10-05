@@ -16,26 +16,28 @@ import (
 // predicates, as templates over the quoted column and the operand.
 //
 // The verbs are indexed because the operand does not always follow the
-// column — MariaDB's LOCATE takes the needle first. %[1]s is the column,
-// %[2]s the operand, and %[3]s a second rendering of the same operand
-// for a dialect that has to repeat it.
+// column — MariaDB's LOCATE takes the needle first. %[1]s is the column
+// and %[2]s the operand; an EndsWith template that repeats the operand
+// takes each further rendering of it as %[3]s, %[4]s and so on.
 type StringPredicates struct {
 	Contains   string
 	StartsWith string
 	EndsWith   string
 	Matches    string
 
-	// EndsWithBindsTwice marks a dialect whose EndsWith template
-	// references the operand twice. Neither MariaDB nor PostgreSQL has a
-	// suffix predicate, so both compile it to a comparison that needs the
-	// needle once to size the suffix and once to compare against it;
-	// ClickHouse has endsWith() and needs it once.
+	// EndsWithBinds is the number of times the EndsWith template
+	// references the operand; zero means once. Neither MariaDB nor
+	// PostgreSQL has a suffix predicate, so both compile it to a
+	// comparison: PostgreSQL needs the needle twice — once to size the
+	// suffix, once to compare against it — and MariaDB a third time for
+	// the length guard that keeps PAD SPACE collations exact. ClickHouse
+	// has endsWith() and needs it once.
 	//
 	// It is declared rather than inferred from the template on purpose. A
 	// wrong bind count misaligns every argument after it, and under
 	// PostgreSQL's numbered placeholders that corrupts the query silently
 	// instead of failing.
-	EndsWithBindsTwice bool
+	EndsWithBinds int
 }
 
 // RenderStringPredicate renders one string predicate from a dialect's
@@ -60,14 +62,15 @@ func RenderStringPredicate(
 	case filter.OpMatches:
 		return fmt.Sprintf(tpl.Matches, col, arg), nil
 	case filter.OpEndsWith:
-		if !tpl.EndsWithBindsTwice {
-			return fmt.Sprintf(tpl.EndsWith, col, arg), nil
+		args := []any{col, arg}
+		for range tpl.EndsWithBinds - 1 {
+			next, err := value(needle)
+			if err != nil {
+				return "", err
+			}
+			args = append(args, next)
 		}
-		second, err := value(needle)
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf(tpl.EndsWith, col, arg, second), nil
+		return fmt.Sprintf(tpl.EndsWith, args...), nil
 	default:
 		return "", coreerrs.Wrapf(filter.ErrUnsupportedOperation, "string predicate %v", op)
 	}
