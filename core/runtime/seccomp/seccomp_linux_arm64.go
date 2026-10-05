@@ -15,3 +15,7 @@ import "golang.org/x/sys/unix"
 // filter to kill the process — syscall numbers differ by arch and
 // trusting the wrong numbering is worse than no filter at all.
 const expectedArch uint32 = unix.AUDIT_ARCH_AARCH64
+
+// rejectX32 is false on arm64: there is no x32-style ABI that shares
+// AUDIT_ARCH_AARCH64 with a different syscall numbering.
+const rejectX32 = false

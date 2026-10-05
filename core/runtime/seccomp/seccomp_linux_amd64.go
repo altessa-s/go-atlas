@@ -15,3 +15,10 @@ import "golang.org/x/sys/unix"
 // kill the process — syscall numbers differ by arch and trusting the
 // wrong numbering is worse than no filter at all.
 const expectedArch uint32 = unix.AUDIT_ARCH_X86_64
+
+// rejectX32 makes the filter kill the process for x32 ABI syscalls.
+// They report AUDIT_ARCH_X86_64, so the arch check does not catch
+// them, but they set [x32SyscallBit] in the syscall number (or, before
+// Linux 5.4, may use the x32-only numbers 512–547 without it) and
+// would otherwise miss every denylist entry and fall through to ALLOW.
+const rejectX32 = true

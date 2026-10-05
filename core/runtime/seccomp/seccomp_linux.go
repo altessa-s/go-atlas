@@ -99,27 +99,62 @@ const (
 	seccompDataArchOffset = 4
 
 	// bpfArchToKillOffset is the BPF jump distance from the arch-check
-	// instruction (pos 1) to the KILL action (pos N+5): (N+5) − 2 = N+3.
+	// instruction (pos 1) to the KILL action (pos N+5+X): (N+5+X) − 2 = N+3+X.
 	bpfArchToKillOffset = 3
+
+	// x32GuardLen is the number of x32 guard instructions (X in the
+	// [buildFilter] layout) emitted when [rejectX32] is set.
+	x32GuardLen = 3
+
+	// bpfX32BitToKillOffset is the BPF jump distance from the x32 bit
+	// check (pos 3) to the KILL action (pos N+8): (N+8) − 4 = N+4.
+	bpfX32BitToKillOffset = 4
+
+	// bpfX32LegacyToKillOffset is the BPF jump distance from the legacy
+	// x32 range check (pos 5) to the KILL action (pos N+8): (N+8) − 6 = N+2.
+	bpfX32LegacyToKillOffset = 2
+
+	// x32SyscallBit is __X32_SYSCALL_BIT from the x86 uapi. Syscalls
+	// issued through the x32 ABI report AUDIT_ARCH_X86_64 like native
+	// amd64 syscalls, but carry this bit in seccomp_data.nr, so the
+	// arch check alone does not tell them apart.
+	x32SyscallBit uint32 = 0x40000000
+
+	// x32LegacyFirst and x32LegacyLast bound the x32-specific syscall
+	// range (512–547) of the x86 syscall table. Before Linux 5.4 an
+	// x32-enabled kernel dispatched these numbers to their x32
+	// implementations even without [x32SyscallBit] (e.g. 521 is x32
+	// ptrace), bypassing the native numbers in the denylist. Native
+	// amd64 never assigns syscalls in this range.
+	x32LegacyFirst uint32 = 512
+	x32LegacyLast  uint32 = 547
 )
 
 // buildFilter constructs the classic BPF program that implements the
-// denylist. The program layout is documented in the package plan:
+// denylist. X is [x32GuardLen] when [rejectX32] is set (amd64) and 0
+// otherwise:
 //
 //	pos 0          LD [arch]           # load seccomp_data.arch
 //	pos 1          JEQ expectedArch    # if mismatch, goto KILL
 //	pos 2          LD [nr]             # load seccomp_data.nr
-//	pos 3..2+N     JEQ SYS_i           # N jumps; on match goto DENY
-//	pos 3+N        RET ALLOW           # default: allow
-//	pos 4+N        RET ERRNO(EPERM)    # DENY target
-//	pos 5+N        RET KILL_PROCESS    # KILL target (arch mismatch)
+//	pos 3          JGE x32SyscallBit   # amd64 only: x32 ABI, goto KILL
+//	pos 4          JGT x32LegacyLast   # amd64 only: above range, skip pos 5
+//	pos 5          JGE x32LegacyFirst  # amd64 only: legacy x32, goto KILL
+//	pos 3+X..2+X+N JEQ SYS_i           # N jumps; on match goto DENY
+//	pos 3+X+N      RET ALLOW           # default: allow
+//	pos 4+X+N      RET ERRNO(EPERM)    # DENY target
+//	pos 5+X+N      RET KILL_PROCESS    # KILL target (arch mismatch, x32)
 //
 // The function is pure — no syscalls, no globals — so tests can
 // exercise it directly on any platform to verify the instruction
 // layout and offset arithmetic.
 func buildFilter() []unix.SockFilter {
 	n := uint8(len(dangerousSyscalls))
-	prog := make([]unix.SockFilter, 0, int(n)+6)
+	var x uint8
+	if rejectX32 {
+		x = x32GuardLen
+	}
+	prog := make([]unix.SockFilter, 0, int(n)+6+int(x))
 
 	// pos 0: LD [arch]
 	prog = append(prog, unix.SockFilter{
@@ -128,11 +163,11 @@ func buildFilter() []unix.SockFilter {
 	})
 
 	// pos 1: JEQ expectedArch; fallthrough on match, jump to KILL
-	// on mismatch. KILL is at position N+5, so jf = (N+5) - 2 = N+3.
+	// on mismatch. KILL is at position N+5+X, so jf = N+3+X.
 	prog = append(prog, unix.SockFilter{
 		Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K,
 		Jt:   0,
-		Jf:   n + bpfArchToKillOffset,
+		Jf:   n + bpfArchToKillOffset + x,
 		K:    expectedArch,
 	})
 
@@ -142,9 +177,38 @@ func buildFilter() []unix.SockFilter {
 		K:    seccompDataNrOffset,
 	})
 
-	// pos 3..2+N: JEQ SYS_i; on match jump to DENY at position N+4.
-	// For the i-th JEQ (1-indexed) at position 2+i, jt = N + 1 - i so
-	// that (2+i) + 1 + jt = 2+i + 1 + (N+1-i) = N+4 = DENY.
+	// pos 3..5 (amd64 only): kill any x32 ABI syscall, as libseccomp
+	// and Docker's default profile do. KILL is at position N+8.
+	if rejectX32 {
+		prog = append(prog,
+			// pos 3: JGE x32SyscallBit; jt = (N+8) - 4 = N+4.
+			unix.SockFilter{
+				Code: unix.BPF_JMP | unix.BPF_JGE | unix.BPF_K,
+				Jt:   n + bpfX32BitToKillOffset,
+				Jf:   0,
+				K:    x32SyscallBit,
+			},
+			// pos 4: JGT x32LegacyLast; above the legacy range, skip
+			// the next check and continue with the denylist.
+			unix.SockFilter{
+				Code: unix.BPF_JMP | unix.BPF_JGT | unix.BPF_K,
+				Jt:   1,
+				Jf:   0,
+				K:    x32LegacyLast,
+			},
+			// pos 5: JGE x32LegacyFirst; jt = (N+8) - 6 = N+2.
+			unix.SockFilter{
+				Code: unix.BPF_JMP | unix.BPF_JGE | unix.BPF_K,
+				Jt:   n + bpfX32LegacyToKillOffset,
+				Jf:   0,
+				K:    x32LegacyFirst,
+			},
+		)
+	}
+
+	// pos 3+X..2+X+N: JEQ SYS_i; on match jump to DENY at position
+	// N+4+X. For the i-th JEQ (0-indexed) at position 3+X+i,
+	// jt = N - i so that (3+X+i) + 1 + (N-i) = N+4+X = DENY.
 	for i, nr := range dangerousSyscalls {
 		prog = append(prog, unix.SockFilter{
 			Code: unix.BPF_JMP | unix.BPF_JEQ | unix.BPF_K,
@@ -154,19 +218,19 @@ func buildFilter() []unix.SockFilter {
 		})
 	}
 
-	// pos 3+N: RET ALLOW
+	// pos 3+X+N: RET ALLOW
 	prog = append(prog, unix.SockFilter{
 		Code: unix.BPF_RET | unix.BPF_K,
 		K:    retAllow,
 	})
 
-	// pos 4+N: RET ERRNO(EPERM)
+	// pos 4+X+N: RET ERRNO(EPERM)
 	prog = append(prog, unix.SockFilter{
 		Code: unix.BPF_RET | unix.BPF_K,
 		K:    retDeny,
 	})
 
-	// pos 5+N: RET KILL_PROCESS
+	// pos 5+X+N: RET KILL_PROCESS
 	prog = append(prog, unix.SockFilter{
 		Code: unix.BPF_RET | unix.BPF_K,
 		K:    retKill,
