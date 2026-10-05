@@ -173,6 +173,14 @@
 #    # Default value: false
 #    topicCompaction: false
 #
+#    # <bool> Create the events table and its indexes while building a
+#    # SQL-backed outbox (BuildWithSQLDB, CreateOutboxWithSQLDB), through the
+#    # store's idempotent EnsureSchema. Leave false when migrations own the
+#    # schema; the table must then exist before the outbox runs. The MongoDB
+#    # store ignores this: it always ensures its indexes on construction.
+#    # Default value: false
+#    ensureSchema: false
+#
 #    # Scheduler task IDs (the five keys below). Override the defaults only when
 #    # running multiple Outbox instances against the SAME scheduler — the
 #    # scheduler upserts by ID, so two instances both registering

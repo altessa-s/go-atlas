@@ -19,13 +19,23 @@ Both need `FOR UPDATE SKIP LOCKED`, which sets the version floors. On MySQL any 
 
 ## Options
 
-| Option                    | Default         | Description                                                           |
-|---------------------------|-----------------|-----------------------------------------------------------------------|
-| `WithTableName`           | `events_outbox` | Events table; may be qualified as `schema.name` (≤ 63 chars per part) |
-| `WithContext`             | background      | Base context for the schema creation `New` performs                   |
-| `WithSchemaCreateTimeout` | `10s`           | Bound on that schema creation                                         |
+| Option          | Default         | Description                                                           |
+|-----------------|-----------------|-----------------------------------------------------------------------|
+| `WithTableName` | `events_outbox` | Events table; may be qualified as `schema.name` (≤ 63 chars per part) |
 
-`New` creates the table and its indexes if they do not exist, like the MongoDB store creating its indexes; the DDL is idempotent.
+`New` performs no I/O. `EnsureSchema(ctx)` creates the table and its indexes if they do not exist; it is idempotent, bounded by `ctx`, and safe
+to run from several instances at once (on PostgreSQL the DDL runs in one transaction under an advisory lock on the table name). Call it once at
+startup, or apply the same DDL through your migration tool:
+
+```go
+store, err := outboxsql.New(db, outboxsql.DialectPostgres)
+if err != nil {
+	return err
+}
+if err := store.EnsureSchema(ctx); err != nil {
+	return err
+}
+```
 
 ## Transactions
 
@@ -91,7 +101,8 @@ dispatch runs on the poll schedule.
 ## Factories
 
 `data/outbox/factory.OutboxBuilder.BuildWithSQLDB(db, dialect, handler)` and
-`transport/broker/factory.BrokerBuilder.CreateOutboxWithSQLDB(db, dialect, publisher)` build an outbox over this store.
+`transport/broker/factory.BrokerBuilder.CreateOutboxWithSQLDB(db, dialect, publisher)` build an outbox over this store. They run `EnsureSchema`
+only when the outbox config sets `ensureSchema: true` (default `false`); otherwise the table must already exist.
 
 ## Testing
 

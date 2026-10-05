@@ -114,6 +114,14 @@ type Outbox struct {
 	// pending/failed events past their ExpiresAt as expired.
 	ExpireSchedule string `yaml:"expireSchedule" default:"@every 11s"`
 
+	// EnsureSchema makes the SQL-backed outbox factories (BuildWithSQLDB,
+	// CreateOutboxWithSQLDB) create the events table and its indexes while
+	// building the outbox, by calling the store's idempotent EnsureSchema.
+	// Leave it false when the schema is applied through migrations. The
+	// MongoDB store ignores it: it always ensures its indexes on construction.
+	// Defaults to false.
+	EnsureSchema bool `yaml:"ensureSchema" default:"false"`
+
 	// Scheduler task IDs. Set these to distinct non-default values when
 	// running multiple Outbox instances against the same scheduler — the
 	// underlying registrar upserts by ID, so two instances sharing

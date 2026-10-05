@@ -81,9 +81,25 @@ type sqlBackend struct {
 type sqlTxKey struct{}
 
 // newSQLFixture gives the test throwaway events and orders tables, dropped on
-// cleanup. It skips when the server is unreachable; the DSN is not printed, as
-// an override may carry a password.
+// cleanup, and a store over them whose schema EnsureSchema created.
 func newSQLFixture(tb testing.TB, spec sqlSpec) *fixture {
+	tb.Helper()
+
+	b := newSQLFixtureWithoutSchema(tb, spec)
+	store, err := outboxsql.New(b.db, spec.dialect, outboxsql.WithTableName(b.events))
+	require.NoError(tb, err)
+	// Twice, to prove idempotence.
+	require.NoError(tb, store.EnsureSchema(tb.Context()))
+	require.NoError(tb, store.EnsureSchema(tb.Context()))
+
+	return &fixture{store: store, recorder: outboxit.NewRecorder(), sql: b}
+}
+
+// newSQLFixtureWithoutSchema connects to the backend and names throwaway
+// events and orders tables, dropped on cleanup; only the orders table is
+// created. It skips when the server is unreachable; the DSN is not printed, as
+// an override may carry a password.
+func newSQLFixtureWithoutSchema(tb testing.TB, spec sqlSpec) *sqlBackend {
 	tb.Helper()
 
 	db, err := sql.Open(spec.driver, spec.dsn)
@@ -107,10 +123,7 @@ func newSQLFixture(tb testing.TB, spec sqlSpec) *fixture {
 
 	_, err = db.ExecContext(tb.Context(), "CREATE TABLE "+b.orders+" (id VARCHAR(64) PRIMARY KEY, total INT NOT NULL)")
 	require.NoError(tb, err)
-	store, err := outboxsql.New(db, spec.dialect, outboxsql.WithTableName(b.events))
-	require.NoError(tb, err)
-
-	return &fixture{store: store, recorder: outboxit.NewRecorder(), sql: b}
+	return b
 }
 
 func (b *sqlBackend) bind(query string) string {

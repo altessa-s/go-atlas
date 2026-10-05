@@ -7,6 +7,7 @@ package outboxit_test
 import (
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +15,8 @@ import (
 
 	"github.com/altessa-s/go-atlas/data/outbox"
 	"github.com/altessa-s/go-atlas/tests/integration/outboxit"
+
+	outboxsql "github.com/altessa-s/go-atlas/data/outbox/store/sqldb"
 )
 
 // Payload nil-ness survives the store on every backend: nil stays nil, an empty
@@ -137,6 +140,48 @@ func TestStore_SQLWatchIsUnsupported(t *testing.T) {
 			t.Parallel()
 			f := newSQLFixture(t, spec)
 			require.ErrorIs(t, f.newOutbox(t).Watch(t.Context()), outbox.ErrWatchUnsupported)
+		})
+	}
+}
+
+// Instances starting together can each create the same absent events table,
+// whether they name it schema-qualified or not: EnsureSchema serializes the
+// initial DDL rather than racing on the catalog.
+func TestStore_ConcurrentEnsureSchema(t *testing.T) {
+	t.Parallel()
+
+	for _, spec := range sqlSpecs() {
+		t.Run(spec.name, func(t *testing.T) {
+			t.Parallel()
+			for range 5 {
+				f := newSQLFixtureWithoutSchema(t, spec)
+				query := "SELECT DATABASE()"
+				if spec.dialect == outboxsql.DialectPostgres {
+					query = "SELECT current_schema()"
+				}
+				var schema string
+				require.NoError(t, f.db.QueryRowContext(t.Context(), query).Scan(&schema))
+				var wg sync.WaitGroup
+				errs := make([]error, 8)
+				for i := range errs {
+					wg.Go(func() {
+						// Half the instances name the table schema-qualified.
+						table := f.events
+						if i%2 == 1 {
+							table = schema + "." + table
+						}
+						store, err := outboxsql.New(f.db, spec.dialect, outboxsql.WithTableName(table))
+						if err == nil {
+							err = store.EnsureSchema(t.Context())
+						}
+						errs[i] = err
+					})
+				}
+				wg.Wait()
+				for _, err := range errs {
+					require.NoError(t, err)
+				}
+			}
 		})
 	}
 }
