@@ -110,10 +110,21 @@ func loaderFor(keys ...string) probfilter.DataLoader {
 	return probfilter.NewDataLoader(func() iter.Seq[string] { return slices.Values(keys) })
 }
 
+// newPopulatedCache returns a cache over a fake rebuildable filter that has
+// been populated by a successful (empty) rebuild, so filter misses are
+// trusted. Keys can be seeded with Add.
+func newPopulatedCache(t *testing.T, auth negcache.Authoritative, opts ...negcache.Option) (*negcache.Cache, *fakeRebuildable) {
+	t.Helper()
+	filter := newFakeRebuildable()
+	c := negcache.New(filter, auth, opts...)
+	require.NoError(t, c.Rebuild(t.Context(), loaderFor()))
+	return c, filter
+}
+
 func TestIsRevoked_FilterMiss_SkipsAuthoritative(t *testing.T) {
 	t.Parallel()
 	auth := newFakeAuth("revoked-elsewhere")
-	c := negcache.New(newFakeFilter(), auth)
+	c, _ := newPopulatedCache(t, auth)
 
 	got, err := c.IsRevoked(t.Context(), "fresh")
 	require.NoError(t, err)
@@ -123,10 +134,9 @@ func TestIsRevoked_FilterMiss_SkipsAuthoritative(t *testing.T) {
 
 func TestIsRevoked_FilterHit_Confirmed(t *testing.T) {
 	t.Parallel()
-	filter := newFakeFilter()
-	require.NoError(t, filter.Add(t.Context(), "jti-1"))
 	auth := newFakeAuth("jti-1")
-	c := negcache.New(filter, auth)
+	c, filter := newPopulatedCache(t, auth)
+	require.NoError(t, filter.Add(t.Context(), "jti-1"))
 
 	got, err := c.IsRevoked(t.Context(), "jti-1")
 	require.NoError(t, err)
@@ -138,10 +148,9 @@ func TestIsRevoked_FilterFalsePositive_AuthoritativeAllows(t *testing.T) {
 	t.Parallel()
 	// Filter reports present, but the authoritative store knows it is not
 	// revoked: the exact store wins, so no valid token is wrongly rejected.
-	filter := newFakeFilter()
-	require.NoError(t, filter.Add(t.Context(), "false-positive"))
 	auth := newFakeAuth() // nothing actually revoked
-	c := negcache.New(filter, auth)
+	c, filter := newPopulatedCache(t, auth)
+	require.NoError(t, filter.Add(t.Context(), "false-positive"))
 
 	got, err := c.IsRevoked(t.Context(), "false-positive")
 	require.NoError(t, err)
@@ -151,10 +160,9 @@ func TestIsRevoked_FilterFalsePositive_AuthoritativeAllows(t *testing.T) {
 
 func TestIsRevoked_FilterError_FallsBackToAuthoritative(t *testing.T) {
 	t.Parallel()
-	filter := newFakeFilter()
-	filter.mightErr = errors.New("filter down")
 	auth := newFakeAuth("jti-2")
-	c := negcache.New(filter, auth)
+	c, filter := newPopulatedCache(t, auth)
+	filter.mightErr = errors.New("filter down")
 
 	got, err := c.IsRevoked(t.Context(), "jti-2")
 	require.NoError(t, err)
@@ -164,11 +172,10 @@ func TestIsRevoked_FilterError_FallsBackToAuthoritative(t *testing.T) {
 
 func TestIsRevoked_AuthoritativeError_Propagates(t *testing.T) {
 	t.Parallel()
-	filter := newFakeFilter()
-	require.NoError(t, filter.Add(t.Context(), "jti-3"))
 	auth := newFakeAuth()
 	auth.err = errAuth
-	c := negcache.New(filter, auth)
+	c, filter := newPopulatedCache(t, auth)
+	require.NoError(t, filter.Add(t.Context(), "jti-3"))
 
 	_, err := c.IsRevoked(t.Context(), "jti-3")
 	require.ErrorIs(t, err, errAuth)
@@ -176,9 +183,8 @@ func TestIsRevoked_AuthoritativeError_Propagates(t *testing.T) {
 
 func TestAdd_MakesLookupFallThrough(t *testing.T) {
 	t.Parallel()
-	filter := newFakeFilter()
 	auth := newFakeAuth("jti-4")
-	c := negcache.New(filter, auth)
+	c, _ := newPopulatedCache(t, auth)
 
 	// Before Add: filter miss, fast-pathed as not revoked despite the store.
 	got, err := c.IsRevoked(t.Context(), "jti-4")

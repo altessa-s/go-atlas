@@ -20,8 +20,9 @@ const (
 
 // Negative-filter state, used as the "filter" label value.
 const (
-	filterOK    = "ok"    // the filter answered.
-	filterError = "error" // the filter errored and the lookup fell back to the authoritative store.
+	filterOK          = "ok"          // the filter answered.
+	filterError       = "error"       // the filter errored and the lookup fell back to the authoritative store.
+	filterUnpopulated = "unpopulated" // the filter was never populated by a rebuild; it was not consulted.
 )
 
 // Metrics collects lookup telemetry for a [Cache].

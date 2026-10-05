@@ -12,6 +12,8 @@
 // A [github.com/altessa-s/go-atlas/data/probfilter.Filter] holds a superset of
 // the revoked keys. On a lookup:
 //
+//   - the filter has never been populated by a successful rebuild → the
+//     [Authoritative] store is consulted (an empty filter proves nothing);
 //   - the filter reports the key definitely absent → the key is not revoked,
 //     answered locally (the fast path);
 //   - the filter reports the key possibly present, or the filter errors → the
@@ -34,6 +36,14 @@
 //     authoritative store's full key stream — this absorbs revocations made on
 //     other nodes and reclaims a Bloom filter whose false-positive rate has
 //     grown.
+//
+// The cache counts as populated after its first successful Rebuild, or once
+// the filter reports a successful rebuild made elsewhere
+// ([github.com/altessa-s/go-atlas/data/probfilter.RebuildableFilter.LastRebuild]).
+// Rebuilds are atomic, so lookups use the previous contents while one runs, a
+// failed rebuild keeps them, and Add calls made during a rebuild are kept.
+// A filter that cannot be rebuilt is never populated, so every lookup goes to
+// the authoritative store.
 //
 // Between rebuilds, a key revoked on another node is not yet in this node's
 // filter, so it is fast-pathed as not-revoked until the next rebuild. This is
