@@ -10,3 +10,6 @@ history, and pagination queries. Choose the backend that matches your deployment
 | [memory](./memory)     | In-memory storage for testing and single-instance deployments                            |
 | [mongodb](./mongodb)   | MongoDB storage with filter pushdown and paginated queries                               |
 | [redis](./redis)       | Redis storage with sorted sets for scheduling and paginated queries                      |
+| [sqldb](./sqldb)       | PostgreSQL / MySQL / MariaDB storage through `database/sql`, filters evaluated in SQL    |
+
+Every backend must satisfy the contract suite in [storagetest](../storagetest).

@@ -77,3 +77,40 @@ func TestSchedulerStorageRedisConfig_HistoryTTLLoads(t *testing.T) {
 		})
 	}
 }
+
+func TestSchedulerStorageSQLConfig(t *testing.T) {
+	t.Parallel()
+
+	t.Run("DefaultsLoad", func(t *testing.T) {
+		t.Parallel()
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		require.NoError(t, os.WriteFile(path, []byte("scheduler:\n  storage:\n    type: sql\n    sql:\n      dialect: mysql\n"), 0o600))
+
+		type wrapper struct {
+			Scheduler config.Scheduler `yaml:"scheduler"`
+		}
+		cfg := &wrapper{}
+		_, err := loader.New(nil, loader.WithPath(path), loader.WithSkipEnv()).Load(cfg)
+		require.NoError(t, err)
+		require.NotNil(t, cfg.Scheduler.Storage.SQL)
+		require.Equal(t, config.SchedulerSQLDialectMySQL, cfg.Scheduler.Storage.SQL.Dialect)
+		require.Equal(t, "scheduler_tasks", cfg.Scheduler.Storage.SQL.TasksTable)
+		require.Equal(t, "scheduler_history", cfg.Scheduler.Storage.SQL.HistoryTable)
+		require.NoError(t, cfg.Scheduler.Storage.Validate())
+	})
+
+	t.Run("Validation", func(t *testing.T) {
+		t.Parallel()
+		valid := config.DefaultSchedulerStorageSQLConfig()
+		storage := config.SchedulerStorageConfig{Type: config.SchedulerStorageTypeSQL, SQL: &valid}
+		require.NoError(t, storage.Validate())
+
+		bad := valid
+		bad.Dialect = "oracle"
+		require.Error(t, (&config.SchedulerStorageConfig{Type: config.SchedulerStorageTypeSQL, SQL: &bad}).Validate())
+
+		noTable := valid
+		noTable.TasksTable = ""
+		require.Error(t, (&config.SchedulerStorageConfig{Type: config.SchedulerStorageTypeSQL, SQL: &noTable}).Validate())
+	})
+}

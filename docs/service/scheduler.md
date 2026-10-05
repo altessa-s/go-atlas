@@ -20,7 +20,7 @@ concurrency control, and full observability.
 | Priority dispatch       | Four priority levels with reserved high-priority concurrency slots            |
 | Crash recovery          | Automatic detection and recovery of tasks stuck in `Running` state            |
 | Concurrency strategies  | Static, environment-preset, memory-aware, adaptive, or custom function        |
-| Pluggable storage       | In-memory, MongoDB, or Redis backends with a unified `Storage` interface      |
+| Pluggable storage       | In-memory, MongoDB, Redis or SQL backends with a unified `Storage` interface  |
 | Distributed scheduling  | Leader election for exactly-one execution across replicas                     |
 | Observability           | Prometheus metrics, structured logging, execution history with pagination     |
 
@@ -116,6 +116,7 @@ The builder selects the storage backend, maps the concurrency strategy to schedu
 | `UseLeaderElector`  | Leader elector for distributed scheduling                   |
 | `UseMongoDb`        | MongoDB database. Required when `storage.type` is `mongodb` |
 | `UseRedisClient`    | Redis client. Required when `storage.type` is `redis`       |
+| `UseSQLDB`          | `*sql.DB` handle. Required when `storage.type` is `sql`     |
 | `UseCollector`      | Metrics collector for Prometheus instrumentation            |
 | `UseReadinessProbe` | Defers task dispatch until all subsystems signal readiness  |
 
@@ -146,7 +147,7 @@ scheduler:
       highLoadThreshold: 0.8
 
   storage:
-    type: memory                      # memory | mongodb | redis
+    type: memory                      # memory | mongodb | redis | sql
     memory:
       maxHistoryPerTask: 1000
     mongodb:
@@ -156,6 +157,10 @@ scheduler:
       keyPrefix: scheduler
       historyTtl: "0s"
       maxHistoryPerTask: 1000
+    sql:
+      dialect: postgres               # postgres | mysql (MySQL 8.0.17+, MariaDB 10.6+)
+      tasksTable: scheduler_tasks
+      historyTable: scheduler_history
 ```
 
 ### Scheduler
@@ -447,13 +452,13 @@ The scheduler persists task state and execution history to a pluggable `Storage`
 
 ### Choosing a backend
 
-| Capability         | Memory                 | MongoDB                          | Redis                          |
-|--------------------|------------------------|----------------------------------|--------------------------------|
-| Persistence        | No (process lifetime)  | Yes                              | Yes                            |
-| Multi-node support | No                     | Yes                              | Yes                            |
-| Filter push-down   | Client-side            | Server-side (BSON)               | Server-side (RediSearch)       |
-| Index management   | N/A                    | `EnsureIndexes`                  | `EnsureIndexes`                |
-| Best for           | Dev, test, single-node | Production with existing MongoDB | Production with existing Redis |
+| Capability         | Memory                 | MongoDB                          | Redis                          | SQL                                          |
+|--------------------|------------------------|----------------------------------|--------------------------------|----------------------------------------------|
+| Persistence        | No (process lifetime)  | Yes                              | Yes                            | Yes                                          |
+| Multi-node support | No                     | Yes                              | Yes                            | Yes                                          |
+| Filter push-down   | Client-side            | Server-side (BSON)               | Server-side (RediSearch)       | Server-side (SQL `WHERE`)                    |
+| Index management   | N/A                    | `EnsureIndexes`                  | `EnsureIndexes`                | `EnsureSchema`                               |
+| Best for           | Dev, test, single-node | Production with existing MongoDB | Production with existing Redis | Production with PostgreSQL, MySQL or MariaDB |
 
 ### Memory
 
@@ -623,6 +628,48 @@ Created by `EnsureIndexes` (idempotent).
 - `FT.SEARCH` results capped at 10,000 entries
 - `DeleteTask` removes the task key and all history keys in a single pipeline
 - History trimming on `AddHistory` is best-effort — concurrent writers may temporarily exceed the cap
+
+### SQL
+
+```go
+import "github.com/altessa-s/go-atlas/service/scheduler/storages/sqldb"
+
+db, _ := sql.Open("pgx", dsn) // any database/sql driver; go-atlas ships none
+store, err := sqldb.New(db, sqldb.DialectPostgres,
+	sqldb.WithTasksTable("scheduler_tasks"),
+	sqldb.WithHistoryTable("scheduler_history"),
+)
+if err != nil {
+	return err
+}
+if err := store.EnsureSchema(ctx); err != nil { // or apply the DDL via migrations
+	return err
+}
+```
+
+Persistent storage on PostgreSQL 12+ (`DialectPostgres`) or MySQL 8.0.17+ / MariaDB 10.6+ (`DialectMySQL`) through `database/sql`. The application
+owns the `*sql.DB` and chooses the driver.
+
+```yaml
+storage:
+  type: sql
+  sql:
+    dialect: postgres                # Default: postgres
+    tasksTable: scheduler_tasks      # Default: scheduler_tasks
+    historyTable: scheduler_history  # Default: scheduler_history
+```
+
+**Characteristics:**
+- `UpsertTask`, `ClaimRun`, `FinishRun` and `ReplaceTaskIf` are each a single conditional statement that bumps the revision; the row lock arbitrates
+  concurrent schedulers
+- String columns compare exactly (no trailing-space padding, no case folding): PostgreSQL IDs use `COLLATE "C"`, MySQL/MariaDB columns a NO PAD
+  binary `utf8mb4` collation chosen per engine — the schema never inherits database defaults
+- Filter expressions are translated to SQL by the `data/filter` PostgreSQL and MariaDB translators; `size()` counts characters, unlike the memory
+  backend's byte count
+- `DeleteTask` removes the task and its history in one transaction
+- `EnsureSchema` is idempotent; the factory never runs DDL
+
+See the package [README](../../service/scheduler/storages/sqldb/README.md) for the schema and dialect details.
 
 ---
 

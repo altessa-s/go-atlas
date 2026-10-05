@@ -85,7 +85,7 @@
 #  storage:
 #    # <string> Type of storage backend for scheduler data.
 #    # Determines which storage system to use for task persistence.
-#    # Supported values: mongodb, redis, memory
+#    # Supported values: mongodb, redis, memory, sql
 #    # Default value: memory
 #    type: memory
 #
@@ -130,3 +130,22 @@
 #      # Limits history storage per individual task.
 #      # Default value: 1000
 #      maxHistoryPerTask: 1000
+#
+#    # <object> SQL database configuration for scheduler storage.
+#    # The *sql.DB is injected into the factory (UseSQLDB); the application
+#    # chooses and registers the driver. Call EnsureSchema on the storage (or
+#    # apply its DDL through migrations) before starting the scheduler.
+#    # Required when type is set to 'sql'.
+#    sql:
+#      # <string> SQL dialect.
+#      # Supported values: postgres (PostgreSQL 12+), mysql (MySQL 8.0.17+ and MariaDB 10.6+)
+#      # Default value: postgres
+#      dialect: postgres
+#
+#      # <string> Table name for task states, optionally schema-qualified.
+#      # Default value: scheduler_tasks
+#      tasksTable: scheduler_tasks
+#
+#      # <string> Table name for task execution history, optionally schema-qualified.
+#      # Default value: scheduler_history
+#      historyTable: scheduler_history

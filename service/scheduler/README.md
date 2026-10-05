@@ -70,6 +70,8 @@ believe they are leader during an election split-brain, exactly one claim wins a
 | [storages/memory](./storages/memory)   | In-memory backend for dev/test with deep-copy semantics         |
 | [storages/mongodb](./storages/mongodb) | MongoDB-backed persistent storage with indexed queries          |
 | [storages/redis](./storages/redis)     | Redis (RedisJSON + RediSearch) persistent storage               |
+| [storages/sqldb](./storages/sqldb)     | PostgreSQL / MySQL / MariaDB storage through `database/sql`     |
+| [storagetest](./storagetest)           | Storage contract suite for backends, including custom ones      |
 
 ## Atomic finalization
 
