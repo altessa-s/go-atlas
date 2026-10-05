@@ -176,7 +176,8 @@ the hot path allocation-free.
 
 `ClientCredentials`, `Refresh`, and `AuthCode` surface the underlying x/oauth2 error unchanged (typically an `*oauth2.RetrieveError`,
 carrying the IdP status and body) — except `ClientCredentials` with `WithClientAuth`, whose hand-rolled request wraps `ErrTokenRequest` for a
-transport failure, a non-2xx response, or an unparsable body. `Exchanger` returns `ErrSubjectTokenRequired` for a missing subject token and
+transport failure or a non-2xx response; an unparsable body or one without `access_token` wraps `ErrTokenExchange` (the response parser is
+shared with the exchanger). `Exchanger` returns `ErrSubjectTokenRequired` for a missing subject token and
 wraps `ErrTokenExchange` for a transport failure, a non-2xx response, or an unparsable body — match both with `errors.Is`. `Revoker.Revoke`
 wraps `ErrRevocation`, `DeviceFlow` wraps `ErrDeviceAuth` (the `*oauth2.RetrieveError` stays reachable via `errors.As`), and a client
 authenticator that cannot build or sign its assertion wraps `ErrClientAssertion`. Discovery-based constructors return `ErrNoTokenEndpoint`
