@@ -7,6 +7,7 @@ package natskvlease
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -17,6 +18,14 @@ const (
 	// DefaultBucketTTL is the default TTL for bucket keys.
 	DefaultBucketTTL = 10 * time.Second
 )
+
+// ErrBucketTTLMismatch reports that a KeyValue bucket already exists with a
+// key TTL other than the one requested. The bucket is left untouched: its TTL
+// is what expires every key in it, including keys written by other processes
+// configured with that TTL, so changing it from here would silently shorten or
+// stretch their lifetimes. Align the configuration, migrate the bucket
+// explicitly (see [BucketConfig.MigrateTTL]), or use another bucket.
+var ErrBucketTTLMismatch = errors.New("KeyValue bucket key TTL differs from the configured TTL")
 
 // BucketConfig holds configuration for creating a KeyValue bucket.
 type BucketConfig struct {
@@ -44,6 +53,11 @@ type BucketConfig struct {
 	// Put. Zero leaves per-key TTL disabled, which is backward-compatible
 	// with existing buckets and NATS server versions older than 2.11.
 	LimitMarkerTTL time.Duration
+
+	// MigrateTTL updates a pre-existing bucket whose key TTL differs from TTL
+	// to TTL. When false, such a bucket is rejected with
+	// [ErrBucketTTLMismatch] and left as it is.
+	MigrateTTL bool
 }
 
 // KVHelper provides common KeyValue operations for NATS JetStream.
@@ -90,9 +104,20 @@ func (h *KVHelper) GetOrCreateBucket(ctx context.Context, cfg BucketConfig) (jet
 		return nil, err
 	}
 
+	// Create only: an update here would rewrite a bucket another process
+	// created between the lookup above and this call. If one did, adopt it
+	// through the same TTL check as any pre-existing bucket.
 	kv, err = Retry(ctx, func() (jetstream.KeyValue, error) {
-		return h.js.CreateOrUpdateKeyValue(ctx, h.keyValueConfig(cfg))
+		return h.js.CreateKeyValue(ctx, h.keyValueConfig(cfg))
 	})
+	if errors.Is(err, jetstream.ErrBucketExists) {
+		kv, err = Retry(ctx, func() (jetstream.KeyValue, error) {
+			return h.js.KeyValue(ctx, cfg.Bucket)
+		})
+		if err == nil {
+			return h.reconcileTTL(ctx, kv, cfg)
+		}
+	}
 	if err != nil {
 		h.logger.ErrorContext(ctx, "failed to create KeyValue bucket",
 			slog.String("bucket", cfg.Bucket),
@@ -122,15 +147,16 @@ func (h *KVHelper) keyValueConfig(cfg BucketConfig) jetstream.KeyValueConfig {
 	}
 }
 
-// reconcileTTL brings a pre-existing bucket's key TTL in line with cfg.
+// reconcileTTL checks that a pre-existing bucket's key TTL matches cfg.
 //
-// Every caller of this helper uses the bucket for leases, where the TTL is not
-// a preference but the expiry mechanism: it is what releases the key when the
-// holder dies without resigning. Adopting an existing bucket's TTL unchecked
-// meant a bucket created earlier without one (an older release, an operator,
-// a differently-configured component) silently produced leases that never
-// expire — a lock without a TTL, which hangs the election until someone
-// intervenes by hand.
+// The key TTL is not a preference but the expiry mechanism of every key in the
+// bucket — for a lease, what releases the key when its holder dies. A bucket
+// shared by processes configured with different TTLs therefore cannot be right
+// for all of them, and rewriting it to whichever process started last silently
+// changes the lifetime of everyone else's keys. A mismatch is rejected with
+// [ErrBucketTTLMismatch] unless cfg.MigrateTTL asks for the bucket to be
+// updated — e.g. to adopt a bucket created without a TTL, whose keys would
+// otherwise never expire.
 func (h *KVHelper) reconcileTTL(ctx context.Context, kv jetstream.KeyValue, cfg BucketConfig) (jetstream.KeyValue, error) {
 	status, err := Retry(ctx, func() (jetstream.KeyValueStatus, error) {
 		return kv.Status(ctx)
@@ -145,7 +171,12 @@ func (h *KVHelper) reconcileTTL(ctx context.Context, kv jetstream.KeyValue, cfg 
 		return kv, nil
 	}
 
-	h.logger.WarnContext(ctx, "KeyValue bucket TTL differs from the configured lease TTL, updating",
+	if !cfg.MigrateTTL {
+		return nil, fmt.Errorf("%w: bucket %q has key TTL %s, configured %s",
+			ErrBucketTTLMismatch, cfg.Bucket, status.TTL(), cfg.TTL)
+	}
+
+	h.logger.WarnContext(ctx, "KeyValue bucket TTL differs from the configured TTL, migrating",
 		slog.String("bucket", cfg.Bucket),
 		slog.Duration("existing_ttl", status.TTL()),
 		slog.Duration("configured_ttl", cfg.TTL))

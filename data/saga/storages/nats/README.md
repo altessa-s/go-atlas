@@ -14,6 +14,7 @@ survives process restarts for crash recovery.
 |-------------------|---------|----------------------------------------------------------------------------------------------|
 | `WithBucket`      | `saga`  | KeyValue bucket name.                                                                         |
 | `WithBucketTTL`   | 30 days | Backstop time-to-live for instances. Active sagas reset it on every checkpoint; completed ones are deleted explicitly. Tune to your longest saga lifetime plus retention. |
+| `WithMigrateBucketTTL` | off | Update an existing bucket whose key TTL differs from `WithBucketTTL`. Without it `New` returns `ErrBucketTTLMismatch` and leaves the bucket untouched. |
 
 ## Behavior
 

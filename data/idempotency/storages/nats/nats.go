@@ -22,6 +22,11 @@ import (
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
+// ErrBucketTTLMismatch is returned by New when the bucket already exists with a
+// key TTL other than the configured one and [WithMigrateBucketTTL] is not set.
+// The bucket is left untouched.
+var ErrBucketTTLMismatch = natskvlease.ErrBucketTTLMismatch
+
 // Storage is a NATS JetStream KeyValue-backed idempotency key store.
 // TTL is handled at the bucket level via MaxAge configuration.
 type Storage struct {
@@ -56,6 +61,7 @@ func New(js jetstream.JetStream, opts ...Option) (*Storage, error) {
 		// bucket creation here, which is the right time to surface the
 		// requirement.
 		LimitMarkerTTL: options.maxAge,
+		MigrateTTL:     options.migrateBucketTTL,
 	}, nil)
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "create NATS KeyValue bucket")

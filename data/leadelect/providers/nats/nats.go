@@ -25,6 +25,11 @@ import (
 	lerrs "github.com/altessa-s/go-atlas/data/leadelect/errs"
 )
 
+// ErrBucketTTLMismatch is returned by New when the bucket already exists with a
+// key TTL other than the configured one and [WithMigrateBucketTTL] is not set.
+// The bucket is left untouched.
+var ErrBucketTTLMismatch = natskvlease.ErrBucketTTLMismatch
+
 const (
 	// minTTL is the shortest election TTL Start accepts. Below a second the
 	// renewal interval collapses to a few hundred milliseconds, which is
@@ -158,6 +163,7 @@ func New(ctx context.Context, client *nats.Conn, opts ...Option) (*Provider, err
 		TTL:         DefaultBucketKeysTTL,
 		Storage:     p.opts.storage,
 		Compression: true,
+		MigrateTTL:  p.opts.migrateBucketTTL,
 	})
 	if err != nil {
 		return nil, err

@@ -24,6 +24,11 @@ import (
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
+// ErrBucketTTLMismatch is returned by New when the bucket already exists with a
+// key TTL other than the configured one and [WithMigrateBucketTTL] is not set.
+// The bucket is left untouched.
+var ErrBucketTTLMismatch = natskvlease.ErrBucketTTLMismatch
+
 // lockTracker efficiently tracks active locks for cleanup
 type lockTracker struct {
 	mu    sync.RWMutex
@@ -126,6 +131,7 @@ func New(ctx context.Context, client *nats.Conn, opts ...Option) (*Locker, error
 		TTL:         l.opts.ttl,
 		Storage:     jetstream.MemoryStorage,
 		Compression: true,
+		MigrateTTL:  l.opts.migrateBucketTTL,
 	})
 	if err != nil {
 		return nil, err

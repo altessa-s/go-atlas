@@ -49,4 +49,10 @@ type options struct {
 	renewRatio float64               `optgen:"default=DefaultRenewRatio"`
 	storage    jetstream.StorageType `optgen:"default=DefaultStorage"`
 	collector  metrics.Collector     `optgen:"notnil"`
+
+	// migrateBucketTTL updates a pre-existing bucket whose key TTL differs
+	// from the configured one instead of rejecting it with
+	// [ErrBucketTTLMismatch]. Off by default: the bucket's TTL governs every
+	// key in it, including keys of other processes sharing the bucket.
+	migrateBucketTTL bool
 }

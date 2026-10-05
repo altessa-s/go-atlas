@@ -17,7 +17,8 @@ import (
 )
 
 // TestBucket_TTLReconciledOnAdoption asserts that adopting a bucket which
-// predates the provider does not leave leases that never expire.
+// predates the provider does not leave leases that never expire: the provider
+// refuses it, and migrates it only when asked to.
 //
 // The bucket's key TTL is the mechanism that releases the election key when a
 // holder dies without resigning. A bucket created earlier without one — by an
@@ -49,6 +50,9 @@ func TestBucket_TTLReconciledOnAdoption(t *testing.T) {
 	require.Zero(t, status.TTL(), "precondition: the adopted bucket starts without a key TTL")
 
 	_, err = lenats.New(ctx, nc, lenats.WithBucket(bucket))
+	require.ErrorIs(t, err, lenats.ErrBucketTTLMismatch)
+
+	_, err = lenats.New(ctx, nc, lenats.WithBucket(bucket), lenats.WithMigrateBucketTTL())
 	require.NoError(t, err)
 
 	status, err = kv.Status(ctx)

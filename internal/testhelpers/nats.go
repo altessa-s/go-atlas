@@ -82,7 +82,7 @@ func ConnectJetStream(tb testing.TB, ns *server.Server) (*nats.Conn, jetstream.J
 }
 
 // JetStreamKVCapture is a [jetstream.JetStream] test double that records the
-// [jetstream.KeyValueConfig] passed to CreateOrUpdateKeyValue. KeyValue always
+// [jetstream.KeyValueConfig] passed to CreateKeyValue or CreateOrUpdateKeyValue. KeyValue always
 // reports [jetstream.ErrBucketNotFound] so callers fall through to the bucket
 // creation path. All other JetStream methods panic via the embedded nil
 // interface. Useful for asserting bucket configuration (replicas, TTL, storage)
@@ -90,13 +90,21 @@ func ConnectJetStream(tb testing.TB, ns *server.Server) (*nats.Conn, jetstream.J
 type JetStreamKVCapture struct {
 	jetstream.JetStream
 
-	// KVConfig is the config captured by the last CreateOrUpdateKeyValue call.
+	// KVConfig is the config captured by the last CreateKeyValue or
+	// CreateOrUpdateKeyValue call.
 	KVConfig jetstream.KeyValueConfig
 }
 
 // KeyValue always returns [jetstream.ErrBucketNotFound] to force bucket creation.
 func (c *JetStreamKVCapture) KeyValue(context.Context, string) (jetstream.KeyValue, error) {
 	return nil, jetstream.ErrBucketNotFound
+}
+
+// CreateKeyValue records cfg and returns an inert KeyValue whose methods panic
+// when called.
+func (c *JetStreamKVCapture) CreateKeyValue(_ context.Context, cfg jetstream.KeyValueConfig) (jetstream.KeyValue, error) {
+	c.KVConfig = cfg
+	return inertKeyValue{}, nil
 }
 
 // CreateOrUpdateKeyValue records cfg and returns an inert KeyValue whose
