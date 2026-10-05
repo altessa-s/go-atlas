@@ -9,7 +9,10 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	"github.com/altessa-s/go-atlas/data/probfilter"
 	"github.com/altessa-s/go-atlas/observability/metrics"
+
+	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
 
 // UseLogger sets the logger for the builder and the filter it constructs.
@@ -29,6 +32,22 @@ func (b *Builder) UseDefaultLogger() *Builder {
 // factory never constructs the client — the caller injects it.
 func (b *Builder) UseRedisClient(v redis.UniversalClient) *Builder {
 	b.redisClient = v
+	return b
+}
+
+// UseDataLoader sets the source the negative filter is rebuilt from per its
+// rebuildOnStart and rebuildCron settings. It overrides the default: the
+// authoritative store itself, when it implements [probfilter.DataLoader].
+func (b *Builder) UseDataLoader(v probfilter.DataLoader) *Builder {
+	b.loader = v
+	return b
+}
+
+// UseScheduler sets the scheduler that runs the periodic rebuilds of a
+// Redis-backed negative filter (rebuildCron); an in-memory filter uses a
+// process-local cron instead. See the probfilter factory's UseScheduler.
+func (b *Builder) UseScheduler(v corescheduler.TaskRegistrar) *Builder {
+	b.scheduler = v
 	return b
 }
 

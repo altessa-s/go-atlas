@@ -100,9 +100,11 @@ const stageRequestWindow = time.Minute
 // rebuild that took over. Its ticket is recorded as the committed ticket
 // before any promotion step, so a partially failed attempt still fences
 // older tickets; same-ticket retries may resume.
+// The ready marker (see [Core.RebuildCommitted]) is set last, so only an
+// execution that completed the rename sets it.
 // KEYS[1] staging key; KEYS[2] live key; KEYS[3] marker key; KEYS[4]
-// generation key; KEYS[5] lease key; KEYS[6] committed-ticket key; ARGV[1]
-// marker TTL ms; ARGV[2] ticket ("0": no lease).
+// generation key; KEYS[5] lease key; KEYS[6] committed-ticket key; KEYS[7]
+// ready marker; ARGV[1] marker TTL ms; ARGV[2] ticket ("0": no lease).
 // Returns 1 when promoted (now or by an earlier run), 0 when nothing exists to
 // promote, -1 when superseded.
 var commitScript = redis.NewScript(commitScriptSource)
@@ -125,6 +127,7 @@ redis.call('INCR', KEYS[4])
 redis.call('PERSIST', KEYS[1])
 redis.call('RENAME', KEYS[1], KEYS[2])
 redis.call('SET', KEYS[3], '1', 'PX', ARGV[1])
+redis.call('SET', KEYS[7], '1')
 return 1
 `
 
@@ -156,9 +159,7 @@ func (c *Core) Stage(ctx context.Context, reserveArgs ...any) (*Staging, error) 
 	}
 	key := metaKey(c.filterKey, "staging", id)
 
-	cmds := c.cmds
-	cmds.AddBatch, cmds.BatchTokens = c.cmds.StagingAddBatch, c.cmds.StagingBatchTokens
-	staged := newCore(c.client, key, cmds, reserveArgs...)
+	staged := newCore(c.client, key, c.cmds, reserveArgs...)
 	staged.autoCreate = false
 	staged.afterBatch = func(ctx context.Context) error {
 		if expireErr := c.client.PExpire(ctx, key, StagingTTL).Err(); expireErr != nil {
@@ -211,7 +212,7 @@ func (s *Staging) Commit(ctx context.Context) error {
 
 	op := "promote Redis " + s.live.cmds.Label + " filter"
 	marker := s.markerKey()
-	keys := []string{s.core.filterKey, s.live.filterKey, marker, s.live.genKey, s.live.leaseKey, s.live.committedKey}
+	keys := []string{s.core.filterKey, s.live.filterKey, marker, s.live.genKey, s.live.leaseKey, s.live.committedKey, s.live.readyKey}
 	n, err := s.commit.Run(ctx, s.core.client, keys, commitMarkerTTL.Milliseconds(), strconv.FormatInt(s.ticket, 10)).Int()
 	switch {
 	case err == nil && n == 1:

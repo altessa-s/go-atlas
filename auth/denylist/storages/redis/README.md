@@ -32,8 +32,14 @@ behind a negative cache and the source that rebuilds the cache's filter.
 | `Revoke(ctx, key) error`                                   | Deny permanently (`SET key "1"`, no expiry).                            |
 | `RevokeUntil(ctx, key, ttl) error`                         | Deny for `ttl`; non-positive `ttl` is a no-op.                          |
 | `Restore(ctx, key) error`                                  | Remove the key (`DEL`).                                                  |
-| `StreamValues(ctx) iter.Seq2[string, error]`               | SCAN all revoked keys, yield bare (unprefixed) keys.                    |
+| `StreamValues(ctx) iter.Seq2[string, error]`               | SCAN all revoked keys under the literal prefix, yield bare keys; Cluster/Ring clients yield `ErrUnsupportedClient`. |
 | `Count(ctx) (int64, error)`                                | Returns `-1` (unknown); an exact count needs a full SCAN.               |
+
+## Errors
+
+| Error                  | Description                                                                                                   |
+|------------------------|---------------------------------------------------------------------------------------------------------------|
+| `ErrUnsupportedClient` | Yielded by `StreamValues` for a Cluster or Ring client, whose keys SCAN cannot enumerate completely; rebuild from an exact source there. |
 
 ## Usage
 
@@ -46,9 +52,8 @@ _ = store.RevokeUntil(ctx, "jti-123", time.Until(tokenExp)+jwt.DefaultLeeway)
 
 revoked, err := store.IsRevoked(ctx, "jti-123")
 
-// Feed a negative cache rebuild (Store is a probfilter.DataLoader). Rebuild is not atomic: keep reads on the
-// store while it runs and after a failure — see docs/auth/denylist.md#correctness-and-staleness.
+// Feed a negative cache rebuild (Store is a probfilter.DataLoader); a failed rebuild keeps the previous contents.
 if err := cache.Rebuild(ctx, store); err != nil {
-    return err // do not serve IsRevoked from the cache
+    return err
 }
 ```

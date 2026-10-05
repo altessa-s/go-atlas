@@ -21,7 +21,7 @@ import (
 )
 
 // newRevocationTestProvider builds a Provider wired for direct calls to
-// checkTokenRevocation: introspection enabled with mock HTTP transport,
+// checkIntrospection: introspection enabled with mock HTTP transport,
 // no token cache, no revocation storage. The returned Provider uses no-op
 // metrics.
 func newRevocationTestProvider(t *testing.T, rt http.RoundTripper, opts options) *Provider {
@@ -38,7 +38,7 @@ func newRevocationTestProvider(t *testing.T, rt http.RoundTripper, opts options)
 	}
 }
 
-func TestProvider_checkTokenRevocation_FailClosedByDefault(t *testing.T) {
+func TestProvider_checkIntrospection_FailClosedByDefault(t *testing.T) {
 	t.Parallel()
 
 	transportErr := errors.New("connection refused")
@@ -48,13 +48,13 @@ func TestProvider_checkTokenRevocation_FailClosedByDefault(t *testing.T) {
 
 	p := newRevocationTestProvider(t, rt, options{})
 
-	err := p.checkTokenRevocation(t.Context(), "any-token")
+	err := p.checkIntrospection(t.Context(), "any-token")
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrIntrospection,
 		"default (fail-closed) introspection failure must surface ErrIntrospection")
 }
 
-func TestProvider_checkTokenRevocation_FailOpenSwallowsTransportError(t *testing.T) {
+func TestProvider_checkIntrospection_FailOpenSwallowsTransportError(t *testing.T) {
 	t.Parallel()
 
 	transportErr := errors.New("connection refused")
@@ -64,11 +64,11 @@ func TestProvider_checkTokenRevocation_FailOpenSwallowsTransportError(t *testing
 
 	p := newRevocationTestProvider(t, rt, options{introspectionFailOpen: true})
 
-	require.NoError(t, p.checkTokenRevocation(t.Context(), "any-token"),
+	require.NoError(t, p.checkIntrospection(t.Context(), "any-token"),
 		"fail-open mode must swallow introspection transport failures")
 }
 
-func TestProvider_checkTokenRevocation_StrictRejectsOn5xx(t *testing.T) {
+func TestProvider_checkIntrospection_StrictRejectsOn5xx(t *testing.T) {
 	t.Parallel()
 
 	rt := testhelpers.RoundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -82,13 +82,13 @@ func TestProvider_checkTokenRevocation_StrictRejectsOn5xx(t *testing.T) {
 
 	p := newRevocationTestProvider(t, rt, options{})
 
-	err := p.checkTokenRevocation(t.Context(), "any-token")
+	err := p.checkIntrospection(t.Context(), "any-token")
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrIntrospection,
 		"strict mode must reject when introspection endpoint returns non-2xx")
 }
 
-func TestProvider_checkTokenRevocation_StrictAcceptsActiveToken(t *testing.T) {
+func TestProvider_checkIntrospection_StrictAcceptsActiveToken(t *testing.T) {
 	t.Parallel()
 
 	rt := testhelpers.RoundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -103,11 +103,11 @@ func TestProvider_checkTokenRevocation_StrictAcceptsActiveToken(t *testing.T) {
 
 	p := newRevocationTestProvider(t, rt, options{})
 
-	require.NoError(t, p.checkTokenRevocation(t.Context(), "any-token"),
+	require.NoError(t, p.checkIntrospection(t.Context(), "any-token"),
 		"strict mode must still accept tokens the IdP confirms as active")
 }
 
-func TestProvider_checkTokenRevocation_StrictRejectsInactiveToken(t *testing.T) {
+func TestProvider_checkIntrospection_StrictRejectsInactiveToken(t *testing.T) {
 	t.Parallel()
 
 	rt := testhelpers.RoundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -122,7 +122,7 @@ func TestProvider_checkTokenRevocation_StrictRejectsInactiveToken(t *testing.T) 
 
 	p := newRevocationTestProvider(t, rt, options{})
 
-	err := p.checkTokenRevocation(t.Context(), "any-token")
+	err := p.checkIntrospection(t.Context(), "any-token")
 	require.ErrorIs(t, err, ErrTokenRevoked,
 		"strict mode must still surface revocation of inactive tokens via ErrTokenRevoked")
 }
@@ -156,8 +156,8 @@ func (s *trackingRevocationStorage) MarkRevoked(_ context.Context, item string, 
 func (s *trackingRevocationStorage) Sync(_ context.Context) error { return nil }
 
 // newLocalRevocationProvider builds a Provider wired for direct calls to the
-// pre- and post-verification revocation helpers with no introspection and
-// no JWKS — only the revocation plumbing is exercised.
+// post-verification revocation helper with no introspection and no JWKS —
+// only the revocation plumbing is exercised.
 func newLocalRevocationProvider(t *testing.T, itemType string, storage RevocationStorage) *Provider {
 	t.Helper()
 	return &Provider{
@@ -168,45 +168,6 @@ func newLocalRevocationProvider(t *testing.T, itemType string, storage Revocatio
 		logger:            slog.New(slog.DiscardHandler),
 		metrics:           newOIDCMetrics(nil),
 	}
-}
-
-// TestProvider_checkTokenRevocation_SkipsJTIPreVerify proves the pre-verify
-// path never queries the storage by jti — that lookup is deferred until
-// claims have been signature-verified.
-func TestProvider_checkTokenRevocation_SkipsJTIPreVerify(t *testing.T) {
-	t.Parallel()
-
-	storage := newTrackingRevocationStorage("revoked-jti")
-	p := newLocalRevocationProvider(t, RevocationItemTypeJTI, storage)
-
-	// Craft a token whose unverified jti matches the revoked entry. Before
-	// the fix this would have been queried and the token rejected without
-	// signature verification.
-	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"jti": "revoked-jti"})
-	raw, err := tok.SignedString([]byte("test-secret"))
-	require.NoError(t, err)
-
-	require.NoError(t, p.checkTokenRevocation(t.Context(), raw),
-		"pre-verify path must not consult revocation storage by jti from an unverified token")
-	require.Empty(t, storage.lookups, "no storage lookup must be performed before signature verification")
-}
-
-// TestProvider_checkTokenRevocation_SkipsKIDPreVerify mirrors the jti test
-// for kid-typed revocation storage.
-func TestProvider_checkTokenRevocation_SkipsKIDPreVerify(t *testing.T) {
-	t.Parallel()
-
-	storage := newTrackingRevocationStorage("revoked-kid")
-	p := newLocalRevocationProvider(t, RevocationItemTypeKID, storage)
-
-	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"sub": "anyone"})
-	tok.Header["kid"] = "revoked-kid"
-	raw, err := tok.SignedString([]byte("test-secret"))
-	require.NoError(t, err)
-
-	require.NoError(t, p.checkTokenRevocation(t.Context(), raw),
-		"pre-verify path must not consult revocation storage by kid from an unverified token header")
-	require.Empty(t, storage.lookups, "no storage lookup must be performed before signature verification")
 }
 
 // TestProvider_checkTokenRevocationVerified_RejectsRevokedJTI ensures the
@@ -256,17 +217,16 @@ func TestProvider_checkTokenRevocationVerified_FallsBackToFullToken(t *testing.T
 	require.Equal(t, []string{"the-full-token"}, storage.lookups)
 }
 
-// TestProvider_checkTokenRevocation_FullTokenStillRunsPreVerify confirms
-// the pre-verify path is still used when revocation is keyed on the full
-// token — that case is safe because the token string itself is the key.
-func TestProvider_checkTokenRevocation_FullTokenStillRunsPreVerify(t *testing.T) {
+// TestProvider_checkTokenRevocationVerified_FullToken confirms revocation
+// keyed on the full token is enforced by the post-verification check.
+func TestProvider_checkTokenRevocationVerified_FullToken(t *testing.T) {
 	t.Parallel()
 
 	storage := newTrackingRevocationStorage("the-full-token")
 	p := newLocalRevocationProvider(t, DefaultRevocationItemType, storage)
 
-	err := p.checkTokenRevocation(t.Context(), "the-full-token")
+	err := p.checkTokenRevocationVerified(t.Context(), "the-full-token", jwt.MapClaims{"jti": "ignored"}, nil)
 	require.ErrorIs(t, err, ErrTokenRevoked,
-		"full-token revocation must continue to be enforced pre-verify")
+		"full-token revocation must be enforced after verification")
 	require.Equal(t, []string{"the-full-token"}, storage.lookups)
 }

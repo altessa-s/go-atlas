@@ -5,6 +5,7 @@
 package probfilter
 
 import (
+	"errors"
 	"time"
 
 	"github.com/altessa-s/go-atlas/observability/metrics"
@@ -114,8 +115,14 @@ func (o *metricsObserver) ObserveAdd(n int) {
 	}
 }
 
-// ObserveRebuild implements [Observer].
+// ObserveRebuild implements [Observer]. A rebuild refused because another
+// process is rebuilding the shared filter ([ErrRebuildInProgress]) is a skip,
+// not a rebuild: it records neither a duration nor an error. Every other
+// error, [ErrRebuildSuperseded] included, counts as a failed rebuild.
 func (o *metricsObserver) ObserveRebuild(elapsed time.Duration, err error) {
+	if errors.Is(err, ErrRebuildInProgress) {
+		return
+	}
 	o.rebuildDuration.ObserveDuration(elapsed)
 	if err != nil {
 		o.rebuildErrors.Inc()

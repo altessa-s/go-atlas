@@ -70,7 +70,7 @@ var errPrincipalTypeMismatch = interceptors.NewError(
 //
 //	enf := scope.NewEnforcer(registry, authorize)
 //	auth.ServerInterceptor(
-//	    auth.WithAuthFunc(authFunc),
+//	    auth.WithAuthFn(authFunc),
 //	    auth.WithClientAuth(auth.ScopeClientAuth(enf)),
 //	)
 //

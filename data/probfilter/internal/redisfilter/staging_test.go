@@ -71,7 +71,7 @@ func TestStaging_AddBatchCommit(t *testing.T) {
 	st, err := core.Stage(t.Context(), int64(10))
 	require.NoError(t, err)
 	require.NoError(t, st.AddBatch(t.Context(), slices.Values([]string{"a", "b"})))
-	require.Equal(t, [][]string{{st.Key(), "NOCREATE", "ITEMS", "a", "b"}}, fake.snapshot().insertCalls,
+	require.Equal(t, [][]string{{st.Key(), "a", "b"}}, fake.snapshot().batchCalls,
 		"adds go to the staging key with the non-creating batch command")
 
 	// Stand-in for the module value the fake reserve does not materialize.

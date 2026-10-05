@@ -65,7 +65,14 @@ func (p *Provider) compilePresets() error {
 		return nil
 	}
 
-	for _, preset := range p.opts.presets {
+	for name, shared := range p.opts.presets {
+		// Compile a provider-owned copy: the compiled verifier binds this
+		// provider's issuer and key resolver, so compiling the caller's
+		// preset in place would let another provider built from the same
+		// preset value overwrite it.
+		preset := &ValidationPreset{name: shared.name, options: shared.options}
+		p.opts.presets[name] = preset
+
 		// Apply preset options to create compiled verifier
 		ops := newVerifierOptions(preset.options...)
 
@@ -187,29 +194,11 @@ func (p *Provider) validateTokenWithPreset(ctx context.Context, token string, pr
 		return nil, err
 	}
 
-	if err := p.checkTokenRevocation(ctx, token); err != nil {
-		return nil, err
-	}
-
-	// Try to get cached claims if caching is enabled (only after revocation check)
-	if p.tokenCache != nil {
-		cacheKey := tokenCacheKey(p.opts.tokensCacheKeyPrefix, token)
-		var claims map[string]any
-		if err := p.tokenCache.Get(ctx, cacheKey, &claims); err == nil {
-			// The pre-verification checkTokenRevocation above does not cover
-			// jti/kid revocation (those need verified data). Re-run the
-			// post-verification lookup on the cache hit so a token revoked after
-			// it was cached is rejected before its TTL expires.
-			if err := p.checkTokenRevocationVerifiedCached(ctx, token, claims); err != nil {
-				return nil, err
-			}
-			return claims, nil
-		}
-	}
-
 	// Verify signature first (without claim validation), enforcing the preset's
 	// algorithm restriction so the signature is not accepted under a wider set.
-	claims, header, err := p.parseTokenWithoutClaimsValidation(ctx, token, preset.compiledVerifier)
+	// A cached signature verification is reused, but the preset's full policy
+	// below always runs.
+	claims, header, err := p.verifyTokenSignature(ctx, token, preset.compiledVerifier)
 	if err != nil {
 		return nil, coreerrs.Wrapf(ErrTokenInvalid, "signature verification failed: %v", err)
 	}

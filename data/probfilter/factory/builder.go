@@ -63,6 +63,10 @@ type FilterBuilder struct {
 	redisClient redis.UniversalClient
 	loader      probfilter.DataLoader
 	scheduler   corescheduler.TaskRegistrar
+
+	// tolerateInProgress lets the initial rebuild lose the rebuild lease of
+	// a shared filter; see [FilterBuilder.TolerateRebuildInProgress].
+	tolerateInProgress bool
 }
 
 // NewFilter creates a [FilterBuilder] for the given filter name, config, and defaults.
@@ -84,8 +88,10 @@ func NewFilter(name string, cfg *config.ProbabilisticFilterConfig, defaults *con
 // an in-memory filter is rebuilt by a process-local cron, a Redis filter by a
 // task registered with the scheduler ([FilterBuilder.UseScheduler]; without
 // one the cron is logged as ignored). A failed initial rebuild, an invalid
-// cron or a failed registration closes the filter and fails Build. Without a
-// loader the rebuild settings are inert.
+// cron or a failed registration closes the filter and fails Build — also an
+// initial rebuild of a shared filter refused because another process is
+// rebuilding it, unless [FilterBuilder.TolerateRebuildInProgress] was set.
+// Without a loader the rebuild settings are inert.
 func (b *FilterBuilder) Build() (probfilter.Filter, error) {
 	if err := corefactory.JoinErrors(b.errs); err != nil {
 		return nil, err
@@ -155,7 +161,15 @@ func (b *FilterBuilder) wireBloomRebuild(filter *bloom.Filter) error {
 	}
 
 	if onStart {
-		if err := filter.Rebuild(context.Background(), b.loader); err != nil {
+		err := filter.Rebuild(context.Background(), b.loader)
+		switch {
+		case err == nil:
+		case b.tolerateInProgress && errors.Is(err, probfilter.ErrRebuildInProgress):
+			// The peer's rebuild publishes a snapshot; the filter stays
+			// unpopulated until then, which the caller tolerates.
+			b.Logger().Info("probfilter: initial rebuild skipped, another process is rebuilding the shared filter",
+				slog.String("filter", b.name))
+		default:
 			return b.WrapError(err, "failed initial rebuild of filter "+b.name)
 		}
 	}

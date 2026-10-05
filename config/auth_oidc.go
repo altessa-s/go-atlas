@@ -15,7 +15,7 @@ import (
 
 // Default values for OIDC configuration.
 const (
-	defaultOIDCClockSkew              = 10 * time.Second
+	defaultOIDCClockSkew              = 30 * time.Second
 	defaultOIDCCacheTokensKeyPrefix   = "tokens:"
 	defaultOIDCCacheRevokedKeyPrefix  = "revoked-tokens:"
 	defaultOIDCJwksRefreshEnabled     = true
@@ -305,7 +305,8 @@ func (cc *OIDCClientCredentials) Validate() error {
 // OIDCJwks represents OIDCJwks-specific configuration.
 // It controls the refresh behavior for JSON Web Key Sets used in token signature verification.
 type OIDCJwks struct {
-	// RefreshEnabled enables proactive JWKS refresh via an external scheduler.
+	// RefreshEnabled enables proactive JWKS refresh on the provider's own
+	// process-local cron.
 	RefreshEnabled bool `yaml:"refreshEnabled" default:"true"`
 
 	// RefreshSchedule is the cron expression for periodic JWKS refresh.
@@ -451,7 +452,7 @@ type OIDCRevocation struct {
 	Enabled bool `yaml:"enabled" default:"false"`
 
 	// SyncEnabled enables periodic synchronization of the revocation storage
-	// via an external scheduler.
+	// on the provider's own process-local cron.
 	SyncEnabled bool `yaml:"syncEnabled" default:"true"`
 
 	// SyncSchedule is the cron expression for periodic revocation synchronization.
@@ -465,6 +466,12 @@ type OIDCRevocation struct {
 
 	// Source contains configuration for fetching the revocation list
 	Source *OIDCRevocationSource `yaml:"source"`
+
+	// FailOpen accepts a token when the revocation storage cannot answer and
+	// lets the provider start when the initial revocation sync fails. The
+	// default (false) is fail-closed: such a token is rejected and provider
+	// construction fails.
+	FailOpen bool `yaml:"failOpen" default:"false"`
 }
 
 // DefaultOIDCRevocation returns an OIDCRevocation configuration with default values.

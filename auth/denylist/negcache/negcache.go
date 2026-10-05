@@ -7,7 +7,9 @@ package negcache
 import (
 	"context"
 	"errors"
+	"io"
 	"sync/atomic"
+	"time"
 
 	"github.com/altessa-s/go-atlas/data/probfilter"
 
@@ -35,16 +37,25 @@ type Authoritative interface {
 // rebuild-staleness window that make this safe.
 //
 // Until the filter has been populated by a successful rebuild, the cache does
-// not trust a filter miss and asks the authoritative store for every key.
+// not trust a filter miss and asks the authoritative store for every key. A
+// filter shared between processes (Redis) also counts as populated once any
+// process committed a rebuild of it ([probfilter.RebuildCommitReporter]).
 //
 // A Cache is safe for concurrent use when its filter and authoritative store
 // are (probfilter filters are).
 type Cache struct {
 	filter      probfilter.Filter
 	rebuildable probfilter.RebuildableFilter // nil when filter cannot be rebuilt.
-	auth        Authoritative
-	metrics     *Metrics
-	populated   atomic.Bool
+	// reporter reports rebuilds committed by any process; nil when the
+	// filter is not rebuildable or cannot report them.
+	reporter      probfilter.RebuildCommitReporter
+	auth          Authoritative
+	metrics       *Metrics
+	checkInterval time.Duration
+	populated     atomic.Bool
+	// nextCheck is the UnixNano time before which no shared-rebuild check
+	// runs; claimed with a CAS so concurrent lookups check once.
+	nextCheck atomic.Int64
 }
 
 // New returns a Cache that fast-paths definite filter misses and defers every
@@ -52,8 +63,12 @@ type Cache struct {
 // required; pass [WithMetrics] to record lookup telemetry.
 func New(filter probfilter.Filter, authoritative Authoritative, opts ...Option) *Cache {
 	o := newOptions(opts...)
-	rebuildable, _ := filter.(probfilter.RebuildableFilter)
-	return &Cache{filter: filter, rebuildable: rebuildable, auth: authoritative, metrics: o.metrics}
+	c := &Cache{filter: filter, auth: authoritative, metrics: o.metrics, checkInterval: o.sharedRebuildCheckInterval}
+	c.rebuildable, _ = filter.(probfilter.RebuildableFilter)
+	if c.rebuildable != nil {
+		c.reporter, _ = filter.(probfilter.RebuildCommitReporter)
+	}
+	return c
 }
 
 // IsRevoked reports whether key is revoked. When the populated filter rules
@@ -65,7 +80,7 @@ func New(filter probfilter.Filter, authoritative Authoritative, opts ...Option) 
 // lookup), never to a wrongly allowed token.
 func (c *Cache) IsRevoked(ctx context.Context, key string) (bool, error) {
 	filterState := filterUnpopulated
-	if c.isPopulated() {
+	if c.isPopulated(ctx) {
 		might, ferr := c.filter.MightExist(ctx, key)
 		filterState = filterOK
 		if ferr != nil {
@@ -124,17 +139,53 @@ func (c *Cache) Rebuild(ctx context.Context, loader probfilter.DataLoader) error
 	return nil
 }
 
+// Close closes the filter the cache was built with when it can be closed
+// (the Bloom and Cuckoo facades, or an [io.Closer]); otherwise it does
+// nothing. The cache owns its filter: closing it interrupts a running rebuild
+// and stops the rebuilds a factory scheduled for it (the process-local cron;
+// a task registered with a scheduler becomes a no-op). Do not use the cache
+// after Close.
+func (c *Cache) Close(ctx context.Context) error {
+	switch closer := c.filter.(type) {
+	case interface{ Close(context.Context) error }:
+		return closer.Close(ctx)
+	case io.Closer:
+		return closer.Close()
+	}
+	return nil
+}
+
 // isPopulated reports whether the filter holds the revoked set: a Rebuild
-// through this cache succeeded, or the filter reports a successful rebuild
-// made elsewhere (for example a scheduled factory rebuild). A filter that
+// through this cache succeeded, the filter reports a successful rebuild made
+// elsewhere in this process (for example a scheduled factory rebuild), or a
+// shared filter reports a rebuild committed by any process. A filter that
 // cannot be rebuilt is never considered populated.
-func (c *Cache) isPopulated() bool {
+func (c *Cache) isPopulated(ctx context.Context) bool {
 	if c.populated.Load() {
 		return true
 	}
-	if c.rebuildable == nil || c.rebuildable.LastRebuild().IsZero() {
+	if c.rebuildable == nil {
 		return false
 	}
-	c.populated.Store(true)
-	return true
+	if !c.rebuildable.LastRebuild().IsZero() || c.sharedRebuildCommitted(ctx) {
+		c.populated.Store(true)
+		return true
+	}
+	return false
+}
+
+// sharedRebuildCommitted asks the filter, at most once per check interval,
+// whether a rebuild was committed by any process. An error counts as not
+// committed, so the lookup falls back to the authoritative store.
+func (c *Cache) sharedRebuildCommitted(ctx context.Context) bool {
+	if c.reporter == nil {
+		return false
+	}
+	now := time.Now().UnixNano()
+	next := c.nextCheck.Load()
+	if now < next || !c.nextCheck.CompareAndSwap(next, now+int64(c.checkInterval)) {
+		return false
+	}
+	committed, err := c.reporter.RebuildCommitted(ctx)
+	return err == nil && committed
 }

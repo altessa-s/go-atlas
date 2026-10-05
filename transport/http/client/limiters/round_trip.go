@@ -48,3 +48,11 @@ func (rt *RoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	return rt.next.RoundTrip(req)
 }
+
+// CloseIdleConnections forwards to the next transport when it supports it, so
+// [net/http.Client.CloseIdleConnections] releases pooled connections.
+func (rt *RoundTripper) CloseIdleConnections() {
+	if c, ok := rt.next.(interface{ CloseIdleConnections() }); ok {
+		c.CloseIdleConnections()
+	}
+}

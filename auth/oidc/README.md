@@ -12,7 +12,7 @@ validation, token introspection (RFC 7662), validation presets with matchers (na
 | Type / Interface       | Description                                                               |
 |------------------------|---------------------------------------------------------------------------|
 | `Provider`             | Core OIDC provider: discovery, JWKS, validation, introspection, userinfo  |
-| `Cacher`               | Token cache interface for avoiding redundant validation                   |
+| `Cacher`               | Cache of signature verifications; policy and revocation re-run on hits    |
 | `RevocationStorage`    | Interface for checking and managing revoked tokens, JTIs, or KIDs         |
 | `Authoritative`        | Exact revocation store consulted to confirm probabilistic filter hits     |
 | `ValidationPreset`     | Named, reusable set of validation options with pre-compiled CEL rules     |
@@ -34,9 +34,10 @@ validation, token introspection (RFC 7662), validation presets with matchers (na
 | `WithIntrospection`             | disabled           | Enable RFC 7662 introspection with client credentials  |
 | `WithRevocationStorage`         | nil                | Storage backend for token revocation checks            |
 | `WithRevocationAuthoritative`   | nil                | Exact store confirming filter hits (see Revocation accuracy) |
-| `WithScheduler`                 | nil                | Task registrar for background JWKS refresh             |
-| `WithJWKSRefreshSchedule`       | --                 | Cron expression for periodic JWKS key rotation         |
-| `WithRevocationSyncSchedule`    | --                 | Cron expression for revocation list synchronization    |
+| `WithRevocationFailOpen`        | fail-closed        | Accept tokens on storage errors and start on a failed initial sync |
+| `WithRevocationInitialSyncWait` | 2m                 | How long the initial sync retries while a shared filter is busy |
+| `WithJWKSRefreshSchedule`       | --                 | Local cron schedule for JWKS refresh                   |
+| `WithRevocationSyncSchedule`    | --                 | Local cron schedule for revocation sync                |
 | `WithServiceConfigPath`         | --                 | Path to JSON service configuration file                |
 | `WithLogger`                    | discard            | Structured logger (`*slog.Logger`)                     |
 
@@ -52,12 +53,18 @@ then costs one extra lookup and nothing else:
 	storage := oidc.NewFilterRevocationStorage(filter, loader, exactStore)
 
 Without a confirmer the storage runs in lossy mode: an unconfirmed filter hit is reported as revoked. The security invariant still
-holds — a revoked item is never allowed — but roughly `falsePositiveRate` of valid tokens are rejected with `ErrTokenRevoked`. Both the
-pre-verification check (`checkTokenRevocation`, full-token item type) and the post-verification one (`checkTokenRevocationVerified`,
-`jti`/`kid`) go through this path.
+holds — a revoked item is never allowed — but roughly `falsePositiveRate` of valid tokens are rejected with `ErrTokenRevoked`. Every
+lookup (full token, `jti` or `kid`) runs after signature verification, before introspection, and goes through this path.
 
 The confirmer MUST hold the same revocation set the filter is built from. Confirming against an unrelated store turns every hit into
 "not revoked" and silently disables revocation — which is why it is an explicit dependency rather than something derived from config.
+
+`NewProvider` syncs the storage once before returning. Storage errors, and a failed initial sync, are fail-closed (`ErrRevocationCheck`)
+unless `WithRevocationFailOpen` is set.
+
+Replicas sharing a Redis filter serialize their syncs with a rebuild lease, and each replica completes one sync of its own at startup. When N
+replicas start at once the last one waits about `(N − 1) × rebuild duration`; keep `WithRevocationInitialSyncWait` above that (with headroom) or
+roll out with limited surge, otherwise the fail mode applies (fail-closed: `NewProvider` fails and the replica restarts).
 
 ## Outbound HTTP
 

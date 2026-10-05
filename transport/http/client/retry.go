@@ -58,6 +58,10 @@ type retryRoundTripper struct {
 	health             *httpClientHealth
 }
 
+// CloseIdleConnections forwards to the wrapped transport so
+// [http.Client.CloseIdleConnections] releases pooled connections.
+func (rt *retryRoundTripper) CloseIdleConnections() { closeIdleConnections(rt.next) }
+
 // RoundTrip implements [http.RoundTripper]. On the first call it buffers the
 // request body (if any) so it can be replayed on retries, then delegates retry
 // orchestration to [coreretry.Do].

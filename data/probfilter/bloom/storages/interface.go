@@ -75,6 +75,16 @@ type RebuildLease interface {
 	Release(ctx context.Context) error
 }
 
+// RebuildCommitReporter is implemented by storages shared between processes
+// (Redis) that can tell whether the live filter holds the contents of a
+// rebuild committed by any process; see
+// probfilter.RebuildCommitReporter.
+type RebuildCommitReporter interface {
+	// RebuildCommitted reports whether a committed rebuild published the
+	// live filter and the filter has not been deleted or recreated since.
+	RebuildCommitted(ctx context.Context) (bool, error)
+}
+
 // StatsProvider defines the interface for storage backends that provide statistics.
 type StatsProvider interface {
 	// Stats returns current filter statistics.

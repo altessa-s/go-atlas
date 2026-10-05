@@ -53,10 +53,10 @@ func (h lostReplyHook) ProcessHook(next goredis.ProcessHook) goredis.ProcessHook
 	}
 }
 
-// isCommit recognizes the commit script call by its six keys.
+// isCommit recognizes the commit script call by its seven keys.
 func isCommit(cmd goredis.Cmder) bool {
 	args := cmd.Args()
-	return len(args) > 2 && fmt.Sprint(args[2]) == "6"
+	return len(args) > 2 && fmt.Sprint(args[2]) == "7"
 }
 
 func (lostReplyHook) ProcessPipelineHook(next goredis.ProcessPipelineHook) goredis.ProcessPipelineHook {

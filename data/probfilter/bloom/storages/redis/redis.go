@@ -29,8 +29,9 @@ type Storage struct {
 }
 
 var (
-	_ storages.Storage            = (*Storage)(nil)
-	_ storages.ExclusiveRebuilder = (*Storage)(nil)
+	_ storages.Storage               = (*Storage)(nil)
+	_ storages.ExclusiveRebuilder    = (*Storage)(nil)
+	_ storages.RebuildCommitReporter = (*Storage)(nil)
 )
 
 // New creates a new Redis Bloom filter Storage.
@@ -48,15 +49,17 @@ func New(client redis.UniversalClient, filterName string, opt ...Option) *Storag
 	return &Storage{
 		Base: redisbase.NewBase(client, opts.keyPrefix),
 		core: redisfilter.New(client, opts.keyPrefix+filterName, redisfilter.Commands{
-			Label:    "Bloom",
-			Exists:   "BF.EXISTS",
-			Add:      "BF.ADD",
-			AddBatch: "BF.MADD",
-			// Staging batches must not recreate a vanished staging key.
-			StagingAddBatch:    "BF.INSERT",
-			StagingBatchTokens: []string{"NOCREATE", "ITEMS"},
-			Reserve:            "BF.RESERVE",
-			Info:               "BF.INFO",
+			Label:  "Bloom",
+			Exists: "BF.EXISTS",
+			// Inserts never create a missing filter: a live filter is recreated
+			// by the reserve path, which also clears the rebuild ready marker,
+			// and a vanished staging key fails the rebuild.
+			Add:         "BF.INSERT",
+			AddTokens:   []string{"NOCREATE", "ITEMS"},
+			AddBatch:    "BF.INSERT",
+			BatchTokens: []string{"NOCREATE", "ITEMS"},
+			Reserve:     "BF.RESERVE",
+			Info:        "BF.INFO",
 		}, opts.falsePositiveRate, opts.expectedItems),
 		opts: opts,
 	}
@@ -103,6 +106,16 @@ func (s *Storage) BeginRebuild(ctx context.Context) (storages.RebuildLease, erro
 		return nil, err
 	}
 	return &rebuildLease{storage: s, lease: lease}, nil
+}
+
+// RebuildCommitted reports whether any process committed a rebuild of the
+// shared filter and the filter key has not been deleted or recreated since
+// (see [storages.RebuildCommitReporter]). Rebuilds committed by releases
+// that predate this check, and a filter key recreated by a client other than
+// probfilter, are not recognized; delete the filter key together with its
+// "__probfilter__:" metadata keys.
+func (s *Storage) RebuildCommitted(ctx context.Context) (bool, error) {
+	return s.core.RebuildCommitted(ctx)
 }
 
 // rebuildLease stages replacement filters under a held rebuild lease.

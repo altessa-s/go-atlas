@@ -472,6 +472,8 @@ Package: `data/probfilter`
 | `probfilter_rebuild_duration_seconds` | Histogram | --                      | Filter rebuild duration              |
 | `probfilter_rebuild_errors_total`     | Counter   | --                      | Failed filter rebuild operations     |
 
+A rebuild skipped because another process is rebuilding the shared Redis filter (`ErrRebuildInProgress`) records neither metric.
+
 ---
 
 ## rate_limiter

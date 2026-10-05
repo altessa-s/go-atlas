@@ -37,18 +37,23 @@ type Commands struct {
 	Label string
 	// Exists is the membership-check command, e.g. "BF.EXISTS".
 	Exists string
-	// Add is the single-item insert command, e.g. "BF.ADD".
-	Add string
-	// AddBatch is the multi-item insert command, e.g. "BF.MADD" or "CF.INSERT".
+	// Add is the single-item insert command, e.g. "BF.INSERT". It must not
+	// create a missing filter (see [Core.RebuildCommitted]); AddTokens are
+	// literal tokens placed between the filter key and the item, e.g.
+	// "NOCREATE", "ITEMS".
+	Add       string
+	AddTokens []string
+	// AddBatch is the multi-item insert command, e.g. "BF.INSERT". Like Add
+	// it must not create a missing filter; a rebuild's staging filter uses it
+	// too, so a vanished staging key fails the rebuild.
 	AddBatch string
 	// BatchTokens are literal tokens placed between the filter key and the
-	// items of a batch command, e.g. "ITEMS" for CF.INSERT.
+	// items of a batch command, e.g. "NOCREATE", "ITEMS".
 	BatchTokens []string
-	// StagingAddBatch and StagingBatchTokens form the batch insert used on a
-	// rebuild's staging filter; it must not create a missing filter, e.g.
-	// "BF.INSERT" with tokens "NOCREATE", "ITEMS".
-	StagingAddBatch    string
-	StagingBatchTokens []string
+	// FalseRejects makes a false item reply of an insert a rejected item.
+	// CF.INSERT answers a full filter with -1 under RESP2 but false under
+	// RESP3; BF.INSERT's false only means "already present".
+	FalseRejects bool
 	// Reserve is the filter-creation command, e.g. "BF.RESERVE".
 	Reserve string
 	// Info is the statistics command, e.g. "BF.INFO".
@@ -75,6 +80,9 @@ type Core struct {
 	afterBatch func(ctx context.Context) error
 	// genKey holds the token of the live filter generation.
 	genKey string
+	// readyKey exists while the live key holds the contents a committed
+	// rebuild renamed into place; see [Core.RebuildCommitted].
+	readyKey string
 	// deletesKey (hash) and deadlinesKey (sorted set) record delete requests
 	// for at-most-once execution; see deleteScript.
 	deletesKey   string
@@ -133,6 +141,7 @@ func newCore(client redis.UniversalClient, filterKey string, cmds Commands, rese
 		batchHeader:         batchHeader,
 		autoCreate:          true,
 		genKey:              metaKey(filterKey, "generation", ""),
+		readyKey:            metaKey(filterKey, "ready", ""),
 		deletesKey:          metaKey(filterKey, "deletes", ""),
 		deadlinesKey:        metaKey(filterKey, "delete-deadlines", ""),
 		stagingsKey:         metaKey(filterKey, "stagings", ""),
@@ -148,11 +157,6 @@ func newCore(client redis.UniversalClient, filterKey string, cmds Commands, rese
 		opDelete:            "delete Redis " + cmds.Label + " filter",
 		opInfo:              "get Redis " + cmds.Label + " filter info",
 	}
-}
-
-// FilterKey returns the fully prefixed Redis key of the filter.
-func (c *Core) FilterKey() string {
-	return c.filterKey
 }
 
 // MightExist checks if a value might exist in the filter.
@@ -172,25 +176,16 @@ func (c *Core) MightExist(ctx context.Context, value string) (bool, error) {
 }
 
 // Add inserts a value into the filter, creating the filter first when it
-// does not exist yet.
+// does not exist yet. The insert command itself never creates the filter, so
+// a missing filter is always recreated by [Core.EnsureFilter].
 func (c *Core) Add(ctx context.Context, value string) error {
-	if err := c.reserveOnce(ctx); err != nil {
-		return err
+	args := make([]any, 0, 3+len(c.cmds.AddTokens))
+	args = append(args, c.cmds.Add, c.filterKey)
+	for _, token := range c.cmds.AddTokens {
+		args = append(args, token)
 	}
-	_, err := c.client.Do(ctx, c.cmds.Add, c.filterKey, value).Result()
-	if err != nil {
-		// Check if filter doesn't exist and create it
-		if c.autoCreate && notExist(err) {
-			if ensureErr := c.EnsureFilter(ctx); ensureErr != nil {
-				return ensureErr
-			}
-			_, err = c.client.Do(ctx, c.cmds.Add, c.filterKey, value).Result()
-		}
-		if err != nil {
-			return coreerrs.WrapOperation(err, c.opAdd)
-		}
-	}
-	return nil
+	args = append(args, value)
+	return c.insert(ctx, args, c.opAdd)
 }
 
 // AddBatch inserts multiple values into the filter, chunking them into
@@ -218,6 +213,20 @@ func (c *Core) AddBatch(ctx context.Context, values iter.Seq[string]) error {
 }
 
 func (c *Core) sendBatch(ctx context.Context, args []any) error {
+	if err := c.insert(ctx, args, c.opBatch); err != nil {
+		return err
+	}
+	if c.afterBatch != nil {
+		return c.afterBatch(ctx)
+	}
+	return nil
+}
+
+// insert runs the insert command args: it reserves the filter before the
+// first write, recreates a missing filter and retries once (unless
+// autoCreate is off), and fails on a per-item rejection; errors are wrapped
+// with op.
+func (c *Core) insert(ctx context.Context, args []any, op string) error {
 	if err := c.reserveOnce(ctx); err != nil {
 		return err
 	}
@@ -231,23 +240,19 @@ func (c *Core) sendBatch(ctx context.Context, args []any) error {
 			reply, err = c.client.Do(ctx, args...).Result()
 		}
 		if err != nil {
-			return coreerrs.WrapOperation(err, c.opBatch)
+			return coreerrs.WrapOperation(err, op)
 		}
 	}
-	if err := checkBatchReply(reply); err != nil {
-		return coreerrs.WrapOperation(err, c.opBatch)
-	}
-	if c.afterBatch != nil {
-		return c.afterBatch(ctx)
+	if err := checkBatchReply(reply, c.cmds.FalseRejects); err != nil {
+		return coreerrs.WrapOperation(err, op)
 	}
 	return nil
 }
 
 // reserveOnce reserves the live filter with the configured arguments before
-// its first write: RedisBloom's insert commands would otherwise create it
-// implicitly with server defaults, ignoring capacity, error rate and
-// expansion. An existing filter is kept. A failed attempt is retried on the
-// next write.
+// its first write, so the first write does not have to fail on a missing
+// filter first. An existing filter is kept. A failed attempt is retried on
+// the next write.
 func (c *Core) reserveOnce(ctx context.Context) error {
 	if c.keyErr != nil {
 		return c.keyErr
@@ -263,9 +268,9 @@ func (c *Core) reserveOnce(ctx context.Context) error {
 }
 
 // checkBatchReply fails when a batch reply reports a per-item failure: an
-// error element or a negative integer. Non-negative integers and booleans
-// (RESP3) are successes.
-func checkBatchReply(reply any) error {
+// error element, a negative integer, or — with falseRejects — a false
+// boolean (RESP3). Non-negative integers and other booleans are successes.
+func checkBatchReply(reply any, falseRejects bool) error {
 	items, ok := reply.([]any)
 	if !ok {
 		return nil
@@ -278,10 +283,30 @@ func checkBatchReply(reply any) error {
 			if v < 0 {
 				return fmt.Errorf("%w: item %d: reply %d", ErrItemRejected, i, v)
 			}
+		case bool:
+			if !v && falseRejects {
+				return fmt.Errorf("%w: item %d: reply false", ErrItemRejected, i)
+			}
 		}
 	}
 	return nil
 }
+
+// reserveScript creates the filter with the reserve command. Creating a
+// missing filter first deletes the ready marker in the same atomic step: a
+// recreated filter does not hold the contents of the rebuild that set it
+// (see [Core.RebuildCommitted]). Reserving an existing filter fails as the
+// reserve command does and keeps the marker.
+// KEYS[1] filter key; KEYS[2] ready marker; ARGV[1] reserve command;
+// ARGV[2:] reserve args.
+var reserveScript = redis.NewScript(`
+if redis.call('EXISTS', KEYS[1]) == 0 then
+  redis.call('DEL', KEYS[2])
+end
+local args = {ARGV[1], KEYS[1]}
+for i = 2, #ARGV do args[#args + 1] = ARGV[i] end
+return redis.call(unpack(args))
+`)
 
 // EnsureFilter creates the filter with the configured reserve arguments if
 // it doesn't exist. An already-existing filter is not an error.
@@ -289,25 +314,42 @@ func (c *Core) EnsureFilter(ctx context.Context) error {
 	if c.keyErr != nil {
 		return c.keyErr
 	}
-	args := append([]any{c.cmds.Reserve, c.filterKey}, c.reserveArgs...)
-	err := c.client.Do(ctx, args...).Err()
+	argv := append([]any{c.cmds.Reserve}, c.reserveArgs...)
+	err := reserveScript.Run(ctx, c.client, []string{c.filterKey, c.readyKey}, argv...).Err()
 	if err != nil && !strings.Contains(err.Error(), "exists") {
 		return coreerrs.WrapOperation(err, c.opCreate)
 	}
 	return nil
 }
 
-// Reserve creates the filter with explicit capacity arguments, overriding
-// the configured ones. Unlike [Core.EnsureFilter] any failure is an error.
-func (c *Core) Reserve(ctx context.Context, reserveArgs ...any) error {
+// rebuildCommittedScript reports whether the ready marker and the filter key
+// both exist. KEYS[1] ready marker; KEYS[2] filter key.
+var rebuildCommittedScript = redis.NewScript(`
+if redis.call('EXISTS', KEYS[1]) == 1 and redis.call('EXISTS', KEYS[2]) == 1 then
+  return 1
+end
+return 0
+`)
+
+// RebuildCommitted reports whether the live filter holds the contents a
+// committed rebuild renamed into place — by this or any other process —
+// plus any values added since. The commit script writes a ready marker only
+// after its rename, and every path of this package that creates the filter
+// key deletes the marker atomically with the creation (the insert commands
+// never create it), so the marker exists only while the live key is the one
+// the last committed rebuild published. A filter key deleted or evicted
+// since reports false. A filter key recreated by another client that does
+// not delete the marker (for example a plain BF.RESERVE) is not detected:
+// the filter key and its metadata keys must be deleted together.
+func (c *Core) RebuildCommitted(ctx context.Context) (bool, error) {
 	if c.keyErr != nil {
-		return c.keyErr
+		return false, c.keyErr
 	}
-	args := append([]any{c.cmds.Reserve, c.filterKey}, reserveArgs...)
-	if err := c.client.Do(ctx, args...).Err(); err != nil {
-		return coreerrs.WrapOperation(err, c.opCreate)
+	n, err := rebuildCommittedScript.Run(ctx, c.client, []string{c.readyKey, c.filterKey}).Int()
+	if err != nil {
+		return false, coreerrs.WrapOperation(err, "check Redis "+c.cmds.Label+" filter rebuild state")
 	}
-	return nil
+	return n == 1, nil
 }
 
 // DeleteFilter removes the filter key entirely.
@@ -338,9 +380,12 @@ func (c *Core) Info(ctx context.Context) (result any, found bool, err error) {
 	return result, true, nil
 }
 
-// notExist reports whether err indicates the filter key does not exist yet.
+// notExist reports whether err indicates the filter key does not exist yet:
+// "not exist", or "not found" as RedisBloom answers a NOCREATE insert or an
+// INFO of a missing filter.
 func notExist(err error) bool {
-	return strings.Contains(err.Error(), "not exist")
+	msg := err.Error()
+	return strings.Contains(msg, "not exist") || strings.Contains(msg, "not found")
 }
 
 // InfoFields iterates the key/value pairs of a RedisBloom *.INFO reply: the
