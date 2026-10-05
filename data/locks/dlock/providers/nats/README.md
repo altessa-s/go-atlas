@@ -32,14 +32,12 @@ cannot change a bucket's storage type. Pass `WithStrictBucketStorage()` (YAML: `
    ```
 
 3. If it fails, fix the cause, confirm the run has exited, and rerun with `nats.MigrationOptions{Resume: true}`. Until the migration
-   completes, `New` fails with `ErrBucketMigrationInProgress` (a `KVMIGRATE_<bucket>` stream marks it), and a run without `Resume` refuses to
-   continue it. A migrator holds a lease on the bucket (in the `kvmigrate_leases` bucket, renewed every 10s, expiring after 30s): a second
-   migration, fresh or resumed, fails with `ErrBucketMigrationLocked` while one runs or until a crashed one's lease expires, and a migrator
-   that lost its lease stops. The lease does not fence stream operations on the server, so still confirm a crashed run has exited before
-   resuming. The bucket names `kvmigrate_leases` and `kvmigrate_*` are reserved.
+   completes, `New` fails with `ErrBucketMigrationInProgress`. The migration lease that keeps a second migrator out, and the reserved bucket
+   names, are described in the [shared procedure](../../../../../docs/data/nats-kv-storage-migration.md#procedure).
 4. Check that `nats kv info <bucket>` reports the new storage and that the `KVMIGRATE_<bucket>` stream is gone.
 5. Start the processes.
 
 The migration recreates the bucket with its first revision just above the old bucket's last one, so fencing tokens (`LockInfo.FencingToken`)
-keep growing. Locks are not copied: with every user stopped none is held, and copying one would revive it for a full TTL. The rejections are
-those described for the other NATS backends (`ErrMigrationUnsupportedContext`, `ErrMigrationUnsupportedBucket`, `ErrBucketTTLMismatch`).
+keep growing. Locks are not copied: with every user stopped none is held, and copying one would revive it for a full TTL. The buckets the
+migration rejects (`ErrMigrationUnsupportedContext`, `ErrMigrationUnsupportedBucket`, `ErrBucketTTLMismatch`) and how a mirror bucket is re-synced
+are described once for all NATS KV backends in [NATS KeyValue bucket storage migration](../../../../../docs/data/nats-kv-storage-migration.md).

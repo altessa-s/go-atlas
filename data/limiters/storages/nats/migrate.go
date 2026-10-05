@@ -46,15 +46,15 @@ var ErrMigrationLeaseStore = natskvlease.ErrMigrationLeaseStore
 // MigrateBucketStorage moves the existing bucket to the storage New asks for
 // (file), configured by the same opts as New, keeping its counters and keeping
 // revisions monotonic: the migrated bucket's first revision is above the old
-// bucket's last one. A counter lives the bucket TTL from the
-// migration on; it carries its own request timestamps, so expired requests are
-// still ignored.
+// bucket's last one. A counter lives the bucket TTL from the migration on; it
+// carries its own request timestamps, so expired requests are still ignored.
 //
 // Stop every process using the bucket first. A second migration of the bucket
 // fails with [ErrBucketMigrationLocked] while one runs. If a run fails, fix the
-// cause, confirm it has exited and rerun with MigrationOptions{Resume: true}; until the migration completes, New fails
-// with [ErrBucketMigrationInProgress]. A missing bucket, or one already on file
-// storage, is left alone. See the package README for the full procedure.
+// cause, confirm it has exited and rerun with MigrationOptions{Resume: true};
+// until the migration completes, New fails with [ErrBucketMigrationInProgress].
+// A missing bucket, or one already on file storage, is left alone. See the
+// package README for the full procedure.
 func MigrateBucketStorage(ctx context.Context, js jetstream.JetStream, mopts MigrationOptions, opts ...Option) error {
 	if js == nil {
 		return fmt.Errorf("JetStream context cannot be nil")

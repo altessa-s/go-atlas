@@ -82,9 +82,9 @@ func ConnectJetStream(tb testing.TB, ns *server.Server) (*nats.Conn, jetstream.J
 }
 
 // JetStreamKVCapture is a [jetstream.JetStream] test double that records the
-// [jetstream.KeyValueConfig] passed to CreateKeyValue or CreateOrUpdateKeyValue. KeyValue always
-// reports [jetstream.ErrBucketNotFound] so callers fall through to the bucket
-// creation path. All other JetStream methods panic via the embedded nil
+// [jetstream.KeyValueConfig] passed to CreateKeyValue or
+// CreateOrUpdateKeyValue. KeyValue always reports [jetstream.ErrBucketNotFound]
+// so callers fall through to the bucket creation path. All other JetStream methods panic via the embedded nil
 // interface. Useful for asserting bucket configuration (replicas, TTL, storage)
 // that a single-node test server cannot express.
 type JetStreamKVCapture struct {

@@ -44,16 +44,17 @@ var ErrBucketMigrationLocked = natskvlease.ErrBucketMigrationLocked
 var ErrMigrationLeaseStore = natskvlease.ErrMigrationLeaseStore
 
 // MigrateBucketStorage moves the existing bucket to the storage configured by
-// the same opts as New ([WithStorage]; memory by default), keeping revisions monotonic: the migrated bucket's
-// first revision is above the old bucket's last one, so fencing tokens keep
-// growing. Its keys are not copied: with every user stopped no lease is held,
-// and copying one would revive it.
+// the same opts as New ([WithStorage]; memory by default), keeping revisions
+// monotonic: the migrated bucket's first revision is above the old bucket's
+// last one, so fencing tokens keep growing. Its keys are not copied: with every
+// user stopped no lease is held, and copying one would revive it.
 //
 // Stop every process using the bucket first. A second migration of the bucket
 // fails with [ErrBucketMigrationLocked] while one runs. If a run fails, fix the
-// cause, confirm it has exited and rerun with MigrationOptions{Resume: true}; until the migration completes, New fails
-// with [ErrBucketMigrationInProgress]. A missing bucket, or one already on the
-// configured storage, is left alone. See the package README for the procedure.
+// cause, confirm it has exited and rerun with MigrationOptions{Resume: true};
+// until the migration completes, New fails with [ErrBucketMigrationInProgress].
+// A missing bucket, or one already on the configured storage, is left alone.
+// See the package README for the procedure.
 func MigrateBucketStorage(ctx context.Context, client *nats.Conn, mopts MigrationOptions, opts ...Option) error {
 	js, err := jetstream.New(client)
 	if err != nil {
