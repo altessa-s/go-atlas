@@ -58,3 +58,16 @@ func BenchmarkHandle_NoPrefix(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkHandle_GroupedPrefix(b *testing.B) {
+	logger := slog.New(prefixed.NewHandler(
+		slog.NewTextHandler(io.Discard, nil),
+		prefixed.WithPrefix("subsystem"),
+	)).With("subsystem", "api").WithGroup("req")
+	ctx := b.Context()
+
+	b.ReportAllocs()
+	for b.Loop() {
+		logger.InfoContext(ctx, "benchmark message", "key", "value", "count", 42)
+	}
+}
