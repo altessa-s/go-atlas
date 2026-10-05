@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -339,19 +340,111 @@ func TestLease_HighRenewRatio(t *testing.T) {
 	})
 }
 
+// memKV is an in-memory [jetstream.KeyValue] holding the few operations a
+// lease uses, so a lease can run inside a [synctest] bubble on virtual time.
+// Every other method panics via the embedded nil interface.
+type memKV struct {
+	jetstream.KeyValue
+
+	mu      sync.Mutex
+	entries map[string]memEntry
+	rev     uint64
+	gets    atomic.Int64
+}
+
+type memEntry struct {
+	jetstream.KeyValueEntry
+
+	key   string
+	value []byte
+	rev   uint64
+}
+
+func (e memEntry) Key() string      { return e.key }
+func (e memEntry) Value() []byte    { return e.value }
+func (e memEntry) Revision() uint64 { return e.rev }
+
+func (m *memKV) put(key string, value []byte) uint64 {
+	m.rev++
+	m.entries[key] = memEntry{key: key, value: bytes.Clone(value), rev: m.rev}
+	return m.rev
+}
+
+func (m *memKV) Create(_ context.Context, key string, value []byte, _ ...jetstream.KVCreateOpt) (uint64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.entries[key]; ok {
+		return 0, jetstream.ErrKeyExists
+	}
+	return m.put(key, value), nil
+}
+
+func (m *memKV) Get(_ context.Context, key string) (jetstream.KeyValueEntry, error) {
+	m.gets.Add(1)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e, ok := m.entries[key]
+	if !ok {
+		return nil, jetstream.ErrKeyNotFound
+	}
+	return e, nil
+}
+
+func (m *memKV) Update(_ context.Context, key string, value []byte, revision uint64) (uint64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if e, ok := m.entries[key]; !ok || e.rev != revision {
+		return 0, jetstream.ErrKeyExists
+	}
+	return m.put(key, value), nil
+}
+
+func (m *memKV) Delete(_ context.Context, key string, _ ...jetstream.KVDeleteOpt) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.entries, key)
+	return nil
+}
+
 // TestLease_ShortTTLHighRatioRenews pins that a lease whose renewal window is
 // shorter than the retry pacing still gets its renewal attempt: with a 100ms
 // TTL at ratio 0.95 the window between the scheduled renewal and the deadline
 // is about 10ms, and renewal must use it rather than give up unattempted.
+//
+// It runs on virtual time against an in-memory bucket, so the result does not
+// depend on how fast the host schedules the renewal or answers it: a renewal
+// scheduled inside the window always completes there, and one scheduled at or
+// past the deadline always reports the lease lost without a request.
 func TestLease_ShortTTLHighRatioRenews(t *testing.T) {
 	t.Parallel()
 
-	const ttl = 100 * time.Millisecond
+	synctest.Test(t, func(t *testing.T) {
+		const ttl = 100 * time.Millisecond
 
-	_, _, lease, events := campLease(t, campSetup{ttl: ttl, ratio: 0.95})
+		kv := &memKV{entries: map[string]memEntry{}}
+		events := &leaseEvents{}
+		lease := natskvlease.NewLease(kv, natskvlease.LeaseConfig{
+			Key:        testLeaseKey,
+			TTL:        ttl,
+			RenewRatio: 0.95,
+			Value:      []byte(testLeaseOwner),
+			IsOwner:    func(v []byte) bool { return bytes.Equal(v, []byte(testLeaseOwner)) },
+			Callbacks:  events.callbacks(),
+		})
 
-	require.Eventually(t, func() bool { return events.renewed.Load() >= 3 },
-		20*ttl, 5*time.Millisecond, "a healthy short lease was not renewed")
-	require.Zero(t, events.lost.Load(), "a healthy short lease was reported lost")
-	require.True(t, lease.IsHeld())
+		acquired, err := lease.RunCamping(t.Context(), time.Second)
+		require.NoError(t, err)
+		require.True(t, acquired)
+
+		time.Sleep(10 * ttl)
+		synctest.Wait()
+
+		require.Zero(t, events.lost.Load(), "a healthy short lease was reported lost")
+		require.GreaterOrEqual(t, events.renewed.Load(), int64(3), "a healthy short lease was not renewed")
+		require.Positive(t, kv.gets.Load())
+		require.True(t, lease.IsHeld())
+
+		lease.StopCamping()
+		synctest.Wait()
+	})
 }
