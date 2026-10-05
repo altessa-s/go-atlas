@@ -535,7 +535,6 @@ func TestMigrateBucketStorage_Rejections(t *testing.T) {
 	})
 
 	for name, kvCfg := range map[string]jetstream.KeyValueConfig{
-		"mirror":    {Mirror: &jetstream.StreamSource{Name: "upstream"}},
 		"sources":   {Sources: []*jetstream.StreamSource{{Name: "upstream"}}},
 		"republish": {RePublish: &jetstream.RePublish{Source: ">", Destination: "republished.>"}},
 	} {
@@ -776,4 +775,35 @@ func TestMigrateBucketStorage_LeaderServedReads(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, s.CachedInfo().Config.Sealed)
 	require.False(t, s.CachedInfo().Config.AllowDirect, "the copy must not use direct gets")
+}
+
+// TestMigrateBucketStorage_LegacyMarker resumes markers written before the
+// migration kind was recorded: they are standalone migrations.
+func TestMigrateBucketStorage_LegacyMarker(t *testing.T) {
+	t.Parallel()
+
+	for _, step := range []string{"after:sealed", "after:source_deleted"} {
+		t.Run(step, func(t *testing.T) {
+			t.Parallel()
+			e := newMigrationEnv(t)
+			last := e.seed(t)
+			failing := e.helper(func(s string) error {
+				if s == step {
+					return errInjected
+				}
+				return nil
+			})
+			require.ErrorIs(t, failing.MigrateBucketStorage(t.Context(), e.target(), true, MigrationOptions{}), errInjected)
+
+			s, err := e.js.Stream(t.Context(), markerStreamName(migBucket))
+			require.NoError(t, err)
+			cfg := s.CachedInfo().Config
+			delete(cfg.Metadata, metaKind)
+			_, err = e.js.UpdateStream(t.Context(), cfg)
+			require.NoError(t, err)
+
+			require.NoError(t, e.helper(nil).MigrateBucketStorage(t.Context(), e.target(), true, MigrationOptions{Resume: true}))
+			e.requireMigrated(t, last)
+		})
+	}
 }

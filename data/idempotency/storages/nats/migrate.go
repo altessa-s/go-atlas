@@ -31,8 +31,8 @@ var ErrBucketMigrationConflict = natskvlease.ErrBucketMigrationConflict
 var ErrMigrationUnsupportedContext = natskvlease.ErrMigrationUnsupportedContext
 
 // ErrMigrationUnsupportedBucket is returned by MigrateBucketStorage for a
-// bucket with a mirror, sources, republishing, a subject transform or a
-// placement.
+// bucket with sources, republishing, a subject transform or a placement, or a
+// reserved bucket name. Mirrors are supported.
 var ErrMigrationUnsupportedBucket = natskvlease.ErrMigrationUnsupportedBucket
 
 // ErrBucketMigrationLocked is returned by MigrateBucketStorage while another
