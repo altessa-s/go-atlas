@@ -93,6 +93,55 @@ func DueTasks(t *testing.T, store scheduler.Storage) {
 	require.ElementsMatch(t, []string{"due_a", "due_b", "due_c", "due_d", "due_e"}, seqIDs(t, store.Tasks(ctx), taskID))
 }
 
+// DueTasksZeroNextRun verifies that an active task whose NextRunAt is zero is
+// due at every now >= 0 and not before, whichever write stored it (UpsertTask,
+// CreateTask or ReplaceTaskIf), while a negative NextRunAt is due at -1; that a
+// zero task in another status is not due; and that a zero task claimed with
+// its observed (zero) NextRunAt leaves the due set and returns only at the
+// NextRunAt its finished run stored.
+// The supplied store must be empty and isolated per invocation.
+//
+//nolint:mnd // Fixed timestamps describe the storage contract.
+func DueTasksZeroNextRun(t *testing.T, store scheduler.Storage) {
+	t.Helper()
+	ctx := t.Context()
+	summary := func(id string, status scheduler.TaskStatus, next int64) *scheduler.TaskState {
+		return &scheduler.TaskState{TaskSummary: scheduler.TaskSummary{ID: id, Status: status, Schedule: "@every 1m", NextRunAt: next}}
+	}
+	require.NoError(t, store.UpsertTask(ctx, summary("zero_upsert", scheduler.TaskStatusActive, 0)))
+	require.NoError(t, store.UpsertTask(ctx, summary("zero_paused", scheduler.TaskStatusPaused, 0)))
+	require.NoError(t, store.UpsertTask(ctx, summary("zero_later", scheduler.TaskStatusActive, 300)))
+	require.NoError(t, store.UpsertTask(ctx, summary("neg", scheduler.TaskStatusActive, -5)))
+	created, err := store.CreateTask(ctx, summary("zero_create", scheduler.TaskStatusActive, 0))
+	require.NoError(t, err)
+	require.True(t, created)
+	require.NoError(t, store.UpsertTask(ctx, summary("zero_replace", scheduler.TaskStatusActive, 300)))
+	stored, err := store.GetTask(ctx, "zero_replace")
+	require.NoError(t, err)
+	replaced, err := store.ReplaceTaskIf(ctx, summary("zero_replace", scheduler.TaskStatusActive, 0), scheduler.FenceOf(stored))
+	require.NoError(t, err)
+	require.True(t, replaced)
+
+	require.Equal(t, []string{"neg"}, seqIDs(t, store.DueTasks(ctx, -1), taskID), "zero is after now = -1")
+	zeros := []string{"neg", "zero_create", "zero_replace", "zero_upsert"}
+	require.Equal(t, zeros, seqIDs(t, store.DueTasks(ctx, 0), taskID))
+	require.Equal(t, zeros, seqIDs(t, store.DueTasks(ctx, 200), taskID))
+
+	claimed, err := store.ClaimRun(ctx, "zero_upsert", scheduler.RunClaim{NextRunAt: 0, StartedAt: 100, RunID: "owner/run"})
+	require.NoError(t, err)
+	require.True(t, claimed, "an active task with a zero NextRunAt must be claimable")
+	require.Equal(t, []string{"neg", "zero_create", "zero_replace"}, seqIDs(t, store.DueTasks(ctx, 200), taskID))
+
+	finished, err := store.FinishRun(ctx, "zero_upsert", "owner/run",
+		scheduler.RunResult{StartedAt: 100, EndedAt: 110, NextRunAt: 360, Schedule: "@every 1m", Success: true})
+	require.NoError(t, err)
+	require.True(t, finished)
+	require.Equal(t, []string{"neg", "zero_create", "zero_replace"}, seqIDs(t, store.DueTasks(ctx, 200), taskID))
+	require.Equal(t, []string{"neg", "zero_create", "zero_later", "zero_replace"}, seqIDs(t, store.DueTasks(ctx, 359), taskID))
+	require.Equal(t, []string{"neg", "zero_create", "zero_later", "zero_replace", "zero_upsert"},
+		seqIDs(t, store.DueTasks(ctx, 360), taskID))
+}
+
 // Identity verifies that task IDs and run-ownership fences compare exactly:
 // IDs differing only by case or a trailing space are distinct rows with
 // separate history, and a run ID differing only by case does not own a run.

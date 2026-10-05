@@ -23,6 +23,7 @@ rests on the atomic compare-and-swap writes, the run-ownership rules of the `Sto
 | `OwnedRunAnyNonZeroStart`     | Ownership requires `RunStartedAt != 0`, not a positive start                                                            |
 | `ClaimRun`                    | Exactly one of many concurrent claims wins; stale occurrence fences and paused tasks lose                               |
 | `DueTasks`                    | Exactly the active tasks with `NextRunAt <= now`, ordered by ID; `Tasks` returns every task (any order)                 |
+| `DueTasksZeroNextRun`         | An active zero-`NextRunAt` task is due however written; claimed, it is due again only at its finished `NextRunAt`       |
 | `Identity`                    | IDs differing only by case or a trailing space are distinct; run ownership is case-sensitive; meta round-trips          |
 | `Pagination`                  | Byte-wise ID order across pages; filters, code-point `size()`; history order `StartedAt DESC, ID DESC`, compound cursor |
 | `ZeroValueFilters`            | Filters treat a zero-valued field as its zero value, however stored; `endsWith` is exact about trailing spaces          |
