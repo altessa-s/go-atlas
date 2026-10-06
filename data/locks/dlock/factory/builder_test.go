@@ -17,6 +17,8 @@ import (
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	locknats "github.com/altessa-s/go-atlas/data/locks/dlock/providers/nats"
+	mongodrv "go.mongodb.org/mongo-driver/v2/mongo"
+	mongoopts "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 // TestBuild_NatsMigrateBucketTTL pins that nats.migrateBucketTTL reaches the
@@ -113,4 +115,31 @@ func TestBuild_NatsStorage(t *testing.T) {
 		}
 		require.Equal(t, want, testhelpers.KVBucketStorage(t, js, bucket), bucket)
 	}
+}
+
+func TestBuild_Mongodb(t *testing.T) {
+	t.Parallel()
+	client, err := mongodrv.Connect(mongoopts.Client().ApplyURI("mongodb://127.0.0.1:1"))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
+	mongoCfg := config.DefaultDistributionLockMongodb()
+
+	t.Run("requires_database", func(t *testing.T) {
+		t.Parallel()
+		_, err := factory.New(&config.DistributionLock{Provider: config.DistributionLockProviderMongodb, Mongodb: &mongoCfg}).Build(t.Context())
+		require.ErrorContains(t, err, "mongo database")
+	})
+	t.Run("requires_section", func(t *testing.T) {
+		t.Parallel()
+		_, err := factory.New(&config.DistributionLock{Provider: config.DistributionLockProviderMongodb}).
+			UseMongoDB(client.Database("x")).Build(t.Context())
+		require.Error(t, err)
+	})
+	t.Run("builds_without_io", func(t *testing.T) {
+		t.Parallel()
+		dl, err := factory.New(&config.DistributionLock{Provider: config.DistributionLockProviderMongodb, Mongodb: &mongoCfg}).
+			UseMongoDB(client.Database("x")).Build(t.Context())
+		require.NoError(t, err)
+		require.NotNil(t, dl)
+	})
 }
