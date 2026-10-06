@@ -5,6 +5,7 @@
 package converter_test
 
 import (
+	"maps"
 	"reflect"
 	"testing"
 	"time"
@@ -151,10 +152,7 @@ func TestConvertMapSeq(t *testing.T) {
 
 	iter := converter.ConvertMapSeq[string, int, string, int](src)
 
-	res := make(map[string]int)
-	for k, v := range iter {
-		res[k] = v
-	}
+	res := maps.Collect(iter)
 
 	require.Equal(t, map[string]int{"one": 1, "two": 2}, res)
 }

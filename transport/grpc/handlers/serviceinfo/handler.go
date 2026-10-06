@@ -103,7 +103,7 @@ func (h *Handler) Snapshot(ctx context.Context) *serviceinfov1.ServiceInfo {
 			leaderID = h.serviceID
 		}
 		if leaderID != "" {
-			out.LeaderId = ptr.Wrap(leaderID)
+			out.LeaderId = new(leaderID)
 		}
 	}
 

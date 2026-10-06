@@ -9,8 +9,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 func TestNilOnEmpty(t *testing.T) {
@@ -22,8 +20,8 @@ func TestNilOnEmpty(t *testing.T) {
 		{"string non-empty", "hello", false},
 		{"string empty", "", false}, // string cannot become nil
 		{"*string nil", (*string)(nil), true},
-		{"*string empty", testhelpers.StringPtr(""), true},
-		{"*string non-empty", testhelpers.StringPtr("hello"), false},
+		{"*string empty", new(""), true},
+		{"*string non-empty", new("hello"), false},
 		{"int unchanged", 42, false},
 	}
 	for _, tt := range tests {

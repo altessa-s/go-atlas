@@ -16,7 +16,6 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/altessa-s/go-atlas/core/collections/slices"
-	"github.com/altessa-s/go-atlas/core/types/ptr"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
@@ -583,7 +582,7 @@ func ListCursor[T any](ctx context.Context, collection *mongo.Collection, o ...L
 		if err != nil {
 			return nil, coreerrs.WrapOperation(err, "generate next cursor")
 		}
-		result.NextCursor = ptr.Wrap(nextCursorToken)
+		result.NextCursor = new(nextCursorToken)
 	} else {
 		// No more pages, return all items
 		result.Items = pipelineResult.Items

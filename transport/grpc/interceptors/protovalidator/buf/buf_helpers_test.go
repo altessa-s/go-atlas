@@ -9,14 +9,12 @@ import (
 
 	"buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	"github.com/stretchr/testify/require"
-
-	"google.golang.org/protobuf/proto"
 )
 
 func fieldPath(names ...string) *validate.FieldPath {
 	elements := make([]*validate.FieldPathElement, 0, len(names))
 	for _, name := range names {
-		elements = append(elements, &validate.FieldPathElement{FieldName: proto.String(name)})
+		elements = append(elements, &validate.FieldPathElement{FieldName: new(name)})
 	}
 	return &validate.FieldPath{Elements: elements}
 }

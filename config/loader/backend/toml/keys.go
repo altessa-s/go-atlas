@@ -181,8 +181,8 @@ func buildShadow(t reflect.Type, visiting map[reflect.Type]bool) *shadow {
 
 	// Every field name of t, to keep a renamed embedded field unique.
 	names := make(map[string]bool, t.NumField())
-	for i := range t.NumField() {
-		names[t.Field(i).Name] = true
+	for field := range t.Fields() {
+		names[field.Name] = true
 	}
 
 	// The decoder tells embedded structs apart by type; a marker field the

@@ -304,7 +304,7 @@ func (e *Expander) ExpandStruct(ctx context.Context, v any) error {
 	}
 
 	rv := reflect.ValueOf(v)
-	if rv.Kind() != reflect.Ptr {
+	if rv.Kind() != reflect.Pointer {
 		return fmt.Errorf("ExpandStruct: expected pointer, got %s", rv.Kind())
 	}
 
@@ -325,7 +325,7 @@ func (e *Expander) walkValue(ctx context.Context, v reflect.Value, path string) 
 	case reflect.String:
 		return e.expandStringField(ctx, v, path)
 
-	case reflect.Ptr:
+	case reflect.Pointer:
 		if v.IsNil() {
 			return nil
 		}
@@ -346,7 +346,7 @@ func (e *Expander) walkValue(ctx context.Context, v reflect.Value, path string) 
 		}
 		// For interface values, we need to get the underlying element
 		elem := v.Elem()
-		if elem.Kind() == reflect.Ptr && !elem.IsNil() {
+		if elem.Kind() == reflect.Pointer && !elem.IsNil() {
 			return e.walkValue(ctx, elem.Elem(), path)
 		}
 		return e.walkValue(ctx, elem, path)
@@ -421,7 +421,7 @@ func (e *Expander) walkMap(ctx context.Context, v reflect.Value, path string) er
 				}
 				v.SetMapIndex(key, reflect.ValueOf(expanded))
 			}
-		} else if val.Kind() == reflect.Ptr || val.Kind() == reflect.Struct ||
+		} else if val.Kind() == reflect.Pointer || val.Kind() == reflect.Struct ||
 			val.Kind() == reflect.Slice || val.Kind() == reflect.Map {
 			// For complex types in maps, we need to make a copy, modify it, and set it back
 			if err := e.walkMapValue(ctx, v, key, val, elemPath); err != nil {
@@ -436,7 +436,7 @@ func (e *Expander) walkMap(ctx context.Context, v reflect.Value, path string) er
 // walkMapValue handles complex values in maps by creating addressable copies.
 func (e *Expander) walkMapValue(ctx context.Context, mapVal reflect.Value, key, val reflect.Value, path string) error {
 	// For pointer types, we can walk directly if not nil
-	if val.Kind() == reflect.Ptr && !val.IsNil() {
+	if val.Kind() == reflect.Pointer && !val.IsNil() {
 		return e.walkValue(ctx, val.Elem(), path)
 	}
 

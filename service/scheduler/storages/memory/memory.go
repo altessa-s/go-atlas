@@ -350,10 +350,7 @@ func (m *Storage) TasksPaginated(_ context.Context, pg scheduler.Pagination, f f
 
 	if f == nil {
 		// No filter: return up to limit+1 items directly
-		endIdx := startIdx + int(pg.Limit) + 1
-		if endIdx > len(states) {
-			endIdx = len(states)
-		}
+		endIdx := min(startIdx+int(pg.Limit)+1, len(states))
 		return states[startIdx:endIdx], nil
 	}
 
@@ -416,10 +413,7 @@ func (m *Storage) HistoryPaginated(_ context.Context, taskID string, pg schedule
 
 	if f == nil {
 		// No filter: return up to limit+1 items directly
-		endIdx := startIdx + int(pg.Limit) + 1
-		if endIdx > len(sorted) {
-			endIdx = len(sorted)
-		}
+		endIdx := min(startIdx+int(pg.Limit)+1, len(sorted))
 
 		result := make([]*scheduler.TaskHistory, 0, endIdx-startIdx)
 		for _, h := range sorted[startIdx:endIdx] {

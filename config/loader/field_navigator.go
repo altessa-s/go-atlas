@@ -665,8 +665,7 @@ func (cf *Config) findFieldIndex(structValue reflect.Value, fieldName string) (r
 // (preserving its tags) so callers can use it as field metadata even when
 // the field is declared inside an embedded struct.
 func (cf *Config) findStructFieldRecursive(structType reflect.Type, fieldName string) (reflect.StructField, bool) {
-	for i := range structType.NumField() {
-		f := structType.Field(i)
+	for f := range structType.Fields() {
 		if f.Anonymous {
 			continue
 		}
@@ -674,8 +673,7 @@ func (cf *Config) findStructFieldRecursive(structType reflect.Type, fieldName st
 			return f, true
 		}
 	}
-	for i := range structType.NumField() {
-		f := structType.Field(i)
+	for f := range structType.Fields() {
 		if !f.Anonymous {
 			continue
 		}

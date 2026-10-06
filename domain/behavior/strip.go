@@ -210,7 +210,7 @@ func cloneValue(v reflect.Value) {
 		v.Set(nv)
 
 	case reflect.Struct:
-		for i := range v.NumField() {
+		for i := range v.NumField() { //nolint:modernize // Value.Fields would also build the unused StructField per field
 			if fld := v.Field(i); fld.CanSet() {
 				cloneValue(fld)
 			}

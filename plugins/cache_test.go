@@ -159,7 +159,7 @@ func TestHashCache_Clear(t *testing.T) {
 	dir := t.TempDir()
 
 	// Add multiple entries
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		path := filepath.Join(dir, fmt.Sprintf("test%d.so", i))
 		require.NoError(t, os.WriteFile(path, []byte("data"), 0o644))
 		stat, err := os.Stat(path)
@@ -168,7 +168,7 @@ func TestHashCache_Clear(t *testing.T) {
 	}
 
 	// Verify all cached
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		path := filepath.Join(dir, fmt.Sprintf("test%d.so", i))
 		hash, ok := cache.get(path)
 		require.True(t, ok)
@@ -179,7 +179,7 @@ func TestHashCache_Clear(t *testing.T) {
 	cache.clear()
 
 	// Verify all entries removed
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		path := filepath.Join(dir, fmt.Sprintf("test%d.so", i))
 		hash, ok := cache.get(path)
 		require.False(t, ok)

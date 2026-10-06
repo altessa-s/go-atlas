@@ -40,10 +40,7 @@ func (s *rangeSource) open(_ context.Context, offset, length int64) (io.ReadClos
 	s.mu.Lock()
 	s.calls = append(s.calls, rangeCall{offset: offset, length: length})
 	s.mu.Unlock()
-	end := offset + length
-	if end > int64(len(s.data)) {
-		end = int64(len(s.data))
-	}
+	end := min(offset+length, int64(len(s.data)))
 	body := s.data[offset:end]
 	if s.truncateTo > 0 && len(body) > s.truncateTo {
 		body = body[:s.truncateTo]

@@ -17,12 +17,13 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/mongo"
-	mongooptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/service/scheduler/factory"
 	"github.com/altessa-s/go-atlas/service/scheduler/storages/sqldb"
+
+	mongooptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 // noConn is a connector that never connects: building the SQL storage

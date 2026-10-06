@@ -9,8 +9,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 func TestWithDomain(t *testing.T) {
@@ -23,7 +21,7 @@ func TestWithDomain(t *testing.T) {
 		{"string_trimmed", WithDomain[string]("  example.com  "), "example.com"},
 		{"empty_string_ignored", WithDomain[string](""), ""},
 		{"whitespace_only_ignored", WithDomain[string]("   "), ""},
-		{"pointer", WithDomain[*string](testhelpers.StringPtr("ptr.example.com")), "ptr.example.com"},
+		{"pointer", WithDomain[*string](new("ptr.example.com")), "ptr.example.com"},
 		{"nil_pointer_ignored", WithDomain[*string](nil), ""},
 	}
 

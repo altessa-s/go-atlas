@@ -236,8 +236,8 @@ func (fs *files) All() iter.Seq[*file] {
 // isEmptyOrCommentsOnly checks if the content contains only comments and whitespace.
 // Returns true if the content has no actual YAML configuration data.
 func isEmptyOrCommentsOnly(content string) bool {
-	lines := strings.Split(content, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(content, "\n")
+	for line := range lines {
 		trimmed := strings.TrimSpace(line)
 		// Skip empty lines and comment lines
 		if trimmed != "" && !strings.HasPrefix(trimmed, "#") {

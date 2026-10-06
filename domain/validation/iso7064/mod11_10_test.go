@@ -33,7 +33,6 @@ func TestMod11_10_InvalidInput(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			ok, err := iso7064.Mod11_10(tc.in)
 			require.Error(t, err)

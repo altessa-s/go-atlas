@@ -14,7 +14,6 @@ import (
 	"github.com/altessa-s/go-atlas/core/types/optional"
 	"github.com/altessa-s/go-atlas/domain/converter"
 	"github.com/altessa-s/go-atlas/domain/converter/codecs/optionalcodec"
-	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
 	convcodec "github.com/altessa-s/go-atlas/domain/converter/codec"
 )
@@ -47,7 +46,7 @@ func TestCodec_OptionalToPointer_None(t *testing.T) {
 
 	src := reflect.ValueOf(optional.None[string]())
 
-	dstPtr := testhelpers.StringPtr("seed")
+	dstPtr := new("seed")
 	dst := reflect.ValueOf(&dstPtr).Elem()
 
 	optionalcodec.Codec("f", src, dst, failingHandler(t))
@@ -70,7 +69,7 @@ func TestCodec_PointerToOptional_Nil(t *testing.T) {
 func TestCodec_PointerToOptional_NonNil(t *testing.T) {
 	t.Parallel()
 
-	srcPtr := testhelpers.StringPtr("hi")
+	srcPtr := new("hi")
 	src := reflect.ValueOf(&srcPtr).Elem()
 
 	var dst optional.Optional[string]
@@ -260,7 +259,7 @@ func TestCodec_IntegrationViaConverter_NoneToNilPointer(t *testing.T) {
 
 	src := entity{DeletedAt: optional.None[time.Time]()}
 
-	dst := model{DeletedAt: testhelpers.TimePtr(time.Now())} // pre-set, must be cleared
+	dst := model{DeletedAt: new(time.Now())} // pre-set, must be cleared
 	conv.Convert(src, &dst)
 	require.Nil(t, dst.DeletedAt)
 }

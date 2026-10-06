@@ -121,14 +121,14 @@ func processPair(params map[string]string, pair string) {
 		return
 	}
 
-	equalPos := strings.IndexByte(pair, '=')
-	if equalPos == -1 {
+	before, after, ok := strings.Cut(pair, "=")
+	if !ok {
 		// Parameter without value
 		params[pair] = ""
 		return
 	}
 
-	key := strings.TrimSpace(pair[:equalPos])
-	value := strings.TrimSpace(pair[equalPos+1:])
+	key := strings.TrimSpace(before)
+	value := strings.TrimSpace(after)
 	params[key] = value
 }

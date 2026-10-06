@@ -7,6 +7,7 @@ package plugin
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -162,9 +163,7 @@ func (r *Registry) CheckSpecs() map[string]CheckSpec {
 		return nil
 	}
 	out := make(map[string]CheckSpec, len(r.checkSpecs))
-	for k, v := range r.checkSpecs {
-		out[k] = v
-	}
+	maps.Copy(out, r.checkSpecs)
 	return out
 }
 

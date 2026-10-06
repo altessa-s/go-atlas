@@ -6,6 +6,7 @@ package convert
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"reflect"
 	"slices"
@@ -216,9 +217,7 @@ func (conv *ConfigToMarkdownConverter) processValueWithType(result map[string]va
 		// Nested map - recurse
 		if mapValue, ok := value.(map[string]any); ok {
 			nested := conv.flattenConfigWithTypes(mapValue, key)
-			for k, vi := range nested {
-				result[k] = vi
-			}
+			maps.Copy(result, nested)
 		}
 
 	case reflect.Slice, reflect.Array:

@@ -139,8 +139,7 @@ func TestRedactedString_UnderlyingKindString(t *testing.T) {
 	// The reflect-based config loader, yaml.v3 scalar decoder, and Mongo
 	// driver all rely on RedactedString having underlying kind string;
 	// guard against an accidental redefinition (e.g., to a struct).
-	var s redacted.RedactedString
-	require.Equal(t, reflect.String, reflect.TypeOf(s).Kind())
+	require.Equal(t, reflect.String, reflect.TypeFor[redacted.RedactedString]().Kind())
 }
 
 func TestRedactedString_Comparable(t *testing.T) {

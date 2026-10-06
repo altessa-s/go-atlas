@@ -50,7 +50,7 @@ func TestBuild_WithClientService_AppliesClientLimit(t *testing.T) {
 	ctx := tokenbucket.ContextWithAuthToken(context.Background(), "t-123")
 	ctx = tokenbucket.ContextWithClientIP(ctx, "127.0.0.1")
 
-	for i := 0; i < clientLimit; i++ {
+	for i := range clientLimit {
 		info, err := l.Limit(ctx)
 		require.NoError(t, err, "request %d within client-specific limit should be allowed", i+1)
 		require.Equal(t, int64(clientLimit), info.Limit, "LimitInfo must reflect the client-specific limit, not the default rule")

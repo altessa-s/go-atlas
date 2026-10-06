@@ -5,6 +5,8 @@
 package postprocess
 
 import (
+	"slices"
+
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/model"
 	"github.com/altessa-s/go-atlas/tools/codegen/optgen/plugin"
 
@@ -63,13 +65,7 @@ func (m *PositiveModifier) Generate(ctx plugin.GenerationContext, field model.Op
 	}
 
 	// Check if allow_zero is specified
-	allowZero := false
-	for _, mod := range field.Modifiers {
-		if mod == "positive=allow_zero" {
-			allowZero = true
-			break
-		}
-	}
+	allowZero := slices.Contains(field.Modifiers, "positive=allow_zero")
 
 	var op string
 	if allowZero {

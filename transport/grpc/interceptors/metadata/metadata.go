@@ -82,9 +82,9 @@ func NewCallMetadata[T callerConstraint](ctx context.Context, fullMethod string,
 	} else {
 		// Slow path: parse and intern
 		trimmed := strings.TrimPrefix(fullMethod, "/")
-		if i := strings.Index(trimmed, "/"); i >= 0 {
-			callMetadata.ServiceName = corestrings.InternString(trimmed[:i])
-			callMetadata.MethodName = corestrings.InternString(trimmed[i+1:])
+		if before, after, ok0 := strings.Cut(trimmed, "/"); ok0 {
+			callMetadata.ServiceName = corestrings.InternString(before)
+			callMetadata.MethodName = corestrings.InternString(after)
 		} else {
 			callMetadata.ServiceName = corestrings.InternString(trimmed)
 		}

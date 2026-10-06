@@ -50,8 +50,7 @@ func omittedZeroFields(doc reflect.Type, mapping *coremaps.ImmutableMap[string, 
 		celNames[bsonName] = cel
 	}
 	fields := make(map[string]filter.FieldKind)
-	for i := range doc.NumField() {
-		f := doc.Field(i)
+	for f := range doc.Fields() {
 		name, opts, _ := strings.Cut(f.Tag.Get("bson"), ",")
 		if !slices.Contains(strings.Split(opts, ","), "omitempty") {
 			continue

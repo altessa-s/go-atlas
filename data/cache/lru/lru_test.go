@@ -7,6 +7,7 @@ package lru
 import (
 	"context"
 	"errors"
+	"maps"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -69,10 +70,7 @@ func TestCache_All(t *testing.T) {
 	c.Put("a", 1)
 	c.Put("b", 2)
 
-	pairs := make(map[string]int)
-	for k, v := range c.All() {
-		pairs[k] = v
-	}
+	pairs := maps.Collect(c.All())
 	require.Equal(t, 1, pairs["a"])
 	require.Equal(t, 2, pairs["b"])
 }

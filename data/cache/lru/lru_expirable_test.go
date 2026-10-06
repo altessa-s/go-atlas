@@ -7,6 +7,7 @@ package lru_test
 import (
 	"context"
 	"errors"
+	"maps"
 	"slices"
 	"sync"
 	"testing"
@@ -109,10 +110,7 @@ func TestExpirableCache_Iterators(t *testing.T) {
 	slices.Sort(keys)
 	require.Equal(t, []string{"a", "b"}, keys)
 
-	pairs := map[string]int{}
-	for k, v := range cache.All() {
-		pairs[k] = v
-	}
+	pairs := maps.Collect(cache.All())
 	require.Equal(t, map[string]int{"a": 1, "b": 2}, pairs)
 }
 

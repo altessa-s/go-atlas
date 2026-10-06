@@ -342,8 +342,8 @@ func (m *middleware) areHeadersAllowed(requestedHeaders string) bool {
 		return true
 	}
 
-	headers := strings.Split(requestedHeaders, ",")
-	for _, header := range headers {
+	headers := strings.SplitSeq(requestedHeaders, ",")
+	for header := range headers {
 		header = strings.TrimSpace(header)
 		header = corestrings.InternLowerString(header)
 		if _, ok := m.allowedHeadersMap[header]; !ok {

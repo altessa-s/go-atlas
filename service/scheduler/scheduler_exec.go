@@ -8,6 +8,7 @@ import (
 	"cmp"
 	"context"
 	"log/slog"
+	"maps"
 	"runtime"
 	"slices"
 	"strings"
@@ -103,9 +104,7 @@ func (s *Scheduler) tick() {
 
 	s.mu.RLock()
 	tasksCopy := make(map[string]*registeredTask, len(s.tasks))
-	for id, task := range s.tasks {
-		tasksCopy[id] = task
-	}
+	maps.Copy(tasksCopy, s.tasks)
 	s.mu.RUnlock()
 
 	now := time.Now()

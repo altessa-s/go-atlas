@@ -225,8 +225,8 @@ func TestWithCodecs_InterceptsStructKind(t *testing.T) {
 		Name displayName
 	}
 
-	legacyType := reflect.TypeOf(legacyName{})
-	displayType := reflect.TypeOf(displayName{})
+	legacyType := reflect.TypeFor[legacyName]()
+	displayType := reflect.TypeFor[displayName]()
 
 	// Maps legacyName -> displayName. Field names differ, so the default struct
 	// copy would leave Value empty; only the codec can populate it.
@@ -285,8 +285,8 @@ func TestWithCodecs_InterceptsSliceAndMapElements(t *testing.T) {
 		ByRegion map[string]displayName
 	}
 
-	legacyType := reflect.TypeOf(legacyName{})
-	displayType := reflect.TypeOf(displayName{})
+	legacyType := reflect.TypeFor[legacyName]()
+	displayType := reflect.TypeFor[displayName]()
 
 	codec := func(field string, s, d reflect.Value, next convcodec.CodecHandler) {
 		si := reflect.Indirect(s)
@@ -330,8 +330,8 @@ func TestWithCodecs_InterceptsNestedStructField(t *testing.T) {
 	type src struct{ Inner srcInner }
 	type dst struct{ Inner dstInner }
 
-	legacyType := reflect.TypeOf(legacyName{})
-	displayType := reflect.TypeOf(displayName{})
+	legacyType := reflect.TypeFor[legacyName]()
+	displayType := reflect.TypeFor[displayName]()
 
 	codec := func(field string, s, d reflect.Value, next convcodec.CodecHandler) {
 		si := reflect.Indirect(s)

@@ -258,8 +258,7 @@ func allocatedByFieldList(t reflect.Type, visiting map[reflect.Type]bool) bool {
 	}
 	visiting[t] = true
 
-	for i := range t.NumField() {
-		sf := t.Field(i)
+	for sf := range t.Fields() {
 		if sf.PkgPath != "" {
 			continue
 		}

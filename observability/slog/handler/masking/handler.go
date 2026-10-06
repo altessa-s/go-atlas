@@ -356,8 +356,7 @@ func (h *Handler) computeTypeCanMatch(t reflect.Type, visiting map[reflect.Type]
 	switch t.Kind() {
 	case reflect.Struct:
 		visiting[t] = true
-		for i := range t.NumField() {
-			ft := t.Field(i)
+		for ft := range t.Fields() {
 			if !ft.IsExported() {
 				continue
 			}

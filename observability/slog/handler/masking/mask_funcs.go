@@ -491,8 +491,8 @@ func S3URLMask() MaskFunc {
 		}
 
 		// Try to extract operation ID from path
-		pathParts := strings.Split(strings.Trim(path, "/"), "/")
-		for _, part := range pathParts {
+		pathParts := strings.SplitSeq(strings.Trim(path, "/"), "/")
+		for part := range pathParts {
 			// Look for parts that look like operation IDs
 			if strings.HasPrefix(part, "op-") ||
 				strings.HasPrefix(part, "operation-") ||

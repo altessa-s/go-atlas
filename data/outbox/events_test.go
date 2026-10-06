@@ -10,8 +10,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/altessa-s/go-atlas/internal/testhelpers"
 )
 
 func TestEvent_NextAttempt(t *testing.T) {
@@ -38,7 +36,7 @@ func TestEvent_SetErrorStatus_ContextCanceled(t *testing.T) {
 }
 
 func TestEvent_SetSentStatus(t *testing.T) {
-	e := &Event{LastError: testhelpers.StringPtr("old error")}
+	e := &Event{LastError: new("old error")}
 	e.setSentStatus()
 	require.Equal(t, StatusSent, e.Status)
 	require.Nil(t, e.LastError)
@@ -46,7 +44,7 @@ func TestEvent_SetSentStatus(t *testing.T) {
 }
 
 func TestEvent_SetSkippedStatus(t *testing.T) {
-	e := &Event{LastError: testhelpers.StringPtr("old error")}
+	e := &Event{LastError: new("old error")}
 	e.setSkippedStatus()
 	require.Equal(t, StatusSkipped, e.Status)
 	require.Nil(t, e.LastError)
