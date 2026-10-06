@@ -239,7 +239,13 @@ func checkCloneable(t reflect.Type) error {
 }
 
 // hasCloneMethod reports whether t has a Clone method of shape func() t.
+// Interface types never count: deepCopier follows an interface to its dynamic
+// value, and an interface method's reflected type has no receiver parameter,
+// so the shape check below would misread it.
 func hasCloneMethod(t reflect.Type) bool {
+	if t.Kind() == reflect.Interface {
+		return false
+	}
 	m, ok := t.MethodByName("Clone")
 	return ok && m.Type.NumIn() == 1 && m.Type.NumOut() == 1 && m.Type.Out(0) == t
 }

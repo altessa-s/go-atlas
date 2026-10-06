@@ -204,6 +204,15 @@ func New[T any](secretStorage Provider[T], opt ...Option) (*Manager[T], error) {
 	if err != nil {
 		return nil, coreerrs.Wrap(err, "initialize manager")
 	}
+	// A cache supplied with WithCache may already hold payloads that never
+	// passed the per-value check.
+	if checkValues {
+		for key, v := range cache.All() {
+			if err := checkCloneableValue(reflect.ValueOf(&v.Value).Elem()); err != nil {
+				return nil, coreerrs.Wrapf(err, "cached secret %q", key)
+			}
+		}
+	}
 
 	mgr := &Manager[T]{
 		secretStorage:  secretStorage,
