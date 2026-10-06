@@ -13,7 +13,6 @@
 //     stores observations in memory, so tests do not depend on Prometheus.
 //   - Filter expression parsing ([MustParseFilter]) and order_by parsing
 //     ([MustParseOrderBy]).
-//   - Pointer helpers ([StringPtr], [IntPtr], [TimePtr]).
 //   - HTTP and I/O test doubles ([RoundTripFunc], [MockReadCloser]).
 //   - NATS/JetStream helpers for spinning up embedded servers ([StartNATSServer],
 //     [ConnectNATS], [ConnectJetStream], [CreateNATSKV]), reading a bucket's

@@ -10,22 +10,6 @@ import (
 	"github.com/altessa-s/go-atlas/core/types/ptr"
 )
 
-func BenchmarkWrapInt(b *testing.B) {
-	var sink *int
-	for b.Loop() {
-		sink = ptr.Wrap(42)
-	}
-	_ = sink
-}
-
-func BenchmarkWrapString(b *testing.B) {
-	var sink *string
-	for b.Loop() {
-		sink = ptr.Wrap("hello")
-	}
-	_ = sink
-}
-
 func BenchmarkWrapNonZeroHit(b *testing.B) {
 	var sink *int
 	for b.Loop() {
@@ -43,7 +27,7 @@ func BenchmarkWrapNonZeroMiss(b *testing.B) {
 }
 
 func BenchmarkUnwrapHit(b *testing.B) {
-	p := ptr.Wrap(42)
+	p := new(42)
 	var sink int
 	for b.Loop() {
 		sink = ptr.Unwrap(p)

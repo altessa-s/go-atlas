@@ -68,8 +68,6 @@ func (a *loaderAuth) Count(context.Context) (int64, error) { return -1, nil }
 
 var _ probfilter.DataLoader = (*loaderAuth)(nil)
 
-func ptr[T any](v T) *T { return &v }
-
 func isRevoked(t *testing.T, c *negcache.Cache, key string) bool {
 	t.Helper()
 	got, err := c.IsRevoked(t.Context(), key)
@@ -96,8 +94,8 @@ func TestBuild_RebuildOnStartDisabledLeavesCacheUnpopulated(t *testing.T) {
 	t.Parallel()
 	defaults := config.DefaultProbabilisticFilterDefaults()
 	cfg := memoryBloomConfig()
-	cfg.Bloom.RebuildOnStart = ptr(false)
-	cfg.Bloom.RebuildCron = ptr("")
+	cfg.Bloom.RebuildOnStart = new(false)
+	cfg.Bloom.RebuildCron = new("")
 	auth := newLoaderAuth("revoked")
 
 	cache, err := factory.NewBuilder("denylist", cfg, &defaults, auth).Build()
@@ -163,8 +161,8 @@ func TestBuild_RedisFilterRegistersSchedulerTask(t *testing.T) {
 	client, _ := testhelpers.RedisClient(t)
 	defaults := config.DefaultProbabilisticFilterDefaults()
 	cfg := redisBloomConfig()
-	cfg.Bloom.RebuildOnStart = ptr(false) // miniredis cannot run RedisBloom commands
-	cfg.Bloom.RebuildCron = ptr("@every 5m")
+	cfg.Bloom.RebuildOnStart = new(false) // miniredis cannot run RedisBloom commands
+	cfg.Bloom.RebuildCron = new("@every 5m")
 	sched := &testhelpers.MockTaskRegistrar{}
 
 	cache, err := factory.NewBuilder("denylist", cfg, &defaults, newLoaderAuth()).
@@ -203,7 +201,7 @@ func TestBuild_PeerRebuildingSharedFilterBuildsUnpopulated(t *testing.T) {
 	client, _ := testhelpers.RedisClient(t)
 	defaults := config.DefaultProbabilisticFilterDefaults()
 	cfg := redisBloomConfig()
-	cfg.Bloom.RebuildCron = ptr("")
+	cfg.Bloom.RebuildCron = new("")
 
 	holdLease(t, client, "denylist")
 
@@ -243,8 +241,8 @@ func TestCache_CloseStopsLocalCron(t *testing.T) {
 	t.Parallel()
 	defaults := config.DefaultProbabilisticFilterDefaults()
 	cfg := memoryBloomConfig()
-	cfg.Bloom.RebuildOnStart = ptr(false)
-	cfg.Bloom.RebuildCron = ptr("@every 1s")
+	cfg.Bloom.RebuildOnStart = new(false)
+	cfg.Bloom.RebuildCron = new("@every 1s")
 	auth := newLoaderAuth()
 
 	cache, err := factory.NewBuilder("denylist", cfg, &defaults, auth).Build()

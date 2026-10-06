@@ -32,8 +32,6 @@ import (
 
 var errLoad = errors.New("load failed")
 
-func ptr[T any](v T) *T { return &v }
-
 func bloomCfg() *config.ProbabilisticFilterConfig {
 	return &config.ProbabilisticFilterConfig{
 		Type:  config.ProbabilisticFilterTypeBloom,
@@ -126,8 +124,8 @@ func TestFilterBuilder_RebuildOnStart_WithoutScheduler(t *testing.T) {
 func TestFilterBuilder_RebuildOnStartDisabled(t *testing.T) {
 	t.Parallel()
 	cfg := bloomCfg()
-	cfg.Bloom.RebuildOnStart = ptr(false)
-	cfg.Bloom.RebuildCron = ptr("")
+	cfg.Bloom.RebuildOnStart = new(false)
+	cfg.Bloom.RebuildCron = new("")
 
 	f, err := factory.NewFilter("users", cfg, defaults()).UseDataLoader(loaderOf("a")).Build()
 	require.NoError(t, err)
@@ -146,7 +144,7 @@ func redisBloomCfg() *config.ProbabilisticFilterConfig {
 	cfg := bloomCfg()
 	storage := config.ProbabilisticFilterStorageTypeRedis
 	cfg.Bloom.Storage = &storage
-	cfg.Bloom.RebuildOnStart = ptr(false)
+	cfg.Bloom.RebuildOnStart = new(false)
 	return cfg
 }
 
@@ -155,7 +153,7 @@ func TestFilterBuilder_SharedFilterRegistersSchedulerTask(t *testing.T) {
 	client, _ := testhelpers.RedisClient(t)
 	sched := &testhelpers.MockTaskRegistrar{}
 	cfg := redisBloomCfg()
-	cfg.Bloom.RebuildCron = ptr("@every 5m")
+	cfg.Bloom.RebuildCron = new("@every 5m")
 
 	f, err := factory.NewFilter("users", cfg, defaults()).
 		UseRedisClient(client).
@@ -206,7 +204,7 @@ func TestFilterBuilder_MemoryFilterRebuildsOnStartEvenWithScheduler(t *testing.T
 func TestFilterBuilder_MemoryFilterLocalCron(t *testing.T) {
 	t.Parallel()
 	cfg := bloomCfg()
-	cfg.Bloom.RebuildCron = ptr("@every 1s")
+	cfg.Bloom.RebuildCron = new("@every 1s")
 	loader := &countingLoader{}
 
 	f, err := factory.NewFilter("users", cfg, defaults()).UseDataLoader(loader).Build()
@@ -224,7 +222,7 @@ func TestFilterBuilder_MemoryFilterLocalCron(t *testing.T) {
 func TestFilterBuilder_InvalidCronFailsBuild(t *testing.T) {
 	t.Parallel()
 	cfg := bloomCfg()
-	cfg.Bloom.RebuildCron = ptr("not a cron")
+	cfg.Bloom.RebuildCron = new("not a cron")
 
 	_, err := factory.NewFilter("users", cfg, defaults()).UseDataLoader(loaderOf("a")).Build()
 	require.ErrorContains(t, err, "invalid rebuildCron")
@@ -234,7 +232,7 @@ func TestFilterBuilder_EmptyCronWithScheduler_RebuildsSynchronously(t *testing.T
 	t.Parallel()
 	sched := &testhelpers.MockTaskRegistrar{}
 	cfg := bloomCfg()
-	cfg.Bloom.RebuildCron = ptr("")
+	cfg.Bloom.RebuildCron = new("")
 
 	f, err := factory.NewFilter("users", cfg, defaults()).
 		UseDataLoader(loaderOf("a")).
@@ -273,9 +271,9 @@ func TestFilterBuilder_CuckooDeprecatedSettingsWarn(t *testing.T) {
 		Type: config.ProbabilisticFilterTypeCuckoo,
 		Cuckoo: &config.ProbabilisticFilterCuckooConfig{
 			Capacity:           100,
-			FingerprintSize:    ptr(16),
-			CapacityMultiplier: ptr(3.0),
-			MaxCapacity:        ptr(int64(5000)),
+			FingerprintSize:    new(16),
+			CapacityMultiplier: new(3.0),
+			MaxCapacity:        new(int64(5000)),
 		},
 	}
 
@@ -310,7 +308,7 @@ func TestFilterBuilder_CuckooRedisExpansion(t *testing.T) {
 		Cuckoo: &config.ProbabilisticFilterCuckooConfig{
 			Storage:            &storage,
 			Capacity:           100,
-			CapacityMultiplier: ptr(2.5),
+			CapacityMultiplier: new(2.5),
 		},
 	}
 	f, err := factory.NewFilter("sessions", cfg, defaults()).UseRedisClient(client).Build()
@@ -356,7 +354,7 @@ func TestManagerBuilder_LaterFailureDeactivatesEarlierTasks(t *testing.T) {
 	client, _ := testhelpers.RedisClient(t)
 	sched := &testhelpers.MockTaskRegistrar{}
 	broken := bloomCfg()
-	broken.Bloom.RebuildCron = ptr("not a cron") // fails Build after the earlier filter registered its task
+	broken.Bloom.RebuildCron = new("not a cron") // fails Build after the earlier filter registered its task
 
 	cfg := &config.ProbabilisticFilter{
 		Defaults: defaults(),
@@ -402,7 +400,7 @@ func (l *blockingLoader) Count(context.Context) (int64, error) { return 1, nil }
 func TestFilterBuilder_LocalCronSkipsTicksWhileRebuilding(t *testing.T) {
 	t.Parallel()
 	cfg := bloomCfg()
-	cfg.Bloom.RebuildCron = ptr("@every 1s")
+	cfg.Bloom.RebuildCron = new("@every 1s")
 	loader := &blockingLoader{release: make(chan struct{})}
 
 	f, err := factory.NewFilter("users", cfg, defaults()).UseDataLoader(loader).Build()
@@ -429,7 +427,7 @@ func TestFilterBuilder_LocalCronSkipsTicksWhileRebuilding(t *testing.T) {
 // tests would disturb (they start only after the sequential tests finished).
 func TestFilterBuilder_CloseStopsLocalCronImmediately(t *testing.T) {
 	cfg := bloomCfg()
-	cfg.Bloom.RebuildCron = ptr("@yearly")
+	cfg.Bloom.RebuildCron = new("@yearly")
 	baseline := runtime.NumGoroutine()
 
 	const n = 20
@@ -488,7 +486,7 @@ func TestFilterBuilder_RebuildOnStart_PeerRebuildingFailsBuild(t *testing.T) {
 	client, _ := testhelpers.RedisClient(t)
 	holdRebuildLease(t, client)
 	cfg := redisBloomCfg()
-	cfg.Bloom.RebuildOnStart = ptr(true)
+	cfg.Bloom.RebuildOnStart = new(true)
 
 	_, err := factory.NewFilter("users", cfg, defaults()).
 		UseRedisClient(client).
@@ -502,7 +500,7 @@ func TestFilterBuilder_RebuildOnStart_TolerateRebuildInProgress(t *testing.T) {
 	client, _ := testhelpers.RedisClient(t)
 	holdRebuildLease(t, client)
 	cfg := redisBloomCfg()
-	cfg.Bloom.RebuildOnStart = ptr(true)
+	cfg.Bloom.RebuildOnStart = new(true)
 	logger, logs := newLogger()
 
 	f, err := factory.NewFilter("users", cfg, defaults()).
