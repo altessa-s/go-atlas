@@ -20,6 +20,7 @@ const (
 	defaultSecretsRetryBaseDelay   = time.Second
 	defaultSecretsRetryMaxDelay    = time.Minute
 	defaultSecretsRetryMultiplier  = 2.0
+	defaultSecretsEmptyListings    = 3
 	defaultSecretsVaultMountPath   = "kv"
 	defaultSecretsVaultSecretPath  = "blitz"
 	defaultSecretsVaultCAS         = false
@@ -107,6 +108,16 @@ type Secrets struct {
 	// RunOnStart triggers an immediate update cycle when starting.
 	RunOnStart bool `yaml:"runOnStart" default:"true"`
 
+	// EmptyListingThreshold is the number of consecutive successful empty
+	// listings after which an update cycle clears the cache; fewer keep it,
+	// so a provider that transiently lists nothing cannot wipe it. Zero uses
+	// the manager default (3).
+	EmptyListingThreshold int `yaml:"emptyListingThreshold" default:"3"`
+
+	// AllowShallowClone accepts payloads whose copy would share mutable memory
+	// with the cached value instead of rejecting them. Defaults to false.
+	AllowShallowClone bool `yaml:"allowShallowClone" default:"false"`
+
 	// Cache contains cache configuration.
 	Cache SecretsCache `yaml:"cache"`
 
@@ -129,9 +140,10 @@ type Secrets struct {
 // DefaultSecrets returns a Secrets configuration with default values.
 func DefaultSecrets() Secrets {
 	return Secrets{
-		Provider:       defaultSecretsProvider,
-		UpdateSchedule: defaultSecretsUpdateSchedule,
-		RunOnStart:     true,
+		Provider:              defaultSecretsProvider,
+		UpdateSchedule:        defaultSecretsUpdateSchedule,
+		RunOnStart:            true,
+		EmptyListingThreshold: defaultSecretsEmptyListings,
 		Cache: SecretsCache{
 			MaxSize: defaultSecretsCacheMaxSize,
 		},
@@ -164,6 +176,7 @@ func (s *Secrets) Validate() error {
 			SecretsProviderLockbox,
 		)),
 		validation.Field(&s.UpdateSchedule, validation.Required),
+		validation.Field(&s.EmptyListingThreshold, validation.Min(0)),
 		validation.Field(&s.Cache),
 		validation.Field(&s.Retry),
 		validation.Field(&s.Vault, validation.When(s.Provider == SecretsProviderVault, validation.Required)),
