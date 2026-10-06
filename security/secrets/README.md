@@ -34,8 +34,9 @@ the `Manager` cached or deleted after the cycle began — `Save`, a forced `Valu
 listing may predate those writes: the cycle neither evicts, overwrites nor re-inserts them, and the next cycle reconciles them. A bounded
 cache can still drop such an entry by capacity when the cycle inserts another key, as any insertion can; that never clears the value.
 
-Known behavior: a successful listing that returns no secrets at all leaves the cache as it is. Cached secrets are neither evicted nor
-cleared until a non-empty listing reconciles them, so a provider that transiently lists nothing cannot wipe the cache.
+A successful listing that returns no secrets at all leaves the cache as it is until `WithEmptyListingThreshold` consecutive cycles (default
+`DefaultEmptyListingThreshold`, 3) list nothing; the cycle that reaches the threshold evicts and clears the cached secrets. A provider that
+transiently lists nothing cannot wipe the cache, while a deleted last secret still stops being served.
 
 With a rebuildable negative filter the cycle also rebuilds the filter from the listing. When the filter is shared through Redis, only one
 node rebuilds at a time: the others get `probfilter.ErrRebuildInProgress`, log it at debug level and still refresh their cache. Any other
@@ -59,7 +60,11 @@ are not concurrently deleted, evicted or cleared (for example a cache sized for 
 Copies are deep. A payload type with a `Clone() T` method controls its own copy; otherwise strings, slices, arrays, maps (keys and values),
 pointers, interfaces and exported struct fields are copied by reflection, keeping identical references and cycles shared within the copy.
 Overlapping slice views, interior pointers, unexported fields, channels and funcs are not reproduced by reflection — such payload types
-should implement `Clone() T`.
+should implement `Clone() T`. `New` rejects a payload type whose copy would share mutable memory that way (an unexported field reaching a
+reference, a channel, a func or an unsafe pointer) with `ErrUncloneablePayload`, unless `WithAllowShallowClone` is set; `time.Time` and the
+`net/netip` address types count as immutable. When the payload type can hold interface values (`any`, as the factory builds), the check runs
+on each value instead: `Save` and a provider fetch return `ErrUncloneablePayload`, and an update cycle skips such a listed value — keeping a
+cached older version and reporting no event for the key.
 
 Watch events carry their own copies too: `WatchEvent.Value` and `PreviousValue` belong to the receiver, which should `Clear` them when
 done. The `Manager` never reads or clears them after sending, and clearing them affects neither the cache nor other watchers.

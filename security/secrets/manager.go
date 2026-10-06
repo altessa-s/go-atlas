@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"reflect"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -78,6 +79,13 @@ type Manager[T any] struct {
 
 	// lastUpdateTime tracks the timestamp of the last successful cache synchronization
 	lastUpdateTime atomic.Value // time.Time
+	// emptyListings counts consecutive successful empty listings; see
+	// WithEmptyListingThreshold.
+	emptyListings atomic.Int32
+	// checkValues makes every payload entering the cache pass
+	// checkCloneableValue: T can reach interface values, whose dynamic types
+	// New could not check.
+	checkValues bool
 
 	// watchManager handles watch operations and event dispatching for real-time notifications
 	watchManager *watchManager[T]
@@ -183,6 +191,14 @@ func getOrCreateCache[T any](opts *options) (Cache[string, *Value[T]], error) {
 func New[T any](secretStorage Provider[T], opt ...Option) (*Manager[T], error) {
 	opts := newOptions(opt...)
 
+	checkValues := false
+	if !opts.allowShallowClone {
+		if err := checkCloneable(reflect.TypeFor[T]()); err != nil {
+			return nil, err
+		}
+		checkValues = reachesInterface(reflect.TypeFor[T](), map[reflect.Type]bool{})
+	}
+
 	// Get provided cache or create default standard cache
 	cache, err := getOrCreateCache[T](opts)
 	if err != nil {
@@ -196,6 +212,7 @@ func New[T any](secretStorage Provider[T], opt ...Option) (*Manager[T], error) {
 		metrics:        newSecretsMetrics(opts.collector),
 		negativeFilter: opts.negativeFilter,
 		scheduler:      opts.scheduler,
+		checkValues:    checkValues,
 	}
 
 	// Initialize atomic values
@@ -384,6 +401,10 @@ func (t *Manager[T]) updateValueWithRetry(ctx context.Context, key string) (*Val
 	)
 
 	if err != nil {
+		return nil, err
+	}
+
+	if err := t.checkPayload(val.Value); err != nil {
 		return nil, err
 	}
 
@@ -800,6 +821,10 @@ func (t *Manager[T]) saveWithRetry(ctx context.Context, key string, value T) err
 	}
 	defer st.unlock()
 
+	if err := t.checkPayload(value); err != nil {
+		return err
+	}
+
 	// The provider may keep the saved payload, so it gets its own copy: a
 	// caller-held or cached value cleared later must not zero it.
 	value = cloneSecret(value)
@@ -852,6 +877,10 @@ func (t *Manager[T]) saveWithRetry(ctx context.Context, key string, value T) err
 		return nil
 	}
 
+	if err := t.checkPayload(val.Value); err != nil {
+		t.opts.logger.ErrorContext(ctx, "saved value not cached", slogx.Error(err), slog.String("key", key))
+		return nil
+	}
 	if !t.cachePutUnlessSaved(key, val.clone(), ver, gen) {
 		t.opts.logger.DebugContext(ctx, "skipping cache write — key changed again since this save", slog.String("key", key))
 		return nil
@@ -992,4 +1021,13 @@ func (t *Manager[T]) WatchKey(ctx context.Context, key string) (*WatchResult[T],
 func isRebuildable(f Filter) bool {
 	_, ok := f.(probfilter.RebuildableFilter)
 	return ok
+}
+
+// checkPayload rejects, wrapping [ErrUncloneablePayload], a payload whose copy
+// would share mutable memory with the original; see [WithAllowShallowClone].
+func (t *Manager[T]) checkPayload(v T) error {
+	if !t.checkValues {
+		return nil
+	}
+	return checkCloneableValue(reflect.ValueOf(&v).Elem())
 }
