@@ -6,6 +6,7 @@ package model
 
 import (
 	"go/ast"
+	"slices"
 	"strings"
 )
 
@@ -36,12 +37,7 @@ func (f OptField) HasModifier(modifier string) bool {
 	if !f.HasModifiers {
 		return false
 	}
-	for _, mod := range f.Modifiers {
-		if mod == modifier {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(f.Modifiers, modifier)
 }
 
 // ImportInfo holds a resolved package import as found in the source file being parsed.

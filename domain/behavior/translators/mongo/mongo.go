@@ -251,8 +251,8 @@ func recurseIntoStruct(t reflect.Type) bool {
 
 // hasExportedField reports whether t has at least one exported field.
 func hasExportedField(t reflect.Type) bool {
-	for i := range t.NumField() {
-		if t.Field(i).IsExported() {
+	for field := range t.Fields() {
+		if field.IsExported() {
 			return true
 		}
 	}

@@ -7,7 +7,10 @@
 
 package plugin
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // IsTruthyString reports whether s represents a boolean-true value after
 // trimming whitespace and lowercasing. Recognized truthy representations:
@@ -38,10 +41,5 @@ func IsTruthyMetadata(md map[string]string, key string) bool {
 
 // HasModifier reports whether the modifiers slice contains an exact match for modifier.
 func HasModifier(modifiers []string, modifier string) bool {
-	for _, mod := range modifiers {
-		if mod == modifier {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(modifiers, modifier)
 }

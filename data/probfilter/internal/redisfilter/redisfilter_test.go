@@ -5,6 +5,7 @@
 package redisfilter_test
 
 import (
+	"maps"
 	"slices"
 	"sync"
 	"testing"
@@ -386,10 +387,7 @@ func TestInfoFields(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got := map[string]any{}
-			for key, val := range redisfilter.InfoFields(tc.result) {
-				got[key] = val
-			}
+			got := maps.Collect(redisfilter.InfoFields(tc.result))
 			require.Equal(t, tc.want, got)
 		})
 	}

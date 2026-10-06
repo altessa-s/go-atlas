@@ -180,7 +180,7 @@ func TestReadPrivateKey(t *testing.T) {
 	}{
 		{
 			name:       "from data",
-			keyData:    testhelpers.StringPtr("private-key-data"),
+			keyData:    new("private-key-data"),
 			keyPath:    nil,
 			wantErr:    false,
 			wantNonNil: true,
@@ -194,13 +194,13 @@ func TestReadPrivateKey(t *testing.T) {
 		{
 			name:    "nil data empty path",
 			keyData: nil,
-			keyPath: testhelpers.StringPtr(""),
+			keyPath: new(""),
 			wantErr: true,
 		},
 		{
 			name:    "nil data nonexistent path",
 			keyData: nil,
-			keyPath: testhelpers.StringPtr("/nonexistent/path/key.pem"),
+			keyPath: new("/nonexistent/path/key.pem"),
 			wantErr: true,
 		},
 	}

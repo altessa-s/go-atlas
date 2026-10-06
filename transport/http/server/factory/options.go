@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/types/ptr"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 	"github.com/altessa-s/go-atlas/observability/tracing"
 	"github.com/altessa-s/go-atlas/transport/http/server"
@@ -248,20 +247,20 @@ func (b *ServerBuilder) WithHandler(h ...server.Handler) *ServerBuilder {
 // WithoutBuiltinHandlers disables all built-in handlers (ping, healthz, readyz, pprof, metrics).
 func (b *ServerBuilder) WithoutBuiltinHandlers() *ServerBuilder {
 	b.builtinEnabled = false
-	b.pprofEnabled = ptr.Wrap(false)
+	b.pprofEnabled = new(false)
 	b.metricsEnabled = false
 	return b
 }
 
 // WithPprof explicitly enables pprof handlers, overriding config.
 func (b *ServerBuilder) WithPprof() *ServerBuilder {
-	b.pprofEnabled = ptr.Wrap(true)
+	b.pprofEnabled = new(true)
 	return b
 }
 
 // WithoutPprof disables pprof handlers, overriding config.
 func (b *ServerBuilder) WithoutPprof() *ServerBuilder {
-	b.pprofEnabled = ptr.Wrap(false)
+	b.pprofEnabled = new(false)
 	return b
 }
 

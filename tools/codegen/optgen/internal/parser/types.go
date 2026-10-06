@@ -153,8 +153,8 @@ func findImportByPackageName(pkgName string, imports map[string]model.ImportInfo
 	for _, imp := range imports {
 		// Check if the package name appears as a path segment
 		// e.g., for "redis" check if path contains "/redis/" or ends with "/redis"
-		segments := strings.Split(imp.Path, "/")
-		for _, seg := range segments {
+		segments := strings.SplitSeq(imp.Path, "/")
+		for seg := range segments {
 			// Skip version segments
 			if isVersionSegment(seg) {
 				continue

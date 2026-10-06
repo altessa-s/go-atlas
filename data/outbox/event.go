@@ -7,8 +7,6 @@ package outbox
 import (
 	"time"
 
-	"github.com/altessa-s/go-atlas/core/types/ptr"
-
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
@@ -81,7 +79,7 @@ func (e *Event) setErrorStatus(err error) {
 	e.Status = StatusFailed
 	// Avoid overwriting a more specific previous error with a generic "context canceled".
 	if err != nil && !coreerrs.IsContextCanceled(err) {
-		e.LastError = ptr.Wrap(err.Error())
+		e.LastError = new(err.Error())
 	}
 }
 

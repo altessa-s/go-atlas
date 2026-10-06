@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"iter"
+	"maps"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -112,10 +113,7 @@ func TestManager_Filters(t *testing.T) {
 	_ = mgr.Register("a", f1)
 	_ = mgr.Register("b", f2)
 
-	filters := make(map[string]probfilter.Filter)
-	for name, filter := range mgr.Filters() {
-		filters[name] = filter
-	}
+	filters := maps.Collect(mgr.Filters())
 
 	require.Equal(t, f1, filters["a"])
 	require.Equal(t, f2, filters["b"])

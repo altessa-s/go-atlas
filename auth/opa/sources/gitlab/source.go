@@ -210,8 +210,8 @@ func (s *Source) listTree(ctx context.Context) ([]*gitlabapi.TreeNode, error) {
 
 	opts := &gitlabapi.ListTreeOptions{
 		ListOptions: gitlabapi.ListOptions{Page: 1, PerPage: treePageSize},
-		Ref:         gitlabapi.Ptr(s.opts.ref),
-		Path:        gitlabapi.Ptr(s.opts.dir),
+		Ref:         new(s.opts.ref),
+		Path:        new(s.opts.dir),
 	}
 
 	for {
@@ -239,7 +239,7 @@ func (s *Source) downloadRawFile(ctx context.Context, filename string) ([]byte, 
 	data, _, err := s.client.RepositoryFiles.GetRawFile(
 		s.opts.projectID,
 		filePath,
-		&gitlabapi.GetRawFileOptions{Ref: gitlabapi.Ptr(s.opts.ref)},
+		&gitlabapi.GetRawFileOptions{Ref: new(s.opts.ref)},
 		gitlabapi.WithContext(ctx),
 	)
 	if err != nil {

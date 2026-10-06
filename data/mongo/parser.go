@@ -595,8 +595,7 @@ func (p *Parser) refreshFieldValues(cached *StructMetadata, entityValue reflect.
 // estimateFieldCapacity estimates the total number of fields including embedded structs
 func (p *Parser) estimateFieldCapacity(entityType reflect.Type) int {
 	capacity := 0
-	for i := range entityType.NumField() {
-		field := entityType.Field(i)
+	for field := range entityType.Fields() {
 		if field.PkgPath != "" {
 			continue // Skip unexported fields
 		}

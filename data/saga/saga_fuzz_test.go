@@ -83,7 +83,7 @@ func FuzzInstanceCloneIsIndependent(f *testing.F) {
 			Status:    allStatuses[int(statusSel)%len(allStatuses)],
 			UpdatedAt: time.Unix(0, 0).UTC(),
 		}
-		for i := 0; i < steps; i++ {
+		for range steps {
 			original.Steps = append(original.Steps, saga.StepRecord{Name: stepName})
 		}
 

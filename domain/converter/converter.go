@@ -741,7 +741,7 @@ func (conv *Converter[T, U]) isMergeableStruct(t reflect.Type) bool {
 
 // isStructZero returns true if all fields of the struct are zero values.
 func isStructZero(v reflect.Value) bool {
-	for i := range v.NumField() {
+	for i := range v.NumField() { //nolint:modernize // Value.Fields would also build the unused StructField per field
 		field := v.Field(i)
 		if !field.IsZero() {
 			return false
@@ -755,7 +755,7 @@ func isStructZero(v reflect.Value) bool {
 // value. Used by [WithSparseMerge] to detect a present-but-empty nested update
 // struct, which signals "clear the whole field" rather than "merge nothing".
 func isSparseStructEmpty(v reflect.Value) bool {
-	for i := range v.NumField() {
+	for i := range v.NumField() { //nolint:modernize // Value.Fields would also build the unused StructField per field
 		field := v.Field(i)
 		switch field.Kind() {
 		case reflect.Pointer, reflect.Slice, reflect.Map, reflect.Interface:

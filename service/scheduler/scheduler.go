@@ -187,10 +187,7 @@ func New(storage Storage, opts ...Option) *Scheduler {
 	if o.maxConcurrentTasks > 0 {
 		// Main semaphore for Normal/Low tasks
 		// Reserve some slots for High priority
-		normalSlots := o.maxConcurrentTasks - o.reservedHighPrioritySlots
-		if normalSlots < 1 {
-			normalSlots = 1
-		}
+		normalSlots := max(o.maxConcurrentTasks-o.reservedHighPrioritySlots, 1)
 		s.semaphore = make(chan struct{}, normalSlots)
 
 		// Reserved semaphore for High priority tasks

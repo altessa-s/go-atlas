@@ -18,7 +18,6 @@ import (
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 )
 
 // requireErrorInfo extracts errdetails.ErrorInfo from a gRPC status error.
@@ -217,7 +216,7 @@ func statusWithFieldCodes(t *testing.T, fieldCodes ...string) *status.Status {
 	for _, code := range fieldCodes {
 		fv := &badrequestv1.FieldViolation{}
 		if code != "" {
-			fv.Code = proto.String(code)
+			fv.Code = new(code)
 		}
 		violations = append(violations, fv)
 	}

@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 )
 
 // Object is a resolved struct: the ordered, instance-bound view of its exported
@@ -402,10 +403,8 @@ func descendMap(f *Field, fv reflect.Value, o *options, a *arena, depth int) err
 // want, and whether any intersection exists.
 func matchKind(have, want []Kind) (Kind, bool) {
 	for _, k := range have {
-		for _, w := range want {
-			if k == w {
-				return k, true
-			}
+		if slices.Contains(want, k) {
+			return k, true
 		}
 	}
 	return Unspecified, false

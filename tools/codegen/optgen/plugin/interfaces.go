@@ -21,7 +21,7 @@ func GetPluginName(p any) string {
 		}
 	}
 	t := reflect.TypeOf(p)
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	return t.Name()

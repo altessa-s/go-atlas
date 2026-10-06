@@ -13,8 +13,6 @@ import (
 
 	"github.com/altessa-s/go-atlas/domain/proto/fieldmask"
 
-	"google.golang.org/protobuf/proto"
-
 	pb "github.com/altessa-s/go-atlas/proto/gen/fieldbehaviortest/v1"
 	testpb "github.com/altessa-s/go-atlas/proto/gen/fieldmasktest/v1"
 )
@@ -28,7 +26,7 @@ func TestExpandMessagePaths(t *testing.T) {
 	}{
 		{
 			name:      "set leaf message expands to its subtree",
-			msg:       &testpb.UpdateRequest{Options: &testpb.Options{Color: proto.String("red")}},
+			msg:       &testpb.UpdateRequest{Options: &testpb.Options{Color: new("red")}},
 			paths:     []string{"options"},
 			wantPaths: []string{"options.color", "options.size"},
 		},
@@ -40,13 +38,13 @@ func TestExpandMessagePaths(t *testing.T) {
 		},
 		{
 			name:      "protected sub-field is skipped",
-			msg:       &testpb.UpdateRequest{ShippingAddress: &testpb.Address{Street: proto.String("Main")}},
+			msg:       &testpb.UpdateRequest{ShippingAddress: &testpb.Address{Street: new("Main")}},
 			paths:     []string{"shipping_address"},
 			wantPaths: []string{"shipping_address.street", "shipping_address.zip"},
 		},
 		{
 			name:      "branch path keeps the caller's siblings",
-			msg:       &testpb.UpdateRequest{Options: &testpb.Options{Color: proto.String("red")}},
+			msg:       &testpb.UpdateRequest{Options: &testpb.Options{Color: new("red")}},
 			paths:     []string{"options.color"},
 			wantPaths: []string{"options.color"},
 		},
@@ -58,7 +56,7 @@ func TestExpandMessagePaths(t *testing.T) {
 		},
 		{
 			name:      "non-message paths next to an expanded message are preserved",
-			msg:       &testpb.UpdateRequest{Options: &testpb.Options{Color: proto.String("red")}},
+			msg:       &testpb.UpdateRequest{Options: &testpb.Options{Color: new("red")}},
 			paths:     []string{"options", "id"},
 			wantPaths: []string{"id", "options.color", "options.size"},
 		},
@@ -109,7 +107,7 @@ func TestExpandMessagePaths_RecursesAndSkipsBehaviorFields(t *testing.T) {
 func TestExpandMessagePaths_ThenApplyUpdateMask(t *testing.T) {
 	msg := &testpb.UpdateRequest{
 		Id:      "1",
-		Options: &testpb.Options{Color: proto.String("blue")},
+		Options: &testpb.Options{Color: new("blue")},
 	}
 
 	mask := fieldmask.FromPaths("options").ExpandMessagePaths(msg)

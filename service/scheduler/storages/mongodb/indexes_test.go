@@ -26,9 +26,9 @@ func bsonFields(tb testing.TB, doc any) map[string]struct{} {
 	require.Equal(tb, reflect.Struct, t.Kind(), "document must be a struct")
 
 	fields := make(map[string]struct{}, t.NumField())
-	for i := range t.NumField() {
-		tag, ok := t.Field(i).Tag.Lookup("bson")
-		require.Truef(tb, ok, "field %s has no bson tag", t.Field(i).Name)
+	for field := range t.Fields() {
+		tag, ok := field.Tag.Lookup("bson")
+		require.Truef(tb, ok, "field %s has no bson tag", field.Name)
 		name, _, _ := strings.Cut(tag, ",")
 		fields[name] = struct{}{}
 	}

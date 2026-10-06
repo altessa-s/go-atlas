@@ -169,8 +169,8 @@ func walkableType(t reflect.Type) bool {
 }
 
 func hasExportedField(t reflect.Type) bool {
-	for i := range t.NumField() {
-		if t.Field(i).IsExported() {
+	for field := range t.Fields() {
+		if field.IsExported() {
 			return true
 		}
 	}

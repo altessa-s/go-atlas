@@ -39,10 +39,7 @@ func NewShardedCache[K comparable, V any](totalSize int, opts ...Option) (*Shard
 		o.shardCount = calculateOptimalShardCount()
 	}
 
-	shardSize := totalSize / o.shardCount
-	if shardSize < 1 {
-		shardSize = 1
-	}
+	shardSize := max(totalSize/o.shardCount, 1)
 
 	shards := make([]*Cache[K, V], o.shardCount)
 	for i := range o.shardCount {

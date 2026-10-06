@@ -265,7 +265,7 @@ func extractCursorDataFromItem[T any](item T, cursorIdField string, sort bson.D)
 	v := reflect.ValueOf(item)
 
 	// Dereference pointers
-	for v.Kind() == reflect.Ptr {
+	for v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return "", nil, fmt.Errorf("nil item")
 		}
