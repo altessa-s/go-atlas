@@ -110,6 +110,12 @@
 #      # Default value: scheduler_history
 #      historyCollection: scheduler_history
 #
+#      # <bool> Create the task and history indexes while building the
+#      # scheduler, through the storage's idempotent EnsureIndexes. Leave
+#      # false when the indexes are provisioned separately.
+#      # Default value: false
+#      ensureIndexes: false
+#
 #    # <object> Redis-specific configuration for scheduler storage.
 #    # Contains settings for Redis keys and history management.
 #    # Required when type is set to 'redis'.
@@ -128,6 +134,13 @@
 #      # Limits history storage per individual task.
 #      # Default value: 1000
 #      maxHistoryPerTask: 1000
+#
+#      # <bool> Create the RediSearch indexes (and backfill task documents
+#      # written by an earlier release) while building the scheduler, through
+#      # the storage's idempotent EnsureIndexes. Leave false when the indexes
+#      # are provisioned separately.
+#      # Default value: false
+#      ensureIndexes: false
 #
 #    # <object> In-memory storage configuration for scheduler.
 #    # Contains settings for memory-based task storage.

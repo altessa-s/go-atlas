@@ -137,7 +137,9 @@ func (b *SchedulerBuilder) createMemoryStorage() (*memorystorage.Storage, error)
 	return memorystorage.New(b.cfg.Storage.Memory.MaxHistoryPerTask)
 }
 
-// createMongoStorage creates a MongoDB storage backend.
+// createMongoStorage creates a MongoDB storage backend. With ensureIndexes set
+// it creates the indexes through the storage's EnsureIndexes; otherwise it
+// performs no I/O and the indexes are expected to exist.
 func (b *SchedulerBuilder) createMongoStorage() (*mongostorage.Storage, error) {
 	if b.cfg.Storage.Mongodb == nil {
 		return nil, fmt.Errorf("configuration is required")
@@ -147,10 +149,19 @@ func (b *SchedulerBuilder) createMongoStorage() (*mongostorage.Storage, error) {
 	opts = append(opts, mongostorage.WithTasksCollection(b.cfg.Storage.Mongodb.TasksCollection))
 	opts = append(opts, mongostorage.WithHistoryCollection(b.cfg.Storage.Mongodb.HistoryCollection))
 
-	return mongostorage.New(b.mongoDb, opts...), nil
+	storage := mongostorage.New(b.mongoDb, opts...)
+	if !b.cfg.Storage.Mongodb.EnsureIndexes {
+		return storage, nil
+	}
+	if err := b.ensure("ensure scheduler indexes", storage.EnsureIndexes); err != nil {
+		return nil, err
+	}
+	return storage, nil
 }
 
-// createRedisStorage creates a Redis storage backend.
+// createRedisStorage creates a Redis storage backend. With ensureIndexes set it
+// creates the RediSearch indexes through the storage's EnsureIndexes;
+// otherwise it performs no I/O and the indexes are expected to exist.
 func (b *SchedulerBuilder) createRedisStorage() (*redisstorage.Storage, error) {
 	if b.cfg.Storage.Redis == nil {
 		return nil, fmt.Errorf("configuration is required")
@@ -161,12 +172,29 @@ func (b *SchedulerBuilder) createRedisStorage() (*redisstorage.Storage, error) {
 	opts = append(opts, redisstorage.WithHistoryTTL(b.cfg.Storage.Redis.HistoryTTL))
 	opts = append(opts, redisstorage.WithMaxHistoryPerTask(b.cfg.Storage.Redis.MaxHistoryPerTask))
 
-	return redisstorage.New(b.redisClient, opts...), nil
+	storage := redisstorage.New(b.redisClient, opts...)
+	if !b.cfg.Storage.Redis.EnsureIndexes {
+		return storage, nil
+	}
+	if err := b.ensure("ensure scheduler indexes", storage.EnsureIndexes); err != nil {
+		return nil, err
+	}
+	return storage, nil
 }
 
-// ensureSchemaTimeout bounds the schema creation the factory runs when the
+// ensureTimeout bounds the schema or index creation the factory runs when the
 // config asks for it, so a lock wait cannot stall startup indefinitely.
-const ensureSchemaTimeout = 30 * time.Second
+const ensureTimeout = 30 * time.Second
+
+// ensure runs a storage's idempotent provisioning step under [ensureTimeout].
+func (b *SchedulerBuilder) ensure(op string, fn func(context.Context) error) error {
+	ctx, cancel := context.WithTimeout(context.Background(), ensureTimeout)
+	defer cancel()
+	if err := fn(ctx); err != nil {
+		return b.WrapError(err, op)
+	}
+	return nil
+}
 
 // createSQLStorage creates a SQL storage backend. With ensureSchema set it
 // creates or upgrades the schema through the storage's EnsureSchema; otherwise,
@@ -185,10 +213,8 @@ func (b *SchedulerBuilder) createSQLStorage() (*sqlstorage.Storage, error) {
 	if err != nil || !b.cfg.Storage.SQL.EnsureSchema {
 		return storage, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), ensureSchemaTimeout)
-	defer cancel()
-	if err := storage.EnsureSchema(ctx); err != nil {
-		return nil, b.WrapError(err, "ensure scheduler schema")
+	if err := b.ensure("ensure scheduler schema", storage.EnsureSchema); err != nil {
+		return nil, err
 	}
 	return storage, nil
 }
