@@ -153,8 +153,10 @@
 //     or re-inserts them
 //   - With a negative filter shared through Redis, a rebuild skipped because
 //     another node holds the rebuild lease is logged at debug level only
-//   - Known behavior: a successful listing without any secret leaves the
-//     cache as it is, so a transiently empty listing cannot wipe it
+//   - A successful listing without any secret leaves the cache as it is until
+//     WithEmptyListingThreshold consecutive cycles (default 3) list nothing,
+//     so a transiently empty listing cannot wipe it while a deleted last
+//     secret still stops being served
 //   - Full control over update scheduling and lifecycle
 //
 // # Error Handling:
@@ -205,7 +207,12 @@
 // identical references (and cycles) shared within the copy. Overlapping
 // slice views, interior pointers, unexported fields, channels and funcs are
 // not reproduced by reflection — such payload types should implement
-// Clone() T.
+// Clone() T. New rejects a payload type whose copy would share mutable
+// memory that way (unexported reference fields, channels, funcs, unsafe
+// pointers) with ErrUncloneablePayload, unless WithAllowShallowClone is set;
+// time.Time and the net/netip address types count as immutable. A payload
+// type holding interface values is checked per value instead: Save and a
+// provider fetch fail, and an update cycle skips the value.
 //
 // Watch event values (WatchEvent.Value and PreviousValue) are copies owned
 // by the receiver, which should Clear them when done; the Manager never reads

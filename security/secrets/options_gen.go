@@ -17,6 +17,13 @@ import (
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
+// WithAllowShallowClone enables the allowShallowClone option.
+func WithAllowShallowClone() Option {
+	return func(o *options) {
+		o.allowShallowClone = true
+	}
+}
+
 // WithCollector sets the collector option.
 func WithCollector(v metrics.Collector) Option {
 	return func(o *options) {
@@ -24,6 +31,16 @@ func WithCollector(v metrics.Collector) Option {
 			return
 		}
 		o.collector = v
+	}
+}
+
+// WithEmptyListingThreshold sets the emptyListingThreshold option.
+func WithEmptyListingThreshold(v int) Option {
+	return func(o *options) {
+		if v <= 0 {
+			return
+		}
+		o.emptyListingThreshold = v
 	}
 }
 
@@ -81,9 +98,10 @@ func WithScheduler(v corescheduler.TaskRegistrar) Option {
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		exponentialConfig: defaultExponentialConfig(),
-		logger:            slog.New(slog.DiscardHandler),
-		maxRetries:        DefaultMaxRetries,
+		emptyListingThreshold: DefaultEmptyListingThreshold,
+		exponentialConfig:     defaultExponentialConfig(),
+		logger:                slog.New(slog.DiscardHandler),
+		maxRetries:            DefaultMaxRetries,
 	}
 }
 
