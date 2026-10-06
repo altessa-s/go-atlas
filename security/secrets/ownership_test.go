@@ -285,6 +285,35 @@ func TestManager_UpdateCycle_EmptyListingKeepsCache(t *testing.T) {
 	require.Equal(t, "value-a", got.Value)
 }
 
+// TestManager_UpdateCycle_EmptyListingThreshold: once the configured number of
+// consecutive cycles list nothing, the deleted last secret is no longer
+// served; a non-empty listing in between restarts the count.
+func TestManager_UpdateCycle_EmptyListingThreshold(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	provider := &versionedProvider{values: map[string]string{"key-a": "value-a", "key-b": "value-b"}}
+	mgr, err := secrets.New[string](provider, secrets.WithEmptyListingThreshold(2))
+	require.NoError(t, err)
+	require.NoError(t, mgr.RunUpdateCycle(ctx))
+
+	require.NoError(t, provider.Delete(ctx, "key-a"))
+	require.NoError(t, provider.Delete(ctx, "key-b"))
+	require.NoError(t, mgr.RunUpdateCycle(ctx)) // first empty listing: kept
+
+	require.NoError(t, provider.Save(ctx, "key-b", "value-b2"))
+	require.NoError(t, mgr.RunUpdateCycle(ctx)) // non-empty: count restarts
+	require.NoError(t, provider.Delete(ctx, "key-b"))
+	require.NoError(t, mgr.RunUpdateCycle(ctx)) // first empty again: kept
+	got, err := mgr.Value(ctx, "key-b", false)
+	require.NoError(t, err)
+	require.Equal(t, "value-b2", got.Value)
+
+	require.NoError(t, mgr.RunUpdateCycle(ctx)) // second consecutive empty: cleared
+	_, err = mgr.Value(ctx, "key-b", false)
+	require.ErrorIs(t, err, secrets.ErrNotFound)
+}
+
 // TestManager_Watch_UpdatedEventCarriesPreviousValue checks that an Updated
 // event carries both payloads as receiver-owned copies: clearing them leaves
 // the cache and another watcher's events intact.

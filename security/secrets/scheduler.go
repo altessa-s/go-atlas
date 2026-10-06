@@ -77,9 +77,11 @@ func (t *Manager[T]) RunUpdateCycle(ctx context.Context) error {
 // still drop such an entry by capacity when the cycle inserts another key,
 // as any insertion can; that never clears the value.
 //
-// A successful listing without any secret leaves the cache as it is: cached
-// secrets are neither evicted nor cleared until a non-empty listing
-// reconciles them, so a transiently empty listing cannot wipe the cache.
+// A successful listing without any secret leaves the cache as it is until
+// WithEmptyListingThreshold consecutive cycles (default
+// [DefaultEmptyListingThreshold]) list nothing, so a transiently empty listing
+// cannot wipe the cache while a provider whose last secret was deleted still
+// stops serving it eventually.
 //
 // Cached values and the values passed to watchers are Manager-owned copies;
 // the instances the provider returned are never cached or cleared.
@@ -110,16 +112,35 @@ func (t *Manager[T]) runUpdateCycleInternal(ctx context.Context) error {
 	}
 
 	if len(list) == 0 {
-		t.opts.logger.DebugContext(ctx, "no values found")
-		return nil
+		empty := int(t.emptyListings.Add(1))
+		if empty < t.opts.emptyListingThreshold {
+			t.opts.logger.DebugContext(ctx, "no values found; cache kept",
+				slog.Int("empty_listings", empty), slog.Int("threshold", t.opts.emptyListingThreshold))
+			return nil
+		}
+		t.opts.logger.WarnContext(ctx, "storage listed no secrets in consecutive cycles; clearing the cache",
+			slog.Int("empty_listings", empty))
+	} else {
+		t.emptyListings.Store(0)
 	}
 
 	// Build set of current keys from storage using pool
 	newKeys := keySetPool.GetWithCapacity(len(list))
 	defer keySetPool.Put(newKeys)
 
+	// Values the Manager cannot copy safely are neither cached nor sent to
+	// watchers; their keys still count as listed, so a cached older version
+	// is not evicted.
+	var rejected map[string]struct{}
 	for _, v := range list {
 		(*newKeys)[v.Key] = struct{}{}
+		if err := t.checkPayload(v.Value); err != nil {
+			t.opts.logger.ErrorContext(ctx, "listed value not cached", slogx.Error(err), slog.String("key", v.Key))
+			if rejected == nil {
+				rejected = make(map[string]struct{})
+			}
+			rejected[v.Key] = struct{}{}
+		}
 	}
 
 	// Watchers get their own copies, so notification never reads an
@@ -129,7 +150,9 @@ func (t *Manager[T]) runUpdateCycleInternal(ctx context.Context) error {
 	if notify {
 		current = make([]*Value[T], 0, len(list))
 		for _, v := range list {
-			current = append(current, v.clone())
+			if _, bad := rejected[v.Key]; !bad {
+				current = append(current, v.clone())
+			}
 		}
 	}
 	deletedCount, updatedCount := 0, 0
@@ -148,7 +171,7 @@ func (t *Manager[T]) runUpdateCycleInternal(ctx context.Context) error {
 
 	// Process new/updated values
 	for _, v := range list {
-		if t.isDirtyLocked(v.Key) {
+		if _, bad := rejected[v.Key]; bad || t.isDirtyLocked(v.Key) {
 			continue
 		}
 		existing, exists := t.cache.Get(v.Key)
@@ -173,7 +196,7 @@ func (t *Manager[T]) runUpdateCycleInternal(ctx context.Context) error {
 
 	// Notify watch manager about changes
 	if notify {
-		t.watchManager.notifyChanges(ctx, current)
+		t.watchManager.notifyChanges(ctx, current, rejected)
 	}
 
 	return nil

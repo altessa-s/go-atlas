@@ -5,8 +5,13 @@
 package secrets
 
 import (
+	"fmt"
+	"net/netip"
 	"reflect"
 	"strings"
+	"time"
+
+	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 )
 
 // cloneSecret returns a deep copy of a secret payload, so a copy can be
@@ -209,4 +214,219 @@ func (d *deepCopier) copy(v reflect.Value) reflect.Value {
 		// assignment.
 		return v
 	}
+}
+
+// immutableTypes are standard library value types whose unexported reference
+// fields point at immutable data, so sharing them between copies is safe.
+var immutableTypes = coremaps.NewImmutableMap(map[reflect.Type]struct{}{
+	reflect.TypeFor[time.Time]():      {},
+	reflect.TypeFor[time.Location]():  {},
+	reflect.TypeFor[netip.Addr]():     {},
+	reflect.TypeFor[netip.Prefix]():   {},
+	reflect.TypeFor[netip.AddrPort](): {},
+})
+
+// checkCloneable reports, wrapping [ErrUncloneablePayload], the first place
+// where the reflection copy of payload type t would share mutable memory with
+// the original: an unexported field that can reach a reference, or a
+// channel, func or unsafe pointer, not covered by a Clone() T method.
+// Interface values are copied by their dynamic type and are not checked.
+func checkCloneable(t reflect.Type) error {
+	if path, ok := shallowPath(t, t.String(), map[reflect.Type]bool{}); ok {
+		return fmt.Errorf("%w: %s", ErrUncloneablePayload, path)
+	}
+	return nil
+}
+
+// hasCloneMethod reports whether t has a Clone method of shape func() t.
+func hasCloneMethod(t reflect.Type) bool {
+	m, ok := t.MethodByName("Clone")
+	return ok && m.Type.NumIn() == 1 && m.Type.NumOut() == 1 && m.Type.Out(0) == t
+}
+
+// shallowPath returns the path of the first shared-memory location reachable
+// from t, mirroring deepCopier.copy.
+func shallowPath(t reflect.Type, path string, seen map[reflect.Type]bool) (string, bool) {
+	if seen[t] || hasCloneMethod(t) {
+		return "", false
+	}
+	if immutableTypes.Contains(t) {
+		return "", false
+	}
+	seen[t] = true
+	switch t.Kind() {
+	case reflect.Chan, reflect.Func, reflect.UnsafePointer:
+		return path + " (" + t.Kind().String() + ")", true
+	case reflect.Pointer, reflect.Slice, reflect.Array:
+		return shallowPath(t.Elem(), path+"[elem]", seen)
+	case reflect.Map:
+		if p, ok := shallowPath(t.Key(), path+"[key]", seen); ok {
+			return p, true
+		}
+		return shallowPath(t.Elem(), path+"[value]", seen)
+	case reflect.Struct:
+		for f := range t.Fields() {
+			fp := path + "." + f.Name
+			if f.IsExported() {
+				if p, ok := shallowPath(f.Type, fp, seen); ok {
+					return p, true
+				}
+				continue
+			}
+			if reachesReference(f.Type, map[reflect.Type]bool{}) {
+				return fp + " (unexported " + f.Type.String() + ")", true
+			}
+		}
+	default:
+		// Scalars and strings are copied; interfaces by their dynamic type.
+	}
+	return "", false
+}
+
+// reachesReference reports whether a value of type t, copied by assignment,
+// can share memory: it is or contains a pointer, map, slice, interface,
+// channel, func or unsafe pointer, other than through an immutable type.
+func reachesReference(t reflect.Type, seen map[reflect.Type]bool) bool {
+	if seen[t] {
+		return false
+	}
+	if immutableTypes.Contains(t) {
+		return false
+	}
+	seen[t] = true
+	switch t.Kind() {
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Interface, reflect.Chan, reflect.Func, reflect.UnsafePointer:
+		return true
+	case reflect.Array:
+		return reachesReference(t.Elem(), seen)
+	case reflect.Struct:
+		for f := range t.Fields() {
+			if reachesReference(f.Type, seen) {
+				return true
+			}
+		}
+	default:
+		// Scalars and strings hold no reference.
+	}
+	return false
+}
+
+// reachesInterface reports whether the deep copy of t can reach an interface
+// value, whose dynamic type checkCloneable cannot see; such payloads are
+// checked value by value with checkCloneableValue.
+func reachesInterface(t reflect.Type, seen map[reflect.Type]bool) bool {
+	if seen[t] || hasCloneMethod(t) || immutableTypes.Contains(t) {
+		return false
+	}
+	seen[t] = true
+	switch t.Kind() {
+	case reflect.Interface:
+		return true
+	case reflect.Pointer, reflect.Slice, reflect.Array:
+		return reachesInterface(t.Elem(), seen)
+	case reflect.Map:
+		return reachesInterface(t.Key(), seen) || reachesInterface(t.Elem(), seen)
+	case reflect.Struct:
+		for f := range t.Fields() {
+			if f.IsExported() && reachesInterface(f.Type, seen) {
+				return true
+			}
+		}
+	default:
+		// Other kinds hold no interface the copy follows.
+	}
+	return false
+}
+
+// checkCloneableValue is checkCloneable for one payload value: it follows
+// interface values to their dynamic types, as deepCopier does, and reports,
+// wrapping [ErrUncloneablePayload], the first location whose copy would share
+// mutable memory with the original.
+func checkCloneableValue(v reflect.Value) error {
+	if path, ok := shallowValuePath(v, v.Type().String(), map[copyKey]bool{}); ok {
+		return fmt.Errorf("%w: %s", ErrUncloneablePayload, path)
+	}
+	return nil
+}
+
+// shallowValuePath mirrors deepCopier.copy over a value.
+// References are identified like deepCopier identifies them (refKey: type,
+// address and, for slices, length and capacity), so cycles terminate and a
+// pointer sharing an address with a different-typed one is still visited.
+func shallowValuePath(v reflect.Value, path string, seen map[copyKey]bool) (string, bool) {
+	if !v.IsValid() {
+		return "", false
+	}
+	t := v.Type()
+	if v.Kind() != reflect.Interface && (hasCloneMethod(t) || immutableTypes.Contains(t)) {
+		return "", false
+	}
+	switch v.Kind() {
+	case reflect.Interface:
+		if v.IsNil() {
+			return "", false
+		}
+		return shallowValuePath(v.Elem(), path+"("+v.Elem().Type().String()+")", seen)
+	case reflect.Chan, reflect.Func, reflect.UnsafePointer:
+		if v.IsNil() {
+			return "", false
+		}
+		return path + " (" + v.Kind().String() + ")", true
+	case reflect.Pointer, reflect.Map, reflect.Slice:
+		if v.IsNil() {
+			return "", false
+		}
+		k, _ := refKey(v)
+		if seen[k] {
+			return "", false
+		}
+		seen[k] = true
+		switch v.Kind() {
+		case reflect.Pointer:
+			return shallowValuePath(v.Elem(), path+"[elem]", seen)
+		case reflect.Map:
+			for it := v.MapRange(); it.Next(); {
+				if p, ok := shallowValuePath(it.Key(), path+"[key]", seen); ok {
+					return p, true
+				}
+				if p, ok := shallowValuePath(it.Value(), path+"[value]", seen); ok {
+					return p, true
+				}
+			}
+			return "", false
+		default:
+			return shallowElems(v, path, seen)
+		}
+	case reflect.Array:
+		return shallowElems(v, path, seen)
+	case reflect.Struct:
+		for f, fv := range v.Fields() {
+			fp := path + "." + f.Name
+			if f.IsExported() {
+				if p, ok := shallowValuePath(fv, fp, seen); ok {
+					return p, true
+				}
+				continue
+			}
+			if reachesReference(f.Type, map[reflect.Type]bool{}) {
+				return fp + " (unexported " + f.Type.String() + ")", true
+			}
+		}
+	default:
+		// Scalars and strings are copied.
+	}
+	return "", false
+}
+
+// shallowElems checks the elements of a slice or array value.
+func shallowElems(v reflect.Value, path string, seen map[copyKey]bool) (string, bool) {
+	if v.Type().Elem().Kind() == reflect.Uint8 {
+		return "", false
+	}
+	for i := range v.Len() {
+		if p, ok := shallowValuePath(v.Index(i), path+"[elem]", seen); ok {
+			return p, true
+		}
+	}
+	return "", false
 }
