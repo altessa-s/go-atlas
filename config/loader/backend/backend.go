@@ -5,9 +5,15 @@
 package backend
 
 import (
+	"errors"
 	"io"
 	"reflect"
 )
+
+// ErrUnknownField is wrapped by a [StrictDecoder] error when the document sets
+// keys that bind to no field of the destination struct, typically a misspelled
+// key such as "enable" for "enabled".
+var ErrUnknownField = errors.New("unknown field")
 
 // Decoder is the interface that should be implemented by a backend to decode the data from the reader.
 // Implementations should parse the configuration format into the provided struct.
@@ -35,6 +41,16 @@ type Preprocessor interface {
 	// currentDir is the directory of the file being processed.
 	// rootDir is the root directory for security checks.
 	Preprocess(content, currentDir, rootDir string) (string, error)
+}
+
+// StrictDecoder is implemented by a backend that can reject document keys
+// that bind to no field of a destination struct. DecodeStrict decodes like
+// Decode but fails with an error wrapping [ErrUnknownField] that names every
+// such key. Map entry keys are never unknown, though struct values in a map
+// are checked; content under interfaces and types with their own unmarshaler
+// is free-form.
+type StrictDecoder interface {
+	DecodeStrict(reader io.Reader, in any) error
 }
 
 // KeyDecoder is implemented by a backend that can report which values a

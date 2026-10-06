@@ -41,6 +41,12 @@ var (
 	// ErrDecode is the error that returns when decode failed.
 	ErrDecode = errors.New("decode error")
 
+	// ErrUnknownField is wrapped by the [ErrDecode] error returned when a
+	// configuration file sets a key that binds to no field of the
+	// configuration struct, typically a misspelled key such as "enable" for
+	// "enabled". See [WithAllowUnknownFields].
+	ErrUnknownField = backend.ErrUnknownField
+
 	// ErrPathOutsideRoot is returned when an entry inside the configured
 	// config directory resolves (via symlink) to a target outside that
 	// directory. Without confinement a writer with access to the config
