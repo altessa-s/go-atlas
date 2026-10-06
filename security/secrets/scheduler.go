@@ -106,6 +106,8 @@ func (t *Manager[T]) runUpdateCycleInternal(ctx context.Context) error {
 
 	list, err := t.listAndRebuildNegativeFilter(ctx)
 	if err != nil {
+		// Only consecutive successful empty listings count toward the threshold.
+		t.emptyListings.Store(0)
 		t.opts.logger.ErrorContext(ctx, "failed to list secrets from storage", slogx.Error(err))
 		t.metrics.updateCycleErrors.Inc()
 		return err

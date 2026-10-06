@@ -6,8 +6,10 @@ package secrets_test
 
 import (
 	"context"
+	"errors"
 	"iter"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -312,6 +314,45 @@ func TestManager_UpdateCycle_EmptyListingThreshold(t *testing.T) {
 	require.NoError(t, mgr.RunUpdateCycle(ctx)) // second consecutive empty: cleared
 	_, err = mgr.Value(ctx, "key-b", false)
 	require.ErrorIs(t, err, secrets.ErrNotFound)
+}
+
+// failingListProvider fails List while fail is set.
+type failingListProvider struct {
+	*versionedProvider
+	fail atomic.Bool
+}
+
+var errListDown = errors.New("list down")
+
+func (p *failingListProvider) List(ctx context.Context) ([]*secrets.Value[string], error) {
+	if p.fail.Load() {
+		return nil, errListDown
+	}
+	return p.versionedProvider.List(ctx)
+}
+
+// TestManager_UpdateCycle_FailedListingResetsEmptyCount: a failed listing
+// breaks the run of consecutive empty listings.
+func TestManager_UpdateCycle_FailedListingResetsEmptyCount(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
+	provider := &failingListProvider{versionedProvider: &versionedProvider{values: map[string]string{"key-a": "value-a"}}}
+	mgr, err := secrets.New[string](provider, secrets.WithEmptyListingThreshold(3), secrets.WithMaxRetries(1))
+	require.NoError(t, err)
+	require.NoError(t, mgr.RunUpdateCycle(ctx))
+	require.NoError(t, provider.Delete(ctx, "key-a"))
+
+	require.NoError(t, mgr.RunUpdateCycle(ctx)) // empty 1
+	require.NoError(t, mgr.RunUpdateCycle(ctx)) // empty 2
+	provider.fail.Store(true)
+	require.ErrorIs(t, mgr.RunUpdateCycle(ctx), errListDown)
+	provider.fail.Store(false)
+	require.NoError(t, mgr.RunUpdateCycle(ctx)) // empty 1 again
+
+	got, err := mgr.Value(ctx, "key-a", false)
+	require.NoError(t, err, "three empty listings were not consecutive")
+	require.Equal(t, "value-a", got.Value)
 }
 
 // TestManager_Watch_UpdatedEventCarriesPreviousValue checks that an Updated
