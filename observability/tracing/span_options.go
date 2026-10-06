@@ -6,6 +6,7 @@ package tracing
 
 import (
 	"iter"
+	"slices"
 	"time"
 
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
@@ -226,12 +227,12 @@ func (c *SpanStartConfig) Links() []Link { return c.links }
 
 // LinksIter returns an iterator over the span links.
 func (c *SpanStartConfig) LinksIter() iter.Seq[Link] {
-	return coreslices.Values(c.links)
+	return slices.Values(c.links)
 }
 
 // AttributesIter returns an iterator over the attributes.
 func (c *SpanStartConfig) AttributesIter() iter.Seq[Attribute] {
-	return coreslices.Values(c.attributes)
+	return slices.Values(c.attributes)
 }
 
 // --- SpanEndConfig getters ---
@@ -249,7 +250,7 @@ func (c *EventConfig) Attributes() []Attribute { return c.attributes }
 
 // AttributesIter returns an iterator over the event attributes.
 func (c *EventConfig) AttributesIter() iter.Seq[Attribute] {
-	return coreslices.Values(c.attributes)
+	return slices.Values(c.attributes)
 }
 
 // StackTrace returns whether stack trace is enabled.

@@ -168,13 +168,16 @@ func TestFilter(t *testing.T) {
 	})
 }
 
-func TestAnyAll(t *testing.T) {
-	input := []int{1, 2, 3, 4}
+func TestFilterLast_ReturnsElementAfterPredicate(t *testing.T) {
+	t.Parallel()
+	xs := []int{1}
+	got, ok := coreslices.FilterLast(xs, func(int) bool { xs[0] = 2; return true })
+	require.True(t, ok)
+	require.Equal(t, 2, got, "FilterLast must return the element as it is after the predicate ran")
+}
 
-	t.Run("Any", func(t *testing.T) {
-		require.True(t, coreslices.Any(input, func(n int) bool { return n == 3 }), "Any() should return true for existing element")
-		require.False(t, coreslices.Any(input, func(n int) bool { return n == 5 }), "Any() should return false for non-existing element")
-	})
+func TestAll(t *testing.T) {
+	input := []int{1, 2, 3, 4}
 
 	t.Run("All", func(t *testing.T) {
 		require.True(t, coreslices.All(input, func(n int) bool { return n > 0 }), "All() should return true when all satisfy")

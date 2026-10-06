@@ -207,7 +207,7 @@ func WithCompaction() Option {
 // Common patterns:
 //   - Exact match: func(k string) bool { return k == "orders.123" }
 //   - Prefix match: func(k string) bool { return strings.HasPrefix(k, "orders.") }
-//   - Whitelist: func(k string) bool { return slices.Any(compactKeys, func(ck string) bool { return ck == k }) }
+//   - Whitelist: func(k string) bool { return slices.Contains(compactKeys, k) }
 //   - Regex: func(k string) bool { return regexp.MustCompile(`^orders\.\d+$`).MatchString(k) }
 func WithCompactionFilter(fn func(string) bool) Option {
 	return func(o *options) {

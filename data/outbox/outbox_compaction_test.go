@@ -5,13 +5,12 @@
 package outbox
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/altessa-s/go-atlas/core/collections/slices"
 )
 
 func TestCompactEventsByKey_SingleKeyMultipleEvents(t *testing.T) {
@@ -141,7 +140,7 @@ func TestCompactEventsByKey_WithFilter_Whitelist(t *testing.T) {
 	o := &Outbox{
 		compaction: true,
 		compactionFilter: func(topic string) bool {
-			return slices.Any(compactKeys, func(t string) bool { return t == topic })
+			return slices.Contains(compactKeys, topic)
 		},
 	}
 

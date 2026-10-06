@@ -7,9 +7,8 @@ package adapters
 import (
 	"context"
 	"iter"
+	"slices"
 	"time"
-
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 )
 
 // TraceID is a 16-byte trace identifier.
@@ -176,17 +175,17 @@ func (s *SpanData) Duration() time.Duration {
 
 // AttributesIter returns an iterator over span attributes.
 func (s *SpanData) AttributesIter() iter.Seq[Attribute] {
-	return coreslices.Values(s.Attributes)
+	return slices.Values(s.Attributes)
 }
 
 // EventsIter returns an iterator over span events.
 func (s *SpanData) EventsIter() iter.Seq[SpanEvent] {
-	return coreslices.Values(s.Events)
+	return slices.Values(s.Events)
 }
 
 // LinksIter returns an iterator over span links.
 func (s *SpanData) LinksIter() iter.Seq[SpanLink] {
-	return coreslices.Values(s.Links)
+	return slices.Values(s.Links)
 }
 
 // Adapter is the interface that tracing backends must implement.
@@ -228,7 +227,7 @@ func (m *MultiAdapter) Name() string {
 // ExportSpans implements Adapter.
 // Broadcasts span export to all adapters.
 func (m *MultiAdapter) ExportSpans(ctx context.Context, spans []SpanData) error {
-	for a := range coreslices.Values(m.adapters) {
+	for _, a := range m.adapters {
 		if err := a.ExportSpans(ctx, spans); err != nil {
 			return err
 		}
@@ -239,7 +238,7 @@ func (m *MultiAdapter) ExportSpans(ctx context.Context, spans []SpanData) error 
 // Shutdown implements Adapter.
 // Shuts down all adapters, returning the first error encountered.
 func (m *MultiAdapter) Shutdown(ctx context.Context) error {
-	for a := range coreslices.Values(m.adapters) {
+	for _, a := range m.adapters {
 		if err := a.Shutdown(ctx); err != nil {
 			return err
 		}
@@ -250,7 +249,7 @@ func (m *MultiAdapter) Shutdown(ctx context.Context) error {
 // ForceFlush implements Adapter.
 // Flushes all adapters, returning the first error encountered.
 func (m *MultiAdapter) ForceFlush(ctx context.Context) error {
-	for a := range coreslices.Values(m.adapters) {
+	for _, a := range m.adapters {
 		if err := a.ForceFlush(ctx); err != nil {
 			return err
 		}

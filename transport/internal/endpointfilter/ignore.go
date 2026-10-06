@@ -6,11 +6,11 @@ package endpointfilter
 
 import (
 	"iter"
+	"maps"
 	"regexp"
 
 	"github.com/altessa-s/go-atlas/data/cache/lru"
 
-	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
@@ -139,7 +139,7 @@ func (ic *Checker) matches(path string) bool {
 
 // Paths returns an iterator over the ignored paths.
 func (ic *Checker) Paths() iter.Seq[string] {
-	return coremaps.Keys(ic.ignorePaths)
+	return maps.Keys(ic.ignorePaths)
 }
 
 // Methods returns an iterator over the ignored methods.

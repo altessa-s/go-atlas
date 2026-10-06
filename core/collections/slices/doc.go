@@ -9,7 +9,7 @@
 //
 // # Iterators
 //
-// Filter, Map, Chunk, and other collection operations return iter.Seq iterators for memory efficiency.
+// Filter, Map, and other collection operations return iter.Seq iterators for memory efficiency.
 // Use slices.Collect() to materialize results into slices when needed.
 //
 // # Conventions
@@ -32,11 +32,6 @@
 //	    fmt.Println(n) // 2
 //	}
 //
-//	// Advanced operations: Chunk returns iter.Seq[[]T]
-//	for chunk := range slices.Chunk(nums, 3) {
-//	    fmt.Println(chunk)
-//	}
-//
 //	// Single-pass filter and transform
 //	evenStrs := slices.ToWithFilter(nums,
 //	    func(n int) bool { return n%2 == 0 },
@@ -48,6 +43,6 @@
 //   - Deduplication: Deduplicate/DeduplicateBy use a map-based seen set with a fast path for consecutive duplicates,
 //     and return the input slice unchanged (no result allocation) when it has no duplicates.
 //   - Parallel processing: MapParallel uses goroutines for large datasets (2x speedup for 50K+ elements).
-//   - Zero allocations: FilterFirst, Any, All, Reduce have zero allocations with early return.
+//   - Zero allocations: FilterFirst, All, Reduce have zero allocations with early return.
 //   - Capacity optimization: Pre-allocates with optimal capacity to reduce reallocations.
 package slices

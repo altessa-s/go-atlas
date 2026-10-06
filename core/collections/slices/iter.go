@@ -83,68 +83,6 @@ func Map[T any, O any](collection []T, fn func(T) O) iter.Seq[O] {
 	}
 }
 
-// Chunk returns an [iter.Seq] iterator that yields successive sub-slices of collection,
-// each of length size, except possibly the last chunk which may be shorter. Each yielded
-// slice shares the underlying array with collection. If size is less than 1, an empty
-// iterator is returned.
-// Use slices.Collect() to materialize the result into a slice of slices.
-//
-// Example:
-//
-//	nums := []int{1, 2, 3, 4, 5}
-//	for chunk := range slices.Chunk(nums, 2) {
-//	    fmt.Println(chunk) // prints [1 2], [3 4], [5]
-//	}
-//
-//	// To get a slice of slices:
-//	chunks := slices.Collect(slices.Chunk(nums, 2))
-func Chunk[T any](collection []T, size int) iter.Seq[[]T] {
-	if size < 1 {
-		return func(yield func([]T) bool) {}
-	}
-	return func(yield func([]T) bool) {
-		for i := 0; i < len(collection); i += size {
-			end := min(i+size, len(collection))
-			if !yield(collection[i:end]) {
-				return
-			}
-		}
-	}
-}
-
-// Values returns an [iter.Seq] iterator that yields every element of collection in
-// order. This is functionally equivalent to a range loop but provides the [iter.Seq]
-// interface for composing with other iterator combinators like [FilterSeq] and [MapSeq].
-//
-// Example:
-//
-//	nums := []int{1, 2, 3, 4, 5}
-//	for n := range slices.Values(nums) {
-//	    fmt.Println(n) // prints 1, 2, 3, 4, 5
-//	}
-func Values[T any](collection []T) iter.Seq[T] {
-	return func(yield func(T) bool) {
-		for _, v := range collection {
-			if !yield(v) {
-				return
-			}
-		}
-	}
-}
-
-// Backward returns an [iter.Seq2] iterator that yields (index, element) pairs from
-// collection in reverse order, starting from the last element. This is useful for
-// reverse iteration without manually managing index arithmetic.
-func Backward[T any](collection []T) iter.Seq2[int, T] {
-	return func(yield func(int, T) bool) {
-		for i := len(collection) - 1; i >= 0; i-- {
-			if !yield(i, collection[i]) {
-				return
-			}
-		}
-	}
-}
-
 // FilterSeq returns an [iter.Seq] iterator that yields only the elements from seq
 // for which predicate returns true. Unlike [Filter], which operates on a concrete
 // slice, FilterSeq composes with any [iter.Seq] source.

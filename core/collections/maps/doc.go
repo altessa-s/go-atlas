@@ -17,7 +17,7 @@
 //
 // # Iterators
 //
-// Keys, Values, Filter, Map return iter.Seq iterators for memory efficiency.
+// Filter and Map return iterators for memory efficiency.
 // Use slices.Collect() to materialize results into slices when needed.
 //
 // # Usage
@@ -28,14 +28,6 @@
 //	filtered := maps.FilterMap(m, func(k string, v int) bool {
 //	    return v > 1
 //	}) // map[string]int{"b": 2, "c": 3}
-//
-//	// Iterator-based operations
-//	for k := range maps.Keys(m) {
-//	    fmt.Println(k) // "a", "b", "c"
-//	}
-//
-//	// Collect to slice when needed
-//	values := stdslices.Collect(maps.Values(m)) // []int{1, 2, 3}
 //
 //	// Merge maps (src overwrites dst)
 //	m1 := map[string]int{"a": 1, "b": 2}

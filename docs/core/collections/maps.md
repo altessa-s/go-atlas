@@ -21,7 +21,7 @@ are safe for concurrent use; `WeakRef` is a value type with the same lifetime se
 | Pure transformers   | `Merge`, `Swap`, `FilterMap`, `ConvertMap`                           |
 | Slice interop       | `FromSlice`, `FromSliceWith`, `ToKeyValueSlice`                      |
 | Flat-key conversion | `FromFlatMap`, `FromFlatMapWithHandler`, `ToFlatMap`                 |
-| Iterators           | `Keys`, `Values`, `Filter`, `Map`                                    |
+| Iterators           | `Filter`, `Map`                                                      |
 | Read-only storage   | `ImmutableMap`, `NewImmutableMap`, `NewImmutableMapFromEntries`      |
 | Weak references     | `WeakMap`, `NewWeakMap`, `WeakRef`, `MakeWeakRef`                    |
 | Pooling             | `Pool`, `NewPool`                                                    |
@@ -137,17 +137,17 @@ flat := coremaps.ToFlatMap(nested, strings.ToLower)
 
 ## Iterators
 
-`Keys`, `Values`, `Filter`, and `Map` return `iter.Seq` / `iter.Seq2` producers (Go 1.23+). They allocate nothing during construction and yield entries
-lazily, which means iterations can be terminated early without paying for the unyielded items.
+`Filter` and `Map` return `iter.Seq2` producers (Go 1.23+); for keys and values use the standard library `maps.Keys` / `maps.Values`. They allocate
+nothing during construction and yield entries lazily, which means iterations can be terminated early without paying for the unyielded items.
 
 ```go
-for k := range coremaps.Keys(m) {
+for k := range maps.Keys(m) {
     // ...
 }
 
 // Materialize when you need a slice.
-keys   := slices.Collect(coremaps.Keys(m))
-sorted := slices.Sorted(coremaps.Keys(m))
+keys   := slices.Collect(maps.Keys(m))
+sorted := slices.Sorted(maps.Keys(m))
 
 // Compose without intermediate maps.
 for k, v := range coremaps.Filter(m, func(_ string, v int) bool { return v > 0 }) {
@@ -178,7 +178,7 @@ size := m.Len()
 
 | Property                  | Standard `map`              | `ImmutableMap`                                                     |
 |---------------------------|-----------------------------|--------------------------------------------------------------------|
-| Concurrent reads          | Safe only with `sync.RWMutex` or under build-once-publish discipline | Always safe, no lock                       |
+| Concurrent reads          | Safe only with `sync.RWMutex` or under build-once-publish discipline | Always safe, no lock                                               |
 | Memory overhead at scale  | Pointer-heavy bucket layout | Three flat slices; ~1.5–2× lower memory at >10K entries            |
 | GC scan cost              | Walks every bucket pointer  | `keys`/`vals` not scanned when `K` and `V` are pointer-free        |
 | Allocation count          | Grows with rehashing        | Exactly 4 heap allocations regardless of size                      |
