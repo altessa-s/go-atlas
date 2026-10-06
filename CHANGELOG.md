@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed
+
+- `observability/tracing/factory` now honors `otlp.protocol` (`http` was ignored, gRPC was always used) and `otlp.compression: false` (gzip was
+  always on).
+
+### Changed
+
+- `observability/tracing/adapters/otlp.WithCompression` takes a `bool`; `WithCompression(false)` disables the default gzip compression.
+
 ### Removed
 
 Helpers that duplicate the Go 1.26 standard library were deleted. Migrate call sites as follows (see [docs/go126-migration.md](docs/go126-migration.md)):
