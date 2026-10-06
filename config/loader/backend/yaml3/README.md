@@ -16,6 +16,7 @@ splitting configuration across multiple files.
 | File extensions | `.yaml`, `.yml`    |
 | Preprocessor    | Yes (`!include`)   |
 | Key decoder     | Yes                |
+| Strict decoder  | Yes                |
 
 The zero value of `Backend` is ready to use. This is the default backend when `nil` is passed to
 `loader.New`.
