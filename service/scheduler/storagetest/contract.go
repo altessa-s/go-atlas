@@ -34,17 +34,28 @@ func ClaimRun(t *testing.T, store scheduler.Storage) {
 	}
 
 	put("claim_race", scheduler.TaskStatusActive)
-	var wins atomic.Int32
-	var wg sync.WaitGroup
+	var (
+		wins atomic.Int32
+		wg   sync.WaitGroup
+		mu   sync.Mutex
+		errs []error
+	)
 	for i := range 16 {
 		wg.Go(func() {
 			ok, err := store.ClaimRun(ctx, "claim_race", scheduler.RunClaim{NextRunAt: 300, StartedAt: 100, RunID: fmt.Sprintf("run-%d", i)})
-			if err == nil && ok {
+			if err != nil {
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
+				return
+			}
+			if ok {
 				wins.Add(1)
 			}
 		})
 	}
 	wg.Wait()
+	require.Empty(t, errs, "a losing concurrent claim must report false, not an error")
 	require.Equal(t, int32(1), wins.Load(), "exactly one concurrent claim must win")
 	got, err := store.GetTask(ctx, "claim_race")
 	require.NoError(t, err)
