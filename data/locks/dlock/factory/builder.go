@@ -19,7 +19,9 @@ import (
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
+	mongoprovider "github.com/altessa-s/go-atlas/data/locks/dlock/providers/mongo"
 	natsprovider "github.com/altessa-s/go-atlas/data/locks/dlock/providers/nats"
+	mongodrv "go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 // DLockBuilder assembles a [dlock.DLock] step by step using a fluent API.
@@ -32,6 +34,7 @@ type DLockBuilder struct {
 
 	// Dependencies
 	natsConn          *nats.Conn
+	mongoDB           *mongodrv.Database
 	healthCoordinator *health.Coordinator
 	healthServiceName string
 }
@@ -59,6 +62,8 @@ func (b *DLockBuilder) Build(ctx context.Context) (*dlock.DLock, error) {
 	switch b.cfg.Provider {
 	case config.DistributionLockProviderNats:
 		return b.createNatsDLock(ctx)
+	case config.DistributionLockProviderMongodb:
+		return b.createMongoDLock()
 	default:
 		return nil, b.Errorf("unknown distribution lock provider: %s", b.cfg.Provider)
 	}
@@ -87,6 +92,23 @@ func (b *DLockBuilder) createNatsDLock(ctx context.Context) (*dlock.DLock, error
 		return nil, coreerrs.Provider("nats distributed lock", err)
 	}
 
+	return dlock.New(prov, b.applyDefaults()...), nil
+}
+
+// createMongoDLock creates a DLock with the MongoDB provider.
+func (b *DLockBuilder) createMongoDLock() (*dlock.DLock, error) {
+	if b.cfg.Mongodb == nil {
+		return nil, fmt.Errorf("configuration is required")
+	}
+	if err := b.RequireDependency(b.mongoDB, "mongo database"); err != nil {
+		return nil, err
+	}
+	provOpts := []mongoprovider.Option{mongoprovider.WithLogger(b.Logger())}
+	provOpts = coreslices.AppendIf(provOpts, b.cfg.Mongodb.Collection != "", mongoprovider.WithCollection(b.cfg.Mongodb.Collection))
+	prov, err := mongoprovider.New(b.mongoDB, provOpts...)
+	if err != nil {
+		return nil, coreerrs.Provider("mongodb distributed lock", err)
+	}
 	return dlock.New(prov, b.applyDefaults()...), nil
 }
 

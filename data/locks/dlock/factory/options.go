@@ -10,6 +10,8 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/altessa-s/go-atlas/observability/health"
+
+	mongodrv "go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 // --- Dependency methods ---
@@ -23,6 +25,12 @@ func (b *DLockBuilder) UseLogger(v *slog.Logger) *DLockBuilder {
 // UseDefaultLogger sets the logger to [slog.Default].
 func (b *DLockBuilder) UseDefaultLogger() *DLockBuilder {
 	return b.UseLogger(slog.Default())
+}
+
+// UseMongoDB sets the MongoDB database used by the mongodb provider.
+func (b *DLockBuilder) UseMongoDB(v *mongodrv.Database) *DLockBuilder {
+	b.mongoDB = v
+	return b
 }
 
 // UseNatsConn sets the NATS connection used for distributed locking.
