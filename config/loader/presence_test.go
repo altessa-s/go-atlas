@@ -191,7 +191,8 @@ func TestLoad_EmbeddedStructsFollowBackend(t *testing.T) {
 	t.Run("yaml excluded embedded", func(t *testing.T) {
 		t.Parallel()
 		cfg := &yamlExcludedEmbedConfig{}
-		require.NoError(t, loadFiles(t, nil, cfg, map[string]string{"a.yaml": "enabled: false\n"}))
+		require.NoError(t, loadFiles(t, nil, cfg, map[string]string{"a.yaml": "enabled: false\n"},
+			loader.WithAllowUnknownFields()))
 		require.True(t, cfg.Enabled, "a key the decoder ignores does not suppress the default")
 	})
 	t.Run("toml embedded with tag name is keyed", func(t *testing.T) {
