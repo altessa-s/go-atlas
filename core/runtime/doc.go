@@ -2,16 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package runtime provides low-level runtime utilities wrapping Go's runtime package.
-// Offers type-safe generics for cleanup and finalizer operations, plus shutdown
-// hook registries.
-//
-// Example:
-//
-//	cleanup := runtime.AddCleanup(obj, func(data string) {
-//	    log.Println("cleaning up:", data)
-//	}, "resource-id")
-//	defer cleanup.Stop()
+// Package runtime provides process-wide and scoped shutdown hook registries.
 //
 // # Shutdown scopes
 //

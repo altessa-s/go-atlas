@@ -71,38 +71,13 @@ signal and panic handling details.
 
 ## Resource cleanup
 
-Type-safe wrappers around Go 1.24's GC-triggered cleanup APIs.
-
-### `AddCleanup`
-
-Attaches a cleanup function to an object that runs after the object becomes unreachable. The returned `Cleanup` handle can cancel the cleanup before it
-fires.
-
-```go
-cleanup := runtime.AddCleanup(conn, func(id string) {
-    releaseExternalResource(id)
-}, conn.ID())
-
-// If the resource is released explicitly, cancel the GC cleanup:
-cleanup.Stop()
-```
-
-`AddCleanup` is a thin generic wrapper around `runtime.AddCleanup` (Go 1.24+). The cleanup function receives `arg` (not the object itself) and runs in a
-separate goroutine.
-
-### `ClearFinalizer`
-
-Removes any finalizer previously set on an object via `runtime.SetFinalizer`. Safe to call even if no finalizer was set.
-
-```go
-runtime.ClearFinalizer(obj)
-```
+For GC-triggered release of a single object's resources use the standard library's `runtime.AddCleanup` directly.
 
 ### When to use cleanup vs shutdown hooks
 
 | Use case | Mechanism |
 |----------|-----------|
-| Release resources tied to a specific object's lifetime (file handles, C memory) | `AddCleanup` |
+| Release resources tied to a specific object's lifetime (file handles, C memory) | `runtime.AddCleanup` (stdlib) |
 | Release shared/global resources at application exit (database pools, flush buffers) | `OnShutdown` |
 
 Cleanup functions are triggered by the garbage collector and may never run if the process exits first. Shutdown hooks are explicit and run when

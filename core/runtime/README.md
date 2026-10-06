@@ -4,15 +4,12 @@
 import "github.com/altessa-s/go-atlas/core/runtime"
 ```
 
-Package `runtime` provides low-level runtime utilities: GC cleanup hooks, finalizer management, and shutdown hook registries — one process-wide, plus
-scoped groups for components that outlive neither.
+Package `runtime` provides shutdown hook registries — one process-wide, plus scoped groups for components that outlive neither.
 
 ## Functions
 
 | Function           | Description                                                     |
 |--------------------|-----------------------------------------------------------------|
-| `AddCleanup`       | Attach a GC cleanup callback to an object (`runtime.AddCleanup` wrapper) |
-| `ClearFinalizer`   | Remove a finalizer previously set via `runtime.SetFinalizer`    |
 | `OnShutdown`       | Register a process-wide shutdown hook (LIFO order)              |
 | `RunShutdownHooks` | Execute all process-wide hooks exactly once; errors are joined  |
 

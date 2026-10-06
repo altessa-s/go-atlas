@@ -349,4 +349,3 @@ Element references are cleared on return to allow GC of referenced strings.
 
 ## See also
 
-- [../runtime/README.md](../runtime/README.md): `AddCleanup` used by `SecureString` for GC safety

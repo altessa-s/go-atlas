@@ -8,10 +8,10 @@ import (
 	"bytes"
 	"log/slog"
 	"reflect"
+	"runtime"
 	"unsafe"
 
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
-	coreruntime "github.com/altessa-s/go-atlas/core/runtime"
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
 
@@ -64,7 +64,7 @@ type Value[T any] struct {
 	Version string `json:"version"`
 
 	ss      *corestrings.SecureString
-	cleanup coreruntime.Cleanup
+	cleanup runtime.Cleanup
 }
 
 const (
@@ -98,10 +98,8 @@ func (v *Value[T]) LogValue() slog.Value {
 // multiple goroutines.
 func (v *Value[T]) Clear() {
 	// Stop and remove cleanup first to prevent unnecessary overhead
-	if v.cleanup != nil {
-		v.cleanup.Stop()
-		v.cleanup = nil
-	}
+	v.cleanup.Stop()
+	v.cleanup = runtime.Cleanup{}
 
 	// If we have a SecureString, clear it
 	if v.ss != nil {
@@ -170,7 +168,7 @@ func (v *Value[T]) clearValueField() {
 			val.Set(reflect.Zero(val.Type()))
 		}
 
-	case reflect.Ptr:
+	case reflect.Pointer:
 		// For pointer types, set to nil
 		if val.CanSet() {
 			val.Set(reflect.Zero(val.Type()))
@@ -242,7 +240,7 @@ func NewValue[T any](key string, value T, encodedValue []byte, version string) *
 	// zeroed. Key / EncodedKey / Version are identifiers/metadata —
 	// running ZeroString over them costs a SIGSEGV+recover per call
 	// for interned strings without protecting anything sensitive.
-	v.cleanup = coreruntime.AddCleanup(v, func(d *cleanupData) {
+	v.cleanup = runtime.AddCleanup(v, func(d *cleanupData) {
 		if d.encodedValue != nil {
 			corestrings.ZeroBytes(d.encodedValue)
 		}
