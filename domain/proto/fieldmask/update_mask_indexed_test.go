@@ -51,8 +51,8 @@ func TestApplyUpdateMask_RejectsIndexedRepeatedAccess(t *testing.T) {
 
 			if tc.wantError {
 				require.Error(t, err)
-				var ve *fieldmask.ValidationError
-				require.True(t, errors.As(err, &ve),
+				ve, ok := errors.AsType[*fieldmask.ValidationError](err)
+				require.True(t, ok,
 					"want *fieldmask.ValidationError, got %T (%v)", err, err)
 				require.Equal(t, tc.path, ve.Path)
 				require.Contains(t, ve.Reason, "indexed access")
@@ -63,8 +63,7 @@ func TestApplyUpdateMask_RejectsIndexedRepeatedAccess(t *testing.T) {
 			// (unknown field, behavior violation). The contract here is only
 			// that they must NOT fail with the indexed-access ValidationError.
 			if err != nil {
-				var ve *fieldmask.ValidationError
-				if errors.As(err, &ve) {
+				if ve, ok := errors.AsType[*fieldmask.ValidationError](err); ok {
 					require.NotContains(t, ve.Reason, "indexed access",
 						"path %q should not be rejected for indexed access", tc.path)
 				}
@@ -87,8 +86,7 @@ func TestApplyUpdateMask_IndexInsideMapValue(t *testing.T) {
 	err := mask.ApplyUpdateMask(&pb.Resource{})
 
 	if err != nil {
-		var ve *fieldmask.ValidationError
-		if errors.As(err, &ve) {
+		if ve, ok := errors.AsType[*fieldmask.ValidationError](err); ok {
 			require.NotContains(t, ve.Reason, "indexed access")
 		}
 	}

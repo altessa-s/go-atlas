@@ -58,12 +58,10 @@ func (e *responderStatusError) Error() string {
 // shouldRetryOCSP retries only transient failures — network errors and HTTP 5xx.
 // Parse errors and 4xx responses are terminal, so they fail fast.
 func shouldRetryOCSP(err error) bool {
-	var netErr net.Error
-	if errors.As(err, &netErr) {
+	if _, ok := errors.AsType[net.Error](err); ok {
 		return true
 	}
-	var statusErr *responderStatusError
-	if errors.As(err, &statusErr) {
+	if statusErr, ok := errors.AsType[*responderStatusError](err); ok {
 		return statusErr.code >= http.StatusInternalServerError
 	}
 	return false

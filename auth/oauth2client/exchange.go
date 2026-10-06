@@ -163,8 +163,8 @@ func (e *Exchanger) exchange(ctx context.Context, req ExchangeRequest) (*oauth2.
 			Jitter:    DefaultRetryJitter,
 		})),
 		retry.WithShouldRetry(func(err error) bool {
-			var ee *exchangeError
-			return errors.As(err, &ee) && ee.retryable
+			ee, ok := errors.AsType[*exchangeError](err)
+			return ok && ee.retryable
 		}),
 		retry.WithOnRetry(func(attempt int, err error, delay time.Duration) {
 			e.metrics.recordRetry(grantTokenExchange)

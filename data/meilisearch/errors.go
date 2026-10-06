@@ -60,8 +60,8 @@ func IsErrorIndexAlreadyExists(err error) bool {
 // hasMeilisearchAPICode returns true when err unwraps to a [msdk.Error]
 // whose MeilisearchApiError.Code matches code.
 func hasMeilisearchAPICode(err error, code string) bool {
-	var meiliErr *msdk.Error
-	if !errors.As(err, &meiliErr) {
+	meiliErr, ok := errors.AsType[*msdk.Error](err)
+	if !ok {
 		return false
 	}
 	return meiliErr.MeilisearchApiError.Code == code
@@ -73,8 +73,8 @@ func hasMeilisearchAPICode(err error, code string) bool {
 // trace) are reachable from the returned value. Returns nil when err
 // is nil or does not match any classified code.
 func classifySDKError(err error) error {
-	var meiliErr *msdk.Error
-	if err == nil || !errors.As(err, &meiliErr) {
+	meiliErr, ok := errors.AsType[*msdk.Error](err)
+	if err == nil || !ok {
 		return nil
 	}
 	switch meiliErr.MeilisearchApiError.Code {

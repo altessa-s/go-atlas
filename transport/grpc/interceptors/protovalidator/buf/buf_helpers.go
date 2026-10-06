@@ -142,8 +142,8 @@ func BuildValidator(filter protovalidate.Filter, opts ...Option) func(_ context.
 			return nil
 		}
 
-		var ve *protovalidate.ValidationError
-		if !errors.As(err, &ve) {
+		ve, ok := errors.AsType[*protovalidate.ValidationError](err)
+		if !ok {
 			return err
 		}
 
@@ -156,7 +156,7 @@ func BuildValidator(filter protovalidate.Filter, opts ...Option) func(_ context.
 
 			if cfg.reasonCode != nil {
 				if code := cfg.reasonCode(violation.Proto.GetRuleId(), leafFieldName(violation.Proto.GetField())); code != "" {
-					field.Code = ptr.Wrap(code)
+					field.Code = new(code)
 				}
 			}
 
@@ -202,8 +202,8 @@ func buildFieldPathComponent(element *validate.FieldPathElement) *badrequestv1.F
 
 	switch s := element.Subscript.(type) {
 	case *validate.FieldPathElement_Index:
-		fieldElement.RepeatedField = ptr.Wrap(true)
-		fieldElement.RepeatedIndex = ptr.Wrap(s.Index)
+		fieldElement.RepeatedField = new(true)
+		fieldElement.RepeatedIndex = new(s.Index)
 	case *validate.FieldPathElement_BoolKey:
 		fieldElement.MapKey = &badrequestv1.FieldPathComponent_BoolKey{BoolKey: s.BoolKey}
 	case *validate.FieldPathElement_IntKey:

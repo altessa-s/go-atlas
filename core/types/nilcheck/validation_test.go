@@ -71,8 +71,8 @@ func TestRequireNotNil(t *testing.T) {
 
 			if tt.wantErr {
 				require.Error(t, err)
-				var re *RequiredError
-				require.True(t, errors.As(err, &re), "error should be *RequiredError")
+				re, ok := errors.AsType[*RequiredError](err)
+				require.True(t, ok, "error should be *RequiredError")
 				assert.Equal(t, tt.fieldName, re.FieldName)
 			} else {
 				require.NoError(t, err)

@@ -161,8 +161,8 @@ func TestStripCreate_Strict_ReportsViolations(t *testing.T) {
 	err := fieldbehavior.StripCreate(r, fieldbehavior.WithStrict())
 	require.Error(t, err)
 
-	var vErr *fieldbehavior.BehaviorViolationError
-	require.True(t, errors.As(err, &vErr))
+	vErr, ok := errors.AsType[*fieldbehavior.BehaviorViolationError](err)
+	require.True(t, ok)
 
 	paths := make([]string, 0, len(vErr.Violations))
 	for _, v := range vErr.Violations {

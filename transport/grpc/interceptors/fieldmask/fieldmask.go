@@ -358,16 +358,14 @@ func (ri *requestInterceptor) filterResponse(ctx context.Context, resp proto.Mes
 // UpdateMaskBehaviorError becomes InvalidArgument + google.rpc.BadRequest;
 // ValidationError becomes InvalidArgument; everything else becomes Internal.
 func (ri *requestInterceptor) convertUpdateError(ctx context.Context, method string, applyErr error) error {
-	var behaviorErr *pbfieldmask.UpdateMaskBehaviorError
-	if errors.As(applyErr, &behaviorErr) {
+	if behaviorErr, ok := errors.AsType[*pbfieldmask.UpdateMaskBehaviorError](applyErr); ok {
 		ri.LogDebug(ctx, "fieldmask update_mask behavior violation", method,
 			slog.Int("violations", len(behaviorErr.Violations)),
 		)
 		return interceptors.NewError(buildBehaviorStatus(behaviorErr), applyErr)
 	}
 
-	var validationErr *pbfieldmask.ValidationError
-	if errors.As(applyErr, &validationErr) {
+	if validationErr, ok := errors.AsType[*pbfieldmask.ValidationError](applyErr); ok {
 		ri.LogDebug(ctx, "fieldmask update_mask validation error", method,
 			slog.String("path", validationErr.Path),
 		)
