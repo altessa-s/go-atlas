@@ -19,5 +19,6 @@ injected into the top-level `dlock.DLock` to supply the underlying locking mecha
 
 | Package            | Description                        |
 |--------------------|------------------------------------|
+| [mongo](./mongo)   | MongoDB provider                   |
 | [nats](./nats)     | NATS JetStream provider            |
 | [noop](./noop)     | No-op provider for testing         |
