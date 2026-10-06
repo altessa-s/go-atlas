@@ -15,7 +15,6 @@ import (
 
 	corectx "github.com/altessa-s/go-atlas/core/context"
 	coreretry "github.com/altessa-s/go-atlas/core/retry"
-	coretime "github.com/altessa-s/go-atlas/core/time"
 	vaultApi "github.com/hashicorp/vault/api"
 )
 
@@ -157,7 +156,7 @@ func (a *Authenticator) Run(ctx context.Context) {
 	// when the context is done, whichever happens first.
 	backoffOrDone := func(ctx context.Context, backoff time.Duration) {
 		timer := time.NewTimer(backoff)
-		defer coretime.TimerStopAndDrain(timer)
+		defer timer.Stop()
 
 		select {
 		case <-timer.C:

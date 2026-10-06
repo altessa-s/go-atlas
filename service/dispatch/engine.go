@@ -17,7 +17,6 @@ import (
 
 	corecontext "github.com/altessa-s/go-atlas/core/context"
 	coreretry "github.com/altessa-s/go-atlas/core/retry"
-	coretime "github.com/altessa-s/go-atlas/core/time"
 )
 
 // Engine errors.
@@ -383,7 +382,7 @@ func (e *Engine[T]) storeBatch(items []T, offsets []wal.Offset) error {
 		select {
 		case <-timer.C:
 		case <-e.done:
-			coretime.TimerStopAndDrain(timer)
+			timer.Stop()
 		}
 	}
 }

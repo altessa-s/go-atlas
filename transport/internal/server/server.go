@@ -21,7 +21,6 @@ import (
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
-	coretime "github.com/altessa-s/go-atlas/core/time"
 )
 
 // Sentinel errors returned by [BaseServer] lifecycle methods.
@@ -167,7 +166,7 @@ func (s *BaseServer) Start(protocol string, startFn StartFunc) error {
 
 	// Wait for startup verification or early error
 	timer := time.NewTimer(s.options.timeouts.StartupVerification)
-	defer coretime.TimerStopAndDrain(timer)
+	defer timer.Stop()
 
 	select {
 	case err := <-chErr:

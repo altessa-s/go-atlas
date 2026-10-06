@@ -18,7 +18,6 @@ import (
 	corectx "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	coreretry "github.com/altessa-s/go-atlas/core/retry"
-	coretime "github.com/altessa-s/go-atlas/core/time"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
@@ -132,8 +131,8 @@ func (s *Store) hello(ctx context.Context) (helloReply, error) {
 
 	// "hello" landed in MongoDB 4.4.2; older servers answer only the legacy
 	// spelling. Any other failure is real and is reported as such.
-	var srvErr mongo.ServerError
-	if !errors.As(err, &srvErr) || !srvErr.HasErrorCode(commandNotFound) {
+	srvErr, ok := errors.AsType[mongo.ServerError](err)
+	if !ok || !srvErr.HasErrorCode(commandNotFound) {
 		return helloReply{}, coreerrs.WrapOperation(err, "run MongoDB hello command")
 	}
 
@@ -261,8 +260,8 @@ func isServerErrorCode(err error, code int) bool {
 	if err == nil {
 		return false
 	}
-	var srvErr mongo.ServerError
-	return errors.As(err, &srvErr) && srvErr.HasErrorCode(code)
+	srvErr, ok := errors.AsType[mongo.ServerError](err)
+	return ok && srvErr.HasErrorCode(code)
 }
 
 // sleep waits for d, reporting false when ctx ended first.
@@ -272,7 +271,7 @@ func sleep(ctx context.Context, d time.Duration) bool {
 	}
 
 	timer := time.NewTimer(d)
-	defer coretime.TimerStopAndDrain(timer)
+	defer timer.Stop()
 
 	select {
 	case <-ctx.Done():

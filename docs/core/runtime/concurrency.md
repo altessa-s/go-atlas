@@ -309,21 +309,6 @@ Handlers execute by priority (highest first). Predefined levels:
 
 ---
 
-## Resource cleanup
-
-Type-safe wrappers around Go 1.24's `runtime.AddCleanup` for GC-triggered resource release:
-
-```go
-cleanup := runtime.AddCleanup(obj, func(id string) {
-    releaseExternalResource(id)
-}, resourceID)
-
-// Cancel cleanup if resource is released explicitly:
-cleanup.Stop()
-```
-
----
-
 ## Patterns and guidelines
 
 ### Prefer `Process` over manual goroutine management
@@ -417,14 +402,14 @@ result, err, _ := t.fetchGroup.Do(key, func() (any, error) {
 Only the first caller executes the function; all others block and receive the same result. This pattern is used in the cache, secrets manager, and
 Mongo client.
 
-### Reuse timers in loops with `coretime.TimerStopAndDrain`
+### Reuse timers in loops
 
 Avoid `time.After` in loops — since Go 1.23 unreferenced timers are garbage collected before they fire, but each call still allocates a new timer.
-Instead, create one `time.Timer` and reset it each iteration. Before calling `Reset`, drain the channel to prevent stale events:
+Instead, create one `time.Timer` and reset it each iteration:
 
 ```go
 timer := time.NewTimer(interval)
-defer coretime.TimerStopAndDrain(timer)
+defer timer.Stop()
 
 for {
     select {
@@ -432,13 +417,13 @@ for {
         return ctx.Err()
     case <-timer.C:
         doWork()
-        coretime.TimerStopAndDrain(timer)
         timer.Reset(interval)
     }
 }
 ```
 
-`TimerStopAndDrain` uses a non-blocking select so it never blocks even if another goroutine has already consumed the event.
+With `go 1.23` or later in `go.mod` timer channels are synchronous: after `Stop` or `Reset` returns, no stale value is received, so no manual drain
+is needed.
 
 ### Safe resource release under panic
 
