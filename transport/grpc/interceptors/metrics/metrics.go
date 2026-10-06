@@ -7,7 +7,7 @@ package metrics
 import (
 	"context"
 	"hash/fnv"
-	"math/rand"
+	"math/rand/v2"
 	"sync"
 	"time"
 
@@ -230,8 +230,8 @@ func (s *streamWrapper) initializeSampling() {
 		s.streamSeed = hash.Sum64()
 
 		// Use the seed to make a deterministic sampling decision
-		// #nosec G404,G115 -- math/rand intentional for sampling; bit pattern reuse is safe
-		rng := rand.New(rand.NewSource(int64(s.streamSeed)))
+		// #nosec G404 -- math/rand intentional for sampling
+		rng := rand.New(rand.NewPCG(s.streamSeed, 0))
 		s.streamSampled = rng.Float64() < samplingRate
 	} else {
 		// PerMessageSampling: individual message decisions will be made in SendMsg/RecvMsg

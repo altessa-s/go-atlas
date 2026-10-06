@@ -99,17 +99,15 @@ func TestClaimRun_ExactlyOneConcurrentWinner(t *testing.T) {
 	var wins atomic.Int64
 	var wg sync.WaitGroup
 	start := make(chan struct{})
-	for i := range racers {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
+	for range racers {
+		wg.Go(func() {
 			<-start
 			ok, err := s.ClaimRun(ctx, "a", scheduler.RunClaim{NextRunAt: 100, StartedAt: 1700000000, RunID: "run"})
 			require.NoError(t, err)
 			if ok {
 				wins.Add(1)
 			}
-		}(i)
+		})
 	}
 	close(start)
 	wg.Wait()
