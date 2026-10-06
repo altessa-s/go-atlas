@@ -17,7 +17,8 @@ import (
 // around a filtered page query: translating the filter and assembling the
 // statement (the fake driver makes the round trip itself negligible).
 func BenchmarkTasksPaginatedFiltered(b *testing.B) {
-	db, _ := testhelpers.NewFakeSQL(b, func(string, []any) testhelpers.FakeSQLReply { return testhelpers.FakeSQLReply{Columns: taskCols()} })
+	db, fake := testhelpers.NewFakeSQL(b, func(string, []any) testhelpers.FakeSQLReply { return testhelpers.FakeSQLReply{Columns: taskCols()} })
+	fake.DisableRecording()
 	store, err := sqldb.New(db, sqldb.DialectPostgres)
 	if err != nil {
 		b.Fatal(err)
@@ -43,7 +44,8 @@ func BenchmarkTasksPaginatedFiltered(b *testing.B) {
 // BenchmarkClaimRun measures the hot dispatch path's statement and argument
 // assembly.
 func BenchmarkClaimRun(b *testing.B) {
-	db, _ := testhelpers.NewFakeSQL(b, nil)
+	db, fake := testhelpers.NewFakeSQL(b, nil)
+	fake.DisableRecording()
 	store, err := sqldb.New(db, sqldb.DialectMySQL)
 	if err != nil {
 		b.Fatal(err)
