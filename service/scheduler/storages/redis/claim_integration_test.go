@@ -123,14 +123,14 @@ func TestIntegration_RedisClaimRun_FenceMismatch(t *testing.T) {
 	require.False(t, ok, "a mismatched occurrence fence must not be claimable")
 }
 
-func TestIntegration_RedisClaimRun_ZeroFenceIgnoresNextRun(t *testing.T) {
+func TestIntegration_RedisClaimRun_ZeroFenceRequiresZeroNextRun(t *testing.T) {
 	t.Parallel()
 	s := newClaimIT(t)
 	seedActive(t, s, "a", 100)
 
 	ok, err := s.ClaimRun(t.Context(), "a", scheduler.RunClaim{NextRunAt: 0, StartedAt: 1700000000, RunID: "run-1"})
 	require.NoError(t, err)
-	require.True(t, ok, "expectedNextRunAt==0 claims any active occurrence")
+	require.False(t, ok, "a zero fence claims only a zero occurrence")
 }
 
 func TestIntegration_RedisClaimRun_NotActive(t *testing.T) {
