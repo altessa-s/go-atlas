@@ -287,8 +287,7 @@ func TestRejectIndexedRepeatedAccess_AllowsWildcard(t *testing.T) {
 		mask := fieldmask.FromPaths(p)
 		err := mask.ApplyUpdateMask(&pb.Resource{})
 		if err != nil {
-			var ve *fieldmask.ValidationError
-			if errors.As(err, &ve) {
+			if ve, ok := errors.AsType[*fieldmask.ValidationError](err); ok {
 				require.NotContains(t, ve.Reason, "indexed access",
 					"path %q must not be rejected as indexed access", p)
 			}

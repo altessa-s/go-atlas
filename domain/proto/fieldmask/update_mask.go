@@ -105,8 +105,7 @@ func (msk FieldMask) ApplyUpdateMask(msg proto.Message, opts ...ApplyOption) err
 			}
 			// PathValidationWarn: report every bad path but still apply the mask.
 			// shouldValidatePaths guarantees a non-nil reporter here.
-			var validationErr *ValidationError
-			if errors.As(err, &validationErr) {
+			if validationErr, ok := errors.AsType[*ValidationError](err); ok {
 				o.pathReporter(validationErr)
 			}
 		}
