@@ -232,6 +232,12 @@ func TestTranslator_StringFunctions(t *testing.T) {
 			expr:     `name.contains("a.b")`,
 			wantJSON: `{"name":{"$regex":"a\\.b"}}`,
 		},
+		{
+			// A BSON regex cannot carry a raw NUL byte.
+			name:     "contains NUL",
+			expr:     `name.contains("a\x00b")`,
+			wantJSON: `{"name":{"$regex":"a\\x00b"}}`,
+		},
 	}
 
 	trans := mustTranslator(t)

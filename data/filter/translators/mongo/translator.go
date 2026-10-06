@@ -6,6 +6,7 @@ package mongo
 
 import (
 	"regexp"
+	"strings"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -178,9 +179,15 @@ type regexTransform func(string) (string, error)
 // end, or just before a final newline": endsWith uses `\z`, the absolute end,
 // so "abc\n" does not end with "abc". `^` needs no such care — without the m
 // option it matches only at the start.
-func regexContains(s string) (string, error)   { return regexp.QuoteMeta(s), nil }
-func regexStartsWith(s string) (string, error) { return "^" + regexp.QuoteMeta(s), nil }
-func regexEndsWith(s string) (string, error)   { return regexp.QuoteMeta(s) + `\z`, nil }
+func regexContains(s string) (string, error)   { return quoteLiteral(s), nil }
+func regexStartsWith(s string) (string, error) { return "^" + quoteLiteral(s), nil }
+func regexEndsWith(s string) (string, error)   { return quoteLiteral(s) + `\z`, nil }
+
+// quoteLiteral escapes s into a pattern matching it literally. A BSON regex is
+// a C string, so MongoDB rejects a raw NUL byte; it is spelled `\x00` instead.
+func quoteLiteral(s string) string {
+	return strings.ReplaceAll(regexp.QuoteMeta(s), "\x00", `\x00`)
+}
 
 // regexPassthrough validates a user-provided regex pattern before passing
 // it to MongoDB. It delegates to [filter.ValidateRegex] using the
