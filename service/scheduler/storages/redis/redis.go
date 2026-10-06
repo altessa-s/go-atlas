@@ -487,8 +487,9 @@ func (s *Storage) ReplaceTaskIf(ctx context.Context, state *scheduler.TaskState,
 // for a specific occurrence. It runs entirely server-side under Redis's single-
 // threaded execution, so the read-check-write is atomic: KEYS[1] is the task key;
 // ARGV = [activeStatus, expectedNextRunAt, runningStatus, runStartedAt, jsonRunID,
-// expectedRunAt, leaseUntil]; run_at is fenced together with next_run_at, and
-// jsonRunID is stored as both last_run_id and run_lease_id.
+// expectedRunAt, leaseUntil]; run_at is fenced together with next_run_at (an
+// absent field counts as zero), and jsonRunID is stored as both last_run_id and
+// run_lease_id.
 // A task whose previous run is unfinished (run_started_at non-zero) is not
 // claimable. Returns 1 when this caller claimed the run, 0 otherwise.
 const claimRunScript = revisionLua + `
@@ -497,16 +498,14 @@ if (not s) or s == '[]' then return 0 end
 if tonumber(string.match(s, '(-?%d+)')) ~= tonumber(ARGV[1]) then return 0 end
 local rs = redis.call('JSON.GET', KEYS[1], '$.run_started_at')
 if rs and rs ~= '[]' and tonumber(string.match(rs, '(-?%d+)')) ~= 0 then return 0 end
-local exp = tonumber(ARGV[2])
-if exp ~= 0 then
-  local nr = redis.call('JSON.GET', KEYS[1], '$.next_run_at')
-  if (not nr) or nr == '[]' then return 0 end
-  if tonumber(string.match(nr, '(-?%d+)')) ~= exp then return 0 end
-  local ra = redis.call('JSON.GET', KEYS[1], '$.run_at')
-  local stored = 0
-  if ra and ra ~= '[]' then stored = tonumber(string.match(ra, '(-?%d+)')) end
-  if stored ~= tonumber(ARGV[6]) then return 0 end
-end
+local nr = redis.call('JSON.GET', KEYS[1], '$.next_run_at')
+local storedNext = 0
+if nr and nr ~= '[]' then storedNext = tonumber(string.match(nr, '(-?%d+)')) end
+if storedNext ~= tonumber(ARGV[2]) then return 0 end
+local ra = redis.call('JSON.GET', KEYS[1], '$.run_at')
+local storedRun = 0
+if ra and ra ~= '[]' then storedRun = tonumber(string.match(ra, '(-?%d+)')) end
+if storedRun ~= tonumber(ARGV[6]) then return 0 end
 redis.call('JSON.SET', KEYS[1], '$.status', ARGV[3])
 redis.call('JSON.SET', KEYS[1], '$.run_started_at', ARGV[4])
 redis.call('JSON.SET', KEYS[1], '$.updated_at', ARGV[4])
