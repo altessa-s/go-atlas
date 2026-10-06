@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"maps"
 	"math"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/robfig/cron/v3"
@@ -23,6 +24,7 @@ import (
 	"github.com/altessa-s/go-atlas/data/probfilter"
 	"github.com/altessa-s/go-atlas/data/probfilter/bloom"
 	"github.com/altessa-s/go-atlas/data/probfilter/cuckoo"
+	"github.com/altessa-s/go-atlas/data/probfilter/internal/redisfilter"
 	"github.com/altessa-s/go-atlas/observability/metrics"
 
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
@@ -68,6 +70,32 @@ type FilterBuilder struct {
 	// tolerateInProgress lets the initial rebuild lose the rebuild lease of
 	// a shared filter; see [FilterBuilder.TolerateRebuildInProgress].
 	tolerateInProgress bool
+	// skipEvictionCheck disables the Redis eviction-policy check; see
+	// [FilterBuilder.SkipEvictionPolicyCheck].
+	skipEvictionCheck bool
+}
+
+// evictionCheckTimeout bounds the eviction-policy check of a Redis storage.
+const evictionCheckTimeout = 5 * time.Second
+
+// checkEvictionPolicy fails when the Redis server may evict the filter's
+// keys (see [redisfilter.CheckEvictionPolicy]) and logs when the policy
+// cannot be read.
+func (b *FilterBuilder) checkEvictionPolicy() error {
+	if b.skipEvictionCheck {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), evictionCheckTimeout)
+	defer cancel()
+	verified, err := redisfilter.CheckEvictionPolicy(ctx, b.redisClient)
+	if err != nil {
+		return b.WrapError(err, "redis storage of filter "+b.name)
+	}
+	if !verified {
+		b.Logger().Warn("probfilter: Redis maxmemory-policy not verified; an allkeys-* policy may evict filter keys",
+			"filter", b.name)
+	}
+	return nil
 }
 
 // NewFilter creates a [FilterBuilder] for the given filter name, config, and defaults.
@@ -253,6 +281,9 @@ func (b *FilterBuilder) createBloomStorage() (bloomstorages.Storage, error) {
 		if err := b.RequireDependency(b.redisClient, "redis client"); err != nil {
 			return nil, err
 		}
+		if err := b.checkEvictionPolicy(); err != nil {
+			return nil, err
+		}
 		opts := []bloomredis.Option{
 			bloomredis.WithExpectedItems(expectedItems),
 			bloomredis.WithFalsePositiveRate(falsePositiveRate),
@@ -299,6 +330,9 @@ func (b *FilterBuilder) createCuckooStorage() (cuckoostorages.Storage, error) {
 
 	case config.ProbabilisticFilterStorageTypeRedis:
 		if err := b.RequireDependency(b.redisClient, "redis client"); err != nil {
+			return nil, err
+		}
+		if err := b.checkEvictionPolicy(); err != nil {
 			return nil, err
 		}
 		opts := []cuckoeredis.Option{
@@ -390,6 +424,7 @@ func (b *ManagerBuilder) Build() (*probfilter.Manager, error) {
 		filter, err := NewFilter(name, filterCfg, b.cfg.Defaults).
 			UseLogger(b.Logger()).
 			UseRedisClient(b.redisClient).
+			SkipEvictionPolicyCheck(b.cfg.SkipEvictionPolicyCheck).
 			UseDataLoader(b.loaders[name]).
 			UseScheduler(b.scheduler).
 			Build()

@@ -12,6 +12,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -511,4 +512,301 @@ func TestRedisCuckoo_FullFilterRejectsWrites_Integration(t *testing.T) {
 			require.ErrorIs(t, f.AddBatch(ctx, slices.Values(values)), redisfilter.ErrItemRejected, "a full filter must reject AddBatch")
 		})
 	}
+}
+
+// TestRedisBloom_RebuildKeepsOtherProcessAdds_Integration: a value another
+// process adds to a shared Bloom filter while a rebuild runs must survive the
+// commit — the rebuild's snapshot predates it, so only the journal carries it.
+func TestRedisBloom_RebuildKeepsOtherProcessAdds_Integration(t *testing.T) {
+	for _, protocol := range []int{2, 3} {
+		t.Run(fmt.Sprintf("RESP%d", protocol), func(t *testing.T) {
+			client, prefix := newRedisBloomIT(t, protocol)
+			ctx := t.Context()
+			mk := func() probfilter.RebuildableFilter {
+				return bloom.New(bloomredis.New(client, "bf", bloomredis.WithKeyPrefix(prefix), bloomredis.WithExpectedItems(1000)))
+			}
+			a, b := mk(), mk()
+
+			loader := &pausingLoader{values: []string{"snapshot"}, started: make(chan struct{}), resume: make(chan struct{})}
+			done := make(chan error, 1)
+			go func() { done <- a.Rebuild(ctx, loader) }()
+			<-loader.started
+
+			require.NoError(t, b.Add(ctx, "from-b"))
+			close(loader.resume)
+			require.NoError(t, <-done)
+
+			requireMember(t, a, "snapshot")
+			requireMember(t, a, "from-b")
+			requireMember(t, b, "from-b")
+			journals, err := client.Keys(ctx, "*"+prefix+"*:rebuild-journal:*").Result()
+			require.NoError(t, err)
+			require.Empty(t, journals, "the journal is dropped once the rebuild ends")
+
+			// Outside a rebuild nothing is journaled.
+			require.NoError(t, b.Add(ctx, "after"))
+			journals, err = client.Keys(ctx, "*"+prefix+"*:rebuild-journal:*").Result()
+			require.NoError(t, err)
+			require.Empty(t, journals)
+		})
+	}
+}
+
+// TestRedisCheckEvictionPolicy_Integration reads the policy of a real server
+// over both protocols; the integration stack runs with noeviction.
+func TestRedisCheckEvictionPolicy_Integration(t *testing.T) {
+	for _, protocol := range []int{2, 3} {
+		t.Run(fmt.Sprintf("RESP%d", protocol), func(t *testing.T) {
+			client, _ := newRedisBloomIT(t, protocol)
+			policy, err := client.ConfigGet(t.Context(), "maxmemory-policy").Result()
+			require.NoError(t, err)
+			verified, err := redisfilter.CheckEvictionPolicy(t.Context(), client)
+			if strings.HasPrefix(policy["maxmemory-policy"], "allkeys-") {
+				require.ErrorIs(t, err, probfilter.ErrUnsafeEvictionPolicy)
+				return
+			}
+			require.NoError(t, err)
+			require.True(t, verified)
+		})
+	}
+}
+
+// bloomJournalCommands mirror the Bloom storage's commands, journal included.
+var bloomJournalCommands = redisfilter.Commands{
+	Label: "Bloom", Exists: "BF.EXISTS",
+	Add: "BF.INSERT", AddTokens: []string{"NOCREATE", "ITEMS"},
+	AddBatch: "BF.INSERT", BatchTokens: []string{"NOCREATE", "ITEMS"},
+	Reserve: "BF.RESERVE", Info: "BF.INFO", JournalAdds: true,
+}
+
+func onlyKey(t *testing.T, client *goredis.Client, pattern string) string {
+	t.Helper()
+	keys, err := client.Keys(t.Context(), pattern).Result()
+	require.NoError(t, err)
+	require.Len(t, keys, 1, pattern)
+	return keys[0]
+}
+
+// A rebuild whose lease was taken over must neither consume nor drop the
+// journal of its successor: the successor's commit still carries the value
+// added under its lease, and the journal carries no TTL.
+func TestRedisBloomJournal_TakeoverKeepsSuccessorJournal_Integration(t *testing.T) {
+	client, prefix := newRedisBloomIT(t, 3)
+	ctx := t.Context()
+	a := redisfilter.New(client, prefix+"bf", bloomJournalCommands, 0.01, 1000)
+	b := redisfilter.New(client, prefix+"bf", bloomJournalCommands, 0.01, 1000)
+	require.NoError(t, a.EnsureFilter(ctx))
+
+	leaseA, err := a.BeginRebuild(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = leaseA.Release(context.WithoutCancel(ctx)) })
+	stA, err := leaseA.Stage(ctx, 0.01, 1000)
+	require.NoError(t, err)
+
+	// A stalls and loses its lease; B takes over and someone adds x.
+	require.NoError(t, client.Del(ctx, onlyKey(t, client, "*"+prefix+"*:rebuild-lease:*")).Err())
+	leaseB, err := b.BeginRebuild(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = leaseB.Release(context.WithoutCancel(ctx)) })
+	stB, err := leaseB.Stage(ctx, 0.01, 1000)
+	require.NoError(t, err)
+	require.NoError(t, a.Add(ctx, "x"))
+
+	journal := onlyKey(t, client, "*"+prefix+"*:rebuild-journal:*")
+	ttl, err := client.PTTL(ctx, journal).Result()
+	require.NoError(t, err)
+	require.Equal(t, time.Duration(-1), ttl, "the journal must not expire or be evictable under volatile-*")
+
+	require.ErrorIs(t, stA.Commit(ctx), probfilter.ErrRebuildSuperseded)
+	n, err := client.LLen(ctx, journal).Result()
+	require.NoError(t, err)
+	require.Equal(t, int64(1), n, "the superseded rebuild must not consume the successor's journal")
+
+	require.NoError(t, stB.Commit(ctx))
+	ok, err := a.MightExist(ctx, "x")
+	require.NoError(t, err)
+	require.True(t, ok)
+}
+
+// replayDrainHook runs every journal drain script twice, as a client retry
+// after a lost reply would.
+type replayDrainHook struct{}
+
+func (replayDrainHook) DialHook(next goredis.DialHook) goredis.DialHook { return next }
+
+func (replayDrainHook) ProcessHook(next goredis.ProcessHook) goredis.ProcessHook {
+	return func(ctx context.Context, cmd goredis.Cmder) error {
+		args := cmd.Args()
+		name := strings.ToLower(cmd.Name())
+		isDrain := (name == "evalsha" || name == "eval") && len(args) > 4 &&
+			fmt.Sprint(args[2]) == "3" && strings.Contains(fmt.Sprint(args[3]), ":rebuild-lease:")
+		if err := next(ctx, cmd); err != nil || !isDrain {
+			return err
+		}
+		return next(ctx, cmd)
+	}
+}
+
+func (replayDrainHook) ProcessPipelineHook(next goredis.ProcessPipelineHook) goredis.ProcessPipelineHook {
+	return next
+}
+
+// A drain whose reply is lost and retried must not lose the batch it moved.
+func TestRedisBloomJournal_DrainRetryLosesNothing_Integration(t *testing.T) {
+	client, prefix := newRedisBloomIT(t, 3)
+	ctx := t.Context()
+	writer := redisfilter.New(client, prefix+"bf", bloomJournalCommands, 0.01, 10000)
+	require.NoError(t, writer.EnsureFilter(ctx))
+
+	rebuilderClient := goredis.NewClient(&goredis.Options{Addr: redisAddr()})
+	t.Cleanup(func() { _ = rebuilderClient.Close() })
+	rebuilderClient.AddHook(replayDrainHook{})
+	rebuilder := redisfilter.New(rebuilderClient, prefix+"bf", bloomJournalCommands, 0.01, 10000)
+
+	lease, err := rebuilder.BeginRebuild(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = lease.Release(context.WithoutCancel(ctx)) })
+	st, err := lease.Stage(ctx, 0.01, 10000)
+	require.NoError(t, err)
+
+	values := make([]string, 1200) // several drain batches
+	for i := range values {
+		values[i] = fmt.Sprintf("v-%d", i)
+	}
+	require.NoError(t, writer.AddBatch(ctx, slices.Values(values)))
+	require.NoError(t, st.Commit(ctx))
+
+	for _, v := range values {
+		ok, err := writer.MightExist(ctx, v)
+		require.NoError(t, err)
+		require.True(t, ok, "MightExist(%q)", v)
+	}
+}
+
+// beforeHook runs fn before every script call with the given number of keys
+// whose first key contains marker.
+type beforeHook struct {
+	keys   string
+	marker string
+	fn     func()
+}
+
+func (beforeHook) DialHook(next goredis.DialHook) goredis.DialHook { return next }
+
+func (h beforeHook) ProcessHook(next goredis.ProcessHook) goredis.ProcessHook {
+	return func(ctx context.Context, cmd goredis.Cmder) error {
+		args := cmd.Args()
+		name := strings.ToLower(cmd.Name())
+		if (name == "evalsha" || name == "eval") && len(args) > 3 && fmt.Sprint(args[2]) == h.keys &&
+			strings.Contains(fmt.Sprint(args[3]), h.marker) {
+			h.fn()
+		}
+		return next(ctx, cmd)
+	}
+}
+
+func (beforeHook) ProcessPipelineHook(next goredis.ProcessPipelineHook) goredis.ProcessPipelineHook {
+	return next
+}
+
+// journalRebuild starts a rebuild on a client with hooks and a non-scaling
+// staging filter of the given capacity; writer shares the filter.
+func journalRebuild(t *testing.T, capacity int, hooks ...goredis.Hook) (writer *redisfilter.Core, st *redisfilter.Staging, journal func() int64) {
+	t.Helper()
+	client, prefix := newRedisBloomIT(t, 3)
+	ctx := t.Context()
+	writer = redisfilter.New(client, prefix+"bf", bloomJournalCommands, 0.01, 10000)
+	require.NoError(t, writer.EnsureFilter(ctx))
+
+	rc := goredis.NewClient(&goredis.Options{Addr: redisAddr()})
+	t.Cleanup(func() { _ = rc.Close() })
+	for _, h := range hooks {
+		rc.AddHook(h)
+	}
+	lease, err := redisfilter.New(rc, prefix+"bf", bloomJournalCommands, 0.01, 10000).BeginRebuild(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = lease.Release(context.WithoutCancel(ctx)) })
+	st, err = lease.Stage(ctx, 0.01, capacity, "NONSCALING")
+	require.NoError(t, err)
+	journal = func() int64 {
+		keys, err := client.Keys(ctx, "*"+prefix+"*:rebuild-journal:*").Result()
+		require.NoError(t, err)
+		if len(keys) == 0 {
+			return 0
+		}
+		n, err := client.LLen(ctx, keys[0]).Result()
+		require.NoError(t, err)
+		return n
+	}
+	return writer, st, journal
+}
+
+func requireCoreMembers(t *testing.T, c *redisfilter.Core, values []string) {
+	t.Helper()
+	for _, v := range values {
+		ok, err := c.MightExist(t.Context(), v)
+		require.NoError(t, err)
+		require.True(t, ok, "MightExist(%q)", v)
+	}
+}
+
+func journalValues(n int) []string {
+	values := make([]string, n)
+	for i := range values {
+		values[i] = fmt.Sprintf("j-%d", i)
+	}
+	return values
+}
+
+// A value the staging filter rejects (a full non-scaling filter) must fail
+// the rebuild and stay journaled, whether the drain or the commit tail meets it.
+func TestRedisBloomJournal_RejectedReplayFailsRebuild_Integration(t *testing.T) {
+	values := journalValues(50)
+
+	t.Run("drain", func(t *testing.T) {
+		writer, st, journal := journalRebuild(t, 2)
+		require.NoError(t, writer.AddBatch(t.Context(), slices.Values(values)))
+		require.Error(t, st.Commit(t.Context()))
+		require.Equal(t, int64(len(values)), journal(), "the rejected batch stays journaled")
+		requireCoreMembers(t, writer, values)
+	})
+
+	t.Run("commit_tail", func(t *testing.T) {
+		var writer *redisfilter.Core
+		// Values arrive after the drain, right before the commit script.
+		hook := beforeHook{keys: "8", marker: ":staging:", fn: func() {
+			require.NoError(t, writer.AddBatch(context.WithoutCancel(t.Context()), slices.Values(values)))
+		}}
+		var st *redisfilter.Staging
+		var journal func() int64
+		writer, st, journal = journalRebuild(t, 2, hook)
+		require.Error(t, st.Commit(t.Context()))
+		require.Equal(t, int64(len(values)), journal(), "the rejected tail stays journaled")
+		requireCoreMembers(t, writer, values)
+	})
+}
+
+// Writers appending before every drain step cannot hold the commit back.
+func TestRedisBloomJournal_DrainIsBounded_Integration(t *testing.T) {
+	var writer *redisfilter.Core
+	var seq atomic.Int64
+	added := make(chan string, 1000)
+	hook := beforeHook{keys: "3", marker: ":rebuild-lease:", fn: func() {
+		v := fmt.Sprintf("late-%d", seq.Add(1))
+		require.NoError(t, writer.Add(context.WithoutCancel(t.Context()), v))
+		added <- v
+	}}
+	var st *redisfilter.Staging
+	writer, st, _ = journalRebuild(t, 10000, hook)
+	require.NoError(t, writer.AddBatch(t.Context(), slices.Values(journalValues(1200))))
+	require.NoError(t, st.Commit(t.Context()))
+	close(added)
+	requireCoreMembers(t, writer, journalValues(1200))
+	requireCoreMembers(t, writer, slices.Collect(func(yield func(string) bool) {
+		for v := range added {
+			if !yield(v) {
+				return
+			}
+		}
+	}))
 }
