@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"sync"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
@@ -73,8 +74,8 @@ func (g *HookGroup) Shutdown(ctx context.Context) error {
 		hooks := g.hooks
 		g.mu.Unlock()
 
-		for i := len(hooks) - 1; i >= 0; i-- {
-			if err := hooks[i](ctx); err != nil {
+		for _, hook := range slices.Backward(hooks) {
+			if err := hook(ctx); err != nil {
 				// Collect and keep going: one broken hook must not strand the
 				// resources the others release.
 				errs = append(errs, coreerrs.Wrap(err, "shutdown hook failed"))

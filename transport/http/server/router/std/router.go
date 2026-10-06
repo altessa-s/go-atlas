@@ -147,8 +147,8 @@ func (r *Router) initialize() {
 
 	// Apply middleware chain
 	var handler http.Handler = r.mux
-	for i := len(r.middleware) - 1; i >= 0; i-- {
-		handler = r.middleware[i](handler)
+	for _, mw := range slices.Backward(r.middleware) {
+		handler = mw(handler)
 	}
 	r.finalHandler = handler
 	r.sealed.Store(true)

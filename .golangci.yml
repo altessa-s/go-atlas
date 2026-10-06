@@ -17,6 +17,7 @@ linters:
     - asciicheck
     - exhaustive
     - copyloopvar
+    - modernize
     - goconst
     - whitespace
     - gocritic

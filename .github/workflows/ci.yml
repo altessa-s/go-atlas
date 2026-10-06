@@ -29,10 +29,20 @@ jobs:
         with:
           version: v2.10.1
           # Build the linter with the runner's Go instead of downloading the
-          # prebuilt binary: the module's `toolchain go1.26.5` puts go1.26-gated
+          # prebuilt binary: the module's `toolchain go1.26.6` puts go1.26-gated
           # files into the build graph, and a linter compiled with an older Go
           # fails typecheck on them ("file requires newer Go version").
           install-mode: goinstall
+
+      - name: Check go fix modernizers
+        # go fix -diff exits non-zero when any modernizer would rewrite code.
+        # stditerators is off: Value.Fields allocates per-field metadata that
+        # value-only hot loops in domain/ deliberately avoid (see the
+        # //nolint:modernize sites); golangci-lint still enforces it elsewhere.
+        run: |
+          for mod in . tests/integration; do
+            (cd "$mod" && go fix -diff -stditerators=false ./...) || { echo "::error::go fix -diff is not empty in $mod"; exit 1; }
+          done
 
   test:
     name: Test

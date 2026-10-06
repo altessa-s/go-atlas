@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"time"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
@@ -109,11 +110,10 @@ func (r *Runner) compensate(ctx context.Context, applied []Effect) error {
 	compCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.compensationTimeout)
 	defer cancel()
 	var errs error
-	for i := len(applied) - 1; i >= 0; i-- {
+	for _, e := range slices.Backward(applied) {
 		if err := compCtx.Err(); err != nil {
 			return errors.Join(errs, err)
 		}
-		e := applied[i]
 		if e.Compensate == nil {
 			continue
 		}

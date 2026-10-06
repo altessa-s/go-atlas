@@ -58,8 +58,7 @@ func (s *Storage) Query(_ context.Context, query *audit.Query) iter.Seq2[*audit.
 		}
 
 		count := 0
-		for i := len(snapshot) - 1; i >= 0; i-- {
-			e := snapshot[i]
+		for _, e := range slices.Backward(snapshot) {
 			if !matchesQuery(e, query) {
 				continue
 			}

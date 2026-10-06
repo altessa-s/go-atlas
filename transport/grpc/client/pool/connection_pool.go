@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"log/slog"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -333,8 +334,7 @@ func (tp *targetPool) getConnection(ctx context.Context, binding *Binding) (*grp
 			tp.mu.Unlock()
 			return nil, ErrConnectionPoolClosed
 		}
-		for i := len(tp.idle) - 1; i >= 0; i-- {
-			pc := tp.idle[i]
+		for i, pc := range slices.Backward(tp.idle) {
 			if !tp.isHealthy(pc) {
 				tp.idle = append(tp.idle[:i], tp.idle[i+1:]...)
 				tp.closeConnectionLocked(pc, closeReasonUnhealthy)
@@ -489,8 +489,7 @@ func (tp *targetPool) cleanup() int {
 	}
 	cleaned := 0
 	cutoff := time.Now().Add(-tp.opts.maxIdleTime).UnixNano()
-	for i := len(tp.idle) - 1; i >= 0; i-- {
-		pc := tp.idle[i]
+	for i, pc := range slices.Backward(tp.idle) {
 		if pc.lastUsed.Load() < cutoff || !tp.isHealthy(pc) {
 			tp.idle = append(tp.idle[:i], tp.idle[i+1:]...)
 			reason := closeReasonIdle

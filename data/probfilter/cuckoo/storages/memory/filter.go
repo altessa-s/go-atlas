@@ -8,6 +8,7 @@ import (
 	"hash/maphash"
 	"math/bits"
 	"math/rand/v2"
+	"slices"
 )
 
 const (
@@ -54,10 +55,7 @@ type cuckooFilter struct {
 // newCuckooFilter allocates a filter with at least capacity slots: the bucket
 // count is the next power of two of capacity/bucketSize, minimum one.
 func newCuckooFilter(capacity uint) *cuckooFilter {
-	n := uint64(capacity+bucketSize-1) / bucketSize
-	if n < 1 {
-		n = 1
-	}
+	n := max(uint64(capacity+bucketSize-1)/bucketSize, 1)
 	n = 1 << bits.Len64(n-1)
 	return &cuckooFilter{
 		buckets: make([]bucket, n),
@@ -122,8 +120,7 @@ func (f *cuckooFilter) insert(value string) bool {
 
 	// Undo the walk in reverse: every displaced fingerprint returns to its
 	// slot and the new fingerprint, never committed, disappears.
-	for j := len(f.kicks) - 1; j >= 0; j-- {
-		k := f.kicks[j]
+	for _, k := range slices.Backward(f.kicks) {
 		f.buckets[k.bucket][k.slot] = k.prev
 	}
 	return false
