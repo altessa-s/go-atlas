@@ -15,10 +15,10 @@ import (
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
-// WithCompression enables the compression option.
-func WithCompression() Option {
+// WithCompression sets the compression option.
+func WithCompression(v bool) Option {
 	return func(o *options) {
-		o.compression = true
+		o.compression = v
 	}
 }
 
