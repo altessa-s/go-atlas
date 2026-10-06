@@ -55,6 +55,7 @@ The watcher is a latency optimization layered on the dispatch cycle, not a repla
 |-------------------|----------------------------------------------------------------|
 | `status`          | Event lifecycle state                                          |
 | `created_at`      | Creation time; also the fetch sort key                         |
+| `seq`             | Insertion-order tie-breaker for events sharing a `created_at`  |
 | `last_attempt_on` | Server-stamped time of the most recent attempt                 |
 | `next_attempt_at` | Server-stamped retry deadline; absent means eligible now       |
 | `locked_on`       | Server-stamped lock time; absent when unlocked                 |
