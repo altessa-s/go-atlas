@@ -9,10 +9,15 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"net"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/v2/mongo"
+	mongooptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/altessa-s/go-atlas/config"
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
@@ -90,5 +95,69 @@ func TestBuildSQLStorage(t *testing.T) {
 		cfg.Storage.SQL = nil
 		_, err := factory.New(cfg).UseSQLDB(db).Build()
 		require.Error(t, err)
+	})
+}
+
+func TestBuildRedisStorage(t *testing.T) {
+	t.Parallel()
+	errDial := errors.New("not connected")
+	client := redis.NewClient(&redis.Options{
+		Dialer:     func(context.Context, string, string) (net.Conn, error) { return nil, errDial },
+		MaxRetries: -1,
+	})
+	t.Cleanup(func() { _ = client.Close() })
+
+	redisConfig := func(ensureIndexes bool) *config.Scheduler {
+		cfg := config.DefaultScheduler()
+		storageCfg := config.DefaultSchedulerStorageRedisConfig()
+		storageCfg.EnsureIndexes = ensureIndexes
+		cfg.Storage = &config.SchedulerStorageConfig{Type: config.SchedulerStorageTypeRedis, Redis: &storageCfg}
+		return &cfg
+	}
+
+	t.Run("builds_without_io", func(t *testing.T) {
+		t.Parallel()
+		s, err := factory.New(redisConfig(false)).UseRedisClient(client).Build()
+		require.NoError(t, err)
+		require.NotNil(t, s)
+	})
+
+	t.Run("ensure_indexes_failure", func(t *testing.T) {
+		t.Parallel()
+		_, err := factory.New(redisConfig(true)).UseRedisClient(client).Build()
+		require.ErrorIs(t, err, errDial)
+	})
+}
+
+func TestBuildMongoStorage(t *testing.T) {
+	t.Parallel()
+	// Connect performs no I/O; server selection against the closed port fails
+	// fast once an operation runs.
+	client, err := mongo.Connect(mongooptions.Client().
+		ApplyURI("mongodb://127.0.0.1:1/?directConnection=true").
+		SetServerSelectionTimeout(100 * time.Millisecond))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
+	db := client.Database("scheduler_factory_test")
+
+	mongoConfig := func(ensureIndexes bool) *config.Scheduler {
+		cfg := config.DefaultScheduler()
+		storageCfg := config.DefaultSchedulerStorageMongoConfig()
+		storageCfg.EnsureIndexes = ensureIndexes
+		cfg.Storage = &config.SchedulerStorageConfig{Type: config.SchedulerStorageTypeMongodb, Mongodb: &storageCfg}
+		return &cfg
+	}
+
+	t.Run("builds_without_io", func(t *testing.T) {
+		t.Parallel()
+		s, err := factory.New(mongoConfig(false)).UseMongoDb(db).Build()
+		require.NoError(t, err)
+		require.NotNil(t, s)
+	})
+
+	t.Run("ensure_indexes_failure", func(t *testing.T) {
+		t.Parallel()
+		_, err := factory.New(mongoConfig(true)).UseMongoDb(db).Build()
+		require.True(t, mongo.IsTimeout(err), "want server selection timeout, got %v", err)
 	})
 }

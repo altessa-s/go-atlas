@@ -101,6 +101,12 @@ type SchedulerStorageMongoConfig struct {
 	// HistoryCollection is the MongoDB collection name for task history.
 	// Defaults to "scheduler_history" if not specified.
 	HistoryCollection string `yaml:"historyCollection" default:"scheduler_history"`
+
+	// EnsureIndexes makes the factory create the task and history indexes
+	// while building the scheduler, by calling the storage's idempotent
+	// EnsureIndexes. Leave it false when the indexes are provisioned
+	// separately. Defaults to false.
+	EnsureIndexes bool `yaml:"ensureIndexes" default:"false"`
 }
 
 // DefaultSchedulerStorageMongoConfig returns a SchedulerStorageMongoConfig with default values.
@@ -125,6 +131,12 @@ type SchedulerStorageRedisConfig struct {
 	// MaxHistoryPerTask is the maximum number of history entries kept per task.
 	// Defaults to 1000 if not specified.
 	MaxHistoryPerTask int `yaml:"maxHistoryPerTask" default:"1000"`
+
+	// EnsureIndexes makes the factory create the RediSearch indexes (and
+	// backfill task documents written by an earlier release) while building
+	// the scheduler, by calling the storage's idempotent EnsureIndexes. Leave
+	// it false when the indexes are provisioned separately. Defaults to false.
+	EnsureIndexes bool `yaml:"ensureIndexes" default:"false"`
 }
 
 // DefaultSchedulerStorageRedisConfig returns a SchedulerStorageRedisConfig with default values.

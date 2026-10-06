@@ -43,8 +43,8 @@ per-process random ID).
 |--------|-------------|
 | `UseLogger` | Sets the logger for the builder and all created components |
 | `UseLeaderElector` | Sets the leader elector for distributed scheduling |
-| `UseMongoDb` | Sets the MongoDB database for MongoDB storage backends |
-| `UseRedisClient` | Sets the Redis client for Redis storage backends |
+| `UseMongoDb` | Sets the MongoDB database for MongoDB storage backends (set `storage.mongodb.ensureIndexes: true` to create the indexes during `Build`; otherwise call `EnsureIndexes` on the storage first) |
+| `UseRedisClient` | Sets the Redis client for Redis storage backends (set `storage.redis.ensureIndexes: true` to create the RediSearch indexes during `Build`; otherwise call `EnsureIndexes` on the storage first) |
 | `UseSQLDB` | Sets the `*sql.DB` handle for SQL storage backends (set `storage.sql.ensureSchema: true` to create the schema during `Build`; otherwise create it first: `EnsureSchema` on a `sqldb.New` storage with the same handle, dialect and tables, or migrations) |
 
 ### Terminal
