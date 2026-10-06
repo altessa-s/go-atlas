@@ -300,14 +300,15 @@ func (s *Storage[T]) listKeys(ctx context.Context) ([]string, error) {
 	)
 
 	if err != nil {
-		if errors.Is(err, vaultApi.ErrSecretNotFound) {
-			return nil, secrets.ErrNotFound
-		}
 		return nil, err
 	}
 
+	// Vault answers a LIST of a path without entries with an empty 404,
+	// which the client returns as (nil, nil): the store holds no secrets.
+	// Reporting it as an empty listing, not an error, lets the Manager
+	// reconcile the cache once the last secret was deleted.
 	if secret == nil || secret.Data == nil {
-		return nil, secrets.ErrNotFound
+		return []string{}, nil
 	}
 
 	if keys, ok := secret.Data["keys"]; !ok {

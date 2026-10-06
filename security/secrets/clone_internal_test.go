@@ -5,7 +5,11 @@
 package secrets
 
 import (
+	"net/netip"
+	"reflect"
+	"sync"
 	"testing"
+	"time"
 	"unsafe"
 
 	"github.com/stretchr/testify/require"
@@ -352,4 +356,79 @@ func TestCloneSecret_DefinedPointerAndNestedCloners(t *testing.T) {
 		require.Equal(t, "s", string(orig.C.secret))
 		require.Equal(t, "m", string(orig.M["k"].secret))
 	})
+}
+
+type cloneablePayload struct {
+	User    string
+	Tags    []string
+	Created time.Time
+	Addr    netip.Addr
+	ttl     time.Duration
+	mu      sync.Mutex
+}
+
+type secretBytes struct{ raw []byte }
+
+type withClone struct{ raw []byte }
+
+func (w withClone) Clone() withClone { return withClone{raw: append([]byte(nil), w.raw...)} }
+
+type node struct {
+	Next  *node
+	Value string
+}
+
+func TestCheckCloneable(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name string
+		typ  reflect.Type
+		bad  string // substring of the reported path; empty when cloneable
+	}{
+		{"string", reflect.TypeFor[string](), ""},
+		{"bytes", reflect.TypeFor[[]byte](), ""},
+		{"exported_fields_and_immutable_stdlib", reflect.TypeFor[cloneablePayload](), ""},
+		{"recursive", reflect.TypeFor[*node](), ""},
+		{"clone_method", reflect.TypeFor[withClone](), ""},
+		{"map_of_clone_method", reflect.TypeFor[map[string]withClone](), ""},
+		{"unexported_slice", reflect.TypeFor[secretBytes](), "secretBytes.raw"},
+		{"nested_unexported_slice", reflect.TypeFor[map[string][]secretBytes](), ".raw"},
+		{"exported_chan", reflect.TypeFor[struct{ C chan int }](), ".C (chan)"},
+		{"func", reflect.TypeFor[func()](), "(func)"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			err := checkCloneable(tc.typ)
+			if tc.bad == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, ErrUncloneablePayload)
+			require.ErrorContains(t, err, tc.bad)
+		})
+	}
+}
+
+type innerWithChan struct {
+	N int
+	C chan int
+}
+
+// The value check terminates on self-referential slices and tells apart
+// references that share an address but not a type.
+func TestCheckCloneableValue_References(t *testing.T) {
+	t.Parallel()
+
+	cyclic := make([]any, 1)
+	cyclic[0] = cyclic
+	require.NoError(t, checkCloneableValue(reflect.ValueOf(&[]any{cyclic}).Elem()))
+
+	p := &innerWithChan{C: make(chan int)}
+	payload := any(struct {
+		A *int
+		B *innerWithChan
+	}{&p.N, p})
+	err := checkCloneableValue(reflect.ValueOf(&payload).Elem())
+	require.ErrorIs(t, err, ErrUncloneablePayload)
+	require.ErrorContains(t, err, ".B[elem].C (chan)")
 }

@@ -36,6 +36,10 @@ const (
 	DefaultJitter = 0.2
 	// DefaultMaxCacheSize is the default maximum number of cached entries.
 	DefaultMaxCacheSize = 1000
+	// DefaultEmptyListingThreshold is how many consecutive successful but
+	// empty listings an update cycle needs before it trusts them and clears
+	// the cache.
+	DefaultEmptyListingThreshold = 3
 )
 
 // WithCache sets a pre-initialized cache instance for the Manager.
@@ -84,6 +88,16 @@ type options struct {
 	runOnStart bool `opt:"-"`
 	// collector for metrics collection
 	collector metrics.Collector `optgen:"notnil"`
+	// emptyListingThreshold is the number of consecutive successful empty
+	// listings after which an update cycle evicts and clears the cached
+	// secrets; fewer leave the cache as it is, so a provider that transiently
+	// lists nothing cannot wipe it. 1 trusts the first empty listing.
+	emptyListingThreshold int `optgen:"default=DefaultEmptyListingThreshold" optval:"positive"`
+	// allowShallowClone accepts a payload type whose reflection copy would
+	// share mutable memory between copies (unexported reference fields,
+	// channels, funcs, unsafe pointers) instead of failing New with
+	// ErrUncloneablePayload. Prefer giving such a type a Clone() T method.
+	allowShallowClone bool
 }
 
 func defaultExponentialConfig() retry.ExponentialConfig {

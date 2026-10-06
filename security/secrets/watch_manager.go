@@ -195,7 +195,11 @@ func (wm *watchManager[T]) hasWatchers() bool {
 // The updateCtx parameter is the context from the update operation, used for cancellation coordination.
 // currentList holds copies owned by the watch manager (nothing else references them); they become the
 // watchers' snapshots, and every dispatched event carries its own further copy owned by the receiver.
-func (wm *watchManager[T]) notifyChanges(updateCtx context.Context, currentList []*Value[T]) {
+//
+// Keys in keep were listed but could not be used this cycle; each watcher
+// keeps its previous snapshot entry for them, so they cause neither an update
+// nor a deletion event.
+func (wm *watchManager[T]) notifyChanges(updateCtx context.Context, currentList []*Value[T], keep map[string]struct{}) {
 	// Fast path check with lock
 	wm.mu.RLock()
 	hasWatchers := len(wm.watchers) > 0
@@ -248,6 +252,11 @@ func (wm *watchManager[T]) notifyChanges(updateCtx context.Context, currentList 
 		// Lock snapshot only for the pointer swap (O(1) operation).
 		instance.snapshotMu.Lock()
 		previous := instance.lastSnapshot
+		for key := range keep {
+			if pv, ok := previous[key]; ok {
+				newSnapshot[key] = pv
+			}
+		}
 		isFirstSnapshot := !instance.initialSnapshotDone.Load()
 		instance.lastSnapshot = newSnapshot
 		instance.snapshotMu.Unlock()
@@ -267,7 +276,7 @@ func (wm *watchManager[T]) notifyChanges(updateCtx context.Context, currentList 
 		}
 
 		// Generate events for this watcher
-		wm.generateChangeEvents(updateCtx, instance, previous, currentMap)
+		wm.generateChangeEvents(updateCtx, instance, previous, newSnapshot)
 	}
 }
 

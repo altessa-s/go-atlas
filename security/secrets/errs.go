@@ -35,6 +35,13 @@ import (
 //	}
 var ErrNotFound = errors.New("secret not found")
 
+// ErrUncloneablePayload is wrapped by [New] when the payload type's copy would
+// share mutable memory with the original — an unexported field of a reference
+// type, a channel, a func or an unsafe pointer reachable without a Clone() T
+// method — so clearing one copy could zero or expose another. Give the type a
+// Clone() T method, or opt in with WithAllowShallowClone.
+var ErrUncloneablePayload = errors.New("secret payload type cannot be deep-copied")
+
 // ErrDecoding is returned when secret value decoding or deserialization fails.
 // This error occurs when the stored secret data cannot be converted to the expected
 // type T, indicating data corruption, format changes, or encoding mismatches.
