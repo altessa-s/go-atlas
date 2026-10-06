@@ -11,7 +11,8 @@ import (
 
 // Default values for DistributionLock configuration.
 const (
-	defaultDistributionLockNatsBucket = "dlock"
+	defaultDistributionLockNatsBucket        = "dlock"
+	defaultDistributionLockMongodbCollection = "dlocks"
 )
 
 // DistributionLockProvider defines the distributed locking provider type.
@@ -20,7 +21,22 @@ type DistributionLockProvider string
 const (
 	// DistributionLockProviderNats represents the NATS JetStream distributed lock provider.
 	DistributionLockProviderNats DistributionLockProvider = "nats"
+	// DistributionLockProviderMongodb represents the MongoDB distributed lock provider.
+	DistributionLockProviderMongodb DistributionLockProvider = "mongodb"
 )
+
+// DistributionLockMongodb defines the MongoDB-specific configuration for
+// distributed locking. The *mongo.Database is injected into the factory.
+type DistributionLockMongodb struct {
+	// Collection holds one lease document per lock key.
+	// Defaults to "dlocks" if not specified.
+	Collection string `yaml:"collection" default:"dlocks"`
+}
+
+// DefaultDistributionLockMongodb returns a DistributionLockMongodb configuration with default values.
+func DefaultDistributionLockMongodb() DistributionLockMongodb {
+	return DistributionLockMongodb{Collection: defaultDistributionLockMongodbCollection}
+}
 
 // DistributionLockNats defines the NATS-specific configuration for distributed locking.
 // Contains settings for NATS JetStream Key-Value bucket creation and management.
@@ -59,12 +75,16 @@ type DistributionLockNats struct {
 //	}
 type DistributionLock struct {
 	// Provider defines the type of distributed locking implementation to use.
-	// Must be one of the supported providers (currently only "nats").
+	// Must be one of the supported providers: "nats" or "mongodb".
 	Provider DistributionLockProvider `yaml:"provider"`
 
 	// Nats defines the NATS configuration for distributed locking.
 	// Required when Provider is DistributionLockProviderNats, ignored otherwise.
 	Nats *DistributionLockNats `yaml:"nats" default:"-"`
+
+	// Mongodb defines the MongoDB configuration for distributed locking.
+	// Required when Provider is DistributionLockProviderMongodb, ignored otherwise.
+	Mongodb *DistributionLockMongodb `yaml:"mongodb" default:"-"`
 }
 
 // DefaultDistributionLockNats returns a DistributionLockNats configuration with default values.
@@ -93,7 +113,9 @@ func DefaultDistributionLock() DistributionLock {
 // Returns an error if validation fails, nil otherwise.
 func (dl *DistributionLock) Validate() error {
 	return ValidateStruct(dl,
-		validation.Field(&dl.Provider, validation.Required, ozzo_rules.OneOf(DistributionLockProviderNats)),
+		validation.Field(&dl.Provider, validation.Required,
+			ozzo_rules.OneOf(DistributionLockProviderNats, DistributionLockProviderMongodb)),
 		validation.Field(&dl.Nats, validation.When(dl.Provider == DistributionLockProviderNats, validation.NilOrNotEmpty)),
+		validation.Field(&dl.Mongodb, validation.When(dl.Provider == DistributionLockProviderMongodb, validation.Required)),
 	)
 }

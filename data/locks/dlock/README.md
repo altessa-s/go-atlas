@@ -47,7 +47,7 @@ Subsystem `dlock`:
 `*DLock` implements `health.Checker`. When constructed with
 `WithHealthCoordinator`, it auto-registers under the configured service
 name (default `"dlock"`). Health probes delegate to `providers.Prober`
-when the provider implements it; in-tree providers (`nats`, `noop`) do.
+when the provider implements it; in-tree providers (`nats`, `mongo`, `noop`) do.
 The NATS prober checks both connection state and KV bucket reachability,
 so a missing or wedged bucket flips readiness independently of the TCP
 connection.
@@ -57,6 +57,7 @@ connection.
 | Package                              | Description                          |
 |--------------------------------------|--------------------------------------|
 | [factory](./factory)                 | Configuration-based creation         |
+| [providers/mongo](./providers/mongo) | MongoDB provider                     |
 | [providers/nats](./providers/nats)   | NATS JetStream provider              |
 | [providers/noop](./providers/noop)   | No-op provider for testing           |
 | [errs](./errs)                       | Error definitions                    |
