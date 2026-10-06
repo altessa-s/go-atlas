@@ -432,3 +432,14 @@ func TestCheckCloneableValue_References(t *testing.T) {
 	require.ErrorIs(t, err, ErrUncloneablePayload)
 	require.ErrorContains(t, err, ".B[elem].C (chan)")
 }
+
+type cloneWithArg interface{ Clone(int) cloneWithArg }
+
+// An interface's Clone method is never the copier's Clone() T, so payloads
+// typed by such an interface are still checked per value.
+func TestReachesInterface_InterfaceWithCloneMethod(t *testing.T) {
+	t.Parallel()
+	require.False(t, hasCloneMethod(reflect.TypeFor[cloneWithArg]()))
+	require.True(t, reachesInterface(reflect.TypeFor[cloneWithArg](), map[reflect.Type]bool{}))
+	require.True(t, reachesInterface(reflect.TypeFor[struct{ X cloneWithArg }](), map[reflect.Type]bool{}))
+}

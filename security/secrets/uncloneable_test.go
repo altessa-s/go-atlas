@@ -89,3 +89,17 @@ func TestManager_SaveCyclicInterfacePayload(t *testing.T) {
 	cyclic[0] = cyclic
 	require.NoError(t, mgr.Save(t.Context(), "cyclic", cyclic))
 }
+
+// A cache supplied with WithCache is checked for payloads that never passed
+// the per-value check.
+func TestNew_SuppliedCacheWithUnsafePayload(t *testing.T) {
+	t.Parallel()
+	cache, err := secrets.NewStandardCache[string, *secrets.Value[any]](10)
+	require.NoError(t, err)
+	cache.Put("k", secrets.NewValue[any]("k", sealedKey{material: []byte("x")}, nil, ""))
+	provider, err := memory.New[any](nil)
+	require.NoError(t, err)
+
+	_, err = secrets.New[any](provider, secrets.WithCache(cache))
+	require.ErrorIs(t, err, secrets.ErrUncloneablePayload)
+}
