@@ -160,13 +160,13 @@ func (t *stateTracker) spawnWatcher(target string, pc *pooledConnection, entry *
 		return
 	}
 	entry.cancel = cancel
-	t.wg.Add(1)
+	// Go registers the watcher before the lock is released, so Close cannot
+	// miss it between unlock and start.
+	t.wg.Go(func() { t.watch(ctx, target, pc, entry) })
 	t.mu.Unlock()
-	go t.watch(ctx, target, pc, entry)
 }
 
 func (t *stateTracker) watch(ctx context.Context, target string, pc *pooledConnection, entry *trackedEntry) {
-	defer t.wg.Done()
 	state := pc.conn.GetState()
 	t.recordAndFanOut(target, entry, state)
 	for pc.conn.WaitForStateChange(ctx, state) {

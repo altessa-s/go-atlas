@@ -11,8 +11,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"math"
-	"sort"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/robfig/cron/v3"
@@ -33,6 +33,7 @@ import (
 	cuckoostorages "github.com/altessa-s/go-atlas/data/probfilter/cuckoo/storages"
 	cuckoomemory "github.com/altessa-s/go-atlas/data/probfilter/cuckoo/storages/memory"
 	cuckoeredis "github.com/altessa-s/go-atlas/data/probfilter/cuckoo/storages/redis"
+	stdslices "slices"
 )
 
 const (
@@ -384,13 +385,7 @@ func (b *ManagerBuilder) Build() (*probfilter.Manager, error) {
 		return mgr, nil
 	}
 
-	names := make([]string, 0, len(b.cfg.Filters))
-	for name := range b.cfg.Filters {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	for _, name := range names {
+	for _, name := range stdslices.Sorted(maps.Keys(b.cfg.Filters)) {
 		filterCfg := b.cfg.Filters[name]
 		filter, err := NewFilter(name, filterCfg, b.cfg.Defaults).
 			UseLogger(b.Logger()).

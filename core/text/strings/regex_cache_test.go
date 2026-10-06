@@ -52,10 +52,8 @@ func TestSplit_RegexCache_BoundHoldsUnderContention(t *testing.T) {
 
 	var wg sync.WaitGroup
 	start := make(chan struct{})
-	for g := range goroutines {
-		wg.Add(1)
-		go func(gid int) {
-			defer wg.Done()
+	for gid := range goroutines {
+		wg.Go(func() {
 			<-start
 			for i := range separatorsPerG {
 				// "ẞ" forces the slow path (lowercased length differs).
@@ -65,7 +63,7 @@ func TestSplit_RegexCache_BoundHoldsUnderContention(t *testing.T) {
 					CaseSensitive: false,
 				})
 			}
-		}(g)
+		})
 	}
 	close(start)
 	wg.Wait()
