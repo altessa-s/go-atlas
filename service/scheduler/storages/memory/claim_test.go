@@ -58,13 +58,13 @@ func TestClaimRun_FenceMismatch(t *testing.T) {
 	require.False(t, ok)
 }
 
-func TestClaimRun_ZeroFenceIgnoresNextRun(t *testing.T) {
+func TestClaimRun_ZeroFenceRequiresZeroNextRun(t *testing.T) {
 	t.Parallel()
 	s, _ := activeTask(t, "a", 100)
-	// expectedNextRunAt==0 means "don't fence on next_run"; an active task is claimed.
+	// A zero fence is an occurrence like any other: it does not match 100.
 	ok, err := s.ClaimRun(t.Context(), "a", scheduler.RunClaim{NextRunAt: 0, StartedAt: 1700000000, RunID: "run-1"})
 	require.NoError(t, err)
-	require.True(t, ok)
+	require.False(t, ok)
 }
 
 func TestClaimRun_NotActive(t *testing.T) {

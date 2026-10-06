@@ -130,7 +130,7 @@ func TestIntegration_MongoClaimRun_FenceMismatch(t *testing.T) {
 	require.False(t, ok, "a mismatched occurrence fence must not be claimable")
 }
 
-func TestIntegration_MongoClaimRun_ZeroFenceIgnoresNextRun(t *testing.T) {
+func TestIntegration_MongoClaimRun_ZeroFenceRequiresZeroNextRun(t *testing.T) {
 	t.Parallel()
 	s := newClaimIT(t)
 
@@ -139,7 +139,7 @@ func TestIntegration_MongoClaimRun_ZeroFenceIgnoresNextRun(t *testing.T) {
 		return s.ClaimRun(t.Context(), "a", scheduler.RunClaim{NextRunAt: 0, StartedAt: 1700000000, RunID: "run-1"})
 	}()
 	require.NoError(t, err)
-	require.True(t, ok, "expectedNextRunAt==0 claims any active occurrence")
+	require.False(t, ok, "a zero fence claims only a zero occurrence")
 }
 
 func TestIntegration_MongoClaimRun_NotActive(t *testing.T) {

@@ -205,8 +205,8 @@ var HistoryFilterFields = []string{
 //
 //   - Claimable: Status == [TaskStatusActive], RunStartedAt == 0 (no earlier run
 //     is unfinished, even one whose task was paused and resumed meanwhile)
-//     and, when [RunClaim.NextRunAt] is non-zero, the stored NextRunAt and
-//     RunAt equal the claim's (the occurrence fence). Absent fields are zero.
+//     and the stored NextRunAt and RunAt equal the claim's (the occurrence
+//     fence), zero included. Absent fields are zero.
 //   - Valid claim: ClaimRun first checks [RunClaim.Validate] and returns its
 //     error, wrapping [ErrInvalidRunClaim], without writing.
 //   - Owned: runID is non-empty, LastRunID == runID and RunStartedAt != 0.
@@ -304,10 +304,10 @@ type Storage interface {
 	//
 	// Absent fields are zero, so an active task stored without NextRunAt or
 	// with zero is due at every now >= 0, on every backend. Having no
-	// occurrence to fence on, it is claimed with a zero [RunClaim.NextRunAt]:
-	// status and RunStartedAt alone serialize the claim — a dispatch that read
-	// the zero before another instance's run finished can still claim it once
-	// more — and the finished run stores a real NextRunAt.
+	// occurrence time, it is claimed with a zero [RunClaim.NextRunAt], which
+	// fences on the zero like any other occurrence: the finished run stores a
+	// real NextRunAt and RunAt, so a dispatch that read the zero before
+	// another instance's run finished loses its claim.
 	//
 	// The scheduler calls this on every tick, so the predicate MUST be pushed
 	// down to the backend rather than evaluated by filtering the output of
@@ -390,8 +390,7 @@ func FenceOf(state *TaskState) TaskFence {
 // fences on; see the Run ownership rules of [Storage].
 type RunClaim struct {
 	// NextRunAt and RunAt identify the occurrence the caller observed as due.
-	// The claim succeeds only while both are still stored; a zero NextRunAt
-	// disables the occurrence fence.
+	// The claim succeeds only while both are still stored, zero included.
 	NextRunAt int64
 	RunAt     int64
 	// StartedAt, RunID and LeaseUntil are stored as RunStartedAt, LastRunID
