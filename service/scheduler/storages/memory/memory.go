@@ -161,7 +161,7 @@ func (m *Storage) ClaimRun(_ context.Context, id string, claim scheduler.RunClai
 	if !ok || state.Status != scheduler.TaskStatusActive || state.RunStartedAt != 0 {
 		return false, nil
 	}
-	if claim.NextRunAt != 0 && (state.NextRunAt != claim.NextRunAt || state.RunAt != claim.RunAt) {
+	if state.NextRunAt != claim.NextRunAt || state.RunAt != claim.RunAt {
 		return false, nil
 	}
 

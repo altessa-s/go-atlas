@@ -219,9 +219,9 @@ func zeroOrMissing[T comparable](v T) any {
 
 // ClaimRun applies the claim rule of [scheduler.Storage.ClaimRun] via a single
 // conditional UpdateOne. The filter matches status==active, an absent or zero
-// run_started_at (no unfinished run) and, when claim.NextRunAt is non-zero,
-// next_run_at and run_at, so MongoDB's atomic document update guarantees that
-// at most one concurrent caller flips the document and thus wins the claim.
+// run_started_at (no unfinished run), next_run_at and run_at (an absent field
+// matching zero), so MongoDB's atomic document update guarantees that at most
+// one concurrent caller flips the document and thus wins the claim.
 func (s *Storage) ClaimRun(ctx context.Context, id string, claim scheduler.RunClaim) (bool, error) {
 	if err := claim.Validate(); err != nil {
 		return false, err
@@ -230,10 +230,8 @@ func (s *Storage) ClaimRun(ctx context.Context, id string, claim scheduler.RunCl
 		"_id":            id,
 		"status":         int32(scheduler.TaskStatusActive),
 		"run_started_at": zeroOrMissing(int64(0)),
-	}
-	if claim.NextRunAt != 0 {
-		filter["next_run_at"] = claim.NextRunAt
-		filter["run_at"] = zeroOrMissing(claim.RunAt)
+		"next_run_at":    zeroOrMissing(claim.NextRunAt),
+		"run_at":         zeroOrMissing(claim.RunAt),
 	}
 	update := bson.M{
 		"$set": bson.M{
