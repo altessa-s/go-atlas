@@ -6,11 +6,10 @@ package strings
 
 import (
 	"crypto/subtle"
+	"runtime"
 	"runtime/debug"
 	"sync"
 	"unsafe"
-
-	coreruntime "github.com/altessa-s/go-atlas/core/runtime"
 )
 
 const (
@@ -89,7 +88,7 @@ type SecureString struct {
 	length             int    // Actual length of the stored data
 	useInlineStorage   bool   // True if using inline storage, false if using heap storage
 	originatesFromPool bool   // True if instance came from pool, affects cleanup behavior
-	cleanup            coreruntime.Cleanup
+	cleanup            runtime.Cleanup
 }
 
 // initializeSecureStringStorage initializes a SecureString with provided data.
@@ -152,7 +151,7 @@ func NewSecureString(s string) *SecureString {
 	// only suggests a guarantee the runtime cannot provide. Inline data is
 	// zeroed by an explicit Clear or on pool reuse.
 	if !ss.useInlineStorage {
-		ss.cleanup = coreruntime.AddCleanup(ss, cleanupSecureString, ss.data)
+		ss.cleanup = runtime.AddCleanup(ss, cleanupSecureString, ss.data)
 	}
 	return ss
 }
@@ -336,10 +335,8 @@ func (ss *SecureString) Clear() {
 
 	// Reset state
 	ss.originatesFromPool = false
-	if ss.cleanup != nil {
-		ss.cleanup.Stop()
-		ss.cleanup = nil
-	}
+	ss.cleanup.Stop()
+	ss.cleanup = runtime.Cleanup{}
 
 	// Automatically return to pool if instance originally came from pool
 	// This provides seamless pool management without separate ReturnToPool() method

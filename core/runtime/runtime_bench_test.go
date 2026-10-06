@@ -47,11 +47,3 @@ func BenchmarkHookGroupLifecycle(b *testing.B) {
 		_ = group.Shutdown(ctx)
 	}
 }
-
-func BenchmarkAddCleanup(b *testing.B) {
-	for b.Loop() {
-		obj := new(int)
-		c := AddCleanup(obj, func(_ int) {}, 0)
-		c.Stop()
-	}
-}

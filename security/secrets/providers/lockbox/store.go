@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"iter"
 	"regexp"
+	"runtime"
 	"time"
 
 	"github.com/altessa-s/go-atlas/core/collections/slices"
@@ -28,7 +29,6 @@ import (
 
 	corecontext "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
-	coreruntime "github.com/altessa-s/go-atlas/core/runtime"
 	pb "github.com/yandex-cloud/go-genproto/yandex/cloud/lockbox/v1"
 )
 
@@ -494,7 +494,7 @@ func (s *Storage[T]) createClient(_ context.Context, address string) (*grpc.Clie
 		return nil, err
 	}
 
-	coreruntime.AddCleanup(conn, func(conn *grpc.ClientConn) {
+	runtime.AddCleanup(conn, func(conn *grpc.ClientConn) {
 		_ = conn.Close()
 	}, conn)
 

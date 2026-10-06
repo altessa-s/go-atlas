@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"iter"
 	"regexp"
+	"runtime"
 	"time"
 
 	"github.com/googleapis/gax-go/v2"
@@ -29,7 +30,6 @@ import (
 	pb "cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
 	corecontext "github.com/altessa-s/go-atlas/core/context"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
-	coreruntime "github.com/altessa-s/go-atlas/core/runtime"
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
 
@@ -602,7 +602,7 @@ func (s *Storage[T]) createClient(ctx context.Context) (cl *secretmanager.Client
 		option.WithAuthCredentialsFile(option.ServiceAccount, s.serviceAccountPath),
 		option.WithTelemetryDisabled())
 	if err == nil {
-		coreruntime.AddCleanup(cl, func(cl *secretmanager.Client) {
+		runtime.AddCleanup(cl, func(cl *secretmanager.Client) {
 			_ = cl.Close()
 		}, cl)
 	}
