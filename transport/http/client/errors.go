@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"net/http"
 	"time"
-
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // Sentinel errors for use with [errors.Is]. Each structured error type
@@ -234,28 +232,28 @@ func (e *NonRetryableError) Unwrap() error {
 // IsResponseSizeError unwraps err looking for a [ResponseSizeError].
 // Returns nil when no match is found.
 func IsResponseSizeError(err error) *ResponseSizeError {
-	target, _ := coreerrs.AsType[*ResponseSizeError](err)
+	target, _ := errors.AsType[*ResponseSizeError](err)
 	return target
 }
 
 // IsCircuitBreakerError unwraps err looking for a [CircuitBreakerError].
 // Returns nil when no match is found.
 func IsCircuitBreakerError(err error) *CircuitBreakerError {
-	target, _ := coreerrs.AsType[*CircuitBreakerError](err)
+	target, _ := errors.AsType[*CircuitBreakerError](err)
 	return target
 }
 
 // IsRateLimitError unwraps err looking for a [RateLimitError].
 // Returns nil when no match is found.
 func IsRateLimitError(err error) *RateLimitError {
-	target, _ := coreerrs.AsType[*RateLimitError](err)
+	target, _ := errors.AsType[*RateLimitError](err)
 	return target
 }
 
 // IsRetryExhaustedError unwraps err looking for a [RetryExhaustedError].
 // Returns nil when no match is found.
 func IsRetryExhaustedError(err error) *RetryExhaustedError {
-	target, _ := coreerrs.AsType[*RetryExhaustedError](err)
+	target, _ := errors.AsType[*RetryExhaustedError](err)
 	return target
 }
 
@@ -279,7 +277,7 @@ func (e *SSRFError) Is(target error) bool {
 
 // IsSSRFError checks if error is due to SSRF protection and returns details.
 func IsSSRFError(err error) *SSRFError {
-	target, _ := coreerrs.AsType[*SSRFError](err)
+	target, _ := errors.AsType[*SSRFError](err)
 	return target
 }
 
@@ -287,7 +285,7 @@ func IsSSRFError(err error) *SSRFError {
 // succeed on a subsequent attempt. It checks for [UnexpectedStatusError] with
 // status 408, 429, 503, or 504.
 func IsTemporaryError(err error) bool {
-	if statusErr, ok := coreerrs.AsType[*UnexpectedStatusError](err); ok {
+	if statusErr, ok := errors.AsType[*UnexpectedStatusError](err); ok {
 		switch statusErr.Status {
 		case http.StatusTooManyRequests,
 			http.StatusServiceUnavailable,

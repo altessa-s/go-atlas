@@ -5,10 +5,10 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 
-	coreerrors "github.com/altessa-s/go-atlas/core/errors"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -63,13 +63,13 @@ func enhanceInternalError(err error, structPtr any) error {
 	inner := ie.InternalError()
 	typeName := structTypeName(structPtr)
 
-	if fieldNotFound, ok := coreerrors.AsType[validation.ErrFieldNotFound](inner); ok {
+	if fieldNotFound, ok := errors.AsType[validation.ErrFieldNotFound](inner); ok {
 		return fmt.Errorf("validation of %s: field rule #%d: "+
 			"pointer does not reference a field in the struct (use &s.FieldName, not &s)",
 			typeName, int(fieldNotFound))
 	}
 
-	if fieldPointer, ok := coreerrors.AsType[validation.ErrFieldPointer](inner); ok {
+	if fieldPointer, ok := errors.AsType[validation.ErrFieldPointer](inner); ok {
 		return fmt.Errorf("validation of %s: field rule #%d: "+
 			"field must be specified as a pointer (use &s.FieldName)",
 			typeName, int(fieldPointer))

@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"strings"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 	vaultApi "github.com/hashicorp/vault/api"
 )
@@ -99,12 +98,12 @@ func WrapAuthError(method string, err error) error {
 	}
 
 	// If it's already an AuthError, don't double-wrap
-	if _, ok := coreerrs.AsType[*AuthError](err); ok { //nolint:errcheck // only checking ok
+	if _, ok := errors.AsType[*AuthError](err); ok { //nolint:errcheck // only checking ok
 		return err
 	}
 
 	// Check if it's a Vault API response error
-	if vaultErr, ok := coreerrs.AsType[*vaultApi.ResponseError](err); ok {
+	if vaultErr, ok := errors.AsType[*vaultApi.ResponseError](err); ok {
 		reason := "authentication failed"
 		if len(vaultErr.Errors) > 0 {
 			// Sanitize error message to avoid leaking sensitive information
@@ -139,7 +138,7 @@ func IsAuthenticationError(err error) bool {
 	}
 
 	// Check Vault API response errors
-	if vaultErr, ok := coreerrs.AsType[*vaultApi.ResponseError](err); ok {
+	if vaultErr, ok := errors.AsType[*vaultApi.ResponseError](err); ok {
 		switch vaultErr.StatusCode {
 		case http.StatusUnauthorized, http.StatusForbidden:
 			return true
@@ -177,7 +176,7 @@ func IsRetryableError(err error) bool {
 	}
 
 	// Check Vault API response errors
-	if vaultErr, ok := coreerrs.AsType[*vaultApi.ResponseError](err); ok {
+	if vaultErr, ok := errors.AsType[*vaultApi.ResponseError](err); ok {
 		// 5xx errors are generally retryable
 		if vaultErr.StatusCode >= 500 && vaultErr.StatusCode < 600 {
 			return true

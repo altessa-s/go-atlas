@@ -5,10 +5,10 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -54,7 +54,7 @@ func PrettyError(err error) string {
 	if err == nil {
 		return ""
 	}
-	if verrs, ok := coreerrs.AsType[validation.Errors](err); ok {
+	if verrs, ok := errors.AsType[validation.Errors](err); ok {
 		verrs = ValidationErrorsToFlatMap(verrs)
 		var strs = make([]string, 0, len(verrs))
 		for f, e := range verrs {

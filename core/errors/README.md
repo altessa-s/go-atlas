@@ -43,8 +43,3 @@ the full error chain for `errors.Is` / `errors.As` unwrapping across any number 
 | `IsResourceRedirects`          | "stopped after N redirects"                      |
 | `IsUnsupportedProtocolScheme`  | "unsupported protocol scheme"                    |
 | `IsCertUnknownAuthority`       | `x509.UnknownAuthorityError` inside `*url.Error` |
-
-## Generic type assertion
-
-`AsType[E]` is a generic alternative to `errors.As` that returns the matched value directly — no manual target variable needed.
-On Go 1.26+ it delegates to `errors.AsType` from the standard library for zero overhead and full compatibility.

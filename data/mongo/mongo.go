@@ -659,7 +659,7 @@ func (m *Mongo) createKeyVaultCollection(ctx context.Context, database, collecti
 		Raw()
 
 	if err != nil {
-		serr, ok := coreerrs.AsType[mongo.ServerError](err)
+		serr, ok := errors.AsType[mongo.ServerError](err)
 		if !ok || !serr.HasErrorCode(MongoErrorCodeCollectionExists) {
 			return err
 		}

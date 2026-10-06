@@ -6,6 +6,7 @@ package logger
 
 import (
 	"context"
+	"errors"
 	"io"
 	"time"
 
@@ -28,7 +29,6 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	slogx "github.com/altessa-s/go-atlas/observability/slog"
 	tracinginter "github.com/altessa-s/go-atlas/transport/grpc/interceptors/tracing"
 	stdSlices "slices"
@@ -244,19 +244,19 @@ func (ri *requestInterceptor) PostCall(ctx context.Context, resp any, err error)
 	}
 
 	if st.Code() != codes.OK {
-		for detail := range slices.Values(st.Details()) {
+		for _, detail := range st.Details() {
 			if t, ok := detail.(*errdetails.ErrorInfo); ok {
 				fields = append(fields, slogx.Field{Key: FieldKeyGrpcErrorReason, Value: t.GetReason()})
 			}
 		}
 
-		if perr, ok := coreerrs.AsType[*recovery.PanicError](err); ok {
+		if perr, ok := errors.AsType[*recovery.PanicError](err); ok {
 			fields = append(fields,
 				slogx.Field{Key: observability.FieldKeyError, Value: perr.Error()},
 				slogx.Field{Key: observability.FieldKeyPanic, Value: perr.Panic},
 				slogx.Field{Key: observability.FieldKeyPanicStacktrace, Value: perr.Frames},
 			)
-		} else if ie, ok := coreerrs.AsType[*interceptors.Error](err); ok {
+		} else if ie, ok := errors.AsType[*interceptors.Error](err); ok {
 			fields = append(fields, slogx.Field{Key: observability.FieldKeyError, Value: ie.Error()})
 		} else if _, ok := status.FromError(err); !ok {
 			fields = append(fields, slogx.Field{Key: observability.FieldKeyError, Value: err.Error()})
