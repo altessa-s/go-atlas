@@ -5,6 +5,7 @@
 package factory
 
 import (
+	"cmp"
 	"context"
 	"log/slog"
 
@@ -94,15 +95,16 @@ func (b *TracerBuilder) createOTLPAdapter(ctx context.Context) (adapters.Adapter
 		cfg = b.cfg.Adapters.OTLP
 	}
 	if cfg == nil {
-		cfg = &config.TracingOTLP{
-			Endpoint: "localhost:4317",
-			Protocol: config.OTLPProtocolGRPC,
-		}
+		def := config.DefaultTracingOTLP()
+		cfg = &def
 	}
 
-	opts := []otlp.Option{otlp.WithEndpoint(cfg.Endpoint)}
+	opts := []otlp.Option{
+		otlp.WithEndpoint(cfg.Endpoint),
+		otlp.WithProtocol(otlp.Protocol(cmp.Or(cfg.Protocol, config.OTLPProtocolGRPC))),
+		otlp.WithCompression(cfg.Compression),
+	}
 	opts = slices.AppendIf(opts, cfg.Insecure, otlp.WithInsecure())
-	opts = slices.AppendIf(opts, cfg.Compression, otlp.WithCompression())
 	opts = slices.AppendIf(opts, len(cfg.Headers) > 0, otlp.WithHeaders(cfg.Headers))
 
 	proxyOpts, err := proxyfactory.GRPCClientOptions(cfg.Proxy)
