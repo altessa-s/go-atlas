@@ -34,6 +34,7 @@ const (
 	collectionFieldLastError     = "error"           // Last dispatch error field.
 	collectionFieldLockToken     = "lock_token"      // Fencing token field.
 	collectionFieldNextAttemptAt = "next_attempt_at" // Retry-eligibility timestamp field.
+	collectionFieldSeq           = "seq"             // Insertion-order tie-breaker field.
 )
 
 // serverNow is the MongoDB aggregation variable that yields the current datetime
@@ -266,6 +267,7 @@ func (s *Store) SaveEvents(ctx context.Context, events ...outbox.Event) error {
 			Attempts:  ev.Attempts,
 			LastError: ev.LastError,
 			ExpiresAt: nullableDate(ev.ExpiresAt),
+			Seq:       bson.NewObjectID(),
 			// PublishedAt, LastAttemptOn, LockedOn are nil for new events.
 		}
 		insertModels = append(insertModels, mongo.NewInsertOneModel().SetDocument(doc))
@@ -279,7 +281,8 @@ func (s *Store) SaveEvents(ctx context.Context, events ...outbox.Event) error {
 
 // FetchUnprocessedEvents retrieves pending events, and failed events whose
 // backoff has elapsed, then locks them for processing. The batch is sorted by
-// created_at ascending, as [outbox.Store] requires.
+// created_at ascending, as [outbox.Store] requires, with seq keeping events
+// saved together in insertion order.
 //
 // The retry gate ($next_attempt_at <= $$NOW) and the not-yet-expired predicate
 // ($expires_at > $$NOW) are evaluated against the MongoDB server clock, and the
@@ -345,8 +348,9 @@ func (s *Store) FetchUnprocessedEvents(ctx context.Context, batchSize uint32) ([
 		lockedAt = time.Now().UTC()
 		lockToken = uuid.New().String()
 
-		cursor, txErr := s.collection.Find(sessCtx, filter,
-			mongoOptions.Find().SetSort(bson.M{collectionFieldCreatedAt: 1}).SetLimit(int64(batchSize)))
+		cursor, txErr := s.collection.Find(sessCtx, filter, mongoOptions.Find().
+			SetSort(bson.D{{Key: collectionFieldCreatedAt, Value: 1}, {Key: collectionFieldSeq, Value: 1}}).
+			SetLimit(int64(batchSize)))
 		if txErr != nil {
 			return nil, coreerrs.Wrap(txErr, "MongoDB Find failed in FetchUnprocessedEvents")
 		}

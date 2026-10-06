@@ -21,6 +21,7 @@ var eventsIndexes = []mongo.IndexModel{ //nolint:gochecknoglobals
 		{Key: collectionFieldStatus, Value: 1},        // Primary filter: by status
 		{Key: collectionFieldNextAttemptAt, Value: 1}, // Secondary for StatusFailed with retry backoff
 		{Key: collectionFieldCreatedAt, Value: 1},     // Sort order
+		{Key: collectionFieldSeq, Value: 1},           // Sort tie-breaker
 	}},
 
 	// Index to efficiently find pending events, sorted by creation time.
@@ -28,6 +29,7 @@ var eventsIndexes = []mongo.IndexModel{ //nolint:gochecknoglobals
 	{Keys: bson.D{
 		{Key: collectionFieldStatus, Value: 1},
 		{Key: collectionFieldCreatedAt, Value: 1},
+		{Key: collectionFieldSeq, Value: 1},
 	}},
 
 	// Index for the unlocker task, finding events stuck in StatusInProgress by their LockedOn time.

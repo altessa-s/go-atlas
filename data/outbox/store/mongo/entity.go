@@ -4,7 +4,11 @@
 
 package outboxstore
 
-import "time"
+import (
+	"time"
+
+	"go.mongodb.org/mongo-driver/v2/bson"
+)
 
 // event is the internal MongoDB document representation of an outbox.Event.
 //
@@ -35,4 +39,10 @@ type event struct {
 	// server-side as $$NOW plus the outbox-computed backoff. Absent for events
 	// that were never attempted — those are eligible immediately.
 	NextAttemptAt *time.Time `bson:"next_attempt_at,omitempty"`
+
+	// Seq breaks created_at ties in the fetch order. Save stamps a whole batch
+	// with one timestamp, so the random _id cannot keep the batch in insertion
+	// order; ObjectIDs minted by one process ascend. Absent on documents
+	// written before the field existed, which then sort first among ties.
+	Seq bson.ObjectID `bson:"seq,omitzero"`
 }

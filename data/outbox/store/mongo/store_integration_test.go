@@ -230,6 +230,32 @@ func TestIntegration_FetchUnprocessedEvents_LocksWithServerClock(t *testing.T) {
 	require.NotNil(t, locked.LockedOn)
 }
 
+// Events saved together share created_at; the fetch must still return them in
+// insertion order.
+func TestIntegration_FetchUnprocessedEvents_KeepsBatchOrder(t *testing.T) {
+	t.Parallel()
+	store, _ := newIT(t)
+	ctx := t.Context()
+
+	now := time.Now().UTC()
+	ids := []string{"z", "m", "a", "q", "b"}
+	batch := make([]outbox.Event, 0, len(ids))
+	for _, id := range ids {
+		batch = append(batch, outbox.Event{Id: id, Key: "k", Status: outbox.StatusPending, CreatedAt: now})
+	}
+	require.NoError(t, store.SaveEvents(ctx, batch...))
+
+	events, err := store.FetchUnprocessedEvents(ctx, 10)
+	if err != nil {
+		t.Skipf("FetchUnprocessedEvents requires a replica set: %v", err)
+	}
+	got := make([]string, 0, len(events))
+	for _, ev := range events {
+		got = append(got, ev.Id)
+	}
+	require.Equal(t, ids, got)
+}
+
 // A dispatcher that lost its lease must not be able to write its result: the
 // unlock sweeper already handed the event to someone else, and a late write
 // would erase that worker's outcome.
