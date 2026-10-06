@@ -54,6 +54,12 @@ type Commands struct {
 	// CF.INSERT answers a full filter with -1 under RESP2 but false under
 	// RESP3; BF.INSERT's false only means "already present".
 	FalseRejects bool
+	// JournalAdds makes inserts into the live filter journal their values
+	// while a rebuild lease exists, so a rebuild replays inserts made by any
+	// process sharing the filter onto its replacement before it commits. Use
+	// it only when replaying an insert twice is harmless (Bloom); a Cuckoo
+	// filter would store a duplicate fingerprint.
+	JournalAdds bool
 	// Reserve is the filter-creation command, e.g. "BF.RESERVE".
 	Reserve string
 	// Info is the statistics command, e.g. "BF.INFO".
@@ -96,6 +102,11 @@ type Core struct {
 	seqKey       string
 	leaseKey     string
 	committedKey string
+	// journalKey (list) holds the values inserted while a rebuild lease
+	// exists; journalAdds enables journaling for the live filter only, never
+	// for a staging filter. See journaledInsertScript.
+	journalKey  string
+	journalAdds bool
 	// leaseTTL is LeaseTTL; a field so tests can shorten it.
 	leaseTTL            time.Duration
 	stagingDeadlinesKey string
@@ -118,6 +129,7 @@ type Core struct {
 // operation of the returned Core fails with [ErrReservedKey].
 func New(client redis.UniversalClient, filterKey string, cmds Commands, reserveArgs ...any) *Core {
 	c := newCore(client, filterKey, cmds, reserveArgs...)
+	c.journalAdds = cmds.JournalAdds
 	if strings.HasPrefix(filterKey, MetaPrefix) {
 		c.keyErr = ErrReservedKey
 	}
@@ -149,6 +161,7 @@ func newCore(client redis.UniversalClient, filterKey string, cmds Commands, rese
 		seqKey:              metaKey(filterKey, "rebuild-seq", ""),
 		leaseKey:            metaKey(filterKey, "rebuild-lease", ""),
 		committedKey:        metaKey(filterKey, "rebuild-committed", ""),
+		journalKey:          metaKey(filterKey, "rebuild-journal", ""),
 		leaseTTL:            LeaseTTL,
 		opExists:            "check existence in Redis " + cmds.Label + " filter",
 		opAdd:               "add to Redis " + cmds.Label + " filter",
@@ -185,7 +198,7 @@ func (c *Core) Add(ctx context.Context, value string) error {
 		args = append(args, token)
 	}
 	args = append(args, value)
-	return c.insert(ctx, args, c.opAdd)
+	return c.insert(ctx, args, 1, c.opAdd)
 }
 
 // AddBatch inserts multiple values into the filter, chunking them into
@@ -213,7 +226,7 @@ func (c *Core) AddBatch(ctx context.Context, values iter.Seq[string]) error {
 }
 
 func (c *Core) sendBatch(ctx context.Context, args []any) error {
-	if err := c.insert(ctx, args, c.opBatch); err != nil {
+	if err := c.insert(ctx, args, len(args)-len(c.batchHeader), c.opBatch); err != nil {
 		return err
 	}
 	if c.afterBatch != nil {
@@ -222,22 +235,29 @@ func (c *Core) sendBatch(ctx context.Context, args []any) error {
 	return nil
 }
 
-// insert runs the insert command args: it reserves the filter before the
-// first write, recreates a missing filter and retries once (unless
-// autoCreate is off), and fails on a per-item rejection; errors are wrapped
-// with op.
-func (c *Core) insert(ctx context.Context, args []any, op string) error {
+// insert runs the insert command args, whose last values arguments are the
+// inserted values: it reserves the filter before the first write, recreates a
+// missing filter and retries once (unless autoCreate is off), and fails on a
+// per-item rejection; errors are wrapped with op. With journalAdds the
+// values are also journaled for a running rebuild.
+func (c *Core) insert(ctx context.Context, args []any, values int, op string) error {
 	if err := c.reserveOnce(ctx); err != nil {
 		return err
 	}
-	reply, err := c.client.Do(ctx, args...).Result()
+	run := func() (any, error) {
+		if c.journalAdds {
+			return c.insertJournaled(ctx, args, values)
+		}
+		return c.client.Do(ctx, args...).Result()
+	}
+	reply, err := run()
 	if err != nil {
 		// Check if filter doesn't exist and create it
 		if c.autoCreate && notExist(err) {
 			if ensureErr := c.EnsureFilter(ctx); ensureErr != nil {
 				return ensureErr
 			}
-			reply, err = c.client.Do(ctx, args...).Result()
+			reply, err = run()
 		}
 		if err != nil {
 			return coreerrs.WrapOperation(err, op)

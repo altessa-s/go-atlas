@@ -60,6 +60,10 @@ func New(client redis.UniversalClient, filterName string, opt ...Option) *Storag
 			BatchTokens: []string{"NOCREATE", "ITEMS"},
 			Reserve:     "BF.RESERVE",
 			Info:        "BF.INFO",
+			// Re-inserting into a Bloom filter is idempotent, so inserts by
+			// every process sharing the filter are journaled and replayed
+			// onto a rebuild's replacement.
+			JournalAdds: true,
 		}, opts.falsePositiveRate, opts.expectedItems),
 		opts: opts,
 	}
