@@ -104,10 +104,13 @@ const stageRequestWindow = time.Minute
 // execution that completed the rename sets it.
 // KEYS[1] staging key; KEYS[2] live key; KEYS[3] marker key; KEYS[4]
 // generation key; KEYS[5] lease key; KEYS[6] committed-ticket key; KEYS[7]
-// ready marker; ARGV[1] marker TTL ms; ARGV[2] ticket ("0": no lease).
+// ready marker; KEYS[8] journal; ARGV[1] marker TTL ms; ARGV[2] ticket ("0":
+// no lease); ARGV[3] batch insert command replaying the journal onto the
+// staging filter before the rename ("" when the filter does not journal);
+// ARGV[4:] its tokens.
 // Returns 1 when promoted (now or by an earlier run), 0 when nothing exists to
 // promote, -1 when superseded.
-var commitScript = redis.NewScript(commitScriptSource)
+var commitScript = redis.NewScript(replyCheckLua + commitScriptSource)
 
 const commitScriptSource = `
 if redis.call('EXISTS', KEYS[1]) == 0 then
@@ -118,6 +121,18 @@ if ARGV[2] ~= '0' then
   local committed = tonumber(redis.call('GET', KEYS[6]) or '0')
   if committed > tonumber(ARGV[2]) then return -1 end
   redis.call('SET', KEYS[6], ARGV[2])
+end
+if ARGV[3] ~= '' then
+  local n = redis.call('LLEN', KEYS[8])
+  for i = 0, n - 1, 500 do
+    local args = {ARGV[3], KEYS[1]}
+    for j = 4, #ARGV do args[#args + 1] = ARGV[j] end
+    local items = redis.call('LRANGE', KEYS[8], i, i + 499)
+    for _, v in ipairs(items) do args[#args + 1] = v end
+    local bad = checked(redis.call(unpack(args)), #items)
+    if bad then return bad end
+  end
+  redis.call('DEL', KEYS[8])
 end
 local gentype = redis.call('TYPE', KEYS[4]).ok
 if gentype ~= 'none' and gentype ~= 'string' then
@@ -210,10 +225,21 @@ func (s *Staging) Commit(ctx context.Context) error {
 		return err
 	}
 
+	// Replay the inserts journaled so far; the commit script replays the
+	// tail journaled after this. Nothing is promoted yet, so a failure here
+	// is a definite one.
+	if s.live.journalAdds {
+		if err := s.drainJournal(ctx); err != nil {
+			return err
+		}
+	}
+
 	op := "promote Redis " + s.live.cmds.Label + " filter"
 	marker := s.markerKey()
-	keys := []string{s.core.filterKey, s.live.filterKey, marker, s.live.genKey, s.live.leaseKey, s.live.committedKey, s.live.readyKey}
-	n, err := s.commit.Run(ctx, s.core.client, keys, commitMarkerTTL.Milliseconds(), strconv.FormatInt(s.ticket, 10)).Int()
+	keys := []string{s.core.filterKey, s.live.filterKey, marker, s.live.genKey, s.live.leaseKey, s.live.committedKey, s.live.readyKey,
+		s.live.journalKey}
+	argv := append([]any{commitMarkerTTL.Milliseconds(), strconv.FormatInt(s.ticket, 10)}, s.journalReplayArgs()...)
+	n, err := s.commit.Run(ctx, s.core.client, keys, argv...).Int()
 	switch {
 	case err == nil && n == 1:
 		return nil

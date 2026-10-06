@@ -34,14 +34,15 @@ the observer. `Close` closes filters implementing `io.Closer` or `Close(context.
 
 ## Errors
 
-| Error                    | Description                                                                               |
-|--------------------------|-------------------------------------------------------------------------------------------|
-| `ErrFilterNotFound`      | Returned when a filter name is not registered                                             |
-| `ErrFilterAlreadyExists` | Returned when a filter name is already in use                                             |
-| `ErrFilterClosed`        | Returned by `Rebuild` on a closed filter                                                  |
-| `ErrCommitIndeterminate` | Wrapped by `Rebuild` when a commit's outcome is unknown; old or new contents are in place |
-| `ErrRebuildInProgress`   | Wrapped by `Rebuild` when another process rebuilds the shared filter; nothing was loaded  |
-| `ErrRebuildSuperseded`   | Wrapped by `Rebuild` when the rebuild lost its lease; its snapshot was discarded          |
+| Error                     | Description                                                                               |
+|---------------------------|-------------------------------------------------------------------------------------------|
+| `ErrFilterNotFound`       | Returned when a filter name is not registered                                             |
+| `ErrFilterAlreadyExists`  | Returned when a filter name is already in use                                             |
+| `ErrFilterClosed`         | Returned by `Rebuild` on a closed filter                                                  |
+| `ErrCommitIndeterminate`  | Wrapped by `Rebuild` when a commit's outcome is unknown; old or new contents are in place |
+| `ErrRebuildInProgress`    | Wrapped by `Rebuild` when another process rebuilds the shared filter; nothing was loaded  |
+| `ErrRebuildSuperseded`    | Wrapped by `Rebuild` when the rebuild lost its lease; its snapshot was discarded          |
+| `ErrUnsafeEvictionPolicy` | Wrapped by the factory's Redis check when the server has an `allkeys-*` eviction policy   |
 
 ## Bloom vs Cuckoo
 

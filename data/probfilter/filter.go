@@ -20,6 +20,12 @@ var ErrFilterClosed = errors.New("filter closed")
 // rebuild publishes a fresh snapshot, so there is nothing to retry.
 var ErrRebuildInProgress = errors.New("filter rebuild in progress elsewhere")
 
+// ErrUnsafeEvictionPolicy is wrapped by the error of a Redis eviction-policy
+// check when a server evicts any key under memory pressure (an allkeys-*
+// maxmemory-policy): a shared filter's keys carry no TTL by design, and
+// losing them breaks its rebuild and delete guarantees.
+var ErrUnsafeEvictionPolicy = errors.New("redis maxmemory-policy may evict filter keys")
+
 // ErrRebuildSuperseded is wrapped by a Rebuild error when the rebuild lost its
 // right to publish — its rebuild lease of a shared filter expired (for
 // example because the process stalled) and another rebuild took over — so its

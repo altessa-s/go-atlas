@@ -554,7 +554,7 @@ func TestStaging_Commit_LostReplyAndLostMarkerIsIndeterminate(t *testing.T) {
 	mr, st := stagedInternal(t)
 
 	keys := commitKeys(st)
-	n, err := commitScript.Run(t.Context(), st.core.client, keys, int64(60000), "0").Int()
+	n, err := commitScript.Run(t.Context(), st.core.client, keys, int64(60000), "0", "").Int()
 	require.NoError(t, err)
 	require.Equal(t, 1, n)
 	mr.Del(st.markerKey())
@@ -622,7 +622,7 @@ func TestStaging_Commit_ReplayAfterPartialAttemptAdvancesGeneration(t *testing.T
 	partial := strings.Replace(commitScriptSource, "redis.call('PERSIST'", "do return redis.error_reply('ERR injected') end --", 1)
 	require.NotEqual(t, commitScriptSource, partial)
 	keys := commitKeys(st)
-	_, err = goredis.NewScript(partial).Run(t.Context(), client, keys, int64(60000), "0").Result()
+	_, err = goredis.NewScript(partial).Run(t.Context(), client, keys, int64(60000), "0", "").Result()
 	require.ErrorContains(t, err, "injected")
 
 	observed, _, err := core.generationAndTime(t.Context())
@@ -641,5 +641,6 @@ func TestStaging_Commit_ReplayAfterPartialAttemptAdvancesGeneration(t *testing.T
 }
 
 func commitKeys(st *Staging) []string {
-	return []string{st.core.filterKey, st.live.filterKey, st.markerKey(), st.live.genKey, st.live.leaseKey, st.live.committedKey, st.live.readyKey}
+	return []string{st.core.filterKey, st.live.filterKey, st.markerKey(), st.live.genKey, st.live.leaseKey, st.live.committedKey, st.live.readyKey,
+		st.live.journalKey}
 }
