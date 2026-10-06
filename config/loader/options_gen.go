@@ -12,6 +12,13 @@ import (
 // Option is a functional option for configuring options.
 type Option func(o *options)
 
+// WithAllowUnknownFields enables the allowUnknownFields option.
+func WithAllowUnknownFields() Option {
+	return func(o *options) {
+		o.allowUnknownFields = true
+	}
+}
+
 // WithEnvPrefix sets the envPrefix option.
 func WithEnvPrefix[T interface{ string | *string }](v T) Option {
 	return func(o *options) {

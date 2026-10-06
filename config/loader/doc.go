@@ -17,6 +17,17 @@
 //   - Automatic validation: uses struct tags for validation logic.
 //   - Nested configuration: supports complex structures and maps.
 //
+// # Unknown keys
+//
+// A file key that binds to no field of the configuration struct, such as a
+// misspelled "enable" for "enabled", fails the load with an [ErrDecode] error
+// wrapping [ErrUnknownField] that names every unknown key of the file. A map
+// accepts any entry key, but the struct values in it are checked; content
+// under interface fields (including map[string]any) and types with their own
+// unmarshaler is free-form. [WithAllowUnknownFields] restores ignoring unknown keys. The check
+// needs a backend implementing backend.StrictDecoder, as both built-in
+// backends do; other backends decode without it.
+//
 // # Environment variable expansion in values
 //
 // Values read from environment variables (and env-defaults applied via

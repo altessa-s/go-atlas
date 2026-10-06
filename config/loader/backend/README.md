@@ -15,10 +15,15 @@ to add support for new configuration formats (JSON, INI, etc.).
 | `Decoder`      | `Decode(reader, any)`                | Decodes a reader into a struct           |
 | `Preprocessor` | `Preprocess(content, currentDir, rootDir)` | Optional content transformation    |
 | `KeyDecoder`   | `DecodeKeys(reader)`                 | Optional: reports which values a document sets |
+| `StrictDecoder` | `DecodeStrict(reader, any)`        | Optional: decodes and rejects keys that bind to no struct field |
 | `KeyNode`      | `IsNull`, `Fields`, `Entries`, `Elems` | A document value bound to destination types on demand |
 
 `Preprocessor` is optional. Backends that support directives like `!include` implement it to transform file
 content before decoding.
+
+`StrictDecoder` is optional. The loader decodes with it unless `loader.WithAllowUnknownFields()` is set; its error wraps
+`backend.ErrUnknownField` and names every key that binds to no field of a destination struct. Map entry keys are never unknown, though
+struct values in a map are checked; content under interfaces and types with their own unmarshaler is free-form. Without it the loader decodes with `Decode` and cannot detect unknown keys.
 
 `KeyDecoder` is optional too. The loader uses it to tell an explicit `false`, `0` or `""` from an omitted key, so `default` tags
 apply only to the latter. A `KeyNode` binds struct fields, map keys and sequence elements exactly as the backend's `Decode` does;

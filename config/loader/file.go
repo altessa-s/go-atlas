@@ -128,7 +128,11 @@ func (cf *Config) loadAndDecode(f *file, out any) (err error) {
 	// Create a reader from the substituted content
 	substitutedReader := strings.NewReader(substitutedContent)
 
-	err = f.decoder.Decode(substitutedReader, out)
+	if sd, ok := f.decoder.(backend.StrictDecoder); ok && !cf.options.allowUnknownFields {
+		err = sd.DecodeStrict(substitutedReader, out)
+	} else {
+		err = f.decoder.Decode(substitutedReader, out)
+	}
 	if err != nil {
 		err = fmt.Errorf("%w: %s: %w", ErrDecode, f.name, err)
 		return

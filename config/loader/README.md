@@ -16,6 +16,7 @@ default values, and secret expansion.
 - Inline `$VAR` expansion in env values with `$$` escape (see below)
 - Secret expansion: `$__secret{namespace:key}` via `secrets.Manager`
 - Automatic validation, normalization, and default application
+- Unknown file keys are rejected: a misspelled `enable:` for `enabled:` fails the load instead of being dropped silently
 - Thread-safe after initialization
 
 ## Loading order
@@ -54,6 +55,11 @@ Compared with earlier releases:
 - Omitted, untagged pointer structs are allocated and defaulted at any depth, including inside map and slice elements; tag such a field
   `default:"-"` to keep it `nil`. A pointer struct a file sets to `null` also stays `nil` inside collection elements.
 - A `default` tag is only substituted when it is applied, so in strict mode an undefined `${VAR}` in an unused default no longer fails.
+- A file key that binds to no field of the configuration struct fails the load with `ErrDecode` wrapping `ErrUnknownField`; before, it was ignored, so a
+  typo silently left a setting at its default. The error names every unknown key of the file. Map entry keys stay free, though struct values in a map
+  are checked; content under `any` (including `map[string]any`) and types with their own unmarshaler stays free-form, but a top-level key that only
+  holds a YAML anchor (`base: &base`) or an `x-` extension block now counts as unknown. Fix the keys, or pass `WithAllowUnknownFields()` to restore the
+  old behavior. Custom backends opt in by implementing `backend.StrictDecoder`; without it they decode as before.
 - Backends implementing `backend.KeyDecoder` must return a `backend.KeyNode`; see the
   [migration note](backend/README.md#migrating-a-keydecoder-breaking-change).
 
@@ -76,6 +82,8 @@ Compared with earlier releases:
 | `WithStructTag`         | Struct tag name for field mapping (default `yaml`)|
 | `WithSkipEnv`           | Skip environment variable loading                |
 | `WithSkipDefaults`      | Skip default value application                   |
+| `WithAllowUnknownFields` | Ignore file keys that bind to no struct field instead of failing |
+| `WithStrict`            | Fail on undefined env vars and unassignable values |
 | `WithSecretsManager`    | Enable `$__secret{}` expansion                   |
 
 ## Environment variable expansion in values
@@ -102,3 +110,4 @@ trigger lookups and are safe in strict mode.
 | `ErrBindDefaults` | Default value cannot be bound to a field   |
 | `ErrBindEnv`      | Environment value cannot be bound          |
 | `ErrDecode`       | File decoding failed                       |
+| `ErrUnknownField` | A file key binds to no struct field (wrapped by `ErrDecode`) |
