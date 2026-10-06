@@ -15,7 +15,7 @@ tracing system. Exports spans over gRPC (`Protocol: grpc`, default) or HTTP
 | `WithEndpoint`          | `localhost:4317` | OTLP collector endpoint                                                     |
 | `WithProtocol`          | `grpc`           | Wire protocol — `grpc` or `http`                                            |
 | `WithInsecure`          | false            | Skip TLS for the collector connection (gRPC only)                           |
-| `WithCompression`       | false            | Enable gzip compression                                                     |
+| `WithCompression(bool)` | true             | Gzip compression; `false` disables it                                       |
 | `WithHeaders`           | --               | Static headers attached to every export request                             |
 | `WithExportTimeout`     | 30s              | Per-export timeout                                                          |
 | `WithServiceName`       | --               | OpenTelemetry service.name resource attribute                               |
