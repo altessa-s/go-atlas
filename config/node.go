@@ -8,8 +8,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/altessa-s/go-atlas/core/types/ptr"
-
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 )
 
@@ -20,7 +18,7 @@ var nodeIdRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 //
 // Example:
 //
-//	node := &config.Node{Id: ptr.Wrap("node-1")}
+//	node := &config.Node{Id: new("node-1")}
 //	node.Normalize() // converts to uppercase
 type Node struct {
 	// Unique identifier for the service node
@@ -32,7 +30,7 @@ type Node struct {
 // Converts the node ID to uppercase if present.
 func (s *Node) Normalize() {
 	if s.Id != nil {
-		s.Id = ptr.Wrap(strings.ToUpper(*s.Id))
+		s.Id = new(strings.ToUpper(*s.Id))
 	}
 }
 

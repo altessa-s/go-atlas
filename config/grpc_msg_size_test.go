@@ -10,8 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func ptrInt(v int) *int { return &v }
-
 // TestGrpc_Validate_RejectsZeroOrNegativeMsgSize is the regression
 // guard for the lower bound. A zero / negative MaxRecvMsgSize would
 // effectively disable the inbound size limit (the stdlib gRPC server
@@ -31,7 +29,7 @@ func TestGrpc_Validate_RejectsZeroOrNegativeMsgSize(t *testing.T) {
 		t.Run(tc.name+"_recv", func(t *testing.T) {
 			cfg := Grpc{
 				ListenAddress:  "0.0.0.0:7777",
-				MaxRecvMsgSize: ptrInt(tc.value),
+				MaxRecvMsgSize: new(tc.value),
 			}
 			err := cfg.Validate()
 			require.Error(t, err)
@@ -40,7 +38,7 @@ func TestGrpc_Validate_RejectsZeroOrNegativeMsgSize(t *testing.T) {
 		t.Run(tc.name+"_send", func(t *testing.T) {
 			cfg := Grpc{
 				ListenAddress:  "0.0.0.0:7777",
-				MaxSendMsgSize: ptrInt(tc.value),
+				MaxSendMsgSize: new(tc.value),
 			}
 			err := cfg.Validate()
 			require.Error(t, err)
@@ -57,7 +55,7 @@ func TestGrpc_Validate_RejectsHugeMsgSize(t *testing.T) {
 
 	cfg := Grpc{
 		ListenAddress:  "0.0.0.0:7777",
-		MaxRecvMsgSize: ptrInt(MaxGrpcMessageSize + 1),
+		MaxRecvMsgSize: new(MaxGrpcMessageSize + 1),
 	}
 
 	err := cfg.Validate()
@@ -72,8 +70,8 @@ func TestGrpc_Validate_AcceptsReasonableMsgSize(t *testing.T) {
 
 	cfg := Grpc{
 		ListenAddress:  "0.0.0.0:7777",
-		MaxRecvMsgSize: ptrInt(8 * 1024 * 1024), // 8 MiB
-		MaxSendMsgSize: ptrInt(8 * 1024 * 1024),
+		MaxRecvMsgSize: new(8 * 1024 * 1024), // 8 MiB
+		MaxSendMsgSize: new(8 * 1024 * 1024),
 	}
 
 	require.NoError(t, cfg.Validate())

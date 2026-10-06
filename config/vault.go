@@ -76,7 +76,7 @@ func (va *VaultAuth) Validate() error {
 //
 //	vault := &config.Vault{
 //		Address: "https://vault.example.com:8200",
-//		Auth:    &config.VaultAuth{Method: config.VaultAuthMethodToken, Token: ptr.Wrap("s.secret")},
+//		Auth:    &config.VaultAuth{Method: config.VaultAuthMethodToken, Token: new("s.secret")},
 //	}
 type Vault struct {
 	Auth *VaultAuth `yaml:"auth" default:"-"`

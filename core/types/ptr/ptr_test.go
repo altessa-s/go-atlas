@@ -10,14 +10,6 @@ import (
 	"github.com/altessa-s/go-atlas/core/types/ptr"
 )
 
-func TestWrap(t *testing.T) {
-	val := 42
-	p := ptr.Wrap(val)
-	if p == nil || *p != val {
-		t.Error("Wrap failed")
-	}
-}
-
 func TestWrapNonZero(t *testing.T) {
 	if ptr.WrapNonZero(0) != nil {
 		t.Error("WrapNonZero(0) should be nil")

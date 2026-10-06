@@ -9,9 +9,8 @@
 //
 // # Usage
 //
-//	// Create pointers to literals without intermediate variables
-//	strPtr := ptr.Wrap("hello")
-//	numPtr := ptr.Wrap(42)
+//	// For an unconditional pointer use the built-in new(expr) (Go 1.26+).
+//	strPtr := new("hello")
 //
 //	// Create pointer only if non-zero
 //	ptr.WrapNonZero(0)      // nil
@@ -23,7 +22,7 @@
 //
 //	// Struct initialization
 //	cfg := Config{
-//	    Timeout: ptr.Wrap(30),
+//	    Timeout: new(30),
 //	    Name:    ptr.WrapNonZero(name), // nil if name is empty
 //	}
 package ptr
