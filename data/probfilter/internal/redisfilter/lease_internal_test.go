@@ -131,7 +131,7 @@ func TestLease_SameTicketRetryResumes(t *testing.T) {
 
 	// A first attempt raises the fence and fails before the rename.
 	src := strings.Replace(commitScriptSource, "redis.call('PERSIST'", "do return redis.error_reply('ERR injected') end --", 1)
-	_, err := goredis.NewScript(src).Run(t.Context(), st.core.client, commitKeys(st), int64(60000), "1").Result()
+	_, err := goredis.NewScript(src).Run(t.Context(), st.core.client, commitKeys(st), int64(60000), "1", "").Result()
 	require.ErrorContains(t, err, "injected")
 
 	require.NoError(t, st.Commit(t.Context()), "the same rebuild may resume its commit")

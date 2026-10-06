@@ -63,6 +63,12 @@
 #      # Default value: 100000000
 #      maxCapacity: 100000000
 #
+#  # <bool> Skip the startup check that the Redis server of a Redis-backed filter
+#  # has no allkeys-* maxmemory-policy (such a policy may evict the filter's keys).
+#  # When CONFIG is denied (common on managed Redis) the check only logs a warning.
+#  # Default value: false
+#  skipEvictionPolicyCheck: false
+#
 #  # <map[string]object> Named filter configurations.
 #  # Each key is the filter name (e.g., email, phone, inn).
 #  # Used in code as: probabilisticFilter["email"].mightExist(value)

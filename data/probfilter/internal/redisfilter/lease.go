@@ -26,12 +26,15 @@ const LeaseTTL = 30 * time.Second
 const leaseRenewDivisor = 3
 
 // acquireLeaseScript takes the next rebuild ticket and acquires the rebuild
-// lease with it, or returns -1 when another rebuild holds the lease.
-// KEYS[1] ticket sequence; KEYS[2] lease; ARGV[1] lease TTL ms.
+// lease with it, or returns -1 when another rebuild holds the lease. It drops
+// the journal a crashed or superseded rebuild may have left, so the new
+// rebuild journals only inserts made under its own lease.
+// KEYS[1] ticket sequence; KEYS[2] lease; KEYS[3] journal; ARGV[1] lease TTL ms.
 var acquireLeaseScript = redis.NewScript(`
 if redis.call('EXISTS', KEYS[2]) == 1 then return -1 end
 local ticket = redis.call('INCR', KEYS[1])
 redis.call('SET', KEYS[2], ticket, 'PX', ARGV[1])
+redis.call('DEL', KEYS[3])
 return ticket
 `)
 
@@ -42,10 +45,12 @@ if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
 return redis.call('PEXPIRE', KEYS[1], ARGV[2])
 `)
 
-// releaseLeaseScript deletes the lease while it still holds ARGV[1].
-// KEYS[1] lease; ARGV[1] ticket.
+// releaseLeaseScript deletes the lease, and the journal no rebuild needs any
+// more, while the lease still holds ARGV[1].
+// KEYS[1] lease; KEYS[2] journal; ARGV[1] ticket.
 var releaseLeaseScript = redis.NewScript(`
 if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+redis.call('DEL', KEYS[2])
 return redis.call('DEL', KEYS[1])
 `)
 
@@ -70,7 +75,7 @@ func (c *Core) BeginRebuild(ctx context.Context) (*Lease, error) {
 	if c.keyErr != nil {
 		return nil, c.keyErr
 	}
-	ticket, err := acquireLeaseScript.Run(ctx, c.client, []string{c.seqKey, c.leaseKey}, c.leaseTTL.Milliseconds()).Int64()
+	ticket, err := acquireLeaseScript.Run(ctx, c.client, []string{c.seqKey, c.leaseKey, c.journalKey}, c.leaseTTL.Milliseconds()).Int64()
 	if err != nil {
 		return nil, coreerrs.WrapOperation(err, "acquire Redis "+c.cmds.Label+" filter rebuild lease")
 	}
@@ -120,7 +125,7 @@ func (l *Lease) Stage(ctx context.Context, reserveArgs ...any) (*Staging, error)
 func (l *Lease) Release(ctx context.Context) error {
 	l.stopOnce.Do(func() { close(l.stop) })
 	<-l.stopped
-	err := releaseLeaseScript.Run(ctx, l.core.client, []string{l.core.leaseKey}, strconv.FormatInt(l.ticket, 10)).Err()
+	err := releaseLeaseScript.Run(ctx, l.core.client, []string{l.core.leaseKey, l.core.journalKey}, strconv.FormatInt(l.ticket, 10)).Err()
 	if err != nil {
 		return coreerrs.WrapOperation(err, "release Redis "+l.core.cmds.Label+" filter rebuild lease")
 	}

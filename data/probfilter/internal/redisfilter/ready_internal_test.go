@@ -101,7 +101,7 @@ func TestCore_RebuildCommitted_PartialCommitNotReady(t *testing.T) {
 
 	partial := strings.Replace(commitScriptSource, "redis.call('PERSIST'", "do return redis.error_reply('ERR injected') end --", 1)
 	require.NotEqual(t, commitScriptSource, partial)
-	_, err = goredis.NewScript(partial).Run(t.Context(), st.core.client, commitKeys(st), int64(60000), "0").Result()
+	_, err = goredis.NewScript(partial).Run(t.Context(), st.core.client, commitKeys(st), int64(60000), "0", "").Result()
 	require.ErrorContains(t, err, "injected")
 	require.True(t, mr.Exists(core.genKey), "the failed attempt advanced the generation")
 	requireReady(t, core, false)

@@ -523,3 +523,63 @@ func TestFilterBuilder_RebuildOnStart_TolerateKeepsOtherErrors(t *testing.T) {
 		Build()
 	require.ErrorIs(t, err, errLoad)
 }
+
+// serveEvictionPolicy makes the miniredis behind client answer CONFIG GET
+// maxmemory-policy with policy.
+func serveEvictionPolicy(t *testing.T, policy string) *goredis.Client {
+	t.Helper()
+	client, mr := testhelpers.RedisClient(t)
+	require.NoError(t, mr.Server().Register("CONFIG", func(c *server.Peer, _ string, _ []string) {
+		c.WriteMapLen(1)
+		c.WriteBulk("maxmemory-policy")
+		c.WriteBulk(policy)
+	}))
+	return client
+}
+
+func TestFilterBuilder_EvictionPolicyCheck(t *testing.T) {
+	t.Parallel()
+
+	t.Run("allkeys_fails_build", func(t *testing.T) {
+		t.Parallel()
+		_, err := factory.NewFilter("users", redisBloomCfg(), defaults()).
+			UseRedisClient(serveEvictionPolicy(t, "allkeys-lru")).
+			Build()
+		require.ErrorIs(t, err, probfilter.ErrUnsafeEvictionPolicy)
+	})
+
+	t.Run("skip", func(t *testing.T) {
+		t.Parallel()
+		_, err := factory.NewFilter("users", redisBloomCfg(), defaults()).
+			UseRedisClient(serveEvictionPolicy(t, "allkeys-lru")).
+			SkipEvictionPolicyCheck(true).
+			Build()
+		require.NoError(t, err)
+	})
+
+	t.Run("volatile_passes", func(t *testing.T) {
+		t.Parallel()
+		logger, logs := newLogger()
+		_, err := factory.NewFilter("users", redisBloomCfg(), defaults()).
+			UseLogger(logger).
+			UseRedisClient(serveEvictionPolicy(t, "volatile-lru")).
+			Build()
+		require.NoError(t, err)
+		require.NotContains(t, logs.String(), "not verified")
+	})
+
+	t.Run("unreadable_warns", func(t *testing.T) {
+		t.Parallel()
+		client, mr := testhelpers.RedisClient(t)
+		require.NoError(t, mr.Server().Register("CONFIG", func(c *server.Peer, _ string, _ []string) {
+			c.WriteError("NOPERM this user has no permissions to run the 'config' command")
+		}))
+		logger, logs := newLogger()
+		_, err := factory.NewFilter("users", redisBloomCfg(), defaults()).
+			UseLogger(logger).
+			UseRedisClient(client).
+			Build()
+		require.NoError(t, err)
+		require.Contains(t, logs.String(), "maxmemory-policy not verified")
+	})
+}
