@@ -9,7 +9,8 @@ deletion. Use periodic rebuilds via `RebuildableFilter` when the underlying data
 
 `Rebuild` is atomic: the replacement is built off to the side (a fresh in-process filter, or a Redis staging key renamed onto the live key) while
 lookups keep seeing the previous contents; a failed or canceled rebuild leaves them unchanged, and values added through the filter during the rebuild
-are replayed onto the replacement. Writes by other processes to a shared Redis filter during the rebuild are not replayed.
+are replayed onto the replacement. A shared Redis filter journals the adds of other processes made under the rebuild lease in Redis and replays
+them in the commit, so they survive as well.
 
 ## Key types
 

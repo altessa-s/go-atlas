@@ -304,6 +304,11 @@ type ProbabilisticFilter struct {
 
 	// Filters contains named filter configurations.
 	Filters map[string]*ProbabilisticFilterConfig `yaml:"filters"`
+
+	// SkipEvictionPolicyCheck disables the startup check that the Redis server
+	// of a Redis-backed filter has no allkeys-* maxmemory-policy, which could
+	// evict the filter's keys. Defaults to false.
+	SkipEvictionPolicyCheck bool `yaml:"skipEvictionPolicyCheck" default:"false"`
 }
 
 // DefaultProbabilisticFilter returns a ProbabilisticFilter configuration with default values.
