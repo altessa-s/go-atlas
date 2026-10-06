@@ -6,6 +6,7 @@ package tracing
 
 import (
 	"iter"
+	"slices"
 
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 )
@@ -20,7 +21,7 @@ import (
 //	    fmt.Println(attr.Key, attr.Value)
 //	}
 func Attributes(attrs []Attribute) iter.Seq[Attribute] {
-	return coreslices.Values(attrs)
+	return slices.Values(attrs)
 }
 
 // Links returns an iterator over the slice of links.
@@ -32,7 +33,7 @@ func Attributes(attrs []Attribute) iter.Seq[Attribute] {
 //	    fmt.Println(link.SpanContext.TraceID())
 //	}
 func Links(links []Link) iter.Seq[Link] {
-	return coreslices.Values(links)
+	return slices.Values(links)
 }
 
 // FilterAttributesByKey returns an iterator that yields attributes with matching keys.

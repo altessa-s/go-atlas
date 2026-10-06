@@ -8,11 +8,11 @@ import (
 	"context"
 	"fmt"
 	"iter"
+	"slices"
 	"strconv"
 
 	"golang.org/x/sync/singleflight"
 
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	lru "github.com/hashicorp/golang-lru/v2"
 )
 
@@ -86,7 +86,7 @@ func (sc *Cache[K, V]) Purge() {
 
 // Keys returns an iterator over all keys in the cache.
 func (sc *Cache[K, V]) Keys() iter.Seq[K] {
-	return coreslices.Values(sc.cache.Keys())
+	return slices.Values(sc.cache.Keys())
 }
 
 // All returns an iterator over all key-value pairs in the cache.

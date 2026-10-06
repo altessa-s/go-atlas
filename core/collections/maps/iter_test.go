@@ -13,29 +13,6 @@ import (
 	coremaps "github.com/altessa-s/go-atlas/core/collections/maps"
 )
 
-func TestKeys(t *testing.T) {
-	t.Parallel()
-
-	m := map[string]int{"a": 1, "b": 2}
-	got := make(map[string]bool)
-	for k := range coremaps.Keys(m) {
-		got[k] = true
-	}
-	require.True(t, got["a"], "Keys() missing key 'a', got %v", got)
-	require.True(t, got["b"], "Keys() missing key 'b', got %v", got)
-}
-
-func TestValues(t *testing.T) {
-	t.Parallel()
-
-	m := map[string]int{"a": 1, "b": 2}
-	sum := 0
-	for v := range coremaps.Values(m) {
-		sum += v
-	}
-	require.Equal(t, 3, sum, "Values() sum = %d, want 3", sum)
-}
-
 func TestFilter(t *testing.T) {
 	t.Parallel()
 

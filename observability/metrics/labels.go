@@ -48,14 +48,13 @@ func MergeLabels(base, other Labels) Labels {
 }
 
 // LabelsKeys returns an iterator over label keys.
-// Uses coremaps.Keys from the core package.
 func LabelsKeys(l Labels) iter.Seq[string] {
-	return coremaps.Keys(l)
+	return maps.Keys(l)
 }
 
 // LabelsValues returns an iterator over label values.
 func LabelsValues(l Labels) iter.Seq[string] {
-	return coremaps.Values(l)
+	return maps.Values(l)
 }
 
 // SortedKeys returns a sorted slice of keys.
@@ -64,7 +63,7 @@ func SortedKeys(l Labels) []string {
 	if len(l) == 0 {
 		return nil
 	}
-	return slices.Sorted(coremaps.Keys(l))
+	return slices.Sorted(maps.Keys(l))
 }
 
 // SortedValues returns values in the order of sorted keys.
@@ -93,10 +92,8 @@ func SortedLabelValues(labels Labels, labelNames []string) []string {
 // ValidateLabelNames validates that all label names are non-empty.
 // Returns [ErrEmptyLabelName] if any name is empty.
 func ValidateLabelNames(labelNames []string) error {
-	for _, name := range labelNames {
-		if name == "" {
-			return ErrEmptyLabelName
-		}
+	if slices.Contains(labelNames, "") {
+		return ErrEmptyLabelName
 	}
 	return nil
 }
@@ -193,9 +190,7 @@ func (b *LabelBuilder) AddNonEmpty(key, value string) *LabelBuilder {
 // Values from the other map overwrite existing values.
 // Returns the builder for method chaining.
 func (b *LabelBuilder) Merge(other Labels) *LabelBuilder {
-	for k, v := range other {
-		b.labels[k] = v
-	}
+	maps.Copy(b.labels, other)
 	return b
 }
 

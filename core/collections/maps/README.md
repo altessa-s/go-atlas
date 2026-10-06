@@ -31,8 +31,6 @@ Lazy `iter.Seq` / `iter.Seq2` iterators for zero-allocation pipelines. Use `slic
 
 | Iterator | Description                        |
 |----------|------------------------------------|
-| `Keys`   | Yield all keys                     |
-| `Values` | Yield all values                   |
 | `Filter` | Yield entries matching a predicate |
 | `Map`    | Yield transformed key-value pairs  |
 

@@ -49,39 +49,9 @@ func TestMap(t *testing.T) {
 	require.True(t, slices.Equal(got, want), "Map() = %v, want %v", got, want)
 }
 
-func TestChunk(t *testing.T) {
-	input := []int{1, 2, 3, 4, 5}
-	var got [][]int
-	for chunk := range coreslices.Chunk(input, 2) {
-		got = append(got, chunk)
-	}
-	require.Len(t, got, 3, "Chunk() yielded %d chunks, want 3", len(got))
-	require.True(t, slices.Equal(got[0], []int{1, 2}), "chunk[0] = %v", got[0])
-	require.True(t, slices.Equal(got[2], []int{5}), "chunk[2] = %v", got[2])
-}
-
-func TestValues(t *testing.T) {
-	input := []string{"a", "b"}
-	var got []string
-	for v := range coreslices.Values(input) {
-		got = append(got, v)
-	}
-	require.True(t, slices.Equal(got, input), "Values() = %v, want %v", got, input)
-}
-
-func TestBackward(t *testing.T) {
-	input := []string{"a", "b", "c"}
-	var got []string
-	for _, v := range coreslices.Backward(input) {
-		got = append(got, v)
-	}
-	want := []string{"c", "b", "a"}
-	require.True(t, slices.Equal(got, want), "Backward() = %v, want %v", got, want)
-}
-
 func TestFilterSeq(t *testing.T) {
 	input := []int{1, 2, 3, 4, 5}
-	seq := coreslices.Values(input)
+	seq := slices.Values(input)
 	var got []int
 	for v := range coreslices.FilterSeq(seq, func(i int) bool { return i%2 == 0 }) {
 		got = append(got, v)
@@ -92,7 +62,7 @@ func TestFilterSeq(t *testing.T) {
 
 func TestMapSeq(t *testing.T) {
 	input := []int{1, 2, 3}
-	seq := coreslices.Values(input)
+	seq := slices.Values(input)
 	var got []int
 	for v := range coreslices.MapSeq(seq, func(i int) int { return i * 10 }) {
 		got = append(got, v)
@@ -103,7 +73,7 @@ func TestMapSeq(t *testing.T) {
 
 func TestTake(t *testing.T) {
 	input := []int{1, 2, 3, 4, 5}
-	seq := coreslices.Values(input)
+	seq := slices.Values(input)
 	var got []int
 	for v := range coreslices.Take(seq, 3) {
 		got = append(got, v)

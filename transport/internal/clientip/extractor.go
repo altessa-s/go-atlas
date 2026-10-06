@@ -14,7 +14,6 @@ import (
 
 	"github.com/altessa-s/go-atlas/data/cache/lru"
 
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
@@ -274,7 +273,7 @@ func (e *Extractor) parseXForwardedForHeader(ctx context.Context, ips []string) 
 	}
 
 	// Otherwise, iterate from right to left and find the first non-private, non-trusted IP
-	for _, ip := range coreslices.Backward(ips) {
+	for _, ip := range slices.Backward(ips) {
 		if len(ip) > MaxIPLength {
 			continue
 		}

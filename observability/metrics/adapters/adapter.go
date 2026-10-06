@@ -6,8 +6,6 @@ package adapters
 
 import (
 	"net/http"
-
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 )
 
 // MetricType represents the type of a metric.
@@ -149,7 +147,7 @@ func (m *MultiAdapter) Name() string {
 // Register implements Adapter.
 // Broadcasts registration to all adapters.
 func (m *MultiAdapter) Register(desc *Desc) error {
-	for a := range coreslices.Values(m.adapters) {
+	for _, a := range m.adapters {
 		if err := a.Register(desc); err != nil {
 			return err
 		}
@@ -160,7 +158,7 @@ func (m *MultiAdapter) Register(desc *Desc) error {
 // RecordCounter implements Adapter.
 // Broadcasts counter increment to all adapters.
 func (m *MultiAdapter) RecordCounter(name string, labels map[string]string, delta float64) {
-	for a := range coreslices.Values(m.adapters) {
+	for _, a := range m.adapters {
 		a.RecordCounter(name, labels, delta)
 	}
 }
@@ -168,7 +166,7 @@ func (m *MultiAdapter) RecordCounter(name string, labels map[string]string, delt
 // RecordGauge implements Adapter.
 // Broadcasts gauge value to all adapters.
 func (m *MultiAdapter) RecordGauge(name string, labels map[string]string, value float64) {
-	for a := range coreslices.Values(m.adapters) {
+	for _, a := range m.adapters {
 		a.RecordGauge(name, labels, value)
 	}
 }
@@ -176,7 +174,7 @@ func (m *MultiAdapter) RecordGauge(name string, labels map[string]string, value 
 // RecordHistogram implements Adapter.
 // Broadcasts histogram observation to all adapters.
 func (m *MultiAdapter) RecordHistogram(name string, labels map[string]string, value float64) {
-	for a := range coreslices.Values(m.adapters) {
+	for _, a := range m.adapters {
 		a.RecordHistogram(name, labels, value)
 	}
 }
@@ -184,7 +182,7 @@ func (m *MultiAdapter) RecordHistogram(name string, labels map[string]string, va
 // Flush implements Adapter.
 // Flushes all adapters, returning the first error encountered.
 func (m *MultiAdapter) Flush() error {
-	for a := range coreslices.Values(m.adapters) {
+	for _, a := range m.adapters {
 		if err := a.Flush(); err != nil {
 			return err
 		}
@@ -195,7 +193,7 @@ func (m *MultiAdapter) Flush() error {
 // Close implements Adapter.
 // Closes all adapters, returning the first error encountered.
 func (m *MultiAdapter) Close() error {
-	for a := range coreslices.Values(m.adapters) {
+	for _, a := range m.adapters {
 		if err := a.Close(); err != nil {
 			return err
 		}

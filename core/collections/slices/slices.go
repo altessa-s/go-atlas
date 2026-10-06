@@ -252,9 +252,9 @@ func FilterFirst[T any](collection []T, predicate func(T) bool) (T, bool) {
 //	lastEven, found := FilterLast(nums, func(n int) bool { return n%2 == 0 }) // lastEven is 4, found is true
 //	_, notFound := FilterLast(nums, func(n int) bool { return n > 10 })       // notFound is false
 func FilterLast[T any](collection []T, predicate func(T) bool) (T, bool) {
-	for i := len(collection) - 1; i >= 0; i-- {
-		if predicate(collection[i]) {
-			return collection[i], true
+	for i, v := range slices.Backward(collection) {
+		if predicate(v) {
+			return collection[i], true // re-read: the predicate may update the element
 		}
 	}
 
@@ -398,18 +398,6 @@ func GroupBy[T any, K comparable](collection []T, keyFn func(T) K) map[K][]T {
 	}
 
 	return groups
-}
-
-// Any reports whether at least one element in collection satisfies predicate.
-// It short-circuits on the first match. If collection is empty, false is returned.
-//
-// Example:
-//
-//	nums := []int{1, 2, 3, 4, 5}
-//	hasEven := Any(nums, func(n int) bool { return n%2 == 0 }) // hasEven is true
-//	hasNegative := Any(nums, func(n int) bool { return n < 0 }) // hasNegative is false
-func Any[T any](collection []T, predicate func(T) bool) bool {
-	return slices.ContainsFunc(collection, predicate)
 }
 
 // All reports whether every element in collection satisfies predicate. It

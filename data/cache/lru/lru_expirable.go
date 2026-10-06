@@ -7,11 +7,11 @@ package lru
 import (
 	"context"
 	"iter"
+	"slices"
 	"time"
 
 	"golang.org/x/sync/singleflight"
 
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	expirablelru "github.com/hashicorp/golang-lru/v2/expirable"
 )
 
@@ -76,7 +76,7 @@ func (c *ExpirableCache[K, V]) Purge() {
 
 // Keys returns an iterator over all keys in the cache.
 func (c *ExpirableCache[K, V]) Keys() iter.Seq[K] {
-	return coreslices.Values(c.cache.Keys())
+	return slices.Values(c.cache.Keys())
 }
 
 // All returns an iterator over all key-value pairs in the cache.

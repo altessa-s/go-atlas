@@ -6,8 +6,8 @@ package clientip
 
 import (
 	"net/netip"
+	"slices"
 
-	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
 	corestrings "github.com/altessa-s/go-atlas/core/text/strings"
 )
 
@@ -116,7 +116,7 @@ func IsTrusted(ip netip.Addr, trustedPrefixes []netip.Prefix) bool {
 
 // InList reports whether ip is contained in any of the given CIDR prefixes.
 func InList(ip netip.Addr, prefixes []netip.Prefix) bool {
-	return coreslices.Any(prefixes, func(prefix netip.Prefix) bool {
+	return slices.ContainsFunc(prefixes, func(prefix netip.Prefix) bool {
 		return prefix.Contains(ip)
 	})
 }

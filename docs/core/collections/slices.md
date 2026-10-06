@@ -24,11 +24,11 @@ from multiple goroutines.
 | Removal             | `Delete`                                                                                                               |
 | Transformation      | `To`, `ToWithFilter`, `ToAny`, `ToStrings`, `MapParallel`                                                              |
 | Filtering           | `FilterFirst`, `FilterLast`, `FilterParallel`                                                                          |
-| Aggregation         | `Reduce`, `GroupBy`, `Any`, `All`                                                                                      |
+| Aggregation         | `Reduce`, `GroupBy`, `All`                                                                                             |
 | Ordering checks     | `IsStrictlyIncreasing`, `IsStrictlyDecreasing`, `IsNonDecreasing`, `IsNonIncreasing`                                   |
 | Conditional append  | `AppendIf`, `AppendIfFunc`, `AppendNonEmpty`, `AppendNonNil`, `AppendNonNilErr`                                        |
 | List interop        | `ToList`, `FromList`                                                                                                   |
-| Iterators           | `Filter`, `Map`, `Chunk`, `Values`, `Backward`, `List`, `FilterSeq`, `MapSeq`, `Take`                                  |
+| Iterators           | `Filter`, `Map`, `List`, `FilterSeq`, `MapSeq`, `Take`                                                                 |
 | Pooling             | `Pool`, `NewPool`, `EnsureCapacity`                                                                                    |
 
 ---
@@ -131,14 +131,13 @@ people := []Person{{"Alice", 30}, {"Bob", 25}, {"Charlie", 30}}
 groups := coreslices.GroupBy(people, func(p Person) int { return p.Age })
 // {25: [Bob], 30: [Alice, Charlie]}
 
-hasEven := coreslices.Any(nums, func(n int) bool { return n%2 == 0 })
+hasEven := slices.ContainsFunc(nums, func(n int) bool { return n%2 == 0 }) // stdlib
 allEven := coreslices.All(nums, func(n int) bool { return n%2 == 0 })
 ```
 
 - **`Reduce`** is zero-allocation — the accumulator stays on the stack when `R` is small.
 - **`GroupBy`** pre-sizes the internal map with a load-factor estimate (`len * 0.75`, floored at 16) to reduce rehashing as groups fill.
-- **`Any` / `All`** short-circuit. `All` returns `true` for an empty slice (vacuous truth) — match Go's convention.
-- `Any` delegates to `slices.ContainsFunc` from the standard library.
+- **`All`** short-circuits (for "any" use stdlib `slices.ContainsFunc`). `All` returns `true` for an empty slice (vacuous truth) — match Go's convention.
 
 ---
 
@@ -218,9 +217,6 @@ stay zero-allocation.
 |-------------|---------------------------------------------------|
 | `Filter`    | Yield elements matching a predicate               |
 | `Map`       | Yield transformed elements                        |
-| `Chunk`     | Yield successive sub-slices of size `n`           |
-| `Values`    | Yield all elements (adapter to `iter.Seq`)        |
-| `Backward`  | Yield `(index, element)` pairs in reverse order   |
 | `List`      | Yield typed elements from `*list.List`            |
 | `FilterSeq` | Filter an existing `iter.Seq`                     |
 | `MapSeq`    | Transform an existing `iter.Seq`                  |
@@ -233,20 +229,15 @@ for n := range coreslices.Filter(nums, isEven) {
     // ...
 }
 
-for chunk := range coreslices.Chunk(nums, 2) {
-    process(chunk) // [1 2], [3 4], [5]
-}
-
 // Compose pipeline with no intermediate slices.
 seq := coreslices.MapSeq(
-    coreslices.FilterSeq(coreslices.Values(nums), isEven),
+    coreslices.FilterSeq(slices.Values(nums), isEven),
     func(n int) string { return fmt.Sprintf("n=%d", n) },
 )
 result := slices.Collect(coreslices.Take(seq, 100))
 ```
 
-`Chunk` shares the underlying array with `collection`. Sub-slices are views, not copies, so mutating a yielded chunk mutates the source. This is
-intentional for high-throughput batch processing; copy explicitly when you need isolation.
+`Values`, `Backward` and `Chunk` come from the standard library `slices` package.
 
 `Backward` is an `iter.Seq2[int, T]` so the yielded index matches the original position, not the reverse-iteration step.
 
@@ -307,7 +298,7 @@ get exactly the requested capacity.
 ```go
 // Good — single allocation at the end.
 strs := slices.Collect(coreslices.MapSeq(
-    coreslices.FilterSeq(coreslices.Values(nums), isHot),
+    coreslices.FilterSeq(slices.Values(nums), isHot),
     formatItem,
 ))
 
@@ -329,7 +320,7 @@ the input exactly once.
 - **`slices.IndexFunc`** (stdlib) — you only need the index.
 - **`Filter`** — you need every match and want to chain.
 
-### `Any` / `All` over manual loops
+### `All` over manual loops
 
 ```go
 // Idiomatic.
@@ -393,7 +384,7 @@ The bare name collides with stdlib `slices`; the project-wide alias is `coreslic
 - `Deduplicate` / `DeduplicateBy` are copy-on-write — no allocation when the input is already unique. Map pre-allocation is bounded at 128 to avoid
   over-allocation when duplicates are common.
 - A consecutive-duplicate fast path skips the map lookup when adjacent elements share a key, which is common in sorted inputs.
-- `FilterFirst`, `FilterLast`, `Any`, `All`, `Reduce` are zero-allocation and short-circuit on first match / first failure.
+- `FilterFirst`, `FilterLast`, `All`, `Reduce` are zero-allocation and short-circuit on first match / first failure.
 - `MapParallel` chunks the work statically over `NumCPU` goroutines via `sync.WaitGroup.Go` (Go 1.25+); no semaphore overhead.
 - `FilterParallel` delegates per-chunk work to `core/runtime/concurrency.ProcessCollect` (a fixed worker pool fed by an index channel) with
   `context.Background()`, so it is not cancellable.

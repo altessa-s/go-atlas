@@ -24,7 +24,6 @@ new slices without modifying inputs; nil slices are treated as empty and never c
 | `MapParallel`          | Transform using multiple goroutines for large slices     |
 | `Reduce`               | Fold a slice into a single value with an accumulator     |
 | `GroupBy`              | Partition elements into groups by a key function         |
-| `Any`                  | True if at least one element matches a predicate         |
 | `All`                  | True if every element matches a predicate                |
 | `AppendIf`             | Conditionally append values                              |
 | `AppendIfFunc`         | Conditionally append with lazy evaluation                |
@@ -51,9 +50,6 @@ Lazy `iter.Seq` iterators for zero-allocation pipelines. Use `slices.Collect()` 
 |-------------|-----------------------------------------------------|
 | `Filter`    | Yield elements matching a predicate                 |
 | `Map`       | Yield transformed elements                          |
-| `Chunk`     | Yield successive sub-slices of a given size         |
-| `Values`    | Yield all elements (adapter to `iter.Seq`)          |
-| `Backward`  | Yield `(index, element)` pairs in reverse order     |
 | `List`      | Yield typed elements from a `container/list.List`   |
 | `FilterSeq` | Filter an existing `iter.Seq`                       |
 | `MapSeq`    | Transform an existing `iter.Seq`                    |
@@ -70,4 +66,4 @@ Lazy `iter.Seq` iterators for zero-allocation pipelines. Use `slices.Collect()` 
 - `Deduplicate` / `DeduplicateBy` use a map-based seen set with a fast path for consecutive duplicates, and return the input slice unchanged
   (no result allocation) when it has no duplicates.
 - `MapParallel` / `FilterParallel` use goroutines for large datasets (50K+ elements).
-- `FilterFirst`, `Any`, `All`, `Reduce` are zero-allocation with early return.
+- `FilterFirst`, `All`, `Reduce` are zero-allocation with early return.
