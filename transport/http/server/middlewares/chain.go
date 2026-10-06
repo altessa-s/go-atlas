@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"slices"
 
 	"github.com/altessa-s/go-atlas/transport/internal/depgraph"
 )
@@ -127,8 +128,8 @@ func (c *Chain) Then(final http.Handler) http.Handler {
 
 	// Apply middlewares in reverse order so the first middleware
 	// in the chain is the outermost wrapper
-	for i := len(c.list) - 1; i >= 0; i-- {
-		final = c.list[i].Handler(final)
+	for _, m := range slices.Backward(c.list) {
+		final = m.Handler(final)
 	}
 
 	return final
