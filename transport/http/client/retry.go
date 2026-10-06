@@ -216,17 +216,17 @@ func (rt *retryRoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 
 // shouldRetry returns false for non-retryable error types.
 func (rt *retryRoundTripper) shouldRetry(err error) bool {
-	if _, ok := coreerrs.AsType[*NonRetryableError](err); ok {
+	if _, ok := errors.AsType[*NonRetryableError](err); ok {
 		return false
 	}
-	if _, ok := coreerrs.AsType[*CircuitBreakerError](err); ok {
+	if _, ok := errors.AsType[*CircuitBreakerError](err); ok {
 		rt.metrics.circuitBreakerTrips.Inc()
 		return false
 	}
-	if _, ok := coreerrs.AsType[*UnexpectedStatusError](err); ok {
+	if _, ok := errors.AsType[*UnexpectedStatusError](err); ok {
 		return false
 	}
-	_, ok := coreerrs.AsType[*ResponseSizeError](err)
+	_, ok := errors.AsType[*ResponseSizeError](err)
 	return !ok
 }
 

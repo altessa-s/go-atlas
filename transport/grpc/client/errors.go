@@ -5,6 +5,7 @@
 package client
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -14,7 +15,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	coreslices "github.com/altessa-s/go-atlas/core/collections/slices"
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // FieldError represents a validation error for a specific field.
@@ -273,13 +273,13 @@ func tryConverters(detail any, converters []DetailConverter) []FieldError {
 
 // IsClientError checks if the given error is a ClientError.
 func IsClientError(err error) bool {
-	_, ok := coreerrs.AsType[*Error](err) //nolint:errcheck // only checking ok
+	_, ok := errors.AsType[*Error](err) //nolint:errcheck // only checking ok
 	return ok
 }
 
 // AsClientError attempts to convert the given error to a ClientError.
 // Returns nil if the error is not a ClientError.
 func AsClientError(err error) *Error {
-	target, _ := coreerrs.AsType[*Error](err)
+	target, _ := errors.AsType[*Error](err)
 	return target
 }

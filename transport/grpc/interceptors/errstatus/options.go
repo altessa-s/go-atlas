@@ -23,7 +23,6 @@ import (
 
 	_ "github.com/altessa-s/go-atlas/transport/grpc/interceptors/defaults"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	spb "google.golang.org/genproto/googleapis/rpc/status"
 )
 
@@ -152,11 +151,11 @@ func WithErrorMapping(target error, code codes.Code, message string) Option {
 func WithErrorTypeMapping[T error](code codes.Code, getMessage func(T) string) Option {
 	return WithErrorConverters(ErrorConverter{
 		Matcher: func(ctx context.Context, err error) bool {
-			_, ok := coreerrs.AsType[T](err)
+			_, ok := errors.AsType[T](err)
 			return ok
 		},
 		Convert: func(ctx context.Context, err error) *status.Status {
-			if target, ok := coreerrs.AsType[T](err); ok {
+			if target, ok := errors.AsType[T](err); ok {
 				msg := getMessage(target)
 				if msg == "" {
 					msg = err.Error()
@@ -260,7 +259,7 @@ func defaultFinalize(ctx context.Context, err error, domain string) error {
 		return err
 	}
 
-	intercepted, _ := coreerrs.AsType[*interceptors.Error](err)
+	intercepted, _ := errors.AsType[*interceptors.Error](err)
 	if intercepted != nil {
 		err = intercepted.Unwrap()
 	}

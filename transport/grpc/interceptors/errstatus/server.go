@@ -11,7 +11,6 @@ import (
 	"reflect"
 	"strconv"
 
-	"github.com/altessa-s/go-atlas/core/collections/slices"
 	"github.com/altessa-s/go-atlas/data/cache/lru"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors"
 	"github.com/altessa-s/go-atlas/transport/grpc/interceptors/health"
@@ -163,7 +162,7 @@ func (i *interceptor) logErrorConversion(ctx context.Context, err error, extraAt
 // tryCustomConverters attempts to convert an error using custom errorConverters.
 // Returns the converted status if a converter matches, nil otherwise.
 func (i *interceptor) tryCustomConverters(ctx context.Context, err error) *status.Status {
-	for converter := range slices.Values(i.options.errorConverters) {
+	for _, converter := range i.options.errorConverters {
 		if converter.Matcher(ctx, err) {
 			i.LogDebug(ctx, "matched custom converter", convertOperation, slog.Any("error", err))
 			return converter.Convert(ctx, err)
@@ -263,7 +262,7 @@ func (i *interceptor) handleServerError(ctx context.Context, srv any, err error)
 		slog.String("code", st.Code().String()))
 
 	// Handle interceptors.Error wrapping.
-	if ie, ok := coreerrs.AsType[*interceptors.Error](err); ok {
+	if ie, ok := errors.AsType[*interceptors.Error](err); ok {
 		return interceptors.NewError(st, ie.Unwrap())
 	}
 

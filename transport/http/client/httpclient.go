@@ -14,7 +14,6 @@ import (
 
 	"github.com/altessa-s/go-atlas/transport/http/client/limiters"
 
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 	coreretry "github.com/altessa-s/go-atlas/core/retry"
 )
 
@@ -130,7 +129,7 @@ func (c *Client) retractableClient() *http.Client {
 //	    // Handle other errors
 //	}
 func IsUnexpectedStatusError(err error) *UnexpectedStatusError {
-	target, _ := coreerrs.AsType[*UnexpectedStatusError](err)
+	target, _ := errors.AsType[*UnexpectedStatusError](err)
 	return target
 }
 

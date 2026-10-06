@@ -70,7 +70,7 @@ func (d *DuplicateFields) Contains(field string) bool {
 //   - *DuplicateFields: The fields involved in the duplication, or nil if extraction fails
 func IsErrorDuplicate(err error) (bool, *DuplicateFields) {
 	if mongo.IsDuplicateKeyError(err) {
-		if e, ok := coreerrs.AsType[mongo.WriteException](err); ok && len(e.WriteErrors) > 0 {
+		if e, ok := errors.AsType[mongo.WriteException](err); ok && len(e.WriteErrors) > 0 {
 			els, err := e.WriteErrors[0].Raw.Lookup("keyPattern").Document().Elements()
 			if err == nil {
 				var fields = &DuplicateFields{}
@@ -89,7 +89,7 @@ func IsErrorDuplicate(err error) (bool, *DuplicateFields) {
 // IsErrorCollectionNotFound checks if the error is a collection not found error.
 // Returns true if the error is a collection not found error.
 func IsErrorCollectionNotFound(err error) bool {
-	if se, ok := coreerrs.AsType[mongo.ServerError](err); ok {
+	if se, ok := errors.AsType[mongo.ServerError](err); ok {
 		// NamespaceNotFound
 		return se.HasErrorCode(MongoErrorCodeNamespaceNotFound)
 	}
@@ -98,7 +98,7 @@ func IsErrorCollectionNotFound(err error) bool {
 
 // IsErrorIndexNotFound checks if the error is an index not found error.
 func IsErrorIndexNotFound(err error) bool {
-	if se, ok := coreerrs.AsType[mongo.ServerError](err); ok {
+	if se, ok := errors.AsType[mongo.ServerError](err); ok {
 		// IndexNotFound
 		return se.HasErrorCode(MongoErrorCodeIndexNotFound)
 	}
@@ -116,14 +116,14 @@ func IsTransientTransaction(err error) bool {
 		return true
 	}
 
-	if cmdErr, ok := coreerrs.AsType[mongo.CommandError](err); ok {
+	if cmdErr, ok := errors.AsType[mongo.CommandError](err); ok {
 		return cmdErr.HasErrorCode(MongoErrorCodeWriteConflict) ||
 			cmdErr.HasErrorCode(MongoErrorCodeTransientTransaction) ||
 			cmdErr.HasErrorCode(MongoErrorCodeLockTimeout) ||
 			cmdErr.HasErrorCode(MongoErrorCodeMaxTimeMSExpired)
 	}
 
-	if writeErr, ok := coreerrs.AsType[mongo.WriteException](err); ok && len(writeErr.WriteErrors) > 0 {
+	if writeErr, ok := errors.AsType[mongo.WriteException](err); ok && len(writeErr.WriteErrors) > 0 {
 		for _, we := range writeErr.WriteErrors {
 			if we.Code == MongoErrorCodeWriteConflict {
 				return true

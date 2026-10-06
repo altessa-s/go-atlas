@@ -14,7 +14,7 @@ import (
 )
 
 // IsNetworkError reports whether err or any error in its chain satisfies the
-// [net.Error] interface. It uses [AsType] to traverse the full error chain,
+// [net.Error] interface. It uses [errors.AsType] to traverse the full error chain,
 // including multi-errors from [errors.Join]. Returns false when err is nil.
 //
 // For more specific checks see [IsRequestTimeoutError], [IsConnectionRefused],
@@ -27,13 +27,13 @@ func IsNetworkError(err error) bool {
 	if err == nil {
 		return false
 	}
-	_, ok := AsType[net.Error](err) //nolint:errcheck // only checking ok
+	_, ok := errors.AsType[net.Error](err) //nolint:errcheck // only checking ok
 	return ok
 }
 
 // IsRequestTimeoutError reports whether err represents a network or URL request
 // timeout. It checks for [net.Error] with Timeout() == true, and for [*url.Error]
-// with Timeout() == true. The error chain is traversed via [AsType].
+// with Timeout() == true. The error chain is traversed via [errors.AsType].
 // Returns false when err is nil.
 //
 // See also [IsNetworkError] for a broader network error check.
@@ -46,11 +46,11 @@ func IsRequestTimeoutError(err error) bool {
 		return false
 	}
 
-	if netErr, ok := AsType[net.Error](err); ok {
+	if netErr, ok := errors.AsType[net.Error](err); ok {
 		return netErr.Timeout()
 	}
 
-	if urlErr, ok := AsType[*url.Error](err); ok {
+	if urlErr, ok := errors.AsType[*url.Error](err); ok {
 		return urlErr.Timeout()
 	}
 
@@ -67,7 +67,7 @@ var (
 
 // IsURLError reports whether err or any error in its chain is a [*url.Error].
 // This covers HTTP client errors such as DNS resolution failures, TLS handshake
-// errors, and redirect problems. The error chain is traversed via [AsType].
+// errors, and redirect problems. The error chain is traversed via [errors.AsType].
 // Returns false when err is nil.
 //
 // For more specific URL error conditions see [IsResourceRedirects],
@@ -80,7 +80,7 @@ func IsURLError(err error) bool {
 	if err == nil {
 		return false
 	}
-	_, ok := AsType[*url.Error](err) //nolint:errcheck // only checking ok
+	_, ok := errors.AsType[*url.Error](err) //nolint:errcheck // only checking ok
 	return ok
 }
 
@@ -96,7 +96,7 @@ func IsResourceRedirects(err error) bool {
 	if err == nil {
 		return false
 	}
-	if urlErr, ok := AsType[*url.Error](err); ok && urlErr.Err != nil {
+	if urlErr, ok := errors.AsType[*url.Error](err); ok && urlErr.Err != nil {
 		return redirectsErrorRe.MatchString(urlErr.Err.Error())
 	}
 	return false
@@ -113,7 +113,7 @@ func IsUnsupportedProtocolScheme(err error) bool {
 	if err == nil {
 		return false
 	}
-	if urlErr, ok := AsType[*url.Error](err); ok && urlErr.Err != nil {
+	if urlErr, ok := errors.AsType[*url.Error](err); ok && urlErr.Err != nil {
 		return schemeErrorRe.MatchString(urlErr.Err.Error())
 	}
 	return false
@@ -132,8 +132,8 @@ func IsCertUnknownAuthority(err error) bool {
 	if err == nil {
 		return false
 	}
-	if urlErr, ok := AsType[*url.Error](err); ok {
-		_, found := AsType[x509.UnknownAuthorityError](urlErr.Err) //nolint:errcheck // only checking found
+	if urlErr, ok := errors.AsType[*url.Error](err); ok {
+		_, found := errors.AsType[x509.UnknownAuthorityError](urlErr.Err) //nolint:errcheck // only checking found
 		return found
 	}
 	return false
@@ -153,13 +153,13 @@ func IsConnectionRefused(err error) bool {
 		return false
 	}
 
-	if urlErr, ok := AsType[*url.Error](err); ok {
+	if urlErr, ok := errors.AsType[*url.Error](err); ok {
 		return IsConnectionRefused(urlErr.Unwrap())
 	}
 
-	if netErr, ok := AsType[*net.OpError](err); ok {
+	if netErr, ok := errors.AsType[*net.OpError](err); ok {
 		if netErr.Op == "dial" || netErr.Op == "read" {
-			if syscallErr, ok := AsType[syscall.Errno](netErr.Err); ok {
+			if syscallErr, ok := errors.AsType[syscall.Errno](netErr.Err); ok {
 				return errors.Is(syscallErr, syscall.ECONNREFUSED)
 			}
 			return false

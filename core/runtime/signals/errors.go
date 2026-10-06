@@ -5,11 +5,10 @@
 package signals
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"time"
-
-	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
 // ErrorHandler is a callback invoked by [Signal] when a registered handler
@@ -37,7 +36,7 @@ func (e *TimeoutError) Error() string {
 // It is intended for use within an [ErrorHandler] to distinguish timeout
 // errors from other handler failures.
 func IsTimeout(err error) bool {
-	_, ok := coreerrs.AsType[*TimeoutError](err) //nolint:errcheck // only checking ok
+	_, ok := errors.AsType[*TimeoutError](err) //nolint:errcheck // only checking ok
 	return ok
 }
 

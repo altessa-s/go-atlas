@@ -221,7 +221,7 @@ func (m *Mongo) CreateDataKey(ctx context.Context, altName string) (*DataKeyId, 
 
 	keyId, err := m.encryptionClient.CreateDataKey(ctx, m.config.KMS.Name(), dataKeyOpts)
 	if err != nil {
-		serr, ok := coreerrs.AsType[mongo.ServerError](err)
+		serr, ok := errors.AsType[mongo.ServerError](err)
 		if !ok || !serr.HasErrorCode(MongoErrorCodeDuplicateKey) {
 			return nil, err
 		}
@@ -578,8 +578,8 @@ func recurseIntoStruct(t reflect.Type) bool {
 
 // hasExportedField reports whether t has at least one exported field.
 func hasExportedField(t reflect.Type) bool {
-	for i := range t.NumField() {
-		if t.Field(i).IsExported() {
+	for field := range t.Fields() {
+		if field.IsExported() {
 			return true
 		}
 	}

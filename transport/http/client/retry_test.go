@@ -18,7 +18,6 @@ import (
 
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 
-	coreerrors "github.com/altessa-s/go-atlas/core/errors"
 	coreretry "github.com/altessa-s/go-atlas/core/retry"
 )
 
@@ -186,7 +185,7 @@ func TestRetryRoundTripper_UnexpectedStatus(t *testing.T) {
 	req, _ := http.NewRequestWithContext(t.Context(), "GET", "http://example.com/path", nil)
 	_, err := rt.RoundTrip(req)
 	require.Error(t, err)
-	statusErr, ok := coreerrors.AsType[*UnexpectedStatusError](err)
+	statusErr, ok := errors.AsType[*UnexpectedStatusError](err)
 	require.True(t, ok)
 	require.Equal(t, http.StatusForbidden, statusErr.Status)
 }
