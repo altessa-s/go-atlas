@@ -6,7 +6,7 @@
 // multiple child handlers. Each record is dispatched to every child whose
 // Enabled method returns true for the record's level.
 //
-// On Go 1.26+ this delegates to [slog.MultiHandler] from the standard library.
+// It delegates record dispatch to [slog.MultiHandler] and keeps the children reachable through Handlers().
 //
 // The handler is safe for concurrent use and immutable after creation —
 // [Handler.WithAttrs] and [Handler.WithGroup] return new instances.
