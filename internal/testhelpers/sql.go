@@ -42,6 +42,7 @@ type FakeSQL struct {
 	closed    int
 	commits   int
 	rollbacks int
+	noRecord  bool
 	respond   func(query string, args []any) FakeSQLReply
 }
 
@@ -64,6 +65,15 @@ func (f *FakeSQL) Calls() []FakeSQLCall {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]FakeSQLCall(nil), f.calls...)
+}
+
+// DisableRecording stops [FakeSQL.Calls] from accumulating statements, so a
+// benchmark issuing millions of them runs in constant memory. Statements are
+// still answered by the script.
+func (f *FakeSQL) DisableRecording() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.noRecord = true
 }
 
 // RowsClosed returns how many result sets were closed.
@@ -93,7 +103,9 @@ func (f *FakeSQL) record(query string, args []driver.NamedValue, inTx bool) Fake
 		values[i] = a.Value
 	}
 	f.mu.Lock()
-	f.calls = append(f.calls, FakeSQLCall{Query: query, Args: values, InTx: inTx})
+	if !f.noRecord {
+		f.calls = append(f.calls, FakeSQLCall{Query: query, Args: values, InTx: inTx})
+	}
 	respond := f.respond
 	f.mu.Unlock()
 	return respond(query, values)
