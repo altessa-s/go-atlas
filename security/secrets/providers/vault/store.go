@@ -141,9 +141,23 @@ func (s *Storage[T]) doList(ctx context.Context) ([]*secrets.Value[T], error) {
 		return nil, err
 	}
 
-	return concurrency.ProcessCollect[string, *secrets.Value[T]](ctx, keys, s.value,
+	values, err := concurrency.ProcessCollect[string, *secrets.Value[T]](ctx, keys, s.listedValue,
 		concurrency.WithLimitFunc[string](s.opts.concurrencyLimitFunc),
 	)
+	if err != nil {
+		return nil, err
+	}
+	return stdSlices.DeleteFunc(values, func(v *secrets.Value[T]) bool { return v == nil }), nil
+}
+
+// listedValue fetches a listed key; a key whose latest version is deleted or
+// destroyed yields nil, so the listing omits it instead of failing.
+func (s *Storage[T]) listedValue(ctx context.Context, key string) (*secrets.Value[T], error) {
+	v, err := s.value(ctx, key)
+	if errors.Is(err, secrets.ErrNotFound) {
+		return nil, nil //nolint:nilnil // a nil value marks a key the listing drops
+	}
+	return v, err
 }
 
 // Values returns an iterator over all secrets stored in Vault.
@@ -176,8 +190,12 @@ func (s *Storage[T]) Values(ctx context.Context) iter.Seq2[*secrets.Value[T], er
 				return
 			}
 
-			// Fetch the value for this key
+			// Fetch the value for this key; a listed key whose latest
+			// version was deleted is skipped like an absent one.
 			value, err := s.value(ctx, key)
+			if errors.Is(err, secrets.ErrNotFound) {
+				continue
+			}
 			if err != nil {
 				if !yield(nil, err) {
 					return
@@ -241,7 +259,11 @@ func (s *Storage[T]) value(ctx context.Context, key string) (*secrets.Value[T], 
 		return nil, err
 	}
 
-	if secret == nil {
+	// KV v2 keeps the metadata of a key whose latest version was deleted
+	// or destroyed, so it stays listed, but Get returns no data for it. The
+	// data, not the metadata, decides: a deletion_time in the future
+	// (delete_version_after) marks a version that is still live.
+	if secret == nil || secret.Data == nil {
 		return nil, secrets.ErrNotFound
 	}
 
