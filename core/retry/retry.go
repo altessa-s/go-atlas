@@ -13,7 +13,6 @@ import (
 	"time"
 
 	corecontext "github.com/altessa-s/go-atlas/core/context"
-	coretime "github.com/altessa-s/go-atlas/core/time"
 )
 
 // defaultExponentialFactor is the default exponential backoff multiplier per attempt.
@@ -146,7 +145,6 @@ func doWithOptions(ctx context.Context, fn func(context.Context) error, cfg *opt
 		if timer == nil {
 			timer = time.NewTimer(delay)
 		} else {
-			coretime.TimerStopAndDrain(timer)
 			timer.Reset(delay)
 		}
 

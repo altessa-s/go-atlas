@@ -16,7 +16,6 @@ import (
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
 	"github.com/altessa-s/go-atlas/security/vault/auth"
 
-	coretime "github.com/altessa-s/go-atlas/core/time"
 	vaultApi "github.com/hashicorp/vault/api"
 )
 
@@ -104,7 +103,7 @@ func (v *Vault) RunRenewalWithContext(ctx context.Context) (err error) {
 	stop := v.metrics.renewalDuration.Start()
 
 	tmout := time.NewTimer(v.opts.authTimeout)
-	defer coretime.TimerStopAndDrain(tmout)
+	defer tmout.Stop()
 
 	// Start the auth handler
 	go func() {

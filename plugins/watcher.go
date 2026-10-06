@@ -14,7 +14,6 @@ import (
 	"github.com/fsnotify/fsnotify"
 
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
-	coretime "github.com/altessa-s/go-atlas/core/time"
 )
 
 // IsWatching reports whether the plugin directory watcher is currently
@@ -140,7 +139,6 @@ func (m *Manager) watchLoop(ctx context.Context, watcher *fsnotify.Watcher, done
 	)
 	armDebounce := func() {
 		if debounceTimer != nil {
-			coretime.TimerStopAndDrain(debounceTimer)
 			debounceTimer.Reset(m.opts.watchDebounce)
 			return
 		}
@@ -152,7 +150,7 @@ func (m *Manager) watchLoop(ctx context.Context, watcher *fsnotify.Watcher, done
 		select {
 		case <-ctx.Done():
 			if debounceTimer != nil {
-				coretime.TimerStopAndDrain(debounceTimer)
+				debounceTimer.Stop()
 			}
 			return
 

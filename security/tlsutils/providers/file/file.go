@@ -18,7 +18,6 @@ import (
 	"github.com/altessa-s/go-atlas/security/tlsutils/ocsp"
 
 	corecontext "github.com/altessa-s/go-atlas/core/context"
-	coretime "github.com/altessa-s/go-atlas/core/time"
 	tlsproviders "github.com/altessa-s/go-atlas/security/tlsutils/providers"
 )
 
@@ -253,7 +252,7 @@ func (f *File) watchFiles() {
 		select {
 		case <-f.ctx.Done():
 			if debounceTimer != nil {
-				coretime.TimerStopAndDrain(debounceTimer)
+				debounceTimer.Stop()
 			}
 			return
 
@@ -268,7 +267,6 @@ func (f *File) watchFiles() {
 
 				// Reset debounce timer
 				if debounceTimer != nil {
-					coretime.TimerStopAndDrain(debounceTimer)
 					debounceTimer.Reset(debounceDelay)
 				} else {
 					debounceTimer = time.NewTimer(debounceDelay)
