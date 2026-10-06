@@ -72,10 +72,10 @@ func ClaimRun(t *testing.T, store scheduler.Storage) {
 	require.NoError(t, err)
 	require.False(t, ok, "a paused task must not be claimed")
 
-	put("claim_any", scheduler.TaskStatusActive)
-	ok, err = store.ClaimRun(ctx, "claim_any", scheduler.RunClaim{StartedAt: 100, RunID: "run"})
+	put("claim_zero_fence", scheduler.TaskStatusActive)
+	ok, err = store.ClaimRun(ctx, "claim_zero_fence", scheduler.RunClaim{StartedAt: 100, RunID: "run"})
 	require.NoError(t, err)
-	require.True(t, ok, "a zero fence claims any occurrence")
+	require.False(t, ok, "a zero fence claims only a zero occurrence")
 
 	ok, err = store.ClaimRun(ctx, "claim_missing", scheduler.RunClaim{StartedAt: 100, RunID: "run"})
 	require.NoError(t, err)
@@ -147,6 +147,9 @@ func DueTasksZeroNextRun(t *testing.T, store scheduler.Storage) {
 		scheduler.RunResult{StartedAt: 100, EndedAt: 110, NextRunAt: 360, Schedule: "@every 1m", Success: true})
 	require.NoError(t, err)
 	require.True(t, finished)
+	stale, err := store.ClaimRun(ctx, "zero_upsert", scheduler.RunClaim{NextRunAt: 0, StartedAt: 120, RunID: "late/run"})
+	require.NoError(t, err)
+	require.False(t, stale, "a dispatch that read the zero before the run finished must not run the task again")
 	require.Equal(t, []string{"neg", "zero_create", "zero_replace"}, seqIDs(t, store.DueTasks(ctx, 200), taskID))
 	require.Equal(t, []string{"neg", "zero_create", "zero_later", "zero_replace"}, seqIDs(t, store.DueTasks(ctx, 359), taskID))
 	require.Equal(t, []string{"neg", "zero_create", "zero_later", "zero_replace", "zero_upsert"},

@@ -68,7 +68,7 @@ type Storage struct {
 // statements are the fixed queries, rendered once for the dialect.
 type statements struct {
 	getTask, upsertTask, createTask, replaceTask string
-	claim, claimAny, renew, finish               string
+	claim, renew, finish                         string
 	deleteHistory, deleteTask, tasks, dueTasks   string
 	addHistory, history, cleanupHistory          string
 }
@@ -169,9 +169,8 @@ func (s *Storage) buildStatements() statements {
 		createTask: b(create, 1),
 		replaceTask: b("UPDATE "+t+" SET "+replaceSet+", revision = ?"+
 			" WHERE id = ? AND status = ? AND next_run_at = ? AND last_run_id = ? AND run_started_at = ? AND revision = ?", 1),
-		claim:    b("UPDATE "+t+claimSet+" AND next_run_at = ? AND run_at = ?", 1),
-		claimAny: b("UPDATE "+t+claimSet, 1),
-		renew:    b("UPDATE "+t+" SET run_lease_until = ?, run_lease_id = ?, revision = revision + 1"+owned, 1),
+		claim: b("UPDATE "+t+claimSet+" AND next_run_at = ? AND run_at = ?", 1),
+		renew: b("UPDATE "+t+" SET run_lease_until = ?, run_lease_id = ?, revision = revision + 1"+owned, 1),
 		// MySQL applies SET assignments left to right and later ones see the
 		// new values. No expression here reads a column assigned before it, so
 		// both dialects evaluate every expression against the old row.
@@ -271,8 +270,8 @@ func (s *Storage) CreateTask(ctx context.Context, state *scheduler.TaskState) (b
 }
 
 // ClaimRun transitions the task from active to running while it is claimable —
-// no unfinished run and, when claim.NextRunAt is non-zero, the claimed
-// occurrence (next_run_at and run_at) still stored — in one conditional
+// no unfinished run and the claimed occurrence (next_run_at and run_at) still
+// stored — in one conditional
 // UPDATE that also stores the run's first lease; the caller won iff a row was
 // updated.
 func (s *Storage) ClaimRun(ctx context.Context, id string, claim scheduler.RunClaim) (bool, error) {
@@ -284,9 +283,6 @@ func (s *Storage) ClaimRun(ctx context.Context, id string, claim scheduler.RunCl
 	}
 	args := []any{int32(scheduler.TaskStatusRunning), claim.StartedAt, claim.RunID, claim.LeaseUntil, claim.RunID, claim.StartedAt,
 		id, int32(scheduler.TaskStatusActive)}
-	if claim.NextRunAt == 0 {
-		return s.affected(ctx, "claim scheduler task", s.stmts.claimAny, args...)
-	}
 	return s.affected(ctx, "claim scheduler task", s.stmts.claim, append(args, claim.NextRunAt, claim.RunAt)...)
 }
 
