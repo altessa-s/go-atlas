@@ -74,3 +74,26 @@ byID:
 		_, _ = fs[2].Entries(t.Field(2).Type)
 	}
 }
+
+func BenchmarkBackend_DecodeStrict(b *testing.B) {
+	type config struct {
+		Name    string `yaml:"name"`
+		Section struct {
+			Num     int  `yaml:"num"`
+			Enabled bool `yaml:"enabled"`
+		} `yaml:"section"`
+		Items []struct {
+			ID int `yaml:"id"`
+		} `yaml:"items"`
+		Meta map[string]any `yaml:"meta"`
+	}
+	content := "name: svc\nsection:\n  num: 42\n  enabled: true\nitems:\n  - id: 1\nmeta:\n  free:\n    form: 1\n"
+	backend := &yaml3.Backend{}
+
+	for b.Loop() {
+		var cfg config
+		if err := backend.DecodeStrict(strings.NewReader(content), &cfg); err != nil {
+			b.Fatalf("DecodeStrict failed: %v", err)
+		}
+	}
+}
