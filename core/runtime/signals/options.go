@@ -37,10 +37,6 @@ const (
 	// queue optimization is used instead of slice sorting.
 	LargeHandlerCountThreshold = 50
 
-	// SmallHandlerCountThreshold is exported but not consulted by the
-	// dispatcher: the insertion-sort cutoff is an internal constant (32).
-	SmallHandlerCountThreshold = 10
-
 	// ResponsiveTimeoutDuration is the grace period given to parallel handlers
 	// to finish after a global shutdown is requested.
 	ResponsiveTimeoutDuration = 50 * time.Millisecond

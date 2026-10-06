@@ -300,7 +300,6 @@ See [README.md](README.md) for shutdown hook ordering and guarantees.
 
 | Constant | Value | Purpose |
 |----------|-------|---------|
-| `SmallHandlerCountThreshold` | 10 | Exported but currently unused by the dispatcher (the insertion-sort cutoff is an internal constant, 32) |
 | `LargeHandlerCountThreshold` | 50 | Above this, priority queue is used |
 | `HandlerSliceInitialCapacity` | 32 | Pre-allocated handler slice capacity |
 | `PriorityBucketCount` | 5 | Number of priority queue buckets |
