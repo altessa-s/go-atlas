@@ -59,7 +59,7 @@ type options struct {
 	// This can be used for authentication.
 	headers map[string]string
 	// compression enables or disables gzip compression.
-	compression bool `optgen:"default=DefaultCompression"`
+	compression bool `optgen:"default=DefaultCompression" optval:"param"`
 	// serviceName sets the service name resource attribute.
 	serviceName string `optgen:"default=DefaultServiceName"`
 	// serviceVersion sets the service version resource attribute.
