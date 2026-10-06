@@ -165,6 +165,8 @@ func (b *ManagerBuilder) buildManagerOptions() ([]secrets.Option, error) {
 			Jitter:    b.cfg.Retry.Jitter,
 		}),
 	}
+	opts = slices.AppendIf(opts, b.cfg.EmptyListingThreshold > 0, secrets.WithEmptyListingThreshold(b.cfg.EmptyListingThreshold))
+	opts = slices.AppendIf(opts, b.cfg.AllowShallowClone, secrets.WithAllowShallowClone())
 
 	return slices.AppendNonNilErr(opts, func() (secrets.Option, error) {
 		cache, err := createCache(b.cfg.Cache)
