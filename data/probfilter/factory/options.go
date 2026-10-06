@@ -63,6 +63,15 @@ func (b *FilterBuilder) TolerateRebuildInProgress() *FilterBuilder {
 	return b
 }
 
+// SkipEvictionPolicyCheck disables, when skip is true, the check that a Redis
+// storage's server has no allkeys-* maxmemory-policy. Build otherwise fails
+// with an error wrapping [probfilter.ErrUnsafeEvictionPolicy] on such a
+// server, and only logs when the policy cannot be read (CONFIG denied).
+func (b *FilterBuilder) SkipEvictionPolicyCheck(skip bool) *FilterBuilder {
+	b.skipEvictionCheck = skip
+	return b
+}
+
 // --- ManagerBuilder dependency methods ---
 
 // UseLogger sets the logger for the manager builder and all created components.

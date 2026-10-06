@@ -281,13 +281,17 @@ step (a pointer swap, or `RENAME`).
   hash without TTL and replaced by the outcome afterwards, so a client retry of the same request after a lost reply returns the outcome — or an
   error when the outcome could not be recorded — instead of removing a second, colliding fingerprint. A request may only execute within one
   minute (server time) of its creation, and records are pruned only after that, so a late retry is rejected too.
-- Redis must not evict probfilter keys behind its back: use `noeviction` or a `volatile-*` policy. Filters and delete records carry no TTL;
+- Redis must not evict probfilter keys behind its back: use `noeviction` or a `volatile-*` policy (checked by the factory, see below). Filters and delete records carry no TTL;
   only staging keys and commit markers expire, and losing one early only fails a rebuild or makes its outcome indeterminate.
 - All Redis metadata lives under the reserved `__probfilter__:` key prefix (hex-encoding the filter key); filter keys in that namespace are rejected
   with `ErrReservedKey`, so metadata never overwrites a filter.
 - Rebuilds of one filter are serialized. `Close` interrupts a running rebuild and waits for it; afterwards `Rebuild` returns `ErrFilterClosed`, so no
   rebuild commits after `Close` returns.
-- Writes made to a shared Redis filter by **other processes** during the rebuild are not journaled and are lost when the replacement is committed.
+- Adds made to a shared Redis **Bloom** filter by other processes during the rebuild are journaled in Redis (the insert script appends them to a
+  journal list while the rebuild lease exists) and replayed onto the replacement: drained before the commit, the tail inside the commit script.
+  Cuckoo filters do not journal — `CF.ADD` is not idempotent — so writes by other processes during a Cuckoo rebuild are lost when it commits.
+- The factory refuses a Redis server with an `allkeys-*` `maxmemory-policy` (`ErrUnsafeEvictionPolicy`) and only warns when the policy cannot be
+  read; `skipEvictionPolicyCheck: true` disables the check.
 - Rebuilds of a shared Redis filter are serialized across processes by a rebuild lease (`LeaseTTL`, 30 s, renewed while the rebuild runs),
   taken before the data source is read. A rebuild that finds the lease held returns `ErrRebuildInProgress` without reading its source (the
   holder publishes a fresh snapshot). Only the current holder can publish: a rebuild that lost its lease (for example a stalled process)

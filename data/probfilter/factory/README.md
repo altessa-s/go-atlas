@@ -55,6 +55,7 @@ manager, err := factory.NewManager(cfg.ProbabilisticFilter).
 | `UseRedisClient` | Sets the Redis client for Redis-backed filter storages |
 | `UseDataLoader` | Sets the source a Bloom filter is rebuilt from; required for `rebuildOnStart` / `rebuildCron` |
 | `UseScheduler` | Sets the `core/scheduler.TaskRegistrar` that runs `rebuildCron` rebuilds of Redis filters (in-memory filters use a local cron) |
+| `SkipEvictionPolicyCheck` | Disables the check that fails `Build` on a Redis server with an `allkeys-*` `maxmemory-policy` (`probfilter.ErrUnsafeEvictionPolicy`); an unreadable policy (CONFIG denied) only logs a warning. `ManagerBuilder` sets it from `skipEvictionPolicyCheck` |
 | `TolerateRebuildInProgress` | Lets `Build` return an unpopulated shared filter when its `rebuildOnStart` rebuild is refused because another process is rebuilding it; only for callers that never trust an unpopulated filter (the negcache factory) |
 
 ### Terminal
