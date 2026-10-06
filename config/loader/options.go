@@ -47,6 +47,9 @@ type options struct {
 	skipDefaults        bool
 	strict              bool `optgen:"manual"`
 	secretsManager      loadersecrets.Manager
+	// allowUnknownFields disables the default rejection of file keys that
+	// bind to no field of the configuration struct.
+	allowUnknownFields bool
 }
 
 // WithStrict enables strict mode for configuration loading.

@@ -241,7 +241,7 @@ func TestLoad_LaterFileReplacesMapEntryPresence(t *testing.T) {
 // YAML binds keys exactly: a differently cased key is ignored by the decoder
 // and must not count as explicitly set.
 func TestLoad_YAMLKeyCaseMustMatch(t *testing.T) {
-	cfg := loadReview(t, nil, "ENABLED: false\n")
+	cfg := loadReview(t, []loader.Option{loader.WithAllowUnknownFields()}, "ENABLED: false\n")
 	require.True(t, cfg.Enabled)
 }
 
@@ -255,12 +255,12 @@ type keysConfig struct {
 	Items   []explicitItem          `yaml:"items"`
 }
 
-func loadKeys(t *testing.T, content string) *keysConfig {
+func loadKeys(t *testing.T, content string, opts ...loader.Option) *keysConfig {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 	cfg := &keysConfig{}
-	_, err := loader.New(nil, loader.WithPath(path)).Load(cfg)
+	_, err := loader.New(nil, append([]loader.Option{loader.WithPath(path)}, opts...)...).Load(cfg)
 	require.NoError(t, err)
 	return cfg
 }
@@ -280,7 +280,8 @@ func TestLoad_MapKeySpellingPreserved(t *testing.T) {
 
 // Keys supplied through anchors and "<<" merges count as explicitly set.
 func TestLoad_MergeKeysCountAsExplicit(t *testing.T) {
-	cfg := loadKeys(t, "base: &base\n  weight: 0\nitems:\n  - <<: *base\n    name: a\n")
+	// "base" binds to no field; it only holds the anchor.
+	cfg := loadKeys(t, "base: &base\n  weight: 0\nitems:\n  - <<: *base\n    name: a\n", loader.WithAllowUnknownFields())
 	require.Equal(t, "a", cfg.Items[0].Name)
 	require.Zero(t, cfg.Items[0].Weight)
 	require.True(t, cfg.Items[0].Enabled)

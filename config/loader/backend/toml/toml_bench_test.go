@@ -100,3 +100,26 @@ weight = 1
 		_, _ = fs[2].Entries(t.Field(2).Type)
 	}
 }
+
+func BenchmarkBackend_DecodeStrict(b *testing.B) {
+	type config struct {
+		Name    string `toml:"name"`
+		Section struct {
+			Num     int  `toml:"num"`
+			Enabled bool `toml:"enabled"`
+		} `toml:"section"`
+		Items []struct {
+			ID int `toml:"id"`
+		} `toml:"items"`
+		Meta map[string]any `toml:"meta"`
+	}
+	content := "name = \"svc\"\n\n[section]\nnum = 42\nenabled = true\n\n[[items]]\nid = 1\n\n[meta.free]\nform = 1\n"
+	backend := &toml.Backend{}
+
+	for b.Loop() {
+		var cfg config
+		if err := backend.DecodeStrict(strings.NewReader(content), &cfg); err != nil {
+			b.Fatalf("DecodeStrict failed: %v", err)
+		}
+	}
+}
