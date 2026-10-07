@@ -151,6 +151,29 @@ func TestProvider_MaxBuckets_EvictsLRU(t *testing.T) {
 		"after eviction, re-adding key1 must start from a fresh bucket — proves key1's old state was dropped, not retained")
 }
 
+// TestProvider_MaxBuckets_TouchRefreshesRecency pins LRU order: a bucket
+// touched after a newer one was inserted must survive the next eviction.
+// key1 is checked before key2 because re-adding the evicted key2 would
+// itself evict another bucket.
+func TestProvider_MaxBuckets_TouchRefreshesRecency(t *testing.T) {
+	t.Parallel()
+	p := memory.New(memory.WithMaxBuckets(2))
+	ctx := t.Context()
+
+	for _, key := range []string{"key1", "key2", "key1", "key3"} {
+		_, err := p.Allow(ctx, key, 10, time.Minute)
+		require.NoError(t, err)
+	}
+
+	info, err := p.Allow(ctx, "key1", 10, time.Minute)
+	require.NoError(t, err)
+	require.Equal(t, int64(7), info.Remaining, "key1 was touched last before key3 and must keep its bucket")
+
+	info, err = p.Allow(ctx, "key2", 10, time.Minute)
+	require.NoError(t, err)
+	require.Equal(t, int64(9), info.Remaining, "key2 was least recently used and must have been evicted")
+}
+
 // TestProvider_MaxBuckets_DisabledKeepsLegacyBehavior pins the
 // backwards-compat path: setting MaxBuckets <= 0 disables the cap so
 // memory grows unbounded (matches pre-fix behavior for callers who

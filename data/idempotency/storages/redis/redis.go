@@ -19,41 +19,18 @@ import (
 	coreerrs "github.com/altessa-s/go-atlas/core/errors"
 )
 
-// completeCASScript is the Lua script that performs a compare-and-set
-// for [Storage.Complete]. Returns:
+// casScript is the Lua compare-and-set shared by [Storage.Complete] and
+// [Storage.Steal]. Returns:
 //
-//	1  — current value matched lockToken; new value written
-//	0  — current value differs from lockToken (lock was stolen)
-//	-1 — key not found (TTL expired between AttemptLock and Complete)
-//
-// KEYS[1] = redis key
-// ARGV[1] = expected value (lockToken)
-// ARGV[2] = new value
-// ARGV[3] = TTL in milliseconds (positive integer)
-var completeCASScript = redis.NewScript(`
-local current = redis.call('GET', KEYS[1])
-if not current then
-  return -1
-end
-if current ~= ARGV[1] then
-  return 0
-end
-redis.call('SET', KEYS[1], ARGV[2], 'PX', ARGV[3])
-return 1
-`)
-
-// stealCASScript is the Lua script that performs a compare-and-replace
-// for [Storage.Steal]. Returns:
-//
-//	1  — current value matched expectedVal; new value written
-//	0  — current value differs from expectedVal (someone else won)
+//	1  — current value matched the expected value; new value written
+//	0  — current value differs (another holder owns the key)
 //	-1 — key not found (TTL expired before we got here)
 //
 // KEYS[1] = redis key
-// ARGV[1] = expectedVal
-// ARGV[2] = newVal
+// ARGV[1] = expected value (lockToken / expectedVal)
+// ARGV[2] = new value
 // ARGV[3] = TTL in milliseconds (positive integer)
-var stealCASScript = redis.NewScript(`
+var casScript = redis.NewScript(`
 local current = redis.call('GET', KEYS[1])
 if not current then
   return -1
@@ -155,23 +132,7 @@ func (s *Storage) Complete(ctx context.Context, key string, val []byte, lockToke
 		return nil
 	}
 
-	ttlMs := strconv.FormatInt(s.opts.ttl.Milliseconds(), 10)
-	res, err := completeCASScript.Run(ctx, s.Client(),
-		[]string{s.Key(key)},
-		lockToken, val, ttlMs,
-	).Int64()
-	if err != nil {
-		return coreerrs.WrapOperation(err, "complete idempotency key in Redis")
-	}
-
-	switch res {
-	case 1:
-		return nil
-	case 0, -1:
-		return storages.ErrLockStolen
-	default:
-		return coreerrs.Wrapf(storages.ErrLockStolen, "unexpected Lua result %d", res)
-	}
+	return s.compareAndSet(ctx, key, lockToken, val, "complete idempotency key in Redis")
 }
 
 // Steal atomically replaces the value when current bytes equal
@@ -182,22 +143,33 @@ func (s *Storage) Steal(ctx context.Context, key string, expectedVal, newVal []b
 		return nil, storages.ErrEmptyKey
 	}
 
+	if err := s.compareAndSet(ctx, key, expectedVal, newVal, "steal idempotency key in Redis"); err != nil {
+		return nil, err
+	}
+	return slices.Clone(newVal), nil
+}
+
+// compareAndSet runs [casScript] for key with the backend TTL and maps
+// its result: nil when the write happened, [storages.ErrLockStolen] when
+// the key is missing or holds another value. op names the operation in
+// transport errors.
+func (s *Storage) compareAndSet(ctx context.Context, key string, expected, val []byte, op string) error {
 	ttlMs := strconv.FormatInt(s.opts.ttl.Milliseconds(), 10)
-	res, err := stealCASScript.Run(ctx, s.Client(),
+	res, err := casScript.Run(ctx, s.Client(),
 		[]string{s.Key(key)},
-		expectedVal, newVal, ttlMs,
+		expected, val, ttlMs,
 	).Int64()
 	if err != nil {
-		return nil, coreerrs.WrapOperation(err, "steal idempotency key in Redis")
+		return coreerrs.WrapOperation(err, op)
 	}
 
 	switch res {
 	case 1:
-		return slices.Clone(newVal), nil
+		return nil
 	case 0, -1:
-		return nil, storages.ErrLockStolen
+		return storages.ErrLockStolen
 	default:
-		return nil, coreerrs.Wrapf(storages.ErrLockStolen, "unexpected Lua result %d", res)
+		return coreerrs.Wrapf(storages.ErrLockStolen, "unexpected Lua result %d", res)
 	}
 }
 

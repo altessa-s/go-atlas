@@ -9,6 +9,8 @@ import (
 	"errors"
 	"io"
 	"iter"
+	"maps"
+	"slices"
 	"sync"
 
 	"github.com/altessa-s/go-atlas/core/runtime/panics"
@@ -109,12 +111,17 @@ func (m *Manager) Unregister(name string) {
 }
 
 // Names returns an iterator over the names of all registered filters.
+//
+// The names are snapshotted when iteration begins and yielded without
+// holding the manager's lock, so the loop body may call Register,
+// Unregister, or Close.
 func (m *Manager) Names() iter.Seq[string] {
 	return func(yield func(string) bool) {
 		m.mu.RLock()
-		defer m.mu.RUnlock()
+		names := slices.Collect(maps.Keys(m.filters))
+		m.mu.RUnlock()
 
-		for name := range m.filters {
+		for _, name := range names {
 			if !yield(name) {
 				return
 			}
@@ -123,12 +130,18 @@ func (m *Manager) Names() iter.Seq[string] {
 }
 
 // Filters returns an iterator over the names and filters registered in the manager.
+//
+// The name/filter pairs are snapshotted when iteration begins and yielded
+// without holding the manager's lock, so the loop body may call Register,
+// Unregister, or Close. The snapshot holds filter references: a filter
+// unregistered or closed during iteration is still yielded.
 func (m *Manager) Filters() iter.Seq2[string, Filter] {
 	return func(yield func(string, Filter) bool) {
 		m.mu.RLock()
-		defer m.mu.RUnlock()
+		filters := maps.Clone(m.filters)
+		m.mu.RUnlock()
 
-		for name, filter := range m.filters {
+		for name, filter := range filters {
 			if !yield(name, filter) {
 				return
 			}

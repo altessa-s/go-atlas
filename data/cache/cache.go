@@ -245,21 +245,31 @@ func (c *Cache) lookupRaw(ctx context.Context, ek string) (data []byte, found bo
 // singleflight group, persisting the produced value (or the negative
 // sentinel) exactly as the lookup flow expects.
 func (c *Cache) runFallback(ctx context.Context, ek string, fallback Fallback) (any, error) {
-	// Bound the total number of in-flight fallbacks across all keys.
-	// singleflight only collapses requests for the SAME key — an
-	// attacker driving distinct keys can launch one fallback per key
-	// and starve the downstream. The semaphore provides backpressure
-	// independent of key cardinality. Acquire honors ctx so callers see
-	// timeouts rather than indefinite waits.
-	if c.fallbackSem != nil {
-		if err := c.fallbackSem.Acquire(ctx, 1); err != nil {
-			c.metrics.errors.Inc()
-			return nil, err
-		}
-		defer c.fallbackSem.Release(1)
-	}
-
 	ch := c.group.DoChan(ek, func() (any, error) {
+		// Bound the total number of in-flight fallbacks across all keys.
+		// singleflight only collapses requests for the SAME key — an
+		// attacker driving distinct keys can launch one fallback per key
+		// and starve the downstream. The semaphore provides backpressure
+		// independent of key cardinality.
+		//
+		// The permit belongs to the shared work, not to a caller: a caller
+		// that leaves early must not release it while the fallback still
+		// runs, or canceled requests would let fallbacks exceed the bound.
+		// The wait is detached from the caller's cancellation for the same
+		// reason the write context below is, and bounded so a saturated
+		// semaphore cannot pin the group forever; each caller still stops
+		// waiting on its own context in the select at the end.
+		if c.fallbackSem != nil {
+			acquireCtx, cancelAcquire := context.WithTimeout(context.WithoutCancel(ctx), defaultContextTimeout)
+			err := c.fallbackSem.Acquire(acquireCtx, 1)
+			cancelAcquire()
+			if err != nil {
+				c.metrics.errors.Inc()
+				return nil, err
+			}
+			defer c.fallbackSem.Release(1)
+		}
+
 		// The shared write runs on a context detached from whoever happened to
 		// win the group. On the winner's context, that caller's cancellation
 		// would fail the fetch for everyone waiting behind it — including

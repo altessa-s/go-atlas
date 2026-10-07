@@ -52,9 +52,14 @@ func (lt *lockTracker) Store(key string, lock *lock) {
 	lt.mu.Unlock()
 }
 
-func (lt *lockTracker) Delete(key string) {
+// DeleteIf untracks key only while it still maps to lk. A release of an
+// older lock for the same key must not untrack the newer one, or Close
+// would miss it.
+func (lt *lockTracker) DeleteIf(key string, lk *lock) {
 	lt.mu.Lock()
-	delete(lt.locks, key)
+	if lt.locks[key] == lk {
+		delete(lt.locks, key)
+	}
 	lt.mu.Unlock()
 }
 
@@ -310,6 +315,6 @@ func (t *trackedLock) Release(ctx context.Context) error {
 	if err := t.lock.Release(ctx); err != nil {
 		return err
 	}
-	t.tracker.Delete(t.key)
+	t.tracker.DeleteIf(t.key, t.lock)
 	return nil
 }
