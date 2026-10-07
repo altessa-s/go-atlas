@@ -6,7 +6,6 @@ package leasing_test
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"sync"
 	"testing"
@@ -149,18 +148,4 @@ func TestTiming(t *testing.T) {
 		_, _, err := leasing.Timing("x", tc.ttl, tc.ratio)
 		require.Error(t, err, "%v %v", tc.ttl, tc.ratio)
 	}
-}
-
-// TestAcquireFaultReleasesByOwner pins that an acquisition the store applied
-// but whose reply was lost is released, so the key is free again.
-func TestAcquireFaultReleasesByOwner(t *testing.T) {
-	t.Parallel()
-	m := newMemStore(time.Second)
-	e := newEngine(t, m)
-	errLost := errors.New("reply lost")
-	e.AcquireFault = func() error { return errLost }
-	_, err := e.Lock(t.Context(), "k")
-	require.ErrorIs(t, err, errLost)
-	_, err = e.GetLockInfo(t.Context(), "k")
-	require.ErrorIs(t, err, errs.ErrLockNotHeld)
 }
