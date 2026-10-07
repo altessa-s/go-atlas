@@ -1,4 +1,4 @@
-// Copyright 2026 ALTESSA SOLUTIONS INC. All rights reserved.
+// Copyright 2021-2026 ALTESSA SOLUTIONS INC. All rights reserved.
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
@@ -6,6 +6,8 @@ package writer
 
 import (
 	"testing"
+
+	"github.com/altessa-s/go-atlas/domain/proto/fieldbehavior"
 
 	testpb "github.com/altessa-s/go-atlas/proto/gen/fieldbehaviortest/v1"
 )
@@ -18,7 +20,7 @@ func BenchmarkSanitizeResponse_NoInputOnly(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := sanitizeResponse(msg); err != nil {
+		if _, err := sanitizeResponse(msg, fieldbehavior.DefaultMaxDepth); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -36,7 +38,7 @@ func BenchmarkSanitizeResponse_StripsInputOnly(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := sanitizeResponse(msg); err != nil {
+		if _, err := sanitizeResponse(msg, fieldbehavior.DefaultMaxDepth); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -48,7 +50,7 @@ func BenchmarkSanitizeResponse_NonProto(b *testing.B) {
 
 	b.ReportAllocs()
 	for b.Loop() {
-		if _, err := sanitizeResponse(data); err != nil {
+		if _, err := sanitizeResponse(data, fieldbehavior.DefaultMaxDepth); err != nil {
 			b.Fatal(err)
 		}
 	}

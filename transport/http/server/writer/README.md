@@ -23,16 +23,24 @@ data in a `Response` envelope. `ReadWriter` combines read and write operations i
 ## Response sanitization
 
 When the response value is a `proto.Message`, `Write` and `WriteStream` strip fields annotated `google.api.field_behavior = INPUT_ONLY`
-before encoding, so write-path secrets (passwords, one-time tokens) never leak back to clients on the read path. This mirrors the gRPC
-`fieldbehavior` interceptor for the HTTP transport.
+before encoding, so values accepted only on the write path (passwords, one-time tokens) are not echoed on the read path. This mirrors the
+gRPC `fieldbehavior` interceptor for the HTTP transport.
 
-Sanitization is **on by default** and secure-by-default:
+Sanitization is **on by default**:
 
-- The handler's message is never mutated — a strict-mode detection pass leaves the original untouched, and the INPUT_ONLY fields are
-  cleared on a `proto.Clone` copy that gets encoded.
-- The clone is allocated only when a populated INPUT_ONLY field is actually present. A proto response with nothing to strip — the common
-  case — incurs a single read-only traversal and no copy.
-- Non-proto responses (maps, structs, slices) pass through unchanged.
+- The handler's message is never mutated: a strict-mode pass detects populated INPUT_ONLY fields without touching it, and they are cleared
+  on a `proto.Clone` copy that gets encoded. The copy is made only when such a field is present.
+- Nested, repeated and map message fields and oneofs are covered. OUTPUT_ONLY and other behaviors are left in the response.
+- Traversal is bounded by `WithResponseSanitizationMaxDepth` (default `fieldbehavior.DefaultMaxDepth`, 32). When a response nests deeper,
+  or sanitization fails otherwise, the client receives a 500 without the payload, the cause is logged, and the call returns an error
+  wrapping `ErrResponseSanitization`.
 
-Disable it with `WithResponseSanitizationDisabled()` when a service has an external reason to emit INPUT_ONLY fields on the read path.
-See [`domain/proto/fieldbehavior`](../../../../domain/proto/fieldbehavior/README.md) for the underlying strip semantics.
+Only the message passed as the response is inspected. Not sanitized:
+
+- the contents of `google.protobuf.Any` fields (opaque bytes), unless the `Any` field itself is INPUT_ONLY;
+- proto messages inside slices, maps or caller-defined envelopes, and payloads added by a custom `Builder`;
+- error bodies written by `WriteError`.
+
+Non-proto responses pass through unchanged. Disable sanitization with `WithResponseSanitizationDisabled()` when a service has an external
+reason to emit INPUT_ONLY fields on the read path. See [`domain/proto/fieldbehavior`](../../../../domain/proto/fieldbehavior/README.md) for
+the underlying strip semantics.
