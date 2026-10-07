@@ -7,8 +7,9 @@ package geoacl
 import (
 	"context"
 	"net/netip"
-	"regexp"
 	"slices"
+
+	"github.com/altessa-s/go-atlas/transport/internal/endpointrule"
 )
 
 // GeoInfo holds geographic location data resolved from an IP address.
@@ -54,69 +55,20 @@ type AccessRule struct {
 	DenyRegions     []string // ["US-TX"]
 }
 
-type patternRule struct {
-	pattern *regexp.Regexp
-	rule    *AccessRule
-}
-
 // Registry holds a collection of geographic access rules keyed by endpoint
 // name or regex pattern, plus an optional default rule and a fallback policy.
+//
+// Rule registration and lookup (Register, RegisterPattern, RegisterEndpoints,
+// SetDefault, Lookup) are provided by the embedded [endpointrule.Registry].
 type Registry struct {
-	rules        map[string]*AccessRule
-	patternRules []patternRule
-	defaultRule  *AccessRule
-	policy       Policy
+	endpointrule.Registry[AccessRule]
+
+	policy Policy
 }
 
 // NewRegistry creates a new Registry with the given default policy.
 func NewRegistry(policy Policy) *Registry {
-	return &Registry{
-		rules:  make(map[string]*AccessRule),
-		policy: policy,
-	}
-}
-
-// Register adds an exact-match access rule for the given endpoint.
-func (r *Registry) Register(endpoint string, rule *AccessRule) {
-	r.rules[endpoint] = rule
-}
-
-// RegisterPattern adds a regex-based access rule.
-func (r *Registry) RegisterPattern(pattern *regexp.Regexp, rule *AccessRule) {
-	r.patternRules = append(r.patternRules, patternRule{
-		pattern: pattern,
-		rule:    rule,
-	})
-}
-
-// RegisterEndpoints adds the same access rule for multiple endpoints.
-func (r *Registry) RegisterEndpoints(rule *AccessRule, endpoints ...string) {
-	for _, ep := range endpoints {
-		r.rules[ep] = rule
-	}
-}
-
-// SetDefault sets the fallback rule applied when no exact or pattern match is found.
-func (r *Registry) SetDefault(rule *AccessRule) {
-	r.defaultRule = rule
-}
-
-// Lookup returns the access rule for the given endpoint.
-// It checks exact matches first, then patterns, then the default rule.
-// The boolean indicates whether any rule was found.
-func (r *Registry) Lookup(endpoint string) (*AccessRule, bool) {
-	if rule, ok := r.rules[endpoint]; ok {
-		return rule, true
-	}
-	for _, pr := range r.patternRules {
-		if pr.pattern.MatchString(endpoint) {
-			return pr.rule, true
-		}
-	}
-	if r.defaultRule != nil {
-		return r.defaultRule, true
-	}
-	return nil, false
+	return &Registry{policy: policy}
 }
 
 // Evaluate checks whether the given IP address is allowed to access
