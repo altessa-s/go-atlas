@@ -141,3 +141,41 @@ func TestSQLContendersNeverOverlap(t *testing.T) {
 		})
 	}
 }
+
+// TestSQLRenewalAfterLockWaitDoesNotRevive holds the lock row in another
+// transaction past the lease's TTL, so the holder's renewal waits for it. When
+// the row is released the lease has expired, and the renewal must find it
+// lost rather than extend it with the clock it read before waiting.
+func TestSQLRenewalAfterLockWaitDoesNotRevive(t *testing.T) {
+	t.Parallel()
+	for _, target := range sqlTargets() {
+		t.Run(target.name, func(t *testing.T) {
+			t.Parallel()
+			db, table := target.namespace(t)
+			l := target.provider(t, db, table)
+			_, err := l.Lock(t.Context(), "k")
+			require.NoError(t, err)
+
+			tx, err := db.BeginTx(t.Context(), nil)
+			require.NoError(t, err)
+			query := "SELECT 1 FROM " + table + " WHERE lock_key = ? FOR UPDATE"
+			if target.dialect == sqldb.DialectPostgres {
+				query = strings.Replace(query, "?", "$1", 1)
+			}
+			rows, err := tx.QueryContext(t.Context(), query, "k")
+			require.NoError(t, err)
+			require.NoError(t, rows.Close())
+
+			// The lease, taken at 0 with a one-second TTL, expires at 1s; the
+			// first renewal starts at about 333ms and waits. Releasing the row
+			// at 1.15s leaves a stale-clock renewal enough room to revive the
+			// lease until about 1.33s, which the check below would see.
+			time.Sleep(1150 * time.Millisecond)
+			require.NoError(t, tx.Commit())
+			time.Sleep(50 * time.Millisecond)
+
+			_, err = l.GetLockInfo(t.Context(), "k")
+			require.Error(t, err, "the expired lease must stay lost, not be revived by the waiting renewal")
+		})
+	}
+}

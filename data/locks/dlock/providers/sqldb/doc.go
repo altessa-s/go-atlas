@@ -22,9 +22,11 @@
 // its lease but keeps the row, so tokens never restart.
 //
 // While the lock's context lives, the lease is renewed every TTL × renew
-// ratio (default 10 s × 1/3). Renewal requires the holder, its fencing token
-// and an unexpired lease, so an expired lease is never revived and a stale
-// holder can neither renew nor release the new holder's lease. Ending the
+// ratio (default 10 s × 1/3). Renewal locks the row and then, in the next
+// statement of the same transaction, requires the holder, its fencing token
+// and an unexpired lease, so the clock is read after any lock wait: an expired
+// lease is never revived, and a stale holder can neither renew nor release the
+// new holder's lease. Ending the
 // context releases the lease. An acquisition whose reply arrives after the TTL
 // or that fails ambiguously is released by its unique owner id, exactly as the
 // MongoDB provider does.
