@@ -80,6 +80,54 @@ func TestInt64_NilPointers(t *testing.T) {
 	require.Empty(t, attr32.Key)
 }
 
+type (
+	namedString    string
+	namedInt       int
+	namedInt64     int64
+	namedInt32     int32
+	namedStringPtr *string
+	namedIntPtr    *int
+	namedInt64Ptr  *int64
+	namedInt32Ptr  *int32
+)
+
+func TestHelpers_NamedTypes(t *testing.T) {
+	t.Parallel()
+
+	s, i, i64, i32 := "alice", 7, int64(1<<40), int32(-3)
+
+	tests := []struct {
+		name string
+		attr slog.Attr
+		want slog.Value // zero Value means the attribute must be omitted
+	}{
+		{"string", String("k", namedString("bob")), slog.StringValue("bob")},
+		{"empty string", String("k", namedString("")), slog.Value{}},
+		{"string ptr", String("k", namedStringPtr(&s)), slog.StringValue("alice")},
+		{"nil string ptr", String("k", namedStringPtr(nil)), slog.Value{}},
+		{"int", Int("k", namedInt(42)), slog.IntValue(42)},
+		{"int ptr", Int("k", namedIntPtr(&i)), slog.IntValue(7)},
+		{"nil int ptr", Int("k", namedIntPtr(nil)), slog.Value{}},
+		{"int64", Int64("k", namedInt64(1<<41)), slog.Int64Value(1 << 41)},
+		{"int64 ptr", Int64("k", namedInt64Ptr(&i64)), slog.Int64Value(1 << 40)},
+		{"nil int64 ptr", Int64("k", namedInt64Ptr(nil)), slog.Value{}},
+		{"int32", Int64("k", namedInt32(-9)), slog.Int64Value(-9)},
+		{"int32 ptr", Int64("k", namedInt32Ptr(&i32)), slog.Int64Value(-3)},
+		{"nil int32 ptr", Int64("k", namedInt32Ptr(nil)), slog.Value{}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if tc.want.Equal(slog.Value{}) {
+				require.True(t, tc.attr.Equal(slog.Attr{}), "attribute must be omitted, got %v", tc.attr)
+				return
+			}
+			require.Equal(t, "k", tc.attr.Key)
+			require.True(t, tc.want.Equal(tc.attr.Value), "want %v, got %v", tc.want, tc.attr.Value)
+		})
+	}
+}
+
 func TestModule(t *testing.T) {
 	attr := Module("http-server")
 	require.Equal(t, ModuleKey, attr.Key)
