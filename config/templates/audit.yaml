@@ -12,7 +12,7 @@
 #  # <object> Storage backend for audit events.
 #  storage:
 #    # <string> Storage backend type.
-#    # Supported values: memory, mongo, clickhouse
+#    # Supported values: memory, mongo, clickhouse, sqldb
 #    # Default value: memory
 #    type: memory
 #
@@ -81,6 +81,29 @@
 #      # Supported values: off, additive
 #      # Default value: off
 #      schemaMigrationMode: "off"
+#
+#    # <object> SQL-specific storage configuration (data/audit/storages/sqldb).
+#    # Required when type is "sqldb". The *sql.DB is injected into the factory
+#    # (UseSQLDB); the application chooses and registers the driver.
+#    sqldb:
+#      # <string> SQL flavor.
+#      # Supported values: postgres (PostgreSQL 12+), mysql (MySQL 8.0+ and MariaDB 10.6+)
+#      # Default value: postgres
+#      dialect: postgres
+#
+#      # <string> Table holding audit events, optionally schema-qualified.
+#      # Default value: audit_events
+#      tableName: audit_events
+#
+#      # <int> Largest number of rows sent in a single INSERT; a larger batch is
+#      # split into INSERTs of one transaction.
+#      # Default value: 500
+#      maxBatchRows: 500
+#
+#      # <bool> Create the table and its indexes on startup.
+#      # Off by default: schema changes belong in a migration.
+#      # Default value: false
+#      ensureSchema: false
 #
 #  # <object> Signed page tokens for querying events. Omit to return single pages.
 #  paging:
