@@ -12,7 +12,7 @@ Package `factory` provides a fluent builder for creating a leader elector from c
 ```go
 leader, err := factory.New(cfg.LeaderElector).
     UseLogger(logger).
-    UseNatsConn(natsConn).
+    UseNATSConn(natsConn).
     Build(ctx)
 ```
 
@@ -29,7 +29,7 @@ leader, err := factory.New(cfg.LeaderElector).
 | Method | Description |
 |--------|-------------|
 | `UseLogger` | Sets the logger for the builder and all created components |
-| `UseNatsConn` | Sets the NATS connection used for leader election |
+| `UseNATSConn` | Sets the NATS connection used for leader election |
 
 ### Configuration
 

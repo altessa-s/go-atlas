@@ -49,8 +49,8 @@ saga:
   storage:
     type: nats
     nats:
-      migrate_bucket_ttl: true
-      strict_bucket_storage: true
+      migrateBucketTTL: true
+      strictBucketStorage: true
 `
 	const defaultYAML = `
 distributionLock:
@@ -83,15 +83,15 @@ saga:
 
 			cfg := loadYAML[bucketTTLMigrationConfig](t, tc.yaml)
 
-			require.Equal(t, tc.want, cfg.DistributionLock.Nats.MigrateBucketTTL, "distributionLock.nats.migrateBucketTTL")
+			require.Equal(t, tc.want, cfg.DistributionLock.NATS.MigrateBucketTTL, "distributionLock.nats.migrateBucketTTL")
 			require.Equal(t, tc.want, cfg.LeaderElector.MigrateBucketTTL, "leaderElector.migrateBucketTTL")
-			require.Equal(t, tc.want, cfg.Idempotency.Storage.Nats.MigrateBucketTTL, "idempotency.storage.nats.migrateBucketTTL")
-			require.Equal(t, tc.want, cfg.Saga.Storage.Nats.MigrateBucketTTL, "saga.storage.nats.migrate_bucket_ttl")
+			require.Equal(t, tc.want, cfg.Idempotency.Storage.NATS.MigrateBucketTTL, "idempotency.storage.nats.migrateBucketTTL")
+			require.Equal(t, tc.want, cfg.Saga.Storage.NATS.MigrateBucketTTL, "saga.storage.nats.migrate_bucket_ttl")
 
-			require.Equal(t, tc.want, cfg.DistributionLock.Nats.StrictBucketStorage, "distributionLock.nats.strictBucketStorage")
+			require.Equal(t, tc.want, cfg.DistributionLock.NATS.StrictBucketStorage, "distributionLock.nats.strictBucketStorage")
 			require.Equal(t, tc.want, cfg.LeaderElector.StrictBucketStorage, "leaderElector.strictBucketStorage")
-			require.Equal(t, tc.want, cfg.Idempotency.Storage.Nats.StrictBucketStorage, "idempotency.storage.nats.strictBucketStorage")
-			require.Equal(t, tc.want, cfg.Saga.Storage.Nats.StrictBucketStorage, "saga.storage.nats.strict_bucket_storage")
+			require.Equal(t, tc.want, cfg.Idempotency.Storage.NATS.StrictBucketStorage, "idempotency.storage.nats.strictBucketStorage")
+			require.Equal(t, tc.want, cfg.Saga.Storage.NATS.StrictBucketStorage, "saga.storage.nats.strict_bucket_storage")
 		})
 	}
 }

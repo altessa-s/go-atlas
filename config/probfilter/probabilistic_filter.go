@@ -69,11 +69,43 @@ const (
 	defaultProbFilterCuckooMaxCapacity     = int64(100000000)
 )
 
+// Storage selects where a filter keeps its data.
+type Storage struct {
+	// Type is the storage backend: memory or redis. Empty inherits the default.
+	Type StorageType `yaml:"type"`
+
+	// Redis defines Redis-specific configuration; used when Type is redis.
+	Redis *storageconfig.RedisConfig `yaml:"redis" default:"-"`
+}
+
+// Validate performs validation of the filter storage configuration. An empty
+// Type inherits the default storage, so a filter may override only its Redis
+// settings.
+func (c *Storage) Validate() error {
+	return validationconfig.ValidateStruct(c,
+		validation.Field(&c.Type, validation.When(c.Type != "", ozzo_rules.OneOf(probabilisticFilterStorageAllowedTypesAny...))),
+		validation.Field(&c.Redis, validation.When(c.Type == StorageTypeRedis, validation.NilOrNotEmpty)),
+	)
+}
+
+// DefaultStorage selects the storage backend of filters that set none.
+type DefaultStorage struct {
+	// Type is the storage backend: memory or redis.
+	Type StorageType `yaml:"type" default:"memory"`
+}
+
+// Validate performs validation of the default storage configuration.
+func (c *DefaultStorage) Validate() error {
+	return validationconfig.ValidateStruct(c,
+		validation.Field(&c.Type, ozzo_rules.OneOf(probabilisticFilterStorageAllowedTypesAny...)),
+	)
+}
+
 // BloomDefaults defines default settings for Bloom filters.
 // These values are used when not overridden in specific filter configuration.
 type BloomDefaults struct {
-	// Storage defines the storage backend for the filter.
-	Storage StorageType `yaml:"storage" default:"memory"`
+	// Storage defines the storage backend filters use unless they set their own.
+	Storage DefaultStorage `yaml:"storage"`
 
 	// FalsePositiveRate is the target false positive rate (0.01 = 1%).
 	FalsePositiveRate float64 `yaml:"falsePositiveRate" default:"0.01"`
@@ -91,7 +123,7 @@ type BloomDefaults struct {
 // NewBloomDefaults returns a BloomDefaults with default values.
 func NewBloomDefaults() BloomDefaults {
 	return BloomDefaults{
-		Storage:           defaultProbFilterStorage,
+		Storage:           DefaultStorage{Type: defaultProbFilterStorage},
 		FalsePositiveRate: defaultProbFilterBloomFPRate,
 		RebuildCron:       defaultProbFilterBloomRebuildCron,
 		RebuildOnStart:    defaultProbFilterBloomRebuildOnStart,
@@ -101,7 +133,7 @@ func NewBloomDefaults() BloomDefaults {
 // Validate performs validation of the Bloom defaults configuration.
 func (c *BloomDefaults) Validate() error {
 	return validationconfig.ValidateStruct(c,
-		validation.Field(&c.Storage, ozzo_rules.OneOf(probabilisticFilterStorageAllowedTypesAny...)),
+		validation.Field(&c.Storage),
 		// Required is paired with Min because ozzo-validation skips every
 		// rule but Required for a zero value — Min alone accepts 0.
 		validation.Field(&c.FalsePositiveRate, validation.Required, validation.Min(minFalsePositiveRate), validation.Max(maxFalsePositiveRate)),
@@ -111,8 +143,8 @@ func (c *BloomDefaults) Validate() error {
 // CuckooDefaults defines default settings for Cuckoo filters.
 // These values are used when not overridden in specific filter configuration.
 type CuckooDefaults struct {
-	// Storage defines the storage backend for the filter.
-	Storage StorageType `yaml:"storage" default:"memory"`
+	// Storage defines the storage backend filters use unless they set their own.
+	Storage DefaultStorage `yaml:"storage"`
 
 	// FingerprintSize is the fingerprint size in bits (8, 12, or 16).
 	//
@@ -136,7 +168,7 @@ type CuckooDefaults struct {
 // NewCuckooDefaults returns a CuckooDefaults with default values.
 func NewCuckooDefaults() CuckooDefaults {
 	return CuckooDefaults{
-		Storage:            defaultProbFilterStorage,
+		Storage:            DefaultStorage{Type: defaultProbFilterStorage},
 		FingerprintSize:    defaultProbFilterCuckooFingerprintSize,
 		CapacityMultiplier: defaultProbFilterCuckooCapacityMult,
 		MaxCapacity:        defaultProbFilterCuckooMaxCapacity,
@@ -146,7 +178,7 @@ func NewCuckooDefaults() CuckooDefaults {
 // Validate performs validation of the Cuckoo defaults configuration.
 func (c *CuckooDefaults) Validate() error {
 	return validationconfig.ValidateStruct(c,
-		validation.Field(&c.Storage, ozzo_rules.OneOf(probabilisticFilterStorageAllowedTypesAny...)),
+		validation.Field(&c.Storage),
 		validation.Field(&c.FingerprintSize, validation.In(fingerprintSize8, fingerprintSize12, fingerprintSize16)),
 		// Required is paired with Min because ozzo-validation skips every
 		// rule but Required for a zero value — Min alone accepts 0.
@@ -184,8 +216,8 @@ func (c *Defaults) Validate() error {
 
 // BloomConfig defines configuration for a specific Bloom filter.
 type BloomConfig struct {
-	// Storage defines the storage backend for the filter.
-	Storage *StorageType `yaml:"storage"`
+	// Storage overrides the storage backend of the defaults; nil inherits them.
+	Storage *Storage `yaml:"storage" default:"-"`
 
 	// ExpectedItems is the expected number of elements in the filter.
 	ExpectedItems int64 `yaml:"expectedItems"`
@@ -198,15 +230,12 @@ type BloomConfig struct {
 
 	// RebuildOnStart enables rebuilding filter on service startup.
 	RebuildOnStart *bool `yaml:"rebuildOnStart"`
-
-	// Redis defines Redis-specific configuration.
-	Redis *storageconfig.RedisConfig `yaml:"redis" default:"-"`
 }
 
 // Validate performs validation of the Bloom filter configuration.
 func (c *BloomConfig) Validate() error {
 	return validationconfig.ValidateStruct(c,
-		validation.Field(&c.Storage, validation.When(c.Storage != nil, ozzo_rules.OneOf(probabilisticFilterStorageAllowedTypesAny...))),
+		validation.Field(&c.Storage),
 		validation.Field(&c.ExpectedItems, validation.Required, validation.Min(1)),
 		// Required is paired with Min because ozzo-validation skips every rule
 		// but Required for a zero value — an explicit `falsePositiveRate: 0`
@@ -214,15 +243,13 @@ func (c *BloomConfig) Validate() error {
 		validation.Field(&c.FalsePositiveRate,
 			validation.When(c.FalsePositiveRate != nil,
 				validation.Required, validation.Min(minFalsePositiveRate), validation.Max(maxFalsePositiveRate))),
-		validation.Field(&c.Redis,
-			validation.When(c.Storage != nil && *c.Storage == StorageTypeRedis, validation.NilOrNotEmpty)),
 	)
 }
 
 // CuckooConfig defines configuration for a specific Cuckoo filter.
 type CuckooConfig struct {
-	// Storage defines the storage backend for the filter.
-	Storage *StorageType `yaml:"storage"`
+	// Storage overrides the storage backend of the defaults; nil inherits them.
+	Storage *Storage `yaml:"storage" default:"-"`
 
 	// Capacity is the initial capacity of the filter.
 	Capacity int64 `yaml:"capacity"`
@@ -240,15 +267,12 @@ type CuckooConfig struct {
 	//
 	// Deprecated: ignored; see [CuckooDefaults.MaxCapacity].
 	MaxCapacity *int64 `yaml:"maxCapacity"`
-
-	// Redis defines Redis-specific configuration.
-	Redis *storageconfig.RedisConfig `yaml:"redis" default:"-"`
 }
 
 // Validate performs validation of the Cuckoo filter configuration.
 func (c *CuckooConfig) Validate() error {
 	return validationconfig.ValidateStruct(c,
-		validation.Field(&c.Storage, validation.When(c.Storage != nil, ozzo_rules.OneOf(probabilisticFilterStorageAllowedTypesAny...))),
+		validation.Field(&c.Storage),
 		validation.Field(&c.Capacity, validation.Required, validation.Min(1)),
 		validation.Field(&c.FingerprintSize,
 			validation.When(c.FingerprintSize != nil, validation.In(fingerprintSize8, fingerprintSize12, fingerprintSize16))),
@@ -260,8 +284,6 @@ func (c *CuckooConfig) Validate() error {
 				validation.Required, validation.Min(minCapacityMultiplier), validation.Max(maxCapacityMultiplier))),
 		validation.Field(&c.MaxCapacity,
 			validation.When(c.MaxCapacity != nil, validation.Required, validation.Min(minMaxCapacity))),
-		validation.Field(&c.Redis,
-			validation.When(c.Storage != nil && *c.Storage == StorageTypeRedis, validation.NilOrNotEmpty)),
 	)
 }
 

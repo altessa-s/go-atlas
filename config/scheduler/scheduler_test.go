@@ -43,13 +43,13 @@ func TestSchedulerStorageRedisConfig_HistoryTTLLoads(t *testing.T) {
 		},
 		{
 			name:      "HistoryTTLZero",
-			yaml:      "scheduler:\n  storage:\n    type: redis\n    redis:\n      historyTtl: \"0s\"\n",
+			yaml:      "scheduler:\n  storage:\n    type: redis\n    redis:\n      historyTTL: \"0s\"\n",
 			wantRedis: true,
 			wantTTL:   0,
 		},
 		{
 			name:      "HistoryTTLPositive",
-			yaml:      "scheduler:\n  storage:\n    type: redis\n    redis:\n      historyTtl: \"1h\"\n",
+			yaml:      "scheduler:\n  storage:\n    type: redis\n    redis:\n      historyTTL: \"1h\"\n",
 			wantRedis: true,
 			wantTTL:   time.Hour,
 		},
@@ -86,7 +86,7 @@ func TestSchedulerStorageSQLConfig(t *testing.T) {
 	t.Run("DefaultsLoad", func(t *testing.T) {
 		t.Parallel()
 		path := filepath.Join(t.TempDir(), "config.yaml")
-		require.NoError(t, os.WriteFile(path, []byte("scheduler:\n  storage:\n    type: sql\n    sql:\n      dialect: mysql\n"), 0o600))
+		require.NoError(t, os.WriteFile(path, []byte("scheduler:\n  storage:\n    type: sqldb\n    sqldb:\n      dialect: mysql\n"), 0o600))
 
 		type wrapper struct {
 			Scheduler schedulerconfig.Config `yaml:"scheduler"`
@@ -127,10 +127,10 @@ func TestScheduler_InstanceID(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "Omitted", yaml: "scheduler:\n  tickInterval: 1s\n"},
-		{name: "Set", yaml: "scheduler:\n  instanceId: pod-0\n", want: "pod-0"},
+		{name: "Set", yaml: "scheduler:\n  instanceID: pod-0\n", want: "pod-0"},
 		{
 			name:    "TooLong",
-			yaml:    "scheduler:\n  instanceId: " + strings.Repeat("x", schedulerconfig.MaxSchedulerInstanceIDLength+1) + "\n",
+			yaml:    "scheduler:\n  instanceID: " + strings.Repeat("x", schedulerconfig.MaxSchedulerInstanceIDLength+1) + "\n",
 			wantErr: true,
 		},
 	} {

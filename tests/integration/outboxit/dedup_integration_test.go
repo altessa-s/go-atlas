@@ -45,7 +45,7 @@ func natsURL() string {
 // newStream connects to JetStream and creates a throwaway stream with an
 // explicit duplicate window, returning the subject it captures. Skips when NATS
 // is unreachable, as the rest of the suite does for MongoDB.
-func newStream(tb testing.TB) (*natsprovider.Nats, jetstream.Stream, string) {
+func newStream(tb testing.TB) (*natsprovider.NATS, jetstream.Stream, string) {
 	tb.Helper()
 
 	nc, err := nats.Connect(natsURL(), nats.Timeout(2*time.Second), nats.RetryOnFailedConnect(false))

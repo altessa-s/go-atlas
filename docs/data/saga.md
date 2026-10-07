@@ -28,9 +28,9 @@ you atomicity.
 | Stage               | One position in the saga: a single step, or a parallel group that runs and compensates concurrently.                  |
 | `Step[T]`           | A forward action (`StepFunc[T]`) plus an optional compensation (`CompensateFunc[T]`) and per-step overrides.          |
 | Pivot               | The point of no return. Failures **at or after** the pivot stage roll forward (retry) instead of compensating.        |
-| `Orchestrator[T]`   | Drives one `Definition` over a `Store`. `Start` runs a new instance; `Resume` continues a persisted one.              |
+| `Orchestrator[T]`   | Drives one `Definition` over a `Storage`. `Start` runs a new instance; `Resume` continues a persisted one.              |
 | `Instance`          | The persisted state of one execution: status, stage cursor, serialized data, version, deadline, step history.         |
-| `Store`             | The persistence backend. Reads and writes whole instances; defined on the consumer side so backends depend on saga.   |
+| `Storage`             | The persistence backend. Reads and writes whole instances; defined on the consumer side so backends depend on saga.   |
 
 The orchestrator is generic over the saga's shared data type `T`. Each step receives `*T` by pointer so it can read inputs and record outputs
 for later steps and compensations. The orchestrator serializes `T` into the persisted checkpoint after every stage.
@@ -307,11 +307,11 @@ saga:
   storage:
     type: redis
     redis:
-      keys_prefix: "saga:"
+      keysPrefix: "saga:"
       ttl: 0s            # 0 = persist; terminal instances are not auto-deleted
-  step_timeout: 10s
-  saga_timeout: 5m       # enables auto-rollback by the recovery cycle
-  recovery_schedule: "@every 1m"
+  stepTimeout: 10s
+  sagaTimeout: 5m       # enables auto-rollback by the recovery cycle
+  recoverySchedule: "@every 1m"
 ```
 
 ### Running recovery manually

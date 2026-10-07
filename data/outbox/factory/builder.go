@@ -19,8 +19,8 @@ import (
 	brokerconfig "github.com/altessa-s/go-atlas/config/broker"
 	corefactory "github.com/altessa-s/go-atlas/core/factory"
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
-	outboxstore "github.com/altessa-s/go-atlas/data/outbox/store/mongo"
-	outboxsql "github.com/altessa-s/go-atlas/data/outbox/store/sqldb"
+	outboxmongo "github.com/altessa-s/go-atlas/data/outbox/storages/mongo"
+	outboxsql "github.com/altessa-s/go-atlas/data/outbox/storages/sqldb"
 )
 
 // OutboxBuilder assembles an [outbox.Outbox] step by step using a fluent API.
@@ -55,7 +55,7 @@ func (b *OutboxBuilder) BuildWithMongoDB(db *mongo.Database, handler outbox.Hand
 		return nil, err
 	}
 
-	store, err := outboxstore.New(db)
+	store, err := outboxmongo.New(db)
 	if err != nil {
 		return nil, b.WrapError(err, "failed to create outbox store")
 	}
@@ -74,7 +74,7 @@ func (b *OutboxBuilder) BuildWithMongoCollection(col *mongo.Collection, handler 
 		return nil, err
 	}
 
-	store, err := outboxstore.NewWithCollectionOptions(col)
+	store, err := outboxmongo.NewWithCollectionOptions(col)
 	if err != nil {
 		return nil, b.WrapError(err, "failed to create outbox store")
 	}
@@ -117,7 +117,7 @@ func (b *OutboxBuilder) BuildWithSQLDB(db *sql.DB, dialect outboxsql.Dialect, ha
 const ensureSchemaTimeout = 30 * time.Second
 
 // createOutboxWithStore creates an outbox with the given store (shared logic).
-func (b *OutboxBuilder) createOutboxWithStore(store outbox.Store, handler outbox.Handler) (*outbox.Outbox, error) {
+func (b *OutboxBuilder) createOutboxWithStore(store outbox.Storage, handler outbox.Handler) (*outbox.Outbox, error) {
 	if b.cfg == nil {
 		return nil, fmt.Errorf("configuration is required")
 	}

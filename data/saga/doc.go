@@ -9,10 +9,10 @@
 // operation leaves no partial effects.
 //
 // The orchestrator is generic over the saga's shared data type T. It persists a
-// checkpoint to a pluggable [Store] after every stage, so an instance survives
+// checkpoint to a pluggable [Storage] after every stage, so an instance survives
 // a crash and can be resumed or automatically rolled back. State storage is
 // backend-agnostic — the in-memory backend ships in storages/memory and durable
-// backends plug in behind the same [Store] interface.
+// backends plug in behind the same [Storage] interface.
 //
 // # Model
 //

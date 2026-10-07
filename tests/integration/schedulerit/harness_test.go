@@ -17,11 +17,11 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/altessa-s/go-atlas/service/scheduler"
+	"github.com/altessa-s/go-atlas/service/scheduler/storages/sqldb"
 
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
-	mongostore "github.com/altessa-s/go-atlas/service/scheduler/storages/mongodb"
+	mongostore "github.com/altessa-s/go-atlas/service/scheduler/storages/mongo"
 	redisstore "github.com/altessa-s/go-atlas/service/scheduler/storages/redis"
-	"github.com/altessa-s/go-atlas/service/scheduler/storages/sqldb"
 	goredis "github.com/redis/go-redis/v9"
 	mongoOptions "go.mongodb.org/mongo-driver/v2/mongo/options"
 )

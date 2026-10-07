@@ -36,12 +36,12 @@ type LoggerInterceptor struct {
 	// Takes precedence over LogGrpcResponseCodes.
 	// Example: [0, 1] to ignore OK and CANCELED codes.
 	// Useful for filtering out expected or non-error responses.
-	IgnoreGrpcResponseCodes []uint32 `yaml:"ignoreGrpcResponseCodes"`
+	IgnoreGrpcResponseCodes []uint32 `yaml:"ignoreGRPCResponseCodes"`
 
 	// LogGrpcResponseCodes is a list of gRPC response codes to always log.
 	// Example: [5, 13] to always log NOT_FOUND and INTERNAL codes.
 	// Useful for ensuring important error responses are always captured.
-	LogGrpcResponseCodes []uint32 `yaml:"logGrpcResponseCodes"`
+	LogGrpcResponseCodes []uint32 `yaml:"logGRPCResponseCodes"`
 
 	// EnableContextLogger controls whether the logger instance is injected into the context.
 	// When enabled, handlers can retrieve the logger using slogx.FromContextOrDefault(ctx).

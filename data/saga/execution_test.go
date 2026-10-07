@@ -136,7 +136,7 @@ func TestRecoveryCompensatesUncheckpointedStageIntent(t *testing.T) {
 	require.Equal(t, int32(1), undos.Load())
 }
 
-type blockingRecoveryStore struct{ saga.Store }
+type blockingRecoveryStore struct{ saga.Storage }
 
 func (s blockingRecoveryStore) FetchRecoverable(ctx context.Context, _ time.Time, _ int) ([]*saga.Instance, error) {
 	<-ctx.Done()
@@ -155,7 +155,7 @@ func TestRecoveryIOHasBoundedContext(t *testing.T) {
 // terminalWriteFailStore fails the first Update that would persist the given
 // terminal status, simulating an outage on the final checkpoint.
 type terminalWriteFailStore struct {
-	saga.Store
+	saga.Storage
 	status saga.Status
 	failed atomic.Bool
 }
@@ -164,7 +164,7 @@ func (s *terminalWriteFailStore) Update(ctx context.Context, inst *saga.Instance
 	if inst.Status == s.status && s.failed.CompareAndSwap(false, true) {
 		return errors.New("terminal write failed")
 	}
-	return s.Store.Update(ctx, inst)
+	return s.Storage.Update(ctx, inst)
 }
 
 func TestFailedTerminalWriteLeavesInstanceNonTerminal(t *testing.T) {
@@ -181,7 +181,7 @@ func TestFailedTerminalWriteLeavesInstanceNonTerminal(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			store := &terminalWriteFailStore{Store: memory.New(), status: tc.terminal}
+			store := &terminalWriteFailStore{Storage: memory.New(), status: tc.terminal}
 			def := saga.NewDefinition[struct{}]("terminal").
 				Step("a", func(context.Context, *struct{}) error { return nil }).
 				Compensate(func(context.Context, *struct{}) error { return nil }).

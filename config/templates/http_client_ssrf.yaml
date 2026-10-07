@@ -19,6 +19,6 @@
 #  # internal service-to-service targets on private networks. Ignored when
 #  # disabled is true.
 #  # Default value: not set (no exemptions)
-#  allowed_cidrs:
+#  allowedCIDRs:
 #    - 10.0.1.0/24
 #    - 192.168.10.0/24

@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package nats provides a durable [saga.Store] backed by a NATS JetStream
+// Package nats provides a durable [saga.Storage] backed by a NATS JetStream
 // KeyValue bucket. Each saga instance is a JSON document keyed by its ID; the
 // bucket's monotonically increasing revision is used directly as the
 // optimistic-concurrency token, so concurrent coordinators are serialized per

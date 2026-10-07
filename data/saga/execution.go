@@ -75,7 +75,7 @@ func (o *Orchestrator[T]) execute(ctx context.Context, inst *Instance, data *T, 
 	owner := inst.LeaseOwner
 	defer func() {
 		// Reload rather than committing in-memory changes from a failed checkpoint.
-		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), o.storeTimeout)
+		releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), o.storageTimeout)
 		defer cancel()
 		current, releaseErr := o.store.Get(releaseCtx, inst.ID)
 		if releaseErr == nil && current.LeaseOwner == owner {
@@ -105,33 +105,33 @@ func (o *Orchestrator[T]) execute(ctx context.Context, inst *Instance, data *T, 
 	return o.drive(runCtx, inst, data)
 }
 
-// boundedStore applies the persistence budget at every I/O boundary, including
+// boundedStorage applies the persistence budget at every I/O boundary, including
 // recovery scans and lease cleanup, while preserving earlier caller deadlines.
-type boundedStore struct {
-	Store
+type boundedStorage struct {
+	Storage
 	timeout time.Duration
 }
 
-func (s boundedStore) Create(ctx context.Context, inst *Instance) error {
+func (s boundedStorage) Create(ctx context.Context, inst *Instance) error {
 	ctx, cancel := corecontext.WithMaxTimeout(ctx, s.timeout)
 	defer cancel()
-	return s.Store.Create(ctx, inst)
+	return s.Storage.Create(ctx, inst)
 }
-func (s boundedStore) Get(ctx context.Context, id string) (*Instance, error) {
+func (s boundedStorage) Get(ctx context.Context, id string) (*Instance, error) {
 	ctx, cancel := corecontext.WithMaxTimeout(ctx, s.timeout)
 	defer cancel()
-	return s.Store.Get(ctx, id)
+	return s.Storage.Get(ctx, id)
 }
-func (s boundedStore) Update(ctx context.Context, inst *Instance) error {
+func (s boundedStorage) Update(ctx context.Context, inst *Instance) error {
 	ctx, cancel := corecontext.WithMaxTimeout(ctx, s.timeout)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return s.Store.Update(ctx, inst)
+	return s.Storage.Update(ctx, inst)
 }
-func (s boundedStore) FetchRecoverable(ctx context.Context, now time.Time, limit int) ([]*Instance, error) {
+func (s boundedStorage) FetchRecoverable(ctx context.Context, now time.Time, limit int) ([]*Instance, error) {
 	ctx, cancel := corecontext.WithMaxTimeout(ctx, s.timeout)
 	defer cancel()
-	return s.Store.FetchRecoverable(ctx, now, limit)
+	return s.Storage.FetchRecoverable(ctx, now, limit)
 }

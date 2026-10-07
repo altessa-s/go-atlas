@@ -36,14 +36,14 @@ const (
 // outbound, service-to-service calls.
 type OAuth2Client struct {
 	// TokenUrl is the IdP token endpoint. Provide either this or DiscoveryUrl.
-	TokenUrl string `yaml:"tokenUrl"`
+	TokenUrl string `yaml:"tokenURL"`
 
 	// DiscoveryUrl is an OIDC discovery document; the token endpoint is resolved
 	// from it at build time. Provide either this or TokenUrl.
-	DiscoveryUrl string `yaml:"discoveryUrl"`
+	DiscoveryUrl string `yaml:"discoveryURL"`
 
 	// ClientId is the OAuth2 client identifier authenticating this service.
-	ClientId string `yaml:"clientId"`
+	ClientId string `yaml:"clientID"`
 
 	// ClientSecret is the OAuth2 client secret. Leave empty for a public client.
 	ClientSecret redacted.RedactedString `yaml:"clientSecret"`
@@ -164,7 +164,7 @@ type OAuth2ClientAuth struct {
 
 	// KeyId is the assertion's kid header, matching the public key registered
 	// with the IdP (private_key_jwt only).
-	KeyId string `yaml:"keyId"`
+	KeyId string `yaml:"keyID"`
 
 	// Algorithm is the asymmetric JWA used to sign the assertion (private_key_jwt).
 	Algorithm string `yaml:"algorithm" default:"RS256"`

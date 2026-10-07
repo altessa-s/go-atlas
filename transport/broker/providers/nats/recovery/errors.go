@@ -37,8 +37,8 @@ var (
 	// ErrNilJetStream is returned by [New] when a nil NATS provider is passed.
 	ErrNilJetStream = errors.New("jetstream instance is required")
 
-	// ErrNilNatsConn is returned when a nil NATS connection is provided.
-	ErrNilNatsConn = errors.New("nats connection is required")
+	// ErrNilNATSConn is returned when a nil NATS connection is provided.
+	ErrNilNATSConn = errors.New("nats connection is required")
 
 	// ErrInvalidStreamConfig is returned by [Manager.RegisterStream] and
 	// [Manager.CreateStream] when the stream configuration has an empty name.

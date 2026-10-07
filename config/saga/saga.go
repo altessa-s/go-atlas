@@ -17,7 +17,7 @@ import (
 const (
 	defaultSagaExecutionTimeout        = 5 * time.Minute
 	defaultSagaLeaseGrace              = 30 * time.Second
-	defaultSagaStoreTimeout            = 10 * time.Second
+	defaultSagaStorageTimeout          = 10 * time.Second
 	defaultSagaRecoveryTimeout         = 5 * time.Minute
 	defaultSagaStepTimeout             = 30 * time.Second
 	defaultSagaSagaTimeout             = 0 // disabled: no per-instance deadline
@@ -69,16 +69,16 @@ type NATSStorageConfig struct {
 	Bucket string `yaml:"bucket" default:"saga"`
 	// MaxAge is the per-key expiry applied to the bucket. It must outlive any
 	// saga's running time; zero is widened to a 30-day backstop by the store.
-	MaxAge time.Duration `yaml:"max_age" default:"720h"`
+	MaxAge time.Duration `yaml:"maxAge" default:"720h"`
 	// MigrateBucketTTL updates a pre-existing bucket whose key TTL differs
 	// from MaxAge instead of failing with ErrBucketTTLMismatch. Off by
 	// default: the bucket's key TTL expires every instance in it, including
 	// those of other processes sharing the bucket.
-	MigrateBucketTTL bool `yaml:"migrate_bucket_ttl"`
+	MigrateBucketTTL bool `yaml:"migrateBucketTTL"`
 	// StrictBucketStorage fails with ErrBucketStorageMismatch when the bucket
 	// already exists with another storage type, instead of using it as is
 	// with a warning.
-	StrictBucketStorage bool `yaml:"strict_bucket_storage"`
+	StrictBucketStorage bool `yaml:"strictBucketStorage"`
 }
 
 // Validate performs validation of the NATS saga storage configuration.
@@ -107,7 +107,7 @@ func (c *MongoStorageConfig) Validate() error {
 // (data/saga/storages/redis).
 type RedisStorageConfig struct {
 	// KeysPrefix is prepended to every Redis key the store writes.
-	KeysPrefix string `yaml:"keys_prefix" default:"saga:"`
+	KeysPrefix string `yaml:"keysPrefix" default:"saga:"`
 	// TTL is the per-key expiry applied on every write; zero persists forever.
 	TTL time.Duration `yaml:"ttl"`
 }
@@ -132,7 +132,7 @@ type StorageConfig struct {
 
 	// Nats defines the NATS KeyValue configuration.
 	// Required when Type is StorageTypeNATS, ignored otherwise.
-	Nats *NATSStorageConfig `yaml:"nats" default:"-"`
+	NATS *NATSStorageConfig `yaml:"nats" default:"-"`
 
 	// Mongo defines the MongoDB configuration.
 	// Required when Type is StorageTypeMongo, ignored otherwise.
@@ -161,8 +161,8 @@ func (c *StorageConfig) Normalize() {
 			c.Memory = &MemoryStorageConfig{}
 		}
 	case StorageTypeNATS:
-		if c.Nats == nil {
-			c.Nats = &NATSStorageConfig{}
+		if c.NATS == nil {
+			c.NATS = &NATSStorageConfig{}
 		}
 	case StorageTypeMongo:
 		if c.Mongo == nil {
@@ -178,7 +178,7 @@ func (c *StorageConfig) Normalize() {
 func (c *StorageConfig) storageCases() []validationconfig.StorageCase[StorageType] {
 	return []validationconfig.StorageCase[StorageType]{
 		{When: StorageTypeMemory, Field: &c.Memory},
-		{When: StorageTypeNATS, Field: &c.Nats},
+		{When: StorageTypeNATS, Field: &c.NATS},
 		{When: StorageTypeMongo, Field: &c.Mongo},
 		{When: StorageTypeRedis, Field: &c.Redis},
 	}
@@ -198,7 +198,7 @@ func (c *StorageConfig) Validate() error {
 //	cfg := &sagaconfig.Config{
 //		Storage: &sagaconfig.StorageConfig{
 //			Type: sagaconfig.StorageTypeNATS,
-//			Nats: &sagaconfig.NATSStorageConfig{Bucket: "saga"},
+//			NATS: &sagaconfig.NATSStorageConfig{Bucket: "saga"},
 //		},
 //		StepTimeout: 10 * time.Second,
 //		SagaTimeout: 5 * time.Minute,
@@ -208,35 +208,35 @@ type Config struct {
 	Storage *StorageConfig `yaml:"storage"`
 
 	// StepTimeout bounds a single step action or compensation invocation.
-	StepTimeout time.Duration `yaml:"step_timeout" default:"30s"`
+	StepTimeout time.Duration `yaml:"stepTimeout" default:"30s"`
 	// ExecutionTimeout bounds one Start/Resume ownership interval.
-	ExecutionTimeout time.Duration `yaml:"execution_timeout" default:"5m"`
+	ExecutionTimeout time.Duration `yaml:"executionTimeout" default:"5m"`
 	// LeaseGrace covers cancellation and clock skew after execution expiry.
-	LeaseGrace time.Duration `yaml:"lease_grace" default:"30s"`
-	// StoreTimeout bounds each persistence or scheduler registration operation.
-	StoreTimeout time.Duration `yaml:"store_timeout" default:"10s"`
+	LeaseGrace time.Duration `yaml:"leaseGrace" default:"30s"`
+	// StorageTimeout bounds each persistence or scheduler registration operation.
+	StorageTimeout time.Duration `yaml:"storageTimeout" default:"10s"`
 	// RecoveryTimeout bounds a complete recovery cycle.
-	RecoveryTimeout time.Duration `yaml:"recovery_timeout" default:"5m"`
+	RecoveryTimeout time.Duration `yaml:"recoveryTimeout" default:"5m"`
 	// SagaTimeout is the per-instance deadline enabling auto-rollback by the
 	// recovery cycle. Zero disables it.
-	SagaTimeout time.Duration `yaml:"saga_timeout" default:"0s"`
+	SagaTimeout time.Duration `yaml:"sagaTimeout" default:"0s"`
 	// MaxStepAttempts is the total number of attempts for a forward step action.
-	MaxStepAttempts int `yaml:"max_step_attempts" default:"3"`
+	MaxStepAttempts int `yaml:"maxStepAttempts" default:"3"`
 	// StepRetryBaseDelay is the first exponential-backoff delay between retries.
-	StepRetryBaseDelay time.Duration `yaml:"step_retry_base_delay" default:"100ms"`
+	StepRetryBaseDelay time.Duration `yaml:"stepRetryBaseDelay" default:"100ms"`
 	// StepRetryMaxDelay caps the step-retry backoff.
-	StepRetryMaxDelay time.Duration `yaml:"step_retry_max_delay" default:"5s"`
+	StepRetryMaxDelay time.Duration `yaml:"stepRetryMaxDelay" default:"5s"`
 	// MaxCompensationAttempts is the total number of attempts for a compensation.
-	MaxCompensationAttempts int `yaml:"max_compensation_attempts" default:"5"`
+	MaxCompensationAttempts int `yaml:"maxCompensationAttempts" default:"5"`
 	// StepConcurrency bounds parallel-group fan-out (0 = core default).
-	StepConcurrency int `yaml:"step_concurrency" default:"0"`
+	StepConcurrency int `yaml:"stepConcurrency" default:"0"`
 
 	// RecoverySchedule is the cron expression for the background recovery cycle.
-	RecoverySchedule string `yaml:"recovery_schedule" default:"@every 1m"`
+	RecoverySchedule string `yaml:"recoverySchedule" default:"@every 1m"`
 	// RecoveryBatchSize is the maximum instances processed per recovery cycle.
-	RecoveryBatchSize int `yaml:"recovery_batch_size" default:"100"`
+	RecoveryBatchSize int `yaml:"recoveryBatchSize" default:"100"`
 	// RecoveryTaskID is the scheduler task ID for the recovery cycle.
-	RecoveryTaskID string `yaml:"recovery_task_id" default:"saga-recovery"`
+	RecoveryTaskID string `yaml:"recoveryTaskID" default:"saga-recovery"`
 }
 
 // Default returns a Saga configuration with default values (in-memory store).
@@ -245,7 +245,7 @@ func Default() Config {
 		Storage:                 DefaultStorage(),
 		ExecutionTimeout:        defaultSagaExecutionTimeout,
 		LeaseGrace:              defaultSagaLeaseGrace,
-		StoreTimeout:            defaultSagaStoreTimeout,
+		StorageTimeout:          defaultSagaStorageTimeout,
 		RecoveryTimeout:         defaultSagaRecoveryTimeout,
 		StepTimeout:             defaultSagaStepTimeout,
 		SagaTimeout:             defaultSagaSagaTimeout,
@@ -275,7 +275,7 @@ func (s *Config) Validate() error {
 		validation.Field(&s.Storage, validation.Required),
 		validation.Field(&s.ExecutionTimeout, validation.When(s.ExecutionTimeout != 0, ozzo_rules.Duration())),
 		validation.Field(&s.LeaseGrace, validation.When(s.LeaseGrace != 0, ozzo_rules.Duration())),
-		validation.Field(&s.StoreTimeout, validation.When(s.StoreTimeout != 0, ozzo_rules.Duration())),
+		validation.Field(&s.StorageTimeout, validation.When(s.StorageTimeout != 0, ozzo_rules.Duration())),
 		validation.Field(&s.RecoveryTimeout, validation.When(s.RecoveryTimeout != 0, ozzo_rules.Duration())),
 		validation.Field(&s.StepTimeout, validation.When(s.StepTimeout != 0, ozzo_rules.Duration())),
 		validation.Field(&s.SagaTimeout, validation.When(s.SagaTimeout != 0, ozzo_rules.Duration())),

@@ -4,7 +4,7 @@
 
 // Package schedulerit exercises service/scheduler end to end against live
 // MongoDB, Redis, PostgreSQL, MariaDB and MySQL. Besides the scenarios below,
-// every backend runs the storage contract suite from service/scheduler/storagetest
+// every backend runs the storage contract suite from service/scheduler/storages/storagetest
 // (the SQL backends also its Identity, Pagination and History contracts), and the
 // SQL backends upgrade a tasks table from the previous schema.
 //

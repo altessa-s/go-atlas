@@ -14,17 +14,17 @@
 #  # <string> Redis key prefix for the authoritative revocation store
 #  # (auth/denylist/storages/redis.WithKeyPrefix). Required when enabled.
 #  # Default value: denylist:revoked:
-#  key_prefix: "denylist:revoked:"
+#  keyPrefix: "denylist:revoked:"
 #
 #  # <duration> How often the caller rebuilds the negative filter from the authoritative store (Cache.Rebuild).
 #  # Zero (omitted) leaves periodic rebuilds to the negcache factory (filter.bloom.rebuildCron).
 #  # With a Bloom filter a non-zero value requires filter.bloom.rebuildCron: "".
 #  # Default value: not set
-#  rebuild_interval: "5m"
+#  rebuildInterval: "5m"
 #
 #  # <string> Prometheus metrics subsystem override for the negative cache.
 #  # Default value: not set (negcache falls back to auth_denylist_negcache)
-#  metrics_subsystem: ""
+#  metricsSubsystem: ""
 #
 #  # <object> Negative-filter configuration passed to auth/denylist/negcache/factory.NewBuilder.
 #  # Optional values left unset fall back to the probabilistic-filter defaults the caller passes to the builder.
@@ -36,10 +36,17 @@
 #
 #    # <object> Bloom filter settings. Required when type is bloom.
 #    bloom:
-#      # <string> Storage backend for the filter.
-#      # Supported values: memory, redis
-#      # Default value: not set (falls back to the builder defaults' bloom.storage, then memory)
-#      storage: memory
+#      # <object> Storage backend for the filter.
+#      storage:
+#        # <string> Storage type.
+#        # Supported values: memory, redis
+#        # Default value: not set (falls back to the builder defaults' bloom.storage, then memory)
+#        type: memory
+#        # <object> Redis-specific settings. Used when storage is redis.
+#        redis:
+#          # <string> Prefix for all filter keys.
+#          # Default value: not set
+#          keysPrefix: "myservice:denylist"
 #
 #      # <int64> Expected number of elements the filter is sized for.
 #      # Required for a Bloom filter.
@@ -59,18 +66,20 @@
 #      # Default value: not set (falls back to the builder defaults' bloom.rebuildOnStart)
 #      rebuildOnStart: true
 #
-#      # <object> Redis-specific settings. Used when storage is redis.
-#      redis:
-#        # <string> Prefix for all filter keys.
-#        # Default value: not set
-#        keysPrefix: "myservice:denylist"
 #
 #    # <object> Cuckoo filter settings. Required when type is cuckoo; an alternative to bloom.
 #    cuckoo:
-#      # <string> Storage backend for the filter.
-#      # Supported values: memory, redis
-#      # Default value: not set (falls back to the builder defaults' cuckoo.storage, then memory)
-#      storage: memory
+#      # <object> Storage backend for the filter.
+#      storage:
+#        # <string> Storage type.
+#        # Supported values: memory, redis
+#        # Default value: not set (falls back to the builder defaults' cuckoo.storage, then memory)
+#        type: memory
+#        # <object> Redis-specific settings. Used when storage is redis.
+#        redis:
+#          # <string> Prefix for all filter keys.
+#          # Default value: not set
+#          keysPrefix: "myservice:denylist"
 #
 #      # <int64> Initial capacity of the filter.
 #      # Required for a Cuckoo filter.
@@ -90,8 +99,3 @@
 #      # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
 #      maxCapacity: 100000000
 #
-#      # <object> Redis-specific settings. Used when storage is redis.
-#      redis:
-#        # <string> Prefix for all filter keys.
-#        # Default value: not set
-#        keysPrefix: "myservice:denylist"

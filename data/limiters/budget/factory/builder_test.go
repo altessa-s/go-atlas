@@ -60,8 +60,8 @@ func TestBuild_RedisStorage_NoDependency(t *testing.T) {
 func TestBuild_NatsStorage_NoDependency(t *testing.T) {
 	cfg := validConfig()
 	cfg.Storage = &storageconfig.CacheStorageConfig{
-		Type: storageconfig.CacheStorageTypeNats,
-		Nats: &storageconfig.NATSConfig{},
+		Type: storageconfig.CacheStorageTypeNATS,
+		NATS: &storageconfig.NATSConfig{},
 	}
 
 	_, err := factory.New(cfg).Build()

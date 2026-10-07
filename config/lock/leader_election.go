@@ -22,8 +22,8 @@ const (
 type LeaderElectorProvider string
 
 const (
-	// LeaderElectorProviderNats represents the NATS leader election provider.
-	LeaderElectorProviderNats LeaderElectorProvider = "nats"
+	// LeaderElectorProviderNATS represents the NATS leader election provider.
+	LeaderElectorProviderNATS LeaderElectorProvider = "nats"
 )
 
 // LeaderElector defines the configuration for distributed leader election.
@@ -32,7 +32,7 @@ const (
 // Example:
 //
 //	le := &lockconfig.LeaderElector{
-//		Provider: lockconfig.LeaderElectorProviderNats,
+//		Provider: lockconfig.LeaderElectorProviderNATS,
 //		Ttl:      10 * time.Second,
 //	}
 type LeaderElector struct {
@@ -69,7 +69,7 @@ func DefaultLeaderElector() LeaderElector {
 // Returns an error if validation fails, nil otherwise.
 func (le *LeaderElector) Validate() error {
 	return validationconfig.ValidateStruct(le,
-		validation.Field(&le.Provider, validation.Required, ozzo_rules.OneOf(LeaderElectorProviderNats)),
+		validation.Field(&le.Provider, validation.Required, ozzo_rules.OneOf(LeaderElectorProviderNATS)),
 		validation.Field(&le.Ttl, ozzo_rules.Duration(), validation.Min(time.Second)),
 		validation.Field(&le.Storage, validation.In(storageconfig.KVStorageMemory, storageconfig.KVStorageFile)),
 	)

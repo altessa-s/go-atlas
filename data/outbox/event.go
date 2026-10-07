@@ -55,11 +55,11 @@ type Event struct {
 
 	// RetryAfter is the backoff delay the [Outbox] computed for the next
 	// attempt of a failed event. It is a duration, never an absolute
-	// instant, so the [Store] can anchor it to its own backend clock and
+	// instant, so the [Storage] can anchor it to its own backend clock and
 	// stay clock-skew safe. Zero means "eligible immediately".
 	RetryAfter time.Duration
 
-	// LockToken is the fencing token the [Store] assigned when it locked the
+	// LockToken is the fencing token the [Storage] assigned when it locked the
 	// event for this dispatch cycle. [Store.UpdateEvents] must apply a write
 	// only while the stored token still matches, so a worker that lost its
 	// lock to the unlock sweeper cannot overwrite the state of the worker

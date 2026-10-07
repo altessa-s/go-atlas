@@ -117,15 +117,15 @@ const (
 	// Provides shared storage across instances with persistence options.
 	CacheStorageTypeRedis CacheStorageType = "redis"
 
-	// CacheStorageTypeNats represents NATS KeyValue storage.
+	// CacheStorageTypeNATS represents NATS KeyValue storage.
 	// Offers distributed storage with built-in replication and stream features.
-	CacheStorageTypeNats CacheStorageType = "nats"
+	CacheStorageTypeNATS CacheStorageType = "nats"
 )
 
 var cacheStorageAllowedTypes = []CacheStorageType{
 	CacheStorageTypeMemory,
 	CacheStorageTypeRedis,
-	CacheStorageTypeNats,
+	CacheStorageTypeNATS,
 }
 
 // CacheStorageConfig defines storage backend configuration with type selector.
@@ -141,8 +141,8 @@ type CacheStorageConfig struct {
 	Memory *MemoryConfig `yaml:"memory" default:"-"`
 
 	// Nats defines the NATS configuration.
-	// Required when Type is CacheStorageTypeNats, ignored otherwise.
-	Nats *NATSConfig `yaml:"nats" default:"-"`
+	// Required when Type is CacheStorageTypeNATS, ignored otherwise.
+	NATS *NATSConfig `yaml:"nats" default:"-"`
 
 	// Redis defines the Redis configuration.
 	// Required when Type is CacheStorageTypeRedis, ignored otherwise.
@@ -157,9 +157,9 @@ func (c *CacheStorageConfig) Normalize() {
 		if c.Memory == nil {
 			c.Memory = &MemoryConfig{}
 		}
-	case CacheStorageTypeNats:
-		if c.Nats == nil {
-			c.Nats = &NATSConfig{}
+	case CacheStorageTypeNATS:
+		if c.NATS == nil {
+			c.NATS = &NATSConfig{}
 		}
 	case CacheStorageTypeRedis:
 		if c.Redis == nil {
@@ -171,7 +171,7 @@ func (c *CacheStorageConfig) Normalize() {
 func (c *CacheStorageConfig) storageCases() []validationconfig.StorageCase[CacheStorageType] {
 	return []validationconfig.StorageCase[CacheStorageType]{
 		{When: CacheStorageTypeMemory, Field: &c.Memory},
-		{When: CacheStorageTypeNats, Field: &c.Nats},
+		{When: CacheStorageTypeNATS, Field: &c.NATS},
 		{When: CacheStorageTypeRedis, Field: &c.Redis},
 	}
 }

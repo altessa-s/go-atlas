@@ -33,8 +33,8 @@ func (b *DLockBuilder) UseMongoDB(v *mongodrv.Database) *DLockBuilder {
 	return b
 }
 
-// UseNatsConn sets the NATS connection used for distributed locking.
-func (b *DLockBuilder) UseNatsConn(v *nats.Conn) *DLockBuilder {
+// UseNATSConn sets the NATS connection used for distributed locking.
+func (b *DLockBuilder) UseNATSConn(v *nats.Conn) *DLockBuilder {
 	b.natsConn = v
 	return b
 }

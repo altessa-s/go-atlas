@@ -307,7 +307,7 @@ tok, err := ex.Exchange(ctx, oauth2client.ExchangeRequest{
 ```
 
 Load either from `authconfig.OAuth2Client` (the factory path) with `oauth2client/factory.New(cfg.OAuth2Client).Build(ctx)`; when the config
-sets `discoveryUrl` instead of `tokenUrl`, inject an `oidc.Provider` as the token-endpoint source via `Builder.UseTokenEndpointSource`.
+sets `discoveryURL` instead of `tokenURL`, inject an `oidc.Provider` as the token-endpoint source via `Builder.UseTokenEndpointSource`.
 
 ### mTLS / SPIFFE identity
 

@@ -22,7 +22,7 @@ certificates — using the same YAML-driven model across every consumer in go-at
 
 Proxy support lives in three layers:
 
-1. **Config struct** — the shared `proxyconfig.Proxy` defines the YAML schema and validation for both transports;
+1. **Config struct** — the shared `proxyconfig.Config` defines the YAML schema and validation for both transports;
    `transport/proxydial/factory.HTTPClientOptions(cfg)` / `GRPCClientOptions(cfg)` materialize it into option slices.
 2. **Client options** — the `WithProxy*` family of functional options on `transport/http/client` and `transport/grpc/client` applies the options to
    the respective clients.
@@ -48,9 +48,9 @@ An explicit configuration overrides the env-based default — including the `Mod
 
 | Type               | Purpose                                                                                                                                           |
 |--------------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
-| `proxyconfig.Proxy`     | Shared YAML-driven proxy schema; `proxydial/factory.HTTPClientOptions(p)` → `[]httpclient.Option`, `GRPCClientOptions(p)` → `[]grpcclient.Option` |
-| `proxyconfig.ProxyAuth` | Username + secret-redacted password                                                                                                               |
-| `proxyconfig.ProxyMode` | Mode enum: `none` / `url` / `host` (or empty = passthrough)                                                                                       |
+| `proxyconfig.Config`     | Shared YAML-driven proxy schema; `proxydial/factory.HTTPClientOptions(p)` → `[]httpclient.Option`, `GRPCClientOptions(p)` → `[]grpcclient.Option` |
+| `proxyconfig.Auth` | Username + secret-redacted password                                                                                                               |
+| `proxyconfig.Mode` | Mode enum: `none` / `url` / `host` (or empty = passthrough)                                                                                       |
 
 ### HTTP client options
 
@@ -82,7 +82,7 @@ Both transports agree on TCP-level options through a shared dialer that exposes 
 
 ## YAML reference
 
-Both `http_proxy.yaml` and `grpc_proxy.yaml` load into the shared `proxyconfig.Proxy` struct and use the same schema:
+Both `http_proxy.yaml` and `grpc_proxy.yaml` load into the shared `proxyconfig.Config` struct and use the same schema:
 
 ```yaml
 proxy:
@@ -227,7 +227,7 @@ c, err = grpcclient.New(ctx, "service.example.com:443",
 ### Non-HTTP consumers (SMTP, IMAP, raw TCP, custom protocols)
 
 Protocols that do not go through `net/http` use the [`transport/proxydial`](../transport/proxydial) package via its fluent factory at
-[`transport/proxydial/factory`](../transport/proxydial/factory). The factory takes a `*proxyconfig.Proxy` and returns a `DialContextFunc`
+[`transport/proxydial/factory`](../transport/proxydial/factory). The factory takes a `*proxyconfig.Config` and returns a `DialContextFunc`
 (`func(ctx, network, addr) (net.Conn, error)`) that any library accepting a custom dialer can consume.
 
 ```go
@@ -263,7 +263,7 @@ library on its default direct dialer. Concrete behavior by `Mode`:
 The builder also exposes `UseDialer` (custom `*net.Dialer`) and `UseProxyTLSConfig` (TLS to the proxy itself) for callers that need to
 override the defaults.
 
-For consumers without a `proxyconfig.Proxy` config (proxy comes from env, runtime override, custom resolver), use `proxydial.FromURL` directly:
+For consumers without a `proxyconfig.Config` config (proxy comes from env, runtime override, custom resolver), use `proxydial.FromURL` directly:
 
 ```go
 proxyURL, _ := url.Parse(os.Getenv("HTTPS_PROXY"))
@@ -337,7 +337,7 @@ opts := []grpcclient.Option{}
 opts = slices.AppendIf(opts, c.insecure, grpcclient.WithInsecure())
 if c.retry { /* ... */ }
 // Caller-supplied options come last so they win over defaults.
-// Used by the tracing factory to inject proxy resolvers from proxyconfig.Proxy.
+// Used by the tracing factory to inject proxy resolvers from proxyconfig.Config.
 opts = append(opts, c.extraClientOptions...)
 
 client, err := grpcclient.New(ctx, c.endpoint, opts...)
@@ -430,7 +430,7 @@ URL. The `host` / `port` / `auth` form with `password: $__secret{...}` keeps the
 
 ## Known limitations
 
-- **OTLP `Protocol: http`**: `TracingOTLP.Proxy` (a shared `*proxyconfig.Proxy`) only
+- **OTLP `Protocol: http`**: `TracingOTLP.Proxy` (a shared `*proxyconfig.Config`) only
   wires into the gRPC exporter path. The config validator rejects the combination `Protocol: http` + `Proxy: {...}` at load time — the HTTP exporter
   must use env-var proxy (`HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY`) instead. Full HTTP-exporter wiring would require separate
   `otlp.WithHTTPClientOptions([]otlptracehttp.Option)` plumbing and is tracked as a future enhancement.

@@ -2,7 +2,7 @@
 // Use of this source code is governed by license that can be found in
 // the LICENSE file.
 
-// Package redis provides a durable [saga.Store] backed by Redis.
+// Package redis provides a durable [saga.Storage] backed by Redis.
 //
 // Each saga instance is stored as a hash keyed by its ID, holding the
 // serialized payload and a version field. Update is a version-checked write

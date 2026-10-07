@@ -5,7 +5,7 @@ import "github.com/altessa-s/go-atlas/data/cache/factory"
 ```
 
 Package `factory` provides a fluent builder for creating cache providers from configuration.
-`ProviderBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
+`StorageBuilder` uses deferred error accumulation — errors from any step are collected and returned at `Build()` time.
 
 ## Quick Start
 
@@ -31,7 +31,7 @@ When config is `nil` or storage type is `memory`, an in-memory FreeCache provide
 
 | Method | Description |
 |--------|-------------|
-| `New(cfg)` | Creates a `ProviderBuilder` for the given cache storage config |
+| `New(cfg)` | Creates a `StorageBuilder` for the given cache storage config |
 
 ### Dependencies
 

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/altessa-s/go-atlas/data/cache/providers"
+	"github.com/altessa-s/go-atlas/data/cache/storages"
 
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -33,7 +33,7 @@ func (p *benchMemoryProvider) Save(_ context.Context, key string, value []byte, 
 func (p *benchMemoryProvider) Get(_ context.Context, key string) ([]byte, error) {
 	v, ok := p.store[key]
 	if !ok {
-		return nil, providers.ErrMissing
+		return nil, storages.ErrMissing
 	}
 	return v, nil
 }
