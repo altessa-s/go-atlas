@@ -80,14 +80,16 @@ func (com *MethodConfig) HasCompressor() bool {
 type options struct {
 	// methods contains per-method cache configurations
 	methods map[string]*MethodConfig `optgen:"default=make(map[string]*MethodConfig)"`
-	// keyGenerator generates cache keys
-	keyGenerator KeyGenerator `optgen:"default=DefaultKeyGenerator"`
+	// keyGenerator generates cache keys. The default is built once per
+	// interceptor and snapshots DefaultMetadataKeys at construction time.
+	keyGenerator KeyGenerator `optgen:"default=newDefaultKeyGenerator()"`
 	// cacheHeadersEnabled adds cache hit/miss headers to responses
 	cacheHeadersEnabled bool `optgen:"default=true"`
 	// serializer handles response serialization/deserialization
 	serializer Serializer `optgen:"default=NewDefaultSerializer(nil)"`
-	// cacheDecision is the function that decides whether to cache a response
-	cacheDecision DecisionFunc `optgen:"default=DefaultSuccessOnlyDecision(DefaultTTL)"`
+	// cacheDecision is the function that decides whether to cache a response.
+	// When unset, ServerInterceptor uses DefaultSuccessOnlyDecision(cacheTTL).
+	cacheDecision DecisionFunc
 	// cacheTTL is the default TTL for cached responses
 	cacheTTL time.Duration `optgen:"default=DefaultTTL"`
 	// keysPrefix is an optional prefix for cache keys, useful for namespacing
