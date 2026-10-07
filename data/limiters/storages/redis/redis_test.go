@@ -52,6 +52,33 @@ func TestProvider_Allow_ExceedsLimit(t *testing.T) {
 	require.Equal(t, int64(0), info.Remaining)
 }
 
+// TestProvider_Allow_SubSecondPeriod guards the window unit: whole seconds
+// truncated a 500 ms period to 0, and EXPIRE 0 then deleted every recorded
+// request, so no request was ever limited. miniredis does not expire keys
+// without FastForward, so the TTL cannot race the second call.
+func TestProvider_Allow_SubSecondPeriod(t *testing.T) {
+	t.Parallel()
+	p, _ := setupProvider(t)
+	ctx := t.Context()
+
+	_, err := p.Allow(ctx, "half-second", 1, 500*time.Millisecond)
+	require.NoError(t, err)
+
+	_, err = p.Allow(ctx, "half-second", 1, 500*time.Millisecond)
+	require.ErrorIs(t, err, storages.ErrLimitExceeded)
+}
+
+// TestProvider_Allow_SubMillisecondPeriodUsesMinimum pins the 1 ms floor of
+// the millisecond window.
+func TestProvider_Allow_SubMillisecondPeriodUsesMinimum(t *testing.T) {
+	t.Parallel()
+	p, mr := setupProvider(t)
+
+	_, err := p.Allow(t.Context(), "sub-ms", 1, 500*time.Microsecond)
+	require.NoError(t, err)
+	require.Equal(t, time.Millisecond, mr.TTL(p.Key("sub-ms")))
+}
+
 func TestProvider_Allow_DifferentKeys(t *testing.T) {
 	p, _ := setupProvider(t)
 	ctx := t.Context()
