@@ -133,12 +133,14 @@ func (t *Translator) translateComparison(op filter.Operator, left, right filter.
 		return "", coreerrs.Wrap(filter.ErrUnsupportedOperation, "size() comparisons")
 	}
 
-	field, err := t.getFieldName(left)
-	if err != nil {
+	// Type-check first: a mirrored `"lit" == field` is a type mismatch, not
+	// a malformed field reference.
+	if err := t.config.CheckComparison(left, right); err != nil {
 		return "", err
 	}
 
-	if err = t.config.CheckComparison(left, right); err != nil {
+	field, err := t.getFieldName(left)
+	if err != nil {
 		return "", err
 	}
 
@@ -303,6 +305,9 @@ func (t *Translator) getFieldName(node filter.Node) (string, error) {
 	// the absent target is reported as the malformed expression it is.
 	if node == nil {
 		return "", coreerrs.Wrap(filter.ErrInvalidExpression, "missing field reference")
+	}
+	if !filter.IsFieldReference(node) {
+		return "", coreerrs.Wrapf(filter.ErrInvalidExpression, "expected field reference, got %T", node)
 	}
 
 	result, err := node.Accept(t)
