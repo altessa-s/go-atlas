@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/altessa-s/go-atlas/domain/proto/fieldbehavior"
 	"github.com/altessa-s/go-atlas/transport/http/server/codec"
 )
 
@@ -84,14 +85,29 @@ func WithResponseBuilder(v Builder) Option {
 	}
 }
 
+// WithResponseSanitizationDisabled enables the responseSanitizationDisabled option.
+func WithResponseSanitizationDisabled() Option {
+	return func(o *options) {
+		o.responseSanitizationDisabled = true
+	}
+}
+
+// WithResponseSanitizationMaxDepth sets the responseSanitizationMaxDepth option.
+func WithResponseSanitizationMaxDepth(v int) Option {
+	return func(o *options) {
+		o.responseSanitizationMaxDepth = v
+	}
+}
+
 // defaultOptions returns the default values for options.
 func defaultOptions() *options {
 	return &options{
-		defaultCodec:               DefaultCodecJSON,
-		fallbackOnNegotiationError: true,
-		logger:                     slog.New(slog.DiscardHandler),
-		registry:                   codec.DefaultRegistry(),
-		responseBuilder:            NewDefault(),
+		defaultCodec:                 DefaultCodecJSON,
+		fallbackOnNegotiationError:   true,
+		logger:                       slog.New(slog.DiscardHandler),
+		registry:                     codec.DefaultRegistry(),
+		responseBuilder:              NewDefault(),
+		responseSanitizationMaxDepth: fieldbehavior.DefaultMaxDepth,
 	}
 }
 

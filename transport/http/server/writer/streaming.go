@@ -27,6 +27,11 @@ func (wr *Writer) WriteStream(w http.ResponseWriter, r *http.Request, data any) 
 		return ErrNilRequest
 	}
 
+	data, ok, err := wr.sanitize(w, r, data)
+	if !ok {
+		return err
+	}
+
 	structuredResponse, statusCode := wr.options.responseBuilder.Build(r, data)
 
 	encoder, mimeType, err := wr.negotiateStreamingEncoder(r)
