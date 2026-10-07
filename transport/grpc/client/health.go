@@ -36,6 +36,10 @@ type clientHealth struct {
 
 	// pool-mode resources
 	poolUnsub func()
+
+	// detachOnce serializes teardown so concurrent Close calls neither race
+	// on the fields above nor return before the watcher has exited.
+	detachOnce sync.Once
 }
 
 // newClientHealth wires options into a *clientHealth. Returns nil when the
@@ -85,20 +89,23 @@ func (h *clientHealth) attach(ctx context.Context) error {
 	return nil
 }
 
-// detach stops the watcher / unsubscribes. Idempotent.
+// detach stops the watcher / unsubscribes. Idempotent and safe for
+// concurrent use: every caller returns only after teardown has completed.
 func (h *clientHealth) detach() {
 	if h == nil {
 		return
 	}
-	if h.poolUnsub != nil {
-		h.poolUnsub()
-		h.poolUnsub = nil
-	}
-	if h.cancel != nil {
-		h.cancel()
-		h.cancel = nil
-		h.wg.Wait()
-	}
+	h.detachOnce.Do(func() {
+		if h.poolUnsub != nil {
+			h.poolUnsub()
+			h.poolUnsub = nil
+		}
+		if h.cancel != nil {
+			h.cancel()
+			h.cancel = nil
+			h.wg.Wait()
+		}
+	})
 }
 
 func (h *clientHealth) watchSingle(ctx context.Context) {
