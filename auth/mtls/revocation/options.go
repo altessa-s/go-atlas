@@ -43,6 +43,9 @@ const (
 	// DefaultMaxCacheEntries bounds the in-memory status cache so a server
 	// presenting many distinct client certificates cannot grow it without limit.
 	DefaultMaxCacheEntries = 4096
+	// DefaultClockSkew is the tolerance applied to an OCSP response's
+	// thisUpdate and nextUpdate when checking that a "good" response is current.
+	DefaultClockSkew = 5 * time.Minute
 )
 
 type options struct {
@@ -52,6 +55,7 @@ type options struct {
 	maxAttempts     int              `optgen:"default=DefaultMaxAttempts"`
 	maxTTL          time.Duration    `optgen:"default=DefaultMaxTTL"`
 	maxCacheEntries int              `optgen:"default=DefaultMaxCacheEntries"`
+	clockSkew       time.Duration    `optgen:"default=DefaultClockSkew" optval:"positive=allow_zero"`
 	now             func() time.Time `opt:"-"`
 }
 

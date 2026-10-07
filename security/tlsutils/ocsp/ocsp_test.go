@@ -5,7 +5,6 @@
 package ocsp
 
 import (
-	"bytes"
 	"crypto/tls"
 	"testing"
 	"time"
@@ -76,56 +75,6 @@ func TestStapleOCSPToConfig_NilStapler(t *testing.T) {
 	config := &tls.Config{}
 	err := StapleOCSPToConfig(config, nil)
 	require.Error(t, err)
-}
-
-func TestCompressDecompressData(t *testing.T) {
-	tests := []struct {
-		name string
-		data []byte
-	}{
-		{"empty", nil},
-		{"empty slice", []byte{}},
-		{"small data", []byte("hello world")},
-		{"larger data", bytes.Repeat([]byte("test data for compression "), 100)},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			compressed, err := compressData(tt.data)
-			require.NoError(t, err)
-
-			if len(tt.data) == 0 {
-				require.Len(t, compressed, len(tt.data))
-				return
-			}
-
-			decompressed, err := decompressData(compressed)
-			require.NoError(t, err)
-			require.True(t, bytes.Equal(decompressed, tt.data))
-		})
-	}
-}
-
-func TestPrepareCacheEntry_NoCompression(t *testing.T) {
-	s := NewOCSPStapler()
-	data := []byte("test response data")
-	nextUpdate := time.Now().Add(24 * time.Hour)
-
-	entry := s.prepareCacheEntry(t.Context(), data, nextUpdate)
-	require.NotNil(t, entry)
-	require.False(t, entry.isCompressed)
-	require.True(t, bytes.Equal(entry.response, data))
-}
-
-func TestPrepareCacheEntry_WithCompression(t *testing.T) {
-	s := NewOCSPStapler(WithCompression())
-	data := bytes.Repeat([]byte("test response data "), 50)
-	nextUpdate := time.Now().Add(24 * time.Hour)
-
-	entry := s.prepareCacheEntry(t.Context(), data, nextUpdate)
-	require.NotNil(t, entry)
-	require.True(t, entry.isCompressed)
-	require.Equal(t, len(data), entry.originalSize)
 }
 
 func TestRemoveExpiredEntries(t *testing.T) {

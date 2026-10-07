@@ -95,7 +95,9 @@ func NewAuthenticator(cl *vaultApi.Client, method Method, opt ...Option) *Authen
 
 // ErrorsCh returns a read-only channel that receives authentication errors.
 // Errors sent to this channel indicate problems that require attention,
-// such as invalid credentials or permanent authentication failures.
+// such as invalid credentials or permanent authentication failures. It holds
+// at most one unread error (later ones are dropped) and is closed when Run
+// returns.
 //
 // Example:
 //
@@ -109,8 +111,9 @@ func (a *Authenticator) ErrorsCh() <-chan error {
 }
 
 // FirstRenewCh returns a read-only channel that is closed when the first
-// token has been successfully obtained and set on the Vault client.
-// This channel can be used to wait for initial authentication completion.
+// token has been successfully obtained and set on the Vault client. It stays
+// open if Run ends without obtaining a token; pair it with [Authenticator.ErrorsCh],
+// which is closed when Run returns.
 //
 // Example:
 //
@@ -137,15 +140,10 @@ func (a *Authenticator) Run(ctx context.Context) {
 		a.stopWatcher()
 		a.renewWg.Wait()
 
-		// Close channels
+		// Closing errCh signals that the run has ended. firstTokenCh is left
+		// open unless a token was actually obtained: closing it here would
+		// report readiness after a failure, cancellation, or panic.
 		close(a.errCh)
-		// Close firstTokenCh if it hasn't been closed yet
-		select {
-		case <-a.firstTokenCh:
-			// Already closed
-		default:
-			close(a.firstTokenCh)
-		}
 	}()
 
 	defer func() {
@@ -188,12 +186,7 @@ func (a *Authenticator) Run(ctx context.Context) {
 			// Check if it's an authentication error that shouldn't be retried
 			if IsAuthenticationError(err) {
 				a.metrics.authErrors.WithLabels(metrics.Labels{"type": "permanent"}).Inc()
-				// Non-blocking send to error channel
-				select {
-				case a.errCh <- err:
-				case <-ctx.Done():
-					return
-				}
+				a.reportError(err)
 				return
 			}
 
@@ -281,12 +274,7 @@ func (a *Authenticator) runWatcher(ctx context.Context) {
 				// propagates to errCh for callers who need it.
 				a.logger.WarnContext(ctx, "vault token renewal failed, backing off and retrying",
 					"error_type", fmt.Sprintf("%T", err))
-				// Non-blocking send to error channel
-				select {
-				case a.errCh <- err:
-				case <-ctx.Done():
-					return
-				}
+				a.reportError(err)
 			}
 			a.stopWatcher()
 			return
@@ -302,6 +290,16 @@ func (a *Authenticator) runWatcher(ctx context.Context) {
 				close(a.firstTokenCh)
 			}
 		}
+	}
+}
+
+// reportError delivers err on errCh without blocking. errCh holds one
+// unread error; when nobody drains it (the usual case once the first token is
+// obtained), later errors are dropped instead of stalling the renewal loop.
+func (a *Authenticator) reportError(err error) {
+	select {
+	case a.errCh <- err:
+	default:
 	}
 }
 

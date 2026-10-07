@@ -7,7 +7,8 @@ package oidc
 import (
 	"iter"
 	"slices"
-	"strings"
+
+	"github.com/altessa-s/go-atlas/auth/internal/claimscope"
 )
 
 // normalizeScopeValue converts a scope value (string or array) to a string slice.
@@ -32,28 +33,5 @@ func parseScopeClaimSeq(claims map[string]any) iter.Seq[string] {
 
 // normalizeScopeValueSeq converts a scope value (string or array) to an iterator.
 func normalizeScopeValueSeq(scopeValue any) iter.Seq[string] {
-	return func(yield func(string) bool) {
-		switch v := scopeValue.(type) {
-		case string:
-			for field := range strings.FieldsSeq(v) {
-				if !yield(field) {
-					return
-				}
-			}
-		case []string:
-			for _, s := range v {
-				if !yield(s) {
-					return
-				}
-			}
-		case []any:
-			for _, raw := range v {
-				if str, ok := raw.(string); ok {
-					if !yield(str) {
-						return
-					}
-				}
-			}
-		}
-	}
+	return claimscope.Seq(scopeValue)
 }
