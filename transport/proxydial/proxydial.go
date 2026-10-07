@@ -134,12 +134,27 @@ func TLSConfig(proxyURL *url.URL, user *tls.Config) *tls.Config {
 // net/http.Transport's CONNECT handling and refuses to return the
 // raw conn when bufio buffered extra bytes after the response —
 // those bytes would be silently lost when the caller starts using
-// the tunnel.
-func sendConnect(ctx context.Context, conn net.Conn, addr string, auth *url.Userinfo) error {
+// the tunnel. Canceling ctx interrupts the handshake I/O, and the
+// returned error then wraps ctx.Err().
+func sendConnect(ctx context.Context, conn net.Conn, addr string, auth *url.Userinfo) (err error) {
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(deadline)
-		defer func() { _ = conn.SetDeadline(time.Time{}) }()
 	}
+	// A deadline in the past unblocks the pending Write/Read on cancellation.
+	interrupted := make(chan struct{})
+	stop := context.AfterFunc(ctx, func() {
+		_ = conn.SetDeadline(time.Unix(1, 0))
+		close(interrupted)
+	})
+	defer func() {
+		if !stop() {
+			// Wait for the callback so it cannot poison the deadline after the
+			// reset below; the conn is unusable either way, so report ctx.
+			<-interrupted
+			err = fmt.Errorf("CONNECT to %s: %w", addr, ctx.Err())
+		}
+		_ = conn.SetDeadline(time.Time{})
+	}()
 
 	req := &http.Request{
 		Method: http.MethodConnect,
@@ -151,7 +166,7 @@ func sendConnect(ctx context.Context, conn net.Conn, addr string, auth *url.User
 		req.Header.Set("Proxy-Authorization", basicAuthHeader(auth))
 	}
 
-	if err := req.Write(conn); err != nil {
+	if err = req.Write(conn); err != nil {
 		return fmt.Errorf("write CONNECT to %s: %w", addr, err)
 	}
 
