@@ -60,9 +60,6 @@ func WithEngine[T interface{ string | *string }](v T) Option {
 // WithTTL sets the ttl option.
 func WithTTL(v time.Duration) Option {
 	return func(o *options) {
-		if v <= 0 {
-			return
-		}
 		o.ttl = v
 	}
 }

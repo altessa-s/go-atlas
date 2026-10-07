@@ -141,6 +141,15 @@ func TestStorage_EnsureSchema(t *testing.T) {
 	require.Equal(t, want, conn.last(t).query)
 }
 
+func TestStorage_EnsureSchemaWithoutTTL(t *testing.T) {
+	t.Parallel()
+	for _, ttl := range []time.Duration{0, -time.Hour} {
+		store, conn := mustNew(t, clickhouse.WithTTL(ttl))
+		require.NoError(t, store.EnsureSchema(t.Context()))
+		require.NotContains(t, conn.last(t).query, "TTL", "WithTTL(%v) must keep history indefinitely", ttl)
+	}
+}
+
 func TestStorage_Writes(t *testing.T) {
 	t.Parallel()
 	store, conn := mustNew(t, clickhouse.WithCluster("c"))

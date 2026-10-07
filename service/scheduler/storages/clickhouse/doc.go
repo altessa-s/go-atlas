@@ -32,7 +32,8 @@
 // asynchronous insert, which the server buffers into shared blocks instead of
 // creating a part per row; the call waits for the flush.
 // [Storage.DeleteHistory], called by Scheduler.Unregister, is a lightweight
-// DELETE.
+// DELETE that waits for every replica (lightweight_deletes_sync = 2, ClickHouse
+// 24.x) whatever the session default.
 //
 // # Filters
 //

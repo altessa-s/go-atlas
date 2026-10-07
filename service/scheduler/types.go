@@ -366,7 +366,8 @@ type HistoryStorage interface {
 // HistoryDeleter is implemented by a [HistoryStorage] that can delete the history
 // of one task. [Scheduler.Unregister] calls it on a storage set with
 // [WithHistoryStorage], since [Storage.DeleteTask] only reaches history kept in
-// the [Storage] itself.
+// the [Storage] itself. The deletion is best effort: Unregister logs a failure
+// and succeeds, leaving the entries to the backend's retention.
 type HistoryDeleter interface {
 	// DeleteHistory removes every history entry of task id. Deleting the
 	// history of a task without any is not an error.

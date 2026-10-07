@@ -29,9 +29,11 @@ const (
 )
 
 type options struct {
-	tableName string        `optval:"nonempty" optgen:"default=DefaultTableName"`
-	engine    string        `optval:"nonempty" optgen:"default=DefaultEngine"`
-	ttl       time.Duration `opt:"TTL" optval:"positive" optgen:"default=DefaultTTL"`
+	tableName string `optval:"nonempty" optgen:"default=DefaultTableName"`
+	engine    string `optval:"nonempty" optgen:"default=DefaultEngine"`
+	// ttl is the table TTL after the end of a run. A non-positive value
+	// renders no TTL clause: history is then kept indefinitely.
+	ttl time.Duration `opt:"TTL" optval:"nonpositive" optgen:"default=DefaultTTL"`
 
 	// cluster adds an ON CLUSTER clause to the DDL and to DeleteHistory. Empty
 	// means a single-node table. Pair it with a Replicated* engine: ON CLUSTER

@@ -15,6 +15,7 @@ import (
 
 	"github.com/altessa-s/go-atlas/internal/testhelpers"
 	"github.com/altessa-s/go-atlas/service/scheduler"
+	"github.com/altessa-s/go-atlas/service/scheduler/storages/memory"
 
 	corescheduler "github.com/altessa-s/go-atlas/core/scheduler"
 )
@@ -98,6 +99,79 @@ func TestScheduler_WithHistoryStorage(t *testing.T) {
 	require.NoError(t, s.Unregister(ctx, id))
 	_, deleted := history.snapshot()
 	require.Equal(t, []string{id}, deleted, "Unregister must delete the history kept apart")
+}
+
+// stalledHistory is a history backend whose writes and deletes block until
+// their context ends, and whose deletes then fail.
+type stalledHistory struct {
+	scheduler.HistoryStorage
+}
+
+func (stalledHistory) AddHistory(ctx context.Context, _ *scheduler.TaskHistory) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func (stalledHistory) DeleteHistory(ctx context.Context, _ string) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+// deadlineStorage is a task storage whose bookkeeping reads and writes honor
+// their context's deadline, which the in-memory storage ignores.
+type deadlineStorage struct {
+	*memory.Storage
+}
+
+func (d deadlineStorage) GetTask(ctx context.Context, id string) (*scheduler.TaskState, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return d.Storage.GetTask(ctx, id)
+}
+
+func (d deadlineStorage) FinishRun(ctx context.Context, id, runID string, result scheduler.RunResult) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return d.Storage.FinishRun(ctx, id, runID, result)
+}
+
+// A stalled history backend must neither keep a finished run in
+// TaskStatusRunning nor hold Unregister beyond the storage timeout, and a
+// failed history delete must not fail Unregister.
+func TestScheduler_StalledHistoryStorage(t *testing.T) {
+	t.Parallel()
+	tasks := deadlineStorage{Storage: mustNewMemory(t, 100)}
+	s := scheduler.New(tasks,
+		scheduler.WithTickInterval(20*time.Millisecond),
+		scheduler.WithStorageTimeout(100*time.Millisecond),
+		scheduler.WithHistoryStorage(stalledHistory{HistoryStorage: mustNewMemory(t, 100)}),
+	)
+	ctx := t.Context()
+	require.NoError(t, s.Start(ctx))
+	t.Cleanup(func() {
+		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+		defer cancel()
+		_ = s.Stop(stopCtx)
+	})
+
+	const id = "stalled-history"
+	require.NoError(t, s.Register(ctx, corescheduler.TaskConfig{
+		ID: id, Schedule: "@every 1h", RunOnStart: true,
+		Func: func(context.Context) error { return nil },
+	}))
+	testhelpers.WaitFor(t, 5*time.Second, func() bool {
+		st, err := tasks.GetTask(ctx, id)
+		return err == nil && st != nil && st.LastRunAt > 0 && st.Status == scheduler.TaskStatusActive
+	}, "the run must finish although recording its history timed out")
+
+	start := time.Now()
+	require.NoError(t, s.Unregister(ctx, id), "a failed history delete must not fail Unregister")
+	require.Less(t, time.Since(start), 2*time.Second, "the history delete must be bounded by the storage timeout")
+	st, err := tasks.GetTask(ctx, id)
+	require.NoError(t, err)
+	require.Nil(t, st)
 }
 
 func TestScheduler_HistoryInStorageByDefault(t *testing.T) {
