@@ -562,3 +562,26 @@ func TestTranslator_BareIdentifierRespectsPolicy(t *testing.T) {
 		require.ErrorIs(t, err, filter.ErrFieldNotAllowed)
 	})
 }
+
+// A NUMERIC operand is spliced into `[min max]` unquoted, so it must be a
+// number: a string could close the range and open a clause against a field
+// outside the allow-list.
+func TestTranslator_NumericOperandsMustBeNumbers(t *testing.T) {
+	t.Parallel()
+	tr := mustTranslator(t, map[string]FieldType{"price": FieldTypeNumeric},
+		filter.WithUntrustedInput(), filter.WithAllowedFields("price"))
+
+	for _, expr := range []string{
+		`price < "0] | @secret:[0 +inf"`,
+		`price in [1, "2] | @secret:[0"]`,
+		`price == "nan"`,
+		`price == "inf"`,
+	} {
+		_, err := tr.Translate(testhelpers.MustParseFilter(t, expr))
+		require.ErrorIs(t, err, filter.ErrInvalidExpression, expr)
+	}
+
+	got, err := tr.Translate(testhelpers.MustParseFilter(t, `price in [1, 2.5]`))
+	require.NoError(t, err)
+	require.Equal(t, "(@price:[1 1]|@price:[2.5 2.5])", got)
+}
