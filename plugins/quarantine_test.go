@@ -242,19 +242,19 @@ func TestReadAndHashFile(t *testing.T) {
 	content := []byte("hello plugin")
 	require.NoError(t, os.WriteFile(path, content, 0o644))
 
-	data, h, err := readAndHashFileWithCache(path, nil)
+	data, h, err := readAndHashFile(path)
 	require.NoError(t, err)
 	assert.Len(t, h, 64, "SHA256 hex should be 64 chars")
 	assert.Equal(t, content, data)
 
 	// Same content → same hash.
-	_, h2, err := readAndHashFileWithCache(path, nil)
+	_, h2, err := readAndHashFile(path)
 	require.NoError(t, err)
 	assert.Equal(t, h, h2)
 
 	// Different content → different hash.
 	require.NoError(t, os.WriteFile(path, []byte("different"), 0o644))
-	_, h3, err := readAndHashFileWithCache(path, nil)
+	_, h3, err := readAndHashFile(path)
 	require.NoError(t, err)
 	assert.NotEqual(t, h, h3)
 }
@@ -262,7 +262,7 @@ func TestReadAndHashFile(t *testing.T) {
 func TestReadAndHashFile_NotFound(t *testing.T) {
 	t.Parallel()
 
-	_, _, err := readAndHashFileWithCache("/nonexistent/path/plugin.so", nil)
+	_, _, err := readAndHashFile("/nonexistent/path/plugin.so")
 	require.Error(t, err)
 }
 
@@ -328,10 +328,7 @@ func TestReadAndHashFile_RejectsOversizedFile(t *testing.T) {
 	require.NoError(t, f.Truncate(maxPluginFileBytes+1))
 	require.NoError(t, f.Close())
 
-	_, _, err = readAndHashFileWithCache(path, nil)
-	require.Error(t, err)
-
-	_, _, err = readAndHashFileWithCache(path, newHashCache())
+	_, _, err = readAndHashFile(path)
 	require.Error(t, err)
 }
 

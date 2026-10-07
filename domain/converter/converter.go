@@ -545,7 +545,9 @@ func (conv *Converter[T, U]) convertStructMapValue(fieldName string, srcMapValue
 
 // convertPrimitiveMapValue handles conversion of primitive values in maps.
 func (conv *Converter[T, U]) convertPrimitiveMapValue(fieldName string, srcMapValue reflect.Value, dstValueType reflect.Type) reflect.Value {
-	dstMapValue := reflect.New(IndirectType(dstValueType)).Elem()
+	// Allocate the exact destination type: a pointer-valued map needs a
+	// pointer here, which convertValue allocates for non-assignable sources.
+	dstMapValue := reflect.New(dstValueType).Elem()
 
 	switch {
 	case srcMapValue.Type().AssignableTo(dstValueType):
