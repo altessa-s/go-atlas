@@ -30,15 +30,24 @@ var (
 	// plain SQL identifier, optionally qualified by one schema name, or a part
 	// of it exceeds 63 characters.
 	ErrInvalidTableName = sqldialect.ErrInvalidTableName
-	// ErrValueTooLong is returned by Store and StoreBatch for an event ID
-	// longer than [MaxIDLength] characters. Rejecting it up front matters
-	// because PostgreSQL silently trims excess trailing spaces, which would
-	// make "id" and "id " (past the limit) the same row.
+	// ErrValueTooLong is returned by Store and StoreBatch, before anything is
+	// written, for an event ID longer than [MaxIDLength] characters or a
+	// queryable field longer than [MaxFilterBytes] bytes. Rejecting them up
+	// front matters: PostgreSQL silently trims excess trailing spaces from the
+	// ID, an oversized value would exceed a B-tree index entry, and MySQL
+	// without strict mode would truncate it, so a query by the original value
+	// would miss the event.
 	ErrValueTooLong = errors.New("sqldb: value exceeds its column length")
 )
 
 // MaxIDLength bounds an event ID, in characters.
 const MaxIDLength = 255
+
+// MaxFilterBytes bounds each queryable field — type, action, actor ID and
+// type, resource type and ID, status, request and trace IDs — in bytes, so
+// every index entry fits PostgreSQL's B-tree limit and MySQL stores the value
+// whole.
+const MaxFilterBytes = 255
 
 // dialect holds the per-flavor differences: identifier quoting, placeholder
 // style, and how strings are bound.

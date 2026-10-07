@@ -24,6 +24,10 @@ import (
 // timestamp, the filter columns and the payload.
 var columnsPerRow = 3 + len(filterColumns)
 
+// maxParams is PostgreSQL's limit of bind parameters per statement; the rows
+// of one INSERT are capped so that it holds whatever WithMaxBatchRows says.
+const maxParams = 65535
+
 var _ audit.Storage = (*Storage)(nil)
 
 // Storage implements [audit.Storage] on a SQL table through the standard
@@ -61,6 +65,7 @@ func New(db *sql.DB, d Dialect, opts ...Option) (*Storage, error) {
 		return nil, err
 	}
 	o := newOptions(opts...)
+	o.maxBatchRows = min(o.maxBatchRows, maxParams/columnsPerRow)
 	s := &Storage{db: db, dialect: dl, tableName: sqldialect.Unqualified(o.tableName), opts: o}
 	if s.table, err = dl.Table(o.tableName); err != nil {
 		return nil, err
@@ -136,6 +141,13 @@ func (s *Storage) insert(n int) string {
 func (s *Storage) rowArgs(e *audit.Event) ([]any, error) {
 	if n := utf8.RuneCountInString(e.ID); n > MaxIDLength {
 		return nil, fmt.Errorf("%w: event ID of %d characters, limit %d", ErrValueTooLong, n, MaxIDLength)
+	}
+	for _, v := range []string{string(e.Type), string(e.Action), e.Actor.ID, string(e.Actor.Type), e.Resource.Type, e.Resource.ID,
+		string(e.Result.Status), e.Context.RequestID, e.Context.TraceID} {
+		if len(v) > MaxFilterBytes {
+			return nil, fmt.Errorf("%w: event %q has a queryable field of %d bytes, limit %d", ErrValueTooLong, e.ID, len(v),
+				MaxFilterBytes)
+		}
 	}
 	payload, err := json.Marshal(e)
 	if err != nil {
