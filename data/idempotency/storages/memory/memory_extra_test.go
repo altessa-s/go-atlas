@@ -88,17 +88,17 @@ func TestMemory_RunCleanup_SchedulerManaged(t *testing.T) {
 // delete) is pinned deterministically in data/internal/memcleanup, which
 // this storage's cleanup delegates to.
 func TestMemory_RunCleanup_KeepsRefreshedEntry(t *testing.T) {
-	s := New(WithTTL(50 * time.Millisecond))
+	s := New(WithTTL(time.Hour))
 	ctx := t.Context()
 
-	_, _, _, _ = s.AttemptLock(ctx, "stale", []byte("v1"))
+	_, _, _, _ = s.AttemptLockWithTTL(ctx, "stale", []byte("v1"), time.Millisecond)
 	_, _, token, _ := s.AttemptLock(ctx, "refreshed", []byte("v2"))
 
-	time.Sleep(100 * time.Millisecond)
-
 	// Re-arm the TTL of "refreshed" via the production path (Complete
-	// resets expiresAt), then sweep.
+	// resets expiresAt) while it is still live — Complete refuses an
+	// expired entry — then let "stale" expire and sweep.
 	require.NoError(t, s.Complete(ctx, "refreshed", []byte("done"), token))
+	time.Sleep(10 * time.Millisecond)
 	s.RunCleanup()
 
 	// "stale" was expired and must be gone; "refreshed" must survive.
