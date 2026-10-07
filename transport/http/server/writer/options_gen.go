@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/altessa-s/go-atlas/domain/proto/fieldbehavior"
 	"github.com/altessa-s/go-atlas/transport/http/server/codec"
 )
 
@@ -107,7 +106,7 @@ func defaultOptions() *options {
 		logger:                       slog.New(slog.DiscardHandler),
 		registry:                     codec.DefaultRegistry(),
 		responseBuilder:              NewDefault(),
-		responseSanitizationMaxDepth: fieldbehavior.DefaultMaxDepth,
+		responseSanitizationMaxDepth: DefaultResponseSanitizationMaxDepth,
 	}
 }
 
