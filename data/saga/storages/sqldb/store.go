@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -86,8 +87,8 @@ func (s *Store) buildStatements() statements {
 	}
 	// MySQL has no portable insert-if-absent whose affected-rows count is
 	// unambiguous under every client flag (INSERT IGNORE also downgrades other
-	// errors); Create runs a plain INSERT and resolves a failure by checking
-	// whether the row exists.
+	// errors); Create runs a plain INSERT and classifies its duplicate-key
+	// error.
 
 	// The recovery predicate of saga.Instance.Recoverable: non-terminal, no
 	// active lease, and interrupted compensation, an owner whose lease has
@@ -99,8 +100,9 @@ func (s *Store) buildStatements() statements {
 		get:    b("SELECT "+columns+" FROM "+t+" WHERE id = ?", 1),
 		exists: b("SELECT 1 FROM "+t+" WHERE id = ?", 1),
 		create: b(create, 1),
-		update: b("UPDATE "+t+" SET status = ?, stage = ?, pending_steps = ?, lease_owner = ?, lease_until = ?, data = ?,"+
-			" steps = ?, updated_at = ?, deadline = ?, last_error = ?, version = ? WHERE id = ? AND version = ?", 1),
+		update: b("UPDATE "+t+" SET definition = ?, status = ?, stage = ?, pending_steps = ?, lease_owner = ?, lease_until = ?,"+
+			" data = ?, steps = ?, created_at = ?, updated_at = ?, deadline = ?, last_error = ?, version = ?"+
+			" WHERE id = ? AND version = ?", 1),
 		remove:           b("DELETE FROM "+t+" WHERE id = ?", 1),
 		recoverable:      b(recoverable, 1),
 		recoverableLimit: b(recoverable+" LIMIT ?", 1),
@@ -109,8 +111,8 @@ func (s *Store) buildStatements() statements {
 
 // Create inserts a new instance, returning [sagaerrs.ErrInstanceExists] when a
 // row with the same ID already exists. On PostgreSQL the insert is ON CONFLICT
-// DO NOTHING; on MySQL a failed INSERT is reported as ErrInstanceExists when
-// the row exists — a duplicate key — and as the error otherwise.
+// DO NOTHING; on MySQL a plain INSERT whose error is a duplicate key (error
+// 1062) is reported as ErrInstanceExists and every other error as is.
 func (s *Store) Create(ctx context.Context, inst *saga.Instance) error {
 	if n := utf8.RuneCountInString(inst.ID); n > MaxIDLength {
 		return fmt.Errorf("%w: %d characters, limit %d", ErrValueTooLong, n, MaxIDLength)
@@ -123,10 +125,8 @@ func (s *Store) Create(ctx context.Context, inst *saga.Instance) error {
 		r.status, int64(inst.Stage), r.pendingSteps, r.data, r.steps, unixNano(inst.CreatedAt), r.updatedAt, r.deadline,
 		r.leaseOwner, r.leaseUntil, inst.Version, r.lastError)
 	if err != nil {
-		if s.dialect.name == DialectMySQL {
-			if found, exErr := s.exists(ctx, inst.ID); exErr == nil && found {
-				return sagaerrs.ErrInstanceExists
-			}
+		if s.dialect.name == DialectMySQL && isDuplicateKey(err) {
+			return sagaerrs.ErrInstanceExists
 		}
 		return coreerrs.WrapOperation(err, "create saga instance in SQL")
 	}
@@ -157,15 +157,16 @@ func (s *Store) Get(ctx context.Context, id string) (*saga.Instance, error) {
 // stale inst.Version (another coordinator advanced the instance) yields
 // [sagaerrs.ErrVersionConflict]; a missing instance yields
 // [sagaerrs.ErrInstanceNotFound]. The new version is written back into
-// inst.Version on success. Definition and CreatedAt are fixed at Create.
+// inst.Version on success.
 func (s *Store) Update(ctx context.Context, inst *saga.Instance) error {
 	r, err := s.encode(inst)
 	if err != nil {
 		return err
 	}
 	newVersion := inst.Version + 1
-	res, err := s.db.ExecContext(ctx, s.stmts.update, r.status, int64(inst.Stage), r.pendingSteps, r.leaseOwner, r.leaseUntil,
-		r.data, r.steps, r.updatedAt, r.deadline, r.lastError, newVersion, s.dialect.textArg(inst.ID), inst.Version)
+	res, err := s.db.ExecContext(ctx, s.stmts.update, s.dialect.textArg(inst.Definition), r.status, int64(inst.Stage),
+		r.pendingSteps, r.leaseOwner, r.leaseUntil, r.data, r.steps, unixNano(inst.CreatedAt), r.updatedAt, r.deadline, r.lastError,
+		newVersion, s.dialect.textArg(inst.ID), inst.Version)
 	if err != nil {
 		return coreerrs.WrapOperation(err, "update saga instance in SQL")
 	}
@@ -228,6 +229,17 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 		return coreerrs.WrapOperation(err, "delete saga instance from SQL")
 	}
 	return nil
+}
+
+// mysqlDuplicateKey is the text MySQL and MariaDB drivers render for error
+// 1062 (ER_DUP_ENTRY): go-sql-driver/mysql formats a server error as
+// "Error 1062 (23000): Duplicate entry …". database/sql exposes no portable
+// error code, so the code is read from the message.
+const mysqlDuplicateKey = "Error 1062"
+
+// isDuplicateKey reports whether err is a MySQL duplicate-key error.
+func isDuplicateKey(err error) bool {
+	return strings.Contains(err.Error(), mysqlDuplicateKey)
 }
 
 // exists reports whether a row with the given ID is stored.

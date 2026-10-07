@@ -178,29 +178,23 @@ func TestCreateConflictPostgres(t *testing.T) {
 
 func TestCreateFailureMySQL(t *testing.T) {
 	t.Parallel()
+	errDup := errors.New("Error 1062 (23000): Duplicate entry 'order' for key 'PRIMARY'")
 	for _, tc := range []struct {
-		name   string
-		exists bool
-		want   error
+		name string
+		err  error
+		want error
 	}{
-		{name: "duplicate", exists: true, want: sagaerrs.ErrInstanceExists},
-		{name: "other error", exists: false, want: errBoom},
+		{name: "duplicate", err: errDup, want: sagaerrs.ErrInstanceExists},
+		{name: "other error", err: errBoom, want: errBoom},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			store, fake := newStore(t, sqldb.DialectMySQL, func(query string, _ []any) testhelpers.FakeSQLReply {
-				if strings.HasPrefix(query, "INSERT") {
-					return testhelpers.FakeSQLReply{Err: errBoom}
-				}
-				reply := testhelpers.FakeSQLReply{Columns: []string{"1"}}
-				if tc.exists {
-					reply.Rows = [][]driver.Value{{int64(1)}}
-				}
-				return reply
+			store, fake := newStore(t, sqldb.DialectMySQL, func(string, []any) testhelpers.FakeSQLReply {
+				return testhelpers.FakeSQLReply{Err: tc.err}
 			})
 			require.ErrorIs(t, store.Create(t.Context(), fullInstance()), tc.want)
 			calls := fake.Calls()
-			require.Len(t, calls, 2)
+			require.Len(t, calls, 1, "the error is classified without a lookup")
 			require.NotContains(t, calls[0].Query, "IGNORE")
 		})
 	}
@@ -242,8 +236,8 @@ func TestUpdate(t *testing.T) {
 			err := store.Update(t.Context(), inst)
 			calls := fake.Calls()
 			update := calls[0].Args
-			require.Equal(t, int64(5), update[10], "new version")
-			require.Equal(t, int64(4), update[12], "expected version")
+			require.Equal(t, int64(5), update[12], "new version")
+			require.Equal(t, int64(4), update[14], "expected version")
 			if tc.want == nil {
 				require.NoError(t, err)
 				require.Equal(t, int64(5), inst.Version)
