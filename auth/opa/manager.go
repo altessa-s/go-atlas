@@ -44,11 +44,17 @@ type Manager struct {
 	metrics      *opaMetrics
 	logger       *slog.Logger
 
-	mu              sync.Mutex
-	watchCtx        context.Context
-	watchStop       context.CancelFunc
-	watching        bool
-	closed          atomic.Bool
+	mu        sync.Mutex
+	watchStop context.CancelFunc
+	watching  bool
+	// watchDone is the completion channel of the most recent poll loop. It is
+	// kept after the loop exits (closed) so StopWatching and Close can always
+	// join it, and a new loop is chained behind it.
+	watchDone chan struct{}
+	closed    atomic.Bool
+	// closeDone is closed once the first Close has finished its teardown;
+	// concurrent Close callers wait on it.
+	closeDone       chan struct{}
 	updateCycleTask corescheduler.ManagedTask // Guards RunUpdateCycle and marks scheduler management.
 }
 
@@ -73,6 +79,7 @@ func NewManager(ctx context.Context, source PolicySource, query string, opts ...
 		opts:         o,
 		metrics:      newOpaMetrics(o.collector),
 		logger:       cmp.Or(o.logger, slog.New(slog.DiscardHandler)),
+		closeDone:    make(chan struct{}),
 	}
 
 	// Initialize revision to empty string
@@ -150,10 +157,22 @@ func (m *Manager) StartWatching(ctx context.Context) error {
 		return nil
 	}
 
-	m.watchCtx, m.watchStop = context.WithCancel(ctx)
+	watchCtx, watchStop := context.WithCancel(ctx)
+	prevDone := m.watchDone
+	done := make(chan struct{})
+	m.watchStop = watchStop
+	m.watchDone = done
 	m.watching = true
 
-	go m.pollLoop()
+	// The loop owns its context: a later StartWatching never changes what an
+	// earlier loop observes. It starts only after the previous loop exited.
+	go func() {
+		defer close(done)
+		if prevDone != nil {
+			<-prevDone
+		}
+		m.pollLoop(watchCtx)
+	}()
 
 	m.logger.Info("started policy watching",
 		slog.String("source", m.source.Name()),
@@ -162,34 +181,37 @@ func (m *Manager) StartWatching(ctx context.Context) error {
 	return nil
 }
 
-// StopWatching stops watching for policy changes.
+// StopWatching stops watching for policy changes and waits for the poll loop
+// to exit.
 func (m *Manager) StopWatching() {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if !m.watching {
-		return
-	}
-
-	if m.watchStop != nil {
+	if m.watching {
 		m.watchStop()
+		m.watching = false
+		m.logger.Info("stopped policy watching")
 	}
-	m.watching = false
+	done := m.watchDone
+	m.mu.Unlock()
 
-	m.logger.Info("stopped policy watching")
+	// Join outside the lock so a concurrent StartWatching is not blocked; its
+	// loop is chained behind this one.
+	if done != nil {
+		<-done
+	}
 }
 
-// pollLoop periodically fetches from the source and reloads if changed.
-func (m *Manager) pollLoop() {
+// pollLoop periodically fetches from the source and reloads if changed,
+// until ctx is canceled.
+func (m *Manager) pollLoop(ctx context.Context) {
 	ticker := time.NewTicker(m.opts.pollInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-m.watchCtx.Done():
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := m.updateCycleTask.TryRun(m.watchCtx, m.runUpdateCycleInternal); err != nil {
+			if err := m.updateCycleTask.TryRun(ctx, m.runUpdateCycleInternal); err != nil {
 				m.logger.Error("policy reload failed", slog.Any("error", err))
 			}
 		}
@@ -337,11 +359,15 @@ func (m *Manager) Watch(ctx context.Context, opts WatchOptions) (*WatchResult, e
 	return m.watchManager.subscribe(opts), nil
 }
 
-// Close releases all resources and stops watching.
+// Close releases all resources and stops watching. It returns once the poll
+// loop has exited and the source is closed; concurrent callers wait for the
+// first Close to finish.
 func (m *Manager) Close() error {
 	if !m.closed.CompareAndSwap(false, true) {
+		<-m.closeDone
 		return nil
 	}
+	defer close(m.closeDone)
 
 	m.StopWatching()
 	m.watchManager.close()
