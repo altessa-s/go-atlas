@@ -6,6 +6,7 @@ package cache
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"slices"
 
@@ -58,6 +59,12 @@ func DefaultKeyGenerator(ctx context.Context, method string, req any) (string, e
 	return NewKeyGenerator(nil, nil)(ctx, method, req)
 }
 
+// newDefaultKeyGenerator builds the interceptor's default generator once, so
+// the per-call path skips re-interning and sorting DefaultMetadataKeys.
+func newDefaultKeyGenerator() KeyGenerator {
+	return NewKeyGenerator(nil, nil)
+}
+
 // NewKeyGenerator creates a new KeyGenerator with custom metadata keys and an optional processor.
 // If metadataKeys is empty, DefaultMetadataKeys will be used.
 func NewKeyGenerator(metadataKeys []string, processor MetadataProcessor) KeyGenerator {
@@ -77,11 +84,9 @@ func NewKeyGenerator(metadataKeys []string, processor MetadataProcessor) KeyGene
 		// Intern the method name to reduce memory usage
 		internedMethod := strings.InternLowerString(method)
 
-		// Create hash
+		// Create hash; every component is length-framed (see writeHashField).
 		h := xxhash.New()
-		if _, err := h.WriteString(internedMethod); err != nil {
-			return "", coreerrs.WrapOperation(err, "write method to hash")
-		}
+		writeHashField(h, tagMethod, internedMethod)
 
 		if err := writeRequestToXXHasher(h, req); err != nil {
 			return "", coreerrs.WrapOperation(err, "write request to hash")
@@ -109,14 +114,14 @@ func writeRequestToXXHasher(h *xxhash.Digest, req any) error {
 	switch v := req.(type) {
 	case proto.Message:
 		if data, err := proto.Marshal(v); err == nil {
-			h.Write(data) //nolint:errcheck // xxhash.Digest.Write never returns an error
+			writeHashBytes(h, tagRequest, data)
 		} else {
 			return coreerrs.WrapOperation(err, "marshal proto message")
 		}
 	default:
 		// Try JSON marshaling for any type
 		if data, err := json.Marshal(v); err == nil {
-			h.Write(data) //nolint:errcheck // xxhash.Digest.Write never returns an error
+			writeHashBytes(h, tagRequest, data)
 		} else {
 			return coreerrs.Wrap(err, "unable to marshal request to JSON")
 		}
@@ -137,7 +142,7 @@ func writeMetadataToXXHasher(h *xxhash.Digest, md metadata.MD, relevantKeys []st
 			continue
 		}
 
-		h.WriteString(key) //nolint:errcheck // xxhash.Digest.WriteString never returns an error
+		writeHashField(h, tagMetadataKey, key)
 
 		processedValues := 0
 		for _, v := range values {
@@ -145,8 +150,7 @@ func writeMetadataToXXHasher(h *xxhash.Digest, md metadata.MD, relevantKeys []st
 				continue
 			}
 
-			internedValue := strings.InternString(v)
-			h.WriteString(internedValue) //nolint:errcheck // xxhash.Digest.WriteString never returns an error
+			writeHashField(h, tagMetadataValue, strings.InternString(v))
 			processedValues++
 
 			if processedValues >= maxMetadataValues {
@@ -188,7 +192,40 @@ func writeProcessedMetadataToXXHasher(h *xxhash.Digest, extra map[string]string)
 		if len(k) > maxMetadataKeySize || len(v) > maxMetadataValueSize {
 			continue
 		}
-		h.WriteString(strings.InternLowerString(k)) //nolint:errcheck // xxhash.Digest.WriteString never returns an error
-		h.WriteString(strings.InternString(v))      //nolint:errcheck // xxhash.Digest.WriteString never returns an error
+		writeHashField(h, tagProcessedKey, strings.InternLowerString(k))
+		writeHashField(h, tagProcessedValue, strings.InternString(v))
 	}
+}
+
+// Field tags written by [writeHashField]; each kind of key component has its
+// own tag so a value can never be read back as a key, method or request.
+const (
+	tagMethod byte = iota + 1
+	tagRequest
+	tagMetadataKey
+	tagMetadataValue
+	tagProcessedKey
+	tagProcessedValue
+)
+
+// writeHashField writes one key component as tag, 8-byte little-endian
+// length, payload. The framing makes the hashed stream uniquely decodable, so
+// distinct inputs cannot collide by concatenation (e.g. metadata
+// tenant-id=["auser-idb"] versus tenant-id=["a"], user-id=["b"]).
+func writeHashField(h *xxhash.Digest, tag byte, payload string) {
+	writeHashHeader(h, tag, len(payload))
+	h.WriteString(payload) //nolint:errcheck // xxhash.Digest.WriteString never returns an error
+}
+
+// writeHashBytes is the []byte counterpart of [writeHashField].
+func writeHashBytes(h *xxhash.Digest, tag byte, payload []byte) {
+	writeHashHeader(h, tag, len(payload))
+	h.Write(payload) //nolint:errcheck // xxhash.Digest.Write never returns an error
+}
+
+func writeHashHeader(h *xxhash.Digest, tag byte, n int) {
+	var hdr [9]byte
+	hdr[0] = tag
+	binary.LittleEndian.PutUint64(hdr[1:], uint64(n))
+	h.Write(hdr[:]) //nolint:errcheck // xxhash.Digest.Write never returns an error
 }

@@ -61,6 +61,11 @@ type cachedEntry struct {
 // Supports unary gRPC methods using the driven interceptor pattern.
 func ServerInterceptor(cacher Cacher, opt ...Option) interceptors.ServerInterceptor {
 	opts := newOptions(opt...)
+	// Build the fallback decision after all options ran so WithDefaultTTL /
+	// WithCacheTTL take effect; an explicit WithCacheDecision is kept as is.
+	if opts.cacheDecision == nil {
+		opts.cacheDecision = DefaultSuccessOnlyDecision(opts.cacheTTL)
+	}
 	i := &interceptor{
 		BaseInterceptor: interceptors.NewBaseInterceptorWithFilter(
 			interceptorName,
@@ -234,9 +239,13 @@ type cacheDriver struct {
 
 	logger *slog.Logger // Optional logger for debugging and monitoring
 
-	// key is set in PreCall and read in PostCall. Since cacheDriver is per-call
-	// and access is sequential (PreCall → handler → PostCall), no synchronization is needed.
-	key string
+	// key, keyed and req are set in PreCall and read in PostCall. Since
+	// cacheDriver is per-call and access is sequential (PreCall → handler →
+	// PostCall), no synchronization is needed. keyed is false when key
+	// generation failed, in which case PostCall must not cache.
+	key   string
+	keyed bool
+	req   any
 }
 
 // Ensure cacheDriver implements Driver interface
@@ -264,6 +273,8 @@ func (d *cacheDriver) PreCall(ctx context.Context, req any) (any, error) {
 	}
 
 	d.key = key
+	d.keyed = true
+	d.req = req
 
 	// Skip caching for streaming calls
 	if d.meta.IsStream {
@@ -295,7 +306,7 @@ func (d *cacheDriver) PostCall(ctx context.Context, resp any, err error) error {
 	default:
 	}
 
-	if d.meta.IsStream {
+	if d.meta.IsStream || !d.keyed {
 		return err
 	}
 
@@ -303,7 +314,7 @@ func (d *cacheDriver) PostCall(ctx context.Context, resp any, err error) error {
 	cacheKey := d.key
 
 	// For cache misses, use decision function to determine if we should cache
-	decision := d.interceptor.opts.cacheDecision(ctx, strings.InternString(d.meta.FullyMethodName), nil, resp, err)
+	decision := d.interceptor.opts.cacheDecision(ctx, strings.InternString(d.meta.FullyMethodName), d.req, resp, err)
 	if decision.ShouldCache {
 		d.interceptor.cacheResponse(ctx, cacheKey, resp, err, decision.TTL, d.config)
 	}
