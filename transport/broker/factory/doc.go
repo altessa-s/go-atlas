@@ -13,7 +13,7 @@
 // The builder creates and configures the following components:
 //
 //   - [broker.Broker] via [BrokerBuilder.Build]
-//   - [natsprovider.Nats] via [BrokerBuilder.CreateNatsProviderWithRecovery]
+//   - [natsprovider.Nats] via [BrokerBuilder.CreateNATSProviderWithRecovery]
 //   - [inprogress.Manager] via [BrokerBuilder.CreateInProgressManager]
 //   - [outbox.Outbox] via [BrokerBuilder.CreateOutboxWithMongoDB]
 //   - [recovery.Manager] via [BrokerBuilder.CreateRecoveryManager]
@@ -31,7 +31,7 @@
 //	    UseScheduler(scheduler).
 //	    UsePublishConverter(publishConverter)
 //
-//	result, err := b.CreateNatsProviderWithRecovery(natsConn)
+//	result, err := b.CreateNATSProviderWithRecovery(natsConn)
 //	if err != nil {
 //	    return err
 //	}

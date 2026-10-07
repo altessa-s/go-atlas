@@ -40,16 +40,16 @@ func TestBuild_NatsMigrateBucketTTL(t *testing.T) {
 
 	cfg := func(migrate bool) *lockconfig.DistributionLock {
 		return &lockconfig.DistributionLock{
-			Provider: lockconfig.DistributionLockProviderNats,
-			Nats:     &lockconfig.DistributionLockNats{Bucket: bucket, MigrateBucketTTL: migrate},
+			Provider: lockconfig.DistributionLockProviderNATS,
+			NATS:     &lockconfig.DistributionLockNATS{Bucket: bucket, MigrateBucketTTL: migrate},
 		}
 	}
 
-	_, err = factory.New(cfg(false)).UseNatsConn(nc).Build(t.Context())
+	_, err = factory.New(cfg(false)).UseNATSConn(nc).Build(t.Context())
 	require.ErrorIs(t, err, locknats.ErrBucketTTLMismatch)
 	require.Equal(t, time.Minute, testhelpers.KVBucketTTL(t, js, bucket), "a rejected build changed the bucket's TTL")
 
-	dl, err := factory.New(cfg(true)).UseNatsConn(nc).Build(t.Context())
+	dl, err := factory.New(cfg(true)).UseNATSConn(nc).Build(t.Context())
 	require.NoError(t, err)
 	require.NotNil(t, dl)
 	require.Equal(t, locknats.DefaultBucketKeysTTL, testhelpers.KVBucketTTL(t, js, bucket), "migrateBucketTTL must update the bucket")
@@ -58,7 +58,7 @@ func TestBuild_NatsMigrateBucketTTL(t *testing.T) {
 func TestBuild_NilNatsSection(t *testing.T) {
 	t.Parallel()
 
-	_, err := factory.New(&lockconfig.DistributionLock{Provider: lockconfig.DistributionLockProviderNats}).Build(t.Context())
+	_, err := factory.New(&lockconfig.DistributionLock{Provider: lockconfig.DistributionLockProviderNATS}).Build(t.Context())
 	require.Error(t, err)
 }
 
@@ -81,15 +81,15 @@ func TestBuild_NatsStrictBucketStorage(t *testing.T) {
 
 	cfg := func(strict bool) *lockconfig.DistributionLock {
 		return &lockconfig.DistributionLock{
-			Provider: lockconfig.DistributionLockProviderNats,
-			Nats:     &lockconfig.DistributionLockNats{Bucket: bucket, StrictBucketStorage: strict},
+			Provider: lockconfig.DistributionLockProviderNATS,
+			NATS:     &lockconfig.DistributionLockNATS{Bucket: bucket, StrictBucketStorage: strict},
 		}
 	}
 
-	_, err = factory.New(cfg(true)).UseNatsConn(nc).Build(t.Context())
+	_, err = factory.New(cfg(true)).UseNATSConn(nc).Build(t.Context())
 	require.ErrorIs(t, err, locknats.ErrBucketStorageMismatch)
 
-	dl, err := factory.New(cfg(false)).UseNatsConn(nc).Build(t.Context())
+	dl, err := factory.New(cfg(false)).UseNATSConn(nc).Build(t.Context())
 	require.NoError(t, err, "without the flag the bucket is adopted")
 	require.NotNil(t, dl)
 }
@@ -104,9 +104,9 @@ func TestBuild_NatsStorage(t *testing.T) {
 
 	for bucket, storage := range map[string]storageconfig.KVStorageType{"locks-default": "", "locks-memory": storageconfig.KVStorageMemory, "locks-file": storageconfig.KVStorageFile} {
 		dl, err := factory.New(&lockconfig.DistributionLock{
-			Provider: lockconfig.DistributionLockProviderNats,
-			Nats:     &lockconfig.DistributionLockNats{Bucket: bucket, Storage: storage},
-		}).UseNatsConn(nc).Build(t.Context())
+			Provider: lockconfig.DistributionLockProviderNATS,
+			NATS:     &lockconfig.DistributionLockNATS{Bucket: bucket, Storage: storage},
+		}).UseNATSConn(nc).Build(t.Context())
 		require.NoError(t, err)
 		require.NotNil(t, dl)
 
@@ -123,22 +123,22 @@ func TestBuild_Mongodb(t *testing.T) {
 	client, err := mongodrv.Connect(mongoopts.Client().ApplyURI("mongodb://127.0.0.1:1"))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
-	mongoCfg := lockconfig.DefaultDistributionLockMongodb()
+	mongoCfg := lockconfig.DefaultDistributionLockMongo()
 
 	t.Run("requires_database", func(t *testing.T) {
 		t.Parallel()
-		_, err := factory.New(&lockconfig.DistributionLock{Provider: lockconfig.DistributionLockProviderMongodb, Mongodb: &mongoCfg}).Build(t.Context())
+		_, err := factory.New(&lockconfig.DistributionLock{Provider: lockconfig.DistributionLockProviderMongo, Mongo: &mongoCfg}).Build(t.Context())
 		require.ErrorContains(t, err, "mongo database")
 	})
 	t.Run("requires_section", func(t *testing.T) {
 		t.Parallel()
-		_, err := factory.New(&lockconfig.DistributionLock{Provider: lockconfig.DistributionLockProviderMongodb}).
+		_, err := factory.New(&lockconfig.DistributionLock{Provider: lockconfig.DistributionLockProviderMongo}).
 			UseMongoDB(client.Database("x")).Build(t.Context())
 		require.Error(t, err)
 	})
 	t.Run("builds_without_io", func(t *testing.T) {
 		t.Parallel()
-		dl, err := factory.New(&lockconfig.DistributionLock{Provider: lockconfig.DistributionLockProviderMongodb, Mongodb: &mongoCfg}).
+		dl, err := factory.New(&lockconfig.DistributionLock{Provider: lockconfig.DistributionLockProviderMongo, Mongo: &mongoCfg}).
 			UseMongoDB(client.Database("x")).Build(t.Context())
 		require.NoError(t, err)
 		require.NotNil(t, dl)

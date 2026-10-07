@@ -4,7 +4,7 @@
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.
 
-#requestId:
+#requestID:
 #  # <bool> Enable request ID generation.
 #  # When enabled, ensures all requests have unique identifiers.
 #  # Default value: false

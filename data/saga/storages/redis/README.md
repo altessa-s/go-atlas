@@ -4,7 +4,7 @@
 import sagaredis "github.com/altessa-s/go-atlas/data/saga/storages/redis"
 ```
 
-Durable [`saga.Store`](../../store.go) backed by Redis. Each saga instance is a hash keyed by its ID holding the serialized payload and a `version`
+Durable [`saga.Storage`](../../storage.go) backed by Redis. Each saga instance is a hash keyed by its ID holding the serialized payload and a `version`
 field used as the optimistic-concurrency token: `Update` is a Lua compare-and-set on `version`, so a stale writer is rejected with
 `errs.ErrVersionConflict` and concurrent recovery cycles cannot double-advance an instance.
 

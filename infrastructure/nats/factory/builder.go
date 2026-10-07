@@ -58,7 +58,7 @@ var (
 	}
 )
 
-// natsReconnectHandler logs NATS reconnection. Used by NatsOptions to avoid
+// natsReconnectHandler logs NATS reconnection. Used by NATSOptions to avoid
 // allocating handler logic in hot path; the returned option still captures logger.
 func natsReconnectHandler(logger *slog.Logger) func(*nats.Conn) {
 	return func(conn *nats.Conn) {
@@ -67,7 +67,7 @@ func natsReconnectHandler(logger *slog.Logger) func(*nats.Conn) {
 	}
 }
 
-// natsDisconnectErrHandler logs NATS disconnect events. Used by NatsOptions.
+// natsDisconnectErrHandler logs NATS disconnect events. Used by NATSOptions.
 func natsDisconnectErrHandler(logger *slog.Logger) func(*nats.Conn, error) {
 	return func(_ *nats.Conn, err error) {
 		if err != nil {
@@ -78,7 +78,7 @@ func natsDisconnectErrHandler(logger *slog.Logger) func(*nats.Conn, error) {
 	}
 }
 
-// natsErrorHandler logs NATS connection and subscription errors. Used by NatsOptions.
+// natsErrorHandler logs NATS connection and subscription errors. Used by NATSOptions.
 func natsErrorHandler(logger *slog.Logger) func(*nats.Conn, *nats.Subscription, error) {
 	return func(_ *nats.Conn, subscription *nats.Subscription, err error) {
 		if subscription != nil {
@@ -133,7 +133,7 @@ func (b *ConnectionBuilder) Build() (*nats.Conn, error) {
 		url = b.cfg.ConnectionURI.Expose()
 	}
 
-	opts, err := b.NatsOptions()
+	opts, err := b.NATSOptions()
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +159,7 @@ func (b *ConnectionBuilder) Build() (*nats.Conn, error) {
 	return conn, nil
 }
 
-// NatsOptions creates [nats.Option] values from configuration.
+// NATSOptions creates [nats.Option] values from configuration.
 // It configures timeouts, reconnection behavior (unlimited by default),
 // compression, and logging handlers for disconnect/reconnect/error events.
 //
@@ -167,7 +167,7 @@ func (b *ConnectionBuilder) Build() (*nats.Conn, error) {
 // are set in [natsconfig.Config]: NKey seed, token, or username/password.
 // When [natsconfig.Config.ConnectionURI] is set, authentication fields are ignored
 // because they are embedded in the URI.
-func (b *ConnectionBuilder) NatsOptions() ([]nats.Option, error) {
+func (b *ConnectionBuilder) NATSOptions() ([]nats.Option, error) {
 	if b.cfg == nil {
 		return nil, fmt.Errorf("configuration is required")
 	}

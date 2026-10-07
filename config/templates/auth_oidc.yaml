@@ -7,7 +7,7 @@
 #  # <string> URL of the OpenID Connect discovery endpoint.
 #  # Required for OpenID Connect authentication.
 #  # Default value: not set
-#  discoveryUrl:
+#  discoveryURL:
 #
 #  # <duration> Acceptable clock skew when validating timestamps.
 #  # Compensates for small time differences between servers.
@@ -59,7 +59,7 @@
 #  clientCredentials:
 #    # <string> OAuth2 client identifier.
 #    # Default value: not set
-#    clientId:
+#    clientID:
 #
 #    # <string> OAuth2 client secret.
 #    # Default value: not set
@@ -79,7 +79,7 @@
 #    # keeping revocation enforced. Set true only when IdP availability must
 #    # take precedence over revocation guarantees.
 #    # Default value: false
-#    fail_open: false
+#    failOpen: false
 #
 #  # <object> Token validation settings.
 #  # Configures default validation rules for OIDC tokens.
@@ -152,7 +152,7 @@
 #      # Tokens from other clients will be rejected.
 #      # Leave empty to allow all authenticated services.
 #      # Default value: not set (all allowed)
-#      allowedClientIds: []
+#      allowedClientIDs: []
 #
 #      # <list[string]> List of required scopes for service tokens.
 #      # Token must contain at least one of the specified scopes.
@@ -252,7 +252,7 @@
 #
 #          # <list[string]> Allowed client IDs for this preset.
 #          # Default value: not set
-#          allowedClientIds: []
+#          allowedClientIDs: []
 #
 #          # <list[string]> Required scopes for this preset.
 #          # Default value: not set
@@ -340,10 +340,17 @@
 #
 #      # <object> Bloom filter settings. Required when type is bloom.
 #      bloom:
-#        # <string> Storage backend for the filter.
-#        # Supported values: memory, redis
-#        # Default value: not set (falls back to memory, from config.DefaultProbabilisticFilterDefaults)
-#        storage: memory
+#        # <object> Storage backend for the filter.
+#        storage:
+#          # <string> Storage type.
+#          # Supported values: memory, redis
+#          # Default value: not set (falls back to memory, from config.DefaultProbabilisticFilterDefaults)
+#          type: memory
+#          # <object> Redis-specific settings. Used when storage is redis.
+#          redis:
+#            # <string> Prefix for all filter keys.
+#            # Default value: not set
+#            keysPrefix: "myservice:oidc-revocation"
 #
 #        # <int64> Expected number of elements the filter is sized for.
 #        # Required for a Bloom filter.
@@ -365,18 +372,20 @@
 #        # Default value: not set
 #        rebuildOnStart: false
 #
-#        # <object> Redis-specific settings. Used when storage is redis.
-#        redis:
-#          # <string> Prefix for all filter keys.
-#          # Default value: not set
-#          keysPrefix: "myservice:oidc-revocation"
 #
 #      # <object> Cuckoo filter settings. Required when type is cuckoo; an alternative to bloom.
 #      cuckoo:
-#        # <string> Storage backend for the filter.
-#        # Supported values: memory, redis
-#        # Default value: not set (falls back to memory, from config.DefaultProbabilisticFilterDefaults)
-#        storage: memory
+#        # <object> Storage backend for the filter.
+#        storage:
+#          # <string> Storage type.
+#          # Supported values: memory, redis
+#          # Default value: not set (falls back to memory, from config.DefaultProbabilisticFilterDefaults)
+#          type: memory
+#          # <object> Redis-specific settings. Used when storage is redis.
+#          redis:
+#            # <string> Prefix for all filter keys.
+#            # Default value: not set
+#            keysPrefix: "myservice:oidc-revocation"
 #
 #        # <int64> Initial capacity of the filter.
 #        # Required for a Cuckoo filter.
@@ -396,11 +405,6 @@
 #        # Default value: not set (the built-in probfilter factory does not currently read this per-filter value)
 #        maxCapacity: 100000000
 #
-#        # <object> Redis-specific settings. Used when storage is redis.
-#        redis:
-#          # <string> Prefix for all filter keys.
-#          # Default value: not set
-#          keysPrefix: "myservice:oidc-revocation"
 #
 #    # <object> Configuration for fetching the revocation list from external sources.
 #    source:

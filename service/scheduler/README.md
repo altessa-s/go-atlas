@@ -85,7 +85,7 @@ shared by `ClaimRun`, `RenewRun` and `FinishRun` are defined once, in the "Run o
 |----------------------------------------|-----------------------------------------------------------------|
 | [factory](./factory)                   | Configuration-based Scheduler and Storage creation              |
 | [storages/memory](./storages/memory)   | In-memory backend for dev/test with deep-copy semantics         |
-| [storages/mongodb](./storages/mongodb) | MongoDB-backed persistent storage with indexed queries          |
+| [storages/mongo](./storages/mongo)     | MongoDB-backed persistent storage with indexed queries          |
 | [storages/redis](./storages/redis)     | Redis (RedisJSON + RediSearch) persistent storage               |
 | [storages/sqldb](./storages/sqldb)     | PostgreSQL / MySQL / MariaDB storage through `database/sql`     |
 | [storagetest](./storagetest)           | Storage contract suite for backends, including custom ones      |

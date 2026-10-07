@@ -4,7 +4,7 @@
 # All parameters are commented out by default (template mode).
 # Uncomment and configure as needed for your environment.
 
-#realIp:
+#realIP:
 #  # <bool> Enable real IP extraction.
 #  # When enabled, extracts real client IPs from proxy headers.
 #  # Default value: false

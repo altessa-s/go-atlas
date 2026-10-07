@@ -7,7 +7,7 @@ package redis_test
 import (
 	"testing"
 
-	"github.com/altessa-s/go-atlas/service/scheduler/storagetest"
+	"github.com/altessa-s/go-atlas/service/scheduler/storages/storagetest"
 )
 
 func BenchmarkFinishRun(b *testing.B) {

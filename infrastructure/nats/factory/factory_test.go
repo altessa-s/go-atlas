@@ -98,7 +98,7 @@ func TestNatsOptions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			b := New(tt.cfg)
-			opts, err := b.NatsOptions()
+			opts, err := b.NATSOptions()
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
@@ -117,7 +117,7 @@ func TestNatsOptions_ConnectionURI(t *testing.T) {
 		PingInterval:   time.Minute,
 		MaxPingsOut:    3,
 	})
-	opts, err := b.NatsOptions()
+	opts, err := b.NATSOptions()
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
 }
@@ -132,7 +132,7 @@ func TestNatsOptions_ConnectionURI_SkipsAuth(t *testing.T) {
 		PingInterval:   time.Minute,
 		MaxPingsOut:    3,
 	})
-	opts, err := b.NatsOptions()
+	opts, err := b.NATSOptions()
 	require.NoError(t, err)
 	require.NotEmpty(t, opts)
 }
@@ -142,7 +142,7 @@ func TestNatsOptions_MaxReconnect(t *testing.T) {
 		Hosts:        []string{"nats://localhost:4222"},
 		MaxReconnect: 0, // should default to UnlimitedReconnects
 	})
-	_, err := b.NatsOptions()
+	_, err := b.NATSOptions()
 	require.NoError(t, err)
 }
 

@@ -13,7 +13,7 @@ import (
 	"github.com/altessa-s/go-atlas/transport/broker/outbox"
 )
 
-// nopStore is a no-op outbox.Store. The publish path never touches the broker;
+// nopStore is a no-op outbox.Storage. The publish path never touches the broker;
 // with a no-op store the benchmarks isolate the in-process cost of Publish:
 // message-to-event conversion (JSON envelope marshal, created-time parsing)
 // plus Save normalization (UUID assignment, status defaults, metrics).

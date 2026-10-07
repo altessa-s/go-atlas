@@ -38,7 +38,7 @@ const MaxSchedulerInstanceIDLength = 128
 //
 // Example:
 //
-//	concurrency := &schedulerconfig.SchedulerConcurrency{
+//	concurrency := &schedulerconfig.TaskConcurrency{
 //		Concurrency: schedulerconfig.Concurrency{
 //			Strategy: schedulerconfig.ConcurrencyStatic,
 //			MaxTasks: 10,
@@ -75,14 +75,14 @@ type StorageType string
 
 const (
 	// StorageTypeMongo represents MongoDB storage backend.
-	StorageTypeMongo StorageType = "mongodb"
+	StorageTypeMongo StorageType = "mongo"
 	// StorageTypeRedis represents Redis storage backend.
 	StorageTypeRedis StorageType = "redis"
 	// StorageTypeMemory represents in-memory storage backend.
 	StorageTypeMemory StorageType = "memory"
 	// StorageTypeSQL represents a SQL database storage backend
 	// (PostgreSQL, MySQL or MariaDB) reached through database/sql.
-	StorageTypeSQL StorageType = "sql"
+	StorageTypeSQL StorageType = "sqldb"
 )
 
 // SQL dialects accepted by [StorageSQLConfig.Dialect].
@@ -127,7 +127,7 @@ type StorageRedisConfig struct {
 	// HistoryTTL is the TTL for history entries in Redis.
 	// Set to 0 to disable TTL (history cleaned by CleanupHistory only).
 	// Defaults to 0 (disabled).
-	HistoryTTL time.Duration `yaml:"historyTtl"`
+	HistoryTTL time.Duration `yaml:"historyTTL"`
 
 	// MaxHistoryPerTask is the maximum number of history entries kept per task.
 	// Defaults to 1000 if not specified.
@@ -214,22 +214,22 @@ var schedulerStorageAllowedTypes = []StorageType{
 //
 // Example:
 //
-//	storage := &schedulerconfig.SchedulerStorageConfig{
-//		Type: schedulerconfig.SchedulerStorageTypeMongodb,
-//		Mongodb: &schedulerconfig.SchedulerStorageMongoConfig{
+//	storage := &schedulerconfig.StorageConfig{
+//		Type: schedulerconfig.StorageTypeMongo,
+//		Mongo: &schedulerconfig.StorageMongoConfig{
 //			TasksCollection:   "my_tasks",
 //			HistoryCollection: "my_history",
 //		},
 //	}
 type StorageConfig struct {
 	// Type defines the storage backend type.
-	// Must be one of: mongodb, redis, memory, sql.
+	// Must be one of: mongo, redis, memory, sqldb.
 	// Defaults to "memory" if not specified.
 	Type StorageType `yaml:"type" default:"memory"`
 
 	// Mongodb defines MongoDB-specific configuration.
-	// Required when Type is "mongodb", ignored otherwise.
-	Mongodb *StorageMongoConfig `yaml:"mongodb" default:"-"`
+	// Required when Type is "mongo", ignored otherwise.
+	Mongo *StorageMongoConfig `yaml:"mongo" default:"-"`
 
 	// Redis defines Redis-specific configuration.
 	// Required when Type is "redis", ignored otherwise.
@@ -240,13 +240,13 @@ type StorageConfig struct {
 	Memory *StorageMemoryConfig `yaml:"memory" default:"-"`
 
 	// SQL defines SQL database configuration.
-	// Required when Type is "sql", ignored otherwise.
-	SQL *StorageSQLConfig `yaml:"sql" default:"-"`
+	// Required when Type is "sqldb", ignored otherwise.
+	SQL *StorageSQLConfig `yaml:"sqldb" default:"-"`
 }
 
 func (c *StorageConfig) storageCases() []validationconfig.StorageCase[StorageType] {
 	return []validationconfig.StorageCase[StorageType]{
-		{When: StorageTypeMongo, Field: &c.Mongodb},
+		{When: StorageTypeMongo, Field: &c.Mongo},
 		{When: StorageTypeRedis, Field: &c.Redis},
 		{When: StorageTypeMemory, Field: &c.Memory},
 		{When: StorageTypeSQL, Field: &c.SQL},
@@ -272,18 +272,18 @@ func (c *StorageConfig) Validate() error {
 //
 // Example:
 //
-//	sched := &schedulerconfig.Scheduler{
+//	sched := &schedulerconfig.Config{
 //		TickInterval:     time.Second,
 //		HistoryRetention: 7 * 24 * time.Hour,
-//		Concurrency: schedulerconfig.SchedulerConcurrency{
+//		Concurrency: schedulerconfig.TaskConcurrency{
 //			Concurrency: schedulerconfig.Concurrency{
 //				Strategy: schedulerconfig.ConcurrencyStatic,
 //				MaxTasks: 10,
 //			},
 //			ReservedHighPrioritySlots: 2,
 //		},
-//		Storage: &schedulerconfig.SchedulerStorageConfig{
-//			Type: schedulerconfig.SchedulerStorageTypeMongodb,
+//		Storage: &schedulerconfig.StorageConfig{
+//			Type: schedulerconfig.StorageTypeMongo,
 //		},
 //	}
 type Config struct {
@@ -310,7 +310,7 @@ type Config struct {
 	// storage. Empty (the default) means a random ID per process; a stable value
 	// such as the pod name lets a restarted instance recover its own interrupted
 	// runs immediately instead of waiting for their leases to expire.
-	InstanceID string `yaml:"instanceId"`
+	InstanceID string `yaml:"instanceID"`
 
 	// Storage defines the storage backend configuration.
 	// If nil, defaults to in-memory storage.

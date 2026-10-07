@@ -4,7 +4,7 @@
 import "github.com/altessa-s/go-atlas/transport/proxydial/factory"
 ```
 
-Package `factory` provides a fluent builder that materializes a [`proxyconfig.Proxy`](../../../config/proxy/proxy.go)
+Package `factory` provides a fluent builder that materializes a [`proxyconfig.Config`](../../../config/proxy/proxy.go)
 into a [`proxydial.DialContextFunc`](../proxydial.go), suitable for any
 client that needs raw-TCP-through-proxy: SMTP (go-mail's
 `WithDialContextFunc`), SOAP, gRPC's `WithContextDialer`, or any
@@ -29,7 +29,7 @@ if dial != nil {
 }
 ```
 
-A nil `cfg`, an empty `Mode`, or `proxyconfig.ProxyModeNone` yields
+A nil `cfg`, an empty `Mode`, or `proxyconfig.ModeNone` yields
 `(nil, nil)` — caller treats that as "use a direct dial" and skips
 wiring a custom dialer entirely.
 
@@ -39,7 +39,7 @@ wiring a custom dialer entirely.
 
 | Method     | Description                                                            |
 |------------|------------------------------------------------------------------------|
-| `New(cfg)` | Creates a `DialerBuilder` for the given `*proxyconfig.Proxy` (nil ok)       |
+| `New(cfg)` | Creates a `DialerBuilder` for the given `*proxyconfig.Config` (nil ok)       |
 
 ### Dependencies
 

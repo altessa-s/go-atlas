@@ -14,13 +14,14 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
-	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/tests/integration/outboxit"
 
-	outboxsql "github.com/altessa-s/go-atlas/data/outbox/store/sqldb"
+	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/jackc/pgx/v5/stdlib"
+
+	outboxsql "github.com/altessa-s/go-atlas/data/outbox/storages/sqldb"
 )
 
 // mysqlTimeLayout matches the DATE_FORMAT used to read DATETIME(6) columns.

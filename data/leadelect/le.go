@@ -80,12 +80,12 @@ func New(provider providers.Provider, key, nodeID string, opts ...Option) *Leade
 	return le
 }
 
-// NewWithNats creates a Leader configured with a NATS provider.
+// NewWithNATS creates a Leader configured with a NATS provider.
 //
 // Example:
 //
-//	le, err := leadelect.NewWithNats(ctx, conn, "my-service", "node-1")
-func NewWithNats(ctx context.Context, conn *natsio.Conn, key, nodeID string, opts ...Option) (*Leader, error) {
+//	le, err := leadelect.NewWithNATS(ctx, conn, "my-service", "node-1")
+func NewWithNATS(ctx context.Context, conn *natsio.Conn, key, nodeID string, opts ...Option) (*Leader, error) {
 	prov, err := nats.New(ctx, conn)
 
 	if err != nil {

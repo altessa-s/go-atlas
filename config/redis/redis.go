@@ -53,7 +53,7 @@ type Config struct {
 	// When set, it replaces Hosts, Username, Password, and Database.
 	// Mutually exclusive with Username and Password.
 	// Supports a single address only; for clusters with multiple seeds use Hosts.
-	ConnectionURI redacted.RedactedString `yaml:"connectionUri"`
+	ConnectionURI redacted.RedactedString `yaml:"connectionURI"`
 
 	// Username is the username for Redis authentication (Redis 6.0+).
 	// Leave empty for password-only authentication.

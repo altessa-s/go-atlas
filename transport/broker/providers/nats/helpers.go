@@ -49,7 +49,7 @@ func subjectMatchesPattern(subject, pattern string) bool {
 
 // checkSubjectAllowed returns an error if an allowlist is configured and the
 // subject does not match any of the allowed patterns.
-func (n *Nats) checkSubjectAllowed(subject string) error {
+func (n *NATS) checkSubjectAllowed(subject string) error {
 	if len(n.allowedSubjects) == 0 {
 		return nil
 	}

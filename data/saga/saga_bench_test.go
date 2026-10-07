@@ -14,7 +14,7 @@ import (
 	sagaerrs "github.com/altessa-s/go-atlas/data/saga/errs"
 )
 
-// noopStore is an allocation-light [saga.Store] used by benchmarks to isolate
+// noopStore is an allocation-light [saga.Storage] used by benchmarks to isolate
 // orchestrator cost from real persistence.
 type noopStore struct{}
 
