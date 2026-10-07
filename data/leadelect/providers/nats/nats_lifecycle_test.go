@@ -6,6 +6,7 @@ package nats_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -63,6 +64,78 @@ func TestProvider_Stop_HonorsContextDeadline(t *testing.T) {
 	_ = prov.Stop(stopCtx)
 
 	require.Less(t, time.Since(start), 700*time.Millisecond, "Stop must not exceed its context deadline")
+}
+
+// TestProvider_RestartDeliversNotifications guards a Start after Stop: Stop
+// closes the notification channel, and a restarted run that reused it lost
+// every notification because its handler exited at once and the first send
+// panicked.
+func TestProvider_RestartDeliversNotifications(t *testing.T) {
+	t.Parallel()
+
+	prov := setupProvider(t)
+	ctx := t.Context()
+	start := func() (became, stopped chan struct{}) {
+		became, stopped = make(chan struct{}, 1), make(chan struct{}, 1)
+		require.NoError(t, prov.Start(ctx, providers.Config{
+			Key:      "restart",
+			TTL:      2 * time.Second,
+			NodeId:   "node-1",
+			LostCh:   make(chan struct{}, 1),
+			BecameCh: became,
+			StopCh:   stopped,
+		}))
+		return became, stopped
+	}
+	receive := func(ch chan struct{}, what string) {
+		select {
+		case <-ch:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("timed out waiting for %s", what)
+		}
+	}
+
+	became, stopped := start()
+	receive(became, "became-leader of the first run")
+	require.NoError(t, prov.Stop(ctx))
+	receive(stopped, "stopped of the first run")
+
+	became, stopped = start()
+	receive(became, "became-leader of the restarted run")
+	require.Eventually(t, prov.IsLeader, 3*time.Second, 50*time.Millisecond, "restarted run must lead")
+	require.NoError(t, prov.Stop(ctx))
+	receive(stopped, "stopped of the restarted run")
+}
+
+// TestProvider_ConcurrentStartStop drives overlapping Start and Stop calls so
+// the race detector sees every lifecycle transition. "Already running" and
+// "already stopped" errors are expected; panics and races are not.
+func TestProvider_ConcurrentStartStop(t *testing.T) {
+	t.Parallel()
+
+	prov := setupProvider(t)
+	ctx := t.Context()
+
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Go(func() {
+			for range 5 {
+				_ = prov.Start(ctx, providers.Config{
+					Key:      "concurrent",
+					TTL:      2 * time.Second,
+					NodeId:   "node-1",
+					LostCh:   make(chan struct{}, 1),
+					BecameCh: make(chan struct{}, 1),
+					StopCh:   make(chan struct{}, 1),
+				})
+				_ = prov.Stop(ctx)
+			}
+		})
+	}
+	wg.Wait()
+
+	_ = prov.Stop(ctx)
+	require.False(t, prov.IsRunning())
 }
 
 // TestProvider_Stop_BoundedWithoutDeadline pins that a caller who supplies no

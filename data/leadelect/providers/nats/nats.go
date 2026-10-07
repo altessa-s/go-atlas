@@ -49,6 +49,10 @@ const (
 	// notificationSendTimeout bounds a single notification delivery during the
 	// shutdown drain, when the election context is already canceled.
 	notificationSendTimeout = time.Second
+
+	// notificationBuffer is the capacity of the notification queue, so the
+	// camping goroutine does not block on a slow notification handler.
+	notificationBuffer = 10
 )
 
 type notificationEventType int
@@ -94,6 +98,11 @@ type Provider struct {
 	// observes a fresh lease also observes the matching token.
 	fenceToken atomic.Uint64
 
+	// lifecycleMu serializes Start and Stop end to end. Each Start installs a
+	// fresh notification channel and close guard, which must not be swapped
+	// while a concurrent Stop is still tearing down the previous run.
+	lifecycleMu sync.Mutex
+
 	stopCtxCancel context.CancelFunc
 	wg            sync.WaitGroup
 
@@ -133,7 +142,7 @@ func New(ctx context.Context, client *nats.Conn, opts ...Option) (*Provider, err
 		client:         client,
 		opts:           cfg,
 		metrics:        newNatsLeaderMetrics(cfg.collector),
-		notificationCh: make(chan notificationEvent, 10), // Buffered to avoid blocking
+		notificationCh: make(chan notificationEvent, notificationBuffer),
 	}
 
 	if !client.IsConnected() {
@@ -292,9 +301,20 @@ func (p *Provider) Start(ctx context.Context, cfg providers.Config) error {
 		return fmt.Errorf("TTL must be at least %v, got %v", minTTL, cfg.TTL)
 	}
 
+	p.lifecycleMu.Lock()
+	defer p.lifecycleMu.Unlock()
+
 	if !p.isRunning.CompareAndSwap(false, true) {
 		return errors.New("provider already running")
 	}
+
+	// A previous Stop closed the notification channel and spent its close
+	// guard; reusing them made the restarted run's handler exit at once and
+	// its first notification send panic. The previous Stop's deadline must
+	// not cap this run's resign either.
+	p.notificationCh = make(chan notificationEvent, notificationBuffer)
+	p.notificationCloseOnce = sync.Once{}
+	p.stopDeadline.Store(nil)
 
 	p.providerConfig.Store(&cfg)
 
@@ -331,6 +351,9 @@ func (p *Provider) Start(ctx context.Context, cfg providers.Config) error {
 // when it has none, caps the lease-resignation call that the camping goroutine
 // performs on its way out.
 func (p *Provider) Stop(ctx context.Context) error {
+	p.lifecycleMu.Lock()
+	defer p.lifecycleMu.Unlock()
+
 	if !p.isRunning.CompareAndSwap(true, false) {
 		return errors.New("provider already stopped")
 	}
