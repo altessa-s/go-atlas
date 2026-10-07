@@ -6,6 +6,8 @@ package factory_test
 
 import (
 	"context"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -143,4 +145,41 @@ func TestBuild_Mongodb(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, dl)
 	})
+}
+
+func TestBuild_SQL(t *testing.T) {
+	t.Parallel()
+	sqlCfg := func(ensure bool) *lockconfig.DistributionLock {
+		return &lockconfig.DistributionLock{Provider: lockconfig.DistributionLockProviderSQL,
+			SQL: &lockconfig.DistributionLockSQL{Dialect: lockconfig.SQLDialectPostgres, Table: "app.locks", EnsureSchema: ensure}}
+	}
+
+	t.Run("requires_database", func(t *testing.T) {
+		t.Parallel()
+		_, err := factory.New(sqlCfg(false)).Build(t.Context())
+		require.ErrorContains(t, err, "sql database")
+	})
+	t.Run("requires_section", func(t *testing.T) {
+		t.Parallel()
+		db, _ := testhelpers.NewFakeSQL(t, nil)
+		_, err := factory.New(&lockconfig.DistributionLock{Provider: lockconfig.DistributionLockProviderSQL}).
+			UseSQLDB(db).Build(t.Context())
+		require.Error(t, err)
+	})
+	for _, ensure := range []bool{false, true} {
+		t.Run("ensure_schema_"+strconv.FormatBool(ensure), func(t *testing.T) {
+			t.Parallel()
+			db, fake := testhelpers.NewFakeSQL(t, nil)
+			dl, err := factory.New(sqlCfg(ensure)).UseSQLDB(db).Build(t.Context())
+			require.NoError(t, err)
+			require.NotNil(t, dl)
+			var ddl int
+			for _, c := range fake.Calls() {
+				if strings.Contains(c.Query, `CREATE TABLE IF NOT EXISTS "app"."locks"`) {
+					ddl++
+				}
+			}
+			require.Equal(t, map[bool]int{false: 0, true: 1}[ensure], ddl)
+		})
+	}
 }
