@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/altessa-s/go-atlas/data/locks/dlock/errs"
+	"github.com/altessa-s/go-atlas/data/locks/dlock/providers/internal/leasing"
 
 	mongodrv "go.mongodb.org/mongo-driver/v2/mongo"
 	mongoopts "go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -46,8 +47,8 @@ func TestNew_TruncatesTTLToMilliseconds(t *testing.T) {
 	t.Cleanup(func() { _ = client.Disconnect(context.Background()) })
 	l, err := New(client.Database("x"), WithTTL(2900*time.Microsecond), WithRenewRatio(0.9))
 	require.NoError(t, err)
-	require.Equal(t, 2*time.Millisecond, l.opts.ttl)
-	require.Less(t, l.interval, l.opts.ttl)
+	require.Equal(t, 2*time.Millisecond, l.s.ttl)
+	require.Less(t, l.engine.Interval(), l.s.ttl)
 }
 
 // Close must not return while an acquisition that started before it can still
@@ -58,7 +59,7 @@ func TestClose_WaitsForInflightAcquisition(t *testing.T) {
 	l, err := New(db)
 	require.NoError(t, err)
 	entered, release := make(chan struct{}), make(chan struct{})
-	l.afterAcquire = func() {
+	l.engine.AfterAcquire = func() {
 		close(entered)
 		<-release
 	}
@@ -79,7 +80,7 @@ func TestClose_WaitsForInflightAcquisition(t *testing.T) {
 	}
 	close(release)
 	require.NoError(t, <-closed)
-	require.ErrorIs(t, <-lockErr, errClosed)
+	require.ErrorIs(t, <-lockErr, leasing.ErrClosed)
 	_, err = l.GetLockInfo(t.Context(), "k")
 	require.ErrorIs(t, err, errs.ErrLockNotHeld, "Close leaves no lease behind")
 }
@@ -95,11 +96,11 @@ func TestLock_LateAcquisitionIsRejected(t *testing.T) {
 	// The first reading is the request; every later one is a full TTL on.
 	base := time.Now()
 	var calls atomic.Int32
-	l.now = func() time.Time {
+	l.engine.Now = func() time.Time {
 		if calls.Add(1) == 1 {
 			return base
 		}
-		return base.Add(l.opts.ttl)
+		return base.Add(l.s.ttl)
 	}
 
 	_, err = l.Lock(t.Context(), "k")
@@ -121,7 +122,7 @@ func TestClose_TimeoutStopsRenewalAndIsRetryable(t *testing.T) {
 	require.NoError(t, err)
 
 	entered, release := make(chan struct{}), make(chan struct{})
-	l.afterAcquire = func() {
+	l.engine.AfterAcquire = func() {
 		close(entered)
 		<-release
 	}
@@ -146,7 +147,7 @@ func TestClose_TimeoutStopsRenewalAndIsRetryable(t *testing.T) {
 	// Blocked past its TTL the acquisition is late, otherwise the provider
 	// closed; either way no lock is returned and the lease is released.
 	err = <-lockErr
-	require.True(t, errors.Is(err, errClosed) || errors.Is(err, errs.ErrLockNotHeld), "got %v", err)
+	require.True(t, errors.Is(err, leasing.ErrClosed) || errors.Is(err, errs.ErrLockNotHeld), "got %v", err)
 	require.NoError(t, l.Close(t.Context()))
 	_, err = l.GetLockInfo(t.Context(), "inflight")
 	require.ErrorIs(t, err, errs.ErrLockNotHeld)
@@ -161,7 +162,7 @@ func TestRenew_UnconfirmedLeaseIsReleased(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = l.Close(context.Background()) })
 	var offset atomic.Int64
-	l.now = func() time.Time { return time.Now().Add(time.Duration(offset.Load())) }
+	l.engine.Now = func() time.Time { return time.Now().Add(time.Duration(offset.Load())) }
 
 	_, err = l.Lock(context.Background(), "k")
 	require.NoError(t, err)
@@ -183,13 +184,13 @@ func TestClose_RetriesFailedCleanupOfRacingAcquisition(t *testing.T) {
 	require.NoError(t, err)
 
 	entered, release := make(chan struct{}), make(chan struct{})
-	l.afterAcquire = func() {
+	l.engine.AfterAcquire = func() {
 		close(entered)
 		<-release
 	}
 	var faults atomic.Int32
 	errFault := errors.New("release fault")
-	l.releaseFault = func() error {
+	l.engine.ReleaseFault = func() error {
 		if faults.Add(1) <= 2 {
 			return errFault
 		}
@@ -207,7 +208,7 @@ func TestClose_RetriesFailedCleanupOfRacingAcquisition(t *testing.T) {
 	time.Sleep(50 * time.Millisecond) // let Close mark the provider closed
 	close(release)
 
-	require.ErrorIs(t, <-lockErr, errClosed)
+	require.ErrorIs(t, <-lockErr, leasing.ErrClosed)
 	require.ErrorIs(t, <-closed, errFault, "the retained acquisition's release failed again")
 	_, err = l.GetLockInfo(t.Context(), "k")
 	require.NoError(t, err, "the lease is still live")
@@ -232,7 +233,7 @@ func TestLock_AmbiguousAcquisitionIsReleased(t *testing.T) {
 		l, err := New(liveDB(t))
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = l.Close(context.Background()) })
-		l.acquireFault = func() error { return errLost }
+		l.engine.AcquireFault = func() error { return errLost }
 
 		_, err = l.Lock(t.Context(), "k")
 		require.ErrorIs(t, err, errLost)
@@ -244,9 +245,9 @@ func TestLock_AmbiguousAcquisitionIsReleased(t *testing.T) {
 		t.Parallel()
 		l, err := New(liveDB(t))
 		require.NoError(t, err)
-		l.acquireFault = func() error { return errLost }
+		l.engine.AcquireFault = func() error { return errLost }
 		var faults atomic.Int32
-		l.releaseFault = func() error {
+		l.engine.ReleaseFault = func() error {
 			if faults.Add(1) == 1 {
 				return errLost
 			}
@@ -274,7 +275,7 @@ func TestRelease_ConcurrentHonorsDeadline(t *testing.T) {
 
 	entered, unblock := make(chan struct{}), make(chan struct{})
 	var calls atomic.Int32
-	l.releaseFault = func() error {
+	l.engine.ReleaseFault = func() error {
 		if calls.Add(1) == 1 {
 			close(entered)
 			<-unblock
