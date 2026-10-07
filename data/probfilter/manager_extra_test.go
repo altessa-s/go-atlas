@@ -10,7 +10,9 @@ import (
 	"io"
 	"iter"
 	"maps"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -75,6 +77,49 @@ func TestManager_Unregister(t *testing.T) {
 
 	_, err := mgr.Get("test")
 	require.ErrorIs(t, err, probfilter.ErrFilterNotFound)
+}
+
+// TestManager_IteratorsAllowMutation guards against holding the manager's
+// lock across yield: Unregister inside the range body waited for the write
+// lock while the iterator held the read lock, deadlocking.
+func TestManager_IteratorsAllowMutation(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		drain func(mgr *probfilter.Manager)
+	}{
+		{"names", func(mgr *probfilter.Manager) {
+			for name := range mgr.Names() {
+				mgr.Unregister(name)
+			}
+		}},
+		{"filters", func(mgr *probfilter.Manager) {
+			for name := range mgr.Filters() {
+				mgr.Unregister(name)
+			}
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			mgr := probfilter.NewManager()
+			for _, name := range []string{"a", "b", "c"} {
+				require.NoError(t, mgr.Register(name, &mockFilter{}))
+			}
+
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				tc.drain(mgr)
+			}()
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				t.Fatal("iterating while unregistering deadlocked")
+			}
+			require.Empty(t, slices.Collect(mgr.Names()))
+		})
+	}
 }
 
 func TestManager_Unregister_Nonexistent(t *testing.T) {

@@ -123,3 +123,55 @@ func TestGetWithFallback_WinnerCancellationDoesNotPoisonWaiters(t *testing.T) {
 
 	winner.Wait()
 }
+
+// TestGetWithFallback_CanceledCallerKeepsFallbackPermit pins that the
+// fallback concurrency bound holds while a canceled caller's fallback still
+// runs: the permit belongs to the shared work, so a caller leaving early
+// must not hand it to a fallback for another key.
+func TestGetWithFallback_CanceledCallerKeepsFallbackPermit(t *testing.T) {
+	t.Parallel()
+
+	provider, err := lru.New(128)
+	require.NoError(t, err)
+	c := cache.New(provider, cache.WithMaxConcurrentFallbacks(1))
+
+	enteredA := make(chan struct{})
+	releaseA := make(chan struct{})
+	ctxA, cancelA := context.WithCancel(t.Context())
+	doneA := make(chan error, 1)
+	go func() {
+		var out string
+		doneA <- c.GetWithFallback(ctxA, "a", &out, func() (any, time.Duration, error) {
+			close(enteredA)
+			<-releaseA
+			return "a", cache.TTLUseDefault, nil
+		})
+	}()
+	<-enteredA
+	cancelA()
+	require.ErrorIs(t, <-doneA, context.Canceled)
+
+	startedB := make(chan struct{})
+	doneB := make(chan error, 1)
+	go func() {
+		var out string
+		doneB <- c.GetWithFallback(t.Context(), "b", &out, func() (any, time.Duration, error) {
+			close(startedB)
+			return "b", cache.TTLUseDefault, nil
+		})
+	}()
+
+	select {
+	case <-startedB:
+		t.Fatal("fallback for b started while a's fallback still held the only permit")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(releaseA)
+	select {
+	case <-startedB:
+	case <-time.After(5 * time.Second):
+		t.Fatal("fallback for b never started after a's fallback finished")
+	}
+	require.NoError(t, <-doneB)
+}
