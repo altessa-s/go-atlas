@@ -311,7 +311,11 @@ func MapParallel[T ~[]E, E any, O []OE, OE any](collection T, fn func(val E) OE)
 		return out
 	}
 
-	// Parallel processing for large slices
+	// Parallel processing for large slices. This deliberately does not go
+	// through concurrency.Process: with one fixed chunk per core there is
+	// nothing to schedule, and routing the chunks through Process's dispatch
+	// channel measured 13-95% slower (sizes 1e5 down to 1e3) with 8 more
+	// allocations per call.
 	var wg sync.WaitGroup
 	chunkSize := len(collection) / cores
 
