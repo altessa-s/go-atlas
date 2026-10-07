@@ -215,7 +215,7 @@ func TestTemplates(t *testing.T) {
 			own, err := os.ReadFile(filepath.Join(activeDir, name))
 			require.NoError(t, err)
 
-			expanded, err := (&yaml3.Backend{}).Preprocess(string(own), filepath.Dir(filepath.Join(activeDir, name)), activeDir)
+			expanded, err := (&yaml3.Backend{}).Preprocess(string(own), filepath.Dir(filepath.Join(activeDir, name)), activeDir, 0)
 			require.NoError(t, err, "expanding !include directives")
 
 			wrapper := wrapperType(roots)

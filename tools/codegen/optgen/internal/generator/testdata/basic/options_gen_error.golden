@@ -116,6 +116,36 @@ func WithMaxItems(v int) Option {
 	}
 }
 
+// WithName sets the name option.
+func WithName[T interface{ string | *string }](v T) Option {
+	return func(o *options) error {
+		switch t := any(v).(type) {
+		case string:
+			vv := strings.TrimSpace(t)
+			if vv == "" {
+				return nil
+			}
+			if len(vv) < (3) {
+				return fmt.Errorf("name is too short (min 3)")
+			}
+			o.name = vv
+		case *string:
+			if t == nil {
+				return nil
+			}
+			vv := strings.TrimSpace(*t)
+			if vv == "" {
+				return nil
+			}
+			if len(vv) < (3) {
+				return fmt.Errorf("name is too short (min 3)")
+			}
+			o.name = vv
+		}
+		return nil
+	}
+}
+
 // WithThreshold sets the threshold option.
 func WithThreshold(v int) Option {
 	return func(o *options) error {
